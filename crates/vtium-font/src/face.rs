@@ -7,7 +7,10 @@ use crate::policy::{Coverage, Missing, RangeCoverage, Source, SpritePolicy};
 use crate::sprite::{self, Range};
 
 /// How a glyph is drawn. Bitmap faces draw bold by widening each row by a
-/// pixel and draw italic upright, as the C reference's did.
+/// pixel, as the C reference's did, and draw italic by shearing the glyph
+/// about its baseline ([`crate::italic`], ADR-1302 D4), where the C
+/// reference drew it upright. For bold italic the widening comes first and
+/// the shear moves the widened rows.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub struct Style {
     pub bold: bool,

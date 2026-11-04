@@ -3,7 +3,9 @@
 //! what the input is. Even: the rest is up to 16 clusters for the test
 //! font of `tests/common/ttf.rs`, each a length byte and that many scalar
 //! values of three bytes, folded into Unicode. Odd: the rest is the font,
-//! asked for a family, a flag, a keycap and a letter with its marks.
+//! asked for a family, a flag, a keycap and a letter with its marks. The
+//! first byte's next two bits pick the style synthesised over the glyphs
+//! (ADR-1302 D4): bold emboldens each outline and italic slants it.
 #![no_main]
 
 #[path = "../../tests/common/ttf.rs"]
@@ -66,6 +68,10 @@ fuzz_target!(|data: &[u8]| {
         clusters: keys.iter().map(|k| ask(k)).collect(),
         baselines: Vec::new(),
         hinting: Hinting::Light,
+        synth: vtium_font::Style {
+            bold: pick & 2 != 0,
+            italic: pick & 4 != 0,
+        },
     };
     let _ = rasterise(&request);
 });

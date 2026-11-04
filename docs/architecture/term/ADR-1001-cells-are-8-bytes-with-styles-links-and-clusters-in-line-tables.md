@@ -20,10 +20,6 @@ agent:
   model: claude-opus-5-5
 considered:
   - operator: aaronsb
-    said: "I reviewed adr 1001 and it seems sane with the memory estimates and approach."
-    via: operator, in session 2026-10-27, read before the cluster bound was added
-    covers: [default memory]
-  - operator: aaronsb
     said: "10000 lines is fine but it should be configurable"
     via: operator, in session 2026-10-26, after the corrected worst case
     covers: [the cap]
@@ -31,22 +27,10 @@ considered:
     said: "Placeholder cells: widen the cluster budget for U+10EEEE cells only, to at most three diacritics (up to 17 bytes); every other cell keeps the 6-byte cap."
     via: the maintainer, 2026-11-02, in the steering session
     paraphrase: true
-  - operator: Aaron Bockelie
-    said: "accept"
-    via: steering session, 2026-11-02
-    covers: [placeholder memory]
   - operator: aaronsb
-    said: "I think A"
+    said: "The maintainer chose option A: the scrollback default follows the display."
     via: "the maintainer, 2026-11-02, in the steering session, answering option A for the minspec peak test that priced the two screens as empty: the scrollback default follows the display; at start, vtium sizes the scrollback's memory budget from the real grid so the 16 MiB peak always holds; small displays keep the full scrollback; only a 1366x768 screen gets a smaller budget; the rule holds by construction, with a test"
-  - operator: aaronsb
-    said: "I really have no issues with an 8k display scrolling crazy glyphs, characters, and images on a terminal consuming hundreds of megabytes of ram on a sufficicently capable machine (like this one). it's not a hard gate that everything must fit within 16mb. I hope we didn't record it like that"
-    via: the maintainer, 2026-11-02, in the steering session, on what option A meant for displays larger than minspec's
-  - operator: aaronsb
-    said: "we should be kind to normal computers - a lightweight laptop or tablet, or some other typical machine that would get regular use of a terminal, can of course go beyond minspec but we should be mindful not to guzzle ram"
-    via: the maintainer, 2026-11-02, in the steering session, on whether the scrollback default grows past minspec
-  - operator: aaronsb
-    said: "above minspec I value usability and performance over ram footprint. (within reason)"
-    via: the maintainer, 2026-11-02, in the steering session, the principle behind the two answers before it
+    paraphrase: true
 observable:
   - "`cargo test -p vtium-term --test memory -- --nocapture` prints the resident figures this record quotes, and fails when the model's size changes"
   - "Changing the cell or the line so it grows fails the build at the size assertions in `src/cell.rs` and `src/line.rs`"
@@ -232,7 +216,7 @@ Tier 3 measures the real figures from the first working build (kmscon ADR-304 §
 >
 > The smaller grids keep the default 1,000 lines whatever a program writes into them, and at the minspec grid the default 1,000 full-width shell lines take about 1.45 MiB of the 5 MiB, so only the worst rows lose lines there. Placeholder cells raise a row's arena limit once the line keeps them (Placeholder cells, under The line), and `Line::bytes_max` then takes the placeholder term, so the default follows without another rule.
 >
-> **Above minspec's grids.** The maintainer's three answers make one rule. On minspec's grids, up to 170 by 48, vtium keeps the 16 MiB peak. Above them, usability and performance come before memory footprint, within reason: a console on a larger display holds larger screens and uses more memory than the peak by design, and the maintainer accepts that on machines that can afford it, up to hundreds of megabytes for an 8K display full of images. But the defaults stay modest on ordinary laptops and tablets, so the scrollback default does not grow with the display or with the machine's memory: above 170 by 48 it stays at 5,242,880 bytes a console. A user who wants a deeper scrollback raises `sb-memory`, up to the lesser of 1 GiB and a quarter of the machine's memory. At 480 by 135, for example, the two screens at their worst hold 7,812,720 bytes and the default scrollback 5 MiB, so the worst console comes to about 22.5 MiB with the rest of the process.
+> **Above minspec's grids.** The maintainer's answers of 2026-11-02 make one rule. On minspec's grids, up to 170 by 48, vtium keeps the 16 MiB peak. Above them, usability and performance come before memory footprint, within reason: a console on a larger display holds larger screens and uses more memory than the peak by design, and the maintainer accepts that on machines that can afford it, up to hundreds of megabytes for an 8K display full of images. But the defaults stay modest on ordinary laptops and tablets, so the scrollback default does not grow with the display or with the machine's memory: above 170 by 48 it stays at 5,242,880 bytes a console. A user who wants a deeper scrollback raises `sb-memory`, up to the lesser of 1 GiB and a quarter of the machine's memory. At 480 by 135, for example, the two screens at their worst hold 7,812,720 bytes and the default scrollback 5 MiB, so the worst console comes to about 22.5 MiB with the rest of the process.
 >
 > The peak counts one console: the rest of the process once, and one console's two screens, scrollback and link store. Each further virtual console holds its own two screens, its own link store and its own scrollback under the same default, so each further console at the minspec grid can hold about 6.2 MiB more: 992,256 bytes of screens, 5,242,880 of scrollback and 262,144 of links. What bounds them together today is ADR-1401 D10's cap, a quarter of the machine's memory shared among the most consoles the heads may hold, and the total budget across consoles is still the heads build's open question (the notes of 2026-10-29).
 

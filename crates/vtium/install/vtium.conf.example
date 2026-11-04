@@ -539,14 +539,19 @@
 
 # ── Waiting for a display ───────────────────────────────────────────────────
 
-## At start, how long to wait for a display, counted from when the VT is first
+## At start, how long to wait for a display, counted from when the VT is
 ## shown.
 ##
 ## With no display by then, vtium exits with status 1, so the unit's
 ## `OnFailure=` can start a getty. Under a head file whose policy is closed
 ## vtium waits however long it takes, as under `forever` (ADR-1401 D8).
 ##
-## 0 waits for no display to come: a display set up when the VT is first shown
+## The wait runs only while the VT is vtium's. When another program takes the
+## VT before vtium's first frame is on screen, as X starting on another VT
+## does at boot, vtium waits for the VT to come back, and when it does, the
+## wait starts again from the full `display-wait`.
+##
+## 0 waits for no display to come: a display set up when the VT is shown
 ## counts once its first frame is on screen. `forever` waits for the first
 ## display however long it takes, for a machine whose only display is a USB
 ## adapter (DisplayLink, `udl`) plugged in at any time.
@@ -565,14 +570,19 @@
 ## into the buffer being shown, so a frame can be seen half drawn.
 ##
 ## A framebuffer (fbdev) keeps one buffer whatever this key says. Unset, the
-## build decides: 3 in a build with features on top of minspec, 2 in the
-## minspec build, 1 only in a build smaller than minspec.
+## build decides: the count it was built with (`VTIUM_DISPLAY_BUFFERS`), or
+## else 3 in a build with features on top of minspec, 2 in the minspec build,
+## 1 only in a build smaller than minspec. `vtium config display-buffers`
+## shows the build's default.
 
 #display-buffers=
 
 # ── Drawing through the GPU ─────────────────────────────────────────────────
 
 ## Draw through the GPU, in a build that has it.
+##
+## Off unless vtium was built to turn it on (`VTIUM_HWACCEL`).
+## `vtium config hwaccel` shows the build's default.
 
 #no-hwaccel
 

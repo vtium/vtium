@@ -3900,6 +3900,55 @@ fn a_display_gone_after_the_start_is_hotplug() {
     assert_eq!(h.app.finished(), None);
 }
 
+/// Another program taking the VT while vtium sets up its first frame, as
+/// X starting on another VT does at boot (vtium/vtium#270), stops the
+/// wait: vtium waits past `display-wait` for
+/// the VT to come back, as for a switch away later in its life, and draws
+/// once it does.
+#[test]
+fn a_vt_released_before_the_first_frame_waits_for_the_vt_to_come_back() {
+    let mut h = Harness::with_vt(&WAITING, ScriptedVt::default());
+    // The boot's turn acquired the VT and set the display up; no frame
+    // of it has reached the screen yet.
+    assert_eq!(h.memory().frames, 0, "no frame shown at the release");
+    h.scripted().events.push(VtEvent::Release);
+    assert!(h.until(BOUND, |a| !a.vt.is_active()), "released");
+    assert_eq!(h.memory().frames, 0, "the first frame never showed");
+    // Past the 1 s wait, on the seat's clock.
+    h.skip_turn(Duration::from_secs(2));
+    assert_eq!(h.app.finished(), None, "waiting for the VT past the wait");
+    h.scripted().active = true;
+    h.scripted().events.push(VtEvent::Acquired);
+    h.shown();
+    h.skip_turn(Duration::from_secs(2));
+    assert_eq!(h.app.finished(), None, "a display came: running");
+}
+
+/// A release before any frame showed stops the wait, and the acquire
+/// starts it again from the full `display-wait`: with still no display by then, the VT being
+/// vtium's, vtium exits with status 1.
+#[test]
+fn the_wait_a_release_stopped_runs_whole_again_from_the_acquire() {
+    let mut h = Harness::boot(&WAITING, ScriptedVt::default(), None);
+    h.skip_turn(Duration::from_millis(800));
+    assert_eq!(h.app.finished(), None, "0.8 s into the 1 s wait");
+    h.scripted().events.push(VtEvent::Release);
+    assert!(h.until(BOUND, |a| !a.vt.is_active()), "released");
+    h.skip_turn(Duration::from_secs(60));
+    assert_eq!(h.app.finished(), None, "the VT is another's: no wait runs");
+    h.scripted().active = true;
+    h.scripted().events.push(VtEvent::Acquired);
+    h.app.turn(h.at());
+    assert!(h.app.vt.is_active(), "acquired");
+    // 0.8 s and 0.5 s make more than the wait: had the wait kept the
+    // time before the release, it would have run out here.
+    h.skip_turn(Duration::from_millis(500));
+    assert_eq!(h.app.finished(), None, "0.5 s into the wait started again");
+    h.skip(Duration::from_millis(600));
+    assert!(h.until(BOUND, |a| a.finished().is_some()));
+    assert_eq!(h.app.finished(), Some(Exit::NoDisplay));
+}
+
 /// A device whose wake-up fails, as a card whose modeset is refused:
 /// it reports no display.
 struct Unusable;
@@ -5535,7 +5584,7 @@ fn recording(name: &str) -> (Scratch, Sources) {
 /// rest of the request.
 fn first_request(bytes: &[u8]) -> Option<(String, String, &[u8])> {
     let u32_at = |b: &[u8]| Some(u32::from_le_bytes(b.get(..4)?.try_into().ok()?) as usize);
-    let rest = bytes.strip_prefix(b"VTVSREQ3")?.get(4..)?;
+    let rest = bytes.strip_prefix(b"VTVSREQ4")?.get(4..)?;
     let n = u32_at(rest)?;
     let name = String::from_utf8(rest.get(4..4 + n)?.to_vec()).ok()?;
     let rest = rest.get(4 + n..)?;
@@ -5622,6 +5671,45 @@ fn a_cluster_the_screen_shows_is_asked_for_whole() {
         h.eventually(BOUND, asked),
         "the cluster e U+0301 is asked for whole"
     );
+}
+
+// ADR-1200 D21: italic and bold text is asked for in an ask of its own
+// style, beside the regular text's
+// covers: sgr.italic, sgr.bold
+#[test]
+fn italic_and_bold_text_is_asked_for_in_its_style() {
+    let (_dir, fonts) = recording("style-ask");
+    let mut h = Harness::fonts(
+        &[
+            "--font-name=ter-v16n",
+            "--login",
+            "--",
+            "/bin/sh",
+            "-c",
+            "printf '\\033[3mx\\033[0m \\033[1my\\033[0m z'; read x",
+        ],
+        Memory::default(),
+        fonts.clone(),
+    );
+    // the style, the reserved capabilities, a codepoint count of 1, then
+    // the codepoint
+    let ask = |style: u32, c: char| -> Vec<u8> {
+        [style, 0, 1, u32::from(c)]
+            .iter()
+            .flat_map(|w| w.to_le_bytes())
+            .collect()
+    };
+    let asked = |h: &mut Harness, want: &[u8]| {
+        requests(h, &fonts, 1)
+            .iter()
+            .any(|b| b.windows(want.len()).any(|w| w == want))
+    };
+    let (italic, bold) = (ask(2, 'x'), ask(1, 'y'));
+    assert!(
+        h.eventually(BOUND, |h| asked(h, &italic)),
+        "x is asked for in italic"
+    );
+    assert!(h.eventually(BOUND, |h| asked(h, &bold)), "y in bold");
 }
 
 // ADR-1200 D9: a path under `font-engine=psf` is a one-source frit with a
@@ -6161,10 +6249,11 @@ fn the_kernels_font_is_handed_to_the_helper() {
             .map(|w| u32::from_le_bytes(w.try_into().expect("a word")))
             .collect()
     };
-    // the cell, the reserved capabilities, then the codepoints, the
-    // clusters and the held ranges, each counted
-    let codepoints = words(&rest[12..], 1)[0] as usize;
-    let mut rest = &rest[16 + 4 * codepoints..];
+    // the cell, the style, regular, the reserved capabilities, then the
+    // codepoints, the clusters and the held ranges, each counted
+    assert_eq!(words(&rest[8..], 2), [0, 0], "regular, and no capabilities");
+    let codepoints = words(&rest[16..], 1)[0] as usize;
+    let mut rest = &rest[20 + 4 * codepoints..];
     let clusters = words(rest, 1)[0] as usize;
     rest = &rest[4..];
     for _ in 0..clusters {

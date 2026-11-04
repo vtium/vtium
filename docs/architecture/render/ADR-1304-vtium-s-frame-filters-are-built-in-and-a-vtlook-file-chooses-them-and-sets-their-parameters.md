@@ -79,11 +79,13 @@ considered:
     via: the maintainer in the steering session, 2026-11-03, relayed by the team lead; the wording is the team lead's, not the maintainer's
     paraphrase: true
   - operator: aaronsb
-    said: "color yes, skip effects. (we can always revisit this later (maybe there's a cheap compatible trick)"
-    via: the maintainer in the steering session, 2026-11-03, round 1 of the open questions, relayed by the team lead, answering open question 8, quoted verbatim
+    said: "On the CPU path a look's color filters run and its spatial effects are skipped. This can be revisited if a cheap, compatible effect turns up."
+    via: the maintainer in the steering session, 2026-11-03, round 1 of the open questions, relayed by the team lead, answering open question 8
+    paraphrase: true
   - operator: aaronsb
-    said: "perhead + vtium.conf. this way it's composable up to per path"
-    via: the maintainer in the steering session, 2026-11-03, round 1 of the open questions, relayed by the team lead, answering open question 1, quoted verbatim
+    said: "A look is chosen for each head in heads.conf and for every head in vtium.conf, so the two settings compose."
+    via: the maintainer in the steering session, 2026-11-03, round 1 of the open questions, relayed by the team lead, answering open question 1
+    paraphrase: true
   - operator: aaronsb
     said: "Yes, every color filter is one table, 33 a side, merged into one."
     via: the maintainer in the steering session, 2026-11-03, round 1 of the open questions, relayed by the team lead, answering open question 2; the wording is the team lead's
@@ -105,49 +107,48 @@ considered:
     via: the maintainer in the steering session, 2026-11-03, round 2 of the open questions, relayed by the team lead, answering open question 6; the wording is the team lead's
     paraphrase: true
   - operator: aaronsb
-    said: "apply it anyway, if only because someone could theoretically create a filter that works on a one bit panel ... perhaps the .vtlook has a display requirement (must be mininum of x) (how many bpp, resolution etc)"
-    via: the maintainer in the steering session, 2026-11-03, round 2 of the open questions, relayed by the team lead, answering open question 5 against its recommendation; quoted as relayed, the ellipsis the team lead's
-  - operator: aaronsb
     said: "A vtlook may declare display requirements: minimum color depth (1, 8 gray, 16, 24/32 bits per pixel), resolution (minimum, and maximum if useful), minimum pixel density from EDID as vtium reads it for font sizes, and requires gpu (on a CPU-drawn head the look draws default instead of skipping effects). A look with no requirement applies everywhere, 1-bit panels included. A display that does not meet them draws default alone, the head's other displays keep the look, one log line names the display and the unmet requirement, and it is not an error; the whole-stack rule stays for invalid looks."
     via: the maintainer in the steering session, 2026-11-03, round 2 of the open questions, relayed by the team lead, choosing the requirements after open question 5; the wording is the team lead's
     paraphrase: true
-  - operator: aaronsb
-    said: "should requires be declarative (like an 'any' in place of 'yes' or 'no')"
-    via: the maintainer in the steering session, 2026-11-03, the maintainer's own question, relayed verbatim by the team lead
   - operator: aaronsb
     said: "Every [requires] key takes an explicit value, with any meaning no constraint: depth = any | 1 | 8 | 16 | 24 (a minimum; 32 read as 24); size = any | WxH (minimum); max-size = any | WxH (maximum); dpi = any | number (minimum); gpu = any | yes (GPU path only) | no (CPU path only), a head on the other path drawing default. An omitted key means any. The default look's template and every look vtium-config writes list each requirement key, at any unless set; vtium-config shows and edits each key as a value."
     via: the maintainer in the steering session, 2026-11-03, answering their own question, relayed by the team lead; the wording is the team lead's
     paraphrase: true
   - operator: aaronsb
-    said: "let's use 'min-size' and 'max-size' 'min-depth' etc"
-    via: the maintainer in the steering session, 2026-11-03, relayed verbatim by the team lead
+    said: "The requirement keys are named as minimums and maximums: min-size and max-size, min-depth, and so on."
+    via: the maintainer in the steering session, 2026-11-03, relayed by the team lead
+    paraphrase: true
   - operator: aaronsb
     said: "documented with spec examples"
     via: the maintainer in the steering session, 2026-11-03, relayed by the team lead, asking that the vtlook and .cube formats be documented; the fragment is the maintainer's words
   - operator: aaronsb
-    said: "we want people to eventually compile/author what they want for use"
-    via: the maintainer in the steering session, 2026-11-03, relayed verbatim by the team lead, revising decision 2
+    said: "People can in time write the filters they want and use them."
+    via: the maintainer in the steering session, 2026-11-03, relayed by the team lead, revising decision 2
+    paraphrase: true
   - operator: aaronsb
-    said: "I think it would be worthwhile to be able to trade/use shaders around (they are installed as root with permissions that protect them, just as our other files are)"
-    via: the maintainer in the steering session, 2026-11-03, relayed verbatim by the team lead, revising decision 2
+    said: "Shaders can be shared and installed; root installs them, with the permissions that protect vtium's other files."
+    via: the maintainer in the steering session, 2026-11-03, relayed by the team lead, revising decision 2
+    paraphrase: true
   - operator: aaronsb
-    said: "I believe this is an ok approach because root already owns the hardware devices for the display?"
-    via: the maintainer in the steering session, 2026-11-03, relayed verbatim by the team lead, on the trust model of installable shaders
+    said: "Shaders that root installs are acceptable, because root already owns the display's hardware devices."
+    via: the maintainer in the steering session, 2026-11-03, relayed by the team lead, on the trust model of installable shaders
+    paraphrase: true
   - operator: aaronsb
-    said: "mostly I want to externalize them, so they're not buried in code. using a standardized format would allow customization and keep inspection of what they do in the open"
-    via: the maintainer in the steering session, 2026-11-03, relayed verbatim by the team lead, the intent behind installable shaders
+    said: "The filters live outside vtium's code, in a standard format, so users can customize them and inspect what they do."
+    via: the maintainer in the steering session, 2026-11-03, relayed by the team lead, the intent behind installable shaders
+    paraphrase: true
   - operator: aaronsb
-    said: "a crafted shader installed by root means the system is pwned already, imo"
-    via: the maintainer in the steering session, 2026-11-03, relayed verbatim by the team lead, on the shader-compiler caveat
+    said: "A crafted shader that root installed means the system is already compromised."
+    via: the maintainer in the steering session, 2026-11-03, relayed by the team lead, on the shader-compiler caveat
+    paraphrase: true
   - operator: aaronsb
-    said: "perhaps we could have a low cost evaluation loop for the shader - below a threshhold of fps for the filter stack, we fail the entire stack"
-    via: the maintainer in the steering session, 2026-11-03, relayed verbatim by the team lead, deciding a cost check
+    said: "A cheap measurement checks a look's filter stack, and a stack that runs below a frame-rate threshold fails as a whole."
+    via: the maintainer in the steering session, 2026-11-03, relayed by the team lead, deciding a cost check
+    paraphrase: true
   - operator: aaronsb
-    said: "that could be another requirements option"
-    via: the maintainer in the steering session, 2026-11-03, relayed verbatim by the team lead, refining the cost check
-  - operator: aaronsb
-    said: "this is another guard to prevent the display from failing. the filter stack would just exit if it flunks out on perf"
-    via: the maintainer in the steering session, 2026-11-03, relayed verbatim by the team lead, framing the frame-rate check
+    said: "The frame-rate threshold is one more requirement a look declares."
+    via: the maintainer in the steering session, 2026-11-03, relayed by the team lead, refining the cost check
+    paraphrase: true
   - operator: aaronsb
     said: "Yes, the running watch where timer queries exist (30 frames over budget in a row drops that display to default); no watch without them."
     via: the maintainer in the steering session, 2026-11-03, relayed by the team lead, answering open question 7; the wording is the team lead's
@@ -157,15 +158,17 @@ considered:
     via: the maintainer in the steering session, 2026-11-03, relayed by the team lead, answering open question 4; the wording is the team lead's
     paraphrase: true
   - operator: aaronsb
-    said: "Effects only. Someone could still write a color altering shader if they'd like"
-    via: the maintainer in the steering session, 2026-11-03, relayed by the team lead verbatim, answering open question 1
+    said: "Shader files are for effects only, and a shader's author may still change colors in one."
+    via: the maintainer in the steering session, 2026-11-03, relayed by the team lead, answering open question 1
+    paraphrase: true
   - operator: aaronsb
     said: "Yes, 1-D tables (LUT_1D_SIZE, 2 to 4096) folded into the merged table."
     via: the maintainer in the steering session, 2026-11-03, relayed by the team lead, answering open question 6; the wording is the team lead's
     paraphrase: true
   - operator: aaronsb
-    said: "Accept and document limits. Vtium-config can lint a shader too, or possibly even minimally test it in user space?"
-    via: the maintainer in the steering session, 2026-11-03, relayed by the team lead verbatim, answering open question 3
+    said: "The limits are accepted and documented. vtium-config lints a shader, and may also test it briefly in user space."
+    via: the maintainer in the steering session, 2026-11-03, relayed by the team lead, answering open question 3
+    paraphrase: true
   - operator: aaronsb
     said: "Plan the clock now"
     via: the maintainer in the steering session, 2026-11-03, relayed by the team lead verbatim, answering open question 5 against its recommendation
@@ -178,11 +181,9 @@ considered:
     via: the maintainer in the steering session, 2026-11-03, relayed by the team lead; the wording is the team lead's, answering open question 3
     paraphrase: true
   - operator: aaronsb
-    said: "Let's check it out. It sounds like a good use and can stay outside of vtiums loop (memory)"
-    via: the maintainer in the steering session, 2026-11-03, relayed verbatim by the team lead, on enforcing a shader's reach and reads
-  - operator: aaronsb
-    said: "accept"
-    via: the maintainer in the steering session, 2026-11-03, relayed verbatim by the team lead, for ADR-1304 and ADR-1305 together
+    said: "Enforcing a shader's reach and reads is worth trying, with the analysis kept outside vtium's draw loop and its memory."
+    via: the maintainer in the steering session, 2026-11-03, relayed by the team lead, on enforcing a shader's reach and reads
+    paraphrase: true
 status: accepted
 date: 2026-11-03
 deciders:
@@ -250,7 +251,7 @@ The figure follows one vtlook from left to right. The reader checks every value 
 
 **Decided by the maintainer (2026-11-03):** vtium hard-codes no filter's settings. Each filter declares its parameters once, in one standard form, and configuration sets them. The layers are the color layer and the spatial layer. A color filter is built into vtium's code, and a spatial filter is a shader file in one standard format, vtium's own and a user's alike, which root installs (D15). Each layer has a minimum contract (D2, D3).
 
-> Edited 2026-11-03: the maintainer revised decision 2, "I think it would be worthwhile to be able to trade/use shaders around (they are installed as root with permissions that protect them, just as our other files are)" (`considered`). It read: "The layers are the color layer and the spatial layer, and the filters in each are a known set built into vtium. No filter code is installed from outside."
+> Edited 2026-11-03: the maintainer revised decision 2, so that shaders can be shared and installed, root installing them with the permissions that protect vtium's other files (`considered`). It read: "The layers are the color layer and the spatial layer, and the filters in each are a known set built into vtium. No filter code is installed from outside."
 
 **Proposed:** a color filter's declaration is one constant in vtium-render (D10), and a spatial filter's is its shader file's header (D15); either gives:
 
@@ -308,7 +309,7 @@ Within the layer, filters run in file order, inside present's one pass. Before e
 
 A spatial filter that reads only the pixel it writes, such as scanlines, and reads neither the time nor its previous frame, or does so while the clock is `off` (ADR-1305 D4), leaves damage tracking as it is: present still draws only what changed. A filter that reads any other pixel makes every present a whole one (ADR-1303 D5). A change of the look's spatial filters changes the reach, so the upright frame is made anew and drawn whole (ADR-1303 D3), and present's shader is compiled again (ADR-1303 D6).
 
-The CPU path has no spatial layer. **Decided by the maintainer (2026-11-03):** "color yes, skip effects". A head on the CPU path whose look holds spatial filters draws the look's color layer, skips the spatial layer, and logs that once for the head, naming the look. The skip is the path's design and not a failure, so D6's fallback does not apply to it. `vtium check-config` warns when a look a head uses holds spatial filters and `hwaccel` is off or the build has no `gpu` feature. The maintainer left the door open: "we can always revisit this later (maybe there's a cheap compatible trick)". A spatial effect cheap enough for the CPU path, such as scanlines, which reads only the pixel it writes, could later run there too, in a change of its own.
+The CPU path has no spatial layer. **Decided by the maintainer (2026-11-03):** a head on the CPU path whose look holds spatial filters draws the look's color layer, skips the spatial layer, and logs that once for the head, naming the look. The skip is the path's design and not a failure, so D6's fallback does not apply to it. `vtium check-config` warns when a look a head uses holds spatial filters and `hwaccel` is off or the build has no `gpu` feature. The maintainer left the door open to revisiting this if a cheap, compatible effect turns up. A spatial effect cheap enough for the CPU path, such as scanlines, which reads only the pixel it writes, could later run there too, in a change of its own.
 
 ### D4: the vtlook file, and the built-in default look
 
@@ -345,7 +346,7 @@ strength = 0.3
 
 ### D5: how a head chooses its look
 
-**Decided by the maintainer (2026-11-03):** "perhead + vtium.conf. this way it's composable up to per path". A head's `look =` in heads.conf wins; else vtium.conf's `look=`; else the built-in `default`.
+**Decided by the maintainer (2026-11-03):** a look is chosen for each head, and in vtium.conf for every head. A head's `look =` in heads.conf wins; else vtium.conf's `look=`; else the built-in `default`.
 
 **Proposed, the rest:** a head chooses a look with `look = NAME` in its section of heads.conf, beside `profile =`. `look=NAME` in vtium.conf sets the look of every head that names none. With neither set, a head takes the built-in default look, the same look `look = default` names. `look = default` in a head gives that head the built-in default whatever vtium.conf says, and `look=default` in vtium.conf states the built-in default for every head; no other name, such as `none`, is needed. Every display of a head takes the head's look, but for a display that does not meet the look's requirements, which draws `default` (D7). ADR-1401 D3's list of a head's keys gains `look`, and vtium.conf's key table gains `look`. Both keys are read in every build, so one configuration serves every build (D10). A name with no file is an error (D6).
 
@@ -394,11 +395,11 @@ look amber (/etc/vtium/looks/amber.vtlook:14): spatial filter 1 of 1, scanlines:
 
 **The cost, estimated from the arrow's size and D2's measurements, not yet measured in vtium:** the arrow is one cell tall and about 11/18 of that wide (`crates/vtium-render/src/arrow.rs`), so in 8x16 cells it covers at most 4 cells, 512 pixels. Each move redraws the arrow's old and new places, at most about 1,000 pixels, which on the CPU path costs at most about 30 µs of color lookups on the desktop D2 measured, and on the GPU path a present of those two small areas. Under a spatial filter that reads its neighbours, such as sharpen, every present is whole (ADR-1303 D5), so every move presents the whole display: at 1920x1080 with sharpen's 5 reads a pixel, 10.4 million texel reads a move. The hardware cursor plane cost no redraw at all. The slice that builds the color layer measures both on tier 3's guest and reports them.
 
-**Decided by the maintainer (2026-11-03):** a 1-bit display applies a look like any other: "apply it anyway, if only because someone could theoretically create a filter that works on a one bit panel ... perhaps the .vtlook has a display requirement (must be mininum of x) (how many bpp, resolution etc)". A vtlook may declare display requirements of four kinds: a minimum color depth, a resolution, a minimum pixel density, and the GPU path. A look with no requirement applies everywhere, 1-bit panels included. When one of a head's displays does not meet the look's requirements, that display alone draws `default`, the head's other displays keep the look, and one log line names the display and the requirement it does not meet. That is not an error: the whole-stack rule of D6 stays for looks that are invalid.
+**Decided by the maintainer (2026-11-03):** a 1-bit display applies a look like any other, because someone can write a filter that works on a one-bit panel. A vtlook may declare display requirements of four kinds: a minimum color depth, a resolution, a minimum pixel density, and the GPU path. A look with no requirement applies everywhere, 1-bit panels included. When one of a head's displays does not meet the look's requirements, that display alone draws `default`, the head's other displays keep the look, and one log line names the display and the requirement it does not meet. That is not an error: the whole-stack rule of D6 stays for looks that are invalid.
 
-**Decided by the maintainer (2026-11-03),** answering their own question, "should requires be declarative (like an 'any' in place of 'yes' or 'no')": every `[requires]` key takes an explicit value, and `any` means no constraint. A key left out means `any`. The default look's template and every look vtium-config writes list each requirement key, at `any` unless it is set, and vtium-config shows and edits each key as a value. `gpu` takes `any`, `yes` (the GPU path only) or `no` (the CPU path only).
+**Decided by the maintainer (2026-11-03),** answering their own question of whether the requirements should be declarative: every `[requires]` key takes an explicit value, and `any` means no constraint. A key left out means `any`. The default look's template and every look vtium-config writes list each requirement key, at `any` unless it is set, and vtium-config shows and edits each key as a value. `gpu` takes `any`, `yes` (the GPU path only) or `no` (the CPU path only).
 
-**Decided by the maintainer (2026-11-03):** "let's use 'min-size' and 'max-size' 'min-depth' etc". Every measured requirement is a pair of keys, a minimum and a maximum, each taking `any` or a value: `min-depth` and `max-depth`, `min-size` and `max-size`, `min-dpi` and `max-dpi`. `gpu` stays one key.
+**Decided by the maintainer (2026-11-03):** the requirement keys are named as minimums and maximums. Every measured requirement is a pair of keys, a minimum and a maximum, each taking `any` or a value: `min-depth` and `max-depth`, `min-size` and `max-size`, `min-dpi` and `max-dpi`. `gpu` stays one key.
 
 **Proposed, the requirement lines.** A vtlook holds them in one `[requires]` section, which vtium-config writes straight after `version = 1`, every key written out. `any` is a reserved word that every key accepts.
 
@@ -900,11 +901,11 @@ look big (/etc/vtium/looks/big.vtlook:5): requires: checking: min-size = 1920x10
 
 ### D15: spatial filters are shader files
 
-**Decided by the maintainer (2026-11-03),** revising decision 2: "I think it would be worthwhile to be able to trade/use shaders around (they are installed as root with permissions that protect them, just as our other files are)", following "we want people to eventually compile/author what they want for use". The intent, in the maintainer's words: "mostly I want to externalize them, so they're not buried in code. using a standardized format would allow customization and keep inspection of what they do in the open". A spatial filter is a shader file in one standard format, vtium's own and a user's alike, and root installs each one under the ownership rule vtium applies to frits and heads.conf: root owns the file, and neither its group nor others can write it or a directory above it. A shader file that fails the rule is a reading-stage error (D6).
+**Decided by the maintainer (2026-11-03),** revising decision 2: shaders can be shared and installed, root installing them with the permissions that protect vtium's other files, so that people can in time write the filters they want. The maintainer wants the filters outside vtium's code, in a standard format that users can customize and whose work they can inspect. A spatial filter is a shader file in one standard format, vtium's own and a user's alike, and root installs each one under the ownership rule vtium applies to frits and heads.conf: root owns the file, and neither its group nor others can write it or a directory above it. A shader file that fails the rule is a reading-stage error (D6).
 
 **Decided by the maintainer (2026-11-03):** where the files live. vtium's own spatial filters, scanlines and sharpen now and curvature later, are not GLSL strings inside the binary. The package installs them as `/usr/share/vtium/shaders/NAME.vtshader`, owned by root and readable by anyone, so anyone can read what each one does. An administrator's own shaders, written or traded, go in `/etc/vtium/shaders/NAME.vtshader` under the same rule. A look names any spatial filter as `[spatial NAME]`, and vtium looks NAME up in `/etc/vtium/shaders` first and in `/usr/share/vtium/shaders` second, so a local file of the same name wins over the packaged one, as a local configuration wins over a packaged one. vtium-config shows a shader's header and source, and copies a packaged shader to `/etc/vtium/shaders` to be customised (D11). Where no shader files are installed, as in the minspec build, which installs none, or with the data directory missing, vtium logs once that it has no spatial filters; a look that names one fails at the reading stage, naming the missing file, and the head draws `default`, while a look of color filters alone draws as usual.
 
-**Proposed, what stays in code.** The GLSL of vtium-render's own pipeline, the composition, present and the cell shader of ADR-1300 D6, stays in vtium-render: it is the pipeline that filters run in, not a filter. The color layer stays tables, the maintainer decided on 2026-11-03, "Effects only. Someone could still write a color altering shader if they'd like": shader files fill the spatial layer alone. A spatial shader may change colors as it likes; it runs where every spatial filter runs, on the GPU path, before the color table in present, so on a head drawn on the CPU path it is skipped like any effect (D3). The color layer's filters' arithmetic, gamma, contrast, tint and color-blind, is vtium's code, which each filter's declaration documents. To keep the color layer as open to inspection as the shaders, `look-table NAME` in vtium-config prints a look's merged color table as a `.cube` file (D14's format), which shows exactly what the color layer does to every color and can itself be traded as a `cube` filter's file.
+**Proposed, what stays in code.** The GLSL of vtium-render's own pipeline, the composition, present and the cell shader of ADR-1300 D6, stays in vtium-render: it is the pipeline that filters run in, not a filter. The color layer stays tables, the maintainer decided on 2026-11-03: shader files fill the spatial layer alone. A spatial shader may change colors as it likes; it runs where every spatial filter runs, on the GPU path, before the color table in present, so on a head drawn on the CPU path it is skipped like any effect (D3). The color layer's filters' arithmetic, gamma, contrast, tint and color-blind, is vtium's code, which each filter's declaration documents. To keep the color layer as open to inspection as the shaders, `look-table NAME` in vtium-config prints a look's merged color table as a `.cube` file (D14's format), which shows exactly what the color layer does to every color and can itself be traded as a `cube` filter's file.
 
 **Decided by the maintainer (2026-11-03):** the format is GLSL ES 3.00 with a header of `#pragma vtium` lines, libretro's `#pragma parameter` accepted as written as a number parameter, and the filter's name taken from its file's name. D14 states the grammar, with the packaged `mask` shader whole and the reports for each fault.
 
@@ -924,7 +925,7 @@ look big (/etc/vtium/looks/big.vtlook:5): requires: checking: min-size = 1920x10
 
 The packaged scanlines and sharpen are the format's first worked examples, with mask and crt (D8). libplacebo's typed `//!PARAM` blocks are the alternative considered (Alternatives).
 
-**Decided by the maintainer (2026-11-03),** on enforcing what a shader declares: "Let's check it out. It sounds like a good use and can stay outside of vtiums loop (memory)". The analysis of a shader stays out of the console's draw loop and out of its memory.
+**Decided by the maintainer (2026-11-03),** on enforcing what a shader declares: the enforcement is worth trying. The analysis of a shader stays out of the console's draw loop and out of its memory.
 
 **Proposed, enforcing the reach and the reads.** No system the survey read enforces what a shader declares. vtium can enforce two of the three limits it could not prove:
 
@@ -947,9 +948,9 @@ So the record's earlier "cannot prove" narrows. vtium enforces the reach and the
 
 **Proposed, porting.** A later slice adds `vtium-config shader-import FILE`, with a porting guide in docs/looks.md, which turns a single-pass libretro shader into a `.vtshader`. It keeps the license and author comment word for word and records the license; keeps each `#pragma parameter` line, narrowing a 0-to-1 range of step 1 to on/off and integral bounds of step 1 to an integer; drops `#version`, the compatibility and precision macros, the vertex stage's declarations, RetroArch's uniforms and the duplicate `#else` defaults, warning where they differ from the pragma's; moves vertex-stage arithmetic that depends only on uniforms into the function; rewrites `main` into `apply`, its texture reads, `gl_FragCoord`, `OutputSize` and the source sizes through `SPATIAL_IN`, `SPATIAL_SIZE` and the pitch pair; counts the reads, four for each read the preset filters linearly; and leaves `reach` for the porter, a placeholder that `vtium check-config` refuses until it is filled. It refuses what no converter can port: multi-pass presets, lookup textures, frame history and feedback, `FrameCount` used in code until the clock's record lands, HDR output, and GLSL 4.50 features that GLSL ES 3.00 lacks. It ends by running `shader-check` on the result.
 
-**Proposed, the trust model.** The maintainer's reasoning: "I believe this is an ok approach because root already owns the hardware devices for the display?". Root installs a shader as it installs a frit or chooses `font-helper`, the program the console starts. A shader gains nothing its installer lacks. It runs on the GPU with no file, system-call or network access, reads only the textures vtium binds to present, the upright frame, and its own parameters, and writes only the pixels present asks of it. A shader crafted to attack the GPU driver is out of scope: in the maintainer's words, "a crafted shader installed by root means the system is pwned already, imo", since its installer already controls the machine.
+**Proposed, the trust model.** The maintainer's reasoning is that root already owns the display's hardware devices. Root installs a shader as it installs a frit or chooses `font-helper`, the program the console starts. A shader gains nothing its installer lacks. It runs on the GPU with no file, system-call or network access, reads only the textures vtium binds to present, the upright frame, and its own parameters, and writes only the pixels present asks of it. A shader crafted to attack the GPU driver is out of scope: in the maintainer's judgement, a crafted shader that root installed means the system is already compromised, since its installer already controls the machine.
 
-**Decided by the maintainer (2026-11-03),** "Accept and document limits. Vtium-config can lint a shader too, or possibly even minimally test it in user space?": what vtium can and cannot check. vtium checks the header against the format, the look's values against the header's parameters, that the source compiles and links with the rest of present, and that the function's uniforms are the parameters the header names. It measures what a look's stack costs (D16). Without the checks proposed below, it could not prove that a shader reads only within its declared reach, or that it ends, and a shader that read past its reach would show seams where the upright frame's tiles meet (ADR-1303 D3). This record proposes enforcing the reach and the reads ("enforcing the reach and the reads", below), which narrows those limits to one: how long a shader takes, which the floor guards (D16).
+**Decided by the maintainer (2026-11-03), on what vtium can and cannot check:** the limits are accepted and documented, and vtium-config lints a shader and may also test it briefly in user space. vtium checks the header against the format, the look's values against the header's parameters, that the source compiles and links with the rest of present, and that the function's uniforms are the parameters the header names. It measures what a look's stack costs (D16). Without the checks proposed below, it could not prove that a shader reads only within its declared reach, or that it ends, and a shader that read past its reach would show seams where the upright frame's tiles meet (ADR-1303 D3). This record proposes enforcing the reach and the reads ("enforcing the reach and the reads", below), which narrows those limits to one: how long a shader takes, which the floor guards (D16).
 
 **Proposed, `vtium-config shader-check FILE`.** An honest shader can still be faulty: it can crash a driver's shader compiler, fail to link, read past its declared reach, or hang the GPU. `vtium-config shader-check FILE` lints and tests a shader as the invoking user, with no special access, before root installs it. Each step catches one kind of fault:
 
@@ -964,9 +965,9 @@ The same steps run inside `vtium-config check FILE` for a `*.vtshader` file and 
 
 ### D16: a look's cost, measured against a frame-rate floor
 
-**Decided by the maintainer (2026-11-03):** "perhaps we could have a low cost evaluation loop for the shader - below a threshhold of fps for the filter stack, we fail the entire stack", refined to "that could be another requirements option". The frame-rate floor is a `[requires]` key, `min-fps` (D7), judged for each display like the other requirements: a display whose filter stack misses the floor draws `default` alone, the head's other displays keep the look, and one log line names the display, the measured rate and the floor. It is not an error.
+**Decided by the maintainer (2026-11-03):** a cheap measurement fails a look's filter stack when it runs below a frame-rate floor, and the floor is one more requirement a look declares. The frame-rate floor is a `[requires]` key, `min-fps` (D7), judged for each display like the other requirements: a display whose filter stack misses the floor draws `default` alone, the head's other displays keep the look, and one log line names the display, the measured rate and the floor. It is not an error.
 
-The maintainer's framing: "this is another guard to prevent the display from failing. the filter stack would just exit if it flunks out on perf". The check exists to keep the display working. A stack that misses its floor simply stops on that display, which draws `default`, and nothing else is disturbed: not the head's other displays, not the head's path, not the terminal.
+The maintainer frames the check as one more guard against a failing display. The check exists to keep the display working. A stack that misses its floor simply stops on that display, which draws `default`, and nothing else is disturbed: not the head's other displays, not the head's path, not the terminal.
 
 **Proposed, the floor.** `min-fps` takes `any`, `refresh`, the display's own refresh rate from its mode, or a whole number of frames a second, 1 to 1000. A machine-wide floor, `look-min-fps` in vtium.conf, which a head may set for itself in heads.conf, always applies; its default is `refresh`, and it takes the same values. A look's `min-fps` can only raise the floor, and `any` in a look adds no demand of its own, so no look can turn the cost check off; only the administrator's `look-min-fps = any` does. The floor a display meets is the higher of the two.
 
@@ -1070,14 +1071,14 @@ None remain. The maintainer answered every open question of the drafts on 2026-1
 
 ## Alternatives Considered
 
-- **Only built-in filters, no installed code.** The maintainer's first decision, revised by the maintainer (2026-11-03): "we want people to eventually compile/author what they want for use". Spatial filters are shader files root installs, vtium's own included (D15).
+- **Only built-in filters, no installed code.** The maintainer's first decision, revised by the maintainer (2026-11-03) so that people can in time write the filters they want. Spatial filters are shader files root installs, vtium's own included (D15).
 
 > Edited 2026-11-03: this alternative read "Shaders installed as files, GLSL a user writes and vtium compiles into present. Rejected by the maintainer (2026-11-03): no filter code is installed from outside.", with the reason that its cost and its reading of the time could not be bounded by a declaration vtium checks. D15 bounds the time by giving no clock, and states what it cannot bound.
 - **libplacebo's typed `//!PARAM` blocks for the shader header.** Not taken, the maintainer choosing `#pragma` lines (D15): typed and tidy, but a syntax of their own, which would make libretro's `#pragma parameter` lines a second form to convert; `#pragma` lines keep one syntax with libretro's as a member of it.
 - **libretro's multi-pass presets, lookup textures and frame history.** Not taken: the spatial layer is one pass that binds only the frame (D3), so a multi-pass shader such as crt-royale, and bloom, wait for a record that allows passes.
 - **Color shaders.** Rejected by the maintainer (2026-11-03): "Effects only". The CPU path cannot run them, and `.cube` files trade color corrections as data; a spatial shader may still change colors on the GPU path.
-- **vtium's own spatial filters as GLSL strings in the binary.** Rejected by the maintainer (2026-11-03): "mostly I want to externalize them, so they're not buried in code".
-- **A fixed frame-rate check outside the requirements,** failing the whole head's stack. Replaced by the maintainer (2026-11-03): "that could be another requirements option", so it is judged for each display.
+- **vtium's own spatial filters as GLSL strings in the binary.** Rejected by the maintainer (2026-11-03), who wants the filters outside the code, where users can customize and inspect them.
+- **A fixed frame-rate check outside the requirements,** failing the whole head's stack. Replaced by the maintainer (2026-11-03) with a requirement the look declares, so it is judged for each display.
 - **Shader source carried in the preview message.** Not taken: any program in the session could then run code of its choosing in the root process's GPU context; the message names only shaders root installed (D15).
 - **Turning off only the failing layer, or only the failing filter.** Rejected by the maintainer (2026-11-03): "any layer that is invalid fails the whole filter stack". Part of a look can look worse than none, and the one outcome keeps every failure the same to read and to test.
 - **A default look that a file may override,** as a heads.conf file replaces the compiled-in configuration. Not taken: the default look is where every failure lands, so it must be the one look that cannot fail; a machine-wide look is vtium.conf's `look=`.
@@ -1090,9 +1091,9 @@ None remain. The maintainer answered every open question of the drafts on 2026-1
 - **The hardware pointer kept for a color-only look, its picture run through the table.** Not taken: two rules where one does, and the arrow would still miss the spatial filters.
 - **The filters' declarations in vtium-settings and their work in vtium-render, matched by name.** Not taken: each filter would live in two crates, held in step by a test; with the declaration beside its code, a filter is one module, and vtium-settings takes the declarations as it takes vtium-font's constants.
 - **A look for each display,** set by the head file's rules. Not taken now: a head is the unit configuration chooses, and a mirrored head's displays show one screen. A later record can add a display's own look.
-- **A 1-bit display ignoring every look.** Rejected by the maintainer (2026-11-03): "apply it anyway"; a look's `min-depth` requirement keeps it off such panels when its author wants that.
+- **A 1-bit display ignoring every look.** Rejected by the maintainer (2026-11-03), who has a 1-bit display apply a look like any other; a look's `min-depth` requirement keeps it off such panels when its author wants that.
 - **Requirements for each filter rather than for the look.** Not taken: a display would then show part of a look, which the whole-stack rule exists to prevent.
 - **A preview drawn as a picture,** the look's table applied to a sample and shown through kitty graphics as vtium-config shows a frit's sizes. Not taken: the maintainer asked for the look previewed on the console itself, and a picture shows no spatial filter, since vtium-config draws without a GPU.
 - **A preview sequence that names an installed look,** as OSC 50 names a frit. Not taken (D11): it cannot show an edit before it is saved.
-- **A look with effects failing whole on the CPU path,** the head drawing the default look there. Rejected by the maintainer (2026-11-03): "color yes, skip effects".
+- **A look with effects failing whole on the CPU path,** the head drawing the default look there. Rejected by the maintainer (2026-11-03), who has the CPU path draw the color layer and skip the effects.
 - **Spatial filters on the CPU path.** Not taken for now, and open to revisiting with a cheap effect, as the maintainer said: ADR-1303 D5 keeps the spatial slot on the GPU path, and a neighbour-reading filter over every redrawn pixel on the CPU would cost several times the color layer's lookup.

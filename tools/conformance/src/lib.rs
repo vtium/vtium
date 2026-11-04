@@ -21,7 +21,6 @@ pub mod probes;
 pub mod record;
 pub mod replay;
 pub mod runner;
-pub mod sha256;
 pub mod spec;
 pub mod view;
 

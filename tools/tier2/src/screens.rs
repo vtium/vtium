@@ -1,7 +1,6 @@
 //! Tier 2's screens, each with the golden that judges it.
 //!
-//! The C reference's tier 2 (`tests/test_pixels.c` at the kmscon commit
-//! `provenance.tsv` names) drew every screen with an outline font, DejaVu Sans Mono through
+//! The C reference's tier 2 drew every screen with an outline font, DejaVu Sans Mono through
 //! FreeType, so its goldens judge vtium only where no outline glyph shows:
 //! the two block screens, which hold only sprites and spaces. The others
 //! are re-baselined when the Rust font layer lands (vtium/vtium#24), as
@@ -38,9 +37,6 @@ pub enum Source {
 pub struct Case {
     pub screen: Screen,
     pub source: Source,
-    /// The C reference's screen in `tests/test_pixels.c` whose bytes this
-    /// one carries, checked against the copy on every run.
-    pub ported: Option<&'static str>,
 }
 
 /// Block elements and box drawing stacked across rows and columns
@@ -382,7 +378,6 @@ const fn edges(name: &'static str, orientation: Orientation) -> Case {
             ..Screen::new(name, EDGES_DESC, EDGES, 12, 4)
         },
         source: Source::Vtium,
-        ported: None,
     }
 }
 
@@ -453,7 +448,6 @@ const fn small(name: &'static str, desc: &'static str, overlay: Overlay) -> Case
             ..Screen::new(name, desc, OVERLAY_SHELL, 100, 30)
         },
         source: Source::Vtium,
-        ported: None,
     }
 }
 
@@ -469,7 +463,6 @@ const fn large(name: &'static str, desc: &'static str, overlay: Overlay) -> Case
             ..Screen::new(name, desc, OVERLAY_SHELL, 160, 10)
         },
         source: Source::Vtium,
-        ported: None,
     }
 }
 
@@ -487,7 +480,6 @@ const fn alone_small(name: &'static str, desc: &'static str, alone: Alone) -> Ca
             ..Screen::new(name, desc, BLANK, 100, 30)
         },
         source: Source::Vtium,
-        ported: None,
     }
 }
 
@@ -505,7 +497,6 @@ const fn alone_large(name: &'static str, desc: &'static str, alone: Alone) -> Ca
             ..Screen::new(name, desc, BLANK, 160, 10)
         },
         source: Source::Vtium,
-        ported: None,
     }
 }
 
@@ -529,7 +520,6 @@ const fn scheme(
             ..Screen::new(name, desc, bytes, 100, 8)
         },
         source: Source::Vtium,
-        ported: None,
     }
 }
 
@@ -640,7 +630,6 @@ const fn picture(screen: Screen) -> Case {
     Case {
         screen,
         source: Source::Vtium,
-        ported: None,
     }
 }
 
@@ -655,7 +644,6 @@ pub const CASES: &[Case] = &[
             ..Screen::new("blocks", BLOCKS_DESC, BLOCKS, 48, 10)
         },
         source: Source::Kmscon,
-        ported: Some("blocks"),
     },
     // DejaVu Sans Mono at 22 pixels, its line height and 6 pixel rows more
     Case {
@@ -667,7 +655,6 @@ pub const CASES: &[Case] = &[
             ..Screen::new("blocks-spaced", BLOCKS_DESC, BLOCKS, 48, 10)
         },
         source: Source::Kmscon,
-        ported: Some("blocks-spaced"),
     },
     edges("edges", Orientation::Normal),
     edges("edges-right", Orientation::Right),
@@ -687,7 +674,6 @@ pub const CASES: &[Case] = &[
             6,
         ),
         source: Source::Vtium,
-        ported: None,
     },
     Case {
         screen: Screen::new(
@@ -701,7 +687,6 @@ pub const CASES: &[Case] = &[
             5,
         ),
         source: Source::Vtium,
-        ported: Some("vs16"),
     },
     Case {
         screen: Screen {
@@ -717,7 +702,6 @@ pub const CASES: &[Case] = &[
             )
         },
         source: Source::Vtium,
-        ported: Some("vs16"),
     },
     Case {
         screen: Screen::new(
@@ -731,7 +715,6 @@ pub const CASES: &[Case] = &[
             10,
         ),
         source: Source::Vtium,
-        ported: Some("wide-deco"),
     },
     Case {
         screen: Screen {
@@ -750,7 +733,6 @@ pub const CASES: &[Case] = &[
             )
         },
         source: Source::Vtium,
-        ported: Some("redraw"),
     },
     Case {
         screen: Screen {
@@ -763,7 +745,6 @@ pub const CASES: &[Case] = &[
             )
         },
         source: Source::Vtium,
-        ported: Some("ascii"),
     },
     Case {
         screen: Screen {
@@ -776,7 +757,6 @@ pub const CASES: &[Case] = &[
             )
         },
         source: Source::Vtium,
-        ported: Some("bold"),
     },
     Case {
         screen: Screen {
@@ -789,7 +769,6 @@ pub const CASES: &[Case] = &[
             )
         },
         source: Source::Vtium,
-        ported: Some("palette"),
     },
     Case {
         screen: Screen {
@@ -802,7 +781,6 @@ pub const CASES: &[Case] = &[
             )
         },
         source: Source::Vtium,
-        ported: Some("inverse"),
     },
     Case {
         screen: Screen {
@@ -815,7 +793,6 @@ pub const CASES: &[Case] = &[
             )
         },
         source: Source::Vtium,
-        ported: Some("cjk"),
     },
     Case {
         screen: Screen {
@@ -828,7 +805,6 @@ pub const CASES: &[Case] = &[
             )
         },
         source: Source::Vtium,
-        ported: Some("box"),
     },
     Case {
         screen: Screen {
@@ -841,7 +817,6 @@ pub const CASES: &[Case] = &[
             )
         },
         source: Source::Vtium,
-        ported: Some("underline"),
     },
     Case {
         screen: Screen {
@@ -849,7 +824,6 @@ pub const CASES: &[Case] = &[
             ..Screen::new("link-hover-unifont", LINK_HOVER_DESC, LINK_HOVER, 40, 7)
         },
         source: Source::Vtium,
-        ported: None,
     },
     Case {
         screen: Screen {
@@ -864,7 +838,6 @@ pub const CASES: &[Case] = &[
             )
         },
         source: Source::Vtium,
-        ported: None,
     },
     Case {
         screen: Screen {
@@ -877,7 +850,6 @@ pub const CASES: &[Case] = &[
             )
         },
         source: Source::Vtium,
-        ported: Some("strike"),
     },
     Case {
         screen: Screen {
@@ -891,7 +863,6 @@ pub const CASES: &[Case] = &[
             )
         },
         source: Source::Vtium,
-        ported: Some("deco-config"),
     },
     Case {
         screen: Screen {
@@ -908,7 +879,6 @@ pub const CASES: &[Case] = &[
             )
         },
         source: Source::Vtium,
-        ported: Some("deco-force"),
     },
     Case {
         screen: Screen {
@@ -921,7 +891,6 @@ pub const CASES: &[Case] = &[
             )
         },
         source: Source::Vtium,
-        ported: Some("combining"),
     },
     Case {
         screen: Screen {
@@ -934,7 +903,6 @@ pub const CASES: &[Case] = &[
             )
         },
         source: Source::Vtium,
-        ported: Some("mosaic"),
     },
     Case {
         screen: Screen {
@@ -947,7 +915,6 @@ pub const CASES: &[Case] = &[
             )
         },
         source: Source::Vtium,
-        ported: Some("emoji"),
     },
     Case {
         screen: Screen {
@@ -961,7 +928,6 @@ pub const CASES: &[Case] = &[
             )
         },
         source: Source::Vtium,
-        ported: None,
     },
     Case {
         screen: Screen {
@@ -976,7 +942,6 @@ pub const CASES: &[Case] = &[
             )
         },
         source: Source::Vtium,
-        ported: None,
     },
     Case {
         screen: Screen {
@@ -984,14 +949,13 @@ pub const CASES: &[Case] = &[
             font: FontKind::Psf(TestFont::Small8x16),
             ..Screen::new(
                 "small-640x480",
-                "A 640x480 display drawn with an 8x16 PSF1 font as 80 by 30 cells (vtium/vtium#75): the small-320x240 screen's parts at 80 columns, with `ls -l`, three boxes in light, double, heavy and rounded lines around bold, underlined, struck, reversed, italic, dim and blinking words, ramps through the 256-color palette and in 24-bit color, more sprites and Latin-1, a combining mark, and the decorations in color: each underline style in its own SGR 58 color, green struck text, and blue text struck over a red curl. Correct: as small-320x240, at 80 columns: the italic word drawn upright, since the font has no italic, the dim word fainter, the blinking word drawn as text, and a combined character as its base letter.",
+                "A 640x480 display drawn with an 8x16 PSF1 font as 80 by 30 cells (vtium/vtium#75): the small-320x240 screen's parts at 80 columns, with `ls -l`, three boxes in light, double, heavy and rounded lines around bold, underlined, struck, reversed, italic, dim and blinking words, ramps through the 256-color palette and in 24-bit color, more sprites and Latin-1, a combining mark, and the decorations in color: each underline style in its own SGR 58 color, green struck text, and blue text struck over a red curl. Correct: as small-320x240, at 80 columns: the italic word leaning, sheared by 0.2 about the font's baseline a pixel row at a time, since the font has no italic, the dim word fainter, the blinking word drawn as text, and a combined character as its base letter.",
                 SMALL_80,
                 80,
                 30,
             )
         },
         source: Source::Vtium,
-        ported: None,
     },
     Case {
         screen: Screen {
@@ -1007,7 +971,6 @@ pub const CASES: &[Case] = &[
             )
         },
         source: Source::Vtium,
-        ported: None,
     },
     Case {
         screen: Screen {
@@ -1023,7 +986,6 @@ pub const CASES: &[Case] = &[
             )
         },
         source: Source::Vtium,
-        ported: None,
     },
     Case {
         screen: Screen {
@@ -1037,7 +999,6 @@ pub const CASES: &[Case] = &[
             )
         },
         source: Source::Vtium,
-        ported: None,
     },
     Case {
         screen: Screen {
@@ -1051,7 +1012,6 @@ pub const CASES: &[Case] = &[
             )
         },
         source: Source::Vtium,
-        ported: None,
     },
     Case {
         screen: Screen {
@@ -1065,7 +1025,6 @@ pub const CASES: &[Case] = &[
             )
         },
         source: Source::Vtium,
-        ported: None,
     },
     Case {
         screen: Screen {
@@ -1082,7 +1041,6 @@ pub const CASES: &[Case] = &[
             )
         },
         source: Source::Vtium,
-        ported: None,
     },
     Case {
         screen: Screen {
@@ -1100,7 +1058,6 @@ pub const CASES: &[Case] = &[
             )
         },
         source: Source::Vtium,
-        ported: None,
     },
     Case {
         screen: Screen {
@@ -1119,7 +1076,6 @@ pub const CASES: &[Case] = &[
             )
         },
         source: Source::Vtium,
-        ported: None,
     },
     Case {
         screen: Screen {
@@ -1138,7 +1094,6 @@ pub const CASES: &[Case] = &[
             )
         },
         source: Source::Vtium,
-        ported: None,
     },
     small(
         "notice-no-keyboard-800x480",
@@ -1294,7 +1249,6 @@ pub const CASES: &[Case] = &[
             ..Screen::new("panic-320x240", PANIC_SMALL_DESC, BLANK, 40, 15)
         },
         source: Source::Vtium,
-        ported: None,
     },
     scheme(
         "scheme-light-notice",

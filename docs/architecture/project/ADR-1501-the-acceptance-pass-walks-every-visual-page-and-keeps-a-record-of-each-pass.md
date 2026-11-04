@@ -6,8 +6,9 @@ capability: process
 basis:
   - operator: aaronsb
     level: directed
-    said: "the test harness in our kmscon fork c reference had a series of pages that exercised all manner of terminal capabilities. I'd like ... a script that allows an operator to essentially take our own interview process (looks correct, yes no, comments etc) without needing to type commands but instead run through all the visuals. I think a visual acceptance pass that records this for any given pass is helpful as a 'playtest' so to speak for me, the operator."
+    said: "The C reference's test harness had a series of pages that exercised the terminal's capabilities. vtium gets a script that walks the operator through all the visuals and takes the same interview answers, looks correct, yes or no, and comments, without the operator typing commands, and that records each pass, as a playtest for the operator."
     via: "the steering session, 2026-11-03, quoted in this record's brief by the team lead"
+    paraphrase: true
   - operator: aaronsb
     level: directed
     said: "vtium is not copying the C reference and aims to exceed it. The C fork's pages carry hard-won knowledge of what's worth checking, so use them, but the C fork's page set is a starting point, not a boundary."
@@ -15,8 +16,9 @@ basis:
     paraphrase: true
   - operator: aaronsb
     level: directed
-    said: "Even though I only read English, it would be helpful to have other language features too, especially formatting on them like lines and italic bold super sub etc. We could present a series of pages essentially stating the same thing. For all the visuals, we use English language to describe what we are looking at."
+    said: "The pass also shows text in other languages, with their formatting such as lines, italic, bold, superscript and subscript, in a series of pages that each state the same thing. English describes what every page shows, since the maintainer reads only English."
     via: "the steering session, 2026-11-03, quoted by the team lead"
+    paraphrase: true
   - operator: aaronsb
     level: directed
     said: "Run each language page in a common outline font and in a bitmap font: DejaVu Sans Mono with Noto Sans fallbacks, and GNU Unifont with Terminus, named by frits kept beside the pages; each pass record names the frit and each font file's path and version or SHA-256; a page whose font is not installed records skip with the missing file named."
@@ -40,9 +42,6 @@ considered:
     said: "Commit one pass per batch that goes from stage to main. Each pass record names the hardware it ran on and says it is evidence about that hardware only, and the comparison warns when two passes ran on different hardware. The record argues its choices on vtium's own grounds, not on the C reference's."
     via: the maintainer's answers in the steering session's interview, 2026-11-03, relayed by the team lead; the wording is the team lead's
     paraphrase: true
-  - operator: aaronsb
-    said: "with an understanding we only have the GPU we ran it on. We also need to leave the c reference behind."
-    via: the steering session's interview, 2026-11-03, quoted by the team lead
   - operator: aaronsb
     said: "Pictures are on by default: make vt-accept builds with images unless FEATURES is named, and a minspec pass is make vt-accept FEATURES=."
     via: the maintainer's answers in the steering session's interview, 2026-11-03, relayed by the team lead; the wording is the team lead's
@@ -131,7 +130,7 @@ These are the pages, and the ADR-1000 rows each one shows:
 | 77-reverse-screen | DECSCNM, the whole screen in reverse video | `DEC-5` |
 | 78-palette-change | OSC 4 changing color 1 after the text in it was written | `color.palette.set`, `sgr.draw-time-color` |
 | 80-links | OSC 8 links, underlined only under the pointer, and their address while Ctrl is held | `osc.8` |
-| 81-english to 93-emoji-styles | the language pages (D7): one sentence in English, Vietnamese twice (precomposed, and every mark combining), Greek, Russian, Hebrew, Arabic, Hindi, Thai, Chinese, Japanese and Korean, and an emoji line, each under every style, each walked in both font sets (D6) | `sgr.*`, `text.grapheme`, `text.vs-width`, `text.emoji`, `text.outline` (the outline set's glyphs; outline fonts draw, and only their bold and italic faces are not built yet) |
+| 81-english to 93-emoji-styles | the language pages (D7): one sentence in English, Vietnamese twice (precomposed, and every mark combining), Greek, Russian, Hebrew, Arabic, Hindi, Thai, Chinese, Japanese and Korean, and an emoji line, each under every style, each walked in both font sets (D6) | `sgr.*`, `text.grapheme`, `text.vs-width`, `text.emoji`, `text.outline` (the outline set's glyphs, in every style the page shows, bold and italic among them) |
 | 95-sixel | sixel bars beside text cells of the same color, and a frame with a clear middle over words | `image.sixel`, `image.compositor` |
 | 96-kitty | kitty pictures sent as raw pixels, one in each layer, and a placement that moves the cursor | `image.kitty`, `image.compositor` |
 | 97-kitty-layers | one kitty picture placed over and under text, and a placement deleted | `image.kitty`, `image.overlap` |
@@ -144,7 +143,6 @@ These rows have a visible effect and no page yet. Each page comes with the chang
 
 - `sgr.conceal`, `sgr.overline`, `sgr.script` and `text.line-size`: vtium-term keeps them, and vtium-render does not draw them yet.
 - `sgr.rapid-blink`: vtium-render blinks SGR 6 at SGR 5's rate, so its page waits for the faster rate that ADR-1000 states.
-- `text.outline`'s bold and italic faces: outline fonts draw, in the language pages' outline set among others, and a frit takes only regular faces today, so bold is the regular glyph widened and italic stays upright.
 - `text.ligatures`, `text.font-merge`, `text.bidi` and `text.kitty-sizing`: not built yet.
 - `image.kitty-animation`, `image.kitty-placeholders` and `image.kitty-relative`: built; their pages are owed.
 - `text.reflow` and `DEC-2028`: built; a page needs the grid to change size while it shows, which a font switch does, and is owed.
@@ -189,7 +187,7 @@ A font set is a frit (a font set file, ADR-1200 D1). The acceptance pass keeps t
 
 A page whose `# frits:` line names font sets is an entry of the walk for each, as `84-greek@acceptance-outline` and `84-greek@acceptance-bitmap`. Before such an entry the walk switches the console to the frit with OSC 50, makes a round trip to the terminal so the switch has been read, and asks OSC 50's query which font is in use; a page with no `# frits:` line switches the console back to the font the query named when the walk started. vtium switches the live console among the frits in its frits directory, so one pass covers both font sets, and the review run gives vtium a frits directory holding the acceptance pass's frits (D5). The page prints which font set it is drawn in and, from the frit's `# checks:` lines, what that set checks: glyphs scaled to the cell with marks placed from the font's own data, or whole-multiple bitmaps with marks placed by vtium's rules.
 
-An entry is recorded as skip, with the reason as its comment, when a file its frit names is missing on this machine (the comment names the file), or when vtium does not switch to it (the comment names what OSC 50's query answered). Both fonts' bold is the regular glyph widened a pixel and both draw italic upright, since frits take only regular faces today; the language pages say so.
+An entry is recorded as skip, with the reason as its comment, when a file its frit names is missing on this machine (the comment names the file), or when vtium does not switch to it (the comment names what OSC 50's query answered). Neither acceptance frit names a bold or an italic face, so vtium draws both styles from each set's regular glyphs: the outline set's bold grows each stroke sideways by a 24th of the size, a pixel at least, and its italic slants the glyph by 0.2 about the baseline; the bitmap set's bold widens each row by a pixel, and its italic shears the glyph by 0.2 one pixel row at a time (ADR-1302 D4).
 
 ### D7: the language pages
 
@@ -198,10 +196,12 @@ Each language page shows, from `tools/vt/sections/text/udhr-article1.tsv`:
 1. the first sentence of Article 1 of the Universal Declaration of Human Rights in its language, which may wrap onto a second row, and its English: "All human beings are born free and equal in dignity and rights.";
 2. a few of its words, with their English, in sixteen styles, two to a row: plain, bold, italic, bold italic, dim, reverse, underline, double, curly, dotted and dashed underlines, a red underline, strike, overline, and SGR 73 and 74, superscript and subscript;
 3. Unicode's superscript and subscript characters, digits for every script and the small letters where Unicode has them (Latin, Greek and one Cyrillic letter), with a sentence that says where it has none;
-4. a line marking the styles vtium does not draw yet with `*`: italic, which stays upright, and overline and SGR 73 and 74, which look plain;
+4. a line marking the styles vtium does not draw yet with `*`: overline and SGR 73 and 74, which look plain;
 5. the font set (D6) and what it checks.
 
 The sentences come from the UDHR in XML project at a fixed commit; `tools/vt/sections/text/README.md` names it and the three entries that differ from the files. Each page's guidance describes the right picture in shapes: marks stacked on their letters and not cut at the row's top, Arabic letters each with its dots, Hangul syllables as square blocks, a decoration reaching across both cells of a wide character. Where vtium does not yet do what the script needs, the guidance says what vtium draws today and that it is expected: Hebrew and Arabic run left to right in typed order, since vtium does not order right-to-left text yet, and Arabic letters stand apart, since the console does not key joining forms yet. In the bitmap set, which has no outline source to shape a cluster, a Devanagari vowel sign that stands beside its letter is drawn over that letter. The operator judges the rest of the page and answers yes when only those look as described. The two Vietnamese pages draw the same words, once precomposed and once with every mark a combining character, so a difference between them is vtium's handling of combining marks.
+
+> Edited 2026-11-04: the work that draws bold and italic through the glyph helper (ADR-1302 D4). D2, D6 and D7 said that a frit takes only regular faces, so bold was the regular glyph widened a pixel and italic stayed upright, and D2 listed `text.outline`'s bold and italic faces among the rows with no page. A frit can now name bold, italic and bold-italic faces of its own, and vtium synthesises the styles it names no face for, so the language pages draw bold, italic and bold italic, and italic leaves the list of styles marked `*`. The earlier text is in git at 2aea866a.
 
 ### D8: committing passes, and the maintainer's answers
 

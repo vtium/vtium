@@ -1,6 +1,6 @@
 # Why VTium
 
-vtium is a terminal for the Linux console: the full-screen text screens a Linux machine shows before, or instead of, a desktop. This page is for someone meeting vtium for the first time, such as a packager or a curious Linux user. It answers two questions: why use vtium rather than the kernel's own console, `kmscon` or a terminal on a desktop, and why vtium suits the console on every kind of machine, from a small board with a 320x240 panel to a desktop with a large monitor. [concepts.md](concepts.md) explains how vtium's parts work, and [features.md](features.md) lists what is built today.
+vtium is a terminal for the Linux console: the full-screen text screens a Linux machine shows before, or instead of, a desktop. This page is for someone meeting vtium for the first time, such as a packager or a curious Linux user. It answers two questions: why use vtium rather than the kernel's own console, `kmscon` or a terminal on a desktop, and why vtium suits the console on every kind of machine, from a small board with a 320x240 panel to a desktop with a large monitor. [Concepts](concepts/index.md) explains how vtium's parts work, and [features.md](features.md) lists what is built today.
 
 vtium's latest release is the pre-release v0.1.0-alpha.4. Everything this page describes is built in the repository, except what it marks as landing, which means designed and being built but not finished yet.
 
@@ -12,16 +12,9 @@ Every Linux machine with a screen has a console already: the kernel draws text o
 
 vtium draws the VT itself instead. It gives programs 24-bit color, bold, faint and reversed text and five underline styles, Unicode with double-width Chinese, Japanese and Korean text and color emoji, mouse reporting, and scrollback that rewraps when the screen's width changes. It draws pictures sent with sixel, the kitty graphics protocol or iTerm2's inline images, in a build with the `images` feature.
 
-### Beside `kmscon`
+### Where vtium began
 
-`kmscon` is the C terminal for the Linux console that vtium learned from. vtium is tested against the maintainer's fork of `kmscon` and its library `libtsm`, called the C reference, and it reads `kmscon`'s configuration file with its settings, so a machine's `kmscon` configuration carries over. vtium is a new program in Rust rather than a version of `kmscon`, and it has a name of its own because `kmscon`'s developers plan a Rust `kmscon` of their own.
-
-Beside the released `kmscon` 10.1.0, the version [the table below](#vtium-beside-the-alternatives) compares, and beside the C reference's own tests, vtium adds these:
-
-- **Fonts are read by a separate, locked-down program.** The console never opens a font file. A helper program reads the fonts in a sandbox and never runs as root, and the console only checks and draws the glyphs it sends. `kmscon` loads and draws its fonts in its own process, which runs as root.
-- **It is built so that a program's output cannot crash it.** The parts that read a program's output deny every panic that output could reach, and only the part that talks to the kernel may use Rust's `unsafe`; [architecture.md](architecture.md) lists the check behind each rule.
-- **It is measured on a small machine.** Its tests record the console's peak memory in a virtual machine with one CPU and 512 MB, fail if the console's program grows past 3.5 MiB, and draw on a 320x240 display.
-- **It is tested without systemd.** vtium runs from systemd's units, and also from sysvinit's inittab, a script or by hand. The C reference also ran without systemd, but its tests booted it only under systemd; vtium's tests also boot it on Debian 13 with sysvinit.
+vtium began as a Rust program derived from `kmscon`, a C terminal for the Linux console, and its library `libtsm`.
 
 ### Beside a terminal on a desktop
 
@@ -57,7 +50,14 @@ Besides what the table shows, the others do these things vtium does not:
 - yaft runs on the BSD consoles.
 - fbpad keeps two terminals to a tag and splits the screen between them.
 
-On vtium's side are the heads, with their first-match rules and the closed policy for kiosks; fonts parsed and rasterized in a helper process apart from the console; scrollback bounded in bytes and rewrapped on a width change, where the kernel console's soft scrollback (Shift+PageUp) was removed in Linux 5.9; and the tests [concepts.md](concepts.md#how-vtium-is-judged) describes.
+On vtium's side are the heads, with their first-match rules and the closed policy for kiosks, and scrollback bounded in bytes and rewrapped on a width change, where the kernel console's soft scrollback (Shift+PageUp) was removed in Linux 5.9. vtium also does these:
+
+- **Fonts are read by a separate, locked-down program.** The console never opens a font file. A helper program reads the fonts in a sandbox and never runs as root, and the console only checks and draws the glyphs it sends. `kmscon` loads and draws its fonts in its own process, which runs as root.
+- **It is built so that a program's output cannot crash it.** The parts that read a program's output deny every panic that output could reach, and only the part that talks to the kernel may use Rust's `unsafe`; [architecture.md](architecture.md) lists the check behind each rule.
+- **It is measured on a small machine.** Its tests record the console's peak memory in a virtual machine with one CPU and 512 MB, fail if the console's program grows past 3.5 MiB, and draw on a 320x240 display.
+- **It is tested without systemd.** vtium runs from systemd's units, and also from sysvinit's inittab, a script or by hand, and its tests boot it under systemd and on Debian 13 with sysvinit.
+
+[How vtium is judged](concepts/how-vtium-is-judged.md) describes how vtium is tested.
 
 ## Where vtium sits in a machine's boot
 
@@ -81,7 +81,7 @@ The figure shows five of the displays that vtium's test card, a fixed set of sam
 
 ![Five displays drawn to scale, one pixel for twelve. 320x240, a small panel: 8x8 cells, 40 by 30, 5.8 MiB. 640x480, an old monitor: 8x16 cells, 80 by 30, 7.8 MiB. 1366x768, a laptop: 8x16 cells, 170 by 48, 12.1 MiB. 1920x1080, a desktop monitor: 11x24 cells, 174 by 45. 2560x1440, a large monitor: 14x32 cells, 182 by 45. MiB is the console's peak memory, measured in a virtual machine with 512 MB. Beneath, the first three use the built-in fonts, Unscii-8 and Unifont, and the last two a frit of outline and color fonts; one bar under all five says the same build is used at every size, drawn on the CPU with no display server; a dashed bar under the last two says pictures and a GPU renderer are landing.](figures/why-vtium-spectrum.svg)
 
-A frit is a small text file that names the fonts vtium draws from, such as a code font, a font of symbols and a color emoji font, and the cell size to draw them at. vtium-config, the font tool, reads those fonts and turns them into the glyphs, the drawn letters, that vtium puts on the screen. Any character a frit lacks is drawn from the built-in fonts, and vtium draws box-drawing lines and blocks itself, so they join at every size. [concepts.md](concepts.md#fonts-generated-at-run-time) follows a font from the frit to the screen.
+A frit is a small text file that names the fonts vtium draws from, such as a code font, a font of symbols and a color emoji font, and the cell size to draw them at. vtium-config, the font tool, reads those fonts and turns them into the glyphs, the drawn letters, that vtium puts on the screen. Any character a frit lacks is drawn from the built-in fonts, and vtium draws box-drawing lines and blocks itself, so they join at every size. [Fonts, generated at run time](concepts/fonts.md) follows a font from the frit to the screen.
 
 ## Why glass
 
@@ -89,7 +89,7 @@ vtium's name and its font words come from glass, which keeps a link to the histo
 
 - **VT and TTY.** A teletype, TTY for short, was a terminal that printed on paper, and Linux still names its terminal devices `tty`. DEC's video terminals were named VT, such as the VT100 of 1978 ([Wikipedia, VT100](https://en.wikipedia.org/wiki/VT100)), and the Linux console still speaks "a large subset of the VT102" terminal's controls ([`console_codes(4)`](https://man7.org/linux/man-pages/man4/console_codes.4.html)).
 - **Glass TTY.** Early terminals with a screen in place of paper, DEC's VT05 among them, were often called glass TTYs: they were the video terminals that replaced paper teletypes ([Wikipedia, Computer terminal](https://en.wikipedia.org/wiki/Computer_terminal)).
-- **The name vtium.** vtium echoes vitrum, Latin for glass. vtium is a glass terminal for the VT, and its name keeps the link to the glass TTYs. The maintainer chose the name, also for its sound, in place of the working title kmscon-rust ([the record of that choice, in the `kmscon` fork](https://github.com/aaronsb/kmscon/blob/main/docs/architecture/fork/ADR-304-vtium-a-full-rust-port-of-kmscon-and-libtsm-minspec-first-judged-by-the-existing-tiers.md)). <!-- adr-cite-ignore: the kmscon fork's record, not one of vtium's -->
+- **The name vtium.** vtium echoes vitrum, Latin for glass. vtium is a glass terminal for the VT, and its name keeps the link to the glass TTYs. The maintainer chose the name, also for its sound, in place of the working title kmscon-rust, so that vtium has a name of its own beside the Rust `kmscon` that `kmscon`'s developers plan.
 - **Vitrify.** To vitrify is to turn something into glass by heat, and the word comes from the same Latin vitrum ([Wiktionary, vitrify](https://en.wiktionary.org/wiki/vitrify)). vtium's font tool, vtium-config, turns fonts into the glyphs on the screen, and its banner names it the VTium Vitrifier.
 - **Frit.** A glassmaker's frit is the mix of raw materials, fused, cooled and ground, that is melted into glass ([Wikipedia, Frit](https://en.wikipedia.org/wiki/Frit)). The maintainer named vtium's frit after it on 2026-10-28.
 

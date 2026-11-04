@@ -1,6 +1,6 @@
 # Choose a font
 
-This guide sets the font vtium draws in. [concepts.md](concepts.md#fonts-generated-at-run-time) explains how a font reaches the screen.
+This guide sets the font vtium draws in. [Fonts, generated at run time](concepts/fonts.md) explains how a font reaches the screen.
 
 In the commands below, `#` marks a command you run as root, for example with sudo, and `$` a command you run as your own user.
 
@@ -27,7 +27,7 @@ font-name=monoid
 
 The helper tries the sources in order, and each later source draws only the characters the earlier ones lack. The built-in Unifont and Unscii-8 draw every character that no source has. `name=` names the frit, and the file's name, `monoid`, is the default. `license=` records the font's license.
 
-`source=font:FAMILY` finds a kbd console font of that name first. Without one, it finds an outline font file, `.ttf`, `.otf`, `.ttc` or `.otc`, whose name is the family, or the family followed by `Regular`, with case, spaces, `-` and `_` ignored. So `font:Monoid Nerd Font Mono` finds `MonoidNerdFontMono-Regular.ttf`. [crates/vtium-config/README.md](https://github.com/vtium/vtium/blob/main/crates/vtium-config/README.md#frits) lists every source form and frit key.
+`source=font:FAMILY` finds a kbd console font of that name first. Without one, it finds an outline font file, `.ttf`, `.otf`, `.ttc` or `.otc`, whose own name table gives that family in any language, as `fc-scan --format '%{family}\n' FILE` prints it, with case, spaces, `-` and `_` ignored. The file may have any name, so `font:Monoid Nerd Font Mono` finds `MonoidNerdFontMono-Regular.ttf`, and `font:JetBrains Mono` finds the variable font `JetBrainsMono[wght].ttf` too. A file named for the family, such as `MonoidNerdFontMono.ttf` or `MonoidNerdFontMono-Regular.ttf`, is taken first when its name table gives the family, whatever its style. Otherwise, when several files give the family, the helper takes the first whose subfamily, the style its name table names, is `Regular`, and else the first of the family, where first means in the font directory listed first, then by path. [crates/vtium-config/README.md](https://github.com/vtium/vtium/blob/main/crates/vtium-config/README.md#frits) lists every source form and frit key.
 
 When vtium runs as root, as its unit runs it, it starts the helper as the user `nobody`. The helper looks for outline fonts only under `/usr/share/fonts` and `/usr/local/share/fonts`. A font installed in your home directory, for example under `~/.local/share/fonts`, never reaches it, so copy that font into `/usr/local/share/fonts`:
 

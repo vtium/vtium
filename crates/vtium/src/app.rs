@@ -3,8 +3,8 @@
 //! and when each head draws. The loop calls [`App::turn`] after each
 //! dispatch with the time, and waits at most [`App::next_wake`].
 //!
-//! Each step follows the C reference's flow (docs/c-reference.md, parts 1,
-//! 2 and 5) and vtium-platform's host list:
+//! Each step below says what vtium does at that point of the turn, with
+//! the devices vtium-platform's host list names:
 //!
 //! - **Heads** (ADR-1401 D1, D7). What the head file resolves to
 //!   ([`Start`]): its heads, or the compiled-in configuration's one
@@ -63,9 +63,10 @@
 //!   console, and vtium ends once every head has. A crash loop ends the
 //!   run: under open vtium exits, and under closed it holds its VT with a
 //!   notice and delivers nothing.
-//! - **No display.** From the first acquire, vtium waits `display-wait`
-//!   for a frame on a display's screen, and with none by then it ends
-//!   ([`crate::wait`]); under the closed policy it waits however long it
+//! - **No display.** From the acquire, vtium waits `display-wait` for a
+//!   frame on a display's screen, and with none by then it ends; a
+//!   release before the first frame stops the wait until the VT comes
+//!   back ([`crate::wait`]); under the closed policy it waits however long it
 //!   takes (D8). Once one has come, a head's last going does what
 //!   its `when-display-lost` says (D8): under `keep` its sessions run on at the
 //!   grid they had, with the keys of the devices reaching it and no
@@ -1392,7 +1393,7 @@ impl App {
             helper.retain(&cells, now);
         }
         frit.asked.retain(|c| cells.contains(c));
-        let new: Vec<(vtium_font::Cell, crate::deferred::Shown)> = cells
+        let new: Vec<(vtium_font::Cell, Vec<crate::deferred::Shown>)> = cells
             .into_iter()
             .filter(|c| !frit.asked.contains(c))
             .map(|cell| {
@@ -1409,8 +1410,15 @@ impl App {
             return;
         };
         for (cell, visible) in &new {
-            helper.ask(*cell, visible, now);
-            helper.fill(*cell, &visible.chars, now);
+            for shown in visible {
+                helper.ask(*cell, shown, now);
+            }
+            // the fill is regular, and draws the regular glyphs shown first
+            let first = visible
+                .first()
+                .map(|s| s.chars.as_slice())
+                .unwrap_or_default();
+            helper.fill(*cell, first, now);
         }
         if let Some(frit) = self.frits.get_mut(&name) {
             frit.asked.extend(new.into_iter().map(|(cell, _)| cell));
@@ -1434,8 +1442,10 @@ impl App {
         let visible = head.visible();
         for &cell in &frit.asked {
             if head.views.values().any(|v| v.cell() == cell) {
-                crate::deferred::lock(&frit.generated).touch(cell, &visible);
-                helper.ask(cell, &visible, now);
+                for shown in &visible {
+                    crate::deferred::lock(&frit.generated).touch(cell, shown);
+                    helper.ask(cell, shown, now);
+                }
             }
         }
     }
@@ -1536,7 +1546,11 @@ impl App {
                 if head.frit() != Some(name.as_str()) {
                     continue;
                 }
-                let visible = head.visible().chars;
+                // every character shown, in any style
+                let mut visible: Vec<char> =
+                    head.visible().into_iter().flat_map(|s| s.chars).collect();
+                visible.sort_unstable();
+                visible.dedup();
                 for (cell, chars) in &arrived {
                     let (shown, hidden): (Vec<char>, Vec<char>) =
                         chars.iter().partition(|c| visible.binary_search(c).is_ok());
@@ -1829,6 +1843,9 @@ impl App {
                     head.pointer.drag = None;
                 }
                 self.deactivate();
+                // Before the first frame showed, the start's wait stops
+                // until the VT comes back (vtium/vtium#270).
+                self.wait.released();
                 if let Some(input) = &mut self.input {
                     input.sleep();
                 }
@@ -3720,19 +3737,26 @@ fn head_index(place: Option<vtium_settings::Place>) -> Option<usize> {
     }
 }
 
-/// What the screens of `heads` show, merged: each character and cluster
-/// any of them shows, sorted and once.
-fn shown<'a>(heads: impl Iterator<Item = &'a &'a Head>) -> crate::deferred::Shown {
-    let mut all = crate::deferred::Shown::default();
-    for head in heads {
-        let one = head.visible();
-        all.chars.extend(one.chars);
-        all.clusters.extend(one.clusters);
+/// What the screens of `heads` show, merged style by style: each character
+/// and cluster any of them shows in that style, sorted and once, the
+/// regular style first.
+fn shown<'a>(heads: impl Iterator<Item = &'a &'a Head>) -> Vec<crate::deferred::Shown> {
+    let mut all = vec![crate::deferred::Shown::default()];
+    for one in heads.flat_map(|head| head.visible()) {
+        match all.iter_mut().find(|s| s.style == one.style) {
+            Some(s) => {
+                s.chars.extend(one.chars);
+                s.clusters.extend(one.clusters);
+            }
+            None => all.push(one),
+        }
     }
-    all.chars.sort_unstable();
-    all.chars.dedup();
-    all.clusters.sort_unstable();
-    all.clusters.dedup();
+    for s in &mut all {
+        s.chars.sort_unstable();
+        s.chars.dedup();
+        s.clusters.sort_unstable();
+        s.clusters.dedup();
+    }
     all
 }
 

@@ -6,12 +6,19 @@ In the commands below, `#` marks a command you run as root, for example with sud
 
 ## Arch Linux
 
-The AUR (the Arch User Repository) holds two recipes for vtium. A recipe is a `PKGBUILD`, the build script that makepkg reads to build a package. Install from one of them, since their packages conflict:
+The AUR (the Arch User Repository) holds vtium's recipes. A recipe is a `PKGBUILD`, the build script that makepkg reads to build a package. Each console package comes from a recipe of its own, built either from a release, the tag the maintainer signs, today the pre-release `v0.1.0-alpha.4`, or from the tip of vtium's `main` branch, in the recipe whose name ends in `-git`. Install one console package, since they conflict:
 
-- `vtium` builds a release from the tag the maintainer signs, today the pre-release `v0.1.0-alpha.4`. It builds the packages `vtium` and `vtium-terminfo`.
-- `vtium-git` builds the tip of vtium's `main` branch. It builds the packages `vtium-git` and `vtium-terminfo-git`, which provide `vtium` and `vtium-terminfo`.
+| Package | Built from | What it is for |
+|---|---|---|
+| `vtium`, `vtium-git` | the release, `main` | an ordinary desktop or laptop: pictures (`images`), the power keys through logind (`logind`) and the GPU path (`gpu`), with `hwaccel` on by default |
+| `vtium-minspec`, `vtium-minspec-git` | the release, `main` | a small machine, such as a single-board computer, a server's console or a kiosk: the minspec console, vtium's smallest build, with no feature, the build tier 3 judges |
+| `vtium-minspec-gpu`, `vtium-minspec-gpu-git` | the release, `main` | a small machine with a GPU worth using: the minspec console with the GPU path, `hwaccel` off unless you turn it on |
 
-The console package depends on the terminfo package, which installs `xterm-vtium`, the terminfo entry that sessions in vtium name in `TERM`.
+Each console package provides `vtium`, so a package that depends on vtium takes any of them. The minspec packages keep two buffers for each display, and `vtium` keeps three ([config.md](config.md), `display-buffers`). `vtium` and `vtium-git` depend on `libglvnd` and `mesa` for the GPU path's libraries; `vtium-minspec-gpu` lists them as optional, and without them it draws on the CPU.
+
+Every console package depends on a terminfo package, `vtium-terminfo` or, for a `-git` package, `vtium-terminfo-git`, which installs `xterm-vtium`, the terminfo entry that sessions in vtium name in `TERM`.
+
+No package ships a font. The console draws with its built-in fonts, unifont and unscii-8, and the packages install frits (font set files) that name fonts the distribution packages. A frit leaves out a font the machine lacks, so a frit with none of its fonts installed draws the built-in fonts. The optional package `vtium-fonts` installs no file and depends on every font the shipped frits name: on Arch `ttf-jetbrains-mono`, `ttf-nerd-fonts-symbols-mono`, `noto-fonts-emoji` and `terminus-font`.
 
 makepkg refuses to build the `vtium` recipe until your keyring holds the maintainer's signing key, `33F9B54FD2A4B6A4110749B3BA464FC9847A832A`. The recipe carries a copy of the key, so import it once from there, then build and install:
 
@@ -24,7 +31,7 @@ $ makepkg -si
 
 `gpg --recv-keys 33F9B54FD2A4B6A4110749B3BA464FC9847A832A` fetches the same key from a keyserver instead. `vtium-git` checks no signature, because GitHub signs the merge commits on `main` with its own key.
 
-The recipes build the minspec console, vtium's default and smallest build. `VTIUM_FEATURES` in makepkg's environment builds it with other features, for example `VTIUM_FEATURES='images logind' makepkg -si`. The `images` feature draws sixel and kitty graphics pictures, and the `logind` feature lets the suspend key ask logind, systemd's login manager, to suspend the machine.
+Each recipe fixes its package's features, so the package the AUR describes is the package you build. The `images` feature draws sixel and kitty graphics pictures, the `logind` feature lets the suspend key ask logind, systemd's login manager, to suspend the machine, and the `gpu` feature builds in the path that draws through the GPU. To build another set of features, stage a build from a checkout with `make install` ([From a checkout](#from-a-checkout)).
 
 The packages install these files:
 
@@ -34,8 +41,12 @@ The packages install these files:
 | `/usr/bin/vtium-config` | the font and settings tool, which `vtium config` runs: `vtium config tui` opens a tool that tries each font on the live console and saves your choice into vtium.conf, and `vtium config set` switches the font; it is also the glyph helper, which draws a font's glyphs for the console |
 | `/usr/lib/systemd/system/vtium@.service` | the unit that runs vtium on one VT in place of its getty |
 | `/usr/lib/systemd/system/vtium-getty@.service` | the fallback that starts a getty on the VT when vtium fails |
+| `/usr/bin/vtium-image` | the image helper, which reads a picture a program names by its file, in `vtium` and `vtium-git` |
+| `/usr/lib/sysusers.d/vtium-image.conf` | the image helper's account, in `vtium` and `vtium-git` |
+| `/usr/bin/vtium-gallery` | the picture gallery tool, which shows PNG pictures as a grid of thumbnails, in `vtium` and `vtium-git` |
 | `/etc/vtium/vtium.conf.example` | the example configuration, which lists every key at its default, commented out |
-| `/usr/share/doc/vtium/examples/` | an example udev rule and hwdb fragment, which are documentation and never active |
+| `/etc/vtium/fonts/` | the frits: `minspec-16` and `minspec-8` in every console package, and `desktop` and a Terminus frit in `vtium` and `vtium-git`; each is ready to choose with `vtium config` or vtium.conf's `font-name`, and a frit that nothing names changes nothing |
+| `/usr/share/doc/vtium/examples/` | an example udev rule and hwdb fragment, which are documentation and never active, and `heads.conf`, the head file's commented template, to copy to `/etc/vtium/heads.conf` for a terminal of its own on each display |
 | `/usr/share/terminfo/x/xterm-vtium` | the terminfo entry, from the terminfo package |
 | `/usr/share/licenses/<package>/LICENSE` | the license, in each package |
 
@@ -57,9 +68,9 @@ To install a branch of your own as a package, point the `vtium-git` recipe at yo
 $ VTIUM_GIT_URL=file:///home/me/src/vtium VTIUM_GIT_BRANCH=my-branch makepkg -si
 ```
 
-On another distribution, `make install DESTDIR=DIR PREFIX=/usr` stages under DIR exactly the files the `vtium` package ships, and `make install-terminfo DESTDIR=DIR PREFIX=/usr` stages the terminfo entry, so that a package build can call them. Both refuse an empty DESTDIR and `/`, so neither installs onto the machine itself. The [vtium-arch README](https://github.com/vtium/vtium-arch) describes how the Arch recipes use them.
+On another distribution, `make install DESTDIR=DIR PREFIX=/usr` stages under DIR exactly the files a console package ships, and `make install-terminfo DESTDIR=DIR PREFIX=/usr` stages the terminfo entry, so that a package build can call them. `make install` builds the console with the features `FEATURES='...'` names, none by default, and stages the frits `FRITS='...'` names, by default `desktop`, `minspec-16` and `minspec-8`. `HWACCEL=on` or `off` and `DISPLAY_BUFFERS=1`, `2` or `3` set the defaults of `hwaccel` and `display-buffers` that the build compiles in; the `vtium` recipe names `FEATURES='images logind gpu' HWACCEL=on DISPLAY_BUFFERS=3`, and the minspec recipes `HWACCEL=off DISPLAY_BUFFERS=2`. Both refuse an empty DESTDIR and `/`, so neither installs onto the machine itself. The [vtium-arch README](https://github.com/vtium/vtium-arch) describes how the Arch recipes use them.
 
-`make install-tree` stages the same programs under `target/install-tree`: the console, `vtium-config`, the VT unit and its getty fallback, the terminfo entry and the example configuration. It also needs `tic`, which compiles the terminfo entry. Tier 3, vtium's test harness on a virtual machine, installs that tree in its guest.
+`make install-tree` stages the same programs under `target/install-tree`: the console, `vtium-config`, the VT unit and its getty fallback, the terminfo entry, the example configuration, the frits and the head file's template. It also needs `tic`, which compiles the terminfo entry. Tier 3, vtium's test harness on a virtual machine, installs that tree in its guest.
 
 ## Giving vtium a VT
 
@@ -95,14 +106,29 @@ To give vtium every VT:
 
 `enable --all` links `/etc/systemd/system/autovt@.service`, the template link that logind follows on every VT without a link of its own, to vtium. It enables vtium at boot on VT 1, where logind never starts a console itself, and it disables the gettys on VTs 2 to 6, so logind starts vtium on each the first time you switch to it. It leaves these VTs alone and names each one:
 
-- a VT a display manager claims, as sddm claims VT 1, and a VT a graphical session or a greeter is on now;
+- a VT another program uses now or will claim at the next boot (below);
 - a VT where `kmscon` is enabled, linked or running, and a VT the development install holds ([The development VT](vt-review.md#installing-vtium-on-a-vt));
 - a VT whose own link, `/etc/systemd/system/autovt@ttyN.service`, names another console;
 - VTs above 6, where logind starts no console by itself; `enable N` gives vtium such a VT at boot.
 
 VT 6 is logind's reserved VT, where logind starts a console at every switch, even while the VT is in use. `enable 6` and `enable --all` refuse while someone is logged in on VT 6, unless that login is inside a vtium running there. A getty that waits at its login prompt on VT 6 holds no session, so both go ahead, and the next switch to VT 6 stops that getty. Where VT 6 has no link of its own, `enable --all` also refuses, rather than passing VT 6 by, while `kmscon` or the development install is enabled or running there.
 
-On a machine where `kmscon` holds the template link, read [Moving from kmscon](#moving-from-kmscon) before you run `enable --all`.
+### VTs that other programs hold
+
+`vtium console` follows common convention: on a machine with a display manager, VT 1 stays the display manager's and its getty's, as systemd's preset and the display managers' own units leave it, and vtium takes other VTs. It never takes a VT that your system is set up to give to another program: a unit enabled at boot that claims the VT, or an enabled display manager. What is running now on a VT holds it as well, but never frees one. `enable N` refuses such a VT, `enable --all` passes it by, and both say what holds the VT and how vtium knows:
+
+- VT 1, while a display manager is enabled, whatever VT the display manager uses now: `/etc/systemd/system/display-manager.service` links to it, or a unit that starts at boot runs one vtium knows by name, such as ly's `ly@tty2`, which ly enables without that link;
+- a VT whose getty a unit that starts at boot names in `Conflicts=`, as Arch's `sddm.service` names `getty@tty1.service`;
+- a graphical session or a greeter on the VT now, which it asks logind for;
+- another console running on the VT now, such as `fbterm@tty4.service`;
+- a unit that starts at boot and runs on the VT, such as `cage@tty3.service` or a unit with `TTYPath=/dev/tty9`;
+- a VT your display manager's own configuration starts its greeter on: LightDM's `minimum-vt`, 7 unless you set it, greetd's `vt`, and SDDM's `MinimumVT`.
+
+Nothing frees a VT: a display manager's greeter running on VT 2 leaves VT 1 the display manager's all the same. `vtium console status` gives the reasons under its table.
+
+If vtium fails on a VT, its fallback starts that VT's getty again, so that you have a login. It never does this when the getty's start would stop another program, as starting `getty@tty1` would stop a display manager whose unit conflicts with it. Then the VT is left without a console, and `journalctl -b -u vtium-getty@tty1.service` says why. Log in on another VT or over ssh to find out why vtium failed ([A VT that shows a getty](troubleshooting.md#a-vt-that-shows-a-getty)).
+
+On a machine where another terminal, such as `kmscon`, holds the template link or runs on your VTs, read [Moving from another DRM/KMS VT](#moving-from-another-drmkms-vt) before you run `enable --all`.
 
 Before `enable` changes anything, it records what each VT had in `/var/lib/vtium/console/`, and `disable` puts back exactly that:
 
@@ -113,11 +139,11 @@ Before `enable` changes anything, it records what each VT had in `/var/lib/vtium
 
 `disable 3` takes vtium off VT 3's boot list, removes VT 3's own link to vtium, and gives VT 3 back the getty it had. After `enable --all`, though, logind still starts vtium on VT 3 through the template link whenever you switch to VT 3 while nothing runs there, and `disable 3` says so. Only `disable --all` points the template link back where it pointed before.
 
-[crates/vtium/README.md](https://github.com/vtium/vtium/blob/main/crates/vtium/README.md#setting-it-up) gives the full rules. On a machine that was not booted with systemd, `vtium console` changes nothing and says so; there an inittab line, an init script or a supervisor runs `vtium --vt=ttyN --no-switchvt` where it ran a getty ([systemd.md](systemd.md)).
+[crates/vtium/README.md](https://github.com/vtium/vtium/blob/main/crates/vtium/README.md#setting-it-up) gives the full rules. On a machine that was not booted with systemd, `vtium console` changes nothing and says so; there you replace a VT's getty entry with one that runs `vtium --vt=ttyN --no-switchvt`, the way your init system runs the getty, as [Giving vtium a VT without systemd](systemd.md#giving-vtium-a-vt-without-systemd) shows for sysvinit, OpenRC and runit.
 
-## Moving from kmscon
+## Moving from another DRM/KMS VT
 
-`vtium console enable --all` refuses while the template link names `kmscon`'s unit, `kmsconvt@.service`, and it passes by every VT where `kmscon` still runs. Disable and stop `kmscon` first, from a desktop terminal or over ssh, after logging out of each VT where it runs:
+A terminal that draws on a VT through DRM/KMS, as vtium does, such as `kmscon`, starts there in one of two ways: from a unit enabled at boot for that VT, or from the template link `/etc/systemd/system/autovt@.service`, which logind follows when you switch to a VT that nothing runs on. `vtium console` passes by every VT where another terminal is enabled at boot or still runs ([VTs that other programs hold](#vts-that-other-programs-hold)), so take those VTs back first. Do it from a desktop terminal or over ssh, after logging out of each VT where the other terminal runs. With `kmscon`, whose unit is `kmsconvt@.service`:
 
 ```
 # systemctl disable kmsconvt@.service
@@ -126,7 +152,9 @@ $ systemctl list-units 'kmsconvt@*'
 # vtium console enable --all
 ```
 
-Run the `stop` line for each VT that `list-units` shows. Removing `kmscon` afterwards is up to you, with `pacman -R kmscon`; vtium needs nothing from it. vtium never reads `/etc/kmscon/kmscon.conf`. vtium reads the keys `kmscon` used, with the departures that [crates/vtium/README.md](https://github.com/vtium/vtium/blob/main/crates/vtium/README.md#departures) lists, so you can copy that file to `/etc/vtium/vtium.conf` by hand and check it with `vtium check-config`. [crates/vtium/README.md](https://github.com/vtium/vtium/blob/main/crates/vtium/README.md#sharing-vts-with-kmscon) says when to keep `kmscon-terminfo`.
+Run the `stop` line for each VT that `list-units` shows. For another terminal, put its own unit's name in place of `kmsconvt@`. `systemctl disable` stops nothing, and logging out of a VT leaves the terminal running there. `vtium console enable --all` refuses while the template link names `kmscon`'s unit. When the template link names another terminal's unit, `enable --all` records the link before it points it at vtium, and `disable --all` points it back.
+
+Removing `kmscon` afterwards is up to you, with `pacman -R kmscon`; vtium needs nothing from it. vtium never reads `/etc/kmscon/kmscon.conf`. vtium takes the keys `kmscon` used, so you can copy that file to `/etc/vtium/vtium.conf` by hand and check it with `vtium check-config`; [config.md](config.md) lists every key vtium reads. [crates/vtium/README.md](https://github.com/vtium/vtium/blob/main/crates/vtium/README.md#sharing-vts-with-kmscon) says when to keep `kmscon-terminfo`.
 
 ## Upgrading and removing
 

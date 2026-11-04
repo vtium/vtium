@@ -1487,28 +1487,311 @@ fn monitors_of_one_model_without_paths_take_back_both_crtcs() {
     assert_eq!(one_model_back("same-edid-no-paths", false), (102, 103));
 }
 
-// A hotplug keeps each lit display on its CRTC. Here A is lit on CRTC 100
-// and its encoder drives 100 and 101, and B, plugged in, drives only 100.
-// Moving A to 101 would free 100 for B, but the hotplug leaves A where it
-// is: B gets no CRTC, with an error, and a later hotplug fails the same
-// way. The next wake-up places every display together, so A moves to 101
-// and B lights on 100. Whether a hotplug should move a lit display here is
-// the maintainer's to decide.
-#[test]
-fn a_hotplug_keeps_a_lit_display_on_its_crtc_and_the_wake_up_places_the_new_one() {
-    let card = FakeCard::new(&[
-        (A, vec![mode(640, 480, 60, true)]),
-        (B, vec![mode(640, 480, 60, true)]),
-    ]);
+/// A card with a CRTC for each of `crtcs` connectors, 41 on, each at
+/// 640x480, whose encoders drive the CRTCs `reach` gives, a bit per CRTC
+/// in the card's order, and which lists only the first `listed` of them.
+fn reaching(reach: &[u32], listed: usize) -> FakeCard {
+    let ids: Vec<(u32, Vec<Mode>)> = (0..reach.len())
+        .map(|i| {
+            (
+                A + u32::try_from(i).unwrap(),
+                vec![mode(640, 480, 60, true)],
+            )
+        })
+        .collect();
+    let card = FakeCard::new(&ids);
     {
         let mut s = card.state();
-        s.listed.retain(|&c| c == A);
-        s.encoders.get_mut(&200).unwrap().possible_crtcs = 0b11;
-        s.encoders.get_mut(&201).unwrap().possible_crtcs = 0b01;
+        for (i, &crtcs) in reach.iter().enumerate() {
+            let encoder = 200 + u32::try_from(i).unwrap();
+            s.encoders.get_mut(&encoder).unwrap().possible_crtcs = crtcs;
+        }
+        s.listed.truncate(listed);
     }
+    card
+}
+
+/// The lines logged since the capture that say a display moves.
+fn moves() -> Vec<String> {
+    logs::at_least(Level::Info)
+        .into_iter()
+        .filter(|l| l.contains(" moves from CRTC "))
+        .collect()
+}
+
+// A hotplug moves a lit display only where that is the only way to light
+// the new one. Here A is lit on CRTC 100, and its encoder drives 100 and
+// 101; B, plugged in, drives only 100. A moves to 101 and B takes 100, in
+// one modeset that sets A's mode on 101 anew, and both are lit at once,
+// A showing the frame it showed before. A later hotplug that changes
+// nothing moves nothing and commits nothing.
+#[test]
+fn a_hotplug_moves_a_lit_display_when_that_is_the_only_way_to_light_the_new_one() {
+    for atomic in [true, false] {
+        let card = reaching(&[0b11, 0b01], 1);
+        card.state().atomic = atomic;
+        let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+        let shown = drawn(&mut v, A, 0x55);
+        let crtc_sets = v.card().state().set_crtcs.len();
+        v.card().state().listed.push(B);
+        logs::capture();
+        v.poll().unwrap();
+        assert_eq!(
+            events(&mut v),
+            [Event::Added(DisplayId(B))],
+            "atomic {atomic}"
+        );
+        assert_eq!(
+            moves(),
+            ["display HDMI-A-1 moves from CRTC 100 to CRTC 101"],
+            "atomic {atomic}"
+        );
+        assert!(logs::at_least(Level::Error).is_empty(), "atomic {atomic}");
+        if atomic {
+            let modeset = v.card().last_commit().unwrap();
+            assert_eq!(modeset.get(A, "CRTC_ID"), Some(101));
+            assert_eq!(modeset.get(B, "CRTC_ID"), Some(100));
+            assert!(
+                modeset.get(101, "MODE_ID").is_some_and(|m| m != 0),
+                "a full modeset of A on 101"
+            );
+        } else {
+            let sets = v.card().state().set_crtcs[crtc_sets..].to_vec();
+            let on: Vec<(u32, u32)> = sets
+                .iter()
+                .map(|&(crtc, _, conn, _)| (conn, crtc))
+                .collect();
+            assert_eq!(on, [(A, 101), (B, 100)]);
+        }
+        flip(&mut v);
+        if atomic {
+            assert!(
+                v.card().shows(101, shown),
+                "A shows its frame on 101: {:?}",
+                v.card().state()
+            );
+        }
+        // B draws first: on the legacy path no flip has started on 100
+        // since A left it, so the flip of B's first frame there is B's
+        // alone, though A's last flip was on 100.
+        let b = drawn(&mut v, B, 0x77);
+        let a = drawn(&mut v, A, 0x66);
+        if atomic {
+            assert!(v.card().shows(101, a), "{:?}", v.card().state());
+            assert!(v.card().shows(100, b), "{:?}", v.card().state());
+        } else {
+            let flips = v.card().state().page_flips.clone();
+            assert!(flips.ends_with(&[(100, b), (101, a)]), "{flips:?}");
+        }
+        // B's flip ended, so it draws again.
+        let b = drawn(&mut v, B, 0x78);
+        if !atomic {
+            assert_eq!(v.card().state().page_flips.last(), Some(&(100, b)));
+        }
+        let commits = v.card().state().commits.len();
+        let crtc_sets = v.card().state().set_crtcs.len();
+        logs::capture();
+        v.poll().unwrap();
+        assert_eq!(events(&mut v), []);
+        assert_eq!(moves(), Vec::<String>::new());
+        assert_eq!(v.card().state().commits.len(), commits);
+        assert_eq!(v.card().state().set_crtcs.len(), crtc_sets);
+    }
+}
+
+// A lit display moved for a new one that the card then refuses on its new
+// CRTC goes back. Here A is lit on CRTC 100 and its encoder drives 100 and
+// 101; B, plugged in, drives only 100; and the card refuses any commit on
+// 101, as past a bandwidth limit. The hotplug moves A to 101 for B, the
+// card refuses that, and A goes back to 100 and lights there while B
+// stays off, with no retry and no failed wake-up. A later hotplug moves
+// nothing for B and commits nothing.
+#[test]
+fn a_lit_display_the_card_refuses_on_its_new_crtc_goes_back() {
+    for atomic in [true, false] {
+        let card = reaching(&[0b11, 0b01], 1);
+        {
+            let mut s = card.state();
+            s.atomic = atomic;
+            s.refused.push(101);
+        }
+        let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+        drawn(&mut v, A, 0x55);
+        v.card().state().listed.push(B);
+        logs::capture();
+        v.poll().unwrap();
+        assert_eq!(events(&mut v), [], "atomic {atomic}");
+        assert_eq!(
+            moves(),
+            [
+                "display HDMI-A-1 moves from CRTC 100 to CRTC 101",
+                "display HDMI-A-1 moves from CRTC 101 to CRTC 100"
+            ],
+            "atomic {atomic}"
+        );
+        assert_eq!(v.waits(), (false, false), "atomic {atomic}: no retry");
+        let a = drawn(&mut v, A, 0x66);
+        if atomic {
+            assert!(v.card().shows(100, a), "{:?}", v.card().state());
+        } else {
+            let s = v.card().state();
+            assert_eq!(s.bound.get(&A), Some(&100), "{s:?}");
+            assert_eq!(s.page_flips.last(), Some(&(100, a)), "{s:?}");
+        }
+        assert_ne!(v.card().state().bound.get(&B), Some(&100));
+        let commits = v.card().state().commits.len();
+        let sets = v.card().state().set_crtcs.len();
+        logs::capture();
+        v.poll().unwrap();
+        assert_eq!(events(&mut v), []);
+        assert_eq!(moves(), Vec::<String>::new());
+        assert_eq!(v.card().state().commits.len(), commits);
+        assert_eq!(v.card().state().set_crtcs.len(), sets);
+        assert_eq!(v.waits(), (false, false));
+    }
+}
+
+// A chain of lit displays moved for a new one goes back as a whole when
+// the card refuses the last move. Here A is lit on CRTC 100 and drives 100
+// and 101, C is lit on 101 and drives 101 and 102, and B, plugged in,
+// drives only 100; the card refuses 102. The hotplug moves A to 101 and C
+// to 102 for B, the card refuses C on 102, and A and C go back to 100 and
+// 101 and light there, while B stays off.
+#[test]
+fn a_chain_of_lit_displays_the_card_refuses_goes_back() {
+    const C: u32 = 43;
+    for atomic in [true, false] {
+        let card = reaching(&[0b011, 0b001, 0b110], 3);
+        {
+            let mut s = card.state();
+            s.atomic = atomic;
+            s.listed.retain(|&c| c != B);
+        }
+        let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+        v.card().state().refused.push(102);
+        v.card().state().listed.insert(1, B);
+        v.poll().unwrap();
+        assert_eq!(events(&mut v), [], "atomic {atomic}");
+        assert_eq!(v.waits(), (false, false), "atomic {atomic}");
+        let a = drawn(&mut v, A, 0x55);
+        let c = drawn(&mut v, C, 0x66);
+        if atomic {
+            assert!(v.card().shows(100, a), "{:?}", v.card().state());
+            assert!(v.card().shows(101, c), "{:?}", v.card().state());
+        } else {
+            let s = v.card().state();
+            assert_eq!(
+                (s.bound.get(&A), s.bound.get(&C)),
+                (Some(&100), Some(&101)),
+                "{s:?}"
+            );
+            assert!(s.page_flips.ends_with(&[(100, a), (101, c)]), "{s:?}");
+        }
+        assert_eq!(v.card().state().bound.get(&B), None, "atomic {atomic}");
+    }
+}
+
+// Blanked, a hotplug moves no lit display: the modeset waits for the input
+// that ends the blank, and a display with no DPMS property draws on
+// meanwhile, on the CRTC its connector is on. Here A has no DPMS property
+// and is lit on CRTC 100, and B, plugged in while blanked, drives only
+// 100. A keeps drawing on 100 and B waits; the input that ends the blank
+// moves A to 101 and lights B on 100.
+#[test]
+fn a_hotplug_while_blanked_moves_no_lit_display_until_input() {
+    let card = reaching(&[0b11, 0b01], 1);
+    card.state().no_dpms.push(A);
+    let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    let (mut blank, at) = blanked(&mut v);
+    v.events().for_each(drop);
+    let commits = v.card().state().commits.len();
+    v.card().state().listed.push(B);
+    logs::capture();
+    v.poll().unwrap();
+    assert_eq!(events(&mut v), []);
+    assert_eq!(moves(), Vec::<String>::new());
+    assert_eq!(v.card().state().commits.len(), commits, "nothing committed");
+    let shown = drawn(&mut v, A, 0x55);
+    assert!(v.card().shows(100, shown), "{:?}", v.card().state());
+    activity(&mut v, &mut blank, at);
+    assert_eq!(events(&mut v), [Event::Added(DisplayId(B))]);
+    assert_eq!(
+        moves(),
+        ["display HDMI-A-1 moves from CRTC 100 to CRTC 101"]
+    );
+    let b = drawn(&mut v, B, 0x77);
+    let a = drawn(&mut v, A, 0x66);
+    assert!(v.card().shows(101, a), "{:?}", v.card().state());
+    assert!(v.card().shows(100, b), "{:?}", v.card().state());
+}
+
+// A hotplug that can light its new displays without moving a lit one
+// moves none. Here A is lit on CRTC 100, and B and C are plugged in
+// together: B drives 101 and 102 and takes 101, the first free; C drives
+// only 100 and 101. A could move to 102 to free 100 for C, but moving B,
+// which is not lit yet, to 102 frees 101 for C, so A stays where it is and
+// keeps its frame on screen.
+#[test]
+fn a_hotplug_moves_no_lit_display_where_the_new_ones_light_without_it() {
+    const C: u32 = 43;
+    let card = reaching(&[0b101, 0b110, 0b011], 1);
+    let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    let shown = drawn(&mut v, A, 0x55);
+    v.card().state().listed.extend([B, C]);
+    logs::capture();
+    v.poll().unwrap();
+    assert_eq!(
+        events(&mut v),
+        [Event::Added(DisplayId(B)), Event::Added(DisplayId(C))]
+    );
+    assert_eq!(moves(), Vec::<String>::new());
+    let modeset = v.card().last_commit().unwrap();
+    assert_eq!(
+        [A, B, C].map(|id| modeset.get(id, "CRTC_ID")),
+        [Some(100), Some(102), Some(101)]
+    );
+    flip(&mut v);
+    assert!(v.card().shows(100, shown), "{:?}", v.card().state());
+}
+
+// Where a lit display must move, the hotplug moves as few lit displays as
+// it can. Here A is lit on CRTC 100 and B on 101; C, plugged in, drives
+// only 100. A drives every CRTC, and B drives 101 and 102. A could move to
+// 101 with B moving on to 102, or straight to 102: it moves straight to
+// 102, and B stays on 101.
+#[test]
+fn a_hotplug_moves_as_few_lit_displays_as_it_can() {
+    const C: u32 = 43;
+    let card = reaching(&[0b111, 0b110, 0b001], 2);
+    let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    drawn(&mut v, A, 0x55);
+    let b = drawn(&mut v, B, 0x66);
+    v.card().state().listed.push(C);
+    logs::capture();
+    v.poll().unwrap();
+    assert_eq!(events(&mut v), [Event::Added(DisplayId(C))]);
+    assert_eq!(
+        moves(),
+        ["display HDMI-A-1 moves from CRTC 100 to CRTC 102"]
+    );
+    flip(&mut v);
+    assert!(v.card().shows(101, b), "{:?}", v.card().state());
+    let c = drawn(&mut v, C, 0x77);
+    assert!(v.card().shows(100, c), "{:?}", v.card().state());
+}
+
+// Where no placement lights the new display, nothing moves. Here A is lit
+// on CRTC 100, the only CRTC either encoder drives. B, plugged in, gets no
+// CRTC, with an error, A stays lit, and nothing is committed. The next
+// hotplug finds the same: one error again, and no commit, no event and no
+// retry, so nothing loops.
+#[test]
+fn a_hotplug_that_cannot_light_the_new_display_moves_nothing() {
+    let card = reaching(&[0b01, 0b01], 1);
     let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
     let shown = drawn(&mut v, A, 0x55);
     v.card().state().listed.push(B);
+    let commits = v.card().state().commits.len();
     for _ in 0..2 {
         logs::capture();
         v.poll().unwrap();
@@ -1518,22 +1801,38 @@ fn a_hotplug_keeps_a_lit_display_on_its_crtc_and_the_wake_up_places_the_new_one(
             ["no free CRTC for HDMI-A-2"],
             "B waits"
         );
+        assert_eq!(moves(), Vec::<String>::new());
+        assert_eq!(v.card().state().commits.len(), commits);
+        assert_eq!(
+            v.waits(),
+            (false, false),
+            "no modeset waits and no retry runs"
+        );
         assert!(v.card().shows(100, shown), "A stays lit on CRTC 100");
     }
-    v.sleep();
-    flip(&mut v);
+}
+
+// A lit display that must move while its flip is in flight moves once the
+// flip ends. The flip's event comes for the CRTC the display left, which
+// the new display takes: it ends the moving display's flip, and the
+// modeset that waited for it runs.
+#[test]
+fn a_hotplug_moves_a_lit_display_once_its_flip_is_in() {
+    let card = reaching(&[0b11, 0b01], 1);
+    let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    drawn(&mut v, A, 0x55);
+    fill(&mut v, A, 0x66, &[rect(0, 0, 640, 480)]).unwrap();
     v.events().for_each(drop);
-    v.wake_up().unwrap();
-    assert_eq!(
-        events(&mut v),
-        [
-            Event::Redraw(DisplayId(A)),
-            Event::Added(DisplayId(B)),
-            Event::Awake
-        ]
-    );
-    let a = drawn(&mut v, A, 0x66);
-    let b = drawn(&mut v, B, 0x77);
+    v.card().state().listed.push(B);
+    let commits = v.card().real_commits().len();
+    v.poll().unwrap();
+    assert_eq!(v.waits(), (true, false), "the modeset waits for A's flip");
+    assert_eq!(v.card().real_commits().len(), commits);
+    flip(&mut v);
+    assert_eq!(v.waits(), (false, false));
+    assert_eq!(events(&mut v), [Event::Added(DisplayId(B))]);
+    let a = drawn(&mut v, A, 0x77);
+    let b = drawn(&mut v, B, 0x88);
     assert!(v.card().shows(101, a), "{:?}", v.card().state());
     assert!(v.card().shows(100, b), "{:?}", v.card().state());
 }
@@ -5620,4 +5919,418 @@ fn a_buffer_retired_for_a_dropped_token_is_freed_at_the_next_scan() {
     drop(token);
     v.poll().unwrap();
     assert!(v.card().state().dumbs.is_empty());
+}
+
+/// A card where A and B drive CRTCs 100 and 101, lit on them, and C
+/// drives only 102. While vtium is away, a desktop leaves B's connector on
+/// 100 and A's on none, and C is plugged in; the card refuses CRTC
+/// `refuse`. The wake-up's outputs, its events, and the connectors whose
+/// displays a hotplug moves no lit display for.
+fn woken_with_c_refused(atomic: bool, refuse: u32) -> (Vec<(u32, u32)>, Vec<Event>, Vec<u32>) {
+    const C: u32 = 43;
+    let card = reaching(&[0b011, 0b011, 0b100], 2);
+    {
+        let mut s = card.state();
+        s.atomic = atomic;
+        s.bind(A, 100);
+        s.bind(B, 101);
+    }
+    let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    assert_eq!(v.card().state().bound.get(&A), Some(&100));
+    assert_eq!(v.card().state().bound.get(&B), Some(&101));
+    v.sleep();
+    v.events().for_each(drop);
+    desktop_leaves(v.card(), B, 100);
+    v.card().state().bind(A, 0);
+    v.card().state().listed.push(C);
+    v.card().state().refused.push(refuse);
+    let _ = v.wake_up();
+    let outs: Vec<(u32, u32)> = v.outputs.iter().map(|o| (o.id.0, o.crtc)).collect();
+    let ev = events(&mut v);
+    (outs, ev, v.move_refused.clone())
+}
+
+// A wake-up whose modeset the card refuses moves back only a display that
+// a new display took the CRTC of. Here B's connector is on 100, where A
+// was, and A's is on none, so B takes 100 and A 101 without either moving
+// for C; the card refuses C's CRTC, 102. C is left off, A and B stay on
+// 101 and 100, never two displays on one CRTC, and nothing is recorded as
+// refused for C, since no display moved for it.
+#[test]
+fn a_refused_wake_up_moves_back_only_a_display_moved_for_a_new_one() {
+    let (outs, _, refused) = woken_with_c_refused(true, 102);
+    assert_eq!(outs, [(A, 101), (B, 100)]);
+    assert_eq!(refused, Vec::<u32>::new());
+}
+
+// With the legacy calls, a wake-up that cannot set A on its CRTC leaves
+// every other display lit: B is not let go, though no display moved.
+#[test]
+fn a_legacy_wake_up_that_cannot_set_one_display_keeps_the_others() {
+    let (outs, ev, _) = woken_with_c_refused(false, 101);
+    assert!(!ev.contains(&Event::Removed(DisplayId(B))), "{ev:?}");
+    assert!(outs.iter().any(|o| o.0 == B), "{outs:?}");
+}
+
+// A connector the card refused beside the others stops no later hotplug
+// from moving a lit display for another new display. Here A is lit on 100
+// and drives 100 and 101, D is lit on 102 and drives 102 and 103, B drives
+// only 100, M drives only 102, and the card refuses 101. B's hotplug moves
+// A to 101, which the card refuses, so A goes back and B stays off. M's
+// hotplug then moves D to 103 and lights M on 102.
+#[test]
+fn a_refused_connector_leaves_later_hotplugs_free_to_move_for_others() {
+    const D: u32 = 43;
+    const M: u32 = 44;
+    for atomic in [true, false] {
+        let card = reaching(&[0b0011, 0b0001, 0b1100, 0b0100], 4);
+        {
+            let mut s = card.state();
+            s.atomic = atomic;
+            s.listed.retain(|&c| c == A || c == D);
+            s.refused.push(101);
+        }
+        let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+        assert_eq!(v.card().state().bound.get(&A), Some(&100));
+        assert_eq!(v.card().state().bound.get(&D), Some(&102));
+        v.card().state().listed.push(B);
+        v.poll().unwrap();
+        flip(&mut v);
+        v.events().for_each(drop);
+        assert_eq!(v.move_refused, [B], "atomic {atomic}");
+        v.card().state().listed.push(M);
+        logs::capture();
+        v.poll().unwrap();
+        assert_eq!(
+            events(&mut v),
+            [Event::Added(DisplayId(M))],
+            "atomic {atomic}"
+        );
+        assert_eq!(
+            moves(),
+            ["display HDMI-A-3 moves from CRTC 102 to CRTC 103"],
+            "atomic {atomic}"
+        );
+    }
+}
+
+// Once its connector is unplugged, a refused connector is forgotten: the
+// card stops refusing, B is plugged back in, and the hotplug moves A for it
+// again and lights both.
+#[test]
+fn a_refused_connector_unplugged_and_back_moves_a_lit_display_again() {
+    let card = reaching(&[0b11, 0b01], 1);
+    card.state().refused.push(101);
+    let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    drawn(&mut v, A, 0x55);
+    v.card().state().listed.push(B);
+    v.poll().unwrap();
+    flip(&mut v);
+    assert_eq!(v.move_refused, [B]);
+    v.card().state().listed.retain(|&c| c != B);
+    v.poll().unwrap();
+    assert_eq!(v.move_refused, Vec::<u32>::new());
+    v.events().for_each(drop);
+    v.card().state().refused.clear();
+    v.card().state().listed.push(B);
+    logs::capture();
+    v.poll().unwrap();
+    assert_eq!(events(&mut v), [Event::Added(DisplayId(B))]);
+    assert_eq!(
+        moves(),
+        ["display HDMI-A-1 moves from CRTC 100 to CRTC 101"]
+    );
+}
+
+// A modeset that sets a moved display on its new CRTC makes that CRTC its
+// home. Here A moves from 100 to 101 for B, and the modeset takes; B is
+// then unplugged, which moves nothing, and C, plugged in on a CRTC the card
+// refuses, is left off with A still lit on 101, not sent back to 100.
+#[test]
+fn a_moved_display_set_on_its_new_crtc_stays_there() {
+    const C: u32 = 43;
+    let card = reaching(&[0b011, 0b001, 0b100], 1);
+    let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    drawn(&mut v, A, 0x55);
+    v.card().state().listed.push(B);
+    v.poll().unwrap();
+    flip(&mut v);
+    v.events().for_each(drop);
+    v.card().state().listed.retain(|&c| c != B);
+    logs::capture();
+    v.poll().unwrap();
+    assert_eq!(moves(), Vec::<String>::new(), "B's unplug moves nothing");
+    v.card().state().refused.push(102);
+    v.card().state().listed.push(C);
+    v.poll().unwrap();
+    assert_eq!(moves(), Vec::<String>::new(), "C's refusal moves nothing");
+    let a = drawn(&mut v, A, 0x66);
+    assert!(v.card().shows(101, a), "{:?}", v.card().state());
+}
+
+// A move whose reason is gone before its modeset is undone without
+// blanking the display. A's flip is in flight when B is plugged in, so the
+// modeset that moves A to 101 waits; B is unplugged before the flip ends,
+// and the next hotplug puts A back on 100. The modeset then sets A on 100,
+// and no commit turns 100 off.
+#[test]
+fn a_move_whose_new_display_leaves_before_its_modeset_is_undone() {
+    let card = reaching(&[0b11, 0b01], 1);
+    let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    drawn(&mut v, A, 0x55);
+    fill(&mut v, A, 0x66, &[rect(0, 0, 640, 480)]).unwrap();
+    v.events().for_each(drop);
+    let commits = v.card().real_commits().len();
+    v.card().state().listed.push(B);
+    logs::capture();
+    v.poll().unwrap();
+    assert_eq!(v.waits(), (true, false), "the modeset waits for A's flip");
+    v.card().state().listed.retain(|&c| c != B);
+    v.poll().unwrap();
+    assert_eq!(
+        moves(),
+        [
+            "display HDMI-A-1 moves from CRTC 100 to CRTC 101",
+            "display HDMI-A-1 moves from CRTC 101 to CRTC 100"
+        ]
+    );
+    flip(&mut v);
+    let after = v.card().real_commits()[commits..].to_vec();
+    assert!(
+        after.iter().all(|c| c.get(100, "ACTIVE") != Some(0)),
+        "{after:?}"
+    );
+    let a = drawn(&mut v, A, 0x77);
+    assert!(v.card().shows(100, a), "{:?}", v.card().state());
+}
+
+// Only the card's refusal is remembered. A modeset that fails for a reason
+// that may pass, here ENOMEM, moves the lit display back and leaves the new
+// one off, but records nothing: the next hotplug moves A for B again.
+#[test]
+fn a_modeset_that_fails_for_a_passing_reason_records_no_refusal() {
+    let card = reaching(&[0b11, 0b01], 1);
+    let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    drawn(&mut v, A, 0x55);
+    v.card().state().commit_errors.push_back(Errno::NOMEM);
+    v.card().state().listed.push(B);
+    v.poll().unwrap();
+    flip(&mut v);
+    v.events().for_each(drop);
+    assert_eq!(v.move_refused, Vec::<u32>::new());
+    logs::capture();
+    v.poll().unwrap();
+    assert_eq!(events(&mut v), [Event::Added(DisplayId(B))]);
+    assert_eq!(
+        moves(),
+        ["display HDMI-A-1 moves from CRTC 100 to CRTC 101"]
+    );
+}
+
+// A display that is not lit goes back too, where the card refuses where it
+// was put. Here a desktop left A's connector on no CRTC and B's on 101,
+// and C, plugged in while away, drives only 100, where A was; A also drives
+// 102, which the card refuses. The wake-up puts C on 100 and A on 102; the
+// card refuses that, so C is left off and A goes back to 100, and the
+// wake-up succeeds with A on 100 and B on 101. No lit display moved for C,
+// so nothing is recorded as refused.
+#[test]
+fn a_refused_wake_up_puts_a_display_that_was_not_lit_back() {
+    const C: u32 = 43;
+    let card = reaching(&[0b101, 0b010, 0b001], 2);
+    let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    assert_eq!(v.card().state().bound.get(&A), Some(&100));
+    assert_eq!(v.card().state().bound.get(&B), Some(&101));
+    v.sleep();
+    v.events().for_each(drop);
+    desktop_leaves(v.card(), B, 101);
+    v.card().state().bind(A, 0);
+    v.card().state().listed.push(C);
+    v.card().state().refused.push(102);
+    v.wake_up().unwrap();
+    let outs: Vec<(u32, u32)> = v.outputs.iter().map(|o| (o.id.0, o.crtc)).collect();
+    assert_eq!(outs, [(A, 100), (B, 101)]);
+    assert_eq!(v.waits(), (false, false), "no retry");
+    assert_eq!(v.move_refused, Vec::<u32>::new());
+}
+
+/// A card with four connectors: A drives CRTCs 100 and 101, B 101 and
+/// 103, W 100 and 102, and N only 102. A, B and W are lit on 100, 101 and
+/// 102. While vtium is away, a desktop leaves W's connector on 100 and A's
+/// and B's on none, and N is plugged in; the card refuses CRTC `refuse`.
+/// The wake-up puts W on 100, A on 101, off 100, B on 103, off 101, and N
+/// on 102. The wake-up's result, its outputs, and the displays it left
+/// unset.
+fn woken_in_a_chain(atomic: bool, refuse: u32) -> (io::Result<()>, Vec<(u32, u32)>, Vec<u32>) {
+    const W: u32 = 43;
+    const N: u32 = 44;
+    let card = reaching(&[0b0011, 0b1010, 0b0101, 0b0100], 3);
+    {
+        let mut s = card.state();
+        s.atomic = atomic;
+        s.bind(A, 100);
+        s.bind(B, 101);
+        s.bind(W, 102);
+    }
+    let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    v.sleep();
+    v.events().for_each(drop);
+    desktop_leaves(v.card(), W, 100);
+    v.card().state().bind(A, 0);
+    v.card().state().bind(B, 0);
+    v.card().state().listed.push(N);
+    v.card().state().refused.push(refuse);
+    let woke = v.wake_up();
+    let outs = v.outputs.iter().map(|o| (o.id.0, o.crtc)).collect();
+    (woke, outs, v.unset.iter().map(|id| id.0).collect())
+}
+
+// A display that cannot go back keeps its CRTC from a display that would
+// go back to it. Here the card refuses N's CRTC, 102. The modeset leaves N
+// off, and A cannot go back to 100, which W holds, so A stays on 101; B
+// then cannot go back to 101 and stays on 103. The wake-up succeeds with A
+// on 101, B on 103 and W on 100. With the legacy calls nothing moved for
+// N, so nothing goes back: N stays bound on 102, unset, and is tried
+// again.
+#[test]
+fn a_display_that_cannot_go_back_holds_its_crtc_for_the_chain() {
+    const W: u32 = 43;
+    const N: u32 = 44;
+    let (woke, outs, unset) = woken_in_a_chain(true, 102);
+    assert!(woke.is_ok(), "{woke:?}");
+    assert_eq!(outs, [(A, 101), (B, 103), (W, 100)]);
+    assert_eq!(unset, Vec::<u32>::new());
+    let (woke, outs, unset) = woken_in_a_chain(false, 102);
+    assert!(woke.is_ok(), "{woke:?}");
+    assert_eq!(outs, [(A, 101), (B, 103), (W, 100), (N, 102)]);
+    assert_eq!(unset, [N]);
+}
+
+// Where the card refuses B's CRTC, 103, B cannot be lit: it drives only
+// 101 and 103, and A cannot leave 101. Still no two displays share a CRTC:
+// A stays on 101 and B on 103. The atomic wake-up fails. With the legacy
+// calls N lights on 102 and B is left unset, to be tried again.
+#[test]
+fn a_chain_the_card_refuses_never_puts_two_displays_on_one_crtc() {
+    const W: u32 = 43;
+    const N: u32 = 44;
+    let (woke, outs, _) = woken_in_a_chain(true, 103);
+    assert!(woke.is_err());
+    assert_eq!(outs, [(A, 101), (B, 103), (W, 100)]);
+    let (woke, outs, unset) = woken_in_a_chain(false, 103);
+    assert!(woke.is_ok(), "{woke:?}");
+    assert_eq!(outs, [(A, 101), (B, 103), (W, 100), (N, 102)]);
+    assert_eq!(unset, [B]);
+}
+
+// Two displays moved off one CRTC do not both go back to it. Here A drives
+// CRTCs 100 and 101, B 100 and 102, and C only 100. While vtium is away a
+// desktop leaves B's connector on 100 and A's on none, and C is plugged
+// in; the card refuses 101. The wake-up puts C on 100, A on 101 and B on
+// 102, both off 100, and the card refuses A on 101. Neither A nor B goes
+// back to 100, so no two displays share a CRTC. With the legacy calls C
+// stays lit on 100 and B on 102, and A, which can drive only 100 and 101,
+// is left unset.
+#[test]
+fn two_displays_moved_off_one_crtc_do_not_both_go_back() {
+    const C: u32 = 43;
+    for atomic in [true, false] {
+        let card = reaching(&[0b011, 0b101, 0b001], 2);
+        {
+            let mut s = card.state();
+            s.atomic = atomic;
+            s.bind(A, 100);
+            s.bind(B, 102);
+        }
+        let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+        v.sleep();
+        v.events().for_each(drop);
+        desktop_leaves(v.card(), B, 100);
+        v.card().state().bind(A, 0);
+        v.card().state().listed.push(C);
+        v.card().state().refused.push(101);
+        let _ = v.wake_up();
+        let outs: Vec<(u32, u32)> = v.outputs.iter().map(|o| (o.id.0, o.crtc)).collect();
+        let mut crtcs: Vec<u32> = outs.iter().map(|o| o.1).collect();
+        crtcs.sort_unstable();
+        crtcs.dedup();
+        assert_eq!(crtcs.len(), outs.len(), "atomic {atomic}: {outs:?}");
+        if !atomic {
+            assert_eq!(outs, [(A, 101), (B, 102), (C, 100)]);
+            assert_eq!(v.unset, [DisplayId(A)]);
+        }
+    }
+}
+
+// A new display the card refused beside the others, placed after them,
+// takes the first free CRTC it can drive where the CRTC it wants is taken
+// or it wants none. Here A is lit on 100 and drives 100 and 101, C is lit
+// on 102 and drives only 102, B drives 100 and 102, and the card refuses
+// 101. B's hotplug moves A to 101, which the card refuses, so A goes back
+// and B is recorded as refused. C is then unplugged, and the same scan
+// lights B on 102, with nothing moved.
+#[test]
+fn a_refused_display_takes_the_first_free_crtc_it_can_drive() {
+    const C: u32 = 43;
+    for atomic in [true, false] {
+        let card = reaching(&[0b011, 0b101, 0b100], 3);
+        {
+            let mut s = card.state();
+            s.atomic = atomic;
+            s.listed.retain(|&c| c != B);
+            s.refused.push(101);
+        }
+        let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+        assert_eq!(v.card().state().bound.get(&A), Some(&100));
+        assert_eq!(v.card().state().bound.get(&C), Some(&102));
+        v.card().state().listed.push(B);
+        v.poll().unwrap();
+        flip(&mut v);
+        v.events().for_each(drop);
+        assert_eq!(v.move_refused, [B], "atomic {atomic}");
+        v.card().state().listed.retain(|&c| c != C);
+        logs::capture();
+        v.poll().unwrap();
+        assert_eq!(
+            events(&mut v),
+            [Event::Removed(DisplayId(C)), Event::Added(DisplayId(B))],
+            "atomic {atomic}"
+        );
+        assert_eq!(moves(), Vec::<String>::new(), "atomic {atomic}");
+        let outs: Vec<(u32, u32)> = v.outputs.iter().map(|o| (o.id.0, o.crtc)).collect();
+        assert_eq!(outs, [(A, 100), (B, 102)], "atomic {atomic}");
+    }
+}
+
+// With the legacy calls, only the card's refusal of a moved display is
+// remembered. A's CRTC set on 101 fails with ENOMEM, a reason that may
+// pass, so A goes back to 100 and B is left off, but nothing is recorded:
+// the next hotplug moves A for B again.
+#[test]
+fn a_legacy_set_that_fails_for_a_passing_reason_records_no_refusal() {
+    let card = reaching(&[0b11, 0b01], 1);
+    card.state().atomic = false;
+    let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    drawn(&mut v, A, 0x55);
+    v.card().state().set_crtc_errors.push_back(Errno::NOMEM);
+    v.card().state().listed.push(B);
+    logs::capture();
+    v.poll().unwrap();
+    assert_eq!(
+        moves(),
+        [
+            "display HDMI-A-1 moves from CRTC 100 to CRTC 101",
+            "display HDMI-A-1 moves from CRTC 101 to CRTC 100"
+        ]
+    );
+    flip(&mut v);
+    v.events().for_each(drop);
+    assert_eq!(v.move_refused, Vec::<u32>::new());
+    logs::capture();
+    v.poll().unwrap();
+    assert_eq!(events(&mut v), [Event::Added(DisplayId(B))]);
+    assert_eq!(
+        moves(),
+        ["display HDMI-A-1 moves from CRTC 100 to CRTC 101"]
+    );
 }

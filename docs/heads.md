@@ -1,6 +1,6 @@
 # Heads, by scenario
 
-This page shows the head file, `/etc/vtium/heads.conf`, in the setups it is made for: each scenario's purpose, a complete head file, and what to expect, on an unplug and of what stays shared. [head-file.md](head-file.md) is the file's reference, with its [terms](head-file.md#terms) such as the active head and the rescue key, its syntax and its match keys, and [concepts.md](concepts.md#two-policies-open-and-closed) explains the two policies the scenarios are sorted by. [ADR-1401](architecture/platform/ADR-1401-heads-a-terminal-per-physical-display-placed-by-a-first-match-ruleset.md) holds every rule; this page applies them. Each scenario's file is also a file of its own under [heads/](heads/), and the `edid:` and `path:` values in them are illustrative.
+This page shows the head file, `/etc/vtium/heads.conf`, in the setups it is made for: each scenario's purpose, a complete head file, and what to expect, on an unplug and of what stays shared. [head-file.md](head-file.md) is the file's reference, with its [terms](head-file.md#terms) such as the active head and the rescue key, its syntax and its match keys, and [Heads](concepts/heads.md#two-policies-open-and-closed) explains the two policies the scenarios are sorted by. [ADR-1401](architecture/platform/ADR-1401-heads-a-terminal-per-physical-display-placed-by-a-first-match-ruleset.md) holds every rule; this page applies them. Each scenario's file is also a file of its own under [heads/](heads/), and the `edid:` and `path:` values in them are illustrative.
 
 ## Under the open policy
 
@@ -84,7 +84,7 @@ input * -> ignore
 
 ## Under the closed policy
 
-Each closed file needs the operator's way in decided before it is installed ([the operator's way back in](concepts.md#the-operators-way-back-in)).
+Each closed file needs the operator's way in decided before it is installed ([the operator's way back in](concepts/heads.md#the-operators-way-back-in)).
 
 ### A kiosk
 

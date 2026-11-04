@@ -16,15 +16,19 @@
 
 set -u
 
+# The name it was run as: gallery in vtium's tree, vtium-gallery where the
+# vtium package installs it. Its usage and its messages use this name.
+name=${0##*/}
+
 usage() {
+	printf 'usage: %s [-s N] [-n N] [-L] [--no-probe] [file|dir ...]\n' "$name"
 	cat <<'EOF'
-usage: gallery [-s N] [-n N] [-L] [--no-probe] [file|dir ...]
 
 Shows PNG pictures as a grid of thumbnails, each with its file name under
 it, in a terminal that draws kitty graphics: kitty, WezTerm, Ghostty or
 vtium. A directory stands for the files in it, in name order, and no
 arguments means the current directory. The terminal scales each picture, so
-gallery sends PNG files as they are and skips any other file with a note.
+the tool sends PNG files as they are and skips any other file with a note.
 
   -s, --size N     thumbnail height in rows (default 8); a square picture
                    is about 2N columns wide
@@ -47,7 +51,7 @@ printable() {
 }
 
 die() {
-	printf 'gallery: %s\n' "$(printable "$1")" >&2
+	printf '%s: %s\n' "$name" "$(printable "$1")" >&2
 	exit "${2:-1}"
 }
 
@@ -64,7 +68,7 @@ while (($#)); do
 	-L | --no-labels) labels=0 ;;
 	--no-probe) probe=0 ;;
 	--) shift; break ;;
-	-?*) die "unknown option $1 (gallery --help lists them)" 2 ;;
+	-?*) die "unknown option $1 ($name --help lists them)" 2 ;;
 	*) break ;;
 	esac
 	shift
@@ -96,7 +100,7 @@ for a in "$@"; do
 	fi
 done
 if ((${#skipped[@]})); then
-	printf 'gallery: skipped %d file(s) that are not PNG: %s\n' "${#skipped[@]}" "${skipped[*]}" >&2
+	printf '%s: skipped %d file(s) that are not PNG: %s\n' "$name" "${#skipped[@]}" "${skipped[*]}" >&2
 fi
 ((${#files[@]})) || die "no PNG pictures in $*"
 more=0
@@ -148,7 +152,7 @@ ask() {
 if ((probe)); then
 	ask
 	case $? in
-	1) die "the terminal did not answer that it draws kitty graphics; gallery needs kitty, WezTerm, Ghostty or vtium (--no-probe draws anyway)" ;;
+	1) die "the terminal did not answer that it draws kitty graphics; $name needs kitty, WezTerm, Ghostty or vtium (--no-probe draws anyway)" ;;
 	2) die "no terminal to ask whether it draws kitty graphics (--no-probe draws anyway)" ;;
 	esac
 fi

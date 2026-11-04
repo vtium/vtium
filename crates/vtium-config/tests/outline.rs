@@ -21,6 +21,7 @@ const BIN: &str = env!("CARGO_BIN_EXE_vtium-config");
 
 fn request(cells: &[(u32, u32)], cover: &[(u32, u32)]) -> OutlineRequest {
     OutlineRequest {
+        synth: Default::default(),
         font: ttf::test_mono().build().into(),
         family: "Test Mono".to_owned(),
         cells: cells.to_vec(),
@@ -705,6 +706,32 @@ fn a_font_of_another_family_or_none_at_all_is_refused() {
     assert!(rasterise(&r).is_err());
 }
 
+// ADR-1500 D8: the rasteriser takes the face the search among installed
+// fonts finds, by one reader and one predicate, so a family the font
+// stores only in another language is taken, as the search finds it.
+#[test]
+fn a_family_stored_only_in_another_language_is_taken() {
+    let mut font = ttf::test_mono();
+    font.family = "文鼎测试楷".to_owned();
+    let mut bytes = font.build();
+    // the family's record: Windows, Unicode BMP, US English, name ID 1;
+    // make its language Simplified Chinese (0x0804)
+    let english = [0u8, 3, 0, 1, 0x04, 0x09, 0, 1];
+    let at = bytes
+        .windows(english.len())
+        .position(|w| w == english)
+        .expect("the family's record");
+    bytes[at + 4..at + 6].copy_from_slice(&0x0804u16.to_be_bytes());
+    let mut r = request(&[(0, 16)], &[]);
+    r.font = bytes.into();
+    r.family = "文鼎测试楷".to_owned();
+    let o = rasterise(&r).expect("the family in Chinese");
+    assert_eq!(o.family, "文鼎测试楷");
+    r.family = "Test Mono".to_owned();
+    let e = rasterise(&r).expect_err("another family");
+    assert!(e.contains("文鼎测试楷") && e.contains("Test Mono"), "{e}");
+}
+
 #[test]
 fn an_answer_reads_back_and_each_malformed_one_is_refused() {
     let req = request(&[(0, 10)], &[]);
@@ -777,14 +804,30 @@ fn the_request_reads_back() {
     };
     assert_eq!(OutlineRequest::decode(&full.encode()), Ok(full.clone()));
     assert_ne!(full.encode(), r.encode());
-    // the hinting is the request's last byte, 0 light and 1 full
+    // the hinting is the request's byte before its last, 0 light and 1
+    // full
     let mut other = full.encode();
-    *other.last_mut().expect("a byte") = 2;
+    let n = other.len();
+    other[n - 2] = 2;
     assert_eq!(
         OutlineRequest::decode(&other),
         Err("an unknown hinting"),
         "a hinting the parser does not know"
     );
+    // the synthesis is its last byte, bold 1 and italic 2 (ADR-1302 D4)
+    let slanted = OutlineRequest {
+        synth: vtium_font::Style {
+            bold: true,
+            italic: true,
+        },
+        ..r.clone()
+    };
+    let bytes = slanted.encode();
+    assert_eq!(bytes.last(), Some(&3));
+    assert_eq!(OutlineRequest::decode(&bytes), Ok(slanted));
+    let mut other = r.encode();
+    *other.last_mut().expect("a byte") = 4;
+    assert_eq!(OutlineRequest::decode(&other), Err("an unknown synthesis"));
     let mut long = r.encode();
     long.push(0);
     assert!(OutlineRequest::decode(&long).is_err());
@@ -810,6 +853,7 @@ fn the_parsers_child_rasterises() {
 #[test]
 fn a_color_bitmap_is_scaled_from_its_strike_by_the_chosen_method() {
     let req = OutlineRequest {
+        synth: Default::default(),
         font: ttf::test_emoji().build().into(),
         family: "Test Emoji".to_owned(),
         cells: vec![(0, 10)],

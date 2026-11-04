@@ -1908,9 +1908,10 @@ class Install(Case):
     def at(self, path):
         return os.path.join(self.root, path)
 
-    def shipped(self, unit_lines=None):
+    def shipped(self, unit_lines=None, fallback_lines=None):
         """The stand-in crates/vtium/install: the shipped units, the main
-        one's lines passed through unit_lines."""
+        one's lines passed through unit_lines and the fallback's through
+        fallback_lines."""
         src = os.path.join(ROOT, "crates", "vtium", "install")
         dst = os.path.join(self.s.standins, "install")
         os.mkdir(dst)
@@ -1918,6 +1919,8 @@ class Install(Case):
             text = read(os.path.join(src, f))
             if f == "vtium@.service" and unit_lines:
                 text = "\n".join(unit_lines(text.splitlines())) + "\n"
+            if f == "vtium-getty@.service" and fallback_lines:
+                text = "\n".join(fallback_lines(text.splitlines())) + "\n"
             write(os.path.join(dst, f), text, 0o644)
 
     def refused(self, p, why):
@@ -1958,7 +1961,9 @@ class Install(Case):
         self.assertEqual(links["autovt@.service"], "/usr/lib/systemd/system/kmsconvt@.service")
         fallback = read(self.at(self.FALLBACK)).splitlines()
         self.assertIn("ConditionPathExists=!/run/vtium/%i.closed", fallback)
-        self.assertIn("ExecStart=systemctl --no-block start getty@%i.service", fallback)
+        # The fallback runs the development binary's vtium console fallback,
+        # which starts no getty whose start would stop another program.
+        self.assertIn("ExecStart=/usr/local/bin/vtium-dev console fallback %i", fallback)
         manifest = read(self.at(self.STATE + "/tty4")).splitlines()
         self.assertEqual([l for l in manifest if not l.startswith("#")],
                          ["vt=4", "getty-enabled=yes", "getty-active=yes"])
@@ -2377,7 +2382,9 @@ exec "$@"
         self.assertIn("RestartSec=2s", unit)
         fallback_src = read(os.path.join(self.s.standins, "install", "vtium-getty@.service")).splitlines()
         fallback = read(self.at(self.FALLBACK)).splitlines()
-        self.assertEqual(fallback[-len(body(fallback_src)):], body(fallback_src))
+        want = [l.replace("ExecStart=/usr/bin/vtium ", "ExecStart=/usr/local/bin/vtium-dev ")
+                for l in body(fallback_src)]
+        self.assertEqual(fallback[-len(want):], want)
 
     def test_a_shipped_unit_of_another_shape_is_refused(self):
         for change, why in (
@@ -2393,6 +2400,16 @@ exec "$@"
                 self.refused(self.vt_install("install", "4"), why)
                 for f in (*self.FILES, self.STATE):
                     self.assertFalse(os.path.exists(self.at(f)), f)
+        # A fallback that no longer runs vtium console fallback would run the
+        # packaged binary, or start a getty itself.
+        shutil.rmtree(os.path.join(self.s.standins, "install"), ignore_errors=True)
+        self.shipped(fallback_lines=lambda lines: [
+            "ExecStart=systemctl --no-block start getty@%i.service" if l.startswith("ExecStart=") else l
+            for l in lines])
+        self.refused(self.vt_install("install", "4"),
+                     "no one ExecStart=/usr/bin/vtium console fallback %i line to change")
+        for f in (*self.FILES, self.STATE):
+            self.assertFalse(os.path.exists(self.at(f)), f)
 
     def test_a_vt_that_cannot_be_taken_is_refused(self):
         for args, env, why in ((["1"], {}, "VT 1 is refused"),
@@ -3204,21 +3221,44 @@ class Package(Case):
     maxDiff = None
 
     # Every file make install stages, by its path under DESTDIR with
-    # PREFIX=/usr.
+    # PREFIX=/usr, with no FEATURES and the default FRITS.
     STAGED = sorted([
+        "etc/vtium/fonts/desktop.vtfrit",
+        "etc/vtium/fonts/minspec-16.vtfrit",
+        "etc/vtium/fonts/minspec-8.vtfrit",
         "etc/vtium/vtium.conf.example",
         "usr/bin/vtium",
         "usr/bin/vtium-config",
         "usr/lib/systemd/system/vtium@.service",
         "usr/lib/systemd/system/vtium-getty@.service",
         "usr/share/doc/vtium/examples/71-vtium-local.rules",
+        "usr/share/doc/vtium/examples/heads.conf",
         "usr/share/doc/vtium/examples/vtium.hwdb",
         "usr/share/licenses/vtium/LICENSE",
     ])
 
-    # A stand-in cargo that records the helper paths each build bakes in.
+    # What the ordinary-machine build, FEATURES='images logind gpu', stages
+    # beside STAGED: the image helper, its account file and the picture
+    # gallery tool (ADR-1101 D1, ADR-1500 D8).
+    WITH_IMAGES = ["usr/bin/vtium-gallery", "usr/bin/vtium-image", "usr/lib/sysusers.d/vtium-image.conf"]
+
+    # Where each staged file that vtium's tree holds as it is comes from.
+    SOURCES = {
+        "etc/vtium/fonts/desktop.vtfrit": "tools/specimens/frits/desktop.vtfrit",
+        "etc/vtium/fonts/minspec-16.vtfrit": "crates/vtium-config/frits/minspec-16.vtfrit",
+        "etc/vtium/fonts/minspec-8.vtfrit": "crates/vtium-config/frits/minspec-8.vtfrit",
+        "usr/bin/vtium-gallery": "tools/gallery/gallery",
+        "usr/share/doc/vtium/examples/heads.conf": "crates/vtium-settings/templates/heads.conf",
+    }
+
+    # A stand-in cargo that records the helper paths each build bakes in,
+    # and the build settings for hwaccel and display-buffers when it is
+    # given them.
     CARGO = "#!/bin/bash\n" + ('printf "%s\\n" "cargo VTIUM_FONT_HELPER=${VTIUM_FONT_HELPER-unset} '
-                               'VTIUM_IMAGE=${VTIUM_IMAGE-unset} $*" >>"$CALLS"\n')
+                               'VTIUM_IMAGE=${VTIUM_IMAGE-unset} '
+                               '${VTIUM_HWACCEL+VTIUM_HWACCEL=$VTIUM_HWACCEL }'
+                               '${VTIUM_DISPLAY_BUFFERS+VTIUM_DISPLAY_BUFFERS=$VTIUM_DISPLAY_BUFFERS }'
+                               '$*" >>"$CALLS"\n')
 
     def setUp(self):
         super().setUp()
@@ -3323,6 +3363,53 @@ class Package(Case):
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         self.assertEqual([f for f in self.staged() if "vtium-image" in f], [])
         self.assertNotIn("-p vtium-image-helper", " ".join(self.s.calls_of("cargo")))
+
+    def test_the_desktop_install_stages_its_frits_gallery_and_head_template(self):
+        # ADR-1500 D8: the vtium package's build, with its features and its
+        # two build settings, which reach both builds.
+        self.built("/usr/bin/vtium-config", "/usr/bin/vtium-image")
+        p = self.make("install", f"DESTDIR={self.dest}", "PREFIX=/usr", f"INSTALL_TARGET_DIR={self.build}",
+                      "FEATURES=images logind gpu", "HWACCEL=on", "DISPLAY_BUFFERS=3")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertEqual(self.staged(), sorted(self.STAGED + self.WITH_IMAGES))
+        for staged, source in self.SOURCES.items():
+            self.assertEqual(read(os.path.join(self.dest, staged)), read(os.path.join(ROOT, source)), staged)
+        modes = {f: stat.S_IMODE(os.stat(os.path.join(self.dest, f)).st_mode) for f in self.SOURCES}
+        self.assertEqual(modes, {f: 0o755 if f.startswith("usr/bin/") else 0o644 for f in self.SOURCES})
+        self.assertEqual(self.s.calls_of("cargo"), [
+            "VTIUM_FONT_HELPER=/usr/bin/vtium-config VTIUM_IMAGE=/usr/bin/vtium-image VTIUM_HWACCEL=on "
+            "VTIUM_DISPLAY_BUFFERS=3 rustc --profile minspec -p vtium --bin vtium "
+            f"--target-dir {self.build} --features images logind gpu "
+            "-- -C link-arg=-Wl,-z,pack-relative-relocs",
+            "VTIUM_FONT_HELPER=unset VTIUM_IMAGE=unset VTIUM_HWACCEL=on VTIUM_DISPLAY_BUFFERS=3 build --release "
+            f"-p vtium-config -p vtium-image-helper --target-dir {self.build}"])
+
+    def test_a_minspec_install_stages_the_frits_it_names_and_no_gallery(self):
+        # ADR-1500 D8: a minspec package ships the two minspec frits alone.
+        self.built("/usr/bin/vtium-config")
+        p = self.make("install", f"DESTDIR={self.dest}", "PREFIX=/usr", f"INSTALL_TARGET_DIR={self.build}",
+                      "FRITS=minspec-16 minspec-8", "HWACCEL=off", "DISPLAY_BUFFERS=2")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertEqual(self.staged(), [f for f in self.STAGED if f != "etc/vtium/fonts/desktop.vtfrit"])
+        self.assertEqual([c.split(" rustc ")[0].split(" build ")[0] for c in self.s.calls_of("cargo")], [
+            "VTIUM_FONT_HELPER=/usr/bin/vtium-config VTIUM_IMAGE=unset VTIUM_HWACCEL=off VTIUM_DISPLAY_BUFFERS=2",
+            "VTIUM_FONT_HELPER=unset VTIUM_IMAGE=unset VTIUM_HWACCEL=off VTIUM_DISPLAY_BUFFERS=2"])
+
+    def test_install_refuses_a_frit_vtium_does_not_hold_and_a_setting_out_of_its_range(self):
+        self.built("/usr/bin/vtium-config")
+        for arg, why in (("FRITS=minspec-16 absent", "no frit absent in"),
+                         ("HWACCEL=yes", "HWACCEL is on or off"),
+                         ("HWACCEL=on off", "HWACCEL is on or off"),
+                         ("DISPLAY_BUFFERS=4", "DISPLAY_BUFFERS is 1, 2 or 3")):
+            p = self.make("install", f"DESTDIR={self.dest}", "PREFIX=/usr", f"INSTALL_TARGET_DIR={self.build}", arg)
+            self.assertNotEqual(p.returncode, 0, arg)
+            self.assertIn(why, p.stderr, arg)
+        for target in ("install-tree", "install-build"):
+            p = self.make(target, f"DESTDIR={self.dest}", f"INSTALL_TARGET_DIR={self.build}", "FRITS=minspec-16 absent")
+            self.assertNotEqual(p.returncode, 0, target)
+            self.assertIn("no frit absent in", p.stderr, target)
+        # each is refused as make reads the Makefile, before any build
+        self.assertEqual(self.s.calls_of("cargo"), [])
 
     def test_install_refuses_a_console_that_starts_another_helper(self):
         self.built("/usr/local/bin/vtium-dev-config")
@@ -3447,7 +3534,11 @@ class Package(Case):
                 self.assertIn(f"#   ExecStart runs {exec_path}", unit)
                 fallback_src = read(os.path.join(ROOT, "crates/vtium/install/vtium-getty@.service")).splitlines()
                 fallback = read(os.path.join(out, f"{name}-getty@.service")).splitlines()
-                self.assertEqual(fallback[-len(body(fallback_src)):], body(fallback_src))
+                # The fallback runs EXEC's vtium console fallback.
+                want = [l.replace("ExecStart=/usr/bin/vtium ", f"ExecStart={exec_path} ") for l in body(fallback_src)]
+                self.assertEqual(fallback[-len(want):], want)
+                self.assertIn(f"ExecStart={exec_path} console fallback %i", fallback)
+                self.assertIn(f"#   ExecStart runs {exec_path} console fallback", fallback)
 
     def test_the_units_comments_name_their_own_units(self):
         # The shipped units' opening comments describe the source; the

@@ -171,8 +171,9 @@ basis:
     paraphrase: true
   - operator: aaronsb
     level: directed
-    said: "doesn't look as heavy handed and probably correct"
+    said: "Light hinting looks less heavy-handed and is likely correct, and it stays the default."
     via: "the maintainer in the steering session, 2026-11-02, relayed by the team lead, on light hinting, after looking at the before and after cards of the helper's hinting work; it stands beside the light-by-default decision of 2026-11-01"
+    paraphrase: true
   - evidence: "the work that replaces the prerendered store with deferred rendering, Phase 1's measurements (feat/deferred at d075494), accepted by the operator on 2026-10-28: from vtium's start to the helper's first ask 51-55 ms in the tier 3 guest (1 vCPU, 512 MB); first batch 6-18 ms and whole coverage 29-39 ms for DejaVu Sans Mono there, 31-43 ms and 265-276 ms for WenQuanYi Micro Hei; the helper's peak 5.8 MB and 13.8 MB; on the development machine 2 ms and 16-23 ms with a 12 MB peak for DejaVu Sans Mono, 50-61 ms and 409-537 ms with a 43 MB peak for Noto Sans CJK; the first frame drawn in the built-in font 60 ms after start; the console's resident memory from 5.6 MiB to 6.1 MiB with DejaVu's glyphs"
   - upstream: "aaronsb/kmscon b1f7a7c5 and aaronsb/libtsm eeaf293, the C reference's font load, automatic size, resize and zoom, cluster table, glyph cache and damage, each cited by file and line in this record's C notes"
   - precedent: ADR-1301
@@ -200,9 +201,6 @@ considered:
     said: "The recipe carries an explicit compress setting, compress=yes or no, defaulting to yes, with the matching [guided builder] template field and builder choice. With yes, create deflates 8-bit and color strikes and leaves 1-bit raw; with no, every strike is stored raw."
     via: Claude Code session, 2026-10-28, relayed by the team lead
     covers: [compressed chunks]
-  - operator: aaronsb
-    said: "lets accept it"
-    via: Claude Code session, 2026-10-28, after reading the revised record at 497b6aa
   - operator: aaronsb
     said: "A frit's `cell=` line is where the cell lives until profiles have a file of their own. A profile file takes it over later."
     via: the operator's answer in the team lead's session, 2026-10-28, accepting the team lead's recommendation
@@ -263,8 +261,9 @@ considered:
     via: the operator's answers in conversation with the team lead, 2026-10-29, relayed in the team lead's brief; the wording is the team lead's
     paraphrase: true
   - operator: aaronsb
-    said: "let's bump the memory footprint to 3.5mb and move on"
+    said: "The minspec console binary's size budget rises to 3.5 MiB."
     via: conversation with the steering session, 2026-10-31, after comparing vtium's size with kmscon's on this machine
+    paraphrase: true
   - operator: aaronsb
     said: "A zoom of an outline frit whose helper doesn't answer within the 100 ms wait uses the built-in font's width for that step, logs one line, and drops a late answer; the next zoom asks again: yes."
     via: the maintainer's answers in the steering session, 2026-11-01, relayed by the team lead; the wording is the team lead's
@@ -282,7 +281,7 @@ considered:
     via: the maintainer's answers in the steering session's interview, 2026-11-01
     paraphrase: true
   - operator: aaronsb
-    said: "Just as a frit assigns sets of characters to fonts, each set also carries how its glyphs use the row's height: not stretch emojis, but allow arabic extra room, leave roman chars normal, keep numbering normal, and let text character drawings stretch."
+    said: "Just as a frit assigns sets of characters to fonts, each set also carries how its glyphs use the row's height: emoji never stretch, Arabic gets extra room, Latin letters and digits keep their size, and the line and block characters stretch to fill the taller row."
     via: the maintainer's answers in the steering session's interview, 2026-11-01
     paraphrase: true
   - operator: aaronsb
@@ -292,6 +291,14 @@ considered:
   - operator: aaronsb
     said: "vtium keeps the glyph helper's answer to a frit's own-cell query when it arrives after the wait, and uses it, instead of dropping it. The answer applies from the next frame, and the 100 ms wait stays only as the bound on how long the first frame waits."
     via: the maintainer's decision in the steering session, 2026-11-03, relayed by the steering session in the brief for the work that keeps a late own-cell answer; the wording is the steering session's
+    paraphrase: true
+  - operator: aaronsb
+    said: "Bold italic where the frit names no bold-italic face is the regular glyph emboldened and then slanted."
+    via: "the steering session, 2026-11-04; the wording is the steering session's"
+    paraphrase: true
+  - operator: aaronsb
+    said: "Bold and italic glyphs come only when the console asks for them; the background fill draws regular glyphs alone."
+    via: "the steering session, 2026-11-04; the wording is the steering session's"
     paraphrase: true
 observable:
   - "A glyph arriving for a character shown only in the scrollback view, or inside a cluster, redraws that cell on the next frame"
@@ -376,7 +383,7 @@ A frit is a file `<name>.vtfrit` in the frits' directory, `/etc/vtium/fonts` unl
 | `line-spacing=` | Height added to each row, a whole percentage of the text's height from `0`, the default, to `100`, split evenly above and below the text (ADR-1302 D13). It adds nothing to a frit's stated `cell=` drawn as stated, and it applies when a configured `font-size` sets the size over that `cell=`: the cell grows by the spacing, split evenly above and below each row. vtium.conf's `font-line-spacing`, which a profile may also set (D16), overrides it for the console. Not built yet. |
 | `fit=` | Repeatable, for the `source=` or `cover=` line above it: how that set's glyphs use the row's height when spacing is added (ADR-1302 D13). `fill` stretches them to the whole cell so they join row to row; `natural` keeps the font's size on its baseline with the added height blank around it; `room` keeps the letter as `natural` does and lets its marks use the added height. One key with three values, not a separate key for marks, since a set uses the row one way only. Unset, line and block characters are `fill`, Arabic, Hebrew, Syriac, Thaana, N'Ko and combining marks are `room`, and the rest is `natural`; color glyphs are always `natural`. Not built yet. |
 | `license=` | An SPDX identifier. Optional. |
-| `hinting=` | How the helper hints the frit's outline glyphs, one key for the whole frit (the maintainer, 2026-11-01). `light`, the default, which the maintainer, on seeing both, found "doesn't look as heavy handed and probably correct" (2026-11-02, `basis`), fits each glyph to the pixel grid up and down only, as the C reference's FreeType engine hinted every glyph with `FT_LOAD_TARGET_LIGHT` (`kmscon/src/font/font_freetype.c:119`): the helper gives a TrueType font to skrifa's automatic hinter, which moves rows only, and keeps a CFF font's own hints, as FreeType did for a light load. `full`, skrifa's Normal target, runs a TrueType font's own instructions, or the automatic hinter at full strength for a font that has none, so a TrueType glyph can also move sideways onto whole columns. A CFF font's hints move rows only, so `full` and `light` draw a CFF font the same, as in FreeType. Bitmap sources take no hinting. The helper builds both values. vtium.conf's `font-hinting`, which a profile may also set (D16), is to override the key for the console, as `font-antialias` overrides `antialias=` (ADR-1301 D4); that is not built yet, because no request to the helper carries the console's setting. |
+| `hinting=` | How the helper hints the frit's outline glyphs, one key for the whole frit (the maintainer, 2026-11-01). `light`, the default, which the maintainer, on seeing both, found less heavy-handed (2026-11-02, `basis`), fits each glyph to the pixel grid up and down only, as the C reference's FreeType engine hinted every glyph with `FT_LOAD_TARGET_LIGHT` (`kmscon/src/font/font_freetype.c:119`): the helper gives a TrueType font to skrifa's automatic hinter, which moves rows only, and keeps a CFF font's own hints, as FreeType did for a light load. `full`, skrifa's Normal target, runs a TrueType font's own instructions, or the automatic hinter at full strength for a font that has none, so a TrueType glyph can also move sideways onto whole columns. A CFF font's hints move rows only, so `full` and `light` draw a CFF font the same, as in FreeType. Bitmap sources take no hinting. The helper builds both values. vtium.conf's `font-hinting`, which a profile may also set (D16), is to override the key for the console, as `font-antialias` overrides `antialias=` (ADR-1301 D4); that is not built yet, because no request to the helper carries the console's setting. |
 
 > Edited 2026-11-03: the maintainer decided that line spacing applies when a configured `font-size` overrides a frit's `cell=` (ADR-1302 D13). The `line-spacing=` row read: "It adds nothing to a stated `cell=`."
 
@@ -582,10 +589,14 @@ The console, which opens its VT as root already, reads the kernel's font once at
 
 ### D21: cluster asks and style asks
 
-*Intended design, not yet built.* The helper on `feat/deferred` generates regular glyphs per codepoint (`crates/vtium/src/helper.rs`, `crates/vtium/src/deferred.rs`).
+Both are built. The console asks the helper for each cluster the screen shows and for each style it shows, bold, italic or bold italic, in an ask of that style, and keys the store by the cluster's text and its style (`crates/vtium/src/helper.rs`, `crates/vtium/src/deferred.rs`); the helper shapes clusters and draws or synthesises styles (`crates/vtium-config/src/serve.rs`, `crates/vtium-config/src/outline.rs`). The background fill draws regular glyphs alone, and bold and italic come only by ask.
 
 - **Cluster asks.** The console asks the helper for a cluster, its text as the key gives it, and the helper shapes it with HarfRust and composes its glyphs into one glyph fitted to its 1 or 2 cells and its reach, one cell more on each side along its row (ADR-1301 D1, ADR-1302 D1).
-- **Style asks.** The console asks for bold and italic as part of the key. The helper draws them from the frit's bold and italic faces (`style=`, D1) where the frit names them, and from the regular glyph where it does not: a missing bold is the regular glyph emboldened, as vtium-font draws it today, and a missing italic is the regular glyph slanted by 0.2 about the baseline, an outline's points before it is rasterised and a bitmap's rows one at a time (ADR-1302 D4).
+- **Style asks.** The console asks for bold and italic as part of the key. The helper draws them from the frit's bold and italic faces (`style=`, D1) where the frit names them, and from the regular glyph where it does not: a missing bold is the regular glyph emboldened, as vtium-font draws it today, and a missing italic is the regular glyph slanted by 0.2 about the baseline, an outline's points before it is rasterised and a bitmap's rows one at a time (ADR-1302 D4). Where the frit names a bold or an italic face but no bold-italic face, a bold-italic glyph is the regular glyph emboldened and then slanted, and never the bold face slanted (the maintainer, 2026-11-04).
+
+> Edited 2026-11-04: cluster asks and style asks are built, on the branch that builds style requests, and the opening says so. It read: "*Intended design, not yet built.* The helper on `feat/deferred` generates regular glyphs per codepoint (`crates/vtium/src/helper.rs`, `crates/vtium/src/deferred.rs`)."
+
+> Edited 2026-11-04: the maintainer decided where bold italic comes from when the frit names no bold-italic face (`considered`, 2026-11-04). The style bullet ended at "(ADR-1302 D4)."
 
 > Edited 2026-11-01: glyph ink reaches one cell past its own on each side, and synthetic italic is a slant (ADR-1302, accepted 2026-11-01). The cluster bullet read "fitted to its 1 or 2 cells (ADR-1301 D1).", and the style bullet ended: "and from the regular glyph emboldened, as vtium-font draws a missing style today, where it does not." The earlier text is in git at 1d51e46.
 
@@ -604,7 +615,9 @@ The console finds a cell's glyph in the order ADR-1301 D1 sets, and parses no fo
 
 ### D2: the glyph chunk format, on the helper's pipe
 
-The helper sends glyphs in the chunk format vtium-font reads, little-endian, every count, size and offset bounded by a constant in vtium-font's `src/bounds.rs`: a header with a magic and a format version, strikes each with its cell, baseline, underline and strike positions and thickness, pixel format and glyph count, runs of codepoints of one width, and glyph chunks of at most 16 KiB. A glyph is exactly its 1 or 2 cells, except a glyph whose ink passes its cells in an outline strike or a bitmap strike slanted for italic, which carries its ink box: the columns its cells and its ink cover, cut to one cell past its own on each side, as an offset from its cell's left edge and a width, over the cell's full height (ADR-1302 D6, the maintainer, 2026-11-01). A glyph whose box, its cells and its ink together, would pass the 16 KiB chunk is cut to its own cells instead. The console reads it with the crate's no-panic reader and holds what it reads as the store's (D19). The format is a wire format: nothing writes it to disk, so it carries no file hashes, and a change to it changes both ends of the pipe in one release.
+The helper sends glyphs in the chunk format vtium-font reads, little-endian, every count, size and offset bounded by a constant in vtium-font's `src/bounds.rs`: a header with a magic and a format version, strikes each with its cell, baseline, underline and strike positions and thickness, pixel format and glyph count, runs of codepoints of one width, and glyph chunks of at most 16 KiB. A glyph is exactly its 1 or 2 cells, except a glyph whose ink passes its cells in an outline strike or a bitmap strike slanted for italic, which carries its ink box: the columns its cells and its ink cover, cut to one cell past its own on each side, as an offset from its cell's left edge and a width, over the cell's full height (ADR-1302 D6, the maintainer, 2026-11-01). A glyph whose box, its cells and its ink together, would pass the 16 KiB chunk is cut to its own cells instead. A set holds a regular strike at each of its cell sizes, except an answer to a bold or italic ask, which holds only the strikes of the style asked for (D21; the steering session, 2026-11-04). The console reads it with the crate's no-panic reader and holds what it reads as the store's (D19). The format is a wire format: nothing writes it to disk, so it carries no file hashes, and a change to it changes both ends of the pipe in one release.
+
+> Edited 2026-11-04: an answer to a style ask holds only that style's strikes, which the set format allows (ADR-1302's `considered`, 2026-11-04). The paragraph said nothing of which strikes a set holds.
 
 > Edited 2026-11-01: the review of the helper's ink box: the box is the union of the glyph's cells and its ink, and the chunk bound applies to that union. The paragraph read "the columns its ink covers" and "A glyph whose box would pass the 16 KiB chunk". The earlier text is in git at fa62f7f.
 

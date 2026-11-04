@@ -97,7 +97,7 @@ kitty_send() {
 # subscript characters, and the font set the walk switched to for the page
 # (ACCEPT_FRIT) with what that font set checks, from the frit's
 # "# checks:" lines. A style marked * is one vtium does not draw yet: it
-# looks plain, or upright for italic, and the page says so.
+# looks plain, and the page says so.
 language_page() {
 	local dir code name sentence words english supsub frit checks
 	dir=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")
@@ -113,7 +113,7 @@ language_page() {
 	printf 'In English: All human beings are born free and equal in dignity and rights.\n'
 	printf 'Below, the words for "%s" in each style:\n' "$english"
 	row plain 0 bold 1
-	row 'italic*' 3 'b italic*' '1;3'
+	row italic 3 'b italic' '1;3'
 	row dim 2 reverse 7
 	row underline 4 double 4:2
 	row curly 4:3 dotted 4:4
@@ -121,7 +121,7 @@ language_page() {
 	row struck 9 'overline*' 53
 	row 'SGR 73*' 73 'SGR 74*' 74
 	printf '%-10s%s\n' Unicode: "$supsub"
-	printf '* not drawn yet: italic stays upright, the rest look plain. Bold is widened.\n'
+	printf '* not drawn yet: these styles look plain.\n'
 	frit=${ACCEPT_FRIT:-}
 	if [ -n "$frit" ] && [ -f "$dir/frits/$frit.vtfrit" ]; then
 		checks=$(sed -n 's/^# checks: //p' "$dir/frits/$frit.vtfrit" | paste -sd' ' -)

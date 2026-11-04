@@ -13,7 +13,6 @@
 
 pub mod colorset;
 pub mod compare;
-pub mod cref;
 pub mod draw;
 #[cfg(feature = "gpu")]
 pub mod gpu;

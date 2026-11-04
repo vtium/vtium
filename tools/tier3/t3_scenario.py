@@ -76,6 +76,7 @@ VARIANTS = {
         "memory_mb": 512,
         "images": False,
         "pointer": True,
+        "rebaselined": True,
     },
     "2d-potato-min-psf": {
         "device": "virtio-vga,xres=1366,yres=768,edid=on",
@@ -86,6 +87,7 @@ VARIANTS = {
         "memory_mb": 512,
         "images": False,
         "frits": ["default8x16.vtfrit"],
+        "rebaselined": True,
     },
     # 2d-potato-min also runs the pointer case ("pointer"): after the VT
     # switch it moves the pointer with QMP and reads the display's cursor
@@ -533,6 +535,15 @@ def c_golden_cases():
     cases no golden judges ("verdict")."""
     return {v: variant_cases(v) for v in VARIANTS
             if not VARIANTS[v].get("goldens") and not VARIANTS[v].get("verdict")}
+
+
+def c_goldens_judging(root):
+    """The paths under `root`, the C reference's goldens, of every golden a
+    case compares with: each case of a variant c_golden_cases names, but
+    for a check without a golden and a re-baselined case that vtium's
+    golden judges (golden_root)."""
+    return {golden_for(v, c, root)[0] for v, cases in c_golden_cases().items() for c in cases
+            if golden_root(v, c) is None and golden_for(v, c, root)[0]}
 
 
 def golden_root(variant, case):

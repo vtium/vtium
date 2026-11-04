@@ -29,8 +29,9 @@ pub const UNIMAP_SUFFIXES: [&str; 3] = ["", ".uni", ".sfm"];
 pub const COMPRESSED: [&str; 5] = ["", ".gz", ".bz2", ".xz", ".zst"];
 
 /// The directories installed outline fonts are found in, as fontconfig's
-/// default configuration names them for the system; `create` run as a
-/// user also searches that user's own (`Host::font_dirs`).
+/// default configuration names them for the system. vtium-config's
+/// `--font-dir` names other directories in their place
+/// (`Host::font_dirs`); no user's own font directory is searched.
 pub const FONT_DIRS: [&str; 2] = ["/usr/share/fonts", "/usr/local/share/fonts"];
 /// The extensions an outline font file carries, case ignored.
 pub const OUTLINE_SUFFIXES: [&str; 4] = ["ttf", "otf", "ttc", "otc"];
@@ -74,11 +75,10 @@ pub enum Input {
     Bitmap(Font),
 }
 
-/// Reads `path`, at most `limit` bytes: opened once, without blocking on
-/// a FIFO and never as a controlling terminal, and refused unless that
-/// descriptor is a regular file. The error leaves the path to the caller.
-pub(crate) fn read_regular(path: &Path, limit: u64) -> Result<Vec<u8>, String> {
-    use std::io::Read;
+/// Opens `path` for reading: once, without blocking on a FIFO and never as
+/// a controlling terminal, and refused unless that descriptor is a regular
+/// file. The error leaves the path to the caller.
+pub(crate) fn open_regular(path: &Path) -> Result<std::fs::File, String> {
     use std::os::unix::fs::OpenOptionsExt;
     let flags = rustix::fs::OFlags::NONBLOCK | rustix::fs::OFlags::NOCTTY;
     let file = std::fs::OpenOptions::new()
@@ -89,6 +89,14 @@ pub(crate) fn read_regular(path: &Path, limit: u64) -> Result<Vec<u8>, String> {
     if !file.metadata().is_ok_and(|m| m.is_file()) {
         return Err("not a regular file".to_owned());
     }
+    Ok(file)
+}
+
+/// Reads `path`, at most `limit` bytes, opened by [`open_regular`]. The
+/// error leaves the path to the caller.
+pub(crate) fn read_regular(path: &Path, limit: u64) -> Result<Vec<u8>, String> {
+    use std::io::Read;
+    let file = open_regular(path)?;
     let mut bytes = Vec::new();
     file.take(limit.saturating_add(1))
         .read_to_end(&mut bytes)
@@ -326,19 +334,135 @@ fn find_family_capped(
     Ok(None)
 }
 
-/// Finds an outline font by family (`font:`) under `dirs`, as installed
-/// fonts are named: a TrueType or OpenType file or collection whose name,
-/// less its extension, is the family, or the family and `Regular`, with
-/// case, blanks, `-` and `_` ignored, the plain name first, then in the
-/// order the directories are given and by path. The parser checks the
-/// family the file's name table gives. A directory past
-/// `FAMILY_ENTRIES_MAX` entries fails the search; directories deeper than
-/// `FONT_DEPTH_MAX` and links to directories are not entered. A file
-/// found is read only if, its links resolved, it stays under `dirs`.
+/// The most outline font files one `font:` search opens to read their
+/// family (ADR-1500 D8); a search that would open more fails.
+pub const FAMILY_FILES_MAX: usize = 4096;
+
+/// Finds an outline font by family (`font:`) under `dirs`: a TrueType or
+/// OpenType file or collection with a face of that family, as its name
+/// table stores it, typographic or legacy, compared with case, blanks, `-`
+/// and `_` ignored (ADR-1500 D8). Reading a name table costs a file open,
+/// so the search takes two passes. It first takes the files whose name,
+/// less its extension, is the family, or the family and `Regular`, the
+/// plain name first, then in the order the directories are given and by
+/// path, and returns the first whose name table confirms the family. Only
+/// when none does, it opens every other file in that same order and
+/// returns the first with a Regular face of the family, one whose
+/// subfamily is `Regular`, else the first with any face of it. A face is
+/// of the family by [`crate::names::matches`], the predicate the
+/// rasteriser's choice of a face uses too. A search that would open more
+/// than [`FAMILY_FILES_MAX`] files fails, even when it has found a face of
+/// the family in another style, and its message names that file. A directory past `FAMILY_ENTRIES_MAX`
+/// entries fails the search; directories deeper than `FONT_DEPTH_MAX` and
+/// links to directories are not entered. A file is opened only if, its
+/// links resolved, it stays under `dirs`.
 pub fn find_outline_family(family: &str, dirs: &[PathBuf]) -> Result<Option<PathBuf>, String> {
+    find_outline_family_capped(family, dirs, FAMILY_FILES_MAX)
+}
+
+fn find_outline_family_capped(
+    family: &str,
+    dirs: &[PathBuf],
+    cap: usize,
+) -> Result<Option<PathBuf>, String> {
     let key = outline_key(family);
     let regular = format!("{key}regular");
-    let mut found: Option<(u8, usize, PathBuf)> = None;
+    let files = outline_files(dirs)?;
+    let over = |first: Option<&PathBuf>| match first {
+        None => format!(
+            "no font of family {family} among the first {cap} outline font files, \
+             the most one search opens"
+        ),
+        Some(path) => format!(
+            "no Regular face of family {family} among the first {cap} outline font files, \
+             the most one search opens; {} holds a face of it in another style",
+            path.display()
+        ),
+    };
+    let roots: Vec<PathBuf> = dirs
+        .iter()
+        .filter_map(|d| std::fs::canonicalize(d).ok())
+        .collect();
+    let mut opened = 0usize;
+    // the faces of `real`, none for a file that is no regular file or no
+    // font; `None` once the search has opened `cap` files
+    let mut faces_of = |real: &Path| -> Option<Vec<crate::names::Face>> {
+        if opened >= cap {
+            return None;
+        }
+        opened += 1;
+        Some(
+            open_regular(real)
+                .ok()
+                .and_then(|f| crate::names::faces(&f).ok())
+                .unwrap_or_default(),
+        )
+    };
+    let inside = |path: &Path| -> Option<PathBuf> {
+        let real = std::fs::canonicalize(path).ok()?;
+        roots.iter().any(|r| real.starts_with(r)).then_some(real)
+    };
+    // whether a face is of the family, and whether one such is Regular
+    let declares = |faces: &[crate::names::Face]| {
+        faces
+            .iter()
+            .filter(|f| crate::names::matches(f, family))
+            .map(|f| f.regular)
+            .max()
+    };
+    // first pass: the files named for the family
+    let mut named: Vec<(u8, usize, &PathBuf)> = files
+        .iter()
+        .filter_map(|(order, path)| {
+            let stem = outline_key(path.file_stem()?.to_str()?);
+            let rank = if stem == key {
+                0
+            } else if stem == regular {
+                1
+            } else {
+                return None;
+            };
+            Some((rank, *order, path))
+        })
+        .collect();
+    named.sort();
+    for (_, _, path) in &named {
+        let real = inside(path).ok_or_else(|| {
+            format!(
+                "{} leaves the font directories through a link",
+                path.display()
+            )
+        })?;
+        let faces = faces_of(&real).ok_or_else(|| over(None))?;
+        if declares(&faces).is_some() {
+            return Ok(Some(real));
+        }
+    }
+    // second pass: every other file, by the family its name table stores
+    let mut first = None;
+    for (_, path) in &files {
+        if named.iter().any(|(_, _, p)| p == &path) {
+            continue;
+        }
+        let Some(real) = inside(path) else {
+            continue;
+        };
+        let Some(faces) = faces_of(&real) else {
+            return Err(over(first.as_ref()));
+        };
+        match declares(&faces) {
+            Some(true) => return Ok(Some(real)),
+            Some(false) if first.is_none() => first = Some(real),
+            _ => {}
+        }
+    }
+    Ok(first)
+}
+
+/// Every TrueType or OpenType file or collection under `dirs`, with the
+/// place of its directory in `dirs`, in that order and then by path.
+fn outline_files(dirs: &[PathBuf]) -> Result<Vec<(usize, PathBuf)>, String> {
+    let mut files = Vec::new();
     for (order, root) in dirs.iter().enumerate() {
         let mut pending = vec![(root.clone(), 0usize)];
         while let Some((dir, depth)) = pending.pop() {
@@ -362,49 +486,20 @@ pub fn find_outline_family(family: &str, dirs: &[PathBuf]) -> Result<Option<Path
                     }
                     continue;
                 }
-                let (Some(stem), Some(ext)) = (
-                    path.file_stem().and_then(|s| s.to_str()),
-                    path.extension().and_then(|s| s.to_str()),
-                ) else {
-                    continue;
-                };
-                if !OUTLINE_SUFFIXES.iter().any(|s| s.eq_ignore_ascii_case(ext)) {
-                    continue;
-                }
-                let stem = outline_key(stem);
-                let rank = if stem == key {
-                    0
-                } else if stem == regular {
-                    1
-                } else {
-                    continue;
-                };
-                let better = found
-                    .as_ref()
-                    .is_none_or(|(r, o, p)| (rank, order, &path) < (*r, *o, p));
-                if better && is_file(&path) {
-                    found = Some((rank, order, path));
+                let outline = path
+                    .extension()
+                    .and_then(|s| s.to_str())
+                    .is_some_and(|ext| {
+                        OUTLINE_SUFFIXES.iter().any(|s| s.eq_ignore_ascii_case(ext))
+                    });
+                if outline && is_file(&path) {
+                    files.push((order, path));
                 }
             }
         }
     }
-    found
-        .map(|(_, _, path)| {
-            let real =
-                std::fs::canonicalize(&path).map_err(|e| format!("{}: {e}", path.display()))?;
-            let inside = dirs
-                .iter()
-                .any(|d| std::fs::canonicalize(d).is_ok_and(|root| real.starts_with(root)));
-            if inside {
-                Ok(real)
-            } else {
-                Err(format!(
-                    "{} leaves the font directories through a link",
-                    path.display()
-                ))
-            }
-        })
-        .transpose()
+    files.sort();
+    Ok(files)
 }
 
 /// `path`, found by name under `<data>/<sub>/`, resolved through its links
@@ -484,7 +579,7 @@ pub fn resolve(source: &Source, host: &Host<'_>) -> Result<Input, SourceError> {
                         .collect();
                     SourceError::Missing(format!(
                         "no font of family {family}: no kbd console font of that name in {}, \
-                         and no outline font named for it in {}",
+                         and no outline font of that family in {}",
                         dirs(),
                         fonts.join(", ")
                     ))
@@ -553,6 +648,7 @@ fn outline(font: Vec<u8>, family: &str) -> Input {
         clusters: Vec::new(),
         baselines: Vec::new(),
         hinting: Hinting::default(),
+        synth: vtium_font::Style::default(),
     })
 }
 
@@ -729,6 +825,7 @@ mod tests {
             unimap: unimap.map(Into::into),
             cover: Vec::new(),
             cp_size: None,
+            style: vtium_font::Style::default(),
             line: 1,
         }
     }
@@ -938,25 +1035,47 @@ mod tests {
         assert_eq!(found("Terminus"), None);
     }
 
+    /// An outline font file holding one face of `family` in `style`.
+    fn outline_font(family: &str, style: &str) -> Vec<u8> {
+        crate::names::sfnt(&[&[(1, family), (2, style)]])
+    }
+
+    fn found_outline(t: &Tree, family: &str, dirs: &[&str]) -> Result<Option<String>, String> {
+        let dirs: Vec<PathBuf> = dirs.iter().map(|d| t.0.join(d)).collect();
+        let root = fs::canonicalize(&t.0).unwrap();
+        find_outline_family(family, &dirs)
+            .map(|p| p.map(|p| p.strip_prefix(&root).unwrap().display().to_string()))
+    }
+
     #[test]
-    fn an_outline_family_is_found_among_installed_fonts() {
+    fn an_outline_family_is_found_by_its_file_name_and_confirmed_by_its_name_table() {
         let t = Tree::new("outline-family");
-        t.file("a/TTF/JetBrainsMono-Bold.ttf", b"x");
-        t.file("a/TTF/JetBrainsMono-Regular.ttf", b"x");
-        t.file("a/noto/NotoColorEmoji.ttf", b"x");
+        t.file(
+            "a/TTF/JetBrainsMono-Bold.ttf",
+            &outline_font("JetBrains Mono Bold", "Regular"),
+        );
+        t.file(
+            "a/TTF/JetBrainsMono-Regular.ttf",
+            &outline_font("JetBrains Mono", "Regular"),
+        );
+        t.file(
+            "a/noto/NotoColorEmoji.ttf",
+            &outline_font("Noto Color Emoji", "Regular"),
+        );
         t.file("a/noto/NotoColorEmoji.txt", b"x");
-        t.file("b/SymbolsNerdFontMono-Regular.TTF", b"x");
-        t.file("b/deep/1/2/3/4/5/6/7/8/9/Hidden.ttf", b"x");
-        t.file("b/NotoColorEmoji.ttf", b"x");
-        let dirs = [t.0.join("a"), t.0.join("b")];
-        let found = |family: &str| {
-            find_outline_family(family, &dirs).unwrap().map(|p| {
-                p.strip_prefix(fs::canonicalize(&t.0).unwrap())
-                    .unwrap()
-                    .display()
-                    .to_string()
-            })
-        };
+        t.file(
+            "b/SymbolsNerdFontMono-Regular.TTF",
+            &outline_font("Symbols Nerd Font Mono", "Regular"),
+        );
+        t.file(
+            "b/deep/1/2/3/4/5/6/7/8/9/Hidden.ttf",
+            &outline_font("Hidden", "Regular"),
+        );
+        t.file(
+            "b/NotoColorEmoji.ttf",
+            &outline_font("Noto Color Emoji", "Regular"),
+        );
+        let found = |family: &str| found_outline(&t, family, &["a", "b"]).unwrap();
         assert_eq!(
             found("JetBrains Mono").as_deref(),
             Some("a/TTF/JetBrainsMono-Regular.ttf")
@@ -970,39 +1089,219 @@ mod tests {
             found("Symbols Nerd Font Mono").as_deref(),
             Some("b/SymbolsNerdFontMono-Regular.TTF")
         );
-        // a style other than regular, a family's prefix, too deep
         assert_eq!(
             found("JetBrains Mono Bold").as_deref(),
             Some("a/TTF/JetBrainsMono-Bold.ttf")
         );
+        // a family's prefix, too deep
         assert_eq!(found("JetBrains"), None);
         assert_eq!(found("Hidden"), None);
+    }
+
+    // ADR-1500 D8: the family is the one the font stores, so a file of
+    // another name is found, a variable font's included, and a file named
+    // for a family it does not hold is not taken.
+    #[test]
+    fn an_outline_family_is_found_by_the_family_its_name_table_stores() {
+        let t = Tree::new("outline-name-table");
+        t.file(
+            "a/JetBrainsMono[wght].ttf",
+            &outline_font("JetBrains Mono", "Regular"),
+        );
+        t.file(
+            "a/Misnamed-Regular.ttf",
+            &outline_font("Something Else", "Regular"),
+        );
+        t.file(
+            "a/x/terminus.ttf",
+            &outline_font("Terminus (TTF)", "Regular"),
+        );
+        let found = |family: &str| found_outline(&t, family, &["a"]).unwrap();
+        assert_eq!(
+            found("JetBrains Mono").as_deref(),
+            Some("a/JetBrainsMono[wght].ttf")
+        );
+        assert_eq!(
+            found("jetbrainsmono").as_deref(),
+            Some("a/JetBrainsMono[wght].ttf")
+        );
+        assert_eq!(found("Misnamed"), None);
+        assert_eq!(
+            found("Something Else").as_deref(),
+            Some("a/Misnamed-Regular.ttf")
+        );
+        assert_eq!(found("Terminus (TTF)").as_deref(), Some("a/x/terminus.ttf"));
+    }
+
+    // ADR-1500 D8: of several files of a family, the Regular face wins,
+    // then the directory listed first, then the path that sorts first.
+    #[test]
+    fn of_several_files_of_a_family_the_regular_face_wins_then_the_directory_then_the_path() {
+        let t = Tree::new("outline-choice");
+        let heavy = crate::names::sfnt(&[&[
+            (1, "Fam ExtraBold"),
+            (2, "Regular"),
+            (16, "Fam"),
+            (17, "ExtraBold"),
+        ]]);
+        t.file("a/fam-extrabold.ttf", &heavy);
+        t.file("a/fam-italic.otf", &outline_font("Fam", "Italic"));
+        let found = |family: &str, dirs: &[&str]| found_outline(&t, family, dirs).unwrap();
+        // no Regular face: the first by directory and path
+        assert_eq!(found("Fam", &["a"]).as_deref(), Some("a/fam-extrabold.ttf"));
+        t.file("b/z.ttf", &outline_font("Fam", "Regular"));
+        assert_eq!(found("Fam", &["a", "b"]).as_deref(), Some("b/z.ttf"));
+        t.file("a/y.ttf", &outline_font("Fam", "Regular"));
+        t.file("a/sub/a.ttf", &outline_font("Fam", "Regular"));
+        assert_eq!(found("Fam", &["b", "a"]).as_deref(), Some("b/z.ttf"));
+        assert_eq!(found("Fam", &["a", "b"]).as_deref(), Some("a/sub/a.ttf"));
+        // the heavy face's legacy family names it alone
+        assert_eq!(
+            found("Fam ExtraBold", &["a", "b"]).as_deref(),
+            Some("a/fam-extrabold.ttf")
+        );
+    }
+
+    #[test]
+    fn a_family_in_a_collection_is_found() {
+        let t = Tree::new("outline-collection");
+        let both = crate::names::sfnt(&[
+            &[(1, "Alpha"), (2, "Regular")],
+            &[(1, "Beta"), (2, "Regular")],
+        ]);
+        t.file("a/pair.ttc", &both);
+        assert_eq!(
+            found_outline(&t, "Beta", &["a"]).unwrap().as_deref(),
+            Some("a/pair.ttc")
+        );
+    }
+
+    // ADR-1500 D8: a search opens at most its cap of files, and one that
+    // reaches the cap fails, naming the cap and the family.
+    #[test]
+    fn a_family_search_past_its_file_cap_fails() {
+        let t = Tree::new("outline-cap");
+        for i in 0..3 {
+            t.file(
+                &format!("a/f{i}.ttf"),
+                &outline_font(&format!("F{i}"), "Regular"),
+            );
+        }
+        let dirs = [t.0.join("a")];
+        assert!(
+            find_outline_family_capped("Absent", &dirs, 3)
+                .unwrap()
+                .is_none()
+        );
+        let e = find_outline_family_capped("Absent", &dirs, 2).unwrap_err();
+        assert!(e.contains("Absent") && e.contains('2'), "{e}");
+        // a match by file name opens one file
+        assert!(
+            find_outline_family_capped("F2", &dirs, 1)
+                .unwrap()
+                .is_some()
+        );
+        assert_eq!(FAMILY_FILES_MAX, 4096);
+    }
+
+    // ADR-1500 D8: a search that reaches its cap fails even with a face
+    // of the family in another style in hand, and names that file.
+    #[test]
+    fn a_family_search_at_its_cap_names_a_face_of_another_style_it_found() {
+        let t = Tree::new("outline-cap-other-style");
+        t.file("a/a.ttf", &outline_font("Fam", "Bold"));
+        t.file("a/b.ttf", &outline_font("Other", "Regular"));
+        t.file("a/c.ttf", &outline_font("Fam", "Regular"));
+        let dirs = [t.0.join("a")];
+        let e = find_outline_family_capped("Fam", &dirs, 2).unwrap_err();
+        assert!(
+            e.contains("no Regular face of family Fam") && e.contains("a.ttf"),
+            "{e}"
+        );
+        assert!(
+            find_outline_family_capped("Fam", &dirs, 3)
+                .unwrap()
+                .unwrap()
+                .ends_with("c.ttf")
+        );
+    }
+
+    // The search and the rasteriser decide by one predicate, so a family
+    // stored only in another language is found and then taken.
+    #[test]
+    fn a_family_in_another_language_is_found_and_taken() {
+        let t = Tree::new("outline-localized");
+        let font = crate::names::sfnt_in(&[&[(1, 0x0804, "文鼎测试楷"), (2, 0x0804, "Regular")]]);
+        t.file("a/gkai00mp.ttf", &font);
+        assert_eq!(
+            found_outline(&t, "文鼎测试楷", &["a"]).unwrap().as_deref(),
+            Some("a/gkai00mp.ttf")
+        );
+    }
+
+    // A FIFO under the font directories, named like a font, is neither
+    // opened as a font nor waited on.
+    #[test]
+    fn a_fifo_named_like_a_font_does_not_hold_up_the_search() {
+        let t = Tree::new("outline-fifo");
+        fs::create_dir_all(t.0.join("a")).unwrap();
+        let fifo = t.0.join("a/Fam-Regular.ttf");
+        rustix::fs::mknodat(
+            rustix::fs::CWD,
+            &fifo,
+            rustix::fs::FileType::Fifo,
+            rustix::fs::Mode::from_raw_mode(0o644),
+            0,
+        )
+        .unwrap();
+        t.file("a/real.ttf", &outline_font("Fam", "Regular"));
+        let (send, got) = std::sync::mpsc::channel();
+        let dirs = [t.0.join("a")];
+        std::thread::spawn(move || {
+            let _ = send.send((
+                find_outline_family("Fam", &dirs).map(|p| p.map(|p| p.ends_with("real.ttf"))),
+                open_regular(&fifo).map(|_| ()),
+            ));
+        });
+        // bounded only so a hang fails the test instead of stalling it
+        let (search, opened) = got
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .expect("the search or the open waited on the FIFO");
+        assert_eq!(search, Ok(Some(true)));
+        assert_eq!(opened, Err("not a regular file".to_owned()));
     }
 
     #[test]
     fn an_outline_font_linked_out_of_the_font_directories_is_refused() {
         let t = Tree::new("outline-link");
-        let outside = t.file("outside/Secret.ttf", b"x");
+        let outside = t.file("outside/Secret.ttf", &outline_font("Secret", "Regular"));
         fs::create_dir_all(t.0.join("fonts")).unwrap();
         std::os::unix::fs::symlink(&outside, t.0.join("fonts/Secret.ttf")).unwrap();
         let e = find_outline_family("Secret", &[t.0.join("fonts")]).unwrap_err();
         assert!(e.contains("leaves the font directories"), "{e}");
+        // a link of another name is not opened to read its family
+        let t = Tree::new("outline-link-other");
+        let outside = t.file("outside/Other.ttf", &outline_font("Secret", "Regular"));
+        fs::create_dir_all(t.0.join("fonts")).unwrap();
+        std::os::unix::fs::symlink(&outside, t.0.join("fonts/link.ttf")).unwrap();
+        assert_eq!(
+            find_outline_family("Secret", &[t.0.join("fonts")]).unwrap(),
+            None
+        );
     }
 
     #[test]
     fn a_font_source_takes_an_outline_family_when_kbd_has_none() {
         let t = Tree::new("outline-resolve");
-        t.file("fonts/Test-Regular.otf", b"outline bytes");
+        let font = outline_font("Test", "Regular");
+        t.file("fonts/Test-Regular.otf", &font);
         let consoles = Graphics;
         let h = host(&t, &consoles);
         let r = resolve(&source("font:Test", Origin::Font("Test".into()), None), &h).unwrap();
         let Input::Outline(req) = &r else {
             panic!("not an outline: {r:?}");
         };
-        assert_eq!(
-            (&req.font[..], req.family.as_str()),
-            (&b"outline bytes"[..], "Test")
-        );
+        assert_eq!((&req.font[..], req.family.as_str()), (&font[..], "Test"));
         let e = resolve(
             &source("font:Absent", Origin::Font("Absent".into()), None),
             &h,

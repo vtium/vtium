@@ -1,8 +1,8 @@
 # Managing VTium
 
-The guides below hold the steps you take to run vtium, a terminal for the Linux virtual console, day to day. [why-vtium.md](why-vtium.md) says why you might choose vtium, and [concepts.md](concepts.md) explains its pieces.
+The guides below hold the steps you take to run vtium, a terminal for the Linux virtual console, day to day. [why-vtium.md](why-vtium.md) says why you might choose vtium, and [Concepts](concepts/index.md) explains its pieces.
 
-- [Install vtium and give it VTs](install.md): installing on Arch Linux or from a checkout, giving vtium one VT or every VT, moving from `kmscon`, sharing VTs with it, upgrading and removing.
+- [Install vtium and give it VTs](install.md): installing on Arch Linux or from a checkout, giving vtium one VT or every VT, moving from another terminal on a DRM/KMS VT, sharing VTs with `kmscon`, upgrading and removing.
 - [Configure vtium](configure.md): writing `vtium.conf`, checking it, and blanking a VT from a script.
 - [Choose a font](fonts.md): an outline font or a console font, its size, choosing one with `vtium config`, and switching and zooming for a session.
 - [Set up heads](heads.md): a complete head file for each common setup.
@@ -16,7 +16,7 @@ The guides below hold the steps you take to run vtium, a terminal for the Linux 
 - [config.md](config.md): every configuration key
 - [heads.md](heads.md): the head file, with an example for each setup
 - [systemd.md](systemd.md): where vtium touches systemd, logind or PID 1, and how it runs without them
-- [concepts.md](concepts.md): vtium's pieces and how they fit together
+- [Concepts](concepts/index.md): vtium's pieces and how they fit together
 - [vt-review.md](vt-review.md): the maintainer's guided review of a build on a VT, and the development install
 - [vtium-arch](https://github.com/vtium/vtium-arch): the Arch Linux recipes
 - [The issue tracker](https://github.com/vtium/vtium/issues)

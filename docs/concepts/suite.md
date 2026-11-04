@@ -1,0 +1,34 @@
+# The suite
+
+vtium is one console and a few programs and files around it. The table lists each, who runs it, and whether it is built or proposed. vtium-config, the font and settings tool, is designed in ADR-1200, accepted on 2026-10-28 (vtium/vtium#3), and ADR-1201, with the commands later issues add. A user runs it as `vtium config`, which hands its words to vtium-config (ADR-1201 D12).
+
+| Piece | What it is | Run by | State | Held by |
+|---|---|---|---|---|
+| `vtium` | The console: one process per VT, which owns that VT, its display and its input devices, and runs the session | root, started by init or logind | built | [ADR-1400](../architecture/platform/ADR-1400-the-privilege-and-sandbox-model.md), vtium/vtium#21 |
+| `vtium blank`, `vtium wake` | Blank or wake a VT's displays from outside its session, by signalling the vtium on that VT | root, or the user vtium runs as | built | vtium/vtium#116 |
+| `vtium config preview` | Draws a sample of each font it names as the helper would draw it, as a picture in a terminal that shows kitty graphics and as a line of text in one that does not, and writes nothing | the user | built | vtium/vtium#120 |
+| `vtium config new` | Makes a frit of the fonts it names, in order, or installs a frit written from the template it prints; alone at a terminal it opens vtium config's full-screen tool at its new-frit view | the user, with sudo once to install | built | vtium/vtium#121 |
+| `vtium-config serve` | The helper: generates a frit's glyphs at run time in a sandbox, started on the console's first need and gone when idle | the console, never as root | built: PSF and kbd sources, and outline and color fonts | vtium/vtium#145, #23 |
+| `vtium config set` | Switches the running console among the frits and the built-in fonts | the user, in the session | built | vtium/vtium#126 |
+| `vtiumctl detect`, `setup`, `status`, `check`, `template`, `install` | The configuration tool, a small binary of its own: lists every display and input with a rule ready to paste, writes a head file by asking which keyboard belongs to which display, reports what the running console did with each device, checks any configuration file, frits included, writes the commented default configuration when asked, and installs a checked file | any user; root to install the file | proposed | [ADR-1401](../architecture/platform/ADR-1401-heads-a-terminal-per-physical-display-placed-by-a-first-match-ruleset.md) |
+| `vtium-clipboard`, also `vticlip` | Copies to the console's selection from a script or a pipe | the user, in the session | proposed; copy decided, paste open | vtium/vtium#113 |
+| The frits | Small text files that name a font's sources, which the helper draws from | written by root | built | vtium/vtium#3, #145 |
+| The built-in fonts | Unifont, and Unscii-8 for small cells, compiled into vtium: the first frame's font and the fallback for each character a frit lacks | inside `vtium` | built: Unscii-8 for cells under 16 pixels and unifont from 16 | vtium/vtium#3, #141 |
+| The configuration | One file, a file for the seat, and the command line | written by root, read by `vtium` | built | [config.md](../config.md) |
+| The head file | The heads and the ordered rules that place each display and input; vtium runs its compiled-in rules when there is none and never writes one | written by root, or by `vtiumctl setup` or `template`, read by `vtium` | built | [ADR-1401](../architecture/platform/ADR-1401-heads-a-terminal-per-physical-display-placed-by-a-first-match-ruleset.md) |
+| The unit | systemd's service for vtium on a VT, in getty's place | started by logind | built | [systemd.md](../systemd.md) |
+| The terminfo entry | Tells programs in the session what vtium can do | read by the session's programs | built | [crates/vtium](https://github.com/vtium/vtium/blob/main/crates/vtium/README.md), vtium/vtium#21 |
+
+vtium is the only piece needed to use the console. vtium-config, vtiumctl and vtium-clipboard are separate binaries, so the font decoders, the rasteriser and the configuration tool stay out of the console's binary, and none counts against the minspec build's budget.
+
+## What runs as root, and what as the user
+
+The figure shows the suite in two bands, what runs as root above and what runs as the user who logged in below. The session reaches the console only through the pty, the kernel's pair of devices that lets one program act as the terminal of another; vtium config reaches root's side once, through `sudo vtium-config apply`, to install a frit. vtium-clipboard is drawn dashed, as proposed.
+
+![Two bands. Above, running as root: the kernel's devices (the VT, the display, keyboards and pointers) joined to vtium, the console; vtium-config apply, under sudo, writing a frit into the root-owned frits in /etc/vtium/fonts, which vtium reads. Between the bands, the pty, joined to vtium by bytes both ways. Below, running as the user who logged in: vtium config set, vtium-clipboard, and shell and programs, each joined to the pty; and vtium config preview, and vtium config new with its templates, the second of which hands a frit to its own last step, under sudo, once. vtium-clipboard alone is drawn dashed, as proposed; every other piece is drawn solid, as built.](../figures/concepts-pieces.svg)
+
+The console runs as root for its whole life. Root lets it open the VT, take the display, read the keyboards and pointers directly, and start the system's login program, which authenticates the user and starts their shell with the user's rights. [ADR-1400](../architecture/platform/ADR-1400-the-privilege-and-sandbox-model.md) holds the privilege model, the image helper that decodes pictures as the session's user included.
+
+A program in the session reaches vtium only through the bytes it writes to its terminal. vtium's replies to those bytes are built from its own state and never echo what a program sent, so text a program prints cannot type into another program reading the replies ([architecture.md](../architecture.md#determinism), "No reflection").
+
+Only root writes frits, so the configuration and OSC 50 name only fonts root chose. Everything before that runs as the user: previews, choosing fonts for a new frit, and the template. The helper that draws a frit's glyphs never runs as root, and the console trusts its glyphs only to be well-formed. Switching among frits and copying to the clipboard run in the session and speak to vtium through the terminal like any other program.
