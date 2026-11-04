@@ -180,7 +180,10 @@ considered:
   - operator: aaronsb
     said: "Let's check it out. It sounds like a good use and can stay outside of vtiums loop (memory)"
     via: the maintainer in the steering session, 2026-11-03, relayed verbatim by the team lead, on enforcing a shader's reach and reads
-status: proposed
+  - operator: aaronsb
+    said: "accept"
+    via: the maintainer in the steering session, 2026-11-03, relayed verbatim by the team lead, for ADR-1304 and ADR-1305 together
+status: accepted
 date: 2026-11-03
 deciders:
   - aaronsb
