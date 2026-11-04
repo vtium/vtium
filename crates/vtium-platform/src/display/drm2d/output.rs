@@ -283,6 +283,11 @@ pub(super) struct Output<M> {
     /// wake-up try this mode again, and once the retries run out it is
     /// held back.
     pub(super) owed: Option<Mode>,
+    /// The CRTC, with its index into the card's list of CRTCs, that the
+    /// last placement moved the display off to light another display, until
+    /// a modeset sets it on its new CRTC. A modeset that cannot set the
+    /// displays there moves it back ([`super::Drm2d::move_back`]).
+    pub(super) moved_from: Option<(u32, usize)>,
     /// The connector's physical size in millimetres, 0 where it has none.
     pub(super) mm: (u32, u32),
     pub(super) mode_blob: u32,

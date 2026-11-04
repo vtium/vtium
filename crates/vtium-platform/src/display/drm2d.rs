@@ -14,6 +14,7 @@
 
 mod buffers;
 mod dark;
+mod matching;
 mod output;
 
 pub use output::CURSOR_MAX;
@@ -41,6 +42,7 @@ use super::{
 };
 use buffers::{Buffer, Dumbs, FORMAT, Source};
 use dark::Dark;
+use matching::{Place, index_bit, matching};
 use output::{
     ARGB8888, ColorProps, Cursor, Output, PLANE_CURSOR, PLANE_OVERLAY, PLANE_PRIMARY, Planes,
     Props, bits_per_color, clip_bytes, connector_name, dpms_value, invalid, mode_bytes, value,
@@ -92,15 +94,12 @@ struct New {
     choice: Choice,
 }
 
-/// What placing one display on a CRTC goes by: the group it is placed
-/// in, the groups taken in order, with the lit displays in group 0; and
-/// the CRTC it wants, and the CRTCs it can take, by index into the card's
-/// list of CRTCs.
+/// What a placement did: whether it bound, moved or let go of a display,
+/// and whether it left a new display without a CRTC.
 #[derive(Clone, Copy, Debug)]
-struct Place {
-    group: u8,
-    want: Option<usize>,
-    able: u32,
+struct Placed {
+    changed: bool,
+    unplaced: bool,
 }
 
 /// An operation that waits until no page flip is in flight.
@@ -164,6 +163,12 @@ pub struct Drm2d<K: Kms, S: Source<K> = Dumbs> {
     /// A modeset could not set the dark connectors off beside the lit
     /// displays, and that was logged as a warning.
     dark_refused: bool,
+    /// The connectors whose display the card refused to set beside the
+    /// others even with lit displays moved for it. Until such a connector
+    /// is unplugged, a hotplug moves no lit display for it, so the lit
+    /// displays do not blank at each hotplug for a display that cannot
+    /// light.
+    move_refused: Vec<u32>,
     /// The connectors whose color properties the card refused at a
     /// modeset, each logged once as a warning.
     color_refused: RefCell<Vec<String>>,
@@ -239,6 +244,7 @@ impl<K: Kms> Drm2d<K> {
             identities: Vec::new(),
             dark: Vec::new(),
             dark_refused: false,
+            move_refused: Vec::new(),
             color_refused: RefCell::new(Vec::new()),
             waiting: None,
             lost_flip: false,
@@ -1210,6 +1216,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         let follow = scan == Scan::WakeUp && self.scanned;
         let mut seen = Vec::new();
         let mut new = Vec::new();
+        let mut connected = Vec::new();
         for &id in &res.connectors {
             let Some(conn) = self.connector(id) else {
                 continue;
@@ -1217,6 +1224,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             if !conn.connected || conn.modes.is_empty() {
                 continue;
             }
+            connected.push(id);
             if self.scanned {
                 seen.push(conn.clone());
             }
@@ -1347,9 +1355,24 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             self.free(o);
             changed = true;
         }
-        if self.place(&res, &seen, new, &freed, follow) {
+        self.move_refused.retain(|id| connected.contains(id));
+        // Blanked, a hotplug's modeset waits for the input that ends the
+        // blank, so no lit display moves at it: a display that drew on
+        // with its record moved would flip on a CRTC its connector is not
+        // on. A new display that could light only by moving one waits for
+        // that input too, whose scan places it.
+        let defer = self.blanked && scan != Scan::WakeUp;
+        let pin = defer
+            || new
+                .iter()
+                .any(|n: &New| self.move_refused.contains(&n.conn.id));
+        let placed = self.place(&res, &seen, new, &freed, follow, pin);
+        if placed.changed {
             needs = true;
             changed = true;
+        }
+        if defer && placed.unplaced {
+            self.owed = true;
         }
         self.scanned = true;
         // A mode held back is tried again as the card wakes, as another
@@ -1385,7 +1408,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             }
             return Ok(());
         }
-        if needs && self.blanked && scan != Scan::WakeUp {
+        if needs && defer {
             // Blanked, a hotplug commits nothing: the modeset waits for the
             // input that ends the blank, and a display plugged in stays
             // dark until then (the operator's decision on vtium/vtium#18).
@@ -1582,6 +1605,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             planes,
             color,
             mode: choice.current,
+            moved_from: None,
             set: None,
             held: None,
             owed: None,
@@ -1642,22 +1666,30 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     /// Places the displays on CRTCs, one CRTC each: the new ones, `new`,
     /// and the ones bound before. Binds a display to each new connector
     /// placed, moves each display bound before to the CRTC it is placed
-    /// on, and says whether it bound, moved or let go of any display.
+    /// on, and says whether it bound, moved or let go of any display and
+    /// whether it left a new display without a CRTC.
     ///
     /// Every scan places the displays together, wherever the card has a
-    /// CRTC for each. At a hotplug,
-    /// and at the retry of a failed one, a lit display bound before stays
-    /// on its CRTC whenever every new display can light without it moving.
-    /// Where a new display can light only on a CRTC that a lit display
-    /// holds, and that lit display can move to another CRTC its connector's
-    /// encoders drive, the lit display moves and the new display takes its
-    /// CRTC, and the placement moves as few lit displays as it can. The
-    /// modeset after the scan sets the moved display's mode on its new
-    /// CRTC anew, so it blanks once while it moves and then lights beside
-    /// the new one, as a desktop such as KWin does at a hotplug (the
-    /// maintainer's decision on vtium/vtium#268). A new display that no
-    /// placement gives a CRTC is not bound, with an error, nothing moves
-    /// for it, and the next scan tries it again.
+    /// CRTC for each. At a hotplug, and at the retry of a failed one, a lit
+    /// display bound before stays on its CRTC whenever every new display
+    /// can light without it moving. Where a new display can light only on a
+    /// CRTC that a lit display holds, and that lit display can move to
+    /// another CRTC its connector's encoders drive, the lit display moves
+    /// and the new display takes its CRTC, and the placement moves as few
+    /// lit displays as it can. The modeset after the scan sets the moved
+    /// display's mode on its new CRTC anew, so it blanks once while it
+    /// moves and then lights beside the new one, as a desktop such as KWin
+    /// does at a hotplug (the maintainer's decision on vtium/vtium#268).
+    /// The moved display remembers the CRTC it left (`moved_from`), and a
+    /// modeset that cannot set the displays in their new places moves it
+    /// back ([`Self::move_back`]). A new display that no placement gives a
+    /// CRTC is not bound, with an error, nothing moves for it, and the next
+    /// scan tries it again.
+    ///
+    /// Where `pin` is set, no display bound before moves at a hotplug or a
+    /// retry: the scan's modeset waits for the input that ends a blank, or
+    /// a new display is one the card refused beside the others even with
+    /// lit displays moved for it (`move_refused`).
     ///
     /// The C reference chose each display's CRTC on its own as it bound it,
     /// the CRTC its connector's encoder drove where no display had taken it
@@ -1695,12 +1727,10 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     /// scan the displays whose connector is on no CRTC come next, and the
     /// rest last; at any other scan the rest come next. Within a group the
     /// displays bound before come first, then the new ones, each in the
-    /// card's connector order. A display takes the CRTC it wants where no
-    /// display took it, and else the first free CRTC it can take. Where no
-    /// CRTC is free, a matching step ([`augment`]) moves displays placed
-    /// before it to other CRTCs they can take to free one. It moves a lit
-    /// display only where moving displays that are not lit frees none, and
-    /// then moves as few lit displays as it can.
+    /// card's connector order. The matching ([`matching`]) places them one
+    /// at a time, and of the placements of the displays it can place, it
+    /// takes one that puts as few lit displays as it can off the CRTC they
+    /// want, and then as few of the others.
     ///
     /// The CRTCs the displays bound before hold are a placement of them
     /// all, so the matching always finds one for them, and a later step
@@ -1715,7 +1745,8 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         new: Vec<New>,
         freed: &[(Identity, u32)],
         follow: bool,
-    ) -> bool {
+        pin: bool,
+    ) -> Placed {
         let index = |crtc: u32| res.crtcs.iter().position(|&c| c == crtc);
         let bit = |crtc: u32| index(crtc).map_or(0, index_bit);
         let olds = std::mem::take(&mut self.outputs);
@@ -1733,7 +1764,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                 places.push(Place {
                     group: if o.online { 0 } else { 1 },
                     want: index(o.crtc),
-                    able: reach,
+                    able: if pin { bit(o.crtc) } else { reach },
                 });
                 continue;
             }
@@ -1775,7 +1806,20 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         let mut slots = matching(&places, res.crtcs.len()).into_iter();
         let at = |slot: Option<usize>| slot.and_then(|c| Some((*res.crtcs.get(c)?, c)));
         let mut changed = false;
-        for (mut o, slot) in olds.into_iter().zip(slots.by_ref()) {
+        let mut unplaced = false;
+        for ((mut o, slot), p) in olds.into_iter().zip(slots.by_ref()).zip(&places) {
+            // The CRTC the display is moved off for another display: at a
+            // wake-up the CRTC it wants, and at any other scan the one it
+            // was on before the first move no modeset has set yet.
+            let from = (o.crtc, o.pipe);
+            if follow {
+                o.moved_from = at(p.want).filter(|&want| Some(want.1) != slot);
+            } else if slot.is_some_and(|c| c != o.pipe) {
+                o.moved_from = o
+                    .moved_from
+                    .or(Some(from))
+                    .filter(|&(_, pipe)| Some(pipe) != slot);
+            }
             let placed = match at(slot) {
                 None => Err(format!("no free CRTC for {}", o.name)),
                 Some((crtc, _)) if crtc == o.crtc => {
@@ -1787,14 +1831,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             changed = true;
             match placed {
                 Ok(()) => self.outputs.push(o),
-                Err(why) => {
-                    log::warn!("{why}; it stays off until a scan finds a CRTC for it");
-                    if o.announced {
-                        self.events.push(Event::Removed(o.id));
-                    }
-                    self.identities.retain(|(i, _)| *i != o.id);
-                    self.free(o);
-                }
+                Err(why) => self.let_go(o, &why),
             }
         }
         for (n, slot) in new.into_iter().zip(slots) {
@@ -1806,6 +1843,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             } = n;
             let Some((crtc, pipe)) = at(slot) else {
                 log::error!("no free CRTC for {}", found.name);
+                unplaced = true;
                 continue;
             };
             if let Some(o) = self.bind(&conn, found, choice, crtc, pipe) {
@@ -1817,7 +1855,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         }
         self.outputs
             .sort_by_key(|o| res.connectors.iter().position(|&c| c == o.id.0));
-        changed
+        Placed { changed, unplaced }
     }
 
     /// Moves display `o` to `crtc`, at `pipe` in the card's list of CRTCs,
@@ -1960,15 +1998,44 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
 
     /// Sets every display's mode, then announces each display set. Where
     /// the displays online and the new ones cannot be set together, the
-    /// new ones are left off until the next hotplug and the rest are set
-    /// alone. A display whose new mode cannot be set stays at the mode it
-    /// is set to: held back where the card refused the mode, and else owed
-    /// it, which starts the wake-up retries.
+    /// new ones are left off until the next hotplug, each display the
+    /// placement moved for them goes back to the CRTC it was moved off
+    /// ([`Self::move_back`]), and the rest are set alone. A display whose
+    /// new mode cannot be set stays at the mode it is set to: held back
+    /// where the card refused the mode, and else owed it, which starts the
+    /// wake-up retries.
     fn modeset(&mut self) -> io::Result<()> {
         // The legacy calls set each display on its own, so the displays set
-        // are announced whatever failed for another.
+        // are announced whatever failed for another. A display moved for a
+        // new one that cannot be set on its new CRTC goes back, and the
+        // displays are set again without the new displays on the CRTCs the
+        // moved ones go back to.
         let (set, unset) = if self.legacy {
-            (Ok(()), self.legacy_modeset())
+            let mut unset = self.legacy_modeset();
+            if self
+                .outputs
+                .iter()
+                .any(|o| o.moved_from.is_some() && unset.contains(&o.id))
+            {
+                // The CRTCs the moved displays go back to; any other display
+                // on one of them is a new display placed there.
+                let back: Vec<u32> = self
+                    .outputs
+                    .iter()
+                    .filter_map(|o| Some(o.moved_from?.0))
+                    .collect();
+                let (kept, new): (Vec<_>, Vec<_>) = std::mem::take(&mut self.outputs)
+                    .into_iter()
+                    .partition(|o| o.moved_from.is_some() || !back.contains(&o.crtc));
+                self.outputs = kept;
+                self.leave_off(
+                    new,
+                    "a display moved to light it cannot be set on its new CRTC",
+                );
+                self.move_back();
+                unset = self.legacy_modeset();
+            }
+            (Ok(()), unset)
         } else {
             let mut set = self.atomic_modeset_or_default();
             // A display whose new mode the card refuses, as its default
@@ -1991,13 +2058,11 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                         .into_iter()
                         .partition(|o| o.online);
                     self.outputs = online;
-                    for o in new {
-                        log::warn!(
-                            "cannot set {} beside the displays online: {e}; it stays off until the next hotplug",
-                            o.name
-                        );
-                        self.free(o);
-                    }
+                    self.leave_off(
+                        new,
+                        &format!("the card refuses it beside the displays online: {e}"),
+                    );
+                    self.move_back();
                     self.atomic_modeset_or_default()
                         .map_err(Failure::into_inner)
                 }
@@ -2007,6 +2072,12 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         };
         self.unset = unset;
         if set.is_ok() {
+            // Each display set is on its new CRTC for good.
+            for o in self.outputs.iter_mut() {
+                if !self.unset.contains(&o.id) {
+                    o.moved_from = None;
+                }
+            }
             // A modeset brings every display on.
             self.blanked = false;
             self.owed = false;
@@ -2020,6 +2091,56 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             }
         }
         set
+    }
+
+    /// Lets go of the new displays `new`, which a modeset could not set
+    /// beside the others, for `why`; each stays off until the next hotplug.
+    /// Where a display was moved to light them, the card refused even
+    /// that, so each of their connectors is recorded, and until it is
+    /// unplugged a hotplug moves no lit display for it.
+    fn leave_off(&mut self, new: Vec<Output<S::Memory>>, why: &str) {
+        let moved = self.outputs.iter().any(|o| o.moved_from.is_some());
+        for o in new {
+            log::warn!("{} stays off until the next hotplug: {why}", o.name);
+            if moved && !self.move_refused.contains(&o.id.0) {
+                self.move_refused.push(o.id.0);
+            }
+            if o.announced {
+                self.events.push(Event::Removed(o.id));
+            }
+            self.identities.retain(|(i, _)| *i != o.id);
+            self.free(o);
+        }
+    }
+
+    /// Moves each display that the last placement moved off a CRTC to
+    /// light another display back to that CRTC, as the modeset that was to
+    /// set it on its new CRTC failed. A display whose CRTC has no primary
+    /// plane then stays off, as one the scan cannot bind does, and the
+    /// owner hears it removed.
+    fn move_back(&mut self) {
+        for mut o in std::mem::take(&mut self.outputs) {
+            let Some((crtc, pipe)) = o.moved_from.take() else {
+                self.outputs.push(o);
+                continue;
+            };
+            match self.move_to(&mut o, crtc, pipe) {
+                Ok(()) => self.outputs.push(o),
+                Err(why) => self.let_go(o, &why),
+            }
+        }
+    }
+
+    /// Lets go of display `o`, which a placement could not put on a CRTC
+    /// for `why`: it stays off until a scan finds a CRTC for it, and the
+    /// owner hears it removed.
+    fn let_go(&mut self, o: Output<S::Memory>, why: &str) {
+        log::warn!("{why}; it stays off until a scan finds a CRTC for it");
+        if o.announced {
+            self.events.push(Event::Removed(o.id));
+        }
+        self.identities.retain(|(i, _)| *i != o.id);
+        self.free(o);
     }
 
     /// Gives each display back the mode it is set to where a scan chose
@@ -2719,15 +2840,6 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     }
 }
 
-/// The bit of the CRTC at `index` in the card's list, as a mask of
-/// possible CRTCs names it; 0 past the 32 such a mask holds.
-fn index_bit(index: usize) -> u32 {
-    u32::try_from(index)
-        .ok()
-        .and_then(|i| 1u32.checked_shl(i))
-        .unwrap_or(0)
-}
-
 /// Whether `now` names the monitor `was` named. Where both connectors have
 /// a `PATH`, as a DisplayPort multi-stream port keeps when its connector is
 /// made again under a new id, the two must name the same port; two
@@ -2741,133 +2853,6 @@ fn same_monitor(was: &Identity, now: &Identity) -> bool {
         (None, None) => was.edid.is_some() && was.edid == now.edid,
         _ => false,
     }
-}
-
-/// Each display's CRTC, by index into the card's `crtcs` CRTCs, or `None`
-/// for a display left without one ([`Drm2d::place`]). The displays are
-/// placed group by group, each group in its order in `places`. A display
-/// takes the CRTC it wants where no display took it, and else the first
-/// free CRTC it can take. Where none is free, a matching step ([`augment`])
-/// moves displays placed before it to free one.
-fn matching(places: &[Place], crtcs: usize) -> Vec<Option<usize>> {
-    let mut order: Vec<usize> = (0..places.len()).collect();
-    order.sort_by_key(|&d| places.get(d).map(|p| p.group));
-    let mut slot = vec![None; places.len()];
-    let mut owner = vec![None; crtcs];
-    for d in order {
-        let Some(p) = places.get(d) else {
-            continue;
-        };
-        let free = |c: usize| owner.get(c) == Some(&None) && p.able & index_bit(c) != 0;
-        match p
-            .want
-            .filter(|&c| free(c))
-            .or_else(|| (0..crtcs).find(|&c| free(c)))
-        {
-            Some(c) => assign(d, c, &mut slot, &mut owner),
-            None => {
-                augment(d, places, &mut slot, &mut owner);
-            }
-        }
-    }
-    slot
-}
-
-/// Puts display `d` on the CRTC at `c`, which the display placed there
-/// before, if any, has already left.
-fn assign(d: usize, c: usize, slot: &mut [Option<usize>], owner: &mut [Option<usize>]) {
-    if let Some(old) = slot.get(d).copied().flatten()
-        && let Some(held) = owner.get_mut(old)
-        && *held == Some(d)
-    {
-        *held = None;
-    }
-    if let Some(at) = slot.get_mut(d) {
-        *at = Some(c);
-    }
-    if let Some(held) = owner.get_mut(c) {
-        *held = Some(d);
-    }
-}
-
-/// One augmenting step of a matching of displays to CRTCs: places display
-/// `d` on a CRTC its mask allows, freeing one where none is free by moving
-/// a chain of displays placed before it, each to another CRTC its own mask
-/// allows. Of the chains that free a CRTC it takes the one that moves the
-/// fewest lit displays, those in group 0, and of those the one that moves
-/// the fewest displays; a tie goes to the chain whose CRTCs come first in
-/// the card's list. Whether it placed `d`; where it did not, nothing
-/// moved.
-///
-/// It is a shortest-path search over the CRTCs. A CRTC's cost is what
-/// freeing it for the chain costs: 0 for each CRTC `d` can take, and from
-/// a CRTC whose display moves, that cost plus the move's to each other
-/// CRTC the moving display can take. A lit display's move costs more than
-/// any chain of moves of displays that are not lit, so the costs order
-/// the chains by lit displays moved first. The first free CRTC the search
-/// reaches ends the cheapest chain.
-fn augment(
-    d: usize,
-    places: &[Place],
-    slot: &mut [Option<usize>],
-    owner: &mut [Option<usize>],
-) -> bool {
-    let crtcs = owner.len();
-    let lit_move = u32::try_from(crtcs).unwrap_or(u32::MAX).saturating_add(1);
-    // For each CRTC, the cost of freeing it and the CRTC whose display
-    // moves to it, `None` where `d` takes it itself.
-    let mut cost: Vec<Option<(u32, Option<usize>)>> = vec![None; crtcs];
-    let mut done = vec![false; crtcs];
-    let can = places.get(d).map_or(0, |p| p.able);
-    for (c, at) in cost.iter_mut().enumerate() {
-        if can & index_bit(c) != 0 {
-            *at = Some((0, None));
-        }
-    }
-    let end = loop {
-        let next = (0..crtcs)
-            .filter(|&c| !done.get(c).copied().unwrap_or(true))
-            .filter_map(|c| Some((cost.get(c).copied().flatten()?.0, c)))
-            .min();
-        let Some((so_far, c)) = next else {
-            return false;
-        };
-        if let Some(seen) = done.get_mut(c) {
-            *seen = true;
-        }
-        let Some(moving) = owner.get(c).copied() else {
-            return false;
-        };
-        let Some(moving) = moving else {
-            break c;
-        };
-        let Some(p) = places.get(moving) else {
-            continue;
-        };
-        let step = so_far.saturating_add(if p.group == 0 { lit_move } else { 1 });
-        for to in 0..crtcs {
-            if to == c || p.able & index_bit(to) == 0 || done.get(to).copied().unwrap_or(true) {
-                continue;
-            }
-            if let Some(at) = cost.get_mut(to)
-                && at.is_none_or(|(was, _)| step < was)
-            {
-                *at = Some((step, Some(c)));
-            }
-        }
-    };
-    // Walks the chain back from the free CRTC: each display moves on to
-    // the CRTC after its own, the last first, and then `d` takes the
-    // first.
-    let mut to = end;
-    while let Some(from) = cost.get(to).copied().flatten().and_then(|(_, from)| from) {
-        if let Some(moving) = owner.get(from).copied().flatten() {
-            assign(moving, to, slot, owner);
-        }
-        to = from;
-    }
-    assign(d, to, slot, owner);
-    true
 }
 
 /// Takes display `o`'s pointer image off the card: its framebuffer, whose

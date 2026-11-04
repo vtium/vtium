@@ -213,7 +213,8 @@ pub(crate) struct State {
     /// The card's directory in sysfs, a stand-in one; none by default.
     pub(crate) sysfs: Option<std::path::PathBuf>,
     /// CRTCs no commit may drive, as past a bandwidth limit: a commit
-    /// that names one is refused with EINVAL.
+    /// that names one, and a legacy CRTC set of one, is refused with
+    /// EINVAL.
     pub(crate) refused: Vec<u32>,
     pub(crate) page_flips: Vec<(u32, u32)>,
     pub(crate) set_crtcs: Vec<(u32, u32, u32, Mode)>,
@@ -1485,7 +1486,22 @@ impl Kms for FakeCard {
         if smaller_than(&s, fb, mode) {
             return Err(err(Errno::NOSPC));
         }
+        if s.refused.contains(&crtc) {
+            return Err(err(Errno::INVAL));
+        }
         s.set_crtcs.push((crtc, fb, connector, *mode));
+        // The CRTC drives the connector set alone, so the kernel takes
+        // every other connector off it (`update_output_state`).
+        let others: Vec<u32> = s
+            .bound
+            .iter()
+            .filter(|&(&c, &on)| on == crtc && c != connector)
+            .map(|(&c, _)| c)
+            .collect();
+        for other in others {
+            s.bind(other, 0);
+        }
+        s.bound.retain(|_, c| *c != 0);
         s.bind(connector, crtc);
         s.crtc_modes.insert(crtc, *mode);
         s.active.insert(crtc, true);
