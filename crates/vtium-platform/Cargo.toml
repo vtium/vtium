@@ -20,6 +20,12 @@ logind = ["dep:pkg-config"]
 # session's user, its socket, its replies' memory files, the timeout and
 # the crash limit. Off in the minspec build, which carries no images.
 images = ["dep:vtium-image"]
+# The GPU path's platform half (ADR-1303 D7, D8): a GL context on a card's
+# render node through GBM and EGL, its safe GL type and the import of a
+# display's buffer as a dma-buf. libEGL and libgbm are loaded when a context
+# is made, never linked, so a build with it starts on a machine without
+# them. Off in the minspec and default builds, which compile none of it.
+gpu = ["dep:glow", "dep:khronos-egl", "dep:libloading"]
 
 [dependencies]
 calloop = { version = "0.14.4", features = ["signals"] }
@@ -34,6 +40,14 @@ rustix = { version = "=1.1.5", default-features = false, features = ["std", "fs"
 # The image helper's wire and reply types, which the helper links too
 # (ADR-1101 D7); only with `images`.
 vtium-image = { workspace = true, optional = true }
+# GL's function table, loaded through eglGetProcAddress; only with `gpu`.
+glow = { version = "=0.18.0", default-features = false, optional = true }
+# EGL, loaded from libEGL.so.1 at run time through its `dynamic` feature;
+# only with `gpu`.
+khronos-egl = { version = "=6.0.0", default-features = false, features = ["1_5", "dynamic"], optional = true }
+# Opens libgbm.so.1 at run time for the few GBM calls `src/gpu/gbm.rs`
+# makes; khronos-egl's `dynamic` feature already builds it. Only with `gpu`.
+libloading = { version = "=0.8.9", optional = true }
 
 [build-dependencies]
 # Finds libsystemd or libelogind for the `logind` feature; already in the
