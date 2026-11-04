@@ -249,9 +249,10 @@ pub(crate) struct State {
     /// the commits and the legacy property sets so far left it. A
     /// connector absent here has none of the three.
     pub(crate) color: BTreeMap<u32, Color>,
-    /// The driver refuses any change to a connector's color state with
-    /// EINVAL, as a driver refuses a value its sink cannot take.
-    pub(crate) color_refused: bool,
+    /// The color properties the driver refuses to set, each named by its
+    /// connector and its name, with EINVAL, as a driver refuses a value its
+    /// sink cannot take.
+    pub(crate) color_refused: Vec<(u32, &'static str)>,
 }
 
 /// The `Colorspace` values the stand-in's connectors offer: `Default`, 0,
@@ -273,7 +274,7 @@ pub(crate) struct Color {
 impl Color {
     /// The color state a desktop leaves with HDR on, as KWin left DP-8 on
     /// the maintainer's machine (vtium/vtium#253): BT.2020 RGB, the HDR
-    /// metadata in blob `blob`, and 16 bits a color asked for, in amdgpu's
+    /// metadata in blob `blob`, and 16 bits per color asked for, in amdgpu's
     /// range of 8 to 16 (`amdgpu_dm.c`).
     pub(crate) fn hdr(blob: u32) -> Color {
         Color {
@@ -293,8 +294,8 @@ const COLOR_PROPS: [&str; 3] = ["Colorspace", "HDR_OUTPUT_METADATA", "max bpc"];
 /// ENOENT (`drm_mode_obj_find_prop_id`), and with EINVAL a `Colorspace`
 /// that is not one of its enumerators or a `max bpc` outside its range
 /// (`drm_property_change_valid_get`), an `HDR_OUTPUT_METADATA` blob the
-/// card does not hold (`drm_property_replace_blob_from_id`), or any change
-/// the driver refuses.
+/// card does not hold (`drm_property_replace_blob_from_id`), or a property
+/// [`State::color_refused`] names.
 fn color_refusal(s: &State, conn: u32, name: &str, value: u64) -> Option<Errno> {
     let Some(color) = s.color.get(&conn) else {
         return Some(Errno::NOENT);
@@ -306,7 +307,8 @@ fn color_refusal(s: &State, conn: u32, name: &str, value: u64) -> Option<Errno> 
         }
         _ => (color.bpc_range.0..=color.bpc_range.1).contains(&value),
     };
-    if !valid || s.color_refused {
+    let refused = s.color_refused.iter().any(|&(c, n)| c == conn && n == name);
+    if !valid || refused {
         return Some(Errno::INVAL);
     }
     None
@@ -788,9 +790,20 @@ impl FakeCard {
         10_000 + u32::try_from(at).unwrap_or(0)
     }
 
+    /// The name of property `id`. A property one connector owns, as the
+    /// kernel gives each connector a `max bpc` of its own, is kept as its
+    /// name, a NUL and the connector's id.
     fn prop_name(&self, id: u32) -> String {
         let at = usize::try_from(id - 10_000).unwrap_or(usize::MAX);
-        self.names.borrow().get(at).cloned().unwrap_or_default()
+        let key = self.names.borrow().get(at).cloned().unwrap_or_default();
+        key.split('\0').next().unwrap_or_default().to_owned()
+    }
+
+    /// The connector that owns property `id`, where one does.
+    fn prop_owner(&self, id: u32) -> Option<u32> {
+        let at = usize::try_from(id.checked_sub(10_000)?).ok()?;
+        let key = self.names.borrow().get(at).cloned()?;
+        key.split_once('\0')?.1.parse().ok()
     }
 
     /// Every property of object `id`, its own and those
@@ -825,11 +838,18 @@ impl FakeCard {
                         [
                             ("Colorspace", c.colorspace),
                             ("HDR_OUTPUT_METADATA", c.hdr_metadata),
-                            ("max bpc", c.max_bpc),
                         ]
                     }))
                     .collect();
-                Ok(self.props(&names))
+                let mut props = self.props(&names);
+                if let Some(c) = color {
+                    props.push(Property {
+                        id: self.prop_id(&format!("max bpc\0{id}")),
+                        name: "max bpc".to_owned(),
+                        value: c.max_bpc,
+                    });
+                }
+                Ok(props)
             }
             Object::Crtc => {
                 let active = u64::from(s.active.get(&id).copied().unwrap_or(false));
@@ -1134,11 +1154,20 @@ impl Kms for FakeCard {
     fn property_name(&self, id: u32) -> io::Result<String> {
         let at = id.checked_sub(10_000).ok_or_else(|| err(Errno::NOENT))?;
         let at = usize::try_from(at).map_err(|_| err(Errno::NOENT))?;
-        self.names
-            .borrow()
-            .get(at)
-            .cloned()
+        let key = self.names.borrow().get(at).cloned();
+        key.map(|k| k.split('\0').next().unwrap_or_default().to_owned())
             .ok_or_else(|| err(Errno::NOENT))
+    }
+
+    /// The range of a connector's `max bpc`, as its color state gives it;
+    /// `None` for any other property, and ENOENT for an id the card never
+    /// gave.
+    fn property_range(&self, id: u32) -> io::Result<Option<(u64, u64)>> {
+        self.property_name(id)?;
+        let Some(conn) = self.prop_owner(id) else {
+            return Ok(None);
+        };
+        Ok(self.state.borrow().color.get(&conn).map(|c| c.bpc_range))
     }
 
     fn create_dumb(&self, width: u32, height: u32) -> io::Result<Dumb> {

@@ -291,6 +291,36 @@ pub(crate) fn drm_get_property(fd: BorrowedFd<'_>, id: u32) -> io::Result<drm_mo
     Ok(prop)
 }
 
+/// One `DRM_IOCTL_MODE_GETPROPERTY` of property `id` that reads its values
+/// into `values`, at most the slice's length of them, and none of its
+/// enumerators: its name, its flags, and the count of values it has, which
+/// can be larger. For a range property the values are its least and
+/// greatest. drm-ffi's `get_property` sets its lists' lengths to the counts
+/// the kernel reports (vtium/vtium#192).
+pub(crate) fn drm_get_property_values(
+    fd: BorrowedFd<'_>,
+    id: u32,
+    values: &mut [u64],
+) -> io::Result<drm_mode_get_property> {
+    let mut prop = get_property_values(id, values)?;
+    #[expect(unsafe_code, reason = "an ioctl drm-ffi wraps unsoundly")]
+    // SAFETY: GETPROPERTY reads and writes one `struct
+    // drm_mode_get_property`, which drm-sys lays out from the header. The
+    // kernel writes value `i` at `values_ptr` only for `i` below
+    // `count_values`, which `get_property_values` sets to the slice's length
+    // with the pointer at the slice's start (`drm_mode_getproperty_ioctl`).
+    // It writes enumerators only when `count_enum_blobs` holds every one of
+    // them, and `get_property_values` sets that count to 0, so it writes
+    // nothing through the null enumerator pointer.
+    unsafe {
+        ioctl(
+            fd,
+            Updater::<DRM_IOCTL_MODE_GETPROPERTY, drm_mode_get_property>::new(&mut prop),
+        )?;
+    }
+    Ok(prop)
+}
+
 /// One `DRM_IOCTL_MODE_GETPLANERESOURCES`: the card's plane ids into
 /// `ids`, at most its length of them, and the count the card has, which
 /// can be larger. drm-ffi's `get_plane_resources` sets its list's length
@@ -358,6 +388,17 @@ fn get_property(id: u32) -> drm_mode_get_property {
         prop_id: id,
         ..drm_mode_get_property::default()
     }
+}
+
+/// GETPROPERTY's argument for property `id`: the pointer at `values` and
+/// the count of values its length, with no room for enumerators.
+fn get_property_values(id: u32, values: &mut [u64]) -> io::Result<drm_mode_get_property> {
+    Ok(drm_mode_get_property {
+        prop_id: id,
+        values_ptr: values.as_mut_ptr().expose_provenance() as u64,
+        count_values: count(values)?,
+        ..drm_mode_get_property::default()
+    })
 }
 
 /// GETPLANERESOURCES' argument: the pointer at `ids` and the count its
@@ -1026,6 +1067,17 @@ mod tests {
         let prop = get_property(10_001);
         assert_eq!(prop.prop_id, 10_001);
         assert_eq!((prop.values_ptr, prop.count_values), (0, 0));
+        assert_eq!((prop.enum_blob_ptr, prop.count_enum_blobs), (0, 0));
+
+        // A property's values are read into their slice, with its length
+        // as their count, and no room for its enumerators.
+        let mut range = [0u64; 2];
+        let prop = get_property_values(10_002, &mut range).expect("a short slice");
+        assert_eq!(prop.prop_id, 10_002);
+        assert_eq!(
+            (prop.values_ptr, prop.count_values),
+            (range.as_ptr().addr() as u64, 2)
+        );
         assert_eq!((prop.enum_blob_ptr, prop.count_enum_blobs), (0, 0));
 
         let mut planes = [0u32; 5];

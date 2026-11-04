@@ -19,7 +19,7 @@ mod output;
 pub use output::CURSOR_MAX;
 mod source;
 
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::io;
 use std::sync::Arc;
 
@@ -165,9 +165,9 @@ pub struct Drm2d<K: Kms, S: Source<K> = Dumbs> {
     /// A modeset could not set the dark connectors off beside the lit
     /// displays, and that was logged as a warning.
     dark_refused: bool,
-    /// The card refused the color state a modeset set on a connector, and
-    /// that was logged as a warning.
-    color_refused: Cell<bool>,
+    /// The connectors whose color properties the card refused at a
+    /// modeset, each logged once as a warning.
+    color_refused: RefCell<Vec<String>>,
     waiting: Option<Waiting>,
     /// A flip's or a vblank's event was lost, and that was logged as a
     /// warning; the next event the card delivers clears it.
@@ -240,7 +240,7 @@ impl<K: Kms> Drm2d<K> {
             identities: Vec::new(),
             dark: Vec::new(),
             dark_refused: false,
-            color_refused: Cell::new(false),
+            color_refused: RefCell::new(Vec::new()),
             waiting: None,
             lost_flip: false,
             blanked: false,
@@ -1319,7 +1319,13 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             .sort_by_key(|d| res.connectors.iter().position(|&c| c == d.id));
         let (kept, gone): (Vec<_>, Vec<_>) = self.outputs.drain(..).partition(|o| o.available);
         self.outputs = kept;
+        // The CRTC each display gone held, with its identity, so a monitor
+        // that comes back under a new connector id takes it back.
+        let mut freed = Vec::new();
         for o in gone {
+            if let Some((_, identity)) = self.identities.iter().find(|(i, _)| *i == o.id) {
+                freed.push((identity.clone(), o.crtc));
+            }
             log::info!("display {} is gone", o.name);
             if o.announced {
                 self.events.push(Event::Removed(o.id));
@@ -1327,7 +1333,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             self.free(o);
             changed = true;
         }
-        if self.place(&res, &seen, new, follow) {
+        if self.place(&res, &seen, new, &freed, follow) {
             needs = true;
             changed = true;
         }
@@ -1544,13 +1550,23 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             choice.current.size().1
         );
         let mm = physical_size(&name, conn.mm, edid.as_ref());
+        // Where the range of `max bpc` cannot be read, the modeset sets the
+        // bits vtium draws, and a card that refuses them sets the mode
+        // without the color properties (ADR-1401 D14).
+        let color = ColorProps::new(&connector_props, |id| {
+            self.card
+                .property_range(id)
+                .inspect_err(|e| log::warn!("cannot read the range of max bpc of {name}: {e}"))
+                .ok()
+                .flatten()
+        });
         Some(Output {
             id: DisplayId(conn.id),
             name,
             crtc,
             pipe,
             planes,
-            color: ColorProps::new(&connector_props),
+            color,
             mode: choice.current,
             set: None,
             held: None,
@@ -1614,7 +1630,14 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     ///
     /// A hotplug's scan keeps each display bound before on its CRTC, so a
     /// display on screen never moves for one plugged in, as the C
-    /// reference never moved one. The new displays take the CRTCs left.
+    /// reference never moved one. The new displays take the CRTCs left. A
+    /// new display that can drive only CRTCs the displays on screen hold is
+    /// therefore not bound, even where moving one of them would free a CRTC
+    /// for it; every later hotplug fails the same way, and the display
+    /// lights at the next wake-up, which places every display together.
+    /// Whether a hotplug should move a lit display then is the maintainer's
+    /// to decide; the `pinned` mark of each display bound before is the one
+    /// place to change.
     ///
     /// The first scan and a wake-up place every display together, so they
     /// place every display wherever the card has a CRTC for each. The C
@@ -1633,16 +1656,20 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     /// whatever mode the commit sets (`drm_atomic_helper_check_modeset`), so
     /// the display would never wake again (vtium/vtium#249).
     ///
-    /// Each display wants one CRTC: the CRTC its connector is on, or, where
-    /// its connector is on no CRTC or the display returns, its own CRTC; a
-    /// new display wants the CRTC its connector is on. A display that
-    /// returns, as each display new after the first scan does, has its
-    /// first modeset turn off the CRTC its connector is on
-    /// ([`Self::set_off_first`]). The displays whose connector is on a CRTC
-    /// are placed first, then those whose connector is on none, then those
-    /// that return. Within a group the displays bound before come first,
-    /// then the new ones, each in the card's connector order. A display
-    /// takes the CRTC it wants
+    /// Each display bound before wants one CRTC: the CRTC its connector is
+    /// on, or, where its connector is on no CRTC or the display returns,
+    /// its own CRTC. A new display wants the CRTC a display gone in this
+    /// scan held, where that display showed the same monitor, by its
+    /// connector's `PATH` or its EDID (`freed`), as a DisplayPort
+    /// multi-stream monitor that comes back under a new connector id does;
+    /// else it wants the CRTC its connector is on. A display that returns,
+    /// as each display new after the first scan does, has its first modeset
+    /// turn off the CRTC its connector is on ([`Self::set_off_first`]).
+    ///
+    /// The displays whose connector is on a CRTC are placed first, then
+    /// those whose connector is on none, then those that return. Within a
+    /// group the displays bound before come first, then the new ones, each
+    /// in the card's connector order. A display takes the CRTC it wants
     /// where no display took it, and else the first free CRTC an encoder of
     /// its connector can drive. Where no CRTC is free, a matching step
     /// ([`augment`]) moves displays placed before it to other CRTCs they can
@@ -1654,8 +1681,16 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     /// them. A display bound before that it could not place stays off, as
     /// one the scan cannot bind does, and the owner hears it removed; so
     /// does a display whose new CRTC has no primary plane. A new display it
-    /// could not place is not bound, and the next scan tries it again.
-    fn place(&mut self, res: &Resources, seen: &[Connector], new: Vec<New>, follow: bool) -> bool {
+    /// could not place is not bound, with an error, and the next scan tries
+    /// it again.
+    fn place(
+        &mut self,
+        res: &Resources,
+        seen: &[Connector],
+        new: Vec<New>,
+        freed: &[(Identity, u32)],
+        follow: bool,
+    ) -> bool {
         let index = |crtc: u32| res.crtcs.iter().position(|&c| c == crtc);
         let bit = |crtc: u32| index(crtc).map_or(0, index_bit);
         let olds = std::mem::take(&mut self.outputs);
@@ -1695,10 +1730,16 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                 0 => 1,
                 _ => 0,
             };
+            let able = self.reach(&n.conn, n.found.current) | bit(on);
+            let back = freed
+                .iter()
+                .find(|(was, _)| same_monitor(was, &n.identity))
+                .map(|&(_, crtc)| crtc)
+                .filter(|&crtc| able & bit(crtc) != 0);
             places.push(Place {
                 group,
-                want: index(on),
-                able: self.reach(&n.conn, n.found.current) | bit(on),
+                want: index(back.unwrap_or(on)),
+                able,
                 pinned: false,
             });
         }
@@ -2438,46 +2479,100 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     }
 
     /// The modeset `req` of `outputs`, tested, with each connector's color
-    /// state set for sRGB at the bits a color vtium's buffers hold, where
-    /// the connector has the properties and the card takes them. A desktop
-    /// with HDR on leaves its connector in BT.2020 with HDR metadata and
-    /// more bits a color than vtium draws, and the monitor would read
-    /// vtium's 8-bit sRGB frames as that (vtium/vtium#253). Where the card
-    /// refuses the color state, the modeset goes ahead without it, so the
-    /// display keeps what it had rather than stay dark.
+    /// properties set for sRGB at the bits per color vtium's buffers hold,
+    /// where the connector has the properties and the card takes them
+    /// (ADR-1401 D14). A desktop with HDR on leaves its connector in BT.2020
+    /// with HDR metadata and more bits per color than vtium draws, and the
+    /// monitor would read vtium's 8-bit sRGB frames as that
+    /// (vtium/vtium#253).
+    ///
+    /// Where the card refuses the modeset with every connector's color
+    /// properties and takes it without them, vtium adds each connector's
+    /// back in connector order, as many as the card takes beside those
+    /// already added: all three, else all but `max bpc`, else none. So one
+    /// connector the card refuses costs no other connector its reset, and
+    /// the warning names the connector that refused. A connector left
+    /// without some of its properties keeps them as vtium found them, and
+    /// the display is set all the same.
     fn with_color(&self, outputs: &[Output<S::Memory>], req: Request) -> Result<Request, Failure> {
         let bpc = bits_per_color(FORMAT);
-        let mut colored = req.clone();
-        let mut names = Vec::new();
-        for o in outputs {
-            let set = o.color.sdr(bpc);
-            if !set.is_empty() {
-                names.push(o.name.as_str());
+        let sets: Vec<_> = outputs
+            .iter()
+            .map(|o| (o, o.color.sdr(bpc)))
+            .filter(|(_, set)| !set.is_empty())
+            .collect();
+        let with = |req: &Request, o: &Output<S::Memory>, set: &[(u32, &str, u64)]| {
+            let mut req = req.clone();
+            for &(id, _, value) in set {
+                req.set(o.id.0, id, value);
             }
-            for (id, _, value) in set {
-                colored.set(o.id.0, id, value);
-            }
-        }
-        if names.is_empty() {
+            req
+        };
+        if sets.is_empty() {
             self.test_commit(&req, false)?;
             return Ok(req);
         }
-        let Err(Failure::Test(e) | Failure::Other(e)) = self.test_commit(&colored, true) else {
-            return Ok(colored);
-        };
+        let all = sets
+            .iter()
+            .fold(req.clone(), |all, (o, set)| with(&all, o, set));
+        if self.test_commit(&all, true).is_ok() {
+            return Ok(all);
+        }
         self.test_commit(&req, false)?;
-        self.color_refused(&names.join(", "), &e);
-        Ok(req)
+        let mut kept = req;
+        for (o, set) in sets {
+            let without_bpc: Vec<_> = set
+                .iter()
+                .filter(|&&(_, name, _)| name != "max bpc")
+                .copied()
+                .collect();
+            let mut refusal = None;
+            let mut steps = vec![(set.as_slice(), None)];
+            if without_bpc.len() != set.len() && !without_bpc.is_empty() {
+                steps.push((without_bpc.as_slice(), Some("max bpc")));
+            }
+            let mut taken = false;
+            for (step, left) in steps {
+                let next = with(&kept, o, step);
+                match self.test_commit(&next, true) {
+                    Ok(()) => {
+                        kept = next;
+                        taken = true;
+                        if let (Some(left), Some(e)) = (left, &refusal) {
+                            self.color_refused(&o.name, Some(left), e);
+                        }
+                        break;
+                    }
+                    Err(Failure::Test(e) | Failure::Other(e)) => {
+                        refusal.get_or_insert(e);
+                    }
+                }
+            }
+            if let (false, Some(e)) = (taken, &refusal) {
+                self.color_refused(&o.name, None, e);
+            }
+        }
+        Ok(kept)
     }
 
-    /// Logs that the card refused the color state of `what`, as a warning
-    /// the first time and at debug level after that.
-    fn color_refused(&self, what: &str, e: &io::Error) {
-        let line =
-            format!("cannot set the color state of {what} for sRGB: {e}; it keeps what it had");
-        if self.color_refused.replace(true) {
+    /// Logs that the card refused to set color property `property` of
+    /// connector `name`, or every one of its color properties where `None`,
+    /// which stay as vtium found them (ADR-1401 D14): a warning the first
+    /// time for that connector, and at debug level after that.
+    fn color_refused(&self, name: &str, property: Option<&str>, e: &io::Error) {
+        let line = match property {
+            None => format!(
+                "cannot set the color properties of {name} for sRGB: {e}; its color properties stay as vtium found them"
+            ),
+            Some(p) => format!(
+                "cannot set `{p}` of {name} for sRGB: {e}; its `{p}` stays as vtium found it"
+            ),
+        };
+        let mut warned = self.color_refused.borrow_mut();
+        if warned.iter().any(|w| w == name) {
             log::debug!("{line}");
         } else {
+            warned.push(name.to_owned());
             log::warn!("{line}");
         }
     }
@@ -2542,11 +2637,14 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         if let Err(e) = self.card.hide_cursor(o.crtc) {
             log::warn!("cannot hide the hardware cursor: {e}");
         }
-        // The legacy calls set the color state one property at a time, as
-        // the atomic modeset sets it in its commit.
+        // The legacy calls set the color properties one at a time, before
+        // the CRTC, as they set DPMS. Only atomic drivers attach these
+        // properties, and on one the kernel commits each set as a modeset of
+        // its own where it changes `max bpc` on a lit CRTC
+        // (`drm_atomic_commit_init` allows legacy commits to modeset).
         for (id, name, value) in o.color.sdr(bits_per_color(FORMAT)) {
             if let Err(e) = self.card.set_connector_property(o.id.0, id, value) {
-                self.color_refused(&format!("{} ({name})", o.name), &e);
+                self.color_refused(&o.name, Some(name), &e);
             }
         }
         let fb = Self::staged_fb(o, made.as_ref());
@@ -2593,6 +2691,15 @@ fn index_bit(index: usize) -> u32 {
         .ok()
         .and_then(|i| 1u32.checked_shl(i))
         .unwrap_or(0)
+}
+
+/// Whether `now` names the monitor `was` named: the same connector `PATH`,
+/// as a DisplayPort multi-stream port keeps when its connector is made
+/// again under a new id, or the same EDID.
+fn same_monitor(was: &Identity, now: &Identity) -> bool {
+    let path = was.connector_path.is_some() && was.connector_path == now.connector_path;
+    let edid = was.edid.is_some() && was.edid == now.edid;
+    path || edid
 }
 
 /// Each display's CRTC, by index into the card's `crtcs` CRTCs, or `None`

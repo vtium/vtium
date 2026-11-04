@@ -156,34 +156,45 @@ pub(super) const fn bits_per_color(format: u32) -> Option<u64> {
 
 /// The ids of a connector's properties that tell the sink how to read the
 /// colors it is sent, each where the connector has it: `Colorspace`,
-/// `HDR_OUTPUT_METADATA` and `max bpc`.
+/// `HDR_OUTPUT_METADATA` and `max bpc`, with the range of `max bpc` where
+/// it could be read (ADR-1401 D14).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(super) struct ColorProps {
     colorspace: Option<u32>,
     hdr_metadata: Option<u32>,
-    max_bpc: Option<u32>,
+    max_bpc: Option<(u32, Option<(u64, u64)>)>,
 }
 
 impl ColorProps {
-    pub(super) fn new(props: &[Property]) -> ColorProps {
+    /// The color properties among a connector's `props`, with the range of
+    /// `max bpc` as `range` reads it.
+    pub(super) fn new(
+        props: &[Property],
+        range: impl FnOnce(u32) -> Option<(u64, u64)>,
+    ) -> ColorProps {
         let id = |name: &str| props.iter().find(|p| p.name == name).map(|p| p.id);
         ColorProps {
             colorspace: id("Colorspace"),
             hdr_metadata: id("HDR_OUTPUT_METADATA"),
-            max_bpc: id("max bpc"),
+            max_bpc: id("max bpc").map(|id| (id, range(id))),
         }
     }
 
     /// The value each property the connector has takes for a display
-    /// drawn in sRGB at `bpc` bits a color, as (property id, name, value):
+    /// drawn in sRGB at `bpc` bits per color, as (property id, name, value):
     /// `Colorspace` at `Default`, 0 (`DRM_MODE_COLORIMETRY_DEFAULT`); no
-    /// HDR metadata, blob 0; and `max bpc` at `bpc`, left out where `bpc`
-    /// is `None`.
+    /// HDR metadata, blob 0; and `max bpc` at `bpc`, or at the value of its
+    /// range nearest `bpc` where the range does not hold it, left out where
+    /// `bpc` is `None`.
     pub(super) fn sdr(&self, bpc: Option<u64>) -> Vec<(u32, &'static str, u64)> {
+        let max_bpc = self.max_bpc.map(|(id, range)| {
+            let nearest = |b: u64| range.map_or(b, |(least, most)| b.max(least).min(most));
+            (id, bpc.map(nearest))
+        });
         [
             (self.colorspace, "Colorspace", Some(0)),
             (self.hdr_metadata, "HDR_OUTPUT_METADATA", Some(0)),
-            (self.max_bpc, "max bpc", bpc),
+            (max_bpc.map(|m| m.0), "max bpc", max_bpc.and_then(|m| m.1)),
         ]
         .into_iter()
         .filter_map(|(id, name, value)| Some((id?, name, value?)))
