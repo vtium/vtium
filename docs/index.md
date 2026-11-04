@@ -7,7 +7,7 @@ The kernel's own console turns 256-color and 24-bit color into 16 colors, holds 
 <!-- The showcase's hero image, showcase/hero.png, replaces this figure once `make showcase` writes it (ADR-1502 D6). -->
 ![A shell session as vtium draws it on a 640x480 display in an 8x16 font, 80 columns by 30 rows, with a directory listing, four box styles, and 256-color and 24-bit color ramps](figures/concepts-screen-small-640x480.png)
 
-vtium's latest release is the pre-release v0.1.0-alpha.2. This site describes vtium's `main` branch, which may be ahead of that release.
+vtium's latest release is the pre-release v0.1.0-alpha.3. This site describes vtium's `main` branch, which may be ahead of that release.
 
 ## Where to start
 

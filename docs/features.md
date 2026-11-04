@@ -4,7 +4,7 @@ This page lists what vtium draws and does, and what is still to come. [concepts.
 
 ## Status
 
-vtium's latest release is the pre-release v0.1.0-alpha.2. It adds pictures from files and shared memory, kitty animation, iTerm2's inline images and the `vtium config` tool's TUI to the first, v0.1.0-alpha.1. A checkout builds and runs everything on this page except these, which are designed and landing:
+vtium's latest release is the pre-release v0.1.0-alpha.3. It wakes the display again after a desktop has moved it to another display engine, draws kitty graphics sent in chunks the way kitty does, and only redraws when the screen changed. It also brings `vtium-config` help and settings files laid out in sections, and the groundwork of a GPU renderer that is not switched on yet. A checkout builds and runs everything on this page except these, which are designed and landing:
 
 - **The GPU renderer,** on glow over EGL and GBM ([the GPU path's issue](https://github.com/vtium/vtium/issues/33)). Today every build draws on the CPU.
 - **libseat,** for seat access through seatd or logind ([the libseat issue](https://github.com/vtium/vtium/issues/34)). Today vtium opens the VT, the cards and the input devices itself, as root.

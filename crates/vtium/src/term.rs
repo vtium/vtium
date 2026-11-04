@@ -181,6 +181,8 @@ impl Consumer for Term {
     }
 
     fn exited(&mut self, status: ExitStatus) {
+        // the next session starts with no picture upload left open
+        self.terminal.session_ended();
         self.exited = Some(status);
     }
 }
@@ -1182,6 +1184,45 @@ mod tests {
     // ADR-1401 D5: with no color key set, the notices and the on-screen
     // display draw in vtium-render's own colors for them, which its tests
     // and figures use.
+    // A program that dies part way through a kitty upload in chunks leaves
+    // nothing open for the next session: the last chunk sent after the
+    // child exits is a command of its own, refused, and draws nothing.
+    // covers: image.kitty
+    #[cfg(feature = "images")]
+    #[test]
+    fn the_childs_exit_ends_a_kitty_upload_it_left_open() {
+        use std::os::unix::process::ExitStatusExt;
+        use vtium_term::ImageString;
+        use vtium_term::images::{Kitty, Switches};
+
+        let first = b"\x1b_Ga=T,f=24,s=2,v=2,i=5,C=1,q=2,m=1;AAD/AAD/\x1b\\";
+        let last = b"\x1b_Gm=0;AAD/AAD/\x1b\\";
+        for exits in [false, true] {
+            let clock: Clock = Rc::new(Instant::now);
+            let mut terminal = Terminal::new(4, 2, 0);
+            terminal.screen_mut().set_image_limit(1 << 20);
+            terminal.set_image_switches(Switches {
+                sixel: false,
+                kitty: true,
+                iterm2: false,
+            });
+            terminal.set_image_handler(ImageString::Kitty, Some(Box::new(Kitty::default())));
+            let mut term = Term::new(
+                terminal,
+                Sync::new(Duration::ZERO, 0),
+                Blink::new(false),
+                clock,
+            );
+            term.parse(first, &mut |_| {});
+            if exits {
+                Consumer::exited(&mut term, ExitStatus::from_raw(0));
+            }
+            term.parse(last, &mut |_| {});
+            let placed = term.terminal.screen().placements().len();
+            assert_eq!(placed, usize::from(!exits), "the child exited: {exits}");
+        }
+    }
+
     #[test]
     fn unset_color_keys_are_vtium_renders_notice_and_status_colors() {
         assert_eq!(

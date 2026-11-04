@@ -1,0 +1,10 @@
+size 12x4
+cursor 3,0
+flags AUTO_WRAP
+reply 1b5b313b33521b5b313b3452
+row 0 |ab|
+row 1 ||
+row 2 ||
+row 3 ||
+placement 0 row 0 col 2 box 1x1 at 0,0 size 8x8 src 0,0 8x8 cell 8x16 z 0 above-text kitty image 0 opaque
+image 0 8x8 digest 192dc3c5

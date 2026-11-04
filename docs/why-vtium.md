@@ -2,7 +2,7 @@
 
 vtium is a terminal for the Linux console: the full-screen text screens a Linux machine shows before, or instead of, a desktop. This page is for someone meeting vtium for the first time, such as a packager or a curious Linux user. It answers two questions: why use vtium rather than the kernel's own console, `kmscon` or a terminal on a desktop, and why vtium suits the console on every kind of machine, from a small board with a 320x240 panel to a desktop with a large monitor. [concepts.md](concepts.md) explains how vtium's parts work, and [features.md](features.md) lists what is built today.
 
-vtium's latest release is the pre-release v0.1.0-alpha.2. Everything this page describes is built in the repository, except what it marks as landing, which means designed and being built but not finished yet.
+vtium's latest release is the pre-release v0.1.0-alpha.3. Everything this page describes is built in the repository, except what it marks as landing, which means designed and being built but not finished yet.
 
 ## Why another terminal
 
@@ -38,7 +38,7 @@ These are the other ways to get a terminal on a Linux console without a display 
 | fbterm 1.7 | fbdev, or a VESA video card | 256, through its own private sequences under `TERM=fbterm` | fontconfig and FreeType | none listed | 1.7, 2010-10-06 |
 | yaft 0.2.9 | fbdev at 8 to 32 bits per pixel, on Linux and FreeBSD, and on NetBSD and OpenBSD as experimental | 256 | BDF fonts converted into its source when it is built | sixel and DRCS, marked experimental | tag v0.2.9; last commit 2018-11-14 |
 | fbpad | Linux fbdev | 256 | its own tinyfont format and PSF2 | none listed | last commit 2026-10-23 |
-| vtium | KMS/DRM dumb buffers drawn on the CPU, or fbdev; a GPU renderer to come | 24-bit | PSF, kbd, BDF, outline and color fonts, drawn by a helper that never runs as root; built-in Unifont and Unscii-8 | sixel, kitty graphics with animation, and iTerm2 inline images, in a build with the `images` feature | 0.1.0-alpha.2, a pre-release |
+| vtium | KMS/DRM dumb buffers drawn on the CPU, or fbdev; a GPU renderer to come | 24-bit | PSF, kbd, BDF, outline and color fonts, drawn by a helper that never runs as root; built-in Unifont and Unscii-8 | sixel, kitty graphics with animation, and iTerm2 inline images, in a build with the `images` feature | 0.1.0-alpha.3, a pre-release |
 
 Sources, one per row:
 

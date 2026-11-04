@@ -314,3 +314,88 @@ fn a_picture_past_vtiums_bounds_is_noted() {
         )]
     );
 }
+
+/// The first chunk of an upload of kitty image 5, 2 by 2 pixels of blue
+/// RGB, placed with `a=T` at the cursor, which stays where it is.
+const FIRST: &[u8] = b"\x1b_Ga=T,f=24,s=2,v=2,i=5,C=1,q=2,m=1;AAD/AAD/\x1b\\";
+/// Its last chunk.
+const LAST: &[u8] = b"\x1b_Gm=0;AAD/AAD/\x1b\\";
+
+/// The upload's first chunk, then `between`, then its last chunk: whether
+/// the picture was placed, and whether the store holds any bytes.
+fn upload_around(t: &mut Terminal, between: &mut dyn FnMut(&mut Terminal)) -> (usize, u64) {
+    t.input(FIRST);
+    between(t);
+    t.input(LAST);
+    (t.screen().placements().len(), t.screen().images().bytes())
+}
+
+// Two chunks back to back draw, as kitty-doom sends them; anything else
+// that arrives between two chunks ends the upload, whose last chunk is then
+// a command of its own, a transmission without s and v, refused unanswered.
+// covers: image.kitty
+#[test]
+fn output_between_chunks_ends_an_upload_and_the_next_command_starts_fresh() {
+    let mut t = term(12, 4);
+    assert_eq!(upload_around(&mut t, &mut |_| {}).0, 1, "no gap: drawn");
+    let between: [&[u8]; 11] = [
+        b"x",
+        b"\r\n",
+        b"\x07",
+        b"\x1b[H",
+        b"\x1b7",
+        b"\x1b]0;title\x1b\\",
+        b"\x1bP$qm\x1b\\",
+        b"\x1bP+q544e\x1b\\",
+        b"\x1b_Xother\x1b\\",
+        // an APC string whose first character is past ASCII, which the
+        // parser hands over a character at a time, and an empty one
+        "\x1b_\u{e9}t\x1b\\".as_bytes(),
+        b"\x1b_\x1b\\",
+    ];
+    for bytes in between {
+        let mut t = term(12, 4);
+        let got = upload_around(&mut t, &mut |t| {
+            t.input(bytes);
+        });
+        assert_eq!(got, (0, 0), "{bytes:?} between the chunks");
+        t.input(b"\x1b_Ga=T,f=24,s=2,v=2,i=6,C=1;AAD/AAD/AAD/AAD/\x1b\\");
+        assert_eq!(
+            t.screen().placements().len(),
+            1,
+            "{bytes:?}: the next upload is fresh"
+        );
+    }
+}
+
+// covers: image.kitty
+#[test]
+fn ris_ends_an_upload() {
+    let mut t = term(12, 4);
+    let got = upload_around(&mut t, &mut |t| {
+        t.input(b"\x1bc");
+    });
+    assert_eq!(got, (0, 0));
+}
+
+// covers: image.kitty
+#[test]
+fn the_session_ending_ends_an_upload() {
+    let mut t = term(12, 4);
+    let got = upload_around(&mut t, &mut Terminal::session_ended);
+    assert_eq!(got, (0, 0));
+}
+
+// With 8-bit controls, a program may end each chunk with the 8-bit ST,
+// 0x9C, which the terminal also runs as a control after the string: it is
+// no other output, and the upload goes on.
+// covers: image.kitty
+#[test]
+fn an_8_bit_st_ending_each_chunk_leaves_the_upload_open() {
+    let mut t = term(12, 4);
+    // DECSCL: level 2, with 8-bit controls
+    t.input(b"\x1b[62;0\"p");
+    t.input(b"\x1b_Ga=T,f=24,s=2,v=2,i=5,C=1,q=2,m=1;AAD/AAD/\x9c");
+    t.input(b"\x1b_Gm=0;AAD/AAD/\x9c");
+    assert_eq!(t.screen().placements().len(), 1);
+}

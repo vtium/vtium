@@ -10,7 +10,7 @@ In the commands below, `#` marks a command you run as root, for example with sud
 
 The AUR (the Arch User Repository) holds two recipes for vtium. A recipe is a `PKGBUILD`, the build script that makepkg reads to build a package. Install from one of them, since their packages conflict:
 
-- `vtium` builds a release from the tag the maintainer signs, today the pre-release `v0.1.0-alpha.2`. It builds the packages `vtium` and `vtium-terminfo`.
+- `vtium` builds a release from the tag the maintainer signs, today the pre-release `v0.1.0-alpha.3`. It builds the packages `vtium` and `vtium-terminfo`.
 - `vtium-git` builds the tip of vtium's `main` branch. It builds the packages `vtium-git` and `vtium-terminfo-git`, which provide `vtium` and `vtium-terminfo`.
 
 The console package depends on the terminfo package, which installs `xterm-vtium`, the terminfo entry that sessions in vtium name in `TERM`.
@@ -321,6 +321,29 @@ $ vtium console status
 
 ## Troubleshooting
 
+### Getting out
+
+When vtium misbehaves on a VT, these steps get you out, in this order:
+
+1. Switch to another VT, or to your desktop's, with Ctrl+Alt+F1 to F12. On a VT where vtium runs, vtium reads the keyboard itself and asks the kernel for the switch, since the kernel's own handling of Ctrl+Alt+F1 to F12 is off there. So a vtium that no longer answers keys keeps you on its VT. Then take the next steps from another machine over ssh.
+2. Restart that VT's vtium, from another VT, a desktop terminal or another machine over ssh. A restart ends every session on the VT. On VT 3:
+
+   ```
+   # systemctl restart vtium@tty3.service
+   ```
+
+   The development install's unit is `vtium-dev@tty3.service` ([The development VT](#the-development-vt)).
+3. Take vtium off the VT at once by taking the VT back and starting its getty there:
+
+   ```
+   # vtium console disable 3
+   # systemctl start getty@tty3.service
+   ```
+
+   `disable` decides what starts on VT 3 from now on ([Giving vtium a VT](#giving-vtium-a-vt)). Starting the getty stops vtium on VT 3, because vtium's unit conflicts with the getty's, and that ends every session there. On the development VT, `vtium console disable` refuses, since the development install holds the VT, and the `systemctl start getty@tty5.service` line alone stops `vtium-dev` there; `make vt-uninstall VT=5` takes the install off for good ([The development VT](#the-development-vt)).
+
+When vtium fails, systemd starts it again. From systemd 254 on, each failure also starts vtium's fallback, which starts the VT's getty unless the head file's policy is `closed`, so under an open policy you get a plain login prompt at the first failure instead of a dead screen ([A VT that shows a getty](#a-vt-that-shows-a-getty)).
+
 ### Reading vtium console status
 
 `vtium console status` first says which console logind starts on a VT with no link of its own, and which display manager the machine has. Then it prints a line for each VT:
@@ -366,9 +389,42 @@ A getty that ran on the VT before you gave it to vtium also keeps the VT until i
 - Under a head file whose policy is `closed`, the fallback starts no getty, since a getty's login would take any keyboard, and vtium waits for a display however long it takes. Run `vtium check-config` and read the log.
 - A VT whose link still names `vtium@.service` after the package was removed gets no console at all. The [vtium-arch README](https://github.com/vtium/vtium-arch#removing-vtium) gives the commands that clean such links up.
 
+### A VT that stays black after you switch back to it
+
+You switch from the desktop back to a VT where vtium runs, and the screen stays black, and a key press does not bring it back. This is a known defect, which [issue #249](https://github.com/vtium/vtium/issues/249) follows. Until it is fixed, restart that VT's vtium ([Getting out](#getting-out)). The restart ends every session on the VT. If the screen stayed black until you rebooted, collect a report of the boot before with `vtium-config report --previous-boot --save` ([Collecting a report and filing an issue](#collecting-a-report-and-filing-an-issue)).
+
+### Pictures that do not show
+
+A program that draws sixel or kitty graphics pictures shows nothing, or shows text where the picture should be. Check these in turn:
+
+- vtium draws pictures only in a build with the `images` feature. `vtium --version` names `images` on its `features` line for such a build, and so does the vtium part of `vtium-config report` ([Collecting a report and filing an issue](#collecting-a-report-and-filing-an-issue)). The Arch recipes build one with `VTIUM_FEATURES=images` ([Arch Linux](#arch-linux)).
+- `image-storage-limit` must be above 0, since `0` turns pictures off, and neither `sixel` nor `kitty-graphics` may be turned off ([config.md](config.md)).
+- The program must see that the terminal draws pictures. vtium tells a program that asks: its reply to DA1, the terminal's device attributes query, names sixel, and it answers kitty's graphics query. Some programs do not ask, and decide from `TERM` alone, which is `xterm-vtium` in vtium, so they offer pictures only to a terminal they know by name. Tell such a program which kind of picture to draw where it has an option for it, as `chafa -f kitty` does.
+- A kitty graphics picture sent as a file, as shared memory or as PNG needs the image helper, `/usr/bin/vtium-image`, which a build with images installs. When vtium cannot start the helper, its log says why ([A font that does not load](#a-font-that-does-not-load) shows how to read the log).
+
 ### vtium console refuses a VT
 
 Each refusal names what holds the VT and how to free it: `systemctl disable --now kmsconvt@ttyN.service` for `kmscon`, `make vt-uninstall VT=N` for the development install, `systemctl unmask vtium@ttyN.service` for a masked unit. vtium never takes a VT from a display manager or a graphical session; give vtium another VT.
+
+### Collecting a report and filing an issue
+
+`vtium-config report` gathers what a bug report needs into one document: the vtium builds installed and the features each was built with, the kernel and the distribution, the state of each vtium console, the displays the kernel sees, your configuration, and this boot's log of each vtium console. It changes nothing on the machine. Save it to a new file in the current directory:
+
+```
+$ vtium-config report --save
+```
+
+It prints the file's name, such as `vtium-report-20261103-203044.txt`. `--save=PATH` saves it elsewhere, and without `--save` it prints the document to the terminal. When the defect forced a reboot, its log is in the boot before this one, and `--previous-boot` reads that boot's log in place of this one's.
+
+Run as your user, the report marks each part that only root can read, such as the kernel's display state, and says so when your user cannot read the system's journal. Run it through sudo to fill those parts in. Run as root, the report writes no file and refuses `--save`, so let your own shell save what it prints, as you:
+
+```
+$ sudo vtium-config report > vtium-report.txt
+```
+
+The report leaves out the machine's hostname and each monitor's serial number. It can still name user accounts: a login writes the user's name to the log, `vtium console status` names the user of each graphical session, and a line of `vtium.conf` can hold a user's name or home directory. The logs' times also show your time zone. Read the report before you share it, and remove anything you would rather keep to yourself.
+
+File the issue at [the issue tracker](https://github.com/vtium/vtium/issues): say what you did, what you saw and what you expected, and attach the report.
 
 ## See also
 

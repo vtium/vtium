@@ -78,6 +78,13 @@ impl Edid {
         self.mm
     }
 
+    /// The monitor it names, as the head file's `edid:` matches it and as
+    /// vtium logs it, the serial included. vtium-config's report reads it
+    /// to replace that serial wherever it shows (ADR-1200 D24).
+    pub fn id(&self) -> &EdidId {
+        &self.id
+    }
+
     /// The EDID of connector `name` (`HDMI-A-1`), read from `card`, the
     /// card's directory in sysfs, where the kernel keeps it as
     /// `card<N>-<name>/edid`; `None` where there is none to read.
@@ -227,6 +234,18 @@ mod tests {
 
     fn id(b: &[u8]) -> String {
         Edid::parse(b).unwrap().id.to_string()
+    }
+
+    /// The public id is the one the console keeps, so a reader outside the
+    /// crate sees a serial in the form vtium logs it: `#` and other bytes
+    /// the head file cannot hold read as `_`.
+    #[test]
+    fn the_id_others_read_is_the_one_vtium_logs() {
+        let b = block((60, 34), 1, &[descriptor(SERIAL_STRING, b"SN#77310")]);
+        let edid = Edid::parse(&b).unwrap();
+        assert_eq!(edid.id(), &edid.id);
+        assert_eq!(edid.id().serial(), &Serial::Text("SN_77310".to_owned()));
+        assert_eq!(edid.id().to_string(), "AAA:0x0001:SN_77310");
     }
 
     #[test]
