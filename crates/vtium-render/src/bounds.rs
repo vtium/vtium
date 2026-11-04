@@ -80,9 +80,25 @@ const GLYPH_TEXTURE: Bound = Bound {
     cite: "gltex capped its atlases at the smaller of `GL_MAX_TEXTURE_SIZE` and 2048 (gltex.c:582-586); ADR-1300 D6",
 };
 
+const GLYPH_CEILING: Bound = Bound {
+    name: "GLYPH_TEXTURE_CEILING",
+    value: 512 * 1024 * 1024,
+    what: "Bytes of the textures one display's GPU glyph pools and decoration sprites hold together, in a build with `gpu`",
+    past: "A pool takes no new texture: a glyph it has no free slot for is drawn blank, as gltex drew one past its hard stop, and the pool's slots are reused as its budget evicts glyphs",
+    cite: "gltex's hard stop, `GLTEX_CACHE_HARD_BYTES`, twice its 256 MiB `GLTEX_CACHE_MAX_BYTES` (gltex.c:207-241, 1031-1041); the issue on GPU texture garbage collection; ADR-1303 D9",
+};
+
+const IDLE: Bound = Bound {
+    name: "GPU_IDLE_FRAMES",
+    value: 600,
+    what: "Frames a GPU texture may go unused before the GPU path gives it back: a glyph pool's last texture with no glyph in it, and a picture's texture no placement showed, in a build with `gpu`",
+    past: "The texture is freed, and made again if a later frame needs it; frames are counted, never wall time, so a display that draws nothing frees nothing",
+    cite: "gltex gave back a pool's strips the last frame drew nothing from (`pool_give_back`, gltex.c:1105-1123) and kept its failed glyphs and its log line 600 frames (`GLTEX_FAILED_FRAMES`, `GLTEX_HARD_STOP_LOG_FRAMES`); ADR-1303 D9",
+};
+
 /// Every bound, in the README table's order.
 #[cfg_attr(not(test), allow(dead_code))]
-pub(crate) const BOUNDS: [Bound; 8] = [
+pub(crate) const BOUNDS: [Bound; 10] = [
     POOL_BYTES,
     ROW_SCRATCH,
     TIMER_SAMPLES,
@@ -91,6 +107,8 @@ pub(crate) const BOUNDS: [Bound; 8] = [
     PRESENT_FRAMES,
     FAILED,
     GLYPH_TEXTURE,
+    GLYPH_CEILING,
+    IDLE,
 ];
 
 /// Bytes each glyph pool may hold in the performance profile.
@@ -117,6 +135,14 @@ pub(crate) const FAILED_GLYPHS: usize = FAILED.value;
 #[cfg(feature = "gpu")]
 #[expect(clippy::cast_possible_truncation, reason = "the bound is 2048")]
 pub(crate) const GLYPH_TEXTURE_SIDE: u32 = GLYPH_TEXTURE.value as u32;
+
+/// Bytes of one display's GPU glyph textures together.
+#[cfg(feature = "gpu")]
+pub(crate) const GLYPH_TEXTURE_CEILING: u64 = GLYPH_CEILING.value as u64;
+
+/// Frames an unused GPU texture is kept before it is given back.
+#[cfg(feature = "gpu")]
+pub const GPU_IDLE_FRAMES: u64 = IDLE.value as u64;
 
 /// The pointer's longest side in pixels.
 #[expect(clippy::cast_possible_truncation, reason = "the bound is 64")]

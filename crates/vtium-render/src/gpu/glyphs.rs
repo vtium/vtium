@@ -16,13 +16,23 @@
 //! given back at its end (ADR-1300 D3). The next frame asks the budget
 //! again, so the pool takes the glyph once the frame no longer draws every
 //! glyph it holds. A pool grows a texture at a time, each holding twice the
-//! slots of the one before up to [`GLYPH_TEXTURE_SIDE`] pixels a side, and
-//! keeps its textures while the glyphs' renderer draws.
+//! slots of the one before up to [`GLYPH_TEXTURE_SIDE`] pixels a side.
+//!
+//! A pool hands out its lowest free slot, so its glyphs gather in its first
+//! textures, and gives back its last texture once no glyph has held a slot
+//! there for [`GPU_IDLE_FRAMES`] frames, as gltex gave back the strips it
+//! no longer drew from. The pools and the sprites together never pass
+//! [`GLYPH_TEXTURE_CEILING`] bytes of textures: past it a pool takes no new
+//! texture, and a glyph it has no free slot for is drawn blank, as gltex
+//! drew one past its hard stop (the issue on GPU texture garbage
+//! collection, ADR-1303 D9).
 
 use vtium_font::{Face, Font, Style, Width};
 
+use std::collections::BTreeSet;
+
 use super::gl::{Error, ErrorKind, Format, Gl, Size, Texture};
-use crate::bounds::GLYPH_TEXTURE_SIDE;
+use crate::bounds::{GLYPH_TEXTURE_CEILING, GLYPH_TEXTURE_SIDE, GPU_IDLE_FRAMES};
 use crate::cache::{Budgets, COLOR, GlyphCache, Held, Storage, WIDE, pool_of};
 use crate::deco::{Kind, Sprites};
 use crate::mono::Fallback;
@@ -78,10 +88,12 @@ struct Pool {
     grids: Vec<Grid>,
     /// Slots handed out so far, each below this index.
     next: u32,
-    /// Slots no glyph holds.
-    free: Vec<u32>,
+    /// Slots no glyph holds, the lowest handed out first.
+    free: BTreeSet<u32>,
     /// Slots held for this frame's uncached glyphs.
     held: Vec<u32>,
+    /// The frame since which no glyph holds a slot of the last texture.
+    empty_since: Option<u64>,
 }
 
 impl Pool {
@@ -91,8 +103,9 @@ impl Pool {
             slot,
             grids: Vec::new(),
             next: 0,
-            free: Vec::new(),
+            free: BTreeSet::new(),
             held: Vec::new(),
+            empty_since: None,
         }
     }
 
@@ -125,6 +138,17 @@ impl Pool {
     fn capacity(&self) -> u32 {
         self.grids.iter().fold(0, |n, g| n.saturating_add(g.slots))
     }
+
+    /// Whether no glyph holds a slot of the last texture.
+    fn last_empty(&self) -> bool {
+        let Some(last) = self.grids.last() else {
+            return false;
+        };
+        let start = self.capacity().saturating_sub(last.slots);
+        let used = self.next.saturating_sub(start);
+        let free = self.free.range(start..).count();
+        usize::try_from(used).is_ok_and(|u| free >= u)
+    }
 }
 
 /// The GPU path's glyphs for one renderer.
@@ -134,8 +158,15 @@ pub(crate) struct Glyphs {
     owner: u64,
     cache: GlyphCache<Slot>,
     pools: [Pool; 4],
-    /// Every texture of the pools, and the sprites' last.
-    textures: Vec<Texture>,
+    /// Every texture of the pools, and the sprites', each by its place; a
+    /// place a pool gave its texture back from is empty until a new one
+    /// takes it.
+    textures: Vec<Option<Texture>>,
+    /// Bytes the textures hold together, at most `ceiling`.
+    bytes: u64,
+    ceiling: u64,
+    /// Frames begun, which the pools' idle textures are counted in.
+    frame: u64,
     /// The sprites' texture: each [`Kind`] a cell side by side.
     sprites: usize,
     /// The largest side of a texture.
@@ -198,7 +229,10 @@ impl Glyphs {
             cache: GlyphCache::new(spec.budgets, spec.storage, Orientation::Normal)
                 .with_fallback(spec.fallback),
             pools,
-            textures: vec![texture],
+            textures: vec![Some(texture)],
+            bytes: texture_bytes(Format::R8, strip),
+            ceiling: GLYPH_TEXTURE_CEILING,
+            frame: 0,
             sprites: 0,
             side,
             cell,
@@ -213,7 +247,19 @@ impl Glyphs {
 
     /// Texture `i`.
     pub(crate) fn texture(&self, i: usize) -> Option<&Texture> {
-        self.textures.get(i)
+        self.textures.get(i).and_then(Option::as_ref)
+    }
+
+    /// Bytes the textures hold together.
+    pub(crate) fn bytes(&self) -> u64 {
+        self.bytes
+    }
+
+    /// Holds the textures to `ceiling` bytes in place of
+    /// [`GLYPH_TEXTURE_CEILING`], for a test that drives a pool to it.
+    #[cfg(test)]
+    pub(crate) fn set_ceiling(&mut self, ceiling: u64) {
+        self.ceiling = ceiling;
     }
 
     /// The cell's size.
@@ -237,10 +283,53 @@ impl Glyphs {
         self.cache.begin_frame();
     }
 
-    /// Ends a frame: the slots held for its uncached glyphs are free again.
-    pub(crate) fn end_frame(&mut self) {
+    /// Counts a frame, and gives back each pool's last texture that no
+    /// glyph has held a slot of for [`GPU_IDLE_FRAMES`] frames, counted
+    /// from the end of the frame that emptied it. Each texture freed is a
+    /// call of the frame's batch of uploads.
+    pub(crate) fn give_back<G: Gl>(&mut self, gl: &mut G) -> Result<(), Error> {
+        self.frame = self.frame.saturating_add(1);
+        let frame = self.frame;
         for p in &mut self.pools {
-            p.free.append(&mut p.held);
+            let Some(since) = p.empty_since else {
+                continue;
+            };
+            if frame.saturating_sub(since) < GPU_IDLE_FRAMES {
+                continue;
+            }
+            let Some(grid) = p.grids.pop() else { continue };
+            let start = p.capacity();
+            p.free.retain(|&i| i < start);
+            p.next = p.next.min(start);
+            // the texture before it waits its own idle frames
+            p.empty_since = None;
+            if let Some(t) = self.textures.get_mut(grid.texture).and_then(Option::take) {
+                let size = Size::new(
+                    grid.cols.saturating_mul(p.slot.width),
+                    grid.slots
+                        .div_ceil(grid.cols.max(1))
+                        .saturating_mul(p.slot.height),
+                );
+                self.bytes = self.bytes.saturating_sub(texture_bytes(p.format, size));
+                self.uploads = self.uploads.saturating_add(1);
+                gl.free_texture(t)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Ends a frame: the slots held for its uncached glyphs are free
+    /// again, and a pool whose last texture this frame left with no glyph
+    /// notes the frame.
+    pub(crate) fn end_frame(&mut self) {
+        let frame = self.frame;
+        for p in &mut self.pools {
+            p.free.extend(p.held.drain(..));
+            if p.last_empty() {
+                p.empty_since.get_or_insert(frame);
+            } else {
+                p.empty_since = None;
+            }
         }
     }
 
@@ -277,11 +366,15 @@ impl Glyphs {
         let bytes = self.pools.get(pool).map_or(0, Pool::bytes);
         let kept = self.cache.room(pool, bytes);
         self.reclaim();
-        let index = self.take(gl, pool)?;
+        let Some(index) = self.take(gl, pool)? else {
+            // past the ceiling: drawn blank, and asked for again next frame
+            self.cache.count_uncached();
+            return Ok(None);
+        };
         let slot = Slot { pool, index, bytes };
         if let Err(e) = self.fill(gl, slot, &stored) {
             if let Some(p) = self.pools.get_mut(pool) {
-                p.free.push(index);
+                p.free.insert(index);
             }
             return Err(e);
         }
@@ -300,7 +393,7 @@ impl Glyphs {
     fn reclaim(&mut self) {
         for s in self.cache.take_evicted() {
             if let Some(p) = self.pools.get_mut(s.pool) {
-                p.free.push(s.index);
+                p.free.insert(s.index);
             }
         }
     }
@@ -315,16 +408,17 @@ impl Glyphs {
         })
     }
 
-    /// A slot of pool `pool` no glyph holds: a free one, the next of its
-    /// textures, or the first of a new texture.
-    fn take<G: Gl>(&mut self, gl: &mut G, pool: usize) -> Result<u32, Error> {
+    /// A slot of pool `pool` no glyph holds: the lowest free one, the next
+    /// of its textures, or the first of a new texture; `None` when a new
+    /// texture would take the textures past their ceiling.
+    fn take<G: Gl>(&mut self, gl: &mut G, pool: usize) -> Result<Option<u32>, Error> {
         let side = self.side;
         let p = self
             .pools
             .get_mut(pool)
             .ok_or_else(|| Error::new(ErrorKind::Misuse, "no such pool"))?;
-        if let Some(i) = p.free.pop() {
-            return Ok(i);
+        if let Some(i) = p.free.pop_first() {
+            return Ok(Some(i));
         }
         if p.next >= p.capacity() {
             let cols = side.checked_div(p.slot.width).unwrap_or(0);
@@ -346,18 +440,33 @@ impl Glyphs {
                 cols.saturating_mul(p.slot.width),
                 rows.saturating_mul(p.slot.height),
             );
+            let bytes = texture_bytes(p.format, size);
+            if self.bytes.saturating_add(bytes) > self.ceiling {
+                return Ok(None);
+            }
             let texture = gl.create_texture(p.format, size)?;
             self.uploads = self.uploads.saturating_add(1);
+            self.bytes = self.bytes.saturating_add(bytes);
+            // a place a texture was given back from takes the new one
+            let at = match self.textures.iter().position(Option::is_none) {
+                Some(at) => at,
+                None => {
+                    self.textures.push(None);
+                    self.textures.len().saturating_sub(1)
+                }
+            };
+            if let Some(t) = self.textures.get_mut(at) {
+                *t = Some(texture);
+            }
             p.grids.push(Grid {
-                texture: self.textures.len(),
+                texture: at,
                 cols,
                 slots: cols.saturating_mul(rows),
             });
-            self.textures.push(texture);
         }
         let i = p.next;
         p.next = p.next.saturating_add(1);
-        Ok(i)
+        Ok(Some(i))
     }
 
     /// Fills `slot` from `stored`'s lines, the size of its cells, as the CPU
@@ -374,6 +483,7 @@ impl Glyphs {
         let texture = self
             .textures
             .get(texture)
+            .and_then(Option::as_ref)
             .ok_or_else(|| Error::new(ErrorKind::Misuse, "no such texture"))?;
         let w = usize::try_from(p.slot.width).unwrap_or(0);
         let stride = w.saturating_mul(p.format.bytes());
@@ -403,11 +513,18 @@ impl Glyphs {
     /// Frees every texture.
     pub(crate) fn free<G: Gl>(self, gl: &mut G) -> Result<(), Error> {
         let mut out = Ok(());
-        for t in self.textures {
+        for t in self.textures.into_iter().flatten() {
             out = out.and(gl.free_texture(t));
         }
         out
     }
+}
+
+/// Bytes a texture of `format` and `size` holds.
+fn texture_bytes(format: Format, size: Size) -> u64 {
+    size.rect()
+        .area()
+        .saturating_mul(u64::try_from(format.bytes()).unwrap_or(u64::MAX))
 }
 
 /// A premultiplied `0xAARRGGBB` pixel as the bytes of an
@@ -415,4 +532,80 @@ impl Glyphs {
 pub(crate) fn rgba(argb: u32) -> [u8; 4] {
     let [a, r, g, b] = argb.to_be_bytes();
     [r, g, b, a]
+}
+
+#[cfg(test)]
+#[expect(
+    clippy::unwrap_used,
+    clippy::indexing_slicing,
+    reason = "a test fails by panicking"
+)]
+mod tests {
+    use vtium_font::Unifont;
+
+    use super::*;
+    use crate::cache::Profile;
+    use crate::gpu::{Call, StandIn};
+
+    fn glyphs(gl: &mut StandIn, sprites: &Sprites) -> Glyphs {
+        let spec = Spec {
+            owner: 1,
+            budgets: Budgets::for_profile(Profile::Performance, 1000, 800, 600),
+            storage: Storage::default(),
+            fallback: None,
+            cell: Size::new(8, 16),
+            sprites,
+        };
+        Glyphs::new(gl, &spec).unwrap()
+    }
+
+    // the issue on GPU texture garbage collection: past the ceiling a pool
+    // takes no new texture, a glyph it has no slot for is drawn blank, and
+    // a slot given back is taken again
+    #[test]
+    fn past_the_ceiling_a_pool_takes_no_texture_and_reuses_a_slot_given_back() {
+        let font = Font::new(Unifont::new(16));
+        let sprites = Sprites::new(8, 16, &font.decorations(), Orientation::Normal, true, false);
+        let mut gl = StandIn::new();
+        let mut g = glyphs(&mut gl, &sprites);
+        // the sprites and one texture of 64 slots, 512x16 at a byte a pixel
+        let ceiling = g.bytes() + 512 * 16;
+        g.set_ceiling(ceiling);
+        g.begin_frame();
+        let style = Style::default();
+        let chars: Vec<char> = ('A'..).take(65).collect();
+        for &c in &chars[..64] {
+            assert!(
+                g.glyph(&mut gl, &font, &[c], Width::Narrow, style)
+                    .unwrap()
+                    .is_some()
+            );
+        }
+        let textures = |gl: &StandIn| {
+            gl.calls()
+                .iter()
+                .filter(|c| matches!(c, Call::CreateTexture(..)))
+                .count()
+        };
+        let made = textures(&gl);
+        // the 65th has no slot and no room for a texture: drawn blank
+        let last = [chars[64]];
+        assert_eq!(
+            g.glyph(&mut gl, &font, &last, Width::Narrow, style)
+                .unwrap(),
+            None
+        );
+        assert_eq!(textures(&gl), made);
+        assert_eq!(g.bytes(), ceiling);
+        g.end_frame();
+        // a glyph forgotten gives its slot back, which the 65th then takes
+        g.forget(&['A']);
+        g.begin_frame();
+        assert!(
+            g.glyph(&mut gl, &font, &last, Width::Narrow, style)
+                .unwrap()
+                .is_some()
+        );
+        assert_eq!(textures(&gl), made);
+    }
 }

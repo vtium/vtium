@@ -12,13 +12,18 @@
 // masks, 2 a premultiplied color glyph from colors), y the background, z
 // the underline's color and its sprite, w the strike's color and its
 // sprite, a sprite being its place in sprites plus one, or 0 for none.
+//
+// cell.z chooses what the quad writes: 0 the cell, its text layer over its
+// background; 1 the text layer alone, premultiplied, as c / 255 with its
+// alpha, for the GPU to blend over the pictures beneath it as GL_ONE,
+// GL_ONE_MINUS_SRC_ALPHA, which is blend.rs's over_px (ADR-1100 D4).
 precision highp float;
 precision highp int;
 
 uniform highp sampler2D masks;
 uniform highp sampler2D colors;
 uniform highp sampler2D sprites;
-// the cell's width and height
+// the cell's width and height, and what the quad writes
 uniform ivec4 cell;
 
 flat in ivec4 dst;
@@ -74,8 +79,9 @@ void main() {
     uint st = params.w >> 24u;
     vec3 fg = rgb(params.x);
     vec3 bg = rgb(params.y);
+    bool layer = cell.z == 1;
     vec3 c;
-    if (ul == 0u && st == 0u) {
+    if (!layer && ul == 0u && st == 0u) {
         if (kind == 1u) {
             // blend.rs's mask: fg over bg through the coverage
             float a = byte(texelFetch(masks, at, 0).r);
@@ -105,6 +111,10 @@ void main() {
         }
         if (st != 0u) {
             p = tint_over(p, sprite(st, pos), rgb(params.w));
+        }
+        if (layer) {
+            color = p / 255.0;
+            return;
         }
         c = p.a == 0.0 ? bg : p.rgb + div255(bg * (255.0 - p.a));
     }

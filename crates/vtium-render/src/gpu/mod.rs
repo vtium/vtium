@@ -16,6 +16,8 @@ pub(crate) mod compose;
 mod gl;
 pub(crate) mod glyphs;
 mod ledger;
+#[cfg(feature = "images")]
+pub(crate) mod pictures;
 mod pipeline;
 mod stand_in;
 mod tile;
@@ -27,6 +29,8 @@ pub use gl::{
     InputKind, Limits, Program, Quad, Size, Source, Texture, Value,
 };
 pub use ledger::{Checked, Ledger, Resolved, TargetInfo, TextureInfo};
+#[cfg(feature = "images")]
+pub use pictures::PictureStep;
 pub use pipeline::{Color, Config, Pipeline, Spatial};
 pub use stand_in::{Call, Op, StandIn};
 pub use tile::{Tile, tiles};

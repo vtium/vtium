@@ -17,6 +17,8 @@ use crate::cache::Budgets;
 use crate::deco::Sprites;
 use crate::gpu::compose::GpuBack;
 use crate::gpu::glyphs::Spec;
+#[cfg(feature = "images")]
+use crate::gpu::pictures::Shown;
 use crate::gpu::turn::Turn;
 use crate::gpu::{ArrowAt, DrawTarget, Error, ErrorKind, Gl, Pipeline, Size, Work};
 use crate::mono::{self, Depth, Fallback};
@@ -155,6 +157,10 @@ impl<F: Face> Renderer<F> {
         glyphs.forget(&sorted(&core::mem::take(&mut self.gpu.forget)));
         let mut back = GpuBack::new(gl, &mut *glyphs, turn);
         let counts = self.paint(&plan, frame, state, &mut back);
+        #[cfg(feature = "images")]
+        let (text, tints, marks) = (back.text, back.tints, back.marks);
+        #[cfg(feature = "images")]
+        let shown = self.shown(turn, back.picture_rects);
         let (clear, cells, error) = (back.clear, back.cells, back.error);
         glyphs.end_frame();
         let uploads = glyphs.take_uploads();
@@ -181,6 +187,14 @@ impl<F: Face> Renderer<F> {
             overlays,
             cells: &cells,
             uploads,
+            #[cfg(feature = "images")]
+            pictures: &shown,
+            #[cfg(feature = "images")]
+            text: &text,
+            #[cfg(feature = "images")]
+            tints: &tints,
+            #[cfg(feature = "images")]
+            marks: &marks,
         };
         let damage = pipeline.frame(gl, &work, target, age)?;
         Ok(Drawn {
@@ -191,6 +205,32 @@ impl<F: Face> Renderer<F> {
                 ..stats
             },
         })
+    }
+
+    /// The frame's pictures for slot 1, in draw order, in the upright
+    /// frame, each with `rects`, where the frame draws it. Every picture the
+    /// frame shows is here, so slot 1 keeps its textures from eviction.
+    #[cfg(feature = "images")]
+    fn shown(&self, turn: Turn, mut rects: Vec<Vec<crate::target::Rect>>) -> Vec<Shown> {
+        rects.resize_with(self.compose.pictures.pics().len(), Vec::new);
+        self.compose
+            .pictures
+            .pics()
+            .iter()
+            .zip(rects)
+            .map(|(p, rects)| {
+                let at = turn.up_area(p.rect());
+                Shown {
+                    key: p.key(),
+                    pixels: p.pixels().clone(),
+                    x: at.x,
+                    y: at.y,
+                    opaque: p.opaque(),
+                    above: p.layer() == vtium_image::Layer::AboveText,
+                    rects,
+                }
+            })
+            .collect()
     }
 
     /// What the GPU path's glyphs need of this renderer.
