@@ -293,6 +293,12 @@ considered:
     said: "vtium keeps the glyph helper's answer to a frit's own-cell query when it arrives after the wait, and uses it, instead of dropping it. The answer applies from the next frame, and the 100 ms wait stays only as the bound on how long the first frame waits."
     via: the maintainer's decision in the steering session, 2026-11-03, relayed by the steering session in the brief for the work that keeps a late own-cell answer; the wording is the steering session's
     paraphrase: true
+  - operator: aaronsb
+    said: "thicken and lean. I thought we had an existing adr for this."
+    via: the steering session, 2026-11-04
+  - operator: aaronsb
+    said: "only when used. basically, your lean"
+    via: the steering session, 2026-11-04
 observable:
   - "A glyph arriving for a character shown only in the scrollback view, or inside a cluster, redraws that cell on the next frame"
   - "With the store at its limit, the fill sends nothing more, and an ask evicts the glyphs least recently shown, redrawing nothing"
@@ -585,7 +591,9 @@ The console, which opens its VT as root already, reads the kernel's font once at
 *Intended design, not yet built.* The helper on `feat/deferred` generates regular glyphs per codepoint (`crates/vtium/src/helper.rs`, `crates/vtium/src/deferred.rs`).
 
 - **Cluster asks.** The console asks the helper for a cluster, its text as the key gives it, and the helper shapes it with HarfRust and composes its glyphs into one glyph fitted to its 1 or 2 cells and its reach, one cell more on each side along its row (ADR-1301 D1, ADR-1302 D1).
-- **Style asks.** The console asks for bold and italic as part of the key. The helper draws them from the frit's bold and italic faces (`style=`, D1) where the frit names them, and from the regular glyph where it does not: a missing bold is the regular glyph emboldened, as vtium-font draws it today, and a missing italic is the regular glyph slanted by 0.2 about the baseline, an outline's points before it is rasterised and a bitmap's rows one at a time (ADR-1302 D4).
+- **Style asks.** The console asks for bold and italic as part of the key. The helper draws them from the frit's bold and italic faces (`style=`, D1) where the frit names them, and from the regular glyph where it does not: a missing bold is the regular glyph emboldened, as vtium-font draws it today, and a missing italic is the regular glyph slanted by 0.2 about the baseline, an outline's points before it is rasterised and a bitmap's rows one at a time (ADR-1302 D4). Where the frit names a bold or an italic face but no bold-italic face, a bold-italic glyph is the regular glyph emboldened and then slanted, and never the bold face slanted (the maintainer, 2026-11-04).
+
+> Edited 2026-11-04: the maintainer decided where bold italic comes from when the frit names no bold-italic face (`considered`, 2026-11-04). The style bullet ended at "(ADR-1302 D4)."
 
 > Edited 2026-11-01: glyph ink reaches one cell past its own on each side, and synthetic italic is a slant (ADR-1302, accepted 2026-11-01). The cluster bullet read "fitted to its 1 or 2 cells (ADR-1301 D1).", and the style bullet ended: "and from the regular glyph emboldened, as vtium-font draws a missing style today, where it does not." The earlier text is in git at 1d51e46.
 
