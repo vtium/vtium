@@ -1687,7 +1687,7 @@ mod tests {
 
     use rustix::io::Errno;
 
-    use super::super::kms::{Kms, Request};
+    use super::super::kms::{CrtcEvent, Kms, Request};
     use super::super::mode::mode;
     use super::FakeCard;
 
@@ -1747,8 +1747,9 @@ mod tests {
 
     // A legacy CRTC set that moves a connector to another CRTC leaves the
     // CRTC it was on: where no connector is left on that CRTC, the kernel
-    // clears its mode and turns it off (`update_output_state`), and where
-    // another connector is still on it, it stays on.
+    // clears its mode and turns it off (`update_output_state`), and the
+    // wait for that CRTC's next vblank ends at once (`drm_crtc_vblank_off`).
+    // Where another connector is still on it, it stays on.
     #[test]
     fn a_legacy_set_turns_off_the_crtc_its_last_connector_leaves() {
         let card = FakeCard::new(&[
@@ -1759,8 +1760,12 @@ mod tests {
         let at_640 = mode(640, 480, 60, true);
         card.set_crtc(CRTC, shown, CONN, &at_640)
             .expect("the CRTC set");
+        card.wait_vblank(0).expect("a vblank wait on the CRTC");
         card.set_crtc(CRTC + 1, shown, CONN, &at_640)
             .expect("the move");
+        let mut read = Vec::new();
+        card.read_events(&mut read).expect("the events");
+        assert_eq!(read, [CrtcEvent::Vblank(CRTC)], "the wait ends");
         {
             let s = card.state();
             assert_eq!(s.bound.get(&CONN), Some(&(CRTC + 1)));
