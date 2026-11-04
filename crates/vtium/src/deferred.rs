@@ -220,44 +220,56 @@ fn overstrike(base: &Glyph, marks: &[Glyph]) -> Option<Glyph> {
     Glyph::from_pixels(w, h, Format::Mask, pixels).map(|g| g.with_cells(cells))
 }
 
-/// Whether the font already draws `mark` beside its letter, on the side
-/// `before` says: the mark's box is as wide as the letter's, and the
-/// column holding the most of its ink, its stem, lies in the quarter of
-/// the box on its own side. GNU Unifont draws its Devanagari and Bengali
+/// Whether the font already draws `mark` where it belongs against `letter`,
+/// the side it stands on given by `before`. The mark's box must be as wide
+/// as the letter's, and then either its ink wraps the letter's ink, as GNU
+/// Unifont draws Myanmar's medial ra round its consonant, lying both left
+/// and right of it, or over its whole height, past it above or below, and
+/// past it on the mark's own side; or the outer edge of its ink lies
+/// in the quarter of the box on its own side: a mark before its letter
+/// starts in the left quarter, and a mark after it ends in the right
+/// quarter. Unifont draws its Devanagari, Bengali, Tamil and Malayalam
 /// vowel signs that way, each in a box as wide as its letter's with its
-/// stem at the box's edge, so that laid on the letter it lands beside it,
-/// whatever the letter's own shape. A mark drawn in the middle of its box,
-/// or on the other side, is not.
+/// ink reaching the box's edge on its side, so that laid on the letter it
+/// lands beside it, whatever the letter's shape. A mark drawn in the middle
+/// of its box, or on the other side, is not placed.
 fn drawn_beside(letter: &Glyph, mark: &Glyph, before: bool) -> bool {
     let w = mark.width();
     if w != letter.width() {
         return false;
     }
-    let inked = |x: u32| {
-        mark.rows()
-            .filter(|r| r.get(x as usize).is_some_and(|&p| p > 0))
-            .count()
+    let Some((first, last)) = ink_columns(mark) else {
+        return false;
     };
-    // the outermost column on its own side wins a tie
-    let mut columns: Vec<u32> = (0..w).collect();
-    if !before {
-        columns.reverse();
-    }
-    let mut stem: Option<(u32, usize)> = None;
-    for x in columns {
-        let n = inked(x);
-        if n > stem.map_or(0, |(_, most)| most) {
-            stem = Some((x, n));
+    if let (Some((top, bottom)), Some((from, to)), Some((high, low))) =
+        (ink_rows(mark), ink_columns(letter), ink_rows(letter))
+    {
+        // left and right of the letter's ink
+        let across = first < from && last > to;
+        // over its whole height, past it at the top or the bottom, and past
+        // it on the mark's own side
+        let round = top <= high
+            && bottom >= low
+            && (top < high || bottom > low)
+            && if before { first < from } else { last > to };
+        if across || round {
+            return true;
         }
     }
-    let quarter = w / 4;
-    stem.is_some_and(|(x, _)| {
-        if before {
-            x < quarter
-        } else {
-            x >= w.saturating_sub(quarter)
-        }
-    })
+    let quarter = i64::from(w / 4);
+    if before {
+        first < quarter
+    } else {
+        last >= i64::from(w).saturating_sub(quarter)
+    }
+}
+
+/// The first and last rows of `g` that hold ink.
+fn ink_rows(g: &Glyph) -> Option<(i64, i64)> {
+    let inked: Vec<bool> = g.rows().map(|r| r.iter().any(|&p| p > 0)).collect();
+    let first = inked.iter().position(|&i| i)?;
+    let last = inked.iter().rposition(|&i| i)?;
+    Some((i64::try_from(first).ok()?, i64::try_from(last).ok()?))
 }
 
 /// The first and last columns of `g` that hold ink.
@@ -758,8 +770,9 @@ impl DeferredFace {
     ///
     /// A nonspacing mark is overstruck on the base ([`overstrike`]). A
     /// spacing mark (ADR-1302 D14), a two-part vowel sign as its canonical
-    /// parts, is overstruck too where the font already draws it beside its
-    /// letter ([`drawn_beside`]), as GNU Unifont draws Devanagari's; any
+    /// parts, is overstruck too where the font already draws it in place
+    /// against its letter ([`drawn_beside`]), as GNU Unifont draws the
+    /// Indic vowel signs and Myanmar's medial ra; any
     /// other stands beside the letter ([`beside`]), after it, or before it
     /// where its body stands before its letter, as the vowel sign i does.
     fn unshaped(&self, cluster: &[char], style: Style) -> Option<Glyph> {
@@ -1729,34 +1742,18 @@ mod tests {
         assert_eq!(picture(&both), want);
     }
 
-    // #235: GNU Unifont draws each Devanagari and Bengali vowel sign in a
-    // box as wide as its letter's, its stem at the box's edge on its own
-    // side, so laid on the letter it lands beside it. The fallback keeps
-    // that placement for every consonant, those whose headline has a gap,
-    // such as tha, dha, bha and ha, among them, and for every spacing mark
-    // of the two scripts, a two-part sign as its canonical parts: each
-    // cluster draws as the plain overstrike of its glyphs
-    #[test]
-    fn a_spacing_mark_the_font_draws_beside_its_letter_stays_there() {
+    /// How many clusters of a letter in `letters` and a sign in `signs`
+    /// the fallback draws as the plain overstrike of their Unifont glyphs,
+    /// a two-part sign as its canonical parts; it panics on any other.
+    fn overstruck_in_unifont(sets: &[(std::ops::RangeInclusive<u32>, &[u32])]) -> usize {
         let generated = Shared::default();
         let f = face(&generated);
         let unifont = Unifont::new(16);
         let regular = Style::default();
-        let devanagari: (_, &[u32]) = (
-            0x915..=0x939,
-            &[
-                0x903, 0x93b, 0x93e, 0x93f, 0x940, 0x949, 0x94a, 0x94b, 0x94c, 0x94e, 0x94f,
-            ],
-        );
-        let bengali: (_, &[u32]) = (
-            0x995..=0x9b9,
-            &[
-                0x982, 0x983, 0x9be, 0x9bf, 0x9c0, 0x9c7, 0x9c8, 0x9cb, 0x9cc, 0x9d7,
-            ],
-        );
         let mut drawn = 0;
-        for (letters, signs) in [devanagari, bengali] {
+        for (letters, signs) in sets {
             for letter in letters
+                .clone()
                 .filter_map(char::from_u32)
                 .filter(|&c| unifont.has_glyph(c))
             {
@@ -1776,8 +1773,68 @@ mod tests {
                 }
             }
         }
+        drawn
+    }
+
+    // #235: GNU Unifont draws each Devanagari, Bengali, Tamil and
+    // Malayalam vowel sign in a box as wide as its letter's, its ink
+    // reaching the box's edge on its own side, so laid on the letter it
+    // lands beside it. The fallback keeps that placement for every
+    // consonant, those whose headline has a gap, such as tha, dha, bha and
+    // ha, among them, and for every spacing mark of the four scripts, the
+    // stemless loops of Tamil's e and ai and Malayalam's e among them, a
+    // two-part sign as its canonical parts
+    #[test]
+    fn a_spacing_mark_the_font_draws_beside_its_letter_stays_there() {
+        let devanagari: &[u32] = &[
+            0x903, 0x93b, 0x93e, 0x93f, 0x940, 0x949, 0x94a, 0x94b, 0x94c, 0x94e, 0x94f,
+        ];
+        let bengali: &[u32] = &[
+            0x982, 0x983, 0x9be, 0x9bf, 0x9c0, 0x9c7, 0x9c8, 0x9cb, 0x9cc, 0x9d7,
+        ];
+        let tamil: &[u32] = &[
+            0xbbe, 0xbbf, 0xbc1, 0xbc2, 0xbc6, 0xbc7, 0xbc8, 0xbca, 0xbcb, 0xbcc, 0xbd7,
+        ];
+        let malayalam: &[u32] = &[
+            0xd02, 0xd03, 0xd3e, 0xd3f, 0xd40, 0xd46, 0xd47, 0xd48, 0xd4a, 0xd4b, 0xd4c, 0xd57,
+        ];
+        let drawn = overstruck_in_unifont(&[
+            (0x915..=0x939, devanagari),
+            (0x995..=0x9b9, bengali),
+            (0xb95..=0xbb9, tamil),
+            (0xd15..=0xd39, malayalam),
+        ]);
         // each range's 37 codepoints, unifont drawing even the unassigned
-        assert_eq!(drawn, 37 * 11 + 37 * 10);
+        assert_eq!(drawn, 37 * 11 + 37 * 10 + 37 * 11 + 37 * 12);
+    }
+
+    // #235, ADR-1302 D14: Unifont draws Myanmar's medial ra as a bracket
+    // round its consonant, over and under it and on its left. A mark whose
+    // ink wraps its letter's is the font's own placement, so medial ra on
+    // every consonant draws as the plain overstrike
+    #[test]
+    fn a_spacing_mark_the_font_draws_round_its_letter_stays_there() {
+        let drawn = overstruck_in_unifont(&[(0x1000..=0x1020, &[0x103c])]);
+        assert_eq!(drawn, 33);
+    }
+
+    // #235: the font has placed a mark only in a box as wide as its
+    // letter's. Unifont's vowel sign aa, 16 pixels wide, on a frit's
+    // letter 8 pixels wide, stands after the letter in the letter's cell
+    // instead of being laid on it across two cells
+    #[test]
+    fn a_mark_in_a_box_wider_than_its_letters_stands_beside_it() {
+        let f = face_with(&[(KA, &KA_ROWS)]);
+        let sign = Unifont::new(16).draw(&[AA], Style::default()).unwrap();
+        assert_eq!(sign.width(), 16, "unifont's aa is two cells");
+        let both = f.draw(&[KA, AA], Style::default()).unwrap();
+        assert_eq!((both.width(), both.cells()), (8, Width::Narrow));
+        // the vowel sign's stem ends in the cell's last column
+        assert!(
+            (4..13).all(|y| both.pixel(7, y).unwrap()[0] > 0),
+            "{:?}",
+            picture(&both)
+        );
     }
 
     // a cluster whose first character neither the store nor the built-in
