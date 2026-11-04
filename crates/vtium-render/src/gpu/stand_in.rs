@@ -6,8 +6,8 @@
 //! those, and what only a real driver refuses. Its limits are whatever a
 //! test gives it, so a test can set a small largest texture and drive a
 //! frame past it. A test can raise a GL error, which the next
-//! [`Gl::check`] reports, as GL's error flag does, and can make the next
-//! call of one kind fail as a driver would.
+//! [`Gl::check`] reports, as GL's error flag does, and can make a call of
+//! one kind fail as a driver would, the next one or one later.
 
 use super::gl::{
     Batch, Blend, Draw, DrawTarget, Error, ErrorKind, Format, Gl, Limits, Program, Quad, Size,
@@ -57,7 +57,9 @@ pub struct StandIn {
     calls: Vec<Call>,
     next_name: u32,
     raised: Option<ErrorKind>,
-    failing: Vec<(Op, ErrorKind)>,
+    /// The calls a test made fail: each kind of call, how many of that
+    /// kind pass first, and the error.
+    failing: Vec<(Op, usize, ErrorKind)>,
     /// The name of each upright frame made, in the order they were made.
     frames: Vec<u32>,
     /// What the stand-in saw of each draw since the calls were forgotten.
@@ -142,14 +144,25 @@ impl StandIn {
     /// an import a driver cannot do fails with [`ErrorKind::Import`], a
     /// shader it does not compile with [`ErrorKind::Compile`].
     pub fn fail_next(&mut self, op: Op, kind: ErrorKind) {
-        self.failing.push((op, kind));
+        self.fail_after(op, 0, kind);
+    }
+
+    /// Lets `passing` calls of `op` through, and makes the one after them
+    /// fail with `kind`: an allocation that fails partway through a batch.
+    pub fn fail_after(&mut self, op: Op, passing: usize, kind: ErrorKind) {
+        self.failing.push((op, passing, kind));
     }
 
     /// A new name for `op`, or the failure a test asked for.
     fn make(&mut self, op: Op) -> Result<u32, Error> {
-        if let Some(i) = self.failing.iter().position(|(o, _)| *o == op) {
-            let (_, kind) = self.failing.remove(i);
-            return Err(Error::new(kind, format!("{op:?} failed for the test")));
+        if let Some(i) = self.failing.iter().position(|(o, _, _)| *o == op) {
+            match self.failing.get_mut(i) {
+                Some((_, passing, _)) if *passing > 0 => *passing -= 1,
+                _ => {
+                    let (_, _, kind) = self.failing.remove(i);
+                    return Err(Error::new(kind, format!("{op:?} failed for the test")));
+                }
+            }
         }
         Ok(self.name())
     }

@@ -618,6 +618,41 @@ fn a_display_past_the_largest_texture_draws_each_cell_into_each_tile_it_meets() 
     );
 }
 
+// the issue on GPU texture garbage collection: the first frame after a
+// release makes the upright frame's tiles again; on a display of four
+// tiles, one whose third tile fails frees the two made before it, and the
+// next frame makes all four and draws whole
+#[test]
+fn a_restore_that_fails_partway_frees_the_tiles_it_made_before_the_failure() {
+    let limits = Limits {
+        texture: 48,
+        ..StandIn::LIMITS
+    };
+    let mut g = Gpu::new(limits, Config::default());
+    let mut s = screen();
+    s.text(0, 0, "AB", plain());
+    g.frame(&mut s, 0, &[]).unwrap();
+    let (_, drawing, _) = g.gl.live();
+    g.pipeline.release(&mut g.gl).unwrap();
+    let (_, released, _) = g.gl.live();
+    // the buffer alone
+    assert_eq!((drawing, released), (5, 1));
+    g.gl.fail_after(Op::CreateFrame, 2, ErrorKind::OutOfMemory);
+    let e = g.frame(&mut s, 1, &[]).unwrap_err();
+    assert_eq!(e.kind, ErrorKind::OutOfMemory);
+    let made = |c: &Call| matches!(c, Call::CreateFrame(_));
+    assert_eq!(g.calls().iter().filter(|c| made(c)).count(), 2);
+    assert_eq!(
+        g.gl.live().1,
+        released,
+        "a tile made before the failure leaked"
+    );
+    let (damage, _) = g.frame(&mut s, 1, &[]).unwrap();
+    assert_eq!(damage, [DISPLAY.rect()]);
+    assert_eq!(g.calls().iter().filter(|c| made(c)).count(), 4);
+    assert_eq!(g.gl.live().1, drawing);
+}
+
 #[test]
 fn a_failed_frame_is_reported_and_the_next_one_draws_whole() {
     let mut g = Gpu::new(StandIn::LIMITS, Config::default());
