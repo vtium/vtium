@@ -67,10 +67,13 @@ considered:
     said: "The header lines are #pragma vtium time and #pragma vtium feedback; the shader format is decided in ADR-1304 as #pragma vtium lines."
     via: the maintainer in the steering session, 2026-11-03, relayed by the team lead; the wording is the team lead's, not the maintainer's, answering open question 5
     paraphrase: true
+  - operator: aaronsb
+    said: "accept"
+    via: the maintainer in the steering session, 2026-11-03, for ADR-1304 and ADR-1305 together, relayed verbatim by the team lead
 observable:
   - "With `render-timer=log` and a look whose spatial filter declares that it reads the time, the render timer's line for an idle display reports about as many flips a second as the display's refresh rate; after `dpms-timeout` blanks the displays, or after a switch to another VT, it reports none."
   - "With `look-clock=off`, the same idle display reports no flips, and two screenshots taken a second apart are identical."
-status: proposed
+status: accepted
 date: 2026-11-03
 deciders:
   - aaronsb
