@@ -48,7 +48,7 @@ The binary: the configuration and command line, the terminfo entry and the XTGET
 | `install/xterm-vtium.ti` | vtium's terminfo entry, `xterm-vtium`, installed compiled with `tic -x` |
 | `install/kmscon.ti` | The C reference's entry, with `Ms`: XTGETTCAP's table under `TERM=kmscon` is generated from it, though the entry the kmscon-terminfo package installs under that name differs (see "C behaviour kept"); `make install-tree` installs it, and it stays as one of vtium's compatible identities (ADR-1000, "The terminfo entry and TERM") |
 | `install/vtium@.service` | The source of the VT unit, `vtium@.service`: vtium in place of getty on a VT. `tools/vt/units.sh` generates the unit from it for the package, `make install` and `make install-tree`, whose tree tier 3's guest starts, and generates `vtium-dev@.service` from it for `make vt-install` |
-| `install/vtium-getty@.service` | The source of the VT unit's getty fallback, `vtium-getty@.service`, which the unit's `OnFailure=` starts: getty on the VT, unless vtium's closed marker exists |
+| `install/vtium-getty@.service` | The source of the VT unit's getty fallback, `vtium-getty@.service`, which the unit's `OnFailure=` starts: getty on the VT through `vtium console fallback`, unless vtium's closed marker exists or the getty's start would stop another program |
 
 `docs/config.md` describes every key. `VTIUM_BLESS=1 cargo test -p vtium` rewrites the three generated files; without it, a test fails when one differs from its source.
 
