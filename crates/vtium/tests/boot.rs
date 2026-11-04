@@ -6521,6 +6521,38 @@ mod gpu_path {
         );
     }
 
+    // ADR-1303 D3, D6: a display turned a quarter during the run draws on
+    // the GPU path the CPU path's frame; the renderer turns its pipeline to
+    // its own orientation as each frame starts
+    #[test]
+    fn a_display_turned_during_the_run_draws_the_cpu_paths_frame_on_the_gpu_path() {
+        let turned = |args: &[&str], source: GpuSource| {
+            let args: Vec<&str> = args
+                .iter()
+                .copied()
+                .chain(["--login", "--", "/bin/sh", "-c", SCRIPT])
+                .collect();
+            let mut h = Harness::boot_set(
+                &args,
+                FakeVt::new(),
+                Some(Box::new(Memory::default())),
+                no_fonts(),
+                |app| app.set_gpu_source(source),
+            );
+            assert!(h.until(BOUND, |a| {
+                a.screen_text().iter().any(|l| l.contains("done"))
+            }));
+            let upright = h.drawn_now();
+            h.app.input_event(key(Mods::LOGO, 0x3d), now());
+            let quarter = h.drawn_now();
+            assert!(quarter != upright, "the display turned");
+            quarter
+        };
+        let cpu = turned(&[], GpuSource::Software);
+        let gpu = turned(&["--hwaccel"], GpuSource::Software);
+        assert!(gpu == cpu, "the turned frame differs from the CPU path's");
+    }
+
     /// The same through this machine's first render node, on its GPU. It
     /// opens a render node, which needs no DRM master, and runs only when
     /// asked.

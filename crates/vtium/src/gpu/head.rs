@@ -220,7 +220,9 @@ impl HeadGpu {
                 e.insert(Display { pipeline, staging })
             }
         };
-        display.pipeline.turn(gl, orientation)?;
+        // A pipeline is made at the display's orientation, and draw_gpu
+        // turns it to the renderer's as each frame starts, which is the
+        // view's: the view takes both from one configuration.
         // The staging frame holds every frame drawn, so it lacks only what
         // this frame composes; present still gives what a buffer `age`
         // frames old lacks, which is what the read copies.
