@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::time::{Duration, SystemTime};
 
-use vtium_config::report::{Machine, file_name, report};
+use vtium_config::report::{Machine, file_name, marker, report};
 
 const BIN: &str = env!("CARGO_BIN_EXE_vtium-config");
 
@@ -307,13 +307,13 @@ fn the_vtium_part_names_each_binary_its_version_and_its_features() {
 #[test]
 fn a_binary_s_features_are_read_from_its_marker_text() {
     let t = Tree::new("markers");
-    t.program(
-        "usr/bin/vtium",
-        &vtium_script(
-            "vtium 9.9.9",
-            "# cannot open the image helper %s\n# logind is not on the bus (%s)",
-        ),
-    );
+    // each marker as a comment of the script, joined here so that this
+    // source never holds the joined line
+    let comments: String = vtium_config::report::MARKERS
+        .iter()
+        .map(|(_, cut)| format!("# {}%s\n", marker(cut)))
+        .collect();
+    t.program("usr/bin/vtium", &vtium_script("vtium 9.9.9", &comments));
     let p = report(&t.machine(1000));
     let p = part(&p, "vtium");
     assert!(p.contains("images yes, logind yes, gpu unknown"), "{p}");
@@ -326,13 +326,14 @@ fn a_binary_s_features_are_read_from_its_marker_text() {
 fn each_marker_is_text_its_feature_s_code_carries() {
     let image = include_str!("../../vtium-platform/src/image_helper/start.rs");
     let logind = include_str!("../../vtium-platform/src/logind.rs");
-    for (feature, marker) in vtium_config::report::MARKERS {
+    for (feature, cut) in vtium_config::report::MARKERS {
+        let marker = marker(cut);
         let source = match feature {
             "images" => image,
             "logind" => logind,
             other => panic!("no source named for the marker of {other}"),
         };
-        assert!(source.contains(marker), "{feature}: {marker:?}");
+        assert!(source.contains(&marker), "{feature}: {marker:?}");
     }
 }
 

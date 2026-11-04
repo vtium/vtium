@@ -28,14 +28,25 @@ const VTIUM: &str = "/usr/bin/vtium";
 pub const FEATURES: [&str; 3] = ["gpu", "images", "logind"];
 
 /// For each feature that has one, a line of text that only a build with
-/// the feature carries: what vtium says when it cannot open its image
-/// helper, from code built only with `images`, and what it says when
-/// logind is not on the bus, from code built only with `logind`. The
-/// tests hold each to the file it comes from.
+/// the feature carries, with a `|` cut into it: what vtium says when it
+/// cannot open its image helper, from code built only with `images`, and
+/// what it says when logind is not on the bus, from code built only with
+/// `logind`. [`marker`] takes the `|` out only when the report searches a
+/// binary, so neither this source nor vtium-config's binary holds the line
+/// itself, which must stay in the one place a build with the feature
+/// carries it (the development install's script and its tests rely on
+/// that for `images`). The tests hold each marker to the file it comes
+/// from.
 pub const MARKERS: [(&str, &str); 2] = [
-    ("images", "cannot open the image helper "),
-    ("logind", "logind is not on the bus ("),
+    ("images", "cannot open the image| helper "),
+    ("logind", "logind is not on| the bus ("),
 ];
+
+/// The marker `cut` with its `|` taken out, as a build with its feature
+/// carries it.
+pub fn marker(cut: &str) -> String {
+    cut.replace('|', "")
+}
 
 /// The units whose state and logs the report gathers, by the start of
 /// their names.
@@ -233,8 +244,9 @@ fn version(ran: &Ran) -> Version {
 /// Which of [`MARKERS`] the file at `path` carries, reading at most
 /// [`BINARY_MAX`] bytes a block at a time.
 fn carries(path: &Path) -> io::Result<Vec<bool>> {
-    let longest = MARKERS.iter().map(|(_, m)| m.len()).max().unwrap_or(0);
-    let mut found = vec![false; MARKERS.len()];
+    let markers: Vec<String> = MARKERS.iter().map(|(_, m)| marker(m)).collect();
+    let longest = markers.iter().map(String::len).max().unwrap_or(0);
+    let mut found = vec![false; markers.len()];
     let mut file = File::open(path)?.take(BINARY_MAX);
     let mut window: Vec<u8> = Vec::new();
     let mut block = vec![0u8; 64 * 1024];
@@ -244,7 +256,7 @@ fn carries(path: &Path) -> io::Result<Vec<bool>> {
             break;
         }
         window.extend_from_slice(block.get(..n).unwrap_or_default());
-        for (f, (_, marker)) in found.iter_mut().zip(MARKERS) {
+        for (f, marker) in found.iter_mut().zip(&markers) {
             *f = *f || window.windows(marker.len()).any(|w| w == marker.as_bytes());
         }
         // keep what a marker could start in and end in the next block

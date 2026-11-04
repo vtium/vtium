@@ -17,7 +17,7 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-pub use parts::{FEATURES, MARKERS};
+pub use parts::{FEATURES, MARKERS, marker};
 
 /// The log lines of each console the document holds when `--lines` does
 /// not say.
