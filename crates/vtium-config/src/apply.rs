@@ -344,7 +344,7 @@ pub fn invoking_user(
 
 /// The uid of the user named `name`, as the system's user database gives
 /// it.
-pub(crate) fn uid_of(name: &str) -> Option<u32> {
+fn uid_of(name: &str) -> Option<u32> {
     nix::unistd::User::from_name(name)
         .ok()
         .flatten()

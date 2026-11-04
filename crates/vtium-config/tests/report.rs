@@ -41,8 +41,13 @@ const BIN: &str = env!("CARGO_BIN_EXE_vtium-config");
 const HOST: &str = "planthost";
 
 /// The monitor's serial string and serial number, planted in its EDID and
-/// in a log line.
-const SERIAL: &str = "SER1AL7731";
+/// in a log line. vtium logs the string with `_` for its `#`.
+const SERIAL: &str = "SN#77310";
+const SERIAL_LOGGED: &str = "SN_77310";
+
+/// The serial of a monitor unplugged before the report, so not in sysfs,
+/// as vtium logged it.
+const UNPLUGGED: &str = "OLDSER99";
 const NUMBER: u32 = 0x0102_0304;
 
 /// A stand-in root: `/proc`, `/etc`, `/run`, `/sys` and the programs the
@@ -143,6 +148,7 @@ impl Tree {
             root: self.root.clone(),
             euid,
             lines: 300,
+            previous_boot: false,
             // 2026-11-03 20:30:44 UTC
             now: SystemTime::UNIX_EPOCH + Duration::from_secs(1_793_737_844),
         }
@@ -211,7 +217,9 @@ vtium@tty9.service) printf -- '-- No entries --\n' ;;
 *)
   printf 'args: %s\n' "$*"
   printf '2026-11-03T20:27:03+00:00 vtium[100]: log: vtium Revision v1.2.3 on %s\n' "$unit"
-  printf '2026-11-03T20:27:04+00:00 vtium[100]: display DP-1 is DEL:0x4321:SER1AL7731 (0x01020304, 16909060)\n'
+  printf '2026-11-03T20:27:04+00:00 vtium[100]: display DP-1 is DEL:0x4321:SN_77310 (0x01020304, 16909060)\n'
+  printf '2026-11-03T20:27:04+00:00 vtium[100]: display DP-2, GSM:0x5B7F:OLDSER99, is gone\n'
+  printf '2026-11-03T20:27:04+00:00 vtium[100]: a program printed the serial SN_77310 alone\n'
   printf '2026-11-03T20:27:05+00:00 login[200]: pam_unix(login:session): session opened for user alice\n'
   printf '2026-11-03T20:27:06+00:00 vtium[100]: PLANTHOST.example.org said hello to planthost\n' ;;
 esac
@@ -338,7 +346,10 @@ fn the_vtium_part_names_each_binary_its_version_and_its_features() {
 /// this machine is read.
 #[test]
 fn the_report_reads_the_revision_and_features_the_console_prints() {
-    let real = console::vtium();
+    let real = {
+        let _forking = forking();
+        console::vtium()
+    };
     let printed = {
         let _forking = forking();
         Command::new(&real)
@@ -393,6 +404,20 @@ fn a_binary_s_features_are_read_from_its_marker_text() {
     let p = made(&t.machine(1000));
     let p = part(&p, "vtium");
     assert!(p.contains("images yes, logind yes, gpu unknown"), "{p}");
+}
+
+/// vtium-config holds each marker cut, so its own binary never carries the
+/// marker line, which only a build with the feature may carry.
+#[test]
+fn vtium_config_s_binary_carries_no_marker() {
+    let binary = fs::read(BIN).expect("vtium-config's binary");
+    for (feature, cut) in vtium_config::report::MARKERS {
+        let line = marker(cut);
+        assert!(
+            !binary.windows(line.len()).any(|w| w == line.as_bytes()),
+            "vtium-config carries the {feature} marker {line:?}"
+        );
+    }
 }
 
 /// The markers are lines the console's code carries only in a build with
@@ -584,7 +609,7 @@ fn the_logs_part_holds_each_unit_s_latest_lines() {
     let doc = made(&m);
     let p = part(&doc, "Logs");
     assert!(
-        p.contains("vtium@tty2.service, its last 7 lines this boot:\n"),
+        p.contains("vtium@tty2.service, its last 7 lines in this boot:\n"),
         "{p}"
     );
     assert!(
@@ -619,6 +644,42 @@ fn an_unreadable_journal_says_how_to_read_it() {
     );
 }
 
+/// A journal the user cannot read is noticed even when no vtium unit is
+/// loaded, from what journalctl says when the report asks which units the
+/// journal names.
+#[test]
+fn an_unreadable_journal_is_noticed_with_no_unit_loaded() {
+    let t = Tree::new("unreadable-no-units");
+    t.program("usr/bin/journalctl", JOURNALCTL_UNREADABLE);
+    t.program("usr/bin/systemctl", "#!/bin/sh\nexit 0\n");
+    let doc = made(&t.machine(1000));
+    let p = part(&doc, "Logs");
+    assert!(p.contains("The journal is not readable to you."), "{p}");
+    assert!(p.contains("systemd-journal"), "{p}");
+}
+
+/// `--previous-boot` reads the boot before this one, where a defect that
+/// forced a reboot left its log.
+#[test]
+fn the_previous_boot_s_logs_are_read_on_request() {
+    let t = Tree::new("previous-boot");
+    let mut m = t.machine(1000);
+    m.previous_boot = true;
+    let doc = made(&m);
+    assert!(doc.contains("with the logs of the previous boot."), "{doc}");
+    let p = part(&doc, "Logs");
+    assert!(
+        p.contains("vtium@tty2.service, its last 300 lines in the previous boot:\n"),
+        "{p}"
+    );
+    assert!(
+        p.contains("args: -b -1 -u vtium@tty2.service -n 300"),
+        "{p}"
+    );
+    // the revision comes from that boot's log too
+    assert!(part(&doc, "Consoles").contains("revision v1.2.3"), "{doc}");
+}
+
 #[test]
 fn as_root_the_kernel_display_state_is_read_and_as_a_user_it_names_sudo() {
     let t = Tree::new("root-user");
@@ -645,6 +706,8 @@ fn neither_the_hostname_nor_a_serial_appears() {
         "PLANTHOST",
         "example.org",
         SERIAL,
+        SERIAL_LOGGED,
+        UNPLUGGED,
         "0x01020304",
         "01020304",
         "16909060",
@@ -656,8 +719,15 @@ fn neither_the_hostname_nor_a_serial_appears() {
     // the raw EDID never appears, in bytes or in hex
     assert!(!doc.contains("00ffffffffffff00"), "{doc}");
     let what = part(&doc, "What this report holds");
-    assert!(what.contains("user"), "{what}");
-    assert!(what.contains("before"), "{what}");
+    for warned in [
+        "a login writes the user's name",
+        "vtium console status names the user",
+        "a line of vtium.conf can hold a user's name",
+        "time zone",
+        "before you share it",
+    ] {
+        assert!(what.contains(warned), "{warned:?}: {what}");
+    }
 }
 
 #[test]

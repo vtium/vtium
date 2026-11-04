@@ -1,331 +1,20 @@
 //! The report's parts, each gathered from the machine through
 //! [`super::read`] and written as plain lines.
 
-use std::fs::File;
-use std::io::{self, Read};
-use std::path::Path;
+use std::io;
 
 use super::Machine;
-use super::read::{BINARY_MAX, FILE_MAX, Ran, cannot, indented};
+use super::edid::Edid;
+use super::read::{FILE_MAX, indented};
+use super::units::{Journal, Unit, Units, revision};
 
 /// What the opening part says: what the report holds and what to check
 /// before sharing it.
-pub const HOLDS: &str = "This report holds what a vtium bug report needs: the vtium builds installed and the features each was built with, the kernel and the distribution, the state of each vtium console, the displays the kernel sees, vtium's configuration, and this boot's log of each vtium console. It leaves out the machine's hostname and each monitor's serial number. The logs can still name user accounts, because a login writes the user's name to them, and they hold what vtium logged about the programs it ran. Read the report through before you share it, and remove anything you would rather keep to yourself. Attach it to an issue at https://github.com/vtium/vtium/issues with what you saw and what you expected.\n";
-
-/// The vtium console binaries the report looks for, and whether one that
-/// is missing is named.
-const BINARIES: [(&str, bool); 2] = [
-    ("/usr/bin/vtium", true),
-    ("/usr/local/bin/vtium-dev", false),
-];
+pub const HOLDS: &str = "This report holds what a vtium bug report needs: the vtium builds installed and the features each was built with, the kernel and the distribution, the state of each vtium console, the displays the kernel sees, vtium's configuration, and the log of each vtium console. It leaves out the machine's hostname and each monitor's serial number. It can still name user accounts: a login writes the user's name to the log, vtium console status names the user of each graphical session, and a line of vtium.conf can hold a user's name or home directory. The logs' times show your time zone, and they hold what vtium logged about the programs it ran. Read the report through before you share it, and remove anything you would rather keep to yourself. Attach it to an issue at https://github.com/vtium/vtium/issues with what you saw and what you expected.\n";
 
 /// The packaged console, whose `console status` and `check-config` the
 /// report runs.
 const VTIUM: &str = "/usr/bin/vtium";
-
-/// The features a vtium build adds on top of minspec, as
-/// crates/vtium/Cargo.toml names them (a test holds them equal).
-pub const FEATURES: [&str; 3] = ["gpu", "images", "logind"];
-
-/// For each feature that has one, a line of text that only a build with
-/// the feature carries, with a `|` cut into it: what vtium says when it
-/// cannot open its image helper, from code built only with `images`, and
-/// what it says when logind is not on the bus, from code built only with
-/// `logind`. [`marker`] takes the `|` out only when the report searches a
-/// binary, so neither this source nor vtium-config's binary holds the line
-/// itself, which must stay in the one place a build with the feature
-/// carries it (the development install's script and its tests rely on
-/// that for `images`). The tests hold each marker to the file it comes
-/// from.
-pub const MARKERS: [(&str, &str); 2] = [
-    ("images", "cannot open the image| helper "),
-    ("logind", "logind is not on| the bus ("),
-];
-
-/// The marker `cut` with its `|` taken out, as a build with its feature
-/// carries it.
-pub fn marker(cut: &str) -> String {
-    cut.replace('|', "")
-}
-
-/// The units whose state and logs the report gathers, by the start of
-/// their names.
-const UNIT_PREFIXES: [&str; 3] = ["vtium@", "vtium-dev@", "vtium-getty@"];
-
-/// The units the report found, each with its log, and whether the
-/// journal could be read.
-pub struct Units {
-    units: Vec<Unit>,
-    journal: Journal,
-    /// Why no unit list was read, where none was.
-    listed: Option<String>,
-}
-
-struct Unit {
-    name: String,
-    /// Its latest log lines this boot, where the journal was read.
-    log: Option<String>,
-}
-
-enum Journal {
-    Readable,
-    /// journalctl is not on the machine.
-    Missing,
-    /// journalctl said the user cannot read the system's messages; what
-    /// it said.
-    Unreadable(String),
-}
-
-/// What journalctl says when the user cannot read the system's journal.
-const UNREADABLE: [&str; 2] = [
-    "not seeing messages from other users",
-    "insufficient permissions",
-];
-
-/// The arguments that print a unit's last `lines` log lines this boot,
-/// without the hostname.
-fn log_args(unit: &str, lines: &str) -> Vec<String> {
-    [
-        "-b",
-        "-u",
-        unit,
-        "-n",
-        lines,
-        "-o",
-        "short-iso",
-        "--no-hostname",
-        "--no-pager",
-    ]
-    .map(str::to_owned)
-    .to_vec()
-}
-
-impl Units {
-    /// The vtium units systemd has loaded and those this boot's journal
-    /// names, with each one's log. A unit only the journal names is kept
-    /// when it logged this boot.
-    pub fn of(m: &Machine) -> Units {
-        let mut names: Vec<String> = Vec::new();
-        let listed = match m.program("systemctl") {
-            Some(systemctl) => {
-                let mut args = vec![
-                    "list-units",
-                    "--all",
-                    "--plain",
-                    "--no-legend",
-                    "--no-pager",
-                    "--full",
-                ];
-                let patterns: Vec<String> = UNIT_PREFIXES.iter().map(|p| format!("{p}*")).collect();
-                args.extend(patterns.iter().map(String::as_str));
-                match m.run(&systemctl, &args) {
-                    Ok(ran) => {
-                        names.extend(
-                            ran.out
-                                .lines()
-                                .filter_map(|l| l.split_whitespace().next())
-                                .map(str::to_owned),
-                        );
-                        None
-                    }
-                    Err(e) => Some(format!("cannot run systemctl: {e}")),
-                }
-            }
-            None => Some("systemctl is not on this machine, so no unit list is read.".to_owned()),
-        };
-        names.retain(|n| ours(n));
-        let loaded = names.clone();
-        let Some(journalctl) = m.program("journalctl") else {
-            return Units::named(names, Journal::Missing, listed);
-        };
-        if let Ok(ran) = m.run(&journalctl, &["-b", "-F", "_SYSTEMD_UNIT", "--no-pager"]) {
-            names.extend(
-                ran.out
-                    .lines()
-                    .map(str::trim)
-                    .filter(|n| ours(n))
-                    .map(str::to_owned),
-            );
-        }
-        names.sort();
-        names.dedup();
-        let lines = m.lines.to_string();
-        let mut journal = Journal::Readable;
-        let mut units = Vec::new();
-        for name in names {
-            let args = log_args(&name, &lines);
-            let args: Vec<&str> = args.iter().map(String::as_str).collect();
-            let ran = match m.run(&journalctl, &args) {
-                Ok(ran) => ran,
-                Err(e) => Ran {
-                    code: None,
-                    out: format!("cannot run journalctl: {e}\n"),
-                    err: String::new(),
-                },
-            };
-            if m.euid != 0 && UNREADABLE.iter().any(|u| ran.err.contains(u)) {
-                journal = Journal::Unreadable(
-                    ran.err.lines().next().unwrap_or_default().trim().to_owned(),
-                );
-            }
-            let empty = ran
-                .out
-                .lines()
-                .all(|l| l.trim().is_empty() || l.trim() == "-- No entries --");
-            if empty && !loaded.contains(&name) {
-                continue;
-            }
-            units.push(Unit {
-                name,
-                log: Some(ran.out),
-            });
-        }
-        if let Journal::Unreadable(_) = journal {
-            for u in &mut units {
-                u.log = None;
-            }
-            units.retain(|u| loaded.contains(&u.name));
-        }
-        Units {
-            units,
-            journal,
-            listed,
-        }
-    }
-
-    fn named(names: Vec<String>, journal: Journal, listed: Option<String>) -> Units {
-        Units {
-            units: names
-                .into_iter()
-                .map(|name| Unit { name, log: None })
-                .collect(),
-            journal,
-            listed,
-        }
-    }
-}
-
-/// Whether `name` is one of the units the report gathers.
-fn ours(name: &str) -> bool {
-    UNIT_PREFIXES.iter().any(|p| name.starts_with(p))
-}
-
-/// What `--version` says of a binary: its version line, the revision and
-/// the features where it lists them.
-struct Version {
-    line: String,
-    revision: Option<String>,
-    features: Option<Vec<String>>,
-}
-
-fn version(ran: &Ran) -> Version {
-    let mut lines = ran.out.lines();
-    let line = lines.next().unwrap_or_default().trim().to_owned();
-    let mut v = Version {
-        line,
-        revision: None,
-        features: None,
-    };
-    for l in lines {
-        if let Some(r) = l.strip_prefix("revision ") {
-            v.revision = Some(r.trim().to_owned());
-        } else if let Some(f) = l.strip_prefix("features") {
-            v.features = Some(
-                f.split_whitespace()
-                    .filter(|w| *w != "none")
-                    .map(str::to_owned)
-                    .collect(),
-            );
-        }
-    }
-    v
-}
-
-/// Which of [`MARKERS`] the file at `path` carries, reading at most
-/// [`BINARY_MAX`] bytes a block at a time.
-fn carries(path: &Path) -> io::Result<Vec<bool>> {
-    let markers: Vec<String> = MARKERS.iter().map(|(_, m)| marker(m)).collect();
-    let longest = markers.iter().map(String::len).max().unwrap_or(0);
-    let mut found = vec![false; markers.len()];
-    let mut file = File::open(path)?.take(BINARY_MAX);
-    let mut window: Vec<u8> = Vec::new();
-    let mut block = vec![0u8; 64 * 1024];
-    loop {
-        let n = file.read(&mut block)?;
-        if n == 0 {
-            break;
-        }
-        window.extend_from_slice(block.get(..n).unwrap_or_default());
-        for (f, marker) in found.iter_mut().zip(&markers) {
-            *f = *f || window.windows(marker.len()).any(|w| w == marker.as_bytes());
-        }
-        // keep what a marker could start in and end in the next block
-        let keep = window.len().saturating_sub(longest.saturating_sub(1));
-        window.drain(..keep);
-    }
-    Ok(found)
-}
-
-/// What the features line says of a binary that `--version` printed
-/// `v` for.
-fn features(path: &Path, v: &Version) -> String {
-    if let Some(listed) = &v.features {
-        let listed = if listed.is_empty() {
-            "none".to_owned()
-        } else {
-            listed.join(" ")
-        };
-        return format!("{listed}, as its --version lists them");
-    }
-    let found = match carries(path) {
-        Ok(found) => found,
-        Err(e) => return format!("unknown: {e}"),
-    };
-    let mut said: Vec<String> = MARKERS
-        .iter()
-        .zip(found)
-        .map(|((name, _), on)| format!("{name} {}", if on { "yes" } else { "no" }))
-        .collect();
-    said.extend(
-        FEATURES
-            .iter()
-            .filter(|f| !MARKERS.iter().any(|(m, _)| m == *f))
-            .map(|f| format!("{f} unknown")),
-    );
-    format!(
-        "{}, read from text in the binary, since its --version lists none",
-        said.join(", ")
-    )
-}
-
-/// The vtium part: each console binary, its version and features, and
-/// vtium-config's own version.
-pub fn vtium(m: &Machine, _: &Units) -> String {
-    let mut s = String::new();
-    for (abs, named) in BINARIES {
-        let path = m.path(abs);
-        if !path.is_file() {
-            if named {
-                s.push_str(&format!("{abs}: not installed\n"));
-            }
-            continue;
-        }
-        s.push_str(&format!("{abs}\n"));
-        match m.run(&path, &["--version"]) {
-            Ok(ran) => {
-                let v = version(&ran);
-                s.push_str(&format!("  version: {}\n", v.line));
-                if let Some(r) = &v.revision {
-                    s.push_str(&format!("  revision: {r}\n"));
-                }
-                s.push_str(&format!("  features: {}\n", features(&path, &v)));
-            }
-            Err(e) => s.push_str(&format!("  cannot run it: {e}\n")),
-        }
-    }
-    s.push_str(&format!("vtium-config: {}\n", env!("CARGO_PKG_VERSION")));
-    s
-}
 
 /// The value of `key` in an os-release file's `text`, its quotes taken
 /// off.
@@ -344,7 +33,7 @@ pub fn system(m: &Machine, _: &Units) -> String {
         Ok(r) => s.push_str(&format!("kernel: {}\n", r.trim())),
         Err(e) => s.push_str(&format!(
             "kernel: {}\n",
-            cannot("/proc/sys/kernel/osrelease", &e)
+            m.cannot("/proc/sys/kernel/osrelease", &e)
         )),
     }
     match m.text("/proc/sys/kernel/arch", 256) {
@@ -418,33 +107,6 @@ fn property<'a>(text: &'a str, key: &str) -> &'a str {
         .trim()
 }
 
-/// The revision a console logged when it last started this boot.
-fn revision(m: &Machine, unit: &str) -> Option<String> {
-    let journalctl = m.program("journalctl")?;
-    let ran = m
-        .run(
-            &journalctl,
-            &[
-                "-b",
-                "-u",
-                unit,
-                "-o",
-                "cat",
-                "--no-pager",
-                "-g",
-                "^log: vtium Revision ",
-            ],
-        )
-        .ok()?;
-    let line = ran
-        .out
-        .lines()
-        .rev()
-        .find(|l| l.contains("vtium Revision "))?;
-    let (_, after) = line.split_once("vtium Revision ")?;
-    after.split_whitespace().next().map(str::to_owned)
-}
-
 /// The consoles part: `vtium console status`, and each unit's state.
 pub fn consoles(m: &Machine, units: &Units) -> String {
     let mut s = vtium_subcommand(m, &["console", "status"], "vtium console status");
@@ -454,7 +116,7 @@ pub fn consoles(m: &Machine, units: &Units) -> String {
         s.push('\n');
     }
     if units.units.is_empty() {
-        s.push_str("No vtium@, vtium-dev@ or vtium-getty@ unit is loaded, and this boot's journal names none.\n");
+        s.push_str(&format!("No vtium@, vtium-dev@ or vtium-getty@ unit is loaded, and the journal names none in {}.\n", m.boot_words()));
         return s;
     }
     let systemctl = m.program("systemctl");
@@ -540,70 +202,6 @@ pub fn connectors(m: &Machine, card: Option<u32>) -> Vec<(String, String)> {
         .collect()
 }
 
-/// A monitor's EDID: its base block, checked as the console checks it.
-pub struct Edid {
-    base: Vec<u8>,
-}
-
-/// The offsets of the base block's four descriptors.
-const DESCRIPTORS: [usize; 4] = [54, 72, 90, 108];
-
-impl Edid {
-    /// The EDID in the connector directory `dir`, where it holds one whose
-    /// header and checksum are good.
-    pub fn read(m: &Machine, dir: &str) -> Option<Edid> {
-        let bytes = m.bytes(&format!("{dir}/edid"), 128).ok()?;
-        vtium_platform::display::Edid::parse(&bytes)?;
-        Some(Edid { base: bytes })
-    }
-
-    /// The text of the descriptor tagged `tag`, up to its line feed,
-    /// without the spaces that pad it.
-    fn descriptor(&self, tag: u8) -> Option<String> {
-        let d = DESCRIPTORS
-            .iter()
-            .filter_map(|&at| self.base.get(at..at + 18))
-            .find(|d| d.get(..4) == Some(&[0, 0, 0, tag]))?;
-        let text = d.get(5..)?;
-        let end = text.iter().position(|&b| b == b'\n').unwrap_or(text.len());
-        let text = String::from_utf8_lossy(text.get(..end)?).trim().to_owned();
-        (!text.is_empty()).then_some(text)
-    }
-
-    /// The monitor's name, its printable characters only.
-    fn name(&self) -> Option<String> {
-        self.descriptor(0xfc).map(|n| {
-            n.chars()
-                .map(|c| {
-                    if c.is_ascii_graphic() || c == ' ' {
-                        c
-                    } else {
-                        '_'
-                    }
-                })
-                .collect()
-        })
-    }
-
-    /// The serial string, which the report only ever replaces.
-    pub fn serial_text(&self) -> Option<String> {
-        self.descriptor(0xff)
-    }
-
-    /// The serial number, bytes 12 to 15, where it is not 0; the report
-    /// only ever replaces it.
-    pub fn serial_number(&self) -> Option<u32> {
-        let b = self.base.get(12..16)?;
-        let n = u32::from_le_bytes([*b.first()?, *b.get(1)?, *b.get(2)?, *b.get(3)?]);
-        (n != 0).then_some(n)
-    }
-
-    /// The size it states, in millimetres, as the console reads it.
-    fn mm(&self) -> Option<(u32, u32)> {
-        vtium_platform::display::Edid::parse(&self.base)?.mm()
-    }
-}
-
 /// One line of a sysfs file of the connector or card directory `dir`.
 fn line(m: &Machine, dir: &str, file: &str) -> Option<String> {
     let text = m.text(&format!("{dir}/{file}"), 4096).ok()?;
@@ -619,7 +217,7 @@ pub fn displays(m: &Machine, _: &Units) -> String {
     let cards = match cards(m) {
         Ok(c) if c.is_empty() => return NO_CARD.to_owned(),
         Ok(c) => c,
-        Err(e) => return format!("{}\n", cannot("/sys/class/drm", &e)),
+        Err(e) => return format!("{}\n", m.cannot("/sys/class/drm", &e)),
     };
     let mut s = String::new();
     for n in cards {
@@ -688,7 +286,7 @@ pub fn configuration(m: &Machine, _: &Units) -> String {
                 "There is no {conf}, so vtium runs with its defaults.\n"
             ));
         }
-        Err(e) => s.push_str(&format!("{}\n", cannot(conf, &e))),
+        Err(e) => s.push_str(&format!("{}\n", m.cannot(conf, &e))),
     }
     for dir in ["/etc/vtium", "/etc/vtium/fonts"] {
         match m.names(dir) {
@@ -697,7 +295,7 @@ pub fn configuration(m: &Machine, _: &Units) -> String {
             Err(e) if e.kind() == io::ErrorKind::NotFound => {
                 s.push_str(&format!("There is no {dir}.\n"));
             }
-            Err(e) => s.push_str(&format!("{}\n", cannot(dir, &e))),
+            Err(e) => s.push_str(&format!("{}\n", m.cannot(dir, &e))),
         }
     }
     s.push_str(&vtium_subcommand(
@@ -708,7 +306,8 @@ pub fn configuration(m: &Machine, _: &Units) -> String {
     s
 }
 
-/// The logs part: each unit's latest log lines this boot.
+/// The logs part: each unit's latest log lines in the boot the report
+/// reads.
 pub fn logs(m: &Machine, units: &Units) -> String {
     let mut s = String::from(
         "The font helper and the image helper run inside their console's unit, so their lines are in its log.\n",
@@ -720,7 +319,7 @@ pub fn logs(m: &Machine, units: &Units) -> String {
         }
         Journal::Unreadable(said) => {
             s.push_str(&format!(
-                "The journal is not readable to you. Run the report as root, with sudo vtium-config report, or have root add your user to the systemd-journal group, with usermod -aG systemd-journal followed by your user name, and log in again. journalctl said: {said}\n"
+                "The journal is not readable to you. Run the report as root, with sudo vtium-config report > vtium-report.txt, or have root add your user to the systemd-journal group, whose members read the whole journal, with usermod -aG systemd-journal followed by your user name, and log in again. journalctl said: {said}\n"
             ));
             return s;
         }
@@ -728,13 +327,17 @@ pub fn logs(m: &Machine, units: &Units) -> String {
     }
     let logged: Vec<&Unit> = units.units.iter().filter(|u| u.log.is_some()).collect();
     if logged.is_empty() {
-        s.push_str("No vtium@, vtium-dev@ or vtium-getty@ unit has logged this boot.\n");
+        s.push_str(&format!(
+            "No vtium@, vtium-dev@ or vtium-getty@ unit logged in {}.\n",
+            m.boot_words()
+        ));
     }
     for u in logged {
         s.push_str(&format!(
-            "\n{}, its last {} lines this boot:\n{}",
+            "\n{}, its last {} lines in {}:\n{}",
             u.name,
             m.lines,
+            m.boot_words(),
             indented(u.log.as_deref().unwrap_or_default())
         ));
     }
@@ -745,12 +348,12 @@ pub fn logs(m: &Machine, units: &Units) -> String {
 /// root.
 pub fn kernel_state(m: &Machine, _: &Units) -> String {
     if m.euid != 0 {
-        return "needs root: sudo vtium-config report\n".to_owned();
+        return "needs root: sudo vtium-config report > vtium-report.txt\n".to_owned();
     }
     let cards = match cards(m) {
         Ok(c) if c.is_empty() => return NO_CARD.to_owned(),
         Ok(c) => c,
-        Err(e) => return format!("{}\n", cannot("/sys/class/drm", &e)),
+        Err(e) => return format!("{}\n", m.cannot("/sys/class/drm", &e)),
     };
     let mut s = String::new();
     for n in cards {
@@ -782,57 +385,10 @@ pub fn kernel_state(m: &Machine, _: &Units) -> String {
             }
             (None, Some(e)) => s.push_str(&format!(
                 "card{n}: {}\n",
-                cannot(tried.first().map_or("", String::as_str), &e)
+                m.cannot(tried.first().map_or("", String::as_str), &e)
             )),
             (None, None) => {}
         }
     }
     s
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// [`FEATURES`] is crates/vtium's own list of features but `default`,
-    /// so a feature added there fails here until the report knows it.
-    #[test]
-    fn the_features_are_vtium_s() {
-        let manifest = include_str!("../../../vtium/Cargo.toml");
-        let section = manifest
-            .split("\n[features]\n")
-            .nth(1)
-            .and_then(|s| s.split("\n[").next())
-            .unwrap_or_default();
-        let mut named: Vec<&str> = section
-            .lines()
-            .filter(|l| !l.starts_with('#'))
-            .filter_map(|l| l.split_once('=').map(|(k, _)| k.trim()))
-            .filter(|k| !k.is_empty() && *k != "default")
-            .collect();
-        named.sort_unstable();
-        assert_eq!(named, FEATURES);
-    }
-
-    #[test]
-    fn version_reads_the_revision_and_the_features_where_listed() {
-        let ran = |out: &str| Ran {
-            code: Some(0),
-            out: out.to_owned(),
-            err: String::new(),
-        };
-        let v = version(&ran(
-            "vtium 1.0\nrevision v1-2-gabc\nfeatures images logind\n",
-        ));
-        assert_eq!(v.line, "vtium 1.0");
-        assert_eq!(v.revision.as_deref(), Some("v1-2-gabc"));
-        assert_eq!(
-            v.features,
-            Some(vec!["images".to_owned(), "logind".to_owned()])
-        );
-        let v = version(&ran("vtium 1.0\nfeatures none\n"));
-        assert_eq!(v.features, Some(vec![]));
-        let v = version(&ran("vtium 1.0\n"));
-        assert_eq!((v.revision, v.features), (None, None));
-    }
 }

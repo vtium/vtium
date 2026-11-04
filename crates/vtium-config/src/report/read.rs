@@ -94,12 +94,14 @@ impl Machine {
     }
 }
 
-/// `bytes` as text, cut at [`OUTPUT_MAX`] with a line that says so.
+/// `bytes` as text, its newest [`OUTPUT_MAX`] bytes where there are more,
+/// after a line that says what was left out, so a failure a program
+/// prints last survives.
 fn bounded(bytes: &[u8]) -> String {
-    match bytes.get(..OUTPUT_MAX) {
-        Some(head) if bytes.len() > OUTPUT_MAX => format!(
-            "{}\n[cut after {OUTPUT_MAX} bytes]\n",
-            String::from_utf8_lossy(head)
+    match bytes.len().checked_sub(OUTPUT_MAX) {
+        Some(cut) if cut > 0 => format!(
+            "[the first {cut} bytes left out]\n{}",
+            String::from_utf8_lossy(bytes.get(cut..).unwrap_or_default())
         ),
         _ => String::from_utf8_lossy(bytes).into_owned(),
     }
@@ -111,13 +113,75 @@ pub fn indented(text: &str) -> String {
     text.lines().map(|l| format!("    {l}\n")).collect()
 }
 
-/// The words a part says after an error reading `what`: the error, and the
-/// command that reads it where root could.
-pub fn cannot(what: &str, e: &io::Error) -> String {
-    let root = if e.kind() == io::ErrorKind::PermissionDenied {
-        "; needs root: sudo vtium-config report"
-    } else {
-        ""
-    };
-    format!("cannot read {what}: {e}{root}")
+impl Machine {
+    /// The words a part says after an error reading `what`: the error, and
+    /// what would read it. A user refused with `EACCES` is told the command
+    /// that reads it as root. Root refused with `EPERM` is told that the
+    /// kernel's lockdown refuses it, since lockdown refuses debugfs even to
+    /// root.
+    pub fn cannot(&self, what: &str, e: &io::Error) -> String {
+        let why = match (e.raw_os_error(), self.euid) {
+            (Some(EACCES), euid) if euid != 0 => {
+                "; needs root: sudo vtium-config report > vtium-report.txt"
+            }
+            (Some(EPERM), 0) => {
+                "; the kernel refuses it even to root, as its lockdown mode refuses debugfs"
+            }
+            _ => "",
+        };
+        format!("cannot read {what}: {e}{why}")
+    }
+}
+
+/// The errors [`Machine::cannot`] tells apart.
+const EPERM: i32 = 1;
+const EACCES: i32 = 13;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn output_past_its_bound_keeps_its_newest_bytes() {
+        let mut big = vec![b'a'; OUTPUT_MAX];
+        big.extend_from_slice(b"\nthe failure, printed last\n");
+        let text = bounded(&big);
+        assert!(
+            text.ends_with("the failure, printed last\n"),
+            "{}",
+            &text[text.len() - 40..]
+        );
+        assert!(
+            text.starts_with("[the first 27 bytes left out]\n"),
+            "{}",
+            &text[..40]
+        );
+        assert_eq!(bounded(b"short\n"), "short\n");
+        assert_eq!(bounded(&vec![b'b'; OUTPUT_MAX]).len(), OUTPUT_MAX);
+    }
+
+    #[test]
+    fn cannot_names_root_for_a_user_and_lockdown_for_root() {
+        let m = |euid| Machine {
+            root: "/".into(),
+            euid,
+            lines: 1,
+            previous_boot: false,
+            now: std::time::SystemTime::UNIX_EPOCH,
+        };
+        let acces = io::Error::from_raw_os_error(EACCES);
+        let perm = io::Error::from_raw_os_error(EPERM);
+        assert!(
+            m(1000)
+                .cannot("/x", &acces)
+                .ends_with("needs root: sudo vtium-config report > vtium-report.txt")
+        );
+        assert!(!m(0).cannot("/x", &acces).contains("needs root"));
+        let root = m(0).cannot("/sys/kernel/debug/dri/0/state", &perm);
+        assert!(root.contains("lockdown"), "{root}");
+        assert!(!root.contains("needs root"), "{root}");
+        assert!(!m(1000).cannot("/x", &perm).contains("lockdown"));
+        let gone = io::Error::from_raw_os_error(2);
+        assert_eq!(m(0).cannot("/x", &gone), format!("cannot read /x: {gone}"));
+    }
 }

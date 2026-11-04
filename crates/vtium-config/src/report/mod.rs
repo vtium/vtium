@@ -2,22 +2,29 @@
 //! into one plain-text document and changes nothing on the machine.
 //!
 //! The document has eight parts, each under a plain heading, and
-//! [`parts`] gathers each one. [`read`] is the only way the report reaches
-//! the machine: it reads files under a root and runs the programs the
-//! report names, so a test points the root at a stand-in tree. [`scrub`]
-//! replaces the hostname and the monitors' serials in what was gathered.
+//! [`parts`] gathers each one, with [`binary`] for the vtium binaries,
+//! [`units`] for the vtium units and their logs, and [`edid`] for the
+//! monitors. [`read`] is the only way the report reaches the machine: it
+//! reads files under a root and runs the programs the report names, so a
+//! test points the root at a stand-in tree. [`scrub`] replaces the
+//! hostname and the monitors' serials in what was gathered. Run as root,
+//! the report writes no file: `--save` is refused, and the user's own
+//! shell saves what it prints.
 
+mod binary;
+mod edid;
 mod parts;
 mod read;
 mod scrub;
+mod units;
 
-use std::fs::{File, OpenOptions};
+use std::fs::OpenOptions;
 use std::io::Write;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-pub use parts::{FEATURES, MARKERS, marker};
+pub use binary::{FEATURES, MARKERS, marker};
 
 /// The log lines of each console the document holds when `--lines` does
 /// not say.
@@ -36,17 +43,40 @@ pub struct Machine {
     pub euid: u32,
     /// The log lines of each console the document holds.
     pub lines: u32,
+    /// Whether the logs come from the boot before this one, `-b -1`, as
+    /// after a defect that forced a reboot.
+    pub previous_boot: bool,
     /// The time the report is made, in its header.
     pub now: SystemTime,
 }
 
+impl Machine {
+    /// The arguments that name the boot whose journal the report reads.
+    fn boot(&self) -> Vec<&'static str> {
+        if self.previous_boot {
+            vec!["-b", "-1"]
+        } else {
+            vec!["-b"]
+        }
+    }
+
+    /// That boot, in words.
+    fn boot_words(&self) -> &'static str {
+        if self.previous_boot {
+            "the previous boot"
+        } else {
+            "this boot"
+        }
+    }
+}
+
 /// A function that gathers one part of the document.
-type Gather = fn(&Machine, &parts::Units) -> String;
+type Gather = fn(&Machine, &units::Units) -> String;
 
 /// The document's parts, in order: each heading and the function that
 /// gathers what is under it.
 const PARTS: [(&str, Gather); 7] = [
-    ("vtium", parts::vtium),
+    ("vtium", binary::vtium),
     ("System", parts::system),
     ("Consoles", parts::consoles),
     ("Displays", parts::displays),
@@ -60,14 +90,15 @@ const PARTS: [(&str, Gather); 7] = [
 /// serials replaced in what was gathered.
 pub fn report(m: &Machine) -> String {
     let secrets = scrub::Secrets::of(m);
-    let units = parts::Units::of(m);
+    let units = units::Units::of(m);
     let mut doc = String::new();
     heading(&mut doc, "vtium report", '=');
     doc.push_str(&format!(
-        "Made by vtium-config {} at {} UTC, run as {}.\n",
+        "Made by vtium-config {} at {} UTC, run as {}, with the logs of {}.\n",
         env!("CARGO_PKG_VERSION"),
         utc(m.now).text(),
-        if m.euid == 0 { "root" } else { "a user" }
+        if m.euid == 0 { "root" } else { "a user" },
+        m.boot_words()
     ));
     doc.push('\n');
     heading(&mut doc, "What this report holds", '-');
@@ -156,10 +187,33 @@ enum Save {
     At(PathBuf),
 }
 
-/// `report`'s own arguments: `--save`, `--save=PATH` and `--lines N`.
-fn parse(rest: &[String]) -> Result<(Save, u32), String> {
-    let mut save = Save::Out;
-    let mut lines = LINES;
+/// What `report`'s own arguments ask for.
+#[derive(Debug, PartialEq, Eq)]
+struct Args {
+    save: Save,
+    lines: u32,
+    previous_boot: bool,
+}
+
+/// What vtium-config says when root asks `report` to save: root writes no
+/// file, so that no rule that lets a user run the report as root lets that
+/// user create a file wherever root can.
+pub const ROOT_SAVES_NOTHING: &str = "run as root, vtium-config report writes no file, so it takes no --save. Run sudo vtium-config report > vtium-report.txt, and your own shell writes the file, as you";
+
+/// Whether `rest`, `report`'s own arguments, ask it to save, in any form.
+pub fn saves(rest: &[impl AsRef<str>]) -> bool {
+    rest.iter()
+        .any(|a| a.as_ref() == "--save" || a.as_ref().starts_with("--save="))
+}
+
+/// `report`'s own arguments: `--save`, `--save=PATH`, `--lines N` and
+/// `--previous-boot`.
+fn parse(rest: &[String]) -> Result<Args, String> {
+    let mut args = Args {
+        save: Save::Out,
+        lines: LINES,
+        previous_boot: false,
+    };
     let mut it = rest.iter();
     let number = |v: &str| {
         v.parse::<u32>()
@@ -169,45 +223,52 @@ fn parse(rest: &[String]) -> Result<(Save, u32), String> {
     };
     while let Some(arg) = it.next() {
         match arg.as_str() {
-            "--save" => save = Save::Here,
+            "--save" => args.save = Save::Here,
+            "--previous-boot" => args.previous_boot = true,
             "--lines" => {
                 let v = it.next().ok_or("--lines takes a number")?;
-                lines = number(v)?;
+                args.lines = number(v)?;
             }
             a => {
                 if let Some(path) = a.strip_prefix("--save=") {
                     if path.is_empty() {
                         return Err("--save= takes a path".to_owned());
                     }
-                    save = Save::At(path.into());
+                    args.save = Save::At(path.into());
                 } else if let Some(v) = a.strip_prefix("--lines=") {
-                    lines = number(v)?;
+                    args.lines = number(v)?;
                 } else {
                     return Err(format!("report takes no {a}"));
                 }
             }
         }
     }
-    Ok((save, lines))
+    Ok(args)
 }
 
 /// `vtium-config report`: prints the report on the machine under `root`,
 /// `/` when none is named, or saves it as `rest` asks. Exits 0 when the
 /// report is printed or saved, 1 when it cannot be saved, and 2 on a usage
-/// error.
+/// error, root's `--save` among them.
 pub fn command(
     rest: &[String],
     root: Option<&Path>,
     out: &mut dyn Write,
     err: &mut dyn Write,
 ) -> u8 {
-    let (save, lines) = match parse(rest) {
-        Ok(p) => p,
+    let args = match parse(rest) {
+        Ok(a) => a,
         Err(why) => {
             let _ = writeln!(err, "vtium-config: {why}\nTry vtium-config --help report.");
             return 2;
         }
     };
+    let euid = rustix::process::geteuid().as_raw();
+    // `main`'s refusal says this first; the command holds to it too
+    if euid == 0 && args.save != Save::Out {
+        let _ = writeln!(err, "vtium-config: {ROOT_SAVES_NOTHING}");
+        return 2;
+    }
     #[expect(
         clippy::disallowed_methods,
         reason = "a report is dated, and a saved one named, for the time it was made (ADR-1200 D24)"
@@ -215,12 +276,13 @@ pub fn command(
     let now = SystemTime::now();
     let m = Machine {
         root: root.map_or_else(|| PathBuf::from("/"), Path::to_path_buf),
-        euid: rustix::process::geteuid().as_raw(),
-        lines,
+        euid,
+        lines: args.lines,
+        previous_boot: args.previous_boot,
         now,
     };
     let doc = report(&m);
-    let path = match save {
+    let path = match args.save {
         Save::Out => {
             let _ = out.write_all(doc.as_bytes());
             return 0;
@@ -229,11 +291,8 @@ pub fn command(
         Save::At(path) => path,
     };
     let path = std::env::current_dir().map_or(path.clone(), |here| here.join(&path));
-    match write_new(&path, doc.as_bytes(), m.euid) {
-        Ok(warning) => {
-            if let Some(w) = warning {
-                let _ = writeln!(err, "vtium-config: {w}");
-            }
+    match write_new(&path, doc.as_bytes()) {
+        Ok(()) => {
             let _ = writeln!(out, "{}", path.display());
             0
         }
@@ -245,30 +304,17 @@ pub fn command(
 }
 
 /// Writes `bytes` as the new file `path`, readable by its owner only, and
-/// never over a file that exists. Run as root (`euid` 0), the file goes to
-/// the user sudo, pkexec or doas ran the report for, found as `apply`
-/// finds that user; the warning returned says why it could not.
-fn write_new(path: &Path, bytes: &[u8], euid: u32) -> std::io::Result<Option<String>> {
-    let mut file: File = OpenOptions::new()
+/// never over a file that exists. A file whose write fails is removed, so
+/// no part of a report is left behind.
+fn write_new(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    let mut file = OpenOptions::new()
         .write(true)
         .create_new(true)
         .mode(0o600)
         .open(path)?;
-    file.write_all(bytes)?;
-    if euid != 0 {
-        return Ok(None);
-    }
-    let warning = match crate::apply::invoking_user(|k| std::env::var(k).ok(), crate::apply::uid_of)
-    {
-        Ok(Some(uid)) if uid != 0 => {
-            rustix::fs::fchown(&file, Some(rustix::fs::Uid::from_raw(uid)), None)
-                .err()
-                .map(|e| format!("{} stays root's: {e}", path.display()))
-        }
-        Ok(_) => None,
-        Err(why) => Some(format!("{} stays root's: {why}", path.display())),
-    };
-    Ok(warning)
+    file.write_all(bytes).inspect_err(|_| {
+        let _ = std::fs::remove_file(path);
+    })
 }
 
 #[cfg(test)]
@@ -279,13 +325,33 @@ mod tests {
     #[test]
     fn report_s_arguments() {
         let words = |w: &[&str]| w.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
-        assert_eq!(parse(&[]).unwrap(), (Save::Out, LINES));
-        assert_eq!(parse(&words(&["--save"])).unwrap(), (Save::Here, LINES));
+        let args = |save, lines, previous_boot| Args {
+            save,
+            lines,
+            previous_boot,
+        };
+        assert_eq!(parse(&[]).unwrap(), args(Save::Out, LINES, false));
         assert_eq!(
-            parse(&words(&["--save=a/b.txt", "--lines", "9"])).unwrap(),
-            (Save::At("a/b.txt".into()), 9)
+            parse(&words(&["--save"])).unwrap(),
+            args(Save::Here, LINES, false)
         );
-        assert_eq!(parse(&words(&["--lines=12"])).unwrap(), (Save::Out, 12));
+        assert_eq!(
+            parse(&words(&[
+                "--save=a/b.txt",
+                "--lines",
+                "9",
+                "--previous-boot"
+            ]))
+            .unwrap(),
+            args(Save::At("a/b.txt".into()), 9, true)
+        );
+        assert_eq!(
+            parse(&words(&["--lines=12"])).unwrap(),
+            args(Save::Out, 12, false)
+        );
+        assert!(saves(&["--lines", "3", "--save=/etc/x"]));
+        assert!(saves(&["--save"]));
+        assert!(!saves(&["--lines", "3", "--previous-boot"]));
         for bad in [
             &["--save="][..],
             &["--lines"],

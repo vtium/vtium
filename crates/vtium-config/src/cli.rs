@@ -158,7 +158,8 @@ pub const VALUE_OPTIONS: [ValueOption; 11] = [
 /// TUI's signals and runs another program, no command or an empty one,
 /// which opens the TUI, or a command that runs as the user: `check`,
 /// `fonts`, `preview` and `new --from`, which read files the user names or
-/// start the glyph helper, which refuses root; `None` when it takes them.
+/// start the glyph helper, which refuses root, or `report --save` in any
+/// form, since root's report writes no file; `None` when it takes them.
 /// It refuses only as root, an effective uid of 0; `main` runs it first.
 pub fn root_refusal(euid: u32, args: &[OsString]) -> Option<String> {
     if euid != 0 {
@@ -206,7 +207,17 @@ pub fn root_refusal(euid: u32, args: &[OsString]) -> Option<String> {
             )
         })
     });
-    named.or(tui).or(own)
+    // root's report writes no file: what it prints, the user's own shell
+    // saves (ADR-1200 D24)
+    let save = parse_args(args)
+        .ok()
+        .and_then(|o| match o.words.split_first() {
+            Some((c, rest)) if c == "report" && crate::report::saves(rest) => {
+                Some(crate::report::ROOT_SAVES_NOTHING.to_owned())
+            }
+            _ => None,
+        });
+    named.or(tui).or(own).or(save)
 }
 
 /// The directory of vtium.conf and the head file, as the console's.
@@ -406,7 +417,7 @@ mod tests {
     #[test]
     fn root_runs_report_but_refuses_a_stand_in_root() {
         let args = |w: &[&str]| w.iter().map(OsString::from).collect::<Vec<_>>();
-        assert_eq!(root_refusal(0, &args(&["report", "--save"])), None);
+        assert_eq!(root_refusal(0, &args(&["report", "--lines", "9"])), None);
         for refused in [
             &["--root", "/tmp/x", "report"][..],
             &["report", "--root=/tmp/x"],
@@ -418,5 +429,27 @@ mod tests {
             root_refusal(1000, &args(&["--root", "/tmp/x", "report"])),
             None
         );
+    }
+
+    /// Root's report writes no file, wherever `--save` names: a rule that
+    /// lets a user run the report as root would otherwise let that user
+    /// create a file anywhere root can, such as /etc/ld.so.preload.
+    #[test]
+    fn root_saves_no_report() {
+        let args = |w: &[&str]| w.iter().map(OsString::from).collect::<Vec<_>>();
+        for refused in [
+            &["report", "--save"][..],
+            &["report", "--save=/etc/ld.so.preload"],
+            &["report", "--lines", "5", "--save=x.txt"],
+        ] {
+            let why =
+                root_refusal(0, &args(refused)).unwrap_or_else(|| panic!("root takes {refused:?}"));
+            assert!(
+                why.contains("sudo vtium-config report > vtium-report.txt"),
+                "{refused:?}: {why}"
+            );
+        }
+        assert_eq!(root_refusal(1000, &args(&["report", "--save=x.txt"])), None);
+        assert_eq!(root_refusal(0, &args(&["report"])), None);
     }
 }
