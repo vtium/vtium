@@ -1818,6 +1818,31 @@ mod tests {
         assert_eq!(drawn, 33);
     }
 
+    // #235, ADR-1302 D14: a mark wraps its letter's ink only when it passes
+    // it on the mark's own side. Unifont's Myanmar tall aa (U+102B) and
+    // medial ya (U+103B) span their consonant's height but sit on the wrong
+    // side of it, so on every consonant they stand beside it instead of overstriking it
+    #[test]
+    fn a_mark_spanning_its_letter_on_the_wrong_side_stands_beside_it() {
+        let generated = Shared::default();
+        let f = face(&generated);
+        let unifont = Unifont::new(16);
+        let regular = Style::default();
+        let mut checked = 0;
+        for letter in (0x1000..=0x1020).filter_map(char::from_u32) {
+            for sign in [0x102b, 0x103b].into_iter().filter_map(char::from_u32) {
+                let alone = unifont.draw(&[letter], regular).unwrap();
+                let mark = unifont.draw(&[sign], regular).unwrap();
+                let over = overstrike(&alone, &[mark]).unwrap();
+                let both = f.draw(&[letter, sign], regular).unwrap();
+                let at = format!("U+{:04X} U+{:04X}", u32::from(letter), u32::from(sign));
+                assert_ne!(both, over, "{at} is the plain overstrike");
+                checked += 1;
+            }
+        }
+        assert_eq!(checked, 33 * 2);
+    }
+
     // #235: the font has placed a mark only in a box as wide as its
     // letter's. Unifont's vowel sign aa, 16 pixels wide, on a frit's
     // letter 8 pixels wide, stands after the letter in the letter's cell
