@@ -405,10 +405,7 @@ mod tests {
         let target = gl.create_frame(size).unwrap();
         let mut out = vec![0u8; 64 * 40 * 4];
         for border in [0x20_4080, 0xC0_FFEE] {
-            let work = Work {
-                redraw: &[],
-                border,
-            };
+            let work = Work::new(border, &[], &[]);
             let damage = pipeline.frame(&mut gl, &work, &target, 0).unwrap();
             assert_eq!(damage, [size.rect()]);
             gl.read(&target, size.rect(), &mut out).unwrap();
@@ -420,10 +417,7 @@ mod tests {
             );
         }
         // nothing composed into a buffer that lacks nothing: no draw
-        let work = Work {
-            redraw: &[],
-            border: 0xC0_FFEE,
-        };
+        let work = Work::new(0xC0_FFEE, &[], &[]);
         assert_eq!(pipeline.frame(&mut gl, &work, &target, 1).unwrap(), []);
         gl.free_target(target).unwrap();
         pipeline.free(&mut gl).unwrap();
