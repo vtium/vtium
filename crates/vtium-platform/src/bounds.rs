@@ -291,6 +291,7 @@ pub const FLIP_WAIT_MS: usize = FLIP_WAIT.value;
 
 /// Milliseconds a render thread waits on a frame's fence; see the README's
 /// bounds table.
+#[cfg(feature = "gpu")]
 pub const GPU_FENCE_WAIT_MS: usize = FENCE_WAIT.value;
 
 /// Milliseconds between tries to wake a DRM card.
