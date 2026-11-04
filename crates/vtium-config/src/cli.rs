@@ -155,8 +155,8 @@ pub const VALUE_OPTIONS: [ValueOption; 11] = [
 
 /// Why vtium-config, run with the effective uid `euid`, refuses
 /// `args`: a path or program option of [`VALUE_OPTIONS`], the step that releases the
-/// TUI's signals and runs another program, no command or an empty one,
-/// which opens the TUI, or a command that runs as the user: `check`,
+/// TUI's signals and runs another program, `tui` or `new` with nothing
+/// after it, which open the TUI, or a command that runs as the user: `check`,
 /// `fonts`, `preview` and `new --from`, which read files the user names or
 /// start the glyph helper, which refuses root, or `report --save` in any
 /// form, since root's report writes no file; `None` when it takes them.
