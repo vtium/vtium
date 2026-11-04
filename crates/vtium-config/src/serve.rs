@@ -767,7 +767,9 @@ type Drawn = (Vec<u8>, Option<(i32, u32, Vec<u8>)>);
 /// ([`vtium_font::italic::shear_shift`]), so the console's own bitmap
 /// faces and the helper draw the same glyph. A sheared glyph whose ink
 /// passes its cells carries its ink box (ADR-1302 D6), cut to its reach,
-/// one cell past its cells on each side.
+/// one cell past its cells on each side; a box whose 1-bit rows would pass
+/// a set's chunk ([`vtium_font::SET_CHUNK_BYTES`]) is left out, and the
+/// glyph is cut to its cells.
 fn place_styled(
     glyph: &[u8],
     width: Width,
@@ -837,7 +839,12 @@ fn place_styled(
     let ink = match (first, last) {
         (Some(first), Some(last)) if first < 0 || last >= span => {
             let (left, right) = (first.min(0), (last + 1).max(span));
-            Some((left as i32, (right - left) as u32, pack(left, right)))
+            let width = (right - left) as u32;
+            // a box past a set's chunk is not sent, and the glyph is cut to
+            // its cells (ADR-1302 D6)
+            let bytes = u64::from(width.div_ceil(8)) * u64::from(cell.height);
+            (bytes <= u64::from(vtium_font::SET_CHUNK_BYTES))
+                .then(|| (left as i32, width, pack(left, right)))
         }
         _ => None,
     };

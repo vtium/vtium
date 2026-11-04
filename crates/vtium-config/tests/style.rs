@@ -187,7 +187,9 @@ fn synthetic_italic_slants_an_outline_by_a_fifth_about_the_baseline() {
 }
 
 // synthetic bold grows the outline from side to side by a 24th of the
-// size in all, half on each side, and adds no row above or below
+// size in all, half on each side, and by half a pixel a side at least
+// (the maintainer, 2026-11-04), and adds no row above or below: at 16
+// pixels the floor's half pixel, at 64 a 48th of the size
 // covers: sgr.bold
 // covers: text.outline
 #[test]
@@ -195,30 +197,41 @@ fn synthetic_bold_emboldens_an_outline_from_side_to_side() {
     let dir = Scratch::new("bold");
     let mono = dir.file("mono.ttf", &ttf::test_mono().build());
     let e = engine(&format!("source=outline:{mono}\n"));
-    let (rl, rrows) = ink(&drawn(&e, CELL, REGULAR, 'A'));
-    let (bl, brows) = ink(&drawn(&e, CELL, BOLD, 'A'));
-    let inked = |rows: &[Vec<u8>]| -> Vec<bool> {
-        rows.iter().map(|r| r.iter().any(|&p| p != 0)).collect()
-    };
-    assert_eq!(inked(&rrows), inked(&brows), "the same rows hold ink");
-    // the size the cell draws Test Mono at: its ascent and descent span the
-    // height less half a pixel
-    let grow = (16.0 - 0.5) / 48.0;
-    let y = rrows
-        .iter()
-        .position(|r| r.iter().any(|&p| p != 0))
-        .expect("ink")
-        + 3;
-    let (l, r) = (
-        left_edge(rl, &rrows[y]).expect("ink"),
-        right_edge(rl, &rrows[y]).expect("ink"),
-    );
-    let (bl_, br) = (
-        left_edge(bl, &brows[y]).expect("ink"),
-        right_edge(bl, &brows[y]).expect("ink"),
-    );
-    assert!(((l - bl_) - grow).abs() < 0.2, "left by {}", l - bl_);
-    assert!(((br - r) - grow).abs() < 0.2, "right by {}", br - r);
+    for (cell, grow) in [
+        (CELL, 0.5),
+        (
+            Cell {
+                width: 40,
+                height: 64,
+            },
+            // the size the cell draws Test Mono at: its ascent and descent
+            // span the height less half a pixel
+            (64.0 - 0.5) / 48.0,
+        ),
+    ] {
+        let (rl, rrows) = ink(&drawn(&e, cell, REGULAR, 'A'));
+        let (bl, brows) = ink(&drawn(&e, cell, BOLD, 'A'));
+        let inked = |rows: &[Vec<u8>]| -> Vec<bool> {
+            rows.iter().map(|r| r.iter().any(|&p| p != 0)).collect()
+        };
+        assert_eq!(inked(&rrows), inked(&brows), "the same rows hold ink");
+        let y = rrows
+            .iter()
+            .position(|r| r.iter().any(|&p| p != 0))
+            .expect("ink")
+            + 3;
+        let (l, r) = (
+            left_edge(rl, &rrows[y]).expect("ink"),
+            right_edge(rl, &rrows[y]).expect("ink"),
+        );
+        let (bl_, br) = (
+            left_edge(bl, &brows[y]).expect("ink"),
+            right_edge(bl, &brows[y]).expect("ink"),
+        );
+        let h = cell.height;
+        assert!(((l - bl_) - grow).abs() < 0.2, "{h}: left by {}", l - bl_);
+        assert!(((br - r) - grow).abs() < 0.2, "{h}: right by {}", br - r);
+    }
 }
 
 // a frit that names a bold and an italic face draws each style from its
@@ -369,8 +382,8 @@ fn the_w_rule_takes_the_bold_faces_w() {
 }
 
 /// A 256-glyph 8x16 PSF1 font with no table: `H` inked on rows 2 to 11,
-/// so its baseline lies under row 11, and `|` a column at the cell's left
-/// edge down every row.
+/// so its baseline lies under row 11, `|` a column at the cell's left
+/// edge down every row, and `\\` a column at x 6, next to its right edge.
 fn psf() -> Vec<u8> {
     let mut b = vec![0x36, 0x04, 0, 16];
     b.resize(4 + 256 * 16, 0);
@@ -379,6 +392,7 @@ fn psf() -> Vec<u8> {
     }
     for row in 0..16 {
         b[4 + 0x7c * 16 + row] = 0b1000_0000;
+        b[4 + 0x5c * 16 + row] = 0b0000_0010;
     }
     b
 }
@@ -447,6 +461,39 @@ fn the_helper_shears_a_bitmap_as_vtium_font_does() {
     let reader = SetFace::new(set, 16).expect("a face");
     let theirs = reader.draw(&['|'], ITALIC).expect("the reader's");
     let ours = drawn(&e, at8, ITALIC, '|');
+    assert_eq!((ours.pixels(), ours.ink()), (theirs.pixels(), theirs.ink()));
+}
+
+// ink sheared past the cell's right edge widens the box right, bold
+// italic widened first, in the helper as in vtium-font; and a box past a
+// set's chunk, at a 256x512 cell, is left out with the glyph cut to its
+// cells (ADR-1302 D6)
+// covers: sgr.italic
+#[test]
+fn a_bitmap_box_passes_the_right_edge_and_stays_inside_a_chunk() {
+    let dir = Scratch::new("right");
+    let path = dir.file("f.psf", &psf());
+    let e = engine(&format!("source=file:{path}\n"));
+    let at8 = Cell {
+        width: 8,
+        height: 16,
+    };
+    let own = Psf::parse(&psf()).expect("the font");
+    for (style, width) in [(ITALIC, 9), (BOLD_ITALIC, 10)] {
+        let ours = drawn(&e, at8, style, '\\');
+        assert_eq!(ours.ink().map(|i| (i.left(), i.width())), Some((0, width)));
+        let theirs = own.draw(&['\\'], style).expect("vtium-font's");
+        assert_eq!((ours.pixels(), ours.ink()), (theirs.pixels(), theirs.ink()));
+    }
+    let big = Cell {
+        width: 256,
+        height: 512,
+    };
+    let ours = drawn(&e, big, ITALIC, '|');
+    assert!(ours.ink().is_none(), "no box past a chunk");
+    let mut own = own;
+    own.set_height(512);
+    let theirs = own.draw(&['|'], ITALIC).expect("vtium-font's");
     assert_eq!((ours.pixels(), ours.ink()), (theirs.pixels(), theirs.ink()));
 }
 
