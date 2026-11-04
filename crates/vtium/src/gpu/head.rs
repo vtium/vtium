@@ -11,10 +11,12 @@
 //! their buffers as dma-bufs.
 //!
 //! A set-up that fails at any step leaves the head on the CPU path, and the
-//! loop logs the step. A frame that fails is drawn on the CPU path whole;
-//! an out-of-memory error or a lost context also ends the GPU path for the
-//! head until vtium restarts, since GL's state is undefined after either
-//! (ADR-1303 D9).
+//! loop logs the step. During a run the failures are sorted by their kind
+//! (ADR-1303 D9): a frame a GL error fails is dropped from the GPU path and
+//! drawn on the CPU path whole, and the next frame on the GPU path draws
+//! whole too; a GL error in a second frame running, an out-of-memory
+//! error or a lost context ends the GPU path for the head until vtium
+//! restarts, since GL's state cannot be trusted after them.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -27,7 +29,7 @@ use vtium_term::Frame;
 
 use super::PlatformGl;
 use crate::font::DisplayFace;
-use crate::painter::GpuSource;
+use crate::painter::{Fault, GpuSource};
 
 /// One display's frames on the GPU path: its pipeline, and the frame in GL
 /// that each frame is presented into and read back from.
@@ -44,8 +46,12 @@ pub struct HeadGpu {
     read: Vec<u8>,
     /// One row as display pixels, `0x00RRGGBB`.
     pixels: Vec<u32>,
-    /// An out-of-memory error or a lost context ended the GPU path.
-    lost: bool,
+    /// The frames running that a GL error failed.
+    failed_in_a_row: u32,
+    /// Why the GPU path ended, once a failure ended it.
+    lost: Option<String>,
+    /// The faults a test queued, one raised in each frame.
+    faults: Option<std::sync::Arc<std::sync::Mutex<std::collections::VecDeque<Fault>>>>,
 }
 
 impl HeadGpu {
@@ -53,7 +59,11 @@ impl HeadGpu {
     pub fn new(source: &GpuSource) -> Result<HeadGpu, String> {
         let made = match source {
             GpuSource::RenderNode(node) => platform::Context::on_render_node(node),
-            GpuSource::Software => platform::Context::software(),
+            GpuSource::Software | GpuSource::Faulty(_) => platform::Context::software(),
+        };
+        let faults = match source {
+            GpuSource::Faulty(f) => Some(std::sync::Arc::clone(f)),
+            _ => None,
         };
         let context = made.map_err(|e| e.to_string())?;
         Ok(HeadGpu {
@@ -61,7 +71,9 @@ impl HeadGpu {
             displays: BTreeMap::new(),
             read: Vec::new(),
             pixels: Vec::new(),
-            lost: false,
+            failed_in_a_row: 0,
+            lost: None,
+            faults,
         })
     }
 
@@ -70,10 +82,10 @@ impl HeadGpu {
         self.gl.context().renderer()
     }
 
-    /// Whether a failure ended the GPU path, so the head draws on the CPU
-    /// path until vtium restarts.
-    pub fn lost(&self) -> bool {
-        self.lost
+    /// Why a failure ended the GPU path, once one did: the head draws on
+    /// the CPU path until vtium restarts.
+    pub fn lost(&self) -> Option<&str> {
+        self.lost.as_deref()
     }
 
     /// Draws `frame` for the display `key` through its pipeline, and reads
@@ -97,9 +109,10 @@ impl HeadGpu {
         age: u32,
         state: &DrawState,
     ) -> Option<Result<(Vec<Rect>, Stats), Error>> {
-        if renderer.depth() == Depth::One {
+        if renderer.depth() == Depth::One || self.lost.is_some() {
             return None;
         }
+        self.raise_a_queued_fault();
         let drawn = self.draw_through(
             key,
             renderer,
@@ -109,12 +122,35 @@ impl HeadGpu {
             age,
             state,
         );
-        if let Err(e) = &drawn
-            && matches!(e.kind, ErrorKind::OutOfMemory | ErrorKind::ContextLost)
-        {
-            self.lost = true;
+        match &drawn {
+            Ok(_) => self.failed_in_a_row = 0,
+            Err(e) => {
+                self.failed_in_a_row = self.failed_in_a_row.saturating_add(1);
+                if matches!(e.kind, ErrorKind::OutOfMemory | ErrorKind::ContextLost) {
+                    self.lost = Some(e.to_string());
+                } else if self.failed_in_a_row >= 2 {
+                    self.lost = Some(format!("a GL error in two frames running, the last {e}"));
+                }
+            }
         }
         Some(drawn)
+    }
+
+    /// Makes the context fail the frame's next call with the fault a test
+    /// queued first, if any.
+    fn raise_a_queued_fault(&mut self) {
+        let Some(fault) = self
+            .faults
+            .as_ref()
+            .and_then(|f| f.lock().ok().and_then(|mut q| q.pop_front()))
+        else {
+            return;
+        };
+        self.gl.raise(match fault {
+            Fault::Gl => platform::ErrorKind::Gl(0x0502),
+            Fault::OutOfMemory => platform::ErrorKind::OutOfMemory,
+            Fault::ContextLost => platform::ErrorKind::ContextLost,
+        });
     }
 
     #[expect(clippy::too_many_arguments, reason = "as draw's")]

@@ -1219,14 +1219,8 @@ impl App {
         if let Some(head) = self.heads.get(h)
             && let Some(v) = head.views.get(&key)
         {
-            let cell = v.cell();
             let path = head.painter.as_ref().map(Painter::path).unwrap_or_default();
-            log::info!(
-                "Display {name} with backend [{backend}] text renderer [{}], cell size {}x{}",
-                path.name(),
-                cell.width,
-                cell.height
-            );
+            display_line(&name, backend, path, v.cell());
         }
     }
 
@@ -3615,7 +3609,10 @@ impl App {
             let Some(painter) = &mut head.painter else {
                 continue;
             };
-            for composed in painter.take() {
+            for mut composed in painter.take() {
+                if let Some(why) = composed.left_gpu.take() {
+                    left_gpu(head, videos, &why);
+                }
                 let (Some(view), Some(video)) = (
                     head.views.get_mut(&composed.key),
                     videos.get_mut(&composed.key.0),
@@ -3949,6 +3946,41 @@ fn draw_head(
             }
         }
     }
+}
+
+/// Head `head`'s GPU path ended during the run, for `why`: it draws on the
+/// CPU path until vtium restarts, which the log says once, with each of its
+/// displays' lines again naming the path (ADR-1303 D9, D10).
+fn left_gpu(head: &mut Head, videos: &BTreeMap<PathBuf, Box<dyn Video>>, why: &str) {
+    log::warn!(
+        "head {}: the GPU path failed ({why}): it draws on the CPU path until vtium restarts",
+        head.name()
+    );
+    let Some(painter) = &mut head.painter else {
+        return;
+    };
+    painter.left_gpu();
+    for ((node, id), view) in &head.views {
+        if let Some(video) = videos.get(node) {
+            display_line(
+                &video.name(*id),
+                video.backend(),
+                painter.path(),
+                view.cell(),
+            );
+        }
+    }
+}
+
+/// The line vtium logs for a display it draws, naming the path that draws
+/// it (ADR-1303 D10).
+fn display_line(name: &str, backend: &str, path: crate::painter::Path, cell: vtium_font::Cell) {
+    log::info!(
+        "Display {name} with backend [{backend}] text renderer [{}], cell size {}x{}",
+        path.name(),
+        cell.width,
+        cell.height
+    );
 }
 
 /// Powers every display of `video` down.

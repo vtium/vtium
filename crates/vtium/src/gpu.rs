@@ -109,6 +109,12 @@ impl PlatformGl {
         }
     }
 
+    /// Makes the context fail its next call with `kind`, as a driver would:
+    /// for the tests of what a head does with each kind of failure.
+    pub(crate) fn raise(&mut self, kind: platform::ErrorKind) {
+        self.gl.raise(kind);
+    }
+
     /// The context, for its renderer's name.
     pub fn context(&self) -> &platform::Context {
         &self.gl

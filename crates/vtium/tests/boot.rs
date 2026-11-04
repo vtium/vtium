@@ -6442,7 +6442,7 @@ fn a_zoom_while_a_frame_composes_waits_for_its_token() {
 /// off a head never makes one.
 #[cfg(feature = "gpu")]
 mod gpu_path {
-    use vtium::painter::GpuSource;
+    use vtium::painter::{Fault, GpuSource};
 
     use super::*;
 
@@ -6535,6 +6535,103 @@ mod gpu_path {
             whole == cpu_whole,
             "the frame drawn whole differs from the CPU path's"
         );
+    }
+
+    /// A head with hwaccel on a GPU that fails the frames a test queues
+    /// faults for, the script written and nothing queued yet, and the
+    /// queue.
+    fn faulty() -> (Harness, Arc<Mutex<std::collections::VecDeque<Fault>>>) {
+        let faults = Arc::new(Mutex::new(std::collections::VecDeque::new()));
+        let args = ["--hwaccel", "--login", "--", "/bin/sh", "-c", SCRIPT];
+        let source = GpuSource::Faulty(Arc::clone(&faults));
+        let mut h = Harness::boot_set(
+            &args,
+            FakeVt::new(),
+            Some(Box::new(Memory::default())),
+            no_fonts(),
+            |app| app.set_gpu_source(source),
+        );
+        assert!(h.until(BOUND, |a| {
+            a.screen_text().iter().any(|l| l.contains("done"))
+        }));
+        h.settled();
+        (h, faults)
+    }
+
+    fn queue(faults: &Mutex<std::collections::VecDeque<Fault>>, add: &[Fault]) {
+        faults.lock().unwrap().extend(add.iter().copied());
+    }
+
+    fn failed(lines: &[String]) -> usize {
+        lines
+            .iter()
+            .filter(|l| l.contains("the GPU path failed"))
+            .count()
+    }
+
+    // ADR-1303 D9: a GL error drops one frame from the GPU path, which the
+    // CPU path draws whole, and the next frame draws on the GPU path whole;
+    // a frame that draws counts the errors from nothing again
+    #[test]
+    fn a_gl_error_drops_one_frame_and_the_head_stays_on_the_gpu_path() {
+        let (_, cpu, _) = drawn(&[], GpuSource::Software);
+        let (mut h, faults) = faulty();
+        logged();
+        for _ in 0..2 {
+            queue(&faults, &[Fault::Gl]);
+            assert!(
+                h.drawn_now() == cpu,
+                "the failed frame differs from the CPU path's"
+            );
+            assert!(
+                faults.lock().unwrap().is_empty(),
+                "the frame raised no fault"
+            );
+            assert!(
+                h.drawn_now() == cpu,
+                "the next frame differs from the CPU path's"
+            );
+        }
+        let lines = logged();
+        assert_eq!(
+            (failed(&lines), renderer(&lines)),
+            (0, vec![]),
+            "{lines:#?}"
+        );
+    }
+
+    // ADR-1303 D9, D10: a GL error in two frames running, out of memory or
+    // a lost context leaves the GPU path until vtium restarts, said once,
+    // with the display's line again naming cpu, and the frames are the CPU
+    // path's from then on
+    #[test]
+    fn a_second_error_running_out_of_memory_or_a_lost_context_leave_the_gpu_path_once() {
+        let (_, cpu, _) = drawn(&[], GpuSource::Software);
+        for fatal in [
+            &[Fault::Gl, Fault::Gl][..],
+            &[Fault::OutOfMemory],
+            &[Fault::ContextLost],
+        ] {
+            let (mut h, faults) = faulty();
+            logged();
+            queue(&faults, fatal);
+            for _ in fatal {
+                assert!(h.drawn_now() == cpu, "{fatal:?}: a failed frame differs");
+            }
+            let lines = logged();
+            assert_eq!(failed(&lines), 1, "{fatal:?}: {lines:#?}");
+            assert_eq!(renderer(&lines), ["cpu"], "{fatal:?}: {lines:#?}");
+            // nothing raises a fault now: the head draws on the CPU path
+            queue(&faults, &[Fault::Gl]);
+            assert!(h.drawn_now() == cpu, "{fatal:?}: a CPU frame differs");
+            assert_eq!(
+                faults.lock().unwrap().len(),
+                1,
+                "{fatal:?}: the GPU path drew"
+            );
+            let lines = logged();
+            assert_eq!((failed(&lines), renderer(&lines)), (0, vec![]), "{fatal:?}");
+        }
     }
 
     #[test]

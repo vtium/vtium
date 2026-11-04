@@ -601,6 +601,7 @@ impl Job {
             stats,
             at,
             tip: self.tip,
+            left_gpu: None,
         }
     }
 }
@@ -623,6 +624,9 @@ pub struct Composed {
     /// The areas the overlay drew over.
     overlaid: Vec<DisplayRect>,
     pub stats: Stats,
+    /// Why the head's GPU path ended with this frame: the head draws on
+    /// the CPU path from now on (ADR-1303 D9).
+    pub left_gpu: Option<String>,
     /// Where the display's cursor plane shows the pointer's tip.
     at: Option<(i32, i32)>,
     tip: Option<(u32, u32)>,

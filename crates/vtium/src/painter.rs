@@ -53,12 +53,25 @@ pub const GPU_STACK: usize = 8 * 1024 * 1024;
 pub const QUEUE: usize = 16;
 
 /// Where a head's render thread makes its GL context.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 pub enum GpuSource {
     /// The render node of the card that drives the head's first display.
     RenderNode(PathBuf),
     /// Mesa's llvmpipe with no device: the tests' GPU.
     Software,
+    /// Mesa's llvmpipe, which fails a frame with each fault a test queues,
+    /// one a frame, in order: the tests of what a head does with each kind
+    /// of failure (ADR-1303 D9).
+    Faulty(std::sync::Arc<std::sync::Mutex<std::collections::VecDeque<Fault>>>),
+}
+
+/// A failure a test makes the GPU raise in a frame.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Fault {
+    /// A GL error other than out of memory.
+    Gl,
+    OutOfMemory,
+    ContextLost,
 }
 
 /// The path that draws a head's frames, which the log names (ADR-1303
@@ -130,6 +143,12 @@ impl Painter {
         self.path
     }
 
+    /// Records that the head's GPU path ended during the run: it draws on
+    /// the CPU path from now on.
+    pub fn left_gpu(&mut self) {
+        self.path = Path::Cpu;
+    }
+
     /// Why the GPU path asked for could not start, once: the loop logs it.
     pub fn take_refusal(&mut self) -> Option<String> {
         self.refused.take()
@@ -189,10 +208,11 @@ fn draw_frames(
     let path = if head.is_some() { Path::Gpu } else { Path::Cpu };
     let _ = ready.send((path, refused));
     for job in todo {
-        let frame = job.compose(head.as_mut());
-        if head.as_ref().is_some_and(HeadGpu::lost) {
-            // ADR-1303 D9: GL's state is undefined; the head stays on the
-            // CPU path until vtium restarts
+        let mut frame = job.compose(head.as_mut());
+        if let Some(why) = head.as_ref().and_then(HeadGpu::lost) {
+            // ADR-1303 D9: the head stays on the CPU path until vtium
+            // restarts, and the loop says so once
+            frame.left_gpu = Some(why.to_owned());
             head = None;
         }
         if composed.send(frame).is_err() {
