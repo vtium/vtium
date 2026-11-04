@@ -706,6 +706,32 @@ fn a_font_of_another_family_or_none_at_all_is_refused() {
     assert!(rasterise(&r).is_err());
 }
 
+// ADR-1500 D8: the rasteriser takes the face the search among installed
+// fonts finds, by one reader and one predicate, so a family the font
+// stores only in another language is taken, as the search finds it.
+#[test]
+fn a_family_stored_only_in_another_language_is_taken() {
+    let mut font = ttf::test_mono();
+    font.family = "文鼎测试楷".to_owned();
+    let mut bytes = font.build();
+    // the family's record: Windows, Unicode BMP, US English, name ID 1;
+    // make its language Simplified Chinese (0x0804)
+    let english = [0u8, 3, 0, 1, 0x04, 0x09, 0, 1];
+    let at = bytes
+        .windows(english.len())
+        .position(|w| w == english)
+        .expect("the family's record");
+    bytes[at + 4..at + 6].copy_from_slice(&0x0804u16.to_be_bytes());
+    let mut r = request(&[(0, 16)], &[]);
+    r.font = bytes.into();
+    r.family = "文鼎测试楷".to_owned();
+    let o = rasterise(&r).expect("the family in Chinese");
+    assert_eq!(o.family, "文鼎测试楷");
+    r.family = "Test Mono".to_owned();
+    let e = rasterise(&r).expect_err("another family");
+    assert!(e.contains("文鼎测试楷") && e.contains("Test Mono"), "{e}");
+}
+
 #[test]
 fn an_answer_reads_back_and_each_malformed_one_is_refused() {
     let req = request(&[(0, 10)], &[]);
