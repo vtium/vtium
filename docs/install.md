@@ -145,7 +145,7 @@ $ systemctl list-units 'vtium@*'
 # pacman -R vtium
 ```
 
-The records stay in `/var/lib/vtium/console/`, so after a reinstall `vtium console disable --all` still puts back what was there before. The [vtium-arch README](https://github.com/vtium/vtium-arch#removing-vtium) says what to do when you removed the package first.
+`disable --all` puts back what each VT had and then forgets its record, so `/var/lib/vtium/console/` is left empty, and you can remove it. The [vtium-arch README](https://github.com/vtium/vtium-arch#removing-vtium) says what to do when you removed the package first.
 
 ## Sharing VTs with kmscon
 

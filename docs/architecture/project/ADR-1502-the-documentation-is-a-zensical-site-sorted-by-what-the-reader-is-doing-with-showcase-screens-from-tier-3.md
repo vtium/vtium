@@ -147,7 +147,9 @@ The README's sections go to these pages:
 Two tutorials are new:
 
 - **"Try vtium on one VT"** (`tutorial-try-vtium.md`). The reader installs the package, or builds from a checkout where there is no package, gives vtium one VT with `vtium console enable N`, switches to it with Ctrl+Alt+F*N*, logs in, tries what vtium draws, switches back to the desktop, and then takes the VT back with `vtium console disable N` and removes the package. It is written so that a reader who follows it never loses their desktop, and it says at each step what the reader should see.
-- **"Your first frit"** (`tutorial-first-frit.md`). A frit is a font set file, `/etc/vtium/fonts/NAME.vtfrit`, that lists a font's sources in order. The reader runs `vtium config` in a vtium console, moves the highlight through the fonts and watches the live console change, saves a choice through `sudo vtium-config apply`, restarts that VT's vtium, and sees the font at start.
+- **"Your first frit"** (`tutorial-first-frit.md`). A frit is a font set file, `/etc/vtium/fonts/NAME.vtfrit`, that lists a font's sources in order. The reader runs `vtium config tui` in a vtium console, moves the highlight through the fonts and watches the live console change, saves a choice through `sudo vtium-config apply`, restarts that VT's vtium, and sees the font at start.
+
+> Edited 2026-11-04: the work that builds the site keeps `tutorial-first-frit.md` as a short page that says the tutorial is coming, and leaves it out of the menu, in `not_in_nav`, until it is written from the maintainer's own session with vtium config; it then joins the Tutorials section. The site map figure shows the menu as it stands once the tutorial is written. This entry read "The reader runs `vtium config`", and `vtium config` alone prints its usage; `vtium config tui` opens the tool.
 
 The For contributors section lists `architecture.md`, `c-reference.md` and `vt-review.md`, and links `AGENTS.md`, `CONTRIBUTING.md` and the crates' folders by their GitHub addresses. Contributor pages keep their present shape; this record sorts only the user pages into modes.
 
@@ -173,19 +175,20 @@ Zensical builds the site. Its configuration is `zensical.toml`, at the repositor
 - The only plugin is the built-in search, which runs in the reader's browser. The site uses no other plugin.
 - The markdown extensions are tables, `toc` with a permalink on each heading, `attr_list` and `md_in_html` (for the `<img width>` the specimen pages use), `admonition`, and pymdown-extensions' `highlight`, `superfences` with the custom fence that draws Mermaid diagrams, and `slugs`. The `toc` extension forms each heading's anchor with `pymdownx.slugs.slugify` in lower case, which keeps letters outside ASCII as GitHub does, so a link to `page.md#a-heading` reaches the same heading on GitHub and on the site.
 - `exclude_docs` leaves out `scripts/`, every `*.tsv` file and each `README.md` under a `figures/` directory. `adr.yaml` stays published as a file, since `INDEX.md` links it.
-- `not_in_nav` names the pages that are reached by a link and not from the menu: the decision records, which `INDEX.md` links, and the specimen profile pages, which `specimens/README.md` links.
+- `not_in_nav` names the pages that are reached by a link and not from the menu: the decision records, which `INDEX.md` links, the specimen profile pages, which `specimens/README.md` links, and `tutorial-first-frit.md` until it is written (D1).
 - `zensical build --strict` fails on every warning: a link to a missing page, a link to a missing anchor, and a link that leaves `docs/`.
 
 Zensical's strict build does not report a page that the menu leaves out, so a Rust test does. A small workspace crate, `tools/site`, holds one test that reads `zensical.toml` with the `toml` crate and fails when a markdown page under `docs/`, apart from the files `exclude_docs` leaves out, is neither in `nav` nor matched by `not_in_nav`, and when `nav` names a file that does not exist. It runs in `cargo test --workspace`, so it is part of the local gates and needs no Python.
 
 The menu, in `zensical.toml`'s `nav`, reads:
 
+> Edited 2026-11-04: "Your first frit" leaves the Tutorials section until it is written (D1). The listing below matches `zensical.toml`.
+
 ```toml
 nav = [
   { "Home" = ["index.md", { "Showcase" = "showcase/README.md" }] },
   { "Tutorials" = [
       { "Try vtium on one VT" = "tutorial-try-vtium.md" },
-      { "Your first frit" = "tutorial-first-frit.md" },
   ] },
   { "How-to guides" = [
       "managing-vtium.md",

@@ -17,7 +17,7 @@ $ gpg --import keys/pgp/33F9B54FD2A4B6A4110749B3BA464FC9847A832A.asc
 $ makepkg -sri
 ```
 
-makepkg downloads vtium's source and the packages it needs to build, builds it, removes those build-only packages again (`-r`), and asks pacman to install two packages (`-i`): `vtium`, the console itself, and `vtium-terminfo`, which tells programs what vtium's terminal can do. Answer yes. Installing starts nothing and changes no VT, so nothing on your screen changes yet.
+makepkg first asks pacman to install the packages vtium needs only to build, such as `cargo`, where your machine lacks them (`-s`). sudo asks for your password, and pacman asks you to confirm: answer yes. makepkg then downloads vtium's source and builds it, which takes a few minutes. At the end it asks pacman to install two packages (`-i`): `vtium`, the console itself, and `vtium-terminfo`, which tells programs what vtium's terminal can do. Answer yes again. Last, makepkg removes the build-only packages it installed at the start (`-r`). Installing starts nothing and changes no VT, so nothing on your screen changes yet.
 
 ## 2. Find your desktop's VT and a free one
 
@@ -27,7 +27,7 @@ Ask vtium what each VT runs now:
 $ vtium console status
 ```
 
-It first prints a line or two about the machine as a whole: which console logind starts on a VT that has no setting of its own, and, where the machine has one, which display manager it has: the program that shows the desktop's login screen. Then it prints a table with a row for each VT that has something on it. The first column is the VT's number, and the other three say what systemd starts there at boot, what logind starts when you switch to it, and what runs there now. A dash means nothing. Your desktop's row says `graphical session of` your user name in its **running** column: that is your desktop's VT. Remember its number, since you switch back to it in step 6.
+It first prints a line or two about the machine as a whole. The first says which console logind starts on a VT that has no setting of its own. Where the machine has a display manager, the program that shows the desktop's login screen, the second line names it. Then it prints a table with a row for each of VTs 1 to 6, and for any other VT that has something on it. The first column is the VT's number, and the other three say what systemd starts there at boot, what logind starts when you switch to it, and what runs there now. A dash means nothing. Your desktop's row says `graphical session of` your user name in its **running** column: that is your desktop's VT. Remember its number, since you switch back to it in step 6.
 
 Pick a VT that runs no graphical session and that nobody is logged in on. This tutorial uses VT 3; if VT 3 is your desktop's, use another number from 2 to 6 everywhere the steps say 3.
 
@@ -91,11 +91,11 @@ $ sudo systemctl stop vtium@tty3.service
 $ sudo pacman -R vtium vtium-terminfo
 ```
 
-vtium is now off the machine. Three things from this tutorial stay: the maintainer's key in your gpg keyring, the `vtium` folder you cloned from the AUR, which you can delete, and the record of what VT 3 had, in `/var/lib/vtium/console/`, which lets a later install put VT 3 back as well.
+vtium is now off the machine. A few things from this tutorial stay, and you can remove each one if you want to: the maintainer's key in your gpg keyring; the `vtium` folder you cloned from the AUR; the Rust crates the build downloaded, in `~/.cargo/registry`; and the folder `/var/lib/vtium/console/`, which is empty, since `disable` forgot VT 3's record once it had put VT 3 back.
 
 ## What next
 
-- [Choose a font](fonts.md) sets the font vtium draws in, and `vtium config` lets you try each font on the live console before you keep one.
+- [Choose a font](fonts.md) sets the font vtium draws in, and `vtium config tui` lets you try each font on the live console before you keep one.
 - [Install vtium and give it VTs](install.md) covers giving vtium every VT, upgrading, and moving from `kmscon`.
 - [What vtium does](features.md) lists what vtium draws, and [Concepts](concepts.md) explains how its pieces fit together.
 
@@ -117,4 +117,4 @@ $ make vt-shell
 ================================================================
 ```
 
-Press the first key it names. You are in your own shell, drawn by vtium, with no login; try the commands from step 5 there. Type `exit` to end the run: vtium stops, and `make` returns. Whatever ran on that VT before the run starts again there, so on a VT where nothing ran, the screen stays blank. Press the key it named to return to your desktop. If you want a login prompt on that VT, switch to it once more, and logind starts one, or start one yourself with `sudo systemctl start getty@tty5.service`, using the VT's number. Nothing was installed, so there is nothing to remove; delete the checkout when you no longer want it.
+Press the first key it names. You are in your own shell, drawn by vtium, with no login; try the commands from step 5 there. Type `exit` to end the run: vtium stops, and `make` returns. The console that ran on that VT before the run starts there again, so on a VT where nothing ran, the screen stays blank. Press the key it named to return to your desktop. If you want a login prompt on that VT, switch to it once more, and logind starts one, or start one yourself with `sudo systemctl start getty@tty5.service`, using the VT's number. Nothing was installed, so there is nothing to remove; delete the checkout when you no longer want it.

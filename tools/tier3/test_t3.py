@@ -4967,7 +4967,7 @@ class ShowcaseTest(unittest.TestCase):
                 self.assertNotIn("alt:", text)
                 self.assertNotIn("shellcheck", text)
         text, _ = t3_showcase.caption("showcase-fonts.inc")
-        self.assertIn("(../tutorial-first-frit.md)", text)
+        self.assertIn("(../fonts.md)", text)
 
     def scene_bytes(self, screen):
         """What scene `screen` writes on the host, in a session of its own

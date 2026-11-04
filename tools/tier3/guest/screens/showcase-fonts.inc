@@ -3,8 +3,8 @@
 # name and kind: Iosevka Term and JetBrains Mono are outline fonts, which
 # vtium scales to the cell and antialiases; Terminus is a PSF console font,
 # and GNU Unifont, which vtium carries, is drawn at twice its size, both as
-# bitmaps of whole pixels. [Your first frit](../tutorial-first-frit.md)
-# shows how to choose your own.
+# bitmaps of whole pixels. [Choose a font](../fonts.md) shows how to choose
+# your own.
 # alt: Four horizontal bands on a black background, each naming its font,
 # alt: Iosevka Term, Terminus, GNU Unifont and JetBrains Mono, then showing
 # alt: in that font the same pangrams, digits and symbols, accented, Greek
