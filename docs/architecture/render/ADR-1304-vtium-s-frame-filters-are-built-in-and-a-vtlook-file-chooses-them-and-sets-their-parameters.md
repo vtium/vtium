@@ -176,6 +176,9 @@ considered:
     said: "Shaders get the turn as an input, SPATIAL_TURN (0, 90, 180 or 270), so a mask aligns to the physical panel; everything else stays as designed."
     via: the maintainer in the steering session, 2026-11-03, relayed by the team lead; the wording is the team lead's, answering open question 3
     paraphrase: true
+  - operator: aaronsb
+    said: "Let's check it out. It sounds like a good use and can stay outside of vtiums loop (memory)"
+    via: the maintainer in the steering session, 2026-11-03, relayed verbatim by the team lead, on enforcing a shader's reach and reads
 status: proposed
 date: 2026-11-03
 deciders:
@@ -852,10 +855,16 @@ look big (/etc/vtium/looks/big.vtlook:5): requires: checking: min-size = 1920x10
 
 The packaged scanlines and sharpen are the format's first worked examples, with mask and crt (D8). libplacebo's typed `//!PARAM` blocks are the alternative considered (Alternatives).
 
+**Decided by the maintainer (2026-11-03),** on enforcing what a shader declares: "Let's check it out. It sounds like a good use and can stay outside of vtiums loop (memory)". The analysis of a shader stays out of the console's draw loop and out of its memory.
+
 **Proposed, enforcing the reach and the reads.** No system the survey read enforces what a shader declares. vtium can enforce two of the three limits it could not prove:
 
-- **Reach, by clamping.** `SPATIAL_IN` is the only way a piece reads the frame, so vtium clamps the place each call asks for to within the declared reach of the pixel being written. A shader that reaches further reads the nearest pixel within its reach instead, the same pixel in every tile, so it draws a wrong effect but never a seam, and `shader-check`'s reach estimate tells its author.
-- **Reads, by counting.** vtium reads the shader's source with a GLSL front end, counts the calls to `SPATIAL_IN` through every function the piece calls, multiplies each by the bound of every loop around it, and refuses a loop whose bound is not a constant and a count above the declared reads, as checking-stage errors (D6). GLSL ES forbids recursion, so the count is exact. The slice that builds it chooses the front end, such as naga's GLSL reader, which is pure Rust.
+- **Reach, by clamping.** `SPATIAL_IN` is the only way a piece reads the frame, so vtium clamps the place each call asks for to within the declared reach of the pixel being written. The clamp is part of the prelude vtium puts before each piece, the same `#define`s that name its uniforms, so it needs no parser and adds only a clamp to each read. A shader that reaches further reads the nearest pixel within its reach instead, the same pixel in every tile, so it draws a wrong effect but never a seam, and `shader-check`'s reach estimate tells its author.
+- **Reads, by counting.** A checker reads the shader's source with a GLSL front end, counts the calls to `SPATIAL_IN` through every function the piece calls, multiplies each by the bound of every loop around it, and refuses a loop whose bound is not a constant and a count above the declared reads, as checking-stage errors (D6). GLSL ES forbids recursion, so the count is exact.
+
+**Proposed, where the counting runs.** The counting runs once for each shader, in a short-lived process of its own, never in the console's draw loop and never resident in the console's memory. vtium-config runs it in `shader-check`, in `check` and before `shader-install` drafts a shader, as the invoking user. The console asks for it when it loads a look that names a shader: it starts the checker, hands it the shader file's bytes on a pipe, takes its verdict, a pass or the error reports of D6, and lets the process exit. A checker that does not answer within a bound of vtium's bounds table, crashes, or cannot be started is a checking-stage error under the whole-stack rule, and the head draws `default`. This record leans to the checker being vtium-config's own binary, run as a command of its own, `vtium-config shader-scan`, started exactly as the console starts the glyph helper (ADR-1200 D15): from the program file the console opened at start, as `nobody`, with no-new-privileges and the helper's memory and CPU limits, holding only its pipes. It adds no program to the install tree and no sandbox code, the parser's memory is the checker's for the few milliseconds it runs, and the console stays free of a GLSL parser. A new `vtium-shader-check` program would be smaller to audit but a second sandboxed program to install and start; running it inside the glyph helper's long-lived process would keep the parser resident there for no gain.
+
+**The front end.** A spike is testing naga's GLSL reader: whether it parses GLSL ES 3.00 as `.vtshader` files write it, whether it builds at vtium's minimum Rust version, what it adds to vtium-config's size, and a prototype of the counting on `mask.vtshader`. The choice of library is the shader slice's (D13). If naga does not fit, the fallback is a small scan written for vtium that reads the one `apply` function and the functions it calls: `.vtshader` code is a single file with no includes, so finding the calls to `SPATIAL_IN` and the `for` loops around them needs a tokenizer and brace matching, not a full GLSL parser.
 
 So the record's earlier "cannot prove" narrows. vtium enforces the reach and the reads. With every loop bounded by a constant and no recursion, a shader always ends, but a constant bound can still be large: the time a shader takes is guarded by the measured floor (D16) and the watch while running, and a hang by ADR-1303 D9, not by a proof.
 
