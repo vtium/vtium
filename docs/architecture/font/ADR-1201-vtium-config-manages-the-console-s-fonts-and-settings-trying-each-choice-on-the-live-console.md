@@ -85,6 +85,14 @@ considered:
     said: "Most configuration work happens in the Flow view, and vtium-config opens on Flow. vtium-config keeps three views: Flow, Fonts and Settings. The Heads view goes, since the flow is the heads. The Sizes view goes: size moves into the look card, where Enter on a look offers its sizes, with live preview where it works, keeping the quick try-and-keep loop the Sizes view had. Settings stays as a view, the full list of top-level keys, and the base card in Flow edits the common few. Fonts becomes a font resource manager: the places vtium finds fonts, listed with what each holds; the fonts installed there, with their coverage read only in the sandbox; the frits as files, with new (the guided builder), rename and delete, and a note on which looks use each; and live preview of a font."
     via: the steering session's interview, 2026-11-04
     paraphrase: true
+  - operator: aaronsb
+    said: "vtium-config manages looks too: a Looks view manages each look, its filters, color and effects included, and looks can then be picked from the look column in the Flow view."
+    via: the steering session's interview, 2026-11-04
+    paraphrase: true
+  - operator: aaronsb
+    said: "Add a Help view, with Help and About pages; About shows vtium-config's ANSI picture, the same one the command line shows."
+    via: the steering session's interview, 2026-11-05
+    paraphrase: true
 observable:
   - "In a vtium console, moving the TUI's highlight from one frit to the next switches the whole console to that frit, and the TUI's own screen redraws at the console's new grid"
   - "Leaving the TUI without saving, by its quit key, by Ctrl-C, or by SIGTERM sent from another terminal, puts the console back in the font it had when the TUI started, checked by the OSC 50 query"
@@ -134,7 +142,7 @@ Terms used below: a *frit* is a font set file, `NAME.vtfrit`, in the frits' dire
 - **vtium.conf.** vtium-config shows each key of `/etc/vtium/vtium.conf` with its value, its default and its description, and changes keys. The font keys come first (`font-name`, `font-size`, `font-frits`, `font-hinting`, `font-line-spacing`, `allow-font-ops`, `display-dpi` and the sprite policy's keys), and every other key is listed after them. A key's description, type and bounds come from vtium's own key table, `crates/vtium/src/config/keys.rs`, which moves into vtium-settings, the configuration crate vtium already links (ADR-1401 D12), so the console and the tool read one table.
 - **One line of the head file,** `/etc/vtium/heads.conf`: a head's `profile =` line, which assigns the head its profile, written through the head-file writer vtiumctl uses (D6). The rest of the head file stays vtiumctl's.
 - **Profiles** are a frit, a cell and font options (ADR-1200 D16), and are vtium-config's to write and to choose (the maintainer, 2026-11-02): the TUI is where a user builds a profile, checks it against a display (the rule checker, ADR-1200 D4) and picks among the profiles. Until profiles have a file of their own, a frit's `cell=` line carries the cell, and the TUI edits it as part of the frit. vtiumctl keeps controlling a running console (`status`, the trial and the overlay) and the head file (ADR-1401 D12).
-- **Assigning a profile to a head** (the maintainer, 2026-11-02). The Flow view's head cards show the heads, read with vtium-settings's parser, and the user picks the profile each head draws with (D3; ADR-1403 D7). The change is a head's `profile =` line, as in `[head desk]` with `profile = desk`, and it is written as D6 says, in the apply step under sudo. A head names a profile only once profiles have a file of their own, so the assignment is built with them.
+- **Assigning a profile to a head** (the maintainer, 2026-11-02). The Flow view's head cards show the heads, read with vtium-settings's parser, and the user picks the look each head draws with, a profile among them (D3; ADR-1403 D7). The change is a head's `profile =` line, as in `[head desk]` with `profile = desk`, and it is written as D6 says, in the apply step under sudo. A head names a profile only once profiles have a file of their own, so the assignment is built with them.
 
 > Edited 2026-11-02: the maintainer had vtium-vitrify also assign a profile to a head, through the head-file writer vtiumctl uses (`considered`). The head-file bullet read: "Not the head file, `/etc/vtium/heads.conf`, which stays vtiumctl's (D6).", and the profiles bullet ended "and the head file, in which a head names its profile (ADR-1401 D12)."
 
@@ -162,11 +170,13 @@ vtium-config stays one binary, apart from vtiumctl. Each command is typed as `vt
 
 ### D3: the TUI
 
-- **Three views, and it opens on Flow** (the maintainer, 2026-11-04). Most configuration work happens in the Flow view of ADR-1403 D7, so vtium-config opens there. Tab steps through the three views in this order:
-  - **Flow** draws the configuration from the displays to the input devices and edits it (ADR-1403 D7). Its look card carries what the Sizes view did: Enter on a look offers its sizes, in points as `font-size` takes them, with automatic first, and tries each on the live console where live preview works (D4), so the user tries a size and keeps it as quickly as before. Its head cards assign each head its profile. Its base card edits the common top-level keys.
+- **Five views, and it opens on Flow** (the maintainer, 2026-11-04 and 2026-11-05). Most configuration work happens in the Flow view of ADR-1403 D7, so vtium-config opens there. Tab steps through the views in this order:
+  - **Flow** draws the configuration from the displays to the input devices and edits it (ADR-1403 D7). Enter on a head's look card picks from the looks the Looks view defines, and `new look…` opens the Looks view's editor on a new look. Its head cards assign each head its look. Its base card edits the common top-level keys.
+  - **Looks** manages the looks, each one object: a profile, with its frit and size, and the vtlook of ADR-1304, which holds the filters, color and effects. It creates, edits, renames and deletes a look, with live preview where it works (D4). Its sizes are where the Sizes view went: a look offers its sizes, in points as `font-size` takes them, with automatic first, and tries each on the live console, so the user tries a size and keeps it as quickly as before. Until ADR-1304's filters are built, the Looks view manages the profile part and shows the filters as not yet available. Deleting a look is confirmed, and the confirmation names the heads that use it (ADR-1403 D8).
   - **Fonts** manages the font resources. It lists the places vtium finds fonts, each with what it holds: the folders of `font-paths` (ADR-1200 D25), kbd's console-font folders, vconsole's font and the built-in fonts. It lists the fonts installed in those places, with each font's coverage, which vtium-config reads only in the sandbox (below). It lists the frits as files, with how each reads, and offers new, which is `new`'s guided flow (D9), rename and delete, each frit noting which looks use it. It previews a font live (D4). It adds, removes and orders the folders of `font-paths`, which it writes into the draft like any key.
   - **Settings** lists every top-level key of vtium.conf (D1), the full list of which the base card in Flow edits a common few.
-  The Heads view goes, since the flow is the heads, and the Sizes view goes into the look card. The save view goes too: Save, with View, Revert, New and Delete draft, is an action in the tab bar of every view (ADR-1403 D7, D8).
+  - **Help** holds two pages. Help lists the keys and what each view does, from the catalog the command line's help draws on (`crates/vtium-config/src/help.rs`). About shows what `vtium-config --help about` prints, the tool's name, version and logo, drawn from that one source so the two never drift; where the logo is wider than the terminal, it shows the narrow banner (D10).
+  The Heads view goes, since the flow is the heads, and the Sizes view goes into the Looks view. The save view goes too: Save, with View, Revert, New and Delete draft, is an action in the tab bar of every view (ADR-1403 D7, D8).
 - **Where it runs.** Inside a vtium console, where live preview works, and in any other terminal, where it does not (D4). It fits a grid of 40 by 25 cells. When a previewed font leaves a grid smaller than that, the TUI draws one line naming the font and the keys that keep it or go back, so a user can always get out.
 
   > Edited 2026-11-03: the maintainer set the floor to 40 by 25 cells. The record first named the 320x240 floor's grid of 40 by 30 cells, as ADR-1401 D12 asks of vtiumctl's dialog, but the VGA console's usual grid is 80 by 25, which D8 captures, and a 30-row floor would have given that console the one-line form.
@@ -177,7 +187,7 @@ vtium-config stays one binary, apart from vtiumctl. Each command is typed as `vt
 An example of the Fonts view at 40 columns, to show that it fits; its layout is the build's to settle and stays provisional until the maintainer reviews it:
 
 ```text
- Flow  Fonts  Settings     preview: on
+ Flow Looks Fonts Settings Help
  Frits
  > minspec-16  reads       looks: small
    proof       1 missing   looks: none
@@ -188,7 +198,7 @@ An example of the Fonts view at 40 columns, to show that it fits; its layout is 
  Enter open  n new  r rename  d delete
 ```
 
-> Edited 2026-11-04: the maintainer reduced vtium-config to three views, Flow, Fonts and Settings, opening on Flow, and made Fonts a font resource manager (`considered`, 2026-11-04). The bullet read: "**What it shows.** A list of the frits and the built-in fonts, each with its state; the sizes for the highlighted font, in points as `font-size` takes them, with automatic first; vtium.conf's keys (D1); the new-frit view, which is `new`'s guided flow; and a save view, which lists each file the save changes and each line of vtium.conf that changes, with the one command it runs." The example showed the font view with a size line. The earlier text is in git at 9f4fd304.
+> Edited 2026-11-04 and 2026-11-05: the maintainer reduced vtium-config to Flow, Fonts and Settings, opening on Flow, made Fonts a font resource manager, added a Looks view that manages looks with their filters, and added a Help view with Help and About pages (`considered`, 2026-11-04 and 2026-11-05). The bullet read: "**What it shows.** A list of the frits and the built-in fonts, each with its state; the sizes for the highlighted font, in points as `font-size` takes them, with automatic first; vtium.conf's keys (D1); the new-frit view, which is `new`'s guided flow; and a save view, which lists each file the save changes and each line of vtium.conf that changes, with the one command it runs." The example showed the font view with a size line. The earlier text is in git at 9f4fd304.
 
 ### D4: live preview, and giving the console back
 
@@ -253,7 +263,7 @@ An example of the Fonts view at 40 columns, to show that it fits; its layout is 
 
 ### D9: `new`, `preview` and the TUI
 
-The TUI is where `new` and `preview` live when a person runs them at a terminal. `new`'s guided flow is the Fonts view's new frit (D3), and it ends in a draft and `apply`, which replaces ADR-1200 D4's "one command, run with `sudo`, that writes the frit". `preview` becomes the same picture renderer the TUI uses for sizes, in the Flow view's look card and the Fonts view (D3, D4): `preview FONT...` draws the engine's specimen of each font through kitty graphics' raw pixels where the terminal answers the graphics query, and a text summary otherwise. It takes kitty graphics alone, and the sixel fallback that the preview work planned is not part of this record. Both keep their non-interactive forms as commands, for scripts and packages.
+The TUI is where `new` and `preview` live when a person runs them at a terminal. `new`'s guided flow is the Fonts view's new frit (D3), and it ends in a draft and `apply`, which replaces ADR-1200 D4's "one command, run with `sudo`, that writes the frit". `preview` becomes the same picture renderer the TUI uses for sizes, in the Looks view and the Fonts view (D3, D4): `preview FONT...` draws the engine's specimen of each font through kitty graphics' raw pixels where the terminal answers the graphics query, and a text summary otherwise. It takes kitty graphics alone, and the sixel fallback that the preview work planned is not part of this record. Both keep their non-interactive forms as commands, for scripts and packages.
 
 > Edited 2026-11-02: the maintainer made `preview` the TUI's picture renderer (`considered`). The paragraph read: "`preview`'s pictures are what the TUI shows where live preview is off."
 
@@ -264,6 +274,8 @@ The TUI is where `new` and `preview` live when a person runs them at a terminal.
 The tagline under the tool's banner says what the tool is for now: the console's fonts and settings, tried on the live console. "vitrified font sets" names the store of prerendered sets that ADR-1200 retired. This record recommends "fonts and settings for the vtium console" for the wide banner and "the console's fonts" for the narrow one. The banner keeps its glass logo and titles the tool "VTium Vitrifier", while the command is `vtium config` (D12). The build that adds the TUI changes both taglines in `src/banner.rs` and their test, the crate's description in `Cargo.toml`, and the usage text's summary line.
 
 > Edited 2026-11-02: the maintainer renamed the tool (`considered`, D12). The paragraph ended "The tool keeps its name."
+
+> Edited 2026-11-05: the banner also shows in the TUI's About page, the wide banner where the terminal fits it and the narrow one otherwise, from the same source as `vtium-config --help about` (D3; `considered`, 2026-11-05).
 
 ### D11: a session's end returns its console to the configured font
 

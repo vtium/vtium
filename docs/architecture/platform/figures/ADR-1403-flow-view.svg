@@ -11,8 +11,8 @@
 <!-- tab bar -->
 <rect x="30" y="35" width="48" height="18" fill="#e5e5e5"/>
 <text x="36" y="48" fill="#000000">Flow</text>
-<text x="94" y="48" fill="#e5e5e5">Fonts   Settings</text>
-<text x="316" y="48" fill="#e5e5e5">View   Save   Revert   New   Delete draft</text>
+<text x="94" y="48" fill="#e5e5e5">Looks   Fonts   Settings   Help</text>
+<text x="440" y="48" fill="#e5e5e5">View   Save   Revert   New   Delete draft</text>
 <!-- status line -->
 <text x="36" y="72" fill="#e5e5e5">draft ~/.config/vtium/vtium.conf: 1 line added, 1 removed   no problems</text>
 <!-- the base card, black on light grey -->

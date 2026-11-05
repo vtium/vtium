@@ -184,6 +184,10 @@ considered:
     said: "Enforcing a shader's reach and reads is worth trying, with the analysis kept outside vtium's draw loop and its memory."
     via: the maintainer in the steering session, 2026-11-03, relayed by the team lead, on enforcing a shader's reach and reads
     paraphrase: true
+  - operator: aaronsb
+    said: "vtium-config manages looks too: a Looks view manages each look, its filters, color and effects included, and looks can then be picked from the look column in the Flow view."
+    via: the steering session's interview, 2026-11-04
+    paraphrase: true
 status: accepted
 date: 2026-11-03
 deciders:
@@ -493,6 +497,13 @@ The pipeline's skeleton fits this as it stands. Its `Color` gains one step, the 
 **Decided by the maintainer (2026-11-03):** vtium-config previews a look by a terminal message that carries the look's text, on by default behind `allow-look-ops`. The tool ending the preview, the session ending, or a terminal reset (RIS) restores the head's real look.
 
 **Proposed, the live preview's details:** vtium-config sends the look's whole text to the console it runs on in an OSC sequence of vtium's own, one whose number no other terminal uses, which the slice that builds it picks and records as a row of ADR-1000. The console checks the text with the same reader, applies it to the head that the sending console belongs to, and answers with `ok`, naming any display that draws `default` and the requirement it does not meet, or with the first error's report and the count of the rest. A preview that fails at any stage puts the head on the default look, as any failure does (D6). A second sequence ends the preview and returns the head to its configured look, and vtium returns it there too when the session that sent the preview ends, as it returns a console's font (ADR-1201 D11), and when that console receives a terminal reset, RIS (`ESC c`), so a tool that dies mid-preview leaves nothing behind once the user runs `reset`. A key, `allow-look-ops`, turns the sequences off; it is on by default, as `allow-font-ops` is. In a terminal that is not vtium, and in a build without `filters`, vtium-config sends nothing and says that the preview is not available there.
+
+> Note 2026-11-04: the maintainer decided that vtium-config's Looks view manages each look, its filters, color and effects included, and that a head picks its look from the look column of the Flow view (`considered`, 2026-11-04; ADR-1201 D3, ADR-1403 D7). The Looks view edits vtlooks. In that view a look is one object, a profile, with its frit and size, together with a vtlook, and until this record's filters are built the view shows the filters as not yet available. This note changes none of this record's decisions. These points of this record meet the Looks view and are open for the maintainer:
+> 1. D4 says a vtlook is tied to no profile and a profile names no look, while the Looks view treats a profile and a vtlook as one look. Where the pairing is stored, in the profile's section of vtium.conf or as two names on the head, is open.
+> 2. D5 has a head name its vtlook with `look =` and vtium.conf name a default with `look=`, while a head in ADR-1403 names its profile; with one look object, a head may name one thing or two.
+> 3. D11's command names (`looks`, `look-new`, `look-set`, `remove-look`) and ADR-1403 D8's (`vtium config look add`, `look set`, `look rm`) share the word `look` for different objects.
+> 4. D11's Remove refuses a vtlook in use, while ADR-1403 lets a look be deleted after a question that names its heads, which then take the default look.
+> 5. D11's looks view chooses each head's look beside its profile, and returns the console to its look when the user leaves without saving; under ADR-1403 a head's look is chosen in the Flow view, and every change is written to the draft at once.
 
 ### D12: with no look
 
