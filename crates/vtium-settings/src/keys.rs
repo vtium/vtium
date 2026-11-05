@@ -106,6 +106,16 @@ pub const TERM_NAME: &str = "xterm-vtium";
 /// The most bytes a text value or a `login` command holds.
 pub const TEXT_MAX: usize = 4095;
 
+/// Why vtium refuses a [`Kind::Path`] value that is not an absolute
+/// path, as the console's reading and vtium-config say it.
+pub const NOT_ABSOLUTE: &str = "an absolute path is needed, one that starts with /";
+
+/// Whether `text` is a [`Kind::Path`] value's path: one that starts with
+/// `/`.
+pub fn absolute(text: &str) -> bool {
+    std::path::Path::new(text).is_absolute()
+}
+
 /// What a key holds, and its bound.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
@@ -121,6 +131,12 @@ pub enum Kind {
     },
     /// Text of at most [`TEXT_MAX`] bytes with no control character.
     Text,
+    /// An absolute path: text that starts with `/`, of at most
+    /// [`TEXT_MAX`] bytes, with no control character. vtium reads the path
+    /// the same way whatever directory it was started in, which is `/`
+    /// under a systemd unit and anywhere else otherwise, so it refuses a
+    /// relative path and an empty one ([`NOT_ABSOLUTE`]).
+    Path,
     /// One of a fixed set of words.
     Choice(&'static [&'static str]),
     /// A color, `r,g,b`, each 0 to 255.
@@ -1208,11 +1224,13 @@ pub const FONT_NAME: Key = Key {
 pub const FONT_FRITS: Key = Key {
     name: "font-frits",
     short: None,
-    kind: Kind::Text,
+    kind: Kind::Path,
     default: Default::Text(FRITS),
     scope: Scope::Anywhere,
     reader: "vtium",
-    what: "The directory of the frits, the `NAME.vtfrit` files that `font-name` and a head's profile name. The default is the directory vtium was built with.",
+    what: "The directory of the frits, the `NAME.vtfrit` files that `font-name` and a head's profile name.\n\n\
+           It is an absolute path. vtium ignores a relative or an empty one, as it ignores any value it cannot read, and says why.\n\n\
+           The default is the directory vtium was built with.",
     cite: "ADR-1200 (D1, D15); the maintainer's decision of 2026-11-01",
 };
 

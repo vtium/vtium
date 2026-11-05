@@ -194,8 +194,13 @@ display * -> desk
         err.contains("vtium.conf line 1") && err.contains("font-size"),
         "{err}"
     );
+    // The message names the draft's directory, which is under the
+    // fixture's root, and the root's path holds whatever the build path
+    // holds, such as a worktree named vtium-vt-slots. The planted value
+    // is looked for in the message with that path taken out.
+    let outside_the_paths = err.replace(&f.root.display().to_string(), "ROOT");
     assert!(
-        !err.contains("lots"),
+        !outside_the_paths.contains("lots"),
         "root quotes nothing it read for the user: {err}"
     );
     assert_eq!(f.conf(), "font-size=10\n");

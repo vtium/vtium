@@ -583,8 +583,11 @@ impl Run<'_, '_, '_> {
                     self.reload()?;
                 }
                 self.say(&text::taken_back(n, state.runs(n, VTIUM)));
+                // `disable N` has undone everything `enable N` did, so it
+                // succeeds, and it says what the template link still does
+                // on the VT, which only `disable --all` changes.
                 if state.template().names(VTIUM) && !state.wanted(n, GETTY) {
-                    return Err(Stop(text::template_still_vtium(n)));
+                    self.say(&text::template_still_vtium(n));
                 }
                 Ok(0)
             }
