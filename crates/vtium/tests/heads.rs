@@ -6304,6 +6304,34 @@ fn a_font_key_that_does_not_read_at_a_sessions_end_is_reported_and_dropped() {
     assert_eq!(s.app.font_name(), "a");
 }
 
+/// ADR-1201 D11, ADR-1403 D3: a vtium.conf that others can write by the
+/// session's end is refused at the read again, as at the start: the log
+/// says why and gives the command that mends it, and none of the file's
+/// font keys apply, so the head returns to the default font.
+#[test]
+fn a_file_refused_at_a_sessions_end_is_reported_as_at_the_start() {
+    use std::os::unix::fs::PermissionsExt;
+    let (dir, fonts) = reset_fixture("reset-untrusted", "font-name=a\nfont-size=0\n");
+    std::fs::write(dir.join("switch.1"), "b").expect("the switch");
+    let (mut s, reads) = reset_seat(&dir, &small_consoles(1), fonts);
+    assert!(s.until(BOUND, |a| a.font_name() == "b"), "switched to b");
+    let file = dir.join("vtium.conf");
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o664)).expect("0664");
+    logged();
+    end_shown_session(&mut s);
+    let lines = logged();
+    let mend = format!("Run `chmod go-w {}`", file.display());
+    assert!(
+        lines
+            .iter()
+            .any(|l| l.contains("(mode 664)") && l.contains(&mend)),
+        "{lines:?}"
+    );
+    assert_eq!(reads.get(), 1, "vtium.conf read again once");
+    assert_ne!(s.app.font_name(), "a", "none of the file applies");
+    assert_ne!(s.app.font_name(), "b", "the switch is undone");
+}
+
 /// ADR-1201 D11: with nothing switched or zoomed, a session's end returns
 /// nothing: vtium.conf is not read again, and the font stays, though the
 /// file names another now.

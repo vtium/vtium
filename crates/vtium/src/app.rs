@@ -3157,8 +3157,10 @@ impl App {
 
     /// Reads the configuration again with the reader vtium started with,
     /// for its font keys alone (ADR-1201 D11): each report naming a font
-    /// key, or a file that could not be read whole, is logged, and the key
-    /// is dropped as it is at the start. Every other key, its reports and
+    /// key, a file that could not be read whole, or a file the ownership
+    /// check refuses, with why and the command that mends it (ADR-1403
+    /// D3), is logged as the start logs it, and the key is dropped as it
+    /// is at the start. Every other key, its reports and
     /// the count of reports past the most kept wait for the next start.
     /// With no reader, the configuration vtium started with stands.
     fn reread_font_keys(&mut self) {
@@ -3173,7 +3175,10 @@ impl App {
         for r in &loaded.reports {
             let file = matches!(
                 r.problem,
-                Problem::Unreadable(_) | Problem::NotAFile | Problem::FileTooLong
+                Problem::Unreadable(_)
+                    | Problem::NotAFile
+                    | Problem::FileTooLong
+                    | Problem::Untrusted(_)
             );
             if file || r.problem.key().is_some_and(font_key) {
                 crate::warn::warn(r);
