@@ -67,6 +67,16 @@ landlock = "=0.4.7"
 # feature, in this binary only.
 nix = { version = "=0.31.3", default-features = false, features = ["user"] }
 
+# The glyph helper's seccomp filter, which refuses making any socket on
+# every kernel (ADR-1200 D15, the maintainer, 2026-11-04), built the way
+# the image helper builds its worker's filter (ADR-1101 D9): seccompiler
+# builds filters for these three architectures only, so the armv7 helper
+# runs without one; libc names the calls. The versions the image helper
+# already builds.
+[target.'cfg(any(target_arch = "x86_64", target_arch = "aarch64", target_arch = "riscv64"))'.dependencies]
+seccompiler = "=0.5.0"
+libc = "=0.2.191"
+
 [dev-dependencies]
 # A pty for `set`'s and the banner's tests; vtium-platform already builds
 # this version with these features.

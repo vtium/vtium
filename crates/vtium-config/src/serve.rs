@@ -1924,7 +1924,55 @@ fn lock_out() -> Result<bool, String> {
     Ok(status.ruleset != RulesetStatus::NotEnforced)
 }
 
-/// `vtium-config serve`: no-new-privileges, the landlock domain, the
+/// Installs the helper's socket filter on the calling thread and the
+/// threads it starts later (ADR-1200 D15, the maintainer, 2026-11-04): a
+/// seccomp filter under which `socket` and `socketpair` answer EPERM and
+/// every other call goes on as before, so the helper makes no socket of
+/// any kind on any kernel, the UDP and Unix sockets landlock leaves open
+/// included. It is built as the image helper builds its worker's filter
+/// (`vtium-image-helper`'s `sandbox::filter::refuse`). Returns whether the
+/// filter is in force; on 32-bit ARM, which seccompiler builds no filter
+/// for, there is none.
+fn refuse_sockets() -> Result<bool, String> {
+    #[cfg(any(
+        target_arch = "x86_64",
+        target_arch = "aarch64",
+        target_arch = "riscv64"
+    ))]
+    {
+        use seccompiler::{BpfProgram, SeccompAction, SeccompFilter, TargetArch};
+        #[cfg(target_arch = "x86_64")]
+        const ARCH: TargetArch = TargetArch::x86_64;
+        #[cfg(target_arch = "aarch64")]
+        const ARCH: TargetArch = TargetArch::aarch64;
+        #[cfg(target_arch = "riscv64")]
+        const ARCH: TargetArch = TargetArch::riscv64;
+        let rules = [libc::SYS_socket, libc::SYS_socketpair]
+            .into_iter()
+            .map(|n| (n, Vec::new()))
+            .collect();
+        let eperm = u32::try_from(libc::EPERM).unwrap_or(1);
+        let program = SeccompFilter::new(
+            rules,
+            SeccompAction::Allow,
+            SeccompAction::Errno(eperm),
+            ARCH,
+        )
+        .and_then(BpfProgram::try_from)
+        .map_err(|e| format!("the helper cannot build its socket filter: {e}"))?;
+        seccompiler::apply_filter(&program)
+            .map_err(|e| format!("the helper cannot install its socket filter: {e}"))?;
+        Ok(true)
+    }
+    #[cfg(not(any(
+        target_arch = "x86_64",
+        target_arch = "aarch64",
+        target_arch = "riscv64"
+    )))]
+    Ok(false)
+}
+
+/// `vtium-config serve`: no-new-privileges, the socket filter, the landlock domain, the
 /// requests' reader, the limits, then the requests on stdin answered on
 /// stdout until
 /// [`HELPER_IDLE_MS`] passes with none. A failure to sandbox is written as
@@ -1942,8 +1990,12 @@ pub fn command(paths: &Paths) -> u8 {
         );
         return 1;
     }
-    // before the reader's thread starts, which inherits the domain, and
-    // before any font is read
+    // before the reader's thread starts, which inherits the filter and the
+    // domain, and before any font is read
+    if let Err(why) = refuse_sockets() {
+        let _ = failed(&mut out, &why);
+        return 1;
+    }
     if let Err(why) = lock_out() {
         let _ = failed(&mut out, &why);
         return 1;
@@ -3375,6 +3427,43 @@ mod tests {
         );
         // the test's own threads are outside the domain
         assert!(std::fs::write(dir.join("outside"), b"x").is_ok());
+    }
+
+    // the helper's socket filter refuses every new socket on any kernel,
+    // UDP and Unix ones included, which landlock leaves open, and lets
+    // every other call through (ADR-1200 D15, the maintainer, 2026-11-04);
+    // a thread of its own installs it, as the helper's main thread does
+    #[test]
+    fn the_helpers_socket_filter_refuses_every_new_socket() {
+        use std::os::unix::net::{UnixDatagram, UnixStream};
+        let dir = Scratch::new("sockets");
+        let made = std::thread::spawn(move || {
+            if !refuse_sockets().unwrap() {
+                return None;
+            }
+            let read = std::fs::read("/proc/self/status").is_ok();
+            let written = std::fs::write(dir.join("allowed"), b"x").is_ok();
+            Some((
+                read && written,
+                std::net::UdpSocket::bind("127.0.0.1:0").is_ok(),
+                std::net::TcpListener::bind("127.0.0.1:0").is_ok(),
+                UnixDatagram::unbound().is_ok(),
+                UnixStream::pair().is_ok(),
+            ))
+        })
+        .join()
+        .unwrap();
+        let Some((others, udp, tcp, unix, pair)) = made else {
+            eprintln!("skipped: seccompiler builds no filter for this architecture");
+            return;
+        };
+        assert!(others, "a call other than socket refused");
+        assert!(!udp, "a UDP socket made");
+        assert!(!tcp, "a TCP socket made");
+        assert!(!unix, "a Unix socket made");
+        assert!(!pair, "a socket pair made");
+        // the test's own threads are outside the filter
+        assert!(std::net::UdpSocket::bind("127.0.0.1:0").is_ok());
     }
 
     #[test]
