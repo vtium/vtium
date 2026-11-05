@@ -9,10 +9,10 @@
 <text x="20" y="18" font-size="12" fill="#1f2933">vtium-config's flow view, drawn in the console's sixteen colors on its black background (the default palette's values), with rule 5 opened for editing</text>
 <rect x="20" y="26" width="1160" height="642" fill="#000000" stroke="#9aa5b1"/>
 <!-- tab bar -->
-<text x="36" y="48" fill="#e5e5e5">Fonts   Sizes   Settings   Heads</text>
-<rect x="316" y="35" width="48" height="18" fill="#e5e5e5"/>
-<text x="322" y="48" fill="#000000">Flow</text>
-<text x="380" y="48" fill="#e5e5e5">View   Save   Revert   New   Delete draft</text>
+<rect x="30" y="35" width="48" height="18" fill="#e5e5e5"/>
+<text x="36" y="48" fill="#000000">Flow</text>
+<text x="94" y="48" fill="#e5e5e5">Fonts   Settings</text>
+<text x="316" y="48" fill="#e5e5e5">View   Save   Revert   New   Delete draft</text>
 <!-- status line -->
 <text x="36" y="72" fill="#e5e5e5">draft ~/.config/vtium/vtium.conf: 1 line added, 1 removed   no problems</text>
 <!-- the base card, black on light grey -->
