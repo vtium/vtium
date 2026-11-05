@@ -14,7 +14,17 @@
     clippy::todo
 )]
 //! The head file of ADR-1401: `/etc/vtium/heads.conf`, its policy, its
-//! heads and its first-match ruleset.
+//! heads and its first-match ruleset; and vtium.conf as one file holding
+//! the whole flow of ADR-1403, its top level and its sections.
+//!
+//! [`split`] divides vtium.conf at its first section heading into the top
+//! level, vtium's own keys, and the sections, which [`sections`] reads the
+//! strict way the head file is read, `[look NAME]` among them, with the
+//! whole file's line numbers. [`complete_route`] says whether a
+//! configuration wires a display present to a head a keyboard present
+//! reaches. [`set_key`], [`add_section`], [`add_rule`], [`set_rule`],
+//! [`move_rule`] and [`remove_rule`] are the section writer, and
+//! [`placement`] says where a new rule goes.
 //!
 //! [`inspect`] and [`read`] take the file from disk with the ownership
 //! check (a regular file owned by root and writable by no one else, in
@@ -32,10 +42,9 @@
 //! be in: missing, untrusted, valid, partly broken or broken. [`set_profile`]
 //! is the file's one writer, which sets a head's profile and keeps every
 //! other byte (ADR-1201 D6), and [`install_file`] replaces a configuration
-//! file in one rename. [`edit_conf`] edits vtium.conf line by line, keeping
-//! every byte a change does not need (ADR-1201 D5), and [`split_line`] is
-//! the one reading of a vtium.conf line, which the console's reader and
-//! the editor share. [`keys`] is the table of every key vtium.conf and the
+//! file in one rename. [`edit_conf`] edits vtium.conf's top level line by
+//! line, keeping every byte a change does not need (ADR-1201 D5), and
+//! [`key_line`] reads one top-level line by vtium.conf's one comment rule. [`keys`] is the table of every key vtium.conf and the
 //! console's command line take, with its type, default, bound and
 //! description, which the console reads its configuration by and
 //! vtium-config shows (ADR-1201 D1).
@@ -62,17 +71,21 @@ mod messages;
 mod outcome;
 mod parse;
 mod place;
+mod route;
+mod split;
 mod write;
 
 pub use bounds::{
     CONSOLES_MAX, CONSOLES_TOTAL_DEFAULT, ERRORS_MAX, FILE_MAX, HEAD_CONSOLES_DEFAULT, HEADS_MAX,
-    LINE_MAX, NAME_MAX, QUOTE_MAX, RULES_MAX, TOKENS_MAX,
+    LINE_MAX, LOOKS_MAX, NAME_MAX, QUOTE_MAX, RULES_MAX, TOKENS_MAX,
 };
-pub use conf::{ConfEdit, Edit, edit_conf, setting, split_line, switch};
-pub use config::{Config, Font, Head, Rule, TEMPLATE, Target, WhenDisplayLost};
+pub use conf::{ConfEdit, Edit, KeyLine, edit_conf, key_line, setting, split_line, switch};
+pub use config::{
+    Config, Font, Head, Look, Rule, Setting, TEMPLATE, Target, WhenDisplayLost, value_for,
+};
 pub use error::{
-    At, AtStart, Drops, Error, Fate, Note, PolicyFault, Problem, Quoted, Rejected, Remark, Renamed,
-    Shown, Stating, Syntax, Warning, at,
+    At, AtStart, Drops, Error, Fate, Mend, Note, PolicyFault, Problem, Quoted, Refusal, Rejected,
+    Remark, Renamed, Shown, Stating, Syntax, Warning, at,
 };
 pub use file::{HEAD_FILE, Inspected, Trust, Untrusted, inspect, read, text};
 pub use findings::{Against, remarks, warnings};
@@ -82,6 +95,11 @@ pub use outcome::{
     DisplayWait, Fallback, Kept, Line, Lit, Outcome, Policy, PolicyLine, Read, Rescue, Rest, Runs,
     Scope, Stated, Switch, SwitchKey, Trusted, Unplaced, Within, resolve, scope,
 };
-pub use parse::{Parsed, Reading, parse, reading};
+pub use parse::{Parsed, Reading, parse, parse_sections, reading, sections};
 pub use place::{By, Disposition, Lockout, Place, Placed, Placement, rule_for};
-pub use write::{ProfileEdit, install_file, set_profile};
+pub use route::{Judged, Missing, Route, complete_route};
+pub use split::{Split, split};
+pub use write::{
+    Of, ProfileEdit, SectionEdit, add_rule, add_section, install_file, move_rule, placement,
+    remove_rule, set_key, set_profile, set_rule,
+};

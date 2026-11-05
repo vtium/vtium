@@ -1,0 +1,34 @@
+# The section reader's and the split's fuzz targets, run with cargo-fuzz on
+# nightly:
+#   cargo +nightly fuzz run reading
+#   cargo +nightly fuzz run split
+# Its own workspace, so the main workspace and CI do not build it.
+[package]
+name = "vtium-settings-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+vtium-settings = { path = ".." }
+
+[[bin]]
+name = "reading"
+path = "fuzz_targets/reading.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "split"
+path = "fuzz_targets/split.rs"
+test = false
+doc = false
+bench = false
+
+[workspace]
+members = ["."]

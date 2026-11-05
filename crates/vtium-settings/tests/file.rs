@@ -372,3 +372,84 @@ fn each_link_of_a_symlink_chain_sits_in_a_directory_that_passes() {
         "{p:?}"
     );
 }
+
+// ADR-1403 D3: an unprivileged vtium also reads a vtium.conf its own
+// effective user owns, under the same check of who else can write it, and
+// still reads root's.
+#[test]
+fn a_vtium_that_runs_as_a_user_reads_that_user_s_file_too() {
+    let dir = fixture("running-as");
+    let file = dir.join("vtium.conf");
+    write(&file, "version = 1\n", 0o644);
+    let uid = fs::metadata(&dir).expect("the fixture").uid();
+    let trust = Trust::running_as(uid).below(&dir);
+    assert_eq!(
+        read(&file, &trust).expect("its own file"),
+        Some("version = 1\n".to_owned())
+    );
+    fs::set_permissions(&file, fs::Permissions::from_mode(0o664)).expect("mode");
+    assert!(matches!(
+        problem(read(&file, &trust)),
+        Problem::Untrusted(Untrusted::Writable { .. })
+    ));
+    // another user's file is still refused, and root is the default
+    assert!(matches!(
+        problem(read(
+            &file,
+            &Trust::running_as(uid.wrapping_add(1)).below(&dir)
+        )),
+        Problem::Untrusted(Untrusted::Owner { .. })
+    ));
+    assert_eq!(Trust::running_as(0), Trust::ROOT);
+    let root_file = Path::new("/etc/passwd");
+    assert!(
+        inspect(root_file, &Trust::running_as(uid))
+            .expect("readable")
+            .expect("present")
+            .trusted
+            .is_ok(),
+        "root's file passes for an unprivileged vtium"
+    );
+}
+
+// ADR-1403 D3: the log and `vtium check-config` say why vtium does not read
+// vtium.conf, with the command that mends the path that fails.
+#[test]
+fn a_refusal_names_the_command_that_mends_the_path() {
+    let dir = fixture("mend");
+    let file = dir.join("vtium.conf");
+    write(&file, "version = 1\n", 0o666);
+    let uid = fs::metadata(&dir).expect("the fixture").uid();
+    let why = |trust: &Trust| match problem(read(&file, trust)) {
+        Problem::Untrusted(why) => why,
+        other => panic!("{other:?}"),
+    };
+    let shown = file.display();
+    let writable = why(&me(&dir));
+    assert_eq!(writable.mend().to_string(), format!("chmod go-w {shown}"));
+    assert_eq!(
+        writable.refusal().to_string(),
+        format!(
+            "vtium does not read this file, because \"{shown}\" can be changed by its group or by other users (mode 666), so it runs its compiled-in configuration. Run `chmod go-w {shown}` so that only its owner can change it."
+        )
+    );
+    fs::set_permissions(&file, fs::Permissions::from_mode(0o644)).expect("mode");
+    let owner = why(&Trust::ROOT);
+    assert_eq!(owner.mend().to_string(), format!("chown root:root {shown}"));
+    assert_eq!(
+        owner.refusal().to_string(),
+        format!(
+            "vtium does not read this file, because \"{shown}\" belongs to user {uid} and not to root, so it runs its compiled-in configuration. Run `chown root:root {shown}` to make root its owner."
+        )
+    );
+    // a path a shell would split is quoted
+    let odd = dir.join("my conf");
+    write(&odd, "", 0o666);
+    let Problem::Untrusted(why) = problem(read(&odd, &me(&dir))) else {
+        panic!("trusted");
+    };
+    assert_eq!(
+        why.mend().to_string(),
+        format!("chmod go-w '{}'", odd.display())
+    );
+}

@@ -1,9 +1,10 @@
-//! vtium.conf edited line by line (ADR-1201 D5): only the lines a change
-//! needs move, and every other byte stays.
+//! vtium.conf's top level read and edited line by line (ADR-1201 D5,
+//! ADR-1403 D8): only the lines a change needs move, every other byte
+//! stays, and no reader or edit reaches past the first section heading.
 
 use std::path::Path;
 
-use vtium_settings::{ConfEdit, Edit, edit_conf, setting, split_line, switch};
+use vtium_settings::{ConfEdit, Edit, edit_conf, key_line, setting, split_line, switch};
 
 fn example() -> String {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../vtium/install/vtium.conf.example");
@@ -153,7 +154,21 @@ fn setting_reads_the_value_vtium_takes() {
 
 #[test]
 fn a_value_vtium_would_read_back_otherwise_is_refused() {
-    for bad in ["a#b", "two\nlines", " lead", "trail ", "", "nul\0"] {
+    // a `#` glued inside a value is part of it (ADR-1403 D4), and one
+    // after a blank starts a comment
+    assert_eq!(
+        edit_conf("", &[Edit::Set("font-name", "a#b")]).expect("the edit"),
+        "font-name=a#b\n"
+    );
+    for bad in [
+        "a #b",
+        "a \\#b",
+        "two\nlines",
+        " lead",
+        "trail ",
+        "",
+        "nul\0",
+    ] {
         match edit_conf("", &[Edit::Set("font-name", bad)]) {
             Err(ConfEdit::BadValue { key, value }) => {
                 assert_eq!((key.as_str(), value.as_str()), ("font-name", bad));
@@ -207,4 +222,137 @@ fn a_line_splits_into_its_key_and_value_as_the_console_reads_it() {
     assert_eq!(split("=x"), pair("", Some("x")));
     assert_eq!(split("  # a comment"), None);
     assert_eq!(split(""), None);
+}
+
+/// A vtium.conf with sections, whose look sets keys of the top level's
+/// names (ADR-1403 D4).
+const SECTIONS: &str = "\
+# the desk
+font-size=12
+#xkb-layout=us
+version = 1
+
+# the looks
+[look big]
+font-size = 14
+#font-name = monoid
+bell
+[rules]
+input * -> roaming
+";
+
+// ADR-1403 D8: every reader of the top level stops at the first heading,
+// so a look's `font-size = 14` is never the top level's.
+#[test]
+fn a_reader_of_the_top_level_never_takes_a_section_s_line() {
+    assert_eq!(setting(SECTIONS, "font-size"), Some("12".to_owned()));
+    assert_eq!(setting(SECTIONS, "font-name"), None);
+    assert_eq!(switch(SECTIONS, "bell"), None);
+    assert_eq!(switch("no-bell\n[head x]\nbell\n", "bell"), Some(false));
+}
+
+// ADR-1403 D8: a new key goes after the top level's last line that holds
+// a key, never at the end of the file, where it would land in `[rules]`.
+#[test]
+fn a_new_key_in_a_file_with_sections_stays_in_the_top_level() {
+    let out = edit_conf(SECTIONS, &[Edit::Set("sb-size", "100")]).expect("the edit");
+    assert_eq!(
+        changed(SECTIONS, &out).first().map(|c| (c.0, c.2.clone())),
+        Some((5, "sb-size=100\n".to_owned()))
+    );
+    assert_eq!(
+        out,
+        SECTIONS.replace("version = 1\n", "version = 1\nsb-size=100\n")
+    );
+    // a commented line counts only at the top level
+    let out = edit_conf(SECTIONS, &[Edit::Set("font-name", "tiny5")]).expect("the edit");
+    assert_eq!(
+        out,
+        SECTIONS.replace("version = 1\n", "version = 1\nfont-name=tiny5\n")
+    );
+    let out = edit_conf(SECTIONS, &[Edit::Set("xkb-layout", "de")]).expect("the edit");
+    assert_eq!(
+        out,
+        SECTIONS.replace("#xkb-layout=us\n", "#xkb-layout=us\nxkb-layout=de\n")
+    );
+    // with no key line above the heading, the key goes just before it
+    assert_eq!(
+        edit_conf("# only a comment\n[rules]\n", &[Edit::Set("bell", "x")]).expect("the edit"),
+        "# only a comment\nbell=x\n[rules]\n"
+    );
+    assert_eq!(
+        edit_conf("[rules]\n", &[Edit::Switch("bell", true)]).expect("the edit"),
+        "bell\n[rules]\n"
+    );
+}
+
+#[test]
+fn a_set_or_unset_key_changes_the_top_level_s_line_alone() {
+    let out = edit_conf(SECTIONS, &[Edit::Set("font-size", "16")]).expect("the edit");
+    assert_eq!(
+        changed(SECTIONS, &out),
+        [(2, "font-size=12\n".to_owned(), "font-size=16\n".to_owned())]
+    );
+    let out = edit_conf(SECTIONS, &[Edit::Unset("font-size")]).expect("the edit");
+    assert_eq!(
+        changed(SECTIONS, &out),
+        [(2, "font-size=12\n".to_owned(), "#font-size=12\n".to_owned())]
+    );
+    let out = edit_conf(SECTIONS, &[Edit::Switch("bell", false)]).expect("the edit");
+    assert_eq!(
+        out,
+        SECTIONS.replace("version = 1\n", "version = 1\nno-bell\n")
+    );
+}
+
+// ADR-1403 D4: a `#` glued to a value stays in it, a departure from the
+// C reference, which read `font-size=12#big` as 12.
+#[test]
+fn a_hash_glued_to_a_value_stays_in_the_value() {
+    assert_eq!(
+        setting("font-size=12#big\n", "font-size"),
+        Some("12#big".to_owned())
+    );
+    assert_eq!(
+        setting("font-size=12 #big\n", "font-size"),
+        Some("12".to_owned())
+    );
+    assert_eq!(
+        setting("login = a \\#b # c\n", "login"),
+        Some("a #b".to_owned())
+    );
+    let read = key_line(b"font-size=12#big").expect("a key line");
+    assert_eq!(read.value.as_deref(), Some(&b"12#big"[..]));
+}
+
+// The fuzz target's find: a key added before a first line that opens with
+// a byte-order mark takes the mark, so the heading behind it stays one.
+#[test]
+fn a_key_added_before_the_first_line_keeps_the_byte_order_mark_first() {
+    let text = "\u{feff}[rules]\ninput * -> roaming\n";
+    let out = edit_conf(text, &[Edit::Set("font-size", "12")]).expect("the edit");
+    assert_eq!(out, "\u{feff}font-size=12\n[rules]\ninput * -> roaming\n");
+}
+
+// A byte-order mark is no part of the first line's key, for the readers
+// and the editor alike, as the split reads it.
+#[test]
+fn a_byte_order_mark_is_no_part_of_the_first_key() {
+    let text = "\u{feff}font-size=3\nbell\n";
+    assert_eq!(setting(text, "font-size"), Some("3".to_owned()));
+    assert_eq!(switch("\u{feff}no-bell\n", "bell"), Some(false));
+    assert_eq!(
+        edit_conf(text, &[Edit::Set("font-size", "12")]).expect("the edit"),
+        "\u{feff}font-size=12\nbell\n"
+    );
+}
+
+// The fuzz target's find: an empty value before a comment gains a blank
+// with its new value, so the comment's `#` stays a comment.
+#[test]
+fn a_value_set_before_a_comment_keeps_the_comment_a_comment() {
+    let out =
+        edit_conf(" font-size=   # big\n", &[Edit::Set("font-size", "12")]).expect("the edit");
+    assert_eq!(out, " font-size=   12 # big\n");
+    assert_eq!(setting(&out, "font-size"), Some("12".to_owned()));
 }

@@ -36,8 +36,8 @@ const LINE: Bound = Bound {
 const NAME: Bound = Bound {
     name: "NAME_MAX",
     value: 64,
-    what: "Characters of a head's or a profile's name, each of `A-Z a-z 0-9 . _ + -`",
-    past: "The head is dropped, with every rule naming it, the line named",
+    what: "Characters of a head's, a profile's or a look's name, each of `A-Z a-z 0-9 . _ + -`",
+    past: "The head is dropped, with every rule naming it, or the look is, the line named",
     cite: "ADR-1401 D3",
 };
 
@@ -47,6 +47,14 @@ const HEADS: Bound = Bound {
     what: "Heads a file declares",
     past: "The file is dropped whole but for its `policy` lines, the first head past it named",
     cite: "vtium's own: a head a display, with room for a machine of many outputs",
+};
+
+const LOOKS: Bound = Bound {
+    name: "LOOKS_MAX",
+    value: 32,
+    what: "Looks vtium.conf declares, each a `[look NAME]` section",
+    past: "Every section is dropped but for the `policy` lines, the first look past it named",
+    cite: "vtium's own: a look for each of `HEADS_MAX` heads, and as many again that no head uses yet",
 };
 
 const RULES: Bound = Bound {
@@ -91,8 +99,8 @@ const QUOTE: Bound = Bound {
 
 /// Every bound, in the README table's order.
 #[cfg_attr(not(test), allow(dead_code))]
-pub(crate) const BOUNDS: [Bound; 9] = [
-    FILE, LINE, NAME, HEADS, RULES, TOKENS, CONSOLES, ERRORS, QUOTE,
+pub(crate) const BOUNDS: [Bound; 10] = [
+    FILE, LINE, NAME, HEADS, LOOKS, RULES, TOKENS, CONSOLES, ERRORS, QUOTE,
 ];
 
 /// Bytes of a head file; a larger file is dropped whole but for its
@@ -105,11 +113,14 @@ pub const FILE_MAX: usize = FILE.value as usize;
 /// breaks it.
 pub const LINE_MAX: usize = LINE.value as usize;
 
-/// Characters of a head's or a profile's name.
+/// Characters of a head's, a profile's or a look's name.
 pub const NAME_MAX: usize = NAME.value as usize;
 
 /// Heads a file declares.
 pub const HEADS_MAX: usize = HEADS.value as usize;
+
+/// Looks vtium.conf declares.
+pub const LOOKS_MAX: usize = LOOKS.value as usize;
 
 /// Rules a file holds.
 pub const RULES_MAX: usize = RULES.value as usize;
