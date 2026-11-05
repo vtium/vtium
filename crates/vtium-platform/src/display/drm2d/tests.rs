@@ -1410,6 +1410,66 @@ fn the_event_of_a_display_let_go_ends_no_later_flip() {
     assert!(lends(&mut v, B));
 }
 
+// A flip's event that a display let go never gets is not waited for past
+// the flip's bound. Here A's frame is in flight when A is unplugged and B
+// plugged in, and A's event is lost. Once the bound on it runs out, the
+// next event on CRTC 100 is B's own, and ends B's flip.
+#[test]
+fn a_lost_event_of_a_display_let_go_ends_no_later_flip_past_its_bound() {
+    let card = reaching(&[0b1, 0b1], 1);
+    let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    frame(&mut v, &[DOT]).unwrap();
+    {
+        let mut s = v.card().state();
+        // The event is lost: the card forgets it.
+        s.pending.clear();
+        s.listed.retain(|&c| c != A);
+        s.connectors.remove(&A);
+        s.listed.push(B);
+    }
+    v.poll().unwrap();
+    assert!(v.is_flipping(DisplayId(B)), "B's modeset flips");
+    v.stale_expired(100);
+    flip(&mut v);
+    assert!(!v.is_flipping(DisplayId(B)), "B's own event ends its flip");
+    assert!(lends(&mut v, B));
+}
+
+// A connector vtium cannot read that is on a CRTC a display takes is
+// warned of, as the card may refuse the commit that leaves it there. Here
+// B, which is disconnected, is on CRTC 100 beside A, which their encoders
+// can clone, and B's properties cannot be read, so vtium cannot take it off.
+#[test]
+fn an_unreadable_connector_on_a_displays_crtc_is_warned_of() {
+    let card = FakeCard::new(&[
+        (A, vec![mode(640, 480, 60, true)]),
+        (B, vec![mode(640, 480, 60, true)]),
+    ]);
+    {
+        let mut s = card.state();
+        s.connectors.get_mut(&B).unwrap().connected = false;
+        s.encoders.get_mut(&200).unwrap().possible_crtcs = 0b11;
+        s.encoders.get_mut(&201).unwrap().possible_crtcs = 0b11;
+        s.clones.push((200, 201));
+    }
+    let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    v.sleep();
+    flip(&mut v);
+    v.events().for_each(drop);
+    desktop_leaves(v.card(), A, 100);
+    v.card().state().bind(B, 100);
+    v.card().state().unreadable.push(B);
+    logs::capture();
+    v.wake_up().unwrap();
+    let warned = logs::at_least(Level::Warn);
+    assert!(
+        warned
+            .iter()
+            .any(|l| l.contains("cannot take connector 42 off CRTC 100")),
+        "{warned:?}"
+    );
+}
+
 // A display that moves to a CRTC with no cursor plane gives its pointer
 // image up, so the owner draws the pointer itself.
 #[test]

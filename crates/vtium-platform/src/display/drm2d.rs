@@ -25,6 +25,7 @@ use std::cell::RefCell;
 use std::io;
 use std::sync::Arc;
 
+use calloop::RegistrationToken;
 use drm_ffi::{
     DRM_CAP_CURSOR_HEIGHT, DRM_CAP_CURSOR_WIDTH, DRM_CAP_DUMB_BUFFER, DRM_CLIENT_CAP_ATOMIC,
     DRM_CLIENT_CAP_CURSOR_PLANE_HOTSPOT, DRM_CLIENT_CAP_UNIVERSAL_PLANES,
@@ -173,11 +174,15 @@ pub struct Drm2d<K: Kms, S: Source<K> = Dumbs> {
     /// light.
     move_refused: Vec<u32>,
     /// The CRTCs that owe the event of a flip whose display was let go while
-    /// the flip was in flight, one entry for each such flip. A display that
-    /// takes such a CRTC must not take that event as its own flip's, which
-    /// the kernel completes after it (`stall_checks`), so the event is
-    /// dropped when it comes.
-    stale: Vec<u32>,
+    /// the flip was in flight, one entry for each such flip, oldest first,
+    /// each with the timer that ends it. A display that takes such a CRTC
+    /// must not take that event as its own flip's, which the kernel
+    /// completes after it (`stall_checks`), so the event is dropped when it
+    /// comes. An event that never comes, as a driver loses one, would make
+    /// the entry drop the next display's event instead, so the entry ends
+    /// after [`crate::FLIP_WAIT_MS`], the bound the flip had
+    /// ([`Self::stale_expired`]).
+    stale: Vec<(u32, Option<RegistrationToken>)>,
     /// The connectors whose color properties the card refused at a
     /// modeset, each logged once as a warning.
     color_refused: RefCell<Vec<String>>,
@@ -1126,8 +1131,11 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     /// the vblank's event wakes. The event of a flip whose display was let
     /// go while it was in flight is dropped ([`Self::stale`]).
     fn flipped(&mut self, crtc: u32, frame: bool) {
-        if let Some(at) = self.stale.iter().position(|&c| c == crtc) {
-            self.stale.remove(at);
+        if let Some(at) = self.stale.iter().position(|&(c, _)| c == crtc) {
+            let (_, timer) = self.stale.remove(at);
+            if let (Some(link), Some(t)) = (&self.link, timer) {
+                link.disarm(t);
+            }
             log::debug!("the event on CRTC {crtc} is the flip of a display let go");
             return;
         }
@@ -1191,6 +1199,16 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         self.flipped(crtc, frame);
         self.resolve();
         self.settle();
+    }
+
+    /// The bound on the oldest entry for `crtc` in [`Self::stale`] ran out:
+    /// its event is taken as lost, and the next event on `crtc` is a
+    /// display's own.
+    pub(crate) fn stale_expired(&mut self, crtc: u32) {
+        if let Some(at) = self.stale.iter().position(|&(c, _)| c == crtc) {
+            self.stale.remove(at);
+            log::debug!("no event on CRTC {crtc} for the flip of a display let go");
+        }
     }
 
     /// The index of the display that an event or a bound on `crtc` belongs
@@ -2453,13 +2471,17 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
 
     /// Frees display `o`'s buffers, cursor and mode. Where a flip of its
     /// own is in flight, the CRTC it was committed on owes an event that no
-    /// display waits for ([`Self::stale`]).
+    /// display waits for, bounded by a timer of its own ([`Self::stale`]).
     fn free(&mut self, mut o: Output<S::Memory>) {
         if let (Some(link), Some((t, _))) = (&self.link, o.flip_timer.take()) {
             link.disarm(t);
         }
         if o.flipping {
-            self.stale.push(o.flip_crtc);
+            let timer = self
+                .link
+                .as_ref()
+                .and_then(|l| l.arm(Clock::Stale(o.flip_crtc)));
+            self.stale.push((o.flip_crtc, timer));
         }
         self.free_buffers(&mut o);
         drop_cursor(&self.card, &mut o);
@@ -3078,6 +3100,11 @@ impl<K: Kms, S: Source<K>> Drop for Drm2d<K, S> {
         }
         for o in std::mem::take(&mut self.outputs) {
             self.free(o);
+        }
+        for (_, timer) in std::mem::take(&mut self.stale) {
+            if let (Some(link), Some(t)) = (&self.link, timer) {
+                link.disarm(t);
+            }
         }
     }
 }
