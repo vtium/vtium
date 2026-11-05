@@ -1,5 +1,5 @@
 #![forbid(unsafe_code)]
-// The head file is untrusted input as far as its parser goes (ADR-1401
+// vtium.conf is untrusted input as far as its parser goes (ADR-1401
 // D10): nothing in it can panic the console that reads it.
 #![deny(
     clippy::arithmetic_side_effects,
@@ -13,13 +13,13 @@
     clippy::unreachable,
     clippy::todo
 )]
-//! The head file of ADR-1401: `/etc/vtium/heads.conf`, its policy, its
-//! heads and its first-match ruleset; and vtium.conf as one file holding
-//! the whole flow of ADR-1403, its top level and its sections.
+//! vtium.conf as one file holding the whole flow of ADR-1403, its top
+//! level and its sections: the heads of ADR-1401, their looks, the policy
+//! and the first-match ruleset.
 //!
 //! [`split`] divides vtium.conf at its first section heading into the top
 //! level, vtium's own keys, and the sections, which [`sections`] reads the
-//! strict way the head file is read, `[look NAME]` among them, with the
+//! strict way of ADR-1401 D7, `[look NAME]` among them, with the
 //! whole file's line numbers. [`complete_route`] says whether a
 //! configuration wires a display present to a head a keyboard present
 //! reaches. [`set_key`], [`add_section`], [`add_rule`], [`set_rule`],
@@ -39,10 +39,8 @@
 //! places a set of devices and runs the guards over the result.
 //! [`Config::builtin`] is the compiled-in configuration, the parse of
 //! [`TEMPLATE`]. [`resolve`] decides what runs for each state the file can
-//! be in: missing, untrusted, valid, partly broken or broken. [`set_profile`]
-//! is the file's one writer, which sets a head's profile and keeps every
-//! other byte (ADR-1201 D6), and [`install_file`] replaces a configuration
-//! file in one rename. [`edit_conf`] edits vtium.conf's top level line by
+//! be in: missing, untrusted, valid, partly broken or broken, and
+//! [`install_file`] replaces a configuration file in one rename. [`edit_conf`] edits vtium.conf's top level line by
 //! line, keeping every byte a change does not need (ADR-1201 D5), and
 //! [`key_line`] reads one top-level line by vtium.conf's one comment rule. [`keys`] is the table of every key vtium.conf and the
 //! console's command line take, with its type, default, bound and
@@ -79,15 +77,13 @@ pub use bounds::{
     CONSOLES_MAX, CONSOLES_TOTAL_DEFAULT, ERRORS_MAX, FILE_MAX, HEAD_CONSOLES_DEFAULT, HEADS_MAX,
     LINE_MAX, LOOKS_MAX, NAME_MAX, QUOTE_MAX, RULES_MAX, TOKENS_MAX,
 };
-pub use conf::{ConfEdit, Edit, KeyLine, edit_conf, key_line, setting, split_line, switch};
-pub use config::{
-    Config, Font, Head, Look, Rule, Setting, TEMPLATE, Target, WhenDisplayLost, value_for,
-};
+pub use conf::{ConfEdit, Edit, KeyLine, edit_conf, key_line, setting, switch};
+pub use config::{Config, Head, Look, Rule, Setting, TEMPLATE, Target, WhenDisplayLost, value_for};
 pub use error::{
     At, AtStart, Drops, Error, Fate, Mend, Note, PolicyFault, Problem, Quoted, Refusal, Rejected,
     Remark, Renamed, Shown, Stating, Syntax, Warning, at,
 };
-pub use file::{HEAD_FILE, Inspected, Trust, Untrusted, inspect, read, text};
+pub use file::{CONF_FILE, Inspected, Trust, Untrusted, inspect, read, text};
 pub use findings::{Against, remarks, warnings};
 pub use identity::{Class, Classes, Edid, Identity, Kind, UsbSerial};
 pub use matching::{Match, Token, glob};
@@ -100,6 +96,6 @@ pub use place::{By, Disposition, Lockout, Place, Placed, Placement, rule_for};
 pub use route::{Judged, Missing, Route, complete_route};
 pub use split::{Split, split};
 pub use write::{
-    Of, ProfileEdit, SectionEdit, add_rule, add_section, install_file, move_rule, placement,
-    remove_rule, set_key, set_profile, set_rule,
+    Of, SectionEdit, add_rule, add_section, install_file, move_rule, placement, remove_rule,
+    set_key, set_rule,
 };

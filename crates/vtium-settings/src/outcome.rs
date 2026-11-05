@@ -575,8 +575,7 @@ pub fn scope(problem: &Problem, within: Within) -> Result<Scope, Read> {
         | Problem::TooManyLooks
         | Problem::TooManyRules => Some(Scope::File),
         // a second section of a head's or a look's name is dropped, and the first stays
-        Problem::UnknownSection(_)
-        | Problem::NotASection(_)
+        Problem::NotASection(_)
         | Problem::DuplicateSection(_)
         | Problem::DuplicateHead(_)
         | Problem::DuplicateLook(_)

@@ -1,5 +1,5 @@
 //! `vtium check-config` run as the operator runs it: the binary, on a
-//! configuration directory of its own and a head file of its own, given
+//! configuration directory of its own and a vtium.conf of its own, given
 //! as the candidate, so no test reads the machine's `/etc/vtium`.
 
 use std::path::{Path, PathBuf};
@@ -9,24 +9,29 @@ use std::process::{Command, Output};
 mod scratch;
 use scratch::Scratch;
 
-/// A head file that checks clean, but for the notes outside the status.
-const CLEAN_HEADS: &str =
+/// The sections of a vtium.conf that check clean, but for the notes
+/// outside the status, which follow a test's own keys.
+const CLEAN_SECTIONS: &str =
     "version = 1\n[head console]\n[rules]\ndisplay * -> console\ninput * -> roaming\n";
 
+/// A directory whose vtium.conf holds the keys `conf` and the clean
+/// sections below them.
 fn dir(name: &str, conf: &str) -> Scratch {
     let d = Scratch::new(&format!("check-{name}"));
-    std::fs::write(d.join("vtium.conf"), conf).expect("a configuration");
-    std::fs::write(d.join("heads.conf"), CLEAN_HEADS).expect("a head file");
+    std::fs::write(d.join("vtium.conf"), format!("{conf}{CLEAN_SECTIONS}"))
+        .expect("a configuration");
     d
 }
 
-/// `vtium check-config -c DIR DIR/heads.conf`, then `extra`.
+/// `vtium check-config -c DIR/etc DIR/vtium.conf`, then `extra`: the
+/// candidate DIR/vtium.conf, whose ownership the check notes and does not
+/// count, beside a configuration directory with no vtium.conf installed.
 fn check(dir: &Path, extra: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_vtium"))
         .arg("check-config")
         .arg("-c")
-        .arg(dir)
-        .arg(dir.join("heads.conf"))
+        .arg(dir.join("etc"))
+        .arg(dir.join("vtium.conf"))
         .args(extra)
         .output()
         .expect("vtium runs")
@@ -68,7 +73,8 @@ fn each_warning_is_printed_and_it_exits_one() {
 
 // vtium reads font-frits the same way whatever directory it starts in, so
 // a relative or an empty one is reported with its file, line and key, and
-// ignored, as the start reads it.
+// ignored, as the start reads it; a seat file beside vtium.conf is never
+// read (ADR-1403 D2)
 #[test]
 fn a_relative_or_empty_font_frits_is_reported_and_it_exits_one() {
     let d = dir("frits", "font-frits=fonts\nfont-frits=\n");
@@ -77,7 +83,7 @@ fn a_relative_or_empty_font_frits_is_reported_and_it_exits_one() {
     assert_eq!(out.status.code(), Some(1));
     let err = String::from_utf8_lossy(&out.stderr);
     let lines: Vec<&str> = err.lines().collect();
-    assert_eq!(lines.len(), 3, "{err}");
+    assert_eq!(lines.len(), 2, "{err}");
     let why = "an absolute path is needed, one that starts with /, ignored";
     assert!(
         lines[0].ends_with(&format!("vtium.conf:1: font-frits=\"fonts\": {why}")),
@@ -85,10 +91,6 @@ fn a_relative_or_empty_font_frits_is_reported_and_it_exits_one() {
     );
     assert!(
         lines[1].ends_with(&format!("vtium.conf:2: font-frits=\"\": {why}")),
-        "{err}"
-    );
-    assert!(
-        lines[2].ends_with(&format!("seat0.seat.conf:1: font-frits=\"./fonts\": {why}")),
         "{err}"
     );
     // An absolute path checks clean.
@@ -173,7 +175,6 @@ fn it_opens_nothing_under_dev_and_writes_nothing() {
     let calls = calls(&trace);
     let opened = opened(&calls);
     assert!(opened.iter().any(|p| p.ends_with("vtium.conf")), "{trace}");
-    assert!(opened.iter().any(|p| p.ends_with("heads.conf")), "{trace}");
     assert!(
         calls.iter().any(|(_, path, _)| path.starts_with("/sys/")),
         "the devices are read from /sys: {trace}"
@@ -218,7 +219,7 @@ fn help_lists_no_device() {
     }
 }
 
-/// The trace of `vtium check-config -c DIR DIR/heads.conf`, then `extra`,
+/// The trace of `vtium check-config -c DIR/etc DIR/vtium.conf`, then `extra`,
 /// of the syscalls that name a file and of [`WRITES`]; `None`, saying
 /// why, where strace is not installed, or where it traced qemu-user
 /// (tools/arm), whose opens of the target's files carry the
@@ -233,8 +234,8 @@ fn traced(d: &Path, extra: &[&str]) -> Option<String> {
         .arg(format!("trace=%file,{}", WRITES.join(",")))
         .arg(env!("CARGO_BIN_EXE_vtium"))
         .args(["check-config", "-c"])
-        .arg(d)
-        .arg(d.join("heads.conf"))
+        .arg(d.join("etc"))
+        .arg(d.join("vtium.conf"))
         .args(extra)
         .output()
         .expect("strace runs");
@@ -290,12 +291,13 @@ fn check_config_after_the_options_still_checks() {
     assert_eq!(String::from_utf8_lossy(&out.stdout), "");
 }
 
-/// A head file in a directory of its own, as a candidate is checked
-/// before it is installed (ADR-1401 D7), in place of the clean one.
+/// A vtium.conf of sections alone in a directory of its own, as a
+/// candidate is checked before it is installed (ADR-1401 D7), in place of
+/// the clean one.
 fn head_file(name: &str, text: &str) -> (Scratch, PathBuf) {
     let d = dir(name, "");
-    let file = d.join("heads.conf");
-    std::fs::write(&file, text).expect("a head file");
+    let file = d.join("vtium.conf");
+    std::fs::write(&file, text).expect("a vtium.conf");
     (d, file)
 }
 
@@ -307,7 +309,7 @@ fn check_config_lists_each_planted_head_file_error_with_its_line_and_exits_1() {
         "planted",
         "version = 1\n\
          [head desk]\n\
-         profile = desk\n\
+         consoles = 2\n\
          frob = 1\n\
          [head desk]\n\
          [rules]\n\
@@ -385,7 +387,9 @@ fn each_error_says_what_it_drops_and_the_outcome_follows() {
          input name:Foo -> nosuch
 ",
     );
-    let out = check(&d, &[]);
+    // judged by the rules alone, so the route's message names no device
+    // of the machine the test runs on
+    let out = check(&d, &["--no-devices"]);
     assert_eq!(out.status.code(), Some(1));
     let f = file.display();
     let err = String::from_utf8_lossy(&out.stderr);
@@ -402,6 +406,11 @@ fn each_error_says_what_it_drops_and_the_outcome_follows() {
             ),
             format!(
                 "{f}:9: For this error vtium drops this rule alone, and a device walks on to the next rule."
+            ),
+            // ADR-1403 D3: what survives sends no keyboard to desk, which
+            // the closed policy isolates
+            format!(
+                "{f}: Head \"desk\" takes displays by rule 1, but no input rule sends keyboards to \"desk\" or to `roaming`: add an input rule that sends a keyboard to \"desk\" or to `roaming`."
             ),
         ],
         "{err}"

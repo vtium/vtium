@@ -4,7 +4,7 @@
 
 use std::path::Path;
 
-use vtium_settings::{ConfEdit, Edit, edit_conf, key_line, setting, split_line, switch};
+use vtium_settings::{ConfEdit, Edit, edit_conf, key_line, setting, switch};
 
 fn example() -> String {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../vtium/install/vtium.conf.example");
@@ -201,10 +201,10 @@ fn switch_reads_the_last_line_that_sets_it() {
 #[test]
 fn a_line_splits_into_its_key_and_value_as_the_console_reads_it() {
     let split = |l: &str| {
-        split_line(l.as_bytes()).map(|(k, v)| {
+        key_line(l.as_bytes()).map(|l| {
             (
-                String::from_utf8_lossy(k).into_owned(),
-                v.map(|v| String::from_utf8_lossy(v).into_owned()),
+                String::from_utf8_lossy(l.key).into_owned(),
+                l.value.map(|v| String::from_utf8_lossy(&v).into_owned()),
             )
         })
     };

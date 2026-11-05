@@ -18,6 +18,7 @@ fn kind(k: &Key) -> String {
         Kind::Number { unit, word, .. } => format!("number ({unit}){}", or(word)),
         Kind::Text => "text".to_owned(),
         Kind::Path => "path".to_owned(),
+        Kind::Paths => "paths, separated by `:`".to_owned(),
         Kind::Choice(c) => format!("one of `{}`", c.join("`, `")),
         Kind::Command => "command".to_owned(),
         Kind::Rgb => "color, `r,g,b`".to_owned(),
@@ -40,6 +41,7 @@ fn bound(k: &Key) -> String {
         Kind::Number { min, max, word, .. } => format!("{min} to {max}, clamped{}", or(word)),
         Kind::Text => format!("{TEXT_MAX} bytes, no control character"),
         Kind::Path => format!("absolute, {TEXT_MAX} bytes, no control character"),
+        Kind::Paths => format!("each absolute, {TEXT_MAX} bytes in all, no control character"),
         Kind::Choice(_) => "the choices".to_owned(),
         Kind::Command => format!("{TEXT_MAX} bytes in a file"),
         Kind::Rgb => "each 0 to 255".to_owned(),
@@ -100,13 +102,19 @@ pub(super) fn markdown() -> String {
          \n\
          <!-- Generated from {SOURCE}; do not edit. `{BLESS}` rewrites it. -->\n\
          \n\
-         vtium reads `vtium.conf` in the configuration directory (`--configdir`, `/etc/vtium` by default), then `<seat>.seat.conf` there, then its command line. Each wins over the ones before it. vtium never reads the C reference's `/etc/kmscon`: a `kmscon.conf` from kmscon is copied to `/etc/vtium/vtium.conf` by hand, and vtium reads its keys as the C reference did, with the departures the vtium crate's README lists. A file that does not exist is skipped. The files are read once, at start: a change applies when vtium starts again, as at a restart of its service. `vtium check-config [FILE]` reads them as the start would, with the head file, `/etc/vtium/heads.conf`, or FILE in its place to check it before it is installed, through the start's parser and evaluator (ADR-1401 D7). It applies nothing, exits 1 on any warning and on each of the head file's errors and warnings, each named with its line, and notes on standard output what it does not count: the density points convert at, and of the head file each rule sending input to a head by `id` or `name` alone, where no udev daemon runs, each rule using a key that reads udev's database, each rule using `connector-path:`, which it cannot check against the displays present since it opens no card to read a connector's `PATH`, a head no rule names, every head isolated, and what the devices present find: each rule matching none of them, each device no rule places with what the policy gives it, no head that can be the active head having a display, under a closed policy no keyboard reaching any head, a head claiming pointers while every keyboard is claimed elsewhere, every keyboard ignored, and a head whose only keyboard is one device (ADR-1401 D9). It reads the devices from sysfs and udev's database, `/run/udev/data`, and opens nothing under `/dev`. A FILE that root does not own, or that others can write, is checked all the same, with a note, since installing it makes it root's.\n\
+         vtium reads one file, `vtium.conf` in the configuration directory (`--configdir`, `/etc/vtium` by default), then its command line, which wins over the file (ADR-1403 D2). vtium never reads the C reference's `/etc/kmscon` or a seat file such as `seat0.seat.conf`: a `kmscon.conf` from kmscon is copied to `/etc/vtium/vtium.conf` by hand, and vtium reads its keys as the C reference did, with the departures the vtium crate's README lists. With no file, vtium runs its defaults and its compiled-in heads and rules. The file is read once, at start: a change applies when vtium starts again, as at a restart of its service.\n\
          \n\
-         A file holds one key a line: `key=value`, or a switch's `key` to turn it on and `no-key` to turn it off. `#` starts a comment, except where it opens a `#rrggbb` color value. Spaces and tabs around the key and the value are dropped. On the command line a key is `--key=VALUE` or `--key VALUE`, and a switch `--key` or `--no-key`.\n\
+         The file has two parts (ADR-1403 D3). Every line above the first section heading is the top level: vtium's own keys, the defaults every head inherits, and the flow's `version` and `policy`. From the first section heading on come the sections: a `[look NAME]` for each look, which names a frit and its size, a `[head NAME]` for each head, and one `[rules]` list, which sends each display and each input device to a head (ADR-1401 D3). A file with a section needs `version = 1`. A head's section wins over its look's, and its look's over the top level, for the keys the table below says each may set (ADR-1403 D5).\n\
          \n\
-         vtium reports, once at start, a key it does not know, however often it appears, and a value it cannot use: a number out of bounds, which it clamps, and a value it cannot read, which it ignores, keeping the value the sources before it gave. It reads at most {FILE_MAX} bytes of a file and {LINE_MAX} of a line.\n\
+         vtium reads vtium.conf only when root owns it, or, for a vtium that runs as another user, that user, and neither its group nor others can write it or a directory above it. It reads none of a file that fails, runs its compiled-in configuration, and says which path fails and the command that mends it, `chown root:root PATH` or `chmod go-w PATH`.\n\
          \n\
-         `install/vtium.conf.example` in `crates/vtium` lists the same keys at their defaults, under the same sections. Source cites the C reference, kmscon at `b1f7a7c5`, or the decision a key comes from.\n"
+         `vtium check-config [--no-devices] [FILE]` reads vtium.conf, or FILE in its place to check it before it is installed, both its parts in one run, as the start would, through the start's parser and evaluator (ADR-1401 D7). It applies nothing, exits 1 on any warning of the keys and on each error and warning of the sections, each named with its line, and on a file whose flow wires no complete route: a display present that its first matching rule sends to a head that a keyboard present reaches (ADR-1403 D3). With no display or no keyboard present, or with `--no-devices`, it judges the rules alone and says so. It notes on standard output what it does not count: the density points convert at, and of the sections each rule sending input to a head by `id` or `name` alone, where no udev daemon runs, each rule using a key that reads udev's database, each rule using `connector-path:`, which it cannot check against the displays present since it opens no card to read a connector's `PATH`, a head no rule names, every head isolated, and what the devices present find: each rule matching none of them, each device no rule places with what the policy gives it, no head that can be the active head having a display, under a closed policy no keyboard reaching any head, a head claiming pointers while every keyboard is claimed elsewhere, every keyboard ignored, and a head whose only keyboard is one device (ADR-1401 D9). It reads the devices from sysfs and udev's database, `/run/udev/data`, and opens nothing under `/dev`. A FILE that root does not own, or that others can write, is checked all the same, with a note, since installing it makes it root's.\n\
+         \n\
+         A top-level line holds one key: `key=value`, or a switch's `key` to turn it on and `no-key` to turn it off. A section's line is `key = value`. `#` starts a comment at the start of a line or after a blank; a `#` inside a word, or one that opens a `#rrggbb` value, is part of the value, and `\\#` after a blank is a literal `#`. Spaces and tabs around the key and the value are dropped. On the command line a key is `--key=VALUE` or `--key VALUE`, and a switch `--key` or `--no-key`.\n\
+         \n\
+         vtium reports, once at start, a top-level key it does not know, however often it appears, and a value it cannot use: a number out of bounds, which it clamps, and a value it cannot read, which it ignores, keeping the value the sources before it gave. An error in a section drops what ADR-1401 D7 says it takes, and never a top-level key. It reads at most {FILE_MAX} bytes of the file and {LINE_MAX} of a line.\n\
+         \n\
+         `install/vtium.conf.example` in `crates/vtium` lists the same keys at their defaults, under the same sections, then the compiled-in looks, heads and rules. Source cites the C reference, kmscon at `b1f7a7c5`, or the decision a key comes from.\n"
     );
     for section in &SECTIONS {
         let _ = write!(
@@ -143,10 +151,18 @@ pub(super) fn markdown() -> String {
 
 /// `k`'s row of a section's table in `docs/config.md`.
 fn row(out: &mut String, k: &Key) {
-    let set_in = match k.scope {
-        Scope::Anywhere => "file, command line",
-        Scope::CommandLine => "command line",
-    };
+    use vtium_settings::keys::Level;
+    let set_in: Vec<&str> = [
+        (Level::Top, "top level"),
+        (Level::Look, "`[look NAME]`"),
+        (Level::Head, "`[head NAME]`"),
+    ]
+    .into_iter()
+    .filter(|(level, _)| k.levels.contains(*level))
+    .map(|(_, place)| place)
+    .chain(std::iter::once("command line"))
+    .collect();
+    let set_in = set_in.join(", ");
     let _ = writeln!(
         out,
         "| `{}` | {} | {} | {} | {} | {} | {set_in} | {} | {} |",
@@ -349,7 +365,7 @@ pub(super) fn example() -> String {
         "#",
         [
             format!("vtium's configuration, installed as /etc/vtium/vtium.conf.example. It is generated from {SOURCE}, and docs/config.md describes each key.").as_str(),
-            "One key a line: key=value, or a switch's key to turn it on and no-key to turn it off. Each key is shown at its default, commented out. The command line wins over this file.",
+            "Above the first section, one key a line: key=value, or a switch's key to turn it on and no-key to turn it off. Each key is shown at its default, commented out. The command line wins over these lines, and a look's or a head's section below wins over both.",
         ],
     );
     for section in &SECTIONS {
@@ -368,8 +384,27 @@ pub(super) fn example() -> String {
             }
         }
     }
+    // the sections, the template's text, from which the compiled-in flow
+    // is parsed too (ADR-1403 D3)
+    let _ = write!(
+        out,
+        "\n{}\n{}",
+        section_heading(SECTIONS_TITLE, SECTIONS_ABOUT),
+        vtium_settings::TEMPLATE
+    );
     out
 }
+
+/// The heading of the example's sections, below the keys.
+const SECTIONS_TITLE: &str = "Looks, heads and rules";
+
+/// What the example's sections are.
+const SECTIONS_ABOUT: &str = "The sections below the keys: the looks, the heads and the rules that place each display and each input device in a head. These are the sections vtium runs when vtium.conf holds none, live as shipped.";
+
+/// The most bytes the generated example may hold, so at least 16 KiB of
+/// vtium.conf's [`FILE_MAX`] stay for a user's own heads, looks and rules
+/// (ADR-1403 D3).
+pub(super) const EXAMPLE_MAX: usize = 49_152;
 
 #[cfg(test)]
 #[expect(
@@ -406,6 +441,44 @@ mod tests {
         );
     }
 
+    // ADR-1403 D3: the example leaves room for a user's own sections
+    #[test]
+    fn the_example_leaves_16_kib_of_the_file_bound() {
+        let example = example();
+        assert!(
+            example.len() <= EXAMPLE_MAX,
+            "the example holds {} bytes, more than {EXAMPLE_MAX}",
+            example.len()
+        );
+        const { assert!(EXAMPLE_MAX + 16 * 1024 <= FILE_MAX) };
+    }
+
+    // ADR-1403 D3: the example is a vtium.conf whose sections are the
+    // compiled-in flow, read as vtium reads it, and whose keys, all
+    // commented out, set nothing
+    #[test]
+    fn the_example_runs_the_compiled_in_flow() {
+        let example = example();
+        let flow = vtium_settings::parse_sections(&example)
+            .expect("the example's sections read whole")
+            .expect("the example holds a flow");
+        // the same flow, each line counted in its own file
+        let unlined = |mut c: vtium_settings::Config| {
+            c.heads.iter_mut().for_each(|h| h.line = 0);
+            c.rules.iter_mut().for_each(|r| r.line = 0);
+            c
+        };
+        assert_eq!(
+            unlined(flow.config),
+            unlined(vtium_settings::Config::builtin())
+        );
+        let loaded = crate::config::load(&[], &mut |_: &std::path::Path| {
+            Ok(Some(example.clone().into_bytes()))
+        });
+        assert_eq!(loaded.reports, []);
+        assert_eq!(loaded.config, crate::config::Config::default());
+    }
+
     // ADR-1401 D5: each scheme the example carries, its six lines with the
     // `#` taken off, is a vtium.conf that draws the scheme's colors.
     #[test]
@@ -422,7 +495,7 @@ mod tests {
                 .collect();
             assert_eq!(lines.len(), 6, "{}", scheme.name);
             let file = format!("{}\n", lines.join("\n"));
-            let loaded = crate::config::load(&[], None, &mut |_: &std::path::Path| {
+            let loaded = crate::config::load(&[], &mut |_: &std::path::Path| {
                 Ok(Some(file.clone().into_bytes()))
             });
             assert_eq!(loaded.reports, [], "{}", scheme.name);
@@ -456,7 +529,7 @@ mod tests {
 
     fn load_file(text: &str) -> crate::config::Loaded {
         let text = text.to_owned();
-        crate::config::load(&[], None, &mut |_: &std::path::Path| {
+        crate::config::load(&[], &mut |_: &std::path::Path| {
             Ok(Some(text.clone().into_bytes()))
         })
     }
@@ -498,7 +571,13 @@ mod tests {
             .map(|(i, _)| i)
             .collect();
         let sections = shown();
-        assert_eq!(headings.len(), sections.len());
+        // the keys' sections, then the heading of the looks, heads and rules
+        assert_eq!(headings.len(), sections.len() + 1);
+        let last = headings.last().map_or("", |&at| lines[at]);
+        assert!(
+            last.starts_with(&format!("# ══ {SECTIONS_TITLE} ═")),
+            "{last}"
+        );
         for (n, (title, groups)) in sections.iter().enumerate() {
             let at = headings[n];
             assert!(

@@ -112,9 +112,8 @@ pub const OFF: &str = "off";
 
 /// The heads view.
 pub const NO_HEAD_FILE: &str =
-    "There is no head file, so vtium runs one head on every display, drawn with font-name.";
-pub const HEAD_FILE_ERRORS: &str =
-    "The head file holds errors, so it cannot be edited here. Run vtium check-config to see them.";
+    "vtium.conf declares no head, so vtium runs one head on every display, drawn with font-name.";
+pub const HEAD_FILE_ERRORS: &str = "vtium.conf's heads, looks or rules hold errors, so they cannot be edited here. Run vtium check-config to see them.";
 pub fn head_profile(profile: impl Display) -> String {
     format!("profile {profile}")
 }

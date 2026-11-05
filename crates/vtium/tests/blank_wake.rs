@@ -272,7 +272,7 @@ impl Harness {
     fn new(options: &[&str]) -> Harness {
         let mut args: Vec<OsString> = options.iter().map(OsString::from).collect();
         args.extend(["--login", "--", "/bin/sh", "-c", "read x"].map(OsString::from));
-        let loaded = config::load(&args, None, &mut |_: &Path| Ok(None));
+        let loaded = config::load(&args, &mut |_: &Path| Ok(None));
         assert_eq!(loaded.reports, [], "the harness's command line");
         let lp: Loop<App> = Loop::new().expect("a loop");
         vtium::blank::listen(&lp.handle()).expect("the blank's signals");

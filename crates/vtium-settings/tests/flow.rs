@@ -6,7 +6,7 @@
 use vtium_settings::keys::Level;
 use vtium_settings::{
     Config, Drops, Kind, LOOKS_MAX, Policy, Problem, Reading, Renamed, Syntax, TEMPLATE, Target,
-    Warning, key_line, parse, parse_sections, sections, setting, split, value_for,
+    Warning, key_line, parse_sections, sections, setting, split, value_for,
 };
 
 /// D4's example with a login for one head: two looks, two heads and five
@@ -121,8 +121,8 @@ fn the_whole_file_reads_in_its_two_parts_with_its_line_numbers() {
             (
                 h.name.as_str(),
                 h.line,
-                h.profile.as_str(),
-                h.profile_line,
+                h.look.as_str(),
+                h.look_line,
                 h.consoles,
             )
         })
@@ -454,8 +454,6 @@ fn a_section_vtium_conf_does_not_take_drops_alone() {
         );
         assert_eq!(r.parsed.config.heads.len(), 1, "{heading}");
     }
-    // the head file's reader still knows no look
-    assert!(parse("version = 1\n[look x]\n").is_err());
 }
 
 #[test]

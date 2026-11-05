@@ -561,7 +561,7 @@ impl Seat {
             .chain(&["--login", "--", "/bin/sh", "-c", script])
             .map(OsString::from)
             .collect();
-        let loaded = config::load(&args, None, &mut |_: &Path| Ok(None));
+        let loaded = config::load(&args, &mut |_: &Path| Ok(None));
         assert_eq!(loaded.reports, [], "the seat's command line");
         let lp: Loop<App> = Loop::new().expect("a loop");
         let env = vec![(OsString::from("PATH"), OsString::from("/usr/bin:/bin"))];
@@ -973,17 +973,19 @@ fn frits(test: &str, names: &[&str]) -> (Scratch, Sources, PathBuf) {
     (dir, fonts, starts)
 }
 
-/// D3 and D6: the more specific setting wins. A head's profile names its
-/// frit, over vtium.conf's font; a head with the default profile takes
-/// vtium.conf's, the built-in font here. A head has no font key of its
-/// own.
+/// D3 and D6, ADR-1403 D5: the more specific setting wins. A head's look
+/// names its frit, over the top level's font; a head with the default look
+/// takes the top level's, the built-in font here. A head has no font key
+/// of its own.
 #[test]
-fn a_heads_profile_names_its_frit_over_vtium_confs_font() {
+fn a_heads_look_names_its_frit_over_the_top_levels_font() {
     let (_dir, fonts, starts) = frits("profile", &["t"]);
     let heads = "version = 1
+[look t]
+font-name = t
 [head small]
 [head large]
-profile = t
+look = t
 [rules]
 display card:mem-small -> small
 display card:mem-large -> large
@@ -1040,10 +1042,12 @@ fn an_osc_50_switch_back_asks_again_after_a_timeout_but_not_a_refusal() {
             ..no_fonts()
         };
         let heads = "version = 1
+[look t]
+font-name = t
 [head a]
-profile = t
+look = t
 [head b]
-profile = t
+look = t
 [rules]
 display card:mem-small -> a
 display card:mem-large -> b
@@ -1156,12 +1160,16 @@ fn with_no_head_file_the_seat_runs_the_compiled_in_heads() {
 fn heads_drawing_one_frit_share_its_helper_and_another_frit_has_its_own() {
     let (_dir, fonts, starts) = frits("share", &["t", "u"]);
     let heads = "version = 1
+[look t]
+font-name = t
+[look u]
+font-name = u
 [head a]
-profile = t
+look = t
 [head b]
-profile = t
+look = t
 [head c]
-profile = u
+look = u
 [rules]
 display card:mem-a -> a
 display card:mem-b -> b
@@ -4329,28 +4337,25 @@ impl HeadFile {
         use std::sync::atomic::{AtomicUsize, Ordering};
         static MADE: AtomicUsize = AtomicUsize::new(0);
         let n = MADE.fetch_add(1, Ordering::Relaxed);
-        let dir =
-            std::env::temp_dir().join(format!("vtium-heads-{test}-{}-{n}", std::process::id()));
+        // under the build's own temporary directory, which no other user
+        // can write, so the ownership check passes it (ADR-1403 D3)
+        let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
+            .join(format!("vtium-heads-{test}-{}-{n}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("the directory");
         std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).expect("0700");
-        let path = dir.join("heads.conf");
-        std::fs::write(&path, text).expect("the head file");
+        let path = dir.join("vtium.conf");
+        std::fs::write(&path, text).expect("vtium.conf");
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).expect("0644");
         HeadFile { dir, path }
     }
 
-    /// The trust the start reads the file under, with the test's user in
-    /// root's place.
-    fn trust(&self) -> vtium_settings::Trust {
-        use std::os::unix::fs::MetadataExt;
-        let uid = std::fs::metadata(&self.dir).expect("the directory").uid();
-        vtium_settings::Trust::owner(uid).below(&self.dir)
-    }
-
-    /// What the start runs for the file.
+    /// What the start runs for the file, read as the console reads its
+    /// vtium.conf, by the account the test runs as (ADR-1403 D3).
     fn rules(&self) -> Start {
-        vtium::head::rules(&self.path, &self.trust())
+        let configdir = OsString::from(format!("--configdir={}", self.dir.display()));
+        let loaded = vtium::config::load(&[configdir], &mut vtium::config::read_file);
+        vtium::head::rules(&loaded.path, &loaded.file)
     }
 
     /// Every file of the directory, each with the hash of its bytes and
@@ -4530,10 +4535,10 @@ fn notice(app: &App, name: &str) -> Option<String> {
 
 /// The notices of D7's outcomes: each console line as the catalog words
 /// it, then what to do next about vtium's head file.
-const SKIPPED: &str = "invalid config skipped, using builtin\nRun vtium check-config /etc/vtium/heads.conf to see why.";
-const PARTLY: &str = "config partly invalid, running what's valid\nRun vtium check-config /etc/vtium/heads.conf to see why.";
-const CLOSED_OFF: &str = "vtium: config invalid, policy closed: input off\nNothing on this console takes input. Run vtium check-config /etc/vtium/heads.conf over ssh, or from other boot media, for the full report.";
-const NO_DISPLAY: &str = "vtium: no display for any head\nConnect a display that a rule in /etc/vtium/heads.conf sends to a head.";
+const SKIPPED: &str = "invalid config skipped, using builtin\nRun vtium check-config /etc/vtium/vtium.conf to see why.";
+const PARTLY: &str = "config partly invalid, running what's valid\nRun vtium check-config /etc/vtium/vtium.conf to see why.";
+const CLOSED_OFF: &str = "vtium: config invalid, policy closed: input off\nNothing on this console takes input. Run vtium check-config /etc/vtium/vtium.conf over ssh, or from other boot media, for the full report.";
+const NO_DISPLAY: &str = "vtium: no display for any head\nConnect a display that a rule in /etc/vtium/vtium.conf sends to a head.";
 
 /// The panic screen of a broken closed file whose one error, on line 4,
 /// is the key `focs`, read as `heads.conf` (D7): the console line, that
@@ -6052,7 +6057,7 @@ fn reset_seat(dir: &Path, heads: &str, fonts: Sources) -> (Seat, Rc<Cell<u32>>) 
     .iter()
     .map(OsString::from)
     .collect();
-    let loaded = config::load(&args, None, &mut config::read_file);
+    let loaded = config::load(&args, &mut config::read_file);
     assert_eq!(loaded.reports, [], "the seat's configuration");
     let lp: Loop<App> = Loop::new().expect("a loop");
     let env = vec![(OsString::from("PATH"), OsString::from("/usr/bin:/bin"))];
@@ -6063,7 +6068,7 @@ fn reset_seat(dir: &Path, heads: &str, fonts: Sources) -> (Seat, Rc<Cell<u32>>) 
     let counted = Rc::clone(&reads);
     app.set_config_reader(Box::new(move || {
         counted.set(counted.get() + 1);
-        config::load(&args, None, &mut config::read_file)
+        config::load(&args, &mut config::read_file)
     }));
     app.set_heads(start(heads));
     app.add_video(

@@ -1,15 +1,12 @@
-//! The head file's one writer (ADR-1201 D6), vtium.conf's section writer
-//! (ADR-1403 D8), and the one way a configuration file is replaced
-//! (ADR-1201 D5).
+//! vtium.conf's section writer (ADR-1201 D6, ADR-1403 D8), and the one
+//! way a configuration file is replaced (ADR-1201 D5).
 //!
-//! [`set_profile`] sets a head's `profile =` line and keeps every other
-//! byte of the file: comments, blank lines, order, line endings and a
-//! byte-order mark. It edits only a file vtium reads without an error,
-//! finds the lines to change by the line numbers the parser gives, and
-//! parses its own result before it returns it, so it never hands back a
-//! file vtium would refuse. vtium-config links it to assign a head its
-//! profile, and every other tool that changes a head's profile links the
-//! same function, so the file has one writer.
+//! The section writer, in [`sections`], keeps every byte of the file it
+//! does not need to change: comments, blank lines, order, line endings and
+//! a byte-order mark. It edits only sections vtium reads without an error,
+//! and parses its own result before it returns it, so it never hands back
+//! a file vtium would refuse. vtium-config links it, so the sections have
+//! one writer.
 //!
 //! [`install_file`] replaces a file in one rename: the new bytes go to a
 //! new file in the same directory, flushed to disk, and the old file stays
@@ -20,106 +17,11 @@ use std::io::{self, Write};
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
-use crate::config::Head;
-use crate::error::Rejected;
-use crate::parse::{good_name, parse};
-
 mod sections;
 
 pub use sections::{
     Of, SectionEdit, add_rule, add_section, move_rule, placement, remove_rule, set_key, set_rule,
 };
-
-/// Why [`set_profile`] changed nothing.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ProfileEdit {
-    /// The file holds errors, so vtium reads it only in part or not at all;
-    /// the writer edits only a file vtium reads whole.
-    Unreadable(Rejected),
-    /// No `[head NAME]` section of this name.
-    NoHead(String),
-    /// The profile's name breaks the name rule, so vtium would refuse it.
-    BadName(String),
-}
-
-/// The text of the line that sets `profile`, as the writer adds it.
-fn profile_line(profile: &str) -> String {
-    format!("{} = {profile}", crate::messages::syntax::PROFILE)
-}
-
-/// `line` with the value after its `=` replaced by `value`: the blanks
-/// around it, a comment after it and the line's ending kept.
-fn replace_value(line: &str, value: &str) -> Option<String> {
-    let eq = line.find('=')?;
-    let (head, rest) = line.split_at(eq.checked_add(1)?);
-    let lead = rest.find(|c| c != ' ' && c != '\t').unwrap_or(rest.len());
-    let (blanks, body) = rest.split_at(lead);
-    let end = body.find([' ', '\t', '\r', '\n']).unwrap_or(body.len());
-    let tail = body.get(end..)?;
-    Some(format!("{head}{blanks}{value}{tail}"))
-}
-
-/// The ending of `line`, `\r\n` or `\n`, or none on a last line without
-/// one.
-fn ending(line: &str) -> &'static str {
-    if line.ends_with("\r\n") {
-        "\r\n"
-    } else if line.ends_with('\n') {
-        "\n"
-    } else {
-        ""
-    }
-}
-
-/// Sets the profile of the head `head` in the head file `text` to
-/// `profile`, and returns the whole file with only that line changed.
-///
-/// A head that has a `profile =` line has its value replaced in place, the
-/// blanks and any comment after it kept. A head with none gains the line
-/// `profile = NAME` directly below its `[head NAME]` heading, ended as the
-/// heading is.
-pub fn set_profile(text: &str, head: &str, profile: &str) -> Result<String, ProfileEdit> {
-    if !good_name(profile) {
-        return Err(ProfileEdit::BadName(profile.to_owned()));
-    }
-    let parsed = parse(text).map_err(ProfileEdit::Unreadable)?;
-    let found: &Head = parsed
-        .config
-        .heads
-        .iter()
-        .find(|h| h.name == head)
-        .ok_or_else(|| ProfileEdit::NoHead(head.to_owned()))?;
-    let mut lines: Vec<String> = text.split_inclusive('\n').map(str::to_owned).collect();
-    // the parser numbers lines from 1, as `split_inclusive` gives them
-    if let Some(index) = found.profile_line.checked_sub(1) {
-        let edited = lines.get(index).and_then(|l| replace_value(l, profile));
-        if let (Some(slot), Some(edited)) = (lines.get_mut(index), edited) {
-            *slot = edited;
-        }
-    } else if let Some(index) = found.line.checked_sub(1) {
-        let heading = lines.get(index).map_or("", String::as_str);
-        let (before, after) = match ending(heading) {
-            "" => ("\n", ""),
-            end => ("", end),
-        };
-        let line = format!("{before}{}{after}", profile_line(profile));
-        lines.insert(index.saturating_add(1).min(lines.len()), line);
-    }
-    let out = lines.concat();
-    // the writer's own result reads as vtium reads it, with the profile set
-    match parse(&out) {
-        Ok(p)
-            if p.config
-                .heads
-                .iter()
-                .any(|h| h.name == head && h.profile == profile) =>
-        {
-            Ok(out)
-        }
-        Ok(_) => Err(ProfileEdit::NoHead(head.to_owned())),
-        Err(rejected) => Err(ProfileEdit::Unreadable(rejected)),
-    }
-}
 
 /// The path beside `path` named `NAME` with `suffix` after it.
 fn beside(path: &Path, prefix: &str, suffix: &str) -> io::Result<PathBuf> {

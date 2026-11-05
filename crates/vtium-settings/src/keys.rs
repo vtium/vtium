@@ -137,13 +137,16 @@ pub enum Kind {
     /// under a systemd unit and anywhere else otherwise, so it refuses a
     /// relative path and an empty one ([`NOT_ABSOLUTE`]).
     Path,
+    /// Absolute paths, separated by `:` as `PATH` separates them, each
+    /// of at most [`TEXT_MAX`] bytes with no control character. vtium
+    /// ignores a folder that is not an absolute path, and keeps the rest.
+    Paths,
     /// One of a fixed set of words.
     Choice(&'static [&'static str]),
     /// A color, `r,g,b`, each 0 to 255.
     Rgb,
-    /// A display mode, `[GPU][CONNECTOR]WxH[@RATE]`. Each line adds one:
-    /// the seat's file adds to the main file's, and the command line's
-    /// replace both.
+    /// A display mode, `[GPU][CONNECTOR]WxH[@RATE]`. Each line adds one,
+    /// and the command line's replace the file's.
     Mode,
     /// A command and its arguments. In a file, one line split like shell
     /// words; on the command line, `--login -- ARGS...`, the words after
@@ -1367,10 +1370,24 @@ pub const FONT_FRITS: Key = Key {
     scope: Scope::Anywhere,
     levels: TOP,
     reader: "vtium",
-    what: "The directory of the frits, the `NAME.vtfrit` files that `font-name` and a head's profile name.\n\n\
+    what: "The directory of the frits, the `NAME.vtfrit` files that `font-name` names, at the top level and in a look's section.\n\n\
            It is an absolute path. vtium ignores a relative or an empty one, as it ignores any value it cannot read, and says why.\n\n\
            The default is the directory vtium was built with.",
     cite: "ADR-1200 (D1, D15); the maintainer's decision of 2026-11-01",
+};
+
+pub const FONT_PATHS: Key = Key {
+    name: "font-paths",
+    short: None,
+    kind: Kind::Paths,
+    default: Default::Unset,
+    scope: Scope::Anywhere,
+    levels: TOP,
+    reader: "vtium",
+    what: "The folders the glyph helper searches, in order, for an installed font that a frit's `font:` source names.\n\n\
+           Each folder is an absolute path, and `:` separates them, as in `PATH`. The list takes the place of the build's list, so it can order or leave out the system's own folders. vtium ignores a folder that is not an absolute path, keeps the rest, and says why.\n\n\
+           Unset, the helper searches the build's list, `/usr/share/fonts` and `/usr/local/share/fonts`. A user's own font folder, such as `~/.local/share/fonts`, is searched only when the list names it, and before anyone logs in the helper runs as `nobody`, which cannot read it.",
+    cite: "ADR-1200 (D25)",
 };
 
 pub const FONT_HELPER: Key = Key {
@@ -1763,7 +1780,7 @@ pub const KITTY_GRAPHICS: Key = Key {
 };
 
 /// Every key, in the order the generated files list them.
-pub const KEYS: [Key; 105] = [
+pub const KEYS: [Key; 106] = [
     CONFIGDIR,
     HELP,
     VERSION,
@@ -1845,6 +1862,7 @@ pub const KEYS: [Key; 105] = [
     FONT_ENGINE,
     FONT_NAME,
     FONT_FRITS,
+    FONT_PATHS,
     FONT_HELPER,
     FONT_SIZE,
     FONT_HINTING,
@@ -1902,7 +1920,7 @@ pub const SECTIONS: [Section; 10] = [
         groups: &[
             Group {
                 title: "Font",
-                keys: &[&FONT_NAME, &FONT_FRITS, &FONT_ENGINE],
+                keys: &[&FONT_NAME, &FONT_FRITS, &FONT_PATHS, &FONT_ENGINE],
             },
             Group {
                 title: "Font size and spacing",

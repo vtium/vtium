@@ -60,7 +60,7 @@ fn now() -> Instant {
 /// and its power keys acting on `host`.
 fn seat(args: &[&str], host: &Host) -> (Loop<App>, App) {
     let args: Vec<OsString> = args.iter().map(OsString::from).collect();
-    let loaded = config::load(&args, None, &mut |_: &Path| Ok(None));
+    let loaded = config::load(&args, &mut |_: &Path| Ok(None));
     assert_eq!(loaded.reports, [], "the command line");
     let lp: Loop<App> = Loop::new().expect("a loop");
     let mut app = App::new(

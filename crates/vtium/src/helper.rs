@@ -217,9 +217,12 @@ impl Launcher {
         })
     }
 
-    /// The helper `config` names, `font-helper`, opened.
+    /// The helper `config` names, `font-helper`, opened, with the font
+    /// folders `font-paths` lists in place of the build's (ADR-1200 D25).
     pub fn configured(config: &Config) -> Result<Launcher, String> {
-        Launcher::open(Command::system(&program(config))?)
+        let mut command = Command::system(&program(config))?;
+        command.args.extend(font_dirs(config));
+        Launcher::open(command)
     }
 
     /// The process that starts a helper: the opened program, through
@@ -308,6 +311,21 @@ fn holds_account(status: &str, (uid, gid): (u32, u32)) -> Result<(), String> {
         ));
     }
     Ok(())
+}
+
+/// The options that hand the helper the folders `font-paths` lists, a
+/// `--font-dir` before each, in their order; none when it is unset, so
+/// the helper searches the build's list (ADR-1200 D25).
+pub fn font_dirs(config: &Config) -> Vec<OsString> {
+    config
+        .text(&crate::config::keys::FONT_PATHS)
+        .map(|paths| {
+            paths
+                .split(':')
+                .flat_map(|dir| [OsString::from("--font-dir"), OsString::from(dir)])
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// The helper's program `config` names, `font-helper`.
@@ -3637,7 +3655,7 @@ mod tests {
     fn font_helper_names_the_program_vtium_opens() {
         let config = |args: &[&str]| {
             let args: Vec<std::ffi::OsString> = args.iter().map(Into::into).collect();
-            crate::config::load(&args, None, &mut |_: &Path| Ok(None)).config
+            crate::config::load(&args, &mut |_: &Path| Ok(None)).config
         };
         assert_eq!(program(&config(&[])), Path::new(PROGRAM));
         let sh = config(&["--font-helper=/bin/sh"]);

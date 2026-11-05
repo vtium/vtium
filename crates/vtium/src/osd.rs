@@ -70,7 +70,7 @@ mod tests {
 
     fn osd(args: &[&str]) -> Osd {
         let args: Vec<OsString> = args.iter().map(OsString::from).collect();
-        let loaded = crate::config::load(&args, None, &mut |_: &Path| Ok(None));
+        let loaded = crate::config::load(&args, &mut |_: &Path| Ok(None));
         assert_eq!(loaded.reports, [], "{args:?}");
         Osd::configured(&loaded.config)
     }

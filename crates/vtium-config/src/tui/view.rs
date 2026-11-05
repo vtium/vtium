@@ -276,7 +276,7 @@ fn body(app: &App) -> Body {
             );
             Body { list, keep, tail }
         }
-        View::Heads => match (app.inputs.heads.is_some(), app.heads()) {
+        View::Heads => match (app.has_flow(), app.heads()) {
             (false, _) => Body {
                 list: prose(words::NO_HEAD_FILE, cols),
                 keep: 0,

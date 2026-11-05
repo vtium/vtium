@@ -793,7 +793,7 @@ fn every_problem_has_its_scope() {
             Within::Rules,
             Scope::Line,
         ),
-        (Problem::UnknownSection(q()), Within::Header, Scope::Section),
+        (Problem::NotASection(q()), Within::Header, Scope::Section),
         (
             Problem::DuplicateSection("rules"),
             Within::Header,

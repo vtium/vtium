@@ -1,6 +1,6 @@
 //! `apply DIR` and the draft it installs (ADR-1201 D5, D8), in a temporary
 //! directory standing in for `/etc/vtium` through the tool's path options,
-//! never as root. The edited vtium.conf and head file are judged by the
+//! never as root. The edited vtium.conf, both its parts, is judged by the
 //! console's own `vtium check-config`, the binary this workspace builds.
 
 use std::ffi::OsString;
@@ -165,19 +165,13 @@ fn a_draft_whose_target_changed_since_is_refused_with_nothing_written() {
 #[test]
 fn a_file_that_fails_its_check_stops_the_apply_before_anything_is_written() {
     let f = fixture("check", Some("font-size=10\n"));
-    let heads = f.targets.configdir.join("heads.conf");
+    let frit = f.fonts().join("made.vtfrit");
     let plan = Plan {
         files: vec![
             FileEdit {
-                path: heads.clone(),
+                path: frit.clone(),
                 old: None,
-                new: "version = 1
-[head desk]
-profile = tiny
-[rules]
-display * -> desk
-"
-                .to_owned(),
+                new: "source=builtin:unifont\n".to_owned(),
             },
             FileEdit {
                 path: f.conf_path(),
@@ -204,27 +198,20 @@ display * -> desk
         "root quotes nothing it read for the user: {err}"
     );
     assert_eq!(f.conf(), "font-size=10\n");
-    assert!(!heads.exists(), "nothing is written when any file fails");
+    assert!(!frit.exists(), "nothing is written when any file fails");
 }
 
+// ADR-1403 D3: the check reads both parts of the draft's vtium.conf, so
+// an error in its sections refuses it as one in its keys does
 #[test]
-fn a_head_file_with_errors_is_refused() {
-    let f = fixture(
-        "heads",
-        Some(&format!("font-frits={}\n", fixture_fonts("heads"))),
-    );
-    let heads = f.targets.configdir.join("heads.conf");
-    let draft = f.draft(&Plan {
-        files: vec![FileEdit {
-            path: heads.clone(),
-            old: None,
-            new: "[head desk]\n".into(),
-        }],
-        removals: Vec::new(),
-    });
+fn a_vtium_conf_whose_sections_hold_errors_is_refused() {
+    let old = format!("font-frits={}\n", fixture_fonts("heads"));
+    let f = fixture("heads", Some(&old));
+    let draft = f.draft(&f.conf_plan(&format!("{old}[head desk]\n")));
     let (status, out, err) = f.apply(&draft);
     assert_eq!(status, 1, "{out}{err}");
-    assert!(!heads.exists());
+    assert!(err.contains("the console's check refused"), "{err}");
+    assert_eq!(f.conf(), old);
 }
 
 fn fixture_fonts(name: &str) -> String {
@@ -305,40 +292,22 @@ fn a_draft_with_a_frit_and_no_frits_directory_is_refused() {
     assert!(!fonts.join("made.vtfrit").exists(), "nothing written");
 }
 
+// ADR-1403 D3, D4: a vtium.conf whose sections give a head a look is
+// checked and installed whole, as one file
 #[test]
-fn a_head_file_and_vtium_conf_install_head_file_first() {
+fn a_vtium_conf_with_sections_installs_as_one_file() {
     let f = fixture(
         "both",
         Some(&format!("font-frits={}\n", fixture_fonts("both"))),
     );
-    let heads = f.targets.configdir.join("heads.conf");
-    let conf = format!("font-frits={}\nfont-name=tiny\n", fixture_fonts("both"));
-    let plan = Plan {
-        files: vec![
-            FileEdit {
-                path: f.conf_path(),
-                old: Some(f.conf()),
-                new: conf.clone(),
-            },
-            FileEdit {
-                path: heads.clone(),
-                old: None,
-                new: "version = 1\n[head desk]\nprofile = tiny\n[rules]\ndisplay * -> desk\ninput * -> desk\n".into(),
-            },
-        ],
-        removals: Vec::new(),
-    };
-    let draft = f.draft(&plan);
+    let conf = format!(
+        "font-frits={}\nversion = 1\n[look small]\nfont-name = tiny\n[head desk]\nlook = small\n[rules]\ndisplay * -> desk\ninput * -> desk\n",
+        fixture_fonts("both")
+    );
+    let draft = f.draft(&f.conf_plan(&conf));
     let (status, out, err) = f.apply(&draft);
     assert_eq!(status, 0, "{out}{err}");
-    assert_eq!(
-        out,
-        format!(
-            "wrote\t{}\nwrote\t{}\n",
-            heads.display(),
-            f.conf_path().display()
-        )
-    );
+    assert_eq!(out, format!("wrote\t{}\n", f.conf_path().display()));
     assert_eq!(f.conf(), conf);
 }
 
@@ -410,20 +379,20 @@ fn a_draft_file_past_its_bound_is_refused() {
     assert_eq!(f.conf(), "font-size=10\n");
 }
 
-/// A frit that vtium.conf's font-name or a head's profile names is never
-/// removed, so a hand-made or stale draft cannot take the font a console
-/// draws; and nothing is removed.
+/// A frit that vtium.conf's font-name names, at its top level or in a
+/// look's section, is never removed, so a hand-made or stale draft cannot
+/// take the font a console draws; and nothing is removed.
 #[test]
-fn a_frit_font_name_or_a_head_s_profile_names_is_not_removed() {
-    let f = fixture("named-frit", Some("font-name=tiny\n"));
+fn a_frit_a_font_name_of_vtium_conf_names_is_not_removed() {
+    let f = fixture(
+        "named-frit",
+        Some(
+            "font-name=tiny\nversion = 1\n[look big]\nfont-name = desk\n[head desk]\nlook = big\n[rules]\ndisplay * -> desk\n",
+        ),
+    );
     let fonts = f.fonts();
     std::fs::write(fonts.join("desk.vtfrit"), "source=builtin:unifont\n").expect("a frit");
     std::fs::write(fonts.join("spare.vtfrit"), "source=builtin:unifont\n").expect("a frit");
-    std::fs::write(
-        f.targets.configdir.join("heads.conf"),
-        "version = 1\n[head desk]\nprofile = desk\n[rules]\ndisplay * -> desk\n",
-    )
-    .expect("heads.conf");
     let removal = |name: &str| Plan {
         files: Vec::new(),
         removals: vec![Removal {
@@ -433,7 +402,7 @@ fn a_frit_font_name_or_a_head_s_profile_names_is_not_removed() {
     };
     for (name, says) in [
         ("tiny", "vtium.conf's font-name"),
-        ("desk", "head desk's profile"),
+        ("desk", "`font-name` in `[look big]`, vtium.conf line 4,"),
     ] {
         let (status, out, err) = f.apply(&f.draft(&removal(name)));
         assert_eq!(status, 1, "{name}: {out}{err}");

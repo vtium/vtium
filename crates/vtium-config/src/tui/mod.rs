@@ -205,9 +205,7 @@ pub fn density(conf: Option<&str>, displays: &[crate::display::Display]) -> (u32
 /// What the TUI starts from, read from `paths`, opening at `view`.
 pub fn gather(paths: &Paths, view: model::View) -> Result<Inputs, String> {
     let conf_path = paths.configdir.join("vtium.conf");
-    let heads_path = paths.configdir.join("heads.conf");
     let conf = read_conf(&conf_path)?;
-    let heads = read_conf(&heads_path)?;
     let frits = paths.frits.clone()?;
     let displays = crate::display::displays(&paths.sys);
     let dpi = density(conf.as_deref(), &displays);
@@ -215,8 +213,6 @@ pub fn gather(paths: &Paths, view: model::View) -> Result<Inputs, String> {
         fonts: fonts(&frits),
         conf_path,
         conf,
-        heads_path,
-        heads,
         saving: saving(paths),
         drafts: paths.drafts.clone(),
         dpi,

@@ -64,7 +64,7 @@ pub fn subcommand(args: &[OsString]) -> Option<i32> {
     // The configuration files alone: every word after `config` is the
     // tool's. A file that does not read leaves the key at its default, as
     // at a start.
-    let loaded = config::load(&[], Some("seat0"), &mut config::read_file);
+    let loaded = config::load(&[], &mut config::read_file);
     Some(run(
         &loaded.config,
         rest,
@@ -94,7 +94,7 @@ mod tests {
     /// The configuration with `font-helper` naming `program`, and no file.
     fn naming(program: &Path) -> Config {
         let arg = OsString::from(format!("--font-helper={}", program.display()));
-        config::load(&[arg], None, &mut |_| Ok(None)).config
+        config::load(&[arg], &mut |_| Ok(None)).config
     }
 
     /// A directory of a test's own, emptied, and removed when the test

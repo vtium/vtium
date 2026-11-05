@@ -220,7 +220,7 @@ pub fn root_refusal(euid: u32, args: &[OsString]) -> Option<String> {
     named.or(tui).or(own).or(save)
 }
 
-/// The directory of vtium.conf and the head file, as the console's.
+/// The directory of vtium.conf, as the console's.
 pub fn default_configdir() -> PathBuf {
     PathBuf::from("/etc/vtium")
 }

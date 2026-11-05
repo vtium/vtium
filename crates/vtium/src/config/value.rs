@@ -138,6 +138,28 @@ pub(super) fn parse(
             );
             None
         }
+        Kind::Paths => {
+            if !text_ok(key, text, origin, reports) {
+                return None;
+            }
+            // each folder that is no absolute path is reported and left out
+            let mut kept = Vec::new();
+            for folder in text.split(':') {
+                if keys::absolute(folder) {
+                    kept.push(folder);
+                } else {
+                    reports.push(
+                        origin.clone(),
+                        Problem::BadValue {
+                            key: key.name,
+                            value: folder.to_owned(),
+                            why: keys::NOT_ABSOLUTE,
+                        },
+                    );
+                }
+            }
+            (!kept.is_empty()).then(|| Value::Text(kept.join(":")))
+        }
         Kind::Command => {
             if !text_ok(key, text, origin, reports) {
                 return None;

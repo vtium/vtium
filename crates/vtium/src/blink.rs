@@ -147,7 +147,7 @@ mod tests {
 
     fn config(args: &[&str]) -> Config {
         let args: Vec<std::ffi::OsString> = args.iter().map(Into::into).collect();
-        crate::config::load(&args, None, &mut |_: &std::path::Path| Ok(None)).config
+        crate::config::load(&args, &mut |_: &std::path::Path| Ok(None)).config
     }
 
     fn armed(b: &Blink) -> Vec<(Timer, Arm)> {

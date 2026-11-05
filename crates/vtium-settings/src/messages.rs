@@ -171,7 +171,7 @@ impl fmt::Display for Problem {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Problem::NotAFile => f.write_str(
-                "This is not a regular file. Put the head file's text in a regular file at this path.",
+                "This is not a regular file. Put vtium.conf's text in a regular file at this path.",
             ),
             Problem::Unreadable(system_error) => write!(
                 f,
@@ -198,7 +198,7 @@ impl fmt::Display for Problem {
             ),
             Problem::ControlCharacter(c) => write!(
                 f,
-                "This line holds the control character {character}, which a head file may not hold. Delete it.",
+                "This line holds the control character {character}, which vtium.conf may not hold. Delete it.",
                 character = c.escape_unicode(),
             ),
             Problem::MissingVersion => write!(
@@ -212,12 +212,6 @@ impl fmt::Display for Problem {
                 version = VERSION_LINE,
             ),
             Problem::Syntax(syntax) => write!(f, "{syntax}"),
-            Problem::UnknownSection(s) => write!(
-                f,
-                "vtium knows no section {s}. Rename it to `{head}` or `{rules}`, the sections vtium knows.",
-                head = HEAD_HEADING,
-                rules = RULES_HEADING,
-            ),
             Problem::DuplicateSection(_) => write!(
                 f,
                 "The file already has a `{rules}` section, and may have only one. Move this section's lines into the first one.",
@@ -501,11 +495,11 @@ impl fmt::Display for Warning {
                 consoles = CONSOLES,
             ),
             Warning::MissingFrit {
-                head, profile, dir, ..
+                look, frit, dir, ..
             } => write!(
                 f,
-                "The head {head}'s profile names the frit {profile}, which is not in {dir}, so the head draws the default frit. Put that frit in {dir}, or change the head's `{key}`.",
-                key = PROFILE,
+                "The look {look} names the frit {frit}, which is not in {dir}, so vtium reads {frit} as the name of a kbd font and draws its built-in font when there is none. Put that frit in {dir}, or change the look's `{key}`.",
+                key = crate::keys::FONT_NAME.name,
             ),
             Warning::NoLook { head, look, .. } => write!(
                 f,
@@ -565,11 +559,6 @@ impl fmt::Display for Renamed {
                 "The key `{rescue}` is gone: `{isolated}` now keeps the rescue key away from this head's keyboards, and also keeps them from switching the VT. Write that instead, or remove the line.",
                 rescue = RESCUE,
                 isolated = ISOLATED_YES,
-            ),
-            Renamed::HeadFont(key) => write!(
-                f,
-                "A head has no `{key}` of its own: its `{profile}` sets its font. Set the font in the head's profile, or remove the line.",
-                profile = PROFILE,
             ),
             Renamed::Profile => write!(
                 f,
@@ -832,7 +821,7 @@ impl fmt::Display for AtStart {
         let line = outcome.line.map_or("", Line::text);
         match self.0 {
             Read::Missing => f.write_str(
-                "There is no head file here, so a start runs the compiled-in configuration and shows nothing.",
+                "There is no vtium.conf here, so a start runs the compiled-in configuration and shows nothing.",
             ),
             Read::Untrusted => write!(
                 f,
@@ -1007,26 +996,52 @@ impl fmt::Display for Remark {
     }
 }
 
-impl fmt::Display for crate::write::ProfileEdit {
+impl fmt::Display for crate::write::SectionEdit {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         use crate::error::Quoted;
-        use crate::write::ProfileEdit;
-        use syntax::{CHECK_CONFIG, HEAD_HEADING, NAME_PUNCTUATION, PROFILE};
+        use crate::write::SectionEdit;
+        use syntax::{CHECK_CONFIG, NAME_PUNCTUATION};
         match self {
-            ProfileEdit::Unreadable(_) => write!(
+            SectionEdit::Unreadable(_) => write!(
                 f,
-                "The head file holds errors, so vtium-config leaves it as it is. Run {CHECK_CONFIG} on the file to see them, and fix them first."
+                "vtium.conf's sections hold errors, so vtium-config leaves them as they are. Run {CHECK_CONFIG} on the file to see them, and fix them first."
             ),
-            ProfileEdit::NoHead(head) => write!(
+            SectionEdit::NoSection(name) => write!(
                 f,
-                "The head file has no head named {head}. Each head is a {HEAD_HEADING} section; pick one of the heads it names.",
-                head = Quoted::new(head),
+                "vtium.conf has no section named {}. Pick one of the sections it declares.",
+                Quoted::new(name)
             ),
-            ProfileEdit::BadName(name) => write!(
+            SectionEdit::Exists(name) => write!(
                 f,
-                "A {PROFILE}'s name is 1 to {max} letters, digits or {NAME_PUNCTUATION}, so vtium would refuse {name}. Choose a name of those characters.",
-                max = crate::bounds::NAME_MAX,
-                name = Quoted::new(name),
+                "vtium.conf already has a section named {}. Choose another name.",
+                Quoted::new(name)
+            ),
+            SectionEdit::BadName(name) => write!(
+                f,
+                "A section's name is 1 to {max} letters, digits or {NAME_PUNCTUATION}, so vtium would refuse {}. Choose a name of those characters.",
+                Quoted::new(name),
+                max = crate::NAME_MAX,
+            ),
+            SectionEdit::BadKey(key) => write!(
+                f,
+                "This section does not take the key {}. Set it where vtium.conf takes it.",
+                Quoted::new(key)
+            ),
+            SectionEdit::BadValue { key, value } => write!(
+                f,
+                "vtium would not read {} back as the value of `{key}`. Write a value of one line, with no comment in it.",
+                Quoted::new(value)
+            ),
+            SectionEdit::NoRule(n) => write!(
+                f,
+                "vtium.conf has no rule {n}. The rules are numbered from 1 in the order `[rules]` lists them."
+            ),
+            SectionEdit::BadRule(_) => f.write_str(
+                "This is not a rule vtium reads. Write it as `display MATCH -> TARGET` or `input MATCH -> TARGET`.",
+            ),
+            SectionEdit::Refused(_) => write!(
+                f,
+                "This change would leave vtium.conf's sections with an error, so vtium-config makes none. Run {CHECK_CONFIG} on the changed file to see why."
             ),
         }
     }

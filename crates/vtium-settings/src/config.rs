@@ -28,13 +28,6 @@ pub enum WhenDisplayLost {
     HangupAfter(u32),
 }
 
-/// The font keys, as vtium.conf carries them; `None` is a key not set.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Font {
-    pub name: Option<String>,
-    pub size: Option<u32>,
-}
-
 /// One key of the key table that a section sets: the key, its value as
 /// the file writes it, and its line.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -70,11 +63,10 @@ pub struct Head {
     pub name: String,
     /// The line of its `[head NAME]`, 0 for none.
     pub line: usize,
-    /// The name of the head's look, its `look =` in vtium.conf, or its
-    /// profile, its `profile =` in the head file; unset, `default`.
-    pub profile: String,
-    /// The line of its `look` or `profile`, 0 for none.
-    pub profile_line: usize,
+    /// The name of the head's look, its `look =`; unset, `default`.
+    pub look: String,
+    /// The line of its `look`, 0 for none.
+    pub look_line: usize,
     /// The number of consoles, 1 to [`CONSOLES_MAX`](crate::CONSOLES_MAX).
     pub consoles: u32,
     /// The line of its `consoles`, 0 for none.
@@ -97,26 +89,14 @@ impl Head {
         Head {
             name: name.to_owned(),
             line,
-            profile: "default".to_owned(),
-            profile_line: 0,
+            look: "default".to_owned(),
+            look_line: 0,
             consoles: 1,
             consoles_line: 0,
             login: None,
             when_display_lost: WhenDisplayLost::Keep,
             isolated: None,
             settings: Vec::new(),
-        }
-    }
-
-    /// The head's font: vtium.conf's keys, `base`, with the head's
-    /// profile over them (D3). Until profiles have files, the `default`
-    /// profile states nothing and any other profile states only its frit,
-    /// the frit of its name.
-    pub fn font(&self, base: &Font) -> Font {
-        let profile_name = (self.profile != "default").then(|| self.profile.clone());
-        Font {
-            name: profile_name.or_else(|| base.name.clone()),
-            size: base.size,
         }
     }
 }
@@ -190,7 +170,7 @@ impl Config {
     /// was dropped by an error, which `vtium check-config` warns of (ADR-1403
     /// D5; ADR-1200 D16).
     pub fn look(&self, head: &Head) -> Option<&Look> {
-        self.looks.iter().find(|l| l.name == head.profile)
+        self.looks.iter().find(|l| l.name == head.look)
     }
 
     /// The keys a head's sections set over the top level, each key once,

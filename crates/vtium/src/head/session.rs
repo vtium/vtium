@@ -91,9 +91,11 @@ pub(crate) fn scrollback_bytes(config: &Config, caps: Caps, heads: usize) -> usi
     )
 }
 
-/// The heads of `rules`, each with its font keys and its `login` (ADR-1401
-/// D3), the consoles `caps` give it, and the scrollback cap and length
-/// and the bytes `scrollback` gives each console.
+/// The heads of `rules`, each with the keys its sections set over
+/// `config`, its look's font keys and its own `login` among them
+/// (ADR-1401 D3, ADR-1403 D5), the consoles `caps` give it, and the
+/// scrollback cap and length and the bytes `scrollback` gives each
+/// console.
 pub(crate) fn heads(
     rules: &vtium_settings::Config,
     config: &Config,
@@ -107,21 +109,20 @@ pub(crate) fn heads(
         .iter()
         .zip(console_shares(rules, caps))
         .map(|(h, wanted)| {
-            let font = h.font(&vtium_settings::Font::default());
+            let settings: Vec<vtium_settings::Setting> = rules
+                .settings(h)
+                .into_iter()
+                .map(|(_, s)| s.clone())
+                .collect();
+            let (own, reports) = config.for_head(&crate::config::path(config), &settings);
+            for r in reports {
+                log::warn!("head {}: {r}; the top level's value stands", h.name);
+            }
             let term = crate::head::terminal(config, lines, bytes, Rc::clone(clock));
-            let mut head = Head::new(&h.name, config, &font, term);
+            let mut head = Head::new(&h.name, config, settings, term);
             head.wanted = wanted;
             head.when_display_lost = h.when_display_lost;
-            head.login = h.login.as_deref().and_then(|text| {
-                config
-                    .with_login(text)
-                    .map_err(|reports| {
-                        for r in reports {
-                            log::warn!("head {}: login: {}, vtium.conf's runs", h.name, r.problem);
-                        }
-                    })
-                    .ok()
-            });
+            head.login = h.login.is_some().then_some(own);
             head
         })
         .collect()

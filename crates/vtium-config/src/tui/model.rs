@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use vtium_settings::keys::{self, Kind, Scope};
-use vtium_settings::{Edit, edit_conf, parse, set_profile, setting, switch as conf_switch};
+use vtium_settings::{Edit, Of, edit_conf, setting, switch as conf_switch};
 
 use super::input::{Input, Key, Reply};
 use crate::draft::{FileEdit, Plan, Removal};
@@ -68,11 +68,9 @@ pub enum DpiFrom {
 pub struct Inputs {
     pub fonts: Vec<Font>,
     pub conf_path: PathBuf,
-    /// vtium.conf as read, `None` when there is none.
+    /// vtium.conf as read, its keys and its sections, `None` when there is
+    /// none.
     pub conf: Option<String>,
-    pub heads_path: PathBuf,
-    /// The head file as read, `None` when there is none.
-    pub heads: Option<String>,
     /// How a save is installed, as the save view shows it.
     pub saving: Saving,
     /// The directory drafts go under, as the save view names it.
@@ -106,6 +104,42 @@ pub enum Saving {
 
 /// The name the save view gives the draft's directory in its command.
 pub const DRAFT: &str = "DRAFT";
+
+/// The frit `head` draws with in `config`: the `font-name` of the look it
+/// names, else `default`.
+fn frit_of(config: &vtium_settings::Config, head: &vtium_settings::Head) -> String {
+    config
+        .look(head)
+        .and_then(|look| {
+            look.settings
+                .iter()
+                .find(|s| s.key.name == keys::FONT_NAME.name)
+        })
+        .map_or_else(|| "default".to_owned(), |s| s.value.clone())
+}
+
+/// vtium.conf's text with the head `head` drawing the frit `frit`: under
+/// `default`, its `look` line unset; else a `[look FRIT]` section whose
+/// `font-name` is the frit, made where there is none, and the head's
+/// `look` naming it. Each step goes through the section writer, which
+/// refuses a result vtium would not read whole.
+fn draw_with(text: &str, head: &str, frit: &str) -> Result<String, vtium_settings::SectionEdit> {
+    let look = "look";
+    if frit == "default" {
+        return vtium_settings::set_key(text, Of::Head(head), look, None);
+    }
+    let declared = vtium_settings::parse_sections(text)
+        .ok()
+        .flatten()
+        .is_some_and(|p| p.config.looks.iter().any(|l| l.name == frit));
+    let text = if declared {
+        text.to_owned()
+    } else {
+        vtium_settings::add_section(text, Of::Look(frit))?
+    };
+    let text = vtium_settings::set_key(&text, Of::Look(frit), keys::FONT_NAME.name, Some(frit))?;
+    vtium_settings::set_key(&text, Of::Head(head), look, Some(frit))
+}
 
 /// One thing that happened.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -476,23 +510,33 @@ impl App {
         }
     }
 
-    /// The heads the head file declares, when it reads.
+    /// Whether vtium.conf holds a flow, sections or a policy line, so the
+    /// heads view has heads to show (ADR-1403 D3).
+    pub fn has_flow(&self) -> bool {
+        self.inputs
+            .conf
+            .as_deref()
+            .is_some_and(|c| vtium_settings::split(c.as_bytes()).has_flow())
+    }
+
+    /// The heads vtium.conf's sections declare, when they read whole, each
+    /// with the frit it draws: the frit its look names with `font-name`,
+    /// else `default` (ADR-1403 D5).
     pub fn heads(&self) -> Option<Vec<(String, String)>> {
-        let text = self.inputs.heads.as_deref()?;
-        let parsed = parse(text).ok()?;
+        let text = self.inputs.conf.as_deref()?;
+        let config = vtium_settings::parse_sections(text).ok()??.config;
         Some(
-            parsed
-                .config
+            config
                 .heads
-                .into_iter()
+                .iter()
                 .map(|h| {
                     let profile = self
                         .pending
                         .profiles
                         .iter()
                         .find(|(n, _)| *n == h.name)
-                        .map_or(h.profile, |(_, p)| p.clone());
-                    (h.name, profile)
+                        .map_or_else(|| frit_of(&config, h), |(_, p)| p.clone());
+                    (h.name.clone(), profile)
                 })
                 .collect(),
         )
@@ -943,21 +987,18 @@ impl App {
             self.message = Some(super::words::remove_dropped(&name));
             return;
         }
-        let refused = crate::commands::removal_refusal(
-            &name,
-            self.inputs.conf.as_deref(),
-            self.inputs.heads.as_deref(),
-        )
-        .or_else(|| {
-            self.pending
-                .frits
-                .iter()
-                .any(|(n, _)| *n == name)
-                .then(|| super::words::remove_replaced(&name))
-        })
-        .or_else(|| {
-            (!self.inputs.installed.contains_key(&name)).then(|| super::words::remove_unread(&name))
-        });
+        let refused = crate::commands::removal_refusal(&name, self.inputs.conf.as_deref())
+            .or_else(|| {
+                self.pending
+                    .frits
+                    .iter()
+                    .any(|(n, _)| *n == name)
+                    .then(|| super::words::remove_replaced(&name))
+            })
+            .or_else(|| {
+                (!self.inputs.installed.contains_key(&name))
+                    .then(|| super::words::remove_unread(&name))
+            });
         if let Some(why) = refused {
             self.message = Some(super::words::remove_refused(why));
             return;
@@ -1098,8 +1139,9 @@ impl App {
         }
     }
 
-    /// What saving now would change: vtium.conf with the pending keys, and
-    /// the head file with each head's profile, through the one writer.
+    /// What saving now would change: vtium.conf with the pending keys at
+    /// its top level, and each head's frit in its sections, through the
+    /// section writer (ADR-1403 D8).
     pub fn plan(&self) -> Result<Plan, String> {
         let mut files = Vec::new();
         let p = &self.pending;
@@ -1127,29 +1169,19 @@ impl App {
                 Change::Unset => Edit::Unset(key),
             })
             .collect();
-        if !edits.is_empty() {
+        if !edits.is_empty() || !p.profiles.is_empty() {
             let old = self.inputs.conf.clone();
-            let new = edit_conf(old.as_deref().unwrap_or_default(), &edits)
-                .map_err(|e| super::words::conf_edit(&e))?;
+            let mut new = old.clone().unwrap_or_default();
+            if !edits.is_empty() {
+                new = edit_conf(&new, &edits).map_err(|e| super::words::conf_edit(&e))?;
+            }
+            for (head, frit) in &p.profiles {
+                new = draw_with(&new, head, frit).map_err(|e| e.to_string())?;
+            }
             if old.as_deref() != Some(&new) {
                 files.push(FileEdit {
                     path: self.inputs.conf_path.clone(),
                     old,
-                    new,
-                });
-            }
-        }
-        if !p.profiles.is_empty()
-            && let Some(old) = &self.inputs.heads
-        {
-            let mut new = old.clone();
-            for (head, profile) in &p.profiles {
-                new = set_profile(&new, head, profile).map_err(|e| e.to_string())?;
-            }
-            if new != *old {
-                files.push(FileEdit {
-                    path: self.inputs.heads_path.clone(),
-                    old: Some(old.clone()),
                     new,
                 });
             }
@@ -1163,7 +1195,6 @@ impl App {
                 .or_else(|| now.clone())
         };
         let conf = after(&self.inputs.conf_path, &self.inputs.conf);
-        let heads = after(&self.inputs.heads_path, &self.inputs.heads);
         // the frits' paths come from the directory the TUI started with
         let key = keys::FONT_FRITS.name;
         if !(p.frits.is_empty() && p.removals.is_empty())
@@ -1173,9 +1204,7 @@ impl App {
         }
         let mut removals = Vec::new();
         for name in &p.removals {
-            if let Some(why) =
-                crate::commands::removal_refusal(name, conf.as_deref(), heads.as_deref())
-            {
+            if let Some(why) = crate::commands::removal_refusal(name, conf.as_deref()) {
                 return Err(why);
             }
             let old = self
@@ -1200,8 +1229,6 @@ impl App {
                     for f in plan.files {
                         if f.path == self.inputs.conf_path {
                             self.inputs.conf = Some(f.new);
-                        } else if f.path == self.inputs.heads_path {
-                            self.inputs.heads = Some(f.new);
                         }
                     }
                 }
