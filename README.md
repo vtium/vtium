@@ -20,7 +20,7 @@ The kernel's own console turns 256-color and 24-bit color into 16 colors, holds 
 
 ## Status
 
-vtium's latest release is the pre-release v0.1.0-alpha.4. It draws on the CPU. A build from a checkout with the `gpu` feature draws on the GPU where `hwaccel` is on, and seat access through libseat and more are landing; [What vtium does](docs/features.md#status) lists what is built and what is not yet.
+vtium's latest release is the pre-release v0.1.0-alpha.5. A build of it with the `gpu` feature draws on the GPU where `hwaccel` is on, and the AUR's `vtium` package builds `gpu` from this release with `hwaccel` off by default. Seat access through libseat and more are landing; [What vtium does](docs/features.md#status) lists what is built and what is not yet.
 
 ## Try it
 
