@@ -6,13 +6,14 @@ DISPLAYS        DISPLAY RULES       HEADS       LOOK            INPUT RULES     
  LARGE00001       -> desk        ╎   1 console   └ monoid         -> desk            configured, not
              ┌─►2 edid:BB…LL00001┤   active        └ Monoid    ┌5 class:keyboard ◄─┐ found
  HDMI-A-2    ┘    -> panel       │                             │  -> roaming       │
- SMALL00001     3 * -> desk      ┴─► panel       small, 12 pt  ├6 * -> ignore    ◄─┼ keyboard
-                  matches no         2 consoles  └ dejavu      │+ new rule…        │ usb-0:3.3
+ SMALL00001     3 * -> desk      ├─► panel       small, 12 pt  ├6 * -> ignore    ◄─┤ keyboard
+                  matches no     ┘   2 consoles  └ dejavu      │+ new rule…        ├ usb-0:3.3
                   display present                  └ De… Mono  │                   │
                 + new rule…                                    │                   └ Power Button
                                                  tiny, auto …  │                     class key
                                                  └ minspec-16  │
-                                                 unused        │
+                                                 no head uses  │
+                                                 it            │
                                                                │
                                     + new head… + new look…    │
                                                                │
@@ -20,7 +21,6 @@ DISPLAYS        DISPLAY RULES       HEADS       LOOK            INPUT RULES     
                                      ignore    vtium never o…◄─┘
                                      off       vtium turns i…
                                      policy open takes what …
-
 
 
 

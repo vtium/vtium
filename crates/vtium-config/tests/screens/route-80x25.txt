@@ -10,14 +10,14 @@
    head           desk, the active head
    look           big, frit monoid, 14 pt
    input rule     5, class:keyboard -> roaming
-   input device   keyboard, usb-0:3.3
+▸  input device   keyboard, usb-0:3.3
  route 2 of 2, when panel is active
    display        HDMI-A-2, SMALL00001
    display rule   2, edid:BBB:0x0002:SMALL00001 -> panel
    head           panel
    look           small, frit dejavu, 12 pt
    input rule     5, class:keyboard -> roaming
-   input device   keyboard, usb-0:3.3
+▸  input device   keyboard, usb-0:3.3
 
 
 
