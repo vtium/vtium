@@ -842,8 +842,7 @@ impl Head {
 
     /// The font set in use, the built-ins before one is chosen.
     pub(crate) fn chosen(&self) -> &Chosen {
-        const BUILTIN: &Chosen = &Chosen::Builtin(None);
-        self.font.as_ref().unwrap_or(BUILTIN)
+        self.font.as_ref().unwrap_or(&Chosen::BUILTINS)
     }
 
     /// The font set's face at `height`.
@@ -863,7 +862,7 @@ impl Head {
         let font = Font::new(face);
         let own = match self.chosen() {
             Chosen::Frit { frit, .. } => font::frit_policy(&frit.text, font.policy()),
-            Chosen::Builtin(_) => font.policy(),
+            Chosen::Builtin { .. } => font.policy(),
         };
         let policy = font::policy(config, own);
         font.with_policy(policy).with_missing(font::missing(config))
@@ -1873,7 +1872,10 @@ mod tests {
             auto_size: false,
         };
         head.hidden.push(Console::new(2, term(), zoomed));
-        head.font = Some(Chosen::Builtin(Some("unscii-8")));
+        head.font = Some(Chosen::Builtin {
+            name: Some("unscii-8"),
+            cell: None,
+        });
         head.switched = Some(2);
         (head.points, head.auto_size, head.font_size) = (None, false, 24);
         let before = |h: &Head| {
@@ -1890,7 +1892,10 @@ mod tests {
         let mut kept = head.keep(2);
         head.reconfigure(&load(&["--font-size=12"]));
         head.switched = None;
-        kept.font = Some(head.font.replace(Chosen::Builtin(Some("unifont"))));
+        kept.font = Some(head.font.replace(Chosen::Builtin {
+            name: Some("unifont"),
+            cell: None,
+        }));
         let fresh = head.fresh_fit();
         head.configured_size(
             2,

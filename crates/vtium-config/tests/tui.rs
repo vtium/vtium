@@ -10,6 +10,8 @@
 
 #[path = "common/home.rs"]
 mod home;
+#[path = "common/script.rs"]
+mod script;
 
 use std::collections::{BTreeMap, VecDeque};
 use std::io;
@@ -2085,7 +2087,6 @@ mod flow_view {
 mod draft_flow {
     use super::*;
     use std::cell::RefCell;
-    use std::os::unix::fs::PermissionsExt;
     use std::rc::Rc;
     use vtium_config::flowmodel::Present;
     use vtium_config::tui::desk;
@@ -2120,9 +2121,7 @@ mod draft_flow {
         }
         std::fs::write(root.join("etc/vtium.conf"), INSTALLED).expect("vtium.conf");
         let checker = root.join("vtium");
-        std::fs::write(&checker, CHECKER).expect("the checker");
-        std::fs::set_permissions(&checker, std::fs::Permissions::from_mode(0o755))
-            .expect("its mode");
+        script::executable(&checker, CHECKER);
         Bench { root }
     }
 
