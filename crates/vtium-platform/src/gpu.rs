@@ -171,3 +171,77 @@ pub fn render_node(card: &Path) -> io::Result<PathBuf> {
 
 #[cfg(test)]
 mod tests;
+
+/// [`exit_now`] in a child process: this test binary run again on the test
+/// below alone, which registers an exit handler that writes a line and then
+/// ends the way the environment variable [`HOW`] names.
+#[cfg(test)]
+#[expect(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    reason = "a test fails by panicking"
+)]
+mod exit_now_tests {
+    /// Set in the child: `now` ends it with [`super::exit_now`], `exit`
+    /// with `std::process::exit`, which runs the exit handlers.
+    const HOW: &str = "VTIUM_TEST_EXIT_NOW";
+
+    const RAN: &str = "the exit handler ran";
+
+    extern "C" fn handler() {
+        let line = b"the exit handler ran\n";
+        // SAFETY: write(2) reads `line.len()` bytes of `line`, which lives
+        // for the call.
+        #[expect(unsafe_code, reason = "write(2) from an exit handler")]
+        unsafe {
+            libc::write(1, line.as_ptr().cast(), line.len());
+        }
+    }
+
+    /// The child's output and exit status, ended the way `how` names.
+    fn child(how: &str) -> (String, Option<i32>) {
+        let name = format!(
+            "{}::exit_now_runs_no_exit_handler",
+            module_path!().split_once("::").expect("a crate path").1
+        );
+        let out = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([name.as_str(), "--exact", "--nocapture", "--test-threads=1"])
+            .env(HOW, how)
+            .output()
+            .expect("the test binary runs again");
+        (
+            String::from_utf8_lossy(&out.stdout).into_owned(),
+            out.status.code(),
+        )
+    }
+
+    // vtium ends with exit_now while a render thread it went on without may
+    // still be inside the GPU driver (ADR-1303 D9): the process ends with the
+    // status given and runs no exit handler. A child that ends with
+    // std::process::exit instead runs the handler, so the probe sees one
+    #[test]
+    fn exit_now_runs_no_exit_handler() {
+        if let Ok(how) = std::env::var(HOW) {
+            // SAFETY: `handler` is an `extern "C" fn()` that lives as long
+            // as the process.
+            #[expect(unsafe_code, reason = "atexit(3) for the probe")]
+            unsafe {
+                libc::atexit(handler);
+            }
+            if how == "now" {
+                super::exit_now(7);
+            }
+            std::process::exit(7);
+        }
+        let (out, status) = child("exit");
+        assert_eq!(status, Some(7), "{out}");
+        assert!(out.contains(RAN), "the probe sees a handler run: {out}");
+        let (out, status) = child("now");
+        assert_eq!(status, Some(7), "{out}");
+        assert!(
+            out.contains("running 1 test"),
+            "the child ran the case: {out}"
+        );
+        assert!(!out.contains(RAN), "exit_now ran an exit handler: {out}");
+    }
+}

@@ -175,6 +175,14 @@ fn leave(code: u8) -> ExitCode {
     #[cfg(feature = "gpu")]
     {
         let running = vtium::painter::wait_for_left(std::time::Duration::ZERO, &*clock());
+        // No test reaches this branch. It needs the vtium binary to leave a
+        // render thread at its exit, which takes a GPU driver that hangs
+        // destroying a head's GL context, and only the in-process test GPU
+        // can stand in for one; the binary has no such source. Its parts
+        // are tested apart: tests/gpu.rs leaves threads through the app and
+        // counts them with `wait_for_left`, and vtium-platform's
+        // `exit_now_runs_no_exit_handler` shows that `exit_now` ends a
+        // process with its status and runs no exit handler.
         if running > 0 {
             log::warn!(
                 "{running} render thread(s) are still inside the GPU driver: vtium ends without running its exit handlers"

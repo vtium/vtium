@@ -453,6 +453,24 @@ struct Seat {
     app: App,
     /// How many VT releases vtium has acknowledged.
     released: Rc<Cell<u32>>,
+    /// Dropped after the app, as fields drop in order.
+    _reap: Reap,
+}
+
+/// Joins, as the harness drops after its app, the render threads the app
+/// went on without because their GPU driver had not let go in time
+/// (ADR-1303 D9). No such thread is then inside the GPU driver when the
+/// test binary runs its exit handlers, which would tear libEGL and Mesa
+/// down under it, as the gpu harness's seat does too.
+struct Reap;
+
+impl Drop for Reap {
+    fn drop(&mut self) {
+        let running = vtium::painter::wait_for_left(BOUND, &now);
+        if !std::thread::panicking() {
+            assert_eq!(running, 0, "a render thread left running");
+        }
+    }
 }
 
 impl Drop for Seat {
@@ -578,7 +596,12 @@ impl Seat {
         app.vt.activate().expect("the fake VT");
         app.start();
         app.turn(now());
-        Seat { lp, app, released }
+        Seat {
+            lp,
+            app,
+            released,
+            _reap: Reap,
+        }
     }
 
     /// Turns the loop until `done` holds, at most `limit`.
@@ -6440,7 +6463,12 @@ fn reset_seat(dir: &Path, heads: &str, fonts: Sources) -> (Seat, Rc<Cell<u32>>) 
     app.vt.activate().expect("the fake VT");
     app.start();
     app.turn(now());
-    let mut s = Seat { lp, app, released };
+    let mut s = Seat {
+        lp,
+        app,
+        released,
+        _reap: Reap,
+    };
     s.app.add_input(Path::new(KBD_SMALL), keyboard("kbd-small"));
     (s, reads)
 }
