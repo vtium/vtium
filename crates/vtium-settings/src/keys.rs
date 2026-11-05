@@ -448,7 +448,7 @@ pub const HEAD_CONSOLES_MAX: Key = Key {
     scope: Scope::Anywhere,
     levels: TOP,
     reader: "vtium",
-    what: "The most consoles one head holds: the head file's `consoles` opens no more.",
+    what: "The most consoles one head holds: a head's `consoles` opens no more.",
     cite: "ADR-1401 D10; the C reference's `session-max` (src/config.c:1357) bounded the seat's sessions",
 };
 
@@ -504,7 +504,7 @@ pub const NOTICE_FOREGROUND: Key = Key {
     scope: Scope::Anywhere,
     levels: TOP,
     reader: "vtium",
-    what: "The color of a notice's text. A notice tells of a problem, such as an invalid head file, and shows whatever `osd` says.",
+    what: "The color of a notice's text. A notice tells of a problem, such as an invalid vtium.conf, and shows whatever `osd` says.",
     cite: "ADR-1401 D5",
 };
 
@@ -629,7 +629,7 @@ pub const CONSOLES_MAX: Key = Key {
     levels: TOP,
     reader: "vtium",
     what: "The most consoles every head holds together.\n\n\
-           Each head keeps its first console; the others open, in the head file's order, while the total is below this.",
+           Each head keeps its first console; the others open, in the order vtium.conf declares the heads, while the total is below this.",
     cite: "ADR-1401 D10; the C reference's `session-max` (src/config.c:1357)",
 };
 
@@ -837,7 +837,7 @@ pub const DISPLAY_WAIT: Key = Key {
     levels: TOP,
     reader: "vtium",
     what: "At start, how long to wait for a display, counted from when the VT is shown.\n\n\
-           With no display by then, vtium exits with status 1, so the unit's `OnFailure=` can start a getty. Under a head file whose policy is closed vtium waits however long it takes, as under `forever` (ADR-1401 D8).\n\n\
+           With no display by then, vtium exits with status 1, so the unit's `OnFailure=` can start a getty. Under a vtium.conf whose policy is closed vtium waits however long it takes, as under `forever` (ADR-1401 D8).\n\n\
            The wait runs only while the VT is vtium's. When another program takes the VT before vtium's first frame is on screen, as X starting on another VT does at boot, vtium waits for the VT to come back, and when it does, the wait starts again from the full `display-wait`.\n\n\
            0 waits for no display to come: a display set up when the VT is shown counts once its first frame is on screen. `forever` waits for the first display however long it takes, for a machine whose only display is a USB adapter (DisplayLink, `udl`) plugged in at any time.\n\n\
            Once a display has come, vtium never exits for want of one.",
@@ -854,7 +854,7 @@ pub const DISPLAY_BUFFERS: Key = Key {
     reader: "vtium-platform",
     what: "How many buffers each DRM display keeps, the same for every display.\n\n\
            `3` is triple buffering, so no frame waits for the last flip, at the cost of one more whole frame a display (8 MB at 1080p). `2` is double buffering. `1` is single buffering, which holds the least memory, but vtium then draws into the buffer being shown, so a frame can be seen half drawn.\n\n\
-           A framebuffer (fbdev) keeps one buffer whatever this key says. Unset, the build decides: the count it was built with (`VTIUM_DISPLAY_BUFFERS`), or else 3 in a build with features on top of minspec, 2 in the minspec build, 1 only in a build smaller than minspec. `vtium config config display-buffers` prints the value vtium.conf gives it, or the build's default followed by `default`, which is `unset` when the build names no count, and the rule above then picks it.",
+           A framebuffer (fbdev) keeps one buffer whatever this key says. Unset, the build decides: the count it was built with (`VTIUM_DISPLAY_BUFFERS`), or else 3 in a build with features on top of minspec, 2 in the minspec build, 1 only in a build smaller than minspec. `vtium config get display-buffers` prints the value the current draft gives it, followed by `draft`, or the build's default followed by `default`, which is `unset` when the build names no count, and the rule above then picks it.",
     cite: "ADR-1401 D2; the C reference's drm2d kept 2, src/video/drm2d_internal.h:49",
 };
 
@@ -867,7 +867,7 @@ pub const HWACCEL: Key = Key {
     levels: TOP,
     reader: "vtium",
     what: "Draw through the GPU, in a build that has it.\n\n\
-           Off unless vtium was built to turn it on (`VTIUM_HWACCEL`). `vtium config config hwaccel` prints the value vtium.conf gives it, or the build's default followed by `default`.",
+           Off unless vtium was built to turn it on (`VTIUM_HWACCEL`). `vtium config get hwaccel` prints the value the current draft gives it, followed by `draft`, or the build's default followed by `default`, and `vtium config set hwaccel on` turns it on in the draft.",
     cite: "src/config.c:1413",
 };
 
@@ -1513,7 +1513,7 @@ pub const ALLOW_FONT_OPS: Key = Key {
     levels: TOP,
     reader: "vtium",
     what: "Let a program switch the font among the frits and the built-in fonts with xterm's OSC 50, and ask which is in use.\n\n\
-           A program switches with `OSC 50 ; NAME ST`, as `vtium-config set NAME` sends it, and asks with `OSC 50 ; ? ST`. A switch lasts until the session it came from ends, when vtium returns the console to the font and size `font-name` and `font-size` give.\n\n\
+           A program switches with `OSC 50 ; NAME ST`, as `vtium-config use-frit NAME` sends it, and asks with `OSC 50 ; ? ST`. A switch lasts until the session it came from ends, when vtium returns the console to the font and size `font-name` and `font-size` give.\n\n\
            It is on by default, as xterm's `allowFontOps` is, since OSC 50 reaches only the frits root wrote and the built-in fonts, never a file. Off, vtium ignores OSC 50, the query included.",
     cite: "ADR-1200 (D5); vtium/vtium#126",
 };
