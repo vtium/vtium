@@ -3934,14 +3934,25 @@ const WAITING: [&str; 6] = [
     "read x",
 ];
 
+/// Whether the lines logged since the last call to [`logged`] include the
+/// line vtium logs on the turn its wait for a display runs out.
+fn ran_out() -> bool {
+    logged()
+        .iter()
+        .any(|l| l.starts_with("no display appeared within"))
+}
+
 /// No display comes within `display-wait`: vtium exits with status 1,
 /// once the wait has run, so the unit's `OnFailure=` can start a getty.
+/// The wait runs out on the first turn after its due time, which logs it.
 #[test]
 fn with_no_display_by_the_wait_vtium_exits_1() {
+    logged();
     let mut h = Harness::bare(&WAITING);
-    h.skip_turn(Duration::from_millis(900));
-    assert_eq!(h.app.finished(), None, "the wait runs");
-    h.skip_turn(Duration::from_millis(200));
+    h.skip_turn(Duration::from_millis(1000));
+    assert!(!ran_out(), "the wait runs to its due time");
+    h.skip_turn(Duration::from_millis(1));
+    assert!(ran_out(), "the wait ran out a millisecond after it");
     assert!(h.until(BOUND, |a| a.finished().is_some()));
     assert_eq!(h.app.finished(), Some(Exit::NoDisplay));
     assert_eq!(h.app.finished().map(Exit::status), Some(1));
@@ -4045,6 +4056,7 @@ fn a_vt_released_before_the_first_frame_waits_for_the_vt_to_come_back() {
 /// vtium's, vtium exits with status 1.
 #[test]
 fn the_wait_a_release_stopped_runs_whole_again_from_the_acquire() {
+    logged();
     let mut h = Harness::boot(&WAITING, ScriptedVt::default(), None);
     h.skip_turn(Duration::from_millis(800));
     assert_eq!(h.app.finished(), None, "0.8 s into the 1 s wait");
@@ -4059,8 +4071,11 @@ fn the_wait_a_release_stopped_runs_whole_again_from_the_acquire() {
     // 0.8 s and 0.5 s make more than the wait: had the wait kept the
     // time before the release, it would have run out here.
     h.skip_turn(Duration::from_millis(500));
-    assert_eq!(h.app.finished(), None, "0.5 s into the wait started again");
-    h.skip(Duration::from_millis(600));
+    assert!(!ran_out(), "0.5 s into the wait started again");
+    h.skip_turn(Duration::from_millis(500));
+    assert!(!ran_out(), "the wait started again runs to its due time");
+    h.skip_turn(Duration::from_millis(1));
+    assert!(ran_out(), "the wait ran out a millisecond after it");
     assert!(h.until(BOUND, |a| a.finished().is_some()));
     assert_eq!(h.app.finished(), Some(Exit::NoDisplay));
 }
@@ -4125,10 +4140,12 @@ impl Video for Unusable {
 /// The default wait is 10 s, counted on the seat's clock.
 #[test]
 fn the_default_wait_is_ten_seconds() {
+    logged();
     let mut h = Harness::bare(&["--login", "--", "/bin/sh", "-c", "read x"]);
-    h.skip_turn(Duration::from_millis(8_500));
-    assert_eq!(h.app.finished(), None, "not yet");
-    h.skip(Duration::from_millis(1_600));
+    h.skip_turn(Duration::from_millis(10_000));
+    assert!(!ran_out(), "the wait runs to its due time");
+    h.skip_turn(Duration::from_millis(1));
+    assert!(ran_out(), "the wait ran out a millisecond after it");
     assert!(h.until(BOUND, |a| a.finished().is_some()));
     assert_eq!(h.app.finished(), Some(Exit::NoDisplay));
 }
