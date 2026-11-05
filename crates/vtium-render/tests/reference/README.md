@@ -15,7 +15,7 @@ No gate, test or build reads a checkout of the C reference: the tests read `cell
 
 A changed digest is a change to what vtium draws, so it is a golden change. When vtium draws other pixels, each test checks every line before it fails, writes every line of its kind as vtium draws it to a file, and fails with the number of lines that differ and that file's path:
 
-- The sprite test in `src/deco.rs` (`cargo test -p vtium-render --all-features --lib sprites_match`) writes every `deco` line to `vtium-render-digests/deco.tsv` in the system's temporary directory. A line the render crate redraws on purpose, a double or curl past a quarter of the cell or a dash, keeps its digest as it is.
+- The sprite test in `src/deco.rs` (`cargo test -p vtium-render --all-features --lib sprites_match`) writes every `deco` line to `vtium-render-digests-<pid>/deco.tsv` in the system's temporary directory, where `<pid>` is the test's process id. A line the render crate redraws on purpose, a double or curl past a quarter of the cell or a dash, keeps its digest as it is.
 - `tests/reference.rs` (`cargo test -p vtium-render --all-features --test reference`) writes every `screen` line to `digests/screens.tsv` in the test's scratch directory (`CARGO_TARGET_TMPDIR`, under the target directory). A dashed screen's line covers the screen with its dash over columns 1 to 6 of each 8-pixel cell, which is the dash the stored digest covers, as `a_dashed_screen_differs_from_the_c_reference_only_in_its_dashes` draws it.
 
 A deliberate change copies those lines over the ones in `cells.tsv` in a commit of their own, which lists each line that moved and why, and the maintainer reviews it.

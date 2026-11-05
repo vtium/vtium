@@ -123,9 +123,9 @@ endif
 endif
 
 .PHONY: minspec
-minspec: ## Build the minspec binary for x86_64 against the glibc 2.36 sysroot, target/x86_64-unknown-linux-gnu/minspec/vtium, with FEATURES='...' when named (needs clang)
+minspec: ## Build the minspec binary for x86_64 against the glibc 2.36 sysroot, target/x86_64-unknown-linux-gnu/minspec/vtium, with FEATURES='...', HWACCEL=on|off and DISPLAY_BUFFERS=1|2|3 when named (needs clang)
 	tools/arm/sysroot fetch amd64
-	VTIUM_REVISION=$(or $(shell git describe --always --dirty 2>/dev/null),unknown) cargo rustc --profile minspec -p vtium --bin vtium --target $(X86_TARGET) $(if $(strip $(FEATURES)),--features '$(strip $(FEATURES))') -- $(RELR_LINK)
+	$(build_settings)VTIUM_REVISION=$(or $(shell git describe --always --dirty 2>/dev/null),unknown) cargo rustc --profile minspec -p vtium --bin vtium --target $(X86_TARGET) $(if $(strip $(FEATURES)),--features '$(strip $(FEATURES))') -- $(RELR_LINK)
 	$(call check-relr,$(VTIUM_MINSPEC))
 	$(call check-glibc,$(VTIUM_MINSPEC))
 
@@ -174,12 +174,12 @@ GALLERY := tools/gallery/gallery
 
 .PHONY: config-release
 config-release: ## Build vtium-config, the font tool and glyph helper, for x86_64 against the glibc 2.36 sysroot, target/x86_64-unknown-linux-gnu/release/vtium-config
-	cargo build --release -p vtium-config --target $(X86_TARGET)
+	$(build_settings)cargo build --release -p vtium-config --target $(X86_TARGET)
 	$(call check-glibc,$(CONFIG_RELEASE))
 
 .PHONY: image-release
 image-release: ## Build vtium-image, the image helper, for x86_64 against the glibc 2.36 sysroot, target/x86_64-unknown-linux-gnu/release/vtium-image
-	cargo build --release -p vtium-image-helper --target $(X86_TARGET)
+	$(build_settings)cargo build --release -p vtium-image-helper --target $(X86_TARGET)
 	$(call check-glibc,$(IMAGE_RELEASE))
 
 .PHONY: install-tree
@@ -238,17 +238,41 @@ CARGO_BUILD_FLAGS :=
 UNITDIR := $(PREFIX)/lib/systemd/system
 TERMINFO_SRC := $(VTIUM_INSTALL)/xterm-vtium.ti
 # The build settings a package names for two defaults (ADR-1500 D8):
-# HWACCEL, on or off, and DISPLAY_BUFFERS, 1, 2 or 3. make install-build
-# hands each one named to the console's build and to vtium-config's, as
-# VTIUM_HWACCEL and VTIUM_DISPLAY_BUFFERS, and the key table makes it the
-# key's default. Unnamed, the key table's own defaults stand.
+# HWACCEL, on or off, and DISPLAY_BUFFERS, 1, 2 or 3. Each target that
+# builds the console or a helper hands each setting named to its builds as
+# VTIUM_HWACCEL and VTIUM_DISPLAY_BUFFERS. Those targets are make
+# install-build, make minspec, make vt-dev-console, make config-release
+# and make image-release. The review targets, make vt-install, make
+# install-tree and the tier 3 runs build through them, so their builds
+# take the settings too. The key table makes each setting the key's
+# default. Unnamed, the key table's own defaults stand.
+#
+# make reads a setting named on its command line, and one exported in the
+# shell. An exported HWACCEL or DISPLAY_BUFFERS therefore reaches tier 3's
+# install tree as well. make checks each value for every target that
+# builds.
+#
+# A review target or make vt-install given a binary with VTIUM_BIN builds
+# no console. It refuses either setting named on make's command line,
+# because it could not give that setting to the binary.
 build_settings = $(if $(HWACCEL),VTIUM_HWACCEL=$(HWACCEL) )$(if $(DISPLAY_BUFFERS),VTIUM_DISPLAY_BUFFERS=$(DISPLAY_BUFFERS) )
-ifneq ($(filter install install-build,$(MAKECMDGOALS)),)
+SETTINGS_GOALS := install install-build install-tree minspec vt-dev-console config-release image-release $(VT_GOALS) vt-install tier3 tier3-minimal tier3-images tier3-nosystemd
+ifneq ($(filter $(SETTINGS_GOALS),$(MAKECMDGOALS)),)
 ifneq ($(and $(HWACCEL),$(filter-out on off,$(HWACCEL))$(word 2,$(HWACCEL))),)
 $(error HWACCEL is on or off, not '$(HWACCEL)')
 endif
 ifneq ($(and $(DISPLAY_BUFFERS),$(filter-out 1 2 3,$(DISPLAY_BUFFERS))$(word 2,$(DISPLAY_BUFFERS))),)
 $(error DISPLAY_BUFFERS is 1, 2 or 3, not '$(DISPLAY_BUFFERS)')
+endif
+endif
+# The console a review target or make vt-install builds, or none when
+# VTIUM_BIN names one already built.
+vt_console_build := $(strip $(vt_build) $(if $(filter vt-install,$(MAKECMDGOALS)),$(filter $(VTIUM_DEV),$(VTIUM_BIN))))
+ifneq ($(filter $(VT_GOALS) vt-install,$(MAKECMDGOALS)),)
+ifeq ($(vt_console_build),)
+ifneq ($(strip $(filter command line,$(origin HWACCEL)) $(filter command line,$(origin DISPLAY_BUFFERS))),)
+$(error $(firstword $(filter $(VT_GOALS) vt-install,$(MAKECMDGOALS))): HWACCEL and DISPLAY_BUFFERS set the defaults a build bakes into the console, and VTIUM_BIN=$(VTIUM_BIN) is built already; leave them out, or leave VTIUM_BIN out so the console is built with them)
+endif
 endif
 endif
 # Both stage under DESTDIR alone: DESTDIR is named, not empty, and not the
@@ -495,9 +519,9 @@ $(VT_INSTALL_GOALS): export VTIUM_VT_DRY_RUN = $(value DRY_RUN)
 # VT_IMAGES_MARKER exactly when it is built with images, as vt-install reads
 # it.
 .PHONY: vt-dev-console
-vt-dev-console: ## Build the console make vt-install installs, target/vt-dev/x86_64-unknown-linux-gnu/minspec/vtium, with FEATURES='...' when named (needs clang)
+vt-dev-console: ## Build the console make vt-install installs, target/vt-dev/x86_64-unknown-linux-gnu/minspec/vtium, with FEATURES='...', HWACCEL=on|off and DISPLAY_BUFFERS=1|2|3 when named (needs clang)
 	tools/arm/sysroot fetch amd64
-	VTIUM_FONT_HELPER=$(VTIUM_DEV_HELPER) $(if $(IMAGES),VTIUM_IMAGE=$(VTIUM_DEV_IMAGE)) VTIUM_REVISION=$(or $(shell git describe --always --dirty 2>/dev/null),unknown) cargo rustc --profile minspec -p vtium --bin vtium --target $(X86_TARGET) --target-dir $(VTIUM_DEV_DIR) $(if $(strip $(FEATURES)),--features '$(strip $(FEATURES))') -- $(RELR_LINK)
+	$(build_settings)VTIUM_FONT_HELPER=$(VTIUM_DEV_HELPER) $(if $(IMAGES),VTIUM_IMAGE=$(VTIUM_DEV_IMAGE)) VTIUM_REVISION=$(or $(shell git describe --always --dirty 2>/dev/null),unknown) cargo rustc --profile minspec -p vtium --bin vtium --target $(X86_TARGET) --target-dir $(VTIUM_DEV_DIR) $(if $(strip $(FEATURES)),--features '$(strip $(FEATURES))') -- $(RELR_LINK)
 	$(call check-relr,$(VTIUM_DEV))
 	$(call check-glibc,$(VTIUM_DEV))
 ifneq ($(IMAGES),)
@@ -508,7 +532,7 @@ else
 endif
 
 .PHONY: vt-install
-vt-install: $(vt_build) $(vt_dev_build) ## Install a development build as vtium-dev on VT N in place of its getty, started at every boot (VT=N, DRY_RUN=1, FEATURES='...')
+vt-install: $(vt_build) $(vt_dev_build) ## Install a development build as vtium-dev on VT N in place of its getty, started at every boot (VT=N, DRY_RUN=1, FEATURES='...', HWACCEL=on|off, DISPLAY_BUFFERS=1|2|3)
 	@case "$$VTIUM_VT_DRY_RUN" in '') tools/vt/vt-install.sh install "$$VTIUM_VT_NR" ;; 1) tools/vt/vt-install.sh install --dry-run "$$VTIUM_VT_NR" ;; *) echo "DRY_RUN=$$VTIUM_VT_DRY_RUN: 1 or nothing" >&2; exit 1 ;; esac
 
 .PHONY: vt-uninstall

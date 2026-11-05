@@ -26,12 +26,15 @@ use vtium_platform::event_loop::Loop;
 use vtium_platform::input::{Button, InputEvent, KeyEvent, Mods, PointerEvent};
 use vtium_platform::vt::{FakeVt, Switch, Vt, VtEvent};
 
+#[path = "common/clock.rs"]
+mod clock;
 #[path = "common/vt.rs"]
 mod counting;
 #[path = "common/scratch.rs"]
 mod scratch;
 #[path = "common/helper.rs"]
 mod stand_in;
+use clock::SeatClock;
 use counting::CountingVt;
 use scratch::Scratch;
 use stand_in::real_helper;
@@ -355,8 +358,8 @@ impl Vt for ScriptedVt {
 struct Harness {
     lp: Loop<App>,
     app: App,
-    /// How far the seat's clock runs ahead of the real one.
-    ahead: Rc<Cell<Duration>>,
+    /// The seat's clock, which only [`Harness::skip`] moves.
+    seat: SeatClock,
 }
 
 /// No frits and no vconsole font, so the seat draws its built-in font
@@ -370,9 +373,12 @@ fn no_fonts() -> Sources {
     }
 }
 
+/// The real time, which bounds a wait on another thread or process and
+/// times the flips of the [`Slow`] device. The seat itself reads
+/// [`Harness::at`], which only the test moves.
 #[expect(
     clippy::disallowed_methods,
-    reason = "the harness runs the loop in real time"
+    reason = "a wait on another thread is bounded in real time"
 )]
 fn now() -> Instant {
     Instant::now()
@@ -454,6 +460,29 @@ impl Harness {
         fonts: Sources,
         set: impl FnOnce(&mut App),
     ) -> Harness {
+        Harness::boot_seat(SeatClock::new(), args, vt, video, fonts, set)
+    }
+
+    /// [`Harness::build`] on the seat's clock `seat`, which a test's device
+    /// reads too.
+    fn build_on<V: Vt + 'static>(
+        seat: SeatClock,
+        args: &[&str],
+        vt: V,
+        video: Box<dyn Video>,
+    ) -> Harness {
+        Harness::boot_seat(seat, args, vt, Some(video), no_fonts(), |_| {})
+    }
+
+    /// [`Harness::boot_set`] on the seat's clock `seat`.
+    fn boot_seat<V: Vt + 'static>(
+        seat: SeatClock,
+        args: &[&str],
+        vt: V,
+        video: Option<Box<dyn Video>>,
+        fonts: Sources,
+        set: impl FnOnce(&mut App),
+    ) -> Harness {
         let sized = args.iter().any(|a| a.starts_with("--font-size"));
         let args: Vec<OsString> = (!sized)
             .then_some("--font-size=16")
@@ -468,12 +497,7 @@ impl Harness {
         let _ = Start::new(&loaded.config, "C".to_owned());
         let lp: Loop<App> = Loop::new().expect("a loop");
         let env = vec![(OsString::from("PATH"), OsString::from("/usr/bin:/bin"))];
-        let ahead = Rc::new(Cell::new(Duration::ZERO));
-        let clock = {
-            let ahead = ahead.clone();
-            Rc::new(move || now() + ahead.get())
-        };
-        let mut app = App::new(loaded.config, Box::new(vt), lp.handle(), clock, env);
+        let mut app = App::new(loaded.config, Box::new(vt), lp.handle(), seat.clock(), env);
         app.set_font_sources(fonts);
         set(&mut app);
         if let Some(video) = video {
@@ -481,19 +505,20 @@ impl Harness {
         }
         app.vt.activate().expect("the fake VT");
         app.start();
-        app.turn(now());
-        Harness { lp, app, ahead }
+        app.turn(seat.now());
+        Harness { lp, app, seat }
     }
 
-    /// The seat's time: the real time, or ahead of it after [`Harness::skip`].
+    /// The seat's time: the time it booted at, moved on by each
+    /// [`Harness::skip`].
     fn at(&self) -> Instant {
-        now() + self.ahead.get()
+        self.seat.now()
     }
 
     /// Moves the seat's clock ahead by `by`, as if that long passed with
     /// nothing to do.
     fn skip(&mut self, by: Duration) {
-        self.ahead.set(self.ahead.get() + by);
+        self.seat.advance(by);
     }
 
     /// Turns the loop until `done` holds, at most `limit`.
@@ -550,6 +575,21 @@ impl Harness {
     fn skip_turn(&mut self, by: Duration) {
         self.skip(by);
         self.app.turn(self.at());
+    }
+
+    /// One turn of the loop as `main` runs it: the loop waits for the
+    /// wake-up the seat asks for, at most `most`, then the seat's clock
+    /// moves on by that wait and the seat turns. The clock moves by the
+    /// wait the loop was told, also when something woke the loop sooner.
+    /// Returns the wake-up the seat asked for.
+    fn sleep_turn(&mut self, most: Duration) -> Option<Duration> {
+        let asked = self.app.next_wake(self.at());
+        let wait = asked.map_or(most, |w| w.min(most));
+        self.lp
+            .dispatch(Some(wait), &mut self.app)
+            .expect("dispatch");
+        self.skip_turn(wait);
+        asked
     }
 
     /// Turns the loop until a frame is shown and its flip read, so a skip
@@ -698,7 +738,7 @@ fn the_seat_boots_draws_takes_keys_and_exits() {
         repeat: false,
     };
     h.app
-        .input_event(InputEvent::Key(ctrl_super_f12.clone()), now());
+        .input_event(InputEvent::Key(ctrl_super_f12.clone()), h.at());
     assert!(
         h.until_memory(BOUND, |m| !m.awake),
         "asleep for the release"
@@ -709,7 +749,7 @@ fn the_seat_boots_draws_takes_keys_and_exits() {
     );
     assert!(!h.app.vt.is_active());
     let before = h.memory().frames;
-    h.app.input_event(InputEvent::Key(ctrl_super_f12), now());
+    h.app.input_event(InputEvent::Key(ctrl_super_f12), h.at());
     assert!(h.until(BOUND, |a| a.vt.is_active()));
     assert!(
         h.until_memory(BOUND, |m| m.awake && m.frames > before),
@@ -717,10 +757,13 @@ fn the_seat_boots_draws_takes_keys_and_exits() {
     );
 
     // After a second with no input the display blanks; a key wakes it.
-    // A slow run can blank before the first key too, which that key woke.
     let unblanks = h.memory().unblanks;
-    assert!(
-        h.until_memory(BOUND, |m| m.dpms == Some(Dpms::Off)),
+    h.skip_turn(Duration::from_millis(900));
+    assert_eq!(h.memory().dpms, Some(Dpms::On), "lit before dpms-timeout");
+    h.skip_turn(Duration::from_millis(200));
+    assert_eq!(
+        h.memory().dpms,
+        Some(Dpms::Off),
         "blanked after dpms-timeout"
     );
     h.type_str("x");
@@ -955,8 +998,11 @@ fn a_retake_while_blanked_waits_dark_for_input() {
         ],
         ScriptedVt::default(),
     );
-    assert!(
-        h.until_memory(BOUND, |m| m.dpms == Some(Dpms::Off)),
+    h.shown();
+    h.skip_turn(Duration::from_millis(1100));
+    assert_eq!(
+        h.memory().dpms,
+        Some(Dpms::Off),
         "blanked after dpms-timeout"
     );
     let wake_ups = h.memory().wake_ups;
@@ -971,15 +1017,15 @@ fn a_retake_while_blanked_waits_dark_for_input() {
     assert_eq!(h.memory().wake_ups, wake_ups + 1, "set up at the input");
     assert_eq!(h.memory().dpms, Some(Dpms::On));
     // Without a re-take, input only unblanks.
-    assert!(h.until_memory(BOUND, |m| m.dpms == Some(Dpms::Off)));
+    h.shown();
+    h.skip_turn(Duration::from_millis(1100));
+    assert_eq!(h.memory().dpms, Some(Dpms::Off), "blanked again");
     h.type_str("b");
     assert_eq!(h.memory().wake_ups, wake_ups + 1);
 }
 
 /// A seat that blanks after a minute with no input, on the scripted VT.
-/// Its tests move the seat's clock with [`Harness::skip_turn`], so the
-/// seconds the machine takes to run them, however loaded, stay small
-/// beside the margins.
+/// Its tests move the seat's clock with [`Harness::skip_turn`].
 fn blanking() -> Harness {
     Harness::with_vt(
         &[
@@ -1109,8 +1155,11 @@ fn a_retakes_wake_up_landing_after_the_blank_leaves_it_dark() {
     // The re-take's wake-up retries past the blank.
     h.late().held = Some(Event::Awake);
     h.scripted().events.push(VtEvent::Retaken);
-    assert!(
-        h.until_memory(BOUND, |m| m.dpms == Some(Dpms::Off)),
+    h.app.turn(h.at());
+    h.skip_turn(Duration::from_millis(1100));
+    assert_eq!(
+        h.memory().dpms,
+        Some(Dpms::Off),
         "blanked after dpms-timeout"
     );
     // Its modeset lights the display, and its `Awake` arrives.
@@ -1232,15 +1281,17 @@ fn a_respawned_session_blanks_after_dpms_timeout() {
     );
     let mut h = program_blank(&[], &script);
     let end = now() + BOUND;
-    let mut blanked = None;
-    while now() < end && blanked.is_none() {
+    let mut blanked = false;
+    // Each turn moves the seat's clock 20 ms, so the respawn and the
+    // blank come in their turns however fast the machine runs.
+    while now() < end && !blanked {
         let wait = h
             .app
             .next_wake(h.at())
             .unwrap_or(Duration::from_millis(20))
             .min(Duration::from_millis(20));
         h.lp.dispatch(Some(wait), &mut h.app).expect("dispatch");
-        h.app.turn(h.at());
+        h.skip_turn(Duration::from_millis(20));
         let left = h
             .app
             .term_mut()
@@ -1248,14 +1299,9 @@ fn a_respawned_session_blanks_after_dpms_timeout() {
             .terminal
             .take_blank_request();
         assert_eq!(left, None, "a request left for a later turn");
-        if h.memory().dpms == Some(Dpms::Off) {
-            blanked = Some(now());
-        }
+        blanked = h.memory().dpms == Some(Dpms::Off);
     }
-    assert!(
-        blanked.is_some(),
-        "the next session blanks after dpms-timeout"
-    );
+    assert!(blanked, "the next session blanks after dpms-timeout");
 }
 
 // While the VT is another's, a program's wake touches no device and its
@@ -1510,6 +1556,25 @@ fn a_programs_minute_blanks_past_the_pointers_hide() {
     assert_eq!(h.memory().unblanks, unblanks + 1);
 }
 
+/// The harness's seat clock moves only when the test moves it, so the
+/// cursor blinks only then: with blinking on, a frame drawn after the loop
+/// has turned for longer than a blink period of real time shows what the
+/// first frame showed, and moving the seat's clock a blink period hides
+/// the cursor.
+#[test]
+fn the_cursor_blinks_only_when_the_test_moves_the_seats_clock() {
+    let mut h = Harness::new(&["--login", "--", "/bin/sh", "-c", "echo ready; read x"]);
+    assert!(h.until(BOUND, |a| a.screen_text().iter().any(|l| l == "ready")));
+    let first = h.drawn_now();
+    // The loop turns for 0.6 s of real time, past the 0.5 s period.
+    h.until(Duration::from_millis(600), |_| false);
+    assert!(h.drawn_now() == first, "the cursor blinked on its own");
+    h.skip_turn(vtium::blink::TEXT_PERIOD);
+    assert!(h.drawn_now() != first, "the cursor blinked with the clock");
+    h.skip_turn(vtium::blink::TEXT_PERIOD);
+    assert!(h.drawn_now() == first, "and shows again a period later");
+}
+
 // `main`'s loop waits `next_wake` on the seat's clock: with nothing else
 // to time, that is the time left to the blank.
 #[test]
@@ -1574,25 +1639,27 @@ fn zoom_and_rotate_change_the_grid() {
     assert_eq!(h.app.grid(), (40, 10));
     let equal = 0x3d;
     let minus = 0x2d;
-    h.app.input_event(key(Mods::CTRL, equal), now());
+    h.app.input_event(key(Mods::CTRL, equal), h.at());
     assert_eq!(h.app.grid(), (20, 5), "zoomed in to 16x32 cells");
     assert_eq!(h.app.cells(), [(16, 32)]);
-    h.app.input_event(key(Mods::CTRL, minus), now());
+    h.app.input_event(key(Mods::CTRL, minus), h.at());
     assert_eq!(h.app.grid(), (40, 10), "and back");
     // Logo+= turns the display a quarter: 160 across, 320 down.
-    h.app.input_event(key(Mods::LOGO, equal), now());
+    h.app.input_event(key(Mods::LOGO, equal), h.at());
     assert_eq!(h.app.grid(), (20, 20));
-    h.app.input_event(key(Mods::LOGO, minus), now());
+    h.app.input_event(key(Mods::LOGO, minus), h.at());
     assert_eq!(h.app.grid(), (40, 10));
     // The keys reach no program.
     assert!(h.until(BOUND, |a| a.screen_text().iter().all(|l| l.is_empty())));
 }
 
-/// A device whose flips take 100 ms and report no completion, as a lost
-/// flip event does until the platform's flip wait ends it.
+/// A device whose flips take 100 ms on the seat's clock and report no
+/// completion, as a lost flip event does until the platform's flip wait
+/// ends it.
 struct SlowFlip {
     memory: Memory,
     swapped: Option<Instant>,
+    seat: SeatClock,
 }
 
 impl Video for SlowFlip {
@@ -1630,12 +1697,12 @@ impl Video for SlowFlip {
         self.memory.give_back(token);
     }
     fn swap(&mut self, token: Token, damage: &[Rect]) -> Result<Swapped, SwapError> {
-        self.swapped = Some(now());
+        self.swapped = Some(self.seat.now());
         self.memory.swap(token, damage)
     }
     fn is_flipping(&self, _: DisplayId) -> bool {
         self.swapped
-            .is_some_and(|t| now() < t + Duration::from_millis(100))
+            .is_some_and(|t| self.seat.now() < t + Duration::from_millis(100))
     }
     fn ready_for_frame(&self, id: DisplayId) -> bool {
         !self.is_flipping(id) && self.memory.ready_for_frame(id)
@@ -1667,11 +1734,14 @@ impl Video for SlowFlip {
 /// wait: the loop is not told to turn again at once for it.
 #[test]
 fn a_due_draw_held_by_a_flip_does_not_spin_the_loop() {
+    let seat = SeatClock::new();
     let slow = SlowFlip {
         memory: Memory::default(),
         swapped: None,
+        seat: seat.clone(),
     };
-    let mut h = Harness::build(
+    let mut h = Harness::build_on(
+        seat,
         &[
             "--login",
             "--",
@@ -1685,16 +1755,16 @@ fn a_due_draw_held_by_a_flip_does_not_spin_the_loop() {
     assert!(h.until(BOUND, |a| a.vt.is_active()));
     h.settled();
     h.type_str("\r");
-    let end = now() + Duration::from_millis(1500);
+    // 1.5 s on the seat's clock, which moves by each wait the loop is
+    // told, at most 5 ms. A loop that spins is told to wake at once on
+    // every turn, so the clock never moves, and the loop turns until the
+    // turn count or the real-time bound stops it.
+    let (start, end) = (h.at(), now() + BOUND);
     let (mut turns, mut zero) = (0_u32, 0_u32);
-    while now() < end {
-        let wait = h.app.next_wake(now());
-        if wait == Some(Duration::ZERO) {
+    while h.at() < start + Duration::from_millis(1500) && turns < 1000 && now() < end {
+        if h.sleep_turn(Duration::from_millis(5)) == Some(Duration::ZERO) {
             zero += 1;
         }
-        let wait = wait.map(|w| w.min(Duration::from_millis(200)));
-        h.lp.dispatch(wait, &mut h.app).expect("dispatch");
-        h.app.turn(now());
         turns += 1;
     }
     assert!(h.until(BOUND, |a| {
@@ -1762,7 +1832,7 @@ fn button_reports_are_queued_whole_while_the_child_does_not_read() {
         button(false),
         moved(0),
     ] {
-        h.app.input_event(event, now());
+        h.app.input_event(event, h.at());
     }
     h.type_str("q");
     assert!(
@@ -1802,7 +1872,7 @@ fn a_wheel_event_is_one_report_or_three_lines() {
         a.screen_text().iter().any(|l| l.ends_with("ready"))
     }));
     h.app
-        .input_event(pointer(PointerEvent::Wheel(i32::MAX)), now());
+        .input_event(pointer(PointerEvent::Wheel(i32::MAX)), h.at());
     h.type_str("q");
     assert!(
         h.until(BOUND, |a| a
@@ -1823,7 +1893,7 @@ fn a_wheel_event_is_one_report_or_three_lines() {
     ]);
     assert!(h.until(BOUND, |a| a.screen_text().iter().any(|l| l == "line39")));
     h.app
-        .input_event(pointer(PointerEvent::Wheel(i32::MAX)), now());
+        .input_event(pointer(PointerEvent::Wheel(i32::MAX)), h.at());
     assert_eq!(
         h.app
             .term()
@@ -1833,7 +1903,7 @@ fn a_wheel_event_is_one_report_or_three_lines() {
             .scrolled_back(),
         3
     );
-    h.app.input_event(pointer(PointerEvent::Wheel(-1)), now());
+    h.app.input_event(pointer(PointerEvent::Wheel(-1)), h.at());
     assert_eq!(
         h.app
             .term()
@@ -1956,7 +2026,7 @@ fn a_double_click_selects_a_word_and_a_triple_click_a_line() {
             .screen()
             .has_selection()
     );
-    h.app.input_event(key(Mods::SHIFT, 0xff63), now());
+    h.app.input_event(key(Mods::SHIFT, 0xff63), h.at());
     assert!(
         !h.app
             .term()
@@ -2192,7 +2262,7 @@ fn the_pointer_over_a_link_hovers_it_and_ctrl_shows_its_uri() {
     assert_eq!(links(&h.app), (None, vec![], None));
     // Ctrl pressed with the pointer still over the link shows the URI.
     h.point([over(6, 0, None)], Mods::empty());
-    h.app.input_event(key(Mods::CTRL, 0xffe3), now());
+    h.app.input_event(key(Mods::CTRL, 0xffe3), h.at());
     assert_eq!(links(&h.app).2, Some((9, "file://pixie/home/a.md".into())));
     // The pointer hiding hovers nothing.
     h.point([PointerEvent::Hide], Mods::empty());
@@ -2507,7 +2577,7 @@ fn a_rotation_moves_the_hover_to_the_link_now_under_the_pointer() {
     };
     h.point([still], Mods::empty());
     assert_eq!(links(&h.app).0, None, "below the grid, over no cell");
-    h.app.input_event(key(Mods::LOGO, 0x3d), now());
+    h.app.input_event(key(Mods::LOGO, 0x3d), h.at());
     assert_eq!(h.app.grid(), (20, 20), "turned a quarter");
     assert_eq!(
         links(&h.app).0.as_deref(),
@@ -2689,7 +2759,7 @@ fn ctrl_shift_up_and_down_jump_between_the_marked_prompts() {
     let jump = |h: &mut Harness, up: bool| {
         let keysym = if up { 0xff52 } else { 0xff54 };
         h.app
-            .input_event(key(Mods::CTRL.union(Mods::SHIFT), keysym), now());
+            .input_event(key(Mods::CTRL.union(Mods::SHIFT), keysym), h.at());
     };
     assert_eq!(back(&h), 0);
     for (want, top) in [(4, "$ p2"), (17, "$ p1"), (30, "$ p0"), (30, "$ p0")] {
@@ -2753,8 +2823,8 @@ fn grab_paste_binds_the_paste() {
     ]);
     assert!(h.until(BOUND, |a| shows(a, "ready")));
     assert_eq!(h.app.selection(), Some(&b"pasted"[..]));
-    h.app.input_event(alt_p, now());
-    h.app.input_event(shift_insert.clone(), now());
+    h.app.input_event(alt_p, h.at());
+    h.app.input_event(shift_insert.clone(), h.at());
     h.type_str("q");
     assert!(
         h.until(BOUND, |a| shows(a, "E[200~pastedE[201~E[2~")),
@@ -2763,7 +2833,7 @@ fn grab_paste_binds_the_paste() {
     );
     let mut h = Harness::new(&["--grab-paste=", "--login", "--", "/bin/sh", "-c", script]);
     assert!(h.until(BOUND, |a| shows(a, "ready")));
-    h.app.input_event(shift_insert, now());
+    h.app.input_event(shift_insert, h.at());
     h.type_str("q");
     assert!(
         h.until(BOUND, |a| shows(a, "E[2~")),
@@ -2815,8 +2885,8 @@ fn typing_hides_the_pointer_under_pointer_hide_while_typing() {
         h.point([over(10, 5, None)], Mods::empty());
         assert!(h.until_memory(BOUND, |m| m.white_at(x, y)), "shown again");
         let hidden = after_keys(&mut h, &mut |h| {
-            h.app.input_event(key(Mods::SHIFT, 0xff52), now());
-            h.app.input_event(key(Mods::empty(), 0xffe1), now());
+            h.app.input_event(key(Mods::SHIFT, 0xff52), h.at());
+            h.app.input_event(key(Mods::empty(), 0xffe1), h.at());
         });
         assert!(!hidden, "a grab and a modifier leave it");
     }
@@ -2841,7 +2911,7 @@ fn a_shift_chord_names_the_shifted_keysym() {
         let arg = format!("--grab-paste={chord}");
         let mut h = Harness::new(&[&arg, "--login", "--", "/bin/sh", "-c", script]);
         assert!(h.until(BOUND, |a| shows(a, "ready")));
-        h.app.input_event(ctrl_shift_v.clone(), now());
+        h.app.input_event(ctrl_shift_v.clone(), h.at());
         h.type_str("q");
         let want = if pasted { "[E[200~pastedE[201~]" } else { "[]" };
         assert!(
@@ -2940,13 +3010,13 @@ fn a_drag_ends_without_its_button_and_at_a_vt_release() {
     );
     assert_eq!(selected(&h).as_deref(), Some("sec"));
     let switch = key(Mods::CTRL.union(Mods::LOGO), 0xffc9);
-    h.app.input_event(switch.clone(), now());
+    h.app.input_event(switch.clone(), h.at());
     assert!(h.until_memory(BOUND, |m| !m.awake), "asleep");
     // The switch back finds the VT let go only once vtium acknowledged
     // the release, which waits for the display to sleep.
     assert!(h.until(BOUND, |_| released.get() == 1), "released");
     assert!(!h.app.vt.is_active());
-    h.app.input_event(switch, now());
+    h.app.input_event(switch, h.at());
     assert!(h.until(BOUND, |a| a.vt.is_active()), "acquired");
     h.point([over(9, 1, Some(Button::Left))], none);
     assert_eq!(selected(&h).as_deref(), Some("sec"));
@@ -2972,7 +3042,7 @@ fn a_released_fake_vt_reports_no_pointer_action_to_the_program() {
         a.screen_text().iter().any(|l| l.ends_with("ready"))
     }));
     let switch = key(Mods::CTRL.union(Mods::LOGO), 0xffc9);
-    h.app.input_event(switch.clone(), now());
+    h.app.input_event(switch.clone(), h.at());
     assert!(h.until(BOUND, |_| released.get() == 1), "released");
     assert!(!h.app.vt.is_active());
     let mouse = Path::new("/dev/input/event9");
@@ -2983,9 +3053,10 @@ fn a_released_fake_vt_reports_no_pointer_action_to_the_program() {
         PointerEvent::Wheel(1),
         PointerEvent::Sync,
     ] {
-        h.app.device_input(mouse, InputEvent::Pointer(event), now());
+        h.app
+            .device_input(mouse, InputEvent::Pointer(event), h.at());
     }
-    h.app.input_event(switch, now());
+    h.app.input_event(switch, h.at());
     assert!(h.until(BOUND, |a| a.vt.is_active()), "taken back");
     // The acquire wakes the display and the terminals.
     assert!(h.until_memory(BOUND, |m| m.awake), "awake");
@@ -3102,9 +3173,9 @@ fn a_hostile_selection_is_pasted_filtered_once_a_press() {
             repeat,
         })
     };
-    h.app.input_event(shift_insert(false), now());
-    h.app.input_event(shift_insert(true), now());
-    h.app.input_event(shift_insert(true), now());
+    h.app.input_event(shift_insert(false), h.at());
+    h.app.input_event(shift_insert(true), h.at());
+    h.app.input_event(shift_insert(true), h.at());
     h.point([press(Button::Middle, false)], Mods::empty());
     h.type_str("X");
     h.point([release(Button::Middle)], Mods::empty());
@@ -3192,6 +3263,58 @@ fn every_key_a_file_sets_is_read_or_listed_as_not_built() {
     }
 }
 
+/// A burst of output that leaves a frame owed to coalescing is drawn when
+/// the wait the loop is told runs out. The loop here moves the seat's
+/// clock by each wake-up it is told and by nothing else, as `main`'s loop
+/// does when nothing else wakes it, so a loop told no wake-up for the
+/// owed frame never draws it.
+#[test]
+fn a_frame_owed_to_coalescing_is_drawn_at_the_wake_up_the_loop_is_told() {
+    let (_dir, go, wait) = gate("owed-frame");
+    let script = format!("{wait}; head -c 20000 /dev/zero | tr '\\0' x; echo; echo done; read y");
+    let mut h = Harness::new(&[
+        "--no-blink",
+        "--dpms-timeout=0",
+        "--login",
+        "--",
+        "/bin/sh",
+        "-c",
+        &script,
+    ]);
+    assert!(h.until(BOUND, |a| a.vt.is_active()));
+    h.shown();
+    h.settled();
+    let before = h.memory().frames;
+    std::fs::write(&go, b"").expect("the go file");
+    // The burst is read with no turn between its reads, so the one turn
+    // after it finds 20,000 bytes parsed and owes its frame to coalescing.
+    let end = now() + BOUND;
+    while !h.app.screen_text().iter().any(|l| l == "done") {
+        assert!(now() < end, "the burst read");
+        h.lp.dispatch(Some(Duration::from_millis(20)), &mut h.app)
+            .expect("dispatch");
+    }
+    h.app.turn(h.at());
+    h.settled();
+    assert_eq!(h.memory().frames, before, "the frame owed, not drawn");
+    let (mut turns, mut moved) = (0_u32, Duration::ZERO);
+    while h.memory().frames == before {
+        assert!(turns < 4, "drawn within a few turns");
+        let wait = h
+            .app
+            .next_wake(h.at())
+            .expect("a wake-up while a frame is owed");
+        moved += wait;
+        h.skip_turn(wait);
+        h.settled();
+        turns += 1;
+    }
+    assert!(
+        moved <= Duration::from_millis(50),
+        "drawn a refresh on at most, not {moved:?} on"
+    );
+}
+
 /// Output of 16 KiB or more a turn draws at most once a refresh: the
 /// app asks coalescing before it draws for output.
 #[test]
@@ -3217,15 +3340,19 @@ fn a_long_write_draws_at_most_once_a_refresh() {
     h.shown();
     h.settled();
     let before = h.memory().frames;
-    let start = now();
+    let start = h.at();
     h.type_str("\r");
-    assert!(h.until(Duration::from_secs(30), |a| {
-        a.screen_text().iter().any(|l| l == "done")
-    }));
-    let elapsed = now() - start;
+    // The seat's clock moves by each wait the loop is told, at most 10 ms.
+    let end = now() + Duration::from_secs(30);
+    while !h.app.screen_text().iter().any(|l| l == "done") {
+        assert!(now() < end, "the write ended");
+        h.sleep_turn(Duration::from_millis(10));
+    }
+    let elapsed = h.at() - start;
     let frames = h.memory().frames - before;
-    // A frame each 50 ms, less a fifth for the timing, and a few for the
-    // key and the end; drawn each turn, it is a frame each burst.
+    // A frame each 50 ms of the seat's clock, less a fifth for the
+    // timing, and a few for the key and the end; drawn each turn, it is a
+    // frame each burst.
     let most = u32::try_from(elapsed.as_millis() / 40).unwrap_or(u32::MAX) + 4;
     assert!(frames <= most, "{frames} frames in {elapsed:?}");
 }
@@ -3806,15 +3933,14 @@ fn a_frame_that_found_no_canvas_is_drawn_once_the_display_lends_again() {
 fn a_display_lending_no_canvas_does_not_spin_the_loop() {
     let (mut h, _, _) = withheld();
     let refused = withholding(&mut h).refused.get();
-    let end = now() + Duration::from_secs(1);
+    // A second on the seat's clock, which moves by each wait the loop is
+    // told, at most 50 ms. A loop that spins is told to wake at once on
+    // every turn, so the clock never moves, and the loop turns until the
+    // turn count or the real-time bound stops it.
+    let (start, end) = (h.at(), now() + BOUND);
     let mut turns = 0_u32;
-    while now() < end {
-        let wait = h
-            .app
-            .next_wake(now())
-            .map(|w| w.min(Duration::from_millis(200)));
-        h.lp.dispatch(wait, &mut h.app).expect("dispatch");
-        h.app.turn(now());
+    while h.at() < start + Duration::from_secs(1) && turns < 1000 && now() < end {
+        h.sleep_turn(Duration::from_millis(50));
         turns += 1;
     }
     let asked = withholding(&mut h).refused.get() - refused;
@@ -3863,17 +3989,26 @@ const WAITING: [&str; 6] = [
     "read x",
 ];
 
+/// Whether the lines logged since the last call to [`logged`] include the
+/// line vtium logs on the turn its wait for a display runs out.
+fn ran_out() -> bool {
+    logged()
+        .iter()
+        .any(|l| l.starts_with("no display appeared within"))
+}
+
 /// No display comes within `display-wait`: vtium exits with status 1,
 /// once the wait has run, so the unit's `OnFailure=` can start a getty.
+/// The wait runs out on the first turn after its due time, which logs it.
 #[test]
 fn with_no_display_by_the_wait_vtium_exits_1() {
-    let started = now();
+    logged();
     let mut h = Harness::bare(&WAITING);
+    h.skip_turn(Duration::from_millis(1000));
+    assert!(!ran_out(), "the wait runs to its due time");
+    h.skip_turn(Duration::from_millis(1));
+    assert!(ran_out(), "the wait ran out a millisecond after it");
     assert!(h.until(BOUND, |a| a.finished().is_some()));
-    assert!(
-        now() - started >= Duration::from_secs(1),
-        "the wait was run"
-    );
     assert_eq!(h.app.finished(), Some(Exit::NoDisplay));
     assert_eq!(h.app.finished().map(Exit::status), Some(1));
     assert!(!h.app.vt.is_active(), "the VT was given back");
@@ -3890,6 +4025,8 @@ fn with_no_wait_and_no_display_vtium_exits_at_once() {
         "-c",
         "read x",
     ]);
+    // The wait runs out at the first turn after its due time.
+    h.skip_turn(Duration::from_millis(1));
     assert!(h.until(BOUND, |a| a.finished().is_some()));
     assert_eq!(h.app.finished(), Some(Exit::NoDisplay));
 }
@@ -3916,6 +4053,10 @@ fn a_device_whose_displays_never_come_on_counts_as_none() {
     let mut h = Harness::bare(&WAITING);
     h.app
         .add_video(PathBuf::from("/dev/mem0"), Box::new(Unusable));
+    h.skip_turn(Duration::from_millis(1100));
+    // The switch back waits `LEAVE_WAIT` for the device to sleep, which
+    // this one never reports.
+    h.skip_turn(vtium::app::LEAVE_WAIT);
     assert!(h.until(BOUND, |a| a.finished().is_some()));
     assert_eq!(h.app.finished(), Some(Exit::NoDisplay));
 }
@@ -3970,6 +4111,7 @@ fn a_vt_released_before_the_first_frame_waits_for_the_vt_to_come_back() {
 /// vtium's, vtium exits with status 1.
 #[test]
 fn the_wait_a_release_stopped_runs_whole_again_from_the_acquire() {
+    logged();
     let mut h = Harness::boot(&WAITING, ScriptedVt::default(), None);
     h.skip_turn(Duration::from_millis(800));
     assert_eq!(h.app.finished(), None, "0.8 s into the 1 s wait");
@@ -3984,8 +4126,11 @@ fn the_wait_a_release_stopped_runs_whole_again_from_the_acquire() {
     // 0.8 s and 0.5 s make more than the wait: had the wait kept the
     // time before the release, it would have run out here.
     h.skip_turn(Duration::from_millis(500));
-    assert_eq!(h.app.finished(), None, "0.5 s into the wait started again");
-    h.skip(Duration::from_millis(600));
+    assert!(!ran_out(), "0.5 s into the wait started again");
+    h.skip_turn(Duration::from_millis(500));
+    assert!(!ran_out(), "the wait started again runs to its due time");
+    h.skip_turn(Duration::from_millis(1));
+    assert!(ran_out(), "the wait ran out a millisecond after it");
     assert!(h.until(BOUND, |a| a.finished().is_some()));
     assert_eq!(h.app.finished(), Some(Exit::NoDisplay));
 }
@@ -4050,12 +4195,12 @@ impl Video for Unusable {
 /// The default wait is 10 s, counted on the seat's clock.
 #[test]
 fn the_default_wait_is_ten_seconds() {
+    logged();
     let mut h = Harness::bare(&["--login", "--", "/bin/sh", "-c", "read x"]);
-    // 8.5 s ahead; one turn there, so the real clock adds next to
-    // nothing.
-    h.skip_turn(Duration::from_millis(8_500));
-    assert_eq!(h.app.finished(), None, "not yet");
-    h.skip(Duration::from_millis(1_500));
+    h.skip_turn(Duration::from_millis(10_000));
+    assert!(!ran_out(), "the wait runs to its due time");
+    h.skip_turn(Duration::from_millis(1));
+    assert!(ran_out(), "the wait ran out a millisecond after it");
     assert!(h.until(BOUND, |a| a.finished().is_some()));
     assert_eq!(h.app.finished(), Some(Exit::NoDisplay));
 }
@@ -4185,10 +4330,9 @@ fn a_display_coming_after_the_blanked_last_one_went_is_drawn() {
         "-c",
         "read x",
     ]);
-    assert!(
-        h.until_memory(BOUND, |m| m.dpms == Some(Dpms::Off)),
-        "blanked"
-    );
+    h.shown();
+    h.skip_turn(Duration::from_millis(1100));
+    assert_eq!(h.memory().dpms, Some(Dpms::Off), "blanked");
     h.app.remove_video(Path::new("/dev/mem0"));
     // A turn with no display.
     h.app.turn(h.at());
@@ -4209,6 +4353,7 @@ fn a_display_whose_every_swap_fails_counts_as_none() {
     h.app
         .add_video(PathBuf::from("/dev/mem0"), Box::new(refusing));
     assert!(h.until(BOUND, |a| a.cells().len() == 1), "announced");
+    h.skip_turn(Duration::from_millis(1100));
     assert!(h.until(BOUND, |a| a.finished().is_some()));
     assert_eq!(h.app.finished(), Some(Exit::NoDisplay));
     assert_eq!(h.memory().frames, 0);
@@ -4230,7 +4375,11 @@ fn the_loop_wakes_for_the_waits_end() {
     ]);
     // As `main` runs it, the loop sleeps until the wake-up it is told,
     // here on the seat's clock moved on by that much; a loop told none
-    // would sleep until something else woke it.
+    // would sleep until something else woke it. Told to wake at once, as
+    // on the turn at the due time, `main`'s loop returns at once and turns
+    // again a moment later. The millisecond added to each wait stands in
+    // for the real time a turn takes, so the turn after the due time
+    // comes.
     let mut waited = Duration::ZERO;
     for _ in 0..10 {
         if h.app.finished().is_some() {
@@ -4239,7 +4388,8 @@ fn the_loop_wakes_for_the_waits_end() {
         let wait = h
             .app
             .next_wake(h.at())
-            .expect("a wake-up for the wait's end");
+            .expect("a wake-up for the wait's end")
+            .max(Duration::from_millis(1));
         waited += wait;
         h.skip_turn(wait);
     }
@@ -4306,10 +4456,9 @@ fn the_last_display_going_while_released_wakes_nothing() {
         ],
         ScriptedVt::default(),
     );
-    assert!(
-        h.until_memory(BOUND, |m| m.dpms == Some(Dpms::Off)),
-        "blanked"
-    );
+    h.shown();
+    h.skip_turn(Duration::from_millis(1100));
+    assert_eq!(h.memory().dpms, Some(Dpms::Off), "blanked");
     h.scripted().events.push(VtEvent::Retaken);
     // The re-take in a turn of its own, before the release.
     h.app.turn(h.at());
@@ -4408,8 +4557,8 @@ fn held(args: &[&str], videos: Vec<Box<dyn Video>>, hold: Duration) -> Harness {
     assert_eq!(loaded.reports, [], "the test's command line");
     let mut lp: Loop<App> = Loop::new().expect("a loop");
     let env = vec![(OsString::from("PATH"), OsString::from("/usr/bin:/bin"))];
-    let ahead = Rc::new(Cell::new(Duration::ZERO));
-    let clock = Rc::new(now);
+    let seat = SeatClock::new();
+    let clock = seat.clock();
     let mut app = App::new(
         loaded.config,
         Box::new(FakeVt::new()),
@@ -4428,8 +4577,8 @@ fn held(args: &[&str], videos: Vec<Box<dyn Video>>, hold: Duration) -> Harness {
         lp.dispatch(Some(Duration::from_millis(20)), &mut app)
             .expect("dispatch");
     }
-    app.turn(now());
-    Harness { lp, app, ahead }
+    app.turn(seat.now());
+    Harness { lp, app, seat }
 }
 
 /// The child starts on the first display's grid: its first size is the
@@ -4543,6 +4692,8 @@ fn a_child_started_again_starts_on_the_grid() {
 #[test]
 fn under_no_wait_with_no_display_no_child_starts() {
     let mut h = Harness::bare(&["--display-wait=0", "--login", "--", "/bin/sh", "-c", FIRST]);
+    // The wait runs out at the first turn after its due time.
+    h.skip_turn(Duration::from_millis(1));
     assert!(h.until(BOUND, |a| a.finished().is_some()));
     assert_eq!(h.app.finished(), Some(Exit::NoDisplay));
     assert!(!h.app.started(), "no child");
@@ -4717,7 +4868,7 @@ fn a_zoom_reports_the_text_area_to_a_program_waiting_in_a_read() {
         "the text area as the mode is set: {:?}",
         h.app.screen_text()
     );
-    h.app.input_event(key(Mods::CTRL, 0x3d), now());
+    h.app.input_event(key(Mods::CTRL, 0x3d), h.at());
     assert_eq!(h.app.grid(), (20, 5), "zoomed in to 16x32 cells");
     assert!(
         h.until(BOUND, |a| a
@@ -4766,7 +4917,7 @@ fn zoom_steps_through_the_built_ins_and_stops_at_the_smallest() {
     let mut h = with_fonts(&["--font-size=8"], no_fonts());
     let mut cells = vec![h.app.cells()[0]];
     for k in [equal, equal, minus, minus, minus] {
-        h.app.input_event(key(Mods::CTRL, k), now());
+        h.app.input_event(key(Mods::CTRL, k), h.at());
         cells.push(h.app.cells()[0]);
     }
     assert_eq!(cells, [(8, 8), (8, 16), (16, 32), (8, 16), (8, 8), (8, 8)]);
@@ -5130,10 +5281,10 @@ fn a_frits_stated_cell_is_the_grids_and_the_glyphs_never_move_it() {
         "the helper's glyphs at 10x20 replace A and B"
     );
     assert_eq!((h.app.cells(), h.app.grid()), (vec![(10, 20)], (32, 8)));
-    h.app.input_event(key(Mods::CTRL, equal), now());
+    h.app.input_event(key(Mods::CTRL, equal), h.at());
     assert_eq!((h.app.cells(), h.app.grid()), (vec![(20, 40)], (16, 4)));
-    h.app.input_event(key(Mods::CTRL, minus), now());
-    h.app.input_event(key(Mods::CTRL, minus), now());
+    h.app.input_event(key(Mods::CTRL, minus), h.at());
+    h.app.input_event(key(Mods::CTRL, minus), h.at());
     assert_eq!((h.app.cells(), h.app.grid()), (vec![(10, 20)], (32, 8)));
 }
 
@@ -5203,17 +5354,15 @@ fn osc_50_to_a_bitmap_frit_with_no_cell_takes_its_fonts_own_cell() {
 
 // the operator's decision on #145, 2026-10-28: a helper that does not
 // answer the cell query in its bound leaves the display's cell, with one
-// line, and the first frame waits no longer than the bound
+// line, and the first frame waits no longer than the bound. The helper
+// here never answers, so the boot returns only because the wait has a
+// bound, and the line says the wait ran to it.
 #[test]
 fn a_bitmap_frits_own_cell_unanswered_falls_back_within_its_bound() {
     let (_dir, fonts, _go) = frit_fonts_of("own-none", "source=kbd:x\n", b"", "cat >/dev/null");
     logged();
-    let t = now();
     let h = with_fonts(&["--font-name=t", "--font-size=0"], fonts.clone());
-    let took = now().saturating_duration_since(t);
     assert_eq!((h.app.cells(), h.app.grid()), (vec![(8, 8)], (40, 20)));
-    assert!(took >= Duration::from_millis(100), "{took:?}");
-    assert!(took < Duration::from_secs(5), "{took:?}");
     let lines = logged();
     let fell: Vec<&String> = lines
         .iter()
@@ -5352,12 +5501,12 @@ fn an_outline_frit_draws_in_the_helpers_cell_at_each_height() {
     );
     assert_eq!(cell_answers(&kinds), 1, "the first frame asked once");
     for _ in 16..22 {
-        h.app.input_event(key(Mods::CTRL, equal), now());
+        h.app.input_event(key(Mods::CTRL, equal), h.at());
     }
     assert_eq!(h.app.cells(), vec![(12, 22)]);
     assert_eq!(cell_answers(&kinds), 7, "each zoom asked at its height");
     for _ in 16..22 {
-        h.app.input_event(key(Mods::CTRL, minus), now());
+        h.app.input_event(key(Mods::CTRL, minus), h.at());
     }
     assert_eq!(h.app.cells(), vec![(9, 16)]);
     assert_eq!(cell_answers(&kinds), 7, "each height asked once");
@@ -5399,13 +5548,13 @@ fn a_late_outline_cell_is_dropped_and_the_next_zoom_asks_again() {
     );
     // The zoom's ask at 21 finds the late answer at 22 first, whichever
     // turn reads it, and takes the answer at 21 behind it.
-    h.app.input_event(key(Mods::CTRL, minus), now());
+    h.app.input_event(key(Mods::CTRL, minus), h.at());
     let at21 = h.app.cells();
     assert!(
         at21.first().is_some_and(|c| c.1 == 21 && c.0 != 8),
         "the helper's cell at 21, not the built-in font's: {at21:?}"
     );
-    h.app.input_event(key(Mods::CTRL, equal), now());
+    h.app.input_event(key(Mods::CTRL, equal), h.at());
     assert_eq!(h.app.cells(), vec![(12, 22)], "asked again at 22");
     let lines = logged();
     assert!(
@@ -5435,7 +5584,7 @@ fn a_bitmap_frits_failed_cell_is_not_asked_again_at_a_zoom() {
     };
     assert_eq!(unknown(&logged()), 1, "the first frame asked once");
     assert_eq!(h.app.cells(), [(8, 8)]);
-    h.app.input_event(key(Mods::CTRL, 0x3d), now());
+    h.app.input_event(key(Mods::CTRL, 0x3d), h.at());
     assert_eq!(h.app.cells(), [(8, 16)], "zoomed");
     assert_eq!(unknown(&logged()), 0, "the zoom asked nothing");
 }
@@ -5848,7 +5997,7 @@ fn a_zoom_steps_an_outline_frit_by_one_pixel() {
     let mut h = with_fonts(&["--font-name=t", "--font-size=0"], fonts.clone());
     let mut cells = vec![h.app.cells()[0]];
     for k in [equal, minus, minus] {
-        h.app.input_event(key(Mods::CTRL, k), now());
+        h.app.input_event(key(Mods::CTRL, k), h.at());
         cells.push(h.app.cells()[0]);
     }
     assert_eq!(cells, [(10, 20), (8, 21), (10, 20), (8, 19)]);
@@ -5938,9 +6087,9 @@ fn points_convert_down_the_rows_at_the_lowest_density() {
     let frit = "source=outline:/f.ttf\nsize=12\n";
     let mut h = at_density(&["--font-size=0"], Some((72.0, 144.0)), &fonts, frit);
     assert_eq!(h.app.cells()[0].1, 24, "12 pt at 144 DPI down");
-    h.app.input_event(key(Mods::LOGO, equal), now());
+    h.app.input_event(key(Mods::LOGO, equal), h.at());
     assert_eq!(h.app.cells()[0].1, 12, "turned a quarter, 72 DPI across");
-    h.app.input_event(key(Mods::LOGO, minus), now());
+    h.app.input_event(key(Mods::LOGO, minus), h.at());
     assert_eq!(h.app.cells()[0].1, 24);
     let second = Memory {
         dpi: Some((96.0, 96.0)),
@@ -5963,7 +6112,7 @@ fn a_zoom_steps_an_outline_frit_by_one_point() {
     let mut h = at_density(&["--font-size=0"], None, &fonts, frit);
     let mut heights = vec![h.app.cells()[0].1];
     for k in [equal, equal, minus, minus, minus] {
-        h.app.input_event(key(Mods::CTRL, k), now());
+        h.app.input_event(key(Mods::CTRL, k), h.at());
         heights.push(h.app.cells()[0].1);
     }
     assert_eq!(heights, [16, 17, 19, 17, 16, 15]);
@@ -6011,7 +6160,7 @@ fn osc_50_switches_to_a_frit_and_its_helper_is_asked() {
     let mut h = osc50(&["--font-size=8"], "\\033]50;unifont\\007", no_fonts());
     assert_eq!(h.app.font_name(), "unifont");
     assert_eq!(h.app.cells(), [(8, 16)]);
-    h.app.input_event(key(Mods::CTRL, 0x2d), now());
+    h.app.input_event(key(Mods::CTRL, 0x2d), h.at());
     assert_eq!(h.app.cells(), [(8, 16)], "no Unscii-8 below it");
 }
 
@@ -6447,7 +6596,7 @@ fn a_zoom_while_a_frame_composes_waits_for_its_token() {
         "a frame composing"
     );
     let (lent, frames) = (h.memory().ages.len(), h.memory().frames);
-    h.app.input_event(key(Mods::CTRL, 0x3d), now());
+    h.app.input_event(key(Mods::CTRL, 0x3d), h.at());
     assert!(
         h.until_memory(BOUND, |m| m.refused_while_out > 0),
         "the new renderer's frame asks while the old token is out"
@@ -6479,11 +6628,9 @@ mod gpu_path {
     /// The seat booted with `args`, running `script` in its shell, with
     /// the test's GPU `source`. Every test here boots through it.
     ///
-    /// The cursor does not blink: the tests compare frames drawn at
-    /// different times and on different heads, and the blink timer runs on
-    /// the seat's clock, which follows the real time. With blinking on, a
-    /// frame drawn more than a blink period after boot shows no cursor, so
-    /// a test slowed by load would fail at the cursor's cell.
+    /// The cursor does not blink, so a frame drawn after a test moves the
+    /// seat's clock shows what a frame drawn before it shows, as
+    /// [`a_frame_drawn_a_blink_period_later_shows_the_same_pixels`] checks.
     fn booted(args: &[&str], script: &str, source: GpuSource) -> Harness {
         let args: Vec<&str> = args
             .iter()
@@ -6587,7 +6734,7 @@ mod gpu_path {
                 a.screen_text().iter().any(|l| l.contains("done"))
             }));
             let upright = h.drawn_now();
-            h.app.input_event(key(Mods::LOGO, 0x3d), now());
+            h.app.input_event(key(Mods::LOGO, 0x3d), h.at());
             let quarter = h.drawn_now();
             assert!(quarter != upright, "the display turned");
             quarter
