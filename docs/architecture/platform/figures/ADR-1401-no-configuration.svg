@@ -1,14 +1,14 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="960" height="500" viewBox="0 0 960 500" font-family="DejaVu Sans Mono, monospace">
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="516" viewBox="0 0 960 516" font-family="DejaVu Sans Mono, monospace">
 <title>No configuration: the shipped two rules, one head mirroring every display, every keyboard and key device typing into it, the default look and frit down to the built-in fonts</title>
 <defs>
 <marker id="arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 z" fill="#1f2933"/></marker>
 </defs>
-<rect width="960" height="500" fill="#ffffff"/>
+<rect width="960" height="516" fill="#ffffff"/>
 <g fill="#1f2933">
 <!-- the head file -->
 <rect x="16" y="40" width="280" height="44" fill="#ffffff" stroke="#9aa5b1" stroke-dasharray="6 4"/>
 <text x="156" y="58" font-size="13" text-anchor="middle">/etc/vtium/vtium.conf</text>
-<text x="156" y="76" font-size="12" text-anchor="middle">absent, or with no section</text>
+<text x="156" y="76" font-size="12" text-anchor="middle">absent, or no section and open</text>
 <line x1="156" y1="84" x2="156" y2="108" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
 <text x="164" y="101" font-size="11">nothing is written</text>
 <rect x="16" y="110" width="280" height="254" fill="#e6eef7" stroke="#2f6fb0"/>
@@ -94,6 +94,6 @@
 <text x="180" y="471" font-size="12">a device</text>
 <rect x="270" y="458" width="22" height="16" fill="#ffffff" stroke="#9aa5b1" stroke-dasharray="6 4"/>
 <text x="300" y="471" font-size="12">absent</text>
-<text x="16" y="492" font-size="11">Not yet built (ADR-1401, D6). With no file, vtium behaves as it does today and writes no file.</text>
+<text x="16" y="492" font-size="11">Not yet built (ADR-1401, D6). With no file, or one with no section and no policy = closed, vtium behaves as it does</text><text x="16" y="506" font-size="11">today and writes no file. A file with no section and policy = closed leaves vtium dark, and check-config refuses it.</text>
 </g>
 </svg>

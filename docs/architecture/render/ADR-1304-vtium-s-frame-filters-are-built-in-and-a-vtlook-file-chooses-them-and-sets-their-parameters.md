@@ -327,9 +327,11 @@ The CPU path has no spatial layer. **Decided by the maintainer (2026-11-03):** a
 
 **Decided by the maintainer (2026-11-03):** the pipeline's configuration lives in a file called a vtlook, as a frit holds a font set. When no look is named, a head takes a default look built into vtium, which needs no profile, as a head takes a built-in font when no frit is named. The default look holds no filters, so it runs nothing. A vtlook is tied to no profile.
 
-**Proposed, the file:** a vtlook is a file `NAME.vtlook` in `/etc/vtium/looks`, the directory vtium was built with. A name follows the rule for a head's name, 1 to 64 characters of `A-Z a-z 0-9 . _ + -`. vtium reads a vtlook, and a `.cube` file it names, only when root owns the file and neither its group nor others can write it or a directory above it, the rule vtium applies to heads.conf (ADR-1401 D7). vtium never writes either. vtium's console process reads the file itself, as it reads heads.conf.
+**Proposed, the file:** a vtlook is a file `NAME.vtlook` in `/etc/vtium/looks`, the directory vtium was built with. A name follows the rule for a head's name, 1 to 64 characters of `A-Z a-z 0-9 . _ + -`. vtium reads a vtlook, and a `.cube` file it names, only when root owns the file and neither its group nor others can write it or a directory above it, the rule vtium applies to vtium.conf (ADR-1401 D10, ADR-1403 D3). vtium never writes either. vtium's console process reads the file itself, as it reads vtium.conf.
 
-The file uses heads.conf's syntax: a `#` starts a comment, `key = value` lines, and sections in brackets.
+The file uses the syntax of vtium.conf's sections (ADR-1403 D4): a `#` starts a comment, `key = value` lines, and sections in brackets.
+
+> Edited 2026-11-05: ADR-1403 moved the head file into vtium.conf's sections (ADR-1403 D3, D4), so a vtlook takes vtium.conf's trust check and its sections' syntax. The text named "the rule vtium applies to heads.conf (ADR-1401 D7)", "as it reads heads.conf", and "The file uses heads.conf's syntax".
 
 ```ini
 # /etc/vtium/looks/amber.vtlook: an amber phosphor with scanlines.

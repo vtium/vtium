@@ -379,9 +379,7 @@ The figure follows a glyph from the profile to the frame: the profile's cell and
 
 > Edited 2026-11-05: the maintainer renamed the profile the look (`considered`). A look is a `[look NAME]` section of vtium.conf that holds the frit, the cell or size and the other keys this record gives a profile, and `vtlook = FILE`, which names ADR-1304's vtlook; a head names its look with `look =` (ADR-1403 D1, D5). Where this record says profile, it means that section; its decisions are unchanged.
 
-> Edited 2026-11-05: ADR-1403 gave the look its home, a `[look NAME]` section of vtium.conf (ADR-1403 D1, D4, D5). The bullets read: "The console reads a profile's settings as text before its first frame, as it reads its configuration." and "Profile files live where ADR-1401 places them, and `vtiumctl` writes them when asked (ADR-1401 D12). Until profiles have a file of their own, the cell is the frit's `cell=` line (D1), and the profile's file takes it over when it lands (the operator, 2026-10-28)."
-
-> Edited 2026-11-05: the maintainer gave a look the key `cell` (ADR-1403's `considered`). The bullet read: "The cell is the frit's `cell=` line (D1) until a look takes a cell key of its own, which the operator's answer of 2026-10-28 foresaw and ADR-1403 D5's list does not yet hold."
+> Edited 2026-11-05: ADR-1403 gave the look its home, a `[look NAME]` section of vtium.conf, and the maintainer gave a look the key `cell`, which wins over its frit's `cell=` (ADR-1403 D1, D4, D5, and its `considered`). The bullets read: "The console reads a profile's settings as text before its first frame, as it reads its configuration." and "Profile files live where ADR-1401 places them, and `vtiumctl` writes them when asked (ADR-1401 D12). Until profiles have a file of their own, the cell is the frit's `cell=` line (D1), and the profile's file takes it over when it lands (the operator, 2026-10-28)."
 
 ### D1: the frit
 
