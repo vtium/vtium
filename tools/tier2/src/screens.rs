@@ -1211,7 +1211,7 @@ pub const CASES: &[Case] = &[
     ),
     scheme(
         "scheme-dark-notice",
-        "The example configuration's `dark` color scheme (ADR-1401 D5) on the notice that no keyboard was found, with the on-screen display's dot under `osd = minimal`, over a shell session. Correct: a deep red `#7f1d1d` box with a light red `#f87171` edge across the top, the width of the display, holding the notice in pale `#fee2e2`; the filled circle in light grey `#d1d5db` on near black `#111827` over the top-right cell, at the box's top right; the row just below the box partly covered, on purpose; and the rows below it as the terminal drew them.",
+        "The example configuration's `dark` color scheme (ADR-1401 D5) on the notice that no keyboard was found, with the on-screen display's dot under `osd = minimal`, over a shell session. Correct: a red `#b91c1c` box with a light red `#f87171` edge across the top, the width of the display, holding the notice in pale `#fee2e2`; the filled circle in light grey `#d1d5db` on near black `#111827` over the top-right cell, at the box's top right; the row just below the box partly covered, on purpose; and the rows below it as the terminal drew them.",
         OSD_SHELL,
         OSD_MINIMAL_NOTICE,
         &keys::DARK,
