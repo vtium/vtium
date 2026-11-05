@@ -27,4 +27,4 @@
 
 
 ----------------------------------------------------------------------------------------------------
- Enter keep  t try live  n new frit  r remove  Tab next  i install  q leave, undo
+ Enter keep  t try live  s specimen  n new frit  r remove  Tab next  i install  q leave, undo
