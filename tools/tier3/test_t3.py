@@ -1071,10 +1071,9 @@ class VtiumGoldenTest(unittest.TestCase):
         return path
 
     def test_shipped(self):
-        # The maintainer reviewed every provisional golden but the default 2D
-        # variants' re-baselined ones on 2026-11-05, so the list in the tree
-        # names only those, which the clean break's tier 3 golden commit
-        # settles; every golden it names must be one a case draws.
+        # The maintainer reviewed every provisional golden on 2026-11-05, so
+        # the list in the tree is empty; a golden it names later must be one a
+        # case draws.
         prov = t3_evaluate.read_provisional()
         # the default 2D variants' re-baselined goldens (vtium/vtium#24)
         rebaselined = ["%s/%s" % (v, s)
@@ -1087,9 +1086,9 @@ class VtiumGoldenTest(unittest.TestCase):
                                  "photo-scrollback", "mpv-sixel", "tmux-2x2", "tmux-3x3", "kitty",
                                  "kitty-photo", "kitty-files", "kitty-layers", "s1-scroll", "flood",
                                  "cjk")]
-        # the maintainer accepted the rest on 2026-11-05; these two wait on a
-        # box-drawing fix (box lines at a 20x38 cell)
-        self.assertEqual(sorted(prov), ["2d-7680x2160-font32/blocks", "2d-7680x2160-font32/boxdraw"])
+        # the maintainer accepted every one of them on 2026-11-05, the last two
+        # once box lines at a 20x38 cell drew 2 px wide
+        self.assertEqual(sorted(prov), [])
         self.assertTrue(set(prov) <= set(rebaselined))
         self.assertEqual(t3_evaluate.check_goldens(t3_scenario.golden_cases(),
                                                    t3_evaluate.GOLDEN, prov), [])

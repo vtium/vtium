@@ -2,5 +2,3 @@
 # golden under goldens/, and why. A case compared with a provisional golden
 # is drawn and compared, and its difference is noted but does not fail the
 # run; the row goes when the operator accepts the golden.
-2d-7680x2160-font32/boxdraw	vtium/vtium#24: re-baselined from vtium's capture at ee1fff50, DejaVu Sans Mono through vtium's glyph engine where the C reference drew it through pango; goldens/README.md lists what moved; not yet reviewed
-2d-7680x2160-font32/blocks	vtium/vtium#24: re-baselined from vtium's capture at ee1fff50, DejaVu Sans Mono through vtium's glyph engine where the C reference drew it through pango; goldens/README.md lists what moved; not yet reviewed
