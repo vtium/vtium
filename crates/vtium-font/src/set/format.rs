@@ -38,6 +38,13 @@
 //!          the chunks' bytes
 //! ```
 //!
+//! A chunk of `GLYF`, `CLUS` or `INKX` holds at most `SET_CHUNK_BYTES`, as
+//! stored and decoded, and never splits a glyph or a box. A glyph larger
+//! than that, as each glyph of an 8x16 bitmap font drawn 33 times its size
+//! is, goes in a `GLYF` or `CLUS` chunk of its own: raw, and exactly its
+//! bytes (ADR-1302 D6). A set with no such glyph is laid out as it was
+//! before such glyphs were carried, so the format stays 2.0.
+//!
 //! `INKX` holds the ink box of each glyph whose ink passes its cells
 //! (ADR-1200 D2, ADR-1302 D6). A box is `width` columns across from
 //! `left`, the offset of its first column from the left edge of the

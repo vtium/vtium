@@ -263,8 +263,7 @@ pub(crate) fn draw_all(
             wide,
             advance,
             cell,
-        )
-        .filter(|p| p.pixels.len() <= vtium_font::SET_CHUNK_BYTES as usize) else {
+        ) else {
             continue;
         };
         let key = placed.clone();
