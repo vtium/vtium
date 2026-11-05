@@ -4,10 +4,12 @@
 //! answers the graphics query: the console's own terminal built with
 //! `images`, under the `kitty-check` feature.
 
+#[path = "common/home.rs"]
+mod home;
+
 use std::fs::{File, OpenOptions};
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use rustix::pty::{OpenptFlags, grantpt, openpt, ptsname, unlockpt};
 
@@ -35,7 +37,7 @@ fn frits() -> PathBuf {
 
 /// `preview` with `args`, its output a pipe: its status and output.
 fn preview(root: &Path, args: &[&str]) -> (i32, String, String) {
-    let o = Command::new(BIN)
+    let o = home::command(BIN)
         .arg("--configdir")
         .arg(root)
         .arg("--frits")
@@ -138,7 +140,7 @@ fn the_display_s_edid_sets_the_density_and_its_mode_the_grid() {
 #[test]
 fn the_locale_adds_a_line_in_its_script() {
     let root = fixture("locale", None);
-    let o = Command::new(BIN)
+    let o = home::command(BIN)
         .arg("--configdir")
         .arg(&root)
         .arg("--frits")
@@ -198,7 +200,7 @@ fn on_a_terminal(answers_da1: bool) -> (i32, String) {
     let root = fixture(if answers_da1 { "da1-only" } else { "silent" }, None);
     let (mut master, slave) = pair();
     let io = || Stdio::from(slave.as_fd().try_clone_to_owned().expect("dup"));
-    let mut child = Command::new("setsid")
+    let mut child = home::command("setsid")
         .arg("--ctty")
         .arg(BIN)
         .arg("--configdir")
@@ -278,7 +280,7 @@ mod pictures {
         let root = fixture("pictures", None);
         let (mut master, slave) = pair();
         let io = || Stdio::from(slave.as_fd().try_clone_to_owned().expect("dup"));
-        let mut child = Command::new("setsid")
+        let mut child = home::command("setsid")
             .arg("--ctty")
             .arg(BIN)
             .arg("--configdir")

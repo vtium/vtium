@@ -47,24 +47,31 @@ struct Written {
     rule: RuleText,
 }
 
-/// Every rule line of `text`'s `[rules]` sections, in order.
+/// Every rule line of `text`'s `[rules]` sections, in order, numbered as
+/// the section writer and the commands number them, including the lines
+/// vtium cannot read, which keep their words as best they read.
 fn written_rules(text: &str) -> Vec<Written> {
-    let mut out = Vec::new();
-    let mut in_rules = false;
-    for (i, line) in text.lines().enumerate() {
-        let content = line.split(" #").next().unwrap_or_default().trim();
-        if content.starts_with('[') {
-            in_rules = content == "[rules]";
-            continue;
-        }
-        if in_rules && let Some(rule) = RuleText::read(line) {
-            out.push(Written {
-                line: i.saturating_add(1),
-                rule,
+    let lines: Vec<&str> = text.lines().collect();
+    vtium_settings::rule_lines(text)
+        .into_iter()
+        .map(|line| {
+            let body = lines
+                .get(line.saturating_sub(1))
+                .copied()
+                .unwrap_or_default();
+            let rule = RuleText::read(body).unwrap_or_else(|| {
+                let content = body.split(" #").next().unwrap_or_default().trim();
+                let (head, target) = content.rsplit_once("->").unwrap_or((content, ""));
+                let mut words = head.split_whitespace();
+                RuleText {
+                    kind: words.next().unwrap_or("input").to_owned(),
+                    selector: words.collect::<Vec<_>>().join(" "),
+                    target: target.trim().to_owned(),
+                }
             });
-        }
-    }
-    out
+            Written { line, rule }
+        })
+        .collect()
 }
 
 /// A display's name: its connector, else `display`.

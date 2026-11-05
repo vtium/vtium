@@ -3,6 +3,9 @@
 //! forms and decoders are judged through the helper's engine
 //! (`tests/engine.rs`).
 
+#[path = "common/home.rs"]
+mod home;
+
 use std::fs;
 use std::io::{Read, Write};
 use std::process::{Command, Output, Stdio};
@@ -30,11 +33,11 @@ fn usage_errors_exit_2() {
         &["--frits"],
         &["serve", "x"],
     ] {
-        let o = Command::new(BIN).args(args).output().unwrap();
+        let o = home::command(BIN).args(args).output().unwrap();
         assert_eq!(status(&o), 2, "{args:?}: {}", stderr(&o));
         assert!(stderr(&o).contains("--help"), "{args:?}");
     }
-    let o = Command::new(BIN).arg("--help").output().unwrap();
+    let o = home::command(BIN).arg("--help").output().unwrap();
     assert_eq!(status(&o), 0);
     assert!(stdout(&o).starts_with("Usage: vtium-config"));
 }
@@ -43,7 +46,7 @@ fn usage_errors_exit_2() {
 /// its limits before it reads anything.
 #[test]
 fn the_parser_runs_without_new_privileges_and_within_its_limits() {
-    let mut child = Command::new(BIN)
+    let mut child = home::command(BIN)
         .arg("--parse")
         .env_clear()
         .stdin(Stdio::piped())
@@ -113,7 +116,7 @@ fn the_parser_runs_without_new_privileges_and_within_its_limits() {
 #[test]
 fn the_store_commands_are_gone() {
     for command in ["create", "list", "verify", "remove"] {
-        let o = Command::new(BIN).arg(command).output().unwrap();
+        let o = home::command(BIN).arg(command).output().unwrap();
         assert_eq!(status(&o), 2, "{command}: {}", stderr(&o));
         assert!(
             stderr(&o).contains(&format!("unknown command {command}")),
@@ -234,7 +237,7 @@ fn as_namespace_root_with(args: &[&str], envs: &[(&str, &str)]) -> Option<Output
         return None;
     }
     Some(
-        Command::new("unshare")
+        home::command("unshare")
             .arg("-r")
             .arg(BIN)
             .args(args)
@@ -301,4 +304,33 @@ fn the_binary_run_as_root_refuses_more_than_one_tools_user() {
         return;
     };
     assert_eq!(status(&o), 0, "{}", stderr(&o));
+}
+
+/// A test that forgets to give the binary a home of its own, as this one
+/// does on purpose, is refused before anything is read or written: under
+/// cargo, vtium-config refuses the real user's store, so the real user's
+/// drafts are never a test's.
+#[test]
+fn a_test_that_forgets_its_home_is_refused_loudly() {
+    let euid = rustix::process::geteuid().as_raw();
+    let Some(home) = vtium_config::store::home_of(euid) else {
+        return;
+    };
+    let config = home.join(".config/vtium");
+    let before = std::fs::read_dir(&config).map(|d| d.count()).ok();
+    let o = Command::new(BIN)
+        .arg("flow")
+        .env("HOME", &home)
+        .env_remove("XDG_CONFIG_HOME")
+        .env_remove("XDG_STATE_HOME")
+        .output()
+        .unwrap();
+    assert_eq!(status(&o), 5, "{}", stderr(&o));
+    assert!(
+        stderr(&o).contains("refuses the real user's store"),
+        "{}",
+        stderr(&o)
+    );
+    let after = std::fs::read_dir(&config).map(|d| d.count()).ok();
+    assert_eq!(before, after, "nothing was made under {}", config.display());
 }

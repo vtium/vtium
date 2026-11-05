@@ -10,8 +10,8 @@
 //! take.
 
 use vtium_settings::{
-    Edit, Of, SectionEdit, add_rule, add_section, edit_conf, move_rule, parse_sections,
-    remove_rule, set_key, set_rule, split,
+    Edit, Of, SectionEdit, add_rule, add_section, edit_conf, move_rule, remove_rule,
+    remove_section, rename_section, rule_lines, set_key, set_rule, split,
 };
 
 use crate::outcome::Fail;
@@ -55,18 +55,19 @@ impl RuleText {
 
 /// The text of rule `number`, counted from 1, in `text`.
 pub fn rule_text(text: &str, number: usize) -> Result<RuleText, Fail> {
-    let config = parse_sections(text)
-        .map_err(|r| refused(&SectionEdit::Unreadable(r)))?
-        .map(|p| p.config)
-        .unwrap_or_default();
-    let rule = number
+    let no_rule = || refused(&SectionEdit::NoRule(number));
+    let line = number
         .checked_sub(1)
-        .and_then(|i| config.rules.get(i))
-        .ok_or_else(|| refused(&SectionEdit::NoRule(number)))?;
+        .and_then(|i| rule_lines(text).get(i).copied())
+        .ok_or_else(no_rule)?;
     text.lines()
-        .nth(rule.line.saturating_sub(1))
+        .nth(line.saturating_sub(1))
         .and_then(RuleText::read)
-        .ok_or_else(|| refused(&SectionEdit::NoRule(number)))
+        .ok_or_else(|| {
+            Fail::Usage(format!(
+                "rule {number} is not KIND SELECTOR -> TARGET, so only rule set {number} 'KIND SELECTOR -> TARGET' or rule rm {number} can change it"
+            ))
+        })
 }
 
 /// Adds `rule` before rule `before`, or with `None` where the placement
@@ -114,10 +115,7 @@ pub enum To {
 pub fn rule_move(text: &str, number: usize, to: To) -> Result<String, Fail> {
     let before = match to {
         To::Before(m) => m,
-        To::Last => parse_sections(text)
-            .map_err(|r| refused(&SectionEdit::Unreadable(r)))?
-            .map_or(0, |p| p.config.rules.len())
-            .saturating_add(1),
+        To::Last => rule_lines(text).len().saturating_add(1),
     };
     move_rule(text, number, before).map_err(|e| refused(&e))
 }
@@ -162,13 +160,14 @@ pub fn look_add(
     section_keys(&added, Of::Look(name), &keys)
 }
 
-/// The heads of `text` that name the look `look`.
+/// The heads of `text` that name the look `look` with a `look =` line,
+/// as vtium reads what survives of the sections, so a draft with errors
+/// elsewhere still answers.
 pub fn heads_using(text: &str, look: &str) -> Vec<String> {
-    parse_sections(text)
-        .ok()
-        .flatten()
-        .map(|p| {
-            p.config
+    vtium_settings::sections(text.as_bytes())
+        .map(|r| {
+            r.parsed
+                .config
                 .heads
                 .iter()
                 .filter(|h| h.look == look && h.look_line > 0)
@@ -178,51 +177,32 @@ pub fn heads_using(text: &str, look: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// The rules of `text` that send to the head `head`, by their numbers.
+/// The rules of `text` whose target is `head`, by their numbers, every
+/// rule line counted as the writer numbers them.
 pub fn rules_to(text: &str, head: &str) -> Vec<usize> {
-    let Some(config) = parse_sections(text).ok().flatten().map(|p| p.config) else {
-        return Vec::new();
-    };
-    let Some(index) = config.heads.iter().position(|h| h.name == head) else {
-        return Vec::new();
-    };
-    config
-        .rules
+    rule_lines(text)
         .iter()
         .enumerate()
-        .filter(|(_, r)| r.target == vtium_settings::Target::Head(index))
+        .filter(|(_, n)| {
+            text.lines()
+                .nth(n.saturating_sub(1))
+                .and_then(RuleText::read)
+                .is_some_and(|r| r.target == head)
+        })
         .map(|(i, _)| i.saturating_add(1))
         .collect()
 }
 
-/// Why a section cannot be removed or renamed yet: the section writer of
-/// vtium-settings has no function that removes or renames a section, and
-/// vtium-config writes no section text of its own (ADR-1201 D6).
-const NO_SECTION_WRITER: &str = "vtium-config cannot remove or rename a section yet: vtium-settings's section writer has no function for it. Use vtium config edit to make this change by hand.";
-
 /// Deletes `[head NAME]`. The rules that send to it stay, broken, until
-/// each is pointed elsewhere or deleted.
+/// each is pointed elsewhere or deleted; [`rules_to`] names them.
 pub fn head_rm(text: &str, name: &str) -> Result<String, Fail> {
-    if parse_sections(text)
-        .ok()
-        .flatten()
-        .is_none_or(|p| p.config.head(name).is_none())
-    {
-        return Err(refused(&SectionEdit::NoSection(name.to_owned())));
-    }
-    Err(Fail::Usage(NO_SECTION_WRITER.to_owned()))
+    remove_section(text, Of::Head(name)).map_err(|e| refused(&e))
 }
 
 /// Deletes `[look NAME]`. While a head names it, it refuses and names the
-/// heads; with `force` it sets those heads to the default look first.
+/// heads; with `force` it sets those heads to the default look first, by
+/// commenting out their `look` lines.
 pub fn look_rm(text: &str, name: &str, force: bool) -> Result<String, Fail> {
-    let config = parse_sections(text)
-        .map_err(|r| refused(&SectionEdit::Unreadable(r)))?
-        .map(|p| p.config)
-        .unwrap_or_default();
-    if !config.looks.iter().any(|l| l.name == name) {
-        return Err(refused(&SectionEdit::NoSection(name.to_owned())));
-    }
     let users = heads_using(text, name);
     if !users.is_empty() && !force {
         return Err(Fail::Usage(format!(
@@ -230,14 +210,17 @@ pub fn look_rm(text: &str, name: &str, force: bool) -> Result<String, Fail> {
             users.join(", ")
         )));
     }
-    Err(Fail::Usage(NO_SECTION_WRITER.to_owned()))
+    let mut out = text.to_owned();
+    for head in &users {
+        out = section_keys(&out, Of::Head(head), &[("look", None)])?;
+    }
+    remove_section(&out, Of::Look(name)).map_err(|e| refused(&e))
 }
 
-/// Renames the head or look `of` to `new`, with every rule or head that
-/// names it.
+/// Renames the head or look `of` to `new`, with every rule that sends to
+/// the head or every head that names the look, in one change.
 pub fn rename(text: &str, of: Of<'_>, new: &str) -> Result<String, Fail> {
-    let _ = (text, of, new);
-    Err(Fail::Usage(NO_SECTION_WRITER.to_owned()))
+    rename_section(text, of, new).map_err(|e| refused(&e))
 }
 
 /// Sets the top-level key `key` to `value` through the line editor, after
@@ -344,5 +327,30 @@ mod tests {
         assert!(e.text().contains("desk"), "{}", e.text());
         assert_eq!(heads_using(text, "big"), ["desk"]);
         assert_eq!(rules_to(text, "desk"), [1]);
+        assert_eq!(
+            look_rm(text, "big", true).unwrap(),
+            "version = 1\n[head desk]\n#look = big\n[rules]\ndisplay * -> desk\n"
+        );
+    }
+
+    #[test]
+    fn a_removed_head_leaves_its_rules_for_the_check_to_list() {
+        let out = head_rm(DESK, "panel").unwrap();
+        assert_eq!(out, DESK.replace("[head panel]\n", ""));
+        let out = head_rm(DESK, "desk").unwrap();
+        assert_eq!(rules_to(&out, "desk"), [1]);
+        // and the broken rule is still the commands' to change
+        assert_eq!(
+            rule_set(
+                &out,
+                1,
+                &RuleChange::Parts {
+                    selector: None,
+                    target: Some("panel".to_owned())
+                }
+            )
+            .unwrap(),
+            "version = 1\n[head panel]\n[rules]\ndisplay * -> panel\ninput class:keyboard -> roaming  # every keyboard\n"
+        );
     }
 }

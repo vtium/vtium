@@ -116,7 +116,9 @@ A rule's number is its place in `[rules]`, counted from 1. `rule add` without `-
 | 4 | sudo refused or is missing; nothing is installed |
 | 5 | A file could not be read or written, or the console that checks the draft could not be started; the message names its path |
 
-Not built yet: `head rm`, `look rm`, `--name` on `head set` and `look set`, and the library's rules and removals wait on vtium-settings's section writer, which has no function that removes or renames a section, and refuses to edit or produce a file whose sections hold an error, such as the rules a deleted head leaves behind; each says so with exit 2. `head active` needs the control socket ADR-1401 D12 plans and says so with exit 2.
+`head rm` removes a head and leaves the rules that send to it, which it names and which the check lists until each is pointed elsewhere or removed. `look rm` refuses a look a head names, naming the heads, unless `--force` sets those heads to the default look first. `--name` on `head set` and `look set` renames the section with every rule or head that names it, in one change. `head active` needs the control socket ADR-1401 D12 plans and says so with exit 2.
+
+Run under cargo, as every test is, vtium-config refuses the real user's store, `~/.config/vtium` and `~/.local/state/vtium` under the home the password database gives, with exit 5. Every test that runs the binary starts it through `tests/common/home.rs`, which points `HOME`, `XDG_CONFIG_HOME` and `XDG_STATE_HOME` at a directory of the tests' own, and `tests/cli.rs` holds a test that forgets to on purpose and is refused.
 
 ## Saving
 

@@ -4,15 +4,16 @@
 //! is copied when it moves, either way, through the section writer, so the
 //! library is written as a draft is.
 
-use vtium_settings::{Config, Of, WhenDisplayLost, add_section, parse_sections};
+use vtium_settings::{Config, Of, WhenDisplayLost, add_section};
 
 use crate::outcome::Fail;
 
-/// The sections `text` reads whole, else why a node cannot be copied.
+/// What survives of `text`'s sections, as vtium reads them, so a draft or
+/// a library with errors elsewhere still gives its nodes.
 fn config(text: &str) -> Result<Config, Fail> {
-    parse_sections(text)
-        .map(|p| p.map(|p| p.config).unwrap_or_default())
-        .map_err(|r| Fail::Usage(vtium_settings::SectionEdit::Unreadable(r).to_string()))
+    Ok(vtium_settings::sections(text.as_bytes())
+        .map(|r| r.parsed.config)
+        .unwrap_or_default())
 }
 
 /// The keys the section `of` sets in `config`, each with its value as the
@@ -114,21 +115,17 @@ pub fn differs(draft: &str, library: &str, of: Of<'_>) -> bool {
 /// The library's nodes, one line each: `look NAME`, `head NAME`, and
 /// `rule N` with the rule's line.
 pub fn list(library: &str) -> Vec<String> {
-    let Ok(config) = config(library) else {
-        return vec![
-            "the library's sections hold errors; edit library.conf to mend them".to_owned(),
-        ];
-    };
+    let config = config(library).unwrap_or_default();
     let mut out: Vec<String> = config
         .looks
         .iter()
         .map(|l| format!("look {}", l.name))
         .collect();
     out.extend(config.heads.iter().map(|h| format!("head {}", h.name)));
-    for (i, r) in config.rules.iter().enumerate() {
+    for (i, n) in vtium_settings::rule_lines(library).iter().enumerate() {
         let line = library
             .lines()
-            .nth(r.line.saturating_sub(1))
+            .nth(n.saturating_sub(1))
             .unwrap_or_default()
             .trim();
         out.push(format!("rule {}\t{line}", i.saturating_add(1)));

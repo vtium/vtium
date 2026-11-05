@@ -4,6 +4,9 @@
 //! stand-in `vtium` whose `check-config` refuses each line that holds
 //! `BAD`, so the check's verdict is the fixture's to choose.
 
+#[path = "common/home.rs"]
+mod home;
+
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -60,7 +63,7 @@ impl Fixture {
     }
 
     fn command(&self, args: &[&str]) -> Command {
-        let mut c = Command::new(BIN);
+        let mut c = home::command(BIN);
         c.arg("--configdir")
             .arg(self.path("etc"))
             .arg("--frits")
@@ -400,4 +403,75 @@ fn route_says_why_no_route_passes_through_an_item() {
         "{\"version\":1,\"item\":\"head desk\",\"says\":\"not used: no complete route passes through it\",\"routes\":[]}\n"
     );
     assert_eq!(f.run(&["route", "head", "nobody"]).status, 2);
+}
+
+#[test]
+fn a_removed_head_keeps_its_rules_and_a_rename_takes_them_along() {
+    let f = fixture("head-rm");
+    f.desk();
+    assert_eq!(f.run(&["head", "add", "panel"]).status, 0);
+    let rename = f.run(&["head", "set", "desk", "--name", "office"]);
+    assert_eq!(rename.status, 0, "{}", rename.err);
+    assert_eq!(
+        f.draft(),
+        "font-size=12\nversion = 1\n[head office]\n[head panel]\n\n[rules]\ndisplay * -> office\ninput class:keyboard -> roaming\n"
+    );
+    let ran = f.run(&["head", "rm", "office"]);
+    assert_eq!(
+        (ran.status, ran.out.as_str()),
+        (
+            0,
+            "the rules 1 still send to office, which the check lists until each is pointed elsewhere or removed\nwrote ROOT/home/config/vtium/drafts/desk.conf\nROOT/home/config/vtium/drafts/desk.conf: checked\ndraft desk: 3 lines added, 2 removed · no problems\n"
+        )
+    );
+    assert_eq!(
+        f.draft(),
+        "font-size=12\nversion = 1\n[head panel]\n\n[rules]\ndisplay * -> office\ninput class:keyboard -> roaming\n"
+    );
+    // the broken rule is still the commands' to fix
+    assert_eq!(f.run(&["rule", "set", "1", "--target", "panel"]).status, 0);
+    assert!(f.draft().contains("display * -> panel\n"));
+}
+
+#[test]
+fn a_look_in_use_is_kept_unless_forced_to_the_default() {
+    let f = fixture("look-rm");
+    f.desk();
+    assert_eq!(
+        f.run(&["look", "add", "big", "--frit", "monoid", "--size", "14"])
+            .status,
+        0
+    );
+    assert_eq!(f.run(&["head", "set", "desk", "--look", "big"]).status, 0);
+    let kept = f.run(&["look", "rm", "big"]);
+    assert_eq!(kept.status, 2);
+    assert!(
+        kept.err.contains("The heads desk use the look big"),
+        "{}",
+        kept.err
+    );
+    assert_eq!(f.run(&["look", "rm", "big", "--force"]).status, 0);
+    assert_eq!(
+        f.draft(),
+        "font-size=12\nversion = 1\n[head desk]\n#look = big\n[rules]\ndisplay * -> desk\ninput class:keyboard -> roaming\n"
+    );
+}
+
+#[test]
+fn the_library_keeps_looks_and_rules_and_lets_them_go() {
+    let f = fixture("library");
+    f.desk();
+    assert_eq!(f.run(&["look", "add", "big", "--frit", "monoid"]).status, 0);
+    assert_eq!(f.run(&["library", "add", "look", "big"]).status, 0);
+    assert_eq!(f.run(&["library", "add", "rule", "2"]).status, 0);
+    assert_eq!(
+        f.run(&["library", "list"]).out,
+        "look big\nrule 1\tinput class:keyboard -> roaming\n"
+    );
+    assert_eq!(f.run(&["library", "rm", "look", "big"]).status, 0);
+    assert_eq!(f.run(&["library", "rm", "rule", "1"]).status, 0);
+    assert_eq!(
+        std::fs::read_to_string(f.path("home/config/vtium/library.conf")).expect("the library"),
+        "version = 1\n\n[rules]\n"
+    );
 }

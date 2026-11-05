@@ -1280,7 +1280,7 @@ fn below_the_minimum_the_screen_says_so_and_u_undoes_the_preview() {
             "{grid:?}: {screen}"
         );
         assert!(joined.contains("vtium-config fonts"), "{screen}");
-        assert!(joined.contains("vtium-config config"), "{screen}");
+        assert!(joined.contains("vtium-config set"), "{screen}");
         assert!(joined.contains(words::TOO_SMALL_KEYS), "{screen}");
         // keys that would move are ignored below the minimum; u gives the
         // console its start font back, and the views come back

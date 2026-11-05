@@ -3,8 +3,10 @@
 //! standing in for `/etc/vtium` through the tool's path options, never as
 //! root: each change a user makes is a draft, which `apply` installs.
 
+#[path = "common/home.rs"]
+mod home;
+
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 #[path = "common/console.rs"]
 mod console;
@@ -64,7 +66,7 @@ impl Fixture {
     /// `vtium-config` with the fixture's options and `args`, its drafts
     /// under the fixture's state directory.
     fn run(&self, args: &[&str]) -> Ran {
-        let o = Command::new(BIN)
+        let o = home::command(BIN)
             .args(self.options())
             .args(args)
             .env("XDG_STATE_HOME", self.root.join("state"))
@@ -82,7 +84,7 @@ impl Fixture {
     /// console but no `--frits`, run in `cwd`, its drafts under the
     /// fixture's state directory.
     fn run_bare(&self, cwd: &Path, args: &[&str]) -> Ran {
-        let o = Command::new(BIN)
+        let o = home::command(BIN)
             .arg("--configdir")
             .arg(self.etc())
             .arg("--vtium")
@@ -272,7 +274,7 @@ fn a_seat_file_beside_vtium_conf_is_never_read() {
     assert!(!decoy.join("made.vtfrit").exists());
     // a relative font-frits in the seat file fails nothing
     std::fs::write(f.etc().join("seat0.seat.conf"), "font-frits=fonts\n").expect("the seat's file");
-    let listed = Command::new(BIN)
+    let listed = home::command(BIN)
         .arg("--configdir")
         .arg(f.etc())
         .arg("fonts")
@@ -294,7 +296,7 @@ fn every_command_acts_in(f: &Fixture, elsewhere: &Path) {
     std::fs::write(elsewhere.join("gone.vtfrit"), "source=builtin:unifont\n").expect("a frit");
     // the fixture's options less --frits
     let run = |args: &[&str]| {
-        let o = Command::new(BIN)
+        let o = home::command(BIN)
             .arg("--configdir")
             .arg(f.etc())
             .arg("--vtium")

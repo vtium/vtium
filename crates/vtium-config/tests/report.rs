@@ -3,6 +3,9 @@
 //! run as root against one as a user, `--save`, and the privacy rules
 //! (ADR-1200 D24).
 
+#[path = "common/home.rs"]
+mod home;
+
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
@@ -841,7 +844,7 @@ fn a_saved_report_is_named_for_the_time_in_utc() {
 
 fn run(dir: &Path, args: &[&str]) -> Output {
     let _forking = forking();
-    Command::new(BIN)
+    home::command(BIN)
         .args(args)
         .current_dir(dir)
         .output()

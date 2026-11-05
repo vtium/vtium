@@ -87,6 +87,14 @@ pub fn name_from(name: &str) -> String {
     }
 }
 
+/// The home the password database gives the user `uid`.
+pub fn home_of(uid: u32) -> Option<PathBuf> {
+    nix::unistd::User::from_uid(nix::unistd::Uid::from_raw(uid))
+        .ok()
+        .flatten()
+        .map(|u| u.dir)
+}
+
 /// The machine's hostname, as the kernel gives it, made into a draft's
 /// name.
 pub fn hostname() -> String {
@@ -187,19 +195,36 @@ impl Store {
         })
     }
 
-    /// This process's store.
+    /// This process's store. Run under cargo, as every test of this crate
+    /// is, it refuses the real user's own store ([`Store::guard`]).
     pub fn system() -> Result<Store, Fail> {
-        Store::locate(
-            rustix::process::geteuid().as_raw(),
-            |name: &str| std::env::var_os(name),
-            |uid| {
-                nix::unistd::User::from_uid(nix::unistd::Uid::from_raw(uid))
-                    .ok()
-                    .flatten()
-                    .map(|u| u.dir)
-            },
-        )
-        .map_err(Fail::File)
+        let euid = rustix::process::geteuid().as_raw();
+        let store = Store::locate(euid, |name: &str| std::env::var_os(name), home_of)
+            .map_err(Fail::File)?;
+        let under_cargo = std::env::var_os("CARGO_MANIFEST_DIR").is_some();
+        store
+            .guard(under_cargo, home_of(euid).as_deref())
+            .map_err(Fail::File)?;
+        Ok(store)
+    }
+
+    /// Refuses, under cargo, the store of the real user whose home the
+    /// password database gives as `home`: `~/.config/vtium` or
+    /// `~/.local/state/vtium`. A test that forgets to point `HOME`,
+    /// `XDG_CONFIG_HOME` and `XDG_STATE_HOME` at a directory of its own
+    /// then fails loudly, and the real user's drafts are never touched.
+    pub fn guard(&self, under_cargo: bool, home: Option<&Path>) -> Result<(), String> {
+        let Some(home) = home.filter(|_| under_cargo) else {
+            return Ok(());
+        };
+        let real = [home.join(".config/vtium"), home.join(".local/state/vtium")];
+        if real.contains(&self.config) || real.contains(&self.state) {
+            return Err(format!(
+                "run under cargo, vtium-config refuses the real user's store under {}: a test sets HOME, XDG_CONFIG_HOME and XDG_STATE_HOME to a directory of its own",
+                home.display()
+            ));
+        }
+        Ok(())
     }
 
     pub fn drafts_dir(&self) -> PathBuf {
@@ -456,6 +481,30 @@ mod tests {
             }
         );
         assert!(Store::locate(1000, env(&[]), |_| None).is_err());
+    }
+
+    /// Under cargo, the real user's store is refused, whichever variable
+    /// leads there; a store of a test's own, or a run outside cargo, is
+    /// taken.
+    #[test]
+    fn under_cargo_the_real_user_s_store_is_refused() {
+        let home = Path::new("/home/bo");
+        let real = Store::locate(1000, env(&[("HOME", "/home/bo")]), |_| None).unwrap();
+        let why = real.guard(true, Some(home)).unwrap_err();
+        assert!(why.contains("XDG_CONFIG_HOME"), "{why}");
+        let state_only = Store::locate(
+            1000,
+            env(&[
+                ("HOME", "/tmp/t"),
+                ("XDG_STATE_HOME", "/home/bo/.local/state"),
+            ]),
+            |_| None,
+        )
+        .unwrap();
+        assert!(state_only.guard(true, Some(home)).is_err());
+        assert_eq!(real.guard(false, Some(home)), Ok(()));
+        let own = Store::locate(1000, env(&[("HOME", "/home/bo/target/tmp/t")]), |_| None).unwrap();
+        assert_eq!(own.guard(true, Some(home)), Ok(()));
     }
 
     #[test]

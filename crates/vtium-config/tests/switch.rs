@@ -2,6 +2,9 @@
 //! console's own terminal: the request and the query written, the reply
 //! read within the wait, and the terminal's mode put back.
 
+#[path = "common/home.rs"]
+mod home;
+
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
 use std::os::unix::fs::OpenOptionsExt;
@@ -116,7 +119,7 @@ fn with_font_operations_off_no_reply_comes_within_the_wait() {
 
 /// `vtium-config ARGS`: the exit status and stderr.
 fn cli(args: &[&str]) -> (i32, String) {
-    let out = std::process::Command::new(env!("CARGO_BIN_EXE_vtium-config"))
+    let out = home::command(env!("CARGO_BIN_EXE_vtium-config"))
         .args(args)
         .stdin(std::process::Stdio::null())
         .output()
@@ -159,11 +162,11 @@ fn input_left_unread_is_dropped_before_the_mode_is_back() {
 fn a_sigterm_during_the_wait_ends_set_with_the_mode_back() {
     use std::os::fd::AsFd;
     use std::os::unix::process::ExitStatusExt;
-    use std::process::{Command, Stdio};
+    use std::process::Stdio;
     let (mut master, slave) = pair();
     // setsid --ctty makes the pty the command's controlling terminal, the
     // /dev/tty set opens
-    let mut child = Command::new("setsid")
+    let mut child = home::command("setsid")
         .args(["--ctty", env!("CARGO_BIN_EXE_vtium-config")])
         .args(["use-frit", "unifont"])
         .stdin(Stdio::from(
@@ -200,14 +203,14 @@ fn a_sigterm_during_the_wait_ends_set_with_the_mode_back() {
 #[test]
 fn set_names_a_frit_with_no_store() {
     use std::os::fd::AsFd;
-    use std::process::{Command, Stdio};
+    use std::process::Stdio;
     let frits = concat!(env!("CARGO_TARGET_TMPDIR"), "/vtium-config-set-frits");
     let _ = std::fs::remove_dir_all(frits);
     std::fs::create_dir_all(frits).expect("mkdir");
     std::fs::write(format!("{frits}/tiny.vtfrit"), "source=kbd:tiny\n").expect("frit");
     let (master, slave) = pair();
     let answering = console(master.try_clone().expect("dup"), &["tiny"], true);
-    let out = Command::new("setsid")
+    let out = home::command("setsid")
         .args([
             "--ctty",
             env!("CARGO_BIN_EXE_vtium-config"),

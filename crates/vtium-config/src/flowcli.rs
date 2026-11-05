@@ -547,6 +547,15 @@ impl Command<'_, '_> {
                 let [name] = args.words.as_slice() else {
                     return Err(Fail::Usage("head rm takes NAME".to_owned()));
                 };
+                let (_, text) = self.session.current()?;
+                let broken = ops::rules_to(&text, name);
+                if !broken.is_empty() && !args.has("--dry-run") {
+                    let shown: Vec<String> = broken.iter().map(usize::to_string).collect();
+                    self.say(&format!(
+                        "the rules {} still send to {name}, which the check lists until each is pointed elsewhere or removed",
+                        shown.join(", ")
+                    ));
+                }
                 self.change(&args, |t| ops::head_rm(t, name))
             }
             "active" => Err(Fail::Usage(
@@ -760,10 +769,32 @@ impl Command<'_, '_> {
                 let new = crate::library::copy(&library, &text, of(kind, name))?;
                 self.write(&draft, &text, &new, false, false)
             }
-            ("add" | "take" | "rm", ["rule", _]) | ("rm", [_, _]) => Err(Fail::Usage(
-                "the library's rules, and removing a node from it, wait on vtium-settings's section writer, which cannot yet keep a rule whose head is not in the same file or remove a section".to_owned(),
-            )),
-            _ => Err(Fail::Usage("library takes list, add look|head NAME, add rule N, take look|head NAME, take rule NAME or rm look|head|rule NAME".to_owned())),
+            ("add", ["rule", n]) => {
+                let (_, text) = self.session.current()?;
+                let rule = ops::rule_text(&text, number(n)?)?;
+                let new = vtium_settings::add_rule(&library, &rule.line(), None)
+                    .map_err(|e| Fail::Usage(e.to_string()))?;
+                crate::store::write(&path, &new)?;
+                self.say(&format!("wrote {}", path.display()));
+                Ok(())
+            }
+            ("take", ["rule", n]) => {
+                let rule = ops::rule_text(&library, number(n)?)?;
+                let (draft, text) = self.session.current()?;
+                let new = ops::rule_add(&text, &rule.line(), None)?;
+                self.write(&draft, &text, &new, false, false)
+            }
+            ("rm", [kind @ ("look" | "head" | "rule"), name]) => {
+                let new = match *kind {
+                    "rule" => vtium_settings::remove_rule(&library, number(name)?),
+                    kind => vtium_settings::remove_section(&library, of(kind, name)),
+                }
+                .map_err(|e| Fail::Usage(e.to_string()))?;
+                crate::store::write(&path, &new)?;
+                self.say(&format!("wrote {}", path.display()));
+                Ok(())
+            }
+            _ => Err(Fail::Usage("library takes list, add look|head NAME, add rule N, take look|head NAME, take rule N or rm look|head NAME or rm rule N".to_owned())),
         }
     }
 
