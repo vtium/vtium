@@ -22,7 +22,8 @@
 //! limits or a shader that does not compile, holds the whole head on the
 //! CPU path while the display keeps that size: the head keeps its context
 //! and each other display's pipeline, and draws on the GPU path again once
-//! the display takes a size the GPU path sets up or leaves the head.
+//! the display takes a size the GPU path sets up or leaves the head. The
+//! hold breaks every display's row of GL errors.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -64,14 +65,16 @@ pub struct HeadGpu {
     /// One row as display pixels, `0x00RRGGBB`.
     pixels: Vec<u32>,
     /// Each display's frames in a row that a GL error failed, its set-ups
-    /// included.
+    /// included. A hold on the CPU path clears them, since the CPU path
+    /// draws the frames in between.
     failed_in_a_row: BTreeMap<(PathBuf, DisplayId), u32>,
-    /// The displays whose set-up failed for a reason the same size meets
-    /// again, at that size: while any is here, the whole head draws on the
-    /// CPU path (ADR-1303 D9).
-    refused: BTreeMap<(PathBuf, DisplayId), Size>,
-    /// The head came back to the GPU path, as the last refused display
-    /// took a new size or left, and the loop has not been told.
+    /// The display whose set-up failed for a reason the same size meets
+    /// again, and that size: while it holds, the whole head draws on the
+    /// CPU path (ADR-1303 D9). One display at most holds the head, since no
+    /// other display is set up while it does.
+    refused: Option<((PathBuf, DisplayId), Size)>,
+    /// The head came back to the GPU path, as the refused display took a
+    /// new size or left, and the loop has not been told.
     back: bool,
     /// Why the GPU path ended, once a failure ended it.
     lost: Option<String>,
@@ -108,7 +111,7 @@ impl HeadGpu {
             read: Vec::new(),
             pixels: Vec::new(),
             failed_in_a_row: BTreeMap::new(),
-            refused: BTreeMap::new(),
+            refused: None,
             back: false,
             lost: None,
             test,
@@ -128,8 +131,8 @@ impl HeadGpu {
 
     /// The display `key` left the head: what the GPU path kept for it is
     /// freed, and a display that comes back with the same key starts anew.
-    /// A head the display held on the CPU path draws on the GPU path again
-    /// once no other display holds it.
+    /// A head the display held on the CPU path draws on the GPU path
+    /// again.
     pub fn forget(&mut self, key: &(PathBuf, DisplayId)) {
         if let Some(display) = self.displays.remove(key) {
             display.free(&mut self.gl);
@@ -139,9 +142,11 @@ impl HeadGpu {
         self.count();
     }
 
-    /// The display `key` no longer holds the head on the CPU path.
+    /// The display `key` no longer holds the head on the CPU path, if it
+    /// did.
     fn let_go(&mut self, key: &(PathBuf, DisplayId)) {
-        if self.refused.remove(key).is_some() && self.refused.is_empty() {
+        if self.refused.as_ref().is_some_and(|(k, _)| k == key) {
+            self.refused = None;
             self.back = true;
         }
     }
@@ -180,10 +185,14 @@ impl HeadGpu {
         if renderer.depth() == Depth::One || self.lost.is_some() {
             return None;
         }
-        if self.refused.get(key).is_some_and(|&at| at != size) {
+        if self
+            .refused
+            .as_ref()
+            .is_some_and(|(k, at)| k == key && *at != size)
+        {
             self.let_go(key);
         }
-        if !self.refused.is_empty() {
+        if self.refused.is_some() {
             return None;
         }
         if let Err(e) = self.set_up(key, size, orientation) {
@@ -192,11 +201,14 @@ impl HeadGpu {
                 ErrorKind::Gl | ErrorKind::OutOfMemory | ErrorKind::ContextLost => {
                     self.failed(key, &e)
                 }
-                _ => {
-                    self.refused.insert(key.clone(), size);
-                    self.back = false;
-                    OnGpuFrame::Refused(e.to_string())
+                // the same size meets these again
+                ErrorKind::Limit | ErrorKind::Compile | ErrorKind::Misuse | ErrorKind::Handle => {
+                    self.hold(key, size, &e)
                 }
+                // set_up imports no buffer, so it never meets this; D9 sends
+                // a buffer the context cannot import to the staging copy,
+                // which every display takes already
+                ErrorKind::Import => self.hold(key, size, &e),
             });
         }
         let lose_at_read = self.raise_a_queued_fault(key);
@@ -214,6 +226,17 @@ impl HeadGpu {
         }
     }
 
+    /// The display `key` cannot be set up at `size`, for `e`: it holds the
+    /// whole head on the CPU path while it keeps that size. The CPU path
+    /// draws the frames in between, so no display's GL errors stay in a
+    /// row across the hold.
+    fn hold(&mut self, key: &(PathBuf, DisplayId), size: Size, e: &Error) -> OnGpuFrame {
+        self.refused = Some((key.clone(), size));
+        self.back = false;
+        self.failed_in_a_row.clear();
+        OnGpuFrame::Refused(e.to_string())
+    }
+
     /// A frame of the display `key`, or its set-up, failed with `e`: a lost
     /// context, an out-of-memory error or a second GL error in a row of
     /// the display's frames ends the GPU path.
@@ -226,6 +249,10 @@ impl HeadGpu {
             self.lost = Some(format!(
                 "a GL error in two of a display's frames in a row, the last {e}"
             ));
+        }
+        if self.lost.is_some() {
+            // a head that leaves the GPU path does not come back to it
+            self.back = false;
         }
         OnGpuFrame::Failed(e.to_string())
     }
@@ -287,9 +314,13 @@ impl HeadGpu {
         }
         if let Some(test) = &self.test {
             if let Ok(mut tries) = test.set_ups.lock() {
-                tries.push(key.1);
+                tries.push(key.clone());
             }
-            let fault = if test.refuse_set_up.lock().is_ok_and(|r| r.contains(&key.1)) {
+            let too_wide = test
+                .widest
+                .lock()
+                .is_ok_and(|w| w.is_some_and(|w| size.width > w));
+            let fault = if too_wide || test.refuse_set_up.lock().is_ok_and(|r| r.contains(&key.1)) {
                 Some(SetUpFault::Limit)
             } else {
                 test.set_up_faults

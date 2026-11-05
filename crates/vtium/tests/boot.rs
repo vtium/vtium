@@ -6597,7 +6597,11 @@ mod gpu_path {
         assert_eq!(refused.len(), 1, "{log:#?}");
         assert!(refused[0].starts_with("display MEM-1: "), "{log:#?}");
         assert_eq!(renderer(&log), ["gpu", "cpu"], "{log:#?}");
-        assert_eq!(*gpu.set_ups.lock().unwrap(), [ID], "tried once");
+        assert_eq!(
+            *gpu.set_ups.lock().unwrap(),
+            [(PathBuf::from("/dev/mem0"), ID)],
+            "tried once"
+        );
         assert!(
             shown == cpu_shown,
             "the frame shown differs from the CPU path's"

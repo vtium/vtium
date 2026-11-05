@@ -92,11 +92,15 @@ pub struct TestGpu {
     /// GPU's limits.
     pub refuse_set_up:
         std::sync::Mutex<std::collections::BTreeSet<vtium_platform::display::DisplayId>>,
+    /// The widest display the GPU path sets up, as a GPU's largest
+    /// renderbuffer bounds it: a set-up wider fails as past the GPU's
+    /// limits. Any width when `None`.
+    pub widest: std::sync::Mutex<Option<u32>>,
     /// The failures the GPU path's next set-ups meet, one a set-up, in
     /// order, whichever display it sets up.
     pub set_up_faults: std::sync::Mutex<std::collections::VecDeque<SetUpFault>>,
-    /// Each set-up of a display the GPU path tried, in order.
-    pub set_ups: std::sync::Mutex<Vec<vtium_platform::display::DisplayId>>,
+    /// Each set-up of a display the GPU path tried, by its key, in order.
+    pub set_ups: std::sync::Mutex<Vec<(PathBuf, vtium_platform::display::DisplayId)>>,
     /// The frames the GPU path drew into a display's buffer.
     pub drawn: std::sync::atomic::AtomicUsize,
 }
@@ -733,7 +737,7 @@ mod tests {
                 .iter()
                 .all(|c| c.left_gpu.is_none() && c.failed_gpu.is_none() && !c.back_on_gpu)
         );
-        let tries = gpu.set_ups.lock().unwrap().clone();
+        let tries: Vec<DisplayId> = gpu.set_ups.lock().unwrap().iter().map(|k| k.1).collect();
         assert_eq!(tries, [DisplayId(0), DisplayId(1)], "each set up once");
         assert_eq!(
             gpu.drawn.load(Ordering::SeqCst),
@@ -851,6 +855,35 @@ mod tests {
                 "{faults:?}: frames drawn on the GPU path"
             );
         }
+    }
+
+    // ADR-1303 D9: a hold on the CPU path breaks a display's row of GL
+    // errors, since the CPU path drew its frames in between: an error
+    // before the hold and one after it do not end the GPU path
+    #[cfg(feature = "gpu")]
+    #[test]
+    fn a_hold_on_the_cpu_path_breaks_a_displays_row_of_gl_errors() {
+        let gpu = Arc::new(TestGpu::default());
+        *gpu.faulty_display.lock().unwrap() = Some(DisplayId(0));
+        gpu.faults.lock().unwrap().extend([Fault::Gl, Fault::Gl]);
+        gpu.refuse_set_up.lock().unwrap().insert(DisplayId(1));
+        let mut painter =
+            Painter::start("test", Some(GpuSource::Test(Arc::clone(&gpu))), || {}).unwrap();
+        let held = rounds(&mut painter, 2, 2);
+        painter.forget((PathBuf::from("/dev/test"), DisplayId(1)));
+        let back = rounds(&mut painter, 1, 2);
+        assert!(gpu.faults.lock().unwrap().is_empty(), "both errors raised");
+        let failed = held
+            .iter()
+            .chain(&back)
+            .filter(|c| c.failed_gpu.is_some())
+            .count();
+        assert_eq!(failed, 2, "display 0's frames failed");
+        assert!(
+            held.iter().chain(&back).all(|c| c.left_gpu.is_none()),
+            "the second error ended the GPU path"
+        );
+        assert_eq!(gpu.drawn.load(Ordering::SeqCst), 1, "the last frame drawn");
     }
 
     // ADR-1303 D9: a GL error in two of one display's frames in a row ends

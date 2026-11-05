@@ -6498,13 +6498,21 @@ mod gpu_path {
         assert!(s.until_memory("/dev/mem1", BOUND, |m| m.frames > frames.1));
     }
 
+    /// How many of `lines` hold `text`.
+    fn count_of(lines: &[String], text: &str) -> usize {
+        lines.iter().filter(|l| l.contains(text)).count()
+    }
+
+    /// The second display's key, as the GPU path's set-ups record it.
+    fn second() -> (PathBuf, vtium_platform::display::DisplayId) {
+        (PathBuf::from("/dev/mem1"), ID)
+    }
+
     #[test]
     fn a_display_the_gpu_cannot_set_up_holds_its_head_on_the_cpu_path_while_its_size_lasts() {
         let (mut s, gpu) = two_on_the_gpu();
-        gpu.set_up_faults
-            .lock()
-            .unwrap()
-            .push_back(SetUpFault::Limit);
+        let before = gpu.set_ups.lock().unwrap().len();
+        *gpu.widest.lock().unwrap() = Some(400);
         s.memory("/dev/mem1").set_mode(640, 320);
         let lines = lines_until(&mut s, |l| renderers(l).len() == 2);
         let refused: Vec<&String> = lines
@@ -6535,6 +6543,62 @@ mod gpu_path {
         );
         draw_both(&mut s, "c");
         assert!(gpu.drawn.load(SeqCst) > drawn, "the head on the GPU path");
+        // only the display that held the head was set up, refused and then
+        // at its new size: the other kept its pipeline throughout
+        let tries = gpu.set_ups.lock().unwrap()[before..].to_vec();
+        assert_eq!(tries, [second(), second()]);
+        assert_eq!(gpu.kept.load(SeqCst), 2, "both displays kept");
+    }
+
+    // A refused display whose next size meets out of memory at its set-up
+    // ends the head's GPU path, and nothing says the head draws on it again
+    #[test]
+    fn a_refused_display_whose_next_set_up_loses_the_gpu_does_not_bring_its_head_back() {
+        let (mut s, gpu) = two_on_the_gpu();
+        gpu.set_up_faults
+            .lock()
+            .unwrap()
+            .extend([SetUpFault::Limit, SetUpFault::OutOfMemory]);
+        s.memory("/dev/mem1").set_mode(640, 320);
+        let _ = lines_until(&mut s, |l| renderers(l).len() == 2);
+        s.memory("/dev/mem1").set_mode(400, 200);
+        let mut lines = lines_until(&mut s, |l| renderers(l).len() == 2);
+        draw_both(&mut s, "a");
+        lines.extend(logged());
+        assert_eq!(count_of(&lines, "the GPU path failed"), 1, "{lines:#?}");
+        assert_eq!(
+            count_of(&lines, "it draws on the GPU path"),
+            0,
+            "{lines:#?}"
+        );
+        assert_eq!(renderers(&lines), ["cpu", "cpu"], "{lines:#?}");
+    }
+
+    // A display refused at one size and again at its next keeps its head on
+    // the CPU path: nothing says the head is back, and nothing is drawn on
+    // the GPU path
+    #[test]
+    fn a_display_refused_again_at_its_next_size_keeps_its_head_on_the_cpu_path() {
+        let (mut s, gpu) = two_on_the_gpu();
+        gpu.set_up_faults
+            .lock()
+            .unwrap()
+            .extend([SetUpFault::Limit, SetUpFault::Compile]);
+        s.memory("/dev/mem1").set_mode(640, 320);
+        let _ = lines_until(&mut s, |l| renderers(l).len() == 2);
+        let drawn = gpu.drawn.load(SeqCst);
+        s.memory("/dev/mem1").set_mode(400, 200);
+        let mut lines = lines_until(&mut s, |l| count_of(l, "cannot set it up") == 1);
+        draw_both(&mut s, "a");
+        draw_both(&mut s, "b");
+        lines.extend(logged());
+        assert_eq!(
+            count_of(&lines, "it draws on the GPU path"),
+            0,
+            "{lines:#?}"
+        );
+        assert!(!renderers(&lines).contains(&"gpu"), "{lines:#?}");
+        assert_eq!(gpu.drawn.load(SeqCst), drawn, "a frame on the GPU path");
     }
 
     #[test]
