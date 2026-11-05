@@ -77,6 +77,11 @@ impl Canvas {
         self.cells.get(y)?.get(x).map(|(c, _)| *c)
     }
 
+    /// The style a cell is drawn in.
+    pub fn style_at(&self, x: usize, y: usize) -> Option<Style> {
+        self.cells.get(y)?.get(x).map(|(_, s)| *s)
+    }
+
     /// Sets a row to a raw span, drawn as it is.
     pub fn raw(&mut self, y: usize, text: String) {
         if let Some(r) = self.raw.get_mut(y) {
