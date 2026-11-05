@@ -735,10 +735,12 @@ The C reference had no such command. It logged its revision when it started and 
 - A user's own font folder, such as `~/.local/share/fonts`, is not searched unless the user adds it (the maintainer, 2026-11-05). Before login the helper runs as `nobody`, which cannot read it, so `vtium check-config` notes that a font found there appears only after login.
 - The console hands the list to every helper it starts, as the helper's folder list, so the console and `vtium-config preview` search the same folders.
 - vtium ignores a folder that is not an absolute path or that holds a control character, and says why, as it does for `font-frits`.
-- `font-paths` is a top-level key only; a profile does not set it (ADR-1403 D5).
+- `font-paths` is a top-level key only; a look section does not set it (ADR-1403 D5).
 - It covers installed fonts found by family. kbd's console-font folders stay the build's, and a source that names a file by its path reads that path, as before.
 
 **Reading rights.** The helper reads fonts as its own account (D15): `nobody` before anyone logs in, and the session's user after. A folder that this account cannot read gives no fonts, and a source that finds nothing there falls through to the frit's next source (D17). `vtium check-config` notes each folder of `font-paths` that does not exist or that `nobody` cannot read.
+
+> Note 2026-11-05: the `considered` entry of 2026-11-05 that says the helper's landlock domain allows reading exactly the folders of `font-paths` is replaced by the next entry, which corrects it: the maintainer's decision of 2026-11-04 leaves reads open.
 
 **The sandbox.** `font-paths` sets where vtium searches for fonts and changes nothing in the helper's sandbox. The helper's landlock domain, which the maintainer approved on 2026-11-04 with a seccomp filter on sockets and which D15 records, limits writes and the network and leaves reads open, because a frit may name a font by an absolute path anywhere (the maintainer, 2026-11-04).
 
