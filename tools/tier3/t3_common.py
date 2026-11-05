@@ -34,9 +34,8 @@ BASE_SYSVINIT = os.path.join(VM, "base-sysvinit.qcow2")
 # are in its pristine/, and the base images in its base/.
 IMAGES = os.path.join(os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache"),
                       "vtium", "tier3", "images")
-# The C reference's goldens, copied byte for byte from kmscon, as
-# VARIANT/SCREEN.png.
-GOLDEN = os.path.join(HERE, "c-goldens")
+# The goldens, one directory a variant, as VARIANT/SCREEN.png.
+GOLDEN = os.path.join(HERE, "goldens")
 # The files in GUEST that provisioning builds the base image from.
 BASE_INPUTS = ("user-data.in", "meta-data", "tier3-install", "tier3-install.service")
 # The files in GUEST_SYSVINIT that provisioning builds its base image from.

@@ -15,10 +15,6 @@ import t3_power
 import t3img
 from t3_common import GOLDEN, GUEST, HERE, ROOT, RUNDIR, rel
 
-# vtium's own goldens, for variants whose screens the C reference never
-# drew: VTIUM_GOLDEN/VARIANT/SCREEN.png.
-VTIUM_GOLDEN = os.path.join(HERE, "goldens")
-
 # Screens drawn by `t3 NAME` in the guest (guest/screens/NAME.sh), in the
 # order of the C reference's VT demo (fork/demo/sections), then sixel-bound and
 # the benchmark scenarios, which have no demo page, except that cjk
@@ -438,8 +434,7 @@ def screen_text(case, log, variant=None):
 
 def golden_for(variant, case, root=None):
     """(golden, tolerance sidecar) paths for a case under `root` (default
-    GOLDEN, the C reference's), or (None, None) for a check without a golden
-    (NO_GOLDEN)."""
+    GOLDEN), or (None, None) for a check without a golden (NO_GOLDEN)."""
     if case in NO_GOLDEN:
         return None, None
     base = same_as(case, variant)
@@ -453,14 +448,13 @@ def write_thumb(img, path):
     return rel(path)
 
 
-def evaluate(variant, case, ppm, meta, log, golden_root=None, verdict=None):
+def evaluate(variant, case, ppm, meta, log, root=None, verdict=None):
     """The report entry for one case, from its capture (or None), judged by
-    the golden under `golden_root` (golden_for). A case of a variant whose
+    its golden under `root` (golden_for). A case of a variant whose
     `verdict` is "capture", the showcase's, has no golden: it carries the
     status capture once captured, which passes and judges nothing, and
     fails only when it has no capture or the scenario found it wrong."""
-    golden, tolpath = (None, None) if verdict == "capture" else golden_for(variant, case,
-                                                                            golden_root)
+    golden, tolpath = (None, None) if verdict == "capture" else golden_for(variant, case, root)
     stem = os.path.join(RUNDIR, variant, case)
     description, wrong = describe(case)
     if t3_devices.split(case)[0] == "vt-restore" and variant in RESTORED:
@@ -521,7 +515,7 @@ def evaluate(variant, case, ppm, meta, log, golden_root=None, verdict=None):
     if departures:
         judge_departure(entry, departures, stats, points)
     reviewed = "%s/%s" % (variant, same_as(case, variant))
-    if golden_root and reviewed in PROVISIONAL:
+    if reviewed in PROVISIONAL:
         entry["note"] = ("provisional: not yet reviewed, so not judged; judged, it would be %s"
                          % entry["status"])
         entry["status"] = "provisional"

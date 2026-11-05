@@ -20,20 +20,17 @@ import t3img
 from t3_common import BASE, BASE_SYSVINIT, GUEST, GUEST_SYSVINIT, ROOT, RUNDIR, rel
 from t3_evaluate import (BENCHMARKS, CASES, DRAWS_PICTURES, IMAGE_SCREENS, KEYED, KEYS_AFTER,
                          NO_GOLDEN, PICTURE_SCREENS, REPLIES, SCREENS, SHOWS, SMALL_SCREENS,
-                         VTIUM_GOLDEN, cases, evaluate, golden_for, not_shown)
+                         cases, evaluate, not_shown)
 from t3_qemu import Qemu, char_qcodes, make_iso, not_blank, wait_stable
 
 # Display variants. Each boots its own guest from the base image, with its
 # own vCPUs and memory, and names the text renderer its console must log
 # (ADR-1303 D10): cpu for the 2D variants, gpu for gpu-1280x800, and gltex
-# on virgl for the GL one, the C reference's GPU renderer, which vtium
-# never names, so that variant fails until its goldens are vtium's. Each draws every screen, the
-# image ones included (t3_evaluate.IMAGE_SCREENS), so its console is built
-# with images ("tree_features"). The C reference drew the 2D ones' goldens
-# in DejaVu Sans Mono through pango, and vtium draws the font through its
-# own glyph engine, so a case of theirs is judged by vtium's re-baselined
-# golden where goldens/ holds one ("rebaselined"), and by the C reference's
-# otherwise (golden_root).
+# on virgl for the GL one, a renderer vtium never names, so that variant
+# fails every case. Each draws every screen, the image ones included
+# (t3_evaluate.IMAGE_SCREENS), so its console is built with images
+# ("tree_features"). Every variant's cases are judged by the goldens in
+# goldens/VARIANT/, but those of a variant judged another way ("verdict").
 # The screens the frit variants draw: Latin text the frit's font holds, and
 # CJK it lacks, which the built-in unifont draws in its place (#141); cjk
 # last, as vt-restore compares with it.
@@ -48,7 +45,6 @@ VARIANTS = {
         "cpus": 4,
         "memory_mb": 4096,
         "tree_features": ["images"],
-        "rebaselined": True,
     },
     # The minspec machine: one vCPU and 512 MB at a common laptop size.
     # The vCPU is a core of the host, so it bounds parallelism and memory
@@ -61,7 +57,6 @@ VARIANTS = {
         "cpus": 1,
         "memory_mb": 512,
         "tree_features": ["images"],
-        "rebaselined": True,
     },
     # The same machine with the minimal configuration: unifont, and a PSF
     # console font, which make tier3-minimal runs. Their image screens draw
@@ -77,7 +72,6 @@ VARIANTS = {
         "memory_mb": 512,
         "images": False,
         "pointer": True,
-        "rebaselined": True,
     },
     "2d-potato-min-psf": {
         "device": "virtio-vga,xres=1366,yres=768,edid=on",
@@ -88,7 +82,6 @@ VARIANTS = {
         "memory_mb": 512,
         "images": False,
         "frits": ["default8x16.vtfrit"],
-        "rebaselined": True,
     },
     # 2d-potato-min also runs the pointer case ("pointer"): after the VT
     # switch it moves the pointer with QMP and reads the display's cursor
@@ -100,8 +93,7 @@ VARIANTS = {
     # floor, 320x240 in an 8x8 PSF font as 40 by 30 cells, and 640x480 in an
     # 8x16 one as 80 by 30, both fonts tools/testfont's ("fonts"), each with
     # a built-in set filling what it lacks. They draw
-    # SMALL_SCREENS ("screens"), and the C reference drew neither, so their
-    # goldens are vtium's own ("goldens": VTIUM_GOLDEN).
+    # SMALL_SCREENS ("screens").
     "2d-320x240-psf8": {
         "device": "virtio-vga,xres=320,yres=240,edid=on",
         "display": "none",
@@ -113,7 +105,6 @@ VARIANTS = {
         "fonts": True,
         "frits": ["vtium-test-8x8.vtfrit"],
         "screens": SMALL_SCREENS,
-        "goldens": VTIUM_GOLDEN,
     },
     "2d-640x480-psf16": {
         "device": "virtio-vga,xres=640,yres=480,edid=on",
@@ -126,7 +117,6 @@ VARIANTS = {
         "fonts": True,
         "frits": ["vtium-test-8x16.vtfrit"],
         "screens": SMALL_SCREENS,
-        "goldens": VTIUM_GOLDEN,
     },
     # A configured frit, generated at run time by the helper (ADR-1301 D2):
     # 640x480 on the minspec machine, its font the guest's DejaVu Sans Mono
@@ -134,7 +124,7 @@ VARIANTS = {
     # first draws the font once the helper's glyphs arrive; the second holds
     # the helper so it never answers ("helper": "held"), which shows what the
     # screen draws before any answer, the built-in unifont, until the console
-    # gives the helper up. Their goldens are vtium's own.
+    # gives the helper up.
     "2d-640x480-frit": {
         "device": "virtio-vga,xres=640,yres=480,edid=on",
         "display": "none",
@@ -145,7 +135,6 @@ VARIANTS = {
         "images": False,
         "deferred_frits": ["dejavu-mono.vtfrit"],
         "screens": FRIT_SCREENS,
-        "goldens": VTIUM_GOLDEN,
     },
     "2d-640x480-frit-held": {
         "device": "virtio-vga,xres=640,yres=480,edid=on",
@@ -158,7 +147,6 @@ VARIANTS = {
         "deferred_frits": ["dejavu-mono.vtfrit"],
         "helper": "held",
         "screens": FRIT_SCREENS,
-        "goldens": VTIUM_GOLDEN,
     },
     "2d-7680x2160": {
         # Each 7680x2160 XRGB buffer is 63 MiB; the console, two terminal
@@ -170,7 +158,6 @@ VARIANTS = {
         "cpus": 4,
         "memory_mb": 4096,
         "tree_features": ["images"],
-        "rebaselined": True,
     },
     # The 7680x2160 display with DejaVu Sans Mono at 32 points, a 20x38 cell
     # (the C reference drew 19x38), near the 20x40 of Monoid at 30 the
@@ -184,7 +171,6 @@ VARIANTS = {
         "cpus": 4,
         "memory_mb": 4096,
         "tree_features": ["images"],
-        "rebaselined": True,
     },
     "gl-1280x800": {
         "device": "virtio-vga-gl,xres=1280,yres=800,edid=on",
@@ -288,7 +274,6 @@ SYSVINIT = {
     "fonts": True,
     "frits": ["vtium-test-8x16.vtfrit"],
     "screens": ["sgr", "cjk"],
-    "goldens": VTIUM_GOLDEN,
 }
 VARIANTS.update({
     "sysvinit-640x480": SYSVINIT,
@@ -322,7 +307,6 @@ DEVICES = {
     "fonts": True,
     "frits": ["vtium-test-8x16.vtfrit"],
     "screens": ["sgr", "cjk"],
-    "goldens": VTIUM_GOLDEN,
 }
 VARIANTS.update({
     "two-outputs-mirror": dict(DEVICES, device="virtio-vga,id=video0,max_outputs=2,xres=640,"
@@ -549,45 +533,10 @@ def check_tree_features(variants, impl):
     return errors
 
 
-def vtium_golden_cases():
-    """{variant: its cases} for every variant judged by vtium's goldens,
-    wholly or where it has re-baselined one ("rebaselined")."""
-    return {v: variant_cases(v) for v in VARIANTS
-            if VARIANTS[v].get("goldens") or VARIANTS[v].get("rebaselined")}
-
-
-def c_golden_cases():
-    """{variant: its cases} for every variant judged by the C reference's
-    goldens: all but those judged by vtium's ("goldens") and those whose
-    cases no golden judges ("verdict")."""
-    return {v: variant_cases(v) for v in VARIANTS
-            if not VARIANTS[v].get("goldens") and not VARIANTS[v].get("verdict")}
-
-
-def c_goldens_judging(root):
-    """The paths under `root`, the C reference's goldens, of every golden a
-    case compares with: each case of a variant c_golden_cases names, but
-    for a check without a golden and a re-baselined case that vtium's
-    golden judges (golden_root)."""
-    return {golden_for(v, c, root)[0] for v, cases in c_golden_cases().items() for c in cases
-            if golden_root(v, c) is None and golden_for(v, c, root)[0]}
-
-
-def golden_root(variant, case):
-    """The goldens that judge `case` of `variant`: vtium's for a variant
-    naming them ("goldens"); for a re-baselined variant ("rebaselined"),
-    vtium's where goldens/ holds the case's golden, and the C reference's,
-    None, where it does not; the C reference's for any other variant. The
-    C reference's golden of a re-baselined case stays in c-goldens/ as the
-    record of what the C reference drew."""
-    v = VARIANTS[variant]
-    if v.get("goldens"):
-        return v["goldens"]
-    if v.get("rebaselined"):
-        golden = golden_for(variant, case, VTIUM_GOLDEN)[0]
-        if golden is not None and os.path.exists(golden):
-            return VTIUM_GOLDEN
-    return None
+def golden_cases():
+    """{variant: its cases} for every variant whose cases goldens judge: all
+    but those given a verdict of their own ("verdict")."""
+    return {v: variant_cases(v) for v in VARIANTS if not VARIANTS[v].get("verdict")}
 
 
 def judge_by_capture(variants, results):
@@ -635,9 +584,9 @@ def judge_by_capture(variants, results):
 
 def evaluate_variant(variant, caps, meta, log):
     """The report entries of `variant`'s cases from their captures, each
-    judged by the goldens golden_root names, or given the variant's own
-    verdict ("verdict"), which no golden decides."""
-    return [evaluate(variant, case, caps.get(case), meta, log, golden_root(variant, case),
+    judged by its golden, or given the variant's own verdict ("verdict"),
+    which no golden decides."""
+    return [evaluate(variant, case, caps.get(case), meta, log,
                      verdict=VARIANTS[variant].get("verdict"))
             for case in variant_cases(variant)]
 

@@ -181,17 +181,13 @@ def _provision(args, log, base):
 def preflight(log, golden=None):
     """Every reason the judges cannot judge a run, checked before anything is
     built or booted: a departure naming a case no variant draws; a golden
-    of the C reference's (under `golden`, default GOLDEN) or of vtium's that
-    no case compares with; and a golden of the C reference's that a case
-    compares with and that is missing."""
+    under `golden` (default GOLDEN) that no case compares with; and a
+    provisional row for a golden that does not exist."""
     golden = golden or t3_common.GOLDEN
     log("goldens: %s" % rel(golden))
     errors = t3_evaluate.check_departures(t3_evaluate.DEPARTURES, t3_scenario.variant_cases)
-    errors += ["%s is missing, and a case compares with it" % rel(p)
-               for p in sorted(t3_scenario.c_goldens_judging(golden)) if not os.path.exists(p)]
-    errors += t3_evaluate.check_goldens(t3_scenario.c_golden_cases(), golden)
-    errors += t3_evaluate.check_goldens(t3_scenario.vtium_golden_cases(),
-                                        t3_evaluate.VTIUM_GOLDEN, t3_evaluate.PROVISIONAL)
+    errors += t3_evaluate.check_goldens(t3_scenario.golden_cases(), golden,
+                                        t3_evaluate.PROVISIONAL)
     return errors
 
 

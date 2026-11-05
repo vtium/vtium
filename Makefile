@@ -580,9 +580,8 @@ showcase: ## Make the showcase screens in docs/showcase (tier 3, QEMU/KVM)
 	tools/tier3/showcase.sh
 
 # Tier 3: vtium's install tree in a QEMU/KVM guest with a real kernel VT and
-# KMS device, its screens captured and compared with the C reference's
-# goldens copied into tools/tier3/c-goldens, and vtium's own
-# (tools/tier3/README.md). QEMU runs headless as the invoking user. Each
+# KMS device, its screens captured and compared with the goldens in
+# tools/tier3/goldens (tools/tier3/README.md). QEMU runs headless as the invoking user. Each
 # variant boots the machine tools/tier3/t3_scenario.py names; JOBS=N runs up to
 # N variants at once, and with JOBS above 1, T3_DEADLINE=S stops a variant
 # still running after S seconds. GL variants never run together.
