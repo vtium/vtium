@@ -103,6 +103,9 @@ considered:
     said: "The frit commands are renamed new-frit and use-frit, and the flow's commands keep set, new and apply."
     via: the steering session's interview, 2026-11-05
     paraphrase: true
+  - operator: aaronsb
+    said: "or just copy the file in - remember it creates a compatible draft"
+    via: the steering session's interview, 2026-11-05
 observable:
   - "In a vtium console, moving the TUI's highlight from one frit to the next switches the whole console to that frit, and the TUI's own screen redraws at the console's new grid"
   - "Leaving the TUI without saving, by its quit key, by Ctrl-C, or by SIGTERM sent from another terminal, puts the console back in the font it had when the TUI started, checked by the OSC 50 query"
@@ -190,7 +193,7 @@ vtium-config stays one binary, apart from vtiumctl. Each command is typed as `vt
   - **Settings** lists every top-level key of vtium.conf (D1), the full list of which the base card in Flow edits a common few.
   - **Help** holds two pages. Help lists the keys and what each view does, from the catalog the command line's help draws on (`crates/vtium-config/src/help.rs`). About shows what `vtium-config --help about` prints, the tool's name, version and logo, drawn from that one source so the two never drift; where the logo is wider than the terminal, it shows the narrow banner (D10).
   The Heads view goes, since the flow is the heads, and the Sizes view goes into the Looks view. The save view goes too: Save, with View, Revert, New and Delete draft, is an action in the tab bar of every view (ADR-1403 D7, D8).
-- **Where it runs.** Inside a vtium console, where live preview works, and in any other terminal, where it does not (D4). It needs a terminal of at least 100 by 30 cells, a provisional number the maintainer judges from the previewer and may change (the maintainer, 2026-11-05). The minimum applies to the terminal vtium-config runs in, not to the machine: a minspec board with a 40-column console is configured over ssh from a terminal at 100 by 30 or larger, without live preview, or with the commands at any size. Below the minimum, as when a previewed font leaves the grid too small, the TUI draws no view: it shows one screen with the size it needs, the `vtium config` commands, and the keys to leave and to undo the font preview, so a user can always get out.
+- **Where it runs.** Inside a vtium console, where live preview works, and in any other terminal, where it does not (D4). It needs a terminal of at least 100 by 30 cells, a provisional number the maintainer judges from the previewer and may change (the maintainer, 2026-11-05). The minimum applies to the terminal vtium-config runs in, not to the machine: a minspec board with a 40-column console is configured over ssh from a terminal at 100 by 30 or larger, without live preview, with the commands at any size, or with a draft built on another machine and copied over, since a draft is a complete vtium.conf (ADR-1403 D8). Below the minimum, as when a previewed font leaves the grid too small, the TUI draws no view: it shows one screen with the size it needs, the `vtium config` commands, and the keys to leave and to undo the font preview, so a user can always get out.
 
   > Edited 2026-11-05: the maintainer raised the floor to 100 by 30, provisionally, after the layout broke at 40 columns in the previewer (`considered`). The bullet read: "It fits a grid of 40 by 25 cells. When a previewed font leaves a grid smaller than that, the TUI draws one line naming the font and the keys that keep it or go back, so a user can always get out."
 

@@ -149,6 +149,9 @@ considered:
     said: "Add exit code 5, couldn't read or write a file, with the message naming the path. The golden commit for the ten goldens that show heads.conf is a commit of its own, reviewed in the maintainer's golden pass."
     via: the steering session's interview, 2026-11-05
     paraphrase: true
+  - operator: aaronsb
+    said: "or just copy the file in - remember it creates a compatible draft"
+    via: the steering session's interview, 2026-11-05
 status: accepted
 date: 2026-11-04
 deciders:
@@ -352,7 +355,7 @@ The maintainer accepted the columns, lines, colors and states as this record dra
   - **Delete draft** removes the draft, after asking `Delete the draft? 3 lines added and 1 removed are lost.`, as `vtium config draft rm` does. The next change starts a new draft from the installed file. The installed file is untouched.
   - **New** empties the draft, after asking `Start a new configuration? The working copy's heads, rules and looks are lost.`, to the top level at its defaults, every key commented out as in the shipped example, and one look, `[look default]`, with no keys. Nothing is installed until Save, and until the user wires a complete path, the status line says what is missing (D3).
   An installed change takes effect when vtium next reads its configuration.
-- **The terminal's minimum size,** provisionally 100 by 30 cells, which the maintainer judges from the previewer and may change (the maintainer, 2026-11-05). The minimum applies to the terminal vtium-config runs in, not to the machine or its console: a minspec board with a 40-column console is configured over ssh from a terminal at 100 by 30 or larger, or with the commands of D8 at any size. Live preview works only on a vtium console (ADR-1201 D4), so over ssh the view works without it. Below the minimum the TUI draws no view: it shows one screen with the size it needs, the `vtium config` commands, which work at any size, and the keys to leave and to undo a font preview that made the grid too small.
+- **The terminal's minimum size,** provisionally 100 by 30 cells, which the maintainer judges from the previewer and may change (the maintainer, 2026-11-05). The minimum applies to the terminal vtium-config runs in, not to the machine or its console: a minspec board with a 40-column console is configured over ssh from a terminal at 100 by 30 or larger, with the commands of D8 at any size, or by building the configuration in vtium-config on another machine and copying the draft over, since a draft is a complete vtium.conf (D8; the maintainer, 2026-11-05). Live preview works only on a vtium console (ADR-1201 D4), so over ssh the view works without it. Below the minimum the TUI draws no view: it shows one screen with the size it needs, the `vtium config` commands, which work at any size, and the keys to leave and to undo a font preview that made the grid too small.
 
 > Edited 2026-11-05: the maintainer set the TUI's minimum to 100 by 30, provisionally (`considered`). The bullet read: "**Narrow terminals.** The columns need 80 columns. On a narrower terminal the view draws the same flow as an indented list, one block for each head with its displays, rules, look and inputs beneath it, then the roaming, ignore, off and policy blocks, so it fits the 40 columns of a minspec console. Moving, opening and saving work the same in the list."
 - **How to reach it.** Flow is the first of vtium-config's views, Flow, Looks, Fonts, Settings and Help, and the one vtium-config opens on (ADR-1201 D3); and a command, `vtium config flow`, that prints the flow as text, or as JSON with `--json`, and exits. Every change the view makes is also a command (D8), and the view is a front end over the same operations. The view reads vtium.conf, the frits and the devices as the user, with no privilege, from the console or a desktop terminal; only the save asks for sudo. On a desktop, displays are named as the kernel names them.
@@ -444,6 +447,7 @@ vtium-config keeps a store of its own under the user's XDG paths, which holds th
 
 `XDG_CONFIG_HOME` is `~/.config` and `XDG_STATE_HOME` is `~/.local/state` when unset. Root's store lives under root's own home, found from the password database (above).
 
+- **A draft is a complete vtium.conf,** and can be carried between machines (the maintainer, 2026-11-05). A configuration built in vtium-config on one machine is copied to another, a small board among them, and installed there with `apply`. Where the draft's devices are absent, as on the machine that built it, `vtium check-config --no-devices` checks it by its rules alone (D3).
 - **One draft is current.** Every edit, from the TUI, a command or `vtium config edit`, changes the current draft, and the Flow view's status line and the first line of `vtium config flow` name it. `apply` installs the current draft.
 - **Nodes move between a draft and the library.** Saving a look, a head or a rule into the library copies it there under its name; taking one from the library copies it into the current draft, where it is checked as any change is.
 
