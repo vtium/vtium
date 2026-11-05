@@ -107,9 +107,19 @@ The move forces these decisions, which this record's agent makes from ADR-1401 a
 
 ### D4: the syntax of the sections (open)
 
-The maintainer asked for the head, rule and look sections to nest below the flat lines. Three ways to write them follow, each as a whole vtium.conf for a machine with two displays, a large monitor and a small panel, and one keyboard that types into whichever head is active. The top level is the same in each: two of vtium's keys and a switch.
+The maintainer asked for the head, rule and look sections to nest below the flat lines, and asked how other `.conf` files nest objects. Two families of syntax nest objects in a file that people edit by hand, and both keep a kmscon.conf readable:
 
-**A: heads.conf's sections as they are, with a section for each profile** (recommended).
+- **Sections with names,** as in an INI file. git's configuration writes `[remote "origin"]` and `[branch "main"]`, systemd's unit files write `[Service]`, and heads.conf already writes `[head desk]` and `[rules]`. The section's heading names the object, and every line below it, up to the next heading, belongs to it. A deeper link is a key that names another section: git's `[branch "main"]` holds `remote = origin`, which names the `[remote "origin"]` section, and a head's `profile = big` names a profile the same way. git puts a section's name in quotes so that it can hold any character, as in `[display "edid:AAA:0x0001:LARGE00001"]`; a vtium name holds no blank (ADR-1401 D3), so vtium needs no quotes, and heads.conf has none.
+- **Blocks in braces,** as sway, i3, Hyprland and nginx write them: `server { location / { ... } }` in nginx. sway is the closest to vtium, since it matches displays and input devices by a selector at the head of each block: `output eDP-1 { mode 1920x1080 }` and `input type:keyboard { xkb_layout us }`. sway applies every block whose selector matches a device and merges their settings. ADR-1401's rules place a device by the first rule that matches, in the order the file gives, so under braces vtium keeps its rules as one ordered list inside one block, rather than a block for each selector.
+
+Two other forms lose, for these reasons:
+
+- **TOML** gives real nesting with existing parsers, but a text value must be quoted, as `xkb-layout = "us"`, and every key needs a value, so a switch written alone on its line, such as `hwaccel` or `mouse`, is invalid. A kmscon.conf would not parse, which breaks the maintainer's decision that one copied in still reads. YAML loses for the same reason, and makes indentation carry meaning.
+- **Dotted flat keys,** as sysctl writes them (`net.ipv4.ip_forward = 1`), would write a head as `head.desk.profile=big`. Every line stays a flat key, which an older vtium ignores as unknown, but the structure is invisible: a head is spread over lines that only share a prefix, nothing groups them, and the rules need a key such as `rule=` that keeps every value it is given, where every other key keeps its last.
+
+The two forms that remain follow, each as the same whole vtium.conf, for a machine with two displays, a large monitor and a small panel, and one keyboard that types into whichever head is active. The top level is the same in both: two of vtium's keys and a switch.
+
+**A: sections with names, as heads.conf writes them, with a section for each profile** (recommended).
 
 ```ini
 # /etc/vtium/vtium.conf: two displays, one keyboard.
@@ -143,32 +153,11 @@ input class:keyboard -> roaming
 input * -> ignore
 ```
 
-**B: every line a flat key, with the section in the key's name.**
-
-```ini
-# /etc/vtium/vtium.conf: two displays, one keyboard.
-font-size=12
-xkb-layout=us
-mouse
-version=1
-policy=open
-profile.big.font-name=monoid
-profile.big.font-size=14
-profile.small.font-name=dejavu
-head.desk.profile=big
-head.panel.profile=small
-head.panel.consoles=2
-rule=display edid:AAA:0x0001:LARGE00001 -> desk
-rule=display edid:BBB:0x0002:SMALL00001 -> panel
-rule=display * -> desk
-rule=input class:keyboard -> roaming
-rule=input * -> ignore
-```
-
-**C: blocks in braces, the look written inside its head.**
+**B: blocks in braces, as sway writes them, with each head's look written inside the head.**
 
 ```text
 # /etc/vtium/vtium.conf: two displays, one keyboard.
+# The top level: vtium's keys, the defaults every head inherits.
 font-size=12
 xkb-layout=us
 mouse
@@ -181,12 +170,14 @@ head desk {
         font-size = 14
     }
 }
+
 head panel {
     consoles = 2
     profile small {
         font-name = dejavu
     }
 }
+
 rules {
     display edid:AAA:0x0001:LARGE00001 -> desk
     display edid:BBB:0x0002:SMALL00001 -> panel
@@ -198,16 +189,17 @@ rules {
 
 How they compare:
 
-| | A: sections | B: flat keys | C: braces |
-|---|---|---|---|
-| A kmscon.conf still reads | yes | yes | yes |
-| heads.conf moves in | pasted below the top level, unchanged | rewritten line by line | rewritten into blocks |
-| Parser | the head file's, which exists, with one new section kind | vtium.conf's, with an exception: `rule` is a list, where every other key keeps its last value | a new one, whose unbalanced brace leaves ADR-1401 D7 no clear line to drop |
-| A profile two heads share | named by both heads | named by both heads | written once inside one head and named by the other, or copied |
-| An older vtium sharing the file (ADR-1500 D4) | reads a section's `login` and a profile's font lines as top-level keys | reads nothing wrongly: every new key is unknown to it | the same as A |
-| ADR-1304's vtlook | uses the same syntax | differs | differs |
+| | A: sections with names | B: blocks in braces |
+|---|---|---|
+| A kmscon.conf still reads | yes | yes |
+| What shows the nesting | a head names its profile, as git's branch names its remote; the flow view draws the name as a line | the profile is written inside its head |
+| heads.conf moves in | pasted below the top level, unchanged | rewritten into blocks |
+| Parser | the head file's, which exists, with one new section kind | a new one; a missing brace swallows every line after it, so ADR-1401 D7 has no clear line to drop |
+| A profile two heads share | written once and named by both | written as a block of its own and named by both, as in A, or copied into each head |
+| An older vtium sharing the file (ADR-1500 D4) | reads a section's `login` and a profile's font lines as top-level keys | the same, since an older vtium reads line by line and ignores the braces as unknown keys |
+| ADR-1304's vtlook | uses the same syntax | differs |
 
-The recommendation is A. It is heads.conf's syntax, which the maintainer decided moves into vtium.conf rather than being redesigned, its parser and ADR-1401 D7's drop rules exist, and ADR-1304's vtlook file is written the same way. A head names its profile, and the flow view draws that name as a line, so the nesting the maintainer asked for shows in the view without changing the rules' single order. A `[profile NAME]` section is the profile's file that ADR-1200 D16 left for later: it takes the keys D5 lists, under the same names the top level uses. A's cost, an older build misreading a section's `login` or font lines, lasts only while two builds share the file, and it ends once both are updated. B avoids that cost but makes the file long and gives `rule` a meaning no other key has. C is the most literal nesting, and it costs a new parser and a way to share a profile.
+The recommendation is A. It is heads.conf's syntax, which the maintainer decided moves into vtium.conf rather than being redesigned, its parser and ADR-1401 D7's drop rules exist, and ADR-1304's vtlook file is written the same way. A head names its profile, as git links its sections, and the flow view draws that name as a line, so the nesting the maintainer asked for shows in the view while the rules keep their single order. A `[profile NAME]` section is the profile's file that ADR-1200 D16 left for later: it takes the keys D5 lists, under the same names the top level uses. B writes the nesting most literally and follows sway, the closest program to vtium, at the cost of a new parser, of a missing brace that drops more than its own line, and of a second way to write a profile that two heads share. Both share one cost: an older build misreads a section's `login` or font lines while two builds share the file, which ends once both are updated.
 
 Under A, one comment rule serves the whole file, the head file's: a `#` starts a comment at the start of a line or after a blank, a `#` inside a word is part of the word, and `\#` gives a literal `#` after a blank. vtium.conf's exception is kept: a `#` that opens a `#rrggbb` value is part of the value. A value at the top level can then hold a `#` inside it, as a head's `login` command already can. In one case a top-level line reads differently from the C reference: a `#` directly after a value, with no blank before it, as in `font-size=12#big`, stays in the value, which vtium then reports as one it cannot read. This is listed as a departure. Section keys always take `key = value`; the switches `key` and `no-key` stay at the top level.
 
@@ -280,7 +272,7 @@ These follow from D1 to D3 and the tree, whichever answers D4 to D8 get:
 
 Each question is answered by the maintainer before this record is accepted. The recommendation for each, in one line:
 
-1. **The syntax (D4):** heads.conf's bracketed sections below the top level, as they are, with a `[profile NAME]` section for each look, and one comment rule for the whole file.
+1. **The syntax (D4):** heads.conf's sections with names below the top level, as they are, with a `[profile NAME]` section for each look and one comment rule for the whole file, rather than sway's blocks in braces; TOML and dotted flat keys lose.
 2. **Two levels (D5):** a head's section over its profile over the top level, with a fixed list of keys for each section kind, recorded in the key table.
 3. **Migration (D6):** vtium reads heads.conf with a warning while vtium.conf has no section, until the first beta; `vtium config fold` moves heads.conf and the seat file's keys in and sets the old files aside; the seat file stops being read at once, with a warning.
 4. **The view (D7):** six columns with a box for each head spanning heads and look, lines for first matches and targets in the colors of the rules they pass, grey and words for a rule that matches nothing, a list on terminals under 80 columns, reached by a Flow tab and `vtium config flow`.
@@ -325,7 +317,7 @@ Once the maintainer accepts this record, each passage below is edited in place w
 - One file mixes a forgiving reading at the top level with a strict one in the sections, and a reader has to know which part a line is in. The flow view and `vtium check-config` say which.
 - A user who runs vtium with a vtium.conf root does not own loses that file's settings until it is root's, and sees `invalid config skipped, using builtin`.
 - heads.conf and the seat file each need a migration, a command and two warnings, and heads.conf stays readable until the first beta.
-- While two builds share `/etc/vtium/vtium.conf`, a build older than this change misreads a section's `login` and a profile's font lines under option A.
+- While two builds share `/etc/vtium/vtium.conf`, a build older than this change misreads a section's `login` and a profile's font lines under either syntax D4 weighs.
 - The flow view brings color into vtium-config, which needs a rule for terminals without color and a list for narrow ones.
 
 ### Neutral
@@ -339,4 +331,4 @@ Once the maintainer accepts this record, each passage below is edited in place w
 - **Keep heads.conf beside vtium.conf, and draw the flow from both files.** The view could join two files, and nothing would migrate. The maintainer decided on one file, and two files keep the inheritance split from what it inherits.
 - **Keep the seat file.** It is a second layer of the same keys, which no decision chose, and vtium serves seat0 alone. The maintainer removed it.
 - **A new file for the flow, such as `flow.conf`, with vtium.conf left as it is.** It keeps kmscon.conf untouched, and it keeps the split the maintainer decided to end.
-- **A structured format, such as TOML or YAML, for the whole file.** It gives real nesting with existing parsers, but a kmscon.conf would no longer read, and vtium's parsers are written to bound untrusted input (ADR-1401 D10).
+- **TOML, YAML or dotted flat keys for the whole file.** D4 gives the reasons each loses: TOML and YAML cannot read a kmscon.conf, and dotted keys hide the structure. vtium's parsers are also written to bound untrusted input (ADR-1401 D10), which a general-purpose parser is not.
