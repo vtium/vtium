@@ -113,6 +113,10 @@ considered:
   - operator: aaronsb
     said: "It actually looks like 80x25 will work"
     via: the steering session's interview, 2026-11-05
+  - operator: aaronsb
+    said: "vtium config KEY becomes vtium config get KEY, the pair of set."
+    via: the steering session, relaying the maintainer's answers of 2026-11-05 to the passages work's questions
+    paraphrase: true
 observable:
   - "In a vtium console, moving the TUI's highlight from one frit to the next switches the whole console to that frit, and the TUI's own screen redraws at the console's new grid"
   - "Leaving the TUI without saving, by its quit key, by Ctrl-C, or by SIGTERM sent from another terminal, puts the console back in the font it had when the TUI started, checked by the OSC 50 query"
@@ -183,12 +187,12 @@ vtium-config stays one binary, apart from vtiumctl. Each command is typed as `vt
 | none (`vtium config`), at a terminal | the user | Opens the TUI. With no command and stdin or stdout not a terminal, it says that no command was given and exits 2, as it does today. |
 | `fonts` | any user | Lists the frits and the built-in fonts, one line each, tab-separated: the name, whether the frit reads, and the sources this machine lacks, found through the sandboxed child (D3). |
 | `check FILE` | any user | Checks a frit with the helper's frit reader, or a vtium.conf with `vtium check-config`, the console's own reader (D5). Writes nothing. |
-| `config KEY`, `config KEY VALUE`, `config --unset KEY` | the user; root to install | Prints a key's value; with a value or `--unset`, makes that one change (D5). |
+| `get KEY` | any user | Prints a top-level key's value in the draft, and its default when the draft leaves it unset; `set KEY VALUE` and `set --unset KEY` change it (ADR-1403 D8). |
 | `new-frit ...` | the user; root to install | The guided builder (ADR-1200 D4). Its non-interactive forms, `--template`, `--from FILE` and its flags, stay; at a terminal with no such input it opens the TUI at its new-frit view. |
 | `remove-frit NAME` | the user; root to install | Removes a frit, refusing one that vtium.conf's `font-name` names. |
 | `apply DIR` | root | Checks and installs an install bundle (D5). |
 | `preview`, `use-frit`, `serve` | as ADR-1200 D4 | Unchanged but for `use-frit`'s name, and `use-frit` checks the terminal first (D4). |
-| `flow`, `route`, `diff`, `install`, `set`, `revert`, `new`, `rule`, `head`, `look`, `draft`, `history`, `restore`, `library` and `edit` | the user; sudo to install | The flow's commands, with the meanings and the exit codes 0 to 5 that ADR-1403 D8 gives them. |
+| `flow`, `route`, `diff`, `install`, `set`, `get`, `revert`, `new`, `rule`, `head`, `look`, `draft`, `history`, `restore`, `library` and `edit` | the user; sudo to install | The flow's commands, with the meanings and the exit codes 0 to 5 that ADR-1403 D8 gives them. |
 
 - **Every command that writes changes the draft,** the working copy of ADR-1403 D8 under the user's XDG path, root's included, and installs nothing. `install` builds an install bundle from the draft under `$XDG_STATE_HOME/vtium/drafts/<time>/`, the directory ADR-1401 D12 gives vtiumctl's drafts, whose name predates the word install bundle, and installs it through `sudo vtium-config apply DIR`, or run as root through the same steps without sudo. A script therefore never needs the TUI.
 - **The frit commands are `new-frit` and `use-frit`** (the maintainer, 2026-11-05), since the flow's commands of ADR-1403 D8 keep `set` and `new`. `install` installs the current draft, which it hands to `apply DIR`, the privileged step that runs as root and keeps its name (the maintainer, 2026-11-05).
@@ -199,6 +203,8 @@ vtium-config stays one binary, apart from vtiumctl. Each command is typed as `vt
 > Edited 2026-11-05: the maintainer renamed the frit commands `new-frit` and `use-frit` (`considered`). They were `new` and `set`.
 
 > Edited 2026-11-05: ADR-1403 added the flow's commands and made every write go into the draft (ADR-1403 D8). The table had no row for them, `apply DIR` checked "a draft", and the bullet read: "**Run as a user,** a command that writes makes an install bundle under `$XDG_STATE_HOME/vtium/drafts/<time>/`, [...] and prints the install bundle's path and the command that installs it, `sudo vtium-config apply DIR`. **Run as root,** it installs at once through the same steps `apply DIR` takes."
+
+> Edited 2026-11-05: the maintainer renamed the command that reads a key `get`, the pair of `set` (`considered`). The row read: "| `config KEY`, `config KEY VALUE`, `config --unset KEY` | the user; root to install | Prints a key's value; with a value or `--unset`, makes that one change (D5). |"
 
 ### D3: the TUI
 
