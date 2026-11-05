@@ -6601,6 +6601,52 @@ mod gpu_path {
         assert_eq!(gpu.drawn.load(SeqCst), drawn, "a frame on the GPU path");
     }
 
+    // ADR-1303 D9: a head goes back to the GPU path three times in a run
+    // after a display held it on the CPU path, as a display that keeps
+    // re-plugging at a size the GPU cannot set up would make it; the fourth
+    // hold keeps it on the CPU path until vtium restarts, which the log
+    // says once
+    #[test]
+    fn a_head_held_on_the_cpu_path_a_fourth_time_stays_there_until_vtium_restarts() {
+        let (mut s, gpu) = two_on_the_gpu();
+        *gpu.widest.lock().unwrap() = Some(400);
+        let mut lines = Vec::new();
+        for _ in 0..3 {
+            s.memory("/dev/mem1").set_mode(640, 320);
+            lines.extend(lines_until(&mut s, |l| renderers(l).len() == 2));
+            s.memory("/dev/mem1").set_mode(320, 160);
+            lines.extend(lines_until(&mut s, |l| renderers(l).len() == 2));
+        }
+        assert_eq!(count_of(&lines, "cannot set it up"), 3, "{lines:#?}");
+        assert_eq!(
+            count_of(&lines, "it draws on the GPU path"),
+            3,
+            "{lines:#?}"
+        );
+        s.memory("/dev/mem1").set_mode(640, 320);
+        let mut lines = lines_until(&mut s, |l| count_of(l, "the GPU path failed") == 1);
+        assert!(
+            lines
+                .iter()
+                .any(|l| l.contains("refused it again after 3 trips back to it")),
+            "{lines:#?}"
+        );
+        let drawn = gpu.drawn.load(SeqCst);
+        s.memory("/dev/mem1").set_mode(320, 160);
+        draw_both(&mut s, "a");
+        draw_both(&mut s, "b");
+        lines.extend(logged());
+        assert_eq!(count_of(&lines, "the GPU path failed"), 1, "{lines:#?}");
+        assert_eq!(count_of(&lines, "cannot set it up"), 0, "{lines:#?}");
+        assert_eq!(
+            count_of(&lines, "it draws on the GPU path"),
+            0,
+            "{lines:#?}"
+        );
+        assert!(!renderers(&lines).contains(&"gpu"), "{lines:#?}");
+        assert_eq!(gpu.drawn.load(SeqCst), drawn, "a frame on the GPU path");
+    }
+
     #[test]
     fn a_head_held_on_the_cpu_path_goes_back_to_the_gpu_when_the_display_leaves() {
         let (mut s, gpu) = two_on_the_gpu();

@@ -913,6 +913,35 @@ mod tests {
         );
     }
 
+    // ADR-1303 D9: a lone GL error every 100 frames ages out of the
+    // display's window of 60 frames before the next, so the head stays on
+    // the GPU path however long the run
+    #[cfg(feature = "gpu")]
+    #[test]
+    fn a_lone_gl_error_every_100_frames_never_ends_the_gpu_path() {
+        let gpu = Arc::new(TestGpu::default());
+        let mut painter =
+            Painter::start("test", Some(GpuSource::Test(Arc::clone(&gpu))), || {}).unwrap();
+        let mut frames = Vec::new();
+        for frame in 0..301 {
+            if frame % 100 == 0 {
+                gpu.faults.lock().unwrap().push_back(Fault::Gl);
+            }
+            frames.extend(rounds(&mut painter, 1, 1));
+        }
+        let failed = frames.iter().filter(|c| c.failed_gpu.is_some()).count();
+        assert_eq!(failed, 4, "each error failed its frame");
+        assert!(
+            frames.iter().all(|c| c.left_gpu.is_none()),
+            "the path ended"
+        );
+        assert_eq!(
+            gpu.drawn.load(Ordering::SeqCst),
+            297,
+            "frames on the GPU path"
+        );
+    }
+
     // A render thread is joined when its head is dropped: the drop waits
     // for the frame composing.
     #[test]

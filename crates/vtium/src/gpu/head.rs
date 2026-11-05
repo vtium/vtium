@@ -14,16 +14,18 @@
 //! loop logs the step. During a run the failures are sorted by their kind
 //! (ADR-1303 D9): a frame a GL error fails is dropped from the GPU path and
 //! drawn on the CPU path whole, and the next frame on the GPU path draws
-//! whole too; a GL error in two of one display's frames in a row, an
-//! out-of-memory error or a lost context ends the GPU path for the head
-//! until vtium restarts, since GL's state cannot be trusted after them. A
-//! display's set-up counts the same way. A display the GPU path cannot set
-//! up at its size for any other reason, such as a size past the GPU's
-//! limits or a shader that does not compile, holds the whole head on the
-//! CPU path while the display keeps that size: the head keeps its context
-//! and each other display's pipeline, and draws on the GPU path again once
-//! the display takes a size the GPU path sets up or leaves the head. The
-//! hold breaks every display's row of GL errors.
+//! whole too; a GL error in two of one display's frames in a row, or in
+//! three of its last 60, an out-of-memory error or a lost context ends the
+//! GPU path for the head until vtium restarts, since GL's state cannot be
+//! trusted after them ([`Window`]). A display's set-up counts the same way.
+//! A display the GPU path cannot set up at its size for any other reason,
+//! such as a size past the GPU's limits or a shader that does not compile,
+//! holds the whole head on the CPU path while the display keeps that size:
+//! the head keeps its context and each other display's pipeline, and draws
+//! on the GPU path again once the display takes a size the GPU path sets up
+//! or leaves the head. The hold clears every display's window of frames.
+//! After three trips back in a run, the next hold ends the GPU path for the
+//! head until vtium restarts ([`TripsBack`]).
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -35,6 +37,7 @@ use vtium_render::{Depth, DrawState, Mapped, Orientation, Rect, Renderer, Stats,
 use vtium_term::Frame;
 
 use super::PlatformGl;
+use super::flap::{Hold, TRIPS_BACK, TripsBack, Window};
 use crate::font::DisplayFace;
 use crate::painter::{Fault, GpuSource, SetUpFault, TestGpu};
 use crate::term::OnGpuFrame;
@@ -64,10 +67,10 @@ pub struct HeadGpu {
     read: Vec<u8>,
     /// One row as display pixels, `0x00RRGGBB`.
     pixels: Vec<u32>,
-    /// Each display's frames in a row that a GL error failed, its set-ups
-    /// included. A hold on the CPU path clears them, since the CPU path
-    /// draws the frames in between.
-    failed_in_a_row: BTreeMap<(PathBuf, DisplayId), u32>,
+    /// Each display's last frames on the GPU path, its set-ups included.
+    /// A hold on the CPU path clears them, since the CPU path draws the
+    /// frames in between.
+    frames: BTreeMap<(PathBuf, DisplayId), Window>,
     /// The display whose set-up failed for a reason the same size meets
     /// again, and that size: while it holds, the whole head draws on the
     /// CPU path (ADR-1303 D9). One display at most holds the head, since no
@@ -76,6 +79,8 @@ pub struct HeadGpu {
     /// The head came back to the GPU path, as the refused display took a
     /// new size or left, and the loop has not been told.
     back: bool,
+    /// The times the head came back to the GPU path in this run.
+    trips: TripsBack,
     /// Why the GPU path ended, once a failure ended it.
     lost: Option<String>,
     /// The test watching the GPU path, which queues its faults and reads
@@ -110,9 +115,10 @@ impl HeadGpu {
             displays: BTreeMap::new(),
             read: Vec::new(),
             pixels: Vec::new(),
-            failed_in_a_row: BTreeMap::new(),
+            frames: BTreeMap::new(),
             refused: None,
             back: false,
+            trips: TripsBack::default(),
             lost: None,
             test,
         })
@@ -137,7 +143,7 @@ impl HeadGpu {
         if let Some(display) = self.displays.remove(key) {
             display.free(&mut self.gl);
         }
-        self.failed_in_a_row.remove(key);
+        self.frames.remove(key);
         self.let_go(key);
         self.count();
     }
@@ -152,9 +158,14 @@ impl HeadGpu {
     }
 
     /// Whether the head came back to the GPU path since the last call, so
-    /// the loop logs its displays' lines again (ADR-1303 D10).
+    /// the loop logs its displays' lines again (ADR-1303 D10). Each time it
+    /// did is one of the head's trips back.
     pub fn take_back(&mut self) -> bool {
-        std::mem::take(&mut self.back)
+        let back = std::mem::take(&mut self.back);
+        if back {
+            self.trips.back();
+        }
+        back
     }
 
     /// Draws `frame` for the display `key` through its pipeline, and reads
@@ -165,8 +176,10 @@ impl HeadGpu {
     /// the GPU path could not set up (D9), and any frame once the GPU path
     /// ended. A display refused at one size is set up again at its next.
     /// A frame that fails may leave part of it in the buffer, when its read
-    /// back fails partway. A lost context, an out-of-memory error or a GL
-    /// error in two of the display's frames in a row ends the GPU path.
+    /// back fails partway. A lost context, an out-of-memory error, GL
+    /// errors in as many of the display's frames as its [`Window`] allows,
+    /// or a refusal once the head has taken its trips back ends the GPU
+    /// path.
     #[expect(
         clippy::too_many_arguments,
         reason = "the display, its renderer and frame, its buffer and age, and the frame's state"
@@ -197,9 +210,9 @@ impl HeadGpu {
         }
         if let Err(e) = self.set_up(key, size, orientation) {
             self.count();
-            return Some(match e.kind {
+            return match e.kind {
                 ErrorKind::Gl | ErrorKind::OutOfMemory | ErrorKind::ContextLost => {
-                    self.failed(key, &e)
+                    Some(self.failed(key, &e))
                 }
                 // the same size meets these again
                 ErrorKind::Limit | ErrorKind::Compile | ErrorKind::Misuse | ErrorKind::Handle => {
@@ -209,14 +222,14 @@ impl HeadGpu {
                 // a buffer the context cannot import to the staging copy,
                 // which every display takes already
                 ErrorKind::Import => self.hold(key, size, &e),
-            });
+            };
         }
         let lose_at_read = self.raise_a_queued_fault(key);
         let drawn = self.draw_through(key, renderer, frame, target, age, state, lose_at_read);
         self.count();
         match drawn {
             Ok((damage, stats)) => {
-                self.failed_in_a_row.remove(key);
+                self.frames.entry(key.clone()).or_default().frame(false);
                 if let Some(test) = &self.test {
                     test.drawn.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                 }
@@ -227,28 +240,37 @@ impl HeadGpu {
     }
 
     /// The display `key` cannot be set up at `size`, for `e`: it holds the
-    /// whole head on the CPU path while it keeps that size. The CPU path
-    /// draws the frames in between, so no display's GL errors stay in a
-    /// row across the hold.
-    fn hold(&mut self, key: &(PathBuf, DisplayId), size: Size, e: &Error) -> OnGpuFrame {
-        self.refused = Some((key.clone(), size));
+    /// whole head on the CPU path while it keeps that size, and the frame
+    /// says so. The CPU path draws the frames in between, so the hold
+    /// clears every display's window of frames. Once the head has taken
+    /// its trips back, the hold instead ends the GPU path, and the frame
+    /// says nothing: the loop logs only why the path ended.
+    fn hold(&mut self, key: &(PathBuf, DisplayId), size: Size, e: &Error) -> Option<OnGpuFrame> {
         self.back = false;
-        self.failed_in_a_row.clear();
-        OnGpuFrame::Refused(e.to_string())
+        self.frames.clear();
+        match self.trips.held() {
+            Hold::WhileItsSizeLasts => {
+                self.refused = Some((key.clone(), size));
+                Some(OnGpuFrame::Refused(e.to_string()))
+            }
+            Hold::UntilRestart => {
+                self.lost = Some(format!(
+                    "a display refused it again after {TRIPS_BACK} trips back to it in this run, the last {e}"
+                ));
+                None
+            }
+        }
     }
 
     /// A frame of the display `key`, or its set-up, failed with `e`: a lost
-    /// context, an out-of-memory error or a second GL error in a row of
-    /// the display's frames ends the GPU path.
+    /// context, an out-of-memory error, or a GL error that breaks a rule of
+    /// the display's window of frames ends the GPU path.
     fn failed(&mut self, key: &(PathBuf, DisplayId), e: &Error) -> OnGpuFrame {
-        let failed = self.failed_in_a_row.entry(key.clone()).or_default();
-        *failed = failed.saturating_add(1);
+        let end = self.frames.entry(key.clone()).or_default().frame(true);
         if matches!(e.kind, ErrorKind::OutOfMemory | ErrorKind::ContextLost) {
             self.lost = Some(e.to_string());
-        } else if *failed >= 2 {
-            self.lost = Some(format!(
-                "a GL error in two of a display's frames in a row, the last {e}"
-            ));
+        } else if let Some(end) = end {
+            self.lost = Some(format!("{end}, the last {e}"));
         }
         if self.lost.is_some() {
             // a head that leaves the GPU path does not come back to it

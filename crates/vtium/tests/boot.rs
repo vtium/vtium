@@ -6705,12 +6705,13 @@ mod gpu_path {
 
     // ADR-1303 D9: a display's first frame the GPU path fails is logged
     // once, naming the display's connector, and its later failed frames are
-    // not, while the head stays on the GPU path
+    // not, while the head stays on the GPU path; two failures, since a third
+    // within 60 frames would end the path
     #[test]
     fn a_displays_failed_gpu_frames_are_logged_once_by_its_connector() {
         let (mut h, gpu) = on_test_gpu();
         logged();
-        for _ in 0..3 {
+        for _ in 0..2 {
             queue(&gpu, &[Fault::Gl]);
             h.drawn_now();
             h.drawn_now();
@@ -6799,6 +6800,35 @@ mod gpu_path {
         let cpu = shown(false);
         let gpu = shown(true);
         assert!(gpu == cpu, "the buffer shown differs from the CPU path's");
+    }
+
+    // ADR-1303 D9, D10: a GL error that fails every other frame ends the
+    // GPU path at its third failure within the display's last 60 frames,
+    // though no two failed frames are in a row, and the log says so once
+    #[test]
+    fn a_gl_error_in_every_other_frame_ends_the_gpu_path_at_the_third() {
+        let (_, cpu, _) = drawn(&[], GpuSource::Software);
+        let (mut h, gpu) = on_test_gpu();
+        logged();
+        let mut lines = Vec::new();
+        for failure in 1..=3 {
+            queue(&gpu, &[Fault::Gl]);
+            assert!(h.drawn_now() == cpu, "failed frame {failure} differs");
+            assert!(gpu.faults.lock().unwrap().is_empty(), "the fault raised");
+            lines.extend(logged());
+            let want = usize::from(failure == 3);
+            assert_eq!(failed(&lines), want, "after failure {failure}: {lines:#?}");
+            assert!(h.drawn_now() == cpu, "the frame after {failure} differs");
+        }
+        lines.extend(logged());
+        assert_eq!(failed(&lines), 1, "{lines:#?}");
+        assert!(
+            lines
+                .iter()
+                .any(|l| l.contains("in 3 of a display's last 60 frames")),
+            "{lines:#?}"
+        );
+        assert_eq!(renderer(&lines), ["cpu"], "{lines:#?}");
     }
 
     // ADR-1303 D9, D10: a GL error in two frames in a row, out of memory or
