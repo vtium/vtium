@@ -21,15 +21,15 @@
 <text x="436" y="124" font-size="17" text-anchor="middle" fill="#1f2933">vtium</text>
 <text x="436" y="145" font-size="13" text-anchor="middle" fill="#1f2933">the console</text>
 <rect x="632" y="56" width="200" height="56" fill="#ffffff" stroke="#9aa5b1" stroke-width="1"/>
-<text x="732" y="80" font-size="14" text-anchor="middle" fill="#1f2933">the frits</text>
-<text x="732" y="100" font-size="13" text-anchor="middle" fill="#1f2933">/etc/vtium/fonts</text>
+<text x="732" y="80" font-size="14" text-anchor="middle" fill="#1f2933">vtium.conf, the frits</text>
+<text x="732" y="100" font-size="13" text-anchor="middle" fill="#1f2933">/etc/vtium</text>
 <rect x="632" y="168" width="200" height="56" fill="#ffffff" stroke="#9aa5b1" stroke-width="1"/>
 <text x="732" y="192" font-size="14" text-anchor="middle" fill="#1f2933">vtium-config</text>
 <text x="732" y="212" font-size="13" text-anchor="middle" fill="#1f2933">apply, under sudo</text>
 <line x1="732" y1="166" x2="732" y2="114" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
-<text x="742" y="145" font-size="13" fill="#1f2933">a frit</text>
+<text x="724" y="145" font-size="13" text-anchor="end" fill="#1f2933">vtium.conf, frits</text>
 <line x1="632" y1="92" x2="538" y2="114" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
-<text x="586" y="90" font-size="13" text-anchor="middle" fill="#1f2933">frits, read</text>
+<text x="586" y="90" font-size="13" text-anchor="middle" fill="#1f2933">read</text>
 <line x1="436" y1="158" x2="436" y2="274" stroke="#2f6fb0" stroke-width="2" marker-start="url(#arrow-blue)" marker-end="url(#arrow-blue)"/>
 <text x="448" y="222" font-size="13" fill="#2f6fb0">bytes, both ways</text>
 <rect x="376" y="276" width="120" height="36" fill="#ffffff" stroke="#2f6fb0" stroke-width="2"/>
@@ -40,19 +40,25 @@
 <line x1="240" y1="430" x2="410" y2="312" stroke="#2f6fb0" stroke-width="1.5"/>
 <line x1="436" y1="386" x2="436" y2="312" stroke="#2f6fb0" stroke-width="1.5"/>
 <rect x="40" y="350" width="200" height="40" fill="#ffffff" stroke="#9aa5b1" stroke-width="1"/>
-<text x="140" y="375" font-size="14" text-anchor="middle" fill="#1f2933">vtium config set</text>
+<text x="140" y="375" font-size="14" text-anchor="middle" fill="#1f2933">vtium config use-frit</text>
 <rect x="40" y="410" width="200" height="40" fill="#ffffff" stroke="#9aa5b1" stroke-width="1" stroke-dasharray="6 4"/>
 <text x="140" y="435" font-size="14" text-anchor="middle" fill="#1f2933">vtium-clipboard</text>
 <rect x="336" y="386" width="200" height="40" fill="#ffffff" stroke="#9aa5b1" stroke-width="1"/>
 <text x="436" y="411" font-size="14" text-anchor="middle" fill="#1f2933">shell and programs</text>
-<rect x="632" y="350" width="200" height="40" fill="#ffffff" stroke="#9aa5b1" stroke-width="1"/>
-<text x="732" y="375" font-size="14" text-anchor="middle" fill="#1f2933">vtium config preview</text>
-<rect x="632" y="410" width="200" height="56" fill="#ffffff" stroke="#9aa5b1" stroke-width="1"/>
-<text x="732" y="434" font-size="14" text-anchor="middle" fill="#1f2933">vtium config new</text>
-<text x="732" y="454" font-size="13" text-anchor="middle" fill="#1f2933">and its templates</text>
-<path d="M 632 438 L 600 438 L 600 196 L 630 196" fill="none" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
-<text x="590" y="292" font-size="13" text-anchor="end" fill="#1f2933">a frit,</text>
-<text x="590" y="310" font-size="13" text-anchor="end" fill="#1f2933">sudo once</text>
+<rect x="620" y="340" width="224" height="34" fill="#ffffff" stroke="#9aa5b1" stroke-width="1"/>
+<text x="732" y="362" font-size="14" text-anchor="middle" fill="#1f2933">vtium config preview</text>
+<rect x="620" y="382" width="224" height="50" fill="#ffffff" stroke="#9aa5b1" stroke-width="1"/>
+<text x="732" y="403" font-size="13" text-anchor="middle" fill="#1f2933">vtium config set KEY VALUE</text>
+<text x="732" y="422" font-size="13" text-anchor="middle" fill="#1f2933">and the draft's commands</text>
+<rect x="620" y="440" width="224" height="50" fill="#ffffff" stroke="#9aa5b1" stroke-width="1"/>
+<text x="732" y="461" font-size="13" text-anchor="middle" fill="#1f2933">vtium config new-frit</text>
+<text x="732" y="480" font-size="13" text-anchor="middle" fill="#1f2933">and its templates</text>
+<path d="M 620 407 L 600 407 L 600 196 L 630 196" fill="none" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<path d="M 620 465 L 600 465 L 600 405" fill="none" stroke="#1f2933" stroke-width="1.5"/>
+<text x="590" y="252" font-size="13" text-anchor="end" fill="#1f2933">vtium.conf</text>
+<text x="590" y="270" font-size="13" text-anchor="end" fill="#1f2933">or a frit,</text>
+<text x="590" y="288" font-size="13" text-anchor="end" fill="#1f2933">sudo once for</text>
+<text x="590" y="306" font-size="13" text-anchor="end" fill="#1f2933">each install</text>
 <line x1="24" y1="536" x2="64" y2="536" stroke="#2f6fb0" stroke-width="2"/>
 <text x="76" y="541" font-size="13" fill="#1f2933">the only way from the session to vtium: bytes on the session's terminal</text>
 <rect x="24" y="554" width="40" height="12" fill="#ffffff" stroke="#9aa5b1" stroke-width="1" stroke-dasharray="6 4"/>
