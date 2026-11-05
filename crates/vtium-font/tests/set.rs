@@ -824,6 +824,64 @@ fn a_chunk_past_the_bound_holds_one_raw_glyph() {
     ));
 }
 
+// A cluster's glyph past 16 KiB is taken only from a chunk that holds
+// exactly that one glyph (ADR-1302 D6): two clusters' glyphs of 16,512
+// bytes each put together in one raw chunk of 33,024 bytes, as large as the
+// strike's wide glyph, are refused, though each lies inside the chunk
+#[test]
+fn a_cluster_chunk_past_the_bound_holds_one_glyph() {
+    let cell = Cell {
+        width: 128,
+        height: 129,
+    };
+    let mut r8 = StrikeBuilder::new(PixelFormat::R8, cell, Style::default()).compress(false);
+    let x = r8.glyph(Width::Narrow, vec![1; 128 * 129]);
+    r8.map('x', x);
+    let a = r8.glyph(Width::Narrow, vec![2; 128 * 129]);
+    let e = r8.glyph(Width::Narrow, vec![3; 128 * 129]);
+    r8.cluster(&['a', '\u{301}'], a);
+    r8.cluster(&['e', '\u{301}'], e);
+    let set = SetBuilder::new("clusters")
+        .strike(r8)
+        .write()
+        .expect("writes");
+    // as written, each cluster's glyph has a chunk of its own and draws
+    let face = SetFace::new(Arc::new(read(set.clone())), 129).expect("a face");
+    assert_eq!(
+        face.cluster(&['e', '\u{301}'], Style::default()),
+        Some(mask(128, 129, &[3; 128 * 129]))
+    );
+    let word = |b: &[u8], at: usize| u32::from_le_bytes(b[at..at + 4].try_into().unwrap());
+    let joined = with_section(&set, b"CLUS", |c| {
+        let (count, size, pool, chunks, chunk_size) =
+            (word(c, 0), word(c, 4), word(c, 8), word(c, 12), word(c, 16));
+        assert_eq!((count, chunks), (2, 2));
+        let records = 20 + (count * size) as usize;
+        let table = records + 4 * pool as usize;
+        let data = c[table + (chunks * chunk_size) as usize..].to_vec();
+        assert_eq!(data.len(), 2 * 128 * 129);
+        let mut out = c[..20].to_vec();
+        out[12..16].copy_from_slice(&1u32.to_le_bytes());
+        let mut body = c[20..table].to_vec();
+        // the second cluster's record: chunk 0, offset 16,512
+        let second = size as usize;
+        body[second + 8..second + 12].copy_from_slice(&0u32.to_le_bytes());
+        body[second + 12..second + 16].copy_from_slice(&16_512u32.to_le_bytes());
+        out.extend(body);
+        let at = (table + chunk_size as usize) as u64;
+        out.extend(at.to_le_bytes());
+        out.extend(33_024u32.to_le_bytes());
+        out.extend(33_024u32.to_le_bytes());
+        out.extend(0u32.to_le_bytes());
+        out.extend(data);
+        *c = out;
+    });
+    assert!(matches!(
+        refused(joined),
+        SetError::Malformed("a malformed cluster")
+    ));
+}
+
 // The writer keeps the bounds the reader holds it to
 #[test]
 fn the_writer_refuses_what_the_reader_would() {
