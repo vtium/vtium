@@ -504,4 +504,4 @@ fixture kmscon.termcap
 cmd termcap;file=kmscon.termcap
 send "\eP+q544e;536d756c78\e\\"
 check
-reply "\eP1+r544e=6B6D73636F6E;536d756c78=1B5B343A25703125646D\e\\"
+reply "\eP1+r544E=6B6D73636F6E;536D756C78=1B5B343A25703125646D\e\\"

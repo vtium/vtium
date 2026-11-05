@@ -9,11 +9,11 @@ row 0 ||
 row 1 ||
 row 2 ||
 row 3 ||
-placement 0 row 0 col 3 box 1x1 at 0,0 size 8x8 src 0,0 8x8 cell 8x16 z 0 above-text kitty image 0 opaque changed
-placement 1 row 0 col 0 box 2x1 at 0,0 size 16x16 src 0,0 16x16 cell 8x16 z 0 above-text kitty image 1 changed
-placement 2 row 0 col 2 box 1x1 at 0,0 size 8x16 src 0,0 8x16 cell 8x16 z 0 above-text kitty image 2 opaque changed
+placement 0 row 0 col 0 box 2x1 at 0,0 size 16x16 src 0,0 16x16 cell 8x16 z 0 above-text kitty image 0 changed
+placement 1 row 0 col 2 box 1x1 at 0,0 size 8x16 src 0,0 8x16 cell 8x16 z 0 above-text kitty image 1 opaque changed
+placement 2 row 0 col 3 box 1x1 at 0,0 size 8x8 src 0,0 8x8 cell 8x16 z 0 above-text kitty image 2 opaque changed
 placement 3 row 2 col 0 box 1x1 at 0,0 size 8x8 src 0,0 8x8 cell 8x16 z 0 above-text kitty image 3 changed
-image 0 8x8 digest a5f5e7c5
-image 1 16x16 digest 071b32c5
-image 2 8x16 digest da180ec5
+image 0 16x16 digest 071b32c5
+image 1 8x16 digest da180ec5
+image 2 8x8 digest a5f5e7c5
 image 3 8x8 digest 9ae1d1c5
