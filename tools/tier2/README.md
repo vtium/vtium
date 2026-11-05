@@ -1,6 +1,6 @@
 # tier2
 
-Tier 2 for vtium: the renderer draws known screens into memory, and each is compared pixel for pixel with its golden (vtium/vtium#17). The bytes go through `vtium-term` and the frames through `vtium-render`, into a double-buffered display in memory, as the C reference's `tests/test_pixels.c` drove libtsm and bbulk. The goldens are the judge: a difference from a golden is a listed departure, or the case fails.
+Tier 2 for vtium: the renderer draws known screens into memory, and each is compared pixel for pixel with its golden (vtium/vtium#17). The bytes go through `vtium-term` and the frames through `vtium-render`, into a double-buffered display in memory, as the C reference's `tests/test_pixels.c` drove libtsm and bbulk. The goldens are the judge: a difference from a golden past its sidecar's tolerance fails the case.
 
 The crate is a workspace member, so `cargo test --workspace` builds the tool and runs its self-tests. Every file the run reads is in this tree, and the goldens are in `goldens/`. The run stays out of the default test run, in a Makefile target that CI's `tier2` job runs on every pull request and whose report and images it keeps:
 
@@ -28,7 +28,6 @@ target/release/tier2 compare GOLDEN ACTUAL [--tol FILE] [--diff OUT.ppm]
 | `gpu/` | The GPU path's sidecars, `<screen>.tol`, one for each screen the GPU path draws: exact for now, `max_delta=0` and `max_pixels=0`, the maintainer's decision of 2026-11-03, and provisional. |
 | `src/bin/tier2.rs` | The commands. |
 | `pending.tsv` | Each screen tier 2 owes and no screen draws yet, with the issue that owes it: a case the run reports as pending. |
-| `departures.tsv` | Each case whose difference from its golden a departure in the render crate's README explains, with where the difference may lie. |
 | `provisional.tsv` | vtium's goldens the operator has not reviewed. |
 | `goldens/` | The goldens of tier 2's screens: see its README. |
 | `tests/` | The self-tests: each malformed input refused, and each verdict of the run. |
@@ -70,16 +69,13 @@ A case is compared with its golden exactly, outside any mask its sidecar gives. 
 |---|---|
 | `pass` | identical outside the masks |
 | `near` | different within both of the sidecar's limits |
-| `departure` | different only inside the rectangles `departures.tsv` gives for a departure the render crate's README lists |
 | `pending` | a screen `pending.tsv` lists |
 | `provisional` | a golden in `provisional.tsv`, not yet reviewed: compared, and the status it would get noted, never failing |
-| `fail` | different past the tolerance, outside a departure's rectangles, or listed as a departure and no longer different |
+| `fail` | different past the tolerance |
 | `missing` | no golden, or a golden no screen draws |
 | `error` | the screen did not draw, or its golden or sidecar was refused |
 
-A departure's rectangles cover whole cells, the cells where its difference shows, so any difference inside them passes as the departure: a defect in a listed cell, such as an underline lost from the cut `中` in `edges-left`, is not seen until that cell's departure row goes or its rectangles shrink.
-
-Each list is checked before any case runs: a pending golden a screen draws or that is copied, a departure whose case no screen draws or whose title the README does not list, a provisional golden no vtium screen draws, a vtium screen named as a copied golden, and two screens of one name are each refused.
+Each list is checked before any case runs: a pending row that a screen draws or whose golden `goldens/` holds, a provisional golden no screen draws, and two screens of one name are each refused.
 
 Refused rather than judged (aaronsb/kmscon#10): a PPM that is not P6 with a maxval of 255, with a side of 0 or past 16384, or with a raster shorter or longer than its header says; a sidecar line that is not `key=value`, an unknown or repeated key, a value that is not a decimal number, a `max_delta` past 255, one limit at 0 with the other not, and a mask that is empty, inverted or reaches past the golden. A mask that hides no difference is noted in the report.
 

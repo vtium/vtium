@@ -3,11 +3,7 @@
 //!
 //! Every row of `pending.tsv` is a case that no screen draws yet, with the
 //! issue that owes it. A golden that no screen draws is `missing`. A
-//! difference
-//! from a golden is a failure unless `departures.tsv` lists the case under
-//! a departure the render crate's README states, and every differing pixel
-//! lies in the rectangles it names; a listed departure the case no longer
-//! shows fails too, until its row goes.
+//! difference from a golden past its sidecar's tolerance is a failure.
 
 use std::collections::BTreeSet;
 use std::fs;
@@ -18,7 +14,7 @@ use crate::draw;
 use crate::ppm::{self, Image};
 use crate::report::{self, CaseReport, Status};
 use crate::screens::Case;
-use crate::tol::{Rect, Tolerance};
+use crate::tol::Tolerance;
 
 /// The non-comment lines of a TSV, numbered from 1, split at tabs.
 fn rows(text: &str) -> impl Iterator<Item = (usize, Vec<&str>)> {
@@ -26,60 +22,6 @@ fn rows(text: &str) -> impl Iterator<Item = (usize, Vec<&str>)> {
         .enumerate()
         .filter(|(_, l)| !l.trim().is_empty() && !l.starts_with('#'))
         .map(|(i, l)| (i + 1, l.split('\t').collect()))
-}
-
-/// A case whose difference from its golden a departure explains.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Departure {
-    pub case: String,
-    /// The departure's title, in bold under the render crate's README's
-    /// `## Departures`.
-    pub title: String,
-    /// Where the difference may lie.
-    pub rects: Vec<Rect>,
-}
-
-/// Reads `departures.tsv`: `CASE TITLE x0,y0,x1,y1[;...]` a line.
-pub fn departures(text: &str) -> Result<Vec<Departure>, String> {
-    let mut seen = BTreeSet::new();
-    rows(text)
-        .map(|(n, f)| {
-            let [case, title, rects] = f[..] else {
-                return Err(format!("departures.tsv:{n}: want CASE, TITLE and RECTS"));
-            };
-            if !seen.insert(case) {
-                return Err(format!("departures.tsv:{n}: {case} is listed twice"));
-            }
-            let rects = rects
-                .split(';')
-                .map(Rect::parse)
-                .collect::<Result<_, _>>()
-                .map_err(|e| format!("departures.tsv:{n}: {e}"))?;
-            Ok(Departure {
-                case: case.to_owned(),
-                title: title.to_owned(),
-                rects,
-            })
-        })
-        .collect()
-}
-
-/// The titles of the departures `readme` lists: each `- **Title**` under
-/// its `## Departures` heading.
-pub fn readme_departures(readme: &str) -> Vec<String> {
-    let mut inside = false;
-    let mut out = Vec::new();
-    for line in readme.lines() {
-        if let Some(h) = line.strip_prefix("## ") {
-            inside = h.trim() == "Departures";
-        } else if inside
-            && let Some(rest) = line.strip_prefix("- **")
-            && let Some((title, _)) = rest.split_once("**")
-        {
-            out.push(title.to_owned());
-        }
-    }
-    out
 }
 
 /// A screen that tier 2 owes and that no screen draws yet.
@@ -132,11 +74,8 @@ pub fn provisional(text: &str) -> Result<Vec<String>, String> {
 /// What a run reads besides the goldens.
 #[derive(Clone, Debug)]
 pub struct Lists {
-    pub departures: Vec<Departure>,
     pub pending: Vec<Pending>,
     pub provisional: Vec<String>,
-    /// The departures the render crate's README lists.
-    pub titles: Vec<String>,
 }
 
 fn read(path: &Path) -> Result<String, String> {
@@ -147,10 +86,8 @@ fn read(path: &Path) -> Result<String, String> {
 pub fn load(root: &Path) -> Result<Lists, String> {
     let tool = root.join("tools/tier2");
     Ok(Lists {
-        departures: departures(&read(&tool.join("departures.tsv"))?)?,
         pending: pending(&read(&tool.join("pending.tsv"))?)?,
         provisional: provisional(&read(&tool.join("provisional.tsv"))?)?,
-        titles: readme_departures(&read(&root.join("crates/vtium-render/README.md"))?),
     })
 }
 
@@ -175,7 +112,6 @@ pub struct Run<'a> {
     pub cases: &'a [Case],
     /// The goldens, `tools/tier2/goldens`.
     pub goldens: &'a Path,
-    pub departures: &'a [Departure],
     pub pending: &'a [Pending],
     /// vtium's goldens the operator has not reviewed.
     pub provisional: &'a [String],
@@ -191,7 +127,7 @@ fn rel(root: &Path, p: &Path) -> String {
 
 impl Run<'_> {
     /// Checks the lists against the goldens, before any case runs.
-    pub fn check_lists(&self, readme_titles: &[String]) -> Result<(), String> {
+    pub fn check_lists(&self) -> Result<(), String> {
         let goldens = goldens_in(self.goldens)?;
         let mut names = BTreeSet::new();
         for c in self.cases {
@@ -216,20 +152,6 @@ impl Run<'_> {
         for p in self.provisional {
             if !self.cases.iter().any(|c| c.screen.name == *p) {
                 return Err(format!("provisional.tsv lists {p}, which no screen draws"));
-            }
-        }
-        for d in self.departures {
-            if !self.cases.iter().any(|c| c.screen.name == d.case) {
-                return Err(format!(
-                    "departures.tsv lists {}, which no screen draws",
-                    d.case
-                ));
-            }
-            if !readme_titles.contains(&d.title) {
-                return Err(format!(
-                    "departures.tsv: {}: the render crate's README lists no departure {:?}",
-                    d.case, d.title
-                ));
             }
         }
         Ok(())
@@ -338,34 +260,10 @@ impl Run<'_> {
                 notes.push(format!("mask {m} hides no difference"));
             }
         }
-        let departure = self.departures.iter().find(|d| d.case == r.name);
-        r.status = match (c.verdict, departure) {
-            (Verdict::Pass, None) => Status::Pass,
-            (Verdict::Pass, Some(d)) => {
-                notes.push(format!(
-                    "listed under the departure {:?}, which it no longer shows",
-                    d.title
-                ));
-                Status::Fail
-            }
-            (Verdict::Near, None) => Status::Near,
-            (_, Some(d)) if c.size_mismatch.is_none() => {
-                r.departure = Some(d.title.clone());
-                let outside = c
-                    .points
-                    .iter()
-                    .filter(|&&(x, y)| !d.rects.iter().any(|q| q.contains(x, y)))
-                    .count();
-                if outside == 0 {
-                    Status::Departure
-                } else {
-                    notes.push(format!(
-                        "{outside} differing pixel(s) outside the departure's rectangles"
-                    ));
-                    Status::Fail
-                }
-            }
-            _ => Status::Fail,
+        r.status = match c.verdict {
+            Verdict::Pass => Status::Pass,
+            Verdict::Near => Status::Near,
+            Verdict::Fail => Status::Fail,
         };
         if self.provisional.contains(&r.name) {
             notes.push(format!(

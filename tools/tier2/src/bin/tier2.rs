@@ -88,13 +88,12 @@ fn run(opts: &[(String, String)]) -> ExitCode {
     let r = Run {
         cases: CASES,
         goldens: &goldens,
-        departures: &lists.departures,
         pending: &lists.pending,
         provisional: &lists.provisional,
         out: &out,
         root: &out,
     };
-    if let Err(e) = r.check_lists(&lists.titles) {
+    if let Err(e) = r.check_lists() {
         return refuse(e);
     }
     #[cfg_attr(
