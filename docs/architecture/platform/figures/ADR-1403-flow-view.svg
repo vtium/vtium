@@ -1,0 +1,103 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="600" viewBox="0 0 1200 600" font-family="DejaVu Sans Mono, monospace" font-size="13" xml:space="preserve">
+<title>vtium-config's flow view on a dark console: six colored columns, displays, display rules, heads, each head's look, input rules and input devices, joined by lines, with the machine's real devices placed on the file's flow</title>
+<defs>
+<marker id="a-cyan" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 z" fill="#00cdcd"/></marker>
+<marker id="a-green" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 z" fill="#00cd00"/></marker>
+<marker id="a-grey" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 z" fill="#7f7f7f"/></marker>
+</defs>
+<rect width="1200" height="600" fill="#ffffff"/>
+<text x="20" y="18" font-size="12" fill="#1f2933">vtium-config's flow view, drawn in the console's sixteen colors on its black background (the default palette's values)</text>
+<rect x="20" y="26" width="1160" height="560" fill="#000000" stroke="#9aa5b1"/>
+<!-- tab bar -->
+<g fill="#e5e5e5">
+<text x="36" y="48">Fonts   Sizes   Settings   Heads</text>
+<rect x="316" y="35" width="48" height="18" fill="#e5e5e5"/>
+<text x="322" y="48" fill="#000000">Flow</text>
+<text x="380" y="48">Save</text>
+</g>
+<!-- status line -->
+<text x="36" y="72" fill="#e5e5e5">/etc/vtium/vtium.conf   policy open   a udev daemon runs   2 displays and 2 inputs present</text>
+<!-- column headings -->
+<g font-weight="bold">
+<text x="36" y="102" fill="#00ffff">DISPLAYS</text>
+<text x="200" y="102" fill="#00cdcd">DISPLAY RULES</text>
+<text x="462" y="102" fill="#ffff00">HEADS</text>
+<text x="600" y="102" fill="#ff00ff">LOOK</text>
+<text x="805" y="102" fill="#00cd00">INPUT RULES</text>
+<text x="1050" y="102" fill="#00ff00">INPUT DEVICES</text>
+</g>
+<!-- head bands, spanning the heads and look columns -->
+<g fill="none" stroke="#ffff00" stroke-width="1">
+<rect x="450" y="120" width="340" height="96"/>
+<rect x="450" y="230" width="340" height="96"/>
+</g>
+<g fill="none" stroke="#7f7f7f" stroke-width="1">
+<rect x="450" y="338" width="340" height="28"/>
+<rect x="450" y="378" width="340" height="28"/>
+<rect x="450" y="418" width="340" height="28"/>
+</g>
+<!-- head desk -->
+<text x="462" y="140" fill="#ffff00" font-weight="bold">desk</text>
+<text x="462" y="160" fill="#ffff00">1 console</text>
+<text x="462" y="180" fill="#ffff00">the active head</text>
+<text x="600" y="140" fill="#ff00ff">profile big, 14 pt</text>
+<text x="600" y="160" fill="#ff00ff">└ frit monoid</text>
+<text x="600" y="180" fill="#ff00ff">  └ Monoid</text>
+<!-- head panel -->
+<text x="462" y="250" fill="#ffff00" font-weight="bold">panel</text>
+<text x="462" y="270" fill="#ffff00">2 consoles</text>
+<text x="600" y="250" fill="#ff00ff">profile small, 12 pt</text>
+<text x="600" y="270" fill="#ff00ff">└ frit dejavu</text>
+<text x="600" y="290" fill="#ff00ff">  └ DejaVu Sans Mono</text>
+<!-- the targets that are not heads -->
+<text x="462" y="357" fill="#ffff00">roaming</text>
+<text x="600" y="357" fill="#e5e5e5">types into desk, active</text>
+<text x="462" y="397" fill="#ffff00">ignore</text>
+<text x="600" y="397" fill="#e5e5e5">vtium never opens it</text>
+<text x="462" y="437" fill="#ffff00">off</text>
+<text x="600" y="437" fill="#e5e5e5">vtium sets it off</text>
+<!-- displays -->
+<text x="36" y="140" fill="#00ffff">DP-8</text>
+<text x="36" y="158" fill="#00ffff" font-size="12">LARGE00001</text>
+<text x="36" y="250" fill="#00ffff">HDMI-A-2</text>
+<text x="36" y="268" fill="#00ffff" font-size="12">SMALL00001</text>
+<!-- display rules -->
+<text x="200" y="140" fill="#00cdcd">18 edid:…LARGE00001 -&gt; desk</text>
+<text x="200" y="250" fill="#00cdcd">19 edid:…SMALL00001 -&gt; panel</text>
+<text x="200" y="300" fill="#7f7f7f">20 display * -&gt; desk</text>
+<text x="200" y="316" fill="#7f7f7f" font-size="12">matches no display present</text>
+<!-- display side lines: a device's first match, and each rule's target -->
+<line x1="120" y1="136" x2="194" y2="136" stroke="#00cdcd" stroke-width="1.5" marker-end="url(#a-cyan)"/>
+<line x1="120" y1="246" x2="194" y2="246" stroke="#00cdcd" stroke-width="1.5" marker-end="url(#a-cyan)"/>
+<line x1="428" y1="136" x2="448" y2="136" stroke="#00cdcd" stroke-width="1.5" marker-end="url(#a-cyan)"/>
+<line x1="436" y1="246" x2="448" y2="246" stroke="#00cdcd" stroke-width="1.5" marker-end="url(#a-cyan)"/>
+<path d="M368,296 L436,296 L436,200 L448,200" fill="none" stroke="#7f7f7f" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#a-grey)"/>
+<!-- input rules -->
+<text x="805" y="160" fill="#7f7f7f">22 serial:046d:c31c:… -&gt; desk</text>
+<text x="805" y="176" fill="#7f7f7f" font-size="12">matches no device present</text>
+<text x="805" y="357" fill="#00cd00">23 class:keyboard -&gt; roaming</text>
+<text x="805" y="397" fill="#00cd00">24 * -&gt; ignore</text>
+<!-- input devices -->
+<rect x="1046" y="343" width="78" height="19" fill="#00ff00"/>
+<text x="1050" y="357" fill="#000000">keyboard</text>
+<text x="1050" y="374" fill="#00ff00" font-size="12">usb-0:3.3</text>
+<text x="1050" y="397" fill="#00ff00">Power Button</text>
+<text x="1050" y="414" fill="#00ff00" font-size="12">class key</text>
+<!-- input side lines, from right to left -->
+<line x1="1042" y1="353" x2="1034" y2="353" stroke="#00cd00" stroke-width="1.5" marker-end="url(#a-green)"/>
+<line x1="1042" y1="393" x2="924" y2="393" stroke="#00cd00" stroke-width="1.5" marker-end="url(#a-green)"/>
+<line x1="802" y1="353" x2="792" y2="353" stroke="#00cd00" stroke-width="1.5" marker-end="url(#a-green)"/>
+<line x1="802" y1="393" x2="792" y2="393" stroke="#00cd00" stroke-width="1.5" marker-end="url(#a-green)"/>
+<line x1="802" y1="156" x2="792" y2="156" stroke="#7f7f7f" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#a-grey)"/>
+<!-- legend -->
+<g font-size="12">
+<line x1="36" y1="476" x2="76" y2="476" stroke="#00cdcd" stroke-width="1.5" marker-end="url(#a-cyan)"/>
+<text x="84" y="480" fill="#e5e5e5">a device's first match, or a rule's target, in the color of the rules it passes</text>
+<line x1="36" y1="498" x2="76" y2="498" stroke="#7f7f7f" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#a-grey)"/>
+<text x="84" y="502" fill="#e5e5e5">a rule that matches no device present, in grey, with the words that say so</text>
+</g>
+<!-- the detail line for the selected device -->
+<rect x="30" y="516" width="1140" height="20" fill="#e5e5e5"/>
+<text x="36" y="530" fill="#000000">keyboard, usb-0:3.3, class keyboard: line 23, input class:keyboard -&gt; roaming, so it types into desk, the active head</text>
+<text x="36" y="562" fill="#7f7f7f">arrows move   Enter shows the line in the file   Tab next view   q quits</text>
+</svg>
