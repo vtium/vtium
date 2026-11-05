@@ -238,17 +238,25 @@ CARGO_BUILD_FLAGS :=
 UNITDIR := $(PREFIX)/lib/systemd/system
 TERMINFO_SRC := $(VTIUM_INSTALL)/xterm-vtium.ti
 # The build settings a package names for two defaults (ADR-1500 D8):
-# HWACCEL, on or off, and DISPLAY_BUFFERS, 1, 2 or 3. Every target that
-# builds the console or a helper, make install-build, make minspec, make
-# vt-dev-console, make config-release and make image-release, and so the
-# review targets and make vt-install that build through them, hands each
-# one named to its builds as VTIUM_HWACCEL and VTIUM_DISPLAY_BUFFERS, and
-# the key table makes it the key's default. Unnamed, the key table's own
-# defaults stand. A review target or make vt-install given a binary with
-# VTIUM_BIN builds no console, so it refuses either setting named on make's
-# command line, which it could not give that binary.
+# HWACCEL, on or off, and DISPLAY_BUFFERS, 1, 2 or 3. Each target that
+# builds the console or a helper hands each setting named to its builds as
+# VTIUM_HWACCEL and VTIUM_DISPLAY_BUFFERS. Those targets are make
+# install-build, make minspec, make vt-dev-console, make config-release
+# and make image-release. The review targets, make vt-install, make
+# install-tree and the tier 3 runs build through them, so their builds
+# take the settings too. The key table makes each setting the key's
+# default. Unnamed, the key table's own defaults stand.
+#
+# make reads a setting named on its command line, and one exported in the
+# shell. An exported HWACCEL or DISPLAY_BUFFERS therefore reaches tier 3's
+# install tree as well. make checks each value for every target that
+# builds.
+#
+# A review target or make vt-install given a binary with VTIUM_BIN builds
+# no console. It refuses either setting named on make's command line,
+# because it could not give that setting to the binary.
 build_settings = $(if $(HWACCEL),VTIUM_HWACCEL=$(HWACCEL) )$(if $(DISPLAY_BUFFERS),VTIUM_DISPLAY_BUFFERS=$(DISPLAY_BUFFERS) )
-SETTINGS_GOALS := install install-build install-tree minspec vt-dev-console config-release image-release $(VT_GOALS) vt-install
+SETTINGS_GOALS := install install-build install-tree minspec vt-dev-console config-release image-release $(VT_GOALS) vt-install tier3 tier3-minimal tier3-images tier3-nosystemd
 ifneq ($(filter $(SETTINGS_GOALS),$(MAKECMDGOALS)),)
 ifneq ($(and $(HWACCEL),$(filter-out on off,$(HWACCEL))$(word 2,$(HWACCEL))),)
 $(error HWACCEL is on or off, not '$(HWACCEL)')

@@ -3496,6 +3496,17 @@ class Package(Case):
             p = self.make(target, f"DESTDIR={self.dest}", f"INSTALL_TARGET_DIR={self.build}", "FRITS=minspec-16 absent")
             self.assertNotEqual(p.returncode, 0, target)
             self.assertIn("no frit absent in", p.stderr, target)
+        # Every target that builds checks the settings, the tier 3 runs that
+        # build the install tree among them. make -n only prints the
+        # recipes, so a target that failed to check would build and run
+        # nothing here either.
+        for target in ("install-tree", "minspec", "vt-dev-console", "config-release", "image-release",
+                       "tier3", "tier3-minimal", "tier3-images", "tier3-nosystemd"):
+            for arg, why in (("HWACCEL=yes", "HWACCEL is on or off"),
+                             ("DISPLAY_BUFFERS=0", "DISPLAY_BUFFERS is 1, 2 or 3")):
+                p = self.make("-n", target, arg)
+                self.assertNotEqual(p.returncode, 0, (target, arg))
+                self.assertIn(why, p.stderr, (target, arg))
         # each is refused as make reads the Makefile, before any build
         self.assertEqual(self.s.calls_of("cargo"), [])
 
