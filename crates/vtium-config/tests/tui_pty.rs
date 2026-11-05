@@ -18,7 +18,7 @@ use std::os::fd::AsFd;
 use std::os::unix::fs::OpenOptionsExt;
 use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::JoinHandle;
 use std::time::Duration;
