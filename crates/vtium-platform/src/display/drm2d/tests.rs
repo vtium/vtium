@@ -1254,6 +1254,67 @@ fn a_connector_whose_crtc_cannot_be_read_keeps_every_crtc_on() {
     assert_eq!(s.bound.get(&B), Some(&101), "with B on it");
 }
 
+// A display placed on a CRTC that a connector vtium does not bind is on
+// takes that connector off it. Here the card has two CRTCs and three
+// monitors. vtium lights A on 100 and B on 101; while it is away a desktop
+// lights C on 100 and B on 101 and leaves A on none. The wake-up puts A
+// back on 100 and finds no CRTC for C, which stays unbound. The modeset
+// takes C off 100, so the card never sees C and A share 100, a clone their
+// encoders cannot drive (`drm_atomic_check_valid_clones`), and the
+// wake-up lights A and B. The legacy CRTC set of A takes C off 100 as it
+// sets A there (`update_output_state`).
+#[test]
+fn a_display_takes_its_crtc_from_a_connector_vtium_does_not_bind() {
+    const C: u32 = 43;
+    for atomic in [true, false] {
+        let modes = vec![mode(640, 480, 60, true)];
+        let card = FakeCard::new(&[(A, modes.clone()), (B, modes.clone()), (C, modes)]);
+        {
+            let mut s = card.state();
+            s.atomic = atomic;
+            s.crtcs.retain(|&c| c != 102);
+            s.planes.remove(&304);
+            s.planes.remove(&305);
+            for e in 200..203 {
+                s.encoders.get_mut(&e).unwrap().possible_crtcs = 0b11;
+            }
+            s.listed.retain(|&c| c != C);
+        }
+        let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+        assert_eq!(v.card().state().bound.get(&A), Some(&100));
+        assert_eq!(v.card().state().bound.get(&B), Some(&101));
+        v.sleep();
+        v.events().for_each(drop);
+        desktop_leaves(v.card(), C, 100);
+        {
+            let mut s = v.card().state();
+            s.bind(A, 0);
+            s.bind(B, 101);
+            s.enabled.insert(101, true);
+            s.active.insert(101, true);
+            s.crtc_modes.insert(101, mode(640, 480, 60, true));
+            s.modes.insert(101, mode_bytes(&mode(640, 480, 60, true).0));
+            s.listed.push(C);
+        }
+        v.wake_up().unwrap();
+        assert_eq!(
+            events(&mut v),
+            [
+                Event::Redraw(DisplayId(A)),
+                Event::Redraw(DisplayId(B)),
+                Event::Awake
+            ],
+            "atomic {atomic}"
+        );
+        let s = v.card().state();
+        assert_eq!(
+            [A, B, C].map(|c| s.bound.get(&c).copied().filter(|&on| on != 0)),
+            [Some(100), Some(101), None],
+            "atomic {atomic}"
+        );
+    }
+}
+
 // A display that moves to a CRTC with no cursor plane gives its pointer
 // image up, so the owner draws the pointer itself.
 #[test]
@@ -4648,7 +4709,8 @@ fn a_modeset_flip_taken_as_done_does_not_say_it_is_shown() {
 }
 
 /// [`a_then_b`]'s card with B's connector on A's CRTC, 100, as another
-/// master left the two cloned there, and the card's calls atomic or not.
+/// master left the two cloned there, which their encoders can, and the
+/// card's calls atomic or not.
 fn b_cloned_on_a(atomic: bool) -> Drm2d<FakeCard> {
     let card = FakeCard::new(&[
         (A, vec![mode(640, 480, 60, true)]),
@@ -4659,6 +4721,7 @@ fn b_cloned_on_a(atomic: bool) -> Drm2d<FakeCard> {
         s.atomic = atomic;
         s.listed.retain(|&c| c == A);
         s.encoders.get_mut(&201).unwrap().possible_crtcs = 0b11;
+        s.clones.push((200, 201));
     }
     let v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
     v.card().state().bind(B, 100);

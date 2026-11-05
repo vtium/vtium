@@ -2550,6 +2550,48 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             .collect()
     }
 
+    /// Adds to `req` what takes each connector vtium does not bind off the
+    /// CRTC a display takes, where it is on one: a connector the placement
+    /// found no CRTC for, as a third monitor on a card with two CRTCs, or
+    /// one left dark whose own commit the card refused. The placement knows
+    /// only the displays' connectors, so a display can take a CRTC another
+    /// connector is on, and two connectors on one CRTC are a clone, which
+    /// the kernel refuses for encoders that cannot clone each other
+    /// (`drm_atomic_check_valid_clones`). Each connector's CRTC is read
+    /// from its `CRTC_ID`. A connector vtium cannot read is left as it is,
+    /// with a warning, and the card refuses the commit where it shares a
+    /// display's CRTC. The legacy CRTC set takes every other connector off
+    /// the CRTC it sets (`update_output_state`), so it needs none of this.
+    fn take_others_off(&self, req: &mut Request) {
+        let connectors = match self.card.resources() {
+            Ok(r) => r.connectors,
+            Err(e) => {
+                log::warn!("cannot list the card's connectors: {e}");
+                return;
+            }
+        };
+        for id in connectors {
+            if self.outputs.iter().any(|o| o.id.0 == id)
+                || req.entries.iter().any(|&(object, _, _)| object == id)
+            {
+                continue;
+            }
+            let taken = self
+                .card
+                .properties(id, Object::Connector)
+                .and_then(|props| {
+                    let crtc = value(&props, "CRTC_ID").and_then(|c| u32::try_from(c).ok());
+                    if crtc.is_some_and(|c| c != 0 && self.outputs.iter().any(|o| o.crtc == c)) {
+                        Props::new(&props).set(req, id, "CRTC_ID", 0)?;
+                    }
+                    Ok(())
+                });
+            if let Err(e) = taken {
+                log::warn!("cannot take connector {id} off the CRTC a display takes: {e}");
+            }
+        }
+    }
+
     /// Whether `crtc` shows a mode or is active, as the card reports it; a
     /// CRTC whose state cannot be read counts as lit.
     fn crtc_lit(&self, crtc: u32) -> bool {
@@ -2571,6 +2613,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         } else {
             Vec::new()
         };
+        self.take_others_off(&mut req);
         self.clear_planes(&mut req, &off);
         let mut staged = Vec::with_capacity(self.outputs.len());
         let mut outputs = std::mem::take(&mut self.outputs);
