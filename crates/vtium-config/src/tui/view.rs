@@ -825,9 +825,13 @@ fn flow_screen(canvas: &mut Canvas, app: &App) -> Option<super::flowdraw::Drawn>
     Some(drawn)
 }
 
+/// The mark before the selected item's lines on the route card.
+pub const SELECTED: &str = "▸";
+
 /// The route card, from row 2 down to `bottom`: its title, the sentence of
-/// what the item does, and each route, the selected item drawn in its
-/// section's block and the cursor's line in reverse video.
+/// what the item does, and each route, the selected item marked with
+/// [`SELECTED`] and drawn in its section's block, and the cursor's line in
+/// reverse video.
 fn route_screen(canvas: &mut Canvas, app: &App, cursor: usize, bottom: usize) {
     let flow = &app.inputs.flow;
     let cols = app.cols;
@@ -862,8 +866,11 @@ fn route_screen(canvas: &mut Canvas, app: &App, cursor: usize, bottom: usize) {
         let indent = if line.item.is_some() { 3 } else { 1 };
         let text = super::canvas::fit(&line.text, cols.saturating_sub(indent).saturating_sub(1));
         if line.item == Some(app.flow_at) {
-            // the selected item's block starts a cell to the left, so its
-            // text lines up with the others
+            // the selected item is marked in words as well as in color: the
+            // mark before it shows with no color too
+            canvas.put(0, y, SELECTED, Style::PLAIN);
+            // its block starts a cell to the left, so its text lines up
+            // with the others
             let x = indent.saturating_sub(1);
             canvas.fill(
                 x,

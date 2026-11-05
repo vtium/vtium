@@ -262,7 +262,6 @@ pub fn look_size(points: u32) -> String {
 }
 pub const MISSING: &str = "missing";
 pub const NO_HEAD_USES: &str = "no head uses it";
-pub const NO_HEAD_USES_SHORT: &str = "unused";
 pub const NO_SUCH_HEAD: &str = "sends to a head that does not exist";
 pub const MATCHES_NO_DISPLAY: &str = "matches no display present";
 pub const MATCHES_NO_DEVICE: &str = "matches no device present";
@@ -377,7 +376,7 @@ pub const NEW_DOES: &str = "Opening it makes a new item of its column.";
 
 /// What an item does, the route card's first line.
 pub fn route_sentence(flow: &super::flow::Flow, item: super::flow::Item) -> String {
-    use super::flow::{Item, Kind, Special, Target};
+    use super::flow::{Item, Kind, RuleState, Special, Target};
     let head_name = |h: usize| {
         flow.heads
             .get(h)
@@ -426,6 +425,29 @@ pub fn route_sentence(flow: &super::flow::Flow, item: super::flow::Item) -> Stri
                     "Rule {n} sends {} to {}, a head that does not exist.",
                     rule.selector, rule.target
                 );
+            }
+            match &rule.state {
+                RuleState::Error(e) => {
+                    return format!(
+                        "Rule {n} sends {} to {}, but the check finds an error in it: {e}.",
+                        rule.selector, rule.target
+                    );
+                }
+                RuleState::Shadowed(by) => {
+                    return format!(
+                        "Rule {n} sends {} to {}, but rule {} comes first and matches everything it would, so it matches nothing.",
+                        rule.selector,
+                        rule.target,
+                        by.saturating_add(1)
+                    );
+                }
+                RuleState::NeedsUdev => {
+                    return format!(
+                        "Rule {n} sends {} to {}, but its selector needs udev, which this machine does not run, so it matches nothing.",
+                        rule.selector, rule.target
+                    );
+                }
+                RuleState::Matches | RuleState::MatchesNothing => {}
             }
             let caught: Vec<&str> = flow
                 .devices(rule.kind)
@@ -480,9 +502,25 @@ pub fn route_sentence(flow: &super::flow::Flow, item: super::flow::Item) -> Stri
                 .filter(|x| x.look == look)
                 .map(|x| x.name.as_str())
                 .collect();
-            format!("Look {look} draws {}.", users.join(" and "))
+            let users = users.join(" and ");
+            match flow.look_of(h).and_then(|l| flow.looks.get(l)) {
+                None if look == DEFAULT => format!("Look {look} draws {users}."),
+                None => format!(
+                    "Head {} names look {look}, which the file does not have, so it draws with the default look.",
+                    head_name(h)
+                ),
+                Some(l) => look_said(l, &format!("Look {look} draws {users}")),
+            }
         }
-        Item::Look(_) => LOOK_NOT_USED.to_owned(),
+        Item::Look(l) => match flow.looks.get(l) {
+            Some(look) if look.problem.is_some() || look.fonts.iter().any(|(_, here)| !here) => {
+                look_said(
+                    look,
+                    &format!("Look {} is not used: no head uses it", look.name),
+                )
+            }
+            _ => LOOK_NOT_USED.to_owned(),
+        },
         Item::Special(_) if unused(item) => HEAD_NOT_USED.to_owned(),
         Item::Special(Special::Roaming) => match flow.active.as_deref() {
             Some(active) => {
@@ -498,6 +536,26 @@ pub fn route_sentence(flow: &super::flow::Flow, item: super::flow::Item) -> Stri
         ),
         Item::Base => BASE_DOES.to_owned(),
         Item::New(_) => NEW_DOES.to_owned(),
+    }
+}
+
+/// What a look does, `said`, with what is wrong with it: the problem the
+/// check finds, else the fonts its frit names that this machine lacks.
+fn look_said(look: &super::flow::Look, said: &str) -> String {
+    let missing: Vec<&str> = look
+        .fonts
+        .iter()
+        .filter(|(_, here)| !here)
+        .map(|(f, _)| f.as_str())
+        .collect();
+    match &look.problem {
+        Some(problem) => format!("{said}, but the check finds a problem in it: {problem}."),
+        None if !missing.is_empty() => format!(
+            "{said}, but this machine lacks {}, which its frit {} names.",
+            missing.join(" and "),
+            look.frit
+        ),
+        None => format!("{said}."),
     }
 }
 

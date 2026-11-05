@@ -1615,6 +1615,34 @@ mod flow_view {
         assert_eq!(a.route, None);
     }
 
+    #[test]
+    fn the_route_card_marks_the_selected_item_in_words_too() {
+        let mut i = inputs();
+        i.view = View::Flow;
+        i.color = false;
+        let (mut a, _) = App::new(i, 80, 25);
+        a.flow_at = Item::Input(1);
+        press(&mut a, Key::Char('?'));
+        // the cursor leaves the selected item's line, and the mark stays
+        press(&mut a, Key::Up);
+        let marked: Vec<String> = text(&a)
+            .lines()
+            .filter(|l| l.starts_with(view::SELECTED))
+            .map(str::to_owned)
+            .collect();
+        assert_eq!(marked.len(), 2, "one in each route: {}", text(&a));
+        assert!(
+            marked.iter().all(|l| l.contains("keyboard, usb-0:3.3")),
+            "{marked:?}"
+        );
+        let bytes = view::draw(&a);
+        assert!(
+            sgr(&bytes)
+                .iter()
+                .all(|p| p.iter().all(|n| [0, 1, 7].contains(n)))
+        );
+    }
+
     /// The cell where `needle` starts on the screen of `app`.
     fn cell(app: &App, needle: &str) -> (usize, usize) {
         text(app)

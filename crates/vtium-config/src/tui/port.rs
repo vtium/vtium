@@ -483,3 +483,18 @@ impl Drop for Tty {
         restore();
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Whatever ends the TUI, leaving the terminal turns mouse reporting
+    /// off, which the Flow view may have left on: a panic's restore and a
+    /// drop write these bytes, not the model's.
+    #[test]
+    fn leaving_the_terminal_turns_mouse_reporting_off_and_shows_the_screen() {
+        let off = super::super::model::MOUSE_OFF;
+        assert!(LEAVE.windows(off.len()).any(|w| w == off), "{LEAVE:?}");
+        assert!(LEAVE.ends_with(b"\x1b[?25h\x1b[?1049l"), "{LEAVE:?}");
+    }
+}

@@ -291,10 +291,11 @@ fn look_lines(ctx: &Ctx<'_>, l: usize, inner: usize, tag: &str, unused: bool) ->
         );
     }
     if unused {
-        out.push(block_line(
-            pick(inner, &[words::NO_HEAD_USES, words::NO_HEAD_USES_SHORT]),
-            style,
-        ));
+        out.extend(
+            wrap(words::NO_HEAD_USES, inner, 2)
+                .into_iter()
+                .map(|l| block_line(l, style)),
+        );
     }
     out
 }
@@ -621,7 +622,8 @@ const HEADINGS: [(&[&str], super::color::Color); 6] = [
 /// in a gap, solid or dashed.
 struct Wire {
     gap: (usize, usize),
-    from: usize,
+    /// The source's rows, any of which its line may leave from.
+    from: Vec<usize>,
     to: usize,
     /// The target is on the left: an input's line runs toward the heads.
     leftward: bool,
@@ -668,15 +670,21 @@ fn joint(bits: u8, dashed: bool) -> char {
 /// The lines between the items shown: a device to its rule, a rule to its
 /// target. A line from a device that is not found, or from a rule that
 /// matches nothing present, is grey and dashed.
+///
+/// The lines of one gap share its first cell, where they run up and down.
+/// A line leaves its source from the source's first row on which no line
+/// of the gap enters another target, so that where one line turns into its
+/// target, no other line starts beside it and seems to go there too.
 fn draw_lines(canvas: &mut Canvas, ctx: &Ctx<'_>, g: &Geometry, drawn: &Drawn) {
     let flow = ctx.flow;
-    let row_of = |item: Item| {
+    let rows_of = |item: Item| -> Option<Vec<usize>> {
         drawn
             .shown
             .iter()
             .find(|(p, _)| p.item == item)
-            .map(|(_, y)| *y)
+            .map(|(p, y)| (*y..y.saturating_add(p.lines.len().max(1))).collect())
     };
+    let row_of = |item: Item| rows_of(item).and_then(|r| r.first().copied());
     let gap = |left: usize| {
         let x =
             g.x.get(left)
@@ -693,7 +701,7 @@ fn draw_lines(canvas: &mut Canvas, ctx: &Ctx<'_>, g: &Geometry, drawn: &Drawn) {
                 Kind::Display => (Item::Display(d), 0, palette::DISPLAYS),
                 Kind::Input => (Item::Input(d), 4, palette::INPUTS),
             };
-            if let (Some(from), Some(to)) = (row_of(item), row_of(Item::Rule(r))) {
+            if let (Some(from), Some(to)) = (rows_of(item), row_of(Item::Rule(r))) {
                 wires.push(Wire {
                     gap: gap(g_at),
                     from,
@@ -714,7 +722,7 @@ fn draw_lines(canvas: &mut Canvas, ctx: &Ctx<'_>, g: &Geometry, drawn: &Drawn) {
             (Target::Special(s), _) => Item::Special(s),
             (Target::Missing, _) => continue,
         };
-        let (Some(from), Some(to)) = (row_of(Item::Rule(r)), row_of(target)) else {
+        let (Some(from), Some(to)) = (rows_of(Item::Rule(r)), row_of(target)) else {
             continue;
         };
         let live = rule.state == RuleState::Matches;
@@ -731,11 +739,37 @@ fn draw_lines(canvas: &mut Canvas, ctx: &Ctx<'_>, g: &Geometry, drawn: &Drawn) {
             }),
         });
     }
+    // each line leaves from the first of its source's rows that no line of
+    // its gap ends on, but one to its own target
+    let ends: Vec<((usize, usize), usize)> = wires.iter().map(|w| (w.gap, w.to)).collect();
+    let starts: Vec<usize> = wires
+        .iter()
+        .enumerate()
+        .map(|(i, w)| {
+            // a row where another line ends on another target; lines to
+            // the same target end on the same row and read as one
+            let taken = |row: &usize| {
+                *row != w.to
+                    && ends
+                        .iter()
+                        .enumerate()
+                        .any(|(j, (gap, to))| j != i && *gap == w.gap && to == row)
+            };
+            w.from
+                .iter()
+                .find(|r| !taken(r))
+                .or_else(|| w.from.first())
+                .copied()
+                .unwrap_or(w.to)
+        })
+        .collect();
+    let mut wires: Vec<(usize, Wire)> = starts.into_iter().zip(wires).collect();
     // the solid lines are drawn last, so where lines share a cell the line
     // in play shows its color
-    wires.sort_by_key(|w| !w.dashed);
+    wires.sort_by_key(|(_, w)| !w.dashed);
     let mut bits: BTreeMap<(usize, usize), u8> = BTreeMap::new();
-    for w in &wires {
+    for (from, w) in &wires {
+        let from = *from;
         let (start, end) = w.gap;
         if end <= start {
             continue;
@@ -756,13 +790,13 @@ fn draw_lines(canvas: &mut Canvas, ctx: &Ctx<'_>, g: &Geometry, drawn: &Drawn) {
             *e |= b;
             canvas.put(x, y, &joint(*e, w.dashed).to_string(), w.style);
         };
-        let (lo, hi) = (w.from.min(w.to), w.from.max(w.to));
-        let toward = if w.to > w.from { DOWN } else { UP };
-        let back = if w.to > w.from { UP } else { DOWN };
-        if w.from == w.to {
-            add(bus, w.from, into_bus | out_of_bus, canvas);
+        let (lo, hi) = (from.min(w.to), from.max(w.to));
+        let toward = if w.to > from { DOWN } else { UP };
+        let back = if w.to > from { UP } else { DOWN };
+        if from == w.to {
+            add(bus, from, into_bus | out_of_bus, canvas);
         } else {
-            add(bus, w.from, into_bus | toward, canvas);
+            add(bus, from, into_bus | toward, canvas);
             for y in lo.saturating_add(1)..hi {
                 add(bus, y, UP | DOWN, canvas);
             }
@@ -1268,15 +1302,17 @@ mod tests {
         assert_eq!(canvas.at(g.x[0] + g.w[0], y), Some('─'));
         assert_eq!(canvas.at(g.x[1] - 1, y), Some('►'));
         // rule 3 matches nothing: its line up to desk is dashed where no
-        // line in play shares its cells, and joins at the bus where one does
+        // line in play shares its cells. Rule 2's line turns into panel on
+        // rule 3's first row, so rule 3's line leaves from its next row,
+        // and nothing joins rule 3's first row to panel's arrow
         let y3 = row(Item::Rule(2));
         let bus = g.x[1] + g.w[1];
-        assert_eq!(
-            canvas.at(bus, y3),
-            Some('┴'),
-            "rule 2's line turns to panel here"
-        );
+        assert_eq!(row(Item::Head(1)), y3, "panel sits level with rule 3");
+        assert_eq!(canvas.at(bus, y3), Some('├'), "no line from the left");
+        assert_eq!(canvas.at(bus, y3 + 1), Some('┘'), "rule 3's own line");
         assert_eq!(canvas.at(bus, row(Item::Head(0)) + 1), Some('╎'));
+        // rules 1 and 3 both go to desk, so rule 1 leaves from its first row
+        assert_eq!(canvas.at(bus, row(Item::Head(0))), Some('┬'));
         // the keyboard's line runs left, into its rule
         let yk = row(Item::Input(1));
         let yr = row(Item::Rule(4));
@@ -1318,6 +1354,54 @@ mod tests {
             .filter_map(|x| canvas.at(x, 11))
             .collect();
         assert!(count.starts_with('↑'), "{count}");
+    }
+
+    #[test]
+    fn a_look_no_head_uses_says_so_in_d7_s_words() {
+        let f = fixture::flow();
+        let l = lines(&ctx(&f), Item::Look(2), 13);
+        let said: Vec<&str> = l.iter().skip(2).map(|l| l.text.as_str()).collect();
+        assert_eq!(said.join(" "), words::NO_HEAD_USES);
+        assert!(said.iter().all(|s| s.chars().count() <= 12), "{said:?}");
+    }
+
+    #[test]
+    fn the_route_card_says_what_is_wrong_with_a_rule_or_a_look() {
+        use super::super::flow::RuleState;
+        let sentence = |f: &Flow, item| route_card(f, item).1;
+        let mut f = fixture::flow();
+        f.rules[2].state = RuleState::Shadowed(0);
+        assert_eq!(
+            sentence(&f, Item::Rule(2)),
+            "Rule 3 sends * to desk, but rule 1 comes first and matches everything it would, so it matches nothing."
+        );
+        f.rules[2].state = RuleState::NeedsUdev;
+        assert!(
+            sentence(&f, Item::Rule(2)).contains("needs udev, which this machine does not run")
+        );
+        f.rules[2].state = RuleState::Error("a selector key it does not know".into());
+        assert!(
+            sentence(&f, Item::Rule(2))
+                .ends_with("the check finds an error in it: a selector key it does not know.")
+        );
+        f.looks[0].fonts[0].1 = false;
+        assert_eq!(
+            sentence(&f, Item::HeadLook(0)),
+            "Look big draws desk, but this machine lacks Monoid, which its frit monoid names."
+        );
+        f.looks[0].problem = Some("frit monoid does not exist".into());
+        assert!(
+            sentence(&f, Item::HeadLook(0)).ends_with("problem in it: frit monoid does not exist.")
+        );
+        f.heads[1].look = "huge".into();
+        assert_eq!(
+            sentence(&f, Item::HeadLook(1)),
+            "Head panel names look huge, which the file does not have, so it draws with the default look."
+        );
+        f.looks[2].problem = Some("frit minspec-16 does not read".into());
+        assert!(
+            sentence(&f, Item::Look(2)).starts_with("Look tiny is not used: no head uses it, but")
+        );
     }
 
     #[test]
