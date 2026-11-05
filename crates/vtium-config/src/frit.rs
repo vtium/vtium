@@ -22,11 +22,9 @@ pub const FRIT_SOURCES_MAX: usize = 16;
 /// console reads it within.
 pub const FRIT_SIZE_MIN: u32 = 6;
 pub const FRIT_SIZE_MAX: u32 = 96;
-/// The smallest and largest side of the cell `cell=` states, in pixels:
-/// from minspec's 8 pixels to an 8K display's large sizes, as far as a
-/// glyph two cells wide still fits a set's 16 KiB chunk.
-pub const FRIT_CELL_MIN: u32 = 6;
-pub const FRIT_CELL_MAX: u32 = 96;
+/// The smallest and largest side of the cell `cell=` states, in pixels,
+/// from the key table, whose look's `cell` takes the same bounds.
+pub use vtium_settings::keys::{FRIT_CELL_MAX, FRIT_CELL_MIN};
 /// The heights `cp-size=` picks among a CPI font's, as `setfont`'s `-8`,
 /// `-14` and `-16` do.
 pub const CP_SIZES: [u32; 3] = [8, 14, 16];

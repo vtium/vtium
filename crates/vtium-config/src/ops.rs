@@ -312,19 +312,6 @@ mod tests {
         assert_eq!(look_option("login"), None);
     }
 
-    // a look's cell takes a frit's cell= bounds, which vtium-config's frit
-    // reader holds too
-    #[test]
-    fn a_look_s_cell_has_a_frit_s_bounds() {
-        assert_eq!(
-            (
-                vtium_settings::keys::FRIT_CELL_MIN,
-                vtium_settings::keys::FRIT_CELL_MAX
-            ),
-            (crate::frit::FRIT_CELL_MIN, crate::frit::FRIT_CELL_MAX)
-        );
-    }
-
     #[test]
     fn a_look_is_added_with_its_keys_in_the_table_s_order() {
         let out = look_add(

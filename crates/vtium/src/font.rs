@@ -178,7 +178,7 @@ pub fn frit(frits: &Path, name: &str) -> Option<PathBuf> {
 }
 
 /// The smallest and largest side of a frit's `cell=` and a look's
-/// `cell`, from the key table, which vtium-config's frit reader holds too.
+/// `cell`, from the key table.
 pub use crate::config::keys::{FRIT_CELL_MAX, FRIT_CELL_MIN};
 
 /// The frit at `path`'s text: a regular file of at most `FILE_MAX`

@@ -120,7 +120,7 @@ pub fn absolute(text: &str) -> bool {
 /// and a look's `cell` state, in pixels: from minspec's 8 pixels to an 8K
 /// display's large sizes, as far as a glyph two cells wide still fits a
 /// glyph set's 16 KiB chunk (ADR-1200 D1). vtium-config's frit reader
-/// holds the same bounds.
+/// and the console take them from here.
 pub const FRIT_CELL_MIN: u32 = 6;
 pub const FRIT_CELL_MAX: u32 = 96;
 
