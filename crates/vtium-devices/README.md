@@ -1,8 +1,8 @@
 # vtium-devices
 
-The devices present as the head file's rules see them. vtium-platform reads what udev, sysfs, the device and the KMS connector say about a display or an input device. vtium-settings's rules match an `Identity`, the description of a device that the rules read. This crate turns the first into the second (ADR-1401 D4), so that every program that places a device places it the same way (ADR-1403 D9).
+This crate describes each device present the way the head file's rules see it. vtium-platform reads what udev, sysfs, the device and the KMS connector say about a display or an input device. vtium-settings's rules match an `Identity`, the description of a device that the rules read. This crate turns the first into the second (ADR-1401 D4), so that every program that places a device places it the same way (ADR-1403 D9).
 
-Three programs use it. The console's start maps each display and input it opens. `vtium check-config` maps every device that vtium-platform lists for the seat, without opening any of them. vtium-config links the crate for its flow view, which will place each device by the same functions.
+Three programs use it. The console's start maps each display and input it opens. `vtium check-config` maps every device that vtium-platform lists for the seat, without opening any of them. vtium-config links the crate so that its flow view places each device by the same functions, and no code in vtium-config calls it yet.
 
 The crate depends on vtium-platform and vtium-settings, which both binaries already link, and on nothing else. It forbids unsafe code and denies every panic that a device's facts could reach.
 

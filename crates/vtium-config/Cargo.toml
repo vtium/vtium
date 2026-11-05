@@ -31,7 +31,7 @@ vtium-platform.workspace = true
 vtium-settings.workspace = true
 # The devices present as the head file's rules see them, mapped by the
 # functions the console places them with, for the flow view (ADR-1403 D9).
-vtium-devices = { path = "../vtium-devices" }
+vtium-devices.workspace = true
 # gzip's deflate, for compressed fonts and unimaps; vtium-font already
 # builds this version.
 miniz_oxide = "0.8.9"

@@ -38,7 +38,7 @@ vtium-image = { workspace = true, optional = true }
 vtium-settings.workspace = true
 # The devices present as the head file's rules see them, which the start
 # places and `check-config` lists (ADR-1403 D9).
-vtium-devices = { path = "../vtium-devices" }
+vtium-devices.workspace = true
 # The messages vtium-platform writes through it, and the binary's own,
 # which the binary routes to stderr.
 log = "0.4"
