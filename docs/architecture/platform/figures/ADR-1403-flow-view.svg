@@ -9,12 +9,12 @@
 <text x="20" y="18" font-size="12" fill="#1f2933">vtium-config's flow view, drawn in the console's sixteen colors on its black background (the default palette's values), with rule 5 opened for editing</text>
 <rect x="20" y="26" width="1160" height="642" fill="#000000" stroke="#9aa5b1"/>
 <!-- tab bar -->
-<text x="36" y="48" fill="#e5e5e5">Fonts   Sizes   Settings   Heads</text>
-<rect x="316" y="35" width="48" height="18" fill="#e5e5e5"/>
-<text x="322" y="48" fill="#000000">Flow</text>
-<text x="380" y="48" fill="#e5e5e5">View   Save   Revert   New   Delete draft</text>
+<rect x="30" y="35" width="48" height="18" fill="#e5e5e5"/>
+<text x="36" y="48" fill="#000000">Flow</text>
+<text x="94" y="48" fill="#e5e5e5">Looks   Fonts   Settings   Help</text>
+<text x="440" y="48" fill="#e5e5e5">View   Install   Revert   Restore   New   Delete draft</text>
 <!-- status line -->
-<text x="36" y="72" fill="#e5e5e5">draft ~/.config/vtium/vtium.conf: 1 line added, 1 removed   no problems</text>
+<text x="36" y="72" fill="#e5e5e5">draft workstation · 1 change · no problems</text>
 <!-- the base card, black on light grey -->
 <rect x="36" y="84" width="754" height="20" fill="#e5e5e5"/>
 <text x="42" y="98" fill="#000000">base   policy open   font-size 12   xkb-layout us   mouse   (101 keys at their defaults)</text>
@@ -47,14 +47,14 @@
 <text x="456" y="160" fill="#000000">1 console</text>
 <text x="456" y="180" fill="#000000">the active head</text>
 <rect x="592" y="120" width="198" height="80" fill="#ff00ff"/>
-<text x="598" y="140" fill="#000000">profile big, 14 pt</text>
+<text x="598" y="140" fill="#000000">look big, 14 pt</text>
 <text x="598" y="160" fill="#000000">└ frit monoid</text>
 <text x="598" y="180" fill="#000000">  └ Monoid</text>
 <rect x="450" y="230" width="140" height="80" fill="#ffff00"/>
 <text x="456" y="250" fill="#000000" font-weight="bold">panel</text>
 <text x="456" y="270" fill="#000000">2 consoles</text>
 <rect x="592" y="230" width="198" height="80" fill="#ff00ff"/>
-<text x="598" y="250" fill="#000000">profile small, 12 pt</text>
+<text x="598" y="250" fill="#000000">look small, 12 pt</text>
 <text x="598" y="270" fill="#000000">└ frit dejavu</text>
 <text x="598" y="290" fill="#000000">  └ DejaVu Sans Mono</text>
 <!-- new items at the foot of the heads and look columns -->
@@ -116,6 +116,6 @@
 <rect x="114" y="565" width="126" height="18" fill="#e5e5e5"/>
 <text x="118" y="578" fill="#000000">class:keyboard</text>
 <text x="252" y="578" fill="#e5e5e5">path:pci-0000:15:00.0-usb-0:3.3   id:046d:c31c   or type a selector</text>
-<text x="36" y="616" fill="#7f7f7f">Tab ←→ columns   ↑↓ move   Enter edit   Space tag   c connect   f follow   d devices   v view   s save   r revert   n new   x delete   q leave</text>
+<text x="36" y="616" fill="#7f7f7f">Tab ←→  ↑↓ move  Enter edit  Space tag  c connect  f follow  d devices  ? route  v view  i install  r revert  o restore  n new  x delete  q leave</text>
 </g>
 </svg>

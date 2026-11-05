@@ -300,6 +300,18 @@ considered:
     said: "Bold and italic glyphs come only when the console asks for them; the background fill draws regular glyphs alone."
     via: "the steering session, 2026-11-04; the wording is the steering session's"
     paraphrase: true
+  - operator: aaronsb
+    said: "vtium gains a top-level key, font-paths: the folders vtium searches for fonts, which vtium-config's Fonts view adds, removes and orders."
+    via: the steering session's interview, 2026-11-04
+    paraphrase: true
+  - operator: aaronsb
+    said: "When font-paths is unset, vtium uses the build's list, and the Fonts view shows it as the defaults in use. A user's ~/.local/share/fonts is not searched by default; a user may add it, and check-config notes that a font found there appears only after login. Landlock for the glyph helper is already decided, approved on 2026-11-04 with a seccomp socket filter, so the helper's landlock domain allows reading exactly the folders in font-paths, or the build's list."
+    via: the steering session's interview, 2026-11-05
+    paraphrase: true
+  - operator: aaronsb
+    said: "The profile becomes the look: a [look NAME] section of vtium.conf holds the frit, the size and vtlook = FILE, and heads name a look. The glyph helper's landlock domain does not limit reads, because a frit may name a font by an absolute path; it limits writes and network only, as decided on 2026-11-04."
+    via: the steering session's interview, 2026-11-05
+    paraphrase: true
 observable:
   - "A glyph arriving for a character shown only in the scrollback view, or inside a cluster, redraws that cell on the next frame"
   - "With the store at its limit, the fill sends nothing more, and an ask evicts the glyphs least recently shown, redrawing nothing"
@@ -364,6 +376,8 @@ The figure follows a glyph from the profile to the frame: the profile's cell and
 > Edited 2026-10-30: the operator gave a head's font one path, head to profile to frit (ADR-1401's `considered`). The bullet read: "a head's profile overrides them for that head; and a `font-name` or `font-size` in the head's own section of the head file overrides both (ADR-1401 D3)." The heads first cut still parses a head's `font-name` and `font-size`; their removal is not built yet.
 
 > Edited 2026-10-29: ADR-1401, accepted by the operator, gives profiles their place: a head names one, the compiled-in configuration holds the default profile and its default frit, an invalid profile falls back to the default, and vtium writes neither profiles nor frits. D16 read: "Where profiles are kept, and the commands that write them, are [the guided builder's, the target-display work's and the rule checker's]."
+
+> Edited 2026-11-05: the maintainer renamed the profile the look (`considered`). A look is a `[look NAME]` section of vtium.conf that holds the frit, the cell or size and the other keys this record gives a profile, and `vtlook = FILE`, which names ADR-1304's vtlook; a head names its look with `look =` (ADR-1403 D1, D5). Where this record says profile, it means that section; its decisions are unchanged.
 
 ### D1: the frit
 
@@ -708,6 +722,28 @@ The C reference had no such command. It logged its revision when it started and 
 
 > Added 2026-11-03: the maintainer asked for one command that gathers what a bug report needs, so that people who try vtium outside the project can report a defect with the evidence it leaves (the team lead's brief of 2026-11-03).
 
+### D25: `font-paths`, the folders vtium searches for fonts
+
+> Added 2026-11-04, and the three open points answered by the maintainer on 2026-11-05 (`considered`): the default, a user's own font folder, and the sandbox. The maintainer decided that vtium gains a top-level key, `font-paths`, the folders vtium searches for fonts, which vtium-config's Fonts view adds, removes and orders (`considered`, 2026-11-04; ADR-1201 D3).
+
+**How vtium finds fonts today** (the tree at 9f4fd304). The helper finds an installed font that a `font:<family>` source names (D1) by walking two folders, `/usr/share/fonts` and `/usr/local/share/fonts`, which are fontconfig's default folders for the system, to a depth of 8, and it searches no user's own font folder (`crates/vtium-config/src/sources.rs`, `FONT_DIRS`). It finds a kbd console font under `/usr/share/kbd`, `/usr/share` and `/usr/lib/kbd`, as `setfont` does (`KBD_DIRS`). A source that names a file by its path is read from that path. The console starts the helper as `vtium-config serve` with no options; the helper's `--font-dir` option replaces its folder list, for a test or a run by hand.
+
+**How `font-paths` combines with that,** decided by this amendment's agent where the maintainer's decision leaves the mechanics open:
+
+- `font-paths` is an ordered list of absolute folders, separated by `:` as `PATH` is. The helper searches the folders in that order for a family a `font:` source names, and the first folder that holds the family gives the font.
+- When `font-paths` is set, its list takes the place of the build's list instead of adding to it, so the Fonts view can order and remove every folder, the two system folders included. When it is unset, the helper searches the build's list, and the Fonts view shows that list as the defaults in use (the maintainer, 2026-11-05).
+- A user's own font folder, such as `~/.local/share/fonts`, is not searched unless the user adds it (the maintainer, 2026-11-05). Before login the helper runs as `nobody`, which cannot read it, so `vtium check-config` notes that a font found there appears only after login.
+- The console hands the list to every helper it starts, as the helper's folder list, so the console and `vtium-config preview` search the same folders.
+- vtium ignores a folder that is not an absolute path or that holds a control character, and says why, as it does for `font-frits`.
+- `font-paths` is a top-level key only; a look section does not set it (ADR-1403 D5).
+- It covers installed fonts found by family. kbd's console-font folders stay the build's, and a source that names a file by its path reads that path, as before.
+
+**Reading rights.** The helper reads fonts as its own account (D15): `nobody` before anyone logs in, and the session's user after. A folder that this account cannot read gives no fonts, and a source that finds nothing there falls through to the frit's next source (D17). `vtium check-config` notes each folder of `font-paths` that does not exist or that `nobody` cannot read.
+
+> Note 2026-11-05: the `considered` entry of 2026-11-05 that says the helper's landlock domain allows reading exactly the folders of `font-paths` is replaced by the next entry, which corrects it: the maintainer's decision of 2026-11-04 leaves reads open.
+
+**The sandbox.** `font-paths` sets where vtium searches for fonts and changes nothing in the helper's sandbox. The helper's landlock domain, which the maintainer approved on 2026-11-04 with a seccomp filter on sockets and which D15 records, limits writes and the network and leaves reads open, because a frit may name a font by an absolute path anywhere (the maintainer, 2026-11-04).
+
 ### Retired
 
 - **D3, the trusted store,** and **D12, portable sets and the two ways to build them,** are retired with the prerendered store (Alternatives Considered).
@@ -741,6 +777,10 @@ How the C reference drew its glyphs, as the logical reference for each decision 
 - `font_set` called `kmscon_font_find` with the configured name, size and engine; when that failed and no font was loaded yet, it retried at 16 px (`src/terminal.c:921-941`). `kmscon_font_find` tried the configured engine, then the others in turn (`src/font/font.c:124-167`, `203-232`).
 - `terminal_get_auto_font_size` worked from the smallest display's size and took the smaller of two heights: twice the display's width divided by 120, which gave at most 120 columns of cells half as wide as they are high, and the display's height divided by 40, which gave at least 40 rows. It never went under 16 px, and it used 16 when no display size was known (`src/terminal.c:899-919`).
 - The cell was the font's own width and height, which `terminal_update_size_notify` handed to libtsm with `tsm_screen_set_cell_size` (`src/terminal.c:1151-1162`).
+
+### Finding fonts
+
+- The C reference found fonts through fontconfig, from its pango and freetype backends (`src/font/font_pango.c`, `pango_ft2_font_map_new`; `src/font/font_freetype.c`), whose configuration named the folders; it had no key of its own for them. It ran as root, so fontconfig's folders for a user were root's.
 
 ### The resize, and zoom
 
