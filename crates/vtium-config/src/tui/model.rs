@@ -824,7 +824,10 @@ impl App {
             return Vec::new();
         }
         self.trial = None;
-        let changed = self.in_flight.is_some() || self.shown_font != self.start_font;
+        // the font the console ends in once the switch in flight, if any,
+        // is answered: the start font is sent only where it is another
+        let last = self.in_flight.as_ref().or(self.shown_font.as_ref());
+        let back = last != self.start_font.as_ref();
         let mouse = std::mem::take(&mut self.mouse);
         let mut bytes = self
             .drop_picture()
@@ -838,12 +841,25 @@ impl App {
             bytes.extend_from_slice(MOUSE_OFF);
         }
         match (&self.live, &self.start_font) {
-            (Live::On, Some(start)) if changed => {
+            (Live::On, Some(start)) if back => {
                 bytes.extend(switch(start));
                 self.replies_due = usize::from(self.in_flight.is_some()).saturating_add(1);
                 self.leaving = Some(status);
                 self.message = Some(super::words::LEAVING.to_owned());
                 vec![Effect::Write(bytes), Effect::Wait(WAIT)]
+            }
+            // the switch in flight gives the start font back: its reply
+            // is waited for, and nothing is sent again
+            (Live::On, Some(_)) if self.in_flight.is_some() => {
+                self.replies_due = 1;
+                self.leaving = Some(status);
+                self.message = Some(super::words::LEAVING.to_owned());
+                let mut out = Vec::new();
+                if !bytes.is_empty() {
+                    out.push(Effect::Write(bytes));
+                }
+                out.push(Effect::Wait(WAIT));
+                out
             }
             _ => {
                 self.leaving = Some(status);

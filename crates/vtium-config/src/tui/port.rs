@@ -253,7 +253,7 @@ pub fn drive_with(
 fn give_back(app: &App) -> Vec<u8> {
     match (&app.live, &app.start_font) {
         (Live::On, Some(start))
-            if app.in_flight.is_some() || app.shown_font.as_ref() != Some(start) =>
+            if app.in_flight.as_ref().or(app.shown_font.as_ref()) != Some(start) =>
         {
             format!("\x1b]50;{start}\x1b\\").into_bytes()
         }
