@@ -324,3 +324,25 @@ fn a_hash_glued_to_a_value_stays_in_the_value() {
     let read = key_line(b"font-size=12#big").expect("a key line");
     assert_eq!(read.value.as_deref(), Some(&b"12#big"[..]));
 }
+
+// The fuzz target's find: a key added before a first line that opens with
+// a byte-order mark takes the mark, so the heading behind it stays one.
+#[test]
+fn a_key_added_before_the_first_line_keeps_the_byte_order_mark_first() {
+    let text = "\u{feff}[rules]\ninput * -> roaming\n";
+    let out = edit_conf(text, &[Edit::Set("font-size", "12")]).expect("the edit");
+    assert_eq!(out, "\u{feff}font-size=12\n[rules]\ninput * -> roaming\n");
+}
+
+// A byte-order mark is no part of the first line's key, for the readers
+// and the editor alike, as the split reads it.
+#[test]
+fn a_byte_order_mark_is_no_part_of_the_first_key() {
+    let text = "\u{feff}font-size=3\nbell\n";
+    assert_eq!(setting(text, "font-size"), Some("3".to_owned()));
+    assert_eq!(switch("\u{feff}no-bell\n", "bell"), Some(false));
+    assert_eq!(
+        edit_conf(text, &[Edit::Set("font-size", "12")]).expect("the edit"),
+        "\u{feff}font-size=12\nbell\n"
+    );
+}

@@ -288,11 +288,6 @@ fn lines(text: &str) -> Vec<Line> {
         .collect()
 }
 
-/// The top level of `text`, the lines above its first section heading.
-fn top(text: &str) -> &str {
-    text.get(..split(text.as_bytes()).top.len()).unwrap_or(text)
-}
-
 /// Whether `line` sets the key `key`: a value key on a line with a value,
 /// a switch on a line without one, under its name or `no-` and its name.
 fn sets(line: &str, key: &str, switch: bool) -> bool {
@@ -337,8 +332,9 @@ fn round_trips(key: &str, value: &str) -> bool {
 /// top-level line sets it. A section's line of the same name is not the
 /// top level's.
 pub fn setting(text: &str, key: &str) -> Option<String> {
-    lines(top(text)).iter().rev().find_map(|l| {
-        let read = key_line(l.text.as_bytes())?;
+    let top: Vec<(usize, &[u8])> = split(text.as_bytes()).top_lines().collect();
+    top.into_iter().rev().find_map(|(_, line)| {
+        let read = key_line(line)?;
         (read.key == key.as_bytes())
             .then(|| read.value.map(|v| String::from_utf8_lossy(&v).into_owned()))
             .flatten()
@@ -349,14 +345,15 @@ pub fn setting(text: &str, key: &str) -> Option<String> {
 /// the last top-level line that sets it, `key` or `no-key`; `None` when no
 /// top-level line sets it.
 pub fn switch(text: &str, key: &str) -> Option<bool> {
-    lines(top(text)).iter().rev().find_map(|l| {
-        let s = scan(l.text.as_bytes())?;
-        if s.value.is_some() {
+    let top: Vec<(usize, &[u8])> = split(text.as_bytes()).top_lines().collect();
+    top.into_iter().rev().find_map(|(_, line)| {
+        let read = key_line(line)?;
+        if read.value.is_some() {
             return None;
         }
-        match key_of(&l.text, &s) {
-            k if k == key => Some(true),
-            k if k.strip_prefix("no-") == Some(key) => Some(false),
+        match read.key {
+            k if k == key.as_bytes() => Some(true),
+            k if k.strip_prefix(b"no-") == Some(key.as_bytes()) => Some(false),
             _ => None,
         }
     })
@@ -365,10 +362,17 @@ pub fn switch(text: &str, key: &str) -> Option<bool> {
 /// Makes `edits` to the top level of the vtium.conf `text`, in order, and
 /// returns the whole file with only the lines they need changed.
 pub fn edit_conf(text: &str, edits: &[Edit<'_>]) -> Result<String, ConfEdit> {
-    let mut file = lines(text);
+    // a byte-order mark is no part of the first line, as the split reads
+    // it, and stays the file's first bytes whatever line goes first
+    let (bom, body) = match text.strip_prefix('\u{feff}') {
+        Some(rest) => ("\u{feff}", rest),
+        None => ("", text),
+    };
+    let mut file = lines(body);
     // the lines above the first heading; an added line stays above it
-    let mut top_count = lines(top(text)).len();
-    let sections = top_count < file.len();
+    let parts = split(text.as_bytes());
+    let mut top_count = parts.top_lines().count();
+    let sections = parts.first_section.is_some();
     // a new line ends as the file's first line does
     let newline = match file.first().map(|l| l.ending) {
         Some("\r\n") => "\r\n",
@@ -460,10 +464,11 @@ pub fn edit_conf(text: &str, edits: &[Edit<'_>]) -> Result<String, ConfEdit> {
         );
         top_count = top_count.saturating_add(1);
     }
-    Ok(file
+    let edited: String = file
         .iter()
         .map(|l| format!("{}{}", l.text, l.ending))
-        .collect())
+        .collect();
+    Ok(format!("{bom}{edited}"))
 }
 
 #[cfg(test)]

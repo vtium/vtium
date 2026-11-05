@@ -45,7 +45,9 @@ use crate::identity::Kind;
 use crate::keys::{self, Key, Level, TEXT_MAX};
 use crate::matching::{Match, Token, TokenError};
 use crate::outcome::{Kept, Policy, PolicyLine, Scope, Trusted, Within, scope};
-use crate::split::{BOM, POLICY_KEY, VERSION_KEY, begins_policy, heading, numbered, split};
+use crate::split::{
+    BOM, POLICY_KEY, VERSION_KEY, begins_policy, heading, numbered, split, split_after,
+};
 
 /// A valid head file, or what survives of one, and what its check found.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -188,7 +190,7 @@ fn read(bytes: &[u8], mode: Mode) -> Reading {
     let n = match mode {
         Mode::HeadFile => each_line(&mut p, within, 0, Parser::raw_line),
         Mode::Conf => {
-            let parts = split(within);
+            let parts = split_after(within, false);
             match parts.first_section {
                 // the top level's lines, then the sections' from the heading
                 Some(first) => {

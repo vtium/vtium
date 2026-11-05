@@ -66,8 +66,9 @@ pub(crate) fn numbered(bytes: &[u8], first: usize) -> impl Iterator<Item = (usiz
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Split<'a> {
     /// Every line above the first section heading, each with its newline,
-    /// a byte-order mark before the first line included. It is the whole
-    /// file when the file has no section.
+    /// and a byte-order mark before the first line, even one before a
+    /// heading on the first line. It is the whole file when the file has
+    /// no section.
     pub top: &'a [u8],
     /// The first section heading and every line after it; empty when the
     /// file has no section.
@@ -82,14 +83,24 @@ pub struct Split<'a> {
 /// line after it, so a line holding a key after a heading belongs to that
 /// heading's section.
 pub fn split(bytes: &[u8]) -> Split<'_> {
+    split_after(bytes, true)
+}
+
+/// [`split`], reading a byte-order mark before the first line as no part
+/// of it only where `bom` says: the section reader has dropped the mark
+/// already, so a second one is a byte of the first line, as [`split`]
+/// reads it too.
+pub(crate) fn split_after(bytes: &[u8], bom: bool) -> Split<'_> {
     let mut start = 0_usize;
     for (n, piece) in bytes.split(|&b| b == b'\n').enumerate() {
         let line = match n {
-            0 => piece.strip_prefix(BOM).unwrap_or(piece),
+            0 if bom => piece.strip_prefix(BOM).unwrap_or(piece),
             _ => piece,
         };
         if heading(line) {
-            let (top, sections) = bytes.split_at_checked(start).unwrap_or((bytes, &[]));
+            // a mark before a heading on the first line stays the top's
+            let at = start.saturating_add(piece.len().saturating_sub(line.len()));
+            let (top, sections) = bytes.split_at_checked(at).unwrap_or((bytes, &[]));
             return Split {
                 top,
                 sections,
@@ -111,10 +122,7 @@ impl<'a> Split<'a> {
     /// carriage return that ends a line is kept, since the console's line
     /// reading drops it as a blank.
     pub fn top_lines(&self) -> impl Iterator<Item = (usize, &'a [u8])> {
-        numbered(self.top, 1).map(|(n, line)| match n {
-            1 => (n, line.strip_prefix(BOM).unwrap_or(line)),
-            _ => (n, line),
-        })
+        numbered(self.top.strip_prefix(BOM).unwrap_or(self.top), 1)
     }
 
     /// The top level's lines that hold vtium's own keys, which the console
@@ -187,7 +195,9 @@ mod tests {
     fn a_heading_after_a_byte_order_mark_still_starts_the_sections() {
         let s = split(b"\xef\xbb\xbf[head desk]\n");
         assert_eq!(s.first_section, Some(1));
-        assert_eq!(s.top, b"");
+        assert_eq!(s.top, b"\xef\xbb\xbf");
+        assert_eq!(s.sections, b"[head desk]\n");
+        assert_eq!(s.top_lines().count(), 0);
         let s = split(b"\xef\xbb\xbffont-size=1\n");
         assert_eq!(s.top_lines().next(), Some((1, &b"font-size=1"[..])));
     }

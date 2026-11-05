@@ -523,3 +523,22 @@ fn q(text: &str) -> vtium_settings::Quoted {
         other => panic!("{text:?}: {other:?}"),
     }
 }
+
+// The fuzz target's find: the section reader drops one byte-order mark,
+// as the split does, so a second one is a byte of line 1 in both parts.
+#[test]
+fn the_section_reader_and_the_split_drop_one_byte_order_mark_alike() {
+    let bytes = b"\xef\xbb\xbf\xef\xbb\xbf[,\nQNQ[\n[";
+    assert_eq!(split(bytes).first_section, Some(3));
+    let keys: Vec<usize> = split(bytes).key_lines().map(|(n, _)| n).collect();
+    assert_eq!(keys, [1, 2]);
+    let r = sections(bytes).expect("a flow");
+    assert!(
+        r.errors
+            .errors
+            .iter()
+            .all(|e| e.line.is_none_or(|n| n >= 3)),
+        "{:?}",
+        r.errors
+    );
+}
