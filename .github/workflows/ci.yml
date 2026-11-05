@@ -5,13 +5,22 @@ on:
   pull_request:
 
 jobs:
+  # The workspace's checks, in two jobs that run at once: one builds with
+  # every feature (fmt, clippy and the tests), the other the default build,
+  # which is the minspec console's (its tests and the minspec profile).
+  # --all-features never compiles or tests what a feature leaves out, so
+  # both builds are checked.
   check:
+    strategy:
+      fail-fast: false
+      matrix:
+        build: [all-features, default]
+    name: check (${{ matrix.build }})
     runs-on: ubuntu-latest
     steps:
-      # This job builds the workspace three ways (all features, the default
-      # build and minspec) in one target directory, which fills the runner's
-      # disk. The runner's preinstalled .NET, Android, Haskell and CodeQL
-      # toolchains, which vtium never uses, are removed to make room.
+      # Each build fills much of the runner's disk. The runner's preinstalled
+      # .NET, Android, Haskell and CodeQL toolchains, which vtium never uses,
+      # are removed to make room.
       - name: free disk space
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
@@ -30,17 +39,22 @@ jobs:
           toolchain: ${{ steps.toolchain.outputs.channel }}
           components: rustfmt, clippy
       # Cache the cargo registry and the target directory between runs; the
-      # key follows Cargo.lock, the toolchain and this job, so every job still
-      # builds and tests everything it did.
+      # key follows Cargo.lock, the toolchain, this job and its build, so
+      # the two builds never share a cache entry.
       - uses: Swatinem/rust-cache@v2
-      - run: cargo fmt --all --check
-      - run: cargo clippy --workspace --all-features --all-targets -- -D warnings
-      - run: cargo test --workspace --all-features
-      # The default build, which is the minspec console's: --all-features
-      # never compiles or tests what a feature leaves out.
+        with:
+          key: ${{ matrix.build }}
+      - if: matrix.build == 'all-features'
+        run: cargo fmt --all --check
+      - if: matrix.build == 'all-features'
+        run: cargo clippy --workspace --all-features --all-targets -- -D warnings
+      - if: matrix.build == 'all-features'
+        run: cargo test --workspace --all-features
       - name: default build tests
+        if: matrix.build == 'default'
         run: cargo test --workspace
       - name: minspec build
+        if: matrix.build == 'default'
         run: cargo build --profile minspec
 
   # minspec's ARM targets (tools/arm/README.md). The tests run natively on
