@@ -32,6 +32,9 @@ pub enum Key {
     /// A mouse event, which only the Flow view asks for.
     Mouse(Mouse),
     Char(char),
+    /// Ctrl-D or Ctrl-U, by its letter, which the pager scrolls by half a
+    /// page with (ADR-1403 D7).
+    Ctrl(char),
 }
 
 /// A mouse event, as modes 1000 and 1006 report it.
@@ -157,6 +160,8 @@ fn front(bytes: &[u8]) -> Front {
         b'\r' | b'\n' => key(1, Key::Enter),
         b'\t' => key(1, Key::Tab),
         0x7f | 0x08 => key(1, Key::Backspace),
+        0x04 => key(1, Key::Ctrl('d')),
+        0x15 => key(1, Key::Ctrl('u')),
         b if b < 0x20 => Front::Took(1, None),
         _ => {
             // a UTF-8 character, whole

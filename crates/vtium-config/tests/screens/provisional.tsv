@@ -3,8 +3,6 @@ fonts-80x25	the fonts view at 80x25
 fonts-100x30	the fonts view at 100x30
 settings-80x25	the settings view at 80x25
 settings-100x30	the settings view at 100x30
-save-80x25	the save view at 80x25
-save-100x30	the save view at 100x30
 new-80x25	the new-frit view at 80x25
 new-100x30	the new-frit view at 100x30
 flow-80x25	the flow view at 80x25, on the flow of ADR-1403 D7's figure
@@ -17,3 +15,11 @@ looks-80x25	the looks view, which holds the sizes, at 80x25
 looks-100x30	the looks view, which holds the sizes, at 100x30
 help-80x25	the help view's Help page at 80x25
 help-100x30	the help view's Help page at 100x30
+draft-rule-card-80x25	the flow view on a draft at 80x25 with rule 1's card open for editing
+draft-rule-card-100x30	the flow view on a draft at 100x30 with rule 1's card open for editing
+draft-head-card-80x25	the flow view on a draft at 80x25 with head desk's card open for editing
+draft-head-card-100x30	the flow view on a draft at 100x30 with head desk's card open for editing
+draft-delete-head-80x25	the flow view on a draft at 80x25 asking before it deletes head desk
+draft-delete-head-100x30	the flow view on a draft at 100x30 asking before it deletes head desk
+draft-pager-80x25	the read-only pager over the draft at 80x25, at rule 2's line
+draft-pager-100x30	the read-only pager over the draft at 100x30, at rule 2's line

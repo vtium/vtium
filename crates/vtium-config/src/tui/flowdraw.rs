@@ -1185,7 +1185,13 @@ pub fn card(flow: &Flow, item: Item) -> Vec<Vec<(String, Style)>> {
                 line(words::at_defaults(flow.base.defaults), grey),
             ]
         }
-        Item::New(_) => vec![line(words::NEW_NOT_BUILT.to_owned(), grey)],
+        Item::New(new) => vec![line(
+            words::new_card(new).to_owned(),
+            Style {
+                bold: true,
+                ..Style::PLAIN
+            },
+        )],
     }
 }
 

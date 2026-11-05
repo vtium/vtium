@@ -14,9 +14,8 @@
 use super::canvas::{Canvas, Row, Span, span, wrap};
 use super::color::{Style, palette};
 use super::flow::Item;
-use super::model::{App, DpiFrom, FontState, Live, NEW_FIELDS, SIZES, Saving, View, setting_keys};
+use super::model::{App, DpiFrom, FontState, Live, NEW_FIELDS, SIZES, View, setting_keys};
 use super::words;
-use crate::draft::changes;
 use crate::specimen::Sources;
 
 /// The smallest grid a view is drawn in (ADR-1201 D3): below it, the one
@@ -151,7 +150,9 @@ fn body(app: &App) -> Body {
                     if app.pending.removals.contains(&f.name) {
                         note = format!("{note}, {}", words::TO_REMOVE);
                     }
-                    if app.pending.font_name() == Some(&f.name) {
+                    if app.changed("font-name")
+                        && app.drafted("font-name").as_deref() == Some(&f.name)
+                    {
                         note = format!("{note}, {}", words::TO_SAVE);
                     } else if configured.as_deref() == Some(&f.name) {
                         note = format!("{note}, {}", words::SAVED);
@@ -177,7 +178,8 @@ fn body(app: &App) -> Body {
                         0 => words::AUTOMATIC.to_owned(),
                         n => words::points(n),
                     };
-                    let note = if app.pending.font_size() == Some(size) {
+                    let drafted = app.drafted("font-size").and_then(|s| s.parse::<u32>().ok());
+                    let note = if app.changed("font-size") && drafted.unwrap_or(0) == size {
                         words::TO_SAVE
                     } else if configured.unwrap_or(0) == size {
                         words::SAVED
@@ -240,7 +242,7 @@ fn body(app: &App) -> Body {
                             (v, false) => v,
                         },
                     };
-                    let value = if app.pending.get(key.name).is_some() {
+                    let value = if app.changed(key.name) {
                         format!("{value}, {}", words::TO_SAVE)
                     } else {
                         value
@@ -291,11 +293,6 @@ fn body(app: &App) -> Body {
                 tail: tail(words::NEW_HINT, cols),
             }
         }
-        View::Save => Body {
-            list: save_rows(app),
-            keep: 0,
-            tail: Vec::new(),
-        },
         View::Help => Body {
             keep: app.help_at,
             list: help_rows(app),
@@ -308,70 +305,6 @@ fn body(app: &App) -> Body {
             tail: Vec::new(),
         },
     }
-}
-
-/// The save view: each file the save changes, each line that changes,
-/// and the one command it runs.
-fn save_rows(app: &App) -> Vec<Row> {
-    let plan = match app.plan() {
-        Ok(plan) => plan,
-        Err(why) => return prose(&words::save_failed(why), app.cols),
-    };
-    if plan.is_empty() {
-        return prose(words::NOTHING_TO_SAVE, app.cols);
-    }
-    let mut rows = Vec::new();
-    for file in &plan.files {
-        rows.extend(prose(&file.path.display().to_string(), app.cols));
-        for c in changes(file.old.as_deref().unwrap_or_default(), &file.new) {
-            if let Some(old) = &c.old {
-                rows.push(plain(format!("   {:>4} - {old}", c.line)));
-            }
-            if let Some(new) = &c.new {
-                rows.push(plain(format!("   {:>4} + {new}", c.line)));
-            }
-        }
-    }
-    for removal in &plan.removals {
-        rows.extend(prose(&removal.path.display().to_string(), app.cols));
-        let name = removal
-            .path
-            .file_stem()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_default();
-        let indent = "   ";
-        for line in wrap(
-            &words::removed_file(name),
-            app.cols.saturating_sub(2 + indent.len()),
-            usize::MAX,
-        ) {
-            rows.push(plain(format!("{indent}{line}")));
-        }
-    }
-    if !app.report.is_empty() {
-        rows.push(plain(""));
-        rows.extend(prose(words::COMMAND_SAID, app.cols));
-        rows.extend(app.report.iter().map(|l| plain(format!("   {l}"))));
-    }
-    rows.push(plain(""));
-    let width = app.cols.saturating_sub(2);
-    let mut say = |text: &str, indent: &str| {
-        for line in wrap(text, width.saturating_sub(indent.len()), usize::MAX) {
-            rows.push(plain(format!("{indent}{line}")));
-        }
-    };
-    match &app.inputs.saving {
-        Saving::Sudo(command) | Saving::User(command) => {
-            let intro = match &app.inputs.saving {
-                Saving::Sudo(_) => words::SAVE_RUNS,
-                _ => words::SAVE_AS_USER,
-            };
-            say(intro, " ");
-            say(command, "   ");
-            say(&words::draft_under(app.inputs.drafts.display()), " ");
-        }
-    }
-    rows
 }
 
 /// The Help view's rows: on the Help page, what each view does and its
@@ -553,9 +486,8 @@ fn tab_places(app: &App) -> Vec<(Tab, usize, String)> {
 fn tab_bar(canvas: &mut Canvas, app: &App) {
     for (tab, x, text) in tab_places(app) {
         let current = match tab {
-            Tab::View(v) => app.view.tab() == Some(v),
-            // the install view is Install's
-            Tab::Action(i) => app.view == View::Save && i == 1,
+            Tab::View(v) => app.view.tab() == v,
+            Tab::Action(_) => false,
         };
         let style = match (tab, current) {
             (_, true) => Style::PLAIN.reversed(),
@@ -587,9 +519,25 @@ fn status(canvas: &mut Canvas, app: &App) {
         Some(d) => words::draft_state(&d.name, d.changes, d.problems),
         None => words::NO_DRAFT.to_owned(),
     };
+    let waiting = app
+        .pending
+        .frits
+        .len()
+        .saturating_add(app.pending.removals.len());
+    if waiting > 0 {
+        left = format!("{left} · {}", words::frits_waiting(waiting));
+    }
     if app.view == View::Flow && !app.tags.is_empty() {
         let names: Vec<String> = app.tags.iter().map(|t| flow.name(*t)).collect();
         left = format!("{left} · {}", words::tagged(&names));
+    }
+    if app.view == View::Flow && app.draft.is_some() {
+        if let Some(came) = &app.came {
+            left = format!("{left} · {came}");
+        }
+        if !(app.inputs.hotplug && app.present.udev) {
+            left = format!("{left} · {}", words::NO_HOTPLUG);
+        }
     }
     let live = match app.live {
         Live::Asking => words::LIVE_ASKING,
@@ -617,6 +565,11 @@ const MESSAGE_ROWS: usize = 3;
 fn key_rows(app: &App) -> Vec<String> {
     let keys = match app.view {
         View::Flow if app.route.is_some() => words::KEYS_ROUTE,
+        View::Flow if app.confirm.is_some() => words::KEYS_CONFIRM,
+        View::Flow if app.pager.is_some() => words::KEYS_PAGER,
+        View::Flow if app.restore.is_some() => words::KEYS_RESTORE,
+        View::Flow if app.opened && app.card.typed.is_some() => words::KEYS_TYPING,
+        View::Flow if app.opened && !app.fields().is_empty() => words::KEYS_CARD,
         View::Flow => words::KEYS_FLOW,
         View::Looks => words::KEYS_LOOKS,
         View::Fonts => words::KEYS_FONTS,
@@ -624,7 +577,6 @@ fn key_rows(app: &App) -> Vec<String> {
         View::Settings => words::KEYS_SETTINGS,
         View::Help => words::KEYS_HELP,
         View::New => words::KEYS_NEW,
-        View::Save => words::KEYS_SAVE,
     };
     let width = app.cols.saturating_sub(2).max(1);
     // the Flow view's key line shows the keys that fit on one row, and
@@ -756,6 +708,10 @@ fn flow_screen(canvas: &mut Canvas, app: &App) -> Option<super::flowdraw::Drawn>
         route_screen(canvas, app, cursor, bottom);
         return None;
     }
+    if let Some(pager) = app.pager {
+        pager_screen(canvas, app, pager, bottom);
+        return None;
+    }
     let base = words::base_row(&flow.base.set, flow.base.defaults);
     let base_style = if app.flow_at == Item::Base {
         Style::block(palette::BASE).reversed()
@@ -769,8 +725,17 @@ fn flow_screen(canvas: &mut Canvas, app: &App) -> Option<super::flowdraw::Drawn>
     };
     let shown = super::canvas::fit(&base_text, cols);
     canvas.put(0, 2, &shown, base_style);
-    let card = if app.opened {
-        super::flowdraw::card(flow, app.flow_at)
+    let room = if rows >= 30 { 6 } else { 4 };
+    let card = if let Some((kept, at)) = &app.restore {
+        restore_rows(kept, *at, room)
+    } else if app.opened {
+        let mut card = super::flowdraw::card(flow, app.flow_at);
+        let fields = app.fields();
+        if !fields.is_empty() {
+            card.truncate(1);
+            card.extend(field_rows(app, &fields, room));
+        }
+        card
     } else {
         Vec::new()
     };
@@ -823,6 +788,125 @@ fn flow_screen(canvas: &mut Canvas, app: &App) -> Option<super::flowdraw::Drawn>
         }
     }
     Some(drawn)
+}
+
+/// The opened card's fields, at most `room` of them around the cursor:
+/// each its label, then the values it offers with the current one in its
+/// block and the cursor's in reverse video, then `type…` where a value
+/// may be typed; the value being typed takes the field's row.
+fn field_rows(app: &App, fields: &[super::edit::Field], room: usize) -> Vec<Vec<(String, Style)>> {
+    let grey = Style::text(palette::GREY);
+    let first = app
+        .card
+        .field
+        .saturating_add(1)
+        .saturating_sub(room)
+        .min(fields.len().saturating_sub(room));
+    fields
+        .iter()
+        .enumerate()
+        .skip(first)
+        .take(room)
+        .map(|(i, f)| {
+            let here = i == app.card.field;
+            let mark = if here { "▸ " } else { "  " };
+            let mut row = vec![(format!("{mark}{:<18}", f.label), grey)];
+            if here && let Some(typed) = &app.card.typed {
+                row.push((format!(" {typed}_ "), Style::PLAIN.reversed()));
+                return row;
+            }
+            for (k, o) in f.options.iter().enumerate() {
+                let style = if here && k == app.card.pick {
+                    Style::PLAIN.reversed()
+                } else if *o == f.current {
+                    Style::block(palette::LOOKS)
+                } else {
+                    Style::PLAIN
+                };
+                row.push((format!(" {o} "), style));
+            }
+            if f.typed {
+                let style = if here && app.card.pick == f.options.len() {
+                    Style::PLAIN.reversed()
+                } else {
+                    grey
+                };
+                let shown = if f.options.is_empty() && !f.current.is_empty() {
+                    format!(" {} · {} ", f.current, words::OR_TYPE_VALUE)
+                } else {
+                    format!(" {} ", words::OR_TYPE_VALUE)
+                };
+                row.push((shown, style));
+            }
+            row
+        })
+        .collect()
+}
+
+/// Restore's list of the installed history, at most `room` files around
+/// the highlighted one, under its title.
+fn restore_rows(kept: &[super::desk::Kept], at: usize, room: usize) -> Vec<Vec<(String, Style)>> {
+    let first = at
+        .saturating_add(1)
+        .saturating_sub(room)
+        .min(kept.len().saturating_sub(room));
+    let mut out = vec![vec![(
+        words::RESTORE_TITLE.to_owned(),
+        Style {
+            bold: true,
+            ..Style::PLAIN
+        },
+    )]];
+    for (i, k) in kept.iter().enumerate().skip(first).take(room) {
+        let style = if i == at {
+            Style::PLAIN.reversed()
+        } else {
+            Style::PLAIN
+        };
+        out.push(vec![(
+            format!(" {:>2}  {} ", i.saturating_add(1), k.name),
+            style,
+        )]);
+    }
+    out
+}
+
+/// The draft in the pager, from row 2 down to `bottom`: its title, then
+/// each line with its number, a line the check complains about marked `!`
+/// in bright red, and the line of the card selected in the flow marked
+/// with [`SELECTED`].
+fn pager_screen(canvas: &mut Canvas, app: &App, pager: super::model::Pager, bottom: usize) {
+    let Some(draft) = &app.draft else {
+        return;
+    };
+    canvas.put(
+        1,
+        2,
+        &format!("{} · draft {}", words::PAGER_TITLE, draft.name),
+        Style {
+            bold: true,
+            ..Style::PLAIN
+        },
+    );
+    let flagged: Vec<usize> = draft
+        .problems
+        .iter()
+        .filter_map(|l| l.split(':').nth(1).and_then(|n| n.trim().parse().ok()))
+        .collect();
+    let width = app.cols.saturating_sub(8);
+    for (row, (i, line)) in (4..bottom).zip(draft.text.lines().enumerate().skip(pager.top)) {
+        let n = i.saturating_add(1);
+        let (mark, style) = if flagged.contains(&n) {
+            ("!", Style::text(palette::ERROR))
+        } else if n == pager.mark {
+            (SELECTED, Style::PLAIN)
+        } else {
+            (" ", Style::text(palette::GREY))
+        };
+        let shown: String = line.chars().skip(pager.left).take(width).collect();
+        canvas.put(0, row, &format!("{mark}{n:>4} "), style);
+        canvas.put(6, row, &shown, Style::PLAIN);
+    }
 }
 
 /// The mark before the selected item's lines on the route card.

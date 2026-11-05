@@ -23,20 +23,6 @@ pub const ACTIONS: [(&str, &str); 6] = [
     ("Delete draft", "Delete"),
 ];
 
-/// An action this build does not do yet, on the message line.
-pub fn not_built(what: impl Display) -> String {
-    format!("{what} is not built yet.")
-}
-pub const CONNECT: &str = "Connecting tags";
-pub const READ_DEVICES: &str = "Reading the devices again";
-pub const VIEW_DRAFT: &str = "View, the draft's pager,";
-pub const REVERT: &str = "Revert";
-pub const RESTORE: &str = "Restore";
-pub const NEW_CONFIGURATION: &str = "New, which starts a new configuration,";
-pub const DELETE_DRAFT: &str = "Delete draft";
-pub const NEW_NOT_BUILT: &str =
-    "Making a new item in the flow is not built yet; the Fonts view makes a new frit.";
-
 /// What live preview is doing, at the right of the first line.
 pub const LIVE_ASKING: &str = "asking the terminal";
 pub const LIVE_ON: &str = "live preview: on";
@@ -44,7 +30,6 @@ pub const LIVE_OFF: &str = "live preview: off";
 
 /// Why live preview is off, on the message line.
 pub const OPS_OFF: &str = "allow-font-ops is off in this vtium console, so fonts are not tried live. In the Fonts view, o turns it on when you install.";
-pub const OPS_ON_PENDING: &str = "allow-font-ops is turned on when you install.";
 pub const NOT_VTIUM: &str =
     "This terminal is not a vtium console, so fonts are not tried live. Installing still works.";
 
@@ -153,27 +138,12 @@ pub fn new_refused(why: impl Display) -> String {
 }
 
 /// The install view, which installs the changes made in the views.
-pub const NOTHING_TO_SAVE: &str = "Nothing is changed, so there is nothing to install.";
-pub const SAVE_RUNS: &str = "Enter runs this command, which asks for your password once:";
-pub const SAVE_AS_USER: &str = "The tool's directories are not the system's, so Enter installs the draft as you, with no sudo, by this command:";
-pub fn draft_under(dir: impl Display) -> String {
-    format!("DRAFT is a new directory under {dir}.")
-}
-pub const SAVING: &str =
-    "Installing. The command runs in the terminal; the screen comes back after.";
 pub fn saved(files: usize) -> String {
     if files == 1 {
         "Installed 1 file.".to_owned()
     } else {
         format!("Installed {files} files.")
     }
-}
-pub fn removed_file(name: impl Display) -> String {
-    format!("removed, the old file kept as {name}.vtfrit.bak")
-}
-pub const COMMAND_SAID: &str = "The command said:";
-pub fn save_failed(why: impl Display) -> String {
-    format!("Nothing was installed: {why}")
 }
 
 /// The keys, on the last line of each view.
@@ -185,7 +155,6 @@ pub const KEYS_SETTINGS: &str = "Enter change  Tab next  i install  q leave, und
 pub const KEYS_HELP: &str = "←→ Help, About  ↑↓ scroll  Tab next  q leave";
 pub const KEYS_NEW: &str = "type a field  Enter next  Esc back  Ctrl-C leave, undo";
 pub const KEYS_EDITING: &str = "Enter keep  Up Down drop  Ctrl-C leave, undo";
-pub const KEYS_SAVE: &str = "Enter install  Esc back  q leave, undo";
 
 /// The screen below the TUI's minimum size (ADR-1201 D3).
 pub fn too_small(cols: usize, rows: usize) -> String {
@@ -623,5 +592,194 @@ pub fn conf_edit(e: &vtium_settings::ConfEdit) -> String {
         vtium_settings::ConfEdit::BadValue { key, value } => format!(
             "{value:?} cannot be written for {key}, since vtium would read it back as something else."
         ),
+    }
+}
+
+/// The Flow view's changes to the draft (ADR-1403 D7, D8).
+pub const NAME: &str = "name";
+pub const FRIT: &str = "frit";
+pub const SIZE: &str = "size";
+pub const OR_TYPE_VALUE: &str = "type…";
+pub const NO_DESK: &str = "This view shows a sample flow and has no draft, so it changes nothing.";
+pub const NO_HOTPLUG: &str = "cannot follow hotplug";
+pub const NOT_DONE: &str = "Nothing changed.";
+pub const RULE_FIRST: &str = "This rule is the first of its kind already.";
+pub const RULE_LAST: &str = "This rule is the last of its kind already.";
+pub const FORM_RULE_NEEDS: &str = "A new rule needs what it matches and where it sends it.";
+pub const FORM_NAME_NEEDED: &str = "A new head or look needs a name.";
+pub fn delete_rule(n: usize, line: &str) -> String {
+    format!("Delete rule {n}, {line}?")
+}
+pub fn delete_placeholder(device: &str, n: usize, line: &str) -> String {
+    format!("{device} is not plugged in. Delete rule {n}, {line}, which names it?")
+}
+pub fn delete_head(name: &str, rules: &[usize]) -> String {
+    match rules {
+        [] => format!("Delete head {name}? No rule sends to it."),
+        [n] => format!(
+            "Delete head {name}? Rule {n} still sends to it and stays, broken, until you point it elsewhere or delete it."
+        ),
+        _ => format!(
+            "Delete head {name}? Rules {} still send to it and stay, broken, until you point them elsewhere or delete them.",
+            list(rules.iter().map(usize::to_string))
+        ),
+    }
+}
+pub fn delete_look(name: &str, heads: &[String]) -> String {
+    match heads {
+        [] => format!("Delete look {name}? No head uses it."),
+        [h] => format!("Delete look {name}? The head {h} uses it and goes to the default look."),
+        _ => format!(
+            "Delete look {name}? The heads {} use it and go to the default look.",
+            list(heads.iter().cloned())
+        ),
+    }
+}
+/// `a`, `a and b`, `a, b and c`.
+fn list(items: impl Iterator<Item = String>) -> String {
+    let items: Vec<String> = items.collect();
+    match items.split_last() {
+        Some((last, rest)) if !rest.is_empty() => format!("{} and {last}", rest.join(", ")),
+        Some((last, _)) => last.clone(),
+        None => String::new(),
+    }
+}
+pub const CONNECT_TWO_TARGETS: &str =
+    "The tags name two heads or targets; tag one head, or one of roaming, ignore and off.";
+pub const CONNECT_TWO_LOOKS: &str = "The tags name two looks; tag one.";
+pub const CONNECT_TWO_RULES: &str = "The tags name two rules; tag one.";
+pub const CONNECT_TWO_KINDS: &str =
+    "The tags mix displays and input devices; a path holds one kind.";
+pub const CONNECT_RULE_ONE_DEVICE: &str = "A rule takes one tagged device; tag one.";
+pub const CONNECT_NO_HEAD: &str =
+    "The tags name no head to connect to; tag a head, or roaming, ignore or off.";
+pub const CONNECT_LOOK_NO_HEAD: &str = "A look needs a head to connect to; tag a head too.";
+pub const CONNECT_NOTHING: &str = "Nothing is tagged; Space tags the selected item.";
+pub const CONNECT_NO_CHANGE: &str =
+    "The tags describe the draft as it is, so connecting changes nothing.";
+pub fn connect_display_to(target: &str) -> String {
+    format!("A display cannot be sent to {target}; displays go to a head or off.")
+}
+pub fn connect_input_to(target: &str) -> String {
+    format!("An input device cannot be sent to {target}; inputs go to a head, roaming or ignore.")
+}
+pub fn connect_look_to(target: &str) -> String {
+    format!("A look goes with a head, not with {target}.")
+}
+pub fn connect_no_key(device: &str) -> String {
+    format!("{device} offers no key a rule could name it by.")
+}
+pub const INSTALLING: &str = "Installing; sudo may ask for your password.";
+pub const NOTHING_TO_INSTALL: &str = "The draft is the installed file; nothing to install.";
+pub fn install_question(added: usize, removed: usize, frits: usize) -> String {
+    match frits {
+        0 => format!("Install the working copy? {}.", lines(added, removed)),
+        1 => format!(
+            "Install the working copy? {}, and 1 frit.",
+            lines(added, removed)
+        ),
+        n => format!(
+            "Install the working copy? {}, and {n} frits.",
+            lines(added, removed)
+        ),
+    }
+}
+pub const NOT_PREPARED: &str = "Install has nothing ready; press i again.";
+pub fn install_failed(why: &str) -> String {
+    format!("Nothing is installed: {why}")
+}
+pub fn installed(name: &str) -> String {
+    format!("Installed draft {name}. It takes effect when vtium next reads its configuration.")
+}
+pub fn revert_question(added: usize, removed: usize) -> String {
+    format!(
+        "Throw away the working copy's changes? {} are lost.",
+        lost(added, removed)
+    )
+}
+pub const REVERTED: &str = "The draft is the installed file again.";
+pub const NEW_QUESTION: &str =
+    "Start a new configuration? The working copy's heads, rules and looks are lost.";
+pub const NEW_DONE: &str = "The draft starts over, with every key at its default and one look, default. Wire a display and a keyboard to a head before installing.";
+pub fn delete_draft_question(added: usize, removed: usize) -> String {
+    format!("Delete the draft? {} are lost.", lost(added, removed))
+}
+pub fn deleted_draft(next: &str) -> String {
+    format!("The draft is deleted; draft {next} starts again from the installed file.")
+}
+pub const NO_HISTORY: &str =
+    "Nothing has been installed from vtium-config yet, so there is nothing to restore.";
+pub fn restore_question(n: usize, added: usize, removed: usize) -> String {
+    format!(
+        "Replace the draft with installed file {n}? {} are lost.",
+        lost(added, removed)
+    )
+}
+pub const RESTORED: &str = "The draft is the installed file you chose. Install puts it back.";
+pub fn no_history_file(n: usize) -> String {
+    format!("the installed history has no file {n}")
+}
+pub const RESTORE_TITLE: &str = "Restore: the installed history, newest first";
+pub const PAGER_TITLE: &str = "The draft, read only";
+/// `3 lines added and 1 removed`, as a question says what is lost.
+fn lost(added: usize, removed: usize) -> String {
+    match (added, removed) {
+        (0, 0) => "No lines".to_owned(),
+        (a, 0) => format!("{a} {} added", if a == 1 { "line" } else { "lines" }),
+        (0, r) => format!("{r} {} removed", if r == 1 { "line" } else { "lines" }),
+        (a, r) => format!(
+            "{a} {} added and {r} removed",
+            if a == 1 { "line" } else { "lines" }
+        ),
+    }
+}
+/// `3 lines added, 1 removed`.
+fn lines(added: usize, removed: usize) -> String {
+    crate::drafts::lines(added, removed)
+}
+pub fn came_went(came: &[String], went: &[String]) -> String {
+    let came = (!came.is_empty()).then(|| format!("{} came", list(came.iter().cloned())));
+    let went = (!went.is_empty()).then(|| format!("{} went", list(went.iter().cloned())));
+    match (came, went) {
+        (Some(c), Some(w)) => format!("{c}; {w}"),
+        (Some(one), None) | (None, Some(one)) => one,
+        (None, None) => "the devices are as they were".to_owned(),
+    }
+}
+pub const KEYS_CARD: &str = "↑↓ field  ←→ pick  Enter choose  Esc close  q leave";
+pub const KEYS_TYPING: &str = "type the value  Enter keep  Esc drop";
+pub const KEYS_CONFIRM: &str = "y yes  any other key no";
+pub const KEYS_PAGER: &str =
+    "j k ↑↓ lines  h l ←→ sideways  g G top bottom  ^D ^U half page  q back";
+pub const KEYS_RESTORE: &str = "↑↓ choose  Enter restore  q back";
+pub const fn new_card(new: super::flow::New) -> &'static str {
+    match new {
+        super::flow::New::DisplayRule => {
+            "new display rule: what it matches and the head it sends to"
+        }
+        super::flow::New::InputRule => "new input rule: what it matches and where it sends it",
+        super::flow::New::Head => "new head: its name and its look",
+        super::flow::New::Look => "new look: its name, its frit and its size",
+    }
+}
+pub fn leave_question(added: &[String], removed: &[String]) -> String {
+    let mut lost = Vec::new();
+    if !added.is_empty() {
+        lost.push(format!("the new frits {}", list(added.iter().cloned())));
+    }
+    if !removed.is_empty() {
+        lost.push(format!("the removal of {}", list(removed.iter().cloned())));
+    }
+    format!(
+        "Leave without installing? You lose {}. i installs, l leaves anyway, any other key goes back.",
+        list(lost.into_iter())
+    )
+}
+pub const NOT_LEFT: &str = "Back to the view; nothing is lost.";
+pub fn frits_waiting(n: usize) -> String {
+    if n == 1 {
+        "1 frit to install".to_owned()
+    } else {
+        format!("{n} frits to install")
     }
 }

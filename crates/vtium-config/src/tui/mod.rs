@@ -16,10 +16,13 @@
 
 pub mod canvas;
 pub mod color;
+pub mod desk;
+pub mod edit;
 #[doc(hidden)]
 pub mod fixture;
 pub mod flow;
 pub mod flowdraw;
+mod flowedit;
 pub mod input;
 pub mod model;
 pub mod port;
@@ -173,25 +176,6 @@ pub fn installed(dir: &Path) -> std::collections::BTreeMap<String, Vec<u8>> {
     out
 }
 
-/// How a save from `paths` is installed, with the command it runs, built
-/// by the function that builds the command the save runs.
-pub fn saving(paths: &Paths) -> model::Saving {
-    let targets = paths.targets();
-    let route = crate::apply::route(&targets, &paths.sudo);
-    let program = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("vtium-config"));
-    let shown = |argv: Vec<OsString>| {
-        argv.iter()
-            .map(|a| a.to_string_lossy().into_owned())
-            .collect::<Vec<_>>()
-            .join(" ")
-    };
-    let argv = crate::apply::save_argv(&route, &program, &targets, Path::new(model::DRAFT));
-    match route {
-        crate::apply::Route::Sudo(_) => model::Saving::Sudo(shown(argv)),
-        crate::apply::Route::User => model::Saving::User(shown(argv)),
-    }
-}
-
 /// The density pictures are drawn at, in ADR-1200 D17's order:
 /// vtium.conf's `display-dpi` where it is set within the bounds the
 /// console believes; else the density of the first of `displays` whose
@@ -223,17 +207,16 @@ pub fn gather(paths: &Paths, view: model::View) -> Result<Inputs, String> {
         fonts: fonts(&frits),
         conf_path,
         conf,
-        saving: saving(paths),
-        drafts: paths.drafts.clone(),
         dpi,
         installed: installed(&frits),
         frits,
         view,
         display: displays.first().map(|d| d.pixels),
-        // the flow is read from vtium.conf's sections, which this build does
-        // not read yet
+        // the desk reads the draft's flow once the loop runs
         flow: flow::Flow::default(),
         color: color::enabled(&|name| std::env::var(name).ok()),
+        desk: false,
+        hotplug: false,
     })
 }
 
@@ -329,9 +312,14 @@ pub fn finder(frits: PathBuf, helper: crate::specimen::Helper) -> port::Finder {
     Box::new(move |names| find_sources(&frits, &helper, &names))
 }
 
-/// Opens the TUI on the terminal at `view` and runs it until the user
-/// leaves; returns the exit status.
-pub fn run(paths: &Paths, view: model::View, err: &mut dyn std::io::Write) -> u8 {
+/// Opens the TUI on the terminal at `view`, the devices present read from
+/// `devices`, and runs it until the user leaves; returns the exit status.
+pub fn run(
+    paths: &Paths,
+    devices: crate::flowcli::Devices,
+    view: model::View,
+    err: &mut dyn std::io::Write,
+) -> u8 {
     // the TUI runs as the user from start to end (ADR-1201 D5); main
     // refuses root before this, and so does this
     if rustix::process::geteuid().is_root() {
@@ -341,14 +329,21 @@ pub fn run(paths: &Paths, view: model::View, err: &mut dyn std::io::Write) -> u8
         );
         return 2;
     }
-    let inputs = match gather(paths, view) {
+    let mut inputs = match gather(paths, view) {
         Ok(inputs) => inputs,
         Err(why) => {
             let _ = writeln!(err, "vtium-config: {why}");
             return 1;
         }
     };
-    let saver = crate::apply::saver(paths.clone());
+    let store = match crate::store::Store::system() {
+        Ok(store) => store,
+        Err(fail) => {
+            let _ = writeln!(err, "vtium-config: {}", fail.text());
+            return fail.code();
+        }
+    };
+    let mut desk = desk::Store::new(store, paths.clone(), desk::machine(devices));
     let tools = port::Tools {
         painter: painter(inputs.frits.clone(), paths.helper.clone(), locale()),
         summarizer: summarizer(
@@ -359,14 +354,15 @@ pub fn run(paths: &Paths, view: model::View, err: &mut dyn std::io::Write) -> u8
         ),
         finder: Some(finder(inputs.frits.clone(), paths.helper.clone())),
     };
-    let mut tty = match port::Tty::open(saver, tools) {
+    let mut tty = match port::Tty::open(tools) {
         Ok(tty) => tty,
         Err(e) => {
             let _ = writeln!(err, "vtium-config: the terminal: {e}");
             return 1;
         }
     };
-    let status = port::drive(&mut tty, inputs);
+    inputs.hotplug = tty.watches_hotplug();
+    let status = port::drive_with(&mut tty, inputs, Some(&mut desk));
     drop(tty);
     match status {
         Ok(status) => status,

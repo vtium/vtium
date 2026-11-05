@@ -419,7 +419,7 @@ fn new_args(words: &[String]) -> Result<NewArgs, String> {
 
 /// A new frit's text from `new`'s fonts and options.
 pub fn frit_from(name: &str, fonts: &[String], cell: Option<&str>, size: Option<&str>) -> String {
-    let mut text = format!("# {name}: made by vtium-config new\nname={name}\n");
+    let mut text = format!("# {name}: made by vtium-config new-frit\nname={name}\n");
     for font in fonts {
         text.push_str(&format!("source={}\n", source_spelling(font)));
     }

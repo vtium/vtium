@@ -464,6 +464,13 @@ fn only_the_system_s_directories_are_installed_through_sudo() {
     let sudo: OsString = "sudo".into();
     assert_eq!(route(&system, &sudo), Route::Sudo(sudo.clone()));
     assert_eq!(route(&f.targets, &sudo), Route::User);
+    // the system's directories with another console to check with still
+    // need root, and sudo's step checks with its own
+    let other = Targets {
+        vtium: "/opt/vtium".into(),
+        ..system.clone()
+    };
+    assert_eq!(route(&other, &sudo), Route::Sudo(sudo.clone()));
 }
 
 #[test]
@@ -494,43 +501,6 @@ fn the_owners_a_draft_may_have_are_root_and_the_user_sudo_ran_for() {
     // run as a user, the user's own files, whatever SUDO_UID says
     assert_eq!(trusted_owners(1000, Some(5)), [0, 1000]);
     assert_eq!(trusted_owners(1000, None), [0, 1000]);
-}
-
-#[test]
-fn the_save_view_shows_the_command_the_save_runs() {
-    use vtium_config::tui::model::Saving;
-    use vtium_config::tui::{Paths, saving};
-    let exe = std::env::current_exe().expect("this test's path");
-    let system = Targets::system();
-    let paths = Paths {
-        configdir: system.configdir.clone(),
-        frits: system.frits.clone(),
-        drafts: PathBuf::from("/home/me/drafts"),
-        sudo: "sudo".into(),
-        vtium: system.vtium.clone(),
-        helper: vtium_config::specimen::Helper::at(&exe),
-        sys: PathBuf::from("/sys"),
-    };
-    assert_eq!(
-        saving(&paths),
-        Saving::Sudo(format!("sudo {} apply DRAFT", exe.display()))
-    );
-    let f = fixture("shown", None);
-    let mine = Paths {
-        configdir: f.targets.configdir.clone(),
-        frits: f.targets.frits.clone(),
-        drafts: PathBuf::from("/home/me/drafts"),
-        sudo: "sudo".into(),
-        vtium: f.targets.vtium.clone(),
-        helper: vtium_config::specimen::Helper::at(&exe),
-        sys: PathBuf::from("/sys"),
-    };
-    let want = save_argv(&Route::User, &exe, &f.targets, Path::new("DRAFT"))
-        .iter()
-        .map(|a| a.to_string_lossy().into_owned())
-        .collect::<Vec<_>>()
-        .join(" ");
-    assert_eq!(saving(&mine), Saving::User(want));
 }
 
 #[test]
