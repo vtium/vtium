@@ -210,3 +210,35 @@ jobs:
             vtium/tools/tier2/out/report.json
             vtium/tools/tier2/out/actual/
             vtium/tools/tier2/out/diff/
+
+  # The specimens: the test card drawn for each display profile, against
+  # what docs/specimens holds. `cargo test` in the check job judges every
+  # profile but the three drawn from fetched fonts, 1920x1080, 2560x1440
+  # and 320x240-tiny5, and names this job as the one that judges those.
+  specimens:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # libudev and libxkbcommon, which vtium-platform links through
+      # vtium-config, the crate whose engine generates the fetched fonts'
+      # glyphs
+      - run: sudo apt-get update && sudo apt-get install -y libudev-dev libxkbcommon-dev
+      # The toolchain rust-toolchain.toml pins.
+      - id: toolchain
+        run: echo "channel=$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.toolchain.outputs.channel }}
+      # Cache the cargo registry and the target directory between runs; the
+      # key follows Cargo.lock, the toolchain and this job, so every job still
+      # builds and tests everything it did.
+      - uses: Swatinem/rust-cache@v2
+      # The pinned fonts, which tools/specimens/src/fonts.rs names by URL
+      # and SHA-256. `make specimens-fonts` checks each cached font against
+      # its SHA-256 and fetches only those the cache lacks.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/vtium/specimens/fonts
+          key: specimens-fonts-${{ hashFiles('tools/specimens/src/fonts.rs') }}
+      - run: make specimens-fonts
+      - run: make specimens-check
