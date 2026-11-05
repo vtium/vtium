@@ -36,6 +36,7 @@
 <text x="196" y="250" fill="#00cdcd">2 edid:…SMALL00001 -&gt; panel</text>
 <text x="196" y="300" fill="#7f7f7f">3 display * -&gt; desk</text>
 <text x="196" y="316" fill="#7f7f7f" font-size="12">matches no display present</text>
+<text x="196" y="340" fill="#00cdcd">+ new rule…</text>
 <!-- head blocks: black on bright yellow; look blocks: black on bright magenta -->
 <rect x="450" y="120" width="140" height="80" fill="#ffff00"/>
 <text x="456" y="140" fill="#000000" font-weight="bold">desk</text>
@@ -52,6 +53,9 @@
 <text x="598" y="250" fill="#000000">profile small, 12 pt</text>
 <text x="598" y="270" fill="#000000">└ frit dejavu</text>
 <text x="598" y="290" fill="#000000">  └ DejaVu Sans Mono</text>
+<!-- new items at the foot of the heads and look columns -->
+<text x="456" y="328" fill="#ffff00">+ new head…</text>
+<text x="598" y="328" fill="#ff00ff">+ new look…</text>
 <!-- targets that are not heads: black on grey -->
 <rect x="450" y="340" width="340" height="24" fill="#7f7f7f"/>
 <text x="456" y="357" fill="#000000">roaming        types into desk, active</text>
@@ -70,6 +74,7 @@
 <rect x="801" y="343" width="218" height="19" fill="#00cd00"/>
 <text x="805" y="357" fill="#000000">5 class:keyboard -&gt; roaming</text>
 <text x="805" y="395" fill="#00cd00">6 * -&gt; ignore</text>
+<text x="805" y="420" fill="#00cd00">+ new rule…</text>
 <!-- a device a rule names that is not present: black on grey, with an asterisk and words -->
 <rect x="1050" y="132" width="116" height="56" fill="#7f7f7f"/>
 <text x="1056" y="148" fill="#000000">* 046d:c31c:…</text>
