@@ -193,8 +193,15 @@ impl Console {
         }
     }
 
-    /// Waits until `done` holds of what the console has seen.
-    fn until(&self, what: &str, done: impl Fn(&Seen) -> bool) {
+    /// Waits until `done` holds of what the console has seen, and returns
+    /// the screen on which it held.
+    ///
+    /// The TUI paints its screen row by row in one write, and the console
+    /// may read that write in pieces, so a screen can hold the top of a new
+    /// frame and the bottom of the old one, with one row cut partway. A
+    /// test therefore waits until every text it checks is on the screen,
+    /// and checks the screen this returns rather than reading it again.
+    fn until(&self, what: &str, done: impl Fn(&Seen) -> bool) -> String {
         let (lock, cv) = &*self.seen;
         let guard = lock.lock().expect("the lock");
         let (guard, timeout) = cv
@@ -206,6 +213,7 @@ impl Console {
             guard.screen,
             String::from_utf8_lossy(&guard.written)
         );
+        guard.screen.clone()
     }
 
     /// Waits until the console has read every byte written to the
@@ -228,10 +236,6 @@ impl Console {
 
     fn written(&self) -> Vec<u8> {
         self.seen.0.lock().expect("the lock").written.clone()
-    }
-
-    fn screen(&self) -> String {
-        self.seen.0.lock().expect("the lock").screen.clone()
     }
 
     fn font(&self) -> String {
@@ -431,11 +435,9 @@ fn a_terminal_that_answers_only_da1_gets_no_osc_50_switch() {
 #[test]
 fn with_font_operations_off_no_osc_50_switch_goes() {
     let (mut c, child, slave) = started("ops-off", Kind::Vtium { ops: false }, 80, 25);
-    assert!(
-        c.screen().contains("allow-font-ops is off"),
-        "{}",
-        c.screen()
-    );
+    c.until("said font operations are off", |s| {
+        s.screen.contains("allow-font-ops is off")
+    });
     c.key(UP);
     c.key(b"q");
     assert_eq!(status(child), 0);
@@ -452,27 +454,25 @@ fn the_screen_fits_80x25_and_100x30() {
             cols,
             rows,
         );
-        let screen = c.screen();
-        let lines: Vec<&str> = screen.lines().collect();
-        assert_eq!(lines.len(), usize::from(rows));
-        assert!(
-            lines[0].contains(" Fonts ") && lines[1].contains("live preview: on"),
-            "{screen}"
-        );
-        for name in [
-            "minspec-16",
-            "minspec-8",
-            "proof",
-            "tiny5",
-            "unifont",
-            "unscii-8",
-        ] {
-            assert!(screen.contains(name), "{name}: {screen}");
-        }
-        assert!(
-            lines[usize::from(rows) - 1].contains("q leave, undo"),
-            "{screen}"
-        );
+        // the tabs, the live preview, every frit and the keys, each on its
+        // row of the grid
+        c.until("drew the fonts view in the grid", |s| {
+            let lines: Vec<&str> = s.screen.lines().collect();
+            lines.len() == usize::from(rows)
+                && lines[0].contains(" Fonts ")
+                && lines[1].contains("live preview: on")
+                && [
+                    "minspec-16",
+                    "minspec-8",
+                    "proof",
+                    "tiny5",
+                    "unifont",
+                    "unscii-8",
+                ]
+                .iter()
+                .all(|name| s.screen.contains(name))
+                && lines[usize::from(rows) - 1].contains("q leave, undo")
+        });
         c.key(b"q");
         assert_eq!(status(child), 0);
         c.drained(&slave);
@@ -645,12 +645,11 @@ fn saving_the_system_s_files_runs_exactly_sudo_vtium_config_apply_dir() {
     c.until("asked", |s| s.screen.contains("Install the draft?"));
     let program = env!("CARGO_BIN_EXE_vtium-config");
     c.key(b"y");
-    c.until("failed", |s| s.screen.contains("Nothing is installed"));
-    assert!(
-        c.screen().contains("the stand-in installs nothing"),
-        "{}",
-        c.screen()
-    );
+    // the failure, with what the stand-in printed
+    c.until("failed", |s| {
+        s.screen.contains("Nothing is installed")
+            && s.screen.contains("the stand-in installs nothing")
+    });
     c.key(b"q");
     assert_eq!(status(child), 0);
     c.drained(&slave);
@@ -878,18 +877,19 @@ fn the_helper_holds_none_of_the_terminal_and_a_silent_one_marks_no_frit_broken()
     // a key reaches the TUI while the helper is silent
     c.key(UP);
     c.until("switched", |s| s.font == "tiny5");
-    // once its wait is out, no frit is said to draw nothing
-    c.until("gave up on the helper", |s| {
+    // once its wait is out, the TUI says it has not checked the sources
+    let screen = c.until("gave up on the helper", |s| {
         s.screen.contains("sources not checked")
     });
-    assert!(
-        !c.screen().contains("no source on this machine"),
-        "{}",
-        c.screen()
-    );
     c.key(b"q");
     assert_eq!(status(child), 0);
     c.drained(&slave);
+    // and in no frame it drew did it say a frit draws nothing; the test
+    // reads every byte the TUI wrote, so no frame is caught half drawn
+    assert!(
+        !String::from_utf8_lossy(&c.written()).contains("no source on this machine"),
+        "{screen}"
+    );
 }
 
 /// Now, for a wait bounded only so the test fails instead of hanging.
