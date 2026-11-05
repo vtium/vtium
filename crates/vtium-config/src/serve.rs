@@ -1926,10 +1926,12 @@ fn lock_out() -> Result<bool, String> {
 
 /// Installs the helper's socket filter on the calling thread and the
 /// threads it starts later (ADR-1200 D15, the maintainer, 2026-11-04): a
-/// seccomp filter under which `socket` and `socketpair` answer EPERM and
-/// every other call goes on as before, so the helper makes no socket of
-/// any kind on any kernel, the UDP and Unix sockets landlock leaves open
-/// included. It is built as the image helper builds its worker's filter
+/// seccomp filter under which `socket`, `socketpair` and the three
+/// io_uring calls answer EPERM and every other call goes on as before, so
+/// the helper makes no socket of any kind on any kernel, the UDP and Unix
+/// sockets landlock leaves open included. io_uring is refused whole
+/// because its `IORING_OP_SOCKET`, from Linux 5.19, makes a socket without
+/// calling `socket`. It is built as the image helper builds its worker's filter
 /// (`vtium-image-helper`'s `sandbox::filter::refuse`). Returns whether the
 /// filter is in force; on 32-bit ARM, which seccompiler builds no filter
 /// for, there is none.
@@ -1940,27 +1942,7 @@ fn refuse_sockets() -> Result<bool, String> {
         target_arch = "riscv64"
     ))]
     {
-        use seccompiler::{BpfProgram, SeccompAction, SeccompFilter, TargetArch};
-        #[cfg(target_arch = "x86_64")]
-        const ARCH: TargetArch = TargetArch::x86_64;
-        #[cfg(target_arch = "aarch64")]
-        const ARCH: TargetArch = TargetArch::aarch64;
-        #[cfg(target_arch = "riscv64")]
-        const ARCH: TargetArch = TargetArch::riscv64;
-        let rules = [libc::SYS_socket, libc::SYS_socketpair]
-            .into_iter()
-            .map(|n| (n, Vec::new()))
-            .collect();
-        let eperm = u32::try_from(libc::EPERM).unwrap_or(1);
-        let program = SeccompFilter::new(
-            rules,
-            SeccompAction::Allow,
-            SeccompAction::Errno(eperm),
-            ARCH,
-        )
-        .and_then(BpfProgram::try_from)
-        .map_err(|e| format!("the helper cannot build its socket filter: {e}"))?;
-        seccompiler::apply_filter(&program)
+        seccompiler::apply_filter(&socket_filter()?)
             .map_err(|e| format!("the helper cannot install its socket filter: {e}"))?;
         Ok(true)
     }
@@ -1972,11 +1954,47 @@ fn refuse_sockets() -> Result<bool, String> {
     Ok(false)
 }
 
-/// `vtium-config serve`: no-new-privileges, the socket filter, the landlock domain, the
-/// requests' reader, the limits, then the requests on stdin answered on
-/// stdout until
-/// [`HELPER_IDLE_MS`] passes with none. A failure to sandbox is written as
-/// a failed frame, so the console logs it.
+/// The helper's socket filter, compiled ([`refuse_sockets`]).
+#[cfg(any(
+    target_arch = "x86_64",
+    target_arch = "aarch64",
+    target_arch = "riscv64"
+))]
+fn socket_filter() -> Result<seccompiler::BpfProgram, String> {
+    use seccompiler::{BpfProgram, SeccompAction, SeccompFilter, TargetArch};
+    #[cfg(target_arch = "x86_64")]
+    const ARCH: TargetArch = TargetArch::x86_64;
+    #[cfg(target_arch = "aarch64")]
+    const ARCH: TargetArch = TargetArch::aarch64;
+    #[cfg(target_arch = "riscv64")]
+    const ARCH: TargetArch = TargetArch::riscv64;
+    // io_uring's IORING_OP_SOCKET (Linux 5.19) makes a socket without
+    // calling socket, so the helper gets no io_uring at all
+    let rules = [
+        libc::SYS_socket,
+        libc::SYS_socketpair,
+        libc::SYS_io_uring_setup,
+        libc::SYS_io_uring_enter,
+        libc::SYS_io_uring_register,
+    ]
+    .into_iter()
+    .map(|n| (n, Vec::new()))
+    .collect();
+    let eperm = u32::try_from(libc::EPERM).unwrap_or(1);
+    SeccompFilter::new(
+        rules,
+        SeccompAction::Allow,
+        SeccompAction::Errno(eperm),
+        ARCH,
+    )
+    .and_then(BpfProgram::try_from)
+    .map_err(|e| format!("the helper cannot build its socket filter: {e}"))
+}
+
+/// `vtium-config serve`: no-new-privileges, the socket filter, the
+/// landlock domain, the requests' reader, the limits, then the requests on
+/// stdin answered on stdout until [`HELPER_IDLE_MS`] passes with none. A
+/// failure to sandbox is written as a failed frame, so the console logs it.
 pub fn command(paths: &Paths) -> u8 {
     let mut out = io::stdout().lock();
     if let Some(why) = shed_inherited() {
@@ -3464,6 +3482,83 @@ mod tests {
         assert!(!pair, "a socket pair made");
         // the test's own threads are outside the filter
         assert!(std::net::UdpSocket::bind("127.0.0.1:0").is_ok());
+    }
+
+    // the socket filter refuses io_uring, whose IORING_OP_SOCKET makes a
+    // socket without calling socket (Linux 5.19). The test cannot make the
+    // calls itself, since the crate forbids unsafe code, and std cannot
+    // start a process under the filter, so it hands the compiled filter to
+    // a python3, which installs it through ctypes, as the helper's
+    // seccompiler does, and then makes each io_uring call with arguments
+    // that fail on their own (EFAULT or EBADF) and prints its errno. The
+    // same python3 without the filter shows that the kernel offers
+    // io_uring, else the test skips and says so
+    #[cfg(any(
+        target_arch = "x86_64",
+        target_arch = "aarch64",
+        target_arch = "riscv64"
+    ))]
+    #[test]
+    fn the_helpers_socket_filter_refuses_io_uring() {
+        const SCRIPT: &str = "import ctypes, struct, sys\n\
+            libc = ctypes.CDLL(None, use_errno=True)\n\
+            code = bytes.fromhex(sys.argv[4])\n\
+            if code:\n\
+            \x20   class Prog(ctypes.Structure):\n\
+            \x20       _fields_ = [('len', ctypes.c_ushort), ('filter', ctypes.c_char_p)]\n\
+            \x20   prog = Prog(len(code) // 8, code)\n\
+            \x20   assert libc.prctl(38, 1, 0, 0, 0) == 0\n\
+            \x20   assert libc.prctl(22, 2, ctypes.byref(prog), 0, 0) == 0\n\
+            out = []\n\
+            for call, args in ((sys.argv[1], (1, None)), (sys.argv[2], (-1, 0, 0, 0, None, 0)), (sys.argv[3], (-1, 0, None, 0))):\n\
+            \x20   ctypes.set_errno(0)\n\
+            \x20   r = libc.syscall(ctypes.c_long(int(call)), *[ctypes.c_long(a) if isinstance(a, int) else a for a in args])\n\
+            \x20   out.append(str(ctypes.get_errno() if r < 0 else 0))\n\
+            print(' '.join(out))\n";
+        let errnos = |filter: &[seccompiler::sock_filter]| -> Option<Vec<i32>> {
+            let code: String = filter
+                .iter()
+                .flat_map(|f| {
+                    let mut b = f.code.to_ne_bytes().to_vec();
+                    b.extend([f.jt, f.jf]);
+                    b.extend(f.k.to_ne_bytes());
+                    b
+                })
+                .map(|b| format!("{b:02x}"))
+                .collect();
+            let calls = [
+                libc::SYS_io_uring_setup,
+                libc::SYS_io_uring_enter,
+                libc::SYS_io_uring_register,
+            ];
+            let out = std::process::Command::new("python3")
+                .args(["-I", "-c", SCRIPT])
+                .args(calls.map(|n| n.to_string()))
+                .arg(code)
+                .env_clear()
+                .output()
+                .ok()?;
+            String::from_utf8(out.stdout)
+                .ok()?
+                .split_whitespace()
+                .map(|e| e.parse().ok())
+                .collect::<Option<Vec<i32>>>()
+                .filter(|e| e.len() == 3)
+        };
+        let Some(outside) = errnos(&[]) else {
+            eprintln!("skipped: no python3 to make the io_uring calls with");
+            return;
+        };
+        if outside.contains(&libc::EPERM) || outside.contains(&libc::ENOSYS) {
+            eprintln!("skipped: this kernel refuses io_uring already: {outside:?}");
+            return;
+        }
+        let inside = errnos(&socket_filter().unwrap());
+        assert_eq!(
+            inside,
+            Some(vec![libc::EPERM; 3]),
+            "outside the filter: {outside:?}"
+        );
     }
 
     #[test]
