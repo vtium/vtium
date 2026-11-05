@@ -14,15 +14,19 @@ use std::process::{Command, Stdio};
 const BIN: &str = env!("CARGO_BIN_EXE_vtium-config");
 
 /// The stand-in console: `check-config --configdir DIR FILE` prints
-/// `FILE:N: BAD is not a key vtium reads` on standard error for each line
-/// N of FILE that holds `BAD` and exits 1, else notes `FILE: checked` on
+/// `FILE:N: BAD is not a key vtium reads`, and the line that says what the
+/// error drops, on standard error for each line N of FILE that holds `BAD`
+/// and exits 1, else notes `FILE: checked` on
 /// standard output and exits 0.
 const CHECKER: &str = r#"#!/bin/sh
 [ "$1" = check-config ] || exit 9
 file="$4"
 bad=$(grep -n BAD "$file" | cut -d: -f1)
 if [ -n "$bad" ]; then
-  for n in $bad; do echo "$file:$n: BAD is not a key vtium reads" >&2; done
+  for n in $bad; do
+    echo "$file:$n: BAD is not a key vtium reads" >&2
+    echo "$file:$n: For this error vtium drops this line alone." >&2
+  done
   exit 1
 fi
 echo "$file: checked"
@@ -156,13 +160,20 @@ fn an_unfinished_draft_is_written_and_the_command_exits_0() {
         (ran.status, ran.out.as_str()),
         (
             0,
-            "wrote ROOT/home/config/vtium/drafts/desk.conf\nROOT/home/config/vtium/drafts/desk.conf:3: BAD is not a key vtium reads\ndraft desk: 1 line added · 1 problem\n"
+            "wrote ROOT/home/config/vtium/drafts/desk.conf\nROOT/home/config/vtium/drafts/desk.conf:3: BAD is not a key vtium reads\nROOT/home/config/vtium/drafts/desk.conf:3: For this error vtium drops this line alone.\ndraft desk: 1 line added · 1 problem\n"
         )
     );
     // the line editor adds a new key after the last top-level line
     assert_eq!(
         f.draft(),
         "font-size=12\nversion = 1\nfont-name=BAD\n[head desk]\n[rules]\ndisplay * -> desk\ninput class:keyboard -> roaming\n"
+    );
+    // flow --json counts the problem as the state line does
+    let json = f.run(&["flow", "--json"]);
+    assert!(
+        json.out.starts_with(r#"{"version":1,"draft":{"name":"desk","state":"changed","added":1,"removed":0,"problems":1},"#),
+        "{}",
+        json.out
     );
     // installing it fails the check, exit 1, and the draft keeps the change
     let install = f.run(&["install"]);
@@ -249,7 +260,7 @@ fn edit_installs_nothing_when_the_editor_adds_a_bad_line() {
         (ran.status, ran.out.as_str(), ran.err.as_str()),
         (
             1,
-            "wrote ROOT/home/config/vtium/drafts/desk.conf\nROOT/home/config/vtium/drafts/desk.conf:7: BAD is not a key vtium reads\nThe check finds problems. Edit again? [y/N] ",
+            "wrote ROOT/home/config/vtium/drafts/desk.conf\nROOT/home/config/vtium/drafts/desk.conf:7: BAD is not a key vtium reads\nROOT/home/config/vtium/drafts/desk.conf:7: For this error vtium drops this line alone.\nThe check finds problems. Edit again? [y/N] ",
             "vtium-config: the check found problems in draft desk, so nothing is installed; the draft keeps every change\n"
         )
     );
@@ -473,5 +484,84 @@ fn the_library_keeps_looks_and_rules_and_lets_them_go() {
     assert_eq!(
         std::fs::read_to_string(f.path("home/config/vtium/library.conf")).expect("the library"),
         "version = 1\n\n[rules]\n"
+    );
+}
+
+#[test]
+fn a_draft_name_that_leaves_the_store_is_refused_and_touches_nothing() {
+    let f = fixture("traversal");
+    f.desk();
+    std::fs::write(f.path("home/config/vtium/library.conf"), "version = 1\n").expect("a library");
+    for args in [
+        &["draft", "rm", "../library"][..],
+        &["draft", "switch", "../library"],
+        &["draft", "new", "../escape"],
+        &["draft", "new", "spare", "--from", "../library"],
+        &["draft", "rm", "a/b"],
+        &["draft", "switch", ".."],
+    ] {
+        let ran = f.run(args);
+        assert_eq!(ran.status, 2, "{args:?}: {}{}", ran.out, ran.err);
+        assert!(
+            ran.err.contains("cannot name a draft"),
+            "{args:?}: {}",
+            ran.err
+        );
+    }
+    assert_eq!(
+        std::fs::read_to_string(f.path("home/config/vtium/library.conf")).expect("the library"),
+        "version = 1\n"
+    );
+    assert!(!f.path("home/config/escape.conf").exists());
+    assert_eq!(f.run(&["draft", "list"]).out, "* desk\tsame as installed\n");
+}
+
+#[test]
+fn a_draft_copied_in_takes_its_base_when_first_seen() {
+    let f = fixture("first-sight");
+    f.desk();
+    // a draft carried in from another machine has no base
+    std::fs::write(
+        f.path("home/config/vtium/drafts/carried.conf"),
+        format!("{INSTALLED}# carried\n"),
+    )
+    .expect("a carried draft");
+    assert_eq!(f.run(&["draft", "switch", "carried"]).status, 0);
+    std::fs::write(f.path("etc/vtium.conf"), format!("{INSTALLED}# by hand\n"))
+        .expect("an edit by hand");
+    let ran = f.run(&["install"]);
+    assert_eq!(ran.status, 3, "{}{}", ran.out, ran.err);
+    assert_eq!(f.installed(), format!("{INSTALLED}# by hand\n"));
+}
+
+#[test]
+fn the_history_keeps_the_newest_files_its_setting_allows() {
+    let f = fixture("history");
+    f.desk();
+    std::fs::write(
+        f.path("home/config/vtium/vtium-config.conf"),
+        "draft = desk\nhistory = 2\n",
+    )
+    .expect("the settings");
+    for size in ["13", "14", "15"] {
+        assert_eq!(f.run(&["set", "font-size", size]).status, 0);
+        let ran = f.run(&["install"]);
+        assert_eq!(ran.status, 0, "{}{}", ran.out, ran.err);
+    }
+    let mut kept: Vec<String> = std::fs::read_dir(f.path("home/config/vtium/installed"))
+        .expect("the history")
+        .map(|e| {
+            e.expect("an entry")
+                .file_name()
+                .to_string_lossy()
+                .into_owned()
+        })
+        .collect();
+    kept.sort();
+    assert_eq!(kept, ["desk-2.conf", "desk-3.conf"]);
+    assert!(
+        std::fs::read_to_string(f.path("home/config/vtium/installed/desk-3.conf"))
+            .expect("the newest")
+            .starts_with("font-size=14\n")
     );
 }

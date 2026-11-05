@@ -64,6 +64,19 @@ pub fn valid_name(name: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'+' | b'-'))
 }
 
+/// `name` when it can name a draft, else the usage error, exit 2, that
+/// says what a name may hold. Every path built from a draft's name goes
+/// through this, so `../library` or `a/b` never names a file.
+pub fn named(name: &str) -> Result<&str, Fail> {
+    if valid_name(name) {
+        Ok(name)
+    } else {
+        Err(Fail::Usage(format!(
+            "{name:?} cannot name a draft: 1 to 64 letters, digits, '.', '_', '+' and '-', not starting with '.' or '-'"
+        )))
+    }
+}
+
 /// `name` made into a draft's name: each character a name cannot hold
 /// becomes `-`, and a name left empty is [`NAME_FALLBACK`].
 pub fn name_from(name: &str) -> String {
@@ -85,6 +98,15 @@ pub fn name_from(name: &str) -> String {
     } else {
         NAME_FALLBACK.to_owned()
     }
+}
+
+/// Whether the guard against the real user's store is on: in a debug
+/// build, `debug`, run under cargo, which sets `CARGO_MANIFEST_DIR` for
+/// the processes it runs, as `var` reads it. A release build, the one
+/// installed for users, never refuses a user's own store whatever its
+/// environment holds.
+pub fn armed(debug: bool, var: impl Fn(&str) -> Option<OsString>) -> bool {
+    debug && var("CARGO_MANIFEST_DIR").is_some()
 }
 
 /// The home the password database gives the user `uid`.
@@ -195,15 +217,16 @@ impl Store {
         })
     }
 
-    /// This process's store. Run under cargo, as every test of this crate
-    /// is, it refuses the real user's own store ([`Store::guard`]).
+    /// This process's store. A debug build run under cargo, as every test
+    /// of this crate is, refuses the real user's own store
+    /// ([`Store::guard`]); a release build never does ([`armed`]).
     pub fn system() -> Result<Store, Fail> {
         let euid = rustix::process::geteuid().as_raw();
         let store = Store::locate(euid, |name: &str| std::env::var_os(name), home_of)
             .map_err(Fail::File)?;
-        let under_cargo = std::env::var_os("CARGO_MANIFEST_DIR").is_some();
+        let armed = armed(cfg!(debug_assertions), |name: &str| std::env::var_os(name));
         store
-            .guard(under_cargo, home_of(euid).as_deref())
+            .guard(armed, home_of(euid).as_deref())
             .map_err(Fail::File)?;
         Ok(store)
     }
@@ -231,9 +254,19 @@ impl Store {
         self.config.join("drafts")
     }
 
-    /// The draft `name`'s file.
-    pub fn draft_path(&self, name: &str) -> PathBuf {
-        self.drafts_dir().join(format!("{name}.conf"))
+    /// The draft `name`'s file. Every path the store builds from a draft's
+    /// name is built here or in [`Store::base_path`],
+    /// [`Store::edit_copy`] and [`Store::save_history`], each through
+    /// [`named`], so no name can reach outside the store.
+    pub fn draft_path(&self, name: &str) -> Result<PathBuf, Fail> {
+        Ok(self.drafts_dir().join(format!("{}.conf", named(name)?)))
+    }
+
+    /// Where `edit` copies the draft `name` for the editor.
+    pub fn edit_copy(&self, name: &str) -> Result<PathBuf, Fail> {
+        Ok(self
+            .state
+            .join(format!("edit-{}-{}.conf", named(name)?, std::process::id())))
     }
 
     pub fn library_path(&self) -> PathBuf {
@@ -244,8 +277,11 @@ impl Store {
         self.config.join(SETTINGS)
     }
 
-    fn base_path(&self, name: &str) -> PathBuf {
-        self.state.join("bases").join(format!("{name}.base"))
+    fn base_path(&self, name: &str) -> Result<PathBuf, Fail> {
+        Ok(self
+            .state
+            .join("bases")
+            .join(format!("{}.base", named(name)?)))
     }
 
     /// Where `install` writes the install bundles that `apply DIR` takes:
@@ -287,6 +323,7 @@ impl Store {
     /// Sets the settings' `draft` line to `name`, or with `None` removes
     /// it, keeping every other line.
     pub fn set_current(&self, name: Option<&str>) -> Result<(), Fail> {
+        let name = name.map(named).transpose()?;
         let text = read(&self.settings_path())?.unwrap_or_default();
         let mut lines: Vec<String> = text
             .lines()
@@ -337,22 +374,22 @@ impl Store {
 
     /// The draft `name`'s text, `None` when it does not exist.
     pub fn read_draft(&self, name: &str) -> Result<Option<String>, Fail> {
-        read(&self.draft_path(name))
+        read(&self.draft_path(name)?)
     }
 
     pub fn write_draft(&self, name: &str, text: &str) -> Result<(), Fail> {
-        write(&self.draft_path(name), text)
+        write(&self.draft_path(name)?, text)
     }
 
     /// Removes the draft `name` and its base.
     pub fn remove_draft(&self, name: &str) -> Result<(), Fail> {
-        remove(&self.draft_path(name))?;
-        remove(&self.base_path(name))
+        remove(&self.draft_path(name)?)?;
+        remove(&self.base_path(name)?)
     }
 
     /// The draft `name`'s base, `None` when it has none recorded.
     pub fn base(&self, name: &str) -> Result<Option<Base>, Fail> {
-        Ok(read(&self.base_path(name))?.map(|t| {
+        Ok(read(&self.base_path(name)?)?.map(|t| {
             let t = t.trim();
             (t != "none").then(|| t.to_owned())
         }))
@@ -362,7 +399,7 @@ impl Store {
     /// draft `name`'s base.
     pub fn set_base(&self, name: &str, installed: Option<&[u8]>) -> Result<(), Fail> {
         let text = installed.map_or_else(|| "none".to_owned(), hash);
-        write(&self.base_path(name), &format!("{text}\n"))
+        write(&self.base_path(name)?, &format!("{text}\n"))
     }
 
     /// The installed history, newest first: each file `DRAFT-N.conf` with
@@ -417,7 +454,9 @@ impl Store {
             .max()
             .unwrap_or(0)
             .saturating_add(1);
-        let path = self.installed_dir().join(format!("{draft}-{number}.conf"));
+        let path = self
+            .installed_dir()
+            .join(format!("{}-{number}.conf", named(draft)?));
         write(&path, replaced)?;
         for old in self.history()?.iter().skip(keep) {
             remove(&old.path)?;
@@ -505,6 +544,67 @@ mod tests {
         assert_eq!(real.guard(false, Some(home)), Ok(()));
         let own = Store::locate(1000, env(&[("HOME", "/home/bo/target/tmp/t")]), |_| None).unwrap();
         assert_eq!(own.guard(true, Some(home)), Ok(()));
+    }
+
+    /// The release binary never refuses a user, whatever its environment
+    /// holds; a debug build under cargo does.
+    #[test]
+    fn only_a_debug_build_under_cargo_arms_the_guard() {
+        let cargo = env(&[("CARGO_MANIFEST_DIR", "/src/vtium")]);
+        assert!(!armed(false, &cargo));
+        assert!(armed(true, &cargo));
+        assert!(!armed(true, env(&[])));
+    }
+
+    /// A name that would reach outside the store is refused wherever a
+    /// path is built from it.
+    #[test]
+    fn a_draft_s_name_never_leaves_the_store() {
+        let store = Store {
+            config: PathBuf::from("/c"),
+            state: PathBuf::from("/s"),
+        };
+        for bad in [
+            "../library",
+            "a/b",
+            "..",
+            ".",
+            ".hidden",
+            "-x",
+            "a\0b",
+            "",
+            &"x".repeat(65),
+        ] {
+            assert_eq!(
+                store.draft_path(bad).map_err(|f| f.code()),
+                Err(2),
+                "{bad:?}"
+            );
+            assert_eq!(
+                store.base_path(bad).map_err(|f| f.code()),
+                Err(2),
+                "{bad:?}"
+            );
+            assert_eq!(
+                store.edit_copy(bad).map_err(|f| f.code()),
+                Err(2),
+                "{bad:?}"
+            );
+            assert_eq!(
+                store.save_history(bad, "x", 10).map_err(|f| f.code()),
+                Err(2),
+                "{bad:?}"
+            );
+            assert_eq!(
+                store.set_current(Some(bad)).map_err(|f| f.code()),
+                Err(2),
+                "{bad:?}"
+            );
+        }
+        assert_eq!(
+            store.draft_path("desk").unwrap(),
+            PathBuf::from("/c/drafts/desk.conf")
+        );
     }
 
     #[test]

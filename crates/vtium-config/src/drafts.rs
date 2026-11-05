@@ -152,6 +152,7 @@ impl Session<'_> {
         if let Some(name) = settings.draft
             && let Some(text) = self.store.read_draft(&name)?
         {
+            self.seen(&name)?;
             return Ok((name, text));
         }
         let name = self.store.free_name(&crate::store::hostname())?;
@@ -176,6 +177,19 @@ impl Session<'_> {
             .set_base(name, installed.as_deref().map(str::as_bytes))?;
         self.store.set_current(Some(name))?;
         Ok(text)
+    }
+
+    /// Records the installed file as the base of the draft `name` when it
+    /// has none, the first time vtium-config sees it, as a draft copied in
+    /// from another machine: an edit made to the installed file after that
+    /// makes the draft stale, and install refuses it.
+    pub fn seen(&self, name: &str) -> Result<(), Fail> {
+        if self.store.base(name)?.is_none() {
+            let installed = self.installed()?;
+            self.store
+                .set_base(name, installed.as_deref().map(str::as_bytes))?;
+        }
+        Ok(())
     }
 
     /// How the draft `name`, `text`, stands against the installed file.
@@ -250,7 +264,7 @@ impl Session<'_> {
                 self.installed_path().display()
             )));
         }
-        let checked = self.check(text, &self.store.draft_path(name))?;
+        let checked = self.check(text, &self.store.draft_path(name)?)?;
         for line in checked.problems.iter().chain(&checked.notes) {
             let _ = writeln!(out, "{line}");
         }

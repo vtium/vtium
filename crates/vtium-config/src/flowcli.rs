@@ -167,7 +167,7 @@ impl Command<'_, '_> {
         let state = self.session.state(name, text)?;
         let checked = self
             .session
-            .check(text, &self.session.store.draft_path(name))?;
+            .check(text, &self.session.store.draft_path(name)?)?;
         let (added, removed) = state.counts();
         let draft = crate::tui::flow::Draft {
             name: name.to_owned(),
@@ -191,7 +191,7 @@ impl Command<'_, '_> {
         let (flow, state, checked) = self.judged(&name, &text)?;
         let missing = missing(&checked);
         let printed = if args.has("--json") {
-            flowmodel::json(&flow, &name, &state, &checked.problems, &missing)
+            flowmodel::json(&flow, &name, &state, &checked, &missing)
         } else {
             flowmodel::text(
                 &flow,
@@ -279,7 +279,7 @@ impl Command<'_, '_> {
         let shown = diff(
             &self.session.installed_path().to_string_lossy(),
             &installed,
-            &self.session.store.draft_path(&name).to_string_lossy(),
+            &self.session.store.draft_path(&name)?.to_string_lossy(),
             &text,
         );
         let _ = write!(self.out, "{shown}");
@@ -350,7 +350,7 @@ impl Command<'_, '_> {
         dry_run: bool,
         install: bool,
     ) -> Result<(), Fail> {
-        let path = self.session.store.draft_path(name);
+        let path = self.session.store.draft_path(name)?;
         if dry_run {
             let shown = path.to_string_lossy();
             let _ = write!(
@@ -667,7 +667,7 @@ impl Command<'_, '_> {
                     Some(other) => From::Draft(other.to_owned()),
                 };
                 self.session.make(&name, from)?;
-                self.say(&format!("wrote {}", store.draft_path(&name).display()));
+                self.say(&format!("wrote {}", store.draft_path(&name)?.display()));
                 self.say(&format!("draft {name} is current"));
                 Ok(())
             }
@@ -675,6 +675,7 @@ impl Command<'_, '_> {
                 if store.read_draft(name)?.is_none() {
                     return Err(Fail::Usage(format!("there is no draft named {name}")));
                 }
+                self.session.seen(name)?;
                 store.set_current(Some(name))?;
                 self.say(&format!("draft {name} is current"));
                 Ok(())
@@ -806,11 +807,7 @@ impl Command<'_, '_> {
             return Err(Fail::Usage("edit takes only --install".to_owned()));
         }
         let (name, text) = self.session.current()?;
-        let copy = self
-            .session
-            .store
-            .state
-            .join(format!("edit-{name}-{}.conf", std::process::id()));
+        let copy = self.session.store.edit_copy(&name)?;
         crate::store::write(&copy, &text)?;
         let result = self.edit_loop(&name, &text, &copy, args.has("--install"));
         let _ = std::fs::remove_file(&copy);
@@ -848,7 +845,7 @@ impl Command<'_, '_> {
             }
             self.session.store.write_draft(name, &edited)?;
             draft = edited;
-            let path = self.session.store.draft_path(name);
+            let path = self.session.store.draft_path(name)?;
             self.say(&format!("wrote {}", path.display()));
             let checked = self.session.check(&draft, &path)?;
             self.print_check(&checked);

@@ -66,15 +66,15 @@ In a terminal that is not vtium, such as a desktop terminal, the tool shows the 
 
 ## Switching and zooming
 
-`vtium config set NAME` switches the console it runs in to the frit NAME, or to a built-in font, `unifont` or `unscii-8`:
+`vtium config use-frit NAME` switches the console it runs in to the frit NAME, or to a built-in font, `unifont` or `unscii-8`:
 
 ```
-$ vtium config set monoid
+$ vtium config use-frit monoid
 ```
 
 It writes xterm's font sequence, OSC 50, to its own terminal, and vtium takes it while the `allow-font-ops` key is on, as it is by default.
 
-`vtium config set` first asks the terminal what it is, and sends nothing to a terminal that is not vtium, such as a desktop terminal; there it prints `failed`. Run it inside a vtium console.
+`vtium config use-frit` first asks the terminal what it is, and sends nothing to a terminal that is not vtium, such as a desktop terminal; there it prints `failed`. Run it inside a vtium console.
 
 Ctrl+= and Ctrl+- zoom the console on screen in and out, and so does Ctrl with the mouse wheel.
 

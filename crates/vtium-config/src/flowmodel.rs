@@ -547,15 +547,17 @@ fn state_kind(state: &RuleState) -> &'static str {
 
 /// The flow as `vtium config flow --json` prints it: one object whose
 /// `version` is 1, with the draft's state, so a script can rely on its
-/// fields. Rules and the devices' `rule` are numbered from 1, as the
+/// fields. `problems` in the draft is the count the state line gives, and
+/// the top-level `problems` lists every line the check printed. Rules and the devices' `rule` are numbered from 1, as the
 /// commands take them.
 pub fn json(
     flow: &Flow,
     name: &str,
     state: &crate::drafts::State,
-    problems: &[String],
+    checked: &crate::drafts::Checked,
     missing: &[String],
 ) -> String {
+    let problems = &checked.problems;
     let device = |d: &Device| {
         format!(
             "{{\"name\":{},\"detail\":{},\"keys\":{},\"found\":{},\"rule\":{}}}",
@@ -618,7 +620,7 @@ pub fn json(
         "{{\"version\":1,\"draft\":{{\"name\":{},\"state\":{},\"added\":{added},\"removed\":{removed},\"problems\":{}}},\"policy\":{},\"base\":{{\"set\":{base},\"defaults\":{}}},\"displays\":{},\"rules\":{},\"heads\":{},\"looks\":{},\"inputs\":{},\"problems\":{},\"missing\":{}}}\n",
         quoted(name),
         quoted(state.kind()),
-        problems.len(),
+        checked.count(),
         quoted(&flow.policy),
         flow.base.defaults,
         list(flow.displays.iter().map(device)),
