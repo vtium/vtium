@@ -1,5 +1,6 @@
-//! Any bytes as a head file and as vtium.conf, through the head file's
-//! reader and the section reader (ADR-1401 D7, ADR-1403 D3): no panic,
+//! Any bytes as vtium.conf, through the section reader, read whole with
+//! `reading` and as a flow with `sections` (ADR-1401 D7, ADR-1403 D3): no
+//! panic,
 //! every rule that survives sends its devices to a head that survives,
 //! and the section reader names no error on a line that holds one of
 //! vtium's own top-level keys, which the console reads, so a top-level
