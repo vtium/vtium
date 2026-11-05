@@ -99,9 +99,9 @@ const TOPICS: &[Topic] = &[
         command: Command::Check,
         forms: &[form(
             "check FILE",
-            "check a frit (NAME.vtfrit), a head file (heads.conf) or a vtium.conf, writing nothing",
+            "check a frit (NAME.vtfrit) or a vtium.conf, writing nothing",
         )],
-        detail: "Checks FILE as the console would read it. A file named NAME.vtfrit is read as a frit, a file named heads.conf as a head file, and any other file as a vtium.conf. Each problem prints with the file's name and line, and a good frit prints \"ok FILE\". It writes nothing and needs no privilege.",
+        detail: "Checks FILE as the console would read it. A file named NAME.vtfrit is read as a frit, and any other file as a vtium.conf, its keys and its sections in one run. Each problem prints with the file's name and line, and a good frit prints \"ok FILE\". It writes nothing and needs no privilege.",
         example: "vtium-config check /etc/vtium/vtium.conf",
     },
     Topic {
@@ -216,7 +216,7 @@ Run as a user, a command that changes something writes a draft and prints
 the command that installs it; run as root, it installs at once.
 
 Options:
-  --configdir DIR       the directory of vtium.conf and heads.conf, in place of /etc/vtium
+  --configdir DIR       the directory of vtium.conf, in place of /etc/vtium
   --frits DIR           the frits directory, in place of the one font-frits names
   --sudo PROGRAM        the program that runs apply as root, in place of sudo
   --vtium PROGRAM       the console binary apply checks files with, in place of /usr/bin/vtium

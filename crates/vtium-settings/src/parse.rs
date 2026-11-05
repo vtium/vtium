@@ -97,25 +97,17 @@ impl Reading {
     }
 }
 
-/// Which file the reader reads.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-enum Mode {
-    /// The head file of ADR-1401, whose top level takes `version` and
-    /// `policy` alone.
-    #[default]
-    HeadFile,
-    /// vtium.conf, whose top level holds vtium's own keys beside them, and
-    /// whose sections add `[look NAME]` (ADR-1403 D3, D4).
-    Conf,
-}
-
-/// Reads a head file's bytes: at most [`FILE_MAX`] of them, each line
-/// checked on its own for UTF-8, control characters and its length, so a
-/// bad line drops what its scope takes and no more. Past [`FILE_MAX`] the
-/// file is dropped whole, and its `policy` lines are read from the lines
-/// within the bound; a policy line the bound cuts cannot be read.
+/// Reads the sections of vtium.conf's bytes, and the `version` and
+/// `policy` lines of its top level, with the whole file's line numbers
+/// (ADR-1403 D3): at most [`FILE_MAX`] bytes, each line checked on its own
+/// for UTF-8, control characters and its length, so a bad line drops what
+/// its scope takes and no more. Every other top-level line is vtium's own
+/// key, which this reader skips. Past [`FILE_MAX`] the sections are
+/// dropped whole, and the `policy` lines are read from the lines within
+/// the bound; a policy line the bound cuts cannot be read. A file with no
+/// flow reads as one that declares nothing; [`sections`] tells it apart.
 pub fn reading(bytes: &[u8]) -> Reading {
-    read(bytes, Mode::HeadFile)
+    read(bytes)
 }
 
 /// Reads the sections of vtium.conf's bytes, and the `version` and
@@ -126,7 +118,7 @@ pub fn reading(bytes: &[u8]) -> Reading {
 /// kmscon.conf: vtium runs its compiled-in flow for it, and the top level
 /// still applies.
 pub fn sections(bytes: &[u8]) -> Option<Reading> {
-    split(bytes).has_flow().then(|| read(bytes, Mode::Conf))
+    split(bytes).has_flow().then(|| read(bytes))
 }
 
 /// Parses the sections of vtium.conf's text, strictly: `Ok(None)` for a
@@ -162,11 +154,8 @@ fn each_line(
     n
 }
 
-fn read(bytes: &[u8], mode: Mode) -> Reading {
-    let mut p = Parser {
-        mode,
-        ..Parser::default()
-    };
+fn read(bytes: &[u8]) -> Reading {
+    let mut p = Parser::default();
     let (within, cut) = if bytes.len() > FILE_MAX {
         p.error(None, Problem::TooLarge, Within::Top);
         let bounded = bytes.get(..FILE_MAX).unwrap_or_default();
@@ -187,27 +176,22 @@ fn read(bytes: &[u8], mode: Mode) -> Reading {
         None if within.is_empty() => (within, cut.strip_prefix(BOM).unwrap_or(cut)),
         None => (within, cut),
     };
-    let n = match mode {
-        Mode::HeadFile => each_line(&mut p, within, 0, Parser::raw_line),
-        Mode::Conf => {
-            let parts = split_after(within, false);
-            p.headed = parts.first_section.is_some();
-            match parts.first_section {
-                // the top level's lines, then the sections' from the heading
-                Some(first) => {
-                    for (n, raw) in numbered(parts.top, 1) {
-                        p.top_line(n, raw.strip_suffix(b"\r").unwrap_or(raw));
-                    }
-                    each_line(
-                        &mut p,
-                        parts.sections,
-                        first.saturating_sub(1),
-                        Parser::raw_line,
-                    )
-                }
-                None => each_line(&mut p, parts.top, 0, Parser::top_line),
+    let parts = split_after(within, false);
+    p.headed = parts.first_section.is_some();
+    let n = match parts.first_section {
+        // the top level's lines, then the sections' from the heading
+        Some(first) => {
+            for (n, raw) in numbered(parts.top, 1) {
+                p.top_line(n, raw.strip_suffix(b"\r").unwrap_or(raw));
             }
+            each_line(
+                &mut p,
+                parts.sections,
+                first.saturating_sub(1),
+                Parser::raw_line,
+            )
         }
+        None => each_line(&mut p, parts.top, 0, Parser::top_line),
     };
     // the lines end in an empty one, numbered as the line the bound cuts
     if p.top() && begins_policy(cut) {
@@ -302,7 +286,6 @@ enum Seen {
 
 #[derive(Default)]
 struct Parser {
-    mode: Mode,
     errors: Rejected,
     /// Errors found once every line is read, merged in by line.
     late: Vec<Error>,
@@ -432,7 +415,6 @@ pub(crate) const RESERVED: [&str; 3] = ["roaming", "ignore", "off"];
 /// read, since a rule may name a head declared after it.
 pub(crate) fn rule_line(line: &str) -> Result<(Kind, Match), Rejected> {
     let mut p = Parser {
-        mode: Mode::Conf,
         section: Some(Section::Rules),
         ..Parser::default()
     };
@@ -497,10 +479,13 @@ fn table_value(key: &'static Key, value: &str) -> Result<(), Problem> {
         return Err(bad());
     }
     match key.kind {
-        keys::Kind::Text | keys::Kind::Command | keys::Kind::Path if value.len() > TEXT_MAX => {
+        keys::Kind::Text | keys::Kind::Command | keys::Kind::Path | keys::Kind::Paths
+            if value.len() > TEXT_MAX =>
+        {
             Err(Problem::TooLong(key.name))
         }
         keys::Kind::Path if !keys::absolute(value) => Err(bad()),
+        keys::Kind::Paths if !value.split(':').all(keys::absolute) => Err(bad()),
         keys::Kind::Choice(words) if !words.contains(&value) => Err(bad()),
         keys::Kind::Number { word, .. } if word == Some(value) => Ok(()),
         keys::Kind::Number { min, max, unit, .. } => {
@@ -854,25 +839,20 @@ impl Parser {
                 Problem::Syntax(Syntax::HeadOneName),
                 Within::Header,
             ),
-            ["look", name] if self.mode == Mode::Conf => self.look(n, name),
-            ["look", ..] if self.mode == Mode::Conf => self.error(
+            ["look", name] => self.look(n, name),
+            ["look", ..] => self.error(
                 Some(n),
                 Problem::Syntax(Syntax::LookOneName),
                 Within::Header,
             ),
-            ["profile", ..] if self.mode == Mode::Conf => self.error(
+            ["profile", ..] => self.error(
                 Some(n),
                 Problem::Renamed(Renamed::ProfileSection),
                 Within::Header,
             ),
-            _ if self.mode == Mode::Conf => self.error(
-                Some(n),
-                Problem::NotASection(Quoted::new(inner)),
-                Within::Header,
-            ),
             _ => self.error(
                 Some(n),
-                Problem::UnknownSection(Quoted::new(inner)),
+                Problem::NotASection(Quoted::new(inner)),
                 Within::Header,
             ),
         }
@@ -997,35 +977,23 @@ impl Parser {
         }
     }
 
-    /// The key a head's line names, as the file's kind takes it; `Err` with
-    /// the error for a key a head does not take.
-    fn head_key_name(&self, key: &str) -> Result<&'static str, Problem> {
-        const KEYS: [&str; 5] = [
-            "profile",
-            "consoles",
-            "login",
-            "when-display-lost",
-            "isolated",
-        ];
-        let found = match self.mode {
-            Mode::HeadFile => KEYS.iter().find(|k| **k == key).copied(),
-            Mode::Conf => CONF_HEAD_KEYS
-                .iter()
-                .find(|k| **k == key)
-                .copied()
-                .or_else(|| {
-                    keys::find(key)
-                        .filter(|k| k.levels.contains(Level::Head))
-                        .map(|k| k.name)
-                }),
-        };
-        found.ok_or_else(|| match (self.mode, key) {
-            (_, "on-loss") => Problem::Renamed(Renamed::OnLoss),
-            (_, "rescue") => Problem::Renamed(Renamed::Rescue),
-            (Mode::HeadFile, "font-name") => Problem::Renamed(Renamed::HeadFont("font-name")),
-            (Mode::HeadFile, "font-size") => Problem::Renamed(Renamed::HeadFont("font-size")),
-            (Mode::Conf, "profile") => Problem::Renamed(Renamed::Profile),
-            (Mode::Conf, _) => match keys::find(key) {
+    /// The key a head's line names; `Err` with the error for a key a head
+    /// does not take, which names where the key may be set.
+    fn head_key_name(key: &str) -> Result<&'static str, Problem> {
+        let found = CONF_HEAD_KEYS
+            .iter()
+            .find(|k| **k == key)
+            .copied()
+            .or_else(|| {
+                keys::find(key)
+                    .filter(|k| k.levels.contains(Level::Head))
+                    .map(|k| k.name)
+            });
+        found.ok_or_else(|| match key {
+            "on-loss" => Problem::Renamed(Renamed::OnLoss),
+            "rescue" => Problem::Renamed(Renamed::Rescue),
+            "profile" => Problem::Renamed(Renamed::Profile),
+            _ => match keys::find(key) {
                 Some(table) => Problem::NotHere {
                     key: table.name,
                     section: Level::Head,
@@ -1033,7 +1001,6 @@ impl Parser {
                 },
                 None => Problem::UnknownKey(Quoted::new(key)),
             },
-            (Mode::HeadFile, _) => Problem::UnknownKey(Quoted::new(key)),
         })
     }
 
@@ -1042,7 +1009,7 @@ impl Parser {
             self.error(Some(n), Problem::Syntax(Syntax::NotKeyValue), Within::Head);
             return;
         };
-        let key = match self.head_key_name(key) {
+        let key = match Self::head_key_name(key) {
             Ok(key) => key,
             Err(problem) => {
                 self.error(Some(n), problem, Within::Head);
@@ -1052,9 +1019,7 @@ impl Parser {
         if !self.once(n, Seen::Head(index), key) {
             return;
         }
-        if self.mode == Mode::Conf
-            && let Some(table) = keys::find(key)
-        {
+        if let Some(table) = keys::find(key) {
             match table_value(table, value) {
                 Ok(()) => {
                     if let Some(head) = self.heads.get_mut(index).map(|d| &mut d.head) {
@@ -1080,11 +1045,10 @@ impl Parser {
         let mut capped = false;
         if let Some(head) = self.heads.get_mut(index).map(|d| &mut d.head) {
             match key {
-                "profile" | "look" if good_name(value) => {
-                    head.profile = value.to_owned();
-                    head.profile_line = n;
+                "look" if good_name(value) => {
+                    head.look = value.to_owned();
+                    head.look_line = n;
                 }
-                "profile" => problem = Some(Problem::BadName(Quoted::new(value))),
                 "look" => problem = Some(bad()),
                 "consoles" => match decimal(value) {
                     Some(Some(0)) => {
@@ -1241,7 +1205,7 @@ impl Parser {
     fn finish(mut self) -> Reading {
         // a vtium.conf with no section is a kmscon.conf, which needs no
         // version even when it states a policy (ADR-1403 D3)
-        let needs_version = self.mode == Mode::HeadFile || self.headed;
+        let needs_version = self.headed;
         if !self.versioned && needs_version {
             self.late(None, Problem::MissingVersion, Within::Top);
         }
@@ -1262,16 +1226,16 @@ impl Parser {
             }
         }
         // a head naming a look with no section draws with the default look
-        if self.mode == Mode::Conf {
+        {
             for head in &heads {
-                let named = head.profile != "default"
-                    && !looks.iter().any(|l| l.name == head.profile)
-                    && !self.dropped_looks.contains(&head.profile);
+                let named = head.look != "default"
+                    && !looks.iter().any(|l| l.name == head.look)
+                    && !self.dropped_looks.contains(&head.look);
                 if named {
                     self.warnings.push(Warning::NoLook {
-                        line: head.profile_line,
+                        line: head.look_line,
                         head: Quoted::new(&head.name),
-                        look: Quoted::new(&head.profile),
+                        look: Quoted::new(&head.look),
                     });
                 }
             }

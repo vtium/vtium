@@ -309,6 +309,11 @@ fn font(name: &str, state: FontState) -> Font {
     }
 }
 
+/// The sections of the fixture's vtium.conf: a look that draws the frit
+/// proof, the head desk drawing it, and the head panel drawing the default
+/// look (ADR-1403 D4).
+const SECTIONS: &str = "version = 1\n[look proof]\nfont-name = proof\n[head desk]\nlook = proof\n[head panel]\n[rules]\ndisplay * -> desk\n";
+
 /// The fonts of a machine with three frits, one that does not read.
 fn inputs() -> Inputs {
     Inputs {
@@ -324,12 +329,7 @@ fn inputs() -> Inputs {
             font("unscii-8", FontState::BuiltIn),
         ],
         conf_path: PathBuf::from("/etc/vtium/vtium.conf"),
-        conf: Some("# mine\nfont-name=unifont\n".into()),
-        heads_path: PathBuf::from("/etc/vtium/heads.conf"),
-        heads: Some(
-            "version = 1\n[head desk]\nprofile = proof\n[head panel]\n[rules]\ndisplay * -> desk\n"
-                .into(),
-        ),
+        conf: Some(format!("# mine\nfont-name=unifont\n{SECTIONS}")),
         saving: model::Saving::Sudo("sudo /usr/bin/vtium-config apply DRAFT".into()),
         drafts: PathBuf::from("/home/me/.local/state/vtium/drafts"),
         dpi: (96, DpiFrom::Assumed),
@@ -559,7 +559,8 @@ fn keeping_a_font_and_a_size_shows_each_changed_line_before_saving() {
     assert!(screen.contains("/etc/vtium/vtium.conf"), "{screen}");
     assert!(screen.contains("2 - font-name=unifont"), "{screen}");
     assert!(screen.contains("2 + font-name=tiny5"), "{screen}");
-    assert!(screen.contains("3 + font-size=12"), "{screen}");
+    // the top level's last line is `version = 1`, so the new key follows it
+    assert!(screen.contains("4 + font-size=12"), "{screen}");
     assert!(
         screen.contains("sudo /usr/bin/vtium-config apply DRAFT"),
         "{screen}"
@@ -572,7 +573,7 @@ fn saving_runs_one_save_and_the_console_keeps_the_saved_font() {
     assert_eq!(run(&mut c), 0);
     assert_eq!(c.saves.len(), 1);
     let file = &c.saves[0].files[0];
-    assert_eq!(file.new, "# mine\nfont-name=tiny5\n");
+    assert_eq!(file.new, format!("# mine\nfont-name=tiny5\n{SECTIONS}"));
     // after saving, leaving does not switch back
     assert_eq!(c.switches(), ["tiny5"]);
 }
@@ -634,7 +635,9 @@ fn a_typed_value_a_switch_and_a_choice_are_saved_like_a_font() {
     let plan = c.saves.first().expect("a save");
     assert_eq!(
         plan.files[0].new,
-        "# mine\nfont-name=unifont\nfont-hinting=light\nfont-line-spacing=10\nno-allow-font-ops\ndisplay-dpi=qi\n"
+        // a new key goes after the last line of the top level, never into a
+        // section (ADR-1403 D8)
+        "# mine\nfont-name=unifont\nversion = 1\nfont-hinting=light\nfont-line-spacing=10\nno-allow-font-ops\ndisplay-dpi=qi\n[look proof]\nfont-name = proof\n[head desk]\nlook = proof\n[head panel]\n[rules]\ndisplay * -> desk\n"
     );
 }
 
@@ -740,14 +743,14 @@ fn r_removes_the_highlighted_frit_when_the_user_saves() {
 /// The remove key refuses what `remove-frit` refuses, saying why, and
 /// adds nothing to the save: a built-in font, the frit vtium.conf's
 /// `font-name` names, as it is or as the save leaves it, and the frit a
-/// head's profile names.
+/// look's `font-name` names.
 #[test]
 fn r_refuses_what_remove_frit_refuses() {
     for (keys, says) in [
         // unifont, highlighted at start
         (vec![b"r".as_slice()], "built-in font"),
-        // proof is head desk's profile
-        (vec![UP, UP, b"r"], "head desk's profile"),
+        // proof is the frit look proof draws
+        (vec![UP, UP, b"r"], "`[look proof]`"),
         // minspec-16 kept as font-name, then r
         (vec![UP, UP, UP, b"\r", b"r"], "font-name"),
     ] {
@@ -1250,7 +1253,10 @@ fn after_saving_a_font_leaving_puts_the_console_in_the_saved_font() {
     // keep tiny5, move on to proof, save, leave
     let mut c = console().keys(&[UP, b"\r", UP, b"i", b"\r", b"q"]);
     assert_eq!(run(&mut c), 0);
-    assert_eq!(c.saves[0].files[0].new, "# mine\nfont-name=tiny5\n");
+    assert_eq!(
+        c.saves[0].files[0].new,
+        format!("# mine\nfont-name=tiny5\n{SECTIONS}")
+    );
     assert_eq!(c.switches(), ["tiny5", "proof", "tiny5"]);
 }
 

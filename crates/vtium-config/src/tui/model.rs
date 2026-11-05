@@ -75,11 +75,9 @@ pub enum DpiFrom {
 pub struct Inputs {
     pub fonts: Vec<Font>,
     pub conf_path: PathBuf,
-    /// vtium.conf as read, `None` when there is none.
+    /// vtium.conf as read, its keys and its sections, `None` when there is
+    /// none.
     pub conf: Option<String>,
-    pub heads_path: PathBuf,
-    /// The head file as read, `None` when there is none.
-    pub heads: Option<String>,
     /// How a save is installed, as the save view shows it.
     pub saving: Saving,
     /// The directory drafts go under, as the save view names it.
@@ -1250,8 +1248,8 @@ impl App {
 
     /// `r` in the fonts view: the highlighted frit is removed when the user
     /// saves, or, when a save already removes it, no longer is. The TUI
-    /// refuses what `remove-frit` refuses, by vtium.conf and the head file
-    /// both as they are and as the save leaves them, and a frit the save
+    /// refuses what `remove-frit` refuses, by vtium.conf, its top level and
+    /// its looks, both as it is and as the save leaves it, and a frit the save
     /// replaces with a new one. The save view lists the frit's file among
     /// what the save changes, and `apply` removes it, as it removes the
     /// frit of `remove-frit`'s draft.
@@ -1264,28 +1262,25 @@ impl App {
             self.message = Some(super::words::remove_dropped(&name));
             return;
         }
-        let refused = crate::commands::removal_refusal(
-            &name,
-            self.inputs.conf.as_deref(),
-            self.inputs.heads.as_deref(),
-        )
-        .or_else(|| {
-            self.pending
-                .frits
-                .iter()
-                .any(|(n, _)| *n == name)
-                .then(|| super::words::remove_replaced(&name))
-        })
-        .or_else(|| {
-            (!self.inputs.installed.contains_key(&name)).then(|| super::words::remove_unread(&name))
-        });
+        let refused = crate::commands::removal_refusal(&name, self.inputs.conf.as_deref())
+            .or_else(|| {
+                self.pending
+                    .frits
+                    .iter()
+                    .any(|(n, _)| *n == name)
+                    .then(|| super::words::remove_replaced(&name))
+            })
+            .or_else(|| {
+                (!self.inputs.installed.contains_key(&name))
+                    .then(|| super::words::remove_unread(&name))
+            });
         if let Some(why) = refused {
             self.message = Some(super::words::remove_refused(why));
             return;
         }
         self.pending.removals.push(name.clone());
         // the save as it would be with the removal: refused when what the
-        // save leaves in vtium.conf or the head file names the frit
+        // save leaves in vtium.conf names the frit
         match self.plan() {
             Ok(_) => self.message = Some(super::words::remove_pending(&name)),
             Err(why) => {
@@ -1420,8 +1415,8 @@ impl App {
         }
     }
 
-    /// What saving now would change: vtium.conf with the pending keys, and
-    /// the head file with each head's profile, through the one writer.
+    /// What saving now would change: vtium.conf with the pending keys at
+    /// its top level, through the line editor (ADR-1403 D8).
     pub fn plan(&self) -> Result<Plan, String> {
         let mut files = Vec::new();
         let p = &self.pending;
@@ -1470,7 +1465,6 @@ impl App {
                 .or_else(|| now.clone())
         };
         let conf = after(&self.inputs.conf_path, &self.inputs.conf);
-        let heads = after(&self.inputs.heads_path, &self.inputs.heads);
         // the frits' paths come from the directory the TUI started with
         let key = keys::FONT_FRITS.name;
         if !(p.frits.is_empty() && p.removals.is_empty())
@@ -1480,9 +1474,7 @@ impl App {
         }
         let mut removals = Vec::new();
         for name in &p.removals {
-            if let Some(why) =
-                crate::commands::removal_refusal(name, conf.as_deref(), heads.as_deref())
-            {
+            if let Some(why) = crate::commands::removal_refusal(name, conf.as_deref()) {
                 return Err(why);
             }
             let old = self
@@ -1507,8 +1499,6 @@ impl App {
                     for f in plan.files {
                         if f.path == self.inputs.conf_path {
                             self.inputs.conf = Some(f.new);
-                        } else if f.path == self.inputs.heads_path {
-                            self.inputs.heads = Some(f.new);
                         }
                     }
                 }

@@ -1,4 +1,4 @@
-//! What a check of the head file finds beyond its errors, from what
+//! What a check of vtium.conf's sections finds beyond their errors, from what
 //! survives of it (ADR-1401 D3, D5, D7, D9, D10): the warnings that need
 //! vtium.conf's caps and the frits installed, and the remarks about what
 //! runs on the devices present. `vtium check-config` reports them, and
@@ -26,7 +26,8 @@ pub struct Against<'a> {
 
 /// The warnings of `parsed` and those measured `against` vtium.conf and
 /// the frits, by line: a head's `consoles` past its cap or past the total
-/// (D10), and a profile naming a missing frit (D7). A head past its cap
+/// (D10), and a look whose `font-name` names a frit that is not installed
+/// (D7; ADR-1403 D5). A head past its cap
 /// takes one warning, the cap's, in place of the parser's warning past
 /// [`CONSOLES_MAX`](crate::CONSOLES_MAX) on the same line.
 pub fn warnings(parsed: &Parsed, against: &Against) -> Vec<Warning> {
@@ -58,11 +59,17 @@ pub fn warnings(parsed: &Parsed, against: &Against) -> Vec<Warning> {
             });
         }
         spare = spare.saturating_sub(given);
-        if h.profile != "default" && !(against.has_frit)(&h.profile) {
+    }
+    for look in &config.looks {
+        let frit = look
+            .settings
+            .iter()
+            .find(|s| s.key.name == crate::keys::FONT_NAME.name);
+        if let Some(frit) = frit.filter(|f| !(against.has_frit)(&f.value)) {
             out.push(Warning::MissingFrit {
-                line: h.profile_line,
-                head: head(),
-                profile: Quoted::new(&h.profile),
+                line: frit.line,
+                look: Quoted::new(&look.name),
+                frit: Quoted::new(&frit.value),
                 dir: Quoted::path(against.frits),
             });
         }

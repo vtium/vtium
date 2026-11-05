@@ -11,3 +11,6 @@
 1920x1080	new with #142, #23
 2560x1440	new with #142, #23
 320x240-tiny5	new with #217
+320x240-gray4	ADR-1403 D6: its notice screen names vtium.conf in place of heads.conf, redrawn by vtium, not yet reviewed
+320x240-gray16	ADR-1403 D6: its notice screen names vtium.conf in place of heads.conf, redrawn by vtium, not yet reviewed
+640x480-gray16	ADR-1403 D6: its notice screen names vtium.conf in place of heads.conf, redrawn by vtium, not yet reviewed

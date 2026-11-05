@@ -2,15 +2,15 @@
 //! `--no-switch`, the one-letter forms (`-c DIR`, `-cDIR`), and
 //! `--login -- COMMAND...`, whose words after `--` are the session's
 //! command, and the subcommand `check-config` wherever it stands among
-//! the options, with the head file it checks in place of the installed
-//! one. Each name is matched whole.
+//! the options, with the vtium.conf it checks in place of the installed
+//! one and its `--no-devices`. Each name is matched whole.
 
 use std::ffi::OsString;
 use std::path::PathBuf;
 
 use super::keys::{self, Kind};
 use super::{Assignment, Origin, Problem, Reports, Value, value};
-use crate::check::SUBCOMMAND;
+use crate::check::{NO_DEVICES, SUBCOMMAND};
 
 /// What the command line gives.
 pub(super) struct Parsed {
@@ -18,18 +18,24 @@ pub(super) struct Parsed {
     pub(super) assignments: Vec<Assignment>,
     /// The subcommand `check-config` stands among the options.
     pub(super) check: bool,
-    /// The head file `check-config` checks in place of the installed one.
+    /// The vtium.conf `check-config` checks in place of the installed one.
     pub(super) candidate: Option<PathBuf>,
+    /// `check-config --no-devices`: judge the rules alone, without the
+    /// devices present (ADR-1403 D3).
+    pub(super) no_devices: bool,
 }
 
 /// The values `args` gives, in order, with what they could not give
 /// reported. A word that is no option is the subcommand when it is
 /// [`SUBCOMMAND`], wherever it stands before `--`, and the first such word
-/// after the subcommand is the head file it checks (ADR-1401 D7).
+/// after the subcommand is the vtium.conf it checks (ADR-1403 D3).
+/// [`NO_DEVICES`] belongs to the subcommand, wherever it stands, and is
+/// an unknown option without it.
 pub(super) fn parse(args: &[OsString], reports: &mut Reports) -> Parsed {
     let mut out = Vec::new();
     let mut check = false;
     let mut candidate = None;
+    let mut no_devices = None;
     let mut login = false;
     // `--login`'s command is the words after `--`.
     let mut dashes = false;
@@ -43,6 +49,10 @@ pub(super) fn parse(args: &[OsString], reports: &mut Reports) -> Parsed {
             reports.push(origin, Problem::NotUtf8);
             continue;
         };
+        if word == NO_DEVICES {
+            no_devices = Some(origin);
+            continue;
+        }
         if word == "--" {
             dashes = true;
             // The words are passed as given, bytes that are not UTF-8
@@ -150,9 +160,13 @@ pub(super) fn parse(args: &[OsString], reports: &mut Reports) -> Parsed {
             Problem::LoginWithoutCommand,
         );
     }
+    if let Some(origin) = no_devices.clone().filter(|_| !check) {
+        reports.push(origin, Problem::UnknownKey(NO_DEVICES.to_owned()));
+    }
     Parsed {
         assignments: out,
         check,
         candidate,
+        no_devices: check && no_devices.is_some(),
     }
 }

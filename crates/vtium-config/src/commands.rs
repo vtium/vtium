@@ -96,9 +96,9 @@ pub fn left_out_text(left: &[crate::serve::LeftOut]) -> String {
 }
 
 /// `check FILE`: a frit, a file named `*.vtfrit`, read strictly by the
-/// helper's frit reader; a head file, a file named `heads.conf`, and any
-/// other file as vtium.conf, each judged by the console's own `vtium
-/// check-config`, each problem named with FILE and its line. Writes
+/// helper's frit reader, and any other file as vtium.conf, judged by the
+/// console's own `vtium check-config`, both its parts in one run
+/// (ADR-1403 D3), each problem named with FILE and its line. Writes
 /// nothing.
 pub fn check(words: &[String], paths: &Paths, out: &mut dyn Write, err: &mut dyn Write) -> u8 {
     let [file] = words else {
@@ -117,12 +117,6 @@ pub fn check(words: &[String], paths: &Paths, out: &mut dyn Write, err: &mut dyn
             Err(e) => failed(err, &e.to_string()),
         };
     }
-    // the head file is the console's check's candidate as it is: the check
-    // reads it with the reader, parser and evaluator the start runs, and
-    // judges it against the vtium.conf in the configuration directory
-    if path.file_name().is_some_and(|n| n == "heads.conf") {
-        return console_check(paths, &paths.configdir, Some(path), None, file, out, err);
-    }
     let text = match crate::tui::read_conf(path) {
         Ok(Some(text)) => text,
         Ok(None) => return failed(err, &format!("{file}: no such file")),
@@ -133,27 +127,27 @@ pub fn check(words: &[String], paths: &Paths, out: &mut dyn Write, err: &mut dyn
         Err(why) => return failed(err, &why),
     };
     let copied = copy.path.to_string_lossy().into_owned();
-    console_check(paths, copy.dir(), None, Some(&copied), file, out, err)
+    console_check(paths, &copy.path, Some(&copied), file, out, err)
 }
 
-/// Runs the console's `vtium check-config` on the vtium.conf in `confdir`
-/// and the head file `heads`, the installed one where it names none, and
-/// prints each problem it reports, `copied`'s path named as `file`, then
-/// `ok FILE` when it found none.
+/// Runs the console's `vtium check-config` on the vtium.conf `candidate`,
+/// against the configuration directory, and prints each problem it
+/// reports, `copied`'s path named as `file`, then `ok FILE` when it found
+/// none.
 fn console_check(
     paths: &Paths,
-    confdir: &Path,
-    heads: Option<&Path>,
+    candidate: &Path,
     copied: Option<&str>,
     file: &str,
     out: &mut dyn Write,
     err: &mut dyn Write,
 ) -> u8 {
     let mut command = std::process::Command::new(&paths.vtium);
-    command.arg("check-config").arg("--configdir").arg(confdir);
-    if let Some(heads) = heads {
-        command.arg(heads);
-    }
+    command
+        .arg("check-config")
+        .arg("--configdir")
+        .arg(&paths.configdir)
+        .arg(candidate);
     let ran = match command.stdin(std::process::Stdio::null()).output() {
         Ok(ran) => ran,
         Err(e) => {
@@ -233,6 +227,11 @@ pub fn set_edit<'a>(key: &'static keys::Key, value: &'a str) -> Result<Edit<'a>,
         Kind::Path if !keys::absolute(value) => {
             Err(format!("{}={value:?}: {}", key.name, keys::NOT_ABSOLUTE))
         }
+        Kind::Paths if !value.split(':').all(keys::absolute) => Err(format!(
+            "{}={value:?}: each folder needs to be {}",
+            key.name,
+            keys::NOT_ABSOLUTE.trim_start_matches("an ")
+        )),
         _ => Ok(Edit::Set(key.name, value)),
     }
 }
@@ -294,17 +293,17 @@ pub fn config(words: &[String], paths: &Paths, out: &mut dyn Write, err: &mut dy
 
 /// Why the frit `name` is not removed, as `remove-frit` and the TUI's
 /// remove key both refuse it: a built-in font's name, a name that is no
-/// frit's, and a frit that `conf`, vtium.conf, names in `font-name` or
-/// that `heads`, the head file, names as a head's profile; `None` when
-/// none of these refuses it.
-pub fn removal_refusal(name: &str, conf: Option<&str>, heads: Option<&str>) -> Option<String> {
+/// frit's, and a frit that `conf`, vtium.conf, names in `font-name`, at
+/// its top level or in a look's section; `None` when none of these
+/// refuses it.
+pub fn removal_refusal(name: &str, conf: Option<&str>) -> Option<String> {
     if RESERVED.contains(&name) {
         return Some(format!("{name} is a built-in font, not a frit"));
     }
     if !valid_name(name) {
         return Some(format!("{name:?} is no frit's name"));
     }
-    crate::apply::naming(name, conf, heads).map(|by| {
+    crate::apply::naming(name, conf).map(|by| {
         format!(
             "{name} is the frit {by} names, so it is not removed; name another font there first"
         )
@@ -312,8 +311,8 @@ pub fn removal_refusal(name: &str, conf: Option<&str>, heads: Option<&str>) -> O
 }
 
 /// `remove-frit NAME`: removes the frit `NAME.vtfrit`, refusing a built-in
-/// font, a name with no frit, and a frit vtium.conf's `font-name` or a
-/// head's profile names ([`removal_refusal`]).
+/// font, a name with no frit, and a frit a `font-name` of vtium.conf
+/// names ([`removal_refusal`]).
 pub fn remove_frit(
     words: &[String],
     paths: &Paths,
@@ -324,7 +323,7 @@ pub fn remove_frit(
         return usage(err, "remove-frit takes one frit's name");
     };
     // the name is judged before it names a file
-    if let Some(why) = removal_refusal(name, None, None) {
+    if let Some(why) = removal_refusal(name, None) {
         return failed(err, &why);
     }
     let path = match &paths.frits {
@@ -335,14 +334,13 @@ pub fn remove_frit(
         Ok(bytes) => bytes,
         Err(why) => return failed(err, &why),
     };
-    let heads = crate::tui::read_conf(&paths.configdir.join("heads.conf"));
-    match (conf(paths), heads) {
-        (Ok((_, text)), Ok(heads)) => {
-            if let Some(why) = removal_refusal(name, text.as_deref(), heads.as_deref()) {
+    match conf(paths) {
+        Ok((_, text)) => {
+            if let Some(why) = removal_refusal(name, text.as_deref()) {
                 return failed(err, &why);
             }
         }
-        (Err(why), _) | (_, Err(why)) => return failed(err, &why),
+        Err(why) => return failed(err, &why),
     }
     let plan = Plan {
         files: Vec::new(),

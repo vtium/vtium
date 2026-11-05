@@ -185,7 +185,7 @@ pub const FRIT_CELL_MAX: u32 = 96;
 /// The frit at `path`'s text: a regular file of at most `FILE_MAX`
 /// bytes, as vtium-config's `FRIT_BYTES_MAX`, in UTF-8.
 pub fn frit_text(path: &Path) -> Result<String, String> {
-    let bytes = crate::config::read_file(path)
+    let bytes = crate::config::read_bytes(path)
         .map_err(|e| e.to_string())?
         .ok_or("it is gone")?;
     if bytes.len() > crate::config::FILE_MAX {
@@ -468,7 +468,7 @@ impl Wanted {
 /// `path`'s text, read as a configuration file is, a regular file of at
 /// most `FILE_MAX` bytes; empty when there is none.
 pub fn read_text(path: &Path) -> String {
-    crate::config::read_file(path)
+    crate::config::read_bytes(path)
         .ok()
         .flatten()
         .map(|b| String::from_utf8_lossy(&b).into_owned())
@@ -911,7 +911,7 @@ mod tests {
 
     fn config(args: &[&str]) -> Config {
         let args: Vec<std::ffi::OsString> = args.iter().map(Into::into).collect();
-        crate::config::load(&args, None, &mut |_: &std::path::Path| Ok(None)).config
+        crate::config::load(&args, &mut |_: &std::path::Path| Ok(None)).config
     }
 
     // font-frits names the frits' directory, its default the one vtium is

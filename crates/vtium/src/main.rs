@@ -1,7 +1,7 @@
 //! vtium: a terminal for the Linux virtual console.
 //!
-//! Start-up reads the configuration and then the head file (ADR-1401 D3),
-//! writes or removes the closed policy's getty marker (`getty.rs`), and
+//! Start-up reads the configuration, vtium.conf's top level and its
+//! sections, the flow (ADR-1401 D3, ADR-1403 D3), writes or removes the closed policy's getty marker (`getty.rs`), and
 //! then opens the loop and its signals, the VT, the seat's devices and the
 //! sessions, and runs the loop until something asks it to end; at the end
 //! the VT switches back, the loop is served while that is pending, and the
@@ -9,7 +9,7 @@
 //!
 //! This departs from the C reference's order, which opened the loop, its
 //! signals and the VT right after the configuration (`src/main.c:161-222`
-//! at kmscon b1f7a7c5). vtium reads the head file first because the marker
+//! at kmscon b1f7a7c5). vtium reads the flow first because the marker
 //! needs the file's policy before the VT opens, so that a failure opening
 //! the loop or the VT under a closed policy still leaves the marker.
 
@@ -91,15 +91,17 @@ fn main() -> ExitCode {
     {
         return ExitCode::from(u8::try_from(status).unwrap_or(1));
     }
-    let loaded = config::load(&args, Some("seat0"), &mut config::read_file);
-    // The same reader reads the font keys again at a session's end
-    // (ADR-1201 D11).
+    let loaded = config::load(&args, &mut config::read_file);
+    // The same reader, with its ownership check, reads the font keys again
+    // at a session's end (ADR-1201 D11).
     let reread: vtium::app::Reread = {
         let args = args.clone();
-        Box::new(move || config::load(&args, Some("seat0"), &mut config::read_file))
+        Box::new(move || config::load(&args, &mut config::read_file))
     };
     if loaded.check {
-        return ExitCode::from(check::main(&loaded));
+        // check-config reads a candidate whoever owns it, and judges its
+        // ownership apart (ADR-1403 D3)
+        return ExitCode::from(check::main(&config::load(&args, &mut config::read_bytes)));
     }
     for w in check::warnings(&loaded) {
         vtium::warn::warn(w);
@@ -132,10 +134,7 @@ fn main() -> ExitCode {
     };
     // Before the loop and the VT, so a failure opening either under a
     // closed policy still leaves the marker that keeps the getty off.
-    let heads = vtium::head::rules(
-        Path::new(vtium_settings::HEAD_FILE),
-        &vtium_settings::Trust::ROOT,
-    );
+    let heads = vtium::head::rules(&loaded.path, &loaded.file);
     vtium::getty::mark(
         Path::new(vtium::getty::DIR),
         path.as_deref(),

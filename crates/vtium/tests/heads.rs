@@ -561,7 +561,7 @@ impl Seat {
             .chain(&["--login", "--", "/bin/sh", "-c", script])
             .map(OsString::from)
             .collect();
-        let loaded = config::load(&args, None, &mut |_: &Path| Ok(None));
+        let loaded = config::load(&args, &mut |_: &Path| Ok(None));
         assert_eq!(loaded.reports, [], "the seat's command line");
         let lp: Loop<App> = Loop::new().expect("a loop");
         let env = vec![(OsString::from("PATH"), OsString::from("/usr/bin:/bin"))];
@@ -973,17 +973,19 @@ fn frits(test: &str, names: &[&str]) -> (Scratch, Sources, PathBuf) {
     (dir, fonts, starts)
 }
 
-/// D3 and D6: the more specific setting wins. A head's profile names its
-/// frit, over vtium.conf's font; a head with the default profile takes
-/// vtium.conf's, the built-in font here. A head has no font key of its
-/// own.
+/// D3 and D6, ADR-1403 D5: the more specific setting wins. A head's look
+/// names its frit, over the top level's font; a head with the default look
+/// takes the top level's, the built-in font here. A head has no font key
+/// of its own.
 #[test]
-fn a_heads_profile_names_its_frit_over_vtium_confs_font() {
+fn a_heads_look_names_its_frit_over_the_top_levels_font() {
     let (_dir, fonts, starts) = frits("profile", &["t"]);
     let heads = "version = 1
+[look t]
+font-name = t
 [head small]
 [head large]
-profile = t
+look = t
 [rules]
 display card:mem-small -> small
 display card:mem-large -> large
@@ -1004,6 +1006,65 @@ display card:mem-large -> large
         "the large head's frit started its helper"
     );
     drop(s);
+}
+
+/// ADR-1403 D5: a look's `font-size` and `display-dpi` reach the head
+/// whose section names the look, over the top level's, and a head whose
+/// section names no look draws at the top level's. The seat's command
+/// line sets 16 points, which a section wins over too. The small head's
+/// look sets 144 DPI, so 16 points draw a 16x32 cell on the 72 DPI small
+/// display; the large head's look sets 32 points, a 16x32 cell at 72 DPI.
+/// A head's section sets no font key of its own, since a head's font
+/// comes from its look.
+#[test]
+fn a_heads_look_sets_the_size_its_head_draws_at() {
+    let heads = "version = 1
+[look dense]
+display-dpi = 144
+[look big]
+font-size = 32
+[head small]
+look = dense
+[head large]
+look = big
+[rules]
+display card:mem-small -> small
+display card:mem-large -> large
+";
+    let script = "echo \"size:$(stty size)\"; read x";
+    let mut s = Seat::with_heads(&[], Some(heads), two_displays(), script);
+    assert!(s.until(BOUND, |a| a.cells().len() == 2));
+    assert_eq!(
+        s.app.head("small").map(Head::cells),
+        Some(vec![(16, 32)]),
+        "the look's display-dpi"
+    );
+    assert_eq!(
+        s.app.head("large").map(Head::cells),
+        Some(vec![(16, 32)]),
+        "the look's font-size"
+    );
+    assert_eq!(grid(&s.app, "small"), Some((20, 5)));
+    assert_eq!(grid(&s.app, "large"), Some((40, 10)));
+    assert!(s.until(BOUND, |a| size(a, "small").is_some()
+        && size(a, "large").is_some()));
+    assert_eq!(size(&s.app, "small").as_deref(), Some("5 20"));
+    assert_eq!(size(&s.app, "large").as_deref(), Some("10 40"));
+    // a head section with no look draws at the top level's 16 points
+    let plain = "version = 1
+[look big]
+font-size = 32
+[head small]
+[head large]
+look = big
+[rules]
+display card:mem-small -> small
+display card:mem-large -> large
+";
+    let mut s = Seat::with_heads(&[], Some(plain), two_displays(), "read x");
+    assert!(s.until(BOUND, |a| a.cells().len() == 2));
+    assert_eq!(s.app.head("small").map(Head::cells), Some(vec![(8, 16)]));
+    assert_eq!(s.app.head("large").map(Head::cells), Some(vec![(16, 32)]));
 }
 
 /// ADR-1200 D17, binary-recheck's finding 4: a bitmap frit asks for its
@@ -1040,10 +1101,12 @@ fn an_osc_50_switch_back_asks_again_after_a_timeout_but_not_a_refusal() {
             ..no_fonts()
         };
         let heads = "version = 1
+[look t]
+font-name = t
 [head a]
-profile = t
+look = t
 [head b]
-profile = t
+look = t
 [rules]
 display card:mem-small -> a
 display card:mem-large -> b
@@ -1156,12 +1219,16 @@ fn with_no_head_file_the_seat_runs_the_compiled_in_heads() {
 fn heads_drawing_one_frit_share_its_helper_and_another_frit_has_its_own() {
     let (_dir, fonts, starts) = frits("share", &["t", "u"]);
     let heads = "version = 1
+[look t]
+font-name = t
+[look u]
+font-name = u
 [head a]
-profile = t
+look = t
 [head b]
-profile = t
+look = t
 [head c]
-profile = u
+look = u
 [rules]
 display card:mem-a -> a
 display card:mem-b -> b
@@ -4329,28 +4396,25 @@ impl HeadFile {
         use std::sync::atomic::{AtomicUsize, Ordering};
         static MADE: AtomicUsize = AtomicUsize::new(0);
         let n = MADE.fetch_add(1, Ordering::Relaxed);
-        let dir =
-            std::env::temp_dir().join(format!("vtium-heads-{test}-{}-{n}", std::process::id()));
+        // under the build's own temporary directory, which no other user
+        // can write, so the ownership check passes it (ADR-1403 D3)
+        let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
+            .join(format!("vtium-heads-{test}-{}-{n}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("the directory");
         std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).expect("0700");
-        let path = dir.join("heads.conf");
-        std::fs::write(&path, text).expect("the head file");
+        let path = dir.join("vtium.conf");
+        std::fs::write(&path, text).expect("vtium.conf");
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).expect("0644");
         HeadFile { dir, path }
     }
 
-    /// The trust the start reads the file under, with the test's user in
-    /// root's place.
-    fn trust(&self) -> vtium_settings::Trust {
-        use std::os::unix::fs::MetadataExt;
-        let uid = std::fs::metadata(&self.dir).expect("the directory").uid();
-        vtium_settings::Trust::owner(uid).below(&self.dir)
-    }
-
-    /// What the start runs for the file.
+    /// What the start runs for the file, read as the console reads its
+    /// vtium.conf, by the account the test runs as (ADR-1403 D3).
     fn rules(&self) -> Start {
-        vtium::head::rules(&self.path, &self.trust())
+        let configdir = OsString::from(format!("--configdir={}", self.dir.display()));
+        let loaded = vtium::config::load(&[configdir], &mut vtium::config::read_file);
+        vtium::head::rules(&loaded.path, &loaded.file)
     }
 
     /// Every file of the directory, each with the hash of its bytes and
@@ -4530,10 +4594,10 @@ fn notice(app: &App, name: &str) -> Option<String> {
 
 /// The notices of D7's outcomes: each console line as the catalog words
 /// it, then what to do next about vtium's head file.
-const SKIPPED: &str = "invalid config skipped, using builtin\nRun vtium check-config /etc/vtium/heads.conf to see why.";
-const PARTLY: &str = "config partly invalid, running what's valid\nRun vtium check-config /etc/vtium/heads.conf to see why.";
-const CLOSED_OFF: &str = "vtium: config invalid, policy closed: input off\nNothing on this console takes input. Run vtium check-config /etc/vtium/heads.conf over ssh, or from other boot media, for the full report.";
-const NO_DISPLAY: &str = "vtium: no display for any head\nConnect a display that a rule in /etc/vtium/heads.conf sends to a head.";
+const SKIPPED: &str = "invalid config skipped, using builtin\nRun vtium check-config /etc/vtium/vtium.conf to see why.";
+const PARTLY: &str = "config partly invalid, running what's valid\nRun vtium check-config /etc/vtium/vtium.conf to see why.";
+const CLOSED_OFF: &str = "vtium: config invalid, policy closed: input off\nNothing on this console takes input. Run vtium check-config /etc/vtium/vtium.conf over ssh, or from other boot media, for the full report.";
+const NO_DISPLAY: &str = "vtium: no display for any head\nConnect a display that a rule in /etc/vtium/vtium.conf sends to a head.";
 
 /// The panic screen of a broken closed file whose one error, on line 4,
 /// is the key `focs`, read as `heads.conf` (D7): the console line, that
@@ -6052,7 +6116,7 @@ fn reset_seat(dir: &Path, heads: &str, fonts: Sources) -> (Seat, Rc<Cell<u32>>) 
     .iter()
     .map(OsString::from)
     .collect();
-    let loaded = config::load(&args, None, &mut config::read_file);
+    let loaded = config::load(&args, &mut config::read_file);
     assert_eq!(loaded.reports, [], "the seat's configuration");
     let lp: Loop<App> = Loop::new().expect("a loop");
     let env = vec![(OsString::from("PATH"), OsString::from("/usr/bin:/bin"))];
@@ -6063,7 +6127,7 @@ fn reset_seat(dir: &Path, heads: &str, fonts: Sources) -> (Seat, Rc<Cell<u32>>) 
     let counted = Rc::clone(&reads);
     app.set_config_reader(Box::new(move || {
         counted.set(counted.get() + 1);
-        config::load(&args, None, &mut config::read_file)
+        config::load(&args, &mut config::read_file)
     }));
     app.set_heads(start(heads));
     app.add_video(
@@ -6144,6 +6208,31 @@ fn a_sessions_end_undoes_its_zoom() {
     assert_eq!(s.app.cells(), [(8, 16)]);
 }
 
+/// ADR-1201 D11, ADR-1403 D5: the size a session's end returns to is the
+/// head's, its look's `font-size` over vtium.conf's, so a zoom made in the
+/// session is undone back to the look's size.
+#[test]
+fn a_sessions_end_returns_to_its_looks_size() {
+    let (dir, fonts) = reset_fixture("reset-look", "font-size=16\n");
+    let heads = "version = 1\n[look big]\nfont-size = 32\n[head small]\nlook = big\n\
+                 [rules]\ndisplay card:mem-small -> small\ninput path:kbd-small -> small\n";
+    let (mut s, reads) = reset_seat(&dir, heads, fonts);
+    assert!(s.until(BOUND, |a| sizes(a) == [Some("size:5 20".to_owned())]));
+    let minus = InputEvent::Key(KeyEvent {
+        mods: Mods::CTRL,
+        ..char_key('-')
+    });
+    s.app.device_input(Path::new(KBD_SMALL), minus, now());
+    assert_ne!(grid(&s.app, "small"), Some((20, 5)), "zoomed");
+    let size = end_shown_session(&mut s);
+    assert_eq!(
+        size, "size:5 20",
+        "the next login starts at the look's 32 points"
+    );
+    assert_eq!(s.app.cells(), [(16, 32)]);
+    assert_eq!(reads.get(), 1, "vtium.conf read again once");
+}
+
 /// ADR-1201 D11: one font for a head. A session ending in another console
 /// of the head than the one the switch came from leaves the font, so it
 /// never changes under another session.
@@ -6213,6 +6302,34 @@ fn a_font_key_that_does_not_read_at_a_sessions_end_is_reported_and_dropped() {
     assert!(lines.iter().any(|l| l.ends_with(&report)), "{lines:?}");
     assert_eq!(size, "size:8 32");
     assert_eq!(s.app.font_name(), "a");
+}
+
+/// ADR-1201 D11, ADR-1403 D3: a vtium.conf that others can write by the
+/// session's end is refused at the read again, as at the start: the log
+/// says why and gives the command that mends it, and none of the file's
+/// font keys apply, so the head returns to the default font.
+#[test]
+fn a_file_refused_at_a_sessions_end_is_reported_as_at_the_start() {
+    use std::os::unix::fs::PermissionsExt;
+    let (dir, fonts) = reset_fixture("reset-untrusted", "font-name=a\nfont-size=0\n");
+    std::fs::write(dir.join("switch.1"), "b").expect("the switch");
+    let (mut s, reads) = reset_seat(&dir, &small_consoles(1), fonts);
+    assert!(s.until(BOUND, |a| a.font_name() == "b"), "switched to b");
+    let file = dir.join("vtium.conf");
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o664)).expect("0664");
+    logged();
+    end_shown_session(&mut s);
+    let lines = logged();
+    let mend = format!("Run `chmod go-w {}`", file.display());
+    assert!(
+        lines
+            .iter()
+            .any(|l| l.contains("(mode 664)") && l.contains(&mend)),
+        "{lines:?}"
+    );
+    assert_eq!(reads.get(), 1, "vtium.conf read again once");
+    assert_ne!(s.app.font_name(), "a", "none of the file applies");
+    assert_ne!(s.app.font_name(), "b", "the switch is undone");
 }
 
 /// ADR-1201 D11: with nothing switched or zoomed, a session's end returns

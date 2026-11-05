@@ -189,42 +189,22 @@ impl Drop for Raw<'_> {
 /// go on without it.
 pub type Frits = Result<PathBuf, String>;
 
-/// The seat whose file the console reads after vtium.conf. The console
-/// reads `seat0.seat.conf` whatever seat it runs on
-/// (`crates/vtium/src/main.rs`), so vtium-config reads the same file.
-pub const SEAT: &str = "seat0";
-
-/// The configuration files the console reads in `configdir`, in the
-/// order it reads them: vtium.conf, then the seat's file, whose lines win
-/// over vtium.conf's.
-pub fn conf_files(configdir: &Path) -> [PathBuf; 2] {
-    [
-        configdir.join("vtium.conf"),
-        configdir.join(format!("{SEAT}.seat.conf")),
-    ]
-}
-
-/// The frits' directory the console reads with the configuration files
-/// in `configdir` ([`conf_files`]): the `font-frits` of the last file that
-/// sets it, else the key's default, the directory the build names.
+/// The frits' directory the console reads with the vtium.conf in
+/// `configdir`, the one file it reads (ADR-1403 D2): the `font-frits` of
+/// the last line of its top level that sets it, else the key's default,
+/// the directory the build names.
 ///
 /// vtium-config takes `font-frits` only as an absolute path, as the
 /// console does. The console ignores a relative or empty one and keeps the
-/// directory an earlier line or file names. vtium-config refuses it and
-/// names the file and the key, so it never lists or writes frits in a
-/// directory the user did not mean. A file that cannot be read is refused
-/// with its reason, as the TUI's start refuses it.
+/// directory an earlier line names. vtium-config refuses it and names the
+/// file and the key, so it never lists or writes frits in a directory the
+/// user did not mean. A file that cannot be read is refused with its
+/// reason, as the TUI's start refuses it.
 pub fn frits_dir(configdir: &Path) -> Frits {
     let key = vtium_settings::keys::FONT_FRITS.name;
-    let mut set = None;
-    for file in conf_files(configdir) {
-        if let Some(value) =
-            crate::tui::read_conf(&file)?.and_then(|text| vtium_settings::setting(&text, key))
-        {
-            set = Some((file, value));
-        }
-    }
-    let Some((file, value)) = set else {
+    let file = configdir.join("vtium.conf");
+    let set = crate::tui::read_conf(&file)?.and_then(|text| vtium_settings::setting(&text, key));
+    let Some(value) = set else {
         return Ok(PathBuf::from(vtium_settings::keys::FRITS));
     };
     if vtium_settings::keys::absolute(&value) {

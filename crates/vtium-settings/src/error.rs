@@ -30,7 +30,7 @@ impl Quoted {
 
     /// A path, quoted whole: a path is bounded by the system, and a log
     /// line naming a file needs all of it.
-    pub(crate) fn path(path: &std::path::Path) -> Quoted {
+    pub fn path(path: &std::path::Path) -> Quoted {
         Quoted {
             text: path.to_string_lossy().into_owned(),
             cut: false,
@@ -136,9 +136,6 @@ pub enum Renamed {
     Nohup,
     /// The head key `rescue`, which `isolated` replaced.
     Rescue,
-    /// A head's own `font-name` or `font-size`, which its `profile`
-    /// replaced.
-    HeadFont(&'static str),
     /// The `[guards]` section, which the policy replaced.
     Guards,
     /// A head's `profile` in vtium.conf, which `look` replaced (ADR-1403
@@ -173,7 +170,6 @@ pub enum Problem {
     UnknownVersion(Quoted),
     /// A line that is not a section, a `key = value` or a rule.
     Syntax(Syntax),
-    UnknownSection(Quoted),
     /// A second `[rules]`.
     DuplicateSection(&'static str),
     /// A key a section does not take.
@@ -187,15 +183,9 @@ pub enum Problem {
     /// Two heads of one name.
     DuplicateHead(Quoted),
     /// A value its key cannot take.
-    BadValue {
-        key: &'static str,
-        value: Quoted,
-    },
+    BadValue { key: &'static str, value: Quoted },
     /// A number outside its key's range.
-    OutOfRange {
-        key: &'static str,
-        value: Quoted,
-    },
+    OutOfRange { key: &'static str, value: Quoted },
     /// A rule's match key D4 does not name.
     UnknownMatchKey(Quoted),
     /// A match token whose value its key cannot take.
@@ -204,10 +194,7 @@ pub enum Problem {
     UndefinedHead(Quoted),
     /// A target the rule's kind cannot take: `roaming` or `ignore` for a
     /// display, `off` for an input.
-    WrongKind {
-        target: &'static str,
-        kind: Kind,
-    },
+    WrongKind { target: &'static str, kind: Kind },
     /// More than [`HEADS_MAX`](crate::HEADS_MAX) heads.
     TooManyHeads,
     /// More than [`RULES_MAX`](crate::RULES_MAX) rules.
@@ -432,12 +419,12 @@ pub enum Warning {
         gets: u32,
         total: u32,
     },
-    /// The head's `profile`, on `line`, names a frit that is not in `dir`,
-    /// so the head draws the default frit (D7).
+    /// The look's `font-name`, on `line`, names a frit that is not in
+    /// `dir` (D7; ADR-1403 D5).
     MissingFrit {
         line: usize,
-        head: Quoted,
-        profile: Quoted,
+        look: Quoted,
+        frit: Quoted,
         dir: Quoted,
     },
     /// The head's `look`, on `line`, names a look vtium.conf has no

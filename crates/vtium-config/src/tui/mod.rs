@@ -12,7 +12,7 @@
 //! decoder of what the terminal sends, [`words`] the catalog of what the
 //! TUI says, and [`port`] the loop and the terminal it runs on. [`gather`]
 //! reads what the TUI starts from: the frits as text, never a font file
-//! (D3), vtium.conf and the head file.
+//! (D3), and vtium.conf, which holds the heads, looks and rules too.
 
 pub mod canvas;
 pub mod color;
@@ -34,13 +34,13 @@ use vtium_font::set::builtin;
 use crate::frit::{Frit, RESERVED, valid_name};
 use model::{DpiFrom, Font, FontState, Inputs};
 
-/// The most bytes the TUI reads of vtium.conf or the head file.
+/// The most bytes the TUI reads of vtium.conf.
 pub const CONF_MAX: u64 = 1 << 20;
 
 /// Where the TUI reads from and saves to, as the command line names them.
 #[derive(Clone, Debug)]
 pub struct Paths {
-    /// The directory of vtium.conf and the head file.
+    /// The directory of vtium.conf.
     pub configdir: PathBuf,
     /// The frits' directory, or why there is none.
     pub frits: crate::switch::Frits,
@@ -215,9 +215,7 @@ pub fn density(conf: Option<&str>, displays: &[crate::display::Display]) -> (u32
 /// What the TUI starts from, read from `paths`, opening at `view`.
 pub fn gather(paths: &Paths, view: model::View) -> Result<Inputs, String> {
     let conf_path = paths.configdir.join("vtium.conf");
-    let heads_path = paths.configdir.join("heads.conf");
     let conf = read_conf(&conf_path)?;
-    let heads = read_conf(&heads_path)?;
     let frits = paths.frits.clone()?;
     let displays = crate::display::displays(&paths.sys);
     let dpi = density(conf.as_deref(), &displays);
@@ -225,8 +223,6 @@ pub fn gather(paths: &Paths, view: model::View) -> Result<Inputs, String> {
         fonts: fonts(&frits),
         conf_path,
         conf,
-        heads_path,
-        heads,
         saving: saving(paths),
         drafts: paths.drafts.clone(),
         dpi,

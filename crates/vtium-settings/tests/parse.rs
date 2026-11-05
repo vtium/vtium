@@ -1,5 +1,5 @@
-//! The head file's parser: each error named with its line, and what a
-//! valid file says (ADR-1401 D3, D7).
+//! The parser of vtium.conf's sections: each error named with its line,
+//! and what a valid file says (ADR-1401 D3, D7; ADR-1403 D3).
 
 use std::path::Path;
 
@@ -10,7 +10,7 @@ use vtium_settings::{PolicyFault, Problem, at, parse};
 const INVALID_FIGURE: &str = "\
 version = 1
 [head desk]
-profile = desk
+consoles = 2
 [rules]
 display * -> desk
 input path:pci-0000:15:00.0-usb-0:3.3 -> desc
@@ -36,14 +36,14 @@ fn a_rule_naming_an_undefined_head_rejects_the_file_at_its_line() {
 fn a_finding_is_shown_at_its_file_and_line_with_the_path_escaped() {
     let rejected = parse(INVALID_FIGURE).expect_err("a rule names an undefined head");
     let error = &rejected.errors[0];
-    let heads = Path::new(vtium_settings::HEAD_FILE);
+    let heads = Path::new(vtium_settings::CONF_FILE);
     assert_eq!(
         at(heads, error.line(), error).to_string(),
-        "/etc/vtium/heads.conf:6: This rule sends devices to the head \"desc\", which the file does not declare. Correct the name, or declare the head with its own `[head NAME]` section."
+        "/etc/vtium/vtium.conf:6: This rule sends devices to the head \"desc\", which the file does not declare. Correct the name, or declare the head with its own `[head NAME]` section."
     );
     assert_eq!(
         at(heads, None, "absent").to_string(),
-        "/etc/vtium/heads.conf: absent"
+        "/etc/vtium/vtium.conf: absent"
     );
     let parsed =
         parse("version = 1\n[head a]\n[rules]\ndisplay * -> a\ninput name:Keyboard -> a\n")
@@ -56,7 +56,7 @@ fn a_finding_is_shown_at_its_file_and_line_with_the_path_escaped() {
     assert_eq!(
         notes,
         [
-            "/etc/vtium/heads.conf:5: input reaches a head by `id` or `name` alone, which any device can claim"
+            "/etc/vtium/vtium.conf:5: input reaches a head by `id` or `name` alone, which any device can claim"
         ]
     );
     let odd = Path::new("/tmp/a\nb\u{1b}[2J\u{202e}c\\d\"e.conf");
@@ -72,12 +72,13 @@ type Case = (&'static str, Option<usize>, fn(&Problem) -> bool);
 /// Each kind of error D7 names, and the line it names.
 #[test]
 fn each_kind_of_error_is_named_at_its_line() {
+    // a file with no section needs no version (ADR-1403 D3), so the empty
+    // file and one with a comment alone hold no error
     let cases: &[Case] = &[
-        ("", None, |p| matches!(p, Problem::MissingVersion)),
-        ("# only a comment\n", None, |p| {
+        ("[head a]\n", None, |p| matches!(p, Problem::MissingVersion)),
+        ("# a comment\n[head a]\n", None, |p| {
             matches!(p, Problem::MissingVersion)
         }),
-        ("[head a]\n", None, |p| matches!(p, Problem::MissingVersion)),
         ("version = 1\nversion = 1\n", Some(2), |p| {
             matches!(p, Problem::DuplicateKey("version"))
         }),
@@ -97,7 +98,7 @@ fn each_kind_of_error_is_named_at_its_line() {
             Some(1),
             |p| matches!(p, Problem::UnknownVersion(v) if v.raw() == "2"),
         ),
-        ("version = 1\nnonsense\n", Some(2), |p| {
+        ("version = 1\n[head a]\nnonsense\n", Some(3), |p| {
             matches!(p, Problem::Syntax(_))
         }),
         ("version = 1\n[head a\n", Some(2), |p| {
@@ -112,7 +113,7 @@ fn each_kind_of_error_is_named_at_its_line() {
             matches!(p, Problem::Syntax(_))
         }),
         ("version = 1\n[screens]\n", Some(2), |p| {
-            matches!(p, Problem::UnknownSection(_))
+            matches!(p, Problem::NotASection(_))
         }),
         ("version = 1\n[head a]\n[head a]\n", Some(3), |p| {
             matches!(p, Problem::DuplicateHead(_))
@@ -126,8 +127,8 @@ fn each_kind_of_error_is_named_at_its_line() {
         ("version = 1\n[head a/b]\n", Some(2), |p| {
             matches!(p, Problem::BadName(_))
         }),
-        ("version = 1\n[head a]\nprofile = ../x\n", Some(3), |p| {
-            matches!(p, Problem::BadName(_))
+        ("version = 1\n[head a]\nlook = ../x\n", Some(3), |p| {
+            matches!(p, Problem::BadValue { key: "look", .. })
         }),
         ("version = 1\n[head a]\nconsoles = 0\n", Some(3), |p| {
             matches!(
@@ -301,11 +302,14 @@ fn each_kind_of_error_is_named_at_its_line() {
 
 #[test]
 fn a_file_past_a_bound_names_its_line() {
-    let long = format!("version = 1\n# {}\n", "x".repeat(vtium_settings::LINE_MAX));
+    let long = format!(
+        "version = 1\n[rules]\n# {}\n",
+        "x".repeat(vtium_settings::LINE_MAX)
+    );
     let r = parse(&long).expect_err("a line past LINE_MAX");
     assert_eq!(
         (r.errors[0].line, &r.errors[0].problem),
-        (Some(2), &Problem::LineTooLong)
+        (Some(3), &Problem::LineTooLong)
     );
 
     let mut heads = String::from("version = 1\n");
@@ -351,7 +355,7 @@ input class:printer -> roaming
 
 #[test]
 fn errors_past_the_bound_are_counted() {
-    let mut text = String::from("version = 1\n");
+    let mut text = String::from("version = 1\n[rules]\n");
     for _ in 0..vtium_settings::ERRORS_MAX + 5 {
         text.push_str("nonsense\n");
     }
@@ -378,14 +382,20 @@ fn text_an_error_quotes_is_escaped_and_cut() {
 
 /// The example file of ADR-1401 D3.
 const EXAMPLE: &str = "\
-# /etc/vtium/heads.conf for the machine under Evidence; the EDID values are illustrative
+# /etc/vtium/vtium.conf for the machine under Evidence; the EDID values are illustrative
 version = 1
 
+[look desk]
+font-name = desk
+
+[look small]
+font-name = small
+
 [head desk]
-profile = desk
+look = desk
 
 [head panel]
-profile = small
+look = small
 consoles = 2
 when-display-lost = hangup 30s
 
@@ -414,18 +424,18 @@ fn the_records_example_file_is_valid_and_reads_every_key() {
     let c = parsed.config;
     let names: Vec<_> = c.heads.iter().map(|h| h.name.as_str()).collect();
     assert_eq!(names, ["desk", "panel"]);
-    assert_eq!(c.heads[0].profile, "desk");
+    assert_eq!(c.heads[0].look, "desk");
     assert_eq!(
         (c.heads[0].consoles, c.heads[0].when_display_lost),
         (1, WhenDisplayLost::Keep)
     );
-    assert_eq!(c.heads[1].profile, "small");
+    assert_eq!(c.heads[1].look, "small");
     assert_eq!(
         (c.heads[1].consoles, c.heads[1].when_display_lost),
         (2, WhenDisplayLost::HangupAfter(30))
     );
     assert_eq!(c.rules.len(), 11);
-    assert_eq!(c.rules[0].line, 13);
+    assert_eq!(c.rules[0].line, 19);
     assert_eq!(c.rules[0].kind, Kind::Display);
     assert_eq!(
         c.rules[0].matcher,
@@ -576,31 +586,6 @@ input udev:VTIUM_HEAD=a -> a
             (8, "udev"),
         ]
     );
-}
-
-#[test]
-fn a_heads_font_is_its_profiles_over_the_configuration() {
-    use vtium_settings::Font;
-    let text = "\
-version = 1
-[head plain]
-[head named]
-profile = desk
-";
-    let c = parse(text).expect("valid").config;
-    let base = Font {
-        name: Some("monospace".into()),
-        size: Some(10),
-    };
-    assert_eq!(c.heads[0].font(&base), base);
-    assert_eq!(
-        c.heads[1].font(&base),
-        Font {
-            name: Some("desk".into()),
-            size: Some(10),
-        }
-    );
-    assert_eq!(c.heads[0].font(&Font::default()), Font::default());
 }
 
 #[test]

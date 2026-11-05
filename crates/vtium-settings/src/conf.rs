@@ -35,11 +35,6 @@
 //! The editor knows the syntax and not the keys: which keys exist and what
 //! values they take is the console's key table, and `vtium check-config`
 //! judges an edited file before it is installed.
-//!
-//! [`split_line`] is the line reading the console used before vtium.conf
-//! held sections, which ends a value at any `#` but one that opens a
-//! `#rrggbb` value, as the C reference did (`src/misc/conf.c`,
-//! `parse_line`). The console reads by it until it moves to [`key_line`].
 
 use std::borrow::Cow;
 use std::ops::Range;
@@ -213,50 +208,6 @@ pub fn key_line(line: &[u8]) -> Option<KeyLine<'_>> {
         }
     });
     Some(KeyLine { key, value })
-}
-
-/// One line's key and value by the C reference's comment rule, which ends
-/// a key or a value at any `#` but one that opens a `#rrggbb` value.
-fn scan_at_any_hash(line: &[u8]) -> Option<(Range<usize>, Option<Range<usize>>)> {
-    let end = line
-        .iter()
-        .position(|&b| b == b'#' || b == b'=')
-        .unwrap_or(line.len());
-    let value = match line.get(end) {
-        Some(b'=') => {
-            let after = end.saturating_add(1);
-            let rest = line.get(after..).unwrap_or_default();
-            let lead = rest
-                .iter()
-                .position(|b| !matches!(b, b' ' | b'\t'))
-                .unwrap_or(rest.len());
-            let start = after.saturating_add(lead);
-            let body = line.get(start..).unwrap_or_default();
-            let skip = usize::from(begins_rgb(body));
-            let stop = body
-                .iter()
-                .skip(skip)
-                .position(|&b| b == b'#')
-                .map_or(body.len(), |p| p.saturating_add(skip));
-            Some(trimmed(line, start..start.saturating_add(stop)))
-        }
-        _ => None,
-    };
-    let key = trimmed(line, 0..end);
-    (!key.is_empty() || value.is_some()).then_some((key, value))
-}
-
-/// One vtium.conf line's key and value as the console reads it until it
-/// moves to [`key_line`]: the key with the blanks around it dropped, and
-/// the value after `=` with its blanks and any comment after it dropped,
-/// or `None` for a line with no `=`, a switch's; `None` for a blank or
-/// comment line. `line` holds no newline. A `#` ends the key or the value
-/// wherever it sits, but one that opens a `#rrggbb` value.
-pub fn split_line(line: &[u8]) -> Option<(&[u8], Option<&[u8]>)> {
-    let (key, value) = scan_at_any_hash(line)?;
-    let key = line.get(key).unwrap_or_default();
-    let value = value.map(|v| line.get(v).unwrap_or_default());
-    Some((key, value))
 }
 
 /// The text of a line's key, or empty.
@@ -509,15 +460,5 @@ mod tests {
         assert_eq!(read("# font-size=1"), None);
         assert_eq!(read("   "), None);
         assert_eq!(read("=x"), pair("", Some("x")));
-    }
-
-    #[test]
-    fn the_c_reference_s_reading_ends_a_value_at_any_hash() {
-        let split =
-            |l: &str| split_line(l.as_bytes()).map(|(k, v)| (k.to_vec(), v.map(<[u8]>::to_vec)));
-        assert_eq!(
-            split("sb-size=10#comment"),
-            Some((b"sb-size".to_vec(), Some(b"10".to_vec())))
-        );
     }
 }

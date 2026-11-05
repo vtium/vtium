@@ -11,14 +11,15 @@ This page shows the head file, `/etc/vtium/heads.conf`, in the setups it is made
 With no file present, this is what vtium runs today. `vtiumctl template` will write the file with every other setting as a commented line.
 
 ```ini
-# /etc/vtium/heads.conf: the compiled-in configuration, written out.
-# Deleting this file gives exactly the same behaviour.
+# The sections of /etc/vtium/vtium.conf that vtium runs when the file has
+# none: the compiled-in configuration, written out. Leaving them out gives
+# exactly the same behaviour.
 version = 1
 policy = open              # open: heads are not isolated, and an input no rule places roams
 
 [head console]             # one head, named "console"
                            # every head key is unset, so:
-                           #   consoles = 1, profile = default,
+                           #   consoles = 1, look = default,
                            #   when-display-lost = keep, isolated = no
 
 [rules]                    # first match wins, top to bottom
@@ -51,11 +52,17 @@ input * -> ignore          # joysticks, tablets, switches: nothing they send is 
 version = 1
 policy = open
 
+[look desk]
+font-name = desk           # the frit desk draws with
+
+[look small]
+font-name = small
+
 [head desk]
-profile = desk             # its font and look, from the profile named desk
+look = desk                # its font, from the look named desk
 
 [head panel]
-profile = small
+look = small
 consoles = 2               # two consoles, which the console chords switch
 when-display-lost = hangup 30s   # panel unplugged: sessions end after 30 s
 
@@ -204,7 +211,9 @@ input path:pci-0000:15:00.0-usb-0:3.3 -> station-3  # station's keyboard and mou
 ```ini
 version = 1
 policy = closed
-# No heads and no rules: a valid file that lights no display and opens no input.
+# No heads and no rules: vtium lights no display and opens no input.
+# vtium check-config refuses this file, since no keyboard can reach a
+# display, so vtium-config never installs it.
 ```
 
 [heads/off.conf](heads/off.conf)

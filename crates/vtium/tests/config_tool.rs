@@ -47,7 +47,7 @@ fn child() {
     };
     let tool = PathBuf::from(std::env::var_os("TOOL").expect("TOOL names the tool"));
     let arg = OsString::from(format!("--font-helper={}", tool.display()));
-    let config = vtium::config::load(&[arg], None, &mut |_| Ok(None)).config;
+    let config = vtium::config::load(&[arg], &mut |_| Ok(None)).config;
     let args: Vec<OsString> = ARGS.iter().map(OsString::from).collect();
     let status = vtium::config_tool::run(
         &config,

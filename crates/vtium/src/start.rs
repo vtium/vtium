@@ -115,7 +115,7 @@ mod tests {
 
     fn start(args: &[&str]) -> Start {
         let args: Vec<OsString> = args.iter().map(OsString::from).collect();
-        let config = load(&args, None, &mut |_: &Path| Ok(None)).config;
+        let config = load(&args, &mut |_: &Path| Ok(None)).config;
         Start::new(&config, "de_DE.UTF-8".to_owned())
     }
 
@@ -182,19 +182,20 @@ mod tests {
     fn debug_logs_debug_messages_set_in_a_file_or_on_the_command_line() {
         assert_eq!(start(&["--debug"]).log, log::Level::Debug);
         assert_eq!(start(&["--no-debug"]).log, log::Level::Info);
-        // `debug` in the file at `file`, the main one or seat0's.
+        // `debug` in the file at `file`: vtium.conf sets it, and the seat's
+        // file beside it is never read (ADR-1403 D2)
         let from = |file: &str, args: &[&str]| {
             let args: Vec<OsString> = args.iter().map(OsString::from).collect();
-            let loaded = load(&args, Some("seat0"), &mut |p: &Path| {
+            let loaded = load(&args, &mut |p: &Path| {
                 Ok((p == Path::new(file)).then(|| b"debug\n".to_vec()))
             });
             assert_eq!(loaded.reports, []);
             Start::new(&loaded.config, "C".to_owned()).log
         };
-        for file in ["/etc/vtium/vtium.conf", "/etc/vtium/seat0.seat.conf"] {
-            assert_eq!(from(file, &[]), log::Level::Debug, "{file}");
-            assert_eq!(from(file, &["--no-debug"]), log::Level::Info, "{file}");
-        }
+        let conf = "/etc/vtium/vtium.conf";
+        assert_eq!(from(conf, &[]), log::Level::Debug);
+        assert_eq!(from(conf, &["--no-debug"]), log::Level::Info);
+        assert_eq!(from("/etc/vtium/seat0.seat.conf", &[]), log::Level::Info);
     }
 
     #[test]

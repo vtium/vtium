@@ -331,7 +331,7 @@ impl Seat {
         .iter()
         .map(OsString::from)
         .collect();
-        let loaded = config::load(&args, None, &mut |_: &Path| Ok(None));
+        let loaded = config::load(&args, &mut |_: &Path| Ok(None));
         assert_eq!(loaded.reports, [], "the seat's command line");
         let lp: Loop<App> = Loop::new().expect("a loop");
         let env = vec![(OsString::from("PATH"), OsString::from("/usr/bin:/bin"))];

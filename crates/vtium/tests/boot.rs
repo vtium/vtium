@@ -490,7 +490,7 @@ impl Harness {
             .chain(args.iter().copied())
             .map(OsString::from)
             .collect();
-        let loaded = config::load(&args, None, &mut |_: &Path| Ok(None));
+        let loaded = config::load(&args, &mut |_: &Path| Ok(None));
         assert_eq!(loaded.reports, [], "the harness's command line");
         // What `main` takes before the seat; the seat's input is the
         // test's.
@@ -4553,7 +4553,7 @@ const FIRST: &str = "n=0; trap 'n=$((n+1))' WINCH; echo \"first:$(stty size) $$\
 /// can resize it.
 fn held(args: &[&str], videos: Vec<Box<dyn Video>>, hold: Duration) -> Harness {
     let args: Vec<OsString> = args.iter().map(OsString::from).collect();
-    let loaded = config::load(&args, None, &mut |_: &Path| Ok(None));
+    let loaded = config::load(&args, &mut |_: &Path| Ok(None));
     assert_eq!(loaded.reports, [], "the test's command line");
     let mut lp: Loop<App> = Loop::new().expect("a loop");
     let env = vec![(OsString::from("PATH"), OsString::from("/usr/bin:/bin"))];
@@ -4951,17 +4951,18 @@ fn osc50_after(args: &[&str], before: &str, script: &str, fonts: Sources) -> Har
 // covers: platform.heads.policy
 #[test]
 fn the_start_logs_each_head_file_error_with_its_line() {
-    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    use std::os::unix::fs::PermissionsExt;
     let dir = Scratch::new("boot-head-file-log");
     std::fs::set_permissions(&*dir, std::fs::Permissions::from_mode(0o700)).expect("0700");
-    let path = dir.join("heads.conf");
+    let path = dir.join("vtium.conf");
     let text = "version = 1\n[head desk]\n[head bad]\ncolour = red\n[rules]\ndisplay * -> desk\ndisplay * -> desk\ninput * -> desc\n";
-    std::fs::write(&path, text).expect("the head file");
+    std::fs::write(&path, text).expect("vtium.conf");
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).expect("0644");
-    let uid = std::fs::metadata(&*dir).expect("the directory").uid();
-    let trust = vtium_settings::Trust::owner(uid).below(&dir);
+    // read as the console reads it, by the account the test runs as
+    let configdir = std::ffi::OsString::from(format!("--configdir={}", dir.display()));
+    let loaded = vtium::config::load(&[configdir], &mut vtium::config::read_file);
     logged();
-    let start = vtium::head::rules(&path, &trust);
+    let start = vtium::head::rules(&loaded.path, &loaded.file);
     let lines = logged();
     assert_eq!(
         start.line(),

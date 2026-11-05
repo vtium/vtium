@@ -227,16 +227,18 @@ fn remove_frit_removes_a_frit_but_not_the_one_font_name_names() {
         assert_eq!(ran.status, 1, "{name}: {}", ran.out);
         assert!(ran.err.contains(says), "{name}: {}", ran.err);
     }
-    // a head's profile draws the frit of its name
+    // a look's font-name keeps its frit, named with its line
+    let conf = f.etc().join("vtium.conf");
+    let kept = std::fs::read_to_string(&conf).expect("vtium.conf");
     std::fs::write(
-        f.etc().join("heads.conf"),
-        "version = 1\n[head spare]\nprofile = spare\n[rules]\ndisplay * -> spare\n",
+        &conf,
+        format!("{kept}version = 1\n[look spare]\nfont-name = spare\n[head a]\nlook = spare\n"),
     )
-    .expect("heads.conf");
+    .expect("vtium.conf");
     let ran = f.run(&["remove-frit", "spare"]);
     assert_eq!(ran.status, 1, "{}", ran.out);
-    assert!(ran.err.contains("head spare's profile"), "{}", ran.err);
-    std::fs::remove_file(f.etc().join("heads.conf")).expect("no head file");
+    assert!(ran.err.contains("`[look spare]`"), "{}", ran.err);
+    std::fs::write(&conf, kept).expect("vtium.conf");
     let ran = f.run(&["remove-frit", "spare"]);
     assert!(
         ran.out.starts_with(&format!(
@@ -327,39 +329,29 @@ fn font_frits_names_the_directory_every_command_acts_in() {
     every_command_acts_in(&f, &elsewhere);
 }
 
-// The console reads seat0.seat.conf after vtium.conf, and the seat file's
-// font-frits wins, so vtium-config reads the two files in that order.
+// ADR-1403 D2: vtium-config reads vtium.conf alone, as the console does,
+// so a seat file beside it is never read, whatever it sets
 #[test]
-fn the_seat_file_s_font_frits_wins_over_vtium_conf_s() {
+fn a_seat_file_beside_vtium_conf_is_never_read() {
     let f = fixture("font-frits-seat", None);
     let elsewhere = f.root.join("elsewhere");
     let decoy = f.root.join("decoy");
-    std::fs::create_dir_all(&decoy).expect("vtium.conf's directory");
+    std::fs::create_dir_all(&decoy).expect("the seat file's directory");
     std::fs::write(decoy.join("decoy.vtfrit"), "source=builtin:unifont\n").expect("a frit");
     std::fs::write(
         f.etc().join("vtium.conf"),
-        format!("font-frits={}\n", decoy.display()),
+        format!("font-frits={}\n", elsewhere.display()),
     )
     .expect("vtium.conf");
     std::fs::write(
         f.etc().join("seat0.seat.conf"),
-        format!("font-frits={}\n", elsewhere.display()),
+        format!("font-frits={}\n", decoy.display()),
     )
     .expect("the seat's file");
     every_command_acts_in(&f, &elsewhere);
     assert!(decoy.join("decoy.vtfrit").is_file());
     assert!(!decoy.join("made.vtfrit").exists());
-    // A seat file that sets no font-frits leaves vtium.conf's.
-    std::fs::write(f.etc().join("seat0.seat.conf"), "font-size=12\n").expect("the seat's file");
-    let listed = Command::new(BIN)
-        .arg("--configdir")
-        .arg(f.etc())
-        .arg("fonts")
-        .output()
-        .expect("the binary runs");
-    let out = String::from_utf8_lossy(&listed.stdout);
-    assert!(out.starts_with("decoy\t"), "{out}");
-    // A seat file's relative font-frits fails, naming the seat file.
+    // a relative font-frits in the seat file fails nothing
     std::fs::write(f.etc().join("seat0.seat.conf"), "font-frits=fonts\n").expect("the seat's file");
     let listed = Command::new(BIN)
         .arg("--configdir")
@@ -367,11 +359,11 @@ fn the_seat_file_s_font_frits_wins_over_vtium_conf_s() {
         .arg("fonts")
         .output()
         .expect("the binary runs");
-    let err = String::from_utf8_lossy(&listed.stderr);
-    assert_eq!(listed.status.code(), Some(1), "{err}");
-    assert!(
-        err.contains("seat0.seat.conf: font-frits=\"fonts\": an absolute path is needed"),
-        "{err}"
+    assert_eq!(
+        listed.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&listed.stderr)
     );
 }
 
@@ -494,13 +486,12 @@ fn check_judges_a_frit_and_a_vtium_conf_and_writes_nothing() {
     assert!(!f.root.join("state/vtium").exists(), "check writes nothing");
 }
 
-/// A file named `heads.conf` is a head file, checked by the console's own
-/// `vtium check-config` as a candidate, through the reader, parser and
-/// evaluator the console's start runs, against the vtium.conf in the
-/// configuration directory: each error names the file and its line, and
-/// a head file that reads is ok.
+/// A file holding only sections, as `heads.conf` did, is a vtium.conf like
+/// any other, checked by the console's own `vtium check-config` as a
+/// candidate, both its parts in one run (ADR-1403 D3): each error names
+/// the file and its line, and a file that reads is ok.
 #[test]
-fn check_judges_a_head_file_as_the_console_reads_it() {
+fn check_judges_a_file_of_sections_as_the_console_reads_it() {
     let f = fixture("check-heads", None);
     let dir = f.root.join("candidate");
     std::fs::create_dir_all(&dir).expect("the directory");

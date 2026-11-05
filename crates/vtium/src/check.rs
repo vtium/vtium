@@ -3,11 +3,15 @@
 //! under `/dev` and writes nothing, so it runs unprivileged: the devices
 //! present it reads from sysfs and udev's database (ADR-1401 D7).
 //!
-//! The head file goes through vtium-settings's reader, parser and
-//! evaluator, the ones the start runs (ADR-1401 D7): the file's own
-//! errors, each with what it drops, and its warnings go to standard error
-//! and make the status 1. What depends on the machine it is checked on,
-//! or is a choice rather than a fault, is noted on standard output outside
+//! It checks one vtium.conf, the installed one or a candidate given as
+//! FILE, both its parts in one run with one exit status (ADR-1403 D3).
+//! The top level goes through the console's own reader, and its reports go
+//! to standard error. The sections go through vtium-settings's reader,
+//! parser and evaluator, the ones the start runs (ADR-1401 D7): the
+//! file's own errors, each with what it drops, its warnings and a
+//! configuration with no complete route go to standard error, and each
+//! makes the status 1. What depends on the machine it is checked on, or
+//! is a choice rather than a fault, is noted on standard output outside
 //! the status, so a file can be checked away from its machine, and the
 //! notes end on what a start does with the file and the policy it states.
 
@@ -29,6 +33,10 @@ use crate::notice::check_config;
 /// The subcommand's name, which stands among the options.
 pub const SUBCOMMAND: &str = "check-config";
 
+/// The subcommand's option that judges the rules alone, without the
+/// devices present (ADR-1403 D3).
+pub const NO_DEVICES: &str = "--no-devices";
+
 /// Whether a rule sending input to a head by `id` or `name` alone counts
 /// against the file. ADR-1401's probe 4 is the operator's, and its
 /// recommendation, a note outside the status, stands until the operator
@@ -38,8 +46,8 @@ const WEAK_MATCH_COUNTS: bool = false;
 /// Whether a candidate that fails the ownership check where it sits counts
 /// against it. A candidate is checked before it is installed, and
 /// installing it makes it root's (ADR-1401 D12), so it is a note outside
-/// the status, the team lead's answer of 2026-10-29; the installed head
-/// file always counts it, as the start does.
+/// the status, the team lead's answer of 2026-10-29; the installed
+/// vtium.conf always counts it, as the start does.
 const CANDIDATE_OWNERSHIP_COUNTS: bool = false;
 
 /// The subcommand's help.
@@ -123,7 +131,17 @@ fn semantics_under(config: &Config, status: &Result<String, String>, signal: i32
 /// Every warning the start would give for `loaded`: the configuration's
 /// reports, then [`semantics`].
 pub fn warnings(loaded: &Loaded) -> Vec<String> {
-    let mut out: Vec<String> = loaded.reports.iter().map(ToString::to_string).collect();
+    warnings_of(loaded, |_| true)
+}
+
+/// [`warnings`], with only the reports `keep` keeps.
+fn warnings_of(loaded: &Loaded, keep: impl Fn(&crate::config::Report) -> bool) -> Vec<String> {
+    let mut out: Vec<String> = loaded
+        .reports
+        .iter()
+        .filter(|r| keep(r))
+        .map(ToString::to_string)
+        .collect();
     out.extend(semantics(&loaded.config));
     out.extend(crate::config::budget::memory_warning());
     out
@@ -140,10 +158,33 @@ pub fn notes(config: &Config) -> Vec<String> {
         None => check_config::MEASURED_DENSITY.to_owned(),
     };
     let me = rustix::process::geteuid().as_raw();
-    let notes = std::iter::once(density).chain(helper_note(&helper::program(config), me));
+    let notes = std::iter::once(density)
+        .chain(helper_note(&helper::program(config), me))
+        .chain(font_paths_notes(config));
     #[cfg(feature = "images")]
     let notes = notes.chain(image_helper_note(&crate::head::images::program(config), me));
     notes.collect()
+}
+
+/// What check-config notes of `font-paths` (ADR-1200 D25): each folder
+/// that does not exist, and each that an account other than its owner,
+/// such as `nobody`, which the helper runs as before anyone logs in,
+/// cannot read and search.
+fn font_paths_notes(config: &Config) -> Vec<String> {
+    use std::os::unix::fs::PermissionsExt;
+    let Some(paths) = config.text(&keys::FONT_PATHS) else {
+        return Vec::new();
+    };
+    paths
+        .split(':')
+        .filter_map(|dir| match std::fs::metadata(dir) {
+            Err(_) => Some(check_config::font_path_missing(dir)),
+            Ok(meta) if meta.permissions().mode() & 0o005 != 0o005 => {
+                Some(check_config::font_path_private(dir))
+            }
+            Ok(_) => None,
+        })
+        .collect()
 }
 
 /// What check-config notes of the glyph helper at `program` when it runs
@@ -198,23 +239,23 @@ pub fn run(loaded: &Loaded) -> (Vec<String>, i32) {
     (lines, status)
 }
 
-/// Where the subcommand finds the machine's files: the installed head
-/// file, the udev daemon's control socket, sysfs and udev's database,
-/// which list the devices present, and the frits a profile names.
+/// Where the subcommand finds the machine's files: the installed
+/// vtium.conf, the udev daemon's control socket, sysfs and udev's
+/// database, which list the devices present, and the frits a look names.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Host {
-    pub head_file: PathBuf,
+    pub conf_file: PathBuf,
     pub udev_control: PathBuf,
     pub roots: Roots,
     pub frits: PathBuf,
 }
 
 impl Host {
-    /// The machine's own, with the frits `config` names, which the binary
-    /// takes and nothing overrides.
+    /// The machine's own, with the vtium.conf and the frits `config`
+    /// names, which the binary takes and nothing overrides.
     pub fn system(config: &Config) -> Host {
         Host {
-            head_file: PathBuf::from(vtium_settings::HEAD_FILE),
+            conf_file: crate::config::path(config),
             udev_control: PathBuf::from(UDEV_CONTROL),
             roots: Roots::system(),
             frits: font::frits(config),
@@ -222,21 +263,20 @@ impl Host {
     }
 }
 
-/// What the head file is checked against of the machine.
+/// What vtium.conf's sections are checked against of the machine.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Machine<'a> {
     /// A udev daemon runs ([`udev_daemon_runs`]).
     pub udev_daemon: bool,
     /// The devices present, as [`devices`] gives them; `None` checks the
-    /// file alone, as away from its machine.
+    /// file alone, as away from its machine and as `--no-devices` asks.
     pub devices: Option<&'a [Identity]>,
 }
 
 /// What the subcommand prints, and its exit status.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Outcome {
-    /// The configuration's warnings and the head file's errors and
-    /// warnings.
+    /// The top level's reports, and the sections' errors and warnings.
     pub stderr: Vec<String>,
     /// What the status does not count.
     pub stdout: Vec<String>,
@@ -246,7 +286,7 @@ pub struct Outcome {
 
 /// The subcommand on `loaded` and the machine `host`.
 pub fn outcome(loaded: &Loaded, host: &Host) -> Outcome {
-    let (stderr, status) = run(loaded);
+    let (stderr, _) = run(loaded);
     if loaded.config.switch(&keys::HELP) {
         return Outcome {
             stderr,
@@ -257,19 +297,22 @@ pub fn outcome(loaded: &Loaded, host: &Host) -> Outcome {
     let devices = devices(&listing::list(&host.roots, SEAT));
     let machine = Machine {
         udev_daemon: udev_daemon_runs(&host.udev_control),
-        devices: Some(&devices),
+        devices: (!loaded.no_devices).then_some(devices.as_slice()),
     };
     let settings = Settings::of(&loaded.config, &host.frits);
     // a candidate that is the installed file is checked as the start
     // reads it, ownership and all
-    let heads = match loaded.candidate.as_deref() {
-        Some(path) if !same_file(path, &host.head_file) => {
-            head_file(path, true, &Trust::ROOT, &machine, &settings)
-        }
-        Some(path) => head_file(path, false, &Trust::ROOT, &machine, &settings),
-        None => head_file(&host.head_file, false, &Trust::ROOT, &machine, &settings),
+    let path = loaded.candidate.as_deref().unwrap_or(&host.conf_file);
+    let candidate = loaded.candidate.is_some() && !same_file(path, &host.conf_file);
+    let heads = conf_file(path, candidate, &Trust::ROOT, &machine, &settings);
+    // a start reads none of an installed file it does not trust, so the
+    // file's own top-level reports are no start's
+    let stderr: Vec<String> = if heads.refused {
+        warnings_of(loaded, |r| !matches!(r.origin, Origin::File { .. }))
+    } else {
+        stderr
     };
-    let status = u8::from(status != 0 || !heads.counted.is_empty());
+    let status = u8::from(!stderr.is_empty() || !heads.counted.is_empty());
     Outcome {
         stderr: stderr.into_iter().chain(heads.counted).collect(),
         stdout: notes(&loaded.config)
@@ -293,13 +336,16 @@ pub fn main(loaded: &Loaded) -> u8 {
     out.status
 }
 
-/// What the head file's check found.
+/// What the check of vtium.conf's sections found.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct HeadCheck {
     /// The file's own errors and warnings, which make the status 1.
     pub counted: Vec<String>,
     /// What the status does not count.
     pub notes: Vec<String>,
+    /// The installed file fails the ownership check, so a start reads
+    /// none of it, its top level included.
+    pub refused: bool,
 }
 
 /// Whether `a` and `b` name one file, by its device and inode once
@@ -312,9 +358,9 @@ fn same_file(a: &Path, b: &Path) -> bool {
     }
 }
 
-/// What the head file is checked against of vtium.conf and the machine's
-/// frits: the console caps (ADR-1401 D10) and the frits directory a
-/// profile's frit is looked up in (D7).
+/// What vtium.conf's sections are checked against of its top level and
+/// the machine's frits: the console caps (ADR-1401 D10) and the frits
+/// directory a look's frit is looked up in (D7).
 #[derive(Clone, Copy, Debug)]
 pub struct Settings<'a> {
     /// `head-consoles-max`.
@@ -343,14 +389,16 @@ impl Settings<'_> {
     }
 }
 
-/// Checks the head file at `path`, the installed one or, with
-/// `candidate`, one given to check before it is installed, its bytes read
-/// under `trust`, against `machine` and `settings`. It reads the file as
-/// the start does (ADR-1401 D7): each error, counted, with what it drops,
-/// then what survives, and last, as notes, what a start does with the
-/// file and the policy it states. A candidate the ownership check fails
-/// is read as the start would read it once installed.
-pub fn head_file(
+/// Checks the sections and the policy of the vtium.conf at `path`, the
+/// installed one or, with `candidate`, one given to check before it is
+/// installed, its bytes read under `trust`, against `machine` and
+/// `settings`. It reads the file as the start does (ADR-1401 D7, ADR-1403
+/// D3): each error, counted, with what it drops, then what survives, then
+/// whether what runs wires a complete route, and last, as notes, what a
+/// start does with the file and the policy it states. A candidate the
+/// ownership check fails is read as the start would read it once
+/// installed.
+pub fn conf_file(
     path: &Path,
     candidate: bool,
     trust: &Trust,
@@ -390,22 +438,52 @@ pub fn head_file(
             };
             out.notes.push(at(path, None, note).to_string());
         } else {
-            let problem = Problem::Untrusted(why);
-            out.counted.push(at(path, None, problem).to_string());
+            out.counted.push(at(path, None, why.refusal()).to_string());
             out.notes
                 .push(at(path, None, AtStart(Read::Untrusted)).to_string());
+            out.refused = true;
             return out;
         }
     }
-    let reading = vtium_settings::reading(&inspected.bytes);
+    let Some(reading) = vtium_settings::sections(&inspected.bytes) else {
+        // a kmscon.conf: its keys apply, under the compiled-in flow's
+        // open policy, which the file does not state
+        let unstated = vtium_settings::Trusted {
+            stated: vtium_settings::Stated::Unset,
+            rest: vtium_settings::Rest::Valid,
+        };
+        out.notes
+            .push(at(path, None, check_config::NO_FLOW).to_string());
+        out.notes
+            .push(at(path, None, Stating(unstated)).to_string());
+        return out;
+    };
     errors(&mut out, path, &reading.errors);
     let trusted = reading.trusted();
     let runs = vtium_settings::resolve(&Read::Trusted(trusted)).runs;
     findings(&mut out, path, &reading.parsed, machine, settings, runs);
+    if runs_file(runs) {
+        let route = vtium_settings::complete_route(&reading.parsed.config, machine.devices);
+        if let Some(missing) = &route.missing {
+            out.counted.push(at(path, None, missing).to_string());
+        }
+        if route.judged != vtium_settings::Judged::Devices {
+            out.notes.push(at(path, None, route.judged).to_string());
+        }
+    }
     out.notes
         .push(at(path, None, AtStart(Read::Trusted(trusted))).to_string());
     out.notes.push(at(path, None, Stating(trusted)).to_string());
     out
+}
+
+/// Whether a start that `runs` runs the file's own flow, or what survives
+/// of it, rather than the shipped default or nothing.
+fn runs_file(runs: Runs) -> bool {
+    match runs {
+        Runs::File | Runs::NoHead | Runs::Survivors => true,
+        Runs::Builtin | Runs::Off => false,
+    }
 }
 
 /// Whether `rejected` is the open's refusal for want of permission: a
@@ -482,10 +560,7 @@ fn findings(
         out.notes
             .push(at(path, None, check_config::more_notes(parsed.more_notes)).to_string());
     }
-    let runs_file = match runs {
-        Runs::File | Runs::NoHead | Runs::Survivors => true,
-        Runs::Builtin | Runs::Off => false,
-    };
+    let runs_file = runs_file(runs);
     let remarks = if runs_file {
         vtium_settings::remarks(&parsed.config, machine.devices)
     } else {
@@ -603,7 +678,7 @@ mod tests {
             .map(OsString::from)
             .collect();
         let conf = conf.as_bytes().to_vec();
-        let loaded = config::load(&args, Some("seat0"), &mut |p: &Path| {
+        let loaded = config::load(&args, &mut |p: &Path| {
             Ok((p == Path::new("/etc/vtium/vtium.conf")).then(|| conf.clone()))
         });
         assert!(loaded.check);
@@ -714,7 +789,7 @@ mod tests {
     fn power_off_warnings(conf: &str, status: &Result<String, String>) -> Vec<String> {
         let args = [OsString::from(SUBCOMMAND)];
         let conf = conf.as_bytes().to_vec();
-        let loaded = config::load(&args, None, &mut |_: &Path| Ok(Some(conf.clone())));
+        let loaded = config::load(&args, &mut |_: &Path| Ok(Some(conf.clone())));
         semantics_under(&loaded.config, status, 38)
     }
 
@@ -804,7 +879,7 @@ mod tests {
                 .iter()
                 .map(OsString::from)
                 .collect();
-            config::load(&args, Some("seat0"), &mut |_: &Path| Ok(None)).config
+            config::load(&args, &mut |_: &Path| Ok(None)).config
         };
         assert_eq!(
             frit(&config("small"), &dir),
@@ -828,7 +903,7 @@ mod tests {
                 .chain(args)
                 .map(OsString::from)
                 .collect();
-            notes(&config::load(&args, None, &mut |_: &Path| Ok(None)).config)
+            notes(&config::load(&args, &mut |_: &Path| Ok(None)).config)
         };
         // root's /bin/sh, a helper vtium takes
         let helper = "--font-helper=/bin/sh";
@@ -858,7 +933,7 @@ mod tests {
                 .chain(args)
                 .map(OsString::from)
                 .collect();
-            notes(&config::load(&args, None, &mut |_: &Path| Ok(None)).config)
+            notes(&config::load(&args, &mut |_: &Path| Ok(None)).config)
         };
         let density = check_config::MEASURED_DENSITY;
         assert_eq!(note(&["--font-helper=/bin/sh"]), [density]);
@@ -888,9 +963,7 @@ mod tests {
     // covers: image.helper
     #[test]
     fn image_helper_defaults_to_the_built_path() {
-        let loaded = config::load(&[OsString::from(SUBCOMMAND)], None, &mut |_: &Path| {
-            Ok(None)
-        });
+        let loaded = config::load(&[OsString::from(SUBCOMMAND)], &mut |_: &Path| Ok(None));
         assert_eq!(
             crate::head::images::program(&loaded.config),
             Path::new(crate::head::images::PROGRAM)
@@ -903,7 +976,7 @@ mod tests {
             .iter()
             .map(OsString::from)
             .collect();
-        let loaded = config::load(&args, None, &mut |_: &Path| Ok(None));
+        let loaded = config::load(&args, &mut |_: &Path| Ok(None));
         assert_eq!(
             crate::head::images::program(&loaded.config),
             Path::new("/opt/vtium-image")
@@ -923,7 +996,7 @@ mod tests {
                 .chain(args)
                 .map(OsString::from)
                 .collect();
-            notes(&config::load(&args, None, &mut |_: &Path| Ok(None)).config)
+            notes(&config::load(&args, &mut |_: &Path| Ok(None)).config)
         };
         let density = check_config::MEASURED_DENSITY;
         assert_eq!(note(&["--image-helper=/bin/sh"]), [density]);
@@ -1018,11 +1091,9 @@ mod tests {
             .iter()
             .map(OsString::from)
             .collect();
-        let loaded = config::load(&args, None, &mut |_: &Path| Ok(None));
+        let loaded = config::load(&args, &mut |_: &Path| Ok(None));
         assert_eq!(Host::system(&loaded.config).frits, Path::new("/srv/frits"));
-        let loaded = config::load(&[OsString::from(SUBCOMMAND)], None, &mut |_: &Path| {
-            Ok(None)
-        });
+        let loaded = config::load(&[OsString::from(SUBCOMMAND)], &mut |_: &Path| Ok(None));
         assert_eq!(Host::system(&loaded.config).frits, Path::new(font::FRITS));
     }
 
@@ -1063,7 +1134,7 @@ mod tests {
 
     fn checked(name: &str, text: &str, udev: bool) -> (HeadCheck, String) {
         let (file, trust) = heads_fixture(name, text, 0o644);
-        let out = head_file(&file, false, &trust, &machine(udev), &caps(4));
+        let out = conf_file(&file, false, &trust, &machine(udev), &caps(4));
         std::fs::remove_dir_all(file.parent().unwrap_or(&file)).ok();
         (out, file.display().to_string())
     }
@@ -1083,7 +1154,10 @@ mod tests {
             )]
         );
         assert_eq!(verdict(&out, &f), [AS_WRITTEN, UNSET]);
-        assert_eq!(out.notes.len(), 2, "{:?}", out.notes);
+        assert_eq!(
+            out.notes,
+            [RULES_ALONE, AS_WRITTEN, UNSET].map(|n| format!("{f}: {n}"))
+        );
     }
 
     /// The last two notes of `out`, the outcome and the policy, without
@@ -1103,6 +1177,11 @@ mod tests {
     const UNSET: &str = "The file sets no `policy`, so its policy is open: an input no rule places roams, a head is isolated only where it says `isolated = yes`, and the anti-lockout guard and the rescue key are on.";
     const CLOSED: &str = "The policy is closed: an input no rule places is ignored, a head that leaves `isolated` unset is isolated, and the anti-lockout guard and the rescue key are off.";
     const AS_WRITTEN: &str = "A start runs this file as written and shows nothing.";
+    /// What a check with no devices says of how it judged the route
+    /// (ADR-1403 D3).
+    const RULES_ALONE: &str =
+        "vtium judged the route by the rules alone, without the devices present.";
+    const NO_DISPLAY: &str = "No display is present, so vtium judged the route by the rules alone.";
     const PARTLY_OPEN: &str = "A start runs the heads and rules that survive, then the shipped rules' tail, with every head acting as not isolated whatever its `isolated` says, and shows `config partly invalid, running what's valid`.";
     const PARTLY_UNSET_POLICY: &str = "The file sets no `policy`, so its policy is open, and since the file is partly broken every head acts as not isolated whatever its `isolated` says: an input no surviving rule places walks the shipped rules' tail, and the anti-lockout guard and the rescue key are on.";
     const PARTLY_OPEN_POLICY: &str = "The policy is open, and since the file is partly broken every head acts as not isolated whatever its `isolated` says: an input no surviving rule places walks the shipped rules' tail, and the anti-lockout guard and the rescue key are on.";
@@ -1183,11 +1262,7 @@ mod tests {
                 "A start runs this file as written and shows nothing.",
                 CLOSED,
             ),
-            (
-                "version = 1\n".to_owned(),
-                "This file declares nothing, so a start runs the shipped default and shows nothing.",
-                UNSET,
-            ),
+            ("version = 1\n".to_owned(), check_config::NO_FLOW, UNSET),
             (
                 "version = 1\n[rules]\ninput * -> roaming\n".to_owned(),
                 "This file has rules and declares no head, so a start runs its rules, and the display guard lights the boot display for the default head.",
@@ -1227,9 +1302,13 @@ mod tests {
         for (n, (text, outcome, policy)) in rows.iter().enumerate() {
             let (out, f) = checked(&format!("row-{n}"), text, true);
             assert_eq!(verdict(&out, &f), [*outcome, *policy], "{text}");
-            // an error, and only an error, counts against the file
-            let broken = text.contains("-> b") || text.contains("= 2") || text.contains("maybe");
-            assert_eq!(out.counted.is_empty(), !broken, "{text}: {:?}", out.counted);
+            // an error counts against the file, and so does a flow that
+            // wires no complete route, judged here by its rules alone
+            // (ADR-1403 D3): only the open file whose head has a display
+            // rule, and the file with no flow, count nothing
+            let clean =
+                *text == format!("version = 1\npolicy = open\n{head}") || text == "version = 1\n";
+            assert_eq!(out.counted.is_empty(), clean, "{text}: {:?}", out.counted);
         }
     }
 
@@ -1245,7 +1324,7 @@ mod tests {
         )
         .ok();
         let f = file.display().to_string();
-        let out = head_file(&file, false, &trust, &machine(true), &caps(4));
+        let out = conf_file(&file, false, &trust, &machine(true), &caps(4));
         std::fs::remove_dir_all(file.parent().unwrap_or(&file)).ok();
         assert_eq!(
             out.counted,
@@ -1291,7 +1370,7 @@ mod tests {
                 total: 64,
                 ..caps(cap)
             };
-            let out = head_file(&file, false, &trust, &machine(true), &settings);
+            let out = conf_file(&file, false, &trust, &machine(true), &settings);
             std::fs::remove_dir_all(file.parent().unwrap_or(&file)).ok();
             let want: Vec<String> = want.iter().map(|w| format!("{f}:3: {w}")).collect();
             assert_eq!(out.counted, want, "consoles {consoles}, cap {cap}");
@@ -1333,13 +1412,13 @@ mod tests {
         assert_eq!(out.counted, [short(5, "b", 3), short(7, "c", 1)]);
     }
 
-    // ADR-1401 D7: a profile naming a frit not installed is a warning about
-    // the file, and an installed one is none
+    // ADR-1401 D7, ADR-1403 D5: a look whose font-name names a frit not
+    // installed is a warning about the file, and an installed one is none
     // covers: platform.heads.rules
     #[test]
     #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
-    fn a_profile_naming_a_missing_frit_counts_against_the_file() {
-        let text = "version = 1\n[head a]\nprofile = desk\n[rules]\ndisplay * -> a\n";
+    fn a_look_naming_a_missing_frit_counts_against_the_file() {
+        let text = "version = 1\n[look big]\nfont-name = desk\n[head a]\nlook = big\n[rules]\ndisplay * -> a\n";
         let (file, trust) = heads_fixture("frit", text, 0o644);
         let f = file.display().to_string();
         let frits = file.parent().unwrap().join("frits");
@@ -1348,15 +1427,15 @@ mod tests {
             frits: &frits,
             ..caps(4)
         };
-        let missing = head_file(&file, false, &trust, &machine(true), &settings);
+        let missing = conf_file(&file, false, &trust, &machine(true), &settings);
         std::fs::write(frits.join("desk.vtfrit"), "source=builtin:unifont\n").unwrap();
-        let installed = head_file(&file, false, &trust, &machine(true), &settings);
+        let installed = conf_file(&file, false, &trust, &machine(true), &settings);
         std::fs::remove_dir_all(file.parent().unwrap()).ok();
         let dir = frits.display();
         assert_eq!(
             missing.counted,
             [format!(
-                "{f}:3: The head \"a\"'s profile names the frit \"desk\", which is not in \"{dir}\", so the head draws the default frit. Put that frit in \"{dir}\", or change the head's `profile`."
+                "{f}:3: The look \"big\" names the frit \"desk\", which is not in \"{dir}\", so vtium reads \"desk\" as the name of a kbd font and draws its built-in font when there is none. Put that frit in \"{dir}\", or change the look's `font-name`."
             )]
         );
         assert_eq!(installed.counted, [] as [String; 0]);
@@ -1436,6 +1515,7 @@ mod tests {
                 format!(
                     "{f}:3: No rule names the head \"b\", so no display or input reaches it. Add a rule that sends a display to it, or remove the head."
                 ),
+                format!("{f}: {RULES_ALONE}"),
                 format!("{f}: {AS_WRITTEN}"),
                 format!("{f}: {UNSET}"),
             ]
@@ -1452,21 +1532,30 @@ mod tests {
             udev_daemon: true,
             devices: Some(devices),
         };
-        let out = head_file(&file, false, &trust, &m, &caps(4));
+        let out = conf_file(&file, false, &trust, &m, &caps(4));
         std::fs::remove_dir_all(file.parent().unwrap_or(&file)).ok();
+        let bare = |n: &String| {
+            let n = n.strip_prefix(&f).unwrap_or(n);
+            n.strip_prefix(' ').unwrap_or(n).to_owned()
+        };
         let notes = out.notes.len().saturating_sub(2);
         let notes = out
             .notes
             .get(..notes)
             .unwrap_or_default()
             .iter()
-            .map(|n| {
-                let n = n.strip_prefix(&f).unwrap_or(n);
-                n.strip_prefix(' ').unwrap_or(n).to_owned()
-            })
+            .map(bare)
             .collect();
-        (out.counted, notes)
+        (out.counted.iter().map(bare).collect(), notes)
     }
+
+    /// What a check against the devices present counts of a file whose
+    /// display rules send no display present to a head (ADR-1403 D3).
+    const NO_DISPLAY_SENT: &str = "No display present is sent to a head: no rule matches display \"display 1\", so it stays off. Add a display rule that sends it to a head.";
+
+    /// What it counts of a file whose only head is isolated, with no
+    /// input rule that sends a keyboard to it.
+    const ISOLATED: &str = "Head \"a\" is isolated, so roaming keyboards do not reach it. Add an input rule that sends a keyboard to \"a\", or write `isolated = no` in its section.";
 
     /// A display, a keyboard and a joystick, each named.
     fn present() -> Vec<Identity> {
@@ -1493,7 +1582,7 @@ mod tests {
             "version = 1\n[head a]\n[rules]\ninput class:joystick -> a\n",
             &present(),
         );
-        assert_eq!(counted, [] as [String; 0]);
+        assert_eq!(counted, [NO_DISPLAY_SENT]);
         assert_eq!(
             notes,
             [
@@ -1514,7 +1603,7 @@ mod tests {
              input class:keyboard -> a\ninput * -> ignore\n",
             &present(),
         );
-        assert_eq!(counted, [] as [String; 0]);
+        assert_eq!(counted, [NO_DISPLAY_SENT]);
         assert_eq!(
             notes,
             [
@@ -1534,7 +1623,12 @@ mod tests {
             "version = 1\npolicy = closed\n[head a]\nisolated = no\n[rules]\ndisplay * -> a\n",
             &present(),
         );
-        assert_eq!(counted, [] as [String; 0]);
+        assert_eq!(
+            counted,
+            [
+                "Head \"a\" shows \"display 1\", but no keyboard present reaches \"a\": add an input rule that sends a keyboard to \"a\" or to `roaming`."
+            ]
+        );
         assert_eq!(
             notes,
             [
@@ -1597,13 +1691,14 @@ mod tests {
         let file = "version = 1\n[head a]\n[rules]\ninput * -> roaming\n";
         let lit = "No rule names the head \"a\", so it has a display only when the display guard gives it the boot display, which the guard does under the open policy while no other head has a display. Add a rule that sends a display to it, or remove the head.";
         let (counted, notes) = remarked("unnamed-guard", file, &present());
-        assert_eq!(counted, [] as [String; 0]);
+        assert_eq!(counted, [NO_DISPLAY_SENT]);
         assert_eq!(notes, [format!("2: {lit}")]);
         let (out, f) = checked("unnamed-guard-away", file, true);
         assert_eq!(
             out.notes,
             [
                 format!("{f}:2: {lit}"),
+                format!("{f}: {RULES_ALONE}"),
                 format!("{f}: {AS_WRITTEN}"),
                 format!("{f}: {UNSET}")
             ]
@@ -1627,7 +1722,7 @@ mod tests {
              input class:joystick -> a\n",
             &present(),
         );
-        assert_eq!(counted, [] as [String; 0]);
+        assert_eq!(counted, [ISOLATED]);
         assert_eq!(
             notes,
             [
@@ -1658,7 +1753,7 @@ mod tests {
             "version = 1\npolicy = closed\n[head a]\n[rules]\ndisplay * -> a\ninput * -> roaming\n",
             &present(),
         );
-        assert_eq!(counted, [] as [String; 0]);
+        assert_eq!(counted, [ISOLATED]);
         assert_eq!(
             notes.first().map(String::as_str),
             Some(
@@ -1738,7 +1833,13 @@ mod tests {
         let shown = |what: &str| format!("{f}: {what}");
         assert_eq!(
             out.notes,
-            [weak(5), weak(6), shown(AS_WRITTEN), shown(UNSET)]
+            [
+                weak(5),
+                weak(6),
+                shown(RULES_ALONE),
+                shown(AS_WRITTEN),
+                shown(UNSET)
+            ]
         );
     }
 
@@ -1819,19 +1920,21 @@ mod tests {
         let trust = Trust::ROOT;
         let shown = path.display();
         assert_eq!(
-            head_file(&path, false, &trust, &machine(true), &caps(4)),
+            conf_file(&path, false, &trust, &machine(true), &caps(4)),
             HeadCheck {
                 counted: Vec::new(),
                 notes: vec![format!(
-                    "{shown}: There is no head file here, so a start runs the compiled-in configuration and shows nothing."
+                    "{shown}: There is no vtium.conf here, so a start runs the compiled-in configuration and shows nothing."
                 )],
+                refused: false,
             }
         );
         assert_eq!(
-            head_file(&path, true, &trust, &machine(true), &caps(4)),
+            conf_file(&path, true, &trust, &machine(true), &caps(4)),
             HeadCheck {
                 counted: vec![format!("{shown}: does not exist")],
                 notes: Vec::new(),
+                refused: false,
             }
         );
     }
@@ -1844,10 +1947,12 @@ mod tests {
         let text = "version = 1\n[head desk]\n[rules]\ndisplay * -> desk\ninput * -> desc\n";
         let (file, trust) = heads_fixture("owner", text, 0o666);
         let f = file.display().to_string();
+        // ADR-1403 D3: the refusal names the path, its mode and the
+        // command that mends it
         let untrusted = format!(
-            "{f}: vtium does not trust this file, because \"{f}\" can be changed by its group or by other users (mode 666). Make root the owner of that path, and let only root write to it."
+            "{f}: vtium does not read this file, because \"{f}\" can be changed by its group or by other users (mode 666), so it runs its compiled-in configuration. Run `chmod go-w {f}` so that only its owner can change it."
         );
-        let installed = head_file(&file, false, &trust, &machine(true), &caps(4));
+        let installed = conf_file(&file, false, &trust, &machine(true), &caps(4));
         assert_eq!(installed.counted, [untrusted]);
         assert_eq!(
             installed.notes,
@@ -1855,13 +1960,14 @@ mod tests {
                 "{f}: A start never reads a file it does not trust, so it runs the shipped default and shows `invalid config skipped, using builtin`."
             )]
         );
-        let candidate = head_file(&file, true, &trust, &machine(true), &caps(4));
+        let candidate = conf_file(&file, true, &trust, &machine(true), &caps(4));
         assert_eq!(
             candidate.notes,
             [
                 format!(
                     "{f}: \"{f}\" can be changed by its group or by other users (mode 666). The start reads this file once it is installed, owned by root and writable only by root."
                 ),
+                format!("{f}: {RULES_ALONE}"),
                 format!("{f}: {PARTLY_OPEN}"),
                 format!("{f}: {PARTLY_UNSET_POLICY}"),
             ]
@@ -1912,7 +2018,7 @@ mod tests {
     fn the_word_after_the_subcommand_is_the_candidate() {
         let load = |args: &[&str]| {
             let args: Vec<OsString> = args.iter().map(OsString::from).collect();
-            config::load(&args, None, &mut |_: &Path| Ok(None))
+            config::load(&args, &mut |_: &Path| Ok(None))
         };
         let l = load(&[SUBCOMMAND, "/tmp/heads.conf"]);
         assert_eq!(l.candidate.as_deref(), Some(Path::new("/tmp/heads.conf")));
@@ -1945,25 +2051,26 @@ mod tests {
         let dir = file.parent().unwrap().to_path_buf();
         let denied = HeadCheck {
             counted: vec![format!(
-                "{}: permission denied: the head file can be checked only as root",
+                "{}: permission denied: this file can be checked only as root",
                 file.display()
             )],
             notes: Vec::new(),
+            refused: false,
         };
         assert_eq!(
-            head_file(&file, false, &trust, &machine(true), &caps(4)),
+            conf_file(&file, false, &trust, &machine(true), &caps(4)),
             denied,
             "the file"
         );
         assert_eq!(
-            head_file(&file, true, &trust, &machine(true), &caps(4)),
+            conf_file(&file, true, &trust, &machine(true), &caps(4)),
             denied,
             "a candidate"
         );
         mode(&file, 0o644);
         mode(&dir, 0o000);
         assert_eq!(
-            head_file(&file, false, &trust, &machine(true), &caps(4)),
+            conf_file(&file, false, &trust, &machine(true), &caps(4)),
             denied,
             "its directory"
         );
@@ -1987,7 +2094,7 @@ mod tests {
             .chain(args)
             .map(OsString::from)
             .collect();
-        outcome(&config::load(&args, None, &mut |_: &Path| Ok(None)), host)
+        outcome(&config::load(&args, &mut |_: &Path| Ok(None)), host)
     }
 
     // the installed head file is the host's, read as the start reads it,
@@ -2002,7 +2109,7 @@ mod tests {
         );
         let f = file.display().to_string();
         let host = Host {
-            head_file: file.clone(),
+            conf_file: file.clone(),
             udev_control: file.with_file_name("no-udev"),
             roots: nowhere(),
             frits: PathBuf::from("/nonexistent/vtium/frits"),
@@ -2012,7 +2119,7 @@ mod tests {
         assert_eq!(
             out.stderr,
             [format!(
-                "{f}: vtium does not trust this file, because \"{f}\" belongs to user {} and not to root. Make root the owner of that path, and let only root write to it.",
+                "{f}: vtium does not read this file, because \"{f}\" belongs to user {} and not to root, so it runs its compiled-in configuration. Run `chown root:root {f}` to make root its owner.",
                 rustix::process::geteuid().as_raw()
             ),]
         );
@@ -2047,7 +2154,7 @@ mod tests {
             out.stdout
         );
         let gone = Host {
-            head_file: file.with_file_name("absent.conf"),
+            conf_file: file.with_file_name("absent.conf"),
             ..host
         };
         let out = outcome_on(&[], &gone);
@@ -2056,7 +2163,7 @@ mod tests {
             out.stdout
                 .iter()
                 .any(|n| n.ends_with(
-                    "absent.conf: There is no head file here, so a start runs the compiled-in configuration and shows nothing."
+                    "absent.conf: There is no vtium.conf here, so a start runs the compiled-in configuration and shows nothing."
                 ))
         );
         std::fs::remove_dir_all(file.parent().unwrap()).ok();
@@ -2077,7 +2184,7 @@ mod tests {
         let link = file.with_file_name("link.conf");
         std::os::unix::fs::symlink(&file, &link).unwrap();
         let host = Host {
-            head_file: file.clone(),
+            conf_file: file.clone(),
             udev_control: file.clone(),
             roots: nowhere(),
             frits: PathBuf::from("/nonexistent/vtium/frits"),
@@ -2089,7 +2196,7 @@ mod tests {
             assert_eq!(
                 out.stderr,
                 [format!(
-                    "{n}: vtium does not trust this file, because \"{n}\" belongs to user {} and not to root. Make root the owner of that path, and let only root write to it.",
+                    "{n}: vtium does not read this file, because \"{n}\" belongs to user {} and not to root, so it runs its compiled-in configuration. Run `chown root:root {n}` to make root its owner.",
                     rustix::process::geteuid().as_raw()
                 )],
                 "{named:?}"
@@ -2098,8 +2205,8 @@ mod tests {
         std::fs::remove_dir_all(file.parent().unwrap()).ok();
     }
 
-    // heads.md: each file docs/heads holds checks with exit status 0, its
-    // profiles' frits installed, away from any machine
+    // heads.md: each file docs/heads holds checks with exit status 0, the
+    // frits its looks name installed, away from any machine, but off.conf
     // covers: platform.heads.rules
     #[test]
     #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
@@ -2109,7 +2216,7 @@ mod tests {
         let frits = anchor.with_file_name("frits");
         std::fs::create_dir_all(&frits).unwrap();
         let host = Host {
-            head_file: anchor.with_file_name("absent.conf"),
+            conf_file: anchor.with_file_name("absent.conf"),
             udev_control: anchor.clone(),
             roots: nowhere(),
             frits: frits.clone(),
@@ -2120,14 +2227,14 @@ mod tests {
             .filter(|p| p.extension().is_some_and(|x| x == "conf"))
             .collect();
         files.sort();
-        // the profiles the files name have their frits installed
+        // the frits the files' looks name are installed
         for f in &files {
             let text = std::fs::read_to_string(f).unwrap();
-            let profiles = text.lines().filter_map(|l| {
+            let frits_named = text.lines().filter_map(|l| {
                 let (key, value) = l.split('#').next()?.split_once('=')?;
-                (key.trim() == "profile").then(|| value.trim().to_owned())
+                (key.trim() == "font-name").then(|| value.trim().to_owned())
             });
-            for p in profiles {
+            for p in frits_named {
                 std::fs::write(
                     frits.join(format!("{p}.vtfrit")),
                     "source=builtin:unifont\n",
@@ -2138,7 +2245,20 @@ mod tests {
         assert!(files.len() >= 7, "{files:?}");
         for f in &files {
             let out = outcome_on(&[f.to_str().unwrap()], &host);
-            assert_eq!((out.status, &out.stderr), (0, &Vec::new()), "{f:?}");
+            // off.conf lights nothing and opens nothing on purpose, so it
+            // wires no complete route, which check-config refuses
+            // (ADR-1403 D3)
+            let want = match f.file_name().and_then(|n| n.to_str()) {
+                Some("off.conf") => (
+                    1,
+                    vec![format!(
+                        "{}: No display rule sends displays to a head. Add a rule `display MATCH -> TARGET` whose target is a head.",
+                        f.display()
+                    )],
+                ),
+                _ => (0, Vec::new()),
+            };
+            assert_eq!((out.status, out.stderr), want, "{f:?}");
         }
         std::fs::remove_dir_all(anchor.parent().unwrap()).ok();
     }
@@ -2298,7 +2418,7 @@ mod tests {
         );
         let f = file.display().to_string();
         let host = Host {
-            head_file: file.with_file_name("absent.conf"),
+            conf_file: file.with_file_name("absent.conf"),
             udev_control: file.clone(),
             roots: stand_in_machine(file.parent().unwrap()),
             frits: PathBuf::from("/nonexistent/vtium/frits"),
@@ -2340,7 +2460,7 @@ mod tests {
             udev_daemon: false,
             devices: Some(&[]),
         };
-        let out = head_file(&file, false, &trust, &machine, &caps(4));
+        let out = conf_file(&file, false, &trust, &machine, &caps(4));
         std::fs::remove_dir_all(file.parent().unwrap_or(&file)).ok();
         assert_eq!(
             out.notes,
@@ -2353,6 +2473,7 @@ mod tests {
                 format!(
                     "{f}: No head that can be the active head has a display present, so a keyboard that roams reaches no head until one lights. Connect a display for a head that is not isolated."
                 ),
+                format!("{f}: {NO_DISPLAY}"),
                 format!("{f}: {AS_WRITTEN}"),
                 format!("{f}: {UNSET}"),
             ]
@@ -2365,7 +2486,7 @@ mod tests {
     fn a_control_character_in_the_path_is_shown_escaped() {
         let path = Path::new("/tmp/vtium-check-heads-a\nb\u{1b}[2J.conf");
         assert_eq!(
-            head_file(path, true, &Trust::ROOT, &machine(true), &caps(4)).counted,
+            conf_file(path, true, &Trust::ROOT, &machine(true), &caps(4)).counted,
             ["/tmp/vtium-check-heads-a\\nb\\u{1b}[2J.conf: does not exist"]
         );
     }

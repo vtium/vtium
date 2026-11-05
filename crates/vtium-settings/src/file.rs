@@ -1,4 +1,5 @@
-//! Reading the head file from disk with its checks (ADR-1401 D3, D10).
+//! Reading vtium.conf from disk with its checks (ADR-1401 D3, D10;
+//! ADR-1403 D3).
 //!
 //! vtium reads the file only when it is a regular file once symlinks are
 //! followed, root owns it and neither its group nor others can write it,
@@ -21,10 +22,10 @@ use std::path::{Path, PathBuf};
 use crate::bounds::FILE_MAX;
 use crate::error::{Problem, Quoted, Rejected};
 
-/// The head file the start reads: one file, with no drop-in directory
-/// beside it. ADR-1401's probe 1 is the operator's, and this, its
-/// recommendation, stands until the operator answers otherwise.
-pub const HEAD_FILE: &str = "/etc/vtium/heads.conf";
+/// The installed vtium.conf, which holds the whole configuration
+/// (ADR-1403 D3): one file, with no drop-in directory beside it. The
+/// notices and the next steps name it.
+pub const CONF_FILE: &str = "/etc/vtium/vtium.conf";
 
 /// The user the head file and its directories must belong to: root, or
 /// in a test the test's own user, since no test runs as root; and the
