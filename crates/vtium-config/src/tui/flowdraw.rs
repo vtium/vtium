@@ -6,8 +6,11 @@
 //! Each column stacks its items in rows of its own. The heads and their
 //! looks share their rows, so each head sits beside its look. A column
 //! taller than the room scrolls so the selected item shows. The lines run
-//! in the gaps between the columns: down or up the gap's first cell from
-//! the line's source, then across into an arrow at its target.
+//! in the gaps between the columns: across from the line's source, down or
+//! up one cell of the gap, its lane, then across into an arrow at its
+//! target, or into an arrow on the columns' edge when the target is out of
+//! sight. At 80 columns a gap's lines share one lane; from 100 each takes
+//! one of its own (ADR-1403 D7).
 
 use std::collections::BTreeMap;
 
@@ -29,11 +32,15 @@ const WANTED: [usize; 6] = [20, 28, 13, 20, 28, 30];
 /// The order the columns take the cells left after the sharing.
 const SPARE: [usize; 6] = [4, 1, 5, 0, 3, 2];
 
-/// The columns at a screen `cols` wide: gaps of 2 cells, 3 from 100
-/// columns, with 1 between a head and its look; each column takes its least
-/// width and a share of the rest by how much more it wants.
+/// The width from which the gaps are 3 cells wide and each line in a gap
+/// takes a lane of its own (ADR-1403 D7).
+pub const LANES_FROM: usize = 100;
+
+/// The columns at a screen `cols` wide: gaps of 2 cells, 3 from
+/// [`LANES_FROM`], with 1 between a head and its look; each column takes
+/// its least width and a share of the rest by how much more it wants.
 pub fn geometry(cols: usize) -> Geometry {
-    let g = if cols >= 100 { 3 } else { 2 };
+    let g = if cols >= LANES_FROM { 3 } else { 2 };
     let gaps = [g, g, 1, g, g];
     let room = cols.saturating_sub(gaps.iter().sum());
     let least: usize = LEAST.iter().sum();
@@ -509,6 +516,13 @@ fn scroll(placed: &[Placed], selected: Item, height: usize) -> [(usize, usize); 
 pub struct Drawn {
     /// Each item shown, with its first screen row.
     pub shown: Vec<(Placed, usize)>,
+    /// Each item out of sight, and whether it is above or below the rows
+    /// shown.
+    pub hidden: Vec<(Item, End)>,
+    /// The screen's width, and the columns' first and last rows.
+    pub cols: usize,
+    pub top: usize,
+    pub bottom: usize,
 }
 
 /// Draws the column headings on `heading` and the columns from `top` for
@@ -539,6 +553,7 @@ pub fn draw_columns(
     let placed = stack(ctx, &g);
     let units = scroll(&placed, selected, height);
     let mut shown = Vec::new();
+    let mut out_of_sight = Vec::new();
     let mut hidden = [(0usize, 0usize); UNITS];
     for p in placed {
         let unit = unit_of(p.column);
@@ -553,6 +568,7 @@ pub fn draw_columns(
                     h.1 = h.1.saturating_add(1);
                 }
             }
+            out_of_sight.push((p.item, if start < off { End::Above } else { End::Below }));
             continue;
         }
         let y = top.saturating_add(start).saturating_sub(off);
@@ -603,8 +619,14 @@ pub fn draw_columns(
             Style::text(palette::GREY),
         );
     }
-    let drawn = Drawn { shown };
-    draw_lines(canvas, ctx, &g, &drawn);
+    let drawn = Drawn {
+        shown,
+        hidden: out_of_sight,
+        cols: canvas.cols,
+        top,
+        bottom: top.saturating_add(height.saturating_sub(1)),
+    };
+    paint(canvas, &paths(ctx, &g, &drawn), canvas.cols >= LANES_FROM);
     drawn
 }
 
@@ -618,17 +640,35 @@ const HEADINGS: [(&[&str], super::color::Color); 6] = [
     (&["INPUT DEVICES", "DEVICES"], palette::INPUTS),
 ];
 
-/// A line between two items: from the source's first row to the target's,
-/// in a gap, solid or dashed.
-struct Wire {
-    gap: (usize, usize),
-    /// The source's rows, any of which its line may leave from.
-    from: Vec<usize>,
-    to: usize,
+/// Where a line ends: in an arrow beside its target, or, when its target
+/// is out of sight, in an arrow on the columns' edge that points toward it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum End {
+    Target,
+    Above,
+    Below,
+}
+
+/// A line between two items as it is drawn: it leaves its source on
+/// `from`, runs up or down its lane to `to`, and ends there.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Path {
+    pub source: Item,
+    pub target: Item,
+    /// The gap's first cell and the cell after its last.
+    pub gap: (usize, usize),
     /// The target is on the left: an input's line runs toward the heads.
-    leftward: bool,
-    dashed: bool,
-    style: Style,
+    pub leftward: bool,
+    pub dashed: bool,
+    pub style: Style,
+    /// The row the line leaves its source on.
+    pub from: usize,
+    /// The row it ends on: one of its target's rows, or the columns' first
+    /// or last row when the target is out of sight.
+    pub to: usize,
+    pub end: End,
+    /// The gap's column the line runs up or down in.
+    pub lane: usize,
 }
 
 const UP: u8 = 1;
@@ -667,16 +707,151 @@ fn joint(bits: u8, dashed: bool) -> char {
     }
 }
 
+/// A line before its rows and its lane are settled.
+struct Wire {
+    source: Item,
+    target: Item,
+    gap: (usize, usize),
+    leftward: bool,
+    dashed: bool,
+    style: Style,
+    /// The source's rows, any of which its line may leave from.
+    from: Vec<usize>,
+    /// The target's rows, or the one edge row when it is out of sight.
+    to: Vec<usize>,
+    end: End,
+}
+
+/// The column of lane `k` in `gap`, counted from the sources' side.
+fn lane_x(gap: (usize, usize), leftward: bool, k: usize) -> usize {
+    if leftward {
+        gap.1.saturating_sub(1).saturating_sub(k)
+    } else {
+        gap.0.saturating_add(k)
+    }
+}
+
+/// A line in a gap's lanes: the row it leaves on, the row it ends on, and
+/// whether it ends beside a target, so that it crosses lanes on that row.
+#[derive(Clone, Copy)]
+struct Run {
+    from: usize,
+    to: usize,
+    enters: bool,
+}
+
+impl Run {
+    fn span(self) -> (usize, usize) {
+        (self.from.min(self.to), self.from.max(self.to))
+    }
+}
+
+/// How badly the runs cross in `lanes`, one lane each, counted from the
+/// sources' side: a run that crosses another's lane costs 1, and one that
+/// crosses it where that line turns costs 3.
+fn crossings(runs: &[Run], lanes: &[usize]) -> usize {
+    let mut cost = 0usize;
+    for (i, (a, ka)) in runs.iter().zip(lanes).enumerate() {
+        for (j, (b, kb)) in runs.iter().zip(lanes).enumerate() {
+            if i == j {
+                continue;
+            }
+            let (lo, hi) = b.span();
+            let hit = |row: usize| {
+                if row == lo || row == hi {
+                    3
+                } else if (lo..=hi).contains(&row) {
+                    1
+                } else {
+                    0
+                }
+            };
+            // a run leaves across the lanes nearer the sources than its
+            // own, and enters its target across those beyond it
+            if kb < ka {
+                cost = cost.saturating_add(hit(a.from));
+            }
+            if kb > ka && a.enters {
+                cost = cost.saturating_add(hit(a.to));
+            }
+        }
+    }
+    cost
+}
+
+/// Every way to give `n` runs a lane each of `lanes`, no two the same, in
+/// order: the runs' lanes from the sources' side first.
+fn assignments(n: usize, lanes: usize) -> Vec<Vec<usize>> {
+    fn grow(n: usize, lanes: usize, at: &mut Vec<usize>, out: &mut Vec<Vec<usize>>) {
+        if at.len() == n {
+            out.push(at.clone());
+            return;
+        }
+        for k in 0..lanes {
+            if !at.contains(&k) {
+                at.push(k);
+                grow(n, lanes, at, out);
+                at.pop();
+            }
+        }
+    }
+    let mut out = Vec::new();
+    // more runs than this are given their lanes in order rather than
+    // searched; a 3-cell gap holds two
+    if n <= 6 {
+        grow(n, lanes, &mut Vec::new(), &mut out);
+    }
+    if out.is_empty() {
+        out.push((0..n).collect());
+    }
+    out
+}
+
+/// The lane, counted from the sources' side, of each of `runs`, which are
+/// in order of the rows they leave on: as many as there are lanes take one
+/// each, ordered so that the fewest cross; each run after them takes a
+/// lane whose runs it shares no row with, or else the lane nearest the
+/// sources.
+fn lanes_of(runs: &[Run], lanes: usize) -> Vec<usize> {
+    let lanes = lanes.max(1);
+    let own = runs.len().min(lanes);
+    let first = runs.get(..own).unwrap_or_default();
+    let mut best: Option<(usize, Vec<usize>)> = None;
+    for a in assignments(own, lanes) {
+        let cost = crossings(first, &a);
+        if best.as_ref().is_none_or(|(c, _)| cost < *c) {
+            best = Some((cost, a));
+        }
+    }
+    let mut out = best.map(|(_, a)| a).unwrap_or_default();
+    for run in runs.iter().skip(own) {
+        let (lo, hi) = run.span();
+        let apart = |k: usize| {
+            runs.iter()
+                .zip(&out)
+                .filter(|(_, l)| **l == k)
+                .all(|(r, _)| {
+                    let (a, b) = r.span();
+                    hi < a || b < lo
+                })
+        };
+        let k = (0..lanes).find(|k| apart(*k)).unwrap_or(0);
+        out.push(k);
+    }
+    out
+}
+
 /// The lines between the items shown: a device to its rule, a rule to its
 /// target. A line from a device that is not found, or from a rule that
-/// matches nothing present, is grey and dashed.
-///
-/// The lines of one gap share its first cell, where they run up and down.
-/// A line leaves its source from the source's first row on which no line
-/// of the gap enters another target, so that where one line turns into its
-/// target, no other line starts beside it and seems to go there too.
-fn draw_lines(canvas: &mut Canvas, ctx: &Ctx<'_>, g: &Geometry, drawn: &Drawn) {
+/// matches nothing present, is grey and dashed. ADR-1403 D7 says where the
+/// lines run: from 100 columns each line of a gap takes a lane of its own
+/// and the lines into one target end on its rows in turn; at 80 columns
+/// a gap's lines share one lane and the lines into one target end on its
+/// first row. At either width a line leaves its source from the source's
+/// first row on which no other line of the gap enters another target.
+pub fn paths(ctx: &Ctx<'_>, g: &Geometry, drawn: &Drawn) -> Vec<Path> {
     let flow = ctx.flow;
+    let own_lanes = drawn.cols >= LANES_FROM;
     let rows_of = |item: Item| -> Option<Vec<usize>> {
         drawn
             .shown
@@ -684,7 +859,6 @@ fn draw_lines(canvas: &mut Canvas, ctx: &Ctx<'_>, g: &Geometry, drawn: &Drawn) {
             .find(|(p, _)| p.item == item)
             .map(|(p, y)| (*y..y.saturating_add(p.lines.len().max(1))).collect())
     };
-    let row_of = |item: Item| rows_of(item).and_then(|r| r.first().copied());
     let gap = |left: usize| {
         let x =
             g.x.get(left)
@@ -694,27 +868,47 @@ fn draw_lines(canvas: &mut Canvas, ctx: &Ctx<'_>, g: &Geometry, drawn: &Drawn) {
         (x, g.x.get(left.saturating_add(1)).copied().unwrap_or(x))
     };
     let mut wires = Vec::new();
-    let mut device_wires = |kind: Kind| {
+    let mut wire = |source: Item, target: Item, gap, leftward, dashed, style| {
+        let Some(from) = rows_of(source) else {
+            return;
+        };
+        let (to, end) = match rows_of(target) {
+            Some(rows) => (rows, End::Target),
+            None => match drawn.hidden.iter().find(|(i, _)| *i == target) {
+                Some((_, End::Above)) => (vec![drawn.top], End::Above),
+                Some((_, _)) => (vec![drawn.bottom], End::Below),
+                None => return,
+            },
+        };
+        wires.push(Wire {
+            source,
+            target,
+            gap,
+            leftward,
+            dashed,
+            style,
+            from,
+            to,
+            end,
+        });
+    };
+    for kind in [Kind::Display, Kind::Input] {
         for (d, dev) in flow.devices(kind).iter().enumerate() {
             let Some(r) = dev.rule else { continue };
             let (item, g_at, color) = match kind {
                 Kind::Display => (Item::Display(d), 0, palette::DISPLAYS),
                 Kind::Input => (Item::Input(d), 4, palette::INPUTS),
             };
-            if let (Some(from), Some(to)) = (rows_of(item), row_of(Item::Rule(r))) {
-                wires.push(Wire {
-                    gap: gap(g_at),
-                    from,
-                    to,
-                    leftward: kind == Kind::Input,
-                    dashed: !dev.found,
-                    style: Style::text(if dev.found { color } else { palette::GREY }),
-                });
-            }
+            wire(
+                item,
+                Item::Rule(r),
+                gap(g_at),
+                kind == Kind::Input,
+                !dev.found,
+                Style::text(if dev.found { color } else { palette::GREY }),
+            );
         }
-    };
-    device_wires(Kind::Display);
-    device_wires(Kind::Input);
+    }
     for (r, rule) in flow.rules.iter().enumerate() {
         let target = match (flow.target(rule), rule.kind) {
             (Target::Head(h), Kind::Display) => Item::Head(h),
@@ -722,93 +916,213 @@ fn draw_lines(canvas: &mut Canvas, ctx: &Ctx<'_>, g: &Geometry, drawn: &Drawn) {
             (Target::Special(s), _) => Item::Special(s),
             (Target::Missing, _) => continue,
         };
-        let (Some(from), Some(to)) = (rows_of(Item::Rule(r)), row_of(target)) else {
-            continue;
-        };
         let live = rule.state == RuleState::Matches;
-        wires.push(Wire {
-            gap: gap(if rule.kind == Kind::Display { 1 } else { 3 }),
-            from,
-            to,
-            leftward: rule.kind == Kind::Input,
-            dashed: !live,
-            style: Style::text(if live {
+        wire(
+            Item::Rule(r),
+            target,
+            gap(if rule.kind == Kind::Display { 1 } else { 3 }),
+            rule.kind == Kind::Input,
+            !live,
+            Style::text(if live {
                 rule_color(rule.kind)
             } else {
                 palette::GREY
             }),
-        });
+        );
     }
-    // each line leaves from the first of its source's rows that no line of
-    // its gap ends on, but one to its own target
-    let ends: Vec<((usize, usize), usize)> = wires.iter().map(|w| (w.gap, w.to)).collect();
-    let starts: Vec<usize> = wires
+    // the row each line ends on: with lanes of their own, the lines into
+    // one target take its rows in turn, from the line whose source is
+    // highest
+    let ends: Vec<usize> = wires
         .iter()
         .enumerate()
         .map(|(i, w)| {
-            // a row where another line ends on another target; lines to
-            // the same target end on the same row and read as one
+            let first = w.to.first().copied().unwrap_or(0);
+            if !own_lanes || w.end != End::Target {
+                return first;
+            }
+            let key = |j: usize, v: &Wire| (v.from.first().copied().unwrap_or(0), j);
+            let before = wires
+                .iter()
+                .enumerate()
+                .filter(|(j, v)| {
+                    v.end == End::Target
+                        && v.gap == w.gap
+                        && v.target == w.target
+                        && key(*j, v) < key(i, w)
+                })
+                .count();
+            w.to.get(before).or(w.to.last()).copied().unwrap_or(first)
+        })
+        .collect();
+    // each line leaves from the first of its source's rows that no other
+    // line of its gap ends on beside another target
+    let starts: Vec<usize> = wires
+        .iter()
+        .zip(&ends)
+        .enumerate()
+        .map(|(i, (w, to))| {
             let taken = |row: &usize| {
-                *row != w.to
-                    && ends
-                        .iter()
-                        .enumerate()
-                        .any(|(j, (gap, to))| j != i && *gap == w.gap && to == row)
+                row != to
+                    && wires.iter().zip(&ends).enumerate().any(|(j, (v, e))| {
+                        j != i && v.end == End::Target && v.gap == w.gap && e == row
+                    })
             };
             w.from
                 .iter()
                 .find(|r| !taken(r))
                 .or_else(|| w.from.first())
                 .copied()
-                .unwrap_or(w.to)
+                .unwrap_or(*to)
         })
         .collect();
-    let mut wires: Vec<(usize, Wire)> = starts.into_iter().zip(wires).collect();
-    // the solid lines are drawn last, so where lines share a cell the line
-    // in play shows its color
-    wires.sort_by_key(|(_, w)| !w.dashed);
-    let mut bits: BTreeMap<(usize, usize), u8> = BTreeMap::new();
-    for (from, w) in &wires {
-        let from = *from;
-        let (start, end) = w.gap;
+    // each line's lane, counted from the sources' side: all in the first
+    // at 80 columns, and one each from 100
+    let mut lane = vec![0usize; wires.len()];
+    if own_lanes {
+        let mut gaps: Vec<(usize, usize)> = wires.iter().map(|w| w.gap).collect();
+        gaps.sort_unstable();
+        gaps.dedup();
+        for gp in gaps {
+            // a line level with its target runs straight across, in no lane
+            let mut members: Vec<usize> = (0..wires.len())
+                .filter(|i| {
+                    wires.get(*i).is_some_and(|w| {
+                        w.gap == gp && (w.end != End::Target || starts.get(*i) != ends.get(*i))
+                    })
+                })
+                .collect();
+            members.sort_by_key(|i| (starts.get(*i).copied().unwrap_or(0), *i));
+            let runs: Vec<Run> = members
+                .iter()
+                .map(|i| Run {
+                    from: starts.get(*i).copied().unwrap_or(0),
+                    to: ends.get(*i).copied().unwrap_or(0),
+                    enters: wires.get(*i).is_some_and(|w| w.end == End::Target),
+                })
+                .collect();
+            let cells = gp.1.saturating_sub(gp.0);
+            for (i, k) in members.iter().zip(lanes_of(&runs, cells.saturating_sub(1))) {
+                if let Some(slot) = lane.get_mut(*i) {
+                    *slot = k;
+                }
+            }
+        }
+    }
+    wires
+        .into_iter()
+        .zip(starts)
+        .zip(ends)
+        .zip(lane)
+        .map(|(((w, from), to), k)| Path {
+            source: w.source,
+            target: w.target,
+            gap: w.gap,
+            leftward: w.leftward,
+            dashed: w.dashed,
+            style: w.style,
+            from,
+            to,
+            end: w.end,
+            lane: lane_x(w.gap, w.leftward, k),
+        })
+        .collect()
+}
+
+/// One line's part of a cell: the directions it leaves the cell in.
+struct Mark {
+    bits: u8,
+    dashed: bool,
+    style: Style,
+}
+
+/// Draws `paths`. Where lines share a cell they join: the cell shows
+/// every direction any of them leaves it in, in the style of the line
+/// drawn last, and the solid lines are drawn after the dashed ones, so a
+/// line in play shows its color. With lanes of their own, where one line
+/// crosses another's lane, the lane's line is drawn through the cell and
+/// the crossing line breaks there, so a crossing never reads as a joint.
+fn paint(canvas: &mut Canvas, paths: &[Path], own_lanes: bool) {
+    let mut cells: BTreeMap<(usize, usize), Vec<Mark>> = BTreeMap::new();
+    let mut arrows: Vec<(usize, usize, &str, Style)> = Vec::new();
+    let mut order: Vec<&Path> = paths.iter().collect();
+    order.sort_by_key(|p| !p.dashed);
+    for p in order {
+        let (start, end) = p.gap;
         if end <= start {
             continue;
         }
-        let last = end.saturating_sub(1);
-        let (bus, head) = if w.leftward {
-            (last, start)
-        } else {
-            (start, last)
+        let mut add = |x: usize, y: usize, bits: u8| {
+            cells.entry((x, y)).or_default().push(Mark {
+                bits,
+                dashed: p.dashed,
+                style: p.style,
+            });
         };
-        let (into_bus, out_of_bus) = if w.leftward {
+        let (near, head) = if p.leftward {
+            (end.saturating_sub(1), start)
+        } else {
+            (start, end.saturating_sub(1))
+        };
+        let (into_lane, out_of_lane) = if p.leftward {
             (RIGHT, LEFT)
         } else {
             (LEFT, RIGHT)
         };
-        let mut add = |x: usize, y: usize, b: u8, canvas: &mut Canvas| {
-            let e = bits.entry((x, y)).or_insert(0);
-            *e |= b;
-            canvas.put(x, y, &joint(*e, w.dashed).to_string(), w.style);
-        };
-        let (lo, hi) = (from.min(w.to), from.max(w.to));
-        let toward = if w.to > from { DOWN } else { UP };
-        let back = if w.to > from { UP } else { DOWN };
-        if from == w.to {
-            add(bus, from, into_bus | out_of_bus, canvas);
-        } else {
-            add(bus, from, into_bus | toward, canvas);
-            for y in lo.saturating_add(1)..hi {
-                add(bus, y, UP | DOWN, canvas);
+        // across from the source's side of the gap to the lane
+        for x in near.min(p.lane)..=near.max(p.lane) {
+            if x != p.lane {
+                add(x, p.from, LEFT | RIGHT);
             }
-            add(bus, w.to, back | out_of_bus, canvas);
         }
-        let (a, b) = (bus.min(head), bus.max(head));
-        for x in a.saturating_add(1)..b {
-            add(x, w.to, LEFT | RIGHT, canvas);
+        let toward = if p.to > p.from { DOWN } else { UP };
+        let back = if p.to > p.from { UP } else { DOWN };
+        let (lo, hi) = (p.from.min(p.to), p.from.max(p.to));
+        if p.end != End::Target {
+            if p.from != p.to {
+                add(p.lane, p.from, into_lane | toward);
+                for y in lo.saturating_add(1)..hi {
+                    add(p.lane, y, UP | DOWN);
+                }
+            }
+            let arrow = if p.end == End::Above { "↑" } else { "↓" };
+            arrows.push((p.lane, p.to, arrow, p.style));
+            continue;
         }
-        if head != bus {
-            canvas.put(head, w.to, if w.leftward { "◄" } else { "►" }, w.style);
+        if p.from == p.to {
+            add(p.lane, p.from, into_lane | out_of_lane);
+        } else {
+            add(p.lane, p.from, into_lane | toward);
+            for y in lo.saturating_add(1)..hi {
+                add(p.lane, y, UP | DOWN);
+            }
+            add(p.lane, p.to, back | out_of_lane);
         }
+        for x in p.lane.min(head).saturating_add(1)..p.lane.max(head) {
+            add(x, p.to, LEFT | RIGHT);
+        }
+        if head != p.lane {
+            arrows.push((head, p.to, if p.leftward { "◄" } else { "►" }, p.style));
+        }
+    }
+    for ((x, y), marks) in &cells {
+        let lane = |m: &&Mark| m.bits == UP | DOWN;
+        let across = |m: &&Mark| m.bits == LEFT | RIGHT;
+        let crossing = own_lanes
+            && marks.len() > 1
+            && marks.iter().filter(lane).count() == 1
+            && marks.iter().all(|m| lane(&m) || across(&m));
+        let (bits, mark) = if crossing {
+            (UP | DOWN, marks.iter().find(lane))
+        } else {
+            (marks.iter().fold(0, |b, m| b | m.bits), marks.last())
+        };
+        if let Some(m) = mark {
+            canvas.put(*x, *y, &joint(bits, m.dashed).to_string(), m.style);
+        }
+    }
+    for (x, y, arrow, style) in arrows {
+        canvas.put(x, y, arrow, style);
     }
 }
 
@@ -1324,6 +1638,167 @@ mod tests {
         let yr = row(Item::Rule(4));
         assert_eq!(canvas.at(g.x[4] + g.w[4], yr), Some('◄'));
         assert!(yk != yr || canvas.at(g.x[5] - 1, yk) == Some('─'));
+    }
+
+    /// The fixture's columns drawn at `cols`, `height` rows of them from
+    /// row 1, with `sel` selected, and the lines as they were drawn.
+    fn lines_at(f: &Flow, cols: usize, height: usize, sel: Item) -> (Canvas, Drawn, Vec<Path>) {
+        let mut canvas = Canvas::new(cols, height.saturating_add(1));
+        let d = draw_columns(&mut canvas, &ctx(f), sel, 0, 1, height);
+        let p = paths(&ctx(f), &geometry(cols), &d);
+        (canvas, d, p)
+    }
+
+    fn path(paths: &[Path], source: Item) -> &Path {
+        paths.iter().find(|p| p.source == source).expect("the line")
+    }
+
+    fn row_in(d: &Drawn, item: Item) -> usize {
+        d.shown
+            .iter()
+            .find(|(p, _)| p.item == item)
+            .map(|(_, y)| *y)
+            .expect("shown")
+    }
+
+    #[test]
+    fn at_100_columns_each_line_of_a_gap_takes_a_lane_of_its_own() {
+        let f = fixture::flow();
+        let (_, _, p) = lines_at(&f, 100, 29, Item::Display(0));
+        let lane = |s| path(&p, s).lane;
+        // the gaps are 13..16, 33..36, 61..64 and 81..84; the arrow takes
+        // the cell beside the target, and the lane nearest the sources is
+        // the first
+        assert_eq!(lane(Item::Display(1)), 13, "HDMI-A-2 to rule 2");
+        assert_eq!(lane(Item::Rule(1)), 33, "rule 2 to panel");
+        assert_eq!(lane(Item::Rule(2)), 34, "rule 3 to desk, its own");
+        assert_eq!(lane(Item::Rule(4)), 62, "rule 5 to roaming");
+        assert_eq!(lane(Item::Rule(5)), 63, "rule 6 to ignore, its own");
+        assert_eq!(lane(Item::Input(1)), 83, "the keyboard to rule 5");
+        assert_eq!(
+            lane(Item::Input(2)),
+            82,
+            "the Power Button to rule 6, its own"
+        );
+        // rule 3 ends on desk's second row, rule 1 on its first
+        let to = |s| path(&p, s).to;
+        assert_eq!(to(Item::Rule(2)), to(Item::Rule(0)) + 1);
+        // at 80 columns every line of a gap shares the gap's one lane
+        let (_, _, p) = lines_at(&f, 80, 24, Item::Display(0));
+        for line in &p {
+            let shared = if line.leftward {
+                line.gap.1 - 1
+            } else {
+                line.gap.0
+            };
+            assert_eq!(line.lane, shared, "{:?}", line.source);
+        }
+        assert_eq!(path(&p, Item::Rule(2)).to, path(&p, Item::Rule(0)).to);
+    }
+
+    #[test]
+    fn at_100_columns_a_dashed_line_keeps_its_dashes_over_its_whole_run() {
+        let f = fixture::flow();
+        let (canvas, d, p) = lines_at(&f, 100, 29, Item::Display(0));
+        let grey = Style::text(palette::GREY);
+        let cell = |x, y| (canvas.at(x, y), canvas.style_at(x, y));
+        // rule 3 leaves its second row across the gap's first cell, runs up
+        // its lane past rule 2's line into panel, and turns into desk's
+        // second row
+        let r3 = path(&p, Item::Rule(2));
+        let y3 = row_in(&d, Item::Rule(2));
+        assert_eq!(r3.from, y3 + 1);
+        assert_eq!(cell(33, y3 + 1), (Some('╌'), Some(grey)));
+        assert_eq!(cell(34, y3 + 1), (Some('┘'), Some(grey)));
+        for y in r3.to + 1..r3.from {
+            assert_eq!(cell(34, y), (Some('╎'), Some(grey)), "row {y}");
+        }
+        assert_eq!(cell(34, r3.to), (Some('┌'), Some(grey)));
+        assert_eq!(cell(35, r3.to), (Some('►'), Some(grey)));
+        // rule 4 and the keyboard that is not found run straight across
+        let y4 = row_in(&d, Item::Rule(3));
+        let straight: String = (61..64)
+            .chain(81..84)
+            .filter_map(|x| canvas.at(x, y4))
+            .collect();
+        assert_eq!(straight, "◄╌╌◄╌╌");
+    }
+
+    #[test]
+    fn at_100_columns_no_line_draws_over_another_line_s_turn_or_arrow() {
+        let f = fixture::flow();
+        let (canvas, d, _) = lines_at(&f, 100, 29, Item::Display(0));
+        let row = |i| row_in(&d, i);
+        let cyan = Style::text(palette::DISPLAY_RULES);
+        let green = Style::text(palette::INPUT_RULES);
+        let bright = Style::text(palette::INPUTS);
+        let grey = Style::text(palette::GREY);
+        // each turn and arrow, with the line's own glyph and color
+        let want = [
+            ((33, row(Item::Rule(1))), '┐', cyan),
+            ((33, row(Item::Head(1))), '└', cyan),
+            ((35, row(Item::Head(1))), '►', cyan),
+            ((34, row(Item::Head(0)) + 1), '┌', grey),
+            ((62, row(Item::Rule(4))), '┌', green),
+            ((62, row(Item::Special(Special::Roaming))), '┘', green),
+            ((61, row(Item::Special(Special::Roaming))), '◄', green),
+            ((63, row(Item::Rule(5))), '┌', green),
+            ((63, row(Item::Special(Special::Ignore))), '┘', green),
+            ((83, row(Item::Input(1)) + 1), '└', bright),
+            ((83, row(Item::Rule(4))), '┐', bright),
+            ((81, row(Item::Rule(4))), '◄', bright),
+            ((82, row(Item::Input(2))), '└', bright),
+            ((82, row(Item::Rule(5))), '┐', bright),
+            ((81, row(Item::Rule(5))), '◄', bright),
+        ];
+        for ((x, y), c, style) in want {
+            assert_eq!(
+                (canvas.at(x, y), canvas.style_at(x, y)),
+                (Some(c), Some(style)),
+                "cell {x},{y}"
+            );
+        }
+        // where rule 2's line crosses rule 3's lane, rule 3's lane goes on
+        assert_eq!(canvas.at(34, row(Item::Head(1))), Some('╎'));
+    }
+
+    #[test]
+    fn a_line_to_a_target_out_of_sight_ends_in_an_arrow_at_the_columns_edge() {
+        let f = fixture::flow();
+        // 16 rows: the heads scroll, and roaming and ignore are below them
+        for (cols, lanes) in [(80, [52, 52]), (100, [62, 63])] {
+            let (canvas, d, p) = lines_at(&f, cols, 16, Item::Rule(4));
+            assert!(
+                d.hidden
+                    .contains(&(Item::Special(Special::Roaming), End::Below))
+            );
+            for (rule, x) in [Item::Rule(4), Item::Rule(5)].into_iter().zip(lanes) {
+                let line = path(&p, rule);
+                assert_eq!(
+                    (line.end, line.to, line.lane),
+                    (End::Below, 16, x),
+                    "{cols}"
+                );
+                assert_eq!(canvas.at(x, 16), Some('↓'), "{cols}: {rule:?}");
+                assert_eq!(canvas.at(x, 15), Some('│'), "{cols}: {rule:?}");
+            }
+            let g = geometry(cols);
+            let count: String = (g.x[2]..g.x[2] + 8)
+                .filter_map(|x| canvas.at(x, 16))
+                .collect();
+            assert_eq!(count, "↓ 4 more", "{cols}");
+        }
+        // scrolled to the policy, the heads are above: rule 1's line,
+        // level with the columns' first row, ends there in an arrow up
+        let (canvas, d, p) = lines_at(&f, 80, 8, Item::Policy);
+        assert!(d.hidden.contains(&(Item::Head(0), End::Above)));
+        let line = path(&p, Item::Rule(0));
+        assert_eq!((line.end, line.from, line.to), (End::Above, 1, 1));
+        assert_eq!(canvas.at(26, 1), Some('↑'));
+        // a line whose source is out of sight is not drawn
+        let (_, d, p) = lines_at(&f, 80, 4, Item::Display(0));
+        assert!(d.hidden.iter().any(|(i, _)| *i == Item::Rule(5)));
+        assert!(!p.iter().any(|l| l.source == Item::Rule(5)));
     }
 
     #[test]
