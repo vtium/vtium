@@ -293,15 +293,28 @@ const TAKES: &[&str] = &[
 ];
 const UP: &[u8] = b"\x1b[A";
 
-/// Starts the TUI against a console of `kind` and waits for it to have
-/// decided what the terminal is.
+/// A click on the Fonts tab, as mode 1006 reports it: row 1, column 16,
+/// counted from 1.
+const FONTS_TAB: &[u8] = b"\x1b[<0;16;1M\x1b[<0;16;1m";
+
+/// Clicks the Fonts tab of the Flow view, which the TUI opens on, and
+/// waits for the Fonts view's keys.
+fn to_fonts(c: &mut Console) {
+    c.until("opened on the flow", |s| s.screen.contains("DISPLAYS"));
+    c.key(FONTS_TAB);
+    c.until("showed the fonts", |s| s.screen.contains("n new frit"));
+}
+
+/// Starts the TUI against a console of `kind`, waits for it to have
+/// decided what the terminal is, and goes to the Fonts view.
 fn started(name: &str, kind: Kind, cols: u16, rows: u16) -> (Console, Child, File) {
     let (master, slave) = pair(cols, rows);
     let (root, fonts) = fixture(name);
-    let console = Console::start(master, cols.into(), rows.into(), kind, TAKES);
+    let mut console = Console::start(master, cols.into(), rows.into(), kind, TAKES);
     let child = tui(&slave, &root, &fonts);
     console.until("drew its keys", |s| s.screen.contains("q leave"));
     console.until("decided", |s| !s.screen.contains("asking the terminal"));
+    to_fonts(&mut console);
     (console, child, slave)
 }
 
@@ -323,11 +336,18 @@ fn cooked(slave: &File) -> bool {
 fn the_tui_starts_on_the_alternate_screen_with_the_four_requests() {
     let (mut c, child, slave) = started("start", Kind::Vtium { ops: true }, 80, 25);
     let written = c.written();
-    let start = b"\x1b[?1049h\x1b[?25l\x1b[>q\x1b]50;?\x1b\\\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\\x1b[c";
+    // the four requests, then mouse reporting for the Flow view it opens on
+    let start = b"\x1b[?1049h\x1b[?25l\x1b[>q\x1b]50;?\x1b\\\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\\x1b[c\x1b[?1000h\x1b[?1006h";
     assert!(
         written.starts_with(start),
         "{:?}",
-        String::from_utf8_lossy(&written[..written.len().min(80)])
+        String::from_utf8_lossy(&written[..written.len().min(100)])
+    );
+    // the click on the Fonts tab turned it off again
+    let text = String::from_utf8_lossy(&written).into_owned();
+    assert!(
+        text.contains("\x1b[?1006l\x1b[?1000l"),
+        "mouse reporting off"
     );
     c.key(b"q");
     assert_eq!(status(child), 0);
@@ -532,6 +552,7 @@ fn saving_into_directories_not_the_system_s_installs_as_the_user() {
         ],
     );
     c.until("decided", |s| s.screen.contains("live preview: on"));
+    to_fonts(&mut c);
     c.key(UP);
     c.until("drew tiny5", |s| s.font == "tiny5");
     c.key(UP);
@@ -584,6 +605,7 @@ fn saving_the_system_s_files_runs_exactly_sudo_vtium_config_apply_dir() {
     let mut c = Console::start(master, 80, 25, Kind::Vtium { ops: true }, TAKES);
     let child = tui_with(&slave, &root, &["--sudo".as_ref(), sudo.as_os_str()]);
     c.until("decided", |s| s.screen.contains("live preview: on"));
+    to_fonts(&mut c);
     // a size, so the save changes the system's vtium.conf whatever it holds
     c.key(b"\x1b[Z");
     c.key(b"\x1b[B");
@@ -674,6 +696,8 @@ fn a_terminal_that_closes_ends_the_tui() {
     master
         .write_all(b"\x1bP>|vtium(test)\x1b\\\x1b]50;unifont\x1b\\\x1b[?62c")
         .expect("the answers");
+    // the TUI opens on the flow: the Fonts tab, then a font
+    master.write_all(FONTS_TAB).expect("a click");
     master.write_all(UP).expect("a key");
     while !got.windows(9).any(|w| w == b"\x1b]50;tiny") {
         let n = master.read(&mut buf).expect("the switch");
@@ -749,6 +773,7 @@ fn the_helper_holds_none_of_the_terminal_and_a_silent_one_marks_no_frit_broken()
     );
     drop(leaked);
     c.until("decided", |s| s.screen.contains("live preview: on"));
+    to_fonts(&mut c);
     // the stand-in lists what the TUI gave it
     let fds_file = root.join("helper.fds");
     let deadline = now() + Duration::from_secs(10);
