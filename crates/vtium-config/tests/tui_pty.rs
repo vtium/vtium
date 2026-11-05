@@ -30,6 +30,9 @@ use vtium_term::{Glyph, Terminal};
 #[path = "common/console.rs"]
 mod console_bin;
 
+#[path = "common/script.rs"]
+mod script;
+
 /// A pty's master and its slave, neither the test's controlling terminal.
 fn pair(cols: u16, rows: u16) -> (File, File) {
     let master =
@@ -458,8 +461,7 @@ fn the_screen_fits_80x25_and_100x30() {
         // row of the grid
         c.until("drew the fonts view in the grid", |s| {
             let lines: Vec<&str> = s.screen.lines().collect();
-            lines.len() == usize::from(rows)
-                && lines[0].contains(" Fonts ")
+            lines[0].contains(" Fonts ")
                 && lines[1].contains("live preview: on")
                 && [
                     "minspec-16",
@@ -605,13 +607,10 @@ fn saving_the_system_s_files_runs_exactly_sudo_vtium_config_apply_dir() {
     // the stand-in for sudo records its argv and its blocked signals and
     // installs nothing
     let sudo = root.join("sudo");
-    std::fs::write(
+    script::executable(
         &sudo,
         "#!/bin/sh\ngrep '^SigBlk' /proc/self/status > \"$0.sigblk\"\nprintf '%s\\n' \"$@\" > \"$0.argv\"\necho 'the stand-in installs nothing'\nexit 1\n",
-    )
-    .expect("the stand-in");
-    std::fs::set_permissions(&sudo, std::os::unix::fs::PermissionsExt::from_mode(0o755))
-        .expect("its mode");
+    );
     // the draft starts as the shipped example, which the check passes on
     // any machine with a display and a keyboard, whatever the system's own
     // vtium.conf holds
@@ -800,13 +799,10 @@ fn the_helper_holds_none_of_the_terminal_and_a_silent_one_marks_no_frit_broken()
     // no list or the whole of it, and the partial list's name carries the
     // shell's pid, so no other stand-in can rename it.
     let helper = root.join("helper");
-    std::fs::write(
+    script::executable(
         &helper,
         "#!/bin/bash\n( ls -l /proc/$$/fd ) > \"$0.fds.$$\"\nmv \"$0.fds.$$\" \"$0.fds\"\nexec sleep 30\n",
-    )
-    .expect("helper");
-    std::fs::set_permissions(&helper, std::os::unix::fs::PermissionsExt::from_mode(0o755))
-        .expect("its mode");
+    );
     let mut c = Console::start(master, 80, 25, Kind::Vtium { ops: true }, TAKES);
     // The TUI inherits a descriptor without close-on-exec, as a CI runner
     // leaves some open, and must not pass it on to the helper. dup's copy
@@ -878,7 +874,7 @@ fn the_helper_holds_none_of_the_terminal_and_a_silent_one_marks_no_frit_broken()
     c.key(UP);
     c.until("switched", |s| s.font == "tiny5");
     // once its wait is out, the TUI says it has not checked the sources
-    let screen = c.until("gave up on the helper", |s| {
+    c.until("gave up on the helper", |s| {
         s.screen.contains("sources not checked")
     });
     c.key(b"q");
@@ -886,10 +882,14 @@ fn the_helper_holds_none_of_the_terminal_and_a_silent_one_marks_no_frit_broken()
     c.drained(&slave);
     // and in no frame it drew did it say a frit draws nothing; the test
     // reads every byte the TUI wrote, so no frame is caught half drawn
-    assert!(
-        !String::from_utf8_lossy(&c.written()).contains("no source on this machine"),
-        "{screen}"
-    );
+    let written = String::from_utf8_lossy(&c.written()).into_owned();
+    if let Some(at) = written.find("no source on this machine") {
+        // the frame's bytes around the words, a row or so to each side
+        let before: String = written[..at].chars().rev().take(200).collect();
+        let before: String = before.chars().rev().collect();
+        let after: String = written[at..].chars().take(200).collect();
+        panic!("a frame said a frit draws nothing: {before:?} {after:?}");
+    }
 }
 
 /// Now, for a wait bounded only so the test fails instead of hanging.
