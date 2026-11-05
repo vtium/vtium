@@ -543,11 +543,13 @@ class ImplementationTest(unittest.TestCase):
         with open(os.path.join(t3_common.GUEST, "setup")) as f:
             self.assertIn('if [ -f "$disc"/pointer ]; then', f.read())
         # Each guest installs the disc's configuration where vtium reads it,
-        # /etc/vtium/vtium.conf (ADR-1500 D4), and nothing into /etc/kmscon.
+        # /etc/vtium/vtium.conf (ADR-1500 D4), as root's, which the start's
+        # ownership check trusts (ADR-1403 D3), and nothing into /etc/kmscon.
         for guest in (t3_common.GUEST, t3_common.GUEST_SYSVINIT):
             with self.subTest(guest), open(os.path.join(guest, "setup")) as f:
                 setup = f.read()
-                self.assertIn('install -Dm644 "$disc"/vtium.conf /etc/vtium/vtium.conf\n', setup)
+                self.assertIn('install -Dm644 -o root -g root "$disc"/vtium.conf '
+                              '/etc/vtium/vtium.conf\n', setup)
                 self.assertNotIn("/etc/kmscon", setup)
 
     def test_frit_variants(self):
@@ -3002,10 +3004,11 @@ class DevicesTest(unittest.TestCase):
                       "crates/vtium/install/examples/71-vtium-local.rules "
                       "crates/vtium/install/examples/vtium.hwdb", lines)
 
-    def test_the_tree_stages_the_frits_the_head_template_and_the_gallery_with_images(self):
+    def test_the_tree_stages_the_frits_and_the_gallery_with_images(self):
         # make install-tree stages what make install does (ADR-1500 D8): the
-        # frits, which change nothing until a profile names one, the head
-        # file's template as an example, and with images the gallery tool.
+        # frits, which change nothing until a look names one, and with images
+        # the gallery tool. It stages no head file: the heads are sections
+        # of vtium.conf, whose example the tree holds (ADR-1403 D6).
         def make_n(*args):
             r = subprocess.run(["make", "-n", "--no-print-directory", "install-tree", "DESTDIR=/D", *args],
                                cwd=t3_common.ROOT, capture_output=True, text=True, check=True)
@@ -3014,8 +3017,9 @@ class DevicesTest(unittest.TestCase):
         self.assertIn("install -Dm644 -t /D/etc/vtium/fonts tools/specimens/frits/desktop.vtfrit "
                       "crates/vtium-config/frits/minspec-16.vtfrit "
                       "crates/vtium-config/frits/minspec-8.vtfrit", lines)
-        self.assertIn("install -Dm644 crates/vtium-settings/templates/heads.conf "
-                      "/D/usr/share/doc/vtium/examples/heads.conf", lines)
+        self.assertFalse([l for l in lines if "heads.conf" in l], lines)
+        self.assertIn("install -Dm644 crates/vtium/install/vtium.conf.example "
+                      "/D/etc/vtium/vtium.conf.example", lines)
         self.assertFalse([l for l in lines if "vtium-gallery" in l], lines)
         self.assertIn("install -Dm755 tools/gallery/gallery /D/usr/bin/vtium-gallery", make_n("FEATURES=images"))
 
@@ -3205,29 +3209,31 @@ class HeadsTest(unittest.TestCase):
                 self.assertLessEqual(set(v.get("checks", [])), set(t3_scenario.CHECK_RUNS))
 
     def test_policy_line(self):
-        # The console's log shows the file whose policy line vtium cannot
-        # read as closed and broken: that line's error with the head file's
-        # path and the line's number, and no outcome that runs any of the
-        # file.
+        # The console's log shows the vtium.conf whose policy line vtium
+        # cannot read as closed and broken: that line's error with the
+        # installed file's path and the line's number in the whole file the
+        # guest holds, and no outcome that runs any of the file.
         v = t3_scenario.VARIANTS["heads-policy-typo"]
-        with open(t3_heads.head_file(v)) as f:
-            lines = f.read().splitlines()
-        # the line of an unknown top-level key comes before the policy line
-        self.assertEqual(lines[9:11], ["color = amber", "policy = opne"])
-        logged = ("[    9.1] vtium[502]: /etc/vtium/heads.conf:10: Above the first section "
-                  "the file takes only `version` and `policy`, and this line is neither.\n"
-                  "[    9.1] vtium[502]: /etc/vtium/heads.conf:11: `policy` cannot be "
+        lines = t3_heads.guest_conf(v).splitlines()
+        # the variant's configuration comes first, so the head file's policy
+        # line is line 18 of the guest's vtium.conf, not line 9 of its own,
+        # below the line of a version vtium does not know
+        self.assertEqual(lines[16:18], ["version = 2", "policy = opne"])
+        logged = ("[    9.1] vtium[502]: /etc/vtium/vtium.conf:18: `policy` cannot be "
                   "\"opne\", so vtium cannot read this line and counts the file as closed "
                   "and broken.\n"
+                  "[    9.1] vtium[502]: /etc/vtium/vtium.conf:17: vtium knows only "
+                  "`version = 1`, not version \"2\".\n"
                   "[    9.2] vtium[502]: vtium: config invalid, policy closed: input off\n")
         self.assertIsNone(t3_heads.judge_policy_line(logged, lines, v["policy_line"]))
-        # the error names another line, or none is logged
-        for wrong in (logged.replace("heads.conf:11:", "heads.conf:10:"),
+        # the error names another line, another file, or none is logged
+        for wrong in (logged.replace("vtium.conf:18:", "vtium.conf:9:"),
                       logged.replace("cannot be \"opne\"", "cannot be \"open\""),
-                      logged.replace("/etc/vtium/heads.conf:11", "heads.conf:11")):
+                      logged.replace("/etc/vtium/vtium.conf:18", "/etc/vtium/heads.conf:18"),
+                      logged.replace("/etc/vtium/vtium.conf:18", "vtium.conf:18")):
             with self.subTest(wrong=wrong):
                 self.assertRegex(t3_heads.judge_policy_line(wrong, lines, v["policy_line"]),
-                                 "logged no error '/etc/vtium/heads.conf:11: `policy` "
+                                 "logged no error '/etc/vtium/vtium.conf:18: `policy` "
                                  "cannot be \"opne\"'")
         # the file run, partly broken under either policy, or the shipped
         # default in its place
@@ -3243,7 +3249,8 @@ class HeadsTest(unittest.TestCase):
 
     def test_broken_closed_is_tier_2s_file(self):
         # The guest's broken closed file is tier 2's BROKEN_CLOSED, so the
-        # panic screen tier 3 captures reports the errors tier 2 draws.
+        # panic screen tier 3 captures reports the errors tier 2 draws, each
+        # on its line of the guest's vtium.conf, below the variant's keys.
         with open(os.path.join(t3_common.ROOT, "tools", "tier2", "src", "notices.rs")) as f:
             m = re.search(r'const BROKEN_CLOSED: &str = "(.*)";', f.read())
         with open(os.path.join(t3_heads.HEADS, "broken-closed.conf")) as f:
@@ -3265,8 +3272,10 @@ class HeadsTest(unittest.TestCase):
                                           case + ".png"))
 
     def test_disc(self):
-        # The disc carries the head file as heads.conf, and the agent with
-        # its unit; guest/setup installs both.
+        # The disc carries one vtium.conf, the variant's configuration with
+        # its head file below it, and the agent with its unit; guest/setup
+        # installs the file as root's and the agent, and no head file of its
+        # own (ADR-1403 D6).
         d = tempfile.TemporaryDirectory()
         self.addCleanup(d.cleanup)
         tree = os.path.join(d.name, "tree")
@@ -3277,17 +3286,31 @@ class HeadsTest(unittest.TestCase):
         disc = os.path.join(d.name, "disc")
         with mock.patch.object(t3_scenario, "make_iso"):
             t3_scenario.build_disc("heads-closed-broken", d.name, impl)
-            self.assertTrue({"heads.conf", "t3-agent", "t3-agent.service"}
+            self.assertTrue({"vtium.conf", "t3-agent", "t3-agent.service"}
                             <= set(os.listdir(disc)))
-            with open(os.path.join(disc, "heads.conf")) as f, \
-                    open(os.path.join(t3_heads.HEADS, "broken-closed.conf")) as g:
-                self.assertEqual(f.read(), g.read())
+            self.assertNotIn("heads.conf", os.listdir(disc))
+            v = t3_scenario.VARIANTS["heads-closed-broken"]
+            with open(os.path.join(disc, "vtium.conf")) as f, \
+                    open(os.path.join(t3_common.GUEST, v["conf"])) as g, \
+                    open(os.path.join(t3_heads.HEADS, "broken-closed.conf")) as h:
+                self.assertEqual(f.read(), g.read() + h.read())
+            # vtium's own keys stay above the first section
+            with open(os.path.join(disc, "vtium.conf")) as f:
+                lines = f.read().splitlines()
+            first = next(i for i, l in enumerate(lines) if l.startswith("["))
+            self.assertIn("font-engine=psf", lines[:first])
+            self.assertEqual(lines[first - 2:first], ["version = 1", "policy = closed"])
+            # a variant with no head file gets its configuration alone
             t3_scenario.build_disc("2d-640x480-psf16", d.name, impl)
             self.assertFalse({"heads.conf", "t3-agent"} & set(os.listdir(disc)))
+            with open(os.path.join(disc, "vtium.conf")) as f, \
+                    open(os.path.join(t3_common.GUEST, "kmscon-small-8x16.conf")) as g:
+                self.assertEqual(f.read(), g.read())
         with open(os.path.join(t3_common.GUEST, "setup")) as f:
             setup = f.read()
-        self.assertIn('install -Dm644 -o root -g root "$disc"/heads.conf /etc/vtium/heads.conf',
+        self.assertIn('install -Dm644 -o root -g root "$disc"/vtium.conf /etc/vtium/vtium.conf\n',
                       setup)
+        self.assertNotIn("heads.conf", setup)
         self.assertIn("systemctl start --no-block t3-agent.service", setup)
         # the units the agent reads are the ones the tree installs
         with open(os.path.join(t3_common.GUEST, "t3-agent")) as f:

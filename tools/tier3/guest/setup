@@ -11,7 +11,11 @@ tree=$(sha256sum "$disc"/tree.tar | cut -d' ' -f1)
 if [ -f "$disc"/vtium ]; then
     install -m755 "$disc"/vtium /usr/bin/vtium
 fi
-install -Dm644 "$disc"/vtium.conf /etc/vtium/vtium.conf
+# vtium.conf holds the variant's whole configuration, a head variant's
+# heads, rules and looks among it, installed as an administrator would:
+# root's and written by no one else, which the start's ownership check
+# trusts (ADR-1403 D3).
+install -Dm644 -o root -g root "$disc"/vtium.conf /etc/vtium/vtium.conf
 # A tree whose console is built with images holds the image helper and its
 # sysusers file, from which systemd-sysusers makes the helper's account for
 # the login prompt, as a package's install hook runs it (ADR-1101 D2). The
@@ -95,12 +99,6 @@ fi
 # hard reboot, set before the console starts.
 if [ -f "$disc"/sysctl.conf ]; then
     sysctl -q -p "$disc"/sysctl.conf
-fi
-# A head-file variant installs its head file as an administrator would,
-# root's and written by no one else, which the start's ownership check
-# trusts (ADR-1401 D7).
-if [ -f "$disc"/heads.conf ]; then
-    install -Dm644 -o root -g root "$disc"/heads.conf /etc/vtium/heads.conf
 fi
 # A variant whose console may give no login runs the agent (t3-agent), which
 # answers the driver's requests on the event port as root.

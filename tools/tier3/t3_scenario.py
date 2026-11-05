@@ -719,8 +719,9 @@ def check_guest(variant, installed):
 
 
 def build_disc(variant, work, impl):
-    """The T3PKG disc: the tree as tree.tar, the variant's config, the
-    screens, its guest's setup, and t3-console on the guest without
+    """The T3PKG disc: the tree as tree.tar, the variant's vtium.conf, its
+    config with its head file below it if it names one (t3_heads.guest_conf),
+    the screens, its guest's setup, and t3-console on the guest without
     systemd, the variant's sysctl settings if it has any, vtium built with
     its features if it names any, the test fonts if it draws with them, the
     frits it builds, the frits it installs to be generated at run time, a
@@ -731,14 +732,13 @@ def build_disc(variant, work, impl):
     (t3_pictures) in screens/pictures if it draws them, a `two-vts` file
     if it runs a second vtium on tty3 from the boot, a `udev-examples`
     file if it runs that check, whose guest installs the example hwdb
-    fragment, its head file as `heads.conf` if it names one, and the agent
-    and its unit if it runs it."""
+    fragment, and the agent and its unit if it runs it."""
     disc = os.path.join(work, "disc")
     shutil.rmtree(disc, ignore_errors=True)
     os.makedirs(disc)
     shutil.copy(impl["tar"], os.path.join(disc, "tree.tar"))
-    shutil.copy(os.path.join(GUEST, VARIANTS[variant]["conf"]),
-                os.path.join(disc, "vtium.conf"))
+    with open(os.path.join(disc, "vtium.conf"), "w") as f:
+        f.write(t3_heads.guest_conf(VARIANTS[variant]))
     shutil.copytree(os.path.join(GUEST, "screens"), os.path.join(disc, "screens"))
     shutil.copy(os.path.join(GUEST, "t3"), disc)
     if VARIANTS[variant].get("pictures"):
@@ -781,8 +781,6 @@ def build_disc(variant, work, impl):
         open(os.path.join(disc, "pointer"), "w").close()
     if "udev-examples" in VARIANTS[variant].get("checks", []):
         open(os.path.join(disc, "udev-examples"), "w").close()
-    if "heads" in VARIANTS[variant]:
-        shutil.copy(t3_heads.head_file(VARIANTS[variant]), os.path.join(disc, "heads.conf"))
     if VARIANTS[variant].get("agent"):
         for name in ("t3-agent", "t3-agent.service"):
             shutil.copy(os.path.join(GUEST, name), disc)
