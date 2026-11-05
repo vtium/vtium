@@ -760,10 +760,10 @@ impl Generated {
 /// A display's face while the font is a frit: the generated glyph where
 /// the helper sent one, else the built-in font's, in the frit's cell
 /// (#145), a cluster found as the module says. The built-in fonts in a
-/// look's cell draw through it with a store that stays empty. Its cell never moves when
-/// glyphs arrive. A built-in glyph is centred in a larger cell and cropped
-/// to a smaller one, so both kinds come at the cell's size and the
-/// renderer stores them alike.
+/// look's cell draw through it with a store that stays empty. Its cell
+/// never moves when glyphs arrive. A built-in glyph is centred in a larger
+/// cell and cropped to a smaller one, so both kinds come at the cell's size
+/// and the renderer stores them alike.
 pub struct DeferredFace {
     builtin: DisplayFace,
     cell: Cell,
