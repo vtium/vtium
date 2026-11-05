@@ -53,11 +53,6 @@ use crate::tui::{CONF_MAX, Paths};
 /// whether it succeeded, with what it printed.
 pub type Runner<'a> = &'a mut dyn FnMut(&[OsString]) -> io::Result<(bool, String)>;
 
-/// What the TUI calls to save: writes `plan`'s draft and runs the
-/// privileged step through the runner; the files written, or why none
-/// was, with what the step printed.
-pub type Saver = Box<dyn FnMut(&Plan, Runner<'_>) -> Result<usize, String>>;
-
 /// The draft's list of files.
 pub const MANIFEST: &str = "MANIFEST";
 
@@ -245,9 +240,12 @@ impl Targets {
 
 /// How a save to `targets` is installed, with `sudo` the program that runs
 /// a privileged command. The TUI that saves runs as the user (ADR-1201
-/// D5).
+/// D5). The directories decide: the system's need root to write, and
+/// sudo's `apply DIR` takes no option, so it checks with the console it
+/// was built with whatever console the user's own check ran.
 pub fn route(targets: &Targets, sudo: &OsString) -> Route {
-    if *targets == Targets::system() {
+    let system = Targets::system();
+    if targets.configdir == system.configdir && targets.frits == system.frits {
         Route::Sudo(sudo.clone())
     } else {
         Route::User
@@ -273,31 +271,6 @@ pub fn save_argv(route: &Route, program: &Path, targets: &Targets, draft: &Path)
     argv.push("apply".into());
     argv.push(draft.into());
     argv
-}
-
-/// The TUI's saver for `paths`: the draft under `paths.drafts`, then the
-/// install the route takes.
-pub fn saver(paths: Paths) -> Saver {
-    Box::new(move |plan, run| {
-        let targets = paths.targets();
-        let draft = write_draft(&paths.drafts, plan, &targets)
-            .map_err(|e| format!("the draft under {}: {e}", paths.drafts.display()))?;
-        let program = std::env::current_exe().map_err(|e| e.to_string())?;
-        let argv = save_argv(&route(&targets, &paths.sudo), &program, &targets, &draft);
-        match run(&argv) {
-            Ok((true, _)) => Ok(plan.len()),
-            Ok((false, said)) => Err(format!(
-                "the command failed, and the draft stays in {}.\n{}",
-                draft.display(),
-                said.trim_end()
-            )),
-            Err(e) => Err(format!(
-                "{}: {e}",
-                argv.first()
-                    .map_or_else(String::new, |a| a.to_string_lossy().into_owned())
-            )),
-        }
-    })
 }
 
 /// The owners a draft and its files may have: root, and the user `sudo`

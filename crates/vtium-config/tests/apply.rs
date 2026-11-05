@@ -464,6 +464,13 @@ fn only_the_system_s_directories_are_installed_through_sudo() {
     let sudo: OsString = "sudo".into();
     assert_eq!(route(&system, &sudo), Route::Sudo(sudo.clone()));
     assert_eq!(route(&f.targets, &sudo), Route::User);
+    // the system's directories with another console to check with still
+    // need root, and sudo's step checks with its own
+    let other = Targets {
+        vtium: "/opt/vtium".into(),
+        ..system.clone()
+    };
+    assert_eq!(route(&other, &sudo), Route::Sudo(sudo.clone()));
 }
 
 #[test]

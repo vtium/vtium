@@ -262,6 +262,14 @@ impl App {
         let Some(confirm) = self.confirm.take() else {
             return Vec::new();
         };
+        if let Then::Leave(status) = confirm.then {
+            self.message = None;
+            return match key {
+                Key::Char('l') => self.leave(status),
+                Key::Char('i') => self.action('i'),
+                _ => self.say(words::NOT_LEFT),
+            };
+        }
         if key != Key::Char('y') {
             return self.say(words::NOT_DONE);
         }
@@ -269,12 +277,26 @@ impl App {
         match confirm.then {
             Then::Change(change) => self.make(vec![change], None),
             Then::Desk(op) => vec![Effect::Desk(op)],
+            Then::Leave(_) => Vec::new(),
             Then::Install(plan) => {
                 self.installing = true;
                 self.message = Some(words::INSTALLING.to_owned());
                 vec![Effect::Install(plan)]
             }
         }
+    }
+
+    /// `q` or Ctrl-C: leaves, or, while new frits or frit removals wait
+    /// for an install, asks first, since leaving loses them (ADR-1403
+    /// D7): `i` installs, `l` leaves anyway, any other key goes back.
+    pub(crate) fn quit(&mut self, status: u8) -> Vec<Effect> {
+        if self.pending.is_empty() {
+            return self.leave(status);
+        }
+        let added: Vec<String> = self.pending.frits.iter().map(|(n, _)| n.clone()).collect();
+        let question = words::leave_question(&added, &self.pending.removals);
+        self.ask(question, Then::Leave(status));
+        Vec::new()
     }
 
     /// Makes `changes` on the draft, in order, and hands the result to the

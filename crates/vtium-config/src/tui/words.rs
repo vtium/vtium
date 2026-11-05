@@ -30,7 +30,6 @@ pub const LIVE_OFF: &str = "live preview: off";
 
 /// Why live preview is off, on the message line.
 pub const OPS_OFF: &str = "allow-font-ops is off in this vtium console, so fonts are not tried live. In the Fonts view, o turns it on when you install.";
-pub const OPS_ON_PENDING: &str = "allow-font-ops is turned on when you install.";
 pub const NOT_VTIUM: &str =
     "This terminal is not a vtium console, so fonts are not tried live. Installing still works.";
 
@@ -139,27 +138,12 @@ pub fn new_refused(why: impl Display) -> String {
 }
 
 /// The install view, which installs the changes made in the views.
-pub const NOTHING_TO_SAVE: &str = "Nothing is changed, so there is nothing to install.";
-pub const SAVE_RUNS: &str = "Enter runs this command, which asks for your password once:";
-pub const SAVE_AS_USER: &str = "The tool's directories are not the system's, so Enter installs the draft as you, with no sudo, by this command:";
-pub fn draft_under(dir: impl Display) -> String {
-    format!("DRAFT is a new directory under {dir}.")
-}
-pub const SAVING: &str =
-    "Installing. The command runs in the terminal; the screen comes back after.";
 pub fn saved(files: usize) -> String {
     if files == 1 {
         "Installed 1 file.".to_owned()
     } else {
         format!("Installed {files} files.")
     }
-}
-pub fn removed_file(name: impl Display) -> String {
-    format!("removed, the old file kept as {name}.vtfrit.bak")
-}
-pub const COMMAND_SAID: &str = "The command said:";
-pub fn save_failed(why: impl Display) -> String {
-    format!("Nothing was installed: {why}")
 }
 
 /// The keys, on the last line of each view.
@@ -171,7 +155,6 @@ pub const KEYS_SETTINGS: &str = "Enter change  Tab next  i install  q leave, und
 pub const KEYS_HELP: &str = "←→ Help, About  ↑↓ scroll  Tab next  q leave";
 pub const KEYS_NEW: &str = "type a field  Enter next  Esc back  Ctrl-C leave, undo";
 pub const KEYS_EDITING: &str = "Enter keep  Up Down drop  Ctrl-C leave, undo";
-pub const KEYS_SAVE: &str = "Enter install  Esc back  q leave, undo";
 
 /// The screen below the TUI's minimum size (ADR-1201 D3).
 pub fn too_small(cols: usize, rows: usize) -> String {
@@ -687,14 +670,6 @@ pub fn connect_no_key(device: &str) -> String {
     format!("{device} offers no key a rule could name it by.")
 }
 pub const INSTALLING: &str = "Installing; sudo may ask for your password.";
-pub const INSTALL_CHECK_FAILED: &str =
-    "The check found problems, so nothing is installed; the draft keeps every change:";
-pub fn install_stale(installed: &std::path::Path) -> String {
-    format!(
-        "{} changed since this draft was made from it, so nothing is installed. Revert starts again from the installed file.",
-        installed.display()
-    )
-}
 pub const NOTHING_TO_INSTALL: &str = "The draft is the installed file; nothing to install.";
 pub fn install_question(added: usize, removed: usize, frits: usize) -> String {
     match frits {
@@ -785,5 +760,26 @@ pub const fn new_card(new: super::flow::New) -> &'static str {
         super::flow::New::InputRule => "new input rule: what it matches and where it sends it",
         super::flow::New::Head => "new head: its name and its look",
         super::flow::New::Look => "new look: its name, its frit and its size",
+    }
+}
+pub fn leave_question(added: &[String], removed: &[String]) -> String {
+    let mut lost = Vec::new();
+    if !added.is_empty() {
+        lost.push(format!("the new frits {}", list(added.iter().cloned())));
+    }
+    if !removed.is_empty() {
+        lost.push(format!("the removal of {}", list(removed.iter().cloned())));
+    }
+    format!(
+        "Leave without installing? You lose {}. i installs, l leaves anyway, any other key goes back.",
+        list(lost.into_iter())
+    )
+}
+pub const NOT_LEFT: &str = "Back to the view; nothing is lost.";
+pub fn frits_waiting(n: usize) -> String {
+    if n == 1 {
+        "1 frit to install".to_owned()
+    } else {
+        format!("{n} frits to install")
     }
 }

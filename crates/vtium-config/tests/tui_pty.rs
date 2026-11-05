@@ -622,7 +622,18 @@ fn saving_the_system_s_files_runs_exactly_sudo_vtium_config_apply_dir() {
     std::fs::write(root.join("config/vtium/vtium-config.conf"), "draft = pty\n")
         .expect("the settings");
     let mut c = Console::start(master, 80, 25, Kind::Vtium { ops: true }, TAKES);
-    let child = tui_with(&slave, &root, &["--sudo".as_ref(), sudo.as_os_str()]);
+    // the check runs the console this build made, never the host's
+    let vtium = console_bin::vtium();
+    let child = tui_with(
+        &slave,
+        &root,
+        &[
+            "--sudo".as_ref(),
+            sudo.as_os_str(),
+            "--vtium".as_ref(),
+            vtium.as_os_str(),
+        ],
+    );
     c.until("decided", |s| s.screen.contains("live preview: on"));
     to_fonts(&mut c);
     // a size, so the draft differs from the system's vtium.conf whatever it
@@ -631,23 +642,7 @@ fn saving_the_system_s_files_runs_exactly_sudo_vtium_config_apply_dir() {
     c.key(b"\x1b[B");
     c.key(b"\r");
     c.key(b"i");
-    // the check runs the system's console on the system's configuration,
-    // which a machine without vtium installed, or with a configuration it
-    // refuses, cannot pass; then the install asks nothing and this test
-    // has no sudo to watch
-    c.until("prepared", |s| {
-        s.screen.contains("Install the working copy?") || s.screen.contains("nothing is installed")
-    });
-    if !c.screen().contains("Install the working copy?") {
-        eprintln!(
-            "skipped: the system's check refused the draft:\n{}",
-            c.screen()
-        );
-        c.key(b"q");
-        assert_eq!(status(child), 0);
-        c.drained(&slave);
-        return;
-    }
+    c.until("asked", |s| s.screen.contains("Install the working copy?"));
     let program = env!("CARGO_BIN_EXE_vtium-config");
     c.key(b"y");
     c.until("failed", |s| s.screen.contains("Nothing is installed"));

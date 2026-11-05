@@ -519,6 +519,14 @@ fn status(canvas: &mut Canvas, app: &App) {
         Some(d) => words::draft_state(&d.name, d.changes, d.problems),
         None => words::NO_DRAFT.to_owned(),
     };
+    let waiting = app
+        .pending
+        .frits
+        .len()
+        .saturating_add(app.pending.removals.len());
+    if waiting > 0 {
+        left = format!("{left} · {}", words::frits_waiting(waiting));
+    }
     if app.view == View::Flow && !app.tags.is_empty() {
         let names: Vec<String> = app.tags.iter().map(|t| flow.name(*t)).collect();
         left = format!("{left} · {}", words::tagged(&names));

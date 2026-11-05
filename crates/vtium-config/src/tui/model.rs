@@ -438,6 +438,9 @@ pub enum Then {
     Change(DraftChange),
     Desk(Op),
     Install(Plan),
+    /// Leaves with this status, the pending frits lost; `i` installs
+    /// them instead.
+    Leave(u8),
 }
 
 /// The pager's place in the draft: its first line in sight and how far it
@@ -905,8 +908,8 @@ impl App {
         let modal = self.view == View::Flow
             && (self.route.is_some() || self.pager.is_some() || self.restore.is_some());
         match key {
-            Key::Interrupt => return self.leave(130),
-            Key::Char('q') if !modal => return self.leave(0),
+            Key::Interrupt => return self.quit(130),
+            Key::Char('q') if !modal => return self.quit(0),
             _ => {}
         }
         if self.view == View::Flow {

@@ -986,6 +986,50 @@ fn new_opens_the_tui_at_its_new_frit_view() {
     assert!(screen.contains("Add the frit to the install"), "{screen}");
 }
 
+/// Leaving while a frit's removal waits for an install asks first and
+/// names it; `l` leaves without it, and the top row counts it.
+#[test]
+fn leaving_with_a_frit_waiting_asks_and_l_leaves_without_it() {
+    let mut c = console().keys(&[UP, b"r", b"q"]);
+    let mut d = desk();
+    run_desk(&mut c, &mut d);
+    let screen = c.seen.clone().expect("the screen");
+    let text = screen.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(
+        text.contains("Leave without installing? You lose the removal of tiny5."),
+        "{screen}"
+    );
+    assert!(
+        screen
+            .lines()
+            .nth(1)
+            .unwrap_or_default()
+            .contains("1 frit to install"),
+        "{screen}"
+    );
+    let mut c = console().keys(&[UP, b"r", b"q", b"l"]);
+    let mut d = desk();
+    assert_eq!(run_desk(&mut c, &mut d), 0);
+    assert!(d.plans.is_empty());
+}
+
+/// Any other key goes back with the frit still waiting, and `i` at the
+/// question installs it.
+#[test]
+fn leaving_with_a_frit_waiting_goes_back_or_installs() {
+    let mut c = console().keys(&[UP, b"r", b"q", b"x", b"q", b"i", b"y", b"q"]);
+    let mut d = desk();
+    assert_eq!(run_desk(&mut c, &mut d), 0);
+    let plan = d.plans.first().expect("an install");
+    assert_eq!(
+        plan.removals,
+        [vtium_config::draft::Removal {
+            path: PathBuf::from("/etc/vtium/fonts/tiny5.vtfrit"),
+            old: b"source=bdf:/x/Tiny5Mono.bdf\n".to_vec(),
+        }]
+    );
+}
+
 #[test]
 fn nothing_changed_means_nothing_to_install() {
     let mut c = console().keys(&[b"i", b"y", b"q"]);
