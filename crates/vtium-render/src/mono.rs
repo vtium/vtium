@@ -462,6 +462,27 @@ mod tests {
         );
     }
 
+    // vtium/vtium#310: the font draws a 38-row cell's light lines 2 pixels
+    // wide, and the 1-bit shape of a sprite of partial coverage draws its
+    // diagonals in the same weight
+    #[test]
+    fn a_1_bit_diagonal_at_a_large_cell_takes_the_cells_line_weight() {
+        let cell = Cell {
+            width: 20,
+            height: 38,
+        };
+        let f = Fallback::new(Depth::One, cell).unwrap_or_else(|| panic!("a stand-in"));
+        for c in ['\u{1fbbd}', '\u{1fbbe}', '\u{1fbbf}'] {
+            let drawn = sprite::draw(c, 20, 38, 2).unwrap_or_else(|| panic!("{c}"));
+            let g = f
+                .glyph(&drawn, 1, &[c], Width::Narrow, Style::default())
+                .unwrap_or_else(|| panic!("{c}'s 1-bit shape"));
+            let at = |t| sprite::one_bit(c, 20, 38, t).unwrap_or_else(|| panic!("{c} at {t}"));
+            assert!(at(2) != at(1), "{c} draws the same at 1 and 2 pixels");
+            assert!(g == at(2), "{c} is not drawn 2 pixels wide");
+        }
+    }
+
     fn color_glyph() -> Glyph {
         Glyph::rgba(8, 16).unwrap_or_else(|| panic!("an 8x16 glyph"))
     }
