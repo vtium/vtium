@@ -6,8 +6,8 @@
 //! tile's offset taken off: the border's parts the frame redraws, cleared
 //! to the border's color; each cell the frame redraws, as one quad through
 //! the cell shader, which does ADR-1300 D6's arithmetic; the pointer's
-//! arrow over every pixel the frame drew, with the GPU's blending; and last
-//! the console's notices, uploaded over what the frame drew beneath them.
+//! arrow over every pixel the frame drew; and last the console's notices,
+//! uploaded over what the frame drew beneath them.
 //!
 //! A cell that pictures reach is drawn in the layers of ADR-1100 D4, as the
 //! CPU path composes it: its background as a cell with nothing on it; then
@@ -16,6 +16,16 @@
 //! premultiplied over the pictures beneath, before the first picture above
 //! the text; the selection's tint; and last vtium's mark, the bar of a bar
 //! cursor or an underline cursor's line.
+//!
+//! No draw reads the target it draws into, and the GPU's own blending
+//! turns its float result into a byte as the driver chooses. So each draw
+//! that goes over pixels already drawn, the arrow and, in a cell pictures
+//! reach, a picture that is not opaque, a text layer, vtium's mark and the
+//! selection's tint, first copies the pixels beneath it out of the tile
+//! into the copy, a target that lasts from frame to frame, and then reads
+//! them from there and blends with the CPU path's arithmetic. The copy
+//! grows when a frame draws over more than it holds, and is given back
+//! once no frame has read it for `GPU_IDLE_FRAMES` frames.
 //!
 //! The renderer decides what changed, as it does on the CPU path: the
 //! cells, the cursor, the border and the pointer, through the same front
@@ -36,6 +46,7 @@ use super::tile::{Tile, meet, tiles};
 use super::turn::Turn;
 use crate::arrow::Arrow;
 use crate::blend::pixel;
+use crate::bounds::GPU_IDLE_FRAMES;
 use crate::compose::{Area, Composer, Job};
 use crate::deco::Kind;
 use crate::notice::Placed;
@@ -57,7 +68,6 @@ const CELL_FRAG: &str = include_str!("glsl/cell.frag");
 const ARROW_FRAG: &str = include_str!("glsl/arrow.frag");
 #[cfg(feature = "images")]
 const PICTURE_FRAG: &str = include_str!("glsl/picture.frag");
-#[cfg(feature = "images")]
 const UNDER_FRAG: &str = include_str!("glsl/under.frag");
 
 pub(crate) const TARGET_SIZE: Input = Input {
@@ -85,10 +95,10 @@ const CELL_INPUTS: [Input; 5] = [
     },
 ];
 
-/// What a shader built with [`OVER`] takes besides its own inputs: the
-/// copy of the pixels beneath, and the pixel of the target its first texel
-/// holds.
-#[cfg(feature = "images")]
+/// What a shader that goes over the pixels beneath it takes besides its
+/// own inputs: the copy of those pixels, and the pixel of the target its
+/// first texel holds. The arrow's shader always takes them, the cell and
+/// picture shaders when built with [`OVER`].
 const BENEATH: [Input; 2] = [
     Input {
         name: "under",
@@ -111,12 +121,14 @@ const LAYER_INPUTS: [Input; 7] = [
     BENEATH[1],
 ];
 
-const ARROW_INPUTS: [Input; 2] = [
+const ARROW_INPUTS: [Input; 4] = [
     TARGET_SIZE,
     Input {
         name: "arrow",
         kind: InputKind::Texture,
     },
+    BENEATH[0],
+    BENEATH[1],
 ];
 
 #[cfg(feature = "images")]
@@ -146,7 +158,6 @@ const PICTURE_OVER_INPUTS: [Input; 6] = [
     BENEATH[1],
 ];
 
-#[cfg(feature = "images")]
 const UNDER_INPUTS: [Input; 2] = [
     TARGET_SIZE,
     Input {
@@ -250,43 +261,44 @@ pub(crate) struct Composition {
     overlays: Vec<Placed>,
     /// The programs of the cells that pictures reach, each compiled the
     /// first time a frame needs it: the picture shader for an opaque
-    /// picture and, built with [`OVER`], for one that is not; the cell
-    /// shader built with [`OVER`], for the text layers and marks; and the
-    /// under shader, which copies the pixels beneath each of those out of
-    /// the frame and tints the selection.
+    /// picture and, built with [`OVER`], for one that is not; and the cell
+    /// shader built with [`OVER`], for the text layers and marks.
     #[cfg(feature = "images")]
     picture: Option<Program>,
     #[cfg(feature = "images")]
     picture_over: Option<Program>,
     #[cfg(feature = "images")]
     layer: Option<Program>,
-    #[cfg(feature = "images")]
+    /// The under shader, compiled the first time a frame needs it, which
+    /// copies the pixels beneath a draw out of a tile into the copy, and
+    /// tints the selection.
     under: Option<Program>,
-    /// Where a draw over the pixels beneath it copies them, made for the
-    /// frame, and for each tile the rectangle of the upright frame the
-    /// copy's first texel holds: the smallest one holding every pixel the
-    /// frame draws over in that tile.
-    #[cfg(feature = "images")]
+    /// Where a draw over the pixels beneath it copies them: a target kept
+    /// from frame to frame, as large in each side as the most pixels a
+    /// frame has drawn over in one tile since it was made.
     copy: Option<DrawTarget>,
-    #[cfg(feature = "images")]
+    /// For each tile, the rectangle of the upright frame the copy's first
+    /// texel holds this frame: the smallest one holding every pixel the
+    /// frame draws over in that tile, or `None` where it draws over none.
     copy_at: Vec<Option<Rect>>,
+    /// Frames in a row that read no pixel from the copy, which give it back
+    /// at `GPU_IDLE_FRAMES`.
+    copy_idle: u64,
 }
 
 /// What a draw over the pixels beneath it needs: the under shader, which
 /// copies them out of a tile, the copy, and for each tile the rectangle of
 /// the upright frame the copy's first texel holds.
-#[cfg(feature = "images")]
 pub(crate) struct Beneath<'a> {
     program: &'a Program,
     copy: &'a DrawTarget,
     at: &'a [Option<Rect>],
 }
 
-#[cfg(feature = "images")]
 impl Beneath<'_> {
     /// Copies the pixels under `quads`, tile-local quads of the `k`-th
     /// tile, out of the tile's `target` into the copy, and gives the copy
-    /// for a shader built with [`OVER`] to read them from. The quads of one
+    /// for a shader that goes over them to read them from. The quads of one
     /// draw over the pixels beneath must not overlap, since each reads what
     /// lay beneath before the draw.
     pub(crate) fn copy<G: Gl>(
@@ -347,15 +359,14 @@ impl Beneath<'_> {
 
 /// The pixels beneath a draw, copied: the copy's texture, and the
 /// tile-local pixel its first texel holds.
-#[cfg(feature = "images")]
 pub(crate) struct Copied<'a> {
     texture: &'a Texture,
     at: (u32, u32),
 }
 
-#[cfg(feature = "images")]
 impl Copied<'_> {
-    /// The inputs a shader built with [`OVER`] reads the copy through.
+    /// The inputs a shader that goes over the pixels beneath reads the copy
+    /// through: [`BENEATH`].
     pub(crate) fn inputs(&self) -> [(&'static str, Value<'_>); 2] {
         [
             ("under", Value::Texture(self.texture, Filter::Nearest)),
@@ -454,12 +465,10 @@ impl Composition {
             picture_over: None,
             #[cfg(feature = "images")]
             layer: None,
-            #[cfg(feature = "images")]
             under: None,
-            #[cfg(feature = "images")]
             copy: None,
-            #[cfg(feature = "images")]
             copy_at: Vec::new(),
+            copy_idle: 0,
         })
     }
 
@@ -586,16 +595,29 @@ impl Composition {
         Ok(3)
     }
 
-    /// Makes what the frame reads ready: the arrow's texture, and for a
-    /// frame that draws pictures or tints, their programs and the tint's
-    /// copy. Gives how many uploads it made.
+    /// Makes what the frame reads ready: the arrow's texture, for a frame
+    /// that draws pictures their programs, and for a frame that draws over
+    /// pixels already drawn the under shader and a copy large enough.
+    /// Gives how many uploads it made.
     pub(crate) fn prepare<G: Gl>(&mut self, gl: &mut G, work: &Work<'_>) -> Result<usize, Error> {
         let calls = self.prepare_arrow(gl, work.arrow)?;
         #[cfg(feature = "images")]
         let calls = calls.saturating_add(self.prepare_pictured(gl, work)?);
-        Ok(calls)
+        // every pixel the frame draws over: the arrow's, and those of the
+        // cells pictures reach
+        let arrow = match work.arrow {
+            Some(a) => arrow_quads(a, &self.drawn(work), self.size),
+            None => Vec::new(),
+        };
+        let over: Vec<Rect> = arrow
+            .iter()
+            .filter_map(|q| dst_rect(q.dst))
+            .chain(pictured_over(work))
+            .collect();
+        Ok(calls.saturating_add(self.prepare_copy(gl, &over)?))
     }
 
+    /// The programs of the cells pictures reach that the frame needs.
     #[cfg(feature = "images")]
     fn prepare_pictured<G: Gl>(&mut self, gl: &mut G, work: &Work<'_>) -> Result<usize, Error> {
         let mut calls = 0usize;
@@ -603,23 +625,12 @@ impl Composition {
         let opaque = work.pictures.iter().filter(drawn).any(|s| s.opaque);
         let clear = work.pictures.iter().filter(drawn).any(|s| !s.opaque);
         let layers = !work.text.is_empty() || !work.marks.is_empty();
-        let needs = [
-            opaque,
-            clear,
-            layers,
-            clear || layers || !work.tints.is_empty(),
-        ];
-        let programs = [
-            &mut self.picture,
-            &mut self.picture_over,
-            &mut self.layer,
-            &mut self.under,
-        ];
-        let sources: [(&[&'static str], &[Input]); 4] = [
+        let needs = [opaque, clear, layers];
+        let programs = [&mut self.picture, &mut self.picture_over, &mut self.layer];
+        let sources: [(&[&'static str], &[Input]); 3] = [
             (&[ES3, PICTURE_FRAG], &PICTURE_INPUTS),
             (&[ES3, OVER, PICTURE_FRAG], &PICTURE_OVER_INPUTS),
             (&[ES3, OVER, CELL_FRAG], &LAYER_INPUTS),
-            (&[UNDER_FRAG], &UNDER_INPUTS),
         ];
         for ((needed, program), (fragment, inputs)) in needs.into_iter().zip(programs).zip(sources)
         {
@@ -632,18 +643,16 @@ impl Composition {
                 calls = calls.saturating_add(1);
             }
         }
-        // every pixel the frame draws over: the pictures that are not
-        // opaque, the text layers, the selection's tint and the marks
-        let mut over: Vec<Rect> = work
-            .pictures
-            .iter()
-            .filter(|s| !s.opaque)
-            .flat_map(|s| s.rects.iter().copied())
-            .collect();
-        let quads = work.text.iter().chain(work.marks).flat_map(|c| &c.quads);
-        over.extend(quads.filter_map(|q| dst_rect(q.dst)));
-        over.extend(work.tints.iter().map(|&(r, _)| r));
-        // the copy holds those pixels of the tile that has the most
+        Ok(calls)
+    }
+
+    /// Makes the under shader and the copy ready for a frame that draws
+    /// over the pixels of `over`. The copy holds, for each tile, the
+    /// smallest rectangle holding every pixel of `over` there, so it is as
+    /// large as the largest of those; a copy that is smaller in either side
+    /// is made anew at the larger of each. Gives how many uploads it made.
+    fn prepare_copy<G: Gl>(&mut self, gl: &mut G, over: &[Rect]) -> Result<usize, Error> {
+        let mut calls = 0usize;
         self.copy_at = self
             .tiles
             .iter()
@@ -653,11 +662,24 @@ impl Composition {
                     .reduce(bounds)
             })
             .collect();
-        let mut size = Size::new(0, 0);
+        let mut need = Size::new(0, 0);
         for b in self.copy_at.iter().flatten() {
-            size = Size::new(size.width.max(b.width), size.height.max(b.height));
+            need = Size::new(need.width.max(b.width), need.height.max(b.height));
         }
-        if size.width > 0 && size.height > 0 {
+        if need.width == 0 || need.height == 0 {
+            return Ok(calls);
+        }
+        if self.under.is_none() {
+            self.under = Some(gl.compile(&Source {
+                vertex: &[CELL_VERT],
+                fragment: &[UNDER_FRAG],
+                inputs: &UNDER_INPUTS,
+            })?);
+            calls = calls.saturating_add(1);
+        }
+        let held = self.copy.as_ref().map_or(Size::new(0, 0), DrawTarget::size);
+        if need.width > held.width || need.height > held.height {
+            let size = Size::new(need.width.max(held.width), need.height.max(held.height));
             if let Some(old) = self.copy.take() {
                 gl.free_target(old)?;
             }
@@ -668,7 +690,6 @@ impl Composition {
     }
 
     /// What a draw over the pixels beneath it needs this frame.
-    #[cfg(feature = "images")]
     fn beneath(&self) -> Result<Beneath<'_>, Error> {
         match (&self.under, &self.copy) {
             (Some(program), Some(copy)) => Ok(Beneath {
@@ -683,6 +704,27 @@ impl Composition {
         }
     }
 
+    /// The rectangles of the upright frame `work` draws: the whole frame
+    /// when the composition draws it whole, or the border's parts it clears
+    /// and the cells it draws.
+    fn drawn(&self, work: &Work<'_>) -> Vec<Rect> {
+        let frame = self.size.rect();
+        if self.needs_whole(work.border) {
+            return vec![frame];
+        }
+        let cells = work
+            .cells
+            .iter()
+            .flat_map(|c| &c.quads)
+            .map(|q| dst_rect(q.dst));
+        work.clear
+            .iter()
+            .copied()
+            .chain(cells.flatten())
+            .filter_map(|r| meet(r, frame))
+            .collect()
+    }
+
     /// Draws `work` into the upright frame, and gives the rectangles that
     /// changed: the whole frame when it is drawn whole.
     pub(crate) fn draw<G: Gl>(
@@ -693,24 +735,10 @@ impl Composition {
     ) -> Result<Vec<Rect>, Error> {
         let frame = self.size.rect();
         let whole = self.needs_whole(work.border);
+        let drawn = self.drawn(work);
         self.border = Some(work.border);
         let whole_rect = [frame];
         let clear = if whole { &whole_rect[..] } else { work.clear };
-        let drawn: Vec<Rect> = if whole {
-            vec![frame]
-        } else {
-            let cells = work
-                .cells
-                .iter()
-                .flat_map(|c| &c.quads)
-                .map(|q| dst_rect(q.dst));
-            work.clear
-                .iter()
-                .copied()
-                .chain(cells.flatten())
-                .filter_map(|r| meet(r, frame))
-                .collect()
-        };
         for (tile, target) in &self.tiles {
             for &r in clear {
                 if let Some(m) = meet(r, tile.held) {
@@ -834,20 +862,30 @@ impl Composition {
         Ok(())
     }
 
-    /// Frees the copy of the pixels beneath, which a frame makes for
-    /// itself.
-    #[cfg(feature = "images")]
+    /// Ends the frame: the copy counts one more frame in a row that read
+    /// nothing from it, or starts counting again after one that did, and is
+    /// given back at `GPU_IDLE_FRAMES` such frames, counted in frames and
+    /// never wall time.
     pub(crate) fn end_frame<G: Gl>(&mut self, gl: &mut G) -> Result<(), Error> {
+        let read = self.copy_at.iter().any(Option::is_some);
         self.copy_at.clear();
+        self.copy_idle = if read {
+            0
+        } else {
+            self.copy_idle.saturating_add(1)
+        };
+        if self.copy_idle < GPU_IDLE_FRAMES {
+            return Ok(());
+        }
         match self.copy.take() {
             Some(t) => gl.free_target(t),
             None => Ok(()),
         }
     }
 
-    /// Gives back the glyphs' textures, the arrow's and the upright frame's
-    /// tiles, keeping the programs, and draws the whole frame next, its
-    /// tiles made again first (ADR-1303 D9).
+    /// Gives back the glyphs' textures, the arrow's, the copy and the
+    /// upright frame's tiles, keeping the programs, and draws the whole
+    /// frame next, its tiles made again first (ADR-1303 D9).
     pub(crate) fn release<G: Gl>(&mut self, gl: &mut G) -> Result<(), Error> {
         let mut out = Ok(());
         for (_, t) in self.tiles.drain(..) {
@@ -859,10 +897,10 @@ impl Composition {
         if let Some((_, t)) = self.arrow_image.take() {
             out = out.and(gl.free_texture(t));
         }
-        #[cfg(feature = "images")]
-        {
-            out = out.and(self.end_frame(gl));
+        if let Some(t) = self.copy.take() {
+            out = out.and(gl.free_target(t));
         }
+        self.copy_at.clear();
         // belt and braces: the next frame makes the tiles and the glyphs
         // anew, either of which already draws the frame whole
         self.redraw_whole();
@@ -990,7 +1028,9 @@ impl Composition {
 
     /// The arrow over the pixels of `drawn` it covers, as quads cut to
     /// them, so no pixel takes it twice in a frame: the upright frame keeps
-    /// what earlier frames drew, which already holds the arrow.
+    /// what earlier frames drew, which already holds the arrow. In each
+    /// tile the pixels beneath the quads are copied out first, and the
+    /// arrow's shader goes over them with the CPU path's `over_bg`.
     fn draw_arrow<G: Gl>(&self, gl: &mut G, a: ArrowAt<'_>, drawn: &[Rect]) -> Result<(), Error> {
         let Some((_, texture)) = &self.arrow_image else {
             return Err(Error::new(ErrorKind::Misuse, "the arrow is not uploaded"));
@@ -999,20 +1039,25 @@ impl Composition {
         if quads.is_empty() {
             return Ok(());
         }
-        for (tile, target) in &self.tiles {
+        let beneath = self.beneath()?;
+        for (k, (tile, target)) in self.tiles.iter().enumerate() {
             let quads = in_tile(&quads, tile);
             if quads.is_empty() {
                 continue;
             }
+            let copied = beneath.copy(gl, k, tile, target, &quads)?;
+            let [under, under_at] = copied.inputs();
             gl.draw(&Draw {
                 target,
                 program: &self.arrow,
                 inputs: &[
                     ("target_size", target_size(target)),
                     ("arrow", Value::Texture(texture, Filter::Nearest)),
+                    under,
+                    under_at,
                 ],
                 quads: &quads,
-                blend: Blend::Over,
+                blend: Blend::Replace,
                 scissor: None,
             })?;
         }
@@ -1071,13 +1116,15 @@ impl Composition {
             out = out.and(g.free(gl));
         }
         #[cfg(feature = "images")]
-        for p in [self.picture, self.picture_over, self.layer, self.under]
+        for p in [self.picture, self.picture_over, self.layer]
             .into_iter()
             .flatten()
         {
             out = out.and(gl.free_program(p));
         }
-        #[cfg(feature = "images")]
+        if let Some(p) = self.under {
+            out = out.and(gl.free_program(p));
+        }
         if let Some(t) = self.copy {
             out = out.and(gl.free_target(t));
         }
@@ -1086,6 +1133,29 @@ impl Composition {
         }
         out
     }
+}
+
+/// The pixels a frame draws over in the cells pictures reach: the pictures
+/// that are not opaque, the text layers, the selection's tint and the
+/// marks.
+#[cfg(feature = "images")]
+fn pictured_over(work: &Work<'_>) -> Vec<Rect> {
+    let pictures = work
+        .pictures
+        .iter()
+        .filter(|s| !s.opaque)
+        .flat_map(|s| s.rects.iter().copied());
+    let quads = work.text.iter().chain(work.marks).flat_map(|c| &c.quads);
+    pictures
+        .chain(quads.filter_map(|q| dst_rect(q.dst)))
+        .chain(work.tints.iter().map(|&(r, _)| r))
+        .collect()
+}
+
+/// A build without `images` draws no picture, so nothing over one.
+#[cfg(not(feature = "images"))]
+fn pictured_over(_: &Work<'_>) -> Vec<Rect> {
+    Vec::new()
 }
 
 fn side(v: u32) -> i32 {

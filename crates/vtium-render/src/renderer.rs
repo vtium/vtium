@@ -654,6 +654,17 @@ impl<F: Face> Renderer<F> {
         self.changed.dedup();
     }
 
+    /// Forgets what the renderer drew into each buffer: the next frame
+    /// places the grid anew and stamps every cell and the border with its
+    /// own serial, so it, and the first later frame into each other
+    /// buffer, draws them all. A head calls it when a frame the renderer
+    /// recorded did not reach its buffer whole, as when the GPU path drew a
+    /// frame and reading it back into the buffer failed, before it draws
+    /// the frame again on the CPU path.
+    pub fn forget_history(&mut self) {
+        self.grid = None;
+    }
+
     /// Something other than the renderer drew over the display area `area`
     /// in the buffers it drew before, as vtium's overlay, a notice box,
     /// does. The next frame draws again every cell `area` touches and the

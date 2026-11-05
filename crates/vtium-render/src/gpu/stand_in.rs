@@ -6,12 +6,12 @@
 //! those, and what only a real driver refuses. Its limits are whatever a
 //! test gives it, so a test can set a small largest texture and drive a
 //! frame past it. A test can raise a GL error, which the next
-//! [`Gl::check`] reports, as GL's error flag does, and can make the next
-//! call of one kind fail as a driver would.
+//! [`Gl::check`] reports, as GL's error flag does, and can make a call of
+//! one kind fail as a driver would, the next one or one later.
 
 use super::gl::{
-    Batch, Blend, Draw, DrawTarget, Error, ErrorKind, Format, Gl, Limits, Program, Quad, Size,
-    Source, Texture,
+    Batch, Blend, Draw, DrawTarget, Error, ErrorKind, Fence, Format, Gl, Limits, Program, Quad,
+    Size, Source, Texture,
 };
 use super::ledger::Ledger;
 use crate::target::Rect;
@@ -36,7 +36,10 @@ pub enum Call {
         inputs: Vec<&'static str>,
     },
     Check(Batch),
+    /// A frame's end, which gives a fence.
     Submit,
+    /// A wait on a fence, which frees it.
+    Wait,
     Read(Rect),
 }
 
@@ -48,6 +51,7 @@ pub enum Op {
     CreateFrame,
     ImportBuffer,
     Compile,
+    Wait,
 }
 
 /// A GL context that records its calls and draws nothing.
@@ -57,7 +61,9 @@ pub struct StandIn {
     calls: Vec<Call>,
     next_name: u32,
     raised: Option<ErrorKind>,
-    failing: Vec<(Op, ErrorKind)>,
+    /// The calls a test made fail: each kind of call, how many of that
+    /// kind pass first, and the error.
+    failing: Vec<(Op, usize, ErrorKind)>,
     /// The name of each upright frame made, in the order they were made.
     frames: Vec<u32>,
     /// What the stand-in saw of each draw since the calls were forgotten.
@@ -132,6 +138,11 @@ impl StandIn {
         self.ledger.live()
     }
 
+    /// How many fences are given out and not yet waited on.
+    pub fn fences(&self) -> usize {
+        self.ledger.fences()
+    }
+
     /// Raises a GL error of `kind`, which the next check reports. A lost
     /// context also fails every call after that check.
     pub fn raise(&mut self, kind: ErrorKind) {
@@ -142,14 +153,19 @@ impl StandIn {
     /// an import a driver cannot do fails with [`ErrorKind::Import`], a
     /// shader it does not compile with [`ErrorKind::Compile`].
     pub fn fail_next(&mut self, op: Op, kind: ErrorKind) {
-        self.failing.push((op, kind));
+        self.fail_after(op, 0, kind);
+    }
+
+    /// Lets `passing` calls of `op` through, and makes the one after them
+    /// fail with `kind`: an allocation that fails partway through a batch.
+    pub fn fail_after(&mut self, op: Op, passing: usize, kind: ErrorKind) {
+        self.failing.push((op, passing, kind));
     }
 
     /// A new name for `op`, or the failure a test asked for.
     fn make(&mut self, op: Op) -> Result<u32, Error> {
-        if let Some(i) = self.failing.iter().position(|(o, _)| *o == op) {
-            let (_, kind) = self.failing.remove(i);
-            return Err(Error::new(kind, format!("{op:?} failed for the test")));
+        if let Some(e) = take_failure(&mut self.failing, op) {
+            return Err(e);
         }
         Ok(self.name())
     }
@@ -157,6 +173,22 @@ impl StandIn {
     fn name(&mut self) -> u32 {
         self.next_name = self.next_name.saturating_add(1);
         self.next_name
+    }
+}
+
+/// The failure a test planned for the next call of `op`, once the calls it
+/// lets pass have passed.
+fn take_failure(failing: &mut Vec<(Op, usize, ErrorKind)>, op: Op) -> Option<Error> {
+    let i = failing.iter().position(|(o, _, _)| *o == op)?;
+    match failing.get_mut(i) {
+        Some((_, passing, _)) if *passing > 0 => {
+            *passing = passing.saturating_sub(1);
+            None
+        }
+        _ => {
+            let (_, _, kind) = failing.remove(i);
+            Some(Error::new(kind, format!("{op:?} failed for the test")))
+        }
     }
 }
 
@@ -261,9 +293,21 @@ impl Gl for StandIn {
         Ok(())
     }
 
-    fn submit(&mut self, target: &DrawTarget) -> Result<(), Error> {
-        self.ledger.target(target)?;
+    fn submit(&mut self, target: &DrawTarget) -> Result<Fence, Error> {
+        let name = self.name();
+        let fence = self.ledger.submit(target, |_| Ok(name))?;
         self.calls.push(Call::Submit);
+        Ok(fence)
+    }
+
+    fn wait(&mut self, fence: Fence) -> Result<(), Error> {
+        // the ledger checks the fence before a failure planned for a wait
+        // is used up, as the adapter reaches its driver only then
+        let failing = &mut self.failing;
+        self.ledger.wait(fence, |_| {
+            take_failure(failing, Op::Wait).map_or(Ok(()), Err)
+        })?;
+        self.calls.push(Call::Wait);
         Ok(())
     }
 

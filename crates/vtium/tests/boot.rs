@@ -81,6 +81,11 @@ struct Memory {
     /// The density the display measures, across and down; `None` for one
     /// that reports no physical size.
     dpi: Option<(f64, f64)>,
+    /// A second buffer and its age, for a display that lends its two
+    /// buffers in turn, each drawn two frames back once both hold a frame.
+    /// What leaves the buffer lent at age 0 leaves this one at age 0 too,
+    /// and a sleep clears both, as a display's two buffers are.
+    double: Option<(Arc<Mutex<Vec<u8>>>, u32)>,
 }
 
 impl Default for Memory {
@@ -114,11 +119,20 @@ impl Memory {
             refuses: false,
             // the C reference's fixed density, where a point is a pixel
             dpi: Some((72.0, 72.0)),
+            double: None,
         }
     }
 }
 
 impl Memory {
+    /// Every buffer of the display holds a frame of unknown age.
+    fn ages_unknown(&mut self) {
+        self.age = 0;
+        if let Some((_, other_age)) = &mut self.double {
+            *other_age = 0;
+        }
+    }
+
     /// Ends a sleep the token held, once no token holds the buffer: clears
     /// it and reports `Asleep`.
     fn pay_clear(&mut self) {
@@ -166,7 +180,7 @@ impl Video for Memory {
         }
         if std::mem::take(&mut self.lent) {
             // dropped without being given back
-            self.age = 0;
+            self.ages_unknown();
         }
         self.lent = true;
         let age = self.age;
@@ -185,7 +199,7 @@ impl Video for Memory {
         if token.lease() != self.lease {
             drop(token);
             self.pay_clear();
-            self.age = 0;
+            self.ages_unknown();
             return Err(SwapError::Dropped);
         }
         if damage.is_empty() && self.dpms == Some(Dpms::On) {
@@ -202,6 +216,16 @@ impl Video for Memory {
         self.frames += 1;
         // The display shows the buffer the frame was drawn into.
         self.pixels.clone_from(&self.drawn.lock().unwrap());
+        // the next frame goes into the other buffer, which has missed this
+        // frame too, unless it never held one
+        if let Some((other, other_age)) = &mut self.double {
+            std::mem::swap(&mut self.drawn, other);
+            self.age = match *other_age {
+                0 => 0,
+                n => n + 1,
+            };
+            *other_age = 1;
+        }
         self.events.push(Event::Flipped(id));
         Ok(Swapped::Frame)
     }
@@ -218,7 +242,7 @@ impl Video for Memory {
         self.dpms = Some(dpms);
         self.dpms_sets.push(dpms);
         if dpms == Dpms::On {
-            self.age = 0;
+            self.ages_unknown();
             self.events.push(Event::Redraw(ID));
         }
         Ok(())
@@ -227,6 +251,9 @@ impl Video for Memory {
         self.sleeps += 1;
         self.lease += 1;
         self.awake = false;
+        if let Some((other, _)) = &self.double {
+            other.lock().unwrap().fill(0);
+        }
         if Arc::strong_count(&self.drawn) > 1 {
             self.asleep_owed = true;
         } else {
@@ -250,7 +277,7 @@ impl Video for Memory {
         }
         self.awake = true;
         self.dpms = Some(Dpms::On);
-        self.age = 0;
+        self.ages_unknown();
         if first {
             self.events.push(Event::Added(ID));
         } else {
@@ -411,6 +438,22 @@ impl Harness {
         fonts: Sources,
         console: Option<vtium_platform::vt::font::ConsoleFont>,
     ) -> Harness {
+        Harness::boot_set(args, vt, video, fonts, |app| {
+            if let Some(console) = console {
+                app.set_console_font(console);
+            }
+        })
+    }
+
+    /// [`Harness::boot_with`], with `set` run on the seat before its video
+    /// device is added and it starts.
+    fn boot_set<V: Vt + 'static>(
+        args: &[&str],
+        vt: V,
+        video: Option<Box<dyn Video>>,
+        fonts: Sources,
+        set: impl FnOnce(&mut App),
+    ) -> Harness {
         let sized = args.iter().any(|a| a.starts_with("--font-size"));
         let args: Vec<OsString> = (!sized)
             .then_some("--font-size=16")
@@ -432,9 +475,7 @@ impl Harness {
         };
         let mut app = App::new(loaded.config, Box::new(vt), lp.handle(), clock, env);
         app.set_font_sources(fonts);
-        if let Some(console) = console {
-            app.set_console_font(console);
-        }
+        set(&mut app);
         if let Some(video) = video {
             app.add_video(PathBuf::from("/dev/mem0"), video);
         }
@@ -6418,4 +6459,420 @@ fn a_zoom_while_a_frame_composes_waits_for_its_token() {
         h.until_memory(BOUND, |m| m.frames > frames && m.ages.len() > lent),
         "the new renderer's frame drawn once the old token came back"
     );
+}
+
+/// ADR-1303 D9, D10: a head with `hwaccel` on draws through the GL context
+/// it makes on its render thread, here Mesa's llvmpipe in place of a card's
+/// render node, and the frame the display shows is the CPU path's, byte for
+/// byte; the display's log line names the path. A head whose context
+/// cannot be made says why and draws on the CPU path, and with `hwaccel`
+/// off a head never makes one.
+#[cfg(feature = "gpu")]
+mod gpu_path {
+    use vtium::painter::{Fault, GpuSource, TestGpu};
+
+    use super::*;
+
+    /// Colors, a bold line and a block, with `done` once written.
+    const SCRIPT: &str = "printf '\\033[41m red \\033[42;30m green \\033[0m\\n\\033[1;34mblue\\033[0m \\342\\226\\210 done'; read x";
+
+    /// The seat booted with `args` and the test's GPU `source`: the pixels
+    /// of the frame it shows once the script is written, those of a frame
+    /// drawn whole after it, and the lines it logged.
+    fn drawn(args: &[&str], source: GpuSource) -> (Vec<u8>, Vec<u8>, Vec<String>) {
+        logged();
+        let args: Vec<&str> = args
+            .iter()
+            .copied()
+            .chain(["--login", "--", "/bin/sh", "-c", SCRIPT])
+            .collect();
+        let mut h = Harness::boot_set(
+            &args,
+            FakeVt::new(),
+            Some(Box::new(Memory::default())),
+            no_fonts(),
+            |app| app.set_gpu_source(source),
+        );
+        assert!(
+            h.until(BOUND, |a| a
+                .screen_text()
+                .iter()
+                .any(|l| l.contains("done"))),
+            "the script written"
+        );
+        h.settled();
+        let shown = h.memory().pixels.clone();
+        let whole = h.drawn_now();
+        assert!(whole.iter().any(|&b| b != 0), "a frame drawn");
+        (shown, whole, logged())
+    }
+
+    fn renderer(lines: &[String]) -> Vec<&str> {
+        lines
+            .iter()
+            .filter(|l| l.starts_with("Display "))
+            .filter_map(|l| l.split("text renderer [").nth(1)?.split(']').next())
+            .collect()
+    }
+
+    #[test]
+    fn a_head_with_hwaccel_and_a_render_node_draws_the_cpu_paths_frame_on_the_gpu_path() {
+        let (cpu_shown, cpu_whole, cpu_log) = drawn(&[], GpuSource::Software);
+        assert_eq!(renderer(&cpu_log), ["cpu"], "hwaccel off: {cpu_log:#?}");
+        let (gpu_shown, gpu_whole, gpu_log) = drawn(&["--hwaccel"], GpuSource::Software);
+        assert_eq!(renderer(&gpu_log), ["gpu"], "{gpu_log:#?}");
+        assert!(
+            !gpu_log.iter().any(|l| l.contains("GPU path")),
+            "{gpu_log:#?}"
+        );
+        assert!(
+            gpu_shown == cpu_shown,
+            "the frame shown differs from the CPU path's"
+        );
+        assert!(
+            gpu_whole == cpu_whole,
+            "the frame drawn whole differs from the CPU path's"
+        );
+    }
+
+    // ADR-1303 D6, D10: the GPU path draws no 1-bit display yet, so the
+    // CPU path draws it, and its line names cpu on a head on the GPU path
+    #[test]
+    fn a_1_bit_display_on_a_gpu_head_logs_the_cpu_path_that_draws_it() {
+        let (cpu_shown, _, _) = drawn(&["--display-depth=1"], GpuSource::Software);
+        let (shown, _, log) = drawn(&["--hwaccel", "--display-depth=1"], GpuSource::Software);
+        assert_eq!(renderer(&log), ["cpu"], "{log:#?}");
+        assert!(
+            shown == cpu_shown,
+            "the frame shown differs from the CPU path's"
+        );
+    }
+
+    // ADR-1303 D3, D6: a display turned a quarter during the run draws on
+    // the GPU path the CPU path's frame; the renderer turns its pipeline to
+    // its own orientation as each frame starts
+    #[test]
+    fn a_display_turned_during_the_run_draws_the_cpu_paths_frame_on_the_gpu_path() {
+        let turned = |args: &[&str], source: GpuSource| {
+            let args: Vec<&str> = args
+                .iter()
+                .copied()
+                .chain(["--login", "--", "/bin/sh", "-c", SCRIPT])
+                .collect();
+            let mut h = Harness::boot_set(
+                &args,
+                FakeVt::new(),
+                Some(Box::new(Memory::default())),
+                no_fonts(),
+                |app| app.set_gpu_source(source),
+            );
+            assert!(h.until(BOUND, |a| {
+                a.screen_text().iter().any(|l| l.contains("done"))
+            }));
+            let upright = h.drawn_now();
+            h.app.input_event(key(Mods::LOGO, 0x3d), now());
+            let quarter = h.drawn_now();
+            assert!(quarter != upright, "the display turned");
+            quarter
+        };
+        let cpu = turned(&[], GpuSource::Software);
+        let gpu = turned(&["--hwaccel"], GpuSource::Software);
+        assert!(gpu == cpu, "the turned frame differs from the CPU path's");
+    }
+
+    // ADR-1303 D9, D10: a display the GPU path cannot set up holds its
+    // head on the CPU path, with one line naming its connector and the
+    // display's line again naming cpu, and its set-up is not tried again at
+    // its size
+    #[test]
+    fn a_display_the_gpu_cannot_set_up_logs_once_and_its_line_names_cpu() {
+        let (cpu_shown, cpu_whole, _) = drawn(&[], GpuSource::Software);
+        let gpu = Arc::new(TestGpu::default());
+        gpu.refuse_set_up.lock().unwrap().insert(ID);
+        let (shown, whole, log) = drawn(&["--hwaccel"], GpuSource::Test(Arc::clone(&gpu)));
+        let refused: Vec<&String> = log
+            .iter()
+            .filter(|l| l.contains("the GPU path cannot set it up"))
+            .collect();
+        assert_eq!(refused.len(), 1, "{log:#?}");
+        assert!(refused[0].starts_with("display MEM-1: "), "{log:#?}");
+        assert_eq!(renderer(&log), ["gpu", "cpu"], "{log:#?}");
+        assert_eq!(
+            *gpu.set_ups.lock().unwrap(),
+            [(PathBuf::from("/dev/mem0"), ID)],
+            "tried once"
+        );
+        assert!(
+            shown == cpu_shown,
+            "the frame shown differs from the CPU path's"
+        );
+        assert!(
+            whole == cpu_whole,
+            "the frame drawn whole differs from the CPU path's"
+        );
+    }
+
+    /// The same through this machine's first render node, on its GPU. It
+    /// opens a render node, which needs no DRM master, and runs only when
+    /// asked.
+    #[test]
+    #[ignore = "needs a GPU's render node: cargo test -p vtium --features gpu --test boot -- --ignored gpu_path"]
+    fn a_head_on_a_gpus_render_node_draws_the_cpu_paths_frame() {
+        let node = std::fs::read_dir("/dev/dri")
+            .expect("/dev/dri")
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| {
+                p.file_name()
+                    .is_some_and(|n| n.to_string_lossy().starts_with("renderD"))
+            })
+            .min()
+            .expect("a render node");
+        let (cpu_shown, cpu_whole, _) = drawn(&[], GpuSource::Software);
+        let (shown, whole, log) = drawn(&["--hwaccel"], GpuSource::RenderNode(node));
+        assert_eq!(renderer(&log), ["gpu"], "{log:#?}");
+        assert!(
+            shown == cpu_shown,
+            "the frame shown differs from the CPU path's"
+        );
+        assert!(
+            whole == cpu_whole,
+            "the frame drawn whole differs from the CPU path's"
+        );
+    }
+
+    /// A head with hwaccel on the test's GPU, the script written and no
+    /// fault queued yet, and what the test sees of the GPU.
+    fn on_test_gpu() -> (Harness, Arc<TestGpu>) {
+        let gpu = Arc::new(TestGpu::default());
+        let args = ["--hwaccel", "--login", "--", "/bin/sh", "-c", SCRIPT];
+        let source = GpuSource::Test(Arc::clone(&gpu));
+        let mut h = Harness::boot_set(
+            &args,
+            FakeVt::new(),
+            Some(Box::new(Memory::default())),
+            no_fonts(),
+            |app| app.set_gpu_source(source),
+        );
+        assert!(h.until(BOUND, |a| {
+            a.screen_text().iter().any(|l| l.contains("done"))
+        }));
+        h.settled();
+        (h, gpu)
+    }
+
+    fn queue(gpu: &TestGpu, add: &[Fault]) {
+        gpu.faults.lock().unwrap().extend(add.iter().copied());
+    }
+
+    fn failed(lines: &[String]) -> usize {
+        lines
+            .iter()
+            .filter(|l| l.contains("the GPU path failed"))
+            .count()
+    }
+
+    // ADR-1303 D9: a GL error drops one frame from the GPU path, which the
+    // CPU path draws whole, and the next frame draws on the GPU path whole;
+    // a frame that draws counts the errors from nothing again
+    #[test]
+    fn a_gl_error_drops_one_frame_and_the_head_stays_on_the_gpu_path() {
+        let (_, cpu, _) = drawn(&[], GpuSource::Software);
+        let (mut h, gpu) = on_test_gpu();
+        logged();
+        for _ in 0..2 {
+            queue(&gpu, &[Fault::Gl]);
+            assert!(
+                h.drawn_now() == cpu,
+                "the failed frame differs from the CPU path's"
+            );
+            assert!(
+                gpu.faults.lock().unwrap().is_empty(),
+                "the frame raised no fault"
+            );
+            assert!(
+                h.drawn_now() == cpu,
+                "the next frame differs from the CPU path's"
+            );
+        }
+        let lines = logged();
+        assert_eq!(
+            (failed(&lines), renderer(&lines)),
+            (0, vec![]),
+            "{lines:#?}"
+        );
+    }
+
+    // ADR-1303 D9: a display's first frame the GPU path fails is logged
+    // once, naming the display's connector, and its later failed frames are
+    // not, while the head stays on the GPU path
+    #[test]
+    fn a_displays_failed_gpu_frames_are_logged_once_by_its_connector() {
+        let (mut h, gpu) = on_test_gpu();
+        logged();
+        for _ in 0..3 {
+            queue(&gpu, &[Fault::Gl]);
+            h.drawn_now();
+            h.drawn_now();
+        }
+        let all = logged();
+        let lines: Vec<&String> = all
+            .iter()
+            .filter(|l| l.contains("a frame failed on the GPU path"))
+            .collect();
+        assert_eq!(lines.len(), 1, "{all:#?}");
+        assert!(lines[0].starts_with("display MEM-1: "), "{all:#?}");
+        assert_eq!(failed(&all), 0, "the head left the GPU path: {all:#?}");
+    }
+
+    // ADR-1303 D9: a frame the GPU path draws and then fails to read back
+    // into the display's buffer is drawn again on the CPU path, after the
+    // renderer forgets its history, so the display's other buffer, drawn
+    // next at age 2, shows the pointer where it moved and nowhere else
+    #[test]
+    fn a_frame_whose_read_back_fails_leaves_no_ghost_in_the_other_buffer() {
+        // z writes Z at the top left and leaves the cursor where it is
+        const KEYS: &str =
+            "stty -echo; printf ready; while read -r k; do printf '\\0337\\033[1;1HZ\\0338'; done";
+        let shown = |hwaccel: bool| {
+            let gpu = Arc::new(TestGpu::default());
+            let args: Vec<&str> = hwaccel
+                .then_some("--hwaccel")
+                .into_iter()
+                .chain(["--no-blink", "--login", "--", "/bin/sh", "-c", KEYS])
+                .collect();
+            let source = GpuSource::Test(Arc::clone(&gpu));
+            let mut h = Harness::boot_set(
+                &args,
+                FakeVt::new(),
+                Some(Box::new(Memory::default())),
+                no_fonts(),
+                |app| app.set_gpu_source(source),
+            );
+            assert!(h.until(BOUND, |a| {
+                a.screen_text().iter().any(|l| l.contains("ready"))
+            }));
+            h.point(
+                [PointerEvent::Moved {
+                    x: 20,
+                    y: 20,
+                    held: None,
+                }],
+                Mods::empty(),
+            );
+            let second = h.memory().drawn.lock().unwrap().clone();
+            h.memory().double = Some((Arc::new(Mutex::new(second)), 0));
+            h.drawn_now();
+            h.drawn_now();
+            if hwaccel {
+                logged();
+                queue(&gpu, &[Fault::LostAtRead]);
+            }
+            // the frame that moves the pointer, then one that writes Z
+            let before = h.memory().frames;
+            h.point(
+                [PointerEvent::Moved {
+                    x: 100,
+                    y: 60,
+                    held: None,
+                }],
+                Mods::empty(),
+            );
+            assert!(
+                h.until_memory(BOUND, |m| m.frames > before),
+                "the move drawn"
+            );
+            h.settled();
+            let before = h.memory().frames;
+            h.type_str("z\r");
+            assert!(h.until_memory(BOUND, |m| m.frames > before), "Z drawn");
+            assert!(h.until(BOUND, |a| a.screen_text().iter().any(|l| l.contains('Z'))));
+            h.settled();
+            assert!(gpu.faults.lock().unwrap().is_empty(), "the fault raised");
+            if hwaccel {
+                let lines = logged();
+                assert_eq!(failed(&lines), 1, "the read ended the GPU path: {lines:#?}");
+            }
+            assert_eq!(h.memory().ages.last(), Some(&2), "the last frame at age 2");
+            h.memory().pixels.clone()
+        };
+        let cpu = shown(false);
+        let gpu = shown(true);
+        assert!(gpu == cpu, "the buffer shown differs from the CPU path's");
+    }
+
+    // ADR-1303 D9, D10: a GL error in two frames in a row, out of memory or
+    // a lost context leaves the GPU path until vtium restarts, said once,
+    // with the display's line again naming cpu, and the frames are the CPU
+    // path's from then on
+    #[test]
+    fn a_second_error_running_out_of_memory_or_a_lost_context_leave_the_gpu_path_once() {
+        let (_, cpu, _) = drawn(&[], GpuSource::Software);
+        for fatal in [
+            &[Fault::Gl, Fault::Gl][..],
+            &[Fault::OutOfMemory],
+            &[Fault::ContextLost],
+        ] {
+            let (mut h, gpu) = on_test_gpu();
+            logged();
+            queue(&gpu, fatal);
+            for _ in fatal {
+                assert!(h.drawn_now() == cpu, "{fatal:?}: a failed frame differs");
+            }
+            let lines = logged();
+            assert_eq!(failed(&lines), 1, "{fatal:?}: {lines:#?}");
+            assert_eq!(renderer(&lines), ["cpu"], "{fatal:?}: {lines:#?}");
+            // nothing raises a fault now: the head draws on the CPU path
+            queue(&gpu, &[Fault::Gl]);
+            assert!(h.drawn_now() == cpu, "{fatal:?}: a CPU frame differs");
+            assert_eq!(
+                gpu.faults.lock().unwrap().len(),
+                1,
+                "{fatal:?}: the GPU path drew"
+            );
+            let lines = logged();
+            assert_eq!((failed(&lines), renderer(&lines)), (0, vec![]), "{fatal:?}");
+        }
+    }
+
+    // ADR-1303 D11 part 6: a display that leaves frees what the GPU path
+    // kept for it, its frames in GL and its glyphs, and one that comes back
+    // is drawn on the GPU path again
+    #[test]
+    fn a_display_that_leaves_frees_what_the_gpu_path_kept_for_it() {
+        use std::sync::atomic::Ordering::SeqCst;
+        let (mut h, gpu) = on_test_gpu();
+        assert_eq!(
+            gpu.kept.load(SeqCst),
+            1,
+            "the display drawn on the GPU path"
+        );
+        h.memory().events.push(Event::Removed(ID));
+        assert!(
+            h.until(BOUND, |_| gpu.kept.load(SeqCst) == 0),
+            "the display's frames kept after it left"
+        );
+        h.memory().events.push(Event::Added(ID));
+        assert!(
+            h.until(BOUND, |_| gpu.kept.load(SeqCst) == 1),
+            "the display that came back not drawn on the GPU path"
+        );
+    }
+
+    #[test]
+    fn a_head_whose_gpu_cannot_start_logs_the_step_and_draws_on_the_cpu_path() {
+        let (cpu_shown, _, _) = drawn(&[], GpuSource::Software);
+        let missing = GpuSource::RenderNode(PathBuf::from("/nonexistent/renderD128"));
+        let (shown, whole, log) = drawn(&["--hwaccel"], missing);
+        assert_eq!(renderer(&log), ["cpu"], "{log:#?}");
+        assert!(
+            log.iter().any(
+                |l| l.contains("the GPU path's set-up failed at the render node")
+                    && l.contains("/nonexistent/renderD128")
+            ),
+            "{log:#?}"
+        );
+        assert!(shown == cpu_shown, "the frame differs from the CPU path's");
+        assert!(whole.iter().any(|&b| b != 0));
+    }
 }

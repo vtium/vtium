@@ -1,4 +1,18 @@
-//! A context's draws, clears, submits and reads.
+//! A context's draws, clears, submits, waits and reads.
+//!
+//! A frame ends with a submit, which gives a fence, and a wait on it before
+//! the display shows the buffer. The display flips to the buffer through
+//! its dma-buf, and the kernel waits on the dma-buf's implicit fence only
+//! once the driver has sent it the frame's work; a driver that queues GL
+//! calls to a worker thread, as Mesa's glthread does, may return from
+//! `glFlush` before then. So the render thread waits for the GPU itself:
+//! an EGL fence sync made after the frame's commands and waited on with
+//! `eglClientWaitSync`, or `glFinish` where the display or GL makes no
+//! fence sync. Passing a fence's descriptor with an atomic commit as the
+//! plane's `IN_FENCE_FD` would let the kernel wait instead, but a card
+//! without atomic commits flips through the legacy page flip, which takes
+//! no fence, and the wait on the render thread serves both and keeps the
+//! descriptor out of the buffer's token.
 //!
 //! A draw is one instanced draw of a strip of four vertices per quad: each
 //! quad's `dst` at attribute location 0 as an `ivec4` and its `src` and
@@ -8,9 +22,23 @@
 
 use glow::HasContext;
 
-use super::{Context, INSTANCE_BYTES, int, ints, misuse, name};
+use khronos_egl as egl;
+
+use super::{Context, INSTANCE_BYTES, WaitFault, int, ints, misuse, name};
 use crate::display::Rect;
-use crate::gpu::Error;
+use crate::gpu::{Error, ErrorKind};
+
+/// An EGL error as the context's: out of memory and a lost context keep
+/// their kinds, which leave the GPU path (ADR-1303 D9), and any other is
+/// an error of its EGL code.
+fn egl_error(call: &str, e: egl::Error) -> Error {
+    let kind = match e {
+        egl::Error::BadAlloc => ErrorKind::OutOfMemory,
+        egl::Error::ContextLost => ErrorKind::ContextLost,
+        other => ErrorKind::Gl(egl::Int::from(other).unsigned_abs()),
+    };
+    Error::new(kind, format!("{call}: {e}"))
+}
 
 /// How a texture is sampled where a texel does not meet a pixel.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -201,17 +229,109 @@ impl Context {
         Ok(())
     }
 
-    /// Sends the queued commands to the GPU: `glFlush`. The display shows
-    /// the buffer through its dma-buf, whose implicit fence the kernel
-    /// waits on before it scans the buffer out.
-    pub fn submit(&mut self) -> Result<(), Error> {
+    /// Ends a frame: makes a fence after the queued commands, and gives
+    /// its name for [`Context::wait`], which sends the commands to the GPU
+    /// and waits.
+    /// Where the context makes no fence sync, `glFinish` waits for the GPU
+    /// here, and the wait finds the frame finished.
+    pub fn submit(&mut self) -> Result<u32, Error> {
         self.current()?;
-        // SAFETY: a GL call on the current context.
-        #[expect(unsafe_code, reason = "glFlush")]
-        unsafe {
-            self.gl.flush();
+        let sync = if self.fence_sync {
+            Some(
+                self.egl
+                    .fence()
+                    .map_err(|e| egl_error("eglCreateSync", e))?,
+            )
+        } else {
+            // SAFETY: a GL call on the current context.
+            #[expect(unsafe_code, reason = "glFinish")]
+            unsafe {
+                self.gl.finish();
+            }
+            None
+        };
+        self.last_fence = self.last_fence.wrapping_add(1).max(1);
+        self.fences.insert(self.last_fence, sync);
+        Ok(self.last_fence)
+    }
+
+    /// Waits until the GPU has done every command before the fence
+    /// `fence` that [`Context::submit`] gave, and forgets it. Refused,
+    /// reaching no EGL, for a name no submit gave or a wait already took.
+    /// A GPU that has not passed the fence within `GPU_FENCE_WAIT_MS`, or
+    /// that was reset meanwhile, fails it as a lost context, so the frame
+    /// never reaches the screen and the head leaves the GPU path (ADR-1303
+    /// D9). A test's fault for the wait ends with it, whichever way it
+    /// returns.
+    pub fn wait(&mut self, fence: u32) -> Result<(), Error> {
+        let fault = self.wait_fault.take();
+        let sync = self
+            .fences
+            .remove(&fence)
+            .ok_or_else(|| misuse(format!("no fence {fence} waits")))?;
+        let Some(sync) = sync else {
+            return Ok(());
+        };
+        if let Err(e) = self.current() {
+            self.egl.destroy_sync(sync);
+            return Err(e);
+        }
+        let ms = crate::bounds::GPU_FENCE_WAIT_MS;
+        let ns = u64::try_from(ms)
+            .unwrap_or(u64::MAX)
+            .saturating_mul(1_000_000);
+        let signalled = self
+            .egl
+            .wait(sync, ns)
+            .map_err(|e| egl_error("eglClientWaitSync", e))?
+            && fault != Some(WaitFault::TimedOut);
+        if !signalled {
+            return Err(Error::new(
+                ErrorKind::ContextLost,
+                format!("the GPU did not finish the frame within {ms} ms"),
+            ));
+        }
+        // a reset that killed the frame shows in the reset status, not the
+        // fence
+        if self.reset() != glow::NO_ERROR || fault == Some(WaitFault::Reset) {
+            return Err(Error::new(ErrorKind::ContextLost, "the GPU was reset"));
         }
         Ok(())
+    }
+
+    // How many fences a submit gave and no wait has taken: for the tests
+    // that a frame's fence is waited on.
+    #[doc(hidden)]
+    pub fn pending_fences(&self) -> usize {
+        self.fences.len()
+    }
+
+    // The count of EGL fences made and not destroyed, which outlives the
+    // context: for the tests that each fence is destroyed.
+    #[doc(hidden)]
+    pub fn live_syncs(&self) -> std::rc::Rc<std::cell::Cell<usize>> {
+        self.egl.syncs()
+    }
+
+    // Makes the next wait find its fence not passed within the bound, after
+    // it has waited: for the test of what a wait that times out gives.
+    #[doc(hidden)]
+    pub fn time_out_next_wait(&mut self) {
+        self.wait_fault = Some(WaitFault::TimedOut);
+    }
+
+    // Makes the next wait find the GPU reset once its fence passed: for the
+    // test of what a wait that finds a reset gives.
+    #[doc(hidden)]
+    pub fn reset_in_next_wait(&mut self) {
+        self.wait_fault = Some(WaitFault::Reset);
+    }
+
+    // Ends every frame with glFinish in place of a fence sync, as on a
+    // display or GL that makes none: for the test of that path.
+    #[doc(hidden)]
+    pub fn force_finish(&mut self) {
+        self.fence_sync = false;
     }
 
     /// Reads `rect` of `framebuffer` into `out`, RGBA8 rows with no gap

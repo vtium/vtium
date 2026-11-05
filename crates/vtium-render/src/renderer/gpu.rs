@@ -110,7 +110,11 @@ impl<F: Face> Renderer<F> {
     ///
     /// A frame that fails leaves the pipeline to compose its next frame
     /// whole, and the error says what failed, for the head to sort
-    /// (ADR-1303 D9).
+    /// (ADR-1303 D9). A frame that fails after the renderer planned it also
+    /// makes the renderer forget its history, since that history already
+    /// records the failed frame's changes as drawn: the next frame draws
+    /// every cell and the border, and so does the first later frame into
+    /// each other buffer.
     #[expect(
         clippy::disallowed_methods,
         reason = "the render timer's CPU time per frame"
@@ -153,7 +157,10 @@ impl<F: Face> Renderer<F> {
         // the upright frame holds the last frame composed, unless the
         // pipeline composes it whole
         let plan = self.plan(frame, if begun.whole { 0 } else { 1 }, state);
-        let glyphs = pipeline.glyphs()?;
+        let glyphs = match pipeline.glyphs() {
+            Ok(glyphs) => glyphs,
+            Err(e) => return Err(self.failed_after_plan(e)),
+        };
         glyphs.forget(&sorted(&core::mem::take(&mut self.gpu.forget)));
         let mut back = GpuBack::new(gl, &mut *glyphs, turn);
         let counts = self.paint(&plan, frame, state, &mut back);
@@ -170,7 +177,7 @@ impl<F: Face> Renderer<F> {
         let stats = drawn.stats;
         if let Some(e) = error {
             pipeline.redraw_whole();
-            return Err(e);
+            return Err(self.failed_after_plan(e));
         }
         let work = Work {
             border,
@@ -196,7 +203,10 @@ impl<F: Face> Renderer<F> {
             #[cfg(feature = "images")]
             marks: &marks,
         };
-        let damage = pipeline.frame(gl, &work, target, age)?;
+        let damage = match pipeline.frame(gl, &work, target, age) {
+            Ok(damage) => damage,
+            Err(e) => return Err(self.failed_after_plan(e)),
+        };
         Ok(Drawn {
             damage: self.cells.set_damage(damage),
             stats: Stats {
@@ -205,6 +215,14 @@ impl<F: Face> Renderer<F> {
                 ..stats
             },
         })
+    }
+
+    /// A frame failed after its plan stamped its changes into the
+    /// renderer's history, though no buffer shows them: the renderer
+    /// forgets its history ([`Renderer::forget_history`]). Gives `e` back.
+    fn failed_after_plan(&mut self, e: Error) -> Error {
+        self.forget_history();
+        e
     }
 
     /// The frame's pictures for slot 1, in draw order, in the upright

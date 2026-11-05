@@ -24,9 +24,10 @@ from t3_evaluate import (BENCHMARKS, CASES, DRAWS_PICTURES, IMAGE_SCREENS, KEYED
 from t3_qemu import Qemu, char_qcodes, make_iso, not_blank, wait_stable
 
 # Display variants. Each boots its own guest from the base image, with its
-# own vCPUs and memory, and names the text renderer its console must log:
-# bbulk for the 2D variants, gltex on virgl for the GL one, which the C
-# reference drew with and vtium does not yet. Each draws every screen, the
+# own vCPUs and memory, and names the text renderer its console must log
+# (ADR-1303 D10): cpu for the 2D variants, gpu for gpu-1280x800, and gltex
+# on virgl for the GL one, the C reference's GPU renderer, which vtium
+# never names, so that variant fails until its goldens are vtium's. Each draws every screen, the
 # image ones included (t3_evaluate.IMAGE_SCREENS), so its console is built
 # with images ("tree_features"). The C reference drew the 2D ones' goldens
 # in DejaVu Sans Mono through pango, and vtium draws the font through its
@@ -43,7 +44,7 @@ VARIANTS = {
         "device": "virtio-vga,xres=1280,yres=800,edid=on",
         "display": "none",
         "conf": "kmscon.conf",
-        "renderer": "bbulk",
+        "renderer": "cpu",
         "cpus": 4,
         "memory_mb": 4096,
         "tree_features": ["images"],
@@ -56,7 +57,7 @@ VARIANTS = {
         "device": "virtio-vga,xres=1366,yres=768,edid=on",
         "display": "none",
         "conf": "kmscon.conf",
-        "renderer": "bbulk",
+        "renderer": "cpu",
         "cpus": 1,
         "memory_mb": 512,
         "tree_features": ["images"],
@@ -71,7 +72,7 @@ VARIANTS = {
         "device": "virtio-vga,xres=1366,yres=768,edid=on",
         "display": "none",
         "conf": "kmscon-minimal.conf",
-        "renderer": "bbulk",
+        "renderer": "cpu",
         "cpus": 1,
         "memory_mb": 512,
         "images": False,
@@ -82,7 +83,7 @@ VARIANTS = {
         "device": "virtio-vga,xres=1366,yres=768,edid=on",
         "display": "none",
         "conf": "kmscon-minimal-psf.conf",
-        "renderer": "bbulk",
+        "renderer": "cpu",
         "cpus": 1,
         "memory_mb": 512,
         "images": False,
@@ -105,7 +106,7 @@ VARIANTS = {
         "device": "virtio-vga,xres=320,yres=240,edid=on",
         "display": "none",
         "conf": "kmscon-small-8x8.conf",
-        "renderer": "bbulk",
+        "renderer": "cpu",
         "cpus": 1,
         "memory_mb": 512,
         "images": False,
@@ -118,7 +119,7 @@ VARIANTS = {
         "device": "virtio-vga,xres=640,yres=480,edid=on",
         "display": "none",
         "conf": "kmscon-small-8x16.conf",
-        "renderer": "bbulk",
+        "renderer": "cpu",
         "cpus": 1,
         "memory_mb": 512,
         "images": False,
@@ -138,7 +139,7 @@ VARIANTS = {
         "device": "virtio-vga,xres=640,yres=480,edid=on",
         "display": "none",
         "conf": "kmscon-frit.conf",
-        "renderer": "bbulk",
+        "renderer": "cpu",
         "cpus": 1,
         "memory_mb": 512,
         "images": False,
@@ -150,7 +151,7 @@ VARIANTS = {
         "device": "virtio-vga,xres=640,yres=480,edid=on",
         "display": "none",
         "conf": "kmscon-frit.conf",
-        "renderer": "bbulk",
+        "renderer": "cpu",
         "cpus": 1,
         "memory_mb": 512,
         "images": False,
@@ -165,7 +166,7 @@ VARIANTS = {
         "device": "virtio-vga,xres=7680,yres=2160,edid=on,max_hostmem=1G",
         "display": "none",
         "conf": "kmscon.conf",
-        "renderer": "bbulk",
+        "renderer": "cpu",
         "cpus": 4,
         "memory_mb": 4096,
         "tree_features": ["images"],
@@ -179,7 +180,7 @@ VARIANTS = {
         "device": "virtio-vga,xres=7680,yres=2160,edid=on,max_hostmem=1G",
         "display": "none",
         "conf": "kmscon-font32.conf",
-        "renderer": "bbulk",
+        "renderer": "cpu",
         "cpus": 4,
         "memory_mb": 4096,
         "tree_features": ["images"],
@@ -196,7 +197,33 @@ VARIANTS = {
         "memory_mb": 4096,
         "tree_features": ["images"],
     },
+    # The GPU path on the installed console (ADR-1303): 2d-1280x800's
+    # display on virtio-gpu with virgl, whose render node in the guest the
+    # head makes its GL context on, with hwaccel on (kmscon-hwaccel.conf).
+    # The log must name the gpu renderer for every display, and each case
+    # is judged by 2d-1280x800's capture of it in the same run, byte for
+    # byte (SAME_AS_CAPTURE), since the GPU path draws the CPU path's bytes
+    # (ADR-1303 D1), as tier 2 judges it; no golden judges it.
+    "gpu-1280x800": {
+        "device": "virtio-vga-gl,xres=1280,yres=800,edid=on",
+        "display": "egl-headless,rendernode=%s"
+                   % os.environ.get("T3_RENDERNODE", "/dev/dri/renderD128"),
+        "conf": "kmscon-hwaccel.conf",
+        "renderer": "gpu",
+        "capture": "vnc",
+        "cpus": 4,
+        "memory_mb": 4096,
+        "tree_features": ["gpu", "images"],
+        "verdict": "capture",
+    },
 }
+
+# A variant judged by another's captures of the same run, case by case and
+# byte for byte, in place of goldens: the GPU path's console by the CPU
+# path's (ADR-1303 D1). Its cases carry the status capture until
+# judge_by_capture judges them, which a run that leaves the other variant
+# out refuses to do.
+SAME_AS_CAPTURE = {"gpu-1280x800": "2d-1280x800"}
 
 # The power keys (vtium/vtium#21) on the minspec machine, with the
 # minimal configuration and the keys bound (guest/kmscon-power.conf). Each
@@ -216,7 +243,7 @@ POWER = {
     "device": "virtio-vga,xres=1366,yres=768,edid=on",
     "display": "none",
     "conf": "kmscon-power.conf",
-    "renderer": "bbulk",
+    "renderer": "cpu",
     "cpus": 1,
     "memory_mb": 512,
     "images": False,
@@ -254,7 +281,7 @@ SYSVINIT = {
     "device": "virtio-vga,xres=640,yres=480,edid=on",
     "display": "none",
     "conf": "kmscon-small-8x16.conf",
-    "renderer": "bbulk",
+    "renderer": "cpu",
     "cpus": 1,
     "memory_mb": 512,
     "images": False,
@@ -288,7 +315,7 @@ DEVICES = {
     "device": "virtio-vga,id=video0,xres=640,yres=480,edid=on",
     "display": "none",
     "conf": "kmscon-small-8x16.conf",
-    "renderer": "bbulk",
+    "renderer": "cpu",
     "cpus": 1,
     "memory_mb": 512,
     "images": False,
@@ -349,7 +376,7 @@ VARIANTS["showcase-1920x1080"] = {
     "device": "virtio-vga,xres=1920,yres=1080,edid=on",
     "display": "none",
     "conf": "kmscon-showcase.conf",
-    "renderer": "bbulk",
+    "renderer": "cpu",
     "cpus": 4,
     "memory_mb": 4096,
     "tree_features": ["images"],
@@ -561,6 +588,49 @@ def golden_root(variant, case):
         if golden is not None and os.path.exists(golden):
             return VTIUM_GOLDEN
     return None
+
+
+def judge_by_capture(variants, results):
+    """Judges each case of each variant of `variants` that SAME_AS_CAPTURE
+    names by the other variant's capture of the same case in this run, in
+    `results` ({variant: (cases, meta)}): pass where the two captures are
+    byte-identical, fail where they differ or either is missing, and fail
+    every case when the run did not draw the other variant. A case the
+    scenario already failed, or passed on the guest's state with no
+    capture, keeps its status."""
+    for variant in variants:
+        other = SAME_AS_CAPTURE.get(variant)
+        if other is None:
+            continue
+        theirs = None
+        if other in variants:
+            theirs = {c["name"].split("/", 1)[1]: c for c in results[other][0]}
+        for entry in results[variant][0]:
+            if entry["status"] != "capture":
+                continue
+            case = entry["name"].split("/", 1)[1]
+            entry["status"] = "fail"
+            if theirs is None:
+                entry["error"] = ("judged by %s's capture in the same run, which this run "
+                                  "did not draw" % other)
+                continue
+            mine = os.path.join(RUNDIR, variant, case + ".ppm")
+            other_ppm = os.path.join(RUNDIR, other, case + ".ppm")
+            if case not in theirs or not os.path.exists(other_ppm):
+                entry["error"] = "%s drew no capture of %s" % (other, case)
+                continue
+            a, b = t3img.read(mine), t3img.read(other_ppm)
+            entry["golden"] = rel(other_ppm)
+            if (a.width, a.height) != (b.width, b.height):
+                entry["error"] = ("%dx%d, where %s's is %dx%d"
+                                  % (a.width, a.height, other, b.width, b.height))
+            elif a.data != b.data:
+                differ = sum(1 for i in range(0, len(a.data), 3)
+                             if a.data[i:i + 3] != b.data[i:i + 3])
+                entry["error"] = "%d pixel(s) differ from %s's capture" % (differ, other)
+            else:
+                entry["status"] = "pass"
+                entry["note"] = "byte-identical to %s's capture in the same run" % other
 
 
 def evaluate_variant(variant, caps, meta, log):

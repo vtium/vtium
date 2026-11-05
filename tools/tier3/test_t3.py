@@ -1457,7 +1457,7 @@ class VariantTest(unittest.TestCase):
     def test_potato(self):
         # The minspec machine, in the default run.
         v = t3_scenario.VARIANTS["2d-1366x768-potato"]
-        self.assertEqual((v["cpus"], v["memory_mb"], v["renderer"]), (1, 512, "bbulk"))
+        self.assertEqual((v["cpus"], v["memory_mb"], v["renderer"]), (1, 512, "cpu"))
         self.assertIn("xres=1366,yres=768", v["device"])
         self.assertFalse(t3_scenario.uses_virgl("2d-1366x768-potato"))
         self.assertIn("2d-1366x768-potato", t3_scenario.DEFAULT_VARIANTS)
@@ -4745,6 +4745,72 @@ class RebaselinedTest(unittest.TestCase):
         self.assertEqual(goldens["sgr"],
                          t3_common.rel(os.path.join(self.c, self.VARIANT, "sgr.png")))
 
+    def test_the_gpu_variant_is_judged_by_the_cpu_paths_captures(self):
+        # gpu-1280x800 draws 2d-1280x800's screens with hwaccel on, on a
+        # guest render node, must log the gpu renderer, and no golden
+        # judges it: each case is judged by 2d-1280x800's capture of it in
+        # the same run, byte for byte (ADR-1303 D1)
+        v = t3_scenario.VARIANTS["gpu-1280x800"]
+        self.assertEqual((v["renderer"], v["conf"], v["verdict"]),
+                         ("gpu", "kmscon-hwaccel.conf", "capture"))
+        self.assertEqual(t3_scenario.SAME_AS_CAPTURE["gpu-1280x800"], "2d-1280x800")
+        self.assertTrue(t3_scenario.uses_virgl("gpu-1280x800"))
+        self.assertIn("gpu", v["tree_features"])
+        self.assertNotIn("gpu-1280x800", t3_scenario.vtium_golden_cases())
+        self.assertNotIn("gpu-1280x800", t3_scenario.c_golden_cases())
+        with open(os.path.join(t3_common.GUEST, v["conf"])) as f:
+            self.assertIn("\nhwaccel\n", f.read())
+        # a console that drew the variant on the CPU path fails every case
+        errors, drop = t3_scenario.variant_errors(
+            None, ["Display Virtual-1 with backend [drm2d] text renderer [cpu], cell size 10x19"],
+            "gpu", {}, {}, None)
+        self.assertTrue(drop)
+        self.assertIn("did not draw with gpu", errors[0])
+
+    def test_judge_by_capture_passes_identical_bytes_and_refuses_a_run_without_the_cpu_variant(self):
+        run = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, run)
+        black = t3img.Image(2, 2, bytes(12))
+        white = t3img.Image(2, 2, bytes([255]) * 12)
+        for variant, case, img in (("gpu-1280x800", "same", black),
+                                   ("2d-1280x800", "same", black),
+                                   ("gpu-1280x800", "other", black),
+                                   ("2d-1280x800", "other", white),
+                                   ("gpu-1280x800", "lonely", black)):
+            os.makedirs(os.path.join(run, variant), exist_ok=True)
+            t3img.write_png(os.path.join(run, variant, case + ".ppm"), img)
+
+        def entry(variant, case, status):
+            return {"name": "%s/%s" % (variant, case), "status": status}
+
+        def results():
+            gpu = [entry("gpu-1280x800", c, "capture") for c in ("same", "other", "lonely")]
+            gpu += [entry("gpu-1280x800", "broken", "fail"),
+                    entry("gpu-1280x800", "vt-switch", "pass")]
+            cpu = [entry("2d-1280x800", c, "fail") for c in ("same", "other")]
+            return {"gpu-1280x800": (gpu, {}), "2d-1280x800": (cpu, {})}
+
+        with mock.patch.object(t3_scenario, "RUNDIR", run):
+            both = results()
+            t3_scenario.judge_by_capture(["2d-1280x800", "gpu-1280x800"], both)
+            got = {e["name"].split("/")[1]: (e["status"], e.get("error"))
+                   for e in both["gpu-1280x800"][0]}
+            # the CPU variant's own verdict, here a C golden's failure,
+            # does not move to the GPU variant
+            self.assertEqual(got["same"], ("pass", None))
+            self.assertEqual(got["other"],
+                             ("fail", "4 pixel(s) differ from 2d-1280x800's capture"))
+            self.assertEqual(got["lonely"], ("fail", "2d-1280x800 drew no capture of lonely"))
+            self.assertEqual(got["broken"], ("fail", None))
+            self.assertEqual(got["vt-switch"], ("pass", None))
+            self.assertEqual([e["status"] for e in both["2d-1280x800"][0]], ["fail", "fail"])
+            # a run without 2d-1280x800 judges nothing as passed
+            alone = results()
+            t3_scenario.judge_by_capture(["gpu-1280x800"], alone)
+            for e in alone["gpu-1280x800"][0][:3]:
+                self.assertEqual(e["status"], "fail", e["name"])
+                self.assertIn("which this run did not draw", e["error"])
+
     def test_rebaselined_goldens_are_cases(self):
         # A golden under goldens/ of a re-baselined variant must be one of
         # its cases, and the C reference's golden of the same case stays in
@@ -4836,7 +4902,7 @@ class ShowcaseTest(unittest.TestCase):
         v = t3_scenario.VARIANTS[self.VARIANT]
         self.assertIn("xres=1920,yres=1080", v["device"])
         self.assertEqual((v["cpus"], v["memory_mb"], v["renderer"], v["tree_features"]),
-                         (4, 4096, "bbulk", ["images"]))
+                         (4, 4096, "cpu", ["images"]))
         self.assertEqual((v["verdict"], v["conf"]), ("capture", "kmscon-showcase.conf"))
         self.assertEqual(t3_scenario.variant_cases(self.VARIANT), self.SCREENS)
         self.assertEqual(t3_showcase.SCREENS, self.SCREENS)

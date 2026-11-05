@@ -9,8 +9,8 @@
 //! README lists what the ledger refuses, and what only a real driver can
 //! refuse, which the stand-in cannot see.
 //!
-//! Every handle the trait gives out, a [`Texture`], a [`DrawTarget`] or a
-//! [`Program`], is an owned value that names the context that made it. It
+//! Every handle the trait gives out, a [`Texture`], a [`DrawTarget`], a
+//! [`Program`] or a [`Fence`], is an owned value that names the context that made it. It
 //! cannot be copied, and freeing it consumes it. A call with a handle that
 //! was freed, or that another context made, returns an error of kind
 //! [`ErrorKind::Handle`], so nothing the renderer does through the trait is
@@ -167,6 +167,13 @@ impl DrawTarget {
 /// A program compiled from the renderer's own shader source.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Program(pub(super) Handle);
+
+/// A point in a context's commands that the GPU passes once it has done
+/// every command before it: the end of a frame, which [`Gl::submit`] gives
+/// and [`Gl::wait`] waits on and frees.
+#[derive(Debug, PartialEq, Eq)]
+#[must_use = "a frame's fence is waited on before the display shows the buffer"]
+pub struct Fence(pub(super) Handle);
 
 /// The kind of a program's named input, a uniform of its source.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -406,9 +413,15 @@ pub trait Gl {
     fn draw(&mut self, draw: &Draw<'_>) -> Result<(), Error>;
 
     /// Ends the frame drawn into `target`: sends its queued commands to the
-    /// GPU, so that the display can show the buffer. The implementation
-    /// chooses how, such as `glFlush` or an EGL fence.
-    fn submit(&mut self, target: &DrawTarget) -> Result<(), Error>;
+    /// GPU and gives a fence after them, which [`Gl::wait`] waits on before
+    /// the display shows the buffer.
+    fn submit(&mut self, target: &DrawTarget) -> Result<Fence, Error>;
+
+    /// Waits until the GPU has passed `fence`, so that every command before
+    /// it is done, and frees it. The render thread waits before it gives
+    /// the buffer back to the display, which then flips to a finished
+    /// frame.
+    fn wait(&mut self, fence: Fence) -> Result<(), Error>;
 
     /// Reads GL's errors since the last check, for the batch that just
     /// ended. The error names the batch.

@@ -15,7 +15,7 @@ use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use super::gl::{
-    ContextId, Draw, DrawTarget, Error, ErrorKind, Filter, Format, Handle, Input, InputKind,
+    ContextId, Draw, DrawTarget, Error, ErrorKind, Fence, Filter, Format, Handle, Input, InputKind,
     Limits, Program, Size, Source, Texture, Value,
 };
 use crate::target::Rect;
@@ -81,6 +81,8 @@ pub struct Ledger {
     textures: BTreeMap<u64, TextureInfo>,
     targets: BTreeMap<u64, TargetInfo>,
     programs: BTreeMap<u64, ProgramInfo>,
+    /// Each fence not yet waited on, with the implementation's name for it.
+    fences: BTreeMap<u64, u32>,
 }
 
 fn misuse(detail: impl Into<String>) -> Error {
@@ -98,6 +100,7 @@ impl Ledger {
             textures: BTreeMap::new(),
             targets: BTreeMap::new(),
             programs: BTreeMap::new(),
+            fences: BTreeMap::new(),
         }
     }
 
@@ -119,6 +122,42 @@ impl Ledger {
     /// How many textures, targets and programs are live.
     pub fn live(&self) -> (usize, usize, usize) {
         (self.textures.len(), self.targets.len(), self.programs.len())
+    }
+
+    /// How many fences are given out and not yet waited on.
+    pub fn fences(&self) -> usize {
+        self.fences.len()
+    }
+
+    /// Checks that `target` is live and this context's, and on success runs
+    /// `submit`, which sends the frame's commands and makes a fence after
+    /// them, and gives its name.
+    pub fn submit(
+        &mut self,
+        target: &DrawTarget,
+        submit: impl FnOnce(TargetInfo) -> Result<u32, Error>,
+    ) -> Result<Fence, Error> {
+        let info = self.target(target)?;
+        let name = submit(info)?;
+        let h = self.handle();
+        self.fences.insert(h.serial, name);
+        Ok(Fence(h))
+    }
+
+    /// Checks that `fence` is this context's and not yet waited on, and on
+    /// success runs `wait` with its name and forgets it. A wait that fails
+    /// forgets it too: the implementation frees the fence either way.
+    pub fn wait(
+        &mut self,
+        fence: Fence,
+        wait: impl FnOnce(u32) -> Result<(), Error>,
+    ) -> Result<(), Error> {
+        let serial = self.own(&fence.0, "fence")?;
+        let name = self
+            .fences
+            .remove(&serial)
+            .ok_or_else(|| Error::new(ErrorKind::Handle, "the fence was waited on"))?;
+        wait(name)
     }
 
     /// Fails once the context is lost.

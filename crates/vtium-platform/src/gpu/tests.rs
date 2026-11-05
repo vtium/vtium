@@ -751,7 +751,8 @@ fn a_gbm_buffer_imports_as_a_target_that_draws() {
         Blend::Replace,
         None,
     );
-    gl.submit().unwrap();
+    let fence = gl.submit().unwrap();
+    gl.wait(fence).unwrap();
     gl.check().unwrap();
     let mut out = vec![0u8; 64 * 32 * 4];
     gl.read(fb, rect(0, 0, 64, 32), &mut out).unwrap();
@@ -760,5 +761,110 @@ fn a_gbm_buffer_imports_as_a_target_that_draws() {
     assert_eq!(out[(30 * 64 + 60) * 4..][..4], [0xAB, 0xCD, 0xEF, 0xFF]);
     assert_eq!(out[(31 * 64 + 63) * 4..][..4], [0xAB, 0xCD, 0xEF, 0xFF]);
     gl.free_import(fb).unwrap();
+    gl.check().unwrap();
+}
+
+// the issue on the EGL sync before the flip: a frame ends with a fence
+// after its commands, an EGL fence sync on llvmpipe, which a wait takes
+// once, in any order; a name no submit gave, or one a wait took, is
+// refused before it reaches EGL
+#[test]
+fn a_frame_ends_with_a_fence_sync_that_a_wait_takes_once() {
+    let mut gl = software();
+    assert!(gl.fence_syncs(), "llvmpipe's EGL makes fence syncs");
+    let (fb, texture) = gl.create_frame(8, 8).unwrap();
+    gl.clear(fb, (8, 8), rect(0, 0, 8, 8), 0x20_4060).unwrap();
+    let first = gl.submit().unwrap();
+    gl.clear(fb, (8, 8), rect(0, 0, 4, 4), 0x80_A0C0).unwrap();
+    let second = gl.submit().unwrap();
+    assert_ne!(first, second);
+    gl.wait(second).unwrap();
+    gl.wait(first).unwrap();
+    for name in [first, second, 0, second + 1] {
+        assert_eq!(gl.wait(name).unwrap_err().kind, ErrorKind::Misuse, "{name}");
+    }
+    gl.check().unwrap();
+    let mut out = vec![0u8; 8 * 8 * 4];
+    gl.read(fb, rect(0, 0, 8, 8), &mut out).unwrap();
+    assert_eq!(out[..4], [0x80, 0xA0, 0xC0, 0xFF]);
+    assert_eq!(out[(7 * 8 + 7) * 4..][..4], [0x20, 0x40, 0x60, 0xFF]);
+    gl.free_frame(fb, texture).unwrap();
+    // every fence a wait took is destroyed
+    let live = gl.live_syncs();
+    assert_eq!(live.get(), 0);
+    // so is one whose wait failed before it reached EGL
+    let fence = gl.submit().unwrap();
+    assert_eq!(live.get(), 1);
+    gl.raise(ErrorKind::ContextLost);
+    assert_eq!(gl.wait(fence).unwrap_err().kind, ErrorKind::ContextLost);
+    assert_eq!(live.get(), 0);
+    // and one no wait took goes with its context
+    gl.submit().unwrap();
+    assert_eq!((live.get(), gl.pending_fences()), (1, 1));
+    drop(gl);
+    assert_eq!(live.get(), 0);
+}
+
+// ADR-1303 D9: a GPU that does not pass the frame's fence within
+// GPU_FENCE_WAIT_MS, or that was reset during the wait, fails the wait as
+// a lost context, and the fence is destroyed either way
+#[test]
+fn a_wait_that_times_out_or_finds_a_reset_is_a_lost_context() {
+    let mut gl = software();
+    assert!(gl.fence_syncs(), "llvmpipe's EGL makes fence syncs");
+    let live = gl.live_syncs();
+    let (fb, texture) = gl.create_frame(8, 8).unwrap();
+    for force in [Context::time_out_next_wait, Context::reset_in_next_wait] {
+        gl.clear(fb, (8, 8), rect(0, 0, 8, 8), 0x20_4060).unwrap();
+        let fence = gl.submit().unwrap();
+        force(&mut gl);
+        let e = gl.wait(fence).unwrap_err();
+        assert_eq!(e.kind, ErrorKind::ContextLost, "{e}");
+        assert_eq!((live.get(), gl.pending_fences()), (0, 0), "{e}");
+        // the next wait is a plain one
+        let fence = gl.submit().unwrap();
+        gl.wait(fence).unwrap();
+    }
+    gl.free_frame(fb, texture).unwrap();
+}
+
+// A fault a test sets for the next wait ends with that wait, whichever way
+// the wait returns: a wait that cannot make the context current leaves no
+// fault armed for the next frame's wait
+#[test]
+fn a_wait_fault_ends_with_the_wait_that_fails_first() {
+    let mut gl = software();
+    let (fb, texture) = gl.create_frame(8, 8).unwrap();
+    gl.clear(fb, (8, 8), rect(0, 0, 8, 8), 0x20_4060).unwrap();
+    let fence = gl.submit().unwrap();
+    gl.time_out_next_wait();
+    gl.raise(ErrorKind::Gl(0x0502));
+    let e = gl.wait(fence).unwrap_err();
+    assert_eq!(e.kind, ErrorKind::Gl(0x0502), "{e}");
+    gl.clear(fb, (8, 8), rect(0, 0, 8, 8), 0x20_4060).unwrap();
+    let fence = gl.submit().unwrap();
+    gl.wait(fence).unwrap();
+    gl.free_frame(fb, texture).unwrap();
+}
+
+// Where the display or GL makes no fence sync, a frame ends with glFinish:
+// the submit still gives a name, a wait takes it once, and the frame is
+// done
+#[test]
+fn without_fence_syncs_a_frame_ends_with_glfinish_and_its_name() {
+    let mut gl = software();
+    gl.force_finish();
+    let live = gl.live_syncs();
+    let (fb, texture) = gl.create_frame(4, 4).unwrap();
+    gl.clear(fb, (4, 4), rect(0, 0, 4, 4), 0x10_2030).unwrap();
+    let fence = gl.submit().unwrap();
+    assert_eq!((live.get(), gl.pending_fences()), (0, 1));
+    gl.wait(fence).unwrap();
+    assert_eq!(gl.wait(fence).unwrap_err().kind, ErrorKind::Misuse);
+    assert_eq!(gl.pending_fences(), 0);
+    let mut out = vec![0u8; 4 * 4 * 4];
+    gl.read(fb, rect(0, 0, 4, 4), &mut out).unwrap();
+    assert!(out.chunks(4).all(|p| p == [0x10, 0x20, 0x30, 0xFF]));
+    gl.free_frame(fb, texture).unwrap();
     gl.check().unwrap();
 }

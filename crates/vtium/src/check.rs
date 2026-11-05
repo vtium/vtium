@@ -89,14 +89,14 @@ fn init_catches(status: &str, signal: i32) -> Result<bool, String> {
 /// text, or the error's message) and `signal` is the power-off signal.
 fn semantics_under(config: &Config, status: &Result<String, String>, signal: i32) -> Vec<String> {
     let mut out = Vec::new();
-    // A key not built yet warns once a source sets it; `hwaccel` warns
-    // only when it is on, since off is what vtium does.
+    // `hwaccel` on in a build without the GPU path draws in software
+    // (ADR-1303 D9); off is what such a build does.
+    if !cfg!(feature = "gpu") && config.switch(&keys::HWACCEL) {
+        out.push(check_config::HWACCEL_NOT_IN_BUILD.to_owned());
+    }
+    // A key not built yet warns once a source sets it.
     for key in keys::NOT_BUILT {
-        if key.name == keys::HWACCEL.name {
-            if config.switch(key) {
-                out.push(check_config::HWACCEL_NOT_BUILT.to_owned());
-            }
-        } else if config.origin(key).is_some_and(|o| *o != Origin::Default) {
+        if config.origin(key).is_some_and(|o| *o != Origin::Default) {
             out.push(check_config::not_built(key.name));
         }
     }
@@ -696,22 +696,32 @@ mod tests {
     }
 
     #[test]
-    fn a_key_not_built_yet_warns() {
+    fn hwaccel_warns_only_in_a_build_without_the_gpu_path() {
         let (lines, status) = run_with(&[], "hwaccel\n");
-        assert_eq!(status, 1);
-        assert_eq!(lines, ["hwaccel is not built yet; vtium draws in software"]);
+        if cfg!(feature = "gpu") {
+            assert_eq!((lines, status), (Vec::<String>::new(), 0));
+        } else {
+            assert_eq!(status, 1);
+            assert_eq!(
+                lines,
+                ["hwaccel needs a build with the gpu feature; vtium draws in software"]
+            );
+        }
         assert_eq!(run_with(&[], "no-hwaccel\n"), (Vec::new(), 0));
+    }
+
+    #[test]
+    fn a_key_not_built_yet_warns() {
         // Every other key not built yet warns once a source sets it, to
         // any value it takes, in the file or on the command line.
         let (lines, status) = run_with(
             &["--font-line-spacing=0"],
-            "hwaccel\ndisplay-buffers=3\nfont-hinting=light\n",
+            "display-buffers=3\nfont-hinting=light\n",
         );
         assert_eq!(status, 1);
         assert_eq!(
             lines,
             [
-                "hwaccel is not built yet; vtium draws in software",
                 "font-hinting is not built yet; vtium ignores it",
                 "font-line-spacing is not built yet; vtium ignores it",
             ]
