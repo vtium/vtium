@@ -12,6 +12,7 @@
 //! device, a device with universal planes and no atomic commits among
 //! them, uses the legacy calls and presents whole frames.
 
+mod back;
 mod buffers;
 mod dark;
 mod matching;
@@ -24,6 +25,7 @@ use std::cell::RefCell;
 use std::io;
 use std::sync::Arc;
 
+use calloop::RegistrationToken;
 use drm_ffi::{
     DRM_CAP_CURSOR_HEIGHT, DRM_CAP_CURSOR_WIDTH, DRM_CAP_DUMB_BUFFER, DRM_CLIENT_CAP_ATOMIC,
     DRM_CLIENT_CAP_CURSOR_PLANE_HOTSPOT, DRM_CLIENT_CAP_UNIVERSAL_PLANES,
@@ -40,6 +42,7 @@ use super::{
     Ages, Buffers, Damage, DarkPolicy, Density, DisplayId, Dpms, Event, Identity, Loan, Memory,
     Rect, SwapError, Swapped, Token, lock,
 };
+use back::needed;
 use buffers::{Buffer, Dumbs, FORMAT, Source};
 use dark::Dark;
 use matching::{Place, index_bit, matching};
@@ -170,6 +173,16 @@ pub struct Drm2d<K: Kms, S: Source<K> = Dumbs> {
     /// displays do not blank at each hotplug for a display that cannot
     /// light.
     move_refused: Vec<u32>,
+    /// The CRTCs that owe the event of a flip whose display was let go while
+    /// the flip was in flight, one entry for each such flip, oldest first,
+    /// each with the timer that ends it. A display that takes such a CRTC
+    /// must not take that event as its own flip's, which the kernel
+    /// completes after it (`stall_checks`), so the event is dropped when it
+    /// comes. An event that never comes, as a driver loses one, would make
+    /// the entry drop the next display's event instead, so the entry ends
+    /// after [`crate::FLIP_WAIT_MS`], the bound the flip had
+    /// ([`Self::stale_expired`]).
+    stale: Vec<(u32, Option<RegistrationToken>)>,
     /// The connectors whose color properties the card refused at a
     /// modeset, each logged once as a warning.
     color_refused: RefCell<Vec<String>>,
@@ -246,6 +259,7 @@ impl<K: Kms> Drm2d<K> {
             dark: Vec::new(),
             dark_refused: false,
             move_refused: Vec::new(),
+            stale: Vec::new(),
             color_refused: RefCell::new(Vec::new()),
             waiting: None,
             lost_flip: false,
@@ -965,11 +979,20 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         self.settle();
     }
 
-    /// Lets the displays go: blanks them, waits for the flips in flight
-    /// (at most [`crate::FLIP_WAIT_MS`]), hides the cursor and overlay
-    /// planes and drops DRM master. [`Event::Asleep`] tells when it is
-    /// done. A card that never woke drops the master its open gave it, so
-    /// the vtium of the VT shown can take it (vtium/vtium#139).
+    /// Lets the displays go: blanks them, waits for the flips in flight (at
+    /// most [`crate::FLIP_WAIT_MS`]), hides the cursor and overlay planes
+    /// that show something and drops DRM master. [`Event::Asleep`] tells
+    /// when it is done. A card that never woke drops the master its open
+    /// gave it, so the vtium of the VT shown can take it (vtium/vtium#139).
+    ///
+    /// The wait lets the program that takes the card commit at once: the
+    /// kernel refuses a commit that does not block with `EBUSY` on a CRTC
+    /// whose last commit has not flipped yet (`stall_checks`). A bound that
+    /// runs out during the sleep is logged at debug level, since the
+    /// program taking the card may hold the flip up, as when another master
+    /// starts on the card while vtium's first modeset is in flight. Where no
+    /// plane shows anything, as before vtium shows a pointer, the sleep
+    /// commits nothing (vtium/vtium#280).
     pub fn sleep(&mut self) {
         self.reap();
         self.foreground = false;
@@ -994,15 +1017,14 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         self.settle();
     }
 
+    /// Ends the sleep once no flip is in flight: hides the planes that show
+    /// something, under the master the commit needs, and drops DRM master.
     fn finish_sleep(&mut self) {
-        if self.master && !self.legacy {
-            let mut req = Request::default();
-            self.clear_planes(&mut req, &[]);
-            if !req.entries.is_empty()
-                && let Err(e) = self.card.commit(&req, DRM_MODE_ATOMIC_NONBLOCK)
-            {
-                log::warn!("cannot hide the cursor and overlay planes: {e}");
-            }
+        let hide = self.planes_to_hide();
+        if !hide.entries.is_empty()
+            && let Err(e) = self.card.commit(&hide, DRM_MODE_ATOMIC_NONBLOCK)
+        {
+            log::warn!("cannot hide the cursor and overlay planes: {e}");
         }
         self.release_master();
         self.awake = false;
@@ -1012,6 +1034,46 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             o.flipping = false;
         }
         self.events.push(Event::Asleep);
+    }
+
+    /// What hides each cursor and overlay plane that shows something, on a
+    /// CRTC or with a framebuffer, before vtium lets the card go, so the
+    /// program that takes the card finds none of vtium's pointer on it. A
+    /// plane already hidden is left out: the modeset hides every one, so
+    /// only the planes vtium has shown since are in it. It is empty under
+    /// the legacy calls and without master, where vtium commits nothing.
+    fn planes_to_hide(&self) -> Request {
+        let mut req = Request::default();
+        if !self.master || self.legacy {
+            return req;
+        }
+        let all = self.card.planes().unwrap_or_else(|e| {
+            log::warn!("cannot list the card's planes: {e}");
+            Vec::new()
+        });
+        for plane in all {
+            let props = match self.card.properties(plane, Object::Plane) {
+                Ok(props) => props,
+                Err(e) => {
+                    log::warn!("cannot read the properties of plane {plane}: {e}");
+                    continue;
+                }
+            };
+            let other = matches!(value(&props, "type"), Some(PLANE_CURSOR | PLANE_OVERLAY));
+            let shows = ["CRTC_ID", "FB_ID"]
+                .iter()
+                .any(|name| value(&props, name).is_some_and(|v| v != 0));
+            if other && shows {
+                let props = Props::new(&props);
+                let hidden = props
+                    .set(&mut req, plane, "CRTC_ID", 0)
+                    .and_then(|()| props.set(&mut req, plane, "FB_ID", 0));
+                if let Err(e) = hidden {
+                    log::warn!("cannot hide plane {plane}: {e}");
+                }
+            }
+        }
+        req
     }
 
     fn release_master(&mut self) {
@@ -1066,8 +1128,17 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     /// was taken as done still tells the owner it may draw, as a swap tried
     /// meanwhile was busy. A vblank ends only the wait for it, and shows
     /// no frame, so the owner is told nothing; it draws again at the turn
-    /// the vblank's event wakes.
+    /// the vblank's event wakes. The event of a flip whose display was let
+    /// go while it was in flight is dropped ([`Self::stale`]).
     fn flipped(&mut self, crtc: u32, frame: bool) {
+        if let Some(at) = self.stale.iter().position(|&(c, _)| c == crtc) {
+            let (_, timer) = self.stale.remove(at);
+            if let (Some(link), Some(t)) = (&self.link, timer) {
+                link.disarm(t);
+            }
+            log::debug!("the event on CRTC {crtc} is the flip of a display let go");
+            return;
+        }
         let ready = self.awake && self.waiting.is_none();
         match self.on_crtc(crtc).and_then(|at| self.outputs.get_mut(at)) {
             Some(o) => {
@@ -1110,7 +1181,13 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         if frame {
             o.modeset_flip = false;
         }
-        if std::mem::replace(&mut self.lost_flip, true) {
+        if matches!(self.waiting, Some(Waiting::Sleep)) {
+            // The program taking the card may hold the flip up.
+            log::debug!(
+                "no {event} event for {} as the card goes to sleep; taking the flip as done",
+                o.name
+            );
+        } else if std::mem::replace(&mut self.lost_flip, true) {
             log::debug!("no {event} event for {}; taking the flip as done", o.name);
         } else {
             log::warn!(
@@ -1122,6 +1199,16 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         self.flipped(crtc, frame);
         self.resolve();
         self.settle();
+    }
+
+    /// The bound on the oldest entry for `crtc` in [`Self::stale`] ran out:
+    /// its event is taken as lost, and the next event on `crtc` is a
+    /// display's own.
+    pub(crate) fn stale_expired(&mut self, crtc: u32) {
+        if let Some(at) = self.stale.iter().position(|&(c, _)| c == crtc) {
+            self.stale.remove(at);
+            log::debug!("no event on CRTC {crtc} for the flip of a display let go");
+        }
     }
 
     /// The index of the display that an event or a bound on `crtc` belongs
@@ -2034,13 +2121,13 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     }
 
     /// Sets every display's mode, then announces each display set. Where
-    /// the displays online and the new ones cannot be set together, the
-    /// new ones are left off until the next hotplug, each display the
-    /// placement moved for them goes back to the CRTC it was moved off
-    /// ([`Self::move_back`]), and the rest are set alone. A display whose
-    /// new mode cannot be set stays at the mode it is set to: held back
-    /// where the card refused the mode, and else owed it, which starts the
-    /// wake-up retries.
+    /// the displays online and the new ones cannot be set together, or the
+    /// displays where the placement moved some of them, the new ones are
+    /// left off, each display the placement moved goes back to the CRTC it
+    /// was moved off where it can ([`Self::move_back`], [`Self::set_fewer`]),
+    /// and the rest are set alone. A display whose new mode cannot be set
+    /// stays at the mode it is set to: held back where the card refused the
+    /// mode, and else owed it, which starts the wake-up retries.
     fn modeset(&mut self) -> io::Result<()> {
         // The legacy calls set each display on its own, so the displays set
         // are announced whatever failed for another. A moved display that
@@ -2071,7 +2158,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                 .collect();
             if !failed.is_empty() {
                 let ids: Vec<DisplayId> = failed.iter().map(|&(id, _)| id).collect();
-                let going = self.going_back(&fresh, Some(&ids));
+                let going = self.going_back(&fresh, Some(&ids), &[]);
                 // The displays going back because the card refused a set,
                 // not for a failure that may pass.
                 let refused: Vec<DisplayId> = failed
@@ -2096,15 +2183,20 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                         .collect()
                 };
                 let back: Vec<u32> = self.returns(&going).map(|m| m.crtc).collect();
+                let lit_back: Vec<u32> = self
+                    .returns(&refusal)
+                    .filter(|m| m.lit)
+                    .map(|m| m.crtc)
+                    .collect();
                 let (new, kept): (Vec<_>, Vec<_>) = std::mem::take(&mut self.outputs)
                     .into_iter()
                     .partition(|o| fresh.contains(&o.id) && back.contains(&o.crtc));
                 self.outputs = kept;
-                self.leave_off(
+                let sat = self.leave_off(
                     new,
                     "a display moved to light it cannot be set on its new CRTC",
-                    &refusal,
                 );
+                self.record_refused(&sat, &lit_back);
                 self.move_back(&going);
                 if !going.is_empty() {
                     unset = self.legacy_modeset();
@@ -2127,27 +2219,13 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             if set.is_err() && self.keep_set_modes() {
                 set = self.atomic_modeset_or_default();
             }
-            // The card refused the displays where they are placed, as past
-            // its bandwidth, and not for a reason that may pass.
-            let refusal = matches!(
-                &set,
-                Err(Failure::Test(e)) if matches!(errno(e), Some(Errno::INVAL | Errno::NOSPC))
-            );
+            // The card refused the displays where they are placed, which a
+            // display new to the modeset or one the placement moved may cause.
+            let refusal = placement_refused(&set);
+            let moved = self.outputs.iter().any(|o| o.moved_from.is_some());
             let set = match set.map_err(Failure::into_inner) {
-                Err(e) if errno(&e) != Some(Errno::ACCESS) && self.mixed() => {
-                    let (online, new) = std::mem::take(&mut self.outputs)
-                        .into_iter()
-                        .partition(|o| o.online);
-                    self.outputs = online;
-                    let going = self.going_back(&[], None);
-                    self.leave_off(
-                        new,
-                        &format!("it cannot be set beside the displays online: {e}"),
-                        if refusal { &going } else { &[] },
-                    );
-                    self.move_back(&going);
-                    self.atomic_modeset_or_default()
-                        .map_err(Failure::into_inner)
+                Err(e) if errno(&e) != Some(Errno::ACCESS) && (self.mixed() || moved) => {
+                    self.set_fewer(&e, refusal).map_err(Failure::into_inner)
                 }
                 set => set,
             };
@@ -2174,149 +2252,6 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             }
         }
         set
-    }
-
-    /// Lets go of the new displays `new`, which a modeset could not set
-    /// beside the others, for `why`; each stays off until the next hotplug.
-    /// The displays `refused` go back because the card refused where they
-    /// were placed, and not for a failure that may pass. Each new display
-    /// that sat on a CRTC one of them goes back to and was lit on has its
-    /// connector recorded, and until it is unplugged a hotplug moves no lit
-    /// display for it.
-    fn leave_off(&mut self, new: Vec<Output<S::Memory>>, why: &str, refused: &[DisplayId]) {
-        let back: Vec<u32> = self
-            .returns(refused)
-            .filter(|m| m.lit)
-            .map(|m| m.crtc)
-            .collect();
-        for o in new {
-            log::warn!("{} stays off until the next hotplug: {why}", o.name);
-            if back.contains(&o.crtc) && !self.move_refused.contains(&o.id.0) {
-                self.move_refused.push(o.id.0);
-            }
-            if o.announced {
-                self.events.push(Event::Removed(o.id));
-            }
-            self.identities.retain(|(i, _)| *i != o.id);
-            self.free(o);
-        }
-    }
-
-    /// Where each of the displays `going` goes back to: the CRTC the last
-    /// placement moved it off, and whether it was lit there.
-    fn returns<'a>(&'a self, going: &'a [DisplayId]) -> impl Iterator<Item = Moved> + 'a {
-        self.outputs
-            .iter()
-            .filter(|o| going.contains(&o.id))
-            .filter_map(|o| o.moved_from)
-    }
-
-    /// Moves each of the displays `going`, which [`Self::going_back`]
-    /// found, back to the CRTC the last placement moved it off, as the
-    /// modeset that was to set it on its new CRTC failed. Each other display
-    /// stays where it is placed, and that CRTC is its own from then on. A
-    /// display whose CRTC has no primary plane stays off, as one the scan
-    /// cannot bind does, and the owner hears it removed.
-    fn move_back(&mut self, going: &[DisplayId]) {
-        for mut o in std::mem::take(&mut self.outputs) {
-            let Some(Moved { crtc, pipe, .. }) = o.moved_from.take() else {
-                self.outputs.push(o);
-                continue;
-            };
-            if !going.contains(&o.id) {
-                log::debug!("display {} stays off CRTC {crtc}", o.name);
-                self.outputs.push(o);
-                continue;
-            }
-            match self.move_to(&mut o, crtc, pipe) {
-                Ok(()) => self.outputs.push(o),
-                Err(why) => self.let_go(o, &why),
-            }
-        }
-    }
-
-    /// The displays that go back to the CRTC the last placement moved them
-    /// off, of all but the displays `leaving`, which are new to the modeset:
-    /// a new display never goes back, holds no CRTC a display goes back to,
-    /// and is let go where it sits on one.
-    ///
-    /// Where the whole modeset failed, as an atomic commit does, `failed`
-    /// is `None` and each moved display goes back where it can. Where it
-    /// names the moved displays whose own set failed, as the legacy calls
-    /// tell, those go back, and so does each moved display on a CRTC that a
-    /// display going back goes to, so as to free it; a moved display set on
-    /// its new CRTC and in no one's way stays there.
-    ///
-    /// A display cannot go back where a display that stays holds that CRTC.
-    /// Where several displays would go back to one CRTC, one goes: the one
-    /// that was lit there, else the first in the card's connector order. A
-    /// display that cannot go back stays where it is placed, so it holds
-    /// that CRTC in turn, and the test repeats until no more displays stay.
-    /// So no two displays end on one CRTC.
-    fn going_back(&self, leaving: &[DisplayId], failed: Option<&[DisplayId]>) -> Vec<DisplayId> {
-        let outputs: Vec<&Output<S::Memory>> = self
-            .outputs
-            .iter()
-            .filter(|o| !leaving.contains(&o.id))
-            .collect();
-        let mut going: Vec<bool> = outputs.iter().map(|o| o.moved_from.is_some()).collect();
-        loop {
-            let mut stays = false;
-            if let Some(failed) = failed {
-                let need = needed(&outputs, &going, failed);
-                for (goes, n) in going.iter_mut().zip(need) {
-                    if *goes && !n {
-                        *goes = false;
-                        stays = true;
-                    }
-                }
-            }
-            let held: Vec<u32> = outputs
-                .iter()
-                .zip(&going)
-                .filter(|&(_, &goes)| !goes)
-                .map(|(o, _)| o.crtc)
-                .collect();
-            // Of the displays going back to one CRTC, the one that goes:
-            // a lit one before one that was not, then the first.
-            let first = |at: usize, m: Moved| {
-                outputs
-                    .iter()
-                    .zip(&going)
-                    .enumerate()
-                    .all(|(j, (p, &goes))| {
-                        let Some(q) = p.moved_from.filter(|q| goes && j != at && q.crtc == m.crtc)
-                        else {
-                            return true;
-                        };
-                        m.lit && !q.lit || m.lit == q.lit && at < j
-                    })
-            };
-            let staying: Vec<usize> = outputs
-                .iter()
-                .zip(&going)
-                .enumerate()
-                .filter_map(|(at, (o, &goes))| {
-                    let m = o.moved_from.filter(|_| goes)?;
-                    (held.contains(&m.crtc) || !first(at, m)).then_some(at)
-                })
-                .collect();
-            for at in staying {
-                if let Some(goes) = going.get_mut(at) {
-                    *goes = false;
-                    stays = true;
-                }
-            }
-            if !stays {
-                break;
-            }
-        }
-        outputs
-            .iter()
-            .zip(going)
-            .filter(|&(_, goes)| goes)
-            .map(|(o, _)| o.id)
-            .collect()
     }
 
     /// Lets go of display `o`, which a placement could not put on a CRTC
@@ -2534,9 +2469,19 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         }
     }
 
-    fn free(&self, mut o: Output<S::Memory>) {
+    /// Frees display `o`'s buffers, cursor and mode. Where a flip of its
+    /// own is in flight, the CRTC it was committed on owes an event that no
+    /// display waits for, bounded by a timer of its own ([`Self::stale`]).
+    fn free(&mut self, mut o: Output<S::Memory>) {
         if let (Some(link), Some((t, _))) = (&self.link, o.flip_timer.take()) {
             link.disarm(t);
+        }
+        if o.flipping {
+            let timer = self
+                .link
+                .as_ref()
+                .and_then(|l| l.arm(Clock::Stale(o.flip_crtc)));
+            self.stale.push((o.flip_crtc, timer));
         }
         self.free_buffers(&mut o);
         drop_cursor(&self.card, &mut o);
@@ -2698,6 +2643,62 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             .collect()
     }
 
+    /// Adds to `req` what takes each connector vtium does not bind off the
+    /// CRTC a display takes, where it is on one: a connector the placement
+    /// found no CRTC for, as a third monitor on a card with two CRTCs, or
+    /// one left dark whose own commit the card refused. The placement knows
+    /// only the displays' connectors, so a display can take a CRTC another
+    /// connector is on, and two connectors on one CRTC are a clone, which
+    /// the kernel refuses for encoders that cannot clone each other
+    /// (`drm_atomic_check_valid_clones`). vtium does not read which
+    /// encoders can clone, so it also takes off a connector whose encoder
+    /// could clone with the display's: a mirror the card could have kept,
+    /// such as two monitors a desktop left on one CRTC, ends, and that
+    /// connector stays dark. Each connector's CRTC is read from its
+    /// `CRTC_ID`. A connector whose properties cannot be read is left as it
+    /// is, with a warning where its encoder shows it on a CRTC a display
+    /// takes, as the card then refuses the commit. The legacy CRTC set
+    /// takes every other connector off the CRTC it sets
+    /// (`update_output_state`), so it needs none of this.
+    fn take_others_off(&self, req: &mut Request) {
+        let connectors = match self.card.resources() {
+            Ok(r) => r.connectors,
+            Err(e) => {
+                log::warn!("cannot list the card's connectors: {e}");
+                return;
+            }
+        };
+        let taken = |crtc: u32| crtc != 0 && self.outputs.iter().any(|o| o.crtc == crtc);
+        for id in connectors {
+            if self.outputs.iter().any(|o| o.id.0 == id)
+                || req.entries.iter().any(|&(object, _, _)| object == id)
+            {
+                continue;
+            }
+            let props = match self.card.properties(id, Object::Connector) {
+                Ok(props) => props,
+                Err(e) => {
+                    match self.connector_crtc(id).filter(|&c| taken(c)) {
+                        Some(crtc) => log::warn!(
+                            "cannot take connector {id} off CRTC {crtc}, which a display takes: {e}"
+                        ),
+                        None => log::debug!("cannot read the properties of connector {id}: {e}"),
+                    }
+                    continue;
+                }
+            };
+            let on = value(&props, "CRTC_ID").and_then(|c| u32::try_from(c).ok());
+            let Some(crtc) = on.filter(|&c| taken(c)) else {
+                continue;
+            };
+            if let Err(e) = Props::new(&props).set(req, id, "CRTC_ID", 0) {
+                log::warn!(
+                    "cannot take connector {id} off CRTC {crtc}, which a display takes: {e}"
+                );
+            }
+        }
+    }
+
     /// Whether `crtc` shows a mode or is active, as the card reports it; a
     /// CRTC whose state cannot be read counts as lit.
     fn crtc_lit(&self, crtc: u32) -> bool {
@@ -2719,6 +2720,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         } else {
             Vec::new()
         };
+        self.take_others_off(&mut req);
         self.clear_planes(&mut req, &off);
         let mut staged = Vec::with_capacity(self.outputs.len());
         let mut outputs = std::mem::take(&mut self.outputs);
@@ -3029,35 +3031,6 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     }
 }
 
-/// Of the displays `outputs` that `going` marks as able to go back, those
-/// needed: each in `failed`, whose set failed, and then each that sits on
-/// the CRTC a display needed goes back to, as it must leave that CRTC.
-fn needed<M>(outputs: &[&Output<M>], going: &[bool], failed: &[DisplayId]) -> Vec<bool> {
-    let mut need: Vec<bool> = outputs
-        .iter()
-        .zip(going)
-        .map(|(o, &goes)| goes && failed.contains(&o.id))
-        .collect();
-    loop {
-        let wanted: Vec<u32> = outputs
-            .iter()
-            .zip(&need)
-            .filter(|&(_, &n)| n)
-            .filter_map(|(o, _)| Some(o.moved_from?.crtc))
-            .collect();
-        let mut more = false;
-        for ((o, n), &goes) in outputs.iter().zip(need.iter_mut()).zip(going) {
-            if goes && !*n && wanted.contains(&o.crtc) {
-                *n = true;
-                more = true;
-            }
-        }
-        if !more {
-            return need;
-        }
-    }
-}
-
 /// Whether `now` names the monitor `was` named. Where both connectors have
 /// a `PATH`, as a DisplayPort multi-stream port keeps when its connector is
 /// made again under a new id, the two must name the same port; two
@@ -3100,6 +3073,16 @@ fn refused(set: &Result<(), Failure>) -> bool {
     matches!(set, Err(Failure::Test(e)) if errno(e) != Some(Errno::ACCESS))
 }
 
+/// Whether the card refused the displays where they are placed, as past its
+/// bandwidth, and not for a reason that may pass: its test commit failed
+/// with `EINVAL` or `ENOSPC`.
+fn placement_refused(set: &Result<(), Failure>) -> bool {
+    matches!(
+        set,
+        Err(Failure::Test(e)) if matches!(errno(e), Some(Errno::INVAL | Errno::NOSPC))
+    )
+}
+
 impl Failure {
     fn into_inner(self) -> io::Error {
         match self {
@@ -3117,6 +3100,11 @@ impl<K: Kms, S: Source<K>> Drop for Drm2d<K, S> {
         }
         for o in std::mem::take(&mut self.outputs) {
             self.free(o);
+        }
+        for (_, timer) in std::mem::take(&mut self.stale) {
+            if let (Some(link), Some(t)) = (&self.link, timer) {
+                link.disarm(t);
+            }
         }
     }
 }

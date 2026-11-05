@@ -14,7 +14,9 @@
 //! (`drm_atomic_helper_check_modeset`), active with no mode, or with a
 //! plane on it and no mode (`drm_atomic_helper_check_plane_state`), is
 //! refused with EINVAL; a connector the commit moves puts the CRTC it
-//! leaves in the state, as `drm_atomic_set_crtc_for_connector` does. A
+//! leaves in the state, as `drm_atomic_set_crtc_for_connector` does. So is
+//! a commit that leaves two connectors on one CRTC whose encoders do not
+//! clone each other ([`State::clones`], `drm_atomic_check_valid_clones`). A
 //! legacy CRTC set takes every other connector off the CRTC it sets, and
 //! the CRTC its connector leaves, where no connector is left on it, loses
 //! its mode and goes off (`update_output_state`). What a
@@ -145,6 +147,11 @@ pub(crate) struct State {
     /// Connectors that answer; one listed and absent here is gone.
     pub(crate) connectors: BTreeMap<u32, Connector>,
     pub(crate) encoders: BTreeMap<u32, Encoder>,
+    /// The pairs of encoders that may drive one CRTC together, as their
+    /// `possible_clones` say. Every encoder clones itself, as the kernel
+    /// makes it do (`fixup_encoder_possible_clones`), and no other unless a
+    /// pair here names both.
+    pub(crate) clones: Vec<(u32, u32)>,
     pub(crate) crtc_modes: BTreeMap<u32, Mode>,
     pub(crate) planes: BTreeMap<u32, Plane>,
     /// The DPMS value of each connector.
@@ -219,6 +226,10 @@ pub(crate) struct State {
     /// that names one, and a legacy CRTC set of one, is refused with
     /// EINVAL.
     pub(crate) refused: Vec<u32>,
+    /// CRTCs no commit may light, as past a bandwidth limit: a commit that
+    /// sets a mode on one is refused with EINVAL, and one that turns it
+    /// off is taken.
+    pub(crate) refused_modes: Vec<u32>,
     pub(crate) page_flips: Vec<(u32, u32)>,
     pub(crate) set_crtcs: Vec<(u32, u32, u32, Mode)>,
     /// The CRTCs the legacy calls turned off, in order.
@@ -364,24 +375,8 @@ impl State {
         let Some(c) = self.connectors.get(&conn) else {
             return;
         };
-        let (old, encoders) = (c.encoder, c.encoders.clone());
-        let bit = self
-            .crtcs
-            .iter()
-            .position(|&x| x == crtc)
-            .map_or(0, |i| 1u32 << i);
-        let can = |s: &State, e: u32| {
-            s.encoders
-                .get(&e)
-                .is_some_and(|e| e.possible_crtcs & bit != 0)
-        };
-        let new = if crtc == 0 {
-            0
-        } else if old != 0 && can(self, old) {
-            old
-        } else {
-            encoders.into_iter().find(|&e| can(self, e)).unwrap_or(0)
-        };
+        let old = c.encoder;
+        let new = self.encoder_for(conn, crtc);
         if let Some(c) = self.connectors.get_mut(&conn) {
             c.encoder = new;
         }
@@ -400,6 +395,75 @@ impl State {
         if let Some(e) = self.encoders.get_mut(&new) {
             e.crtc = crtc;
         }
+    }
+
+    /// The encoder connector `conn` drives `crtc` through, 0 for none: the
+    /// one it is on where that one can drive `crtc`, else the first of its
+    /// encoders that can, as the kernel's `atomic_best_encoder` helpers
+    /// pick it.
+    fn encoder_for(&self, conn: u32, crtc: u32) -> u32 {
+        let Some(c) = self.connectors.get(&conn) else {
+            return 0;
+        };
+        let bit = self
+            .crtcs
+            .iter()
+            .position(|&x| x == crtc)
+            .map_or(0, |i| 1u32 << i);
+        let can = |e: u32| {
+            self.encoders
+                .get(&e)
+                .is_some_and(|e| e.possible_crtcs & bit != 0)
+        };
+        if crtc == 0 {
+            0
+        } else if c.encoder != 0 && can(c.encoder) {
+            c.encoder
+        } else {
+            c.encoders.iter().copied().find(|&e| can(e)).unwrap_or(0)
+        }
+    }
+
+    /// Whether the encoders of the connectors `commit` leaves on `crtc`
+    /// may all drive it together, as the kernel checks it for a CRTC the
+    /// commit sets anew (`drm_atomic_check_valid_clones`, called where
+    /// `drm_atomic_crtc_needs_modeset`): two connectors on one CRTC are a
+    /// clone, which only encoders that clone each other can drive. A CRTC
+    /// is set anew where the commit changes its mode or its `ACTIVE`, or
+    /// puts a connector on it or takes one off.
+    fn clones_valid(&self, commit: &Commit, crtc: u32) -> bool {
+        let after = |conn: u32| {
+            let before = self.bound.get(&conn).copied().unwrap_or(0);
+            let after = commit
+                .get(conn, "CRTC_ID")
+                .map_or(before, |v| u32::try_from(v).unwrap_or(0));
+            (before, after)
+        };
+        let mode = commit.get(crtc, "MODE_ID").is_some()
+            && commit.blob(crtc, "MODE_ID") != self.modes.get(&crtc);
+        let active = commit
+            .get(crtc, "ACTIVE")
+            .is_some_and(|a| (a != 0) != self.active.get(&crtc).copied().unwrap_or(false));
+        let anew = mode
+            || active
+            || self.connectors.keys().any(|&conn| {
+                let (before, after) = after(conn);
+                before != after && (before == crtc || after == crtc)
+            });
+        if !anew {
+            return true;
+        }
+        let on: Vec<u32> = self
+            .connectors
+            .keys()
+            .copied()
+            .filter(|&conn| after(conn).1 == crtc)
+            .map(|conn| self.encoder_for(conn, crtc))
+            .collect();
+        on.iter().all(|&e| {
+            on.iter()
+                .all(|&f| e == f || self.clones.contains(&(e, f)) || self.clones.contains(&(f, e)))
+        })
     }
 
     /// Whether `crtc` passes the kernel's checks as `commit` leaves it:
@@ -785,7 +849,7 @@ impl FakeCard {
         id
     }
 
-    fn prop_id(&self, name: &str) -> u32 {
+    pub(crate) fn prop_id(&self, name: &str) -> u32 {
         let mut names = self.names.borrow_mut();
         let at = names.iter().position(|n| n == name).unwrap_or_else(|| {
             names.push(name.to_owned());
@@ -1336,7 +1400,11 @@ impl Kms for FakeCard {
         if let Some(e) = s.commit_errors.pop_front() {
             return Err(err(e));
         }
-        if s.refused.iter().any(|&c| commit.mentions(c)) {
+        if s.refused.iter().any(|&c| commit.mentions(c))
+            || s.refused_modes
+                .iter()
+                .any(|&c| commit.get(c, "MODE_ID").is_some_and(|m| m != 0))
+        {
             return Err(err(Errno::INVAL));
         }
         if !s.master || commit_names_a_crtc_the_card_lacks(&s, &commit) {
@@ -1376,7 +1444,10 @@ impl Kms for FakeCard {
             .collect();
         crtcs.sort_unstable();
         crtcs.dedup();
-        if crtcs.iter().any(|&c| !s.consistent(&commit, c)) {
+        if crtcs
+            .iter()
+            .any(|&c| !s.consistent(&commit, c) || !s.clones_valid(&commit, c))
+        {
             return Err(err(Errno::INVAL));
         }
         let event = flags & DRM_MODE_PAGE_FLIP_EVENT != 0;
@@ -1811,6 +1882,44 @@ mod tests {
         assert_eq!(card.state().plane_fb.get(&PRIMARY_PLANE), Some(&large));
         assert_eq!(errno(show(&card, small, None)), Some(Errno::NOSPC));
         assert_eq!(errno(show(&card, small, Some((320, 240)))), None);
+    }
+
+    // vtium/vtium#257: a modeset that leaves two connectors on one CRTC is
+    // refused with EINVAL where their encoders do not clone each other, as
+    // the kernel's `drm_atomic_check_valid_clones` refuses it, and taken
+    // where they do. The kernel checks only a CRTC the commit sets anew, so
+    // a flip on a CRTC that already holds such a clone is taken.
+    #[test]
+    fn a_commit_that_clones_encoders_that_cannot_clone_is_refused() {
+        let card = FakeCard::new(&[
+            (CONN, vec![mode(640, 480, 60, true)]),
+            (CONN + 1, vec![mode(640, 480, 60, true)]),
+        ]);
+        card.state()
+            .encoders
+            .get_mut(&201)
+            .expect("encoder 201")
+            .possible_crtcs = 0b11;
+        let shown = fb(&card, 640, 480);
+        card.set_crtc(CRTC, shown, CONN, &mode(640, 480, 60, true))
+            .expect("the CRTC set");
+        let clone = || {
+            let mut req = Request::default();
+            req.set(CONN + 1, card.prop_id("CRTC_ID"), u64::from(CRTC));
+            card.commit(&req, drm_ffi::DRM_MODE_ATOMIC_ALLOW_MODESET)
+        };
+        assert_eq!(errno(clone()), Some(Errno::INVAL));
+        assert_eq!(card.state().bound.get(&(CONN + 1)), None);
+        card.state().bind(CONN + 1, CRTC);
+        let mut flip = Request::default();
+        flip.set(PRIMARY_PLANE, card.prop_id("FB_ID"), u64::from(shown));
+        flip.set(PRIMARY_PLANE, card.prop_id("CRTC_ID"), u64::from(CRTC));
+        assert_eq!(errno(card.commit(&flip, 0)), None, "a flip is no modeset");
+        card.state().bind(CONN + 1, 0);
+        card.state().clones.push((200, 201));
+        assert_eq!(errno(clone()), None);
+        assert_eq!(card.state().bound.get(&(CONN + 1)), Some(&CRTC));
+        assert_eq!(card.state().bound.get(&CONN), Some(&CRTC));
     }
 
     // vtium/vtium#249: a commit that puts a plane on a CRTC outside the
