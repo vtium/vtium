@@ -1087,7 +1087,10 @@ class VtiumGoldenTest(unittest.TestCase):
                                  "photo-scrollback", "mpv-sixel", "tmux-2x2", "tmux-3x3", "kitty",
                                  "kitty-photo", "kitty-files", "kitty-layers", "s1-scroll", "flood",
                                  "cjk")]
-        self.assertEqual(sorted(prov), sorted(rebaselined))
+        # the maintainer accepted the rest on 2026-11-05; these two wait on a
+        # box-drawing fix (box lines at a 20x38 cell)
+        self.assertEqual(sorted(prov), ["2d-7680x2160-font32/blocks", "2d-7680x2160-font32/boxdraw"])
+        self.assertTrue(set(prov) <= set(rebaselined))
         self.assertEqual(t3_evaluate.check_goldens(t3_scenario.golden_cases(),
                                                    t3_evaluate.GOLDEN, prov), [])
         with open(os.path.join(t3_common.HERE, "goldens", "README.md")) as f:
@@ -4712,7 +4715,12 @@ class DefaultVariantsTest(unittest.TestCase):
         # kept up stays provisional.
         variant = "2d-1280x800"
         golden = t3_evaluate.golden_for(variant, "mpv-sixel", t3_evaluate.GOLDEN)[0]
-        self.assertIn("%s/mpv-sixel" % variant, t3_evaluate.PROVISIONAL)
+        # the maintainer accepted mpv-sixel's golden on 2026-11-05, so the
+        # test lists it as provisional itself
+        listed = mock.patch.dict(t3_evaluate.PROVISIONAL,
+                                 {"%s/mpv-sixel" % variant: "a provisional golden for this test"})
+        listed.start()
+        self.addCleanup(listed.stop)
         ppm = os.path.join(self.dir.name, "mpv-sixel.ppm")
         t3_qemu.write_ppm(ppm, t3img.read(golden))
         fine = {"mpv_frames": 150, "mpv_per_s": 29.1, "presented_per_s": 59.0,
