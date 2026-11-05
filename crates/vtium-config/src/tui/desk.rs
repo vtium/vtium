@@ -99,10 +99,28 @@ pub struct Store {
     store: crate::store::Store,
     paths: Paths,
     devices: Devices,
-    /// The prepared install: the draft's name and text, and the installed
-    /// file it replaces, which goes into the installed history once the
-    /// privileged step has run.
-    ready: Option<(String, String, Option<String>)>,
+    /// The install that [`Op::Prepare`] readied, which [`Desk::install`]
+    /// runs.
+    ready: Option<Prepared>,
+}
+
+/// An install that [`Op::Prepare`] readied: the draft's name and text, and
+/// what the install does with vtium.conf.
+struct Prepared {
+    name: String,
+    text: String,
+    conf: Conf,
+}
+
+/// What a prepared install does with vtium.conf.
+enum Conf {
+    /// The draft is the installed vtium.conf already, so the install writes
+    /// and removes frits alone and keeps nothing in the installed history.
+    Same,
+    /// The install writes the draft over the installed vtium.conf, whose
+    /// text goes into the installed history once the privileged step has
+    /// run, `None` when no vtium.conf is installed.
+    Replaces(Option<String>),
 }
 
 impl Store {
@@ -163,10 +181,24 @@ impl Store {
             Op::Prepare => {
                 let (name, text) = session.current()?;
                 let mut said = Vec::new();
+                // a draft that is the installed file still readies an
+                // install, because the frits waiting beside it install
+                // without it (ADR-1403 D8)
                 let done = match session.prepare(&name, &text, &mut said) {
-                    Ok(None) => Done::Plan(crate::draft::Plan::default()),
+                    Ok(None) => {
+                        self.ready = Some(Prepared {
+                            name,
+                            text,
+                            conf: Conf::Same,
+                        });
+                        Done::Plan(crate::draft::Plan::default())
+                    }
                     Ok(Some(ready)) => {
-                        self.ready = Some((name, text, ready.replaced));
+                        self.ready = Some(Prepared {
+                            name,
+                            text,
+                            conf: Conf::Replaces(ready.replaced),
+                        });
                         Done::Plan(ready.plan)
                     }
                     Err(fail @ (Fail::Changed(_) | Fail::Check(_))) => Done::Refused(
@@ -235,14 +267,19 @@ impl Desk for Store {
     }
 
     fn install(&mut self, plan: &crate::draft::Plan, run: Runner<'_>) -> Result<Done, String> {
-        let Some((name, text, replaced)) = self.ready.take() else {
+        let Some(Prepared { name, text, conf }) = self.ready.take() else {
             return Err(crate::tui::words::NOT_PREPARED.to_owned());
         };
         let session = self.session();
         let mut said = Vec::new();
         let done = session
             .put(plan, run, &mut said)
-            .and_then(|()| session.finish(&name, &text, replaced.as_deref(), &mut said))
+            .and_then(|()| match &conf {
+                Conf::Same => Ok(()),
+                Conf::Replaces(replaced) => {
+                    session.finish(&name, &text, replaced.as_deref(), &mut said)
+                }
+            })
             .and_then(|()| self.opened(&name, &text));
         done.map(|opened| Done::Draft(opened, None))
             .map_err(|fail| {

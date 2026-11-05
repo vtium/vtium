@@ -9,10 +9,6 @@
 //! that drifts is reported and judges nothing.
 
 #[path = "common/home.rs"]
-#[expect(
-    dead_code,
-    reason = "these tests run no binary, so they take the home's directories and not its command"
-)]
 mod home;
 
 use std::collections::{BTreeMap, VecDeque};
@@ -271,7 +267,7 @@ impl Port for Console {
                 return Ok((true, String::new()));
             }
             let (_, args) = argv.split_first().expect("a command");
-            let out = std::process::Command::new(env!("CARGO_BIN_EXE_vtium-config"))
+            let out = home::command(env!("CARGO_BIN_EXE_vtium-config"))
                 .args(args)
                 .output()?;
             let mut said = String::from_utf8_lossy(&out.stdout).into_owned();
@@ -407,13 +403,16 @@ fn run(console: &mut Console) -> u8 {
 
 /// A desk standing in for the store in the tests of the views beside the
 /// flow: its draft starts as the fixture's vtium.conf, its check passes,
-/// and it keeps each plan it installs. It hands the console's runner the
-/// command an install runs, so the console decides whether the
-/// privileged step succeeds.
+/// and it keeps each plan it installs. As the store does, it installs only
+/// what a Prepare readied, and refuses an install that no Prepare readied.
+/// It hands the console's runner the command an install runs, so the
+/// console decides whether the privileged step succeeds.
 struct Desk {
     installed: String,
     draft: String,
     plans: Vec<vtium_config::draft::Plan>,
+    /// A Prepare readied an install that has not yet run.
+    ready: bool,
 }
 
 fn desk() -> Desk {
@@ -422,6 +421,7 @@ fn desk() -> Desk {
         installed: conf.clone(),
         draft: conf,
         plans: Vec::new(),
+        ready: false,
     }
 }
 
@@ -441,6 +441,9 @@ impl Desk {
 impl vtium_config::tui::desk::Desk for Desk {
     fn run(&mut self, op: &vtium_config::tui::desk::Op) -> Result<Done, String> {
         use vtium_config::tui::desk::Op;
+        if *op == Op::Prepare {
+            self.ready = true;
+        }
         match op {
             Op::Open => Ok(Done::Draft(self.opened(), Some(Default::default()))),
             Op::Write(text) => {
@@ -466,6 +469,9 @@ impl vtium_config::tui::desk::Desk for Desk {
         plan: &vtium_config::draft::Plan,
         run: vtium_config::apply::Runner<'_>,
     ) -> Result<Done, String> {
+        if !std::mem::take(&mut self.ready) {
+            return Err(vtium_config::tui::words::NOT_PREPARED.to_owned());
+        }
         self.plans.push(plan.clone());
         let argv: Vec<std::ffi::OsString> = ["sudo", "vtium-config", "apply", "DRAFT"]
             .iter()
@@ -2698,6 +2704,82 @@ echo "$file: checked"
         assert!(ran.status().contains(words::NO_HOTPLUG), "{}", ran.status());
         let ran = run_on(&b, vec![present(vec![keyboard()], true)], false, &[]);
         assert!(ran.status().contains(words::NO_HOTPLUG), "{}", ran.status());
+    }
+
+    /// An install whose only change is a new frit, with the draft the
+    /// installed vtium.conf, installs the frit through the privileged step
+    /// and leaves vtium.conf and the installed history as they were.
+    #[test]
+    fn an_install_of_a_new_frit_alone_installs_the_frit() {
+        let b = bench("frit-alone");
+        let mut console = Console::vtium(100, 30, true, "unifont")
+            .takes("proof", (100, 30))
+            .takes("unifont", (100, 30))
+            .keys(&[
+                b"n",
+                b"quiet",
+                b"\r",
+                b"builtin:unscii-8",
+                b"\r",
+                b"\r",
+                b"\r",
+                b"\r",
+                b"\r",
+                b"\r",
+                b"i",
+                b"y",
+            ]);
+        console.installs = true;
+        let mut desk = b.desk(vec![present(vec![keyboard()], true)]);
+        let mut i = inputs();
+        i.view = model::View::Fonts;
+        i.conf = Some(INSTALLED.to_owned());
+        i.frits = b.root.join("etc/fonts");
+        i.installed = BTreeMap::new();
+        drive_with(&mut console, i, Some(&mut desk)).expect("the loop");
+        let ran = Ran { console };
+        assert_eq!(ran.console.saves.len(), 1, "{}", ran.screen());
+        assert_eq!(
+            std::fs::read_to_string(b.root.join("etc/fonts/quiet.vtfrit"))
+                .expect("the installed frit"),
+            "# quiet: made by vtium-config new-frit\nname=quiet\nsource=builtin:unscii-8\n"
+        );
+        assert!(
+            ran.screen().contains("Installed draft bench"),
+            "{}",
+            ran.screen()
+        );
+        assert_eq!(b.installed(), INSTALLED);
+        assert!(b.store().history().expect("the history").is_empty());
+    }
+
+    /// The stand-in desk refuses what the store refuses: an install that
+    /// no Prepare readied. After a Prepare of a draft that is the installed
+    /// file, both run the install.
+    #[test]
+    fn the_stand_in_desk_installs_only_what_a_prepare_readied_as_the_store_does() {
+        use vtium_config::tui::desk::Op;
+        let b = bench("stand-in");
+        let mut store = b.desk(vec![present(Vec::new(), true)]);
+        let mut stand_in = super::desk();
+        let desks: [&mut dyn vtium_config::tui::desk::Desk; 2] = [&mut store, &mut stand_in];
+        for (n, d) in desks.into_iter().enumerate() {
+            let mut ran = 0;
+            let mut run = |_: &[std::ffi::OsString]| -> io::Result<(bool, String)> {
+                ran += 1;
+                Ok((true, String::new()))
+            };
+            let plan = vtium_config::draft::Plan::default();
+            let why = d.install(&plan, &mut run).expect_err("no Prepare");
+            assert_eq!(why, words::NOT_PREPARED, "desk {n}");
+            assert!(matches!(d.run(&Op::Prepare), Ok(Done::Plan(_))), "desk {n}");
+            assert!(d.install(&plan, &mut run).is_ok(), "desk {n}");
+            let why = d
+                .install(&plan, &mut run)
+                .expect_err("one install a Prepare");
+            assert_eq!(why, words::NOT_PREPARED, "desk {n}");
+            assert_eq!(ran, 1, "desk {n}");
+        }
     }
 
     /// The screens of a draft's card, a question and the pager, at 80x25
