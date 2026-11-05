@@ -48,16 +48,11 @@ The sysroot is `/usr`-merged and carries an empty loader cache. qemu-user finds 
 
 ## Where the packages come from
 
-`sysroot fetch` asks two archives for each package it does not have cached, in this order:
+`sysroot fetch` downloads each package it has not cached from Debian's main archive, `deb.debian.org/debian`, at the pool path its pin names. It asks the snapshot only when the main archive does not serve that package, which happens when a later point release has replaced the pinned version, when the main archive answers an error after curl's retries, or when it cannot be reached. The security archive is not asked, because `sysroot pin` resolves every package from the `bookworm` suite, which the main archive carries, and never from `bookworm-security`.
 
-1. **The main archive,** `deb.debian.org/debian`, at the pool path the pin names. A CDN serves it, and it carries each pinned version until a later bookworm point release replaces that version.
-2. **The snapshot,** `snapshot.debian.org`, at the same pool path. The snapshot keeps every version for good, but it is a single service, and it answers GitHub's runners with 503 and 504 for minutes at a time.
+Every download is checked against its pinned SHA-256 before it enters the cache. A download that differs, from either archive, stops the fetch with an error naming the archive, and no other archive is asked.
 
-The fetch asks the snapshot only when the main archive does not serve the package: when the main archive answers 404 because it no longer carries that version, when it answers another error, or when it cannot be reached. curl retries a transient error such as a 503 three times before the fetch moves on to the snapshot. When neither archive serves the package, the fetch stops and names both archives it tried.
-
-Every download is checked against the SHA-256 that `pin.tsv` pins before it enters the cache, so either archive can serve any package safely. A download whose SHA-256 differs from its pin, from either archive, stops the fetch with an error that names the archive the download came from. The fetch then asks no other archive. A wrong package means that an archive served something other than what was pinned, and a person should look at why before anything is fetched from elsewhere.
-
-The security archive, `security.debian.org/debian-security`, is not asked. `sysroot pin` resolves every package from the snapshot's `bookworm` suite, which holds the point releases and never the separate `bookworm-security` suite. Every pinned version was therefore in the main archive when the snapshot was taken. Some packages that came from security updates, such as libgcrypt20 1.10.1-3+deb12u1, are also in the security archive, but under `pool/updates/main`, and the main archive holds them too. On 2026-11-05 the main archive served all 132 pinned packages, libc6 2.36-9+deb12u14 among them. When a point release later replaces a pinned version, the main archive answers 404 for that package and the snapshot serves it.
+Re-pinning with `tools/arm/sysroot pin` once per release cycle keeps most packages on the main archive, so the snapshot serves only the few that a point release has replaced since.
 
 ## What qemu-user does not judge
 
