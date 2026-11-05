@@ -125,3 +125,56 @@ fn a_seat_file_beside_vtium_conf_is_not_read() {
     assert_eq!(loaded.config.number(&keys::FONT_SIZE), Some(31));
     assert!(!Path::new(&loaded.path).ends_with("seat0.seat.conf"));
 }
+
+/// The names of the heads the start runs for `loaded`'s vtium.conf.
+fn heads_run(loaded: &vtium::config::Loaded) -> Vec<String> {
+    vtium::head::rules(&loaded.path, &loaded.file)
+        .rules
+        .heads
+        .iter()
+        .map(|h| h.name.clone())
+        .collect()
+}
+
+// ADR-1403 D3: the two parts of vtium.conf take their mistakes apart. A
+// look that sets a key no look takes is dropped with its error, and a
+// file with sections but no `version` line drops every section; in both
+// the top level's font-size still applies. An unknown key and a value
+// out of bounds at the top level are reported and leave the sections
+// standing.
+#[test]
+fn an_error_in_a_section_leaves_the_top_level_keys_applied() {
+    let bad_look = "font-size=31\nversion = 1\n[look big]\nconsoles = 2\n\
+                    [head desk]\nlook = big\n[rules]\ndisplay * -> desk\n";
+    let no_version = "font-size=31\n[head desk]\n[rules]\ndisplay * -> desk\n";
+    for (name, text) in [("bad-look", bad_look), ("no-version", no_version)] {
+        let (_d, loaded) = read(name, text, 0o644);
+        assert_eq!(loaded.reports, [], "{name}: no top-level report");
+        assert_eq!(
+            loaded.config.number(&keys::FONT_SIZE),
+            Some(31),
+            "{name}: the top level applies"
+        );
+        let start = vtium::head::rules(&loaded.path, &loaded.file);
+        assert!(
+            start.notice().is_some(),
+            "{name}: the sections' error shows"
+        );
+        assert!(
+            start.rules.looks.iter().all(|l| l.name != "big"),
+            "{name}: the look is dropped"
+        );
+    }
+    let (_d, loaded) = read("no-version-heads", no_version, 0o644);
+    assert_ne!(heads_run(&loaded), ["desk"], "no version, no section runs");
+    let bad_top = "no-such-key=1\nsb-size=99999999999\nfont-size=31\nversion = 1\n\
+                   [head desk]\n[rules]\ndisplay * -> desk\n";
+    let (_d, loaded) = read("bad-top", bad_top, 0o644);
+    assert_eq!(loaded.reports.len(), 2, "{:?}", loaded.reports);
+    assert_eq!(loaded.config.number(&keys::FONT_SIZE), Some(31));
+    assert_eq!(heads_run(&loaded), ["desk"], "the sections stand");
+    assert_eq!(
+        vtium::head::rules(&loaded.path, &loaded.file).notice(),
+        None
+    );
+}
