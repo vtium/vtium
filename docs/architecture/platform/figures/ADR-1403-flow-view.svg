@@ -1,20 +1,24 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="650" viewBox="0 0 1200 650" font-family="DejaVu Sans Mono, monospace" font-size="13" xml:space="preserve">
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="680" viewBox="0 0 1200 680" font-family="DejaVu Sans Mono, monospace" font-size="13" xml:space="preserve">
 <title>vtium-config's flow view on a dark console: displays, heads, looks and input devices drawn as blocks of text on their column's color, rules as colored text, joined by lines, with the selected rule opened for editing below</title>
 <defs>
 <marker id="a-cyan" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 z" fill="#00cdcd"/></marker>
 <marker id="a-green" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 z" fill="#00cd00"/></marker>
 <marker id="a-grey" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 z" fill="#7f7f7f"/></marker>
 </defs>
-<rect width="1200" height="650" fill="#ffffff"/>
+<rect width="1200" height="680" fill="#ffffff"/>
 <text x="20" y="18" font-size="12" fill="#1f2933">vtium-config's flow view, drawn in the console's sixteen colors on its black background (the default palette's values), with rule 5 opened for editing</text>
-<rect x="20" y="26" width="1160" height="612" fill="#000000" stroke="#9aa5b1"/>
+<rect x="20" y="26" width="1160" height="642" fill="#000000" stroke="#9aa5b1"/>
 <!-- tab bar -->
 <text x="36" y="48" fill="#e5e5e5">Fonts   Sizes   Settings   Heads</text>
 <rect x="316" y="35" width="48" height="18" fill="#e5e5e5"/>
 <text x="322" y="48" fill="#000000">Flow</text>
-<text x="380" y="48" fill="#e5e5e5">Save   Revert   New</text>
+<text x="380" y="48" fill="#e5e5e5">View   Save   Revert   New   Delete draft</text>
 <!-- status line -->
-<text x="36" y="72" fill="#e5e5e5">working copy ~/.config/vtium/vtium.conf: 1 line added, 1 removed from installed   policy open   watching devices</text>
+<text x="36" y="72" fill="#e5e5e5">draft ~/.config/vtium/vtium.conf: 1 line added, 1 removed   no problems</text>
+<!-- the base card, black on light grey -->
+<rect x="36" y="84" width="754" height="20" fill="#e5e5e5"/>
+<text x="42" y="98" fill="#000000">base   policy open   font-size 12   xkb-layout us   mouse   (101 keys at their defaults)</text>
+<g transform="translate(0,30)">
 <!-- column headings -->
 <g font-weight="bold">
 <text x="36" y="102" fill="#00ffff">DISPLAYS</text>
@@ -112,5 +116,6 @@
 <rect x="114" y="565" width="126" height="18" fill="#e5e5e5"/>
 <text x="118" y="578" fill="#000000">class:keyboard</text>
 <text x="252" y="578" fill="#e5e5e5">path:pci-0000:15:00.0-usb-0:3.3   id:046d:c31c   or type a selector</text>
-<text x="36" y="616" fill="#7f7f7f">Tab or Left Right columns   Up Down move   Enter edit   Space tag   c connect   f follow   d devices   s save   r revert   n new   q leave</text>
+<text x="36" y="616" fill="#7f7f7f">Tab ←→ columns   ↑↓ move   Enter edit   Space tag   c connect   f follow   d devices   v view   s save   r revert   n new   x delete   q leave</text>
+</g>
 </svg>
