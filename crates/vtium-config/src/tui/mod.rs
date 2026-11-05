@@ -16,10 +16,13 @@
 
 pub mod canvas;
 pub mod color;
+pub mod desk;
+pub mod edit;
 #[doc(hidden)]
 pub mod fixture;
 pub mod flow;
 pub mod flowdraw;
+mod flowedit;
 pub mod input;
 pub mod model;
 pub mod port;
@@ -230,10 +233,11 @@ pub fn gather(paths: &Paths, view: model::View) -> Result<Inputs, String> {
         frits,
         view,
         display: displays.first().map(|d| d.pixels),
-        // the flow is read from vtium.conf's sections, which this build does
-        // not read yet
+        // the desk reads the draft's flow once the loop runs
         flow: flow::Flow::default(),
         color: color::enabled(&|name| std::env::var(name).ok()),
+        desk: false,
+        hotplug: false,
     })
 }
 
@@ -330,8 +334,28 @@ pub fn finder(frits: PathBuf, helper: crate::specimen::Helper) -> port::Finder {
 }
 
 /// Opens the TUI on the terminal at `view` and runs it until the user
-/// leaves; returns the exit status.
+/// leaves, reading the devices present from the system's sysfs and udev
+/// database; returns the exit status.
 pub fn run(paths: &Paths, view: model::View, err: &mut dyn std::io::Write) -> u8 {
+    let system = vtium_platform::listing::Roots::system();
+    let devices = crate::flowcli::Devices {
+        roots: vtium_platform::listing::Roots {
+            sys: paths.sys.clone(),
+            udev_data: system.udev_data,
+        },
+        control: PathBuf::from(vtium_devices::UDEV_CONTROL),
+    };
+    run_at(paths, devices, view, err)
+}
+
+/// Opens the TUI on the terminal at `view`, the devices present read from
+/// `devices`, and runs it until the user leaves; returns the exit status.
+pub fn run_at(
+    paths: &Paths,
+    devices: crate::flowcli::Devices,
+    view: model::View,
+    err: &mut dyn std::io::Write,
+) -> u8 {
     // the TUI runs as the user from start to end (ADR-1201 D5); main
     // refuses root before this, and so does this
     if rustix::process::geteuid().is_root() {
@@ -341,13 +365,21 @@ pub fn run(paths: &Paths, view: model::View, err: &mut dyn std::io::Write) -> u8
         );
         return 2;
     }
-    let inputs = match gather(paths, view) {
+    let mut inputs = match gather(paths, view) {
         Ok(inputs) => inputs,
         Err(why) => {
             let _ = writeln!(err, "vtium-config: {why}");
             return 1;
         }
     };
+    let store = match crate::store::Store::system() {
+        Ok(store) => store,
+        Err(fail) => {
+            let _ = writeln!(err, "vtium-config: {}", fail.text());
+            return fail.code();
+        }
+    };
+    let mut desk = desk::Store::new(store, paths.clone(), desk::machine(devices));
     let saver = crate::apply::saver(paths.clone());
     let tools = port::Tools {
         painter: painter(inputs.frits.clone(), paths.helper.clone(), locale()),
@@ -366,7 +398,8 @@ pub fn run(paths: &Paths, view: model::View, err: &mut dyn std::io::Write) -> u8
             return 1;
         }
     };
-    let status = port::drive(&mut tty, inputs);
+    inputs.hotplug = tty.watches_hotplug();
+    let status = port::drive_with(&mut tty, inputs, Some(&mut desk));
     drop(tty);
     match status {
         Ok(status) => status,

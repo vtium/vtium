@@ -26,6 +26,7 @@ use vtium_platform::calloop::generic::Generic;
 use vtium_platform::calloop::{Interest, Mode, PostAction};
 use vtium_platform::event_loop::{Loop, Signal};
 
+use super::desk::Desk;
 use super::input::Decoder;
 use super::model::{App, Effect, Event, Inputs, Live};
 use super::view;
@@ -41,6 +42,8 @@ pub enum Wake {
     Resize,
     Signal(i32),
     Timeout,
+    /// udev reported that a device came or went.
+    Hotplug,
 }
 
 /// The terminal the loop runs against.
@@ -84,9 +87,21 @@ pub trait Port {
 pub const ENTER: &[u8] = b"\x1b[?1049h\x1b[?25l";
 pub const LEAVE: &[u8] = b"\x1b[?1006l\x1b[?1000l\x1b[?25h\x1b[?1049l";
 
-/// Runs the TUI from `inputs` on `port` until it leaves; returns its exit
-/// status.
+/// Runs the TUI from `inputs` on `port` until it leaves, with no desk, so
+/// the Flow view shows `inputs`'s flow and changes nothing; returns its
+/// exit status.
 pub fn drive(port: &mut dyn Port, inputs: Inputs) -> io::Result<u8> {
+    drive_with(port, inputs, None)
+}
+
+/// Runs the TUI from `inputs` on `port` until it leaves, the Flow view's
+/// draft on `desk`; returns its exit status.
+pub fn drive_with(
+    port: &mut dyn Port,
+    mut inputs: Inputs,
+    mut desk: Option<&mut dyn Desk>,
+) -> io::Result<u8> {
+    inputs.desk = desk.is_some();
     let (cols, rows) = port.size();
     let (mut app, first) = App::new(inputs, cols, rows);
     app.cell_px = port.cell_px();
@@ -116,6 +131,13 @@ pub fn drive(port: &mut dyn Port, inputs: Inputs) -> io::Result<u8> {
                         }));
                     }
                     Effect::Sources(fonts) => port.sources(fonts),
+                    Effect::Desk(op) => {
+                        let done = match desk.as_deref_mut() {
+                            Some(desk) => desk.run(&op),
+                            None => Err(super::words::NO_DESK.to_owned()),
+                        };
+                        queue.extend(app.event(Event::Desked(op, done)));
+                    }
                     Effect::Save(plan) => {
                         port.write(&view::draw(&app))?;
                         let result = port.save(&plan);
@@ -139,6 +161,7 @@ pub fn drive(port: &mut dyn Port, inputs: Inputs) -> io::Result<u8> {
                 Wake::Signal(n) => vec![Event::Signal(n)],
                 Wake::Sourced(found) => vec![Event::Sourced(found)],
                 Wake::Timeout => vec![Event::Timeout],
+                Wake::Hotplug => vec![Event::Hotplug],
             };
             for event in events {
                 queue.extend(app.event(event));
@@ -181,10 +204,25 @@ fn restore() {
     }
 }
 
-/// What the loop's sources leave for [`Tty::wait`].
+/// What the loop's sources leave for [`Tty::wait`], and the udev monitor
+/// they drain.
 #[derive(Default)]
 struct Woken {
     wakes: Vec<Wake>,
+    udev: Option<vtium_platform::libudev::MonitorSocket>,
+}
+
+/// A monitor of udev's events for displays and input devices. Reading an
+/// event opens no device: the loop drains the socket and the desk reads
+/// the devices present again from sysfs and udev's database (ADR-1403 D7).
+fn monitor() -> io::Result<vtium_platform::libudev::MonitorSocket> {
+    let socket = vtium_platform::libudev::MonitorBuilder::new()?
+        .match_subsystem("drm")?
+        .match_subsystem("input")?
+        .listen()?;
+    let flags = rustix::fs::fcntl_getfl(&socket)?;
+    rustix::fs::fcntl_setfl(&socket, flags | rustix::fs::OFlags::NONBLOCK)?;
+    Ok(socket)
 }
 
 /// Draws a font's specimen at a pixel height.
@@ -217,6 +255,8 @@ pub struct Tty {
     saved: Termios,
     events: Loop<Woken>,
     deadline: Option<Instant>,
+    /// The udev monitor, between waits; `None` when there is none.
+    udev: Option<vtium_platform::libudev::MonitorSocket>,
 }
 
 #[expect(
@@ -228,6 +268,11 @@ fn now() -> Instant {
 }
 
 impl Tty {
+    /// Whether the loop watches udev's device events.
+    pub fn watches_hotplug(&self) -> bool {
+        self.udev.is_some()
+    }
+
     /// Takes the terminal: raw mode, the alternate screen, the signals
     /// held. `saver` writes a draft and runs the privileged step through
     /// the runner it is given.
@@ -285,6 +330,24 @@ impl Tty {
                 }
             })
             .map_err(|e| io::Error::other(e.to_string()))?;
+        let udev = monitor().ok();
+        if let Some(socket) = &udev {
+            let fd = socket.as_fd().try_clone_to_owned()?;
+            events
+                .handle()
+                .insert_source(
+                    Generic::new(fd, Interest::READ, Mode::Level),
+                    |_, _, w: &mut Woken| {
+                        if let Some(socket) = &w.udev
+                            && socket.iter().count() > 0
+                        {
+                            w.wakes.push(Wake::Hotplug);
+                        }
+                        Ok(PostAction::Continue)
+                    },
+                )
+                .map_err(|e| io::Error::other(e.to_string()))?;
+        }
         tcsetattr(&input, OptionalActions::Now, &raw)?;
         if let Ok(mut r) = RESTORE.lock() {
             *r = Some(Restore {
@@ -307,6 +370,7 @@ impl Tty {
             saved,
             events,
             deadline: None,
+            udev,
         };
         tty.write(ENTER)?;
         Ok(tty)
@@ -410,15 +474,26 @@ impl Port for Tty {
     }
 
     fn wait(&mut self) -> io::Result<Vec<Wake>> {
-        let mut woken = Woken::default();
-        while woken.wakes.is_empty() {
+        let mut woken = Woken {
+            wakes: Vec::new(),
+            udev: self.udev.take(),
+        };
+        let result = loop {
+            if !woken.wakes.is_empty() {
+                break Ok(());
+            }
             let timeout = self.deadline.map(|d| d.saturating_duration_since(now()));
             if timeout == Some(Duration::ZERO) {
                 self.deadline = None;
-                return Ok(vec![Wake::Timeout]);
+                woken.wakes.push(Wake::Timeout);
+                break Ok(());
             }
-            self.events.dispatch(timeout, &mut woken)?;
-        }
+            if let Err(e) = self.events.dispatch(timeout, &mut woken) {
+                break Err(e);
+            }
+        };
+        self.udev = woken.udev.take();
+        result?;
         Ok(woken.wakes)
     }
 

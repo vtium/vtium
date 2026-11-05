@@ -18,6 +18,8 @@ use std::time::Duration;
 use vtium_settings::keys::{self, Kind, Scope};
 use vtium_settings::{Edit, edit_conf, setting, switch as conf_switch};
 
+use super::desk::{Done, Kept, Op, Opened};
+use super::edit::Change as DraftChange;
 use super::flow::{COLUMNS, Flow, Item};
 use super::input::{Button, Input, Key, Mouse, Reply};
 use crate::draft::{FileEdit, Plan, Removal};
@@ -101,6 +103,13 @@ pub struct Inputs {
     /// The terminal draws color: not with `NO_COLOR`, nor on a terminal
     /// that names none.
     pub color: bool,
+    /// The loop has a desk, so the Flow view shows the user's draft and
+    /// its changes go into it (ADR-1403 D8); without one it shows
+    /// [`Inputs::flow`] and changes nothing.
+    pub desk: bool,
+    /// The loop watches udev's device events, so the view follows hotplug
+    /// (ADR-1403 D7).
+    pub hotplug: bool,
 }
 
 /// How a save is installed, as the save view shows it: the command a
@@ -142,6 +151,10 @@ pub enum Event {
     },
     /// The sources each frit [`Effect::Sources`] named lacks.
     Sourced(Vec<(String, SourcesFound)>),
+    /// The desk did the op [`Effect::Desk`] asked for, or says why not.
+    Desked(Op, Result<Done, String>),
+    /// udev reported that a device came or went.
+    Hotplug,
 }
 
 /// The sources a frit lacks or refuses, or why it draws nothing here.
@@ -171,6 +184,8 @@ pub enum Effect {
     /// Asks the glyph helper which sources each frit named lacks, then
     /// sends [`Event::Sourced`].
     Sources(Vec<String>),
+    /// Hands the op to the desk, then sends [`Event::Desked`].
+    Desk(Op),
     /// Leaves, with this exit status.
     Exit(u8),
 }
@@ -438,6 +453,64 @@ pub struct App {
     pub sources: std::collections::BTreeMap<String, SourcesFound>,
     /// OSC 50 replies still due before the TUI may leave.
     replies_due: usize,
+    /// The draft the Flow view shows, as the desk last read or wrote it.
+    pub draft: Option<Opened>,
+    /// The devices present, which the flow places on the draft.
+    pub present: crate::flowmodel::Present,
+    /// Where the cursor is on the opened card.
+    pub card: Card,
+    /// The question the view asks before it acts, and what it does on yes.
+    pub confirm: Option<Confirm>,
+    /// The read-only pager over the draft, when it is open.
+    pub pager: Option<Pager>,
+    /// The installed history Restore lists, and the entry highlighted.
+    pub restore: Option<(Vec<Kept>, usize)>,
+    /// The privileged step is installing the draft.
+    pub installing: bool,
+    /// What came and went at the last hotplug, which the status line shows
+    /// until the next change.
+    pub came: Option<String>,
+    /// The item to select once the desk answers the change in flight.
+    pub(crate) select_after: Option<Item>,
+}
+
+/// Where the cursor is on an opened card (ADR-1403 D7).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Card {
+    /// The field, by its place on the card.
+    pub field: usize,
+    /// The value picked: one of the field's options, or one past the last
+    /// for a value to type.
+    pub pick: usize,
+    /// The value being typed, while it is.
+    pub typed: Option<String>,
+    /// A `new…` form's values, by field.
+    pub values: Vec<String>,
+}
+
+/// A question the Flow view asks before it acts.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Confirm {
+    pub question: String,
+    pub then: Then,
+}
+
+/// What a yes does.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Then {
+    Change(DraftChange),
+    Desk(Op),
+    Install(Plan),
+}
+
+/// The pager's place in the draft: its first line in sight and how far it
+/// is scrolled sideways.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Pager {
+    pub top: usize,
+    pub left: usize,
+    /// The line the card selected in the flow sits on, counted from 1.
+    pub mark: usize,
 }
 
 impl App {
@@ -487,8 +560,20 @@ impl App {
             summary: None,
             sources: std::collections::BTreeMap::new(),
             replies_due: 0,
+            draft: None,
+            present: crate::flowmodel::Present::default(),
+            card: Card::default(),
+            confirm: None,
+            pager: None,
+            restore: None,
+            installing: false,
+            came: None,
+            select_after: None,
         };
         let mut first = vec![Effect::Write(probe()), Effect::Wait(WAIT)];
+        if app.inputs.desk {
+            first.push(Effect::Desk(Op::Open));
+        }
         first.extend(app.mouse_for_view());
         (app, first)
     }
@@ -590,6 +675,7 @@ impl App {
                 self.leave(status)
             }
             Event::Timeout => self.timeout(),
+            Event::Saved(result) if self.installing => self.installed(result),
             Event::Saved(result) => self.saved(result),
             Event::Pictured(result) => self.pictured(result),
             Event::Summarized {
@@ -604,6 +690,8 @@ impl App {
                 self.sources.extend(found);
                 Vec::new()
             }
+            Event::Desked(op, done) => self.desked(&op, done),
+            Event::Hotplug => vec![Effect::Desk(Op::Devices)],
         }
     }
 
@@ -861,6 +949,7 @@ impl App {
         match self.view {
             View::New => self.new_frit.at < NEW_FIELDS,
             View::Settings => self.editing.is_some(),
+            View::Flow => self.opened && self.card.typed.is_some() && self.confirm.is_none(),
             _ => false,
         }
     }
@@ -877,10 +966,14 @@ impl App {
         {
             return self.type_key(key);
         }
-        let route = self.view == View::Flow && self.route.is_some();
+        let modal = self.view == View::Flow
+            && (self.route.is_some()
+                || self.pager.is_some()
+                || self.confirm.is_some()
+                || self.restore.is_some());
         match key {
             Key::Interrupt => return self.leave(130),
-            Key::Char('q') if !route => return self.leave(0),
+            Key::Char('q') if !modal => return self.leave(0),
             _ => {}
         }
         if self.view == View::Flow {
@@ -1012,6 +1105,22 @@ impl App {
         if let Some(line) = self.route {
             return self.route_key(key, line);
         }
+        if self.confirm.is_some() {
+            return self.confirm_key(key);
+        }
+        if self.pager.is_some() {
+            self.pager_key(key);
+            return Vec::new();
+        }
+        if self.restore.is_some() {
+            return self.restore_key(key);
+        }
+        if self.opened
+            && !matches!(key, Key::Tab | Key::BackTab)
+            && let Some(out) = self.card_key(key)
+        {
+            return out;
+        }
         self.message = None;
         let flow = &self.inputs.flow;
         let column = flow.column_of(self.flow_at);
@@ -1033,7 +1142,7 @@ impl App {
                     self.select(*item);
                 }
             }
-            Key::Enter => self.opened = true,
+            Key::Enter => self.open_card(),
             Key::Char(' ') => {
                 if !matches!(self.flow_at, Item::Base | Item::Policy | Item::New(_)) {
                     if let Some(at) = self.tags.iter().position(|t| *t == self.flow_at) {
@@ -1047,6 +1156,7 @@ impl App {
                 self.tags.clear();
                 self.opened = false;
             }
+            Key::Char('c') => return self.connect(),
             Key::Char('f') => self.follow_line(),
             Key::Char('?') => {
                 let lines = super::flowdraw::route_card(&self.inputs.flow, self.flow_at).2;
@@ -1057,23 +1167,7 @@ impl App {
                     .unwrap_or(0);
                 self.route = Some(at);
             }
-            Key::Char('i') => {
-                self.back = View::Flow;
-                return self.set_view(View::Save);
-            }
-            Key::Char(c) => {
-                let what = match c {
-                    'c' => super::words::CONNECT,
-                    'd' => super::words::READ_DEVICES,
-                    'v' => super::words::VIEW_DRAFT,
-                    'r' => super::words::REVERT,
-                    'o' => super::words::RESTORE,
-                    'n' => super::words::NEW_CONFIGURATION,
-                    'x' => super::words::DELETE_DRAFT,
-                    _ => return Vec::new(),
-                };
-                self.message = Some(super::words::not_built(what));
-            }
+            Key::Char(c @ ('i' | 'd' | 'v' | 'r' | 'o' | 'n' | 'x')) => return self.action(c),
             _ => {}
         }
         Vec::new()
@@ -1173,7 +1267,7 @@ impl App {
             Key::Enter => {
                 if let Some(item) = lines.get(line).and_then(|l| l.item) {
                     self.flow_at = item;
-                    self.opened = true;
+                    self.open_card();
                 }
                 self.route = None;
             }
@@ -1210,7 +1304,7 @@ impl App {
             return self.set_view(view);
         }
         match super::view::item_at(self, mouse.col, mouse.row) {
-            Some(item) if item == self.flow_at => self.opened = true,
+            Some(item) if item == self.flow_at => self.open_card(),
             Some(item) => {
                 self.message = None;
                 self.select(item);
@@ -1294,6 +1388,7 @@ impl App {
     fn type_key(&mut self, key: Key) -> Vec<Effect> {
         let text = match self.view {
             View::New => self.new_frit.fields.get_mut(self.new_frit.at),
+            View::Flow => self.card.typed.as_mut(),
             _ => self.editing.as_mut(),
         };
         if let Some(text) = text {
@@ -1534,7 +1629,7 @@ impl App {
 
 /// The item the Flow view selects first: the first display, else the
 /// first item of the first column that has one.
-fn first_item(flow: &Flow) -> Item {
+pub(crate) fn first_item(flow: &Flow) -> Item {
     flow.columns()
         .iter()
         .find_map(|c| {
@@ -1549,7 +1644,7 @@ fn first_item(flow: &Flow) -> Item {
 pub const TYPED_MAX: usize = 256;
 
 /// `at` moved by `key` in a list of `n`.
-fn step(at: usize, n: usize, key: Key) -> usize {
+pub(crate) fn step(at: usize, n: usize, key: Key) -> usize {
     let last = n.saturating_sub(1);
     match key {
         Key::Up => at.saturating_sub(1),

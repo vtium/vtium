@@ -591,6 +591,14 @@ fn status(canvas: &mut Canvas, app: &App) {
         let names: Vec<String> = app.tags.iter().map(|t| flow.name(*t)).collect();
         left = format!("{left} · {}", words::tagged(&names));
     }
+    if app.view == View::Flow && app.draft.is_some() {
+        if let Some(came) = &app.came {
+            left = format!("{left} · {came}");
+        }
+        if !(app.inputs.hotplug && app.present.udev) {
+            left = format!("{left} · {}", words::NO_HOTPLUG);
+        }
+    }
     let live = match app.live {
         Live::Asking => words::LIVE_ASKING,
         Live::On => words::LIVE_ON,
@@ -617,6 +625,11 @@ const MESSAGE_ROWS: usize = 3;
 fn key_rows(app: &App) -> Vec<String> {
     let keys = match app.view {
         View::Flow if app.route.is_some() => words::KEYS_ROUTE,
+        View::Flow if app.confirm.is_some() => words::KEYS_CONFIRM,
+        View::Flow if app.pager.is_some() => words::KEYS_PAGER,
+        View::Flow if app.restore.is_some() => words::KEYS_RESTORE,
+        View::Flow if app.opened && app.card.typed.is_some() => words::KEYS_TYPING,
+        View::Flow if app.opened && !app.fields().is_empty() => words::KEYS_CARD,
         View::Flow => words::KEYS_FLOW,
         View::Looks => words::KEYS_LOOKS,
         View::Fonts => words::KEYS_FONTS,
@@ -756,6 +769,10 @@ fn flow_screen(canvas: &mut Canvas, app: &App) -> Option<super::flowdraw::Drawn>
         route_screen(canvas, app, cursor, bottom);
         return None;
     }
+    if let Some(pager) = app.pager {
+        pager_screen(canvas, app, pager, bottom);
+        return None;
+    }
     let base = words::base_row(&flow.base.set, flow.base.defaults);
     let base_style = if app.flow_at == Item::Base {
         Style::block(palette::BASE).reversed()
@@ -769,8 +786,17 @@ fn flow_screen(canvas: &mut Canvas, app: &App) -> Option<super::flowdraw::Drawn>
     };
     let shown = super::canvas::fit(&base_text, cols);
     canvas.put(0, 2, &shown, base_style);
-    let card = if app.opened {
-        super::flowdraw::card(flow, app.flow_at)
+    let room = if rows >= 30 { 6 } else { 4 };
+    let card = if let Some((kept, at)) = &app.restore {
+        restore_rows(kept, *at, room)
+    } else if app.opened {
+        let mut card = super::flowdraw::card(flow, app.flow_at);
+        let fields = app.fields();
+        if !fields.is_empty() {
+            card.truncate(1);
+            card.extend(field_rows(app, &fields, room));
+        }
+        card
     } else {
         Vec::new()
     };
@@ -823,6 +849,125 @@ fn flow_screen(canvas: &mut Canvas, app: &App) -> Option<super::flowdraw::Drawn>
         }
     }
     Some(drawn)
+}
+
+/// The opened card's fields, at most `room` of them around the cursor:
+/// each its label, then the values it offers with the current one in its
+/// block and the cursor's in reverse video, then `type…` where a value
+/// may be typed; the value being typed takes the field's row.
+fn field_rows(app: &App, fields: &[super::edit::Field], room: usize) -> Vec<Vec<(String, Style)>> {
+    let grey = Style::text(palette::GREY);
+    let first = app
+        .card
+        .field
+        .saturating_add(1)
+        .saturating_sub(room)
+        .min(fields.len().saturating_sub(room));
+    fields
+        .iter()
+        .enumerate()
+        .skip(first)
+        .take(room)
+        .map(|(i, f)| {
+            let here = i == app.card.field;
+            let mark = if here { "▸ " } else { "  " };
+            let mut row = vec![(format!("{mark}{:<18}", f.label), grey)];
+            if here && let Some(typed) = &app.card.typed {
+                row.push((format!(" {typed}_ "), Style::PLAIN.reversed()));
+                return row;
+            }
+            for (k, o) in f.options.iter().enumerate() {
+                let style = if here && k == app.card.pick {
+                    Style::PLAIN.reversed()
+                } else if *o == f.current {
+                    Style::block(palette::LOOKS)
+                } else {
+                    Style::PLAIN
+                };
+                row.push((format!(" {o} "), style));
+            }
+            if f.typed {
+                let style = if here && app.card.pick == f.options.len() {
+                    Style::PLAIN.reversed()
+                } else {
+                    grey
+                };
+                let shown = if f.options.is_empty() && !f.current.is_empty() {
+                    format!(" {} · {} ", f.current, words::OR_TYPE_VALUE)
+                } else {
+                    format!(" {} ", words::OR_TYPE_VALUE)
+                };
+                row.push((shown, style));
+            }
+            row
+        })
+        .collect()
+}
+
+/// Restore's list of the installed history, at most `room` files around
+/// the highlighted one, under its title.
+fn restore_rows(kept: &[super::desk::Kept], at: usize, room: usize) -> Vec<Vec<(String, Style)>> {
+    let first = at
+        .saturating_add(1)
+        .saturating_sub(room)
+        .min(kept.len().saturating_sub(room));
+    let mut out = vec![vec![(
+        words::RESTORE_TITLE.to_owned(),
+        Style {
+            bold: true,
+            ..Style::PLAIN
+        },
+    )]];
+    for (i, k) in kept.iter().enumerate().skip(first).take(room) {
+        let style = if i == at {
+            Style::PLAIN.reversed()
+        } else {
+            Style::PLAIN
+        };
+        out.push(vec![(
+            format!(" {:>2}  {} ", i.saturating_add(1), k.name),
+            style,
+        )]);
+    }
+    out
+}
+
+/// The draft in the pager, from row 2 down to `bottom`: its title, then
+/// each line with its number, a line the check complains about marked `!`
+/// in bright red, and the line of the card selected in the flow marked
+/// with [`SELECTED`].
+fn pager_screen(canvas: &mut Canvas, app: &App, pager: super::model::Pager, bottom: usize) {
+    let Some(draft) = &app.draft else {
+        return;
+    };
+    canvas.put(
+        1,
+        2,
+        &format!("{} · draft {}", words::PAGER_TITLE, draft.name),
+        Style {
+            bold: true,
+            ..Style::PLAIN
+        },
+    );
+    let flagged: Vec<usize> = draft
+        .problems
+        .iter()
+        .filter_map(|l| l.split(':').nth(1).and_then(|n| n.trim().parse().ok()))
+        .collect();
+    let width = app.cols.saturating_sub(8);
+    for (row, (i, line)) in (4..bottom).zip(draft.text.lines().enumerate().skip(pager.top)) {
+        let n = i.saturating_add(1);
+        let (mark, style) = if flagged.contains(&n) {
+            ("!", Style::text(palette::ERROR))
+        } else if n == pager.mark {
+            (SELECTED, Style::PLAIN)
+        } else {
+            (" ", Style::text(palette::GREY))
+        };
+        let shown: String = line.chars().skip(pager.left).take(width).collect();
+        canvas.put(0, row, &format!("{mark}{n:>4} "), style);
+        canvas.put(6, row, &shown, Style::PLAIN);
+    }
 }
 
 /// The mark before the selected item's lines on the route card.

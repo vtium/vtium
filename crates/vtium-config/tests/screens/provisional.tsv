@@ -17,3 +17,11 @@ looks-80x25	the looks view, which holds the sizes, at 80x25
 looks-100x30	the looks view, which holds the sizes, at 100x30
 help-80x25	the help view's Help page at 80x25
 help-100x30	the help view's Help page at 100x30
+draft-rule-card-80x25	the flow view on a draft at 80x25 with rule 1's card open for editing
+draft-rule-card-100x30	the flow view on a draft at 100x30 with rule 1's card open for editing
+draft-head-card-80x25	the flow view on a draft at 80x25 with head desk's card open for editing
+draft-head-card-100x30	the flow view on a draft at 100x30 with head desk's card open for editing
+draft-delete-head-80x25	the flow view on a draft at 80x25 asking before it deletes head desk
+draft-delete-head-100x30	the flow view on a draft at 100x30 asking before it deletes head desk
+draft-pager-80x25	the read-only pager over the draft at 80x25, at rule 2's line
+draft-pager-100x30	the read-only pager over the draft at 100x30, at rule 2's line

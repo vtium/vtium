@@ -9,6 +9,9 @@
 //! Each wait is for a state the console reaches, bounded only so that a
 //! test fails instead of hanging.
 
+#[path = "common/home.rs"]
+mod home;
+
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
 use std::os::fd::AsFd;
@@ -266,7 +269,7 @@ fn fixture(name: &str) -> (PathBuf, PathBuf) {
 /// The TUI on `slave`, with the slave as its controlling terminal.
 fn tui(slave: &File, root: &Path, fonts: &Path) -> Child {
     let io = || Stdio::from(slave.as_fd().try_clone_to_owned().expect("dup"));
-    Command::new("setsid")
+    home::command("setsid")
         .arg("--ctty")
         .arg(env!("CARGO_BIN_EXE_vtium-config"))
         .arg("--no-banner")
@@ -276,6 +279,7 @@ fn tui(slave: &File, root: &Path, fonts: &Path) -> Child {
         .arg(fonts)
         .arg("tui")
         .env("XDG_STATE_HOME", root.join("state"))
+        .env("XDG_CONFIG_HOME", root.join("config"))
         .stdin(io())
         .stdout(io())
         .stderr(io())
@@ -480,7 +484,7 @@ fn set(name: &str, kind: Kind) -> (i32, String, Vec<String>) {
     };
     let (_root, fonts) = fixture(&format!("set-{name}-{label}"));
     let c = Console::start(master, 80, 25, kind, TAKES);
-    let out = Command::new("setsid")
+    let out = home::command("setsid")
         .arg("--ctty")
         .arg(env!("CARGO_BIN_EXE_vtium-config"))
         .arg("--frits")
@@ -517,13 +521,14 @@ fn set_sends_nothing_to_a_terminal_that_is_not_vtium() {
 /// Spawns the TUI on `slave` with `options` before its own.
 fn tui_with(slave: &File, root: &Path, options: &[&std::ffi::OsStr]) -> Child {
     let io = || Stdio::from(slave.as_fd().try_clone_to_owned().expect("dup"));
-    Command::new("setsid")
+    home::command("setsid")
         .arg("--ctty")
         .arg(env!("CARGO_BIN_EXE_vtium-config"))
         .arg("--no-banner")
         .args(options)
         .arg("tui")
         .env("XDG_STATE_HOME", root.join("state"))
+        .env("XDG_CONFIG_HOME", root.join("config"))
         .stdin(io())
         .stdout(io())
         .stderr(io())

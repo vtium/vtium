@@ -86,6 +86,8 @@ pub mod rt_signal;
 pub mod udev;
 pub mod vt;
 
+/// The udev binding, which vtium-config's TUI watches device events through without opening any device (ADR-1403 D7).
+pub use ::udev as libudev;
 pub use bounds::{
     DAMAGE_CLIPS_MAX, EXIT_FEED_MAX, FLIP_WAIT_MS, IMAGE_CRASHES_MAX, IMAGE_HELPER_BASE,
     INPUT_READS_PER_TURN, MOTION_COALESCE_AT, READ_BUDGET, READ_MAX, READS_PER_TURN, REPLY_HIGH,
