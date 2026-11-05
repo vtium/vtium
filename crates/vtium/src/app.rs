@@ -862,11 +862,14 @@ impl App {
     /// D3): the head's own font, else the frit `font-name` or vconsole
     /// names, or the one-source frit made on the fly for a kbd name, a
     /// path or vconsole's font, generated at run time (ADR-1301 D2); else
-    /// the built-in font, with one line naming the font and why.
+    /// the built-in font, with one line naming the font and why. The font
+    /// draws in the cell the head's look states, the built-in font as a
+    /// frit does (ADR-1200 D7, ADR-1403 D5).
     fn configured_font(&self, h: usize) -> Chosen {
         let Some(head) = self.heads.get(h) else {
-            return Chosen::Builtin(None);
+            return Chosen::BUILTINS;
         };
+        let look = head.look_cell();
         let s = &self.font_sources;
         let wanted = match &head.font_name {
             Some(name) => Some(font::Wanted {
@@ -880,15 +883,15 @@ impl App {
             ),
         };
         let Some(wanted) = wanted else {
-            return Chosen::Builtin(None);
+            return Chosen::builtins(look);
         };
-        if let Some(builtin) = font::builtin_named(&wanted.name) {
+        if let Some(builtin) = font::builtin_named(&wanted.name, look) {
             return builtin;
         }
         // The frit's cell is read as text before the first frame; its fonts
         // are the helper's to parse (#145).
         let chosen = font::frit_named(&s.frits, &wanted)
-            .and_then(|frit| Chosen::frit(frit, head.sized(), head.look_cell()));
+            .and_then(|frit| Chosen::frit(frit, head.sized(), look));
         match chosen {
             Ok(chosen) => {
                 log::info!(
@@ -902,7 +905,7 @@ impl App {
                     "the font {} is not drawn ({why}): vtium draws its built-in font",
                     wanted.name
                 );
-                Chosen::Builtin(None)
+                Chosen::builtins(look)
             }
         }
     }
@@ -1042,19 +1045,15 @@ impl App {
         };
         let same = match head.chosen() {
             Chosen::Frit { name: now, .. } => now == name,
-            Chosen::Builtin(Some(n)) => *n == name,
-            Chosen::Builtin(None) => false,
+            Chosen::Builtin { name: Some(n), .. } => *n == name,
+            Chosen::Builtin { name: None, .. } => false,
         };
         if same {
             return;
         }
-        let (sized, look_cell) = (head.sized(), head.look_cell());
+        let (sized, look) = (head.sized(), head.look_cell());
         let was = head.frit().map(str::to_owned);
-        let new = font::by_name(&self.font_sources, name).and_then(|new| {
-            let new = match new {
-                Chosen::Frit { frit, .. } => Chosen::frit(frit, sized, look_cell)?,
-                builtin => builtin,
-            };
+        let new = font::by_name(&self.font_sources, name, sized, look).and_then(|new| {
             let Some(head) = self.heads.get_mut(h) else {
                 return Ok(());
             };
@@ -3893,7 +3892,9 @@ fn height_at(head: &Head, size: (Option<u32>, bool), dpi: f64, locale: &str) -> 
 /// the same frit, by its name and its text.
 fn same_font(a: &Chosen, b: &Chosen) -> bool {
     match (a, b) {
-        (Chosen::Builtin(x), Chosen::Builtin(y)) => x == y,
+        (Chosen::Builtin { name: x, cell: a }, Chosen::Builtin { name: y, cell: b }) => {
+            x == y && a == b
+        }
         (Chosen::Frit { frit: x, .. }, Chosen::Frit { frit: y, .. }) => {
             x.name == y.name && x.text == y.text
         }
@@ -4448,7 +4449,10 @@ mod tests {
         let heads = "version = 1\n[head a]\n[head b]\n[rules]\ndisplay connector:mem/A -> a\ndisplay connector:mem/B -> b\n";
         let (_lp, mut app) = seat(Some(heads), no_fonts());
         if let Some(head) = app.heads.first_mut() {
-            head.font = Some(Chosen::Builtin(Some("no-such-set")));
+            head.font = Some(Chosen::Builtin {
+                name: Some("no-such-set"),
+                cell: None,
+            });
         }
         app.add_video(
             PathBuf::from("/dev/mem0"),

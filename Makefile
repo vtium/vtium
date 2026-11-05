@@ -558,6 +558,23 @@ specimens-fonts: ## Fetch the outline profiles' pinned fonts into the cache, che
 	cargo build --release -p vtium-specimens --bins
 	$(or $(CARGO_TARGET_DIR),target)/release/specimens fetch-fonts
 
+# What the maintainer reviews vtium-config's TUI screen goldens on
+# (crates/vtium-config/README.md, "Reviewing the screens"); neither is a gate.
+# tui-shots plays the bytes the golden tests capture through vtium's
+# renderer into PNGs; tui-demo opens the TUI on the goldens' fixtures in a
+# throwaway home that tools/tui-review/demo removes afterwards.
+TUI_SHOTS := $(or $(OUT),$(or $(CARGO_TARGET_DIR),target)/tui-shots)
+.PHONY: tui-shots tui-demo
+tui-shots: ## Draw every TUI screen golden as a PNG through vtium's renderer in unifont, into OUT=DIR (default target/tui-shots)
+	rm -rf $(TUI_SHOTS)/bytes
+	VTIUM_CONFIG_SHOTS=$(abspath $(TUI_SHOTS))/bytes cargo test -p vtium-config --test tui -- each_view_at_80x25_and_100x30 a_draft_s_card_question_and_pager_at_80x25_and_100x30
+	cargo build --release -p vtium-tui-review --bin tui-shots
+	$(or $(CARGO_TARGET_DIR),target)/release/tui-shots crates/vtium-config/tests/screens $(TUI_SHOTS)/bytes $(TUI_SHOTS)
+
+tui-demo: ## Open vtium-config's TUI in this terminal on the screen goldens' fixtures, in a throwaway home removed afterwards (FIXTURE=draft, the default, or figure)
+	cargo build -p vtium-config -p vtium-tui-review --bins
+	tools/tui-review/demo $(or $(FIXTURE),draft) $(or $(CARGO_TARGET_DIR),target)/debug/tui-demo $(or $(CARGO_TARGET_DIR),target)/debug/vtium-config
+
 # The documentation site (ADR-1502): Zensical, pinned with hashes in
 # tools/site/requirements.txt, installed into a virtual environment under
 # target/ and run from there. Its first run needs Python 3.11 or later and the

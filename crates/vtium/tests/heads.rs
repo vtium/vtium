@@ -1123,7 +1123,8 @@ display card:mem-large -> large
 /// `a_heads_look_sets_its_cell_and_the_looks_size_wins_over_it` checks;
 /// the program switches to frit `d`, which states a 10x20 cell of its own, and `d`
 /// draws in the look's 12x24 cell too, since the look is more specific
-/// than any frit the head draws.
+/// than any frit the head draws. A switch to a built-in font, `unifont`,
+/// draws it in the look's cell as well (ADR-1200 D7).
 #[test]
 fn an_osc_50_switch_keeps_the_looks_cell() {
     let (dir, fonts, _starts) = frits("look-cell-osc50", &[]);
@@ -1145,7 +1146,7 @@ display card:mem-small -> small
 ";
     let script = "printf '\\033]50;d\\007'; echo switched; read b";
     let [small, _] = two_displays();
-    let mut s = Seat::with_fonts(&[], Some(heads), [small], script, fonts);
+    let mut s = Seat::with_fonts(&[], Some(heads), [small], script, fonts.clone());
     assert!(s.until(BOUND, |a| head_shows(a, "small", "switched")));
     assert_eq!(s.app.font_name(), "d", "the switch took");
     assert_eq!(
@@ -1153,6 +1154,219 @@ display card:mem-small -> small
         Some(vec![(12, 24)]),
         "the new frit draws in the look's cell"
     );
+    drop(s);
+    let script = "printf '\\033]50;unifont\\007'; echo switched; read b";
+    let [small, _] = two_displays();
+    let mut s = Seat::with_fonts(&[], Some(heads), [small], script, fonts);
+    assert!(s.until(BOUND, |a| head_shows(a, "small", "switched")));
+    assert_eq!(s.app.font_name(), "unifont", "the switch took");
+    assert_eq!(
+        s.app.head("small").map(Head::cells),
+        Some(vec![(12, 24)]),
+        "the built-in font draws in the look's cell"
+    );
+    drop(s);
+}
+
+/// ADR-1200 D7, D17, ADR-1403 D5: a head that draws the built-in fonts
+/// alone draws them in the cell its look states, fitted to that cell, as
+/// it would draw a frit, and not at the display's automatic size. The
+/// look of the small head names the frit `bad`, whose `cell=` line vtium
+/// cannot read, so vtium draws the built-in fonts; the look of the large
+/// head names no font, and nothing else names one. Both looks state a
+/// 12x24 cell, which wins over the seat's 16 points, so the small head's
+/// 320x160 display holds 26 by 6 cells and the large head's 640x320
+/// display 53 by 13. A look that names a built-in font, `unscii-8`, draws
+/// it in the look's cell too.
+#[test]
+fn the_built_in_fonts_alone_draw_in_the_looks_cell() {
+    let (dir, fonts, _starts) = frits("builtin-cell", &[]);
+    std::fs::write(
+        dir.join("bad.vtfrit"),
+        "cell=wide\nsource=builtin:unifont\n",
+    )
+    .expect("a frit whose cell cannot be read");
+    let heads = "version = 1
+[look unread]
+font-name = bad
+cell = 12x24
+[look none]
+cell = 12x24
+[head small]
+look = unread
+[head large]
+look = none
+[rules]
+display card:mem-small -> small
+display card:mem-large -> large
+";
+    let mut s = Seat::with_fonts(&[], Some(heads), two_displays(), "read x", fonts.clone());
+    assert!(s.until(BOUND, |a| a.cells().len() == 2));
+    assert_eq!(
+        s.app.head("small").map(Head::cells),
+        Some(vec![(12, 24)]),
+        "a frit vtium cannot read"
+    );
+    assert_eq!(grid(&s.app, "small"), Some((26, 6)));
+    assert_eq!(
+        s.app.head("large").map(Head::cells),
+        Some(vec![(12, 24)]),
+        "no font named"
+    );
+    assert_eq!(grid(&s.app, "large"), Some((53, 13)));
+    drop(s);
+    let named = "version = 1
+[look small]
+font-name = unscii-8
+cell = 12x24
+[head small]
+look = small
+[rules]
+display card:mem-small -> small
+";
+    let [small, _] = two_displays();
+    let mut s = Seat::with_fonts(&[], Some(named), [small], "read x", fonts);
+    assert!(s.until(BOUND, |a| a.cells().len() == 1));
+    assert_eq!(
+        s.app.head("small").map(Head::cells),
+        Some(vec![(12, 24)]),
+        "a built-in font named"
+    );
+    drop(s);
+    // A 6x16 cell is too narrow for unifont's 8 columns, so Unscii-8
+    // draws in it, and OSC 50's query names Unscii-8.
+    let narrow = "version = 1
+[look narrow]
+cell = 6x16
+[head small]
+look = narrow
+[rules]
+display card:mem-small -> small
+";
+    let (_dir, fonts, _starts) = frits("builtin-narrow", &[]);
+    let [small, _] = two_displays();
+    let mut s = Seat::with_fonts(&[], Some(narrow), [small], "read x", fonts);
+    assert!(s.until(BOUND, |a| a.cells().len() == 1));
+    assert_eq!(s.app.head("small").map(Head::cells), Some(vec![(6, 16)]));
+    assert_eq!(s.app.font_name(), "unscii-8", "the strike that draws");
+    drop(s);
+}
+
+/// ADR-1200 D9, ADR-1403 D5: a look whose `font-name` names no frit in the
+/// frits' directory names a kbd font, and vtium makes a one-source frit
+/// for it on the fly. That frit draws in the look's 12x24 cell, and the
+/// built-in fonts draw its glyphs while no helper sends any.
+#[test]
+fn a_look_naming_a_frit_with_no_file_draws_in_the_looks_cell() {
+    let (_dir, fonts, _starts) = frits("look-no-frit", &[]);
+    let heads = "version = 1
+[look missing]
+font-name = no-such-frit
+cell = 12x24
+[head small]
+look = missing
+[rules]
+display card:mem-small -> small
+";
+    let [small, _] = two_displays();
+    let mut s = Seat::with_fonts(&[], Some(heads), [small], "read x", fonts);
+    assert!(s.until(BOUND, |a| a.cells().len() == 1));
+    assert_eq!(s.app.head("small").map(Head::cells), Some(vec![(12, 24)]));
+    assert_eq!(grid(&s.app, "small"), Some((26, 6)));
+    assert_eq!(s.app.font_name(), "no-such-frit");
+    drop(s);
+}
+
+/// ADR-1200 D5, D16: a configured `font-size` wins over the cell of a frit
+/// that an OSC 50 switch draws, as it does over the frit vtium starts with.
+/// At the seat's 72 DPI, 32 points are 32 pixels; the head starts in the
+/// built-in fonts at that size, and the program switches to frit `c`,
+/// which states a 10x20 cell, and `c` draws in the 16x32 cell of 32
+/// pixels.
+#[test]
+fn an_osc_50_switch_under_a_configured_font_size_drops_the_frits_cell() {
+    let (dir, fonts, _starts) = frits("osc50-sized", &[]);
+    std::fs::write(dir.join("c.vtfrit"), "cell=10x20\nsource=builtin:unifont\n")
+        .expect("a frit that states its cell");
+    let heads = "version = 1
+[head small]
+[rules]
+display card:mem-small -> small
+";
+    let script = "printf '\\033]50;c\\007'; echo switched; read b";
+    let [small, _] = two_displays();
+    let mut s = Seat::with_fonts(&["--font-size=32"], Some(heads), [small], script, fonts);
+    assert!(s.until(BOUND, |a| head_shows(a, "small", "switched")));
+    assert_eq!(s.app.font_name(), "c", "the switch took");
+    assert_eq!(s.app.head("small").map(Head::cells), Some(vec![(16, 32)]));
+    drop(s);
+}
+
+/// ADR-1200 D16, D17: a head that draws the built-in fonts alone, with no
+/// look's cell, draws them at the top level's `font-size`. At the seat's
+/// 72 DPI, 32 points are 32 pixels, unifont's 16x32 cell, so the small
+/// head's 320x160 display holds 20 by 5 cells. Its look names the frit
+/// `bad`, which vtium cannot read; the large head has no look.
+#[test]
+fn the_built_in_fonts_alone_draw_at_the_top_levels_font_size() {
+    let (dir, fonts, _starts) = frits("builtin-size", &[]);
+    std::fs::write(
+        dir.join("bad.vtfrit"),
+        "cell=wide\nsource=builtin:unifont\n",
+    )
+    .expect("a frit whose cell cannot be read");
+    let heads = "version = 1
+[look unread]
+font-name = bad
+[head small]
+look = unread
+[head large]
+[rules]
+display card:mem-small -> small
+display card:mem-large -> large
+";
+    let mut s = Seat::with_fonts(
+        &["--font-size=32"],
+        Some(heads),
+        two_displays(),
+        "read x",
+        fonts,
+    );
+    assert!(s.until(BOUND, |a| a.cells().len() == 2));
+    assert_eq!(s.app.head("small").map(Head::cells), Some(vec![(16, 32)]));
+    assert_eq!(grid(&s.app, "small"), Some((20, 5)));
+    assert_eq!(s.app.head("large").map(Head::cells), Some(vec![(16, 32)]));
+    drop(s);
+}
+
+/// ADR-1200 D16, ADR-1403 D5: within one look, its `font-size` wins over
+/// its `cell` on the built-in fonts too. The look names the frit `bad`,
+/// which vtium cannot read, states a 12x24 cell and sets 32 points, so the
+/// head draws the built-in fonts at 32 pixels, unifont's 16x32 cell, and
+/// not in the 12x24 cell.
+#[test]
+fn within_one_look_its_font_size_wins_over_its_cell_on_the_built_in_fonts() {
+    let (dir, fonts, _starts) = frits("builtin-both", &[]);
+    std::fs::write(
+        dir.join("bad.vtfrit"),
+        "cell=wide\nsource=builtin:unifont\n",
+    )
+    .expect("a frit whose cell cannot be read");
+    let heads = "version = 1
+[look both]
+font-name = bad
+cell = 12x24
+font-size = 32
+[head small]
+look = both
+[rules]
+display card:mem-small -> small
+";
+    let [small, _] = two_displays();
+    let mut s = Seat::with_fonts(&[], Some(heads), [small], "read x", fonts);
+    assert!(s.until(BOUND, |a| a.cells().len() == 1));
+    assert_eq!(s.app.head("small").map(Head::cells), Some(vec![(16, 32)]));
+    assert_eq!(grid(&s.app, "small"), Some((20, 5)));
     drop(s);
 }
 

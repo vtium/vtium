@@ -2,10 +2,10 @@
  draft bench · no changes · no problems                                            live preview: on
  base   font-size 12   (102 keys at their defaults)
 DISPLAYS        DISPLAY RULES       HEADS       LOOK            INPUT RULES         INPUT DEVICES
-                1 * -> desk      ╌╌► desk        big, auto s…  ┌2 path:pci-0:3.3 ◄── kbd
-                  matches no         1 console   └ frit proof  │  -> panel           pci-0:3.3
-                  display present                              ├3 class:keyboard
-                + new rule…          panel       look default◄─┤  -> roaming
+                1 * -> desk      ╌╌► desk        big, auto s… ┌─2 path:pci-0:3.3 ◄── kbd
+                  matches no         1 console   └ frit proof │   -> panel           pci-0:3.3
+                  display present                             │┌3 class:keyboard
+                + new rule…          panel       look default◄┘╎  -> roaming
                                      1 console                 ╎  matches no
                                                                ╎  device present
                                     + new head… + new look…    ╎+ new rule…

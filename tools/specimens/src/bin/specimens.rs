@@ -26,7 +26,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use vtium_font::Cell;
-use vtium_specimens::draw::Sources;
+use vtium_specimens::draw::{Absent, Sources};
 use vtium_specimens::profiles::{Glyphs, PROFILES, profile};
 use vtium_specimens::{card, check, docs, draw, fonts, png};
 
@@ -79,9 +79,12 @@ fn sources() -> Sources {
     };
     let desktop = cells(|g| matches!(g, Glyphs::Desktop { .. }));
     let tiny5 = cells(|g| matches!(g, Glyphs::Tiny5 { .. }));
+    // this binary is the judge that cargo test names, so it never names
+    // another: a set it cannot generate fails every accepted profile drawn
+    // from it
     Sources {
-        desktop: fonts::desktop(&fonts::cache_dir(), &desktop),
-        tiny5: fonts::tiny5(&fonts::cache_dir(), &tiny5),
+        desktop: fonts::desktop(&fonts::cache_dir(), &desktop).map_err(Absent::Failed),
+        tiny5: fonts::tiny5(&fonts::cache_dir(), &tiny5).map_err(Absent::Failed),
     }
 }
 

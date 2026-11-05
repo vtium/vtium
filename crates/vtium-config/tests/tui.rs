@@ -10,6 +10,8 @@
 
 #[path = "common/home.rs"]
 mod home;
+#[path = "common/script.rs"]
+mod script;
 
 use std::collections::{BTreeMap, VecDeque};
 use std::io;
@@ -20,6 +22,7 @@ use vtium_config::kitty;
 use vtium_config::serve::LeftOut;
 use vtium_config::specimen::{Picture, Sources, Summary};
 use vtium_config::tui::desk::Done;
+use vtium_config::tui::fixture::SECTIONS;
 use vtium_config::tui::model::{self, DpiFrom, Font, FontState, Inputs};
 use vtium_config::tui::port::Step;
 use vtium_config::tui::port::{Port, Wake, drive};
@@ -59,6 +62,9 @@ struct Console {
     /// The screen when the script ran out, after which the console sends
     /// SIGTERM.
     seen: Option<String>,
+    /// How many bytes the TUI had written when the script ran out: the
+    /// bytes that drew [`Console::seen`].
+    seen_at: usize,
     /// The console answers kitty's graphics query, as vtium built with
     /// `images` does.
     graphics: bool,
@@ -104,6 +110,7 @@ impl Console {
             save_result: Ok(()),
             panic_bytes: Vec::new(),
             seen: None,
+            seen_at: 0,
             graphics: false,
             pictures: Vec::new(),
             cell_px: Some((8, 16)),
@@ -247,6 +254,7 @@ impl Port for Console {
         }
         assert!(self.seen.is_none(), "the TUI still waits after SIGTERM");
         self.seen = Some(self.screen());
+        self.seen_at = self.written.len();
         Ok(vec![Wake::Signal(15)])
     }
 
@@ -344,46 +352,8 @@ fn font(name: &str, state: FontState) -> Font {
     }
 }
 
-/// The sections of the fixture's vtium.conf: a look that draws the frit
-/// proof, the head desk drawing it, and the head panel drawing the default
-/// look (ADR-1403 D4).
-const SECTIONS: &str = "version = 1\n[look proof]\nfont-name = proof\n[head desk]\nlook = proof\n[head panel]\n[rules]\ndisplay * -> desk\n";
-
-/// The fonts of a machine with three frits, one that does not read.
 fn inputs() -> Inputs {
-    Inputs {
-        fonts: vec![
-            font(
-                "broken",
-                FontState::Refused("line 2: unknown key colour".into()),
-            ),
-            font("minspec-16", FontState::Reads),
-            font("proof", FontState::Reads),
-            font("tiny5", FontState::Reads),
-            font("unifont", FontState::BuiltIn),
-            font("unscii-8", FontState::BuiltIn),
-        ],
-        conf_path: PathBuf::from("/etc/vtium/vtium.conf"),
-        conf: Some(format!("# mine\nfont-name=unifont\n{SECTIONS}")),
-        dpi: (96, DpiFrom::Assumed),
-        frits: PathBuf::from("/etc/vtium/fonts"),
-        view: model::View::Fonts,
-        display: Some((640, 480)),
-        flow: vtium_config::tui::fixture::flow(),
-        color: true,
-        desk: false,
-        hotplug: false,
-        installed: [
-            ("broken", &b"source=builtin:unifont\ncolour=red\n"[..]),
-            ("minspec-16", b"source=builtin:unifont\n"),
-            ("proof", b"source=font:JetBrains Mono\n"),
-            ("tiny5", b"source=bdf:/x/Tiny5Mono.bdf\n"),
-            ("latin1", b"source=kbd:lat1-16 # \xe9\n"),
-        ]
-        .into_iter()
-        .map(|(n, b)| (n.to_owned(), b.to_vec()))
-        .collect(),
-    }
+    vtium_config::tui::fixture::inputs()
 }
 
 /// The console of most tests: vtium at 80x25 drawing unifont, taking the
@@ -1058,17 +1028,24 @@ fn provisional() -> Vec<String> {
 
 /// Compares `screen` with the golden `name`: a settled golden fails on a
 /// difference, a provisional one reports it. `VTIUM_CONFIG_BLESS=1`
-/// writes the provisional ones.
-fn golden(name: &str, screen: &str) {
+/// writes the provisional ones, and the settled ones still judge.
+///
+/// With `VTIUM_CONFIG_SHOTS=DIR`, it also writes `bytes`, every byte the
+/// TUI wrote to reach the screen, as `DIR/NAME.bytes`, and the screen as
+/// `DIR/NAME.txt`, for `make tui-shots` to draw (crates/vtium-config's
+/// README).
+fn golden(name: &str, screen: &str, bytes: &[u8]) {
+    if let Some(dir) = std::env::var_os("VTIUM_CONFIG_SHOTS") {
+        let dir = PathBuf::from(dir);
+        std::fs::create_dir_all(&dir).expect("the shots' directory");
+        std::fs::write(dir.join(format!("{name}.bytes")), bytes).expect("the bytes");
+        std::fs::write(dir.join(format!("{name}.txt")), screen).expect("the screen");
+    }
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests/screens")
         .join(format!("{name}.txt"));
     let is_provisional = provisional().iter().any(|n| n == name);
-    if std::env::var_os("VTIUM_CONFIG_BLESS").is_some() {
-        assert!(
-            is_provisional,
-            "{name}: only a provisional golden is written"
-        );
+    if is_provisional && std::env::var_os("VTIUM_CONFIG_BLESS").is_some() {
         std::fs::write(&path, screen).expect("the golden");
         return;
     }
@@ -1085,11 +1062,12 @@ fn golden(name: &str, screen: &str) {
 /// The screen the script `keys` reaches at `cols` by `rows`, from the
 /// Fonts view.
 fn reach(cols: usize, rows: usize, keys: &[&[u8]]) -> String {
-    reach_from(model::View::Fonts, cols, rows, keys)
+    reach_from(model::View::Fonts, cols, rows, keys).0
 }
 
-/// The screen the script `keys` reaches at `cols` by `rows`, from `view`.
-fn reach_from(view: model::View, cols: usize, rows: usize, keys: &[&[u8]]) -> String {
+/// The screen the script `keys` reaches at `cols` by `rows`, from `view`,
+/// and the bytes the TUI wrote to draw it.
+fn reach_from(view: model::View, cols: usize, rows: usize, keys: &[&[u8]]) -> (String, Vec<u8>) {
     let grid = (cols, rows);
     let mut c = Console::vtium(cols, rows, true, "unifont")
         .takes("minspec-16", grid)
@@ -1101,7 +1079,9 @@ fn reach_from(view: model::View, cols: usize, rows: usize, keys: &[&[u8]]) -> St
     let mut inputs = inputs();
     inputs.view = view;
     drive(&mut c, inputs).expect("the loop");
-    c.seen.clone().expect("the screen")
+    let screen = c.seen.clone().expect("the screen");
+    let bytes = c.written.get(..c.seen_at).unwrap_or_default().to_vec();
+    (screen, bytes)
 }
 
 /// Down from the first display to the keyboard: the Flow view's input
@@ -1126,7 +1106,7 @@ fn each_view_at_80x25_and_100x30() {
     ];
     for (cols, rows) in [(80, 25), (100, 30)] {
         for (name, view, keys) in scripts {
-            let screen = reach_from(view, cols, rows, keys);
+            let (screen, bytes) = reach_from(view, cols, rows, keys);
             let lines: Vec<&str> = screen.lines().collect();
             assert_eq!(lines.len(), rows, "{name} at {cols}x{rows}");
             assert!(lines.iter().all(|l| l.chars().count() <= cols), "{name}");
@@ -1138,7 +1118,7 @@ fn each_view_at_80x25_and_100x30() {
                 last.contains("leave") || last.contains("back"),
                 "{name}: {screen}"
             );
-            golden(&format!("{name}-{cols}x{rows}"), &screen);
+            golden(&format!("{name}-{cols}x{rows}"), &screen, &bytes);
         }
     }
 }
@@ -2107,7 +2087,6 @@ mod flow_view {
 mod draft_flow {
     use super::*;
     use std::cell::RefCell;
-    use std::os::unix::fs::PermissionsExt;
     use std::rc::Rc;
     use vtium_config::flowmodel::Present;
     use vtium_config::tui::desk;
@@ -2115,22 +2094,7 @@ mod draft_flow {
     use vtium_config::tui::words;
     use vtium_settings::{Class, Identity};
 
-    /// The stand-in console of `tests/flow.rs`: `check-config --configdir
-    /// DIR FILE` names each line of FILE that holds `BAD` and fails.
-    const CHECKER: &str = r#"#!/bin/sh
-[ "$1" = check-config ] || exit 9
-file="$4"
-bad=$(grep -n BAD "$file" | cut -d: -f1)
-if [ -n "$bad" ]; then
-  for n in $bad; do
-    echo "$file:$n: BAD is not a key vtium reads" >&2
-  done
-  exit 1
-fi
-echo "$file: checked"
-"#;
-
-    const INSTALLED: &str = "font-size=12\nversion = 1\n[look big]\nfont-name = proof\n[head desk]\nlook = big\n[head panel]\n[rules]\ndisplay * -> desk\ninput path:pci-0:3.3 -> panel\ninput class:keyboard -> roaming\n";
+    use vtium_config::tui::fixture::{CHECKER, DRAFT as INSTALLED};
 
     const RIGHT: &[u8] = b"\x1b[C";
     const LEFT: &[u8] = b"\x1b[D";
@@ -2157,9 +2121,7 @@ echo "$file: checked"
         }
         std::fs::write(root.join("etc/vtium.conf"), INSTALLED).expect("vtium.conf");
         let checker = root.join("vtium");
-        std::fs::write(&checker, CHECKER).expect("the checker");
-        std::fs::set_permissions(&checker, std::fs::Permissions::from_mode(0o755))
-            .expect("its mode");
+        script::executable(&checker, CHECKER);
         Bench { root }
     }
 
@@ -2280,6 +2242,16 @@ echo "$file: checked"
     impl Ran {
         fn screen(&self) -> &str {
             self.console.seen.as_deref().unwrap_or_default()
+        }
+
+        /// The screen's words with one space between each, so a message
+        /// reads whole wherever its rows wrap: a message that names the
+        /// bench's path wraps where the path's length puts it.
+        fn said(&self) -> String {
+            self.screen()
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ")
         }
 
         fn status(&self) -> String {
@@ -2610,7 +2582,7 @@ echo "$file: checked"
         let edited = INSTALLED.replace("font-size=12", "font-size=14");
         std::fs::write(b.root.join("etc/vtium.conf"), &edited).expect("the hand edit");
         let ran = run(&b, &[b"i"]);
-        assert!(ran.screen().contains("changed since"), "{}", ran.screen());
+        assert!(ran.said().contains("changed since"), "{}", ran.screen());
         // and no question asked, so a y installs nothing
         let ran = run(&b, &[b"i", b"y"]);
         assert!(ran.console.saves.is_empty());
@@ -2869,7 +2841,9 @@ echo "$file: checked"
                 assert_eq!(lines.len(), rows, "{name} at {cols}x{rows}");
                 assert!(lines.iter().all(|l| l.chars().count() <= cols), "{name}");
                 assert!(lines[1].contains("draft bench"), "{name}: {}", ran.screen());
-                golden(&format!("{name}-{cols}x{rows}"), ran.screen());
+                let c = &ran.console;
+                let bytes = c.written.get(..c.seen_at).unwrap_or_default();
+                golden(&format!("{name}-{cols}x{rows}"), ran.screen(), bytes);
             }
         }
     }
