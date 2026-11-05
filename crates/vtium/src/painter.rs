@@ -235,6 +235,8 @@ pub struct Painter {
     /// Ends when the thread does, for a thread given a [`GpuSource`]: the
     /// drop waits on it for at most [`LET_GO_MS`].
     ended: Option<Receiver<()>>,
+    /// The log said the head waits for its GPU set-up.
+    told_waiting: bool,
 }
 
 impl Painter {
@@ -275,6 +277,7 @@ impl Painter {
             held_on_cpu: false,
             notes: Some(notes),
             ended: on_gpu.then_some(ended),
+            told_waiting: false,
         })
     }
 
@@ -370,7 +373,20 @@ impl Painter {
 
     /// Sends `job` to be composed, after the messages waiting; a full
     /// queue gives it back.
+    ///
+    /// The first frame sent to a head given a [`GpuSource`] while its
+    /// set-up is not known yet makes the log say the head waits for the
+    /// GPU driver, once: a driver that never finishes the set-up leaves the
+    /// head drawing nothing, and that line is what says why.
     pub fn send(&mut self, job: Box<Job>) -> Option<Box<Job>> {
+        self.take_set_up();
+        if self.path.is_none() && self.ended.is_some() && !self.told_waiting {
+            self.told_waiting = true;
+            log::info!(
+                "head {}: waiting for the GPU driver to set up the head's GL context: the head draws nothing until it has",
+                self.name
+            );
+        }
         if !self.send_pending() {
             return Some(job);
         }
@@ -543,21 +559,22 @@ fn draw_frames(
     }
 }
 
-impl Drop for Painter {
-    /// Ends the thread once its frame composing is done, and joins it. A
-    /// thread given a [`GpuSource`] is waited for at most [`LET_GO_MS`]:
-    /// past it the GPU driver has not let go of the head's GL context, and
-    /// the thread is left to end alone, which the log says.
-    fn drop(&mut self) {
+impl Painter {
+    /// Tells the thread to end once its frame composing is done.
+    fn end(&mut self) {
         self.jobs = None;
         self.done = None;
+    }
+
+    /// Waits for the thread [`Painter::end`] told to end, and joins it. A
+    /// thread given a [`GpuSource`] is waited for at most `within`: past it
+    /// the GPU driver has not let go of the head's GL context, and the
+    /// thread is left to end alone, which the log says.
+    fn wait_to_end(&mut self, within: Duration) {
         let Some(thread) = self.thread.take() else {
             return;
         };
-        let let_go = self
-            .ended
-            .as_ref()
-            .map(|e| e.recv_timeout(Duration::from_millis(LET_GO_MS)));
+        let let_go = self.ended.as_ref().map(|e| e.recv_timeout(within));
         match let_go {
             Some(Err(RecvTimeoutError::Timeout)) => log::warn!(
                 "head {}: the GPU driver did not let go of the head's GL context within {LET_GO_MS} ms: vtium goes on without it",
@@ -567,6 +584,34 @@ impl Drop for Painter {
                 let _ = thread.join();
             }
         }
+    }
+}
+
+impl Drop for Painter {
+    /// Ends the thread once its frame composing is done, and waits for it,
+    /// a thread given a [`GpuSource`] at most [`LET_GO_MS`].
+    fn drop(&mut self) {
+        self.end();
+        self.wait_to_end(Duration::from_millis(LET_GO_MS));
+    }
+}
+
+/// Lets go of every one of `painters` at once, as when a head file reload
+/// or vtium's exit drops every head: each thread is told to end first, and
+/// then all of them are waited for against one deadline, [`LET_GO_MS`]
+/// after `clock` says the wait starts. Heads whose GPU driver hangs
+/// destroying their contexts hold vtium [`LET_GO_MS`] in all, not that for
+/// each head.
+pub fn let_go(painters: impl IntoIterator<Item = Painter>, clock: &dyn Fn() -> Instant) {
+    let mut painters: Vec<Painter> = painters.into_iter().collect();
+    for painter in &mut painters {
+        painter.end();
+    }
+    let bound = Duration::from_millis(LET_GO_MS);
+    let deadline = clock().checked_add(bound);
+    for mut painter in painters {
+        let left = deadline.map_or(bound, |d| d.saturating_duration_since(clock()));
+        painter.wait_to_end(left);
     }
 }
 
@@ -1344,6 +1389,43 @@ mod tests {
         assert!(
             holder.join().unwrap(),
             "the drop waited for the driver to let go"
+        );
+    }
+
+    // ADR-1303 D9: letting go of two heads whose GPU driver hangs destroying
+    // their contexts tells both threads to end first and waits for them
+    // against one deadline, so the wait in all stays within one LET_GO_MS
+    #[cfg(feature = "gpu")]
+    #[test]
+    fn letting_go_of_two_heads_whose_driver_hangs_waits_one_bound_in_all() {
+        let gpu = Arc::new(TestGpu::default());
+        let painters: Vec<Painter> = (0..2)
+            .map(|_| {
+                let source = GpuSource::Test(Arc::clone(&gpu));
+                let mut painter = Painter::start("test", Some(source), || {}).unwrap();
+                assert_eq!(set_up(&mut painter), Path::Gpu);
+                rounds(&mut painter, 1, 1);
+                painter
+            })
+            .collect();
+        let (holding, wait_holding) = channel();
+        let (let_go_now, wait_let_go) = channel::<()>();
+        let held_by = Arc::clone(&gpu);
+        // holds both drops for one and a half bounds: two waits one after
+        // the other outlast it, and the test fails
+        let holder = std::thread::spawn(move || {
+            let _held = held_by.hold_drop.lock().unwrap();
+            holding.send(()).unwrap();
+            wait_let_go
+                .recv_timeout(Duration::from_millis(LET_GO_MS * 3 / 2))
+                .is_ok()
+        });
+        wait_holding.recv().unwrap();
+        let_go(painters, &Instant::now);
+        let _ = let_go_now.send(());
+        assert!(
+            holder.join().unwrap(),
+            "the two heads were waited for one after the other"
         );
     }
 

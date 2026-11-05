@@ -355,6 +355,15 @@ pub struct App {
 /// the start.
 pub type Reread = Box<dyn FnMut() -> crate::config::Loaded>;
 
+impl Drop for App {
+    /// Lets go of every head's render thread at once before the heads drop,
+    /// so heads whose GPU driver hangs hold vtium's exit
+    /// [`crate::painter::LET_GO_MS`] in all, not that for each head.
+    fn drop(&mut self) {
+        self.let_go_of_painters();
+    }
+}
+
 impl App {
     /// The seat for `config` on `vt`, with the compiled-in configuration's
     /// heads ([`App::set_heads`] gives the head file's); each head's child
@@ -517,6 +526,7 @@ impl App {
         let caps = self.caps;
         self.scrollback_bytes = session::scrollback_bytes(&self.config, caps, declared.heads.len());
         let scrollback = (self.scrollback, self.scrollback_bytes);
+        self.let_go_of_painters();
         self.heads = session::heads(&declared, &self.config, scrollback, caps, &self.clock);
         self.screen = (rules.policy == Policy::Closed).then(|| {
             let term = crate::head::terminal(&self.config, (0, 0), 0, Rc::clone(&self.clock));
@@ -3529,6 +3539,17 @@ impl App {
                 head.draw_now = true;
             }
         }
+    }
+
+    /// Lets go of every head's render thread at once, as at a head file
+    /// reload and at vtium's exit: heads whose GPU driver hangs hold the loop
+    /// [`crate::painter::LET_GO_MS`] in all (ADR-1303 D9).
+    fn let_go_of_painters(&mut self) {
+        let clock = Rc::clone(&self.clock);
+        crate::painter::let_go(
+            self.heads.iter_mut().filter_map(|h| h.painter.take()),
+            &*clock,
+        );
     }
 
     /// Starts head `h`'s render thread at its first frame (ADR-1401 D2),

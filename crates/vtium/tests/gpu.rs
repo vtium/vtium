@@ -623,7 +623,22 @@ fn a_head_whose_gpu_set_up_hangs_holds_neither_the_loop_nor_another_head() {
         );
     }
     assert_eq!(s.memory(waiting.0).frames, 0, "a frame of the held head");
-    assert_eq!(display_lines(&logged()), [], "a line for the held head");
+    let mut lines = lines;
+    lines.extend(logged());
+    assert_eq!(
+        display_lines(&lines[..]).len(),
+        1,
+        "a line for the held head"
+    );
+    let told = format!(
+        "head {}: waiting for the GPU driver to set up the head's GL context: the head draws nothing until it has",
+        waiting.1
+    );
+    assert_eq!(
+        lines.iter().filter(|l| **l == told).count(),
+        1,
+        "{lines:#?}"
+    );
     let _ = open.send(());
     assert!(holder.join().unwrap(), "the loop waited for the set-up");
     assert!(
@@ -694,4 +709,50 @@ fn a_mode_past_the_gpus_largest_renderbuffer_holds_only_its_own_head_on_the_cpu_
         "the large head's line again"
     );
     assert_eq!(display_lines(&lines), [line("MEM-2", "gpu")], "{lines:#?}");
+}
+
+// ADR-1303 D9: at vtium's exit, heads whose GPU driver hangs destroying
+// their contexts are let go of together: each head's render thread is
+// told to end first, all are waited for against one deadline, and the log
+// says, for each head, that the GPU driver did not let go
+#[test]
+fn heads_whose_driver_hangs_letting_go_hold_the_exit_one_bound_in_all() {
+    logged();
+    let gpu = Arc::new(TestGpu::default());
+    let mut s = Seat::boot(&gpu, Some(TWO_HEADS), two_heads(), ECHO);
+    let lines = s.lines_until(|l| display_lines(l).len() == 2);
+    assert_eq!(display_lines(&lines).len(), 2, "{lines:#?}");
+    s.settled();
+    let (holding, wait_holding) = std::sync::mpsc::channel();
+    let (let_go, wait_let_go) = std::sync::mpsc::channel::<()>();
+    let held_by = Arc::clone(&gpu);
+    // holds both heads' drops for one and a half bounds: two waits one
+    // after the other outlast it, and the test fails
+    let holder = std::thread::spawn(move || {
+        let _held = held_by.hold_drop.lock().unwrap();
+        holding.send(()).unwrap();
+        wait_let_go
+            .recv_timeout(Duration::from_millis(vtium::painter::LET_GO_MS * 3 / 2))
+            .is_ok()
+    });
+    wait_holding.recv().unwrap();
+    drop(s);
+    let _ = let_go.send(());
+    let lines = logged();
+    let mut held: Vec<&str> = lines
+        .iter()
+        .filter(|l| {
+            l.ends_with(&format!(
+                ": the GPU driver did not let go of the head's GL context within {} ms: vtium goes on without it",
+                vtium::painter::LET_GO_MS
+            ))
+        })
+        .map(|l| l.split(':').next().unwrap_or_default())
+        .collect();
+    held.sort_unstable();
+    assert_eq!(held, ["head large", "head small"], "{lines:#?}");
+    assert!(
+        holder.join().unwrap(),
+        "the heads were waited for one after the other"
+    );
 }
