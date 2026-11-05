@@ -185,6 +185,10 @@ considered:
     said: "A [look NAME] section takes cell = as well as size =. The existing rule holds: at one level, font-size wins over a cell."
     via: the steering session, relaying the maintainer's answers of 2026-11-05 to the passages work's questions
     paraphrase: true
+  - operator: advisor
+    said: "The section writer finds what it edits by its lines and never refuses an edit because the file or the result fails the check. It refuses only an edit it cannot place: a missing section or rule, a section named twice, or text it cannot write as one line. The check guards install and check-config."
+    via: the steering session's call of 2026-11-05 while building slice C, made under D8's ruling that a draft may be unfinished
+    paraphrase: true
 status: accepted
 date: 2026-11-04
 deciders:
@@ -435,7 +439,9 @@ vtium-config wrote vtium.conf, heads.conf and frits through install bundles that
 #### The writers
 
 - **One configuration file.** vtium-config writes vtium.conf and the frits, and, under ADR-1304 once it is built, vtlooks.
-- **One reading of the file for every writer.** vtium-settings reads vtium.conf into its top level and its sections, and each writer works from that reading, so they agree where the top level ends. The line editor of ADR-1201 D5 changes only the top level: a key is replaced on the top-level line vtium takes it from, never on a section's line of the same name; a commented line such as `#font-size=0` counts only at the top level; a new key goes after the last top-level line, never at the end of the file; and `--unset` comments out top-level lines alone. The section writer, which sets a head's look today (ADR-1201 D6), keeps its rules for every section it edits: it edits only a file vtium reads whole, changes only the lines it needs, and parses its result before handing it back.
+- **One reading of the file for every writer.** vtium-settings reads vtium.conf into its top level and its sections, and each writer works from that reading, so they agree where the top level ends. The line editor of ADR-1201 D5 changes only the top level: a key is replaced on the top-level line vtium takes it from, never on a section's line of the same name; a commented line such as `#font-size=0` counts only at the top level; a new key goes after the last top-level line, never at the end of the file; and `--unset` comments out top-level lines alone. The section writer, which sets a head's look today (ADR-1201 D6), keeps one rule for every section it edits: it finds what it edits by its lines and changes only the lines it needs, and it never refuses an edit because the file or the result fails the check, since a draft may be unfinished. It refuses only an edit it cannot place: a section or rule that is missing, a section named twice, or text it cannot write as one line. The check guards install and `vtium check-config`.
+
+  > Edited 2026-11-05: the steering session made the writer edit any draft, as D8's unfinished draft needs (`considered`). The bullet read: "it edits only a file vtium reads whole, changes only the lines it needs, and parses its result before handing it back."
 - **What each part of the TUI writes,** all into the working copy. The Flow view writes rules, heads and looks through the section writer, and the common top-level keys through its base card. The Settings view writes any top-level key. The Looks view writes looks, their look sections and, once ADR-1304 is built, their vtlooks. The Fonts view writes `font-paths` (ADR-1200 D25) and the frits. In every view a change goes into the working copy as it is made, and Install, Revert and New act as in the flow view (D7).
 
 #### `vtium config edit`, the way visudo edits sudoers
