@@ -68,9 +68,10 @@ may carry its own copyright notice; where it does not, the following applies:
 = Per-File and Third-Party Notices =
 
 A source file ported from kmscon or libtsm keeps the copyright notice that
-file carried, beside vtium's. A third-party component's notice, such as the
-GNU Unifont font's (SIL OFL 1.1) or the Unicode data tables' (Unicode License
-v3), is added here with the code or data it covers, when that is ported.
+file carried, beside vtium's. A third-party component's notice is added here
+with the code or data it covers. Each table that a generator writes into
+crates/ is named in a paragraph below, with the source it is made from, and
+docs/scripts/notices fails when one is not.
 
 GNU Unifont (crates/vtium-font/data/unifont.hex), the font vtium-font builds
 in: version 17.0.03, by Roman Czyborra, Paul Hardy and the Unifont
@@ -90,6 +91,47 @@ The Open Group and Copyright (c) 1994, 2008, Oracle and/or its affiliates,
 under the MIT-style licences whose text is
 crates/vtium-term/gen-color-names/src/rgb-license.txt. names.rs carries the notice.
 
+The Unicode data tables, built into vtium and vtium-config: tables made from
+the Unicode Character Database 18.0.0 and Unicode's emoji data files of the
+same version, Copyright © 1991-2026 Unicode, Inc., under the Unicode License
+v3, whose text is at the end of this file and in
+crates/vtium-term/gen-unicode/src/unicode-license.txt. Each table carries the
+notice. There are three tables, and each is written by the generator beside
+its crate:
+	crates/vtium-term/src/unicode/data.rs, by vtium-term's gen-unicode: each
+	codepoint's grapheme cluster break property, cell width and emoji
+	properties.
+	crates/vtium/src/deferred/data.rs, by vtium's gen-lookup: the combining
+	marks, canonical combining classes, compositions and decompositions that
+	the console reads when it looks up a cluster's glyph.
+	crates/vtium-config/src/shaping/data.rs, by vtium-config's gen-shaping:
+	the emoji sequences, the letters that join to their neighbours and the
+	script ranges that vtium-config's shaping reads.
+
+The tests' Unicode data, crates/vtium-term/src/unicode/grapheme_break_test.txt
+and crates/vtium-term/src/unicode/above_marks.txt beside it: lists that
+vtium-term's gen-unicode makes from GraphemeBreakTest.txt and UnicodeData.txt
+of the Unicode Character Database 18.0.0, under the Unicode License v3. Each
+list carries the notice. The tests read them; vtium installs none of them.
+
+vtium-config's named cover= sets (crates/vtium-config/src/cover.rs), built
+into vtium-config: for each of GB2312, GBK, Big5, JIS X 0208 and KS X 1001,
+the codepoints that Unicode's mapping file for that character set maps to.
+tools/cover-tables writes the table, and its provenance.tsv names each
+mapping file's address, version and SHA-256. The table keeps which codepoints
+each file maps to, and none of the mappings. The mapping files are Copyright
+Unicode, Inc. (1991-2015). Unicode's terms of use place each of its data
+files under the Unicode License v3 unless the file states terms of its own.
+The files for GB2312 and KS X 1001 state Unicode's earlier notice, which
+grants the right to use the information in them to make products that
+support the Unicode Standard.
+
+vtium's terminfo tables (crates/vtium/src/termcap/table.rs), built into
+vtium: the capabilities of crates/vtium/install/xterm-vtium.ti, vtium's own
+entry, and of crates/vtium/install/kmscon.ti, the C reference's entry, which
+a test in crates/vtium/src/termcap.rs writes into the table. They come under
+vtium's and kmscon's notices above and need no other.
+
 DejaVu Sans Mono's subsets, the test fixtures
 crates/vtium-config/tests/fixtures/DejaVuSansMono-W-M-0.ttf,
 DejaVuSansMono-lam-shadda-fatha.ttf and DejaVuSansMono-ascii.ttf beside it:
@@ -107,3 +149,48 @@ Open Font License 1.1. The licence's text is
 crates/vtium-config/tests/fixtures/NotoNaskhArabic-LICENSE.txt, and the
 fixtures' README says how the subset was made. The tests read it; vtium
 installs none of it.
+
+= Unicode License v3 =
+
+The licence of the Unicode data tables above, as Unicode publishes it at
+https://www.unicode.org/license.txt:
+
+	UNICODE LICENSE V3
+
+	COPYRIGHT AND PERMISSION NOTICE
+
+	Copyright © 1991-2026 Unicode, Inc.
+
+	NOTICE TO USER: Carefully read the following legal agreement. BY
+	DOWNLOADING, INSTALLING, COPYING OR OTHERWISE USING DATA FILES, AND/OR
+	SOFTWARE, YOU UNEQUIVOCALLY ACCEPT, AND AGREE TO BE BOUND BY, ALL OF THE
+	TERMS AND CONDITIONS OF THIS AGREEMENT. IF YOU DO NOT AGREE, DO NOT
+	DOWNLOAD, INSTALL, COPY, DISTRIBUTE OR USE THE DATA FILES OR SOFTWARE.
+
+	Permission is hereby granted, free of charge, to any person obtaining a
+	copy of data files and any associated documentation (the "Data Files") or
+	software and any associated documentation (the "Software") to deal in the
+	Data Files or Software without restriction, including without limitation
+	the rights to use, copy, modify, merge, publish, distribute, and/or sell
+	copies of the Data Files or Software, and to permit persons to whom the
+	Data Files or Software are furnished to do so, provided that either (a)
+	this copyright and permission notice appear with all copies of the Data
+	Files or Software, or (b) this copyright and permission notice appear in
+	associated Documentation.
+
+	THE DATA FILES AND SOFTWARE ARE PROVIDED "AS IS", WITHOUT WARRANTY OF ANY
+	KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+	MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT OF
+	THIRD PARTY RIGHTS.
+
+	IN NO EVENT SHALL THE COPYRIGHT HOLDER OR HOLDERS INCLUDED IN THIS NOTICE
+	BE LIABLE FOR ANY CLAIM, OR ANY SPECIAL INDIRECT OR CONSEQUENTIAL DAMAGES,
+	OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+	WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+	ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THE DATA
+	FILES OR SOFTWARE.
+
+	Except as contained in this notice, the name of a copyright holder shall
+	not be used in advertising or otherwise to promote the sale, use or other
+	dealings in these Data Files or Software without prior written
+	authorization of the copyright holder.
