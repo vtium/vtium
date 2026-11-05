@@ -2442,6 +2442,41 @@ echo "$file: checked"
         );
     }
 
+    // the look card shows each key's value from the draft, the keys past
+    // the frit and the size included
+    #[test]
+    fn a_look_s_card_shows_each_key_the_draft_sets() {
+        let b = bench("look-values");
+        b.desk(Vec::new());
+        let text = INSTALLED.replace(
+            "[look big]\n",
+            "[look big]\ncell = 12x24\ndisplay-depth = gray16\ndisplay-dpi = 144\n",
+        );
+        b.store().write_draft("bench", &text).expect("the draft");
+        let row = |ran: &Ran, key: &str| {
+            ran.screen()
+                .lines()
+                .find(|l| l.contains(&format!(" {key} ")))
+                .unwrap_or_default()
+                .to_owned()
+        };
+        // desk's look, open on its name, shows its cell
+        let ran = run(&b, &[RIGHT, RIGHT, b"\r"]);
+        assert!(row(&ran, "cell").contains("12x24"), "{}", ran.screen());
+        assert!(
+            !row(&ran, "font-engine").contains("12x24"),
+            "{}",
+            ran.screen()
+        );
+        // Down to its last field, the card scrolled to its display keys
+        let mut keys: Vec<&[u8]> = vec![RIGHT, RIGHT, b"\r"];
+        keys.extend([DOWN; 8]);
+        let ran = run(&b, &keys);
+        for (key, value) in [("display-depth", "gray16"), ("display-dpi", "144")] {
+            assert!(row(&ran, key).contains(value), "{key}: {}", ran.screen());
+        }
+    }
+
     #[test]
     fn new_head_asks_its_name_and_look_and_adds_it() {
         let b = bench("new-head");

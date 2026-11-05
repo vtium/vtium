@@ -450,7 +450,13 @@ pub fn fields(flow: &Flow, item: Item, values: &[String], frits: &[String]) -> V
                             }
                             _ => Vec::new(),
                         };
-                        (String::new(), options)
+                        let current = look
+                            .keys
+                            .iter()
+                            .find(|(n, _)| n == key)
+                            .map(|(_, v)| v.clone())
+                            .unwrap_or_default();
+                        (current, options)
                     }
                 };
                 out.push(Field {

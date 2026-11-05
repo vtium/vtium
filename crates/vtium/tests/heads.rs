@@ -1118,6 +1118,44 @@ display card:mem-large -> large
     drop(s);
 }
 
+/// ADR-1403 D5, ADR-1200 D5: a look's `cell` holds across an OSC 50
+/// switch. The head's look draws frit `c` in a 12x24 cell, which
+/// `a_heads_look_sets_its_cell_and_the_looks_size_wins_over_it` checks;
+/// the program switches to frit `d`, which states a 10x20 cell of its own, and `d`
+/// draws in the look's 12x24 cell too, since the look is more specific
+/// than any frit the head draws.
+#[test]
+fn an_osc_50_switch_keeps_the_looks_cell() {
+    let (dir, fonts, _starts) = frits("look-cell-osc50", &[]);
+    for name in ["c", "d"] {
+        std::fs::write(
+            dir.join(format!("{name}.vtfrit")),
+            "cell=10x20\nsource=builtin:unifont\n",
+        )
+        .expect("a frit that states its cell");
+    }
+    let heads = "version = 1
+[look cell]
+font-name = c
+cell = 12x24
+[head small]
+look = cell
+[rules]
+display card:mem-small -> small
+";
+    let script = "printf '\\033]50;d\\007'; echo switched; read b";
+    let [small, _] = two_displays();
+    let mut s = Seat::with_fonts(&[], Some(heads), [small], script, fonts);
+    assert!(s.until(BOUND, |a| head_shows(a, "small", "switched")));
+    assert_eq!(s.app.font_name(), "d", "the switch took");
+    assert_eq!(
+        s.app.head("small").map(Head::cells),
+        Some(vec![(12, 24)]),
+        "the new frit draws in the look's cell"
+    );
+    drop(s);
+}
+
 /// ADR-1200 D17, binary-recheck's finding 4: a bitmap frit asks for its
 /// fonts' own cell at an OSC 50 switch. Switched away and back while
 /// another head still draws it, a frit whose last ask has had no answer

@@ -475,19 +475,10 @@ impl Frit {
     }
 }
 
-/// A `cell=` value, `WIDTHxHEIGHT` with each side in
-/// [`FRIT_CELL_MIN`]..=[`FRIT_CELL_MAX`].
+/// A `cell=` value, read by the key table's [`vtium_settings::keys::parse_cell`],
+/// which a look's `cell` is read by too.
 pub fn parse_cell(value: &str) -> Option<Cell> {
-    let (w, h) = value.split_once('x')?;
-    let side = |s: &str| {
-        s.parse::<u32>()
-            .ok()
-            .filter(|n| (FRIT_CELL_MIN..=FRIT_CELL_MAX).contains(n) && !s.starts_with(['0', '+']))
-    };
-    Some(Cell {
-        width: side(w)?,
-        height: side(h)?,
-    })
+    vtium_settings::keys::parse_cell(value).map(|(width, height)| Cell { width, height })
 }
 
 /// A `source=` value's origin.

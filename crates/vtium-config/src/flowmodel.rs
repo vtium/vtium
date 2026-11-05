@@ -362,6 +362,12 @@ pub fn build(text: &str, present: &Present, draft: Option<Draft>) -> Flow {
                 points: value("font-size")
                     .and_then(|(v, _)| v.parse().ok())
                     .unwrap_or(0),
+                keys: l
+                    .settings
+                    .iter()
+                    .filter(|s| !matches!(s.key.name, "font-name" | "font-size"))
+                    .map(|s| (s.key.name.to_owned(), s.value.clone()))
+                    .collect(),
                 fonts: Vec::new(),
                 problem,
             }

@@ -219,10 +219,9 @@ fn frit_line<'a>(text: &'a str, key: &str) -> Result<Option<(usize, &'a str)>, S
     Ok(found)
 }
 
-/// One side of a frit's cell, or its size, in pixels: digits only, no
-/// leading zero, [`FRIT_CELL_MIN`] to [`FRIT_CELL_MAX`], as vtium-config
-/// reads it.
-fn frit_side(s: &str) -> Option<u32> {
+/// A frit's `size=`, in points: digits only, no leading zero,
+/// [`FRIT_CELL_MIN`] to [`FRIT_CELL_MAX`], as vtium-config reads it.
+fn frit_points(s: &str) -> Option<u32> {
     s.parse::<u32>()
         .ok()
         .filter(|v| (FRIT_CELL_MIN..=FRIT_CELL_MAX).contains(v) && !s.starts_with(['0', '+']))
@@ -235,12 +234,8 @@ pub fn frit_cell(text: &str) -> Result<Option<Cell>, String> {
     let Some((n, value)) = frit_line(text, "cell")? else {
         return Ok(None);
     };
-    let parsed = value.split_once('x').and_then(|(w, h)| {
-        Some(Cell {
-            width: frit_side(w)?,
-            height: frit_side(h)?,
-        })
-    });
+    let parsed =
+        crate::config::keys::parse_cell(value).map(|(width, height)| Cell { width, height });
     parsed.map(Some).ok_or_else(|| {
         format!(
             "line {n}: cell={value} is not WIDTHxHEIGHT in pixels, each {FRIT_CELL_MIN} to {FRIT_CELL_MAX}"
@@ -255,7 +250,7 @@ pub fn frit_size(text: &str) -> Result<Option<u32>, String> {
     let Some((n, value)) = frit_line(text, "size")? else {
         return Ok(None);
     };
-    frit_side(value).map(Some).ok_or_else(|| {
+    frit_points(value).map(Some).ok_or_else(|| {
         format!(
             "line {n}: size={value} is not a size in points, {FRIT_CELL_MIN} to {FRIT_CELL_MAX}"
         )
