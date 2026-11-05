@@ -377,13 +377,14 @@ fn frit_cell_at(stated: Option<Cell>, height: u32, builtin: Cell) -> Cell {
 /// draws it (ADR-1401 D2).
 pub type DisplayFace = Box<dyn Face + Send>;
 
-/// The built-in face that draws in `cell` (#145, ADR-1200 D7): with no
-/// `name`, unifont at the largest whole factor whose cell fits, else the
-/// smaller strike, Unscii-8 outside a zh, ja or ko locale, cropped where
-/// even it does not fit; the built-in `name` names at the largest whole
-/// factor whose cell fits, at least its own cell, cropped where that does
-/// not fit.
-fn builtin_in(name: Option<&'static str>, cell: Cell, locale: &str) -> Option<DisplayFace> {
+/// The built-in strike that draws in `cell` (#145, ADR-1200 D7), and the
+/// height it draws at. With no `name`, it is unifont at the largest whole
+/// factor whose cell fits in `cell`; where even unifont's 8x16 does not
+/// fit, it is the smaller strike, Unscii-8 at 8x8, but unifont in a zh, ja
+/// or ko locale. The built-in that `name` names keeps its own strike, at
+/// the largest whole factor whose cell fits, at least once. The face cuts
+/// a strike that does not fit ([`DeferredFace`]).
+fn builtin_strike(name: Option<&'static str>, cell: Cell, locale: &str) -> (&'static str, u32) {
     let factor = |w: u32, h: u32| {
         let across = cell.width.checked_div(w).unwrap_or(0);
         across.min(cell.height.checked_div(h).unwrap_or(0))
@@ -396,7 +397,18 @@ fn builtin_in(name: Option<&'static str>, cell: Cell, locale: &str) -> Option<Di
             k => k.saturating_mul(16),
         },
     };
-    Chosen::Builtin { name, cell: None }.face(height, locale)
+    (name.unwrap_or_else(|| builtin_name(height, locale)), height)
+}
+
+/// The built-in face that draws in `cell`: the strike
+/// [`builtin_strike`] chooses, at its height.
+fn builtin_in(name: Option<&'static str>, cell: Cell, locale: &str) -> Option<DisplayFace> {
+    let (strike, height) = builtin_strike(name, cell, locale);
+    Chosen::Builtin {
+        name: Some(strike),
+        cell: None,
+    }
+    .face(height, locale)
 }
 
 /// Where vtium finds frits: the frits' directory, the helper that
@@ -745,15 +757,24 @@ impl Chosen {
         matches!(self, Chosen::Frit { outline: true, .. })
     }
 
-    /// The built-in font drawn at `height` in `locale`.
+    /// The built-in font drawn at `height` in `locale`: in a look's cell,
+    /// the strike that [`builtin_strike`] chooses for the cell at that
+    /// height, which is what the face draws.
     fn builtin_at(&self, height: u32, locale: &str) -> &'static str {
         match self {
             Chosen::Builtin {
-                name: Some(name), ..
+                name,
+                cell: Some(look),
+            } => builtin_strike(*name, frit_cell_at(Some(*look), height, *look), locale).0,
+            Chosen::Builtin {
+                name: Some(name),
+                cell: None,
             } => name,
-            Chosen::Builtin { name: None, .. } | Chosen::Frit { .. } => {
-                builtin_name(height, locale)
+            Chosen::Builtin {
+                name: None,
+                cell: None,
             }
+            | Chosen::Frit { .. } => builtin_name(height, locale),
         }
     }
 
@@ -1320,6 +1341,41 @@ mod tests {
             );
             assert!(!f.wants_own_cell(24, false), "{text:?}");
         }
+    }
+
+    // ADR-1200 D7: a look's 6x16 cell is 16 pixels tall but narrower than
+    // unifont's 8 columns, so the built-ins draw Unscii-8 in it, cut a
+    // column from each side and centered down the cell, and OSC 50's query
+    // names the strike that draws
+    #[test]
+    fn a_looks_cell_too_narrow_for_unifont_draws_and_names_unscii_8() {
+        let font = Chosen::builtins(Some(cell(6, 16)));
+        assert_eq!(font.name(16, "C"), "unscii-8");
+        let a = font
+            .face(16, "C")
+            .expect("a face")
+            .draw(&['A'], vtium_font::Style::default())
+            .expect("a glyph");
+        assert_eq!((a.width(), a.height()), (6, 16));
+        let unscii = Chosen::Builtin {
+            name: Some("unscii-8"),
+            cell: None,
+        }
+        .face(8, "C")
+        .expect("unscii-8")
+        .draw(&['A'], vtium_font::Style::default())
+        .expect("a glyph");
+        for y in 0..8 {
+            for x in 0..6 {
+                assert_eq!(a.pixel(x, y + 4), unscii.pixel(x + 1, y), "{x},{y}");
+            }
+        }
+        // a zoom to twice the cell, 12x32, fits unifont's 8x16 once, so
+        // unifont draws there, and is named
+        assert_eq!(font.name(32, "C"), "unifont");
+        assert_eq!(font.face(32, "C").expect("a face").cell(), cell(12, 32));
+        // a zh, ja or ko locale draws unifont at every size, and names it
+        assert_eq!(font.name(16, "ja_JP.UTF-8"), "unifont");
     }
 
     // ADR-1200 D7, D17, ADR-1403 D5: the built-in fonts in a look's cell
