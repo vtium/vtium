@@ -885,9 +885,9 @@ fn reflow_cost() {
     }
 }
 
-/// The bytes asked of the allocator to lower the byte budget under a
-/// logical line of `rows` rows with no wide character, waiting after a
-/// narrowing, so that nearly all of it goes.
+/// The times the allocator is asked for memory to lower the byte budget
+/// under a logical line of `rows` rows with no wide character, waiting
+/// after a narrowing, so that nearly all of it goes.
 fn drop_work(rows: usize) -> usize {
     let mut t = Terminal::new(100, 4, 100_000);
     t.screen_mut().set_scrollback_max(100_000);
@@ -903,20 +903,21 @@ fn drop_work(rows: usize) -> usize {
 // that breaks by length drops as many rows at once as free the excess. A
 // drop a row at a time reread the waiting line for each row it dropped, so
 // four times the rows took sixteen times as long, and it asked the
-// allocator for 1.6 MB at 2,000 rows and 6.4 MB at 8,000. Dropped at once,
-// four times the rows ask for no more than the first.
+// allocator for memory at least once for each row: 3,984 times at 2,000
+// rows and 15,984 at 8,000. Dropped in batches, it asks fewer than once
+// for every 100 rows.
 #[test]
-fn dropping_past_the_byte_budget_is_done_at_once() {
-    let (small, large) = (drop_work(2000), drop_work(8000));
-    assert!(
-        large <= small,
-        "2,000 rows asked for {small} bytes, 8,000 rows {large}"
-    );
+fn dropping_past_the_byte_budget_drops_in_batches() {
+    for rows in [2000, 8000] {
+        let asked = drop_work(rows);
+        assert!(asked * 100 < rows, "{rows} rows asked {asked} times");
+    }
 }
 
 /// The allocator of this test binary: the system's, counting on each
-/// thread the bytes that thread asks for, so a test can measure the work
-/// a call does by what it allocates, whatever else runs at the same time.
+/// thread the times that thread asks for memory, so a test can measure the
+/// work a call does by its allocations, whatever else runs at the same
+/// time.
 mod counting {
     use std::alloc::{GlobalAlloc, Layout, System};
     use std::cell::Cell;
@@ -925,12 +926,13 @@ mod counting {
         static ASKED: Cell<usize> = const { Cell::new(0) };
     }
 
-    fn count(bytes: usize) {
+    fn count() {
         // A thread being torn down counts nothing.
-        let _ = ASKED.try_with(|a| a.set(a.get().saturating_add(bytes)));
+        let _ = ASKED.try_with(|a| a.set(a.get().saturating_add(1)));
     }
 
-    /// The bytes this thread asked for while `f` ran, and what `f` returned.
+    /// The times this thread asked for memory while `f` ran, and what `f`
+    /// returned.
     pub fn asked<T>(f: impl FnOnce() -> T) -> (usize, T) {
         let before = ASKED.with(Cell::get);
         let out = f();
@@ -942,13 +944,13 @@ mod counting {
     // SAFETY: each call is passed on to the system allocator unchanged.
     unsafe impl GlobalAlloc for Counting {
         unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-            count(layout.size());
+            count();
             // SAFETY: the caller's layout, passed on.
             unsafe { System.alloc(layout) }
         }
 
         unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
-            count(layout.size());
+            count();
             // SAFETY: the caller's layout, passed on.
             unsafe { System.alloc_zeroed(layout) }
         }
@@ -959,7 +961,7 @@ mod counting {
         }
 
         unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, size: usize) -> *mut u8 {
-            count(size);
+            count();
             // SAFETY: the caller's pointer, layout and size, passed on.
             unsafe { System.realloc(ptr, layout, size) }
         }
