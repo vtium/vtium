@@ -1204,10 +1204,9 @@ class VtiumGoldenTest(unittest.TestCase):
                    "two-outputs-mirror/cjk", "two-outputs-mirror/cjk@1",
                    "two-cards-mirror/sgr", "two-cards-mirror/sgr@card1",
                    "two-cards-mirror/cjk", "two-cards-mirror/cjk@card1", "usb-keyboards/cjk"]
-        heads = ["heads-two-heads/cjk", "heads-partly-open/partly-notice", "heads-partly-open/cjk",
-                 "heads-closed-broken/panic", "heads-policy-typo/policy-panic",
-                 "heads-closed-unmatched/no-display-notice",
-                 "heads-kiosk/cjk"]
+        # the head-file variants' notice and panic goldens left the list when the
+        # maintainer reviewed them on 2026-11-05
+        heads = ["heads-two-heads/cjk", "heads-partly-open/cjk", "heads-kiosk/cjk"]
         images = ["images-640x480/" + s for s in ("img-sixel", "img-kitty", "img-relative",
                                                   "img-overwrite", "img-delete", "img-scroll",
                                                   "img-scrollback", "img-tmux-pane",
