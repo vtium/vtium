@@ -122,7 +122,7 @@ use std::sync::Arc;
 use std::sync::mpsc::{self, RecvTimeoutError, TryRecvError};
 use std::time::Duration;
 
-use rustix::process::{Resource, Rlimit, Uid, geteuid, setrlimit};
+use rustix::process::{Resource, Rlimit, setrlimit};
 use vtium_font::set::{PixelFormat, SetBuilder, StrikeBuilder};
 use vtium_font::{CELL_SIDE_MAX, CLUSTER_SCALARS_MAX, Cell, Decorations, Style, Width};
 use vtium_platform::vt::font::{ConsoleFont, FONT_GLYPHS_MAX, FONT_PITCH_TALL, UniPair};
@@ -1827,13 +1827,41 @@ fn limits() -> Result<(), String> {
         };
         setrlimit(resource, limit).map_err(|e| format!("the helper cannot set its limits: {e}"))?;
     }
-    refuse_root(geteuid())
+    let status = std::fs::read_to_string("/proc/self/status")
+        .map_err(|e| format!("the helper cannot read its ids from /proc/self/status: {e}"))?;
+    refuse_root(&status)
 }
 
-/// The helper never runs as root (ADR-1200 D15): `euid` root is refused.
-fn refuse_root(euid: Uid) -> Result<(), String> {
-    if euid.is_root() {
+/// The ids a `/proc/<pid>/status` line names after its `key`, such as
+/// `Uid:`'s real, effective, saved and filesystem uids, or `Groups:`'s
+/// supplementary groups; `None` when the line is missing or a field is not
+/// a number.
+fn status_ids(status: &str, key: &str) -> Option<Vec<u32>> {
+    let line = status.lines().find_map(|l| l.strip_prefix(key))?;
+    line.split_whitespace().map(|id| id.parse().ok()).collect()
+}
+
+/// The helper never runs as root, nor with root's group (ADR-1200 D15).
+/// `status` is its `/proc/self/status`, and the helper refuses to run when
+/// any of its real, effective, saved and filesystem uids is 0, when any of
+/// those gids is 0, or when its supplementary groups include 0. A saved id
+/// of 0 would let it take root's id back, and group 0 reads what root's
+/// group may read. A status it cannot read is refused too.
+fn refuse_root(status: &str) -> Result<(), String> {
+    let ids = |key: &str| {
+        status_ids(status, key)
+            .filter(|ids| key == "Groups:" || ids.len() == 4)
+            .ok_or_else(|| {
+                format!(
+                    "the helper cannot read its ids: /proc/self/status has no {key} line it reads"
+                )
+            })
+    };
+    if ids("Uid:")?.contains(&0) {
         return Err("the helper refuses to run as root".to_owned());
+    }
+    if ids("Gid:")?.contains(&0) || ids("Groups:")?.contains(&0) {
+        return Err("the helper refuses to run with group 0, root's group".to_owned());
     }
     Ok(())
 }
@@ -3142,9 +3170,47 @@ mod tests {
 
     #[test]
     fn the_helper_refuses_to_run_as_root() {
-        let why = refuse_root(Uid::ROOT).unwrap_err();
-        assert!(why.contains("refuses to run as root"), "{why}");
-        assert_eq!(refuse_root(Uid::from_raw(65534)), Ok(()));
+        let status = |uid: &str, gid: &str, groups: &str| {
+            format!("Name:\tvtium-config\nUid:\t{uid}\nGid:\t{gid}\nGroups:\t{groups}\nNgid:\t0\n")
+        };
+        let nobody = "65534\t65534\t65534\t65534";
+        assert_eq!(refuse_root(&status(nobody, nobody, "")), Ok(()));
+        assert_eq!(refuse_root(&status(nobody, nobody, "1000 998 ")), Ok(()));
+        // root in any of the four uids, its saved uid included, which would
+        // let the helper take root's id back
+        for uid in [
+            "0\t0\t0\t0",
+            "65534\t0\t65534\t65534",
+            "65534\t65534\t0\t65534",
+            "65534\t65534\t65534\t0",
+        ] {
+            let why = refuse_root(&status(uid, nobody, "")).unwrap_err();
+            assert!(why.contains("refuses to run as root"), "{why}");
+        }
+        // group 0 as any of the four gids, or among the supplementary groups
+        for (gid, groups) in [
+            ("0\t0\t0\t0", ""),
+            ("65534\t65534\t0\t65534", ""),
+            (nobody, "0"),
+            (nobody, "1000 0 998"),
+        ] {
+            let why = refuse_root(&status(nobody, gid, groups)).unwrap_err();
+            assert!(why.contains("group 0"), "{why}");
+        }
+        // a status it cannot read is refused
+        for broken in [
+            String::new(),
+            status("65534\t65534", nobody, ""),
+            status(nobody, "x\t65534\t65534\t65534", ""),
+            format!("Uid:\t{nobody}\nGid:\t{nobody}\n"),
+        ] {
+            let why = refuse_root(&broken).unwrap_err();
+            assert!(why.contains("cannot read its ids"), "{why}");
+        }
+        // the helper's own status reads, as the test's account
+        let own = std::fs::read_to_string("/proc/self/status").unwrap();
+        assert!(status_ids(&own, "Uid:").is_some_and(|ids| ids.len() == 4));
+        assert!(status_ids(&own, "Groups:").is_some());
     }
 
     #[test]
