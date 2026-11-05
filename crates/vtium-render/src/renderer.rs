@@ -572,9 +572,8 @@ impl<F: Face> Renderer<F> {
         );
         Renderer {
             compose: Composer::new(
-                GlyphCache::new(budgets, config.storage, config.orientation).with_fallback(
-                    Fallback::new(config.depth, font.cell(), lines.underline_thickness),
-                ),
+                GlyphCache::new(budgets, config.storage, config.orientation)
+                    .with_fallback(Fallback::new(config.depth, font.cell())),
                 sprites(cw, ch, &lines, config.orientation, config),
             ),
             lines,
@@ -691,12 +690,13 @@ impl<F: Face> Renderer<F> {
     }
 
     /// Takes the font's underline and strike-through lines when they are
-    /// no longer the ones the renderer made its sprites from: the sprites
-    /// are made again, the glyph cache is emptied, since the font draws its
-    /// line sprites and the glyph stand-ins in the underline's thickness,
-    /// and the next frame draws every cell and the border. On the GPU path
-    /// the renderer takes a new identity, so the pipeline makes its glyphs
-    /// and sprites anew and composes whole. Unchanged lines change nothing.
+    /// no longer the ones the renderer made its decoration sprites from:
+    /// the sprites are made again, and the next frame draws every cell and
+    /// the border. The glyph cache keeps its glyphs, because the font draws
+    /// its box-drawing sprites in a weight that follows the cell, not the
+    /// lines ([`vtium_font::sprite::light_line`]). On the GPU path the
+    /// renderer takes a new identity, so the pipeline makes its glyphs and
+    /// sprites anew and composes whole. Unchanged lines change nothing.
     fn lines_changed(&mut self) {
         let lines = self.font.decorations();
         if lines == self.lines {
@@ -709,11 +709,6 @@ impl<F: Face> Renderer<F> {
             u32::try_from(self.layout.ch).unwrap_or(1),
         );
         self.compose.sprites = sprites(cw, ch, &lines, config.orientation, config);
-        self.compose.cache.reset(Fallback::new(
-            config.depth,
-            self.font.cell(),
-            lines.underline_thickness,
-        ));
         // the grid is placed anew, so every cell and the border draw
         self.grid = None;
         #[cfg(feature = "gpu")]

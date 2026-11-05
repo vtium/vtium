@@ -257,11 +257,7 @@ impl<F: Face> Renderer<F> {
             owner: self.gpu.id,
             budgets: self.gpu.budgets,
             storage: self.config.storage,
-            fallback: Fallback::new(
-                self.config.depth,
-                self.font.cell(),
-                self.font.decorations().underline_thickness,
-            ),
+            fallback: Fallback::new(self.config.depth, self.font.cell()),
             cell: Size::new(
                 u32::try_from(self.layout.cw).unwrap_or(1),
                 u32::try_from(self.layout.ch).unwrap_or(1),

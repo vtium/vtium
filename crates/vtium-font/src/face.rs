@@ -258,7 +258,8 @@ impl<F: Face> Font<F> {
 
     /// The glyph for `cluster`, exactly `width` cells wide and a cell high.
     /// A character the policy draws as a sprite fills the cell, alone or
-    /// as the base of a cluster the face lacks. A cluster whose first
+    /// as the base of a cluster the face lacks, with the light lines
+    /// [`sprite::light_line`] gives the cell's height. A cluster whose first
     /// character the face lacks otherwise draws as the font's [`Missing`]
     /// glyph, whose last fallback is U+25A1, else `?`, else the face's last
     /// resort; a glyph of another width is centred and cut to the cells.
@@ -269,7 +270,7 @@ impl<F: Face> Font<F> {
         let cell = self.face.cell();
         let w = cell.width.saturating_mul(width.cells());
         if let Some(c) = self.sprite_base(cluster) {
-            let thick = self.face.decorations().underline_thickness;
+            let thick = sprite::light_line(cell.height);
             if let Some(s) = sprite::draw(c, w, cell.height, thick) {
                 return Some(s.with_cells(width));
             }
