@@ -26,7 +26,12 @@
 # step shows its command, and runs it on this terminal once the operator
 # presses Enter, so the operator watches it rather than typing it. Each step
 # needs an expect: line, and a do: or run: line. A step with neither asks once
-# the operator presses Enter.
+# the operator presses Enter. An optional "cleanup: COMMAND", once and before
+# the first step, is a command guide.sh runs however the checks end: after
+# the last step, at q, when the terminal closes, or when a signal ends the
+# run. A guide that changes the machine for a few steps puts the change back
+# there, so a run that stops halfway leaves nothing behind; the command does
+# nothing when there is nothing to put back.
 set -euo pipefail
 
 here=$(cd "$(dirname "$(readlink -f "$0")")" && pwd)
@@ -49,6 +54,7 @@ vt=${GUIDE_VT:-N}
 desktop=${GUIDE_DESKTOP:-N}
 title=
 intro=()
+cleanup=
 titles=()
 probes=()
 runs=()
@@ -82,6 +88,12 @@ while IFS= read -r line || [ -n "$line" ]; do
 	intro)
 		[ "$s" -lt 0 ] || die "$guide:$n: intro lines go before the first step"
 		intro+=("$text")
+		;;
+	cleanup)
+		[ "$s" -lt 0 ] || die "$guide:$n: cleanup: goes before the first step"
+		[ -z "$cleanup" ] || die "$guide:$n: one cleanup: line"
+		[ -n "$text" ] || die "$guide:$n: cleanup: needs the command"
+		cleanup=$text
 		;;
 	step)
 		[ -n "$text" ] || die "$guide:$n: a step needs a title"
@@ -133,6 +145,7 @@ if [ -n "$check" ]; then
 		[ -z "${runs[s]}" ] || mode=run
 		printf '  %2d  %-12s %s\n' "$((s + 1))" "$mode" "${titles[s]}"
 	done
+	[ -z "$cleanup" ] || printf '  cleanup when the checks end: %s\n' "$cleanup"
 	exit 0
 fi
 
@@ -247,6 +260,20 @@ run() {
 }
 
 note "=== $title, $(date -Is), guide $(readlink -f "$guide"), tty $(tty), steps ${only[*]:-all}"
+
+# The guide's cleanup: command, run once as the script exits, whatever ends
+# it. bash runs an EXIT trap on a normal exit and on the signals that end it.
+finish() {
+	local status=$?
+	trap - EXIT
+	if [ -n "$cleanup" ]; then
+		printf '\nCleanup: %s\n' "$cleanup" || true
+		note "  cleanup: $cleanup" || true
+		/bin/bash --noprofile --norc -c "$cleanup" || note "  cleanup exited with status $?" || true
+	fi
+	exit "$status"
+}
+trap finish EXIT
 
 # How the run ends: as vtium's session (VTIUM_CONSOLE set), vtium exits with
 # the guide; run by hand in a terminal, as restart.guide is, the guide ends

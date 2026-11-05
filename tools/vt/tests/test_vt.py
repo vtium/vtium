@@ -3843,6 +3843,126 @@ class Guide(Case):
         self.assertEqual(p.returncode, 0, p.stderr)
         self.assertEqual(p.stdout, "T: 2 steps\n   1  run          S\n   2  (no probe)   U\n")
 
+    def test_a_cleanup_line_is_checked(self):
+        ok = "title: T\nstep: S\ndo: d\nexpect: e\n"
+        for text, why in ((ok + "cleanup: true\n", "cleanup: goes before the first step"),
+                          ("title: T\ncleanup: true\ncleanup: true\n" + ok[9:], "one cleanup: line"),
+                          ("title: T\ncleanup:\n" + ok[9:], "cleanup: needs the command")):
+            with self.subTest(why=why):
+                self.refused(self.check(text), why)
+        p = self.check("title: T\ncleanup: rm -f x\n" + ok[9:])
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertEqual(p.stdout, "T: 1 steps\n   1  (no probe)   S\n  cleanup when the checks end: rm -f x\n")
+
+    def test_the_cleanup_runs_however_the_checks_end(self):
+        # A guide that changes the machine for some steps puts it back in its
+        # cleanup: command, which runs once whether the checks end at q, at
+        # the last step, when the terminal closes or on a signal.
+        marks = os.path.join(self.s.tmp, "cleaned")
+        guide = os.path.join(self.s.tmp, "t.guide")
+        write(guide, f"title: Cleanup guide\ncleanup: echo cleaned >>{marks}\n"
+                     "step: One\ndo: look\nexpect: e\nstep: Two\ndo: look\nexpect: e\n", 0o644)
+        log = os.path.join(self.s.dir, "vt-check.log")
+
+        def start():
+            g = Pty(["/bin/bash", GUIDE_SH, guide], self.guide_env())
+            g.wait_for(b"Press Enter to begin.")
+            g.send(b"\r")
+            g.wait_for(b"Step 1 of 2: One")
+            g.wait_for(b"Press Enter when done")
+            return g
+
+        def answer(g):
+            g.send(b"\r")
+            g.wait_for(b"[y]es [n]o [s]kip: ")
+            g.send(b"y")
+            g.wait_for(b"Note (Enter for none): ")
+            g.send(b"\r")
+
+        def last(g):
+            answer(g)
+            g.wait_for(b"Step 2 of 2: Two")
+            g.wait_for(b"Press Enter when done")
+            answer(g)
+            g.wait_for(b"Press Enter to end the run.")
+            g.send(b"\r")
+
+        for how, end, status in (("q", lambda g: g.send(b"q\r"), 0),
+                                 ("the last step", last, 0),
+                                 ("end of input", lambda g: g.send(b"\x04"), 0),
+                                 ("SIGTERM", lambda g: os.kill(g.pid, signal.SIGTERM), -signal.SIGTERM),
+                                 ("SIGHUP", lambda g: os.kill(g.pid, signal.SIGHUP), -signal.SIGHUP)):
+            with self.subTest(how=how):
+                if os.path.exists(marks):
+                    os.unlink(marks)
+                g = start()
+                end(g)
+                code = g.finish()
+                if status:
+                    self.assertIn(code, (status, 128 - status))
+                else:
+                    self.assertEqual(code, 0)
+                self.assertEqual(read(marks), "cleaned\n")
+        self.assertIn(f"  cleanup: echo cleaned >>{marks}", read(log))
+        # A guide with no cleanup: line runs nothing at its end.
+        write(guide, "title: Plain guide\nstep: One\ndo: look\nexpect: e\n", 0o644)
+        os.unlink(marks)
+        g = Pty(["/bin/bash", GUIDE_SH, guide], self.guide_env())
+        g.wait_for(b"Press Enter to begin.")
+        g.send(b"\r")
+        g.wait_for(b"Press Enter when done")
+        g.send(b"q\r")
+        self.assertEqual(g.finish(), 0)
+        self.assertNotIn(b"Cleanup:", g.seen)
+        self.assertFalse(os.path.exists(marks))
+
+    def test_restart_guide_gives_its_closed_policy_to_one_unit_and_takes_it_back(self):
+        # restart.guide never changes /etc/vtium, which every vtium reads: its
+        # closed vtium.conf goes into a directory of root's under /run, and a
+        # drop-in under /run/systemd/system gives vtium-dev@ttyN alone that
+        # directory as --configdir. Step 8 and the cleanup remove both.
+        checks = os.path.join(VT, "checks")
+        text = read(os.path.join(checks, "restart.guide"))
+        dropin = read(os.path.join(checks, "restart-closed.service.conf"))
+        confdir = "/run/vtium-restart-guide"
+        unitdir = "/run/systemd/system/vtium-dev@tty{vt}.service.d"
+        # The drop-in's ExecStart is make vt-install's, with the directory.
+        out = os.path.join(self.s.tmp, "units")
+        p = subprocess.run(["bash", UNITS_SH, "--name", "vtium-dev", "--exec", "/usr/local/bin/vtium-dev",
+                            "--by", "a test", out], capture_output=True, text=True, timeout=WAIT_BOUND,
+                           env=self.s.env())
+        self.assertEqual(p.returncode, 0, p.stderr)
+        unit = [l for l in read(os.path.join(out, "vtium-dev@.service")).splitlines() if l.startswith("ExecStart=")]
+        self.assertEqual(len(unit), 1, unit)
+        lines = [l for l in dropin.splitlines() if l and not l.startswith("#")]
+        self.assertEqual(lines, ["[Service]", "ExecStart=", f"{unit[0]} --configdir {confdir}"])
+        steps = {}
+        for line in text.splitlines():
+            if line.startswith("step: "):
+                title = line[6:]
+            elif line.startswith("run: "):
+                steps[title] = line[5:]
+            elif line.startswith("cleanup: "):
+                steps["cleanup"] = line[9:]
+        install = steps["vtium reads a closed policy"]
+        self.assertIn(f"install -m 0644 -o root -g root tools/vt/checks/restart-closed.conf {confdir}/vtium.conf",
+                      install)
+        self.assertIn("install -m 0644 -o root -g root tools/vt/checks/restart-closed.service.conf "
+                      f"{unitdir}/restart-guide.conf", install)
+        self.assertLess(install.index("check-config"), install.index("sudo"))
+        self.assertIn("daemon-reload", install)
+        for name in ("Recovery after the start limit", "cleanup"):
+            with self.subTest(name=name):
+                run = steps[name]
+                self.assertIn(f"d={unitdir}; ", run)
+                self.assertIn('sudo rm -f "$d/restart-guide.conf"', run)
+                self.assertIn(f"sudo rm -rf {confdir}", run)
+                self.assertIn("daemon-reload", run)
+        # Nothing the guide runs writes under /etc/vtium.
+        for name, run in steps.items():
+            with self.subTest(name=name):
+                self.assertNotRegex(run, r"(install|cp|mv|rm|rmdir|tee)\b[^;&|]*/etc/vtium")
+
     def guide_env(self, **extra):
         env = {"PATH": os.environ["PATH"], "TERM": "linux", "VTIUM_VT_DIR": self.s.dir,
                "GUIDE_VT": "6", "GUIDE_DESKTOP": "7"}

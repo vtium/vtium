@@ -1,9 +1,17 @@
 # vtium's unit starts vtium again after a failure (ADR-1401 D9,
 # docs/systemd.md), on a VT where make vt-install put it. Under the open
 # policy, which vtium runs when /etc/vtium/vtium.conf states no closed one,
-# the getty fallback takes the VT at the first failure; under a closed policy vtium comes back on its VT, and
-# past systemd's start limit of 5 starts in 10 seconds the VT is left with
-# no login. The steps describe systemd 254 and later.
+# the getty fallback takes the VT at the first failure; under a closed
+# policy vtium comes back on its VT, and past systemd's start limit of 5
+# starts in 10 seconds the VT is left with no login. The steps describe
+# systemd 254 and later.
+#
+# The closed policy reaches vtium-dev@ttyN alone, through a drop-in under
+# /run/systemd/system that names /run/vtium-restart-guide as its
+# configuration directory (restart-closed.service.conf). /etc/vtium is never
+# changed, so no other vtium reads the closed file. Step 8 removes the
+# drop-in, the guide's cleanup removes it however the checks end, and a
+# reboot clears /run.
 #
 # The checks kill vtium, so this guide runs in a desktop terminal, never
 # as vtium's session. It acts on one spare VT, N, that is not on screen and
@@ -18,8 +26,12 @@
 title: vtium starts again after a failure
 
 intro: This guide acts on VT {vt} alone, from this desktop terminal. sudo
-intro: asks for your password here. Steps 5 to 8 check the closed policy:
-intro: skip all four (s, then Enter) to leave /etc/vtium untouched.
+intro: asks for your password here. Steps 5 to 8 check the closed policy,
+intro: which reaches vtium-dev@tty{vt} alone, through a drop-in in /run;
+intro: /etc/vtium is never changed. However the checks end, the drop-in goes
+intro: with them.
+
+cleanup: d=/run/systemd/system/vtium-dev@tty{vt}.service.d; [ -e "$d/restart-guide.conf" ] || [ -e /run/vtium-restart-guide ] || exit 0; sudo rm -f "$d/restart-guide.conf"; sudo rmdir "$d" 2>/dev/null; sudo rm -rf /run/vtium-restart-guide; sudo systemctl daemon-reload && echo "restart.guide removed its drop-in: vtium-dev@tty{vt} reads /etc/vtium/vtium.conf from its next start (sudo systemctl reset-failed vtium-dev@tty{vt}.service; sudo systemctl restart vtium-dev@tty{vt}.service)"
 
 step: VT {vt} is a spare VT, and this terminal is on the desktop
 run: echo "inside vtium: ${VTIUM_CONSOLE:+yes}${VTIUM_CONSOLE:-no}"; echo "on screen: $(cat /sys/class/tty/tty0/active)"; echo "logins on tty{vt}: $(loginctl list-sessions --no-legend | grep -cw 'tty{vt}')"; systemctl --version | head -n 1
@@ -51,20 +63,16 @@ run: sudo systemctl start vtium-dev@tty{vt}.service && sleep 1 && systemctl show
 expect: vtium-dev@tty{vt} active, and getty@tty{vt} inactive again.
 
 step: vtium reads a closed policy
-run: made=; [ -d /etc/vtium ] || made=1; saved=/etc/vtium/vtium.conf.restart-guide; [ ! -e "$saved" ] && /usr/local/bin/vtium-dev check-config tools/vt/checks/restart-closed.conf && { [ ! -e /etc/vtium/vtium.conf ] || sudo cp -p /etc/vtium/vtium.conf "$saved"; } && sudo install -D -m 0644 -o root -g root tools/vt/checks/restart-closed.conf /etc/vtium/vtium.conf && { [ -z "$made" ] || touch "${XDG_RUNTIME_DIR:-/tmp}/vtium-restart-guide-made-etc-vtium"; } && sudo systemctl restart vtium-dev@tty{vt}.service && sleep 1 && ls -l /run/vtium/tty{vt}.closed
+run: /usr/local/bin/vtium-dev check-config tools/vt/checks/restart-closed.conf && sudo install -d -m 0755 -o root -g root /run/vtium-restart-guide /run/systemd/system/vtium-dev@tty{vt}.service.d && sudo install -m 0644 -o root -g root tools/vt/checks/restart-closed.conf /run/vtium-restart-guide/vtium.conf && sudo install -m 0644 -o root -g root tools/vt/checks/restart-closed.service.conf /run/systemd/system/vtium-dev@tty{vt}.service.d/restart-guide.conf && sudo systemctl daemon-reload && sudo systemctl restart vtium-dev@tty{vt}.service && sleep 1 && systemctl show -p DropInPaths -p ExecStart vtium-dev@tty{vt}.service && ls -l /run/vtium/tty{vt}.closed
 do: skip this step and the three after it (s, then Enter) to leave
-do: /etc/vtium untouched. The command first sets aside the vtium.conf
-do: installed now, if there is one, as /etc/vtium/vtium.conf.restart-guide,
-do: and stops at once if that copy is already there, so no file is ever
-do: lost. Until step 8 every vtium on the machine reads the closed file at
-do: its next start. If the checks end before step 8, put the old file back
-do: by hand: sudo mv /etc/vtium/vtium.conf.restart-guide
-do: /etc/vtium/vtium.conf, or, if there was none, sudo rm
-do: /etc/vtium/vtium.conf
-expect: check-config finds the file valid, and /run/vtium/tty{vt}.closed is
-expect: listed: vtium read policy = closed and wrote the marker that keeps
-expect: the getty away. The head is not isolated, so the keyboards still
-expect: type on VT {vt} and Ctrl-Alt-F{desktop} still switches back.
+do: vtium-dev@tty{vt} on its own configuration.
+expect: check-config finds the file valid; DropInPaths names
+expect: /run/systemd/system/vtium-dev@tty{vt}.service.d/restart-guide.conf and
+expect: ExecStart ends with --configdir /run/vtium-restart-guide; and
+expect: /run/vtium/tty{vt}.closed is listed: vtium read policy = closed and
+expect: wrote the marker that keeps the getty away. The head is not
+expect: isolated, so the keyboards still type on VT {vt} and
+expect: Ctrl-Alt-F{desktop} still switches back.
 
 step: One kill under the closed policy brings vtium back
 run: sudo systemctl kill --kill-whom=main --signal=SIGKILL vtium-dev@tty{vt}.service; sleep 3; systemctl show -p Id -p ActiveState -p SubState vtium-dev@tty{vt}.service getty@tty{vt}.service
@@ -81,13 +89,11 @@ expect: allows 5 starts in 10 seconds and refused the next one;
 expect: getty@tty{vt} inactive; and the marker still listed.
 
 step: Recovery after the start limit
-run: saved=/etc/vtium/vtium.conf.restart-guide; if sudo cmp -s tools/vt/checks/restart-closed.conf /etc/vtium/vtium.conf; then if [ -e "$saved" ]; then sudo mv "$saved" /etc/vtium/vtium.conf; else sudo rm /etc/vtium/vtium.conf; fi; fi; mark="${XDG_RUNTIME_DIR:-/tmp}/vtium-restart-guide-made-etc-vtium"; [ ! -e "$mark" ] || { sudo rmdir /etc/vtium && rm -f "$mark"; }; sudo systemctl reset-failed vtium-dev@tty{vt}.service; sudo systemctl start vtium-dev@tty{vt}.service; sleep 1; systemctl show -p Id -p ActiveState vtium-dev@tty{vt}.service; test -e /run/vtium/tty{vt}.closed && echo "the marker is still there" || echo "no marker"
-expect: vtium-dev@tty{vt} active again, and "no marker": with the closed
-expect: file gone vtium runs the open policy and removes the marker. Only
-expect: when the installed vtium.conf is still this guide's own does the
-expect: command put back the file step 5 set aside, or remove the guide's
-expect: file when there was none, and it removes /etc/vtium only if step 5
-expect: created it.
+run: d=/run/systemd/system/vtium-dev@tty{vt}.service.d; sudo rm -f "$d/restart-guide.conf"; sudo rmdir "$d" 2>/dev/null; sudo rm -rf /run/vtium-restart-guide; sudo systemctl daemon-reload; sudo systemctl reset-failed vtium-dev@tty{vt}.service; sudo systemctl start vtium-dev@tty{vt}.service; sleep 1; systemctl show -p Id -p ActiveState -p DropInPaths vtium-dev@tty{vt}.service; test -e /run/vtium/tty{vt}.closed && echo "the marker is still there" || echo "no marker"
+expect: vtium-dev@tty{vt} active again, DropInPaths empty, and "no marker":
+expect: with the drop-in gone vtium reads /etc/vtium/vtium.conf again, runs
+expect: the open policy unless that file states a closed one, and removes
+expect: the marker.
 
 step: make vt-uninstall gives VT {vt} its getty back
 run: make vt-uninstall VT={vt} && systemctl show -p Id -p ActiveState vtium-dev@tty{vt}.service getty@tty{vt}.service; ls /usr/local/bin/vtium-dev /etc/systemd/system/vtium-dev@.service 2>&1
