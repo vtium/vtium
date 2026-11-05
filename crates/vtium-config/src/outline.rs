@@ -445,7 +445,7 @@ impl Outline {
     /// Reads and checks an answer to `request`: a strike for each cell
     /// asked for, of its height and, where asked, its width, each inside
     /// [`CELL_SIDE_MAX`] with its baseline inside it; every glyph exactly
-    /// as long as its flags say and no larger than a set's chunk, RGBA
+    /// as long as its flags say, its ink box no larger than a set's chunk, RGBA
     /// premultiplied; every codepoint a scalar value in order, one the
     /// request covers, and every glyph one the strike holds; every cluster
     /// one the request asked for, in order, its glyph one the strike holds;
@@ -495,9 +495,6 @@ impl Outline {
                 }
                 let (wide, color) = (flags & GLYPH_WIDE != 0, flags & GLYPH_COLOR != 0);
                 let n = Placed::bytes(wide, color, width, height).ok_or("a glyph past usize")?;
-                if n > usize::try_from(SET_CHUNK_BYTES).unwrap_or(0) {
-                    return Err("a glyph larger than a set's chunk");
-                }
                 let pixels = r.take(n)?.to_vec();
                 if color
                     && pixels
@@ -1426,12 +1423,10 @@ pub(crate) mod raster {
                     Some(&(_, i)) => i,
                     None => {
                         let advance = advances.advance_width(g);
-                        // a glyph larger than a set's chunk cannot be stored:
-                        // a color glyph two cells wide past about 64 pixels
+                        // a glyph larger than a set's chunk goes in a chunk of
+                        // its own (ADR-1302 D6), so none is left out for its size
                         let joins = crate::shaping::joins(c);
-                        let Some(placed) = place(&mut drawer, g, advance, joins, &cell)
-                            .filter(|p| p.pixels.len() <= SET_CHUNK_BYTES as usize)
-                        else {
+                        let Some(placed) = place(&mut drawer, g, advance, joins, &cell) else {
                             continue;
                         };
                         let i = u32::try_from(glyphs.len()).map_err(|_| "too many glyphs")?;

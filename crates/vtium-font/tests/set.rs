@@ -667,20 +667,166 @@ fn each_bound_refuses_the_set() {
     );
 }
 
-// The writer keeps the bounds the reader holds it to
-#[test]
-fn the_writer_refuses_what_the_reader_would() {
+/// An 8x16 bitmap font drawn 33 times its size: a cell of 264x528, whose
+/// 1-bit glyphs take 33 x 528 = 17,424 bytes cut to one cell, past a
+/// 16 KiB chunk. `A`, `B` and the wide U+4E00 differ, each pixel lit by
+/// `lit` for its own seed.
+const HUGE: Cell = Cell {
+    width: 264,
+    height: 528,
+};
+
+fn lit(seed: u32, x: u32, y: u32) -> bool {
+    (x / 33 + y / 33 + seed).is_multiple_of(3)
+}
+
+/// The 1-bit rows of a glyph `cells` wide at [`HUGE`], lit by `seed`.
+fn huge_rows(seed: u32, cells: u32) -> Vec<u8> {
+    let w = HUGE.width * cells;
+    let row = w.div_ceil(8);
+    let mut out = vec![0u8; (row * HUGE.height) as usize];
+    for y in 0..HUGE.height {
+        for x in (0..w).filter(|&x| lit(seed, x, y)) {
+            out[(y * row + x / 8) as usize] |= 0x80 >> (x % 8);
+        }
+    }
+    out
+}
+
+/// The mask the set draws for that glyph.
+fn huge_mask(seed: u32, cells: u32) -> Glyph {
+    let w = HUGE.width * cells;
+    let px: Vec<u8> = (0..HUGE.height)
+        .flat_map(|y| (0..w).map(move |x| if lit(seed, x, y) { 255 } else { 0 }))
+        .collect();
+    let cells = if cells == 2 {
+        Width::Wide
+    } else {
+        Width::Narrow
+    };
+    mask(w, HUGE.height, &px).with_cells(cells)
+}
+
+/// A set of `A`, `B` and U+4E00 at [`HUGE`], and in an R8 strike of
+/// 128x129, 16,512 bytes a glyph, `x` and the cluster e + U+0301.
+fn huge_set(compress: bool) -> Vec<u8> {
+    let mut bits = StrikeBuilder::new(PixelFormat::Bits, HUGE, Style::default()).compress(compress);
+    for (c, seed, width) in [
+        ('A', 0, Width::Narrow),
+        ('B', 1, Width::Narrow),
+        ('\u{4e00}', 2, Width::Wide),
+    ] {
+        let g = bits.glyph(width, huge_rows(seed, width.cells()));
+        bits.map(c, g);
+    }
     let cell = Cell {
         width: 128,
         height: 129,
     };
-    let mut s = StrikeBuilder::new(PixelFormat::R8, cell, Style::default());
-    let g = s.glyph(Width::Narrow, vec![0; 128 * 129]);
-    s.map('x', g);
-    assert!(
-        SetBuilder::new("big").strike(s).write().is_err(),
-        "a glyph past a chunk"
+    let mut r8 = StrikeBuilder::new(PixelFormat::R8, cell, Style::default()).compress(compress);
+    let x = r8.glyph(
+        Width::Narrow,
+        (0..128 * 129).map(|p| (p % 251) as u8).collect(),
     );
+    r8.map('x', x);
+    let e = r8.glyph(Width::Narrow, vec![7; 128 * 129]);
+    r8.cluster(&['e', '\u{301}'], e);
+    SetBuilder::new("huge")
+        .strike(bits)
+        .strike(r8)
+        .write()
+        .expect("writes")
+}
+
+// A glyph larger than a chunk is carried in a chunk of its own and drawn,
+// never left out (ADR-1302 D6, issue 272: an 8x16 font scaled 33 times)
+#[test]
+fn a_glyph_larger_than_a_chunk_takes_a_chunk_of_its_own() {
+    for compress in [false, true] {
+        let set = Arc::new(read(huge_set(compress)));
+        set.check_chunks().expect("checks");
+        let face = SetFace::new(set.clone(), HUGE.height).expect("a face");
+        assert_eq!(set.loaded_chunks(), 0);
+        assert_eq!(face.draw(&['A'], Style::default()), Some(huge_mask(0, 1)));
+        assert_eq!(set.loaded_chunks(), 1, "A alone in its chunk");
+        assert_eq!(face.draw(&['B'], Style::default()), Some(huge_mask(1, 1)));
+        assert_eq!(set.loaded_chunks(), 2, "B alone in its chunk");
+        assert_eq!(
+            face.draw(&['\u{4e00}'], Style::default()),
+            Some(huge_mask(2, 2))
+        );
+        let small = SetFace::new(set.clone(), 129).expect("a face");
+        let x: Vec<u8> = (0..128 * 129).map(|p| (p % 251) as u8).collect();
+        assert_eq!(
+            small.draw(&['x'], Style::default()),
+            Some(mask(128, 129, &x))
+        );
+        assert_eq!(
+            small.cluster(&['e', '\u{301}'], Style::default()),
+            Some(mask(128, 129, &[7; 128 * 129]))
+        );
+    }
+}
+
+// The reader takes a chunk past 16 KiB only when it is raw and holds
+// exactly one glyph larger than a chunk (ADR-1200 D2, ADR-1302 D6)
+#[test]
+fn a_chunk_past_the_bound_holds_one_raw_glyph() {
+    let set = huge_set(false);
+    let glyf = |set: &[u8]| {
+        sections(set)
+            .2
+            .into_iter()
+            .find(|(t, _)| t == b"GLYF")
+            .expect("GLYF")
+            .1
+    };
+    let record = |g: &[u8], i: usize| {
+        let at = 8 + 20 * i;
+        let u32_at = |o: usize| u32::from_le_bytes(g[at + o..at + o + 4].try_into().unwrap());
+        (u32_at(8), u32_at(12), u32_at(16))
+    };
+    let g = glyf(&set);
+    // x's chunk, the smaller cell's strike first, then A, B and U+4E00 in
+    // a chunk each
+    assert_eq!(u32::from_le_bytes(g[0..4].try_into().unwrap()), 4);
+    assert_eq!(record(&g, 0), (16_512, 16_512, 0));
+    assert_eq!(record(&g, 1), (17_424, 17_424, 0));
+    assert_eq!(record(&g, 2), (17_424, 17_424, 0));
+    assert_eq!(record(&g, 3), (34_848, 34_848, 0));
+    // A's chunk marked deflated
+    let deflated = with_section(&set, b"GLYF", |s| put32(s, 8 + 20 + 16, 1));
+    assert!(matches!(
+        refused(deflated),
+        SetError::Bound("SET_CHUNK_BYTES")
+    ));
+    // A and B in one chunk of 34,848 bytes, as large as the strike's wide
+    // glyph, but two glyphs
+    let joined = with_section(&set, b"GLYF", |s| {
+        let data = s[8 + 20 * 4..].to_vec();
+        let mut out = Vec::new();
+        out.extend(3u32.to_le_bytes());
+        out.extend(20u32.to_le_bytes());
+        let mut at = 8 + 20 * 3u64;
+        for n in [16_512u32, 34_848, 34_848] {
+            out.extend(at.to_le_bytes());
+            out.extend(n.to_le_bytes());
+            out.extend(n.to_le_bytes());
+            out.extend(0u32.to_le_bytes());
+            at += u64::from(n);
+        }
+        out.extend(data);
+        *s = out;
+    });
+    assert!(matches!(
+        refused(joined),
+        SetError::Malformed("a chunk past SET_CHUNK_BYTES that is not one glyph")
+    ));
+}
+
+// The writer keeps the bounds the reader holds it to
+#[test]
+fn the_writer_refuses_what_the_reader_would() {
     let s = StrikeBuilder::new(
         PixelFormat::Bits,
         Cell {

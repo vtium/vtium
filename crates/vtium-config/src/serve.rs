@@ -1173,6 +1173,23 @@ impl Engine {
         why
     }
 
+    /// The most bytes one glyph at `cell` can take: two cells of
+    /// premultiplied RGBA when a source is an outline font, which may draw
+    /// in color, else two cells of 1-bit rows.
+    fn glyph_bytes_max(&self, cell: Cell) -> usize {
+        let outline = self
+            .sources
+            .iter()
+            .any(|(_, l)| matches!(l, Loaded::Outline { .. }));
+        let (w, h) = (cell.width.saturating_mul(2), cell.height);
+        let bytes = if outline {
+            w.saturating_mul(h).saturating_mul(4)
+        } else {
+            w.div_ceil(8).saturating_mul(h)
+        };
+        usize::try_from(bytes).unwrap_or(usize::MAX)
+    }
+
     /// The regular glyphs at `cell` for `want`, sorted codepoints, as
     /// [`Engine::glyphs`] draws them.
     pub fn draw(&self, cell: Cell, want: &[u32]) -> Result<Option<Vec<u8>>, String> {
@@ -1416,7 +1433,17 @@ fn send_glyphs(
     out: &mut dyn Write,
     max: usize,
 ) -> io::Result<Result<bool, String>> {
-    let mut queue: VecDeque<(&[u32], &[Vec<u32>])> = VecDeque::from([(want, clusters)]);
+    // no more glyphs drawn at once than a frame holds at their largest, so
+    // a cell whose glyphs each pass a set's chunk (ADR-1302 D6) never draws
+    // a batch whose bytes would outgrow the helper's memory limit
+    let at_once = (max / engine.glyph_bytes_max(cell).max(1)).max(1);
+    let mut queue: VecDeque<(&[u32], &[Vec<u32>])> = VecDeque::new();
+    if want.len().saturating_add(clusters.len()) <= at_once {
+        queue.push_back((want, clusters));
+    } else {
+        queue.extend(want.chunks(at_once).map(|w| (w, &[][..])));
+        queue.extend(clusters.chunks(at_once).map(|k| (&[][..], k)));
+    }
     let mut any = false;
     while let Some((want, clusters)) = queue.pop_front() {
         if want.is_empty() && clusters.is_empty() {
@@ -2447,6 +2474,93 @@ mod tests {
             sets[1].clusters().map(|(_, _, k)| k).collect::<Vec<_>>(),
             [vec!['e', '\u{301}']]
         );
+    }
+
+    // an 8x16 bitmap font scaled 33 times: each glyph takes 17,424 bytes cut
+    // to its cell of 264x528, past a set's 16 KiB chunk, and the answer
+    // carries every glyph, each in a chunk of its own, never a failure
+    // (issue 272, ADR-1302 D6)
+    #[test]
+    fn a_bitmap_font_scaled_33_times_is_answered_whole() {
+        let dir = Scratch::new("huge");
+        let path = dir.join("8x16.psf");
+        let font = crate::decode::tests::psf2(8, 16, 3, Some(&[(1, 'A'), (2, 'B')]));
+        std::fs::write(&path, font).unwrap();
+        let frit = frit(&format!("source=file:{}\n", path.display()));
+        let huge = Cell {
+            width: 264,
+            height: 528,
+        };
+        let asked = run(&[ServeRequest {
+            cell: huge,
+            ..request(ASK, frit.clone(), &['A', 'B'])
+        }]);
+        let kinds: Vec<u32> = asked.iter().map(|f| f.0).collect();
+        assert_eq!(kinds, [FRAME_GLYPHS, FRAME_DONE]);
+        let set = Arc::new(Set::from_bytes(asked[0].1.clone()).unwrap());
+        assert_eq!(set.cells(), vec![huge]);
+        let face = SetFace::new(set, huge.height).unwrap();
+        // glyph 1's rows are 0x01, its last column lit, and glyph 2's 0x02;
+        // each scaled 33 times and placed across the cell's full width
+        for (c, column) in [('A', 7), ('B', 6)] {
+            let g = face.draw(&[c], Style::default()).unwrap();
+            assert_eq!((g.width(), g.height()), (264, 528));
+            for y in [0, 263, 527] {
+                for x in 0..264 {
+                    let lit = g.pixel(x, y).unwrap()[0] != 0;
+                    assert_eq!(lit, x / 33 == column, "{c:?} at {x},{y}");
+                }
+            }
+        }
+        // a fill at that cell is answered too
+        let filled = run(&[ServeRequest {
+            cell: huge,
+            ..request(FILL, frit, &[])
+        }]);
+        assert!(
+            filled.iter().all(|f| f.0 != FRAME_FAILED),
+            "{:?}",
+            filled.iter().map(|f| f.0).collect::<Vec<_>>()
+        );
+        assert!(filled.iter().any(|f| f.0 == FRAME_FILL));
+    }
+
+    // a batch is drawn no larger than a frame holds at its glyphs' largest:
+    // with room for one 264x528 glyph a frame, each glyph is drawn and sent
+    // alone
+    #[test]
+    fn a_batch_of_large_glyphs_is_drawn_a_frame_at_a_time() {
+        let dir = Scratch::new("batch");
+        let path = dir.join("8x16.psf");
+        let font = crate::decode::tests::psf2(8, 16, 3, Some(&[(1, 'A'), (2, 'B')]));
+        std::fs::write(&path, font).unwrap();
+        let engine = Engine::load(
+            &frit(&format!("source=file:{}\n", path.display())),
+            &Paths::default(),
+            None,
+        )
+        .unwrap();
+        let huge = Cell {
+            width: 264,
+            height: 528,
+        };
+        assert_eq!(engine.glyph_bytes_max(huge), 66 * 528);
+        let mut out = Vec::new();
+        let sent = send_glyphs(
+            &engine,
+            (huge, REGULAR),
+            (&[u32::from('A'), u32::from('B')], &[]),
+            FRAME_GLYPHS,
+            &mut out,
+            66 * 528 + 4096,
+        )
+        .unwrap();
+        assert_eq!(sent, Ok(true));
+        let sets: Vec<Set> = frames(&out)
+            .into_iter()
+            .map(|(_, p)| Set::from_bytes(p).unwrap())
+            .collect();
+        assert_eq!(sets.len(), 2);
     }
 
     /// A cell query for `frit`: at no cell, naming nothing.
