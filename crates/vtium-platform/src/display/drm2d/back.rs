@@ -18,13 +18,14 @@ type Placed = (DisplayId, u32, usize);
 #[expect(private_bounds, reason = "the card is a Card outside the crate")]
 impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     /// Lets go of the new displays `new`, which a modeset could not set
-    /// beside the others, for `why`; each stays off until the next hotplug.
+    /// beside the others, for `why`; each stays off, and the next scan, at a
+    /// hotplug or a wake-up, places it again.
     /// Returns each one's connector with the CRTC it sat on, for
     /// [`Self::record_refused`].
     pub(super) fn leave_off(&mut self, new: Vec<Output<S::Memory>>, why: &str) -> Vec<(u32, u32)> {
         let mut sat = Vec::with_capacity(new.len());
         for o in new {
-            log::warn!("{} stays off until the next hotplug: {why}", o.name);
+            log::warn!("{} stays off: {why}; the next scan tries it again", o.name);
             sat.push((o.id.0, o.crtc));
             if o.announced {
                 self.events.push(Event::Removed(o.id));
@@ -104,8 +105,8 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     }
 
     /// The atomic modeset that failed with `e` where the displays are
-    /// placed, with fewer displays moved: the new displays are left off
-    /// until the next hotplug, and the displays the placement moved go back
+    /// placed, with fewer displays moved: the new displays are left off, and
+    /// the displays the placement moved go back
     /// to the CRTCs they were moved off where they can ([`Self::going_back`]).
     /// `refused` says the card refused the placement, and not for a failure
     /// that may pass.
@@ -116,12 +117,19 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     /// the card refuses a choice, the displays that went back in it lose the
     /// tie to any rival that has not lost one, and the next choice is tried:
     /// two displays moved off one CRTC go back one, then the other. Each
-    /// choice is tried once. Where the card refuses every choice, the first
-    /// is set without some of the displays that stay on the CRTC the
-    /// placement moved them to ([`Self::set_without`]): they are left off
-    /// until the next hotplug, as the new displays are, so the others light.
-    /// No choice the card refused is tried again, by this modeset or by the
-    /// retries.
+    /// choice is tried once in this modeset. Where the card refuses every
+    /// choice, the first is set without some of the displays that stay on
+    /// the CRTC the placement moved them to ([`Self::set_without`]): they
+    /// are left off, as the new displays are, so the others light, and the
+    /// retries do not run. A display left off is placed again at later
+    /// scans, but the placement moves no lit display for it, so where the
+    /// only CRTC left for it is one the card refuses, it stays dark while
+    /// vtium runs (vtium/vtium#298).
+    ///
+    /// Only displays the placement moved are left off. Where the card
+    /// refuses even the displays that were not moved, as when it refuses
+    /// every CRTC, the modeset fails, and the retries scan and try the
+    /// choices again, as for any modeset that fails.
     ///
     /// Where the card refused the placement and a choice is set, each new
     /// display left off that sat on a CRTC a display lit there went back to
@@ -194,8 +202,8 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     /// refused there beside the others: without each one alone, the last in
     /// the card's connector order first, then without them all. The first
     /// set the card does not refuse is kept, and the displays it is without
-    /// are left off until the next hotplug, as the new displays are; each of
-    /// the others keeps its CRTC.
+    /// are left off, as the new displays are; each of the others keeps its
+    /// CRTC.
     fn set_without(&mut self, staying: &[DisplayId]) -> Result<(), Failure> {
         let order: Vec<DisplayId> = self.outputs.iter().map(|o| o.id).collect();
         let mut tries: Vec<Vec<DisplayId>> = staying.iter().rev().map(|&id| vec![id]).collect();

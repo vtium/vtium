@@ -6501,7 +6501,7 @@ type Woken = (
 /// 100, with A lit on 100 and B on 102. While vtium is away, a desktop
 /// leaves B's connector on 100 and A's on none, and C is plugged in where
 /// `c`; the card refuses the CRTCs `refuse`, and where `refuse` is empty,
-/// every commit. The wake-up puts A on 101,
+/// a mode on any CRTC. The wake-up puts A on 101,
 /// off 100, as B was lit on 100 as vtium woke; with C, it puts C on 100
 /// and B on 102, off 100 too.
 fn woken_beside_c(atomic: bool, c: bool, refuse: &[u32]) -> Woken {
@@ -6523,7 +6523,7 @@ fn woken_beside_c(atomic: bool, c: bool, refuse: &[u32]) -> Woken {
     }
     v.card().state().refused.extend(refuse);
     if refuse.is_empty() {
-        v.card().state().commit_errors.extend([Errno::INVAL; 64]);
+        v.card().state().refused_modes.extend([100, 101, 102]);
     }
     let woke = v.wake_up();
     let outs = v.outputs.iter().map(|o| (o.id.0, o.crtc)).collect();
@@ -6542,13 +6542,13 @@ fn woken_beside_c(atomic: bool, c: bool, refuse: &[u32]) -> Woken {
 // goes back to 100 and B stays on 102, which the card takes. Both light,
 // C stays off and is not recorded, as A was not lit on 100 when vtium
 // woke, and no retry runs, so the refused choice is never tried again.
-// Where the card refuses both 101 and 102, neither choice lights, and the first lights
-// without A, which stays on the CRTC it was moved to: B lights on 100 and
-// A is left off until the next hotplug. Where the card refuses every
-// commit, nothing lights, C is not recorded, and the retries run. With the
-// legacy calls only A's
-// set failed where the card refuses 101, so A goes back to 100 and lights,
-// and B stays lit on 102.
+// Where the card refuses both 101 and 102, neither choice lights, and the
+// first lights without A, which stays on the CRTC it was moved to: B
+// lights on 100 and A is left off. Where the card refuses a mode on every
+// CRTC, it refuses every choice and every set without a moved display, so
+// nothing lights, C is not recorded, and the retries run. With the legacy
+// calls only A's set failed where the card refuses 101, so A goes back to
+// 100 and lights, and B stays lit on 102.
 #[test]
 fn two_displays_moved_off_one_crtc_do_not_both_go_back() {
     const C: u32 = 43;

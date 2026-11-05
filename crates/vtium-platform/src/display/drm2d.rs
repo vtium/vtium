@@ -2105,13 +2105,11 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     /// Sets every display's mode, then announces each display set. Where
     /// the displays online and the new ones cannot be set together, or the
     /// displays where the placement moved some of them, the new ones are
-    /// left off until the next hotplug, each display the placement moved
-    /// goes back to the CRTC it was moved off where it can
-    /// ([`Self::move_back`], [`Self::set_fewer`]), and the rest are set
-    /// alone. A display whose
-    /// new mode cannot be set stays at the mode it is set to: held back
-    /// where the card refused the mode, and else owed it, which starts the
-    /// wake-up retries.
+    /// left off, each display the placement moved goes back to the CRTC it
+    /// was moved off where it can ([`Self::move_back`], [`Self::set_fewer`]),
+    /// and the rest are set alone. A display whose new mode cannot be set
+    /// stays at the mode it is set to: held back where the card refused the
+    /// mode, and else owed it, which starts the wake-up retries.
     fn modeset(&mut self) -> io::Result<()> {
         // The legacy calls set each display on its own, so the displays set
         // are announced whatever failed for another. A moved display that

@@ -226,6 +226,10 @@ pub(crate) struct State {
     /// that names one, and a legacy CRTC set of one, is refused with
     /// EINVAL.
     pub(crate) refused: Vec<u32>,
+    /// CRTCs no commit may light, as past a bandwidth limit: a commit that
+    /// sets a mode on one is refused with EINVAL, and one that turns it
+    /// off is taken.
+    pub(crate) refused_modes: Vec<u32>,
     pub(crate) page_flips: Vec<(u32, u32)>,
     pub(crate) set_crtcs: Vec<(u32, u32, u32, Mode)>,
     /// The CRTCs the legacy calls turned off, in order.
@@ -1396,7 +1400,11 @@ impl Kms for FakeCard {
         if let Some(e) = s.commit_errors.pop_front() {
             return Err(err(e));
         }
-        if s.refused.iter().any(|&c| commit.mentions(c)) {
+        if s.refused.iter().any(|&c| commit.mentions(c))
+            || s.refused_modes
+                .iter()
+                .any(|&c| commit.get(c, "MODE_ID").is_some_and(|m| m != 0))
+        {
             return Err(err(Errno::INVAL));
         }
         if !s.master || commit_names_a_crtc_the_card_lacks(&s, &commit) {
