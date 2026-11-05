@@ -681,3 +681,53 @@ fn has_virtual_follows_the_buffers_virtual_placements() {
     s.kitty_delete(delete, f.screens());
     assert!(!s.has_virtual(false));
 }
+
+// D13, "Damage": the store keeps at most twice PLACEMENTS_PER_BUFFER notes
+// of boxes that follow a virtual placement. A store whose notes nobody
+// takes reports the buffer changed whole once a note would pass that
+// bound, and drops that buffer's boxes.
+// covers: image.kitty-relative
+#[test]
+fn notes_past_their_bound_report_the_buffer_changed_whole() {
+    let (f, mut s) = (Fake::new(), store());
+    let parent = image(&mut s, &f, 7, 16, 32);
+    virtual_placement(&mut s, &f, parent, 2, 2, 1);
+    let child = image(&mut s, &f, 8, 8, 16);
+    // each move of the child to a new column notes the box it leaves and
+    // the box it enters
+    let place = |s: &mut Store, cols: i32| {
+        let link = Link::Parent {
+            image: 7,
+            placement: 1,
+            cols,
+            rows: 0,
+        };
+        let put = Place {
+            id: 3,
+            ..Place::default()
+        };
+        s.place_at(child, put, link, f.screens(), COLS)
+            .expect("placed");
+    };
+    place(&mut s, 0);
+    let first = s.take_changed_floating();
+    assert_eq!(first.whole, [false, false]);
+    assert_eq!(first.boxes.len(), 1, "the child placed");
+    let bound = i32::try_from(PLACEMENTS_PER_BUFFER * 2).unwrap();
+    for cols in 1..bound {
+        place(&mut s, cols);
+    }
+    let held = s.take_changed_floating();
+    assert_eq!(held.whole, [false, false], "at the bound");
+    assert_eq!(held.boxes.len(), usize::try_from(bound).unwrap());
+    for cols in 0..=bound {
+        place(&mut s, cols);
+    }
+    let past = s.take_changed_floating();
+    assert_eq!(past.whole, [true, false], "past the bound");
+    assert!(past.boxes.is_empty(), "the main buffer's boxes are dropped");
+    // the notes start again once taken
+    place(&mut s, 5);
+    let again = s.take_changed_floating();
+    assert_eq!((again.whole, again.boxes.len()), ([false, false], 2));
+}
