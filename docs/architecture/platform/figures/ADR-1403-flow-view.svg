@@ -6,7 +6,7 @@
 <marker id="a-grey" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 z" fill="#7f7f7f"/></marker>
 </defs>
 <rect width="1200" height="650" fill="#ffffff"/>
-<text x="20" y="18" font-size="12" fill="#1f2933">vtium-config's flow view, drawn in the console's sixteen colors on its black background (the default palette's values), with line 23 opened for editing</text>
+<text x="20" y="18" font-size="12" fill="#1f2933">vtium-config's flow view, drawn in the console's sixteen colors on its black background (the default palette's values), with rule 5 opened for editing</text>
 <rect x="20" y="26" width="1160" height="612" fill="#000000" stroke="#9aa5b1"/>
 <!-- tab bar -->
 <text x="36" y="48" fill="#e5e5e5">Fonts   Sizes   Settings   Heads</text>
@@ -14,7 +14,7 @@
 <text x="322" y="48" fill="#000000">Flow</text>
 <text x="380" y="48" fill="#e5e5e5">Save</text>
 <!-- status line -->
-<text x="36" y="72" fill="#e5e5e5">/etc/vtium/vtium.conf   policy open   a udev daemon runs   2 displays and 2 inputs present   1 change, not saved</text>
+<text x="36" y="72" fill="#e5e5e5">/etc/vtium/vtium.conf   policy open   a udev daemon runs   devices read 14:02   1 change, not saved</text>
 <!-- column headings -->
 <g font-weight="bold">
 <text x="36" y="102" fill="#00ffff">DISPLAYS</text>
@@ -32,9 +32,9 @@
 <text x="42" y="248" fill="#000000">HDMI-A-2</text>
 <text x="42" y="265" fill="#000000" font-size="12">SMALL00001</text>
 <!-- display rules: text in cyan -->
-<text x="196" y="140" fill="#00cdcd">18 edid:…LARGE00001 -&gt; desk</text>
-<text x="196" y="250" fill="#00cdcd">19 edid:…SMALL00001 -&gt; panel</text>
-<text x="196" y="300" fill="#7f7f7f">20 display * -&gt; desk</text>
+<text x="196" y="140" fill="#00cdcd">1 edid:…LARGE00001 -&gt; desk</text>
+<text x="196" y="250" fill="#00cdcd">2 edid:…SMALL00001 -&gt; panel</text>
+<text x="196" y="300" fill="#7f7f7f">3 display * -&gt; desk</text>
 <text x="196" y="316" fill="#7f7f7f" font-size="12">matches no display present</text>
 <!-- head blocks: black on bright yellow; look blocks: black on bright magenta -->
 <rect x="450" y="120" width="140" height="80" fill="#ffff00"/>
@@ -66,11 +66,16 @@
 <line x1="434" y1="246" x2="448" y2="246" stroke="#00cdcd" stroke-width="1.5" marker-end="url(#a-cyan)"/>
 <path d="M364,296 L436,296 L436,190 L448,190" fill="none" stroke="#7f7f7f" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#a-grey)"/>
 <!-- input rules -->
-<text x="805" y="160" fill="#7f7f7f">22 serial:046d:c31c:… -&gt; desk</text>
-<text x="805" y="176" fill="#7f7f7f" font-size="12">matches no device present</text>
-<rect x="801" y="343" width="226" height="19" fill="#00cd00"/>
-<text x="805" y="357" fill="#000000">23 class:keyboard -&gt; roaming</text>
-<text x="805" y="395" fill="#00cd00">24 * -&gt; ignore</text>
+<text x="805" y="160" fill="#7f7f7f">4 serial:046d:c31c:… -&gt; desk</text>
+<rect x="801" y="343" width="218" height="19" fill="#00cd00"/>
+<text x="805" y="357" fill="#000000">5 class:keyboard -&gt; roaming</text>
+<text x="805" y="395" fill="#00cd00">6 * -&gt; ignore</text>
+<!-- a device a rule names that is not present: black on grey, with an asterisk and words -->
+<rect x="1050" y="132" width="116" height="56" fill="#7f7f7f"/>
+<text x="1056" y="148" fill="#000000">* 046d:c31c:…</text>
+<text x="1056" y="165" fill="#000000" font-size="12">configured,</text>
+<text x="1056" y="181" fill="#000000" font-size="12">not found</text>
+<line x1="1048" y1="156" x2="1036" y2="156" stroke="#7f7f7f" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#a-grey)"/>
 <!-- input device blocks: black on bright green -->
 <rect x="1050" y="337" width="116" height="40" fill="#00ff00"/>
 <text x="1056" y="353" fill="#000000">keyboard</text>
@@ -79,8 +84,8 @@
 <text x="1056" y="397" fill="#000000">Power Button</text>
 <text x="1056" y="414" fill="#000000" font-size="12">class key</text>
 <!-- input side lines, right to left -->
-<line x1="1048" y1="353" x2="1031" y2="353" stroke="#00cd00" stroke-width="1.5" marker-end="url(#a-green)"/>
-<line x1="1048" y1="391" x2="924" y2="391" stroke="#00cd00" stroke-width="1.5" marker-end="url(#a-green)"/>
+<line x1="1048" y1="353" x2="1023" y2="353" stroke="#00cd00" stroke-width="1.5" marker-end="url(#a-green)"/>
+<line x1="1048" y1="391" x2="916" y2="391" stroke="#00cd00" stroke-width="1.5" marker-end="url(#a-green)"/>
 <line x1="799" y1="353" x2="792" y2="353" stroke="#00cd00" stroke-width="1.5" marker-end="url(#a-green)"/>
 <line x1="802" y1="391" x2="792" y2="391" stroke="#00cd00" stroke-width="1.5" marker-end="url(#a-green)"/>
 <line x1="802" y1="156" x2="792" y2="156" stroke="#7f7f7f" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#a-grey)"/>
@@ -89,11 +94,11 @@
 <line x1="36" y1="464" x2="76" y2="464" stroke="#00cdcd" stroke-width="1.5" marker-end="url(#a-cyan)"/>
 <text x="84" y="468" fill="#e5e5e5">a device's first match, or a rule's target, in the color of the rules it passes</text>
 <line x1="36" y1="484" x2="76" y2="484" stroke="#7f7f7f" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#a-grey)"/>
-<text x="84" y="488" fill="#e5e5e5">a rule that matches no device present, in grey, with the words that say so</text>
+<text x="84" y="488" fill="#e5e5e5">a rule that matches no device present, in grey; * marks a device a rule names that is not plugged in</text>
 </g>
 <!-- the opened component -->
 <line x1="30" y1="504" x2="1170" y2="504" stroke="#00cd00" stroke-width="1"/>
-<text x="36" y="526" fill="#00cd00" font-weight="bold">line 23   input class:keyboard -&gt; roaming</text>
+<text x="36" y="526" fill="#00cd00" font-weight="bold">rule 5, line 23   input class:keyboard -&gt; roaming</text>
 <text x="36" y="552" fill="#e5e5e5">sends to   desk   panel</text>
 <rect x="246" y="539" width="72" height="18" fill="#e5e5e5"/>
 <text x="250" y="552" fill="#000000">roaming</text>
@@ -102,5 +107,5 @@
 <rect x="114" y="565" width="126" height="18" fill="#e5e5e5"/>
 <text x="118" y="578" fill="#000000">class:keyboard</text>
 <text x="252" y="578" fill="#e5e5e5">path:pci-0000:15:00.0-usb-0:3.3   id:046d:c31c   or type a selector</text>
-<text x="36" y="616" fill="#7f7f7f">Tab next component   arrows move   Enter pick   click selects   s save, checked first   q leave</text>
+<text x="36" y="616" fill="#7f7f7f">Tab next component   arrows move   Enter pick   click selects   d read devices   s save, checked first   q leave</text>
 </svg>
