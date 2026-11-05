@@ -479,7 +479,7 @@ fn the_screen_fits_80x25_and_100x30() {
     }
 }
 
-/// `vtium-config set NAME` on the pty, as its controlling terminal.
+/// `vtium-config use-frit NAME` on the pty, as its controlling terminal.
 fn set(name: &str, kind: Kind) -> (i32, String, Vec<String>) {
     let (master, slave) = pair(80, 25);
     let label = match kind {
