@@ -12,7 +12,7 @@
 <rect x="30" y="35" width="48" height="18" fill="#e5e5e5"/>
 <text x="36" y="48" fill="#000000">Flow</text>
 <text x="94" y="48" fill="#e5e5e5">Looks   Fonts   Settings   Help</text>
-<text x="440" y="48" fill="#e5e5e5">View   Install   Revert   New   Delete draft</text>
+<text x="440" y="48" fill="#e5e5e5">View   Install   Revert   Restore   New   Delete draft</text>
 <!-- status line -->
 <text x="36" y="72" fill="#e5e5e5">draft workstation · 1 change · no problems</text>
 <!-- the base card, black on light grey -->
@@ -116,6 +116,6 @@
 <rect x="114" y="565" width="126" height="18" fill="#e5e5e5"/>
 <text x="118" y="578" fill="#000000">class:keyboard</text>
 <text x="252" y="578" fill="#e5e5e5">path:pci-0000:15:00.0-usb-0:3.3   id:046d:c31c   or type a selector</text>
-<text x="36" y="616" fill="#7f7f7f">Tab ←→ columns   ↑↓ move   Enter edit   Space tag   c connect   f follow   d devices   v view   i install   r revert   n new   x delete   q leave</text>
+<text x="36" y="616" fill="#7f7f7f">Tab ←→ columns  ↑↓ move  Enter edit  Space tag  c connect  f follow  d devices  v view  i install  r revert  o restore  n new  x delete  q leave</text>
 </g>
 </svg>
