@@ -54,6 +54,12 @@ pub fn rescue_no_head() -> Result<String, String> {
     Ok(notice::rescue_no_head(KEYBOARD))
 }
 
+/// The notice of a console the open chord opened whose login could not
+/// start (ADR-1401 D5).
+pub fn no_console_opened() -> Result<String, String> {
+    Ok(notice::NO_CONSOLE_OPENED.to_owned())
+}
+
 pub fn oneshot() -> Result<String, String> {
     Ok(notice::session_ended())
 }
