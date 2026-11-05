@@ -65,5 +65,6 @@ pub use protocol::kitty::Kitty;
 pub use protocol::sixel::Sixel;
 pub use rules::{Layer, Protocol, RegionScroll, Rules, rules};
 pub use store::{
-    Animation, Edit, FramePixels, FramePlacement, Region, Reservation, Rows, Run, Screens, Store,
+    Animation, ChangedFloating, Edit, FloatingRegion, FramePixels, FramePlacement, Region,
+    Reservation, Rows, Run, Screens, Store,
 };

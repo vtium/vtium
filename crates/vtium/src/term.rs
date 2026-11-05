@@ -2277,9 +2277,9 @@ mod tests {
         assert_eq!(counted(&mut view), (2, 0));
     }
 
-    // A kitty edit to the frame a placed picture shows changes the screen
-    // though it marks no cell: one turn of the loop after it draws the new
-    // pixels.
+    // A kitty edit to the frame a placed picture shows marks the cells under
+    // the picture's placements, so one turn of the loop after it draws the
+    // new pixels.
     #[cfg(feature = "images")]
     #[test]
     fn an_edit_to_the_frame_a_picture_shows_is_drawn() {
@@ -2299,6 +2299,46 @@ mod tests {
         );
         turn(&mut term, &mut view, &mut video, &[edit.as_bytes()]);
         assert_eq!(color(&video), 0x00_ff_00, "the edit is drawn");
+    }
+
+    // A relative placement whose parent is a virtual placement has no box
+    // of its own: it draws where its parent's placeholder cell puts it, two
+    // cells right of it. Placing it, editing the frame it shows and
+    // deleting it each draw the screen again (ADR-1100, D13).
+    #[cfg(feature = "images")]
+    #[test]
+    fn a_virtual_parents_child_is_drawn_when_placed_edited_and_deleted() {
+        let (mut term, mut view) = view();
+        offer_pictures(&mut term);
+        let mut video = Plane::new(false);
+        // the middle of cell 2 of the first row
+        let color = |video: &Plane| video.pixel(2 + 2 * 8 + 3, 8) & 0xff_ff_ff;
+        let parent = format!(
+            "\x1b[?25l\x1b_Ga=t,f=32,s=8,v=16,i=42,q=2;{}\x1b\\\
+             \x1b_Ga=p,U=1,i=42,p=5,c=1,r=1,q=2\x1b\\\
+             \x1b[1;1H\x1b[38;5;42m\x1b[58;5;5m\u{10EEEE}\u{0305}\u{0305}\x1b[m",
+            kitty_fill([255, 0, 0, 255])
+        );
+        turn(&mut term, &mut view, &mut video, &[parent.as_bytes()]);
+        let empty = color(&video);
+        let child = format!(
+            "\x1b_Ga=t,f=32,s=8,v=16,i=43,q=2;{}\x1b\\",
+            kitty_fill([0, 255, 0, 255])
+        );
+        turn(&mut term, &mut view, &mut video, &[child.as_bytes()]);
+        assert_eq!(color(&video), empty, "transmitted, not placed");
+        let place = b"\x1b_Ga=p,i=43,p=1,P=42,Q=5,H=2,q=2\x1b\\";
+        turn(&mut term, &mut view, &mut video, &[place]);
+        assert_eq!(color(&video), 0x00_ff_00, "the child is drawn");
+        let edit = format!(
+            "\x1b_Ga=f,i=43,r=1,f=32,s=8,v=16,q=2;{}\x1b\\",
+            kitty_fill([0, 0, 255, 255])
+        );
+        turn(&mut term, &mut view, &mut video, &[edit.as_bytes()]);
+        assert_eq!(color(&video), 0x00_00_ff, "the edit is drawn");
+        let delete = b"\x1b_Ga=d,d=i,i=43,q=2\x1b\\";
+        turn(&mut term, &mut view, &mut video, &[delete]);
+        assert_eq!(color(&video), empty, "the delete is drawn");
     }
 
     // A kitty transmission with no placement, `a=t`, changes nothing on the

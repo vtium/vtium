@@ -19,13 +19,16 @@
 //!   parent's children are deleted and ranked by where they draw there.
 //!
 //! The store tells vtium-term which images' placeholder cells to mark
-//! changed through [`Store::take_changed_virtual`].
+//! changed through [`Store::take_changed_virtual`]. A relative placement
+//! that follows a virtual placement has no line and no box of its own, so
+//! the store tells vtium-term where it draws relative to the runs of the
+//! virtual placement it follows, through [`Store::take_changed_floating`].
 
 use std::collections::BTreeMap;
 
 use super::relative::Located;
 use super::{ALT, Buffer, Placement, Rows, Screens, Spot, Store};
-use crate::bounds::IMAGES_PER_BUFFER;
+use crate::bounds::{IMAGES_PER_BUFFER, PLACEMENTS_PER_BUFFER};
 use crate::image::{LineKey, PlaceholderRun, PlacementKey};
 use crate::rules::rules;
 
@@ -84,6 +87,76 @@ impl Virtuals {
     }
 }
 
+/// The box of a relative placement that follows a virtual placement, as
+/// the store reports it changed (D13). Such a placement lies on no line:
+/// its box's top left is `row` rows and `col` columns from the origin of
+/// the virtual placement it follows, which that placement's runs give, and
+/// the box is `cols` by `rows` cells.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct FloatingRegion {
+    /// The kitty image id of the virtual placement the box follows.
+    pub image: u32,
+    /// That virtual placement's placement id, 0 when it has none.
+    pub placement: u32,
+    /// That virtual placement is its image's virtual placement made last,
+    /// the one a run that names no placement id shows.
+    pub last: bool,
+    pub row: i64,
+    pub col: i64,
+    pub cols: u32,
+    pub rows: u32,
+}
+
+impl FloatingRegion {
+    /// Whether `run` shows the virtual placement the box follows, as the
+    /// store finds the placement a run names.
+    pub fn follows(&self, run: &PlaceholderRun) -> bool {
+        run.image == self.image
+            && match run.placement.filter(|&p| p != 0) {
+                Some(p) => p == self.placement,
+                None => self.last,
+            }
+    }
+
+    /// The screen row and column of the box's top left, from `runs`, each
+    /// with its screen row: the origin the runs that show the virtual
+    /// placement give, plus the box's offset. `None` when no run shows that
+    /// placement, so that the box draws nowhere.
+    pub fn top_left<'a>(
+        &self,
+        runs: impl IntoIterator<Item = (i64, &'a PlaceholderRun)>,
+    ) -> Option<(i64, i64)> {
+        let (top, left) = runs
+            .into_iter()
+            .filter(|(_, run)| self.follows(run))
+            .map(|(row, run)| run_origin(row, run))
+            .reduce(|a, b| (a.0.min(b.0), a.1.min(b.1)))?;
+        Some((top.saturating_add(self.row), left.saturating_add(self.col)))
+    }
+}
+
+/// What the store reported of the boxes that follow virtual placements
+/// since vtium-term last took them.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ChangedFloating {
+    /// Each changed box, with its buffer, `true` for the alternate, each
+    /// once, in order.
+    pub boxes: Vec<(bool, FloatingRegion)>,
+    /// The buffers, main then alternate, whose changes passed the bound the
+    /// store keeps on them; vtium-term marks every cell of such a buffer
+    /// when it shows.
+    pub whole: [bool; 2],
+}
+
+/// The origin run `run` on screen row `row` gives its virtual placement:
+/// the row and the column of the picture's top left cell.
+fn run_origin(row: i64, run: &PlaceholderRun) -> (i64, i64) {
+    (
+        row.saturating_sub(i64::from(run.row)),
+        i64::from(run.col).saturating_sub(i64::from(run.column)),
+    )
+}
+
 /// The origin of each virtual placement that `runs` show: the least row
 /// and the least column over its runs' cells, each cell's own row and
 /// column in the picture taken off first (D13). `row_of` gives a run's
@@ -98,8 +171,7 @@ pub(super) fn origins(
         let (Some(key), Some(row)) = (virtuals.find(run), row_of(run.line)) else {
             continue;
         };
-        let top = row.saturating_sub(i64::from(run.row));
-        let left = i64::from(run.col).saturating_sub(i64::from(run.column));
+        let (top, left) = run_origin(row, run);
         out.entry(key)
             .and_modify(|o| *o = (o.0.min(top), o.1.min(left)))
             .or_insert((top, left));
@@ -262,6 +334,90 @@ impl Store {
             .and_then(|buf| buf.images.get(&p.image))
             .map_or(0, |i| i.id);
         self.note_virtual(b, id);
+    }
+
+    /// The boxes vtium-term marks changed for relative placements that
+    /// follow a virtual placement, since the last call: each placement
+    /// made, deleted or moved, and each whose image's frame on show
+    /// changed, as it drew before the change or draws after it (D13).
+    pub fn take_changed_floating(&mut self) -> ChangedFloating {
+        ChangedFloating {
+            boxes: core::mem::take(&mut self.changed_floating)
+                .into_iter()
+                .collect(),
+            whole: core::mem::take(&mut self.floating_whole),
+        }
+    }
+
+    /// Notes the box of each placement of `keys` in buffer `b` that follows
+    /// a virtual placement, as it draws now, for
+    /// [`take_changed_floating`](Self::take_changed_floating). The notes
+    /// hold at most twice [`PLACEMENTS_PER_BUFFER`] boxes, as many as both
+    /// buffers can hold at once; past that, the store drops buffer `b`'s
+    /// boxes and notes the buffer as changed whole.
+    pub(super) fn note_floating(&mut self, b: usize, keys: &[PlacementKey]) {
+        let Some(buf) = self.buffers.get(b) else {
+            return;
+        };
+        let mut found: Vec<(PlacementKey, i64, i64, u32, u32)> = Vec::new();
+        for &k in keys {
+            let Some(p) = buf.placements.get(&k) else {
+                continue;
+            };
+            if let (Spot::Child { .. }, Some(Located::Floating { root, row, col, .. })) =
+                (p.spot, buf.locate(k))
+            {
+                found.push((root, row, col, p.cols, p.rows));
+            }
+        }
+        let mut visited = keys.len();
+        if found.is_empty() {
+            self.count(visited);
+            return;
+        }
+        visited = visited.saturating_add(buf.placements.len());
+        let virtuals = Virtuals::of(buf);
+        let boxes: Vec<FloatingRegion> = found
+            .into_iter()
+            .filter_map(|(root, row, col, cols, rows)| {
+                let r = buf.placements.get(&root)?;
+                let image = buf.images.get(&r.image)?;
+                if !rules(image.protocol.0).ids || image.id == 0 {
+                    // no run names it, so it never draws
+                    return None;
+                }
+                let last = virtuals
+                    .last
+                    .get(&image.id)
+                    .is_some_and(|&(_, k)| k == root);
+                Some(FloatingRegion {
+                    image: image.id,
+                    placement: r.id,
+                    last,
+                    row,
+                    col,
+                    cols,
+                    rows,
+                })
+            })
+            .collect();
+        self.count(visited);
+        let bound = usize::try_from(PLACEMENTS_PER_BUFFER.saturating_mul(2)).unwrap_or(usize::MAX);
+        let alt = b == ALT;
+        let Some(whole) = self.floating_whole.get_mut(b) else {
+            return;
+        };
+        for region in boxes {
+            if *whole {
+                break;
+            }
+            if self.changed_floating.len() >= bound {
+                *whole = true;
+                self.changed_floating.retain(|&(a, _)| a != alt);
+                break;
+            }
+            self.changed_floating.insert((alt, region));
+        }
     }
 
     /// Notes that the placeholder cells of kitty image `id` in buffer `b`

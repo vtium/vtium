@@ -96,15 +96,69 @@ fn moving_the_cells_as_text_moves_the_picture() {
 #[test]
 fn deleting_a_virtual_placement_marks_its_cells() {
     let mut t = grid();
-    let seen = t.screen_mut().checkpoint();
-    t.input(b"\x1b_Ga=d,d=i,i=42,q=2\x1b\\");
+    let marked = marks(&mut t, b"\x1b_Ga=d,d=i,i=42,q=2\x1b\\");
     assert_eq!(entries(&t), vec![]);
+    assert_eq!(marked, vec![(1, 3), (1, 4), (2, 3), (2, 4)]);
+}
+
+/// The cells of the 12 by 6 screen that `input` marks changed.
+fn marks(t: &mut Terminal, input: &[u8]) -> Vec<(usize, usize)> {
+    let seen = t.screen_mut().checkpoint();
+    t.input(input);
     let damage = t.screen().damage();
-    let marked: Vec<(usize, usize)> = (0..6)
+    (0..6)
         .flat_map(|y| (0..12).map(move |x| (y, x)))
         .filter(|&(y, x)| damage.changed(y, x, seen))
-        .collect();
-    assert_eq!(marked, vec![(1, 3), (1, 4), (2, 3), (2, 4)]);
+        .collect()
+}
+
+/// A kitty edit, `a=f` with `r=1`, of one pixel of the root frame of image
+/// `id`, the frame its placements show.
+fn edit_root(id: u32) -> Vec<u8> {
+    format!("\x1b_Ga=f,r=1,i={id},f=24,s=1,v=1,q=2;////\x1b\\").into_bytes()
+}
+
+// D13, "Damage": an edit of the frame a virtual placement shows marks its
+// image's placeholder cells changed, and no other cell.
+// covers: image.kitty-placeholders
+#[test]
+fn an_edit_of_the_frame_a_virtual_placement_shows_marks_its_cells() {
+    let mut t = grid();
+    assert_eq!(
+        marks(&mut t, &edit_root(42)),
+        vec![(1, 3), (1, 4), (2, 3), (2, 4)]
+    );
+}
+
+// D13, "Damage": a relative placement whose parent is virtual has no box of
+// its own. Placing it, editing the frame it shows and deleting it each mark
+// the cell where it draws, three columns right of the origin its parent's
+// placeholder cells give, and no other cell.
+// covers: image.kitty-relative
+#[test]
+fn a_virtual_parents_child_marks_where_it_draws_when_placed_edited_and_deleted() {
+    let mut t = grid();
+    transmit(&mut t, 43, 1, 1);
+    let place = marks(&mut t, b"\x1b_Ga=p,i=43,p=1,P=42,Q=5,H=3,q=2\x1b\\");
+    assert_eq!(place, vec![(1, 6)], "placed");
+    assert_eq!(
+        marks(&mut t, &edit_root(43)),
+        vec![(1, 6)],
+        "its frame edited"
+    );
+    let delete = marks(&mut t, b"\x1b_Ga=d,d=i,i=43,q=2\x1b\\");
+    assert_eq!(delete, vec![(1, 6)], "deleted");
+    assert!(!entries(&t).contains(&(1, 6, 1, 1, 0)));
+}
+
+// D13, "Damage": deleting a virtual placement takes its child with it, and
+// marks both the placeholder cells and the cell where the child drew.
+// covers: image.kitty-relative
+#[test]
+fn deleting_a_virtual_parent_marks_its_cells_and_where_its_child_drew() {
+    let mut t = with_child();
+    let marked = marks(&mut t, b"\x1b_Ga=d,d=i,i=42,q=2\x1b\\");
+    assert_eq!(marked, vec![(1, 3), (1, 4), (1, 6), (2, 3), (2, 4)]);
 }
 
 /// [`grid`] with image 43, one cell, placed as a child of the virtual
