@@ -23,3 +23,13 @@ new-80x25	the new-frit view at 80x25
 new-100x30	the new-frit view at 100x30
 new-40x30	the new-frit view at 40x30, the 320x240 floor's grid
 new-40x25	the new-frit view at 40x25, the VGA console's 25 rows at the floor's 40 columns
+flow-80x25	the flow view at 80x25, on the flow of ADR-1403 D7's figure
+flow-100x30	the flow view at 100x30, on the flow of ADR-1403 D7's figure
+card-80x25	the flow view at 80x25 with rule 5 opened below the columns
+card-100x30	the flow view at 100x30 with rule 5 opened below the columns
+route-80x25	the route card of the keyboard at 80x25
+route-100x30	the route card of the keyboard at 100x30
+looks-80x25	the looks view, which holds the sizes, at 80x25
+looks-100x30	the looks view, which holds the sizes, at 100x30
+help-80x25	the help view's Help page at 80x25
+help-100x30	the help view's Help page at 100x30

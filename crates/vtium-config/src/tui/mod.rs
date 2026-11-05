@@ -1,15 +1,25 @@
 //! The TUI that `vtium config` opens at a terminal (ADR-1201 D3, D4, D7):
-//! a full-screen program drawn in the terminal's text cells, which lists
-//! the frits (font set files) and the built-in fonts, tries each font the
-//! user highlights on the live console through OSC 50, and saves what the
-//! user keeps through `apply`.
+//! a full-screen program drawn in the terminal's text cells. Its views are
+//! Flow, which draws the configuration from the displays to the input
+//! devices (ADR-1403 D7), Looks, Fonts, which lists the frits (font set
+//! files) and the built-in fonts and tries each font the user highlights
+//! on the live console through OSC 50, Settings and Help. It installs what
+//! the user keeps through `apply`.
 //!
-//! [`model`] is the state machine, [`view`] its screen, [`input`] the
+//! [`model`] is the state machine, [`view`] its screen, [`flow`] the flow
+//! the Flow view draws and [`flowdraw`] how it draws it, [`canvas`] the
+//! cells a screen is drawn into, [`color`] its colors, [`input`] the
 //! decoder of what the terminal sends, [`words`] the catalog of what the
 //! TUI says, and [`port`] the loop and the terminal it runs on. [`gather`]
 //! reads what the TUI starts from: the frits as text, never a font file
 //! (D3), vtium.conf and the head file.
 
+pub mod canvas;
+pub mod color;
+#[doc(hidden)]
+pub mod fixture;
+pub mod flow;
+pub mod flowdraw;
 pub mod input;
 pub mod model;
 pub mod port;
@@ -224,6 +234,10 @@ pub fn gather(paths: &Paths, view: model::View) -> Result<Inputs, String> {
         frits,
         view,
         display: displays.first().map(|d| d.pixels),
+        // the flow is read from vtium.conf's sections, which this build does
+        // not read yet
+        flow: flow::Flow::default(),
+        color: color::enabled(&|name| std::env::var(name).ok()),
     })
 }
 

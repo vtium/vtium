@@ -79,9 +79,10 @@ pub trait Port {
     fn sources(&mut self, fonts: Vec<String>);
 }
 
-/// Alternate screen, cursor hidden; and back.
+/// Alternate screen, cursor hidden; and back, with mouse reporting off in
+/// case the Flow view left it on.
 pub const ENTER: &[u8] = b"\x1b[?1049h\x1b[?25l";
-pub const LEAVE: &[u8] = b"\x1b[?25h\x1b[?1049l";
+pub const LEAVE: &[u8] = b"\x1b[?1006l\x1b[?1000l\x1b[?25h\x1b[?1049l";
 
 /// Runs the TUI from `inputs` on `port` until it leaves; returns its exit
 /// status.
@@ -89,7 +90,7 @@ pub fn drive(port: &mut dyn Port, inputs: Inputs) -> io::Result<u8> {
     let (cols, rows) = port.size();
     let (mut app, first) = App::new(inputs, cols, rows);
     app.cell_px = port.cell_px();
-    let mut decoder = Decoder::default();
+    let mut decoder = Decoder::keys();
     let mut queue: Vec<Effect> = first;
     loop {
         // effects may make events, a save's end among them
@@ -116,7 +117,7 @@ pub fn drive(port: &mut dyn Port, inputs: Inputs) -> io::Result<u8> {
                     }
                     Effect::Sources(fonts) => port.sources(fonts),
                     Effect::Save(plan) => {
-                        port.write(&view::paint(&view::screen(&app)))?;
+                        port.write(&view::draw(&app))?;
                         let result = port.save(&plan);
                         let (cols, rows) = port.size();
                         queue.extend(app.event(Event::Resize { cols, rows }));
@@ -126,7 +127,7 @@ pub fn drive(port: &mut dyn Port, inputs: Inputs) -> io::Result<u8> {
             }
         }
         port.on_panic(give_back(&app));
-        port.write(&view::paint(&view::screen(&app)))?;
+        port.write(&view::draw(&app))?;
         for wake in port.wait()? {
             let events = match wake {
                 Wake::Bytes(bytes) => decoder.feed(&bytes).into_iter().map(Event::Input).collect(),

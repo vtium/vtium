@@ -1,18 +1,25 @@
 //! The TUI as a state machine apart from its terminal (ADR-1201 D7): its
-//! state takes [`Event`]s, a key, a reply, a resize, a signal or the end of
-//! a wait, and returns [`Effect`]s, bytes to write, a wait to start, a save
-//! to run or the status to leave with. The loop around it
-//! ([`super::port`]) does the reading and the writing, and draws
+//! state takes [`Event`]s, a key, a mouse click, a reply, a resize, a
+//! signal or the end of a wait, and returns [`Effect`]s, bytes to write, a
+//! wait to start, a save to run or the status to leave with. The loop
+//! around it ([`super::port`]) does the reading and the writing, and draws
 //! [`super::view`]'s screen after each event.
+//!
+//! The views are Flow, Looks, Fonts, Settings and Help (ADR-1201 D3), and
+//! the TUI opens on the one its caller names. The Flow view moves over a
+//! [`Flow`], selects, tags, follows lines and opens cards and the route
+//! card (ADR-1403 D7); the operations that change the flow come with the
+//! draft.
 
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::time::Duration;
 
 use vtium_settings::keys::{self, Kind, Scope};
-use vtium_settings::{Edit, edit_conf, parse, set_profile, setting, switch as conf_switch};
+use vtium_settings::{Edit, edit_conf, setting, switch as conf_switch};
 
-use super::input::{Input, Key, Reply};
+use super::flow::{COLUMNS, Flow, Item};
+use super::input::{Button, Input, Key, Mouse, Reply};
 use crate::draft::{FileEdit, Plan, Removal};
 
 /// How long the TUI waits for the terminal's answers at start, and for
@@ -91,6 +98,11 @@ pub struct Inputs {
     /// bytes: what a new frit of that name replaces, and what a removal
     /// removes.
     pub installed: std::collections::BTreeMap<String, Vec<u8>>,
+    /// The flow the Flow view draws.
+    pub flow: Flow,
+    /// The terminal draws color: not with `NO_COLOR`, nor on a terminal
+    /// that names none.
+    pub color: bool,
 }
 
 /// How a save is installed, as the save view shows it: the command a
@@ -168,26 +180,46 @@ pub enum Effect {
 /// The views.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum View {
+    Flow,
+    /// The looks; until looks are built, the sizes the console's font
+    /// takes.
+    Looks,
     Fonts,
-    Sizes,
     Settings,
-    Heads,
-    /// `new`'s guided flow: a frit made from fonts, saved like any change
-    /// (ADR-1201 D9).
+    /// Help and About.
+    Help,
+    /// `new`'s guided flow: a frit made from fonts, installed like any
+    /// change (ADR-1201 D9). It belongs to the Fonts view.
     New,
+    /// What Install installs, and the command it runs.
     Save,
 }
 
 impl View {
     /// The views Tab steps through, in order.
     pub const TABS: [View; 5] = [
+        View::Flow,
+        View::Looks,
         View::Fonts,
-        View::Sizes,
         View::Settings,
-        View::Heads,
-        View::New,
+        View::Help,
     ];
+
+    /// The tab the view shows under: its own, or the Fonts view's for the
+    /// new-frit view; none for the install view, an action.
+    pub const fn tab(self) -> Option<View> {
+        match self {
+            View::New => Some(View::Fonts),
+            View::Save => None,
+            v => Some(v),
+        }
+    }
 }
+
+/// Mouse reporting, modes 1000 and 1006, which only the Flow view turns on
+/// (ADR-1403 D7).
+pub const MOUSE_ON: &[u8] = b"\x1b[?1000h\x1b[?1006h";
+pub const MOUSE_OFF: &[u8] = b"\x1b[?1006l\x1b[?1000l";
 
 /// What the TUI found the terminal to be (D4).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -256,8 +288,6 @@ pub enum Change {
 pub struct Pending {
     /// vtium.conf's keys, one change a key, in the order they were made.
     pub conf: Vec<(String, Change)>,
-    /// Each head's new profile, by the head's name.
-    pub profiles: Vec<(String, String)>,
     /// New frits, each its name and text.
     pub frits: Vec<(String, String)>,
     /// Installed frits a save removes, by name.
@@ -367,7 +397,25 @@ pub struct App {
     pub font_at: usize,
     pub size_at: usize,
     pub setting_at: usize,
-    pub head_at: usize,
+    /// The Flow view's selected item.
+    pub flow_at: Item,
+    /// The tagged items, in the order they were tagged.
+    pub tags: Vec<Item>,
+    /// The selected item's card is open below the columns.
+    pub opened: bool,
+    /// The route card is open, with its cursor on this line.
+    pub route: Option<usize>,
+    /// The last `f`: the item it started from, which of that item's lines
+    /// it took, and where it went, so the next `f` steps to the next line.
+    followed: Option<(Item, usize, Item)>,
+    /// The Help view shows About.
+    pub about: bool,
+    /// The Help view's first row in sight.
+    pub help_at: usize,
+    /// The view the install view goes back to.
+    pub back: View,
+    /// Mouse reporting is on.
+    pub mouse: bool,
     /// The value being typed for the highlighted setting, while it is
     /// edited.
     pub editing: Option<String>,
@@ -404,7 +452,8 @@ impl App {
             .and_then(|n| inputs.fonts.iter().position(|f| f.name == n))
             .unwrap_or(0);
         let view = inputs.view;
-        let app = App {
+        let flow_at = first_item(&inputs.flow);
+        let mut app = App {
             inputs,
             cols,
             rows,
@@ -419,7 +468,15 @@ impl App {
             font_at,
             size_at: 0,
             setting_at: 0,
-            head_at: 0,
+            flow_at,
+            tags: Vec::new(),
+            opened: false,
+            route: None,
+            followed: None,
+            about: false,
+            help_at: 0,
+            back: View::Flow,
+            mouse: false,
             editing: None,
             new_frit: NewFrit::default(),
             pending: Pending::default(),
@@ -433,7 +490,50 @@ impl App {
             sources: std::collections::BTreeMap::new(),
             replies_due: 0,
         };
-        (app, vec![Effect::Write(probe()), Effect::Wait(WAIT)])
+        let mut first = vec![Effect::Write(probe()), Effect::Wait(WAIT)];
+        first.extend(app.mouse_for_view());
+        (app, first)
+    }
+
+    /// Turns mouse reporting on when the view is Flow and off when it is
+    /// not, where it is not so already.
+    fn mouse_for_view(&mut self) -> Vec<Effect> {
+        let want = self.view == View::Flow;
+        if want == self.mouse {
+            return Vec::new();
+        }
+        self.mouse = want;
+        vec![Effect::Write(
+            if want { MOUSE_ON } else { MOUSE_OFF }.to_vec(),
+        )]
+    }
+
+    /// Goes to `view`, turning the mouse on or off for it, and asks for
+    /// what the view shows: a specimen, a font switch.
+    fn set_view(&mut self, view: View) -> Vec<Effect> {
+        self.view = view;
+        self.editing = None;
+        let mut out = self.mouse_for_view();
+        out.extend(self.ask_picture());
+        out.extend(self.follow());
+        out
+    }
+
+    /// Tab's step to the next view, or Shift-Tab's to the one before.
+    fn step_view(&mut self, forward: bool) -> Vec<Effect> {
+        let tab = self.view.tab().unwrap_or(self.back);
+        let at = View::TABS.iter().position(|v| *v == tab).unwrap_or(0);
+        let n = View::TABS.len();
+        let next = if forward {
+            at.saturating_add(1) % n
+        } else {
+            at.saturating_add(n).saturating_sub(1) % n
+        };
+        let view = View::TABS.get(next).copied().unwrap_or(View::Flow);
+        if view == View::Flow {
+            self.flow_at = self.entry(forward);
+        }
+        self.set_view(view)
     }
 
     /// The highlighted font.
@@ -476,46 +576,11 @@ impl App {
         }
     }
 
-    /// The heads the head file declares, when it reads.
-    pub fn heads(&self) -> Option<Vec<(String, String)>> {
-        let text = self.inputs.heads.as_deref()?;
-        let parsed = parse(text).ok()?;
-        Some(
-            parsed
-                .config
-                .heads
-                .into_iter()
-                .map(|h| {
-                    let profile = self
-                        .pending
-                        .profiles
-                        .iter()
-                        .find(|(n, _)| *n == h.name)
-                        .map_or(h.profile, |(_, p)| p.clone());
-                    (h.name, profile)
-                })
-                .collect(),
-        )
-    }
-
-    /// The profiles a head may draw with: `default`, then each frit that
-    /// reads.
-    pub fn profiles(&self) -> Vec<String> {
-        std::iter::once("default".to_owned())
-            .chain(
-                self.inputs
-                    .fonts
-                    .iter()
-                    .filter(|f| f.state == FontState::Reads)
-                    .map(|f| f.name.clone()),
-            )
-            .collect()
-    }
-
     /// Takes `event`, and returns what the loop does.
     pub fn event(&mut self, event: Event) -> Vec<Effect> {
         match event {
             Event::Input(Input::Reply(reply)) => self.reply(reply),
+            Event::Input(Input::Key(Key::Mouse(mouse))) => self.click(mouse),
             Event::Input(Input::Key(key)) => self.key(key),
             Event::Resize { cols, rows } => {
                 self.cols = cols;
@@ -587,7 +652,7 @@ impl App {
         let readable = !matches!(self.font().map(|f| &f.state), Some(FontState::Refused(_)));
         let not_live = matches!(self.live, Live::OpsOff | Live::NotVtium);
         let points = match self.view {
-            View::Sizes => self.size(),
+            View::Looks => self.size(),
             View::Fonts if not_live && readable => self.preview_points(),
             _ => 0,
         };
@@ -598,7 +663,7 @@ impl App {
             }
             // a terminal that draws no pictures gets a size's summary
             (false, 1.., Some(font))
-                if self.view == View::Sizes
+                if self.view == View::Looks
                     && self
                         .summary
                         .as_ref()
@@ -621,7 +686,7 @@ impl App {
 
     fn pictured(&mut self, result: Result<crate::specimen::Picture, String>) -> Vec<Effect> {
         let mut out = self.drop_picture();
-        if !matches!(self.view, View::Sizes | View::Fonts) || self.leaving.is_some() {
+        if !matches!(self.view, View::Looks | View::Fonts) || self.leaving.is_some() {
             return out;
         }
         match result {
@@ -759,6 +824,7 @@ impl App {
             return Vec::new();
         }
         let changed = self.in_flight.is_some() || self.shown_font != self.start_font;
+        let mouse = std::mem::take(&mut self.mouse);
         let mut bytes = self
             .drop_picture()
             .into_iter()
@@ -767,6 +833,9 @@ impl App {
                 _ => Vec::new(),
             })
             .collect::<Vec<u8>>();
+        if mouse {
+            bytes.extend_from_slice(MOUSE_OFF);
+        }
         match (&self.live, &self.start_font) {
             (Live::On, Some(start)) if changed => {
                 bytes.extend(switch(start));
@@ -788,7 +857,8 @@ impl App {
     }
 
     /// Whether a key's character is text being typed: in the new-frit view
-    /// on a field, and in the settings view while a value is edited.
+    /// on a field, and in the settings view while a value is edited. Esc
+    /// drops what is typed in the settings view.
     fn typing(&self) -> bool {
         match self.view {
             View::New => self.new_frit.at < NEW_FIELDS,
@@ -801,31 +871,32 @@ impl App {
         if self.leaving.is_some() || self.saving {
             return Vec::new();
         }
+        if super::view::too_small(self) {
+            return self.small_key(key);
+        }
         if self.typing()
             && let Key::Char(_) | Key::Backspace = key
         {
             return self.type_key(key);
         }
+        let route = self.view == View::Flow && self.route.is_some();
         match key {
             Key::Interrupt => return self.leave(130),
-            Key::Char('q') => return self.leave(0),
+            Key::Char('q') if !route => return self.leave(0),
+            _ => {}
+        }
+        if self.view == View::Flow {
+            return self.flow_key(key);
+        }
+        match key {
             Key::Tab | Key::BackTab if self.view != View::Save => {
-                let at = View::TABS.iter().position(|v| *v == self.view).unwrap_or(0);
-                let n = View::TABS.len();
-                let next = if key == Key::Tab {
-                    at.saturating_add(1) % n
-                } else {
-                    at.saturating_add(n).saturating_sub(1) % n
-                };
-                self.view = View::TABS.get(next).copied().unwrap_or(View::Fonts);
-                self.editing = None;
-                let mut out = self.ask_picture();
-                out.extend(self.follow());
-                return out;
+                return self.step_view(key == Key::Tab);
             }
-            Key::Char('s') if self.view != View::Save => {
-                self.view = View::Save;
-                return self.drop_picture();
+            Key::Char('i') if self.view != View::Save => {
+                self.back = self.view.tab().unwrap_or(View::Flow);
+                let mut out = self.drop_picture();
+                out.extend(self.set_view(View::Save));
+                return out;
             }
             Key::Char('o') if self.live == Live::OpsOff => {
                 self.pending.set("allow-font-ops", Change::Switch(true));
@@ -835,8 +906,9 @@ impl App {
             _ => {}
         }
         match self.view {
+            View::Flow => Vec::new(),
             View::Fonts => self.fonts_key(key),
-            View::Sizes => {
+            View::Looks => {
                 let n = SIZES.len().saturating_add(1);
                 let before = self.size_at;
                 self.size_at = step(self.size_at, n, key);
@@ -854,36 +926,27 @@ impl App {
                 self.settings_key(key);
                 Vec::new()
             }
+            View::Help => {
+                match key {
+                    Key::Left | Key::Right => {
+                        self.about = !self.about;
+                        self.help_at = 0;
+                    }
+                    Key::Up | Key::Down | Key::PageUp | Key::PageDown | Key::Home | Key::End => {
+                        let rows = super::view::help_rows(self).len();
+                        self.help_at = step(self.help_at, rows, key);
+                    }
+                    _ => {}
+                }
+                Vec::new()
+            }
+            View::New if key == Key::Escape => self.set_view(View::Fonts),
             View::New => {
                 self.new_key(key);
                 Vec::new()
             }
-            View::Heads => {
-                let heads = self.heads().unwrap_or_default();
-                self.head_at = step(self.head_at, heads.len(), key);
-                if let (Key::Left | Key::Right, Some((head, profile))) =
-                    (key, heads.get(self.head_at))
-                {
-                    let all = self.profiles();
-                    let at = all.iter().position(|p| p == profile).unwrap_or(0);
-                    let n = all.len().max(1);
-                    let next = if key == Key::Right {
-                        at.saturating_add(1) % n
-                    } else {
-                        at.saturating_add(n).saturating_sub(1) % n
-                    };
-                    if let Some(p) = all.get(next) {
-                        self.pending.profiles.retain(|(h, _)| h != head);
-                        self.pending.profiles.push((head.clone(), p.clone()));
-                    }
-                }
-                Vec::new()
-            }
             View::Save => match key {
-                Key::Backspace | Key::Left => {
-                    self.view = View::Fonts;
-                    self.follow()
-                }
+                Key::Backspace | Key::Left | Key::Escape => self.set_view(self.back),
                 Key::Enter => match self.plan() {
                     Ok(plan) if plan.is_empty() => {
                         self.message = Some(super::words::NOTHING_TO_SAVE.to_owned());
@@ -904,10 +967,268 @@ impl App {
         }
     }
 
+    /// A key below the TUI's minimum size, where no view is drawn: `q`
+    /// leaves, and `u` puts back the font the console had when the TUI
+    /// started, where a preview changed it (ADR-1201 D3).
+    fn small_key(&mut self, key: Key) -> Vec<Effect> {
+        match key {
+            Key::Interrupt => self.leave(130),
+            Key::Char('q') => self.leave(0),
+            Key::Char('u') => {
+                let Some(start) = self.start_font.clone() else {
+                    return Vec::new();
+                };
+                if let Some(at) = self.inputs.fonts.iter().position(|f| f.name == start) {
+                    self.font_at = at;
+                }
+                if self.live != Live::On
+                    || self.in_flight.is_some()
+                    || self.shown_font.as_deref() == Some(start.as_str())
+                {
+                    return Vec::new();
+                }
+                self.in_flight = Some(start.clone());
+                vec![Effect::Write(switch(&start))]
+            }
+            _ => Vec::new(),
+        }
+    }
+
+    /// The item the Flow view selects when Tab enters it: the first item
+    /// of the first column going forward, of the last going back, past the
+    /// base card.
+    fn entry(&self, forward: bool) -> Item {
+        let columns = self.inputs.flow.columns();
+        let mut order: Vec<&Vec<Item>> = columns.iter().collect();
+        if !forward {
+            order.reverse();
+        }
+        order
+            .into_iter()
+            .find_map(|c| c.iter().copied().find(|i| *i != Item::Base))
+            .unwrap_or(Item::Base)
+    }
+
+    /// A key in the Flow view (ADR-1403 D7).
+    fn flow_key(&mut self, key: Key) -> Vec<Effect> {
+        if let Some(line) = self.route {
+            return self.route_key(key, line);
+        }
+        self.message = None;
+        let flow = &self.inputs.flow;
+        let column = flow.column_of(self.flow_at);
+        match key {
+            Key::Tab | Key::Right => match self.next_column(column, true) {
+                Some(item) => self.select(item),
+                None if key == Key::Tab => return self.step_view(true),
+                None => {}
+            },
+            Key::BackTab | Key::Left => match self.next_column(column, false) {
+                Some(item) => self.select(item),
+                None if key == Key::BackTab => return self.step_view(false),
+                None => {}
+            },
+            Key::Up | Key::Down | Key::PageUp | Key::PageDown | Key::Home | Key::End => {
+                let items = flow.columns().get(column).cloned().unwrap_or_default();
+                let at = items.iter().position(|i| *i == self.flow_at).unwrap_or(0);
+                if let Some(item) = items.get(step(at, items.len(), key)) {
+                    self.select(*item);
+                }
+            }
+            Key::Enter => self.opened = true,
+            Key::Char(' ') => {
+                if !matches!(self.flow_at, Item::Base | Item::Policy | Item::New(_)) {
+                    if let Some(at) = self.tags.iter().position(|t| *t == self.flow_at) {
+                        self.tags.remove(at);
+                    } else {
+                        self.tags.push(self.flow_at);
+                    }
+                }
+            }
+            Key::Escape => {
+                self.tags.clear();
+                self.opened = false;
+            }
+            Key::Char('f') => self.follow_line(),
+            Key::Char('?') => {
+                let lines = super::flowdraw::route_card(&self.inputs.flow, self.flow_at).2;
+                let at = lines
+                    .iter()
+                    .position(|l| l.item == Some(self.flow_at))
+                    .or_else(|| lines.iter().position(|l| l.item.is_some()))
+                    .unwrap_or(0);
+                self.route = Some(at);
+            }
+            Key::Char('i') => {
+                self.back = View::Flow;
+                return self.set_view(View::Save);
+            }
+            Key::Char(c) => {
+                let what = match c {
+                    'c' => super::words::CONNECT,
+                    'd' => super::words::READ_DEVICES,
+                    'v' => super::words::VIEW_DRAFT,
+                    'r' => super::words::REVERT,
+                    'o' => super::words::RESTORE,
+                    'n' => super::words::NEW_CONFIGURATION,
+                    'x' => super::words::DELETE_DRAFT,
+                    _ => return Vec::new(),
+                };
+                self.message = Some(super::words::not_built(what));
+            }
+            _ => {}
+        }
+        Vec::new()
+    }
+
+    /// Selects `item`; a `f` that follows starts again from it.
+    fn select(&mut self, item: Item) {
+        self.flow_at = item;
+    }
+
+    /// The item Tab or the arrows land on in the next column with items,
+    /// right or left: the one nearest the selected item's row; `None` past
+    /// the last or before the first.
+    fn next_column(&self, column: usize, right: bool) -> Option<Item> {
+        let flow = &self.inputs.flow;
+        let columns = flow.columns();
+        let ctx = super::flowdraw::Ctx {
+            flow,
+            tags: &self.tags,
+            color: self.inputs.color,
+        };
+        let placed = super::flowdraw::stack(&ctx, &super::flowdraw::geometry(self.cols));
+        let row_of = |item: Item| placed.iter().find(|p| p.item == item).map_or(0, |p| p.row);
+        let here = row_of(self.flow_at);
+        let mut c = column;
+        loop {
+            c = if right {
+                c.checked_add(1).filter(|c| *c < COLUMNS)?
+            } else {
+                c.checked_sub(1)?
+            };
+            let items: Vec<Item> = columns
+                .get(c)
+                .map(|items| items.iter().copied().filter(|i| *i != Item::Base).collect())
+                .unwrap_or_default();
+            if let Some(best) = items
+                .iter()
+                .min_by_key(|i| row_of(**i).abs_diff(here))
+                .copied()
+            {
+                return Some(best);
+            }
+            // a column 0 with no display holds only the base card
+            if c == 0 && columns.first().is_some_and(|c| c.contains(&Item::Base)) {
+                return Some(Item::Base);
+            }
+        }
+    }
+
+    /// `f`: moves to the item the selected one's line reaches, toward the
+    /// heads; pressed again where it landed, it steps through the other
+    /// lines of the item it started from.
+    fn follow_line(&mut self) {
+        let flow = &self.inputs.flow;
+        if let Some((origin, k, landed)) = self.followed
+            && landed == self.flow_at
+        {
+            let all = flow.follows(origin);
+            if all.len() > 1 {
+                let next = k.saturating_add(1) % all.len();
+                if let Some(item) = all.get(next) {
+                    self.followed = Some((origin, next, *item));
+                    self.flow_at = *item;
+                    return;
+                }
+            }
+        }
+        match flow.follows(self.flow_at).first() {
+            Some(item) => {
+                self.followed = Some((self.flow_at, 0, *item));
+                self.flow_at = *item;
+            }
+            None => self.message = Some(super::words::NOTHING_TO_FOLLOW.to_owned()),
+        }
+    }
+
+    /// A key while the route card is open: Up and Down move along its
+    /// items, Enter opens the item under the cursor, `q` and Esc go back to
+    /// the flow.
+    fn route_key(&mut self, key: Key, line: usize) -> Vec<Effect> {
+        let lines = super::flowdraw::route_card(&self.inputs.flow, self.flow_at).2;
+        let items: Vec<usize> = lines
+            .iter()
+            .enumerate()
+            .filter(|(_, l)| l.item.is_some())
+            .map(|(i, _)| i)
+            .collect();
+        let at = items.iter().position(|i| *i == line).unwrap_or(0);
+        match key {
+            Key::Char('q') | Key::Escape => self.route = None,
+            Key::Up | Key::Down | Key::PageUp | Key::PageDown | Key::Home | Key::End => {
+                self.route = items
+                    .get(step(at, items.len(), key))
+                    .copied()
+                    .or(Some(line));
+            }
+            Key::Enter => {
+                if let Some(item) = lines.get(line).and_then(|l| l.item) {
+                    self.flow_at = item;
+                    self.opened = true;
+                }
+                self.route = None;
+            }
+            _ => {}
+        }
+        Vec::new()
+    }
+
+    /// A mouse event, which only the Flow view asks for: a click on a
+    /// view's name switches to it; a click on an item selects it, and a
+    /// second click on the selected item opens it; the wheel moves as Up
+    /// and Down do.
+    fn click(&mut self, mouse: Mouse) -> Vec<Effect> {
+        if self.view != View::Flow
+            || self.leaving.is_some()
+            || self.saving
+            || super::view::too_small(self)
+        {
+            return Vec::new();
+        }
+        match mouse.button {
+            Button::WheelUp => return self.key(Key::Up),
+            Button::WheelDown => return self.key(Key::Down),
+            Button::Press(0) => {}
+            _ => return Vec::new(),
+        }
+        if self.route.is_some() {
+            return Vec::new();
+        }
+        if let Some(view) = super::view::tab_at(self, mouse.col, mouse.row) {
+            if view == View::Flow {
+                return Vec::new();
+            }
+            return self.set_view(view);
+        }
+        match super::view::item_at(self, mouse.col, mouse.row) {
+            Some(item) if item == self.flow_at => self.opened = true,
+            Some(item) => {
+                self.message = None;
+                self.select(item);
+            }
+            None => {}
+        }
+        Vec::new()
+    }
+
     fn fonts_key(&mut self, key: Key) -> Vec<Effect> {
         if key == Key::Char('r') {
             self.remove_key();
             return Vec::new();
+        }
+        if key == Key::Char('n') {
+            return self.set_view(View::New);
         }
         let before = self.font_at;
         let n = self.inputs.fonts.len();
@@ -1092,6 +1413,7 @@ impl App {
                 self.pending.frits.push((name.clone(), text));
                 self.new_frit = NewFrit::default();
                 self.message = Some(super::words::new_added(&name));
+                self.back = View::Fonts;
                 self.view = View::Save;
             }
             Err(why) => self.message = Some(super::words::new_refused(why)),
@@ -1135,21 +1457,6 @@ impl App {
                 files.push(FileEdit {
                     path: self.inputs.conf_path.clone(),
                     old,
-                    new,
-                });
-            }
-        }
-        if !p.profiles.is_empty()
-            && let Some(old) = &self.inputs.heads
-        {
-            let mut new = old.clone();
-            for (head, profile) in &p.profiles {
-                new = set_profile(&new, head, profile).map_err(|e| e.to_string())?;
-            }
-            if new != *old {
-                files.push(FileEdit {
-                    path: self.inputs.heads_path.clone(),
-                    old: Some(old.clone()),
                     new,
                 });
             }
@@ -1222,7 +1529,7 @@ impl App {
                 }
                 self.pending = Pending::default();
                 self.report.clear();
-                self.view = View::Fonts;
+                self.view = self.back;
                 self.message = Some(super::words::saved(files));
             }
             Err(why) => {
@@ -1231,8 +1538,21 @@ impl App {
                 self.report = lines.filter(|l| !l.trim().is_empty()).collect();
             }
         }
-        Vec::new()
+        self.mouse_for_view()
     }
+}
+
+/// The item the Flow view selects first: the first display, else the
+/// first item of the first column that has one.
+fn first_item(flow: &Flow) -> Item {
+    flow.columns()
+        .iter()
+        .find_map(|c| {
+            c.iter()
+                .copied()
+                .find(|i| *i != Item::Base && !matches!(i, Item::New(_)))
+        })
+        .unwrap_or(Item::Base)
 }
 
 /// The most bytes a typed field holds.

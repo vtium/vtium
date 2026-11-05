@@ -427,7 +427,7 @@ fn the_screen_fits_80x25_and_100x30() {
         let lines: Vec<&str> = screen.lines().collect();
         assert_eq!(lines.len(), usize::from(rows));
         assert!(
-            lines[0].contains("VTium Vitrifier") && lines[0].contains("live preview: on"),
+            lines[0].contains(" Fonts ") && lines[1].contains("live preview: on"),
             "{screen}"
         );
         for name in [
@@ -537,13 +537,13 @@ fn saving_into_directories_not_the_system_s_installs_as_the_user() {
     c.key(UP);
     c.until("drew proof", |s| s.font == "proof");
     c.key(b"\r");
-    c.key(b"s");
+    c.key(b"i");
     c.until("showed the save", |s| {
         s.screen.contains("+ font-name=proof")
     });
     assert!(c.screen().contains("with no sudo"), "{}", c.screen());
     c.key(b"\r");
-    c.until("saved", |s| s.screen.contains("Saved 1 file."));
+    c.until("saved", |s| s.screen.contains("Installed 1 file."));
     c.key(b"q");
     assert_eq!(status(child), 0);
     c.drained(&slave);
@@ -585,10 +585,10 @@ fn saving_the_system_s_files_runs_exactly_sudo_vtium_config_apply_dir() {
     let child = tui_with(&slave, &root, &["--sudo".as_ref(), sudo.as_os_str()]);
     c.until("decided", |s| s.screen.contains("live preview: on"));
     // a size, so the save changes the system's vtium.conf whatever it holds
-    c.key(b"\t");
+    c.key(b"\x1b[Z");
     c.key(b"\x1b[B");
     c.key(b"\r");
-    c.key(b"s");
+    c.key(b"i");
     c.until("showed the save", |s| s.screen.contains("+ font-size=6"));
     let program = env!("CARGO_BIN_EXE_vtium-config");
     // the command wraps where the paths' lengths put the screen's edge, so
@@ -600,7 +600,7 @@ fn saving_the_system_s_files_runs_exactly_sudo_vtium_config_apply_dir() {
         "the command shown: {screen}"
     );
     c.key(b"\r");
-    c.until("failed", |s| s.screen.contains("Nothing was saved"));
+    c.until("failed", |s| s.screen.contains("Nothing was installed"));
     assert!(
         c.screen().contains("the stand-in installs nothing"),
         "{}",
