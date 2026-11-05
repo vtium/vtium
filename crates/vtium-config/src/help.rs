@@ -217,7 +217,7 @@ the command that installs it; run as root, it installs at once.
 
 Options:
   --configdir DIR       the directory of vtium.conf and heads.conf, in place of /etc/vtium
-  --frits DIR           the frits directory, in place of vtium.conf's font-frits
+  --frits DIR           the frits directory, in place of the one font-frits names
   --sudo PROGRAM        the program that runs apply as root, in place of sudo
   --vtium PROGRAM       the console binary apply checks files with, in place of /usr/bin/vtium
   --kbd-dir DIR         a kbd data directory, in place of the build's list (repeatable)
