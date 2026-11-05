@@ -133,14 +133,6 @@ struct Shown {
     /// screen without any cell's damage. OSC 12's color is the palette's,
     /// and a palette change marks every cell.
     cursor: ((usize, usize), bool, CursorStyle),
-    /// The picture store's revision, which moves at every change to a
-    /// placement or an image. An edit to the frame a placed picture shows
-    /// marks no cell, so the revision is what tells it. It stays still
-    /// across a sixel picture's data before its end and across a kitty
-    /// transmission's chunks before the last; an image transmitted with no
-    /// placement moves it, and costs one pass that draws nothing.
-    #[cfg(feature = "images")]
-    pictures: u64,
 }
 
 impl Shown {
@@ -148,8 +140,6 @@ impl Shown {
         Shown {
             since: terminal.screen_mut().checkpoint(),
             cursor: Shown::cursor(terminal),
-            #[cfg(feature = "images")]
-            pictures: terminal.screen().images().revision(),
         }
     }
 
@@ -162,14 +152,9 @@ impl Shown {
         )
     }
 
-    /// Whether `terminal`'s screen changed since: a cell, the cursor or a
-    /// picture.
+    /// Whether `terminal`'s screen changed since: a cell or the cursor.
     fn changed(&self, terminal: &Terminal) -> bool {
         let damage = terminal.screen().damage();
-        #[cfg(feature = "images")]
-        if terminal.screen().images().revision() != self.pictures {
-            return true;
-        }
         self.cursor != Shown::cursor(terminal)
             || (0..damage.rows()).any(|row| damage.row_changed(row, self.since))
     }
@@ -2314,6 +2299,27 @@ mod tests {
         );
         turn(&mut term, &mut view, &mut video, &[edit.as_bytes()]);
         assert_eq!(color(&video), 0x00_ff_00, "the edit is drawn");
+    }
+
+    // A kitty transmission with no placement, `a=t`, changes nothing on the
+    // screen, so it composes no frame.
+    #[cfg(feature = "images")]
+    #[test]
+    fn a_transmission_alone_composes_no_frame() {
+        let (mut term, mut view) = view();
+        offer_pictures(&mut term);
+        view.timer = Some(RenderTimer::new());
+        let mut video = Flip::with(1);
+        turn(&mut term, &mut view, &mut video, &[b"\x1b[1;1Hp1\x1b[2;1H"]);
+        assert_eq!(video.composed, 1);
+        let send = format!(
+            "\x1b_Ga=t,f=32,s=8,v=16,i=1,q=2;{}\x1b\\",
+            kitty_fill([255, 0, 0, 255])
+        );
+        turn(&mut term, &mut view, &mut video, &[send.as_bytes()]);
+        assert_eq!(term.terminal.screen().images().image_count(), 1, "stored");
+        assert_eq!(video.composed, 1, "no frame for the transmission");
+        assert_eq!(counted(&mut view), (1, 0));
     }
 
     // What output changes of a frame beyond its cells is the cursor: its

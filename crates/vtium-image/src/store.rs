@@ -1337,6 +1337,32 @@ impl Store {
         Some(p.image)
     }
 
+    /// Reports every placement of image `key` of buffer `b` as changed, as
+    /// when the pixels they show change: the box of each placement on a
+    /// line or following one, and the placeholder cells of the image's
+    /// virtual placements.
+    fn mark_image(&mut self, b: usize, key: ImageKey) {
+        let Some(buf) = self.buffers.get(b) else {
+            return;
+        };
+        let visited = buf.placements.len();
+        let mut boxes = Vec::new();
+        let mut placeholders = false;
+        for (&k, p) in &buf.placements {
+            if p.image != key {
+                continue;
+            }
+            placeholders |= p.spot == Spot::Virtual;
+            boxes.extend(buf.region(k));
+        }
+        let id = buf.images.get(&key).map_or(0, |i| i.id);
+        self.changed.extend(boxes);
+        if placeholders {
+            self.note_virtual(b, id);
+        }
+        self.count(visited);
+    }
+
     /// Removes an image and every placement of it, and gives its bytes
     /// back in one release.
     fn free_image(&mut self, b: usize, key: ImageKey) {
