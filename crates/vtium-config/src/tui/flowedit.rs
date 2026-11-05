@@ -10,7 +10,7 @@ use super::desk::{Done, Op};
 use super::edit::{self, Change, Field, What};
 use super::flow::{Device, Draft, Flow, Item, Kind, New};
 use super::input::Key;
-use super::model::{App, Card, Confirm, Effect, Live, Pager, Then, step, switch};
+use super::model::{App, Card, Confirm, Effect, Pager, Then, step};
 use super::words;
 use crate::flowmodel::Present;
 
@@ -80,7 +80,7 @@ impl App {
             }
             Key::Left => {
                 self.card.pick = self.card.pick.saturating_sub(1);
-                Some(self.preview(&field))
+                Some(Vec::new())
             }
             Key::Right => {
                 self.card.pick = self
@@ -88,8 +88,14 @@ impl App {
                     .pick
                     .saturating_add(1)
                     .min(slots.saturating_sub(1));
-                Some(self.preview(&field))
+                Some(Vec::new())
             }
+            // `t` tries the frit under the cursor on the live console
+            // (ADR-1201 D4)
+            Key::Char('t') => match (&field.what, field.options.get(self.card.pick)) {
+                (What::LookKey(_, "font-name"), Some(name)) => Some(self.try_live(name.clone())),
+                _ => None,
+            },
             Key::Enter => Some(match field.options.get(self.card.pick) {
                 Some(value) => {
                     let value = value.clone();
@@ -107,25 +113,6 @@ impl App {
             }
             _ => None,
         }
-    }
-
-    /// On a live vtium console, tries the frit the look card's cursor is
-    /// on, as the Fonts view tries the highlighted font (ADR-1201 D4).
-    fn preview(&mut self, field: &Field) -> Vec<Effect> {
-        let What::LookKey(_, "font-name") = field.what else {
-            return Vec::new();
-        };
-        let Some(name) = field.options.get(self.card.pick).cloned() else {
-            return Vec::new();
-        };
-        if self.live != Live::On
-            || self.in_flight.is_some()
-            || self.shown_font.as_deref() == Some(name.as_str())
-        {
-            return Vec::new();
-        }
-        self.in_flight = Some(name.clone());
-        vec![Effect::Write(switch(&name))]
     }
 
     /// Picks `value` in `field`: a form keeps it and moves on, an action

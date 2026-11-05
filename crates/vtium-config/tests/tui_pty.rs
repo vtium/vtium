@@ -318,7 +318,7 @@ const FONTS_TAB: &[u8] = b"\x1b[<0;16;1M\x1b[<0;16;1m";
 fn to_fonts(c: &mut Console) {
     c.until("opened on the flow", |s| s.screen.contains("DISPLAYS"));
     c.key(FONTS_TAB);
-    c.until("showed the fonts", |s| s.screen.contains("n new frit"));
+    c.until("showed the fonts", |s| s.screen.contains("r remove"));
 }
 
 /// Starts the TUI against a console of `kind`, waits for it to have
@@ -376,14 +376,19 @@ fn the_tui_starts_on_the_alternate_screen_with_the_four_requests() {
 }
 
 #[test]
-fn a_highlighted_font_switches_the_console_and_q_gives_the_start_font_back() {
+fn t_tries_the_highlighted_font_and_q_gives_the_start_font_back() {
     let (mut c, child, slave) = started("browse", Kind::Vtium { ops: true }, 80, 25);
     assert_eq!(c.font(), "unifont");
+    // the highlight alone sends the console nothing (ADR-1201 D4)
     c.key(UP);
+    c.until("highlighted tiny5", |s| s.screen.contains("> tiny5"));
+    assert_eq!(c.switches(), Vec::<String>::new());
+    c.key(b"t");
     c.until("switched to tiny5", |s| {
         String::from_utf8_lossy(&s.written).contains("\x1b]50;tiny5\x1b\\\x1b]50;?\x1b\\")
     });
     c.until("drew tiny5", |s| s.font == "tiny5");
+    c.key(b"k");
     c.key(b"q");
     assert_eq!(status(child), 0);
     c.drained(&slave);
@@ -396,6 +401,7 @@ fn a_highlighted_font_switches_the_console_and_q_gives_the_start_font_back() {
 fn ctrl_c_gives_the_start_font_back() {
     let (mut c, child, slave) = started("ctrl-c", Kind::Vtium { ops: true }, 80, 25);
     c.key(UP);
+    c.key(b"t");
     c.until("drew tiny5", |s| s.font == "tiny5");
     c.key(b"\x03");
     assert_eq!(status(child), 130);
@@ -408,6 +414,7 @@ fn ctrl_c_gives_the_start_font_back() {
 fn sigterm_from_another_terminal_gives_the_start_font_back() {
     let (mut c, child, slave) = started("sigterm", Kind::Vtium { ops: true }, 80, 25);
     c.key(UP);
+    c.key(b"t");
     c.until("drew tiny5", |s| s.font == "tiny5");
     let pid = rustix::process::Pid::from_raw(child.id() as i32).expect("a pid");
     rustix::process::kill_process(pid, rustix::process::Signal::TERM).expect("kill");
@@ -457,12 +464,12 @@ fn the_screen_fits_80x25_and_100x30() {
             cols,
             rows,
         );
-        // the tabs, the live preview, every frit and the keys, each on its
+        // the tabs, the live trial, every frit and the keys, each on its
         // row of the grid
         c.until("drew the fonts view in the grid", |s| {
             let lines: Vec<&str> = s.screen.lines().collect();
             lines[0].contains(" Fonts ")
-                && lines[1].contains("live preview: on")
+                && lines[1].contains("t: live")
                 && [
                     "minspec-16",
                     "minspec-8",
@@ -563,12 +570,13 @@ fn saving_into_directories_not_the_system_s_installs_as_the_user() {
             vtium.as_os_str(),
         ],
     );
-    c.until("decided", |s| s.screen.contains("live preview: on"));
+    c.until("decided", |s| s.screen.contains("t: live"));
     to_fonts(&mut c);
     c.key(UP);
-    c.until("drew tiny5", |s| s.font == "tiny5");
     c.key(UP);
+    c.key(b"t");
     c.until("drew proof", |s| s.font == "proof");
+    c.key(b"k");
     c.key(b"\r");
     c.key(b"i");
     c.until("asked", |s| {
@@ -591,7 +599,7 @@ fn saving_into_directories_not_the_system_s_installs_as_the_user() {
         conf
     );
     assert_eq!(c.font(), "proof");
-    assert_eq!(c.switches(), ["tiny5", "proof"]);
+    assert_eq!(c.switches(), ["proof"]);
     // the TUI left its screen for the command and came back
     let written = String::from_utf8_lossy(&c.written()).into_owned();
     assert!(
@@ -633,7 +641,7 @@ fn saving_the_system_s_files_runs_exactly_sudo_vtium_config_apply_dir() {
             vtium.as_os_str(),
         ],
     );
-    c.until("decided", |s| s.screen.contains("live preview: on"));
+    c.until("decided", |s| s.screen.contains("t: live"));
     to_fonts(&mut c);
     // a size, so the draft differs from the system's vtium.conf whatever it
     // holds
@@ -702,13 +710,20 @@ fn the_udev_database_the_command_line_names_reaches_the_tui() {
 #[test]
 fn two_keys_at_once_send_one_switch_and_the_next_after_its_reply() {
     let (mut c, child, slave) = started("in-flight", Kind::Vtium { ops: true }, 80, 25);
-    // two Ups in one write: tiny5, then proof once tiny5's reply is in
-    c.key(&[UP, UP].concat());
-    c.until("drew proof", |s| s.font == "proof");
+    // in one write: two Ups to proof, t to try it, and a key that puts
+    // unifont back, which waits for proof's reply
+    c.key(&[UP, UP, b"t", b"x"].concat());
+    c.until("drew proof and then unifont", |s| {
+        s.font == "unifont"
+            && String::from_utf8_lossy(&s.written)
+                .matches("\x1b]50;unifont\x1b\\")
+                .count()
+                == 1
+    });
     c.key(b"q");
     assert_eq!(status(child), 0);
     c.drained(&slave);
-    assert_eq!(c.switches(), ["tiny5", "proof", "unifont"]);
+    assert_eq!(c.switches(), ["proof", "unifont"]);
     let per_read = c.seen.0.lock().expect("the lock").switches_per_read.clone();
     assert!(
         per_read.iter().all(|&n| n == 1),
@@ -723,6 +738,7 @@ fn sighup_sigint_and_sigquit_give_the_start_font_back() {
         let (mut c, child, slave) =
             started(&format!("signal-{n}"), Kind::Vtium { ops: true }, 80, 25);
         c.key(UP);
+        c.key(b"t");
         c.until("drew tiny5", |s| s.font == "tiny5");
         let pid = rustix::process::Pid::from_raw(child.id() as i32).expect("a pid");
         rustix::process::kill_process(pid, signal).expect("kill");
@@ -753,6 +769,7 @@ fn a_terminal_that_closes_ends_the_tui() {
     // the TUI opens on the flow: the Fonts tab, then a font
     master.write_all(FONTS_TAB).expect("a click");
     master.write_all(UP).expect("a key");
+    master.write_all(b"t").expect("the trial key");
     while !got.windows(9).any(|w| w == b"\x1b]50;tiny") {
         let n = master.read(&mut buf).expect("the switch");
         got.extend_from_slice(&buf[..n]);
@@ -823,7 +840,7 @@ fn the_helper_holds_none_of_the_terminal_and_a_silent_one_marks_no_frit_broken()
         ],
     );
     drop(leaked);
-    c.until("decided", |s| s.screen.contains("live preview: on"));
+    c.until("decided", |s| s.screen.contains("t: live"));
     to_fonts(&mut c);
     // the stand-in lists what the TUI gave it
     let fds_file = root.join("helper.fds");
@@ -872,7 +889,9 @@ fn the_helper_holds_none_of_the_terminal_and_a_silent_one_marks_no_frit_broken()
     );
     // a key reaches the TUI while the helper is silent
     c.key(UP);
+    c.key(b"t");
     c.until("switched", |s| s.font == "tiny5");
+    c.key(b"k");
     // once its wait is out, the TUI says it has not checked the sources
     c.until("gave up on the helper", |s| {
         s.screen.contains("sources not checked")

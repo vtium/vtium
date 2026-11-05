@@ -14,7 +14,7 @@ workspace = true
 [features]
 # The console's terminal built with images in this crate's tests, to read
 # the TUI's size pictures as vtium reads them. The workspace's
-# `--all-features` run turns it on; it adds nothing to the binary.
+# `--all-features` run turns it on; no shipped build does.
 kitty-check = ["vtium-term/images"]
 
 [dependencies]
@@ -29,6 +29,9 @@ vtium-platform.workspace = true
 # vtium.conf's line editor and the head file's one writer and parser
 # (ADR-1201 D5, D6), the crate the console already links.
 vtium-settings.workspace = true
+# The console's named palettes, in whose colors the TUI draws its pictures
+# of the console (ADR-1201 D4); the crate the console already links.
+vtium-term.workspace = true
 # The devices present as the head file's rules see them, mapped by the
 # functions the console places them with, for the flow view (ADR-1403 D9).
 vtium-devices.workspace = true
@@ -84,8 +87,6 @@ libc = "=0.2.191"
 # A pty for `set`'s and the banner's tests; vtium-platform already builds
 # this version with these features.
 rustix = { version = "=1.1.5", default-features = false, features = ["std", "fs", "process", "pty", "termios", "thread"] }
-# The console's terminal, answering `set` in its test.
-vtium-term.workspace = true
 # The tests read gzipped fonts back with the PSF loader.
 vtium-font = { workspace = true, features = ["psf", "gzip"] }
 # The xz encoder, for the tests' fixtures only.

@@ -1,5 +1,5 @@
  Flow  Looks  Fonts  Settings  Help               View  Install  Revert  Restore  New  Delete draft
- draft workstation · 1 change · no problems                                        live preview: on
+ draft workstation · 1 change · no problems                                          text · t: live
 ----------------------------------------------------------------------------------------------------
  The sizes the console's font takes, in points. A look of its own comes with vtium.conf's look
  sections.
@@ -21,7 +21,7 @@
    28 pt
    32 pt
 
- This terminal draws no pictures, so a size shows only once it is installed.
+ This terminal draws no pictures, so a change is described in words.
 
 
 

@@ -123,8 +123,22 @@ pub enum Event {
     Timeout,
     /// The privileged step ended: the draft installed, or why not.
     Installed(Result<Done, String>),
-    /// The specimen [`Effect::Picture`] asked for, or why there is none.
+    /// The font's cell [`Effect::Cell`] asked for, and the height its
+    /// faces draw at, or why there is none.
+    Celled {
+        font: String,
+        height: u32,
+        cell: Result<(vtium_font::Cell, u32), String>,
+    },
+    /// The picture [`Effect::Picture`] asked for, or why there is none.
     Pictured(Result<crate::specimen::Picture, String>),
+    /// The detailed specimen [`Effect::Specimen`] asked for, and what it
+    /// gives, or why there is none.
+    Detailed {
+        font: String,
+        height: u32,
+        result: Result<(crate::specimen::Picture, crate::specimen::Summary), String>,
+    },
     /// The summary [`Effect::Summary`] asked for.
     Summarized {
         font: String,
@@ -153,13 +167,21 @@ pub enum Effect {
     /// Runs the privileged step that installs the plan, with the desk,
     /// then sends [`Event::Installed`].
     Install(Plan),
-    /// Draws the specimen of the font `font` at `height` pixels, then
-    /// sends [`Event::Pictured`].
-    Picture {
+    /// Draws the detailed specimen of the font `font` at `height` pixels,
+    /// at most `max` pixels, then sends [`Event::Pictured`].
+    Specimen {
         font: String,
         height: u32,
         max: (u32, u32),
+        /// The display whose grid the specimen's summary counts.
+        display: (u32, u32),
     },
+    /// Asks the glyph helper for the font `font`'s cell at `height`
+    /// pixels, then sends [`Event::Celled`].
+    Cell { font: String, height: u32 },
+    /// Draws the picture of the console the shot names (ADR-1201 D4),
+    /// then sends [`Event::Pictured`].
+    Picture(crate::specimen::Shot),
     /// Summarizes the specimen of the font `font` at `height` pixels, for
     /// a terminal that draws no pictures, then sends [`Event::Summarized`].
     Summary { font: String, height: u32 },
@@ -345,6 +367,26 @@ pub struct App {
     answers: Answers,
     /// The font to give back: the start query's answer, or what was saved.
     pub start_font: Option<String>,
+    /// The font the console is to draw, which a switch is sent for once no
+    /// other is in flight: the live trial's font, or the font it puts
+    /// back (D4).
+    pub want: Option<String>,
+    /// The Fonts view shows the detailed specimen of the highlighted font,
+    /// as it does at start, in place of the picture of the console, which
+    /// `s` switches to (ADR-1201 D4).
+    pub detail: bool,
+    /// What the last detailed specimen gave: its font, its height and its
+    /// summary.
+    pub specimen: Option<(String, u32, crate::specimen::Summary)>,
+    /// The live trial counting down, if one is.
+    pub trial: Option<super::shot::Trial>,
+    /// The picture last asked for, so the same one is not asked again.
+    pub(crate) asked: Option<super::shot::Asked>,
+    /// A preview is being drawn: the next is asked for once it comes, so
+    /// one is drawn at a time.
+    pub(crate) drawing: bool,
+    /// What the picture on the screen shows: the line beside it.
+    pub shot: Option<super::shot::Caption>,
     /// The font the console last said it draws.
     pub shown_font: Option<String>,
     /// The switch sent whose reply has not come.
@@ -473,6 +515,13 @@ impl App {
             graphics: false,
             answers: Answers::default(),
             start_font: None,
+            want: None,
+            detail: true,
+            specimen: None,
+            trial: None,
+            asked: None,
+            drawing: false,
+            shot: None,
             shown_font: None,
             in_flight: None,
             refused: BTreeSet::new(),
@@ -533,10 +582,7 @@ impl App {
     fn set_view(&mut self, view: View) -> Vec<Effect> {
         self.view = view;
         self.editing = None;
-        let mut out = self.mouse_for_view();
-        out.extend(self.ask_picture());
-        out.extend(self.follow());
-        out
+        self.mouse_for_view()
     }
 
     /// Tab's step to the next view, or Shift-Tab's to the one before.
@@ -602,6 +648,12 @@ impl App {
 
     /// Takes `event`, and returns what the loop does.
     pub fn event(&mut self, event: Event) -> Vec<Effect> {
+        let mut out = self.handle(event);
+        out.extend(self.ask_picture());
+        out
+    }
+
+    fn handle(&mut self, event: Event) -> Vec<Effect> {
         match event {
             Event::Input(Input::Reply(reply)) => self.reply(reply),
             Event::Input(Input::Key(Key::Mouse(mouse))) => self.click(mouse),
@@ -617,12 +669,19 @@ impl App {
             }
             Event::Timeout => self.timeout(),
             Event::Installed(result) => self.installed(result),
+            Event::Celled { font, height, cell } => self.celled(&font, height, cell),
             Event::Pictured(result) => self.pictured(result),
+            Event::Detailed {
+                font,
+                height,
+                result,
+            } => self.detailed(font, height, result),
             Event::Summarized {
                 font,
                 height,
                 summary,
             } => {
+                self.drawing = false;
                 self.summary = Some((font, height, summary));
                 Vec::new()
             }
@@ -641,92 +700,6 @@ impl App {
             0 => 0,
             i => SIZES.get(i.saturating_sub(1)).copied().unwrap_or(0),
         }
-    }
-
-    /// The size a font the console cannot switch to is pictured at in the
-    /// fonts view: the size a save names, else vtium.conf's `font-size`,
-    /// else `preview`'s.
-    fn preview_points(&self) -> u32 {
-        self.drafted("font-size")
-            .and_then(|s| s.parse::<u32>().ok())
-            .filter(|s| *s > 0)
-            .unwrap_or(crate::preview::POINTS)
-    }
-
-    /// The specimen for the highlighted size, where the terminal draws
-    /// kitty graphics and the size is not automatic, and for the
-    /// highlighted font where the console cannot be switched to it live
-    /// (D4); otherwise the picture on the screen, if any, is deleted.
-    fn ask_picture(&mut self) -> Vec<Effect> {
-        let font = self.font().map(|f| f.name.clone());
-        let (cols, rows) = super::view::picture_area(self);
-        let (cw, ch) = self.cell_px.unwrap_or(ASSUMED_CELL);
-        let max = (
-            u32::try_from(cols)
-                .unwrap_or(0)
-                .saturating_mul(cw)
-                .min(crate::specimen::PICTURE_MAX.0),
-            u32::try_from(rows)
-                .unwrap_or(0)
-                .saturating_mul(ch)
-                .min(crate::specimen::PICTURE_MAX.1),
-        );
-        let readable = !matches!(self.font().map(|f| &f.state), Some(FontState::Refused(_)));
-        let not_live = matches!(self.live, Live::OpsOff | Live::NotVtium);
-        let points = match self.view {
-            View::Looks => self.size(),
-            View::Fonts if not_live && readable => self.preview_points(),
-            _ => 0,
-        };
-        let height = crate::specimen::pixel_height(points, self.inputs.dpi.0);
-        match (self.graphics, points, font) {
-            (true, 1.., Some(font)) if max.0 > 0 && max.1 > 0 => {
-                vec![Effect::Picture { font, height, max }]
-            }
-            // a terminal that draws no pictures gets a size's summary
-            (false, 1.., Some(font))
-                if self.view == View::Looks
-                    && self
-                        .summary
-                        .as_ref()
-                        .is_none_or(|(f, h, _)| *f != font || *h != height) =>
-            {
-                vec![Effect::Summary { font, height }]
-            }
-            _ => self.drop_picture(),
-        }
-    }
-
-    /// Deletes the picture on the screen, if any.
-    fn drop_picture(&mut self) -> Vec<Effect> {
-        if std::mem::take(&mut self.picture) {
-            vec![Effect::Write(crate::kitty::delete(crate::kitty::IMAGE_ID))]
-        } else {
-            Vec::new()
-        }
-    }
-
-    fn pictured(&mut self, result: Result<crate::specimen::Picture, String>) -> Vec<Effect> {
-        let mut out = self.drop_picture();
-        if !matches!(self.view, View::Looks | View::Fonts) || self.leaving.is_some() {
-            return out;
-        }
-        match result {
-            Ok(p) => {
-                let (row, col) = super::view::picture_at(self);
-                let mut bytes = format!("\x1b[{row};{col}H").into_bytes();
-                bytes.extend(crate::kitty::show(
-                    crate::kitty::IMAGE_ID,
-                    p.width,
-                    p.height,
-                    &p.rgba,
-                ));
-                self.picture = true;
-                out.push(Effect::Write(bytes));
-            }
-            Err(why) => self.message = Some(super::words::no_picture(why)),
-        }
-        out
     }
 
     fn reply(&mut self, reply: Reply) -> Vec<Effect> {
@@ -757,7 +730,14 @@ impl App {
         if let Some(asked) = self.in_flight.take()
             && asked != name
         {
-            self.refused.insert(asked);
+            self.refused.insert(asked.clone());
+            if self.want.as_deref() == Some(asked.as_str()) {
+                self.want = Some(name.clone());
+            }
+            if self.trial.as_ref().is_some_and(|t| t.font == asked) {
+                self.trial = None;
+                self.message = Some(super::words::trial_refused(&asked));
+            }
         }
         self.shown_font = Some(name);
         self.follow()
@@ -778,7 +758,6 @@ impl App {
         if !frits.is_empty() {
             out.push(Effect::Sources(frits));
         }
-        out.extend(self.ask_picture());
         out
     }
 
@@ -817,22 +796,21 @@ impl App {
         }
         match self.leaving {
             Some(status) => vec![Effect::Exit(status)],
-            None => Vec::new(),
+            None => self.tick(),
         }
     }
 
-    /// Sends the highlighted font when no switch is outstanding and the
-    /// console draws another (D4): one switch at a time, naming whatever
-    /// is highlighted when the last reply came.
-    fn follow(&mut self) -> Vec<Effect> {
-        if self.live != Live::On || self.in_flight.is_some() || self.view != View::Fonts {
+    /// Sends the font the console is to draw when no switch is outstanding
+    /// and the console draws another (D4): one switch at a time, naming
+    /// whatever is wanted when the last reply came.
+    pub(crate) fn follow(&mut self) -> Vec<Effect> {
+        if self.live != Live::On || self.in_flight.is_some() {
             return Vec::new();
         }
-        let Some(name) = self.font().map(|f| f.name.clone()) else {
+        let Some(name) = self.want.clone() else {
             return Vec::new();
         };
-        let readable = !matches!(self.font().map(|f| &f.state), Some(FontState::Refused(_)));
-        if self.shown_font.as_deref() == Some(&name) || self.refused.contains(&name) || !readable {
+        if self.shown_font.as_deref() == Some(&name) || self.refused.contains(&name) {
             return Vec::new();
         }
         self.in_flight = Some(name.clone());
@@ -845,6 +823,7 @@ impl App {
         if self.leaving.is_some() {
             return Vec::new();
         }
+        self.trial = None;
         let changed = self.in_flight.is_some() || self.shown_font != self.start_font;
         let mouse = std::mem::take(&mut self.mouse);
         let mut bytes = self
@@ -894,6 +873,9 @@ impl App {
         if self.leaving.is_some() || self.installing {
             return Vec::new();
         }
+        if self.trial.is_some() {
+            return self.trial_key(key);
+        }
         if super::view::too_small(self) {
             return self.small_key(key);
         }
@@ -930,18 +912,12 @@ impl App {
             View::Fonts => self.fonts_key(key),
             View::Looks => {
                 let n = SIZES.len().saturating_add(1);
-                let before = self.size_at;
                 self.size_at = step(self.size_at, n, key);
-                let mut out = if self.size_at == before {
-                    Vec::new()
-                } else {
-                    self.ask_picture()
-                };
                 if key == Key::Enter {
                     let size = self.size().to_string();
-                    out.extend(self.top("font-size", Some(&size)));
+                    return self.top("font-size", Some(&size));
                 }
-                out
+                Vec::new()
             }
             View::Settings => self.settings_key(key),
             View::Help => {
@@ -980,14 +956,8 @@ impl App {
                 if let Some(at) = self.inputs.fonts.iter().position(|f| f.name == start) {
                     self.font_at = at;
                 }
-                if self.live != Live::On
-                    || self.in_flight.is_some()
-                    || self.shown_font.as_deref() == Some(start.as_str())
-                {
-                    return Vec::new();
-                }
-                self.in_flight = Some(start.clone());
-                vec![Effect::Write(switch(&start))]
+                self.want = Some(start);
+                self.follow()
             }
             _ => Vec::new(),
         }
@@ -1189,6 +1159,9 @@ impl App {
     /// second click on the selected item opens it; the wheel moves as Up
     /// and Down do.
     fn click(&mut self, mouse: Mouse) -> Vec<Effect> {
+        if self.trial.is_some() && self.leaving.is_none() && !self.installing {
+            return self.put_back();
+        }
         if self.view != View::Flow
             || self.leaving.is_some()
             || self.installing
@@ -1230,7 +1203,20 @@ impl App {
         if key == Key::Char('n') {
             return self.set_view(View::New);
         }
-        let before = self.font_at;
+        if key == Key::Char('s') {
+            self.detail = !self.detail;
+            return Vec::new();
+        }
+        if key == Key::Char('t') {
+            let name = self
+                .font()
+                .filter(|f| !matches!(f.state, FontState::Refused(_)))
+                .map(|f| f.name.clone());
+            return match name {
+                Some(name) => self.try_live(name),
+                None => Vec::new(),
+            };
+        }
         let n = self.inputs.fonts.len();
         self.font_at = step(self.font_at, n, key);
         let mut out = Vec::new();
@@ -1241,10 +1227,6 @@ impl App {
         {
             let name = font.name.clone();
             out.extend(self.top("font-name", Some(&name)));
-        }
-        out.extend(self.follow());
-        if matches!(self.live, Live::OpsOff | Live::NotVtium) && self.font_at != before {
-            out.extend(self.ask_picture());
         }
         out
     }

@@ -1,5 +1,5 @@
  Flow  Looks  Fonts  Settings  Help               View  Install  Revert  Restore  New  Delete draft
- draft workstation · 1 change · no problems                                        live preview: on
+ draft workstation · 1 change · no problems                                          text · t: live
 ----------------------------------------------------------------------------------------------------
  Flow draws the configuration from the displays to the input devices: each display, the rule that
  sends it to a head, the head and its look, and each input device with the rule that sends its
@@ -11,9 +11,10 @@
  sizes, automatic first, and shows each.
      Enter keep  Tab next  i install  q leave, undo
 
- Fonts lists the frits and the built-in fonts with what each lacks, tries each on a vtium console,
- and makes a new frit with n.
-     Enter keep  n new frit  r remove  Tab next  i install  q leave, undo
+ Fonts lists the frits and the built-in fonts with what each lacks, shows each as a picture of the
+ console or, with s, as a specimen of every character it covers, tries one on a vtium console with
+ t, and makes a new frit with n.
+     Enter keep  t try live  s screen  n new  r remove  i install  q leave, undo
 
  Settings lists every top-level key of vtium.conf, with its value and what it does.
      Enter change  Tab next  i install  q leave, undo
@@ -24,7 +25,6 @@
  In the Flow view, ? opens the route card of the selected item: what it does, and every route from
  a display to an input device that it is part of.
 
- The commands, which work at any size:
 
 ----------------------------------------------------------------------------------------------------
  ←→ Help, About  ↑↓ scroll  Tab next  q leave

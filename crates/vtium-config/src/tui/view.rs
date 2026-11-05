@@ -164,7 +164,10 @@ fn body(app: &App) -> Body {
             Body {
                 list,
                 keep,
-                tail: Vec::new(),
+                tail: app
+                    .preview_line()
+                    .map(|line| tail(&line, cols))
+                    .unwrap_or_default(),
             }
         }
         View::Looks => {
@@ -190,24 +193,9 @@ fn body(app: &App) -> Body {
                 })
                 .collect();
             let (list, keep) = list(&items, app.size_at, 10, cols);
-            let summary = app
-                .summary
-                .as_ref()
-                .filter(|(f, h, _)| {
-                    app.font().is_some_and(|font| font.name == *f)
-                        && *h == crate::specimen::pixel_height(app.size(), app.inputs.dpi.0)
-                })
-                .map(|(_, _, s)| match s {
-                    Ok(s) => words::size_summary(s),
-                    Err(why) => words::no_summary(why),
-                });
-            let sentence = if !app.graphics && app.size() > 0 {
-                match summary {
-                    Some(s) => format!("{} {s}", words::NO_PICTURES),
-                    None => words::NO_PICTURES.to_owned(),
-                }
-            } else if !app.graphics {
-                words::NO_PICTURES.to_owned()
+            let sentence = if !app.graphics {
+                app.preview_line()
+                    .unwrap_or_else(|| words::NO_PICTURES.to_owned())
             } else if app.size() == 0 {
                 words::AUTOMATIC_PICTURE.to_owned()
             } else {
@@ -217,7 +205,10 @@ fn body(app: &App) -> Body {
                     DpiFrom::Edid => words::DPI_FROM_EDID,
                     DpiFrom::Assumed => words::DPI_ASSUMED,
                 };
-                words::density(dpi, from)
+                match app.preview_line() {
+                    Some(line) => format!("{} {line}", words::density(dpi, from)),
+                    None => words::density(dpi, from),
+                }
             };
             let mut list_rows = prose(words::LOOKS_SIZES, cols);
             list_rows.push(plain(""));
@@ -399,12 +390,18 @@ pub fn help_rows(app: &App) -> Vec<Row> {
 /// below the list of fonts, whose notes reach across the screen.
 pub fn picture_at(app: &App) -> (usize, usize) {
     match app.view {
-        View::Fonts => (
-            PICTURE_ROW
-                .saturating_add(body(app).list.len())
-                .saturating_add(1),
-            2,
-        ),
+        View::Fonts => {
+            let body = body(app);
+            (
+                PICTURE_ROW
+                    .saturating_add(body.list.len())
+                    .saturating_add(body.tail.len())
+                    .saturating_add(1),
+                2,
+            )
+        }
+        // in the columns' place, below the base card
+        View::Flow => (FLOW_TOP.saturating_add(1), 2),
         // below the sentence above the sizes and its blank row
         View::Looks => (
             PICTURE_ROW
@@ -417,6 +414,9 @@ pub fn picture_at(app: &App) -> (usize, usize) {
 }
 
 const PICTURE_ROW: usize = 4;
+
+/// The Flow view's first row of columns, from 0.
+const FLOW_TOP: usize = 4;
 const PICTURE_COL: usize = 26;
 
 /// One place in the tab bar: a view's name, or an action's.
@@ -512,7 +512,8 @@ pub fn tab_at(app: &App, col: usize, row: usize) -> Option<View> {
 }
 
 /// The status line, row 1: how the draft stands and, in the Flow view, the
-/// tags; at the right, what live preview is doing.
+/// tags; at the right, how a change is previewed and whether `t` tries
+/// a font live.
 fn status(canvas: &mut Canvas, app: &App) {
     let flow = &app.inputs.flow;
     let mut left = match &flow.draft {
@@ -539,10 +540,21 @@ fn status(canvas: &mut Canvas, app: &App) {
             left = format!("{left} · {}", words::NO_HOTPLUG);
         }
     }
-    let live = match app.live {
-        Live::Asking => words::LIVE_ASKING,
-        Live::On => words::LIVE_ON,
-        Live::OpsOff | Live::NotVtium => words::LIVE_OFF,
+    let live = match (&app.live, app.graphics) {
+        (Live::Asking, _) => words::PREVIEW_ASKING.to_owned(),
+        (live, graphics) => format!(
+            "{} · {}",
+            if graphics {
+                words::PREVIEW_PICTURE
+            } else {
+                words::PREVIEW_TEXT
+            },
+            if *live == Live::On {
+                words::TRIAL_KEY
+            } else {
+                words::TRIAL_NONE
+            }
+        ),
     };
     let room = app
         .cols
@@ -629,6 +641,15 @@ fn key_rows(app: &App) -> Vec<String> {
 /// right edge, and down to the row above the message line, so it never
 /// covers the keys.
 pub fn picture_area(app: &App) -> (usize, usize) {
+    if app.view == View::Flow {
+        // the columns' rows, above the card and the message at its longest
+        let bottom = app
+            .rows
+            .saturating_sub(key_rows(app).len())
+            .saturating_sub(MESSAGE_ROWS)
+            .saturating_sub(flow_card(app).len().saturating_add(1));
+        return (app.cols.saturating_sub(2), bottom.saturating_sub(FLOW_TOP));
+    }
     // the rule, the keys, and the message at its longest
     let footer = 1usize
         .saturating_add(key_rows(app).len())
@@ -646,6 +667,13 @@ pub fn picture_area(app: &App) -> (usize, usize) {
 fn small(canvas: &mut Canvas, app: &App) {
     let cols = app.cols;
     let mut lines: Vec<String> = Vec::new();
+    // the live trial's countdown, and its keys, first
+    if app.trial.is_some()
+        && let Some(message) = &app.message
+    {
+        lines.extend(wrap(message, cols, usize::MAX));
+        lines.push(String::new());
+    }
     lines.extend(wrap(
         &words::too_small(app.cols, app.rows),
         cols,
@@ -682,8 +710,9 @@ fn flow_screen(canvas: &mut Canvas, app: &App) -> Option<super::flowdraw::Drawn>
     let keys = key_rows(app);
     let message = app
         .message
-        .as_deref()
-        .map(|m| wrap(m, cols.saturating_sub(2), MESSAGE_ROWS))
+        .clone()
+        .or_else(|| app.preview_line())
+        .map(|m| wrap(&m, cols.saturating_sub(2), MESSAGE_ROWS))
         .unwrap_or_default();
     let bottom = rows
         .saturating_sub(keys.len())
@@ -725,26 +754,13 @@ fn flow_screen(canvas: &mut Canvas, app: &App) -> Option<super::flowdraw::Drawn>
     };
     let shown = super::canvas::fit(&base_text, cols);
     canvas.put(0, 2, &shown, base_style);
-    let room = if rows >= 30 { 6 } else { 4 };
-    let card = if let Some((kept, at)) = &app.restore {
-        restore_rows(kept, *at, room)
-    } else if app.opened {
-        let mut card = super::flowdraw::card(flow, app.flow_at);
-        let fields = app.fields();
-        if !fields.is_empty() {
-            card.truncate(1);
-            card.extend(field_rows(app, &fields, room));
-        }
-        card
-    } else {
-        Vec::new()
-    };
+    let card = flow_card(app);
     let card_rows = if card.is_empty() {
         0
     } else {
         card.len().saturating_add(1)
     };
-    let top = 4usize;
+    let top = FLOW_TOP;
     let height = bottom.saturating_sub(card_rows).saturating_sub(top);
     let ctx = super::flowdraw::Ctx {
         flow,
@@ -764,6 +780,10 @@ fn flow_screen(canvas: &mut Canvas, app: &App) -> Option<super::flowdraw::Drawn>
     } else {
         (top.saturating_add(3), height.saturating_sub(3))
     };
+    // a picture of the console takes the columns' place (ADR-1201 D4)
+    if app.picture {
+        return None;
+    }
     let drawn = super::flowdraw::draw_columns(
         canvas,
         &ctx,
@@ -788,6 +808,25 @@ fn flow_screen(canvas: &mut Canvas, app: &App) -> Option<super::flowdraw::Drawn>
         }
     }
     Some(drawn)
+}
+
+/// The card below the Flow view's columns: Restore's list, or the opened
+/// item's card with its fields; none while neither is open.
+fn flow_card(app: &App) -> Vec<Vec<(String, Style)>> {
+    let room = if app.rows >= 30 { 6 } else { 4 };
+    if let Some((kept, at)) = &app.restore {
+        restore_rows(kept, *at, room)
+    } else if app.opened {
+        let mut card = super::flowdraw::card(&app.inputs.flow, app.flow_at);
+        let fields = app.fields();
+        if !fields.is_empty() {
+            card.truncate(1);
+            card.extend(field_rows(app, &fields, room));
+        }
+        card
+    } else {
+        Vec::new()
+    }
 }
 
 /// The opened card's fields, at most `room` of them around the cursor:

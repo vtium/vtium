@@ -35,11 +35,10 @@ use std::path::{Component, Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Duration;
 
-use vtium_config::specimen::{Picture, Summary};
 use vtium_config::tui::desk::Done;
 use vtium_config::tui::fixture;
 use vtium_config::tui::model::View;
-use vtium_config::tui::port::{Port, Step, Tools, Tty, Wake, drive};
+use vtium_config::tui::port::{Draw, Port, Step, Tools, Tty, Wake, drive};
 
 /// The variables that name where the TUI keeps and reads the user's files.
 const HOMES: [&str; 5] = [
@@ -278,12 +277,8 @@ impl Port for Figure {
         self.0.cell_px()
     }
 
-    fn picture(&mut self, font: &str, height: u32, max: (u32, u32)) -> Result<Picture, String> {
-        self.0.picture(font, height, max)
-    }
-
-    fn summary(&mut self, font: &str, height: u32) -> Result<Summary, String> {
-        self.0.summary(font, height)
+    fn draw(&mut self, ask: Draw) {
+        self.0.draw(ask);
     }
 
     fn sources(&mut self, fonts: Vec<String>) {
@@ -295,8 +290,10 @@ impl Port for Figure {
 fn figure() -> Result<u8, String> {
     let none = "the demo draws no specimens";
     let tools = Tools {
-        painter: Box::new(move |_, _, _| Err(none.to_owned())),
-        summarizer: Box::new(move |_, _| Err(none.to_owned())),
+        painter: std::sync::Arc::new(move |_| Err(none.to_owned())),
+        measurer: std::sync::Arc::new(move |_, _| Err(none.to_owned())),
+        detailer: std::sync::Arc::new(move |_, _, _, _| Err(none.to_owned())),
+        summarizer: std::sync::Arc::new(move |_, _| Err(none.to_owned())),
         finder: None,
     };
     let tty = Tty::open(tools).map_err(|e| format!("the terminal: {e}"))?;

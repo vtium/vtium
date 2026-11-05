@@ -2,8 +2,9 @@
 //! a full-screen program drawn in the terminal's text cells. Its views are
 //! Flow, which draws the configuration from the displays to the input
 //! devices (ADR-1403 D7), Looks, Fonts, which lists the frits (font set
-//! files) and the built-in fonts and tries each font the user highlights
-//! on the live console through OSC 50, Settings and Help. It installs what
+//! files) and the built-in fonts, Settings and Help. A change the user
+//! highlights is previewed as a picture of the console with it applied,
+//! and `t` tries a font on the live console through OSC 50 ([`shot`]). It installs what
 //! the user keeps through `apply`.
 //!
 //! [`model`] is the state machine, [`view`] its screen, [`flow`] the flow
@@ -26,6 +27,7 @@ mod flowedit;
 pub mod input;
 pub mod model;
 pub mod port;
+pub mod shot;
 pub mod view;
 pub mod words;
 
@@ -252,12 +254,33 @@ pub fn locale() -> String {
         .unwrap_or_default()
 }
 
-/// The TUI's painter: a font's specimen in `locale`, drawn by `helper`,
-/// from the frit in `frits` or the built-in font of that name.
+/// The TUI's painter: a picture of the console in a font, its glyphs in
+/// `locale` drawn by `helper` from the frit in `frits` or the built-in
+/// font of that name (ADR-1201 D4).
 pub fn painter(frits: PathBuf, helper: crate::specimen::Helper, locale: String) -> port::Painter {
-    Box::new(move |font, height, max| {
+    std::sync::Arc::new(move |shot| {
+        let frit = frit_text(&frits, &shot.font)?;
+        crate::specimen::screen(&helper, &frit, shot, &locale)
+    })
+}
+
+/// The TUI's detailer: a font's detailed specimen in `locale`, drawn by
+/// `helper` from the frit in `frits` or the built-in font of that name,
+/// as `preview` draws it (ADR-1201 D4, D9).
+pub fn detailer(frits: PathBuf, helper: crate::specimen::Helper, locale: String) -> port::Detailer {
+    std::sync::Arc::new(move |font, height, max, display| {
         let frit = frit_text(&frits, font)?;
-        crate::specimen::draw(&helper, &frit, height, max, &locale)
+        let sample = crate::specimen::detail(&helper, &frit, height, &locale)?;
+        Ok((sample.detailed(max)?, sample.summary(Some(display))))
+    })
+}
+
+/// The TUI's measurer: a font's cell at a pixel height, as `helper` gives
+/// it, from the frit in `frits` or the built-in font of that name.
+pub fn measurer(frits: PathBuf, helper: crate::specimen::Helper) -> port::Measurer {
+    std::sync::Arc::new(move |font, height| {
+        let frit = frit_text(&frits, font)?;
+        crate::specimen::own_cell(&helper, &frit, height)
     })
 }
 
@@ -270,7 +293,7 @@ pub fn summarizer(
     locale: String,
     display: Option<(u32, u32)>,
 ) -> port::Summarizer {
-    Box::new(move |font, height| {
+    std::sync::Arc::new(move |font, height| {
         let frit = frit_text(&frits, font)?;
         crate::specimen::sample(&helper, &frit, height, &locale).map(|s| s.summary(display))
     })
@@ -346,11 +369,13 @@ pub fn run(
     let mut desk = desk::Store::new(store, paths.clone(), desk::machine(devices));
     let tools = port::Tools {
         painter: painter(inputs.frits.clone(), paths.helper.clone(), locale()),
+        measurer: measurer(inputs.frits.clone(), paths.helper.clone()),
+        detailer: detailer(inputs.frits.clone(), paths.helper.clone(), locale()),
         summarizer: summarizer(
             inputs.frits.clone(),
             paths.helper.clone(),
             locale(),
-            inputs.display,
+            Some(inputs.display.unwrap_or(shot::ASSUMED_DISPLAY)),
         ),
         finder: Some(finder(inputs.frits.clone(), paths.helper.clone())),
     };

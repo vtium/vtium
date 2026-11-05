@@ -82,14 +82,66 @@ fn points_become_pixels_at_the_density() {
     assert_eq!(pixel_height(0, 96), 0);
 }
 
+/// The TUI's measurer and painter, through the real helper, draw a
+/// picture of a screen in the built-in fonts and a frit: the font's cell
+/// at the height, the grid it gives on the display, and the display scaled
+/// down to the room, its shape kept (ADR-1201 D4).
 #[test]
-fn the_painter_draws_the_built_in_fonts_and_a_frit() {
+fn the_painter_draws_a_picture_of_the_console_in_the_built_in_fonts_and_a_frit() {
+    use vtium_config::specimen::Shot;
+    use vtium_config::tui::canvas::Span;
+    use vtium_config::tui::color::Style;
     let frits = Path::new(env!("CARGO_MANIFEST_DIR")).join("frits");
-    let mut paint = vtium_config::tui::painter(frits, helper(), "C".to_owned());
+    let measure = vtium_config::tui::measurer(frits.clone(), helper());
+    let paint = vtium_config::tui::painter(frits, helper(), "C".to_owned());
     for font in ["unifont", "unscii-8", "minspec-16"] {
-        let p = paint(font, 16, PICTURE_MAX).unwrap_or_else(|e| panic!("{font}: {e}"));
-        assert_eq!(p.height, 16 * LINES.len() as u32, "{font}");
+        let (cell, face_height) = measure(font, 16).unwrap_or_else(|e| panic!("{font}: {e}"));
+        let display = (640, 480);
+        let grid = ((640 / cell.width) as usize, (480 / cell.height) as usize);
+        let line = vec![Span {
+            text: "vtium ┌─┐ 0123".to_owned(),
+            style: Style::PLAIN,
+            raw: false,
+        }];
+        let shot = Shot {
+            font: font.to_owned(),
+            height: 16,
+            cell,
+            face_height,
+            display,
+            grid,
+            screen: vec![line; grid.1],
+            palette: "legacy".to_owned(),
+            color: true,
+            max: (320, 300),
+        };
+        let p = paint(&shot).unwrap_or_else(|e| panic!("{font}: {e}"));
+        // 640x480 into 320x300 keeps the display's 4:3: 320x240
+        assert_eq!((p.width, p.height), (320, 240), "{font}");
+        assert_eq!(p.rgba.len(), 320 * 240 * 4);
+        let lit = p.rgba.chunks(4).filter(|px| px[0] > 0x40).count();
+        assert!(lit > 0, "{font}: the text has ink");
     }
+}
+
+/// The detailed specimen through the real helper, as the TUI and
+/// `preview` draw it: a frit's own characters come from the frit, and a
+/// character it lacks does not (ADR-1201 D4, D9).
+#[test]
+fn the_detailed_specimen_marks_what_the_frit_draws_itself() {
+    use vtium_config::specimen::{DETAIL, Origin, detail};
+    let sample =
+        detail(&helper(), &frit("source=builtin:unscii-8\n"), 16, "C").expect("a specimen");
+    let origins = sample.origins();
+    let of = |c: char| origins.iter().find(|(x, _)| *x == c).map(|(_, o)| *o);
+    assert_eq!(of('A'), Some(Origin::Font));
+    // unscii-8 lacks the CJK line, which the built-in fonts draw or nothing
+    // does
+    assert_ne!(of('日'), Some(Origin::Font));
+    // every character of the specimen, each once
+    assert!(origins.len() > 200, "{}", origins.len());
+    let p = sample.detailed(PICTURE_MAX).expect("a picture");
+    assert!(p.height >= 16 * DETAIL.len() as u32 || p.height == PICTURE_MAX.1);
 }
 
 #[test]

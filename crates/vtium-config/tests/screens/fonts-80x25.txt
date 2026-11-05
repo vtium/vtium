@@ -1,5 +1,5 @@
  Flow  Looks  Fonts  Settings  Help       View Install Revert Restore New Delete
- draft workstation · 1 change · no problems                    live preview: on
+ draft workstation · 1 change · no problems                      text · t: live
 --------------------------------------------------------------------------------
    broken     does not read: line 2: unknown key colour
    minspec-16 reads
@@ -8,9 +8,9 @@
  > unifont    built in, installed
    unscii-8   built in
 
-
-
-
+ This terminal draws no pictures, so a change is described in words. At this
+ size the cell is 8x16 pixels, the display holds 80x30 cells, and the font
+ draws 40 of the specimen's 51 characters itself.
 
 
 
@@ -22,4 +22,4 @@
 
 
 --------------------------------------------------------------------------------
- Enter keep  n new frit  r remove  Tab next  i install  q leave, undo
+ Enter keep  t try live  s screen  n new  r remove  i install  q leave, undo

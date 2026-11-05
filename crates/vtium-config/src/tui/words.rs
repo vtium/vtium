@@ -23,15 +23,81 @@ pub const ACTIONS: [(&str, &str); 6] = [
     ("Delete draft", "Delete"),
 ];
 
-/// What live preview is doing, at the right of the first line.
-pub const LIVE_ASKING: &str = "asking the terminal";
-pub const LIVE_ON: &str = "live preview: on";
-pub const LIVE_OFF: &str = "live preview: off";
+/// How the TUI previews a change, and whether the live trial works, at
+/// the right of the status line (ADR-1201 D4).
+pub const PREVIEW_ASKING: &str = "asking the terminal";
+pub const PREVIEW_PICTURE: &str = "picture";
+pub const PREVIEW_TEXT: &str = "text";
+pub const TRIAL_KEY: &str = "t: live";
+pub const TRIAL_NONE: &str = "no live";
 
-/// Why live preview is off, on the message line.
-pub const OPS_OFF: &str = "allow-font-ops is off in this vtium console, so fonts are not tried live. In the Fonts view, o turns it on when you install.";
+/// Why the live trial does not work, on the message line.
+pub const OPS_OFF: &str = "allow-font-ops is off in this vtium console, so t cannot try a font on the console. In the Fonts view, o turns it on when you install.";
 pub const NOT_VTIUM: &str =
-    "This terminal is not a vtium console, so fonts are not tried live. Installing still works.";
+    "This terminal is not a vtium console, so t cannot try a font on it. Installing still works.";
+
+/// The live trial (ADR-1201 D4).
+pub const TRIAL_OFF: &str = "The live trial works only in a vtium console with allow-font-ops on.";
+pub fn trial_countdown(font: impl Display, left: u32) -> String {
+    format!(
+        "Trying {font} on the console for {left} s: press k to keep it, any other key puts the font back."
+    )
+}
+pub fn trial_kept(font: impl Display) -> String {
+    format!(
+        "The console keeps {font} until vtium-config leaves. Enter puts it in the draft, and Install makes it the configured font."
+    )
+}
+pub fn trial_back(font: impl Display) -> String {
+    format!("The console is back in {font}.")
+}
+pub fn trial_same(font: impl Display) -> String {
+    format!("The console already draws {font}.")
+}
+pub fn trial_refused(font: impl Display) -> String {
+    format!("The console refused {font}; see its log.")
+}
+
+/// The line beside the detailed specimen (ADR-1201 D4).
+pub fn detail_caption(
+    font: impl Display,
+    points: u32,
+    summary: Option<&crate::specimen::Summary>,
+    (w, h): (u32, u32),
+    assumed: bool,
+) -> String {
+    let marks = "Grey characters come from the built-in font, and a box marks one nothing draws. s shows the console.";
+    let Some(s) = summary else {
+        return format!("{font} at {points} pt. {marks}");
+    };
+    let display = if assumed {
+        format!("an assumed {w}x{h} display")
+    } else {
+        format!("this {w}x{h} display")
+    };
+    let grid = s
+        .grid
+        .map(|(c, r)| format!(", a grid of {c} by {r} on {display}"))
+        .unwrap_or_default();
+    format!(
+        "{font} at {points} pt: cells of {}x{} pixels{grid}. It draws {} of the specimen's {} characters itself. {marks}",
+        s.cell.width, s.cell.height, s.covered, s.of
+    )
+}
+
+/// The line beside a picture of the console (ADR-1201 D4).
+pub fn caption(c: &super::shot::Caption) -> String {
+    let (w, h) = c.display;
+    let display = if c.assumed {
+        format!("an assumed {w}x{h} display, since none is found,")
+    } else {
+        format!("this {w}x{h} display")
+    };
+    format!(
+        "{} at {} pt on {display} draws cells of {}x{} pixels, a grid of {} columns by {} rows.",
+        c.font, c.points, c.cell.width, c.cell.height, c.grid.0, c.grid.1
+    )
+}
 
 /// A font's state, in the font list.
 pub const READS: &str = "reads";
@@ -80,13 +146,12 @@ pub fn points(n: u32) -> String {
     format!("{n} pt")
 }
 /// A size's line when the terminal draws no pictures.
-pub const NO_PICTURES: &str =
-    "This terminal draws no pictures, so a size shows only once it is installed.";
+pub const NO_PICTURES: &str = "This terminal draws no pictures, so a change is described in words.";
 pub fn density(dpi: u32, from: impl Display) -> String {
     format!("Pictures are drawn at {dpi} dpi, {from}.")
 }
 pub fn no_picture(why: impl Display) -> String {
-    format!("No picture of this size: {why}")
+    format!("No picture of the console: {why}")
 }
 pub fn size_summary(s: &crate::specimen::Summary) -> String {
     let grid = s
@@ -150,7 +215,8 @@ pub fn saved(files: usize) -> String {
 pub const KEYS_FLOW: &str = "Tab ←→ columns  ↑↓ move  Enter open  Space tag  c connect  f follow  d devices  ? route  v view  i install  r revert  o restore  n new  x delete  q leave";
 pub const KEYS_ROUTE: &str = "↑↓ route  Enter open the item  q back to the flow";
 pub const KEYS_LOOKS: &str = "Enter keep  Tab next  i install  q leave, undo";
-pub const KEYS_FONTS: &str = "Enter keep  n new frit  r remove  Tab next  i install  q leave, undo";
+pub const KEYS_FONTS: &str =
+    "Enter keep  t try live  s screen  n new  r remove  i install  q leave, undo";
 pub const KEYS_SETTINGS: &str = "Enter change  Tab next  i install  q leave, undo";
 pub const KEYS_HELP: &str = "←→ Help, About  ↑↓ scroll  Tab next  q leave";
 pub const KEYS_NEW: &str = "type a field  Enter next  Esc back  Ctrl-C leave, undo";
@@ -164,8 +230,7 @@ pub fn too_small(cols: usize, rows: usize) -> String {
 }
 pub const TOO_SMALL_COMMANDS: &str =
     "Make the terminal larger, or use the commands, which work at any size:";
-pub const TOO_SMALL_KEYS: &str =
-    "q leaves. u puts the console's font back when a preview left the grid too small.";
+pub const TOO_SMALL_KEYS: &str = "q leaves. u puts back the console's font from when vtium-config started, when a font it tried left the grid too small.";
 
 /// The status line (ADR-1403 D7).
 pub const NO_DRAFT: &str = "no draft";
@@ -563,7 +628,7 @@ pub const HELP_VIEWS: [(&str, &str, &str); 5] = [
     ),
     (
         FONTS,
-        "lists the frits and the built-in fonts with what each lacks, tries each on a vtium console, and makes a new frit with n.",
+        "lists the frits and the built-in fonts with what each lacks, shows each as a picture of the console or, with s, as a specimen of every character it covers, tries one on a vtium console with t, and makes a new frit with n.",
         KEYS_FONTS,
     ),
     (
@@ -743,7 +808,7 @@ pub fn came_went(came: &[String], went: &[String]) -> String {
         (None, None) => "the devices are as they were".to_owned(),
     }
 }
-pub const KEYS_CARD: &str = "↑↓ field  ←→ pick  Enter choose  Esc close  q leave";
+pub const KEYS_CARD: &str = "↑↓ field  ←→ pick  Enter choose  t try live  Esc close  q leave";
 pub const KEYS_TYPING: &str = "type the value  Enter keep  Esc drop";
 pub const KEYS_CONFIRM: &str = "y yes  any other key no";
 pub const KEYS_PAGER: &str =

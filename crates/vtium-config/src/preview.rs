@@ -1,8 +1,10 @@
-//! `preview FONT...` (ADR-1201 D9): each font's specimen drawn by the
-//! glyph helper under its own sandbox, the picture renderer the TUI shows
-//! sizes with, and printed as a picture through kitty graphics' raw pixels
-//! where the terminal answers the graphics query, or as a text summary
-//! otherwise. It writes nothing but its output.
+//! `preview FONT...` (ADR-1201 D9): each font's detailed specimen, the
+//! one the TUI's Fonts view shows (ADR-1201 D4), drawn by the glyph helper
+//! under its own sandbox, and printed as a picture through kitty graphics'
+//! raw pixels where the terminal answers the graphics query, or as a text
+//! summary otherwise. The picture marks what the font itself draws, what
+//! the built-in font draws for it, and what neither draws. It writes
+//! nothing but its output.
 //!
 //! A FONT is a frit's name, a built-in font's, or any source a frit's
 //! `source=` takes, a family alone being `font:FAMILY`, as `new` takes it.
@@ -138,7 +140,7 @@ pub fn command(words: &[String], paths: &Paths, out: &mut dyn Write, err: &mut d
     let mut status = 0;
     for (n, font) in fonts.iter().enumerate() {
         let sample = frit_for(paths, font)
-            .and_then(|frit| crate::specimen::sample(&paths.helper, &frit, height, &locale));
+            .and_then(|frit| crate::specimen::detail(&paths.helper, &frit, height, &locale));
         let sample: Sample = match sample {
             Ok(sample) => sample,
             Err(why) => {
@@ -150,7 +152,7 @@ pub fn command(words: &[String], paths: &Paths, out: &mut dyn Write, err: &mut d
         let summary = sample.summary(display);
         let _ = writeln!(out, "{font}\t{points} pt\t{}", summary_text(&summary));
         if pictures {
-            match sample.picture(PICTURE_MAX) {
+            match sample.detailed(PICTURE_MAX) {
                 Ok(p) => {
                     let id = IMAGE_BASE.saturating_add(u32::try_from(n).unwrap_or(0));
                     let _ = out.write_all(&crate::kitty::print(id, p.width, p.height, &p.rgba));
