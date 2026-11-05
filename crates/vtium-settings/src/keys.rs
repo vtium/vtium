@@ -131,10 +131,10 @@ pub enum Kind {
     },
     /// Text of at most [`TEXT_MAX`] bytes with no control character.
     Text,
-    /// An absolute path: text of at most [`TEXT_MAX`] bytes with no
-    /// control character that starts with `/`. vtium reads the path the
-    /// same way whatever directory it was started in, which is `/` under
-    /// a systemd unit and anywhere else otherwise, so it refuses a
+    /// An absolute path: text that starts with `/`, of at most
+    /// [`TEXT_MAX`] bytes, with no control character. vtium reads the path
+    /// the same way whatever directory it was started in, which is `/`
+    /// under a systemd unit and anywhere else otherwise, so it refuses a
     /// relative path and an empty one ([`NOT_ABSOLUTE`]).
     Path,
     /// One of a fixed set of words.
