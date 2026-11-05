@@ -112,5 +112,5 @@
 <rect x="114" y="565" width="126" height="18" fill="#e5e5e5"/>
 <text x="118" y="578" fill="#000000">class:keyboard</text>
 <text x="252" y="578" fill="#e5e5e5">path:pci-0000:15:00.0-usb-0:3.3   id:046d:c31c   or type a selector</text>
-<text x="36" y="616" fill="#7f7f7f">Tab next component   arrows move   Enter pick   click selects   d read devices again   s save, checked first   q leave</text>
+<text x="36" y="616" fill="#7f7f7f">Tab next component   arrows move   Enter pick   Space tag   c connect   d read devices again   s save, checked   q leave</text>
 </svg>
