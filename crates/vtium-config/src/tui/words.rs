@@ -696,9 +696,20 @@ pub fn install_stale(installed: &std::path::Path) -> String {
     )
 }
 pub const NOTHING_TO_INSTALL: &str = "The draft is the installed file; nothing to install.";
-pub fn install_question(added: usize, removed: usize) -> String {
-    format!("Install the working copy? {}.", lines(added, removed))
+pub fn install_question(added: usize, removed: usize, frits: usize) -> String {
+    match frits {
+        0 => format!("Install the working copy? {}.", lines(added, removed)),
+        1 => format!(
+            "Install the working copy? {}, and 1 frit.",
+            lines(added, removed)
+        ),
+        n => format!(
+            "Install the working copy? {}, and {n} frits.",
+            lines(added, removed)
+        ),
+    }
 }
+pub const NOT_PREPARED: &str = "Install has nothing ready; press i again.";
 pub fn install_failed(why: &str) -> String {
     format!("Nothing is installed: {why}")
 }

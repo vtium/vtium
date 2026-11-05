@@ -497,43 +497,6 @@ fn the_owners_a_draft_may_have_are_root_and_the_user_sudo_ran_for() {
 }
 
 #[test]
-fn the_save_view_shows_the_command_the_save_runs() {
-    use vtium_config::tui::model::Saving;
-    use vtium_config::tui::{Paths, saving};
-    let exe = std::env::current_exe().expect("this test's path");
-    let system = Targets::system();
-    let paths = Paths {
-        configdir: system.configdir.clone(),
-        frits: system.frits.clone(),
-        drafts: PathBuf::from("/home/me/drafts"),
-        sudo: "sudo".into(),
-        vtium: system.vtium.clone(),
-        helper: vtium_config::specimen::Helper::at(&exe),
-        sys: PathBuf::from("/sys"),
-    };
-    assert_eq!(
-        saving(&paths),
-        Saving::Sudo(format!("sudo {} apply DRAFT", exe.display()))
-    );
-    let f = fixture("shown", None);
-    let mine = Paths {
-        configdir: f.targets.configdir.clone(),
-        frits: f.targets.frits.clone(),
-        drafts: PathBuf::from("/home/me/drafts"),
-        sudo: "sudo".into(),
-        vtium: f.targets.vtium.clone(),
-        helper: vtium_config::specimen::Helper::at(&exe),
-        sys: PathBuf::from("/sys"),
-    };
-    let want = save_argv(&Route::User, &exe, &f.targets, Path::new("DRAFT"))
-        .iter()
-        .map(|a| a.to_string_lossy().into_owned())
-        .collect::<Vec<_>>()
-        .join(" ");
-    assert_eq!(saving(&mine), Saving::User(want));
-}
-
-#[test]
 fn the_user_a_draft_belongs_to_comes_from_sudo_pkexec_or_doas() {
     let env = |pairs: &'static [(&'static str, &'static str)]| {
         move |k: &str| {

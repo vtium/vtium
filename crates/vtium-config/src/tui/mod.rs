@@ -176,25 +176,6 @@ pub fn installed(dir: &Path) -> std::collections::BTreeMap<String, Vec<u8>> {
     out
 }
 
-/// How a save from `paths` is installed, with the command it runs, built
-/// by the function that builds the command the save runs.
-pub fn saving(paths: &Paths) -> model::Saving {
-    let targets = paths.targets();
-    let route = crate::apply::route(&targets, &paths.sudo);
-    let program = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("vtium-config"));
-    let shown = |argv: Vec<OsString>| {
-        argv.iter()
-            .map(|a| a.to_string_lossy().into_owned())
-            .collect::<Vec<_>>()
-            .join(" ")
-    };
-    let argv = crate::apply::save_argv(&route, &program, &targets, Path::new(model::DRAFT));
-    match route {
-        crate::apply::Route::Sudo(_) => model::Saving::Sudo(shown(argv)),
-        crate::apply::Route::User => model::Saving::User(shown(argv)),
-    }
-}
-
 /// The density pictures are drawn at, in ADR-1200 D17's order:
 /// vtium.conf's `display-dpi` where it is set within the bounds the
 /// console believes; else the density of the first of `displays` whose
@@ -226,8 +207,6 @@ pub fn gather(paths: &Paths, view: model::View) -> Result<Inputs, String> {
         fonts: fonts(&frits),
         conf_path,
         conf,
-        saving: saving(paths),
-        drafts: paths.drafts.clone(),
         dpi,
         installed: installed(&frits),
         frits,
@@ -333,24 +312,9 @@ pub fn finder(frits: PathBuf, helper: crate::specimen::Helper) -> port::Finder {
     Box::new(move |names| find_sources(&frits, &helper, &names))
 }
 
-/// Opens the TUI on the terminal at `view` and runs it until the user
-/// leaves, reading the devices present from the system's sysfs and udev
-/// database; returns the exit status.
-pub fn run(paths: &Paths, view: model::View, err: &mut dyn std::io::Write) -> u8 {
-    let system = vtium_platform::listing::Roots::system();
-    let devices = crate::flowcli::Devices {
-        roots: vtium_platform::listing::Roots {
-            sys: paths.sys.clone(),
-            udev_data: system.udev_data,
-        },
-        control: PathBuf::from(vtium_devices::UDEV_CONTROL),
-    };
-    run_at(paths, devices, view, err)
-}
-
 /// Opens the TUI on the terminal at `view`, the devices present read from
 /// `devices`, and runs it until the user leaves; returns the exit status.
-pub fn run_at(
+pub fn run(
     paths: &Paths,
     devices: crate::flowcli::Devices,
     view: model::View,
@@ -380,7 +344,6 @@ pub fn run_at(
         }
     };
     let mut desk = desk::Store::new(store, paths.clone(), desk::machine(devices));
-    let saver = crate::apply::saver(paths.clone());
     let tools = port::Tools {
         painter: painter(inputs.frits.clone(), paths.helper.clone(), locale()),
         summarizer: summarizer(
@@ -391,7 +354,7 @@ pub fn run_at(
         ),
         finder: Some(finder(inputs.frits.clone(), paths.helper.clone())),
     };
-    let mut tty = match port::Tty::open(saver, tools) {
+    let mut tty = match port::Tty::open(tools) {
         Ok(tty) => tty,
         Err(e) => {
             let _ = writeln!(err, "vtium-config: the terminal: {e}");

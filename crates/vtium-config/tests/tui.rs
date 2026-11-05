@@ -20,11 +20,12 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use vtium_config::draft::Plan;
 use vtium_config::kitty;
 use vtium_config::serve::LeftOut;
 use vtium_config::specimen::{Picture, Sources, Summary};
+use vtium_config::tui::desk::Done;
 use vtium_config::tui::model::{self, DpiFrom, Font, FontState, Inputs};
+use vtium_config::tui::port::Step;
 use vtium_config::tui::port::{Port, Wake, drive};
 use vtium_font::Cell;
 use vtium_term::Glyph;
@@ -54,8 +55,10 @@ struct Console {
     /// ("refuse NAME") as the TUI wrote it, and each reply ("reply NAME")
     /// as the TUI read it, in order.
     log: Vec<String>,
-    saves: Vec<Plan>,
-    save_result: Result<usize, String>,
+    /// Each command the privileged step ran, as its runner was handed it.
+    saves: Vec<Vec<std::ffi::OsString>>,
+    /// The privileged step's command fails, saying this.
+    save_result: Result<(), String>,
     panic_bytes: Vec<u8>,
     /// The screen when the script ran out, after which the console sends
     /// SIGTERM.
@@ -102,7 +105,7 @@ impl Console {
             written: Vec::new(),
             log: Vec::new(),
             saves: Vec::new(),
-            save_result: Ok(1),
+            save_result: Ok(()),
             panic_bytes: Vec::new(),
             seen: None,
             graphics: false,
@@ -251,14 +254,31 @@ impl Port for Console {
         Ok(vec![Wake::Signal(15)])
     }
 
-    fn save(&mut self, plan: &Plan) -> Result<usize, String> {
-        self.saves.push(plan.clone());
-        if self.installs && self.save_result.is_ok() {
-            for f in &plan.files {
-                std::fs::write(&f.path, &f.new).expect("the installed file");
+    /// Runs the privileged step with a runner that records each command
+    /// and, with `installs`, runs it: this crate's own binary in place of
+    /// the test's, so `apply DIR` installs into the fixture's directories
+    /// as it does for a user.
+    fn privileged(&mut self, step: Step<'_>) -> Result<Done, String> {
+        let installs = self.installs;
+        let failing = self.save_result.clone();
+        let saves = &mut self.saves;
+        let mut run = |argv: &[std::ffi::OsString]| -> io::Result<(bool, String)> {
+            saves.push(argv.to_vec());
+            if let Err(said) = &failing {
+                return Ok((false, said.clone()));
             }
-        }
-        self.save_result.clone()
+            if !installs {
+                return Ok((true, String::new()));
+            }
+            let (_, args) = argv.split_first().expect("a command");
+            let out = std::process::Command::new(env!("CARGO_BIN_EXE_vtium-config"))
+                .args(args)
+                .output()?;
+            let mut said = String::from_utf8_lossy(&out.stdout).into_owned();
+            said.push_str(&String::from_utf8_lossy(&out.stderr));
+            Ok((out.status.success(), said))
+        };
+        step(&mut run)
     }
 
     fn on_panic(&mut self, bytes: Vec<u8>) {
@@ -349,8 +369,6 @@ fn inputs() -> Inputs {
         ],
         conf_path: PathBuf::from("/etc/vtium/vtium.conf"),
         conf: Some(format!("# mine\nfont-name=unifont\n{SECTIONS}")),
-        saving: model::Saving::Sudo("sudo /usr/bin/vtium-config apply DRAFT".into()),
-        drafts: PathBuf::from("/home/me/.local/state/vtium/drafts"),
         dpi: (96, DpiFrom::Assumed),
         frits: PathBuf::from("/etc/vtium/fonts"),
         view: model::View::Fonts,
@@ -385,6 +403,86 @@ fn console() -> Console {
 
 fn run(console: &mut Console) -> u8 {
     drive(console, inputs()).expect("the loop")
+}
+
+/// A desk standing in for the store in the tests of the views beside the
+/// flow: its draft starts as the fixture's vtium.conf, its check passes,
+/// and it keeps each plan it installs. It hands the console's runner the
+/// command an install runs, so the console decides whether the
+/// privileged step succeeds.
+struct Desk {
+    installed: String,
+    draft: String,
+    plans: Vec<vtium_config::draft::Plan>,
+}
+
+fn desk() -> Desk {
+    let conf = inputs().conf.expect("the fixture's vtium.conf");
+    Desk {
+        installed: conf.clone(),
+        draft: conf,
+        plans: Vec::new(),
+    }
+}
+
+impl Desk {
+    fn opened(&self) -> vtium_config::tui::desk::Opened {
+        let (added, removed) = vtium_config::drafts::counts(&self.installed, &self.draft);
+        vtium_config::tui::desk::Opened {
+            name: "mine".into(),
+            text: self.draft.clone(),
+            added,
+            removed,
+            ..Default::default()
+        }
+    }
+}
+
+impl vtium_config::tui::desk::Desk for Desk {
+    fn run(&mut self, op: &vtium_config::tui::desk::Op) -> Result<Done, String> {
+        use vtium_config::tui::desk::Op;
+        match op {
+            Op::Open => Ok(Done::Draft(self.opened(), Some(Default::default()))),
+            Op::Write(text) => {
+                self.draft.clone_from(text);
+                Ok(Done::Draft(self.opened(), None))
+            }
+            Op::Prepare if self.draft == self.installed => Ok(Done::Plan(Default::default())),
+            Op::Prepare => Ok(Done::Plan(vtium_config::draft::Plan {
+                files: vec![vtium_config::draft::FileEdit {
+                    path: PathBuf::from("/etc/vtium/vtium.conf"),
+                    old: Some(self.installed.clone()),
+                    new: self.draft.clone(),
+                }],
+                removals: Vec::new(),
+            })),
+            Op::Devices => Ok(Done::Present(Default::default())),
+            other => Err(format!("{other:?} is not in these tests")),
+        }
+    }
+
+    fn install(
+        &mut self,
+        plan: &vtium_config::draft::Plan,
+        run: vtium_config::apply::Runner<'_>,
+    ) -> Result<Done, String> {
+        self.plans.push(plan.clone());
+        let argv: Vec<std::ffi::OsString> = ["sudo", "vtium-config", "apply", "DRAFT"]
+            .iter()
+            .map(Into::into)
+            .collect();
+        let (ok, said) = run(&argv).map_err(|e| e.to_string())?;
+        if !ok {
+            return Err(said);
+        }
+        self.installed.clone_from(&self.draft);
+        Ok(Done::Draft(self.opened(), None))
+    }
+}
+
+/// Runs the TUI on `console` with the stand-in desk `d`.
+fn run_desk(console: &mut Console, d: &mut Desk) -> u8 {
+    vtium_config::tui::port::drive_with(console, inputs(), Some(d)).expect("the loop")
 }
 
 #[test]
@@ -521,10 +619,11 @@ fn with_font_operations_off_the_tui_says_so_and_offers_the_key() {
 }
 
 #[test]
-fn turning_font_operations_on_is_a_change_saved_like_any_other() {
-    let mut c = Console::vtium(80, 25, false, "unifont").keys(&[b"o", b"i", b"\r", b"q"]);
-    assert_eq!(run(&mut c), 0);
-    let plan = c.saves.first().expect("a save");
+fn turning_font_operations_on_is_a_change_installed_like_any_other() {
+    let mut d = desk();
+    let mut c = Console::vtium(80, 25, false, "unifont").keys(&[b"o", b"i", b"y", b"q"]);
+    assert_eq!(run_desk(&mut c, &mut d), 0);
+    let plan = d.plans.first().expect("an install");
     assert_eq!(plan.files.len(), 1);
     assert!(
         plan.files[0].new.contains("\nallow-font-ops\n"),
@@ -571,48 +670,52 @@ fn a_grid_too_small_draws_the_way_out() {
 }
 
 #[test]
-fn keeping_a_font_and_a_size_shows_each_changed_line_before_saving() {
+fn keeping_a_font_and_a_size_writes_each_into_the_draft_and_install_counts_them() {
+    let mut d = desk();
     let mut c = console().keys(&[
         UP, b"\r", BACKTAB, DOWN, DOWN, DOWN, DOWN, DOWN, DOWN, DOWN, b"\r", b"i",
     ]);
-    run(&mut c);
-    let screen = c.seen.clone().expect("the screen");
-    assert!(screen.contains("/etc/vtium/vtium.conf"), "{screen}");
-    assert!(screen.contains("2 - font-name=unifont"), "{screen}");
-    assert!(screen.contains("2 + font-name=tiny5"), "{screen}");
+    run_desk(&mut c, &mut d);
     // the top level's last line is `version = 1`, so the new key follows it
-    assert!(screen.contains("4 + font-size=12"), "{screen}");
+    assert_eq!(
+        d.draft,
+        format!("# mine\nfont-name=tiny5\n{SECTIONS}")
+            .replace("version = 1\n", "version = 1\nfont-size=12\n")
+    );
+    let screen = c.seen.clone().expect("the screen");
     assert!(
-        screen.contains("sudo /usr/bin/vtium-config apply DRAFT"),
+        screen.contains("Install the working copy? 2 lines added, 1 removed."),
         "{screen}"
     );
+    assert!(d.plans.is_empty());
 }
 
 #[test]
-fn saving_runs_one_save_and_the_console_keeps_the_saved_font() {
-    let mut c = console().keys(&[UP, b"\r", b"i", b"\r", b"q"]);
-    assert_eq!(run(&mut c), 0);
+fn installing_runs_one_install_and_the_console_keeps_the_installed_font() {
+    let mut d = desk();
+    let mut c = console().keys(&[UP, b"\r", b"i", b"y", b"q"]);
+    assert_eq!(run_desk(&mut c, &mut d), 0);
+    assert_eq!(d.plans.len(), 1);
     assert_eq!(c.saves.len(), 1);
-    let file = &c.saves[0].files[0];
+    let file = &d.plans[0].files[0];
     assert_eq!(file.new, format!("# mine\nfont-name=tiny5\n{SECTIONS}"));
-    // after saving, leaving does not switch back
+    // after installing, leaving does not switch back
     assert_eq!(c.switches(), ["tiny5"]);
 }
 
 #[test]
-fn a_failed_save_keeps_what_was_chosen_and_says_why() {
-    let mut c = console().keys(&[UP, b"\r", b"i", b"\r"]);
+fn a_failed_install_keeps_the_draft_and_says_why() {
+    let mut d = desk();
+    let mut c = console().keys(&[UP, b"\r", b"i", b"y"]);
     c.save_result = Err("sudo: a password is required".into());
-    run(&mut c);
+    run_desk(&mut c, &mut d);
     let screen = c.seen.clone().expect("the screen");
     assert!(
-        screen.contains("Nothing was installed: sudo: a password is required"),
+        screen.contains("Nothing is installed: sudo: a password is required"),
         "{screen}"
     );
-    assert!(
-        screen.contains("+ font-name=tiny5"),
-        "still in the save view: {screen}"
-    );
+    assert!(d.draft.contains("font-name=tiny5"), "{}", d.draft);
+    assert_eq!(d.installed, inputs().conf.expect("the fixture"));
 }
 
 /// The settings view lists every key vtium.conf takes, from the console's
@@ -646,16 +749,19 @@ fn a_setting_shows_its_default_and_what_it_does() {
 /// Enter types a value for a key that takes one, a second Enter keeps it,
 /// a switch turns, a choice steps, and the save changes each line; typed
 /// text takes `q` and `i` as letters.
+/// Enter types a value for a key that takes one, a second Enter keeps it,
+/// a switch turns and a choice steps, each written into the draft at
+/// once; typed text takes `q` and `i` as letters.
 #[test]
-fn a_typed_value_a_switch_and_a_choice_are_saved_like_a_font() {
+fn a_typed_value_a_switch_and_a_choice_go_into_the_draft() {
+    let mut d = desk();
     let mut c = console().keys(&[
         b"\t", DOWN, DOWN, DOWN, b"\r", DOWN, b"\r", b"10", b"\r", DOWN, b"\r", DOWN, b"\r", b"qi",
-        b"\r", b"i", b"\r", b"q",
+        b"\r", b"q",
     ]);
-    assert_eq!(run(&mut c), 0);
-    let plan = c.saves.first().expect("a save");
+    assert_eq!(run_desk(&mut c, &mut d), 0);
     assert_eq!(
-        plan.files[0].new,
+        d.draft,
         // a new key goes after the last line of the top level, never into a
         // section (ADR-1403 D8)
         "# mine\nfont-name=unifont\nversion = 1\nfont-hinting=light\nfont-line-spacing=10\nno-allow-font-ops\ndisplay-dpi=qi\n[look proof]\nfont-name = proof\n[head desk]\nlook = proof\n[head panel]\n[rules]\ndisplay * -> desk\n"
@@ -663,7 +769,7 @@ fn a_typed_value_a_switch_and_a_choice_are_saved_like_a_font() {
 }
 
 #[test]
-fn a_new_frit_is_typed_in_its_view_and_saved_into_the_frits() {
+fn a_new_frit_is_typed_in_its_view_and_installed_into_the_frits() {
     let mut c = console().keys(&[
         b"n",
         b"quiet",
@@ -676,11 +782,13 @@ fn a_new_frit_is_typed_in_its_view_and_saved_into_the_frits() {
         b"\r",
         b"\r",
         b"\r",
-        b"\r",
+        b"i",
+        b"y",
         b"q",
     ]);
-    assert_eq!(run(&mut c), 0);
-    let plan = c.saves.first().expect("a save");
+    let mut d = desk();
+    assert_eq!(run_desk(&mut c, &mut d), 0);
+    let plan = d.plans.first().expect("an install");
     assert_eq!(plan.files.len(), 1);
     assert_eq!(
         plan.files[0].path,
@@ -700,12 +808,13 @@ fn a_new_frit_replaces_the_installed_one_of_its_name() {
     let to_new = [b"n".as_slice()];
     let mut keys: Vec<&[u8]> = to_new.to_vec();
     keys.extend([b"proof".as_slice(), b"\r", b"builtin:unifont"]);
-    // five fields to the add row, the add, and the save
-    keys.extend([b"\r".as_slice(); 7]);
-    keys.push(b"q");
+    // five fields to the add row, the add, and the install
+    keys.extend([b"\r".as_slice(); 6]);
+    keys.extend([b"i".as_slice(), b"y", b"q"]);
     let mut c = console().keys(&keys);
-    run(&mut c);
-    let plan = c.saves.first().expect("a save");
+    let mut d = desk();
+    run_desk(&mut c, &mut d);
+    let plan = d.plans.first().expect("an install");
     assert_eq!(
         plan.files[0].path,
         PathBuf::from("/etc/vtium/fonts/proof.vtfrit")
@@ -718,31 +827,37 @@ fn a_new_frit_replaces_the_installed_one_of_its_name() {
     keys.extend([b"latin1".as_slice(), b"\r", b"builtin:unifont"]);
     keys.extend([b"\r".as_slice(); 6]);
     let mut c = console().keys(&keys);
-    run(&mut c);
+    let mut d = desk();
+    run_desk(&mut c, &mut d);
     let screen = c.seen.clone().expect("the screen");
     let text = screen.split_whitespace().collect::<Vec<_>>().join(" ");
     assert!(
         text.contains("the installed latin1.vtfrit is not UTF-8 text"),
         "{screen}"
     );
-    assert!(c.saves.is_empty());
+    assert!(d.plans.is_empty());
 }
 
 /// `r` in the fonts view removes the highlighted frit when the user
 /// saves: the font list marks it, the save view lists its file, and the
 /// save's plan removes it with the bytes the TUI read at start, as
 /// `remove-frit`'s draft does. A second `r` keeps it.
+/// `r` in the fonts view removes the highlighted frit at the next
+/// install: the font list marks it, and the install's plan removes it with
+/// the bytes the TUI read at start, as `remove-frit`'s draft does. A
+/// second `r` keeps it.
 #[test]
-fn r_removes_the_highlighted_frit_when_the_user_saves() {
+fn r_removes_the_highlighted_frit_at_the_next_install() {
     // unifont is highlighted at start; Up reaches tiny5
     let mut c = console().keys(&[UP, b"r", b"i"]);
-    run(&mut c);
+    let mut d = desk();
+    run_desk(&mut c, &mut d);
     let screen = c.seen.clone().expect("the screen");
-    assert!(screen.contains("/etc/vtium/fonts/tiny5.vtfrit"), "{screen}");
-    assert!(screen.contains("tiny5.vtfrit.bak"), "{screen}");
-    let mut c = console().keys(&[UP, b"r", b"i", b"\r", b"q"]);
-    assert_eq!(run(&mut c), 0);
-    let plan = c.saves.first().expect("a save");
+    assert!(screen.contains("and 1 frit"), "{screen}");
+    let mut c = console().keys(&[UP, b"r", b"i", b"y", b"q"]);
+    let mut d = desk();
+    assert_eq!(run_desk(&mut c, &mut d), 0);
+    let plan = d.plans.first().expect("an install");
     assert!(plan.files.is_empty(), "{plan:?}");
     assert_eq!(
         plan.removals,
@@ -753,12 +868,13 @@ fn r_removes_the_highlighted_frit_when_the_user_saves() {
     );
     // marked in the list, and kept by a second r
     let mut c = console().keys(&[UP, b"r"]);
-    run(&mut c);
+    run_desk(&mut c, &mut desk());
     let screen = c.seen.clone().expect("the screen");
     assert!(screen.contains("to remove"), "{screen}");
-    let mut c = console().keys(&[UP, b"r", b"r", b"i", b"\r", b"q"]);
-    run(&mut c);
-    assert!(c.saves.is_empty());
+    let mut c = console().keys(&[UP, b"r", b"r", b"i", b"y", b"q"]);
+    let mut d = desk();
+    run_desk(&mut c, &mut d);
+    assert!(d.plans.is_empty());
 }
 
 /// The remove key refuses what `remove-frit` refuses, saying why, and
@@ -776,62 +892,78 @@ fn r_refuses_what_remove_frit_refuses() {
         (vec![UP, UP, UP, b"\r", b"r"], "font-name"),
     ] {
         let mut all = keys.clone();
-        all.extend([b"i".as_slice(), b"\r", b"q"]);
+        all.extend([b"i".as_slice(), b"y", b"q"]);
         let mut c = console().keys(&keys);
-        run(&mut c);
+        run_desk(&mut c, &mut desk());
         let screen = c.seen.clone().expect("the screen");
         let text = screen.split_whitespace().collect::<Vec<_>>().join(" ");
         assert!(text.contains("Not removed:"), "{says}: {screen}");
         assert!(text.contains(says), "{says}: {screen}");
         let mut c = console().keys(&all);
-        run(&mut c);
+        let mut d = desk();
+        run_desk(&mut c, &mut d);
         assert!(
-            c.saves.iter().all(|p| p.removals.is_empty()),
+            d.plans.iter().all(|p| p.removals.is_empty()),
             "{says}: {:?}",
-            c.saves
+            d.plans
         );
     }
     // a frit marked for removal and then kept as font-name is not removed:
     // the save says why and saves nothing
-    let mut c = console().keys(&[UP, b"r", b"\r", b"i", b"\r", b"q"]);
-    run(&mut c);
-    assert!(c.saves.is_empty(), "{:?}", c.saves);
+    let mut c = console().keys(&[UP, b"r", b"\r", b"i", b"y", b"q"]);
+    let mut d = desk();
+    run_desk(&mut c, &mut d);
+    assert!(d.plans.is_empty(), "{:?}", d.plans);
 }
 
 /// A save that changes font-frits and also writes or removes a frit is
 /// refused: the frits would go to the directory font-frits named before
 /// the save, so the user saves the new directory first. A save that
 /// changes only one of the two is planned.
+/// An install that moves font-frits and also writes or removes a frit is
+/// refused: the frits would go to the directory font-frits named before,
+/// so the user installs the new directory first. An install that changes
+/// only one of the two is planned.
 #[test]
-fn a_save_that_moves_the_frits_and_changes_a_frit_is_refused() {
-    use vtium_config::tui::model::{App, Change};
+fn an_install_that_moves_the_frits_and_changes_a_frit_is_refused() {
+    use vtium_config::tui::desk::Opened;
+    use vtium_config::tui::model::App;
+    let conf = inputs().conf.expect("the fixture");
+    let drafted = |text: &str| Opened {
+        name: "mine".into(),
+        text: text.to_owned(),
+        ..Opened::default()
+    };
+    let moved = conf.replace(
+        "font-name=unifont\n",
+        "font-name=unifont\nfont-frits=/srv/frits\n",
+    );
     let (mut app, _) = App::new(inputs(), 80, 25);
-    app.pending
-        .set("font-frits", Change::Set("/srv/frits".to_owned()));
-    assert!(app.plan().is_ok());
+    app.draft = Some(drafted(&moved));
+    assert!(app.frit_plan().is_ok());
     app.pending.removals.push("tiny5".to_owned());
-    let why = app.plan().expect_err("a removal and a new directory");
+    let why = app.frit_plan().expect_err("a removal and a new directory");
     assert!(why.contains("font-frits"), "{why}");
     app.pending.removals.clear();
     app.pending
         .frits
         .push(("made".to_owned(), "source=builtin:unifont\n".to_owned()));
-    let why = app.plan().expect_err("a new frit and a new directory");
+    let why = app.frit_plan().expect_err("a new frit and a new directory");
     assert!(why.contains("font-frits"), "{why}");
-    // a save that leaves font-frits alone is no move
+    // a draft that leaves font-frits alone is no move
     let (mut app, _) = App::new(inputs(), 80, 25);
+    app.draft = Some(drafted(
+        &conf.replace("font-name=unifont", "font-name=proof"),
+    ));
     app.pending.removals.push("tiny5".to_owned());
-    app.pending
-        .set("font-name", Change::Set("proof".to_owned()));
-    assert!(app.plan().is_ok());
-    // nor is one that sets it to the value vtium.conf already names
+    assert!(app.frit_plan().is_ok());
+    // nor is one that names the directory the installed file names
     let mut named = inputs();
-    named.conf = Some("# mine\nfont-name=unifont\nfont-frits=/srv/frits\n".into());
+    named.conf = Some(moved.clone());
     let (mut app, _) = App::new(named, 80, 25);
-    app.pending
-        .set("font-frits", Change::Set("/srv/frits".to_owned()));
+    app.draft = Some(drafted(&moved));
     app.pending.removals.push("tiny5".to_owned());
-    assert!(app.plan().is_ok(), "{:?}", app.plan());
+    assert!(app.frit_plan().is_ok(), "{:?}", app.frit_plan());
 }
 
 #[test]
@@ -855,9 +987,11 @@ fn new_opens_the_tui_at_its_new_frit_view() {
 }
 
 #[test]
-fn nothing_kept_means_nothing_to_save() {
-    let mut c = console().keys(&[b"i", b"\r", b"q"]);
-    assert_eq!(run(&mut c), 0);
+fn nothing_changed_means_nothing_to_install() {
+    let mut c = console().keys(&[b"i", b"y", b"q"]);
+    let mut d = desk();
+    assert_eq!(run_desk(&mut c, &mut d), 0);
+    assert!(d.plans.is_empty());
     assert!(c.saves.is_empty());
 }
 
@@ -930,7 +1064,7 @@ fn each_view_at_80x25_and_100x30() {
     // f follows the keyboard's line to rule 5, and Enter opens it
     let card: Vec<&[u8]> = [&TO_KEYBOARD[..], &[b"f", b"\r"]].concat();
     let route: Vec<&[u8]> = [&TO_KEYBOARD[..], &[b"?"]].concat();
-    let scripts: [(&str, model::View, &[&[u8]]); 9] = [
+    let scripts: [(&str, model::View, &[&[u8]]); 8] = [
         ("flow", Flow, &[]),
         ("card", Flow, &card),
         ("route", Flow, &route),
@@ -938,7 +1072,6 @@ fn each_view_at_80x25_and_100x30() {
         ("fonts", Fonts, &[]),
         ("settings", Fonts, &[b"\t"]),
         ("help", Fonts, &[b"\t", b"\t"]),
-        ("save", Fonts, &[UP, b"\r", b"i"]),
         ("new", Fonts, &[b"n"]),
     ];
     for (cols, rows) in [(80, 25), (100, 30)] {
@@ -1007,22 +1140,19 @@ fn a_terminal_that_answers_nothing_is_settled_by_the_wait() {
 }
 
 #[test]
-fn a_failed_command_s_words_show_in_the_save_view() {
-    let mut c = console().keys(&[UP, b"\r", b"i", b"\r"]);
+fn a_failed_command_s_words_show_on_the_message_line() {
+    let mut c = console().keys(&[UP, b"\r", b"i", b"y"]);
     c.save_result = Err(
-        "the command failed, and the draft stays in /d.\nvtium-config: the console's check refused the draft:\n/x/vtium.conf:2: font-size=\"lots\" is not a whole number, ignored".into(),
+        "vtium-config: the console's check refused the draft:\n/x/vtium.conf:2: font-size=\"lots\" is not a whole number, ignored".into(),
     );
-    run(&mut c);
+    run_desk(&mut c, &mut desk());
     let screen = c.seen.clone().expect("the screen");
+    let text = screen.split_whitespace().collect::<Vec<_>>().join(" ");
     assert!(
-        screen.contains("Nothing was installed: the command failed, and the draft stays in /d."),
+        text.contains("Nothing is installed: vtium-config: the console's check refused the draft:"),
         "{screen}"
     );
-    assert!(screen.contains("The command said:"), "{screen}");
-    assert!(
-        screen.contains("font-size=\"lots\" is not a whole number"),
-        "{screen}"
-    );
+    assert!(text.contains("is not a whole number"), "{screen}");
 }
 
 /// The bytes that show the stand-in's picture at the Looks view's place,
@@ -1270,12 +1400,13 @@ fn display_dpi_outside_the_console_s_bounds_is_not_used() {
 }
 
 #[test]
-fn after_saving_a_font_leaving_puts_the_console_in_the_saved_font() {
-    // keep tiny5, move on to proof, save, leave
-    let mut c = console().keys(&[UP, b"\r", UP, b"i", b"\r", b"q"]);
-    assert_eq!(run(&mut c), 0);
+fn after_installing_a_font_leaving_puts_the_console_in_the_installed_font() {
+    // keep tiny5, move on to proof, install, leave
+    let mut c = console().keys(&[UP, b"\r", UP, b"i", b"y", b"q"]);
+    let mut d = desk();
+    assert_eq!(run_desk(&mut c, &mut d), 0);
     assert_eq!(
-        c.saves[0].files[0].new,
+        d.plans[0].files[0].new,
         format!("# mine\nfont-name=tiny5\n{SECTIONS}")
     );
     assert_eq!(c.switches(), ["tiny5", "proof", "tiny5"]);
@@ -1323,12 +1454,11 @@ fn at_80x25_no_key_or_sentence_is_cut() {
     use vtium_config::tui::words;
     // the keys that reach a view, its key line, and its sentences
     type Case<'a> = (&'a [&'a [u8]], &'a str, &'a [&'a str]);
-    let views: [Case; 5] = [
+    let views: [Case; 4] = [
         (&[], words::KEYS_FONTS, &[]),
         (&[BACKTAB], words::KEYS_LOOKS, &[words::NO_PICTURES]),
         (&[b"\t"], words::KEYS_SETTINGS, &[words::SETTINGS_HINT]),
         (&[b"\t", b"\t"], words::KEYS_HELP, &[]),
-        (&[UP, b"\r", b"i"], words::KEYS_SAVE, &[words::SAVE_RUNS]),
     ];
     for (keys, key_line, sentences) in views {
         let screen = reach(80, 25, keys);
@@ -2360,6 +2490,23 @@ echo "$file: checked"
     }
 
     #[test]
+    fn install_refuses_a_draft_made_before_the_installed_file_changed() {
+        let b = bench("install-stale");
+        // the draft made, then root edits the installed file by hand
+        let change: Vec<&[u8]> = vec![b"\r", RIGHT, b"\r", ESC];
+        run(&b, &change);
+        let edited = INSTALLED.replace("font-size=12", "font-size=14");
+        std::fs::write(b.root.join("etc/vtium.conf"), &edited).expect("the hand edit");
+        let ran = run(&b, &[b"i"]);
+        assert!(ran.screen().contains("changed since"), "{}", ran.screen());
+        // and no question asked, so a y installs nothing
+        let ran = run(&b, &[b"i", b"y"]);
+        assert!(ran.console.saves.is_empty());
+        assert_eq!(b.installed(), edited);
+        assert!(b.draft().contains("display * -> panel"), "{}", b.draft());
+    }
+
+    #[test]
     fn install_refuses_a_draft_the_check_fails() {
         let b = bench("install-refused");
         // a base key typed as BAD: the base card's first key, font-name
@@ -2368,7 +2515,7 @@ echo "$file: checked"
         assert!(b.draft().contains("font-name=BAD"), "{}", b.draft());
         assert!(ran.status().contains("1 problem"), "{}", ran.status());
         assert!(
-            ran.screen().contains("The check found problems"),
+            ran.screen().contains("the check found problems"),
             "{}",
             ran.screen()
         );
@@ -2454,6 +2601,32 @@ echo "$file: checked"
         assert!(ran.status().contains("spare came"), "{}", ran.status());
         assert!(ran.screen().contains("spare"), "{}", ran.screen());
         assert_eq!(b.draft(), INSTALLED);
+    }
+
+    #[test]
+    fn two_devices_of_one_name_keep_the_selection_on_the_one_selected() {
+        let b = bench("same-name");
+        // a second keyboard named kbd, on another port, which rule 3 places
+        let mut twin = keyboard();
+        twin.path = Some("pci-0:7.7".into());
+        let seen = vec![
+            present(vec![keyboard(), twin.clone()], true),
+            present(vec![twin, keyboard()], true),
+        ];
+        // the first kbd, rule 2's, selected; udev reorders them; the pager
+        // opens at the selected device's rule, still rule 2 on line 10
+        let ran = run_on(&b, seen.clone(), true, &[RIGHT, RIGHT, RIGHT, RIGHT, b"v"]);
+        assert!(
+            ran.screen().contains("▸  10 input path:pci-0:3.3 -> panel"),
+            "the first kbd selected: {}",
+            ran.screen()
+        );
+        let ran = run_on(&b, seen, true, &[RIGHT, RIGHT, RIGHT, RIGHT, b"@", b"v"]);
+        assert!(
+            ran.screen().contains("▸  10 input path:pci-0:3.3 -> panel"),
+            "{}",
+            ran.screen()
+        );
     }
 
     #[test]

@@ -14,9 +14,8 @@
 use super::canvas::{Canvas, Row, Span, span, wrap};
 use super::color::{Style, palette};
 use super::flow::Item;
-use super::model::{App, DpiFrom, FontState, Live, NEW_FIELDS, SIZES, Saving, View, setting_keys};
+use super::model::{App, DpiFrom, FontState, Live, NEW_FIELDS, SIZES, View, setting_keys};
 use super::words;
-use crate::draft::changes;
 use crate::specimen::Sources;
 
 /// The smallest grid a view is drawn in (ADR-1201 D3): below it, the one
@@ -151,7 +150,9 @@ fn body(app: &App) -> Body {
                     if app.pending.removals.contains(&f.name) {
                         note = format!("{note}, {}", words::TO_REMOVE);
                     }
-                    if app.pending.font_name() == Some(&f.name) {
+                    if app.changed("font-name")
+                        && app.drafted("font-name").as_deref() == Some(&f.name)
+                    {
                         note = format!("{note}, {}", words::TO_SAVE);
                     } else if configured.as_deref() == Some(&f.name) {
                         note = format!("{note}, {}", words::SAVED);
@@ -177,7 +178,8 @@ fn body(app: &App) -> Body {
                         0 => words::AUTOMATIC.to_owned(),
                         n => words::points(n),
                     };
-                    let note = if app.pending.font_size() == Some(size) {
+                    let drafted = app.drafted("font-size").and_then(|s| s.parse::<u32>().ok());
+                    let note = if app.changed("font-size") && drafted.unwrap_or(0) == size {
                         words::TO_SAVE
                     } else if configured.unwrap_or(0) == size {
                         words::SAVED
@@ -240,7 +242,7 @@ fn body(app: &App) -> Body {
                             (v, false) => v,
                         },
                     };
-                    let value = if app.pending.get(key.name).is_some() {
+                    let value = if app.changed(key.name) {
                         format!("{value}, {}", words::TO_SAVE)
                     } else {
                         value
@@ -291,11 +293,6 @@ fn body(app: &App) -> Body {
                 tail: tail(words::NEW_HINT, cols),
             }
         }
-        View::Save => Body {
-            list: save_rows(app),
-            keep: 0,
-            tail: Vec::new(),
-        },
         View::Help => Body {
             keep: app.help_at,
             list: help_rows(app),
@@ -308,70 +305,6 @@ fn body(app: &App) -> Body {
             tail: Vec::new(),
         },
     }
-}
-
-/// The save view: each file the save changes, each line that changes,
-/// and the one command it runs.
-fn save_rows(app: &App) -> Vec<Row> {
-    let plan = match app.plan() {
-        Ok(plan) => plan,
-        Err(why) => return prose(&words::save_failed(why), app.cols),
-    };
-    if plan.is_empty() {
-        return prose(words::NOTHING_TO_SAVE, app.cols);
-    }
-    let mut rows = Vec::new();
-    for file in &plan.files {
-        rows.extend(prose(&file.path.display().to_string(), app.cols));
-        for c in changes(file.old.as_deref().unwrap_or_default(), &file.new) {
-            if let Some(old) = &c.old {
-                rows.push(plain(format!("   {:>4} - {old}", c.line)));
-            }
-            if let Some(new) = &c.new {
-                rows.push(plain(format!("   {:>4} + {new}", c.line)));
-            }
-        }
-    }
-    for removal in &plan.removals {
-        rows.extend(prose(&removal.path.display().to_string(), app.cols));
-        let name = removal
-            .path
-            .file_stem()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_default();
-        let indent = "   ";
-        for line in wrap(
-            &words::removed_file(name),
-            app.cols.saturating_sub(2 + indent.len()),
-            usize::MAX,
-        ) {
-            rows.push(plain(format!("{indent}{line}")));
-        }
-    }
-    if !app.report.is_empty() {
-        rows.push(plain(""));
-        rows.extend(prose(words::COMMAND_SAID, app.cols));
-        rows.extend(app.report.iter().map(|l| plain(format!("   {l}"))));
-    }
-    rows.push(plain(""));
-    let width = app.cols.saturating_sub(2);
-    let mut say = |text: &str, indent: &str| {
-        for line in wrap(text, width.saturating_sub(indent.len()), usize::MAX) {
-            rows.push(plain(format!("{indent}{line}")));
-        }
-    };
-    match &app.inputs.saving {
-        Saving::Sudo(command) | Saving::User(command) => {
-            let intro = match &app.inputs.saving {
-                Saving::Sudo(_) => words::SAVE_RUNS,
-                _ => words::SAVE_AS_USER,
-            };
-            say(intro, " ");
-            say(command, "   ");
-            say(&words::draft_under(app.inputs.drafts.display()), " ");
-        }
-    }
-    rows
 }
 
 /// The Help view's rows: on the Help page, what each view does and its
@@ -553,9 +486,8 @@ fn tab_places(app: &App) -> Vec<(Tab, usize, String)> {
 fn tab_bar(canvas: &mut Canvas, app: &App) {
     for (tab, x, text) in tab_places(app) {
         let current = match tab {
-            Tab::View(v) => app.view.tab() == Some(v),
-            // the install view is Install's
-            Tab::Action(i) => app.view == View::Save && i == 1,
+            Tab::View(v) => app.view.tab() == v,
+            Tab::Action(_) => false,
         };
         let style = match (tab, current) {
             (_, true) => Style::PLAIN.reversed(),
@@ -637,7 +569,6 @@ fn key_rows(app: &App) -> Vec<String> {
         View::Settings => words::KEYS_SETTINGS,
         View::Help => words::KEYS_HELP,
         View::New => words::KEYS_NEW,
-        View::Save => words::KEYS_SAVE,
     };
     let width = app.cols.saturating_sub(2).max(1);
     // the Flow view's key line shows the keys that fit on one row, and

@@ -277,6 +277,11 @@ fn tui(slave: &File, root: &Path, fonts: &Path) -> Child {
         .arg(root)
         .arg("--frits")
         .arg(fonts)
+        // the devices of the fixture's own, none, and no udev daemon
+        .arg("--sys")
+        .arg(root.join("sys"))
+        .arg("--udev-data")
+        .arg(root.join("udev/data"))
         .arg("tui")
         .env("XDG_STATE_HOME", root.join("state"))
         .env("XDG_CONFIG_HOME", root.join("config"))
@@ -564,12 +569,12 @@ fn saving_into_directories_not_the_system_s_installs_as_the_user() {
     c.until("drew proof", |s| s.font == "proof");
     c.key(b"\r");
     c.key(b"i");
-    c.until("showed the save", |s| {
-        s.screen.contains("+ font-name=proof")
+    c.until("asked", |s| {
+        s.screen
+            .contains("Install the working copy? 1 line added, 1 removed.")
     });
-    assert!(c.screen().contains("with no sudo"), "{}", c.screen());
-    c.key(b"\r");
-    c.until("saved", |s| s.screen.contains("Installed 1 file."));
+    c.key(b"y");
+    c.until("installed", |s| s.screen.contains("Installed draft"));
     c.key(b"q");
     assert_eq!(status(child), 0);
     c.drained(&slave);
@@ -607,27 +612,45 @@ fn saving_the_system_s_files_runs_exactly_sudo_vtium_config_apply_dir() {
     .expect("the stand-in");
     std::fs::set_permissions(&sudo, std::os::unix::fs::PermissionsExt::from_mode(0o755))
         .expect("its mode");
+    // the draft starts as the shipped example, which the check passes on
+    // any machine with a display and a keyboard, whatever the system's own
+    // vtium.conf holds
+    let example = Path::new(env!("CARGO_MANIFEST_DIR")).join("../vtium/install/vtium.conf.example");
+    let drafts = root.join("config/vtium/drafts");
+    std::fs::create_dir_all(&drafts).expect("the store");
+    std::fs::copy(&example, drafts.join("pty.conf")).expect("the draft");
+    std::fs::write(root.join("config/vtium/vtium-config.conf"), "draft = pty\n")
+        .expect("the settings");
     let mut c = Console::start(master, 80, 25, Kind::Vtium { ops: true }, TAKES);
     let child = tui_with(&slave, &root, &["--sudo".as_ref(), sudo.as_os_str()]);
     c.until("decided", |s| s.screen.contains("live preview: on"));
     to_fonts(&mut c);
-    // a size, so the save changes the system's vtium.conf whatever it holds
+    // a size, so the draft differs from the system's vtium.conf whatever it
+    // holds
     c.key(b"\x1b[Z");
     c.key(b"\x1b[B");
     c.key(b"\r");
     c.key(b"i");
-    c.until("showed the save", |s| s.screen.contains("+ font-size=6"));
+    // the check runs the system's console on the system's configuration,
+    // which a machine without vtium installed, or with a configuration it
+    // refuses, cannot pass; then the install asks nothing and this test
+    // has no sudo to watch
+    c.until("prepared", |s| {
+        s.screen.contains("Install the working copy?") || s.screen.contains("nothing is installed")
+    });
+    if !c.screen().contains("Install the working copy?") {
+        eprintln!(
+            "skipped: the system's check refused the draft:\n{}",
+            c.screen()
+        );
+        c.key(b"q");
+        assert_eq!(status(child), 0);
+        c.drained(&slave);
+        return;
+    }
     let program = env!("CARGO_BIN_EXE_vtium-config");
-    // the command wraps where the paths' lengths put the screen's edge, so
-    // it is read by its words, the screen's rows joined
-    let screen = c.screen();
-    let words: Vec<&str> = screen.split_whitespace().collect();
-    assert!(
-        words.windows(2).any(|w| w == ["apply", "DRAFT"]),
-        "the command shown: {screen}"
-    );
-    c.key(b"\r");
-    c.until("failed", |s| s.screen.contains("Nothing was installed"));
+    c.key(b"y");
+    c.until("failed", |s| s.screen.contains("Nothing is installed"));
     assert!(
         c.screen().contains("the stand-in installs nothing"),
         "{}",
@@ -642,12 +665,45 @@ fn saving_the_system_s_files_runs_exactly_sudo_vtium_config_apply_dir() {
     assert_eq!(argv[0], program);
     assert_eq!(argv[1], "apply");
     assert!(
-        argv[2].starts_with(root.join("state/vtium/drafts").to_str().expect("a path")),
+        argv[2].starts_with(root.join("state/vtium").to_str().expect("a path")),
         "{argv:?}"
     );
     // the command ran with no signal held
     let blocked = std::fs::read_to_string(root.join("sudo.sigblk")).expect("the stand-in ran");
     assert_eq!(blocked.trim(), "SigBlk:\t0000000000000000", "{blocked}");
+}
+
+/// The command line's `--udev-data` reaches the TUI: beside a database
+/// with no udev control socket, the status line says the view cannot
+/// follow hotplug, where this machine's own udev runs.
+#[test]
+fn the_udev_database_the_command_line_names_reaches_the_tui() {
+    let (master, slave) = pair(100, 30);
+    let (root, fonts) = fixture("udev-data");
+    std::fs::create_dir_all(root.join("udev/data")).expect("the database");
+    let mut c = Console::start(master, 100, 30, Kind::Vtium { ops: true }, TAKES);
+    let child = tui_with(
+        &slave,
+        &root,
+        &[
+            "--configdir".as_ref(),
+            root.as_os_str(),
+            "--frits".as_ref(),
+            fonts.as_os_str(),
+            "--vtium".as_ref(),
+            "/bin/true".as_ref(),
+            "--sys".as_ref(),
+            root.join("sys").as_os_str(),
+            "--udev-data".as_ref(),
+            root.join("udev/data").as_os_str(),
+        ],
+    );
+    c.until("followed no hotplug", |s| {
+        s.screen.contains("cannot follow hotplug")
+    });
+    c.key(b"q");
+    assert_eq!(status(child), 0);
+    c.drained(&slave);
 }
 
 #[test]

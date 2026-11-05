@@ -8,6 +8,7 @@
 //! console binary, and a source of the devices present, which is the seam
 //! a test fills with devices of its own instead of the machine's.
 
+use crate::apply::Runner;
 use crate::drafts::{EXAMPLE, Session, State};
 use crate::flowmodel::Present;
 use crate::outcome::Fail;
@@ -24,12 +25,8 @@ pub enum Op {
     Write(String),
     /// Readies an install: refuses a draft made before the installed file
     /// changed, or one the check fails; otherwise gives the plan the
-    /// privileged step installs.
+    /// privileged step installs, which [`Desk::install`] runs.
     Prepare,
-    /// The privileged step installed the draft: the file it replaced goes
-    /// into the installed history and the draft's base becomes the new
-    /// installed file.
-    Installed,
     /// Copies the installed file back over the draft.
     Revert,
     /// Empties the draft to the top level at its defaults and one look.
@@ -86,6 +83,10 @@ pub enum Done {
 /// What the loop hands each [`Op`] to.
 pub trait Desk {
     fn run(&mut self, op: &Op) -> Result<Done, String>;
+    /// Installs `plan`, the prepared draft's and the frits beside it,
+    /// through the privileged step `run` runs, then records the install;
+    /// the draft afterwards.
+    fn install(&mut self, plan: &crate::draft::Plan, run: Runner<'_>) -> Result<Done, String>;
 }
 
 /// Reads the devices present.
@@ -98,9 +99,10 @@ pub struct Store {
     store: crate::store::Store,
     paths: Paths,
     devices: Devices,
-    /// The installed file the prepared install replaces, which goes into
-    /// the installed history once the privileged step has run.
-    replaced: Option<String>,
+    /// The prepared install: the draft's name and text, and the installed
+    /// file it replaces, which goes into the installed history once the
+    /// privileged step has run.
+    ready: Option<(String, String, Option<String>)>,
 }
 
 impl Store {
@@ -109,7 +111,7 @@ impl Store {
             store,
             paths,
             devices,
-            replaced: None,
+            ready: None,
         }
     }
 
@@ -146,7 +148,6 @@ impl Store {
 
     fn step(&mut self, op: &Op) -> Result<Done, Fail> {
         match op {
-            Op::Installed => return self.installed(),
             Op::Devices => return Ok(Done::Present((self.devices)())),
             Op::Open => {
                 let present = (self.devices)();
@@ -161,33 +162,23 @@ impl Store {
             Op::Write(text) => self.write(text),
             Op::Prepare => {
                 let (name, text) = session.current()?;
-                let installed = session.installed()?;
-                if matches!(session.state(&name, &text)?, State::Stale { .. }) {
-                    return Ok(Done::Refused(
-                        crate::tui::words::install_stale(&session.installed_path()),
-                        Vec::new(),
-                    ));
-                }
-                let checked = session.check(&text, &self.store.draft_path(&name)?)?;
-                if !checked.passed {
-                    return Ok(Done::Refused(
-                        crate::tui::words::INSTALL_CHECK_FAILED.to_owned(),
-                        checked.problems,
-                    ));
-                }
-                let files = if installed.as_deref() == Some(text.as_str()) {
-                    Vec::new()
-                } else {
-                    vec![crate::draft::FileEdit {
-                        path: session.installed_path(),
-                        old: installed,
-                        new: text,
-                    }]
+                let mut said = Vec::new();
+                let done = match session.prepare(&name, &text, &mut said) {
+                    Ok(None) => Done::Plan(crate::draft::Plan::default()),
+                    Ok(Some(ready)) => {
+                        self.ready = Some((name, text, ready.replaced));
+                        Done::Plan(ready.plan)
+                    }
+                    Err(fail @ (Fail::Changed(_) | Fail::Check(_))) => Done::Refused(
+                        fail.text().to_owned(),
+                        String::from_utf8_lossy(&said)
+                            .lines()
+                            .map(str::to_owned)
+                            .collect(),
+                    ),
+                    Err(fail) => return Err(fail),
                 };
-                Ok(Done::Plan(crate::draft::Plan {
-                    files,
-                    removals: Vec::new(),
-                }))
+                Ok(done)
             }
             Op::Revert => {
                 let (name, _) = session.current()?;
@@ -230,40 +221,34 @@ impl Store {
                     .unwrap_or_default();
                 self.write(&text)
             }
-            Op::Open | Op::Installed | Op::Devices => Err(Fail::Usage(String::new())),
+            Op::Open | Op::Devices => Err(Fail::Usage(String::new())),
         }
-    }
-}
-
-impl Store {
-    /// The privileged step installed the draft: the file it replaced
-    /// goes into the installed history, and the draft's base becomes the
-    /// new installed file.
-    fn installed(&mut self) -> Result<Done, Fail> {
-        let replaced = self.replaced.take();
-        let session = self.session();
-        let (name, text) = session.current()?;
-        if let Some(replaced) = replaced {
-            let keep = self.store.settings()?.history;
-            self.store.save_history(&name, &replaced, keep)?;
-        }
-        let installed = session.installed()?;
-        self.store
-            .set_base(&name, installed.as_deref().map(str::as_bytes))?;
-        Ok(Done::Draft(self.opened(&name, &text)?, None))
     }
 }
 
 impl Desk for Store {
     fn run(&mut self, op: &Op) -> Result<Done, String> {
         if *op == Op::Prepare {
-            self.replaced = None;
+            self.ready = None;
         }
-        let done = self.step(op).map_err(|f| f.text().to_owned())?;
-        if let Done::Plan(plan) = &done {
-            self.replaced = plan.files.first().and_then(|f| f.old.clone());
-        }
-        Ok(done)
+        self.step(op).map_err(|f| f.text().to_owned())
+    }
+
+    fn install(&mut self, plan: &crate::draft::Plan, run: Runner<'_>) -> Result<Done, String> {
+        let Some((name, text, replaced)) = self.ready.take() else {
+            return Err(crate::tui::words::NOT_PREPARED.to_owned());
+        };
+        let session = self.session();
+        let mut said = Vec::new();
+        let done = session
+            .put(plan, run, &mut said)
+            .and_then(|()| session.finish(&name, &text, replaced.as_deref(), &mut said))
+            .and_then(|()| self.opened(&name, &text));
+        done.map(|opened| Done::Draft(opened, None))
+            .map_err(|fail| {
+                let said = String::from_utf8_lossy(&said);
+                format!("{}\n{}", fail.text(), said.trim_end())
+            })
     }
 }
 

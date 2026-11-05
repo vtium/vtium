@@ -272,7 +272,7 @@ impl App {
             Then::Install(plan) => {
                 self.installing = true;
                 self.message = Some(words::INSTALLING.to_owned());
-                vec![Effect::Save(plan)]
+                vec![Effect::Install(plan)]
             }
         }
     }
@@ -384,7 +384,6 @@ impl App {
                     Op::New => self.message = Some(words::NEW_DONE.to_owned()),
                     Op::Delete => self.message = Some(words::deleted_draft(&opened.name)),
                     Op::Restore(_) => self.message = Some(words::RESTORED.to_owned()),
-                    Op::Installed => self.message = Some(words::installed(&opened.name)),
                     _ => {}
                 }
                 self.draft = Some(opened);
@@ -394,16 +393,33 @@ impl App {
                     self.flow_at = super::model::first_item(&self.inputs.flow);
                 }
             }
-            Done::Plan(plan) if plan.is_empty() => {
-                return self.say(words::NOTHING_TO_INSTALL);
-            }
-            Done::Plan(plan) => {
-                let (added, removed) = self
-                    .draft
-                    .as_ref()
-                    .map(|d| (d.added, d.removed))
-                    .unwrap_or_default();
-                self.ask(words::install_question(added, removed), Then::Install(plan));
+            Done::Plan(mut plan) => {
+                // the frits go first, so vtium.conf never names a frit that
+                // is not there yet (ADR-1403 D8)
+                let frits = match self.frit_plan() {
+                    Ok(frits) => frits,
+                    Err(why) => return self.say(&why),
+                };
+                let n = frits.files.len().saturating_add(frits.removals.len());
+                let mut files = frits.files;
+                files.append(&mut plan.files);
+                plan.files = files;
+                plan.removals = frits.removals;
+                if plan.is_empty() {
+                    return self.say(words::NOTHING_TO_INSTALL);
+                }
+                let (added, removed) = match plan.files.last() {
+                    Some(f) if self.draft.as_ref().is_some_and(|d| d.text == f.new) => self
+                        .draft
+                        .as_ref()
+                        .map(|d| (d.added, d.removed))
+                        .unwrap_or_default(),
+                    _ => (0, 0),
+                };
+                self.ask(
+                    words::install_question(added, removed, n),
+                    Then::Install(plan),
+                );
             }
             Done::Refused(why, problems) => {
                 let mut lines = vec![why];
@@ -417,12 +433,19 @@ impl App {
         Vec::new()
     }
 
-    /// The privileged step's end, for an install: on success the desk
-    /// records it in the installed history.
-    pub(crate) fn installed(&mut self, result: Result<usize, String>) -> Vec<Effect> {
+    /// The privileged step's end: the draft installed and recorded in the
+    /// installed history, with the frits beside it, or why nothing is.
+    pub(crate) fn installed(&mut self, result: Result<Done, String>) -> Vec<Effect> {
         self.installing = false;
         match result {
-            Ok(_) => vec![Effect::Desk(Op::Installed)],
+            Ok(Done::Draft(opened, _)) => {
+                let name = opened.name.clone();
+                self.draft = Some(opened);
+                self.frits_installed();
+                self.rebuild(None);
+                self.say(&words::installed(&name))
+            }
+            Ok(_) => Vec::new(),
             Err(why) => self.say(&words::install_failed(&why)),
         }
     }
@@ -595,14 +618,24 @@ fn item_line(flow: &Flow, text: &str, item: Item) -> usize {
 }
 
 /// The item of `new` that stands where `item` stood in `old`: the same
-/// device, head or look by its name; a device that left becomes its
+/// device by its match keys, the same head or look by its name; a device that left becomes its
 /// `configured, not found` block, or its neighbor in the column; a rule
 /// keeps its number.
 fn carry(old: &Flow, new: &Flow, item: Item) -> Item {
     let device = |olds: &[Device], news: &[Device], i: usize, make: fn(usize) -> Item| {
         let dev = olds.get(i)?;
-        news.iter()
-            .position(|d| d.name == dev.name && d.found == dev.found)
+        // a device is itself by its match keys, which tell apart two
+        // devices of one name; among several alike, the one at its place
+        let same: Vec<usize> = news
+            .iter()
+            .enumerate()
+            .filter(|(_, d)| d.keys == dev.keys && d.name == dev.name && d.found == dev.found)
+            .map(|(k, _)| k)
+            .collect();
+        same.iter()
+            .copied()
+            .find(|k| *k == i)
+            .or_else(|| same.first().copied())
             .or_else(|| {
                 news.iter()
                     .position(|d| !d.found && d.rule.is_some() && d.rule == dev.rule)

@@ -348,7 +348,12 @@ impl Cli<'_> {
             }
             Command::NewFrit if rest.is_empty() => {
                 if std::io::stdin().is_terminal() && std::io::stdout().is_terminal() {
-                    crate::tui::run(&o.paths(), crate::tui::model::View::New, self.err)
+                    crate::tui::run(
+                        &o.paths(),
+                        o.devices(),
+                        crate::tui::model::View::New,
+                        self.err,
+                    )
                 } else {
                     self.usage(
                         "new-frit takes FONT..., --from FILE or --template away from a terminal",
@@ -375,7 +380,12 @@ impl Cli<'_> {
             ),
             Command::Tui if !rest.is_empty() => self.usage("tui takes no argument"),
             Command::Tui if std::io::stdin().is_terminal() && std::io::stdout().is_terminal() => {
-                crate::tui::run(&o.paths(), crate::tui::model::View::Flow, self.err)
+                crate::tui::run(
+                    &o.paths(),
+                    o.devices(),
+                    crate::tui::model::View::Flow,
+                    self.err,
+                )
             }
             Command::Tui => self.usage("tui opens the interactive tool at a terminal only"),
             // the flow's commands are dispatched above

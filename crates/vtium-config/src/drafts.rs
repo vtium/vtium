@@ -8,6 +8,7 @@ use std::ffi::OsString;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
+use crate::apply::Runner;
 use crate::draft::{FileEdit, Plan, changes};
 use crate::outcome::Fail;
 use crate::store::{Store, hash};
@@ -250,13 +251,16 @@ impl Session<'_> {
         })
     }
 
-    /// Installs the draft `name`, `text`: refuses it when the installed
-    /// file changed since its base (exit 3) or the check fails (exit 1),
-    /// then hands it to `apply DIR`, through sudo for the system's
-    /// directories, or at once as root. After a good install it saves the
-    /// file it replaced in the installed history and makes the draft's
-    /// base the new installed file.
-    pub fn install(&self, name: &str, text: &str, out: &mut dyn Write) -> Result<(), Fail> {
+    /// Readies the draft `name`, `text`, for an install: refuses it when
+    /// the installed file changed since its base (exit 3) or the check
+    /// fails (exit 1), printing what the check found. `None` when the
+    /// draft is the installed file already, which then becomes its base.
+    pub fn prepare(
+        &self,
+        name: &str,
+        text: &str,
+        out: &mut dyn Write,
+    ) -> Result<Option<Ready>, Fail> {
         let installed = self.installed()?;
         if self.stale(name, installed.as_deref())? {
             return Err(Fail::Changed(format!(
@@ -278,34 +282,74 @@ impl Session<'_> {
                 out,
                 "draft {name} is the installed file; nothing to install"
             );
-            return self.store.set_base(name, Some(text.as_bytes()));
+            self.store.set_base(name, Some(text.as_bytes()))?;
+            return Ok(None);
         }
-        let plan = Plan {
-            files: vec![FileEdit {
-                path: self.installed_path(),
-                old: installed.clone(),
-                new: text.to_owned(),
-            }],
-            removals: Vec::new(),
-        };
+        Ok(Some(Ready {
+            plan: Plan {
+                files: vec![FileEdit {
+                    path: self.installed_path(),
+                    old: installed.clone(),
+                    new: text.to_owned(),
+                }],
+                removals: Vec::new(),
+            },
+            replaced: installed,
+        }))
+    }
+
+    /// Hands `plan` to the privileged step, `apply DIR`: at once as root,
+    /// else through `run`, which runs sudo for the system's directories.
+    /// sudo's own refusal is exit 4; `apply`'s is [`classify`]'s.
+    pub fn put(&self, plan: &Plan, run: Runner<'_>, out: &mut dyn Write) -> Result<(), Fail> {
         let targets = self.paths.targets();
         if rustix::process::geteuid().is_root() {
-            let wrote = crate::apply::install_now(&plan, &targets, out).map_err(Fail::Check)?;
+            let wrote = crate::apply::install_now(plan, &targets, out).map_err(Fail::Check)?;
             if !wrote {
                 return Err(Fail::File(format!(
                     "{} could not be written",
                     self.installed_path().display()
                 )));
             }
-        } else {
-            let bundle = crate::apply::write_draft(&self.store.bundles(), &plan, &targets)
-                .map_err(|e| Fail::File(format!("{}: {e}", self.store.bundles().display())))?;
-            let program = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("vtium-config"));
-            let route = crate::apply::route(&targets, &self.paths.sudo);
-            let argv = crate::apply::save_argv(&route, &program, &targets, &bundle);
-            run_apply(&argv, matches!(route, crate::apply::Route::Sudo(_)), out)?;
+            return Ok(());
         }
-        if let Some(replaced) = &installed {
+        let bundle = crate::apply::write_draft(&self.store.bundles(), plan, &targets)
+            .map_err(|e| Fail::File(format!("{}: {e}", self.store.bundles().display())))?;
+        let program = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("vtium-config"));
+        let route = crate::apply::route(&targets, &self.paths.sudo);
+        let sudo = matches!(route, crate::apply::Route::Sudo(_));
+        let argv = crate::apply::save_argv(&route, &program, &targets, &bundle);
+        let shown = argv
+            .first()
+            .map(|a| a.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        match run(&argv) {
+            Ok((ok, said)) => {
+                let _ = write!(out, "{said}");
+                if ok {
+                    Ok(())
+                } else {
+                    Err(classify(&said, sudo))
+                }
+            }
+            Err(e) if sudo => Err(Fail::Privilege(format!(
+                "{shown}: {e}. Install the draft as root with vtium config install, or install sudo."
+            ))),
+            Err(e) => Err(Fail::File(format!("{shown}: {e}"))),
+        }
+    }
+
+    /// After the privileged step installed the draft `name`, `text`:
+    /// keeps `replaced`, the file it replaced, in the installed history,
+    /// and makes the draft's base the new installed file.
+    pub fn finish(
+        &self,
+        name: &str,
+        text: &str,
+        replaced: Option<&str>,
+        out: &mut dyn Write,
+    ) -> Result<(), Fail> {
+        if let Some(replaced) = replaced {
             let keep = self.store.settings()?.history;
             let saved = self.store.save_history(name, replaced, keep)?;
             let _ = writeln!(out, "kept {}", saved.display());
@@ -314,6 +358,47 @@ impl Session<'_> {
         let _ = writeln!(out, "installed draft {name}");
         Ok(())
     }
+
+    /// Installs the draft `name`, `text`, as `vtium config install` does:
+    /// [`Session::prepare`], [`Session::put`] with sudo run as a plain
+    /// child, then [`Session::finish`].
+    pub fn install(&self, name: &str, text: &str, out: &mut dyn Write) -> Result<(), Fail> {
+        let Some(ready) = self.prepare(name, text, out)? else {
+            return Ok(());
+        };
+        self.put(&ready.plan, &mut run_child, out)?;
+        self.finish(name, text, ready.replaced.as_deref(), out)
+    }
+}
+
+/// A draft the check passed, ready for the privileged step: the plan it
+/// installs and the installed file it replaces.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Ready {
+    pub plan: Plan,
+    pub replaced: Option<String>,
+}
+
+/// Runs `argv` as a plain child, its standard input the terminal's, so
+/// sudo can ask for the password: whether it succeeded, and what it
+/// printed.
+pub fn run_child(argv: &[OsString]) -> std::io::Result<(bool, String)> {
+    let Some((program, args)) = argv.split_first() else {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "no command to install with",
+        ));
+    };
+    let ran = std::process::Command::new(program)
+        .args(args)
+        .stdin(std::process::Stdio::inherit())
+        .output()?;
+    let said = format!(
+        "{}{}",
+        String::from_utf8_lossy(&ran.stdout),
+        String::from_utf8_lossy(&ran.stderr)
+    );
+    Ok((ran.status.success(), said))
 }
 
 /// What a new draft is made from.
@@ -325,41 +410,6 @@ pub enum From {
     Empty,
     /// Another draft.
     Draft(String),
-}
-
-/// Runs `argv`, the `apply DIR` an install takes, printing what it
-/// printed; `sudo` says whether it runs through sudo, whose own refusal is
-/// exit 4.
-fn run_apply(argv: &[OsString], sudo: bool, out: &mut dyn Write) -> Result<(), Fail> {
-    let Some((program, args)) = argv.split_first() else {
-        return Err(Fail::Privilege("no command to install with".to_owned()));
-    };
-    let ran = std::process::Command::new(program)
-        .args(args)
-        .stdin(std::process::Stdio::inherit())
-        .output();
-    let ran = match ran {
-        Ok(ran) => ran,
-        Err(e) if sudo => {
-            return Err(Fail::Privilege(format!(
-                "{}: {e}. Install the draft as root with vtium config install, or install sudo.",
-                program.to_string_lossy()
-            )));
-        }
-        Err(e) => {
-            return Err(Fail::File(format!("{}: {e}", program.to_string_lossy())));
-        }
-    };
-    let said = format!(
-        "{}{}",
-        String::from_utf8_lossy(&ran.stdout),
-        String::from_utf8_lossy(&ran.stderr)
-    );
-    let _ = write!(out, "{said}");
-    if ran.status.success() {
-        return Ok(());
-    }
-    Err(classify(&said, sudo))
 }
 
 /// What a failed `apply DIR` means, from what it and sudo printed: sudo's
