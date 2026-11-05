@@ -172,7 +172,8 @@ impl<F: Face> Renderer<F> {
         glyphs.end_frame();
         let uploads = glyphs.take_uploads();
         let gpu_counts = glyphs.take_counts();
-        let drawn = self.finish(&plan, counts, start);
+        let drew_missing = glyphs.take_drew_missing();
+        let drawn = self.finish(&plan, counts, drew_missing, start);
         let changed: Vec<_> = drawn.damage.iter().map(|&r| turn.up(r)).collect();
         let stats = drawn.stats;
         if let Some(e) = error {

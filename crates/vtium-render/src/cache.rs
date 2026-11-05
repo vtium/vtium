@@ -268,6 +268,9 @@ pub(crate) struct GlyphCache<T = Stored> {
     failed: Vec<Option<Failed>>,
     frame: u64,
     counts: CacheCounts,
+    /// Whether the font drew a glyph as its missing glyph since
+    /// [`GlyphCache::take_drew_missing`] was last asked.
+    drew_missing: bool,
     /// A color glyph's bitmap stand-in on a 1-bit or gray display.
     fallback: Option<Fallback>,
 }
@@ -292,6 +295,7 @@ impl<T: Held> GlyphCache<T> {
             failed: Vec::new(),
             frame: 0,
             counts: CacheCounts::default(),
+            drew_missing: false,
             fallback: None,
         }
     }
@@ -334,6 +338,12 @@ impl<T: Held> GlyphCache<T> {
     /// The counts since they were last taken, and resets them.
     pub(crate) fn take_counts(&mut self) -> CacheCounts {
         core::mem::take(&mut self.counts)
+    }
+
+    /// Whether the font drew a glyph as its missing glyph
+    /// ([`Font::draws_missing`]) since this was last asked, and resets it.
+    pub(crate) fn take_drew_missing(&mut self) -> bool {
+        core::mem::take(&mut self.drew_missing)
     }
 
     /// Bytes of glyph pixels the cache holds.
@@ -396,6 +406,7 @@ impl<T: Held> GlyphCache<T> {
             }
             return None;
         };
+        self.drew_missing |= font.draws_missing(text);
         let (glyph, scale) = match self
             .fallback
             .and_then(|f| f.glyph(&glyph, scale, text, width, style))

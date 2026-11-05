@@ -349,6 +349,12 @@ impl Glyphs {
         self.cache.take_counts()
     }
 
+    /// Whether the font drew a glyph as its missing glyph since this was
+    /// last asked ([`GlyphCache::take_drew_missing`]).
+    pub(crate) fn take_drew_missing(&mut self) -> bool {
+        self.cache.take_drew_missing()
+    }
+
     /// Forgets each glyph whose text holds one of `chars`, which are
     /// sorted, and each glyph `font` draws as its missing glyph
     /// ([`GlyphCache::forget`]).

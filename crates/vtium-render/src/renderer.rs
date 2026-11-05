@@ -465,6 +465,11 @@ pub struct Renderer<F> {
     /// draw the font's missing glyph ([`vtium_font::Font::draws_missing`])
     /// then draw again, since the set that arrived may hold U+25A1 or `?`.
     missing: bool,
+    /// Whether a cell drawn since the last arrival's frame drew the font's
+    /// missing glyph, so the next arrival has cells to draw again
+    /// ([`Renderer::redraws_missing`]). A cell scrolled away since keeps it
+    /// true until that frame.
+    shows_missing: bool,
     /// Display areas something other than the renderer drew over since the
     /// last frame ([`Renderer::redraw_area`]).
     touched: Vec<Rect>,
@@ -605,6 +610,7 @@ impl<F: Face> Renderer<F> {
             deco: (None, None),
             changed: Vec::new(),
             missing: false,
+            shows_missing: false,
             touched: Vec::new(),
             #[cfg(feature = "gpu")]
             gpu,
@@ -699,6 +705,15 @@ impl<F: Face> Renderer<F> {
         self.missing |= !chars.is_empty();
         #[cfg(feature = "gpu")]
         self.gpu.forget(chars);
+    }
+
+    /// Whether the next frame draws again cells that showed the font's
+    /// missing glyph, after an arrival through [`Renderer::glyphs_changed`]
+    /// or [`Renderer::forget_glyphs`]. The console asks for that frame at
+    /// once, since until it comes those cells show the drawing from before
+    /// the arrival.
+    pub fn redraws_missing(&self) -> bool {
+        self.missing && self.shows_missing
     }
 
     /// Takes the font's underline and strike-through lines when they are
@@ -827,7 +842,8 @@ impl<F: Face> Renderer<F> {
         self.arrow = arrow;
         self.pointer_line = line;
         self.mono_line = mono_line;
-        self.finish(&plan, (cells, rows), start)
+        let drew_missing = self.compose.cache.take_drew_missing();
+        self.finish(&plan, (cells, rows), drew_missing, start)
     }
 
     /// The first half of a frame: where the grid sits, what the pointer
@@ -909,11 +925,21 @@ impl<F: Face> Renderer<F> {
         self.draw_cells(g, frame, back, state)
     }
 
-    /// The frame's damage and figures, once it is drawn.
-    fn finish(&mut self, plan: &Plan, (cells, rows): (u32, u32), start: Instant) -> Drawn<'_> {
+    /// The frame's damage and figures, once it is drawn; `drew_missing`
+    /// when it drew a glyph as the font's missing glyph.
+    fn finish(
+        &mut self,
+        plan: &Plan,
+        (cells, rows): (u32, u32),
+        drew_missing: bool,
+        start: Instant,
+    ) -> Drawn<'_> {
         #[cfg(feature = "images")]
         self.compose.pictures.end_frame();
         self.changed.clear();
+        // the frame after an arrival drew again every cell that showed the
+        // missing glyph, so only what it drew shows the missing glyph now
+        self.shows_missing = drew_missing || (self.shows_missing && !self.missing);
         self.missing = false;
         let layout = self.layout;
         let grid = plan.grid;
