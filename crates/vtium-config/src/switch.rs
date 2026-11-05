@@ -210,10 +210,10 @@ pub fn conf_files(configdir: &Path) -> [PathBuf; 2] {
 ///
 /// vtium-config takes `font-frits` only as an absolute path, as the
 /// console does. The console ignores a relative or empty one and keeps the
-/// directory an earlier line or file names; vtium-config refuses it and
-/// names the file and the key, so the user fixes the file rather than
-/// have the tool and the console each guess. A file that cannot be read is
-/// refused with its reason, as the TUI's start refuses it.
+/// directory an earlier line or file names. vtium-config refuses it and
+/// names the file and the key, so it never lists or writes frits in a
+/// directory the user did not mean. A file that cannot be read is refused
+/// with its reason, as the TUI's start refuses it.
 pub fn frits_dir(configdir: &Path) -> Frits {
     let key = vtium_settings::keys::FONT_FRITS.name;
     let mut set = None;
