@@ -800,3 +800,119 @@ fn a_frame_entry_names_its_pixels_by_image_frame_and_pixel_revision() {
     assert_ne!(entry.pixel_revision, plain.pixel_revision);
     assert!(entry.pixels.same(&two.pixels));
 }
+
+/// A store with a kitty image of id 1, 16 by 16 pixels of red, placed twice
+/// on the screen's first line, and the boxes the two placements reported,
+/// taken from the store.
+fn placed_twice() -> (Store, ImageKey, Vec<crate::store::Region>) {
+    let lines: Vec<crate::LineKey> = (0..4).map(crate::LineKey::new).collect();
+    let mut s = store(1 << 20);
+    let key = image(&mut s, 1, 16, 16, RED);
+    for (col, id) in [(0, 1), (10, 2)] {
+        let place = crate::Place {
+            col,
+            id,
+            ..crate::Place::default()
+        };
+        s.place(key, place, screens_of(&lines), 80).expect("placed");
+    }
+    let boxes = s.take_changed();
+    assert_eq!(boxes.len(), 2, "each placement reports its box");
+    (s, key, boxes)
+}
+
+fn screens_of(lines: &[crate::LineKey]) -> Screens<'_> {
+    Screens {
+        main: crate::Rows {
+            screen: lines,
+            above: &[],
+        },
+        alt: crate::Rows::default(),
+    }
+}
+
+// An edit of the frame a placed picture shows, `a=f` with `r`, changes the
+// pixels under every placement of it: the store reports each placement's
+// box, so the terminal marks the cells under them. A transmission alone
+// reports nothing.
+// covers: image.kitty-animation
+#[test]
+fn an_edit_of_the_frame_on_show_reports_every_placement_of_the_image() {
+    let (mut s, key, boxes) = placed_twice();
+    // the root frame of a picture no animation command named
+    let mut d = data(0, 0, 2, 2, BLUE);
+    d.edit = 1;
+    send(&mut s, key, d).unwrap();
+    assert_eq!(s.take_changed(), boxes, "the root edited");
+    // a new frame changes no frame on show
+    assert_eq!(send(&mut s, key, data(0, 0, 2, 2, BLUE)), Ok(2));
+    assert_eq!(s.take_changed(), vec![], "a new frame");
+    // frame 2 made current, then edited
+    let current = Control {
+        current: 2,
+        ..Control::default()
+    };
+    s.control_animation(key, current).unwrap();
+    let mut d = data(4, 4, 2, 2, RED);
+    d.edit = 2;
+    send(&mut s, key, d).unwrap();
+    assert_eq!(s.take_changed(), boxes, "the current frame edited");
+    // an image transmitted with no placement reports no box
+    let _ = image(&mut s, 2, 16, 16, BLUE);
+    assert_eq!(s.take_changed(), vec![], "a transmission alone");
+}
+
+// A composition onto the frame on show, `a=c`, reports every placement of
+// the image, as an edit does.
+// covers: image.kitty-animation
+#[test]
+fn a_composition_onto_the_frame_on_show_reports_every_placement_of_the_image() {
+    let (mut s, key, boxes) = placed_twice();
+    send(&mut s, key, data(0, 0, 16, 16, BLUE)).unwrap();
+    assert_eq!(s.take_changed(), vec![]);
+    let c = Compose {
+        src: 2,
+        dst: 1,
+        width: 4,
+        height: 4,
+        replace: true,
+        ..Compose::default()
+    };
+    assert_eq!(s.compose_frames(key, c), Ok(()));
+    assert_eq!(s.take_changed(), boxes, "the root composed onto");
+}
+
+// While no command has set the animation running, the clock shows the
+// frame a command made current, so an edit of another frame changes
+// nothing on show and reports nothing. Once a command sets it running, the
+// clock picks the frame, and an edit of any frame reports every placement.
+// covers: image.kitty-animation
+#[test]
+fn an_edit_of_a_frame_reports_the_placements_once_the_clock_picks_the_frame() {
+    let (mut s, key, boxes) = placed_twice();
+    send(&mut s, key, data(0, 0, 16, 16, BLUE)).unwrap();
+    send(&mut s, key, data(0, 0, 16, 16, RED)).unwrap();
+    let edit = |n: u32| {
+        let mut d = data(1, 1, 1, 1, HALF_GREEN);
+        d.edit = n;
+        d
+    };
+    send(&mut s, key, edit(2)).unwrap();
+    let c = Compose {
+        src: 1,
+        dst: 3,
+        width: 4,
+        height: 4,
+        ..Compose::default()
+    };
+    s.compose_frames(key, c).unwrap();
+    assert_eq!(s.take_changed(), vec![], "frames 2 and 3 are not on show");
+    let run = Control {
+        run: 3,
+        ..Control::default()
+    };
+    s.control_animation(key, run).unwrap();
+    assert_eq!(s.take_changed(), vec![], "the control itself marks no box");
+    send(&mut s, key, edit(3)).unwrap();
+    assert_eq!(s.take_changed(), boxes, "frame 3 may be on show");
+}

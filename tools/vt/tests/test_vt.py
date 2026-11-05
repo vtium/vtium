@@ -1863,6 +1863,44 @@ class Make(Case):
         self.assertIn(f"--guide={os.path.join(VT, 'checks', 'start.guide')} --steps=2 5 --", p.stdout)
         self.assertEqual(self.s.calls_of("sudo"), [])
 
+    # A stand-in cargo that records, beside its arguments, the build
+    # settings for hwaccel and display-buffers when it is given them.
+    CARGO_SETTINGS = "#!/bin/bash\n" + ('printf "%s\\n" "cargo ${VTIUM_HWACCEL+VTIUM_HWACCEL=$VTIUM_HWACCEL }'
+                                        '${VTIUM_DISPLAY_BUFFERS+VTIUM_DISPLAY_BUFFERS=$VTIUM_DISPLAY_BUFFERS }'
+                                        '$*" >>"$CALLS"\n')
+
+    def test_every_review_target_hands_hwaccel_and_display_buffers_to_its_builds(self):
+        # The console, the glyph helper and, with pictures, the image helper
+        # each take the two settings, as make install's builds do (ADR-1500
+        # D8).
+        write(os.path.join(self.s.standins, "cargo"), self.CARGO_SETTINGS)
+        builds = {"rustc --profile minspec -p vtium --bin vtium", "build --release -p vtium-config",
+                  "build --release -p vtium-image-helper"}
+        for target, extra in (("vt-accept", ()), ("vt-login", ()), ("vt-shell", ()), ("vt-check", ("GUIDE=start",))):
+            with self.subTest(target=target):
+                open(self.s.calls, "w").close()
+                p = self.make(target, "DRY_RUN=1", *extra, f"VTIUM_MINSPEC={self.s.bin}",
+                              f"CONFIG_RELEASE={self.s.helper}", f"IMAGE_RELEASE={self.s.image}",
+                              "FEATURES=images", "HWACCEL=on", "DISPLAY_BUFFERS=2")
+                self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+                calls = self.s.calls_of("cargo")
+                want = builds if target == "vt-accept" else builds - {"build --release -p vtium-image-helper"}
+                self.assertEqual({c for c in want if any(f" {c} " in f" {call} " for call in calls)}, want, calls)
+                for call in calls:
+                    self.assertTrue(call.startswith("VTIUM_HWACCEL=on VTIUM_DISPLAY_BUFFERS=2 "), call)
+
+    def test_a_review_target_given_a_built_console_refuses_the_build_settings(self):
+        # The settings are baked into a build, and a binary named with
+        # VTIUM_BIN is built already, so naming them would change nothing.
+        for setting in ("HWACCEL=on", "DISPLAY_BUFFERS=2"):
+            with self.subTest(setting=setting):
+                p = self.make("vt-accept", "DRY_RUN=1", f"VTIUM_BIN={self.s.bin}", setting)
+                self.assertNotEqual(p.returncode, 0, p.stdout)
+                self.assertIn("HWACCEL and DISPLAY_BUFFERS set the defaults a build bakes into the console", p.stderr)
+                self.assertEqual(self.s.calls_of("cargo") + self.s.calls_of("sudo"), [])
+        p = self.make("vt-accept", "DRY_RUN=1", f"VTIUM_BIN={self.s.bin}", HWACCEL="on")
+        self.assertEqual(p.returncode, 0, "one exported in the shell is not refused: " + p.stderr)
+
 
 
 class Install(Case):
@@ -3137,7 +3175,10 @@ exec "$@"
     # with images among its features the line only a build with images
     # carries. $CARGO_STALE builds as if VTIUM_IMAGE never reached the build.
     CARGO_BUILDS = "#!/bin/bash\n" + ('printf "%s\\n" "cargo VTIUM_FONT_HELPER=${VTIUM_FONT_HELPER-unset} '
-                                      'VTIUM_IMAGE=${VTIUM_IMAGE-unset} $*" >>"$CALLS"\n') + """
+                                      'VTIUM_IMAGE=${VTIUM_IMAGE-unset} '
+                                      '${VTIUM_HWACCEL+VTIUM_HWACCEL=$VTIUM_HWACCEL }'
+                                      '${VTIUM_DISPLAY_BUFFERS+VTIUM_DISPLAY_BUFFERS=$VTIUM_DISPLAY_BUFFERS }'
+                                      '$*" >>"$CALLS"\n') + """
 if [ "$1" = rustc ] && [[ " $* " == *" -p vtium "* ]]; then
 	image=${VTIUM_IMAGE:-/usr/bin/vtium-image}
 	[ -z "${CARGO_STALE-}" ] || image=/usr/bin/vtium-image
@@ -3185,6 +3226,26 @@ fi
         self.assertIn(f"+ sudo install -D -m 0755 -- {self.s.image} {self.root}/usr/local/bin/.vtium-dev-image.vt-install-new",
                       p.stdout)
         self.assertIn(f"+ sudo {self.s.standins}/systemd-sysusers {self.at(self.SYSUSERS)}", p.stdout)
+
+    def test_make_hands_hwaccel_and_display_buffers_to_every_build(self):
+        # The development console, its glyph helper and its image helper each
+        # take the two settings, as make install's builds do (ADR-1500 D8).
+        p = self.make_vt_install("FEATURES=images gpu", "HWACCEL=on", "DISPLAY_BUFFERS=2")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        builds = self.s.calls_of("cargo")
+        self.assertEqual(len(builds), 3, builds)
+        for build in builds:
+            self.assertIn(" VTIUM_HWACCEL=on VTIUM_DISPLAY_BUFFERS=2 ", build)
+        self.assertIn("--target-dir " + TARGET + "/vt-dev --features images gpu ", " ".join(builds))
+        # A console named with VTIUM_BIN is built already, so the settings
+        # are refused before anything is built.
+        open(self.s.calls, "w").close()
+        p = subprocess.run(["make", "--no-print-directory", "-C", ROOT, "vt-install", "VT=4", "DRY_RUN=1",
+                            f"VTIUM_BIN={self.s.bin}", f"VTIUM_CONFIG_BIN={self.s.helper}", "HWACCEL=on"],
+                           env=self.s.env(), capture_output=True, text=True, timeout=BUILD_BOUND)
+        self.assertNotEqual(p.returncode, 0, p.stdout)
+        self.assertIn("vt-install: HWACCEL and DISPLAY_BUFFERS set the defaults a build bakes into the console", p.stderr)
+        self.assertEqual(self.s.calls_of("cargo") + self.s.calls_of("sudo"), [])
 
     def test_make_builds_a_console_without_pictures_and_no_image_helper(self):
         # A console built without images names the packaged image helper,
@@ -3435,6 +3496,17 @@ class Package(Case):
             p = self.make(target, f"DESTDIR={self.dest}", f"INSTALL_TARGET_DIR={self.build}", "FRITS=minspec-16 absent")
             self.assertNotEqual(p.returncode, 0, target)
             self.assertIn("no frit absent in", p.stderr, target)
+        # Every target that builds checks the settings, the tier 3 runs that
+        # build the install tree among them. make -n only prints the
+        # recipes, so a target that failed to check would build and run
+        # nothing here either.
+        for target in ("install-tree", "minspec", "vt-dev-console", "config-release", "image-release",
+                       "tier3", "tier3-minimal", "tier3-images", "tier3-nosystemd"):
+            for arg, why in (("HWACCEL=yes", "HWACCEL is on or off"),
+                             ("DISPLAY_BUFFERS=0", "DISPLAY_BUFFERS is 1, 2 or 3")):
+                p = self.make("-n", target, arg)
+                self.assertNotEqual(p.returncode, 0, (target, arg))
+                self.assertIn(why, p.stderr, (target, arg))
         # each is refused as make reads the Makefile, before any build
         self.assertEqual(self.s.calls_of("cargo"), [])
 

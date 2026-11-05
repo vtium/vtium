@@ -374,19 +374,22 @@ impl Store {
 
     /// Reports the boxes of every relative placement that follows placement
     /// `key`, and with `with_self` its own, for the terminal to mark: once
-    /// before a change that moves them, and once after it.
+    /// before a change that moves them, and once after it. A placement that
+    /// follows a virtual placement has no box of its own, and the store
+    /// notes where the runs place it instead.
     pub(super) fn mark_family(&mut self, b: usize, key: PlacementKey, with_self: bool) {
         let Some(buf) = self.buffers.get(b) else {
             return;
         };
-        let family = buf.family(key);
-        let visited = family.len();
-        let boxes: Vec<Region> = family
+        let family: Vec<PlacementKey> = buf
+            .family(key)
             .into_iter()
             .filter(|&k| with_self || k != key)
-            .filter_map(|k| buf.region(k))
             .collect();
+        let visited = family.len();
+        let boxes: Vec<Region> = family.iter().filter_map(|&k| buf.region(k)).collect();
         self.changed.extend(boxes);
+        self.note_floating(b, &family);
         self.count(visited);
     }
 

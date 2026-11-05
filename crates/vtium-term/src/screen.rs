@@ -545,6 +545,14 @@ impl Screen {
         self.scrollback.bytes()
     }
 
+    /// The rows the scrollback has read to find its oldest logical line
+    /// waiting to be rewrapped, as each drop past `sb-memory` does. Tests
+    /// read it to check that a drop reads each row a bounded number of
+    /// times.
+    pub fn scrollback_rows_read(&self) -> usize {
+        self.scrollback.rows_read()
+    }
+
     /// Empties the scrollback (ED 3).
     pub fn clear_scrollback(&mut self) {
         self.images_clear_scrollback();
