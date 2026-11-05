@@ -2871,8 +2871,9 @@ impl App {
     /// and starts the head's login in it (ADR-1401 D1, D5), unless the head
     /// has `head-consoles-max` consoles or every head together has
     /// `consoles-max`: then nothing opens, and vtium logs a line and shows
-    /// a brief line on the head's on-screen display. Returns whether one
-    /// opened.
+    /// a brief line on the head's on-screen display. A console whose login
+    /// cannot start leaves, and the head shows a notice. Returns whether
+    /// one opened.
     fn open_console(&mut self, h: usize, now: Instant) -> bool {
         let total: usize = self
             .heads
@@ -2881,6 +2882,7 @@ impl App {
             .map(Head::console_count)
             .sum();
         let caps = self.caps;
+        let osd = self.osd;
         let App {
             heads,
             config,
@@ -2909,9 +2911,7 @@ impl App {
             None
         };
         if let Some(line) = full {
-            head.brief = Some(line);
-            head.brief_due = None;
-            head.draw_now = true;
+            head.show_brief(line, osd);
             return false;
         }
         let term = crate::head::terminal(config, *scrollback, *scrollback_bytes, Rc::clone(clock));
@@ -2924,12 +2924,14 @@ impl App {
         // The C reference kept such a session and tried to open its
         // terminal again at each activation (`src/terminal.c:1771-1772` at
         // kmscon b1f7a7c5), a departure the crate's README lists.
+        // That the console did not open is a notice of a problem, which
+        // shows whatever `osd` says, and goes as the guards' notices go
+        // (ADR-1401 D5, D7).
         if let Err(why) = self.start_session(h, id) {
             if let Some(head) = self.heads.get_mut(h) {
                 log::warn!("head {}: console {id} does not open: {why}", head.name());
                 head.drop_hidden(id);
-                head.brief = Some(crate::notice::NO_CONSOLE_OPENED.to_owned());
-                head.brief_due = None;
+                head.add_notice(crate::notice::NO_CONSOLE_OPENED);
             }
             return false;
         }
@@ -3431,10 +3433,7 @@ impl App {
                 head.osd_due = None;
                 head.osd_shown = false;
             }
-            if head.brief_due.is_some_and(|d| d <= now) {
-                head.brief_due = None;
-                head.brief = None;
-            }
+            head.brief_turn(now);
             if let Some(due) = head.text_due.filter(|&d| d <= now) {
                 head.draw_now |= head.console.term.blink.fired(Timer::Text, awake);
                 head.text_due = Some(after(due, crate::blink::TEXT_PERIOD));
@@ -3545,14 +3544,9 @@ impl App {
             });
             // The brief line answers one press at a cap: for `osd-timeout`,
             // or 3 s under `never`, from its first frame, in place of the
-            // full line, and never under `off`.
-            if mode == osd::Mode::Off {
-                head.brief = None;
-            }
-            if head.brief.is_some() && head.brief_due.is_none() && !head.views.is_empty() {
-                head.brief_due = Some(after(now, timeout.unwrap_or(BRIEF_NEVER)));
-            }
-            let status = head.brief.clone().or(full);
+            // full line. [`Head::show_brief`] sets none under `off`.
+            head.arm_brief(after(now, timeout.unwrap_or(BRIEF_NEVER)));
+            let status = head.brief().map(str::to_owned).or(full);
             if head.mark != mark || head.status != status {
                 head.mark = mark;
                 head.status = status;
@@ -3763,7 +3757,7 @@ impl App {
             due.extend(head.hangup_due);
             due.extend(head.notice_due);
             due.extend(head.osd_due);
-            due.extend(head.brief_due);
+            due.extend(head.brief_due());
             #[cfg(feature = "images")]
             due.extend(head.image_due());
             #[cfg(feature = "images")]

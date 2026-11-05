@@ -429,7 +429,8 @@
 ##
 ## With `minimal`, it draws a dot in the top-right cell, filled on the active
 ## head and hollow on the others. With `full`, it draws a line across the top,
-## such as `● desk · console 2 of 3`. With `off`, it draws nothing.
+## such as `● desk · console 2 of 3`. With `off`, it never draws anything,
+## after any change.
 ##
 ## A notice of a problem shows whatever `osd` says.
 #

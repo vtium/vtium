@@ -568,6 +568,8 @@ const RESCUE_NO_HEAD_DESC: &str = "vtium's notice that the rescue key moved the 
 
 const ONESHOT_DESC: &str = "vtium's notice that the head's session ended under `oneshot` and will not start again (vtium/vtium#156), over the session's last screen. Correct: the notice saying the session has ended and will not start again, then to press Ctrl+Super+↑ to switch to another screen, in the notices' pale red box with a dark red edge across the top, the width of the display, its text dark, wrapped at a space where it is wider than the box; the row just below the box partly covered, on purpose, since the box is painted over the terminal's text and is not a whole number of rows tall; and the rows below it as the terminal drew them.";
 
+const NO_CONSOLE_OPENED_DESC: &str = "vtium's notice that a console the open chord opened did not open, because its login could not start (ADR-1401 D5), a notice of a problem that shows whatever `osd` says, over a shell session. Correct: the notice `Console not opened: login could not start.` on one line, in the notices' pale red box with a dark red edge across the top, the width of the display, its text dark, its first letter half a cell in from the edge; the row just below the box partly covered, on purpose, since the box is painted over the terminal's text and is not a whole number of rows tall; and the rows below it as the terminal drew them.";
+
 const HEAD_FILE_DESC: &str = "vtium's notice of partly broken sections of vtium.conf (ADR-1401 D7, ADR-1403 D3): its rule on line 4 names the head `desc`, which the file does not declare, so that rule alone is dropped. Correct: two lines in the notices' pale red box with a dark red edge across the top, the console line `config partly invalid, running what's valid`, naming no error, since the log keeps the errors, then its next step, `Run vtium check-config /etc/vtium/vtium.conf to see why.`; the row just below the box partly covered, on purpose, since the box is painted over the terminal's text and is not a whole number of rows tall; and the rows below it as the terminal drew them.";
 
 const HEAD_FILE_TWO_DESC: &str = "vtium's notice of broken sections of vtium.conf under the open policy (ADR-1401 D7, ADR-1403 D3): a key the head section does not take on line 3 drops the head, and with it every rule naming it, so nothing usable survives and the shipped rules run. Correct: two lines in the notices' pale red box with a dark red edge across the top, the console line `invalid config skipped, using builtin`, naming no error, then its next step, `Run vtium check-config /etc/vtium/vtium.conf to see why.`; the row just below the box partly covered, on purpose, since the box is painted over the terminal's text and is not a whole number of rows tall; and the rows below it as the terminal drew them.";
@@ -1067,6 +1069,11 @@ pub const CASES: &[Case] = &[
         shown(&[notices::oneshot]),
     ),
     small(
+        "notice-no-console-opened-800x480",
+        NO_CONSOLE_OPENED_DESC,
+        shown(&[notices::no_console_opened]),
+    ),
+    small(
         "notice-head-file-800x480",
         HEAD_FILE_DESC,
         shown(&[notices::head_file_one_error]),
@@ -1139,6 +1146,11 @@ pub const CASES: &[Case] = &[
         "notice-oneshot-3840x540",
         ONESHOT_DESC,
         shown(&[notices::oneshot]),
+    ),
+    large(
+        "notice-no-console-opened-3840x540",
+        NO_CONSOLE_OPENED_DESC,
+        shown(&[notices::no_console_opened]),
     ),
     large(
         "notice-head-file-3840x540",
