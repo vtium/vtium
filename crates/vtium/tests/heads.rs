@@ -2455,11 +2455,10 @@ fn a_console_the_open_chord_cannot_start_leaves_and_the_run_goes_on() {
     std::fs::remove_file(&login).expect("the login removed");
     press_chord(&mut s, KBD_SMALL, RETURN);
     assert_eq!(consoles(&s.app, "small"), Some((1, 0)), "the console left");
-    let line = Some("No console opened: its login could not start.");
-    assert!(
-        s.until(BOUND, |a| a.head("small").and_then(Head::status) == line),
-        "the line at the top of the head: {:?}",
-        s.app.head("small").and_then(Head::status)
+    assert_eq!(
+        notice(&s.app, "small").as_deref(),
+        Some("No console opened: its login could not start."),
+        "the notice at the top of the head"
     );
     s.type_on(KBD_SMALL, "on\r");
     assert!(
@@ -5569,89 +5568,126 @@ fn an_idle_seat_wakes_to_take_the_osd_down() {
     );
 }
 
-/// D5: under `osd = off` the active head's move composes no frame, since
-/// it leaves the picture as it was; under `minimal` it composes one with
-/// the dot, the control.
+/// The loop's turns a test gives a press to start a frame. Under
+/// `minimal` the press's frame starts in the first turn after it, so a
+/// frame that has not started after this many turns never will.
+const TURNS: usize = 8;
+
+/// The turn, counted from 1, in which the display at `node` is asked for
+/// a frame after `press`, within [`TURNS`] turns: the loop asks the
+/// display for a buffer, which [`Memory`] counts, as it starts each frame.
+/// `None` when no frame starts. The seat's start is drawn first, with no
+/// frame of it still out.
+fn turn_of_frame(s: &mut Seat, node: &str, press: impl FnOnce(&mut Seat)) -> Option<usize> {
+    assert!(
+        s.until_memory(node, BOUND, |m| m.inked(0, 1..5)),
+        "the start drawn"
+    );
+    assert!(
+        s.until(BOUND, |a| a.heads().iter().all(|h| h.frames_out() == 0)),
+        "no frame of the start out"
+    );
+    let lent = s.memory(node).ages.len();
+    press(s);
+    (1..=TURNS).find(|_| {
+        s.app.turn(now());
+        s.memory(node).ages.len() > lent
+    })
+}
+
+/// D5: under `osd = off` the active head's move starts no frame, since it
+/// leaves the picture as it was; under `minimal` it starts one with the
+/// dot, in the first turn, the control.
 #[test]
 fn under_osd_off_a_move_composes_no_frame() {
-    use std::sync::Arc;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    for (osd, drawn) in [("--osd=off", false), ("--osd=minimal", true)] {
+    for (osd, drawn) in [("--osd=off", None), ("--osd=minimal", Some(1))] {
         let mut s = claimed_with(&[osd, "--no-blink"]);
-        // The large display shows "ready", past the cursor's first cell:
-        // its last frame of the start is drawn and no other is on its way.
-        assert!(
-            s.until_memory("/dev/mem1", BOUND, |m| m.inked(0, 1..5)),
-            "the start drawn"
-        );
-        assert!(
-            s.until(BOUND, |a| a
-                .head("large")
-                .is_some_and(|h| h.frames_out() == 0)),
-            "no frame of the start composing"
-        );
-        let composed = Arc::new(AtomicUsize::new(0));
-        let count = Arc::clone(&composed);
-        let hook = move || {
-            count.fetch_add(1, Ordering::SeqCst);
-        };
-        s.app.set_draw_hook("large", Some(Arc::new(hook)));
-        s.app
-            .device_input(Path::new(KBD_FOCUS), ctrl_super(UP), now());
-        if drawn {
-            assert!(
-                s.until(BOUND, |_| composed.load(Ordering::SeqCst) > 0),
-                "{osd}: a frame composed"
-            );
-        } else {
-            // No frame comes to wait for: the window only gives one the
-            // chance to.
-            s.until(Duration::from_millis(200), |_| false);
-            assert_eq!(composed.load(Ordering::SeqCst), 0, "{osd}");
-        }
+        let moved = turn_of_frame(&mut s, "/dev/mem1", |s| {
+            s.app
+                .device_input(Path::new(KBD_FOCUS), ctrl_super(UP), now());
+        });
+        assert_eq!(moved, drawn, "{osd}");
     }
 }
 
 /// D5: with `osd = off`, the open chord at a cap leaves the picture as it
-/// was, so it composes no frame; under `minimal` it composes one with the
-/// brief line, the control.
+/// was, so it starts no frame; under `minimal` it starts one with the
+/// brief line, in the first turn, the control.
 #[test]
 fn under_osd_off_the_open_chord_at_a_cap_composes_no_frame() {
-    use std::sync::Arc;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    for (osd, drawn) in [("--osd=off", false), ("--osd=minimal", true)] {
+    for (osd, drawn) in [("--osd=off", None), ("--osd=minimal", Some(1))] {
         let mut s = claimed_with(&[osd, "--no-blink", "--head-consoles-max=1"]);
-        assert!(
-            s.until_memory("/dev/mem0", BOUND, |m| m.inked(0, 1..5)),
-            "the start drawn"
-        );
-        assert!(
-            s.until(BOUND, |a| a
-                .head("small")
-                .is_some_and(|h| h.frames_out() == 0)),
-            "no frame of the start composing"
-        );
-        let composed = Arc::new(AtomicUsize::new(0));
-        let count = Arc::clone(&composed);
-        let hook = move || {
-            count.fetch_add(1, Ordering::SeqCst);
-        };
-        s.app.set_draw_hook("small", Some(Arc::new(hook)));
-        press_chord(&mut s, KBD_SMALL, RETURN);
+        let pressed = turn_of_frame(&mut s, "/dev/mem0", |s| {
+            press_chord(s, KBD_SMALL, RETURN);
+        });
         assert_eq!(consoles(&s.app, "small"), Some((1, 0)), "{osd}");
-        if drawn {
-            assert!(
-                s.until(BOUND, |_| composed.load(Ordering::SeqCst) > 0),
-                "{osd}: a frame composed"
-            );
-        } else {
-            // No frame comes to wait for: the window only gives one the
-            // chance to.
-            s.until(Duration::from_millis(200), |_| false);
-            assert_eq!(composed.load(Ordering::SeqCst), 0, "{osd}");
-        }
+        assert_eq!(pressed, drawn, "{osd}");
     }
 }
+
+/// Each way vtium.conf turns the on-screen display off: `osd = off`, the
+/// older `focus-mark = off`, and `off` beside an `osd-timeout` or a
+/// `focus-mark` that would otherwise keep it up from the start.
+const OSD_OFF: [&[&str]; 5] = [
+    &["--osd=off"],
+    &["--focus-mark=off"],
+    &["--osd=off", "--osd-timeout=never"],
+    &["--focus-mark=always", "--osd=off"],
+    &["--focus-mark=off", "--osd-timeout=never"],
+];
+
+/// D5 and D7, the maintainer's decision of 2026-11-05: a console the open
+/// chord opens whose login cannot start is a notice of a problem, which
+/// shows whatever `osd` says: under every way of turning the OSD off and
+/// under `minimal` and `full`, the head shows the notice in the notices'
+/// colors and no brief line, and a key reaching the head ends it, as it
+/// ends the guards' notices.
+// covers: platform.heads
+#[test]
+fn a_console_that_cannot_start_shows_a_notice_under_every_osd() {
+    let dir = Scratch::new("heads-osd-unstartable");
+    let login = dir.join("login");
+    let heads = CLAIMED.replace(
+        "[head small]\n",
+        &format!("[head small]\nlogin = {}\n", login.display()),
+    );
+    let modes = OSD_OFF
+        .iter()
+        .copied()
+        .chain([&["--osd=minimal"][..], &["--osd=full"][..]]);
+    for args in modes {
+        script_file(
+            &login,
+            "#!/bin/sh\necho ready; while read a; do echo \"got:$a\"; done\n",
+        );
+        let mut s = claimed_on(args, &heads);
+        assert_eq!(notice(&s.app, "small"), None, "{args:?}");
+        std::fs::remove_file(&login).expect("the login removed");
+        press_chord(&mut s, KBD_SMALL, RETURN);
+        assert_eq!(consoles(&s.app, "small"), Some((1, 0)), "{args:?}");
+        assert_eq!(
+            notice(&s.app, "small").as_deref(),
+            Some(vtium::notice::NO_CONSOLE_OPENED),
+            "{args:?}: the notice"
+        );
+        assert_eq!(
+            s.app.head("small").and_then(Head::status),
+            None,
+            "{args:?}: no brief line"
+        );
+        assert!(
+            s.until_memory("/dev/mem0", BOUND, |m| m.has(PAPER)),
+            "{args:?}: drawn in the notices' colors"
+        );
+        s.type_on(KBD_SMALL, "on\r");
+        assert!(
+            s.until(BOUND, |a| head_shows(a, "small", "got:on")),
+            "{args:?}: the first console's session runs on"
+        );
+        assert_eq!(notice(&s.app, "small"), None, "{args:?}: a key ended it");
+    }
+}
+
 /// Two heads, each keyboard but `kbd-large` claimed by `small`, which
 /// [`stranded`] gives no display.
 const STRANDED: &str = "version = 1

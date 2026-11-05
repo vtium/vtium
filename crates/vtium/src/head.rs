@@ -156,10 +156,11 @@ pub struct Head {
     /// or its brief line while that shows.
     pub(crate) status: Option<String>,
     /// The on-screen display's brief line, which answers one press of the
-    /// open chord at a cap, until `brief_due` (ADR-1401 D5).
-    pub(crate) brief: Option<String>,
+    /// open chord at a cap, until `brief_due` (ADR-1401 D5). Only
+    /// [`Head::show_brief`] sets it, which sets none under `osd = off`.
+    brief: Option<String>,
     /// When the brief line goes, armed at its first frame.
-    pub(crate) brief_due: Option<Instant>,
+    brief_due: Option<Instant>,
     /// The colors of the notices and the on-screen display, which
     /// vtium.conf sets for every head (ADR-1401 D5).
     overlay_colors: crate::term::OverlayColors,
@@ -618,6 +619,45 @@ impl Head {
     /// The on-screen display's line, while it shows.
     pub fn status(&self) -> Option<&str> {
         self.status.as_deref()
+    }
+
+    /// The on-screen display shows `line` as its brief line from the
+    /// head's next frame, which answers one press (ADR-1401 D5). Under
+    /// `osd = off`, which `osd` gives, vtium shows no brief line, so the
+    /// press leaves the screen as it was and draws no frame.
+    pub(crate) fn show_brief(&mut self, line: String, osd: crate::osd::Osd) {
+        if osd.mode == crate::osd::Mode::Off {
+            return;
+        }
+        self.brief = Some(line);
+        self.brief_due = None;
+        self.draw_now = true;
+    }
+
+    /// The brief line, while it shows.
+    pub(crate) fn brief(&self) -> Option<&str> {
+        self.brief.as_deref()
+    }
+
+    /// When the brief line goes.
+    pub(crate) fn brief_due(&self) -> Option<Instant> {
+        self.brief_due
+    }
+
+    /// The brief line's time starts at its first frame, to end at `due`:
+    /// once, while the head has a display to draw it on.
+    pub(crate) fn arm_brief(&mut self, due: Instant) {
+        if self.brief.is_some() && self.brief_due.is_none() && !self.views.is_empty() {
+            self.brief_due = Some(due);
+        }
+    }
+
+    /// The brief line goes once its time has passed at `now`.
+    pub(crate) fn brief_turn(&mut self, now: Instant) {
+        if self.brief_due.is_some_and(|d| d <= now) {
+            self.brief_due = None;
+            self.brief = None;
+        }
     }
 
     /// The on-screen display shows from the head's next frame, its time
