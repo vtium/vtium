@@ -1008,6 +1008,65 @@ display card:mem-large -> large
     drop(s);
 }
 
+/// ADR-1403 D5: a look's `font-size` and `display-dpi` reach the head
+/// whose section names the look, over the top level's, and a head whose
+/// section names no look draws at the top level's. The seat's command
+/// line sets 16 points, which a section wins over too. The small head's
+/// look sets 144 DPI, so 16 points draw a 16x32 cell on the 72 DPI small
+/// display; the large head's look sets 32 points, a 16x32 cell at 72 DPI.
+/// A head's section sets no font key of its own, since a head's font
+/// comes from its look.
+#[test]
+fn a_heads_look_sets_the_size_its_head_draws_at() {
+    let heads = "version = 1
+[look dense]
+display-dpi = 144
+[look big]
+font-size = 32
+[head small]
+look = dense
+[head large]
+look = big
+[rules]
+display card:mem-small -> small
+display card:mem-large -> large
+";
+    let script = "echo \"size:$(stty size)\"; read x";
+    let mut s = Seat::with_heads(&[], Some(heads), two_displays(), script);
+    assert!(s.until(BOUND, |a| a.cells().len() == 2));
+    assert_eq!(
+        s.app.head("small").map(Head::cells),
+        Some(vec![(16, 32)]),
+        "the look's display-dpi"
+    );
+    assert_eq!(
+        s.app.head("large").map(Head::cells),
+        Some(vec![(16, 32)]),
+        "the look's font-size"
+    );
+    assert_eq!(grid(&s.app, "small"), Some((20, 5)));
+    assert_eq!(grid(&s.app, "large"), Some((40, 10)));
+    assert!(s.until(BOUND, |a| size(a, "small").is_some()
+        && size(a, "large").is_some()));
+    assert_eq!(size(&s.app, "small").as_deref(), Some("5 20"));
+    assert_eq!(size(&s.app, "large").as_deref(), Some("10 40"));
+    // a head section with no look draws at the top level's 16 points
+    let plain = "version = 1
+[look big]
+font-size = 32
+[head small]
+[head large]
+look = big
+[rules]
+display card:mem-small -> small
+display card:mem-large -> large
+";
+    let mut s = Seat::with_heads(&[], Some(plain), two_displays(), "read x");
+    assert!(s.until(BOUND, |a| a.cells().len() == 2));
+    assert_eq!(s.app.head("small").map(Head::cells), Some(vec![(8, 16)]));
+    assert_eq!(s.app.head("large").map(Head::cells), Some(vec![(16, 32)]));
+}
+
 /// ADR-1200 D17, binary-recheck's finding 4: a bitmap frit asks for its
 /// fonts' own cell at an OSC 50 switch. Switched away and back while
 /// another head still draws it, a frit whose last ask has had no answer
@@ -6147,6 +6206,31 @@ fn a_sessions_end_undoes_its_zoom() {
     let size = end_shown_session(&mut s);
     assert_eq!(size, "size:10 40", "the next login starts at 16 points");
     assert_eq!(s.app.cells(), [(8, 16)]);
+}
+
+/// ADR-1201 D11, ADR-1403 D5: the size a session's end returns to is the
+/// head's, its look's `font-size` over vtium.conf's, so a zoom made in the
+/// session is undone back to the look's size.
+#[test]
+fn a_sessions_end_returns_to_its_looks_size() {
+    let (dir, fonts) = reset_fixture("reset-look", "font-size=16\n");
+    let heads = "version = 1\n[look big]\nfont-size = 32\n[head small]\nlook = big\n\
+                 [rules]\ndisplay card:mem-small -> small\ninput path:kbd-small -> small\n";
+    let (mut s, reads) = reset_seat(&dir, heads, fonts);
+    assert!(s.until(BOUND, |a| sizes(a) == [Some("size:5 20".to_owned())]));
+    let minus = InputEvent::Key(KeyEvent {
+        mods: Mods::CTRL,
+        ..char_key('-')
+    });
+    s.app.device_input(Path::new(KBD_SMALL), minus, now());
+    assert_ne!(grid(&s.app, "small"), Some((20, 5)), "zoomed");
+    let size = end_shown_session(&mut s);
+    assert_eq!(
+        size, "size:5 20",
+        "the next login starts at the look's 32 points"
+    );
+    assert_eq!(s.app.cells(), [(16, 32)]);
+    assert_eq!(reads.get(), 1, "vtium.conf read again once");
 }
 
 /// ADR-1201 D11: one font for a head. A session ending in another console

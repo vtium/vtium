@@ -120,9 +120,6 @@ pub struct Head {
     next_id: u64,
     /// A new console's `font-size`, as configured: in points, or `0`.
     configured: (Option<u32>, bool),
-    /// The `font-size` the head's look sets, which wins over the top
-    /// level's (ADR-1403 D5).
-    own_size: Option<u32>,
     /// The consoles the head opens at its start, its file's `consoles`
     /// within the caps.
     pub(crate) wanted: usize,
@@ -337,14 +334,13 @@ fn screen_text(console: &Console) -> Vec<String> {
         .collect()
 }
 
-/// The size a console of a head draws at, from the `font-size` its look
-/// sets, `own`, else `config`'s: in points, unless
-/// `font-size=0` or unset picks it from the displays; and whether a
-/// `font-size` other than 0 is configured.
-pub(crate) fn configured_size(own: Option<u32>, config: &Config) -> (Option<u32>, bool, bool) {
-    let size = own
-        .map(u64::from)
-        .or_else(|| config.number(&keys::FONT_SIZE));
+/// The size a console of a head draws at, from the `font-size` of the
+/// head's configuration `config`, the one [`Config::for_head`] gives, so
+/// its look's size wins over the top level's (ADR-1403 D5): in points,
+/// unless `font-size=0` or unset picks it from the displays; and whether
+/// a `font-size` other than 0 is configured.
+pub(crate) fn configured_size(config: &Config) -> (Option<u32>, bool, bool) {
+    let size = config.number(&keys::FONT_SIZE);
     let points = size
         .filter(|&n| n != 0)
         .map(|n| u32::try_from(n).unwrap_or(u32::MAX));
@@ -356,10 +352,11 @@ pub(crate) fn configured_size(own: Option<u32>, config: &Config) -> (Option<u32>
 pub type DrawHook = std::sync::Arc<dyn Fn() + Send + std::marker::Sync>;
 
 impl Head {
-    /// The head `name` for `config`, its one console's terminal `term`,
-    /// and the keys `settings` its sections set over `config`, its look's
-    /// `font-name` and `font-size` among them (ADR-1401 D3, ADR-1403 D5):
-    /// its session starts at its first display.
+    /// The head `name` for its configuration `config`, the one
+    /// [`Config::for_head`] gives for the keys `settings` its sections set,
+    /// its one console's terminal `term`: it draws at `config`'s
+    /// `font-size`, its look's where its look sets one (ADR-1401 D3,
+    /// ADR-1403 D5), and its session starts at its first display.
     pub(crate) fn new(
         name: &str,
         config: &Config,
@@ -373,8 +370,7 @@ impl Head {
                 .map(|s| s.value.clone())
         };
         let font_name = own(&keys::FONT_NAME);
-        let own_size = own(&keys::FONT_SIZE).and_then(|v| v.parse().ok());
-        let (points, auto_size, sized) = configured_size(own_size, config);
+        let (points, auto_size, sized) = configured_size(config);
         let fit = Fit {
             grid: GRID,
             font_size: 0,
@@ -389,7 +385,6 @@ impl Head {
             at: 0,
             next_id: 2,
             configured: (points, auto_size),
-            own_size,
             wanted: 1,
             login: None,
             ended_notice: crate::notice::session_ended(),

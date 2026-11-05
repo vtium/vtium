@@ -119,7 +119,7 @@ pub(crate) fn heads(
                 log::warn!("head {}: {r}; the top level's value stands", h.name);
             }
             let term = crate::head::terminal(config, lines, bytes, Rc::clone(clock));
-            let mut head = Head::new(&h.name, config, settings, term);
+            let mut head = Head::new(&h.name, &own, settings, term);
             head.wanted = wanted;
             head.when_display_lost = h.when_display_lost;
             head.login = h.login.is_some().then_some(own);
@@ -360,11 +360,13 @@ impl Head {
         self.refont = true;
     }
 
-    /// Takes the font size `config` configures, read again at a session's
-    /// end (ADR-1201 D11), for the consoles that open and the sessions
-    /// that end from now on; the head file's own `font-size` still wins.
+    /// Takes the font size the head's configuration `config` configures,
+    /// read again at a session's end (ADR-1201 D11), for the consoles that
+    /// open and the sessions that end from now on. `config` is the one
+    /// [`Config::for_head`] gives, so the head's look's `font-size` still
+    /// wins over the top level's.
     pub(crate) fn reconfigure(&mut self, config: &Config) {
-        let (points, auto_size, sized) = crate::head::configured_size(self.own_size, config);
+        let (points, auto_size, sized) = crate::head::configured_size(config);
         self.configured = (points, auto_size);
         self.sized = sized;
     }

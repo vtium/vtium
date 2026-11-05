@@ -3067,12 +3067,13 @@ impl App {
             return;
         }
         self.reread_font_keys();
+        let config = self.head_config(h);
         let Some(head) = self.heads.get_mut(h) else {
             return;
         };
         let mut kept = head.keep(id);
         let was_sized = head.sized();
-        head.reconfigure(&self.config);
+        head.reconfigure(&config);
         let shown = head.console.id == id;
         let new = if due.font {
             head.switched = None;
