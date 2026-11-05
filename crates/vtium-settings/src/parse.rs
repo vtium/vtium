@@ -191,6 +191,7 @@ fn read(bytes: &[u8], mode: Mode) -> Reading {
         Mode::HeadFile => each_line(&mut p, within, 0, Parser::raw_line),
         Mode::Conf => {
             let parts = split_after(within, false);
+            p.headed = parts.first_section.is_some();
             match parts.first_section {
                 // the top level's lines, then the sections' from the heading
                 Some(first) => {
@@ -305,6 +306,9 @@ struct Parser {
     errors: Rejected,
     /// Errors found once every line is read, merged in by line.
     late: Vec<Error>,
+    /// Whether vtium.conf holds a section heading, so its flow needs
+    /// `version = 1`; a policy line alone needs none (ADR-1403 D3).
+    headed: bool,
     scopes: Vec<Scope>,
     policies: Vec<PolicyLine>,
     warnings: Vec<Warning>,
@@ -359,6 +363,21 @@ pub(crate) fn content(line: &str) -> String {
         }
     }
     trim(&out).to_owned()
+}
+
+/// The words of a section heading's text between its brackets, as the
+/// reader takes them: `[ rules ]` is `["rules"]`.
+fn section_words(inner: &str) -> Vec<&str> {
+    blanks(inner).collect()
+}
+
+/// Whether a line's content is the heading of the `[rules]` section, read
+/// as the reader reads a heading, blanks inside the brackets and all.
+pub(crate) fn rules_heading(content: &str) -> bool {
+    content
+        .strip_prefix('[')
+        .and_then(|c| c.strip_suffix(']'))
+        .is_some_and(|inner| section_words(inner) == ["rules"])
 }
 
 fn blanks(s: &str) -> impl Iterator<Item = &str> {
@@ -819,7 +838,7 @@ impl Parser {
             );
             return;
         };
-        let words: Vec<&str> = blanks(inner).collect();
+        let words = section_words(inner);
         match words.as_slice() {
             ["rules"] => {
                 if std::mem::replace(&mut self.seen_rules, true) {
@@ -1220,7 +1239,10 @@ impl Parser {
     }
 
     fn finish(mut self) -> Reading {
-        if !self.versioned {
+        // a vtium.conf with no section is a kmscon.conf, which needs no
+        // version even when it states a policy (ADR-1403 D3)
+        let needs_version = self.mode == Mode::HeadFile || self.headed;
+        if !self.versioned && needs_version {
             self.late(None, Problem::MissingVersion, Within::Top);
         }
         let mut heads = Vec::new();

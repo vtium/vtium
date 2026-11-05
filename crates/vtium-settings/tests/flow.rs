@@ -180,10 +180,13 @@ fn an_error_in_a_section_never_drops_a_top_level_key() {
     assert_eq!(c.look(desk), None);
     assert!(r.parsed.warnings.is_empty(), "{:?}", r.parsed.warnings);
     assert_eq!(setting(&text, "font-size").as_deref(), Some("12"));
-    assert_eq!(
-        split(text.as_bytes()).key_lines().count(),
-        split(FILE.as_bytes()).key_lines().count()
-    );
+    let keys = |t: &str| -> Vec<(usize, Vec<u8>)> {
+        split(t.as_bytes())
+            .key_lines()
+            .map(|(n, l)| (n, l.to_vec()))
+            .collect()
+    };
+    assert_eq!(keys(&text), keys(FILE));
 }
 
 #[test]
@@ -198,7 +201,14 @@ fn a_top_level_mistake_never_drops_a_section() {
         }
         let r = read(&text);
         assert!(r.errors.is_empty(), "{line:?}: {:?}", r.errors);
-        assert_eq!(r.parsed.config.heads.len(), 2, "{line:?}");
+        let heads: Vec<&str> = r
+            .parsed
+            .config
+            .heads
+            .iter()
+            .map(|h| h.name.as_str())
+            .collect();
+        assert_eq!(heads, ["desk", "panel"], "{line:?}");
     }
 }
 
@@ -206,12 +216,33 @@ fn a_top_level_mistake_never_drops_a_section() {
 fn a_file_with_no_section_and_no_policy_line_has_no_flow() {
     assert!(sections(b"font-size=12\nbell\nversion = 1\n").is_none());
     assert_eq!(parse_sections("font-size=12\n"), Ok(None));
-    // a policy line alone is the flow's, so a closed policy is never lost
-    let r = read("policy = closed\n");
+    // a policy line alone is the flow's, so a closed policy is never lost,
+    // and a file with no section needs no version (D3)
+    let r = read("font-size=12\npolicy = closed\n");
     assert_eq!(r.parsed.config.policy, Policy::Closed);
+    assert_eq!(errors(&r), []);
+    assert_eq!(read("policy = open\n").parsed.config.policy, Policy::Open);
+    assert_eq!(errors(&read("policy = open\n")), []);
+    // a section needs the version still
     assert_eq!(
-        errors(&r),
+        errors(&read("policy = closed\n[rules]\n")),
         [(None, Problem::MissingVersion, Some(Drops::File))]
+    );
+}
+
+// value_for reads what vtium runs: an error in one section drops what it
+// drops, and every other section still gives its heads their values.
+#[test]
+fn a_head_s_value_comes_from_the_sections_that_survive_an_error() {
+    let text = format!("{FILE}[look broken]\nfrob = 1\n");
+    assert!(!read(&text).errors.is_empty());
+    assert_eq!(
+        value_for(&text, "desk", "font-size"),
+        Some(("14".to_owned(), Level::Look))
+    );
+    assert_eq!(
+        value_for(&text, "desk", "login"),
+        Some(("/bin/login -p".to_owned(), Level::Head))
     );
 }
 
@@ -259,7 +290,23 @@ fn a_look_takes_the_key_table_s_look_keys_and_its_vtlook() {
     let r = read(good);
     assert!(r.errors.is_empty(), "{:?}", r.errors);
     let look = r.parsed.config.looks.first().expect("the look");
-    assert_eq!(look.settings.len(), 7);
+    let set: Vec<(&str, &str, usize)> = look
+        .settings
+        .iter()
+        .map(|s| (s.key.name, s.value.as_str(), s.line))
+        .collect();
+    assert_eq!(
+        set,
+        [
+            ("font-engine", "pango", 3),
+            ("font-name", "monoid", 4),
+            ("font-size", "0", 5),
+            ("font-hinting", "full", 6),
+            ("font-line-spacing", "100", 7),
+            ("display-depth", "gray16", 8),
+            ("display-dpi", "20", 9),
+        ]
+    );
     assert_eq!(
         (look.vtlook.as_deref(), look.vtlook_line),
         (Some("amber"), 10)

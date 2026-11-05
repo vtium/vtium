@@ -237,15 +237,38 @@ fn a_rule_is_replaced_moved_and_removed_on_its_own_line() {
             "input class:keyboard -> roaming",
         ]
     );
+    assert_eq!(
+        moved,
+        FILE.replace(
+            "display * -> desk\ninput path",
+            "display * -> desk\ninput * -> ignore\ninput path"
+        )
+        .replacen("roaming\ninput * -> ignore\n", "roaming\n", 1)
+    );
+    // a moved rule keeps its blanks and its comment
+    let mine = "input path:pci-0000:15:00.0-usb-0:3.3 -> desk   # my keyboard\n";
+    assert_eq!(
+        move_rule(FILE, 3, 6).expect("the move"),
+        FILE.replace(mine, "")
+            .replace("input * -> ignore\n", &format!("input * -> ignore\n{mine}"))
+    );
     let back = move_rule(&moved, 3, 6).expect("the move");
     assert_eq!(back, FILE);
     assert_eq!(move_rule(FILE, 2, 3).expect("no move"), FILE);
     assert_eq!(move_rule(FILE, 6, 1), Err(SectionEdit::NoRule(6)));
     let removed = remove_rule(FILE, 1).expect("the removal");
-    assert_eq!(changed(FILE, &removed).first().map(|c| c.0), Some(12));
-    assert_eq!(rules(&removed).len(), 4);
+    assert_eq!(
+        removed,
+        FILE.replace("display edid:AAA:0x0001:LARGE00001 -> desk\n", "")
+    );
     // removing the only rule naming a head is still a file vtium reads
-    assert!(remove_rule(FILE, 3).is_ok());
+    assert_eq!(
+        remove_rule(FILE, 3).expect("the removal"),
+        FILE.replace(
+            "input path:pci-0000:15:00.0-usb-0:3.3 -> desk   # my keyboard\n",
+            ""
+        )
+    );
 }
 
 #[test]
@@ -279,5 +302,31 @@ fn a_section_is_added_where_its_kind_goes() {
     assert_eq!(
         out,
         "font-size=12\nbell\nversion = 1\n[rules]\ninput * -> roaming\n"
+    );
+}
+
+// The writer finds `[rules]` as the reader reads a heading, so blanks
+// inside the brackets name the same section.
+#[test]
+fn a_section_goes_before_rules_however_its_heading_is_spaced() {
+    let text = "version = 1\n[head desk]\n[ rules ]\ndisplay * -> desk\n";
+    assert_eq!(
+        add_section(text, Of::Head("panel")).expect("the head"),
+        "version = 1\n[head desk]\n[head panel]\n\n[ rules ]\ndisplay * -> desk\n"
+    );
+    let no_rules = "version = 1\n[head desk]\n";
+    assert_eq!(
+        add_rule(no_rules, "display * -> desk", None).expect("the rule"),
+        "version = 1\n[head desk]\n[rules]\ndisplay * -> desk\n"
+    );
+    let spaced = "version = 1\n[head desk]\n[\trules ]\n";
+    assert_eq!(
+        add_rule(spaced, "display * -> desk", None).expect("the rule"),
+        "version = 1\n[head desk]\n[\trules ]\ndisplay * -> desk\n"
+    );
+    // a file holding a policy line alone gains its version with a section
+    assert_eq!(
+        add_section("policy = closed\n", Of::Head("desk")).expect("the head"),
+        "policy = closed\nversion = 1\n\n[head desk]\n"
     );
 }

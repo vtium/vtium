@@ -17,7 +17,7 @@ use crate::keys::{self, Level};
 use crate::matching::Match;
 use crate::parse::{
     CONF_HEAD_KEYS, Parsed, RESERVED, VTLOOK, content, content_range, good_name, key_value,
-    parse_sections, rule_line,
+    parse_sections, rule_line, rules_heading,
 };
 use crate::route::names_one_device;
 use crate::split::{VERSION_KEY, heading, split};
@@ -227,9 +227,9 @@ pub fn set_key(
     checked(lines.text())
 }
 
-/// Adds the line `version = 1` at the end of a file with no flow, which a
-/// file with a section needs (ADR-1403 D3), unless its top level has a
-/// `version` line already.
+/// Adds the line `version = 1` at the end of a file whose top level has
+/// no `version` line, as a file with no section may have, which it needs
+/// once it has a section (ADR-1403 D3).
 fn give_flow(lines: &mut Lines, text: &str) {
     let versioned = split(text.as_bytes())
         .top_lines()
@@ -260,14 +260,18 @@ pub fn add_section(text: &str, of: Of<'_>) -> Result<String, SectionEdit> {
         return Err(SectionEdit::Exists(name.to_owned()));
     }
     let mut lines = Lines::of(text);
-    if parsed.is_none() {
-        give_flow(&mut lines, text);
-    }
-    let rules = lines.heading(|c| c == "[rules]");
+    let rules = lines.heading(rules_heading);
+    // the first head's heading, as the reading found it
+    let first_head = config.and_then(|c| c.heads.iter().map(|h| h.line).min());
     let before = match of {
-        Of::Look(_) => lines.heading(|c| c.starts_with("[head")).or(rules),
+        Of::Look(_) => first_head.or(rules),
         Of::Head(_) => rules,
     };
+    // a heading always follows the top level, so a version line added at
+    // the file's end comes before the new section only in a file with none
+    if before.is_none() {
+        give_flow(&mut lines, text);
+    }
     match before {
         Some(n) => {
             lines.insert(n, &heading_text);
@@ -356,12 +360,10 @@ pub fn add_rule(text: &str, rule: &str, before: Option<usize>) -> Result<String,
     match (rules.get(index), rules.last()) {
         (Some(next), _) => lines.insert(next.line, rule),
         (None, Some(last)) => lines.insert(last.line.saturating_add(1), rule),
-        (None, None) => match lines.heading(|c| c == "[rules]") {
+        (None, None) => match lines.heading(rules_heading) {
             Some(n) => lines.insert(n.saturating_add(1), rule),
             None => {
-                if readable(text)?.is_none() {
-                    give_flow(&mut lines, text);
-                }
+                give_flow(&mut lines, text);
                 let end = lines.end();
                 lines.insert(end, "[rules]");
                 let end = lines.end();

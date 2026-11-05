@@ -5,7 +5,7 @@ use crate::identity::Kind;
 use crate::keys::{Key, Level};
 use crate::matching::Match;
 use crate::outcome::Policy;
-use crate::parse::{parse, parse_sections};
+use crate::parse::{parse, sections};
 
 /// The head file's commented template. The compiled-in configuration is
 /// its parse, so the built-in configuration, the file `vtiumctl template`
@@ -232,12 +232,13 @@ impl Config {
 
 /// The value vtium takes for the key `key` on the head named `head`, and
 /// the level it comes from (ADR-1403 D5): the head's section of `text`,
-/// else its look's, else the top level's last line that sets it. The
-/// command line, which wins over the top level and loses to a section, is
-/// the caller's. A head the sections do not declare, or sections the
-/// strict reading refuses, leave the top level's value.
+/// else its look's, else the top level's last line that sets it, as vtium
+/// runs the file: from what survives of the sections, so an error in one
+/// section changes only what that error drops. The command line, which
+/// wins over the top level and loses to a section, is the caller's. A head
+/// the surviving sections do not declare takes the top level's value.
 pub fn value_for(text: &str, head: &str, key: &str) -> Option<(String, Level)> {
-    let config = parse_sections(text).ok().flatten().map(|p| p.config);
+    let config = sections(text.as_bytes()).map(|r| r.parsed.config);
     let section = config.as_ref().and_then(|c| {
         let h = c.head(head)?;
         c.settings(h)
