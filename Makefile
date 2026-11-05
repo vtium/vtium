@@ -192,6 +192,7 @@ install-tree: minspec config-release $(if $(IMAGES),image-release) ## Stage vtiu
 	install -Dm644 $(VTIUM_INSTALL)/vtium.conf.example $(DESTDIR)/etc/vtium/vtium.conf.example
 	$(if $(strip $(FRITS)),install -Dm644 -t $(DESTDIR)/etc/vtium/fonts $(frit_files))
 	install -Dm644 -t $(DESTDIR)/usr/share/doc/vtium/examples $(VTIUM_INSTALL)/examples/71-vtium-local.rules $(VTIUM_INSTALL)/examples/vtium.hwdb
+	install -Dm644 -t $(DESTDIR)/usr/share/licenses/vtium LICENSE COPYING
 ifneq ($(IMAGES),)
 	install -Dm755 $(IMAGE_RELEASE) $(DESTDIR)/usr/bin/vtium-image
 	$(call check-glibc,$(DESTDIR)/usr/bin/vtium-image)
@@ -215,12 +216,13 @@ endif
 # /etc/vtium/fonts, which stay in /etc whatever PREFIX is, because vtium
 # reads its configuration and its frits from /etc/vtium alone (ADR-1500
 # D3, D4, D8), the example udev rules and hwdb fragment as
-# documentation, and the license under PKGNAME's name.
+# documentation, and LICENSE and COPYING, the third-party notices, under
+# PKGNAME's name.
 # HWACCEL and DISPLAY_BUFFERS set the defaults of hwaccel and
 # display-buffers that both builds read from the key table (ADR-1500 D8).
 # make install-terminfo stages vtium's
-# terminfo entry, compiled under its name xterm-vtium, for the package that
-# holds it alone. Neither stages a file the C reference's packages own:
+# terminfo entry, compiled under its name xterm-vtium, with LICENSE and
+# COPYING, for the package that holds it alone. Neither stages a file the C reference's packages own:
 # nothing under /etc/kmscon, no terminfo entry named kmscon and no kmsconvt@
 # unit. The builds use the host's toolchain, as a distribution's package
 # builds do, in a target directory of their own, INSTALL_TARGET_DIR.
@@ -312,7 +314,7 @@ endif
 	install -Dm644 $(VTIUM_INSTALL)/vtium.conf.example $(DESTDIR)/etc/vtium/vtium.conf.example
 	$(if $(strip $(FRITS)),install -Dm644 -t $(DESTDIR)/etc/vtium/fonts $(frit_files))
 	install -Dm644 -t $(DESTDIR)$(PREFIX)/share/doc/vtium/examples $(VTIUM_INSTALL)/examples/71-vtium-local.rules $(VTIUM_INSTALL)/examples/vtium.hwdb
-	install -Dm644 LICENSE $(DESTDIR)$(PREFIX)/share/licenses/$(PKGNAME)/LICENSE
+	install -Dm644 -t $(DESTDIR)$(PREFIX)/share/licenses/$(PKGNAME) LICENSE COPYING
 
 .PHONY: install-terminfo
 install-terminfo: ## Stage vtium's terminfo entry, compiled as xterm-vtium, under DESTDIR=DIR for PREFIX and PKGNAME (default vtium-terminfo) (needs tic)
@@ -320,7 +322,7 @@ install-terminfo: ## Stage vtium's terminfo entry, compiled as xterm-vtium, unde
 	install -dm755 $(DESTDIR)$(PREFIX)/share/terminfo
 	tic -x -e xterm-vtium -o $(DESTDIR)$(PREFIX)/share/terminfo $(TERMINFO_SRC)
 	@[ -f '$(DESTDIR)$(PREFIX)/share/terminfo/x/xterm-vtium' ] && [ -z "$$(find '$(DESTDIR)$(PREFIX)/share/terminfo' -type f ! -path '*/x/xterm-vtium')" ] || { echo "install-terminfo: tic did not compile xterm-vtium alone" >&2; exit 1; }
-	install -Dm644 LICENSE $(DESTDIR)$(PREFIX)/share/licenses/$(if $(filter command line,$(origin PKGNAME)),$(PKGNAME),vtium-terminfo)/LICENSE
+	install -Dm644 -t $(DESTDIR)$(PREFIX)/share/licenses/$(if $(filter command line,$(origin PKGNAME)),$(PKGNAME),vtium-terminfo) LICENSE COPYING
 
 # The ARM single-board computers minspec is judged against
 # (docs/architecture.md): each target links against a pinned Debian sysroot

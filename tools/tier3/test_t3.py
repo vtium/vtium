@@ -2884,6 +2884,16 @@ class DevicesTest(unittest.TestCase):
         self.assertFalse([l for l in lines if "vtium-gallery" in l], lines)
         self.assertIn("install -Dm755 tools/gallery/gallery /D/usr/bin/vtium-gallery", make_n("FEATURES=images"))
 
+    def test_the_tree_installs_the_license_and_the_notices(self):
+        # make install-tree installs LICENSE and COPYING in vtium's license
+        # directory, as make install does for a package. COPYING holds the
+        # notices for what vtium builds in, such as Unicode's data tables,
+        # whose license asks that its notice go with every copy.
+        r = subprocess.run(["make", "-n", "--no-print-directory", "install-tree", "DESTDIR=/D"],
+                           cwd=t3_common.ROOT, capture_output=True, text=True, check=True)
+        lines = [l for l in r.stdout.splitlines() if "/D/usr/share/licenses" in l]
+        self.assertEqual(lines, ["install -Dm644 -t /D/usr/share/licenses/vtium LICENSE COPYING"])
+
     def test_the_tree_installs_vtiums_own_units(self):
         # make install-tree generates vtium@.service and vtium-getty@.service
         # with the generator and the changes make install uses (ADR-1500
