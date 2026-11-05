@@ -161,6 +161,11 @@ fn config_refuses_a_key_or_value_vtium_conf_does_not_take() {
         (&["config", "allow-font-ops", "maybe"], "on or off"),
         (&["config", "font-hinting", "heavy"], "light, full"),
         (&["config", "font-name", "a\nb"], "cannot be written"),
+        (
+            &["config", "font-frits", "fonts"],
+            "an absolute path is needed",
+        ),
+        (&["config", "font-frits", ""], "an absolute path is needed"),
     ] {
         let ran = f.run(args);
         assert_eq!(ran.status, 1, "{args:?}: {}", ran.out);

@@ -185,6 +185,37 @@ fn command_line_wins_over_the_seat_file_over_the_main_file() {
     );
 }
 
+// A relative or empty font-frits is reported and ignored, so the
+// directory stays where the sources before it put it: vtium.conf's under
+// a seat file's relative one, and the default under vtium.conf's.
+#[test]
+fn a_relative_or_empty_font_frits_leaves_the_directory_set_before_it() {
+    let l = load_with(
+        &[],
+        Some("seat0"),
+        &[
+            ("/etc/vtium/vtium.conf", b"font-frits=/srv/frits\n"),
+            ("/etc/vtium/seat0.seat.conf", b"font-frits=fonts\n"),
+        ],
+    );
+    assert_eq!(l.config.text(&FONT_FRITS), Some("/srv/frits"));
+    assert_eq!(
+        problems(&l),
+        [&Problem::BadValue {
+            key: "font-frits",
+            value: "fonts".into(),
+            why: NOT_ABSOLUTE,
+        }]
+    );
+    let l = main_file("font-frits=\n");
+    assert_eq!(l.config.text(&FONT_FRITS), Some(FRITS));
+    let origins: Vec<&Origin> = l.reports.iter().map(|r| &r.origin).collect();
+    assert_eq!(origins, [&line(1)]);
+    let l = load_with(&["--font-frits=fonts"], None, &[]);
+    assert_eq!(l.config.text(&FONT_FRITS), Some(FRITS));
+    assert_eq!(l.reports.len(), 1, "{:?}", l.reports);
+}
+
 // ADR-1500 D4: with no `--configdir`, vtium reads `/etc/vtium/vtium.conf`
 // and the seat's file beside it, and never opens the C reference's
 // `/etc/kmscon`, even where a file is there.

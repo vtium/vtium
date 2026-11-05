@@ -54,7 +54,8 @@ pub const REPORTS_MAX: usize = 64;
 pub enum Value {
     Switch(bool),
     Number(u64),
-    /// A [`Kind::Text`], [`Kind::Choice`] or [`Kind::Char`] value.
+    /// A [`Kind::Text`], [`Kind::Path`], [`Kind::Choice`] or [`Kind::Char`]
+    /// value.
     Text(String),
     /// A command's words, passed to it as given.
     Command(Vec<OsString>),

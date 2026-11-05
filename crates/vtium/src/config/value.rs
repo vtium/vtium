@@ -120,6 +120,24 @@ pub(super) fn parse(
             }
         }
         Kind::Text => text_ok(key, text, origin, reports).then(|| Value::Text(text.to_owned())),
+        Kind::Path => {
+            if !text_ok(key, text, origin, reports) {
+                return None;
+            }
+            if keys::absolute(text) {
+                return Some(Value::Text(text.to_owned()));
+            }
+            let value = text.to_owned();
+            reports.push(
+                origin.clone(),
+                Problem::BadValue {
+                    key: key.name,
+                    value,
+                    why: keys::NOT_ABSOLUTE,
+                },
+            );
+            None
+        }
         Kind::Command => {
             if !text_ok(key, text, origin, reports) {
                 return None;
