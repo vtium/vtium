@@ -188,6 +188,10 @@ considered:
     said: "vtium-config manages looks too: a Looks view manages each look, its filters, color and effects included, and looks can then be picked from the look column in the Flow view."
     via: the steering session's interview, 2026-11-04
     paraphrase: true
+  - operator: aaronsb
+    said: "A vtlook is named by a look section: the [look NAME] section of vtium.conf holds the frit, the size and vtlook = FILE, and heads name a look."
+    via: the steering session's interview, 2026-11-05
+    paraphrase: true
 status: accepted
 date: 2026-11-03
 deciders:
@@ -348,6 +352,8 @@ strength = 0.3
 
 **A look is tied to no profile.** A head names its look, and a profile names a frit; neither names the other's. A look can therefore serve heads of any profile, and a profile's file, once profiles have files (ADR-1401 D3), holds no look.
 
+> Edited 2026-11-05: the maintainer decided that a vtlook is named by a look section of vtium.conf: `[look NAME]` holds the frit, the size and `vtlook = FILE`, and a head names its look (`considered`; ADR-1403 D1, D5). This changes D4's "A look is tied to no profile" and D5's head `look =` naming a vtlook directly: a head's `look =` names a look section, and the section names the vtlook. D4's file format, the default look and its template are unchanged.
+
 ### D5: how a head chooses its look
 
 **Decided by the maintainer (2026-11-03):** a look is chosen for each head, and in vtium.conf for every head. A head's `look =` in heads.conf wins; else vtium.conf's `look=`; else the built-in `default`.
@@ -499,11 +505,11 @@ The pipeline's skeleton fits this as it stands. Its `Color` gains one step, the 
 **Proposed, the live preview's details:** vtium-config sends the look's whole text to the console it runs on in an OSC sequence of vtium's own, one whose number no other terminal uses, which the slice that builds it picks and records as a row of ADR-1000. The console checks the text with the same reader, applies it to the head that the sending console belongs to, and answers with `ok`, naming any display that draws `default` and the requirement it does not meet, or with the first error's report and the count of the rest. A preview that fails at any stage puts the head on the default look, as any failure does (D6). A second sequence ends the preview and returns the head to its configured look, and vtium returns it there too when the session that sent the preview ends, as it returns a console's font (ADR-1201 D11), and when that console receives a terminal reset, RIS (`ESC c`), so a tool that dies mid-preview leaves nothing behind once the user runs `reset`. A key, `allow-look-ops`, turns the sequences off; it is on by default, as `allow-font-ops` is. In a terminal that is not vtium, and in a build without `filters`, vtium-config sends nothing and says that the preview is not available there.
 
 > Note 2026-11-04: the maintainer decided that vtium-config's Looks view manages each look, its filters, color and effects included, and that a head picks its look from the look column of the Flow view (`considered`, 2026-11-04; ADR-1201 D3, ADR-1403 D7). The Looks view edits vtlooks. In that view a look is one object, a profile, with its frit and size, together with a vtlook, and until this record's filters are built the view shows the filters as not yet available. This note changes none of this record's decisions. These points of this record meet the Looks view and are open for the maintainer:
-> 1. D4 says a vtlook is tied to no profile and a profile names no look, while the Looks view treats a profile and a vtlook as one look. Where the pairing is stored, in the profile's section of vtium.conf or as two names on the head, is open.
-> 2. D5 has a head name its vtlook with `look =` and vtium.conf name a default with `look=`, while a head in ADR-1403 names its profile; with one look object, a head may name one thing or two.
-> 3. D11's command names (`looks`, `look-new`, `look-set`, `remove-look`) and ADR-1403 D8's (`vtium config look add`, `look set`, `look rm`) share the word `look` for different objects.
-> 4. D11's Remove refuses a vtlook in use, while ADR-1403 lets a look be deleted after a question that names its heads, which then take the default look.
-> 5. D11's looks view chooses each head's look beside its profile, and returns the console to its look when the user leaves without saving; under ADR-1403 a head's look is chosen in the Flow view, and every change is written to the draft at once.
+> 1. Resolved 2026-11-05: a look section names its vtlook with `vtlook =` (D4's note).
+> 2. Resolved 2026-11-05: a head names one look, which names the vtlook.
+> 3. D11's command names (`looks`, `look-new`, `look-set`, `remove-look`) and ADR-1403 D8's (`vtium config look add`, `look set`, `look rm`) share the word look for different objects. Lean: D11's commands, which act on vtlook files, take the word vtlook, as `vtlooks`, `vtlook-new`, `vtlook-set` and `remove-vtlook`. Command names are what scripts call, so this is above the waterline and the maintainer's call.
+> 4. D11's Remove refuses a vtlook file that a look names, while ADR-1403 deletes a look section after a question that names its heads. Lean: both stand, since they now act on different objects: a look section is deleted with its heads moved to the default look, and a vtlook file stays refused while a look section names it.
+> 5. D11's looks view chooses each head's look beside its profile and returns the console to its look when the user leaves without saving. Lean: ADR-1201 D3's Looks view takes its place: a head's look is chosen in the Flow view, every change is written to the draft at once, and a live preview still ends, returning the head to its configured look, when the user leaves the editor.
 
 ### D12: with no look
 

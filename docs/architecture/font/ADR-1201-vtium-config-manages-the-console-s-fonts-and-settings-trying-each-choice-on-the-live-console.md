@@ -93,6 +93,16 @@ considered:
     said: "Add a Help view, with Help and About pages; About shows vtium-config's ANSI picture, the same one the command line shows."
     via: the steering session's interview, 2026-11-05
     paraphrase: true
+  - operator: aaronsb
+    said: "in the web based previewer all the layout gets broken at 40 columns. let's experiment with 100x30 to start and see how it looks."
+    via: the steering session's interview, 2026-11-05
+  - operator: aaronsb
+    said: "someone could ssh to a very low spec machine and bring their ssh terminal to a large size and use it correctly"
+    via: the steering session's interview, 2026-11-05
+  - operator: aaronsb
+    said: "The frit commands are renamed new-frit and use-frit, and the flow's commands keep set, new and apply."
+    via: the steering session's interview, 2026-11-05
+    paraphrase: true
 observable:
   - "In a vtium console, moving the TUI's highlight from one frit to the next switches the whole console to that frit, and the TUI's own screen redraws at the console's new grid"
   - "Leaving the TUI without saving, by its quit key, by Ctrl-C, or by SIGTERM sent from another terminal, puts the console back in the font it had when the TUI started, checked by the OSC 50 query"
@@ -160,31 +170,36 @@ vtium-config stays one binary, apart from vtiumctl. Each command is typed as `vt
 | `fonts` | any user | Lists the frits and the built-in fonts, one line each, tab-separated: the name, whether the frit reads, and the sources this machine lacks, found through the sandboxed child (D3). |
 | `check FILE` | any user | Checks a frit with the helper's frit reader, or a vtium.conf with `vtium check-config`, the console's own reader (D5). Writes nothing. |
 | `config KEY`, `config KEY VALUE`, `config --unset KEY` | the user; root to install | Prints a key's value; with a value or `--unset`, makes that one change (D5). |
-| `new ...` | the user; root to install | The guided builder (ADR-1200 D4). Its non-interactive forms, `--template`, `--from FILE` and its flags, stay; at a terminal with no such input it opens the TUI at its new-frit view. |
+| `new-frit ...` | the user; root to install | The guided builder (ADR-1200 D4). Its non-interactive forms, `--template`, `--from FILE` and its flags, stay; at a terminal with no such input it opens the TUI at its new-frit view. |
 | `remove-frit NAME` | the user; root to install | Removes a frit, refusing one that vtium.conf's `font-name` names. |
 | `apply DIR` | root | Checks and installs a draft (D5). |
-| `preview`, `set`, `serve` | as ADR-1200 D4 | Unchanged, except that `set` checks the terminal first (D4). |
+| `preview`, `use-frit`, `serve` | as ADR-1200 D4 | Unchanged but for `use-frit`'s name, and `use-frit` checks the terminal first (D4). |
 
 - **Run as a user,** a command that writes makes a draft under `$XDG_STATE_HOME/vtium/drafts/<time>/`, the directory ADR-1401 D12 gives vtiumctl's drafts, and prints the draft's path and the command that installs it, `sudo vtium-config apply DIR`. **Run as root,** it installs at once through the same steps `apply` takes. A script therefore never needs the TUI.
+- **The frit commands are `new-frit` and `use-frit`** (the maintainer, 2026-11-05), since the flow's commands of ADR-1403 D8 keep `set`, `new` and `apply`. `apply` with no argument installs the current draft, and `apply DIR`, run as root, is the privileged step that installs a draft directory.
 - The names `fonts` and `remove-frit` differ from the retired store's `list` and `remove` (ADR-1200 D3), which stay unknown commands, so an old command never does a new thing.
+
+> Edited 2026-11-05: the maintainer renamed the frit commands `new-frit` and `use-frit` (`considered`). They were `new` and `set`.
 
 ### D3: the TUI
 
 - **Five views, and it opens on Flow** (the maintainer, 2026-11-04 and 2026-11-05). Most configuration work happens in the Flow view of ADR-1403 D7, so vtium-config opens there. Tab steps through the views in this order:
   - **Flow** draws the configuration from the displays to the input devices and edits it (ADR-1403 D7). Enter on a head's look card picks from the looks the Looks view defines, and `new look…` opens the Looks view's editor on a new look. Its head cards assign each head its look. Its base card edits the common top-level keys.
-  - **Looks** manages the looks, each one object: a profile, with its frit and size, and the vtlook of ADR-1304, which holds the filters, color and effects. It creates, edits, renames and deletes a look, with live preview where it works (D4). Its sizes are where the Sizes view went: a look offers its sizes, in points as `font-size` takes them, with automatic first, and tries each on the live console, so the user tries a size and keeps it as quickly as before. Until ADR-1304's filters are built, the Looks view manages the profile part and shows the filters as not yet available. Deleting a look is confirmed, and the confirmation names the heads that use it (ADR-1403 D8).
-  - **Fonts** manages the font resources. It lists the places vtium finds fonts, each with what it holds: the folders of `font-paths` (ADR-1200 D25), kbd's console-font folders, vconsole's font and the built-in fonts. It lists the fonts installed in those places, with each font's coverage, which vtium-config reads only in the sandbox (below). It lists the frits as files, with how each reads, and offers new, which is `new`'s guided flow (D9), rename and delete, each frit noting which looks use it. It previews a font live (D4). It adds, removes and orders the folders of `font-paths`, which it writes into the draft like any key.
+  - **Looks** manages the looks, each one object, a `[look NAME]` section of vtium.conf: its frit and size, and `vtlook =`, which names the vtlook of ADR-1304 that holds the filters, color and effects (ADR-1403 D1). It creates, edits, renames and deletes a look, with live preview where it works (D4). Its sizes are where the Sizes view went: a look offers its sizes, in points as `font-size` takes them, with automatic first, and tries each on the live console, so the user tries a size and keeps it as quickly as before. Until ADR-1304's filters are built, the Looks view manages the profile part and shows the filters as not yet available. Deleting a look is confirmed, and the confirmation names the heads that use it (ADR-1403 D8).
+  - **Fonts** manages the font resources. It lists the places vtium finds fonts, each with what it holds: the folders of `font-paths` (ADR-1200 D25), kbd's console-font folders, vconsole's font and the built-in fonts. It lists the fonts installed in those places, with each font's coverage, which vtium-config reads only in the sandbox (below). It lists the frits as files, with how each reads, and offers new, which is `new-frit`'s guided flow (D9), rename and delete, each frit noting which looks use it. It previews a font live (D4). It adds, removes and orders the folders of `font-paths`, which it writes into the draft like any key.
   - **Settings** lists every top-level key of vtium.conf (D1), the full list of which the base card in Flow edits a common few.
   - **Help** holds two pages. Help lists the keys and what each view does, from the catalog the command line's help draws on (`crates/vtium-config/src/help.rs`). About shows what `vtium-config --help about` prints, the tool's name, version and logo, drawn from that one source so the two never drift; where the logo is wider than the terminal, it shows the narrow banner (D10).
   The Heads view goes, since the flow is the heads, and the Sizes view goes into the Looks view. The save view goes too: Save, with View, Revert, New and Delete draft, is an action in the tab bar of every view (ADR-1403 D7, D8).
-- **Where it runs.** Inside a vtium console, where live preview works, and in any other terminal, where it does not (D4). It fits a grid of 40 by 25 cells. When a previewed font leaves a grid smaller than that, the TUI draws one line naming the font and the keys that keep it or go back, so a user can always get out.
+- **Where it runs.** Inside a vtium console, where live preview works, and in any other terminal, where it does not (D4). It needs a terminal of at least 100 by 30 cells, a provisional number the maintainer judges from the previewer and may change (the maintainer, 2026-11-05). The minimum applies to the terminal vtium-config runs in, not to the machine: a minspec board with a 40-column console is configured over ssh from a terminal at 100 by 30 or larger, without live preview, or with the commands at any size. Below the minimum, as when a previewed font leaves the grid too small, the TUI draws no view: it shows one screen with the size it needs, the `vtium config` commands, and the keys to leave and to undo the font preview, so a user can always get out.
+
+  > Edited 2026-11-05: the maintainer raised the floor to 100 by 30, provisionally, after the layout broke at 40 columns in the previewer (`considered`). The bullet read: "It fits a grid of 40 by 25 cells. When a previewed font leaves a grid smaller than that, the TUI draws one line naming the font and the keys that keep it or go back, so a user can always get out."
 
   > Edited 2026-11-03: the maintainer set the floor to 40 by 25 cells. The record first named the 320x240 floor's grid of 40 by 30 cells, as ADR-1401 D12 asks of vtiumctl's dialog, but the VGA console's usual grid is 80 by 25, which D8 captures, and a 30-row floor would have given that console the one-line form.
 - **How it draws.** It switches to the alternate screen (DEC mode 1049), so the shell's screen comes back when it leaves, hides the cursor, and redraws whole on each change and on SIGWINCH, which the console sends when a font switch changes the grid (ADR-1200 D17).
 - **Fonts are read only in the sandbox.** The TUI and the commands read frits as text, as the console does. They parse a font file, even to read the family name inside it that a `font:` source matches, only through the sandboxed child that `preview` and `new` use (ADR-1200 D14), never in their own process, so listing installed fonts or a font's coverage puts no font parser in a process with the user's rights and a terminal.
 - **Its words** live in a catalog module of the crate's own, as the code rules ask, and are English, as ADR-1402 keeps what vtium's tools print in a terminal.
 
-An example of the Fonts view at 40 columns, to show that it fits; its layout is the build's to settle and stays provisional until the maintainer reviews it:
+An example of the Fonts view's content, narrower than the view draws it; its layout is the build's to settle and stays provisional until the maintainer reviews it:
 
 ```text
  Flow Looks Fonts Settings Help
@@ -263,7 +278,7 @@ An example of the Fonts view at 40 columns, to show that it fits; its layout is 
 
 ### D9: `new`, `preview` and the TUI
 
-The TUI is where `new` and `preview` live when a person runs them at a terminal. `new`'s guided flow is the Fonts view's new frit (D3), and it ends in a draft and `apply`, which replaces ADR-1200 D4's "one command, run with `sudo`, that writes the frit". `preview` becomes the same picture renderer the TUI uses for sizes, in the Looks view and the Fonts view (D3, D4): `preview FONT...` draws the engine's specimen of each font through kitty graphics' raw pixels where the terminal answers the graphics query, and a text summary otherwise. It takes kitty graphics alone, and the sixel fallback that the preview work planned is not part of this record. Both keep their non-interactive forms as commands, for scripts and packages.
+The TUI is where `new-frit`, named `new` until 2026-11-05 (D2), and `preview` live when a person runs them at a terminal. `new-frit`'s guided flow is the Fonts view's new frit (D3), and it ends in a draft and `apply`, which replaces ADR-1200 D4's "one command, run with `sudo`, that writes the frit". `preview` becomes the same picture renderer the TUI uses for sizes, in the Looks view and the Fonts view (D3, D4): `preview FONT...` draws the engine's specimen of each font through kitty graphics' raw pixels where the terminal answers the graphics query, and a text summary otherwise. It takes kitty graphics alone, and the sixel fallback that the preview work planned is not part of this record. Both keep their non-interactive forms as commands, for scripts and packages.
 
 > Edited 2026-11-02: the maintainer made `preview` the TUI's picture renderer (`considered`). The paragraph read: "`preview`'s pictures are what the TUI shows where live preview is off."
 
