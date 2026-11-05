@@ -177,6 +177,14 @@ considered:
   - operator: aaronsb
     said: "History shows last 10"
     via: the steering session's interview, 2026-11-05
+  - operator: aaronsb
+    said: "A vtium.conf with no sections and policy = closed leaves vtium dark: it opens nothing. vtium check-config refuses the file, naming the missing rules, and vtium-config does not install it, because it has no complete route."
+    via: the steering session, relaying the maintainer's answers of 2026-11-05 to the passages work's questions
+    paraphrase: true
+  - operator: aaronsb
+    said: "A [look NAME] section takes cell = as well as size =. The existing rule holds: at one level, font-size wins over a cell."
+    via: the steering session, relaying the maintainer's answers of 2026-11-05 to the passages work's questions
+    paraphrase: true
 status: accepted
 date: 2026-11-04
 deciders:
@@ -246,7 +254,7 @@ The maintainer decided on 2026-11-04 that vtium.conf holds the whole flow. Its f
 The move forces these decisions, which this record's agent makes from ADR-1401 and the tree:
 
 - **The top level and the sections.** The top level is every line above the first section heading. It holds vtium's keys, as vtium.conf does today, and the two keys heads.conf had above its first section, `version` and `policy`. Everything from the first section heading on is the sections. A key line after a section heading belongs to that section, so the top level is written first, as heads.conf's top-level keys were.
-- **A file with no section is a kmscon.conf.** It needs no `version` line, and vtium runs the compiled-in flow for it (ADR-1401 D6), as it does today when heads.conf is missing. A file with a section needs `version = 1` at the top level. A missing or unknown version is ADR-1401 D7's error that drops the whole head file but its policy; under one file it drops every section but the policy, and the top-level keys still apply.
+- **A file with no section is a kmscon.conf.** It needs no `version` line, and vtium runs the compiled-in flow for it (ADR-1401 D6), as it does today when heads.conf is missing. A file with a section needs `version = 1` at the top level. A missing or unknown version is ADR-1401 D7's error that drops the whole head file but its policy; under one file it drops every section but the policy, and the top-level keys still apply. A readable `policy = closed` in a file with no section makes it a closed file that declares no head: vtium opens nothing and every display stays dark, as ADR-1401 D7 has it for a closed file that declares no head. `vtium check-config` refuses such a file, naming the missing rules, since it wires no complete route (below), so vtium-config does not install it (the maintainer, 2026-11-05).
 - **Two ways of handling a mistake, one for each part.** The top level keeps vtium.conf's reading, which follows the C reference's: an unknown key is reported once and ignored, a value out of bounds is clamped, a value vtium cannot read is ignored, and a key set twice takes its last value. The sections keep ADR-1401 D7's three levels unchanged, and what ADR-1401 D7 calls the whole file is now the sections and the policy. An error in a section never drops a top-level key, and a top-level mistake never drops a section.
 - **The policy line.** ADR-1401 D7's rule for a policy line holds: a line above the first section that begins with `policy`, in any mix of case, is a policy line, and one vtium cannot read makes the sections closed and broken. Among vtium's keys none begins with `policy`, so no existing key changes meaning.
 - **One bound for the file.** vtium.conf keeps its bounds, 65,536 bytes a file and 8,192 a line, which heads.conf shares. The shipped example vtium.conf and the head file's template together hold 40,327 bytes. A test fails when the generated example passes 49,152 bytes, so at least 16 KiB stay for a user's own heads, looks and rules.
@@ -254,6 +262,8 @@ The move forces these decisions, which this record's agent makes from ADR-1401 a
 - **`vtium check-config FILE`** checks a candidate vtium.conf, both parts in one run with one exit status, where today FILE names a candidate head file.
 
 > Edited 2026-11-04: the maintainer decided that vtium refuses a vtium.conf it cannot trust and says why, and that heads.conf is not read (`considered`). The trust bullet was this record's agent's call among the forced decisions, and said only that every head shows `invalid config skipped, using builtin`.
+
+> Edited 2026-11-05: the maintainer decided that a file with no section and a readable `policy = closed` leaves vtium dark and fails the check (`considered`). The bullet on a file with no section ended at "the top-level keys still apply.", which read as if such a file ran the compiled-in flow whatever its policy.
 
 #### A valid configuration wires at least one complete route
 
@@ -317,13 +327,15 @@ Blocks in braces, as sway writes them, TOML and dotted flat keys were weighed an
 The maintainer accepted these rules on 2026-11-04 as this record drafted them (`considered`):
 
 - **Three levels, and the most specific wins:** a head's section, then the section of the look the head names, then the top level. The command line sets top-level keys and wins over the file's top level, as it does today, and a section still wins over both, as a head's look wins over vtium.conf's `font-name` today (ADR-1200 D16). A key the head and its look leave unset takes the top level's value, and a key the top level leaves unset takes its default.
-- **Each section kind takes a fixed list of keys.** A head takes ADR-1401 D3's head keys, `look`, which names its look, `consoles`, `login`, `when-display-lost` and `isolated`. A look takes the keys ADR-1200 D16 gives a look that the key table has: `font-name`, which names the look's frit, `font-engine`, `font-size`, `font-hinting`, `font-line-spacing`, `display-depth` and `display-dpi`, and `vtlook`, which names the vtlook file of ADR-1304 that holds its filters (the maintainer, 2026-11-05).
+- **Each section kind takes a fixed list of keys.** A head takes ADR-1401 D3's head keys, `look`, which names its look, `consoles`, `login`, `when-display-lost` and `isolated`. A look takes the keys ADR-1200 D16 gives a look that the key table has: `font-name`, which names the look's frit, `font-engine`, `font-size`, `font-hinting`, `font-line-spacing`, `display-depth` and `display-dpi`, `cell`, the cell in pixels as a frit's `cell=` line writes it, and `vtlook`, which names the vtlook file of ADR-1304 that holds its filters (the maintainer, 2026-11-05). The key table gains `cell`, which only a look sets; within one look, `font-size` wins over its `cell`, as ADR-1200 D16 has a level's size win over its cell. `vtlook` is also a top-level key, the vtlook of every look that names none (ADR-1304 D5).
 - **A head that names a look with no section** uses the default look, and `vtium check-config` warns, as ADR-1200 D16 has a head that names a missing look use the default. This record's agent makes that call from ADR-1200 D16.
 - **A value out of bounds in a section** is an error in that section under ADR-1401 D7's strict reading, as D3 says the sections are read, and never clamped as a top-level value is. This record's agent makes that call from D3. A head sets no font key of its own, since a head's font has one path, from the head to its look to the look's frit (ADR-1401 D3).
 - **A key in a section has the top level's name, values and bounds** where the top level has the key too, as `login` and the font keys do. Inside one section a key given twice is an error, as in heads.conf today.
 - **A key a section kind cannot take is an error in that section,** which drops the section under ADR-1401 D7: a head drops with its rules, and a look drops, so a head that names it takes the default look (ADR-1200 D16). The error names the levels where the key may be set.
 - **The key table records where each key may be set.** Its column that says a key is set in a file or on the command line gains the values `look` and `head`, so docs/config.md lists each key's levels, and allowing one more key in a section later is an edit to one row.
 - **Keys that belong to the whole process stay at the top level,** such as `display-buffers`, `consoles-max`, `hwaccel` and `sb-memory`, for the reason ADR-1401 D2 gives for `display-buffers`: they trade the machine's memory or set the process's behaviour, and are the same for every head.
+
+> Edited 2026-11-05: the maintainer gave a look the key `cell` (`considered`), and the steering session made `vtlook` a top-level key as well, the default that a look's `vtlook =` overrides (ADR-1304 D5). A look's keys ended at `display-dpi` and `vtlook`, and the bullet named no top-level `vtlook`.
 
 The other way is to let every key be set in a head's section. It would give each head its own palette or keyboard layout, but many keys belong to the process, the seat or an input device rather than a head, and each would need a rule for what a head's value means. A key can move into the head's list later, one row at a time, when someone needs it.
 
@@ -448,6 +460,7 @@ Everything the TUI does works without it, so it can be scripted (the maintainer,
 | `vtium config diff` | Prints the difference between the working copy and the installed file |
 | `vtium config install` | Installs the working copy, as above |
 | `vtium config set KEY VALUE`, or `set --unset KEY` | Sets a top-level key, the base card's (D7), or leaves it at its default, through the line editor |
+| `vtium config get KEY` | Prints a top-level key's value in the draft, and its default when the draft leaves it unset; it changes nothing (the maintainer, 2026-11-05) |
 | `vtium config draft rm` | Removes the draft; the next edit starts a new one from the installed file |
 | `vtium config revert` | Throws away the working copy's changes and copies the installed file back over it; the installed file is untouched |
 | `vtium config new` | Empties the working copy to the top level at its defaults and one look, `[look default]`, as New does (D7) |
