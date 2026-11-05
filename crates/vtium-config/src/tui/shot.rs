@@ -135,7 +135,20 @@ impl App {
     pub fn preview_line(&self) -> Option<String> {
         let wanted = self.wanted()?;
         if self.graphics && wanted.detail {
-            return Some(words::detail_caption(&wanted.font, wanted.points));
+            let height = self.height_of(&wanted);
+            let (display, assumed) = self.display();
+            let summary = self
+                .specimen
+                .as_ref()
+                .filter(|(f, h, _)| *f == wanted.font && *h == height)
+                .map(|(_, _, s)| s);
+            return Some(words::detail_caption(
+                &wanted.font,
+                wanted.points,
+                summary,
+                display,
+                assumed,
+            ));
         }
         if self.graphics {
             return self.shot.as_ref().map(words::caption);
@@ -283,7 +296,13 @@ impl App {
         self.drawing = true;
         if detail {
             self.shot = None;
-            return vec![Effect::Specimen { font, height, max }];
+            let display = self.display().0;
+            return vec![Effect::Specimen {
+                font,
+                height,
+                max,
+                display,
+            }];
         }
         match cell {
             Some(cell) => self.picture_of(font, points, height, (cell, cell.height)),
@@ -319,7 +338,7 @@ impl App {
             Err(why) => {
                 self.drawing = false;
                 self.shot = None;
-                self.message = Some(words::no_picture(why));
+                self.say_unless_trial(words::no_picture(why));
                 self.drop_picture()
             }
         }
@@ -421,10 +440,35 @@ impl App {
             }
             Err(why) => {
                 self.shot = None;
-                self.message = Some(words::no_picture(why));
+                self.say_unless_trial(words::no_picture(why));
             }
         }
         out
+    }
+
+    /// Puts `line` on the message line, unless the live trial's countdown
+    /// holds it.
+    fn say_unless_trial(&mut self, line: String) {
+        if self.trial.is_none() {
+            self.message = Some(line);
+        }
+    }
+
+    /// The detailed specimen has come: what it gives is kept for the line
+    /// beside it, and it is shown as a picture is.
+    pub(crate) fn detailed(
+        &mut self,
+        font: String,
+        height: u32,
+        result: Result<(crate::specimen::Picture, crate::specimen::Summary), String>,
+    ) -> Vec<Effect> {
+        match result {
+            Ok((picture, summary)) => {
+                self.specimen = Some((font, height, summary));
+                self.pictured(Ok(picture))
+            }
+            Err(why) => self.pictured(Err(why)),
+        }
     }
 
     /// `t`: switches the live console to `name` and starts the countdown

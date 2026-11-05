@@ -268,9 +268,10 @@ pub fn painter(frits: PathBuf, helper: crate::specimen::Helper, locale: String) 
 /// `helper` from the frit in `frits` or the built-in font of that name,
 /// as `preview` draws it (ADR-1201 D4, D9).
 pub fn detailer(frits: PathBuf, helper: crate::specimen::Helper, locale: String) -> port::Detailer {
-    std::sync::Arc::new(move |font, height, max| {
+    std::sync::Arc::new(move |font, height, max, display| {
         let frit = frit_text(&frits, font)?;
-        crate::specimen::detail(&helper, &frit, height, &locale)?.detailed(max)
+        let sample = crate::specimen::detail(&helper, &frit, height, &locale)?;
+        Ok((sample.detailed(max)?, sample.summary(Some(display))))
     })
 }
 

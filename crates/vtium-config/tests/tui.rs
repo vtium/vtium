@@ -332,13 +332,34 @@ impl Port for Console {
                     rgba: vec![255, 0, 0, 255, 0, 0, 255, 255],
                 }))
             }
-            Draw::Specimen { font, height, max } => {
-                self.specimens.push((font, height, max));
-                Drawn::Pictured(Ok(Picture {
-                    width: 2,
-                    height: 1,
-                    rgba: vec![255, 0, 0, 255, 0, 0, 255, 255],
-                }))
+            Draw::Specimen {
+                font,
+                height,
+                max,
+                display,
+            } => {
+                self.specimens.push((font.clone(), height, max));
+                let grid = Some((display.0 / 8, display.1 / 16));
+                Drawn::Detailed {
+                    font,
+                    height,
+                    result: Ok((
+                        Picture {
+                            width: 2,
+                            height: 1,
+                            rgba: vec![255, 0, 0, 255, 0, 0, 255, 255],
+                        },
+                        Summary {
+                            cell: Cell {
+                                width: 8,
+                                height: 16,
+                            },
+                            grid,
+                            covered: 300,
+                            of: 323,
+                        },
+                    )),
+                }
             }
             Draw::Summary { font, height } => {
                 self.summaries.push((font.clone(), height));
@@ -531,13 +552,11 @@ fn each_highlighted_font_leaves_the_live_console_alone() {
     assert_eq!(run(&mut c), 0);
     assert_eq!(c.switches(), Vec::<String>::new(), "{:?}", c.log);
     assert!(!c.log.iter().any(|l| l.starts_with("set ")), "{:?}", c.log);
-    // each font highlighted got its picture instead
-    let fonts: Vec<&str> = c.pictures.iter().map(|(f, _, _)| f.as_str()).collect();
-    // the two Downs of one read ask for unifont's cell and then unscii-8's,
-    // and only the font still highlighted when its cell comes is drawn
-    assert_eq!(fonts, ["unifont", "tiny5", "unscii-8"]);
-    let cells: Vec<&str> = c.cells.iter().map(|(f, _)| f.as_str()).collect();
-    assert_eq!(cells, ["unifont", "tiny5", "unifont", "unscii-8"]);
+    // each font highlighted got its specimen instead; of the two Downs of
+    // one read, the first asks for unifont's, and the second waits for it
+    // and asks for unscii-8's
+    let fonts: Vec<&str> = c.specimens.iter().map(|(f, _, _)| f.as_str()).collect();
+    assert_eq!(fonts, ["unifont", "tiny5", "unifont", "unscii-8"]);
 }
 
 /// `t` switches the console to the highlighted font, one switch at a
@@ -1324,6 +1343,96 @@ fn one_preview_is_drawn_at_a_time() {
     );
 }
 
+/// A picture that comes after the highlight moved is not shown: no
+/// picture is sent, and the next is asked for, for the size highlighted
+/// now (ADR-1201 D4).
+#[test]
+fn a_picture_that_comes_after_the_highlight_moved_is_not_shown() {
+    use vtium_config::specimen::Picture;
+    use vtium_config::tui::input::{Input, Key, Reply};
+    use vtium_config::tui::model::{App, Effect, Event};
+    let (mut app, _) = App::new(inputs(), 80, 25);
+    for r in [
+        Reply::Version("vtium(test)".into()),
+        Reply::Font("unifont".into()),
+        Reply::Graphics(true),
+        Reply::Attributes,
+    ] {
+        app.event(Event::Input(Input::Reply(r)));
+    }
+    // the specimen of unifont comes, then the Looks view at 6 pt
+    let shown = app.event(Event::Detailed {
+        font: "unifont".into(),
+        height: 16,
+        result: Err("none".into()),
+    });
+    assert!(!shown.iter().any(|e| matches!(e, Effect::Write(_))));
+    app.event(Event::Input(Input::Key(Key::BackTab)));
+    let asked = app.event(Event::Input(Input::Key(Key::Down)));
+    assert_eq!(
+        asked,
+        [Effect::Cell {
+            font: "unifont".into(),
+            height: 8
+        }]
+    );
+    let cell = Ok((
+        Cell {
+            width: 4,
+            height: 8,
+        },
+        8,
+    ));
+    let picture = app.event(Event::Celled {
+        font: "unifont".into(),
+        height: 8,
+        cell,
+    });
+    assert!(
+        matches!(picture.as_slice(), [Effect::Picture(_)]),
+        "{picture:?}"
+    );
+    // the highlight moves to 7 pt while 6 pt's picture is drawn
+    assert_eq!(app.event(Event::Input(Input::Key(Key::Down))), []);
+    let came = app.event(Event::Pictured(Ok(Picture {
+        width: 2,
+        height: 1,
+        rgba: vec![0; 8],
+    })));
+    let sent: Vec<u8> = came
+        .iter()
+        .filter_map(|e| match e {
+            Effect::Write(b) => Some(b.clone()),
+            _ => None,
+        })
+        .flatten()
+        .collect();
+    assert!(!sent.windows(3).any(|w| w == b"a=T"), "{came:?}");
+    assert_eq!(
+        came.last(),
+        Some(&Effect::Cell {
+            font: "unifont".into(),
+            height: 9
+        })
+    );
+}
+
+/// A picture that fails while the live trial counts down leaves the
+/// countdown on the message line.
+#[test]
+fn a_failed_picture_leaves_the_live_trial_s_countdown() {
+    use vtium_config::tui::model::Event;
+    let mut app = trying_tiny5();
+    let countdown = app.message.clone();
+    app.event(Event::Pictured(Err("the helper failed".into())));
+    app.event(Event::Detailed {
+        font: "tiny5".into(),
+        height: 16,
+        result: Err("the helper failed".into()),
+    });
+    assert_eq!(app.message, countdown);
+}
+
 /// The live trial counts its ticks down on the message line and, with no
 /// keep, puts the font back on the last one (ADR-1201 D4).
 #[test]
@@ -1427,7 +1536,7 @@ fn the_small_screen_shows_the_live_trial_s_countdown() {
 /// the screen that says the grid is too small included (ADR-1201 D4).
 #[test]
 fn the_picture_shows_the_display_at_the_grid_the_font_gives() {
-    let mut c = console().keys(&[UP]);
+    let mut c = console().keys(&[b"s", UP]);
     c.graphics = true;
     run(&mut c);
     // unifont's 8x16 and tiny5's 4x6 on the fixture's 640x480 display
@@ -1451,7 +1560,7 @@ fn the_picture_shows_the_display_at_the_grid_the_font_gives() {
     );
     // on a display too small for the TUI at that cell, the picture is the
     // screen that says so
-    let mut c = console().keys(&[]);
+    let mut c = console().keys(&[b"s"]);
     c.graphics = true;
     let mut small = inputs();
     small.display = Some((320, 240));
@@ -1517,18 +1626,21 @@ fn each_highlighted_size_shows_its_specimen_and_deletes_the_last() {
     // the area beside the list, 55 columns by 14 rows of 8x16 cells: down
     // to the room the keys and the longest message leave
     let area = (55 * 8, 14 * 16);
-    // the Fonts view's picture of unifont at 12 points comes first and
-    // last, below its list and the line that describes it
-    let fonts = (79 * 8, 6 * 16);
     assert_eq!(
         c.pictures,
         [
-            ("unifont".to_owned(), 16, fonts),
             ("unifont".to_owned(), 8, area),
-            ("unifont".to_owned(), 9, area),
-            ("unifont".to_owned(), 16, fonts)
+            ("unifont".to_owned(), 9, area)
         ]
     );
+    // the Fonts view's specimen of unifont at 12 points comes first and
+    // last
+    let fonts: Vec<(&str, u32)> = c
+        .specimens
+        .iter()
+        .map(|(f, h, _)| (f.as_str(), *h))
+        .collect();
+    assert_eq!(fonts, [("unifont", 16), ("unifont", 16)]);
     assert_eq!(
         kitty::show(kitty::IMAGE_ID, 2, 1, &[255, 0, 0, 255, 0, 0, 255, 255]),
         b"\x1b_Ga=T,f=32,t=d,i=1201,s=2,v=1,C=1,q=2,m=0;/wAA/wAA//8=\x1b\\"
@@ -1553,15 +1665,16 @@ fn each_highlighted_size_shows_its_specimen_and_deletes_the_last() {
 /// `s` in the Fonts view switches the picture area to the detailed
 /// specimen of the highlighted font, at the draft's size and in the same
 /// room, and `s` again back to the picture of the console; each highlight
-/// asks for the specimen of the font it reaches (ADR-1201 D4).
+/// asks for the specimen of the font it reaches (ADR-1201 D4). The Fonts
+/// view starts on the specimen.
 #[test]
 fn s_switches_the_fonts_view_between_the_console_and_the_detailed_specimen() {
     let mut c = console().keys(&[b"s", UP, b"s", b"q"]);
     c.graphics = true;
     assert_eq!(run(&mut c), 0);
-    // below the list and the four rows of the line beside the specimen:
-    // rows 16 to 20 at 80x25
-    let room = (79 * 8, 5 * 16);
+    // below the list and the line beside the specimen: rows 14 to 20 at
+    // 80x25
+    let room = (79 * 8, 7 * 16);
     assert_eq!(
         c.specimens,
         [
@@ -1569,32 +1682,34 @@ fn s_switches_the_fonts_view_between_the_console_and_the_detailed_specimen() {
             ("tiny5".to_owned(), 16, room)
         ]
     );
-    // the console's picture before s and after the second s
+    // the console's picture after the first s, until the second
     let fonts: Vec<&str> = c.pictures.iter().map(|(f, _, _)| f.as_str()).collect();
     assert_eq!(fonts, ["unifont", "tiny5"]);
-    // the line beside the specimen says what its marks mean
-    let mut c = console().keys(&[b"s"]);
+    // the line beside the specimen gives the cell, the grid on the display
+    // and how many characters the font draws itself, and its marks
+    let mut c = console().keys(&[]);
     c.graphics = true;
     run(&mut c);
     let screen = c.seen.clone().expect("the screen");
     let text = screen.split_whitespace().collect::<Vec<_>>().join(" ");
     assert!(
-        text.contains("an empty box marks one neither draws"),
+        text.contains("unifont at 12 pt: cells of 8x16 pixels, a grid of 80 by 30 on this 640x480 display. It draws 300 of the specimen's 323 characters itself."),
         "{screen}"
     );
-    assert!(screen.contains("s specimen"), "{screen}");
+    assert!(text.contains("a box marks one nothing draws"), "{screen}");
+    assert!(screen.contains("s screen"), "{screen}");
 }
 
-/// The font view shows each highlighted font as a picture of the console,
-/// at 12 points where nothing names a size, below the list and the line
-/// that describes it, whether or not the console can be switched live.
+/// The font view shows each highlighted font as its detailed specimen, at
+/// 12 points where nothing names a size, below the list and the line that
+/// describes it, whether or not the console can be switched live.
 #[test]
-fn each_highlighted_font_is_shown_as_a_picture() {
+fn each_highlighted_font_is_shown_as_its_specimen() {
     let mut c = Console::vtium(80, 25, false, "unifont").keys(&[UP, UP, UP, UP, b"q"]);
     c.graphics = true;
     assert_eq!(run(&mut c), 0);
     let fonts: Vec<(&str, u32)> = c
-        .pictures
+        .specimens
         .iter()
         .map(|(f, h, _)| (f.as_str(), *h))
         .collect();
@@ -1607,17 +1722,17 @@ fn each_highlighted_font_is_shown_as_a_picture() {
             ("minspec-16", 16)
         ]
     );
-    // below the six fonts' rows and the line's four: row 15 to the room
-    // above the footer
-    let (_, _, (w, h)) = c.pictures[0];
-    assert_eq!((w, h), (79 * 8, 6 * 16));
+    // below the six fonts' rows and the line's rows, to the room above the
+    // footer
+    let (_, _, (w, h)) = c.specimens[0];
+    assert_eq!((w, h), (79 * 8, 7 * 16));
     // the broken frit, which does not read, gets none: each picture is
     // deleted as the next font is highlighted
     assert_eq!(count(&c.written, &kitty::delete(kitty::IMAGE_ID)), 4);
     let mut live = console().keys(&[UP, b"q"]);
     live.graphics = true;
     run(&mut live);
-    let fonts: Vec<&str> = live.pictures.iter().map(|(f, _, _)| f.as_str()).collect();
+    let fonts: Vec<&str> = live.specimens.iter().map(|(f, _, _)| f.as_str()).collect();
     assert_eq!(fonts, ["unifont", "tiny5"]);
     assert_eq!(live.switches(), Vec::<String>::new());
 }
@@ -1698,7 +1813,7 @@ fn automatic_has_no_picture() {
     c.graphics = true;
     run(&mut c);
     let heights: Vec<u32> = c.pictures.iter().map(|(_, h, _)| *h).collect();
-    assert_eq!(heights, [16, 8], "the Fonts view's, then 6 pt only");
+    assert_eq!(heights, [8], "6 pt only");
     let screen = c.seen.clone().expect("the screen");
     assert!(
         screen.contains("Automatic lets vtium pick the size"),
@@ -1827,6 +1942,18 @@ fn below_the_minimum_the_screen_says_so_and_u_undoes_the_preview() {
         assert!(screen.contains("Fonts"), "{screen}");
         assert!(!screen.contains("vtium-config needs"), "{screen}");
     }
+}
+
+/// The Fonts view's key line fits on one row at 80 columns, the key that
+/// leaves included.
+#[test]
+fn the_fonts_key_line_is_one_row_at_80_columns() {
+    let screen = reach(80, 25, &[]);
+    let rows: Vec<&str> = screen.lines().collect();
+    assert_eq!(rows.len(), 25);
+    assert!(rows[24].starts_with(" Enter keep"), "{screen}");
+    assert!(rows[24].ends_with("q leave, undo"), "{screen}");
+    assert!(rows[23].starts_with("---"), "the rule just above: {screen}");
 }
 
 #[test]

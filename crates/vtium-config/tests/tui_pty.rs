@@ -318,7 +318,7 @@ const FONTS_TAB: &[u8] = b"\x1b[<0;16;1M\x1b[<0;16;1m";
 fn to_fonts(c: &mut Console) {
     c.until("opened on the flow", |s| s.screen.contains("DISPLAYS"));
     c.key(FONTS_TAB);
-    c.until("showed the fonts", |s| s.screen.contains("n new frit"));
+    c.until("showed the fonts", |s| s.screen.contains("r remove"));
 }
 
 /// Starts the TUI against a console of `kind`, waits for it to have

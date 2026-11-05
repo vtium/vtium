@@ -79,9 +79,9 @@ pub fn lines(locale: &str) -> Vec<&'static str> {
 /// The detailed specimen's lines (ADR-1201 D4, D9): what a font covers,
 /// line by line: printable ASCII; Latin letters with accents, and
 /// punctuation; box drawing and block elements; common symbols and
-/// arrows; then Greek, Cyrillic, CJK and emoji. Each line fits in 40
-/// cells.
-pub const DETAIL: [&str; 12] = [
+/// arrows; Powerline's symbols; then Greek, Cyrillic, CJK and emoji. Each
+/// line fits in 40 cells.
+pub const DETAIL: [&str; 13] = [
     " !\"#$%&'()*+,-./0123456789:;<=>?",
     "@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_",
     "`abcdefghijklmnopqrstuvwxyz{|}~",
@@ -90,6 +90,7 @@ pub const DETAIL: [&str; 12] = [
     "┌─┬─┐ ╔═╦═╗ ╭─╮ ┏━┳━┓ ░▒▓█ ▀▄▌▐ ▖▗▘▝",
     "├─┼─┤ ╠═╬═╣ ╰─╯ ┗━┻━┛ ■□▪▫ ▲▼◆◇○●",
     "€£¥¢§¶©®™°±×÷µ ←↑→↓↔↕⇐⇒ ✓✗★☆♠♣♥♦",
+    "\u{e0a0} \u{e0a1} \u{e0a2} \u{e0b0} \u{e0b1} \u{e0b2} \u{e0b3} \u{e0b4} \u{e0b6}",
     "Αα Ββ Γγ Δδ Λλ Ξξ Ππ Σσ Φφ Ψψ Ωω",
     "Аа Бб Вв Гг Дд Жж Ии Лл Фф Щщ Ыы Яя",
     "日本語 中文 한국어 ひらがな カタカナ",

@@ -292,7 +292,7 @@ fn figure() -> Result<u8, String> {
     let tools = Tools {
         painter: std::sync::Arc::new(move |_| Err(none.to_owned())),
         measurer: std::sync::Arc::new(move |_, _| Err(none.to_owned())),
-        detailer: std::sync::Arc::new(move |_, _, _| Err(none.to_owned())),
+        detailer: std::sync::Arc::new(move |_, _, _, _| Err(none.to_owned())),
         summarizer: std::sync::Arc::new(move |_, _| Err(none.to_owned())),
         finder: None,
     };

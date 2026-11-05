@@ -132,6 +132,13 @@ pub enum Event {
     },
     /// The picture [`Effect::Picture`] asked for, or why there is none.
     Pictured(Result<crate::specimen::Picture, String>),
+    /// The detailed specimen [`Effect::Specimen`] asked for, and what it
+    /// gives, or why there is none.
+    Detailed {
+        font: String,
+        height: u32,
+        result: Result<(crate::specimen::Picture, crate::specimen::Summary), String>,
+    },
     /// The summary [`Effect::Summary`] asked for.
     Summarized {
         font: String,
@@ -166,6 +173,8 @@ pub enum Effect {
         font: String,
         height: u32,
         max: (u32, u32),
+        /// The display whose grid the specimen's summary counts.
+        display: (u32, u32),
     },
     /// Asks the glyph helper for the font `font`'s cell at `height`
     /// pixels, then sends [`Event::Celled`].
@@ -362,9 +371,13 @@ pub struct App {
     /// other is in flight: the live trial's font, or the font it puts
     /// back (D4).
     pub want: Option<String>,
-    /// The Fonts view shows the detailed specimen of the highlighted font
-    /// in place of the picture of the console (ADR-1201 D4).
+    /// The Fonts view shows the detailed specimen of the highlighted font,
+    /// as it does at start, in place of the picture of the console, which
+    /// `s` switches to (ADR-1201 D4).
     pub detail: bool,
+    /// What the last detailed specimen gave: its font, its height and its
+    /// summary.
+    pub specimen: Option<(String, u32, crate::specimen::Summary)>,
     /// The live trial counting down, if one is.
     pub trial: Option<super::shot::Trial>,
     /// The picture last asked for, so the same one is not asked again.
@@ -503,7 +516,8 @@ impl App {
             answers: Answers::default(),
             start_font: None,
             want: None,
-            detail: false,
+            detail: true,
+            specimen: None,
             trial: None,
             asked: None,
             drawing: false,
@@ -657,6 +671,11 @@ impl App {
             Event::Installed(result) => self.installed(result),
             Event::Celled { font, height, cell } => self.celled(&font, height, cell),
             Event::Pictured(result) => self.pictured(result),
+            Event::Detailed {
+                font,
+                height,
+                result,
+            } => self.detailed(font, height, result),
             Event::Summarized {
                 font,
                 height,

@@ -59,9 +59,29 @@ pub fn trial_refused(font: impl Display) -> String {
 }
 
 /// The line beside the detailed specimen (ADR-1201 D4).
-pub fn detail_caption(font: impl Display, points: u32) -> String {
+pub fn detail_caption(
+    font: impl Display,
+    points: u32,
+    summary: Option<&crate::specimen::Summary>,
+    (w, h): (u32, u32),
+    assumed: bool,
+) -> String {
+    let marks = "Grey characters come from the built-in font, and a box marks one nothing draws. s shows the console.";
+    let Some(s) = summary else {
+        return format!("{font} at {points} pt. {marks}");
+    };
+    let display = if assumed {
+        format!("an assumed {w}x{h} display")
+    } else {
+        format!("this {w}x{h} display")
+    };
+    let grid = s
+        .grid
+        .map(|(c, r)| format!(", a grid of {c} by {r} on {display}"))
+        .unwrap_or_default();
     format!(
-        "The detailed specimen of {font} at {points} pt: white characters come from the font, grey ones from the built-in font, and an empty box marks one neither draws. s shows the console again."
+        "{font} at {points} pt: cells of {}x{} pixels{grid}. It draws {} of the specimen's {} characters itself. {marks}",
+        s.cell.width, s.cell.height, s.covered, s.of
     )
 }
 
@@ -196,7 +216,7 @@ pub const KEYS_FLOW: &str = "Tab ←→ columns  ↑↓ move  Enter open  Space 
 pub const KEYS_ROUTE: &str = "↑↓ route  Enter open the item  q back to the flow";
 pub const KEYS_LOOKS: &str = "Enter keep  Tab next  i install  q leave, undo";
 pub const KEYS_FONTS: &str =
-    "Enter keep  t try live  s specimen  n new frit  r remove  Tab next  i install  q leave, undo";
+    "Enter keep  t try live  s screen  n new  r remove  i install  q leave, undo";
 pub const KEYS_SETTINGS: &str = "Enter change  Tab next  i install  q leave, undo";
 pub const KEYS_HELP: &str = "←→ Help, About  ↑↓ scroll  Tab next  q leave";
 pub const KEYS_NEW: &str = "type a field  Enter next  Esc back  Ctrl-C leave, undo";

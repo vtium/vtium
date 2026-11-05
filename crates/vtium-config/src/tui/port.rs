@@ -68,6 +68,8 @@ pub enum Draw {
         font: String,
         height: u32,
         max: (u32, u32),
+        /// The display whose grid the specimen's summary counts.
+        display: (u32, u32),
     },
     /// The line that describes the font at a height, for a terminal that
     /// draws no pictures.
@@ -83,6 +85,13 @@ pub enum Drawn {
         cell: Result<(vtium_font::Cell, u32), String>,
     },
     Pictured(Result<crate::specimen::Picture, String>),
+    /// The detailed specimen, and what it gives: the cell, the grid on the
+    /// display and how many of its characters the font draws itself.
+    Detailed {
+        font: String,
+        height: u32,
+        result: Result<(crate::specimen::Picture, crate::specimen::Summary), String>,
+    },
     Summarized {
         font: String,
         height: u32,
@@ -96,6 +105,15 @@ impl Drawn {
         match self {
             Drawn::Celled { font, height, cell } => Event::Celled { font, height, cell },
             Drawn::Pictured(p) => Event::Pictured(p),
+            Drawn::Detailed {
+                font,
+                height,
+                result,
+            } => Event::Detailed {
+                font,
+                height,
+                result,
+            },
             Drawn::Summarized {
                 font,
                 height,
@@ -174,9 +192,17 @@ pub fn drive_with(
                     }
                     Effect::Cell { font, height } => port.draw(Draw::Cell { font, height }),
                     Effect::Picture(shot) => port.draw(Draw::Picture(shot)),
-                    Effect::Specimen { font, height, max } => {
-                        port.draw(Draw::Specimen { font, height, max });
-                    }
+                    Effect::Specimen {
+                        font,
+                        height,
+                        max,
+                        display,
+                    } => port.draw(Draw::Specimen {
+                        font,
+                        height,
+                        max,
+                        display,
+                    }),
                     Effect::Summary { font, height } => port.draw(Draw::Summary { font, height }),
                     Effect::Sources(fonts) => port.sources(fonts),
                     Effect::Desk(op) => {
@@ -272,7 +298,14 @@ pub type Painter = std::sync::Arc<
 /// Draws a font's detailed specimen at a pixel height in at most so many
 /// pixels, on a thread of its own.
 pub type Detailer = std::sync::Arc<
-    dyn Fn(&str, u32, (u32, u32)) -> Result<crate::specimen::Picture, String> + Send + Sync,
+    dyn Fn(
+            &str,
+            u32,
+            (u32, u32),
+            (u32, u32),
+        ) -> Result<(crate::specimen::Picture, crate::specimen::Summary), String>
+        + Send
+        + Sync,
 >;
 
 /// Measures a font's cell at a pixel height, on a thread of its own.
@@ -601,7 +634,19 @@ impl Port for Tty {
                     Drawn::Celled { font, height, cell }
                 }
                 Draw::Picture(shot) => Drawn::Pictured(paint(&shot)),
-                Draw::Specimen { font, height, max } => Drawn::Pictured(detail(&font, height, max)),
+                Draw::Specimen {
+                    font,
+                    height,
+                    max,
+                    display,
+                } => {
+                    let result = detail(&font, height, max, display);
+                    Drawn::Detailed {
+                        font,
+                        height,
+                        result,
+                    }
+                }
                 Draw::Summary { font, height } => {
                     let summary = summarize(&font, height);
                     Drawn::Summarized {
