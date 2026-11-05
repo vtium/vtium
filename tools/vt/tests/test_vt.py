@@ -29,12 +29,27 @@ import termios
 import time
 import unittest
 
+# The tests start the tools as a terminal starts them, with the signals a
+# terminal sends at their defaults. A launcher can leave one of them ignored:
+# nohup ignores SIGHUP, and a shell ignores SIGINT and SIGQUIT in a job it
+# starts in the background. Every process the tests start inherits that, and
+# bash cannot trap a signal that was ignored when it started, so run-vt.sh
+# would go on waiting for vtium through a signal a test sends it, and the test
+# would wait for an end that never comes. So the tests put these signals back
+# to their defaults before they start anything.
+for _sig in (signal.SIGHUP, signal.SIGINT, signal.SIGQUIT, signal.SIGTERM):
+    if signal.getsignal(_sig) == signal.SIG_IGN:
+        signal.signal(_sig, signal.default_int_handler if _sig == signal.SIGINT else signal.SIG_DFL)
+
 # The longest any test waits on another process. It only makes a broken test fail instead of hanging.
 WAIT_BOUND = 120
 # The same for a run of make, which may build with cargo on a loaded machine.
 BUILD_BOUND = 1800
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+# The cargo target directory the Makefile builds in, as it names it: the
+# caller's CARGO_TARGET_DIR, or target. make gates gives each gate its own.
+TARGET = os.environ.get("CARGO_TARGET_DIR") or "target"
 VT = os.path.join(ROOT, "tools", "vt")
 RUN_VT = os.path.join(VT, "run-vt.sh")
 VT_INSTALL = os.path.join(VT, "vt-install.sh")
@@ -716,6 +731,18 @@ class RunVt(Case):
 
     def test_the_unit_comes_back_after_a_hangup(self):
         self.interrupted(signal.SIGHUP, 129)
+
+    def test_the_signal_tests_hold_when_their_launcher_ignored_the_signals(self):
+        # nohup starts the tests with SIGHUP ignored, and a shell's background
+        # job with SIGINT and SIGQUIT ignored. The tests that send those
+        # signals still see run-vt.sh stop vtium and start the unit again.
+        tests = [f"RunVt.test_the_unit_comes_back_{t}" for t in ("after_a_hangup", "when_stdout_is_closed",
+                                                                 "after_ctrl_c", "after_sigterm")]
+        ignore = lambda: [signal.signal(s, signal.SIG_IGN) for s in (signal.SIGHUP, signal.SIGINT, signal.SIGQUIT)]
+        p = subprocess.run([sys.executable, "-I", os.path.abspath(__file__), *tests], preexec_fn=ignore,
+                           capture_output=True, text=True, timeout=WAIT_BOUND * (len(tests) + 1))
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertIn(f"Ran {len(tests)} tests", p.stderr)
 
     def test_no_active_unit_stops_and_starts_none(self):
         p = self.run_vt("8", ACTIVE_UNITS="")
@@ -2803,7 +2830,7 @@ exec "$@"
         # builds in a target directory of its own, so the minspec build that
         # the review runs use is never replaced.
         self.assertIn("VTIUM_FONT_HELPER=/usr/local/bin/vtium-dev-config rustc --profile minspec -p vtium --bin vtium "
-                      "--target x86_64-unknown-linux-gnu --target-dir target/vt-dev -- -C link-arg=-Wl,-z,pack-relative-relocs",
+                      f"--target x86_64-unknown-linux-gnu --target-dir {TARGET}/vt-dev -- -C link-arg=-Wl,-z,pack-relative-relocs",
                       builds)
         self.assertIn("VTIUM_FONT_HELPER=unset build --release -p vtium-config --target x86_64-unknown-linux-gnu", builds)
         self.assertEqual(len(builds), 2, builds)
@@ -3145,7 +3172,7 @@ fi
         # The console starts its image helper at the development install's
         # own path, never the packaged /usr/bin/vtium-image.
         self.assertIn("VTIUM_FONT_HELPER=/usr/local/bin/vtium-dev-config VTIUM_IMAGE=/usr/local/bin/vtium-dev-image "
-                      "rustc --profile minspec -p vtium --bin vtium --target x86_64-unknown-linux-gnu --target-dir target/vt-dev "
+                      f"rustc --profile minspec -p vtium --bin vtium --target x86_64-unknown-linux-gnu --target-dir {TARGET}/vt-dev "
                       "--features images -- -C link-arg=-Wl,-z,pack-relative-relocs", builds)
         self.assertIn("VTIUM_FONT_HELPER=unset VTIUM_IMAGE=unset build --release -p vtium-config --target x86_64-unknown-linux-gnu",
                       builds)

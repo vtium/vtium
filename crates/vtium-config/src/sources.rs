@@ -666,13 +666,17 @@ mod tests {
 
     use super::*;
 
+    /// A directory of a test's own, removed when the test drops it.
     struct Tree(PathBuf);
 
     impl Tree {
+        /// A fresh tree for `test`, named with the test process's id, so
+        /// two test runs at once never remove each other's tree.
         fn new(test: &str) -> Tree {
-            let dir = PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../target/tmp"))
-                .join("vtium-config-sources")
-                .join(test);
+            let dir = std::env::temp_dir().join(format!(
+                "vtium-config-sources-{test}-{}",
+                std::process::id()
+            ));
             let _ = fs::remove_dir_all(&dir);
             fs::create_dir_all(&dir).unwrap();
             Tree(dir)
@@ -683,6 +687,12 @@ mod tests {
             fs::create_dir_all(path.parent().unwrap()).unwrap();
             fs::write(&path, bytes).unwrap();
             path
+        }
+    }
+
+    impl Drop for Tree {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
         }
     }
 
