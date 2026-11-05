@@ -90,6 +90,10 @@ mod tests {
             at(Mode::Minimal, Some(Duration::from_secs(10)))
         );
         assert_eq!(osd(&["--osd-timeout=never"]), at(Mode::Minimal, None));
+        assert_eq!(
+            osd(&["--osd=off", "--osd-timeout=never"]),
+            at(Mode::Off, None)
+        );
     }
 
     // ADR-1401 D5: `focus-mark` is the older name: `auto` the defaults,
@@ -108,6 +112,15 @@ mod tests {
         assert_eq!(
             osd(&["--focus-mark=always", "--osd-timeout=5", "--osd=full"]),
             at(Mode::Full, Some(Duration::from_secs(5)))
+        );
+        assert_eq!(
+            osd(&["--focus-mark=always", "--osd=off"]),
+            at(Mode::Off, None),
+            "osd wins, and focus-mark still keeps no time"
+        );
+        assert_eq!(
+            osd(&["--focus-mark=off", "--osd-timeout=never"]),
+            at(Mode::Off, None)
         );
         assert_eq!(
             osd(&["--osd=minimal", "--focus-mark=off"]),

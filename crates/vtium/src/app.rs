@@ -2910,9 +2910,7 @@ impl App {
             None
         };
         if let Some(line) = full {
-            head.brief = Some(line);
-            head.brief_due = None;
-            head.draw_now = true;
+            self.brief(h, line);
             return false;
         }
         let term = crate::head::terminal(config, *scrollback, *scrollback_bytes, Rc::clone(clock));
@@ -2929,9 +2927,8 @@ impl App {
             if let Some(head) = self.heads.get_mut(h) {
                 log::warn!("head {}: console {id} does not open: {why}", head.name());
                 head.drop_hidden(id);
-                head.brief = Some(crate::notice::NO_CONSOLE_OPENED.to_owned());
-                head.brief_due = None;
             }
+            self.brief(h, crate::notice::NO_CONSOLE_OPENED.to_owned());
             return false;
         }
         let visible = self.awake;
@@ -2941,6 +2938,22 @@ impl App {
         // The head lays the console it shows out on its displays.
         self.relayout(h);
         true
+    }
+
+    /// Head `h`'s on-screen display shows `line` as its brief line, which
+    /// answers one press, from the head's next frame (ADR-1401 D5). Under
+    /// `osd = off` vtium shows no brief line, so the press leaves the
+    /// screen as it was and draws no frame; the log line says what
+    /// happened.
+    fn brief(&mut self, h: usize, line: String) {
+        if self.osd.mode == osd::Mode::Off {
+            return;
+        }
+        if let Some(head) = self.heads.get_mut(h) {
+            head.brief = Some(line);
+            head.brief_due = None;
+            head.draw_now = true;
+        }
     }
 
     /// The focus moves to head `h`, by the focus chord or the anti-lockout
@@ -3546,10 +3559,7 @@ impl App {
             });
             // The brief line answers one press at a cap: for `osd-timeout`,
             // or 3 s under `never`, from its first frame, in place of the
-            // full line, and never under `off`.
-            if mode == osd::Mode::Off {
-                head.brief = None;
-            }
+            // full line. [`App::brief`] sets none under `off`.
             if head.brief.is_some() && head.brief_due.is_none() && !head.views.is_empty() {
                 head.brief_due = Some(after(now, timeout.unwrap_or(BRIEF_NEVER)));
             }
