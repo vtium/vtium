@@ -82,7 +82,10 @@ SIL Open Font License 1.1, whose text is crates/vtium-font/data/OFL-1.1.txt.
 The geometry of vtium-font's sprites (crates/vtium-font/src/sprite.rs) is
 adapted from Ghostty's sprite font, by way of the C fork's font_box.c, under
 the MIT licence: Copyright (c) 2024 Mitchell Hashimoto, Ghostty contributors.
-The file carries the notice.
+The file carries the notice. The table of the kitty placeholder's diacritics,
+DIACRITICS in crates/vtium-term/src/placeholder.rs, is copied entry for entry
+from Ghostty's src/terminal/kitty/graphics_unicode.zig at commit 0b1729e945,
+under the same MIT license and notice, which that file carries too.
 
 X11's color names (crates/vtium-term/src/terminal/color/names.rs and
 crates/vtium-term/src/terminal/color/rgb.txt), the table OSC color strings
@@ -105,7 +108,7 @@ its crate:
 	marks, canonical combining classes, compositions and decompositions that
 	the console reads when it looks up a cluster's glyph.
 	crates/vtium-config/src/shaping/data.rs, by vtium-config's gen-shaping:
-	the emoji sequences, the letters that join to their neighbours and the
+	the emoji sequences, the letters that join to their neighbors and the
 	script ranges that vtium-config's shaping reads.
 
 The tests' Unicode data, crates/vtium-term/src/unicode/grapheme_break_test.txt
@@ -119,12 +122,13 @@ into vtium-config: for each of GB2312, GBK, Big5, JIS X 0208 and KS X 1001,
 the codepoints that Unicode's mapping file for that character set maps to.
 tools/cover-tables writes the table, and its provenance.tsv names each
 mapping file's address, version and SHA-256. The table keeps which codepoints
-each file maps to, and none of the mappings. The mapping files are Copyright
-Unicode, Inc. (1991-2015). Unicode's terms of use place each of its data
-files under the Unicode License v3 unless the file states terms of its own.
-The files for GB2312 and KS X 1001 state Unicode's earlier notice, which
-grants the right to use the information in them to make products that
-support the Unicode Standard.
+each file maps to, and none of the mappings. The mapping files are
+published by Unicode, Inc., which dates them 1999 to 2015; CP936.TXT,
+Microsoft's table, carries no notice of its own. Unicode's terms of use place
+each of its data files under the Unicode License v3 unless the file states
+terms of its own. The files for GB2312 and KS X 1001 state Unicode's earlier
+notice, which grants the right to use the information in them to make
+products that support the Unicode Standard.
 
 vtium's terminfo tables (crates/vtium/src/termcap/table.rs), built into
 vtium: the capabilities of crates/vtium/install/xterm-vtium.ti, vtium's own
@@ -152,7 +156,7 @@ installs none of it.
 
 = Unicode License v3 =
 
-The licence of the Unicode data tables above, as Unicode publishes it at
+The license of the Unicode data tables above, as Unicode publishes it at
 https://www.unicode.org/license.txt:
 
 	UNICODE LICENSE V3
