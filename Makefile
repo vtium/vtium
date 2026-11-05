@@ -394,7 +394,7 @@ conformance-record: ## Record the corpus's programs into OUT=DIR, each <name>.bi
 	$(or $(CARGO_TARGET_DIR),target)/release/conformance-record $(OUT) $(NAMES)
 
 .PHONY: conformance-issues
-conformance-issues: ## Check that every issue the conformance lists say owes a case or a capability is open (needs gh)
+conformance-issues: ## Check that every issue the capability list says owes a capability is open (needs gh)
 	cargo build --release -p vtium-conformance --bins
 	$(or $(CARGO_TARGET_DIR),target)/release/conformance issues
 
