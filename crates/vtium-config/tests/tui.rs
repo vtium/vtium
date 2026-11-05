@@ -2249,7 +2249,10 @@ mod draft_flow {
         /// reads whole wherever its rows wrap: a message that names the
         /// bench's path wraps where the path's length puts it.
         fn said(&self) -> String {
-            self.screen().split_whitespace().collect::<Vec<_>>().join(" ")
+            self.screen()
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ")
         }
 
         fn status(&self) -> String {
