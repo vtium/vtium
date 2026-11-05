@@ -967,11 +967,22 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         self.settle();
     }
 
-    /// Lets the displays go: blanks them, waits for the flips in flight
-    /// (at most [`crate::FLIP_WAIT_MS`]), hides the cursor and overlay
-    /// planes and drops DRM master. [`Event::Asleep`] tells when it is
-    /// done. A card that never woke drops the master its open gave it, so
-    /// the vtium of the VT shown can take it (vtium/vtium#139).
+    /// Lets the displays go: blanks them, hides the cursor and overlay
+    /// planes that show something, and drops DRM master. [`Event::Asleep`]
+    /// tells when it is done. A card that never woke drops the master its
+    /// open gave it, so the vtium of the VT shown can take it
+    /// (vtium/vtium#139).
+    ///
+    /// Where a plane shows something, the sleep first waits for the flips in
+    /// flight, at most [`crate::FLIP_WAIT_MS`]: the commit that hides it does
+    /// not block, and the kernel refuses such a commit with `EBUSY` on a
+    /// plane whose last commit has not flipped yet
+    /// (`drm_atomic_helper_setup_commit`). Where no plane shows anything, as
+    /// before vtium shows a pointer, nothing waits on the flips, so the sleep
+    /// drops master at once. A flip still in flight, such as the first
+    /// modeset's, stays in flight while the card sleeps: its event, or its
+    /// bound, ends it, and the wake-up's modeset waits for it, so a late
+    /// event never ends the wake-up's own flip.
     pub fn sleep(&mut self) {
         self.reap();
         self.foreground = false;
@@ -991,29 +1002,70 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                 o.clear_front();
             }
         }
-        self.waiting = Some(Waiting::Sleep);
-        self.resolve();
+        let hide = self.planes_to_hide();
+        if hide.entries.is_empty() {
+            self.waiting = None;
+            self.finish_sleep(&hide);
+        } else {
+            self.waiting = Some(Waiting::Sleep);
+            self.resolve();
+        }
         self.settle();
     }
 
-    fn finish_sleep(&mut self) {
-        if self.master && !self.legacy {
-            let mut req = Request::default();
-            self.clear_planes(&mut req, &[]);
-            if !req.entries.is_empty()
-                && let Err(e) = self.card.commit(&req, DRM_MODE_ATOMIC_NONBLOCK)
-            {
-                log::warn!("cannot hide the cursor and overlay planes: {e}");
-            }
+    /// Ends the sleep: commits `hide`, which hides the planes that show
+    /// something, and drops DRM master.
+    fn finish_sleep(&mut self, hide: &Request) {
+        if !hide.entries.is_empty()
+            && let Err(e) = self.card.commit(hide, DRM_MODE_ATOMIC_NONBLOCK)
+        {
+            log::warn!("cannot hide the cursor and overlay planes: {e}");
         }
         self.release_master();
         self.awake = false;
         self.retries = None;
         self.owed = false;
-        for o in &mut self.outputs {
-            o.flipping = false;
-        }
         self.events.push(Event::Asleep);
+    }
+
+    /// What hides each cursor and overlay plane that shows something, on a
+    /// CRTC or with a framebuffer, before vtium lets the card go, so the
+    /// program that takes the card finds none of vtium's pointer on it. A
+    /// plane already hidden is left out: the modeset hides every one, so
+    /// only the planes vtium has shown since are in it. It is empty under
+    /// the legacy calls and without master, where vtium commits nothing.
+    fn planes_to_hide(&self) -> Request {
+        let mut req = Request::default();
+        if !self.master || self.legacy {
+            return req;
+        }
+        let all = self.card.planes().unwrap_or_else(|e| {
+            log::warn!("cannot list the card's planes: {e}");
+            Vec::new()
+        });
+        for plane in all {
+            let props = match self.card.properties(plane, Object::Plane) {
+                Ok(props) => props,
+                Err(e) => {
+                    log::warn!("cannot read the properties of plane {plane}: {e}");
+                    continue;
+                }
+            };
+            let other = matches!(value(&props, "type"), Some(PLANE_CURSOR | PLANE_OVERLAY));
+            let shows = ["CRTC_ID", "FB_ID"]
+                .iter()
+                .any(|name| value(&props, name).is_some_and(|v| v != 0));
+            if other && shows {
+                let props = Props::new(&props);
+                let hidden = props
+                    .set(&mut req, plane, "CRTC_ID", 0)
+                    .and_then(|()| props.set(&mut req, plane, "FB_ID", 0));
+                if let Err(e) = hidden {
+                    log::warn!("cannot hide plane {plane}: {e}");
+                }
+            }
+        }
+        req
     }
 
     fn release_master(&mut self) {
@@ -1112,7 +1164,14 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         if frame {
             o.modeset_flip = false;
         }
-        if std::mem::replace(&mut self.lost_flip, true) {
+        if !self.awake {
+            // The flip was in flight as vtium let the card go, and the
+            // program that took the card may hold it up.
+            log::debug!(
+                "no {event} event for {} since vtium let the card go; taking the flip as done",
+                o.name
+            );
+        } else if std::mem::replace(&mut self.lost_flip, true) {
             log::debug!("no {event} event for {}; taking the flip as done", o.name);
         } else {
             log::warn!(
@@ -1155,7 +1214,10 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                     self.retry(wake);
                 }
             }
-            Some(Waiting::Sleep) => self.finish_sleep(),
+            Some(Waiting::Sleep) => {
+                let hide = self.planes_to_hide();
+                self.finish_sleep(&hide);
+            }
             None => {}
         }
     }
