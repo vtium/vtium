@@ -60,12 +60,12 @@ vtium's configuration: the key table that the console reads vtium.conf and its c
 <!-- bounds table: generated from src/bounds.rs -->
 | Bound | Value | What it bounds | Past it | Source |
 |---|---|---|---|---|
-| `FILE_MAX` | 65536 | Bytes of vtium.conf | Every section is dropped but for the `policy` lines within the bound; a `policy` line the bound cuts makes the file closed and broken | ADR-1401 D3, vtium.conf's bound (`crates/vtium/src/config/mod.rs`, `FILE_MAX`) |
-| `LINE_MAX` | 8192 | Bytes of one line, its newline apart | Every section is dropped but for the `policy` lines, the line named; a `policy` line past it makes the file closed and broken | ADR-1401 D3, vtium.conf's bound (`crates/vtium/src/config/mod.rs`, `LINE_MAX`) |
-| `NAME_MAX` | 64 | Characters of a head's or a look's name, each of `A-Z a-z 0-9 . _ + -` | The head is dropped, with every rule naming it, or the look is, the line named | ADR-1401 D3 |
-| `HEADS_MAX` | 16 | Heads vtium.conf declares, each a `[head NAME]` section | Every section is dropped but for the `policy` lines, the first head past it named | vtium's own: a head a display, with room for a machine of many outputs |
+| `FILE_MAX` | 65536 | Bytes of a head file | The file is dropped whole but for the `policy` lines within the bound; a `policy` line the bound cuts makes the file closed and broken | ADR-1401 D3, vtium.conf's bound (`crates/vtium/src/config/mod.rs`, `FILE_MAX`) |
+| `LINE_MAX` | 8192 | Bytes of one line, its newline apart | The file is dropped whole but for its `policy` lines, the line named; a `policy` line past it makes the file closed and broken | ADR-1401 D3, vtium.conf's bound (`crates/vtium/src/config/mod.rs`, `LINE_MAX`) |
+| `NAME_MAX` | 64 | Characters of a head's, a profile's or a look's name, each of `A-Z a-z 0-9 . _ + -` | The head is dropped, with every rule naming it, or the look is, the line named | ADR-1401 D3 |
+| `HEADS_MAX` | 16 | Heads a file declares | The file is dropped whole but for its `policy` lines, the first head past it named | vtium's own: a head a display, with room for a machine of many outputs |
 | `LOOKS_MAX` | 32 | Looks vtium.conf declares, each a `[look NAME]` section | Every section is dropped but for the `policy` lines, the first look past it named | vtium's own: a look for each of `HEADS_MAX` heads, and as many again that no head uses yet |
-| `RULES_MAX` | 256 | Rules `[rules]` holds, so a device's walk reads at most this many | Every section is dropped but for the `policy` lines, the first rule past it named | vtium's own: a rule a device with room to spare |
+| `RULES_MAX` | 256 | Rules a file holds, so a device's walk reads at most this many | The file is dropped whole but for its `policy` lines, the first rule past it named | vtium's own: a rule a device with room to spare |
 | `TOKENS_MAX` | 8 | `key:value` tokens one rule's match combines | The rule is dropped, the line named | vtium's own: the strongest binding takes two (`path` and `serial`, or `connector` and `edid`) |
 | `CONSOLES_MAX` | 50 | Consoles one head asks for with `consoles` | The head gets this many, with a warning | a starting value, the C reference's `session-max` (`kmscon/src/config.c:1357`); ADR-1401 D10 and its probe 6 set the caps |
 | `ERRORS_MAX` | 64 | Errors, warnings and notes a check keeps, each kind apart | Counted, not kept, but for the first error of a `policy` line vtium cannot read, which takes the last place | vtium.conf's `REPORTS_MAX` (`crates/vtium/src/config/mod.rs`) |
