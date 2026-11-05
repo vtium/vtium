@@ -45,13 +45,22 @@
 //! let go. A panic on the thread ends the process, as one on the loop does
 //! (D10): under `panic=abort` at once, and in a test when the loop finds
 //! the thread gone.
+//!
+//! A thread left to end alone is still vtium's: [`wait_for_left`] joins it
+//! once it ends, and says how many still run. A process must not run its
+//! exit handlers while one does, because libEGL's and Mesa's handlers tear
+//! EGL down under the thread, which corrupts the heap or aborts. So vtium
+//! ends without its exit handlers while a left thread runs, and a test that
+//! leaves one joins it before it returns.
 
 use std::collections::VecDeque;
 use std::io;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{
     Receiver, RecvTimeoutError, SyncSender, TryRecvError, TrySendError, sync_channel,
 };
+use std::sync::{Arc, Condvar, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -235,6 +244,10 @@ pub struct Painter {
     /// Ends when the thread does, for a thread given a [`GpuSource`]: the
     /// drop waits on it for at most [`LET_GO_MS`].
     ended: Option<Receiver<()>>,
+    /// Set as the thread ends, after everything it held has gone, under
+    /// [`LEFT`]'s lock: what [`wait_for_left`] waits on once the thread is
+    /// left to end alone.
+    gone: Arc<AtomicBool>,
     /// The log said the head waits for its GPU set-up.
     told_waiting: bool,
 }
@@ -256,6 +269,8 @@ impl Painter {
         let (note, notes) = sync_channel::<String>(QUEUE);
         let (end, ended) = sync_channel::<()>(0);
         let on_gpu = gpu.is_some();
+        let gone = Arc::new(AtomicBool::new(false));
+        let ends = Arc::clone(&gone);
         let thread = std::thread::Builder::new()
             .name(format!("render {name}"))
             .stack_size(if on_gpu { GPU_STACK } else { STACK })
@@ -264,6 +279,9 @@ impl Painter {
                 // after everything the thread held, the GL context among
                 // them, has gone
                 drop(end);
+                let _left = left();
+                ends.store(true, Ordering::SeqCst);
+                ENDED.notify_all();
             })?;
         Ok(Painter {
             name: name.to_owned(),
@@ -277,6 +295,7 @@ impl Painter {
             held_on_cpu: false,
             notes: Some(notes),
             ended: on_gpu.then_some(ended),
+            gone,
             told_waiting: false,
         })
     }
@@ -569,22 +588,115 @@ impl Painter {
     /// Waits for the thread [`Painter::end`] told to end, and joins it. A
     /// thread given a [`GpuSource`] is waited for at most `within`: past it
     /// the GPU driver has not let go of the head's GL context, and the
-    /// thread is left to end alone, which the log says.
+    /// thread is left to end alone, which the log says. Each thread left
+    /// before that has ended since is joined too, so its stack is freed at
+    /// the next drop of a head, as at a reload of vtium.conf, and not only
+    /// at the exit.
     fn wait_to_end(&mut self, within: Duration) {
         let Some(thread) = self.thread.take() else {
+            join_ended();
             return;
         };
         let let_go = self.ended.as_ref().map(|e| e.recv_timeout(within));
         match let_go {
-            Some(Err(RecvTimeoutError::Timeout)) => log::warn!(
-                "head {}: the GPU driver did not let go of the head's GL context within {LET_GO_MS} ms: vtium goes on without it",
-                self.name
-            ),
+            Some(Err(RecvTimeoutError::Timeout)) => {
+                log::warn!(
+                    "head {}: the GPU driver did not let go of the head's GL context within {LET_GO_MS} ms: vtium goes on without it",
+                    self.name
+                );
+                left().push(Left {
+                    thread,
+                    gone: Arc::clone(&self.gone),
+                });
+            }
             Some(Ok(()) | Err(RecvTimeoutError::Disconnected)) | None => {
                 let _ = thread.join();
             }
         }
+        join_ended();
     }
+}
+
+/// A render thread vtium went on without, as [`Painter::wait_to_end`]
+/// left it, and the flag the thread sets as it ends. The thread owns its
+/// head's GL context; nothing here holds a GL object.
+struct Left {
+    thread: JoinHandle<()>,
+    gone: Arc<AtomicBool>,
+}
+
+impl Left {
+    /// Whether the thread has ended: it set its flag, or it ended without
+    /// setting it, as a thread that panicked does.
+    fn ended(&self) -> bool {
+        self.gone.load(Ordering::SeqCst) || self.thread.is_finished()
+    }
+}
+
+/// The render threads vtium went on without that [`wait_for_left`] has not
+/// joined yet. The list is process-wide, because vtium's exit asks after
+/// every head's thread, those of the heads a head file reload dropped
+/// included.
+static LEFT: Mutex<Vec<Left>> = Mutex::new(Vec::new());
+
+/// Notified, under [`LEFT`]'s lock, as each render thread ends.
+static ENDED: Condvar = Condvar::new();
+
+/// The render threads left, locked. A thread that panicked holding the
+/// lock left the list whole, since each change to it is one push or one
+/// replacement of the whole list.
+fn left() -> std::sync::MutexGuard<'static, Vec<Left>> {
+    LEFT.lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// Waits at most `within`, from when `clock` says the wait starts, for the
+/// render threads vtium has gone on without to end, joins each that has,
+/// and gives how many still run. While one runs, it may be inside the GPU
+/// driver, and the process must not run its exit handlers (the module's
+/// doc). The wait releases the list's lock, so a head let go of meanwhile,
+/// and another caller, do not wait on it.
+pub fn wait_for_left(within: Duration, clock: &dyn Fn() -> Instant) -> usize {
+    let deadline = clock().checked_add(within);
+    let mut threads = left();
+    loop {
+        let running = threads.iter().any(|l| !l.ended());
+        let rest = deadline.map_or(within, |d| d.saturating_duration_since(clock()));
+        if !running || rest.is_zero() {
+            break;
+        }
+        // a wait that times out ends the loop, so a clock that does not
+        // move cannot keep it going
+        let (guard, result) = ENDED
+            .wait_timeout(threads, rest)
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        threads = guard;
+        if result.timed_out() {
+            break;
+        }
+    }
+    join_ended_in(threads)
+}
+
+/// Joins each render thread vtium went on without that has ended, and
+/// gives how many still run, without waiting.
+fn join_ended() -> usize {
+    join_ended_in(left())
+}
+
+/// Joins each thread of the locked list `threads` that has ended, with the
+/// lock released, and gives how many still run.
+fn join_ended_in(mut threads: std::sync::MutexGuard<'static, Vec<Left>>) -> usize {
+    let (ended, running): (Vec<Left>, Vec<Left>) = std::mem::take(&mut *threads)
+        .into_iter()
+        .partition(Left::ended);
+    *threads = running;
+    let count = threads.len();
+    drop(threads);
+    for l in ended {
+        let _ = l.thread.join();
+    }
+    count
 }
 
 impl Drop for Painter {
@@ -613,6 +725,7 @@ pub fn let_go(painters: impl IntoIterator<Item = Painter>, clock: &dyn Fn() -> I
         let left = deadline.map_or(bound, |d| d.saturating_duration_since(clock()));
         painter.wait_to_end(left);
     }
+    join_ended();
 }
 
 /// A head's frame times since its last line: the frames presented, and
@@ -1368,6 +1481,7 @@ mod tests {
     #[cfg(feature = "gpu")]
     #[test]
     fn dropping_a_painter_whose_driver_hangs_letting_go_does_not_wait_for_it() {
+        let _alone = alone();
         let gpu = Arc::new(TestGpu::default());
         let mut painter =
             Painter::start("test", Some(GpuSource::Test(Arc::clone(&gpu))), || {}).unwrap();
@@ -1386,6 +1500,11 @@ mod tests {
         wait_holding.recv().unwrap();
         drop(painter);
         let _ = let_go.send(());
+        assert_eq!(
+            wait_for_left(Duration::from_secs(10), &Instant::now),
+            0,
+            "the thread left ends once the driver lets go"
+        );
         assert!(
             holder.join().unwrap(),
             "the drop waited for the driver to let go"
@@ -1398,6 +1517,7 @@ mod tests {
     #[cfg(feature = "gpu")]
     #[test]
     fn letting_go_of_two_heads_whose_driver_hangs_waits_one_bound_in_all() {
+        let _alone = alone();
         let gpu = Arc::new(TestGpu::default());
         let painters: Vec<Painter> = (0..2)
             .map(|_| {
@@ -1423,9 +1543,89 @@ mod tests {
         wait_holding.recv().unwrap();
         let_go(painters, &Instant::now);
         let _ = let_go_now.send(());
+        assert_eq!(
+            wait_for_left(Duration::from_secs(10), &Instant::now),
+            0,
+            "the threads left end once the driver lets go"
+        );
         assert!(
             holder.join().unwrap(),
             "the two heads were waited for one after the other"
+        );
+    }
+
+    /// Held by each test that leaves render threads, so no other test's
+    /// wait for the threads left joins this test's threads before it looks.
+    #[cfg(feature = "gpu")]
+    fn alone() -> std::sync::MutexGuard<'static, ()> {
+        static LEFT_TESTS: Mutex<()> = Mutex::new(());
+        LEFT_TESTS
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    // A thread left to end alone that has ended since is joined at the next
+    // let-go of a head, as at a reload of vtium.conf, so its stack is freed
+    // then and not only at the exit
+    #[cfg(feature = "gpu")]
+    #[test]
+    fn a_left_thread_that_ended_is_joined_at_the_next_let_go() {
+        let _alone = alone();
+        let gpu = Arc::new(TestGpu::default());
+        let mut painter =
+            Painter::start("test", Some(GpuSource::Test(Arc::clone(&gpu))), || {}).unwrap();
+        assert_eq!(set_up(&mut painter), Path::Gpu);
+        let id = painter.thread.as_ref().unwrap().thread().id();
+        let gone = Arc::clone(&painter.gone);
+        let listed = || left().iter().any(|l| l.thread.thread().id() == id);
+        let held = gpu.hold_drop.lock().unwrap();
+        drop(painter);
+        assert!(listed(), "left while the driver holds the drop");
+        // a wait whose clock does not move ends at its bound all the same
+        let (waited, wait_done) = channel();
+        let frozen = Instant::now();
+        std::thread::spawn(move || {
+            let _ = waited.send(wait_for_left(Duration::from_millis(50), &move || frozen));
+        });
+        assert!(
+            wait_done
+                .recv_timeout(Duration::from_secs(10))
+                .is_ok_and(|running| running >= 1),
+            "the wait on a clock that does not move ended, the thread still running"
+        );
+        drop(held);
+        let (threads, _) = ENDED
+            .wait_timeout_while(left(), Duration::from_secs(10), |_| {
+                !gone.load(Ordering::SeqCst)
+            })
+            .unwrap();
+        drop(threads);
+        assert!(gone.load(Ordering::SeqCst), "the thread ended");
+        let_go(Vec::new(), &Instant::now);
+        assert!(!listed(), "joined at the let-go");
+    }
+
+    // A left thread that ended without setting its flag, as one that
+    // panicked does, counts as ended and is joined
+    #[cfg(feature = "gpu")]
+    #[test]
+    fn a_left_thread_that_panicked_counts_as_ended() {
+        let _alone = alone();
+        let thread = std::thread::spawn(|| panic!("a left thread that panics"));
+        let end = Instant::now() + Duration::from_secs(10);
+        while !thread.is_finished() && Instant::now() < end {
+            std::thread::yield_now();
+        }
+        assert!(thread.is_finished(), "the thread panicked");
+        let id = thread.thread().id();
+        left().push(Left {
+            thread,
+            gone: Arc::new(AtomicBool::new(false)),
+        });
+        wait_for_left(Duration::ZERO, &Instant::now);
+        assert!(
+            !left().iter().any(|l| l.thread.thread().id() == id),
+            "joined"
         );
     }
 

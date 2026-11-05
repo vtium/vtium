@@ -360,6 +360,24 @@ struct Harness {
     app: App,
     /// The seat's clock, which only [`Harness::skip`] moves.
     seat: SeatClock,
+    /// Dropped after the app, as fields drop in order.
+    _reap: Reap,
+}
+
+/// Joins, as the harness drops after its app, the render threads the app
+/// went on without because their GPU driver had not let go in time
+/// (ADR-1303 D9). No such thread is then inside the GPU driver when the
+/// test binary runs its exit handlers, which would tear libEGL and Mesa
+/// down under it, as the gpu harness's seat does too.
+struct Reap;
+
+impl Drop for Reap {
+    fn drop(&mut self) {
+        let running = vtium::painter::wait_for_left(BOUND, &now);
+        if !std::thread::panicking() {
+            assert_eq!(running, 0, "a render thread left running");
+        }
+    }
 }
 
 /// No frits and no vconsole font, so the seat draws its built-in font
@@ -506,7 +524,12 @@ impl Harness {
         app.vt.activate().expect("the fake VT");
         app.start();
         app.turn(seat.now());
-        Harness { lp, app, seat }
+        Harness {
+            lp,
+            app,
+            seat,
+            _reap: Reap,
+        }
     }
 
     /// The seat's time: the time it booted at, moved on by each
@@ -4578,7 +4601,12 @@ fn held(args: &[&str], videos: Vec<Box<dyn Video>>, hold: Duration) -> Harness {
             .expect("dispatch");
     }
     app.turn(seat.now());
-    Harness { lp, app, seat }
+    Harness {
+        lp,
+        app,
+        seat,
+        _reap: Reap,
+    }
 }
 
 /// The child starts on the first display's grid: its first size is the

@@ -154,13 +154,46 @@ fn main() -> ExitCode {
             )
         }
     };
-    match status {
-        Ok(code) => ExitCode::from(u8::try_from(code).unwrap_or(1)),
+    let code = match status {
+        Ok(code) => u8::try_from(code).unwrap_or(1),
         Err(e) => {
             log::error!("{e}");
-            ExitCode::FAILURE
+            1
+        }
+    };
+    leave(code)
+}
+
+/// Ends vtium with `code` once the seat has dropped. A render thread that
+/// vtium went on without at a head's drop, because its GPU driver had not
+/// let go of the head's GL context in time (ADR-1303 D9), may still be
+/// inside the driver. The process's exit handlers would then tear libEGL
+/// and Mesa down under it, which corrupts the heap or aborts, or hangs on
+/// the driver's lock. So while such a thread runs, vtium ends at once
+/// without running its exit handlers, after flushing its output.
+fn leave(code: u8) -> ExitCode {
+    #[cfg(feature = "gpu")]
+    {
+        let running = vtium::painter::wait_for_left(std::time::Duration::ZERO, &*clock());
+        // No test reaches this branch. It needs the vtium binary to leave a
+        // render thread at its exit, which takes a GPU driver that hangs
+        // destroying a head's GL context, and only the in-process test GPU
+        // can stand in for one; the binary has no such source. Its parts
+        // are tested apart: tests/gpu.rs leaves threads through the app and
+        // counts them with `wait_for_left`, and vtium-platform's
+        // `exit_now_runs_no_exit_handler` shows that `exit_now` ends a
+        // process with its status and runs no exit handler.
+        if running > 0 {
+            log::warn!(
+                "{running} render thread(s) are still inside the GPU driver: vtium ends without running its exit handlers"
+            );
+            use std::io::Write;
+            let _ = io::stdout().flush();
+            log::logger().flush();
+            vtium_platform::gpu::exit_now(code);
         }
     }
+    ExitCode::from(code)
 }
 
 fn run_kernel(

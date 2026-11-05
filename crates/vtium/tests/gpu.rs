@@ -267,6 +267,27 @@ const ECHO: &str = "stty -echo; printf ready; while read -r l; do printf '\\ngot
 struct Seat {
     lp: Loop<App>,
     app: App,
+    /// Dropped after the app, as fields drop in order.
+    reap: Reap,
+}
+
+/// Joins, as the seat drops after its app, the render threads the app went
+/// on without because their GPU driver had not let go in time (ADR-1303
+/// D9). No such thread is then inside the GPU driver when the test binary
+/// runs its exit handlers, which would tear libEGL and Mesa down under it.
+/// A test that holds a head's drop on purpose turns it off and joins the
+/// threads itself once it lets go.
+struct Reap(bool);
+
+impl Drop for Reap {
+    fn drop(&mut self) {
+        if self.0 {
+            let running = vtium::painter::wait_for_left(BOUND, &now);
+            if !std::thread::panicking() {
+                assert_eq!(running, 0, "a render thread left running");
+            }
+        }
+    }
 }
 
 impl Drop for Seat {
@@ -361,7 +382,11 @@ impl Seat {
         app.vt.activate().expect("the fake VT");
         app.start();
         app.turn(now());
-        Seat { lp, app }
+        Seat {
+            lp,
+            app,
+            reap: Reap(true),
+        }
     }
 
     /// Turns the loop until `done` holds, at most `limit`.
@@ -736,8 +761,20 @@ fn heads_whose_driver_hangs_letting_go_hold_the_exit_one_bound_in_all() {
             .is_ok()
     });
     wait_holding.recv().unwrap();
+    // the seat would wait for the threads the test holds
+    s.reap.0 = false;
     drop(s);
+    assert_eq!(
+        vtium::painter::wait_for_left(Duration::ZERO, &now),
+        2,
+        "both threads left, still held by the driver"
+    );
     let _ = let_go.send(());
+    assert_eq!(
+        vtium::painter::wait_for_left(BOUND, &now),
+        0,
+        "the threads left end once the driver lets go"
+    );
     let lines = logged();
     let mut held: Vec<&str> = lines
         .iter()
