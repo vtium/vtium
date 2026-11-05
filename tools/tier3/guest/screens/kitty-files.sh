@@ -57,9 +57,9 @@ login=${XDG_SESSION_ID:+yes}
 if [ -n "$login" ]; then
 	printf 'Logged in: EXPECTED: three pictures with OK, then /etc/shadow refused with EBADF.\n'
 else
-	printf 'No login session (no XDG_SESSION_ID): kmscon refuses file images here by\n'
+	printf 'No login session (no XDG_SESSION_ID): vtium refuses file images here by\n'
 	printf 'design, so EXPECTED: four EBADF replies and no pictures. To see the pictures,\n'
-	printf 'log in on a kmscon VT and run fork/demo/demo.sh kitty-files (fork/demo/README.md).\n'
+	printf 'log in on a vtium VT and run this page there.\n'
 fi
 row=$((top + 5))
 printf '%s[%d;1H' "$esc" "$row"
@@ -94,4 +94,4 @@ mark "t=t: $temp_reply, temporary file $temp_state" \
 	"$temp_reply, $temp_state" "$ok, $gone"
 mark "t=s: $shm_reply, object $shm_state" "$shm_reply, $shm_state" "$ok, $unlinked"
 mark "t=f $shadow (root only): $shadow_reply" "$shadow_reply" '*;EBADF*'
-[ -n "$login" ] || printf 'The page removed the temporary file and the object kmscon left.\n'
+[ -n "$login" ] || printf 'The page removed the temporary file and the object vtium left.\n'

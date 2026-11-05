@@ -101,17 +101,6 @@ fn a_mask_past_the_image_is_refused_when_compared() {
 #[test]
 fn malformed_lists_are_refused() {
     for text in [
-        "edges\tA wide glyph",
-        "edges\tA wide glyph\t0,0,1",
-        "edges\tA wide glyph\t0,0,1,1;2,2,1,1",
-        "edges\tT\t0,0,1,1\nedges\tT\t0,0,1,1",
-    ] {
-        assert!(
-            runner::departures(text).is_err(),
-            "departure {text:?} was taken"
-        );
-    }
-    for text in [
         "ascii\t#24\toutline font",
         "ascii\tvtium/vtium#24",
         "ascii\tvtium/vtium#24\ta\nascii\tvtium/vtium#24\tb",

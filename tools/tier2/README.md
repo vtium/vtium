@@ -1,8 +1,8 @@
 # tier2
 
-Tier 2 for vtium: the renderer draws known screens into memory, and each is compared pixel for pixel with its golden (vtium/vtium#17). The bytes go through `vtium-term` and the frames through `vtium-render`, into a double-buffered display in memory, as the C reference's `tests/test_pixels.c` drove libtsm and bbulk. The goldens are the judge: a difference from a golden is a listed departure, or the case fails.
+Tier 2 for vtium: the renderer draws known screens into memory, and each is compared pixel for pixel with its golden (vtium/vtium#17). The bytes go through `vtium-term` and the frames through `vtium-render`, into a double-buffered display in memory, as the C reference's `tests/test_pixels.c` drove libtsm and bbulk. The goldens are the judge: a difference from a golden past its sidecar's tolerance fails the case.
 
-The crate is a workspace member, so `cargo test --workspace` builds the tool and runs its self-tests. Every file the run reads is in this tree: vtium's goldens in `goldens/`, and the C reference's goldens of the two block screens in `reference/goldens/`, copied byte for byte from kmscon. The run stays out of the default test run, in a Makefile target that CI's `tier2` job runs on every pull request and whose report and images it keeps:
+The crate is a workspace member, so `cargo test --workspace` builds the tool and runs its self-tests. Every file the run reads is in this tree, and the goldens are in `goldens/`. The run stays out of the default test run, in a Makefile target that CI's `tier2` job runs on every pull request and whose report and images it keeps:
 
 ```
 make tier2                       # every screen against its golden
@@ -27,16 +27,14 @@ target/release/tier2 compare GOLDEN ACTUAL [--tol FILE] [--diff OUT.ppm]
 | `src/gpu.rs` | The GPU path's screens: each drawn through `Renderer::draw_gpu` on a GL and judged against the CPU path's drawing within its own sidecar. |
 | `gpu/` | The GPU path's sidecars, `<screen>.tol`, one for each screen the GPU path draws: exact for now, `max_delta=0` and `max_pixels=0`, the maintainer's decision of 2026-11-03, and provisional. |
 | `src/bin/tier2.rs` | The commands. |
-| `pending.tsv` | Each golden of the C reference's that no screen draws yet, with the issue that owes it: a case the run reports as pending. |
-| `departures.tsv` | Each case whose difference from its golden a departure in the render crate's README explains, with where the difference may lie. |
+| `pending.tsv` | Each screen tier 2 owes and no screen draws yet, with the issue that owes it: a case the run reports as pending. |
 | `provisional.tsv` | vtium's goldens the operator has not reviewed. |
-| `goldens/` | The goldens of vtium's screens, reviewed vtium output: see its README. |
-| `reference/goldens/` | The C reference's goldens of the two block screens, copied from kmscon. |
+| `goldens/` | The goldens of tier 2's screens: see its README. |
 | `tests/` | The self-tests: each malformed input refused, and each verdict of the run. |
 
 ## The screens
 
-The C reference's tier 2 drew every screen with an outline font, DejaVu Sans Mono through FreeType, with Noto's CJK and color emoji fonts. Tier 2 draws PSF fonts, unifont and sets built in memory, never an outline font of the system's, so a C golden judges vtium only where no outline glyph shows: `blocks` and `blocks-spaced`, which hold only box-drawing and block sprites and spaces. They are drawn in a face that holds the space alone, in the cell DejaVu Sans Mono gave (9x16 at 16 pixels; 12x28 at 22 pixels with 6 rows of spacing), and a screen drawn that way is refused if any cell holds a character that is not a sprite or a space. Every other C golden is listed in `pending.tsv`: its screens are re-baselined when the Rust font layer lands (kmscon `ADR-304` §6, vtium/vtium#24), <!-- adr-cite-ignore: kmscon's record --> those with pictures among them, since their pictures stand over outline-font text. A copied golden that no screen draws is `missing`, and fails. A screen that takes up a pending golden copies it into `reference/goldens/`, and its `pending.tsv` row goes.
+The C reference's tier 2 drew every screen with an outline font, DejaVu Sans Mono through FreeType, with Noto's CJK and color emoji fonts. Tier 2 draws PSF fonts, unifont and sets built in memory, never an outline font of the system's, so a C golden judges vtium only where no outline glyph shows: `blocks` and `blocks-spaced`, which hold only box-drawing and block sprites and spaces. They are drawn in a face that holds the space alone, in the cell DejaVu Sans Mono gave (9x16 at 16 pixels; 12x28 at 22 pixels with 6 rows of spacing), and a screen drawn that way is refused if any cell holds a character that is not a sprite or a space. Every other C golden is listed in `pending.tsv`: its screens are re-baselined when the Rust font layer lands (kmscon `ADR-304` §6, vtium/vtium#24), <!-- adr-cite-ignore: kmscon's record --> those with pictures among them, since their pictures stand over outline-font text. A golden that no screen draws is `missing`, and fails. A screen that takes up a pending row adds its golden to `goldens/`, provisional until the maintainer reviews it, and the row goes.
 
 vtium's own screens carry the harness work the C reference had queued, drawn in unifont:
 
@@ -71,16 +69,13 @@ A case is compared with its golden exactly, outside any mask its sidecar gives. 
 |---|---|
 | `pass` | identical outside the masks |
 | `near` | different within both of the sidecar's limits |
-| `departure` | different only inside the rectangles `departures.tsv` gives for a departure the render crate's README lists |
-| `pending` | a C golden `pending.tsv` lists |
+| `pending` | a screen `pending.tsv` lists |
 | `provisional` | a golden in `provisional.tsv`, not yet reviewed: compared, and the status it would get noted, never failing |
-| `fail` | different past the tolerance, outside a departure's rectangles, or listed as a departure and no longer different |
+| `fail` | different past the tolerance |
 | `missing` | no golden, or a golden no screen draws |
 | `error` | the screen did not draw, or its golden or sidecar was refused |
 
-A departure's rectangles cover whole cells, the cells where its difference shows, so any difference inside them passes as the departure: a defect in a listed cell, such as an underline lost from the cut `中` in `edges-left`, is not seen until that cell's departure row goes or its rectangles shrink.
-
-Each list is checked before any case runs: a pending golden a screen draws or that is copied, a departure whose case no screen draws or whose title the README does not list, a provisional golden no vtium screen draws, a vtium screen named as a copied golden, and two screens of one name are each refused.
+Each list is checked before any case runs: a pending row that a screen draws or whose golden `goldens/` holds, a provisional golden no screen draws, and two screens of one name are each refused.
 
 Refused rather than judged (aaronsb/kmscon#10): a PPM that is not P6 with a maxval of 255, with a side of 0 or past 16384, or with a raster shorter or longer than its header says; a sidecar line that is not `key=value`, an unknown or repeated key, a value that is not a decimal number, a `max_delta` past 255, one limit at 0 with the other not, and a mask that is empty, inverted or reaches past the golden. A mask that hides no difference is noted in the report.
 

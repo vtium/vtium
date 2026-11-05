@@ -1,18 +1,14 @@
-//! The image store judged against the C reference's goldens before the
-//! sixel handler exists (ADR-1100, D12 step 1).
+//! The image store judged against the image cases' goldens without the
+//! sixel handler (ADR-1100, D12 step 1).
 //!
 //! Each `img-` case draws its sixels as real sixel strings, which only the
 //! sixel handler reads. A sixel string of one solid color is a picture the
 //! replay's `image` and `place` commands can make as well: this test
 //! replaces each such string with those two commands, at the cursor the
 //! string was sent at, and replays the case. The store's events then judge
-//! the screen events' rules against the case's goldens. A case whose
-//! sixels are not all one solid color is left to the sixel handler.
-//!
-//! The cases D4 lists draw a sixel and a kitty picture at equal z, which
-//! vtium orders by arrival and the C reference drew sixel above kitty: for
-//! those the placements must match as a set, each with its image, and the
-//! rest of the output exactly. Every other case must match exactly.
+//! the screen events' rules against the case's goldens, which the output
+//! must match exactly. A case whose sixels are not all one solid color is
+//! left to the sixel handler.
 
 #![cfg(feature = "images")]
 
@@ -23,51 +19,6 @@ use vtium_conformance::runner::{Corpus, mask};
 use vtium_conformance::view::View;
 
 const TOOL: &str = env!("CARGO_MANIFEST_DIR");
-
-/// D4's cases, whose goldens can differ from vtium's draw order.
-const DRAW_ORDER: &[&str] = &[
-    "img-alt-1049",
-    "img-dch",
-    "img-decsed",
-    "img-decsel",
-    "img-decstr",
-    "img-discard-alt",
-    "img-discard-sb",
-    "img-dl",
-    "img-ech",
-    "img-ed0",
-    "img-ed1",
-    "img-ed2",
-    "img-ed3",
-    "img-el0",
-    "img-el1",
-    "img-el2",
-    "img-ich",
-    "img-il",
-    "img-print",
-    "img-region",
-    "img-resize",
-    "img-resize-shrink",
-    "img-scroll-down",
-    "img-scroll-down-sb",
-    "img-scroll-up",
-    "img-sixel-over",
-    "kit-evict",
-    "kit-replace-refused",
-];
-
-/// Cases and views whose text differs from the golden for a reason no
-/// image rule decides, judged on their placement and image lines alone:
-/// the screen view of the two resize cases, where the C reference printed
-/// the command line's rows (INTERFACE.md, "Blocks"), and the alternate
-/// screen of mode 47, whose cells the C reference had never written held
-/// color 0 for the foreground and background.
-const TEXT_DIFFERS: &[(&str, View)] = &[
-    ("img-resize", View::Screen),
-    ("img-resize-shrink", View::Screen),
-    ("img-alt-47", View::Screen),
-    ("img-alt-47", View::Frame),
-];
 
 /// A solid sixel: its size and its color as premultiplied AARRGGBB.
 struct Solid {
@@ -152,69 +103,11 @@ fn stand_in(stream: &[u8]) -> Option<Vec<u8>> {
     Some(out)
 }
 
-/// The output with each block's placements as a sorted set, each naming
-/// its image by size and digest, and the image lines dropped.
-fn as_sets(text: &str) -> String {
-    let mut out = String::new();
-    let mut placements: Vec<String> = Vec::new();
-    let mut images: Vec<(String, String)> = Vec::new();
-    let flush = |out: &mut String, placements: &mut Vec<String>, images: &[(String, String)]| {
-        let mut named: Vec<String> = placements
-            .drain(..)
-            .map(|p| {
-                let (head, image) = p.rsplit_once(" image ").unwrap_or((&p, ""));
-                let (n, flags) = image.split_once(' ').unwrap_or((image, ""));
-                let digest = images
-                    .iter()
-                    .find(|(k, _)| k == n)
-                    .map_or("?", |(_, d)| d.as_str());
-                let head = head.split_once(" row ").map_or(head, |(_, h)| h);
-                format!("placement row {head} image {digest} {flags}")
-            })
-            .collect();
-        named.sort();
-        for p in named {
-            out.push_str(&p);
-            out.push('\n');
-        }
-    };
-    for line in text.lines() {
-        if line.starts_with("placement ") {
-            placements.push(line.to_owned());
-        } else if let Some(rest) = line.strip_prefix("image ") {
-            let (n, desc) = rest.split_once(' ').unwrap_or((rest, ""));
-            images.push((n.to_owned(), desc.to_owned()));
-        } else {
-            if line.starts_with("size ") || line.starts_with("checkpoint ") {
-                flush(&mut out, &mut placements, &images);
-                images.clear();
-            }
-            out.push_str(line);
-            out.push('\n');
-        }
-    }
-    flush(&mut out, &mut placements, &images);
-    out
-}
-
-/// The output's block heads and its placement and image lines.
-fn pictures(text: &str) -> String {
-    text.lines()
-        .filter(|l| {
-            ["size ", "checkpoint ", "placement ", "image "]
-                .iter()
-                .any(|p| l.starts_with(p))
-        })
-        .flat_map(|l| [l, "\n"])
-        .collect()
-}
-
 // covers: image.pipeline
 #[test]
 fn the_store_meets_the_image_goldens_with_its_solid_sixels_stood_in() {
     let corpus = Corpus::open(&Path::new(TOOL).join("corpus")).unwrap_or_else(|e| panic!("{e}"));
     let mut skipped = Vec::new();
-    let mut set_only: Vec<String> = Vec::new();
     let mut failures = Vec::new();
     for case in corpus.cases.iter().filter(|c| c.name.starts_with("img-")) {
         for (view, dir) in [(View::Screen, "golden"), (View::Frame, "golden-frame")] {
@@ -236,20 +129,7 @@ fn the_store_meets_the_image_goldens_with_its_solid_sixels_stood_in() {
                 }
             };
             let want = mask(&corpus.golden(case, dir).unwrap_or_else(|e| panic!("{e}")));
-            let (got, want) = if TEXT_DIFFERS.contains(&(case.name.as_str(), view)) {
-                (pictures(&got), pictures(&want))
-            } else {
-                (got, want)
-            };
-            // exactly where it can; as a set only where D4's draw order
-            // departs from the golden
-            let exact = got == want;
-            if !exact && DRAW_ORDER.contains(&case.name.as_str()) {
-                set_only.push(case.name.clone());
-            }
-            let same = exact
-                || (DRAW_ORDER.contains(&case.name.as_str()) && as_sets(&got) == as_sets(&want));
-            if !same {
+            if got != want {
                 failures.push(format!(
                     "{} {dir}:\n--- golden\n{want}--- vtium\n{got}",
                     case.name
@@ -264,17 +144,6 @@ fn the_store_meets_the_image_goldens_with_its_solid_sixels_stood_in() {
         skipped,
         ["img-sixel-over golden", "img-sixel-over golden-frame"]
     );
-    // the cases whose order departs are D4's img- cases but img-ed2 and
-    // img-ed3, which match exactly, and img-sixel-over, which waits
-    set_only.sort();
-    set_only.dedup();
-    let departs: Vec<&str> = DRAW_ORDER
-        .iter()
-        .copied()
-        .filter(|c| c.starts_with("img-"))
-        .filter(|c| !["img-ed2", "img-ed3", "img-sixel-over"].contains(c))
-        .collect();
-    assert_eq!(set_only, departs);
 }
 
 #[test]

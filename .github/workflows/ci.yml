@@ -146,7 +146,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
 
   # The VT review tools and tier 3's harness, whose tests read the goldens
-  # copied into tools/tier3/c-goldens; vtium is the only checkout.
+  # in tools/tier3/goldens; vtium is the only checkout.
   tools:
     runs-on: ubuntu-latest
     steps:

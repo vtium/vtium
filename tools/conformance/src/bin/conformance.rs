@@ -3,13 +3,12 @@
 //! probes run through vtium-replay. The crate's README gives the commands.
 
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::ExitCode;
 
 use vtium_conformance::generate::{self, Inputs};
 use vtium_conformance::interface;
 use vtium_conformance::probes::{self, Outcome, Replay};
-use vtium_conformance::runner::lists::{self, Expected};
 use vtium_conformance::runner::{self, Corpus, VIEWS, Verdict, chunking, own};
 use vtium_conformance::spec::Spec;
 
@@ -42,15 +41,13 @@ const OPTIONAL: [&str; 7] = [
     "kitty-animation",
 ];
 
-const USAGE: &str = "usage: conformance [run] [--without CASE]... [--seed N] [--rounds N]
-       conformance expect VIEW CASE...
+const USAGE: &str = "usage: conformance [run] [--seed N] [--rounds N]
        conformance generate DIR
        conformance interface
        conformance probes
        conformance issues";
 
 struct Options {
-    without: Vec<String>,
     seed: u64,
     rounds: usize,
     rest: Vec<String>,
@@ -58,7 +55,6 @@ struct Options {
 
 fn options(args: &[String]) -> Result<Options, String> {
     let mut o = Options {
-        without: Vec::new(),
         // a CI run takes its own seed, so each run tries other cuts
         seed: std::env::var("GITHUB_RUN_ID")
             .ok()
@@ -75,7 +71,6 @@ fn options(args: &[String]) -> Result<Options, String> {
                 .ok_or_else(|| format!("{arg} needs a value"))
         };
         match arg.as_str() {
-            "--without" => o.without.push(value()?),
             "--seed" => o.seed = value()?.parse().map_err(|_| "--seed takes a number")?,
             "--rounds" => o.rounds = value()?.parse().map_err(|_| "--rounds takes a number")?,
             a if a.starts_with("--") => return Err(format!("unknown option {a}\n{USAGE}")),
@@ -83,10 +78,6 @@ fn options(args: &[String]) -> Result<Options, String> {
         }
     }
     Ok(o)
-}
-
-fn repo_root() -> PathBuf {
-    Path::new(TOOL).join("../..")
 }
 
 fn read(path: &Path) -> Result<String, String> {
@@ -109,32 +100,6 @@ fn texts() -> Result<Vec<String>, String> {
 /// The interface, read from its documents.
 fn spec() -> Result<Spec, String> {
     Spec::read(&texts()?.iter().map(String::as_str).collect::<Vec<_>>())
-}
-
-/// The listed expectations, each departure's entry checked against the
-/// file that lists it.
-fn expectations(
-    corpus: &Corpus,
-    without: &[String],
-) -> Result<BTreeMap<(String, String), Expected>, String> {
-    let rows = lists::expected_rows(&read(&Path::new(TOOL).join("expected.tsv"))?)?;
-    for row in &rows {
-        if !corpus.cases.iter().any(|c| c.name == row.case) {
-            return Err(format!(
-                "expected.tsv:{}: {} is not in cases.list",
-                row.line, row.case
-            ));
-        }
-    }
-    lists::check_sources(&rows, |src| match src {
-        "INTERFACE.md" => read(&corpus.root.join("INTERFACE.md")),
-        path => read(&repo_root().join(path)),
-    })?;
-    let views: Vec<&str> = VIEWS.iter().map(|(_, name, _)| *name).collect();
-    let mut all = lists::expectations(&rows, &views, &Path::new(TOOL).join("expected"))?;
-    // --without takes a case's rows out of the expectations, as a plant
-    all.retain(|(_, case), _| !without.contains(case));
-    Ok(all)
 }
 
 /// vtium-replay's `--describe` against the interface's `describe` blocks:
@@ -201,8 +166,68 @@ fn interface() -> Result<bool, String> {
     check_interface(&spec, &corpus()?)
 }
 
+/// The provisional list: the cases, of the corpus or of vtium's own,
+/// whose goldens wait for the maintainer's review.
+fn provisional(corpus: &Corpus, own_cases: &Corpus) -> Result<BTreeMap<String, String>, String> {
+    let provisional = own::provisional(&read(&Path::new(TOOL).join(PROVISIONAL))?)?;
+    for listed in provisional.keys() {
+        if ![corpus, own_cases]
+            .iter()
+            .any(|set| set.cases.iter().any(|c| &c.name == listed))
+        {
+            return Err(format!(
+                "{PROVISIONAL}: {listed} is no case of {CORPUS}/cases.list or {OWN_CASES}/cases.list"
+            ));
+        }
+    }
+    Ok(provisional)
+}
+
+/// Judges every case of `set` in each view against its golden, and prints
+/// each failure and each provisional golden that differs; `label` heads
+/// the lines. Returns whether every verdict holds.
+fn judge_set(
+    label: &str,
+    set: &Corpus,
+    provisional: &BTreeMap<String, String>,
+) -> Result<bool, String> {
+    let mut ok = true;
+    for (view, name, golden_dir) in VIEWS {
+        let (mut pass, mut drift, mut fail) = (0, 0, 0);
+        for case in &set.cases {
+            let got = vtium_conformance::replay::run(&set.input(case, view)?);
+            let golden = set.golden(case, golden_dir)?;
+            match (runner::judge(&got, &golden), provisional.get(&case.name)) {
+                (Verdict::Pass, _) => pass += 1,
+                (Verdict::Fail(_), Some(reason)) => {
+                    drift += 1;
+                    println!(
+                        "provisional {label}{name} {}: differs from its golden, which judges nothing until it is reviewed ({reason})",
+                        case.name
+                    );
+                }
+                (Verdict::Fail(why), None) => {
+                    fail += 1;
+                    ok = false;
+                    println!("FAIL {label}{name} {}: {why}", case.name);
+                }
+            }
+        }
+        let listed = set
+            .cases
+            .iter()
+            .filter(|c| provisional.contains_key(&c.name))
+            .count();
+        println!(
+            "{label}{name}: {} cases, {pass} match their goldens, {fail} FAIL, {listed} provisional, {drift} differ from a provisional golden",
+            set.cases.len()
+        );
+    }
+    Ok(ok)
+}
+
 fn run(o: &Options) -> Result<bool, String> {
-    // expected.tsv lists what vtium-replay built with images prints
+    // the goldens hold what vtium-replay built with images prints
     if !vtium_conformance::command::IMAGES {
         return Err(
             "conformance run judges vtium-replay built with images: build with --features images, as make conformance does"
@@ -210,87 +235,14 @@ fn run(o: &Options) -> Result<bool, String> {
         );
     }
     let corpus = corpus()?;
-    let expected = expectations(&corpus, &o.without)?;
+    let own_cases = Corpus::open(&Path::new(TOOL).join(OWN_CASES))?;
+    let provisional = provisional(&corpus, &own_cases)?;
     let spec = spec()?;
     check_describe(&spec)?;
     println!("conformance: {} cases", corpus.cases.len());
     let mut ok = check_interface(&spec, &corpus)?;
-    for (view, name, golden_dir) in VIEWS {
-        let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
-        for case in &corpus.cases {
-            let input = corpus.input(case, view)?;
-            let got = vtium_conformance::replay::run(&input);
-            let golden = corpus.golden(case, golden_dir)?;
-            let listed = expected.get(&(name.to_owned(), case.name.clone()));
-            let verdict = runner::judge(&got, &golden, listed);
-            let label = match &verdict {
-                Verdict::Pass => "pass",
-                Verdict::Departure => "departure",
-                Verdict::Pending => "pending",
-                Verdict::Fail(why) => {
-                    ok = false;
-                    println!("FAIL {name} {}: {why}", case.name);
-                    "FAIL"
-                }
-            };
-            if let (Verdict::Departure | Verdict::Pending, Some(e)) = (&verdict, listed) {
-                for row in &e.rows {
-                    println!("{label} {name} {}: {} {}", case.name, row.source, row.entry);
-                }
-            }
-            *counts.entry(label).or_default() += 1;
-        }
-        let count = |k: &str| counts.get(k).copied().unwrap_or(0);
-        println!(
-            "{name}: {} pass, {} departure, {} pending, {} FAIL",
-            count("pass"),
-            count("departure"),
-            count("pending"),
-            count("FAIL")
-        );
-    }
-    let own_cases = Corpus::open(&Path::new(TOOL).join(OWN_CASES))?;
-    let provisional = own::provisional(&read(&Path::new(TOOL).join(PROVISIONAL))?)?;
-    for listed in provisional.keys() {
-        if !own_cases.cases.iter().any(|c| &c.name == listed) {
-            return Err(format!(
-                "{PROVISIONAL}: {listed} is no case of {OWN_CASES}/cases.list"
-            ));
-        }
-    }
-    for (view, name, golden_dir) in VIEWS {
-        let (mut pass, mut drift) = (0, 0);
-        for case in &own_cases.cases {
-            let got = vtium_conformance::replay::run(&own_cases.input(case, view)?);
-            let golden = own_cases.golden(case, golden_dir)?;
-            match (
-                runner::judge(&got, &golden, None),
-                provisional.get(&case.name),
-            ) {
-                (Verdict::Pass, _) => pass += 1,
-                (_, Some(reason)) => {
-                    drift += 1;
-                    println!(
-                        "provisional {name} {}: differs from its golden, which judges nothing until it is reviewed ({reason})",
-                        case.name
-                    );
-                }
-                (Verdict::Fail(why), None) => {
-                    ok = false;
-                    println!("FAIL vtium {name} {}: {why}", case.name);
-                }
-                (_, None) => {
-                    ok = false;
-                    println!("FAIL vtium {name} {}: differs from its golden", case.name);
-                }
-            }
-        }
-        println!(
-            "vtium {name}: {} cases, {pass} match their goldens, {} provisional, {drift} differ from a provisional golden",
-            own_cases.cases.len(),
-            provisional.len()
-        );
-    }
+    ok &= judge_set("", &corpus, &provisional)?;
+    ok &= judge_set("vtium ", &own_cases, &provisional)?;
     println!(
         "chunking: seed {}, {} rounds of extra cuts",
         o.seed, o.rounds
@@ -303,7 +255,7 @@ fn run(o: &Options) -> Result<bool, String> {
             match chunking::check(&input, o.seed, o.rounds) {
                 Ok(()) => chunked += 1,
                 // the replay refuses the case: the verdicts above judged
-                // the refusal, as a failure or against a pending snapshot
+                // the refusal
                 Err(why) if why.starts_with("exits ") => {}
                 Err(why) => {
                     ok = false;
@@ -314,67 +266,6 @@ fn run(o: &Options) -> Result<bool, String> {
         println!("chunking {name}: {chunked} cases unchanged");
     }
     Ok(ok)
-}
-
-/// Writes vtium's output for listed cases: a departure's expected output
-/// under `expected/<view>/`, a pending case's snapshot, its output or its
-/// exit, under `expected/pending/<view>/`. Each is read against the golden
-/// before it is committed.
-fn expect(o: &Options) -> Result<bool, String> {
-    let [view, cases @ ..] = &o.rest[..] else {
-        return Err(USAGE.to_owned());
-    };
-    if cases.is_empty() {
-        return Err(USAGE.to_owned());
-    }
-    let (v, _, _) = VIEWS
-        .iter()
-        .find(|(_, n, _)| n == view)
-        .ok_or_else(|| format!("no view {view}"))?;
-    let corpus = corpus()?;
-    let rows = lists::expected_rows(&read(&Path::new(TOOL).join("expected.tsv"))?)?;
-    for case in cases {
-        let listed: Vec<_> = rows
-            .iter()
-            .filter(|r| &r.case == case && (r.view == "*" || &r.view == view))
-            .collect();
-        if listed.is_empty() {
-            return Err(format!(
-                "{case} has no row for the {view} view in expected.tsv"
-            ));
-        }
-        let pending = listed.iter().any(|r| r.pending);
-        let c = corpus
-            .cases
-            .iter()
-            .find(|c| &c.name == case)
-            .ok_or_else(|| format!("no case {case}"))?;
-        let got = vtium_conformance::replay::run(&corpus.input(c, *v)?);
-        let text = match (&got, pending) {
-            (_, true) => runner::snapshot(&got),
-            (Ok(out), false) => out.clone(),
-            (Err(f), false) => return Err(format!("{case} exits {}: {}", f.code, f.message)),
-        };
-        let path = lists::expected_path(&Path::new(TOOL).join("expected"), view, case, pending);
-        if let Some(dir) = path.parent() {
-            std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-        }
-        // what moved, for the commit that lands the rewrite to say
-        match std::fs::read_to_string(&path) {
-            Ok(old) if old == text => {
-                println!("unchanged {}", path.display());
-                continue;
-            }
-            Ok(old) => println!("wrote {}\n{}", path.display(), runner::diff(&old, &text)),
-            Err(_) => println!("wrote {}, which is new", path.display()),
-        }
-        std::fs::write(&path, text).map_err(|e| format!("{}: {e}", path.display()))?;
-    }
-    println!(
-        "read each departure against {}/golden*/, and each snapshot by git diff",
-        corpus.root.display()
-    );
-    Ok(true)
 }
 
 /// Writes every synthetic case under the directory named, from the
@@ -410,7 +301,6 @@ fn probes() -> Result<bool, String> {
         };
         all = probes::merge(all, probes::read(file, &text, &spec)?)?;
     }
-    probes::check_departures(&all, |path| read(&repo_root().join(path)))?;
     for probe in &all {
         let missing = caps
             .iter()
@@ -456,20 +346,14 @@ fn probes() -> Result<bool, String> {
     Ok(failures == 0)
 }
 
-/// Every issue the lists name as owing a case or a capability, checked
-/// open through `gh`: a pending row or a missing capability whose issue
-/// closed is stale, since the issue's work should have taken the case up.
+/// Every issue the capability list names as owing a missing capability,
+/// checked open through `gh`: a missing capability whose issue closed is
+/// stale, since the issue's work should have made the capability work.
 fn issues() -> Result<bool, String> {
-    let rows = lists::expected_rows(&read(&Path::new(TOOL).join("expected.tsv"))?)?;
     let caps = vtium_conformance::coverage::capabilities(&read(
         &Path::new(TOOL).join("capabilities.list"),
     )?)?;
     let mut owed: BTreeMap<String, Vec<String>> = BTreeMap::new();
-    for row in rows.iter().filter(|r| r.pending) {
-        owed.entry(row.source.clone())
-            .or_default()
-            .push(row.case.clone());
-    }
     for cap in caps.iter().filter(|c| c.status == "missing") {
         owed.entry(cap.issue.clone())
             .or_default()
@@ -525,7 +409,6 @@ fn main() -> ExitCode {
         };
         match command.as_str() {
             "run" if o.rest.is_empty() => run(&o),
-            "expect" => expect(&o),
             "generate" => write_cases(&o),
             "interface" if o.rest.is_empty() => interface(),
             "probes" if o.rest.is_empty() => probes(),

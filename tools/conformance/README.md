@@ -1,6 +1,6 @@
 # conformance
 
-Tier 1 for vtium. `vtium-replay` meets the replay interface, interface 1.2: `corpus/INTERFACE.md`, interface 1.0, with vtium's additions in `INTERFACE-vtium.md`, over `vtium-parse` and `vtium-term`. `conformance` replays every case of the corpus through it and judges each against its golden, and runs the capability probes through it, each judged by vtium's capability list. The goldens are the judge: every difference from a golden is a listed departure, a listed pending case, or a failure.
+Tier 1 for vtium. `vtium-replay` meets the replay interface, interface 1.2: `corpus/INTERFACE.md`, interface 1.0, with vtium's additions in `INTERFACE-vtium.md`, over `vtium-parse` and `vtium-term`. `conformance` replays every case of the corpus through it and judges each against its golden, and runs the capability probes through it, each judged by vtium's capability list. The goldens are the judge: every difference from a golden fails, unless the provisional list names the case.
 
 The corpus, its goldens, the interface and the probe file were made by the C reference and copied here (The copies). The C reference's tools that made and checked them are ported here in Rust: the generator of the synthetic cases, the recorder of the programs' cases, and the interface check. Nothing here reads a checkout of the C repositories or runs their code.
 
@@ -9,7 +9,7 @@ The crate is a workspace member, so `cargo test --workspace` builds both program
 ```
 make conformance          # every case, both views and the chunking check
 make conformance-probes   # the capability probes
-make conformance-issues   # every issue the lists name is open (gh)
+make conformance-issues   # every issue the capability list names is open (gh)
 make conformance-record OUT=DIR [NAMES='prog-shell ...']   # records the programs' cases; not a gate
 target/release/conformance generate DIR   # writes every synthetic case and prints its cases.list lines
 target/release/conformance interface      # the interface check alone
@@ -28,7 +28,6 @@ target/release/conformance interface      # the interface check alone
 | `src/host.rs` | With images: the fixture host, its `host:` line and its answer from the case's fixture files. |
 | `src/spec.rs` | The interface's `describe` and `grammar` blocks, over 1.0 and vtium's additions, and the check of a line against the grammar. |
 | `src/runner.rs` | The corpus, the masking and the verdict on each case. |
-| `src/runner/lists.rs` | Reading `expected.tsv`, and its checks. |
 | `src/runner/chunking.rs` | The chunking check: each case with extra cuts at random offsets. |
 | `src/probes.rs` | Reading the probe files, and the checks made before a probe runs. |
 | `src/probes/judge.rs` | A probe replayed and judged, and each capability's verdict against the list. |
@@ -40,14 +39,11 @@ target/release/conformance interface      # the interface check alone
 | `fixtures/kmscon.termcap` | The xtgettcap probe's termcap fixture: vtium's XTGETTCAP table. |
 | `src/bin/conformance.rs` | The runner's commands and its report. |
 | `corpus/` | The copied corpus: `INTERFACE.md`, `cases.list`, `cases/` with each case's stream, cuts and fixtures, and the goldens, `golden/` for the screen view and `golden-frame/` for the frame view. |
-| `vtium/` | vtium's own cases, laid out as `corpus/` is: `cases.list`, `cases/`, `golden/` and `golden-frame/`, and `provisional.tsv`, the cases whose goldens wait for the maintainer's review (vtium's own cases). |
-| `src/runner/own.rs` | Reading `vtium/provisional.tsv`. |
+| `vtium/` | vtium's own cases, laid out as `corpus/` is: `cases.list`, `cases/`, `golden/` and `golden-frame/`, and `provisional.tsv`, the provisional list: the cases, of the corpus or of vtium's own, whose goldens wait for the maintainer's review. |
+| `src/runner/own.rs` | Reading `vtium/provisional.tsv`, the provisional list. |
 | `INTERFACE-vtium.md` | vtium's additions to the interface: the `clipboard` command and feature and the line it prints, and the `kitty-animation` feature and its `anim` lines. |
 | `probes/probes.replay` | The copied capability probes. |
 | `probes/vtium.replay` | vtium's own probes. |
-| `expected.tsv` | The cases whose output differs from the golden, each with the departure that lists it or the issue that owes it. |
-| `expected/screen/`, `expected/frame/` | vtium's expected output for each listed departure, by view. |
-| `expected/pending/screen/`, `expected/pending/frame/` | Each pending case's snapshot: vtium's output, or what it printed before the replay stopped and its exit code and message. |
 | `capabilities.list` | vtium's capability list: each probe `works` or `missing`, with the issue for each gap and the ADR-1000 rows it judges. |
 | `COVERAGE.md` | Each capability, the tests that guard its rows, and its gap. |
 | `tests/` | The verdicts, the command line and the probe runner on inputs written in the tests: see its README. |
@@ -76,7 +72,7 @@ A new synthetic case is a recipe in `src/generate/` and a line in `cases.list`; 
 
 ## The replay
 
-`vtium-replay` offers the screen and frame views, and the commands and features interface 1.2 makes mandatory: `attrs-extended`, `view-frame`, `sync`, `identify`, `input`, `focus`, `palette`, `query` and vtium's `clipboard`. With the crate's `images` feature, which `make conformance` and `make conformance-probes` turn on, it carries the image pipeline (ADR-1100) and offers `images`, `sixel`, `kitty-graphics` and `image-host` with their commands, and vtium's `kitty-animation`; built without it, as `cargo test --workspace` builds the crate, those commands exit 2 as the interface asks, and `conformance run` refuses to run, since `expected.tsv` lists what the build with images prints. The feature is opt-in so that a workspace build without features keeps vtium-term without images. The draw2 view is optional (the operator's decision of 2026-10-26) and absent, and vtium-replay declines `damage-exact`, so the runner masks the changed counts on both sides.
+`vtium-replay` offers the screen and frame views, and the commands and features interface 1.2 makes mandatory: `attrs-extended`, `view-frame`, `sync`, `identify`, `input`, `focus`, `palette`, `query` and vtium's `clipboard`. With the crate's `images` feature, which `make conformance` and `make conformance-probes` turn on, it carries the image pipeline (ADR-1100) and offers `images`, `sixel`, `kitty-graphics` and `image-host` with their commands, and vtium's `kitty-animation`; built without it, as `cargo test --workspace` builds the crate, those commands exit 2 as the interface asks, and `conformance run` refuses to run, since the goldens hold what the build with images prints. The feature is opt-in so that a workspace build without features keeps vtium-term without images. The draw2 view is optional (the operator's decision of 2026-10-26) and absent, and vtium-replay declines `damage-exact`, so the runner masks the changed counts on both sides.
 
 With images, the reference host gives the store a budget of 320,000,000 bytes and a cell of 8 by 16 pixels, installs vtium-image's sixel, kitty graphics and iTerm2 handlers, turns the three protocols on, and installs the fixture host (`src/host.rs`), which answers each request a handler makes from the case's fixture files at once and prints its `host:` line among the replies at the point the request was made. A sixel string draws its picture through the sixel handler, and the `image` and `place` commands make and place pictures as a handler would. A placement's `changed` flag in the frame view says whether the placement or its image changed after the view's previous block, and is masked as the counts are. `tests/stand_in.rs` judges the store alone against the image goldens, without the sixel handler: it replaces each sixel string of one solid color in an `img-` case with the `image` and `place` commands that make the same picture, and requires the case's goldens, the placements compared as a set where D4's draw order departs.
 
@@ -86,29 +82,19 @@ The frame view prints the colors vtium-term's frame resolves, so a difference in
 
 ## vtium's own cases
 
-`vtium/` holds cases for behaviour the C reference's corpus does not hold, such as `sixel-over`, which plays chafa's padded frames and mpv's opaque frames, whose edge ends inside a cell, over each other, and a picture with a clear pixel in each cell over the last, the cases that tell vtium's per-cell sixel coverage apart from cutting a whole box. Its files are vtium's own, and the generator does not write them. `conformance run` replays each in both views after the corpus and compares it with its golden, masked as the corpus is, and puts it through the chunking check. A golden is vtium's own output, and it lands in a commit of its own. Until the maintainer reviews it, its case is listed in `provisional.tsv`, `CASE REASON` a line, and the golden judges nothing: a difference from it is printed as `provisional` and fails nothing. A case not listed there fails on any difference, as a copied case with no row in `expected.tsv` does. A listed case that `cases.list` does not hold stops the run.
+`vtium/` holds cases for behaviour the C reference's corpus does not hold, such as `sixel-over`, which plays chafa's padded frames and mpv's opaque frames, whose edge ends inside a cell, over each other, and a picture with a clear pixel in each cell over the last, the cases that tell vtium's per-cell sixel coverage apart from cutting a whole box. Its files are vtium's own, and the generator does not write them. `conformance run` replays each in both views after the corpus and compares it with its golden, masked as the corpus is, and puts it through the chunking check. A golden is vtium's own output, and it lands in a commit of its own. Until the maintainer reviews it, its case is listed in `provisional.tsv`, `CASE REASON` a line, and the golden judges nothing: a difference from it is printed as `provisional` and fails nothing. The list covers the corpus's cases too: a case of the corpus whose golden waits for work an open issue owes is listed there, with that issue in its reason, and the capability the case needs is a `missing` line of `capabilities.list` that names the issue. A case not listed there fails on any difference. A listed case that neither `cases.list` holds stops the run.
 
 ## The judge
 
-A case in a view is judged against its golden, after INTERFACE.md's masking: a nonzero `changed` or `frame-since` count becomes `N`, and a placement's `changed` flag goes.
-
-| Listed in `expected.tsv` | The case passes when |
-|---|---|
-| no | vtium's output equals the golden |
-| as a departure | vtium's output equals `expected/<view>/<case>.txt`, and the golden differs from it |
-| as pending | vtium's output differs from the golden and equals `expected/pending/<view>/<case>.txt`, or the replay exits as that snapshot says, after printing what it says |
-
-So an unlisted difference fails, a listed case that comes to match its golden fails until its rows go, a departure prints exactly what it lists, and a pending case fails on any change from its snapshot: a regression in the part of it vtium runs shows while the rest waits. A replay that stops at a command vtium lacks still prints the blocks before it, as the C reference did, and the snapshot holds them.
+A case in a view is judged against its golden, after INTERFACE.md's masking: a nonzero `changed` or `frame-since` count becomes `N`, and a placement's `changed` flag goes. The case passes when vtium's output equals the golden, and any other output fails, unless the provisional list names the case (vtium's own cases). A replay that exits before its end fails.
 
 Each case also replays in each view with 1 to 8 extra cuts at random offsets outside test commands, two rounds (`--rounds`), and must end in the same last block, with the same replies over the whole replay and the same `test` lines, as the case with its own cuts (docs/architecture.md, "Determinism"). The last block's `changed` count is left out, since an extra block moves it. The seed is `GITHUB_RUN_ID` when it is set, so each CI run tries other cuts, else 1, and `--seed` sets it; the report prints it, and a failure names the seed and the cuts.
 
-Before any case runs, the runner checks `--describe` against INTERFACE.md's `describe` block (the same major version, the block's order, and every mandatory feature), each row of `expected.tsv` against `cases.list`, each departure's entry against the file it names, and each file under `expected/` against a departure row.
+Before any case runs, the runner checks `--describe` against INTERFACE.md's `describe` block (the same major version, the block's order, and every mandatory feature), and each case of the provisional list against the two `cases.list` files.
 
-## The lists
+## The capability list
 
-`expected.tsv` holds one row per reason a case differs: `VIEW CASE KIND SOURCE ENTRY`, VIEW being `screen`, `frame` or `*` for both. A departure's SOURCE is the file that lists it: a `README.md` inside this repository, by a relative path, where ENTRY is the headline of an item under its `## Departures` or `## Golden differences` heading, the whole bold opening `- **ENTRY**` or, in an item with no bold opening, its whole opening sentences; or `INTERFACE.md` for the pinned interface, where ENTRY is a sentence that lets an implementation list the case as a departure. A pending row's SOURCE is the vtium issue that owes the case, and ENTRY says what vtium lacks; a case with any pending row is pending in that view. `conformance expect VIEW CASE...` writes each listed case's expected output or snapshot, printing what moved in each file it rewrites, and refuses an unlisted case. A departure's expected output is read against the golden before it is committed. A snapshot rewrite lands with the change that moved it, its commit says what moved and why, and review reads `git diff tools/conformance/expected/pending`, as CONTRIBUTING.md asks of a change to a golden.
-
-`--without CASE` takes a case's rows out of the expectations for one run, so a listed difference can be seen failing. `conformance issues` asks `gh` for the state of every issue a pending row or a missing capability names, and fails on a closed one: its work should have taken the case up. It needs the network, so it runs in CI and through `make conformance-issues`, never in `cargo test`.
+`conformance issues` asks `gh` for the state of every issue a missing capability names in `capabilities.list`, and fails on a closed one: its work should have made the capability work. It needs the network, so it runs in CI and through `make conformance-issues`, never in `cargo test`.
 
 `capabilities.list` is `NAME STATUS ISSUE ROWS NOTE` a line: STATUS `works` or `missing`; ISSUE `-` for a working probe, the vtium issue (`#N`) that owes a missing one, or the build feature a working one needs (`-Dimages`); ROWS the ADR-1000 rows the probe judges. `coverage_map_matches_the_capability_list_and_adr_1000` fails when `COVERAGE.md` differs from the list and ADR-1000's `tests` columns, and `VTIUM_CONFORMANCE_BLESS=1 cargo test -p vtium-conformance coverage` rewrites it.
 
@@ -121,7 +107,7 @@ Before any case runs, the runner checks `--describe` against INTERFACE.md's `des
 - a probe the list does not name, or a name in the list no probe defines, fails the run;
 - a probe that names a fixture reads it from `fixtures/`, and one whose fixture is missing is not judged, which fails the run: `xtgettcap` names `kmscon.termcap`, vtium's XTGETTCAP table (`tests/termcap.rs`), as the C reference's build wrote its own from its terminfo entry with `tic`.
 
-A probe of `vtium.replay` takes the place of a placeholder of the same name in the copied file: `osc-52-clipboard` replaces the C reference's placeholder, which failed whatever the terminal did, since the C reference dropped OSC 52 and interface 1.0 had no way to see a clipboard (#110). It takes the place of a copied probe that is not a placeholder only when it names a listed departure, and nothing else lets vtium override a copied probe: its `departure SOURCE ENTRY` line names a `README.md` inside this repository by a relative path with no `..`, and ENTRY is the headline of an item under that README's `## Departures` or `## Golden differences` heading: the whole bold opening of a line `- **ENTRY**`, or, in an item with no bold opening, its whole opening sentences, `- ENTRY` up to a full stop. `expected.tsv`'s departure rows follow the same rule. The run refuses any other source, a departure the README does not list whole, one on a probe that replaces a placeholder or nothing, and a vtium probe that replaces a copied one without a departure. `xtgettcap` is the one: vtium-term prints each name in uppercase hex where the copied probe expected the request's spelling. The C reference's runner, kmscon's `tests/capabilities/run.py`, also ran its terminfo and font probes; vtium's join when it has a terminfo entry (#21) and outline fonts (#23).
+A probe of `vtium.replay` takes the place of a placeholder of the same name in the copied file: `osc-52-clipboard` replaces the C reference's placeholder, which failed whatever the terminal did, since the C reference dropped OSC 52 and interface 1.0 had no way to see a clipboard (#110). The run refuses a probe of `vtium.replay` that has the name of a copied probe that is not a placeholder, so each capability has one probe. The C reference's runner, kmscon's `tests/capabilities/run.py`, also ran its terminfo and font probes; vtium's join when it has a terminfo entry (#21) and outline fonts (#23).
 
 A stanza opens with `probe NAME`, builds a byte stream and the cuts of the interface's command line, and judges the blocks the replay prints at the cuts. A line starting with `#` is a comment.
 
@@ -142,7 +128,6 @@ A stanza opens with `probe NAME`, builds a byte stream and the cuts of the inter
 | `reply-re "..."` | The replies match these bytes, read as a regular expression over bytes, whole. A metacharacter meant literally takes a backslash, written `\\`. |
 | `example "..."` | Follows a `want-re` or `reply-re`: a line or reply, written as for `send`, that the expression must match. Required in a missing probe. |
 | `placeholder REASON` | The probe has nothing to run, and fails with REASON. |
-| `departure SOURCE ENTRY` | In `vtium.replay` only: the listed departure that lets the probe take the place of the copied probe of its name. |
 
 A `test` line belongs to the block whose `checkpoint` follows it, and the `want` and `want-re` assertions on `test` lines take them in order: each matches a line after the one the assertion before it matched. A regular expression uses no backreference or lookaround.
 

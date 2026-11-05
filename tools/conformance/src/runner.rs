@@ -1,25 +1,20 @@
 //! The runner: every case of the corpus, copied from the C reference,
 //! replayed through vtium and judged against its golden.
 //!
-//! A case matches its golden, after the masking INTERFACE.md's "Comparing
-//! with the goldens" asks for, unless `expected.tsv` lists it. A listed
-//! departure must print exactly vtium's expected output, kept under
-//! `expected/`, and that output must differ from the golden; a listed
-//! pending case must still differ from its golden. Any other difference
-//! fails, so a departure is never silent and a list never goes stale.
+//! A case passes when vtium's output equals its golden, after the masking
+//! INTERFACE.md's "Comparing with the goldens" asks for. Any difference
+//! fails, unless the provisional list ([`own`]) names the case, whose
+//! golden then judges nothing until the maintainer reviews it.
 
 pub mod chunking;
-pub mod lists;
 pub mod own;
 
 use std::path::{Path, PathBuf};
 
 use crate::replay::{self, Input};
 use crate::view::View;
-use lists::{Expectation, Expected};
 
-/// The views vtium owes, with the golden directory and the expected
-/// directory of each.
+/// The views vtium owes, with the golden directory of each.
 pub const VIEWS: [(View, &str, &str); 2] = [
     (View::Screen, "screen", "golden"),
     (View::Frame, "frame", "golden-frame"),
@@ -151,66 +146,20 @@ fn is_frame_since(head: &str) -> bool {
 pub enum Verdict {
     /// The output matches the golden.
     Pass,
-    /// The output differs from the golden as a listed departure says.
-    Departure,
-    /// A listed pending case still differs from its golden, and prints or
-    /// exits as its snapshot says.
-    Pending,
     /// Anything else, with why.
     Fail(String),
 }
 
-/// Judges vtium's output, or its failure, against the golden and the
-/// expectation listed for the case.
-pub fn judge(
-    got: &Result<String, crate::Failure>,
-    golden: &str,
-    expected: Option<&Expected>,
-) -> Verdict {
+/// Judges vtium's output, or its failure, against the golden.
+pub fn judge(got: &Result<String, crate::Failure>, golden: &str) -> Verdict {
     let golden = mask(golden);
-    let got = got.as_ref().map(|out| mask(out));
-    let matches = got.as_ref().is_ok_and(|out| *out == golden);
-    match (expected.map(|e| &e.kind), &got) {
-        (None, _) if matches => Verdict::Pass,
-        (None, Ok(out)) => Verdict::Fail(format!(
-            "differs from the golden, unlisted\n{}",
-            diff(&golden, out)
-        )),
-        (None, Err(f)) => Verdict::Fail(format!("exits {}: {}", f.code, f.message)),
-        (Some(Expectation::Pending(_)), _) if matches => {
-            Verdict::Fail("listed as pending, and matches its golden: drop its rows".to_owned())
-        }
-        (Some(Expectation::Pending(want)), _) => {
-            let got = got.map_or_else(|f| snapshot(&Err(f.clone())), |out| out.clone());
-            if got == mask(want) {
-                Verdict::Pending
-            } else {
-                Verdict::Fail(format!(
-                    "pending, and changed from its snapshot\n{}",
-                    diff(&mask(want), &got)
-                ))
-            }
-        }
-        (Some(Expectation::Departure(_)), _) if matches => {
-            Verdict::Fail("listed as a departure, and matches its golden: drop its rows".to_owned())
-        }
-        (Some(Expectation::Departure(want)), Ok(out)) if *out == mask(want) => Verdict::Departure,
-        (Some(Expectation::Departure(want)), Ok(out)) => Verdict::Fail(format!(
-            "differs from its listed departure\n{}",
-            diff(&mask(want), out)
-        )),
-        (Some(Expectation::Departure(_)), Err(f)) => {
-            Verdict::Fail(format!("exits {}: {}", f.code, f.message))
-        }
-    }
-}
-
-/// What a pending case's snapshot holds: the replay's output, or what it
-/// printed before it stopped and then its exit code and message.
-pub fn snapshot(got: &Result<String, crate::Failure>) -> String {
     match got {
-        Ok(out) => out.clone(),
-        Err(f) => format!("{}exit {}: {}\n", mask(&f.output), f.code, f.message),
+        Ok(out) if mask(out) == golden => Verdict::Pass,
+        Ok(out) => Verdict::Fail(format!(
+            "differs from the golden\n{}",
+            diff(&golden, &mask(out))
+        )),
+        Err(f) => Verdict::Fail(format!("exits {}: {}", f.code, f.message)),
     }
 }
 

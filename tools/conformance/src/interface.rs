@@ -197,17 +197,17 @@ pub fn check_output(
         Some(false) => return Some("lines out of the order the structure gives".to_owned()),
         Some(true) => {}
     }
-    numbering(&lines, view, cols, rows)
+    numbering(&lines, cols, rows)
 }
 
 /// The numbering rules of INTERFACE.md's "Blocks": rows from 0 in order,
 /// as many as the size; each run on its row, in order, apart from the run
 /// before it and within the columns; placements and images numbered from
-/// 0 after the last row; checkpoints not decreasing. The screen view is
-/// printed at `cols` by `rows`, the command line's; the others at their
-/// `size` line's. INTERFACE-vtium.md's `anim` lines keep their own rules
-/// ([`AnimLines`]).
-pub fn numbering(lines: &[&str], view: &str, cols: usize, rows: usize) -> Option<String> {
+/// 0 after the last row; checkpoints not decreasing. Each block is
+/// printed at its `size` line's size, which a `resize` changes; `cols` by
+/// `rows`, the command line's, holds until the first `size` line.
+/// INTERFACE-vtium.md's `anim` lines keep their own rules ([`AnimLines`]).
+pub fn numbering(lines: &[&str], cols: usize, rows: usize) -> Option<String> {
     let mut anim = AnimLines::default();
     for (n, line) in lines.iter().enumerate() {
         let fields: Vec<&str> = line.split(' ').collect();
@@ -246,10 +246,8 @@ pub fn numbering(lines: &[&str], view: &str, cols: usize, rows: usize) -> Option
                 checkpoint = at;
             }
             "size" => {
-                if view != "screen" {
-                    let (c, r) = f.get(1)?.split_once('x')?;
-                    (cols, rows) = (c.parse().ok()?, r.parse().ok()?);
-                }
+                let (c, r) = f.get(1)?.split_once('x')?;
+                (cols, rows) = (c.parse().ok()?, r.parse().ok()?);
                 row = Some(-1);
                 (placement, image) = (0, 0);
             }
