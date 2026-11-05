@@ -18,7 +18,8 @@ use vtium::font::Sources;
 use vtium::head::{Head, Start};
 use vtium::video::Video;
 use vtium_platform::display::{
-    DisplayId, Dpms, Event, Identity, Memory as Shared, Rect, SwapError, Swapped, Token,
+    DisplayId, Dpms, Edid, EdidId, Event, Identity, Memory as Shared, Rect, SwapError, Swapped,
+    Token,
 };
 use vtium_platform::event_loop::Loop;
 use vtium_platform::input::{InputEvent, KeyEvent, Mods};
@@ -52,6 +53,8 @@ struct Memory {
     refresh_mhz: u32,
     connector: &'static str,
     card: &'static str,
+    /// The monitor its EDID names, where it has one.
+    edid: Option<EdidId>,
     dpi: f64,
     /// Its connector was lit at start, so it is the boot display.
     lit: bool,
@@ -99,6 +102,7 @@ impl Memory {
             refresh_mhz: 60_000,
             connector,
             card,
+            edid: None,
             dpi: 72.0,
             lit: false,
             held: false,
@@ -123,6 +127,20 @@ impl Memory {
     /// This display, measuring `dpi`.
     fn at(self, dpi: f64) -> Memory {
         Memory { dpi, ..self }
+    }
+
+    /// This display, with an EDID naming maker `AAA`, product 0x0001 and
+    /// the serial number `serial`.
+    fn named(self, serial: u32) -> Memory {
+        let mut base = [0u8; 128];
+        base[..8].copy_from_slice(&[0, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0]);
+        // `A` is 1 in each five-bit letter of the maker id
+        base[8..12].copy_from_slice(&[0x04, 0x21, 0x01, 0x00]);
+        base[12..16].copy_from_slice(&serial.to_le_bytes());
+        base[127] = 0u8.wrapping_sub(base.iter().fold(0u8, |sum, &b| sum.wrapping_add(b)));
+        let edid = Edid::parse(&base).map(|e| e.id().clone());
+        assert!(edid.is_some(), "the fixture is an EDID");
+        Memory { edid, ..self }
     }
 
     /// This display, lit at start.
@@ -199,7 +217,7 @@ impl Video for Memory {
         Some(Identity {
             connector: self.connector.to_owned(),
             card: Some(self.card.to_owned()),
-            edid: None,
+            edid: self.edid.clone(),
             connector_path: None,
             lit_at_start: self.lit,
         })
@@ -762,6 +780,37 @@ fn a_heads_points_convert_at_its_own_displays_density() {
     assert_eq!(grid(&two.app, "small"), Some((40, 10)));
     assert_eq!(grid(&two.app, "large"), Some((40, 10)));
     assert_eq!(two.app.cells(), [(8, 16), (16, 32)]);
+}
+
+/// ADR-1401 D4: an `edid:` rule places a display by its EDID's maker,
+/// product code and serial, so two monitors of one model on one card go
+/// to the heads their serials name.
+#[test]
+fn edid_rules_place_two_monitors_of_one_model_by_their_serials() {
+    let heads = "version = 1
+[head small]
+[head large]
+[rules]
+display edid:AAA:0x0001:0x00000002 -> large
+display edid:AAA:0x0001:0x00000001 -> small
+";
+    let displays = [
+        (
+            "/dev/mem0",
+            Memory::new(320, 160, "MEM-1", "mem-card").named(1),
+        ),
+        (
+            "/dev/mem1",
+            Memory::new(640, 320, "MEM-2", "mem-card").named(2),
+        ),
+    ];
+    let mut s = Seat::with_heads(&[], Some(heads), displays, "read x");
+    assert!(
+        s.until(BOUND, |a| a.cells().len() == 2),
+        "both displays lit"
+    );
+    assert_eq!(grid(&s.app, "small"), Some((40, 10)));
+    assert_eq!(grid(&s.app, "large"), Some((80, 20)));
 }
 
 /// D3: a display a rule sends `dark` and a display no rule claims are

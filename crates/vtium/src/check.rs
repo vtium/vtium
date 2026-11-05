@@ -2152,10 +2152,11 @@ mod tests {
     }
 
     // the devices vtium-platform lists, through the mapping the start uses:
-    // each card's displays, each framebuffer's as `fb`, then each input
+    // each card's displays, each framebuffer's as `fb`, then each input,
+    // and a display's EDID as an `edid:` rule matches it
     #[test]
     fn listed_devices_map_as_the_start_maps_them() {
-        use vtium_platform::display::Identity as Display;
+        use vtium_platform::display::{Edid, Identity as Display};
         use vtium_platform::input::{Class as Udev, Classes as UdevClasses};
         use vtium_platform::listing::{Card, Framebuffer, Listing};
         use vtium_platform::udev::InputIdentity;
@@ -2173,6 +2174,17 @@ mod tests {
             connector_path: None,
             lit_at_start: false,
         };
+        // an EDID naming maker `AAA`, product 0x0001 and serial number 7
+        let named = |connector: &str| {
+            let mut base = [0u8; 128];
+            base[..8].copy_from_slice(&[0, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0]);
+            base[8..16].copy_from_slice(&[0x04, 0x21, 0x01, 0x00, 7, 0, 0, 0]);
+            base[127] = 0u8.wrapping_sub(base.iter().fold(0u8, |sum, &b| sum.wrapping_add(b)));
+            Display {
+                edid: Edid::parse(&base).map(|e| e.id().clone()),
+                ..display(connector)
+            }
+        };
         let listing = Listing {
             inputs: vec![
                 input(Udev::Keyboard, "Keyboard A"),
@@ -2182,7 +2194,7 @@ mod tests {
                 node: PathBuf::from("/dev/dri/card1"),
                 id_path: Some("pci-0000:03:00.0".to_owned()),
                 primary: true,
-                displays: vec![display("DP-2"), display("DP-1")],
+                displays: vec![display("DP-2"), named("DP-1")],
             }],
             framebuffers: vec![Framebuffer {
                 node: PathBuf::from("/dev/fb2"),
@@ -2215,6 +2227,14 @@ mod tests {
                 (Some("A mouse"), None, false, 0, 0),
             ]
         );
+        let edids: Vec<Option<&vtium_settings::Edid>> =
+            devices.iter().map(|d| d.edid.as_ref()).collect();
+        let seven = vtium_settings::Edid {
+            maker: "AAA".to_owned(),
+            product: 1,
+            serial: "0x00000007".to_owned(),
+        };
+        assert_eq!(edids, [None, Some(&seven), None, None, None]);
     }
 
     /// A stand-in machine under `dir`: a card with one lit connector, a
