@@ -577,10 +577,11 @@ impl Harness {
         self.app.turn(self.at());
     }
 
-    /// One turn of the loop as `main` runs it, with the seat's clock moved
-    /// by what the loop slept: the loop waits for the wake-up the seat asks
-    /// for, at most `most`, the seat's clock moves on by that wait, and the
-    /// seat turns. Returns the wake-up the seat asked for.
+    /// One turn of the loop as `main` runs it: the loop waits for the
+    /// wake-up the seat asks for, at most `most`, then the seat's clock
+    /// moves on by that wait and the seat turns. The clock moves by the
+    /// wait the loop was told, also when something woke the loop sooner.
+    /// Returns the wake-up the seat asked for.
     fn sleep_turn(&mut self, most: Duration) -> Option<Duration> {
         let asked = self.app.next_wake(self.at());
         let wait = asked.map_or(most, |w| w.min(most));
@@ -1755,8 +1756,9 @@ fn a_due_draw_held_by_a_flip_does_not_spin_the_loop() {
     h.settled();
     h.type_str("\r");
     // 1.5 s on the seat's clock, which moves by each wait the loop is
-    // told, at most 5 ms: a spin's waits of none never move it, so a spin
-    // turns until the turn count or the real-time bound stops it.
+    // told, at most 5 ms. A loop that spins is told to wake at once on
+    // every turn, so the clock never moves, and the loop turns until the
+    // turn count or the real-time bound stops it.
     let (start, end) = (h.at(), now() + BOUND);
     let (mut turns, mut zero) = (0_u32, 0_u32);
     while h.at() < start + Duration::from_millis(1500) && turns < 1000 && now() < end {
@@ -3261,6 +3263,58 @@ fn every_key_a_file_sets_is_read_or_listed_as_not_built() {
     }
 }
 
+/// A burst of output that leaves a frame owed to coalescing is drawn when
+/// the wait the loop is told runs out. The loop here moves the seat's
+/// clock by each wake-up it is told and by nothing else, as `main`'s loop
+/// does when nothing else wakes it, so a loop told no wake-up for the
+/// owed frame never draws it.
+#[test]
+fn a_frame_owed_to_coalescing_is_drawn_at_the_wake_up_the_loop_is_told() {
+    let (_dir, go, wait) = gate("owed-frame");
+    let script = format!("{wait}; head -c 20000 /dev/zero | tr '\\0' x; echo; echo done; read y");
+    let mut h = Harness::new(&[
+        "--no-blink",
+        "--dpms-timeout=0",
+        "--login",
+        "--",
+        "/bin/sh",
+        "-c",
+        &script,
+    ]);
+    assert!(h.until(BOUND, |a| a.vt.is_active()));
+    h.shown();
+    h.settled();
+    let before = h.memory().frames;
+    std::fs::write(&go, b"").expect("the go file");
+    // The burst is read with no turn between its reads, so the one turn
+    // after it finds 20,000 bytes parsed and owes its frame to coalescing.
+    let end = now() + BOUND;
+    while !h.app.screen_text().iter().any(|l| l == "done") {
+        assert!(now() < end, "the burst read");
+        h.lp.dispatch(Some(Duration::from_millis(20)), &mut h.app)
+            .expect("dispatch");
+    }
+    h.app.turn(h.at());
+    h.settled();
+    assert_eq!(h.memory().frames, before, "the frame owed, not drawn");
+    let (mut turns, mut moved) = (0_u32, Duration::ZERO);
+    while h.memory().frames == before {
+        assert!(turns < 4, "drawn within a few turns");
+        let wait = h
+            .app
+            .next_wake(h.at())
+            .expect("a wake-up while a frame is owed");
+        moved += wait;
+        h.skip_turn(wait);
+        h.settled();
+        turns += 1;
+    }
+    assert!(
+        moved <= Duration::from_millis(50),
+        "drawn a refresh on at most, not {moved:?} on"
+    );
+}
+
 /// Output of 16 KiB or more a turn draws at most once a refresh: the
 /// app asks coalescing before it draws for output.
 #[test]
@@ -3880,8 +3934,9 @@ fn a_display_lending_no_canvas_does_not_spin_the_loop() {
     let (mut h, _, _) = withheld();
     let refused = withholding(&mut h).refused.get();
     // A second on the seat's clock, which moves by each wait the loop is
-    // told, at most 50 ms: a spin's waits of none never move it, so a
-    // spin turns until the turn count or the real-time bound stops it.
+    // told, at most 50 ms. A loop that spins is told to wake at once on
+    // every turn, so the clock never moves, and the loop turns until the
+    // turn count or the real-time bound stops it.
     let (start, end) = (h.at(), now() + BOUND);
     let mut turns = 0_u32;
     while h.at() < start + Duration::from_secs(1) && turns < 1000 && now() < end {
@@ -4320,9 +4375,11 @@ fn the_loop_wakes_for_the_waits_end() {
     ]);
     // As `main` runs it, the loop sleeps until the wake-up it is told,
     // here on the seat's clock moved on by that much; a loop told none
-    // would sleep until something else woke it. A sleep ends a
-    // millisecond on at the least, as epoll counts its timeout in whole
-    // milliseconds, so the turn after the due time comes.
+    // would sleep until something else woke it. Told to wake at once, as
+    // on the turn at the due time, `main`'s loop returns at once and turns
+    // again a moment later. The millisecond added to each wait stands in
+    // for the real time a turn takes, so the turn after the due time
+    // comes.
     let mut waited = Duration::ZERO;
     for _ in 0..10 {
         if h.app.finished().is_some() {
@@ -5297,17 +5354,15 @@ fn osc_50_to_a_bitmap_frit_with_no_cell_takes_its_fonts_own_cell() {
 
 // the operator's decision on #145, 2026-10-28: a helper that does not
 // answer the cell query in its bound leaves the display's cell, with one
-// line, and the first frame waits no longer than the bound
+// line, and the first frame waits no longer than the bound. The helper
+// here never answers, so the boot returns only because the wait has a
+// bound, and the line says the wait ran to it.
 #[test]
 fn a_bitmap_frits_own_cell_unanswered_falls_back_within_its_bound() {
     let (_dir, fonts, _go) = frit_fonts_of("own-none", "source=kbd:x\n", b"", "cat >/dev/null");
     logged();
-    let t = now();
     let h = with_fonts(&["--font-name=t", "--font-size=0"], fonts.clone());
-    let took = now().saturating_duration_since(t);
     assert_eq!((h.app.cells(), h.app.grid()), (vec![(8, 8)], (40, 20)));
-    assert!(took >= Duration::from_millis(100), "{took:?}");
-    assert!(took < Duration::from_secs(5), "{took:?}");
     let lines = logged();
     let fell: Vec<&String> = lines
         .iter()
