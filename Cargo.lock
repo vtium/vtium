@@ -830,6 +830,7 @@ dependencies = [
  "log",
  "rustix",
  "vtium-config",
+ "vtium-devices",
  "vtium-font",
  "vtium-image",
  "vtium-platform",
@@ -852,6 +853,7 @@ dependencies = [
  "ruzstd",
  "skrifa",
  "swash",
+ "vtium-devices",
  "vtium-font",
  "vtium-platform",
  "vtium-settings",
@@ -874,6 +876,14 @@ name = "vtium-cover-tables"
 version = "0.1.0-alpha.5"
 dependencies = [
  "vtium-font",
+]
+
+[[package]]
+name = "vtium-devices"
+version = "0.1.0-alpha.5"
+dependencies = [
+ "vtium-platform",
+ "vtium-settings",
 ]
 
 [[package]]

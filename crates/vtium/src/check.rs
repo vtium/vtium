@@ -18,11 +18,11 @@ use vtium_settings::{
     Rejected, Remark, Runs, Stating, Token, Trust, Untrusted, at,
 };
 
-use vtium_platform::listing::{self, Listing, Roots};
+use vtium_devices::{SEAT, UDEV_CONTROL, devices, udev_daemon_runs};
+use vtium_platform::listing::{self, Roots};
 
 use crate::config::{Config, Loaded, Origin, keys};
 use crate::font;
-use crate::head::identity;
 use crate::helper;
 use crate::notice::check_config;
 
@@ -222,36 +222,6 @@ impl Host {
     }
 }
 
-/// The seat whose devices are listed: the kernel VTs', which vtium runs on.
-const SEAT: &str = "seat0";
-
-/// The devices `listing` holds as the rules see them, through the mapping
-/// the start walks them through ([`crate::head::identity`]): each card's
-/// displays with the card and their place among its displays, each
-/// framebuffer's display as the start names it, `fb`, then each input.
-///
-/// A display's place is the lister's connector-id order, which can differ
-/// from the order the start registers a card's displays in, and no finding
-/// depends on it: a rule matching no device and the layer 1 warnings read
-/// only which rule each device walks to, and the place feeds only where the
-/// display guard puts a display, which the check does not run.
-pub fn devices(listing: &Listing) -> Vec<Identity> {
-    let displays = listing.cards.iter().flat_map(|c| {
-        let card = identity::Card::at(&c.node, c.id_path.as_deref(), c.primary);
-        (0u32..)
-            .zip(&c.displays)
-            .map(move |(order, d)| identity::display(d, &card, order))
-    });
-    let framebuffers = listing
-        .framebuffers
-        .iter()
-        .map(|f| identity::unnamed_display("fb", &identity::Card::at(&f.node, None, f.primary), 0));
-    displays
-        .chain(framebuffers)
-        .chain(listing.inputs.iter().map(identity::input))
-        .collect()
-}
-
 /// What the head file is checked against of the machine.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Machine<'a> {
@@ -260,16 +230,6 @@ pub struct Machine<'a> {
     /// The devices present, as [`devices`] gives them; `None` checks the
     /// file alone, as away from its machine.
     pub devices: Option<&'a [Identity]>,
-}
-
-/// The socket a udev daemon listens on, which `udevadm control` talks to.
-pub const UDEV_CONTROL: &str = "/run/udev/control";
-
-/// Whether a udev daemon runs: its control socket `control` is present.
-/// Without one, the keys that read udev's database match nothing
-/// (ADR-1401 D4).
-pub fn udev_daemon_runs(control: &Path) -> bool {
-    control.exists()
 }
 
 /// What the subcommand prints, and its exit status.
@@ -2197,7 +2157,7 @@ mod tests {
     fn listed_devices_map_as_the_start_maps_them() {
         use vtium_platform::display::Identity as Display;
         use vtium_platform::input::{Class as Udev, Classes as UdevClasses};
-        use vtium_platform::listing::{Card, Framebuffer};
+        use vtium_platform::listing::{Card, Framebuffer, Listing};
         use vtium_platform::udev::InputIdentity;
 
         let input = |class: Udev, name: &str| InputIdentity {

@@ -1,0 +1,19 @@
+[package]
+name = "vtium-devices"
+description = "The devices present as vtium's head rules see them: vtium-platform's listing of a seat's displays and inputs, mapped into vtium-settings's identities"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# The identities of a display and an input that udev, sysfs, the device
+# and the KMS connector give, and the listing of a seat's devices.
+vtium-platform.workspace = true
+# The identity the head file's rules match, which this crate fills.
+vtium-settings.workspace = true

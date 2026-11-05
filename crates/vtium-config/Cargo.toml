@@ -29,6 +29,9 @@ vtium-platform.workspace = true
 # vtium.conf's line editor and the head file's one writer and parser
 # (ADR-1201 D5, D6), the crate the console already links.
 vtium-settings.workspace = true
+# The devices present as the head file's rules see them, mapped by the
+# functions the console places them with, for the flow view (ADR-1403 D9).
+vtium-devices = { path = "../vtium-devices" }
 # gzip's deflate, for compressed fonts and unimaps; vtium-font already
 # builds this version.
 miniz_oxide = "0.8.9"
