@@ -152,6 +152,13 @@ considered:
   - operator: aaronsb
     said: "or just copy the file in - remember it creates a compatible draft"
     via: the steering session's interview, 2026-11-05
+  - operator: aaronsb
+    said: "A library node is copied into a draft; a card marks a copy that differs from its library node, and the user can push or pull the change. The store's format, deleting a look section while a vtlook file stays protected, and the Looks view replacing ADR-1304 D11's view are accepted as leaned."
+    via: the steering session's interview, 2026-11-05
+    paraphrase: true
+  - operator: aaronsb
+    said: "no you name drafts, by default it offers a hostname and an increment to avoid overwriting"
+    via: the steering session's interview, 2026-11-05
 status: accepted
 date: 2026-11-04
 deciders:
@@ -312,7 +319,7 @@ There is no migration, as the maintainer decided on 2026-11-04 (`considered`). W
 
 The figure shows the view on the machine of D4's example, with one more input rule for a keyboard that is unplugged, as it looks on a dark console. Rule 5 is selected and opened for editing below the columns.
 
-![vtium-config's flow view on a black console background, under the tabs Flow (selected), Looks, Fonts, Settings and Help, followed by the actions View, Save, Revert, New and Delete draft. A status line reads draft main: 1 line added, 1 removed, no problems. Below it, the base card, black on light grey, reads base, policy open, font-size 12, xkb-layout us, mouse, 101 keys at their defaults. Six columns follow, each heading in its own color. DISPLAYS: two blocks of black text on bright cyan, DP-8 (LARGE00001) and HDMI-A-2 (SMALL00001). DISPLAY RULES, as cyan text: rule 1, edid LARGE00001 to desk; rule 2, edid SMALL00001 to panel; and rule 3, display star to desk, in grey with the words matches no display present; then + new rule…, in cyan. HEADS and LOOK: for each head a block of black text on bright yellow beside a block of black text on bright magenta: desk, 1 console, the active head, with look big at 14 pt, frit monoid and the font Monoid; panel, 2 consoles, with look small at 12 pt, frit dejavu and the font DejaVu Sans Mono; under them + new head… in yellow and + new look… in magenta. Below them, blocks of black text on grey: roaming (types into desk, active), ignore (vtium never opens it) and off (vtium sets it off). INPUT RULES: rule 4, a serial match to desk, in grey; rule 5, class keyboard to roaming, selected, so drawn in reverse video as black on green; and rule 6, star to ignore, in green; then + new rule…, in green. INPUT DEVICES: a grey block marked with an asterisk, 046d:c31c:…, with the words configured, not found, joined to rule 4 by a dashed line; and two blocks of black text on bright green, the keyboard at usb-0:3.3 and the Power Button, class key. Cyan arrows run from each display block to its rule and from each rule to its head; green arrows run from each input device to its rule and from each rule to its target; grey dashed arrows run from rules 3 and 4 to desk. A legend explains the solid and dashed lines and the asterisk. Below a green line, the opened rule: rule 5, line 23, input class:keyboard -> roaming; sends to desk, panel, roaming (marked as the current choice) or ignore; matches class:keyboard (marked), path:pci-0000:15:00.0-usb-0:3.3 or id:046d:c31c, or type a selector. A key line reads Tab and Left Right for columns, Up Down to move, Enter edit, Space tag, c connect, f follow, d devices, v view, s save, r revert, n new, x delete, q leave.](figures/ADR-1403-flow-view.svg)
+![vtium-config's flow view on a black console background, under the tabs Flow (selected), Looks, Fonts, Settings and Help, followed by the actions View, Save, Revert, New and Delete draft. A status line reads draft workstation: 1 line added, 1 removed, no problems. Below it, the base card, black on light grey, reads base, policy open, font-size 12, xkb-layout us, mouse, 101 keys at their defaults. Six columns follow, each heading in its own color. DISPLAYS: two blocks of black text on bright cyan, DP-8 (LARGE00001) and HDMI-A-2 (SMALL00001). DISPLAY RULES, as cyan text: rule 1, edid LARGE00001 to desk; rule 2, edid SMALL00001 to panel; and rule 3, display star to desk, in grey with the words matches no display present; then + new rule…, in cyan. HEADS and LOOK: for each head a block of black text on bright yellow beside a block of black text on bright magenta: desk, 1 console, the active head, with look big at 14 pt, frit monoid and the font Monoid; panel, 2 consoles, with look small at 12 pt, frit dejavu and the font DejaVu Sans Mono; under them + new head… in yellow and + new look… in magenta. Below them, blocks of black text on grey: roaming (types into desk, active), ignore (vtium never opens it) and off (vtium sets it off). INPUT RULES: rule 4, a serial match to desk, in grey; rule 5, class keyboard to roaming, selected, so drawn in reverse video as black on green; and rule 6, star to ignore, in green; then + new rule…, in green. INPUT DEVICES: a grey block marked with an asterisk, 046d:c31c:…, with the words configured, not found, joined to rule 4 by a dashed line; and two blocks of black text on bright green, the keyboard at usb-0:3.3 and the Power Button, class key. Cyan arrows run from each display block to its rule and from each rule to its head; green arrows run from each input device to its rule and from each rule to its target; grey dashed arrows run from rules 3 and 4 to desk. A legend explains the solid and dashed lines and the asterisk. Below a green line, the opened rule: rule 5, line 23, input class:keyboard -> roaming; sends to desk, panel, roaming (marked as the current choice) or ignore; matches class:keyboard (marked), path:pci-0000:15:00.0-usb-0:3.3 or id:046d:c31c, or type a selector. A key line reads Tab and Left Right for columns, Up Down to move, Enter edit, Space tag, c connect, f follow, d devices, v view, s save, r revert, n new, x delete, q leave.](figures/ADR-1403-flow-view.svg)
 
 The maintainer accepted the columns, lines, colors and states as this record drafted them, and on looking at the figure decided that the view is navigable and edits, that its objects are drawn as blocks of color, and that editing is in the first build (`considered`, 2026-11-04):
 
@@ -440,7 +447,7 @@ vtium-config keeps a store of its own under the user's XDG paths, which holds th
 
 | Path | What it holds |
 |---|---|
-| `$XDG_CONFIG_HOME/vtium/drafts/NAME.conf` | Each draft, a whole vtium.conf, named by the user. The first is `main`, made from the installed file as before |
+| `$XDG_CONFIG_HOME/vtium/drafts/NAME.conf` | Each draft, a whole vtium.conf, named by the user. vtium-config offers the machine's hostname as the name, with `-2`, `-3` and so on appended when that name exists, and never overwrites a draft; the first draft, which vtium-config makes on its own from the installed file, takes that name too |
 | `$XDG_CONFIG_HOME/vtium/library.conf` | The library: looks, heads and rules the user saved from a draft, written in vtium.conf's section syntax, `[look NAME]`, `[head NAME]` and a `[rules]` list |
 | `$XDG_CONFIG_HOME/vtium/vtium-config.conf` | The tool's own settings, `key = value`, among them `draft = NAME`, the current draft |
 | `$XDG_STATE_HOME/vtium/` | Each draft's base, the hash of the installed file it was made from or applied as |
@@ -454,19 +461,19 @@ vtium-config keeps a store of its own under the user's XDG paths, which holds th
 | Command | What it does |
 |---|---|
 | `vtium config draft list` | Lists the drafts, marking the current one, each with its state against the installed file |
-| `vtium config draft new NAME [--from installed\|empty\|DRAFT]` | Makes a draft, from the installed file unless told otherwise, and makes it current |
+| `vtium config draft new [NAME] [--from installed\|empty\|DRAFT]` | Makes a draft, from the installed file unless told otherwise, and makes it current. Without a name it takes the hostname, with an increment when that name exists (the maintainer, 2026-11-05) |
 | `vtium config draft switch NAME` | Makes another draft current |
-| `vtium config draft rm [NAME]` | Deletes a draft, the current one when no name is given; the next edit starts a new `main` from the installed file when none is left |
+| `vtium config draft rm [NAME]` | Deletes a draft, the current one when no name is given; the next edit starts a new draft from the installed file, named as above, when none is left |
 | `vtium config library list` | Lists the library's looks, heads and rules |
 | `vtium config library add look\|head NAME`, or `library add rule N` | Copies a look, a head or rule N of the current draft into the library |
 | `vtium config library take look\|head NAME`, or `library take rule NAME` | Copies a node from the library into the current draft |
 | `vtium config library rm look\|head\|rule NAME` | Deletes a node from the library; drafts are untouched |
 
-Three questions about the store stay open for the maintainer (`considered`, 2026-11-05):
+The maintainer settled the store's three questions on 2026-11-05 (`considered`):
 
-1. **Linked or copied.** This record's lean: a node is copied when it moves, either way, and a draft's copy is marked when it differs from the library's, since a link would let an edit in one draft change another draft unseen.
-2. **A draft for each machine.** This record's lean: no automatic draft per machine; drafts are named, and a user who configures several machines names a draft for each. A draft whose rules name devices not present shows them as configured, not found (D7).
-3. **The store's format.** This record's lean: the library in vtium.conf's section syntax, so a node reads the same in the library and in a draft and one parser reads both, and the tool's settings as `key = value` lines.
+1. **Copied, not linked.** A node is copied when it moves, either way. A card marks a draft's copy that differs from its library node, and the user can push the change into the library or pull the library's version into the draft.
+2. **No draft per machine.** The user names drafts; vtium-config offers the hostname, with an increment so nothing is overwritten (above). A draft whose rules name devices not present shows them as configured, not found (D7).
+3. **The format.** The library is written in vtium.conf's section syntax, so a node reads the same in the library and in a draft and one parser reads both; the tool's settings are `key = value` lines.
 
 > Edited 2026-11-05: the maintainer gave vtium-config a store of its own, with named drafts and a library of nodes (`considered`). The draft was one file, `$XDG_CONFIG_HOME/vtium/vtium.conf`.
 
