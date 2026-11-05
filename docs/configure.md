@@ -181,7 +181,7 @@ The route card, on `?`, says in words what the selected item does and lists ever
 The actions in the top row work on the whole draft. Each but View asks before it acts:
 
 - **View** shows the draft as text in a pager, with each line the check complains about marked; `j`, `k`, `g`, `G`, Ctrl-d and Ctrl-u move, and `q` or Esc goes back.
-- **Install** runs the check, refuses when it fails, and otherwise asks `Install the working copy? 3 lines added, 1 removed.`, then installs as [above](#when-vtium-config-asks-for-sudo). The TUI leaves its screen while sudo asks for your password.
+- **Install** runs the check, refuses when it fails, and otherwise asks `Install the draft? 3 lines added, 1 removed.`, then installs as [above](#when-vtium-config-asks-for-sudo). The TUI leaves its screen while sudo asks for your password.
 - **Revert** throws away the draft's changes and copies the installed file back over it.
 - **Restore** lists the installed history and copies the file you choose into the draft.
 - **New** empties the draft to the settings at their defaults and one look, `[look default]`.

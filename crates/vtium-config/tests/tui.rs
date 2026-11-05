@@ -690,7 +690,7 @@ fn keeping_a_font_and_a_size_writes_each_into_the_draft_and_install_counts_them(
     );
     let screen = c.seen.clone().expect("the screen");
     assert!(
-        screen.contains("Install the working copy? 2 lines added, 1 removed."),
+        screen.contains("Install the draft? 2 lines added, 1 removed."),
         "{screen}"
     );
     assert!(d.plans.is_empty());
@@ -2510,7 +2510,7 @@ echo "$file: checked"
         assert!(
             asked
                 .screen()
-                .contains("Install the working copy? 1 line added, 1 removed."),
+                .contains("Install the draft? 1 line added, 1 removed."),
             "{}",
             asked.screen()
         );

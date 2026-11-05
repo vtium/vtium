@@ -673,13 +673,10 @@ pub const INSTALLING: &str = "Installing; sudo may ask for your password.";
 pub const NOTHING_TO_INSTALL: &str = "The draft is the installed file; nothing to install.";
 pub fn install_question(added: usize, removed: usize, frits: usize) -> String {
     match frits {
-        0 => format!("Install the working copy? {}.", lines(added, removed)),
-        1 => format!(
-            "Install the working copy? {}, and 1 frit.",
-            lines(added, removed)
-        ),
+        0 => format!("Install the draft? {}.", lines(added, removed)),
+        1 => format!("Install the draft? {}, and 1 frit.", lines(added, removed)),
         n => format!(
-            "Install the working copy? {}, and {n} frits.",
+            "Install the draft? {}, and {n} frits.",
             lines(added, removed)
         ),
     }
