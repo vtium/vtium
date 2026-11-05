@@ -234,6 +234,19 @@ impl<F: Face> Font<F> {
         self.draws_sprite(c) || self.face.has_glyph(c)
     }
 
+    /// Whether no sprite draws `cluster` and the face lacks its first
+    /// character, so [`Font::glyph`] draws it as the font's missing glyph,
+    /// from U+25A1, `?` or the face's last resort. That glyph can change
+    /// whenever the face gains glyphs, though `cluster`'s own characters
+    /// did not arrive. A face that says it has the first character but
+    /// draws nothing for it also ends in the missing glyph, and this does
+    /// not count it.
+    pub fn draws_missing(&self, cluster: &[char]) -> bool {
+        cluster
+            .first()
+            .is_some_and(|&c| self.sprite_base(cluster).is_none() && !self.face.has_glyph(c))
+    }
+
     /// Whether `c` draws as a sprite under the policy.
     fn draws_sprite(&self, c: char) -> bool {
         Range::of(c).is_some_and(|range| match self.policy.source(range) {

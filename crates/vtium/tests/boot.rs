@@ -5226,6 +5226,75 @@ fn a_glyph_that_arrives_off_screen_draws_when_shown_again() {
     );
 }
 
+/// One cell's fill as the helper sends it: U+25A1 a solid block, then the
+/// fill's end.
+fn solid_white_square(cell: vtium_font::Cell) -> Vec<u8> {
+    use vtium_font::set::{PixelFormat, SetBuilder, StrikeBuilder};
+    let mut s = StrikeBuilder::new(PixelFormat::R8, cell, vtium_font::Style::default());
+    let g = s.glyph(
+        vtium_font::Width::Narrow,
+        vec![255; (cell.width * cell.height) as usize],
+    );
+    s.map('\u{25a1}', g);
+    let set = SetBuilder::new("t").strike(s).write().expect("a set");
+    let mut out = 4u32.to_le_bytes().to_vec();
+    out.extend((set.len() as u32).to_le_bytes());
+    out.extend(set);
+    out.extend(5u32.to_le_bytes());
+    out.extend(8u32.to_le_bytes());
+    out.extend(cell.width.to_le_bytes());
+    out.extend(cell.height.to_le_bytes());
+    out
+}
+
+// vtium/vtium#314: a character no font holds draws the font's missing
+// glyph, the built-in U+25A1. A set that brings its own U+25A1 changes
+// that drawing though no cell shows U+25A1, so the console draws a frame
+// at once, and the character draws the set's square.
+#[test]
+fn a_set_that_brings_u25a1_redraws_a_missing_character_at_once() {
+    let cell = vtium_font::Cell {
+        width: 8,
+        height: 16,
+    };
+    let (_dir, fonts, go) = frit_fonts(
+        "missing",
+        &solid_white_square(cell),
+        "cat >/dev/null & while [ ! -e \"$2\" ]; do sleep 0.02; done; cat \"$1\"; exec 1>&-; wait",
+    );
+    // U+10FFFD, which neither the frit nor the built-in unifont holds
+    let session = "stty -echo; printf '\\364\\217\\277\\275'; read x";
+    let mut h = Harness::fonts(
+        &[
+            "--font-name=t",
+            "--no-blink",
+            "--login",
+            "--",
+            "/bin/sh",
+            "-c",
+            session,
+        ],
+        Memory::default(),
+        fonts.clone(),
+    );
+    assert!(
+        h.until_memory(Duration::from_secs(10), |m| !solid(&top_cell(m, 0))),
+        "the built-in U+25A1 is drawn for U+10FFFD"
+    );
+    let background = top_cell(h.memory(), 5)[0];
+    let frames = h.memory().frames;
+    std::fs::write(&go, b"").expect("the go file");
+    // the wait only bounds a test that would otherwise hang
+    assert!(
+        h.until_memory(Duration::from_secs(10), |m| {
+            let x = top_cell(m, 0);
+            solid(&x) && x[0] != background
+        }),
+        "U+10FFFD still shows the built-in U+25A1 after the set's arrived"
+    );
+    assert_eq!(h.memory().frames, frames + 1, "one frame draws the arrival");
+}
+
 // ADR-1301 D2: a helper that dies leaves the built-in font drawing, with
 // one log line however much the screen asks after.
 #[test]

@@ -866,6 +866,17 @@ impl View {
         }
     }
 
+    /// Whether the next frame draws again cells that showed the font's
+    /// missing glyph after an arrival ([`Renderer::redraws_missing`]).
+    /// While a frame is composing, whether an arrival waits to reach the
+    /// drawing, which may have such cells.
+    pub fn redraws_missing(&self) -> bool {
+        match &self.drawing {
+            Some(d) => d.renderer.redraws_missing(),
+            None => !self.forgotten.is_empty() || !self.arrived.is_empty(),
+        }
+    }
+
     /// The glyphs of `chars` arrived: the cells showing them draw again,
     /// now or when the drawing comes back.
     pub fn glyphs_changed(&mut self, chars: &[char]) {

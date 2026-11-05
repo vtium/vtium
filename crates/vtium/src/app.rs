@@ -1588,15 +1588,20 @@ impl App {
                 for (cell, chars) in &arrived {
                     let (shown, hidden): (Vec<char>, Vec<char>) =
                         chars.iter().partition(|c| visible.binary_search(c).is_ok());
+                    let mut missing = false;
                     for v in head.views.values_mut() {
                         if v.cell() == *cell {
                             v.forget_glyphs(&hidden);
                             if !shown.is_empty() {
                                 v.glyphs_changed(&shown);
                             }
+                            missing |= v.redraws_missing();
                         }
                     }
-                    head.draw_now |= !shown.is_empty();
+                    // a cell that drew the font's missing glyph draws it
+                    // again from the set that arrived, though no cell shows
+                    // a character of the set
+                    head.draw_now |= !shown.is_empty() || missing;
                 }
             }
         }

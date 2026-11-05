@@ -268,6 +268,9 @@ pub(crate) struct GlyphCache<T = Stored> {
     failed: Vec<Option<Failed>>,
     frame: u64,
     counts: CacheCounts,
+    /// Whether the font drew a glyph as its missing glyph since
+    /// [`GlyphCache::take_drew_missing`] was last asked.
+    drew_missing: bool,
     /// A color glyph's bitmap stand-in on a 1-bit or gray display.
     fallback: Option<Fallback>,
 }
@@ -292,6 +295,7 @@ impl<T: Held> GlyphCache<T> {
             failed: Vec::new(),
             frame: 0,
             counts: CacheCounts::default(),
+            drew_missing: false,
             fallback: None,
         }
     }
@@ -302,27 +306,25 @@ impl<T: Held> GlyphCache<T> {
     }
 
     /// Drops each glyph whose text, alone or in a cluster, holds one of
-    /// `chars`, which are sorted: the characters the font now draws
-    /// differently. Every other glyph stays, but every glyph the font drew
-    /// nothing for is asked for again.
-    pub(crate) fn forget(&mut self, chars: &[char]) {
+    /// `chars`, which are sorted: the characters `font` now draws
+    /// differently. It drops too each glyph `font` draws as its missing
+    /// glyph ([`Font::draws_missing`]), and asks again for every glyph the
+    /// font drew nothing for: both came from the fallback chain, U+25A1,
+    /// `?` and the last resort, which any arrival may change. Every other
+    /// glyph stays.
+    pub(crate) fn forget<F: Face>(&mut self, chars: &[char], font: &Font<F>) {
         if chars.is_empty() {
             return;
         }
-        // a glyph the font drew nothing for fell through the whole fallback
-        // chain, U+25A1, `?` and the last resort, so any arrival may give
-        // it a glyph
         self.failed.clear();
         // eviction frees an entry in place, so the indices ahead stand
         for i in 0..self.entries.len() {
             let Ok(i) = u32::try_from(i) else { break };
-            let holds = self.entry(i).is_some_and(|e| {
-                e.text
-                    .chars()
-                    .iter()
-                    .any(|c| chars.binary_search(c).is_ok())
+            let stale = self.entry(i).is_some_and(|e| {
+                let text = e.text.chars();
+                text.iter().any(|c| chars.binary_search(c).is_ok()) || font.draws_missing(text)
             });
-            if holds {
+            if stale {
                 self.evict(i);
             }
         }
@@ -336,6 +338,12 @@ impl<T: Held> GlyphCache<T> {
     /// The counts since they were last taken, and resets them.
     pub(crate) fn take_counts(&mut self) -> CacheCounts {
         core::mem::take(&mut self.counts)
+    }
+
+    /// Whether the font drew a glyph as its missing glyph
+    /// ([`Font::draws_missing`]) since this was last asked, and resets it.
+    pub(crate) fn take_drew_missing(&mut self) -> bool {
+        core::mem::take(&mut self.drew_missing)
     }
 
     /// Bytes of glyph pixels the cache holds.
@@ -398,6 +406,7 @@ impl<T: Held> GlyphCache<T> {
             }
             return None;
         };
+        self.drew_missing |= font.draws_missing(text);
         let (glyph, scale) = match self
             .fallback
             .and_then(|f| f.glyph(&glyph, scale, text, width, style))
@@ -763,7 +772,7 @@ mod tests {
             assert!(c.get(&f, text, Width::Narrow, Style::default()).is_some());
         }
         assert_eq!(c.take_counts().misses, 4);
-        c.forget(&['A']);
+        c.forget(&['A'], &f);
         c.begin_frame();
         let mut misses = Vec::new();
         for text in texts {
@@ -794,7 +803,7 @@ mod tests {
             assert!(c.get(&f, text, Width::Narrow, Style::default()).is_some());
         }
         assert_eq!(c.take_counts().misses, 5);
-        c.forget(&['\u{301}']);
+        c.forget(&['\u{301}'], &f);
         c.begin_frame();
         let mut misses = Vec::new();
         for text in texts {
@@ -951,7 +960,7 @@ mod tests {
         };
         assert!(c.get(&f, &['a'], Width::Narrow, bold).is_none());
         assert_eq!(c.take_counts().misses, 1);
-        c.forget(&['a']);
+        c.forget(&['a'], &f);
         assert!(c.get(&f, &['a'], Width::Narrow, Style::default()).is_none());
         assert_eq!(c.take_counts().misses, 1);
     }
@@ -988,7 +997,7 @@ mod tests {
         let mut c = GlyphCache::new(Budgets::glyphs(8), Storage::default(), Orientation::Normal);
         assert!(c.get(&f, &['a'], Width::Narrow, Style::default()).is_none());
         arrived.set(true);
-        c.forget(&['?']);
+        c.forget(&['?'], &f);
         c.begin_frame();
         assert!(c.get(&f, &['a'], Width::Narrow, Style::default()).is_some());
     }
