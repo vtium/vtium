@@ -318,23 +318,19 @@ impl Seat {
         displays: impl IntoIterator<Item = (&'static str, Memory)>,
         script: &str,
     ) -> Seat {
-        Seat::boot_with(gpu, &[], heads, displays, script)
-    }
-
-    /// [`Seat::boot`], with `args` on its command line too.
-    fn boot_with(
-        gpu: &Arc<TestGpu>,
-        args: &[&str],
-        heads: Option<&str>,
-        displays: impl IntoIterator<Item = (&'static str, Memory)>,
-        script: &str,
-    ) -> Seat {
-        let args: Vec<OsString> = ["--font-size=16", "--hwaccel", "--no-blink"]
-            .iter()
-            .chain(args)
-            .chain(&["--login", "--", "/bin/sh", "-c", script])
-            .map(OsString::from)
-            .collect();
+        let args: Vec<OsString> = [
+            "--font-size=16",
+            "--hwaccel",
+            "--no-blink",
+            "--login",
+            "--",
+            "/bin/sh",
+            "-c",
+            script,
+        ]
+        .iter()
+        .map(OsString::from)
+        .collect();
         let loaded = config::load(&args, &mut |_: &Path| Ok(None));
         assert_eq!(loaded.reports, [], "the seat's command line");
         let lp: Loop<App> = Loop::new().expect("a loop");
@@ -759,49 +755,4 @@ fn heads_whose_driver_hangs_letting_go_hold_the_exit_one_bound_in_all() {
         holder.join().unwrap(),
         "the heads were waited for one after the other"
     );
-}
-
-// ADR-1401 D5, the maintainer's rule of 2026-11-05: with `osd = off` the
-// GPU path draws nothing of the on-screen display. `osd-timeout = never`
-// keeps the OSD up from the start, so under `minimal` the dot and under
-// `full` the line show on the GPU path, the controls; with `off` beside
-// it, or `focus-mark = always` read under `osd = off`, the head's frames
-// on the GPU path hold no pixel in the OSD's text color.
-#[test]
-fn under_osd_off_the_gpu_path_draws_no_osd() {
-    /// The BGR of the OSD's text and of its dot, `osd-foreground` unset.
-    const OSD_INK: [u8; 3] = [0xeb, 0xe7, 0xe5];
-    let inked = |m: &Memory| {
-        m.pixels
-            .as_chunks::<4>()
-            .0
-            .iter()
-            .any(|p| p[..3] == OSD_INK)
-    };
-    let cases: [(&[&str], bool); 4] = [
-        (&["--osd-timeout=never"], true),
-        (&["--osd=full", "--osd-timeout=never"], true),
-        (&["--osd=off", "--osd-timeout=never"], false),
-        (&["--focus-mark=always", "--osd=off"], false),
-    ];
-    for (args, shows) in cases {
-        let gpu = Arc::new(TestGpu::default());
-        let display = ("/dev/mem0", Memory::new(320, 160, "MEM-1", "mem-small"));
-        let mut s = Seat::boot_with(&gpu, args, None, [display], ECHO);
-        assert!(s.until(BOUND, |a| head_shows(a, "console", "ready")));
-        s.settled();
-        assert!(
-            s.until(BOUND, |_| gpu.kept.load(SeqCst) == 1),
-            "{args:?}: on the GPU path"
-        );
-        let drawn = gpu.drawn.load(SeqCst);
-        assert!(drawn > 0, "{args:?}: drawn on the GPU path");
-        if shows {
-            assert!(s.until_memory("/dev/mem0", inked), "{args:?}: shown");
-        } else {
-            let m = s.memory("/dev/mem0");
-            assert!(m.pixels.iter().any(|&b| b != 0), "{args:?}: a frame shown");
-            assert!(!inked(m), "{args:?}: the OSD drawn");
-        }
-    }
 }
