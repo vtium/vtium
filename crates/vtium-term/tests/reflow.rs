@@ -885,32 +885,36 @@ fn reflow_cost() {
     }
 }
 
-/// The times the allocator is asked for memory to lower the byte budget
-/// under a logical line of `rows` rows with no wide character, waiting
-/// after a narrowing, so that nearly all of it goes.
-fn drop_work(rows: usize) -> usize {
+/// The work of lowering the byte budget under a logical line of `rows`
+/// rows with no wide character, waiting after a narrowing, so that nearly
+/// all of it goes: the times the allocator is asked for memory, and the
+/// rows the scrollback reads to find its oldest waiting line.
+fn drop_work(rows: usize) -> (usize, usize) {
     let mut t = Terminal::new(100, 4, 100_000);
     t.screen_mut().set_scrollback_max(100_000);
     t.screen_mut().set_scrollback_memory(1 << 30);
     t.input("x".repeat(100 * rows).as_bytes());
     t.screen_mut().resize(99, 4);
+    let before = t.screen().scrollback_rows_read();
     let (asked, ()) = counting::asked(|| t.screen_mut().set_scrollback_memory(1 << 12));
     assert!(t.screen().scrollback_bytes() <= 1 << 12);
-    asked
+    (asked, t.screen().scrollback_rows_read() - before)
 }
 
 // vtium/vtium#131's review: dropping past `sb-memory` from a waiting line
-// that breaks by length drops as many rows at once as free the excess. A
-// drop a row at a time reread the waiting line for each row it dropped, so
-// four times the rows took sixteen times as long, and it asked the
-// allocator for memory at least once for each row: 3,984 times at 2,000
-// rows and 15,984 at 8,000. Dropped in batches, it asks fewer than once
-// for every 100 rows.
+// that breaks by length drops as many rows at once as free the excess, so
+// the work is linear in the rows dropped. A drop a row at a time reread
+// the waiting line for each row it dropped: four times the rows took
+// sixteen times as long, and the drop asked the allocator for memory at
+// least once for each row. Dropped in batches, the drop reads each row of
+// the line a few times at most and asks the allocator fewer than once for
+// every 10 rows.
 #[test]
-fn dropping_past_the_byte_budget_drops_in_batches() {
+fn dropping_past_the_byte_budget_is_linear() {
     for rows in [2000, 8000] {
-        let asked = drop_work(rows);
-        assert!(asked * 100 < rows, "{rows} rows asked {asked} times");
+        let (asked, read) = drop_work(rows);
+        assert!(asked * 10 < rows, "{rows} rows asked {asked} times");
+        assert!(read <= 4 * rows, "{rows} rows read {read} rows");
     }
 }
 
