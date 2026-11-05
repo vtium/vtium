@@ -264,6 +264,16 @@ pub fn painter(frits: PathBuf, helper: crate::specimen::Helper, locale: String) 
     })
 }
 
+/// The TUI's detailer: a font's detailed specimen in `locale`, drawn by
+/// `helper` from the frit in `frits` or the built-in font of that name,
+/// as `preview` draws it (ADR-1201 D4, D9).
+pub fn detailer(frits: PathBuf, helper: crate::specimen::Helper, locale: String) -> port::Detailer {
+    std::sync::Arc::new(move |font, height, max| {
+        let frit = frit_text(&frits, font)?;
+        crate::specimen::detail(&helper, &frit, height, &locale)?.detailed(max)
+    })
+}
+
 /// The TUI's measurer: a font's cell at a pixel height, as `helper` gives
 /// it, from the frit in `frits` or the built-in font of that name.
 pub fn measurer(frits: PathBuf, helper: crate::specimen::Helper) -> port::Measurer {
@@ -359,6 +369,7 @@ pub fn run(
     let tools = port::Tools {
         painter: painter(inputs.frits.clone(), paths.helper.clone(), locale()),
         measurer: measurer(inputs.frits.clone(), paths.helper.clone()),
+        detailer: detailer(inputs.frits.clone(), paths.helper.clone(), locale()),
         summarizer: summarizer(
             inputs.frits.clone(),
             paths.helper.clone(),

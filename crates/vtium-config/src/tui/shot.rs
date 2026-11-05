@@ -53,6 +53,9 @@ pub struct Wanted {
     pub font: String,
     pub points: u32,
     pub cell: Option<Cell>,
+    /// The detailed specimen of the font in place of the picture of the
+    /// console, which `s` chooses in the Fonts view.
+    pub detail: bool,
 }
 
 /// The picture or line asked for last, and the terminal it was asked
@@ -101,6 +104,7 @@ impl App {
                     font,
                     points: self.draft_points(),
                     cell: None,
+                    detail: self.detail,
                 })
             }
             View::Looks => {
@@ -109,6 +113,7 @@ impl App {
                     font,
                     points: self.size(),
                     cell: None,
+                    detail: false,
                 })
             }
             View::Flow => self.look_wanted().filter(|w| readable(&w.font)),
@@ -128,10 +133,13 @@ impl App {
     /// The line that describes the preview: beside a picture, what the
     /// picture shows; with no pictures, the summary of the change.
     pub fn preview_line(&self) -> Option<String> {
+        let wanted = self.wanted()?;
+        if self.graphics && wanted.detail {
+            return Some(words::detail_caption(&wanted.font, wanted.points));
+        }
         if self.graphics {
             return self.shot.as_ref().map(words::caption);
         }
-        let wanted = self.wanted()?;
         let height = self.height_of(&wanted);
         let summary = self
             .summary
@@ -201,7 +209,12 @@ impl App {
         } else if cell.is_none() {
             points = crate::preview::POINTS;
         }
-        Some(Wanted { font, points, cell })
+        Some(Wanted {
+            font,
+            points,
+            cell,
+            detail: false,
+        })
     }
 
     /// The display the picture shows, and whether it is assumed.
@@ -251,12 +264,13 @@ impl App {
             self.shot = None;
             return self.drop_picture();
         };
-        let Wanted { font, points, cell } = asked.wanted;
-        let height = self.height_of(&Wanted {
-            font: font.clone(),
+        let height = self.height_of(&asked.wanted);
+        let Wanted {
+            font,
             points,
             cell,
-        });
+            detail,
+        } = asked.wanted;
         if !self.graphics {
             self.drawing = true;
             return vec![Effect::Summary { font, height }];
@@ -267,6 +281,10 @@ impl App {
             return self.drop_picture();
         }
         self.drawing = true;
+        if detail {
+            self.shot = None;
+            return vec![Effect::Specimen { font, height, max }];
+        }
         match cell {
             Some(cell) => self.picture_of(font, points, height, (cell, cell.height)),
             None => vec![Effect::Cell { font, height }],

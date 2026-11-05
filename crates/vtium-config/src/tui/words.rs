@@ -58,6 +58,13 @@ pub fn trial_refused(font: impl Display) -> String {
     format!("The console refused {font}; see its log.")
 }
 
+/// The line beside the detailed specimen (ADR-1201 D4).
+pub fn detail_caption(font: impl Display, points: u32) -> String {
+    format!(
+        "The detailed specimen of {font} at {points} pt: white characters come from the font, grey ones from the built-in font, and an empty box marks one neither draws. s shows the console again."
+    )
+}
+
 /// The line beside a picture of the console (ADR-1201 D4).
 pub fn caption(c: &super::shot::Caption) -> String {
     let (w, h) = c.display;
@@ -189,7 +196,7 @@ pub const KEYS_FLOW: &str = "Tab ←→ columns  ↑↓ move  Enter open  Space 
 pub const KEYS_ROUTE: &str = "↑↓ route  Enter open the item  q back to the flow";
 pub const KEYS_LOOKS: &str = "Enter keep  Tab next  i install  q leave, undo";
 pub const KEYS_FONTS: &str =
-    "Enter keep  t try live  n new frit  r remove  Tab next  i install  q leave, undo";
+    "Enter keep  t try live  s specimen  n new frit  r remove  Tab next  i install  q leave, undo";
 pub const KEYS_SETTINGS: &str = "Enter change  Tab next  i install  q leave, undo";
 pub const KEYS_HELP: &str = "←→ Help, About  ↑↓ scroll  Tab next  q leave";
 pub const KEYS_NEW: &str = "type a field  Enter next  Esc back  Ctrl-C leave, undo";
@@ -601,7 +608,7 @@ pub const HELP_VIEWS: [(&str, &str, &str); 5] = [
     ),
     (
         FONTS,
-        "lists the frits and the built-in fonts with what each lacks, shows each as a picture of the console, tries one on a vtium console with t, and makes a new frit with n.",
+        "lists the frits and the built-in fonts with what each lacks, shows each as a picture of the console or, with s, as a specimen of every character it covers, tries one on a vtium console with t, and makes a new frit with n.",
         KEYS_FONTS,
     ),
     (

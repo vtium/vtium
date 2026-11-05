@@ -76,6 +76,37 @@ pub fn lines(locale: &str) -> Vec<&'static str> {
     LINES.iter().copied().chain(own).collect()
 }
 
+/// The detailed specimen's lines (ADR-1201 D4, D9): what a font covers,
+/// line by line: printable ASCII; Latin letters with accents, and
+/// punctuation; box drawing and block elements; common symbols and
+/// arrows; then Greek, Cyrillic, CJK and emoji. Each line fits in 40
+/// cells.
+pub const DETAIL: [&str; 12] = [
+    " !\"#$%&'()*+,-./0123456789:;<=>?",
+    "@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_",
+    "`abcdefghijklmnopqrstuvwxyz{|}~",
+    "ÀÁÂÄÅÆÇÈÉÊËÍÎÏÑÓÔÖØÚÜÝß àáâäåæçèéêëíîïñ",
+    "óôöøúüýÿ ŁłŒœŠšŽžĞğİıŞş ¡¿«»“”‘’„–—…•",
+    "┌─┬─┐ ╔═╦═╗ ╭─╮ ┏━┳━┓ ░▒▓█ ▀▄▌▐ ▖▗▘▝",
+    "├─┼─┤ ╠═╬═╣ ╰─╯ ┗━┻━┛ ■□▪▫ ▲▼◆◇○●",
+    "€£¥¢§¶©®™°±×÷µ ←↑→↓↔↕⇐⇒ ✓✗★☆♠♣♥♦",
+    "Αα Ββ Γγ Δδ Λλ Ξξ Ππ Σσ Φφ Ψψ Ωω",
+    "Аа Бб Вв Гг Дд Жж Ии Лл Фф Щщ Ыы Яя",
+    "日本語 中文 한국어 ひらがな カタカナ",
+    "😀 😂 👍 🎉 🚀 🌍 🔥 ✨ ❤",
+];
+
+/// Where a character of a specimen is drawn from (ADR-1201 D4).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Origin {
+    /// The frit's own sources.
+    Font,
+    /// The built-in font, which draws what the frit lacks.
+    BuiltIn,
+    /// Neither: the console draws nothing there.
+    Missing,
+}
+
 /// The most pixels a picture takes, across and down: 3 MiB of RGBA, and
 /// 4 MiB of kitty graphics' base64. A picture is cut to its area on the
 /// screen first, and to this past it.
@@ -86,6 +117,9 @@ pub const HELPER_WAIT: Duration = Duration::from_secs(5);
 
 /// The specimen's ink and paper.
 const INK: [u8; 3] = [0xe8, 0xe8, 0xe8];
+/// The ink of a character the built-in font draws in the detailed
+/// specimen, and of the box that marks a missing one.
+const MARK: [u8; 3] = [0x70, 0x70, 0x70];
 const PAPER: [u8; 3] = [0x10, 0x10, 0x10];
 
 /// A picture: its size in pixels and its pixels, RGBA, row by row.
@@ -487,7 +521,37 @@ pub fn sample(
     height: u32,
     locale: &str,
 ) -> Result<Sample, String> {
-    let lines = lines(locale);
+    sample_of(helper, frit, height, locale, lines(locale))
+}
+
+/// The detailed specimen of `frit` at `height` pixels, [`DETAIL`] and the
+/// locale's line where it has one, as the helper at `helper` draws it: what the TUI's Fonts view and `preview`
+/// show of what a font covers (ADR-1201 D4, D9).
+pub fn detail(
+    helper: &Helper,
+    frit: &FritText,
+    height: u32,
+    locale: &str,
+) -> Result<Sample, String> {
+    let own = lines(locale).into_iter().skip(LINES.len());
+    sample_of(
+        helper,
+        frit,
+        height,
+        locale,
+        DETAIL.into_iter().chain(own).collect(),
+    )
+}
+
+/// `lines` of `frit` at `height` pixels, as the helper at `helper` draws
+/// them: its cell, then the glyphs of the lines' characters at that cell.
+fn sample_of(
+    helper: &Helper,
+    frit: &FritText,
+    height: u32,
+    locale: &str,
+    lines: Vec<&'static str>,
+) -> Result<Sample, String> {
     let codepoints: Vec<u32> = characters(&lines).into_iter().map(u32::from).collect();
     let frit = frit.clone();
     let (sets, cell, face_height) = with_helper(helper, move |stdin, stdout| {
@@ -618,6 +682,27 @@ impl Sample {
         faces
     }
 
+    /// Where each character of the specimen is drawn from, each once, in
+    /// order: the frit, the built-in font, or neither.
+    pub fn origins(&self) -> Vec<(char, Origin)> {
+        let faces = self.faces();
+        let own = self.frit_faces().len();
+        characters(&self.lines)
+            .into_iter()
+            .map(|c| (c, origin(&faces, own, c)))
+            .collect()
+    }
+
+    /// The specimen as a picture that shows what the font covers: a
+    /// character the frit draws in the ink, one the built-in font draws in
+    /// grey, and one neither draws as an empty grey box, so a gap shows
+    /// (ADR-1201 D4).
+    pub fn detailed(&self, max: (u32, u32)) -> Result<Picture, String> {
+        let max = (max.0.min(PICTURE_MAX.0), max.1.min(PICTURE_MAX.1));
+        let own = self.frit_faces().len();
+        lay_out(&self.faces(), Some(own), &self.lines, max)
+    }
+
     /// The faces of the frit's own glyphs.
     fn frit_faces(&self) -> Vec<SetFace> {
         self.sets
@@ -630,7 +715,7 @@ impl Sample {
     /// fit in `max` pixels, and at most [`PICTURE_MAX`].
     pub fn picture(&self, max: (u32, u32)) -> Result<Picture, String> {
         let max = (max.0.min(PICTURE_MAX.0), max.1.min(PICTURE_MAX.1));
-        lay_out(&self.faces(), &self.lines, max)
+        lay_out(&self.faces(), None, &self.lines, max)
     }
 
     /// The picture `shot` asks for: its screen laid out cell by cell in its
@@ -891,18 +976,36 @@ impl Shrink {
 /// Why a size has no picture when one line of it does not fit.
 const TOO_LARGE: &str = "this size is larger than the preview area";
 
+/// Where `c` is drawn from among `faces`, of which the first `own` are
+/// the frit's.
+fn origin(faces: &[SetFace], own: usize, c: char) -> Origin {
+    match faces.iter().position(|f| f.has_glyph(c)) {
+        Some(i) if i < own => Origin::Font,
+        Some(_) => Origin::BuiltIn,
+        None => Origin::Missing,
+    }
+}
+
 /// `lines` drawn with `faces`, the first that holds a character drawing
 /// it, in the first face's cell, as many whole lines and columns as fit in
 /// `max` pixels. A glyph wider than the cell, as a CJK character, takes
-/// two cells, as the console draws it.
-fn lay_out(faces: &[SetFace], lines: &[&str], max: (u32, u32)) -> Result<Picture, String> {
+/// two cells, as the console draws it. With `marked`, the number of the
+/// frit's faces at the front of `faces`, each character shows where it
+/// comes from: the built-in font's in grey, and a missing one as an empty
+/// grey box as wide as the character.
+fn lay_out(
+    faces: &[SetFace],
+    marked: Option<usize>,
+    lines: &[&str],
+    max: (u32, u32),
+) -> Result<Picture, String> {
     let cell = faces
         .first()
         .map(Face::cell)
         .ok_or("the helper drew no glyph")?;
     let room = max.0.checked_div(cell.width).unwrap_or(0);
     // each line's glyphs and the cells each takes, as many as fit the room
-    let laid: Vec<Vec<(Option<vtium_font::Glyph>, u32)>> = lines
+    let laid: Vec<Vec<Placed>> = lines
         .iter()
         .map(|line| {
             let mut used = 0u32;
@@ -912,13 +1015,26 @@ fn lay_out(faces: &[SetFace], lines: &[&str], max: (u32, u32)) -> Result<Picture
                         .iter()
                         .find(|f| f.has_glyph(c))
                         .and_then(|f| f.draw(&[c], Style::default()));
+                    let wide = u32::try_from(crate::tui::canvas::width(&c.to_string()))
+                        .unwrap_or(1)
+                        .clamp(1, 2);
                     let cells = glyph
                         .as_ref()
-                        .map_or(1, |g| g.width().div_ceil(cell.width.max(1)).clamp(1, 2));
-                    (glyph, cells)
+                        .map_or(wide, |g| g.width().div_ceil(cell.width.max(1)).clamp(1, 2));
+                    let (ink, boxed) = match marked.map(|own| origin(faces, own, c)) {
+                        Some(Origin::BuiltIn) => (MARK, false),
+                        Some(Origin::Missing) => (MARK, c != ' '),
+                        _ => (INK, false),
+                    };
+                    Placed {
+                        glyph,
+                        cells,
+                        ink,
+                        boxed,
+                    }
                 })
-                .take_while(|(_, cells)| {
-                    used = used.saturating_add(*cells);
+                .take_while(|p| {
+                    used = used.saturating_add(p.cells);
                     used <= room
                 })
                 .collect()
@@ -926,7 +1042,7 @@ fn lay_out(faces: &[SetFace], lines: &[&str], max: (u32, u32)) -> Result<Picture
         .collect();
     let cols = laid
         .iter()
-        .map(|l| l.iter().map(|(_, n)| *n).sum::<u32>())
+        .map(|l| l.iter().map(|p| p.cells).sum::<u32>())
         .max()
         .unwrap_or(0);
     let shown = u32::try_from(laid.len())
@@ -950,10 +1066,19 @@ fn lay_out(faces: &[SetFace], lines: &[&str], max: (u32, u32)) -> Result<Picture
     {
         let top = u32::try_from(row).unwrap_or(0).saturating_mul(cell.height);
         let mut left = 0u32;
-        for (glyph, cells) in line {
-            let span = cell.width.saturating_mul(*cells);
-            if let Some(glyph) = glyph {
-                paint(&mut rgba, stride, glyph, (left, top), (span, cell.height));
+        for p in line {
+            let span = cell.width.saturating_mul(p.cells);
+            if let Some(glyph) = &p.glyph {
+                paint(
+                    &mut rgba,
+                    stride,
+                    glyph,
+                    p.ink,
+                    (left, top),
+                    (span, cell.height),
+                );
+            } else if p.boxed {
+                outline(&mut rgba, stride, p.ink, (left, top), (span, cell.height));
             }
             left = left.saturating_add(span);
         }
@@ -965,12 +1090,56 @@ fn lay_out(faces: &[SetFace], lines: &[&str], max: (u32, u32)) -> Result<Picture
     })
 }
 
-/// Draws `glyph` over the paper in `rgba`, `stride` bytes a row, with its
-/// top left at `at`, cut to `size` pixels.
+/// One character laid out: its glyph, the cells it takes, its ink, and
+/// whether it is drawn as the empty box of a missing character.
+struct Placed {
+    glyph: Option<vtium_font::Glyph>,
+    cells: u32,
+    ink: [u8; 3],
+    boxed: bool,
+}
+
+/// Draws an empty box of `ink` one pixel inside the cells at `at` of
+/// `size` pixels: the mark of a missing character.
+fn outline(rgba: &mut [u8], stride: usize, ink: [u8; 3], at: (u32, u32), size: (u32, u32)) {
+    let (left, top) = at;
+    let (w, h) = size;
+    if w < 4 || h < 4 {
+        return;
+    }
+    let (x0, y0, x1, y1) = (1, 1, w.saturating_sub(2), h.saturating_sub(2));
+    let mut put = |x: u32, y: u32| {
+        let at = usize::try_from(top.saturating_add(y))
+            .unwrap_or(0)
+            .saturating_mul(stride)
+            .saturating_add(
+                usize::try_from(left.saturating_add(x))
+                    .unwrap_or(0)
+                    .saturating_mul(4),
+            );
+        for (i, c) in ink.iter().enumerate() {
+            if let Some(slot) = rgba.get_mut(at.saturating_add(i)) {
+                *slot = *c;
+            }
+        }
+    };
+    for x in x0..=x1 {
+        put(x, y0);
+        put(x, y1);
+    }
+    for y in y0..=y1 {
+        put(x0, y);
+        put(x1, y);
+    }
+}
+
+/// Draws `glyph` in `ink` over the paper in `rgba`, `stride` bytes a row,
+/// with its top left at `at`, cut to `size` pixels.
 fn paint(
     rgba: &mut [u8],
     stride: usize,
     glyph: &vtium_font::Glyph,
+    ink: [u8; 3],
     at: (u32, u32),
     size: (u32, u32),
 ) {
@@ -982,7 +1151,7 @@ fn paint(
             };
             // coverage, or premultiplied color over the paper
             let (alpha, color) = match glyph.format() {
-                Format::Mask => (px.first().copied().unwrap_or(0), INK),
+                Format::Mask => (px.first().copied().unwrap_or(0), ink),
                 Format::Rgba => (
                     px.get(3).copied().unwrap_or(0),
                     [
@@ -1143,6 +1312,58 @@ mod tests {
         }]];
         let p = builtin_only(cell).screen(&plain).expect("a picture");
         assert_eq!(px(&p, 4, 8), [0, 0, 0]);
+    }
+
+    /// The detailed specimen holds every printable ASCII character, Latin
+    /// letters with accents, box drawing and blocks, symbols and arrows,
+    /// and Greek, Cyrillic, CJK and emoji, each line at most 40 cells.
+    #[test]
+    fn the_detailed_specimen_holds_each_range() {
+        let all: String = DETAIL.concat();
+        for c in ' '..='~' {
+            assert!(all.contains(c), "{c:?}");
+        }
+        for c in [
+            'é', 'ß', 'Ł', '“', '─', '╬', '█', '▖', '€', '→', '✓', 'Ω', 'Я', '日', '한', '😀',
+        ] {
+            assert!(all.contains(c), "{c:?}");
+        }
+        for line in DETAIL {
+            assert!(crate::tui::canvas::width(line) <= 40, "{line}");
+        }
+    }
+
+    /// Each character shows where it comes from: one the built-in font
+    /// draws is grey, and one nothing draws is an empty grey box.
+    #[test]
+    fn a_missing_character_is_an_empty_box_and_a_built_in_one_is_grey() {
+        let cell = Cell {
+            width: 8,
+            height: 16,
+        };
+        let mut sample = builtin_only(cell);
+        sample.lines = vec!["\u{2588}\u{10fffd}"];
+        assert_eq!(
+            sample.origins(),
+            [
+                ('\u{2588}', Origin::BuiltIn),
+                ('\u{10fffd}', Origin::Missing)
+            ]
+        );
+        let p = sample.detailed((64, 16)).expect("a picture");
+        assert_eq!((p.width, p.height), (16, 16));
+        // the full block in grey; the missing character's box: its edge one
+        // pixel in, and paper inside it
+        assert_eq!(px(&p, 4, 8), MARK);
+        assert_eq!(px(&p, 9, 8), MARK);
+        assert_eq!(px(&p, 12, 1), MARK);
+        assert_eq!(px(&p, 12, 8), PAPER);
+        assert_eq!(px(&p, 8, 8), PAPER);
+        // the plain specimen draws the built-in font's glyph in the ink and
+        // no box
+        let p = sample.picture((64, 16)).expect("a picture");
+        assert_eq!(px(&p, 4, 8), INK);
+        assert_eq!(px(&p, 9, 8), PAPER);
     }
 
     /// The picture keeps the display's shape inside its room, and each of

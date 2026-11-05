@@ -160,6 +160,13 @@ pub enum Effect {
     /// Runs the privileged step that installs the plan, with the desk,
     /// then sends [`Event::Installed`].
     Install(Plan),
+    /// Draws the detailed specimen of the font `font` at `height` pixels,
+    /// at most `max` pixels, then sends [`Event::Pictured`].
+    Specimen {
+        font: String,
+        height: u32,
+        max: (u32, u32),
+    },
     /// Asks the glyph helper for the font `font`'s cell at `height`
     /// pixels, then sends [`Event::Celled`].
     Cell { font: String, height: u32 },
@@ -355,6 +362,9 @@ pub struct App {
     /// other is in flight: the live trial's font, or the font it puts
     /// back (D4).
     pub want: Option<String>,
+    /// The Fonts view shows the detailed specimen of the highlighted font
+    /// in place of the picture of the console (ADR-1201 D4).
+    pub detail: bool,
     /// The live trial counting down, if one is.
     pub trial: Option<super::shot::Trial>,
     /// The picture last asked for, so the same one is not asked again.
@@ -493,6 +503,7 @@ impl App {
             answers: Answers::default(),
             start_font: None,
             want: None,
+            detail: false,
             trial: None,
             asked: None,
             drawing: false,
@@ -1172,6 +1183,10 @@ impl App {
         }
         if key == Key::Char('n') {
             return self.set_view(View::New);
+        }
+        if key == Key::Char('s') {
+            self.detail = !self.detail;
+            return Vec::new();
         }
         if key == Key::Char('t') {
             let name = self

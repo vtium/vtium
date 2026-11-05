@@ -75,6 +75,8 @@ struct Console {
     shots: Vec<Shot>,
     /// Each font's cell asked for, at its height.
     cells: Vec<(String, u32)>,
+    /// Each detailed specimen asked for: its font, height and room.
+    specimens: Vec<(String, u32, (u32, u32))>,
     /// The terminal's cell in pixels, as the terminal reports it.
     cell_px: Option<(u32, u32)>,
     /// Each summary the TUI asked for: the font and the pixel height.
@@ -119,6 +121,7 @@ impl Console {
             pictures: Vec::new(),
             shots: Vec::new(),
             cells: Vec::new(),
+            specimens: Vec::new(),
             cell_px: Some((8, 16)),
             summaries: Vec::new(),
             sources_asked: Vec::new(),
@@ -323,6 +326,14 @@ impl Port for Console {
                 self.pictures
                     .push((shot.font.clone(), shot.height, shot.max));
                 self.shots.push(shot);
+                Drawn::Pictured(Ok(Picture {
+                    width: 2,
+                    height: 1,
+                    rgba: vec![255, 0, 0, 255, 0, 0, 255, 255],
+                }))
+            }
+            Draw::Specimen { font, height, max } => {
+                self.specimens.push((font, height, max));
                 Drawn::Pictured(Ok(Picture {
                     width: 2,
                     height: 1,
@@ -1537,6 +1548,41 @@ fn each_highlighted_size_shows_its_specimen_and_deletes_the_last() {
         .rposition(|w| w == kitty::delete(kitty::IMAGE_ID))
         .expect("deleted");
     assert!(last_delete > last_show, "the last picture is deleted");
+}
+
+/// `s` in the Fonts view switches the picture area to the detailed
+/// specimen of the highlighted font, at the draft's size and in the same
+/// room, and `s` again back to the picture of the console; each highlight
+/// asks for the specimen of the font it reaches (ADR-1201 D4).
+#[test]
+fn s_switches_the_fonts_view_between_the_console_and_the_detailed_specimen() {
+    let mut c = console().keys(&[b"s", UP, b"s", b"q"]);
+    c.graphics = true;
+    assert_eq!(run(&mut c), 0);
+    // below the list and the four rows of the line beside the specimen:
+    // rows 16 to 20 at 80x25
+    let room = (79 * 8, 5 * 16);
+    assert_eq!(
+        c.specimens,
+        [
+            ("unifont".to_owned(), 16, room),
+            ("tiny5".to_owned(), 16, room)
+        ]
+    );
+    // the console's picture before s and after the second s
+    let fonts: Vec<&str> = c.pictures.iter().map(|(f, _, _)| f.as_str()).collect();
+    assert_eq!(fonts, ["unifont", "tiny5"]);
+    // the line beside the specimen says what its marks mean
+    let mut c = console().keys(&[b"s"]);
+    c.graphics = true;
+    run(&mut c);
+    let screen = c.seen.clone().expect("the screen");
+    let text = screen.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(
+        text.contains("an empty box marks one neither draws"),
+        "{screen}"
+    );
+    assert!(screen.contains("s specimen"), "{screen}");
 }
 
 /// The font view shows each highlighted font as a picture of the console,

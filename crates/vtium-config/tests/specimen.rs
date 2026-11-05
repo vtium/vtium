@@ -124,6 +124,26 @@ fn the_painter_draws_a_picture_of_the_console_in_the_built_in_fonts_and_a_frit()
     }
 }
 
+/// The detailed specimen through the real helper, as the TUI and
+/// `preview` draw it: a frit's own characters come from the frit, and a
+/// character it lacks does not (ADR-1201 D4, D9).
+#[test]
+fn the_detailed_specimen_marks_what_the_frit_draws_itself() {
+    use vtium_config::specimen::{DETAIL, Origin, detail};
+    let sample =
+        detail(&helper(), &frit("source=builtin:unscii-8\n"), 16, "C").expect("a specimen");
+    let origins = sample.origins();
+    let of = |c: char| origins.iter().find(|(x, _)| *x == c).map(|(_, o)| *o);
+    assert_eq!(of('A'), Some(Origin::Font));
+    // unscii-8 lacks the CJK line, which the built-in fonts draw or nothing
+    // does
+    assert_ne!(of('日'), Some(Origin::Font));
+    // every character of the specimen, each once
+    assert!(origins.len() > 200, "{}", origins.len());
+    let p = sample.detailed(PICTURE_MAX).expect("a picture");
+    assert!(p.height >= 16 * DETAIL.len() as u32 || p.height == PICTURE_MAX.1);
+}
+
 #[test]
 fn a_picture_is_clipped_to_its_area_in_whole_cells() {
     // unscii-8 at 16 pixels: 16x16 cells; 100x40 pixels hold 6 by 2

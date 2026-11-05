@@ -64,11 +64,13 @@ fn away_from_a_terminal_each_font_is_a_line_of_text() {
     let (status, out, err) = preview(&root, &["unifont", "unscii-8", "--size", "12"]);
     assert_eq!(status, 0, "{err}");
     let lines: Vec<&str> = out.lines().collect();
+    // the detailed specimen's 314 characters (ADR-1201 D4): unifont draws
+    // them all, and unscii-8 lacks 27, the CJK line's among them
     assert_eq!(
         lines,
         [
-            "unifont\t12 pt\tcell 8x16\tdraws 51 of the specimen's 51 characters",
-            "unscii-8\t12 pt\tcell 8x8\tdraws 51 of the specimen's 51 characters",
+            "unifont\t12 pt\tcell 8x16\tdraws 314 of the specimen's 314 characters",
+            "unscii-8\t12 pt\tcell 8x8\tdraws 287 of the specimen's 314 characters",
         ]
     );
     assert!(!out.contains('\x1b'), "no picture to a pipe");
@@ -131,7 +133,7 @@ fn the_display_s_edid_sets_the_density_and_its_mode_the_grid() {
     assert_eq!(status, 0, "{err}");
     assert_eq!(
         out,
-        "unifont\t12 pt\tcell 8x16\t240x67 cells\tdraws 51 of the specimen's 51 characters\n"
+        "unifont\t12 pt\tcell 8x16\t240x67 cells\tdraws 314 of the specimen's 314 characters\n"
     );
 }
 
@@ -154,13 +156,14 @@ fn the_locale_adds_a_line_in_its_script() {
     let out = String::from_utf8_lossy(&o.stdout).into_owned();
     let lines: Vec<&str> = out.lines().collect();
     assert_eq!(lines.len(), 2, "{out}");
-    // the Cyrillic line's 27 letters, after the Latin lines' 51 characters
+    // the Russian line's 18 letters the detailed specimen's Cyrillic line
+    // lacks, after its 314 characters
     assert!(
-        lines[0].ends_with("draws 78 of the specimen's 78 characters"),
+        lines[0].ends_with("draws 332 of the specimen's 332 characters"),
         "{out}"
     );
     assert!(
-        lines[1].contains("of the specimen's 78 characters"),
+        lines[1].contains("of the specimen's 332 characters"),
         "{out}"
     );
 }

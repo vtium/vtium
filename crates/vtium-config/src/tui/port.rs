@@ -62,6 +62,13 @@ pub enum Draw {
     Cell { font: String, height: u32 },
     /// A picture of the console.
     Picture(crate::specimen::Shot),
+    /// The detailed specimen of a font at a pixel height, in at most so
+    /// many pixels.
+    Specimen {
+        font: String,
+        height: u32,
+        max: (u32, u32),
+    },
     /// The line that describes the font at a height, for a terminal that
     /// draws no pictures.
     Summary { font: String, height: u32 },
@@ -167,6 +174,9 @@ pub fn drive_with(
                     }
                     Effect::Cell { font, height } => port.draw(Draw::Cell { font, height }),
                     Effect::Picture(shot) => port.draw(Draw::Picture(shot)),
+                    Effect::Specimen { font, height, max } => {
+                        port.draw(Draw::Specimen { font, height, max });
+                    }
                     Effect::Summary { font, height } => port.draw(Draw::Summary { font, height }),
                     Effect::Sources(fonts) => port.sources(fonts),
                     Effect::Desk(op) => {
@@ -259,6 +269,12 @@ pub type Painter = std::sync::Arc<
     dyn Fn(&crate::specimen::Shot) -> Result<crate::specimen::Picture, String> + Send + Sync,
 >;
 
+/// Draws a font's detailed specimen at a pixel height in at most so many
+/// pixels, on a thread of its own.
+pub type Detailer = std::sync::Arc<
+    dyn Fn(&str, u32, (u32, u32)) -> Result<crate::specimen::Picture, String> + Send + Sync,
+>;
+
 /// Measures a font's cell at a pixel height, on a thread of its own.
 pub type Measurer =
     std::sync::Arc<dyn Fn(&str, u32) -> Result<(vtium_font::Cell, u32), String> + Send + Sync>;
@@ -274,6 +290,7 @@ pub type Finder = Box<dyn FnOnce(Vec<String>) -> Vec<(String, super::model::Sour
 pub struct Tools {
     pub painter: Painter,
     pub measurer: Measurer,
+    pub detailer: Detailer,
     pub summarizer: Summarizer,
     /// Taken by the one sources query a run makes.
     pub finder: Option<Finder>,
@@ -573,16 +590,18 @@ impl Port for Tty {
             std::sync::Arc::clone(&self.tools.measurer),
             std::sync::Arc::clone(&self.tools.painter),
             std::sync::Arc::clone(&self.tools.summarizer),
+            std::sync::Arc::clone(&self.tools.detailer),
         );
         let drawn = self.drawn.clone();
         std::thread::spawn(move || {
-            let (measure, paint, summarize) = tools;
+            let (measure, paint, summarize, detail) = tools;
             let answer = match ask {
                 Draw::Cell { font, height } => {
                     let cell = measure(&font, height);
                     Drawn::Celled { font, height, cell }
                 }
                 Draw::Picture(shot) => Drawn::Pictured(paint(&shot)),
+                Draw::Specimen { font, height, max } => Drawn::Pictured(detail(&font, height, max)),
                 Draw::Summary { font, height } => {
                     let summary = summarize(&font, height);
                     Drawn::Summarized {
