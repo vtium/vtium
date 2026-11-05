@@ -346,3 +346,13 @@ fn a_byte_order_mark_is_no_part_of_the_first_key() {
         "\u{feff}font-size=12\nbell\n"
     );
 }
+
+// The fuzz target's find: an empty value before a comment gains a blank
+// with its new value, so the comment's `#` stays a comment.
+#[test]
+fn a_value_set_before_a_comment_keeps_the_comment_a_comment() {
+    let out =
+        edit_conf(" font-size=   # big\n", &[Edit::Set("font-size", "12")]).expect("the edit");
+    assert_eq!(out, " font-size=   12 # big\n");
+    assert_eq!(setting(&out, "font-size"), Some("12".to_owned()));
+}

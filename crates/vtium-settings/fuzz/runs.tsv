@@ -3,3 +3,5 @@
 2026-11-05T07:10:29Z	3ba3abe9c44bcce0708b13cbf966b2584665cddd	split	1	1376	74	329	crash target/fuzz-artifacts/vtium-settings/split/crash-f56dfb142aac5b15f6e561433d7f0e0dc5695358	x86_64 32 CPUs
 2026-11-05T07:11:22Z	8d6fedd9cf06248750fbeb43a6b24f917d2fd9f6	reading	11	409136	1406	1215	crash target/fuzz-artifacts/vtium-settings/reading/crash-d99b17e2b16787837f7a0e638995d8a4c2a5af4b	x86_64 32 CPUs
 2026-11-05T07:11:33Z	8d6fedd9cf06248750fbeb43a6b24f917d2fd9f6	split	1	19629	284	420	crash target/fuzz-artifacts/vtium-settings/split/crash-ddb7dd9456e935f8c16900a974e18fcc1df82d11	x86_64 32 CPUs
+2026-11-05T07:15:26Z	08d0ccfb4efb98a4b99878d29bce1b59c8f3ef32	reading	61	1262802	1923	1410	ok	x86_64 32 CPUs
+2026-11-05T07:16:27Z	08d0ccfb4efb98a4b99878d29bce1b59c8f3ef32	split	10	477977	866	623	crash target/fuzz-artifacts/vtium-settings/split/crash-b4dd604c1faff0525c357e26c25aaaef4b1304d5	x86_64 32 CPUs

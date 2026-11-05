@@ -423,7 +423,11 @@ pub fn edit_conf(text: &str, edits: &[Edit<'_>]) -> Result<String, ConfEdit> {
                 (None, _) => None,
             };
             if let Some(range) = range {
-                line.text.replace_range(range, &new);
+                // an empty value sits right before its comment's `#`, which
+                // a value glued to it would take in
+                let glued = line.text.as_bytes().get(range.end) == Some(&b'#');
+                let with = if glued { format!("{new} ") } else { new };
+                line.text.replace_range(range, &with);
             }
             continue;
         }
