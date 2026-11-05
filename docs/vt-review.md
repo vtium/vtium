@@ -12,12 +12,12 @@ The maintainer's machine runs the packaged vtium and has no kmscon installed. `s
 |---|---|
 | 1 | sddm, the display manager, whose unit takes the VT with `Conflicts=getty@tty1.service` |
 | 2, 3, 4 and 6 | the packaged vtium, `vtium@ttyN`, which logind starts when the VT is switched to |
-| 5 | the development VT: `vtium-dev@tty5`, a build of this checkout, which `make vt-install VT=5` installed ([below](#installing-vtium-on-a-vt)) |
+| 5 | the development VT: `vtium-dev@tty5`, a build of this checkout with the GPU path, pictures and `hwaccel` on, which `make vt-install` installed ([The GPU path on the development VT](#the-gpu-path-on-the-development-vt)) |
 | 7 | the maintainer's Wayland session |
 
 `vtium console status` prints this layout as it stands: for each VT, what systemd starts at boot, what logind starts when the VT is switched to, and what runs there now. VT 5 became the development VT through `sudo vtium console disable 5` and then `make vt-install VT=5`, which gave VT 5 a link of its own, `/etc/systemd/system/autovt@tty5.service`, to `vtium-dev@.service`, and a manifest, `/var/lib/vtium-dev-install/tty5`.
 
-Every review run borrows VT 5, since every other VT a run could take is refused ([Which VT a run takes](#which-vt-a-run-takes)). After a merge lands on `integration`, the main session runs `make vt-install VT=5` from the integration worktree, which replaces the development build and restarts `vtium-dev@tty5`, so VT 5 runs the merged code between review runs.
+Every review run borrows VT 5, since every other VT a run could take is refused ([Which VT a run takes](#which-vt-a-run-takes)). After a merge lands on `integration`, the main session runs the development VT's install command ([The GPU path on the development VT](#the-gpu-path-on-the-development-vt)) from the integration worktree, which replaces the development build and restarts `vtium-dev@tty5`, so VT 5 runs the merged code between review runs. A plain `make vt-install VT=5` would replace it with a build that has neither the GPU path nor pictures.
 
 ## Who starts a run
 
@@ -31,6 +31,7 @@ make vt-check GUIDE=start GUIDE_STEPS=2 # only that step
 make vt-accept                          # the acceptance pass, built with pictures: every page answered, the pass recorded
 make vt-accept FEATURES=                # the same with the minspec build; the picture pages record skip
 make vt-accept VT=4 DEMO_ARGS='--font-size=30 --mode=1366x768'
+make vt-check GUIDE=token FEATURES=gpu DEMO_ARGS='--hwaccel'   # a guide on the GPU path, with hwaccel on for this run
 make vt-login                           # a login prompt, for the acceptance pass or anything else by hand
 make vt-shell                           # your login shell, as you, with no login; exit it to end the run
 make vt-accept DRY_RUN=1                # pick the VT and print every command; run none
@@ -141,12 +142,12 @@ vtium is installed on this machine in two ways, under separate names, so that bo
 make vt-install VT=5 DRY_RUN=1   # print the units it would write and every command; run none
 make vt-install VT=5             # install the development build on VT 5, then Ctrl-Alt-F5 shows it
 make vt-install VT=5 FEATURES=images   # a console with pictures, with its image helper
-make vt-install VT=5             # again, after a merge: the binaries are replaced and vtium-dev on VT 5 restarts
+make vt-install VT=5             # again: the binaries are replaced and vtium-dev on VT 5 restarts; this machine's VT 5 takes the GPU build below
 make vt-uninstall VT=5 DRY_RUN=1 # print what uninstall would do
 make vt-uninstall VT=5           # VT 5 back as it was
 ```
 
-vtium starts its glyph helper, `vtium-config`, at a path fixed when the binary is built (`VTIUM_FONT_HELPER`, read in `crates/vtium/src/helper.rs`, `/usr/bin/vtium-config` when unset). So `make vt-install` builds its own console, `make vt-dev-console`, which is the minspec build made to start the helper at `/usr/local/bin/vtium-dev-config`, in the target directory `target/vt-dev` so that it never replaces the minspec build the review runs use. It builds the helper with `make config-release`. `FEATURES='...'` builds the console with those features. vtium starts its image helper, `vtium-image`, the same way, at a path fixed when the binary is built (`VTIUM_IMAGE`, read in `crates/vtium/src/head/images.rs` and `crates/vtium-platform/src/image_helper/start.rs`, `/usr/bin/vtium-image` when unset), and only a console built with images starts it. With `images` in `FEATURES`, `make vt-dev-console` builds the console to start it at `/usr/local/bin/vtium-dev-image`, and checks that the binary names that path, and `make vt-install` builds the helper with `make image-release`. `VTIUM_BIN=PATH`, `VTIUM_CONFIG_BIN=PATH` and `VTIUM_IMAGE_BIN=PATH` on make's command line install another console, glyph helper and image helper as they are, and `make vt-install` builds none of them. It builds its own image helper only with `images` in `FEATURES`, so a console with pictures named with `VTIUM_BIN` needs `FEATURES=images` beside it, or the image helper named with `VTIUM_IMAGE_BIN`; without either, install copies whatever `target/x86_64-unknown-linux-gnu/release/vtium-image` an earlier build left there, and refuses when there is none.
+vtium starts its glyph helper, `vtium-config`, at a path fixed when the binary is built (`VTIUM_FONT_HELPER`, read in `crates/vtium/src/helper.rs`, `/usr/bin/vtium-config` when unset). So `make vt-install` builds its own console, `make vt-dev-console`, which is the minspec build made to start the helper at `/usr/local/bin/vtium-dev-config`, in the target directory `target/vt-dev` so that it never replaces the minspec build the review runs use. It builds the helper with `make config-release`. `FEATURES='...'` builds the console with those features; [The GPU path on the development VT](#the-gpu-path-on-the-development-vt) describes a build with `gpu`. vtium starts its image helper, `vtium-image`, the same way, at a path fixed when the binary is built (`VTIUM_IMAGE`, read in `crates/vtium/src/head/images.rs` and `crates/vtium-platform/src/image_helper/start.rs`, `/usr/bin/vtium-image` when unset), and only a console built with images starts it. With `images` in `FEATURES`, `make vt-dev-console` builds the console to start it at `/usr/local/bin/vtium-dev-image`, and checks that the binary names that path, and `make vt-install` builds the helper with `make image-release`. `VTIUM_BIN=PATH`, `VTIUM_CONFIG_BIN=PATH` and `VTIUM_IMAGE_BIN=PATH` on make's command line install another console, glyph helper and image helper as they are, and `make vt-install` builds none of them. It builds its own image helper only with `images` in `FEATURES`, so a console with pictures named with `VTIUM_BIN` needs `FEATURES=images` beside it, or the image helper named with `VTIUM_IMAGE_BIN`; without either, install copies whatever `target/x86_64-unknown-linux-gnu/release/vtium-image` an earlier build left there, and refuses when there is none.
 
 `tools/vt/vt-install.sh` does the work. Install refuses VT 1, a VT outside 2 to 12, the VT on screen and a VT a logind session is on, by the check `run-vt.sh` uses, a VT where `kmscon`'s `kmsconvt@ttyN` runs, and a VT where the packaged `vtium@ttyN` runs or is enabled. It refuses a console that does not name `/usr/local/bin/vtium-dev-config`, since that console would start the packaged helper, or none, and a console or helper that someone other than root or the user could have written. Install reads from the console itself whether it has pictures. Every build names the image helper path it was built with, through the `image-helper` key's default, and `make vt-dev-console` names `/usr/local/bin/vtium-dev-image` exactly when it builds with images, so a console that names that path has pictures and gets the image helper. Install refuses a console built with images that names another path, since it would start the packaged helper, another build's, or none. It tells such a build by a line only a build with images carries, the message vtium logs when it cannot open its image helper, and the tool tests check that the line is still in code built only with images. One run of install or uninstall goes at a time. Each run takes an flock (a lock on an open file) on `/var/lib/vtium-dev-install` before it reads what is installed, and holds it until it ends, and a second run refuses while the first holds it. A first install, which finds no such directory, makes it and takes the lock before it writes anything into it, and refuses when another run has written there since it started. It then:
 
@@ -179,6 +180,24 @@ sudo systemctl daemon-reload
 ```
 
 The binaries, the image helper's sysusers file and the units are shared by every VT that holds vtium-dev. When `ls /var/lib/vtium-dev-install` shows no other `tty` manifest, they go too: `sudo sha256sum -c /var/lib/vtium-dev-install/files` says `OK` for each file that is still the one install wrote. Remove those with `sudo rm`, keep any that fail the check, since someone changed them, and then remove the record with `sudo rm -r /var/lib/vtium-dev-install`.
+
+### The GPU path on the development VT
+
+vtium draws on the GPU when the console is built with the `gpu` feature and the `hwaccel` key is on ([config.md](config.md)). `hwaccel` is off unless the build turns it on. This machine's development VT runs a build with the GPU path, pictures and `hwaccel` on, and the main session installs it, after each merge too, with this command:
+
+```sh
+VTIUM_HWACCEL=on make vt-install VT=5 FEATURES='gpu images'
+```
+
+`FEATURES='gpu images'` builds the console with the GPU path and with pictures, and builds and installs the image helper beside it. `VTIUM_HWACCEL=on` in make's environment reaches cargo, which builds both the console and the glyph helper, `vtium-config`, with `hwaccel` on by default, so `vtium-dev config config hwaccel` prints `hwaccel`, `on` and `default`. `FEATURES=gpu` alone builds a console without pictures, and a build without `VTIUM_HWACCEL=on` leaves `hwaccel` off, so that console draws on the CPU. `HWACCEL=on` on make's command line does not reach this build: `make install` reads that variable, and `make vt-install` does not.
+
+`hwaccel = on` in `/etc/vtium/vtium.conf` would turn the GPU path on for the development VT too, but the packaged vtium on the other VTs reads the same file ([above](#installing-vtium-on-a-vt)). So the development VT takes `hwaccel` from its build, and the packaged vtium keeps its own default.
+
+A review run builds its own console from `FEATURES` and takes vtium's options from `DEMO_ARGS`. To run a guide on the GPU path, name the feature and turn `hwaccel` on for that run alone with vtium's `--hwaccel` option:
+
+```sh
+make vt-check GUIDE=token FEATURES=gpu DEMO_ARGS='--hwaccel'
+```
 
 ### What the package ships
 
