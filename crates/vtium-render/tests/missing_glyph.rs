@@ -19,8 +19,8 @@ const CELL: Cell = Cell {
 };
 
 /// A face whose set has not arrived until a test says so. Before, it holds
-/// nothing, and its last resort lights the cell's top half. Once the set
-/// has arrived, it holds U+25A1, which lights the whole cell.
+/// only the space, and its last resort lights the cell's top half. Once
+/// the set has arrived, it holds U+25A1 too, which lights the whole cell.
 struct Arriving {
     arrived: Rc<Shared<bool>>,
 }
@@ -41,15 +41,17 @@ impl Face for Arriving {
         CELL.height
     }
     fn has_glyph(&self, c: char) -> bool {
-        c == '\u{25a1}' && self.arrived.get()
+        c == ' ' || c == '\u{25a1}' && self.arrived.get()
     }
     fn sprite_policy(&self) -> SpritePolicy {
         SpritePolicy::SPRITES
     }
     fn draw(&self, cluster: &[char], _: Style) -> Option<Glyph> {
-        (cluster == ['\u{25a1}'] && self.arrived.get())
-            .then(|| mask(CELL.height))
-            .flatten()
+        match cluster {
+            [' '] => mask(0),
+            ['\u{25a1}'] if self.arrived.get() => mask(CELL.height),
+            _ => None,
+        }
     }
     fn last_resort(&self, _: Style) -> Option<Glyph> {
         mask(CELL.height / 2)
@@ -156,5 +158,69 @@ fn on_the_gpu_path_an_arrival_fills_the_missing_glyph_again() {
         frame(&mut r, &mut gl, &s, since, 1),
         1,
         "X drawn from the set"
+    );
+}
+
+/// A renderer that has drawn X, with the set not yet arrived, and the
+/// screen it drew.
+fn drawn_x(arrived: &Rc<Shared<bool>>) -> (Renderer<Arriving>, Screen, Canvas) {
+    let (w, h) = (CELL.width * 4, CELL.height);
+    let mut r = Renderer::new(font(arrived), w, h, Config::default());
+    let (fg, bg) = (rgb("c0c0c0"), rgb("101010"));
+    let mut s = Screen::new(4, 1, fg, bg);
+    s.text(0, 0, "X", style(fg, bg));
+    let mut canvas = Canvas::new(w, h, 0);
+    r.draw(&s.frame(Age::NEVER), &mut canvas, 0, &state());
+    (r, s, canvas)
+}
+
+/// Draws what changed on `s` since the last frame into `canvas`, and gives
+/// the frame's damage.
+fn next_frame(r: &mut Renderer<Arriving>, s: &mut Screen, canvas: &mut Canvas) -> usize {
+    let since = s.damage.checkpoint();
+    r.draw(&s.frame(since), canvas, 1, &state()).damage.len()
+}
+
+// the frame after an arrival draws X again, and the frame after that,
+// with nothing changed, draws nothing
+#[test]
+fn the_frame_after_the_arrivals_frame_draws_nothing() {
+    let arrived = Rc::new(Shared::new(false));
+    let (mut r, mut s, mut canvas) = drawn_x(&arrived);
+    arrived.set(true);
+    r.forget_glyphs(&['\u{25a1}']);
+    assert!(r.redraws_missing());
+    assert_eq!(next_frame(&mut r, &mut s, &mut canvas), 1, "X draws again");
+    assert!(!r.redraws_missing());
+    assert_eq!(
+        next_frame(&mut r, &mut s, &mut canvas),
+        0,
+        "a frame with nothing changed draws X again"
+    );
+}
+
+// a cell that drew the missing glyph keeps the next arrival owing a
+// frame, though it has since been written over, until the frame after an
+// arrival draws no missing glyph
+#[test]
+fn an_arrival_owes_a_frame_until_a_frame_after_one_draws_no_missing_glyph() {
+    let arrived = Rc::new(Shared::new(false));
+    let (mut r, mut s, mut canvas) = drawn_x(&arrived);
+    // X drawn over with a space before any arrival
+    let (fg, bg) = (rgb("c0c0c0"), rgb("101010"));
+    s.text(0, 0, " ", style(fg, bg));
+    next_frame(&mut r, &mut s, &mut canvas);
+    arrived.set(true);
+    r.forget_glyphs(&['\u{25a1}']);
+    assert!(
+        r.redraws_missing(),
+        "the missing glyph drawn before the space is not owed a frame"
+    );
+    // the arrival's frame draws no missing glyph
+    next_frame(&mut r, &mut s, &mut canvas);
+    r.forget_glyphs(&['\u{25a1}']);
+    assert!(
+        !r.redraws_missing(),
+        "an arrival owes a frame though no cell drew the missing glyph since the last"
     );
 }

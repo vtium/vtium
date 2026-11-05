@@ -1065,6 +1065,7 @@ impl<F: Face> Renderer<F> {
         // more follow
         let missing = |text: &[char]| self.missing && self.font.draws_missing(text);
         match *glyph {
+            _ if self.changed.is_empty() && !self.missing => false,
             Glyph::Empty => false,
             Glyph::Char(c) => changed(c) || missing(&[c]),
             Glyph::Cluster(text) => {
