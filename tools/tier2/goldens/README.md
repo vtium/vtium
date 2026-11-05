@@ -8,8 +8,8 @@ The goldens of tier 2's screens. Each judges vtium. The C reference drew every o
 | `blocks-spaced.ppm` | The same screen in cells of 12x28 pixels, the cell DejaVu Sans Mono gave at 22 pixels with 6 pixel rows of spacing, 576x280. |
 | `edges.ppm` | 93x67 pixels: a grid of 12 by 4 cells, of which the display holds 11 columns and 4 rows, centred with 2 and 3 pixel columns of border at the left and right and 1 and 2 pixel rows at the top and bottom. `edges` with red `R` and green `G` cells; a blue row; `last456`, `last` black on yellow and `456` underlined and struck; a magenta run in the last row. In the last whole column, the left halves of an underlined `中` in row 1 and a reversed `語` in row 3, with a default-background cell between them. |
 | `edges-right.ppm` | The same on a display turned right, 67x93: text reads top to bottom. |
-| `edges-upside-down.ppm` | The same turned half round. The two cut wide glyphs show their right halves: the C reference's aaronsb/kmscon#44, which vtium departs from. |
-| `edges-left.ppm` | The same turned left: text reads bottom to top. The cut wide glyphs show their right halves, as in `edges-upside-down`. |
+| `edges-upside-down.ppm` | The same turned half round. The two cut wide glyphs show their left halves, as in every orientation. |
+| `edges-left.ppm` | The same turned left: text reads bottom to top. The cut wide glyphs show their left halves, as in every orientation. |
 | `erase-pen.ppm` | 320x96: a red top row scrolled in, then `line one stays as it is`; `line two is ` and red to the end; two red cells and `line three gets two cells inserted`; `line four stays as it is`; `line five is erase` and red to the end. No red cell carries an underline or a strike. |
 | `vs16-unifont.ppm` | 256x80: `a`, the heart and `b` four times. The VS16 heart and the underlined VS16 heart take two cells, the text heart centred in them; the plain and VS15 hearts take one, cut to it. |
 | `vs16-wcwidth.ppm` | The same by wcwidth: every heart one cell, the VS16 ones included. |
@@ -72,6 +72,3 @@ The goldens of tier 2's screens. Each judges vtium. The C reference drew every o
 | `pictures-sixel.ppm` | 448x96: a caption, three sixels of eight-color tiles and black diagonals made in a 10x20 cell, the 40x40, 70x36 and 10x18 ones each shrunk smoothly by 1.25, and text with blue cells below. |
 | `pictures-budget.ppm` | 160x64: a caption over two rows, a 200x200 picture drawn at 32x32 over the first, and the left part of a second 200x200 picture drawn over 40 by 12 cells, cut at the display's right edge. |
 | `pictures-tiled.ppm` | 640x256: a caption, a 150x100 pattern grown to about twice its size, a ring picture shrunk by 1.5, and a pattern shrunk by 4, each whole. |
-
-`edges-upside-down` and `edges-left` differ from what vtium draws at the two cut wide glyphs only; `../departures.tsv` lists those cells under the render crate's departure.
-`underline-unifont` and `wide-deco-unifont` differ from what vtium draws at their dashed cells only, where the C reference drew each dash over the cell's middle two thirds; `../departures.tsv` lists those cells under the render crate's dash departure.
