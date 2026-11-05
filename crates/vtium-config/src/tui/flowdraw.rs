@@ -1029,31 +1029,49 @@ pub fn paths(ctx: &Ctx<'_>, g: &Geometry, drawn: &Drawn) -> Vec<Path> {
         .collect()
 }
 
-/// One line's part of a cell: the directions it leaves the cell in.
+/// One line's part of a cell: the line, by its place in the paths, and
+/// the directions it leaves the cell in.
 struct Mark {
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the tests read which line marked a cell")
+    )]
+    line: usize,
     bits: u8,
     dashed: bool,
     style: Style,
 }
 
-/// Draws `paths`. Where lines share a cell they join: the cell shows
-/// every direction any of them leaves it in, in the style of the line
-/// drawn last, and the solid lines are drawn after the dashed ones, so a
-/// line in play shows its color. With lanes of their own, where one line
-/// crosses another's lane, the lane's line is drawn through the cell and
-/// the crossing line breaks there, so a crossing never reads as a joint.
-fn paint(canvas: &mut Canvas, paths: &[Path], own_lanes: bool) {
-    let mut cells: BTreeMap<(usize, usize), Vec<Mark>> = BTreeMap::new();
-    let mut arrows: Vec<(usize, usize, &str, Style)> = Vec::new();
-    let mut order: Vec<&Path> = paths.iter().collect();
-    order.sort_by_key(|p| !p.dashed);
-    for p in order {
+/// An arrow a line ends in: its cell, its glyph, the line and its style.
+struct Arrow {
+    at: (usize, usize),
+    glyph: &'static str,
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the tests read which line ends in an arrow")
+    )]
+    line: usize,
+    style: Style,
+}
+
+/// Each cell a line passes through, with every line's mark in it.
+type Cells = BTreeMap<(usize, usize), Vec<Mark>>;
+
+/// What each of `paths` puts in each cell, the solid lines' marks after
+/// the dashed ones', and the arrows they end in.
+fn marks(paths: &[Path]) -> (Cells, Vec<Arrow>) {
+    let mut cells = Cells::new();
+    let mut arrows: Vec<Arrow> = Vec::new();
+    let mut order: Vec<(usize, &Path)> = paths.iter().enumerate().collect();
+    order.sort_by_key(|(_, p)| !p.dashed);
+    for (line, p) in order {
         let (start, end) = p.gap;
         if end <= start {
             continue;
         }
         let mut add = |x: usize, y: usize, bits: u8| {
             cells.entry((x, y)).or_default().push(Mark {
+                line,
                 bits,
                 dashed: p.dashed,
                 style: p.style,
@@ -1085,8 +1103,12 @@ fn paint(canvas: &mut Canvas, paths: &[Path], own_lanes: bool) {
                     add(p.lane, y, UP | DOWN);
                 }
             }
-            let arrow = if p.end == End::Above { "↑" } else { "↓" };
-            arrows.push((p.lane, p.to, arrow, p.style));
+            arrows.push(Arrow {
+                at: (p.lane, p.to),
+                glyph: if p.end == End::Above { "↑" } else { "↓" },
+                line,
+                style: p.style,
+            });
             continue;
         }
         if p.from == p.to {
@@ -1102,9 +1124,25 @@ fn paint(canvas: &mut Canvas, paths: &[Path], own_lanes: bool) {
             add(x, p.to, LEFT | RIGHT);
         }
         if head != p.lane {
-            arrows.push((head, p.to, if p.leftward { "◄" } else { "►" }, p.style));
+            arrows.push(Arrow {
+                at: (head, p.to),
+                glyph: if p.leftward { "◄" } else { "►" },
+                line,
+                style: p.style,
+            });
         }
     }
+    (cells, arrows)
+}
+
+/// Draws `paths`. Where lines share a cell they join: the cell shows
+/// every direction any of them leaves it in, in the style of the line
+/// drawn last, and the solid lines are drawn after the dashed ones, so a
+/// line in play shows its color. With lanes of their own, where one line
+/// crosses another's lane, the lane's line is drawn through the cell and
+/// the crossing line breaks there, so a crossing never reads as a joint.
+fn paint(canvas: &mut Canvas, paths: &[Path], own_lanes: bool) {
+    let (cells, arrows) = marks(paths);
     for ((x, y), marks) in &cells {
         let lane = |m: &&Mark| m.bits == UP | DOWN;
         let across = |m: &&Mark| m.bits == LEFT | RIGHT;
@@ -1121,8 +1159,8 @@ fn paint(canvas: &mut Canvas, paths: &[Path], own_lanes: bool) {
             canvas.put(*x, *y, &joint(bits, m.dashed).to_string(), m.style);
         }
     }
-    for (x, y, arrow, style) in arrows {
-        canvas.put(x, y, arrow, style);
+    for a in arrows {
+        canvas.put(a.at.0, a.at.1, a.glyph, a.style);
     }
 }
 
@@ -1799,6 +1837,154 @@ mod tests {
         let (_, d, p) = lines_at(&f, 80, 4, Item::Display(0));
         assert!(d.hidden.iter().any(|(i, _)| *i == Item::Rule(5)));
         assert!(!p.iter().any(|l| l.source == Item::Rule(5)));
+    }
+
+    /// A flow drawn from `seed`: the figure's heads and looks, with rules
+    /// of either kind sending to a head, a target that is not a head or a
+    /// head that does not exist, each matching or matching nothing, and
+    /// devices each placed by a rule of its kind.
+    fn random_flow(seed: u64) -> Flow {
+        use super::super::flow::{Device, Rule};
+        let mut state = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+        let mut next = |n: usize| {
+            state = state
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            usize::try_from(state >> 33).unwrap_or(0) % n.max(1)
+        };
+        let mut f = fixture::flow();
+        f.rules.clear();
+        f.displays.clear();
+        f.inputs.clear();
+        for i in 0..next(9) + 1 {
+            let kind = if next(2) == 0 {
+                Kind::Display
+            } else {
+                Kind::Input
+            };
+            let targets: &[&str] = match kind {
+                Kind::Display => &["desk", "panel", "off", "tv"],
+                Kind::Input => &["desk", "panel", "roaming", "ignore"],
+            };
+            f.rules.push(Rule {
+                kind,
+                line: 10 + i,
+                selector: format!("name:r{i}"),
+                target: targets[next(targets.len())].into(),
+                state: if next(3) == 0 {
+                    RuleState::MatchesNothing
+                } else {
+                    RuleState::Matches
+                },
+            });
+        }
+        for kind in [Kind::Display, Kind::Input] {
+            let of: Vec<usize> = (0..f.rules.len())
+                .filter(|r| f.rules[*r].kind == kind)
+                .collect();
+            for d in 0..next(5) {
+                if of.is_empty() {
+                    break;
+                }
+                let dev = Device {
+                    name: format!("dev{d}"),
+                    detail: if next(2) == 0 {
+                        String::new()
+                    } else {
+                        "x".into()
+                    },
+                    keys: Vec::new(),
+                    found: next(4) != 0,
+                    rule: Some(of[next(of.len())]),
+                };
+                match kind {
+                    Kind::Display => f.displays.push(dev),
+                    Kind::Input => f.inputs.push(dev),
+                }
+            }
+        }
+        f
+    }
+
+    /// Each cell where one line draws over the turn or the arrow of
+    /// another, with the two lines.
+    fn over_a_turn(paths: &[Path]) -> Vec<((usize, usize), usize, usize)> {
+        let (cells, arrows) = marks(paths);
+        let mut out = Vec::new();
+        for (at, marks) in &cells {
+            for turn in marks
+                .iter()
+                .filter(|m| m.bits != UP | DOWN && m.bits != LEFT | RIGHT)
+            {
+                for other in marks.iter().filter(|m| m.line != turn.line) {
+                    out.push((*at, turn.line, other.line));
+                }
+            }
+        }
+        for a in &arrows {
+            for m in cells.get(&a.at).into_iter().flatten() {
+                if m.line != a.line {
+                    out.push((a.at, a.line, m.line));
+                }
+            }
+            for b in arrows.iter().filter(|b| b.at == a.at && b.line != a.line) {
+                out.push((a.at, a.line, b.line));
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn at_100_columns_a_line_crosses_another_s_turn_only_where_the_rows_or_lanes_run_out() {
+        let mut found = 0usize;
+        for seed in 0..3000u64 {
+            let f = random_flow(seed);
+            let height = 8 + usize::try_from(seed % 19).unwrap_or(0);
+            let (_, d, p) = lines_at(&f, 100, height, Item::Base);
+            let rows = |item: Item| -> Vec<usize> {
+                d.shown
+                    .iter()
+                    .find(|(s, _)| s.item == item)
+                    .map(|(s, y)| (*y..y + s.lines.len().max(1)).collect())
+                    .unwrap_or_default()
+            };
+            for (at, turn, other) in over_a_turn(&p) {
+                let (a, b) = (&p[turn], &p[other]);
+                // a target with fewer rows than the lines into it, which
+                // end on its last row together
+                let full = |l: &Path| {
+                    l.end == End::Target
+                        && p.iter()
+                            .filter(|o| {
+                                o.end == End::Target && o.gap == l.gap && o.target == l.target
+                            })
+                            .count()
+                            > rows(l.target).len()
+                };
+                // a source each of whose rows another line ends on
+                let no_free_row = |l: &Path| {
+                    rows(l.source).iter().all(|r| {
+                        p.iter()
+                            .any(|o| o.gap == l.gap && o.end == End::Target && o.to == *r && o != l)
+                    })
+                };
+                // more lines in the gap than it has lanes
+                let crowded = p
+                    .iter()
+                    .filter(|o| o.gap == a.gap && (o.end != End::Target || o.from != o.to))
+                    .count()
+                    > a.gap.1.saturating_sub(a.gap.0).saturating_sub(1);
+                found += 1;
+                assert!(
+                    full(a) || full(b) || no_free_row(a) || no_free_row(b) || crowded,
+                    "seed {seed}, cell {at:?}: {:?} over {:?}\n{a:?}\n{b:?}",
+                    b.source,
+                    a.source
+                );
+            }
+        }
+        // the search reaches each of the cases it allows
+        assert!(found > 0, "no layout crossed a turn at all");
     }
 
     #[test]
