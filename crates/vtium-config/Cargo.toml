@@ -56,6 +56,11 @@ skrifa = { version = "=0.44.0", default-features = false, features = ["std"] }
 # its own; run only in the helper and the parser's child, never in the
 # console. Its read-fonts is the version swash's skrifa already builds.
 harfrust = { version = "=0.12.0", default-features = false, features = ["std"] }
+# The glyph helper's landlock domain, which refuses file writes and
+# network access before it reads any font (ADR-1200 D15, the maintainer,
+# 2026-11-04): the Linux landlock maintainers' own binding, safe, the
+# version the image helper already builds.
+landlock = "=0.4.7"
 
 # The user database's lookup of the name doas hands apply in DOAS_USER
 # (getpwnam), safe; the version calloop already builds, with its `user`

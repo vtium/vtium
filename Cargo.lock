@@ -845,6 +845,7 @@ version = "0.1.0-alpha.5"
 dependencies = [
  "bzip2",
  "harfrust",
+ "landlock",
  "lzma-rust2",
  "miniz_oxide",
  "nix",

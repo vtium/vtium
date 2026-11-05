@@ -122,6 +122,10 @@ use std::sync::Arc;
 use std::sync::mpsc::{self, RecvTimeoutError, TryRecvError};
 use std::time::Duration;
 
+use landlock::{
+    ABI, Access, AccessFs, AccessNet, CompatLevel, Compatible, Ruleset, RulesetAttr, RulesetStatus,
+    Scope,
+};
 use rustix::process::{Resource, Rlimit, setrlimit};
 use vtium_font::set::{PixelFormat, SetBuilder, StrikeBuilder};
 use vtium_font::{CELL_SIDE_MAX, CLUSTER_SCALARS_MAX, Cell, Decorations, Style, Width};
@@ -1893,8 +1897,36 @@ fn refuse_root(status: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// `vtium-config serve`: no-new-privileges, the requests' reader, the
-/// limits, then the requests on stdin answered on stdout until
+/// The newest landlock version this build knows; the helper's domain
+/// handles every write right and every network right of the kernel's
+/// version up to it.
+const LANDLOCK_NEWEST: ABI = ABI::V9;
+
+/// Enters a landlock domain for the calling thread and the threads it
+/// starts later (ADR-1200 D15, the maintainer, 2026-11-04). The domain
+/// handles every right to write, create, remove, rename or truncate a
+/// file and grants none, refuses binding and connecting TCP sockets, and
+/// is scoped, so the helper connects to no abstract Unix socket made
+/// outside it and signals no process outside it, each as far as the
+/// kernel's landlock version knows it. It leaves reads open, since a frit
+/// may name a font by an absolute path anywhere. Returns whether the
+/// domain is in force; on a kernel without landlock the helper runs as
+/// before, with none.
+fn lock_out() -> Result<bool, String> {
+    let status = Ruleset::default()
+        .set_compatibility(CompatLevel::BestEffort)
+        .handle_access(AccessFs::from_write(LANDLOCK_NEWEST))
+        .and_then(|r| r.handle_access(AccessNet::from_all(LANDLOCK_NEWEST)))
+        .and_then(|r| r.scope(Scope::from_all(LANDLOCK_NEWEST)))
+        .and_then(|r| r.create())
+        .and_then(|r| r.restrict_self())
+        .map_err(|e| format!("the helper cannot enter its landlock domain: {e}"))?;
+    Ok(status.ruleset != RulesetStatus::NotEnforced)
+}
+
+/// `vtium-config serve`: no-new-privileges, the landlock domain, the
+/// requests' reader, the limits, then the requests on stdin answered on
+/// stdout until
 /// [`HELPER_IDLE_MS`] passes with none. A failure to sandbox is written as
 /// a failed frame, so the console logs it.
 pub fn command(paths: &Paths) -> u8 {
@@ -1908,6 +1940,12 @@ pub fn command(paths: &Paths) -> u8 {
             &mut out,
             &format!("the helper cannot set no-new-privileges: {e}"),
         );
+        return 1;
+    }
+    // before the reader's thread starts, which inherits the domain, and
+    // before any font is read
+    if let Err(why) = lock_out() {
+        let _ = failed(&mut out, &why);
         return 1;
     }
     let requests = read_requests(io::stdin());
@@ -3280,6 +3318,63 @@ mod tests {
             "{took:?}"
         );
         assert_eq!(HELPER_IDLE_MS, 60_000);
+    }
+
+    // the helper's landlock domain refuses every file write and every TCP
+    // bind and connect, and an abstract Unix socket made outside it, and
+    // leaves reads open (ADR-1200 D15, the maintainer, 2026-11-04); a
+    // thread of its own enters it, as the helper's main thread does, so the
+    // rest of the test process stays outside it
+    #[test]
+    fn the_helpers_landlock_domain_refuses_writes_and_the_network() {
+        use std::os::linux::net::SocketAddrExt;
+        use std::os::unix::net::{SocketAddr, UnixListener, UnixStream};
+        let dir = Scratch::new("landlock");
+        let existing = dir.join("existing");
+        std::fs::write(&existing, b"font").unwrap();
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let tcp = listener.local_addr().unwrap();
+        let name = format!("vtium-landlock-{}", std::process::id());
+        let abstract_addr = SocketAddr::from_abstract_name(name.as_bytes()).unwrap();
+        let _unix = UnixListener::bind_addr(&abstract_addr).unwrap();
+        let (existing_in, dir_in) = (existing.clone(), dir.to_path_buf());
+        let locked = std::thread::spawn(move || {
+            let enforced = lock_out().unwrap();
+            if !enforced {
+                return None;
+            }
+            let read = std::fs::read(&existing_in).ok();
+            let created = std::fs::write(dir_in.join("new"), b"x").is_ok();
+            let opened = std::fs::OpenOptions::new()
+                .write(true)
+                .open(&existing_in)
+                .is_ok();
+            let removed = std::fs::remove_file(&existing_in).is_ok();
+            let bound = std::net::TcpListener::bind("127.0.0.1:0").is_ok();
+            let connected = std::net::TcpStream::connect(tcp).is_ok();
+            let reached = UnixStream::connect_addr(&abstract_addr).is_ok();
+            Some((read, created, opened, removed, bound, connected, reached))
+        })
+        .join()
+        .unwrap();
+        let Some((read, created, opened, removed, bound, connected, reached)) = locked else {
+            eprintln!(
+                "skipped: this kernel offers no landlock, so the helper runs without its domain"
+            );
+            return;
+        };
+        assert_eq!(read.as_deref(), Some(&b"font"[..]), "reads stay open");
+        assert!(!created, "a file created");
+        assert!(!opened, "a file opened for writing");
+        assert!(!removed, "a file removed");
+        assert!(!bound, "a TCP socket bound");
+        assert!(!connected, "a TCP socket connected");
+        assert!(
+            !reached,
+            "an abstract Unix socket made outside the domain reached"
+        );
+        // the test's own threads are outside the domain
+        assert!(std::fs::write(dir.join("outside"), b"x").is_ok());
     }
 
     #[test]
