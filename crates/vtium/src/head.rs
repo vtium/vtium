@@ -12,7 +12,6 @@
 
 pub(crate) mod chord;
 pub mod console;
-pub mod identity;
 pub mod images;
 pub(crate) mod route;
 pub(crate) mod session;

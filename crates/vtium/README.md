@@ -23,7 +23,6 @@ The binary: the configuration and command line, the terminfo entry and the XTGET
 | `src/head/console.rs` | A head's console: its session's terminal and pty, its respawn count and its fit |
 | `src/head/images.rs` | What the image keys give each console in a build with images: its handlers, its budget, whether it offers sixel and kitty graphics, the cell its pictures are placed in, and its requests to the image helper (see "Pictures") |
 | `src/animation.rs` | The animation clock in a build with images: which frame each animated picture of a console shows, and when the loop wakes to show the next (see "Pictures") |
-| `src/head/identity.rs` | vtium-platform's identities of a display and an input mapped into the head file's, which the start and `vtium check-config` read alike |
 | `src/term.rs` | A head's terminal as the pty's consumer, and a view per display of the head that draws it: the frame it takes with the buffer token its display lends, composes straight into that buffer and presents |
 | `src/painter.rs` | A head's render thread, which composes the head's frames, and the frame times it logs |
 | `src/video.rs` | A video device behind one trait: drm2d, fbdev, or a test's stand-in |

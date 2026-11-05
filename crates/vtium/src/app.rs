@@ -94,6 +94,7 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
+use vtium_devices::Card;
 use vtium_platform::calloop::LoopHandle;
 use vtium_platform::display::{Blank, Buffers, DPI_ASSUMED, DisplayId, Dpms, Event};
 use vtium_platform::input::{
@@ -115,7 +116,6 @@ use crate::font::{self, Chosen};
 use crate::grab::{self, Chord, Grab};
 use crate::head::chord::{self, HeadChord};
 use crate::head::console::Console;
-use crate::head::identity::{self, Card};
 use crate::head::route::{self, Routes};
 use crate::head::session::{self, AfterExit, Caps};
 use crate::head::{Attached, Frit, Head, Start, place_display};
@@ -1116,8 +1116,8 @@ impl App {
             .position(|&d| d == id)
             .map_or(u32::MAX, |i| u32::try_from(i).unwrap_or(u32::MAX));
         Some(match video.identity(id) {
-            Some(named) => identity::display(&named, &card, order),
-            None => identity::unnamed_display(&video.name(id), &card, order),
+            Some(named) => vtium_devices::display(&named, &card, order),
+            None => vtium_devices::unnamed_display(&video.name(id), &card, order),
         })
     }
 
@@ -2079,7 +2079,7 @@ impl App {
             .flat_map(|(node, video)| {
                 let card = self.cards.get(node).cloned().unwrap_or_default();
                 video.dark().into_iter().map(move |named| {
-                    let display = identity::display(&named, &card, u32::MAX);
+                    let display = vtium_devices::display(&named, &card, u32::MAX);
                     (node.clone(), named.connector, display)
                 })
             })
@@ -2361,7 +2361,7 @@ impl App {
                     let identity = dev
                         .input
                         .as_deref()
-                        .map_or_else(vtium_settings::Identity::input, identity::input);
+                        .map_or_else(vtium_settings::Identity::input, vtium_devices::input);
                     self.add_input(&dev.node, identity);
                 }
                 DeviceKind::Fbdev if dev.flags.drm_backed => {
@@ -4169,7 +4169,7 @@ pub fn open_video(app: &mut App, node: &Path, kind: DeviceKind, card: Card) -> i
                 if !lit.get() {
                     return false;
                 }
-                let display = identity::display(named, &at, 0);
+                let display = vtium_devices::display(named, &at, 0);
                 place_display(&rules, &display)
                     .map_err(|line| log::info!("{line}"))
                     .is_err()
