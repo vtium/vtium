@@ -762,30 +762,48 @@ fn a_sleep_waits_for_the_pending_flip() {
     assert!(matches!(v.commit(DisplayId(A)), Err(SwapError::Off)));
 }
 
-// A VT release before the first frame, as when another program takes the
-// VT while the first modeset's flip is in flight (vtium/vtium#280), lets
-// the card go at once. No plane shows anything, so nothing waits on the
-// flip and the sleep commits nothing: no plane commit is refused as busy,
-// and no wait runs out. The flip stays in flight while the card sleeps,
-// and its bound ends it without a warning, since the program that took
-// the card may hold it up.
+// A VT release while a frame's flip is in flight waits for it even where
+// no plane shows anything, so the program that takes the card can commit
+// on that CRTC at once: the kernel refuses a commit that does not block
+// with EBUSY while the CRTC's last commit has not flipped. The sleep then
+// commits nothing, as there is nothing to hide (vtium/vtium#280).
 #[test]
-fn a_sleep_with_nothing_to_hide_lets_the_card_go_at_once() {
+fn a_sleep_waits_for_a_frames_flip_and_commits_nothing_to_hide() {
+    let mut v = awake(one());
+    frame(&mut v, &[DOT]).unwrap();
+    v.sleep();
+    assert!(events(&mut v).is_empty(), "the sleep waits for the flip");
+    let commits = v.card().state().commits.len();
+    flip(&mut v);
+    assert_eq!(events(&mut v), [Event::Asleep]);
+    assert_eq!(v.card().state().commits.len(), commits, "nothing to hide");
+    assert!(!v.card().state().master);
+    // Another master takes the card and commits on CRTC 100.
+    v.card().state().master = true;
+    let mut req = Request::default();
+    req.set(100, v.card().prop_id("ACTIVE"), 1);
+    assert!(
+        v.card().commit(&req, DRM_MODE_ATOMIC_NONBLOCK).is_ok(),
+        "the next master's commit is not busy"
+    );
+}
+
+// A VT release before the first frame, as when another program takes the
+// VT while the first modeset's flip is in flight, waits for that flip. Its
+// bound running out during the sleep is no warning, since the program
+// taking the card may hold the flip up, and the sleep commits nothing.
+#[test]
+fn a_sleep_over_the_first_modesets_flip_warns_of_nothing() {
     let mut v = one();
     v.wake_up().unwrap();
     v.events().for_each(drop);
     let commits = v.card().state().commits.len();
     logs::capture();
     v.sleep();
-    assert_eq!(events(&mut v), [Event::Asleep]);
-    assert!(!v.card().state().master);
-    assert_eq!(v.card().state().commits.len(), commits, "nothing to hide");
-    assert!(
-        v.is_flipping(DisplayId(A)),
-        "the modeset's flip is in flight"
-    );
+    assert!(events(&mut v).is_empty(), "the sleep waits for the flip");
     v.flip_expired(100);
-    assert!(!v.is_flipping(DisplayId(A)));
+    assert_eq!(events(&mut v), [Event::Asleep]);
+    assert_eq!(v.card().state().commits.len(), commits, "nothing to hide");
     assert!(
         logs::at_least(Level::Warn).is_empty(),
         "{:?}",
@@ -793,32 +811,9 @@ fn a_sleep_with_nothing_to_hide_lets_the_card_go_at_once() {
     );
 }
 
-// A wake-up while the flip of the last modeset is still in flight waits for
-// it, as any modeset waits for the flip in flight, so the late event ends
-// that flip and not the wake-up's own.
-#[test]
-fn a_wake_up_waits_for_a_flip_the_sleep_left_in_flight() {
-    let mut v = one();
-    v.wake_up().unwrap();
-    v.sleep();
-    v.events().for_each(drop);
-    let commits = v.card().state().commits.len();
-    v.wake_up().unwrap();
-    assert_eq!(v.waits(), (true, false), "the modeset waits for the flip");
-    assert_eq!(v.card().state().commits.len(), commits);
-    flip(&mut v);
-    assert!(v.is_flipping(DisplayId(A)), "the wake-up's flip");
-    let c = v.card().last_commit().unwrap();
-    assert_ne!(c.flags & DRM_MODE_ATOMIC_ALLOW_MODESET, 0);
-    assert!(!lends(&mut v, A));
-    flip(&mut v);
-    assert!(lends(&mut v, A));
-}
-
 #[test]
 fn a_sleep_goes_ahead_when_the_flip_never_completes() {
     let mut v = awake(one());
-    pointer(&mut v, A);
     frame(&mut v, &[DOT]).unwrap();
     v.sleep();
     v.flip_expired(100);
@@ -1380,6 +1375,33 @@ fn a_display_takes_its_crtc_from_a_connector_vtium_does_not_bind() {
             "atomic {atomic}"
         );
     }
+}
+
+// The event of a flip whose display is let go while the flip is in flight
+// ends no other display's flip. Here A and B drive only CRTC 100. A's
+// frame is in flight when A is unplugged and B plugged in; the kernel
+// completes A's flip before it takes B's modeset (`stall_checks`), but
+// vtium reads A's event only after the modeset. B's flip stays in flight
+// until its own event, and B lends no token before it.
+#[test]
+fn the_event_of_a_display_let_go_ends_no_later_flip() {
+    let card = reaching(&[0b1, 0b1], 1);
+    let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    frame(&mut v, &[DOT]).unwrap();
+    v.card().complete_flips();
+    {
+        let mut s = v.card().state();
+        s.listed.retain(|&c| c != A);
+        s.connectors.remove(&A);
+        s.listed.push(B);
+    }
+    v.poll().unwrap();
+    assert!(v.is_flipping(DisplayId(B)), "B's modeset flips");
+    v.dispatch().unwrap();
+    assert!(v.is_flipping(DisplayId(B)), "A's event ends no flip of B's");
+    assert!(!lends(&mut v, B));
+    flip(&mut v);
+    assert!(lends(&mut v, B));
 }
 
 // A display that moves to a CRTC with no cursor plane gives its pointer
@@ -2589,7 +2611,6 @@ fn the_loop_delivers_flips_and_bounds_the_wait() {
         seen.extend(app.0.events());
         seen.contains(&Event::Flipped(DisplayId(A)))
     });
-    pointer(&mut app.0, A);
     frame(&mut app.0, &[DOT]).unwrap();
     app.0.sleep();
     let took = turn_until(&mut lp, &mut app, |app| {
@@ -2872,21 +2893,23 @@ fn a_display_powered_down_during_a_vblank_wait_ends_it_at_once() {
     assert!(matches!(app.0.commit(DisplayId(A)), Err(SwapError::Off)));
 }
 
-// A vblank wait that spans a VT leave stays in flight while the card
-// sleeps, as a flip does, and the wake-up's modeset waits for it. Its
-// event, arriving during the wake-up, must not end the modeset's flip early
-// nor lend a token before it.
+// A vblank wait that spans a VT leave ends before the sleep does, as a flip
+// in flight does. Its event, arriving during the wake-up's modeset flip,
+// must not end that flip early nor lend a token before it.
 #[test]
 fn a_vblank_event_left_from_before_a_sleep_ends_no_later_flip() {
     let mut v = awake(one());
     v.card().state().commit_errors.push_back(Errno::BUSY);
     assert!(matches!(frame(&mut v, &[DOT]), Err(SwapError::Busy)));
     v.sleep();
-    assert_eq!(events(&mut v), [Event::Asleep], "nothing to hide");
+    assert!(events(&mut v).is_empty(), "the sleep waits for the vblank");
+    // The bound runs out on the wait, so the sleep goes ahead.
+    v.flip_expired(100);
+    assert_eq!(events(&mut v), [Event::Asleep]);
     v.wake_up().unwrap();
-    assert_eq!(v.waits(), (true, false), "the modeset waits for the vblank");
-    vblank(&mut v);
     assert!(v.is_flipping(DisplayId(A)), "the modeset's flip");
+    vblank(&mut v);
+    assert!(v.is_flipping(DisplayId(A)), "the old vblank ends no flip");
     assert!(!lends(&mut v, A));
     flip(&mut v);
     assert!(lends(&mut v, A));
@@ -3519,7 +3542,6 @@ fn an_unblank_during_a_sleep_starts_no_retry() {
     v.poll().unwrap();
     flip(&mut v);
     v.events().for_each(drop);
-    pointer(&mut v, A);
     frame(&mut v, &[DOT]).unwrap();
     let (mut blank, at) = blanked(&mut v);
     v.sleep();

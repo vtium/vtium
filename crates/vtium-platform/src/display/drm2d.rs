@@ -172,6 +172,12 @@ pub struct Drm2d<K: Kms, S: Source<K> = Dumbs> {
     /// displays do not blank at each hotplug for a display that cannot
     /// light.
     move_refused: Vec<u32>,
+    /// The CRTCs that owe the event of a flip whose display was let go while
+    /// the flip was in flight, one entry for each such flip. A display that
+    /// takes such a CRTC must not take that event as its own flip's, which
+    /// the kernel completes after it (`stall_checks`), so the event is
+    /// dropped when it comes.
+    stale: Vec<u32>,
     /// The connectors whose color properties the card refused at a
     /// modeset, each logged once as a warning.
     color_refused: RefCell<Vec<String>>,
@@ -248,6 +254,7 @@ impl<K: Kms> Drm2d<K> {
             dark: Vec::new(),
             dark_refused: false,
             move_refused: Vec::new(),
+            stale: Vec::new(),
             color_refused: RefCell::new(Vec::new()),
             waiting: None,
             lost_flip: false,
@@ -967,22 +974,20 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         self.settle();
     }
 
-    /// Lets the displays go: blanks them, hides the cursor and overlay
-    /// planes that show something, and drops DRM master. [`Event::Asleep`]
-    /// tells when it is done. A card that never woke drops the master its
-    /// open gave it, so the vtium of the VT shown can take it
-    /// (vtium/vtium#139).
+    /// Lets the displays go: blanks them, waits for the flips in flight (at
+    /// most [`crate::FLIP_WAIT_MS`]), hides the cursor and overlay planes
+    /// that show something and drops DRM master. [`Event::Asleep`] tells
+    /// when it is done. A card that never woke drops the master its open
+    /// gave it, so the vtium of the VT shown can take it (vtium/vtium#139).
     ///
-    /// Where a plane shows something, the sleep first waits for the flips in
-    /// flight, at most [`crate::FLIP_WAIT_MS`]: the commit that hides it does
-    /// not block, and the kernel refuses such a commit with `EBUSY` on a
-    /// plane whose last commit has not flipped yet
-    /// (`drm_atomic_helper_setup_commit`). Where no plane shows anything, as
-    /// before vtium shows a pointer, nothing waits on the flips, so the sleep
-    /// drops master at once. A flip still in flight, such as the first
-    /// modeset's, stays in flight while the card sleeps: its event, or its
-    /// bound, ends it, and the wake-up's modeset waits for it, so a late
-    /// event never ends the wake-up's own flip.
+    /// The wait lets the program that takes the card commit at once: the
+    /// kernel refuses a commit that does not block with `EBUSY` on a CRTC
+    /// whose last commit has not flipped yet (`stall_checks`). A bound that
+    /// runs out during the sleep is logged at debug level, since the
+    /// program taking the card may hold the flip up, as when another master
+    /// starts on the card while vtium's first modeset is in flight. Where no
+    /// plane shows anything, as before vtium shows a pointer, the sleep
+    /// commits nothing (vtium/vtium#280).
     pub fn sleep(&mut self) {
         self.reap();
         self.foreground = false;
@@ -1002,22 +1007,17 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                 o.clear_front();
             }
         }
-        let hide = self.planes_to_hide();
-        if hide.entries.is_empty() {
-            self.waiting = None;
-            self.finish_sleep(&hide);
-        } else {
-            self.waiting = Some(Waiting::Sleep);
-            self.resolve();
-        }
+        self.waiting = Some(Waiting::Sleep);
+        self.resolve();
         self.settle();
     }
 
-    /// Ends the sleep: commits `hide`, which hides the planes that show
-    /// something, and drops DRM master.
-    fn finish_sleep(&mut self, hide: &Request) {
+    /// Ends the sleep once no flip is in flight: hides the planes that show
+    /// something, under the master the commit needs, and drops DRM master.
+    fn finish_sleep(&mut self) {
+        let hide = self.planes_to_hide();
         if !hide.entries.is_empty()
-            && let Err(e) = self.card.commit(hide, DRM_MODE_ATOMIC_NONBLOCK)
+            && let Err(e) = self.card.commit(&hide, DRM_MODE_ATOMIC_NONBLOCK)
         {
             log::warn!("cannot hide the cursor and overlay planes: {e}");
         }
@@ -1025,6 +1025,9 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         self.awake = false;
         self.retries = None;
         self.owed = false;
+        for o in &mut self.outputs {
+            o.flipping = false;
+        }
         self.events.push(Event::Asleep);
     }
 
@@ -1120,8 +1123,14 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     /// was taken as done still tells the owner it may draw, as a swap tried
     /// meanwhile was busy. A vblank ends only the wait for it, and shows
     /// no frame, so the owner is told nothing; it draws again at the turn
-    /// the vblank's event wakes.
+    /// the vblank's event wakes. The event of a flip whose display was let
+    /// go while it was in flight is dropped ([`Self::stale`]).
     fn flipped(&mut self, crtc: u32, frame: bool) {
+        if let Some(at) = self.stale.iter().position(|&c| c == crtc) {
+            self.stale.remove(at);
+            log::debug!("the event on CRTC {crtc} is the flip of a display let go");
+            return;
+        }
         let ready = self.awake && self.waiting.is_none();
         match self.on_crtc(crtc).and_then(|at| self.outputs.get_mut(at)) {
             Some(o) => {
@@ -1164,11 +1173,10 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         if frame {
             o.modeset_flip = false;
         }
-        if !self.awake {
-            // The flip was in flight as vtium let the card go, and the
-            // program that took the card may hold it up.
+        if matches!(self.waiting, Some(Waiting::Sleep)) {
+            // The program taking the card may hold the flip up.
             log::debug!(
-                "no {event} event for {} since vtium let the card go; taking the flip as done",
+                "no {event} event for {} as the card goes to sleep; taking the flip as done",
                 o.name
             );
         } else if std::mem::replace(&mut self.lost_flip, true) {
@@ -1214,10 +1222,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                     self.retry(wake);
                 }
             }
-            Some(Waiting::Sleep) => {
-                let hide = self.planes_to_hide();
-                self.finish_sleep(&hide);
-            }
+            Some(Waiting::Sleep) => self.finish_sleep(),
             None => {}
         }
     }
@@ -2448,9 +2453,15 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         }
     }
 
-    fn free(&self, mut o: Output<S::Memory>) {
+    /// Frees display `o`'s buffers, cursor and mode. Where a flip of its
+    /// own is in flight, the CRTC it was committed on owes an event that no
+    /// display waits for ([`Self::stale`]).
+    fn free(&mut self, mut o: Output<S::Memory>) {
         if let (Some(link), Some((t, _))) = (&self.link, o.flip_timer.take()) {
             link.disarm(t);
+        }
+        if o.flipping {
+            self.stale.push(o.flip_crtc);
         }
         self.free_buffers(&mut o);
         drop_cursor(&self.card, &mut o);

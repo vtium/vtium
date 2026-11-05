@@ -845,7 +845,7 @@ impl FakeCard {
         id
     }
 
-    fn prop_id(&self, name: &str) -> u32 {
+    pub(crate) fn prop_id(&self, name: &str) -> u32 {
         let mut names = self.names.borrow_mut();
         let at = names.iter().position(|n| n == name).unwrap_or_else(|| {
             names.push(name.to_owned());

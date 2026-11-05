@@ -20,9 +20,8 @@
 //!
 //! Each device collects its [`Event`]s, and the owner drains them once a
 //! turn of the loop, where the terminal draws (`Loop::run`'s callback).
-//! Nothing here blocks: a modeset, or a sleep that has a plane to hide,
-//! that finds a page flip in flight waits for the flip's completion event,
-//! a frame the card refused
+//! Nothing here blocks: a modeset or a sleep that finds a page flip in
+//! flight waits for the flip's completion event, a frame the card refused
 //! as busy waits for the display's next vblank, and each wait is taken as
 //! done after [`crate::FLIP_WAIT_MS`] without its event.
 
