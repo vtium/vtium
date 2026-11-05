@@ -12,6 +12,9 @@ use std::path::{Path, PathBuf};
 mod console;
 use console::vtium;
 
+#[path = "common/script.rs"]
+mod script;
+
 const BIN: &str = env!("CARGO_BIN_EXE_vtium-config");
 
 /// A configuration directory, a frits directory holding `tiny` and
@@ -546,13 +549,10 @@ fn a_frame_of_an_unknown_kind_marks_every_frit_unknown() {
     let f = fixture("fonts-unknown-kind", None);
     let helper = f.root.join("other");
     // kind 99 with no payload, then a sources answer, kind 11, with none
-    std::fs::write(
+    script::executable(
         &helper,
         "#!/bin/sh\nprintf '\\143\\000\\000\\000\\000\\000\\000\\000\\013\\000\\000\\000\\000\\000\\000\\000'\nexec sleep 30\n",
-    )
-    .expect("the stand-in");
-    std::fs::set_permissions(&helper, std::os::unix::fs::PermissionsExt::from_mode(0o755))
-        .expect("its mode");
+    );
     let ran = f.run(&["--helper", helper.to_str().expect("a path"), "fonts"]);
     assert_eq!(ran.status, 0, "{}", ran.err);
     let lines: Vec<&str> = ran.out.lines().collect();
@@ -577,13 +577,10 @@ fn a_helper_that_fails_at_start_marks_every_frit_unknown() {
     let f = fixture("fonts-start-fails", None);
     let helper = f.root.join("fails");
     // kind 3, a failure, of 4 bytes, then the end
-    std::fs::write(
+    script::executable(
         &helper,
         "#!/bin/sh\nprintf '\\003\\000\\000\\000\\004\\000\\000\\000boom'\n",
-    )
-    .expect("the stand-in");
-    std::fs::set_permissions(&helper, std::os::unix::fs::PermissionsExt::from_mode(0o755))
-        .expect("its mode");
+    );
     let ran = f.run(&["--helper", helper.to_str().expect("a path"), "fonts"]);
     assert_eq!(ran.status, 0, "{}", ran.err);
     assert!(!ran.out.contains("draws nothing"), "{}", ran.out);
@@ -611,13 +608,10 @@ fn a_helper_that_fails_before_the_requests_are_written_gives_its_own_reason() {
         std::fs::write(f.etc().join(format!("fonts/{name}.vtfrit")), &big).expect("a large frit");
     }
     let helper = f.root.join("fails");
-    std::fs::write(
+    script::executable(
         &helper,
         "#!/bin/sh\nexec 0<&-\nprintf '\\003\\000\\000\\000\\004\\000\\000\\000boom'\n",
-    )
-    .expect("the stand-in");
-    std::fs::set_permissions(&helper, std::os::unix::fs::PermissionsExt::from_mode(0o755))
-        .expect("its mode");
+    );
     let ran = f.run(&["--helper", helper.to_str().expect("a path"), "fonts"]);
     assert_eq!(ran.status, 0, "{}", ran.err);
     let lines: Vec<&str> = ran.out.lines().collect();
@@ -653,9 +647,7 @@ fn fonts_keeps_the_answers_that_came_and_marks_the_rest_unknown() {
         ),
     ] {
         let helper = f.root.join(name);
-        std::fs::write(&helper, format!("#!/bin/sh\n{script}\n")).expect("the stand-in");
-        std::fs::set_permissions(&helper, std::os::unix::fs::PermissionsExt::from_mode(0o755))
-            .expect("its mode");
+        script::executable(&helper, &format!("#!/bin/sh\n{script}\n"));
         let ran = f.run(&["--helper", helper.to_str().expect("a path"), "fonts"]);
         assert_eq!(ran.status, 0, "{name}: {}", ran.err);
         assert!(!ran.out.contains("draws nothing"), "{name}: {}", ran.out);
