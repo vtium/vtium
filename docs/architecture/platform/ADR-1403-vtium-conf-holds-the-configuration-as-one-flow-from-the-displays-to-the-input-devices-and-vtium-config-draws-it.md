@@ -34,6 +34,25 @@ basis:
 agent:
   name: Claude
   model: claude-opus-5-5
+considered:
+  - operator: aaronsb
+    said: "The syntax is option A, named sections: heads.conf's [head] and [rules] sections below the flat lines, with a [profile NAME] section for each look. The braces and the dotted flat keys go to the rejected alternatives. The rules are one ordered [rules] list after the heads, tried top to bottom across every head; that is the nesting meant."
+    via: the steering session's interview, 2026-11-04
+    paraphrase: true
+    covers: [nested objects]
+  - operator: aaronsb
+    said: "vtium refuses a vtium.conf that root does not own or that others can write, and says why. vtium-config gains an editing path like visudo's: an edit command opens a copy of vtium.conf in the user's editor, vim or any other, runs vtium check-config on the copy when the editor exits, and installs it owned by root only if it passes, offering to edit again otherwise. The TUI's saves go through the same check."
+    via: the steering session's interview, 2026-11-04
+    paraphrase: true
+  - operator: aaronsb
+    said: "There is no migration. vtium stops reading heads.conf and the seat file outright, with no warning period and no fold command. The only two installs that have them, the maintainer's desktop and laptop, are converted by hand."
+    via: the steering session's interview, 2026-11-04
+    paraphrase: true
+    covers: [no setup lost]
+  - operator: aaronsb
+    said: "Precedence between the levels (D5), the flow view (D7) and vtium-config's writes (D8) are accepted as drafted, with D8 extended by the editing path."
+    via: the steering session's interview, 2026-11-04
+    paraphrase: true
 status: proposed
 date: 2026-11-04
 deciders:
@@ -45,13 +64,15 @@ related: []
 
 ## Summary
 
-- **Decided:** The maintainer decided on 2026-11-04 that vtium's configuration is one flow, from the displays to the input devices: the displays, the display rules that send each display to a head, the heads, each head's look (its profile, the frit the profile names, and the fonts that frit draws with), the input rules that send each input device to a head, and the input devices. The whole flow lives in one file, `/etc/vtium/vtium.conf`. Its flat `key=value` lines stay, and they are the defaults every head inherits, so a kmscon.conf copied in still reads. The head file's sections, today in `/etc/vtium/heads.conf`, move into vtium.conf below those lines. vtium stops reading the seat file, `seat0.seat.conf`, which is a departure from the C reference. vtium-config gains a view that draws the flow as six columns, each in its own color, joined by lines. Its first version only reads: it places the machine's real displays and input devices on the file's flow with the matching `vtium check-config` already does, and marks each rule that matches nothing. This record's agent adds what the move forces (D3): vtium reads vtium.conf only when root owns it and no one else can write it, as it reads heads.conf today; the lines above the first section keep vtium.conf's forgiving reading, and the sections keep the head file's strict one, so an error in a section never drops a top-level key. Five questions remain for the maintainer, each with a recommendation: the syntax, how a key set at two levels combines, the migration, the view, and vtium-config's writes ([Open questions](#open-questions)).
-- **Trades away:** One file holds two ways of handling a mistake, a forgiving one for the flat keys and a strict one for the sections. An installed heads.conf has to move. A vtium.conf that root does not own, which vtium reads today, is no longer read at all. With the recommended syntax, while the packaged build and the development build share `/etc/vtium/vtium.conf` (ADR-1500 D4), a build older than this change reads a head section's `login` line and a profile section's font lines as if they were top-level keys. The view's columns need a terminal at least 80 columns wide, and a narrower one, such as a minspec board's 40-column console, shows the flow as an indented list instead.
-- **One-way?** No, but expensive once a release ships it: users then write their files in the merged form, and a later change of syntax means a second migration. Until that release every part of this changes in a session.
+- **Decided:** The maintainer decided on 2026-11-04 that vtium's configuration is one flow, from the displays to the input devices: the displays, the display rules that send each display to a head, the heads, each head's look (its profile, the frit the profile names, and the fonts that frit draws with), the input rules that send each input device to a head, and the input devices. The whole flow lives in one file, `/etc/vtium/vtium.conf`. Its flat `key=value` lines stay, and they are the defaults every head inherits, so a kmscon.conf copied in still reads. Below them come sections with names, as heads.conf writes them: a `[profile NAME]` section for each look, a `[head NAME]` section for each head, and one `[rules]` list, which each device tries top to bottom across every head (D4). vtium stops reading the seat file, `seat0.seat.conf`, which is a departure from the C reference, and stops reading heads.conf, with no migration: the two installs that have either file are converted by hand (D6). vtium refuses a vtium.conf that root does not own or that others can write, and says why (D3). vtium-config gains a view that draws the flow as six columns, each in its own color, joined by lines; its first version only reads, placing the machine's real displays and input devices on the file's flow and marking each rule that matches nothing (D7). vtium-config also gains `vtium config edit`, which works as visudo does: it opens a copy of vtium.conf in the user's editor, checks the copy with `vtium check-config` when the editor exits, and installs it as root's only if it passes (D8). This record's agent adds what the move forces: the lines above the first section keep vtium.conf's forgiving reading, and the sections keep the head file's strict one, so an error in a section never drops a top-level key (D3).
+- **Trades away:** One file holds two ways of handling a mistake, a forgiving one for the flat keys and a strict one for the sections. A heads.conf or seat file left in place stops working, with no warning. A vtium.conf that root does not own, which vtium reads today, is no longer read at all. While the packaged build and the development build share `/etc/vtium/vtium.conf` (ADR-1500 D4), a build older than this change reads a head section's `login` line and a profile section's font lines as if they were top-level keys. The view's columns need a terminal at least 80 columns wide, and a narrower one, such as a minspec board's 40-column console, shows the flow as an indented list instead.
+- **One-way?** No, but expensive once a release ships it: users then write their files in the merged form, and a later change of syntax means a migration. Until that release every part of this changes in a session.
 - **Probes:**
-  - *Not confident (nested objects):* the recommendation keeps heads.conf's bracketed sections as they are, placed below vtium.conf's flat lines, and adds a `[profile NAME]` section for each look, so a head names its profile as it does today. The rules stay one ordered list in `[rules]`, outside the heads, because first match depends on their order across all heads. Is that the nesting you meant, or did you mean each head's rules written inside that head?
-  - *Confident (no setup lost):* an installed heads.conf keeps working, with a warning at each start, until `vtium config fold` moves it into vtium.conf or the first beta release stops reading it. An installed `seat0.seat.conf` stops being read with this change; vtium says so at each start, and the same command folds its keys into vtium.conf.
+  - *Not confident (nested objects):* the recommendation keeps heads.conf's bracketed sections as they are, placed below vtium.conf's flat lines, and adds a `[profile NAME]` section for each look, so a head names its profile as it does today. The rules stay one ordered list in `[rules]`, outside the heads, because first match depends on their order across all heads. Is that the nesting you meant, or did you mean each head's rules written inside that head? (Answered 2026-11-04: that is the nesting meant; see `considered`.)
+  - *Confident (no setup lost):* an installed heads.conf keeps working, with a warning at each start, until `vtium config fold` moves it into vtium.conf or the first beta release stops reading it. An installed `seat0.seat.conf` stops being read with this change; vtium says so at each start, and the same command folds its keys into vtium.conf. (Answered 2026-11-04: no migration, the two installs are converted by hand; see `considered` and D6.)
 - **Inversion:** Between "a file for each concern", the C reference's kmscon.conf with a seat file beside it, as vtium has today with heads.conf and planned profile files, and "one document that holds everything the console reads". vtium takes the second for the flow of devices, heads and looks, and keeps frits, vtlooks and shaders as files of their own, because the glyph helper and the renderer read them and vtium-config manages them one by one.
+
+> Edited 2026-11-04: the maintainer answered the probes and the open questions the same day (`considered`), and the record now states the answers as decisions. The Summary listed five open questions with recommendations, and its first two sentences on the move read: "The head file's sections, today in `/etc/vtium/heads.conf`, move into vtium.conf below those lines. vtium stops reading the seat file, `seat0.seat.conf`, which is a departure from the C reference." The earlier text is in git at 33ea5db0.
 
 ## Context
 
@@ -61,7 +82,7 @@ The tree constrains the move in four ways, each read from the code on 2026-11-04
 
 ## Decision
 
-D1 to D3 state the maintainer's decisions and what the move forces. D4 to D8 hold the open questions, each with the options and this record's recommendation, which the maintainer answers before the record is accepted. D9 lists what the code changes to fit.
+D1 to D3 state the maintainer's decisions and what the move forces. D4 to D8 were the open questions of this record's draft, which the maintainer answered on 2026-11-04 (`considered`); each states the answer. D9 lists what the code changes to fit.
 
 ### D1: one flow, from the displays to the input devices
 
@@ -84,42 +105,35 @@ vtium's configuration describes one flow, and every part of it is a component wi
 
 The maintainer decided on 2026-11-04 that vtium stops reading `<seat>.seat.conf`, and that the seat file is removed from the console, vtium-config, the docs and the records. It came across from the C reference's setup for several seats, and no decision chose it.
 
-- vtium reads `vtium.conf` in its configuration directory and then its command line, and nothing else, apart from heads.conf during the migration (D6).
+- vtium reads `vtium.conf` in its configuration directory and then its command line, and nothing else.
 - vtium serves seat0 alone (ADR-1401 D2), so the only seat file it read was seat0's. When the later extension for other seats is built, a seat's flow goes into vtium.conf with the rest, and ADR-1401 D2's sentence that the head file gains a file for each seat no longer holds.
-- What vtium does with an installed seat file is part of the migration (D6).
+- vtium does not look for a seat file, and says nothing of one left in place (D6).
 
 This is a departure from the C reference, which read `<configdir>/<seat>.seat.conf` over kmscon.conf for each seat (C notes).
 
 ### D3: one file, vtium.conf
 
-The maintainer decided on 2026-11-04 that vtium.conf holds the whole flow. Its flat `key=value` lines stay as the defaults every head inherits, so a kmscon.conf copied to `/etc/vtium/vtium.conf` still reads, and the head, rule and look sections come below them. heads.conf's content moves into vtium.conf.
+The maintainer decided on 2026-11-04 that vtium.conf holds the whole flow. Its flat `key=value` lines stay as the defaults every head inherits, so a kmscon.conf copied to `/etc/vtium/vtium.conf` still reads, and the head, rule and look sections come below them. heads.conf's content moves into vtium.conf, and vtium no longer reads heads.conf (D6).
+
+- **Trust covers the whole file, and vtium says why it refuses one** (the maintainer, 2026-11-04). vtium reads vtium.conf only when root owns it and neither its group nor others can write it or a directory above it, the check ADR-1401 D7 and D10 make of heads.conf today. vtium refuses a vtium.conf that fails the check: it reads none of it, runs its compiled-in keys and flow, and every head shows `invalid config skipped, using builtin` with its next step, `Run vtium check-config /etc/vtium/vtium.conf to see why.` The log and `vtium check-config` say why: the file or directory that fails, its owner or its mode, and the command that mends it, `chown root:root` or `chmod go-w` with the path. The check covers the top level as well as the sections because vtium.conf now places keyboards, and because its `login` key already names the command vtium starts as root. A kmscon.conf copied in by root, with the usual mode 0644, passes.
 
 The move forces these decisions, which this record's agent makes from ADR-1401 and the tree:
 
 - **The top level and the sections.** The top level is every line above the first section heading. It holds vtium's keys, as vtium.conf does today, and the two keys heads.conf had above its first section, `version` and `policy`. Everything from the first section heading on is the sections. A key line after a section heading belongs to that section, so the top level is written first, as heads.conf's top-level keys were.
 - **A file with no section is a kmscon.conf.** It needs no `version` line, and vtium runs the compiled-in flow for it (ADR-1401 D6), as it does today when heads.conf is missing. A file with a section needs `version = 1` at the top level. A missing or unknown version is ADR-1401 D7's error that drops the whole head file but its policy; under one file it drops every section but the policy, and the top-level keys still apply.
-- **Trust covers the whole file.** vtium reads vtium.conf only when root owns it and neither its group nor others can write it or a directory above it, the check ADR-1401 D7 and D10 make of heads.conf. A vtium.conf that fails the check is not read at all: vtium runs its compiled-in keys and flow, and every head shows `invalid config skipped, using builtin`, as for an untrusted heads.conf. The check covers the top level as well as the sections because vtium.conf now places keyboards, and because its `login` key already names the command vtium starts as root. A kmscon.conf copied in by root, with the usual mode 0644, passes.
 - **Two ways of handling a mistake, one for each part.** The top level keeps vtium.conf's reading, which follows the C reference's: an unknown key is reported once and ignored, a value out of bounds is clamped, a value vtium cannot read is ignored, and a key set twice takes its last value. The sections keep ADR-1401 D7's three levels unchanged, and what ADR-1401 D7 calls the whole file is now the sections and the policy. An error in a section never drops a top-level key, and a top-level mistake never drops a section.
 - **The policy line.** ADR-1401 D7's rule for a policy line holds: a line above the first section that begins with `policy`, in any mix of case, is a policy line, and one vtium cannot read makes the sections closed and broken. Among vtium's keys none begins with `policy`, so no existing key changes meaning.
 - **One bound for the file.** vtium.conf keeps its bounds, 65,536 bytes a file and 8,192 a line, which heads.conf shares. The shipped example vtium.conf and the head file's template together hold 40,327 bytes. A test fails when the generated example passes 49,152 bytes, so at least 16 KiB stay for a user's own heads, profiles and rules.
 - **One source for the compiled-in flow.** The head file's template, `crates/vtium-settings/templates/heads.conf`, becomes the sections of the shipped example: the example vtium.conf is the key table's commented lines, then `version = 1`, then the template's sections with the shipped rules as live lines, as ADR-1401 D6 has them. vtium's compiled-in flow is still parsed from that same text.
 - **`vtium check-config FILE`** checks a candidate vtium.conf, both parts in one run with one exit status, where today FILE names a candidate head file.
 
-### D4: the syntax of the sections (open)
+> Edited 2026-11-04: the maintainer decided that vtium refuses a vtium.conf it cannot trust and says why, and that heads.conf is not read (`considered`). The trust bullet was this record's agent's call among the forced decisions, and said only that every head shows `invalid config skipped, using builtin`.
 
-The maintainer asked for the head, rule and look sections to nest below the flat lines, and asked how other `.conf` files nest objects. Two families of syntax nest objects in a file that people edit by hand, and both keep a kmscon.conf readable:
+### D4: the syntax of the sections
 
-- **Sections with names,** as in an INI file. git's configuration writes `[remote "origin"]` and `[branch "main"]`, systemd's unit files write `[Service]`, and heads.conf already writes `[head desk]` and `[rules]`. The section's heading names the object, and every line below it, up to the next heading, belongs to it. A deeper link is a key that names another section: git's `[branch "main"]` holds `remote = origin`, which names the `[remote "origin"]` section, and a head's `profile = big` names a profile the same way. git puts a section's name in quotes so that it can hold any character, as in `[display "edid:AAA:0x0001:LARGE00001"]`; a vtium name holds no blank (ADR-1401 D3), so vtium needs no quotes, and heads.conf has none.
-- **Blocks in braces,** as sway, i3, Hyprland and nginx write them: `server { location / { ... } }` in nginx. sway is the closest to vtium, since it matches displays and input devices by a selector at the head of each block: `output eDP-1 { mode 1920x1080 }` and `input type:keyboard { xkb_layout us }`. sway applies every block whose selector matches a device and merges their settings. ADR-1401's rules place a device by the first rule that matches, in the order the file gives, so under braces vtium keeps its rules as one ordered list inside one block, rather than a block for each selector.
+The maintainer chose on 2026-11-04 sections with names, as heads.conf writes them (`considered`). Below the top level come a `[profile NAME]` section for each look, a `[head NAME]` section for each head, and one `[rules]` section after the heads, whose rules each device tries top to bottom across every head. This is the nesting the maintainer meant: a section's heading names the object, every line below it up to the next heading belongs to it, and a deeper link is a key that names another section, as git's `[branch "main"]` names its remote with `remote = origin` and a head names its profile with `profile = big`. The rules stay one list outside the heads because first match depends on their order across every head (ADR-1401 D3). A vtium name holds no blank (ADR-1401 D3), so a heading needs no quotes, as git's do.
 
-Two other forms lose, for these reasons:
-
-- **TOML** gives real nesting with existing parsers, but a text value must be quoted, as `xkb-layout = "us"`, and every key needs a value, so a switch written alone on its line, such as `hwaccel` or `mouse`, is invalid. A kmscon.conf would not parse, which breaks the maintainer's decision that one copied in still reads. YAML loses for the same reason, and makes indentation carry meaning.
-- **Dotted flat keys,** as sysctl writes them (`net.ipv4.ip_forward = 1`), would write a head as `head.desk.profile=big`. Every line stays a flat key, which an older vtium ignores as unknown, but the structure is invisible: a head is spread over lines that only share a prefix, nothing groups them, and the rules need a key such as `rule=` that keeps every value it is given, where every other key keeps its last.
-
-The two forms that remain follow, each as the same whole vtium.conf, for a machine with two displays, a large monitor and a small panel, and one keyboard that types into whichever head is active. The top level is the same in both: two of vtium's keys and a switch.
-
-**A: sections with names, as heads.conf writes them, with a section for each profile** (recommended).
+A whole vtium.conf for a machine with two displays, a large monitor and a small panel, and one keyboard that types into whichever head is active:
 
 ```ini
 # /etc/vtium/vtium.conf: two displays, one keyboard.
@@ -145,6 +159,8 @@ profile = big
 profile = small
 consoles = 2
 
+# Each display and each input tries these rules top to bottom,
+# across every head, and the first that matches places it.
 [rules]
 display edid:AAA:0x0001:LARGE00001 -> desk
 display edid:BBB:0x0002:SMALL00001 -> panel
@@ -153,59 +169,16 @@ input class:keyboard -> roaming
 input * -> ignore
 ```
 
-**B: blocks in braces, as sway writes them, with each head's look written inside the head.**
+- **heads.conf's sections move in unchanged.** Its parser and ADR-1401 D7's drop rules read them, and ADR-1304's vtlook file is written in the same syntax.
+- **A `[profile NAME]` section is the profile's file** that ADR-1200 D16 left for later. It takes the keys D5 lists, under the same names the top level uses.
+- **One comment rule serves the whole file,** the head file's: a `#` starts a comment at the start of a line or after a blank, a `#` inside a word is part of the word, and `\#` gives a literal `#` after a blank. vtium.conf's exception is kept: a `#` that opens a `#rrggbb` value is part of the value. A value at the top level can then hold a `#` inside it, as a head's `login` command already can. In one case a top-level line reads differently from the C reference: a `#` directly after a value, with no blank before it, as in `font-size=12#big`, stays in the value, which vtium then reports as one it cannot read. This is listed as a departure.
+- **Section keys always take `key = value`;** the switches `key` and `no-key` stay at the top level.
 
-```text
-# /etc/vtium/vtium.conf: two displays, one keyboard.
-# The top level: vtium's keys, the defaults every head inherits.
-font-size=12
-xkb-layout=us
-mouse
-version = 1
-policy = open
+Blocks in braces, as sway writes them, TOML and dotted flat keys were weighed and lost; Alternatives Considered gives each one's reasons.
 
-head desk {
-    profile big {
-        font-name = monoid
-        font-size = 14
-    }
-}
+### D5: how a key set at two levels combines
 
-head panel {
-    consoles = 2
-    profile small {
-        font-name = dejavu
-    }
-}
-
-rules {
-    display edid:AAA:0x0001:LARGE00001 -> desk
-    display edid:BBB:0x0002:SMALL00001 -> panel
-    display * -> desk
-    input class:keyboard -> roaming
-    input * -> ignore
-}
-```
-
-How they compare:
-
-| | A: sections with names | B: blocks in braces |
-|---|---|---|
-| A kmscon.conf still reads | yes | yes |
-| What shows the nesting | a head names its profile, as git's branch names its remote; the flow view draws the name as a line | the profile is written inside its head |
-| heads.conf moves in | pasted below the top level, unchanged | rewritten into blocks |
-| Parser | the head file's, which exists, with one new section kind | a new one; a missing brace swallows every line after it, so ADR-1401 D7 has no clear line to drop |
-| A profile two heads share | written once and named by both | written as a block of its own and named by both, as in A, or copied into each head |
-| An older vtium sharing the file (ADR-1500 D4) | reads a section's `login` and a profile's font lines as top-level keys | the same, since an older vtium reads line by line and ignores the braces as unknown keys |
-| ADR-1304's vtlook | uses the same syntax | differs |
-
-The recommendation is A. It is heads.conf's syntax, which the maintainer decided moves into vtium.conf rather than being redesigned, its parser and ADR-1401 D7's drop rules exist, and ADR-1304's vtlook file is written the same way. A head names its profile, as git links its sections, and the flow view draws that name as a line, so the nesting the maintainer asked for shows in the view while the rules keep their single order. A `[profile NAME]` section is the profile's file that ADR-1200 D16 left for later: it takes the keys D5 lists, under the same names the top level uses. B writes the nesting most literally and follows sway, the closest program to vtium, at the cost of a new parser, of a missing brace that drops more than its own line, and of a second way to write a profile that two heads share. Both share one cost: an older build misreads a section's `login` or font lines while two builds share the file, which ends once both are updated.
-
-Under A, one comment rule serves the whole file, the head file's: a `#` starts a comment at the start of a line or after a blank, a `#` inside a word is part of the word, and `\#` gives a literal `#` after a blank. vtium.conf's exception is kept: a `#` that opens a `#rrggbb` value is part of the value. A value at the top level can then hold a `#` inside it, as a head's `login` command already can. In one case a top-level line reads differently from the C reference: a `#` directly after a value, with no blank before it, as in `font-size=12#big`, stays in the value, which vtium then reports as one it cannot read. This is listed as a departure. Section keys always take `key = value`; the switches `key` and `no-key` stay at the top level.
-
-### D5: how a key set at two levels combines (open)
-
-The recommendation:
+The maintainer accepted these rules on 2026-11-04 as this record drafted them (`considered`):
 
 - **Three levels, and the most specific wins:** a head's section, then the section of the profile the head names, then the top level. The command line sets top-level keys and wins over the file's top level, as it does today, and a section still wins over both, as a head's profile wins over vtium.conf's `font-name` today (ADR-1200 D16). A key the head and its profile leave unset takes the top level's value, and a key the top level leaves unset takes its default.
 - **Each section kind takes a fixed list of keys.** A head takes ADR-1401 D3's head keys, `profile`, `consoles`, `login`, `when-display-lost` and `isolated`, and ADR-1304 D5's `look` once it is built. A profile takes the keys ADR-1200 D16 gives a profile that the key table has: `font-name`, which names the profile's frit, `font-engine`, `font-size`, `font-hinting`, `font-line-spacing`, `display-depth` and `display-dpi`. A head sets no font key of its own, since a head's font has one path, from the head to its profile to the profile's frit (ADR-1401 D3).
@@ -216,27 +189,19 @@ The recommendation:
 
 The other way is to let every key be set in a head's section. It would give each head its own palette or keyboard layout, but many keys belong to the process, the seat or an input device rather than a head, and each would need a rule for what a head's value means. A key can move into the head's list later, one row at a time, when someone needs it.
 
-### D6: migration (open)
+### D6: no migration
 
-**heads.conf.** The recommendation is both of the options the maintainer named, with a fixed end:
+There is no migration, as the maintainer decided on 2026-11-04 (`considered`). With this change vtium stops reading `/etc/vtium/heads.conf` and `seat0.seat.conf` outright: it does not look for either file, shows no warning, and has no period in which it reads either, and vtium-config has no command that folds them into vtium.conf. The only two installs that have either file are the maintainer's desktop and laptop, which the maintainer converts by hand, so the code and the docs carry no path that nobody else needs. A heads.conf or seat file left in `/etc/vtium` does nothing, and vtium never removes or changes it (ADR-1401 D6).
 
-- vtium reads `/etc/vtium/heads.conf` as before, under the same trust check and the same three levels, only while vtium.conf has no section. It then logs a warning at each start, and `vtium check-config` warns, exiting 1, naming the file and `vtium config fold`.
-- When vtium.conf has a section and heads.conf is there too, vtium reads vtium.conf's sections alone and warns that heads.conf is not read.
-- From the first beta release vtium never reads heads.conf, and warns at each start while one is present. vtium never changes or moves either file (ADR-1401 D6).
-- `vtium config fold` is a vtium-config command, which the TUI also offers when it finds either file. It writes a draft of vtium.conf with heads.conf's text placed below vtium.conf's top level, and its `version` and `policy` lines moved to the top level. It saves the draft through `sudo vtium-config apply`, which checks the result with `vtium check-config` before it writes anything (ADR-1201 D5). Once vtium.conf is written, `apply` renames heads.conf to `heads.conf.bak` beside it, the one generation `apply` keeps of any file it replaces, so vtium no longer finds it. `fold` refuses a heads.conf vtium does not read whole, naming each error, as the head file's writer refuses one today, so a broken file is mended before it moves.
-- Packages keep heads.conf as a configuration file they track until vtium stops reading it. A package that dropped the file sooner would have its package manager set a changed copy aside under another name, such as pacman's `.pacsave`, where vtium no longer finds it, and the user's heads would be gone without a word.
+> Edited 2026-11-04: the maintainer decided that there is no migration (`considered`). D6 was headed "migration (open)" and recommended that vtium read heads.conf with a warning until the first beta release, that `vtium config fold` move heads.conf and the seat file's keys into vtium.conf and rename the old files to `.bak`, and that packages keep tracking heads.conf until reading stopped. The earlier text is in git at 33ea5db0.
 
-**The seat file.** vtium stops reading `seat0.seat.conf` with this change, as the maintainer decided. While the file is present, vtium logs a warning at each start naming it and `vtium config fold`, and `vtium check-config` warns, exiting 1. `fold` sets each of the seat file's keys at vtium.conf's top level through the line editor, its values winning as they did over vtium.conf, and renames the file to `seat0.seat.conf.bak`. vtium never read another seat's file, since it serves seat0 alone, and says nothing of one.
+### D7: the flow view
 
-The other ways: reading heads.conf with no end leaves two places for the same configuration for good; a fold done by vtium itself breaks ADR-1401 D6's rule that vtium never writes a configuration file; and stopping at once loses a working setup on the next update.
-
-### D7: the flow view (open)
-
-The figure shows the recommended view on the machine of D4's example, with D4's option A, as it looks on a dark console. The keyboard is selected, and its path through the flow is spelled out on the line below the columns.
+The figure shows the view on the machine of D4's example as it looks on a dark console. The keyboard is selected, and its path through the flow is spelled out on the line below the columns.
 
 ![vtium-config's flow view on a black console background, under the tabs Fonts, Sizes, Settings, Heads, Flow (selected) and Save. A status line reads /etc/vtium/vtium.conf, policy open, a udev daemon runs, 2 displays and 2 inputs present. Six columns follow, each heading in its own color: DISPLAYS in bright cyan lists DP-8 (LARGE00001) and HDMI-A-2 (SMALL00001); DISPLAY RULES in cyan lists line 18, edid LARGE00001 to desk, line 19, edid SMALL00001 to panel, and line 20, display star to desk, in grey with the words matches no display present; HEADS in bright yellow and LOOK in bright magenta share a box for each head: desk, 1 console, the active head, with profile big at 14 pt, frit monoid and the font Monoid, and panel, 2 consoles, with profile small at 12 pt, frit dejavu and the font DejaVu Sans Mono; below them grey boxes for roaming (types into desk, active), ignore (vtium never opens it) and off (vtium sets it off). INPUT RULES in green lists line 22, a serial match to desk, in grey with the words matches no device present, line 23, class keyboard to roaming, and line 24, star to ignore. INPUT DEVICES in bright green lists the keyboard, selected in reverse video, at usb-0:3.3, and the Power Button, class key. Cyan arrows run from each display to its rule and from each rule to its head; green arrows run from each input device to its rule and from each rule to its target; grey dashed arrows run from rules 20 and 22 to desk. A legend explains the solid and dashed lines, a detail line reads keyboard, usb-0:3.3, class keyboard: line 23, input class:keyboard -> roaming, so it types into desk, the active head, and a key line reads arrows move, Enter shows the line in the file, Tab next view, q quits.](figures/ADR-1403-flow-view.svg)
 
-The recommendation:
+The maintainer accepted the view on 2026-11-04 as this record drafted it (`considered`):
 
 - **The columns,** left to right: displays, display rules, heads, look, input rules, input devices. Each head is one box spanning the heads and look columns, with the head's name and its consoles on the left and its profile, frit and fonts on the right, so lines from display rules enter the box from the left and lines from input rules from the right, and no line crosses the look column. Below the heads, boxes for `roaming`, `ignore` and `off` take the rules that target them, and a box for the policy takes the devices no rule matches, with the words of what the policy gives them.
 - **What a line means.** A line from a device to a rule says that rule is the device's first match. A line from a rule to a box says that box is the rule's target. Every rule has its target line whether or not any device is present; only devices present have lines of their own. The look's entries hang from the profile as a small tree: the profile, the frit it names, and each font the frit draws with that this machine has.
@@ -248,45 +213,57 @@ The recommendation:
 - **How to reach it.** A tab named Flow in the TUI, after Heads, and a command, `vtium config flow`, that prints the view as text and exits, as every action of the TUI is also a command (ADR-1201 D2). The view reads vtium.conf, the frits and the devices as the user, with no privilege, from the console or a desktop terminal. On a desktop, displays are named as the kernel names them.
 - **It only reads.** The first version changes nothing. Editing in the view comes later, through the same writers as every other edit (D8).
 
-### D8: what vtium-config writes (open)
+### D8: what vtium-config writes
 
-vtium-config writes vtium.conf, heads.conf and frits today, through drafts that `sudo vtium-config apply` checks and installs (ADR-1201 D5, D6). The recommendation:
+vtium-config wrote vtium.conf, heads.conf and frits, through drafts that `sudo vtium-config apply` checks and installs (ADR-1201 D5, D6). The maintainer accepted the first four bullets on 2026-11-04 as this record drafted them, and added the edit command (`considered`):
 
-- **One configuration file.** vtium-config writes vtium.conf and the frits, and, under ADR-1304 once it is built, vtlooks. A draft holds the whole edited vtium.conf, and names heads.conf or `seat0.seat.conf` only as a file for `apply` to set aside after a fold (D6).
+- **One configuration file.** vtium-config writes vtium.conf and the frits, and, under ADR-1304 once it is built, vtlooks. A draft holds the whole edited vtium.conf.
 - **One reading of the file for every writer.** vtium-settings reads vtium.conf into its top level and its sections, and each writer works from that reading, so they agree where the top level ends. The line editor of ADR-1201 D5 changes only the top level: a key is replaced on the top-level line vtium takes it from, never on a section's line of the same name; a commented line such as `#font-size=0` counts only at the top level; a new key goes after the last top-level line, never at the end of the file; and `--unset` comments out top-level lines alone. The section writer, which sets a head's profile today (ADR-1201 D6), keeps its rules for every section it edits: it edits only a file vtium reads whole, changes only the lines it needs, and parses its result before handing it back.
-- **What each part of the TUI writes.** The Settings view writes top-level keys. The Heads view sets a head's profile. A profile's keys go in its `[profile NAME]` section, once D4's option A is taken, through the section writer. The Flow view writes nothing until editing comes.
-- **`apply`** checks vtium.conf with `vtium check-config FILE`, one run for both parts. It writes the frits first and vtium.conf after them, so vtium.conf never names a frit that is not there, and sets aside a folded file last. It keeps one `.bak` of each file it replaces, as today.
+- **What each part of the TUI writes.** The Settings view writes top-level keys. The Heads view sets a head's profile. A profile's keys go in its `[profile NAME]` section, through the section writer. The Flow view writes nothing until editing comes.
+- **`apply`** checks vtium.conf with `vtium check-config FILE`, one run for both parts, and installs nothing that fails. It writes the frits first and vtium.conf after them, so vtium.conf never names a frit that is not there. It keeps one `.bak` of each file it replaces, as today. Every save the TUI makes goes through this check.
+- **`vtium config edit`, the way visudo edits sudoers.** visudo copies `/etc/sudoers` to a temporary file, opens it in the user's editor, checks the copy's syntax when the editor exits, and installs it only when it parses, asking whether to edit again otherwise; `crontab -e` and `systemctl edit` work the same way. `vtium config edit` brings that to vtium.conf, for a user who prefers vim or any other editor to the TUI:
+  1. It runs as the user, never as root. It copies the installed `/etc/vtium/vtium.conf` into a new draft, under `$XDG_STATE_HOME/vtium/drafts/`, and records the installed file's SHA-256. With no vtium.conf installed, the copy starts from the shipped example.
+  2. It opens the copy in the editor `$VISUAL` names, else `$EDITOR`, else `vi`.
+  3. When the editor exits with the copy unchanged, it says so and installs nothing.
+  4. Otherwise it runs `vtium check-config` on the copy. When the check fails, with an error or a warning, it prints each problem with its line and asks whether to edit the copy again or to stop, keeping the draft and installing nothing. Unlike visudo, it offers no way to install a copy that fails. Notes, which do not fail the check, are printed and do not stop it.
+  5. When the check passes, it installs the copy through `sudo vtium-config apply`, which checks it again as root, refuses it when the installed file has changed since the copy was made, and writes it owned by root with mode 0644, in one rename, keeping the old file as `vtium.conf.bak`. visudo locks the file while it is edited; vtium-config finds a change made meanwhile through the hash instead, as `apply` does for every draft.
+  6. Without sudo, it keeps the draft and prints where it is and the command that installs it, as ADR-1401 D12 has for a draft written without privilege.
+- **Editing by hand stays possible.** Root can still edit `/etc/vtium/vtium.conf` with any editor. vtium then reads it as D3 says, and `vtium config edit` is the way to have it checked before vtium reads it.
+
+> Edited 2026-11-04: the maintainer added the edit command and accepted the rest (`considered`). D8 was headed "what vtium-config writes (open)", had no edit command, and its draft could name heads.conf or `seat0.seat.conf` as a file for `apply` to set aside after a fold.
 
 ### D9: what the code changes to fit
 
-These follow from D1 to D3 and the tree, whichever answers D4 to D8 get:
+These follow from D1 to D8 and the tree:
 
 - vtium.conf's reader stops at the first section heading and hands the rest to vtium-settings's head-file reading, through one function that splits the file, so the console, `vtium check-config` and vtium-config agree where the top level ends.
-- The trust check vtium-settings makes of heads.conf applies to vtium.conf.
+- The trust check vtium-settings makes of heads.conf applies to vtium.conf, with the reasons and the mending commands of D3.
+- heads.conf's reading goes from the console's start and from `vtium check-config`, and `apply` no longer takes heads.conf in a draft.
 - The seat file's code goes: the seat's path in `files`, the seat's name check and its report in `crates/vtium/src/config/mod.rs`, the seat's argument to `load` in `main.rs`, and `SEAT` in `crates/vtium-config/src/switch.rs`.
 - The mapping from a listed device to the identity the rules match moves out of the console binary into a crate that vtium and vtium-config both link, so the flow view and `vtium check-config` place each device by one function. The work that builds the view chooses the crate.
 - The TUI gains color, through the sixteen-color SGR codes alone, and reads `NO_COLOR`.
+- vtium-config gains two commands, `edit` (D8) and `flow` (D7).
 - The example vtium.conf is generated from the key table and the sections template together, with the size test of D3.
 
-## Open questions
+## The maintainer's answers
 
-Each question is answered by the maintainer before this record is accepted. The recommendation for each, in one line:
+The maintainer answered the draft's open questions on 2026-11-04 (`considered`):
 
-1. **The syntax (D4):** heads.conf's sections with names below the top level, as they are, with a `[profile NAME]` section for each look and one comment rule for the whole file, rather than sway's blocks in braces; TOML and dotted flat keys lose.
-2. **Two levels (D5):** a head's section over its profile over the top level, with a fixed list of keys for each section kind, recorded in the key table.
-3. **Migration (D6):** vtium reads heads.conf with a warning while vtium.conf has no section, until the first beta; `vtium config fold` moves heads.conf and the seat file's keys in and sets the old files aside; the seat file stops being read at once, with a warning.
-4. **The view (D7):** six columns with a box for each head spanning heads and look, lines for first matches and targets in the colors of the rules they pass, grey and words for a rule that matches nothing, a list on terminals under 80 columns, reached by a Flow tab and `vtium config flow`.
-5. **Writes (D8):** vtium-config writes one configuration file, vtium.conf, through one reading that both of its writers share.
+1. **The syntax (D4):** sections with names, with a `[profile NAME]` section for each look and one `[rules]` list after the heads, tried top to bottom across every head.
+2. **Two levels (D5):** as drafted: a head's section over its profile over the top level, with a fixed list of keys for each section kind.
+3. **Migration (D6):** none; the two installs that have heads.conf or a seat file are converted by hand.
+4. **The view (D7):** as drafted.
+5. **Writes (D8):** as drafted, with `vtium config edit` added, and vtium refusing an untrusted vtium.conf with its reasons (D3).
 
 ## Passages this record changes
 
 Once the maintainer accepts this record, each passage below is edited in place with a dated note that cites ADR-1403:
 
-- ADR-1401 D3: the head file is the sections of `/etc/vtium/vtium.conf`, and its top-level keys sit among vtium's keys. D2: a later seat's flow goes into vtium.conf, not a file of its own. D6: the template is the sections of the example vtium.conf. D7: the trust check covers vtium.conf, and "the whole file" means the sections and the policy. D12: `vtiumctl template` and `install` write vtium.conf.
-- ADR-1200 D16: a profile is a `[profile NAME]` section of vtium.conf, if D4's option A is taken.
-- ADR-1201 D5 and D6: what a draft holds, the line editor's top level, and the section writer.
-- ADR-1500 D4: the rows for the seat file and for heads.conf.
-- ADR-1304 D5, still proposed: a head's `look` is set in its section of vtium.conf; its author changes it before acceptance.
+- ADR-1401 D3: the head file is the sections of `/etc/vtium/vtium.conf`, and its top-level keys sit among vtium's keys. D2: a later seat's flow goes into vtium.conf, not a file of its own. D6: the template is the sections of the example vtium.conf. D7: the trust check covers vtium.conf and says why it refuses one, and "the whole file" means the sections and the policy. D12: `vtiumctl template` and `install` write vtium.conf.
+- ADR-1200 D16: a profile is a `[profile NAME]` section of vtium.conf.
+- ADR-1201 D2: the commands `edit` and `flow`. D3: the Flow tab. D5: what a draft holds, the line editor's top level, and the check every save goes through. D6: the section writer edits vtium.conf.
+- ADR-1500 D4: the rows for the seat file and for heads.conf, and the shared-head-file probe and answer, which now concern vtium.conf.
+- ADR-1304 D4 and D5, still proposed: a vtlook uses vtium.conf's section syntax, and a head's `look` is set in its section of vtium.conf; its author changes them before acceptance.
 - docs/config.md, docs/configure.md, docs/head-file.md, docs/heads.md and the files under docs/heads/, the READMEs of the vtium, vtium-config and vtium-settings crates, and the configuration example and template.
 
 ## C notes: the C reference's flow
@@ -299,9 +276,9 @@ Once the maintainer accepts this record, each passage below is edited in place w
 ## Where vtium departs from the C reference
 
 - **No seat file.** The C reference read `<seat>.seat.conf` over kmscon.conf for each seat. vtium reads vtium.conf and its command line alone, and its configuration for every seat it will serve lives in vtium.conf (D2).
-- **Sections below the keys.** The C reference's file held keys alone. vtium.conf holds the flow's sections below them, and a kmscon.conf with no section reads as it did (D3).
-- **Root's file.** The C reference read its file whoever owned it. vtium reads vtium.conf only when root owns it and no one else can write it (D3).
-- **A `#` glued to a value,** if D4's option A and its comment rule are taken: the C reference ended a value at any `#` that did not open a `#rrggbb` value, and vtium keeps a `#` with no blank before it in the value (D4).
+- **Sections below the keys.** The C reference's file held keys alone. vtium.conf holds the flow's sections below them, and a kmscon.conf with no section reads as it did (D3, D4).
+- **Root's file.** The C reference read its file whoever owned it. vtium refuses a vtium.conf that root does not own or that others can write, and says why (D3).
+- **A `#` glued to a value.** The C reference ended a value at any `#` that did not open a `#rrggbb` value. vtium keeps a `#` with no blank before it in the value (D4).
 
 ## Consequences
 
@@ -310,14 +287,15 @@ Once the maintainer accepts this record, each passage below is edited in place w
 - One file shows how each display and each keyboard reaches a terminal and what that terminal draws with, and the flow view draws it with the machine's own devices on it.
 - A head's inheritance is written where it happens: the keys a head inherits sit above its section in the same file.
 - vtium.conf gains the trust check heads.conf had, which also closes the path by which a vtium.conf that root does not own could name the command vtium starts as root.
+- `vtium config edit` lets a user edit the whole file in their own editor with the same check before install that the TUI's saves get.
 - The seat file's second layer of the same keys goes, so a key has one place at each level.
 
 ### Negative
 
 - One file mixes a forgiving reading at the top level with a strict one in the sections, and a reader has to know which part a line is in. The flow view and `vtium check-config` say which.
-- A user who runs vtium with a vtium.conf root does not own loses that file's settings until it is root's, and sees `invalid config skipped, using builtin`.
-- heads.conf and the seat file each need a migration, a command and two warnings, and heads.conf stays readable until the first beta.
-- While two builds share `/etc/vtium/vtium.conf`, a build older than this change misreads a section's `login` and a profile's font lines under either syntax D4 weighs.
+- A user who runs vtium with a vtium.conf root does not own loses that file's settings until it is root's.
+- A heads.conf or seat file left in place stops working without a word. The maintainer converts the two installs that have one by hand.
+- While two builds share `/etc/vtium/vtium.conf`, a build older than this change misreads a section's `login` and a profile's font lines.
 - The flow view brings color into vtium-config, which needs a rule for terminals without color and a list for narrow ones.
 
 ### Neutral
@@ -328,7 +306,10 @@ Once the maintainer accepts this record, each passage below is edited in place w
 
 ## Alternatives Considered
 
-- **Keep heads.conf beside vtium.conf, and draw the flow from both files.** The view could join two files, and nothing would migrate. The maintainer decided on one file, and two files keep the inheritance split from what it inherits.
+- **Blocks in braces, as sway, i3, Hyprland and nginx write them.** sway is the closest program to vtium, since it matches displays and input devices by a selector at the head of each block, as in `output eDP-1 { mode 1920x1080 }` and `input type:keyboard { xkb_layout us }`. vtium's form would write `head desk { profile big { font-name = monoid } }` and a `rules { ... }` block. It writes the nesting most literally, and it costs a new parser, a missing brace that swallows every line after it so that ADR-1401 D7 has no single line to drop, and a second way to write a profile two heads share. sway also applies every block whose selector matches a device and merges their settings, where vtium places a device by the first rule that matches, so the rules would stay one ordered block in any case. The maintainer chose sections with names (`considered`).
+- **Dotted flat keys,** as sysctl writes them, such as `head.desk.profile=big` and `rule=display * -> desk`. Every line stays a flat key, which an older vtium ignores as unknown, but the structure is invisible: a head is spread over lines that only share a prefix, and `rule` would keep every value it is given, where every other key keeps its last.
+- **TOML or YAML for the whole file.** TOML nests with existing parsers, but a text value must be quoted, as `xkb-layout = "us"`, and every key needs a value, so a switch alone on its line, such as `hwaccel` or `mouse`, is invalid, and a kmscon.conf would not parse. YAML fails the same way and makes indentation carry meaning. vtium's parsers are also written to bound untrusted input (ADR-1401 D10).
+- **A migration:** vtium reading heads.conf with a warning until the first beta, and `vtium config fold` moving heads.conf and the seat file's keys into vtium.conf. The only two installs that need it are the maintainer's, converted by hand, so the maintainer chose no migration (D6).
+- **Keep heads.conf beside vtium.conf, and draw the flow from both files.** The view could join two files, and nothing would move. The maintainer decided on one file, and two files keep the inheritance split from what it inherits.
 - **Keep the seat file.** It is a second layer of the same keys, which no decision chose, and vtium serves seat0 alone. The maintainer removed it.
 - **A new file for the flow, such as `flow.conf`, with vtium.conf left as it is.** It keeps kmscon.conf untouched, and it keeps the split the maintainer decided to end.
-- **TOML, YAML or dotted flat keys for the whole file.** D4 gives the reasons each loses: TOML and YAML cannot read a kmscon.conf, and dotted keys hide the structure. vtium's parsers are also written to bound untrusted input (ADR-1401 D10), which a general-purpose parser is not.
