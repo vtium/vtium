@@ -18,10 +18,9 @@ type Placed = (DisplayId, u32, usize);
 #[expect(private_bounds, reason = "the card is a Card outside the crate")]
 impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     /// Lets go of the new displays `new`, which a modeset could not set
-    /// beside the others, for `why`; each stays off, and the next scan, at a
-    /// hotplug or a wake-up, places it again.
-    /// Returns each one's connector with the CRTC it sat on, for
-    /// [`Self::record_refused`].
+    /// beside the others, for `why`; each stays off, and the next scan, at
+    /// a hotplug or a wake-up, places it again. Returns each one's
+    /// connector with the CRTC it sat on, for [`Self::record_refused`].
     pub(super) fn leave_off(&mut self, new: Vec<Output<S::Memory>>, why: &str) -> Vec<(u32, u32)> {
         let mut sat = Vec::with_capacity(new.len());
         for o in new {
@@ -105,11 +104,10 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     }
 
     /// The atomic modeset that failed with `e` where the displays are
-    /// placed, with fewer displays moved: the new displays are left off, and
-    /// the displays the placement moved go back
-    /// to the CRTCs they were moved off where they can ([`Self::going_back`]).
-    /// `refused` says the card refused the placement, and not for a failure
-    /// that may pass.
+    /// placed, with fewer displays moved: the new displays are left off,
+    /// and the displays the placement moved go back to the CRTCs they were
+    /// moved off where they can ([`Self::going_back`]). `refused` says the
+    /// card refused the placement, and not for a failure that may pass.
     ///
     /// An atomic commit that fails does not say which CRTC the card refused,
     /// so where several moved displays would go back to one CRTC, the choice
