@@ -116,6 +116,6 @@
 <rect x="114" y="565" width="126" height="18" fill="#e5e5e5"/>
 <text x="118" y="578" fill="#000000">class:keyboard</text>
 <text x="252" y="578" fill="#e5e5e5">path:pci-0000:15:00.0-usb-0:3.3   id:046d:c31c   or type a selector</text>
-<text x="36" y="616" fill="#7f7f7f">Tab ←→ columns  ↑↓ move  Enter edit  Space tag  c connect  f follow  d devices  v view  i install  r revert  o restore  n new  x delete  q leave</text>
+<text x="36" y="616" fill="#7f7f7f">Tab ←→  ↑↓ move  Enter edit  Space tag  c connect  f follow  d devices  ? route  v view  i install  r revert  o restore  n new  x delete  q leave</text>
 </g>
 </svg>

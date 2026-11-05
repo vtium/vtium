@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="330" viewBox="0 0 760 330" font-family="DejaVu Sans Mono, monospace" font-size="13" xml:space="preserve">
+<title>The route card for the selected keyboard: the whole route from display to input device, with the keyboard highlighted</title>
+<rect width="760" height="330" fill="#ffffff"/>
+<text x="20" y="18" font-size="12" fill="#1f2933">The route card that ? opens on the keyboard selected in the flow view</text>
+<rect x="20" y="26" width="720" height="294" fill="#000000" stroke="#9aa5b1"/>
+<rect x="40" y="40" width="680" height="264" fill="none" stroke="#e5e5e5"/>
+<text x="56" y="62" fill="#e5e5e5" font-weight="bold">Route card: keyboard, usb-0:3.3</text>
+<text x="56" y="86" fill="#e5e5e5">It types into desk, the active head, by roaming; into panel when panel is active.</text>
+<text x="56" y="116" fill="#7f7f7f">route 1 of 2</text>
+<text x="76" y="138" fill="#00ffff">display        DP-8, LARGE00001</text>
+<text x="76" y="158" fill="#00cdcd">display rule   1  edid:…LARGE00001 -&gt; desk</text>
+<text x="76" y="178" fill="#ffff00">head           desk, the active head</text>
+<text x="76" y="198" fill="#ff00ff">look           big: frit monoid, 14 pt</text>
+<text x="76" y="218" fill="#00cd00">input rule     5  class:keyboard -&gt; roaming</text>
+<rect x="72" y="225" width="440" height="19" fill="#00ff00"/>
+<text x="76" y="239" fill="#000000">input device   keyboard, usb-0:3.3   (selected)</text>
+<text x="56" y="268" fill="#7f7f7f">route 2 of 2, when panel is active: HDMI-A-2, rule 2, panel, look small, rule 5</text>
+<text x="56" y="292" fill="#7f7f7f">Up Down route   Enter open the item   q back to the flow</text>
+</svg>
