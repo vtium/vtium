@@ -1189,29 +1189,11 @@ class VtiumGoldenTest(unittest.TestCase):
         return path
 
     def test_shipped(self):
-        # The operator accepted vtium's sixteen small-display goldens on
-        # 2026-10-28, the four vtium/vtium#119 adds in advance, so the list
-        # in the tree names only the guest without systemd's (vtium/vtium#104),
-        # those vtium/vtium#126 recaptured from the sets' fills and the frit
-        # variants' (vtium/vtium#145), the device variants' and the head-file
-        # variants'; every golden it names must be one a case draws.
+        # The maintainer reviewed every provisional golden but the default 2D
+        # variants' re-baselined ones on 2026-11-05, so the list in the tree
+        # names only those, which the clean break's tier 3 golden commit
+        # settles; every golden it names must be one a case draws.
         prov = t3_evaluate.read_provisional()
-        moved = ["%s/%s" % (v, s) for v in ("2d-320x240-psf8", "2d-640x480-psf16")
-                 for s in ("underline-styles", "strike", "wide-margin", "cjk")]
-        frit = ["%s/%s" % (v, s) for v in ("2d-640x480-frit", "2d-640x480-frit-held")
-                for s in ("small-console", "cjk")]
-        devices = ["two-outputs-mirror/sgr", "two-outputs-mirror/sgr@1",
-                   "two-outputs-mirror/cjk", "two-outputs-mirror/cjk@1",
-                   "two-cards-mirror/sgr", "two-cards-mirror/sgr@card1",
-                   "two-cards-mirror/cjk", "two-cards-mirror/cjk@card1", "usb-keyboards/cjk"]
-        # the head-file variants' notice and panic goldens left the list when the
-        # maintainer reviewed them on 2026-11-05
-        heads = ["heads-two-heads/cjk", "heads-partly-open/cjk", "heads-kiosk/cjk"]
-        images = ["images-640x480/" + s for s in ("img-sixel", "img-kitty", "img-relative",
-                                                  "img-overwrite", "img-delete", "img-scroll",
-                                                  "img-scrollback", "img-tmux-pane",
-                                                  "img-animation", "img-iterm2",
-                                                  "img-placeholder", "img-png")]
         # the default 2D variants' re-baselined goldens (vtium/vtium#24)
         rebaselined = ["%s/%s" % (v, s)
                        for v in ("2d-1280x800", "2d-1366x768-potato", "2d-7680x2160",
@@ -1223,10 +1205,7 @@ class VtiumGoldenTest(unittest.TestCase):
                                  "photo-scrollback", "mpv-sixel", "tmux-2x2", "tmux-3x3", "kitty",
                                  "kitty-photo", "kitty-files", "kitty-layers", "s1-scroll", "flood",
                                  "cjk")]
-        self.assertEqual(sorted(prov), sorted(["sysvinit-640x480/cjk", "sysvinit-640x480/sgr",
-                                               "sysvinit-no-udev/cjk", "sysvinit-no-udev/sgr",
-                                               "sysvinit-two-vts/cjk"] + moved + frit + devices
-                                              + heads + images + rebaselined))
+        self.assertEqual(sorted(prov), sorted(rebaselined))
         self.assertEqual(t3_evaluate.check_goldens(t3_scenario.vtium_golden_cases(),
                                                    t3_evaluate.VTIUM_GOLDEN, prov), [])
         with open(os.path.join(t3_common.HERE, "goldens", "README.md")) as f:
