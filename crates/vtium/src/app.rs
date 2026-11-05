@@ -1212,11 +1212,13 @@ impl App {
         self.lit.insert(key.clone(), display);
         self.focus_due = true;
         self.guard_due = true;
-        // the render thread chooses the head's path as it starts, so the
-        // line names the path that draws the display (ADR-1303 D10)
+        // the line names the path that draws the display (ADR-1303 D10):
+        // a render thread that has not told the loop its path yet logs it
+        // with the head's other display lines once it has
         self.painter(h);
         if let Some(head) = self.heads.get(h)
             && let Some(v) = head.views.get(&key)
+            && head.painter.as_ref().is_none_or(Painter::known)
         {
             let path = head.painter.as_ref().map(Painter::path).unwrap_or_default();
             display_line(&name, backend, path, v);
@@ -1862,6 +1864,13 @@ impl App {
                 self.releasing = Some(self.videos.keys().cloned().collect());
                 for video in self.videos.values_mut() {
                     video.sleep();
+                }
+                // A head on the GPU path gives back its textures while the
+                // VT is another's (ADR-1303 D9).
+                for head in &mut self.heads {
+                    if let Some(painter) = &mut head.painter {
+                        painter.release();
+                    }
                 }
             }
             VtEvent::Retaken if self.blank.blanked() => {
@@ -3549,12 +3558,7 @@ impl App {
             return;
         };
         match started {
-            Ok(mut painter) => {
-                if let Some(why) = painter.take_refusal() {
-                    log::warn!("head {}: {why}: it draws on the CPU path", head.name());
-                }
-                head.painter = Some(painter);
-            }
+            Ok(painter) => head.painter = Some(painter),
             Err(why) => {
                 log::warn!(
                     "head {}: the render thread cannot start ({why}): the loop draws its frames",
@@ -3608,7 +3612,12 @@ impl App {
             let Some(painter) = &mut head.painter else {
                 continue;
             };
-            for mut composed in painter.take() {
+            let frames = painter.take();
+            // the render thread told the loop which path draws the head
+            if painter.take_known() {
+                display_lines(head, videos);
+            }
+            for mut composed in frames {
                 if let Some(why) = composed.left_gpu.take() {
                     left_gpu(head, videos, &why);
                 }
