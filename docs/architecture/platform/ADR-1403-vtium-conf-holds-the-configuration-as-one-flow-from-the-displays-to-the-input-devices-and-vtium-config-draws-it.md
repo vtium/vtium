@@ -174,6 +174,9 @@ considered:
   - operator: aaronsb
     said: "It actually looks like 80x25 will work"
     via: the steering session's interview, 2026-11-05
+  - operator: aaronsb
+    said: "History shows last 10"
+    via: the steering session's interview, 2026-11-05
 status: accepted
 date: 2026-11-04
 deciders:
@@ -481,7 +484,7 @@ vtium-config keeps a store of its own under the user's XDG paths, which holds th
 | `$XDG_CONFIG_HOME/vtium/drafts/NAME.conf` | Each draft, a whole vtium.conf, named by the user. vtium-config offers the machine's hostname as the name, with `-2`, `-3` and so on appended when that name exists, and never overwrites a draft; the first draft, which vtium-config makes on its own from the installed file, takes that name too |
 | `$XDG_CONFIG_HOME/vtium/library.conf` | The library: looks, heads and rules the user saved from a draft, written in vtium.conf's section syntax, `[look NAME]`, `[head NAME]` and a `[rules]` list |
 | `$XDG_CONFIG_HOME/vtium/vtium-config.conf` | The tool's own settings, `key = value`, among them `draft = NAME`, the current draft |
-| `$XDG_CONFIG_HOME/vtium/installed/DRAFT-N.conf` | The installed history: each install saves the file it replaces here, numbered from 1 for each draft, and vtium-config keeps the 10 newest, a count the tool's settings change with `history = N` |
+| `$XDG_CONFIG_HOME/vtium/installed/DRAFT-N.conf` | The installed history: each install saves the file it replaces here, numbered from 1 for each draft, and vtium-config keeps the 10 newest, a count the tool's settings change with `history = N` (the maintainer, 2026-11-05) |
 | `$XDG_STATE_HOME/vtium/` | Each draft's base, the hash of the installed file it was made from or applied as |
 
 `XDG_CONFIG_HOME` is `~/.config` and `XDG_STATE_HOME` is `~/.local/state` when unset. Root's store lives under root's own home, found from the password database (above).
