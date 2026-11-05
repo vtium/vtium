@@ -694,7 +694,9 @@ endef
 # environment; the file's own JOBS is tier 3's, 1. Each gate builds in a
 # target directory of its own, $(GATES_DIR)/NAME, and writes its output to
 # $(GATES_DIR)/logs/NN-NAME.log; the script's docstring describes the run
-# and its report. No gate needs the machine to itself.
+# and its report. No gate needs the machine to itself. A CARGO_TARGET_DIR
+# set by the caller must not be shared by worktrees whose sources differ
+# (AGENTS.md, "The gates").
 GATES_JOBS = $(if $(filter command line environment,$(origin JOBS)),$(JOBS),8)
 GATES_DIR  = $(abspath $(or $(CARGO_TARGET_DIR),target))/gates
 
