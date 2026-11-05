@@ -669,9 +669,11 @@ mod tests {
     struct Tree(PathBuf);
 
     impl Tree {
+        /// A fresh tree for `test`, in a directory of this test process's
+        /// own, so two test runs at once never remove each other's tree.
         fn new(test: &str) -> Tree {
-            let dir = PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../target/tmp"))
-                .join("vtium-config-sources")
+            let dir = std::env::temp_dir()
+                .join(format!("vtium-config-sources-{}", std::process::id()))
                 .join(test);
             let _ = fs::remove_dir_all(&dir);
             fs::create_dir_all(&dir).unwrap();

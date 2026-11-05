@@ -296,11 +296,10 @@ mod tests {
     use super::*;
 
     /// The faces of `bytes`, read once as bytes and once as a file, which
-    /// must agree.
+    /// must agree. The file is in a directory of this test process's own,
+    /// so two test runs at once never write each other's file.
     fn faces_of(bytes: &[u8], test: &str) -> Result<Vec<Face>, String> {
-        let dir =
-            std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../target/tmp"))
-                .join("vtium-config-names");
+        let dir = std::env::temp_dir().join(format!("vtium-config-names-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join(test);
         std::fs::write(&path, bytes).unwrap();
