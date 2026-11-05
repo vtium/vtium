@@ -47,6 +47,9 @@ WAIT_BOUND = 120
 BUILD_BOUND = 1800
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+# The cargo target directory the Makefile builds in, as it names it: the
+# caller's CARGO_TARGET_DIR, or target. make gates gives each gate its own.
+TARGET = os.environ.get("CARGO_TARGET_DIR") or "target"
 VT = os.path.join(ROOT, "tools", "vt")
 RUN_VT = os.path.join(VT, "run-vt.sh")
 VT_INSTALL = os.path.join(VT, "vt-install.sh")
@@ -2827,7 +2830,7 @@ exec "$@"
         # builds in a target directory of its own, so the minspec build that
         # the review runs use is never replaced.
         self.assertIn("VTIUM_FONT_HELPER=/usr/local/bin/vtium-dev-config rustc --profile minspec -p vtium --bin vtium "
-                      "--target x86_64-unknown-linux-gnu --target-dir target/vt-dev -- -C link-arg=-Wl,-z,pack-relative-relocs",
+                      f"--target x86_64-unknown-linux-gnu --target-dir {TARGET}/vt-dev -- -C link-arg=-Wl,-z,pack-relative-relocs",
                       builds)
         self.assertIn("VTIUM_FONT_HELPER=unset build --release -p vtium-config --target x86_64-unknown-linux-gnu", builds)
         self.assertEqual(len(builds), 2, builds)
@@ -3169,7 +3172,7 @@ fi
         # The console starts its image helper at the development install's
         # own path, never the packaged /usr/bin/vtium-image.
         self.assertIn("VTIUM_FONT_HELPER=/usr/local/bin/vtium-dev-config VTIUM_IMAGE=/usr/local/bin/vtium-dev-image "
-                      "rustc --profile minspec -p vtium --bin vtium --target x86_64-unknown-linux-gnu --target-dir target/vt-dev "
+                      f"rustc --profile minspec -p vtium --bin vtium --target x86_64-unknown-linux-gnu --target-dir {TARGET}/vt-dev "
                       "--features images -- -C link-arg=-Wl,-z,pack-relative-relocs", builds)
         self.assertIn("VTIUM_FONT_HELPER=unset VTIUM_IMAGE=unset build --release -p vtium-config --target x86_64-unknown-linux-gnu",
                       builds)
