@@ -179,26 +179,23 @@ pub(crate) fn silhouette(src: u32, fg: Rgb) -> u32 {
 pub(crate) struct Fallback {
     one_bit: bool,
     unifont: Option<Unifont>,
-    /// The sprites' light line, as the font draws them.
-    thickness: u32,
 }
 
 impl Fallback {
-    /// The stand-ins for a font of cell `cell`, whose sprites' light line
-    /// is `thickness`, at `depth`: none in color.
-    pub(crate) fn new(depth: Depth, cell: Cell, thickness: u32) -> Option<Fallback> {
+    /// The stand-ins for a font of cell `cell` at `depth`: none in color.
+    pub(crate) fn new(depth: Depth, cell: Cell) -> Option<Fallback> {
         let unifont = Some(Unifont::new(cell.height)).filter(|u| u.cell() == cell);
         (depth != Depth::Color).then_some(Fallback {
             one_bit: depth.one_bit(),
             unifont,
-            thickness,
         })
     }
 
     /// `glyph`'s stand-in, at the size `glyph` draws at `scale`: unifont's
     /// bitmap for a color glyph unifont has, and at 1 bit the 1-bit shape of
     /// a sprite of partial coverage, drawn at that size so it is not
-    /// scaled.
+    /// scaled, with the light lines the font's sprites have at that height
+    /// ([`sprite::light_line`]).
     pub(crate) fn glyph(
         &self,
         glyph: &Glyph,
@@ -221,7 +218,7 @@ impl Fallback {
                     glyph.height().saturating_mul(scale),
                 );
                 (self.one_bit && one && partial)
-                    .then(|| sprite::one_bit(first, w, h, self.thickness))
+                    .then(|| sprite::one_bit(first, w, h, sprite::light_line(h)))
                     .flatten()
             }
         }
@@ -420,7 +417,7 @@ mod tests {
             height: 16,
         };
         // the one gray exception: a color glyph takes unifont's bitmap
-        let f = Fallback::new(Depth::Gray(4), cell, 1).unwrap_or_else(|| panic!("a stand-in"));
+        let f = Fallback::new(Depth::Gray(4), cell).unwrap_or_else(|| panic!("a stand-in"));
         let a = f.glyph(&color_glyph(), 1, &['A'], Width::Narrow, Style::default());
         assert!(a.is_some_and(|g| g.format() == Format::Mask));
         // and a shade keeps its coverage
@@ -440,7 +437,7 @@ mod tests {
             width: 8,
             height: 8,
         };
-        let f = Fallback::new(Depth::One, cell, 1).unwrap_or_else(|| panic!("a stand-in"));
+        let f = Fallback::new(Depth::One, cell).unwrap_or_else(|| panic!("a stand-in"));
         for (c, lit) in [('\u{2591}', 16), ('\u{2592}', 32), ('\u{2593}', 48)] {
             let even = sprite::draw(c, 8, 8, 1).unwrap_or_else(|| panic!("{c}"));
             let g = f
@@ -477,7 +474,7 @@ mod tests {
             width: 8,
             height: 16,
         };
-        let f = Fallback::new(Depth::One, cell, 1).unwrap_or_else(|| panic!("unifont's cell"));
+        let f = Fallback::new(Depth::One, cell).unwrap_or_else(|| panic!("unifont's cell"));
         let g = f
             .glyph(&color_glyph(), 1, &['A'], Width::Narrow, Style::default())
             .unwrap_or_else(|| panic!("unifont draws A"));
@@ -498,12 +495,12 @@ mod tests {
         let kept = f.glyph(&color_glyph(), 1, &[lacks], Width::Narrow, Style::default());
         assert!(kept.is_none());
         // no stand-in in color, nor unifont's at a cell it has no scale of
-        assert!(Fallback::new(Depth::Color, cell, 1).is_none());
+        assert!(Fallback::new(Depth::Color, cell).is_none());
         let small = Cell {
             width: 8,
             height: 8,
         };
-        let f = Fallback::new(Depth::One, small, 1).unwrap_or_else(|| panic!("a stand-in"));
+        let f = Fallback::new(Depth::One, small).unwrap_or_else(|| panic!("a stand-in"));
         let g = Glyph::rgba(8, 8).unwrap_or_else(|| panic!("an 8x8 glyph"));
         assert!(
             f.glyph(&g, 1, &['A'], Width::Narrow, Style::default())
@@ -515,8 +512,7 @@ mod tests {
                 Cell {
                     width: 16,
                     height: 32
-                },
-                1
+                }
             )
             .is_some_and(|f| f.unifont.is_some())
         );

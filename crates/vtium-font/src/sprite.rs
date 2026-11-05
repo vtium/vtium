@@ -34,9 +34,9 @@
 //! The geometry is adapted from Ghostty's sprite font (MIT, Copyright (c)
 //! 2024 Mitchell Hashimoto, Ghostty contributors), src/font/sprite/draw/:
 //! - lines and junctions: box.zig linesChar(), each edge's line meeting the
-//!   others at the centre, light lines the font's underline thickness and
-//!   heavy ones twice that, double lines two light strokes a light stroke
-//!   apart;
+//!   others at the centre, light lines [`light_line`] of the cell's height
+//!   and heavy ones twice that, double lines two light strokes a light
+//!   stroke apart;
 //! - dashes: box.zig dashHorizontal() and dashVertical(), which divide the
 //!   cell so the dashes tile across cells;
 //! - rounded corners: box.zig arc(), a cubic curve between the two half
@@ -68,6 +68,7 @@ pub(crate) mod spans;
 use core::fmt;
 
 use crate::bounds::CELL_SIDE_MAX;
+use crate::face::Decorations;
 use crate::glyph::Glyph;
 
 /// A range of characters vtium draws as sprites, each of which a font may
@@ -197,6 +198,17 @@ pub fn one_bit(c: char, width: u32, height: u32, thickness: u32) -> Option<Glyph
         }
     }
     Some(buf)
+}
+
+/// The width of a light line in the sprites of a cell `height` pixels
+/// tall: a sixteenth of the height, at least 1 and at most a quarter of
+/// it, the thickness [`Decorations::for_height`] gives a face with no line
+/// metrics. The weight grows with the cell whatever the font, so box
+/// drawing looks the same in every font at one cell size. The C reference
+/// drew its light lines in the font's own underline thickness, which for
+/// an outline font is often a single row at large cells (font.c:346-350).
+pub fn light_line(height: u32) -> u32 {
+    Decorations::for_height(height).underline_thickness
 }
 
 /// `c` as a `width` by `height` sprite with light lines `thickness` pixels
