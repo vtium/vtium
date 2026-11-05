@@ -1,0 +1,28 @@
+#!/bin/sh
+# Opens vtium-config's TUI in this terminal on the screen goldens' fixtures,
+# inside a throwaway directory that holds its home, its XDG directories,
+# its vtium.conf and its devices, and removes that directory when the TUI
+# leaves. make tui-demo runs it; tui-demo.rs says what each fixture is.
+#
+# usage: demo draft|figure TUI-DEMO VTIUM-CONFIG
+set -eu
+[ $# -eq 3 ] || { echo "usage: demo draft|figure TUI-DEMO VTIUM-CONFIG" >&2; exit 2; }
+fixture=$1 demo=$2 program=$3
+case $fixture in
+  draft|figure) ;;
+  *) echo "demo: FIXTURE is draft or figure, not $fixture" >&2; exit 2 ;;
+esac
+root=$(mktemp -d "${TMPDIR:-/tmp}/vtium-tui-demo.XXXXXX")
+trap 'rm -rf "$root"' EXIT
+HOME=$root/home
+XDG_CONFIG_HOME=$HOME/.config
+XDG_STATE_HOME=$HOME/.local/state
+XDG_DATA_HOME=$HOME/.local/share
+XDG_CACHE_HOME=$HOME/.cache
+export HOME XDG_CONFIG_HOME XDG_STATE_HOME XDG_DATA_HOME XDG_CACHE_HOME
+mkdir -p "$HOME"
+if [ "$fixture" = draft ]; then
+  "$demo" draft "$root" "$program"
+else
+  "$demo" figure "$root"
+fi

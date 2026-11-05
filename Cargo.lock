@@ -1009,6 +1009,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "vtium-tui-review"
+version = "0.1.0-alpha.5"
+dependencies = [
+ "rustix",
+ "vtium-config",
+ "vtium-specimens",
+ "vtium-term",
+ "vtium-tier2",
+]
+
+[[package]]
 name = "wasm-bindgen"
 version = "0.2.130"
 source = "registry+https://github.com/rust-lang/crates.io-index"
