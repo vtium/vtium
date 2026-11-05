@@ -801,22 +801,13 @@ fn a_frame_entry_names_its_pixels_by_image_frame_and_pixel_revision() {
     assert!(entry.pixels.same(&two.pixels));
 }
 
-/// A store of `limit` bytes with a kitty image of id 1, `w` by `h` pixels
-/// of red, placed twice on the screen's first line, with the boxes the
-/// placements reported taken: the store, the image, the screen's lines,
-/// and those boxes.
-fn placed_twice(
-    w: u32,
-    h: u32,
-) -> (
-    Store,
-    ImageKey,
-    Vec<crate::LineKey>,
-    Vec<crate::store::Region>,
-) {
+/// A store with a kitty image of id 1, 16 by 16 pixels of red, placed twice
+/// on the screen's first line, and the boxes the two placements reported,
+/// taken from the store.
+fn placed_twice() -> (Store, ImageKey, Vec<crate::store::Region>) {
     let lines: Vec<crate::LineKey> = (0..4).map(crate::LineKey::new).collect();
     let mut s = store(1 << 20);
-    let key = image(&mut s, 1, w, h, RED);
+    let key = image(&mut s, 1, 16, 16, RED);
     for (col, id) in [(0, 1), (10, 2)] {
         let place = crate::Place {
             col,
@@ -827,7 +818,7 @@ fn placed_twice(
     }
     let boxes = s.take_changed();
     assert_eq!(boxes.len(), 2, "each placement reports its box");
-    (s, key, lines, boxes)
+    (s, key, boxes)
 }
 
 fn screens_of(lines: &[crate::LineKey]) -> Screens<'_> {
@@ -847,7 +838,7 @@ fn screens_of(lines: &[crate::LineKey]) -> Screens<'_> {
 // covers: image.kitty-animation
 #[test]
 fn an_edit_of_the_frame_on_show_reports_every_placement_of_the_image() {
-    let (mut s, key, _, boxes) = placed_twice(16, 16);
+    let (mut s, key, boxes) = placed_twice();
     // the root frame of a picture no animation command named
     let mut d = data(0, 0, 2, 2, BLUE);
     d.edit = 1;
@@ -876,7 +867,7 @@ fn an_edit_of_the_frame_on_show_reports_every_placement_of_the_image() {
 // covers: image.kitty-animation
 #[test]
 fn a_composition_onto_the_frame_on_show_reports_every_placement_of_the_image() {
-    let (mut s, key, _, boxes) = placed_twice(16, 16);
+    let (mut s, key, boxes) = placed_twice();
     send(&mut s, key, data(0, 0, 16, 16, BLUE)).unwrap();
     assert_eq!(s.take_changed(), vec![]);
     let c = Compose {
@@ -898,7 +889,7 @@ fn a_composition_onto_the_frame_on_show_reports_every_placement_of_the_image() {
 // covers: image.kitty-animation
 #[test]
 fn an_edit_of_a_frame_reports_the_placements_once_the_clock_picks_the_frame() {
-    let (mut s, key, _, boxes) = placed_twice(16, 16);
+    let (mut s, key, boxes) = placed_twice();
     send(&mut s, key, data(0, 0, 16, 16, BLUE)).unwrap();
     send(&mut s, key, data(0, 0, 16, 16, RED)).unwrap();
     let edit = |n: u32| {
