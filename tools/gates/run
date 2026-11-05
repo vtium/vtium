@@ -1,0 +1,174 @@
+#!/usr/bin/env python3
+"""
+run - run every gate of AGENTS.md's gate line, several at once, each to the end
+
+Usage:
+
+    make gates
+    make gates JOBS=4
+    GATE_LINE="$(...)" tools/gates/run --jobs N --dir DIR
+
+`make gates` runs this script. The Makefile's GATE_LINE lists the gates, one
+command per line in the gate line's order, and reaches the script through the
+environment. `make test-tools` checks that GATE_LINE is the gate line AGENTS.md
+lists.
+
+The script runs up to N gates at once (--jobs, 1 or more). With N at 1 it runs
+them one after another, in the gate line's order, as the gate line itself does.
+Each gate runs to the end, whatever the others do: a failed gate stops nothing.
+Each gate runs through `sh -c`, from the directory the script starts in, with
+its standard input at /dev/null.
+
+Each gate writes its output to a log of its own, DIR/logs/NN-NAME.log, where NN
+is the gate's place in the gate line and NAME is the gate's command in lower
+case with each run of other characters than a-z and 0-9 made one hyphen, such
+as 03-cargo-test-workspace-all-features.log. The script replaces each log at
+each run. With N at 1, the output also goes to the terminal as the gate runs.
+With N above 1 it goes to the log alone, so the output of gates that run at the
+same time never interleaves, and the terminal gets a line as each gate starts
+and as it ends.
+
+Each gate runs with CARGO_TARGET_DIR set to DIR/NAME, a cargo target directory
+of its own. Two gates that shared one would wait on each other's lock on it,
+and two that build with different features, such as `cargo test --workspace
+--all-features` and `cargo test --workspace`, would each rebuild what the other
+built. Each directory stays between runs, so a second run builds only what
+changed. The Makefile's targets read CARGO_TARGET_DIR wherever they name a
+cargo target directory, except `make msrv`, which builds in target/msrv, a
+directory no other gate uses.
+
+When every gate has ended, the script prints a table with one line per gate in
+the gate line's order: the gate's exit code, two spaces and the gate. Then it
+prints "gates: all passed" and exits 0, or names the log of each gate that
+failed, prints "gates: FAILED" and exits 1. It exits 2 before it runs anything
+when the gate list is empty or --jobs is not a whole number of 1 or more.
+"""
+
+import argparse
+import os
+import re
+import subprocess
+import sys
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+
+
+def name_of(gate):
+    """The gate's command as a file name: lower case, each run of other
+    characters than a-z and 0-9 made one hyphen."""
+    return re.sub(r"[^a-z0-9]+", "-", gate.lower()).strip("-")
+
+
+def gates_of(text):
+    """The gates of GATE_LINE, one a line, with their names. Two gates with
+    one name would share a target directory and a log, so that is refused."""
+    gates = [line.strip() for line in text.splitlines() if line.strip()]
+    names = [name_of(g) for g in gates]
+    for n in set(names):
+        if names.count(n) > 1:
+            raise ValueError(f"two gates have the name {n!r}")
+    return list(zip(gates, names))
+
+
+class Run:
+    """One run of the gates: where their logs and target directories go, and
+    the lock that keeps the lines the script prints whole."""
+
+    def __init__(self, gates, jobs, root):
+        self.gates = gates
+        self.jobs = jobs
+        self.root = root
+        self.logs = root / "logs"
+        self.lock = threading.Lock()
+
+    def say(self, line):
+        with self.lock:
+            print(line, flush=True)
+
+    def log_of(self, i):
+        return self.logs / f"{i + 1:02d}-{self.gates[i][1]}.log"
+
+    def gate(self, i):
+        """Runs gate i to its end and returns its exit code."""
+        gate, name = self.gates[i]
+        env = dict(os.environ, CARGO_TARGET_DIR=str(self.root / name))
+        log = self.log_of(i)
+        self.say(f"==> {gate}" + ("" if self.jobs == 1 else f" (log: {log})"))
+        start = time.monotonic()
+        with open(log, "wb") as out:
+            if self.jobs == 1:
+                code = self.tee(gate, env, out)
+            else:
+                code = subprocess.run(["sh", "-c", gate], stdin=subprocess.DEVNULL, stdout=out,
+                                      stderr=subprocess.STDOUT, env=env).returncode
+        # A shell killed by signal S reports -S; the table gives 128 + S, as
+        # a shell's $? does.
+        if code < 0:
+            code = 128 - code
+        # The time a gate took is printed for the person reading the run;
+        # nothing the script decides depends on it.
+        self.say(f"<== {code}  {gate} ({time.monotonic() - start:.0f} s)")
+        return code
+
+    def tee(self, gate, env, out):
+        """Runs the gate with its output going both to the log and to this
+        script's standard output, as it comes."""
+        p = subprocess.Popen(["sh", "-c", gate], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                             stderr=subprocess.STDOUT, env=env)
+        while chunk := p.stdout.read1(65536):
+            out.write(chunk)
+            sys.stdout.buffer.write(chunk)
+            sys.stdout.buffer.flush()
+        return p.wait()
+
+    def run(self):
+        self.logs.mkdir(parents=True, exist_ok=True)
+        pool = ThreadPoolExecutor(max_workers=self.jobs)
+        try:
+            codes = list(pool.map(self.gate, range(len(self.gates))))
+        except KeyboardInterrupt:
+            # Ctrl-C reached the running gates too, which share this
+            # script's process group; the gates still waiting never start.
+            pool.shutdown(wait=True, cancel_futures=True)
+            print("gates: interrupted", file=sys.stderr)
+            return 130
+        pool.shutdown()
+        print()
+        print("exit  gate")
+        for (gate, _), code in zip(self.gates, codes):
+            print(f"{code}  {gate}")
+        failed = [i for i, code in enumerate(codes) if code != 0]
+        if not failed:
+            print("gates: all passed")
+            return 0
+        for i in failed:
+            print(f"log of {self.gates[i][0]}: {self.log_of(i)}")
+        sys.stdout.flush()
+        print("gates: FAILED", file=sys.stderr)
+        return 1
+
+
+def main():
+    ap = argparse.ArgumentParser(description="Run the gates of GATE_LINE, several at once, each to the end.")
+    ap.add_argument("--jobs", default="8", help="the most gates that run at once (default 8)")
+    ap.add_argument("--dir", required=True, type=Path,
+                    help="where the logs and each gate's cargo target directory go")
+    args = ap.parse_args()
+    if not re.fullmatch(r"[1-9][0-9]*", args.jobs):
+        print(f"gates: JOBS={args.jobs}: a whole number of 1 or more", file=sys.stderr)
+        return 2
+    try:
+        gates = gates_of(os.environ.get("GATE_LINE", ""))
+    except ValueError as e:
+        print(f"gates: {e}", file=sys.stderr)
+        return 2
+    if not gates:
+        print("gates: the gate list is empty", file=sys.stderr)
+        return 2
+    return Run(gates, int(args.jobs), args.dir.resolve()).run()
+
+
+if __name__ == "__main__":
+    sys.exit(main())
