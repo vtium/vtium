@@ -48,6 +48,8 @@ The packages install these files:
 | `/usr/share/doc/vtium/examples/` | an example udev rule and hwdb fragment, which are documentation and never active |
 | `/usr/share/terminfo/x/xterm-vtium` | the terminfo entry, from the terminfo package |
 | `/usr/share/licenses/<package>/LICENSE` | the license, in each package |
+| `/usr/share/licenses/<package>/COPYING` | vtium's authors and the notices for the third-party code and data vtium builds in, in each package except `vtium-fonts`, which carries only its own `LICENSE` |
+| `/usr/share/licenses/<package>/OFL-1.1.txt`, `rgb-license.txt` | the two license texts that `COPYING` points to, the SIL Open Font License of the Unifont font and the license of X.Org's color names, in each console package |
 
 Installing the packages gives vtium no VT and starts nothing. [Giving vtium a VT](#giving-vtium-a-vt) does that.
 

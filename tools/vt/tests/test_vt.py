@@ -3371,7 +3371,10 @@ class Package(Case):
         "usr/lib/systemd/system/vtium-getty@.service",
         "usr/share/doc/vtium/examples/71-vtium-local.rules",
         "usr/share/doc/vtium/examples/vtium.hwdb",
+        "usr/share/licenses/vtium/COPYING",
         "usr/share/licenses/vtium/LICENSE",
+        "usr/share/licenses/vtium/OFL-1.1.txt",
+        "usr/share/licenses/vtium/rgb-license.txt",
     ])
 
     # What the ordinary-machine build, FEATURES='images logind gpu', stages
@@ -3385,6 +3388,10 @@ class Package(Case):
         "etc/vtium/fonts/minspec-16.vtfrit": "crates/vtium-config/frits/minspec-16.vtfrit",
         "etc/vtium/fonts/minspec-8.vtfrit": "crates/vtium-config/frits/minspec-8.vtfrit",
         "usr/bin/vtium-gallery": "tools/gallery/gallery",
+        "usr/share/licenses/vtium/COPYING": "COPYING",
+        "usr/share/licenses/vtium/LICENSE": "LICENSE",
+        "usr/share/licenses/vtium/OFL-1.1.txt": "crates/vtium-font/data/OFL-1.1.txt",
+        "usr/share/licenses/vtium/rgb-license.txt": "crates/vtium-term/gen-color-names/src/rgb-license.txt",
     }
 
     # A stand-in cargo that records the helper paths each build bakes in,
@@ -3594,8 +3601,11 @@ class Package(Case):
         p = self.make("install", f"DESTDIR={self.dest}", "PREFIX=/usr", f"INSTALL_TARGET_DIR={self.build}",
                       "PKGNAME=vtium-git")
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
-        self.assertIn("usr/share/licenses/vtium-git/LICENSE", self.staged())
-        self.assertNotIn("usr/share/licenses/vtium/LICENSE", self.staged())
+        self.assertEqual([f for f in self.staged() if f.startswith("usr/share/licenses/")],
+                         ["usr/share/licenses/vtium-git/COPYING", "usr/share/licenses/vtium-git/LICENSE",
+                          "usr/share/licenses/vtium-git/OFL-1.1.txt",
+                          "usr/share/licenses/vtium-git/rgb-license.txt"])
+        self.assertFalse([f for f in self.staged() if f.startswith("usr/share/licenses/vtium/")], self.staged())
 
     def test_enabling_the_packaged_template_with_no_vt_links_nothing(self):
         # Enabling the template with no VT named must link nothing on every
@@ -3646,11 +3656,17 @@ class Package(Case):
         write(src, self.TERMINFO, 0o644)
         p = self.make("install-terminfo", f"DESTDIR={self.dest}", "PREFIX=/usr", f"TERMINFO_SRC={src}")
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
-        self.assertEqual(self.staged(), ["usr/share/licenses/vtium-terminfo/LICENSE", "usr/share/terminfo/x/xterm-vtium"])
+        self.assertEqual(self.staged(), ["usr/share/licenses/vtium-terminfo/COPYING",
+                                         "usr/share/licenses/vtium-terminfo/LICENSE",
+                                         "usr/share/terminfo/x/xterm-vtium"])
+        for name in ("COPYING", "LICENSE"):
+            self.assertEqual(read(os.path.join(self.dest, "usr/share/licenses/vtium-terminfo", name)),
+                             read(os.path.join(ROOT, name)), name)
         p = self.make("install-terminfo", f"DESTDIR={self.dest}-git", "PREFIX=/usr", f"TERMINFO_SRC={src}",
                       "PKGNAME=vtium-terminfo-git")
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
-        self.assertTrue(os.path.isfile(os.path.join(self.dest + "-git", "usr/share/licenses/vtium-terminfo-git/LICENSE")))
+        for name in ("COPYING", "LICENSE"):
+            self.assertTrue(os.path.isfile(os.path.join(self.dest + "-git", "usr/share/licenses/vtium-terminfo-git", name)), name)
         # Without the entry's source it stops, and stages nothing.
         shutil.rmtree(self.dest)
         p = self.make("install-terminfo", f"DESTDIR={self.dest}", "PREFIX=/usr", f"TERMINFO_SRC={src}.missing")
