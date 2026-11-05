@@ -6476,23 +6476,35 @@ mod gpu_path {
     /// Colors, a bold line and a block, with `done` once written.
     const SCRIPT: &str = "printf '\\033[41m red \\033[42;30m green \\033[0m\\n\\033[1;34mblue\\033[0m \\342\\226\\210 done'; read x";
 
-    /// The seat booted with `args` and the test's GPU `source`: the pixels
-    /// of the frame it shows once the script is written, those of a frame
-    /// drawn whole after it, and the lines it logged.
-    fn drawn(args: &[&str], source: GpuSource) -> (Vec<u8>, Vec<u8>, Vec<String>) {
-        logged();
+    /// The seat booted with `args`, running `script` in its shell, with
+    /// the test's GPU `source`. Every test here boots through it.
+    ///
+    /// The cursor does not blink: the tests compare frames drawn at
+    /// different times and on different heads, and the blink timer runs on
+    /// the seat's clock, which follows the real time. With blinking on, a
+    /// frame drawn more than a blink period after boot shows no cursor, so
+    /// a test slowed by load would fail at the cursor's cell.
+    fn booted(args: &[&str], script: &str, source: GpuSource) -> Harness {
         let args: Vec<&str> = args
             .iter()
             .copied()
-            .chain(["--login", "--", "/bin/sh", "-c", SCRIPT])
+            .chain(["--no-blink", "--login", "--", "/bin/sh", "-c", script])
             .collect();
-        let mut h = Harness::boot_set(
+        Harness::boot_set(
             &args,
             FakeVt::new(),
             Some(Box::new(Memory::default())),
             no_fonts(),
             |app| app.set_gpu_source(source),
-        );
+        )
+    }
+
+    /// The seat booted with `args` and the test's GPU `source`: the pixels
+    /// of the frame it shows once the script is written, those of a frame
+    /// drawn whole after it, and the lines it logged.
+    fn drawn(args: &[&str], source: GpuSource) -> (Vec<u8>, Vec<u8>, Vec<String>) {
+        logged();
+        let mut h = booted(args, SCRIPT, source);
         assert!(
             h.until(BOUND, |a| a
                 .screen_text()
@@ -6513,6 +6525,22 @@ mod gpu_path {
             .filter(|l| l.starts_with("Display "))
             .filter_map(|l| l.split("text renderer [").nth(1)?.split(']').next())
             .collect()
+    }
+
+    // The tests here compare frames drawn at different times, so a frame
+    // drawn a blink period later must show the same pixels on either path
+    #[test]
+    fn a_frame_drawn_a_blink_period_later_shows_the_same_pixels() {
+        for args in [&[][..], &["--hwaccel"]] {
+            let mut h = booted(args, SCRIPT, GpuSource::Software);
+            assert!(h.until(BOUND, |a| {
+                a.screen_text().iter().any(|l| l.contains("done"))
+            }));
+            let early = h.drawn_now();
+            h.skip_turn(vtium::blink::TEXT_PERIOD);
+            let late = h.drawn_now();
+            assert!(late == early, "{args:?}: the frame changed with the clock");
+        }
     }
 
     #[test]
@@ -6554,18 +6582,7 @@ mod gpu_path {
     #[test]
     fn a_display_turned_during_the_run_draws_the_cpu_paths_frame_on_the_gpu_path() {
         let turned = |args: &[&str], source: GpuSource| {
-            let args: Vec<&str> = args
-                .iter()
-                .copied()
-                .chain(["--login", "--", "/bin/sh", "-c", SCRIPT])
-                .collect();
-            let mut h = Harness::boot_set(
-                &args,
-                FakeVt::new(),
-                Some(Box::new(Memory::default())),
-                no_fonts(),
-                |app| app.set_gpu_source(source),
-            );
+            let mut h = booted(args, SCRIPT, source);
             assert!(h.until(BOUND, |a| {
                 a.screen_text().iter().any(|l| l.contains("done"))
             }));
@@ -6645,15 +6662,7 @@ mod gpu_path {
     /// fault queued yet, and what the test sees of the GPU.
     fn on_test_gpu() -> (Harness, Arc<TestGpu>) {
         let gpu = Arc::new(TestGpu::default());
-        let args = ["--hwaccel", "--login", "--", "/bin/sh", "-c", SCRIPT];
-        let source = GpuSource::Test(Arc::clone(&gpu));
-        let mut h = Harness::boot_set(
-            &args,
-            FakeVt::new(),
-            Some(Box::new(Memory::default())),
-            no_fonts(),
-            |app| app.set_gpu_source(source),
-        );
+        let mut h = booted(&["--hwaccel"], SCRIPT, GpuSource::Test(Arc::clone(&gpu)));
         assert!(h.until(BOUND, |a| {
             a.screen_text().iter().any(|l| l.contains("done"))
         }));
@@ -6737,19 +6746,8 @@ mod gpu_path {
             "stty -echo; printf ready; while read -r k; do printf '\\0337\\033[1;1HZ\\0338'; done";
         let shown = |hwaccel: bool| {
             let gpu = Arc::new(TestGpu::default());
-            let args: Vec<&str> = hwaccel
-                .then_some("--hwaccel")
-                .into_iter()
-                .chain(["--no-blink", "--login", "--", "/bin/sh", "-c", KEYS])
-                .collect();
-            let source = GpuSource::Test(Arc::clone(&gpu));
-            let mut h = Harness::boot_set(
-                &args,
-                FakeVt::new(),
-                Some(Box::new(Memory::default())),
-                no_fonts(),
-                |app| app.set_gpu_source(source),
-            );
+            let args: Vec<&str> = hwaccel.then_some("--hwaccel").into_iter().collect();
+            let mut h = booted(&args, KEYS, GpuSource::Test(Arc::clone(&gpu)));
             assert!(h.until(BOUND, |a| {
                 a.screen_text().iter().any(|l| l.contains("ready"))
             }));
