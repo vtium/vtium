@@ -234,3 +234,42 @@ These cases of the four variants keep the goldens the C reference drew, and fail
 ## The goldens the C reference drew
 
 These goldens were copied byte for byte from the C reference's tier 3 goldens at kmscon `b1f7a7c5` (`../README.md`, The copies), and moved here from the directory that held them apart, with no byte changed. They are every golden of `gl-1280x800`, the 33; every golden of `2d-potato-min` and of `2d-potato-min-psf` but `sgr.png`, 28 each; and the seven of each default 2D variant that the table above leaves on them: `sgr`, `colour-forms`, `underline-styles`, `underline-colour`, `strike`, `emoji` and `sixel-article`. Every case of `gl-1280x800` fails on its renderer, so its goldens judge no capture (`../README.md`, Variants).
+
+## The excused cases and the screens' heading, recaptured
+
+Two kinds of goldens are vtium's captures from `make tier3` on 191eadf7 with the screens of the commit that adds them, whose consoles logged `vtium v0.1.0-alpha.1-1078-g191eadf7-dirty`. Each capture differs from the golden before it only where this list says. In each row the first number counts the pixels that moved.
+
+The minimal variants' cases whose difference from the golden the C reference drew a listed departure used to excuse now hold vtium's output:
+
+| Golden | Pixels | What moved |
+|---|---|---|
+| `2d-potato-min/sixel`, `sixel-ramps`, `sixel-article`, `sixel-evict`, `photos`, `photo-scroll`, `mpv-sixel`, `tmux-2x2`, `tmux-3x3`, `flood` | 602 each | The "no sixel" line quotes vtium's DA1 reply, `CSI ? 62 ; 22 c`, a VT220 with color, where the golden showed `?60;1;6;9;15c`: row 2, from column 26, counted from 1. |
+| the same ten of `2d-potato-min-psf` | 821 each | The same reply, in kbd's default8x16. |
+| `2d-potato-min/underline-styles` | 128 | The two dashed lines, rows 6 and 15 from column 16: each dash runs from its cell's left edge for five of its eight pixels, where the golden centred a dash over each cell's middle two thirds. |
+| `2d-potato-min-psf/underline-styles` | 439 | The same dashes, and the characters default8x16 lacks, drawn in the built-in unifont where the golden showed `?`: the wide characters of row 14. |
+| `2d-potato-min-psf/cjk` | 1,098 | The CJK characters default8x16 lacks, in the built-in unifont where the golden showed `?`, rows 1 to 3. `vt-restore` is compared with it. |
+| `2d-potato-min-psf/combining` | 201 | The marks column: each letter and its combining marks drawn as one glyph, keyed by the whole cluster, where the golden showed the letter alone. The one-code-point column's ã of rows 3 and 8, which default8x16 lacks, in the built-in unifont where the golden showed `?`. |
+| `2d-potato-min-psf/emoji` | 940 | The emoji, the hearts and the regional indicator default8x16 lacks, in the built-in unifont where the golden showed `?`, and the keycap of row 4 drawn as one glyph, keyed by the whole cluster, where the golden showed `1`. |
+| `2d-potato-min-psf/strike` | 294 | The wide characters of row 7, in the built-in unifont where the golden showed `?`. |
+| `2d-potato-min-psf/wide-margin` | 308 | The wide characters at the margins, in the built-in unifont where the golden showed `?`. |
+
+The screens no longer print kmscon: `boxdraw`'s box is headed `vtium tier 3`, and `sixel-bound`'s heading reads `One sixel with more work than vtium parses at once:`. Each golden below moved in that heading's row alone, the box's second row for `boxdraw` and the first row for `sixel-bound`. `kitty-files` prints kmscon only without a login session, which tier 3 never draws, and none of its goldens moved.
+
+| Golden | Pixels |
+|---|---|
+| `2d-potato-min/boxdraw` | 269 |
+| `2d-potato-min-psf/boxdraw` | 370 |
+| `2d-320x240-psf8/boxdraw` | 192 |
+| `2d-640x480-psf16/boxdraw` | 269 |
+| `2d-1280x800/boxdraw` | 783 |
+| `2d-1366x768-potato/boxdraw` | 783 |
+| `2d-7680x2160/boxdraw` | 783 |
+| `2d-potato-min/sixel-bound` | 403 |
+| `2d-potato-min-psf/sixel-bound` | 556 |
+| `2d-1280x800/sixel-bound` | 1,317 |
+| `2d-1366x768-potato/sixel-bound` | 1,317 |
+| `2d-7680x2160/sixel-bound` | 1,317 |
+| `2d-7680x2160-font32/sixel-bound` | 4,086 |
+
+Three goldens still show `kmscon tier 3`. `2d-7680x2160-font32/boxdraw` keeps its golden: vtium's capture differs from it in every box line too, which vtium now draws one pixel wide at the 20x38 cell where the golden's lines are two pixels wide, and no decision lists that change. Its `blocks` golden differs the same way. Both stay provisional until the maintainer settles the line width. `gl-1280x800/boxdraw` and `gl-1280x800/sixel-bound` keep the C reference's goldens, since every case of that variant fails on its renderer and no capture of vtium's exists for it.
+
