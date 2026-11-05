@@ -1,3 +1,5 @@
 # vtium's goldens the operator has not reviewed: NAME and why. A
 # provisional case is drawn and compared, and a difference is noted but
 # does not fail the run; the row goes when the operator accepts the golden.
+notice-no-console-opened-800x480	new with the notice of a console whose login cannot start (ADR-1401 D5), 2026-11-05; the maintainer reviews it as a picture
+notice-no-console-opened-3840x540	new with the notice of a console whose login cannot start (ADR-1401 D5), 2026-11-05; the maintainer reviews it as a picture
