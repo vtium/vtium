@@ -6,8 +6,9 @@
 
 #[path = "common/home.rs"]
 mod home;
+#[path = "common/script.rs"]
+mod script;
 
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
@@ -56,8 +57,7 @@ fn fixture(name: &str) -> Fixture {
     }
     std::fs::write(root.join("etc/vtium.conf"), INSTALLED).expect("vtium.conf");
     let checker = root.join("vtium");
-    std::fs::write(&checker, CHECKER).expect("the checker");
-    std::fs::set_permissions(&checker, std::fs::Permissions::from_mode(0o755)).expect("its mode");
+    script::executable(&checker, CHECKER);
     Fixture { root }
 }
 
@@ -251,8 +251,7 @@ fn edit_installs_nothing_when_the_editor_adds_a_bad_line() {
     let f = fixture("edit");
     f.desk();
     let editor = f.path("editor");
-    std::fs::write(&editor, "#!/bin/sh\necho 'BAD line' >> \"$1\"\n").expect("the editor");
-    std::fs::set_permissions(&editor, std::fs::Permissions::from_mode(0o755)).expect("its mode");
+    script::executable(&editor, "#!/bin/sh\necho 'BAD line' >> \"$1\"\n");
     let mut c = f.command(&["edit", "--install"]);
     c.env("EDITOR", &editor);
     let ran = f.run_with(c, "n\n");
