@@ -694,7 +694,7 @@ impl Sample {
             .collect()
     }
 
-    /// The specimen as a picture that shows what the font covers: a
+    /// The specimen as a picture that shows which characters the font has: a
     /// character the frit draws in the ink, one the built-in font draws in
     /// grey, and one neither draws as an empty grey box, so a gap shows
     /// (ADR-1201 D4).

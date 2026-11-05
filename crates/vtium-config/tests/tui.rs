@@ -1494,6 +1494,33 @@ fn any_other_key_during_the_live_trial_puts_the_font_back() {
     }
 }
 
+/// Leaving while the switch that puts the start font back is still in
+/// flight sends it no second time: the TUI waits for that switch's reply
+/// and leaves, since the console ends in the start font either way.
+#[test]
+fn leaving_with_the_start_font_in_flight_sends_it_once() {
+    use vtium_config::tui::input::{Input, Key, Reply};
+    use vtium_config::tui::model::{Effect, Event};
+    let mut app = trying_tiny5();
+    // a key puts unifont back; its reply has not come when q arrives
+    assert_eq!(
+        app.event(Event::Input(Input::Key(Key::Down))),
+        [Effect::Write(model::switch("unifont"))]
+    );
+    let leave = app.event(Event::Input(Input::Key(Key::Char('q'))));
+    assert!(
+        !leave
+            .iter()
+            .any(|e| matches!(e, Effect::Write(b) if b.windows(3).any(|w| w == b"]50"))),
+        "no second switch: {leave:?}"
+    );
+    assert!(leave.contains(&Effect::Wait(model::WAIT)), "{leave:?}");
+    assert_eq!(
+        app.event(Event::Input(Input::Reply(Reply::Font("unifont".into())))),
+        [Effect::Exit(0)]
+    );
+}
+
 /// Leaving during the countdown, by Ctrl-C or a signal, gives the start
 /// font back and leaves once the console has answered.
 #[test]
