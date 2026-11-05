@@ -6217,18 +6217,23 @@ fn a_display_that_cannot_go_back_holds_its_crtc_for_the_chain() {
 }
 
 // Where the card refuses B's CRTC, 103, B cannot be lit: it drives only
-// 101 and 103, and A cannot leave 101. Still no two displays share a CRTC:
-// A stays on 101 and B on 103. The atomic wake-up fails. With the legacy
-// calls N lights on 102 and B is left unset, to be tried again. As no
-// display goes back, the legacy calls set each display once and do not
-// set them again.
+// 101 and 103, and A cannot leave 101. Still no two displays share a CRTC.
+// The atomic modeset leaves N off and sends no display back, as A and B
+// cannot go back, and the card refuses that too. vtium cannot tell which
+// CRTC the card refused, so it tries the modeset without B, the last of
+// the displays that stay on the CRTC they were moved to, and the card
+// takes it: the wake-up lights A on 101 and W on 100, leaves B off until
+// the next hotplug, and starts no retries. With the legacy calls N lights
+// on 102 and B is left unset, to be tried again. As no display goes back,
+// the legacy calls set each display once and do not set them again.
 #[test]
 fn a_chain_the_card_refuses_never_puts_two_displays_on_one_crtc() {
     const W: u32 = 43;
     const N: u32 = 44;
-    let (woke, outs, _, _) = woken_in_a_chain(true, 103);
-    assert!(woke.is_err());
-    assert_eq!(outs, [(A, 101), (B, 103), (W, 100)]);
+    let (woke, outs, unset, _) = woken_in_a_chain(true, 103);
+    assert!(woke.is_ok(), "{woke:?}");
+    assert_eq!(outs, [(A, 101), (W, 100)]);
+    assert_eq!(unset, Vec::<u32>::new());
     let (woke, outs, unset, sets) = woken_in_a_chain(false, 103);
     assert!(woke.is_ok(), "{woke:?}");
     assert_eq!(outs, [(A, 101), (B, 103), (W, 100), (N, 102)]);
@@ -6329,16 +6334,25 @@ fn a_display_left_off_for_a_passing_failure_is_not_recorded_beside_a_refusal() {
 }
 
 /// A wake-up's result, its outputs as connector and CRTC, the connectors
-/// it left unset, and those whose displays a hotplug moves no lit display
-/// for.
-type Woken = (io::Result<()>, Vec<(u32, u32)>, Vec<u32>, Vec<u32>);
+/// it left unset, those whose displays a hotplug moves no lit display for,
+/// the events it sent, and whether it left the retries running.
+type Woken = (
+    io::Result<()>,
+    Vec<(u32, u32)>,
+    Vec<u32>,
+    Vec<u32>,
+    Vec<Event>,
+    bool,
+);
 
 /// A card where A drives CRTCs 100 and 101, B 100 and 102, and C only
 /// 100, with A lit on 100 and B on 102. While vtium is away, a desktop
-/// leaves B's connector on 100 and A's on none, and C is plugged in; the
-/// card refuses the CRTCs `refuse`. The wake-up puts C on 100, A on 101 and
-/// B on 102, both off 100, and B was lit on 100 as vtium woke.
-fn woken_beside_c(atomic: bool, refuse: &[u32]) -> Woken {
+/// leaves B's connector on 100 and A's on none, and C is plugged in where
+/// `c`; the card refuses the CRTCs `refuse`, and where `refuse` is empty,
+/// every commit. The wake-up puts A on 101,
+/// off 100, as B was lit on 100 as vtium woke; with C, it puts C on 100
+/// and B on 102, off 100 too.
+fn woken_beside_c(atomic: bool, c: bool, refuse: &[u32]) -> Woken {
     const C: u32 = 43;
     let card = reaching(&[0b011, 0b101, 0b001], 2);
     {
@@ -6352,35 +6366,96 @@ fn woken_beside_c(atomic: bool, refuse: &[u32]) -> Woken {
     v.events().for_each(drop);
     desktop_leaves(v.card(), B, 100);
     v.card().state().bind(A, 0);
-    v.card().state().listed.push(C);
+    if c {
+        v.card().state().listed.push(C);
+    }
     v.card().state().refused.extend(refuse);
+    if refuse.is_empty() {
+        v.card().state().commit_errors.extend([Errno::INVAL; 64]);
+    }
     let woke = v.wake_up();
     let outs = v.outputs.iter().map(|o| (o.id.0, o.crtc)).collect();
     let unset = v.unset.iter().map(|id| id.0).collect();
-    (woke, outs, unset, v.move_refused.clone())
+    let events = events(&mut v);
+    let retries = v.waits().1;
+    (woke, outs, unset, v.move_refused.clone(), events, retries)
 }
 
-// Two displays moved off one CRTC do not both go back to it. In the card
-// of `woken_beside_c` the card refuses 101, so it refuses A on 101. With
-// atomic commits vtium cannot tell which CRTC the card refused: B, which
-// the desktop left lit on 100, goes back there, A stays on 101, and the
-// wake-up fails, with no two displays on one CRTC and C recorded as
-// refused. With the legacy calls only A's set failed, so A goes back to
-// 100 and lights, C stays off, and B stays lit on 102. C is not recorded,
-// as A was not lit on 100 when vtium woke.
+// Two displays moved off one CRTC do not both go back to it, and the
+// wake-up lights whichever choice of the one that goes back the card takes.
+// In the card of `woken_beside_c` with C, the card refuses the placement.
+// With atomic commits vtium cannot tell which CRTC the card refused. B,
+// which the desktop left lit on 100, goes back first and A stays on 101.
+// Where the card refuses 101, it refuses that too, so B loses the tie: A
+// goes back to 100 and B stays on 102, which the card takes. Both light,
+// C stays off and is not recorded, as A was not lit on 100 when vtium
+// woke, and no retry runs, so the refused choice is never tried again.
+// Where the card refuses both 101 and 102, neither choice lights, and the first lights
+// without A, which stays on the CRTC it was moved to: B lights on 100 and
+// A is left off until the next hotplug. Where the card refuses every
+// commit, nothing lights, C is not recorded, and the retries run. With the
+// legacy calls only A's
+// set failed where the card refuses 101, so A goes back to 100 and lights,
+// and B stays lit on 102.
 #[test]
 fn two_displays_moved_off_one_crtc_do_not_both_go_back() {
     const C: u32 = 43;
-    let (woke, outs, unset, refused) = woken_beside_c(true, &[101]);
-    assert!(woke.is_err());
-    assert_eq!(outs, [(A, 101), (B, 100)]);
-    assert_eq!(unset, Vec::<u32>::new());
-    assert_eq!(refused, [C]);
-    let (woke, outs, unset, refused) = woken_beside_c(false, &[101]);
+    let both = [
+        Event::Redraw(DisplayId(A)),
+        Event::Redraw(DisplayId(B)),
+        Event::Awake,
+    ];
+    let (woke, outs, unset, refused, events, retries) = woken_beside_c(true, true, &[101]);
     assert!(woke.is_ok(), "{woke:?}");
     assert_eq!(outs, [(A, 100), (B, 102)]);
     assert_eq!(unset, Vec::<u32>::new());
     assert_eq!(refused, Vec::<u32>::new());
+    assert_eq!(events, both);
+    assert!(!retries, "no retry tries the refused choice again");
+    let (woke, outs, _, refused, events, retries) = woken_beside_c(true, true, &[101, 102]);
+    assert!(woke.is_ok(), "{woke:?}");
+    assert_eq!(outs, [(B, 100)]);
+    assert_eq!(refused, [C]);
+    assert_eq!(
+        events,
+        [
+            Event::Removed(DisplayId(A)),
+            Event::Redraw(DisplayId(B)),
+            Event::Awake
+        ]
+    );
+    assert!(!retries);
+    let (woke, _, _, refused, _, retries) = woken_beside_c(true, true, &[]);
+    assert!(woke.is_err());
+    assert_eq!(refused, Vec::<u32>::new(), "nothing lit without C");
+    assert!(retries);
+    let (woke, outs, unset, refused, _, _) = woken_beside_c(false, true, &[101]);
+    assert!(woke.is_ok(), "{woke:?}");
+    assert_eq!(outs, [(A, 100), (B, 102)]);
+    assert_eq!(unset, Vec::<u32>::new());
+    assert_eq!(refused, Vec::<u32>::new());
+}
+
+// A wake-up that moved a display to a CRTC the card refuses lights the
+// others, with no new display among them. In the card of `woken_beside_c`
+// without C, the wake-up moves A to 101, as B holds 100, and the card
+// refuses 101. A cannot go back, so the wake-up lights B on 100 without A,
+// leaves A off until the next hotplug, and starts no retries.
+#[test]
+fn a_display_a_wake_up_moved_to_a_crtc_the_card_refuses_is_left_off() {
+    let (woke, outs, _, refused, events, retries) = woken_beside_c(true, false, &[101]);
+    assert!(woke.is_ok(), "{woke:?}");
+    assert_eq!(outs, [(B, 100)]);
+    assert_eq!(refused, Vec::<u32>::new());
+    assert_eq!(
+        events,
+        [
+            Event::Removed(DisplayId(A)),
+            Event::Redraw(DisplayId(B)),
+            Event::Awake
+        ]
+    );
+    assert!(!retries);
 }
 
 // A new display the card refused beside the others, placed after them,
@@ -6511,12 +6586,13 @@ fn a_legacy_move_the_card_refuses_sends_back_only_that_display() {
 #[test]
 fn of_two_displays_moved_off_one_crtc_the_lit_one_goes_back() {
     const C: u32 = 43;
-    let (woke, outs, unset, refused) = woken_beside_c(true, &[102]);
+    let (woke, outs, unset, refused, _, retries) = woken_beside_c(true, true, &[102]);
     assert!(woke.is_ok(), "{woke:?}");
     assert_eq!(outs, [(A, 101), (B, 100)]);
     assert_eq!(unset, Vec::<u32>::new());
     assert_eq!(refused, [C]);
-    let (woke, outs, unset, refused) = woken_beside_c(false, &[101, 102]);
+    assert!(!retries);
+    let (woke, outs, unset, refused, _, _) = woken_beside_c(false, true, &[101, 102]);
     assert!(woke.is_ok(), "{woke:?}");
     assert_eq!(outs, [(A, 101), (B, 100)]);
     assert_eq!(unset, [A]);
@@ -6686,7 +6762,7 @@ fn going_back_never_puts_two_displays_on_one_crtc() {
         let failed_ids: Vec<DisplayId> = failed.iter().map(|&i| outs[i].0).collect();
         for legacy in [false, true] {
             cases += 1;
-            let result = v.going_back(&fresh, legacy.then_some(&failed_ids[..]));
+            let result = v.going_back(&fresh, legacy.then_some(&failed_ids[..]), &[]);
             let got: u32 = (0..N)
                 .filter(|&i| result.contains(&outs[i].0))
                 .map(bit)
