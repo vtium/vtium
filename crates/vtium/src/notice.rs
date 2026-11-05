@@ -117,7 +117,7 @@ pub fn more_errors(n: usize) -> String {
 /// vtium's notice when the session of a console the open chord opened
 /// cannot start, and the console leaves: a notice of a problem, which
 /// shows whatever `osd` says (ADR-1401 D5).
-pub const NO_CONSOLE_OPENED: &str = "No console opened: its login could not start.";
+pub const NO_CONSOLE_OPENED: &str = "Console not opened: login could not start.";
 
 /// The on-screen display's brief line on head `head` when the open chord
 /// finds it at `head-consoles-max`, its `n` consoles (ADR-1401 D5).

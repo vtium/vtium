@@ -2671,7 +2671,7 @@ fn a_console_the_open_chord_cannot_start_leaves_and_the_run_goes_on() {
     assert_eq!(consoles(&s.app, "small"), Some((1, 0)), "the console left");
     assert_eq!(
         notice(&s.app, "small").as_deref(),
-        Some("No console opened: its login could not start."),
+        Some("Console not opened: login could not start."),
         "the notice at the top of the head"
     );
     s.type_on(KBD_SMALL, "on\r");
