@@ -12,9 +12,9 @@
 <text x="36" y="48" fill="#e5e5e5">Fonts   Sizes   Settings   Heads</text>
 <rect x="316" y="35" width="48" height="18" fill="#e5e5e5"/>
 <text x="322" y="48" fill="#000000">Flow</text>
-<text x="380" y="48" fill="#e5e5e5">Save</text>
+<text x="380" y="48" fill="#e5e5e5">Save   Revert   New</text>
 <!-- status line -->
-<text x="36" y="72" fill="#e5e5e5">working copy ~/.config/vtium/vtium.conf, differs from installed   policy open   watching devices   1 change not saved</text>
+<text x="36" y="72" fill="#e5e5e5">working copy ~/.config/vtium/vtium.conf: 1 line added, 1 removed from installed   policy open   watching devices</text>
 <!-- column headings -->
 <g font-weight="bold">
 <text x="36" y="102" fill="#00ffff">DISPLAYS</text>
@@ -112,5 +112,5 @@
 <rect x="114" y="565" width="126" height="18" fill="#e5e5e5"/>
 <text x="118" y="578" fill="#000000">class:keyboard</text>
 <text x="252" y="578" fill="#e5e5e5">path:pci-0000:15:00.0-usb-0:3.3   id:046d:c31c   or type a selector</text>
-<text x="36" y="616" fill="#7f7f7f">Tab or Left Right columns   Up Down move   Enter edit   Space tag   c connect   f follow   d devices   s save   a apply   q leave</text>
+<text x="36" y="616" fill="#7f7f7f">Tab or Left Right columns   Up Down move   Enter edit   Space tag   c connect   f follow   d devices   s save   r revert   n new   q leave</text>
 </svg>
