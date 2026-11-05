@@ -84,19 +84,16 @@ fn run(opts: &[(String, String)]) -> ExitCode {
         Ok(x) => x,
         Err(e) => return refuse(e),
     };
-    let goldens = here.join("reference/goldens");
-    let vtium_goldens = here.join("goldens");
+    let goldens = here.join("goldens");
     let r = Run {
         cases: CASES,
-        kmscon_goldens: &goldens,
-        vtium_goldens: &vtium_goldens,
-        departures: &lists.departures,
+        goldens: &goldens,
         pending: &lists.pending,
         provisional: &lists.provisional,
         out: &out,
         root: &out,
     };
-    if let Err(e) = r.check_lists(&lists.titles) {
+    if let Err(e) = r.check_lists() {
         return refuse(e);
     }
     #[cfg_attr(

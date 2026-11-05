@@ -1,0 +1,28 @@
+# Captures of vtium-config's TUI for the maintainer's review of its screen
+# goldens: each golden drawn as a PNG by vtium's own renderer, and the TUI
+# opened on the goldens' fixtures in the caller's terminal, inside a
+# throwaway home (crates/vtium-config/README.md, "Reviewing the screens").
+[package]
+name = "vtium-tui-review"
+description = "The TUI's screen goldens as PNGs, and the TUI on their fixtures"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+vtium-term.workspace = true
+# the TUI, its fixtures, its store and its drafts
+vtium-config = { path = "../../crates/vtium-config" }
+# draws a byte stream through vtium-term and vtium-render in unifont
+vtium-tier2 = { path = "../tier2" }
+# writes the PNGs, as the specimens are written
+vtium-specimens = { path = "../specimens" }
+# the user the demo runs as; vtium-config already links this version
+rustix = { version = "=1.1.5", default-features = false, features = ["std", "process"] }

@@ -394,14 +394,14 @@ conformance-record: ## Record the corpus's programs into OUT=DIR, each <name>.bi
 	$(or $(CARGO_TARGET_DIR),target)/release/conformance-record $(OUT) $(NAMES)
 
 .PHONY: conformance-issues
-conformance-issues: ## Check that every issue the conformance lists say owes a case or a capability is open (needs gh)
+conformance-issues: ## Check that every issue the capability list says owes a capability is open (needs gh)
 	cargo build --release -p vtium-conformance --bins
 	$(or $(CARGO_TARGET_DIR),target)/release/conformance issues
 
 .PHONY: test-tools
 # shellcheck gates at warning: its info notes differ between versions, and
 # the scripts' `A && B || die` is deliberate.
-test-tools: ## Test the VT review tools, the tier 3 harness, the gallery tool, the fuzz runner and the gate runner without a VT, sudo, logind, a VM or nightly (shellcheck when installed), the set writer without its deflate, the key table's crates built as a package names HWACCEL and DISPLAY_BUFFERS, that the console leaves the deflate out, and that make gates runs AGENTS.md's gate line
+test-tools: ## Test the VT review tools, the tier 3 harness, the gallery tool, the fuzz runner, the gate runner and the sysroot fetch without a VT, sudo, logind, a VM or nightly (shellcheck when installed), the set writer without its deflate, the key table's crates built as a package names HWACCEL and DISPLAY_BUFFERS, that the console leaves the deflate out, and that make gates runs AGENTS.md's gate line
 	python3 -I tools/vt/tests/test_vt.py
 	python3 -I tools/vt/tests/test_accept.py
 	python3 -I -B tools/tier3/test_t3img.py
@@ -409,6 +409,7 @@ test-tools: ## Test the VT review tools, the tier 3 harness, the gallery tool, t
 	python3 -I -B tools/gallery/tests/test_gallery.py
 	python3 -I -B tools/fuzz/test_run.py
 	python3 -I -B tools/gates/test_run.py
+	python3 -I -B tools/arm/test_sysroot.py
 	cargo test -q -p vtium-font --test set
 	$(TEST_BUILD_SETTINGS)
 	@if cargo tree -p vtium --target $(X86_TARGET) -e no-dev,features -i vtium-font | grep -q 'feature "deflate"'; then echo "the console enables vtium-font's deflate feature, which only vtium-config takes (ADR-1200 D19)" >&2; exit 1; else echo "the console links no deflate"; fi
@@ -558,6 +559,23 @@ specimens-fonts: ## Fetch the outline profiles' pinned fonts into the cache, che
 	cargo build --release -p vtium-specimens --bins
 	$(or $(CARGO_TARGET_DIR),target)/release/specimens fetch-fonts
 
+# What the maintainer reviews vtium-config's TUI screen goldens on
+# (crates/vtium-config/README.md, "Reviewing the screens"); neither is a gate.
+# tui-shots plays the bytes the golden tests capture through vtium's
+# renderer into PNGs; tui-demo opens the TUI on the goldens' fixtures in a
+# throwaway home that tools/tui-review/demo removes afterwards.
+TUI_SHOTS := $(or $(OUT),$(or $(CARGO_TARGET_DIR),target)/tui-shots)
+.PHONY: tui-shots tui-demo
+tui-shots: ## Draw every TUI screen golden as a PNG through vtium's renderer in unifont, into OUT=DIR (default target/tui-shots)
+	rm -rf $(TUI_SHOTS)/bytes
+	VTIUM_CONFIG_SHOTS=$(abspath $(TUI_SHOTS))/bytes cargo test -p vtium-config --test tui -- each_view_at_80x25_and_100x30 a_draft_s_card_question_and_pager_at_80x25_and_100x30
+	cargo build --release -p vtium-tui-review --bin tui-shots
+	$(or $(CARGO_TARGET_DIR),target)/release/tui-shots crates/vtium-config/tests/screens $(TUI_SHOTS)/bytes $(TUI_SHOTS)
+
+tui-demo: ## Open vtium-config's TUI in this terminal on the screen goldens' fixtures, in a throwaway home removed afterwards (FIXTURE=draft, the default, or figure)
+	cargo build -p vtium-config -p vtium-tui-review --bins
+	tools/tui-review/demo $(or $(FIXTURE),draft) $(or $(CARGO_TARGET_DIR),target)/debug/tui-demo $(or $(CARGO_TARGET_DIR),target)/debug/vtium-config
+
 # The documentation site (ADR-1502): Zensical, pinned with hashes in
 # tools/site/requirements.txt, installed into a virtual environment under
 # target/ and run from there. Its first run needs Python 3.11 or later and the
@@ -580,9 +598,8 @@ showcase: ## Make the showcase screens in docs/showcase (tier 3, QEMU/KVM)
 	tools/tier3/showcase.sh
 
 # Tier 3: vtium's install tree in a QEMU/KVM guest with a real kernel VT and
-# KMS device, its screens captured and compared with the C reference's
-# goldens copied into tools/tier3/c-goldens, and vtium's own
-# (tools/tier3/README.md). QEMU runs headless as the invoking user. Each
+# KMS device, its screens captured and compared with the goldens in
+# tools/tier3/goldens (tools/tier3/README.md). QEMU runs headless as the invoking user. Each
 # variant boots the machine tools/tier3/t3_scenario.py names; JOBS=N runs up to
 # N variants at once, and with JOBS above 1, T3_DEADLINE=S stops a variant
 # still running after S seconds. GL variants never run together.

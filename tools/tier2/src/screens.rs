@@ -22,21 +22,10 @@ use crate::draw::{Alone, DecoSpec, Decorations, FontKind, Overlay, Screen, TestF
 use crate::notices;
 use crate::pictures;
 
-/// Where a screen's golden lives.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Source {
-    /// The C reference's, copied from its `tests/goldens/tier2/` into
-    /// `tools/tier2/reference/goldens/<name>.ppm`.
-    Kmscon,
-    /// vtium's own, `tools/tier2/goldens/<name>.ppm`.
-    Vtium,
-}
-
-/// A screen and where its golden lives.
+/// A screen, whose golden is `tools/tier2/goldens/<name>.ppm`.
 #[derive(Clone, Copy, Debug)]
 pub struct Case {
     pub screen: Screen,
-    pub source: Source,
 }
 
 /// Block elements and box drawing stacked across rows and columns
@@ -377,7 +366,6 @@ const fn edges(name: &'static str, orientation: Orientation) -> Case {
             display: Some((11 * 8 + 5, 4 * 16 + 3)),
             ..Screen::new(name, EDGES_DESC, EDGES, 12, 4)
         },
-        source: Source::Vtium,
     }
 }
 
@@ -447,7 +435,6 @@ const fn small(name: &'static str, desc: &'static str, overlay: Overlay) -> Case
             overlay: Some(overlay),
             ..Screen::new(name, desc, OVERLAY_SHELL, 100, 30)
         },
-        source: Source::Vtium,
     }
 }
 
@@ -462,7 +449,6 @@ const fn large(name: &'static str, desc: &'static str, overlay: Overlay) -> Case
             overlay: Some(overlay),
             ..Screen::new(name, desc, OVERLAY_SHELL, 160, 10)
         },
-        source: Source::Vtium,
     }
 }
 
@@ -479,7 +465,6 @@ const fn alone_small(name: &'static str, desc: &'static str, alone: Alone) -> Ca
             alone: Some(alone),
             ..Screen::new(name, desc, BLANK, 100, 30)
         },
-        source: Source::Vtium,
     }
 }
 
@@ -496,7 +481,6 @@ const fn alone_large(name: &'static str, desc: &'static str, alone: Alone) -> Ca
             alone: Some(alone),
             ..Screen::new(name, desc, BLANK, 160, 10)
         },
-        source: Source::Vtium,
     }
 }
 
@@ -519,7 +503,6 @@ const fn scheme(
             }),
             ..Screen::new(name, desc, bytes, 100, 8)
         },
-        source: Source::Vtium,
     }
 }
 
@@ -585,6 +568,8 @@ const RESCUE_NO_HEAD_DESC: &str = "vtium's notice that the rescue key moved the 
 
 const ONESHOT_DESC: &str = "vtium's notice that the head's session ended under `oneshot` and will not start again (vtium/vtium#156), over the session's last screen. Correct: the notice saying the session has ended and will not start again, then to press Ctrl+Super+↑ to switch to another screen, in the notices' pale red box with a dark red edge across the top, the width of the display, its text dark, wrapped at a space where it is wider than the box; the row just below the box partly covered, on purpose, since the box is painted over the terminal's text and is not a whole number of rows tall; and the rows below it as the terminal drew them.";
 
+const NO_CONSOLE_OPENED_DESC: &str = "vtium's notice that a console the open chord opened did not open, because its login could not start (ADR-1401 D5), a notice of a problem that shows whatever `osd` says, over a shell session. Correct: the notice `Console not opened: login could not start.` on one line, in the notices' pale red box with a dark red edge across the top, the width of the display, its text dark, its first letter half a cell in from the edge; the row just below the box partly covered, on purpose, since the box is painted over the terminal's text and is not a whole number of rows tall; and the rows below it as the terminal drew them.";
+
 const HEAD_FILE_DESC: &str = "vtium's notice of partly broken sections of vtium.conf (ADR-1401 D7, ADR-1403 D3): its rule on line 4 names the head `desc`, which the file does not declare, so that rule alone is dropped. Correct: two lines in the notices' pale red box with a dark red edge across the top, the console line `config partly invalid, running what's valid`, naming no error, since the log keeps the errors, then its next step, `Run vtium check-config /etc/vtium/vtium.conf to see why.`; the row just below the box partly covered, on purpose, since the box is painted over the terminal's text and is not a whole number of rows tall; and the rows below it as the terminal drew them.";
 
 const HEAD_FILE_TWO_DESC: &str = "vtium's notice of broken sections of vtium.conf under the open policy (ADR-1401 D7, ADR-1403 D3): a key the head section does not take on line 3 drops the head, and with it every rule naming it, so nothing usable survives and the shipped rules run. Correct: two lines in the notices' pale red box with a dark red edge across the top, the console line `invalid config skipped, using builtin`, naming no error, then its next step, `Run vtium check-config /etc/vtium/vtium.conf to see why.`; the row just below the box partly covered, on purpose, since the box is painted over the terminal's text and is not a whole number of rows tall; and the rows below it as the terminal drew them.";
@@ -627,10 +612,7 @@ const PICTURES_TILED_DESC: &str = "Three pictures wider and taller than 64 pixel
 
 /// A picture screen: vtium's golden, drawn by vtium.
 const fn picture(screen: Screen) -> Case {
-    Case {
-        screen,
-        source: Source::Vtium,
-    }
+    Case { screen }
 }
 
 /// Every case, in the order the report lists them.
@@ -643,7 +625,6 @@ pub const CASES: &[Case] = &[
             },
             ..Screen::new("blocks", BLOCKS_DESC, BLOCKS, 48, 10)
         },
-        source: Source::Kmscon,
     },
     // DejaVu Sans Mono at 22 pixels, its line height and 6 pixel rows more
     Case {
@@ -654,7 +635,6 @@ pub const CASES: &[Case] = &[
             },
             ..Screen::new("blocks-spaced", BLOCKS_DESC, BLOCKS, 48, 10)
         },
-        source: Source::Kmscon,
     },
     edges("edges", Orientation::Normal),
     edges("edges-right", Orientation::Right),
@@ -673,7 +653,6 @@ pub const CASES: &[Case] = &[
             40,
             6,
         ),
-        source: Source::Vtium,
     },
     Case {
         screen: Screen::new(
@@ -686,7 +665,6 @@ pub const CASES: &[Case] = &[
             32,
             5,
         ),
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -701,7 +679,6 @@ pub const CASES: &[Case] = &[
                 5,
             )
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen::new(
@@ -714,7 +691,6 @@ pub const CASES: &[Case] = &[
             48,
             10,
         ),
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -732,7 +708,6 @@ pub const CASES: &[Case] = &[
                 10,
             )
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -744,7 +719,6 @@ pub const CASES: &[Case] = &[
                 10,
             )
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -756,7 +730,6 @@ pub const CASES: &[Case] = &[
                 10,
             )
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -768,7 +741,6 @@ pub const CASES: &[Case] = &[
                 10,
             )
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -780,7 +752,6 @@ pub const CASES: &[Case] = &[
                 10,
             )
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -792,7 +763,6 @@ pub const CASES: &[Case] = &[
                 10,
             )
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -804,7 +774,6 @@ pub const CASES: &[Case] = &[
                 10,
             )
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -816,14 +785,12 @@ pub const CASES: &[Case] = &[
                 10,
             )
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
             pointer: Some((5, 0)),
             ..Screen::new("link-hover-unifont", LINK_HOVER_DESC, LINK_HOVER, 40, 7)
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -837,7 +804,6 @@ pub const CASES: &[Case] = &[
                 7,
             )
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -849,7 +815,6 @@ pub const CASES: &[Case] = &[
                 10,
             )
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -862,7 +827,6 @@ pub const CASES: &[Case] = &[
                 10,
             )
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -878,7 +842,6 @@ pub const CASES: &[Case] = &[
                 10,
             )
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -890,7 +853,6 @@ pub const CASES: &[Case] = &[
                 10,
             )
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -902,7 +864,6 @@ pub const CASES: &[Case] = &[
                 16,
             )
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -914,7 +875,6 @@ pub const CASES: &[Case] = &[
                 10,
             )
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -927,7 +887,6 @@ pub const CASES: &[Case] = &[
                 10,
             )
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -941,7 +900,6 @@ pub const CASES: &[Case] = &[
                 30,
             )
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -955,7 +913,6 @@ pub const CASES: &[Case] = &[
                 30,
             )
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -970,7 +927,6 @@ pub const CASES: &[Case] = &[
                 30,
             )
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -985,7 +941,6 @@ pub const CASES: &[Case] = &[
                 30,
             )
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -998,7 +953,6 @@ pub const CASES: &[Case] = &[
                 10,
             )
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -1011,7 +965,6 @@ pub const CASES: &[Case] = &[
                 10,
             )
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -1024,7 +977,6 @@ pub const CASES: &[Case] = &[
                 5,
             )
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -1040,7 +992,6 @@ pub const CASES: &[Case] = &[
                 30,
             )
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -1057,7 +1008,6 @@ pub const CASES: &[Case] = &[
                 30,
             )
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -1075,7 +1025,6 @@ pub const CASES: &[Case] = &[
                 6,
             )
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -1093,7 +1042,6 @@ pub const CASES: &[Case] = &[
                 6,
             )
         },
-        source: Source::Vtium,
     },
     small(
         "notice-no-keyboard-800x480",
@@ -1119,6 +1067,11 @@ pub const CASES: &[Case] = &[
         "notice-oneshot-800x480",
         ONESHOT_DESC,
         shown(&[notices::oneshot]),
+    ),
+    small(
+        "notice-no-console-opened-800x480",
+        NO_CONSOLE_OPENED_DESC,
+        shown(&[notices::no_console_opened]),
     ),
     small(
         "notice-head-file-800x480",
@@ -1195,6 +1148,11 @@ pub const CASES: &[Case] = &[
         shown(&[notices::oneshot]),
     ),
     large(
+        "notice-no-console-opened-3840x540",
+        NO_CONSOLE_OPENED_DESC,
+        shown(&[notices::no_console_opened]),
+    ),
+    large(
         "notice-head-file-3840x540",
         HEAD_FILE_DESC,
         shown(&[notices::head_file_one_error]),
@@ -1248,7 +1206,6 @@ pub const CASES: &[Case] = &[
             alone: Some(notices::panic_screen),
             ..Screen::new("panic-320x240", PANIC_SMALL_DESC, BLANK, 40, 15)
         },
-        source: Source::Vtium,
     },
     scheme(
         "scheme-light-notice",

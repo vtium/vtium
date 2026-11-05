@@ -1,9 +1,15 @@
-//! The flow of ADR-1403 D7's figure, which the tests and the screen
-//! goldens draw: the machine of D4's example, two displays and one
-//! keyboard, with one more input rule for a keyboard that is unplugged, and
-//! a look no head uses yet.
+//! What the TUI's tests, its screen goldens and `make tui-demo` start
+//! from. [`flow`] is the flow of ADR-1403 D7's figure: the machine of D4's
+//! example, two displays and one keyboard, with one more input rule for a
+//! keyboard that is unplugged, and a look no head uses yet. [`inputs`] is
+//! what the TUI opens on around it. [`DRAFT`] and [`CHECKER`] are the
+//! installed vtium.conf and the stand-in console of the goldens that open
+//! a draft.
+
+use std::path::PathBuf;
 
 use super::flow::{Base, Device, Draft, Flow, Head, Kind, Look, Rule, RuleState};
+use super::model::{DpiFrom, Font, FontState, Inputs, View};
 
 fn rule(kind: Kind, line: usize, selector: &str, target: &str, state: RuleState) -> Rule {
     Rule {
@@ -140,3 +146,71 @@ pub fn flow() -> Flow {
         read: true,
     }
 }
+
+/// The sections of the fixture's vtium.conf: a look that draws the frit
+/// proof, the head desk drawing it, and the head panel drawing the default
+/// look (ADR-1403 D4).
+pub const SECTIONS: &str = "version = 1\n[look proof]\nfont-name = proof\n[head desk]\nlook = proof\n[head panel]\n[rules]\ndisplay * -> desk\n";
+
+/// What the TUI opens on: the fonts of a machine with three frits, one that
+/// does not read, its vtium.conf, and [`flow`] in the Flow view, with no
+/// desk, so the Flow view changes nothing.
+pub fn inputs() -> Inputs {
+    let font = |name: &str, state| Font {
+        name: name.to_owned(),
+        state,
+    };
+    Inputs {
+        fonts: vec![
+            font(
+                "broken",
+                FontState::Refused("line 2: unknown key colour".into()),
+            ),
+            font("minspec-16", FontState::Reads),
+            font("proof", FontState::Reads),
+            font("tiny5", FontState::Reads),
+            font("unifont", FontState::BuiltIn),
+            font("unscii-8", FontState::BuiltIn),
+        ],
+        conf_path: PathBuf::from("/etc/vtium/vtium.conf"),
+        conf: Some(format!("# mine\nfont-name=unifont\n{SECTIONS}")),
+        dpi: (96, DpiFrom::Assumed),
+        frits: PathBuf::from("/etc/vtium/fonts"),
+        view: View::Fonts,
+        display: Some((640, 480)),
+        flow: flow(),
+        color: true,
+        desk: false,
+        hotplug: false,
+        installed: [
+            ("broken", &b"source=builtin:unifont\ncolour=red\n"[..]),
+            ("minspec-16", b"source=builtin:unifont\n"),
+            ("proof", b"source=font:JetBrains Mono\n"),
+            ("tiny5", b"source=bdf:/x/Tiny5Mono.bdf\n"),
+            ("latin1", b"source=kbd:lat1-16 # \xe9\n"),
+        ]
+        .into_iter()
+        .map(|(n, b)| (n.to_owned(), b.to_vec()))
+        .collect(),
+    }
+}
+
+/// The installed vtium.conf of the goldens that open a draft: two heads,
+/// a look, and three rules, the second naming the keyboard at `pci-0:3.3`.
+pub const DRAFT: &str = "font-size=12\nversion = 1\n[look big]\nfont-name = proof\n[head desk]\nlook = big\n[head panel]\n[rules]\ndisplay * -> desk\ninput path:pci-0:3.3 -> panel\ninput class:keyboard -> roaming\n";
+
+/// The stand-in console those goldens check a draft with: `check-config
+/// --configdir DIR FILE` names each line of FILE that holds `BAD` and
+/// fails, and passes any other file.
+pub const CHECKER: &str = r#"#!/bin/sh
+[ "$1" = check-config ] || exit 9
+file="$4"
+bad=$(grep -n BAD "$file" | cut -d: -f1)
+if [ -n "$bad" ]; then
+  for n in $bad; do
+    echo "$file:$n: BAD is not a key vtium reads" >&2
+  done
+  exit 1
+fi
+echo "$file: checked"
+"#;

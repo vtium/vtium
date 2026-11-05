@@ -26,6 +26,8 @@ Host needs: the targets' standard libraries (`rustup target add aarch64-unknown-
 
 The three `TRIPLE-*` names are links to `wrap`, which reads its own name. The Makefile names them for these targets alone, in `arm` and `arm-test`, so a native build on an ARM machine uses that machine's toolchain.
 
+A fetch whose sysroot is already extracted, or whose packages are all in `debs` and match their pins, makes no network request. `test_sysroot.py`, which `make test-tools` runs, checks this against a stand-in curl that records every request, and checks that a cached package or a download whose SHA-256 differs from its pin is fetched again or refused, and never extracted. The VT tools' tests in `tools/vt/tests/` give their builds a home directory of their own, so they name the caller's sysroot cache to those builds with `VTIUM_ARM_SYSROOTS`, and their sysroot fetch finds the packages already cached.
+
 A test binary under qemu starts other target binaries, as `crates/vtium/tests` start vtium, and the kernel hands those to qemu only through binfmt_misc. When the host registers no qemu for the target, `TRIPLE-run` mounts a binfmt_misc of its own in a user namespace, registers qemu there, and runs the binary in a nested namespace mapped back to the invoking user and group. Nothing on the host changes. Where the namespace or its binfmt_misc is refused, as before Linux 6.7, it runs qemu directly and says so, and the tests that start a target binary fail.
 
 The sysroot is `/usr`-merged and carries an empty loader cache. qemu-user finds an `open()` in the sysroot but not a `statx()`, so a loader search that missed in `/lib/TRIPLE` would mark that directory absent; and the host's loader cache names 32-bit host libraries the armv7 loader would take.

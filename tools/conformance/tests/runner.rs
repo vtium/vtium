@@ -4,7 +4,6 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use vtium_conformance::runner::lists::{Expectation, Expected};
 use vtium_conformance::runner::{Corpus, Verdict, judge, mask};
 use vtium_conformance::view::View;
 
@@ -50,106 +49,42 @@ fn replay(corpus: &Corpus) -> Result<String, vtium_conformance::Failure> {
     vtium_conformance::replay::run(&input)
 }
 
-fn departure(text: &str) -> Expected {
-    Expected {
-        kind: Expectation::Departure(text.to_owned()),
-        rows: Vec::new(),
-    }
-}
-
-fn pending(snapshot: &str) -> Expected {
-    Expected {
-        kind: Expectation::Pending(snapshot.to_owned()),
-        rows: Vec::new(),
-    }
-}
-
 #[test]
 fn a_case_that_matches_its_golden_passes() {
     let (_dir, c) = corpus("match");
-    assert_eq!(judge(&replay(&c), AB, None), Verdict::Pass);
+    assert_eq!(judge(&replay(&c), AB), Verdict::Pass);
 }
 
-// The issue's gate: a planted difference from a golden fails when it is
-// unlisted and passes once it is listed.
+// A planted difference from a golden fails, and only a masked count may
+// differ.
 #[test]
-fn a_difference_fails_unlisted_and_passes_listed() {
+fn a_difference_from_the_golden_fails() {
     let (_dir, c) = corpus("plant");
-    let golden = AB.replace("|ab|", "|ac|");
     let got = replay(&c);
-    assert!(matches!(judge(&got, &golden, None), Verdict::Fail(_)));
-    assert_eq!(
-        judge(&got, &golden, Some(&departure(AB))),
-        Verdict::Departure
-    );
-    assert_eq!(judge(&got, &golden, Some(&pending(AB))), Verdict::Pending);
-}
-
-// A pending case holds still: any change from its snapshot fails, so a
-// regression in what the case does run is seen while the rest waits.
-#[test]
-fn a_pending_case_fails_on_any_change_from_its_snapshot() {
-    let (_dir, c) = corpus("snapshot");
-    let golden = AB.replace("|ab|", "|ac|");
-    let got = replay(&c);
-    let moved = pending(&AB.replace("|ab|", "|ad|"));
     assert!(matches!(
-        judge(&got, &golden, Some(&moved)),
+        judge(&got, &AB.replace("|ab|", "|ac|")),
         Verdict::Fail(_)
     ));
-    let refused = pending("exit 2: test command image needs feature images\n");
     assert!(matches!(
-        judge(&got, &golden, Some(&refused)),
+        judge(&got, &AB.replace("cursor 2,0", "cursor 1,0")),
+        Verdict::Fail(_)
+    ));
+    let counted = Ok(format!("{AB}changed 3\n"));
+    assert_eq!(judge(&counted, &format!("{AB}changed 4\n")), Verdict::Pass);
+    assert!(matches!(
+        judge(&counted, &format!("{AB}changed 0\n")),
         Verdict::Fail(_)
     ));
 }
 
 #[test]
-fn a_listed_departure_must_print_exactly_its_expected_output() {
-    let (_dir, c) = corpus("wrong");
-    let golden = AB.replace("|ab|", "|ac|");
-    let expected = departure(&AB.replace("|ab|", "|ad|"));
-    assert!(matches!(
-        judge(&replay(&c), &golden, Some(&expected)),
-        Verdict::Fail(_)
-    ));
-}
-
-#[test]
-fn a_listed_case_that_matches_its_golden_fails_so_the_list_stays_true() {
-    let (_dir, c) = corpus("stale");
-    assert!(matches!(
-        judge(&replay(&c), AB, Some(&departure(AB))),
-        Verdict::Fail(_)
-    ));
-    assert!(matches!(
-        judge(&replay(&c), AB, Some(&pending(AB))),
-        Verdict::Fail(_)
-    ));
-}
-
-#[test]
-fn a_replay_that_exits_fails_unless_pending() {
+fn a_replay_that_exits_fails() {
     let failure = Err(vtium_conformance::Failure {
         code: 2,
         message: "test command image needs feature images".to_owned(),
         output: "checkpoint 1\n".to_owned(),
     });
-    assert!(matches!(judge(&failure, AB, None), Verdict::Fail(_)));
-    let snapshot = vtium_conformance::runner::snapshot(&failure);
-    assert_eq!(
-        snapshot,
-        "checkpoint 1\nexit 2: test command image needs feature images\n"
-    );
-    assert_eq!(
-        judge(&failure, AB, Some(&pending(&snapshot))),
-        Verdict::Pending
-    );
-    let other = pending("checkpoint 2\nexit 2: test command image needs feature images\n");
-    assert!(matches!(
-        judge(&failure, AB, Some(&other)),
-        Verdict::Fail(_)
-    ));
+    assert!(matches!(judge(&failure, AB), Verdict::Fail(_)));
 }
 
 #[test]

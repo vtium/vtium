@@ -3,7 +3,7 @@
 use std::path::Path;
 
 use crate::docs::{self, Content, Drawn};
-use crate::draw::Sources;
+use crate::draw::{Absent, Sources};
 use crate::png;
 use crate::profiles::{PROFILES, Profile};
 
@@ -34,8 +34,10 @@ pub fn write(dir: &Path, sources: &Sources) -> Result<Drawn, String> {
 /// `goldens` or, for a simulated render, in `simulations`, kept apart from
 /// the goldens that judge vtium's drawing. A difference in a provisional
 /// profile is `drift`: reported, failing nothing (the operator,
-/// 2026-10-28). A profile whose screens could not be drawn here is
-/// `skipped`, with why.
+/// 2026-10-28). A profile whose screens are not drawn here is `skipped`,
+/// with why, when it is provisional or when the caller names the other
+/// job that judges it ([`Absent::JudgedBy`]). An accepted profile that
+/// the caller tried and failed to draw is a fault in `goldens`.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Faults {
     pub goldens: Vec<String>,
@@ -75,15 +77,22 @@ pub fn check(dir: &Path, sources: &Sources) -> Result<Faults, String> {
     let provisional = docs::provisional(dir)?;
     let drawn = docs::files(&provisional, sources)?;
     let mut faults = Faults::default();
-    // a skip never hides an accepted profile's regression: only a
-    // provisional profile may go undrawn
+    // an accepted profile goes undrawn here only when the caller names
+    // the job that draws and judges it; one the caller failed to draw
+    // fails, so a missing font never hides an accepted profile's
+    // regression
     for (p, why) in &drawn.skipped {
-        if provisional.iter().any(|n| n == p.name) {
-            faults.skipped.push(format!("{}: {why}", p.name));
-        } else {
-            faults
+        match why {
+            _ if provisional.iter().any(|n| n == p.name) => {
+                faults.skipped.push(format!("{}: {why}", p.name));
+            }
+            Absent::JudgedBy(judge) => faults.skipped.push(format!(
+                "{}: accepted, and drawn and judged by {judge}",
+                p.name
+            )),
+            Absent::Failed(why) => faults
                 .goldens
-                .push(format!("{}: accepted, and not drawn here: {why}", p.name));
+                .push(format!("{}: accepted, and not drawn here: {why}", p.name)),
         }
     }
     for stray in strays(dir, &drawn)? {
@@ -180,12 +189,13 @@ fn walk(root: &Path, dir: &Path, out: &mut Vec<String>) -> Result<(), String> {
 mod tests {
     use super::*;
 
-    /// The sources a test draws with: no desktop set and no tiny5 set, so
-    /// the profiles drawn from them are skipped.
+    /// The sources a test draws with: no desktop set and no tiny5 set, each
+    /// failed with no other job named, so the profiles drawn from them are
+    /// skipped while provisional and fail once accepted.
     fn sources() -> Sources {
         Sources {
-            desktop: Err("not built in this test".to_owned()),
-            tiny5: Err("not built in this test".to_owned()),
+            desktop: Err(Absent::Failed("not built in this test".to_owned())),
+            tiny5: Err(Absent::Failed("not built in this test".to_owned())),
         }
     }
 
@@ -309,8 +319,9 @@ mod tests {
         );
     }
 
-    // An accepted profile that cannot be drawn here fails with why: a skip
-    // never hides an accepted profile's regression.
+    // An accepted profile that the caller failed to draw, naming no other
+    // job that judges it, fails with why: a missing font never hides an
+    // accepted profile's regression.
     #[test]
     fn an_accepted_profile_not_drawn_here_fails() {
         let dir = drawn("skip-accepted", "320x240-tiny5\tnew\n2560x1440\tnew\n");
@@ -327,6 +338,44 @@ mod tests {
             ["1920x1080: accepted, and not drawn here: not built in this test"]
         );
         assert!(faults.failed());
+    }
+
+    // An accepted profile whose set the caller does not generate, naming
+    // the job that judges it, is skipped with that job's name and fails
+    // nothing; in the same check, an accepted profile whose set failed
+    // still fails. Its text is judged still.
+    #[test]
+    fn an_accepted_profile_another_job_judges_is_skipped() {
+        let dir = drawn("judged-elsewhere", "");
+        let sources = Sources {
+            desktop: Err(Absent::JudgedBy("the other job")),
+            tiny5: Err(Absent::Failed("not built in this test".to_owned())),
+        };
+        let faults = check(&dir, &sources).unwrap();
+        assert_eq!(
+            faults.skipped,
+            [
+                "1920x1080: accepted, and drawn and judged by the other job",
+                "2560x1440: accepted, and drawn and judged by the other job"
+            ]
+        );
+        assert_eq!(
+            faults.goldens,
+            ["320x240-tiny5: accepted, and not drawn here: not built in this test"]
+        );
+        let sources = Sources {
+            desktop: Err(Absent::JudgedBy("the other job")),
+            tiny5: Err(Absent::JudgedBy("the other job")),
+        };
+        let faults = check(&dir, &sources).unwrap();
+        assert!(!faults.failed(), "{faults:?}");
+        assert_eq!(faults.skipped.len(), 3, "{:?}", faults.skipped);
+        std::fs::write(dir.join("1920x1080/vtium.conf"), b"").unwrap();
+        let faults = check(&dir, &sources).unwrap();
+        assert_eq!(
+            faults.goldens,
+            ["1920x1080/vtium.conf: differs from what the profile table writes"]
+        );
     }
 
     // A directory symbolic link back up the tree is listed, not walked.

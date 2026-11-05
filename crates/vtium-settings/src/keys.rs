@@ -461,7 +461,7 @@ pub const OSD: Key = Key {
     levels: TOP,
     reader: "vtium",
     what: "What vtium's on-screen display draws at the top of each head after a change.\n\n\
-           With `minimal`, it draws a dot in the top-right cell, filled on the active head and hollow on the others. With `full`, it draws a line across the top, such as `● desk · console 2 of 3`. With `off`, it draws nothing.\n\n\
+           With `minimal`, it draws a dot in the top-right cell, filled on the active head and hollow on the others. With `full`, it draws a line across the top, such as `● desk · console 2 of 3`. With `off`, it never draws anything, after any change.\n\n\
            A notice of a problem shows whatever `osd` says.",
     cite: "ADR-1401 D5; the operator on vtium/vtium#169",
 };

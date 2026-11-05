@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/*", "tools/conformance", "tools/cover-tables", "tools/site", "tools/specimens", "tools/tier2"]
+members = ["crates/*", "tools/conformance", "tools/cover-tables", "tools/site", "tools/specimens", "tools/tier2", "tools/tui-review"]
 
 [workspace.package]
 version = "0.1.0-alpha.5"

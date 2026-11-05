@@ -301,16 +301,6 @@ impl<T: Held> GlyphCache<T> {
         GlyphCache { fallback, ..self }
     }
 
-    /// Drops every glyph, with `fallback` standing in for color glyphs from
-    /// now on, its budgets kept: the font now draws every glyph it drew
-    /// differently. What it held is not given back through
-    /// [`GlyphCache::take_evicted`], so a cache whose glyphs hold slots of
-    /// its owner's makes its owner anew instead.
-    pub(crate) fn reset(&mut self, fallback: Option<Fallback>) {
-        *self =
-            GlyphCache::new(self.budgets, self.storage, self.orientation).with_fallback(fallback);
-    }
-
     /// Drops each glyph whose text, alone or in a cluster, holds one of
     /// `chars`, which are sorted: the characters the font now draws
     /// differently. Every other glyph stays, but every glyph the font drew

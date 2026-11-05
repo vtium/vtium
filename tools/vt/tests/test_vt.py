@@ -58,6 +58,12 @@ UNITS_SH = os.path.join(VT, "units.sh")
 GUIDE_SH = os.path.join(VT, "checks", "guide.sh")
 ACCEPT_SH = os.path.join(VT, "accept.sh")
 FEEDBACK_SH = os.path.join(VT, "feedback.sh")
+# The sysroot cache tools/arm/sysroot keeps, which every checkout shares, as
+# the caller's environment names it: VTIUM_ARM_SYSROOTS, else under
+# XDG_CACHE_HOME or HOME. Stage.env names it to the tests' builds, because it
+# moves HOME and drops every VTIUM_ variable.
+SYSROOTS = os.path.dirname(subprocess.run([os.path.join(ROOT, "tools", "arm", "sysroot"), "dir", "amd64"],
+                                          capture_output=True, text=True, check=True).stdout.strip())
 # The real systemctl, outside the stand-ins, for the links under a root.
 REAL_SYSTEMCTL = shutil.which("systemctl")
 REAL_ANALYZE = shutil.which("systemd-analyze")
@@ -439,6 +445,10 @@ class Stage:
             # A home of the tests' own, so nothing a test runs can write under
             # the real one, such as the passes directory's default.
             HOME=self.caller_home,
+            # The caller's sysroot cache, which the moved HOME would otherwise
+            # replace with an empty one, where every build's sysroot fetch
+            # would download each package from the Debian mirror again.
+            VTIUM_ARM_SYSROOTS=SYSROOTS,
             CALLS=self.calls,
             COUNT=os.path.join(self.tmp, "count"),
             BIN_ARGS=self.bin_args,
@@ -1787,6 +1797,16 @@ class VtSh(Case):
 
 class Make(Case):
     """The Makefile's guards, which act before anything is built."""
+
+    def test_the_builds_find_the_callers_sysroot_cache(self):
+        # The tests' builds fetch the amd64 sysroot first. Stage.env moves
+        # HOME, so a cache found through HOME would be an empty one under the
+        # tests' home, and each build would download every package from the
+        # Debian mirror again (#309).
+        sysroot = [os.path.join(ROOT, "tools", "arm", "sysroot"), "dir", "amd64"]
+        callers = subprocess.run(sysroot, capture_output=True, text=True, check=True).stdout
+        tests = subprocess.run(sysroot, env=self.s.env(), capture_output=True, text=True, check=True).stdout
+        self.assertEqual(tests, callers)
 
     def make(self, *args, **env):
         # The review targets build the helper unless one is named; these

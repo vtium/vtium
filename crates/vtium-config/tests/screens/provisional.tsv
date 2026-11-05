@@ -1,10 +1,10 @@
 # The TUI's screen goldens that judge nothing until the maintainer reviews the layout (ADR-1201 D8). One name a line, a tab, and what the screen shows.
-flow-100x30	the flow view at 100x30, on the flow of ADR-1403 D7's figure
-card-80x25	the flow view at 80x25 with rule 5 opened below the columns
-card-100x30	the flow view at 100x30 with rule 5 opened below the columns
-draft-rule-card-100x30	the flow view on a draft at 100x30 with rule 1's card open for editing
-draft-head-card-100x30	the flow view on a draft at 100x30 with head desk's card open for editing
-draft-delete-head-100x30	the flow view on a draft at 100x30 asking before it deletes head desk
+flow-100x30	ADR-1201 D4 amendment 2026-11-05: the header and key line for picture preview, awaiting review
+card-80x25	ADR-1201 D4 amendment 2026-11-05: the header and key line for picture preview, awaiting review
+card-100x30	ADR-1201 D4 amendment 2026-11-05: the header and key line for picture preview, awaiting review
+draft-rule-card-100x30	ADR-1201 D4 amendment 2026-11-05: the header and key line for picture preview, awaiting review
+draft-head-card-100x30	ADR-1201 D4 amendment 2026-11-05: the header and key line for picture preview, awaiting review
+draft-delete-head-100x30	ADR-1201 D4 amendment 2026-11-05: the header and key line for picture preview, awaiting review
 flow-80x25	ADR-1201 D4 amendment 2026-11-05: the header and key line for picture preview, awaiting review
 draft-rule-card-80x25	ADR-1201 D4 amendment 2026-11-05: the header and key line for picture preview, awaiting review
 draft-head-card-80x25	ADR-1201 D4 amendment 2026-11-05: the header and key line for picture preview, awaiting review

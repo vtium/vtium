@@ -179,20 +179,13 @@ def _provision(args, log, base):
 # --- a run ------------------------------------------------------------------
 
 def preflight(log, golden=None):
-    """Every reason the judges cannot judge a run, checked before anything is
-    built or booted: a departure naming a case no variant draws; a golden
-    of the C reference's (under `golden`, default GOLDEN) or of vtium's that
-    no case compares with; and a golden of the C reference's that a case
-    compares with and that is missing."""
+    """Every reason the goldens cannot judge a run, checked before anything is
+    built or booted: a golden under `golden` (default GOLDEN) that no case
+    compares with, and a provisional row for a golden that does not exist."""
     golden = golden or t3_common.GOLDEN
     log("goldens: %s" % rel(golden))
-    errors = t3_evaluate.check_departures(t3_evaluate.DEPARTURES, t3_scenario.variant_cases)
-    errors += ["%s is missing, and a case compares with it" % rel(p)
-               for p in sorted(t3_scenario.c_goldens_judging(golden)) if not os.path.exists(p)]
-    errors += t3_evaluate.check_goldens(t3_scenario.c_golden_cases(), golden)
-    errors += t3_evaluate.check_goldens(t3_scenario.vtium_golden_cases(),
-                                        t3_evaluate.VTIUM_GOLDEN, t3_evaluate.PROVISIONAL)
-    return errors
+    return t3_evaluate.check_goldens(t3_scenario.golden_cases(), golden,
+                                     t3_evaluate.PROVISIONAL)
 
 
 def run(args, log):
@@ -233,10 +226,9 @@ def run(args, log):
     if interrupted is not None:
         return 130 if isinstance(interrupted, KeyboardInterrupt) else 128 + signal.SIGTERM
     # "near" is a difference within the case's reviewed tolerance,
-    # "departure" one a listed departure explains, "provisional" a case
-    # whose golden is not yet reviewed, and "capture" a showcase case, which
-    # no golden judges: all pass.
-    passed = all(c["status"] in ("pass", "near", "departure", "provisional", "capture")
+    # "provisional" a case whose golden is not yet reviewed, and "capture" a
+    # showcase case, which no golden judges: all pass.
+    passed = all(c["status"] in ("pass", "near", "provisional", "capture")
                  for c in cases)
     return 0 if passed and t3_impl.within_budget(impl) else 1
 
