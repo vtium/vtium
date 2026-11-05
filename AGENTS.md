@@ -112,7 +112,7 @@ The goldens decide whether vtium's output is right, and there are three kinds:
 - **vtium's own goldens.** For behaviour that only vtium has, vtium keeps its own goldens in its tree.
 - **Provisional goldens.** vtium's own goldens stay provisional until the maintainer reviews them, and a provisional golden judges nothing.
 
-The author of a change never rewrites, widens or regenerates the golden that judges that change. A golden changes only in a commit of its own, which lists each value that moved, and the maintainer reviews it. Where vtium differs from a golden, the difference must be a listed departure, in the crate's README or in #14's list. A difference that is not listed fails.
+The author of a change never rewrites, widens or regenerates the golden that judges that change. A golden changes only in a commit of its own, which lists each value that moved, and the maintainer reviews it.
 
 Tier 3 needs `qemu-system-x86_64` with KVM, `qemu-img`, `xorriso`, `gpg`, `curl` and `tic`, and it runs as the user who starts it. Its guest images live in a cache that every vtium checkout shares, `$XDG_CACHE_HOME/vtium/tier3/images`. vtium's own scripts download the pristine (unmodified) image into the cache's `pristine/` directory and build the base image into its `base/` directory ([tools/tier3/README.md](tools/tier3/README.md)).
 

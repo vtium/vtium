@@ -1037,138 +1037,15 @@ class PreflightTest(unittest.TestCase):
         self.assertEqual((self.built, t3_impl.describe(impl)["features"]), ([], ["images"]))
 
 
-class DeparturesTest(unittest.TestCase):
-    """departures.tsv: a listed difference inside its departure's rectangles
-    is a "departure", which passes; anything else about a listed case fails,
-    and a list that names an unknown case or departure refuses the run."""
+class VerdictTest(unittest.TestCase):
+    """The statuses that pass a run."""
 
-    TITLE = "DA1 reports a VT220 with color, `CSI ? 62 ; 22 c`."
-
-    def setUp(self):
-        self.dir = tempfile.TemporaryDirectory()
-        self.addCleanup(self.dir.cleanup)
-
-    def tsv(self, text):
-        path = os.path.join(self.dir.name, "departures.tsv")
-        with open(path, "w") as f:
-            f.write("# a comment\n" + text)
-        return path
-
-    def test_shipped(self):
-        # The list in the tree reads, and every case and title in it is known.
-        deps = t3_evaluate.read_departures()
-        self.assertEqual(t3_evaluate.check_departures(deps, t3_scenario.variant_cases), [])
-        self.assertEqual(deps["2d-potato-min-psf/flood"],
-                         [{"readme": "crates/vtium-term/README.md", "title": self.TITLE,
-                           "rects": [[203, 16, 491, 32]]}])
-        self.assertEqual(deps["2d-potato-min/underline-styles"][0]["rects"],
-                         [[123, 80, 251, 96], [123, 224, 339, 240]])
-        self.assertEqual(len(deps), 28)
-        self.assertEqual([d["title"] for d in deps["2d-potato-min-psf/underline-styles"]],
-                         ["A dash runs from the cell's left edge for five eighths of it.",
-                          "A character the frit lacks draws in the built-in font."])
-
-    def test_read(self):
-        path = self.tsv("a,b\tx,y\tR.md\tT\t0,0,8,16;8,0,16,16\n")
-        deps = t3_evaluate.read_departures(path)
-        self.assertEqual(sorted(deps), ["a/x", "a/y", "b/x", "b/y"])
-        self.assertEqual(deps["b/y"], [{"readme": "R.md", "title": "T",
-                                        "rects": [[0, 0, 8, 16], [8, 0, 16, 16]]}])
-        # a case under two departures, each a line of its own
-        path = self.tsv("a\tx\tR.md\tT\t0,0,8,16\na\tx\tR.md\tU\t8,0,16,16\n")
-        self.assertEqual([d["title"] for d in t3_evaluate.read_departures(path)["a/x"]],
-                         ["T", "U"])
-
-    def test_refused(self):
-        for text, why in (("a\tx\tR.md\tT\n", "want VARIANTS, SCREENS"),
-                          ("a\tx\tR.md\t\t0,0,1,1\n", "want VARIANTS, SCREENS"),
-                          ("a\tx\tR.md\tT\t0,0,1\n", "a rectangle is"),
-                          ("a\tx\tR.md\tT\t1,0,1,1\n", "a rectangle is"),
-                          ("a\tx\tR.md\tT\tz,0,1,1\n", "a rectangle is"),
-                          ("a\tx,x\tR.md\tT\t0,0,1,1\n", "a/x is listed twice"),
-                          ("a\tx\tR.md\tT\t0,0,1,1\na\tx\tR.md\tT\t1,0,2,1\n",
-                           "a/x is listed twice under 'T'"),
-                          # one pixel, 7,15, in a rectangle of each: it would
-                          # show both departures
-                          ("a\tx\tR.md\tT\t0,0,8,16\na\tx,y\tR.md\tU\t20,0,24,4;7,15,16,32\n",
-                           "a/x: a rectangle of 'U' overlaps one of 'T'")):
-            with self.subTest(text):
-                with self.assertRaisesRegex(SystemExit, re.escape(why)):
-                    t3_evaluate.read_departures(self.tsv(text))
-
-    def test_checked(self):
-        readme = os.path.join(self.dir.name, "R.md")
-        with open(readme, "w") as f:
-            f.write("## Departures\n\n- **Listed.** Why.\n\n## Other\n\n- **Elsewhere.** No.\n")
-        dep = {"readme": readme, "title": "Listed.", "rects": [[0, 0, 1, 1]]}
-        deps = {"2d-potato-min/sixel": [dep],
-                "2d-potato-min/photo-scrollback": [dep],
-                "no-such/sgr": [dep],
-                "2d-potato-min/vt-switch": [dep],
-                "2d-potato-min/cjk": [dep, dict(dep, title="Elsewhere.")],
-                "2d-potato-min/sgr": [dict(dep, readme=readme + ".missing")]}
-        errors = t3_evaluate.check_departures(deps, lambda v: t3_scenario.variant_cases(v)
-                                              if v in t3_scenario.VARIANTS else [])
-        self.assertEqual(len(errors), 5, errors)
-        for why in ("lists 2d-potato-min/photo-scrollback, which no variant draws",
-                    "lists no-such/sgr, which no variant draws",
-                    "lists 2d-potato-min/vt-switch, a check without a golden",
-                    "2d-potato-min/cjk: %s lists no departure 'Elsewhere.'" % readme,
-                    "2d-potato-min/sgr: [Errno 2]"):
-            self.assertTrue(any(why in e for e in errors), (why, errors))
-
-    def judged(self, actual_pixels, listed=True, golden_pixels=(), also=()):
-        """The entry for 2d-potato-min/sixel with a black 32x32 golden and a capture
-        differing at `actual_pixels`, listed under a departure whose rectangle
-        is 8,0,24,16, and under `also`'s departures after it."""
-        golden = os.path.join(self.dir.name, "golden")
-        img = t3img.Image(32, 32, bytes(32 * 32 * 3))
-        os.makedirs(os.path.join(golden, "2d-potato-min"), exist_ok=True)
-        t3img.write_png(os.path.join(golden, "2d-potato-min", "sixel.png"), img)
-        data = bytearray(img.data)
-        for x, y in actual_pixels:
-            data[(y * 32 + x) * 3] = 200
-        cap = os.path.join(self.dir.name, "cap.png")
-        t3img.write_png(cap, t3img.Image(32, 32, bytes(data)))
-        dep = {"readme": "R.md", "title": "T", "rects": [[8, 0, 24, 16]]}
-        deps = {"2d-potato-min/sixel": [dep, *also]} if listed else {}
-        with mock.patch.object(t3_evaluate, "GOLDEN", golden), \
-                mock.patch.object(t3_evaluate, "RUNDIR", os.path.join(self.dir.name, "run")), \
-                mock.patch.object(t3_evaluate, "DEPARTURES", deps):
-            return t3_evaluate.evaluate("2d-potato-min", "sixel", cap, {}, LOG)
-
-    def test_judged(self):
-        inside = [(8, 0), (23, 15), (12, 7)]
-        e = self.judged(inside)
-        self.assertEqual((e["status"], e["departure"], e["stats"]["pixels"]),
-                         ("departure", "T", 3))
-        e = self.judged(inside + [(24, 0), (8, 16)])
-        self.assertEqual((e["status"], e["error"]),
-                         ("fail", "2 differing pixel(s) outside the rectangles of the "
-                                  "departure 'T'"))
-        e = self.judged([])
-        self.assertEqual((e["status"], e["error"]),
-                         ("fail", "listed under the departure 'T', which it no longer shows"))
-        e = self.judged(inside, listed=False)
-        self.assertEqual((e["status"], "departure" in e), ("fail", False))
-        # under two departures: the difference lies in their rectangles
-        # together, and each shows in its own
-        u = {"readme": "R.md", "title": "U", "rects": [[0, 16, 8, 32]]}
-        e = self.judged(inside + [(0, 16)], also=[u])
-        self.assertEqual((e["status"], e["departure"]), ("departure", "T; U"))
-        e = self.judged(inside + [(0, 16), (31, 31)], also=[u])
-        self.assertEqual((e["status"], e["error"]),
-                         ("fail", "1 differing pixel(s) outside the rectangles of the "
-                                  "departures 'T' and 'U'"))
-        e = self.judged(inside, also=[u])
-        self.assertEqual((e["status"], e["error"]),
-                         ("fail", "listed under the departure 'U', which it no longer shows"))
-
-    def test_departure_passes_the_run(self):
-        # The run's verdict counts a departure, a provisional case and a
-        # showcase capture as a pass.
+    def test_the_statuses_that_pass_the_run(self):
+        # The run's verdict counts a near case, a provisional case and a
+        # showcase capture as a pass, and nothing else: a difference from a
+        # golden is a fail.
         with open(os.path.join(t3_common.HERE, "t3.py")) as f:
-            self.assertIn('c["status"] in ("pass", "near", "departure", "provisional", "capture")',
+            self.assertIn('c["status"] in ("pass", "near", "provisional", "capture")',
                           f.read())
 
 
