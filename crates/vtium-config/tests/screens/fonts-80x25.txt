@@ -20,6 +20,6 @@
 
 
 
+
 --------------------------------------------------------------------------------
- Enter keep  t try live  s specimen  n new frit  r remove  Tab next  i install
- q leave, undo
+ Enter keep  t try live  s screen  n new  r remove  i install  q leave, undo
