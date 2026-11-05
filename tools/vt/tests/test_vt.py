@@ -29,6 +29,18 @@ import termios
 import time
 import unittest
 
+# The tests start the tools as a terminal starts them, with the signals a
+# terminal sends at their defaults. A launcher can leave one of them ignored:
+# nohup ignores SIGHUP, and a shell ignores SIGINT and SIGQUIT in a job it
+# starts in the background. Every process the tests start inherits that, and
+# bash cannot trap a signal that was ignored when it started, so run-vt.sh
+# would go on waiting for vtium through a signal a test sends it, and the test
+# would wait for an end that never comes. So the tests put these signals back
+# to their defaults before they start anything.
+for _sig in (signal.SIGHUP, signal.SIGINT, signal.SIGQUIT, signal.SIGTERM):
+    if signal.getsignal(_sig) == signal.SIG_IGN:
+        signal.signal(_sig, signal.default_int_handler if _sig == signal.SIGINT else signal.SIG_DFL)
+
 # The longest any test waits on another process. It only makes a broken test fail instead of hanging.
 WAIT_BOUND = 120
 # The same for a run of make, which may build with cargo on a loaded machine.
@@ -716,6 +728,18 @@ class RunVt(Case):
 
     def test_the_unit_comes_back_after_a_hangup(self):
         self.interrupted(signal.SIGHUP, 129)
+
+    def test_the_signal_tests_hold_when_their_launcher_ignored_the_signals(self):
+        # nohup starts the tests with SIGHUP ignored, and a shell's background
+        # job with SIGINT and SIGQUIT ignored. The tests that send those
+        # signals still see run-vt.sh stop vtium and start the unit again.
+        tests = [f"RunVt.test_the_unit_comes_back_{t}" for t in ("after_a_hangup", "when_stdout_is_closed",
+                                                                 "after_ctrl_c", "after_sigterm")]
+        ignore = lambda: [signal.signal(s, signal.SIG_IGN) for s in (signal.SIGHUP, signal.SIGINT, signal.SIGQUIT)]
+        p = subprocess.run([sys.executable, "-I", os.path.abspath(__file__), *tests], preexec_fn=ignore,
+                           capture_output=True, text=True, timeout=WAIT_BOUND * (len(tests) + 1))
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertIn(f"Ran {len(tests)} tests", p.stderr)
 
     def test_no_active_unit_stops_and_starts_none(self):
         p = self.run_vt("8", ACTIVE_UNITS="")
