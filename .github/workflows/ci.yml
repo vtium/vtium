@@ -83,12 +83,24 @@ jobs:
       # builds and tests everything it did.
       - uses: Swatinem/rust-cache@v2
       # Only the packages, which every extraction checks against pin.tsv;
-      # the sysroots are extracted afresh on each run.
-      - uses: actions/cache@v4
+      # the sysroots are extracted afresh on each run. The packages are
+      # saved under a key of this run's own even when the job fails, so a
+      # run that fetched some of them before the Debian snapshot archive
+      # stopped answering keeps them, and the next run starts from there.
+      - id: arm-debs
+        uses: actions/cache/restore@v4
         with:
           path: ~/.cache/vtium/arm/debs
-          key: arm-debs-${{ hashFiles('tools/arm/pin.tsv') }}
+          key: arm-debs-${{ hashFiles('tools/arm/pin.tsv') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: arm-debs-${{ hashFiles('tools/arm/pin.tsv') }}-
       - run: make arm
+      # A passing run that restored an entry adds nothing new, so it saves
+      # no copy of it.
+      - uses: actions/cache/save@v4
+        if: always() && (failure() || steps.arm-debs.outputs.cache-matched-key == '')
+        with:
+          path: ~/.cache/vtium/arm/debs
+          key: arm-debs-${{ hashFiles('tools/arm/pin.tsv') }}-${{ github.run_id }}-${{ github.run_attempt }}
 
   # The oldest Rust vtium builds on: the rust-version Cargo.toml declares.
   # The builds catch a language feature or a dependency newer than it, and
@@ -165,13 +177,25 @@ jobs:
           toolchain: ${{ steps.toolchain.outputs.channel }}
       # The Debian packages the test of the development console's build
       # fetches for its sysroot, which every extraction checks against
-      # pin.tsv. The key is the job's own: arm-cross's entry holds only the
-      # ARM packages, and an entry is never saved again under a key it has.
-      - uses: actions/cache@v4
+      # pin.tsv. The key prefix is the job's own, because arm-cross's entries
+      # hold only the ARM packages. Each run saves under a key of its own
+      # even when the job fails, so the packages a run fetched before the
+      # Debian snapshot archive stopped answering are kept, and the next run
+      # restores the newest entry and fetches only what is still missing.
+      - id: tools-debs
+        uses: actions/cache/restore@v4
         with:
           path: ~/.cache/vtium/arm/debs
-          key: tools-debs-${{ hashFiles('tools/arm/pin.tsv') }}
+          key: tools-debs-${{ hashFiles('tools/arm/pin.tsv') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: tools-debs-${{ hashFiles('tools/arm/pin.tsv') }}-
       - run: make test-tools
+      # A passing run that restored an entry adds nothing new, so it saves
+      # no copy of it.
+      - uses: actions/cache/save@v4
+        if: always() && (failure() || steps.tools-debs.outputs.cache-matched-key == '')
+        with:
+          path: ~/.cache/vtium/arm/debs
+          key: tools-debs-${{ hashFiles('tools/arm/pin.tsv') }}-${{ github.run_id }}-${{ github.run_attempt }}
 
   # Tier 2: the renderer's screens against vtium's goldens and the C
   # reference's, copied into tools/tier2/reference, and the GPU path's
