@@ -55,10 +55,10 @@
 <text x="732" y="480" font-size="13" text-anchor="middle" fill="#1f2933">and its templates</text>
 <path d="M 620 407 L 600 407 L 600 196 L 630 196" fill="none" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
 <path d="M 620 465 L 600 465 L 600 405" fill="none" stroke="#1f2933" stroke-width="1.5"/>
-<text x="590" y="252" font-size="13" text-anchor="end" fill="#1f2933">vtium.conf</text>
-<text x="590" y="270" font-size="13" text-anchor="end" fill="#1f2933">or a frit,</text>
-<text x="590" y="288" font-size="13" text-anchor="end" fill="#1f2933">sudo once for</text>
-<text x="590" y="306" font-size="13" text-anchor="end" fill="#1f2933">each install</text>
+<text x="610" y="252" font-size="13" fill="#1f2933">vtium.conf</text>
+<text x="610" y="270" font-size="13" fill="#1f2933">or a frit,</text>
+<text x="610" y="288" font-size="13" fill="#1f2933">sudo once for</text>
+<text x="610" y="306" font-size="13" fill="#1f2933">each install</text>
 <line x1="24" y1="536" x2="64" y2="536" stroke="#2f6fb0" stroke-width="2"/>
 <text x="76" y="541" font-size="13" fill="#1f2933">the only way from the session to vtium: bytes on the session's terminal</text>
 <rect x="24" y="554" width="40" height="12" fill="#ffffff" stroke="#9aa5b1" stroke-width="1" stroke-dasharray="6 4"/>

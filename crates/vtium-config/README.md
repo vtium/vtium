@@ -245,7 +245,7 @@ Where the frit names a bold or an italic face but no bold-italic face, the helpe
 
 - vtium.conf's `font-hinting`, and a look's, over the frit's `hinting=` (ADR-1200 D1): the helper hints as the frit says, since no request carries the console's setting yet.
 - ADR-1300's subpixel strikes, and shaping across cells (ligatures, Arabic joining forms, syllabic scripts): the helper shapes the clusters the terminal segments, one at a time (#144).
-- COLR version 1 glyphs, such as `Noto-COLRv1.ttf`'s, are not drawn in color: swash reads version 0. A COLR layer in the text's color takes swash's mid grey, since a set cannot know the text's color.
+- COLR version 1 glyphs, such as `Noto-COLRv1.ttf`'s, are not drawn in color: swash reads version 0. A COLR layer in the text's color takes swash's mid gray, since a set cannot know the text's color.
 - The parser's account is `nobody`; ADR-1400's pre-login account takes its place once vtium/vtium#31 names it.
 - A root run is unverified on the maintainer's machine: the drop to `nobody`, `nobody` executing the binary from its install path, and the real `console:VT` ioctls. Tier 3's guest is where they run.
 

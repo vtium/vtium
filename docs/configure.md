@@ -132,9 +132,7 @@ When an install stops with status 3, someone changed `/etc/vtium/vtium.conf` aft
 
 ### After an install
 
-An install keeps the file it replaced in the installed history, `~/.config/vtium/installed/`, and the 10 newest files there. `vtium config history` lists them, newest first, and `vtium config restore N` copies file N into the draft, where you look at it and install it as usual. Only an install writes `/etc/vtium/vtium.conf`; a restore changes only the draft.
-
-The installed file takes effect at the next start of each vtium that reads it.
+An install keeps the file it replaced in the installed history, `~/.config/vtium/installed/`, which keeps as many files as `history` sets ([The draft](#the-draft)). `vtium config history` lists them, newest first, and `vtium config restore N` copies file N into the draft, where you look at it and install it as usual. Only an install writes `/etc/vtium/vtium.conf`; a restore changes only the draft. The installed file takes effect as [The file](#the-file) says, at each vtium's next start.
 
 ## When vtium-config asks for sudo
 
@@ -142,11 +140,11 @@ Everything `vtium config` does runs as you, apart from one step of an install. I
 
 An install takes three steps:
 
-1. **As you,** vtium-config refuses a draft made before the installed file changed, with exit status 3, and asks nothing. It then checks the draft with `vtium check-config` and refuses a draft that fails, with exit status 1. It builds an install bundle under `~/.local/state/vtium/drafts/`, in a new directory named for the time: the new vtium.conf, any frits the TUI's Fonts view has waiting to install, and a list of each file the bundle replaces with the SHA-256 of that file as it was when you made the change.
-2. **As root,** one command runs: `sudo /usr/bin/vtium-config apply DIR`, where DIR is the bundle's directory. sudo asks for your password here. The command takes no option that names a path or a program, so a sudo rule can allow exactly that command. It reads the bundle without following links. It refuses the bundle, writing nothing, when a file it would replace has changed since you made the change. It checks every file before it writes any: each frit with vtium's frit reader, and the new vtium.conf with the console's own `vtium check-config`. It then writes the frits, and vtium.conf after them, so that vtium.conf never names a frit that is not there yet. It writes each file beside the old one and renames it into place, mode 0644, and keeps the old file as `NAME.bak`, such as `vtium.conf.bak`. This step is one short process, and the check it runs takes most of its time.
+1. **As you,** vtium-config refuses a draft made before the installed file changed, with exit status 3, and asks nothing. It then checks the draft with `vtium check-config` and refuses a draft that fails, with exit status 1. It builds an install bundle under `~/.local/state/vtium/drafts/`, in a new directory named for the time: the new vtium.conf, any frits the TUI's Fonts view has waiting to install, and a list of each file the bundle replaces with the SHA-256 of that file as it is when the install starts.
+2. **As root,** one command runs: `sudo /usr/bin/vtium-config apply DIR`, where DIR is the bundle's directory. sudo asks for your password here. The command takes no option that names a path or a program, so a sudo rule can allow exactly that command. It reads the bundle without following links. It refuses the bundle, writing nothing, when a file it would replace has changed since the install started. It checks every file before it writes any: each frit with vtium's frit reader, and the new vtium.conf with the console's own `vtium check-config`. It then writes the frits, and vtium.conf after them, so that vtium.conf never names a frit that is not there yet. It writes each file beside the old one and renames it into place, mode 0644, and keeps the old file as `NAME.bak`, such as `vtium.conf.bak`. This step is one short process: measured at about 20 ms in a debug build, plus the time `vtium check-config` takes on the file.
 3. **As you again,** vtium-config saves the file the install replaced in your installed history and records the new installed file as the draft's base, so the draft and the installed file are the same.
 
-When sudo refuses, or is not installed, nothing is installed and the command exits with status 4. The bundle stays, so `sudo vtium-config apply DIR` installs it later.
+When sudo refuses, or is not installed, nothing is installed and the command exits with status 4; run `vtium config install` again. The bundle stays on disk, but running `sudo vtium-config apply DIR` on it by hand skips the third step: nothing is saved in the installed history, and the draft's base stays the old installed file, so the next `vtium config install` stops with exit status 3.
 
 Root needs no sudo. Run as root, `vtium config` keeps root's own drafts under root's home directory, `/root/.config/vtium/drafts/` by default, which it finds from the password database and never from `$HOME` or the XDG variables that sudo can carry over from your account. An install as root runs the same checks and writes the files the same way at once. The TUI does not run as root: it says to run `vtium config` as yourself, since it asks for sudo when it installs.
 
@@ -156,7 +154,7 @@ Root needs no sudo. Run as root, `vtium config` keeps root's own drafts under ro
 
 The Flow view draws the draft as six columns, from left to right: the displays, the display rules, the heads, their looks, the input rules and the input devices. Each column has a color of its own, from the console's sixteen colors; displays, heads, looks and input devices are blocks of color, rules are colored text, and lines join each device to the rule that places it and each rule to its target. With `NO_COLOR` set, or in a terminal without color, the view draws the same text without color, each block's text in brackets.
 
-The view places the devices plugged in now on the draft's rules, and follows them while it is open: a device you plug in appears at once, placed by the first rule that matches it. A rule that names one device, such as a monitor by its EDID or a keyboard by its USB port, keeps that device on the flow when it is unplugged, as a grey block marked `*` and `configured, not found`. The device leaves the configuration only when you delete its rule.
+The view places the devices plugged in now on the draft's rules, and follows them while it is open: a device you plug in appears at once, placed by the first rule that matches it. A rule that names one device, such as a monitor by its EDID or a keyboard by its USB port, keeps that device on the flow when it is unplugged, as a gray block marked `*` and `configured, not found`. The device leaves the configuration only when you delete its rule.
 
 | Key | What it does |
 |---|---|
