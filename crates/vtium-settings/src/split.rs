@@ -45,9 +45,10 @@ pub(crate) fn begins_policy(raw: &[u8]) -> bool {
 }
 
 /// The lines of `bytes`, each without its newline, numbered from `first`.
-/// The empty piece after a last newline is no line.
+/// The empty piece after a last newline is no line, so no bytes are no
+/// line either.
 pub(crate) fn numbered(bytes: &[u8], first: usize) -> impl Iterator<Item = (usize, &[u8])> {
-    let ends_in_newline = bytes.last() == Some(&b'\n');
+    let ends_in_newline = bytes.last().is_none_or(|&b| b == b'\n');
     let mut pieces = bytes.split(|&b| b == b'\n').peekable();
     let mut n = first;
     std::iter::from_fn(move || {
@@ -169,6 +170,17 @@ mod tests {
         assert!(!s.has_flow());
         assert!(split(b"version = 1\nPolicy = closed\n").has_flow());
         assert!(split(b"[rules]\n").has_flow());
+    }
+
+    // the fuzz targets' first finds: a file that opens with a heading has
+    // no top-level line, not an empty line 1
+    #[test]
+    fn a_file_that_opens_with_a_heading_has_no_top_level_line() {
+        for bytes in [&b"["[..], b"[\x0e\t\0", b"[head x]\n", b""] {
+            let s = split(bytes);
+            assert_eq!(s.top_lines().count(), 0, "{bytes:?}");
+            assert_eq!(s.key_lines().count(), 0, "{bytes:?}");
+        }
     }
 
     #[test]
