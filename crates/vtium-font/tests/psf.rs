@@ -529,22 +529,20 @@ mod gz {
 
     // A file of many small members costs one decompressor, not one each:
     // at the gzip bound, 52,428 empty members inflate to nothing, refused
-    // as no font, in bounded time. Before vtium reused the decompressor, a
-    // 16 MiB file of them took 1.32 s to refuse in a release build.
+    // as no font, asking the allocator for no more than one member does.
+    // Before vtium reused the decompressor, a 16 MiB file of them took
+    // 1.32 s to refuse in a release build.
     // covers: text.psf
     #[test]
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "the test bounds the time a refusal takes; no state depends on it"
-    )]
-    fn many_empty_members_are_refused_in_bounded_time() {
+    fn many_empty_members_cost_one_decompressor() {
+        let (one, refused) = counting::asked(|| Psf::parse(&empty_members(1)));
+        assert!(matches!(refused, Err(PsfError::Truncated)));
         let at = empty_members(GZIP_BYTES_MAX as usize / 20);
-        let t = std::time::Instant::now();
-        assert!(matches!(Psf::parse(&at), Err(PsfError::Truncated)));
+        let (many, refused) = counting::asked(|| Psf::parse(&at));
+        assert!(matches!(refused, Err(PsfError::Truncated)));
         assert!(
-            t.elapsed().as_secs() < 10,
-            "{:?} in a debug build",
-            t.elapsed()
+            many <= one,
+            "52,428 members asked for {many} bytes, one member {one}"
         );
     }
 
@@ -553,15 +551,11 @@ mod gz {
     // gzipped file past GZIP_BYTES_MAX is refused before it is inflated.
     // covers: text.psf
     #[test]
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "the test bounds the time a refusal takes; no state depends on it"
-    )]
     fn a_gzip_file_past_its_bound_is_refused_unread() {
         let past = empty_members(PSF_BYTES_MAX as usize / 20);
-        let t = std::time::Instant::now();
-        assert!(matches!(Psf::parse(&past), Err(PsfError::TooLarge)));
-        assert!(t.elapsed().as_millis() < 100, "{:?}", t.elapsed());
+        let (asked, refused) = counting::asked(|| Psf::parse(&past));
+        assert!(matches!(refused, Err(PsfError::TooLarge)));
+        assert_eq!(asked, 0, "the refusal asked the allocator for bytes");
         let mut over = empty_members(GZIP_BYTES_MAX as usize / 20);
         over.resize(GZIP_BYTES_MAX as usize + 1, 0);
         assert!(matches!(Psf::parse(&over), Err(PsfError::TooLarge)));
@@ -719,4 +713,60 @@ fn every_kbd_console_font_loads() {
         }
     }
     eprintln!("{dir}: {loaded} PSF fonts loaded, {refused} other files refused");
+}
+
+#[cfg(feature = "gzip")]
+/// The allocator of this test binary: the system's, counting on each
+/// thread the bytes that thread asks for, so a test can measure the work
+/// a call does by what it allocates, whatever else runs at the same time.
+mod counting {
+    use std::alloc::{GlobalAlloc, Layout, System};
+    use std::cell::Cell;
+
+    thread_local! {
+        static ASKED: Cell<usize> = const { Cell::new(0) };
+    }
+
+    fn count(bytes: usize) {
+        // A thread being torn down counts nothing.
+        let _ = ASKED.try_with(|a| a.set(a.get().saturating_add(bytes)));
+    }
+
+    /// The bytes this thread asked for while `f` ran, and what `f` returned.
+    pub fn asked<T>(f: impl FnOnce() -> T) -> (usize, T) {
+        let before = ASKED.with(Cell::get);
+        let out = f();
+        (ASKED.with(Cell::get).saturating_sub(before), out)
+    }
+
+    pub struct Counting;
+
+    // SAFETY: each call is passed on to the system allocator unchanged.
+    unsafe impl GlobalAlloc for Counting {
+        unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+            count(layout.size());
+            // SAFETY: the caller's layout, passed on.
+            unsafe { System.alloc(layout) }
+        }
+
+        unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
+            count(layout.size());
+            // SAFETY: the caller's layout, passed on.
+            unsafe { System.alloc_zeroed(layout) }
+        }
+
+        unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+            // SAFETY: the caller's pointer and layout, passed on.
+            unsafe { System.dealloc(ptr, layout) }
+        }
+
+        unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, size: usize) -> *mut u8 {
+            count(size);
+            // SAFETY: the caller's pointer, layout and size, passed on.
+            unsafe { System.realloc(ptr, layout, size) }
+        }
+    }
+
+    #[global_allocator]
+    static COUNTING: Counting = Counting;
 }
