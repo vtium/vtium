@@ -139,9 +139,8 @@ minspec: ## Build the minspec binary for x86_64 against the glibc 2.36 sysroot, 
 # /etc/vtium/vtium.conf.example beside the file vtium reads,
 # /etc/vtium/vtium.conf (ADR-1500 D3, D4), the frits FRITS names in
 # /etc/vtium/fonts, the example udev rules and hwdb fragment, which are
-# documentation and never active (ADR-1401 D4), the head file's template
-# as an example beside them, and with images in FEATURES the picture
-# gallery tool as vtium-gallery (ADR-1500 D8). Tier 3 installs this tree
+# documentation and never active (ADR-1401 D4), and with images in
+# FEATURES the picture gallery tool as vtium-gallery (ADR-1500 D8). Tier 3 installs this tree
 # in its guest.
 # DESTDIR's default is install-tree's alone: make install refuses it below.
 DESTDIR ?= target/install-tree
@@ -215,8 +214,8 @@ endif
 # configuration /etc/vtium/vtium.conf.example and the frits FRITS names in
 # /etc/vtium/fonts, which stay in /etc whatever PREFIX is, because vtium
 # reads its configuration and its frits from /etc/vtium alone (ADR-1500
-# D3, D4, D8), the example udev rules and hwdb fragment and the head
-# file's template as documentation, and the license under PKGNAME's name.
+# D3, D4, D8), the example udev rules and hwdb fragment as
+# documentation, and the license under PKGNAME's name.
 # HWACCEL and DISPLAY_BUFFERS set the defaults of hwaccel and
 # display-buffers that both builds read from the key table (ADR-1500 D8).
 # make install-terminfo stages vtium's

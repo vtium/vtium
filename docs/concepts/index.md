@@ -7,7 +7,7 @@ Each page holds one concept, so a reader can open one at a time. Each links to t
 - [What vtium is](what-vtium-is.md): what vtium draws, how it draws it, and the small machines it is built for first.
 - [The suite](suite.md): the console and the programs and files around it, who runs each, and what runs as root and what as the user.
 - [Deployment and start-up](start-up.md): how a package installs vtium, how it takes the place of getty, and what happens when it takes a VT and when the user switches away.
-- [Heads](heads.md): a terminal for each display, the head file's rules, its two policies, open and closed, and the operator's way back in.
+- [Heads](heads.md): a terminal for each display, the rules of vtium.conf, its two policies, open and closed, and the operator's way back in.
 - [Fonts, generated at run time](fonts.md): the frit, the helper that draws its glyphs, the built-in fonts and switching between fonts.
 - [Using vtium](using-vtium.md): the configuration, the selection and the clipboard, links and prompts, keys and blanking.
 - [How vtium is judged](how-vtium-is-judged.md): the tiers of tests, from unit tests to a virtual machine and the maintainer's review on a real VT, and the goldens that judge them.
