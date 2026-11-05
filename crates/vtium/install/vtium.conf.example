@@ -574,7 +574,8 @@
 ## else 3 in a build with features on top of minspec, 2 in the minspec build,
 ## 1 only in a build smaller than minspec.
 ## `vtium config config display-buffers` prints the value vtium.conf gives it,
-## or the build's default followed by `default`.
+## or the build's default followed by `default`, which is `unset` when the
+## build names no count, and the rule above then picks it.
 
 #display-buffers=
 

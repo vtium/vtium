@@ -15,13 +15,13 @@ The AUR (the Arch User Repository) holds vtium's recipes. A recipe is a `PKGBUIL
 
 Each recipe also builds a terminfo package, `vtium-terminfo` beside `vtium` and `vtium-terminfo-git` beside `vtium-git`, which installs `xterm-vtium`, the terminfo entry that sessions in vtium name in `TERM`. The console package depends on it.
 
-A recipe builds the console with the features that `VTIUM_FEATURES` names in makepkg's environment. The `images` feature draws sixel and kitty graphics pictures, the `logind` feature lets the suspend key ask logind, systemd's login manager, to suspend the machine, and the `gpu` feature builds in the path that draws through the GPU. With `VTIUM_FEATURES` unset, the recipe at `v0.1.0-alpha.4` builds the minspec console, vtium's smallest build, with no feature, and the dependencies the AUR lists are that build's. From the release `v0.1.0-alpha.5` on, the recipes build `images logind gpu` when `VTIUM_FEATURES` is unset, and `VTIUM_FEATURES` stays the way to choose another set ([The packages to come](#the-packages-to-come)). To build another set of features from a checkout, stage it with `make install` ([From a checkout](#from-a-checkout)).
+A recipe builds the console with the features that `VTIUM_FEATURES` names in makepkg's environment. The `images` feature draws sixel and kitty graphics pictures, the `logind` feature lets the suspend key ask logind, systemd's login manager, to suspend the machine, and the `gpu` feature builds in the path that draws through the GPU. Today, with `VTIUM_FEATURES` unset, both recipes build the minspec console, vtium's smallest build, with no feature, and the dependencies the AUR lists are that build's. From the release `v0.1.0-alpha.5` on, the recipes build `images logind gpu` when `VTIUM_FEATURES` is unset, and `VTIUM_FEATURES` stays the way to choose another set ([The packages to come](#the-packages-to-come)). To build another set of features from a checkout, stage it with `make install` ([From a checkout](#from-a-checkout)).
 
 Neither recipe turns `hwaccel` on, so a console built with `gpu` draws on the CPU until `hwaccel = on` in `/etc/vtium/vtium.conf` turns it on ([config.md](config.md)). The pre-release `v0.1.0-alpha.4` accepts `hwaccel` and still draws on the CPU, because its GPU path was not finished. The recipes do not depend on `libglvnd` and `mesa`, which hold the two libraries the GPU path loads, `libEGL.so.1` and `libgbm.so.1`. A console built with `gpu` starts without them and draws on the CPU.
 
 No package ships a font. The console draws with its built-in fonts, unifont and unscii-8. `vtium-git` installs three frits (font set files) that name fonts the distribution packages, `desktop`, `minspec-16` and `minspec-8`, and `vtium` at `v0.1.0-alpha.4` installs none. A frit leaves out a font the machine lacks, so a frit with none of its fonts installed draws the built-in fonts. On Arch the frits' fonts are in `ttf-jetbrains-mono`, `ttf-nerd-fonts-symbols-mono` and `noto-fonts-emoji`.
 
-makepkg refuses to build the `vtium` recipe until your keyring holds the maintainer's signing key, `33F9B54FD2A4B6A4110749B3BA464FC9847A832A`. The recipe carries a copy of the key, so import it once from there, then build and install, here with pictures, the power keys and the GPU path, the features that are the default from `v0.1.0-alpha.5` on:
+makepkg refuses to build the `vtium` recipe until your keyring holds the maintainer's signing key, `33F9B54FD2A4B6A4110749B3BA464FC9847A832A`. The recipe carries a copy of the key, so import it once from there, then build and install. The example builds pictures, the power keys and the GPU path, the features that are the default from `v0.1.0-alpha.5` on; at `v0.1.0-alpha.4`, `gpu` changes nothing, since that release draws on the CPU whatever `hwaccel` says:
 
 ```
 $ git clone https://aur.archlinux.org/vtium.git
@@ -49,6 +49,8 @@ The packages install these files:
 | `/usr/share/terminfo/x/xterm-vtium` | the terminfo entry, from the terminfo package |
 | `/usr/share/licenses/<package>/LICENSE` | the license, in each package |
 
+Installing the packages gives vtium no VT and starts nothing. [Giving vtium a VT](#giving-vtium-a-vt) does that.
+
 ### The packages to come
 
 The recipe repository is to change the two packages it publishes and to publish more, as [ADR-1500](architecture/project/ADR-1500-vtium-is-packaged-from-a-recipe-repo-per-package-manager-under-names-of-its-own.md) D8 sets out. None of this is published yet:
@@ -58,8 +60,6 @@ The recipe repository is to change the two packages it publishes and to publish 
 - `vtium-minspec-gpu` and `vtium-minspec-gpu-git` are to build the minspec console with the GPU path and leave `hwaccel` off, with `libglvnd` and `mesa` as optional dependencies.
 - The minspec packages are to keep two buffers for each display and `vtium` three ([config.md](config.md), `display-buffers`).
 - `vtium` is to ship a fourth frit, for the Terminus console font, and an optional package, `vtium-fonts`, is to depend on every font the shipped frits name: on Arch `ttf-jetbrains-mono`, `ttf-nerd-fonts-symbols-mono`, `noto-fonts-emoji` and `terminus-font`.
-
-Installing the packages gives vtium no VT and starts nothing. [Giving vtium a VT](#giving-vtium-a-vt) does that.
 
 ## From a checkout
 
