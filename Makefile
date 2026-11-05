@@ -165,9 +165,6 @@ frit_files = $(foreach f,$(FRITS),$(or $(firstword $(wildcard $(addsuffix /$(f).
 ifneq ($(filter install install-build install-tree,$(MAKECMDGOALS)),)
 _frits := $(frit_files)
 endif
-# The head file's commented template, which every install ships as an
-# example for a user to copy to /etc/vtium/heads.conf (ADR-1500 D8).
-HEADS_TEMPLATE := crates/vtium-settings/templates/heads.conf
 # The picture gallery tool, which a console with images ships as
 # vtium-gallery (ADR-1500 D8).
 GALLERY := tools/gallery/gallery
@@ -196,7 +193,6 @@ install-tree: minspec config-release $(if $(IMAGES),image-release) ## Stage vtiu
 	install -Dm644 $(VTIUM_INSTALL)/vtium.conf.example $(DESTDIR)/etc/vtium/vtium.conf.example
 	$(if $(strip $(FRITS)),install -Dm644 -t $(DESTDIR)/etc/vtium/fonts $(frit_files))
 	install -Dm644 -t $(DESTDIR)/usr/share/doc/vtium/examples $(VTIUM_INSTALL)/examples/71-vtium-local.rules $(VTIUM_INSTALL)/examples/vtium.hwdb
-	install -Dm644 $(HEADS_TEMPLATE) $(DESTDIR)/usr/share/doc/vtium/examples/heads.conf
 ifneq ($(IMAGES),)
 	install -Dm755 $(IMAGE_RELEASE) $(DESTDIR)/usr/bin/vtium-image
 	$(call check-glibc,$(DESTDIR)/usr/bin/vtium-image)
@@ -317,7 +313,6 @@ endif
 	install -Dm644 $(VTIUM_INSTALL)/vtium.conf.example $(DESTDIR)/etc/vtium/vtium.conf.example
 	$(if $(strip $(FRITS)),install -Dm644 -t $(DESTDIR)/etc/vtium/fonts $(frit_files))
 	install -Dm644 -t $(DESTDIR)$(PREFIX)/share/doc/vtium/examples $(VTIUM_INSTALL)/examples/71-vtium-local.rules $(VTIUM_INSTALL)/examples/vtium.hwdb
-	install -Dm644 $(HEADS_TEMPLATE) $(DESTDIR)$(PREFIX)/share/doc/vtium/examples/heads.conf
 	install -Dm644 LICENSE $(DESTDIR)$(PREFIX)/share/licenses/$(PKGNAME)/LICENSE
 
 .PHONY: install-terminfo

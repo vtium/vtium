@@ -542,7 +542,7 @@ class RunVt(Case):
         p = self.run_vt("--dry-run", "8", "--", "--font-size=30")
         self.assertEqual(p.returncode, 0, p.stderr)
         self.assertIn("+ " + os.path.join(self.s.standins, "systemctl") + " stop kmsconvt@tty8.service", p.stdout)
-        self.assertIn(f"+ {self.s.standins}/run-vtium-vt/vtium --vt=tty8 --no-switchvt --configdir {VT}/config --oneshot "
+        self.assertIn(f"+ {self.s.standins}/run-vtium-vt/vtium --vt=tty8 --no-switchvt --configdir {self.s.standins}/run-vtium-vt/config --oneshot "
                       f"--font-frits={self.s.standins}/run-vtium-vt/frits --font-size=30 --login --",
                       p.stdout)
         self.assertIn(" start kmsconvt@tty8.service", p.stdout)
@@ -866,7 +866,7 @@ class RunVt(Case):
                                          "--init-groups", "--inh-caps=-all", "--reset-env", "--", *CARRY,
                                          "/usr/bin/env", f"TERMINFO={self.s.standins}/run-vtium-vt/terminfo",
                                          "ACCEPT_LABEL=vtium dev build abc", "ACCEPT_VT=8", f"ACCEPT_BINARY={self.s.bin}",
-                                         "ACCEPT_FEATURES=none", f"ACCEPT_VTIUM_CONF={VT}/config/vtium.conf",
+                                         "ACCEPT_FEATURES=none", f"ACCEPT_VTIUM_CONF={self.s.standins}/run-vtium-vt/config/vtium.conf",
                                          "/bin/bash", os.path.join(VT, "accept.sh")])
 
     def test_the_acceptance_pass_reads_the_blink_style_vtium_is_given(self):
@@ -876,7 +876,7 @@ class RunVt(Case):
         self.assertEqual(p.returncode, 0, p.stderr)
         argv = read(self.s.bin_args).splitlines()
         words = [a for a in argv if a.startswith(("ACCEPT_VTIUM_CONF=", "ACCEPT_BLINK"))]
-        self.assertEqual(words, [f"ACCEPT_VTIUM_CONF={VT}/config/vtium.conf", "ACCEPT_BLINK_TEXT=off",
+        self.assertEqual(words, [f"ACCEPT_VTIUM_CONF={self.s.standins}/run-vtium-vt/config/vtium.conf", "ACCEPT_BLINK_TEXT=off",
                                  "ACCEPT_BLINK=off", "ACCEPT_BLINK=on", "ACCEPT_BLINK_TEXT=full"])
 
     def test_a_file_swapped_in_after_the_check_is_never_copied(self):
@@ -1042,6 +1042,36 @@ class RunVt(Case):
         p = self.run_vt("8")
         self.assertEqual(p.returncode, 0, p.stderr)
         self.assertFalse([a for a in read(self.s.bin_args).splitlines() if a.startswith("--image-helper")])
+
+    def test_vtium_reads_the_reviews_config_from_a_copy_of_roots(self):
+        # vtium reads a vtium.conf only when root owns it and no one else can
+        # write it or a directory above it (ADR-1403 D3), so the run copies
+        # the review's config, read as the user, into the stage, a directory
+        # of root's, and names that directory as --configdir. The checkout's
+        # own directory is never vtium's config directory.
+        source = os.path.join(VT, "config", "vtium.conf")
+        stage = os.path.join(self.s.standins, "run-vtium-vt")
+        p = self.run_vt("--dry-run", "8")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertIn(f"+ install -d -m 0755 -- {stage} {stage}/terminfo {stage}/frits {stage}/config\n",
+                      p.stdout)
+        self.assertIn(f"+ install -m 0644 -- {source} {stage}/config/vtium.conf\n", p.stdout)
+        self.assertIn(f" --configdir {stage}/config ", p.stdout)
+        self.assertNotIn(f"--configdir {VT}/config", p.stdout)
+        self.assertFalse(os.path.exists(stage))
+        # A real run: the copy holds the checkout's file, mode 0644, and is
+        # gone once the run ends.
+        seen = os.path.join(self.s.tmp, "stage-copy")
+        os.mkdir(seen)
+        p = self.run_vt("8", BIN_STAGE_COPY=seen)
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        argv = read(self.s.bin_args).splitlines()
+        at = argv.index("--configdir")
+        self.assertEqual(argv[at + 1], f"{stage}/config")
+        copy = os.path.join(seen, "config", "vtium.conf")
+        self.assertEqual(read(copy), read(source))
+        self.assertEqual(stat.S_IMODE(os.stat(copy).st_mode), 0o644)
+        self.assertFalse(os.path.exists(stage))
 
     def test_an_image_helper_another_user_could_have_written_is_refused(self):
         for mode in (0o775, 0o757):
@@ -1397,7 +1427,7 @@ class RunVt(Case):
         # A dry run names the option it would give vtium.
         p = self.run_vt("--dry-run", "--debug=/nowhere", "8")
         self.assertEqual(p.returncode, 0, p.stderr)
-        self.assertIn(f"+ {self.s.standins}/run-vtium-vt/vtium --vt=tty8 --no-switchvt --configdir {VT}/config --oneshot "
+        self.assertIn(f"+ {self.s.standins}/run-vtium-vt/vtium --vt=tty8 --no-switchvt --configdir {self.s.standins}/run-vtium-vt/config --oneshot "
                       f"--font-frits={self.s.standins}/run-vtium-vt/frits --debug --login --",
                       p.stdout)
 
@@ -3320,7 +3350,6 @@ class Package(Case):
         "usr/lib/systemd/system/vtium@.service",
         "usr/lib/systemd/system/vtium-getty@.service",
         "usr/share/doc/vtium/examples/71-vtium-local.rules",
-        "usr/share/doc/vtium/examples/heads.conf",
         "usr/share/doc/vtium/examples/vtium.hwdb",
         "usr/share/licenses/vtium/LICENSE",
     ])
@@ -3336,7 +3365,6 @@ class Package(Case):
         "etc/vtium/fonts/minspec-16.vtfrit": "crates/vtium-config/frits/minspec-16.vtfrit",
         "etc/vtium/fonts/minspec-8.vtfrit": "crates/vtium-config/frits/minspec-8.vtfrit",
         "usr/bin/vtium-gallery": "tools/gallery/gallery",
-        "usr/share/doc/vtium/examples/heads.conf": "crates/vtium-settings/templates/heads.conf",
     }
 
     # A stand-in cargo that records the helper paths each build bakes in,
