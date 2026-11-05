@@ -217,9 +217,9 @@ pub fn conf_key(name: &str) -> Result<&'static keys::Key, String> {
 }
 
 /// The edit that sets `key` to `value`, or why vtium would not take it.
-/// A switch takes `on` or `off`, and a key of a fixed set of words one of
-/// them; any other value goes to the console's own check when the change
-/// is installed.
+/// A switch takes `on` or `off`, a key of a fixed set of words one of
+/// them, and a path key an absolute path; any other value goes to the
+/// console's own check when the change is installed.
 pub fn set_edit<'a>(key: &'static keys::Key, value: &'a str) -> Result<Edit<'a>, String> {
     match key.kind {
         Kind::Switch => match value {
@@ -229,6 +229,9 @@ pub fn set_edit<'a>(key: &'static keys::Key, value: &'a str) -> Result<Edit<'a>,
         },
         Kind::Choice(words) if !words.contains(&value) => {
             Err(format!("{} takes one of {}", key.name, words.join(", ")))
+        }
+        Kind::Path if !keys::absolute(value) => {
+            Err(format!("{}={value:?}: {}", key.name, keys::NOT_ABSOLUTE))
         }
         _ => Ok(Edit::Set(key.name, value)),
     }

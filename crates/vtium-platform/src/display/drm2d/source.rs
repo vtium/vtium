@@ -26,6 +26,9 @@ pub(super) struct Timers {
 pub(super) enum Clock {
     /// The bound on a flip in flight on the CRTC, [`crate::FLIP_WAIT_MS`].
     Flip(u32),
+    /// The bound on the event a flip of a display let go owes on the CRTC,
+    /// [`crate::FLIP_WAIT_MS`] ([`Drm2d::stale_expired`]).
+    Stale(u32),
     /// The next wake-up try, after [`crate::WAKE_RETRY_MS`].
     WakeRetry,
 }
@@ -33,7 +36,7 @@ pub(super) enum Clock {
 impl Clock {
     fn after(self) -> Duration {
         let ms = match self {
-            Clock::Flip(_) => crate::FLIP_WAIT_MS,
+            Clock::Flip(_) | Clock::Stale(_) => crate::FLIP_WAIT_MS,
             Clock::WakeRetry => crate::WAKE_RETRY_MS,
         };
         Duration::from_millis(u64::try_from(ms).unwrap_or(u64::MAX))
@@ -119,6 +122,7 @@ where
                 if let Some(video) = access(data) {
                     match clock {
                         Clock::Flip(crtc) => video.flip_expired(crtc),
+                        Clock::Stale(crtc) => video.stale_expired(crtc),
                         Clock::WakeRetry => {
                             video.timers.wake_retry = None;
                             video.retry_wake();

@@ -66,6 +66,38 @@ fn each_warning_is_printed_and_it_exits_one() {
     );
 }
 
+// vtium reads font-frits the same way whatever directory it starts in, so
+// a relative or an empty one is reported with its file, line and key, and
+// ignored, as the start reads it.
+#[test]
+fn a_relative_or_empty_font_frits_is_reported_and_it_exits_one() {
+    let d = dir("frits", "font-frits=fonts\nfont-frits=\n");
+    std::fs::write(d.join("seat0.seat.conf"), "font-frits=./fonts\n").expect("a seat file");
+    let out = check(&d, &[]);
+    assert_eq!(out.status.code(), Some(1));
+    let err = String::from_utf8_lossy(&out.stderr);
+    let lines: Vec<&str> = err.lines().collect();
+    assert_eq!(lines.len(), 3, "{err}");
+    let why = "an absolute path is needed, one that starts with /, ignored";
+    assert!(
+        lines[0].ends_with(&format!("vtium.conf:1: font-frits=\"fonts\": {why}")),
+        "{err}"
+    );
+    assert!(
+        lines[1].ends_with(&format!("vtium.conf:2: font-frits=\"\": {why}")),
+        "{err}"
+    );
+    assert!(
+        lines[2].ends_with(&format!("seat0.seat.conf:1: font-frits=\"./fonts\": {why}")),
+        "{err}"
+    );
+    // An absolute path checks clean.
+    let d = dir("frits-absolute", "font-frits=/srv/frits\n");
+    let out = check(&d, &[]);
+    assert_eq!(out.status.code(), Some(0));
+    assert_eq!(String::from_utf8_lossy(&out.stderr), "");
+}
+
 #[test]
 fn help_says_it_only_checks() {
     let d = dir("help", "");

@@ -23,8 +23,12 @@
 ## its built-in fonts and logs the name and why.
 #
 ## font-frits: The directory of the frits, the `NAME.vtfrit` files that
-## `font-name` and a head's profile name. The default is the directory vtium
-## was built with.
+## `font-name` and a head's profile name.
+##
+## It is an absolute path. vtium ignores a relative or an empty one, as it
+## ignores any value it cannot read, and says why.
+##
+## The default is the directory vtium was built with.
 #
 ## font-engine: The font source to use. Unset, each the build has, in this
 ## order.

@@ -116,6 +116,12 @@ impl PlatformGl {
         self.gl.raise(kind);
     }
 
+    /// How many textures, targets and programs the context holds, for the
+    /// tests of what a head gives back at a VT release.
+    pub(crate) fn live(&self) -> (usize, usize, usize) {
+        self.ledger.live()
+    }
+
     /// The context, for its renderer's name.
     pub fn context(&self) -> &platform::Context {
         &self.gl

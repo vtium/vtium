@@ -161,6 +161,11 @@ fn config_refuses_a_key_or_value_vtium_conf_does_not_take() {
         (&["config", "allow-font-ops", "maybe"], "on or off"),
         (&["config", "font-hinting", "heavy"], "light, full"),
         (&["config", "font-name", "a\nb"], "cannot be written"),
+        (
+            &["config", "font-frits", "fonts"],
+            "an absolute path is needed",
+        ),
+        (&["config", "font-frits", ""], "an absolute path is needed"),
     ] {
         let ran = f.run(args);
         assert_eq!(ran.status, 1, "{args:?}: {}", ran.out);
@@ -314,13 +319,68 @@ fn new_makes_a_frit_of_fonts_and_installs_one_from_a_file() {
 fn font_frits_names_the_directory_every_command_acts_in() {
     let f = fixture("font-frits", None);
     let elsewhere = f.root.join("elsewhere");
-    std::fs::create_dir_all(&elsewhere).expect("the frits' directory");
-    std::fs::write(elsewhere.join("gone.vtfrit"), "source=builtin:unifont\n").expect("a frit");
     std::fs::write(
         f.etc().join("vtium.conf"),
         format!("font-frits={}\n", elsewhere.display()),
     )
     .expect("vtium.conf");
+    every_command_acts_in(&f, &elsewhere);
+}
+
+// The console reads seat0.seat.conf after vtium.conf, and the seat file's
+// font-frits wins, so vtium-config reads the two files in that order.
+#[test]
+fn the_seat_file_s_font_frits_wins_over_vtium_conf_s() {
+    let f = fixture("font-frits-seat", None);
+    let elsewhere = f.root.join("elsewhere");
+    let decoy = f.root.join("decoy");
+    std::fs::create_dir_all(&decoy).expect("vtium.conf's directory");
+    std::fs::write(decoy.join("decoy.vtfrit"), "source=builtin:unifont\n").expect("a frit");
+    std::fs::write(
+        f.etc().join("vtium.conf"),
+        format!("font-frits={}\n", decoy.display()),
+    )
+    .expect("vtium.conf");
+    std::fs::write(
+        f.etc().join("seat0.seat.conf"),
+        format!("font-frits={}\n", elsewhere.display()),
+    )
+    .expect("the seat's file");
+    every_command_acts_in(&f, &elsewhere);
+    assert!(decoy.join("decoy.vtfrit").is_file());
+    assert!(!decoy.join("made.vtfrit").exists());
+    // A seat file that sets no font-frits leaves vtium.conf's.
+    std::fs::write(f.etc().join("seat0.seat.conf"), "font-size=12\n").expect("the seat's file");
+    let listed = Command::new(BIN)
+        .arg("--configdir")
+        .arg(f.etc())
+        .arg("fonts")
+        .output()
+        .expect("the binary runs");
+    let out = String::from_utf8_lossy(&listed.stdout);
+    assert!(out.starts_with("decoy\t"), "{out}");
+    // A seat file's relative font-frits fails, naming the seat file.
+    std::fs::write(f.etc().join("seat0.seat.conf"), "font-frits=fonts\n").expect("the seat's file");
+    let listed = Command::new(BIN)
+        .arg("--configdir")
+        .arg(f.etc())
+        .arg("fonts")
+        .output()
+        .expect("the binary runs");
+    let err = String::from_utf8_lossy(&listed.stderr);
+    assert_eq!(listed.status.code(), Some(1), "{err}");
+    assert!(
+        err.contains("seat0.seat.conf: font-frits=\"fonts\": an absolute path is needed"),
+        "{err}"
+    );
+}
+
+/// `fonts`, `new`, `remove-frit` and `apply`, run with no `--frits`, list,
+/// write and remove frits in `elsewhere`, the directory the configuration
+/// files in `f` name, and leave the fixture's own frits alone.
+fn every_command_acts_in(f: &Fixture, elsewhere: &Path) {
+    std::fs::create_dir_all(elsewhere).expect("the frits' directory");
+    std::fs::write(elsewhere.join("gone.vtfrit"), "source=builtin:unifont\n").expect("a frit");
     // the fixture's options less --frits
     let run = |args: &[&str]| {
         let o = Command::new(BIN)

@@ -10,9 +10,10 @@
 //! `apply`, run as root through `sudo vtium-config apply DIR`, takes no
 //! option that names a path or a program ([`crate::cli::root_refusal`]),
 //! so it writes only `/etc/vtium`'s `vtium.conf` and `heads.conf` and the
-//! frits in the frits' directory the installed vtium.conf names in
-//! `font-frits`, else the one the build names, as the console reads them,
-//! and checks them with the console the build names, [`VTIUM`]:
+//! frits in the frits' directory the installed configuration files name
+//! in `font-frits`, else the one the build names, read as the console
+//! reads them ([`crate::switch::frits_dir`]), and checks them with the
+//! console the build names, [`VTIUM`]:
 //!
 //! 1. reads the draft without following a link, takes only regular files
 //!    with names it knows, and bounds each file's size, since root is
@@ -229,8 +230,9 @@ pub enum Route {
 
 impl Targets {
     /// The system's directories and console: `/etc/vtium`, the frits'
-    /// directory its vtium.conf names in `font-frits`, else the one the
-    /// build names, and the console the build names.
+    /// directory its configuration files name in `font-frits`, else the
+    /// one the build names ([`crate::switch::frits_dir`]), and the console
+    /// the build names.
     pub fn system() -> Targets {
         let configdir = crate::cli::default_configdir();
         Targets {

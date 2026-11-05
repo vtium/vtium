@@ -26,13 +26,25 @@
 //! or leaves the head. The hold clears every display's window of frames.
 //! After three trips back in a run, the next hold ends the GPU path for the
 //! head until vtium restarts ([`TripsBack`]).
+//!
+//! A display is past the GPU's limits when its buffer is wider or taller
+//! than the GPU's largest renderbuffer, `GL_MAX_RENDERBUFFER_SIZE`, or its
+//! largest viewport, `GL_MAX_VIEWPORT_DIMS`. The head checks it before it
+//! sets the display up: when the display appears and at each change of its
+//! size, since a mode change that keeps the size meets the same limits.
+//!
+//! When the head's VT is released, [`HeadGpu::release`] gives back what each
+//! display holds in GL, its glyph and picture textures, its upright frame
+//! and its staging frame, and keeps the context and the compiled programs,
+//! so a console in the background holds no textures. The next frame makes
+//! them again and draws whole.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use vtium_platform::display::DisplayId;
 use vtium_platform::gpu as platform;
-use vtium_render::gpu::{Config, DrawTarget, Error, ErrorKind, Gl, Pipeline, Size};
+use vtium_render::gpu::{Config, DrawTarget, Error, ErrorKind, Gl, Limits, Pipeline, Size};
 use vtium_render::{Depth, DrawState, Mapped, Orientation, Rect, Renderer, Stats, Target};
 use vtium_term::Frame;
 
@@ -46,7 +58,9 @@ use crate::term::OnGpuFrame;
 /// that each frame is presented into and read back from.
 struct Display {
     pipeline: Pipeline,
-    staging: DrawTarget,
+    /// The frame in GL that each frame is presented into, made at the
+    /// display's set-up and again at the first frame after a release.
+    staging: Option<DrawTarget>,
 }
 
 impl Display {
@@ -55,7 +69,19 @@ impl Display {
     /// the next check.
     fn free(self, gl: &mut PlatformGl) {
         let _ = self.pipeline.free(gl);
-        let _ = gl.free_target(self.staging);
+        if let Some(staging) = self.staging {
+            let _ = gl.free_target(staging);
+        }
+    }
+
+    /// Gives back the display's textures and frames and keeps its
+    /// programs. An error is the driver's to report at the next frame,
+    /// which makes them again.
+    fn release(&mut self, gl: &mut PlatformGl) {
+        let _ = self.pipeline.release(gl);
+        if let Some(staging) = self.staging.take() {
+            let _ = gl.free_target(staging);
+        }
     }
 }
 
@@ -83,6 +109,8 @@ pub struct HeadGpu {
     trips: TripsBack,
     /// Why the GPU path ended, once a failure ended it.
     lost: Option<String>,
+    /// The pipelines' notes for the log, which the loop has not taken.
+    notes: Vec<String>,
     /// The test watching the GPU path, which queues its faults and reads
     /// how many displays it keeps.
     test: Option<std::sync::Arc<TestGpu>>,
@@ -101,13 +129,21 @@ impl Drop for HeadGpu {
 impl HeadGpu {
     /// The head's GL context from `source`, or what failed, for the log.
     pub fn new(source: &GpuSource) -> Result<HeadGpu, String> {
-        let made = match source {
-            GpuSource::RenderNode(node) => platform::Context::on_render_node(node),
-            GpuSource::Software | GpuSource::Test(_) => platform::Context::software(),
-        };
         let test = match source {
             GpuSource::Test(t) => Some(std::sync::Arc::clone(t)),
             _ => None,
+        };
+        // a test's held set-up stands in for a driver that hangs making the
+        // context
+        let gate = test
+            .as_ref()
+            .and_then(|t| t.set_up_gate.lock().ok().and_then(|mut g| g.take()));
+        if let Some(gate) = &gate {
+            let _held = gate.lock();
+        }
+        let made = match source {
+            GpuSource::RenderNode(node) => platform::Context::on_render_node(node),
+            GpuSource::Software | GpuSource::Test(_) => platform::Context::software(),
         };
         let context = made.map_err(|e| e.to_string())?;
         Ok(HeadGpu {
@@ -120,6 +156,7 @@ impl HeadGpu {
             back: false,
             trips: TripsBack::default(),
             lost: None,
+            notes: Vec::new(),
             test,
         })
     }
@@ -146,6 +183,51 @@ impl HeadGpu {
         self.frames.remove(key);
         self.let_go(key);
         self.count();
+    }
+
+    /// The head's VT was released: each display gives back its glyph and
+    /// picture textures, its upright frame and its staging frame, and keeps
+    /// its compiled programs and the context, so the head holds no textures
+    /// while another session has the VT (ADR-1303 D9). The next frame of
+    /// each display makes them again and draws whole.
+    pub fn release(&mut self) {
+        for display in self.displays.values_mut() {
+            display.release(&mut self.gl);
+        }
+        self.read = Vec::new();
+        self.pixels = Vec::new();
+        self.take_pipeline_notes();
+        if let Some(test) = &self.test {
+            test.releases
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+        self.count();
+    }
+
+    /// The notes for the log since the last call: the pipelines' notes,
+    /// such as glyph textures at their ceiling.
+    pub fn take_notes(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.notes)
+    }
+
+    fn take_pipeline_notes(&mut self) {
+        for display in self.displays.values_mut() {
+            self.notes.extend(display.pipeline.take_notes());
+        }
+    }
+
+    /// The GPU's limits, as the context reports them, or as a test sets
+    /// its GPU's largest renderbuffer.
+    fn limits(&self) -> Limits {
+        let mut limits = self.gl.limits();
+        if let Some(side) = self
+            .test
+            .as_ref()
+            .and_then(|t| t.widest.lock().ok().and_then(|w| *w))
+        {
+            limits.renderbuffer = side;
+        }
+        limits
     }
 
     /// The display `key` no longer holds the head on the CPU path, if it
@@ -226,6 +308,7 @@ impl HeadGpu {
         }
         let lose_at_read = self.raise_a_queued_fault(key);
         let drawn = self.draw_through(key, renderer, frame, target, age, state, lose_at_read);
+        self.take_pipeline_notes();
         self.count();
         match drawn {
             Ok((damage, stats)) => {
@@ -285,6 +368,9 @@ impl HeadGpu {
         if let Some(test) = &self.test {
             test.kept
                 .store(self.displays.len(), std::sync::atomic::Ordering::SeqCst);
+            if let Ok(mut live) = test.live.lock() {
+                *live = self.gl.live();
+            }
         }
     }
 
@@ -314,35 +400,55 @@ impl HeadGpu {
     }
 
     /// Makes the display `key`'s pipeline and staging frame at `size` and
-    /// `orientation`, unless it has them at that size; a display whose mode
-    /// changed gives up its old ones first.
+    /// `orientation`, unless it has them at that size; a display whose size
+    /// changed gives up its old ones first, and a display released with its
+    /// VT makes its staging frame again. A display whose buffer passes the
+    /// GPU's largest renderbuffer or viewport is refused before anything is
+    /// made (ADR-1303 D9).
     fn set_up(
         &mut self,
         key: &(PathBuf, DisplayId),
         size: Size,
         orientation: Orientation,
     ) -> Result<(), Error> {
-        let gl = &mut self.gl;
-        match self.displays.get(key) {
-            Some(d) if d.pipeline.size() == size => return Ok(()),
+        match self.displays.get_mut(key) {
+            Some(d) if d.pipeline.size() == size => {
+                if d.staging.is_none() {
+                    d.staging = Some(self.gl.create_frame(size)?);
+                }
+                return Ok(());
+            }
             Some(_) => {
-                // a display whose mode changed: its frame goes, and the next
+                // a display whose size changed: its frame goes, and the next
                 // is made at the new size
                 if let Some(old) = self.displays.remove(key) {
-                    old.free(gl);
+                    old.free(&mut self.gl);
                 }
             }
             None => {}
         }
+        let limits = self.limits();
+        let gl = &mut self.gl;
+        if let Some(test) = &self.test
+            && let Ok(mut tries) = test.set_ups.lock()
+        {
+            tries.push(key.clone());
+        }
+        if !limits.fits_buffer(size) {
+            return Err(Error::new(
+                ErrorKind::Limit,
+                format!(
+                    "its {}x{} buffer passes the GPU's largest renderbuffer, {}, or its largest viewport, {}x{}",
+                    size.width,
+                    size.height,
+                    limits.renderbuffer,
+                    limits.viewport.width,
+                    limits.viewport.height
+                ),
+            ));
+        }
         if let Some(test) = &self.test {
-            if let Ok(mut tries) = test.set_ups.lock() {
-                tries.push(key.clone());
-            }
-            let too_wide = test
-                .widest
-                .lock()
-                .is_ok_and(|w| w.is_some_and(|w| size.width > w));
-            let fault = if too_wide || test.refuse_set_up.lock().is_ok_and(|r| r.contains(&key.1)) {
+            let fault = if test.refuse_set_up.lock().is_ok_and(|r| r.contains(&key.1)) {
                 Some(SetUpFault::Limit)
             } else {
                 test.set_up_faults
@@ -373,8 +479,13 @@ impl HeadGpu {
                 return Err(err);
             }
         };
-        self.displays
-            .insert(key.clone(), Display { pipeline, staging });
+        self.displays.insert(
+            key.clone(),
+            Display {
+                pipeline,
+                staging: Some(staging),
+            },
+        );
         Ok(())
     }
 
@@ -392,7 +503,11 @@ impl HeadGpu {
         lose_at_read: bool,
     ) -> Result<(Vec<Rect>, Stats), Error> {
         let gl = &mut self.gl;
-        let Some(display) = self.displays.get_mut(key) else {
+        let Some((pipeline, Some(staging))) = self
+            .displays
+            .get_mut(key)
+            .map(|d| (&mut d.pipeline, d.staging.as_ref()))
+        else {
             return Err(Error::new(
                 ErrorKind::Misuse,
                 "a display drawn before its set-up",
@@ -404,28 +519,14 @@ impl HeadGpu {
         // The staging frame holds every frame drawn, so it lacks only what
         // this frame composes; present still gives what a buffer `age`
         // frames old lacks, which is what the read copies.
-        let drawn = renderer.draw_gpu(
-            gl,
-            &mut display.pipeline,
-            frame,
-            &display.staging,
-            age,
-            state,
-            &[],
-        )?;
+        let drawn = renderer.draw_gpu(gl, pipeline, frame, staging, age, state, &[])?;
         let stats = drawn.stats;
         let damage = drawn.damage.to_vec();
         if lose_at_read {
             gl.raise(platform::ErrorKind::ContextLost);
         }
         for r in &damage {
-            read_into(
-                gl,
-                &display.staging,
-                *r,
-                (&mut self.read, &mut self.pixels),
-                target,
-            )?;
+            read_into(gl, staging, *r, (&mut self.read, &mut self.pixels), target)?;
         }
         Ok((damage, stats))
     }
