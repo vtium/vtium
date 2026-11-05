@@ -1,23 +1,29 @@
 //! The section writer of vtium.conf (ADR-1403 D7, D8): a head's or a
-//! look's key set or unset, a section added, and a rule added, replaced,
-//! moved or removed, each keeping every byte of the file it does not need.
+//! look's key set or unset, a section added, removed or renamed, and a
+//! rule added, replaced, moved or removed, each keeping every byte of the
+//! file it does not need.
 //!
-//! Every function here edits only a file whose sections and policy vtium
-//! reads whole, by [`parse_sections`], finds the lines to change by the
-//! line numbers that reading gives, and reads its own result the same way
-//! before it hands it back, so it never hands back a file whose sections
-//! vtium would read only in part. vtium-config's commands and its views
-//! write the sections through these functions alone; the line editor,
-//! [`edit_conf`](crate::edit_conf), writes the top level.
+//! A draft may be unfinished (ADR-1403 D8), so the writer edits a file
+//! whatever `vtium check-config` would say of it or of the result: a rule
+//! that sends to a head no section declares, a value out of bounds, a key
+//! given twice. The check reports those, at an install and in
+//! `vtium check-config`. The writer finds what it edits by the file's
+//! lines alone, the section headings and the lines of `[rules]`, and
+//! refuses only an edit it cannot place: a section or a rule that is not
+//! there, a name or a heading given twice, or text it cannot write as one
+//! line that reads back as what it was asked to write. vtium-config's
+//! commands and its views write the sections through these functions
+//! alone; the line editor, [`edit_conf`](crate::edit_conf), writes the top
+//! level.
 
-use crate::config::{Config, Rule};
+use crate::config::Rule;
 use crate::error::Rejected;
 use crate::identity::Kind;
 use crate::keys::{self, Level};
 use crate::matching::Match;
 use crate::parse::{
-    CONF_HEAD_KEYS, Parsed, RESERVED, VTLOOK, content, content_range, good_name, key_value,
-    parse_sections, rule_line, rules_heading,
+    CONF_HEAD_KEYS, RESERVED, VTLOOK, content, content_range, good_name, key_value, rule_line,
+    rules_heading,
 };
 use crate::route::names_one_device;
 use crate::split::{VERSION_KEY, heading, split};
@@ -34,10 +40,6 @@ pub enum Of<'a> {
 /// Why a section writer changed nothing.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SectionEdit {
-    /// The sections or the policy hold errors, so vtium reads them only in
-    /// part or not at all; the writer edits only sections vtium reads
-    /// whole.
-    Unreadable(Rejected),
     /// No section of this kind and name.
     NoSection(String),
     /// A section of this kind and name is there already.
@@ -52,10 +54,9 @@ pub enum SectionEdit {
     NoRule(usize),
     /// Text that is not one rule vtium reads.
     BadRule(Rejected),
-    /// The edit would leave the sections with an error, such as a value
-    /// out of bounds or a rule naming a head no section declares, so the
-    /// writer hands nothing back.
-    Refused(Rejected),
+    /// Two sections of this kind and name, so the writer cannot tell which
+    /// one it is asked to edit.
+    Ambiguous(String),
 }
 
 /// The file's lines, each with its ending, and the ending a new line takes:
@@ -129,17 +130,101 @@ impl Lines {
     }
 }
 
-/// The file's sections read whole: `Ok(None)` for a file with no flow.
-fn readable(text: &str) -> Result<Option<Parsed>, SectionEdit> {
-    parse_sections(text).map_err(SectionEdit::Unreadable)
+/// What a section heading's content names: its kind and its name, or
+/// `None` for the heading of `[rules]` or one the writer cannot read.
+fn section_of(content: &str) -> Option<(&str, &str)> {
+    let inner = content.strip_prefix('[')?.strip_suffix(']')?;
+    let mut words = inner.split([' ', '\t']).filter(|w| !w.is_empty());
+    match (words.next(), words.next(), words.next()) {
+        (Some(kind @ ("head" | "look")), Some(name), None) => Some((kind, name)),
+        _ => None,
+    }
 }
 
-/// `out` once its sections read whole, else why the writer refuses it.
-fn checked(out: String) -> Result<String, SectionEdit> {
-    match parse_sections(&out) {
-        Ok(_) => Ok(out),
-        Err(rejected) => Err(SectionEdit::Refused(rejected)),
+/// The kind word of `of`'s heading, and its name.
+fn kind_name<'a>(of: Of<'a>) -> (&'static str, &'a str) {
+    match of {
+        Of::Head(name) => ("head", name),
+        Of::Look(name) => ("look", name),
     }
+}
+
+impl Lines {
+    /// The number of every heading line, with its content.
+    fn headings(&self) -> Vec<(usize, String)> {
+        (1..self.end())
+            .filter_map(|n| {
+                let b = self.body(n)?;
+                heading(b.as_bytes()).then(|| (n, content(b)))
+            })
+            .collect()
+    }
+
+    /// The line of the heading of the section `of`: `None` when there is
+    /// none, and an error when two headings name it.
+    fn section(&self, of: Of<'_>) -> Result<Option<usize>, SectionEdit> {
+        let (kind, name) = kind_name(of);
+        let found: Vec<usize> = self
+            .headings()
+            .into_iter()
+            .filter(|(_, c)| section_of(c) == Some((kind, name)))
+            .map(|(n, _)| n)
+            .collect();
+        match found.as_slice() {
+            [] => Ok(None),
+            [n] => Ok(Some(*n)),
+            _ => Err(SectionEdit::Ambiguous(name.to_owned())),
+        }
+    }
+
+    /// The heading of the section `of`, which must be there.
+    fn found(&self, of: Of<'_>) -> Result<usize, SectionEdit> {
+        self.section(of)?
+            .ok_or_else(|| SectionEdit::NoSection(kind_name(of).1.to_owned()))
+    }
+
+    /// The number of each line of every `[rules]` section that holds
+    /// content, in order: the rules, numbered from 1 by their place here.
+    fn rules(&self) -> Vec<usize> {
+        let mut out = Vec::new();
+        let mut inside = false;
+        for n in 1..self.end() {
+            let Some(b) = self.body(n) else { continue };
+            if heading(b.as_bytes()) {
+                inside = rules_heading(&content(b));
+            } else if inside && !content(b).is_empty() {
+                out.push(n);
+            }
+        }
+        out
+    }
+
+    /// The line of the last line of the section whose heading is line
+    /// `start` that holds content, the heading itself when none does, so
+    /// the comments and blanks before the next heading stay with it.
+    fn last_content(&self, start: usize) -> usize {
+        (start..self.section_end(start))
+            .rev()
+            .find(|&n| self.body(n).is_some_and(|b| !content(b).is_empty()))
+            .unwrap_or(start)
+    }
+
+    /// Removes the lines `from` to `to`, both counted.
+    fn remove(&mut self, from: usize, to: usize) {
+        let (Some(a), Some(b)) = (from.checked_sub(1), to.checked_sub(1)) else {
+            return;
+        };
+        if a <= b && b < self.lines.len() {
+            self.lines.drain(a..=b);
+        }
+    }
+}
+
+/// The rule lines of `text`, by their line numbers from 1: each line of a
+/// `[rules]` section that holds content, which the commands number from 1
+/// in this order whether or not vtium reads every one of them.
+pub fn rule_lines(text: &str) -> Vec<usize> {
+    Lines::of(text).rules()
 }
 
 /// Whether a section of kind `of` takes the key `key` (ADR-1403 D5).
@@ -149,14 +234,6 @@ fn takes(of: Of<'_>, key: &str) -> bool {
         Of::Look(_) => (&[VTLOOK], Level::Look),
     };
     own.contains(&key) || keys::at(level).any(|k| k.name == key)
-}
-
-/// The line of the section `of`'s heading in `config`.
-fn section_line(config: &Config, of: Of<'_>) -> Option<usize> {
-    match of {
-        Of::Head(name) => config.head(name).map(|h| h.line),
-        Of::Look(name) => config.looks.iter().find(|l| l.name == name).map(|l| l.line),
-    }
 }
 
 /// Sets the key `key` of the section `of` to `value`, or with `None`
@@ -188,12 +265,8 @@ pub fn set_key(
             });
         }
     }
-    let config = readable(text)?.map(|p| p.config).unwrap_or_default();
-    let name = match of {
-        Of::Head(name) | Of::Look(name) => name,
-    };
-    let start = section_line(&config, of).ok_or_else(|| SectionEdit::NoSection(name.to_owned()))?;
     let mut lines = Lines::of(text);
+    let start = lines.found(of)?;
     let end = lines.section_end(start);
     let set = (start.saturating_add(1)..end).find(|&n| {
         lines
@@ -224,7 +297,7 @@ pub fn set_key(
         (None, Some(value)) => lines.insert(start.saturating_add(1), &format!("{key} = {value}")),
         (None, None) => return Ok(text.to_owned()),
     }
-    checked(lines.text())
+    Ok(lines.text())
 }
 
 /// Adds the line `version = 1` at the end of a file whose top level has
@@ -249,20 +322,19 @@ pub fn add_section(text: &str, of: Of<'_>) -> Result<String, SectionEdit> {
         Of::Head(name) => (name, format!("[head {name}]")),
         Of::Look(name) => (name, format!("[look {name}]")),
     };
-    let reserved = matches!(of, Of::Head(_))
-        && (RESERVED.contains(&name) || ["focus", "dark"].contains(&name));
-    if !good_name(name) || reserved {
+    if !named_well(of, name) {
         return Err(SectionEdit::BadName(name.to_owned()));
     }
-    let parsed = readable(text)?;
-    let config = parsed.as_ref().map(|p| &p.config);
-    if config.is_some_and(|c| section_line(c, of).is_some()) {
+    let mut lines = Lines::of(text);
+    if lines.section(of)?.is_some() {
         return Err(SectionEdit::Exists(name.to_owned()));
     }
-    let mut lines = Lines::of(text);
     let rules = lines.heading(rules_heading);
-    // the first head's heading, as the reading found it
-    let first_head = config.and_then(|c| c.heads.iter().map(|h| h.line).min());
+    let first_head = lines
+        .headings()
+        .into_iter()
+        .find(|(_, c)| section_of(c).is_some_and(|(k, _)| k == "head"))
+        .map(|(n, _)| n);
     let before = match of {
         Of::Look(_) => first_head.or(rules),
         Of::Head(_) => rules,
@@ -290,7 +362,119 @@ pub fn add_section(text: &str, of: Of<'_>) -> Result<String, SectionEdit> {
             lines.insert(end, &heading_text);
         }
     }
-    checked(lines.text())
+    Ok(lines.text())
+}
+
+/// Whether `name` may name a section of kind `of`: the name rule, and for
+/// a head none of the targets' names.
+fn named_well(of: Of<'_>, name: &str) -> bool {
+    let reserved = matches!(of, Of::Head(_))
+        && (RESERVED.contains(&name) || ["focus", "dark"].contains(&name));
+    good_name(name) && !reserved
+}
+
+/// Removes the section `of`, its heading and its lines up to its last
+/// line that holds content, and returns the whole file with only those
+/// lines gone. The comments before the next heading stay, as the next
+/// section's, and the blank line that only separated the section from the
+/// next heading goes with it. A
+/// head's rules stay where they are, sending to a head the file no longer
+/// declares, which the check lists until each is pointed elsewhere or
+/// removed (ADR-1403 D7).
+pub fn remove_section(text: &str, of: Of<'_>) -> Result<String, SectionEdit> {
+    let mut lines = Lines::of(text);
+    let start = lines.found(of)?;
+    let last = lines.last_content(start);
+    lines.remove(start, last);
+    // a blank line left at the cut that only separated the section from
+    // the next heading, or that doubles the blank line before it, goes
+    // with the section
+    let blank = |l: &Lines, n: usize| l.body(n).is_some_and(|b| b.trim().is_empty());
+    let next = start.saturating_add(1);
+    let separates = next >= lines.end() || lines.body(next).is_some_and(|b| heading(b.as_bytes()));
+    let doubles = start == 1 || blank(&lines, start.saturating_sub(1));
+    if blank(&lines, start) && (separates || doubles) {
+        lines.remove(start, start);
+    }
+    Ok(lines.text())
+}
+
+/// Renames the section `of` to `new`, and returns the whole file with only
+/// the lines that name it changed: its heading, and for a head each rule
+/// that sends to it, for a look each head's `look` line that names it.
+/// The rename is one change, so nothing is left naming the old name.
+pub fn rename_section(text: &str, of: Of<'_>, new: &str) -> Result<String, SectionEdit> {
+    let (kind, old) = kind_name(of);
+    if !named_well(of, new) {
+        return Err(SectionEdit::BadName(new.to_owned()));
+    }
+    let mut lines = Lines::of(text);
+    let start = lines.found(of)?;
+    let renamed = match of {
+        Of::Head(_) => Of::Head(new),
+        Of::Look(_) => Of::Look(new),
+    };
+    if old != new && lines.section(renamed)?.is_some() {
+        return Err(SectionEdit::Exists(new.to_owned()));
+    }
+    let range = content_range(lines.body(start).unwrap_or_default());
+    lines.replace(start, range, &format!("[{kind} {new}]"));
+    match of {
+        Of::Head(_) => {
+            for n in lines.rules() {
+                let body = lines.body(n).unwrap_or_default().to_owned();
+                let range = content_range(&body);
+                let inner = body.get(range.clone()).unwrap_or_default();
+                let Some(arrow) = inner.rfind("->") else {
+                    continue;
+                };
+                let after = inner.get(arrow.saturating_add(2)..).unwrap_or_default();
+                if after.trim_matches([' ', '\t']) != old {
+                    continue;
+                }
+                let lead = after
+                    .len()
+                    .saturating_sub(after.trim_start_matches([' ', '\t']).len());
+                let from = range
+                    .start
+                    .saturating_add(arrow)
+                    .saturating_add(2)
+                    .saturating_add(lead);
+                lines.replace(n, from..range.end, new);
+            }
+        }
+        Of::Look(_) => {
+            let heads: Vec<usize> = lines
+                .headings()
+                .into_iter()
+                .filter(|(_, c)| section_of(c).is_some_and(|(k, _)| k == "head"))
+                .map(|(n, _)| n)
+                .collect();
+            for head in heads {
+                for n in head.saturating_add(1)..lines.section_end(head) {
+                    let body = lines.body(n).unwrap_or_default().to_owned();
+                    let names_it = key_value(&content(&body)) == Some(("look", old));
+                    if !names_it {
+                        continue;
+                    }
+                    let range = content_range(&body);
+                    let inner = body.get(range.clone()).unwrap_or_default();
+                    let Some(eq) = inner.find('=') else { continue };
+                    let after = inner.get(eq.saturating_add(1)..).unwrap_or_default();
+                    let lead = after
+                        .len()
+                        .saturating_sub(after.trim_start_matches([' ', '\t']).len());
+                    let from = range
+                        .start
+                        .saturating_add(eq)
+                        .saturating_add(1)
+                        .saturating_add(lead);
+                    lines.replace(n, from..range.end, new);
+                }
+            }
+        }
+    }
+    Ok(lines.text())
 }
 
 /// Where a new rule of `kind` that matches `matcher` goes among `rules`,
@@ -305,29 +489,43 @@ pub fn add_section(text: &str, of: Of<'_>) -> Result<String, SectionEdit> {
 /// view's `new rule…`, connecting tags and `vtium config rule add`
 /// without `--before` all place a rule by this.
 pub fn placement(rules: &[Rule], kind: Kind, matcher: &Match) -> usize {
+    let read: Vec<Option<(Kind, Match)>> = rules
+        .iter()
+        .map(|r| Some((r.kind, r.matcher.clone())))
+        .collect();
+    place(&read, kind, matcher)
+}
+
+/// [`placement`] over rules each read alone, `None` for a rule line the
+/// writer cannot read, which no new rule goes before by its kind.
+fn place(rules: &[Option<(Kind, Match)>], kind: Kind, matcher: &Match) -> usize {
+    let of_kind = |r: &Option<(Kind, Match)>, wanted: &dyn Fn(&Match) -> bool| {
+        r.as_ref().is_some_and(|(k, m)| *k == kind && wanted(m))
+    };
     let at = if names_one_device(matcher) {
         rules
             .iter()
-            .position(|r| r.kind == kind && !names_one_device(&r.matcher))
+            .position(|r| of_kind(r, &|m| !names_one_device(m)))
     } else {
-        rules
-            .iter()
-            .position(|r| r.kind == kind && r.matcher == Match::Any)
+        rules.iter().position(|r| of_kind(r, &|m| *m == Match::Any))
     };
     at.unwrap_or(rules.len())
 }
 
-/// The rules of a readable file, and the file's lines.
-fn rules_of(text: &str) -> Result<(Vec<Rule>, Lines), SectionEdit> {
-    let rules = readable(text)?.map(|p| p.config.rules).unwrap_or_default();
-    Ok((rules, Lines::of(text)))
+/// The rules of `lines`, each by its line and as it reads alone.
+fn read_rules(lines: &Lines) -> Vec<(usize, Option<(Kind, Match)>)> {
+    lines
+        .rules()
+        .into_iter()
+        .map(|n| (n, rule_line(lines.body(n).unwrap_or_default()).ok()))
+        .collect()
 }
 
-/// The rule numbered `number`, counting from 1.
-fn numbered(rules: &[Rule], number: usize) -> Result<&Rule, SectionEdit> {
+/// The line of the rule numbered `number`, counting from 1.
+fn numbered(lines: &Lines, number: usize) -> Result<usize, SectionEdit> {
     number
         .checked_sub(1)
-        .and_then(|i| rules.get(i))
+        .and_then(|i| lines.rules().get(i).copied())
         .ok_or(SectionEdit::NoRule(number))
 }
 
@@ -351,15 +549,19 @@ fn one_rule(rule: &str) -> Result<(Kind, Match, &str), SectionEdit> {
 /// file with no flow gains `version = 1` too.
 pub fn add_rule(text: &str, rule: &str, before: Option<usize>) -> Result<String, SectionEdit> {
     let (kind, matcher, rule) = one_rule(rule)?;
-    let (rules, mut lines) = rules_of(text)?;
+    let mut lines = Lines::of(text);
+    let rules = read_rules(&lines);
     let index = match before {
         Some(n) if (1..=rules.len().saturating_add(1)).contains(&n) => n.saturating_sub(1),
         Some(n) => return Err(SectionEdit::NoRule(n)),
-        None => placement(&rules, kind, &matcher),
+        None => {
+            let read: Vec<Option<(Kind, Match)>> = rules.iter().map(|(_, r)| r.clone()).collect();
+            place(&read, kind, &matcher)
+        }
     };
     match (rules.get(index), rules.last()) {
-        (Some(next), _) => lines.insert(next.line, rule),
-        (None, Some(last)) => lines.insert(last.line.saturating_add(1), rule),
+        (Some((next, _)), _) => lines.insert(*next, rule),
+        (None, Some((last, _))) => lines.insert(last.saturating_add(1), rule),
         (None, None) => match lines.heading(rules_heading) {
             Some(n) => lines.insert(n.saturating_add(1), rule),
             None => {
@@ -371,30 +573,31 @@ pub fn add_rule(text: &str, rule: &str, before: Option<usize>) -> Result<String,
             }
         },
     }
-    checked(lines.text())
+    Ok(lines.text())
 }
 
 /// Replaces the rule numbered `number` with `rule`, keeping the line's
 /// blanks and any comment after it.
 pub fn set_rule(text: &str, number: usize, rule: &str) -> Result<String, SectionEdit> {
     let (_, _, rule) = one_rule(rule)?;
-    let (rules, mut lines) = rules_of(text)?;
-    let line = numbered(&rules, number)?.line;
+    let mut lines = Lines::of(text);
+    let line = numbered(&lines, number)?;
     let range = content_range(lines.body(line).unwrap_or_default());
     lines.replace(line, range, rule);
-    checked(lines.text())
+    Ok(lines.text())
 }
 
 /// Moves the rule numbered `number` to go before the rule numbered
 /// `before`, or after the last where `before` is past it, keeping its
 /// line whole.
 pub fn move_rule(text: &str, number: usize, before: usize) -> Result<String, SectionEdit> {
-    let (rules, mut lines) = rules_of(text)?;
-    let from = numbered(&rules, number)?.line;
+    let mut lines = Lines::of(text);
+    let rules = lines.rules();
+    let from = numbered(&lines, number)?;
     let to = match before.checked_sub(1).map(|i| rules.get(i)) {
-        Some(Some(next)) => next.line,
+        Some(Some(next)) => *next,
         Some(None) if before == rules.len().saturating_add(1) => {
-            rules.last().map_or(from, |r| r.line.saturating_add(1))
+            rules.last().map_or(from, |r| r.saturating_add(1))
         }
         _ => return Err(SectionEdit::NoRule(before)),
     };
@@ -407,17 +610,13 @@ pub fn move_rule(text: &str, number: usize, before: usize) -> Result<String, Sec
     let to = if to > from { to.saturating_sub(1) } else { to };
     let body = moved.trim_end_matches(['\n', '\r']).to_owned();
     lines.insert(to, &body);
-    checked(lines.text())
+    Ok(lines.text())
 }
 
 /// Removes the rule numbered `number`, its whole line.
 pub fn remove_rule(text: &str, number: usize) -> Result<String, SectionEdit> {
-    let (rules, mut lines) = rules_of(text)?;
-    let line = numbered(&rules, number)?.line;
-    if let Some(i) = line.checked_sub(1)
-        && i < lines.lines.len()
-    {
-        lines.lines.remove(i);
-    }
-    checked(lines.text())
+    let mut lines = Lines::of(text);
+    let line = numbered(&lines, number)?;
+    lines.remove(line, line);
+    Ok(lines.text())
 }

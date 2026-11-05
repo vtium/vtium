@@ -1000,12 +1000,8 @@ impl fmt::Display for crate::write::SectionEdit {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         use crate::error::Quoted;
         use crate::write::SectionEdit;
-        use syntax::{CHECK_CONFIG, NAME_PUNCTUATION};
+        use syntax::NAME_PUNCTUATION;
         match self {
-            SectionEdit::Unreadable(_) => write!(
-                f,
-                "vtium.conf's sections hold errors, so vtium-config leaves them as they are. Run {CHECK_CONFIG} on the file to see them, and fix them first."
-            ),
             SectionEdit::NoSection(name) => write!(
                 f,
                 "vtium.conf has no section named {}. Pick one of the sections it declares.",
@@ -1039,9 +1035,10 @@ impl fmt::Display for crate::write::SectionEdit {
             SectionEdit::BadRule(_) => f.write_str(
                 "This is not a rule vtium reads. Write it as `display MATCH -> TARGET` or `input MATCH -> TARGET`.",
             ),
-            SectionEdit::Refused(_) => write!(
+            SectionEdit::Ambiguous(name) => write!(
                 f,
-                "This change would leave vtium.conf's sections with an error, so vtium-config makes none. Run {CHECK_CONFIG} on the changed file to see why."
+                "vtium.conf has two sections named {}, so vtium-config cannot tell which to change. Rename or remove one of them with vtium config edit.",
+                Quoted::new(name)
             ),
         }
     }

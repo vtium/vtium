@@ -1,6 +1,6 @@
 //! The head file's one writer (ADR-1201 D6): a head's `profile =` line set
-//! in its section with every other byte kept, a file vtium refuses to read
-//! refused, and a file replaced in one rename with the old one kept
+//! in its section with every other byte kept, a file vtium reads only in
+//! part still edited, and a file replaced in one rename with the old one kept
 //! beside it.
 
 use std::fs;
@@ -157,23 +157,42 @@ fn the_head_named_is_the_one_edited() {
     );
 }
 
+// A draft may be unfinished (ADR-1403 D8): a file vtium reads only in
+// part is still edited, one line at a time, and the check reports its
+// errors.
 #[test]
-fn a_file_vtium_refuses_to_read_is_refused() {
+fn a_file_vtium_reads_only_in_part_is_still_edited() {
+    let mut edited = 0;
     for path in SHIPPED {
         let text = shipped(path);
         if parse(&text).is_ok() {
             continue;
         }
         match set_look(&text, "desk", "big") {
-            Err(SectionEdit::Unreadable(rejected)) => assert!(!rejected.errors.is_empty()),
+            Ok(out) => {
+                // one line changed in place, or one line added
+                let moved = changed(&text, &out);
+                let added = out.lines().count() == text.lines().count() + 1;
+                if added {
+                    let at = moved.first().map_or(0, |(n, _, _)| n - 1);
+                    let mut back: Vec<&str> = out.split_inclusive('\n').collect();
+                    assert_eq!(back.remove(at).trim_end(), "look = big", "{path}");
+                    assert_eq!(back.concat(), text, "{path}");
+                } else {
+                    assert_eq!(moved.len(), 1, "{path}: {moved:?}");
+                }
+                edited += 1;
+            }
+            Err(SectionEdit::NoSection(name)) => assert_eq!(name, "desk", "{path}"),
             other => panic!("{path}: {other:?}"),
         }
     }
-    // a section with no version line
-    assert!(matches!(
-        set_look("[head desk]\n", "desk", "big"),
-        Err(SectionEdit::Unreadable(_))
-    ));
+    assert!(edited > 0, "no broken shipped file has a head desk");
+    // a section with no version line gains its look all the same
+    assert_eq!(
+        set_look("[head desk]\n", "desk", "big").expect("the edit"),
+        "[head desk]\nlook = big\n"
+    );
 }
 
 #[test]
@@ -186,10 +205,22 @@ fn a_head_the_file_does_not_declare_is_refused() {
 }
 
 #[test]
-fn a_look_name_vtium_would_refuse_is_refused() {
+fn a_look_name_the_writer_cannot_write_is_refused_and_the_check_judges_the_rest() {
     let text = "version = 1\n[head desk]\n";
-    for bad in ["", "two words", "é", &"x".repeat(65), "a=b", "a\nb"] {
-        assert!(set_look(text, "desk", bad).is_err(), "{bad:?}");
+    for bad in ["", "a\nb", "a #b"] {
+        assert!(
+            matches!(
+                set_look(text, "desk", bad),
+                Err(SectionEdit::BadValue { .. })
+            ),
+            "{bad:?}"
+        );
+    }
+    // a name vtium refuses is written, and the check reports it
+    for refused in ["two words", "é", &"x".repeat(65), "a=b"] {
+        let out = set_look(text, "desk", refused).expect("the edit");
+        assert_eq!(out, format!("{text}look = {refused}\n"));
+        assert!(parse(&out).is_err(), "{refused:?}");
     }
     assert!(set_look(text, "desk", &"x".repeat(64)).is_ok());
 }
@@ -199,10 +230,10 @@ fn each_refusal_says_what_to_do() {
     let text = "version = 1\n[head desk]\n";
     let no_head = set_look(text, "panel", "big").unwrap_err().to_string();
     assert!(no_head.contains("panel"), "{no_head}");
-    let unreadable = set_look("[head desk]\n", "desk", "b")
+    let twice = set_look("version = 1\n[head desk]\n[head desk]\n", "desk", "b")
         .unwrap_err()
         .to_string();
-    assert!(unreadable.contains("vtium check-config"), "{unreadable}");
+    assert!(twice.contains("two sections named"), "{twice}");
 }
 
 /// A fresh directory of its own for one test.

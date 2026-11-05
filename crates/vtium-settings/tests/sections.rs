@@ -1,11 +1,11 @@
 //! vtium.conf's section writer (ADR-1403 D7, D8): each edit changes only
-//! the lines it needs, refuses sections vtium reads only in part, and
-//! reads its own result before handing it back; a new rule goes where
-//! what it names puts it.
+//! the lines it needs, edits a draft whatever the check says of it, and
+//! refuses only what it cannot place; a new rule goes where what it names
+//! puts it; a section is removed or renamed with what names it.
 
 use vtium_settings::{
-    Kind, Of, Problem, SectionEdit, add_rule, add_section, move_rule, parse_sections, placement,
-    remove_rule, set_key, set_rule,
+    Kind, Of, SectionEdit, add_rule, add_section, move_rule, parse_sections, placement,
+    remove_rule, remove_section, rename_section, rule_lines, set_key, set_rule,
 };
 
 const FILE: &str = "\
@@ -45,14 +45,13 @@ fn changed(a: &str, b: &str) -> Vec<(usize, String, String)> {
         .collect()
 }
 
-/// The rules of `text`, each as its line's text.
+/// The rules of `text`, each as its line's text, as the writer numbers
+/// them.
 fn rules(text: &str) -> Vec<String> {
-    let config = parse_sections(text).expect("valid").expect("a flow").config;
     let lines: Vec<&str> = text.lines().collect();
-    config
-        .rules
+    rule_lines(text)
         .iter()
-        .map(|r| lines.get(r.line - 1).copied().unwrap_or("").to_owned())
+        .map(|n| lines.get(n - 1).copied().unwrap_or("").to_owned())
         .collect()
 }
 
@@ -91,7 +90,7 @@ fn a_look_s_key_is_set_in_place_with_its_comment_kept() {
 }
 
 #[test]
-fn the_writer_refuses_what_vtium_would_refuse() {
+fn the_writer_refuses_only_what_it_cannot_place() {
     assert_eq!(
         set_key(FILE, Of::Look("big"), "font-frits", Some("/x")),
         Err(SectionEdit::BadKey("font-frits".to_owned()))
@@ -113,24 +112,23 @@ fn the_writer_refuses_what_vtium_would_refuse() {
             "{bad:?}"
         );
     }
-    // a value out of bounds would drop the look, so nothing is handed back
-    match set_key(FILE, Of::Look("big"), "font-size", Some("9999")) {
-        Err(SectionEdit::Refused(r)) => assert!(matches!(
-            r.errors.first().map(|e| &e.problem),
-            Some(Problem::OutOfRange { .. })
-        )),
-        other => panic!("{other:?}"),
-    }
-    // sections vtium reads only in part are not the writer's to edit
+    // a value out of bounds is written, and the check reports it
+    let out = set_key(FILE, Of::Look("big"), "font-size", Some("9999")).expect("the edit");
+    assert_eq!(
+        changed(FILE, &out),
+        [(
+            6,
+            "font-size = 14   # the desk's\n".to_owned(),
+            "font-size = 9999   # the desk's\n".to_owned()
+        )]
+    );
+    assert!(parse_sections(&out).is_err());
+    // sections vtium reads only in part are edited all the same
     let broken = FILE.replace("look = big", "look = big\nfrob = 1");
-    assert!(matches!(
-        set_key(&broken, Of::Look("big"), "font-size", Some("16")),
-        Err(SectionEdit::Unreadable(_))
-    ));
-    assert!(matches!(
-        add_rule(&broken, "input * -> desk", None),
-        Err(SectionEdit::Unreadable(_))
-    ));
+    let out = set_key(&broken, Of::Look("big"), "font-size", Some("16")).expect("the edit");
+    assert_eq!(changed(&broken, &out).len(), 1);
+    let out = add_rule(&broken, "input * -> desk", None).expect("the edit");
+    assert_eq!(rules(&out).len(), 6);
 }
 
 /// Where each new rule goes among `FILE`'s five rules: before the rule of
@@ -209,10 +207,12 @@ fn a_rule_goes_before_the_rule_it_is_told_to() {
         add_rule(FILE, "input * desk", None),
         Err(SectionEdit::BadRule(_))
     ));
-    assert!(matches!(
-        add_rule(FILE, "input * -> nowhere", None),
-        Err(SectionEdit::Refused(_))
-    ));
+    // a rule may send to a head the draft does not declare yet
+    let out = add_rule(FILE, "input * -> nowhere", None).expect("the edit");
+    assert_eq!(
+        rules(&out).get(4).map(String::as_str),
+        Some("input * -> nowhere")
+    );
 }
 
 #[test]
@@ -328,5 +328,115 @@ fn a_section_goes_before_rules_however_its_heading_is_spaced() {
     assert_eq!(
         add_section("policy = closed\n", Of::Head("desk")).expect("the head"),
         "policy = closed\nversion = 1\n\n[head desk]\n"
+    );
+}
+
+const TWO: &str = "\
+version = 1
+
+[look big]
+font-name = monoid
+
+[head desk]
+look = big
+consoles = 2
+
+[head panel]
+look = big
+
+# Each display and each input tries these rules.
+[rules]
+display edid:AAA:0x0001:LARGE00001 -> desk
+display * -> panel
+input class:keyboard -> desk   # the keyboard
+";
+
+#[test]
+fn a_removed_head_keeps_its_rules_and_the_comments_before_the_next_heading() {
+    let out = remove_section(TWO, Of::Head("panel")).expect("the edit");
+    assert_eq!(out, TWO.replace("[head panel]\nlook = big\n\n", ""));
+    assert_eq!(rules(&out)[1], "display * -> panel");
+    // the check reports the rule that now sends nowhere
+    assert!(parse_sections(&out).is_err());
+    // and the rule is still the writer's to fix
+    let fixed = set_rule(&out, 2, "display * -> desk").expect("the edit");
+    assert!(parse_sections(&fixed).is_ok());
+    assert_eq!(
+        remove_section(TWO, Of::Head("nobody")),
+        Err(SectionEdit::NoSection("nobody".to_owned()))
+    );
+}
+
+#[test]
+fn a_removed_look_leaves_its_heads_naming_it() {
+    let out = remove_section(TWO, Of::Look("big")).expect("the edit");
+    assert_eq!(out, TWO.replace("[look big]\nfont-name = monoid\n\n", ""));
+}
+
+#[test]
+fn a_renamed_head_takes_every_rule_that_sends_to_it() {
+    let out = rename_section(TWO, Of::Head("desk"), "office").expect("the edit");
+    assert_eq!(
+        changed(TWO, &out),
+        [
+            (6, "[head desk]\n".to_owned(), "[head office]\n".to_owned()),
+            (
+                15,
+                "display edid:AAA:0x0001:LARGE00001 -> desk\n".to_owned(),
+                "display edid:AAA:0x0001:LARGE00001 -> office\n".to_owned()
+            ),
+            (
+                17,
+                "input class:keyboard -> desk   # the keyboard\n".to_owned(),
+                "input class:keyboard -> office   # the keyboard\n".to_owned()
+            ),
+        ]
+    );
+    assert!(parse_sections(&out).is_ok());
+    assert_eq!(
+        rename_section(TWO, Of::Head("desk"), "panel"),
+        Err(SectionEdit::Exists("panel".to_owned()))
+    );
+    assert_eq!(
+        rename_section(TWO, Of::Head("desk"), "roaming"),
+        Err(SectionEdit::BadName("roaming".to_owned()))
+    );
+}
+
+#[test]
+fn a_renamed_look_takes_every_head_that_names_it() {
+    let out = rename_section(TWO, Of::Look("big"), "large").expect("the edit");
+    assert_eq!(
+        changed(TWO, &out),
+        [
+            (3, "[look big]\n".to_owned(), "[look large]\n".to_owned()),
+            (7, "look = big\n".to_owned(), "look = large\n".to_owned()),
+            (11, "look = big\n".to_owned(), "look = large\n".to_owned()),
+        ]
+    );
+}
+
+#[test]
+fn a_section_named_twice_is_not_the_writer_s_to_guess() {
+    let twice = TWO.replace("[head panel]", "[head desk]");
+    assert_eq!(
+        remove_section(&twice, Of::Head("desk")),
+        Err(SectionEdit::Ambiguous("desk".to_owned()))
+    );
+}
+
+#[test]
+fn a_rule_vtium_drops_is_still_numbered() {
+    // rule 2 sends to a head no section declares, so vtium drops it; the
+    // writer numbers it all the same, as the commands do
+    let text = TWO.replace("display * -> panel", "display * -> gone");
+    assert_eq!(rule_lines(&text), [15, 16, 17]);
+    let out = remove_rule(&text, 2).expect("the edit");
+    assert_eq!(
+        rules(&out),
+        [
+            "display edid:AAA:0x0001:LARGE00001 -> desk",
+            "input class:keyboard -> desk   # the keyboard"
+        ]
     );
 }

@@ -20,7 +20,8 @@ use std::path::{Path, PathBuf};
 mod sections;
 
 pub use sections::{
-    Of, SectionEdit, add_rule, add_section, move_rule, placement, remove_rule, set_key, set_rule,
+    Of, SectionEdit, add_rule, add_section, move_rule, placement, remove_rule, remove_section,
+    rename_section, rule_lines, set_key, set_rule,
 };
 
 /// The path beside `path` named `NAME` with `suffix` after it.
