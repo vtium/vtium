@@ -144,17 +144,36 @@ pub fn head_add(text: &str, name: &str, look: Option<&str>) -> Result<String, Fa
     }
 }
 
-/// Adds `[look NAME]` with its `font-name` and `font-size` where given; a
-/// key left out is inherited from the top level.
-pub fn look_add(
-    text: &str,
-    name: &str,
-    frit: Option<&str>,
-    size: Option<&str>,
-) -> Result<String, Fail> {
+/// The keys a look takes (ADR-1403 D5), each with the option that names
+/// it to `vtium config look add` and `look set`, in the order the TUI's
+/// look card lists them. Those two commands and the look card read this
+/// one table, and a test holds it to the key table's keys of a look.
+pub const LOOK_KEYS: [(&str, &str); 8] = [
+    ("font-name", "--frit"),
+    ("font-size", "--size"),
+    ("cell", "--cell"),
+    ("font-engine", "--engine"),
+    ("font-hinting", "--hinting"),
+    ("font-line-spacing", "--line-spacing"),
+    ("display-depth", "--display-depth"),
+    ("display-dpi", "--display-dpi"),
+];
+
+/// The option of [`LOOK_KEYS`] that names the look key `key`.
+pub fn look_option(key: &str) -> Option<&'static str> {
+    LOOK_KEYS.iter().find(|(k, _)| *k == key).map(|(_, o)| *o)
+}
+
+/// Adds `[look NAME]` with each of `keys` that has a value, in the order
+/// of [`LOOK_KEYS`]; a key left out is inherited from the top level.
+pub fn look_add(text: &str, name: &str, keys: &[(&str, Option<&str>)]) -> Result<String, Fail> {
     let added = add_section(text, Of::Look(name)).map_err(|e| refused(&e))?;
-    let keys: Vec<(&str, Option<&str>)> = [("font-size", size), ("font-name", frit)]
-        .into_iter()
+    // the section writer puts each new key first in its section, so the
+    // keys go in last to first
+    let keys: Vec<(&str, Option<&str>)> = LOOK_KEYS
+        .iter()
+        .rev()
+        .filter_map(|(k, _)| keys.iter().find(|(given, _)| given == k).copied())
         .filter(|(_, v)| v.is_some())
         .collect();
     section_keys(&added, Of::Look(name), &keys)
@@ -273,6 +292,52 @@ mod tests {
     use super::*;
 
     const DESK: &str = "version = 1\n[head desk]\n[head panel]\n[rules]\ndisplay * -> desk\ninput class:keyboard -> roaming  # every keyboard\n";
+
+    // ADR-1403 D5, D8: `look add`, `look set` and the look card offer
+    // every key a look takes, `cell` among them, by one option each
+    #[test]
+    fn the_look_keys_are_the_key_table_s_keys_of_a_look() {
+        let mut ours: Vec<&str> = LOOK_KEYS.iter().map(|(k, _)| *k).collect();
+        ours.sort_unstable();
+        let mut table: Vec<&str> = vtium_settings::keys::at(vtium_settings::keys::Level::Look)
+            .map(|k| k.name)
+            .collect();
+        table.sort_unstable();
+        assert_eq!(ours, table);
+        let mut options: Vec<&str> = LOOK_KEYS.iter().map(|(_, o)| *o).collect();
+        options.sort_unstable();
+        options.dedup();
+        assert_eq!(options.len(), LOOK_KEYS.len(), "one option a key");
+        assert_eq!(look_option("cell"), Some("--cell"));
+        assert_eq!(look_option("login"), None);
+    }
+
+    #[test]
+    fn a_look_is_added_with_its_keys_in_the_table_s_order() {
+        let out = look_add(
+            DESK,
+            "big",
+            &[
+                ("cell", Some("12x24")),
+                ("font-size", None),
+                ("font-name", Some("monoid")),
+            ],
+        )
+        .unwrap();
+        assert!(
+            out.contains("[look big]\nfont-name = monoid\ncell = 12x24\n"),
+            "{out}"
+        );
+        let read = vtium_settings::sections(out.as_bytes()).unwrap();
+        assert!(read.errors.is_empty(), "{:?}", read.errors);
+        let look = read.parsed.config.looks.first().unwrap();
+        let set: Vec<(&str, &str)> = look
+            .settings
+            .iter()
+            .map(|s| (s.key.name, s.value.as_str()))
+            .collect();
+        assert_eq!(set, [("font-name", "monoid"), ("cell", "12x24")]);
+    }
 
     #[test]
     fn a_rule_s_target_changes_and_its_selector_and_comment_stay() {

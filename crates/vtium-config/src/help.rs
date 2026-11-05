@@ -262,14 +262,17 @@ const TOPICS: &[Topic] = &[
     Topic {
         command: Command::Look,
         forms: &[
-            form("look add NAME [--frit F] [--size PT]", "add a look"),
             form(
-                "look set NAME [--name NEW] [--frit F] [--size PT] [--engine E] [--hinting H] [--line-spacing PCT]",
+                "look add NAME [--frit F] [--size PT] [--cell WxH]",
+                "add a look",
+            ),
+            form(
+                "look set NAME [--name NEW] [--frit F] [--size PT] [--cell WxH] [--engine E] [--hinting H] [--line-spacing PCT] [--display-depth D] [--display-dpi DPI]",
                 "change a look's keys",
             ),
             form("look rm NAME [--force]", "delete a look"),
         ],
-        detail: "Adds, changes or deletes a [look NAME] section in the draft. --frit sets its font-name and --size its font-size; a key a look leaves out is inherited from the top level. look rm refuses a look a head uses, naming the heads, unless --force sets those heads to the default look. Each takes --dry-run and --install.",
+        detail: "Adds, changes or deletes a [look NAME] section in the draft. --frit sets its font-name, --size its font-size and --cell its cell; --engine, --hinting and --line-spacing set the font- key of that name, and --display-depth and --display-dpi the key of their own name. look add takes the same keys as look set. A key a look leaves out is inherited from the top level, and within one look a font-size other than 0 wins over a cell. look rm refuses a look a head uses, naming the heads, unless --force sets those heads to the default look. Each takes --dry-run and --install.",
         example: "vtium-config look add big --frit monoid --size 14",
     },
     Topic {

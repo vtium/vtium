@@ -116,6 +116,30 @@ pub fn absolute(text: &str) -> bool {
     std::path::Path::new(text).is_absolute()
 }
 
+/// The smallest and largest side of a cell that a frit's `cell=` line
+/// and a look's `cell` state, in pixels: from minspec's 8 pixels to an 8K
+/// display's large sizes, as far as a glyph two cells wide still fits a
+/// glyph set's 16 KiB chunk (ADR-1200 D1). vtium-config's frit reader
+/// and the console take them from here.
+pub const FRIT_CELL_MIN: u32 = 6;
+pub const FRIT_CELL_MAX: u32 = 96;
+
+/// A cell as a frit's `cell=` line and a look's `cell` write it,
+/// `WIDTHxHEIGHT` in pixels: each side digits alone, with no leading zero,
+/// from [`FRIT_CELL_MIN`] to [`FRIT_CELL_MAX`]. The width and the height;
+/// `None` for any other text.
+pub fn parse_cell(text: &str) -> Option<(u32, u32)> {
+    let side = |s: &str| {
+        s.parse::<u32>().ok().filter(|n| {
+            (FRIT_CELL_MIN..=FRIT_CELL_MAX).contains(n)
+                && s.bytes().all(|b| b.is_ascii_digit())
+                && !s.starts_with('0')
+        })
+    };
+    let (w, h) = text.split_once('x')?;
+    Some((side(w)?, side(h)?))
+}
+
 /// What a key holds, and its bound.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
@@ -159,6 +183,10 @@ pub enum Kind {
     Char,
     /// A size in pixels, `WxH`, each side from 1 to `max`.
     Size { max: u32 },
+    /// A cell in pixels, `WIDTHxHEIGHT`, as a frit's `cell=` line writes
+    /// it: each side a whole number from [`FRIT_CELL_MIN`] to
+    /// [`FRIT_CELL_MAX`], with no leading zero ([`parse_cell`]).
+    Cell,
     /// A decoration's color: `fg`, the cell's foreground; a palette index
     /// from 0 to 255, which follows the palette a program changes; or
     /// `#rrggbb`.
@@ -184,6 +212,9 @@ pub enum Scope {
     Anywhere,
     /// On the command line only.
     CommandLine,
+    /// In a section of vtium.conf only, at the levels its `levels` name:
+    /// neither the top level nor the command line sets it.
+    Section,
 }
 
 /// A part of vtium.conf that may set a key (ADR-1403 D5): its top level,
@@ -209,6 +240,9 @@ impl Levels {
     pub const NONE: Levels = Levels(0);
     /// The top level alone.
     pub const TOP: Levels = Levels(1);
+    /// A look alone: a key of a look's that has no default at the top
+    /// level, such as its cell.
+    pub const LOOK: Levels = Levels(2);
     /// The top level and a look: a look's frit, its size and the other keys
     /// ADR-1200 D16 gives a look.
     pub const TOP_LOOK: Levels = Levels(1 | 2);
@@ -239,6 +273,7 @@ impl Levels {
 
 const NONE: Levels = Levels::NONE;
 const TOP: Levels = Levels::TOP;
+const LOOK: Levels = Levels::LOOK;
 const TOP_LOOK: Levels = Levels::TOP_LOOK;
 const TOP_HEAD: Levels = Levels::TOP_HEAD;
 
@@ -413,7 +448,7 @@ pub const HEAD_CONSOLES_MAX: Key = Key {
     scope: Scope::Anywhere,
     levels: TOP,
     reader: "vtium",
-    what: "The most consoles one head holds: the head file's `consoles` opens no more.",
+    what: "The most consoles one head holds: a head's `consoles` opens no more.",
     cite: "ADR-1401 D10; the C reference's `session-max` (src/config.c:1357) bounded the seat's sessions",
 };
 
@@ -469,7 +504,7 @@ pub const NOTICE_FOREGROUND: Key = Key {
     scope: Scope::Anywhere,
     levels: TOP,
     reader: "vtium",
-    what: "The color of a notice's text. A notice tells of a problem, such as an invalid head file, and shows whatever `osd` says.",
+    what: "The color of a notice's text. A notice tells of a problem, such as an invalid vtium.conf, and shows whatever `osd` says.",
     cite: "ADR-1401 D5",
 };
 
@@ -594,7 +629,7 @@ pub const CONSOLES_MAX: Key = Key {
     levels: TOP,
     reader: "vtium",
     what: "The most consoles every head holds together.\n\n\
-           Each head keeps its first console; the others open, in the head file's order, while the total is below this.",
+           Each head keeps its first console; the others open, in the order vtium.conf declares the heads, while the total is below this.",
     cite: "ADR-1401 D10; the C reference's `session-max` (src/config.c:1357)",
 };
 
@@ -802,7 +837,7 @@ pub const DISPLAY_WAIT: Key = Key {
     levels: TOP,
     reader: "vtium",
     what: "At start, how long to wait for a display, counted from when the VT is shown.\n\n\
-           With no display by then, vtium exits with status 1, so the unit's `OnFailure=` can start a getty. Under a head file whose policy is closed vtium waits however long it takes, as under `forever` (ADR-1401 D8).\n\n\
+           With no display by then, vtium exits with status 1, so the unit's `OnFailure=` can start a getty. Under a vtium.conf whose policy is closed vtium waits however long it takes, as under `forever` (ADR-1401 D8).\n\n\
            The wait runs only while the VT is vtium's. When another program takes the VT before vtium's first frame is on screen, as X starting on another VT does at boot, vtium waits for the VT to come back, and when it does, the wait starts again from the full `display-wait`.\n\n\
            0 waits for no display to come: a display set up when the VT is shown counts once its first frame is on screen. `forever` waits for the first display however long it takes, for a machine whose only display is a USB adapter (DisplayLink, `udl`) plugged in at any time.\n\n\
            Once a display has come, vtium never exits for want of one.",
@@ -819,7 +854,7 @@ pub const DISPLAY_BUFFERS: Key = Key {
     reader: "vtium-platform",
     what: "How many buffers each DRM display keeps, the same for every display.\n\n\
            `3` is triple buffering, so no frame waits for the last flip, at the cost of one more whole frame a display (8 MB at 1080p). `2` is double buffering. `1` is single buffering, which holds the least memory, but vtium then draws into the buffer being shown, so a frame can be seen half drawn.\n\n\
-           A framebuffer (fbdev) keeps one buffer whatever this key says. Unset, the build decides: the count it was built with (`VTIUM_DISPLAY_BUFFERS`), or else 3 in a build with features on top of minspec, 2 in the minspec build, 1 only in a build smaller than minspec. `vtium config config display-buffers` prints the value vtium.conf gives it, or the build's default followed by `default`, which is `unset` when the build names no count, and the rule above then picks it.",
+           A framebuffer (fbdev) keeps one buffer whatever this key says. Unset, the build decides: the count it was built with (`VTIUM_DISPLAY_BUFFERS`), or else 3 in a build with features on top of minspec, 2 in the minspec build, 1 only in a build smaller than minspec. `vtium config get display-buffers` prints the value the current draft gives it, followed by `draft`, or the build's default followed by `default`, which is `unset` when the build names no count, and the rule above then picks it.",
     cite: "ADR-1401 D2; the C reference's drm2d kept 2, src/video/drm2d_internal.h:49",
 };
 
@@ -832,7 +867,7 @@ pub const HWACCEL: Key = Key {
     levels: TOP,
     reader: "vtium",
     what: "Draw through the GPU, in a build that has it.\n\n\
-           Off unless vtium was built to turn it on (`VTIUM_HWACCEL`). `vtium config config hwaccel` prints the value vtium.conf gives it, or the build's default followed by `default`.",
+           Off unless vtium was built to turn it on (`VTIUM_HWACCEL`). `vtium config get hwaccel` prints the value the current draft gives it, followed by `draft`, or the build's default followed by `default`, and `vtium config set hwaccel on` turns it on in the draft.",
     cite: "src/config.c:1413",
 };
 
@@ -1456,6 +1491,19 @@ pub const FONT_LINE_SPACING: Key = Key {
     cite: "ADR-1302 D13; ADR-1200 D1",
 };
 
+pub const CELL: Key = Key {
+    name: "cell",
+    short: None,
+    kind: Kind::Cell,
+    default: Default::Unset,
+    scope: Scope::Section,
+    levels: LOOK,
+    reader: "vtium",
+    what: "The cell a look's text draws in, written as a frit's `cell=` line writes it.\n\n\
+           It wins over the `cell=` and `size=` lines of the frit the head draws, and over the top level's `font-size`. The look's own `font-size`, when it is other than 0, wins over the look's `cell`. Unset, the frit's `cell=` decides.",
+    cite: "ADR-1403 D5; ADR-1200 D1, D16",
+};
+
 pub const ALLOW_FONT_OPS: Key = Key {
     name: "allow-font-ops",
     short: None,
@@ -1465,7 +1513,7 @@ pub const ALLOW_FONT_OPS: Key = Key {
     levels: TOP,
     reader: "vtium",
     what: "Let a program switch the font among the frits and the built-in fonts with xterm's OSC 50, and ask which is in use.\n\n\
-           A program switches with `OSC 50 ; NAME ST`, as `vtium-config set NAME` sends it, and asks with `OSC 50 ; ? ST`. A switch lasts until the session it came from ends, when vtium returns the console to the font and size `font-name` and `font-size` give.\n\n\
+           A program switches with `OSC 50 ; NAME ST`, as `vtium-config use-frit NAME` sends it, and asks with `OSC 50 ; ? ST`. A switch lasts until the session it came from ends, when vtium returns the console to the font and size `font-name` and `font-size` give.\n\n\
            It is on by default, as xterm's `allowFontOps` is, since OSC 50 reaches only the frits root wrote and the built-in fonts, never a file. Off, vtium ignores OSC 50, the query included.",
     cite: "ADR-1200 (D5); vtium/vtium#126",
 };
@@ -1780,7 +1828,7 @@ pub const KITTY_GRAPHICS: Key = Key {
 };
 
 /// Every key, in the order the generated files list them.
-pub const KEYS: [Key; 106] = [
+pub const KEYS: [Key; 107] = [
     CONFIGDIR,
     HELP,
     VERSION,
@@ -1867,6 +1915,7 @@ pub const KEYS: [Key; 106] = [
     FONT_SIZE,
     FONT_HINTING,
     FONT_LINE_SPACING,
+    CELL,
     ALLOW_FONT_OPS,
     GLYPH_SOURCE,
     GLYPH_SOURCE_BOX,
@@ -1924,7 +1973,7 @@ pub const SECTIONS: [Section; 10] = [
             },
             Group {
                 title: "Font size and spacing",
-                keys: &[&FONT_SIZE, &FONT_HINTING, &FONT_LINE_SPACING],
+                keys: &[&FONT_SIZE, &CELL, &FONT_HINTING, &FONT_LINE_SPACING],
             },
             Group {
                 title: "Box drawing, blocks and other sprites",
@@ -2238,8 +2287,9 @@ mod tests {
     }
 
     // ADR-1403 D5: a look takes the font and display keys ADR-1200 D16
-    // gives a look, a head takes `login`, every other key is the top
-    // level's alone, and a key the command line alone sets has no level.
+    // gives a look and its cell, a head takes `login`, every other key is
+    // the top level's alone, and a key the command line alone sets has no
+    // level. `cell` is the one key only a section sets.
     #[test]
     fn each_key_names_the_levels_that_may_set_it() {
         let names = |level| at(level).map(|k| k.name).collect::<Vec<_>>();
@@ -2251,6 +2301,7 @@ mod tests {
                 "font-size",
                 "font-hinting",
                 "font-line-spacing",
+                "cell",
                 "display-depth",
                 "display-dpi",
             ]
@@ -2260,8 +2311,14 @@ mod tests {
             match k.scope {
                 Scope::CommandLine => assert_eq!(k.levels, NONE, "{}", k.name),
                 Scope::Anywhere => assert!(k.levels.contains(Level::Top), "{}", k.name),
+                Scope::Section => {
+                    assert!(!k.levels.contains(Level::Top), "{}", k.name);
+                    assert_ne!(k.levels, NONE, "{}", k.name);
+                }
             }
         }
+        assert_eq!(CELL.scope, Scope::Section);
+        assert_eq!(CELL.levels, LOOK);
         // the process's own keys stay at the top level (D5)
         for k in [
             &DISPLAY_BUFFERS,
@@ -2274,15 +2331,34 @@ mod tests {
         }
     }
 
+    // ADR-1200 D1, ADR-1403 D5: a look's cell takes a frit's `cell=`
+    // syntax and bounds, 6 to 96 pixels a side with no leading zero.
+    #[test]
+    fn a_cell_is_read_as_a_frits_cell_line() {
+        assert_eq!(parse_cell("8x16"), Some((8, 16)));
+        assert_eq!(parse_cell("6x96"), Some((6, 96)));
+        for bad in [
+            "", "8", "8x", "x16", "5x16", "8x97", "08x16", "8x016", "+8x16", "8X16", "8x16x2",
+            " 8x16", "8 x16", "-8x16",
+        ] {
+            assert_eq!(parse_cell(bad), None, "{bad:?}");
+        }
+    }
+
     // The section reader checks a section key's value by its kind, and
-    // reads text, a command, a path, a choice and a number.
+    // reads text, a command, a path, a choice, a number and a cell.
     #[test]
     fn every_section_key_is_of_a_kind_the_section_reader_checks() {
         for k in at(Level::Look).chain(at(Level::Head)) {
             assert!(
                 matches!(
                     k.kind,
-                    Kind::Text | Kind::Command | Kind::Path | Kind::Choice(_) | Kind::Number { .. }
+                    Kind::Text
+                        | Kind::Command
+                        | Kind::Path
+                        | Kind::Choice(_)
+                        | Kind::Number { .. }
+                        | Kind::Cell
                 ),
                 "{}",
                 k.name

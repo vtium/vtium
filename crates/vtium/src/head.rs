@@ -197,8 +197,12 @@ pub struct Head {
     /// `font-size=0`: the base height follows the smallest display, until
     /// a zoom.
     pub(crate) auto_size: bool,
-    /// A `font-size` other than 0 is configured.
+    /// A `font-size` other than 0 is configured, and the head's look
+    /// states no cell.
     sized: bool,
+    /// The cell the head's look states, `cell`, which the frit the head
+    /// draws takes over its own `cell=` (ADR-1403 D5).
+    look_cell: Option<vtium_font::Cell>,
     /// The base font was found once: a later failure keeps it.
     pub(crate) has_font: bool,
     /// The base font's size step, which a zoom takes.
@@ -338,14 +342,30 @@ fn screen_text(console: &Console) -> Vec<String> {
 /// head's configuration `config`, the one [`Config::for_head`] gives, so
 /// its look's size wins over the top level's (ADR-1403 D5): in points,
 /// unless `font-size=0` or unset picks it from the displays; and whether
-/// a `font-size` other than 0 is configured.
+/// a `font-size` other than 0 is configured. A cell the head's look
+/// states wins over the top level's `font-size`, since the look is the
+/// more specific level (ADR-1200 D16): the head then draws at that cell's
+/// height, as at `font-size=0` with a frit that states a cell, and counts
+/// as sized by none. [`Config::for_head`] has already dropped a look's
+/// cell where the same look sets a `font-size`.
 pub(crate) fn configured_size(config: &Config) -> (Option<u32>, bool, bool) {
+    if look_cell(config).is_some() {
+        return (None, true, false);
+    }
     let size = config.number(&keys::FONT_SIZE);
     let points = size
         .filter(|&n| n != 0)
         .map(|n| u32::try_from(n).unwrap_or(u32::MAX));
     let auto_size = size.unwrap_or(0) == 0;
     (points, auto_size, !auto_size)
+}
+
+/// The cell the head's look states, from the head's configuration
+/// `config`, the one [`Config::for_head`] gives.
+pub(crate) fn look_cell(config: &Config) -> Option<vtium_font::Cell> {
+    config
+        .size(&keys::CELL)
+        .map(|(width, height)| vtium_font::Cell { width, height })
 }
 
 /// What [`Head`]'s `draw_hook` runs.
@@ -416,6 +436,7 @@ impl Head {
             points,
             auto_size,
             sized,
+            look_cell: look_cell(config),
             has_font: false,
             step: 16,
             cell: CELL,
@@ -812,6 +833,11 @@ impl Head {
     /// is the automatic size.
     pub(crate) fn sized(&self) -> bool {
         self.sized
+    }
+
+    /// The cell the head's look states, which the frit it draws takes.
+    pub(crate) fn look_cell(&self) -> Option<vtium_font::Cell> {
+        self.look_cell
     }
 
     /// The font set in use, the built-ins before one is chosen.

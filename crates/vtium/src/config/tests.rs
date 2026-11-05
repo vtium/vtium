@@ -276,6 +276,59 @@ fn a_head_s_sections_win_over_the_top_level_and_the_command_line() {
     assert_eq!(small.number(&FONT_SIZE), Some(10));
 }
 
+// ADR-1403 D5, ADR-1200 D16: only a look sets `cell`, and within one
+// look its `font-size`, other than 0, wins over its `cell`, so the head's
+// configuration keeps a look's cell only where that look sets no size
+#[test]
+#[expect(clippy::expect_used, reason = "a test's set-up fails loudly")]
+fn a_look_s_cell_reaches_its_head_unless_the_look_sets_a_size() {
+    let text = "font-size=12\nversion = 1\n\
+                [look cell]\ncell = 12x24\n\
+                [look both]\ncell = 12x24\nfont-size = 32\n\
+                [look auto]\ncell = 12x24\nfont-size = 0\n\
+                [head a]\nlook = cell\n[head b]\nlook = both\n[head c]\nlook = auto\n";
+    let rules = vtium_settings::sections(text.as_bytes())
+        .expect("a flow")
+        .parsed
+        .config;
+    let top = load_with(&[], &[("/etc/vtium/vtium.conf", text.as_bytes())]).config;
+    assert_eq!(top.size(&CELL), None, "the top level has no cell");
+    let own = |head: &str| {
+        let h = rules.head(head).expect("the head");
+        let settings: Vec<vtium_settings::Setting> = rules
+            .settings(h)
+            .into_iter()
+            .map(|(_, s)| s.clone())
+            .collect();
+        let (config, reports) = top.for_head(Path::new("/etc/vtium/vtium.conf"), &settings);
+        assert_eq!(reports, []);
+        config
+    };
+    assert_eq!(own("a").size(&CELL), Some((12, 24)));
+    assert_eq!(own("a").number(&FONT_SIZE), Some(12));
+    assert_eq!(own("b").size(&CELL), None, "the look's size wins");
+    assert_eq!(own("b").number(&FONT_SIZE), Some(32));
+    assert_eq!(own("c").size(&CELL), Some((12, 24)), "0 sets no size");
+}
+
+// ADR-1403 D5: `cell` is a look's alone, so the top level and the command
+// line refuse it and name where it goes
+#[test]
+fn the_top_level_and_the_command_line_refuse_a_cell() {
+    let l = main_file("cell=12x24\n");
+    assert_eq!(problems(&l), [&Problem::SectionOnly("cell")]);
+    assert_eq!(l.config.size(&CELL), None);
+    for args in [&["--cell=12x24"][..], &["--cell", "12x24"]] {
+        let l = load_with(args, &[]);
+        assert_eq!(problems(&l), [&Problem::SectionOnly("cell")], "{args:?}");
+        assert_eq!(l.config.size(&CELL), None);
+    }
+    assert_eq!(
+        Problem::SectionOnly("cell").to_string(),
+        "cell is set only in a [look NAME] section, ignored"
+    );
+}
+
 // ADR-1200 D25: font-paths is a list of absolute folders, each that is
 // not left out and reported; unset, the helper searches the build's list
 #[test]

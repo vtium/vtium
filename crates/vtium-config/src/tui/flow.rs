@@ -133,6 +133,9 @@ pub struct Look {
     pub frit: String,
     /// Its size in points, 0 for automatic.
     pub points: u32,
+    /// Its other keys as the file sets them, such as `cell`, each with its
+    /// value.
+    pub keys: Vec<(String, String)>,
     /// The fonts its frit draws with, each with whether this machine has it.
     pub fonts: Vec<(String, bool)>,
     /// What the check finds wrong with it, in the check's words, such as a

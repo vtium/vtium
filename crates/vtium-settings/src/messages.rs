@@ -669,6 +669,11 @@ impl fmt::Display for NotHere<'_> {
                 "A head's section cannot set `{key}`: the head takes it from its look. Set it in the `{look}` section the head names, or at the top of vtium.conf, above the first section, for every head.",
                 look = LOOK_HEADING,
             ),
+            (Level::Head, Levels::LOOK) => write!(
+                f,
+                "A head's section cannot set `{key}`: the head takes it from its look, and only a look sets it. Set it in the `{look}` section the head names.",
+                look = LOOK_HEADING,
+            ),
             (Level::Look, Levels::TOP_HEAD) => write!(
                 f,
                 "A look cannot set `{key}`. Set it in a `{head}` section for one head, or at the top of vtium.conf, above the first section, for every head.",

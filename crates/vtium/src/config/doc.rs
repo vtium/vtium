@@ -4,8 +4,8 @@
 use std::fmt::Write as _;
 
 use super::keys::{
-    Default, KEYS, Key, Kind, OSD_BORDER, OVERLAY_COLORS, SB_MEMORY, SCHEMES, SECTIONS, Scope,
-    Section, TEXT_MAX,
+    Default, FRIT_CELL_MAX, FRIT_CELL_MIN, KEYS, Key, Kind, OSD_BORDER, OVERLAY_COLORS, SB_MEMORY,
+    SCHEMES, SECTIONS, Scope, Section, TEXT_MAX,
 };
 use super::{FILE_MAX, LINE_MAX};
 
@@ -27,6 +27,7 @@ fn kind(k: &Key) -> String {
         Kind::DecoColor => "color, `fg`, a palette index or `#rrggbb`".to_owned(),
         Kind::Char => "character".to_owned(),
         Kind::Size { .. } => "size, `WxH`".to_owned(),
+        Kind::Cell => "cell, `WIDTHxHEIGHT` in pixels".to_owned(),
     }
 }
 
@@ -52,6 +53,7 @@ fn bound(k: &Key) -> String {
         Kind::DecoColor => "an index 0 to 255, or six hex digits".to_owned(),
         Kind::Char => "one character, no control character or space".to_owned(),
         Kind::Size { max } => format!("each side 1 to {max}"),
+        Kind::Cell => format!("each side {FRIT_CELL_MIN} to {FRIT_CELL_MAX}, no leading zero"),
     }
 }
 
@@ -84,6 +86,7 @@ fn sb_memory_defaults() -> String {
 
 fn option(k: &Key) -> String {
     let long = match (k.kind, k.scope) {
+        (_, Scope::Section) => return "none".to_owned(),
         (Kind::Switch, Scope::CommandLine) => format!("`--{}`", k.name),
         (Kind::Switch, _) => format!("`--{0}`, `--no-{0}`", k.name),
         (Kind::Command, _) => format!("`--{} -- COMMAND...`", k.name),
@@ -160,7 +163,7 @@ fn row(out: &mut String, k: &Key) {
     .into_iter()
     .filter(|(level, _)| k.levels.contains(*level))
     .map(|(_, place)| place)
-    .chain(std::iter::once("command line"))
+    .chain((k.scope != Scope::Section).then_some("command line"))
     .collect();
     let set_in = set_in.join(", ");
     let _ = writeln!(

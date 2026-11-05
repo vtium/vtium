@@ -299,11 +299,12 @@ fn flow_json_carries_its_version_and_the_draft_s_state() {
     );
 }
 
-/// How many keys a file may set less the one the fixture sets.
+/// How many keys a file's top level may set less the one the fixture
+/// sets.
 fn defaults() -> usize {
     vtium_settings::keys::KEYS
         .iter()
-        .filter(|k| k.scope != vtium_settings::keys::Scope::CommandLine)
+        .filter(|k| k.scope == vtium_settings::keys::Scope::Anywhere)
         .count()
         - 1
 }
@@ -466,6 +467,40 @@ fn a_look_in_use_is_kept_unless_forced_to_the_default() {
         f.draft(),
         "font-size=12\nversion = 1\n[head desk]\n#look = big\n[rules]\ndisplay * -> desk\ninput class:keyboard -> roaming\n"
     );
+}
+
+// ADR-1403 D5, D8: `look add` and `look set` take a look's cell, and
+// `set`, which writes the top level, refuses it and names `look set`
+#[test]
+fn look_add_and_look_set_take_a_look_s_cell() {
+    let f = fixture("look-cell");
+    f.desk();
+    let added = f.run(&["look", "add", "big", "--frit", "monoid", "--cell", "12x24"]);
+    assert_eq!(added.status, 0, "{}", added.err);
+    assert!(
+        f.draft()
+            .contains("[look big]\nfont-name = monoid\ncell = 12x24\n"),
+        "{}",
+        f.draft()
+    );
+    let set = f.run(&["look", "set", "big", "--cell", "10x20"]);
+    assert_eq!(set.status, 0, "{}", set.err);
+    assert!(
+        f.draft()
+            .contains("[look big]\nfont-name = monoid\ncell = 10x20\n"),
+        "{}",
+        f.draft()
+    );
+    let before = f.draft();
+    let top = f.run(&["set", "cell", "8x16"]);
+    assert_eq!(top.status, 2);
+    assert!(
+        top.err.contains("only in a [look NAME] section")
+            && top.err.contains("look set NAME --cell VALUE"),
+        "{}",
+        top.err
+    );
+    assert_eq!(f.draft(), before);
 }
 
 #[test]

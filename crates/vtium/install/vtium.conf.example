@@ -149,7 +149,7 @@
 ## Let a program switch the font among the frits and the built-in fonts with
 ## xterm's OSC 50, and ask which is in use.
 ##
-## A program switches with `OSC 50 ; NAME ST`, as `vtium-config set NAME`
+## A program switches with `OSC 50 ; NAME ST`, as `vtium-config use-frit NAME`
 ## sends it, and asks with `OSC 50 ; ? ST`. A switch lasts until the session
 ## it came from ends, when vtium returns the console to the font and size
 ## `font-name` and `font-size` give.
@@ -395,13 +395,13 @@
 
 # ── Consoles ────────────────────────────────────────────────────────────────
 
-## head-consoles-max: The most consoles one head holds: the head file's
-## `consoles` opens no more.
+## head-consoles-max: The most consoles one head holds: a head's `consoles`
+## opens no more.
 #
 ## consoles-max: The most consoles every head holds together.
 ##
-## Each head keeps its first console; the others open, in the head file's
-## order, while the total is below this.
+## Each head keeps its first console; the others open, in the order vtium.conf
+## declares the heads, while the total is below this.
 
 #head-consoles-max=4
 #consoles-max=8
@@ -450,7 +450,7 @@
 # ── Notice colors ───────────────────────────────────────────────────────────
 
 ## notice-foreground: The color of a notice's text. A notice tells of a
-## problem, such as an invalid head file, and shows whatever `osd` says.
+## problem, such as an invalid vtium.conf, and shows whatever `osd` says.
 #
 ## notice-background: The color of a notice's box. While a notice shows, the
 ## on-screen display's full line shares its box and takes the notice's colors.
@@ -562,7 +562,7 @@
 ## shown.
 ##
 ## With no display by then, vtium exits with status 1, so the unit's
-## `OnFailure=` can start a getty. Under a head file whose policy is closed
+## `OnFailure=` can start a getty. Under a vtium.conf whose policy is closed
 ## vtium waits however long it takes, as under `forever` (ADR-1401 D8).
 ##
 ## The wait runs only while the VT is vtium's. When another program takes the
@@ -591,10 +591,10 @@
 ## A framebuffer (fbdev) keeps one buffer whatever this key says. Unset, the
 ## build decides: the count it was built with (`VTIUM_DISPLAY_BUFFERS`), or
 ## else 3 in a build with features on top of minspec, 2 in the minspec build,
-## 1 only in a build smaller than minspec.
-## `vtium config config display-buffers` prints the value vtium.conf gives it,
-## or the build's default followed by `default`, which is `unset` when the
-## build names no count, and the rule above then picks it.
+## 1 only in a build smaller than minspec. `vtium config get display-buffers`
+## prints the value the current draft gives it, followed by `draft`, or the
+## build's default followed by `default`, which is `unset` when the build
+## names no count, and the rule above then picks it.
 
 #display-buffers=
 
@@ -603,8 +603,9 @@
 ## Draw through the GPU, in a build that has it.
 ##
 ## Off unless vtium was built to turn it on (`VTIUM_HWACCEL`).
-## `vtium config config hwaccel` prints the value vtium.conf gives it, or the
-## build's default followed by `default`.
+## `vtium config get hwaccel` prints the value the current draft gives it,
+## followed by `draft`, or the build's default followed by `default`, and
+## `vtium config set hwaccel on` turns it on in the draft.
 
 #no-hwaccel
 
@@ -816,9 +817,10 @@ version = 1
 # policy = open
 
 # A look is what a head draws with: a [look NAME] section takes
-# font-name, which names its frit, the font keys above, and vtlook. The
-# shipped configuration declares none, so its head draws with the keys
-# above. For example:
+# font-name, which names its frit, the font keys above, vtlook, and cell,
+# the cell in pixels as a frit's cell= line writes it. Within one look,
+# font-size wins over cell. The shipped configuration declares none, so
+# its head draws with the keys above. For example:
 #   [look big]
 #   font-name = desktop
 #   font-size = 14

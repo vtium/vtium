@@ -887,8 +887,8 @@ impl App {
         }
         // The frit's cell is read as text before the first frame; its fonts
         // are the helper's to parse (#145).
-        let chosen =
-            font::frit_named(&s.frits, &wanted).and_then(|frit| Chosen::frit(frit, head.sized()));
+        let chosen = font::frit_named(&s.frits, &wanted)
+            .and_then(|frit| Chosen::frit(frit, head.sized(), head.look_cell()));
         match chosen {
             Ok(chosen) => {
                 log::info!(
@@ -1048,11 +1048,11 @@ impl App {
         if same {
             return;
         }
-        let sized = head.sized();
+        let (sized, look_cell) = (head.sized(), head.look_cell());
         let was = head.frit().map(str::to_owned);
         let new = font::by_name(&self.font_sources, name).and_then(|new| {
             let new = match new {
-                Chosen::Frit { frit, .. } => Chosen::frit(frit, sized)?,
+                Chosen::Frit { frit, .. } => Chosen::frit(frit, sized, look_cell)?,
                 builtin => builtin,
             };
             let Some(head) = self.heads.get_mut(h) else {
@@ -3082,7 +3082,9 @@ impl App {
             // The frit drawn, with its own cell or without it as the
             // `font-size` read again now says (ADR-1200 D16).
             match &head.font {
-                Some(Chosen::Frit { frit, .. }) => Chosen::frit(frit.clone(), head.sized()).ok(),
+                Some(Chosen::Frit { frit, .. }) => {
+                    Chosen::frit(frit.clone(), head.sized(), head.look_cell()).ok()
+                }
                 _ => None,
             }
         } else {

@@ -1,5 +1,6 @@
-//! The head file's bounds: one source for the constants the code uses and
-//! for the table in this crate's README.
+//! The bounds on vtium.conf's sections, its looks, heads and rules: one
+//! source for the constants the code uses and for the table in this
+//! crate's README.
 //!
 //! Each bound is a [`Bound`] row holding its value, what happens past it,
 //! and where its value comes from; the public constant takes its value
@@ -20,23 +21,23 @@ pub(crate) struct Bound {
 const FILE: Bound = Bound {
     name: "FILE_MAX",
     value: 64 * 1024,
-    what: "Bytes of a head file",
-    past: "The file is dropped whole but for the `policy` lines within the bound; a `policy` line the bound cuts makes the file closed and broken",
-    cite: "ADR-1401 D3, vtium.conf's bound (`crates/vtium/src/config/mod.rs`, `FILE_MAX`)",
+    what: "Bytes of vtium.conf",
+    past: "Every section is dropped but for the `policy` lines within the bound; a `policy` line the bound cuts makes the file closed and broken",
+    cite: "ADR-1403 D3, the console's bound on vtium.conf (`crates/vtium/src/config/mod.rs`, `FILE_MAX`)",
 };
 
 const LINE: Bound = Bound {
     name: "LINE_MAX",
     value: 8 * 1024,
     what: "Bytes of one line, its newline apart",
-    past: "The file is dropped whole but for its `policy` lines, the line named; a `policy` line past it makes the file closed and broken",
-    cite: "ADR-1401 D3, vtium.conf's bound (`crates/vtium/src/config/mod.rs`, `LINE_MAX`)",
+    past: "A section's line past it drops every section but for the `policy` lines, the line named; a `policy` line past it makes the file closed and broken",
+    cite: "ADR-1403 D3, the console's bound on vtium.conf (`crates/vtium/src/config/mod.rs`, `LINE_MAX`)",
 };
 
 const NAME: Bound = Bound {
     name: "NAME_MAX",
     value: 64,
-    what: "Characters of a head's, a profile's or a look's name, each of `A-Z a-z 0-9 . _ + -`",
+    what: "Characters of a head's or a look's name, each of `A-Z a-z 0-9 . _ + -`",
     past: "The head is dropped, with every rule naming it, or the look is, the line named",
     cite: "ADR-1401 D3",
 };
@@ -44,8 +45,8 @@ const NAME: Bound = Bound {
 const HEADS: Bound = Bound {
     name: "HEADS_MAX",
     value: 16,
-    what: "Heads a file declares",
-    past: "The file is dropped whole but for its `policy` lines, the first head past it named",
+    what: "Heads vtium.conf declares, each a `[head NAME]` section",
+    past: "Every section is dropped but for the `policy` lines, the first head past it named",
     cite: "vtium's own: a head a display, with room for a machine of many outputs",
 };
 
@@ -60,8 +61,8 @@ const LOOKS: Bound = Bound {
 const RULES: Bound = Bound {
     name: "RULES_MAX",
     value: 256,
-    what: "Rules a file holds, so a device's walk reads at most this many",
-    past: "The file is dropped whole but for its `policy` lines, the first rule past it named",
+    what: "Rules vtium.conf's `[rules]` holds, so a device's walk reads at most this many",
+    past: "Every section is dropped but for the `policy` lines, the first rule past it named",
     cite: "vtium's own: a rule a device with room to spare",
 };
 
@@ -103,26 +104,26 @@ pub(crate) const BOUNDS: [Bound; 10] = [
     FILE, LINE, NAME, HEADS, LOOKS, RULES, TOKENS, CONSOLES, ERRORS, QUOTE,
 ];
 
-/// Bytes of a head file; a larger file is dropped whole but for its
+/// Bytes of vtium.conf; past them every section is dropped but for the
 /// `policy` lines, and a `policy` line the bound cuts closes and breaks
-/// it.
+/// the file.
 pub const FILE_MAX: usize = FILE.value as usize;
 
-/// Bytes of one line, its newline apart; a longer line drops the file
-/// whole but for its `policy` lines, and a longer `policy` line closes and
-/// breaks it.
+/// Bytes of one line, its newline apart; a longer section line drops
+/// every section but for the `policy` lines, and a longer `policy` line
+/// closes and breaks the file.
 pub const LINE_MAX: usize = LINE.value as usize;
 
-/// Characters of a head's, a profile's or a look's name.
+/// Characters of a head's or a look's name.
 pub const NAME_MAX: usize = NAME.value as usize;
 
-/// Heads a file declares.
+/// Heads vtium.conf declares.
 pub const HEADS_MAX: usize = HEADS.value as usize;
 
 /// Looks vtium.conf declares.
 pub const LOOKS_MAX: usize = LOOKS.value as usize;
 
-/// Rules a file holds.
+/// Rules vtium.conf's `[rules]` holds.
 pub const RULES_MAX: usize = RULES.value as usize;
 
 /// Tokens one rule's match combines.
