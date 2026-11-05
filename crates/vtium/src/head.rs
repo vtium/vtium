@@ -1530,7 +1530,7 @@ pub fn place_display(
     match (placed.place, placed.by) {
         (Place::Head(h), _) => Ok(h),
         (_, By::Rule(line)) => Err(format!(
-            "display {name} is left dark by the head file's rule on line {line}"
+            "display {name} is left dark by vtium.conf's rule on line {line}"
         )),
         _ => {
             let target = rules.heads.first().map_or("console", |h| h.name.as_str());
@@ -1539,7 +1539,7 @@ pub fn place_display(
                 |rule| format!("the rule `{rule}` gives it a head"),
             );
             Err(format!(
-                "display {name} matches no rule of the head file and is left dark; {rule}"
+                "display {name} matches no rule of vtium.conf and is left dark; {rule}"
             ))
         }
     }
@@ -2069,11 +2069,11 @@ mod tests {
         assert_eq!(place_display(&rules, &display("DP-2")), Ok(0));
         assert_eq!(
             place_display(&rules, &display("DP-1")),
-            Err("display DP-1 is left dark by the head file's rule on line 4".to_owned())
+            Err("display DP-1 is left dark by vtium.conf's rule on line 4".to_owned())
         );
         assert_eq!(
             place_display(&rules, &display("HDMI-A-1")),
-            Err("display HDMI-A-1 matches no rule of the head file and is left dark; the rule `display connector:pci-0000:03:00.0/HDMI-A-1 -> desk` gives it a head".to_owned())
+            Err("display HDMI-A-1 matches no rule of vtium.conf and is left dark; the rule `display connector:pci-0000:03:00.0/HDMI-A-1 -> desk` gives it a head".to_owned())
         );
         let bare = vtium_settings::Identity {
             connector: Some("fb\u{1b}".to_owned()),
@@ -2081,7 +2081,7 @@ mod tests {
         };
         assert_eq!(
             place_display(&rules, &bare),
-            Err("display fb\\u{1b} matches no rule of the head file and is left dark; it offers no value a rule can name".to_owned())
+            Err("display fb\\u{1b} matches no rule of vtium.conf and is left dark; it offers no value a rule can name".to_owned())
         );
     }
 

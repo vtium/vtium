@@ -311,7 +311,7 @@ pub const CONFIGDIR: Key = Key {
     scope: Scope::CommandLine,
     levels: NONE,
     reader: "vtium",
-    what: "The directory holding `vtium.conf` and `<seat>.seat.conf`.",
+    what: "The directory holding `vtium.conf`, the one file vtium reads.",
     cite: "src/config.c:1349, ADR-1500 D4",
 };
 

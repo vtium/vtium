@@ -185,7 +185,7 @@ Where vtium finds its configuration, its log, the glyph helper that draws a font
 
 | Key | Option | Type | Default | Bound | Read by | Set in | What | Source |
 |---|---|---|---|---|---|---|---|---|
-| `configdir` | `--configdir=VALUE`, `-c` | text | `/etc/vtium` | 4095 bytes, no control character | vtium | command line | The directory holding `vtium.conf` and `<seat>.seat.conf`. | src/config.c:1349, ADR-1500 D4 |
+| `configdir` | `--configdir=VALUE`, `-c` | text | `/etc/vtium` | 4095 bytes, no control character | vtium | command line | The directory holding `vtium.conf`, the one file vtium reads. | src/config.c:1349, ADR-1500 D4 |
 | `help` | `--help`, `-h` | switch | off | on or off | vtium | command line | Print the options and exit. | src/config.c:1342 |
 | `version` | `--version`, `-V` | switch | off | on or off | vtium | command line | Print three lines and exit: the version, the revision the build was made from, and the features it was built with on top of minspec, or none. | src/config.c:1343 |
 | `debug` | `--debug`, `--no-debug` | switch | off | on or off | vtium | top level, command line | Log debug messages as well, to find what went wrong. Off, vtium logs its information messages, warnings and errors. | src/config.c:1346, 1515-1539 |
