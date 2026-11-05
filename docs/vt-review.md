@@ -191,7 +191,7 @@ VTIUM_HWACCEL=on make vt-install VT=5 FEATURES='gpu images'
 
 `FEATURES='gpu images'` builds the console with the GPU path and with pictures, and builds and installs the image helper beside it. `VTIUM_HWACCEL=on` in make's environment reaches cargo, which builds both the console and the glyph helper, `vtium-config`, with `hwaccel` on by default, so `vtium-dev config config hwaccel` prints `hwaccel`, `on` and `default`. `FEATURES=gpu` alone builds a console without pictures, and a build without `VTIUM_HWACCEL=on` leaves `hwaccel` off, so that console draws on the CPU. `HWACCEL=on` on make's command line does not reach this build: `make install` reads that variable, and `make vt-install` does not.
 
-`hwaccel = on` in `/etc/vtium/vtium.conf` would turn the GPU path on for the development VT too, but the packaged vtium on the other VTs reads the same file ([above](#installing-vtium-on-a-vt)). So the development VT takes `hwaccel` from its build, and the packaged vtium keeps its own default.
+a line `hwaccel` in `/etc/vtium/vtium.conf` would turn the GPU path on for the development VT too, but the packaged vtium on the other VTs reads the same file ([above](#installing-vtium-on-a-vt)). So the development VT takes `hwaccel` from its build, and the packaged vtium keeps its own default.
 
 A review run builds its own console from `FEATURES` and takes vtium's options from `DEMO_ARGS`. To run a guide on the GPU path, name the feature and turn `hwaccel` on for that run alone with vtium's `--hwaccel` option:
 
