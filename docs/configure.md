@@ -187,7 +187,7 @@ The actions in the top row work on the whole draft. Each but View asks before it
 - **New** empties the draft to the settings at their defaults and one look, `[look default]`.
 - **Delete draft** deletes the draft. The next change starts a new one from the installed file.
 
-The Looks view lists the console's sizes until vtium-config edits looks of their own. The Fonts view lists the frits and the built-in fonts, tries each on the live console, and makes and removes frits ([Choose a font](fonts.md#choosing-a-font-with-vtium-config)); a frit you make or remove there waits and goes in with the next Install. The Settings view lists every setting with its value, and Enter changes the highlighted one in the draft. The Help view lists the keys of each view and the commands.
+The Looks view lists the console's sizes until vtium-config edits looks of their own. The Fonts view lists the frits and the built-in fonts, shows each as a picture of the console drawn in it, tries one on the live console with `t`, and makes and removes frits ([Choose a font](fonts.md#choosing-a-font-with-vtium-config)); a frit you make or remove there waits and goes in with the next Install. The Settings view lists every setting with its value, and Enter changes the highlighted one in the draft. The Help view lists the keys of each view and the commands.
 
 ## Edit the file as root
 

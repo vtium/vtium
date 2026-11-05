@@ -50,6 +50,56 @@ pub enum Wake {
     Timeout,
     /// udev reported that a device came or went.
     Hotplug,
+    /// A preview [`Port::draw`] was asked for has come.
+    Drawn(Drawn),
+}
+
+/// A preview the loop asks the glyph helper for (ADR-1201 D4), which comes
+/// back later as [`Wake::Drawn`] while the loop goes on reading keys.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Draw {
+    /// The font's cell at a pixel height.
+    Cell { font: String, height: u32 },
+    /// A picture of the console.
+    Picture(crate::specimen::Shot),
+    /// The line that describes the font at a height, for a terminal that
+    /// draws no pictures.
+    Summary { font: String, height: u32 },
+}
+
+/// What a [`Draw`] gave.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Drawn {
+    Celled {
+        font: String,
+        height: u32,
+        cell: Result<(vtium_font::Cell, u32), String>,
+    },
+    Pictured(Result<crate::specimen::Picture, String>),
+    Summarized {
+        font: String,
+        height: u32,
+        summary: Result<crate::specimen::Summary, String>,
+    },
+}
+
+impl Drawn {
+    /// The state machine's event for what came.
+    fn event(self) -> Event {
+        match self {
+            Drawn::Celled { font, height, cell } => Event::Celled { font, height, cell },
+            Drawn::Pictured(p) => Event::Pictured(p),
+            Drawn::Summarized {
+                font,
+                height,
+                summary,
+            } => Event::Summarized {
+                font,
+                height,
+                summary,
+            },
+        }
+    }
 }
 
 /// The terminal the loop runs against.
@@ -70,17 +120,9 @@ pub trait Port {
     /// The terminal's cell in pixels, where the terminal reports its size
     /// in pixels.
     fn cell_px(&mut self) -> Option<(u32, u32)>;
-    /// The specimen of the font `font` at `height` pixels, at most `max`
-    /// pixels across and down.
-    fn picture(
-        &mut self,
-        font: &str,
-        height: u32,
-        max: (u32, u32),
-    ) -> Result<crate::specimen::Picture, String>;
-    /// What the font `font` gives at `height` pixels, for a terminal that
-    /// draws no pictures.
-    fn summary(&mut self, font: &str, height: u32) -> Result<crate::specimen::Summary, String>;
+    /// Asks the glyph helper for a preview without waiting: the answer
+    /// comes later, as [`Wake::Drawn`], and the loop reads keys meanwhile.
+    fn draw(&mut self, ask: Draw);
     /// Asks which sources each frit of `fonts` lacks or refuses, without
     /// waiting: the answers come later, as [`Wake::Sourced`], and the loop
     /// reads keys meanwhile.
@@ -123,18 +165,9 @@ pub fn drive_with(
                         port.on_panic(give_back(&app));
                         return Ok(status);
                     }
-                    Effect::Picture { font, height, max } => {
-                        let picture = port.picture(&font, height, max);
-                        queue.extend(app.event(Event::Pictured(picture)));
-                    }
-                    Effect::Summary { font, height } => {
-                        let summary = port.summary(&font, height);
-                        queue.extend(app.event(Event::Summarized {
-                            font,
-                            height,
-                            summary,
-                        }));
-                    }
+                    Effect::Cell { font, height } => port.draw(Draw::Cell { font, height }),
+                    Effect::Picture(shot) => port.draw(Draw::Picture(shot)),
+                    Effect::Summary { font, height } => port.draw(Draw::Summary { font, height }),
                     Effect::Sources(fonts) => port.sources(fonts),
                     Effect::Desk(op) => {
                         let done = match desk.as_deref_mut() {
@@ -170,6 +203,7 @@ pub fn drive_with(
                 Wake::Sourced(found) => vec![Event::Sourced(found)],
                 Wake::Timeout => vec![Event::Timeout],
                 Wake::Hotplug => vec![Event::Hotplug],
+                Wake::Drawn(drawn) => vec![drawn.event()],
             };
             for event in events {
                 queue.extend(app.event(event));
@@ -220,12 +254,18 @@ struct Woken {
     udev: Option<Watch>,
 }
 
-/// Draws a font's specimen at a pixel height.
-pub type Painter =
-    Box<dyn FnMut(&str, u32, (u32, u32)) -> Result<crate::specimen::Picture, String>>;
+/// Draws a picture of the console, on a thread of its own.
+pub type Painter = std::sync::Arc<
+    dyn Fn(&crate::specimen::Shot) -> Result<crate::specimen::Picture, String> + Send + Sync,
+>;
 
-/// Summarizes a font's specimen at a pixel height.
-pub type Summarizer = Box<dyn FnMut(&str, u32) -> Result<crate::specimen::Summary, String>>;
+/// Measures a font's cell at a pixel height, on a thread of its own.
+pub type Measurer =
+    std::sync::Arc<dyn Fn(&str, u32) -> Result<(vtium_font::Cell, u32), String> + Send + Sync>;
+
+/// Summarizes a font's specimen at a pixel height, on a thread of its own.
+pub type Summarizer =
+    std::sync::Arc<dyn Fn(&str, u32) -> Result<crate::specimen::Summary, String> + Send + Sync>;
 
 /// Finds the sources each frit lacks, on a thread of its own.
 pub type Finder = Box<dyn FnOnce(Vec<String>) -> Vec<(String, super::model::SourcesFound)> + Send>;
@@ -233,6 +273,7 @@ pub type Finder = Box<dyn FnOnce(Vec<String>) -> Vec<(String, super::model::Sour
 /// What the real port asks the glyph helper through.
 pub struct Tools {
     pub painter: Painter,
+    pub measurer: Measurer,
     pub summarizer: Summarizer,
     /// Taken by the one sources query a run makes.
     pub finder: Option<Finder>,
@@ -244,6 +285,9 @@ pub struct Tty {
     /// Where the source finder's thread sends its answers, which the loop
     /// reads as [`Wake::Sourced`].
     sourced: Sender<Vec<(String, super::model::SourcesFound)>>,
+    /// Where each preview's thread sends what it drew, which the loop reads
+    /// as [`Wake::Drawn`].
+    drawn: Sender<Drawn>,
     input: OwnedFd,
     raw: Termios,
     saved: Termios,
@@ -325,6 +369,15 @@ impl Tty {
                 }
             })
             .map_err(|e| io::Error::other(e.to_string()))?;
+        let (drawn, previews) = channel();
+        events
+            .handle()
+            .insert_source(previews, |sent, _, w: &mut Woken| {
+                if let Sent::Msg(d) = sent {
+                    w.wakes.push(Wake::Drawn(d));
+                }
+            })
+            .map_err(|e| io::Error::other(e.to_string()))?;
         let udev = Watch::new().ok();
         if let Some(watch) = &udev {
             let fd = watch.as_fd().try_clone_to_owned()?;
@@ -359,6 +412,7 @@ impl Tty {
         let mut tty = Tty {
             tools,
             sourced,
+            drawn,
             input,
             raw,
             saved,
@@ -514,17 +568,32 @@ impl Port for Tty {
         (cell.0 > 0 && cell.1 > 0).then_some(cell)
     }
 
-    fn picture(
-        &mut self,
-        font: &str,
-        height: u32,
-        max: (u32, u32),
-    ) -> Result<crate::specimen::Picture, String> {
-        (self.tools.painter)(font, height, max)
-    }
-
-    fn summary(&mut self, font: &str, height: u32) -> Result<crate::specimen::Summary, String> {
-        (self.tools.summarizer)(font, height)
+    fn draw(&mut self, ask: Draw) {
+        let tools = (
+            std::sync::Arc::clone(&self.tools.measurer),
+            std::sync::Arc::clone(&self.tools.painter),
+            std::sync::Arc::clone(&self.tools.summarizer),
+        );
+        let drawn = self.drawn.clone();
+        std::thread::spawn(move || {
+            let (measure, paint, summarize) = tools;
+            let answer = match ask {
+                Draw::Cell { font, height } => {
+                    let cell = measure(&font, height);
+                    Drawn::Celled { font, height, cell }
+                }
+                Draw::Picture(shot) => Drawn::Pictured(paint(&shot)),
+                Draw::Summary { font, height } => {
+                    let summary = summarize(&font, height);
+                    Drawn::Summarized {
+                        font,
+                        height,
+                        summary,
+                    }
+                }
+            };
+            let _ = drawn.send(answer);
+        });
     }
 
     fn sources(&mut self, fonts: Vec<String>) {
