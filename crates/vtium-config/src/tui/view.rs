@@ -1,47 +1,40 @@
-//! The TUI's screen (ADR-1201 D3): the state drawn as rows of text, and
-//! the bytes that draw them whole, with ECMA-48's cursor position, erase
-//! and SGR sequences only (D7).
+//! The TUI's screen (ADR-1201 D3, ADR-1403 D7): the state drawn on a
+//! [`Canvas`], and the bytes that draw it whole, with ECMA-48's cursor
+//! position, erase and SGR sequences only (D7).
 //!
-//! Every view has a title line, the views' tabs, a rule, its body, a
-//! message line, a rule and its keys. A body longer than the room scrolls
-//! so the highlighted row shows. A grid too small for that, as a large
-//! previewed font can leave, draws one line naming the font and the keys
-//! that keep it or go back, so the user can always get out.
+//! Every view has the tab bar, with the views and the actions, and the
+//! status line. The Flow view then draws the base card, the columns, the
+//! card Enter opens and its keys ([`super::flowdraw`]). The other views
+//! draw a rule, their body, a message line, a rule and their keys; a body
+//! longer than the room scrolls so the highlighted row shows. Below 80 by
+//! 25 cells no view is drawn: one screen says the size the TUI needs, the
+//! commands that work at any size, and the keys that leave and that undo a
+//! font preview, so the user can always get out.
 
+use super::canvas::{Canvas, Row, Span, span, wrap};
+use super::color::{Style, palette};
+use super::flow::Item;
 use super::model::{App, DpiFrom, FontState, Live, NEW_FIELDS, SIZES, Saving, View, setting_keys};
 use super::words;
 use crate::draft::changes;
 use crate::specimen::Sources;
 
-/// The smallest grid the full screen is drawn in: below it, one line. The
-/// views fit the 320x240 floor's 40 columns (ADR-1201 D3), and from 25
-/// rows, the VGA console's 80x25 among them, every view shows its title,
-/// its tabs, its keys and its message whole.
-pub const MIN_COLS: usize = 40;
+/// The smallest grid a view is drawn in (ADR-1201 D3): below it, the one
+/// screen that says so.
+pub const MIN_COLS: usize = 80;
 pub const MIN_ROWS: usize = 25;
 
-/// One run of text on a row, shown in reverse video or not.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Span {
-    pub text: String,
-    pub reverse: bool,
+/// Whether `app`'s grid is below the minimum.
+pub fn too_small(app: &App) -> bool {
+    app.cols < MIN_COLS || app.rows < MIN_ROWS
 }
 
-/// One row of the screen.
-pub type Row = Vec<Span>;
-
 fn plain(text: impl Into<String>) -> Row {
-    vec![Span {
-        text: text.into(),
-        reverse: false,
-    }]
+    vec![span(text, Style::PLAIN)]
 }
 
 fn marked(text: impl Into<String>) -> Row {
-    vec![Span {
-        text: text.into(),
-        reverse: true,
-    }]
+    vec![span(text, Style::PLAIN.reversed())]
 }
 
 /// The row's text, without its styles.
@@ -173,7 +166,7 @@ fn body(app: &App) -> Body {
                 tail: Vec::new(),
             }
         }
-        View::Sizes => {
+        View::Looks => {
             let configured = app
                 .configured("font-size")
                 .and_then(|s| s.parse::<u32>().ok());
@@ -224,8 +217,12 @@ fn body(app: &App) -> Body {
                 };
                 words::density(dpi, from)
             };
+            let mut list_rows = prose(words::LOOKS_SIZES, cols);
+            list_rows.push(plain(""));
+            let keep = keep.saturating_add(list_rows.len());
+            list_rows.extend(list);
             Body {
-                list,
+                list: list_rows,
                 keep,
                 tail: tail(&sentence, cols),
             }
@@ -270,36 +267,12 @@ fn body(app: &App) -> Body {
                 .map_or(String::new(), |k| k.what_line());
             let mut tail = tail(hint, cols);
             tail.extend(
-                cut(&what, cols.saturating_sub(2), WHAT_ROWS)
+                wrap(&what, cols.saturating_sub(2), WHAT_ROWS)
                     .into_iter()
                     .map(|l| plain(format!(" {l}"))),
             );
             Body { list, keep, tail }
         }
-        View::Heads => match (app.has_flow(), app.heads()) {
-            (false, _) => Body {
-                list: prose(words::NO_HEAD_FILE, cols),
-                keep: 0,
-                tail: Vec::new(),
-            },
-            (true, None) => Body {
-                list: prose(words::HEAD_FILE_ERRORS, cols),
-                keep: 0,
-                tail: Vec::new(),
-            },
-            (true, Some(heads)) => {
-                let items: Vec<(String, String)> = heads
-                    .iter()
-                    .map(|(head, profile)| (head.clone(), words::head_profile(profile)))
-                    .collect();
-                let (list, keep) = list(&items, app.head_at, 16, cols);
-                Body {
-                    list,
-                    keep,
-                    tail: tail(words::HEADS_HINT, cols),
-                }
-            }
-        },
         View::New => {
             let mut items: Vec<(String, String)> = words::NEW_FIELD_NAMES
                 .iter()
@@ -320,6 +293,17 @@ fn body(app: &App) -> Body {
         }
         View::Save => Body {
             list: save_rows(app),
+            keep: 0,
+            tail: Vec::new(),
+        },
+        View::Help => Body {
+            keep: app.help_at,
+            list: help_rows(app),
+            tail: Vec::new(),
+        },
+        // the Flow view draws on the canvas itself
+        View::Flow => Body {
+            list: Vec::new(),
             keep: 0,
             tail: Vec::new(),
         },
@@ -390,8 +374,95 @@ fn save_rows(app: &App) -> Vec<Row> {
     rows
 }
 
-/// Where a picture goes, row and column from 1: in the size view beside
-/// the list of sizes, below the rule under the tabs; in the fonts view
+/// The Help view's rows: on the Help page, what each view does and its
+/// keys, the route card, and the commands, from the catalog the command
+/// line's help draws on; on the About page, what `vtium-config --help
+/// about` prints, from the same source.
+pub fn help_rows(app: &App) -> Vec<Row> {
+    let cols = app.cols;
+    let bold = Style {
+        bold: true,
+        ..Style::PLAIN
+    };
+    let mut rows = Vec::new();
+    if app.about {
+        let mut out = Vec::new();
+        crate::banner::about(&mut out);
+        for line in String::from_utf8_lossy(&out).lines() {
+            if line.contains('\x1b') {
+                // the banner, styled by its own module; it was drawn for
+                // this terminal's width, and a line wider is left out
+                if super::canvas::width(line) <= cols {
+                    rows.push(vec![Span {
+                        text: line.to_owned(),
+                        style: Style::PLAIN,
+                        raw: true,
+                    }]);
+                }
+            } else {
+                rows.extend(prose(line, cols));
+            }
+        }
+        return rows;
+    }
+    for (name, does, keys) in words::HELP_VIEWS {
+        let mut first = true;
+        for line in wrap(
+            &format!("{name} {does}"),
+            cols.saturating_sub(2),
+            usize::MAX,
+        ) {
+            if first {
+                let rest = line.strip_prefix(name).unwrap_or(&line).to_owned();
+                rows.push(vec![
+                    span(format!(" {name}"), bold),
+                    span(rest, Style::PLAIN),
+                ]);
+                first = false;
+            } else {
+                rows.push(plain(format!(" {line}")));
+            }
+        }
+        for line in wrap(keys, cols.saturating_sub(6), usize::MAX) {
+            rows.push(vec![span(
+                format!("     {line}"),
+                Style::text(palette::GREY),
+            )]);
+        }
+        rows.push(plain(""));
+    }
+    rows.extend(prose(words::HELP_ROUTE, cols));
+    rows.push(plain(""));
+    rows.extend(prose(words::HELP_COMMANDS, cols));
+    let usage = crate::help::usage();
+    let commands = usage
+        .split_once("Commands:\n")
+        .map(|(_, rest)| rest.split("\n\n").next().unwrap_or_default())
+        .unwrap_or_default();
+    // a command's line wider than the screen gives its synopsis a row of
+    // its own and goes on under it
+    let width = cols.saturating_sub(1);
+    for line in commands.lines() {
+        if line.chars().count() <= width {
+            rows.push(plain(format!(" {line}")));
+            continue;
+        }
+        let (synopsis, does) = line
+            .trim_start()
+            .split_once("  ")
+            .map_or((line.trim(), ""), |(a, b)| (a, b.trim()));
+        rows.push(plain(format!("   {synopsis}")));
+        for l in wrap(does, cols.saturating_sub(8), usize::MAX) {
+            if !l.is_empty() {
+                rows.push(plain(format!("       {l}")));
+            }
+        }
+    }
+    rows
+}
+
+/// Where a picture goes, row and column from 1: in the Looks view beside
+/// the list of sizes, below the rule under the tabs; in the Fonts view
 /// below the list of fonts, whose notes reach across the screen.
 pub fn picture_at(app: &App) -> (usize, usize) {
     match app.view {
@@ -401,6 +472,13 @@ pub fn picture_at(app: &App) -> (usize, usize) {
                 .saturating_add(1),
             2,
         ),
+        // below the sentence above the sizes and its blank row
+        View::Looks => (
+            PICTURE_ROW
+                .saturating_add(prose(words::LOOKS_SIZES, app.cols).len())
+                .saturating_add(1),
+            PICTURE_COL,
+        ),
         _ => (PICTURE_ROW, PICTURE_COL),
     }
 }
@@ -408,67 +486,127 @@ pub fn picture_at(app: &App) -> (usize, usize) {
 const PICTURE_ROW: usize = 4;
 const PICTURE_COL: usize = 26;
 
-/// The tabs' row: each view's name, the current one in reverse video, and
-/// the save view's after them while it shows. Where the row is wider than
-/// the screen, the tabs after the current one go first, then those before
-/// it, so the current view's name always shows.
-fn tabs(app: &App) -> Row {
-    let names = [
-        words::FONTS,
-        words::SIZES,
-        words::SETTINGS,
-        words::HEADS,
-        words::NEW,
-    ];
-    let mut all: Vec<(String, bool)> = View::TABS
-        .iter()
-        .zip(names)
-        .map(|(v, name)| (format!(" {name} "), *v == app.view))
-        .collect();
-    if app.view == View::Save {
-        all.push((format!(" {} ", words::SAVE), true));
-    }
-    let width = |all: &[(String, bool)]| {
-        all.iter()
-            .map(|(t, _)| t.chars().count())
-            .sum::<usize>()
-            .saturating_add(1)
-    };
-    let current = all.iter().position(|(_, on)| *on).unwrap_or(0);
-    while width(&all) > app.cols && all.len() > 1 {
-        let drop = if all.len().saturating_sub(1) > current {
-            all.len().saturating_sub(1)
-        } else {
-            0
-        };
-        all.remove(drop);
-    }
-    std::iter::once(Span {
-        text: " ".into(),
-        reverse: false,
-    })
-    .chain(
-        all.into_iter()
-            .map(|(text, reverse)| Span { text, reverse }),
-    )
-    .collect()
+/// One place in the tab bar: a view's name, or an action's.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Tab {
+    View(View),
+    Action(usize),
 }
 
-/// The cells a picture may cover, columns and rows: from its place to the
-/// right edge, and down to the row above the message line, so it never
-/// covers the keys.
-pub fn picture_area(app: &App) -> (usize, usize) {
-    // the rule, the keys, and the message at its longest
-    let footer = 1usize
-        .saturating_add(key_rows(app).len())
-        .saturating_add(MESSAGE_ROWS);
-    let (row, col) = picture_at(app);
-    (
-        app.cols.saturating_sub(col.saturating_sub(1)),
-        app.rows
-            .saturating_sub(footer)
-            .saturating_sub(row.saturating_sub(1)),
-    )
+/// The tab bar's places, each with its first column and its width: the
+/// views on the left, the current one marked, and the actions against the
+/// right edge, in their short forms where the long ones do not fit.
+fn tab_places(app: &App) -> Vec<(Tab, usize, String)> {
+    let names = [
+        words::FLOW,
+        words::LOOKS,
+        words::FONTS,
+        words::SETTINGS,
+        words::HELP,
+    ];
+    let mut out = Vec::new();
+    let mut x = 0usize;
+    for (view, name) in View::TABS.iter().zip(names) {
+        let text = format!(" {name} ");
+        let w = text.chars().count();
+        out.push((Tab::View(*view), x, text));
+        x = x.saturating_add(w);
+    }
+    let tabs_end = x;
+    let actions = |long: bool, gap: usize| -> Vec<String> {
+        words::ACTIONS
+            .iter()
+            .map(|(l, s)| {
+                let name = if long { l } else { s };
+                format!("{}{name}{}", " ".repeat(gap), " ".repeat(gap))
+            })
+            .collect()
+    };
+    let fits = |a: &[String]| {
+        let w: usize = a.iter().map(|t| t.chars().count()).sum::<usize>();
+        tabs_end.saturating_add(1).saturating_add(w) <= app.cols
+    };
+    let shown = [actions(true, 1), actions(false, 1), actions(false, 0)]
+        .into_iter()
+        .find(|a| fits(a))
+        .unwrap_or_default();
+    let width: usize = shown
+        .iter()
+        .map(|t| t.chars().count())
+        .sum::<usize>()
+        .saturating_add(if shown.first().is_some_and(|t| !t.starts_with(' ')) {
+            shown.len().saturating_sub(1)
+        } else {
+            0
+        });
+    let mut x = app.cols.saturating_sub(width);
+    let tight = shown.first().is_some_and(|t| !t.starts_with(' '));
+    for (i, text) in shown.into_iter().enumerate() {
+        let w = text.chars().count();
+        out.push((Tab::Action(i), x, text));
+        x = x.saturating_add(w).saturating_add(usize::from(tight));
+    }
+    out
+}
+
+/// Draws the tab bar on row 0.
+fn tab_bar(canvas: &mut Canvas, app: &App) {
+    for (tab, x, text) in tab_places(app) {
+        let current = match tab {
+            Tab::View(v) => app.view.tab() == Some(v),
+            // the install view is Install's
+            Tab::Action(i) => app.view == View::Save && i == 1,
+        };
+        let style = match (tab, current) {
+            (_, true) => Style::PLAIN.reversed(),
+            (Tab::View(_), false) => Style::PLAIN,
+            (Tab::Action(_), false) => Style::text(palette::BASE),
+        };
+        canvas.put(x, 0, &text, style);
+    }
+}
+
+/// The view whose name is at cell (`col`, `row`), as a click finds it.
+pub fn tab_at(app: &App, col: usize, row: usize) -> Option<View> {
+    if row != 0 {
+        return None;
+    }
+    tab_places(app)
+        .into_iter()
+        .find_map(|(tab, x, text)| match tab {
+            Tab::View(v) if (x..x.saturating_add(text.chars().count())).contains(&col) => Some(v),
+            _ => None,
+        })
+}
+
+/// The status line, row 1: how the draft stands and, in the Flow view, the
+/// tags; at the right, what live preview is doing.
+fn status(canvas: &mut Canvas, app: &App) {
+    let flow = &app.inputs.flow;
+    let mut left = match &flow.draft {
+        Some(d) => words::draft_state(&d.name, d.changes, d.problems),
+        None => words::NO_DRAFT.to_owned(),
+    };
+    if app.view == View::Flow && !app.tags.is_empty() {
+        let names: Vec<String> = app.tags.iter().map(|t| flow.name(*t)).collect();
+        left = format!("{left} · {}", words::tagged(&names));
+    }
+    let live = match app.live {
+        Live::Asking => words::LIVE_ASKING,
+        Live::On => words::LIVE_ON,
+        Live::OpsOff | Live::NotVtium => words::LIVE_OFF,
+    };
+    let room = app
+        .cols
+        .saturating_sub(live.chars().count())
+        .saturating_sub(3);
+    let left = super::canvas::fit(&format!(" {left}"), room);
+    canvas.put(
+        0,
+        1,
+        &sides(&left, &format!("{live} "), app.cols),
+        Style::PLAIN,
+    );
 }
 
 /// The most rows the message line wraps to.
@@ -478,15 +616,43 @@ const MESSAGE_ROWS: usize = 3;
 /// each key and what it does kept whole on one row.
 fn key_rows(app: &App) -> Vec<String> {
     let keys = match app.view {
+        View::Flow if app.route.is_some() => words::KEYS_ROUTE,
+        View::Flow => words::KEYS_FLOW,
+        View::Looks => words::KEYS_LOOKS,
         View::Fonts => words::KEYS_FONTS,
-        View::Sizes => words::KEYS_SIZES,
         View::Settings if app.editing.is_some() => words::KEYS_EDITING,
         View::Settings => words::KEYS_SETTINGS,
-        View::Heads => words::KEYS_HEADS,
+        View::Help => words::KEYS_HELP,
         View::New => words::KEYS_NEW,
         View::Save => words::KEYS_SAVE,
     };
     let width = app.cols.saturating_sub(2).max(1);
+    // the Flow view's key line shows the keys that fit on one row, and
+    // always its last, the key that leaves
+    if app.view == View::Flow {
+        let items: Vec<&str> = keys.split("  ").collect();
+        let (last, rest) = items.split_last().unwrap_or((&"", &[]));
+        let mut row = String::new();
+        for item in rest {
+            let len = row
+                .chars()
+                .count()
+                .saturating_add(2)
+                .saturating_add(item.chars().count());
+            if len.saturating_add(2).saturating_add(last.chars().count()) > width {
+                break;
+            }
+            if !row.is_empty() {
+                row.push_str("  ");
+            }
+            row.push_str(item);
+        }
+        if !row.is_empty() {
+            row.push_str("  ");
+        }
+        row.push_str(last);
+        return vec![row];
+    }
     let mut rows: Vec<String> = Vec::new();
     for item in keys.split("  ") {
         match rows.last_mut() {
@@ -507,165 +673,375 @@ fn key_rows(app: &App) -> Vec<String> {
     rows
 }
 
+/// The cells a picture may cover, columns and rows: from its place to the
+/// right edge, and down to the row above the message line, so it never
+/// covers the keys.
+pub fn picture_area(app: &App) -> (usize, usize) {
+    // the rule, the keys, and the message at its longest
+    let footer = 1usize
+        .saturating_add(key_rows(app).len())
+        .saturating_add(MESSAGE_ROWS);
+    let (row, col) = picture_at(app);
+    (
+        app.cols.saturating_sub(col.saturating_sub(1)),
+        app.rows
+            .saturating_sub(footer)
+            .saturating_sub(row.saturating_sub(1)),
+    )
+}
+
+/// The screen below the minimum size.
+fn small(canvas: &mut Canvas, app: &App) {
+    let cols = app.cols;
+    let mut lines: Vec<String> = Vec::new();
+    lines.extend(wrap(
+        &words::too_small(app.cols, app.rows),
+        cols,
+        usize::MAX,
+    ));
+    lines.push(String::new());
+    lines.extend(wrap(words::TOO_SMALL_COMMANDS, cols, usize::MAX));
+    for c in crate::help::Command::ALL {
+        if matches!(c, crate::help::Command::Serve | crate::help::Command::Tui) {
+            continue;
+        }
+        lines.push(format!("  vtium-config {}", c.name()));
+    }
+    lines.push(String::new());
+    lines.extend(wrap(words::TOO_SMALL_KEYS, cols, usize::MAX));
+    // the keys stay on the screen however few its rows
+    let keys = wrap(words::TOO_SMALL_KEYS, cols, usize::MAX);
+    if lines.len() > app.rows {
+        let room = app.rows.saturating_sub(keys.len());
+        lines.truncate(room);
+        lines.extend(keys);
+    }
+    for (y, line) in lines.iter().enumerate() {
+        canvas.put(0, y, line, Style::PLAIN);
+    }
+}
+
+/// The Flow view: the base card, the columns with their lines, the card
+/// Enter opens, the message and the keys; or the route card in the
+/// columns' place.
+fn flow_screen(canvas: &mut Canvas, app: &App) -> Option<super::flowdraw::Drawn> {
+    let flow = &app.inputs.flow;
+    let (cols, rows) = (app.cols, app.rows);
+    let keys = key_rows(app);
+    let message = app
+        .message
+        .as_deref()
+        .map(|m| wrap(m, cols.saturating_sub(2), MESSAGE_ROWS))
+        .unwrap_or_default();
+    let bottom = rows
+        .saturating_sub(keys.len())
+        .saturating_sub(message.len());
+    for (i, line) in message.iter().enumerate() {
+        canvas.put(
+            0,
+            bottom.saturating_add(i),
+            &format!(" {line}"),
+            Style::PLAIN,
+        );
+    }
+    for (i, line) in keys.iter().enumerate() {
+        canvas.put(
+            0,
+            rows.saturating_sub(keys.len()).saturating_add(i),
+            &format!(" {line}"),
+            Style::text(palette::GREY),
+        );
+    }
+    if let Some(cursor) = app.route {
+        route_screen(canvas, app, cursor, bottom);
+        return None;
+    }
+    let base = words::base_row(&flow.base.set, flow.base.defaults);
+    let base_style = if app.flow_at == Item::Base {
+        Style::block(palette::BASE).reversed()
+    } else {
+        Style::block(palette::BASE)
+    };
+    let base_text = if app.inputs.color {
+        format!(" {base} ")
+    } else {
+        format!("[{base}]")
+    };
+    let shown = super::canvas::fit(&base_text, cols);
+    canvas.put(0, 2, &shown, base_style);
+    let card = if app.opened {
+        super::flowdraw::card(flow, app.flow_at)
+    } else {
+        Vec::new()
+    };
+    let card_rows = if card.is_empty() {
+        0
+    } else {
+        card.len().saturating_add(1)
+    };
+    let top = 4usize;
+    let height = bottom.saturating_sub(card_rows).saturating_sub(top);
+    let ctx = super::flowdraw::Ctx {
+        flow,
+        tags: &app.tags,
+        color: app.inputs.color,
+    };
+    if !flow.read {
+        for (i, line) in wrap(words::FLOW_NOT_READ, cols.saturating_sub(2), 2)
+            .iter()
+            .enumerate()
+        {
+            canvas.put(1, top.saturating_add(i), line, Style::text(palette::GREY));
+        }
+    }
+    let (top, height) = if flow.read {
+        (top, height)
+    } else {
+        (top.saturating_add(3), height.saturating_sub(3))
+    };
+    let drawn = super::flowdraw::draw_columns(
+        canvas,
+        &ctx,
+        app.flow_at,
+        top.saturating_sub(1),
+        top,
+        height,
+    );
+    if card_rows > 0 {
+        let y = bottom.saturating_sub(card_rows);
+        let color = card
+            .first()
+            .and_then(|r| r.first())
+            .and_then(|(_, s)| s.fg)
+            .unwrap_or(palette::GREY);
+        canvas.put(0, y, &"─".repeat(cols), Style::text(color));
+        for (i, row) in card.iter().enumerate() {
+            let mut x = 1usize;
+            for (text, style) in row {
+                x = canvas.put(x, y.saturating_add(1).saturating_add(i), text, *style);
+            }
+        }
+    }
+    Some(drawn)
+}
+
+/// The mark before the selected item's lines on the route card.
+pub const SELECTED: &str = "▸";
+
+/// The route card, from row 2 down to `bottom`: its title, the sentence of
+/// what the item does, and each route, the selected item marked with
+/// [`SELECTED`] and drawn in its section's block, and the cursor's line in
+/// reverse video.
+fn route_screen(canvas: &mut Canvas, app: &App, cursor: usize, bottom: usize) {
+    let flow = &app.inputs.flow;
+    let cols = app.cols;
+    let (title, sentence, lines) = super::flowdraw::route_card(flow, app.flow_at);
+    canvas.put(
+        1,
+        2,
+        &title,
+        Style {
+            bold: true,
+            ..Style::PLAIN
+        },
+    );
+    let said = wrap(&sentence, cols.saturating_sub(2), 2);
+    for (i, line) in said.iter().enumerate() {
+        canvas.put(1, 3usize.saturating_add(i), line, Style::PLAIN);
+    }
+    let top = 4usize.saturating_add(said.len());
+    let room = bottom.saturating_sub(top);
+    let first = cursor.saturating_add(1).saturating_sub(room);
+    for (i, line) in lines.iter().enumerate().skip(first).take(room) {
+        let y = top.saturating_add(i).saturating_sub(first);
+        let mut style = line.style;
+        if line.item == Some(app.flow_at)
+            && let Some(color) = line.style.fg
+        {
+            style = Style::block(color);
+        }
+        if i == cursor {
+            style = style.reversed();
+        }
+        let indent = if line.item.is_some() { 3 } else { 1 };
+        let text = super::canvas::fit(&line.text, cols.saturating_sub(indent).saturating_sub(1));
+        if line.item == Some(app.flow_at) {
+            // the selected item is marked in words as well as in color: the
+            // mark before it shows with no color too
+            canvas.put(0, y, SELECTED, Style::PLAIN);
+            // its block starts a cell to the left, so its text lines up
+            // with the others
+            let x = indent.saturating_sub(1);
+            canvas.fill(
+                x,
+                y,
+                text.chars().count().saturating_add(2),
+                &format!(" {text}"),
+                style,
+            );
+        } else {
+            canvas.put(indent, y, &text, style);
+        }
+    }
+}
+
+/// The item at cell (`col`, `row`) of the Flow view, as a click finds it:
+/// the base card's row, or an item of the columns.
+pub fn item_at(app: &App, col: usize, row: usize) -> Option<Item> {
+    if row == 2 {
+        return Some(Item::Base);
+    }
+    let mut canvas = Canvas::new(app.cols, app.rows);
+    let drawn = flow_screen(&mut canvas, app)?;
+    super::flowdraw::hit(&drawn, col, row)
+}
+
 /// The screen for `app`: exactly `app.rows` rows, none wider than
 /// `app.cols`.
 pub fn screen(app: &App) -> Vec<Row> {
     let (cols, rows) = (app.cols, app.rows);
-    let mut out: Vec<Row> = Vec::with_capacity(rows);
-    if cols < MIN_COLS || rows < MIN_ROWS {
-        let name = app.font().map_or("", |f| f.name.as_str());
-        out.push(plain(format!("{name}  {}", words::KEYS_SMALL)));
+    let mut canvas = Canvas::new(cols, rows);
+    if too_small(app) {
+        small(&mut canvas, app);
+        return canvas.into_rows();
+    }
+    tab_bar(&mut canvas, app);
+    status(&mut canvas, app);
+    if app.view == View::Flow {
+        flow_screen(&mut canvas, app);
+        return canvas.into_rows();
+    }
+    canvas.put(0, 2, &"-".repeat(cols), Style::PLAIN);
+    let message = wrap(
+        app.message.as_deref().unwrap_or(""),
+        cols.saturating_sub(2),
+        MESSAGE_ROWS,
+    );
+    let keys = key_rows(app);
+    let room = rows
+        .saturating_sub(4)
+        .saturating_sub(message.len())
+        .saturating_sub(keys.len());
+    let Body { list, keep, tail } = body(app);
+    // the sentences under the list show whole, while the list keeps at
+    // least LIST_MIN rows; otherwise they are dropped
+    let show_tail = !tail.is_empty()
+        && (list.len().saturating_add(tail.len()) <= room
+            || room >= LIST_MIN.saturating_add(tail.len()));
+    let list_room = if show_tail {
+        room.saturating_sub(tail.len())
     } else {
-        let live = match app.live {
-            Live::Asking => words::LIVE_ASKING,
-            Live::On => words::LIVE_ON,
-            Live::OpsOff | Live::NotVtium => words::LIVE_OFF,
-        };
-        out.push(plain(sides(
-            &format!(" {}", words::TITLE),
-            &format!("{live} "),
-            cols,
-        )));
-        out.push(tabs(app));
-        out.push(plain("-".repeat(cols)));
-        let message = wrap(
-            app.message.as_deref().unwrap_or(""),
-            cols.saturating_sub(2),
-            MESSAGE_ROWS,
+        room
+    };
+    let first = if app.view == View::Help {
+        keep.min(list.len().saturating_sub(list_room))
+    } else {
+        keep.saturating_add(1).saturating_sub(list_room)
+    };
+    let mut y = 3usize;
+    for row in list.into_iter().skip(first).take(list_room) {
+        canvas.row(y, &row);
+        y = y.saturating_add(1);
+    }
+    if show_tail {
+        for row in tail {
+            canvas.row(y, &row);
+            y = y.saturating_add(1);
+        }
+    }
+    let foot = rows
+        .saturating_sub(1)
+        .saturating_sub(message.len())
+        .saturating_sub(keys.len());
+    for (i, line) in message.iter().enumerate() {
+        canvas.put(0, foot.saturating_add(i), &format!(" {line}"), Style::PLAIN);
+    }
+    let rule = foot.saturating_add(message.len());
+    canvas.put(0, rule, &"-".repeat(cols), Style::PLAIN);
+    for (i, line) in keys.iter().enumerate() {
+        canvas.put(
+            0,
+            rule.saturating_add(1).saturating_add(i),
+            &format!(" {line}"),
+            Style::PLAIN,
         );
-        let keys = key_rows(app);
-        let room = rows
-            .saturating_sub(4)
-            .saturating_sub(message.len())
-            .saturating_sub(keys.len());
-        let Body { list, keep, tail } = body(app);
-        // the sentences under the list show whole, while the list keeps
-        // at least LIST_MIN rows; otherwise they are dropped
-        let show_tail = !tail.is_empty()
-            && (list.len().saturating_add(tail.len()) <= room
-                || room >= LIST_MIN.saturating_add(tail.len()));
-        let list_room = if show_tail {
-            room.saturating_sub(tail.len())
-        } else {
-            room
-        };
-        let first = keep.saturating_add(1).saturating_sub(list_room);
-        out.extend(list.into_iter().skip(first).take(list_room));
-        if show_tail {
-            out.extend(tail);
-        }
-        while out.len()
-            < rows
-                .saturating_sub(1)
-                .saturating_sub(message.len())
-                .saturating_sub(keys.len())
-        {
-            out.push(plain(""));
-        }
-        out.extend(message.into_iter().map(|l| plain(format!(" {l}"))));
-        out.push(plain("-".repeat(cols)));
-        out.extend(keys.into_iter().map(|l| plain(format!(" {l}"))));
     }
-    out.truncate(rows);
-    while out.len() < rows {
-        out.push(plain(""));
-    }
-    out.into_iter().map(|row| clip(row, cols)).collect()
+    canvas.into_rows()
 }
 
-/// `text` in lines of at most `width` characters, broken between words,
-/// at most `most` of them; at least one line.
-fn wrap(text: &str, width: usize, most: usize) -> Vec<String> {
-    let width = width.max(1);
-    let mut lines: Vec<String> = Vec::new();
-    let mut line = String::new();
-    // a word longer than the line, such as a path, breaks where the line
-    // ends
-    let pieces: Vec<String> = text
-        .split(' ')
-        .flat_map(|w| {
-            let chars: Vec<char> = w.chars().collect();
-            if chars.is_empty() {
-                vec![String::new()]
-            } else {
-                chars.chunks(width).map(|c| c.iter().collect()).collect()
-            }
-        })
-        .collect();
-    for word in &pieces {
-        let len = line.chars().count();
-        if len > 0 && len.saturating_add(1).saturating_add(word.chars().count()) > width {
-            lines.push(std::mem::take(&mut line));
-        }
-        if !line.is_empty() {
-            line.push(' ');
-        }
-        line.push_str(word);
-    }
-    lines.push(line);
-    lines.truncate(most.max(1));
-    lines
-}
-
-/// `text` wrapped as [`wrap`] wraps it, in at most `most` lines, the last
-/// ending in `...` where text was left out.
-fn cut(text: &str, width: usize, most: usize) -> Vec<String> {
-    let mut lines = wrap(text, width, usize::MAX);
-    if lines.len() > most {
-        lines.truncate(most);
-        if let Some(last) = lines.last_mut() {
-            let keep = width.saturating_sub(4);
-            while last.chars().count() > keep {
-                last.pop();
-            }
-            last.push_str(" ...");
-        }
-    }
-    lines
-}
-
-/// `row` cut to `cols` characters.
-fn clip(row: Row, cols: usize) -> Row {
-    let mut left = cols;
-    row.into_iter()
-        .filter_map(|s| {
-            let text: String = s.text.chars().take(left).collect();
-            left = left.saturating_sub(text.chars().count());
-            (!text.is_empty()).then_some(Span {
-                text,
-                reverse: s.reverse,
-            })
-        })
-        .collect()
-}
-
-/// The screen as plain text, one line a row, for tests and goldens.
+/// The screen as plain text, one line a row, for tests and goldens; a raw
+/// span's escapes are left out.
 pub fn as_text(rows: &[Row]) -> String {
     rows.iter()
-        .map(|r| format!("{}\n", text(r).trim_end()))
+        .map(|r| {
+            let line: String = r
+                .iter()
+                .map(|s| {
+                    if s.raw {
+                        strip(&s.text)
+                    } else {
+                        s.text.clone()
+                    }
+                })
+                .collect();
+            format!("{}\n", line.trim_end())
+        })
         .collect()
 }
 
-/// The bytes that draw `rows` whole: each row placed with CUP, written,
-/// and erased to its end; reverse video by SGR 7.
-pub fn paint(rows: &[Row]) -> Vec<u8> {
+/// `text` without its CSI sequences.
+fn strip(text: &str) -> String {
+    let mut out = String::new();
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\x1b' && chars.peek() == Some(&'[') {
+            chars.next();
+            for c in chars.by_ref() {
+                if ('@'..='~').contains(&c) {
+                    break;
+                }
+            }
+            continue;
+        }
+        out.push(c);
+    }
+    out
+}
+
+/// The bytes that draw `rows` whole: each row placed with CUP and erased
+/// in the terminal's own colors, then each span in its style by SGR, color
+/// only when `color` is on. The row is erased before it is written: after a
+/// character in the last column, the cursor waits there for the wrap, and
+/// an erase would take that character with it.
+pub fn paint(rows: &[Row], color: bool) -> Vec<u8> {
     let mut out = String::new();
     for (i, row) in rows.iter().enumerate() {
-        out.push_str(&format!("\x1b[{};1H", i.saturating_add(1)));
-        for span in row {
-            // a name read from a file never carries a control into the screen
-            let shown: String = span
+        out.push_str(&format!("\x1b[{};1H\x1b[2K", i.saturating_add(1)));
+        for s in row {
+            if s.raw {
+                out.push_str(&s.text);
+                out.push_str("\x1b[0m");
+                continue;
+            }
+            // a name read from a file never carries a control onto the
+            // screen
+            let shown: String = s
                 .text
                 .chars()
                 .map(|c| if c.is_control() { '?' } else { c })
                 .collect();
-            if span.reverse {
-                out.push_str(&format!("\x1b[7m{shown}\x1b[27m"));
-            } else {
+            let sgr = s.style.sgr(color);
+            if sgr.is_empty() {
                 out.push_str(&shown);
+            } else {
+                out.push_str(&format!("{sgr}{shown}\x1b[0m"));
             }
         }
-        out.push_str("\x1b[K");
     }
     out.into_bytes()
+}
+
+/// The bytes that draw `app`'s screen whole.
+pub fn draw(app: &App) -> Vec<u8> {
+    paint(&screen(app), app.inputs.color)
 }

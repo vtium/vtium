@@ -1,6 +1,6 @@
- VTium Vitrifier                                               live preview: on
-  Fonts  Sizes  Settings  Heads  New
--------------------------------------------------------------------------------
+ Flow  Looks  Fonts  Settings  Help       View Install Revert Restore New Delete
+ draft workstation · 1 change · no problems                    live preview: on
+--------------------------------------------------------------------------------
  > font-name                unifont
    font-size                0 (default)
    font-frits               /etc/vtium/fonts (default)
@@ -16,10 +16,10 @@
 
  Enter turns a switch on or off, steps a choice, or types a value; an empty
  value is the default.
- The font: a frit's name, `NAME.vtfrit` in `/etc/vtium/fonts`, whose glyphs the
- helper generates at run time; a kbd font's name, or with `font-engine=psf` a
- PSF font's path, that no frit bears becomes a one-source frit. Unset,
- vconsole's font; with none, or a name that is neither, vtium draws its ...
+ The font vtium draws text with. It is a frit's name, `NAME.vtfrit` in
+ `/etc/vtium/fonts`, whose glyphs the helper generates at run time. A kbd
+ font's name, or with `font-engine=psf` a PSF font's path, that no frit bears
+ becomes a one-source frit. Unset, vconsole's font; with none, or a name that …
 
--------------------------------------------------------------------------------
- Enter change  Tab next  s save  q leave, undo
+--------------------------------------------------------------------------------
+ Enter change  Tab next  i install  q leave, undo

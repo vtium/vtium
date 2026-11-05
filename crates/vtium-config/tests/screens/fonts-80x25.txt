@@ -1,11 +1,11 @@
- VTium Vitrifier                                               live preview: on
-  Fonts  Sizes  Settings  Heads  New
--------------------------------------------------------------------------------
+ Flow  Looks  Fonts  Settings  Help       View Install Revert Restore New Delete
+ draft workstation · 1 change · no problems                    live preview: on
+--------------------------------------------------------------------------------
    broken     does not read: line 2: unknown key colour
    minspec-16 reads
    proof      reads, 1 source missing
    tiny5      no source on this machine
- > unifont    built in, saved
+ > unifont    built in, installed
    unscii-8   built in
 
 
@@ -21,5 +21,5 @@
 
 
 
--------------------------------------------------------------------------------
- Enter keep  r remove  Tab next  s save  q leave, undo
+--------------------------------------------------------------------------------
+ Enter keep  n new frit  r remove  Tab next  i install  q leave, undo

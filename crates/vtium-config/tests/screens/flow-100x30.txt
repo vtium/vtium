@@ -1,0 +1,30 @@
+ Flow  Looks  Fonts  Settings  Help               View  Install  Revert  Restore  New  Delete draft
+ draft workstation · 1 change · no problems                                        live preview: on
+ base   policy open   font-size 12   xkb-layout us   mouse   (101 keys at their defaults)
+DISPLAYS        DISPLAY RULES       HEADS       LOOK            INPUT RULES         INPUT DEVICES
+ DP-8        ──►1 edid:AA…GE00001┬─► desk        big, 14 pt  ◄╌╌4 serial:…:c31c:0◄╌╌ * 046d:c31c:0
+ LARGE00001       -> desk        ╎   1 console   └ monoid         -> desk            configured, not
+             ┌─►2 edid:BB…LL00001┤   active        └ Monoid    ┌5 class:keyboard ◄─┐ found
+ HDMI-A-2    ┘    -> panel       │                             │  -> roaming       │
+ SMALL00001     3 * -> desk      ├─► panel       small, 12 pt  ├6 * -> ignore    ◄─┤ keyboard
+                  matches no     ┘   2 consoles  └ dejavu      │+ new rule…        ├ usb-0:3.3
+                  display present                  └ De… Mono  │                   │
+                + new rule…                                    │                   └ Power Button
+                                                 tiny, auto …  │                     class key
+                                                 └ minspec-16  │
+                                                 no head uses  │
+                                                 it            │
+                                                               │
+                                    + new head… + new look…    │
+                                                               │
+                                     roaming   types into de…◄─┤
+                                     ignore    vtium never o…◄─┘
+                                     off       vtium turns i…
+                                     policy open takes what …
+
+
+
+
+
+
+ Tab ←→ columns  ↑↓ move  Enter open  Space tag  c connect  f follow  d devices  ? route  q leave

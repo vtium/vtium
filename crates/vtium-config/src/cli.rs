@@ -345,7 +345,7 @@ impl Cli<'_> {
             ),
             Command::Tui if !rest.is_empty() => self.usage("tui takes no argument"),
             Command::Tui if std::io::stdin().is_terminal() && std::io::stdout().is_terminal() => {
-                crate::tui::run(&o.paths(), crate::tui::model::View::Fonts, self.err)
+                crate::tui::run(&o.paths(), crate::tui::model::View::Flow, self.err)
             }
             Command::Tui => self.usage("tui opens the interactive tool at a terminal only"),
         }
