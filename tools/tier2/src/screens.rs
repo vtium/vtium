@@ -22,21 +22,10 @@ use crate::draw::{Alone, DecoSpec, Decorations, FontKind, Overlay, Screen, TestF
 use crate::notices;
 use crate::pictures;
 
-/// Where a screen's golden lives.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Source {
-    /// The C reference's, copied from its `tests/goldens/tier2/` into
-    /// `tools/tier2/reference/goldens/<name>.ppm`.
-    Kmscon,
-    /// vtium's own, `tools/tier2/goldens/<name>.ppm`.
-    Vtium,
-}
-
-/// A screen and where its golden lives.
+/// A screen, whose golden is `tools/tier2/goldens/<name>.ppm`.
 #[derive(Clone, Copy, Debug)]
 pub struct Case {
     pub screen: Screen,
-    pub source: Source,
 }
 
 /// Block elements and box drawing stacked across rows and columns
@@ -377,7 +366,6 @@ const fn edges(name: &'static str, orientation: Orientation) -> Case {
             display: Some((11 * 8 + 5, 4 * 16 + 3)),
             ..Screen::new(name, EDGES_DESC, EDGES, 12, 4)
         },
-        source: Source::Vtium,
     }
 }
 
@@ -447,7 +435,6 @@ const fn small(name: &'static str, desc: &'static str, overlay: Overlay) -> Case
             overlay: Some(overlay),
             ..Screen::new(name, desc, OVERLAY_SHELL, 100, 30)
         },
-        source: Source::Vtium,
     }
 }
 
@@ -462,7 +449,6 @@ const fn large(name: &'static str, desc: &'static str, overlay: Overlay) -> Case
             overlay: Some(overlay),
             ..Screen::new(name, desc, OVERLAY_SHELL, 160, 10)
         },
-        source: Source::Vtium,
     }
 }
 
@@ -479,7 +465,6 @@ const fn alone_small(name: &'static str, desc: &'static str, alone: Alone) -> Ca
             alone: Some(alone),
             ..Screen::new(name, desc, BLANK, 100, 30)
         },
-        source: Source::Vtium,
     }
 }
 
@@ -496,7 +481,6 @@ const fn alone_large(name: &'static str, desc: &'static str, alone: Alone) -> Ca
             alone: Some(alone),
             ..Screen::new(name, desc, BLANK, 160, 10)
         },
-        source: Source::Vtium,
     }
 }
 
@@ -519,7 +503,6 @@ const fn scheme(
             }),
             ..Screen::new(name, desc, bytes, 100, 8)
         },
-        source: Source::Vtium,
     }
 }
 
@@ -627,10 +610,7 @@ const PICTURES_TILED_DESC: &str = "Three pictures wider and taller than 64 pixel
 
 /// A picture screen: vtium's golden, drawn by vtium.
 const fn picture(screen: Screen) -> Case {
-    Case {
-        screen,
-        source: Source::Vtium,
-    }
+    Case { screen }
 }
 
 /// Every case, in the order the report lists them.
@@ -643,7 +623,6 @@ pub const CASES: &[Case] = &[
             },
             ..Screen::new("blocks", BLOCKS_DESC, BLOCKS, 48, 10)
         },
-        source: Source::Kmscon,
     },
     // DejaVu Sans Mono at 22 pixels, its line height and 6 pixel rows more
     Case {
@@ -654,7 +633,6 @@ pub const CASES: &[Case] = &[
             },
             ..Screen::new("blocks-spaced", BLOCKS_DESC, BLOCKS, 48, 10)
         },
-        source: Source::Kmscon,
     },
     edges("edges", Orientation::Normal),
     edges("edges-right", Orientation::Right),
@@ -673,7 +651,6 @@ pub const CASES: &[Case] = &[
             40,
             6,
         ),
-        source: Source::Vtium,
     },
     Case {
         screen: Screen::new(
@@ -686,7 +663,6 @@ pub const CASES: &[Case] = &[
             32,
             5,
         ),
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -701,7 +677,6 @@ pub const CASES: &[Case] = &[
                 5,
             )
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen::new(
@@ -714,7 +689,6 @@ pub const CASES: &[Case] = &[
             48,
             10,
         ),
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -732,7 +706,6 @@ pub const CASES: &[Case] = &[
                 10,
             )
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -744,7 +717,6 @@ pub const CASES: &[Case] = &[
                 10,
             )
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -756,7 +728,6 @@ pub const CASES: &[Case] = &[
                 10,
             )
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -768,7 +739,6 @@ pub const CASES: &[Case] = &[
                 10,
             )
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -780,7 +750,6 @@ pub const CASES: &[Case] = &[
                 10,
             )
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -792,7 +761,6 @@ pub const CASES: &[Case] = &[
                 10,
             )
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -804,7 +772,6 @@ pub const CASES: &[Case] = &[
                 10,
             )
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -816,14 +783,12 @@ pub const CASES: &[Case] = &[
                 10,
             )
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
             pointer: Some((5, 0)),
             ..Screen::new("link-hover-unifont", LINK_HOVER_DESC, LINK_HOVER, 40, 7)
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -837,7 +802,6 @@ pub const CASES: &[Case] = &[
                 7,
             )
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -849,7 +813,6 @@ pub const CASES: &[Case] = &[
                 10,
             )
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -862,7 +825,6 @@ pub const CASES: &[Case] = &[
                 10,
             )
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -878,7 +840,6 @@ pub const CASES: &[Case] = &[
                 10,
             )
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -890,7 +851,6 @@ pub const CASES: &[Case] = &[
                 10,
             )
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -902,7 +862,6 @@ pub const CASES: &[Case] = &[
                 16,
             )
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -914,7 +873,6 @@ pub const CASES: &[Case] = &[
                 10,
             )
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -927,7 +885,6 @@ pub const CASES: &[Case] = &[
                 10,
             )
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -941,7 +898,6 @@ pub const CASES: &[Case] = &[
                 30,
             )
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -955,7 +911,6 @@ pub const CASES: &[Case] = &[
                 30,
             )
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -970,7 +925,6 @@ pub const CASES: &[Case] = &[
                 30,
             )
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -985,7 +939,6 @@ pub const CASES: &[Case] = &[
                 30,
             )
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -998,7 +951,6 @@ pub const CASES: &[Case] = &[
                 10,
             )
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -1011,7 +963,6 @@ pub const CASES: &[Case] = &[
                 10,
             )
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -1024,7 +975,6 @@ pub const CASES: &[Case] = &[
                 5,
             )
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -1040,7 +990,6 @@ pub const CASES: &[Case] = &[
                 30,
             )
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -1057,7 +1006,6 @@ pub const CASES: &[Case] = &[
                 30,
             )
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -1075,7 +1023,6 @@ pub const CASES: &[Case] = &[
                 6,
             )
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -1093,7 +1040,6 @@ pub const CASES: &[Case] = &[
                 6,
             )
         },
-        source: Source::Vtium,
     },
     small(
         "notice-no-keyboard-800x480",
@@ -1248,7 +1194,6 @@ pub const CASES: &[Case] = &[
             alone: Some(notices::panic_screen),
             ..Screen::new("panic-320x240", PANIC_SMALL_DESC, BLANK, 40, 15)
         },
-        source: Source::Vtium,
     },
     scheme(
         "scheme-light-notice",

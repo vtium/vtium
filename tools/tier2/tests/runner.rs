@@ -9,25 +9,23 @@ use vtium_tier2::draw::{self, Screen};
 use vtium_tier2::ppm::Image;
 use vtium_tier2::report::Status;
 use vtium_tier2::runner::{self, Departure, Pending, Run};
-use vtium_tier2::screens::{Case, Source};
+use vtium_tier2::screens::Case;
 use vtium_tier2::tol::Rect;
 
-const fn case(name: &'static str, source: Source) -> Case {
+const fn case(name: &'static str) -> Case {
     Case {
         screen: Screen::new(name, "two letters", b"ab", 2, 1),
-        source,
     }
 }
 
 const CASES: &[Case] = &[
-    case("k-same", Source::Kmscon),
-    case("v-same", Source::Vtium),
-    case("v-diff", Source::Vtium),
-    case("v-tol", Source::Vtium),
-    case("v-dep", Source::Vtium),
-    case("v-stale", Source::Vtium),
-    case("v-prov", Source::Vtium),
-    case("v-none", Source::Vtium),
+    case("v-same"),
+    case("v-diff"),
+    case("v-tol"),
+    case("v-dep"),
+    case("v-stale"),
+    case("v-prov"),
+    case("v-none"),
 ];
 
 fn dir(name: &str) -> PathBuf {
@@ -57,7 +55,6 @@ fn put(dir: &Path, name: &str, img: &Image) {
 }
 
 struct Setup {
-    kmscon: PathBuf,
     vtium: PathBuf,
     out: PathBuf,
     departures: Vec<Departure>,
@@ -68,12 +65,10 @@ struct Setup {
 impl Setup {
     fn new(name: &str) -> Setup {
         let base = dir(name);
-        let (kmscon, vtium, out) = (base.join("k"), base.join("v"), base.join("out"));
-        for d in [&kmscon, &vtium, &out] {
+        let (vtium, out) = (base.join("v"), base.join("out"));
+        for d in [&vtium, &out] {
             fs::create_dir_all(d).unwrap();
         }
-        put(&kmscon, "k-same", &golden(false));
-        put(&kmscon, "k-orphan", &golden(false));
         for n in ["v-same", "v-stale"] {
             put(&vtium, n, &golden(false));
         }
@@ -87,7 +82,6 @@ impl Setup {
             rects: vec![rect],
         };
         Setup {
-            kmscon,
             vtium,
             out,
             departures: vec![
@@ -122,8 +116,7 @@ impl Setup {
     fn run(&self) -> Run<'_> {
         Run {
             cases: CASES,
-            kmscon_goldens: &self.kmscon,
-            vtium_goldens: &self.vtium,
+            goldens: &self.vtium,
             departures: &self.departures,
             pending: &self.pending,
             provisional: &self.provisional,
@@ -146,7 +139,6 @@ fn each_case_gets_its_status() {
         .map(|c| (c.name, c.status))
         .collect();
     let want = [
-        ("k-same", Status::Pass),
         ("v-same", Status::Pass),
         ("v-diff", Status::Fail),
         ("v-tol", Status::Near),
@@ -154,7 +146,6 @@ fn each_case_gets_its_status() {
         ("v-stale", Status::Fail),
         ("v-prov", Status::Provisional),
         ("v-none", Status::Missing),
-        ("k-orphan", Status::Missing),
         ("k-pending", Status::Pending),
         ("v-orphan", Status::Missing),
     ];
@@ -218,23 +209,22 @@ fn a_departure_the_readme_does_not_list_is_refused() {
 fn lists_that_name_the_wrong_cases_are_refused() {
     let titles = ["A departure".to_owned()];
     let mut s = Setup::new("lists");
-    s.pending[0].golden = "k-same".to_owned();
+    s.pending[0].golden = "v-same".to_owned();
     assert!(
         s.run()
             .check_lists(&titles)
             .unwrap_err()
             .contains("which a screen draws")
     );
-    s.pending[0].golden = "k-orphan".to_owned();
+    s.pending[0].golden = "v-orphan".to_owned();
     assert!(
         s.run()
             .check_lists(&titles)
             .unwrap_err()
-            .contains("which is copied")
+            .contains("which has a golden")
     );
-    s.pending[0].golden = "k-pending".to_owned();
     let mut cases = CASES.to_vec();
-    cases.push(case("k-orphan", Source::Vtium));
+    cases.push(case("v-same"));
     let run = Run {
         cases: &cases,
         ..s.run()
@@ -242,10 +232,10 @@ fn lists_that_name_the_wrong_cases_are_refused() {
     assert!(
         run.check_lists(&titles)
             .unwrap_err()
-            .contains("the name of a copied golden")
+            .contains("two screens are named")
     );
     s.pending.clear();
-    s.provisional = vec!["k-same".to_owned()];
+    s.provisional = vec!["v-orphan".to_owned()];
     assert!(
         s.run()
             .check_lists(&titles)
@@ -304,22 +294,18 @@ fn a_sprites_only_screen_holding_a_combining_mark_is_refused() {
     }
 }
 
-/// A tool tree under a repository root: one copied golden and empty lists.
+/// A tool tree under a repository root: one golden and the lists.
 fn tool_tree(name: &str) -> PathBuf {
     let root = dir(name);
     let tool = root.join("tools/tier2");
-    fs::create_dir_all(tool.join("reference/goldens")).unwrap();
+    fs::create_dir_all(tool.join("goldens")).unwrap();
     fs::create_dir_all(root.join("crates/vtium-render")).unwrap();
     fs::write(
         root.join("crates/vtium-render/README.md"),
         "# render\n\n## Departures\n\n- **A departure** and why.\n",
     )
     .unwrap();
-    fs::write(
-        tool.join("reference/goldens/blocks.ppm"),
-        b"P6 1 1 255\n\x00\x00\x00",
-    )
-    .unwrap();
+    fs::write(tool.join("goldens/blocks.ppm"), b"P6 1 1 255\n\x00\x00\x00").unwrap();
     fs::write(tool.join("departures.tsv"), "v-dep\tA departure\t0,0,8,8\n").unwrap();
     fs::write(
         tool.join("pending.tsv"),

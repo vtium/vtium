@@ -71,7 +71,7 @@ cargo fmt --all --check \
   && make arm
 ```
 
-`make conformance` and `make conformance-probes` read the goldens and probes in `tools/conformance/`. Those files were copied from the C reference. `make tier2` reads tier 2's goldens from `tools/tier2/reference/`, which were copied the same way. `make conformance-issues` uses `gh` to check with GitHub that every issue named in the conformance lists is still open. Without network access it cannot run, so report it as not run, with that reason. No gate needs a checkout of the C repositories.
+`make conformance` and `make conformance-probes` read the goldens and probes in `tools/conformance/`. Those files were copied from the C reference. `make tier2` reads tier 2's goldens from `tools/tier2/goldens/`. `make conformance-issues` uses `gh` to check with GitHub that every issue named in the conformance lists is still open. Without network access it cannot run, so report it as not run, with that reason. No gate needs a checkout of the C repositories.
 
 vtium's code, tests and tools are written in Rust. Where vtium must talk to a C library, such as libseat (#34), C stays at that boundary as a binding or the thinnest possible shim, and everything around it is Rust.
 
@@ -102,13 +102,13 @@ vtium is judged in tiers, from unit tests up to the maintainer's own review on a
 | Unit | each crate's behaviour | here | `cargo test --workspace --all-features` |
 | 1, conformance | the screen state and replies vtium produces after a stream of input bytes, written as text and compared against the C reference's goldens | the replay corpus in `tools/conformance/corpus/`, through the language-neutral interface that its `INTERFACE.md` describes | `make conformance` (`tools/conformance/`, #14), which also runs the interface check |
 | Capability probes | each capability vtium claims, tested through a replay, against `tools/conformance/capabilities.list` | `tools/conformance/probes/` | `make conformance-probes` |
-| 2, pixels | what the renderer draws in memory, compared pixel for pixel | `tools/tier2/`: the C reference's goldens, copied into `tools/tier2/reference/`, and vtium's own reviewed goldens | `make tier2` |
+| 2, pixels | what the renderer draws in memory, compared pixel for pixel | `tools/tier2/`: its goldens in `tools/tier2/goldens/` | `make tier2` |
 | 3, the VM | screenshots of vtium's install tree running on a VT in a QEMU/KVM guest with a real KMS device, compared against the C reference's goldens, which are copied into `tools/tier3/c-goldens/`; it also records size and memory figures | `tools/tier3/` | `make tier3-minimal` (the minspec variants, 1 vCPU and 512 MB), `make tier3` (every variant) |
 | VT review | the maintainer looks at vtium on a real VT, guided step by step | this machine | `make vt-check GUIDE=start` ([docs/vt-review.md](docs/vt-review.md)); the vtium binary arrives with #21 |
 
 The goldens decide whether vtium's output is right, and there are three kinds:
 
-- **The C reference's goldens.** Tier 1's goldens and the capability probes live in `tools/conformance/`, tier 2's goldens in `tools/tier2/reference/`, and tier 3's in `tools/tier3/c-goldens/`, all copied from the C reference.
+- **The C reference's goldens.** Tier 1's goldens and the capability probes live in `tools/conformance/`, and tier 3's in `tools/tier3/c-goldens/`, all copied from the C reference.
 - **vtium's own goldens.** For behaviour that only vtium has, vtium keeps its own goldens in its tree.
 - **Provisional goldens.** vtium's own goldens stay provisional until the maintainer reviews them, and a provisional golden judges nothing.
 

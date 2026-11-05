@@ -1,7 +1,7 @@
-# Goldens of the C reference's tier 2 that no screen draws yet: GOLDEN,
-# the issue that owes the screen, and why. The run reports each row as a
-# pending case. A row whose golden a screen draws or is copied is refused.
-# A screen that takes one up copies its golden.
+# Screens tier 2 owes that no screen draws yet: GOLDEN, the issue that
+# owes the screen, and why. The run reports each row as a pending case. A
+# row that a screen draws, or whose golden goldens/ holds, is refused. A
+# screen that takes one up adds its golden, and the row goes.
 ascii	vtium/vtium#24	outline-font text: DejaVu Sans Mono through FreeType
 bold	vtium/vtium#24	outline-font text: DejaVu Sans Mono through FreeType
 box	vtium/vtium#24	outline-font text: DejaVu Sans Mono through FreeType
