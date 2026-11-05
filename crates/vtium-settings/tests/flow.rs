@@ -286,7 +286,7 @@ fn a_policy_line_is_read_above_the_first_heading_and_is_no_key_line() {
 
 #[test]
 fn a_look_takes_the_key_table_s_look_keys_and_its_vtlook() {
-    let good = "version = 1\n[look all]\nfont-engine = pango\nfont-name = monoid\nfont-size = 0\nfont-hinting = full\nfont-line-spacing = 100\ndisplay-depth = gray16\ndisplay-dpi = 20\nvtlook = amber\n";
+    let good = "version = 1\n[look all]\nfont-engine = pango\nfont-name = monoid\nfont-size = 0\nfont-hinting = full\nfont-line-spacing = 100\ndisplay-depth = gray16\ndisplay-dpi = 20\nvtlook = amber\ncell = 12x24\n";
     let r = read(good);
     assert!(r.errors.is_empty(), "{:?}", r.errors);
     let look = r.parsed.config.looks.first().expect("the look");
@@ -305,6 +305,7 @@ fn a_look_takes_the_key_table_s_look_keys_and_its_vtlook() {
             ("font-line-spacing", "100", 7),
             ("display-depth", "gray16", 8),
             ("display-dpi", "20", 9),
+            ("cell", "12x24", 11),
         ]
     );
     assert_eq!(
@@ -312,7 +313,28 @@ fn a_look_takes_the_key_table_s_look_keys_and_its_vtlook() {
         (Some("amber"), 10)
     );
 
-    let cases: [(&str, Problem); 9] = [
+    let cases: [(&str, Problem); 12] = [
+        (
+            "cell = 5x16",
+            Problem::BadValue {
+                key: "cell",
+                value: q("5x16"),
+            },
+        ),
+        (
+            "cell = 08x16",
+            Problem::BadValue {
+                key: "cell",
+                value: q("08x16"),
+            },
+        ),
+        (
+            "cell = 16",
+            Problem::BadValue {
+                key: "cell",
+                value: q("16"),
+            },
+        ),
         (
             "mouse = yes",
             Problem::NotHere {
@@ -392,13 +414,21 @@ fn a_look_takes_the_key_table_s_look_keys_and_its_vtlook() {
 
 #[test]
 fn a_head_takes_its_keys_and_the_key_table_s_head_keys() {
-    let cases: [(&str, Problem); 4] = [
+    let cases: [(&str, Problem); 5] = [
         (
             "font-size = 12",
             Problem::NotHere {
                 key: "font-size",
                 section: Level::Head,
                 levels: vtium_settings::keys::Levels::TOP_LOOK,
+            },
+        ),
+        (
+            "cell = 8x16",
+            Problem::NotHere {
+                key: "cell",
+                section: Level::Head,
+                levels: vtium_settings::keys::Levels::LOOK,
             },
         ),
         ("profile = big", Problem::Renamed(Renamed::Profile)),

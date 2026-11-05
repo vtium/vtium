@@ -205,6 +205,10 @@ pub fn conf_key(name: &str) -> Result<&'static keys::Key, String> {
         Some(key) if key.scope == Scope::CommandLine => Err(format!(
             "{name} is set on vtium's command line only, never in vtium.conf"
         )),
+        Some(key) if key.scope == Scope::Section => Err(format!(
+            "{name} is set only in a [look NAME] section: vtium-config look set NAME {} VALUE sets it",
+            crate::ops::look_option(name).unwrap_or(name)
+        )),
         Some(key) => Ok(key),
         None => Err(format!(
             "vtium.conf has no key named {name:?}; docs/config.md lists them"

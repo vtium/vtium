@@ -2415,6 +2415,33 @@ echo "$file: checked"
         assert_eq!(b.draft(), INSTALLED);
     }
 
+    // ADR-1403 D5: the look card offers the look's cell, after its size,
+    // and sets it through `look set --cell`
+    #[test]
+    fn a_look_s_card_sets_its_cell() {
+        let b = bench("look-cell");
+        // desk's look, open, Down past its name, frit and size to its
+        // cell, typed
+        let ran = run(
+            &b,
+            &[
+                RIGHT, RIGHT, b"\r", DOWN, DOWN, DOWN, b"\r", b"12x24", b"\r",
+            ],
+        );
+        assert_eq!(
+            b.draft(),
+            INSTALLED.replace("[look big]\n", "[look big]\ncell = 12x24\n"),
+            "{}",
+            ran.screen()
+        );
+        assert!(
+            ran.screen()
+                .contains("vtium config look set big --cell 12x24"),
+            "{}",
+            ran.screen()
+        );
+    }
+
     #[test]
     fn new_head_asks_its_name_and_look_and_adds_it() {
         let b = bench("new-head");

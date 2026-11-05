@@ -172,13 +172,14 @@ fn base(text: &str) -> Base {
     }
     let in_files = vtium_settings::keys::KEYS
         .iter()
-        .filter(|k| k.scope != vtium_settings::keys::Scope::CommandLine)
+        .filter(|k| k.scope == vtium_settings::keys::Scope::Anywhere)
         .count();
     let counted = set
         .iter()
         .filter(|(k, _)| {
             let name = k.strip_prefix("no-").unwrap_or(k);
-            vtium_settings::keys::find(name).is_some()
+            vtium_settings::keys::find(name)
+                .is_some_and(|k| k.scope == vtium_settings::keys::Scope::Anywhere)
         })
         .count();
     Base {

@@ -116,6 +116,30 @@ pub fn absolute(text: &str) -> bool {
     std::path::Path::new(text).is_absolute()
 }
 
+/// The smallest and largest side of a cell that a frit's `cell=` line
+/// and a look's `cell` state, in pixels: from minspec's 8 pixels to an 8K
+/// display's large sizes, as far as a glyph two cells wide still fits a
+/// glyph set's 16 KiB chunk (ADR-1200 D1). vtium-config's frit reader
+/// holds the same bounds.
+pub const FRIT_CELL_MIN: u32 = 6;
+pub const FRIT_CELL_MAX: u32 = 96;
+
+/// A cell as a frit's `cell=` line and a look's `cell` write it,
+/// `WIDTHxHEIGHT` in pixels: each side digits alone, with no leading zero,
+/// from [`FRIT_CELL_MIN`] to [`FRIT_CELL_MAX`]. The width and the height;
+/// `None` for any other text.
+pub fn parse_cell(text: &str) -> Option<(u32, u32)> {
+    let side = |s: &str| {
+        s.parse::<u32>().ok().filter(|n| {
+            (FRIT_CELL_MIN..=FRIT_CELL_MAX).contains(n)
+                && s.bytes().all(|b| b.is_ascii_digit())
+                && !s.starts_with('0')
+        })
+    };
+    let (w, h) = text.split_once('x')?;
+    Some((side(w)?, side(h)?))
+}
+
 /// What a key holds, and its bound.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
@@ -159,6 +183,10 @@ pub enum Kind {
     Char,
     /// A size in pixels, `WxH`, each side from 1 to `max`.
     Size { max: u32 },
+    /// A cell in pixels, `WIDTHxHEIGHT`, as a frit's `cell=` line writes
+    /// it: each side a whole number from [`FRIT_CELL_MIN`] to
+    /// [`FRIT_CELL_MAX`], with no leading zero ([`parse_cell`]).
+    Cell,
     /// A decoration's color: `fg`, the cell's foreground; a palette index
     /// from 0 to 255, which follows the palette a program changes; or
     /// `#rrggbb`.
@@ -184,6 +212,9 @@ pub enum Scope {
     Anywhere,
     /// On the command line only.
     CommandLine,
+    /// In a section of vtium.conf only, at the levels its `levels` name:
+    /// neither the top level nor the command line sets it.
+    Section,
 }
 
 /// A part of vtium.conf that may set a key (ADR-1403 D5): its top level,
@@ -209,6 +240,9 @@ impl Levels {
     pub const NONE: Levels = Levels(0);
     /// The top level alone.
     pub const TOP: Levels = Levels(1);
+    /// A look alone: a key of a look's that has no default at the top
+    /// level, such as its cell.
+    pub const LOOK: Levels = Levels(2);
     /// The top level and a look: a look's frit, its size and the other keys
     /// ADR-1200 D16 gives a look.
     pub const TOP_LOOK: Levels = Levels(1 | 2);
@@ -239,6 +273,7 @@ impl Levels {
 
 const NONE: Levels = Levels::NONE;
 const TOP: Levels = Levels::TOP;
+const LOOK: Levels = Levels::LOOK;
 const TOP_LOOK: Levels = Levels::TOP_LOOK;
 const TOP_HEAD: Levels = Levels::TOP_HEAD;
 
@@ -1456,6 +1491,19 @@ pub const FONT_LINE_SPACING: Key = Key {
     cite: "ADR-1302 D13; ADR-1200 D1",
 };
 
+pub const CELL: Key = Key {
+    name: "cell",
+    short: None,
+    kind: Kind::Cell,
+    default: Default::Unset,
+    scope: Scope::Section,
+    levels: LOOK,
+    reader: "vtium",
+    what: "The cell a look's text draws in, written as a frit's `cell=` line writes it.\n\n\
+           It wins over the `cell=` and `size=` lines of the frit the head draws, and over the top level's `font-size`. The look's own `font-size`, when it is other than 0, wins over the look's `cell`. Unset, the frit's `cell=` decides.",
+    cite: "ADR-1403 D5; ADR-1200 D1, D16",
+};
+
 pub const ALLOW_FONT_OPS: Key = Key {
     name: "allow-font-ops",
     short: None,
@@ -1780,7 +1828,7 @@ pub const KITTY_GRAPHICS: Key = Key {
 };
 
 /// Every key, in the order the generated files list them.
-pub const KEYS: [Key; 106] = [
+pub const KEYS: [Key; 107] = [
     CONFIGDIR,
     HELP,
     VERSION,
@@ -1867,6 +1915,7 @@ pub const KEYS: [Key; 106] = [
     FONT_SIZE,
     FONT_HINTING,
     FONT_LINE_SPACING,
+    CELL,
     ALLOW_FONT_OPS,
     GLYPH_SOURCE,
     GLYPH_SOURCE_BOX,
@@ -1924,7 +1973,7 @@ pub const SECTIONS: [Section; 10] = [
             },
             Group {
                 title: "Font size and spacing",
-                keys: &[&FONT_SIZE, &FONT_HINTING, &FONT_LINE_SPACING],
+                keys: &[&FONT_SIZE, &CELL, &FONT_HINTING, &FONT_LINE_SPACING],
             },
             Group {
                 title: "Box drawing, blocks and other sprites",
@@ -2238,8 +2287,9 @@ mod tests {
     }
 
     // ADR-1403 D5: a look takes the font and display keys ADR-1200 D16
-    // gives a look, a head takes `login`, every other key is the top
-    // level's alone, and a key the command line alone sets has no level.
+    // gives a look and its cell, a head takes `login`, every other key is
+    // the top level's alone, and a key the command line alone sets has no
+    // level. `cell` is the one key only a section sets.
     #[test]
     fn each_key_names_the_levels_that_may_set_it() {
         let names = |level| at(level).map(|k| k.name).collect::<Vec<_>>();
@@ -2251,6 +2301,7 @@ mod tests {
                 "font-size",
                 "font-hinting",
                 "font-line-spacing",
+                "cell",
                 "display-depth",
                 "display-dpi",
             ]
@@ -2260,8 +2311,14 @@ mod tests {
             match k.scope {
                 Scope::CommandLine => assert_eq!(k.levels, NONE, "{}", k.name),
                 Scope::Anywhere => assert!(k.levels.contains(Level::Top), "{}", k.name),
+                Scope::Section => {
+                    assert!(!k.levels.contains(Level::Top), "{}", k.name);
+                    assert_ne!(k.levels, NONE, "{}", k.name);
+                }
             }
         }
+        assert_eq!(CELL.scope, Scope::Section);
+        assert_eq!(CELL.levels, LOOK);
         // the process's own keys stay at the top level (D5)
         for k in [
             &DISPLAY_BUFFERS,
@@ -2274,15 +2331,34 @@ mod tests {
         }
     }
 
+    // ADR-1200 D1, ADR-1403 D5: a look's cell takes a frit's `cell=`
+    // syntax and bounds, 6 to 96 pixels a side with no leading zero.
+    #[test]
+    fn a_cell_is_read_as_a_frits_cell_line() {
+        assert_eq!(parse_cell("8x16"), Some((8, 16)));
+        assert_eq!(parse_cell("6x96"), Some((6, 96)));
+        for bad in [
+            "", "8", "8x", "x16", "5x16", "8x97", "08x16", "8x016", "+8x16", "8X16", "8x16x2",
+            " 8x16", "8 x16", "-8x16",
+        ] {
+            assert_eq!(parse_cell(bad), None, "{bad:?}");
+        }
+    }
+
     // The section reader checks a section key's value by its kind, and
-    // reads text, a command, a path, a choice and a number.
+    // reads text, a command, a path, a choice, a number and a cell.
     #[test]
     fn every_section_key_is_of_a_kind_the_section_reader_checks() {
         for k in at(Level::Look).chain(at(Level::Head)) {
             assert!(
                 matches!(
                     k.kind,
-                    Kind::Text | Kind::Command | Kind::Path | Kind::Choice(_) | Kind::Number { .. }
+                    Kind::Text
+                        | Kind::Command
+                        | Kind::Path
+                        | Kind::Choice(_)
+                        | Kind::Number { .. }
+                        | Kind::Cell
                 ),
                 "{}",
                 k.name

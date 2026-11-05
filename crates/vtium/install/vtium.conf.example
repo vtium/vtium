@@ -816,9 +816,10 @@ version = 1
 # policy = open
 
 # A look is what a head draws with: a [look NAME] section takes
-# font-name, which names its frit, the font keys above, and vtlook. The
-# shipped configuration declares none, so its head draws with the keys
-# above. For example:
+# font-name, which names its frit, the font keys above, vtlook, and cell,
+# the cell in pixels as a frit's cell= line writes it. Within one look,
+# font-size wins over cell. The shipped configuration declares none, so
+# its head draws with the keys above. For example:
 #   [look big]
 #   font-name = desktop
 #   font-size = 14

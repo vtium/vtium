@@ -151,6 +151,9 @@ pub enum Problem {
     UnknownKey(String),
     /// The key is set on the command line only.
     CommandLineOnly(&'static str),
+    /// The key is set in a section of vtium.conf only, never at its top
+    /// level or on the command line, such as a look's `cell`.
+    SectionOnly(&'static str),
     /// The key needs a value and was given none.
     NeedsValue(&'static str),
     /// A switch was given a value.
@@ -213,6 +216,7 @@ impl Problem {
         match self {
             Problem::UnknownKey(k) => Some(k),
             Problem::CommandLineOnly(k)
+            | Problem::SectionOnly(k)
             | Problem::NeedsValue(k)
             | Problem::TakesNoValue(k)
             | Problem::TooLong(k)
@@ -256,6 +260,9 @@ impl fmt::Display for Problem {
             Problem::UnknownKey(k) => write!(f, "unknown key {}, ignored", quote(k)),
             Problem::CommandLineOnly(k) => {
                 write!(f, "{k} is set on the command line only, ignored")
+            }
+            Problem::SectionOnly(k) => {
+                write!(f, "{k} is set only in a [look NAME] section, ignored")
             }
             Problem::NeedsValue(k) => write!(f, "{k} needs a value, ignored"),
             Problem::TakesNoValue(k) => write!(f, "{k} takes no value, ignored"),
@@ -480,6 +487,12 @@ impl Config {
     /// lines go through, with its line of `path`; the section reader has
     /// checked it against the same table, so a report here is one the
     /// section reader let pass, and the key keeps the top level's value.
+    ///
+    /// A look's `cell` reaches the head only where the same look sets no
+    /// `font-size` other than 0: within one look, its `font-size` wins
+    /// over its `cell` (ADR-1200 D16, ADR-1403 D5). Only a look sets
+    /// `cell`, so a `cell` in the configuration this gives is the look's,
+    /// and it wins over the top level's `font-size` ([`crate::head`]).
     pub fn for_head(
         &self,
         path: &Path,
@@ -487,18 +500,25 @@ impl Config {
     ) -> (Config, Vec<Report>) {
         let mut reports = Reports::default();
         let mut config = self.clone();
+        let mut sized = false;
         for setting in settings {
             let origin = Origin::File {
                 path: path.to_owned(),
                 line: setting.line,
             };
             if let Some(value) = value::parse(setting.key, &setting.value, &origin, &mut reports) {
+                if setting.key.name == keys::FONT_SIZE.name {
+                    sized = value != Value::Number(0);
+                }
                 config.set(Assignment {
                     key: setting.key,
                     value,
                     origin,
                 });
             }
+        }
+        if sized {
+            config.values.remove(keys::CELL.name);
         }
         (config, reports.finish())
     }

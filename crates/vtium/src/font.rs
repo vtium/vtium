@@ -177,10 +177,9 @@ pub fn frit(frits: &Path, name: &str) -> Option<PathBuf> {
     (frit_name(name) && std::fs::metadata(&path).is_ok_and(|m| m.is_file())).then_some(path)
 }
 
-/// The smallest and largest side of a frit's `cell=`, vtium-config's
-/// `FRIT_CELL_MIN` and `FRIT_CELL_MAX`.
-pub const FRIT_CELL_MIN: u32 = 6;
-pub const FRIT_CELL_MAX: u32 = 96;
+/// The smallest and largest side of a frit's `cell=` and a look's
+/// `cell`, from the key table, which vtium-config's frit reader holds too.
+pub use crate::config::keys::{FRIT_CELL_MAX, FRIT_CELL_MIN};
 
 /// The frit at `path`'s text: a regular file of at most `FILE_MAX`
 /// bytes, as vtium-config's `FRIT_BYTES_MAX`, in UTF-8.
@@ -555,7 +554,7 @@ pub fn by_name(sources: &Sources, name: &str) -> Result<Chosen, String> {
         return Ok(builtin);
     }
     let path = frit(&sources.frits, name).ok_or("no frit is named so")?;
-    Chosen::frit(FritText::read(&path)?, false)
+    Chosen::frit(FritText::read(&path)?, false, None)
 }
 
 /// The font vtium draws.
@@ -573,9 +572,11 @@ pub enum Chosen {
         name: String,
         /// The frit as the helper is handed it, under a frit's name.
         frit: FritText,
-        /// `cell=`, unless `font-size` is configured.
+        /// The look's `cell`, else the frit's `cell=` unless `font-size`
+        /// is configured.
         cell: Option<Cell>,
-        /// `size=`, unless `font-size` is configured.
+        /// `size=`, unless `font-size` is configured or the look states a
+        /// cell.
         size: Option<u32>,
         /// Its bitmap first source's own cell, as the helper tells it for a
         /// frit that states no cell, with no `font-size` configured.
@@ -601,11 +602,14 @@ pub struct Rung {
 impl Chosen {
     /// The frit `frit`, its cell and size read from its text before the
     /// first frame (#145), unless `sized`, a configured `font-size`, wins
-    /// over them (ADR-1200 D16, D17). Its `size=` counts for an outline
-    /// frit only: points do not apply to bitmap fonts (the operator's
-    /// decision on vtium/vtium#145). A name that is not a frit's goes to
-    /// the helper as [`GENERATED`]. The error is why they cannot be read.
-    pub fn frit(mut frit: FritText, sized: bool) -> Result<Chosen, String> {
+    /// over them (ADR-1200 D16, D17), or `look`, the cell the head's look
+    /// states, which is more specific than the frit and wins over its
+    /// `cell=` and `size=` alike (ADR-1403 D5). Its `size=` counts for an
+    /// outline frit only: points do not apply to bitmap fonts (the
+    /// operator's decision on vtium/vtium#145). A name that is not a
+    /// frit's goes to the helper as [`GENERATED`]. The error is why they
+    /// cannot be read.
+    pub fn frit(mut frit: FritText, sized: bool, look: Option<Cell>) -> Result<Chosen, String> {
         let cell = frit_cell(&frit.text)?;
         let size = frit_size(&frit.text)?;
         let outline = frit_outline(&frit.text);
@@ -617,8 +621,8 @@ impl Chosen {
             name,
             outline,
             frit,
-            cell: cell.filter(|_| !sized),
-            size: size.filter(|_| !sized && outline),
+            cell: look.or(cell.filter(|_| !sized)),
+            size: size.filter(|_| !sized && outline && look.is_none()),
             own: None,
             heights: std::collections::BTreeMap::new(),
             generated: Shared::default(),
@@ -1075,7 +1079,7 @@ mod tests {
             name: "f".into(),
             text: text.into(),
         };
-        Chosen::frit(frit, sized).expect("a frit")
+        Chosen::frit(frit, sized, None).expect("a frit")
     }
 
     // ADR-1200 D17: at 72 DPI, the C reference's fixed density, an
@@ -1221,8 +1225,35 @@ mod tests {
                 name: "f".into(),
                 text: text.into(),
             };
-            let e = Chosen::frit(frit, false).expect_err(text);
+            let e = Chosen::frit(frit, false, None).expect_err(text);
             assert!(e.contains(why), "{text:?}: {e}");
+        }
+    }
+
+    // ADR-1403 D5, ADR-1200 D16: the look is more specific than its frit,
+    // so a cell the look states wins over the frit's cell= and size=, and
+    // the frit asks the helper for no cell of its own
+    #[test]
+    fn a_looks_cell_wins_over_its_frits_cell_and_size() {
+        let look = Some(cell(12, 24));
+        for text in [
+            "source=outline:/f.ttf\ncell=10x20\nsize=16\n",
+            "source=outline:/f.ttf\nsize=16\n",
+            "source=kbd:x\ncell=10x20\n",
+            "source=kbd:x\n",
+        ] {
+            let frit = FritText {
+                name: "f".into(),
+                text: text.into(),
+            };
+            let f = Chosen::frit(frit, false, look).expect("a frit");
+            assert_eq!(f.auto_height(320, 240, "C", 96.0), 24, "{text:?}");
+            assert_eq!(
+                f.face(24, "C").expect("a face").cell(),
+                cell(12, 24),
+                "{text:?}"
+            );
+            assert!(!f.wants_own_cell(24, false), "{text:?}");
         }
     }
 

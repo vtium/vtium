@@ -8,7 +8,7 @@
 use std::ffi::OsString;
 use std::path::PathBuf;
 
-use super::keys::{self, Kind};
+use super::keys::{self, Kind, Scope};
 use super::{Assignment, Origin, Problem, Reports, Value, value};
 use crate::check::{NO_DEVICES, SUBCOMMAND};
 
@@ -144,6 +144,12 @@ pub(super) fn parse(args: &[OsString], reports: &mut Reports) -> Parsed {
                         }
                     },
                 };
+                // a look's own key, such as `cell`, takes its value word
+                // and is refused
+                if key.scope == Scope::Section {
+                    reports.push(origin, Problem::SectionOnly(key.name));
+                    continue;
+                }
                 match value::parse(key, &text, &origin, reports) {
                     Some(v) => v,
                     None => continue,

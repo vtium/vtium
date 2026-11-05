@@ -572,36 +572,32 @@ impl Command<'_, '_> {
             .ok_or_else(|| Fail::Usage("look takes add, set or rm".to_owned()))?;
         match sub.as_str() {
             "add" => {
-                let args = Args::parse(rest, &CHANGE, &["--frit", "--size"])?;
+                let valued: Vec<&str> = ops::LOOK_KEYS.iter().map(|(_, o)| *o).collect();
+                let args = Args::parse(rest, &CHANGE, &valued)?;
                 let [name] = args.words.as_slice() else {
                     return Err(Fail::Usage("look add takes NAME".to_owned()));
                 };
-                let (frit, size) = (
-                    args.value("--frit").map(str::to_owned),
-                    args.value("--size").map(str::to_owned),
-                );
-                self.change(&args, |t| {
-                    ops::look_add(t, name, frit.as_deref(), size.as_deref())
-                })
+                let keys: Vec<(&str, Option<&str>)> = ops::LOOK_KEYS
+                    .iter()
+                    .filter_map(|(k, o)| args.value(o).map(|v| (*k, Some(v))))
+                    .collect();
+                self.change(&args, |t| ops::look_add(t, name, &keys))
             }
             "set" => {
-                const KEYS: [(&str, &str); 5] = [
-                    ("--frit", "font-name"),
-                    ("--size", "font-size"),
-                    ("--engine", "font-engine"),
-                    ("--hinting", "font-hinting"),
-                    ("--line-spacing", "font-line-spacing"),
-                ];
-                let valued: Vec<&str> = KEYS.iter().map(|(o, _)| *o).chain(["--name"]).collect();
+                let valued: Vec<&str> = ops::LOOK_KEYS
+                    .iter()
+                    .map(|(_, o)| *o)
+                    .chain(["--name"])
+                    .collect();
                 let args = Args::parse(rest, &CHANGE, &valued)?;
                 let [name] = args.words.as_slice() else {
                     return Err(Fail::Usage(
                         "look set takes NAME and the keys to change".to_owned(),
                     ));
                 };
-                let keys: Vec<(&str, Option<&str>)> = KEYS
+                let keys: Vec<(&str, Option<&str>)> = ops::LOOK_KEYS
                     .iter()
-                    .filter_map(|(o, k)| args.value(o).map(|v| (*k, Some(v))))
+                    .filter_map(|(k, o)| args.value(o).map(|v| (*k, Some(v))))
                     .collect();
                 let rename = args.value("--name").map(str::to_owned);
                 if keys.is_empty() && rename.is_none() {

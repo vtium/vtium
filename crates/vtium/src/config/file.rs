@@ -53,9 +53,16 @@ pub(super) fn parse(bytes: &[u8], path: &Path, reports: &mut Reports) -> Vec<Ass
             reports.push(origin, Problem::UnknownKey(name.to_owned()));
             continue;
         };
-        if key.scope == Scope::CommandLine {
-            reports.push(origin, Problem::CommandLineOnly(key.name));
-            continue;
+        match key.scope {
+            Scope::CommandLine => {
+                reports.push(origin, Problem::CommandLineOnly(key.name));
+                continue;
+            }
+            Scope::Section => {
+                reports.push(origin, Problem::SectionOnly(key.name));
+                continue;
+            }
+            Scope::Anywhere => {}
         }
         let value = match (key.kind, text) {
             (Kind::Switch, None) => Some(Value::Switch(!negated)),

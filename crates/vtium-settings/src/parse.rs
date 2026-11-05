@@ -487,6 +487,7 @@ fn table_value(key: &'static Key, value: &str) -> Result<(), Problem> {
         keys::Kind::Path if !keys::absolute(value) => Err(bad()),
         keys::Kind::Paths if !value.split(':').all(keys::absolute) => Err(bad()),
         keys::Kind::Choice(words) if !words.contains(&value) => Err(bad()),
+        keys::Kind::Cell if keys::parse_cell(value).is_none() => Err(bad()),
         keys::Kind::Number { word, .. } if word == Some(value) => Ok(()),
         keys::Kind::Number { min, max, unit, .. } => {
             // a byte count may end in K, M or G, powers of 1024

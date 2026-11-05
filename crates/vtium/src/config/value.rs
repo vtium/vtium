@@ -224,6 +224,22 @@ pub(super) fn parse(
                 }
             }
         }
+        Kind::Cell => match keys::parse_cell(text) {
+            Some((w, h)) => Some(Value::Size(w, h)),
+            None => {
+                let value = text.to_owned();
+                let why = "a cell is WIDTHxHEIGHT in pixels, as a frit's cell= line writes it";
+                reports.push(
+                    origin.clone(),
+                    Problem::BadValue {
+                        key: key.name,
+                        value,
+                        why,
+                    },
+                );
+                None
+            }
+        },
         Kind::Size { max } => match parse_size(text, max) {
             Ok((w, h)) => Some(Value::Size(w, h)),
             Err(why) => {

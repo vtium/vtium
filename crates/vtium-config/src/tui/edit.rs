@@ -67,16 +67,6 @@ pub enum Change {
     },
 }
 
-/// The look keys the look card edits, each with the option of `vtium
-/// config look set` that sets it.
-pub const LOOK_KEYS: [(&str, &str); 5] = [
-    ("font-name", "--frit"),
-    ("font-size", "--size"),
-    ("font-engine", "--engine"),
-    ("font-hinting", "--hinting"),
-    ("font-line-spacing", "--line-spacing"),
-];
-
 /// The head keys the head card edits, after its look.
 pub const HEAD_KEYS: [&str; 4] = ["consoles", "login", "when-display-lost", "isolated"];
 
@@ -127,9 +117,14 @@ impl Change {
             }
             Change::HeadRename { name, new } => ops::rename(text, Of::Head(name), new),
             Change::HeadRm(name) => ops::head_rm(text, name),
-            Change::LookAdd { name, frit, size } => {
-                ops::look_add(text, name, frit.as_deref(), size.as_deref())
-            }
+            Change::LookAdd { name, frit, size } => ops::look_add(
+                text,
+                name,
+                &[
+                    ("font-name", frit.as_deref()),
+                    ("font-size", size.as_deref()),
+                ],
+            ),
             Change::LookKey { name, key, value } => {
                 ops::section_keys(text, Of::Look(name), &[(key, value.as_deref())])
             }
@@ -183,19 +178,15 @@ impl Change {
             Change::HeadRm(name) => format!("{c} head rm {}", shell(name)),
             Change::LookAdd { name, frit, size } => {
                 let mut out = format!("{c} look add {}", shell(name));
-                if let Some(f) = frit {
-                    out.push_str(&format!(" --frit {}", shell(f)));
-                }
-                if let Some(s) = size {
-                    out.push_str(&format!(" --size {}", shell(s)));
+                for (key, value) in [("font-name", frit), ("font-size", size)] {
+                    if let (Some(option), Some(v)) = (ops::look_option(key), value) {
+                        out.push_str(&format!(" {option} {}", shell(v)));
+                    }
                 }
                 out
             }
             Change::LookKey { name, key, value } => {
-                let option = LOOK_KEYS
-                    .iter()
-                    .find(|(k, _)| k == key)
-                    .map_or(*key, |(_, o)| *o);
+                let option = ops::look_option(key).unwrap_or(key);
                 format!(
                     "{c} look set {} {option} {}",
                     shell(name),
@@ -448,7 +439,7 @@ pub fn fields(flow: &Flow, item: Item, values: &[String], frits: &[String]) -> V
                 typed: true,
                 what: What::LookName(look.name.clone()),
             }];
-            for (key, _) in LOOK_KEYS {
+            for (key, _) in ops::LOOK_KEYS {
                 let (current, options) = match key {
                     "font-name" => (look.frit.clone(), frits.to_vec()),
                     "font-size" => (look.points.to_string(), sizes()),
