@@ -27,7 +27,7 @@ When vtium misbehaves on a VT, these steps get you out, in this order:
 
     `disable` decides what starts on VT 3 from now on ([Giving vtium a VT](install.md#giving-vtium-a-vt)). Starting the getty stops vtium on VT 3, because vtium's unit conflicts with the getty's, and that ends every session there. On the development VT, `vtium console disable` refuses, since the development install holds the VT, and the `systemctl start getty@tty5.service` line alone stops `vtium-dev` there; `make vt-uninstall VT=5` takes the install off for good ([The development VT](vt-review.md#installing-vtium-on-a-vt)).
 
-When vtium fails, systemd starts it again. From systemd 254 on, each failure also starts vtium's fallback, which starts the VT's getty unless the head file's policy is `closed`, so under an open policy you get a plain login prompt at the first failure instead of a dead screen ([A VT that shows a getty](#a-vt-that-shows-a-getty)).
+When vtium fails, systemd starts it again. From systemd 254 on, each failure also starts vtium's fallback, which starts the VT's getty unless vtium.conf's policy is `closed`, so under an open policy you get a plain login prompt at the first failure instead of a dead screen ([A VT that shows a getty](#a-vt-that-shows-a-getty)).
 
 ## Reading vtium console status
 
@@ -73,7 +73,7 @@ A getty that ran on the VT before you gave it to vtium also keeps the VT until i
 ## A VT that shows nothing
 
 - vtium turns its displays off after `dpms-timeout`, 600 seconds by default, with no key press or pointer action. Press a key.
-- Under a head file whose policy is `closed`, the fallback starts no getty, since a getty's login would take any keyboard, and vtium waits for a display however long it takes. Run `vtium check-config` and read the log.
+- Under a vtium.conf whose policy is `closed`, the fallback starts no getty, since a getty's login would take any keyboard, and vtium waits for a display however long it takes. Run `vtium check-config` and read the log.
 - A VT whose link still names `vtium@.service` after the package was removed gets no console at all. The [vtium-arch README](https://github.com/vtium/vtium-arch#removing-vtium) gives the commands that clean such links up.
 
 ## A VT that stays black after you switch back to it
