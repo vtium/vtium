@@ -455,12 +455,16 @@ pub struct Renderer<F> {
     /// drawn's palette; `None` follows the foreground.
     deco: (Option<Rgb>, Option<Rgb>),
     compose: Composer,
-    /// The font's underline and strike-through lines the sprites and the
-    /// glyph cache's stand-ins were made from.
+    /// The font's underline and strike-through lines the decoration
+    /// sprites were made from.
     lines: Decorations,
     /// Characters the font draws differently since the last frame, sorted:
     /// the cells showing one draw again ([`Renderer::glyphs_changed`]).
     changed: Vec<char>,
+    /// Whether the font gained glyphs since the last frame. The cells that
+    /// draw the font's missing glyph ([`vtium_font::Font::draws_missing`])
+    /// then draw again, since the set that arrived may hold U+25A1 or `?`.
+    missing: bool,
     /// Display areas something other than the renderer drew over since the
     /// last frame ([`Renderer::redraw_area`]).
     touched: Vec<Rect>,
@@ -600,6 +604,7 @@ impl<F: Face> Renderer<F> {
             mono_line: Vec::new(),
             deco: (None, None),
             changed: Vec::new(),
+            missing: false,
             touched: Vec::new(),
             #[cfg(feature = "gpu")]
             gpu,
@@ -636,8 +641,11 @@ impl<F: Face> Renderer<F> {
     /// pipeline's generated glyphs arrive (ADR-1301 D2): the cache drops
     /// the glyphs whose text holds one of `chars`, alone or in a cluster,
     /// and the next frame draws again each cell that shows one (ADR-1200
-    /// D23). Every other glyph stays cached, and every other cell keeps its
-    /// pixels.
+    /// D23). The cache drops too each glyph the font draws as its missing
+    /// glyph, and the next frame draws again each cell that shows one, so a
+    /// set that brings U+25A1 replaces the drawing of every character no
+    /// font holds. Every other glyph stays cached, and every other cell
+    /// keeps its pixels.
     ///
     /// When the font's underline and strike-through lines changed too, as
     /// an outline font's do once the glyph helper has measured them, the
@@ -645,7 +653,8 @@ impl<F: Face> Renderer<F> {
     pub fn glyphs_changed(&mut self, chars: &[char]) {
         self.lines_changed();
         let arrived = sorted(chars);
-        self.compose.cache.forget(&arrived);
+        self.compose.cache.forget(&arrived, &self.font);
+        self.missing |= !arrived.is_empty();
         #[cfg(feature = "gpu")]
         self.gpu.forget(&arrived);
         self.changed.extend_from_slice(&arrived);
@@ -677,14 +686,17 @@ impl<F: Face> Renderer<F> {
     /// The font now draws each of `chars` differently, and no cell shows
     /// one: the cache drops the glyphs whose text holds one, alone or in a
     /// cluster, so a cell that shows one later draws the font's new glyph
-    /// (ADR-1200 D7), and no cell draws again now. Every other glyph stays
-    /// cached.
+    /// (ADR-1200 D7), and no cell draws again now. The glyphs the font
+    /// draws as its missing glyph go too, as [`Renderer::glyphs_changed`]
+    /// drops them, and the next frame draws again each cell that shows one.
+    /// Every other glyph stays cached.
     ///
     /// When the font's lines changed too, the renderer takes them, as
     /// [`Renderer::glyphs_changed`] does.
     pub fn forget_glyphs(&mut self, chars: &[char]) {
         self.lines_changed();
-        self.compose.cache.forget(&sorted(chars));
+        self.compose.cache.forget(&sorted(chars), &self.font);
+        self.missing |= !chars.is_empty();
         #[cfg(feature = "gpu")]
         self.gpu.forget(chars);
     }
@@ -902,6 +914,7 @@ impl<F: Face> Renderer<F> {
         #[cfg(feature = "images")]
         self.compose.pictures.end_frame();
         self.changed.clear();
+        self.missing = false;
         let layout = self.layout;
         let grid = plan.grid;
         let whole = plan.full.then_some(Rect {
@@ -1006,10 +1019,10 @@ impl<F: Face> Renderer<F> {
         (drawn, scanned)
     }
 
-    /// Whether `row` shows a character [`Renderer::glyphs_changed`] named,
-    /// read from its line's glyphs alone.
+    /// Whether `row` shows a glyph that changed since the last frame
+    /// ([`Renderer::shows_changed`]), read from its line's glyphs alone.
     fn row_shows_changed(&self, frame: &Frame<'_>, row: usize, cols: usize) -> bool {
-        !self.changed.is_empty()
+        (self.missing || !self.changed.is_empty())
             && frame.line(row).is_some_and(|line| {
                 line.cells()
                     .iter()
@@ -1018,14 +1031,26 @@ impl<F: Face> Renderer<F> {
             })
     }
 
-    /// Whether `glyph` shows a character [`Renderer::glyphs_changed`] named.
+    /// Whether `glyph` shows a character [`Renderer::glyphs_changed`] named,
+    /// or, after an arrival, the font's missing glyph.
     fn shows_changed(&self, glyph: &Glyph<'_>) -> bool {
         let changed = |c: char| self.changed.binary_search(&c).is_ok();
+        // the font decides from a cluster's first character and whether
+        // more follow
+        let missing = |text: &[char]| self.missing && self.font.draws_missing(text);
         match *glyph {
-            _ if self.changed.is_empty() => false,
             Glyph::Empty => false,
-            Glyph::Char(c) => changed(c),
-            Glyph::Cluster(text) => text.chars().any(changed),
+            Glyph::Char(c) => changed(c) || missing(&[c]),
+            Glyph::Cluster(text) => {
+                let mut cs = text.chars();
+                let first_two = [cs.next(), cs.next()];
+                text.chars().any(changed)
+                    || match first_two {
+                        [Some(a), Some(b)] => missing(&[a, b]),
+                        [Some(a), None] => missing(&[a]),
+                        _ => false,
+                    }
+            }
         }
     }
 

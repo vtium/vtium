@@ -350,9 +350,10 @@ impl Glyphs {
     }
 
     /// Forgets each glyph whose text holds one of `chars`, which are
-    /// sorted.
-    pub(crate) fn forget(&mut self, chars: &[char]) {
-        self.cache.forget(chars);
+    /// sorted, and each glyph `font` draws as its missing glyph
+    /// ([`GlyphCache::forget`]).
+    pub(crate) fn forget<F: Face>(&mut self, chars: &[char], font: &Font<F>) {
+        self.cache.forget(chars, font);
         self.reclaim();
     }
 
@@ -658,7 +659,7 @@ mod tests {
         assert_eq!(g.take_notes().len(), 1);
         g.end_frame();
         // a glyph forgotten gives its slot back, which the 65th then takes
-        g.forget(&['A']);
+        g.forget(&['A'], &font);
         g.begin_frame();
         assert!(
             g.glyph(&mut gl, &font, &last, Width::Narrow, style)

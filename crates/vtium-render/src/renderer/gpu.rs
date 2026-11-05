@@ -161,7 +161,7 @@ impl<F: Face> Renderer<F> {
             Ok(glyphs) => glyphs,
             Err(e) => return Err(self.failed_after_plan(e)),
         };
-        glyphs.forget(&sorted(&core::mem::take(&mut self.gpu.forget)));
+        glyphs.forget(&sorted(&core::mem::take(&mut self.gpu.forget)), &self.font);
         let mut back = GpuBack::new(gl, &mut *glyphs, turn);
         let counts = self.paint(&plan, frame, state, &mut back);
         #[cfg(feature = "images")]
