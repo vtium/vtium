@@ -20,16 +20,18 @@
 //! flow is not read from a draft, so the view changes nothing, and Install
 //! says that the demo installs nothing.
 //!
-//! Both refuse to start unless `HOME` and every XDG directory lie under
-//! ROOT, so nothing the TUI writes reaches the caller's own home, and both
-//! refuse to run as root. `make tui-demo` makes ROOT, sets the variables
-//! and removes ROOT afterwards.
+//! Both refuse to start unless ROOT is a fresh, empty directory named by
+//! its real path, neither the caller's home nor above it, and `HOME` and
+//! every XDG directory lie under ROOT with no `..` in their paths, so
+//! nothing the TUI writes reaches the caller's own files; and both refuse
+//! to run as root. `make tui-demo` makes ROOT, sets the variables and
+//! removes ROOT afterwards.
 
 use std::ffi::OsString;
 use std::io;
 use std::os::unix::fs::{PermissionsExt, symlink};
 use std::os::unix::process::CommandExt;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Duration;
 
@@ -48,25 +50,82 @@ const HOMES: [&str; 5] = [
     "XDG_CACHE_HOME",
 ];
 
+/// Whether `path` is absolute and climbs nowhere: no `.` or `..` in it.
+fn plain(path: &Path) -> bool {
+    path.is_absolute()
+        && path
+            .components()
+            .all(|c| !matches!(c, Component::ParentDir | Component::CurDir))
+}
+
 /// Why the demo will not start with `root` as its throwaway directory, if
-/// it will not.
-fn refusal(root: &Path) -> Option<String> {
-    if rustix::process::geteuid().is_root() {
+/// it will not: `var` reads the environment, `home` is the user's own home
+/// from the password database, and `as_root` says whether the demo runs as
+/// root. ROOT must be a fresh, empty directory, named by its real path and
+/// neither the user's home nor a directory above it, and `HOME` and every
+/// XDG directory must lie under it, named with no `..`.
+fn refusal(
+    root: &Path,
+    var: &dyn Fn(&str) -> Option<OsString>,
+    home: Option<&Path>,
+    as_root: bool,
+) -> Option<String> {
+    if as_root {
         return Some("run the demo as yourself, never as root".into());
     }
-    if !root.is_absolute() {
-        return Some(format!("{}: ROOT must be an absolute path", root.display()));
+    let shown = root.display();
+    if !plain(root) {
+        return Some(format!(
+            "{shown}: ROOT must be an absolute path with no . or .. in it"
+        ));
     }
-    for var in HOMES {
-        let under = std::env::var_os(var).is_some_and(|v| Path::new(&v).starts_with(root));
+    match std::fs::canonicalize(root) {
+        Ok(real) if real == root => {}
+        Ok(real) => {
+            return Some(format!(
+                "{shown}: ROOT must be named by its real path, {}",
+                real.display()
+            ));
+        }
+        Err(e) => return Some(format!("{shown}: {e}")),
+    }
+    if let Some(home) = home {
+        let home = std::fs::canonicalize(home).unwrap_or_else(|_| home.to_owned());
+        if home.starts_with(root) {
+            return Some(format!(
+                "{shown}: ROOT must not be your own home, {}, or a directory above it",
+                home.display()
+            ));
+        }
+    }
+    match std::fs::read_dir(root).map(|mut entries| entries.next().is_none()) {
+        Ok(true) => {}
+        Ok(false) => return Some(format!("{shown}: ROOT must be a fresh, empty directory")),
+        Err(e) => return Some(format!("{shown}: {e}")),
+    }
+    for name in HOMES {
+        let under = var(name).is_some_and(|v| {
+            let v = Path::new(&v);
+            plain(v) && v.starts_with(root)
+        });
         if !under {
             return Some(format!(
-                "{var} must name a directory under {}, so the demo never touches your own files",
-                root.display()
+                "{name} must name a directory under {shown}, with no . or .. in it, so the demo never touches your own files"
             ));
         }
     }
     None
+}
+
+/// The home the password database gives the user `uid`, read from
+/// `/etc/passwd`; `None` when it names none there.
+fn own_home(uid: u32) -> Option<PathBuf> {
+    let text = std::fs::read_to_string("/etc/passwd").ok()?;
+    text.lines().find_map(|line| {
+        let fields: Vec<&str> = line.split(':').collect();
+        let home = fields.get(5)?;
+        (fields.get(2)?.parse::<u32>().ok()? == uid).then(|| PathBuf::from(home))
+    })
 }
 
 fn write(path: &Path, text: &[u8]) -> io::Result<()> {
@@ -257,8 +316,16 @@ fn main() -> ExitCode {
         [m, r] if m == "figure" => ("figure", PathBuf::from(r), None),
         _ => return usage(),
     };
-    if let Some(why) = refusal(&root) {
+    let as_root = rustix::process::geteuid().is_root();
+    let home = own_home(rustix::process::getuid().as_raw());
+    if let Some(why) = refusal(&root, &|n| std::env::var_os(n), home.as_deref(), as_root) {
         eprintln!("tui-demo: {why}");
+        return ExitCode::FAILURE;
+    }
+    if let Some(home) = std::env::var_os("HOME")
+        && let Err(e) = std::fs::create_dir_all(&home)
+    {
+        eprintln!("tui-demo: {}: {e}", Path::new(&home).display());
         return ExitCode::FAILURE;
     }
     let result = match (mode, program) {
@@ -271,5 +338,120 @@ fn main() -> ExitCode {
             eprintln!("tui-demo: {why}");
             ExitCode::FAILURE
         }
+    }
+}
+
+#[cfg(test)]
+#[expect(clippy::expect_used, reason = "a test fails by panicking")]
+mod tests {
+    use super::*;
+
+    /// A fresh, empty directory of this test's own.
+    fn fresh(name: &str) -> PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("vtium-tui-demo-test-{}-{name}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("the directory");
+        dir
+    }
+
+    /// The variables the demo sets, each under `root`, with `name` set to
+    /// `value` instead when it is given.
+    fn vars(root: &Path, name: &str, value: Option<&str>) -> impl Fn(&str) -> Option<OsString> {
+        let root = root.to_owned();
+        let (name, value) = (name.to_owned(), value.map(str::to_owned));
+        move |n: &str| {
+            if n == name {
+                return value.clone().map(OsString::from);
+            }
+            Some(root.join("home").join(n).into_os_string())
+        }
+    }
+
+    fn refused(root: &Path, var: &dyn Fn(&str) -> Option<OsString>, home: &Path) -> bool {
+        refusal(root, var, Some(home), false).is_some()
+    }
+
+    #[test]
+    fn a_fresh_empty_root_with_every_home_under_it_starts() {
+        let root = fresh("ok");
+        let home = Path::new("/home/someone");
+        assert_eq!(
+            refusal(&root, &vars(&root, "", None), Some(home), false),
+            None
+        );
+    }
+
+    #[test]
+    fn the_demo_never_runs_as_root() {
+        let root = fresh("root");
+        assert!(refusal(&root, &vars(&root, "", None), None, true).is_some());
+    }
+
+    #[test]
+    fn a_home_that_climbs_out_of_root_or_lies_elsewhere_is_refused() {
+        let root = fresh("escape");
+        let home = Path::new("/home/someone");
+        let out = format!("{}/../escape", root.display());
+        for name in HOMES {
+            assert!(
+                refused(&root, &vars(&root, name, Some(&out)), home),
+                "{name} with .."
+            );
+            assert!(
+                refused(&root, &vars(&root, name, Some("/tmp/elsewhere")), home),
+                "{name}"
+            );
+            assert!(
+                refused(&root, &vars(&root, name, None), home),
+                "{name} unset"
+            );
+            assert!(
+                refused(&root, &vars(&root, name, Some("home")), home),
+                "{name} relative"
+            );
+        }
+    }
+
+    #[test]
+    fn root_must_be_a_fresh_empty_directory() {
+        let home = Path::new("/home/someone");
+        let full = fresh("full");
+        std::fs::write(full.join("kept"), b"x").expect("a file");
+        assert!(refused(&full, &vars(&full, "", None), home), "not empty");
+        let gone = fresh("gone").join("missing");
+        assert!(refused(&gone, &vars(&gone, "", None), home), "missing");
+        let up = fresh("up");
+        let dotted = up.join("x").join("..");
+        std::fs::create_dir_all(up.join("x")).expect("x");
+        assert!(refused(&dotted, &vars(&dotted, "", None), home), "with ..");
+        let relative = Path::new("relative");
+        assert!(
+            refused(relative, &vars(relative, "", None), home),
+            "relative"
+        );
+        let target = fresh("target");
+        let link = fresh("link-parent").join("link");
+        symlink(&target, &link).expect("a link");
+        assert!(refused(&link, &vars(&link, "", None), home), "a link");
+    }
+
+    #[test]
+    fn root_at_or_above_the_users_own_home_is_refused() {
+        let base = fresh("homes");
+        let home = base.join("someone");
+        std::fs::create_dir_all(&home).expect("the home");
+        let empty_home = fresh("empty-home");
+        assert!(
+            refused(&empty_home, &vars(&empty_home, "", None), &empty_home),
+            "the home"
+        );
+        let above = fresh("above");
+        let below = above.join("someone");
+        assert!(
+            refused(&above, &vars(&above, "", None), &below),
+            "above the home"
+        );
+        let _ = home;
     }
 }
