@@ -113,7 +113,11 @@ considered:
     said: "Keep status text minimal: no running commentary such as a udev daemon runs; the status line shows only what the user needs to act on, the draft's state against the installed file, what changed, and what fails. The base configuration, the flat top-level keys such as policy, hwaccel, mouse, the keyboard layout and the font size, is editable in the view as well, through a base card opened with Enter like any card, and on the command line with vtium config set KEY VALUE and --unset KEY, both through the draft."
     via: the steering session, relaying the maintainer's decisions of 2026-11-04
     paraphrase: true
-status: proposed
+  - operator: aaronsb
+    said: "Accept [as summarized: D1 to D8 as decided, and D9's code changes]"
+    via: the steering session's summary of D1 to D9 in chat, 2026-11-04, final read
+    paraphrase: true
+status: accepted
 date: 2026-11-04
 deciders:
   - aaronsb
