@@ -1,5 +1,5 @@
  Flow  Looks  Fonts  Settings  Help               View  Install  Revert  Restore  New  Delete draft
- draft workstation · 1 change · no problems                                        live preview: on
+ draft workstation · 1 change · no problems                                          text · t: live
  Route card: keyboard, usb-0:3.3
  It types into desk, the active head, by roaming; into panel when panel is active.
 

@@ -1,5 +1,5 @@
  Flow  Looks  Fonts  Settings  Help       View Install Revert Restore New Delete
- draft bench · no changes · no problems                        live preview: on
+ draft bench · no changes · no problems                          text · t: live
  base   font-size 12   (102 keys at their defaults)
 DISPLAYS     DISPLAY RULES  HEADS       LOOK         INPUT RULES    DEVICES
              1 * -> desk  ╌► desk        big, auto… ┌2 path:…0:3.3◄─ kbd
@@ -22,4 +22,4 @@ DISPLAYS     DISPLAY RULES  HEADS       LOOK         INPUT RULES    DEVICES
  ▸ sends to           desk  panel  off  type…
    matches            *  type…
                       move up  move down  delete
- ↑↓ field  ←→ pick  Enter choose  Esc close  q leave
+ ↑↓ field  ←→ pick  Enter choose  t try live  Esc close  q leave

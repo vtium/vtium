@@ -5,3 +5,21 @@ card-100x30	the flow view at 100x30 with rule 5 opened below the columns
 draft-rule-card-100x30	the flow view on a draft at 100x30 with rule 1's card open for editing
 draft-head-card-100x30	the flow view on a draft at 100x30 with head desk's card open for editing
 draft-delete-head-100x30	the flow view on a draft at 100x30 asking before it deletes head desk
+flow-80x25	ADR-1201 D4 amendment 2026-11-05: the header and key line for picture preview, awaiting review
+draft-rule-card-80x25	ADR-1201 D4 amendment 2026-11-05: the header and key line for picture preview, awaiting review
+draft-head-card-80x25	ADR-1201 D4 amendment 2026-11-05: the header and key line for picture preview, awaiting review
+draft-delete-head-80x25	ADR-1201 D4 amendment 2026-11-05: the header and key line for picture preview, awaiting review
+route-80x25	ADR-1201 D4 amendment 2026-11-05: the header and key line for picture preview, awaiting review
+looks-80x25	ADR-1201 D4 amendment 2026-11-05: the header and key line for picture preview, awaiting review
+draft-pager-80x25	ADR-1201 D4 amendment 2026-11-05: the header and key line for picture preview, awaiting review
+fonts-80x25	ADR-1201 D4 amendment 2026-11-05: the header and key line for picture preview, awaiting review
+settings-80x25	ADR-1201 D4 amendment 2026-11-05: the header and key line for picture preview, awaiting review
+help-80x25	ADR-1201 D4 amendment 2026-11-05: the header and key line for picture preview, awaiting review
+new-80x25	ADR-1201 D4 amendment 2026-11-05: the header and key line for picture preview, awaiting review
+draft-pager-100x30	ADR-1201 D4 amendment 2026-11-05: the header and key line for picture preview, awaiting review
+route-100x30	ADR-1201 D4 amendment 2026-11-05: the header and key line for picture preview, awaiting review
+looks-100x30	ADR-1201 D4 amendment 2026-11-05: the header and key line for picture preview, awaiting review
+fonts-100x30	ADR-1201 D4 amendment 2026-11-05: the header and key line for picture preview, awaiting review
+settings-100x30	ADR-1201 D4 amendment 2026-11-05: the header and key line for picture preview, awaiting review
+help-100x30	ADR-1201 D4 amendment 2026-11-05: the header and key line for picture preview, awaiting review
+new-100x30	ADR-1201 D4 amendment 2026-11-05: the header and key line for picture preview, awaiting review

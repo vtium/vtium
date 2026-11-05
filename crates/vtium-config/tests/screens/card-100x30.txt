@@ -1,5 +1,5 @@
  Flow  Looks  Fonts  Settings  Help               View  Install  Revert  Restore  New  Delete draft
- draft workstation · 1 change · no problems                                        live preview: on
+ draft workstation · 1 change · no problems                                          text · t: live
  base   policy open   font-size 12   xkb-layout us   mouse   (101 keys at their defaults)
 DISPLAYS        DISPLAY RULES       HEADS       LOOK            INPUT RULES         INPUT DEVICES
  DP-8        ──►1 edid:AA…GE00001┬─► desk        big, 14 pt  ◄╌╌4 serial:…:c31c:0◄╌╌ * 046d:c31c:0
