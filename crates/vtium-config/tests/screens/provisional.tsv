@@ -3,8 +3,6 @@ fonts-80x25	the fonts view at 80x25
 fonts-100x30	the fonts view at 100x30
 settings-80x25	the settings view at 80x25
 settings-100x30	the settings view at 100x30
-save-80x25	the save view at 80x25
-save-100x30	the save view at 100x30
 new-80x25	the new-frit view at 80x25
 new-100x30	the new-frit view at 100x30
 flow-80x25	the flow view at 80x25, on the flow of ADR-1403 D7's figure
