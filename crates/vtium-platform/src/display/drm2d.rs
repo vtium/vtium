@@ -2628,11 +2628,16 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     /// only the displays' connectors, so a display can take a CRTC another
     /// connector is on, and two connectors on one CRTC are a clone, which
     /// the kernel refuses for encoders that cannot clone each other
-    /// (`drm_atomic_check_valid_clones`). Each connector's CRTC is read
-    /// from its `CRTC_ID`. A connector vtium cannot read is left as it is,
-    /// with a warning, and the card refuses the commit where it shares a
-    /// display's CRTC. The legacy CRTC set takes every other connector off
-    /// the CRTC it sets (`update_output_state`), so it needs none of this.
+    /// (`drm_atomic_check_valid_clones`). vtium does not read which
+    /// encoders can clone, so it also takes off a connector whose encoder
+    /// could clone with the display's: a mirror the card could have kept,
+    /// such as two monitors a desktop left on one CRTC, ends, and that
+    /// connector stays dark. Each connector's CRTC is read from its
+    /// `CRTC_ID`. A connector whose properties cannot be read is left as it
+    /// is, with a warning where its encoder shows it on a CRTC a display
+    /// takes, as the card then refuses the commit. The legacy CRTC set
+    /// takes every other connector off the CRTC it sets
+    /// (`update_output_state`), so it needs none of this.
     fn take_others_off(&self, req: &mut Request) {
         let connectors = match self.card.resources() {
             Ok(r) => r.connectors,
@@ -2641,24 +2646,33 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                 return;
             }
         };
+        let taken = |crtc: u32| crtc != 0 && self.outputs.iter().any(|o| o.crtc == crtc);
         for id in connectors {
             if self.outputs.iter().any(|o| o.id.0 == id)
                 || req.entries.iter().any(|&(object, _, _)| object == id)
             {
                 continue;
             }
-            let taken = self
-                .card
-                .properties(id, Object::Connector)
-                .and_then(|props| {
-                    let crtc = value(&props, "CRTC_ID").and_then(|c| u32::try_from(c).ok());
-                    if crtc.is_some_and(|c| c != 0 && self.outputs.iter().any(|o| o.crtc == c)) {
-                        Props::new(&props).set(req, id, "CRTC_ID", 0)?;
+            let props = match self.card.properties(id, Object::Connector) {
+                Ok(props) => props,
+                Err(e) => {
+                    match self.connector_crtc(id).filter(|&c| taken(c)) {
+                        Some(crtc) => log::warn!(
+                            "cannot take connector {id} off CRTC {crtc}, which a display takes: {e}"
+                        ),
+                        None => log::debug!("cannot read the properties of connector {id}: {e}"),
                     }
-                    Ok(())
-                });
-            if let Err(e) = taken {
-                log::warn!("cannot take connector {id} off the CRTC a display takes: {e}");
+                    continue;
+                }
+            };
+            let on = value(&props, "CRTC_ID").and_then(|c| u32::try_from(c).ok());
+            let Some(crtc) = on.filter(|&c| taken(c)) else {
+                continue;
+            };
+            if let Err(e) = Props::new(&props).set(req, id, "CRTC_ID", 0) {
+                log::warn!(
+                    "cannot take connector {id} off CRTC {crtc}, which a display takes: {e}"
+                );
             }
         }
     }

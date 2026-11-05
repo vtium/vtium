@@ -1290,7 +1290,9 @@ fn a_crtc_a_displays_connector_shares_with_another_stays_on() {
 // Where vtium cannot read which CRTC one of the card's connectors is on,
 // that connector might share a CRTC with a display's connector, so the
 // modeset turns no CRTC off. Here B's properties cannot be read, and CRTC
-// 101 stays on with B.
+// 101 stays on with B. B's encoder shows it on 101, which no display
+// takes, so the modeset warns of nothing it cannot take off a display's
+// CRTC.
 #[test]
 fn a_connector_whose_crtc_cannot_be_read_keeps_every_crtc_on() {
     let mut v = a_beside_b_on_101();
@@ -1307,6 +1309,10 @@ fn a_connector_whose_crtc_cannot_be_read_keeps_every_crtc_on() {
         warned
             .iter()
             .any(|l| l.contains("cannot read which CRTC connector 42 is on")),
+        "{warned:?}"
+    );
+    assert!(
+        !warned.iter().any(|l| l.contains("cannot take connector")),
         "{warned:?}"
     );
     let a = drawn(&mut v, A, 0x66);
