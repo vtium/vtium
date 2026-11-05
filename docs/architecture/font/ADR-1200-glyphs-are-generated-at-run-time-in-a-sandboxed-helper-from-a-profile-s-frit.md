@@ -308,7 +308,7 @@ observable:
   - "Tier 3's frit variants on the 1-vCPU, 512 MB guest draw the built-in font first and the frit once the helper answers"
   - Tier 3's 2d-potato-min-psf draws kbd's default8x16, named by a path with no cell, in its own 8x16 cell at 1366x768, as the C reference's goldens do
   - vtium-config report, run as a user on a machine with vtium, prints every part, names the command that reads each part it cannot, and holds neither the hostname nor a monitor serial
-  - On a cold start with a CJK frit, the first frame draws in the built-in font in the profile's cell, the frit's glyphs replace it as the helper sends them, no frame waits on the helper for glyphs, and the grid's size never changes when the glyphs arrive. The only frames that wait are the first frame of a frit made only of bitmap fonts with no cell= line, at the start or after an OSC 50 switch to it. Each waits at most OWN_CELL_MS (100 ms) for the cell the fonts give, and when no answer comes it draws in the display's cell, with one log line
+  - On a cold start with a CJK frit, the first frame draws in the built-in font in the profile's cell, the frit's glyphs replace it as the helper sends them, no frame waits on the helper for glyphs, and the grid's size never changes when the glyphs arrive. The only frames that wait are the first frame of a frit with no cell= line, at the start or after an OSC 50 switch to it, and the frame after an outline frit's zoom or relayout reaches a height whose cell it has not yet asked for. Each waits at most OWN_CELL_MS (100 ms) for the helper's answer. When none comes in time, a zoom step takes the built-in font's width at its new height and any other such frame draws in the display's cell, each with one log line
 status: accepted
 date: 2026-10-28
 deciders:
@@ -787,7 +787,7 @@ How the C reference drew its glyphs, as the logical reference for each decision 
 
 - One path draws every font on every build, with no store, manifest, hash chain, build commands or package hooks to keep.
 - A frit takes effect as soon as it is written, for whatever display it lands on.
-- A start never waits on a font, except for a bitmap frit's own cell, and then for at most 100 ms, and the grid never jumps when glyphs arrive.
+- A start never waits on a font, except for the own cell of a frit with no `cell=` line, and then for at most 100 ms, and the grid never jumps when glyphs arrive.
 - The console's process parses no font, decompresses no file and shapes no text. Each of those runs in a sandboxed process that exits after its idle interval.
 - Memory follows what the screen shows: the store's limit bounds it, and the fill never churns the store.
 - A redraw after an arrival is as small as the cells that show the arrived characters.
@@ -796,10 +796,12 @@ How the C reference drew its glyphs, as the logical reference for each decision 
 
 - Every boot parses and rasterises its fonts again, and a CJK frit's helper holds 13.8 MB while it works on the minspec guest.
 - The first frames after a start, a zoom or a hotplug draw in the built-in font.
-- An OSC 50 switch to a bitmap frit with no `cell=` holds the screen up to 100 ms for its fonts' own cell.
+- An OSC 50 switch to a frit with no `cell=` holds the screen up to 100 ms for its fonts' own cell, and so does an outline frit's zoom or relayout to a height whose cell it has not yet asked for.
 - The console checks the helper's glyphs only for being well-formed.
 - A frit's fonts must be readable by the helper's account.
 - Glyphs cannot be built on one machine for another, and distributions cannot ship prebuilt glyphs.
+
+> Edited 2026-11-04: the cold-start observable, the Positive bullet on what a start waits for and the Negative bullet on the OSC 50 switch now match D17, which since 2026-11-01 has every frit with no `cell=` line ask for its own cell, outline frits included, and has an outline frit's zoom or relayout to a new height wait for its cell too. They read only of a bitmap frit: the observable said "the frames that wait are the first of a frit of bitmap sources that states no cell, at the start or after an OSC 50 switch to it", the Positive bullet "A start never waits on a font but for a bitmap frit's own cell, at most 100 ms", and the Negative bullet "An OSC 50 switch to a bitmap frit with no `cell=` holds the screen up to 100 ms for its fonts' own cell." The earlier text is in git at 3f08e336.
 
 ### Neutral
 
