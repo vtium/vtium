@@ -108,11 +108,11 @@ fn the_parser_runs_without_new_privileges_and_within_its_limits() {
 }
 
 // ADR-1200 (#145): the prerendered store is gone, and with it the commands
-// that built, installed, listed, verified and removed its sets. Each is now
-// an unknown command, a usage error.
+// that built, listed, verified and removed its sets. Each is now an unknown
+// command, a usage error. `install` is the flow's own since ADR-1403 D8.
 #[test]
 fn the_store_commands_are_gone() {
-    for command in ["create", "install", "list", "verify", "remove"] {
+    for command in ["create", "list", "verify", "remove"] {
         let o = Command::new(BIN).arg(command).output().unwrap();
         assert_eq!(status(&o), 2, "{command}: {}", stderr(&o));
         assert!(
@@ -157,7 +157,7 @@ fn as_root_every_path_and_program_option_is_refused() {
     // the one command sudo runs, and the other commands, pass
     assert_eq!(root_refusal(0, &args(&["apply", "/home/me/d"])), None);
     assert_eq!(
-        root_refusal(0, &args(&["--no-banner", "set", "proof"])),
+        root_refusal(0, &args(&["--no-banner", "use-frit", "proof"])),
         None
     );
 }
@@ -169,7 +169,7 @@ fn as_root_the_tui_does_not_open() {
     use std::ffi::OsString;
     use vtium_config::cli::root_refusal;
     let args = |words: &[&str]| words.iter().map(OsString::from).collect::<Vec<_>>();
-    for words in [&["tui"][..], &["--no-banner", "tui"], &["new"]] {
+    for words in [&["tui"][..], &["--no-banner", "tui"], &["new-frit"]] {
         let why = root_refusal(0, &args(words)).expect("refused as root");
         assert!(why.contains("as yourself") && why.contains("sudo"), "{why}");
         assert_eq!(root_refusal(1000, &args(words)), None);
@@ -194,8 +194,11 @@ fn as_root_the_commands_that_run_as_the_user_are_refused() {
         (&["check", "/etc/shadow"][..], "check"),
         (&["fonts"], "fonts"),
         (&["preview", "unifont"], "preview"),
-        (&["new", "--from", "/etc/shadow"], "new --from"),
-        (&["new", "--name", "x", "--from=/etc/shadow"], "new --from"),
+        (&["new-frit", "--from", "/etc/shadow"], "new-frit --from"),
+        (
+            &["new-frit", "--name", "x", "--from=/etc/shadow"],
+            "new-frit --from",
+        ),
     ] {
         let why = root_refusal(0, &args(words)).unwrap_or_else(|| panic!("{words:?}"));
         assert!(why.contains(says) && why.contains("as yourself"), "{why}");
@@ -204,8 +207,8 @@ fn as_root_the_commands_that_run_as_the_user_are_refused() {
     // the commands that change the system's files from text they build
     // themselves still run as root
     for words in [
-        &["config", "font-size", "12"][..],
-        &["new", "kbd:lat0-16", "--name", "lat"],
+        &["set", "font-size", "12"][..],
+        &["new-frit", "kbd:lat0-16", "--name", "lat"],
         &["remove-frit", "old"],
     ] {
         assert_eq!(root_refusal(0, &args(words)), None, "{words:?}");
@@ -252,9 +255,9 @@ fn the_binary_run_as_root_refuses_paths_programs_and_the_tui() {
         (&["--vtium", "/bin/true", "apply", "/tmp/d"], "--vtium"),
         (&["--run-with-signals", "/bin/sh"], "--run-with-signals"),
         (&["tui"], "as yourself"),
-        (&["new"], "as yourself"),
+        (&["new-frit"], "as yourself"),
         (&["check", "/etc/shadow"], "as yourself"),
-        (&["new", "--from", "/etc/shadow"], "as yourself"),
+        (&["new-frit", "--from", "/etc/shadow"], "as yourself"),
     ] {
         let Some(o) = as_namespace_root(args) else {
             return;

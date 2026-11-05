@@ -128,10 +128,10 @@ fn cli(args: &[&str]) -> (i32, String) {
 }
 
 #[test]
-fn set_takes_one_name() {
-    let (status, err) = cli(&["set"]);
+fn use_frit_takes_one_name() {
+    let (status, err) = cli(&["use-frit"]);
     assert_eq!(status, 2, "{err}");
-    let (status, err) = cli(&["set", "a", "b"]);
+    let (status, err) = cli(&["use-frit", "a", "b"]);
     assert_eq!(status, 2, "{err}");
 }
 
@@ -165,7 +165,7 @@ fn a_sigterm_during_the_wait_ends_set_with_the_mode_back() {
     // /dev/tty set opens
     let mut child = Command::new("setsid")
         .args(["--ctty", env!("CARGO_BIN_EXE_vtium-config")])
-        .args(["set", "unifont"])
+        .args(["use-frit", "unifont"])
         .stdin(Stdio::from(
             slave.as_fd().try_clone_to_owned().expect("dup"),
         ))
@@ -214,7 +214,7 @@ fn set_names_a_frit_with_no_store() {
             "--frits",
             frits,
         ])
-        .args(["set", "tiny"])
+        .args(["use-frit", "tiny"])
         .stdin(Stdio::from(
             slave.as_fd().try_clone_to_owned().expect("dup"),
         ))
@@ -234,7 +234,7 @@ fn set_names_a_frit_with_no_store() {
     );
     // a name with no frit there and no built-in fails before the terminal
     // is touched, naming where frits are
-    let (status, err) = cli(&["--frits", frits, "set", "nosuch"]);
+    let (status, err) = cli(&["--frits", frits, "use-frit", "nosuch"]);
     assert_eq!(status, 1, "{err}");
     assert!(
         err.contains("no frit is named nosuch") && err.contains("nosuch.vtfrit"),

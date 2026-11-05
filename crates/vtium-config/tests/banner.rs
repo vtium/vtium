@@ -177,14 +177,20 @@ fn help_and_bare_print_the_same_usage() {
 #[test]
 fn help_for_each_command_prints_its_own_text() {
     for command in [
+        "flow",
+        "install",
+        "get",
+        "set",
+        "new",
+        "rule",
+        "edit",
         "fonts",
         "check",
-        "config",
-        "new",
+        "new-frit",
         "tui",
         "remove-frit",
         "preview",
-        "set",
+        "use-frit",
         "apply",
         "serve",
     ] {
