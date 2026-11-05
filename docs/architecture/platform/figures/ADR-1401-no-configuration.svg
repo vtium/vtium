@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="960" height="500" viewBox="0 0 960 500" font-family="DejaVu Sans Mono, monospace">
-<title>No configuration: the shipped two rules, one head mirroring every display, every keyboard and key device typing into it, the default profile and frit down to the built-in fonts</title>
+<title>No configuration: the shipped two rules, one head mirroring every display, every keyboard and key device typing into it, the default look and frit down to the built-in fonts</title>
 <defs>
 <marker id="arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 z" fill="#1f2933"/></marker>
 </defs>
@@ -7,17 +7,17 @@
 <g fill="#1f2933">
 <!-- the head file -->
 <rect x="16" y="40" width="280" height="44" fill="#ffffff" stroke="#9aa5b1" stroke-dasharray="6 4"/>
-<text x="156" y="58" font-size="13" text-anchor="middle">/etc/vtium/heads.conf</text>
-<text x="156" y="76" font-size="12" text-anchor="middle">absent at start</text>
+<text x="156" y="58" font-size="13" text-anchor="middle">/etc/vtium/vtium.conf</text>
+<text x="156" y="76" font-size="12" text-anchor="middle">absent, or with no section</text>
 <line x1="156" y1="84" x2="156" y2="108" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
 <text x="164" y="101" font-size="11">nothing is written</text>
 <rect x="16" y="110" width="280" height="254" fill="#e6eef7" stroke="#2f6fb0"/>
 <g font-size="11">
 <text x="28" y="128"># compiled into vtium, held in memory;</text>
-<text x="28" y="144"># vtiumctl writes it when asked</text>
+<text x="28" y="144"># the example vtium.conf's sections</text>
 <text x="28" y="162">version = 1</text>
 <text x="28" y="178">[head console]</text>
-<text x="28" y="194">profile = default</text>
+<text x="28" y="194">look = default</text>
 <text x="28" y="212">[rules]</text>
 <text x="28" y="228">display * -&gt; console</text>
 <text x="28" y="244">input class:keyboard -&gt; roaming</text>
@@ -72,10 +72,10 @@
 <!-- the default chain -->
 <rect x="690" y="40" width="254" height="48" fill="#e6eef7" stroke="#2f6fb0"/>
 <text x="817" y="60" font-size="13" text-anchor="middle">head console</text>
-<text x="817" y="78" font-size="11" text-anchor="middle">names its profile</text>
+<text x="817" y="78" font-size="11" text-anchor="middle">names its look</text>
 <line x1="650" y1="64" x2="688" y2="64" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
 <rect x="690" y="116" width="254" height="48" fill="#e6eef7" stroke="#2f6fb0"/>
-<text x="817" y="136" font-size="13" text-anchor="middle">profile default</text>
+<text x="817" y="136" font-size="13" text-anchor="middle">look default</text>
 <text x="817" y="154" font-size="11" text-anchor="middle">compiled in when absent</text>
 <line x1="817" y1="88" x2="817" y2="114" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
 <rect x="690" y="192" width="254" height="48" fill="#e6eef7" stroke="#2f6fb0"/>
