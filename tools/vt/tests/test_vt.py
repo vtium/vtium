@@ -3853,11 +3853,14 @@ class Guide(Case):
         g.wait_for(b"\r\n")
         tty = g.seen.split(b"ran 42 on ")[1].split(b"\r\n")[0].decode()
         # A key pressed while the command runs is not drawn on the picture,
-        # and answers nothing.
+        # and answers nothing. The test looks for the keys only in what the
+        # guide wrote after they were typed, because the command shown above
+        # names the temporary directory, whose random name can hold them.
+        typed = len(g.seen)
         g.send(b"yz")
         open(release, "w").close()
         g.wait_for(b"[y]es [n]o [s]kip: ")
-        self.assertNotIn(b"yz", g.seen)
+        self.assertNotIn(b"yz", g.seen[typed:])
         g.send(b"n")
         g.wait_for(b"Note (Enter for none): ")
         g.send(b"\r")
