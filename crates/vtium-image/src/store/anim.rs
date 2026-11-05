@@ -323,6 +323,15 @@ impl Anim {
         }
     }
 
+    /// Whether frame `n` may be the frame the image's placements show. The
+    /// store records the frame a command made current, and the animation
+    /// clock shows that frame until a command sets the animation running.
+    /// From then on the clock picks the frame, and the store cannot tell
+    /// which one shows, so every frame may.
+    fn may_show(&self, n: u32) -> bool {
+        n == self.current || self.run != Run::Stopped || self.run_stamp != 0
+    }
+
     /// Whether every frame past the root is opaque.
     pub(super) fn opaque(&self) -> bool {
         self.frames.iter().all(|f| f.opaque)
@@ -684,6 +693,22 @@ impl Store {
         self.buffers.iter().find_map(|b| b.images.get(&key))
     }
 
+    /// A command changed the pixels of frame `n` of image `key` of buffer
+    /// `b`: when that frame may be the one the image's placements show, it
+    /// reports each of them as changed, so the terminal marks the cells
+    /// under them, as it does for a placement whose image changes.
+    fn frame_changed(&mut self, b: usize, key: ImageKey, n: u32) {
+        let shows = self
+            .image(b, key)
+            .is_some_and(|image| match image.anim.as_deref() {
+                Some(anim) => anim.may_show(n),
+                None => n == 1,
+            });
+        if shows {
+            self.mark_image(b, key);
+        }
+    }
+
     /// Checks a frame command before its data arrives, on image `key` of
     /// the buffer in use: the rectangle `w` by `h` at `x`, `y` lies inside
     /// the image (EINVAL), frame `edit` or else frame `base` exists
@@ -951,6 +976,9 @@ impl Store {
             }
         };
         self.add_work(work);
+        if new.edit != 0 {
+            self.frame_changed(b, key, number);
+        }
         debug_assert!(
             self.image(b, key).is_none_or(|i| i
                 .anim
@@ -1034,6 +1062,7 @@ impl Store {
             }
         }
         self.add_work(work);
+        self.frame_changed(b, key, c.dst);
         Ok(())
     }
 
