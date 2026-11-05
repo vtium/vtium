@@ -37,6 +37,21 @@ pub use context::{
 };
 pub use gbm::{Bo, Gbm, Usage};
 
+/// Ends the process at once with `status`, as `_exit(2)` does: no exit
+/// handler and no library destructor runs, and the kernel closes what the
+/// process holds. vtium ends this way while a render thread it went on
+/// without may still be inside the GPU driver (ADR-1303 D9), since libEGL's
+/// and Mesa's exit handlers would tear EGL down under that thread. The
+/// caller flushes its output first.
+pub fn exit_now(status: u8) -> ! {
+    // SAFETY: _exit ends the process with any status, and reads no memory
+    // of the program.
+    #[expect(unsafe_code, reason = "_exit(2), which std does not offer")]
+    unsafe {
+        libc::_exit(i32::from(status))
+    }
+}
+
 /// A step of the GPU path's set-up, in the order ADR-1303 D9 runs them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Step {

@@ -154,13 +154,38 @@ fn main() -> ExitCode {
             )
         }
     };
-    match status {
-        Ok(code) => ExitCode::from(u8::try_from(code).unwrap_or(1)),
+    let code = match status {
+        Ok(code) => u8::try_from(code).unwrap_or(1),
         Err(e) => {
             log::error!("{e}");
-            ExitCode::FAILURE
+            1
+        }
+    };
+    leave(code)
+}
+
+/// Ends vtium with `code` once the seat has dropped. A render thread that
+/// vtium went on without at a head's drop, because its GPU driver had not
+/// let go of the head's GL context in time (ADR-1303 D9), may still be
+/// inside the driver. The process's exit handlers would then tear libEGL
+/// and Mesa down under it, which corrupts the heap or aborts, or hangs on
+/// the driver's lock. So while such a thread runs, vtium ends at once
+/// without running its exit handlers, after flushing its output.
+fn leave(code: u8) -> ExitCode {
+    #[cfg(feature = "gpu")]
+    {
+        let running = vtium::painter::wait_for_left(std::time::Duration::ZERO, &*clock());
+        if running > 0 {
+            log::warn!(
+                "{running} render thread(s) are still inside the GPU driver: vtium ends without running its exit handlers"
+            );
+            use std::io::Write;
+            let _ = io::stdout().flush();
+            log::logger().flush();
+            vtium_platform::gpu::exit_now(code);
         }
     }
+    ExitCode::from(code)
 }
 
 fn run_kernel(
