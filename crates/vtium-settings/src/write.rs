@@ -1,5 +1,6 @@
-//! The head file's one writer (ADR-1201 D6), and the one way a
-//! configuration file is replaced (ADR-1201 D5).
+//! The head file's one writer (ADR-1201 D6), vtium.conf's section writer
+//! (ADR-1403 D8), and the one way a configuration file is replaced
+//! (ADR-1201 D5).
 //!
 //! [`set_profile`] sets a head's `profile =` line and keeps every other
 //! byte of the file: comments, blank lines, order, line endings and a
@@ -22,6 +23,12 @@ use std::path::{Path, PathBuf};
 use crate::config::Head;
 use crate::error::Rejected;
 use crate::parse::{good_name, parse};
+
+mod sections;
+
+pub use sections::{
+    Of, SectionEdit, add_rule, add_section, move_rule, placement, remove_rule, set_key, set_rule,
+};
 
 /// Why [`set_profile`] changed nothing.
 #[derive(Clone, Debug, PartialEq, Eq)]

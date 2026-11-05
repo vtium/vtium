@@ -183,6 +183,62 @@ pub enum Scope {
     CommandLine,
 }
 
+/// A part of vtium.conf that may set a key (ADR-1403 D5): its top level,
+/// above the first section heading, a `[look NAME]` section or a
+/// `[head NAME]` section.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Level {
+    /// The top level, whose keys are the defaults every head inherits.
+    Top,
+    /// A `[look NAME]` section, which a head names with `look =`.
+    Look,
+    /// A `[head NAME]` section.
+    Head,
+}
+
+/// A set of [`Level`]s: where in vtium.conf a key may be set. One byte,
+/// so the key table stays small enough to be a constant.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Levels(u8);
+
+impl Levels {
+    /// No level: a key the command line alone sets.
+    pub const NONE: Levels = Levels(0);
+    /// The top level alone.
+    pub const TOP: Levels = Levels(1);
+    /// The top level and a look: a look's frit, its size and the other keys
+    /// ADR-1200 D16 gives a look.
+    pub const TOP_LOOK: Levels = Levels(1 | 2);
+    /// The top level and a head: of ADR-1401 D3's head keys, the one the
+    /// key table also has.
+    pub const TOP_HEAD: Levels = Levels(1 | 4);
+
+    fn bit(level: Level) -> u8 {
+        match level {
+            Level::Top => 1,
+            Level::Look => 2,
+            Level::Head => 4,
+        }
+    }
+
+    /// Whether a key may be set at `level`.
+    pub fn contains(self, level: Level) -> bool {
+        self.0 & Levels::bit(level) != 0
+    }
+
+    /// The levels in the set, the top level first.
+    pub fn iter(self) -> impl Iterator<Item = Level> {
+        [Level::Top, Level::Look, Level::Head]
+            .into_iter()
+            .filter(move |&l| self.contains(l))
+    }
+}
+
+const NONE: Levels = Levels::NONE;
+const TOP: Levels = Levels::TOP;
+const TOP_LOOK: Levels = Levels::TOP_LOOK;
+const TOP_HEAD: Levels = Levels::TOP_HEAD;
+
 /// One row of the key table.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Key {
@@ -192,6 +248,12 @@ pub struct Key {
     pub kind: Kind,
     pub default: Default,
     pub scope: Scope,
+    /// Where in vtium.conf the key may be set (ADR-1403 D5): the top
+    /// level, and for a few keys a look's or a head's section as well. A
+    /// key set on the command line alone has none. The section reader takes
+    /// its lists of a section's keys from this field, so letting a section
+    /// set one more key is an edit to that key's row.
+    pub levels: Levels,
     /// The crate that reads the value.
     pub reader: &'static str,
     /// What it does. The first paragraph is one sentence saying what the
@@ -244,6 +306,7 @@ pub const CONFIGDIR: Key = Key {
     kind: Kind::Text,
     default: Default::Text("/etc/vtium"),
     scope: Scope::CommandLine,
+    levels: NONE,
     reader: "vtium",
     what: "The directory holding `vtium.conf` and `<seat>.seat.conf`.",
     cite: "src/config.c:1349, ADR-1500 D4",
@@ -255,6 +318,7 @@ pub const HELP: Key = Key {
     kind: Kind::Switch,
     default: Default::Switch(false),
     scope: Scope::CommandLine,
+    levels: NONE,
     reader: "vtium",
     what: "Print the options and exit.",
     cite: "src/config.c:1342",
@@ -266,6 +330,7 @@ pub const VERSION: Key = Key {
     kind: Kind::Switch,
     default: Default::Switch(false),
     scope: Scope::CommandLine,
+    levels: NONE,
     reader: "vtium",
     what: "Print three lines and exit: the version, the revision the build was made from, and the features it was built with on top of minspec, or none.",
     cite: "src/config.c:1343",
@@ -277,6 +342,7 @@ pub const DEBUG: Key = Key {
     kind: Kind::Switch,
     default: Default::Switch(false),
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium",
     what: "Log debug messages as well, to find what went wrong. Off, vtium logs its information messages, warnings and errors.",
     cite: "src/config.c:1346, 1515-1539",
@@ -288,6 +354,7 @@ pub const VT: Key = Key {
     kind: Kind::Text,
     default: Default::Unset,
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium-platform",
     what: "The VT to run on: a number N for `/dev/ttyN`, a name under `/dev`, or a path. Unset, the VT vtium was started on, or the next free one.",
     cite: "src/config.c:329-361, 1352",
@@ -299,6 +366,7 @@ pub const SWITCHVT: Key = Key {
     kind: Kind::Switch,
     default: Default::Switch(true),
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium-platform",
     what: "Switch to vtium's VT at start; off, wait until something else switches to it.",
     cite: "src/config.c:1353",
@@ -310,6 +378,7 @@ pub const LOGIN: Key = Key {
     kind: Kind::Command,
     default: Default::Unset,
     scope: Scope::Anywhere,
+    levels: TOP_HEAD,
     reader: "vtium",
     what: "The session's command.\n\n\
            Unset, `/bin/login -p` with `reset-env` on and `/bin/login` with it off. A word that is `$NAME` becomes that variable of the session's environment, and `$$` starts a word with `$`.",
@@ -322,6 +391,7 @@ pub const ONESHOT: Key = Key {
     kind: Kind::Switch,
     default: Default::Switch(false),
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium",
     what: "Exit when the session's command exits, in place of starting it again.",
     cite: "src/config.c:1367; src/misc/pty.c:752-756",
@@ -338,6 +408,7 @@ pub const HEAD_CONSOLES_MAX: Key = Key {
     },
     default: Default::Number(HEAD_CONSOLES_DEFAULT as u64),
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium",
     what: "The most consoles one head holds: the head file's `consoles` opens no more.",
     cite: "ADR-1401 D10; the C reference's `session-max` (src/config.c:1357) bounded the seat's sessions",
@@ -349,6 +420,7 @@ pub const OSD: Key = Key {
     kind: Kind::Choice(&["off", "minimal", "full"]),
     default: Default::Text("minimal"),
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium",
     what: "What vtium's on-screen display draws at the top of each head after a change.\n\n\
            With `minimal`, it draws a dot in the top-right cell, filled on the active head and hollow on the others. With `full`, it draws a line across the top, such as `● desk · console 2 of 3`. With `off`, it draws nothing.\n\n\
@@ -367,6 +439,7 @@ pub const OSD_TIMEOUT: Key = Key {
     },
     default: Default::Number(3),
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium",
     what: "How long the on-screen display stays after a change, counted from the first frame that draws it. `never` keeps it up from the start.",
     cite: "ADR-1401 D5; the operator on vtium/vtium#169",
@@ -378,6 +451,7 @@ pub const FOCUS_MARK: Key = Key {
     kind: Kind::Choice(&["auto", "always", "off"]),
     default: Default::Unset,
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium",
     what: "The older name of `osd` and `osd-timeout`.\n\n\
            vtium reads it only where `osd` or `osd-timeout` is not set: `auto` reads as `osd = minimal`, `always` as `osd = minimal` with `osd-timeout = never`, and `off` as `osd = off`. vtium logs a line naming the new keys when a file or the command line sets it.",
@@ -390,6 +464,7 @@ pub const NOTICE_FOREGROUND: Key = Key {
     kind: Kind::Rgb,
     default: Default::Rgb([31, 41, 51]),
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium",
     what: "The color of a notice's text. A notice tells of a problem, such as an invalid head file, and shows whatever `osd` says.",
     cite: "ADR-1401 D5",
@@ -401,6 +476,7 @@ pub const NOTICE_BACKGROUND: Key = Key {
     kind: Kind::Rgb,
     default: Default::Rgb([254, 226, 226]),
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium",
     what: "The color of a notice's box. While a notice shows, the on-screen display's full line shares its box and takes the notice's colors.",
     cite: "ADR-1401 D5",
@@ -412,6 +488,7 @@ pub const NOTICE_BORDER: Key = Key {
     kind: Kind::Rgb,
     default: Default::Rgb([185, 28, 28]),
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium",
     what: "The color of the edge around a notice's box.",
     cite: "ADR-1401 D5",
@@ -423,6 +500,7 @@ pub const OSD_FOREGROUND: Key = Key {
     kind: Kind::Rgb,
     default: Default::Rgb([229, 231, 235]),
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium",
     what: "The color of the on-screen display's text: the words of `osd = full`'s line, and the dot of `osd = minimal`.",
     cite: "ADR-1401 D5",
@@ -434,6 +512,7 @@ pub const OSD_BACKGROUND: Key = Key {
     kind: Kind::Rgb,
     default: Default::Rgb([31, 41, 51]),
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium",
     what: "The color of the on-screen display's box behind `osd = full`'s line, and of the cell behind `osd = minimal`'s dot.",
     cite: "ADR-1401 D5",
@@ -445,6 +524,7 @@ pub const OSD_BORDER: Key = Key {
     kind: Kind::Rgb,
     default: Default::Rgb([97, 110, 124]),
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium",
     what: "The color of the edge around `osd = full`'s box. The dot of `osd = minimal` has no edge.",
     cite: "ADR-1401 D5",
@@ -508,6 +588,7 @@ pub const CONSOLES_MAX: Key = Key {
     },
     default: Default::Number(CONSOLES_TOTAL_DEFAULT as u64),
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium",
     what: "The most consoles every head holds together.\n\n\
            Each head keeps its first console; the others open, in the head file's order, while the total is below this.",
@@ -520,6 +601,7 @@ pub const TERM: Key = Key {
     kind: Kind::Text,
     default: Default::Text(TERM_NAME),
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium",
     what: "`TERM` in the session's environment.\n\n\
            The default names vtium's own terminfo entry, and XTGETTCAP answers from that entry's capabilities; `kmscon` names the C reference's entry, and XTGETTCAP answers from the C reference's. Under any other name every name XTGETTCAP asks for is unknown.",
@@ -532,6 +614,7 @@ pub const RESET_ENV: Key = Key {
     kind: Kind::Switch,
     default: Default::Switch(true),
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium",
     what: "Start the session with an empty environment and the variables vtium sets; off, with vtium's own environment as well.",
     cite: "src/config.c:1369; src/misc/pty.c:261-272",
@@ -543,6 +626,7 @@ pub const BACKSPACE_DELETE: Key = Key {
     kind: Kind::Switch,
     default: Default::Switch(true),
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium-platform",
     what: "The pty's erase character is DEL (0x7f); off, BS (0x08).",
     cite: "src/config.c:1370; src/misc/pty.c:360-366",
@@ -559,6 +643,7 @@ pub const SB_SIZE: Key = Key {
     },
     default: Default::Number(SB_SIZE_DEFAULT as u64),
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium-term",
     what: "Lines of scrollback, at most `sb-size-cap`.",
     cite: "src/config.c:1371; ADR-1001, \"Scrollback size\"",
@@ -575,6 +660,7 @@ pub const SB_SIZE_CAP: Key = Key {
     },
     default: Default::Unset,
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium-term",
     what: "The most lines `sb-size` may ask for.\n\n\
            Unset, it follows the machine's memory: 10,000 lines below 2 GiB, 30,000 from 2 GiB and 100,000 from 4 GiB.",
@@ -592,6 +678,7 @@ pub const SB_MEMORY: Key = Key {
     },
     default: Default::Number(SB_MEMORY_DEFAULT as u64),
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium-term",
     what: "The most bytes the scrollback holds: its oldest lines go past it, as past `sb-size`.\n\n\
            It takes bytes, or KiB, MiB or GiB with `K`, `M` or `G` (`6M`), at most a quarter of the machine's memory, or at most the default when `/proc/meminfo` cannot be read.\n\n\
@@ -606,6 +693,7 @@ pub const BELL: Key = Key {
     kind: Kind::Switch,
     default: Default::Switch(false),
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium",
     what: "Rings the VT's bell when a program sends BEL.\n\n\
            A program stops its own BELs ringing by resetting mode 1042, which starts set. Off, no BEL rings.",
@@ -618,6 +706,7 @@ pub const BLINK: Key = Key {
     kind: Kind::Switch,
     default: Default::Switch(true),
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium",
     what: "Blink text with SGR 5 and a blinking cursor, every 500 ms; off, neither blinks.",
     cite: "src/config.c:1373; src/terminal.c:163, 715-724",
@@ -629,6 +718,7 @@ pub const BLINK_TEXT: Key = Key {
     kind: Kind::Choice(&["full", "partial", "off"]),
     default: Default::Text("partial"),
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium-render",
     what: "How text with SGR 5 or 6 draws in the blink's off phase.\n\n\
            `full` hides it, `partial` draws it halfway to its background as SGR 2 does, and `off` draws it steady. The cursor blinks as `blink` says either way.",
@@ -641,6 +731,7 @@ pub const BLINK_DECORATIONS: Key = Key {
     kind: Kind::Switch,
     default: Default::Switch(false),
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium-render",
     what: "The underline and strike of blinking text blink with it.\n\n\
            They hide in the off phase with `blink-text=full`, and dim with `partial`. Off, they stay while the text blinks.",
@@ -658,6 +749,7 @@ pub const SYNC_TIMEOUT: Key = Key {
     },
     default: Default::Number(200),
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium",
     what: "The longest a synchronized frame (mode 2026) is held before it is shown as drawn; 0 offers no mode 2026.",
     cite: "src/config.c:1374; src/terminal_sync.h:62-66, `TERMINAL_SYNC_MAX_MS`",
@@ -674,6 +766,7 @@ pub const DPMS_TIMEOUT: Key = Key {
     },
     default: Default::Number(600),
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium-platform",
     what: "Turn the displays off after this long with no key press or pointer action (a move, a button or the wheel); 0 never does.",
     cite: "src/config.c:1388",
@@ -685,6 +778,7 @@ pub const PROGRAM_BLANK: Key = Key {
     kind: Kind::Switch,
     default: Default::Switch(true),
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium",
     what: "Let a program set the blank's timeout and wake the displays, as `setterm --blank` does under `TERM=linux`.\n\n\
            A program sets the timeout with the Linux console's `CSI 9 ; n ]` (n minutes, at most 60; 0 never blanks) and wakes the displays with `CSI 13 ]`. RIS returns the timeout to `dpms-timeout`. Off, the sequences are ignored. A key press or pointer action wakes the displays either way.",
@@ -702,6 +796,7 @@ pub const DISPLAY_WAIT: Key = Key {
     },
     default: Default::Number(10),
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium",
     what: "At start, how long to wait for a display, counted from when the VT is shown.\n\n\
            With no display by then, vtium exits with status 1, so the unit's `OnFailure=` can start a getty. Under a head file whose policy is closed vtium waits however long it takes, as under `forever` (ADR-1401 D8).\n\n\
@@ -717,6 +812,7 @@ pub const DISPLAY_BUFFERS: Key = Key {
     kind: Kind::Choice(&["1", "2", "3"]),
     default: buffers_default(DISPLAY_BUFFERS_BUILD),
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium-platform",
     what: "How many buffers each DRM display keeps, the same for every display.\n\n\
            `3` is triple buffering, so no frame waits for the last flip, at the cost of one more whole frame a display (8 MB at 1080p). `2` is double buffering. `1` is single buffering, which holds the least memory, but vtium then draws into the buffer being shown, so a frame can be seen half drawn.\n\n\
@@ -730,6 +826,7 @@ pub const HWACCEL: Key = Key {
     kind: Kind::Switch,
     default: Default::Switch(HWACCEL_DEFAULT),
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium",
     what: "Draw through the GPU, in a build that has it.\n\n\
            Off unless vtium was built to turn it on (`VTIUM_HWACCEL`). `vtium config config hwaccel` prints the value vtium.conf gives it, or the build's default followed by `default`.",
@@ -742,6 +839,7 @@ pub const USE_ORIGINAL_MODE: Key = Key {
     kind: Kind::Switch,
     default: Default::Switch(false),
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium-platform",
     what: "Keep the mode each display is in; off, its preferred mode.",
     cite: "src/config.c:1416; vtium/vtium#5",
@@ -753,6 +851,7 @@ pub const MODE: Key = Key {
     kind: Kind::Mode,
     default: Default::Unset,
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium-platform",
     what: "A display's mode.\n\n\
            `WxH[@RATE]` sets it for every display, `[CONNECTOR]WxH` for one connector, and `GPU[CONNECTOR]WxH` for one connector on one card, the card named by its udev `ID_PATH`. A key per line; the most specific match wins. Unset, the panel's preferred mode. It turns `use-original-mode` off.",
@@ -776,6 +875,7 @@ pub const PALETTE: Key = Key {
     ]),
     default: Default::Text("legacy"),
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium-term",
     what: "The sixteen colors and the default foreground and background.\n\n\
            Its value is a named palette, or `custom`, which takes the colors from the `palette-*` keys. Colors 16 to 255 are xterm's in every palette.",
@@ -788,6 +888,7 @@ pub const PALETTE_BLACK: Key = Key {
     kind: Kind::Rgb,
     default: Default::Rgb([0, 0, 0]),
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium-term",
     what: "Color 0 with `palette=custom`.",
     cite: "src/config.c:1305-1324, 1428-1448",
@@ -799,6 +900,7 @@ pub const PALETTE_RED: Key = Key {
     kind: Kind::Rgb,
     default: Default::Rgb([205, 0, 0]),
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium-term",
     what: "Color 1 with `palette=custom`.",
     cite: "src/config.c:1305-1324, 1428-1448",
@@ -810,6 +912,7 @@ pub const PALETTE_GREEN: Key = Key {
     kind: Kind::Rgb,
     default: Default::Rgb([0, 205, 0]),
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium-term",
     what: "Color 2 with `palette=custom`.",
     cite: "src/config.c:1305-1324, 1428-1448",
@@ -821,6 +924,7 @@ pub const PALETTE_YELLOW: Key = Key {
     kind: Kind::Rgb,
     default: Default::Rgb([205, 205, 0]),
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium-term",
     what: "Color 3 with `palette=custom`.",
     cite: "src/config.c:1305-1324, 1428-1448",
@@ -832,6 +936,7 @@ pub const PALETTE_BLUE: Key = Key {
     kind: Kind::Rgb,
     default: Default::Rgb([0, 0, 238]),
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium-term",
     what: "Color 4 with `palette=custom`.",
     cite: "src/config.c:1305-1324, 1428-1448",
@@ -843,6 +948,7 @@ pub const PALETTE_MAGENTA: Key = Key {
     kind: Kind::Rgb,
     default: Default::Rgb([205, 0, 205]),
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium-term",
     what: "Color 5 with `palette=custom`.",
     cite: "src/config.c:1305-1324, 1428-1448",
@@ -854,6 +960,7 @@ pub const PALETTE_CYAN: Key = Key {
     kind: Kind::Rgb,
     default: Default::Rgb([0, 205, 205]),
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium-term",
     what: "Color 6 with `palette=custom`.",
     cite: "src/config.c:1305-1324, 1428-1448",
@@ -865,6 +972,7 @@ pub const PALETTE_LIGHT_GREY: Key = Key {
     kind: Kind::Rgb,
     default: Default::Rgb([229, 229, 229]),
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium-term",
     what: "Color 7 with `palette=custom`.",
     cite: "src/config.c:1305-1324, 1428-1448",
@@ -876,6 +984,7 @@ pub const PALETTE_DARK_GREY: Key = Key {
     kind: Kind::Rgb,
     default: Default::Rgb([127, 127, 127]),
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium-term",
     what: "Color 8 with `palette=custom`.",
     cite: "src/config.c:1305-1324, 1428-1448",
@@ -887,6 +996,7 @@ pub const PALETTE_LIGHT_RED: Key = Key {
     kind: Kind::Rgb,
     default: Default::Rgb([255, 0, 0]),
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium-term",
     what: "Color 9 with `palette=custom`.",
     cite: "src/config.c:1305-1324, 1428-1448",
@@ -898,6 +1008,7 @@ pub const PALETTE_LIGHT_GREEN: Key = Key {
     kind: Kind::Rgb,
     default: Default::Rgb([0, 255, 0]),
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium-term",
     what: "Color 10 with `palette=custom`.",
     cite: "src/config.c:1305-1324, 1428-1448",
@@ -909,6 +1020,7 @@ pub const PALETTE_LIGHT_YELLOW: Key = Key {
     kind: Kind::Rgb,
     default: Default::Rgb([255, 255, 0]),
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium-term",
     what: "Color 11 with `palette=custom`.",
     cite: "src/config.c:1305-1324, 1428-1448",
@@ -920,6 +1032,7 @@ pub const PALETTE_LIGHT_BLUE: Key = Key {
     kind: Kind::Rgb,
     default: Default::Rgb([92, 92, 255]),
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium-term",
     what: "Color 12 with `palette=custom`.",
     cite: "src/config.c:1305-1324, 1428-1448",
@@ -931,6 +1044,7 @@ pub const PALETTE_LIGHT_MAGENTA: Key = Key {
     kind: Kind::Rgb,
     default: Default::Rgb([255, 0, 255]),
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium-term",
     what: "Color 13 with `palette=custom`.",
     cite: "src/config.c:1305-1324, 1428-1448",
@@ -942,6 +1056,7 @@ pub const PALETTE_LIGHT_CYAN: Key = Key {
     kind: Kind::Rgb,
     default: Default::Rgb([0, 255, 255]),
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium-term",
     what: "Color 14 with `palette=custom`.",
     cite: "src/config.c:1305-1324, 1428-1448",
@@ -953,6 +1068,7 @@ pub const PALETTE_WHITE: Key = Key {
     kind: Kind::Rgb,
     default: Default::Rgb([255, 255, 255]),
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium-term",
     what: "Color 15 with `palette=custom`.",
     cite: "src/config.c:1305-1324, 1428-1448",
@@ -964,6 +1080,7 @@ pub const PALETTE_FOREGROUND: Key = Key {
     kind: Kind::Rgb,
     default: Default::Rgb([229, 229, 229]),
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium-term",
     what: "The default foreground with `palette=custom`.",
     cite: "src/config.c:1305-1324, 1428-1448",
@@ -975,6 +1092,7 @@ pub const PALETTE_BACKGROUND: Key = Key {
     kind: Kind::Rgb,
     default: Default::Rgb([0, 0, 0]),
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium-term",
     what: "The default background with `palette=custom`.",
     cite: "src/config.c:1305-1324, 1428-1448",
@@ -986,6 +1104,7 @@ pub const UNDERLINE_COLOR: Key = Key {
     kind: Kind::DecoColor,
     default: Default::Text("fg"),
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium-render",
     what: "The color every underline draws in, SGR 4 in each of its styles and SGR 21.\n\n\
            `fg` draws it in the text's color, a palette index in that palette color, which follows a program's OSC 4, and `#rrggbb` in that color. A color a program sets with SGR 58 wins unless `force-decoration-colors` is on.",
@@ -998,6 +1117,7 @@ pub const STRIKE_COLOR: Key = Key {
     kind: Kind::DecoColor,
     default: Default::Text("fg"),
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium-render",
     what: "The color the strike, SGR 9, draws in, as `underline-color` takes it.",
     cite: "src/config.c:266-267, 1455-1456",
@@ -1009,6 +1129,7 @@ pub const FORCE_DECORATION_COLORS: Key = Key {
     kind: Kind::Switch,
     default: Default::Switch(false),
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium-render",
     what: "`underline-color` wins over the underline color a program sets with SGR 58.",
     cite: "src/config.c:268-270, 1457-1458",
@@ -1020,6 +1141,7 @@ pub const CLIPBOARD_WRITE: Key = Key {
     kind: Kind::Switch,
     default: Default::Switch(true),
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium",
     what: "Take the selection a program sets with OSC 52; off, it is dropped.\n\n\
            The console has no system clipboard: vtium holds the last selection taken, as it holds one the user copies, and the middle button and `grab-paste` paste it.",
@@ -1032,6 +1154,7 @@ pub const XKB_MODEL: Key = Key {
     kind: Kind::Text,
     default: Default::Unset,
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium-platform",
     what: "The keyboard model, as xkeyboard-config names it.",
     cite: "src/config.c:1377-1382",
@@ -1043,6 +1166,7 @@ pub const XKB_LAYOUT: Key = Key {
     kind: Kind::Text,
     default: Default::Unset,
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium-platform",
     what: "The keyboard layout, such as `us` or `de`.",
     cite: "src/config.c:1377-1382",
@@ -1054,6 +1178,7 @@ pub const XKB_VARIANT: Key = Key {
     kind: Kind::Text,
     default: Default::Unset,
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium-platform",
     what: "The layout's variant.",
     cite: "src/config.c:1377-1382",
@@ -1065,6 +1190,7 @@ pub const XKB_OPTIONS: Key = Key {
     kind: Kind::Text,
     default: Default::Unset,
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium-platform",
     what: "xkb options, comma-separated.",
     cite: "src/config.c:1377-1382",
@@ -1076,6 +1202,7 @@ pub const XKB_KEYMAP: Key = Key {
     kind: Kind::Text,
     default: Default::Unset,
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium-platform",
     what: "A keymap file, taken before the names above.",
     cite: "src/config.c:1377-1382",
@@ -1087,6 +1214,7 @@ pub const XKB_COMPOSE_FILE: Key = Key {
     kind: Kind::Text,
     default: Default::Unset,
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium-platform",
     what: "A compose table, taken before the locale's.",
     cite: "src/config.c:1377-1382",
@@ -1103,6 +1231,7 @@ pub const XKB_REPEAT_DELAY: Key = Key {
     },
     default: Default::Number(250),
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium-platform",
     what: "How long a held key waits before it repeats; 0 takes 250.",
     cite: "src/config.c:1383; src/input/input.c:570-585",
@@ -1119,6 +1248,7 @@ pub const XKB_REPEAT_RATE: Key = Key {
     },
     default: Default::Number(50),
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium-platform",
     what: "The time between a held key's repeats; 0 takes 50.",
     cite: "src/config.c:1384; src/input/input.c:570-585",
@@ -1130,6 +1260,7 @@ pub const MOUSE: Key = Key {
     kind: Kind::Switch,
     default: Default::Switch(true),
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium-platform",
     what: "Take pointers: mice, touchpads and touchscreens.",
     cite: "src/config.c:1385",
@@ -1141,6 +1272,7 @@ pub const NATURAL_SCROLLING: Key = Key {
     kind: Kind::Switch,
     default: Default::Switch(false),
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium",
     what: "Invert the mouse wheel.\n\n\
            The wheel scrolls the view and reports to a program the other way, and so do the cursor keys it sends on the alternate screen under mode 1007. Ctrl and the wheel still zoom in when the wheel turns up.",
@@ -1153,6 +1285,7 @@ pub const POINTER_CHAR: Key = Key {
     kind: Kind::Char,
     default: Default::Unset,
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium-render",
     what: "Draw the pointer as this character's glyph from the font.\n\n\
            The glyph draws one cell wide, on the cell under the pointer, white with a dark outline as the arrow is. Unset, or a character the font lacks or whose glyph is blank, the pointer is the arrow.",
@@ -1165,6 +1298,7 @@ pub const SOFT_CURSOR: Key = Key {
     kind: Kind::Switch,
     default: Default::Switch(false),
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium",
     what: "Draw the pointer in software on every display, never on a display's cursor plane.",
     cite: "src/config.c:151-152, 1387; src/terminal.c:1269-1270",
@@ -1181,6 +1315,7 @@ pub const POINTER_HIDE_TIMEOUT: Key = Key {
     },
     default: Default::Number(20),
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium-platform",
     what: "Hide the pointer after this long with no pointer event, until it next moves; 0 never hides it.",
     cite: "src/input/input_pointer.c:9-18, the C reference's fixed 20 s; the operator on vtium/vtium#102",
@@ -1192,6 +1327,7 @@ pub const POINTER_HIDE_WHILE_TYPING: Key = Key {
     kind: Kind::Switch,
     default: Default::Switch(false),
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium",
     what: "Hide the pointer at each key sent to the program, until it next moves. A key vtium takes, such as a grab, leaves it.",
     cite: "the operator on vtium/vtium#102",
@@ -1203,6 +1339,7 @@ pub const FONT_ENGINE: Key = Key {
     kind: Kind::Choice(&["freetype", "pango", "psf", "unifont", "8x16"]),
     default: Default::Unset,
     scope: Scope::Anywhere,
+    levels: TOP_LOOK,
     reader: "vtium-font",
     what: "The font source to use. Unset, each the build has, in this order.",
     cite: "src/config.c:1422; src/font/font.c:331-368",
@@ -1214,6 +1351,7 @@ pub const FONT_NAME: Key = Key {
     kind: Kind::Text,
     default: Default::Unset,
     scope: Scope::Anywhere,
+    levels: TOP_LOOK,
     reader: "vtium-font",
     what: "The font vtium draws text with.\n\n\
            It is a frit's name, `NAME.vtfrit` in `/etc/vtium/fonts`, whose glyphs the helper generates at run time. A kbd font's name, or with `font-engine=psf` a PSF font's path, that no frit bears becomes a one-source frit.\n\n\
@@ -1227,6 +1365,7 @@ pub const FONT_FRITS: Key = Key {
     kind: Kind::Path,
     default: Default::Text(FRITS),
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium",
     what: "The directory of the frits, the `NAME.vtfrit` files that `font-name` and a head's profile name.\n\n\
            It is an absolute path. vtium ignores a relative or an empty one, as it ignores any value it cannot read, and says why.\n\n\
@@ -1240,6 +1379,7 @@ pub const FONT_HELPER: Key = Key {
     kind: Kind::Text,
     default: Default::Text(HELPER_PROGRAM),
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium",
     what: "The glyph helper's program, which vtium starts to draw a frit's glyphs, as `nobody` when vtium runs as root.\n\n\
            vtium opens it once at start and starts every helper from that file, so a helper installed later reaches a console when the console starts again.\n\n\
@@ -1259,6 +1399,7 @@ pub const FONT_SIZE: Key = Key {
     },
     default: Default::Number(0),
     scope: Scope::Anywhere,
+    levels: TOP_LOOK,
     reader: "vtium-font",
     what: "The font's size in points, 1/72 inch.\n\n\
            The font draws at points × DPI ÷ 72 pixels at the displays' density (`display-dpi`), and the size wins over a frit's `cell=`. 0 picks a size from the display's size.",
@@ -1271,6 +1412,7 @@ pub const FONT_HINTING: Key = Key {
     kind: Kind::Choice(&["light", "full"]),
     default: Default::Unset,
     scope: Scope::Anywhere,
+    levels: TOP_LOOK,
     reader: "vtium-font",
     what: "How the font helper is to hint outline glyphs, over a frit's `hinting=`.\n\n\
            `light` fits each glyph to the pixel grid up and down only; `full` fits a TrueType font both ways, and draws a CFF font as `light` does. Bitmap fonts take no hinting.\n\n\
@@ -1289,6 +1431,7 @@ pub const FONT_LINE_SPACING: Key = Key {
     },
     default: Default::Unset,
     scope: Scope::Anywhere,
+    levels: TOP_LOOK,
     reader: "vtium-font",
     what: "Height added to each row, over a frit's `line-spacing=`.\n\n\
            It is a whole percentage of the text's height, rounded to whole pixels and split evenly above and below the text, so the grid has fewer rows. It adds nothing to a frit's own `cell=`, but it applies when `font-size` sets the size over that `cell=`: the cell grows by the spacing, split evenly above and below each row. Unset, the frit's `line-spacing=` decides, 0 where it states none.\n\n\
@@ -1302,6 +1445,7 @@ pub const ALLOW_FONT_OPS: Key = Key {
     kind: Kind::Switch,
     default: Default::Switch(true),
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium",
     what: "Let a program switch the font among the frits and the built-in fonts with xterm's OSC 50, and ask which is in use.\n\n\
            A program switches with `OSC 50 ; NAME ST`, as `vtium-config set NAME` sends it, and asks with `OSC 50 ; ? ST`. A switch lasts until the session it came from ends, when vtium returns the console to the font and size `font-name` and `font-size` give.\n\n\
@@ -1315,6 +1459,7 @@ pub const GLYPH_SOURCE: Key = Key {
     kind: Kind::Choice(GLYPH_SOURCES),
     default: Default::Unset,
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium-font",
     what: "Where the six sprite ranges draw from.\n\n\
            `font` draws the font's glyphs; `sprites`, vtium's; `auto`, the font's where it has one. Unset, a named font's glyphs for each range it covers whole and the sprites for the rest; the built-in unifont draws the sprites.",
@@ -1327,6 +1472,7 @@ pub const GLYPH_SOURCE_BOX: Key = Key {
     kind: Kind::Choice(GLYPH_SOURCES),
     default: Default::Unset,
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium-font",
     what: "`glyph-source` for box drawing, U+2500-U+257F, over it.",
     cite: "vtium/vtium#85",
@@ -1338,6 +1484,7 @@ pub const GLYPH_SOURCE_BLOCK: Key = Key {
     kind: Kind::Choice(GLYPH_SOURCES),
     default: Default::Unset,
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium-font",
     what: "`glyph-source` for block elements, U+2580-U+259F, over it.",
     cite: "vtium/vtium#85",
@@ -1349,6 +1496,7 @@ pub const GLYPH_SOURCE_BRAILLE: Key = Key {
     kind: Kind::Choice(GLYPH_SOURCES),
     default: Default::Unset,
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium-font",
     what: "`glyph-source` for Braille, U+2800-U+28FF, over it.",
     cite: "vtium/vtium#85",
@@ -1360,6 +1508,7 @@ pub const GLYPH_SOURCE_SEXTANTS: Key = Key {
     kind: Kind::Choice(GLYPH_SOURCES),
     default: Default::Unset,
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium-font",
     what: "`glyph-source` for sextants, U+1FB00-U+1FB3B, over it.",
     cite: "vtium/vtium#85",
@@ -1371,6 +1520,7 @@ pub const GLYPH_SOURCE_OCTANTS: Key = Key {
     kind: Kind::Choice(GLYPH_SOURCES),
     default: Default::Unset,
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium-font",
     what: "`glyph-source` for octants, U+1CD00-U+1CDE5, over it.",
     cite: "vtium/vtium#85",
@@ -1382,6 +1532,7 @@ pub const GLYPH_SOURCE_LEGACY: Key = Key {
     kind: Kind::Choice(GLYPH_SOURCES),
     default: Default::Unset,
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium-font",
     what: "`glyph-source` for the rest of Symbols for Legacy Computing's block shapes, over it.",
     cite: "vtium/vtium#85",
@@ -1393,6 +1544,7 @@ pub const MISSING: Key = Key {
     kind: Kind::Choice(&["box", "hex"]),
     default: Default::Text("box"),
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium-font",
     what: "What a character the font lacks draws as: `box`, U+25A1; `hex`, its codepoint in hex digits.",
     cite: "src/font/font.c:345-366; vtium/vtium#85",
@@ -1404,6 +1556,7 @@ pub const GLYPH_CACHE: Key = Key {
     kind: Kind::Choice(&["minspec", "performance"]),
     default: Default::Unset,
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium-render",
     what: "The glyph cache's budgets. Unset, `minspec`, or `performance` in a build with vtium-render's `performance-cache` feature.",
     cite: "ADR-1300; vtium/vtium#16",
@@ -1415,6 +1568,7 @@ pub const DISPLAY_DEPTH: Key = Key {
     kind: Kind::Choice(&["auto", "1", "gray4", "gray16", "color"]),
     default: Default::Text("auto"),
     scope: Scope::Anywhere,
+    levels: TOP_LOOK,
     reader: "vtium-render",
     what: "Each display's depth.\n\n\
            `1` draws it in black and white, each cell lit or unlit by its colors, never by their brightness; `gray4` and `gray16` record a gray panel of 4 or 16 levels, drawn as color, which the panel converts; `color` draws its colors; `auto` takes the levels the display says it shows: an fbdev device at 1 bit, or a DRM panel whose driver vtium-platform lists.",
@@ -1433,6 +1587,7 @@ pub const DISPLAY_DPI: Key = Key {
     },
     default: Default::Unset,
     scope: Scope::Anywhere,
+    levels: TOP_LOOK,
     reader: "vtium",
     what: "Each display's density, which converts `font-size` and a frit's `size=` from points to pixels, over the density a display measures.\n\n\
            Unset, the density is measured from the physical size the display reports, else assumed at 96 with one logged warning per display.",
@@ -1445,6 +1600,7 @@ pub const RENDER_TIMER: Key = Key {
     kind: Kind::Choice(&["none", "osd", "log", "both"]),
     default: Default::Text("none"),
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium-render",
     what: "Measure each display's frames once a second, and write the figures to the log, draw them on screen, or both.",
     cite: "src/config.c:972-1015, 1475",
@@ -1456,6 +1612,7 @@ pub const GRAB_PASTE: Key = Key {
     kind: Kind::Grab,
     default: Default::Text("<Shift>Insert"),
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium",
     what: "Paste the selection buffer to the program, once a press, as the middle button does.\n\n\
            A chord with Shift names the keysym Shift makes: `<Ctrl><Shift>V`, not `<Ctrl><Shift>v`. Empty, no key pastes.",
@@ -1468,6 +1625,7 @@ pub const GRAB_REBOOT: Key = Key {
     kind: Kind::Grab,
     default: Default::Unset,
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium",
     what: "Reboot the machine.\n\n\
            With `/proc/sys/kernel/ctrl-alt-del` at 0, vtium asks init, as for Ctrl+Alt+Del, so the services stop first; otherwise the kernel restarts at once. Unset, no key reboots.",
@@ -1480,6 +1638,7 @@ pub const GRAB_POWER_OFF: Key = Key {
     kind: Kind::Grab,
     default: Default::Unset,
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium",
     what: "Power the machine off.\n\n\
            vtium asks init with `SIGRTMIN+4`, which systemd takes as `poweroff.target`, so the services stop and the filesystems are unmounted first. Unset, no key powers off.",
@@ -1492,6 +1651,7 @@ pub const GRAB_SUSPEND: Key = Key {
     kind: Kind::Grab,
     default: Default::Unset,
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium",
     what: "Suspend the machine to RAM.\n\n\
            vtium asks logind with its `Suspend` method, so its inhibitors hold the sleep; where logind is not running, or vtium is built without `logind`, vtium writes `mem` to `/sys/power/state`. Unset, no key suspends.",
@@ -1509,6 +1669,7 @@ pub const IMAGE_STORAGE_LIMIT: Key = Key {
     },
     default: Default::Text("auto"),
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium-image",
     what: "The most bytes each console's pictures hold, its main and alternate screens together.\n\n\
            It takes bytes, or KiB, MiB or GiB with `K`, `M` or `G` (`64M`), at most 1 TiB. `auto` gives each console four frames of its head's displays, 16 MiB to 192 MiB, and works it out again when a display joins or leaves the head or changes size. `0` turns sixel and kitty graphics off.\n\n\
@@ -1522,6 +1683,7 @@ pub const MAX_GRAPHIC_SIZE: Key = Key {
     kind: Kind::Size { max: 65_535 },
     default: Default::Text("10000x10000"),
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium-image",
     what: "The largest picture a program may send, in pixels, `WxH`, for sixel and kitty graphics alike; a larger one is refused.\n\n\
            A build without images reads it and draws no picture.",
@@ -1539,6 +1701,7 @@ pub const NUM_COLOR_REGISTERS: Key = Key {
     },
     default: Default::Number(1024),
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium-term",
     what: "How many color registers a sixel picture has, and the most XTSMGRAPHICS lets a program set.\n\n\
            A build without images reads it and draws no picture.",
@@ -1551,6 +1714,7 @@ pub const PRIVATE_COLOR_REGISTERS: Key = Key {
     kind: Kind::Switch,
     default: Default::Switch(true),
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium-term",
     what: "Mode 1070's state at a reset.\n\n\
            On, each sixel picture starts from the default colors; off, the pictures share their color registers. A build without images reads it and draws no picture.",
@@ -1563,6 +1727,7 @@ pub const IMAGE_HELPER: Key = Key {
     kind: Kind::Text,
     default: Default::Text(IMAGE_PROGRAM),
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium",
     what: "The image helper's program, which vtium starts as the session's user to read the files and shared memory a kitty graphics command names and to decode PNG and zlib-compressed pictures, since vtium itself, running as root, does neither.\n\n\
            vtium opens it once at start and starts every helper from that file, so a helper installed later reaches the consoles when vtium starts again.\n\n\
@@ -1577,6 +1742,7 @@ pub const SIXEL: Key = Key {
     kind: Kind::Switch,
     default: Default::Switch(true),
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium-term",
     what: "Sixel graphics.\n\n\
            Off, vtium neither offers nor decodes sixel: DA1 reports no attribute 4 and a sixel string is ignored. vtium offers sixel only while `image-storage-limit` is above 0 and every display of the console's head draws pictures. A build without images never offers it.",
@@ -1589,6 +1755,7 @@ pub const KITTY_GRAPHICS: Key = Key {
     kind: Kind::Switch,
     default: Default::Switch(true),
     scope: Scope::Anywhere,
+    levels: TOP,
     reader: "vtium-term",
     what: "The kitty graphics protocol.\n\n\
            Off, vtium neither offers nor decodes it: a graphics command is ignored and a query gets no reply. vtium offers it only while `image-storage-limit` is above 0 and every display of the console's head draws pictures. A build without images never offers it.",
@@ -1989,6 +2156,11 @@ pub const SECTIONS: [Section; 10] = [
 /// set.
 pub const NOT_BUILT: [&Key; 2] = [&FONT_HINTING, &FONT_LINE_SPACING];
 
+/// The keys a section of `level` may set, in the table's order.
+pub fn at(level: Level) -> impl Iterator<Item = &'static Key> {
+    KEYS.iter().filter(move |k| k.levels.contains(level))
+}
+
 /// The key named `name`.
 pub fn find(name: &str) -> Option<&'static Key> {
     KEYS.iter().find(|k| k.name == name)
@@ -2045,6 +2217,59 @@ mod tests {
         );
         assert_eq!(BELL.paragraphs().count(), 2);
         assert_eq!(MOUSE.what_line(), MOUSE.what);
+    }
+
+    // ADR-1403 D5: a look takes the font and display keys ADR-1200 D16
+    // gives a look, a head takes `login`, every other key is the top
+    // level's alone, and a key the command line alone sets has no level.
+    #[test]
+    fn each_key_names_the_levels_that_may_set_it() {
+        let names = |level| at(level).map(|k| k.name).collect::<Vec<_>>();
+        assert_eq!(
+            names(Level::Look),
+            [
+                "font-engine",
+                "font-name",
+                "font-size",
+                "font-hinting",
+                "font-line-spacing",
+                "display-depth",
+                "display-dpi",
+            ]
+        );
+        assert_eq!(names(Level::Head), ["login"]);
+        for k in &KEYS {
+            match k.scope {
+                Scope::CommandLine => assert_eq!(k.levels, NONE, "{}", k.name),
+                Scope::Anywhere => assert!(k.levels.contains(Level::Top), "{}", k.name),
+            }
+        }
+        // the process's own keys stay at the top level (D5)
+        for k in [
+            &DISPLAY_BUFFERS,
+            &CONSOLES_MAX,
+            &HWACCEL,
+            &SB_MEMORY,
+            &FONT_FRITS,
+        ] {
+            assert_eq!(k.levels, TOP, "{}", k.name);
+        }
+    }
+
+    // The section reader checks a section key's value by its kind, and
+    // reads text, a command, a path, a choice and a number.
+    #[test]
+    fn every_section_key_is_of_a_kind_the_section_reader_checks() {
+        for k in at(Level::Look).chain(at(Level::Head)) {
+            assert!(
+                matches!(
+                    k.kind,
+                    Kind::Text | Kind::Command | Kind::Path | Kind::Choice(_) | Kind::Number { .. }
+                ),
+                "{}",
+                k.name
+            );
+        }
     }
 
     // ADR-1500 D8: a build turns `hwaccel` on or off by default with

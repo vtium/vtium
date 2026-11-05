@@ -1,12 +1,23 @@
-//! The head file's bytes to what survives of them (ADR-1401 D3, D7).
+//! The head file's bytes, and the sections of vtium.conf, to what survives
+//! of them (ADR-1401 D3, D7; ADR-1403 D3, D4, D5).
 //!
 //! Above the first section come the top-level keys, `version = 1` and
 //! `policy`, in either order. Then come sections: `[head NAME]` with a
-//! head's keys, and `[rules]` with one rule a line. A CRLF line ending is a
-//! newline. `#` starts a comment at the start of a line or after a blank
-//! (a space or a tab), a `#` inside a word is literal, and `\#` after a
-//! blank is a literal `#`; blanks around `=` and between tokens are
-//! dropped.
+//! head's keys, and `[rules]` with one rule a line; vtium.conf adds
+//! `[look NAME]`, with a look's keys. A CRLF line ending is a newline. `#`
+//! starts a comment at the start of a line or after a blank (a space or a
+//! tab), a `#` inside a word is literal, and `\#` after a blank is a
+//! literal `#`; blanks around `=` and between tokens are dropped.
+//!
+//! [`sections`] reads vtium.conf. Its top level, every line above the
+//! first section heading as [`split`] finds it, holds vtium's own keys,
+//! which the console reads the forgiving way, and the flow's `version` and
+//! `policy`, which this reader takes; it skips every other top-level line,
+//! so a top-level mistake never drops a section and an error in a section
+//! never drops a top-level key. A head takes `look`, `consoles`,
+//! `when-display-lost`, `isolated` and the key table's head keys, and a
+//! look takes `vtlook` and the key table's look keys, each value checked
+//! against the key's values and bounds (ADR-1403 D5).
 //!
 //! [`reading`] reads every line however many errors come before it, so a
 //! check names every error the file holds, each with its line. Each error
@@ -22,15 +33,19 @@
 //! a file with no error.
 
 use crate::bounds::{
-    CONSOLES_MAX, ERRORS_MAX, FILE_MAX, HEADS_MAX, LINE_MAX, NAME_MAX, RULES_MAX, TOKENS_MAX,
+    CONSOLES_MAX, ERRORS_MAX, FILE_MAX, HEADS_MAX, LINE_MAX, LOOKS_MAX, NAME_MAX, RULES_MAX,
+    TOKENS_MAX,
 };
-use crate::config::{Config, Head, Rule, Target, WhenDisplayLost};
+use crate::conf::comment;
+use crate::config::{Config, Head, Look, Rule, Setting, Target, WhenDisplayLost};
 use crate::error::{
     Drops, Error, Note, PolicyFault, Problem, Quoted, Rejected, Renamed, Syntax, Warning,
 };
 use crate::identity::Kind;
+use crate::keys::{self, Key, Level, TEXT_MAX};
 use crate::matching::{Match, Token, TokenError};
 use crate::outcome::{Kept, Policy, PolicyLine, Scope, Trusted, Within, scope};
+use crate::split::{BOM, POLICY_KEY, VERSION_KEY, begins_policy, heading, numbered, split};
 
 /// A valid head file, or what survives of one, and what its check found.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -80,13 +95,76 @@ impl Reading {
     }
 }
 
+/// Which file the reader reads.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum Mode {
+    /// The head file of ADR-1401, whose top level takes `version` and
+    /// `policy` alone.
+    #[default]
+    HeadFile,
+    /// vtium.conf, whose top level holds vtium's own keys beside them, and
+    /// whose sections add `[look NAME]` (ADR-1403 D3, D4).
+    Conf,
+}
+
 /// Reads a head file's bytes: at most [`FILE_MAX`] of them, each line
 /// checked on its own for UTF-8, control characters and its length, so a
 /// bad line drops what its scope takes and no more. Past [`FILE_MAX`] the
 /// file is dropped whole, and its `policy` lines are read from the lines
 /// within the bound; a policy line the bound cuts cannot be read.
 pub fn reading(bytes: &[u8]) -> Reading {
-    let mut p = Parser::default();
+    read(bytes, Mode::HeadFile)
+}
+
+/// Reads the sections of vtium.conf's bytes, and the `version` and
+/// `policy` lines of its top level, as [`reading`] reads a head file, with
+/// the whole file's line numbers (ADR-1403 D3). Every other top-level line
+/// is vtium's own key, which this reader skips. `None` for a file with no
+/// flow, one with no section heading and no policy line, which is a
+/// kmscon.conf: vtium runs its compiled-in flow for it, and the top level
+/// still applies.
+pub fn sections(bytes: &[u8]) -> Option<Reading> {
+    split(bytes).has_flow().then(|| read(bytes, Mode::Conf))
+}
+
+/// Parses the sections of vtium.conf's text, strictly: `Ok(None)` for a
+/// file with no flow, its [`Parsed`] when the sections and the policy hold
+/// no error, else every error.
+pub fn parse_sections(text: &str) -> Result<Option<Parsed>, Rejected> {
+    match sections(text.as_bytes()) {
+        None => Ok(None),
+        Some(r) if r.errors.is_empty() => Ok(Some(r.parsed)),
+        Some(r) => Err(r.errors),
+    }
+}
+
+/// Reads each line of `bytes` into `p` with `line`, numbering them on from
+/// `n`, a carriage return ending a line read as part of its newline;
+/// returns the last number given, which the empty piece after a last
+/// newline takes.
+fn each_line(
+    p: &mut Parser,
+    bytes: &[u8],
+    mut n: usize,
+    line: fn(&mut Parser, usize, &[u8]),
+) -> usize {
+    let mut lines = bytes.split(|&b| b == b'\n').peekable();
+    while let Some(raw) = lines.next() {
+        n = n.saturating_add(1);
+        let raw = match (lines.peek(), raw.split_last()) {
+            (Some(_), Some((b'\r', rest))) => rest,
+            _ => raw,
+        };
+        line(p, n, raw);
+    }
+    n
+}
+
+fn read(bytes: &[u8], mode: Mode) -> Reading {
+    let mut p = Parser {
+        mode,
+        ..Parser::default()
+    };
     let (within, cut) = if bytes.len() > FILE_MAX {
         p.error(None, Problem::TooLarge, Within::Top);
         let bounded = bytes.get(..FILE_MAX).unwrap_or_default();
@@ -107,17 +185,27 @@ pub fn reading(bytes: &[u8]) -> Reading {
         None if within.is_empty() => (within, cut.strip_prefix(BOM).unwrap_or(cut)),
         None => (within, cut),
     };
-    let mut lines = within.split(|&b| b == b'\n').peekable();
-    let mut n = 0_usize;
-    while let Some(raw) = lines.next() {
-        n = n.saturating_add(1);
-        // a carriage return ending a line is part of its newline
-        let raw = match (lines.peek(), raw.split_last()) {
-            (Some(_), Some((b'\r', rest))) => rest,
-            _ => raw,
-        };
-        p.raw_line(n, raw);
-    }
+    let n = match mode {
+        Mode::HeadFile => each_line(&mut p, within, 0, Parser::raw_line),
+        Mode::Conf => {
+            let parts = split(within);
+            match parts.first_section {
+                // the top level's lines, then the sections' from the heading
+                Some(first) => {
+                    for (n, raw) in numbered(parts.top, 1) {
+                        p.top_line(n, raw.strip_suffix(b"\r").unwrap_or(raw));
+                    }
+                    each_line(
+                        &mut p,
+                        parts.sections,
+                        first.saturating_sub(1),
+                        Parser::raw_line,
+                    )
+                }
+                None => each_line(&mut p, parts.top, 0, Parser::top_line),
+            }
+        }
+    };
     // the lines end in an empty one, numbered as the line the bound cuts
     if p.top() && begins_policy(cut) {
         p.unreadable_policy(n, PolicyFault::Cut);
@@ -145,22 +233,6 @@ fn hidden_from(line: &str) -> Option<&str> {
     line.get(before..)
 }
 
-/// The UTF-8 byte-order mark.
-const BOM: &[u8] = b"\xef\xbb\xbf";
-
-/// Whether a line's bytes, after their leading blanks, begin with `policy`
-/// in any case: a policy line, wherever above the first section it sits,
-/// whatever bytes follow (ADR-1401 D7).
-fn begins_policy(raw: &[u8]) -> bool {
-    let start = raw
-        .iter()
-        .position(|b| !matches!(b, b' ' | b'\t'))
-        .unwrap_or(raw.len());
-    raw.get(start..)
-        .and_then(|rest| rest.get(..POLICY_KEY.len()))
-        .is_some_and(|word| word.eq_ignore_ascii_case(POLICY_KEY.as_bytes()))
-}
-
 /// Parses a head file's text, strictly: its [`Config`] when it holds no
 /// error, else every error.
 pub fn parse(text: &str) -> Result<Parsed, Rejected> {
@@ -178,6 +250,8 @@ enum Section {
     Top,
     /// The head at this index of `heads`.
     Head(usize),
+    /// The look at this index of `looks`.
+    Look(usize),
     Rules,
     /// A section an error dropped; its lines are skipped.
     Broken,
@@ -206,8 +280,26 @@ struct Declared {
     dropped: bool,
 }
 
+/// A look as read, with the keys it has set.
+struct DeclaredLook {
+    look: Look,
+    keys: Vec<&'static str>,
+    /// An error inside its section dropped it.
+    dropped: bool,
+}
+
+/// Where a key set once sits: among the top-level keys, or in the head or
+/// the look at this index.
+#[derive(Clone, Copy)]
+enum Seen {
+    Top,
+    Head(usize),
+    Look(usize),
+}
+
 #[derive(Default)]
 struct Parser {
+    mode: Mode,
     errors: Rejected,
     /// Errors found once every line is read, merged in by line.
     late: Vec<Error>,
@@ -221,6 +313,11 @@ struct Parser {
     heads: Vec<Declared>,
     /// The names of heads whose heading an error dropped.
     dropped_names: Vec<String>,
+    looks: Vec<DeclaredLook>,
+    /// The names of looks an error dropped, whose heads take the default
+    /// look with no warning of their own.
+    dropped_looks: Vec<String>,
+    looks_over: bool,
     rules: Vec<Read>,
     seen_rules: bool,
     heads_over: bool,
@@ -234,25 +331,30 @@ fn trim(s: &str) -> &str {
     s.trim_matches(|c| c == ' ' || c == '\t')
 }
 
-/// A line with its comment and its outer blanks dropped: `#` at the start
-/// of the line or after a blank starts the comment, and `\#` there is a
-/// literal `#`.
-fn content(line: &str) -> String {
-    let mut out = String::with_capacity(line.len());
-    let mut after_blank = true;
-    let mut chars = line.chars().peekable();
-    while let Some(c) = chars.next() {
-        match c {
-            '#' if after_blank => break,
-            '\\' if after_blank && chars.peek() == Some(&'#') => {
-                chars.next();
-                out.push('#');
-                after_blank = false;
-                continue;
-            }
-            _ => out.push(c),
+/// The byte range of a line's content, as [`content`] reads it: from its
+/// first byte that is not a blank to the end of its last before its
+/// comment, with each `\#` still written as the file writes it.
+pub(crate) fn content_range(line: &str) -> std::ops::Range<usize> {
+    let (end, _) = comment(line.as_bytes());
+    let body = line.get(..end).unwrap_or_default();
+    let start = body
+        .len()
+        .saturating_sub(body.trim_start_matches([' ', '\t']).len());
+    let stop = body.trim_end_matches([' ', '\t']).len();
+    start..stop.max(start)
+}
+
+/// A line with its comment and its outer blanks dropped, by vtium.conf's
+/// one comment rule, [`comment`]: each `\#` that rule reads as a literal
+/// `#` is one.
+pub(crate) fn content(line: &str) -> String {
+    let (end, escapes) = comment(line.as_bytes());
+    let body = line.get(..end).unwrap_or_default();
+    let mut out = String::with_capacity(body.len());
+    for (at, c) in body.char_indices() {
+        if !escapes.contains(&at) {
+            out.push(c);
         }
-        after_blank = matches!(c, ' ' | '\t');
     }
     trim(&out).to_owned()
 }
@@ -262,7 +364,7 @@ fn blanks(s: &str) -> impl Iterator<Item = &str> {
 }
 
 /// `key = value`, each trimmed, where the line has an `=`.
-fn key_value(line: &str) -> Option<(&str, &str)> {
+pub(crate) fn key_value(line: &str) -> Option<(&str, &str)> {
     line.split_once('=').map(|(k, v)| (trim(k), trim(v)))
 }
 
@@ -284,9 +386,6 @@ fn keep_first<T>(findings: &mut Vec<T>) -> usize {
     past
 }
 
-/// The top-level key that states the file's policy.
-const POLICY_KEY: &str = "policy";
-
 /// The words `policy` takes.
 pub(crate) const POLICY: [&str; 2] = ["open", "closed"];
 
@@ -296,9 +395,35 @@ pub(crate) const YES_NO: [&str; 2] = ["yes", "no"];
 /// The forms `when-display-lost` takes (D8).
 pub(crate) const WHEN_DISPLAY_LOST: [&str; 3] = ["keep", "hangup", "hangup DURATION"];
 
+/// The keys a head takes in vtium.conf beside the key table's head keys
+/// (ADR-1403 D5).
+pub(crate) const CONF_HEAD_KEYS: [&str; 4] = ["look", "consoles", "when-display-lost", "isolated"];
+
+/// The key a look names its vtlook with (ADR-1403 D1, ADR-1304 D4).
+pub(crate) const VTLOOK: &str = "vtlook";
+
 /// The reserved names, a head's name no head may take: the targets.
 /// The first cut's targets, `focus` and `dark`, stay reserved too.
-const RESERVED: [&str; 3] = ["roaming", "ignore", "off"];
+pub(crate) const RESERVED: [&str; 3] = ["roaming", "ignore", "off"];
+
+/// One rule's line read alone, as `[rules]` reads it: its kind and match,
+/// or the errors it holds. Its target is checked once a whole file is
+/// read, since a rule may name a head declared after it.
+pub(crate) fn rule_line(line: &str) -> Result<(Kind, Match), Rejected> {
+    let mut p = Parser {
+        mode: Mode::Conf,
+        section: Some(Section::Rules),
+        ..Parser::default()
+    };
+    p.rule(1, &content(line));
+    if !p.errors.is_empty() {
+        return Err(p.errors);
+    }
+    match p.rules.pop() {
+        Some(read) => Ok((read.kind, read.matcher)),
+        None => Err(Rejected::one(Some(1), Problem::Syntax(Syntax::RuleKind))),
+    }
+}
 
 /// What a key of the head file takes, as its parser reads it, which an
 /// error naming a value the key cannot take lists.
@@ -312,6 +437,8 @@ pub(crate) enum Takes {
     Seconds { max: u32 },
     /// Any text but none.
     Text,
+    /// A name, by the name rule.
+    Name,
 }
 
 /// What `key` takes, by the parser's tables: the values a bad value is
@@ -322,7 +449,67 @@ pub(crate) fn takes(key: &str) -> Takes {
         "isolated" => Takes::Words(&YES_NO),
         "when-display-lost" => Takes::Words(&WHEN_DISPLAY_LOST),
         "consoles" => Takes::Number { min: 1, max: None },
-        _ => Takes::Text,
+        "look" | VTLOOK => Takes::Name,
+        // a key of the key table a section sets takes the table's values
+        _ => match keys::find(key).map(|k| k.kind) {
+            Some(keys::Kind::Choice(words)) => Takes::Words(words),
+            Some(keys::Kind::Number { min, max, .. }) => Takes::Number {
+                min: u32::try_from(min).unwrap_or(u32::MAX),
+                max: Some(u32::try_from(max).unwrap_or(u32::MAX)),
+            },
+            _ => Takes::Text,
+        },
+    }
+}
+
+/// Checks the value a section gives a key of the key table against the
+/// key's values and bounds, as the top level reads the key, but strictly:
+/// a value out of bounds is an error in the section, never clamped
+/// (ADR-1403 D5). Each section key is of a kind this reads, which
+/// `every_section_key_is_of_a_kind_the_section_reader_checks` holds.
+fn table_value(key: &'static Key, value: &str) -> Result<(), Problem> {
+    let bad = || Problem::BadValue {
+        key: key.name,
+        value: Quoted::new(value),
+    };
+    if value.is_empty() {
+        return Err(bad());
+    }
+    match key.kind {
+        keys::Kind::Text | keys::Kind::Command | keys::Kind::Path if value.len() > TEXT_MAX => {
+            Err(Problem::TooLong(key.name))
+        }
+        keys::Kind::Path if !keys::absolute(value) => Err(bad()),
+        keys::Kind::Choice(words) if !words.contains(&value) => Err(bad()),
+        keys::Kind::Number { word, .. } if word == Some(value) => Ok(()),
+        keys::Kind::Number { min, max, unit, .. } => {
+            // a byte count may end in K, M or G, powers of 1024
+            let suffixed = |s: [char; 2], scale: u64| {
+                value
+                    .strip_suffix(s)
+                    .filter(|_| unit == "bytes")
+                    .map(|d| (d, scale))
+            };
+            let (digits, scale) = suffixed(['K', 'k'], 1 << 10)
+                .or_else(|| suffixed(['M', 'm'], 1 << 20))
+                .or_else(|| suffixed(['G', 'g'], 1 << 30))
+                .unwrap_or((value, 1));
+            if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+                return Err(bad());
+            }
+            let n = digits
+                .parse::<u64>()
+                .ok()
+                .and_then(|n| n.checked_mul(scale));
+            match n {
+                Some(n) if (min..=max).contains(&n) => Ok(()),
+                _ => Err(Problem::OutOfRange {
+                    key: key.name,
+                    value: Quoted::new(value),
+                }),
+            }
+        }
+        _ => Ok(()),
     }
 }
 
@@ -410,6 +597,13 @@ impl Parser {
                     declared.dropped = true;
                 }
             }
+            // an error inside a look drops that look, and its heads take
+            // the default look (ADR-1403 D5)
+            (Scope::Section, Some(Section::Look(index))) if within == Within::Look => {
+                if let Some(declared) = self.looks.get_mut(index) {
+                    declared.dropped = true;
+                }
+            }
             _ => {}
         }
         self.errors
@@ -439,7 +633,44 @@ impl Parser {
         match self.section {
             None | Some(Section::Top) => Within::Top,
             Some(Section::Head(_)) => Within::Head,
+            Some(Section::Look(_)) => Within::Look,
             Some(Section::Rules | Section::Broken) => Within::Rules,
+        }
+    }
+
+    /// One top-level line of vtium.conf: a policy line, read as the head
+    /// file's is, or a `version` line; any other line is vtium's own key,
+    /// which the console reads and this reader skips (ADR-1403 D3).
+    fn top_line(&mut self, n: usize, raw: &[u8]) {
+        let policy = begins_policy(raw);
+        if raw.len() > LINE_MAX {
+            if policy {
+                self.unreadable_policy(n, PolicyFault::LineTooLong);
+            }
+            return;
+        }
+        let text = match std::str::from_utf8(raw) {
+            Err(_) => Err(PolicyFault::NotUtf8),
+            Ok(text) => match text.chars().find(|&c| c.is_control() && c != '\t') {
+                Some(c) => Err(PolicyFault::ControlCharacter(c)),
+                None => Ok(text),
+            },
+        };
+        match text {
+            Err(fault) if policy => self.unreadable_policy(n, fault),
+            Err(_) => {}
+            Ok(text) => {
+                let line = content(text);
+                let version = matches!(key_value(&line), Some((VERSION_KEY, _)));
+                if policy || version {
+                    self.section.get_or_insert(Section::Top);
+                    if policy {
+                        self.policy_key(n, &line);
+                    } else {
+                        self.top_key(n, &line);
+                    }
+                }
+            }
         }
     }
 
@@ -450,10 +681,7 @@ impl Parser {
         let policy = self.top() && begins_policy(raw);
         // a heading vtium cannot read drops its section, and still ends the
         // lines above the first section
-        let heading = raw
-            .iter()
-            .find(|b| !matches!(b, b' ' | b'\t'))
-            .is_some_and(|&b| b == b'[');
+        let heading = heading(raw);
         let within = if heading {
             Within::Header
         } else {
@@ -514,36 +742,35 @@ impl Parser {
             Section::Top if policy => self.policy_key(n, &line),
             Section::Top => self.top_key(n, &line),
             Section::Head(index) => self.head_key(n, index, &line),
+            Section::Look(index) => self.look_key(n, index, &line),
             Section::Rules => self.rule(n, &line),
             Section::Broken => {}
         }
     }
 
-    /// Records `key` as set in `seen`, naming the error when it was.
-    fn once(&mut self, n: usize, seen_in: Option<usize>, key: &'static str) -> bool {
-        let seen = match seen_in {
-            Some(index) => self.heads.get(index).map(|d| &d.keys),
-            None => Some(&self.top_keys),
+    /// Records `key` as set where `seen` says, naming the error when it
+    /// was already.
+    fn once(&mut self, n: usize, seen: Seen, key: &'static str) -> bool {
+        let keys = match seen {
+            Seen::Top => Some(&mut self.top_keys),
+            Seen::Head(index) => self.heads.get_mut(index).map(|d| &mut d.keys),
+            Seen::Look(index) => self.looks.get_mut(index).map(|d| &mut d.keys),
         };
-        if seen.is_some_and(|keys| keys.contains(&key)) {
+        let Some(keys) = keys else {
+            return false;
+        };
+        if keys.contains(&key) {
             self.error(Some(n), Problem::DuplicateKey(key), self.within());
             return false;
         }
-        match seen_in {
-            Some(index) => {
-                if let Some(declared) = self.heads.get_mut(index) {
-                    declared.keys.push(key);
-                }
-            }
-            None => self.top_keys.push(key),
-        }
+        keys.push(key);
         true
     }
 
     fn top_key(&mut self, n: usize, line: &str) {
         match key_value(line) {
             Some(("version", value)) => {
-                if self.once(n, None, "version") {
+                if self.once(n, Seen::Top, "version") {
                     self.versioned = true;
                     if value != "1" {
                         self.error(
@@ -574,7 +801,7 @@ impl Parser {
         match policy_line(line) {
             Ok(read) => {
                 self.policies.push(read);
-                self.once(n, None, POLICY_KEY);
+                self.once(n, Seen::Top, POLICY_KEY);
             }
             Err(fault) => self.unreadable_policy(n, fault),
         }
@@ -604,6 +831,22 @@ impl Parser {
             ["head", ..] => self.error(
                 Some(n),
                 Problem::Syntax(Syntax::HeadOneName),
+                Within::Header,
+            ),
+            ["look", name] if self.mode == Mode::Conf => self.look(n, name),
+            ["look", ..] if self.mode == Mode::Conf => self.error(
+                Some(n),
+                Problem::Syntax(Syntax::LookOneName),
+                Within::Header,
+            ),
+            ["profile", ..] if self.mode == Mode::Conf => self.error(
+                Some(n),
+                Problem::Renamed(Renamed::ProfileSection),
+                Within::Header,
+            ),
+            _ if self.mode == Mode::Conf => self.error(
+                Some(n),
+                Problem::NotASection(Quoted::new(inner)),
                 Within::Header,
             ),
             _ => self.error(
@@ -646,7 +889,96 @@ impl Parser {
         self.error(Some(n), problem, Within::Header);
     }
 
-    fn head_key(&mut self, n: usize, index: usize, line: &str) {
+    /// A look's heading in vtium.conf, `[look NAME]` (ADR-1403 D4).
+    fn look(&mut self, n: usize, name: &str) {
+        let problem = if !good_name(name) {
+            Problem::BadLookName(Quoted::new(name))
+        } else if self.looks.iter().any(|d| d.look.name == name) {
+            Problem::DuplicateLook(Quoted::new(name))
+        } else if self.looks.len() >= LOOKS_MAX {
+            if !std::mem::replace(&mut self.looks_over, true) {
+                self.error(Some(n), Problem::TooManyLooks, Within::Header);
+            }
+            return;
+        } else {
+            self.section = Some(Section::Look(self.looks.len()));
+            self.looks.push(DeclaredLook {
+                look: Look {
+                    name: name.to_owned(),
+                    line: n,
+                    settings: Vec::new(),
+                    vtlook: None,
+                    vtlook_line: 0,
+                },
+                keys: Vec::new(),
+                dropped: false,
+            });
+            return;
+        };
+        if !matches!(problem, Problem::DuplicateLook(_)) {
+            // a head naming it takes the default look, and this error says why
+            self.dropped_looks.push(name.to_owned());
+        }
+        self.error(Some(n), problem, Within::Header);
+    }
+
+    /// One line of a look's section: `vtlook`, or a key of the key table a
+    /// look may set, its value checked against the key's values and bounds
+    /// (ADR-1403 D5). An error drops the look.
+    fn look_key(&mut self, n: usize, index: usize, line: &str) {
+        let Some((key, value)) = key_value(line) else {
+            self.error(Some(n), Problem::Syntax(Syntax::NotKeyValue), Within::Look);
+            return;
+        };
+        if key == VTLOOK {
+            if !self.once(n, Seen::Look(index), VTLOOK) {
+                return;
+            }
+            if !good_name(value) {
+                let problem = Problem::BadValue {
+                    key: VTLOOK,
+                    value: Quoted::new(value),
+                };
+                self.error(Some(n), problem, Within::Look);
+            } else if let Some(d) = self.looks.get_mut(index) {
+                d.look.vtlook = Some(value.to_owned());
+                d.look.vtlook_line = n;
+            }
+            return;
+        }
+        let Some(table) = keys::find(key) else {
+            self.error(Some(n), Problem::UnknownKey(Quoted::new(key)), Within::Look);
+            return;
+        };
+        if !table.levels.contains(Level::Look) {
+            let problem = Problem::NotHere {
+                key: table.name,
+                section: Level::Look,
+                levels: table.levels,
+            };
+            self.error(Some(n), problem, Within::Look);
+            return;
+        }
+        if !self.once(n, Seen::Look(index), table.name) {
+            return;
+        }
+        match table_value(table, value) {
+            Ok(()) => {
+                if let Some(d) = self.looks.get_mut(index) {
+                    d.look.settings.push(Setting {
+                        key: table,
+                        value: value.to_owned(),
+                        line: n,
+                    });
+                }
+            }
+            Err(problem) => self.error(Some(n), problem, Within::Look),
+        }
+    }
+
+    /// The key a head's line names, as the file's kind takes it; `Err` with
+    /// the error for a key a head does not take.
+    fn head_key_name(&self, key: &str) -> Result<&'static str, Problem> {
         const KEYS: [&str; 5] = [
             "profile",
             "consoles",
@@ -654,22 +986,69 @@ impl Parser {
             "when-display-lost",
             "isolated",
         ];
+        let found = match self.mode {
+            Mode::HeadFile => KEYS.iter().find(|k| **k == key).copied(),
+            Mode::Conf => CONF_HEAD_KEYS
+                .iter()
+                .find(|k| **k == key)
+                .copied()
+                .or_else(|| {
+                    keys::find(key)
+                        .filter(|k| k.levels.contains(Level::Head))
+                        .map(|k| k.name)
+                }),
+        };
+        found.ok_or_else(|| match (self.mode, key) {
+            (_, "on-loss") => Problem::Renamed(Renamed::OnLoss),
+            (_, "rescue") => Problem::Renamed(Renamed::Rescue),
+            (Mode::HeadFile, "font-name") => Problem::Renamed(Renamed::HeadFont("font-name")),
+            (Mode::HeadFile, "font-size") => Problem::Renamed(Renamed::HeadFont("font-size")),
+            (Mode::Conf, "profile") => Problem::Renamed(Renamed::Profile),
+            (Mode::Conf, _) => match keys::find(key) {
+                Some(table) => Problem::NotHere {
+                    key: table.name,
+                    section: Level::Head,
+                    levels: table.levels,
+                },
+                None => Problem::UnknownKey(Quoted::new(key)),
+            },
+            (Mode::HeadFile, _) => Problem::UnknownKey(Quoted::new(key)),
+        })
+    }
+
+    fn head_key(&mut self, n: usize, index: usize, line: &str) {
         let Some((key, value)) = key_value(line) else {
             self.error(Some(n), Problem::Syntax(Syntax::NotKeyValue), Within::Head);
             return;
         };
-        let Some(&key) = KEYS.iter().find(|k| **k == key) else {
-            let problem = match key {
-                "on-loss" => Problem::Renamed(Renamed::OnLoss),
-                "rescue" => Problem::Renamed(Renamed::Rescue),
-                "font-name" => Problem::Renamed(Renamed::HeadFont("font-name")),
-                "font-size" => Problem::Renamed(Renamed::HeadFont("font-size")),
-                _ => Problem::UnknownKey(Quoted::new(key)),
-            };
-            self.error(Some(n), problem, Within::Head);
-            return;
+        let key = match self.head_key_name(key) {
+            Ok(key) => key,
+            Err(problem) => {
+                self.error(Some(n), problem, Within::Head);
+                return;
+            }
         };
-        if !self.once(n, Some(index), key) {
+        if !self.once(n, Seen::Head(index), key) {
+            return;
+        }
+        if self.mode == Mode::Conf
+            && let Some(table) = keys::find(key)
+        {
+            match table_value(table, value) {
+                Ok(()) => {
+                    if let Some(head) = self.heads.get_mut(index).map(|d| &mut d.head) {
+                        if key == keys::LOGIN.name {
+                            head.login = Some(value.to_owned());
+                        }
+                        head.settings.push(Setting {
+                            key: table,
+                            value: value.to_owned(),
+                            line: n,
+                        });
+                    }
+                }
+                Err(problem) => self.error(Some(n), problem, Within::Head),
+            }
             return;
         }
         let bad = || Problem::BadValue {
@@ -680,11 +1059,12 @@ impl Parser {
         let mut capped = false;
         if let Some(head) = self.heads.get_mut(index).map(|d| &mut d.head) {
             match key {
-                "profile" if good_name(value) => {
+                "profile" | "look" if good_name(value) => {
                     head.profile = value.to_owned();
                     head.profile_line = n;
                 }
                 "profile" => problem = Some(Problem::BadName(Quoted::new(value))),
+                "look" => problem = Some(bad()),
                 "consoles" => match decimal(value) {
                     Some(Some(0)) => {
                         problem = Some(Problem::OutOfRange {
@@ -849,6 +1229,29 @@ impl Parser {
                 heads.push(declared.head);
             }
         }
+        let mut looks = Vec::new();
+        for declared in std::mem::take(&mut self.looks) {
+            if declared.dropped {
+                self.dropped_looks.push(declared.look.name);
+            } else {
+                looks.push(declared.look);
+            }
+        }
+        // a head naming a look with no section draws with the default look
+        if self.mode == Mode::Conf {
+            for head in &heads {
+                let named = head.profile != "default"
+                    && !looks.iter().any(|l| l.name == head.profile)
+                    && !self.dropped_looks.contains(&head.profile);
+                if named {
+                    self.warnings.push(Warning::NoLook {
+                        line: head.profile_line,
+                        head: Quoted::new(&head.name),
+                        look: Quoted::new(&head.profile),
+                    });
+                }
+            }
+        }
         let mut rules = Vec::new();
         for read in std::mem::take(&mut self.rules) {
             let target = match read.aim {
@@ -897,6 +1300,7 @@ impl Parser {
         } else {
             let config = Config {
                 policy,
+                looks,
                 heads,
                 rules,
                 survivors: !self.errors.is_empty(),

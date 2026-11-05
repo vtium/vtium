@@ -32,6 +32,8 @@ pub const HEAD_FILE: &str = "/etc/vtium/heads.conf";
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Trust {
     owner: u32,
+    /// Whether root's files pass too, beside `owner`'s.
+    or_root: bool,
     top: Option<PathBuf>,
 }
 
@@ -39,6 +41,7 @@ impl Trust {
     /// root, every directory up to `/`, as vtium reads its files.
     pub const ROOT: Trust = Trust {
         owner: 0,
+        or_root: true,
         top: None,
     };
 
@@ -46,6 +49,20 @@ impl Trust {
     pub fn owner(uid: u32) -> Trust {
         Trust {
             owner: uid,
+            or_root: false,
+            top: None,
+        }
+    }
+
+    /// The trust of a vtium that runs as `euid` (ADR-1403 D3): root's
+    /// files, and when `euid` is not root, its own files too, each in
+    /// directories root or `euid` owns, under the same check of who else
+    /// can write them, as `sshd`'s `StrictModes` takes a user's own files.
+    /// Run as root, it is [`Trust::ROOT`].
+    pub fn running_as(euid: u32) -> Trust {
+        Trust {
+            owner: euid,
+            or_root: true,
             top: None,
         }
     }
@@ -75,7 +92,7 @@ impl Trust {
     /// user's, a directory the trusted user's or root's, and neither
     /// writable by its group or by others.
     pub fn check(&self, path: &Path, uid: u32, mode: u32, dir: bool) -> Result<(), Untrusted> {
-        let owned = uid == self.owner || (dir && uid == 0);
+        let owned = uid == self.owner || ((dir || self.or_root) && uid == 0);
         let quoted = || Quoted::path(path);
         if !owned {
             return Err(Untrusted::Owner {

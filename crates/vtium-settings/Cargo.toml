@@ -1,6 +1,6 @@
 [package]
 name = "vtium-settings"
-description = "vtium's configuration: the key table, vtium.conf's line syntax and editor, and the head file's reader, parser, evaluator and one writer"
+description = "vtium's configuration: the key table, vtium.conf's top level and its sections, their readers and writers, and the evaluator that places each device in a head"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
