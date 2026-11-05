@@ -182,7 +182,7 @@ vtium-config stays one binary, apart from vtiumctl. Each command is typed as `vt
 | `apply DIR` | root | Checks and installs a draft (D5). |
 | `preview`, `use-frit`, `serve` | as ADR-1200 D4 | Unchanged but for `use-frit`'s name, and `use-frit` checks the terminal first (D4). |
 
-- **Run as a user,** a command that writes makes an install bundle under `$XDG_STATE_HOME/vtium/drafts/<time>/`, the directory ADR-1401 D12 gives vtiumctl's drafts, and prints the install bundle's path and the command that installs it, `sudo vtium-config apply DIR`. **Run as root,** it installs at once through the same steps `apply DIR` takes. A script therefore never needs the TUI.
+- **Run as a user,** a command that writes makes an install bundle under `$XDG_STATE_HOME/vtium/drafts/<time>/`, the directory ADR-1401 D12 gives vtiumctl's drafts, whose name predates the word install bundle, and prints the install bundle's path and the command that installs it, `sudo vtium-config apply DIR`. **Run as root,** it installs at once through the same steps `apply DIR` takes. A script therefore never needs the TUI.
 - **The frit commands are `new-frit` and `use-frit`** (the maintainer, 2026-11-05), since the flow's commands of ADR-1403 D8 keep `set` and `new`. `install` installs the current draft, which it hands to `apply DIR`, the privileged step that runs as root and keeps its name (the maintainer, 2026-11-05).
 
   > Edited 2026-11-05: the maintainer renamed the flow's `apply` to `install` and the view's Save to Install (`considered`). The bullet read: "keep `set`, `new` and `apply`. `apply` with no argument installs the current draft".
