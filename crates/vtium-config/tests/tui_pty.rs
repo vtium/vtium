@@ -479,7 +479,7 @@ fn the_screen_fits_80x25_and_100x30() {
     }
 }
 
-/// `vtium-config set NAME` on the pty, as its controlling terminal.
+/// `vtium-config use-frit NAME` on the pty, as its controlling terminal.
 fn set(name: &str, kind: Kind) -> (i32, String, Vec<String>) {
     let (master, slave) = pair(80, 25);
     let label = match kind {
@@ -571,7 +571,7 @@ fn saving_into_directories_not_the_system_s_installs_as_the_user() {
     c.key(b"i");
     c.until("asked", |s| {
         s.screen
-            .contains("Install the working copy? 1 line added, 1 removed.")
+            .contains("Install the draft? 1 line added, 1 removed.")
     });
     c.key(b"y");
     c.until("installed", |s| s.screen.contains("Installed draft"));
@@ -642,7 +642,7 @@ fn saving_the_system_s_files_runs_exactly_sudo_vtium_config_apply_dir() {
     c.key(b"\x1b[B");
     c.key(b"\r");
     c.key(b"i");
-    c.until("asked", |s| s.screen.contains("Install the working copy?"));
+    c.until("asked", |s| s.screen.contains("Install the draft?"));
     let program = env!("CARGO_BIN_EXE_vtium-config");
     c.key(b"y");
     c.until("failed", |s| s.screen.contains("Nothing is installed"));

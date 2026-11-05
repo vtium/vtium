@@ -673,13 +673,10 @@ pub const INSTALLING: &str = "Installing; sudo may ask for your password.";
 pub const NOTHING_TO_INSTALL: &str = "The draft is the installed file; nothing to install.";
 pub fn install_question(added: usize, removed: usize, frits: usize) -> String {
     match frits {
-        0 => format!("Install the working copy? {}.", lines(added, removed)),
-        1 => format!(
-            "Install the working copy? {}, and 1 frit.",
-            lines(added, removed)
-        ),
+        0 => format!("Install the draft? {}.", lines(added, removed)),
+        1 => format!("Install the draft? {}, and 1 frit.", lines(added, removed)),
         n => format!(
-            "Install the working copy? {}, and {n} frits.",
+            "Install the draft? {}, and {n} frits.",
             lines(added, removed)
         ),
     }
@@ -693,13 +690,13 @@ pub fn installed(name: &str) -> String {
 }
 pub fn revert_question(added: usize, removed: usize) -> String {
     format!(
-        "Throw away the working copy's changes? {} are lost.",
+        "Throw away the draft's changes? {} are lost.",
         lost(added, removed)
     )
 }
 pub const REVERTED: &str = "The draft is the installed file again.";
 pub const NEW_QUESTION: &str =
-    "Start a new configuration? The working copy's heads, rules and looks are lost.";
+    "Start a new configuration? The draft's heads, rules and looks are lost.";
 pub const NEW_DONE: &str = "The draft starts over, with every key at its default and one look, default. Wire a display and a keyboard to a head before installing.";
 pub fn delete_draft_question(added: usize, removed: usize) -> String {
     format!("Delete the draft? {} are lost.", lost(added, removed))
@@ -781,5 +778,26 @@ pub fn frits_waiting(n: usize) -> String {
         "1 frit to install".to_owned()
     } else {
         format!("{n} frits to install")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    // ADR-1403 D7's fixed word: Install, Revert and New each call the
+    // working copy the draft
+    #[test]
+    fn install_revert_and_new_name_the_draft() {
+        assert_eq!(
+            super::install_question(3, 1, 0),
+            "Install the draft? 3 lines added, 1 removed."
+        );
+        assert_eq!(
+            super::revert_question(3, 1),
+            "Throw away the draft's changes? 3 lines added and 1 removed are lost."
+        );
+        assert_eq!(
+            super::NEW_QUESTION,
+            "Start a new configuration? The draft's heads, rules and looks are lost."
+        );
     }
 }

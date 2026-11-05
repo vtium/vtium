@@ -20,7 +20,7 @@ flowchart LR
 
 A distribution package installs vtium's programs, the service unit, the terminfo entry and the example configuration, and frits where it ships them. Nothing is built at install: the console generates a frit's glyphs at run time (ADR-1200).
 
-On a systemd machine, vtium's unit takes the place of getty, the program that prints the login prompt on a VT: enabled, it makes logind start vtium on each VT it would have given a getty. When vtium cannot start, for example because no display appears, it exits with a failure, and the unit starts getty on that VT instead, so a user is never left at a dead screen. Under a head file whose policy is closed ([Heads](heads.md#two-policies-open-and-closed)) the unit starts no getty, since a getty's login on vtium's VT would take any keyboard.
+On a systemd machine, vtium's unit takes the place of getty, the program that prints the login prompt on a VT: enabled, it makes logind start vtium on each VT it would have given a getty. When vtium cannot start, for example because no display appears, it exits with a failure, and the unit starts getty on that VT instead, so a user is never left at a dead screen. Under a vtium.conf whose policy is closed ([Heads](heads.md#two-policies-open-and-closed)) the unit starts no getty, since a getty's login on vtium's VT would take any keyboard.
 
 vtium runs without systemd and without logind as well: an inittab line, an init script or a supervisor starts it where it started a getty, and a person can start it by hand. Each place vtium touches systemd, logind or init, and what it does without them, is listed in [systemd.md](../systemd.md).
 

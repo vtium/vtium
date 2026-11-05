@@ -16,7 +16,7 @@ vtium's latest release is the pre-release v0.1.0-alpha.5. This site describes vt
 |---|---|
 | try vtium for the first time, on one VT, and get back to your desktop safely | [Tutorials](tutorial-try-vtium.md), which teach by doing |
 | get one task done: install it, configure it, choose a font, set up heads, or find out what went wrong | [How-to guides](managing-vtium.md), for a reader who knows what they want |
-| look something up: what vtium does, its keys, its configuration keys, the head file | [Reference](features.md), to read in the middle of the work |
+| look something up: what vtium does, its keys, its configuration keys, the sections of vtium.conf | [Reference](features.md), to read in the middle of the work |
 | understand why vtium exists and how its pieces fit together | [Explanation](why-vtium.md), to read away from the keyboard |
 
 [Decisions](architecture/INDEX.md) holds the record of each decision behind vtium, with the maintainer's reasons, and [For contributors](architecture.md) describes how vtium is built and judged.
