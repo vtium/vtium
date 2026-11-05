@@ -3373,6 +3373,8 @@ class Package(Case):
         "usr/share/doc/vtium/examples/vtium.hwdb",
         "usr/share/licenses/vtium/COPYING",
         "usr/share/licenses/vtium/LICENSE",
+        "usr/share/licenses/vtium/OFL-1.1.txt",
+        "usr/share/licenses/vtium/rgb-license.txt",
     ])
 
     # What the ordinary-machine build, FEATURES='images logind gpu', stages
@@ -3388,6 +3390,8 @@ class Package(Case):
         "usr/bin/vtium-gallery": "tools/gallery/gallery",
         "usr/share/licenses/vtium/COPYING": "COPYING",
         "usr/share/licenses/vtium/LICENSE": "LICENSE",
+        "usr/share/licenses/vtium/OFL-1.1.txt": "crates/vtium-font/data/OFL-1.1.txt",
+        "usr/share/licenses/vtium/rgb-license.txt": "crates/vtium-term/gen-color-names/src/rgb-license.txt",
     }
 
     # A stand-in cargo that records the helper paths each build bakes in,
@@ -3597,8 +3601,10 @@ class Package(Case):
         p = self.make("install", f"DESTDIR={self.dest}", "PREFIX=/usr", f"INSTALL_TARGET_DIR={self.build}",
                       "PKGNAME=vtium-git")
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
-        self.assertIn("usr/share/licenses/vtium-git/LICENSE", self.staged())
-        self.assertIn("usr/share/licenses/vtium-git/COPYING", self.staged())
+        self.assertEqual([f for f in self.staged() if f.startswith("usr/share/licenses/")],
+                         ["usr/share/licenses/vtium-git/COPYING", "usr/share/licenses/vtium-git/LICENSE",
+                          "usr/share/licenses/vtium-git/OFL-1.1.txt",
+                          "usr/share/licenses/vtium-git/rgb-license.txt"])
         self.assertFalse([f for f in self.staged() if f.startswith("usr/share/licenses/vtium/")], self.staged())
 
     def test_enabling_the_packaged_template_with_no_vt_links_nothing(self):

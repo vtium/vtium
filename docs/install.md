@@ -47,7 +47,8 @@ The packages install these files:
 | `/etc/vtium/fonts/` | the frits `desktop`, `minspec-16` and `minspec-8`; each is ready to choose with `vtium config` or vtium.conf's `font-name`, and a frit that nothing names changes nothing |
 | `/usr/share/doc/vtium/examples/` | an example udev rule and hwdb fragment, which are documentation and never active |
 | `/usr/share/terminfo/x/xterm-vtium` | the terminfo entry, from the terminfo package |
-| `/usr/share/licenses/<package>/LICENSE` | the license, in each package |
+| `/usr/share/licenses/<package>/LICENSE`, `COPYING` | the license, and `COPYING`, which names vtium's authors and holds the notices for the third-party code and data vtium builds in, in each package |
+| `/usr/share/licenses/<package>/OFL-1.1.txt`, `rgb-license.txt` | the two license texts that `COPYING` points to, the SIL Open Font License of the Unifont font and the license of X.Org's color names, in each console package |
 
 Installing the packages gives vtium no VT and starts nothing. [Giving vtium a VT](#giving-vtium-a-vt) does that.
 

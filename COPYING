@@ -77,7 +77,9 @@ GNU Unifont (crates/vtium-font/data/unifont.hex), the font vtium-font builds
 in: version 17.0.03, by Roman Czyborra, Paul Hardy and the Unifont
 contributors, dual-licensed under the SIL Open Font License 1.1 and the GNU
 GPL 2 or later with the GNU font embedding exception. vtium takes it under the
-SIL Open Font License 1.1, whose text is crates/vtium-font/data/OFL-1.1.txt.
+SIL Open Font License 1.1, whose text is crates/vtium-font/data/OFL-1.1.txt in
+vtium's source. An installed vtium console carries the same text as
+OFL-1.1.txt beside this file.
 
 The geometry of vtium-font's sprites (crates/vtium-font/src/sprite.rs) is
 adapted from Ghostty's sprite font, by way of the C fork's font_box.c, under
@@ -92,7 +94,9 @@ crates/vtium-term/src/terminal/color/rgb.txt), the table OSC color strings
 read names from: the rgb.txt of X.Org's rgb-1.1.1, Copyright 1985, 1989, 1998
 The Open Group and Copyright (c) 1994, 2008, Oracle and/or its affiliates,
 under the MIT-style licences whose text is
-crates/vtium-term/gen-color-names/src/rgb-license.txt. names.rs carries the notice.
+crates/vtium-term/gen-color-names/src/rgb-license.txt in vtium's source. An
+installed vtium console carries the same text as rgb-license.txt beside this
+file. names.rs carries the notice.
 
 The Unicode data tables, built into vtium and vtium-config: tables made from
 the Unicode Character Database 18.0.0 and Unicode's emoji data files of the

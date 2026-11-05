@@ -192,7 +192,7 @@ install-tree: minspec config-release $(if $(IMAGES),image-release) ## Stage vtiu
 	install -Dm644 $(VTIUM_INSTALL)/vtium.conf.example $(DESTDIR)/etc/vtium/vtium.conf.example
 	$(if $(strip $(FRITS)),install -Dm644 -t $(DESTDIR)/etc/vtium/fonts $(frit_files))
 	install -Dm644 -t $(DESTDIR)/usr/share/doc/vtium/examples $(VTIUM_INSTALL)/examples/71-vtium-local.rules $(VTIUM_INSTALL)/examples/vtium.hwdb
-	install -Dm644 -t $(DESTDIR)/usr/share/licenses/vtium LICENSE COPYING
+	install -Dm644 -t $(DESTDIR)/usr/share/licenses/vtium $(LICENSE_FILES)
 ifneq ($(IMAGES),)
 	install -Dm755 $(IMAGE_RELEASE) $(DESTDIR)/usr/bin/vtium-image
 	$(call check-glibc,$(DESTDIR)/usr/bin/vtium-image)
@@ -216,8 +216,7 @@ endif
 # /etc/vtium/fonts, which stay in /etc whatever PREFIX is, because vtium
 # reads its configuration and its frits from /etc/vtium alone (ADR-1500
 # D3, D4, D8), the example udev rules and hwdb fragment as
-# documentation, and LICENSE and COPYING, the third-party notices, under
-# PKGNAME's name.
+# documentation, and LICENSE_FILES under PKGNAME's name.
 # HWACCEL and DISPLAY_BUFFERS set the defaults of hwaccel and
 # display-buffers that both builds read from the key table (ADR-1500 D8).
 # make install-terminfo stages vtium's
@@ -230,6 +229,14 @@ endif
 # that fetched its crates first.
 PREFIX := /usr/local
 PKGNAME := vtium
+# The license files make install and make install-tree stage in the
+# package's license directory: vtium's LICENSE, COPYING, which holds the
+# notices for the third-party code and data vtium builds in, and the two
+# license texts COPYING points to, the SIL Open Font License of the Unifont
+# font and the license of X.Org's color names. make install-terminfo stages
+# LICENSE and COPYING alone, because the terminfo entry holds neither the
+# font nor the color names.
+LICENSE_FILES := LICENSE COPYING crates/vtium-font/data/OFL-1.1.txt crates/vtium-term/gen-color-names/src/rgb-license.txt
 INSTALL_TARGET_DIR := $(or $(CARGO_TARGET_DIR),target)/install
 CARGO_BUILD_FLAGS :=
 UNITDIR := $(PREFIX)/lib/systemd/system
@@ -314,7 +321,7 @@ endif
 	install -Dm644 $(VTIUM_INSTALL)/vtium.conf.example $(DESTDIR)/etc/vtium/vtium.conf.example
 	$(if $(strip $(FRITS)),install -Dm644 -t $(DESTDIR)/etc/vtium/fonts $(frit_files))
 	install -Dm644 -t $(DESTDIR)$(PREFIX)/share/doc/vtium/examples $(VTIUM_INSTALL)/examples/71-vtium-local.rules $(VTIUM_INSTALL)/examples/vtium.hwdb
-	install -Dm644 -t $(DESTDIR)$(PREFIX)/share/licenses/$(PKGNAME) LICENSE COPYING
+	install -Dm644 -t $(DESTDIR)$(PREFIX)/share/licenses/$(PKGNAME) $(LICENSE_FILES)
 
 .PHONY: install-terminfo
 install-terminfo: ## Stage vtium's terminfo entry, compiled as xterm-vtium, under DESTDIR=DIR for PREFIX and PKGNAME (default vtium-terminfo) (needs tic)
