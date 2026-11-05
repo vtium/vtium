@@ -609,7 +609,7 @@ pub fn make(plan: &Plan, paths: &Paths, out: &mut dyn Write, err: &mut dyn Write
 /// Installs `plan` at once, as root: the draft written into a directory of
 /// root's own under `/tmp`, then applied, so every file goes through the
 /// checks `apply` makes.
-fn install_now(plan: &Plan, targets: &Targets, out: &mut dyn Write) -> Result<bool, String> {
+pub fn install_now(plan: &Plan, targets: &Targets, out: &mut dyn Write) -> Result<bool, String> {
     install_under(Scratch::system()?, plan, targets, out)
 }
 

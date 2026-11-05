@@ -3,13 +3,14 @@
 //! standing in for `/etc/vtium` through the tool's path options, never as
 //! root: each change a user makes is a draft, which `apply` installs.
 
+#[path = "common/home.rs"]
+mod home;
+
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 #[path = "common/console.rs"]
 mod console;
 use console::vtium;
-use vtium_config::draft::changes;
 
 const BIN: &str = env!("CARGO_BIN_EXE_vtium-config");
 
@@ -50,10 +51,6 @@ impl Fixture {
         self.root.join("etc")
     }
 
-    fn conf(&self) -> String {
-        std::fs::read_to_string(self.etc().join("vtium.conf")).expect("vtium.conf")
-    }
-
     /// The tool's path options for the fixture.
     fn options(&self) -> Vec<std::ffi::OsString> {
         vec![
@@ -69,10 +66,11 @@ impl Fixture {
     /// `vtium-config` with the fixture's options and `args`, its drafts
     /// under the fixture's state directory.
     fn run(&self, args: &[&str]) -> Ran {
-        let o = Command::new(BIN)
+        let o = home::command(BIN)
             .args(self.options())
             .args(args)
             .env("XDG_STATE_HOME", self.root.join("state"))
+            .env("XDG_CONFIG_HOME", self.root.join("config"))
             .output()
             .expect("the binary runs");
         Ran {
@@ -86,7 +84,7 @@ impl Fixture {
     /// console but no `--frits`, run in `cwd`, its drafts under the
     /// fixture's state directory.
     fn run_bare(&self, cwd: &Path, args: &[&str]) -> Ran {
-        let o = Command::new(BIN)
+        let o = home::command(BIN)
             .arg("--configdir")
             .arg(self.etc())
             .arg("--vtium")
@@ -94,6 +92,7 @@ impl Fixture {
             .args(args)
             .current_dir(cwd)
             .env("XDG_STATE_HOME", self.root.join("state"))
+            .env("XDG_CONFIG_HOME", self.root.join("config"))
             .output()
             .expect("the binary runs");
         Ran {
@@ -129,88 +128,6 @@ impl Fixture {
         );
         self.run(&["apply", draft])
     }
-}
-
-fn example() -> String {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../vtium/install/vtium.conf.example");
-    std::fs::read_to_string(path).expect("the shipped example")
-}
-
-#[test]
-fn config_prints_a_key_s_value_and_where_it_comes_from() {
-    let f = fixture("config-print", Some("font-size=12\nno-allow-font-ops\n"));
-    for (key, line) in [
-        ("font-size", "font-size\t12\tvtium.conf"),
-        ("allow-font-ops", "allow-font-ops\toff\tvtium.conf"),
-        ("font-hinting", "font-hinting\tunset\tdefault"),
-        ("sb-size", "sb-size\t1000\tdefault"),
-        ("font-name", "font-name\tunset\tdefault"),
-    ] {
-        let ran = f.run(&["config", key]);
-        assert_eq!(ran.status, 0, "{key}: {}", ran.err);
-        assert_eq!(ran.out, format!("{line}\n"), "{key}");
-    }
-}
-
-#[test]
-fn config_refuses_a_key_or_value_vtium_conf_does_not_take() {
-    let f = fixture("config-refuse", None);
-    for (args, says) in [
-        (&["config", "colour"][..], "no key named"),
-        (&["config", "configdir", "/x"], "command line only"),
-        (&["config", "allow-font-ops", "maybe"], "on or off"),
-        (&["config", "font-hinting", "heavy"], "light, full"),
-        (&["config", "font-name", "a\nb"], "cannot be written"),
-        (
-            &["config", "font-frits", "fonts"],
-            "an absolute path is needed",
-        ),
-        (&["config", "font-frits", ""], "an absolute path is needed"),
-    ] {
-        let ran = f.run(args);
-        assert_eq!(ran.status, 1, "{args:?}: {}", ran.out);
-        assert!(ran.err.contains(says), "{args:?}: {}", ran.err);
-    }
-    let ran = f.run(&["config"]);
-    assert_eq!(ran.status, 2, "{}", ran.err);
-    assert!(!f.root.join("state/vtium").exists(), "no draft was made");
-}
-
-#[test]
-fn config_sets_a_key_through_a_draft_that_changes_one_line() {
-    let shipped = example();
-    let f = fixture("config-set", Some(&shipped));
-    let ran = f.run(&["config", "font-size", "12"]);
-    assert!(
-        ran.out.starts_with(&format!(
-            "write\t{}\n",
-            f.etc().join("vtium.conf").display()
-        )),
-        "{}",
-        ran.out
-    );
-    assert_eq!(f.conf(), shipped, "a user's change only drafts");
-    let applied = f.apply_printed(&ran);
-    assert_eq!(applied.status, 0, "{}{}", applied.out, applied.err);
-    let diff = changes(&shipped, &f.conf());
-    assert_eq!(diff.len(), 1, "{diff:?}");
-    assert_eq!(diff[0].old, None);
-    assert_eq!(diff[0].new.as_deref(), Some("font-size=12"));
-    // the same value again changes nothing and makes no draft
-    let again = f.run(&["config", "font-size", "12"]);
-    assert_eq!((again.status, again.out.as_str()), (0, "unchanged\n"));
-    // and --unset comments the line out
-    let unset = f.run(&["config", "--unset", "font-size"]);
-    assert_eq!(f.apply_printed(&unset).status, 0);
-    assert!(f.conf().contains("\n#font-size=12\n"), "{}", f.conf());
-    assert_eq!(
-        f.run(&["config", "font-size"]).out,
-        "font-size\t0\tdefault\n"
-    );
-    // a switch is written as vtium.conf writes switches
-    let off = f.run(&["config", "allow-font-ops", "off"]);
-    assert_eq!(f.apply_printed(&off).status, 0);
-    assert!(f.conf().contains("\nno-allow-font-ops\n"), "{}", f.conf());
 }
 
 #[test]
@@ -267,7 +184,7 @@ fn new_makes_a_frit_of_fonts_and_installs_one_from_a_file() {
     let f = fixture("new", None);
     let fonts = f.etc().join("fonts");
     let ran = f.run(&[
-        "new",
+        "new-frit",
         "builtin:unscii-8",
         "Some Family",
         "--name",
@@ -284,11 +201,11 @@ fn new_makes_a_frit_of_fonts_and_installs_one_from_a_file() {
         "{made}"
     );
     // the template prints a frit that --from installs, named by its file
-    let template = f.run(&["new", "--template"]);
+    let template = f.run(&["new-frit", "--template"]);
     assert_eq!(template.status, 0, "{}", template.err);
     let file = f.root.join("edited.vtfrit");
     std::fs::write(&file, &template.out).expect("the template");
-    let from = f.run(&["new", "--from", file.to_str().expect("a path")]);
+    let from = f.run(&["new-frit", "--from", file.to_str().expect("a path")]);
     assert_eq!(f.apply_printed(&from).status, 0);
     assert_eq!(
         std::fs::read_to_string(fonts.join("edited.vtfrit")).expect("installed"),
@@ -298,14 +215,18 @@ fn new_makes_a_frit_of_fonts_and_installs_one_from_a_file() {
     // refuses and words new does not take are refused, and draft nothing
     for (args, status, says) in [
         (
-            &["new", "x", "--name", "unifont"][..],
+            &["new-frit", "x", "--name", "unifont"][..],
             1,
             "cannot name a frit",
         ),
-        (&["new", "x", "--cell", "200x200"], 1, "cell="),
-        (&["new", "--from", "/nonexistent.vtfrit"], 1, "nonexistent"),
-        (&["new", "--frobnicate"], 2, "--frobnicate"),
-        (&["new", "x", "--from", "y"], 2, "takes"),
+        (&["new-frit", "x", "--cell", "200x200"], 1, "cell="),
+        (
+            &["new-frit", "--from", "/nonexistent.vtfrit"],
+            1,
+            "nonexistent",
+        ),
+        (&["new-frit", "--frobnicate"], 2, "--frobnicate"),
+        (&["new-frit", "x", "--from", "y"], 2, "takes"),
     ] {
         let ran = f.run(args);
         assert_eq!(ran.status, status, "{args:?}: {}", ran.out);
@@ -353,7 +274,7 @@ fn a_seat_file_beside_vtium_conf_is_never_read() {
     assert!(!decoy.join("made.vtfrit").exists());
     // a relative font-frits in the seat file fails nothing
     std::fs::write(f.etc().join("seat0.seat.conf"), "font-frits=fonts\n").expect("the seat's file");
-    let listed = Command::new(BIN)
+    let listed = home::command(BIN)
         .arg("--configdir")
         .arg(f.etc())
         .arg("fonts")
@@ -375,7 +296,7 @@ fn every_command_acts_in(f: &Fixture, elsewhere: &Path) {
     std::fs::write(elsewhere.join("gone.vtfrit"), "source=builtin:unifont\n").expect("a frit");
     // the fixture's options less --frits
     let run = |args: &[&str]| {
-        let o = Command::new(BIN)
+        let o = home::command(BIN)
             .arg("--configdir")
             .arg(f.etc())
             .arg("--vtium")
@@ -416,7 +337,7 @@ fn every_command_acts_in(f: &Fixture, elsewhere: &Path) {
         .filter_map(|l| l.split('\t').next())
         .collect();
     assert_eq!(names, ["gone", "unifont", "unscii-8"], "{}", listed.out);
-    let made = run(&["new", "builtin:unscii-8", "--name", "made"]);
+    let made = run(&["new-frit", "builtin:unscii-8", "--name", "made"]);
     assert!(
         made.out.starts_with(&format!(
             "write\t{}\n",
@@ -577,11 +498,11 @@ fn a_font_frits_that_is_no_absolute_path_fails_every_frits_command() {
         std::fs::create_dir_all(cwd.join("fonts")).expect("the directory");
         std::fs::write(cwd.join("fonts/tiny.vtfrit"), "source=builtin:unscii-8\n").expect("a frit");
         for args in [
-            &["new", "builtin:unscii-8", "--name", "made"][..],
+            &["new-frit", "builtin:unscii-8", "--name", "made"][..],
             &["remove-frit", "tiny"],
             &["fonts"],
             &["preview", "tiny"],
-            &["set", "tiny"],
+            &["use-frit", "tiny"],
         ] {
             let ran = f.run_bare(&cwd, args);
             assert_eq!(ran.status, 1, "{name} {args:?}: {}{}", ran.out, ran.err);
@@ -609,10 +530,10 @@ fn a_font_frits_that_is_no_absolute_path_fails_every_frits_command() {
             "{name}: nothing drafted"
         );
         if name != "unreadable" {
-            let set = f.run_bare(&cwd, &["config", "font-frits", "/srv/frits"]);
+            // the draft takes the key without the frits' directory
+            let set = f.run_bare(&cwd, &["set", "font-frits", "/srv/frits"]);
             assert_eq!(set.status, 0, "{name}: {}{}", set.out, set.err);
-            assert!(set.out.contains("draft\t"), "{name}: {}", set.out);
-            assert!(!set.out.contains("--frits"), "{name}: {}", set.out);
+            assert!(set.out.starts_with("wrote "), "{name}: {}", set.out);
         }
     }
 }

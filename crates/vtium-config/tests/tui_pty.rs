@@ -485,7 +485,7 @@ fn set(name: &str, kind: Kind) -> (i32, String, Vec<String>) {
         .arg(env!("CARGO_BIN_EXE_vtium-config"))
         .arg("--frits")
         .arg(&fonts)
-        .args(["set", name])
+        .args(["use-frit", name])
         .stdin(Stdio::from(
             slave.as_fd().try_clone_to_owned().expect("dup"),
         ))

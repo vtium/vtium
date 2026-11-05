@@ -2,11 +2,14 @@
 //! sandbox, answering a request on stdin with frames on stdout; and a
 //! source that fails as it draws, left out while the others answer.
 
+#[path = "common/home.rs"]
+mod home;
+
 #[path = "common/ttf.rs"]
 mod ttf;
 
 use std::io::{Read, Write};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -83,7 +86,7 @@ fn the_helper_answers_under_its_sandbox_and_exits_when_the_console_closes() {
         held: Vec::new(),
         console: None,
     };
-    let mut child = Command::new(env!("CARGO_BIN_EXE_vtium-config"))
+    let mut child = home::command(env!("CARGO_BIN_EXE_vtium-config"))
         .arg("serve")
         .env_clear()
         .current_dir("/")
@@ -213,7 +216,7 @@ fn a_cell_stopped_and_filled_again_is_filled_again() {
         held: Vec::new(),
         console: None,
     };
-    let mut child = Command::new(env!("CARGO_BIN_EXE_vtium-config"))
+    let mut child = home::command(env!("CARGO_BIN_EXE_vtium-config"))
         .arg("serve")
         .env_clear()
         .current_dir("/")
@@ -288,7 +291,7 @@ fn each_fill_sends_the_cells_coverage_in_full_once() {
         held: Vec::new(),
         console: None,
     };
-    let mut child = Command::new(env!("CARGO_BIN_EXE_vtium-config"))
+    let mut child = home::command(env!("CARGO_BIN_EXE_vtium-config"))
         .arg("serve")
         .env_clear()
         .current_dir("/")
@@ -460,7 +463,7 @@ fn the_helper_sheds_a_descriptor_it_inherits() {
     let file = std::fs::File::create(scratch.join("held")).unwrap();
     // a copy that is not close-on-exec, which the child inherits
     let leaked = rustix::io::dup(&file).unwrap();
-    let mut child = Command::new(env!("CARGO_BIN_EXE_vtium-config"))
+    let mut child = home::command(env!("CARGO_BIN_EXE_vtium-config"))
         .arg("serve")
         .env_clear()
         .stdin(Stdio::piped())
@@ -529,7 +532,7 @@ fn the_helper_sheds_a_descriptor_it_inherits() {
 #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
 fn every_thread_of_the_helper_runs_under_its_socket_filter() {
     use vtium_config::serve::{FRAME_SOURCES, SOURCES};
-    let mut child = Command::new(env!("CARGO_BIN_EXE_vtium-config"))
+    let mut child = home::command(env!("CARGO_BIN_EXE_vtium-config"))
         .arg("serve")
         .env_clear()
         .current_dir("/")

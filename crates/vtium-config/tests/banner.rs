@@ -3,10 +3,13 @@
 //! other command prints it. Which plan a terminal gets is tested in
 //! `banner.rs`.
 
+#[path = "common/home.rs"]
+mod home;
+
 use std::fs::File;
 use std::io::Read;
 use std::os::fd::OwnedFd;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 
 use rustix::event::{PollFd, PollFlags, Timespec, poll};
 use rustix::fs::{Mode, OFlags};
@@ -44,7 +47,7 @@ fn run(args: &[&str], stdout_is_pty: bool) -> (String, String, Option<i32>) {
     } else {
         Stdio::piped()
     };
-    let mut child = Command::new(BIN)
+    let mut child = home::command(BIN)
         .args(args)
         .env_clear()
         .env("TERM", "xterm-256color")
@@ -177,14 +180,20 @@ fn help_and_bare_print_the_same_usage() {
 #[test]
 fn help_for_each_command_prints_its_own_text() {
     for command in [
+        "flow",
+        "install",
+        "get",
+        "set",
+        "new",
+        "rule",
+        "edit",
         "fonts",
         "check",
-        "config",
-        "new",
+        "new-frit",
         "tui",
         "remove-frit",
         "preview",
-        "set",
+        "use-frit",
         "apply",
         "serve",
     ] {
@@ -201,7 +210,7 @@ fn help_for_each_command_prints_its_own_text() {
 
 #[test]
 fn help_on_an_unknown_topic_exits_2_and_lists_the_topics() {
-    let master = Command::new(BIN)
+    let master = home::command(BIN)
         .args(["--help", "frobnicate"])
         .output()
         .expect("run vtium-config");

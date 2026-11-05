@@ -22,8 +22,9 @@
 //! strict way of ADR-1401 D7, `[look NAME]` among them, with the
 //! whole file's line numbers. [`complete_route`] says whether a
 //! configuration wires a display present to a head a keyboard present
-//! reaches. [`set_key`], [`add_section`], [`add_rule`], [`set_rule`],
-//! [`move_rule`] and [`remove_rule`] are the section writer, and
+//! reaches. [`set_key`], [`add_section`], [`remove_section`],
+//! [`rename_section`], [`add_rule`], [`set_rule`], [`move_rule`] and
+//! [`remove_rule`] are the section writer, and
 //! [`placement`] says where a new rule goes.
 //!
 //! [`inspect`] and [`read`] take the file from disk with the ownership
@@ -97,5 +98,5 @@ pub use route::{Judged, Missing, Route, complete_route};
 pub use split::{Split, split};
 pub use write::{
     Of, SectionEdit, add_rule, add_section, install_file, move_rule, placement, remove_rule,
-    set_key, set_rule,
+    remove_section, rename_section, rule_lines, set_key, set_rule,
 };

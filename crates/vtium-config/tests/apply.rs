@@ -3,10 +3,12 @@
 //! never as root. The edited vtium.conf, both its parts, is judged by the
 //! console's own `vtium check-config`, the binary this workspace builds.
 
+#[path = "common/home.rs"]
+mod home;
+
 use std::ffi::OsString;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use vtium_config::apply::{
     Route, Targets, invoking_user, owner_trusted, route, save_argv, trusted_owners, write_draft,
@@ -75,7 +77,7 @@ impl Fixture {
 
     /// `apply` with `env` set in its environment.
     fn apply_with(&self, draft: &Path, env: &[(&str, &Path)]) -> (i32, String, String) {
-        let out = Command::new(env!("CARGO_BIN_EXE_vtium-config"))
+        let out = home::command(env!("CARGO_BIN_EXE_vtium-config"))
             .args(self.targets.options())
             .arg("apply")
             .arg(draft)
@@ -276,7 +278,7 @@ fn a_draft_with_a_frit_and_no_frits_directory_is_refused() {
         bare.options()
     );
     // run beside the fixture's fonts, where a relative font-frits would land
-    let out = Command::new(env!("CARGO_BIN_EXE_vtium-config"))
+    let out = home::command(env!("CARGO_BIN_EXE_vtium-config"))
         .args(bare.options())
         .arg("apply")
         .arg(&draft)
@@ -418,7 +420,7 @@ fn a_frit_a_font_name_of_vtium_conf_names_is_not_removed() {
 #[test]
 fn apply_takes_one_draft() {
     let f = fixture("usage", None);
-    let out = Command::new(env!("CARGO_BIN_EXE_vtium-config"))
+    let out = home::command(env!("CARGO_BIN_EXE_vtium-config"))
         .args(f.targets.options())
         .arg("apply")
         .output()

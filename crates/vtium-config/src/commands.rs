@@ -1,10 +1,12 @@
 //! The commands that list, check and change the console's fonts and
-//! settings (ADR-1201 D2): `fonts`, `check FILE`, `config KEY`,
-//! `remove-frit NAME` and `new`'s non-interactive forms. Each is
-//! non-interactive, prints one line a result, tab-separated, and exits 0
-//! on success, 1 on a failure and 2 on a usage error.
+//! settings (ADR-1201 D2): `fonts`, `check FILE`, `remove-frit NAME` and
+//! `new-frit`'s non-interactive forms, and the key checks `get` and `set`
+//! share. Each is non-interactive, prints one line a result,
+//! tab-separated, and exits 0 on success, 1 on a failure and 2 on a usage
+//! error. The flow's commands, `get` and `set` among them, are
+//! [`crate::flowcli`]'s.
 //!
-//! A command that changes something computes a [`Plan`] and hands it to
+//! A frit command that changes something computes a [`Plan`] and hands it to
 //! [`crate::apply::make`]: run as a user it writes a draft and prints the
 //! command that installs it, and run as root it installs at once through
 //! `apply`'s steps, so a script never needs the TUI.
@@ -13,7 +15,7 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
 use vtium_settings::keys::{self, Default as KeyDefault, Kind, Scope};
-use vtium_settings::{Edit, edit_conf, setting, switch};
+use vtium_settings::{Edit, setting, switch};
 
 use crate::draft::{FileEdit, Plan, Removal};
 use crate::frit::{FRIT_BYTES_MAX, Frit, RESERVED, valid_name};
@@ -169,7 +171,7 @@ fn console_check(
     }
 }
 
-/// A key's default, as `config KEY` prints it.
+/// A key's default, as `get KEY` prints it.
 fn default_text(key: &keys::Key) -> String {
     match key.default {
         KeyDefault::Switch(true) => "on".to_owned(),
@@ -182,7 +184,7 @@ fn default_text(key: &keys::Key) -> String {
     }
 }
 
-/// The value `text`, vtium.conf, gives `key`, as `config KEY` prints it,
+/// The value `text`, vtium.conf, gives `key`, as `get KEY` prints it,
 /// and whether the file sets it.
 pub fn value_text(key: &keys::Key, text: Option<&str>) -> (String, bool) {
     let set = match key.kind {
@@ -233,61 +235,6 @@ pub fn set_edit<'a>(key: &'static keys::Key, value: &'a str) -> Result<Edit<'a>,
             keys::NOT_ABSOLUTE.trim_start_matches("an ")
         )),
         _ => Ok(Edit::Set(key.name, value)),
-    }
-}
-
-/// The plan that makes `edit` to vtium.conf in `paths`.
-fn conf_plan(paths: &Paths, edit: Edit<'_>) -> Result<Plan, String> {
-    let (path, old) = conf(paths)?;
-    let new = edit_conf(old.as_deref().unwrap_or_default(), &[edit])
-        .map_err(|e| crate::tui::words::conf_edit(&e))?;
-    let files = if old.as_deref() == Some(&new) || (old.is_none() && new.is_empty()) {
-        Vec::new()
-    } else {
-        vec![FileEdit { path, old, new }]
-    };
-    Ok(Plan {
-        files,
-        removals: Vec::new(),
-    })
-}
-
-/// `config KEY` prints the value vtium.conf gives the key, tab-separated
-/// with where it comes from, `vtium.conf` or `default`; `config KEY VALUE`
-/// sets it and `config --unset KEY` leaves it at its default, each one
-/// change to vtium.conf, line by line (ADR-1201 D5).
-pub fn config(words: &[String], paths: &Paths, out: &mut dyn Write, err: &mut dyn Write) -> u8 {
-    let (name, value, unset) = match words {
-        [flag, name] if flag == "--unset" => (name, None, true),
-        [name] => (name, None, false),
-        [name, value] => (name, Some(value.as_str()), false),
-        _ => return usage(err, "config takes KEY, KEY VALUE or --unset KEY"),
-    };
-    let key = match conf_key(name) {
-        Ok(key) => key,
-        Err(why) => return failed(err, &why),
-    };
-    let edit = match (value, unset) {
-        (Some(value), _) => match set_edit(key, value) {
-            Ok(edit) => edit,
-            Err(why) => return failed(err, &why),
-        },
-        (None, true) => Edit::Unset(key.name),
-        (None, false) => {
-            return match conf(paths) {
-                Ok((_, text)) => {
-                    let (value, set) = value_text(key, text.as_deref());
-                    let from = if set { "vtium.conf" } else { "default" };
-                    let _ = writeln!(out, "{}\t{value}\t{from}", key.name);
-                    0
-                }
-                Err(why) => failed(err, &why),
-            };
-        }
-    };
-    match conf_plan(paths, edit) {
-        Ok(plan) => crate::apply::make(&plan, paths, out, err),
-        Err(why) => failed(err, &why),
     }
 }
 
@@ -370,12 +317,12 @@ fn read_bounded(path: &Path) -> Result<Vec<u8>, String> {
     Ok(bytes)
 }
 
-/// What `new --template` prints: a frit with each key it takes explained,
-/// to edit and install with `new --from FILE`.
+/// What `new-frit --template` prints: a frit with each key it takes
+/// explained, to edit and install with `new-frit --from FILE`.
 pub const TEMPLATE: &str = "\
 # A frit: a font set file, NAME.vtfrit in /etc/vtium/fonts, which the
 # console's glyph helper draws from. One key=value a line; # starts a
-# comment. vtium-config new --from FILE checks this file and installs it.
+# comment. vtium-config new-frit --from FILE checks this file and installs it.
 #
 # The frit's name, as font-name and OSC 50 name it: letters, digits, '.',
 # '_', '+' and '-'. Left out, the file's name less .vtfrit.
@@ -455,7 +402,7 @@ fn new_args(words: &[String]) -> Result<NewArgs, String> {
         let mut value = |flag: &str| {
             it.next()
                 .cloned()
-                .ok_or_else(|| format!("new's {flag} takes a value"))
+                .ok_or_else(|| format!("new-frit's {flag} takes a value"))
         };
         match word.as_str() {
             "--template" => a.template = true,
@@ -463,7 +410,7 @@ fn new_args(words: &[String]) -> Result<NewArgs, String> {
             "--name" => a.name = Some(value("--name")?),
             "--cell" => a.cell = Some(value("--cell")?),
             "--size" => a.size = Some(value("--size")?),
-            w if w.starts_with("--") => return Err(format!("new takes no option {w}")),
+            w if w.starts_with("--") => return Err(format!("new-frit takes no option {w}")),
             w => a.fonts.push(w.to_owned()),
         }
     }
@@ -538,7 +485,7 @@ pub fn new(words: &[String], paths: &Paths, out: &mut dyn Write, err: &mut dyn W
     };
     if a.template {
         if !a.fonts.is_empty() || a.from.is_some() || a.name.is_some() {
-            return usage(err, "new --template takes nothing else");
+            return usage(err, "new-frit --template takes nothing else");
         }
         let _ = write!(out, "{TEMPLATE}");
         return 0;
@@ -573,7 +520,7 @@ pub fn new(words: &[String], paths: &Paths, out: &mut dyn Write, err: &mut dyn W
         _ => {
             return usage(
                 err,
-                "new takes FONT... with --name, --cell and --size, or --from FILE with --name, or --template",
+                "new-frit takes FONT... with --name, --cell and --size, or --from FILE with --name, or --template",
             );
         }
     };
