@@ -90,6 +90,14 @@ const FLIP_WAIT: Bound = Bound {
     cite: "drm_shared.c:834-859, where the C reference blocked its loop for the wait and bounded no swap's flip; the operator's decision on vtium/vtium#18",
 };
 
+const FENCE_WAIT: Bound = Bound {
+    name: "GPU_FENCE_WAIT_MS",
+    value: 2000,
+    what: "Milliseconds a head's render thread waits for the GPU to finish a frame, on the fence the frame ended with, in a build with `gpu`",
+    past: "The fence is destroyed and the frame fails as a lost context, so the head draws on the CPU path until vtium restarts (ADR-1303 D9): a GPU or a virtual GPU's host that stalls would otherwise hold the VT switch, which waits for the frame composing",
+    cite: "ADR-1303 D7; the C reference waited in `eglSwapBuffers`, with no bound",
+};
+
 const WAKE_RETRY: Bound = Bound {
     name: "WAKE_RETRY_MS",
     value: 50,
@@ -212,7 +220,7 @@ const IMAGE_BASE: Bound = Bound {
 
 /// Every bound, in the README table's order.
 #[cfg_attr(not(test), allow(dead_code))]
-pub(crate) const BOUNDS: [Bound; 24] = [
+pub(crate) const BOUNDS: [Bound; 25] = [
     READ,
     READS,
     BUDGET,
@@ -222,6 +230,7 @@ pub(crate) const BOUNDS: [Bound; 24] = [
     MOTION,
     EXIT_FEED,
     FLIP_WAIT,
+    FENCE_WAIT,
     WAKE_RETRY,
     RETRIES,
     DAMAGE_CLIPS,
@@ -279,6 +288,11 @@ pub const EXIT_FEED_MAX: usize = EXIT_FEED.value;
 
 /// Milliseconds a page flip in flight waits for its completion event.
 pub const FLIP_WAIT_MS: usize = FLIP_WAIT.value;
+
+/// Milliseconds a render thread waits on a frame's fence; see the README's
+/// bounds table.
+#[cfg(feature = "gpu")]
+pub const GPU_FENCE_WAIT_MS: usize = FENCE_WAIT.value;
 
 /// Milliseconds between tries to wake a DRM card.
 pub const WAKE_RETRY_MS: usize = WAKE_RETRY.value;

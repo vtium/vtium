@@ -459,6 +459,22 @@ impl Head {
         &self.name
     }
 
+    /// Drops each of the head's displays that `gone` names, and tells the
+    /// render thread, whose GPU path frees what it kept for each one.
+    /// Gives whether any went.
+    pub(crate) fn drop_views(&mut self, gone: impl Fn(&(PathBuf, DisplayId)) -> bool) -> bool {
+        let keys: Vec<_> = self.views.keys().filter(|k| gone(k)).cloned().collect();
+        for key in &keys {
+            self.views.remove(key);
+        }
+        if let Some(painter) = &mut self.painter {
+            for key in &keys {
+                painter.forget(key.clone());
+            }
+        }
+        !keys.is_empty()
+    }
+
     /// The line of the head's frame times, once it is due at `now`.
     pub(crate) fn figures_line(&mut self, now: std::time::Instant) -> Option<String> {
         self.figures.line(&self.name, now)

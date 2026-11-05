@@ -383,13 +383,14 @@ conformance-issues: ## Check that every issue the conformance lists say owes a c
 .PHONY: test-tools
 # shellcheck gates at warning: its info notes differ between versions, and
 # the scripts' `A && B || die` is deliberate.
-test-tools: ## Test the VT review tools, the tier 3 harness, the gallery tool and the fuzz runner without a VT, sudo, logind, a VM or nightly (shellcheck when installed), the set writer without its deflate, the key table's crates built as a package names HWACCEL and DISPLAY_BUFFERS, that the console leaves the deflate out, and that make gates runs AGENTS.md's gate line
+test-tools: ## Test the VT review tools, the tier 3 harness, the gallery tool, the fuzz runner and the gate runner without a VT, sudo, logind, a VM or nightly (shellcheck when installed), the set writer without its deflate, the key table's crates built as a package names HWACCEL and DISPLAY_BUFFERS, that the console leaves the deflate out, and that make gates runs AGENTS.md's gate line
 	python3 -I tools/vt/tests/test_vt.py
 	python3 -I tools/vt/tests/test_accept.py
 	python3 -I -B tools/tier3/test_t3img.py
 	python3 -I -B tools/tier3/test_t3.py
 	python3 -I -B tools/gallery/tests/test_gallery.py
 	python3 -I -B tools/fuzz/test_run.py
+	python3 -I -B tools/gates/test_run.py
 	cargo test -q -p vtium-font --test set
 	$(TEST_BUILD_SETTINGS)
 	@if cargo tree -p vtium --target $(X86_TARGET) -e no-dev,features -i vtium-font | grep -q 'feature "deflate"'; then echo "the console enables vtium-font's deflate feature, which only vtium-config takes (ADR-1200 D19)" >&2; exit 1; else echo "the console links no deflate"; fi
@@ -397,17 +398,11 @@ test-tools: ## Test the VT review tools, the tier 3 harness, the gallery tool an
 	@if command -v shellcheck >/dev/null; then shellcheck -S warning -x tools/vt/*.sh tools/vt/checks/*.sh tools/vt/sections/*.sh tools/tier3/fetch-image.sh tools/tier3/fetch-debian.sh tools/tier3/showcase.sh tools/gallery/gallery tools/tier3/guest/setup tools/tier3/guest/t3 tools/tier3/guest/t3-agent tools/tier3/guest/tier3-install tools/tier3/guest-sysvinit/setup tools/tier3/guest-sysvinit/tier3-install tools/tier3/guest-sysvinit/t3-console tools/arm/sysroot tools/arm/wrap && echo "shellcheck: clean at warning"; else echo "shellcheck: not installed, skipped"; fi
 
 # The key table's crates' unit tests, built as the vtium package builds
-# them, with VTIUM_HWACCEL=on and VTIUM_DISPLAY_BUFFERS=3 (ADR-1500 D8), in
-# a target directory of their own so the other builds keep their cache.
-# --lib runs the unit tests alone and leaves out every integration test.
-# Until hwaccel leaves the key table's NOT_BUILT, a build with it on says
-# "hwaccel is not built yet" at every start and check-config exits 1, so in
-# such a build vtium config's save path fails: the console's check refuses
-# every draft, and the integration tests of check-config and of saving fail
-# with it. The check's unit tests and the one test that counts its warnings
-# expect a clean start, so they are left out here too. The work that
-# chooses the GPU path removes the note, and with it these exclusions.
-TEST_BUILD_SETTINGS = VTIUM_HWACCEL=on VTIUM_DISPLAY_BUFFERS=3 cargo test -q --target-dir $(or $(CARGO_TARGET_DIR),target)/build-settings -p vtium-settings -p vtium -p vtium-config --lib -- --skip check::tests --skip config::tests::sb_memory_past_the_machines_quarter_is_reported_once
+# them, with VTIUM_HWACCEL=on, VTIUM_DISPLAY_BUFFERS=3 (ADR-1500 D8) and
+# vtium's gpu feature, in a target directory of their own so the other
+# builds keep their cache. --lib runs the unit tests alone and leaves out
+# every integration test.
+TEST_BUILD_SETTINGS = VTIUM_HWACCEL=on VTIUM_DISPLAY_BUFFERS=3 cargo test -q --target-dir $(or $(CARGO_TARGET_DIR),target)/build-settings -p vtium-settings -p vtium -p vtium-config --features vtium/gpu --lib
 
 .PHONY: fuzz
 # FUZZ_TARGETS and FUZZ_TIME reach tools/fuzz/run through the environment;
@@ -681,22 +676,24 @@ make arm
 endef
 export GATE_LINE
 
-# check-gate-line reads the fenced block after "Every change runs the full
-# gate line" in AGENTS.md, one gate per line without its `&&` and `\`, and
+# check-gate-line reads the first fenced sh block under "## The gates" in
+# AGENTS.md, one gate per line without its `&&` and `\`, and
 # fails unless it is GATE_LINE, which reaches awk through the environment.
 define check-gate-line
 awk 'f && /^```/ { f = 0; done = 1 } f { sub(/^ *(&& )?/, ""); sub(/ \\$$/, ""); got = got $$0 "\n" } /^## The gates$$/ { g = 1 } g && !done && /^```sh$$/ { f = 1 } END { want = ENVIRON["GATE_LINE"] "\n"; if (got == "" || got != want) { printf "make gates runs another gate line than AGENTS.md lists.\nAGENTS.md:\n%sGATE_LINE:\n%s", got, want > "/dev/stderr"; exit 1 } print "make gates runs AGENTS.md'"'"'s gate line" }' AGENTS.md
 endef
 
+# make gates runs the gate line's gates through tools/gates/run, up to
+# JOBS=N at once, 8 unless JOBS is set on the command line or in the
+# environment; the file's own JOBS is tier 3's, 1. Each gate builds in a
+# target directory of its own, $(GATES_DIR)/NAME, and writes its output to
+# $(GATES_DIR)/logs/NN-NAME.log; the script's docstring describes the run
+# and its report. No gate needs the machine to itself. A CARGO_TARGET_DIR
+# set by the caller must not be shared by worktrees whose sources differ
+# (AGENTS.md, "The gates").
+GATES_JOBS = $(if $(filter command line environment,$(origin JOBS)),$(JOBS),8)
+GATES_DIR  = $(abspath $(or $(CARGO_TARGET_DIR),target))/gates
+
 .PHONY: gates
-gates: ## Run every gate of the gate line, each to the end, report each exit code and fail if any failed
-	@[ -n "$$(printf '%s' "$$GATE_LINE" | tr -d '[:space:]')" ] || { echo "gates: the gate list is empty" >&2; exit 1; }; \
-	summary=$$(mktemp); trap 'rm -f "$$summary"' EXIT; \
-	printf '%s\n' "$$GATE_LINE" | while IFS= read -r gate; do \
-		echo "==> $$gate"; \
-		sh -c "$$gate" </dev/null; code=$$?; \
-		echo "$$code  $$gate" >> "$$summary"; \
-	done; \
-	echo; echo "exit  gate"; cat "$$summary"; \
-	if grep -qv '^0  ' "$$summary"; then echo "gates: FAILED" >&2; exit 1; fi; \
-	echo "gates: all passed"
+gates: ## Run every gate of the gate line, up to JOBS=N at once (default 8), each to the end, report each exit code and fail if any failed
+	@python3 -I -B tools/gates/run --jobs $(GATES_JOBS) --dir $(GATES_DIR)

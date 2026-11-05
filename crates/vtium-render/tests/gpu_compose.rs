@@ -174,6 +174,7 @@ fn a_frame_draws_each_cell_as_one_quad_through_the_cell_shader() {
             &Call::Check(Batch::Draws),
             &Call::Check(Batch::Frame),
             &Call::Submit,
+            &Call::Wait,
         ]
     );
     let quads = g.cells();
@@ -371,8 +372,18 @@ fn a_glyph_the_font_draws_nothing_for_is_not_asked_for_every_frame() {
     assert_eq!((stats.cells, stats.misses), (2, 1));
 }
 
+/// The arrow's program: its texture, and the copy of the pixels beneath it
+/// with the pixel of the target the copy's first texel holds.
+const ARROW_INPUTS: [&str; 4] = ["target_size", "arrow", "under", "under_at"];
+/// The under shader, which copies the pixels beneath a draw out of a tile.
+const COPY_INPUTS: [&str; 2] = ["target_size", "under"];
+
+// ADR-1303 D1, D3: the GPU path is judged exactly, so the arrow leaves no
+// blend to the GPU's own rounding. Its draw follows a copy of exactly the
+// pixels beneath its quads, into a target of its own, and goes over them
+// with the CPU path's over_bg in its shader, with Replace.
 #[test]
-fn the_arrow_is_one_texture_blended_over_what_the_frame_drew_beneath_it() {
+fn the_arrow_is_one_texture_drawn_over_a_copy_of_what_the_frame_drew_beneath_it() {
     let mut g = Gpu::new(StandIn::LIMITS, Config::default());
     let mut s = screen();
     g.state.pointer = Some((10, 3));
@@ -383,24 +394,68 @@ fn the_arrow_is_one_texture_blended_over_what_the_frame_drew_beneath_it() {
         g.calls()
             .contains(&Call::CreateTexture(Format::Rgba8, Size::new(w, h)))
     );
-    let draws: Vec<&Call> = g
+    let draws: Vec<(&Call, &vtium_render::gpu::Seen)> = g
         .calls()
         .iter()
         .filter(|c| matches!(c, Call::Draw { .. }))
+        .zip(g.gl.seen())
         .collect();
-    // the cells, the arrow over them, then present
-    let Call::Draw { blend, inputs, .. } = draws[1] else {
+    // the cells, the copy of what lies beneath the arrow, the arrow over
+    // the copy, then present
+    let (
+        Call::Draw {
+            quads: copied,
+            blend: copy_blend,
+            inputs: copy_inputs,
+        },
+        copy_seen,
+    ) = draws[1]
+    else {
+        unreachable!()
+    };
+    let (
+        Call::Draw {
+            quads,
+            blend,
+            inputs,
+        },
+        seen,
+    ) = draws[2]
+    else {
         unreachable!()
     };
     assert_eq!(
-        (*blend, inputs.as_slice()),
-        (Blend::Over, &["target_size", "arrow"][..])
+        (*copy_blend, copy_inputs.as_slice()),
+        (Blend::Replace, &COPY_INPUTS[..])
     );
+    assert_eq!(
+        (*blend, inputs.as_slice()),
+        (Blend::Replace, &ARROW_INPUTS[..])
+    );
+    assert_ne!(
+        copy_seen.target, seen.target,
+        "the copy draws into the tile"
+    );
+    // each arrow quad reads the copy where the copy put its pixels
+    let under_at = seen.ivec4.iter().find(|(n, _)| *n == "under_at").unwrap().1;
+    assert_eq!(copied.len(), quads.len());
+    for (c, q) in copied.iter().zip(quads) {
+        assert_eq!((c.src[0], c.src[1]), (q.dst[0] as u32, q.dst[1] as u32));
+        assert_eq!(
+            c.dst,
+            [
+                q.dst[0] - under_at[0],
+                q.dst[1] - under_at[1],
+                q.dst[2],
+                q.dst[3]
+            ]
+        );
+    }
     // the whole frame drew, so the arrow covers its whole area once
     let (hx, hy) = arrow.hot();
     let at = (2 + 10 - hx as i32, 1 + 3 - hy as i32);
     let covered: u32 = g
-        .quads(&["target_size", "arrow"])
+        .quads(&ARROW_INPUTS)
         .iter()
         .map(|q| {
             assert_eq!(q.src[0] as i32, q.dst[0] - at.0);
@@ -413,7 +468,7 @@ fn the_arrow_is_one_texture_blended_over_what_the_frame_drew_beneath_it() {
     g.state.pointer = Some((30, 20));
     g.frame(&mut s, 1, &[]).unwrap();
     assert_eq!(g.fills(), 0);
-    let quads = g.quads(&["target_size", "arrow"]);
+    let quads = g.quads(&ARROW_INPUTS);
     assert!(!quads.is_empty());
     let cells: Vec<Rect> = g
         .cells()
@@ -440,6 +495,47 @@ fn the_arrow_is_one_texture_blended_over_what_the_frame_drew_beneath_it() {
             }
         }
     }
+}
+
+// the issue on the arrow's blend and the copy frame: the copy of the
+// pixels beneath a draw lasts from frame to frame, so a frame that draws
+// over what it drew makes no target of its own; it is given back once no
+// frame has read it for GPU_IDLE_FRAMES frames, counted in frames, and at
+// a release
+#[test]
+fn the_copy_of_the_pixels_beneath_lasts_until_no_frame_reads_it_for_the_idle_frames() {
+    let mut g = Gpu::new(StandIn::LIMITS, Config::default());
+    let mut s = screen();
+    let count =
+        |g: &Gpu<Unifont>, want: fn(&Call) -> bool| g.calls().iter().filter(|c| want(c)).count();
+    let made = |c: &Call| matches!(c, Call::CreateFrame(_));
+    let freed = |c: &Call| matches!(c, Call::FreeTarget);
+    g.state.pointer = Some((10, 3));
+    g.frame(&mut s, 0, &[]).unwrap();
+    assert_eq!((count(&g, made), count(&g, freed)), (1, 0));
+    let (_, targets, _) = g.gl.live();
+    // moved, the arrow reads the copy again, which makes and frees nothing
+    g.state.pointer = Some((30, 20));
+    g.frame(&mut s, 1, &[]).unwrap();
+    assert!(!g.quads(&ARROW_INPUTS).is_empty());
+    assert_eq!((count(&g, made), count(&g, freed)), (0, 0));
+    assert_eq!(g.gl.live().1, targets);
+    // gone, nothing reads the copy, and it goes after the idle frames
+    g.state.pointer = None;
+    for _ in 1..vtium_render::GPU_IDLE_FRAMES {
+        g.frame(&mut s, 1, &[]).unwrap();
+        assert_eq!(count(&g, freed), 0);
+    }
+    g.frame(&mut s, 1, &[]).unwrap();
+    assert_eq!(count(&g, freed), 1);
+    assert_eq!(g.gl.live().1, targets - 1);
+    // made again when a frame reads it, and freed at a release with the
+    // upright frame, leaving the display's buffer
+    g.state.pointer = Some((10, 3));
+    g.frame(&mut s, 1, &[]).unwrap();
+    assert_eq!(count(&g, made), 1);
+    g.pipeline.release(&mut g.gl).unwrap();
+    assert_eq!(g.gl.live().1, 1);
 }
 
 fn notice() -> Placed {
@@ -523,6 +619,41 @@ fn a_display_past_the_largest_texture_draws_each_cell_into_each_tile_it_meets() 
     );
 }
 
+// the issue on GPU texture garbage collection: the first frame after a
+// release makes the upright frame's tiles again; on a display of four
+// tiles, one whose third tile fails frees the two made before it, and the
+// next frame makes all four and draws whole
+#[test]
+fn a_restore_that_fails_partway_frees_the_tiles_it_made_before_the_failure() {
+    let limits = Limits {
+        texture: 48,
+        ..StandIn::LIMITS
+    };
+    let mut g = Gpu::new(limits, Config::default());
+    let mut s = screen();
+    s.text(0, 0, "AB", plain());
+    g.frame(&mut s, 0, &[]).unwrap();
+    let (_, drawing, _) = g.gl.live();
+    g.pipeline.release(&mut g.gl).unwrap();
+    let (_, released, _) = g.gl.live();
+    // the buffer alone
+    assert_eq!((drawing, released), (5, 1));
+    g.gl.fail_after(Op::CreateFrame, 2, ErrorKind::OutOfMemory);
+    let e = g.frame(&mut s, 1, &[]).unwrap_err();
+    assert_eq!(e.kind, ErrorKind::OutOfMemory);
+    let made = |c: &Call| matches!(c, Call::CreateFrame(_));
+    assert_eq!(g.calls().iter().filter(|c| made(c)).count(), 2);
+    assert_eq!(
+        g.gl.live().1,
+        released,
+        "a tile made before the failure leaked"
+    );
+    let (damage, _) = g.frame(&mut s, 1, &[]).unwrap();
+    assert_eq!(damage, [DISPLAY.rect()]);
+    assert_eq!(g.calls().iter().filter(|c| made(c)).count(), 4);
+    assert_eq!(g.gl.live().1, drawing);
+}
+
 #[test]
 fn a_failed_frame_is_reported_and_the_next_one_draws_whole() {
     let mut g = Gpu::new(StandIn::LIMITS, Config::default());
@@ -597,6 +728,81 @@ fn a_frame_the_cpu_path_draws_makes_the_next_gpu_frame_whole() {
         g.calls().contains(&Call::FreeTexture),
         "the glyphs are made anew"
     );
+}
+
+#[test]
+fn a_gpu_frame_that_fails_after_its_plan_leaves_no_ghost_in_the_other_buffer() {
+    // A display with two buffers, A and B. Frame 0 goes into A and frame 1
+    // into B on the CPU path. Frame 2 moves the cursor; its GPU frame fails
+    // at the fence wait, after the renderer planned it, and the CPU path
+    // draws frame 2 whole into A, as the head does. Frame 3 goes into B,
+    // two frames old, which must show the cursor moved and frame 2's cell.
+    let mut g = Gpu::new(StandIn::LIMITS, Config::default());
+    let mut s = screen();
+    let mut a = vtium_render::Canvas::new(DISPLAY.width, DISPLAY.height, 0);
+    let mut b = vtium_render::Canvas::new(DISPLAY.width, DISPLAY.height, 0);
+    s.cursor.visible = true;
+    s.cursor.col = 5;
+    s.text(0, 0, "a", plain());
+    g.renderer.draw(&s.frame(g.since), &mut a, 0, &g.state);
+    g.since = s.damage.checkpoint();
+    s.text(1, 0, "b", plain());
+    g.renderer.draw(&s.frame(g.since), &mut b, 0, &g.state);
+    g.since = s.damage.checkpoint();
+    s.text(2, 0, "X", plain());
+    s.cursor.col = 7;
+    g.gl.fail_next(Op::Wait, ErrorKind::Gl);
+    let since = g.since;
+    g.frame(&mut s, 1, &[]).unwrap_err();
+    g.renderer.draw(&s.frame(since), &mut a, 0, &g.state);
+    g.since = s.damage.checkpoint();
+    s.text(3, 0, "Y", plain());
+    g.renderer.draw(&s.frame(g.since), &mut b, 2, &g.state);
+    let mut whole = vtium_render::Canvas::new(DISPLAY.width, DISPLAY.height, 0);
+    Renderer::new(unifont(), DISPLAY.width, DISPLAY.height, Config::default()).draw(
+        &s.frame(Age::NEVER),
+        &mut whole,
+        0,
+        &g.state,
+    );
+    assert!(b == whole, "B shows frame 3 as a whole frame draws it");
+}
+
+#[test]
+fn a_frame_drawn_again_on_the_cpu_path_after_its_history_is_forgotten_leaves_no_ghost() {
+    // As above, but frame 2's GPU frame draws, and what fails is the read
+    // of it back into buffer A, after the renderer recorded the frame. The
+    // head forgets the renderer's history and draws frame 2 whole on the
+    // CPU path; frame 3 into B, two frames old, must show the cursor moved.
+    let mut g = Gpu::new(StandIn::LIMITS, Config::default());
+    let mut s = screen();
+    let mut a = vtium_render::Canvas::new(DISPLAY.width, DISPLAY.height, 0);
+    let mut b = vtium_render::Canvas::new(DISPLAY.width, DISPLAY.height, 0);
+    s.cursor.visible = true;
+    s.cursor.col = 5;
+    s.text(0, 0, "a", plain());
+    g.renderer.draw(&s.frame(g.since), &mut a, 0, &g.state);
+    g.since = s.damage.checkpoint();
+    s.text(1, 0, "b", plain());
+    g.renderer.draw(&s.frame(g.since), &mut b, 0, &g.state);
+    g.since = s.damage.checkpoint();
+    s.text(2, 0, "X", plain());
+    s.cursor.col = 7;
+    let since = g.since;
+    g.frame(&mut s, 1, &[]).unwrap();
+    g.renderer.forget_history();
+    g.renderer.draw(&s.frame(since), &mut a, 0, &g.state);
+    g.since = s.damage.checkpoint();
+    s.text(3, 0, "Y", plain());
+    g.renderer.draw(&s.frame(g.since), &mut b, 2, &g.state);
+    let mut whole = vtium_render::Canvas::new(DISPLAY.width, DISPLAY.height, 0);
+    Renderer::new(unifont(), DISPLAY.width, DISPLAY.height, Config::default()).draw(
+        &s.frame(Age::NEVER),
+        &mut whole,
+        0,
+        &g.state,
+    );
+    assert!(b == whole, "B shows frame 3 as a whole frame draws it");
 }
 
 #[test]

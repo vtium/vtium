@@ -229,6 +229,7 @@ def write_report(variants, results, impl):
     """Write the run's report and return its case entries."""
     # The report lists variants in the requested order, whatever order
     # they finished in, so a concurrent run's report matches a serial one's.
+    t3_scenario.judge_by_capture(variants, results)
     cases = [c for v in variants for c in results[v][0]]
     meta = {v: results[v][1] for v in variants}
     # A fresh id per run lets a comparison tell two runs from one run

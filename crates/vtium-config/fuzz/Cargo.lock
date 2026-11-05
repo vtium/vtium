@@ -528,7 +528,7 @@ checksum = "a2c754d6c33795a1c324727428e5a7dedb5b06195f9890bdbcba760d3e246563"
 
 [[package]]
 name = "vtium-config"
-version = "0.1.0-alpha.4"
+version = "0.1.0-alpha.5"
 dependencies = [
  "bzip2",
  "harfrust",
@@ -556,18 +556,18 @@ dependencies = [
 
 [[package]]
 name = "vtium-font"
-version = "0.1.0-alpha.4"
+version = "0.1.0-alpha.5"
 dependencies = [
  "miniz_oxide",
 ]
 
 [[package]]
 name = "vtium-parse"
-version = "0.1.0-alpha.4"
+version = "0.1.0-alpha.5"
 
 [[package]]
 name = "vtium-platform"
-version = "0.1.0-alpha.4"
+version = "0.1.0-alpha.5"
 dependencies = [
  "calloop",
  "drm-ffi",
@@ -580,7 +580,7 @@ dependencies = [
 
 [[package]]
 name = "vtium-settings"
-version = "0.1.0-alpha.4"
+version = "0.1.0-alpha.5"
 dependencies = [
  "rustix",
  "vtium-font",
@@ -589,7 +589,7 @@ dependencies = [
 
 [[package]]
 name = "vtium-term"
-version = "0.1.0-alpha.4"
+version = "0.1.0-alpha.5"
 dependencies = [
  "vtium-parse",
 ]

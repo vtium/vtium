@@ -39,7 +39,8 @@ pub const IMAGE_PROGRAM: &str = match option_env!("VTIUM_IMAGE") {
 };
 
 /// `hwaccel`'s default, which the build sets with `VTIUM_HWACCEL`: off
-/// unless it names `on` (ADR-1500 D8). The `vtium` packages build it on.
+/// unless it names `on` (ADR-1500 D8). `make install-build` passes it
+/// from make's `HWACCEL`.
 pub const HWACCEL_DEFAULT: bool = build_hwaccel(option_env!("VTIUM_HWACCEL"));
 
 /// The buffers each display keeps that the build names with
@@ -703,7 +704,7 @@ pub const DISPLAY_BUFFERS: Key = Key {
     reader: "vtium-platform",
     what: "How many buffers each DRM display keeps, the same for every display.\n\n\
            `3` is triple buffering, so no frame waits for the last flip, at the cost of one more whole frame a display (8 MB at 1080p). `2` is double buffering. `1` is single buffering, which holds the least memory, but vtium then draws into the buffer being shown, so a frame can be seen half drawn.\n\n\
-           A framebuffer (fbdev) keeps one buffer whatever this key says. Unset, the build decides: the count it was built with (`VTIUM_DISPLAY_BUFFERS`), or else 3 in a build with features on top of minspec, 2 in the minspec build, 1 only in a build smaller than minspec. `vtium config display-buffers` shows the build's default.",
+           A framebuffer (fbdev) keeps one buffer whatever this key says. Unset, the build decides: the count it was built with (`VTIUM_DISPLAY_BUFFERS`), or else 3 in a build with features on top of minspec, 2 in the minspec build, 1 only in a build smaller than minspec. `vtium config config display-buffers` prints the value vtium.conf gives it, or the build's default followed by `default`, which is `unset` when the build names no count, and the rule above then picks it.",
     cite: "ADR-1401 D2; the C reference's drm2d kept 2, src/video/drm2d_internal.h:49",
 };
 
@@ -715,7 +716,7 @@ pub const HWACCEL: Key = Key {
     scope: Scope::Anywhere,
     reader: "vtium",
     what: "Draw through the GPU, in a build that has it.\n\n\
-           Off unless vtium was built to turn it on (`VTIUM_HWACCEL`). `vtium config hwaccel` shows the build's default.",
+           Off unless vtium was built to turn it on (`VTIUM_HWACCEL`). `vtium config config hwaccel` prints the value vtium.conf gives it, or the build's default followed by `default`.",
     cite: "src/config.c:1413",
 };
 
@@ -1968,7 +1969,7 @@ pub const SECTIONS: [Section; 10] = [
 /// The keys vtium takes and does not act on yet, which the crate
 /// README's "Not yet built" lists; `check::semantics` warns when one is
 /// set.
-pub const NOT_BUILT: [&Key; 3] = [&HWACCEL, &FONT_HINTING, &FONT_LINE_SPACING];
+pub const NOT_BUILT: [&Key; 2] = [&FONT_HINTING, &FONT_LINE_SPACING];
 
 /// The key named `name`.
 pub fn find(name: &str) -> Option<&'static Key> {

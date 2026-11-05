@@ -98,6 +98,7 @@ fn empty_color_and_spatial_slots_join_no_source_and_make_no_call() {
             present_draw(&[DISPLAY.rect()]),
             Call::Check(Batch::Frame),
             Call::Submit,
+            Call::Wait,
         ]
     );
 }
@@ -123,7 +124,59 @@ fn a_frame_checks_for_errors_after_the_composition_and_at_its_end() {
             present_draw(&cells),
             Call::Check(Batch::Frame),
             Call::Submit,
+            Call::Wait,
         ]
+    );
+}
+
+// the issue on the EGL sync before the flip: a frame that drew ends with a
+// fence after its last draw, and waits on it before the buffer goes back
+// to the display, so the display never shows a buffer the GPU has not
+// finished; the fence is gone once waited on
+#[test]
+fn a_frame_that_draws_waits_on_a_fence_after_its_last_draw() {
+    let mut gl = StandIn::new();
+    let mut p = set_up(&mut gl);
+    let buffer = gl.import_buffer(&DISPLAY).unwrap();
+    gl.clear_calls();
+    let work = Work::new(BORDER, &[], &[]);
+    p.frame(&mut gl, &work, &buffer, 0).unwrap();
+    let calls = gl.calls();
+    let last_draw = calls
+        .iter()
+        .rposition(|c| matches!(c, Call::Draw { .. } | Call::Clear(..)))
+        .unwrap();
+    assert_eq!(
+        &calls[last_draw + 1..],
+        &[Call::Check(Batch::Frame), Call::Submit, Call::Wait]
+    );
+    assert_eq!(gl.fences(), 0, "a fence left behind");
+    // a frame that draws nothing makes no fence
+    gl.clear_calls();
+    assert_eq!(p.frame(&mut gl, &work, &buffer, 1).unwrap(), []);
+    assert_eq!(gl.calls(), &[]);
+}
+
+// a wait that fails fails its frame, which the head sorts by its kind
+// (ADR-1303 D9), and leaves no fence behind
+#[test]
+fn a_wait_that_fails_fails_the_frame_and_the_next_one_draws_whole() {
+    let mut gl = StandIn::new();
+    let mut p = set_up(&mut gl);
+    let buffer = gl.import_buffer(&DISPLAY).unwrap();
+    let work = Work::new(BORDER, &[], &[]);
+    p.frame(&mut gl, &work, &buffer, 0).unwrap();
+    gl.fail_next(Op::Wait, ErrorKind::Gl);
+    let cells = [rect(8, 0, 8, 16)];
+    let changed = Work::new(BORDER, &cells, &cells);
+    assert_eq!(
+        p.frame(&mut gl, &changed, &buffer, 1).unwrap_err().kind,
+        ErrorKind::Gl
+    );
+    assert_eq!(gl.fences(), 0);
+    assert_eq!(
+        p.frame(&mut gl, &work, &buffer, 1).unwrap(),
+        [DISPLAY.rect()]
     );
 }
 
@@ -188,6 +241,7 @@ fn a_buffer_that_lacks_something_is_presented_though_nothing_was_composed() {
             present_draw(&[DISPLAY.rect()]),
             Call::Check(Batch::Frame),
             Call::Submit,
+            Call::Wait,
         ]
     );
     // the frame drawn last composed nothing, so a buffer two frames old
@@ -338,6 +392,7 @@ fn a_display_past_the_largest_texture_is_held_in_tiles() {
             draw(quad(24, 0)),
             Call::Check(Batch::Frame),
             Call::Submit,
+            Call::Wait,
         ]
     );
     p.free(&mut gl).unwrap();

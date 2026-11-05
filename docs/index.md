@@ -8,7 +8,7 @@ The kernel's own console turns 256-color and 24-bit color into 16 colors, holds 
 
 vtium's own drawing of a shell session on a 1920x1080 display. [The showcase](showcase/README.md) says what this screen shows, and has more screens, from emoji and the world's scripts to pictures, and the same console on a 320x240 panel.
 
-vtium's latest release is the pre-release v0.1.0-alpha.4. This site describes vtium's `main` branch, which may be ahead of that release.
+vtium's latest release is the pre-release v0.1.0-alpha.5. This site describes vtium's `main` branch, which may be ahead of that release.
 
 ## Where to start
 
