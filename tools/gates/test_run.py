@@ -68,17 +68,24 @@ class Gates(unittest.TestCase):
         self.assertTrue((self.tmp / "c").exists())
 
     def test_a_failed_gate_stops_none_and_fails_the_run(self):
-        p = self.run_gates("echo the first fails; exit 1", ": > ran", "exit 3", "true")
-        self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
-        self.assertTrue((self.tmp / "ran").exists(), "a gate after a failed one never ran")
-        self.assertEqual(self.table(p), ["1  echo the first fails; exit 1", "0  : > ran", "3  exit 3", "0  true"])
-        logs = self.dir / "logs"
-        self.assertIn(f"log of echo the first fails; exit 1: {logs}/01-echo-the-first-fails-exit-1.log", p.stdout)
-        self.assertIn(f"log of exit 3: {logs}/03-exit-3.log", p.stdout)
-        self.assertNotIn("log of true", p.stdout)
-        self.assertNotIn("log of : > ran", p.stdout)
-        self.assertEqual(p.stderr.splitlines()[-1], "gates: FAILED")
-        self.assertNotIn("all passed", p.stdout)
+        for jobs in ("1", "8"):
+            with self.subTest(jobs=jobs):
+                for mark in ("ran", "last"):
+                    (self.tmp / mark).unlink(missing_ok=True)
+                p = self.run_gates("echo the first fails; exit 1", ": > ran", "exit 3", ": > last", jobs=jobs)
+                self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
+                self.assertTrue((self.tmp / "ran").exists(), "the gate after a failed one never ran")
+                self.assertTrue((self.tmp / "last").exists(), "the last gate, after a second failure, never ran")
+                self.assertEqual(self.table(p), ["1  echo the first fails; exit 1", "0  : > ran", "3  exit 3",
+                                                 "0  : > last"])
+                logs = self.dir / "logs"
+                self.assertIn(f"log of echo the first fails; exit 1: {logs}/01-echo-the-first-fails-exit-1.log",
+                              p.stdout)
+                self.assertIn(f"log of exit 3: {logs}/03-exit-3.log", p.stdout)
+                self.assertNotIn("log of : > ran", p.stdout)
+                self.assertNotIn("log of : > last", p.stdout)
+                self.assertEqual(p.stderr.splitlines()[-1], "gates: FAILED")
+                self.assertNotIn("all passed", p.stdout)
 
     def test_a_gate_killed_by_a_signal_reports_128_and_its_number(self):
         p = self.run_gates("kill -TERM $$")
