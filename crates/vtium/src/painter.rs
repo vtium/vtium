@@ -1163,6 +1163,51 @@ mod tests {
         assert_eq!(gpu.drawn.load(Ordering::SeqCst), 1, "drawn on the GPU path");
     }
 
+    // ADR-1303 D9, vtium/vtium#286: a display refused at one size and at
+    // its next is let go and refused again in the same frame, which counts
+    // no trip back to the GPU path. Refused at 64 pixels wide, then at 48
+    // and 64 by turns four times, the head goes back to the GPU path once,
+    // when the display takes a size the GPU sets up, and its GPU path does
+    // not end
+    #[cfg(feature = "gpu")]
+    #[test]
+    fn a_let_go_and_a_refusal_in_the_same_frame_count_no_trip_back() {
+        let gpu = Arc::new(TestGpu::default());
+        *gpu.widest.lock().unwrap() = Some(40);
+        let mut painter =
+            Painter::start("test", Some(GpuSource::Test(Arc::clone(&gpu))), || {}).unwrap();
+        assert_eq!(set_up(&mut painter), Path::Gpu);
+        let said: Vec<(u32, bool, bool, bool)> = [64, 48, 64, 48, 64, 32, 32]
+            .into_iter()
+            .map(|width| {
+                let c = one_at(&mut painter, (width, 16));
+                (
+                    width,
+                    c.refused_gpu.is_some(),
+                    c.back_on_gpu,
+                    c.left_gpu.is_some(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            said,
+            [
+                (64, true, false, false),
+                (48, true, false, false),
+                (64, true, false, false),
+                (48, true, false, false),
+                (64, true, false, false),
+                (32, false, true, false),
+                (32, false, false, false),
+            ]
+        );
+        assert_eq!(
+            gpu.drawn.load(Ordering::SeqCst),
+            2,
+            "the head on the GPU path"
+        );
+    }
+
     // ADR-1303 D9, vtium/vtium#244: at a VT release the GPU path gives back
     // every texture and frame each display holds, and keeps the context's
     // compiled programs and each display's pipeline; the next frames make
