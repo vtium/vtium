@@ -3216,21 +3216,24 @@ class HeadsTest(unittest.TestCase):
         v = t3_scenario.VARIANTS["heads-policy-typo"]
         lines = t3_heads.guest_conf(v).splitlines()
         # the variant's configuration comes first, so the head file's policy
-        # line is line 17 of the guest's vtium.conf, not line 8 of its own
-        self.assertEqual(lines.index("policy = opne"), 16)
-        logged = ("[    9.1] vtium[502]: /etc/vtium/vtium.conf:17: `policy` cannot be "
+        # line is line 18 of the guest's vtium.conf, not line 9 of its own,
+        # below the line of a version vtium does not know
+        self.assertEqual(lines[16:18], ["version = 2", "policy = opne"])
+        logged = ("[    9.1] vtium[502]: /etc/vtium/vtium.conf:18: `policy` cannot be "
                   "\"opne\", so vtium cannot read this line and counts the file as closed "
                   "and broken.\n"
+                  "[    9.1] vtium[502]: /etc/vtium/vtium.conf:17: vtium knows only "
+                  "`version = 1`, not version \"2\".\n"
                   "[    9.2] vtium[502]: vtium: config invalid, policy closed: input off\n")
         self.assertIsNone(t3_heads.judge_policy_line(logged, lines, v["policy_line"]))
         # the error names another line, another file, or none is logged
-        for wrong in (logged.replace("vtium.conf:17:", "vtium.conf:8:"),
+        for wrong in (logged.replace("vtium.conf:18:", "vtium.conf:9:"),
                       logged.replace("cannot be \"opne\"", "cannot be \"open\""),
-                      logged.replace("/etc/vtium/vtium.conf:17", "/etc/vtium/heads.conf:17"),
-                      logged.replace("/etc/vtium/vtium.conf:17", "vtium.conf:17")):
+                      logged.replace("/etc/vtium/vtium.conf:18", "/etc/vtium/heads.conf:18"),
+                      logged.replace("/etc/vtium/vtium.conf:18", "vtium.conf:18")):
             with self.subTest(wrong=wrong):
                 self.assertRegex(t3_heads.judge_policy_line(wrong, lines, v["policy_line"]),
-                                 "logged no error '/etc/vtium/vtium.conf:17: `policy` "
+                                 "logged no error '/etc/vtium/vtium.conf:18: `policy` "
                                  "cannot be \"opne\"'")
         # the file run, partly broken under either policy, or the shipped
         # default in its place

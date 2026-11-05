@@ -196,12 +196,13 @@ FIRST = {
              "/etc/vtium/vtium.conf, and how to read the full report (ADR-1401 D7). Correct: the report alone, with "
              "no login prompt and no shell.",
     "policy-panic": "The panic screen on the boot display of a vtium.conf whose policy "
-                    "line vtium cannot read, `policy = opne`, though the rest of the file "
-                    "would run a head with every keyboard roaming (ADR-1401 D3, D7). "
+                    "line vtium cannot read, `policy = opne`, below a line naming a "
+                    "version vtium does not know, `version = 2` (ADR-1401 D3, D7). "
                     "Correct: `vtium: config invalid, policy closed: input off`, then that "
                     "no head can run, then the policy line's error with its line of "
-                    "/etc/vtium/vtium.conf, and how to read the full report; no login "
-                    "prompt and no shell.",
+                    "/etc/vtium/vtium.conf, listed first, before the error of the version "
+                    "line above it, and how to read the full report; no login prompt and "
+                    "no shell.",
     "partly-notice": "The notice of a vtium.conf whose open flow is partly broken, at "
                      "the top of the head's screen: `config partly invalid, running "
                      "what's valid` and what to "
