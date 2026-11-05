@@ -63,6 +63,15 @@ from t3_common import Logger  # noqa: E402
 
 LOG = Logger()
 
+# What a run writes, the tests write into a directory of their own, never
+# into the checkout's target/tier3/run, which `make tier3` writes. Each
+# module that took RUNDIR from t3_common when it was imported reads this
+# directory instead, and the directory is removed when the tests end.
+_RUN = tempfile.TemporaryDirectory(prefix="vtium-test-t3-run-")
+for _module in (t3_common, t3_evaluate, t3_impl, t3_runner, t3_scenario, t3_showcase):
+    _module.RUNDIR = _RUN.name
+t3_common.TREE_RECORD = os.path.join(_RUN.name, "tree.json")
+
 SCRIPTS = {
     "colors": r"printf '\033[1;31mred\033[0m plain\nnext\n'",
     "fails": "echo partial; exit 3",
