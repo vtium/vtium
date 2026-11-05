@@ -569,7 +569,7 @@ tui-shots: ## Draw every TUI screen golden as a PNG through vtium's renderer in 
 	rm -rf $(TUI_SHOTS)/bytes
 	VTIUM_CONFIG_SHOTS=$(abspath $(TUI_SHOTS))/bytes cargo test -p vtium-config --test tui -- each_view_at_80x25_and_100x30 a_draft_s_card_question_and_pager_at_80x25_and_100x30
 	cargo build --release -p vtium-tui-review --bin tui-shots
-	$(or $(CARGO_TARGET_DIR),target)/release/tui-shots $(TUI_SHOTS)/bytes $(TUI_SHOTS)
+	$(or $(CARGO_TARGET_DIR),target)/release/tui-shots crates/vtium-config/tests/screens $(TUI_SHOTS)/bytes $(TUI_SHOTS)
 
 tui-demo: ## Open vtium-config's TUI in this terminal on the screen goldens' fixtures, in a throwaway home removed afterwards (FIXTURE=draft, the default, or figure)
 	cargo build -p vtium-config -p vtium-tui-review --bins

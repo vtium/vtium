@@ -2,7 +2,7 @@
 //! vtium console shows it:
 //!
 //! ```text
-//! tui-shots BYTES OUT
+//! tui-shots SCREENS BYTES OUT
 //! ```
 //!
 //! BYTES holds what the golden tests write under `VTIUM_CONFIG_SHOTS`: for
@@ -10,10 +10,13 @@
 //! wrote to reach the screen, and `NAME-COLSxROWS.txt`, the screen as the
 //! golden test read it. Each byte stream goes through vtium-term and
 //! vtium-render in unifont, as tier 2 draws its screens, into
-//! `OUT/NAME-COLSxROWS.png`. Before it writes a picture, the tool plays the
-//! same bytes into a terminal of its own and checks that its screen reads
-//! as the `.txt` does, so a PNG never shows a state other than the one its
-//! golden holds. It fails when BYTES holds no screen.
+//! `OUT/NAME-COLSxROWS.png`. SCREENS is the directory of the committed
+//! goldens, `crates/vtium-config/tests/screens`. Before it writes a
+//! picture, the tool checks that the screen the test read is the committed
+//! golden `SCREENS/NAME-COLSxROWS.txt`, and that the same bytes played into
+//! a terminal of its own read as that screen. A golden that drifted, as a
+//! provisional one may without failing its test, is named and not drawn,
+//! and the tool exits non-zero. It also fails when BYTES holds no screen.
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -60,15 +63,33 @@ fn text(bytes: &[u8], cols: usize, rows: usize) -> String {
         .collect()
 }
 
-/// Draws the golden `name` from `dir` into `out`.
-fn shot(dir: &Path, out: &Path, name: &str) -> Result<PathBuf, String> {
-    let (cols, rows) = grid(name).ok_or("its name ends in no COLSxROWS")?;
-    let bytes = std::fs::read(dir.join(format!("{name}.bytes"))).map_err(|e| e.to_string())?;
-    let want =
-        std::fs::read_to_string(dir.join(format!("{name}.txt"))).map_err(|e| e.to_string())?;
-    if text(&bytes, cols, rows) != want {
+/// Whether `bytes` may be drawn as a golden: `read`, the screen the golden
+/// test read, is `golden`, the committed golden, and the bytes draw it at
+/// `cols` by `rows`.
+fn check(bytes: &[u8], read: &str, golden: &str, cols: usize, rows: usize) -> Result<(), String> {
+    if read != golden {
+        return Err(
+            "the screen the golden test drew differs from its committed golden, so it is not drawn"
+                .into(),
+        );
+    }
+    if text(bytes, cols, rows) != read {
         return Err("its bytes do not draw the screen its golden test read".into());
     }
+    Ok(())
+}
+
+/// Draws the golden `name` from `dir` into `out`, when the screen its test
+/// drew is the committed golden in `screens`.
+fn shot(screens: &Path, dir: &Path, out: &Path, name: &str) -> Result<PathBuf, String> {
+    let (cols, rows) = grid(name).ok_or("its name ends in no COLSxROWS")?;
+    let bytes = std::fs::read(dir.join(format!("{name}.bytes"))).map_err(|e| e.to_string())?;
+    let read =
+        std::fs::read_to_string(dir.join(format!("{name}.txt"))).map_err(|e| e.to_string())?;
+    let committed = screens.join(format!("{name}.txt"));
+    let golden =
+        std::fs::read_to_string(&committed).map_err(|e| format!("{}: {e}", committed.display()))?;
+    check(&bytes, &read, &golden, cols, rows)?;
     // tier 2's screens hold their bytes for the whole run
     let screen = Screen::new(
         Box::leak(name.to_owned().into_boxed_str()),
@@ -90,11 +111,11 @@ fn shot(dir: &Path, out: &Path, name: &str) -> Result<PathBuf, String> {
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let [dir, out] = args.as_slice() else {
-        eprintln!("usage: tui-shots BYTES OUT");
+    let [screens, dir, out] = args.as_slice() else {
+        eprintln!("usage: tui-shots SCREENS BYTES OUT");
         return ExitCode::from(2);
     };
-    let (dir, out) = (Path::new(dir), Path::new(out));
+    let (screens, dir, out) = (Path::new(screens), Path::new(dir), Path::new(out));
     let mut names: Vec<String> = match std::fs::read_dir(dir) {
         Ok(entries) => entries
             .filter_map(Result::ok)
@@ -117,7 +138,7 @@ fn main() -> ExitCode {
     }
     let mut failed = 0usize;
     for name in &names {
-        match shot(dir, out, name) {
+        match shot(screens, dir, out, name) {
             Ok(path) => println!("{}", path.display()),
             Err(why) => {
                 eprintln!("tui-shots: {name}: {why}");
@@ -134,5 +155,30 @@ fn main() -> ExitCode {
         ExitCode::SUCCESS
     } else {
         ExitCode::FAILURE
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A screen of 4 by 2 that reads `ab` on its first row.
+    const BYTES: &[u8] = b"\x1b[2J\x1b[Hab";
+    const SCREEN: &str = "ab\n\n";
+
+    #[test]
+    fn bytes_that_draw_their_golden_are_drawn() {
+        assert_eq!(check(BYTES, SCREEN, SCREEN, 4, 2), Ok(()));
+    }
+
+    #[test]
+    fn bytes_that_do_not_draw_the_screen_the_test_read_are_refused() {
+        assert!(check(BYTES, "ba\n\n", "ba\n\n", 4, 2).is_err());
+    }
+
+    #[test]
+    fn a_screen_that_drifted_from_its_committed_golden_is_refused() {
+        let why = check(BYTES, SCREEN, "ab c\n\n", 4, 2).expect_err("a drifted golden");
+        assert!(why.contains("golden"), "{why}");
     }
 }
