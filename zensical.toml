@@ -39,6 +39,7 @@ nav = [
       { "Specimens" = "specimens/README.md" },
   ] },
   { "Explanation" = [
+      { "VTium in depth" = "vtium-in-depth.md" },
       { "Why vtium" = "why-vtium.md" },
       { "Concepts" = [
           "concepts/index.md",
