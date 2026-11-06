@@ -332,6 +332,24 @@ install-terminfo: ## Stage vtium's terminfo entry, compiled as xterm-vtium and i
 	@[ -f '$(DESTDIR)$(PREFIX)/share/terminfo/x/xterm-vtium' ] && [ -f '$(DESTDIR)$(PREFIX)/share/terminfo/v/vtium' ] && [ -z "$$(find '$(DESTDIR)$(PREFIX)/share/terminfo' -type f ! -path '*/x/xterm-vtium' ! -path '*/v/vtium')" ] || { echo "install-terminfo: tic did not compile xterm-vtium and its alias vtium alone" >&2; exit 1; }
 	install -Dm644 -t $(DESTDIR)$(PREFIX)/share/licenses/$(if $(filter command line,$(origin PKGNAME)),$(PKGNAME),vtium-terminfo) LICENSE COPYING
 
+# The vendor archive each GitHub release carries: the source of the outside
+# crates Cargo.lock names, for a package manager that builds with no network
+# (ADR-1500 D9). tools/vendor/archive's header describes the archive, how it
+# stays byte-identical for a commit and how the check builds offline.
+# VENDOR_VERSION names the version in the file name; without it the script
+# takes HEAD's tag, or git describe.
+VENDOR_DIR = $(or $(CARGO_TARGET_DIR),target)/vendor-archive
+
+.PHONY: vendor-archive
+vendor-archive: export VTIUM_VENDOR_VERSION = $(value VENDOR_VERSION)
+vendor-archive: ## Pack the source of every crate Cargo.lock names, for the commit HEAD names, as VENDOR_DIR/vtium-VERSION-vendor.tar.zst and its .sha256 (VENDOR_DIR=DIR, VENDOR_VERSION=VERSION)
+	tools/vendor/archive pack '$(VENDOR_DIR)'
+
+.PHONY: vendor-archive-check
+vendor-archive-check: export VTIUM_VENDOR_VERSION = $(value VENDOR_VERSION)
+vendor-archive-check: vendor-archive ## Pack the vendor archive, then build the workspace from a clean copy of HEAD with the archive unpacked over it, offline and --locked, and fail if it does not build
+	tools/vendor/archive check '$(VENDOR_DIR)'
+
 # The ARM single-board computers minspec is judged against
 # (docs/architecture.md): each target links against a pinned Debian sysroot
 # and runs its tests under qemu-user, through tools/arm's wrappers
@@ -425,7 +443,7 @@ test-tools: ## Test the VT review tools, the tier 3 harness, the gallery tool, t
 	$(TEST_BUILD_SETTINGS)
 	@if cargo tree -p vtium --target $(X86_TARGET) -e no-dev,features -i vtium-font | grep -q 'feature "deflate"'; then echo "the console enables vtium-font's deflate feature, which only vtium-config takes (ADR-1200 D19)" >&2; exit 1; else echo "the console links no deflate"; fi
 	@$(check-gate-line)
-	@if command -v shellcheck >/dev/null; then shellcheck -S warning -x tools/vt/*.sh tools/vt/checks/*.sh tools/vt/sections/*.sh tools/tier3/fetch-image.sh tools/tier3/fetch-debian.sh tools/tier3/showcase.sh tools/gallery/gallery tools/tier3/guest/setup tools/tier3/guest/t3 tools/tier3/guest/t3-agent tools/tier3/guest/tier3-install tools/tier3/guest-sysvinit/setup tools/tier3/guest-sysvinit/tier3-install tools/tier3/guest-sysvinit/t3-console tools/arm/sysroot tools/arm/wrap && echo "shellcheck: clean at warning"; else echo "shellcheck: not installed, skipped"; fi
+	@if command -v shellcheck >/dev/null; then shellcheck -S warning -x tools/vt/*.sh tools/vt/checks/*.sh tools/vt/sections/*.sh tools/tier3/fetch-image.sh tools/tier3/fetch-debian.sh tools/tier3/showcase.sh tools/gallery/gallery tools/tier3/guest/setup tools/tier3/guest/t3 tools/tier3/guest/t3-agent tools/tier3/guest/tier3-install tools/tier3/guest-sysvinit/setup tools/tier3/guest-sysvinit/tier3-install tools/tier3/guest-sysvinit/t3-console tools/arm/sysroot tools/arm/wrap tools/vendor/archive && echo "shellcheck: clean at warning"; else echo "shellcheck: not installed, skipped"; fi
 
 # The key table's crates' unit tests, built as the vtium package builds
 # them, with VTIUM_HWACCEL=on, VTIUM_DISPLAY_BUFFERS=3 (ADR-1500 D8) and
