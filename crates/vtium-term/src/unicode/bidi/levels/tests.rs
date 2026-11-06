@@ -301,3 +301,25 @@ fn detection_falls_back_to_the_paragraphs_direction() {
         0
     );
 }
+
+/// vtium-term passes the crate its own bracket pairs at Unicode 18.0.0.
+/// U+2E62 and U+2E63, the parentheses with a middle ring, are new in
+/// BidiBrackets.txt 18.0.0: paired, rule N0 gives the pair and the bet
+/// between them the right-to-left direction of the aleph before them, while
+/// the crate's own Unicode 16 table would leave them unpaired.
+#[test]
+fn brackets_new_in_unicode_18_pair() {
+    let text: Vec<char> = "\u{05D0} \u{2E62}\u{05D1}\u{2E63} a".chars().collect();
+    let got = resolve(&text, Direction::LeftToRight, false, &[]);
+    assert_eq!(got.levels, [1, 1, 1, 1, 1, 0, 0]);
+}
+
+/// A U+2029 PARAGRAPH SEPARATOR inside a screen paragraph neither splits
+/// it nor ends the embeddings before it, since a screen paragraph is the
+/// rows a wrap joins (ADR-1004 D2): the RLE's embedding carries on past it.
+#[test]
+fn a_paragraph_separator_inside_a_paragraph_does_not_split_it() {
+    let text: Vec<char> = "\u{202B}a\u{2029}b \u{05D0}".chars().collect();
+    let got = resolve(&text, Direction::LeftToRight, false, &[]);
+    assert_eq!(got.levels, [0, 2, 0, 2, 1, 1]);
+}
