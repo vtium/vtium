@@ -4,7 +4,8 @@
 //! the process inherited may lack the flag.
 
 use std::io;
-use std::os::fd::RawFd;
+use std::os::fd::{FromRawFd, OwnedFd, RawFd};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 /// Marks every descriptor from 3 up close-on-exec, those the process
 /// inherited included. It goes through `close_range(2)` with
@@ -13,6 +14,73 @@ use std::os::fd::RawFd;
 /// `/proc/self/fd` lists. The descriptors stay open and usable here.
 pub fn cloexec_above_stdio() -> io::Result<()> {
     cloexec_after(close_range_cloexec)
+}
+
+/// The first descriptor a service manager passes, `SD_LISTEN_FDS_START`
+/// (sd_listen_fds(3)).
+const LISTEN_FDS_START: RawFd = 3;
+
+/// Whether [`take_passed`] has run in this process.
+static TAKEN: AtomicBool = AtomicBool::new(false);
+
+/// Takes ownership of the `count` descriptors a service manager passed
+/// the process from descriptor 3 up, as systemd passes the descriptors of
+/// a service's file-descriptor store when it starts the service again
+/// (sd_listen_fds(3), ADR-1401 D13). Each is marked close-on-exec, so no
+/// child inherits it. It runs once in a process: a second call fails,
+/// and so does a call for a descriptor that is not open, which takes
+/// none.
+pub fn take_passed(count: usize) -> io::Result<Vec<OwnedFd>> {
+    if TAKEN.swap(true, Ordering::SeqCst) {
+        return Err(io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            "the passed descriptors were already taken",
+        ));
+    }
+    #[expect(
+        unsafe_code,
+        reason = "taking ownership of the descriptors the process inherited"
+    )]
+    // SAFETY: the service manager passed the descriptors from 3 up, so
+    // nothing in this process opened them or owns them, and TAKEN makes
+    // this the only call that takes them.
+    unsafe {
+        take_from(LISTEN_FDS_START, count)
+    }
+}
+
+/// Takes ownership of the `count` descriptors from `first` up, each marked
+/// close-on-exec, once each is shown open; takes none when one is not.
+///
+/// # Safety
+///
+/// Nothing else in the process owns or will close any open descriptor in
+/// the range.
+#[expect(
+    unsafe_code,
+    reason = "taking ownership of descriptors no Rust value owns"
+)]
+unsafe fn take_from(first: RawFd, count: usize) -> io::Result<Vec<OwnedFd>> {
+    let last = RawFd::try_from(count)
+        .ok()
+        .and_then(|n| first.checked_add(n))
+        .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?;
+    let fds: Vec<RawFd> = (first..last).collect();
+    for &fd in &fds {
+        // SAFETY: F_SETFD sets the descriptor's flags, of which
+        // FD_CLOEXEC is the only one, and touches no memory; a number that
+        // is not open gives EBADF.
+        let done = unsafe { libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC) };
+        if done != 0 {
+            return Err(io::Error::last_os_error());
+        }
+    }
+    Ok(fds
+        .into_iter()
+        // SAFETY: each descriptor is open, as its fcntl above showed, and
+        // the caller promises that nothing else owns it.
+        .map(|fd| unsafe { OwnedFd::from_raw_fd(fd) })
+        .collect())
 }
 
 /// [`cloexec_above_stdio`] before a child is started, its error naming
@@ -167,6 +235,36 @@ mod tests {
             "{e}"
         );
         assert_eq!(e.kind(), io::ErrorKind::NotFound);
+    }
+
+    // A descriptor that is not open is never taken: the number at the
+    // limit on open descriptors cannot be open.
+    #[test]
+    fn a_closed_descriptor_is_not_taken() {
+        let limit = rustix::process::getrlimit(rustix::process::Resource::Nofile)
+            .current
+            .and_then(|n| RawFd::try_from(n).ok())
+            .unwrap();
+        #[expect(unsafe_code, reason = "the descriptor taken is not open")]
+        // SAFETY: no descriptor at the limit is open, so nothing owns it.
+        let taken = unsafe { take_from(limit, 1) };
+        assert_eq!(
+            taken.map(|fds| fds.len()).map_err(|e| e.raw_os_error()),
+            Err(Some(libc::EBADF))
+        );
+    }
+
+    // The descriptors a service manager passed are taken once: a second
+    // call would make a second owner of each. Zero descriptors are taken
+    // here, since the test binary's descriptors from 3 up are its own.
+    #[test]
+    fn the_passed_descriptors_are_taken_once() {
+        assert_eq!(take_passed(0).unwrap().len(), 0);
+        let again = take_passed(0).map(|fds| fds.len());
+        assert_eq!(
+            again.map_err(|e| e.kind()),
+            Err(io::ErrorKind::AlreadyExists)
+        );
     }
 
     #[test]

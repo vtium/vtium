@@ -42,7 +42,7 @@ fn main() {
         .skip(1)
         .filter(|a| !a.starts_with('-'))
         .collect();
-    let cases: [(&str, fn()); 11] = [
+    let cases: [(&str, fn()); 13] = [
         // first: no thread has started yet
         (
             "sigterm_is_served_while_the_loop_waits",
@@ -84,6 +84,14 @@ fn main() {
         (
             "closing_a_pty_with_no_session_signals_its_child",
             closing_a_pty_with_no_session_signals_its_child,
+        ),
+        (
+            "a_released_pty_leaves_its_session_to_the_pty_that_adopts_it",
+            a_released_pty_leaves_its_session_to_the_pty_that_adopts_it,
+        ),
+        (
+            "a_pty_whose_session_ended_is_not_adopted",
+            a_pty_whose_session_ended_is_not_adopted,
         ),
     ];
     let mut ran = 0;
@@ -237,6 +245,39 @@ fn child(role: &str) {
                     break;
                 }
                 nap(5);
+            }
+            read_until(|got| got.ends_with(b"Q"));
+        }
+        // Blocks SIGWINCH and says it is ready; at each of the next two
+        // SIGWINCHes writes the size it then has, then reads up to a `Q`.
+        "winch" => {
+            #[expect(
+                unsafe_code,
+                reason = "blocking a signal and waiting for it are libc calls"
+            )]
+            // SAFETY: the process has one thread, so the mask it sets is
+            // the process's, and nothing else in it waits for SIGWINCH; the
+            // sigset_t is owned and initialised before use.
+            unsafe {
+                let mut set: libc::sigset_t = std::mem::zeroed();
+                libc::sigemptyset(&mut set);
+                libc::sigaddset(&mut set, libc::SIGWINCH);
+                assert_eq!(
+                    libc::sigprocmask(libc::SIG_BLOCK, &set, std::ptr::null_mut()),
+                    0
+                );
+                out.write_all(b"!").expect("ready");
+                out.flush().expect("flush");
+                for _ in 0..2 {
+                    assert_eq!(
+                        libc::sigwaitinfo(&set, std::ptr::null_mut()),
+                        libc::SIGWINCH
+                    );
+                    let now = rustix::termios::tcgetwinsize(stdin.as_fd()).expect("size");
+                    let line = format!("W{}x{}!", now.ws_col, now.ws_row);
+                    out.write_all(line.as_bytes()).expect("write");
+                    out.flush().expect("flush");
+                }
             }
             read_until(|got| got.ends_with(b"Q"));
         }
@@ -778,6 +819,94 @@ fn output_and_replies_do_not_depend_on_how_reads_split() {
             "seed {seed}: the child read other replies"
         );
     }
+}
+
+/// Waits for the child `pid`, which the case started and which no pty
+/// reaps once its pty was released or adopted.
+fn reap(pid: u32) {
+    let pid = i32::try_from(pid)
+        .ok()
+        .and_then(rustix::process::Pid::from_raw)
+        .expect("pid");
+    let _ = rustix::process::waitpid(Some(pid), rustix::process::WaitOptions::empty());
+}
+
+// ADR-1401 D13: vtium lets its ptys go at its exit without hanging their
+// sessions up, while a copy of each master stays open outside it, and the
+// vtium that starts next takes each master back. The session runs on
+// through the release, the adopted pty watches its leader, and the
+// adoption's redraw makes the program draw again: through a SIGWINCH vtium
+// sends itself at the size the pty already has, and through the kernel's
+// at a new size.
+fn a_released_pty_leaves_its_session_to_the_pty_that_adopts_it() {
+    let mut lp = host_loop();
+    let mut h = Host::default();
+    open(&lp, &mut h, role("winch"));
+    turn_until(&mut lp, &mut h, 500, |h| h.term.taken.ends_with(b"!"));
+    let pty = h.pty.take().expect("pty");
+    let pid = pty.child_id().expect("the child");
+    let kept = pty
+        .master()
+        .try_clone_to_owned()
+        .expect("a copy of the master");
+    pty.release();
+
+    let mut adopted = Pty::adopt(kept).expect("the session still runs, so its pty is adopted");
+    assert_eq!(
+        adopted.child_id(),
+        Some(pid),
+        "the adopted pty watches the session's leader"
+    );
+    assert!(adopted.adopted());
+    adopted.insert(&lp.handle(), parts).expect("insert");
+    h.pty = Some(adopted);
+    h.term.taken.clear();
+
+    h.pty.as_mut().expect("pty").redraw(SIZE).expect("redraw");
+    turn_until(&mut lp, &mut h, 500, |h| h.term.taken.ends_with(b"!"));
+    assert_eq!(h.term.taken, b"W80x25!", "a redraw at the same size");
+    let big = Size {
+        cols: 132,
+        rows: 43,
+        ..SIZE
+    };
+    h.pty.as_mut().expect("pty").redraw(big).expect("redraw");
+    turn_until(&mut lp, &mut h, 500, |h| {
+        h.term.taken.len() > 7 && h.term.taken.ends_with(b"!")
+    });
+    assert_eq!(&h.term.taken[7..], b"W132x43!", "a redraw at a new size");
+
+    h.pty.as_mut().expect("pty").write(b"Q");
+    turn_until(&mut lp, &mut h, 500, |h| h.term.exited.is_some());
+    assert_eq!(h.term.exited.map(|s| s.code()), Some(Some(0)));
+    reap(pid);
+}
+
+// A session whose program ended while no vtium ran has no leader on its
+// pty, so its master is not adopted.
+fn a_pty_whose_session_ended_is_not_adopted() {
+    let scratch = Scratch::new("ended");
+    let mut lp = host_loop();
+    let mut h = Host::default();
+    let mut child = role("echo");
+    child.env("VTIUM_PTY_OUT", scratch.join("record"));
+    open(&lp, &mut h, child);
+    turn_until(&mut lp, &mut h, 500, |h| h.term.taken.ends_with(b"!"));
+    let kept = h
+        .pty
+        .as_ref()
+        .expect("pty")
+        .master()
+        .try_clone_to_owned()
+        .expect("a copy of the master");
+    h.pty.as_mut().expect("pty").write(b"Q");
+    turn_until(&mut lp, &mut h, 500, |h| h.term.exited.is_some());
+    h.pty = None;
+    let adopted = Pty::adopt(kept).map(|_| ());
+    assert_eq!(
+        adopted.map_err(|e| e.kind()),
+        Err(std::io::ErrorKind::NotFound)
+    );
 }
 
 fn the_window_size_reaches_the_child() {

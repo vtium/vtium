@@ -2,67 +2,67 @@
 > key Insert
 < reply "\e[2~"
 > key Insert mods=shift
-< reply "\e[2~"
+< reply "\e[2;2~"
 > key Insert mods=alt
-< reply "\e\e[2~"
+< reply "\e[2;3~"
 > key Insert mods=shift+alt
-< reply "\e\e[2~"
+< reply "\e[2;4~"
 > key Insert mods=ctrl
-< reply "\e[2~"
+< reply "\e[2;5~"
 > key Insert mods=shift+ctrl
-< reply "\e[2~"
+< reply "\e[2;6~"
 > key Insert mods=alt+ctrl
-< reply "\e\e[2~"
+< reply "\e[2;7~"
 > key Insert mods=shift+alt+ctrl
-< reply "\e\e[2~"
+< reply "\e[2;8~"
 > key Delete
 < reply "\e[3~"
 > key Delete mods=shift
-< reply "\e[3~"
+< reply "\e[3;2~"
 > key Delete mods=alt
-< reply "\e\e[3~"
+< reply "\e[3;3~"
 > key Delete mods=shift+alt
-< reply "\e\e[3~"
+< reply "\e[3;4~"
 > key Delete mods=ctrl
-< reply "\e[3~"
+< reply "\e[3;5~"
 > key Delete mods=shift+ctrl
-< reply "\e[3~"
+< reply "\e[3;6~"
 > key Delete mods=alt+ctrl
-< reply "\e\e[3~"
+< reply "\e[3;7~"
 > key Delete mods=shift+alt+ctrl
-< reply "\e\e[3~"
+< reply "\e[3;8~"
 > key Prior
 < reply "\e[5~"
 > key Prior mods=shift
 < reply "\e[5;2~"
 > key Prior mods=alt
-< reply "\e\e[5~"
+< reply "\e[5;3~"
 > key Prior mods=shift+alt
-< reply "\e\e[5;2~"
+< reply "\e[5;4~"
 > key Prior mods=ctrl
 < reply "\e[5;5~"
 > key Prior mods=shift+ctrl
 < reply "\e[5;6~"
 > key Prior mods=alt+ctrl
-< reply "\e\e[5;5~"
+< reply "\e[5;7~"
 > key Prior mods=shift+alt+ctrl
-< reply "\e\e[5;6~"
+< reply "\e[5;8~"
 > key Next
 < reply "\e[6~"
 > key Next mods=shift
 < reply "\e[6;2~"
 > key Next mods=alt
-< reply "\e\e[6~"
+< reply "\e[6;3~"
 > key Next mods=shift+alt
-< reply "\e\e[6;2~"
+< reply "\e[6;4~"
 > key Next mods=ctrl
 < reply "\e[6;5~"
 > key Next mods=shift+ctrl
 < reply "\e[6;6~"
 > key Next mods=alt+ctrl
-< reply "\e\e[6;5~"
+< reply "\e[6;7~"
 > key Next mods=shift+alt+ctrl
-< reply "\e\e[6;6~"
+< reply "\e[6;8~"
 > send "\e[?1h"
 > key Insert
 < reply "\e[2~"

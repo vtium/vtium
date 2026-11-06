@@ -45,6 +45,21 @@ TTYReset=yes
 TTYVHangup=yes
 TTYVTDisallocate=yes
 Restart=on-failure
+# vtium keeps each session's pty in systemd's file-descriptor store, so the
+# session's program keeps running when vtium crashes or is restarted, and
+# the vtium that starts next takes the pty back (ADR-1401 D13). systemd
+# passes the stored ptys back at each restart, and closes them when the
+# unit stops for good, which hangs those sessions up. vtium opens at most
+# 50 consoles (ADR-1401 D10).
+#
+# systemd signals vtium alone when the unit stops or restarts. A logged-in
+# session lives in a logind scope of its own, but a login prompt nobody has
+# used yet, and a program that vtium.conf's login key runs without a PAM
+# session, live in this unit; without KillMode=process systemd would end
+# them at each restart.
+NotifyAccess=main
+FileDescriptorStoreMax=50
+KillMode=process
 
 [Install]
 Alias=autovt@.service

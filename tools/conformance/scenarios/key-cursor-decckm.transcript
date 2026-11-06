@@ -71,35 +71,35 @@
 > key Home
 < reply "\eOH"
 > key Home mods=shift
-< reply "\eOH"
+< reply "\e[1;2H"
 > key Home mods=alt
-< reply "\e\eOH"
+< reply "\e[1;3H"
 > key Home mods=shift+alt
-< reply "\e\eOH"
+< reply "\e[1;4H"
 > key Home mods=ctrl
-< reply "\eOH"
+< reply "\e[1;5H"
 > key Home mods=shift+ctrl
-< reply "\eOH"
+< reply "\e[1;6H"
 > key Home mods=alt+ctrl
-< reply "\e\eOH"
+< reply "\e[1;7H"
 > key Home mods=shift+alt+ctrl
-< reply "\e\eOH"
+< reply "\e[1;8H"
 > key End
 < reply "\eOF"
 > key End mods=shift
-< reply "\eOF"
+< reply "\e[1;2F"
 > key End mods=alt
-< reply "\e\eOF"
+< reply "\e[1;3F"
 > key End mods=shift+alt
-< reply "\e\eOF"
+< reply "\e[1;4F"
 > key End mods=ctrl
-< reply "\eOF"
+< reply "\e[1;5F"
 > key End mods=shift+ctrl
-< reply "\eOF"
+< reply "\e[1;6F"
 > key End mods=alt+ctrl
-< reply "\e\eOF"
+< reply "\e[1;7F"
 > key End mods=shift+alt+ctrl
-< reply "\e\eOF"
+< reply "\e[1;8F"
 > send "\e[?1l"
 > key Up
 < reply "\e[A"

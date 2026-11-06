@@ -7,7 +7,8 @@
 # VTIUM_BLESS=1 cargo test -p vtium termcap rewrites the table. make
 # install-tree installs this file until the packaging takes the kmscon name
 # from the kmscon-terminfo package. Tier 1's xtgettcap probe checks the
-# answers.
+# answers. Under TERM=kmscon vtium sends Shift with F1 to F10 in xterm's
+# form (Shift+F1 is \E[1;2P), and this entry does not list those keys.
 kmscon|KMS Console,
   am, bce, km, mir, msgr, npc, xenl,
   colors#256, pairs#32767,
