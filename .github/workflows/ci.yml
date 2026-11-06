@@ -148,6 +148,7 @@ jobs:
       - run: docs/scripts/adr lint --check
       - run: docs/scripts/adr cite --check
       - run: docs/scripts/issue-refs
+      - run: docs/scripts/fork-refs
       - name: ADR-1000 coverage ledger
         run: docs/scripts/coverage
 
