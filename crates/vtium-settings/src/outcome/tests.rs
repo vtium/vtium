@@ -896,3 +896,25 @@ fn the_shipped_rules_close_inputs_an_open_file_gives_the_focus() {
     let open = parse("version = 1\n").map(|p| p.config).unwrap_or_default();
     assert_eq!(open.walk(&joystick).place, Place::Roaming);
 }
+
+// Under the open policy the display guard lights a head when no head has
+// a display, so the notice that no head has a connected display shows only
+// under the closed policy (ADR-1401 D9)
+#[test]
+fn no_head_has_a_connected_display_never_shows_under_the_open_policy() {
+    let mut reads = vec![Read::Missing, Read::Untrusted, Read::Inaccessible];
+    for &stated in Stated::ALL {
+        for &rest in Rest::ALL {
+            reads.push(Read::Trusted(Trusted { stated, rest }));
+        }
+    }
+    let mut closed = 0;
+    for read in &reads {
+        let o = resolve(read);
+        match o.policy {
+            Policy::Open => assert_ne!(o.dark_notice(), Some(Line::NoDisplay), "{read:?}"),
+            Policy::Closed => closed += usize::from(o.dark_notice() == Some(Line::NoDisplay)),
+        }
+    }
+    assert!(closed > 0, "the closed policy shows it somewhere");
+}
