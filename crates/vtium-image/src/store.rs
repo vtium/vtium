@@ -1014,6 +1014,12 @@ impl Store {
         }
     }
 
+    /// The width and height of image `key` of the buffer in use.
+    pub(crate) fn image_size(&self, key: ImageKey) -> Option<(u32, u32)> {
+        let image = self.image(self.active(), key)?;
+        Some((image.width, image.height))
+    }
+
     /// Whether image `key`, in either buffer, arrived as palette indices.
     pub fn indexed(&self, key: ImageKey) -> bool {
         self.buffers

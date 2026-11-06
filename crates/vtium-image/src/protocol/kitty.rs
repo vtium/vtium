@@ -105,7 +105,7 @@ use crate::image::{ImageKey, NewImage, Place, Refusal};
 use crate::protocol::chunk_work;
 use crate::rules::Protocol;
 use crate::store::kitty::{Delete, Select};
-use crate::store::{Compose, Control, Link, NewFrame, Placing, Reservation, layer_cost};
+use crate::store::{Compose, Control, Link, NewFrame, Placing, Reservation, Store, layer_cost};
 
 mod command;
 #[cfg(test)]
@@ -422,7 +422,7 @@ impl Kitty {
             return;
         }
         let frame = if cmd.action == b'f' {
-            match frame_target(ctx, &self.upload.cmd) {
+            match frame_target(ctx, &mut self.upload.cmd) {
                 Ok(key) => Some(key),
                 Err(e) => {
                     self.upload.mode = Mode::Skip(Err(e));
@@ -567,7 +567,7 @@ impl Kitty {
     /// the helper reads. An empty name, a longer one or one holding NUL
     /// answers EBADF with no request, as an unreadable file does.
     fn media_finish(&mut self, ctx: &mut dyn Context) {
-        let cmd = self.cmd;
+        let mut cmd = self.cmd;
         if cmd.dropped() {
             return;
         }
@@ -584,7 +584,7 @@ impl Kitty {
         };
         let refusal = refused(ctx, &cmd).or_else(|| {
             (cmd.action == b'f')
-                .then(|| frame_target(ctx, &cmd).err())
+                .then(|| frame_target(ctx, &mut cmd).err())
                 .flatten()
         });
         if let Some(e) = refusal {
@@ -685,7 +685,10 @@ impl Kitty {
                     id = ctx.store().kitty_id(key).unwrap_or(cmd.id);
                     place(ctx, &cmd, key, id)
                 }
-                None => Err(Error::NotFound),
+                None => Err(Error::PutNotFound {
+                    id: cmd.id,
+                    number: cmd.number,
+                }),
             },
         };
         reply(ctx, &cmd, id, answer);
@@ -749,17 +752,15 @@ impl Kitty {
     }
 
     /// `a=a` and `a=c`: an animation control or a composition of frames on
-    /// the image `i` or `I` names, answered as a put is, with the image's
-    /// id.
+    /// the image `i` or `I` names. A composition is answered as a put is; a
+    /// control only when its image does not exist, as kitty answers it
+    /// (ADR-1102, D3).
     fn animate(&mut self, ctx: &mut dyn Context) {
         let cmd = self.cmd;
         let answer = match refused(ctx, &cmd) {
             Some(e) => Err(e),
             None => animated(ctx, &cmd).and_then(|key| {
-                if cmd.action == b'c' && ctx.store().indexed(key) {
-                    return Err(Error::IndexedComposition);
-                }
-                let done = if cmd.action == b'a' {
+                if cmd.action == b'a' {
                     let control = Control {
                         current: cmd.cols,
                         run: cmd.width,
@@ -767,24 +768,29 @@ impl Kitty {
                         frame: cmd.rows,
                         gap: cmd.z,
                     };
-                    ctx.edit(|e| e.control_animation(key, control))
-                } else {
-                    let compose = Compose {
-                        src: cmd.rows,
-                        dst: cmd.cols,
-                        src_x: cmd.cell_x,
-                        src_y: cmd.cell_y,
-                        dst_x: cmd.x,
-                        dst_y: cmd.y,
-                        width: cmd.w,
-                        height: cmd.h,
-                        replace: cmd.cursor == 1,
-                    };
-                    ctx.edit(|e| e.compose_frames(key, compose))
+                    let _ = ctx.edit(|e| e.control_animation(key, control));
+                    return Ok(());
+                }
+                composition_refusal(ctx.store(), &cmd, key).map_or(Ok(()), Err)?;
+                let compose = Compose {
+                    src: cmd.rows,
+                    dst: cmd.cols,
+                    src_x: cmd.cell_x,
+                    src_y: cmd.cell_y,
+                    dst_x: cmd.x,
+                    dst_y: cmd.y,
+                    width: cmd.w,
+                    height: cmd.h,
+                    replace: cmd.cursor == 1,
                 };
-                done.unwrap_or(Err(Refusal::NoSpace)).map_err(error)
+                ctx.edit(|e| e.compose_frames(key, compose))
+                    .unwrap_or(Err(Refusal::NoSpace))
+                    .map_err(error)
             }),
         };
+        if cmd.action == b'a' && !matches!(answer, Err(Error::AnimNotFound { .. })) {
+            return;
+        }
         reply(ctx, &cmd, cmd.id, answer);
     }
 
@@ -885,9 +891,49 @@ fn error(refusal: Refusal) -> Error {
 /// The image an animation command names by `i` or `I`, whose use clock the
 /// command moves (ADR-1102, D1), or ENOENT.
 fn animated(ctx: &mut dyn Context, cmd: &Command) -> Result<ImageKey, Error> {
-    let key = ctx.find_image(cmd.id, cmd.number).ok_or(Error::NotFound)?;
+    let key = ctx
+        .find_image(cmd.id, cmd.number)
+        .ok_or(Error::AnimNotFound {
+            id: cmd.id,
+            number: cmd.number,
+        })?;
     ctx.touch(key);
     Ok(key)
+}
+
+/// What refuses composition `cmd` on image `key` with kitty 0.50.0's
+/// texts, checked before the store's own checks (ADR-1100, D15): a
+/// picture that arrived as palette indices, a destination frame that does
+/// not exist, a destination rectangle that leaves the image, and
+/// overlapping rectangles within one frame.
+fn composition_refusal(store: &Store, cmd: &Command, key: ImageKey) -> Option<Error> {
+    if store.indexed(key) {
+        return Some(Error::IndexedComposition);
+    }
+    let frames = store.animation(key).map_or(1, |a| a.frames);
+    if cmd.cols == 0 || cmd.cols > frames {
+        let id = store.kitty_id(key).unwrap_or(0);
+        return Some(Error::NoDestFrame {
+            frame: cmd.cols,
+            id,
+        });
+    }
+    let (iw, ih) = store.image_size(key)?;
+    let w = if cmd.w == 0 { iw } else { cmd.w };
+    let h = if cmd.h == 0 { ih } else { cmd.h };
+    let fits = |x: u32, y: u32| {
+        u64::from(x).saturating_add(u64::from(w)) <= u64::from(iw)
+            && u64::from(y).saturating_add(u64::from(h)) <= u64::from(ih)
+    };
+    if !fits(cmd.x, cmd.y) {
+        return Some(Error::ComposeDestOut);
+    }
+    let apart = |a: u32, b: u32, l: u32| {
+        u64::from(a).saturating_add(u64::from(l)) <= u64::from(b)
+            || u64::from(b).saturating_add(u64::from(l)) <= u64::from(a)
+    };
+    let overlaps = !apart(cmd.cell_x, cmd.x, w) && !apart(cmd.cell_y, cmd.y, h);
+    (cmd.rows == cmd.cols && overlaps).then_some(Error::ComposeOverlap)
 }
 
 /// The image `a=f` sends a frame to, with its checks made before any data
@@ -896,7 +942,7 @@ fn animated(ctx: &mut dyn Context, cmd: &Command) -> Result<ImageKey, Error> {
 /// the image; the frame `r` edits, or else the frame `c` starts from, must
 /// exist; and a new frame must fit `FRAMES_MAX`. A PNG's size is known
 /// only once it is decoded, so only its offset is checked here.
-fn frame_target(ctx: &mut dyn Context, cmd: &Command) -> Result<ImageKey, Error> {
+fn frame_target(ctx: &mut dyn Context, cmd: &mut Command) -> Result<ImageKey, Error> {
     let key = animated(ctx, cmd)?;
     // as kitty checks them: the image, palette indices, then the size
     if cmd.indexed() || ctx.store().indexed(key) {
@@ -905,15 +951,40 @@ fn frame_target(ctx: &mut dyn Context, cmd: &Command) -> Result<ImageKey, Error>
     if cmd.format != 100 && (cmd.width == 0 || cmd.height == 0) {
         return Err(Error::ZeroSize);
     }
+    let frames = ctx.store().animation(key).map_or(1, |a| a.frames);
+    // an edit of a frame that does not exist makes a new frame, as kitty
+    // does, and a new frame's base frame must exist
+    if cmd.rows > frames {
+        cmd.rows = 0;
+    }
+    if cmd.rows == 0 && cmd.cols > frames {
+        return Err(Error::NoBaseFrame { frame: cmd.cols });
+    }
+    let size = ctx.store().image_size(key).ok_or(Error::Invalid)?;
     let rect = if cmd.format == 100 {
-        (cmd.x, cmd.y, 1, 1)
+        (0, 0, 1, 1)
     } else {
-        (cmd.x, cmd.y, cmd.width, cmd.height)
+        clip(size, (cmd.x, cmd.y, cmd.width, cmd.height)).unwrap_or((0, 0, 1, 1))
     };
     ctx.store()
         .check_frame(key, rect, cmd.cols, cmd.rows)
         .map_err(error)?;
     Ok(key)
+}
+
+/// The part of the rectangle `w` by `h` at `x`, `y` that lies inside an
+/// image of `size`, or `None` when none of it does: a frame's data past the
+/// image's edge is cut off, as kitty cuts it (ADR-1102, D2).
+fn clip((iw, ih): (u32, u32), (x, y, w, h): (u32, u32, u32, u32)) -> Option<(u32, u32, u32, u32)> {
+    if x >= iw || y >= ih || w == 0 || h == 0 {
+        return None;
+    }
+    Some((
+        x,
+        y,
+        w.min(iw.saturating_sub(x)),
+        h.min(ih.saturating_sub(y)),
+    ))
 }
 
 /// Stores `cmd`'s frame data, its width, height, pixels and whether every
@@ -925,14 +996,37 @@ fn frame(
     (width, height, pixels, opaque): (u32, u32, Vec<u32>, bool),
     reservation: Reservation,
 ) {
+    let size = ctx
+        .find_image(cmd.id, cmd.number)
+        .and_then(|key| ctx.store().image_size(key))
+        .unwrap_or((0, 0));
+    // data past the image's edge is cut off; data wholly outside it lays
+    // one clear pixel, by blending, which changes nothing
+    let (x, y, width, height, pixels, opaque, replace) =
+        match clip(size, (cmd.x, cmd.y, width, height)) {
+            Some(rect) if rect == (cmd.x, cmd.y, width, height) => {
+                (cmd.x, cmd.y, width, height, pixels, opaque, cmd.cell_x == 1)
+            }
+            Some((x, y, w, h)) => {
+                let cut: Vec<u32> = pixels
+                    .chunks_exact(usize::try_from(width).unwrap_or(1).max(1))
+                    .take(usize::try_from(h).unwrap_or(0))
+                    .flat_map(|row| row.iter().take(usize::try_from(w).unwrap_or(0)))
+                    .copied()
+                    .collect();
+                let opaque = cut.iter().all(|px| px >> 24 == 0xff);
+                (x, y, w, h, cut, opaque, cmd.cell_x == 1)
+            }
+            None => (0, 0, 1, 1, vec![0], false, false),
+        };
     let new = NewFrame {
-        x: cmd.x,
-        y: cmd.y,
+        x,
+        y,
         width,
         height,
         pixels,
         opaque,
-        replace: cmd.cell_x == 1,
+        replace,
         base: cmd.cols,
         background: cmd.cell_y,
         edit: cmd.rows,
@@ -951,9 +1045,11 @@ fn frame(
 /// then stored.
 fn decoded_frame(ctx: &mut dyn Context, cmd: &Command, payload: &Payload, size: (u32, u32)) {
     let Some(key) = ctx.find_image(cmd.id, cmd.number) else {
-        return reply(ctx, cmd, cmd.id, Err(Error::NotFound));
+        let (id, number) = (cmd.id, cmd.number);
+        return reply(ctx, cmd, cmd.id, Err(Error::AnimNotFound { id, number }));
     };
-    let rect = (cmd.x, cmd.y, size.0, size.1);
+    let image = ctx.store().image_size(key).unwrap_or((0, 0));
+    let rect = clip(image, (cmd.x, cmd.y, size.0, size.1)).unwrap_or((0, 0, 1, 1));
     if let Err(e) = ctx.store().check_frame(key, rect, cmd.cols, cmd.rows) {
         return reply(ctx, cmd, cmd.id, Err(error(e)));
     }
@@ -1028,7 +1124,20 @@ fn place(ctx: &mut dyn Context, cmd: &Command, key: ImageKey, id: u32) -> Answer
     let (box_cols, box_rows) = match placed {
         Ok(extent) => extent,
         Err(Placing::Refused(Refusal::NoSpace)) => return Err(Error::NoSpace),
-        Err(Placing::NoParent) => return Err(Error::NoParent),
+        Err(Placing::NoParent) => {
+            let parent = cmd.parent;
+            return Err(if ctx.find_image(parent, 0).is_none() {
+                Error::NoParentImage { parent }
+            } else {
+                Error::NoParentPlacement {
+                    parent,
+                    placement: cmd.parent_placement,
+                }
+            });
+        }
+        Err(Placing::Cycle) if cmd.parent == id && cmd.parent_placement == cmd.placement => {
+            return Err(Error::SelfParent);
+        }
         Err(Placing::Cycle) => return Err(Error::Cycle),
         Err(Placing::TooDeep) => return Err(Error::TooDeep),
         Err(Placing::Refused(_)) => return Err(Error::Invalid),
@@ -1073,12 +1182,16 @@ fn refused(ctx: &mut dyn Context, cmd: &Command) -> Option<Error> {
     Some(e)
 }
 
-/// The kitty answer to a helper's outcome other than OK. Too few bytes
-/// read from a named medium is a failure to read, EBADF, and too few
-/// inflated is EINVAL, as kitty 0.49.2 answers both (ADR-1100, D15).
+/// The kitty answer to a helper's outcome other than OK (ADR-1100, D15):
+/// too few bytes read from a named medium is a failure to read, EBADF, and
+/// a zlib payload that inflates to too few bytes is EINVAL with kitty
+/// 0.50.0's text on the inflated size. kitty's text for a payload that does
+/// not inflate names zlib's error, which the image helper does not report,
+/// so that keeps vtium's own EINVAL.
 fn outcome(reply: &Reply, named: bool, inflate: bool) -> Error {
     match reply {
         Reply::TooShort if named && !inflate => Error::BadFile,
+        Reply::TooShort if inflate => Error::InflateSize,
         Reply::TooShort | Reply::Corrupt | Reply::TooLarge => Error::Invalid,
         Reply::OverBudget => Error::NoSpace,
         Reply::Unreadable | Reply::Failed | Reply::Ok(_) => Error::BadFile,

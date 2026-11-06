@@ -360,7 +360,7 @@ fn replies_follow_q_and_need_an_id_or_a_number() {
     send(&mut k, &mut h, &format!("a=t,s=1,v=1,I=5;{px}"));
     assert_eq!(
         h.take(),
-        "\x1b_Gi=9;ENOENT:image not found\x1b\\\
+        "\x1b_Gi=9;ENOENT:Put command refers to non-existent image with id: 9 and number: 0\x1b\\\
          \x1b_Gi=1,p=4;OK\x1b\\\
          \x1b_Gi=2,I=5;OK\x1b\\"
     );
@@ -400,8 +400,10 @@ fn keys_that_cannot_be_read_and_keys_the_spec_lacks() {
     assert_eq!(
         h.take(),
         format!(
-            "\x1b_Gi=1;OK\x1b\\\x1b_Gi=2;{bad}\x1b\\\x1b_Gi=3;{bad}\x1b\\\x1b_Gi=4;{bad}\x1b\\\
-             \x1b_Gi=5;{bad}\x1b\\\x1b_Gi=6;{bad}\x1b\\\x1b_Gi=7,I=7;{bad}\x1b\\"
+            "\x1b_Gi=1;OK\x1b\\\x1b_Gi=2;EINVAL:Unknown image format: 9\x1b\\\
+             \x1b_Gi=3;EINVAL:Unknown image format: 64\x1b\\\x1b_Gi=4;{bad}\x1b\\\
+             \x1b_Gi=5;{bad}\x1b\\\x1b_Gi=6;{bad}\x1b\\\
+             \x1b_Gi=7,I=7;EINVAL:Must not specify both image id and image number\x1b\\"
         )
     );
     // a signed z, and one past 32 bits
@@ -462,7 +464,7 @@ fn a_raw_upload_without_s_or_v_is_refused_as_kitty_refuses_it() {
         h.take(),
         format!(
             "\x1b_Gi=3;{zero}\x1b\\\x1b_Gi=4;{zero}\x1b\\\x1b_Gi=5;{zero}\x1b\\\
-             \x1b_Gi=6;{zero}\x1b\\\x1b_GI=7;{zero}\x1b\\\x1b_Gi=8;{zero}\x1b\\"
+             \x1b_Gi=6;{zero}\x1b\\\x1b_G,I=7;{zero}\x1b\\\x1b_Gi=8;{zero}\x1b\\"
         )
     );
     assert!(h.store.is_empty() && h.requests.is_empty());
@@ -699,7 +701,7 @@ fn frames_on_palette_index_pictures_are_refused_as_kitty_refuses_them() {
         format!(
             "\x1b_Gi=2;OK\x1b\\\x1b_Gi=1;OK\x1b\\\x1b_Gi=2;{anim}\x1b\\\x1b_Gi=2,r=1;{anim}\x1b\\\
              \x1b_Gi=2;{comp}\x1b\\\x1b_Gi=1;{anim}\x1b\\\x1b_Gi=1;{anim}\x1b\\\
-             \x1b_Gi=78;ENOENT:image not found\x1b\\"
+             \x1b_Gi=78;ENOENT:Animation command refers to non-existent image with id: 78 and number: 0\x1b\\"
         )
     );
     assert_eq!(h.store.frame_bytes(), 0, "no frame is stored");
@@ -740,7 +742,7 @@ fn palette_index_pictures_are_refused_where_vtium_cannot_take_them() {
         h.take(),
         format!(
             "\x1b_Gi=1;OK\x1b\\\x1b_Gi=1;{indexed}\x1b\\\x1b_Gi=2;{bad}\x1b\\\x1b_Gi=3;{bad}\x1b\\\
-             \x1b_Gi=4;{zero}\x1b\\\x1b_Gi=5;{bad}\x1b\\"
+             \x1b_Gi=4;{zero}\x1b\\\x1b_Gi=5;EINVAL:Image too large, width or height greater than 4\x1b\\"
         )
     );
     assert!(h.requests.is_empty(), "nothing goes to the helper");
@@ -857,7 +859,10 @@ fn the_budget_refuses_a_picture_before_its_data() {
     // past max-graphic-size, refused before the budget is asked
     h.limits.graphic = (4, 4);
     send(&mut k, &mut h, &format!("a=t,s=5,v=1,i=2;{}", red(5)));
-    assert_eq!(h.take(), "\x1b_Gi=2;EINVAL:invalid argument\x1b\\");
+    assert_eq!(
+        h.take(),
+        "\x1b_Gi=2;EINVAL:Image too large, width or height greater than 4\x1b\\"
+    );
 }
 
 // covers: image.kitty
@@ -912,7 +917,7 @@ fn a_put_by_number_takes_the_newest_and_names_its_id() {
     send(&mut k, &mut h, "a=p,C=1");
     assert_eq!(
         h.take(),
-        "\x1b_Gi=3,I=4;OK\x1b\\\x1b_GI=5;ENOENT:image not found\x1b\\"
+        "\x1b_Gi=3,I=4;OK\x1b\\\x1b_G,I=5;ENOENT:Put command refers to non-existent image with id: 0 and number: 5\x1b\\"
     );
 }
 
@@ -983,28 +988,29 @@ fn animation_commands_are_answered_as_a_put_is() {
     // a control and a composition
     send(&mut k, &mut h, "a=a,i=1,c=3,s=3,v=2,r=1,z=80");
     send(&mut k, &mut h, "a=c,i=1,r=2,c=3,w=2,h=1");
-    assert_eq!(h.take(), "\x1b_Gi=1;OK\x1b\\\x1b_Gi=1;OK\x1b\\");
+    assert_eq!(
+        h.take(),
+        "\x1b_Gi=1;OK\x1b\\",
+        "the control is not answered"
+    );
     let st = h.store.animation(key).unwrap();
     assert_eq!((st.current, st.run, st.loops), (3, crate::Run::Looping, 2));
     assert_eq!(h.store.frame_gap(key, 1), Some(80));
-    // ENOENT for a missing image or frame, EINVAL for a rectangle out of
-    // the image, a frame past FRAMES_MAX's room aside
+    // a missing image, a missing base frame, a control on a missing frame,
+    // which is not answered, a missing destination frame and overlapping
+    // rectangles within one frame, each with kitty's text; an edit of a
+    // missing frame and a rectangle past the image have tests of their own
     send(&mut k, &mut h, &format!("a=f,i=9,s=1,v=1;{}", red(1)));
     send(&mut k, &mut h, &format!("a=f,i=1,s=1,v=1,c=7;{}", red(1)));
-    send(&mut k, &mut h, &format!("a=f,i=1,s=1,v=1,r=7;{}", red(1)));
-    send(&mut k, &mut h, &format!("a=f,i=1,x=256,s=1,v=1;{}", red(1)));
     send(&mut k, &mut h, "a=a,i=1,c=4");
     send(&mut k, &mut h, "a=c,i=1,r=2,c=5");
     send(&mut k, &mut h, "a=c,i=1,r=2,c=2,x=1,w=4,h=4");
     assert_eq!(
         h.take(),
-        "\x1b_Gi=9;ENOENT:image not found\x1b\\\
-         \x1b_Gi=1,r=4;ENOENT:image not found\x1b\\\
-         \x1b_Gi=1,r=7;ENOENT:image not found\x1b\\\
-         \x1b_Gi=1,r=4;EINVAL:invalid argument\x1b\\\
-         \x1b_Gi=1;ENOENT:image not found\x1b\\\
-         \x1b_Gi=1;ENOENT:image not found\x1b\\\
-         \x1b_Gi=1;EINVAL:invalid argument\x1b\\"
+        "\x1b_Gi=9;ENOENT:Animation command refers to non-existent image with id: 9 and number: 0\x1b\\\
+         \x1b_Gi=1,r=4;EINVAL:No frame with number: 7 found\x1b\\\
+         \x1b_Gi=1;ENOENT:No destination frame number 5 exists in image id: 1\n\x1b\\\
+         \x1b_Gi=1;EINVAL:The source and destination rectangles overlap and the src and destination frames are the same\x1b\\"
     );
     assert_eq!(h.store.animation(key).unwrap().frames, 3);
     // every animation command must name its image: with neither i nor I it
@@ -1015,11 +1021,11 @@ fn animation_commands_are_answered_as_a_put_is() {
     send(&mut k, &mut h, "a=c,r=1,c=2");
     assert_eq!(h.take(), "");
     assert!(h.store == before);
-    // an image number names the newest image of that number, answered
-    // with its id
+    // an image number names the newest image of that number; a frame's
+    // reply names it by I alone, as kitty's does
     send(&mut k, &mut h, &format!("a=t,s=1,v=1,I=5;{}", red(1)));
     send(&mut k, &mut h, &format!("a=f,I=5,s=1,v=1;{}", red(1)));
-    assert_eq!(h.take(), "\x1b_Gi=2,I=5;OK\x1b\\\x1b_Gi=2,I=5,r=2;OK\x1b\\");
+    assert_eq!(h.take(), "\x1b_Gi=2,I=5;OK\x1b\\\x1b_G,I=5,r=2;OK\x1b\\");
 }
 
 // A raw frame without s or v is refused as kitty 0.49.2 and 0.50.0 refuse
@@ -1136,7 +1142,7 @@ fn a_frames_reply_names_its_frame_as_kitty_does() {
             "\x1b_Gi=1;OK\x1b\\\x1b_Gi=1,r=2;OK\x1b\\\x1b_Gi=1,r=3;OK\x1b\\\x1b_Gi=1,r=1;OK\x1b\\\
              \x1b_Gi=1,r=2;OK\x1b\\\x1b_Gi=1,r=4;ENODATA:Insufficient image data: 4 < 16\x1b\\\
              \x1b_Gi=1,r=4;EINVAL:Zero width/height not allowed\x1b\\\x1b_Gi=1,r=4;OK\x1b\\\
-             \x1b_Gi=77;ENOENT:image not found\x1b\\\x1b_Gi=1;{anim}\x1b\\\x1b_Gi=1,r=1;{anim}\x1b\\\
+             \x1b_Gi=77;ENOENT:Animation command refers to non-existent image with id: 77 and number: 0\x1b\\\x1b_Gi=1;{anim}\x1b\\\x1b_Gi=1,r=1;{anim}\x1b\\\
              \x1b_Gi=1;OK\x1b\\"
         )
     );
@@ -1146,7 +1152,7 @@ fn a_frames_reply_names_its_frame_as_kitty_does() {
     send(&mut k, &mut h, &format!("a=f,I=5,p=3,s=2,v=2;{}", red(4)));
     assert_eq!(
         h.take(),
-        "\x1b_Gi=2,I=5;OK\x1b\\\x1b_Gi=2,I=5,r=2;OK\x1b\\\x1b_Gi=2,I=5,p=3,r=3;OK\x1b\\"
+        "\x1b_Gi=2,I=5;OK\x1b\\\x1b_G,I=5,r=2;OK\x1b\\\x1b_G,I=5,p=3,r=3;OK\x1b\\"
     );
 }
 
@@ -1441,14 +1447,21 @@ fn inside_a_pictures_upload_an_animation_control_reaches_the_image_already_store
     let (mut k, mut h) = (Kitty::default(), Host::new());
     let _ = open_upload(&mut k, &mut h);
     send(&mut k, &mut h, "a=a,i=99,s=3");
-    assert_eq!(h.take(), "\x1b_Gi=8;ENOENT:image not found\x1b\\");
+    assert_eq!(
+        h.take(),
+        "\x1b_Gi=8;ENOENT:Animation command refers to non-existent image with id: 8 and number: 0\x1b\\"
+    );
     let (mut k, mut h) = (Kitty::default(), Host::new());
     send(&mut k, &mut h, &format!("a=t,i=8,s=1,v=1;{}", red(1)));
     let _ = h.take();
     let old = h.store.find_image(8, 0).unwrap();
     let rest = open_upload(&mut k, &mut h);
     send(&mut k, &mut h, "a=a,i=99,s=3");
-    assert_eq!(h.take(), "\x1b_Gi=8;OK\x1b\\");
+    assert_eq!(
+        h.take(),
+        "",
+        "a control is answered only when its image is missing"
+    );
     assert_eq!(h.store.animation(old).unwrap().run, crate::Run::Looping);
     send(&mut k, &mut h, &format!("m=0;{rest}"));
     assert!(
@@ -1473,7 +1486,11 @@ fn inside_an_upload_an_animation_control_acts_on_the_image_being_loaded() {
     send(&mut k, &mut h, &format!("a=f,i=1,s=2,v=2,m=1;{a}"));
     // it names image 2, and acts on image 1, whose frame is loading
     send(&mut k, &mut h, "a=a,i=2,s=3,v=4");
-    assert_eq!(h.take(), "\x1b_Gi=1;OK\x1b\\");
+    assert_eq!(
+        h.take(),
+        "",
+        "a control is answered only when its image is missing"
+    );
     let one = key(&mut h);
     let st = h.store.animation(one).unwrap();
     assert_eq!((st.run, st.loops), (crate::Run::Looping, 4));
@@ -1548,7 +1565,8 @@ fn a_frame_from_the_helper_is_reserved_of_the_allowance_and_stored() {
         &[0xff00_00ff, 0xff00_00ff, 0xffff_0000]
     );
     assert_eq!(h.store.bytes(), budget, "a frame is never in the budget");
-    // a PNG frame that leaves the image is EINVAL once its size is known
+    // a PNG frame that passes the image's edge is cut to it once its size
+    // is known, as kitty cuts it
     send(
         &mut k,
         &mut h,
@@ -1562,8 +1580,8 @@ fn a_frame_from_the_helper_is_reserved_of_the_allowance_and_stored() {
             data: vec![0; 8],
         }),
     );
-    assert_eq!(h.take(), "\x1b_Gi=1,r=3;EINVAL:invalid argument\x1b\\");
-    assert_eq!(h.store.animation(key).unwrap().frames, 2);
+    assert_eq!(h.take(), "\x1b_Gi=1,r=3;OK\x1b\\");
+    assert_eq!(h.store.animation(key).unwrap().frames, 3);
 }
 
 // covers: image.kitty-animation
@@ -1706,7 +1724,7 @@ fn a_named_medium_goes_to_the_helper_and_its_answer_is_stored() {
     );
     assert_eq!(h.take(), "\x1b_Gi=1;OK\x1b\\");
     assert_eq!(h.boxes(), vec![(0, 0, 1, 1)]);
-    // a read too short is EBADF; an inflate too short is EINVAL
+    // a read too short is EBADF; an inflate too short is EINVAL, with kitty's text
     send(
         &mut k,
         &mut h,
@@ -1728,7 +1746,7 @@ fn a_named_medium_goes_to_the_helper_and_its_answer_is_stored() {
     assert_eq!(
         h.take(),
         "\x1b_Gi=2;EBADF:Failed to read image file\x1b\\\
-         \x1b_Gi=3;EINVAL:invalid argument\x1b\\\
+         \x1b_Gi=3;EINVAL:Image data size post inflation does not match expected size\x1b\\\
          \x1b_Gi=4;ENOSPC:image storage is full\x1b\\"
     );
 }
@@ -2282,7 +2300,7 @@ fn deleting_a_parent_takes_its_children_and_images_left_without_placements() {
     send(&mut k, &mut h, "a=p,i=1,C=1");
     assert_eq!(
         h.take(),
-        "\x1b_Gi=2;ENOENT:image not found\x1b\\\x1b_Gi=3;ENOENT:image not found\x1b\\\x1b_Gi=1;OK\x1b\\"
+        "\x1b_Gi=2;ENOENT:Put command refers to non-existent image with id: 2 and number: 0\x1b\\\x1b_Gi=3;ENOENT:Put command refers to non-existent image with id: 3 and number: 0\x1b\\\x1b_Gi=1;OK\x1b\\"
     );
     // ED 2 takes a child by the rows it draws on, and with its parent
     let (mut k, mut h) = (Kitty::default(), Host::new());
@@ -2305,10 +2323,21 @@ fn a_parent_that_does_not_exist_is_enoparent() {
     wide(&mut k, &mut h, 1);
     wide(&mut k, &mut h, 2);
     send(&mut k, &mut h, "a=p,i=1,p=1,C=1,q=1");
-    let enoparent = "\x1b_Gi=2;ENOPARENT:parent placement not found\x1b\\";
-    for keys in ["a=p,i=2,P=9", "a=p,i=2,P=1,Q=5", "a=p,i=2,P=1"] {
+    // kitty's text names a missing parent image, or the parent image and
+    // the placement id it lacks
+    let image = "ENOPARENT:Put command refers to a parent image with id: 9 that does not exist";
+    let placement = |q: u32| {
+        format!(
+            "ENOPARENT:Put command refers to a parent image placement with id: 1 and placement id: {q} that does not exist"
+        )
+    };
+    for (keys, want) in [
+        ("a=p,i=2,P=9", image.to_owned()),
+        ("a=p,i=2,P=1,Q=5", placement(5)),
+        ("a=p,i=2,P=1", placement(0)),
+    ] {
         send(&mut k, &mut h, keys);
-        assert_eq!(h.take(), enoparent, "{keys}");
+        assert_eq!(h.take(), format!("\x1b_Gi=2;{want}\x1b\\"), "{keys}");
     }
     assert_eq!(h.store.placement_count(), 1, "a refused put places nothing");
 }
@@ -2329,10 +2358,11 @@ fn a_placement_that_would_follow_itself_is_ecycle() {
         h.take(),
         "\x1b_Gi=1,p=1;ECYCLE:relative placement would make a cycle\x1b\\"
     );
+    // naming itself as its parent is answered with kitty's text
     send(&mut k, &mut h, "a=p,i=2,p=1,P=2,Q=1");
     assert_eq!(
         h.take(),
-        "\x1b_Gi=2,p=1;ECYCLE:relative placement would make a cycle\x1b\\"
+        "\x1b_Gi=2,p=1;EINVAL:Put command refers to itself as its own parent\x1b\\"
     );
     assert_eq!(
         sorted(&h),
@@ -2354,7 +2384,7 @@ fn a_chain_deeper_than_eight_relative_placements_is_etoodeep() {
         send(&mut k, &mut h, &format!("a=p,i={id},p=1,P={},Q=1", id - 1));
         assert_eq!(h.take(), format!("\x1b_Gi={id},p=1;OK\x1b\\"));
     }
-    let toodeep = "ETOODEEP:chain of relative placements is too deep";
+    let toodeep = "ETOODEEP:Too many levels of parent references";
     send(&mut k, &mut h, "a=p,i=10,p=1,P=9,Q=1");
     assert_eq!(h.take(), format!("\x1b_Gi=10,p=1;{toodeep}\x1b\\"));
     // the chain's first placement replaced as a child would put the chain
@@ -2417,7 +2447,10 @@ fn a_virtual_placement_is_stored_on_no_line_and_only_a_delete_by_image_takes_it(
     // child draws nothing while the store reads no placeholder cells
     wide(&mut k, &mut h, 2);
     send(&mut k, &mut h, "a=p,i=2,U=1,P=1,Q=7");
-    assert_eq!(h.take(), "\x1b_Gi=2;EINVAL:invalid argument\x1b\\");
+    assert_eq!(
+        h.take(),
+        "\x1b_Gi=2;EINVAL:Put command creating a virtual placement cannot refer to a parent\x1b\\"
+    );
     send(&mut k, &mut h, "a=p,i=2,P=1,Q=7,H=1");
     assert_eq!(h.take(), "\x1b_Gi=2;OK\x1b\\");
     assert_eq!(h.store.placement_count(), 2);
@@ -2671,28 +2704,25 @@ fn a_frames_refusal_names_the_image_as_its_success_does() {
     h.helper = true;
     send(&mut k, &mut h, &format!("a=t,s=1,v=1,I=5;{}", red(1)));
     send(&mut k, &mut h, &format!("a=f,I=5,s=1,v=1;{}", red(1)));
-    assert_eq!(h.take(), "\x1b_Gi=1,I=5;OK\x1b\\\x1b_Gi=1,I=5,r=2;OK\x1b\\");
-    // each refusal names the frame the command would have made, 3
-    let einval = "\x1b_Gi=1,I=5,r=3;EINVAL:invalid argument\x1b\\";
-    let enoent = "\x1b_Gi=1,I=5,r=3;ENOENT:image not found\x1b\\";
-    // refused before the data: a rectangle out of the image, a missing frame
-    send(&mut k, &mut h, &format!("a=f,I=5,x=999,s=1,v=1;{}", red(1)));
-    assert_eq!(h.take(), einval);
+    assert_eq!(h.take(), "\x1b_Gi=1,I=5;OK\x1b\\\x1b_G,I=5,r=2;OK\x1b\\");
+    // each refusal names the frame the command would have made, 3, and
+    // names the image by I alone, as kitty's does
+    let einval = "\x1b_G,I=5,r=3;EINVAL:invalid argument\x1b\\";
+    // refused before the data: a base frame that does not exist
     send(&mut k, &mut h, &format!("a=f,I=5,c=9,s=1,v=1;{}", red(1)));
-    assert_eq!(h.take(), enoent);
+    assert_eq!(
+        h.take(),
+        "\x1b_G,I=5,r=3;EINVAL:No frame with number: 9 found\x1b\\"
+    );
     // refused at the end: data short of its rectangle
     send(&mut k, &mut h, &format!("a=f,I=5,s=1,v=1;{}", b64(&[1; 3])));
     assert_eq!(
         h.take(),
-        "\x1b_Gi=1,I=5,r=3;ENODATA:Insufficient image data: 3 < 4\x1b\\"
+        "\x1b_G,I=5,r=3;ENODATA:Insufficient image data: 3 < 4\x1b\\"
     );
-    // refused with a named medium, before the request and at the answer
-    send(
-        &mut k,
-        &mut h,
-        &format!("a=f,I=5,t=f,f=100,x=9;{}", b64(b"/p")),
-    );
-    assert_eq!(h.take(), einval);
+    // refused with a named medium at the answer: a picture past
+    // max-graphic-size, and one the helper could not decode
+    h.limits.graphic = (1, 1);
     send(&mut k, &mut h, &format!("a=f,I=5,t=f,f=100;{}", b64(b"/p")));
     k.decoded(
         &mut h,
@@ -2706,4 +2736,178 @@ fn a_frames_refusal_names_the_image_as_its_success_does() {
     send(&mut k, &mut h, &format!("a=f,I=5,t=f,f=100;{}", b64(b"/p")));
     k.decoded(&mut h, Reply::Corrupt);
     assert_eq!(h.take(), einval);
+}
+
+// A frame's and a composition's reply leave out i when the command named
+// the image by I alone, and every reply writes I after a comma, as kitty
+// 0.50.0's do (ADR-1100, D15).
+// covers: image.kitty
+#[test]
+fn a_reply_leaves_out_i_when_i_named_the_image_as_kittys_does() {
+    let (mut k, mut h) = (Kitty::default(), Host::new());
+    send(&mut k, &mut h, &format!("a=t,s=2,v=2,I=6;{}", red(4)));
+    send(&mut k, &mut h, "a=p,I=6,C=1");
+    send(&mut k, &mut h, &format!("a=f,I=6,s=2,v=2;{}", red(4)));
+    send(&mut k, &mut h, "a=c,I=6,r=1,c=2");
+    send(&mut k, &mut h, "a=p,I=99,C=1");
+    send(&mut k, &mut h, &format!("a=f,I=99,s=1,v=1;{}", red(1)));
+    assert_eq!(
+        h.take(),
+        "\x1b_Gi=1,I=6;OK\x1b\\\x1b_Gi=1,I=6;OK\x1b\\\x1b_G,I=6,r=2;OK\x1b\\\x1b_G,I=6;OK\x1b\\\
+         \x1b_G,I=99;ENOENT:Put command refers to non-existent image with id: 0 and number: 99\x1b\\\
+         \x1b_G,I=99;ENOENT:Animation command refers to non-existent image with id: 0 and number: 99\x1b\\"
+    );
+}
+
+// An edit of a frame that does not exist makes a new frame, and a new frame
+// on a base frame that does not exist is refused, as kitty 0.50.0 does
+// (ADR-1102, D2).
+// covers: image.kitty-animation
+#[test]
+fn an_edit_of_a_missing_frame_makes_a_new_frame_as_kittys_does() {
+    let (mut k, mut h) = (Kitty::default(), Host::new());
+    send(&mut k, &mut h, &format!("a=t,s=2,v=2,i=42;{}", red(4)));
+    send(&mut k, &mut h, &format!("a=f,i=42,s=2,v=2;{}", red(4)));
+    send(&mut k, &mut h, &format!("a=f,i=42,r=9,s=1,v=1;{}", red(1)));
+    send(&mut k, &mut h, &format!("a=f,i=42,c=9,s=1,v=1;{}", red(1)));
+    assert_eq!(
+        h.take(),
+        "\x1b_Gi=42;OK\x1b\\\x1b_Gi=42,r=2;OK\x1b\\\x1b_Gi=42,r=3;OK\x1b\\\
+         \x1b_Gi=42,r=4;EINVAL:No frame with number: 9 found\x1b\\"
+    );
+    let key = h.store.find_image(42, 0).unwrap();
+    assert_eq!(h.store.animation(key).unwrap().frames, 3);
+}
+
+// A frame's rectangle that passes the image's edge is cut to the image, and
+// one wholly outside it changes nothing, as kitty 0.50.0 does (ADR-1102,
+// D2).
+// covers: image.kitty-animation
+#[test]
+fn a_frame_rectangle_past_the_image_is_cut_to_it_as_kittys_is() {
+    let (mut k, mut h) = (Kitty::default(), Host::new());
+    send(&mut k, &mut h, &format!("a=t,s=4,v=4,i=1;{}", red(16)));
+    let green = rgba([0, 0xff, 0, 0xff], 16);
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=f,i=1,c=1,x=2,y=2,s=4,v=4;{green}"),
+    );
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=f,i=1,c=1,x=10,y=10,s=2,v=2;{}", red(4)),
+    );
+    assert_eq!(
+        h.take(),
+        "\x1b_Gi=1;OK\x1b\\\x1b_Gi=1,r=2;OK\x1b\\\x1b_Gi=1,r=3;OK\x1b\\"
+    );
+    let key = key(&mut h);
+    let two = h.store.frame_pixels(key, 2).unwrap();
+    let (r, g) = (0xffff_0000, 0xff00_ff00);
+    assert_eq!(two.pixels.as_slice()[0], r);
+    assert_eq!(two.pixels.as_slice()[2 * 4 + 2], g);
+    assert_eq!(two.pixels.as_slice()[3 * 4 + 3], g);
+    assert_eq!(two.pixels.as_slice()[3 * 4 + 1], r);
+    let three = h.store.frame_pixels(key, 3).unwrap();
+    assert_eq!(three.pixels.as_slice(), &[r; 16]);
+}
+
+// An animation control is answered only when its image does not exist, as
+// kitty 0.50.0 answers it (ADR-1102, D3).
+// covers: image.kitty-animation
+#[test]
+fn an_animation_control_is_answered_only_when_its_image_is_missing() {
+    let (mut k, mut h) = (Kitty::default(), Host::new());
+    send(&mut k, &mut h, &format!("a=t,s=2,v=2,i=43;{}", red(4)));
+    send(&mut k, &mut h, &format!("a=f,i=43,s=2,v=2;{}", red(4)));
+    h.take();
+    send(&mut k, &mut h, "a=a,i=43,s=3");
+    send(&mut k, &mut h, "a=a,i=43,c=9");
+    send(&mut k, &mut h, "a=a,i=43,s=9");
+    send(&mut k, &mut h, "a=a,i=98,s=3");
+    assert_eq!(
+        h.take(),
+        "\x1b_Gi=98;ENOENT:Animation command refers to non-existent image with id: 98 and number: 0\x1b\\"
+    );
+}
+
+// The refusals kitty 0.50.0 was seen to give carry its texts (ADR-1100,
+// D15).
+// covers: image.kitty
+#[test]
+fn refusals_carry_kittys_texts() {
+    let (mut k, mut h) = (Kitty::default(), Host::new());
+    h.helper = true;
+    send(&mut k, &mut h, &format!("a=t,s=1,v=1,i=9,I=9;{}", red(1)));
+    send(&mut k, &mut h, &format!("a=t,f=9,s=1,v=1,i=60;{}", red(1)));
+    h.limits.graphic = (10_000, 10_000);
+    send(&mut k, &mut h, &format!("a=t,s=100000,v=1,i=55;{}", red(1)));
+    send(&mut k, &mut h, "a=p,i=63,C=1");
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=t,o=z,s=1,v=1,i=73;{}", b64(b"xx")),
+    );
+    k.decoded(&mut h, Reply::Corrupt);
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=t,o=z,s=1,v=1,i=74;{}", b64(b"xx")),
+    );
+    k.decoded(&mut h, Reply::TooShort);
+    let ok = "\x1b_Gi=0;OK\x1b\\";
+    let _ = ok;
+    assert_eq!(
+        h.take(),
+        "\x1b_Gi=9,I=9;EINVAL:Must not specify both image id and image number\x1b\\\
+         \x1b_Gi=60;EINVAL:Unknown image format: 9\x1b\\\
+         \x1b_Gi=55;EINVAL:Image too large, width or height greater than 10000\x1b\\\
+         \x1b_Gi=63;ENOENT:Put command refers to non-existent image with id: 63 and number: 0\x1b\\\
+         \x1b_Gi=73;EINVAL:invalid argument\x1b\\\
+         \x1b_Gi=74;EINVAL:Image data size post inflation does not match expected size\x1b\\"
+    );
+    // relative placements
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=T,s=1,v=1,i=75,p=1,C=1;{}", red(1)),
+    );
+    send(&mut k, &mut h, "a=p,i=75,U=1,P=75");
+    send(&mut k, &mut h, "a=p,i=75,p=2,P=99,Q=1");
+    send(&mut k, &mut h, "a=p,i=75,p=3,P=75,Q=9");
+    send(&mut k, &mut h, "a=p,i=75,p=1,P=75,Q=1");
+    for n in 12..20 {
+        send(
+            &mut k,
+            &mut h,
+            &format!("a=p,i=75,p={n},P=75,Q={}", if n == 12 { 1 } else { n - 1 }),
+        );
+    }
+    send(&mut k, &mut h, "a=p,i=75,p=20,P=75,Q=19");
+    let mut want = String::from(
+        "\x1b_Gi=75,p=1;OK\x1b\\\
+         \x1b_Gi=75;EINVAL:Put command creating a virtual placement cannot refer to a parent\x1b\\\
+         \x1b_Gi=75,p=2;ENOPARENT:Put command refers to a parent image with id: 99 that does not exist\x1b\\\
+         \x1b_Gi=75,p=3;ENOPARENT:Put command refers to a parent image placement with id: 75 and placement id: 9 that does not exist\x1b\\\
+         \x1b_Gi=75,p=1;EINVAL:Put command refers to itself as its own parent\x1b\\",
+    );
+    for n in 12..20 {
+        want += &format!("\x1b_Gi=75,p={n};OK\x1b\\");
+    }
+    want += "\x1b_Gi=75,p=20;ETOODEEP:Too many levels of parent references\x1b\\";
+    assert_eq!(h.take(), want);
+    // compositions
+    send(&mut k, &mut h, &format!("a=t,s=2,v=2,i=43;{}", red(4)));
+    send(&mut k, &mut h, &format!("a=f,i=43,s=2,v=2;{}", red(4)));
+    send(&mut k, &mut h, "a=c,i=43,r=2,c=2");
+    send(&mut k, &mut h, "a=c,i=43,r=1,c=2,x=5,w=1,h=1");
+    send(&mut k, &mut h, "a=c,i=43,r=1,c=9");
+    assert_eq!(
+        h.take(),
+        "\x1b_Gi=43;OK\x1b\\\x1b_Gi=43,r=2;OK\x1b\\\
+         \x1b_Gi=43;EINVAL:The source and destination rectangles overlap and the src and destination frames are the same\x1b\\\
+         \x1b_Gi=43;EINVAL:The destination rectangle is out of bounds\x1b\\\
+         \x1b_Gi=43;ENOENT:No destination frame number 9 exists in image id: 43\n\x1b\\"
+    );
 }

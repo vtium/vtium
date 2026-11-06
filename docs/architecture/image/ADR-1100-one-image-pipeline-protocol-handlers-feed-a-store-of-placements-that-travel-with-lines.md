@@ -182,6 +182,9 @@ considered:
   - operator: aaronsb
     said: "[Four differences from kitty 0.50.0: 1. frames onto a palette-index picture, 2. a raw upload without s or v, 3. r=N in frame replies, 4. linear-light blending of partly transparent pixels] 1-3 like kitty, 4 now"
     via: AskUserQuestion, 2026-11-06; the option label is the steering session's wording
+  - operator: aaronsb
+    said: "[The other kitty 0.50 differences (i= left out when I= named the image; an edit of a missing frame becomes a new frame; a frame rectangle outside the image is accepted; no reply to a=a; kitty's error texts): follow kitty?] Follow kitty, all (Rec.)"
+    via: AskUserQuestion, 2026-11-06; the option label is the steering session's wording
 observable:
   - "`cargo tree -p vtium -e normal` with default features lists no vtium-image, and with `--features images` lists it"
   - "The flood test feeds a stream of transmissions and placements past a full store whole and cut at random points, with frames drawn at different points, and every run ends in the same store; with the input-work count removed from a scan, planted, it fails"
@@ -547,6 +550,33 @@ Kitty's specification added two raw formats in kitty 0.50.0, `f=8` and `f=16`, i
 - **Raw data short of its picture.** A transmission (`a=t`, `a=T` or `a=q`) whose raw data, sent directly and uncompressed in any of the formats `f=8`, `f=16`, `f=24` and `f=32`, holds fewer bytes than its width and height need is answered `ENODATA:Insufficient image data: GOT < WANT`, where GOT is the bytes that came, in every chunk together, and WANT the bytes the picture needs. The specification names no error for it, and kitty 0.49.2 answers it so (`basis`), so vtium follows kitty (D14). kitty answers raw data that inflates short with EINVAL and raw data read short from a file with EBADF, and vtium answers both the same way. A frame's data short of its rectangle is answered with the same ENODATA (ADR-1102 D2).
 
   > Edited 2026-11-06, later the same day: a frame's short data takes ENODATA too, as the maintainer chose for ADR-1102 D2. The bullet ended "A frame's data short of its rectangle stays EINVAL, as ADR-1102 decides, though kitty 0.49.2 answers it with ENODATA (`basis`)."
+
+- **Replies in kitty's texts.** vtium answers each refusal kitty 0.50.0 was seen to answer with kitty's own text, its numbers re-encoded, and writes the keys before it as kitty does: `I` always after a comma, so a reply that names no `i` starts with `,I=`; a frame's and a composition's reply name `i` only when the command gave it, and a put by `I` names the image's `i` (the maintainer, 2026-11-06, `considered`; `basis`). An animation control (`a=a`) is answered only when its image does not exist. A refusal whose kitty text was not seen keeps vtium's own wording. The table lists each case:
+
+| Case | kitty 0.50.0's text | vtium's text before |
+|---|---|---|
+| A put names an image that does not exist | `ENOENT:Put command refers to non-existent image with id: I and number: N` | `ENOENT:image not found` |
+| A frame or a control names an image that does not exist | `ENOENT:Animation command refers to non-existent image with id: I and number: N` | `ENOENT:image not found` |
+| A composition's destination frame does not exist | `ENOENT:No destination frame number F exists in image id: I`, ending in a line feed | `ENOENT:image not found` |
+| A new frame's base frame `c` does not exist | `EINVAL:No frame with number: F found` | `ENOENT:image not found` |
+| An edit names a frame that does not exist | `OK`: the frame is added as a new one | `ENOENT:image not found` |
+| A frame's rectangle passes the image's edge | `OK`: the rectangle is cut to the image | `EINVAL:invalid argument` |
+| An animation control succeeds, or names a frame that does not exist, or an `s` past 3 | no reply | `OK`, `ENOENT:image not found`, `EINVAL:invalid argument` |
+| Both `i` and `I` | `EINVAL:Must not specify both image id and image number` | `EINVAL:invalid argument` |
+| A format other than 8, 16, 24, 32 and 100 | `EINVAL:Unknown image format: F` | `EINVAL:invalid argument` |
+| A raw picture past `max-graphic-size` | `EINVAL:Image too large, width or height greater than M`, M the side's limit (kitty's own limit is 10000) | `EINVAL:invalid argument` |
+| A virtual placement (`U=1`) names a parent | `EINVAL:Put command creating a virtual placement cannot refer to a parent` | `EINVAL:invalid argument` |
+| A relative placement's parent image does not exist | `ENOPARENT:Put command refers to a parent image with id: P that does not exist` | `ENOPARENT:parent placement not found` |
+| The parent image exists, its placement does not | `ENOPARENT:Put command refers to a parent image placement with id: P and placement id: Q that does not exist` | `ENOPARENT:parent placement not found` |
+| A placement names itself as its parent | `EINVAL:Put command refers to itself as its own parent` | `ECYCLE:relative placement would make a cycle` |
+| A chain of relative placements too deep | `ETOODEEP:Too many levels of parent references` | `ETOODEEP:chain of relative placements is too deep` |
+| A composition within one frame whose rectangles overlap | `EINVAL:The source and destination rectangles overlap and the src and destination frames are the same` | `EINVAL:invalid argument` |
+| A composition's destination rectangle leaves the image | `EINVAL:The destination rectangle is out of bounds` | `EINVAL:invalid argument` |
+| A zlib payload that inflates to fewer bytes than needed | `EINVAL:Image data size post inflation does not match expected size` | `EINVAL:invalid argument` |
+| A cycle through other placements; a composition's source frame or rectangle; a PNG that does not decode; the budget full | not seen; vtium keeps `ECYCLE:relative placement would make a cycle`, `ENOENT:image not found`, `EINVAL:invalid argument` and `ENOSPC:image storage is full` | the same |
+| A file, temporary file or shared-memory object that cannot be read | `EBADF:Failed to read image file`, as vtium already answered | the same |
+
+  kitty gives no reply at all, or OK, in some cases where vtium refuses, and these stay as vtium answers them, since the maintainer's answer covered kitty's texts: a key value that is not a number (`s=x`), an unknown action, medium, compression or delete selector, `U=2`, a pixel offset `X` past the cell, a box `c` past `BOX_CELLS_MAX`, and a temporary file whose name lacks `tty-graphics-protocol`. kitty's text for a PNG that does not decode comes from its PNG library, and its text for a zlib payload that does not inflate names zlib's error (`Z_DATA_ERROR` for data that is not zlib, `Z_BUF_ERROR` for a stream cut short or one that inflates past the picture); vtium's image helper reports neither, so vtium keeps `EINVAL:invalid argument` for both. kitty refuses a zlib payload that inflates past the picture's bytes, where vtium ignores the bytes past them, as it does for data sent uncompressed.
 
 ### Verification
 

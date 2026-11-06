@@ -108,10 +108,10 @@ These follow the kitty spec where it leaves a choice open. Each stays vtium's re
 - **A change "covers half the picture" when its layers' areas add up to half the image's or more** (ADR-1102, D1, the second rule). Layers that overlap count twice, so a frame can only be composed whole earlier than its covered pixels alone would make it, never later.
 - **`z` on any `a=f` sets the gap of the frame the command makes or edits,** the root frame's included; `z=0` keeps the gap the frame has, and a new frame's is 40.
 - **`a=a` sets a gap only with both `r` and `z`.** With `z` and no `r` it sets no gap, since `r=0` names no frame.
-- **`a=c` without `r` or `c` answers ENOENT,** as a composition whose source or destination does not exist does, since frame 0 does not exist. An `s` past 3 in `a=a` answers EINVAL.
-- **A missing frame answers `ENOENT:image not found`,** the message a missing image gets, so the handler's replies stay a closed set of fixed messages.
+- **`a=c` without `c` answers kitty's text for a missing destination frame,** `ENOENT:No destination frame number 0 exists in image id: I`, since frame 0 does not exist. An `s` past 3 in `a=a` is not answered, as kitty answers no control whose image exists.
+- **A refusal kitty was not seen to give keeps vtium's own fixed text,** such as `ENOENT:image not found` for a composition's missing source frame; ADR-1100 D15 lists the texts taken from kitty.
 - **`d=f` and `d=F` with neither `i` nor `I` delete nothing,** since the spec asks every animation command for one of them (ADR-1102, D5).
-- **The text after ENOPARENT, ECYCLE and ETOODEEP is vtium's own.** The spec names the three codes and no message, so each reply is a fixed message of vtium's: `ENOPARENT:parent placement not found`, `ECYCLE:relative placement would make a cycle` and `ETOODEEP:chain of relative placements is too deep`.
+- **The text after ECYCLE is vtium's own.** kitty answers a placement that names itself as its parent with its own EINVAL text, and a longer cycle was not seen, so `ECYCLE:relative placement would make a cycle` stays vtium's.
 
 ## How kitty's palette formats work
 
