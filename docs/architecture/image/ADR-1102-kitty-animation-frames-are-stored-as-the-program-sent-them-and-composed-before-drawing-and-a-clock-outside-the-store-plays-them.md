@@ -25,6 +25,7 @@ basis:
   - precedent: ADR-1100
   - precedent: ADR-1101
   - precedent: ADR-1300
+  - evidence: "kitty 0.50.0, run as a black box on 2026-11-06 under a private Xvfb display with its configuration off: on an opaque black 8x8 image, a new frame on frame 1 (`c=1`) laid red 204 at alpha 17 by blending, and frame 2 then showed red 14, the premultiplied sRGB blend; a frame of that red on a clear canvas, composed with `a=c` onto a copy of frame 1, also showed 14. kitty composes frames in sRGB. A frame laid on a canvas given by `Y=255` showed 56, which matches the red blended in linear light over the window's black, as if the canvas came out clear and the blend happened when kitty drew it; that case is not explained further"
 agent:
   name: Claude
   model: claude-opus-5-5
@@ -59,6 +60,9 @@ considered:
     via: AskUserQuestion, 2026-11-06; the option label is the steering session's wording
   - operator: aaronsb
     said: "[Four differences from kitty 0.50.0: 1. frames onto a palette-index picture, 2. a raw upload without s or v, 3. r=N in frame replies, 4. linear-light blending of partly transparent pixels] 1-3 like kitty, 4 now"
+    via: AskUserQuestion, 2026-11-06; the option label is the steering session's wording
+  - operator: Aaron Bockelie
+    said: "[kitty's frame composition: measure before deciding?] Measure first (Rec.)"
     via: AskUserQuestion, 2026-11-06; the option label is the steering session's wording
 status: accepted
 date: 2026-11-01
