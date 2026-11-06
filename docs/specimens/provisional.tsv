@@ -2,3 +2,12 @@
 # provisional profile that moves is reported as drift and fails nothing,
 # and may go undrawn where its set cannot be built; a row goes when the
 # operator accepts the profile, which then fails on a moved pixel.
+1366x768	the notices screen redrawn with the reworded notices, waiting for the maintainer's review
+1920x1080	the notices screen redrawn with the reworded notices, waiting for the maintainer's review
+2560x1440	the notices screen redrawn with the reworded notices, waiting for the maintainer's review
+320x240	the notices screen redrawn with the reworded notices, waiting for the maintainer's review
+320x240-1bit	the notices screen redrawn with the reworded notices, waiting for the maintainer's review
+320x240-tiny5	the notices screen redrawn with the reworded notices, waiting for the maintainer's review
+480x320	the notices screen redrawn with the reworded notices, waiting for the maintainer's review
+640x480	the notices screen redrawn with the reworded notices, waiting for the maintainer's review
+800x480	the notices screen redrawn with the reworded notices, waiting for the maintainer's review
