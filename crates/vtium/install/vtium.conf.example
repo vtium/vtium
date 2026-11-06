@@ -814,136 +814,140 @@
 # device to a head. These are the sections vtium uses, as shipped, when
 # vtium.conf has none.
 
-# vtium.conf's sections: its looks, its heads, and the rules that place
-# each display and each input in a head.
+# vtium.conf's sections: its looks, its heads, and the rules that send each
+# display and each input device to a head.
 #
-# Above the first section heading sit vtium's own keys, the defaults every
-# head inherits, and the two keys of the sections, version and policy, in
-# any order. With no section in vtium.conf, vtium runs the sections below,
-# compiled into it from this same text, so a file written from them
-# changes nothing until edited.
+# The settings come first, above the first section heading: vtium's own keys,
+# which every head uses unless it sets its own, and the two keys of the
+# sections, version and policy, in any order. When vtium.conf has no section,
+# vtium uses the sections below, built into it from this same text, so a file
+# written from them changes nothing until you edit it.
 #
-# vtium reads vtium.conf only when root owns it and neither group nor
-# others can write it or a directory above it. vtium never changes the
-# file. It logs each error with its line, and each error in the sections
-# drops what it takes: a bad rule drops that rule, an error in a head's
-# section drops that head with every rule naming it, an error in a look's
-# section drops that look, and an error in the sections' structure, such
-# as a missing version, drops all but the policy. An error here never
-# drops a key above the first section. `vtium check-config FILE` checks a
-# file before it is installed.
+# vtium reads vtium.conf only when root owns it and neither its group nor
+# other users can write it or a directory above it. vtium never changes the
+# file. It logs each error with its line, and ignores what the error takes: a
+# bad rule ignores that rule, an error in a head's section ignores that head
+# and every rule that names it, an error in a look's section ignores that
+# look, and an error in the structure of the sections, such as a missing
+# version, ignores everything but the policy. An error here never makes vtium
+# ignore a setting above the first section. vtium check-config FILE checks a
+# file before you install it.
 #
-# A file with a section needs version = 1. A # starts a comment at the
-# start of a line or after a blank; a # inside a word, as in --x#1, is
-# part of the word.
+# A file with a section needs version = 1. A # starts a comment at the start
+# of a line or after a blank; a # inside a word, as in --x#1, is part of the
+# word.
 version = 1
 
-# The policy decides what the rules leave unsaid. Under open, an input no
-# rule places roams, typing into the active head, no head is isolated
-# unless it says so, and the anti-lockout guard and the rescue key are on.
-# Under closed, an input no rule places is ignored, every head is isolated
-# unless it says otherwise, and the anti-lockout guard and the rescue key
-# are off: no keyboard reaches a head the file does not send it to. The
-# display guard is on under both.
+# The policy decides what the rules leave unsaid. With open, an input device
+# no rule places roams, typing into the active head; no head is isolated
+# unless it says so; and the keyboard safeguards, anti-lockout and the rescue
+# key, are on. With closed, an input device no rule places is ignored; every
+# head is isolated unless it says otherwise; and the keyboard safeguards are
+# off, so no keyboard reaches a head the file does not send it to. With either
+# policy, when the rules leave every display off, vtium turns on the boot
+# display: with open for the first head, with closed only to show a notice.
 # policy = open
 
-# A look is what a head draws with: a [look NAME] section takes
-# font-name, which names its frit, the font keys above, vtlook, and cell,
-# the cell in pixels as a frit's cell= line writes it. Within one look,
-# font-size wins over cell. The shipped configuration declares none, so
-# its head draws with the keys above. For example:
+# A look is a font and its size, which a head uses. A [look NAME] section
+# takes font-name, which names its font set (frit); the font settings above;
+# vtlook; and cell, the character cell in pixels, written as a font set's
+# cell= line writes it. In one look, font-size overrides cell. The built-in
+# configuration has no look, so its head uses the settings above. For example:
 #   [look big]
 #   font-name = desktop
 #   font-size = 14
 #
-# A head is a terminal for one or more displays: its displays, its inputs,
-# a look and its consoles. A name is 1 to 64 of A-Z a-z 0-9 . _ + -
-# and roaming, ignore and off are reserved. Each key below is shown at its
-# default.
+# A head is a screen: one or more displays that show the same consoles, with
+# the input devices sent to it, a look and its consoles. A name has 1 to 64 of
+# A-Z a-z 0-9 . _ + -, and roaming, ignore and off cannot be used. Each key
+# below is shown at its default.
 [head console]
-# The look the head draws with, a [look NAME] section's name. Unset,
-# default: the [look default] section where there is one, else the keys
-# above the first section.
+# The look the head uses, the name of a [look NAME] section. When unset, the
+# look is default: the [look default] section where there is one, else the
+# settings above the first section.
 # look = default
 #
-# How many consoles the head has, 1 to 50; one is shown at a time.
+# How many consoles the head has, 1 to 50; it shows one at a time.
 # consoles = 1
 #
-# The consoles' command, as vtium.conf's login takes it. Unset, the
-# consoles run vtium.conf's.
+# The command the head's consoles run, written as vtium.conf's login takes it.
+# When unset, the consoles run vtium.conf's login.
 # login = /bin/login -p
 #
-# What the head's sessions do when it loses its last display: keep runs
-# them on until a display of the head returns; hangup hangs them up at
-# once; hangup DURATION (30, 30s, 5m or 1h) resumes them on a return
-# within the time and hangs them up after it.
+# What the head's sessions do when it loses its last display: keep runs them
+# on until a display of the head returns; hangup hangs them up at once; hangup
+# DURATION (30, 30s, 5m or 1h) keeps them if a display returns within that
+# time and hangs them up after it.
 # when-display-lost = keep
 #
-# yes isolates the head: its keyboards' Ctrl-Alt-F<n> reach its session as
-# keys and switch no VT, the rescue key leaves its keyboards where they
-# are, and it is never the active head, so no roaming input reaches it.
-# Unset, no under policy = open and yes under policy = closed.
+# yes isolates the head: Ctrl-Alt-F<n> on its keyboards reaches its session as
+# keys and switches no VT, the rescue key leaves its keyboards where they are,
+# and it is never the active head, so no roaming input device reaches it. When
+# unset, it is no with policy = open and yes with policy = closed.
 # isolated = no
 
 [rules]
-# Each display and each input walks these rules alone, top to bottom, and
-# the first that matches places it:
+# Each display and each input device goes through these rules on its own, top
+# to bottom, and the first rule that matches it sends it:
 #   display MATCH -> TARGET
 #   input MATCH -> TARGET
-# MATCH is * (every device of that kind) or key:value tokens, every one of
-# which must hold. TARGET is a head's name; for an input, roaming (it types
-# into the active head) or ignore (vtium never opens it, but under open
-# for a keyboard watched for the rescue key); for a display, off (vtium
-# sets it off). A display no rule matches is off, logged with a rule line
-# to paste; an input no rule matches roams under open and is ignored under
-# closed. `vtiumctl detect` lists every device with its keys filled in.
+# MATCH is * (every device of that kind) or one or more key:value matches, all
+# of which must hold. TARGET is a head's name; for an input device, roaming
+# (it types into the active head) or ignore (vtium never opens it, except that
+# with the open policy it watches a keyboard for the rescue key); for a
+# display, off (vtium turns it off). A display no rule matches stays off, and
+# vtium logs a rule line to paste for it; an input device no rule matches
+# roams with the open policy and is ignored with the closed one. vtiumctl
+# detect lists every device with its keys filled in.
 #
-# Keys for an input:
+# Keys for an input device:
 #   path:ID_PATH                  the USB port, and every interface below it
-#   serial:VENDOR:PRODUCT:SERIAL  one unit, wherever it is plugged
+#   serial:VENDOR:PRODUCT:SERIAL  one unit, wherever it is connected
 #   bluetooth:ADDRESS             one device, once bonded
 #   id:VENDOR:PRODUCT             every unit of a model; devices lie
-#   name:GLOB                     anything that names itself so
+#   name:GLOB                     any device that gives itself that name
 #   class:CLASS                   keyboard, key, mouse, touchpad,
 #                                 touchscreen, trackball, pointingstick,
 #                                 tablet, tablet-pad, joystick,
 #                                 accelerometer or switch, as udev tags it
 #   udev:NAME=GLOB                any udev property of the device
 # For a head whose sessions need protecting, use path plus serial where the
-# device has a serial, and path alone otherwise. id or name alone is for
-# convenience only. A glob's * takes any run of characters and ? one; a
-# value holds no blank, so ? stands for a space in a name.
+# device has a serial, and path alone otherwise. id or name alone is a
+# convenience, not a protection. In a glob, * matches any run of characters
+# and ? one character; a value has no blank, so ? stands for a space in a
+# name.
 #
 # Keys for a display:
 #   edid:MAKER:PRODUCT:SERIAL     one monitor, the recommended key
 #   connector-path:PATH           one port of a DisplayPort multi-stream hub,
 #                                 globs allowed
-#   connector:CARD/CONNECTOR      a port of a GPU, globs allowed
-#   card:GLOB                     every output of a GPU
-# A card is its udev ID_PATH (pci-0000:03:00.0), never cardN. A
-# multi-stream connector's name, such as DP-8, can move after a replug or a
-# resume; its PATH (mst:...) stays, so use connector-path there and
-# connector only where the name is stable. The PATH's first number, the
-# card connector the hub is plugged into, can change across a kernel or
-# firmware update.
+#   connector:CARD/CONNECTOR      a port of a graphics card, globs allowed
+#   card:GLOB                     every output of a graphics card
+# A card is its udev ID_PATH (pci-0000:03:00.0), never cardN. A multi-stream
+# connector's name, such as DP-8, can change after a replug or a resume; its
+# PATH (mst:...) stays the same, so use connector-path there and connector
+# only where the name is stable. The first number of the PATH, the card
+# connector the hub is connected to, can change after a kernel or firmware
+# update.
 #
 # path, serial, card, connector and udev read udev's database, and match
-# nothing on a system with no udev daemon.
+# nothing on a system that does not run udev.
 #
-# Customise by adding rules above the shipped ones, as in:
+# To customize, add rules above the built-in ones, such as:
 #   display edid:AAA:0x0001:LARGE00001 -> desk
 #   input path:pci-0000:15:00.0-usb-0:3.3 -> desk
 #   input udev:VTIUM_IGNORE=1 -> ignore
-# A udev rule can mark a device for the last of these, copied into
-# /etc/udev/rules.d/ (the examples are in /usr/share/doc/vtium/examples/):
+# A udev rule copied into /etc/udev/rules.d/ can mark a device for the last of
+# these (the examples are in /usr/share/doc/vtium/examples/):
 #   SUBSYSTEM=="input", ATTRS{name}=="Headset", ENV{VTIUM_IGNORE}="1"
-# and an hwdb entry, copied into /etc/udev/hwdb.d/, can mark a token or a
-# numpad, which the anti-lockout guard then does not count as a keyboard:
+# and an hwdb entry copied into /etc/udev/hwdb.d/ can mark a security token or
+# a numpad, which anti-lockout then does not count as a keyboard:
 #   evdev:input:b0003vBBBBp0001*
 #    VTIUM_ROLE=token
 #
-# The shipped rules: one head mirroring every display, every keyboard,
-# key device and pointer typing into it, and every other input left closed.
+# The built-in rules: one head showing the same consoles on every display,
+# with every keyboard, key device and pointing device typing into it, and
+# every other input device ignored.
 display * -> console
 input class:keyboard -> roaming
 input class:mouse -> roaming
