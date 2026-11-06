@@ -38,13 +38,19 @@ considered:
   - operator: aaronsb
     said: "[Should the probes become scenarios with assertions, and which lines does dump state print? The leans were to keep the probes apart for now and to settle the state lines in slice 3.] Merge probes now"
     via: AskUserQuestion, 2026-11-06; the option label is the steering session's wording; the answer did not address the state lines
+  - operator: aaronsb
+    said: "[Accept the record? (two sorts of scenario, the 58 probes converted mechanically with every replay input and verdict unchanged, make conformance-probes keeps its name)] Accept it (Recommended)"
+    via: AskUserQuestion, 2026-11-06; the option label is the steering session's wording
+  - operator: aaronsb
+    said: "[(1) keep capabilities.list or fold it into scenario headers; (2) retitle, since 'judged by a transcript' now fits only behaviour scenarios] Keep list, retitle (Recommended)"
+    via: AskUserQuestion, 2026-11-06; the option label is the steering session's wording
 observable:
   - "`make conformance` plays every behaviour scenario under tools/conformance/scenarios/ through vtium-replay's code in each view its dumps ask for, with the chunking check's extra cuts, and fails on a scenario whose transcript differs unless the scenarios' provisional list names it, or whose assertions fail"
   - "A planted change to the sequence vtium-term sends for Shift+Up fails exactly the scenarios that press Shift+Up, and each failure prints the scenario's name, the command `key Up mods=shift` and the reply it expected beside the reply it got"
   - "`conformance scenarios --bin NAME DIR` writes NAME.bin and NAME.cuts, and `vtium-replay` played on them prints the blocks the transcript was made from"
   - "`docs/scripts/coverage` reads a `# covers:` line in a `.scenario` file and names the file in the row's `tests` column once the scenario has left the provisional list, and leaves out the tag while the list names it"
   - "`make conformance-probes` judges `capabilities.list` through the scenarios that name a capability: each converted scenario's replay input equals its probe's, bytes and cuts, and every capability's verdict is the one the probe runner gave before the conversion"
-status: proposed
+status: accepted
 date: 2026-11-06
 deciders:
   - aaronsb
@@ -55,7 +61,7 @@ related:
 ---
 
 
-# ADR-1504: Tier 1 scenarios: readable files that each check one behaviour, played through the replay interface and judged by a transcript
+# ADR-1504: Tier 1 scenarios: readable files that each check one behaviour or one capability, played through the replay interface
 
 ## Summary
 
@@ -228,7 +234,7 @@ For a capability scenario it judges the assertions, and `conformance probes`, wh
 - A scenario whose fixture is missing is not judged, and that fails the run.
 - Before anything runs, each capability scenario is checked: each `want` and `reject` line, and each `want-re` example, parses under the grammar for the scenario's view, with the interface's reserved keys allowed only in the scenario of a `missing` capability; each `want-re` and `reply-re` matches its example; the scenario of a `missing` capability gives every expression an example; a nonzero count or a placement's `changed` flag is refused with the advice to write `N` unless the scenario needs `damage-exact`; each assertion follows a `check` with no input between; and the scenario has a `want`, `want-re`, `reply` or `reply-re`, or is a placeholder.
 
-`conformance issues` keeps reading capabilities.list as it does, and COVERAGE.md stays generated from the list and ADR-1000's tables. The rule that let a probe of vtium's file take the place of a copied placeholder goes, since each capability then has one file.
+capabilities.list stays the one table of capabilities, and a capability scenario's header names its capability and nothing more of its line (the fifth `considered` entry): `conformance issues`, COVERAGE.md and a person reading every capability's status at once all read the one table. `conformance issues` keeps reading the list as it does, and COVERAGE.md stays generated from the list and ADR-1000's tables. The rule that let a probe of vtium's file take the place of a copied placeholder goes, since each capability then has one file.
 
 Since a scenario is a replay input, everything the runner checks for a corpus case it checks for a scenario. The chunking check replays each behaviour scenario with extra cuts at random offsets outside its test commands, and the transcript must come out the same, because the runner joins every block between two commands' cuts. The interface check reads every dump line and every assertion's expected line against the grammar. `conformance scenarios --bin NAME DIR` writes the input as `NAME.bin` and `NAME.cuts`, so another implementation of the interface, or a person with `vtium-replay`, can play the scenario directly. No `.bin` of a scenario is committed: the scenario file is its only source.
 
@@ -341,7 +347,6 @@ Each slice lands through the working loop in AGENTS.md. Slices 2, 3 and 4 are on
 ## Open questions
 
 1. **Which state lines does `dump state` print?** D4 names what they cover. Lean, which stands as the lean and not as the maintainer's answer: decide their exact forms in slice 4 from the first scenarios that need them, and print only what neither view nor a program's own query shows, so that a state dump does not duplicate DECRQM's answers. Evidence: the gap-check found margins, tab stops, the mouse mode and the scrollback position visible to tier 1 only through queries or not at all.
-2. **Should capabilities.list fold into the capability scenarios' headers?** Each scenario could carry its status, issue and rows in its header, and the list would go. Lean: keep the list, since `conformance issues`, COVERAGE.md and a person reading every capability's status at once all read one table, and a header line in 58 files would scatter it. Evidence: the list's 58 lines are read today by `conformance probes`, `conformance issues` and the coverage map's test.
 
 ## Prior art
 
