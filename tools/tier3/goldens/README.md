@@ -233,7 +233,7 @@ These cases of the four variants keep the goldens the C reference drew, and fail
 
 ## The goldens the C reference drew
 
-These goldens were copied byte for byte from the C reference's tier 3 goldens at kmscon `b1f7a7c5` (`../README.md`, The copies), and moved here from the directory that held them apart, with no byte changed. They are every golden of `gl-1280x800`, the 33; every golden of `2d-potato-min` and of `2d-potato-min-psf` but `sgr.png`, 28 each; and the seven of each default 2D variant that the table above leaves on them: `sgr`, `colour-forms`, `underline-styles`, `underline-colour`, `strike`, `emoji` and `sixel-article`. Every case of `gl-1280x800` fails on its renderer, so its goldens judge no capture (`../README.md`, Variants).
+These goldens were copied byte for byte from the C reference's tier 3 goldens at kmscon `b1f7a7c5` (`../README.md`, The copies), and moved here from the directory that held them apart, with no byte changed. They are every golden of `gl-1280x800`, the 33; every golden of `2d-potato-min` and of `2d-potato-min-psf` but `sgr.png`, 28 each; and the seven of each default 2D variant that the table above leaves on them: `sgr`, `colour-forms`, `underline-styles`, `underline-colour`, `strike`, `emoji` and `sixel-article`. `gl-1280x800`'s goldens judge no capture: they are the record of what the C reference's gltex renderer drew, and `gl-1280x800`'s cases are judged by `2d-1280x800`'s goldens, since vtium's GPU path draws the CPU path's bytes (ADR-1303 D1, D11; `../README.md`, Variants). That is a departure from the C reference, whose GL variant was judged by goldens gltex drew.
 
 ## The excused cases and the screens' heading, recaptured
 
@@ -271,5 +271,5 @@ The screens no longer print kmscon: `boxdraw`'s box is headed `vtium tier 3`, an
 | `2d-7680x2160/sixel-bound` | 1,317 |
 | `2d-7680x2160-font32/sixel-bound` | 4,086 |
 
-Three goldens still show `kmscon tier 3`. `2d-7680x2160-font32/boxdraw` keeps its golden: vtium's capture differs from it in every box line too, which vtium now draws one pixel wide at the 20x38 cell where the golden's lines are two pixels wide, and no decision lists that change. Its `blocks` golden differs the same way. Both stay provisional until the maintainer settles the line width. `gl-1280x800/boxdraw` and `gl-1280x800/sixel-bound` keep the C reference's goldens, since every case of that variant fails on its renderer and no capture of vtium's exists for it.
+Three goldens still show `kmscon tier 3`. `2d-7680x2160-font32/boxdraw` keeps its golden: vtium's capture differs from it in every box line too, which vtium now draws one pixel wide at the 20x38 cell where the golden's lines are two pixels wide, and no decision lists that change. Its `blocks` golden differs the same way. Both stay provisional until the maintainer settles the line width. `gl-1280x800/boxdraw` and `gl-1280x800/sixel-bound` keep the C reference's goldens, since they are the record of what gltex drew and judge no capture.
 

@@ -1486,11 +1486,11 @@ class VariantTest(unittest.TestCase):
             os.unlink(f.name)
 
     def test_gl_draws_images(self):
-        # gltex draws image placements, so the GL
-        # variant runs every case, the image screens and their keyed cases
-        # included, as the 2D variants do; the no-images check it ran while
-        # gltex drew none is gone with its flag. Its goldens are blessed, so
-        # it is in the default run.
+        # The GPU path draws image placements, so the GL variant runs every
+        # case, the image screens and their keyed cases included, as the 2D
+        # variants do; the no-images check it ran while the C reference's
+        # gltex drew none is gone with its flag. 2d-1280x800's goldens judge
+        # it, so it is in the default run.
         self.assertIn("gl-1280x800", t3_scenario.DEFAULT_VARIANTS)
         self.assertNotIn("draws_images", t3_scenario.VARIANTS["gl-1280x800"])
         self.assertNotIn("no-images", t3_evaluate.CASES)
@@ -4596,16 +4596,18 @@ class DefaultVariantsTest(unittest.TestCase):
 
     def test_default_variants(self):
         # Every default variant draws the image screens, so its console is
-        # built with images, and goldens judge each one.
+        # built with images, and the GL one, which draws on the GPU path,
+        # with gpu too; goldens judge each one.
         for name in t3_scenario.DEFAULT_VARIANTS:
             with self.subTest(name):
                 v = t3_scenario.VARIANTS[name]
-                self.assertEqual(v["tree_features"], ["images"])
+                features = ["gpu", "images"] if name == "gl-1280x800" else ["images"]
+                self.assertEqual(v["tree_features"], features)
                 self.assertIn(name, t3_scenario.golden_cases())
                 self.assertEqual(t3_scenario.check_tree_features([name], {"tree_features": []}),
-                                 ["%s needs a tree whose console is built with images, and the "
+                                 ["%s needs a tree whose console is built with %s, and the "
                                   "tree's was built with no features; make tier3 and make "
-                                  "tier3-images build one" % name])
+                                  "tier3-images build one" % (name, " ".join(features))])
 
     def test_density(self):
         # The default variants' configurations state the density that draws
@@ -4655,6 +4657,90 @@ class DefaultVariantsTest(unittest.TestCase):
             "gpu", {}, {}, None)
         self.assertTrue(drop)
         self.assertIn("did not draw with gpu", errors[0])
+
+    def test_the_gl_variant_is_judged_by_the_cpu_paths_goldens(self):
+        # gl-1280x800 draws with hwaccel on, must log the gpu renderer, and
+        # each case is judged by 2d-1280x800's golden of it, exactly, as
+        # the GPU path draws the CPU path's bytes (ADR-1303 D1, D11). The
+        # C reference's GL goldens stay in goldens/gl-1280x800/ as the
+        # record of what gltex drew, and judge nothing.
+        v = t3_scenario.VARIANTS["gl-1280x800"]
+        self.assertEqual((v["renderer"], v["conf"]), ("gpu", "kmscon-gl.conf"))
+        self.assertTrue(t3_scenario.uses_virgl("gl-1280x800"))
+        self.assertIn("gpu", v["tree_features"])
+        self.assertNotIn("verdict", v)
+        self.assertIn("gl-1280x800", t3_scenario.golden_cases())
+        self.assertEqual(t3_evaluate.GOLDENS_OF["gl-1280x800"], "2d-1280x800")
+        self.assertIn("gl-1280x800", t3_evaluate.RECORDS)
+        with open(os.path.join(t3_common.GUEST, v["conf"])) as f:
+            self.assertIn("\nhwaccel\n", f.read())
+        for case, screen in (("sgr", "sgr"), ("vt-restore", "cjk"),
+                             ("photo-scrollforward", "photo-scroll")):
+            with self.subTest(case):
+                self.assertEqual(t3_evaluate.golden_for("gl-1280x800", case),
+                                 t3_evaluate.golden_for("2d-1280x800", screen))
+        # a golden of 2d-1280x800's in this tree's goldens, and the GL
+        # record beside it: a capture with the same bytes passes, one
+        # pixel off fails, and a provisional 2d golden makes the gl case
+        # provisional too
+        os.makedirs(os.path.join(self.root, "2d-1280x800"))
+        os.makedirs(os.path.join(self.root, "gl-1280x800"))
+        black = t3img.Image(4, 4, bytes(4 * 4 * 3))
+        t3img.write_png(os.path.join(self.root, "2d-1280x800", "sgr.png"), black)
+        t3img.write_png(os.path.join(self.root, "gl-1280x800", "sgr.png"), black)
+        ppm = os.path.join(self.dir.name, "sgr.ppm")
+        run = os.path.join(self.dir.name, "run")
+        with mock.patch.object(t3_evaluate, "RUNDIR", run), \
+                mock.patch.object(t3_evaluate, "PROVISIONAL", {}):
+            t3_qemu.write_ppm(ppm, black)
+            entry = t3_evaluate.evaluate("gl-1280x800", "sgr", ppm, {}, LOG, root=self.root)
+            self.assertEqual(entry["status"], "pass")
+            self.assertEqual(entry["golden"], t3_common.rel(
+                os.path.join(self.root, "2d-1280x800", "sgr.png")))
+            t3_qemu.write_ppm(ppm, t3img.Image(4, 4, bytes([1]) + bytes(4 * 4 * 3 - 1)))
+            entry = t3_evaluate.evaluate("gl-1280x800", "sgr", ppm, {}, LOG, root=self.root)
+            self.assertEqual(entry["status"], "fail")
+            with mock.patch.object(t3_evaluate, "PROVISIONAL", {"2d-1280x800/sgr": "why"}):
+                entry = t3_evaluate.evaluate("gl-1280x800", "sgr", ppm, {}, LOG, root=self.root)
+                self.assertEqual(entry["status"], "provisional")
+            # a provisional row for the record's golden judges nothing:
+            # the case stays failed, and the preflight refuses the row
+            with mock.patch.object(t3_evaluate, "PROVISIONAL", {"gl-1280x800/sgr": "why"}):
+                entry = t3_evaluate.evaluate("gl-1280x800", "sgr", ppm, {}, LOG, root=self.root)
+                self.assertEqual(entry["status"], "fail")
+            self.assertEqual(
+                t3_evaluate.check_goldens({"gl-1280x800": ["sgr"]}, self.root,
+                                          {"gl-1280x800/sgr": "why"}),
+                ["provisional.tsv lists gl-1280x800/sgr, which is in a record that judges "
+                 "nothing (RECORDS)"])
+            # the record judges nothing and is no stray, but a golden of
+            # 2d-1280x800's that only gl-1280x800 compares with is used
+            self.assertEqual(t3_evaluate.check_goldens({"gl-1280x800": ["sgr"]}, self.root), [])
+            # a file in the record that is none of the variant's screens is
+            # a stray
+            t3img.write_png(os.path.join(self.root, "gl-1280x800", "stray.png"), black)
+            self.assertEqual(
+                t3_evaluate.check_goldens({"gl-1280x800": ["sgr"]}, self.root),
+                ["%s is a golden no case draws" % t3_common.rel(
+                    os.path.join(self.root, "gl-1280x800", "stray.png"))])
+            os.unlink(os.path.join(self.root, "gl-1280x800", "stray.png"))
+            with mock.patch.object(t3_evaluate, "RECORDS", {}):
+                self.assertEqual(
+                    t3_evaluate.check_goldens({"gl-1280x800": ["sgr"]}, self.root),
+                    ["%s is a golden no case draws" % t3_common.rel(
+                        os.path.join(self.root, "gl-1280x800", "sgr.png"))])
+            # with sgr none of the variant's cases, both its 2d golden and
+            # the record's are strays
+            self.assertEqual(
+                t3_evaluate.check_goldens({"gl-1280x800": ["cjk"]}, self.root),
+                ["%s is a golden no case draws" % t3_common.rel(
+                    os.path.join(self.root, d, "sgr.png"))
+                 for d in ("2d-1280x800", "gl-1280x800")])
+        # a console that drew the variant on the CPU path fails every case
+        errors, drop = t3_scenario.variant_errors(
+            None, ["Display Virtual-1 with backend [drm2d] text renderer [cpu], cell size 10x19"],
+            "gpu", {}, {}, None)
+        self.assertTrue(drop)
 
     def test_judge_by_capture_passes_identical_bytes_and_refuses_a_run_without_the_cpu_variant(self):
         run = tempfile.mkdtemp()
@@ -4714,7 +4800,8 @@ class DefaultVariantsTest(unittest.TestCase):
         # variants need, each once.
         for declared, variants, want in (
                 (None, ["2d-potato-min"], []),
-                (None, t3_scenario.DEFAULT_VARIANTS, ["images"]),
+                (None, t3_scenario.DEFAULT_VARIANTS, ["gpu", "images"]),
+                (None, ["2d-1280x800", "2d-7680x2160"], ["images"]),
                 (["logind"], [self.VARIANT], ["images", "logind"]),
                 (["images"], [self.VARIANT, "2d-potato-min"], ["images"]),
                 ([], ["images-640x480", "2d-640x480-psf16"], ["images"])):
