@@ -23,17 +23,17 @@ const ROWS: usize = 48;
 const MIB: f64 = 1024.0 * 1024.0;
 
 /// The minspec target for the resident size after the first screen, with
-/// unifont: 10.3 MiB, 1 MiB being 1,024 KiB (ADR-1001, "Memory"). The
-/// figure was measured on a console whose two screens held 32-byte cells,
-/// [`WIDE_SCREENS`], so the rest of the process costs this less those
-/// screens.
+/// unifont: 10.3 MiB, 1 MiB being 1,024 KiB. The figure was measured on
+/// kmscon, whose two screens held 32-byte cells, [`WIDE_SCREENS`], so the
+/// rest of the process costs this less those screens (ADR-1001, "Memory",
+/// records the measurement).
 const FIRST_SCREEN_TARGET: f64 = 10.3 * MIB;
 
 /// The minspec peak vtium holds to: the maintainer's round figure
 /// (vtium/vtium#131).
 const PEAK: f64 = 16.0 * MIB;
 
-/// The cell of the console the first-screen figure was measured on: 32
+/// kmscon's cell, which the first-screen figure was measured with: 32
 /// bytes, its change age included, in a main and an alternate screen.
 /// These are derived from that layout, not measured.
 const WIDE_CELL: usize = 32;

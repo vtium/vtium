@@ -557,6 +557,7 @@ fn decsc_saves_and_decrc_restores_the_cursor_state() {
 // it does while DECLRMM is reset, and `CSI u` with no parameter restores it,
 // in DECSC's slot. A program that lays pictures out in a grid saves the
 // cursor this way before each picture and returns to it after.
+// covers: ctl.decslrm
 #[test]
 fn scosc_and_scorc_save_and_restore_the_cursor_as_decsc_and_decrc_do() {
     let mut t = term(6, 4, b"\x1b[2;3H\x1b[1m\x1b[s\x1b[H\x1b[m\x1b[u");

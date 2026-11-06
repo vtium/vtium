@@ -30,7 +30,7 @@ const SUBPARAMS: Bound = Bound {
     value: 8,
     what: "Colon sub-parameters one parameter keeps",
     past: "The colon and every digit up to the next `;` are dropped, and the sequence still dispatches",
-    cite: "vtium's own: the longest colon form vtium reads, SGR's `38:2:Pi:R:G:B`, takes six, and the parser holds them inline",
+    cite: "vtium's own: ITU T.416's full direct-color form, `38:2:Pi:R:G:B:unused:tolerance:tolerance-space`, takes eight sub-parameters after the 38, and the parser holds them inline",
 };
 
 const VALUE: Bound = Bound {
