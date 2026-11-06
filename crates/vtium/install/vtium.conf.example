@@ -9,43 +9,43 @@
 
 # ══ Fonts and text ══════════════════════════════════════════════════════════
 #
-# The font vtium draws text with, its size, where box drawing and block
-# characters come from, and how blinking text draws.
+# The console's font and its size, who draws box-drawing and block characters,
+# and how blinking text looks.
 
 # ── Font ────────────────────────────────────────────────────────────────────
 
-## font-name: The font vtium draws text with.
+## font-name: The console's font.
 ##
-## It is a frit's name, `NAME.vtfrit` in `/etc/vtium/fonts`, whose glyphs the
-## helper generates at run time. A kbd font's name, or with `font-engine=psf`
-## a PSF font's path, that no frit bears becomes a one-source frit.
+## The value is the name of a font set (a frit file, `NAME.vtfrit` in
+## `/etc/vtium/fonts`). It can also be the name of a kbd console font, or with
+## `font-engine = psf` the path of a PSF font; vtium then uses that one font.
 ##
-## Unset, vconsole's font; with none, or a name that is neither, vtium draws
-## its built-in fonts and logs the name and why.
+## When unset, vtium uses the font from vconsole.conf. If there is none, or
+## vtium cannot find the font, vtium uses its built-in font and logs why.
 #
-## font-frits: The directory of the frits, the `NAME.vtfrit` files that
-## `font-name` names, at the top level and in a look's section.
+## font-frits: The directory that holds the font sets (the `NAME.vtfrit` files
+## that `font-name` names).
 ##
-## It is an absolute path. vtium ignores a relative or an empty one, as it
-## ignores any value it cannot read, and says why.
+## It must be an absolute path; vtium ignores a relative or empty one and logs
+## why.
 ##
 ## The default is the directory vtium was built with.
 #
-## font-paths: The folders the glyph helper searches, in order, for an
-## installed font that a frit's `font:` source names.
+## font-paths: The folders where vtium looks, in order, for installed fonts
+## that a font set's `font:` lines name.
 ##
-## Each folder is an absolute path, and `:` separates them, as in `PATH`. The
-## list takes the place of the build's list, so it can order or leave out the
-## system's own folders. vtium ignores a folder that is not an absolute path,
-## keeps the rest, and says why.
+## Separate the folders with `:`, as in `PATH`; each must be an absolute path.
+## The list replaces the built-in list, so it can reorder or leave out the
+## system's folders. vtium skips a folder that is not an absolute path, uses
+## the rest, and logs why.
 ##
-## Unset, the helper searches the build's list, `/usr/share/fonts` and
-## `/usr/local/share/fonts`. A user's own font folder, such as
-## `~/.local/share/fonts`, is searched only when the list names it, and before
-## anyone logs in the helper runs as `nobody`, which cannot read it.
+## When unset, vtium searches `/usr/share/fonts` and `/usr/local/share/fonts`.
+## A user's own folder, such as `~/.local/share/fonts`, is searched only when
+## the list names it, and the font helper cannot read it before someone logs
+## in, because it then runs as `nobody`.
 #
-## font-engine: The font source to use. Unset, each the build has, in this
-## order.
+## font-engine: Which kind of font to use. When unset, vtium tries each kind
+## the build supports, in the order listed.
 
 #font-name=
 #font-frits=/etc/vtium/fonts
@@ -54,60 +54,65 @@
 
 # ── Font size and spacing ───────────────────────────────────────────────────
 
-## font-size: The font's size in points, 1/72 inch.
+## font-size: The font size in points (1/72 inch).
 ##
-## The font draws at points × DPI ÷ 72 pixels at the displays' density
-## (`display-dpi`), and the size wins over a frit's `cell=`. 0 picks a size
-## from the display's size.
+## The size in pixels is points × DPI ÷ 72, at the display's density
+## (`display-dpi`). It overrides a font set's `cell=` line. 0 picks a size to
+## suit each display.
 #
-## font-hinting: How the font helper is to hint outline glyphs, over a frit's
-## `hinting=`.
+## font-hinting: How outline fonts are fitted to the pixel grid (hinting). It
+## overrides a font set's `hinting=` line.
 ##
-## `light` fits each glyph to the pixel grid up and down only; `full` fits a
-## TrueType font both ways, and draws a CFF font as `light` does. Bitmap fonts
-## take no hinting.
+## `light` fits each character vertically only. `full` fits a TrueType font
+## both ways, and treats a CFF font as `light`. Bitmap fonts are not hinted.
 ##
-## vtium does not yet hand this key to the helper, so for now each frit's
-## `hinting=` decides, `light` where it states none.
+## This key has no effect yet: each font set's `hinting=` line decides, and
+## `light` is used where it has none.
 #
-## font-line-spacing: Height added to each row, over a frit's `line-spacing=`.
+## font-line-spacing: Extra space between lines of text. It overrides a font
+## set's `line-spacing=` line.
 ##
-## It is a whole percentage of the text's height, rounded to whole pixels and
-## split evenly above and below the text, so the grid has fewer rows. It adds
-## nothing to a frit's own `cell=`, but it applies when `font-size` sets the
-## size over that `cell=`: the cell grows by the spacing, split evenly above
-## and below each row. Unset, the frit's `line-spacing=` decides, 0 where it
-## states none.
+## The value is a whole percentage of the text height, rounded to whole pixels
+## and split evenly above and below each line, so the console has fewer lines.
+## It does not change a font set's own `cell=` size, but it applies when
+## `font-size` overrides that size: the character cell grows by the spacing.
+## When unset, the font set's `line-spacing=` decides, and 0 where it has
+## none.
 ##
-## vtium does not build line spacing yet: it accepts the key, and the key has
-## no effect for now.
+## This key has no effect yet.
 
 #font-size=0
 #font-hinting=
 #font-line-spacing=
 
-# ── Box drawing, blocks and other sprites ───────────────────────────────────
+# ── Box drawing and block characters ────────────────────────────────────────
 
-## glyph-source: Where the six sprite ranges draw from.
+## glyph-source: Who draws box-drawing, block and similar characters (six
+## ranges): the font, or vtium itself.
 ##
-## `font` draws the font's glyphs; `sprites`, vtium's; `auto`, the font's
-## where it has one. Unset, a named font's glyphs for each range it covers
-## whole and the sprites for the rest; the built-in unifont draws the sprites.
+## `font` uses the font's characters, `sprites` uses vtium's own drawings, and
+## `auto` uses the font's where the font has the character. When unset, vtium
+## uses the font for each range the font covers completely and its own
+## drawings for the rest; with the built-in unifont, vtium always draws them
+## itself.
 #
-## glyph-source-box: `glyph-source` for box drawing, U+2500-U+257F, over it.
+## glyph-source-box: Overrides `glyph-source` for box drawing (U+2500 to
+## U+257F).
 #
-## glyph-source-block: `glyph-source` for block elements, U+2580-U+259F, over
-## it.
+## glyph-source-block: Overrides `glyph-source` for block elements (U+2580 to
+## U+259F).
 #
-## glyph-source-braille: `glyph-source` for Braille, U+2800-U+28FF, over it.
+## glyph-source-braille: Overrides `glyph-source` for Braille (U+2800 to
+## U+28FF).
 #
-## glyph-source-sextants: `glyph-source` for sextants, U+1FB00-U+1FB3B, over
-## it.
+## glyph-source-sextants: Overrides `glyph-source` for sextants (U+1FB00 to
+## U+1FB3B).
 #
-## glyph-source-octants: `glyph-source` for octants, U+1CD00-U+1CDE5, over it.
+## glyph-source-octants: Overrides `glyph-source` for octants (U+1CD00 to
+## U+1CDE5).
 #
-## glyph-source-legacy: `glyph-source` for the rest of Symbols for Legacy
-## Computing's block shapes, over it.
+## glyph-source-legacy: Overrides `glyph-source` for the other block shapes of
+## Symbols for Legacy Computing.
 
 #glyph-source=
 #glyph-source-box=
@@ -119,26 +124,27 @@
 
 # ── Missing characters ──────────────────────────────────────────────────────
 
-## What a character the font lacks draws as: `box`, U+25A1; `hex`, its
-## codepoint in hex digits.
+## What vtium shows for a character the font cannot display: `box` shows □
+## (U+25A1), and `hex` shows the character's code in hex digits.
 
 #missing=box
 
 # ── Blinking ────────────────────────────────────────────────────────────────
 
-## blink: Blink text with SGR 5 and a blinking cursor, every 500 ms; off,
+## blink: Blink blinking text (SGR 5) and the cursor, every 500 ms. When off,
 ## neither blinks.
 #
-## blink-text: How text with SGR 5 or 6 draws in the blink's off phase.
+## blink-text: How blinking text (SGR 5 or 6) looks while a blink is off.
 ##
-## `full` hides it, `partial` draws it halfway to its background as SGR 2
-## does, and `off` draws it steady. The cursor blinks as `blink` says either
+## `full` hides it, `partial` dims it halfway to its background, as faint text
+## (SGR 2) is, and `off` keeps it steady. The cursor follows `blink` either
 ## way.
 #
-## blink-decorations: The underline and strike of blinking text blink with it.
+## blink-decorations: Blink the underline and strikethrough of blinking text
+## with it.
 ##
-## They hide in the off phase with `blink-text=full`, and dim with `partial`.
-## Off, they stay while the text blinks.
+## They hide while a blink is off with `blink-text = full`, and dim with
+## `partial`. When off, they stay visible while the text blinks.
 
 #blink
 #blink-text=partial
@@ -146,50 +152,51 @@
 
 # ── Font switching by programs ──────────────────────────────────────────────
 
-## Let a program switch the font among the frits and the built-in fonts with
-## xterm's OSC 50, and ask which is in use.
+## Let programs switch the console's font, and ask which font is in use
+## (xterm's OSC 50).
 ##
 ## A program switches with `OSC 50 ; NAME ST`, as `vtium-config use-frit NAME`
-## sends it, and asks with `OSC 50 ; ? ST`. A switch lasts until the session
-## it came from ends, when vtium returns the console to the font and size
-## `font-name` and `font-size` give.
+## does, and asks with `OSC 50 ; ? ST`. A switch lasts until that program's
+## session ends; then vtium returns to the font and size that `font-name` and
+## `font-size` set.
 ##
-## It is on by default, as xterm's `allowFontOps` is, since OSC 50 reaches
-## only the frits root wrote and the built-in fonts, never a file. Off, vtium
-## ignores OSC 50, the query included.
+## It is on by default, as xterm's `allowFontOps` is, because a program can
+## choose only the installed font sets and the built-in fonts, never another
+## file. When off, vtium ignores OSC 50, queries included.
 
 #allow-font-ops
 
 # ══ Colors ══════════════════════════════════════════════════════════════════
 #
-# The sixteen colors programs draw with, the default foreground and
-# background, and the colors of underlines and strikes.
+# The sixteen basic colors, the default text and background colors, and the
+# colors of underlines and strikethrough.
 
 # ── Palette ─────────────────────────────────────────────────────────────────
 
-## palette: The sixteen colors and the default foreground and background.
+## palette: The sixteen basic colors, and the default text and background
+## colors.
 ##
-## Its value is a named palette, or `custom`, which takes the colors from the
-## `palette-*` keys. Colors 16 to 255 are xterm's in every palette.
+## The value is the name of a palette, or `custom`, which takes the colors
+## from the `palette-*` keys. Colors 16 to 255 are xterm's in every palette.
 #
-## palette-black: Color 0 with `palette=custom`.
-## palette-red: Color 1 with `palette=custom`.
-## palette-green: Color 2 with `palette=custom`.
-## palette-yellow: Color 3 with `palette=custom`.
-## palette-blue: Color 4 with `palette=custom`.
-## palette-magenta: Color 5 with `palette=custom`.
-## palette-cyan: Color 6 with `palette=custom`.
-## palette-light-grey: Color 7 with `palette=custom`.
-## palette-dark-grey: Color 8 with `palette=custom`.
-## palette-light-red: Color 9 with `palette=custom`.
-## palette-light-green: Color 10 with `palette=custom`.
-## palette-light-yellow: Color 11 with `palette=custom`.
-## palette-light-blue: Color 12 with `palette=custom`.
-## palette-light-magenta: Color 13 with `palette=custom`.
-## palette-light-cyan: Color 14 with `palette=custom`.
-## palette-white: Color 15 with `palette=custom`.
-## palette-foreground: The default foreground with `palette=custom`.
-## palette-background: The default background with `palette=custom`.
+## palette-black: Color 0 (black) when `palette = custom`.
+## palette-red: Color 1 (red) when `palette = custom`.
+## palette-green: Color 2 (green) when `palette = custom`.
+## palette-yellow: Color 3 (yellow) when `palette = custom`.
+## palette-blue: Color 4 (blue) when `palette = custom`.
+## palette-magenta: Color 5 (magenta) when `palette = custom`.
+## palette-cyan: Color 6 (cyan) when `palette = custom`.
+## palette-light-grey: Color 7 (light grey) when `palette = custom`.
+## palette-dark-grey: Color 8 (dark grey) when `palette = custom`.
+## palette-light-red: Color 9 (light red) when `palette = custom`.
+## palette-light-green: Color 10 (light green) when `palette = custom`.
+## palette-light-yellow: Color 11 (light yellow) when `palette = custom`.
+## palette-light-blue: Color 12 (light blue) when `palette = custom`.
+## palette-light-magenta: Color 13 (light magenta) when `palette = custom`.
+## palette-light-cyan: Color 14 (light cyan) when `palette = custom`.
+## palette-white: Color 15 (white) when `palette = custom`.
+## palette-foreground: The default text color when `palette = custom`.
+## palette-background: The default background color when `palette = custom`.
 
 #palette=legacy
 #palette-black=0,0,0
@@ -211,40 +218,49 @@
 #palette-foreground=229,229,229
 #palette-background=0,0,0
 
-# ── Underline and strike colors ─────────────────────────────────────────────
+# ── Underline and strikethrough colors ──────────────────────────────────────
 
-## underline-color: The color every underline draws in, SGR 4 in each of its
-## styles and SGR 21.
+## underline-color: The color of underlines (SGR 4 in every style, and SGR
+## 21).
 ##
-## `fg` draws it in the text's color, a palette index in that palette color,
-## which follows a program's OSC 4, and `#rrggbb` in that color. A color a
-## program sets with SGR 58 wins unless `force-decoration-colors` is on.
+## `fg` uses the text's color, a palette number uses that palette color (which
+## a program can change with OSC 4), and `#rrggbb` uses that color. A color a
+## program sets with SGR 58 wins, unless `force-decoration-colors` is on.
 #
-## strike-color: The color the strike, SGR 9, draws in, as `underline-color`
-## takes it.
+## strike-color: The color of strikethrough (SGR 9). It takes the same values
+## as `underline-color`.
 #
-## force-decoration-colors: `underline-color` wins over the underline color a
-## program sets with SGR 58.
+## force-decoration-colors: Use `underline-color` even when a program sets its
+## own underline color (SGR 58).
 
 #underline-color=fg
 #strike-color=fg
 #no-force-decoration-colors
 
-# ══ Keyboard and pointer ════════════════════════════════════════════════════
+# ══ Keyboard and mouse ══════════════════════════════════════════════════════
 #
-# The keyboard's layout and repeat, the mouse and the pointer, and copying and
-# pasting.
+# The keyboard layout and key repeat, the mouse and its pointer, and copy and
+# paste.
 
 # ── Keyboard ────────────────────────────────────────────────────────────────
 
 ## xkb-model: The keyboard model, as xkeyboard-config names it.
 ## xkb-layout: The keyboard layout, such as `us` or `de`.
-## xkb-variant: The layout's variant.
-## xkb-options: xkb options, comma-separated.
-## xkb-keymap: A keymap file, taken before the names above.
-## xkb-compose-file: A compose table, taken before the locale's.
-## xkb-repeat-delay: How long a held key waits before it repeats; 0 takes 250.
-## xkb-repeat-rate: The time between a held key's repeats; 0 takes 50.
+## xkb-variant: The keyboard layout's variant, such as `dvorak`.
+#
+## xkb-options: Keyboard options for xkb, separated by commas, such as
+## `ctrl:nocaps`.
+#
+## xkb-keymap: A keymap file. When set, vtium uses it instead of the model,
+## layout, variant and options, and falls back to them if the file cannot be
+## used.
+#
+## xkb-compose-file: A compose table file, used instead of the locale's.
+#
+## xkb-repeat-delay: How long a held key waits before it starts to repeat. 0
+## means 250 ms.
+#
+## xkb-repeat-rate: The time between the repeats of a held key. 0 means 50 ms.
 
 #xkb-model=
 #xkb-layout=
@@ -255,30 +271,32 @@
 #xkb-repeat-delay=250
 #xkb-repeat-rate=50
 
-# ── Pointer ─────────────────────────────────────────────────────────────────
+# ── Mouse pointer ───────────────────────────────────────────────────────────
 
-## mouse: Take pointers: mice, touchpads and touchscreens.
+## mouse: Use mice, touchpads and touchscreens.
 #
-## natural-scrolling: Invert the mouse wheel.
+## natural-scrolling: Reverse the mouse wheel.
 ##
-## The wheel scrolls the view and reports to a program the other way, and so
-## do the cursor keys it sends on the alternate screen under mode 1007. Ctrl
-## and the wheel still zoom in when the wheel turns up.
+## The wheel then scrolls the other way, both in vtium's scrollback and for
+## programs, including the arrow keys it sends in full-screen programs (mode
+## 1007). Ctrl with the wheel turned up still zooms in.
 #
-## soft-cursor: Draw the pointer in software on every display, never on a
-## display's cursor plane.
+## soft-cursor: Draw the mouse pointer in software on every display, never
+## with the display's hardware cursor.
 #
-## pointer-char: Draw the pointer as this character's glyph from the font.
+## pointer-char: Show the mouse pointer as this character, drawn with the
+## console's font.
 ##
-## The glyph draws one cell wide, on the cell under the pointer, white with a
-## dark outline as the arrow is. Unset, or a character the font lacks or whose
-## glyph is blank, the pointer is the arrow.
+## The character fills the character cell under the pointer, white with a dark
+## outline, like the arrow. When unset, or when the font cannot display the
+## character, the pointer is an arrow.
 #
-## pointer-hide-timeout: Hide the pointer after this long with no pointer
-## event, until it next moves; 0 never hides it.
+## pointer-hide-timeout: Hide the mouse pointer after this long without mouse
+## activity, until it moves again. 0 never hides it.
 #
-## pointer-hide-while-typing: Hide the pointer at each key sent to the
-## program, until it next moves. A key vtium takes, such as a grab, leaves it.
+## pointer-hide-while-typing: Hide the mouse pointer while you type, until it
+## moves again. A key vtium handles itself, such as a shortcut, does not hide
+## it.
 
 #mouse
 #no-natural-scrolling
@@ -289,54 +307,54 @@
 
 # ── Clipboard and paste ─────────────────────────────────────────────────────
 
-## clipboard-write: Take the selection a program sets with OSC 52; off, it is
-## dropped.
+## clipboard-write: Let programs copy text to vtium's clipboard (OSC 52). When
+## off, vtium ignores what they send.
 ##
-## The console has no system clipboard: vtium holds the last selection taken,
-## as it holds one the user copies, and the middle button and `grab-paste`
+## The console has no system clipboard. vtium keeps the last text copied, by a
+## program or by you, and the middle mouse button and the `grab-paste` key
 ## paste it.
 #
-## grab-paste: Paste the selection buffer to the program, once a press, as the
-## middle button does.
+## grab-paste: The key that pastes the copied text, as the middle mouse button
+## does; it pastes once per press.
 ##
-## A chord with Shift names the keysym Shift makes: `<Ctrl><Shift>V`, not
-## `<Ctrl><Shift>v`. Empty, no key pastes.
+## With Shift, write the character Shift makes: `<Ctrl><Shift>V`, not
+## `<Ctrl><Shift>v`. When empty, no key pastes.
 
 #clipboard-write
 #grab-paste=<Shift>Insert
 
 # ══ Session and terminal ════════════════════════════════════════════════════
 #
-# The program each console runs, the terminal it sees, and how much of its
-# output vtium keeps.
+# The command each console runs, the terminal type it sees, and how much of
+# its output vtium keeps.
 
-# ── The session's command ───────────────────────────────────────────────────
+# ── The console's command ───────────────────────────────────────────────────
 
-## login: The session's command.
+## login: The command each console runs, such as a login prompt or a shell.
 ##
-## Unset, `/bin/login -p` with `reset-env` on and `/bin/login` with it off. A
-## word that is `$NAME` becomes that variable of the session's environment,
-## and `$$` starts a word with `$`.
+## When unset, the command is `/bin/login -p` with `reset-env` on and
+## `/bin/login` with it off. A word written `$NAME` is replaced by that
+## environment variable's value, and `$$` writes a literal `$` at the start of
+## a word.
 #
-## oneshot: Exit when the session's command exits, in place of starting it
+## oneshot: Exit when the console's command exits, instead of starting it
 ## again.
 
 #login=
 #no-oneshot
 
-# ── The session's terminal ──────────────────────────────────────────────────
+# ── The console's terminal type ─────────────────────────────────────────────
 
-## term: `TERM` in the session's environment.
+## term: The value of `TERM` that programs on the console see.
 ##
-## The default names vtium's own terminfo entry, and XTGETTCAP answers from
-## that entry's capabilities; `kmscon` names the C reference's entry, and
-## XTGETTCAP answers from the C reference's. Under any other name every name
-## XTGETTCAP asks for is unknown.
+## The default is vtium's own terminfo entry, and vtium answers capability
+## queries (XTGETTCAP) from it. With `kmscon`, vtium answers from kmscon's
+## entry. With any other value, vtium answers every query as unknown.
 #
-## reset-env: Start the session with an empty environment and the variables
-## vtium sets; off, with vtium's own environment as well.
+## reset-env: Start each console's command with only the environment variables
+## vtium sets. When off, the command also gets vtium's own environment.
 #
-## backspace-delete: The pty's erase character is DEL (0x7f); off, BS (0x08).
+## backspace-delete: Backspace sends DEL (0x7f). When off, it sends BS (0x08).
 
 #term=xterm-vtium
 #reset-env
@@ -344,29 +362,30 @@
 
 # ── Scrollback ──────────────────────────────────────────────────────────────
 
-## sb-size: Lines of scrollback, at most `sb-size-cap`.
+## sb-size: How many lines of scrollback each console keeps, up to
+## `sb-size-cap`.
 #
-## sb-size-cap: The most lines `sb-size` may ask for.
+## sb-size-cap: The most lines `sb-size` can ask for.
 ##
-## Unset, it follows the machine's memory: 10,000 lines below 2 GiB, 30,000
-## from 2 GiB and 100,000 from 4 GiB.
+## When unset, it depends on the machine's memory: 10,000 lines below 2 GiB,
+## 30,000 from 2 GiB and 100,000 from 4 GiB.
 #
-## sb-memory: The most bytes the scrollback holds: its oldest lines go past
-## it, as past `sb-size`.
+## sb-memory: The most memory each console's scrollback uses. When it is full,
+## the oldest lines are dropped, as they are past `sb-size`.
 ##
-## It takes bytes, or KiB, MiB or GiB with `K`, `M` or `G` (`6M`), at most a
-## quarter of the machine's memory, or at most the default when
-## `/proc/meminfo` cannot be read.
+## The value is in bytes, or in KiB, MiB or GiB with `K`, `M` or `G` (such as
+## `6M`), up to a quarter of the machine's memory (or up to the default when
+## `/proc/meminfo` cannot be read).
 ##
-## Left unset, the default follows each console's grid, worked out again when
-## the grid changes: on a grid up to minspec's 170 by 48 it is what the 16 MiB
-## minspec peak leaves after the console's two screens at their worst and the
-## rest of vtium, so a smaller display keeps more, and a larger display keeps
-## the 170 by 48 value shown here.
+## When unset, vtium sizes it to fit each console's size in characters, and
+## sizes it again when that changes. A console up to 170x48 characters gets
+## what is left of a 16 MiB budget after the console's screens and the rest of
+## vtium, so a smaller console keeps more lines. A larger console gets the
+## 170x48 value shown here.
 ##
-## The default does not grow with the display or the machine's memory; on a
-## machine that can spare more, set `sb-memory` for a deeper scrollback, and
-## it stays fixed.
+## The default does not grow with the display or the machine's memory. On a
+## machine with memory to spare, set `sb-memory` for a deeper scrollback; a
+## set value stays fixed.
 
 #sb-size=1000
 #sb-size-cap=
@@ -375,33 +394,33 @@
 
 # ── Bell ────────────────────────────────────────────────────────────────────
 
-## Rings the VT's bell when a program sends BEL.
+## Ring the console's bell when a program sends BEL.
 ##
-## A program stops its own BELs ringing by resetting mode 1042, which starts
-## set. Off, no BEL rings.
+## A program can silence its own bells by resetting mode 1042, which starts
+## set. When off, no bell rings.
 
 #no-bell
 
-# ── Synchronized frames ─────────────────────────────────────────────────────
+# ── Synchronized updates ────────────────────────────────────────────────────
 
-## The longest a synchronized frame (mode 2026) is held before it is shown as
-## drawn; 0 offers no mode 2026.
+## The longest vtium waits for a program to finish a synchronized update (mode
+## 2026) before it shows the screen as it is. 0 turns mode 2026 off.
 
 #sync-timeout=200
 
 # ══ Consoles and the VT ═════════════════════════════════════════════════════
 #
-# How many consoles the heads hold, and the VT vtium runs on.
+# How many consoles the heads can have, and the VT vtium runs on.
 
 # ── Consoles ────────────────────────────────────────────────────────────────
 
-## head-consoles-max: The most consoles one head holds: a head's `consoles`
-## opens no more.
+## head-consoles-max: The most consoles one head can have. A head's `consoles`
+## cannot open more than this.
 #
-## consoles-max: The most consoles every head holds together.
+## consoles-max: The most consoles all heads can have together.
 ##
-## Each head keeps its first console; the others open, in the order vtium.conf
-## declares the heads, while the total is below this.
+## Every head keeps its first console. More consoles open, in the order the
+## heads appear in vtium.conf, until the total reaches this number.
 
 #head-consoles-max=4
 #consoles-max=8
@@ -409,40 +428,40 @@
 # ── The VT ──────────────────────────────────────────────────────────────────
 
 ## vt: The VT to run on: a number N for `/dev/ttyN`, a name under `/dev`, or a
-## path. Unset, the VT vtium was started on, or the next free one.
+## path. When unset, vtium runs on the VT it was started on, or else the next
+## free one.
 #
-## switchvt: Switch to vtium's VT at start; off, wait until something else
-## switches to it.
+## switchvt: Switch to vtium's VT when vtium starts. When off, vtium waits
+## until something else switches to it.
 
 #vt=
 #switchvt
 
 # ══ On-screen display and notices ═══════════════════════════════════════════
 #
-# What vtium draws over the console to show which head and console are in
-# front, and to tell of a problem, and the colors it draws them in.
+# What vtium shows on top of the console to say which head and console you are
+# looking at, and to report a problem, and their colors.
 
 # ── On-screen display ───────────────────────────────────────────────────────
 
-## osd: What vtium's on-screen display draws at the top of each head after a
-## change.
+## osd: What the on-screen display shows at the top of each screen after a
+## change, such as a console switch.
 ##
-## With `minimal`, it draws a dot in the top-right cell, filled on the active
-## head and hollow on the others. With `full`, it draws a line across the top,
-## such as `● desk · console 2 of 3`. With `off`, it never draws anything,
-## after any change.
+## `minimal` shows a dot in the top-right character cell: filled on the active
+## head, hollow on the others. `full` shows a line across the top, such as
+## `● desk · console 2 of 3`. `off` shows nothing.
 ##
-## A notice of a problem shows whatever `osd` says.
+## A notice about a problem appears whatever `osd` says.
 #
-## osd-timeout: How long the on-screen display stays after a change, counted
-## from the first frame that draws it. `never` keeps it up from the start.
+## osd-timeout: How long the on-screen display stays visible after a change.
+## `never` keeps it visible all the time.
 #
-## focus-mark: The older name of `osd` and `osd-timeout`.
+## focus-mark: The old name for `osd` and `osd-timeout`.
 ##
-## vtium reads it only where `osd` or `osd-timeout` is not set: `auto` reads
-## as `osd = minimal`, `always` as `osd = minimal` with `osd-timeout = never`,
-## and `off` as `osd = off`. vtium logs a line naming the new keys when a file
-## or the command line sets it.
+## vtium reads it only when `osd` and `osd-timeout` are not set: `auto` means
+## `osd = minimal`, `always` means `osd = minimal` with `osd-timeout = never`,
+## and `off` means `osd = off`. When it is set, vtium logs a line that names
+## the new keys.
 
 #osd=minimal
 #osd-timeout=3
@@ -450,13 +469,15 @@
 
 # ── Notice colors ───────────────────────────────────────────────────────────
 
-## notice-foreground: The color of a notice's text. A notice tells of a
-## problem, such as an invalid vtium.conf, and shows whatever `osd` says.
+## notice-foreground: The text color of a notice. A notice is a box that
+## reports a problem, such as errors in vtium.conf. It appears whatever `osd`
+## says.
 #
-## notice-background: The color of a notice's box. While a notice shows, the
-## on-screen display's full line shares its box and takes the notice's colors.
+## notice-background: The background color of a notice. While a notice is
+## showing, the on-screen display's line appears in the same box, in the
+## notice's colors.
 #
-## notice-border: The color of the edge around a notice's box.
+## notice-border: The border color of a notice.
 
 #notice-foreground=31,41,51
 #notice-background=254,226,226
@@ -464,14 +485,15 @@
 
 # ── On-screen display colors ────────────────────────────────────────────────
 
-## osd-foreground: The color of the on-screen display's text: the words of
-## `osd = full`'s line, and the dot of `osd = minimal`.
+## osd-foreground: The text color of the on-screen display: the line of
+## `osd = full` and the dot of `osd = minimal`.
 #
-## osd-background: The color of the on-screen display's box behind
-## `osd = full`'s line, and of the cell behind `osd = minimal`'s dot.
+## osd-background: The background color of the on-screen display: behind the
+## line of `osd = full`, and in the character cell behind the dot of
+## `osd = minimal`.
 #
-## osd-border: The color of the edge around `osd = full`'s box. The dot of
-## `osd = minimal` has no edge.
+## osd-border: The border color of the on-screen display with `osd = full`.
+## The dot of `osd = minimal` has no border.
 
 #osd-foreground=229,231,235
 #osd-background=31,41,51
@@ -520,100 +542,105 @@
 
 # ══ Displays ════════════════════════════════════════════════════════════════
 #
-# The mode, depth and density of each display, how vtium waits for one at
-# start, and how it draws to them.
+# Each display's resolution, colors and density, how long vtium waits for a
+# display when it starts, and how it draws to them.
 
-# ── Display modes ───────────────────────────────────────────────────────────
+# ── Display resolution ──────────────────────────────────────────────────────
 
-## use-original-mode: Keep the mode each display is in; off, its preferred
-## mode.
+## use-original-mode: Keep each display's current resolution. When off, vtium
+## sets each display's preferred resolution.
 #
-## mode: A display's mode.
+## mode: A display's resolution and refresh rate.
 ##
 ## `WxH[@RATE]` sets it for every display, `[CONNECTOR]WxH` for one connector,
-## and `GPU[CONNECTOR]WxH` for one connector on one card, the card named by
-## its udev `ID_PATH`. A key per line; the most specific match wins. Unset,
-## the panel's preferred mode. It turns `use-original-mode` off.
+## and `GPU[CONNECTOR]WxH` for one connector on one graphics card, named by
+## its udev `ID_PATH`. Write one `mode` line per display; the most specific
+## match wins. When unset, each display uses its preferred resolution. Setting
+## it turns `use-original-mode` off.
 
 #no-use-original-mode
 #mode=
 
-# ── Display depth and density ───────────────────────────────────────────────
+# ── Display colors and density ──────────────────────────────────────────────
 
-## display-depth: Each display's depth.
+## display-depth: How many colors or shades each display can show.
 ##
-## `1` draws it in black and white, each cell lit or unlit by its colors,
-## never by their brightness; `gray4` and `gray16` record a gray panel of 4 or
-## 16 levels, drawn as color, which the panel converts; `color` draws its
-## colors; `auto` takes the levels the display says it shows: an fbdev device
-## at 1 bit, or a DRM panel whose driver vtium-platform lists.
+## `1` is black and white: each character cell is lit or dark by its colors,
+## never by their brightness. `gray4` and `gray16` are for gray panels of 4 or
+## 16 shades; vtium sends color and the panel converts it. `color` is full
+## color. `auto` uses what the display reports: 1 bit for an fbdev device that
+## says so, or the levels of a known DRM panel driver.
 #
-## display-dpi: Each display's density, which converts `font-size` and a
-## frit's `size=` from points to pixels, over the density a display measures.
+## display-dpi: The pixel density (DPI) used to turn `font-size` and a font
+## set's `size=` from points into pixels, instead of the density each display
+## reports.
 ##
-## Unset, the density is measured from the physical size the display reports,
-## else assumed at 96 with one logged warning per display.
+## When unset, vtium measures each display's density from the physical size it
+## reports. If a display reports none, vtium assumes 96 DPI and logs a warning
+## once for that display.
 
 #display-depth=auto
 #display-dpi=
 
 # ── Waiting for a display ───────────────────────────────────────────────────
 
-## At start, how long to wait for a display, counted from when the VT is
-## shown.
+## How long vtium waits for a display when it starts, counted from when its VT
+## is shown.
 ##
-## With no display by then, vtium exits with status 1, so the unit's
-## `OnFailure=` can start a getty. Under a vtium.conf whose policy is closed
-## vtium waits however long it takes, as under `forever` (ADR-1401 D8).
+## If no display appears in that time, vtium exits with status 1, so the
+## unit's `OnFailure=` can start a getty. When vtium.conf's policy is closed,
+## vtium waits as long as it takes, as with `forever`.
 ##
-## The wait runs only while the VT is vtium's. When another program takes the
-## VT before vtium's first frame is on screen, as X starting on another VT
-## does at boot, vtium waits for the VT to come back, and when it does, the
-## wait starts again from the full `display-wait`.
+## vtium counts only while the VT is its own. If another program takes the VT
+## before vtium's first frame is on screen, as X does at boot when it starts
+## on another VT, vtium waits for the VT to come back and then starts the full
+## wait again.
 ##
-## 0 waits for no display to come: a display set up when the VT is shown
-## counts once its first frame is on screen. `forever` waits for the first
-## display however long it takes, for a machine whose only display is a USB
-## adapter (DisplayLink, `udl`) plugged in at any time.
+## With 0, vtium does not wait: only a display that is ready when the VT is
+## shown counts. `forever` waits as long as it takes, for a machine whose only
+## display is a USB adapter (DisplayLink, `udl`) that may be plugged in at any
+## time.
 ##
-## Once a display has come, vtium never exits for want of one.
+## Once a display has appeared, vtium never exits for lack of one.
 
 #display-wait=10
 
 # ── Display buffers ─────────────────────────────────────────────────────────
 
-## How many buffers each DRM display keeps, the same for every display.
+## How many frame buffers each display keeps (DRM displays only; every display
+## gets the same number).
 ##
-## `3` is triple buffering, so no frame waits for the last flip, at the cost
-## of one more whole frame a display (8 MB at 1080p). `2` is double buffering.
-## `1` is single buffering, which holds the least memory, but vtium then draws
-## into the buffer being shown, so a frame can be seen half drawn.
+## `3` is triple buffering: no frame waits for the previous one to reach the
+## screen, at the cost of one more frame of memory per display (8 MB at
+## 1080p). `2` is double buffering. `1` is single buffering, which uses the
+## least memory, but vtium then draws into the buffer on screen, so a
+## half-drawn frame can show.
 ##
-## A framebuffer (fbdev) keeps one buffer whatever this key says. Unset, the
-## build decides: the count it was built with (`VTIUM_DISPLAY_BUFFERS`), or
-## else 3 in a build with features on top of minspec, 2 in the minspec build,
-## 1 only in a build smaller than minspec. `vtium config get display-buffers`
-## prints the value the current draft gives it, followed by `draft`, or the
-## build's default followed by `default`, which is `unset` when the build
-## names no count, and the rule above then picks it.
+## A framebuffer device (fbdev) always keeps one buffer. When unset, the build
+## decides: the number it was built with (`VTIUM_DISPLAY_BUFFERS`), or else 3
+## in a build with optional features, 2 in the smallest build (minspec), and 1
+## only in a build smaller than that. `vtium config get display-buffers`
+## prints the draft's value followed by `draft`, or the build's default
+## followed by `default` (`unset` when the build sets no number, in which case
+## the rule above decides).
 
 #display-buffers=
 
-# ── Drawing through the GPU ─────────────────────────────────────────────────
+# ── Drawing with the GPU ────────────────────────────────────────────────────
 
-## Draw through the GPU, in a build that has it.
+## Draw with the GPU, in a build that supports it.
 ##
-## Off unless vtium was built to turn it on (`VTIUM_HWACCEL`).
-## `vtium config get hwaccel` prints the value the current draft gives it,
-## followed by `draft`, or the build's default followed by `default`, and
-## `vtium config set hwaccel on` turns it on in the draft.
+## It is off unless vtium was built with it on (`VTIUM_HWACCEL`).
+## `vtium config get hwaccel` prints the draft's value followed by `draft`, or
+## the build's default followed by `default`. `vtium config set hwaccel on`
+## turns it on in the draft.
 
 #no-hwaccel
 
 # ── Frame timer ─────────────────────────────────────────────────────────────
 
-## Measure each display's frames once a second, and write the figures to the
-## log, draw them on screen, or both.
+## Measure each display's frame times once a second, and write the figures to
+## the log, show them on screen, or both.
 
 #render-timer=none
 
@@ -625,156 +652,158 @@
 # ── Blanking the displays ───────────────────────────────────────────────────
 
 ## dpms-timeout: Turn the displays off after this long with no key press or
-## pointer action (a move, a button or the wheel); 0 never does.
+## mouse action (a move, a click or the wheel). 0 never turns them off.
 #
-## program-blank: Let a program set the blank's timeout and wake the displays,
-## as `setterm --blank` does under `TERM=linux`.
+## program-blank: Let a program set the blanking timeout and wake the
+## displays, as `setterm --blank` does on the Linux console.
 ##
-## A program sets the timeout with the Linux console's `CSI 9 ; n ]` (n
-## minutes, at most 60; 0 never blanks) and wakes the displays with
-## `CSI 13 ]`. RIS returns the timeout to `dpms-timeout`. Off, the sequences
-## are ignored. A key press or pointer action wakes the displays either way.
+## A program sets the timeout with `CSI 9 ; n ]` (n minutes, up to 60; 0 never
+## blanks) and wakes the displays with `CSI 13 ]`. A terminal reset (RIS)
+## returns the timeout to `dpms-timeout`. When off, vtium ignores these
+## sequences. A key press or mouse action wakes the displays either way.
 
 #dpms-timeout=600
 #program-blank
 
 # ── Power keys ──────────────────────────────────────────────────────────────
 
-## grab-reboot: Reboot the machine.
+## grab-reboot: The key that reboots the machine.
 ##
-## With `/proc/sys/kernel/ctrl-alt-del` at 0, vtium asks init, as for
-## Ctrl+Alt+Del, so the services stop first; otherwise the kernel restarts at
-## once. Unset, no key reboots.
+## When `/proc/sys/kernel/ctrl-alt-del` is 0, vtium asks init to reboot, as
+## Ctrl+Alt+Del does, so the services stop first; otherwise the kernel
+## restarts at once. When unset, no key reboots.
 #
-## grab-power-off: Power the machine off.
+## grab-power-off: The key that powers the machine off.
 ##
-## vtium asks init with `SIGRTMIN+4`, which systemd takes as
+## vtium asks init with `SIGRTMIN+4`, which systemd treats as
 ## `poweroff.target`, so the services stop and the filesystems are unmounted
-## first. Unset, no key powers off.
+## first. When unset, no key powers off.
 #
-## grab-suspend: Suspend the machine to RAM.
+## grab-suspend: The key that suspends the machine to RAM.
 ##
-## vtium asks logind with its `Suspend` method, so its inhibitors hold the
-## sleep; where logind is not running, or vtium is built without `logind`,
-## vtium writes `mem` to `/sys/power/state`. Unset, no key suspends.
+## vtium asks logind to suspend, so anything that holds off sleep through
+## logind can still do so. When logind is not running, or vtium was built
+## without `logind`, vtium writes `mem` to `/sys/power/state`. When unset, no
+## key suspends.
 
 #grab-reboot=
 #grab-power-off=
 #grab-suspend=
 
-# ══ Pictures ════════════════════════════════════════════════════════════════
+# ══ Images ══════════════════════════════════════════════════════════════════
 #
-# Sixel and kitty graphics: how much memory pictures take, which protocols
-# vtium offers, and the helper that reads and decodes them.
+# Sixel and kitty graphics, how much memory images use, which protocols vtium
+# offers, and the helper that reads and decodes them.
 
-# ── Picture memory and protocols ────────────────────────────────────────────
+# ── Image memory and protocols ──────────────────────────────────────────────
 
-## image-storage-limit: The most bytes each console's pictures hold, its main
-## and alternate screens together.
+## image-storage-limit: The most memory each console uses for images, on both
+## its screens together.
 ##
-## It takes bytes, or KiB, MiB or GiB with `K`, `M` or `G` (`64M`), at most 1
-## TiB. `auto` gives each console four frames of its head's displays, 16 MiB
-## to 192 MiB, and works it out again when a display joins or leaves the head
-## or changes size. `0` turns sixel and kitty graphics off.
+## The value is in bytes, or in KiB, MiB or GiB with `K`, `M` or `G` (such as
+## `64M`), up to 1 TiB. `auto` gives each console enough for four screenfuls
+## of its head's displays, from 16 MiB to 192 MiB, and recalculates when a
+## display is added, removed or resized. `0` turns sixel and kitty graphics
+## off.
 ##
-## A build without images reads it and draws no picture.
+## A build without image support accepts this key and shows no images.
 #
-## sixel: Sixel graphics.
+## sixel: Show sixel images.
 ##
-## Off, vtium neither offers nor decodes sixel: DA1 reports no attribute 4 and
-## a sixel string is ignored. vtium offers sixel only while
+## When off, vtium neither offers nor shows sixel: its device attributes (DA1)
+## leave out attribute 4, and it ignores sixel data. vtium offers sixel only
+## while `image-storage-limit` is above 0 and every display of the console's
+## head can show images. A build without image support never offers it.
+#
+## kitty-graphics: Show images sent with the kitty graphics protocol.
+##
+## When off, vtium neither offers nor shows them: it ignores graphics commands
+## and does not answer queries. vtium offers it only while
 ## `image-storage-limit` is above 0 and every display of the console's head
-## draws pictures. A build without images never offers it.
+## can show images. A build without image support never offers it.
 #
-## kitty-graphics: The kitty graphics protocol.
+## max-graphic-size: The largest image a program can send, in pixels (`WxH`),
+## for sixel and kitty graphics alike. vtium refuses a larger one.
 ##
-## Off, vtium neither offers nor decodes it: a graphics command is ignored and
-## a query gets no reply. vtium offers it only while `image-storage-limit` is
-## above 0 and every display of the console's head draws pictures. A build
-## without images never offers it.
-#
-## max-graphic-size: The largest picture a program may send, in pixels, `WxH`,
-## for sixel and kitty graphics alike; a larger one is refused.
-##
-## A build without images reads it and draws no picture.
+## A build without image support accepts this key and shows no images.
 
 #image-storage-limit=auto
 #sixel
 #kitty-graphics
 #max-graphic-size=10000x10000
 
-# ── Sixel color registers ───────────────────────────────────────────────────
+# ── Sixel colors ────────────────────────────────────────────────────────────
 
-## num-color-registers: How many color registers a sixel picture has, and the
-## most XTSMGRAPHICS lets a program set.
+## num-color-registers: How many colors a sixel image can use (its color
+## registers), and the most a program can ask for with XTSMGRAPHICS.
 ##
-## A build without images reads it and draws no picture.
+## A build without image support accepts this key and shows no images.
 #
-## private-color-registers: Mode 1070's state at a reset.
+## private-color-registers: Give each sixel image its own colors (mode 1070,
+## after a reset).
 ##
-## On, each sixel picture starts from the default colors; off, the pictures
-## share their color registers. A build without images reads it and draws no
-## picture.
+## When on, each sixel image starts from the default colors. When off, images
+## share their colors. A build without image support accepts this key and
+## shows no images.
 
 #num-color-registers=1024
 #private-color-registers
 
 # ── Image helper ────────────────────────────────────────────────────────────
 
-## The image helper's program, which vtium starts as the session's user to
-## read the files and shared memory a kitty graphics command names and to
-## decode PNG and zlib-compressed pictures, since vtium itself, running as
-## root, does neither.
+## The image helper: the program vtium starts, as the logged-in user, to read
+## image files and shared memory for kitty graphics and to decode PNG and
+## zlib-compressed images. vtium runs as root and does neither itself.
 ##
-## vtium opens it once at start and starts every helper from that file, so a
-## helper installed later reaches the consoles when vtium starts again.
+## vtium opens the program once, when it starts, and runs every helper from
+## that file, so a newly installed helper takes effect when vtium restarts.
 ##
 ## vtium refuses a path that is not absolute, a file that is not a regular
-## file, a setuid or setgid file, a file owned by an account other than root
-## or the account vtium runs as, and a file its group or others may write; it
-## logs why, and every console then answers those pictures itself, a file, a
-## temporary file or shared memory with `EBADF` and PNG or zlib with `EINVAL`.
-## It starts the helper through `/proc/self/fd`, so `/proc` must be mounted.
+## file, a setuid or setgid file, a file owned by anyone other than root or
+## vtium's own account, and a file that its group or other users can write. It
+## then logs why, and refuses those images: a file, temporary file or shared
+## memory with `EBADF`, and PNG or zlib with `EINVAL`. vtium starts the helper
+## through `/proc/self/fd`, so `/proc` must be mounted.
 ##
-## The default is the path vtium was built with. A build without images reads
-## it and starts no helper.
+## The default is the path vtium was built with. A build without image support
+## accepts this key and starts no helper.
 
 #image-helper=/usr/bin/vtium-image
 
 # ══ Running vtium ═══════════════════════════════════════════════════════════
 #
-# Where vtium finds its configuration, its log, the glyph helper that draws a
-# font's glyphs, and the glyph cache.
+# Where vtium finds its configuration, its log, the font helper that draws a
+# font's characters, and the character cache.
 
 # ── Debug log ───────────────────────────────────────────────────────────────
 
-## Log debug messages as well, to find what went wrong. Off, vtium logs its
+## Log debug messages too, to help find what went wrong. When off, vtium logs
 ## information messages, warnings and errors.
 
 #no-debug
 
-# ── Glyph helper ────────────────────────────────────────────────────────────
+# ── Font helper ─────────────────────────────────────────────────────────────
 
-## The glyph helper's program, which vtium starts to draw a frit's glyphs, as
-## `nobody` when vtium runs as root.
+## The font helper: the program vtium starts to draw a font set's characters.
+## It runs as `nobody` when vtium runs as root.
 ##
-## vtium opens it once at start and starts every helper from that file, so a
-## helper installed later reaches a console when the console starts again.
+## vtium opens the program once, when it starts, and runs every helper from
+## that file, so a newly installed helper takes effect when vtium restarts.
 ##
 ## vtium refuses a path that is not absolute, a file that is not a regular
-## file, a setuid or setgid file, a file owned by an account other than root
-## or the account vtium runs as, and a file its group or others may write; it
-## logs why and draws its built-in font. It starts the helper through
+## file, a setuid or setgid file, a file owned by anyone other than root or
+## vtium's own account, and a file that its group or other users can write. It
+## then logs why and uses its built-in font. vtium starts the helper through
 ## `/proc/self/fd`, so `/proc` must be mounted.
 ##
 ## The default is the path vtium was built with.
 
 #font-helper=/usr/bin/vtium-config
 
-# ── Glyph cache ─────────────────────────────────────────────────────────────
+# ── Character cache ─────────────────────────────────────────────────────────
 
-## The glyph cache's budgets. Unset, `minspec`, or `performance` in a build
-## with vtium-render's `performance-cache` feature.
+## How much memory vtium uses to cache drawn characters. When unset, `minspec`
+## (small), or `performance` in a build with the `performance-cache` feature.
 
 #glyph-cache=
 
