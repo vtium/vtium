@@ -93,6 +93,8 @@ DECRQM, the query by which a program asks whether a mode is set, answers from vt
 
 > Edited 2026-11-06: ADR-1004, the record on right-to-left text, decided the bidirectional modes, and the work that builds its paragraph state set their rows. BDSM, weighed before, is supported; DCSM, weighed, is ignored and answers 3; DECRLM and DECRLCM, weighed, are refused; and three new modes, 1243, 2500 and 2501, are supported. Only a build with the cargo feature `bidi` has the rows of BDSM, DCSM, 1243, 2500 and 2501, as only a build with `images` has the sixel rows, so a build without it answers DECRQM 0 for each; those rows name the new layer `bidi`. The feature table gains SCP and SPD, supported, and bidirectional text, planned before, is partial.
 
+> Edited 2026-11-06: the row for libseat seats, which said vtium runs unprivileged and was marked supported, is planned, since vtium does not build libseat yet. The maintainer decided the same day that vtium stays root under libseat, as ADR-1400 D1 says: it takes the display and input devices from the seat manager and keeps root to start /bin/login and its helpers. The row's feature, reason and note say so.
+
 Each row names the layer it lands in, from the project's plan: minspec, text, images, gpu, seat or top, or `bidi` for a row that only a build with the cargo feature `bidi` has (ADR-1004 D13).
 
 Each row's `origin` names where the mode or feature comes from: the standard, the terminal or the program that first defined it. The tables together are a composite of what each origin defines, and the origin is one entry from this list:
