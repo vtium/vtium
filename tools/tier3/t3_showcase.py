@@ -149,6 +149,16 @@ BUILTIN = {"name": "GNU Unifont", "version": "17.0.03, built into vtium",
            "source": "vtium's own tree, crates/vtium-font/data/unifont.hex"}
 
 
+def pinned(file):
+    """The font of FONTS whose file is `file`. Tier 3's text font set takes
+    its CJK font from here (t3_scenario.TEXT_FONTS), so one font that both
+    draw with is pinned once."""
+    for font in FONTS:
+        if font.file == file:
+            return font
+    raise ValueError("t3_showcase.FONTS pins no font %s" % file)
+
+
 def sha256_file(path):
     h = hashlib.sha256()
     with open(path, "rb") as f:

@@ -49,6 +49,12 @@ fi
 if [ -d "$disc"/showcase-fonts ]; then
     install -Dm644 -t /usr/local/share/fonts/vtium-showcase "$disc"/showcase-fonts/*
 fi
+# A variant drawing from tier 3's text font set (frits/tier3-text.vtfrit)
+# installs the set's fonts that the guest image lacks where the glyph helper
+# reads outline fonts; the frit names them there.
+if [ -d "$disc"/text-fonts ]; then
+    install -Dm644 -t /usr/local/share/fonts/vtium-tier3 "$disc"/text-fonts/*
+fi
 # A variant drawing a PSF font installs its frits, whose glyphs the helper
 # generates at run time (ADR-1301 D2); nothing is built before the console
 # starts.
