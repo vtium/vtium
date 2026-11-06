@@ -495,15 +495,27 @@ fn key(term: &str, name: &str) -> Option<(u32, Mods)> {
         "kNXT" => (PGDN, shift),
         _ => {
             if let Some(n) = name.strip_prefix("kf").and_then(|n| n.parse::<u32>().ok()) {
-                // xterm-vtium's kf13 to kf24 are Shift with F1 to F12, as
-                // in xterm's entry. kmscon's kf13 to kf20 are the keys F13
-                // to F20, and its kf21 and kf22 Shift with F11 and F12.
-                return Some(match (term == super::KMSCON, n) {
-                    (_, 1..=12) => (F1 + n - 1, none),
-                    (false, _) => (F1 + n - 13, shift),
-                    (true, 21..) => (F1 + n - 11, shift),
-                    (true, _) => (F1 + n - 1, none),
-                });
+                // xterm-vtium's kf13 and up are F1 to F12 with Shift, then
+                // Ctrl, Ctrl and Shift, Alt, and Alt and Shift, twelve
+                // keys each, as in xterm's entry. kmscon's kf13 to kf20 are
+                // the keys F13 to F20, and its kf21 and kf22 Shift with F11
+                // and F12.
+                let groups = [
+                    shift,
+                    Mods::CTRL,
+                    Mods::CTRL.union(shift),
+                    Mods::ALT,
+                    Mods::ALT.union(shift),
+                ];
+                return match (term == super::KMSCON, n) {
+                    (_, 1..=12) => Some((F1 + n - 1, none)),
+                    (false, _) => {
+                        let group = usize::try_from((n - 13) / 12).ok()?;
+                        Some((F1 + (n - 13) % 12, *groups.get(group)?))
+                    }
+                    (true, 21..) => Some((F1 + n - 11, shift)),
+                    (true, _) => Some((F1 + n - 1, none)),
+                };
             }
             return modified("kUP", UP)
                 .or_else(|| modified("kDN", DOWN))
