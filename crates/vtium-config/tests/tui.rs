@@ -1072,37 +1072,56 @@ fn leaving_with_a_frit_waiting_asks_and_l_leaves_without_it() {
         text.contains("Quit without installing? You will lose the removal of tiny5."),
         "{screen}"
     );
-    // at 80 columns the long words do not fit beside each other, nor "1 to
-    // install" beside "text preview", so both sides take their short words,
-    // whole
+    // the status line says the font set waiting; the next test checks
+    // its words at each width
     let status = screen.lines().nth(1).unwrap_or_default();
-    assert!(
-        status.starts_with(" draft mine · no changes · no problems · 1 to install "),
-        "{screen}"
-    );
-    assert!(status.ends_with("  text · t: try live"), "{screen}");
-    // at 100 columns the long words fit on both sides
-    let wide = (100, 30);
-    let mut c = Console::vtium(100, 30, true, "unifont")
-        .takes("minspec-16", wide)
-        .takes("proof", wide)
-        .takes("tiny5", wide)
-        .takes("unifont", wide)
-        .takes("unscii-8", wide)
-        .keys(&[UP, b"r", b"q"]);
-    let mut d = desk();
-    run_desk(&mut c, &mut d);
-    let screen = c.seen.clone().expect("the screen");
-    let status = screen.lines().nth(1).unwrap_or_default();
-    assert!(
-        status.starts_with(" draft mine · no changes · no problems · 1 font set to install "),
-        "{screen}"
-    );
-    assert!(status.ends_with("  text preview · t: try live"), "{screen}");
+    assert!(status.contains("· 1 to install"), "{screen}");
     let mut c = console().keys(&[UP, b"r", b"q", b"l"]);
     let mut d = desk();
     assert_eq!(run_desk(&mut c, &mut d), 0);
     assert!(d.plans.is_empty());
+}
+
+/// The status line with a font set waiting to be installed, on a screen
+/// `cols` wide.
+fn status_with_a_font_set_waiting(cols: u16) -> String {
+    let grid = (usize::from(cols), 25);
+    let mut c = Console::vtium(usize::from(cols), 25, true, "unifont")
+        .takes("minspec-16", grid)
+        .takes("proof", grid)
+        .takes("tiny5", grid)
+        .takes("unifont", grid)
+        .takes("unscii-8", grid)
+        .keys(&[UP, b"r", b"q"]);
+    let mut d = desk();
+    run_desk(&mut c, &mut d);
+    let screen = c.seen.clone().expect("the screen");
+    screen.lines().nth(1).unwrap_or_default().to_owned()
+}
+
+/// The status line keeps its long words where both sides fit; else the
+/// font sets waiting take their short words; else the preview's words
+/// shorten too, so the left side fits whole.
+#[test]
+fn the_status_line_shortens_its_left_side_then_its_right_side() {
+    let draft = " draft mine · no changes · no problems · ";
+    for (cols, left, right) in [
+        (100, "1 font set to install", "text preview · t: try live"),
+        (90, "1 to install", "text preview · t: try live"),
+        (82, "1 to install", "text preview · t: try live"),
+        (81, "1 to install", "text · t: try live"),
+        (80, "1 to install", "text · t: try live"),
+    ] {
+        let status = status_with_a_font_set_waiting(cols);
+        assert!(
+            status.starts_with(&format!("{draft}{left} ")),
+            "{cols}: {status:?}"
+        );
+        assert!(
+            status.ends_with(&format!("  {right}")),
+            "{cols}: {status:?}"
+        );
+    }
 }
 
 /// Any other key goes back with the frit still waiting, and `i` at the
