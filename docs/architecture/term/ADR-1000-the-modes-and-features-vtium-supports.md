@@ -78,19 +78,19 @@ The C reference recognised 34 modes in one declarative table (libtsm's `tsm-mode
 
 ### The target set
 
-The tables are `ADR-1000-modes.tsv` (128 rows: 39 supported, 4 ignored, 4 refused, 1 parked, 80 with no row) and `ADR-1000-features.tsv` (181 rows: 110 supported, 3 partial, 44 ignored, 7 refused, 16 parked, 1 weighed in another issue). Both tables use the same statuses. The first five are the C reference's, and parked and weighed came later:
+The tables are `ADR-1000-modes.tsv` (128 rows: 39 supported, 4 ignored, 4 refused, 1 planned, 80 with no row) and `ADR-1000-features.tsv` (181 rows: 110 supported, 3 partial, 44 ignored, 7 refused, 16 planned, 1 weighed in another issue). Both tables use the same statuses:
 
 - **supported**: set and reset, or the feature, do what the specification says.
-- **partial**: part of it, with the missing part's issue.
-- **ignored**: accepted with no effect; the note says why or names the issue for the effect.
-- **refused**: deliberately not built, with the reason.
-- **no row** (modes only): vtium does not recognise the number; DECRQM replies 0 and SM and RM change nothing. A feature vtium does not take is ignored instead.
-- **parked**: its own issue designs it before anything is built: input methods and Braille displays among them. A parked mode has no row in vtium's mode table yet, so DECRQM replies 0 for it until its issue builds it.
+- **partial**: vtium does part of it; the note says what is missing, and the issue column names the work that builds the rest.
+- **planned**: vtium will build it, and its issue says how; nothing of it is built yet. Input methods and Braille displays are among them.
 - **weighed**: another issue decides whether vtium builds it, and the row takes that decision: baked glyph atlases (carried by the work on vtium-vitrify, the profile builder), weighed in the work on outline fonts.
+- **ignored**: vtium accepts it and does nothing with it; the reason says why.
+- **refused**: vtium deliberately does not build it, for the reason given.
+- **no row** (modes only, until each such mode has one of the statuses above): vtium does not recognise the number.
 
-> Edited 2026-11-06: the two tables now share one list of statuses, where parked and weighed were the features table's alone. An audit of the open issues found one mode row and seventeen feature rows marked supported that vtium does not implement, so a reader took them for capabilities vtium has. DECLRMM (DEC 69), which nothing implements, is parked, since vtium has no left and right margins yet. Of the feature rows, fourteen, which nothing implements, are parked: kmscon's setBackground and setForeground strings, XTWINOPS 8, OSC 22, kitty's text sizing, double-size lines, the login image, ligatures, the kitty keyboard protocol, bidirectional text, SGR 6, 8, 53 and 55, and 73 to 75, and DECIC with its kin. Three, which vtium implements in part, are partial: the display hand-back, whose wake-up retry is built; font merging, whose second source a frit's `cover=` already serves; and DECSLRM's row, whose SCOSC and SCORC are built. Each row's note says what is missing, and the decision to support each of them stands. Before this edit the counts above read 40 supported modes, and 179 feature rows with 125 supported and 2 parked.
+DECRQM, the query by which a program asks whether a mode is set, answers from vtium's mode table in vtium-term. A mode the table lists answers 1 (set) or 2 (reset) when it is supported, and its fixed state when it is ignored or refused: 3 (permanently set) for DECANM, and 4 (permanently reset) for the rest, KAM, DECCOLM, DECNRCM and 1001 among them. A mode the table does not list answers 0, whatever its status here, and SM and RM change nothing for it; a planned mode joins the table, and its answer changes, in the change that builds it.
 
-An ignored or refused mode answers DECRQM with its fixed default, as the C reference did: 3 (permanently set) for DECANM, and 4 (permanently reset) for the rest, KAM, DECCOLM, DECNRCM and 1001 among them.
+> Edited 2026-11-06: the two tables now share one list of statuses, where parked and weighed were the features table's alone. An audit of the open issues found one mode row and seventeen feature rows marked supported that vtium does not implement, so a reader took them for capabilities vtium has. DECLRMM (DEC 69), which nothing implements, is planned, since vtium has no left and right margins yet. Of the feature rows, fourteen, which nothing implements, are planned: kmscon's setBackground and setForeground strings, XTWINOPS 8, OSC 22, kitty's text sizing, double-size lines, the login image, ligatures, the kitty keyboard protocol, bidirectional text, SGR 6, 8, 53 and 55, and 73 to 75, and DECIC with its kin. Three, which vtium implements in part, are partial: the display hand-back, whose wake-up retry is built; font merging, whose second source a frit's `cover=` already serves; and DECSLRM's row, whose SCOSC and SCORC are built. Each row's note says what is missing, and the decision to support each of them stands. Before this edit the counts above read 40 supported modes, and 179 feature rows with 125 supported and 2 parked. The same day, the maintainer renamed `parked` to `planned`, to say that vtium will build each such row and its issue says how.
 
 Each row names the layer it lands in, from the project's plan: minspec, text, images, gpu, seat or top.
 
