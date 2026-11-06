@@ -185,7 +185,8 @@ pub enum Reason {
 /// thread reads it while the session runs on: the visible lines, their
 /// change ages, the palette, the cursor, the selection, the hovered link,
 /// and in a build with images the pictures, each sharing its image's
-/// pixels (ADR-1100 D9).
+/// pixels (ADR-1100 D9), and in a build with right-to-left text the order
+/// each row is drawn in (ADR-1004 D8).
 pub struct Snapshot {
     lines: Vec<Line>,
     damage: Damage,
@@ -197,6 +198,10 @@ pub struct Snapshot {
     overlay: Option<(usize, String)>,
     #[cfg(feature = "images")]
     placements: Vec<vtium_image::FramePlacement>,
+    /// The order each row is drawn in, which the frame the snapshot
+    /// rebuilds reads its cells through.
+    #[cfg(feature = "bidi")]
+    order: vtium_term::Order,
 }
 
 impl Snapshot {
@@ -207,23 +212,12 @@ impl Snapshot {
         let frame = screen.frame(&palette, Age::NEVER);
         let rows = frame.rows();
         let lines = (0..rows).filter_map(|r| frame.line(r)).cloned().collect();
-        let selection = if screen.has_selection() {
-            (0..rows)
-                .map(|r| {
-                    let mut at = (0..frame.cols())
-                        .filter(|&c| frame.cell(r, c).is_some_and(|fc| fc.selected));
-                    let first = at.next().unwrap_or(0);
-                    let last = at.next_back().unwrap_or(first);
-                    if frame.cell(r, first).is_some_and(|fc| fc.selected) {
-                        first..last.saturating_add(1)
-                    } else {
-                        0..0
-                    }
-                })
-                .collect()
-        } else {
-            Vec::new()
-        };
+        // the selected columns of each row, as the screen keeps them:
+        // logical columns, which a row drawn in another order shows in
+        // pieces (ADR-1004 D10)
+        let selection = frame.selection().to_vec();
+        #[cfg(feature = "bidi")]
+        let order = frame.order().clone();
         let (cursor, hovered) = (frame.cursor(), frame.hovered());
         let overlay = frame.overlay().map(|o| (o.row, o.uri.to_owned()));
         #[cfg(feature = "images")]
@@ -239,6 +233,8 @@ impl Snapshot {
             palette,
             #[cfg(feature = "images")]
             placements,
+            #[cfg(feature = "bidi")]
+            order,
         }
     }
 
@@ -259,6 +255,10 @@ impl Snapshot {
         );
         #[cfg(feature = "images")]
         let frame = frame.with_placements(self.placements.clone());
+        // the cursor came from the screen's frame already drawn where its
+        // cell is, so only the cells take the order
+        #[cfg(feature = "bidi")]
+        let frame = frame.with_order(self.order.clone());
         frame
     }
 }
@@ -1160,6 +1160,39 @@ mod tests {
 
     const ID: DisplayId = DisplayId(1);
     const SIZE: (u32, u32) = (36, 34);
+
+    // ADR-1004 D8 to D10: the frame a head's render thread draws from the
+    // snapshot shows a mixed line in the order vtium-term draws it, the
+    // cursor on the cell its logical cell is drawn in, and the selection
+    // on the logical cells it holds, wherever they are drawn.
+    #[cfg(feature = "bidi")]
+    #[test]
+    fn a_snapshot_draws_a_mixed_line_in_its_drawn_order() {
+        // abc, shalom, (1), def; the cursor back on the shin, logical
+        // column 4, which the row draws at column 11
+        let mut terminal = Terminal::new(20, 1, 0);
+        terminal.input("abc \u{5E9}\u{5DC}\u{5D5}\u{5DD} (1) def\x1b[5G".as_bytes());
+        // a drag from the drawn 1 (logical 10) to the drawn shin (logical 4)
+        terminal.screen_mut().select_start(5, 0);
+        terminal.screen_mut().select_to(11, 0);
+        let snapshot = Snapshot::take(&terminal);
+        let frame = snapshot.frame(Age::NEVER);
+        let row: String = frame
+            .cells(0)
+            .map(|c| match c.glyph {
+                vtium_term::Glyph::Char(ch) => ch,
+                _ => '.',
+            })
+            .collect();
+        assert_eq!(row, "abc (1) \u{5DD}\u{5D5}\u{5DC}\u{5E9} def....");
+        let cursor = frame.cursor();
+        assert_eq!((cursor.col, cursor.rtl), (11, true));
+        let selected: String = frame
+            .cells(0)
+            .map(|c| if c.selected { '#' } else { '.' })
+            .collect();
+        assert_eq!(selected, ".....#######........");
+    }
 
     /// A display in memory, with a cursor plane or without: what each swap
     /// carried, and where the plane shows the pointer.
