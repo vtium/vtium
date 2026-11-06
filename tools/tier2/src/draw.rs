@@ -795,13 +795,13 @@ mod tests {
         assert_eq!(
             crate::notices::head_file_one_error().as_deref(),
             Ok(
-                "config partly invalid, running what's valid\nRun vtium check-config /etc/vtium/vtium.conf to see why."
+                "vtium.conf has errors: running the parts without errors.\nTo see why, run vtium check-config /etc/vtium/vtium.conf."
             )
         );
         assert_eq!(
             crate::notices::head_file_two_errors().as_deref(),
             Ok(
-                "invalid config skipped, using builtin\nRun vtium check-config /etc/vtium/vtium.conf to see why."
+                "vtium.conf not used: running the built-in configuration.\nTo see why, run vtium check-config /etc/vtium/vtium.conf."
             )
         );
     }
@@ -814,13 +814,13 @@ mod tests {
         assert_eq!(
             crate::notices::panic().as_deref(),
             Ok(concat!(
-                "vtium: config invalid, policy closed: input off\n",
-                "The errors in /etc/vtium/vtium.conf, listed below, leave no head that can run.\n",
-                "/etc/vtium/vtium.conf:4: This section takes no key named \"focs\". Check the key's spelling, or remove the line.\n",
-                "/etc/vtium/vtium.conf:5: A head's section cannot set `font-size`: the head takes it from its look. Set it in the `[look NAME]` section the head names, or at the top of vtium.conf, above the first section, for every head.\n",
-                "/etc/vtium/vtium.conf:7: This rule sends devices to the head \"kisok\", which the file does not declare. Correct the name, or declare the head with its own `[head NAME]` section.\n",
+                "vtium.conf has errors and counts as closed: all input is off.\n",
+                "No head can run because of the errors in /etc/vtium/vtium.conf, listed below.\n",
+                "/etc/vtium/vtium.conf:4: This section has no key named \"focs\". Check the spelling, or remove the line.\n",
+                "/etc/vtium/vtium.conf:5: A head's section cannot set `font-size`: a head gets it from its look. Set it in the head's `[look NAME]` section, or at the top of vtium.conf for every head.\n",
+                "/etc/vtium/vtium.conf:7: This rule sends devices to head \"kisok\", but the file has no head of that name. Correct the name, or add a `[head NAME]` section for it.\n",
                 "More errors: 1\n",
-                "Nothing on this console takes input. Run vtium check-config /etc/vtium/vtium.conf over ssh, or from other boot media, for the full report.",
+                "This console takes no input. For the full report, run vtium check-config /etc/vtium/vtium.conf over ssh or from other boot media.",
             ))
         );
     }
@@ -834,11 +834,11 @@ mod tests {
     fn a_notice_alone_draws_as_the_notice_screen_does() {
         fn shown() -> Result<vtium_render::Notice, String> {
             Ok(vtium_render::Notice::new(concat!(
-                "vtium: config invalid, policy closed: input off\n",
-                "The errors in /etc/vtium/vtium.conf, listed below, leave no head that can run.\n",
-                "/etc/vtium/vtium.conf:4: This section takes no key named \"focs\". Check the key's spelling, or remove the line.\n",
+                "vtium.conf has errors and counts as closed: all input is off.\n",
+                "No head can run because of the errors in /etc/vtium/vtium.conf, listed below.\n",
+                "/etc/vtium/vtium.conf:4: This section has no key named \"focs\". Check the spelling, or remove the line.\n",
                 "More errors: 3\n",
-                "Nothing on this console takes input. Run vtium check-config /etc/vtium/vtium.conf over ssh, or from other boot media, for the full report.",
+                "This console takes no input. For the full report, run vtium check-config /etc/vtium/vtium.conf over ssh or from other boot media.",
             )))
         }
         let screen = |alone: Alone| Screen {
