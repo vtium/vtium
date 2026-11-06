@@ -1,0 +1,193 @@
+#!/bin/sh
+# The vendor archive: the source of every outside crate vtium builds with,
+# which each GitHub release carries so that a package manager that builds
+# with no network has it (ADR-1500 D9). The repository keeps no copy of the
+# crates; Cargo.lock pins each one and its checksum.
+#
+#   archive pack OUT    write OUT/vtium-VERSION-vendor.tar.zst and
+#                       OUT/vtium-VERSION-vendor.tar.zst.sha256
+#   archive check OUT   build the workspace from a clean copy of the commit
+#                       with OUT's archive unpacked over it, offline and
+#                       --locked, and fail if it does not build
+#
+# Both work on the commit HEAD names, never on the working tree: each takes a
+# clean copy of the commit with `git archive`, the same files GitHub's source
+# tarball of a tag holds. VERSION is VTIUM_VENDOR_VERSION when it is set, or
+# else HEAD's tag, or else `git describe --tags --always`, each without a
+# leading v. The release workflow, .github/workflows/release-vendor.yml, sets
+# it from the release's tag.
+#
+# The archive holds vendor/, as `cargo vendor --locked` writes it from the
+# workspace's Cargo.lock, vendor/README.md, which tells a packager how to use
+# it, and .cargo/config.toml, which points Cargo at vendor/. Cargo.lock lists
+# the crates of every target, and `cargo vendor` copies all of them, so the
+# archive serves the ARM builds too. The generators under crates/*/gen-* and
+# the fuzz targets under crates/*/fuzz have lock files of their own and are
+# not part of any package's build, so the archive leaves their crates out.
+#
+# It needs GNU tar, for --sort and --pax-option, and zstd. The same commit
+# gives byte-identical files when the same cargo, tar and zstd make them: tar writes the members sorted by name, each with the
+# commit's time, owner and group 0 and normalised permissions, and no
+# extended attributes, and zstd compresses the tar file with fixed settings.
+#
+# sh has no pipefail, so the script runs no command whose failure a pipe
+# would hide: each writes a file in its scratch, and the next reads it. After
+# packing, it reads the archive back and fails unless it lists the README,
+# .cargo/config.toml and a Cargo.toml for each vendored crate.
+#
+# check builds with an empty CARGO_HOME and CARGO_NET_OFFLINE=true, inside a
+# network namespace of its own when unprivileged user namespaces allow one
+# (unshare -rn), so a crate missing from the archive fails the build instead
+# of being downloaded. It first resolves the crates for both ARM targets,
+# then builds the whole workspace with every feature and every target, tests
+# included, and last runs `make install` with the features the AUR's vtium
+# package builds, as a package build calls it. Its scratch, the clean copy
+# and the builds, is a directory under OUT that it removes when it ends.
+set -eu
+
+die() { echo "archive: $*" >&2; exit 1; }
+
+[ $# -eq 2 ] || die "usage: archive pack|check OUT"
+mode=$1
+mkdir -p "$2"
+out=$(cd "$2" && pwd)
+repo=$(git rev-parse --show-toplevel) || die "not inside a git checkout"
+cd "$repo"
+
+commit=$(git rev-parse HEAD)
+if [ -n "${VTIUM_VENDOR_VERSION:-}" ]; then
+    version=$VTIUM_VENDOR_VERSION
+else
+    version=$(git describe --tags --exact-match "$commit" 2>/dev/null) ||
+        version=$(git describe --tags --always "$commit")
+fi
+version=${version#v}
+case $version in
+    '' | */* | *[[:space:]]*) die "unusable version '$version'" ;;
+esac
+name=vtium-$version-vendor.tar.zst
+arm_targets="aarch64-unknown-linux-gnu armv7-unknown-linux-gnueabihf"
+
+work=$(mktemp -d "$out/work.XXXXXX")
+trap 'rm -rf "$work"' EXIT
+trap 'exit 1' INT TERM
+
+# A clean copy of the commit, in $work/src.
+export_commit() {
+    mkdir "$work/src"
+    git archive --output="$work/src.tar" "$commit" || die "git archive $commit failed"
+    tar -x -f "$work/src.tar" -C "$work/src" || die "cannot unpack git archive's copy of $commit"
+}
+
+# The members of the archive at $1 that are files, without a leading ./,
+# sorted, in $2.
+list_members() {
+    zstd -q -d -c "$1" > "$work/list.tar" || die "cannot decompress $1"
+    tar -t -f "$work/list.tar" > "$work/list.raw" || die "cannot list $1"
+    sed -n 's|^\(\./\)*||; /[^/]$/p' "$work/list.raw" > "$work/list.files" || die "cannot list $1"
+    sort "$work/list.files" > "$2" || die "cannot list $1"
+    rm -f "$work/list.tar"
+}
+
+pack() {
+    export_commit
+    # The archive's .cargo/config.toml would replace one of vtium's own.
+    for f in .cargo/config.toml .cargo/config; do
+        [ ! -e "$work/src/$f" ] || die "the commit has $f, which the archive's .cargo/config.toml would replace"
+    done
+    stage=$work/stage
+    mkdir -p "$stage/.cargo"
+    # cargo runs in the copy, so rust-toolchain.toml picks its toolchain.
+    # It prints the configuration that points Cargo at the vendored
+    # directory, which it names by its absolute path here; in the archive
+    # the path is relative to the source tree's top. Its progress lines go
+    # to a log, shown only when it fails.
+    (cd "$work/src" && cargo vendor --locked "$stage/vendor" 2>"$work/vendor.log") > "$work/config.toml" ||
+        { cat "$work/vendor.log" >&2; die "cargo vendor failed"; }
+    sed "s|^directory = \".*\"\$|directory = \"vendor\"|" "$work/config.toml" > "$stage/.cargo/config.toml"
+    grep -q '^directory = "vendor"$' "$stage/.cargo/config.toml" ||
+        die "cargo vendor printed no directory source"
+    find "$stage/vendor" -mindepth 1 -maxdepth 1 -type d > "$work/crates"
+    crates=$(wc -l < "$work/crates")
+    cat > "$stage/vendor/README.md" <<EOF
+# The crates vtium $version builds with
+
+This archive holds the source of the $crates outside crates that vtium's \`Cargo.lock\` names at commit $commit, copied by \`cargo vendor --locked\`, and the \`.cargo/config.toml\` that tells Cargo to read them from \`vendor/\`. It lets a package manager build vtium with no network. \`Cargo.lock\` lists the crates of every target, so the archive serves every architecture vtium builds for.
+
+Unpack the archive at the top of vtium's source tree of the same version, beside \`Cargo.toml\`. Unpacking adds \`vendor/\` and \`.cargo/config.toml\` and replaces none of vtium's files:
+
+    tar -xf $name -C vtium-$version
+
+Cargo then reads every crate from \`vendor/\` and checks each against the checksum that \`Cargo.lock\` pins. \`cargo build --offline --locked\` and \`make install\` build with no network, and the workflow that packs this archive checks both before it attaches the archive to the release. With \`CARGO_NET_OFFLINE=true\` set, Cargo stops with an error instead of reaching for the network.
+
+The generators under \`crates/*/gen-*\` and the fuzz targets under \`crates/*/fuzz\` have lock files of their own and are not part of a package's build, so the archive leaves their crates out.
+EOF
+    epoch=$(git log -1 --format=%ct "$commit")
+    # Sorted members, the commit's time, root's owner and group by number,
+    # permissions that do not follow the umask, and pax headers with fixed
+    # names and no access or change times. zstd stores no name or time.
+    tar --create --file="$work/vendor.tar" --directory="$stage" --sort=name --format=pax \
+        --pax-option=exthdr.name=%d/PaxHeaders/%f,delete=atime,delete=ctime \
+        --mtime="@$epoch" --owner=0 --group=0 --numeric-owner \
+        --mode=u=rwX,go=rX --no-xattrs --no-acls --no-selinux \
+        .cargo vendor || die "tar cannot pack the staged files"
+    zstd -q -19 -T0 "$work/vendor.tar" -o "$work/$name" || die "zstd cannot compress the tar file"
+    # The archive must hold what was staged.
+    list_members "$work/$name" "$work/members"
+    for f in .cargo/config.toml vendor/README.md; do
+        grep -qxF "$f" "$work/members" || die "the packed archive lacks $f"
+    done
+    packed=$(grep -c '^vendor/[^/]*/Cargo\.toml$' "$work/members") || true
+    [ "$packed" -eq "$crates" ] || die "the packed archive holds $packed crates of the $crates vendored"
+    (cd "$work" && sha256sum "$name" > "$name.sha256")
+    mv "$work/$name" "$out/$name"
+    mv "$work/$name.sha256" "$out/$name.sha256"
+    echo "archive: $out/$name, $crates crates, $(wc -c < "$out/$name") bytes"
+    cat "$out/$name.sha256"
+}
+
+check() {
+    [ -f "$out/$name" ] || die "no $out/$name; make vendor-archive packs it"
+    (cd "$out" && sha256sum --check --quiet "$name.sha256") || die "$name does not match $name.sha256"
+    export_commit
+    # Unpacking must add files and replace none of the commit's. A member
+    # named ./PATH unpacks to PATH, and directories replace nothing.
+    list_members "$out/$name" "$work/members"
+    git ls-tree -r --name-only "$commit" > "$work/tracked.raw"
+    sort "$work/tracked.raw" > "$work/tracked"
+    clash=$(comm -12 "$work/members" "$work/tracked")
+    [ -z "$clash" ] || die "the archive replaces the commit's files: $clash"
+    zstd -q -d -c "$out/$name" > "$work/archive.tar" || die "cannot decompress $name"
+    tar -x -f "$work/archive.tar" -C "$work/src" || die "cannot unpack $name"
+    mkdir "$work/cargo-home"
+    if unshare -rn true 2>/dev/null; then
+        set -- unshare -rn
+        echo "archive: building with no network, in a network namespace of its own"
+    else
+        set --
+        echo "archive: unshare -rn is not allowed here; building offline through CARGO_NET_OFFLINE=true and an empty CARGO_HOME"
+    fi
+    # Each build runs as a package build would, without the caller's
+    # compiler wrapper or make's variables. GIT_CEILING_DIRECTORIES keeps
+    # git, which make install asks for the revision, from finding a checkout
+    # that holds OUT.
+    cd "$work/src"
+    set -- "$@" env -u RUSTC_WRAPPER -u MAKEFLAGS -u MFLAGS -u MAKELEVEL \
+        CARGO_HOME="$work/cargo-home" CARGO_NET_OFFLINE=true \
+        CARGO_TARGET_DIR="$work/target" GIT_CEILING_DIRECTORIES="$work"
+    for t in $arm_targets; do
+        "$@" cargo fetch --offline --locked --target "$t" ||
+            die "cargo cannot resolve the crates for $t from the archive"
+    done
+    "$@" cargo build --workspace --all-features --all-targets --offline --locked ||
+        die "the workspace does not build offline from the archive"
+    "$@" make install DESTDIR="$work/staged" PREFIX=/usr FEATURES='gpu images logind' HWACCEL=on DISPLAY_BUFFERS=3 ||
+        die "make install does not build offline from the archive"
+    echo "archive: the workspace and make install build offline from $name"
+}
+
+case $mode in
+    pack) pack ;;
+    check) check ;;
+    *) die "usage: archive pack|check OUT" ;;
+esac

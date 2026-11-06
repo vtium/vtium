@@ -14,9 +14,18 @@ workspace = true
 [dependencies]
 vtium-parse.workspace = true
 vtium-image = { workspace = true, optional = true }
+# The bidirectional algorithm for the `bidi` feature (ADR-1004 D13), pinned:
+# vtium-term reaches it only through `src/unicode/bidi/levels.rs`, which
+# passes it vtium-term's own Unicode tables. Its default features would link
+# its own tables, so they are off.
+unicode-bidi = { version = "=0.3.18", default-features = false, features = ["std"], optional = true }
 
 [features]
 # The image pipeline (ADR-1100): the store on every screen event, the
 # router to the protocol handlers, and the frame's placement list. The
 # minspec build carries none of it.
 images = ["dep:vtium-image"]
+# Right-to-left text (ADR-1004): the Bidi_Class, Joining_Type, mirroring and
+# box-drawing tables and the bidirectional algorithm. The minspec build
+# carries none of it.
+bidi = ["dep:unicode-bidi"]
