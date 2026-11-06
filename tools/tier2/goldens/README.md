@@ -1,6 +1,6 @@
 # tier 2's goldens
 
-The goldens of tier 2's screens. Each judges vtium. Most were first drawn by a program that is retired now (vtium/vtium#111) and are kept as they were drawn. vtium drew the two `osd-` goldens without a size in their names (vtium/vtium#169), the overlay goldens whose names end in `-800x480` or `-3840x540` (ADR-1401 D5, D7), the two `small-` goldens (vtium/vtium#75), the two `vitrified-` goldens, from sets built as `vtium-config create` builds them (vtium/vtium#126), `emoji-rgba` (vtium/vtium#23), and the two `link-hover-` goldens (ADR-1002), behaviour only vtium has. A golden added here stays in `../provisional.tsv` until the operator has reviewed it.
+The goldens of tier 2's screens. Each judges vtium. Most were first drawn by a program that is retired now (vtium/vtium#111) and are kept as they were drawn. vtium drew the outline goldens from the test font set of outline fonts (ADR-1503 D9), the two `osd-` goldens without a size in their names (vtium/vtium#169), the overlay goldens whose names end in `-800x480` or `-3840x540` (ADR-1401 D5, D7), the two `small-` goldens (vtium/vtium#75), the two `vitrified-` goldens, from sets built as `vtium-config create` builds them (vtium/vtium#126), `emoji-rgba` (vtium/vtium#23), and the two `link-hover-` goldens (ADR-1002), behaviour only vtium has. A golden added here stays in `../provisional.tsv` until the operator has reviewed it.
 
 | Golden | What it shows |
 |---|---|
@@ -73,3 +73,16 @@ The goldens of tier 2's screens. Each judges vtium. Most were first drawn by a p
 | `pictures-sixel.ppm` | 448x96: a caption, three sixels of eight-color tiles and black diagonals made in a 10x20 cell, the 40x40, 70x36 and 10x18 ones each shrunk smoothly by 1.25, and text with blue cells below. |
 | `pictures-budget.ppm` | 160x64: a caption over two rows, a 200x200 picture drawn at 32x32 over the first, and the left part of a second 200x200 picture drawn over 40 by 12 cells, cut at the display's right edge. |
 | `pictures-tiled.ppm` | 640x256: a caption, a 150x100 pattern grown to about twice its size, a ring picture shrunk by 1.5, and a pattern shrunk by 4, each whole. |
+| `ascii.ppm` | 432x160, 48 by 10 cells of DejaVu Sans Mono's 9x16 at 16 pixels: the pangram in both cases, digits and punctuation, runs of `i`, `l`, `W` and `m`, and a line of code, anti-aliased, each glyph in its own cell. |
+| `bold.ppm` | 432x160: `bold` beside `regular`, a bold pangram over two lines, bold red, green and blue words from DejaVu Sans Mono Bold; `italic The quick brown fox` from DejaVu Sans Mono Oblique beside `regular`; and `bold italic jumps over the lazy dog` from DejaVu Sans Mono Bold Oblique. |
+| `palette.ppm` | 432x160: the 16 background colors as two-cell blocks, `AB` in each of the 16 foreground colors, a 19-step ramp through the 256-color palette, and a 9-step red-to-green gradient, in DejaVu Sans Mono. |
+| `inverse.ppm` | 432x160: `inverse` reversed between two `normal`s, a whole reversed line, `red on green` then `swapped` green on red, and `bold inverse` in the bold face. |
+| `box.ppm` | 432x160: two boxes of light and double lines holding `cell`, shades and blocks, eighths, and rounded, heavy and diagonal pieces, the lines and blocks vtium's sprites in the 9x16 cell. |
+| `underline.ppm` | 432x160: each underline style in the text color and in its SGR 58 color over `gjpqy`, a yellow curl under red text ended by SGR 59, and underlines on blue, reversed and under bold, at the line DejaVu Sans Mono's tables give; the dashed line one dash in each cell. |
+| `strike.ppm` | 432x160: strike-through plain, in red, on green, with straight and curly underlines, in bold, reversed, and over six spaces, at the line DejaVu Sans Mono's tables give. |
+| `deco-config.ppm` | 432x160: underlines in the configured red and strikes in the configured `#00c0ff`, SGR 58's green and yellow lines keeping their colors, over DejaVu Sans Mono text. |
+| `deco-force.ppm` | The same with `force-decoration-colors`: every underline red, SGR 58's included. |
+| `combining.ppm` | 432x160: precomposed `é ã ñ`, the same letters with combining marks, which vtium-config's engine shapes onto their base letters in one cell, in words, underlined, struck and in bold. |
+| `mosaic.ppm` | 648x256, 72 by 16 cells of 9x16: every Braille pattern, sextant and octant, the checkerboards, the Braille grid and wave, and the bands across rows, all vtium's sprites, beside DejaVu Sans Mono's labels. |
+| `emoji-mono.ppm` | 432x160: the emoji screen in the test font set without Noto Color Emoji: each emoji in the text color, from DejaVu Sans Mono where it holds one, as the smiley and the hearts, else from the built-in unifont fitted to the cells, a cluster drawn as its first character. |
+| `redraw.ppm` | 432x160: `unchanged line`, `line 2 CHANGED curly` with `curly` under a curly line, `line three stays`, and `new struck` struck through, in DejaVu Sans Mono. |

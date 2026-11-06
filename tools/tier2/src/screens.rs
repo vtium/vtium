@@ -1,14 +1,15 @@
 //! Tier 2's screens, each with the golden that judges it.
 //!
-//! The first goldens were drawn with an outline font, DejaVu Sans Mono through
-//! FreeType, so they judge vtium only where no outline glyph shows:
-//! the two block screens, which hold only sprites and spaces. The others
-//! are re-baselined when the Rust font layer lands (vtium/vtium#24).
-//! The screens after them are vtium's, drawn in unifont, then color glyphs from an RGBA strike of a vitrified set built in memory
-//! (vtium/vtium#23), and last the small displays in the PSF fonts
-//! `tools/testfont` writes (vtium/vtium#75), and vtium's own drawing over
-//! a frame, its notices and on-screen display, at two display sizes
-//! (ADR-1401 D5, D7).
+//! The first goldens were drawn with an outline font, DejaVu Sans Mono
+//! through FreeType; two of them judge vtium where no outline glyph shows,
+//! the two block screens, which hold only sprites and spaces. vtium's own
+//! screens follow: text in unifont, color glyphs from an RGBA strike of a
+//! vitrified set built in memory (vtium/vtium#23), the small displays in
+//! the PSF fonts `tools/testfont` writes (vtium/vtium#75), vtium's own
+//! drawing over a frame, its notices and on-screen display, at two display
+//! sizes (ADR-1401 D5, D7), and pictures. The outline screens come last,
+//! drawn from the test font set of outline fonts that [`crate::fonts`]
+//! fetches (ADR-1503 D9).
 
 use vtium_render::{Depth, Mark, Orientation};
 use vtium_term::WidthMethod;
@@ -119,6 +120,19 @@ const BOLD: &[u8] = concat!(
     "\x1b[1mThe quick brown fox jumps over\r\n",
     "the lazy dog 0123456789 !@#$%^&*()\x1b[0m\r\n",
     "\x1b[1;31mbold red\x1b[0m \x1b[1;32mbold green\x1b[0m \x1b[1;34mbold blue\x1b[0m\r\n",
+)
+.as_bytes();
+
+/// The `bold` screen in the outline fonts: the `bold` screen's lines, then
+/// italic and bold italic, which the test font set draws from DejaVu Sans
+/// Mono's Oblique and Bold Oblique faces.
+const FACES: &[u8] = concat!(
+    "regular \x1b[1mbold\x1b[0m regular\r\n",
+    "\x1b[1mThe quick brown fox jumps over\r\n",
+    "the lazy dog 0123456789 !@#$%^&*()\x1b[0m\r\n",
+    "\x1b[1;31mbold red\x1b[0m \x1b[1;32mbold green\x1b[0m \x1b[1;34mbold blue\x1b[0m\r\n",
+    "\x1b[3mitalic The quick brown fox\x1b[0m regular\r\n",
+    "\x1b[1;3mbold italic jumps over the lazy dog\x1b[0m\r\n",
 )
 .as_bytes();
 
@@ -607,6 +621,21 @@ const PICTURES_BUDGET_DESC: &str = "A 160x64 display, whose pictures' bound is t
 const PICTURES_TILED_DESC: &str = "Three pictures wider and taller than 64 pixels, which the GPU path holds in textures of at most 64 a side for this screen (ADR-1303 D2): one grown by about 2, one shrunk by 1.5 and one shrunk by 4 below the text. Correct: each picture whole and smooth, with no seam where its tiles meet on the GPU path.";
 
 /// A picture screen: vtium's golden, drawn by vtium.
+/// A screen of `cols` by `rows` in the test frit of outline fonts
+/// (ADR-1503 D9), with its color emoji font.
+const fn outline(
+    name: &'static str,
+    desc: &'static str,
+    bytes: &'static [u8],
+    cols: usize,
+    rows: usize,
+) -> Screen {
+    Screen {
+        font: FontKind::Outline { color: true },
+        ..Screen::new(name, desc, bytes, cols, rows)
+    }
+}
+
 const fn picture(screen: Screen) -> Case {
     Case { screen }
 }
@@ -1310,4 +1339,140 @@ pub const CASES: &[Case] = &[
             16,
         )
     }),
+    // The outline screens (ADR-1503 D9), in the test font set's outline
+    // fonts, which `make tier2-fonts` fetches
+    Case {
+        screen: outline(
+            "ascii",
+            "Printable ASCII in the regular face: a pangram in both cases, digits and punctuation, runs of narrow and wide letters, and a line of code. In DejaVu Sans Mono at 16 pixels, its 9x16 cell. Correct: every glyph whole, anti-aliased and inside its own cell, with columns aligned down the screen.",
+            ASCII,
+            48,
+            10,
+        ),
+    },
+    Case {
+        screen: outline(
+            "bold",
+            "Bold beside regular, a bold pangram over two lines, bold in red, green and blue, then italic beside regular and bold italic. In DejaVu Sans Mono at 16 pixels, with its Bold, Oblique and Bold Oblique faces. Correct: the bold text drawn from DejaVu Sans Mono Bold, heavier than the regular text and at the same cell width; the colored words in their colors; the italic text slanted, drawn from DejaVu Sans Mono Oblique, and the bold italic from DejaVu Sans Mono Bold Oblique.",
+            FACES,
+            48,
+            10,
+        ),
+    },
+    Case {
+        screen: outline(
+            "palette",
+            "The 16 ANSI background colors, the 16 foreground colors on letter pairs, a ramp through the 256-color palette, and a 24-bit gradient from red to green. In DejaVu Sans Mono at 16 pixels. Correct: each block filled edge to edge in its own color, with no gaps between cells, and each letter pair in its color.",
+            PALETTE,
+            48,
+            10,
+        ),
+    },
+    Case {
+        screen: outline(
+            "inverse",
+            "Reverse video (SGR 7): one word, a whole line, red on green swapped, and bold with reverse. In DejaVu Sans Mono at 16 pixels. Correct: foreground and background exchanged, so the swapped word is green on red, and the bold reversed text drawn from the bold face.",
+            INVERSE,
+            48,
+            10,
+        ),
+    },
+    Case {
+        screen: outline(
+            "box",
+            "Box drawing in light and double lines, shades and block elements, eighth blocks, and rounded, heavy and diagonal pieces, with the word cell in DejaVu Sans Mono at 16 pixels. Correct: vtium's sprites draw the lines and blocks, so lines join from cell to cell with no gaps and blocks fill their 9x16 cells.",
+            BOX,
+            48,
+            10,
+        ),
+    },
+    Case {
+        screen: outline(
+            "underline",
+            "Each underline style (single, double, curly, dotted, dashed) in the text color and in an SGR 58 color, over descenders; a red curl ended by SGR 59; underlines on a background, in reverse and in bold. In DejaVu Sans Mono at 16 pixels, the underline placed where the font's own tables put it. Correct: the five styles distinct, the colored ones in their SGR 58 color, the line after SGR 59 in the text color, and the dashed line one dash in each cell, from the cell's left edge for five eighths of its width.",
+            UNDERLINE,
+            48,
+            10,
+        ),
+    },
+    Case {
+        screen: outline(
+            "strike",
+            "Strike-through (SGR 9) alone, in color, on a background, with straight and curly underlines, in bold, in reverse, and over spaces. In DejaVu Sans Mono at 16 pixels, the strike placed where the font's own tables put it. Correct: a line through every struck cell, the spaces included, at the same height in every cell.",
+            STRIKE,
+            48,
+            10,
+        ),
+    },
+    Case {
+        screen: Screen {
+            decorations: DECO_CONF,
+            ..outline(
+                "deco-config",
+                "Underline and strike with the configured colors (underline-color=196, strike-color=#00c0ff), beside SGR 58 colors and colored text. In DejaVu Sans Mono at 16 pixels. Correct: underlines and strikes without an SGR 58 color take the configured colors; an SGR 58 color still applies.",
+                DECO_CONFIG,
+                48,
+                10,
+            )
+        },
+    },
+    Case {
+        screen: Screen {
+            decorations: Decorations {
+                force: true,
+                ..DECO_CONF
+            },
+            ..outline(
+                "deco-force",
+                "The deco-config screen with force-decoration-colors set. In DejaVu Sans Mono at 16 pixels. Correct: every underline and strike in the configured color, the SGR 58 ones included.",
+                DECO_CONFIG,
+                48,
+                10,
+            )
+        },
+    },
+    Case {
+        screen: outline(
+            "combining",
+            "Accented letters precomposed and as a base letter with combining marks, in words, underlined, struck and in bold. In DejaVu Sans Mono at 16 pixels, whose glyphs vtium-config's engine shapes for each cluster. Correct: each mark sits on its base letter in one cell, matching the precomposed form where there is one.",
+            COMBINING,
+            48,
+            10,
+        ),
+    },
+    Case {
+        screen: outline(
+            "mosaic",
+            "Every Braille pattern, sextant and octant in codepoint order; then checkerboards of sextants and of octants, a grid of eight-dot Braille, a Braille wave, and sextant and octant bands that cross the boundaries between rows; then the checkerboards and grid in yellow on blue; in the 9x16 cell DejaVu Sans Mono gives at 16 pixels. Correct: vtium's sprites draw them all, square dots on the same 2x4 grid in every cell and blocks on exact halves and thirds or quarters of the cell, so the checkerboards and bands run across cells with no seam.",
+            MOSAIC,
+            72,
+            16,
+        ),
+    },
+    Case {
+        screen: Screen {
+            font: FontKind::Outline { color: false },
+            ..Screen::new(
+                "emoji-mono",
+                "The emoji screen in the test font set without its color emoji font: DejaVu Sans Mono, then Noto Sans CJK, at 16 pixels. Correct: no emoji in color; each emoji drawn in the text color as the glyph DejaVu Sans Mono or Noto Sans CJK has for it, else as the built-in font's, at the same places and widths as on the emoji screen.",
+                EMOJI,
+                48,
+                10,
+            )
+        },
+    },
+    Case {
+        screen: Screen {
+            next: Some(
+                b"\x1b[2;1Hline 2 CHANGED \x1b[4:3mcurly\x1b[0m\x1b[4;1H\x1b[9mnew struck\x1b[0m",
+            ),
+            ..outline(
+                "redraw",
+                "Four frames into a double-buffered display: the second part rewrites line 2 and adds a struck line 4, and both buffers must then hold it and equal a fresh draw. In DejaVu Sans Mono at 16 pixels. Correct: line 2 reads 'line 2 CHANGED curly' with nothing left of the first part's text.",
+                b"unchanged line\r\nline two, before\r\nline three stays\r\n",
+                48,
+                10,
+            )
+        },
+    },
 ];
