@@ -58,6 +58,19 @@ jobs:
         with:
           toolchain: ${{ steps.toolchain.outputs.channel }}
           targets: aarch64-unknown-linux-gnu, armv7-unknown-linux-gnueabihf
+      # Ubuntu's AppArmor stops an unprivileged user from making a user
+      # namespace, so tools/vendor/archive could not build in a network
+      # namespace of its own and would fall back to CARGO_NET_OFFLINE and an
+      # empty CARGO_HOME. Lifting the restriction for this runner lets the
+      # check build with no network at all. A runner without the setting
+      # skips the step.
+      - name: allow unprivileged user namespaces
+        run: |
+          if sysctl -n kernel.apparmor_restrict_unprivileged_userns >/dev/null 2>&1; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          else
+            echo "this runner has no kernel.apparmor_restrict_unprivileged_userns"
+          fi
       # For a release, the file names carry its tag without the leading v.
       - run: make vendor-archive-check VENDOR_DIR="$RUNNER_TEMP/vendor" ${RELEASE_TAG:+VENDOR_VERSION="${RELEASE_TAG#v}"}
       - uses: actions/upload-artifact@v4
