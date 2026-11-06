@@ -50,10 +50,33 @@ fn a_build_without_bidi_draws_in_written_order() {
     assert_eq!(t.arrow_keysym(0xff51), 0xff51);
 }
 
+// ADR-1004 D13: a build without the feature has no Bidi_Class table.
+#[cfg(not(feature = "bidi"))]
+#[test]
+fn a_build_without_bidi_calls_no_character_right_to_left() {
+    assert!(!vtium_term::is_rtl_class('\u{05D0}'));
+    assert!(!vtium_term::is_rtl_class('\u{0627}'));
+}
+
 #[cfg(feature = "bidi")]
 mod with_the_feature {
     use super::*;
     use vtium_term::Joins;
+
+    // A character's class alone: R and AL are right to left; Arabic digits,
+    // marks, brackets and Latin letters are not.
+    #[test]
+    fn hebrew_and_arabic_letters_are_right_to_left_by_class() {
+        use vtium_term::is_rtl_class;
+        assert!(is_rtl_class('\u{05D0}')); // alef, R
+        assert!(is_rtl_class('\u{0627}')); // alef, AL
+        assert!(is_rtl_class('\u{07C0}')); // N'Ko digit zero, R
+        assert!(!is_rtl_class('\u{0660}')); // Arabic-Indic zero, AN
+        assert!(!is_rtl_class('\u{064E}')); // fatha, NSM
+        assert!(!is_rtl_class('('));
+        assert!(!is_rtl_class('a'));
+        assert!(!is_rtl_class('1'));
+    }
 
     // The figure of ADR-1004: abc, shalom, (1), def, the cursor after def.
     const MIXED: &str = "abc שלום (1) def";

@@ -113,7 +113,7 @@ pub use terminal::{
 };
 #[cfg(feature = "images")]
 pub use terminal::{ImageNote, ImageString};
-pub use unicode::{UNICODE_VERSION, cluster_width};
+pub use unicode::{UNICODE_VERSION, cluster_width, is_rtl_class};
 /// The image pipeline's types, which a build with images reaches through
 /// vtium-term (ADR-1100).
 #[cfg(feature = "images")]
