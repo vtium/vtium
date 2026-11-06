@@ -73,8 +73,8 @@ clip() {
 
 # The console process this terminal belongs to: the nearest ancestor named
 # vtium, so another console on the machine is never measured instead. The
-# figure is named kmscon_ms, which t3_bench reads.
-kmscon_pid() {
+# figure is named console_ms, which t3_bench reads.
+console_pid() {
 	local p=$$ comm
 	while [ "$p" -gt 1 ]; do
 		read -r comm <"/proc/$p/comm" || break
@@ -98,19 +98,19 @@ now() {
 
 # Runs "$@" as one measured window. Pauses keep the frames before and after
 # out of the render timer's one-second intervals that overlap it. Sets
-# start, end and kmscon_ms (kmscon's CPU time over the window, parsing
+# start, end and console_ms (kmscon's CPU time over the window, parsing
 # included, in milliseconds).
 measure() {
 	local pid t0=0 t1=0
-	pid=$(kmscon_pid) || pid=
+	pid=$(console_pid) || pid=
 	sleep 1.5
 	[ -z "$pid" ] || t0=$(cpu_ticks "$pid")
 	start=$(now)
 	"$@"
 	end=$(now)
 	[ -z "$pid" ] || t1=$(cpu_ticks "$pid")
-	kmscon_ms=$(((t1 - t0) * 1000 / $(getconf CLK_TCK)))
-	[ -n "$pid" ] || kmscon_ms=
+	console_ms=$(((t1 - t0) * 1000 / $(getconf CLK_TCK)))
+	[ -n "$pid" ] || console_ms=
 	sleep 1.5
 }
 

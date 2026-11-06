@@ -45,4 +45,4 @@ read -r frames dropped < <(mpv_counts "$stats")
 rm -f "$stats"
 printf 'mpv --vo=sixel played a 5-second test pattern, 30 frames a second, in a\n'
 printf '%dx%d window, and returned to this page.\n' "$w" "$h"
-report mpv-sixel "mpv_frames=$frames mpv_dropped=$dropped kmscon_cpu_ms=$kmscon_ms"
+report mpv-sixel "mpv_frames=$frames mpv_dropped=$dropped console_cpu_ms=$console_ms"

@@ -20,7 +20,7 @@
 # redraw falls in a second of the render timer that overlaps it. The render
 # timer's damage covers what a frame drew into its buffer, which is older by
 # as many frames as the display keeps buffers, so the variant keeps two
-# (guest/kmscon-images.conf): each frame then counts the pane's changes of
+# (guest/vtium-images.conf): each frame then counts the pane's changes of
 # two frames, still inside the pane.
 . "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/acceptance.inc"
 sixel_offered
