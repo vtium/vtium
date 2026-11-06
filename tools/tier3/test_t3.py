@@ -1072,8 +1072,9 @@ class VtiumGoldenTest(unittest.TestCase):
 
     def test_shipped(self):
         # The maintainer reviewed every provisional golden on 2026-11-05, and
-        # the list in the tree holds only the goldens recaptured since; a
-        # golden it names must be one a case draws.
+        # the four notice goldens recaptured with the reworded notices on
+        # 2026-11-06, so the list in the tree is empty; a golden it names
+        # later must be one a case draws.
         prov = t3_evaluate.read_provisional()
         # the default 2D variants' re-baselined goldens (vtium/vtium#24)
         rebaselined = ["%s/%s" % (v, s)
@@ -1088,12 +1089,8 @@ class VtiumGoldenTest(unittest.TestCase):
                                  "cjk")]
         # the maintainer accepted every one of them on 2026-11-05, the last two
         # once box lines at a 20x38 cell drew 2 px wide
-        self.assertFalse(set(prov) & set(rebaselined))
-        # the four notice goldens the strings card recaptured with the
-        # reworded notices, until the maintainer reviews them as pictures
-        reworded = ["heads-closed-broken/panic", "heads-closed-unmatched/no-display-notice",
-                    "heads-partly-open/partly-notice", "heads-policy-typo/policy-panic"]
-        self.assertEqual(sorted(prov), reworded)
+        self.assertEqual(sorted(prov), [])
+        self.assertTrue(set(prov) <= set(rebaselined))
         self.assertEqual(t3_evaluate.check_goldens(t3_scenario.golden_cases(),
                                                    t3_evaluate.GOLDEN, prov), [])
         with open(os.path.join(t3_common.HERE, "goldens", "README.md")) as f:
