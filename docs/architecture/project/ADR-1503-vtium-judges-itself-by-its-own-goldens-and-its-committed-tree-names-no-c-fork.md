@@ -91,6 +91,27 @@ considered:
   - operator: aaronsb
     said: "Let's not gate for something we are dropping - comparison to the c fork"
     via: the steering session, 2026-11-06, on whether fork-refs joins the gate line
+  - operator: aaronsb
+    said: "when I mean rebaseline I mean - fix all the problems firs then baseline agsint ourselves and no longer the c fork"
+    via: the maintainer's message to the steering session, 2026-11-06, after choosing to re-baseline tier 3's seven text screens
+  - operator: aaronsb
+    said: "I think that we probably should pick some more fonts that we can use that support these languages better. There's no specific reason to stick to dejavu; we could pick a 'well known' font for these other languages, that is open source/available. We hve to remember we're evaluating the ability of the terminal to represent the characters and glyphs, not the quality of the font or it's coverage."
+    via: the maintainer's own answer in the steering session's question tool, 2026-11-06, to the question of how tier 3 draws Chinese and Japanese characters
+  - operator: aaronsb
+    said: "Noto Sans CJK"
+    via: the steering session's question tool, 2026-11-06, on how tier 3's seven text screens and tier 2's owed screens leave the C reference's pictures; the option wording is the steering session's
+  - operator: aaronsb
+    said: "Keep vtium's dashes"
+    via: the steering session's question tool, 2026-11-06, on how tier 3's seven text screens and tier 2's owed screens leave the C reference's pictures; the option wording is the steering session's
+  - operator: aaronsb
+    said: "Tier 2's fonts: download pinned, cached"
+    via: the steering session's question tool, 2026-11-06, on how tier 3's seven text screens and tier 2's owed screens leave the C reference's pictures; the option wording is the steering session's
+  - operator: aaronsb
+    said: "All 34 tier 2 screens before alpha.6"
+    via: the steering session's question tool, 2026-11-06, on how tier 3's seven text screens and tier 2's owed screens leave the C reference's pictures; the option wording is the steering session's
+  - operator: aaronsb
+    said: "Delete the C reference's GL goldens and relabel the minimal variants' goldens as vtium's"
+    via: the steering session's question tool, 2026-11-06, on how tier 3's seven text screens and tier 2's owed screens leave the C reference's pictures; the option wording is the steering session's
 observable:
   - "`docs/scripts/fork-refs` exits 0 on the tree after the sweep, and exits 1 naming the file and line when a planted line in a crate README says `the C reference`"
   - "Every case is judged by one golden in one directory per tier: tools/conformance/expected.tsv, tools/tier2/departures.tsv, tools/tier3/departures.tsv and tools/tier3/c-goldens/ are gone, and `make conformance`, `make tier2` and `make tier3` pass"
@@ -221,6 +242,18 @@ CONTRIBUTING.md first says what judges a change: the tiers from unit tests to ti
 `docs/scripts/fork-refs` fails when a committed file names the fork: the phrases "C reference", "C fork", "kmscon fork" and "libtsm fork", the repositories `aaronsb/kmscon` and `aaronsb/libtsm`, and the fork issue forms `kmscon#N` and `libtsm#N`. It leaves the plain names `kmscon` and `libtsm` to review, since D3 and D4 keep them where they name the released program, a terminal name or the licence. It also fails when a crate README has a heading `## Departures`, `## Golden differences`, `## C behaviour kept`, `## Beyond the C reference` or `## C notes`, so that nobody brings the departure lists back.
 
 In docs/architecture/, which D5 governs, it skips the phrases and leaves the repository and issue forms checked, apart from the `said` and `via` fields of a record's frontmatter and D8's first paragraph, which lists the forms. It skips its own source and tests, which hold the patterns it looks for; the copyright notice line, by its path and its words, of the two ported files that carry one, vtium-font's sprite.rs and vtium-render's deco.rs; and the one line of COPYING that says the box sprites' geometry came by way of the fork's font_box.c, a file the released kmscon never had. LICENSE names no fork, so it needs no skip. Until the revisit it also skips AGENTS.md and CLAUDE.md, with a note on each entry saying so. A person or an agent runs it on demand as `docs/scripts/fork-refs`, and it joins no gate: CI, `make gates` and AGENTS.md's gate line do not run it. `make test-tools` runs its tests. It lands with the last branch of the sweep, seen to fail on the tree before the sweep and on a planted line, and to pass after.
+
+### D9: the fonts tier 2 and tier 3 draw text with
+
+> Added 2026-11-06 by the maintainer's decisions (the `considered` entries of that date).
+
+Tier 2 and tier 3 judge whether vtium draws each script's characters and glyphs: Latin text with its bold and italic faces, box drawing, Chinese, Japanese and Korean characters, and color emoji. They do not judge how good a font is or how many characters it covers. So each tier draws outline text from a test font set (a frit, vtium's font set file) that names one well-known open font for each script, in the frit's fallback order: DejaVu Sans Mono, with its Regular, Bold, Oblique and Bold Oblique faces each named by `style=`, then Noto Sans CJK, then Noto Color Emoji. vtium does not search the system's fonts for a character the font set lacks. A character that no source holds draws in the built-in font, as it does in every frit.
+
+DejaVu Sans Mono stays the first source, so the character cell stays 10x19 pixels at 16 points and 20x38 at 32 points in tier 3's configurations. Tier 3's default 2D variants and its GPU variants draw from this font set. The guest image already holds DejaVu Sans Mono and Noto Color Emoji. Noto Sans CJK comes onto the run's disc pinned, the way the showcase brings it, so the guest image does not change. Tier 2 downloads the three fonts pinned, each by its URL and SHA-256, into a cache, the way the specimens fetch theirs, and CI caches them. No font file is committed.
+
+Tier 3's seven text screens whose goldens the C reference drew with pango (`sgr`, `colour-forms`, `underline-styles`, `underline-colour`, `strike`, `emoji` and `sixel-article`) leave the C reference's pictures before v0.1.0-alpha.6. vtium first fixes every difference that is a defect. Then each screen takes vtium's capture as its golden in a golden commit that the maintainer reviews as pictures, together with every accepted golden that the new font set moves. Two differences are vtium's own, and the new goldens record them as right: the dashed underline draws one dash in each character cell, from the cell's left edge for five eighths of its width, and the letters' anti-aliasing is that of vtium's glyph engine. Once this lands, no golden in the tree is a picture the C reference drew: tier 3's `goldens/gl-1280x800/`, the GL pictures kept as a record, is deleted (ADR-1303, part 7), and tier 3's goldens README describes the goldens of the minimal variants as vtium's.
+
+The 34 screens tier 2 still owes land before v0.1.0-alpha.6 as vtium's goldens, which the maintainer reviews as pictures. That includes the screens with pictures, the render timer's on-screen display, and the two screens that need added line spacing, so line spacing (ADR-1302 D13) is built first.
 
 ## Consequences
 
