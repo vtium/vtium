@@ -1008,17 +1008,19 @@ mod tests {
         );
     }
 
-    // ADR-1000, "The tables as data": each row's status is the ADR's, and
-    // every mode the ADR gives #12 or #54 with a status other than "no row"
-    // has a row.
+    // ADR-1000, "The target set": each row's status is the ADR's. A mode the
+    // ADR marks supported, partial, ignored or refused has a row, unless its
+    // note says it is not in vtium's mode table; a mode whose note says so,
+    // and a planned or weighed mode, has none, so DECRQM answers it 0.
     #[test]
     fn the_table_agrees_with_adr_1000() {
+        const NOT_LISTED: &str = "not in vtium's mode table";
         let path = format!("{CRATE}/../../docs/architecture/term/ADR-1000-modes.tsv");
         let adr = std::fs::read_to_string(path).expect("ADR-1000-modes.tsv");
         let mut lines = adr.lines();
         let header: Vec<&str> = lines.next().expect("a header").split('\t').collect();
         let col = |name: &str| header.iter().position(|h| *h == name).expect(name);
-        let (id, status_col, issue) = (col("id"), col("status"), col("issue"));
+        let (id, status_col, note) = (col("id"), col("status"), col("note"));
         let rows: Vec<Vec<&str>> = lines.map(|l| l.split('\t').collect()).collect();
         for row in MODES {
             let adr_row = rows
@@ -1028,14 +1030,20 @@ mod tests {
             assert_eq!(adr_row[status_col], status(row), "{}'s status", row.id());
         }
         for r in &rows {
-            let ours = r[issue].split(", ").any(|i| i == "#12" || i == "#54");
-            if ours && r[status_col] != "no row" {
-                assert!(
-                    MODES.iter().any(|m| m.id() == r[id]),
-                    "ADR-1000's {} has no row in the mode table",
-                    r[id]
-                );
-            }
+            let answered = matches!(
+                r[status_col],
+                "supported" | "partial" | "ignored" | "refused"
+            );
+            let listed = answered && !r[note].contains(NOT_LISTED);
+            assert_eq!(
+                MODES.iter().any(|m| m.id() == r[id]),
+                listed,
+                "ADR-1000's {} is {} with the note {:?}, so the mode table should {}list it",
+                r[id],
+                r[status_col],
+                r[note],
+                if listed { "" } else { "not " }
+            );
         }
     }
 
