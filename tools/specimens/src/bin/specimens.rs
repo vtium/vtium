@@ -77,14 +77,24 @@ fn sources() -> Sources {
             })
             .collect()
     };
-    let desktop = cells(|g| matches!(g, Glyphs::Desktop { .. }));
-    let tiny5 = cells(|g| matches!(g, Glyphs::Tiny5 { .. }));
+    // the clusters the card shows on the pages of the profiles drawn from
+    // a frit, which the helper is asked for whole, as the console asks
+    let shown = |pick: fn(Glyphs) -> bool| {
+        let profiles: Vec<_> = PROFILES.iter().filter(|p| pick(p.glyphs)).collect();
+        draw::clusters_shown(&profiles)
+    };
+    let desktop_cells = cells(|g| matches!(g, Glyphs::Desktop { .. }));
+    let tiny5_cells = cells(|g| matches!(g, Glyphs::Tiny5 { .. }));
     // this binary is the judge that cargo test names, so it never names
     // another: a set it cannot generate fails every accepted profile drawn
     // from it
+    let desktop = shown(|g| matches!(g, Glyphs::Desktop { .. }))
+        .and_then(|k| fonts::desktop(&fonts::cache_dir(), &desktop_cells, &k));
+    let tiny5 = shown(|g| matches!(g, Glyphs::Tiny5 { .. }))
+        .and_then(|k| fonts::tiny5(&fonts::cache_dir(), &tiny5_cells, &k));
     Sources {
-        desktop: fonts::desktop(&fonts::cache_dir(), &desktop).map_err(Absent::Failed),
-        tiny5: fonts::tiny5(&fonts::cache_dir(), &tiny5).map_err(Absent::Failed),
+        desktop: desktop.map_err(Absent::Failed),
+        tiny5: tiny5.map_err(Absent::Failed),
     }
 }
 
