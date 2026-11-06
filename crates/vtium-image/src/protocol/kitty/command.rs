@@ -27,6 +27,8 @@ pub(super) enum Error {
     /// bytes that came and the bytes needed, as kitty answers it
     /// (ADR-1100, D15).
     NoData { got: u64, want: u64 },
+    /// A raw frame without `s` or `v`, as kitty answers it (ADR-1102, D2).
+    ZeroSize,
     /// Anything else the handler cannot do.
     Invalid,
 }
@@ -41,6 +43,7 @@ impl Error {
             Self::Cycle => "ECYCLE:relative placement would make a cycle",
             Self::TooDeep => "ETOODEEP:chain of relative placements is too deep",
             Self::NoData { .. } => "ENODATA:Insufficient image data",
+            Self::ZeroSize => "EINVAL:Zero width/height not allowed",
             Self::Invalid => "EINVAL:invalid argument",
         }
     }
@@ -326,7 +329,7 @@ impl Command {
     /// What is refused before any data is read: a key that cannot be read;
     /// `i` with `I`, as the spec asks; a `U` other than 0 or 1, and `U=1` with a parent, since a virtual
     /// placement is never a relative one (D13); a raw format without `s` and
-    /// `v`, which a frame's data alone may leave out, or past
+    /// `v`, which a frame answers as kitty does (ADR-1102, D2), or past
     /// `max-graphic-size`; palette indices in a frame, from a named medium
     /// or with `o=z` (ADR-1100, D15); and a placement whose pixel offset
     /// lies outside its cell or whose box passes [`BOX_CELLS_MAX`].
@@ -342,11 +345,15 @@ impl Command {
             return Some(Error::Invalid);
         }
         let (max_w, max_h) = graphic(ctx);
-        let sized = self.action == b'f' || (self.width != 0 && self.height != 0);
-        if self.transmits()
-            && self.format != 100
-            && (!sized || self.width > max_w || self.height > max_h)
-        {
+        let raw = self.transmits() && self.format != 100;
+        if raw && (self.width == 0 || self.height == 0) {
+            return Some(if self.action == b'f' {
+                Error::ZeroSize
+            } else {
+                Error::Invalid
+            });
+        }
+        if raw && (self.width > max_w || self.height > max_h) {
             return Some(Error::Invalid);
         }
         let (cw, ch) = ctx.cell_size();
@@ -368,12 +375,7 @@ impl Command {
     /// on a setting where only the program's author can act on a bad key.
     pub(super) fn bound(&self, ctx: &dyn Context) -> Option<&'static str> {
         let (max_w, max_h) = graphic(ctx);
-        let sized = self.action == b'f' || (self.width != 0 && self.height != 0);
-        if self.transmits()
-            && self.format != 100
-            && sized
-            && (self.width > max_w || self.height > max_h)
-        {
+        if self.transmits() && self.format != 100 && (self.width > max_w || self.height > max_h) {
             return Some("a kitty picture past max-graphic-size");
         }
         if matches!(self.action, b'T' | b'p')

@@ -419,7 +419,7 @@ impl Kitty {
             return;
         }
         let frame = if cmd.action == b'f' {
-            match frame_target(ctx, &mut self.upload.cmd) {
+            match frame_target(ctx, &self.upload.cmd) {
                 Ok(key) => Some(key),
                 Err(e) => {
                     self.upload.mode = Mode::Skip(Err(e));
@@ -564,7 +564,7 @@ impl Kitty {
     /// the helper reads. An empty name, a longer one or one holding NUL
     /// answers EBADF with no request, as an unreadable file does.
     fn media_finish(&mut self, ctx: &mut dyn Context) {
-        let mut cmd = self.cmd;
+        let cmd = self.cmd;
         if cmd.dropped() {
             return;
         }
@@ -581,7 +581,7 @@ impl Kitty {
         };
         let refusal = refused(ctx, &cmd).or_else(|| {
             (cmd.action == b'f')
-                .then(|| frame_target(ctx, &mut cmd).err())
+                .then(|| frame_target(ctx, &cmd).err())
                 .flatten()
         });
         if let Some(e) = refusal {
@@ -880,23 +880,16 @@ fn animated(ctx: &mut dyn Context, cmd: &Command) -> Result<ImageKey, Error> {
 }
 
 /// The image `a=f` sends a frame to, with its checks made before any data
-/// is read (ADR-1102, D2): raw data without `s` or `v` reaches the image's
-/// right or bottom edge from `x` or `y`, and its rectangle must lie inside
+/// is read (ADR-1102, D2): raw data's rectangle, which `s` and `v` give
+/// ([`Command::refusal`] refuses a raw frame without them), must lie inside
 /// the image; the frame `r` edits, or else the frame `c` starts from, must
 /// exist; and a new frame must fit `FRAMES_MAX`. A PNG's size is known
 /// only once it is decoded, so only its offset is checked here.
-fn frame_target(ctx: &mut dyn Context, cmd: &mut Command) -> Result<ImageKey, Error> {
+fn frame_target(ctx: &mut dyn Context, cmd: &Command) -> Result<ImageKey, Error> {
     let key = animated(ctx, cmd)?;
-    let (width, height) = ctx.store().image_size(key).ok_or(Error::NotFound)?;
     let rect = if cmd.format == 100 {
         (cmd.x, cmd.y, 1, 1)
     } else {
-        if cmd.width == 0 {
-            cmd.width = width.saturating_sub(cmd.x);
-        }
-        if cmd.height == 0 {
-            cmd.height = height.saturating_sub(cmd.y);
-        }
         (cmd.x, cmd.y, cmd.width, cmd.height)
     };
     ctx.store()

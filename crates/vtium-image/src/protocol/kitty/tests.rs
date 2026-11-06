@@ -933,31 +933,41 @@ fn animation_commands_are_answered_as_a_put_is() {
     assert_eq!(h.take(), "\x1b_Gi=2,I=5;OK\x1b\\\x1b_Gi=2,I=5;OK\x1b\\");
 }
 
+// A raw frame without s or v is refused as kitty 0.49.2 and 0.50.0 refuse
+// it, and stores nothing (ADR-1102, D2); a PNG frame takes its size from
+// the picture.
 // covers: image.kitty-animation
 #[test]
-fn a_frame_without_s_and_v_reaches_the_images_edge() {
+fn a_raw_frame_without_s_or_v_is_refused_as_kitty_refuses_it() {
     let (mut k, mut h) = (Kitty::default(), Host::new());
+    h.helper = true;
     send(&mut k, &mut h, &format!("a=t,s=3,v=2,i=1;{}", red(6)));
-    // from x=1, the frame's data is 2 by 2
+    assert_eq!(h.take(), "\x1b_Gi=1;OK\x1b\\");
+    // no s or v, s alone, v alone, and an offset without either
+    send(&mut k, &mut h, &format!("a=f,i=1;{}", red(6)));
+    send(&mut k, &mut h, &format!("a=f,i=1,s=3;{}", red(6)));
+    send(&mut k, &mut h, &format!("a=f,i=1,v=2;{}", red(6)));
     send(
         &mut k,
         &mut h,
-        &format!("a=f,i=1,x=1;{}", rgba([0, 0, 0xff, 0xff], 4)),
+        &format!("a=f,i=1,x=1,f=24;{}", b64(&[1; 12])),
     );
-    assert_eq!(h.take(), "\x1b_Gi=1;OK\x1b\\\x1b_Gi=1;OK\x1b\\");
-    let key = key(&mut h);
-    let p = h.store.frame_pixels(key, 2).unwrap();
-    assert_eq!(
-        p.pixels.as_slice(),
-        &[0, 0xff00_00ff, 0xff00_00ff, 0, 0xff00_00ff, 0xff00_00ff]
+    // from a file, which is refused before it goes to the helper
+    send(&mut k, &mut h, &format!("a=f,i=1,t=f;{}", b64(b"/frame")));
+    let zero = "\x1b_Gi=1;EINVAL:Zero width/height not allowed\x1b\\";
+    assert_eq!(h.take(), zero.repeat(5));
+    assert!(h.requests.is_empty());
+    assert_eq!(h.store.frame_bytes(), 0, "no frame is stored");
+    // with s and v the same data is a frame
+    send(&mut k, &mut h, &format!("a=f,i=1,s=3,v=2;{}", red(6)));
+    assert_eq!(h.take(), "\x1b_Gi=1;OK\x1b\\");
+    // a PNG frame needs neither: its picture gives its size
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=f,i=1,f=100;{}", b64(b"\x89PNG")),
     );
-    // data short of the rectangle is refused
-    send(&mut k, &mut h, &format!("a=f,i=1;{}", red(5)));
-    assert_eq!(
-        h.take(),
-        "\x1b_Gi=1;ENODATA:Insufficient image data: 20 < 24\x1b\\"
-    );
-    assert_eq!(h.store.frame_bytes(), 3 * 2 * 4 + crate::FRAME_OVERHEAD);
+    assert_eq!(h.requests.len(), 1);
 }
 
 // A frame's data short of its rectangle is answered as kitty 0.49.2 and

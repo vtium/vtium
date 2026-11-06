@@ -54,6 +54,9 @@ considered:
   - operator: aaronsb
     said: "[Switch short animation frames to ENODATA too, like kitty?] ENODATA, like kitty (Rec.)"
     via: AskUserQuestion, 2026-11-06; the option label is the steering session's wording
+  - operator: aaronsb
+    said: "[A raw frame (f=24) without s and v: follow kitty, which refuses it with 'EINVAL:Zero width/height not allowed'?] Follow kitty (Rec.)"
+    via: AskUserQuestion, 2026-11-06; the option label is the steering session's wording
 status: accepted
 date: 2026-11-01
 deciders:
@@ -128,7 +131,9 @@ Terms used below: a *frame* is one picture of an animation, numbered from 1; the
 
 Composition follows the kitty spec's rules. vtium-image's frame code, beside the store, does it once, on the CPU, on pixels already decoded, and no renderer ever composes (the maintainer, 2026-11-02): the CPU renderer and the GPU renderer both receive whole pixels, so the GPU path still draws the CPU path's bytes (ADR-1300 D6). The frame code composes at two times: when a command arrives, for a frame D1 stores whole and for the whole frames D1 composes ahead of an edit or a composition; and when the binary takes a head's snapshot, for a change frame that the animation clock chose and that is not in the cache (D3). A frame's data arrives as any transmission's does, raw in the console or as PNG or zlib through the image helper (ADR-1101), and the barrier holds the stream while the helper decodes it (ADR-1100 D7).
 
-- **A new frame** (`a=f` with `i` or `I`, and no `r`) starts from a canvas: the frame that `c` names, or, where `c` is left out, the color `Y` gives as 32-bit RGBA, transparent black by default. The transmitted data covers the rectangle that `x`, `y`, `s` and `v` give, or the whole image where they are left out, and is laid onto the canvas by alpha blending, or by plain replacement where `X=1`. The result is appended as the next frame: a change frame whose base is frame `c` or the color, with the data as its one layer, or the same frame composed whole when D1's rules say so.
+- **A new frame** (`a=f` with `i` or `I`, and no `r`) starts from a canvas: the frame that `c` names, or, where `c` is left out, the color `Y` gives as 32-bit RGBA, transparent black by default. The transmitted data covers the rectangle that `x`, `y`, `s` and `v` give, and is laid onto the canvas by alpha blending, or by plain replacement where `X=1`. Raw data (`f=24` or `f=32`) needs both `s` and `v`: a frame without either is refused with `EINVAL:Zero width/height not allowed`, as kitty 0.49.2 and 0.50.0 refuse it (the maintainer, 2026-11-06, `considered`; ADR-1100 D15's `basis`). A PNG frame takes its rectangle's size from the picture.
+
+  > Edited 2026-11-06: the bullet read "The transmitted data covers the rectangle that `x`, `y`, `s` and `v` give, or the whole image where they are left out", and vtium took a raw frame without `s` or `v` to the image's right or bottom edge from `x` or `y`. The maintainer chose to follow kitty, which refuses such a frame. The result is appended as the next frame: a change frame whose base is frame `c` or the color, with the data as its one layer, or the same frame composed whole when D1's rules say so.
 - **An edit** (`a=f` with `r`) lays the data onto frame `r` itself, by the same rules. The data becomes another layer of frame `r` when frame `r` is a change frame and D1 keeps it one; otherwise the store composes it into frame `r`'s whole pixels. Either way frame `r` then shows what it would show had its pixels been changed in place.
 - **A composition** (`a=c`) lays the rectangle `w` by `h` at `X`, `Y` of frame `r` onto the rectangle at `x`, `y` of frame `c`, by alpha blending, or by replacement where `C=1`; `w` and `h` default to the whole image. It is applied to whole pixels (D1).
 - **The blend** is premultiplied "source over", in whole numbers, per channel: `src + (dst × (255 − a) + 127) / 255`, where `a` is the source's alpha and the division drops its remainder. The same bytes give the same frame on every machine, and a frame composed when its command arrives holds the same bytes as the same frame composed when it is shown.
@@ -210,6 +215,7 @@ The C reference had no animation. Its kitty parser refused `a=f`, `a=a` and `a=c
 
 - **vtium plays kitty animations,** where the C reference answered EINVAL; ADR-1100 lists this among its departures.
 - **Frames are held in memory,** where kitty keeps frame data on disk; the allowance is kitty's, five times the base.
+- **A raw frame needs `s` and `v`.** The kitty specification says that a frame's rectangle is the whole image where `x`, `y`, `s` and `v` are left out; vtium follows kitty, which refuses a raw frame without `s` or `v` (D2).
 
 ## Consequences
 

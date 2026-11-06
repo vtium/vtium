@@ -105,7 +105,6 @@ These follow the kitty spec where it leaves a choice open. Each stays vtium's re
 
 - **A relative placement without `Q` follows the parent image's placement made last that has no placement id,** as D13 decides; with no such placement the put answers ENOPARENT.
 - **`P=0` names no parent,** as an id of 0 names no image anywhere in the protocol, so the put is an ordinary one, and `Q`, `H` and `V` do nothing.
-- **A raw frame without `s` or `v` reaches the image's right or bottom edge** from `x` or `y`. The spec says only that a frame's rectangle is the whole image where `x`, `y`, `s` and `v` are left out.
 - **A change "covers half the picture" when its layers' areas add up to half the image's or more** (ADR-1102, D1, the second rule). Layers that overlap count twice, so a frame can only be composed whole earlier than its covered pixels alone would make it, never later.
 - **`z` on any `a=f` sets the gap of the frame the command makes or edits,** the root frame's included; `z=0` keeps the gap the frame has, and a new frame's is 40.
 - **`a=a` sets a gap only with both `r` and `z`.** With `z` and no `r` it sets no gap, since `r=0` names no frame.
@@ -122,6 +121,7 @@ Raw data sent directly and uncompressed that holds fewer bytes than its picture'
 
 ## Departures from the kitty spec
 
+- **A raw frame without `s` or `v` is refused** with `EINVAL:Zero width/height not allowed`, as kitty 0.49.2 and 0.50.0 refuse it, though the spec says a frame's rectangle is the whole image where `x`, `y`, `s` and `v` are left out (ADR-1102, D2). A PNG frame takes its size from the picture.
 - **A palette-index picture keeps the colors it arrived with.** Kitty's specification redraws an `f=8` or `f=16` picture whenever the terminal's colors change. vtium turns the indices into colors once, as the picture arrives, so a later palette change leaves it as it was (the maintainer, 2026-11-06).
 - **`f=8` and `f=16` are taken only sent directly and uncompressed.** From a file, a temporary file or shared memory, or with `o=z`, they answer EINVAL, because the image helper's pixel description has no layout for palette indices.
 - **A picture that arrived as palette indices takes frames.** The specification supports no animation for pictures in these formats. vtium refuses a frame sent as `f=8` or `f=16`, but stores the picture as colors, so frames in the other formats can be added to it.
