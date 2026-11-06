@@ -703,6 +703,10 @@ pub struct View {
     /// frames.
     pub gpu_failure_logged: bool,
     pub timer: Option<RenderTimer>,
+    /// The render timer's line for the display, which the console draws
+    /// in the on-screen display's box under `render-timer=osd` or `both`:
+    /// the figures of the last second the timer reported.
+    pub timer_line: Option<String>,
     pub size: (u32, u32),
     pub refresh: Option<std::time::Duration>,
     /// The height the display's font was asked for.
@@ -759,6 +763,7 @@ impl View {
             lost: true,
             gpu_failure_logged: false,
             timer: measure.then(RenderTimer::new),
+            timer_line: None,
             size,
             refresh: refresh(refresh_mhz),
             pointer: Pointer::default(),

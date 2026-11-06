@@ -1114,8 +1114,22 @@ impl App {
         }
     }
 
+    /// What `render-timer` asks for: whether the console writes each
+    /// display's figures to the log, and whether it draws them on screen.
+    fn render_timer(&self) -> (bool, bool) {
+        match self.config.text(&keys::RENDER_TIMER) {
+            Some("log") => (true, false),
+            Some("osd") => (false, true),
+            Some("both") => (true, true),
+            _ => (false, false),
+        }
+    }
+
+    /// Whether the console measures each display's frames, for the log,
+    /// the screen or both.
     fn measure(&self) -> bool {
-        matches!(self.config.text(&keys::RENDER_TIMER), Some("log" | "both"))
+        let (log, osd) = self.render_timer();
+        log || osd
     }
 
     /// The rules' identity of the display `id` of `node`, its place in
@@ -1714,8 +1728,10 @@ impl App {
                     }
                 }
             }
+            // a line from before the VT left is no figure of this second
             for v in head.views.values_mut() {
                 v.lost = true;
+                v.timer_line = None;
             }
             head.draw_now = true;
         }
@@ -3695,7 +3711,11 @@ impl App {
         }
     }
 
-    /// The render timer's line, once a second.
+    /// The render timer's figures for each display, once a second: its
+    /// line in the log under `render-timer=log` or `both`, and its line in
+    /// the on-screen display's box under `osd` or `both`, which the
+    /// display draws again to show. That frame counts in the next second's
+    /// figures, as the C reference's redraw for its line did.
     fn report(&mut self, now: Instant) {
         for head in &mut self.heads {
             if let Some(line) = head.figures_line(now) {
@@ -3706,17 +3726,27 @@ impl App {
             return;
         };
         self.timer_due = Some(after(due, Duration::from_secs(1)));
+        let (log, osd) = self.render_timer();
         for head in &mut self.heads {
+            let mut shows = false;
             for ((node, id), view) in &mut head.views {
                 let px = u64::from(view.size.0).saturating_mul(u64::from(view.size.1));
-                if let Some(report) = view
+                let Some(report) = view
                     .timer
                     .as_mut()
                     .and_then(|t| t.report(Duration::from_secs(1), px))
-                {
+                else {
+                    continue;
+                };
+                if log {
                     log::info!(target: "terminal", "{}", render_timer_line(&report, node, *id));
                 }
+                if osd {
+                    view.timer_line = Some(report.osd());
+                    shows = true;
+                }
             }
+            head.draw_now |= shows;
         }
     }
 
@@ -3921,7 +3951,12 @@ fn draw_head(
     now: Instant,
 ) {
     let state = head.draw_state();
-    let overlay = head.overlay();
+    // each display draws its own render timer's line in the box
+    let overlays: Vec<crate::term::Overlay> = head
+        .views
+        .values()
+        .map(|v| head.overlay(v.timer_line.as_deref()))
+        .collect();
     // The notice screen's notice stays for as long as it is lit (D7).
     if head.has_notices()
         && head.notice_due.is_none()
@@ -3937,7 +3972,7 @@ fn draw_head(
     let holding = term.sync.holding(&term.terminal);
     let base = head.cell;
     let mut snapshot = None;
-    for (key, view) in head.views.iter_mut() {
+    for ((key, view), overlay) in head.views.iter_mut().zip(&overlays) {
         let Some(video) = videos.get_mut(&key.0) else {
             continue;
         };
@@ -3981,7 +4016,7 @@ fn draw_head(
             ..state
         };
         let hook = head.draw_hook.as_ref();
-        view.overlay.clone_from(&overlay);
+        view.overlay.clone_from(overlay);
         let Prepared::Job(job) = view.prepare(
             key,
             term,
@@ -5486,6 +5521,73 @@ mod tests {
             assert_eq!(frit.answer_at(20, false), Some(failed));
         }
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // ADR-1401 D5: under `render-timer=osd` the console measures each
+    // display's frames, and once a second draws the render timer's line,
+    // `Report::osd`'s, in the on-screen display's box, in the on-screen
+    // display's colors; under `log` it draws none. The display reports
+    // three flips in the second, so the line reads 3.0 frames a second.
+    #[test]
+    fn render_timer_osd_draws_each_seconds_figures_in_the_box() {
+        for (value, shows) in [("osd", true), ("both", true), ("log", false)] {
+            let option = format!("--render-timer={value}");
+            let (mut lp, mut app) = seat_with(&["--font-size=16", &option], None, no_fonts());
+            app.add_video(
+                PathBuf::from("/dev/mem0"),
+                Box::new(Still::new(&[(1, "A")])),
+            );
+            let t = Instant::now();
+            app.vt.activate().unwrap();
+            app.turn(t);
+            let back = |app: &App| app.heads.iter().all(|h| h.frames_out() == 0);
+            let settle = |lp: &mut Loop<App>, app: &mut App, at: Instant| {
+                for _ in 0..1000 {
+                    if back(app) {
+                        break;
+                    }
+                    lp.dispatch(Some(Duration::from_millis(10)), app).unwrap();
+                    app.turn(at);
+                }
+                assert!(back(app), "the render thread handed every frame back");
+            };
+            settle(&mut lp, &mut app, t);
+            let view = |app: &App| {
+                let head = app.heads.first().unwrap();
+                let v = head.views.values().next().unwrap();
+                (v.timer.is_some(), v.overlay.clone())
+            };
+            assert!(view(&app).0, "{value}: the console measures");
+            assert_eq!(
+                view(&app).1.notice,
+                None,
+                "{value}: no line before a second"
+            );
+            let still = app.videos.get_mut(Path::new("/dev/mem0")).unwrap();
+            let still = still.as_any().downcast_mut::<Still>().unwrap();
+            still.events.extend([Event::Flipped(DisplayId(1)); 3]);
+            let half = t + Duration::from_millis(500);
+            app.turn(half);
+            settle(&mut lp, &mut app, half);
+            let second = t + Duration::from_secs(1);
+            app.turn(second);
+            settle(&mut lp, &mut app, second);
+            let (_, overlay) = view(&app);
+            let line = overlay.notice.as_ref().map(|n| n.text().to_owned());
+            if !shows {
+                assert_eq!(line, None, "{value}: no line on screen");
+                continue;
+            }
+            let line = line.unwrap_or_default();
+            assert!(
+                line.starts_with("3.0 fps ") && line.contains(" ms ") && line.ends_with('%'),
+                "{value}: the line drawn is {line:?}"
+            );
+            assert!(
+                !overlay.problem,
+                "{value}: in the on-screen display's colors"
+            );
+        }
     }
 
     #[test]
