@@ -114,9 +114,9 @@ pub fn reading(bytes: &[u8]) -> Reading {
 /// `policy` lines of its top level, as [`reading`] reads a head file, with
 /// the whole file's line numbers (ADR-1403 D3). Every other top-level line
 /// is vtium's own key, which this reader skips. `None` for a file with no
-/// flow, one with no section heading and no policy line, which is a
-/// kmscon.conf: vtium runs its compiled-in flow for it, and the top level
-/// still applies.
+/// flow, one with no section heading and no policy line, as a copied
+/// kmscon.conf is: vtium runs its compiled-in flow for it, and the top
+/// level still applies.
 pub fn sections(bytes: &[u8]) -> Option<Reading> {
     split(bytes).has_flow().then(|| read(bytes))
 }
@@ -1185,7 +1185,7 @@ impl Parser {
     }
 
     fn finish(mut self) -> Reading {
-        // a vtium.conf with no section is a kmscon.conf, which needs no
+        // a file with no section, as a copied kmscon.conf is, needs no
         // version even when it states a policy (ADR-1403 D3)
         let needs_version = self.headed;
         if !self.versioned && needs_version {
