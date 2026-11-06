@@ -255,12 +255,12 @@ fn the_entry_reads() {
         get("Ms"),
         Some(Cap::Str(b"\x1b]52;%p1%s;%p2%s\x07".to_vec()))
     );
-    // 181 capabilities, each once, as infocmp -x lists the compiled entry.
-    assert_eq!(caps.len(), 181);
+    // 213 capabilities, each once, as infocmp -x lists the compiled entry.
+    assert_eq!(caps.len(), 213);
     let mut names: Vec<_> = caps.iter().map(|(n, _)| n.as_str()).collect();
     names.sort_unstable();
     names.dedup();
-    assert_eq!(names.len(), 181);
+    assert_eq!(names.len(), 213);
     // 136 names and Ms
     let (name, caps) = parse(KMSCON);
     assert_eq!(name, super::KMSCON);
@@ -278,7 +278,7 @@ fn the_table_adds_xterms_names_and_drops_the_size() {
     assert_eq!(get("Tc"), Some(None));
     assert_eq!(get("cols"), None);
     assert_eq!(get("lines"), None);
-    assert_eq!(t.len(), 181 - 2 + 3);
+    assert_eq!(t.len(), 213 - 2 + 3);
     assert!(t.windows(2).all(|w| w[0].0 < w[1].0), "sorted");
     let t = table(KMSCON);
     let get = |n: &str| t.iter().find(|(c, _)| c == n).map(|(_, v)| v.clone());

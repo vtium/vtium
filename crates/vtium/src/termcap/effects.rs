@@ -439,8 +439,13 @@ fn printed(t: &mut Terminal, bytes: &[u8]) -> char {
     text(t, 0).chars().next().unwrap_or(' ')
 }
 
-/// The keysym and modifiers of each key capability.
-fn key(name: &str) -> Option<(u32, Mods)> {
+/// The keysym and modifiers of each key capability of the entry for
+/// `term`.
+fn key(term: &str, name: &str) -> Option<(u32, Mods)> {
+    const HOME: u32 = 0xff50;
+    const END: u32 = 0xff57;
+    const INSERT: u32 = 0xff63;
+    const DELETE: u32 = 0xffff;
     const LEFT: u32 = 0xff51;
     const UP: u32 = 0xff52;
     const RIGHT: u32 = 0xff53;
@@ -472,29 +477,42 @@ fn key(name: &str) -> Option<(u32, Mods)> {
         "kcud1" => (DOWN, none),
         "kcuf1" => (RIGHT, none),
         "kcuu1" => (UP, none),
-        "kdch1" => (0xffff, none),
-        "kend" => (0xff57, none),
-        "khome" => (0xff50, none),
-        "kich1" => (0xff63, none),
+        "kdch1" => (DELETE, none),
+        "kend" => (END, none),
+        "khome" => (HOME, none),
+        "kich1" => (INSERT, none),
         "knp" => (PGDN, none),
         "kpp" => (PGUP, none),
         "kLFT" => (LEFT, shift),
         "kRIT" => (RIGHT, shift),
         "kUP" | "kri" => (UP, shift),
         "kDN" | "kind" => (DOWN, shift),
+        "kHOM" => (HOME, shift),
+        "kEND" => (END, shift),
+        "kIC" => (INSERT, shift),
+        "kDC" => (DELETE, shift),
         "kPRV" => (PGUP, shift),
         "kNXT" => (PGDN, shift),
-        // F21 and F22 are Shift with F11 and F12
-        "kf21" => (F1 + 10, shift),
-        "kf22" => (F1 + 11, shift),
         _ => {
             if let Some(n) = name.strip_prefix("kf").and_then(|n| n.parse::<u32>().ok()) {
-                return Some((F1 + n - 1, none));
+                // xterm-vtium's kf13 to kf24 are Shift with F1 to F12, as
+                // in xterm's entry. kmscon's kf13 to kf20 are the keys F13
+                // to F20, and its kf21 and kf22 Shift with F11 and F12.
+                return Some(match (term == super::KMSCON, n) {
+                    (_, 1..=12) => (F1 + n - 1, none),
+                    (false, _) => (F1 + n - 13, shift),
+                    (true, 21..) => (F1 + n - 11, shift),
+                    (true, _) => (F1 + n - 1, none),
+                });
             }
             return modified("kUP", UP)
                 .or_else(|| modified("kDN", DOWN))
                 .or_else(|| modified("kLFT", LEFT))
                 .or_else(|| modified("kRIT", RIGHT))
+                .or_else(|| modified("kHOM", HOME))
+                .or_else(|| modified("kEND", END))
+                .or_else(|| modified("kIC", INSERT))
+                .or_else(|| modified("kDC", DELETE))
                 .or_else(|| modified("kPRV", PGUP))
                 .or_else(|| modified("kNXT", PGDN));
         }
@@ -592,7 +610,7 @@ fn check(entry: &Entry, name: &str, cap: &Cap) {
         );
         assert_eq!(t.screen().cursor(), cursor, "{name}: the cursor");
     };
-    if let Some((sym, mods)) = key(name) {
+    if let Some((sym, mods)) = key(&entry.term, name) {
         t.key(sym, 0, mods, None);
         assert_eq!(
             String::from_utf8_lossy(&t.take_replies()),
