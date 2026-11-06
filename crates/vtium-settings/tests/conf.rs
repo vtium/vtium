@@ -305,8 +305,8 @@ fn a_set_or_unset_key_changes_the_top_level_s_line_alone() {
     );
 }
 
-// ADR-1403 D4: a `#` glued to a value stays in it, a departure from the
-// C reference, which read `font-size=12#big` as 12.
+// ADR-1403 D4: a `#` glued to a value stays in it, so `font-size=12#big`
+// reads as `12#big`, never as 12.
 #[test]
 fn a_hash_glued_to_a_value_stays_in_the_value() {
     assert_eq!(
