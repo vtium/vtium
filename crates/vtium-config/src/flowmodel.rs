@@ -262,7 +262,7 @@ pub fn build(text: &str, present: &Present, draft: Option<Draft>) -> Flow {
             });
             let state = match (kept, error) {
                 (false, error) => {
-                    RuleState::Error(error.unwrap_or_else(|| "vtium drops this rule".to_owned()))
+                    RuleState::Error(error.unwrap_or_else(|| "vtium ignores this rule".to_owned()))
                 }
                 _ if !present.udev && needs_udev.contains(&w.line) => RuleState::NeedsUdev,
                 _ if shadowed.is_some() => RuleState::Shadowed(shadowed.unwrap_or_default()),
@@ -396,19 +396,17 @@ pub fn state_words(flow: &Flow, rule: &Rule) -> String {
     match &rule.state {
         RuleState::Matches => String::new(),
         RuleState::MatchesNothing if general(&rule.selector) => match rule.kind {
-            Kind::Display => "matches no display present".to_owned(),
-            Kind::Input => "matches no device present".to_owned(),
+            Kind::Display => "matches no connected display".to_owned(),
+            Kind::Input => "matches no connected device".to_owned(),
         },
-        RuleState::MatchesNothing => "configured, not found".to_owned(),
+        RuleState::MatchesNothing => "in a rule, not connected".to_owned(),
         RuleState::Shadowed(by) => format!("rule {} matches first", by.saturating_add(1)),
         RuleState::NeedsUdev => "needs udev".to_owned(),
         RuleState::Error(why) => why.clone(),
     }
     .to_owned()
         + match flow.target(rule) {
-            Target::Missing if !matches!(rule.state, RuleState::Error(_)) => {
-                "sends to a head that does not exist"
-            }
+            Target::Missing if !matches!(rule.state, RuleState::Error(_)) => "! head not found",
             _ => "",
         }
 }
@@ -434,7 +432,7 @@ pub fn text(flow: &Flow, first: &str, missing: &[String]) -> String {
             let _ = write!(line, " ({})", d.detail);
         }
         if !d.found {
-            line.push_str(" * configured, not found");
+            line.push_str(" * in a rule, not connected");
         }
         match d.rule {
             Some(r) => {
@@ -494,7 +492,7 @@ pub fn text(flow: &Flow, first: &str, missing: &[String]) -> String {
             let _ = write!(line, " {} pt", l.points);
         }
         if l.frit.is_empty() && l.points == 0 {
-            line.push_str(" the top level's font");
+            line.push_str(" the font set at the top of vtium.conf");
         }
         if !flow.used(i) {
             line.push_str(" (no head uses it)");
@@ -816,7 +814,7 @@ pub fn unrouted(flow: &Flow, item: Item) -> String {
             return format!("not used: {words}");
         }
     }
-    "not used: no complete route passes through it".to_owned()
+    "not used: no complete route goes through it".to_owned()
 }
 
 #[cfg(test)]
@@ -913,7 +911,7 @@ mod tests {
         );
         assert_eq!(
             unrouted(&flow, Item::Rule(1)),
-            "not used: matches no display present"
+            "not used: matches no connected display"
         );
         assert_eq!(item(&flow, &["rule".to_owned(), "0".to_owned()]), None);
     }

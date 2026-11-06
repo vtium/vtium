@@ -49,7 +49,7 @@ impl Args {
             if valued.contains(&w.as_str()) {
                 let v = it
                     .next()
-                    .ok_or_else(|| Fail::Usage(format!("{w} takes a value")))?;
+                    .ok_or_else(|| Fail::Usage(format!("{w} needs a value")))?;
                 out.options.insert(w.clone(), Some(v.clone()));
             } else if switches.contains(&w.as_str()) {
                 out.options.insert(w.clone(), None);
@@ -78,7 +78,7 @@ fn number(word: &str) -> Result<usize, Fail> {
         .filter(|n| *n > 0)
         .ok_or_else(|| {
             Fail::Usage(format!(
-                "{word:?} is not a rule's number; rules are numbered from 1"
+                "{word:?} is not a rule number; rules are numbered from 1"
             ))
         })
 }
@@ -210,7 +210,7 @@ impl Command<'_, '_> {
         let (flow, _, _) = self.judged(&name, &text)?;
         let item = flowmodel::item(&flow, &args.words).ok_or_else(|| {
             Fail::Usage(format!(
-                "route takes display NAME, rule N, head NAME, look NAME or input NAME, and the draft has no {}",
+                "the draft has no {}. route takes display NAME, rule N, head NAME, look NAME or input NAME.",
                 args.words.join(" ")
             ))
         })?;
@@ -237,7 +237,7 @@ impl Command<'_, '_> {
                 flowmodel::unrouted(&flow, item)
             } else {
                 format!(
-                    "on {} complete route{}",
+                    "part of {} complete route{}",
                     routes.len(),
                     if routes.len() == 1 { "" } else { "s" }
                 )
@@ -361,9 +361,9 @@ impl Command<'_, '_> {
             let checked = self.session.check(new, &path)?;
             self.print_check(&checked);
             self.say(if checked.passed {
-                "the check passes; nothing is written"
+                "the check passes; nothing was saved (--dry-run)"
             } else {
-                "the check finds problems; nothing is written"
+                "the check finds problems; nothing was saved (--dry-run)"
             });
             return Ok(());
         }
@@ -524,7 +524,7 @@ impl Command<'_, '_> {
                 let valued: Vec<&str> = KEYS.iter().map(|(o, _)| *o).chain(["--name"]).collect();
                 let args = Args::parse(rest, &CHANGE, &valued)?;
                 let [name] = args.words.as_slice() else {
-                    return Err(Fail::Usage("head set takes NAME and the keys to change".to_owned()));
+                    return Err(Fail::Usage("head set takes NAME and the settings to change".to_owned()));
                 };
                 let keys: Vec<(&str, Option<&str>)> = KEYS
                     .iter()
@@ -532,7 +532,7 @@ impl Command<'_, '_> {
                     .collect();
                 let rename = args.value("--name").map(str::to_owned);
                 if keys.is_empty() && rename.is_none() {
-                    return Err(Fail::Usage("head set takes at least one key to change".to_owned()));
+                    return Err(Fail::Usage("head set needs at least one setting to change".to_owned()));
                 }
                 self.change(&args, |t| {
                     let set = ops::section_keys(t, Of::Head(name), &keys)?;
@@ -552,14 +552,14 @@ impl Command<'_, '_> {
                 if !broken.is_empty() && !args.has("--dry-run") {
                     let shown: Vec<String> = broken.iter().map(usize::to_string).collect();
                     self.say(&format!(
-                        "the rules {} still send to {name}, which the check lists until each is pointed elsewhere or removed",
+                        "rules {} still send to {name}; the check reports them until you change or remove each one",
                         shown.join(", ")
                     ));
                 }
                 self.change(&args, |t| ops::head_rm(t, name))
             }
             "active" => Err(Fail::Usage(
-                "head active needs the control socket under /run/vtium that ADR-1401 D12 plans, which this build does not have, so vtium-config cannot ask the running vtium to change its active head".to_owned(),
+                "head active does not work yet: the running vtium has no way to receive the request".to_owned(),
             )),
             other => Err(Fail::Usage(format!("head takes add, set, rm or active, not {other}"))),
         }
@@ -592,7 +592,7 @@ impl Command<'_, '_> {
                 let args = Args::parse(rest, &CHANGE, &valued)?;
                 let [name] = args.words.as_slice() else {
                     return Err(Fail::Usage(
-                        "look set takes NAME and the keys to change".to_owned(),
+                        "look set takes NAME and the settings to change".to_owned(),
                     ));
                 };
                 let keys: Vec<(&str, Option<&str>)> = ops::LOOK_KEYS
@@ -602,7 +602,7 @@ impl Command<'_, '_> {
                 let rename = args.value("--name").map(str::to_owned);
                 if keys.is_empty() && rename.is_none() {
                     return Err(Fail::Usage(
-                        "look set takes at least one key to change".to_owned(),
+                        "look set needs at least one setting to change".to_owned(),
                     ));
                 }
                 self.change(&args, |t| {
@@ -649,10 +649,10 @@ impl Command<'_, '_> {
                 let name = match args.words.as_slice() {
                     [] => store.free_name(&crate::store::hostname())?,
                     [name] if !valid_name(name) => {
-                        return Err(Fail::Usage(format!("{name:?} cannot name a draft: 1 to 64 letters, digits, '.', '_', '+' and '-'")));
+                        return Err(Fail::Usage(format!("{name:?} cannot be a draft's name: a name has 1 to 64 letters, digits, '.', '_', '+' or '-'")));
                     }
                     [name] if store.read_draft(name)?.is_some() => {
-                        return Err(Fail::Usage(format!("a draft named {name} exists already; vtium-config never overwrites a draft")));
+                        return Err(Fail::Usage(format!("a draft named {name} already exists, and vtium-config never overwrites a draft")));
                     }
                     [name] => name.clone(),
                     _ => return Err(Fail::Usage("draft new takes at most one name".to_owned())),
@@ -664,7 +664,7 @@ impl Command<'_, '_> {
                 };
                 self.session.make(&name, from)?;
                 self.say(&format!("wrote {}", store.draft_path(&name)?.display()));
-                self.say(&format!("draft {name} is current"));
+                self.say(&format!("draft {name} is now current"));
                 Ok(())
             }
             ("switch", [name]) => {
@@ -673,7 +673,7 @@ impl Command<'_, '_> {
                 }
                 self.session.seen(name)?;
                 store.set_current(Some(name))?;
-                self.say(&format!("draft {name} is current"));
+                self.say(&format!("draft {name} is now current"));
                 Ok(())
             }
             ("rm", [] | [_]) => {
@@ -727,7 +727,7 @@ impl Command<'_, '_> {
             .and_then(|i| history.get(i))
             .ok_or_else(|| {
                 Fail::Usage(format!(
-                    "the installed history has no file {n}; vtium config history lists them"
+                    "there is no earlier file {n}; vtium config history lists them"
                 ))
             })?;
         let restored = crate::tui::read_conf(&file.path)
@@ -829,7 +829,7 @@ impl Command<'_, '_> {
                 .map_err(|e| Fail::File(format!("{editor}: {e}")))?;
             if !status.success() {
                 return Err(Fail::File(format!(
-                    "the editor {editor} failed, and the draft is as it was"
+                    "the editor {editor} failed, so the draft is unchanged"
                 )));
             }
             let edited = crate::tui::read_conf(copy)
@@ -848,14 +848,14 @@ impl Command<'_, '_> {
             if checked.passed {
                 break;
             }
-            let _ = write!(self.out, "The check finds problems. Edit again? [y/N] ");
+            let _ = write!(self.out, "The check found problems. Edit again? [y/N] ");
             let _ = self.out.flush();
             let mut answer = String::new();
             let _ = std::io::stdin().lock().read_line(&mut answer);
             if !matches!(answer.trim(), "y" | "Y" | "yes") {
                 if install {
                     return Err(Fail::Check(format!(
-                        "the check found problems in draft {name}, so nothing is installed; the draft keeps every change"
+                        "nothing installed: the check found problems in draft {name}. The draft keeps your changes."
                     )));
                 }
                 return Ok(());
@@ -883,8 +883,8 @@ fn missing(checked: &Checked) -> Vec<String> {
         .problems
         .iter()
         .filter(|l| {
-            l.contains("No display present")
-                || l.contains("no keyboard present")
+            l.contains("No connected display reaches a head")
+                || l.contains("No keyboard reaches head")
                 || l.contains("isolated, so roaming")
         })
         .cloned()

@@ -211,7 +211,7 @@ pub fn frits_dir(configdir: &Path) -> Frits {
         Ok(PathBuf::from(value))
     } else {
         Err(format!(
-            "{}: {key}={value:?}: {}, so vtium-config does not know which directory the frits are in; set {key} to an absolute path, or name the directory with --frits",
+            "{}: {key}={value:?}: {}, so vtium-config cannot find the font sets. Set {key} to an absolute path, or name the directory with --frits.",
             file.display(),
             vtium_settings::keys::NOT_ABSOLUTE
         ))
@@ -236,7 +236,7 @@ pub fn command(words: &[String], frits: &Path, out: &mut dyn Write, err: &mut dy
     let [name] = words else {
         let _ = writeln!(
             err,
-            "vtium-config: set takes one frit's name\nTry vtium-config --help."
+            "vtium-config: use-frit takes one font set's name\nTry vtium-config --help."
         );
         return 2;
     };
@@ -245,12 +245,11 @@ pub fn command(words: &[String], frits: &Path, out: &mut dyn Write, err: &mut dy
         1
     };
     if !known(name, frits) {
-        let file = frits.join(format!("{name}.vtfrit"));
         return fail(
             err,
             &format!(
-                "no frit is named {name}: a frit is {}, and the built-in fonts are {}",
-                file.display(),
+                "there is no font set named {name}: font sets are in {}, and the built-in fonts are {}",
+                frits.display(),
                 RESERVED.join(" and ")
             ),
         );
@@ -260,7 +259,7 @@ pub fn command(words: &[String], frits: &Path, out: &mut dyn Write, err: &mut dy
         Err(e) => {
             return fail(
                 err,
-                &format!("set needs the console's terminal: /dev/tty: {e}"),
+                &format!("use-frit must run in a vtium console: /dev/tty: {e}"),
             );
         }
     };
@@ -276,7 +275,7 @@ pub fn command(words: &[String], frits: &Path, out: &mut dyn Write, err: &mut dy
         Ok(None) => {
             let _ = writeln!(
                 out,
-                "failed\t{name}\tthe terminal is not vtium, so set sends it nothing"
+                "failed\t{name}\tthis terminal is not a vtium console, so nothing was sent"
             );
             1
         }
@@ -287,14 +286,14 @@ pub fn command(words: &[String], frits: &Path, out: &mut dyn Write, err: &mut dy
         Ok(Some(Answer::Named(n))) => {
             let _ = writeln!(
                 out,
-                "failed\t{name}\tthe console kept the font {n}; its log says why"
+                "failed\t{name}\tthe console kept font {n}; its log says why"
             );
             1
         }
         Ok(Some(Answer::Silent)) => {
             let _ = writeln!(
                 out,
-                "failed\t{name}\tno reply: the console's allow-font-ops is off"
+                "failed\t{name}\tno reply: allow-font-ops is off in this console"
             );
             1
         }
