@@ -213,10 +213,70 @@ impl Segmenter {
     }
 }
 
+/// The cells the grapheme cluster `cluster` takes on a screen whose
+/// clusters follow UAX #29 (mode 2027 set, the terminal's default): its
+/// first codepoint's width, 0, 1 or 2, or two when that codepoint is the
+/// base of an emoji-style variation sequence and U+FE0F follows it. It is
+/// the width the screen stores for the cluster, given here so that the
+/// glyph helper places each glyph in the cells the terminal gives it.
+pub fn cluster_width(cluster: &[char]) -> u8 {
+    width_of(cluster.iter().copied())
+}
+
+/// [`cluster_width`] of a cluster's characters as an iterator gives them,
+/// the one place the rule is written.
+pub(crate) fn width_of(mut chars: impl Iterator<Item = char>) -> u8 {
+    let Some(first) = chars.next() else {
+        return 1;
+    };
+    if is_vs16_base(first) && chars.any(|c| c == '\u{FE0F}') {
+        return 2;
+    }
+    char_width(first)
+}
+
 #[cfg(test)]
 #[expect(clippy::panic, reason = "a test fails by panicking")]
 mod tests {
     use super::*;
+
+    // cluster_width gives the width the screen stores for each cluster a
+    // terminal prints by the Unicode width method: an ideograph, the heart with
+    // VS16, with VS15 and alone, a letter and its combining acute, and the
+    // ZWJ family
+    #[test]
+    fn a_clusters_width_is_the_one_the_screen_stores() {
+        let clusters: [&[char]; 6] = [
+            &['\u{4E2D}'],
+            &['\u{2764}', '\u{FE0F}'],
+            &['\u{2764}', '\u{FE0E}'],
+            &['\u{2764}'],
+            &['e', '\u{301}'],
+            &[
+                '\u{1F468}',
+                '\u{200D}',
+                '\u{1F469}',
+                '\u{200D}',
+                '\u{1F467}',
+            ],
+        ];
+        let widths: Vec<u8> = clusters.iter().map(|k| cluster_width(k)).collect();
+        assert_eq!(widths, [2, 2, 1, 1, 1, 2]);
+        for cluster in clusters {
+            // a terminal prints by the Unicode width method from its start
+            let mut term = crate::Terminal::new(10, 1, 0);
+            let text: String = cluster.iter().collect();
+            term.input(text.as_bytes());
+            let stored = match term.screen().line(0).map(|l| l.cell(0).width()) {
+                Some(crate::Width::Wide) => 2,
+                Some(crate::Width::Narrow) => 1,
+                other => panic!("{cluster:?}: {other:?}"),
+            };
+            assert_eq!(cluster_width(cluster), stored, "{cluster:?}");
+        }
+        assert_eq!(cluster_width(&[]), 1);
+        assert_eq!(cluster_width(&['\u{301}']), 0, "a mark alone");
+    }
 
     #[test]
     fn widths_of_named_codepoints() {

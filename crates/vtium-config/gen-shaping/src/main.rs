@@ -10,7 +10,7 @@ const VERSION: &str = "18.0.0";
 
 /// The UCD files read, by base name, with their SHA-256 and the path under
 /// `https://www.unicode.org/Public/18.0.0/` they come from.
-const FILES: [(&str, &str, &str); 5] = [
+const FILES: [(&str, &str, &str); 6] = [
     (
         "emoji-sequences.txt",
         "emoji/",
@@ -35,6 +35,11 @@ const FILES: [(&str, &str, &str); 5] = [
         "Scripts.txt",
         "ucd/",
         "0071fd81b6aeae25f6e8bce8efec3066a6476a91b49bdb2f52dc76e817862a6a",
+    ),
+    (
+        "emoji-data.txt",
+        "ucd/emoji/",
+        "80d00f8e616a0ef27fd6b8de3b758c06383b5d917e2977709578e68baf733bf1",
     ),
 ];
 
@@ -179,19 +184,29 @@ fn run(ucd: &Path) -> Result<(), String> {
     let decomposed = decomposed(&unicode_data)?;
     let marks = marks(&unicode_data)?;
     let on_demand = on_demand(&scripts);
+    let presentation = presentation(&read("emoji-data.txt")?)?;
     let path = root.join("src/shaping/data.rs");
-    let text = data_rs(&emoji, &joining, &joins, &marks, &decomposed, &on_demand);
+    let text = data_rs(
+        &emoji,
+        &presentation,
+        &joining,
+        &joins,
+        &marks,
+        &decomposed,
+        &on_demand,
+    );
     std::fs::write(&path, text).map_err(|e| format!("{}: {e}", path.display()))?;
     println!(
         "src/shaping/data.rs: Unicode {VERSION}, {} emoji sequences, {} joining letters, \
          {} ranges of characters that join, {} ranges of marks, {} decomposed keys, \
-         {} scripts shaped on demand",
+         {} scripts shaped on demand, {} ranges of Emoji_Presentation",
         emoji.len(),
         joining.len(),
         joins.len(),
         marks.len(),
         decomposed.len(),
-        on_demand.len()
+        on_demand.len(),
+        presentation.len()
     );
     Ok(())
 }
@@ -255,6 +270,30 @@ fn sequences(text: &str) -> Result<Vec<Vec<u32>>, String> {
             return Err(format!("a {kind} of one scalar value: {cps}"));
         }
         out.push(seq);
+    }
+    Ok(out)
+}
+
+/// The characters of Emoji_Presentation=Yes (emoji-data.txt), as sorted
+/// ranges with each run of neighbours merged: those UTS #51 shows as emoji
+/// when no variation selector follows them.
+fn presentation(text: &str) -> Result<Vec<(u32, u32)>, String> {
+    let mut ranges = Vec::new();
+    for f in fields(text) {
+        let (Some(cps), Some(property)) = (f.first(), f.get(1)) else {
+            return Err(format!("a line of fewer than two fields: {f:?}"));
+        };
+        if *property == "Emoji_Presentation" {
+            ranges.push(range(cps)?);
+        }
+    }
+    ranges.sort_unstable();
+    let mut out: Vec<(u32, u32)> = Vec::new();
+    for (a, b) in ranges {
+        match out.last_mut() {
+            Some((_, end)) if *end + 1 >= a => *end = (*end).max(b),
+            _ => out.push((a, b)),
+        }
     }
     Ok(out)
 }
@@ -433,6 +472,7 @@ fn seq(s: &[u32]) -> String {
 
 fn data_rs(
     emoji: &[Vec<u32>],
+    presentation: &[(u32, u32)],
     joining: &[(u32, char, u8)],
     joins: &[(u32, u32)],
     marks: &[(u32, u32, u8)],
@@ -453,6 +493,16 @@ fn data_rs(
     );
     for s in emoji {
         let _ = writeln!(out, "    {},", seq(s));
+    }
+    out.push_str(
+        "];\n\n/// The characters of Emoji_Presentation=Yes, as sorted ranges\n\
+         /// (emoji-data.txt): those UTS #51 shows as emoji when no variation\n\
+         /// selector follows them. ADR-1200 D21 draws them from a color glyph\n\
+         /// where a source has one.\n\
+         pub const PRESENTATION: &[(u32, u32)] = &[\n",
+    );
+    for (a, b) in presentation {
+        let _ = writeln!(out, "    (0x{a:x}, 0x{b:x}),");
     }
     out.push_str(
         "];\n\n/// The joining letters of the scripts the Arabic shaper takes, Arabic\n\
