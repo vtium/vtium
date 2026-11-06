@@ -5,9 +5,11 @@
 # When a release is published, the archive job checks out the release's tag,
 # packs the archive with make vendor-archive-check, which also builds the
 # workspace offline from it, and keeps both files as a workflow artifact. The
-# attach job then attaches them to the release. Run by hand on a tag, the
-# workflow packs and checks the archive and keeps it as a workflow artifact
-# alone, so it can be checked before a release depends on it.
+# attach job then attaches them to the release. Run by hand on a tag, a
+# branch or a commit, the workflow packs and checks the archive and keeps it
+# as a workflow artifact alone, so it can be checked before a release depends
+# on it. A run by hand checks out the whole history, so the archive's name
+# carries the ref's tag, or git describe's name for it.
 #
 # A release published with the workflow token starts no workflow, so this
 # runs for a release that a person publishes.
@@ -17,8 +19,8 @@ on:
     types: [published]
   workflow_dispatch:
     inputs:
-      tag:
-        description: The tag to pack the archive for, such as v0.1.0-alpha.6
+      ref:
+        description: The tag, branch or commit to pack the archive for, such as v0.1.0-alpha.6 or main
         required: true
         type: string
 
@@ -26,7 +28,8 @@ permissions:
   contents: read
 
 env:
-  TAG: ${{ github.event_name == 'release' && github.event.release.tag_name || inputs.tag }}
+  # Empty in a run by hand.
+  RELEASE_TAG: ${{ github.event.release.tag_name }}
 
 jobs:
   archive:
@@ -41,7 +44,8 @@ jobs:
           df -h /
       - uses: actions/checkout@v4
         with:
-          ref: refs/tags/${{ env.TAG }}
+          ref: ${{ github.event_name == 'release' && format('refs/tags/{0}', github.event.release.tag_name) || inputs.ref }}
+          fetch-depth: ${{ github.event_name == 'release' && 1 || 0 }}
           persist-credentials: false
       # libudev and libxkbcommon, which vtium-platform links, libsystemd,
       # which its logind feature links, and zstd, which packs the archive.
@@ -54,11 +58,11 @@ jobs:
         with:
           toolchain: ${{ steps.toolchain.outputs.channel }}
           targets: aarch64-unknown-linux-gnu, armv7-unknown-linux-gnueabihf
-      # The file names carry the tag without its leading v.
-      - run: make vendor-archive-check VENDOR_DIR="$RUNNER_TEMP/vendor" VENDOR_VERSION="${TAG#v}"
+      # For a release, the file names carry its tag without the leading v.
+      - run: make vendor-archive-check VENDOR_DIR="$RUNNER_TEMP/vendor" ${RELEASE_TAG:+VENDOR_VERSION="${RELEASE_TAG#v}"}
       - uses: actions/upload-artifact@v4
         with:
-          name: vtium-vendor-${{ env.TAG }}
+          name: vtium-vendor
           path: |
             ${{ runner.temp }}/vendor/vtium-*-vendor.tar.zst
             ${{ runner.temp }}/vendor/vtium-*-vendor.tar.zst.sha256
@@ -75,14 +79,14 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: vtium-vendor-${{ env.TAG }}
+          name: vtium-vendor
           path: vendor
       # --clobber replaces the files a run that was started again had
       # already attached.
       - env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          version=${TAG#v}
-          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber \
+          version=${RELEASE_TAG#v}
+          gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --clobber \
             "vendor/vtium-$version-vendor.tar.zst" \
             "vendor/vtium-$version-vendor.tar.zst.sha256"
