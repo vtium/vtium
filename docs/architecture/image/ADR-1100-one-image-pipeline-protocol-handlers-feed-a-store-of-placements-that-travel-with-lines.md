@@ -38,6 +38,7 @@ basis:
   - precedent: ADR-1400
   - precedent: ADR-1401
   - evidence: "kitty 0.49.2, run as a black box on 2026-11-06 under a private Xvfb display with its configuration off (`kitty --config NONE`), answered kitty graphics commands with short data as follows. `a=t`, `a=T` and `a=q` with `f=24` or `f=32` sent directly and one or more bytes short, in one string or in chunks: `ENODATA:Insufficient image data: GOT < WANT`, where GOT is the bytes that came and WANT the bytes the width and height need (such as `5 < 6`, `4 < 8`, and `9 < 12` for two chunks). `f=24` with `o=z` that inflates short: `EINVAL:Image data size post inflation does not match expected size`. `f=24` from a file 5 bytes long for a 2x1 picture: `EBADF:Failed to read image file`. A frame (`a=f`) on a 2x2 image whose data is short of its rectangle, whole or 1x1: `ENODATA:Insufficient image data: 15 < 16` and `3 < 4`, with `r=2` in the reply. A frame in `f=24` without `s` and `v`: `EINVAL:Zero width/height not allowed`. `f=8`, a format kitty added in 0.50.0, sent or queried: `EINVAL:Unknown image format: 8`."
+  - evidence: "kitty 0.50.0, the official x86_64 release tarball (kitty-0.50.0-x86_64.txz, SHA-256 f04b11775574d6aabfb529b7e734cc0a7d7d12c7df9fb8ec1843e45420e514ee, its GPG signature checked good against Kovid Goyal's key 3CE1780F78DD88DF45194FD706BC317B515ACE7C from calibre-ebook.com), run as a black box on 2026-11-06 under a private Xvfb display with `kitty --config NONE`. It takes `f=8` and `f=16` sent directly, from a file, from shared memory and with `o=z`, and answers `a=q` with `f=8` OK. Under its default palette, read back through OSC 4, 10, 11, 12, 17 and 19, a screenshot of a 16x16 grid of every index matched vtium's decoder for 254 of the 256 indices; it drew 253 in its own cursor-text color (#111111) and 254 in its link color (#0087bd), where vtium uses the default background and the default foreground. Changing color 1 with OSC 4 and the default foreground with OSC 10 after an upload recolored the stored picture at once. Short data answered `ENODATA:Insufficient image data: 1 < 2` for `f=8` and `3 < 4` for `f=16`; `f=8` with `o=z` that inflates short answered `EINVAL:Image data size post inflation does not match expected size`, and from a file too short `EBADF:Failed to read image file`. A frame in any format onto a palette-index picture, and a frame in `f=8` onto any picture, answered `EINVAL:Animation is not supported for indexed color images`. A partly transparent `f=16` or `f=32` pixel drew over the black background blended in linear light, so red 204 at alpha 17 showed as 57 where vtium's premultiplied sRGB gives 14."
 agent:
   name: Claude
   model: claude-opus-5-5
@@ -174,6 +175,9 @@ considered:
     paraphrase: true
   - operator: aaronsb
     said: "[What should vtium do with kitty's f=8 and f=16 formats?] Support, convert on arrival"
+    via: AskUserQuestion, 2026-11-06; the option label is the steering session's wording
+  - operator: aaronsb
+    said: "[Download kitty's official prebuilt release (0.50 or later) into scratch and run it in a private X display to check f=8 and f=16?] Yes, scratch copy (Rec.)"
     via: AskUserQuestion, 2026-11-06; the option label is the steering session's wording
 observable:
   - "`cargo tree -p vtium -e normal` with default features lists no vtium-image, and with `--features images` lists it"
