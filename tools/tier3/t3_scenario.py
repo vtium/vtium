@@ -419,7 +419,8 @@ VARIANTS["showcase-1920x1080"] = {
 # its session, and the kiosk check presses them itself. heads-policy-typo's
 # file holds a policy line vtium cannot read ("policy_line"), which makes
 # it closed and broken (ADR-1401 D7), so its checks expect the closed
-# policy.
+# policy. heads-survive logs in and draws no screen, then restarts vtium and
+# kills it, and its shell must answer after each (ADR-1401 D13).
 HEAD_VARIANT = dict(DEVICES, agent=True, screens=[])
 NO_DISPLAY = dict({k: v for k, v in HEAD_VARIANT.items() if k not in ("fonts", "frits")},
                   device=None, conf="vtium-nodisplay.conf", renderer=None, login=False)
@@ -460,10 +461,12 @@ VARIANTS.update({
                                    failures=["kill"]),
     "heads-open-nodisplay": dict(NO_DISPLAY, heads="docs/heads/default.conf", policy="open",
                                  checks=["display-exit"]),
+    "heads-survive": dict(HEAD_VARIANT, heads="tools/tier3/guest/heads/survive.conf",
+                          policy="closed", vt_switch=False, checks=["session-survives"]),
 })
 HEAD_VARIANTS = ["heads-two-heads", "heads-partly-open", "heads-closed-broken",
                  "heads-policy-typo", "heads-closed-unmatched", "heads-off", "heads-kiosk",
-                 "heads-closed-nodisplay", "heads-open-nodisplay"]
+                 "heads-closed-nodisplay", "heads-open-nodisplay", "heads-survive"]
 
 # Each guest's base image, the make target that provisions it, the console
 # lines its boot ends with before the driver presses Ctrl+Alt+F2, and the

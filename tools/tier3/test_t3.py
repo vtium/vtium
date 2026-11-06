@@ -3126,6 +3126,7 @@ class HeadsTest(unittest.TestCase):
         "heads-kiosk": ["cjk", "kiosk"],
         "heads-closed-nodisplay": ["display-held", "getty-fallback"],
         "heads-open-nodisplay": ["display-exit"],
+        "heads-survive": ["session-survives"],
     }
 
     def test_variants(self):
@@ -3354,7 +3355,8 @@ class HeadsTest(unittest.TestCase):
                     "`touch %s/pwned-tick`" % d.name, "state ", "start now", "Start",
                     "hangup && touch pwned-and", "watch /dev/input/event0", "Watch",
                     "limit 99", "Limit", "reset-failed getty@tty2.service", "reset-failed;id",
-                    "prelogin now", "Prelogin", "prelogin;id"]
+                    "prelogin now", "Prelogin", "prelogin;id", "restart now", "Restart",
+                    "restart;id", "ptys tty2", "Ptys", "ptys;id"]
         for n, request in enumerate(requests, 1):
             with self.subTest(request):
                 os.write(master, b"%d %s\n" % (n, request.encode()))
@@ -3367,6 +3369,28 @@ class HeadsTest(unittest.TestCase):
                           if l.startswith("T3-AGENT %d " % n)]
                 self.assertEqual(answer, ["T3-AGENT %d refused %s" % (n, request.strip())])
         self.assertEqual(os.listdir(d.name), [])
+
+    def test_the_session_survives_judged_both_ways(self):
+        before = t3_heads.parse_ptys(["pty 700 pts/0 80x30 bash", "masters 410 1"])
+        good = t3_heads.parse_ptys(["pty 700 pts/0 80x30 bash", "masters 512 1"])
+        self.assertEqual(t3_heads.shell_of(before), 700)
+        self.assertIsNone(t3_heads.judge_survived(before, good, 512, True))
+        for after, vtium, took, why in (
+                (good, 512, False, "did not log"),
+                (t3_heads.parse_ptys(["masters 512 1"]), 512, True, "is gone"),
+                (t3_heads.parse_ptys(["pty 700 pts/1 80x30 bash", "masters 512 1"]), 512, True,
+                 "not pts/0"),
+                (t3_heads.parse_ptys(["pty 700 pts/0 10x5 bash", "masters 512 1"]), 512, True,
+                 "not 80x30"),
+                (t3_heads.parse_ptys(["pty 700 pts/0 80x30 bash", "masters 512 0"]), 512, True,
+                 "holds no pty master"),
+                (good, 513, True, "holds no pty master")):
+            with self.subTest(why):
+                self.assertIn(why, t3_heads.judge_survived(before, after, vtium, took))
+        none = t3_heads.parse_ptys(["masters 410 0"])
+        self.assertIn("no one shell", t3_heads.judge_survived(none, good, 512, True))
+        self.assertEqual(t3_heads.parse_ptys(["answer restart 700"])["answers"],
+                         {"restart": "700"})
 
     def test_parse_state(self):
         st = t3_heads.parse_state(agent_state(tty2="agetty", fallback=("inactive", "success",

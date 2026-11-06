@@ -153,6 +153,16 @@ CHECKS = {
                     "display-wait. Correct: the same vtium still running, no line that no "
                     "display appeared, the marker written and no getty on tty2 (ADR-1401 "
                     "D8).",
+    "session-survives": "A shell logged in on vtium's console, which vtium keeps in "
+                        "systemd's file-descriptor store, then vtium on tty2 restarted by its "
+                        "unit, as after an upgrade, and then killed by SIGKILL, as a crash, "
+                        "under a closed policy, where no getty takes the VT. Correct after "
+                        "each: a new vtium on tty2 holds the shell's pty master and says it "
+                        "took the session back; the same shell, by its process id, still "
+                        "leads its session on the same pty, at the same size; and a line "
+                        "typed on the console's keyboard reaches that shell, which writes its "
+                        "own process id where the agent reads it. The capture is the screen "
+                        "after the last line (ADR-1401 D13).",
     "two-heads": "A valid open vtium.conf with two heads, one on each output of the card, "
                  "each with its own look's font: the second output, the panel, read "
                  "after the first head, desk, took the login and drew its screens. "
@@ -754,6 +764,98 @@ def serial_after(vm, since):
         return f.read()[since:].decode(errors="replace")
 
 
+def parse_ptys(lines):
+    """The agent's answer to `ptys` (guest/t3-agent) as {"ptys": {pid: (pty,
+    size, command)}, "masters": (vtium's pid, the pty masters it has open)
+    or None, "answers": {what: text}}."""
+    out = {"ptys": {}, "masters": None, "answers": {}}
+    for line in lines:
+        f = line.split()
+        if f[:1] == ["pty"] and len(f) == 5 and f[1].isdigit():
+            out["ptys"][int(f[1])] = (f[2], f[3], f[4])
+        elif f[:1] == ["masters"] and len(f) == 3 and f[1].isdigit() and f[2].isdigit():
+            out["masters"] = (int(f[1]), int(f[2]))
+        elif f[:1] == ["answer"] and len(f) >= 2:
+            out["answers"][f[1]] = " ".join(f[2:])
+    return out
+
+
+def ask_ptys(vm):
+    return parse_ptys(vm.ask("ptys"))
+
+
+def shell_of(ptys):
+    """The process id of the one shell that leads a session on a pty in the
+    agent's answer `ptys`, or None when there is not exactly one."""
+    shells = [pid for pid, (_, _, command) in ptys["ptys"].items() if command == "bash"]
+    return shells[0] if len(shells) == 1 else None
+
+
+def judge_survived(before, after, vtium, took_back):
+    """Why the session in `before` did not survive the restart that left
+    `after` (the agent's answers to `ptys`) with vtium's new process id
+    `vtium`, and `took_back`, whether the new vtium logged that it took a
+    session back; None when it survived."""
+    shell = shell_of(before)
+    if shell is None:
+        return "no one shell leads a session on a pty before the restart: %s" % before["ptys"]
+    if not took_back:
+        return "the new vtium did not log that it took a session back"
+    if shell not in after["ptys"]:
+        return "the shell %d is gone after the restart: %s" % (shell, after["ptys"])
+    (pty, size, _), (pty_after, size_after, _) = before["ptys"][shell], after["ptys"][shell]
+    if pty_after != pty:
+        return "the shell %d leads its session on %s, not %s" % (shell, pty_after, pty)
+    if size_after != size:
+        return "the shell's pty is %s after the restart, not %s" % (size_after, size)
+    if after["masters"] is None or after["masters"][0] != vtium or after["masters"][1] < 1:
+        return "the new vtium %d holds no pty master: %s" % (vtium, after["masters"])
+    return None
+
+
+def check_session_survives(variant, vm, work, caps, errors, log):
+    """The session-survives check (CHECKS), after the scenario logged in: a
+    restart of vtium's unit, then a kill, each followed by a line typed in
+    the shell. The new vtium is known by the agent's state, its log since
+    the restart in the serial file, and its process id."""
+    case = "session-survives"
+    closed = variant["policy"] == "closed"
+    try:
+        for what, request in (("restart", "restart"), ("crash", "kill KILL")):
+            first = wait_state(vm, lambda s: judge_running(s, closed) is None,
+                               "vtium running on tty2")
+            before = ask_ptys(vm)
+            since = serial_size(vm)
+            answer = vm.ask(request)
+            log("%s: %s: %s" % (case, what, " ".join(answer)))
+            state = wait_state(vm, lambda s: judge_running(s, closed) is None
+                               and s["vtium"][0] != first["vtium"][0],
+                               "a new vtium on tty2 after the %s" % what)
+            pid = state["vtium"][0]
+            deadline = time.time() + STATE_TIMEOUT
+            line = "vtium[%d]: head console: console 1 takes back the session" % pid
+            while line not in serial_after(vm, since) and time.time() < deadline:
+                time.sleep(0.2)
+            after = ask_ptys(vm)
+            why = judge_survived(before, after, pid, line in serial_after(vm, since))
+            log("%s: %s: %s" % (case, what, why or "the session survived"))
+            if why:
+                raise RuntimeError("after the %s: %s" % (what, why))
+            vm.type("echo $$ > /tmp/t3-answer-%s\n" % what)
+            shell = str(shell_of(before))
+            deadline = time.time() + STATE_TIMEOUT
+            while ask_ptys(vm)["answers"].get(what) != shell:
+                if time.time() > deadline:
+                    raise RuntimeError("after the %s the shell %s did not answer the line typed: "
+                                       "%s" % (what, shell, ask_ptys(vm)["answers"]))
+                time.sleep(0.5)
+        path = os.path.join(work, case + ".ppm")
+        wait_stable(vm, path)
+        caps[case] = path
+    except RuntimeError as e:
+        errors[case] = str(e)
+
+
 def check_no_login(variant, vm, work, caps, errors, log):
     """The no-login check (CHECKS): the screen and the agent's state, a
     line typed on the console's keyboard, then the same once the guest
@@ -1029,4 +1131,4 @@ CHECK_RUNS = {"no-login": check_no_login, "getty-fallback": check_getty_fallback
               "start-limit": check_start_limit,
               "display-held": check_display_held, "display-exit": check_display_exit,
               "two-heads": check_two_heads, "kiosk": check_kiosk,
-              "policy-line": check_policy_line}
+              "policy-line": check_policy_line, "session-survives": check_session_survives}
