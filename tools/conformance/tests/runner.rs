@@ -1,5 +1,5 @@
 //! The runner's verdicts and the replay's command line, on a corpus
-//! written here, so they run without a checkout of the C reference.
+//! written here, so they run without the checked-in corpus.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;

@@ -143,7 +143,7 @@ A block is the screen at one point. Every view starts it with `size`, `cursor` a
 - draw2: `palette`, then for each row a `row` line and its `cells` lines; then `placement` and `image` lines.
 - frame: `palette`, `changed`, `frame-cursor`, then for each row a `row` line and its `cells` lines; then `placement` lines, each with its changed flag, and `image` lines.
 
-Rows are numbered from 0 at the top of the view and printed in order, as many as the screen has. In the screen view the C reference printed the ROWS rows of the command line instead, each COLS cells wide, whatever size a `resize` had given the screen since, so that a cell past COLS was not printed there and a row past the screen's height was empty; `img-resize` and `img-resize-shrink` record it, and an implementation may list it as a departure. A run is a maximal span of consecutive cells A to B on one row whose description is the same, and the view prints the runs that differ from its default cell, left to right. In the screen view a cell's description is its attributes: a cell outside the screen has none, and an empty cell keeps the attributes it was erased with. In the draw2 and frame views it is everything the `cells` line prints. Placements are numbered from 0 in draw order and images from 0 in the order placements first show them, each image listed once.
+Rows are numbered from 0 at the top of the view and printed in order, as many as the screen has. In the screen view the goldens `img-resize` and `img-resize-shrink` record the ROWS rows of the command line, each COLS cells wide, whatever size a `resize` had given the screen since, so that a cell past COLS is not printed there and a row past the screen's height is empty; an implementation may list that as a departure. A run is a maximal span of consecutive cells A to B on one row whose description is the same, and the view prints the runs that differ from its default cell, left to right. In the screen view a cell's description is its attributes: a cell outside the screen has none, and an empty cell keeps the attributes it was erased with. In the draw2 and frame views it is everything the `cells` line prints. Placements are numbered from 0 in draw order and images from 0 in the order placements first show them, each image listed once.
 
 ### Lines
 
@@ -157,7 +157,7 @@ Rows are numbered from 0 at the top of the view and printed in order, as many as
 
 `cells N A-B fg= bg= ul=[ ulset] FLAG...` is a run of the draw2 view: its colours after the palette, reverse video, dim and the underline colour are applied, `ulset` when SGR 58 set the underline colour, and its flags in the order `bold`, `italic`, `underline`, `blink`. The default cell has the default colours, an underline colour equal to the foreground, and no flag.
 
-`changed N` is the number of cells the frame flags as changed since the view's previous block, by the C reference's age rule: a cell changes when it is written or erased, or when a whole-screen redraw such as a scroll, a resize or a palette change covers it, and the first block counts every cell. It is informative (Comparing with the goldens), as is a placement's `changed` flag. `frame-cursor X,Y STYLE visible|hidden[ CELL]` is where the cursor draws, its style (`default`, `block-blink`, `block-steady`, `underline-blink`, `underline-steady`, `bar-blink` or `bar-steady`) and, when visible, the cell as the cursor draws it.
+`changed N` is the number of cells the frame flags as changed since the view's previous block, by an age rule: a cell changes when it is written or erased, or when a whole-screen redraw such as a scroll, a resize or a palette change covers it, and the first block counts every cell. It is informative (Comparing with the goldens), as is a placement's `changed` flag. `frame-cursor X,Y STYLE visible|hidden[ CELL]` is where the cursor draws, its style (`default`, `block-blink`, `block-steady`, `underline-blink`, `underline-steady`, `bar-blink` or `bar-steady`) and, when visible, the cell as the cursor draws it.
 
 `cells N A-B CELL` is a run of the frame view, and CELL is `w=W fg= bg= ul=` then its keys in the order `ulset`, `underline=STYLE` (`single`, `double`, `curly`, `dotted` or `dashed`), `bold`, `italic`, `dim`, `blink`, `inverse`, `protect`, `strike`. W is 1 or 2, and 0 for the trailing half of a wide character. The default cell has width 1, the default colours, an underline colour equal to the foreground, and no key.
 
@@ -169,7 +169,7 @@ Rows are numbered from 0 at the top of the view and printed in order, as many as
 
 ### Comparing with the goldens
 
-A runner compares an implementation's output with a golden byte for byte. The N of a `changed N` line and of a `test frame-since K changed N` line, and a placement's ` changed` flag, follow the C reference's age rule, which another implementation may draw differently and still draw correctly. Unless both the implementation and the reference declare the feature `damage-exact`, the runner masks them on both sides before comparing: each such N greater than 0 becomes the letter `N`, and each placement's ` changed` flag is removed. Zero against nonzero stays comparable, so a probe can still check that each frame-since caller keeps its own changes. The reference declares `damage-exact`.
+A runner compares an implementation's output with a golden byte for byte. The N of a `changed N` line and of a `test frame-since K changed N` line, and a placement's ` changed` flag, follow the age rule above, which another implementation may draw differently and still draw correctly. Unless both the implementation and the golden's reference host declare the feature `damage-exact`, the runner masks them on both sides before comparing: each such N greater than 0 becomes the letter `N`, and each placement's ` changed` flag is removed. Zero against nonzero stays comparable, so a probe can still check that each frame-since caller keeps its own changes. The reference host declares `damage-exact`.
 
 ### Grammar
 
@@ -241,7 +241,7 @@ base16-dark 000000 ab4642 a1b56c f7ca88 7cafc2 ba8baf 86c1b9 aaaaaa 555555 ab464
 base16-light 000000 ab4642 a1b56c f7ca88 7cafc2 ba8baf 86c1b9 aaaaaa 555555 ab4642 a1b56c f7ca88 7cafc2 ba8baf 86c1b9 ffffff 181818 d8d8d8
 ```
 
-The C reference erased the screen and reset the current attributes when a palette was chosen; `host-palette` records it, and an implementation may list it as a departure.
+The golden `host-palette` records that choosing a palette erases the screen and resets the current attributes; an implementation may list a different behaviour as a departure.
 
 ### Reserved keys
 
@@ -317,7 +317,7 @@ command frame-since query
 | `focus` | `focus`. |
 | `palette` | `palette`. |
 | `query` | `frame-since`. |
-| `damage-exact` | `changed N` lines, frame-since counts and placement `changed` flags follow the C reference's age rule, so a runner compares them unmasked. An implementation may decline it. |
+| `damage-exact` | `changed N` lines, frame-since counts and placement `changed` flags follow the age rule, so a runner compares them unmasked. An implementation may decline it. |
 
 Interface 1 makes every feature mandatory except `view-draw2`, whose goldens retire with the draw2 view, `damage-exact`, and the image features `images`, `sixel`, `kitty-graphics` and `image-host`, which an implementation built with images owes.
 

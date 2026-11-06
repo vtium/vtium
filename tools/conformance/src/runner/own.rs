@@ -1,4 +1,4 @@
-//! vtium's own cases: streams for behaviour the C reference's corpus does
+//! vtium's own cases: streams for behaviour the copied corpus does
 //! not hold, under `vtium/`, beside the copied corpus and laid out as it
 //! is, with `cases.list`, `cases/` and the goldens in `golden/` and
 //! `golden-frame/`. `provisional.tsv` lists the cases, of this set or of

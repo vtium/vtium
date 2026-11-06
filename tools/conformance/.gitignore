@@ -1,3 +1,2 @@
-# Before #111 the conformance tool extracted the C reference here; older
-# checkouts may still hold that output.
+# Older checkouts may still hold the output of a retired extraction step here.
 out/

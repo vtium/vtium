@@ -32,9 +32,9 @@ bidi                          missing #43   text.bidi                      place
 mode-2026-sync                works   -     DEC-2026                       mode 2026 holds frames while the host offers it
 decrqm                        works   -     query.decrqm                   DECRQM reports a mode's state
 da1                           works   -     query.da1                      DA1 replies
-da1-level                     works   -     query.da1                      DA1 reports a level xterm defines, which the C reference did not
+da1-level                     works   -     query.da1                      DA1 reports a level xterm defines
 da2                           works   -     query.da2                      DA2 replies
-da3                           works   -     query.da3                      DA3 answers DECRPTUI, where the C reference answered DA1
+da3                           works   -     query.da3                      DA3 answers DECRPTUI
 xtversion                     works   -     query.xtversion                XTVERSION replies with the host's text
 xtgettcap                     works   -     query.xtgettcap                XTGETTCAP answers from vtium's table, the fixtures/kmscon.termcap fixture
 osc-4-query                   works   -     color.palette.query            OSC 4 queries a palette color
@@ -71,7 +71,7 @@ mode-80                       works   -Dimages DEC-80                       DECR
 mode-1070                     works   -Dimages DEC-1070                     DECRQM 1070 (private sixel registers) replies 1 or 2 (#48)
 mode-8452                     works   -Dimages DEC-8452                     DECRQM 8452 (sixel cursor right) replies 1 or 2 (#48)
 
-# the modes and controls beyond the C reference (#54); 1007, 1035, 1042
+# the modes and controls vtium adds to the original set (#54); 1007, 1035, 1042
 # and XTSHIFTESCAPE need host calls the interface has no command for
 decaln                        works   -     ctl.decaln                     ESC # 8 fills the screen with E, origin mode off, the margins the whole screen
 reverse-wrap                  works   -     DEC-45                         mode 45: BS reverse-wraps only into the row that wrapped

@@ -1,6 +1,5 @@
 //! The xtgettcap probe's fixture, `fixtures/kmscon.termcap`, against the
-//! XTGETTCAP table vtium answers from: the C reference's build wrote its
-//! fixture from its terminfo entry, and this one holds vtium's table,
+//! XTGETTCAP table vtium answers from. The fixture holds vtium's table,
 //! generated from vtium's entry, `crates/vtium/install/kmscon.ti`.
 
 use std::path::Path;
