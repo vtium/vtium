@@ -76,6 +76,13 @@ pub struct SpacedCell {
     pub band: Band,
 }
 
+impl From<crate::face::Cell> for SpacedCell {
+    /// `cell` with no rows added, as [`SpacedCell::plain`] gives it.
+    fn from(cell: crate::face::Cell) -> SpacedCell {
+        SpacedCell::plain(cell)
+    }
+}
+
 impl SpacedCell {
     /// `cell` with no rows added.
     pub const fn plain(cell: crate::face::Cell) -> SpacedCell {

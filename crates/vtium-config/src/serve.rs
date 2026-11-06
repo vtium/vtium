@@ -145,7 +145,7 @@ use landlock::{
 };
 use rustix::process::{Resource, Rlimit, setrlimit};
 use vtium_font::set::{PixelFormat, SetBuilder, StrikeBuilder};
-use vtium_font::spacing::{self, Band, Fit};
+use vtium_font::spacing::{self, Band, Fit, SpacedCell};
 use vtium_font::{
     CELL_SIDE_MAX, CLUSTER_SCALARS_MAX, Cell, Decorations, SET_CHUNK_BYTES, Style, Width,
 };
@@ -1302,17 +1302,18 @@ impl Engine {
         self.glyphs(cell, Band::NONE, REGULAR, &[], clusters)
     }
 
-    /// The glyphs of `style` at `cell`, whose line spacing adds `band`,
-    /// for `want`, sorted codepoints, and `clusters`, sorted, as
-    /// [`Engine::glyphs`] draws them.
+    /// The glyphs of `style` at `at`, a cell and the rows its line spacing
+    /// adds (a plain cell adds none), for `want`, sorted codepoints, and
+    /// `clusters`, sorted, as [`Engine::glyphs`] draws them.
     pub fn draw_style(
         &self,
-        (cell, band): (Cell, Band),
+        at: impl Into<SpacedCell>,
         style: Style,
         want: &[u32],
         clusters: &[Vec<u32>],
     ) -> Result<Option<Vec<u8>>, String> {
-        self.glyphs(cell, band, style, want, clusters)
+        let at = at.into();
+        self.glyphs(at.cell, at.band, style, want, clusters)
     }
 
     /// How the glyph that source `source` gives for `c` uses a row made

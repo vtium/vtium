@@ -560,11 +560,12 @@ impl Generated {
     /// written again. `None` when `set` has no face at the cell.
     pub fn fresh(
         &self,
-        (at, style): (SpacedCell, Style),
+        (at, style): (impl Into<SpacedCell>, Style),
         set: Arc<Set>,
         runs: &[(u32, u32)],
         bytes: u64,
     ) -> Option<Fresh> {
+        let at: SpacedCell = at.into();
         let clusters: Vec<Text> = set
             .clusters()
             .filter(|&(of_cell, of, _)| of_cell == at.cell && of == style)
