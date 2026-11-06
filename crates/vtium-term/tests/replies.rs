@@ -670,7 +670,7 @@ fn key_formats_user_defined_keys_and_hilite_tracking_are_not_taken() {
     let mut t = busy();
     t.input(b"\x1bP0;1|17/6c73\x1b\\");
     t.key(0xffc4, 0, Mods::SHIFT, None);
-    assert_eq!(t.take_replies(), b"\x1b[31~");
+    assert_eq!(t.take_replies(), b"\x1b[18;2~");
 }
 
 // ADR-1000: kitty's remote control (refused: program output would drive
