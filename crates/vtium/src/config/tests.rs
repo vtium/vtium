@@ -34,12 +34,12 @@ fn line(n: usize) -> Origin {
 
 // The five guest configurations of tier 3, read from tools/tier3/guest/,
 // which installs each as /etc/vtium/vtium.conf.
-const TIER3_2D: &str = include_str!("../../../../tools/tier3/guest/kmscon.conf");
-const TIER3_FONT32: &str = include_str!("../../../../tools/tier3/guest/kmscon-font32.conf");
-const TIER3_GL: &str = include_str!("../../../../tools/tier3/guest/kmscon-gl.conf");
-const TIER3_MIN_PSF: &str = include_str!("../../../../tools/tier3/guest/kmscon-minimal-psf.conf");
-const TIER3_MIN: &str = include_str!("../../../../tools/tier3/guest/kmscon-minimal.conf");
-const TIER3_POWER: &str = include_str!("../../../../tools/tier3/guest/kmscon-power.conf");
+const TIER3_2D: &str = include_str!("../../../../tools/tier3/guest/vtium.conf");
+const TIER3_FONT32: &str = include_str!("../../../../tools/tier3/guest/vtium-font32.conf");
+const TIER3_GL: &str = include_str!("../../../../tools/tier3/guest/vtium-gl.conf");
+const TIER3_MIN_PSF: &str = include_str!("../../../../tools/tier3/guest/vtium-minimal-psf.conf");
+const TIER3_MIN: &str = include_str!("../../../../tools/tier3/guest/vtium-minimal.conf");
+const TIER3_POWER: &str = include_str!("../../../../tools/tier3/guest/vtium-power.conf");
 
 // covers: platform.config
 #[test]

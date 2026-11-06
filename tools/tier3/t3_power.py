@@ -11,7 +11,7 @@ the VM as a power-off does: QEMU's SHUTDOWN event tells them apart,
 
 import re
 
-# The chords guest/kmscon-power.conf binds, as QEMU qcodes.
+# The chords guest/vtium-power.conf binds, as QEMU qcodes.
 CHORDS = {
     "reboot": ("ctrl", "alt", "delete"),
     "reboot-hard": ("ctrl", "alt", "delete"),
