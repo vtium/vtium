@@ -367,8 +367,13 @@ fn as_format_2_0(set: &[u8]) -> Vec<u8> {
 
 // a box written by format 2.0 holds no top or height and reads as a box
 // of the cell's height (ADR-1306 D3); and a 2.1 record's first six fields
-// name the box's rows of the glyph's own row, so a reader that knows only
-// those reads the glyph's ink cut at its row
+// name the box's rows of the glyph's own row, so for a box that passes its
+// cells to the side, a reader that knows only those reads the glyph's ink
+// cut at its row. A box that passes its cells only above or below, such
+// as (0, -h), (w, 2h), reads by those fields as a box of the cells alone,
+// which a 2.0 reader refused, so it refused the whole set; this build has
+// no 2.0 reader to show it with, and the console and the helper always
+// come from one build (ADR-1200 D15)
 #[test]
 fn a_format_2_0_box_reads_as_the_cells_height() {
     let (w, h) = (CELL.width, CELL.height);

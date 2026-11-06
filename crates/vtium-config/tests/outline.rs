@@ -980,7 +980,11 @@ fn a_request_with_sizes_and_fit_reads_back_and_a_bad_one_is_refused() {
         OutlineRequest::decode(&reached.encode()),
         Ok(reached.clone())
     );
-    for bad in [vec![(20, 18)], vec![(20, 18), (24, 1 << 20)]] {
+    for bad in [
+        vec![(20, 18)],
+        vec![(20, 18), (24, 1 << 20)],
+        vec![(20, 18), (1 << 20, 22)],
+    ] {
         let wrong = OutlineRequest {
             reaches: bad,
             ..r.clone()
@@ -990,6 +994,15 @@ fn a_request_with_sizes_and_fit_reads_back_and_a_bad_one_is_refused() {
             Err("a reach for no cell, or past a cell")
         );
     }
+    // a request and an answer under the magics before the reach and the
+    // box's rows were added, VTVOUT6 and VTVOUTL3, are refused: their
+    // layouts lack those fields
+    let mut old = reached.encode();
+    old[..8].copy_from_slice(b"VTVOUT6\0");
+    assert_eq!(OutlineRequest::decode(&old), Err("not an outline request"));
+    let mut old = o.encode();
+    old[..8].copy_from_slice(b"VTVOUTL3");
+    assert_eq!(Outline::decode(&old, &r), Err("not an outline answer"));
     let mut other = fallback.encode();
     let n = other.len();
     assert_eq!(other[n - 3], 1);

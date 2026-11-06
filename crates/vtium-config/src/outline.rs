@@ -49,15 +49,15 @@
 //! cells' edges, and the ink past them goes to its ink box, cut at its
 //! reach: [`REACH_CELLS`] cells past its cells on each side, and the rows
 //! the request gives above and below its cell, by default [`REACH_ROWS`]
-//! rows of the cell (ADR-1306 D1). A glyph takes the cells the terminal gives its
-//! character, whatever its advance ([`crate::shaping::wide`], ADR-1200
-//! D21). A color glyph larger than
-//! its cells is drawn again at the size that fits them, centred across
-//! them and kept inside the cell's height. Outlines are hinted as the
-//! request says ([`Hinting`], ADR-1200 D1): lightly by default, which
-//! moves a glyph's rows only, as FreeType's light hinting does, or fully. Color glyphs are not hinted, and a COLR glyph's layers
-//! are laid over each other here, premultiplied with the renderer's
-//! rounding.
+//! rows of the cell (ADR-1306 D1). A glyph takes the cells the terminal
+//! gives its character, whatever its advance ([`crate::shaping::wide`],
+//! ADR-1200 D21). A color glyph larger than its cells is drawn again at
+//! the size that fits them, centred across them and kept inside the
+//! cell's height. Outlines are hinted as the request says ([`Hinting`],
+//! ADR-1200 D1): lightly by default, which moves a glyph's rows only, as
+//! FreeType's light hinting does, or fully. Color glyphs are not hinted,
+//! and a COLR glyph's layers are laid over each other here, premultiplied
+//! with the renderer's rounding.
 //!
 //! The clusters asked for ([`crate::shaping`]) are shaped once with
 //! HarfRust and drawn at each cell: each glyph the shaper gives at its

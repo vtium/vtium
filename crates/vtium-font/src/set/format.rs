@@ -67,9 +67,14 @@
 //! Format 2.0 wrote `INKX` records of 24 bytes, without `top` and
 //! `height`, and its boxes were the cell's height. Format 2.1 adds the two
 //! fields at the record's end. A 2.1 reader reads a 24-byte record as a box
-//! of the cell's height, and a 2.0 reader reads a 2.1 record's first six
-//! fields, so it reads the `width` by cell-height rows at `offset`, the
-//! glyph's ink cut at its row.
+//! of the cell's height. A 2.0 reader reads a 2.1 record's first six
+//! fields, the `width` by cell-height rows at `offset`: for a box that
+//! passes its cells to the side, it draws the glyph's ink cut at its row,
+//! and a box that passes them only above or below it takes for a box of
+//! the cells alone, which it refuses, so it refuses the whole set. The
+//! console and the helper that writes its sets always come from one build
+//! (ADR-1200 D15), so no 2.0 reader meets a 2.1 set there; a set the
+//! console refuses draws in the built-in font.
 //!
 //! `CLUS` maps clusters, short sequences of scalar values, to glyphs drawn
 //! for them whole: a cluster's key is `key length` scalars of the pool

@@ -3541,6 +3541,52 @@ mod tests {
         assert_eq!(rows[0], rows[1], "fit=fill stretches the letter");
     }
 
+    // ADR-1306 D8: under line spacing a natural glyph's ink may reach past
+    // its text band through the rows the band adds and then a row of the
+    // whole cell. Test Mono's U+2191 here is a bar from 1400 to 2200 units
+    // above the baseline: at 19.5 pixels to the em in the 12x20 text band,
+    // baseline 16, it reaches 42.9 pixels up, 26.9 over the text band's top,
+    // more than the whole cell's 26 rows but less than the 3 added rows and
+    // those 26. Drawn with a band of 3 above and 3 below, its box starts 24
+    // rows over the 26-row cell's top, where a reach of a row alone, without
+    // the added rows, would have cut it at 23
+    #[test]
+    fn a_spaced_glyphs_ink_reaches_through_the_added_rows_and_a_row_more() {
+        let mut font = super::ttf::test_mono();
+        font.glyphs
+            .push(super::ttf::Glyph::rect(600, 100, 1400, 500, 2200));
+        let bar = u16::try_from(font.glyphs.len() - 1).unwrap();
+        font.cmap.push((0x2191, bar));
+        font.cmap.sort_unstable();
+        let (mono, _dir) = outline_frit("spaced-reach", "", &[Ok(font)]);
+        let cell = Cell {
+            width: 12,
+            height: 26,
+        };
+        let band = Band { above: 3, below: 3 };
+        let bytes = run_bytes(&[ServeRequest {
+            cell,
+            band,
+            ..request(ASK, mono, &['\u{2191}'])
+        }]);
+        let g = frames(&bytes)
+            .iter()
+            .filter(|f| f.0 == FRAME_GLYPHS)
+            .find_map(|f| {
+                let set = Set::from_bytes(f.1.clone()).unwrap();
+                SetFace::new(Arc::new(set), cell.height)
+                    .unwrap()
+                    .draw(&['\u{2191}'], Style::default())
+            })
+            .unwrap();
+        // the bar's ink over the cell
+        let ink = g.ink().unwrap();
+        assert_eq!((ink.left(), ink.top(), ink.width()), (0, -24, 12));
+        let row = |y: usize| &ink.pixels()[y * 12..(y + 1) * 12];
+        assert!(row(0).iter().any(|&p| p > 0), "the bar's top row");
+        assert!(row(1)[4] == 255, "the bar under its top row");
+    }
+
     // ADR-1302 D13: two fills at one cell size with two bands are two
     // fills, each drawn at its band, each ending with a frame that names
     // its band; neither replaces the other

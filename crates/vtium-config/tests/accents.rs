@@ -36,6 +36,13 @@ fn fixture() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/DejaVuSansMono-accents.ttf")
 }
 
+/// The same subset without the precomposed capitals, so HarfRust cannot
+/// compose a capital and its marks into one glyph and places each mark on
+/// its letter instead (`tests/fixtures/README.md`).
+fn marks_fixture() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/DejaVuSansMono-marks.ttf")
+}
+
 /// À É Î Õ Ü Ő Ű and Ộ, each of whose accents passes the top of a
 /// 16-pixel cell in DejaVu Sans Mono or comes close to it.
 const CAPITALS: [char; 8] = ['À', 'É', 'Î', 'Õ', 'Ü', 'Ő', 'Ű', 'Ộ'];
@@ -57,10 +64,16 @@ impl Answer {
     }
 }
 
-/// The glyphs the helper sends for `chars` and `clusters` in a cell of
-/// text `text` pixels high with `band` added, and the cell's width.
-fn helper(text: u32, band: Band, chars: &[char], clusters: &[&[char]]) -> (Answer, u32) {
-    let font = std::fs::read(fixture()).unwrap();
+/// The glyphs the helper sends from the font at `path` for `chars` and
+/// `clusters` in a cell of text `text` pixels high with `band` added, and
+/// the cell's width.
+fn helper(
+    path: &Path,
+    (text, band): (u32, Band),
+    chars: &[char],
+    clusters: &[&[char]],
+) -> (Answer, u32) {
+    let font = std::fs::read(path).unwrap();
     let width = cell_width(&[(&font, "")], text).unwrap();
     let cell = Cell {
         width,
@@ -70,7 +83,7 @@ fn helper(text: u32, band: Band, chars: &[char], clusters: &[&[char]]) -> (Answe
         kind: ASK,
         frit: FritText {
             name: "accents".to_owned(),
-            text: format!("source=outline:{}\n", fixture().display()),
+            text: format!("source=outline:{}\n", path.display()),
         },
         cell,
         band,
@@ -106,20 +119,25 @@ fn helper(text: u32, band: Band, chars: &[char], clusters: &[&[char]]) -> (Answe
     (Answer(faces), width)
 }
 
-/// `c` drawn uncut: in a cell three times `text` high, on a baseline a
-/// whole row lower, at the size the helper draws a `text`-pixel cell at.
-/// Each row of the result is a row of the text band from `-text` to
-/// `2 * text`.
-fn uncut(text: u32, width: u32, c: char) -> Vec<u8> {
-    let font = std::fs::read(fixture()).unwrap();
+/// `key`, a character or a cluster, drawn uncut from the font at `path`:
+/// in a cell three times `text` high, on a baseline a whole row lower, at
+/// the size the helper draws a `text`-pixel cell at. Each row of the
+/// result is a row of the text band from `-text` to `2 * text`.
+fn uncut(path: &Path, text: u32, width: u32, key: &[char]) -> Vec<u8> {
+    let font = std::fs::read(path).unwrap();
     let ppem = size(&font, "", text).unwrap();
     let base = baseline(&font, "", text, None, Hinting::Light).unwrap();
+    let scalars: Vec<u32> = key.iter().map(|&c| u32::from(c)).collect();
     let o = rasterise(&OutlineRequest {
         font: font.into(),
         family: String::new(),
         cells: vec![(width, 3 * text)],
-        cover: vec![(u32::from(c), u32::from(c))],
-        clusters: Vec::new(),
+        cover: scalars.iter().map(|&c| (c, c)).collect(),
+        clusters: if key.len() > 1 {
+            vec![vtium_config::shaping::ask(&scalars)]
+        } else {
+            Vec::new()
+        },
         baselines: vec![base + text],
         sizes: vec![ppem.to_bits()],
         reaches: Vec::new(),
@@ -129,15 +147,22 @@ fn uncut(text: u32, width: u32, c: char) -> Vec<u8> {
     })
     .unwrap();
     let s = &o.strikes[0];
-    let (_, g) = s.map.iter().find(|(cp, _)| *cp == u32::from(c)).unwrap();
-    let g = &s.glyphs[*g as usize];
-    assert!(g.ink.is_none(), "{c}: no ink past the tall cell");
+    let g = if key.len() > 1 {
+        s.clusters.iter().find(|(k, _)| *k == scalars).unwrap().1
+    } else {
+        s.map.iter().find(|(cp, _)| *cp == scalars[0]).unwrap().1
+    };
+    let g = &s.glyphs[g as usize];
+    assert!(g.ink.is_none(), "{key:?}: no ink past the tall cell");
     // nothing reaches the tall cell's top or bottom row, so nothing is cut
     let rows: Vec<&[u8]> = g.pixels.chunks(width as usize).collect();
-    assert!(rows[0].iter().all(|&p| p == 0), "{c}: the tall cell's top");
+    assert!(
+        rows[0].iter().all(|&p| p == 0),
+        "{key:?}: the tall cell's top"
+    );
     assert!(
         rows[rows.len() - 1].iter().all(|&p| p == 0),
-        "{c}: the tall cell's bottom"
+        "{key:?}: the tall cell's bottom"
     );
     g.pixels.clone()
 }
@@ -203,16 +228,17 @@ fn sizes() -> Vec<(u32, Band)> {
 #[test]
 fn accented_capitals_keep_their_whole_accents() {
     for (text, band) in sizes() {
-        let (face, width) = helper(text, band, &CAPITALS, &[]);
+        let (face, width) = helper(&fixture(), (text, band), &CAPITALS, &[]);
         for c in CAPITALS {
             let what = format!("{c} at {text} with {band:?}");
             let glyph = face.draw(c);
-            holds(&glyph, &uncut(text, width, c), (text, width, band), &what);
+            let want = uncut(&fixture(), text, width, &[c]);
+            holds(&glyph, &want, (text, width, band), &what);
         }
     }
     // in a 16-pixel cell with no spacing, the acute on É passes the cell's
     // top, so É carries a box that starts above its row
-    let (face, _) = helper(16, Band::NONE, &['É'], &[]);
+    let (face, _) = helper(&fixture(), (16, Band::NONE), &['É'], &[]);
     let e = face.draw('É');
     let ink = e.ink().expect("É's box");
     assert!(
@@ -222,36 +248,43 @@ fn accented_capitals_keep_their_whole_accents() {
     );
 }
 
-// ADR-1306 D2: a precomposed É and E followed by U+0301 draw the same ink,
-// since neither is moved or cut while its ink stays within a row of its own
+// ADR-1306 D2: inside the reach a mark draws where HarfRust places it. In
+// the subset that holds the precomposed capitals, HarfRust composes E and
+// U+0301 into É's own glyph, so the helper draws the sequence as É; the
+// subset without them makes HarfRust place each mark on its letter by the
+// font's mark attachment, and the helper's mark rule judges it. Each
+// decomposed capital keeps its marks where HarfRust put them, neither moved
+// nor cut, at 16 and 32 pixels, with and without line spacing: its own
+// pixels and its box hold the cluster drawn uncut. The font places a
+// composed accent and an attached one a pixel or two apart in places, as
+// É's acute at 32 pixels, so the two need not draw alike
 // covers: text.overhang
 #[test]
-fn a_precomposed_and_a_decomposed_capital_draw_alike() {
-    let pairs: [(char, &[char]); 3] = [
-        ('É', &['E', '\u{301}']),
-        ('À', &['A', '\u{300}']),
-        ('Ő', &['O', '\u{30b}']),
+fn a_decomposed_capital_keeps_its_marks_where_the_font_puts_them() {
+    let keys: [&[char]; 4] = [
+        &['E', '\u{301}'],
+        &['A', '\u{300}'],
+        &['O', '\u{30b}'],
+        &['O', '\u{302}', '\u{323}'],
     ];
     for (text, band) in sizes() {
-        let keys: Vec<&[char]> = pairs.iter().map(|p| p.1).collect();
-        let chars: Vec<char> = pairs.iter().map(|p| p.0).collect();
-        let (face, width) = helper(text, band, &chars, &keys);
-        for (one, two) in pairs {
-            let what = format!("{one} at {text} with {band:?}");
-            let precomposed = face.draw(one);
-            let decomposed = face.cluster(two).expect("the helper draws the cluster");
-            let h = (text + band.added()) as i32;
-            for y in -h..2 * h {
-                for x in 0..width as i32 {
-                    assert_eq!(
-                        ink_at(&decomposed, x, y),
-                        ink_at(&precomposed, x, y),
-                        "{what}: row {y}, column {x}"
-                    );
-                }
-            }
+        let (marked, width) = helper(&marks_fixture(), (text, band), &[], &keys);
+        for key in keys {
+            let what = format!("{key:?} at {text} with {band:?}");
+            let glyph = marked.cluster(key).expect("the helper draws the cluster");
+            let want = uncut(&marks_fixture(), text, width, key);
+            holds(&glyph, &want, (text, width, band), &what);
         }
     }
+    // with the precomposed capital in the font, HarfRust composes the
+    // sequence into its glyph, so the two draw alike
+    let (whole, _) = helper(&fixture(), (16, Band::NONE), &['É'], &[&['E', '\u{301}']]);
+    let composed = whole.cluster(&['E', '\u{301}']).expect("the cluster");
+    let precomposed = whole.draw('É');
+    assert_eq!(
+        (composed.pixels(), composed.ink()),
+        (precomposed.pixels(), precomposed.ink())
+    );
 }
 
 // ADR-1306 D2: the baseline rises so the underscore and ASCII's
@@ -261,7 +294,7 @@ fn a_precomposed_and_a_decomposed_capital_draw_alike() {
 fn printable_ascii_keeps_its_ink_in_its_row() {
     let ascii: Vec<char> = (0x21u8..0x7f).map(char::from).collect();
     for text in [16, 32] {
-        let (face, _) = helper(text, Band::NONE, &ascii, &[]);
+        let (face, _) = helper(&fixture(), (text, Band::NONE), &ascii, &[]);
         for &c in &ascii {
             let g = face.draw(c);
             assert!(g.ink().is_none(), "{c} at {text}");
