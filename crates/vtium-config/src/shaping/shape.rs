@@ -48,6 +48,9 @@ pub(crate) struct Shaped {
     kind: Kind,
     glyphs: Vec<At>,
     advance: i32,
+    /// An emoji presentation sequence drawn with its character's own
+    /// glyph, kept only when that glyph is a color one.
+    own: bool,
 }
 
 /// Each cluster of `asks` the font in `data`, face `index`, shapes as its
@@ -68,29 +71,35 @@ pub(crate) fn shape_all(data: &[u8], index: u32, font: FontRef<'_>, asks: &[Ask]
     let mut out = Vec::new();
     for ask in asks {
         let (glyphs, advance) = shape(&shaper, &ask.key);
-        let kept = !glyphs.is_empty()
-            && glyphs.iter().all(|a| a.g != 0)
-            && match ask.kind {
-                // one glyph, a ligature or a form, which none of the
-                // cluster's own scalar values draws alone
-                Kind::Emoji => only_own(&glyphs, &ask.key, &charmap),
-                Kind::Joining => {
-                    let mut alone = |part: &[u32]| {
-                        alone
-                            .entry(part.to_vec())
-                            .or_insert_with(|| letters(&shape(&shaper, part).0))
-                            .clone()
-                    };
-                    joined(&glyphs, &ask.key, &mut alone)
-                }
-                Kind::Marks => true,
-            };
+        // a character and U+FE0F, which a color font draws with the
+        // character's own glyph (ADR-1200 D21): kept when that glyph is a
+        // color one, which only drawing it tells
+        let own = ask.kind == Kind::Emoji && presented(&glyphs, &ask.key, &charmap);
+        let kept = own
+            || !glyphs.is_empty()
+                && glyphs.iter().all(|a| a.g != 0)
+                && match ask.kind {
+                    // one glyph, a ligature or a form, which none of the
+                    // cluster's own scalar values draws alone
+                    Kind::Emoji => only_own(&glyphs, &ask.key, &charmap),
+                    Kind::Joining => {
+                        let mut alone = |part: &[u32]| {
+                            alone
+                                .entry(part.to_vec())
+                                .or_insert_with(|| letters(&shape(&shaper, part).0))
+                                .clone()
+                        };
+                        joined(&glyphs, &ask.key, &mut alone)
+                    }
+                    Kind::Marks => true,
+                };
         if kept {
             out.push(Shaped {
                 key: ask.key.clone(),
                 kind: ask.kind,
                 glyphs,
                 advance,
+                own,
             });
         }
     }
@@ -153,6 +162,15 @@ fn letters(glyphs: &[At]) -> Vec<u16> {
         .filter(|a| a.mark.is_none())
         .map(|a| a.g)
         .collect()
+}
+
+/// Whether `key` is a character and U+FE0F, an emoji presentation
+/// sequence, and `glyphs` the character's own glyph alone.
+fn presented(glyphs: &[At], key: &[u32], charmap: &swash::Charmap<'_>) -> bool {
+    match (key, glyphs) {
+        ([c, super::VS16], [a]) => a.g != 0 && charmap.map(*c) == a.g,
+        _ => false,
+    }
 }
 
 /// Whether `glyphs` is one glyph that none of `key`'s scalar values draws
@@ -266,6 +284,9 @@ pub(crate) fn draw_all(
         ) else {
             continue;
         };
+        if s.own && !placed.color {
+            continue;
+        }
         let key = placed.clone();
         let g = match seen.get(&key) {
             Some(&g) => g,

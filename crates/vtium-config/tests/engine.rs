@@ -690,3 +690,115 @@ fn the_tiny5_frit_reads_its_bdf_as_published() {
         ]
     );
 }
+
+/// A text font and a color font for the emoji-presentation rule (ADR-1200
+/// D21): `Test Text` holds U+2764 HEAVY BLACK HEART and U+231A WATCH as
+/// plain bars, and draws the heart with U+FE0F as a ligature of its own, a
+/// plain bar too, as a font of black-and-white emoji may; `Test Color`
+/// holds both as color squares and maps U+FE0F to an empty glyph, as Noto
+/// Color Emoji draws a character and the character with U+FE0F alike.
+/// U+2764 has Emoji_Presentation=No and U+231A Emoji_Presentation=Yes.
+fn text_and_color(w: &World) {
+    let mut text = ttf::test_mono();
+    text.family = "Test Text".to_owned();
+    text.colr.clear();
+    text.glyphs.push(ttf::Glyph::empty(0));
+    text.glyphs.push(ttf::Glyph::rect(600, 200, 0, 400, 300));
+    let (vs16, ligature) = ((text.glyphs.len() - 2) as u16, (text.glyphs.len() - 1) as u16);
+    text.cmap.extend([(0x2764, 2), (0x231a, 2), (0xfe0f, vs16)]);
+    text.gsub = vec![(
+        *b"ccmp",
+        ttf::Lookup::Ligature(vec![(vec![2, vs16], ligature)]),
+    )];
+    fs::write(w.path("fonts/TestText-Regular.ttf"), text.build()).expect("font");
+    let mut color = ttf::test_mono();
+    color.family = "Test Color".to_owned();
+    color.glyphs.push(ttf::Glyph::empty(0));
+    let vs16 = (color.glyphs.len() - 1) as u16;
+    color.cmap = vec![(0x2764, 5), (0x231a, 5), (0xfe0f, vs16)];
+    fs::write(w.path("fonts/TestColor-Regular.ttf"), color.build()).expect("font");
+}
+
+const TEXT_THEN_COLOR: &str = "source=font:Test Text\nsource=font:Test Color\n";
+
+/// The glyphs `text` draws at a 12x20 cell for the codepoints `want` and the
+/// clusters `clusters`, as the console reads them.
+fn drawn_for(w: &World, text: &str, want: &[u32], clusters: &[&[char]]) -> SetFace {
+    let engine = w.engine(text).expect("the frit loads");
+    let keys: Vec<Vec<u32>> = clusters
+        .iter()
+        .map(|k| k.iter().map(|&c| u32::from(c)).collect())
+        .collect();
+    let bytes = if keys.is_empty() {
+        engine.draw(cell(12, 20), want)
+    } else {
+        engine.draw_clusters(cell(12, 20), &keys)
+    }
+    .expect("draws")
+    .expect("some glyph");
+    SetFace::new(Arc::new(Set::from_bytes(bytes).expect("the set reads")), 20).expect("a face")
+}
+
+// ADR-1200 D21, UTS #51 ED-9: U+FE0F asks for the emoji presentation of the
+// character before it, so the heart with U+FE0F draws from the first source
+// with a color glyph for it, though the text source before it covers the
+// heart. The color source's glyph for the heart alone counts.
+// covers: text.emoji
+#[test]
+fn a_character_with_vs16_draws_from_the_first_color_source() {
+    let w = World::new("vs16");
+    text_and_color(&w);
+    let heart = ['\u{2764}', '\u{fe0f}'];
+    let face = drawn_for(&w, TEXT_THEN_COLOR, &[], &[&heart]);
+    let g = face
+        .cluster(&heart, Style::default())
+        .expect("the heart with VS16");
+    assert_eq!((g.format(), g.cells()), (Format::Rgba, Width::Wide));
+}
+
+// ADR-1200 D21, UTS #51 ED-7: U+2764 alone has Emoji_Presentation=No, so it
+// takes its text presentation and draws from the first source in the
+// frit's order that has it
+#[test]
+fn a_character_of_text_presentation_alone_keeps_the_frits_order() {
+    let w = World::new("heart-alone");
+    text_and_color(&w);
+    let face = drawn_for(&w, TEXT_THEN_COLOR, &[0x2764], &[]);
+    let g = face
+        .draw(&['\u{2764}'], Style::default())
+        .expect("the heart");
+    assert_eq!((g.format(), g.cells()), (Format::Mask, Width::Narrow));
+}
+
+// ADR-1200 D21, UTS #51 ED-8: U+FE0E asks for the text presentation, so the
+// heart with U+FE0E keeps the frit's order, and the text source draws it
+#[test]
+fn a_character_with_vs15_keeps_the_frits_order() {
+    let w = World::new("vs15");
+    text_and_color(&w);
+    let heart = ['\u{2764}', '\u{fe0e}'];
+    let face = drawn_for(&w, TEXT_THEN_COLOR, &[], &[&heart]);
+    let g = face
+        .cluster(&heart, Style::default())
+        .expect("the heart with VS15");
+    assert_eq!((g.format(), g.cells()), (Format::Mask, Width::Narrow));
+}
+
+// ADR-1200 D21, UTS #51 ED-6: U+231A has Emoji_Presentation=Yes, so alone it
+// draws from the first source with a color glyph for it; with no color
+// source in the frit, it falls back to the frit's order
+#[test]
+fn a_character_of_emoji_presentation_draws_from_a_color_source_where_there_is_one() {
+    let w = World::new("watch");
+    text_and_color(&w);
+    let face = drawn_for(&w, TEXT_THEN_COLOR, &[0x231a], &[]);
+    let g = face
+        .draw(&['\u{231a}'], Style::default())
+        .expect("the watch");
+    assert_eq!(g.format(), Format::Rgba);
+    let face = drawn_for(&w, "source=font:Test Text\n", &[0x231a], &[]);
+    let g = face
+        .draw(&['\u{231a}'], Style::default())
+        .expect("the watch");
+    assert_eq!(g.format(), Format::Mask);
+}

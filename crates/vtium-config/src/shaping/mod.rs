@@ -60,7 +60,9 @@ pub const PROVENANCE: &str = "harfrust 0.12.0, Unicode 18.0.0";
 /// ZERO WIDTH JOINER.
 pub(crate) const ZWJ: u32 = 0x200d;
 /// VARIATION SELECTOR-16, emoji presentation.
-const VS16: u32 = 0xfe0f;
+pub(crate) const VS16: u32 = 0xfe0f;
+/// VARIATION SELECTOR-15, text presentation.
+const VS15: u32 = 0xfe0e;
 
 /// A regional indicator, half of a flag.
 const REGIONAL: std::ops::RangeInclusive<u32> = 0x1f1e6..=0x1f1ff;
@@ -118,6 +120,33 @@ pub fn mark_side(c: u32) -> Option<u8> {
         .and_then(|i| data::MARKS.get(i))
         .filter(|&&(_, b, _)| c <= b)
         .map(|&(_, _, side)| side)
+}
+
+/// Whether `c` has Emoji_Presentation=Yes: UTS #51 shows it as emoji when
+/// no variation selector follows it (ED-6).
+pub fn emoji_by_default(c: u32) -> bool {
+    let after = data::PRESENTATION.partition_point(|&(a, _)| a <= c);
+    after
+        .checked_sub(1)
+        .and_then(|i| data::PRESENTATION.get(i))
+        .is_some_and(|&(_, b)| c <= b)
+}
+
+/// Whether the character or cluster `key` asks for emoji presentation
+/// (ADR-1200 D21, UTS #51): it holds U+FE0F (ED-9), or it holds no U+FE0E
+/// (ED-8) and either its first character other than U+200D has
+/// Emoji_Presentation=Yes or it is an emoji sequence, such as a flag or a
+/// skin-tone sequence, which UTS #51 shows as emoji by default. The helper
+/// draws such a key from the first source with a color glyph for it.
+pub fn asks_for_emoji(key: &[u32]) -> bool {
+    if key.contains(&VS16) {
+        return true;
+    }
+    if key.contains(&VS15) {
+        return false;
+    }
+    let first = key.iter().copied().find(|&c| c != ZWJ);
+    first.is_some_and(emoji_by_default) || (key.len() > 1 && kind(key) == Kind::Emoji)
 }
 
 /// `key` as the engine asks a source for it.
@@ -187,6 +216,33 @@ mod tests {
         let version = shaper.strip_prefix("harfrust ").unwrap();
         assert!(manifest.contains(&format!("harfrust = {{ version = \"={version}\"")));
         assert!(data.contains(&format!("Database {unicode}.")));
+    }
+
+    // ADR-1200 D21, UTS #51 ED-6 to ED-9: U+FE0F asks for emoji
+    // presentation, U+FE0E for text, and with neither a character's
+    // Emoji_Presentation decides, as an emoji sequence's being one does
+    #[test]
+    fn a_key_asks_for_emoji_by_its_selector_or_its_default() {
+        let (heart, watch) = (0x2764, 0x231a);
+        assert!(!emoji_by_default(heart));
+        assert!(emoji_by_default(watch));
+        assert!(emoji_by_default(0x1f600));
+        assert!(!emoji_by_default(0x41));
+        assert!(asks_for_emoji(&[heart, VS16]));
+        assert!(!asks_for_emoji(&[heart]));
+        assert!(!asks_for_emoji(&[heart, VS15]));
+        assert!(asks_for_emoji(&[watch]));
+        assert!(!asks_for_emoji(&[watch, VS15]));
+        assert!(asks_for_emoji(&[0x261d, 0x1f3fb]), "a skin-tone sequence");
+        assert!(asks_for_emoji(&[0x31, VS16, KEYCAP]));
+        assert!(!asks_for_emoji(&[0x65, 0x301]));
+        assert!(!asks_for_emoji(&[0x4e2d]));
+        assert!(
+            data::PRESENTATION
+                .windows(2)
+                .all(|w| matches!(w, [(_, b), (c, _)] if b + 1 < *c)),
+            "sorted, apart and merged"
+        );
     }
 
     #[test]

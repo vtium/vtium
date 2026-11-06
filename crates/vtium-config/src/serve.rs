@@ -1335,7 +1335,11 @@ impl Engine {
     /// order that the step's face is and that gives it, and each cluster
     /// from the first such outline source that covers its first scalar
     /// value other than U+200D and shapes it (ADR-1200 D21), with the
-    /// step's synthesis drawn over the glyph (ADR-1302 D4). A source that
+    /// step's synthesis drawn over the glyph (ADR-1302 D4). A codepoint or
+    /// cluster that asks for emoji presentation
+    /// ([`crate::shaping::asks_for_emoji`]) is first drawn, by the same
+    /// order, from the first source that gives it a color glyph, and only
+    /// when none does from the first that gives it any (ADR-1200 D21). A source that
     /// fails as it draws is left out, and the next one gives its glyphs.
     fn glyphs(
         &self,
@@ -1386,23 +1390,33 @@ impl Engine {
                 .filter(move |(_, (source, _))| source.style == step.face)
                 .map(move |(i, source)| (i, source, step.synth))
         });
-        for (i, (source, loaded), synth) in order {
+        // what asks for emoji presentation goes first to the sources in
+        // order that give it a color glyph, then everything left to the
+        // sources in order (ADR-1200 D21)
+        let passes = [true, false]
+            .into_iter()
+            .flat_map(|color| order.clone().map(move |source| (color, source)));
+        for (color_only, (i, (source, loaded), synth)) in passes {
             if self.failed.borrow().contains_key(&i) {
                 continue;
             }
+            let asked = |k: &[u32]| !color_only || crate::shaping::asks_for_emoji(k);
             let left: Vec<u32> = want
                 .iter()
                 .copied()
-                .filter(|&c| !mapped.contains(&c) && source.covers(c))
+                .filter(|&c| !mapped.contains(&c) && source.covers(c) && asked(&[c]))
                 .collect();
             let lead = |k: &[u32]| k.iter().copied().find(|&c| c != ZWJ);
             let unshaped: Vec<&[u32]> = clusters
                 .iter()
                 .map(Vec::as_slice)
-                .filter(|k| !shaped.contains(k) && lead(k).is_some_and(|c| source.covers(c)))
+                .filter(|k| {
+                    !shaped.contains(k) && lead(k).is_some_and(|c| source.covers(c)) && asked(k)
+                })
                 .collect();
             match loaded {
-                Loaded::Bitmap(_) if left.is_empty() => {}
+                // a bitmap font has no color glyph
+                Loaded::Bitmap(_) if left.is_empty() || color_only => {}
                 Loaded::Bitmap(font) => {
                     let scale = (cell.width / font.cell.width.max(1))
                         .min(cell.height / font.cell.height.max(1));
@@ -1513,7 +1527,10 @@ impl Engine {
                         else {
                             continue;
                         };
-                        if mapped.contains(&c) || left.binary_search(&c).is_err() {
+                        if mapped.contains(&c)
+                            || left.binary_search(&c).is_err()
+                            || (color_only && !glyph.color)
+                        {
                             continue;
                         }
                         let target = if glyph.color { &mut rgba } else { &mut r8 };
@@ -1530,6 +1547,9 @@ impl Engine {
                         let Some(&asked) = unshaped.iter().find(|k| **k == key.as_slice()) else {
                             continue;
                         };
+                        if color_only && !glyph.color {
+                            continue;
+                        }
                         let chars: Option<Vec<char>> =
                             key.iter().map(|&c| char::from_u32(c)).collect();
                         let Some(chars) = chars else {
