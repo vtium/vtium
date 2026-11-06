@@ -1,5 +1,6 @@
-//! Each state's transitions, transcribed from the C reference's state
-//! machine (tsm-vte.c:3280-3642) and from libtsm's VTE tests.
+//! Each state's transitions, from vt100.net's DEC parser, with the rules
+//! the crate's README gives where vtium chooses between readings of a
+//! specification.
 
 mod common;
 
@@ -9,7 +10,7 @@ use common::{
 };
 use vtium_parse::InputMode;
 
-// tsm-vte.c:3323-3338: in ground, C0 controls execute and 0x20 to 0x7E print.
+// In ground, C0 controls execute and 0x20 to 0x7E print.
 #[test]
 fn ground_prints_and_executes() {
     assert_eq!(
@@ -26,20 +27,20 @@ fn ground_prints_and_executes() {
     );
 }
 
-// tsm-vte.c:3333: DEL prints in ground, as vt100.net has it; drawing it is
+// DEL prints in ground, as vt100.net has it; drawing it is
 // the consumer's choice.
 #[test]
 fn ground_prints_del() {
     assert_eq!(parse(b"\x7f"), [Act::Print(0x7f)]);
 }
 
-// tsm-vte.c:3337: a character from U+00A0 up prints.
+// A character from U+00A0 up prints.
 #[test]
 fn ground_prints_past_ascii() {
     assert_eq!(parse("é€😀".as_bytes()), prints("é€😀"));
 }
 
-// tsm-vte.c:3291-3298, 3328-3330: C1 controls execute (8-bit input).
+// C1 controls execute (8-bit input).
 #[test]
 fn c1_executes() {
     assert_eq!(
@@ -55,7 +56,7 @@ fn c1_executes() {
     );
 }
 
-// tsm-vte.c:3291-3298: CAN and SUB execute in every state and return to
+// CAN and SUB execute in every state and return to
 // ground, so the sequence they interrupt is dropped.
 #[test]
 fn can_and_sub_cancel_a_sequence() {
@@ -66,7 +67,7 @@ fn can_and_sub_cancel_a_sequence() {
     assert_eq!(parse(b"\x1b(\x1a0"), [Act::Execute(0x1a), Act::Print(0x30)]);
 }
 
-// tsm-vte.c:3349-3350, 3358: ESC and its final byte.
+// ESC and its final byte.
 #[test]
 fn esc_dispatches() {
     assert_eq!(
@@ -75,7 +76,7 @@ fn esc_dispatches() {
     );
 }
 
-// tsm-vte.c:3349-3350, 3386-3393: intermediates are collected in order, and
+// Intermediates are collected in order, and
 // the final byte dispatches.
 #[test]
 fn esc_collects_intermediates() {
@@ -90,8 +91,7 @@ fn esc_collects_intermediates() {
     );
 }
 
-// libtsm's test_vte_esc_96_set_not_hts_ri: ESC - H is not HTS. Each
-// intermediate keeps its own byte (the C reference set CSI_OTHER).
+// ESC - H is not HTS: each intermediate keeps its own byte.
 #[test]
 fn esc_keeps_every_intermediate() {
     assert_eq!(
@@ -105,16 +105,15 @@ fn esc_keeps_every_intermediate() {
     );
 }
 
-// Departure, decided by the operator: in UTF-8 mode a character from
-// U+00A0 up drops the ESC sequence it interrupts. The C reference collected
-// it as an intermediate (tsm-vte.c:3377, 3396).
+// In UTF-8 mode a character from U+00A0 up drops the ESC sequence it
+// interrupts (the crate's README, "Sequences").
 #[test]
 fn esc_dropped_by_a_character_past_ascii() {
     assert_eq!(parse(b"\x1b\xc3\xa9A"), [Act::Print(0x41)]);
     assert_eq!(parse(b"\x1b(\xc3\xa90"), [Act::Print(0x30)]);
 }
 
-// tsm-vte.c:3344, 3346-3347, 3384, 3390: C0 controls execute inside an ESC
+// C0 controls execute inside an ESC
 // sequence and DEL is ignored.
 #[test]
 fn esc_executes_c0_and_ignores_del() {
@@ -124,7 +123,7 @@ fn esc_executes_c0_and_ignores_del() {
     );
 }
 
-// tsm-vte.c:3300-3301, 3243: ESC restarts a sequence, clearing what it had
+// ESC restarts a sequence, clearing what it had
 // collected.
 #[test]
 fn esc_restarts_and_clears() {
@@ -132,7 +131,7 @@ fn esc_restarts_and_clears() {
     assert_eq!(parse(b"\x1b[1;2\x1b[m"), [csi(&[-1], "", b'm')]);
 }
 
-// tsm-vte.c:3369-3371, 3305, 3608-3621: SOS and PM are consumed to their end
+// SOS and PM are consumed to their end
 // with nothing dispatched, controls inside included.
 #[test]
 fn sos_and_pm_are_ignored() {
@@ -150,7 +149,7 @@ fn sos_and_pm_are_ignored() {
     );
 }
 
-// tsm-vte.c:3411-3418, 1277-1326, 2542-2543: parameters and the final byte.
+// Parameters and the final byte.
 #[test]
 fn csi_dispatches_with_params() {
     assert_eq!(
@@ -164,8 +163,8 @@ fn csi_dispatches_with_params() {
     );
 }
 
-// Departure (ECMA-48 5.4.2 e and g): every empty parameter is -1, wherever
-// it falls. The C reference made one before a ';' 0 (tsm-vte.c:1284-1286).
+// ECMA-48 5.4.2 e and g: every empty parameter is -1, wherever it falls,
+// so a default stays apart from an explicit 0.
 #[test]
 fn csi_omitted_params() {
     assert_eq!(
@@ -179,7 +178,7 @@ fn csi_omitted_params() {
     );
 }
 
-// tsm-vte.c:3414-3415: a marker right after CSI is collected, apart from
+// A marker right after CSI is collected, apart from
 // the intermediates (ECMA-48 5.4.2 b).
 #[test]
 fn csi_collects_markers() {
@@ -194,8 +193,8 @@ fn csi_collects_markers() {
     );
 }
 
-// libtsm's test_vte_csi_other_intermediates: intermediates do_collect has no
-// name for keep their own byte, so none runs as the plain sequence.
+// Every intermediate keeps its own byte, so none runs as the plain
+// sequence.
 #[test]
 fn csi_keeps_every_intermediate() {
     for (seq, im) in [
@@ -215,8 +214,7 @@ fn csi_keeps_every_intermediate() {
     }
 }
 
-// tsm-vte.c:3439-3440, 3455-3456: intermediates after the parameters, in
-// order and with their count (the C reference kept neither).
+// Intermediates after the parameters, in order and with their count.
 #[test]
 fn csi_collects_intermediates() {
     assert_eq!(
@@ -232,21 +230,21 @@ fn csi_collects_intermediates() {
     );
 }
 
-// tsm-vte.c:3436-3437: a marker after a parameter ignores the sequence.
+// A marker after a parameter ignores the sequence.
 #[test]
 fn csi_marker_after_param_ignores() {
     assert_eq!(parse(b"\x1b[1?hx"), [Act::Print(0x78)]);
     assert_eq!(parse(b"\x1b[??hx"), [Act::Print(0x78)]);
 }
 
-// tsm-vte.c:3461-3462: a parameter after an intermediate ignores the
+// A parameter after an intermediate ignores the
 // sequence.
 #[test]
 fn csi_param_after_intermediate_ignores() {
     assert_eq!(parse(b"\x1b[ 1qx"), [Act::Print(0x78)]);
 }
 
-// tsm-vte.c:3421, 3446, 3468: a character from U+00A0 up ignores the
+// A character from U+00A0 up ignores the
 // sequence.
 #[test]
 fn csi_past_ascii_ignores() {
@@ -255,7 +253,7 @@ fn csi_past_ascii_ignores() {
     assert_eq!(parse(b"\x1b[ \xc3\xa9mx"), [Act::Print(0x78)]);
 }
 
-// tsm-vte.c:3470-3486: the ignored sequence ends at its final byte with no
+// The ignored sequence ends at its final byte with no
 // dispatch; C0 controls still execute and DEL is ignored.
 #[test]
 fn csi_ignore_executes_c0_and_ends_at_final() {
@@ -265,7 +263,7 @@ fn csi_ignore_executes_c0_and_ends_at_final() {
     );
 }
 
-// tsm-vte.c:3403, 3405-3406, 3428, 3433-3434, 3453, 3458-3459: C0 controls
+// C0 controls
 // execute inside CSI, before it dispatches, and DEL is ignored.
 #[test]
 fn csi_executes_c0_and_ignores_del() {
@@ -280,7 +278,7 @@ fn csi_executes_c0_and_ignores_del() {
     );
 }
 
-// tsm-vte.c:1297-1312: colon sub-parameters, each -1 when omitted.
+// Colon sub-parameters, each -1 when omitted.
 #[test]
 fn csi_subparams() {
     let mut parser = vtium_parse::Parser::new();
@@ -300,10 +298,9 @@ fn csi_subparams() {
     );
 }
 
-// Departure, decided by the operator: in UTF-8 mode U+0080 to U+009F do
-// nothing, so C2 9B is not CSI and C2 85 does not cancel a sequence. That
-// closes the way past filters that strip ESC. The C reference took them as
-// C1 controls (tsm-vte.c:3289-3319).
+// In UTF-8 mode U+0080 to U+009F do nothing, so C2 9B is not CSI and C2 85
+// does not cancel a sequence, and a program that strips ESC from untrusted
+// text also stops every control sequence (the crate's README, "Input").
 #[test]
 fn c1_as_utf8_does_nothing() {
     assert_eq!(parse(b"a\xc2\x9b1mb"), prints("a1mb"));
@@ -311,7 +308,7 @@ fn c1_as_utf8_does_nothing() {
     assert_eq!(parse(b"\x1b]0;x\xc2\x9cy\x07"), [osc(b"0;xy", Bel)]);
 }
 
-// libtsm's test_vte_8bit_c1: in 8-bit mode 0x9B introduces a CSI.
+// In 8-bit mode 0x9B introduces a CSI.
 #[test]
 fn csi_c1_in_8bit_mode() {
     assert_eq!(
@@ -320,13 +317,13 @@ fn csi_c1_in_8bit_mode() {
     );
 }
 
-// tsm-vte.c:3363-3364, 3598-3603, 3004-3015: an OSC string ended by BEL.
+// An OSC string ended by BEL.
 #[test]
 fn osc_ended_by_bel() {
     assert_eq!(parse(b"\x1b]0;title\x07"), [osc(b"0;title", Bel)]);
 }
 
-// tsm-vte.c:3291-3298, 3250-3255: ST as C1 ends it, then executes.
+// ST as C1 ends it, then executes.
 #[test]
 fn osc_ended_by_c1_st() {
     assert_eq!(
@@ -336,17 +333,15 @@ fn osc_ended_by_c1_st() {
 }
 
 // ESC \ ends it as ST, and the `\` then dispatches as the ESC sequence it
-// completes. The C reference ended the string at the ESC
-// (tsm-vte.c:3300-3301).
+// completes.
 #[test]
 fn osc_ended_by_esc_backslash() {
     assert_eq!(parse(b"\x1b]2;x\x1b\\"), [osc(b"2;x", St), esc("", b'\\')]);
 }
 
-// Departure (vt100.net: ESC "will "cancel" the control string"; ECMA-48
-// 5.6: a control string ends with ST): an ESC not followed by '\\' cancels
-// the string, and the ESC sequence it starts runs. The C reference acted on
-// the string at the ESC (tsm-vte.c:3300-3301).
+// vt100.net: ESC "will "cancel" the control string"; ECMA-48 5.6: a
+// control string ends with ST. An ESC not followed by '\\' cancels the
+// string, and the ESC sequence it starts runs.
 #[test]
 fn osc_cancelled_by_esc_alone() {
     assert_eq!(
@@ -378,10 +373,9 @@ fn dcs_and_apc_cancelled_by_esc_alone() {
     );
 }
 
-// Departure (vt100.net: "the C0 controls CAN and SUB cancel any ... control
-// string in progress"; ECMA-48 8.3.6): CAN and SUB end the string as
-// cancelled, then execute. The C reference acted on the string
-// (tsm-vte.c:3291-3298, 3004-3015).
+// vt100.net: "the C0 controls CAN and SUB cancel any ... control string in
+// progress"; ECMA-48 8.3.6. CAN and SUB end the string as cancelled, then
+// execute.
 #[test]
 fn osc_cancelled_by_can_and_sub() {
     assert_eq!(
@@ -394,16 +388,15 @@ fn osc_cancelled_by_can_and_sub() {
     );
 }
 
-// tsm-vte.c:3592-3600: C0 controls other than BEL are ignored inside, and DEL
+// C0 controls other than BEL are ignored inside, and DEL
 // is collected.
 #[test]
 fn osc_ignores_c0_and_collects_del() {
     assert_eq!(parse(b"\x1b]a\nb\x7fc\x07"), [osc(b"ab\x7fc", Bel)]);
 }
 
-// tsm-vte.c:3606, 2912-2921: characters past ASCII are collected as UTF-8,
-// ill-formed input as U+FFFD, and the noncharacters the C reference's
-// encoder writes nothing for are dropped.
+// Characters past ASCII are collected as UTF-8, ill-formed input as
+// U+FFFD, and the noncharacters are dropped.
 #[test]
 fn osc_collects_utf8() {
     assert_eq!(
@@ -416,7 +409,7 @@ fn osc_collects_utf8() {
     );
 }
 
-// tsm-vte.c:3313-3314, 3244: OSC as C1 restarts with an empty buffer.
+// OSC as C1 restarts with an empty buffer.
 #[test]
 fn osc_restart_clears() {
     assert_eq!(
@@ -425,7 +418,7 @@ fn osc_restart_clears() {
     );
 }
 
-// tsm-vte.c:3366-3367, 3501-3509, 3128-3140, 3559-3566: DCS hooks with its
+// DCS hooks with its
 // parameters and final, passes its data and ends at ST.
 #[test]
 fn dcs_hook_put_unhook() {
@@ -440,7 +433,7 @@ fn dcs_hook_put_unhook() {
     );
 }
 
-// tsm-vte.c:3498-3499, 3505-3506, 3530-3531: markers and intermediates.
+// Markers and intermediates.
 #[test]
 fn dcs_collects_markers_and_intermediates() {
     assert_eq!(
@@ -458,7 +451,7 @@ fn dcs_collects_markers_and_intermediates() {
     );
 }
 
-// tsm-vte.c:3489-3494, 3516-3521, 3541-3546: C0 controls and DEL are ignored
+// C0 controls and DEL are ignored
 // before the data starts; they do not execute.
 #[test]
 fn dcs_ignores_c0_before_data() {
@@ -473,7 +466,7 @@ fn dcs_ignores_c0_before_data() {
     );
 }
 
-// tsm-vte.c:3561-3568: the data takes C0 controls and drops DEL.
+// The data takes C0 controls and drops DEL.
 #[test]
 fn dcs_data_takes_c0_and_drops_del() {
     assert_eq!(
@@ -487,7 +480,7 @@ fn dcs_data_takes_c0_and_drops_del() {
     );
 }
 
-// tsm-vte.c:3574, 3142-3154: a character past ASCII in the data.
+// A character past ASCII in the data.
 #[test]
 fn dcs_data_past_ascii() {
     assert_eq!(
@@ -501,7 +494,7 @@ fn dcs_data_past_ascii() {
     );
 }
 
-// tsm-vte.c:3495-3496, 3526-3528, 3550-3551, 3576-3589: a ':', or a marker or
+// A ':', or a marker or
 // parameter where neither may be, ignores the string to its ST.
 #[test]
 fn dcs_malformed_is_ignored() {
@@ -512,10 +505,9 @@ fn dcs_malformed_is_ignored() {
     }
 }
 
-// Departure, decided by the operator: in UTF-8 mode a character from
-// U+00A0 up in a DCS header ignores the string to its end, as the C
-// reference's own rule for CSI does (tsm-vte.c:3421). The C reference took
-// it as the final (tsm-vte.c:3512, 3537, 3557).
+// In UTF-8 mode a character from U+00A0 up in a DCS header ignores the
+// string to its end, as one in a CSI header ignores the sequence (the
+// crate's README, "Sequences").
 #[test]
 fn dcs_header_with_a_character_past_ascii_is_ignored() {
     for seq in ["\x1bPé", "\x1bP1é", "\x1bP$é"] {
@@ -528,10 +520,9 @@ fn dcs_header_with_a_character_past_ascii_is_ignored() {
     }
 }
 
-// Departure (vt100.net: "In all states, these codes are treated
-// identically to GL codes 20-7F"): in 8-bit mode a GR byte inside a
-// sequence acts as its GL byte. The C reference ignored CSI sequences,
-// collected ESC intermediates and took DCS finals instead.
+// vt100.net: "In all states, these codes are treated identically to GL
+// codes 20-7F". In 8-bit mode a GR byte inside a sequence acts as its GL
+// byte.
 #[test]
 fn gr_acts_as_gl_in_8bit_sequences() {
     // CSI 1 m with the final as 0xED
@@ -557,7 +548,7 @@ fn gr_acts_as_gl_in_8bit_sequences() {
     );
 }
 
-// tsm-vte.c:3291-3298, 3250-3251: CAN ends the data, then executes.
+// CAN ends the data, then executes.
 #[test]
 fn dcs_ended_by_can() {
     assert_eq!(
@@ -572,7 +563,7 @@ fn dcs_ended_by_can() {
     );
 }
 
-// tsm-vte.c:3310-3311, 3316-3317: a C1 introducer ends the data and starts
+// A C1 introducer ends the data and starts
 // its own sequence.
 #[test]
 fn dcs_ended_by_c1_csi() {
@@ -587,7 +578,7 @@ fn dcs_ended_by_c1_csi() {
     );
 }
 
-// tsm-vte.c:3373-3374, 3245, 3253, 3630-3631: an APC string, as the kitty
+// An APC string, as the kitty
 // graphics protocol sends it.
 #[test]
 fn apc_start_put_end() {
@@ -602,8 +593,8 @@ fn apc_start_put_end() {
     );
 }
 
-// libtsm's test_vte_kitty C1 framing: APC and ST as bytes in 8-bit mode.
-// As UTF-8 they do nothing (a departure, see c1_as_utf8_does_nothing).
+// APC and ST as bytes in 8-bit mode frame a kitty command. As UTF-8 they
+// do nothing (see c1_as_utf8_does_nothing).
 #[test]
 fn apc_c1_framing() {
     let want = acts![
@@ -616,7 +607,7 @@ fn apc_c1_framing() {
     assert_eq!(parse_in(InputMode::EightBit, b"\x9fGi=1\x9c"), want);
 }
 
-// tsm-vte.c:3624-3629: C0 controls and DEL are dropped inside.
+// C0 controls and DEL are dropped inside.
 #[test]
 fn apc_drops_c0_and_del() {
     assert_eq!(
@@ -630,7 +621,7 @@ fn apc_drops_c0_and_del() {
     );
 }
 
-// tsm-vte.c:3637: a character past ASCII is collected as itself.
+// A character past ASCII is collected as itself.
 #[test]
 fn apc_past_ascii() {
     assert_eq!(
@@ -645,7 +636,7 @@ fn apc_past_ascii() {
     );
 }
 
-// tsm-vte.c:3307-3308, 3258-3269: APC inside APC ends the first and starts
+// APC inside APC ends the first and starts
 // another, since a transition to the same state runs both actions.
 #[test]
 fn apc_restarts() {
@@ -663,7 +654,7 @@ fn apc_restarts() {
     );
 }
 
-// tsm-vte.c:3291-3298: SUB ends an APC, then executes.
+// SUB ends an APC, then executes.
 #[test]
 fn apc_ended_by_sub() {
     assert_eq!(
@@ -689,7 +680,7 @@ fn bytewise_matches_whole() {
     assert_eq!(whole[11], Act::ApcChar(0xe9));
 }
 
-// tsm-vte.c:1043-1047: reset drops a string in progress with no end call.
+// Reset drops a string in progress with no end call.
 #[test]
 fn reset_drops_the_string_in_progress() {
     let mut parser = vtium_parse::Parser::new();
@@ -700,7 +691,7 @@ fn reset_drops_the_string_in_progress() {
     assert_eq!(rec.acts, [Act::Print(0x78), Act::Execute(0x07)]);
 }
 
-// GR acting as GL (a departure) inside an ignored CSI: in 8-bit mode the GR
+// GR acting as GL inside an ignored CSI: in 8-bit mode the GR
 // byte 0xED acts as `m` and ends the ignored sequence, so the `x` after it
 // prints.
 #[test]
@@ -708,8 +699,8 @@ fn gr_ends_an_ignored_csi_in_8bit_mode() {
     assert_eq!(parse8(b"\x9b1?\xedx"), [Act::Print(0x78)]);
 }
 
-// aaronsb/libtsm#53 covers APC strings only: after a reset at the ESC of an
-// OSC string's ST, the `\` prints in ground state, as in the C reference.
+// The dropped `\` after a reset covers APC strings only: after a reset at
+// the ESC of an OSC string's ST, the `\` prints in ground state.
 #[test]
 fn reset_after_osc_esc_prints_the_backslash() {
     let mut parser = vtium_parse::Parser::new();
@@ -720,7 +711,7 @@ fn reset_after_osc_esc_prints_the_backslash() {
     assert_eq!(rec.acts, [Act::Print(0x5c)]);
 }
 
-// tsm-vte.c:1043: reset leaves the UTF-8 decoder between characters.
+// Reset leaves the UTF-8 decoder between characters.
 #[test]
 fn reset_drops_a_partial_character() {
     let mut parser = vtium_parse::Parser::new();
@@ -731,9 +722,9 @@ fn reset_drops_a_partial_character() {
     assert_eq!(rec.acts, [Act::Print(0x78)]);
 }
 
-// aaronsb/libtsm#53, a departure from the C reference: a host reset between the ESC that ended an APC string and the `\` of its ST,
-// as when the host cancels a kitty request it was handed at that ESC, drops
-// the `\`. The C reference printed it in ground state.
+// A host reset between the ESC that ended an APC string and the `\` of its
+// ST, as when the host cancels a kitty request it was handed at that ESC,
+// drops the `\`, so no stray `\` prints.
 #[test]
 fn reset_after_apc_esc_drops_the_st_backslash() {
     let mut parser = vtium_parse::Parser::new();
@@ -747,7 +738,7 @@ fn reset_after_apc_esc_drops_the_st_backslash() {
     );
 }
 
-// aaronsb/libtsm#53: only a `\` right after the reset is dropped; anything
+// Only a `\` right after the reset is dropped; anything
 // else parses as it would after any reset.
 #[test]
 fn reset_after_apc_esc_keeps_other_characters() {
@@ -763,7 +754,7 @@ fn reset_after_apc_esc_keeps_other_characters() {
     );
 }
 
-// aaronsb/libtsm#53: without a reset, ESC \ ends the APC as ST, as before.
+// Without a reset, ESC \ ends the APC as ST.
 #[test]
 fn apc_esc_backslash_without_reset_is_st() {
     assert_eq!(
@@ -778,11 +769,9 @@ fn apc_esc_backslash_without_reset_is_st() {
     );
 }
 
-// Departure (ECMA-48 5.4 c, d: intermediate bytes "Together with the Final
-// Byte F ... identify the control function"): intermediates keep their
-// order and count, and each keeps its own byte. The C reference collapsed
-// them to a set of flags, with every unnamed one as OTHER
-// (tsm-vte.c:1232-1275), so `CSI ! ! p` ran as DECSTR.
+// ECMA-48 5.4 c, d: intermediate bytes "Together with the Final Byte F ...
+// identify the control function". Intermediates keep their order and
+// count, and each keeps its own byte, so `CSI ! ! p` is not DECSTR.
 #[test]
 fn intermediates_keep_order_count_and_identity() {
     assert_ne!(parse(b"\x1b[!!p"), parse(b"\x1b[!p"));
@@ -792,10 +781,10 @@ fn intermediates_keep_order_count_and_identity() {
     assert_ne!(parse(b"\x1bP<q\x1b\\"), parse(b"\x1bP=q\x1b\\"));
 }
 
-// Departure (vt100.net: "If more than two intermediate characters arrive,
-// the parser can just flag this so that the dispatch can be turned into a
-// null operation"): a third intermediate makes the sequence do nothing, in
-// ESC, CSI and DCS alike. The C reference had no count bound.
+// vt100.net: "If more than two intermediate characters arrive, the parser
+// can just flag this so that the dispatch can be turned into a null
+// operation". A third intermediate makes the sequence do nothing, in ESC,
+// CSI and DCS alike.
 #[test]
 fn a_third_intermediate_makes_a_null_operation() {
     assert_eq!(parse(b"\x1b[!\"$p"), []);
