@@ -239,11 +239,12 @@ mod with_the_feature {
     #[test]
     fn a_selection_is_a_logical_range_copied_in_written_order() {
         let mut t = term(20, 1, MIXED.as_bytes());
-        // drawn "abc (1) םולש def": from the drawn shin (column 11, logical
-        // 4) to the drawn d (column 13, logical 13)
-        t.screen_mut().select_start(11, 0);
-        t.screen_mut().select_to(13, 0);
-        assert_eq!(t.screen().selection_text().as_deref(), Some("שלום (1) d"));
+        // drawn "abc (1) םולש def": from the drawn 1 (column 5, logical 10)
+        // to the drawn shin (column 11, logical 4), whichever is first in
+        // the order written
+        t.screen_mut().select_start(5, 0);
+        t.screen_mut().select_to(11, 0);
+        assert_eq!(t.screen().selection_text().as_deref(), Some("שלום (1"));
         // the frame shows the selected logical cells wherever they are drawn
         let palette = Palette::default();
         let frame = t.screen().frame(&palette, Age::NEVER);
@@ -251,8 +252,8 @@ mod with_the_feature {
             .cells(0)
             .map(|c| if c.selected { '#' } else { '.' })
             .collect();
-        assert_eq!(shown, "....##########......");
-        assert_eq!(frame.selection().first(), Some(&(4..14)));
+        assert_eq!(shown, ".....#######........");
+        assert_eq!(frame.selection().first(), Some(&(4..11)));
         assert_eq!(frame.selection().len(), 1);
         // a word under the drawn lamed is the Hebrew word
         t.screen_mut().select_word(10, 0);
