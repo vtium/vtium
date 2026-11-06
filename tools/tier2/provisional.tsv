@@ -7,3 +7,8 @@ emoji-spaced-12	new, the test font set of outline fonts (ADR-1503 D9) with line 
 emoji-spaced-30	new, the test font set of outline fonts (ADR-1503 D9) with line spacing (ADR-1302 D13), 2026-11-06; the maintainer reviews it as a picture; moved 2026-11-06, the accents above ÀÉÎ drawn whole above the text band (ADR-1306 D1, D8)
 bold	moved 2026-11-06, the slanted letters' ink reaching into the cells beside them (ADR-1306 D12); the maintainer reviews it as a picture
 combining	moved 2026-11-06, the grave over the tilde on each a drawn whole into the row above (ADR-1306 D1, D2); the maintainer reviews it as a picture
+cjk	new 2026-11-06, waited for wide characters across both cells; the maintainer reviews it as a picture
+wide-deco	new 2026-11-06, waited for wide characters across both cells; the maintainer reviews it as a picture
+emoji	new 2026-11-06, waited for the VS16 heart from the color emoji font; the maintainer reviews it as a picture
+vs16	new 2026-11-06, waited for the VS16 heart from the color emoji font; the maintainer reviews it as a picture
+osd	new 2026-11-06, waited for the on-screen display's line in the built-in font; the maintainer reviews it as a picture
