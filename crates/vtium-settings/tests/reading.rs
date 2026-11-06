@@ -425,3 +425,18 @@ fn version_inside_a_section_says_it_belongs_at_the_top() {
         assert_eq!(shown, [want], "{text:?}");
     }
 }
+
+// A section vtium cannot read is ignored whole, so a `version` or `policy`
+// line inside it adds no error of its own: the only error is the
+// section's, with what it drops
+// covers: platform.heads.rules
+#[test]
+fn a_version_or_policy_line_in_an_unreadable_section_adds_no_error() {
+    for line in ["version = 1", "policy = closed"] {
+        let text =
+            format!("version = 1\n[head a]\n[bogus x]\n{line}\nfoo = 2\n[rules]\ndisplay * -> a\n");
+        let r = read(&text);
+        let lines: Vec<Option<usize>> = r.errors.errors.iter().map(|e| e.line).collect();
+        assert_eq!(lines, [Some(3)], "{text:?}: {:?}", r.errors.errors);
+    }
+}

@@ -720,14 +720,17 @@ impl Parser {
             return;
         }
         let section = *self.section.get_or_insert(Section::Top);
-        if section != Section::Top && matches!(key_value(&line), Some(("policy", _))) {
+        // a section vtium cannot read is ignored whole, the `policy` and
+        // `version` lines in it with the rest
+        let readable_section = !matches!(section, Section::Top | Section::Broken);
+        if readable_section && matches!(key_value(&line), Some(("policy", _))) {
             self.policies.push(PolicyLine::InSection);
             self.error(Some(n), Problem::PolicyInSection, self.within());
             return;
         }
         // `version` is the top line misplaced, never the command line's
         // option of that name
-        if section != Section::Top && matches!(key_value(&line), Some((VERSION_KEY, _))) {
+        if readable_section && matches!(key_value(&line), Some((VERSION_KEY, _))) {
             self.error(Some(n), Problem::VersionInSection, self.within());
             return;
         }
