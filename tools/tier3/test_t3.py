@@ -2957,6 +2957,14 @@ class DevicesTest(unittest.TestCase):
         self.assertEqual(m.groups(), ("/dev/input/event6", "QEMU QEMU USB Keyboard"))
         self.assertIsNone(t3_devices.KEYBOARD_LINE.search(
             "input: using /dev/input/event4 [VirtualPS/2 VMware VMMouse] as Virtual mouse"))
+        # vtium names the vendor and product ids a device reports after its name.
+        m = t3_devices.KEYBOARD_LINE.search(
+            "[ 7.3] vtium[556]: input: using /dev/input/event2 [QEMU QEMU USB Keyboard] "
+            "0627:0001 as keyboard\n")
+        self.assertEqual(m.groups(), ("/dev/input/event2", "QEMU QEMU USB Keyboard"))
+        self.assertIsNone(t3_devices.KEYBOARD_LINE.search(
+            "input: using /dev/input/event4 [VirtualPS/2 VMware VMMouse] 0002:0013 as "
+            "Virtual mouse"))
 
     # The guest's account of each keyboard-hotplug run (screens/keyboard-hotplug.sh).
     PS2 = "T3-KBD platform-i8042-serio-0-event-kbd /dev/input/event1"
