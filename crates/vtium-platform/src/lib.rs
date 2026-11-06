@@ -93,4 +93,4 @@ pub use bounds::{
     REPLY_LOW, REPLY_MAX, RETAKE_QUIET_MS, WAKE_RETRIES, WAKE_RETRY_MS,
 };
 pub use calloop;
-pub use fds::cloexec_above_stdio;
+pub use fds::{cloexec_above_stdio, take_passed};

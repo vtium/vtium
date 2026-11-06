@@ -7,11 +7,17 @@
 //! feeds the child's output to a [`Consumer`], and a pidfd reports the
 //! child's exit. Dropping the pty closes it, with what was queued for its
 //! child, so a pty opened after it starts with an empty queue.
+//!
+//! A vtium that starts again after a crash or an upgrade takes back the
+//! masters of the sessions that outlived it (ADR-1401 D13): [`Pty::adopt`]
+//! makes a pty of a master whose session still runs, and
+//! [`Pty::release`] lets a master go at vtium's exit without hanging its
+//! session up.
 
 use std::io;
 use std::marker::PhantomData;
 use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
-use std::os::unix::process::CommandExt;
+use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::rc::Rc;
 
@@ -20,8 +26,8 @@ use calloop::{Interest, LoopHandle, Mode, PostAction, RegistrationToken};
 use rustix::fs::{OFlags, fcntl_getfl, fcntl_setfl};
 use rustix::io::Errno;
 use rustix::process::{
-    Pid, PidfdFlags, WaitId, WaitIdOptions, ioctl_tiocsctty, pidfd_open, pidfd_send_signal, setsid,
-    waitid,
+    Pid, PidfdFlags, WaitId, WaitIdOptions, ioctl_tiocsctty, kill_process_group, pidfd_open,
+    pidfd_send_signal, setsid, waitid,
 };
 // rustix publishes its runtime module under a name that changes between
 // releases, as it keeps that API unstable; Cargo.toml pins rustix to the
@@ -32,7 +38,8 @@ use rustix::runtime_448b8ad740e2a26f::{
     kernel_sigprocmask,
 };
 use rustix::termios::{
-    OptionalActions, SpecialCodeIndex, Winsize, tcgetattr, tcgetsid, tcsetattr, tcsetwinsize,
+    OptionalActions, SpecialCodeIndex, Winsize, tcgetattr, tcgetpgrp, tcgetsid, tcgetwinsize,
+    tcsetattr, tcsetwinsize,
 };
 
 use crate::channel::{Channel, Endpoint, Next};
@@ -99,13 +106,20 @@ trait Link {
 pub struct Pty {
     channel: Channel<Master>,
     master: Rc<OwnedFd>,
-    /// `None` once reaped.
+    /// `None` once reaped, and for an adopted pty.
     child: Option<Child>,
+    /// For a pty [`Pty::adopt`] made, the process id of the process whose
+    /// exit ends the session, until it exits.
+    adopted: Option<u32>,
     /// How the child exited, until the consumer is told.
     exit: Option<ExitStatus>,
+    /// The child's pidfd, or the adopted process's.
     pidfd: Rc<OwnedFd>,
     size: Size,
     link: Option<Box<dyn Link>>,
+    /// Whether dropping the pty hangs its session up; [`Pty::release`]
+    /// turns it off.
+    hang_up: bool,
 }
 
 impl Pty {
@@ -192,10 +206,57 @@ impl Pty {
             channel: Channel::new(Master(Rc::clone(&master))),
             master,
             child: Some(child),
+            adopted: None,
             exit: None,
             pidfd: Rc::new(pidfd),
             size,
             link: None,
+            hang_up: true,
+        })
+    }
+
+    /// Makes a pty of `master`, the master of a session that outlived the
+    /// vtium that started it (ADR-1401 D13), at the size the kernel holds
+    /// for it.
+    ///
+    /// vtium cannot wait for a process it did not start, so the pty
+    /// watches, through a pidfd, the process that leads the pty's session
+    /// now: the program vtium started, or the process that program handed
+    /// the pty to, as `login` hands it to the user's shell. The leader is
+    /// found as [`Pty`]'s drop finds it, by the session id the master
+    /// names, used only when the master still names that session once the
+    /// pidfd is open. With no session on the pty, because its program
+    /// ended while no vtium ran, it fails with [`io::ErrorKind::NotFound`]
+    /// and drops the master. The session's exit, when it comes, is told
+    /// with status 0, since nothing can read the real one.
+    pub fn adopt(master: OwnedFd) -> io::Result<Pty> {
+        let ended = || io::Error::new(io::ErrorKind::NotFound, "the session on the pty has ended");
+        let sid = tcgetsid(&master).map_err(|_| ended())?;
+        let pidfd = pidfd_open(sid, PidfdFlags::empty()).map_err(|_| ended())?;
+        if tcgetsid(&master).ok() != Some(sid) {
+            return Err(ended());
+        }
+        let leader = u32::try_from(sid.as_raw_nonzero().get()).map_err(|_| ended())?;
+        let held = tcgetwinsize(&master)?;
+        let cell = |px: u16, cells: u16| u32::from(px).checked_div(u32::from(cells)).unwrap_or(0);
+        let size = Size {
+            cols: held.ws_col,
+            rows: held.ws_row,
+            cell_width: cell(held.ws_xpixel, held.ws_col),
+            cell_height: cell(held.ws_ypixel, held.ws_row),
+        };
+        fcntl_setfl(&master, fcntl_getfl(&master)? | OFlags::NONBLOCK)?;
+        let master = Rc::new(master);
+        Ok(Pty {
+            channel: Channel::new(Master(Rc::clone(&master))),
+            master,
+            child: None,
+            adopted: Some(leader),
+            exit: None,
+            pidfd: Rc::new(pidfd),
+            size,
+            link: None,
+            hang_up: true,
         })
     }
 
@@ -241,19 +302,24 @@ impl Pty {
                             let Some((pty, consumer)) = access(data) else {
                                 return Ok(PostAction::Remove);
                             };
-                            let Some(child) = pty.child.as_mut() else {
-                                return Ok(PostAction::Remove);
+                            let status = match pty.child.as_mut() {
+                                Some(child) => match child.try_wait()? {
+                                    Some(status) => {
+                                        pty.child = None;
+                                        status
+                                    }
+                                    None => return Ok(PostAction::Continue),
+                                },
+                                // An adopted process's pidfd turns readable
+                                // when it exits; vtium can neither reap it
+                                // nor read its status.
+                                None if pty.adopted.take().is_some() => ExitStatus::from_raw(0),
+                                None => return Ok(PostAction::Remove),
                             };
-                            match child.try_wait()? {
-                                Some(status) => {
-                                    pty.child = None;
-                                    pty.exit = Some(status);
-                                    let next = pty.channel.orphan();
-                                    pty.settle(next, consumer);
-                                    Ok(PostAction::Remove)
-                                }
-                                None => Ok(PostAction::Continue),
-                            }
+                            pty.exit = Some(status);
+                            let next = pty.channel.orphan();
+                            pty.settle(next, consumer);
+                            Ok(PostAction::Remove)
                         }
                     },
                 )
@@ -342,9 +408,70 @@ impl Pty {
         Ok(())
     }
 
-    /// The child's process id, or `None` once it was reaped.
+    /// Sets the window size as [`Pty::resize`] does, and when the kernel
+    /// already holds that size, so that setting it would send no SIGWINCH,
+    /// sends SIGWINCH to the pty's foreground process group itself, so
+    /// that its program redraws all the same. A restarted vtium calls it
+    /// on each pty it adopted, whose screen it starts empty (ADR-1401
+    /// D13).
+    pub fn redraw(&mut self, size: Size) -> io::Result<()> {
+        let held = tcgetwinsize(&*self.master)?;
+        let wanted = size.winsize();
+        self.size = size;
+        let same = (held.ws_row, held.ws_col, held.ws_xpixel, held.ws_ypixel)
+            == (
+                wanted.ws_row,
+                wanted.ws_col,
+                wanted.ws_xpixel,
+                wanted.ws_ypixel,
+            );
+        if !same {
+            tcsetwinsize(&*self.master, wanted)?;
+            return Ok(());
+        }
+        kill_process_group(tcgetpgrp(&*self.master)?, Signal::WINCH)?;
+        Ok(())
+    }
+
+    /// The child's process id, or `None` once it was reaped; for an
+    /// adopted pty, the process id of the process it watches, until that
+    /// process exits.
     pub fn child_id(&self) -> Option<u32> {
-        self.child.as_ref().map(Child::id)
+        self.child.as_ref().map(Child::id).or(self.adopted)
+    }
+
+    /// Whether [`Pty::adopt`] made the pty, so its session's exit status
+    /// is not known.
+    pub fn adopted(&self) -> bool {
+        self.adopted.is_some()
+    }
+
+    /// The master, which the host lends to whatever keeps a copy of it
+    /// through a restart (ADR-1401 D13).
+    pub fn master(&self) -> BorrowedFd<'_> {
+        self.master.as_fd()
+    }
+
+    /// The pty's number, `N` of `/dev/pts/N`, which no other open pty
+    /// shares.
+    pub fn number(&self) -> io::Result<u32> {
+        let name = rustix::pty::ptsname(&*self.master, Vec::new())?;
+        name.to_bytes()
+            .strip_prefix(b"/dev/pts/")
+            .and_then(|n| std::str::from_utf8(n).ok()?.parse().ok())
+            .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidData))
+    }
+
+    /// Lets the pty go without hanging its session up: it leaves its loop
+    /// and closes this copy of the master, sends no SIGHUP, and neither
+    /// kills nor waits for the child. vtium calls it at its exit for each
+    /// pty whose master something outside vtium still holds, so that the
+    /// session runs on for the next vtium (ADR-1401 D13). A child that
+    /// vtium started and that still runs is left to whatever adopts it
+    /// once vtium has exited, PID 1 or a subreaper.
+    pub fn release(mut self) {
+        self.hang_up = false;
+        self.child = None;
     }
 
     /// The uid that owns the pty's slave now, as `login` sets it when a
@@ -421,6 +548,9 @@ impl Drop for Pty {
     /// never told it was hung up. Sent before the master closes, SIGHUP is
     /// pending in the leader before its input ends.
     fn drop(&mut self) {
+        if !self.hang_up {
+            return;
+        }
         self.signal_leader();
         let link = self.link.take();
         let Some(child) = self.child.take() else {
