@@ -1,0 +1,88 @@
+# The vendor archive each GitHub release carries: the source of every outside
+# crate vtium builds with, so that a package manager that builds with no
+# network has it (ADR-1500 D9). tools/vendor/archive describes the archive.
+#
+# When a release is published, the archive job checks out the release's tag,
+# packs the archive with make vendor-archive-check, which also builds the
+# workspace offline from it, and keeps both files as a workflow artifact. The
+# attach job then attaches them to the release. Run by hand on a tag, the
+# workflow packs and checks the archive and keeps it as a workflow artifact
+# alone, so it can be checked before a release depends on it.
+#
+# A release published with the workflow token starts no workflow, so this
+# runs for a release that a person publishes.
+name: Release vendor archive
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: The tag to pack the archive for, such as v0.1.0-alpha.6
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  TAG: ${{ github.event_name == 'release' && github.event.release.tag_name || inputs.tag }}
+
+jobs:
+  archive:
+    runs-on: ubuntu-latest
+    steps:
+      # The offline build fills much of the runner's disk. The runner's
+      # preinstalled .NET, Android, Haskell and CodeQL toolchains, which
+      # vtium never uses, are removed to make room.
+      - name: free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          df -h /
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ env.TAG }}
+          persist-credentials: false
+      # libudev and libxkbcommon, which vtium-platform links, libsystemd,
+      # which its logind feature links, and zstd, which packs the archive.
+      - run: sudo apt-get update && sudo apt-get install -y libudev-dev libxkbcommon-dev libsystemd-dev zstd
+      # The toolchain rust-toolchain.toml pins, with the ARM targets it
+      # names, so the offline build finds them installed.
+      - id: toolchain
+        run: echo "channel=$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.toolchain.outputs.channel }}
+          targets: aarch64-unknown-linux-gnu, armv7-unknown-linux-gnueabihf
+      # The file names carry the tag without its leading v.
+      - run: make vendor-archive-check VENDOR_DIR="$RUNNER_TEMP/vendor" VENDOR_VERSION="${TAG#v}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vtium-vendor-${{ env.TAG }}
+          path: |
+            ${{ runner.temp }}/vendor/vtium-*-vendor.tar.zst
+            ${{ runner.temp }}/vendor/vtium-*-vendor.tar.zst.sha256
+          if-no-files-found: error
+
+  attach:
+    if: github.event_name == 'release'
+    needs: archive
+    runs-on: ubuntu-latest
+    # Only this job may write to the release, and it runs no code of the
+    # tag's.
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: vtium-vendor-${{ env.TAG }}
+          path: vendor
+      # --clobber replaces the files a run that was started again had
+      # already attached.
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=${TAG#v}
+          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber \
+            "vendor/vtium-$version-vendor.tar.zst" \
+            "vendor/vtium-$version-vendor.tar.zst.sha256"
