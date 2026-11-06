@@ -79,6 +79,8 @@
 //! fields it knows and skips the rest, so a minor version can add fields at
 //! a record's end and sections a reader skips. Reserved fields are 0.
 
+use crate::reach::{REACH_CELLS, REACH_ROWS};
+
 /// The file's first eight bytes.
 pub(crate) const MAGIC: [u8; 8] = *b"VTGLASS\0";
 /// The format's major version: a reader refuses any other. Version 2
@@ -150,16 +152,39 @@ pub(crate) fn glyph_bytes(format: u8, width: u32, height: u32, cells: u32) -> Op
     row.checked_mul(height)
 }
 
-/// Whether a box `width` columns from `left` spans a glyph `span` pixels
-/// wide, of cells `cell` pixels wide, passes it on one side at least, and
-/// reaches no further than one cell past it on either side (ADR-1302 D1).
-pub(crate) fn in_reach(left: i64, width: i64, cell: i64, span: i64) -> bool {
-    let right = left.saturating_add(width);
-    left <= 0
-        && left.saturating_add(cell) >= 0
-        && right >= span
-        && right <= span.saturating_add(cell)
-        && (left, right) != (0, span)
+/// An ink box's place and size in pixels: `width` columns from `left`,
+/// the offset of its first column from the left edge of its glyph's
+/// first cell, and `height` rows from `top`, the offset of its first row
+/// from the top of its glyph's row.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct InkRect {
+    pub left: i64,
+    pub top: i64,
+    pub width: i64,
+    pub height: i64,
+}
+
+impl InkRect {
+    /// Whether the box spans a glyph `span` pixels across and down, in
+    /// cells `cell` pixels across and down, passes it on one side at
+    /// least, and reaches no further than [`REACH_CELLS`] cells past it on
+    /// either side and [`REACH_ROWS`] rows above and below it (ADR-1302
+    /// D1, ADR-1306 D1, D12).
+    pub(crate) fn in_reach(self, cell: (i64, i64), span: (i64, i64)) -> bool {
+        let across = cell.0.saturating_mul(i64::from(REACH_CELLS));
+        let down = cell.1.saturating_mul(i64::from(REACH_ROWS));
+        let right = self.left.saturating_add(self.width);
+        let bottom = self.top.saturating_add(self.height);
+        self.left <= 0
+            && self.left.saturating_add(across) >= 0
+            && right >= span.0
+            && right <= span.0.saturating_add(across)
+            && self.top <= 0
+            && self.top.saturating_add(down) >= 0
+            && bottom >= span.1
+            && bottom <= span.1.saturating_add(down)
+            && (self.left, right, self.top, bottom) != (0, span.0, 0, span.1)
+    }
 }
 
 /// Whether `name` is a set name ADR-1200 D1 admits: 1 to 64 characters of

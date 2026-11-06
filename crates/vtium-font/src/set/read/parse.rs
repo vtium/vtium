@@ -808,9 +808,15 @@ pub(super) fn parse_inks(
         .ok_or(SetError::Malformed(
             "an ink box of a glyph the strike lacks",
         ))?;
-        let cell = i64::from(s.info.cell.width);
-        let cells = cell.saturating_mul(if wide { 2 } else { 1 });
-        if !crate::set::format::in_reach(i64::from(left), i64::from(width), cell, cells) {
+        let cell = (i64::from(s.info.cell.width), i64::from(s.info.cell.height));
+        let cells = (cell.0.saturating_mul(if wide { 2 } else { 1 }), cell.1);
+        let boxed = crate::set::format::InkRect {
+            left: i64::from(left),
+            top: 0,
+            width: i64::from(width),
+            height: cell.1,
+        };
+        if !boxed.in_reach(cell, cells) {
             return Err(SetError::Malformed(
                 "an ink box past its glyph's reach, or not past its cells",
             ));

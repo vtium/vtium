@@ -257,8 +257,15 @@ pub fn scale_rows(rows: &[u8], width: usize, band: Band) -> Option<Vec<u8>> {
 /// `band` as `fit` says (ADR-1302 D13): `fill` stretches a `bitmap` glyph
 /// by repeating its top and bottom rows and scales any other mask
 /// vertically, and `natural` and `room` pad it with blank rows. A color
-/// glyph is always padded, never stretched. Its ink box, where it has one,
-/// is placed the same way. `None` past the glyph's bounds.
+/// glyph is always padded, never stretched. `None` past the glyph's
+/// bounds.
+///
+/// Its ink box, where it has one, goes with it. A stretched glyph's box is
+/// first cut to the text band's rows and then stretched as the glyph is.
+/// A padded glyph keeps its ink where it was drawn (ADR-1306 D8): the ink
+/// its box holds above or below the text band now lies in the rows the
+/// band adds, which are part of its cell, so it joins the glyph's own
+/// pixels, and the box keeps only what still passes the taller cell.
 pub fn place(glyph: &Glyph, band: Band, fit: Fit, bitmap: bool) -> Option<Glyph> {
     if band.is_none() {
         return Some(glyph.clone());
@@ -277,10 +284,63 @@ pub fn place(glyph: &Glyph, band: Band, fit: Fit, bitmap: bool) -> Option<Glyph>
     let pixels = stretch(glyph.pixels(), glyph.width())?;
     let out = Glyph::from_pixels(glyph.width(), height, glyph.format(), pixels)?
         .with_cells(glyph.cells());
-    match glyph.ink() {
-        None => Some(out),
-        Some(ink) => out.with_ink(ink.left(), ink.width(), stretch(ink.pixels(), ink.width())?),
+    let Some(ink) = glyph.ink() else {
+        return Some(out);
+    };
+    if fill {
+        // the text band's rows of the box, stretched with the glyph
+        let stride = usize::try_from(ink.width()).ok()?;
+        let first = usize::try_from(ink.top().checked_neg()?).ok()?;
+        let rows = usize::try_from(glyph.height()).ok()?;
+        let band_rows = ink
+            .pixels()
+            .get(first.checked_mul(stride)?..first.checked_add(rows)?.checked_mul(stride)?)?;
+        let boxed = stretch(band_rows, ink.width())?;
+        return Some(
+            out.clone()
+                .with_ink((ink.left(), 0), (ink.width(), height), boxed)
+                .unwrap_or(out),
+        );
     }
+    padded_ink(glyph, ink, band, out)
+}
+
+/// `out`, `glyph` padded into the taller cell, given the ink of `glyph`'s
+/// box `ink` moved down by the rows `band` adds above: its own pixels are
+/// that ink cut to its cells, and its box is the ink and its cells
+/// together, kept only where the ink passes them.
+fn padded_ink(glyph: &Glyph, ink: &crate::glyph::Ink, band: Band, out: Glyph) -> Option<Glyph> {
+    let cell_h = i64::from(out.height());
+    let moved = i64::from(ink.top()).checked_add(i64::from(band.above))?;
+    let top = moved.min(0);
+    let bottom = moved.checked_add(i64::from(ink.height()))?.max(cell_h);
+    let stride = usize::try_from(ink.width()).ok()?;
+    let rows = usize::try_from(bottom.checked_sub(top)?).ok()?;
+    let mut all = vec![0u8; rows.checked_mul(stride)?];
+    let at = usize::try_from(moved.checked_sub(top)?)
+        .ok()?
+        .checked_mul(stride)?;
+    all.get_mut(at..at.checked_add(ink.pixels().len())?)?
+        .copy_from_slice(ink.pixels());
+    // the cells' own pixels: the box's rows of the cell and its columns of
+    // the glyph's cells
+    let x0 = usize::try_from(ink.left().checked_neg()?).ok()?;
+    let w = usize::try_from(glyph.width()).ok()?;
+    let y0 = usize::try_from(top.checked_neg()?).ok()?;
+    let mut own = Vec::with_capacity(w.checked_mul(usize::try_from(cell_h).ok()?)?);
+    for y in 0..usize::try_from(cell_h).ok()? {
+        let row = y0.checked_add(y)?.checked_mul(stride)?.checked_add(x0)?;
+        own.extend_from_slice(all.get(row..row.checked_add(w)?)?);
+    }
+    let own =
+        Glyph::from_pixels(out.width(), out.height(), out.format(), own)?.with_cells(out.cells());
+    let height = u32::try_from(rows).ok()?;
+    let top = i32::try_from(top).ok()?;
+    Some(
+        own.clone()
+            .with_ink((ink.left(), top), (ink.width(), height), all)
+            .unwrap_or(own),
+    )
 }
 
 #[cfg(test)]
@@ -435,7 +495,7 @@ mod tests {
         let g = Glyph::mask(4, 2)
             .unwrap()
             .with_cells(Width::Wide)
-            .with_ink(-1, 5, vec![255; 10])
+            .with_ink((-1, 0), (5, 2), vec![255; 10])
             .unwrap();
         let p = place(&g, Band { above: 1, below: 0 }, Fit::Natural, true).unwrap();
         assert_eq!((p.width(), p.height(), p.cells()), (4, 3, Width::Wide));
@@ -443,5 +503,56 @@ mod tests {
         assert_eq!((ink.left(), ink.width()), (-1, 5));
         assert_eq!(ink.pixels()[..5], [0; 5]);
         assert_eq!(ink.pixels()[5..], [255; 10]);
+    }
+
+    // ADR-1306 D8: a natural glyph's ink above its text band lies in the
+    // rows the band adds, which are its cell's, so it joins the glyph's own
+    // pixels; what passes the taller cell stays in the box. A 2x2 glyph
+    // whose box holds a row above the band in the second column and two
+    // rows above it in the first, placed with one row added above, owns
+    // the near row and keeps the far one in a box a row above the cell
+    #[test]
+    fn a_natural_glyphs_ink_above_its_band_moves_into_the_added_rows() {
+        let g = Glyph::from_pixels(2, 2, Format::Mask, vec![1, 2, 3, 4])
+            .unwrap()
+            .with_ink((0, -2), (2, 4), vec![9, 0, 8, 8, 1, 2, 3, 4])
+            .unwrap();
+        for fit in [Fit::Natural, Fit::Room] {
+            let p = place(&g, Band { above: 1, below: 1 }, fit, false).unwrap();
+            assert_eq!(p.height(), 4);
+            assert_eq!(p.pixels(), [8, 8, 1, 2, 3, 4, 0, 0].as_slice(), "{fit:?}");
+            let ink = p.ink().unwrap();
+            assert_eq!(
+                (ink.left(), ink.top(), ink.width(), ink.height()),
+                (0, -1, 2, 5)
+            );
+            assert_eq!(ink.pixels(), [9, 0, 8, 8, 1, 2, 3, 4, 0, 0].as_slice());
+        }
+        // all of it inside the taller cell: no box is left
+        let near = Glyph::from_pixels(2, 2, Format::Mask, vec![1, 2, 3, 4])
+            .unwrap()
+            .with_ink((0, -1), (2, 3), vec![8, 8, 1, 2, 3, 4])
+            .unwrap();
+        let p = place(&near, Band { above: 1, below: 0 }, Fit::Natural, false).unwrap();
+        assert_eq!(p.pixels(), [8, 8, 1, 2, 3, 4].as_slice());
+        assert!(p.ink().is_none());
+    }
+
+    // a stretched glyph's box keeps only the text band's rows, stretched
+    // with it
+    #[test]
+    fn a_filled_glyphs_box_is_cut_to_its_band_and_stretched() {
+        let g = Glyph::from_pixels(1, 2, Format::Mask, vec![1, 2])
+            .unwrap()
+            .with_ink((-1, -1), (2, 3), vec![5, 5, 0, 1, 0, 2])
+            .unwrap();
+        let p = place(&g, Band { above: 1, below: 1 }, Fit::Fill, true).unwrap();
+        assert_eq!(p.pixels(), [1, 1, 2, 2].as_slice());
+        let ink = p.ink().unwrap();
+        assert_eq!(
+            (ink.left(), ink.top(), ink.width(), ink.height()),
+            (-1, 0, 2, 4)
+        );
+        assert_eq!(ink.pixels(), [0, 1, 0, 1, 0, 2, 0, 2].as_slice());
     }
 }
