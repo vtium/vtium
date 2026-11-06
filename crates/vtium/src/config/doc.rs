@@ -117,7 +117,7 @@ pub(super) fn markdown() -> String {
          \n\
          vtium reports, once at start, a top-level key it does not know, however often it appears, and a value it cannot use: a number out of bounds, which it clamps, and a value it cannot read, which it ignores, keeping the value the sources before it gave. An error in a section drops what ADR-1401 D7 says it takes, and never a top-level key. It reads at most {FILE_MAX} bytes of the file and {LINE_MAX} of a line.\n\
          \n\
-         `install/vtium.conf.example` in `crates/vtium` lists the same keys at their defaults, under the same sections, then the compiled-in looks, heads and rules. Source cites the specification or the decision a key comes from.\n"
+         `install/vtium.conf.example` in `crates/vtium` lists the same keys at their defaults, under the same sections, then the compiled-in looks, heads and rules. Source names the decision record, the specification or the released program each key comes from.\n"
     );
     for section in &SECTIONS {
         let _ = write!(

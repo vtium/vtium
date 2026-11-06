@@ -2,7 +2,7 @@
 
 <!-- Generated from crates/vtium-settings/src/keys.rs; do not edit. `VTIUM_BLESS=1 cargo test -p vtium generated_files` rewrites it. -->
 
-vtium reads one file, `vtium.conf` in the configuration directory (`--configdir`, `/etc/vtium` by default), then its command line, which wins over the file (ADR-1403 D2). vtium never reads `/etc/kmscon` or a seat file such as `seat0.seat.conf`: a `kmscon.conf` from kmscon is copied to `/etc/vtium/vtium.conf` by hand, and vtium reads the keys `kmscon` takes, in the ways the vtium crate's README, "Reading the configuration", sets out. With no file, vtium runs its defaults and its compiled-in heads and rules. The file is read once, at start: a change applies when vtium starts again, as at a restart of its service.
+vtium reads one file, `vtium.conf` in the configuration directory (`--configdir`, `/etc/vtium` by default), then its command line, which wins over the file (ADR-1403 D2). vtium never reads the C reference's `/etc/kmscon` or a seat file such as `seat0.seat.conf`: a `kmscon.conf` from kmscon is copied to `/etc/vtium/vtium.conf` by hand, and vtium reads its keys as the C reference did, with the departures the vtium crate's README lists. With no file, vtium runs its defaults and its compiled-in heads and rules. The file is read once, at start: a change applies when vtium starts again, as at a restart of its service.
 
 The file has two parts (ADR-1403 D3). Every line above the first section heading is the top level: vtium's own keys, the defaults every head inherits, and the flow's `version` and `policy`. From the first section heading on come the sections: a `[look NAME]` for each look, which names a frit and its size, a `[head NAME]` for each head, and one `[rules]` list, which sends each display and each input device to a head (ADR-1401 D3). A file with a section needs `version = 1`. A head's section wins over its look's, and its look's over the top level, for the keys the table below says each may set (ADR-1403 D5).
 
@@ -14,7 +14,7 @@ A top-level line holds one key: `key=value`, or a switch's `key` to turn it on a
 
 vtium reports, once at start, a top-level key it does not know, however often it appears, and a value it cannot use: a number out of bounds, which it clamps, and a value it cannot read, which it ignores, keeping the value the sources before it gave. An error in a section drops what ADR-1401 D7 says it takes, and never a top-level key. It reads at most 65536 bytes of the file and 8192 of a line.
 
-`install/vtium.conf.example` in `crates/vtium` lists the same keys at their defaults, under the same sections, then the compiled-in looks, heads and rules. Source cites the specification or the decision a key comes from.
+`install/vtium.conf.example` in `crates/vtium` lists the same keys at their defaults, under the same sections, then the compiled-in looks, heads and rules. Source cites the C reference, kmscon at `b1f7a7c5`, or the decision a key comes from.
 
 ## Fonts and text
 
