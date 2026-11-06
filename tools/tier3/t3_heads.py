@@ -881,6 +881,9 @@ def check_session_survives(variant, vm, work, caps, errors, log):
         if why:
             raise RuntimeError("after the stop: %s" % why)
     except RuntimeError as e:
+        # A case with a capture and no golden passes on the capture, so a
+        # failure after the capture drops it.
+        caps.pop(case, None)
         errors[case] = str(e)
 
 
