@@ -1952,8 +1952,8 @@ mod tests {
     }
 
     // ADR-1401 D5, binary-review's finding 3: the console the close chord
-    // closes is told nothing: no focus-out joins what it owed its program, and nothing
-    // it owed is sent; the console shown next gains the focus.
+    // closes is told nothing: no focus-out joins what it owed its program,
+    // and nothing it owed is sent; the console shown next gains the focus.
     #[test]
     #[expect(
         clippy::disallowed_methods,

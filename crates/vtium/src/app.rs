@@ -4992,8 +4992,9 @@ mod tests {
     }
 
     // vtium/vtium#229: on a fake VT the app holds one wake-up of the input
-    // for as long as it runs, so the keyboards stay open after Ctrl+Super+F12 releases it, and the same
-    // chord can take it back; a kernel VT's release closes them
+    // for as long as it runs, so the keyboards stay open after
+    // Ctrl+Super+F12 releases it, and the same chord can take it back; a
+    // kernel VT's release closes them
     #[test]
     fn a_released_fake_vt_keeps_the_keyboards_open_to_take_it_back() {
         use vtium_platform::input::{Direct, Input, InputConfig, Keymap};

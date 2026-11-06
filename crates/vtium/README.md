@@ -167,7 +167,7 @@ vtium reads `vtium.conf` and then its command line through the key table, `src/c
 - **An option name is matched whole,** so `--lo` is not `--login`.
 - **A command-line word that is not an option refuses the start,** with `--login` too: the word does not join the command, which comes only after `--`. `--login` with no command after `--` refuses the start as well. `check-config` is the one such word vtium takes, wherever it stands before `--`. The words after `--` are passed as given, bytes that are not UTF-8 included. Tests: `a_stray_argument_or_a_login_without_its_command_refuses_the_start`, `a_command_word_that_is_not_utf8_is_passed_as_given`.
 - **vtium logs information messages and above by default, and `debug` adds debug messages.** There is no `verbose` or `silent`: a file or command line that sets either is reported as setting an unknown key.
-- **A build without images reads the image keys and says nothing of them.** That build never offers sixel or kitty graphics, so a line saying it turned them off would tell a reader nothing.
+- **A build without images reads the image keys and says nothing of them.** That build never offers sixel or kitty graphics, so vtium logs nothing about them.
 
 ## Heads
 

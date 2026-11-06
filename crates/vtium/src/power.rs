@@ -73,11 +73,12 @@ impl Power for System {
 /// `sleeping`, the last such child has not exited, and a suspend does
 /// nothing more.
 ///
-/// The reboot takes one of two paths, chosen by `/proc/sys/kernel/ctrl-alt-del`, which the kernel reads for
-/// its own Ctrl+Alt+Del: at 0, or when it cannot be read, PID 1 is asked
-/// to reboot; at any other number the kernel restarts at once. Power-off
-/// asks PID 1, and suspend asks logind, or the kernel where logind is not
-/// running or not built in; neither calls `reboot(2)`.
+/// The reboot takes one of two paths, chosen by
+/// `/proc/sys/kernel/ctrl-alt-del`, which the kernel reads for its own
+/// Ctrl+Alt+Del: at 0, or when it cannot be read, PID 1 is asked to reboot;
+/// at any other number the kernel restarts at once. Power-off asks PID 1,
+/// and suspend asks logind, or the kernel where logind is not running or
+/// not built in; neither calls `reboot(2)`.
 pub fn press(key: PowerKey, power: &mut dyn Power, sleeping: bool) -> Option<Child> {
     let done = match key {
         PowerKey::Reboot => match ctrl_alt_del(power) {

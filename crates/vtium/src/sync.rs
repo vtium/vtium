@@ -218,8 +218,9 @@ impl Wait {
         self.due
     }
 
-    /// The wait's time came, so the draw it held is asked for now. A draw that cannot run yet waits on what holds
-    /// it, a flip or a hold, and not on this time.
+    /// The wait's time came, so the draw it held is asked for now. A draw
+    /// that cannot run yet waits on what holds it, a flip or a hold, and
+    /// not on this time.
     pub fn end(&mut self) {
         self.due = None;
     }

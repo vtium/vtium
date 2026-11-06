@@ -2667,11 +2667,12 @@ fn closing_a_console_hangs_up_its_session_alone() {
     assert!(s.until(BOUND, |a| head_shows(a, "small", "got:on")));
 }
 
-/// D5 and binary-review's finding 2: a session the open chord cannot
-/// start leaves the run alive. The console that could not start leaves the head, which shows the console it
-/// showed before, and the top of the head says so; the other sessions run
-/// on. The head's login here is a script removed once the first console's
-/// session has started, so the second cannot start.
+/// D5 and binary-review's finding 2: a session the open chord cannot start
+/// leaves the run alive. The console that could not start leaves the head,
+/// which shows the console it showed before, and the top of the head says
+/// so; the other sessions run on. The head's login here is a script removed
+/// once the first console's session has started, so the second cannot
+/// start.
 // covers: platform.heads
 #[test]
 fn a_console_the_open_chord_cannot_start_leaves_and_the_run_goes_on() {

@@ -155,7 +155,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn each_default_grab_matches_its_modifiers_and_key() {
+    fn the_default_grabs_match_their_modifiers_and_keys() {
         assert_eq!(grab(SHIFT, &[UP]), Some(Grab::ScrollUp));
         assert_eq!(grab(SHIFT, &[NEXT]), Some(Grab::PageDown));
         assert_eq!(grab(CTRL, &[EQUAL]), Some(Grab::ZoomIn));

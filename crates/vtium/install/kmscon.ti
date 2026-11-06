@@ -1,10 +1,12 @@
-# The entry for the released kmscon's name, kmscon, with Ms for OSC 52.
-# vtium's own entry is xterm-vtium.ti, its default TERM. Under TERM=kmscon
-# vtium answers XTGETTCAP from the table in crates/vtium/src/termcap/table.rs
-# generated from this file, and only under that name; a test fails when they
-# differ, and VTIUM_BLESS=1 cargo test -p vtium termcap rewrites the table.
-# make install-tree installs this file until the packaging takes the kmscon
-# name from the kmscon-terminfo package. Tier 1's xtgettcap probe checks the
+# The entry for the released kmscon's name, kmscon. It differs from the entry
+# the kmscon-terminfo package installs under that name: this one adds Ms for
+# OSC 52, which the package's entry lacks. vtium's own entry is
+# xterm-vtium.ti, its default TERM. Under TERM=kmscon vtium answers XTGETTCAP
+# from the table in crates/vtium/src/termcap/table.rs generated from this
+# file, and only under that name; a test fails when they differ, and
+# VTIUM_BLESS=1 cargo test -p vtium termcap rewrites the table. make
+# install-tree installs this file until the packaging takes the kmscon name
+# from the kmscon-terminfo package. Tier 1's xtgettcap probe checks the
 # answers.
 kmscon|KMS Console,
   am, bce, km, mir, msgr, npc, xenl,

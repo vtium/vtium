@@ -1169,8 +1169,8 @@ mod tests {
     }
 
     // ADR-1200 D17: at 72 DPI, where a point is a pixel, an outline frit
-    // zooms by 1 pixel, from its stated cell, each height but the stated one as wide as
-    // the built-in font there
+    // zooms by 1 pixel, from its stated cell, each height but the stated
+    // one as wide as the built-in font there
     #[test]
     fn an_outline_frit_at_72_dpi_zooms_by_one_pixel() {
         for text in [

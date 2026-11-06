@@ -2431,10 +2431,10 @@ fn the_wheel_sends_cursor_keys_on_the_alternate_screen_under_mode_1007() {
     }
 }
 
-/// #203: natural scrolling reverses the wheel: a step up scrolls the view down and a step down scrolls
-/// it back, the cursor keys mode 1007 sends on the alternate screen
-/// reverse, and a program tracking the pointer reads the other wheel
-/// button. Ctrl's zoom keeps the wheel's own direction.
+/// #203: natural scrolling reverses the wheel: a step up scrolls the view
+/// down and a step down scrolls it back, the cursor keys mode 1007 sends on
+/// the alternate screen reverse, and a program tracking the pointer reads
+/// the other wheel button. Ctrl's zoom keeps the wheel's own direction.
 #[test]
 fn natural_scrolling_reverses_the_wheel_but_not_its_zoom() {
     let back = |h: &Harness| {
