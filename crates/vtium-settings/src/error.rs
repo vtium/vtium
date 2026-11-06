@@ -275,6 +275,18 @@ pub enum Drops {
 }
 
 impl Drops {
+    /// Every scope an error can drop, so a reader of `vtium check-config`'s
+    /// report can tell the line that says what an error drops from the
+    /// error itself.
+    pub const ALL: [Drops; 6] = [
+        Drops::File,
+        Drops::Head,
+        Drops::Section,
+        Drops::Rule,
+        Drops::Line,
+        Drops::Closed,
+    ];
+
     /// What an error of `scope` drops on a line `within` the file.
     pub fn of(scope: Scope, within: Within) -> Drops {
         match (scope, within) {

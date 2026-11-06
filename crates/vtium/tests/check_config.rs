@@ -342,6 +342,48 @@ fn check_config_lists_each_planted_head_file_error_with_its_line_and_exits_1() {
     assert!(!err.contains("unknown option"), "{err}");
 }
 
+// vtium-config counts the problems of a draft from `vtium check-config`'s
+// standard error, where each error is followed by the line that says what
+// it drops: run on vtium's own report, it counts each error once and none
+// of those lines, whatever words the drops lines use
+#[test]
+fn vtium_config_counts_each_error_of_check_config_once() {
+    let (d, _) = head_file(
+        "counted",
+        "version = 1\n\
+         [head desk]\n\
+         frob = 1\n\
+         [rules]\n\
+         display * -> desk\n\
+         input path:pci-0000:15:00.0-usb-0:3.3 -> desc\n",
+    );
+    let out = check(&d, &["--no-devices"]);
+    assert_eq!(out.status.code(), Some(1));
+    let problems: Vec<String> = String::from_utf8_lossy(&out.stderr)
+        .lines()
+        .map(str::to_owned)
+        .collect();
+    let drops = problems
+        .iter()
+        .filter(|l| {
+            vtium_settings::Drops::ALL
+                .iter()
+                .any(|d| l.ends_with(&d.to_string()))
+        })
+        .count();
+    // the two errors, each followed by what it drops
+    assert_eq!(drops, 2, "{problems:#?}");
+    let checked = vtium_config::drafts::Checked {
+        passed: false,
+        problems: problems.clone(),
+        notes: Vec::new(),
+    };
+    // the two errors, `frob` and the rule to `desc`, and none of what they
+    // drop
+    assert_eq!(checked.count(), 2, "{problems:#?}");
+    assert_eq!(problems.len(), 4, "{problems:#?}");
+}
+
 // ADR-1401 D7: a policy line vtium cannot read makes the file closed and
 // broken; `vtium check-config` names the line, says the whole file drops
 // under the closed policy, and exits 1
