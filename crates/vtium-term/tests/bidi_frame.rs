@@ -362,6 +362,27 @@ mod with_the_feature {
         assert_eq!(drawn(&t)[0], "..12והדגבא");
     }
 
+    // ADR-1004 D8: a rewrap makes new rows from the old ones' cells, and
+    // each row it makes that holds Hebrew still draws through its
+    // paragraph's order.
+    // covers: text.bidi
+    #[test]
+    fn a_rewrap_keeps_reordering_the_rows_it_makes() {
+        let mut t = term(
+            6,
+            3,
+            "\u{5D0}\u{5D1}\u{5D2}\u{5D3}\u{5D4}\u{5D5}\u{5D6}\u{5D7}".as_bytes(),
+        );
+        t.resize(4, 3);
+        assert_eq!(
+            drawn(&t)[..2],
+            [
+                "\u{5D3}\u{5D2}\u{5D1}\u{5D0}",
+                "\u{5D7}\u{5D6}\u{5D5}\u{5D4}"
+            ]
+        );
+    }
+
     // ADR-1004, open question 4: implicit mode holds on the alternate
     // screen too.
     // covers: text.bidi
