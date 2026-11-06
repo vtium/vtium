@@ -341,6 +341,20 @@ impl Context for Ctx<'_> {
         self.state.screen.add_image_work(work);
     }
 
+    fn colors(&self) -> Option<vtium_image::Colors> {
+        use crate::palette::Special;
+        let p = &self.state.colors;
+        let rgb = |c: crate::style::Rgb| [c.r, c.g, c.b];
+        Some(vtium_image::Colors {
+            table: core::array::from_fn(|i| rgb(p.color(u8::try_from(i).unwrap_or(u8::MAX)))),
+            fg: rgb(p.fg()),
+            bg: rgb(p.bg()),
+            selection_bg: p.special(Special::SelectionBg).map(rgb),
+            selection_fg: p.special(Special::SelectionFg).map(rgb),
+            cursor: p.cursor().map(rgb),
+        })
+    }
+
     fn note(&mut self, cause: Cause, why: &str) {
         self.state.images.notes.add(self.which, cause, why);
     }
@@ -1564,5 +1578,52 @@ mod tests {
         let why = notes.take().pop().map(|n| n.why).unwrap_or_default();
         assert!(why.len() <= IMAGE_NOTE_BYTES_MAX && why.len() + 2 > IMAGE_NOTE_BYTES_MAX);
         assert!(long.starts_with(&why));
+    }
+
+    /// The store's opaque pixel of `rgb`.
+    fn opaque(rgb: crate::style::Rgb) -> u32 {
+        0xff00_0000 | u32::from(rgb.r) << 16 | u32::from(rgb.g) << 8 | u32::from(rgb.b)
+    }
+
+    // A kitty f=8 picture takes the palette the frames draw through as it
+    // arrives (ADR-1100, D15): one sent before OSC 4 changes color 1 keeps
+    // the old color, and one sent after it takes the new one.
+    // covers: image.kitty
+    #[test]
+    fn a_palette_index_picture_takes_the_colors_in_force_when_it_arrives() {
+        let mut t = Terminal::new(4, 2, 0);
+        t.screen_mut().set_image_limit(1 << 20);
+        assert!(t.screen_mut().set_image_cell(8, 16).is_ok());
+        t.set_image_switches(Switches {
+            sixel: false,
+            kitty: true,
+            iterm2: false,
+        });
+        t.set_image_handler(
+            ImageString::Kitty,
+            Some(Box::new(vtium_image::Kitty::default())),
+        );
+        let old = t.palette().color(1);
+        // index 1, then the default background (248) and foreground (249)
+        let picture = |id: u8| format!("\x1b_Ga=T,f=8,s=3,v=1,i={id},C=1;Afj5\x1b\\");
+        t.input(picture(1).as_bytes());
+        t.input(b"\x1b]4;1;rgb:12/34/56\x1b\\");
+        let new = t.palette().color(1);
+        assert_ne!(old, new);
+        t.input(picture(2).as_bytes());
+        assert_eq!(t.replies(), b"\x1b_Gi=1;OK\x1b\\\x1b_Gi=2;OK\x1b\\");
+        let (fg, bg) = (t.palette().fg(), t.palette().bg());
+        let placed = t.screen().placements();
+        let pixels: Vec<Vec<u32>> = placed
+            .iter()
+            .map(|p| p.pixels.as_slice().to_vec())
+            .collect();
+        assert_eq!(
+            pixels,
+            vec![
+                vec![opaque(old), opaque(bg), opaque(fg)],
+                vec![opaque(new), opaque(bg), opaque(fg)],
+            ]
+        );
     }
 }
