@@ -843,7 +843,7 @@ macro_rules! mosaic_spaced {
 /// after the sentence that gives each one's spacing.
 macro_rules! emoji_spaced {
     () => {
-        "A box of light lines around Latin letters with ascenders, descenders and accents; three wide emoji; a ZWJ family, a skin tone and a flag; an emoji between letters and a narrow text smiley; emoji under underline, strike, reverse and a red curl; text on a blue background; then blocks, double lines and rounded corners, and Latin underlined, struck, and both in red. The emoji come from Noto Color Emoji 2.051, the text from DejaVu Sans Mono. No Arabic is drawn: its marks would reach into the added rows under fit=room, which draws as natural until the right-to-left work builds it. Correct: the box's sides and the blocks and lines stretch to the whole taller cell and join from row to row; each Latin letter at DejaVu Sans Mono's own size on its baseline in the 16-row text band, with the added rows blank above and below it, the accents above À, É and Î cut at the top of the text band as they are cut at the top of a 9x16 row; each emoji whole, the size it is with no spacing, inside the text band and never stretched; each underline and strike moved down with the text band; the blue background filling the whole cell, the added rows included. Every cell but the sprites' holds in its text band the pixels it has with no spacing."
+        "A box of light lines around Latin letters with ascenders, descenders and accents; three wide emoji; a ZWJ family, a skin tone and a flag; an emoji between letters and a narrow text smiley; emoji under underline, strike, reverse and a red curl; text on a blue background; then blocks, double lines and rounded corners, and Latin underlined, struck, and both in red. The emoji come from Noto Color Emoji 2.051, the text from DejaVu Sans Mono. No Arabic is drawn: its marks would reach into the added rows under fit=room, which draws as natural until the right-to-left work builds it. Correct: the box's sides and the blocks and lines stretch to the whole taller cell and join from row to row; each Latin letter at DejaVu Sans Mono's own size on its baseline in the 16-row text band, with the added rows blank above and below it, the accents above À, É and Î whole, reaching above the text band into the added rows (ADR-1306 D1, D8); each emoji whole, the size it is with no spacing, inside the text band and never stretched; each underline and strike moved down with the text band; the blue background filling the whole cell, the added rows included. Every cell but the sprites' holds in its text band the pixels it has with no spacing."
     };
 }
 
@@ -1560,7 +1560,7 @@ pub const CASES: &[Case] = &[
     Case {
         screen: outline(
             "bold",
-            "Bold beside regular, a bold pangram over two lines, bold in red, green and blue, then italic beside regular and bold italic. In DejaVu Sans Mono at 16 pixels, with its Bold, Oblique and Bold Oblique faces. Correct: the bold text drawn from DejaVu Sans Mono Bold, heavier than the regular text and at the same cell width; the colored words in their colors; the italic text slanted, drawn from DejaVu Sans Mono Oblique, and the bold italic from DejaVu Sans Mono Bold Oblique.",
+            "Bold beside regular, a bold pangram over two lines, bold in red, green and blue, then italic beside regular and bold italic. In DejaVu Sans Mono at 16 pixels, with its Bold, Oblique and Bold Oblique faces. Correct: the bold text drawn from DejaVu Sans Mono Bold, heavier than the regular text and at the same cell width; the colored words in their colors; the italic text slanted, drawn from DejaVu Sans Mono Oblique, and the bold italic from DejaVu Sans Mono Bold Oblique, a letter's ink leaning into the cell beside it where the face draws it there (ADR-1306 D12).",
             FACES,
             48,
             10,
@@ -1641,7 +1641,7 @@ pub const CASES: &[Case] = &[
     Case {
         screen: outline(
             "combining",
-            "Accented letters precomposed and as a base letter with combining marks, in words, underlined, struck and in bold. In DejaVu Sans Mono at 16 pixels, whose glyphs vtium-config's engine shapes for each cluster. Correct: each mark sits on its base letter in one cell, matching the precomposed form where there is one.",
+            "Accented letters precomposed and as a base letter with combining marks, in words, underlined, struck and in bold. In DejaVu Sans Mono at 16 pixels, whose glyphs vtium-config's engine shapes for each cluster. Correct: each mark sits on its base letter, matching the precomposed form where there is one; the grave over the tilde on each a passes the top of its row and draws whole in the row above, where the font puts it (ADR-1306 D1, D2).",
             COMBINING,
             48,
             10,
