@@ -84,6 +84,11 @@ impl Screen {
                 self.scroll_up(1);
             }
         }
+        // A wrap carries the paragraph's properties to the row it starts.
+        #[cfg(feature = "bidi")]
+        if self.cursor_x == 0 {
+            self.carry_paragraph(self.cursor_y);
+        }
 
         let (x, y) = (self.cursor_x, self.cursor_y);
         let (pen, link) = (self.pen, self.link);

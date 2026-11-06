@@ -10,7 +10,7 @@
 # ══ Fonts and text ══════════════════════════════════════════════════════════
 #
 # The console's font and its size, who draws box-drawing and block characters,
-# and how blinking text looks.
+# how blinking text looks, and which way text runs.
 
 # ── Font ────────────────────────────────────────────────────────────────────
 
@@ -167,6 +167,30 @@
 ## file. When off, vtium ignores OSC 50, queries included.
 
 #allow-font-ops
+
+# ── Right-to-left text ──────────────────────────────────────────────────────
+
+## Which way a paragraph of text runs when the program writing it does not
+## say: `ltr`, left to right, `rtl`, right to left, or `auto`, which takes
+## each paragraph's direction from its first letter.
+##
+## A paragraph is the text between two line ends, however many rows it wraps
+## across. `ltr`, the default, starts each paragraph at the left edge, as most
+## terminals do. `rtl` starts each one at the right edge, for a console used
+## mostly in Arabic, Hebrew or another right-to-left language. Under `auto`, a
+## paragraph that starts with an Arabic or Hebrew letter runs right to left,
+## and one that starts with a Latin letter, or has no letter, runs left to
+## right.
+##
+## A program can change the direction with escape sequences, and a terminal
+## reset returns it to this setting. vtium reads this key when it starts, so a
+## change takes effect when vtium restarts, and it never changes text already
+## on the screen.
+##
+## A build without right-to-left support (the `bidi` feature) accepts this key
+## and does nothing with it.
+
+#text-direction=ltr
 
 # ══ Colors ══════════════════════════════════════════════════════════════════
 #

@@ -213,9 +213,15 @@ pub(crate) fn rewrap_line(
         }
     }
 
+    // Every row the rewrap makes holds the paragraph properties of the
+    // paragraph's first row (ADR-1004 D2).
+    #[cfg(feature = "bidi")]
+    let paragraph = src.flags().intersection(LineFlags::PARAGRAPH);
+    #[cfg(not(feature = "bidi"))]
+    let paragraph = LineFlags::empty();
     let mut landed: Vec<Option<(usize, usize)>> = vec![None; places.len()];
     let mut map = IndexMap::default();
-    let mut cur = Line::with_capacity(src.id(), LineFlags::empty(), width);
+    let mut cur = Line::with_capacity(src.id(), paragraph, width);
     // Places on a pad that a row's end drops land on the next cell.
     let mut on_pad: Vec<usize> = Vec::new();
     let mut k = 0usize;
@@ -239,7 +245,7 @@ pub(crate) fn rewrap_line(
                 cur.shrink();
                 let id = LineId::new(*next_id);
                 *next_id = next_id.wrapping_add(1);
-                let next = Line::with_capacity(id, LineFlags::empty(), width);
+                let next = Line::with_capacity(id, paragraph, width);
                 out.push(mem::replace(&mut cur, next));
                 map.clear();
             }
@@ -373,9 +379,18 @@ pub(crate) fn rewrap_rows(
 }
 
 /// Whether `line`, trimmed, is a blank row a rewrap may remove below the
-/// cursor: no text, no fill and no flag.
+/// cursor: no text, no fill and no flag but its paragraph's properties,
+/// which every new row takes.
 fn blank(line: &Line) -> bool {
-    line.is_empty() && line.fill() == Style::DEFAULT && line.flags() == LineFlags::empty()
+    #[cfg(feature = "bidi")]
+    let flags = {
+        let mut flags = line.flags();
+        flags.remove(LineFlags::PARAGRAPH);
+        flags
+    };
+    #[cfg(not(feature = "bidi"))]
+    let flags = line.flags();
+    line.is_empty() && line.fill() == Style::DEFAULT && flags == LineFlags::empty()
 }
 
 /// What the main screen's rewrap carries besides its text, as places in
