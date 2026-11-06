@@ -410,7 +410,7 @@ mod built {
             if old.is_none_or(|o| o.cell != given.cell) {
                 let (w, h) = given.cell;
                 if terminal.screen_mut().set_image_cell(w, h).is_err() {
-                    log::warn!("pictures cannot be placed in cells of {w}x{h}");
+                    log::warn!("images cannot be shown with character cells of {w}x{h}");
                 }
             }
             if old.is_none_or(|o| o.limit != given.limit) {

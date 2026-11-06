@@ -18,13 +18,12 @@ pub const FRIT_BYTES_MAX: usize = 64 * 1024;
 pub const FRIT_LINE_MAX: usize = 4096;
 /// The most sources a frit names.
 pub const FRIT_SOURCES_MAX: usize = 16;
-/// The smallest and largest size `size=` names, in points, the bounds the
-/// console reads it within.
-pub const FRIT_SIZE_MIN: u32 = 6;
-pub const FRIT_SIZE_MAX: u32 = 96;
 /// The smallest and largest side of the cell `cell=` states, in pixels,
 /// from the key table, whose look's `cell` takes the same bounds.
 pub use vtium_settings::keys::{FRIT_CELL_MAX, FRIT_CELL_MIN};
+/// The smallest and largest size `size=` names, in points, from the key
+/// table, which the console reads it within too.
+pub use vtium_settings::keys::{FRIT_SIZE_MAX, FRIT_SIZE_MIN};
 /// The heights `cp-size=` picks among a CPI font's, as `setfont`'s `-8`,
 /// `-14` and `-16` do.
 pub const CP_SIZES: [u32; 3] = [8, 14, 16];

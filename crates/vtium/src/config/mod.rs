@@ -259,10 +259,10 @@ impl fmt::Display for Problem {
         match self {
             Problem::UnknownKey(k) => write!(f, "unknown key {}, ignored", quote(k)),
             Problem::CommandLineOnly(k) => {
-                write!(f, "{k} is set on the command line only, ignored")
+                write!(f, "{k} can be set only on the command line, ignored")
             }
             Problem::SectionOnly(k) => {
-                write!(f, "{k} is set only in a [look NAME] section, ignored")
+                write!(f, "{k} can be set only in a [look NAME] section, ignored")
             }
             Problem::NeedsValue(k) => write!(f, "{k} needs a value, ignored"),
             Problem::TakesNoValue(k) => write!(f, "{k} takes no value, ignored"),
@@ -278,38 +278,42 @@ impl fmt::Display for Problem {
                 )
             }
             Problem::Clamped { key, value, used } => {
-                write!(f, "{key}={} is out of bounds, {used} used", quote(value))
+                write!(
+                    f,
+                    "{key}={} is out of range, so {used} is used",
+                    quote(value)
+                )
             }
             Problem::NotAChoice { key, value } => {
                 let choices = match keys::find(key).map(|k| k.kind) {
                     Some(Kind::Choice(c)) => c.join(", "),
                     _ => String::new(),
                 };
-                write!(f, "{key}={} is none of {choices}, ignored", quote(value))
+                write!(f, "{key}={} is not one of {choices}, ignored", quote(value))
             }
             Problem::TooLong(k) => write!(f, "{k} is longer than {TEXT_MAX} bytes, ignored"),
             Problem::ControlCharacter(k) => {
-                write!(f, "{k} holds a control character, ignored")
+                write!(f, "{k} contains a control character, ignored")
             }
             Problem::BadCommand { key, why } => write!(f, "{key}: {why}, ignored"),
             Problem::BadValue { key, value, why } => {
                 write!(f, "{key}={}: {why}, ignored", quote(value))
             }
             Problem::NoKey => write!(f, "a line with no key, ignored"),
-            Problem::Nul => write!(f, "a line holding a NUL byte, ignored"),
-            Problem::NotUtf8 => write!(f, "not UTF-8, ignored"),
+            Problem::Nul => write!(f, "a line with a NUL byte, ignored"),
+            Problem::NotUtf8 => write!(f, "not UTF-8 text, ignored"),
             Problem::LineTooLong => write!(f, "a line longer than {LINE_MAX} bytes, ignored"),
             Problem::FileTooLong => {
-                write!(f, "longer than {FILE_MAX} bytes; the rest is ignored")
+                write!(f, "longer than {FILE_MAX} bytes, so the rest is ignored")
             }
             Problem::Unreadable(e) => write!(f, "cannot be read ({e}), ignored"),
-            Problem::NotAFile => write!(f, "is not a regular file, ignored"),
-            Problem::StrayArgument(a) => write!(f, "{} is no option, ignored", quote(a)),
+            Problem::NotAFile => write!(f, "not a regular file, ignored"),
+            Problem::StrayArgument(a) => write!(f, "unknown option {}, ignored", quote(a)),
             Problem::LoginWithoutCommand => {
                 write!(f, "--login needs a command after --, ignored")
             }
             Problem::Untrusted(why) => write!(f, "{}", why.refusal()),
-            Problem::More(n) => write!(f, "{n} more reports"),
+            Problem::More(n) => write!(f, "{n} more warnings"),
         }
     }
 }

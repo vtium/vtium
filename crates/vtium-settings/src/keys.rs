@@ -124,6 +124,12 @@ pub fn absolute(text: &str) -> bool {
 pub const FRIT_CELL_MIN: u32 = 6;
 pub const FRIT_CELL_MAX: u32 = 96;
 
+/// The smallest and largest size a frit's `size=` line names, in points.
+/// vtium-config's frit reader and the console take them from here, so the
+/// two programs read `size=` within the same bounds.
+pub const FRIT_SIZE_MIN: u32 = 6;
+pub const FRIT_SIZE_MAX: u32 = 96;
+
 /// A cell as a frit's `cell=` line and a look's `cell` write it,
 /// `WIDTHxHEIGHT` in pixels: each side digits alone, with no leading zero,
 /// from [`FRIT_CELL_MIN`] to [`FRIT_CELL_MAX`]. The width and the height;

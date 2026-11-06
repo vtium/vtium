@@ -1521,7 +1521,7 @@ impl App {
                 }
                 Err(why) => {
                     log::warn!(
-                        "the font's glyphs are not generated ({why}): vtium draws its built-in font, and each cluster unshaped, a glyph a codepoint"
+                        "the font helper could not draw the font ({why}), so vtium uses its built-in font, one character at a time with no combined characters"
                     );
                     Err(())
                 }
@@ -2221,7 +2221,7 @@ impl App {
                     .and_then(|h| self.heads.get(h))
                     .map_or("", Head::name);
                 let line = crate::notice::anti_lockout(to);
-                log::warn!("the anti-lockout guard: {line}");
+                log::warn!("anti-lockout: {line}");
                 if let Some(head) = self.focus.and_then(|h| self.heads.get_mut(h)) {
                     head.add_notice(&line);
                 }
@@ -3256,12 +3256,14 @@ impl App {
     /// (`src/terminal.c:1856-1868` at kmscon b1f7a7c5).
     fn gave_up(&mut self) {
         if self.rules.policy == Policy::Open {
-            log::error!("a session kept ending as soon as it started, so vtium exits");
+            log::error!(
+                "a session kept ending as soon as it started, so vtium exits. Check the login command in vtium.conf."
+            );
             self.request_exit(Exit::TooQuick);
             return;
         }
         log::error!(
-            "a session kept ending as soon as it started, so vtium stops every head and holds its VT under the closed policy"
+            "a session kept ending as soon as it started, so vtium stops every head; with the closed policy it keeps the VT"
         );
         self.stopped = true;
         self.focus = None;
@@ -3381,7 +3383,10 @@ impl App {
             })
         });
         if let Some(wait) = self.wait.turn(now, self.presented, flipping) {
-            log::error!("no display appeared within {} s", wait.as_secs());
+            log::error!(
+                "no display appeared within {} s (display-wait), so vtium exits",
+                wait.as_secs()
+            );
             self.request_exit(Exit::NoDisplay);
         }
         self.exiting(now);

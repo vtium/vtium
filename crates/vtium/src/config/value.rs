@@ -228,7 +228,8 @@ pub(super) fn parse(
             Some((w, h)) => Some(Value::Size(w, h)),
             None => {
                 let value = text.to_owned();
-                let why = "a cell is WIDTHxHEIGHT in pixels, as a frit's cell= line writes it";
+                let why =
+                    "a character cell is WIDTHxHEIGHT in pixels, as in a font set's cell= line";
                 reports.push(
                     origin.clone(),
                     Problem::BadValue {
@@ -268,7 +269,7 @@ pub(super) fn parse(
                         Problem::BadValue {
                             key: key.name,
                             value,
-                            why: "one character is needed, not a control character or a space",
+                            why: "give one character that is not a control character or a space",
                         },
                     );
                     None
@@ -303,14 +304,14 @@ pub(super) fn parse_rgb(text: &str) -> Result<[u8; 3], &'static str> {
     let mut out = [0_u8; 3];
     let mut parts = text.split(',');
     for slot in &mut out {
-        let part = parts.next().ok_or("three values are needed, r,g,b")?.trim();
+        let part = parts.next().ok_or("a color is three values, r,g,b")?.trim();
         if part.is_empty() || !part.bytes().all(|b| b.is_ascii_digit()) {
-            return Err("each value is a whole number");
+            return Err("each value must be a whole number");
         }
-        *slot = part.parse().map_err(|_| "each value is at most 255")?;
+        *slot = part.parse().map_err(|_| "each value must be 255 or less")?;
     }
     if parts.next().is_some() {
-        return Err("three values are needed, r,g,b");
+        return Err("a color is three values, r,g,b");
     }
     Ok(out)
 }
@@ -319,7 +320,7 @@ pub(super) fn parse_rgb(text: &str) -> Result<[u8; 3], &'static str> {
 /// digits from 0 to 255, a leading 0 not octal, or `#rrggbb`
 /// (`src/config.c:868-933`).
 pub(super) fn parse_deco_color(text: &str) -> Result<DecoColor, &'static str> {
-    const WHY: &str = "expected fg, a palette index 0-255 or #rrggbb";
+    const WHY: &str = "use fg, a palette number from 0 to 255, or #rrggbb";
     if text == "fg" {
         return Ok(DecoColor::Foreground);
     }
@@ -350,23 +351,23 @@ fn parse_size(text: &str, max: u32) -> Result<(u32, u32), &'static str> {
     };
     text.split_once('x')
         .and_then(|(w, h)| Some((side(w)?, side(h)?)))
-        .ok_or("a size is WxH, each side a whole number from 1 to its most")
+        .ok_or("a size is WxH, each side a whole number from 1 up to the limit")
 }
 
 /// A mode line, `[GPU][CONNECTOR]WxH[@RATE]` (`src/config.c:564-617`).
 pub(super) fn parse_mode(text: &str) -> Result<ModeSpec, &'static str> {
     let name = |s: &str| -> Result<Option<String>, &'static str> {
         if s.is_empty() {
-            Err("an empty name in brackets")
+            Err("the connector name in brackets is empty")
         } else if s.len() > MODE_NAME_MAX {
-            Err("a name longer than 63 bytes")
+            Err("the connector name is longer than 63 bytes")
         } else {
             Ok(Some(s.to_owned()))
         }
     };
     let (gpu, connector, dims) = match text.split_once('[') {
         Some((gpu, rest)) => {
-            let (connector, dims) = rest.split_once(']').ok_or("a '[' with no ']'")?;
+            let (connector, dims) = rest.split_once(']').ok_or("a '[' has no ']'")?;
             let gpu = if gpu.is_empty() { None } else { name(gpu)? };
             (gpu, name(connector)?, dims)
         }
@@ -375,7 +376,7 @@ pub(super) fn parse_mode(text: &str) -> Result<ModeSpec, &'static str> {
     let side = |s: &str| -> Result<u32, &'static str> {
         match s.parse::<u32>() {
             Ok(n) if (1..=65_535).contains(&n) && s.bytes().all(|b| b.is_ascii_digit()) => Ok(n),
-            _ => Err("a size is WxH, each from 1 to 65535"),
+            _ => Err("a resolution is WxH, each from 1 to 65535"),
         }
     };
     let (size, rate) = match dims.split_once('@') {
@@ -384,14 +385,14 @@ pub(super) fn parse_mode(text: &str) -> Result<ModeSpec, &'static str> {
                 .parse::<u32>()
                 .ok()
                 .filter(|_| rate.bytes().all(|b| b.is_ascii_digit()))
-                .ok_or("a rate is a whole number of Hz")?;
+                .ok_or("a refresh rate is a whole number of Hz")?;
             (size, (rate > 0).then_some(rate))
         }
         None => (dims, None),
     };
     let (w, h) = size
         .split_once('x')
-        .ok_or("a size is WxH, each from 1 to 65535")?;
+        .ok_or("a resolution is WxH, each from 1 to 65535")?;
     Ok(ModeSpec {
         gpu,
         connector,
@@ -429,7 +430,7 @@ pub(super) fn split_command(text: &str) -> Result<Vec<String>, &'static str> {
             (Quote::None, '\'') => quote = Quote::Single,
             (Quote::None, '"') => quote = Quote::Double,
             (Quote::None, '\\') => {
-                word.push(chars.next().ok_or("a backslash ends the command")?);
+                word.push(chars.next().ok_or("the command ends with a backslash")?);
                 in_word = true;
             }
             (Quote::Single, '\'') | (Quote::Double, '"') => quote = Quote::None,
