@@ -67,7 +67,7 @@ The tree goes on the run's disc as `tree.tar`, every entry owned by root, and `g
 |---|---|
 | Files | `/usr/bin/vtium` and `/usr/lib/systemd/system/vtium@.service`, which `setup` links `autovt@.service` to with `vtium console enable --all`. A run refuses a tree without either. |
 | Process | named `vtium`. `guest/t3` reads its VmRSS by that name. |
-| Configuration | `/etc/vtium/vtium.conf`, where `setup` installs the variant's `guest/kmscon*.conf`, which goes on the disc as `vtium.conf`. |
+| Configuration | `/etc/vtium/vtium.conf`, where `setup` installs the variant's `guest/vtium*.conf`, which goes on the disc as `vtium.conf`. |
 | Image helper | when the tree holds `vtium-image.conf`, `setup` runs `systemd-sysusers` on it, as a package's install hook does, and reports the helper's mode and the account's ids on its `TIER3-INSTALL-OK` line (`images:`); a variant that draws pictures fails unless the helper is there, mode 755, and the account's ids are not 0. |
 | Log | stdout and stderr, which `setup` routes to the journal and the serial console. The driver waits for `vt: using tty /dev/tty2`, and `/dev/tty3` after the VT switch; requires every `Display NAME with backend [...] text renderer [...]` line to name the variant's renderer; reads the benchmark figures from the `terminal: render-timer: ...` lines `render-timer=log` writes (`t3_bench.py`); and reads `cell size WxH` when present. |
 | Revision | `log: vtium Revision REV`, the first such line on the console. A run fails every case of a variant whose console logged no such line, or logged another name. |
