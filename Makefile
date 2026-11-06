@@ -220,7 +220,7 @@ endif
 # HWACCEL and DISPLAY_BUFFERS set the defaults of hwaccel and
 # display-buffers that both builds read from the key table (ADR-1500 D8).
 # make install-terminfo stages vtium's terminfo entry, compiled under its
-# name xterm-vtium, with LICENSE and COPYING, for the package that holds
+# name xterm-vtium and its alias vtium, with LICENSE and COPYING, for the package that holds
 # the terminfo entry alone. Neither target stages a file the C reference's
 # packages own: nothing under /etc/kmscon, no terminfo entry named kmscon
 # and no kmsconvt@ unit. The builds use the host's toolchain, as a distribution's package
@@ -324,11 +324,11 @@ endif
 	install -Dm644 -t $(DESTDIR)$(PREFIX)/share/licenses/$(PKGNAME) $(LICENSE_FILES)
 
 .PHONY: install-terminfo
-install-terminfo: ## Stage vtium's terminfo entry, compiled as xterm-vtium, under DESTDIR=DIR for PREFIX and PKGNAME (default vtium-terminfo) (needs tic)
+install-terminfo: ## Stage vtium's terminfo entry, compiled as xterm-vtium and its alias vtium, under DESTDIR=DIR for PREFIX and PKGNAME (default vtium-terminfo) (needs tic)
 	@[ -f '$(TERMINFO_SRC)' ] || { echo "install-terminfo: no $(TERMINFO_SRC), the entry it compiles" >&2; exit 1; }
 	install -dm755 $(DESTDIR)$(PREFIX)/share/terminfo
 	tic -x -e xterm-vtium -o $(DESTDIR)$(PREFIX)/share/terminfo $(TERMINFO_SRC)
-	@[ -f '$(DESTDIR)$(PREFIX)/share/terminfo/x/xterm-vtium' ] && [ -z "$$(find '$(DESTDIR)$(PREFIX)/share/terminfo' -type f ! -path '*/x/xterm-vtium')" ] || { echo "install-terminfo: tic did not compile xterm-vtium alone" >&2; exit 1; }
+	@[ -f '$(DESTDIR)$(PREFIX)/share/terminfo/x/xterm-vtium' ] && [ -f '$(DESTDIR)$(PREFIX)/share/terminfo/v/vtium' ] && [ -z "$$(find '$(DESTDIR)$(PREFIX)/share/terminfo' -type f ! -path '*/x/xterm-vtium' ! -path '*/v/vtium')" ] || { echo "install-terminfo: tic did not compile xterm-vtium and its alias vtium alone" >&2; exit 1; }
 	install -Dm644 -t $(DESTDIR)$(PREFIX)/share/licenses/$(if $(filter command line,$(origin PKGNAME)),$(PKGNAME),vtium-terminfo) LICENSE COPYING
 
 # The ARM single-board computers minspec is judged against
