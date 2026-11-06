@@ -47,17 +47,18 @@ impl Font {
     /// A built-in set's glyphs at its smallest cell, read through the
     /// set's own face.
     pub fn from_builtin(name: &str) -> Result<Font, String> {
-        let set = builtin(name).ok_or_else(|| format!("this build holds no built-in {name}"))?;
+        let set = builtin(name)
+            .ok_or_else(|| format!("this build does not include the built-in font {name}"))?;
         let cell = *set
             .cells()
             .first()
-            .ok_or_else(|| format!("the built-in {name} has no strike"))?;
+            .ok_or_else(|| format!("the built-in font {name} has no size to draw"))?;
         let baseline = set
             .strikes()
             .find(|s| s.cell == cell && s.style == Style::default())
             .map(|s| s.baseline);
         let face = vtium_font::set::SetFace::new(set, cell.height)
-            .ok_or_else(|| format!("the built-in {name} has no strike"))?;
+            .ok_or_else(|| format!("the built-in font {name} has no size to draw"))?;
         let mut font = Font {
             cell,
             baseline,

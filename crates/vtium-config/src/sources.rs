@@ -316,7 +316,7 @@ fn find_family_capped(
         let mut names = Vec::new();
         for entry in entries.flatten() {
             if names.len() >= cap {
-                return Err(format!("{} holds more than {cap} entries", dir.display()));
+                return Err(format!("{} has more than {cap} entries", dir.display()));
             }
             names.push(entry.path());
         }
@@ -429,7 +429,7 @@ fn find_outline_family_capped(
     for (_, _, path) in &named {
         let real = inside(path).ok_or_else(|| {
             format!(
-                "{} leaves the font directories through a link",
+                "{} is a link that leads out of the font directories",
                 path.display()
             )
         })?;
@@ -472,7 +472,7 @@ fn outline_files(dirs: &[PathBuf]) -> Result<Vec<(usize, PathBuf)>, String> {
             for (n, entry) in entries.flatten().enumerate() {
                 if n >= FAMILY_ENTRIES_MAX {
                     return Err(format!(
-                        "{} holds more than {FAMILY_ENTRIES_MAX} entries",
+                        "{} has more than {FAMILY_ENTRIES_MAX} entries",
                         dir.display()
                     ));
                 }
@@ -514,7 +514,7 @@ fn contained(path: &Path, data_dirs: &[PathBuf], sub: &str) -> Result<PathBuf, S
         Ok(real)
     } else {
         Err(format!(
-            "{} leaves the kbd data directories through a link",
+            "{} is a link that leads out of the kbd data directories",
             path.display()
         ))
     }
@@ -554,7 +554,7 @@ pub fn resolve(source: &Source, host: &Host<'_>) -> Result<Input, SourceError> {
             .transpose()
     };
     let not_here =
-        |path: &Path| SourceError::Missing(format!("{}: not on this machine", path.display()));
+        |path: &Path| SourceError::Missing(format!("{} is not on this machine", path.display()));
     let (font, unimap_name) = match &source.origin {
         Origin::Builtin(name) => return Ok(Input::Bitmap(Font::from_builtin(name)?)),
         Origin::Bdf(path) if !path.exists() => return Err(not_here(path)),
@@ -894,7 +894,7 @@ mod tests {
     impl Consoles for Kernel {
         fn font(&self, vt: u16) -> Result<ConsoleFont, String> {
             if vt != 3 {
-                return Err(format!("VT {vt}: no such VT"));
+                return Err(format!("there is no VT {vt}"));
             }
             Ok(ConsoleFont {
                 width: 8,
@@ -931,7 +931,7 @@ mod tests {
         assert_eq!(g.glyph(0xdb), Some(&[0xdbu8; 4][..]));
         // the kernel's answer for another VT names it
         let e = resolve(&source("console:4", Origin::Console(4), None), &h).unwrap_err();
-        assert_eq!(e, SourceError::Failed("VT 4: no such VT".into()));
+        assert_eq!(e, SourceError::Failed("there is no VT 4".into()));
     }
 
     #[test]
@@ -1288,7 +1288,7 @@ mod tests {
         fs::create_dir_all(t.0.join("fonts")).unwrap();
         std::os::unix::fs::symlink(&outside, t.0.join("fonts/Secret.ttf")).unwrap();
         let e = find_outline_family("Secret", &[t.0.join("fonts")]).unwrap_err();
-        assert!(e.contains("leaves the font directories"), "{e}");
+        assert!(e.contains("leads out of the font directories"), "{e}");
         // a link of another name is not opened to read its family
         let t = Tree::new("outline-link-other");
         let outside = t.file("outside/Other.ttf", &outline_font("Secret", "Regular"));

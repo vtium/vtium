@@ -1,4 +1,4 @@
-//! A size's specimen (ADR-1201 D4), drawn by the glyph helper the console
+//! A size's specimen (ADR-1201 D4), drawn by the font helper the console
 //! starts, `vtium-config serve`, under its own sandbox, and laid out in
 //! the TUI's process from the glyphs it answers with: no font is parsed in
 //! the TUI's process.

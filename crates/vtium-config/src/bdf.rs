@@ -52,10 +52,10 @@ pub fn font(bytes: &[u8]) -> Result<Font, String> {
         .zip(1usize..)
         .map(|(line, n)| {
             if line.len() > BDF_LINE_MAX {
-                return Err(format!("BDF line {n}: longer than BDF_LINE_MAX"));
+                return Err(format!("BDF line {n}: the line is too long"));
             }
             let line = std::str::from_utf8(line)
-                .map_err(|_| format!("BDF line {n}: not UTF-8"))?
+                .map_err(|_| format!("BDF line {n}: not UTF-8 text"))?
                 .trim();
             Ok((line, n))
         })
@@ -63,10 +63,10 @@ pub fn font(bytes: &[u8]) -> Result<Font, String> {
     let mut next = || lines.next().transpose();
     let mut header = Header::default();
     let Some((first, _)) = next()? else {
-        return Err("an empty BDF font".to_owned());
+        return Err("the BDF font is empty".to_owned());
     };
     if word(first, 0) != Some("STARTFONT") {
-        return Err("not a BDF font: no STARTFONT".to_owned());
+        return Err("not a BDF font (no STARTFONT line)".to_owned());
     }
     // the header, up to CHARS
     let count = loop {
@@ -76,23 +76,24 @@ pub fn font(bytes: &[u8]) -> Result<Font, String> {
             Some("FONT") => header.xlfd = xlfd(line),
             Some("FONTBOUNDINGBOX") => {
                 header.bbx =
-                    Some(numbers(line).ok_or_else(|| err("FONTBOUNDINGBOX is four numbers"))?);
+                    Some(numbers(line).ok_or_else(|| err("FONTBOUNDINGBOX must be four numbers"))?);
             }
             Some("DWIDTH") => {
-                header.advance = Some(advance(line).ok_or_else(|| err("DWIDTH is two numbers"))?)
+                header.advance =
+                    Some(advance(line).ok_or_else(|| err("DWIDTH must be two numbers"))?)
             }
             Some("STARTPROPERTIES") => loop {
-                let (line, n) = next()?.ok_or("a BDF font cut short in its properties")?;
+                let (line, n) = next()?.ok_or("the BDF font ends inside its properties")?;
                 let err = |why: &str| format!("BDF line {n}: {why}");
                 match word(line, 0) {
                     Some("ENDPROPERTIES") => break,
                     Some("FONT_ASCENT") => {
                         header.ascent =
-                            Some(number(line).ok_or_else(|| err("FONT_ASCENT is a number"))?);
+                            Some(number(line).ok_or_else(|| err("FONT_ASCENT must be a number"))?);
                     }
                     Some("FONT_DESCENT") => {
                         header.descent =
-                            Some(number(line).ok_or_else(|| err("FONT_DESCENT is a number"))?);
+                            Some(number(line).ok_or_else(|| err("FONT_DESCENT must be a number"))?);
                     }
                     Some(key @ ("CHARSET_REGISTRY" | "CHARSET_ENCODING")) => {
                         let value = line
@@ -113,13 +114,13 @@ pub fn font(bytes: &[u8]) -> Result<Font, String> {
             Some("CHARS") => {
                 let count: u32 = word(line, 1)
                     .and_then(|w| w.parse().ok())
-                    .ok_or_else(|| err("CHARS is a number"))?;
+                    .ok_or_else(|| err("CHARS must be a number"))?;
                 if count > BDF_GLYPHS_MAX {
-                    return Err(err("more glyphs than BDF_GLYPHS_MAX"));
+                    return Err(err("the BDF font has too many glyphs"));
                 }
                 break count;
             }
-            Some("ENDFONT") => return Err(err("ENDFONT before CHARS")),
+            Some("ENDFONT") => return Err(err("ENDFONT comes before CHARS")),
             _ => {}
         }
     };
@@ -128,7 +129,7 @@ pub fn font(bytes: &[u8]) -> Result<Font, String> {
     let mut chars = Vec::new();
     let mut seen = 0u32;
     loop {
-        let (line, n) = next()?.ok_or("a BDF font cut short before ENDFONT")?;
+        let (line, n) = next()?.ok_or("the BDF font ends before ENDFONT")?;
         match word(line, 0) {
             Some("ENDFONT") => break,
             Some("STARTCHAR") => {
@@ -139,14 +140,14 @@ pub fn font(bytes: &[u8]) -> Result<Font, String> {
                     continue;
                 }
                 if seen >= count {
-                    return Err(format!("BDF line {n}: more glyphs than CHARS names"));
+                    return Err(format!("BDF line {n}: more glyphs than CHARS says"));
                 }
                 seen += 1;
                 if let Parsed::Kept(c) = parsed {
                     chars.push(c);
                 }
             }
-            _ => return Err(format!("BDF line {n}: not STARTCHAR or ENDFONT")),
+            _ => return Err(format!("BDF line {n}: expected STARTCHAR or ENDFONT")),
         }
     }
     place(&header, chars, compression)
@@ -182,10 +183,10 @@ impl Header {
             (Some(r), None) if r.eq_ignore_ascii_case("ISO10646") => Ok(()),
             (Some(r), Some("1")) if r.eq_ignore_ascii_case("ISO10646") => Ok(()),
             (Some(r), Some(e)) if r.eq_ignore_ascii_case("ISO10646") => Err(format!(
-                "a BDF font of ISO10646 CHARSET_ENCODING {e}, whose encodings are not Unicode's: vtium-config reads ISO10646-1"
+                "the BDF font uses CHARSET_ENCODING {e}, which is not Unicode: vtium-config reads only ISO10646-1"
             )),
             (Some(r), _) => Err(format!(
-                "a BDF font of CHARSET_REGISTRY {r}, whose encodings are not Unicode's: vtium-config reads ISO10646"
+                "the BDF font uses CHARSET_REGISTRY {r}, which is not Unicode: vtium-config reads only ISO10646"
             )),
             (None, _) => Err(
                 "a BDF font with no CHARSET_REGISTRY, in its properties or its XLFD name, so its encodings are not known to be Unicode's"
@@ -277,56 +278,58 @@ fn glyph<'a>(
 ) -> Result<Parsed, String> {
     let (mut encoding, mut advance_x, mut bbx) = (None, font_advance, None);
     loop {
-        let (line, n) = next()?.ok_or_else(|| format!("BDF line {start}: a glyph cut short"))?;
+        let (line, n) = next()?.ok_or_else(|| format!("BDF line {start}: a glyph is cut short"))?;
         let err = |why: &str| format!("BDF line {n}: {why}");
         match word(line, 0) {
             Some("ENCODING") => {
                 let e: i64 = word(line, 1)
                     .and_then(|w| w.parse().ok())
-                    .ok_or_else(|| err("ENCODING is a number"))?;
+                    .ok_or_else(|| err("ENCODING must be a number"))?;
                 encoding = Some(e);
             }
             Some("DWIDTH") => {
-                advance_x = Some(advance(line).ok_or_else(|| err("DWIDTH is two numbers"))?)
+                advance_x = Some(advance(line).ok_or_else(|| err("DWIDTH must be two numbers"))?)
             }
-            Some("BBX") => bbx = Some(numbers(line).ok_or_else(|| err("BBX is four numbers"))?),
+            Some("BBX") => {
+                bbx = Some(numbers(line).ok_or_else(|| err("BBX must be four numbers"))?)
+            }
             Some("BITMAP") => {
-                let (w, h, x, y) = bbx.ok_or_else(|| err("BITMAP before BBX"))?;
+                let (w, h, x, y) = bbx.ok_or_else(|| err("BITMAP comes before BBX"))?;
                 let row = w.div_ceil(8) as usize;
                 let mut rows = Vec::with_capacity(row * h as usize);
                 // a bitmap no pixel wide has empty rows, which are skipped
                 // as every blank line is
                 for _ in 0..if row == 0 { 0 } else { h } {
-                    let (line, n) =
-                        next()?.ok_or_else(|| format!("BDF line {start}: a bitmap cut short"))?;
+                    let (line, n) = next()?
+                        .ok_or_else(|| format!("BDF line {start}: a bitmap is cut short"))?;
                     let hex = line.as_bytes();
                     if hex.len() < row * 2 || hex.len() % 2 != 0 {
                         return Err(format!(
-                            "BDF line {n}: a bitmap row of other than {} hex digits",
+                            "BDF line {n}: a bitmap row does not have {} hex digits",
                             row * 2
                         ));
                     }
                     for pair in hex.chunks(2).take(row) {
                         let s = std::str::from_utf8(pair)
-                            .map_err(|_| format!("BDF line {n}: not hex"))?;
+                            .map_err(|_| format!("BDF line {n}: not a hex number"))?;
                         rows.push(
                             u8::from_str_radix(s, 16)
-                                .map_err(|_| format!("BDF line {n}: not hex"))?,
+                                .map_err(|_| format!("BDF line {n}: not a hex number"))?,
                         );
                     }
                     if !hex.iter().all(u8::is_ascii_hexdigit) {
-                        return Err(format!("BDF line {n}: not hex"));
+                        return Err(format!("BDF line {n}: not a hex number"));
                     }
                 }
                 let (end, n) =
-                    next()?.ok_or_else(|| format!("BDF line {start}: a glyph cut short"))?;
+                    next()?.ok_or_else(|| format!("BDF line {start}: a glyph is cut short"))?;
                 if end != "ENDCHAR" {
                     return Err(format!(
-                        "BDF line {n}: a bitmap longer than its BBX, or no ENDCHAR"
+                        "BDF line {n}: a bitmap is longer than its BBX, or has no ENDCHAR"
                     ));
                 }
-                let encoding = encoding
-                    .ok_or_else(|| format!("BDF line {start}: a glyph with no ENCODING"))?;
+                let encoding =
+                    encoding.ok_or_else(|| format!("BDF line {start}: a glyph has no ENCODING"))?;
                 if encoding == -1 {
                     return Ok(Parsed::Unencoded);
                 }
@@ -344,8 +347,8 @@ fn glyph<'a>(
                     _ => Parsed::Dropped,
                 });
             }
-            Some("ENDCHAR") => return Err(err("ENDCHAR before BITMAP")),
-            Some("STARTCHAR" | "ENDFONT") => return Err(err("a glyph with no ENDCHAR")),
+            Some("ENDCHAR") => return Err(err("ENDCHAR comes before BITMAP")),
+            Some("STARTCHAR" | "ENDFONT") => return Err(err("a glyph has no ENDCHAR")),
             _ => {}
         }
     }
@@ -371,7 +374,7 @@ fn place(
     let height = u32::try_from(ascent.saturating_add(descent))
         .ok()
         .filter(|h| (1..=FRIT_CELL_MAX).contains(h))
-        .ok_or_else(|| format!("a BDF font {ascent} high above its baseline and {descent} below, not 1 to {FRIT_CELL_MAX}"))?;
+        .ok_or_else(|| format!("the BDF font is {ascent} pixels above its baseline and {descent} below; the total must be 1 to {FRIT_CELL_MAX}"))?;
     // the advance most of its glyphs take, a tie to the narrower
     let mut counts: BTreeMap<u32, usize> = BTreeMap::new();
     for c in &chars {
@@ -381,10 +384,10 @@ fn place(
         .iter()
         .max_by(|(wa, na), (wb, nb)| na.cmp(nb).then(wb.cmp(wa)))
         .map(|(&w, _)| w)
-        .ok_or("a BDF font with no glyph of a Unicode codepoint")?;
+        .ok_or("the BDF font has no glyph for any Unicode character")?;
     if width > FRIT_CELL_MAX {
         return Err(format!(
-            "a BDF font whose glyphs mostly advance {width}, past {FRIT_CELL_MAX}"
+            "the BDF font's characters are mostly {width} pixels wide, more than {FRIT_CELL_MAX}"
         ));
     }
     let cell = Cell { width, height };
@@ -413,7 +416,7 @@ fn place(
         placed = placed.saturating_add(row * height as usize);
         if placed > PSF_BYTES_MAX as usize {
             return Err(format!(
-                "BDF line {}: its glyphs take past PSF_BYTES_MAX, {PSF_BYTES_MAX} bytes, placed in its {width}x{height} cell",
+                "BDF line {}: the glyphs would take more than {PSF_BYTES_MAX} bytes in their {width}x{height} character cell",
                 c.line
             ));
         }
@@ -602,11 +605,12 @@ pub(crate) mod tests {
         let Err(e) = font(&gz) else {
             panic!("accepted")
         };
-        assert!(e.contains("mostly advance 192"), "{e}");
+        assert!(e.contains("mostly 192 pixels wide"), "{e}");
         let Err(e) = font(&crate::decode::tests::gzip(inkless(32_768).as_bytes())) else {
             panic!("accepted")
         };
-        assert!(e.contains("PSF_BYTES_MAX"), "{e}");
+        assert!(e.contains("would take more than"), "{e}");
+        assert!(!e.contains("_MAX"), "{e}");
         // 14,563 glyphs of 1,152 bytes stay under 16 MiB, and one more
         // passes it
         let narrow = inkless(65_535);
@@ -704,38 +708,38 @@ pub(crate) mod tests {
         // an unencoded glyph is read as any other, so a malformed one refuses
         let e = font(bdf(&unencoded.replace("BBX 1 1 0 0", "BBX 1 1 0")).as_bytes())
             .expect_err("a malformed BBX");
-        assert!(e.contains("BBX is four numbers"), "{e}");
+        assert!(e.contains("BBX must be four numbers"), "{e}");
     }
 
     #[test]
     fn each_malformed_bdf_is_refused_naming_its_line() {
         let a = bdf("");
         for (text, why) in [
-            (String::new(), "an empty BDF"),
+            (String::new(), "the BDF font is empty"),
             ("FONT x\n".to_owned(), "no STARTFONT"),
             (
                 a.replace("BBX 3 5 1 0", "BBX 3 5 1"),
-                "BDF line 16: BBX is four numbers",
+                "BDF line 16: BBX must be four numbers",
             ),
             (
                 a.replace("BBX 3 5 1 0", "BBX 300 5 1 0"),
                 "BDF line 16: BBX",
             ),
-            (a.replace("E0\n", "G0\n"), "BDF line 20: not hex"),
+            (a.replace("E0\n", "G0\n"), "BDF line 20: not a hex number"),
             (a.replace("E0\n", "E\n"), "BDF line 20: a bitmap row"),
             (
                 a.replace("A0\nENDCHAR", "A0\nA0\nENDCHAR"),
-                "BDF line 23: a bitmap longer",
+                "BDF line 23: a bitmap is longer",
             ),
             (
                 a.replace("ENCODING 65\n", ""),
-                "BDF line 12: a glyph with no ENCODING",
+                "BDF line 12: a glyph has no ENCODING",
             ),
             (
                 a.replace("CHARS 99", "CHARS 1"),
                 "BDF line 24: more glyphs than CHARS",
             ),
-            (a.replace("CHARS 99", "CHARS 65536"), "BDF_GLYPHS_MAX"),
+            (a.replace("CHARS 99", "CHARS 65536"), "too many glyphs"),
             (
                 a.replace("\"ISO10646\"", "\"JISX0208.1983\""),
                 "CHARSET_REGISTRY JISX0208.1983",
@@ -746,12 +750,12 @@ pub(crate) mod tests {
             ),
             (
                 a.replace("FONT_ASCENT 5", "FONT_ASCENT 500"),
-                "high above its baseline",
+                "pixels above its baseline",
             ),
-            (a.replace("ENDFONT\n", ""), "cut short before ENDFONT"),
+            (a.replace("ENDFONT\n", ""), "ends before ENDFONT"),
             (
                 a.replace("SIZE 6 75 75", &"x".repeat(BDF_LINE_MAX + 1)),
-                "BDF line 4: longer",
+                "BDF line 4: the line is too long",
             ),
         ] {
             let e = font(text.as_bytes()).expect_err(why);
