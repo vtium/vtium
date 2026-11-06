@@ -258,7 +258,11 @@ mod with {
             out.retain_mut(|p| {
                 // vtium-image numbers the entries of placeholder runs from
                 // 1 << 63 up (its store/runs.rs, RUN_KEY_FIRST), and those
-                // are placed by the runs above
+                // are placed by the runs above. This copies a private
+                // constant; the follow-up is a vtium-image accessor that
+                // says whether an entry comes from a run, which replaces it
+                // once the kitty-formats branch, which owns vtium-image now,
+                // has merged.
                 if p.key.get() >= 1 << 63 {
                     return true;
                 }
