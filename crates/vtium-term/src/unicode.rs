@@ -220,10 +220,16 @@ impl Segmenter {
 /// the width the screen stores for the cluster, given here so that the
 /// glyph helper places each glyph in the cells the terminal gives it.
 pub fn cluster_width(cluster: &[char]) -> u8 {
-    let Some((&first, rest)) = cluster.split_first() else {
+    width_of(cluster.iter().copied())
+}
+
+/// [`cluster_width`] of a cluster's characters as an iterator gives them,
+/// the one place the rule is written.
+pub(crate) fn width_of(mut chars: impl Iterator<Item = char>) -> u8 {
+    let Some(first) = chars.next() else {
         return 1;
     };
-    if is_vs16_base(first) && rest.contains(&'\u{FE0F}') {
+    if is_vs16_base(first) && chars.any(|c| c == '\u{FE0F}') {
         return 2;
     }
     char_width(first)
