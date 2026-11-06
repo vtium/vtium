@@ -601,8 +601,10 @@ impl Terminal {
 
     /// Reports a pointer event at cell `col`, `row` and pixel `px`, `py`,
     /// counted from 0 at the top left of the text area, as the program's
-    /// tracking and encoding ask. Of `mods`, Shift, Alt and Ctrl are
-    /// reported. Returns whether anything was sent.
+    /// tracking and encoding ask. In a row drawn in another order than it
+    /// was written, the report names the logical cell drawn there, as
+    /// [`pointer_cell`](Self::pointer_cell) says. Of `mods`, Shift, Alt and
+    /// Ctrl are reported. Returns whether anything was sent.
     #[allow(
         clippy::too_many_arguments,
         reason = "an event's position, button and modifiers"
@@ -617,6 +619,7 @@ impl Terminal {
         event: MouseEvent,
         mods: Mods,
     ) -> bool {
+        let (col, px) = self.pointer_cell(col, row, px);
         let Some(bytes) = self
             .state
             .mouse_bytes((col, row), (px, py), button, event, mods)
