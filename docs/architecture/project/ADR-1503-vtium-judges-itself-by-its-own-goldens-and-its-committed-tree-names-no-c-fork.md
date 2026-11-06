@@ -89,8 +89,8 @@ considered:
     via: the steering session, 2026-11-04, on AGENTS.md's references to deleted files and targets; the lean the maintainer accepted is the steering session's wording
     paraphrase: true
   - operator: aaronsb
-    said: "A: gate line now"
-    via: the steering session, 2026-11-06, on fork-refs joining the gate line
+    said: "Let's not gate for something we are dropping - comparison to the c fork"
+    via: the steering session, 2026-11-06, on whether fork-refs joins the gate line
 observable:
   - "`docs/scripts/fork-refs` exits 0 on the tree after the sweep, and exits 1 naming the file and line when a planted line in a crate README says `the C reference`"
   - "Every case is judged by one golden in one directory per tier: tools/conformance/expected.tsv, tools/tier2/departures.tsv, tools/tier3/departures.tsv and tools/tier3/c-goldens/ are gone, and `make conformance`, `make tier2` and `make tier3` pass"
@@ -216,11 +216,11 @@ CONTRIBUTING.md first says what judges a change: the tiers from unit tests to ti
 
 ### D8: a check holds the break
 
-> Edited 2026-11-06: the maintainer chose to put fork-refs in the gate line once the sweep ended (the eleventh `considered` entry). The earlier text skipped COPYING and LICENSE whole and added the check to AGENTS.md's gate line at the revisit; git keeps that text.
+> Edited 2026-11-06: by the maintainer's choice (the eleventh `considered` entry), fork-refs is a check that a person or an agent runs on demand, and it joins no gate, because vtium no longer compares itself with the fork. The earlier text had CI and `make gates` run it, had it join AGENTS.md's gate line at the revisit, and skipped COPYING and LICENSE whole; git keeps that text.
 
 `docs/scripts/fork-refs` fails when a committed file names the fork: the phrases "C reference", "C fork", "kmscon fork" and "libtsm fork", the repositories `aaronsb/kmscon` and `aaronsb/libtsm`, and the fork issue forms `kmscon#N` and `libtsm#N`. It leaves the plain names `kmscon` and `libtsm` to review, since D3 and D4 keep them where they name the released program, a terminal name or the licence. It also fails when a crate README has a heading `## Departures`, `## Golden differences`, `## C behaviour kept`, `## Beyond the C reference` or `## C notes`, so that nobody brings the departure lists back.
 
-In docs/architecture/, which D5 governs, it skips the phrases and leaves the repository and issue forms checked, apart from the `said` and `via` fields of a record's frontmatter and D8's first paragraph, which lists the forms. It skips its own source and tests, which hold the patterns it looks for; the copyright notice line, by its path and its words, of the two ported files that carry one, vtium-font's sprite.rs and vtium-render's deco.rs; and the one line of COPYING that says the box sprites' geometry came by way of the fork's font_box.c, a file the released kmscon never had. LICENSE names no fork, so it needs no skip. Until the revisit it also skips AGENTS.md and CLAUDE.md, with a note on each entry saying so. CI, `make gates` and AGENTS.md's gate line run it, right after `docs/scripts/issue-refs`. It lands with the last branch of the sweep, seen to fail on the tree before the sweep and on a planted line, and to pass after.
+In docs/architecture/, which D5 governs, it skips the phrases and leaves the repository and issue forms checked, apart from the `said` and `via` fields of a record's frontmatter and D8's first paragraph, which lists the forms. It skips its own source and tests, which hold the patterns it looks for; the copyright notice line, by its path and its words, of the two ported files that carry one, vtium-font's sprite.rs and vtium-render's deco.rs; and the one line of COPYING that says the box sprites' geometry came by way of the fork's font_box.c, a file the released kmscon never had. LICENSE names no fork, so it needs no skip. Until the revisit it also skips AGENTS.md and CLAUDE.md, with a note on each entry saying so. A person or an agent runs it on demand as `docs/scripts/fork-refs`, and it joins no gate: CI, `make gates` and AGENTS.md's gate line do not run it. `make test-tools` runs its tests. It lands with the last branch of the sweep, seen to fail on the tree before the sweep and on a planted line, and to pass after.
 
 ## Consequences
 
