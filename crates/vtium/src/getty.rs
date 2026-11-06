@@ -44,7 +44,7 @@ const VT_LAST: u32 = 63;
 /// The number of the VT whose device is at `tty`, read from the device's
 /// numbers, so a path of any spelling names its VT; `None` for a path that
 /// is no VT, a pty or a serial line among them, or that cannot be read.
-fn vt_number(tty: &Path) -> Option<u16> {
+pub fn vt_number(tty: &Path) -> Option<u16> {
     let rdev = rustix::fs::stat(tty).ok()?.st_rdev;
     let vt = minor(rdev);
     (major(rdev) == VT_MAJOR && (1..=VT_LAST).contains(&vt))

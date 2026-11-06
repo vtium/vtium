@@ -17,6 +17,10 @@ pub struct Console {
     pub(crate) id: u64,
     pub(crate) term: Term,
     pub(crate) pty: Option<Pty>,
+    /// The number of its pty, `N` of `/dev/pts/N`, set with `pty`, which
+    /// tells the keeper of the sessions' masters which master is kept
+    /// under the console's name (ADR-1401 D13).
+    pub(crate) number: Option<u32>,
     /// Its command's starts and quick exits, once it has started: each
     /// console counts its own (the operator's answer on vtium/vtium#156).
     pub(crate) respawn: Option<Respawn>,
@@ -54,6 +58,7 @@ impl Console {
             id,
             term,
             pty: None,
+            number: None,
             respawn: None,
             ended: false,
             fit,

@@ -185,6 +185,34 @@ impl Head {
         }
     }
 
+    /// Opens, behind the consoles the head has, a console for each of
+    /// `ids` it lacks, in order, on a terminal `term` makes, until the head
+    /// has `room` consoles; returns the ids left without one. These are the
+    /// consoles whose sessions an earlier vtium left running (ADR-1401
+    /// D13), which keep their ids, so the head's next new console takes an
+    /// id after the last of them.
+    pub(crate) fn open_kept(
+        &mut self,
+        ids: &[u64],
+        room: usize,
+        mut term: impl FnMut() -> Term,
+    ) -> Vec<u64> {
+        let mut left = Vec::new();
+        for &id in ids {
+            if self.consoles().any(|c| c.id == id) {
+                continue;
+            }
+            if self.console_count() >= room {
+                left.push(id);
+                continue;
+            }
+            let console = Console::new(id, term(), self.fresh_fit());
+            self.hidden.push(console);
+            self.next_id = self.next_id.max(id.saturating_add(1));
+        }
+        left
+    }
+
     /// Starts the count of each console not started yet at `since`, and
     /// returns their ids, whose sessions start.
     pub(crate) fn start_consoles(&mut self, since: Duration) -> Vec<u64> {
@@ -401,6 +429,26 @@ impl Head {
             .respawn
             .as_mut()
             .map_or(Next::Restart, |r| r.exited(since, oneshot));
+        Some(self.session_ended(id, next))
+    }
+
+    /// The program of console `id` ended while no vtium ran (ADR-1401
+    /// D13), which vtium learns at `since`, as it takes the console's kept
+    /// pty back: as an exit at that moment, with no quick exit counted,
+    /// since vtium never saw it start. `None` when the head has no such
+    /// console.
+    pub(crate) fn ended_away(
+        &mut self,
+        id: u64,
+        since: Duration,
+        oneshot: bool,
+    ) -> Option<AfterExit> {
+        let console = self.console_mut(id)?;
+        console.pty = None;
+        let next = console
+            .respawn
+            .as_mut()
+            .map_or(Next::Restart, |r| r.hung_up(since, oneshot));
         Some(self.session_ended(id, next))
     }
 

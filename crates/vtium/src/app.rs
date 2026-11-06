@@ -131,6 +131,8 @@ use crate::term::{Clock, Prepared, Term, View};
 use crate::video::Video;
 use crate::wait::Wait;
 
+mod survive;
+
 /// How long the loop is served at exit while the switch back is pending,
 /// so the kernel's SIGUSR2 for the switch back is answered before vtium
 /// ends.
@@ -328,6 +330,9 @@ pub struct App {
     display_buffers: Buffers,
     /// `clipboard-write`: OSC 52's selection is taken.
     clipboard_write: bool,
+    /// Where each session's pty master is kept through a restart, and
+    /// the masters an earlier vtium left (ADR-1401 D13).
+    survival: survive::Survival,
     /// `program-blank`: a program's blank sequences are taken.
     program_blank: bool,
     /// `bell`: a BEL from a program rings the VT's bell.
@@ -502,6 +507,7 @@ impl App {
             exit: None,
             leaving: None,
             inherited,
+            survival: survive::Survival::default(),
         }
     }
 
@@ -699,6 +705,12 @@ impl App {
                     && !head.started()
                     && respawn::first_start_due(self.awake, !head.views.is_empty())
             });
+            if !due {
+                continue;
+            }
+            // The consoles whose sessions outlived the last vtium open
+            // first, keeping their ids (ADR-1401 D13).
+            self.open_kept(h);
             let App {
                 heads,
                 config,
@@ -707,14 +719,14 @@ impl App {
                 clock,
                 ..
             } = self;
-            let Some(head) = heads.get_mut(h).filter(|_| due) else {
+            let Some(head) = heads.get_mut(h) else {
                 continue;
             };
             head.open_wanted(|| {
                 crate::head::terminal(config, *scrollback, *scrollback_bytes, Rc::clone(clock))
             });
             for id in head.start_consoles(since) {
-                self.spawn(h, id);
+                self.start_console(h, id, since);
             }
         }
     }
@@ -829,6 +841,7 @@ impl App {
         })
         .map_err(|e| format!("cannot watch the session's pty: {e}"))?;
         if let Some(console) = self.heads.get_mut(h).and_then(|head| head.console_mut(id)) {
+            console.number = pty.number().ok();
             console.pty = Some(pty);
         }
         Ok(())
@@ -3038,15 +3051,24 @@ impl App {
     /// `oneshot` vtium ends once no head that started still runs.
     fn child_exited(&mut self, h: usize, now: Instant) {
         let since = now.saturating_duration_since(self.epoch);
-        let exited: Vec<(u64, std::process::ExitStatus)> = self
+        let exited: Vec<(u64, std::process::ExitStatus, bool)> = self
             .heads
             .get_mut(h)
             .into_iter()
             .flat_map(Head::consoles_mut)
-            .filter_map(|c| c.term.exited.take().map(|status| (c.id, status)))
+            .filter_map(|c| {
+                let adopted = c.pty.as_ref().is_some_and(Pty::adopted);
+                c.term.exited.take().map(|status| (c.id, status, adopted))
+            })
             .collect();
-        for (id, status) in exited {
-            log::info!("child exited: {status}");
+        for (id, status, adopted) in exited {
+            if adopted {
+                // vtium did not start it, so it cannot read its status
+                // (ADR-1401 D13).
+                log::info!("a session that outlived the last vtium ended");
+            } else {
+                log::info!("child exited: {status}");
+            }
             let Some(head) = self.heads.get_mut(h) else {
                 return;
             };
@@ -3407,6 +3429,7 @@ impl App {
             );
             self.request_exit(Exit::NoDisplay);
         }
+        self.sync_kept();
         self.exiting(now);
     }
 
@@ -4295,7 +4318,7 @@ mod tests {
     /// A device in memory with the displays `ids`, in the order it lists
     /// them, each 320x160 and named for the rules by its connector on the
     /// card `mem`.
-    struct Still {
+    pub(super) struct Still {
         ids: Vec<(DisplayId, &'static str)>,
         pixels: Arc<Mutex<Vec<u8>>>,
         events: Vec<Event>,
@@ -4312,7 +4335,7 @@ mod tests {
     }
 
     impl Still {
-        fn new(ids: &[(u32, &'static str)]) -> Still {
+        pub(super) fn new(ids: &[(u32, &'static str)]) -> Still {
             Still {
                 ids: ids
                     .iter()
@@ -4453,7 +4476,7 @@ mod tests {
         Start::trusted(Path::new("heads.conf"), text.as_bytes())
     }
 
-    fn no_fonts() -> font::Sources {
+    pub(super) fn no_fonts() -> font::Sources {
         font::Sources {
             frits: PathBuf::from("/nonexistent/vtium-test-frits"),
             helper: None,
@@ -4463,7 +4486,7 @@ mod tests {
     }
 
     /// Shows the VT and runs a turn, which sets every device up.
-    fn shown(app: &mut App) {
+    pub(super) fn shown(app: &mut App) {
         app.vt.activate().unwrap();
         app.turn(Instant::now());
     }

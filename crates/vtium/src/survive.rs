@@ -23,6 +23,7 @@ use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::io;
 use std::os::fd::{BorrowedFd, OwnedFd};
+use std::path::Path;
 
 /// The name a kept master is stored under: its head and its console's id.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -101,6 +102,51 @@ pub fn session_env(env: Vec<(OsString, OsString)>) -> Vec<(OsString, OsString)> 
         .collect()
 }
 
+/// The keeper of a vtium starting on the VT at `tty` with the environment
+/// `env`, and the masters an earlier vtium left with it.
+///
+/// Where systemd passes `NOTIFY_SOCKET` and a store of a nonzero size
+/// (`FDSTORE`), the keeper is the store, and the masters are those systemd
+/// passed, which `take` takes from descriptor 3 up. Otherwise, when vtium
+/// runs as root on a VT, `run_dir`'s directory for that VT holds the
+/// holder's socket, and the keeper is the holder found there or the one
+/// `exe` starts. It is called before vtium blocks any signal, since the
+/// holder it starts inherits the signal mask. Any other vtium, such as one
+/// a user runs by hand, keeps nothing, and its sessions end with it.
+pub fn start(
+    env: &[(OsString, OsString)],
+    tty: Option<&Path>,
+    run_dir: &Path,
+    exe: &Path,
+    take: impl FnOnce(usize) -> io::Result<Vec<OwnedFd>>,
+) -> (Keeper, Vec<(String, OwnedFd)>) {
+    // What systemd passed is vtium's to take whether or not it keeps more.
+    let passed = notify::passed(env, std::process::id(), take);
+    if let Some(store) = notify::Store::from_env(env) {
+        log::info!(
+            "vtium keeps each session's pty in systemd's file-descriptor store, so the sessions outlive a restart"
+        );
+        return (Keeper::Store(store), passed);
+    }
+    let vt = tty.and_then(crate::getty::vt_number);
+    let Some(vt) = vt.filter(|_| rustix::process::geteuid().is_root()) else {
+        return (Keeper::Off, passed);
+    };
+    match hold::start(&run_dir.join(format!("tty{vt}")), exe) {
+        Ok((client, mut kept)) => {
+            log::info!(
+                "vtium keeps each session's pty in its holder, vtium hold, so the sessions outlive a restart"
+            );
+            kept.extend(passed);
+            (Keeper::Hold(client), kept)
+        }
+        Err(e) => {
+            log::warn!("vtium cannot start its holder, so the sessions end if vtium restarts: {e}");
+            (Keeper::Off, passed)
+        }
+    }
+}
+
 /// The masters a starting vtium took back from its keeper, waiting for
 /// their consoles.
 #[derive(Default)]
@@ -165,9 +211,11 @@ impl Kept {
 }
 
 /// Where vtium keeps a copy of each session's pty master.
+#[derive(Default)]
 pub enum Keeper {
     /// Nowhere: a vtium run by hand as an ordinary user, or one whose
     /// keeper failed. Its sessions end with it.
+    #[default]
     Off,
     /// systemd's file-descriptor store.
     Store(notify::Store),
