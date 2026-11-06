@@ -390,7 +390,9 @@ impl ServeRequest {
         };
         let query = matches!(kind, OWN_CELL | SOURCES);
         if query && (cell.width != 0 || cell.height > CELL_SIDE_MAX) {
-            return Err("a cell query at a cell, or at a height past CELL_SIDE_MAX".to_owned());
+            return Err(format!(
+                "a cell query at a cell, or at a height of more than {CELL_SIDE_MAX} pixels"
+            ));
         }
         if kind == SOURCES && cell.height != 0 {
             return Err("a sources query at a height".to_owned());
@@ -399,7 +401,9 @@ impl ServeRequest {
             && (!(1..=CELL_SIDE_MAX).contains(&cell.width)
                 || !(1..=CELL_SIDE_MAX).contains(&cell.height))
         {
-            return Err("a cell past CELL_SIDE_MAX".to_owned());
+            return Err(format!(
+                "a cell side of 0 or of more than {CELL_SIDE_MAX} pixels"
+            ));
         }
         let style = style_of(f.u32()?).ok_or("an unknown style")?;
         if kind != ASK && style != Style::default() {

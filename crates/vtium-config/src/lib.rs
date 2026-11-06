@@ -22,6 +22,16 @@
 //! switches the running console among the frits. [`cli`] is the command
 //! line, and [`banner`] the art it opens with at a terminal.
 
+/// A message made once from `format!`'s arguments and kept for the rest of
+/// the run, for a reader whose errors are `&'static str` and whose message
+/// names a limit's number.
+macro_rules! static_message {
+    ($($arg:tt)*) => {{
+        static MESSAGE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+        MESSAGE.get_or_init(|| format!($($arg)*)).as_str()
+    }};
+}
+
 pub mod apply;
 pub mod banner;
 pub mod bdf;

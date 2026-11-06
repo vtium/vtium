@@ -82,7 +82,7 @@ impl Glyphs {
     /// after the map.
     pub fn decode(bytes: &[u8]) -> Result<Glyphs, &'static str> {
         if bytes.len() > GLYPHS_BYTES_MAX {
-            return Err("larger than GLYPHS_BYTES_MAX");
+            return Err(static_message!("larger than {GLYPHS_BYTES_MAX} bytes"));
         }
         let mut r = Reader(bytes);
         if r.take(8)? != MAGIC {
@@ -218,5 +218,14 @@ mod tests {
             let e = Glyphs::decode(&bytes).expect_err(why);
             assert!(e.contains(why), "{why}: {e}");
         }
+    }
+
+    // a refusal names the limit by its number, never by the constant's
+    // name
+    #[test]
+    fn a_form_too_large_is_refused_with_the_number_of_bytes() {
+        let e = Glyphs::decode(&vec![0; GLYPHS_BYTES_MAX + 1]).expect_err("too large");
+        assert_eq!(e, format!("larger than {} bytes", GLYPHS_BYTES_MAX));
+        assert!(!e.contains("_MAX"), "{e}");
     }
 }
