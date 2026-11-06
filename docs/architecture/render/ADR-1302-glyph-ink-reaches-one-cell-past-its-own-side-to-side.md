@@ -166,6 +166,9 @@ considered:
     said: "A vitrified set may hold the strikes of one style alone, as the glyph helper's answer to a style ask does."
     via: "the steering session, 2026-11-04; the steering session's call, which the maintainer left to it"
     paraphrase: true
+  - operator: aaronsb
+    said: "[Rename ADR-1302 so the title drops 'and is cut at its row'?] Rename (Recommended)"
+    via: AskUserQuestion, 2026-11-06; the option label is the steering session's wording
 observable:
   - "Tier 2's `overhang-italic` screen shows an italic run whose letters lean into the next cell, unbroken across cell edges, over cells of alternating background colors"
   - "Tier 2's `overhang-underscore` screen shows a whole underscore in the bottom rows of every cell height from 12 to 32 pixels"
@@ -181,13 +184,13 @@ related:
   - ADR-1200
 ---
 
-# ADR-1302: Glyph ink reaches one cell past its own, side to side, and is cut at its row
+# ADR-1302: Glyph ink reaches one cell past its own, side to side
 
 ## Summary
 
 - **Decided:** A glyph from a font draws ink that lies outside its cell into the cells beside it, at most one cell to the left and one to the right, where the C reference cut every glyph at its cell's edges. One rule holds for every font: outline glyphs, and bitmap glyphs slanted for italic. Ink above or below the row reaches one row up and down and is cut past it (ADR-1306), and each font's baseline in a cell rises just far enough that its underscore and lowest descenders end inside the cell. A glyph sits where its font puts it, its advance centred in its 1 or 2 cells. Italic with no italic face is the regular glyph slanted right by 0.2 about the baseline, for outline and bitmap fonts and every script alike. A combining mark that would pass the row's top or bottom moves toward the baseline until it fits, and where the marks cannot move in alone, the letter and its marks scale together vertically to fit the row. Letters of joining scripts, such as Arabic, are fitted sideways to their cells' width so their joins meet. Color glyphs, emoji and vtium's own drawn symbols never reach past their cells. The renderer draws each pixel of a row in layers: its cell's background and underline, then the ink that reaches it from the cells beside it, then the cell's own glyph, then its strike-through, so a neighbour's background never covers ink. A cell whose ink changes damages the neighbours its old or new ink reaches. A blinking letter's ink stays inside its own cell, so no neighbour ever blinks. The letter under the cursor keeps its ink inside its own cell too. Inside a block cursor or a selection, all ink takes the mark's text color; outside them, ink keeps the colors of the cell it came from as that cell draws unmarked. Right-to-left characters take every rule that names a side or a direction mirrored, but synthetic italic, which leans right for every script; no glyph is ever drawn flipped. An outline frit that states no cell takes its fonts' own cell by the W rule (ADR-1200 D17).
 
-> Edited 2026-11-06: ADR-1306, accepted 2026-11-06 (the maintainer, 2026-11-06) lets glyph ink reach one row above and below its own, so this record's title, which says ink is cut at its row, describes it as it was decided on 2026-11-01. It read: "Ink above or below the row is cut at the row,"
+> Edited 2026-11-06: ADR-1306, accepted 2026-11-06 (the maintainer, 2026-11-06) lets glyph ink reach one row above and below its own. The maintainer renamed this record the same day so its title drops what no longer holds; it read "Glyph ink reaches one cell past its own, side to side, and is cut at its row". It read: "Ink above or below the row is cut at the row,"
 
 - **Trades away:** A changed cell can redraw up to two more cells. Each glyph that leans carries its ink box, so the glyph wire format (ADR-1200 D2) and the cache's stored glyph change. A neighbour's ink drawn over a block cursor or a selection takes the mark's color, not its own. Ink past one cell, or past the row, is still cut. Bitmap italic, upright in the C reference, leans, so the italic cells of vtium's bitmap goldens move.
 - **One-way?** No. The rules live in vtium-vitrify's placement and vtium-render's composition, and the wire format between them changes on both ends in one release (ADR-1200 D2). Nothing is stored on disk.
@@ -262,7 +265,7 @@ Two words are used carefully below. A **strike** is a font's set of glyphs at on
 - **The grid's edge cuts ink.** Ink that would reach left of the first column or right of the last is cut there, so the border around the grid never shows ink (the maintainer, 2026-11-01). A wide glyph cut at the margin keeps the rule vtium-render already has for it (its README's departures).
 - **Right-to-left characters** take this rule as it stands, since the reach is the same on both sides (D11).
 
-> Note 2026-11-06: ADR-1306 D12 weighs, at the maintainer's request, a reach of two cells side to side against this one cell. It is proposed and leans to keeping one cell; until the maintainer decides it, this decision's one cell stands.
+> Note 2026-11-06: ADR-1306 D12, decided by the maintainer on 2026-11-06, keeps this reach of one cell and makes it a named constant that every part reads, so that widening it is a change of the constant and the goldens.
 
 The bound of one cell holds every letter measured in Context, the most being 4 pixels of a 17-pixel cell, and it bounds what one changed cell can damage (D9). Ghostty lets a symbol take two cells beside a blank one and fits symbols per codepoint; font merging decides both for merged symbol fonts, and fits a symbol before this rule applies (the maintainer, 2026-11-01).
 
