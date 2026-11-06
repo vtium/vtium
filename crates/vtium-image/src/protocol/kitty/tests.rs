@@ -2787,16 +2787,23 @@ fn an_edit_of_a_missing_frame_makes_a_new_frame_as_kittys_does() {
 fn a_frame_rectangle_past_the_image_is_cut_to_it_as_kittys_is() {
     let (mut k, mut h) = (Kitty::default(), Host::new());
     send(&mut k, &mut h, &format!("a=t,s=4,v=4,i=1;{}", red(16)));
-    let green = rgba([0, 0xff, 0, 0xff], 16);
+    // a 4x4 gradient at 2,2: only its top left 2x2 lands, each pixel the
+    // one at its own column and row of the data
+    let px = |c: u8, r: u8| [c * 60, r * 60, 0x80, 0xff];
+    let gradient: Vec<u8> = (0..4u8)
+        .flat_map(|r| (0..4u8).flat_map(move |c| px(c, r)))
+        .collect();
     send(
         &mut k,
         &mut h,
-        &format!("a=f,i=1,c=1,x=2,y=2,s=4,v=4;{green}"),
+        &format!("a=f,i=1,c=1,x=2,y=2,s=4,v=4;{}", b64(&gradient)),
     );
+    // wholly outside, by replacement: it lays nothing, so frame 1's red
+    // stays where a clear pixel would replace it
     send(
         &mut k,
         &mut h,
-        &format!("a=f,i=1,c=1,x=10,y=10,s=2,v=2;{}", red(4)),
+        &format!("a=f,i=1,c=1,X=1,x=10,y=10,s=2,v=2;{}", red(4)),
     );
     assert_eq!(
         h.take(),
@@ -2804,13 +2811,19 @@ fn a_frame_rectangle_past_the_image_is_cut_to_it_as_kittys_is() {
     );
     let key = key(&mut h);
     let two = h.store.frame_pixels(key, 2).unwrap();
-    let (r, g) = (0xffff_0000, 0xff00_ff00);
-    assert_eq!(two.pixels.as_slice()[0], r);
-    assert_eq!(two.pixels.as_slice()[2 * 4 + 2], g);
-    assert_eq!(two.pixels.as_slice()[3 * 4 + 3], g);
-    assert_eq!(two.pixels.as_slice()[3 * 4 + 1], r);
+    let at = |x: usize, y: usize| two.pixels.as_slice()[y * 4 + x];
+    let want = |c: u8, r: u8| {
+        let [cr, cg, cb, _] = px(c, r);
+        0xff00_0000 | u32::from(cr) << 16 | u32::from(cg) << 8 | u32::from(cb)
+    };
+    assert_eq!(at(0, 0), 0xffff_0000);
+    assert_eq!(at(1, 3), 0xffff_0000);
+    assert_eq!(at(2, 2), want(0, 0));
+    assert_eq!(at(3, 2), want(1, 0));
+    assert_eq!(at(2, 3), want(0, 1));
+    assert_eq!(at(3, 3), want(1, 1));
     let three = h.store.frame_pixels(key, 3).unwrap();
-    assert_eq!(three.pixels.as_slice(), &[r; 16]);
+    assert_eq!(three.pixels.as_slice(), &[0xffff_0000; 16]);
 }
 
 // An animation control is answered only when its image does not exist, as
@@ -2829,6 +2842,25 @@ fn an_animation_control_is_answered_only_when_its_image_is_missing() {
     assert_eq!(
         h.take(),
         "\x1b_Gi=98;ENOENT:Animation command refers to non-existent image with id: 98 and number: 0\x1b\\"
+    );
+}
+
+// A frame to an image that does not exist names the r the command gave,
+// as kitty 0.50.0's reply does (ADR-1102, D2).
+// covers: image.kitty-animation
+#[test]
+fn a_frame_to_a_missing_image_names_the_r_it_gave() {
+    let (mut k, mut h) = (Kitty::default(), Host::new());
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=f,i=99,r=3,f=32,s=1,v=1;{}", red(1)),
+    );
+    send(&mut k, &mut h, &format!("a=f,i=98,f=32,s=1,v=1;{}", red(1)));
+    assert_eq!(
+        h.take(),
+        "\x1b_Gi=99,r=3;ENOENT:Animation command refers to non-existent image with id: 99 and number: 0\x1b\\\
+         \x1b_Gi=98;ENOENT:Animation command refers to non-existent image with id: 98 and number: 0\x1b\\"
     );
 }
 

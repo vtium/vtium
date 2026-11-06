@@ -571,7 +571,11 @@ pub(super) fn reply(ctx: &mut dyn Context, cmd: &Command, id: u32, answer: Answe
     } else {
         None
     };
-    let frame = key.and_then(|key| frame_named(ctx.store(), cmd, key, answer));
+    // a frame to an image that does not exist names only the r it gave
+    let frame = match key {
+        Some(key) => frame_named(ctx.store(), cmd, key, answer),
+        None => (cmd.action == b'f' && cmd.rows != 0).then_some(cmd.rows),
+    };
     let quiet = match answer {
         Ok(()) => cmd.quiet >= 1,
         Err(_) => cmd.quiet >= 2,
