@@ -748,7 +748,14 @@ impl Set {
         let start = usize_of(at.offset).ok()?;
         let src = chunk.get(start..start.checked_add(len)?)?;
         let scale = scale.max(1);
-        let (format, pixels) = paint(info, src, w, Some(info.cell.width), widen, scale)?;
+        let (format, pixels) = paint(
+            info,
+            src,
+            (w, info.cell.height),
+            Some(info.cell.width),
+            widen,
+            scale,
+        )?;
         let glyph = Glyph::from_pixels(
             w.checked_mul(scale)?,
             info.cell.height.checked_mul(scale)?,
@@ -760,30 +767,28 @@ impl Set {
         let Some(ink) = self.inks.find(number, at.key) else {
             return Some(glyph);
         };
+        // a record written without the box's height gives the cell's
+        let height = ink.height.unwrap_or(info.cell.height);
         let ink_src = (|| {
-            let n = usize_of(glyph_bytes(
-                info.format.code(),
-                ink.width,
-                info.cell.height,
-                1,
-            )?)
-            .ok()?;
+            let offset = u32::try_from(ink.offset).ok()?;
+            let (start, n) =
+                parse::ink_span(info.format.code(), (ink.top, ink.width, height), offset)?;
             let chunk = self.chunk(ink.chunk)?;
-            let start = usize_of(ink.offset).ok()?;
-            chunk.get(start..start.checked_add(n)?)
+            let start = usize_of(start).ok()?;
+            chunk.get(start..start.checked_add(usize_of(n).ok()?)?)
         })();
         // a box that does not decode leaves the glyph cut to its cells
         let Some((_, box_pixels)) =
-            ink_src.and_then(|src| paint(info, src, ink.width, None, widen, scale))
+            ink_src.and_then(|src| paint(info, src, (ink.width, height), None, widen, scale))
         else {
             return Some(glyph);
         };
-        let left = ink.left.checked_mul(i32::try_from(scale).ok()?)?;
-        let width = ink.width.checked_mul(scale)?;
-        let height = glyph.height();
+        let scaled = i32::try_from(scale).ok()?;
+        let (left, top) = (ink.left.checked_mul(scaled)?, ink.top.checked_mul(scaled)?);
+        let (width, height) = (ink.width.checked_mul(scale)?, height.checked_mul(scale)?);
         glyph
             .clone()
-            .with_ink((left, 0), (width, height), box_pixels)
+            .with_ink((left, top), (width, height), box_pixels)
             .or(Some(glyph))
     }
 }
@@ -809,20 +814,19 @@ impl Synth {
     }
 }
 
-/// The pixels of `src`, `w` pixels of `info`'s format a row over its
-/// cell's height, drawn at `scale` as a mask or RGBA: a 1-bit pixel
+/// The pixels of `src`, `w` pixels of `info`'s format a row over `h`
+/// rows, drawn at `scale` as a mask or RGBA: a 1-bit pixel
 /// expanded to 0 or 255 (ADR-1200 D13), and bold widened when `widen`
 /// asks, a pixel set when it or its left neighbour is, within each cell
 /// of `cell` pixels when `cell` is given, else within the whole row.
 fn paint(
     info: StrikeInfo,
     src: &[u8],
-    w: u32,
+    (w, h): (u32, u32),
     cell: Option<u32>,
     widen: bool,
     scale: u32,
 ) -> Option<(Format, Vec<u8>)> {
-    let h = info.cell.height;
     let row = src.len().checked_div(usize_of(h).ok()?)?;
     let out_w = w.checked_mul(scale)?;
     let out_h = h.checked_mul(scale)?;

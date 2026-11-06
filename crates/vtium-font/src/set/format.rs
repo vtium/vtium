@@ -33,7 +33,8 @@
 //!          then kind, then glyph:
 //!            strike u16, kind u16 (0 a glyph of GLYF, by its number in its
 //!            strike; 1 a cluster of CLUS, by its record's number), glyph
-//!            u32, left i32, width u32, chunk u32, offset u32
+//!            u32, left i32, width u32, chunk u32, offset u32, top i32,
+//!            height u32
 //!          then each chunk as GLYF's, its offset from INKX's start, then
 //!          the chunks' bytes
 //! ```
@@ -43,16 +44,19 @@
 //! than that, as each glyph of an 8x16 bitmap font drawn 33 times its size
 //! is, goes in a `GLYF` or `CLUS` chunk of its own: raw, and exactly its
 //! bytes (ADR-1302 D6). A set with no such glyph is laid out as it was
-//! before such glyphs were carried, so the format stays 2.0.
+//! before such glyphs were carried, so they added no version.
 //!
 //! `INKX` holds the ink box of each glyph whose ink passes its cells
-//! (ADR-1200 D2, ADR-1302 D6). A box is `width` columns across from
-//! `left`, the offset of its first column from the left edge of the
-//! glyph's first cell, which is 0 or negative, over the cell's full
-//! height, in its strike's pixel format. A box spans its glyph's cells and
-//! the ink past them, and stays inside the glyph's reach, its cells and
-//! one cell more on each side: `left` is at least minus one cell's width,
-//! and the box ends no further than one cell past the glyph's last cell.
+//! (ADR-1200 D2, ADR-1302 D6, ADR-1306 D3). A box is `width` columns
+//! across from `left`, the offset of its first column from the left edge
+//! of the glyph's first cell, which is 0 or negative, and `height` rows
+//! down from `top`, the offset of its first row from the top of the
+//! glyph's row, which is 0 or negative, in its strike's pixel format. A
+//! box spans its glyph's cells and the ink past them, and stays inside the
+//! glyph's reach: its cells, `REACH_CELLS` cells more on each side and
+//! `REACH_ROWS` rows more above and below (`crate::reach`). Its rows lie
+//! one after another in its chunk, and `offset` is where its row at the
+//! top of the glyph's row lies, `-top` rows after the box's first.
 //! A glyph keeps its pixels cut to its cells in `GLYF` or `CLUS` as before
 //! and its whole box in an `INKX` chunk, so a reader that does not know
 //! `INKX` skips it and draws every glyph cut to its cells. Only R8 and
@@ -60,12 +64,19 @@
 //! glyph whose box would pass `SET_CHUNK_BYTES` holds none, and is drawn
 //! cut to its cells.
 //!
+//! Format 2.0 wrote `INKX` records of 24 bytes, without `top` and
+//! `height`, and its boxes were the cell's height. Format 2.1 adds the two
+//! fields at the record's end. A 2.1 reader reads a 24-byte record as a box
+//! of the cell's height, and a 2.0 reader reads a 2.1 record's first six
+//! fields, so it reads the `width` by cell-height rows at `offset`, the
+//! glyph's ink cut at its row.
+//!
 //! `CLUS` maps clusters, short sequences of scalar values, to glyphs drawn
 //! for them whole: a cluster's key is `key length` scalars of the pool
 //! from `key`, and its glyph lies `offset` bytes into its chunk, one or two
 //! cells wide by `RUN_WIDE`, in its strike's cell and pixel format. A set
 //! with no cluster has no `CLUS`, and a reader that does not know the
-//! section skips it, so the format stays 2.0, as it does for `INKX`.
+//! section skips it, so it added no version, as `INKX` itself did not.
 //!
 //! `STRK`'s strikes are sorted by cell height, width, style and format,
 //! no two alike, so one cell may hold a 1-bit, an R8 and an RGBA strike
@@ -87,8 +98,9 @@ pub(crate) const MAGIC: [u8; 8] = *b"VTGLASS\0";
 /// dropped the chunk record's SHA-256: the format is the helper's wire
 /// format, written to no file (ADR-1200 D2).
 pub(crate) const MAJOR: u16 = 2;
-/// The format's minor version: a reader takes any.
-pub(crate) const MINOR: u16 = 0;
+/// The format's minor version: a reader takes any. Version 1 added the
+/// ink box's top and height to each `INKX` record.
+pub(crate) const MINOR: u16 = 1;
 
 pub(crate) const META: [u8; 4] = *b"META";
 pub(crate) const STRK: [u8; 4] = *b"STRK";
@@ -111,7 +123,10 @@ pub(crate) const RUN_RECORD: u32 = 16;
 pub(crate) const COVERAGE_RECORD: u32 = 48;
 pub(crate) const CHUNK_RECORD: u32 = 20;
 pub(crate) const CLUSTER_RECORD: u32 = 20;
-pub(crate) const INK_RECORD: u32 = 24;
+pub(crate) const INK_RECORD: u32 = 32;
+/// The shortest `INKX` record a reader takes: format 2.0's, without the
+/// box's top and height.
+pub(crate) const INK_RECORD_MIN: u32 = 24;
 
 /// An ink box's kind: a glyph of `GLYF`, or a cluster of `CLUS`.
 pub(crate) const INK_GLYPH: u16 = 0;

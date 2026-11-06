@@ -15,8 +15,8 @@ use crate::face::{Cell, Decorations, Style};
 use crate::policy::{Coverage, RangeCoverage, Source, SpritePolicy};
 use crate::set::format::{
     CHUNK_DEFLATED, CHUNK_RECORD, CLUSTER_RECORD, COVERAGE_RECORD, INK_CLUSTER, INK_GLYPH,
-    INK_RECORD, RUN_RECORD, RUN_WIDE, SOURCE_AUTO, SOURCE_FONT, SOURCE_SPRITES, STRIKE_RECORD,
-    STYLE_BOLD, STYLE_ITALIC, TABLE_HEAD_BYTES, glyph_bytes, valid_name,
+    INK_RECORD, INK_RECORD_MIN, RUN_RECORD, RUN_WIDE, SOURCE_AUTO, SOURCE_FONT, SOURCE_SPRITES,
+    STRIKE_RECORD, STYLE_BOLD, STYLE_ITALIC, TABLE_HEAD_BYTES, glyph_bytes, valid_name,
 };
 use crate::sprite::Range;
 
@@ -678,29 +678,52 @@ pub(super) struct InkMap {
     first: usize,
 }
 
-/// Where an ink box lies, and its columns.
+/// Where an ink box lies, and its place and size.
 pub(super) struct InkAt {
     pub chunk: usize,
+    /// Where the box's row at the top of its glyph's row lies in its
+    /// chunk; its first row lies `-top` rows before it.
     pub offset: u64,
     pub left: i32,
+    pub top: i32,
     pub width: u32,
+    /// `None` for a record written without the field, whose box is its
+    /// strike's cell's height.
+    pub height: Option<u32>,
 }
 
+/// An `INKX` record's fields: its strike, kind and number, its left and
+/// width, its chunk and offset, and, where the record holds them, its top
+/// and height.
+type InkRecord = (u16, u16, u32, i32, u32, u32, u32, Option<(i32, u32)>);
+
 impl InkMap {
-    /// Record `i`: its strike, kind and number, its left and width, its
-    /// chunk and its offset.
-    fn record(&self, i: usize) -> Option<(u16, u16, u32, i32, u32, u32, u32)> {
-        let r: &[u8; 24] = self.bytes.get(i.checked_mul(self.size)?..)?.first_chunk()?;
-        let [s0, s1, k0, k1, g @ ..] = *r;
+    /// Record `i`. A record shorter than [`INK_RECORD`] was written before
+    /// the box had a top and a height, and gives none.
+    fn record(&self, i: usize) -> Option<InkRecord> {
+        let r = self
+            .bytes
+            .get(i.checked_mul(self.size)?..)?
+            .get(..self.size)?;
+        let [s0, s1, k0, k1, g @ ..] = r else {
+            return None;
+        };
         let w = |at: usize| -> Option<[u8; 4]> { g.get(at..at.checked_add(4)?)?.try_into().ok() };
+        let rows = match (w(20), w(24)) {
+            (Some(top), Some(height)) if self.size >= INK_RECORD as usize => {
+                Some((i32::from_le_bytes(top), u32::from_le_bytes(height)))
+            }
+            _ => None,
+        };
         Some((
-            u16::from_le_bytes([s0, s1]),
-            u16::from_le_bytes([k0, k1]),
+            u16::from_le_bytes([*s0, *s1]),
+            u16::from_le_bytes([*k0, *k1]),
             u32::from_le_bytes(w(0)?),
             i32::from_le_bytes(w(4)?),
             u32::from_le_bytes(w(8)?),
             u32::from_le_bytes(w(12)?),
             u32::from_le_bytes(w(16)?),
+            rows,
         ))
     }
 
@@ -710,7 +733,7 @@ impl InkMap {
         let (mut lo, mut hi) = (0, self.count);
         while lo < hi {
             let mid = lo.midpoint(hi);
-            let (s, k, g, left, width, chunk, offset) = self.record(mid)?;
+            let (s, k, g, left, width, chunk, offset, rows) = self.record(mid)?;
             match (s, k, g).cmp(&want) {
                 Ordering::Less => lo = mid.checked_add(1)?,
                 Ordering::Greater => hi = mid,
@@ -719,7 +742,9 @@ impl InkMap {
                         chunk: self.first.checked_add(chunk as usize)?,
                         offset: u64::from(offset),
                         left,
+                        top: rows.map_or(0, |r| r.0),
                         width,
+                        height: rows.map(|r| r.1),
                     });
                 }
             }
@@ -728,12 +753,13 @@ impl InkMap {
     }
 }
 
-/// `INKX` (ADR-1302 D6): its boxes, sorted by strike, kind and number
-/// with none twice, each of a glyph or cluster the set holds in an R8 or
-/// 1-bit strike, spanning its glyph's cells and reaching past them by at
-/// most one cell on each side and past them on one side at least, its
-/// bytes inside one of the section's own chunks, numbered from `first`;
-/// with those chunks.
+/// `INKX` (ADR-1302 D6, ADR-1306 D3): its boxes, sorted by strike, kind
+/// and number with none twice, each of a glyph or cluster the set holds in
+/// an R8 or 1-bit strike, spanning its glyph's cells, past them on one
+/// side at least and inside their reach, its bytes inside one of the
+/// section's own chunks, numbered from `first`; with those chunks. A
+/// record of [`INK_RECORD_MIN`] bytes, written before the box had a top and
+/// a height, gives a box of the cell's height.
 pub(super) fn parse_inks(
     bytes: &[u8],
     inkx: (u64, u64),
@@ -758,7 +784,7 @@ pub(super) fn parse_inks(
     if size > SET_RECORD_BYTES_MAX || chunk_size > SET_RECORD_BYTES_MAX {
         return Err(SetError::Bound("SET_RECORD_BYTES_MAX"));
     }
-    if size < INK_RECORD || chunk_size < CHUNK_RECORD {
+    if size < INK_RECORD_MIN || chunk_size < CHUNK_RECORD {
         return Err(SetError::Malformed("a malformed ink box"));
     }
     let (count, size) = (count as usize, size as usize);
@@ -785,7 +811,7 @@ pub(super) fn parse_inks(
     let cluster_count = clusters.pool.checked_div(clusters.size).unwrap_or(0);
     let mut before: Option<(u16, u16, u32)> = None;
     for i in 0..count {
-        let (strike, kind, glyph, left, width, chunk, offset) =
+        let (strike, kind, glyph, left, width, chunk, offset, rows) =
             map.record(i).ok_or(SetError::Truncated)?;
         let s = strikes
             .get(usize::from(strike))
@@ -810,22 +836,23 @@ pub(super) fn parse_inks(
         ))?;
         let cell = (i64::from(s.info.cell.width), i64::from(s.info.cell.height));
         let cells = (cell.0.saturating_mul(if wide { 2 } else { 1 }), cell.1);
+        let (top, height) = rows.unwrap_or((0, s.info.cell.height));
         let boxed = crate::set::format::InkRect {
             left: i64::from(left),
-            top: 0,
+            top: i64::from(top),
             width: i64::from(width),
-            height: cell.1,
+            height: i64::from(height),
         };
         if !boxed.in_reach(cell, cells) {
             return Err(SetError::Malformed(
                 "an ink box past its glyph's reach, or not past its cells",
             ));
         }
-        let n = glyph_bytes(s.info.format.code(), width, s.info.cell.height, 1)
-            .ok_or(SetError::Malformed("an ink box past u32"))?;
-        let fits = chunks.get(chunk as usize).is_some_and(|ch| {
-            u64::from(offset).saturating_add(u64::from(n)) <= u64::from(ch.decoded)
-        });
+        let (start, n) = ink_span(s.info.format.code(), (top, width, height), offset)
+            .ok_or(SetError::Malformed("an ink box outside its chunk"))?;
+        let fits = chunks
+            .get(chunk as usize)
+            .is_some_and(|ch| start.saturating_add(u64::from(n)) <= u64::from(ch.decoded));
         if !fits {
             return Err(SetError::Malformed("an ink box outside its chunk"));
         }
@@ -835,4 +862,21 @@ pub(super) fn parse_inks(
         before = Some((strike, kind, glyph));
     }
     Ok((map, chunks))
+}
+
+/// Where a box `(top, width, height)` of `format` starts in its chunk, its
+/// row at the top of its glyph's row lying at `offset`, and how many bytes
+/// it holds; `None` when it would start before the chunk or pass `u32`.
+pub(super) fn ink_span(
+    format: u8,
+    (top, width, height): (i32, u32, u32),
+    offset: u32,
+) -> Option<(u64, u32)> {
+    let row = glyph_bytes(format, width, 1, 1)?;
+    if top > 0 {
+        return None;
+    }
+    let above = u64::from(top.unsigned_abs()).checked_mul(u64::from(row))?;
+    let start = u64::from(offset).checked_sub(above)?;
+    Some((start, glyph_bytes(format, width, height, 1)?))
 }

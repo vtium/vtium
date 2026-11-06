@@ -1,8 +1,10 @@
-//! Ink boxes (ADR-1200 D2, ADR-1302 D6): a glyph whose ink passes its
-//! cells carries its box in `INKX`, read back beside its pixels cut to its
-//! cells, for a codepoint and for a cluster; the writer and the reader each
-//! refuse a box past the glyph's reach, one cell past its cells on each
-//! side, or not past its cells; and a set with no box has no `INKX`.
+//! Ink boxes (ADR-1200 D2, ADR-1302 D6, ADR-1306 D3): a glyph whose ink
+//! passes its cells carries its box in `INKX`, read back beside its pixels
+//! cut to its cells, for a codepoint and for a cluster; the writer and the
+//! reader each refuse a box past the glyph's reach, a cell past its cells
+//! on each side and a row above and below them, or not past its cells; a
+//! record written by format 2.0, without the box's top and height, reads
+//! as a box of the cell's height; and a set with no box has no `INKX`.
 
 mod common;
 
@@ -37,7 +39,7 @@ fn set_with(left: i32, width: u32, format: PixelFormat) -> Result<Vec<u8>, Strin
     s.map('A', a);
     s.map('B', b);
     s.cluster(&['e', '\u{301}'], a);
-    s.ink(a, left, width, columns(width));
+    s.ink(a, (left, 0), (width, CELL.height), columns(width));
     SetBuilder::new("ink")
         .strike(s)
         .write()
@@ -111,8 +113,8 @@ fn a_scaled_or_bold_glyph_scales_and_widens_its_box() {
     );
 }
 
-// a set whose glyphs fit their cells writes no INKX, so a reader of
-// format 2.0 reads it as before
+// a set whose glyphs fit their cells writes no INKX, so a reader that
+// does not know INKX reads it as before
 #[test]
 fn a_set_with_no_box_has_no_inkx() {
     let mut s = StrikeBuilder::new(PixelFormat::R8, CELL, Style::default());
@@ -180,7 +182,7 @@ fn the_reader_refuses_a_box_in_a_color_strike() {
     let mut r8 = StrikeBuilder::new(PixelFormat::R8, CELL, Style::default()).compress(false);
     let a = r8.glyph(Width::Narrow, vec![9; 8]);
     r8.map('A', a);
-    r8.ink(a, -1, 5, columns(5));
+    r8.ink(a, (-1, 0), (5, CELL.height), columns(5));
     let mut rgba = StrikeBuilder::new(PixelFormat::Rgba, CELL, Style::default()).compress(false);
     let b = rgba.glyph(Width::Narrow, vec![0; 32]);
     rgba.map('B', b);
@@ -242,4 +244,225 @@ fn a_glyphs_box_reaches_a_row_up_and_down_and_no_further() {
     assert!(boxed(0, 0, w, h).is_none(), "not past the cells");
     // the pixels must be the box's
     assert!(glyph().with_ink((0, -1), (w, h + 1), vec![7; 3]).is_none());
+}
+
+/// A set of one strike of `format` at CELL, compressed when `compress`:
+/// `A` a narrow glyph of 9s with the box `(left, top)`, `(width, height)`
+/// whose pixels count up from 1 row by row, or the writer's refusal.
+fn set_with_rows(
+    (left, top): (i32, i32),
+    (width, height): (u32, u32),
+    format: PixelFormat,
+    compress: bool,
+) -> Result<Vec<u8>, String> {
+    let mut s = StrikeBuilder::new(format, CELL, Style::default()).compress(compress);
+    let (cells, boxed) = match format {
+        PixelFormat::Bits => (
+            vec![0b1010_0000; CELL.height as usize],
+            (0..height)
+                .flat_map(|y| {
+                    vec![if y % 2 == 0 { 0xff } else { 0x81 }; width.div_ceil(8) as usize]
+                })
+                .collect(),
+        ),
+        _ => (
+            vec![9; (CELL.width * CELL.height) as usize],
+            (1..=width * height).map(|v| v as u8).collect(),
+        ),
+    };
+    let a = s.glyph(Width::Narrow, cells);
+    s.map('A', a);
+    s.ink(a, (left, top), (width, height), boxed);
+    SetBuilder::new("ink")
+        .strike(s)
+        .write()
+        .map_err(|e| e.to_string())
+}
+
+// ADR-1306 D3: the box's top and height round trip through INKX, for R8
+// and 1-bit strikes, stored raw and deflated, and scale with their glyph
+// covers: text.overhang
+#[test]
+fn a_box_above_and_below_its_row_round_trips() {
+    let (w, h) = (CELL.width, CELL.height);
+    // a cell to the left, a row above and a row below
+    let (left, top, width, height) = (-(w as i32), -(h as i32), 2 * w, 3 * h);
+    for compress in [false, true] {
+        let bytes = set_with_rows((left, top), (width, height), PixelFormat::R8, compress)
+            .expect("written");
+        let (major, minor, _) = sections(&bytes);
+        assert_eq!((major, minor), vtium_font::set::VERSION);
+        assert_eq!(vtium_font::set::VERSION, (2, 1));
+        let a = face(bytes.clone())
+            .draw(&['A'], Style::default())
+            .expect("A");
+        assert_eq!(a.pixels(), &[9u8; 8], "the glyph's pixels stay its cell's");
+        let ink = a.ink().expect("A's box");
+        assert_eq!(
+            (ink.left(), ink.top(), ink.width(), ink.height()),
+            (left, top, width, height),
+            "compress {compress}"
+        );
+        let want: Vec<u8> = (1..=width * height).map(|v| v as u8).collect();
+        assert_eq!(ink.pixels(), want.as_slice());
+        // drawn at twice the height, every side of the box doubles
+        let set = Arc::new(Set::from_bytes(bytes).expect("a set"));
+        let big = SetFace::new(set, h * 2).expect("a face at twice the height");
+        let ink = big
+            .draw(&['A'], Style::default())
+            .expect("A")
+            .ink()
+            .cloned();
+        let ink = ink.expect("the scaled box");
+        assert_eq!(
+            (ink.left(), ink.top(), ink.width(), ink.height()),
+            (2 * left, 2 * top, 2 * width, 2 * height)
+        );
+    }
+    // a 1-bit box a row below the cell: each row a byte, 0xff then 0x81
+    let bytes = set_with_rows((0, 0), (8, 2 * h), PixelFormat::Bits, false).expect("written");
+    let a = face(bytes).draw(&['A'], Style::default()).expect("A");
+    let ink = a.ink().expect("A's box");
+    assert_eq!(
+        (ink.left(), ink.top(), ink.width(), ink.height()),
+        (0, 0, 8, 4)
+    );
+    let rows: Vec<&[u8]> = ink.pixels().chunks(8).collect();
+    assert_eq!(rows[0], &[255; 8]);
+    assert_eq!(rows[1], &[255, 0, 0, 0, 0, 0, 0, 255]);
+    assert_eq!(rows[3], &[255, 0, 0, 0, 0, 0, 0, 255]);
+}
+
+/// `set` with each `INKX` record cut to format 2.0's 24 bytes, without
+/// its top and height, and the chunks' offsets from the section's start
+/// moved back by the bytes cut, as a 2.0 writer laid them out.
+fn as_format_2_0(set: &[u8]) -> Vec<u8> {
+    let out = with_section(set, b"INKX", |inkx| {
+        let word = |b: &[u8], i: usize| u32::from_le_bytes(b[i..i + 4].try_into().unwrap());
+        let (count, size, chunks) = (
+            word(inkx, 0) as usize,
+            word(inkx, 4) as usize,
+            word(inkx, 8) as usize,
+        );
+        assert_eq!(size, 32, "a 2.1 record");
+        let mut cut = inkx[..16].to_vec();
+        cut[4..8].copy_from_slice(&24u32.to_le_bytes());
+        for r in 0..count {
+            cut.extend_from_slice(&inkx[16 + r * 32..16 + r * 32 + 24]);
+        }
+        let shrink = (count * 8) as u64;
+        let table = 16 + count * 32;
+        for c in 0..chunks {
+            let mut record = inkx[table + c * 20..table + c * 20 + 20].to_vec();
+            let at = u64::from_le_bytes(record[..8].try_into().unwrap()) - shrink;
+            record[..8].copy_from_slice(&at.to_le_bytes());
+            cut.extend_from_slice(&record);
+        }
+        cut.extend_from_slice(&inkx[table + chunks * 20..]);
+        *inkx = cut;
+    });
+    let (major, _, secs) = sections(&out);
+    common::assemble(major, 0, &secs)
+}
+
+// a box written by format 2.0 holds no top or height and reads as a box
+// of the cell's height (ADR-1306 D3); and a 2.1 record's first six fields
+// name the box's rows of the glyph's own row, so a reader that knows only
+// those reads the glyph's ink cut at its row
+#[test]
+fn a_format_2_0_box_reads_as_the_cells_height() {
+    let (w, h) = (CELL.width, CELL.height);
+    let flat = set_with(-2, 7, PixelFormat::R8).expect("written");
+    let old = as_format_2_0(&flat);
+    assert_eq!((sections(&old).0, sections(&old).1), (2, 0));
+    let a = face(old).draw(&['A'], Style::default()).expect("A");
+    let ink = a.ink().expect("A's box");
+    assert_eq!(
+        (ink.left(), ink.top(), ink.width(), ink.height()),
+        (-2, 0, 7, h)
+    );
+    assert_eq!(ink.pixels(), columns(7).as_slice());
+    // a box a cell to the left and a row above and below, read by its first
+    // six fields: its middle rows, the glyph's own row
+    let (width, height) = (w + 1, 3 * h);
+    let tall =
+        set_with_rows((-1, -(h as i32)), (width, height), PixelFormat::R8, false).expect("written");
+    let a = face(as_format_2_0(&tall))
+        .draw(&['A'], Style::default())
+        .expect("A");
+    let ink = a.ink().expect("A's box");
+    assert_eq!(
+        (ink.left(), ink.top(), ink.width(), ink.height()),
+        (-1, 0, width, h)
+    );
+    let middle: Vec<u8> = (width * h + 1..=width * 2 * h).map(|v| v as u8).collect();
+    assert_eq!(ink.pixels(), middle.as_slice());
+}
+
+/// `INKX`'s first record's `top` and `height`, set to `top` and `height`,
+/// in a set whose box is a cell to the left over the cell's height.
+fn tampered_rows(top: i32, height: u32) -> Vec<u8> {
+    let bytes = set_with_rows((-1, 0), (5, CELL.height), PixelFormat::R8, false).expect("written");
+    with_section(&bytes, b"INKX", |inkx| {
+        // a record's top is at 24 and its height at 28
+        inkx[16 + 24..16 + 28].copy_from_slice(&top.to_le_bytes());
+        inkx[16 + 28..16 + 32].copy_from_slice(&height.to_le_bytes());
+    })
+}
+
+// ADR-1306 D3, ADR-1200 D15: the console reads the helper's glyphs through
+// this reader, so a box past the reach above or below is refused, as one
+// past it to the side is
+#[test]
+fn the_reader_refuses_a_box_past_the_reach_up_or_down() {
+    let h = CELL.height * REACH_ROWS;
+    let reach = h as i32;
+    // the box's bytes start `-top` rows before its offset, so a taller box
+    // than was written reads past its chunk; these are refused for their
+    // place before their bytes are looked at
+    for (top, height, why) in [
+        (-reach - 1, CELL.height + h + 1, "a pixel above the reach"),
+        (0, CELL.height + h + 1, "a pixel below the reach"),
+        (1, CELL.height, "below the row's top"),
+        (0, CELL.height - 1, "short of the row's bottom"),
+    ] {
+        match Set::from_bytes(tampered_rows(top, height)) {
+            Err(SetError::Malformed(why_not)) => {
+                assert!(why_not.contains("reach"), "{why}: {why_not}")
+            }
+            other => panic!("{why}: {other:?}"),
+        }
+    }
+    assert!(
+        Set::from_bytes(tampered_rows(0, CELL.height)).is_ok(),
+        "untampered"
+    );
+    // a box inside the reach whose bytes would start before its chunk
+    match Set::from_bytes(tampered_rows(-reach, CELL.height + h)) {
+        Err(SetError::Malformed(why)) => assert!(why.contains("chunk"), "{why}"),
+        other => panic!("{other:?}"),
+    }
+}
+
+// ADR-1306 D1, D3: the writer refuses a box past the reach above or below,
+// and takes the whole reach
+#[test]
+fn the_writer_refuses_a_box_past_the_reach_up_or_down() {
+    let h = CELL.height * REACH_ROWS;
+    let reach = h as i32;
+    let r8 = PixelFormat::R8;
+    for (top, height, why) in [
+        (-reach - 1, CELL.height + reach as u32 + 1, "above"),
+        (0, CELL.height + h + 1, "below"),
+        (-1, CELL.height, "the row's bottom left out"),
+    ] {
+        let e = set_with_rows((-1, top), (5, height), r8, false).expect_err(why);
+        assert!(e.contains("reach"), "{why}: {e}");
+    }
+    let whole = (CELL.width * (1 + 2 * REACH_CELLS), CELL.height + 2 * h);
+    let across = (CELL.width * REACH_CELLS) as i32;
+    assert!(
+        set_with_rows((-across, -reach), whole, r8, false).is_ok(),
+        "the whole reach"
+    );
 }

@@ -1470,7 +1470,7 @@ impl Engine {
                                     Some((left, w, spaced_ink(ink, w.div_ceil(8) as usize, how)?))
                                 });
                                 if let Some((left, w, ink)) = ink {
-                                    bits.ink(i, left, w, ink);
+                                    bits.ink(i, (left, 0), (w, whole.height), ink);
                                 }
                                 placed.insert((g, fit), i);
                                 i
@@ -1551,7 +1551,7 @@ impl Engine {
                                     ))
                                 });
                                 if let Some((left, w, pixels)) = ink {
-                                    target.ink(at, left, w, pixels);
+                                    target.ink(at, (left, 0), (w, whole.height), pixels);
                                 }
                                 Some(at)
                             })
