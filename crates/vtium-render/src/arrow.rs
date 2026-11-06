@@ -6,12 +6,10 @@
 //!
 //! One image serves both ways of showing the pointer: the display's cursor
 //! plane takes it as it is, and the renderer blends it over the cells it
-//! draws on a display without one. It is as tall as the C reference's
-//! hardware I-beam, the cell's height kept between 8 and
-//! [`POINTER_SIDE_MAX`] pixels, in its colors, white on black at 220 of
-//! 255 (`src/terminal.c:220-301` at kmscon b1f7a7c5). Its outline is one
-//! pixel wide and one more for each 32 of its height, half the I-beam's,
-//! which outlined a stroke one pixel wide.
+//! draws on a display without one. It is a cell tall, kept between 8 and
+//! [`POINTER_SIDE_MAX`] pixels, white with a black outline at 220 of 255,
+//! so it shows over light and dark cells alike. Its outline is one pixel wide
+//! and one more for each 32 of its height.
 
 use vtium_font::{Format, Glyph};
 use vtium_term::Rgb;

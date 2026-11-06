@@ -356,8 +356,8 @@ impl Face for Blank {
 
 #[test]
 fn a_glyph_the_font_draws_nothing_for_is_not_asked_for_every_frame() {
-    // the C reference's GPU renderer remembered such glyphs (the C fork's
-    // issue on a glyph asked for every frame)
+    // a glyph the font draws nothing for is remembered, so a screen that
+    // shows it does not ask the font again on every frame
     let mut g = Gpu::with_font(Font::new(Blank), StandIn::LIMITS, Config::default());
     let mut s = screen();
     s.text(0, 0, "A", plain());

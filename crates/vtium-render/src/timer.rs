@@ -1,6 +1,5 @@
 //! [`RenderTimer`]: one display's frame figures, closed into a
-//! [`Report`] once an interval, as the C reference's render timer counted
-//! them (`render_timer.c`). It only measures and never schedules a frame;
+//! [`Report`] once an interval. It only measures and never schedules a frame;
 //! the caller passes every time in, so it holds no clock of its own.
 
 use core::fmt;
@@ -207,7 +206,7 @@ impl Report {
     }
 }
 
-/// The log line, in the C reference's fields.
+/// The log line: one `name=value` field for each figure.
 impl fmt::Display for Report {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let (rate, pct) = (self.rate(), self.damage_pct());

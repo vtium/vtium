@@ -1,8 +1,9 @@
-//! Whole screens against the C reference: each screen of
+//! Whole screens against their digests: each screen of
 //! `reference/screens.tsv`, drawn through vtium-term's frame with unifont,
-//! must give the pixels the C reference drew with its glyphs, sprites and
-//! blending (`reference/README.md`), but for the dashed
-//! underline, which is the render crate's departure.
+//! must give the pixels its digest in `reference/cells.tsv` covers
+//! (`reference/README.md`). A dashed underline is the one exception: the
+//! stored digest covers the dash's earlier shape, so the dashed screen is
+//! checked with that dash put back.
 
 mod common;
 
@@ -98,7 +99,7 @@ fn with_dash(bare: &Canvas, cells: &[(u32, u32, u32, u32)], x0: u32, x1: u32) ->
 // how many lines differ.
 // covers: platform.compositor
 #[test]
-fn screens_match_the_c_reference() {
+fn every_screen_matches_its_digest() {
     let bare = screens(true);
     let screens = screens(false);
     assert_eq!(screens.len(), 3);
@@ -113,7 +114,7 @@ fn screens_match_the_c_reference() {
             assert_ne!(
                 digest(&canvas),
                 want(name),
-                "screen {name} keeps the C dash"
+                "screen {name} draws the stored digest's dash"
             );
             let (_, b) = bare.iter().find(|(n, _)| n == name).unwrap();
             let b = draw(b);
@@ -140,14 +141,14 @@ fn screens_match_the_c_reference() {
     }
 }
 
-// A screen with a dashed underline is the C reference's but for the dash:
-// drawn with no dash, then given the C reference's over each cell's middle
-// two thirds (columns 1 to 6 of 8), it is the C reference's screen; given
-// vtium's from the cell's left edge for five eighths (columns 0 to 4), it
-// is what vtium draws.
+// A screen with a dashed underline matches its digest but for the dash:
+// drawn with no dash, then given the stored digest's dash over each cell's
+// middle two thirds (columns 1 to 6 of 8), it matches the digest; given
+// vtium's dash from the cell's left edge for five eighths (columns 0 to
+// 4), it is what vtium draws.
 // covers: platform.compositor
 #[test]
-fn a_dashed_screen_differs_from_the_c_reference_only_in_its_dashes() {
+fn a_dashed_screen_matches_its_digest_but_for_its_dashes() {
     let drawn = screens(false);
     let mut checked = 0;
     for (name, bare) in &screens(true) {
@@ -157,8 +158,12 @@ fn a_dashed_screen_differs_from_the_c_reference_only_in_its_dashes() {
         }
         let bare = draw(bare);
         let (w, h) = (bare.width(), bare.height());
-        let c_dash = with_dash(&bare, &cells, 1, 7);
-        assert_eq!(digest_pixels(w, h, &c_dash), want(name), "screen {name}");
+        let stored_dash = with_dash(&bare, &cells, 1, 7);
+        assert_eq!(
+            digest_pixels(w, h, &stored_dash),
+            want(name),
+            "screen {name}"
+        );
         let (_, screen) = drawn.iter().find(|(n, _)| n == name).unwrap();
         assert_eq!(
             with_dash(&bare, &cells, 0, 5),

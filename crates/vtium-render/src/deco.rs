@@ -1,7 +1,8 @@
 //! Underlines and strike-through as one-cell coverage sprites, tinted when
 //! drawn and tiled across a wide cell, never part of a glyph (ADR-1300,
-//! "Carried forward"). The shapes are the C reference's `deco.c`, whose
-//! notice, under the MIT licence whose text is in COPYING, is:
+//! "Carried forward"). The shapes were first ported from `kmscon`'s
+//! `deco.c`, whose notice, under the MIT licence whose text is in COPYING,
+//! is:
 //!
 //! Copyright (c) 2026 the kmscon fork authors
 //!
@@ -15,18 +16,18 @@
 //! - strike: the font's strike-through, full width.
 //!
 //! A line that would leave the cell is moved up into it. An underline takes
-//! at most a quarter of the cell's rows, where the C reference moved a
-//! double or a curl as far up as it needed (vtium/vtium#119): a curl lowers
-//! its wave to fit, down to 2 rows peak to peak, and a double, or a curl
-//! that still does not fit, draws as the single line.
+//! at most a quarter of the cell's rows, so that it never covers the lower
+//! rows of the letters (vtium/vtium#119): a curl lowers its wave to fit,
+//! down to 2 rows peak to peak, and a double, or a curl that still does not
+//! fit, draws as the single line.
 //!
 //! On a 1-bit display the curl is a wave of whole pixels, the line's
 //! thickness in each column and joined from column to column, where its
 //! antialiased coverage cut at half would leave gaps (vtium/vtium#135).
 //! Every other sprite is whole pixels already.
 //!
-//! The dash is vtium's: the C reference's, over each cell's middle two
-//! thirds, lined up with each character at 8 pixels.
+//! The dash starts at the cell's left edge, so that each character's dash
+//! reads as that letter's own underline (the maintainer, 2026-10-28).
 
 use vtium_font::Decorations;
 use vtium_term::UnderlineStyle;
@@ -93,22 +94,22 @@ fn dash(w: u32) -> u32 {
     (w.saturating_mul(5).saturating_add(4) / 8).clamp(1, w.saturating_sub(1).max(1))
 }
 
-/// The rows an underline may take in a cell `h` tall: a quarter, the most
-/// the C reference let a line's thickness take (font.c:370-408).
+/// The rows an underline may take in a cell `h` tall: a quarter, which
+/// keeps it below the letters.
 fn room(h: u32) -> u32 {
     h / 4
 }
 
 /// The curl's height peak to peak in a cell `w` by `h` with lines `t`
-/// thick: the C reference's quarter of the width, at least 2, lowered to
-/// fit [`room`]; `None` when 2 does not fit.
+/// thick: a quarter of the width, at least 2, lowered to fit [`room`];
+/// `None` when 2 does not fit.
 fn curl_height(w: u32, h: u32, t: u32) -> Option<u32> {
     let amp = (w / 4).max(2).min(room(h).checked_sub(t)?);
     (amp >= 2).then_some(amp)
 }
 
-// The arithmetic is the C reference's, in `f64`, which every host rounds the
-// same way; no integer here passes the cell's size, so none wraps.
+// The arithmetic is in `f64`, which every host rounds the same way; no
+// integer here passes the cell's size, so none wraps.
 fn curly(s: &mut Sprite, m: &Decorations, amp: u32) {
     let (w, h, t) = (s.w, s.h, m.underline_thickness);
     let band = amp.saturating_add(t);
@@ -300,10 +301,11 @@ mod tests {
         h
     }
 
-    /// Whether the C reference's `kind` at `w` by `h` took more than a
+    /// Whether `kind` at `w` by `h`, drawn whole, would take more than a
     /// quarter of the cell's rows: a double's 3 lines in a cell taller than
     /// one line, or a curl's height, a quarter of the width and at least 2,
-    /// and a line.
+    /// and a line. `cells.tsv` holds the whole shape's digest at those
+    /// sizes.
     fn past_a_quarter(kind: Kind, w: u32, h: u32) -> bool {
         let t = Decorations::for_height(h).underline_thickness;
         match kind {
@@ -313,8 +315,8 @@ mod tests {
         }
     }
 
-    /// Whether `px`, the `kind` vtium draws at `w` by `h` where the C
-    /// reference's took more than a quarter of the cell, is the fallback:
+    /// Whether `px`, the `kind` vtium draws at `w` by `h` where the whole
+    /// shape would take more than a quarter of the cell, is the fallback:
     /// the single line, or a curl lowered to the quarter's rows when 2
     /// rows peak to peak and the line fit in it.
     fn falls_back(kind: Kind, w: u32, h: u32, px: &[u8]) -> bool {
@@ -342,24 +344,25 @@ mod tests {
         })
     }
 
-    // Every sprite at every cell size from 1x1 to 24x48 against the C
-    // reference's `kmscon_deco_render` (tests/reference/README.md); the
-    // curly wave's sine is vtium's own, so this is also the check that it
-    // draws the C reference's bytes. A double or curl past a quarter of the
-    // cell, and the dash in a cell 2 or more pixels wide, are the render
-    // crate's departures: each must differ from the C reference's and draw
-    // the fallback or the dash. When a digest differs, the test writes every
-    // `deco` line as vtium draws it to `vtium-render-digests-<pid>/deco.tsv`
-    // in the system's temporary directory, named for the test's process so
-    // two runs at once write two files, a departure's line as it is, and
-    // fails naming that file and how many lines differ.
+    // Every sprite at every cell size from 1x1 to 24x48 against its digest
+    // in `tests/reference/cells.tsv` (tests/reference/README.md); the
+    // curly wave's sine is computed by `src/trig.rs`, so this is also the
+    // check that the wave's bytes stay the same on every host. A double or
+    // curl past a quarter of the cell, and the dash in a cell 2 or more
+    // pixels wide, are redrawn: the stored digest is of the earlier shape,
+    // so each must differ from it and draw the fallback or the dash. When a
+    // digest differs, the test writes every `deco` line as vtium draws it to
+    // `vtium-render-digests-<pid>/deco.tsv` in the system's temporary
+    // directory, named for the test's process so two runs at once write two
+    // files, a redrawn sprite's line as it is, and fails naming that file
+    // and how many lines differ.
     // covers: platform.compositor
     #[test]
-    fn sprites_match_the_c_reference() {
+    fn every_sprite_matches_its_digest_or_its_redrawn_shape() {
         let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/reference/cells.tsv");
         let tsv = std::fs::read_to_string(path).unwrap();
         let mut checked = 0;
-        let mut departed = 0;
+        let mut refit = 0;
         let mut differ = 0;
         let mut drawn = String::new();
         let mut bad = Vec::new();
@@ -388,10 +391,10 @@ mod tests {
             };
             match redrawn {
                 Some(_) if d == want => {
-                    bad.push(format!("{line} (a departure, drawn as the C reference)"));
+                    bad.push(format!("{line} (redrawn, but drawn as its stored digest)"));
                 }
-                Some(false) => bad.push(format!("{line} (a departure, not the redrawn shape)")),
-                Some(true) => departed += 1,
+                Some(false) => bad.push(format!("{line} (redrawn, but not the redrawn shape)")),
+                Some(true) => refit += 1,
                 None if d != want => differ += 1,
                 None => {}
             }
@@ -408,7 +411,11 @@ mod tests {
             std::fs::create_dir_all(out.parent().unwrap()).unwrap();
             std::fs::write(&out, drawn).unwrap();
         }
-        assert!(bad.is_empty(), "{} departure(s) wrong: {bad:?}", bad.len());
+        assert!(
+            bad.is_empty(),
+            "{} redrawn sprite(s) wrong: {bad:?}",
+            bad.len()
+        );
         assert_eq!(
             differ,
             0,
@@ -422,7 +429,7 @@ mod tests {
         // 16 to 19, 20 to 24 at 20 to 23 and 24 at 24 to 27; the dash at
         // widths 2 to 24 and every height
         assert_eq!(
-            departed,
+            refit,
             10 * 24 + (11 * 24 + 4 * 13 + 4 * 9 + 4 * 5 + 4) + 23 * 48
         );
     }
@@ -446,8 +453,8 @@ mod tests {
     ];
 
     // An 8x8 cell's letters stand on row 6 and its underline is row 7
-    // (`tools/testfont`), where the C reference's double and curl reached
-    // rows 5 to 7 (vtium/vtium#119).
+    // (`tools/testfont`); a double or curl drawn whole would reach rows 5 to
+    // 7 and cover the letters' lowest row (vtium/vtium#119).
     // covers: platform.compositor
     #[test]
     fn every_underline_at_8_pixels_lies_in_the_bottom_row() {
@@ -499,8 +506,8 @@ mod tests {
     }
 
     // A band of 3t rows for the double, and the curl's height plus t, are
-    // what the C reference drew; a quarter of the cell is the most it let a
-    // line's thickness take (font.c:370-408).
+    // the shapes drawn whole; a quarter of the cell is the most an
+    // underline may take.
     // covers: platform.compositor
     #[test]
     fn no_underline_takes_more_than_a_quarter_of_the_cell() {

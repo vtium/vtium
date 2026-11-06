@@ -20,15 +20,13 @@
 //!
 //! A pool hands out its lowest free slot, so its glyphs gather in its first
 //! textures, and gives back its last texture once no glyph has held a slot
-//! there for [`GPU_IDLE_FRAMES`] frames, as gltex gave back the strips it
-//! no longer drew from. The pools and the sprites together never pass
-//! [`GLYPH_TEXTURE_CEILING`] bytes of textures: past it a pool takes no new
-//! texture, and a glyph it has no free slot for is drawn blank, as gltex
-//! drew one past its hard stop (the issue on GPU texture garbage
-//! collection, ADR-1303 D9). That differs from the CPU path, which draws
-//! every glyph, so the glyphs give a note for the log when it happens, at
-//! most once in [`GPU_IDLE_FRAMES`] frames, as gltex logged its hard stop at
-//! most once in 600 frames.
+//! there for [`GPU_IDLE_FRAMES`] frames. The pools and the sprites together
+//! never pass [`GLYPH_TEXTURE_CEILING`] bytes of textures: past it a pool
+//! takes no new texture, and a glyph it has no free slot for is drawn blank
+//! (the issue on GPU texture garbage collection, ADR-1303 D9). That differs
+//! from the CPU path, which draws every glyph, so the glyphs give a note
+//! for the log when it happens, at most once in [`GPU_IDLE_FRAMES`]
+//! frames.
 
 use vtium_font::{Face, Font, Style, Width};
 

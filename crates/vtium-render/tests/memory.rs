@@ -94,11 +94,11 @@ fn the_cache_holds_what_adr_1300_records() {
     let min_aa = fill(16, Profile::Minspec, eight);
     let perf_aa = fill(16, Profile::Performance, eight);
 
-    // the C reference's bbulk: twice the cells, each glyph held 8-bit at
-    // its drawn size, at its worst every glyph wide
-    let c_ref = |f: &Filled, cw: u64, ch: u64| 2 * (f.cols * f.rows) as u64 * 2 * cw * ch;
+    // the cache vtium's is measured against: a glyph for twice the cells,
+    // each held 8-bit at its drawn size, at its worst every glyph wide
+    let per_cell_8bit = |f: &Filled, cw: u64, ch: u64| 2 * (f.cols * f.rows) as u64 * 2 * cw * ch;
 
-    println!("| | C reference, bbulk | vtium minspec | vtium performance |");
+    println!("| | Every cell's glyph, 8-bit | vtium minspec | vtium performance |");
     println!("|---|---|---|---|");
     println!(
         "| Glyphs held | {} | {} narrow, {} wide | {} narrow, {} wide |",
@@ -110,19 +110,19 @@ fn the_cache_holds_what_adr_1300_records() {
     );
     println!(
         "| A bitmap font | {} | {} | {} |",
-        mib(c_ref(&min, 8, 16)),
+        mib(per_cell_8bit(&min, 8, 16)),
         mib(min.bytes),
         mib(perf.bytes)
     );
     println!(
         "| A bitmap font at scale 2, in 16x32 cells | {} | {} | {} |",
-        mib(c_ref(&min2, 16, 32)),
+        mib(per_cell_8bit(&min2, 16, 32)),
         mib(min2.bytes),
         mib(perf2.bytes)
     );
     println!(
         "| An anti-aliased font | {} | {} | {} |",
-        mib(c_ref(&min, 8, 16)),
+        mib(per_cell_8bit(&min, 8, 16)),
         mib(min_aa.bytes),
         mib(perf_aa.bytes)
     );
@@ -131,8 +131,8 @@ fn the_cache_holds_what_adr_1300_records() {
     assert_eq!((min.cols, min.rows), (170, 48));
     assert_eq!((min.narrow, min.wide), (16_320, 8_160));
     assert_eq!((perf.narrow, perf.wide), (32_640, 16_320));
-    assert_eq!(c_ref(&min, 8, 16), 4_177_920);
-    assert_eq!(c_ref(&min2, 16, 32), 4_177_920);
+    assert_eq!(per_cell_8bit(&min, 8, 16), 4_177_920);
+    assert_eq!(per_cell_8bit(&min2, 16, 32), 4_177_920);
     // 16 bytes a narrow 8x16 glyph at 1 bit, 32 a wide one
     assert_eq!(min.bytes, 522_240);
     assert_eq!(perf.bytes, 1_044_480);

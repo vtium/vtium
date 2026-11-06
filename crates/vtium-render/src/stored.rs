@@ -520,9 +520,11 @@ mod tests {
         assert_eq!(line, [0; 8]);
     }
 
-    // picture.c:235-269: each orientation as the C reference turned pixels
+    // A glyph turns with the display: a quarter turn clockwise on a display
+    // turned right, counterclockwise on one turned left, and a half turn
+    // upside down.
     #[test]
-    fn turning_follows_the_c_reference() {
+    fn each_orientation_turns_a_glyphs_pixels_with_the_display() {
         let g = glyph(3, 2, |x, y| u8::try_from(1 + x + 3 * y).unwrap());
         let rows = |o| {
             drawn(

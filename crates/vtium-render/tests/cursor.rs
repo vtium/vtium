@@ -1,5 +1,4 @@
-//! The cursor's shapes, as the C reference drew them (libtsm's
-//! `frame_cursor_cell`, kmscon's `bbulk_draw`): a block swaps the cell's
+//! The cursor's shapes: a block swaps the cell's
 //! colors, an underline toggles a single underline in the foreground, and
 //! a bar draws U+258F in place of the character. Each case is checked
 //! against the same screen without a cursor, styled to look as the cursor
