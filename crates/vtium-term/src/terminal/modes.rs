@@ -226,7 +226,7 @@ pub(crate) static MODES: &[Row] = &[
     row!(DEC, 1005, "UTF8MOUSE", Ignored, RESET, Never, Nothing, "", "ctlseqs; never on: SGR mouse (1006) replaces the UTF-8 encoding", ALWAYS, None),
     row!(DEC, 1006, "SGRMOUSE", Supported, RESET, Soft, Input, "XM", "ctlseqs, SGR encoding, whatever order the modes were set in; DECSTR resets it, where xterm resets it on RIS only (libtsm#76)", SGR_MOUSE, Some(Mode::SgrMouse)),
     row!(DEC, 1007, "ALTSCROLL", Supported, SET, Soft, Input, "", "ctlseqs, alternate scroll: on the alternate screen, while no tracking mode is set, a wheel step the host does not report is sent as cursor-up or cursor-down keys, one a line, as DECCKM encodes them; set at start, as foot and Ghostty start it", &["modes.rs::mode_1007_sends_wheel_steps_as_cursor_keys_on_the_alternate_screen"], Some(Mode::AlternateScroll)),
-    row!(DEC, 1010, "SCROLLTTYOUTPUT", Ignored, SET, Never, Nothing, "", "ctlseqs, rxvt; always on: output scrolls the view back to the bottom", ALWAYS, None),
+    row!(DEC, 1010, "SCROLLTTYOUTPUT", Ignored, RESET, Never, Nothing, "", "ctlseqs, rxvt; never on: the view stays where it is while output arrives", ALWAYS, None),
     row!(DEC, 1011, "SCROLLKEY", Ignored, SET, Never, Nothing, "", "ctlseqs, rxvt; always on: a key press scrolls the view back to the bottom", ALWAYS, None),
     row!(DEC, 1015, "URXVTMOUSE", Supported, RESET, Soft, Input, "", "ctlseqs, urxvt encoding: CSI Cb ; Cx ; Cy M in decimal, Cb as the X10 encoding's byte and the cell counted from 1, with no limit; one encoding at a time, as 1006; DECSTR resets it, where xterm resets it on RIS only (libtsm#76)", &["modes.rs::urxvt_mouse_encoding_reports_in_decimal"], Some(Mode::UrxvtMouse)),
     row!(DEC, 1016, "PIXMOUSE", Supported, RESET, Soft, Input, "", "ctlseqs, SGR-Pixels encoding, pixels counted from 1; DECSTR resets it, where xterm resets it on RIS only (libtsm#76)", SGR_MOUSE, Some(Mode::PixelMouse)),
@@ -1041,7 +1041,14 @@ mod tests {
                 r[status_col],
                 "supported" | "partial" | "ignored" | "refused"
             );
-            let listed = answered && !r[note].contains(NOT_LISTED);
+            let unlisted = r[note].contains(NOT_LISTED);
+            assert!(
+                !unlisted || matches!(r[status_col], "refused" | "weighed"),
+                "ADR-1000's {} is {}, and only a refused or weighed mode may be {NOT_LISTED}",
+                r[id],
+                r[status_col]
+            );
+            let listed = answered && !unlisted;
             assert_eq!(
                 MODES.iter().any(|m| m.id() == r[id]),
                 listed,
