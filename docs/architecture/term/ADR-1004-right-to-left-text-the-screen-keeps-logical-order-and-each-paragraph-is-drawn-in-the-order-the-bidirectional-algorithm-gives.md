@@ -62,6 +62,9 @@ considered:
   - operator: aaronsb
     said: "Typed-order range"
     via: the steering session's question tool, 2026-11-06, on open question 6; the option wording is the steering session's
+  - operator: aaronsb
+    said: "Accept it"
+    via: the steering session's question tool, 2026-11-06, after all seven answers were recorded and the successor research found none better than unicode-bidi; the option wording is the steering session's
 observable:
   - "The probe `bidi` passes: in the replay interface's display view, `abc` then the Hebrew word shalom then ` (1) def`, printed in the default mode, reads `abc (1) <shalom reversed> def`"
   - "vtium-term, calling unicode-bidi as D13 guards it, passes every case of the Unicode Character Database's BidiTest.txt and BidiCharacterTest.txt at the version its tables pin, the visual order included"
@@ -69,7 +72,7 @@ observable:
   - "The minspec binary is the same size with and without this work, since it leaves the `bidi` feature out; `vtium --version` of a build with the feature lists `bidi` among its features"
   - "A build without the `bidi` feature answers DECRQM 0 for BDSM, DCSM and modes 1243, 2500 and 2501, and draws right-to-left text in the order it was written"
   - "Typing an Arabic word at a bash prompt on a VT shows it joined and running right to left, and copying it pastes the word in the order it was typed (the maintainer's VT review)"
-status: proposed
+status: accepted
 date: 2026-11-06
 deciders:
   - aaronsb
