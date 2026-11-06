@@ -45,17 +45,16 @@ impl Params {
         }
     }
 
-    /// Empty, for a new sequence (tsm-vte.c:1220-1225).
+    /// Empty, for a new sequence.
     pub(crate) fn clear(&mut self) {
         *self = Self::new();
     }
 
-    /// Takes a byte from `0` to `;` (tsm-vte.c:1277-1326).
+    /// Takes a byte from `0` to `;`.
     pub(crate) fn put(&mut self, byte: u8) {
         if byte == b';' {
             // An empty parameter stays omitted before a ';' too (ECMA-48
-            // 5.4.2 e and g), where the C reference made it 0
-            // (tsm-vte.c:1284-1286).
+            // 5.4.2 e and g).
             self.separators = self.separators.saturating_add(1).min(PARAMS_MAX);
             self.sub_drop = false;
             return;
@@ -114,9 +113,8 @@ impl Params {
         self.marker
     }
 
-    /// The parameter count as the C reference counts it at dispatch:
-    /// one more than the `;` separators, at most [`PARAMS_MAX`]
-    /// (tsm-vte.c:2542-2543). It is never 0: `CSI m` has one parameter,
+    /// The parameter count at dispatch: one more than the `;` separators,
+    /// at most [`PARAMS_MAX`]. It is never 0: `CSI m` has one parameter,
     /// omitted.
     pub fn count(&self) -> usize {
         self.separators.saturating_add(1).min(PARAMS_MAX)
@@ -141,7 +139,7 @@ impl Params {
         subs.iter().map(|&v| (v != OMITTED).then_some(v))
     }
 
-    /// Whether any parameter carries sub-parameters (tsm-vte.c:2457-2465).
+    /// Whether any parameter carries sub-parameters.
     pub fn has_subparams(&self) -> bool {
         self.sub_len.iter().take(self.count()).any(|&n| n > 0)
     }
@@ -184,8 +182,7 @@ impl fmt::Debug for Params {
 /// With the final byte they identify the control function (ECMA-48 5.4),
 /// so each keeps its own byte, its place and its count. A sequence with
 /// more than [`INTERMEDIATES_MAX`] dispatches nothing (vt100.net), so a
-/// consumer never sees one. The C reference collapsed them to a set of
-/// flags, a departure listed in the crate's README.
+/// consumer never sees one.
 #[derive(Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct Intermediates {
     bytes: [u8; INTERMEDIATES_MAX],

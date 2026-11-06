@@ -17,8 +17,7 @@ use crate::damage::Damage;
 use crate::line::{Line, LineFlags, LineId};
 use crate::screen::reflow;
 
-/// `sb-size` when the configuration does not set it, as the C reference's
-/// `kmscon.conf(5)` gives it.
+/// `sb-size` when the configuration does not set it.
 pub const SB_SIZE_DEFAULT: usize = 1000;
 
 const GIB: u64 = 1 << 30;
@@ -44,8 +43,7 @@ pub fn sb_size(requested: usize, ram: u64, cap: Option<usize>) -> usize {
 }
 
 /// The minspec machine's peak resident size, which the default scrollback
-/// is held inside: the operator's round figure (vtium/vtium#131), where
-/// the C reference measured 15.7 MiB with its 1,000 lines.
+/// is held inside: the maintainer's round figure (vtium/vtium#131).
 pub const MINSPEC_PEAK: usize = 16 << 20;
 
 /// The minspec machine's grid: its 1366x768 display in unifont's 8x16
@@ -54,9 +52,9 @@ pub const MINSPEC_GRID: (usize, usize) = (170, 48);
 
 /// What vtium's process holds on the minspec machine outside one console's
 /// two screens, its scrollback and its link store, rounded up to a KiB:
-/// the C reference's measured 10.3 MiB after its first screen, less its
-/// two screens of 32-byte cells at [`MINSPEC_GRID`] (ADR-1001, "Memory";
-/// `tests/memory.rs` derives it).
+/// 10.3 MiB measured after the first screen, less two screens of 32-byte
+/// cells at [`MINSPEC_GRID`] (ADR-1001, "Memory"; `tests/memory.rs`
+/// derives it).
 pub const MINSPEC_REST: usize = 10_038 << 10;
 
 /// The most bytes a console's main and alternate screens hold at `cols`

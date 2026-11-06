@@ -408,7 +408,7 @@ impl Terminal {
     }
 
     /// The cursor's blink interval the program asked for with the Linux
-    /// console's `CSI 16 ; Pn ]`, as the C reference took it.
+    /// console's `CSI 16 ; Pn ]` (console_codes(4)), kept for the host.
     pub fn cursor_blink_ms(&self) -> Option<u32> {
         self.state.cursor_blink_ms
     }
@@ -664,8 +664,8 @@ impl State {
     }
 
     /// DECSCL, `CSI Pl ; Pc " p`: a soft reset, then 7-bit input for a
-    /// VT100 level (61) and 8-bit input for VT200 to VT400 (62 to 64), as
-    /// the C reference took it, with the input's default mapping.
+    /// VT100 level (61) and 8-bit input for VT200 to VT400 (62 to 64), with
+    /// the input's default mapping.
     fn set_conformance(&mut self, level: Option<u32>) {
         self.soft_reset();
         self.input_mode = match level {
@@ -929,7 +929,8 @@ impl Consumer for State {
             [b'*'] => 2,
             [b'+'] => 3,
             // S7C1T and S8C1T (ESC SP F, ESC SP G) are taken and change
-            // nothing: replies stay 7-bit, as the C reference sent them.
+            // nothing: replies stay 7-bit, since a program reading UTF-8
+            // takes an 8-bit C1 control for ill-formed text.
             _ => return,
         };
         let eight_bit = self.input_mode == InputMode::EightBit;
@@ -942,7 +943,7 @@ impl Consumer for State {
         #[cfg(feature = "images")]
         self.image_other_output();
         // Only SGR and DECCARA read sub-parameters; any other sequence
-        // carrying them does nothing, as in the C reference.
+        // carrying them does nothing.
         let reads_subparams = matches!(
             (intermediates.as_bytes(), final_byte),
             (_, b'm') | ([b'$'], b'r')

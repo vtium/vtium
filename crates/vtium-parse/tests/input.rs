@@ -1,12 +1,12 @@
 //! Input decoding: the UTF-8 decoder in front of the state machine, the
-//! 7-bit and 8-bit modes, and pausing (tsm-vte.c:3646-3687).
+//! 7-bit and 8-bit modes, and pausing.
 
 mod common;
 
 use common::{Act, Recorder, St, csi, esc, parse, parse_in, prints};
 use vtium_parse::{InputMode, Parser};
 
-// tsm-vte.c:3667-3681: a character cut across inputs decodes whole.
+// A character cut across inputs decodes whole.
 #[test]
 fn utf8_split_across_inputs() {
     let mut parser = Parser::new();
@@ -90,7 +90,7 @@ fn malformed_utf8_inside_a_string_keeps_the_esc() {
     );
 }
 
-// tsm-vte.c:3665-3666: in 8-bit mode a byte is the character of its value.
+// In 8-bit mode a byte is the character of its value.
 #[test]
 fn eight_bit_mode() {
     assert_eq!(
@@ -104,7 +104,7 @@ fn eight_bit_mode() {
     );
 }
 
-// tsm-vte.c:3660-3664: in 7-bit mode a byte loses its top bit.
+// In 7-bit mode a byte loses its top bit.
 #[test]
 fn seven_bit_mode() {
     assert_eq!(
@@ -118,7 +118,7 @@ fn seven_bit_mode() {
     );
 }
 
-// tsm-vte.c:1784-1823 with 3660-3681: a mode the consumer sets in a dispatch
+// A mode the consumer sets in a dispatch
 // applies from the next byte, inside the same input.
 #[test]
 fn mode_change_applies_from_the_next_byte() {
@@ -139,7 +139,7 @@ fn mode_change_applies_from_the_next_byte() {
     );
 }
 
-// tsm-vte-image.c:376-398, 414-434: the run fast path applies in every mode,
+// The run fast path applies in every mode,
 // and gives what the character path gives.
 #[test]
 fn string_runs_in_each_mode() {
@@ -160,7 +160,7 @@ fn string_runs_in_each_mode() {
     }
 }
 
-// tsm-vte.c:3682-3684: advance stops after the byte at which the consumer
+// Advance stops after the byte at which the consumer
 // pauses, and returns how many it took; the rest parses later, in order.
 #[test]
 fn pause_returns_early_and_resumes() {
@@ -189,7 +189,7 @@ fn advance_takes_everything_unpaused() {
 // Through the parser, every pair of bytes from 0x80 up prints and nothing
 // else, so no ill-formed input executes a control or starts a sequence
 // (the decoder's contract, point 4), and the well-formed C1 controls C2 80
-// to C2 9F do nothing at all (a departure, decided by the operator).
+// to C2 9F do nothing at all (the crate's README, "Input").
 #[test]
 fn no_pair_from_0x80_up_reaches_the_state_machine_as_a_control() {
     for a in 0x80..=0xffu8 {

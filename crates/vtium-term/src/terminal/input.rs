@@ -1,6 +1,5 @@
 //! What the terminal sends the program for the keyboard, the pointer,
-//! focus and pastes, as the host reports them: xterm's encodings, ported
-//! from the C reference's flow.
+//! focus and pastes, as the host reports them: xterm's encodings.
 
 use super::modes::{MouseEncoding, MouseTracking};
 use super::{State, Terminal};
@@ -170,8 +169,8 @@ fn keypad_char_key(keysym: u32) -> bool {
 }
 
 /// The function keys' codes, `CSI code ~`, and Shift's code for F1 to
-/// F10 (xterm's F11 to F20 with no modifier, as the C reference sent
-/// them).
+/// F10: the code of F11 to F20 with no modifier, as the Linux console's
+/// default keymap sends Shift with F1 to F10.
 fn function_key(n: u32, shift: bool) -> Vec<u8> {
     const CODES: [u8; 20] = [
         11, 12, 13, 14, 15, 17, 18, 19, 20, 21, 23, 24, 25, 26, 28, 29, 31, 32, 33, 34,
@@ -196,12 +195,11 @@ fn function_key(n: u32, shift: bool) -> Vec<u8> {
 }
 
 impl State {
-    /// xterm's modifyOtherKeys (aaronsb/libtsm#25): at level 1 or 2, a key
+    /// xterm's modifyOtherKeys: at level 1 or 2, a key
     /// pressed with Shift, Alt or Ctrl is sent as `CSI 27 ; mod ; code ~`
     /// where the rules say so; `None` leaves the key to the usual
     /// encoding. The rules follow ctlseqs ("Alt and Meta Keys") and xterm's
-    /// "Modified Other Keys (us-pc105)" table, as the C reference read
-    /// them:
+    /// "Modified Other Keys (us-pc105)" table:
     ///
     /// - Level 1 encodes a printable key with Alt, or with Ctrl where Ctrl
     ///   makes no control byte, and Ctrl+?; space and Escape only with
@@ -447,7 +445,7 @@ impl State {
         let end = if released { 'm' } else { 'M' };
         let (col, row) = cell;
         Some(match encoding {
-            // The top left cell, and pixel, is 1,1 (aaronsb/libtsm#67).
+            // The top left cell, and pixel, is 1,1 (ctlseqs, the SGR and SGR-Pixels encodings).
             MouseEncoding::Sgr => format!(
                 "\x1b[<{cb};{};{}{end}",
                 col.saturating_add(1),

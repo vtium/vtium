@@ -435,9 +435,9 @@ impl State {
     /// returns it to `num-color-registers`; the next sixel takes it.
     ///
     /// A change of the count in force resets the sixel handler, so the
-    /// registers the pictures share start again from the defaults, as the
-    /// C reference's `vte_xtsmgraphics` dropped them at every change of the
-    /// count (libtsm `eeaf293`, `src/tsm/tsm-vte-image.c`, `sixel_drop`).
+    /// registers the pictures share start again from the defaults: a
+    /// register past the new count would otherwise keep a color no picture
+    /// can name.
     pub(super) fn set_sixel_registers(&mut self, count: Option<u32>) {
         let before = self.sixel_state().registers;
         self.images.registers = count;
@@ -447,9 +447,8 @@ impl State {
     }
 
     /// Ends a sixel string being fed, giving back what it holds, and
-    /// resets the sixel handler, dropping the registers the pictures share,
-    /// as the C reference's `sixel_drop` dropped the decoder and the shared
-    /// registers.
+    /// resets the sixel handler, dropping the registers the pictures
+    /// share.
     fn drop_sixel(&mut self) {
         if self.images.active == Some(ImageString::Sixel) {
             self.images.active = None;
@@ -461,9 +460,7 @@ impl State {
     }
 
     /// RIS: each handler returns to its state at start, before the store
-    /// empties, and the register count returns to `num-color-registers`, as
-    /// the C reference's `vte_image_reset` returned it (libtsm `eeaf293`,
-    /// `src/tsm/tsm-vte-image.c:66-70`).
+    /// empties, and the register count returns to `num-color-registers`.
     pub(super) fn images_reset(&mut self) {
         for which in [ImageString::Sixel, ImageString::Kitty, ImageString::Iterm2] {
             self.with_handler(which, |h, ctx| h.reset(ctx));
@@ -527,9 +524,7 @@ impl State {
 
     /// An APC string starts. While kitty graphics is not offered, the kitty
     /// handler is cancelled, so an upload in chunks that kitty was switched
-    /// off during gives back what it holds, as the C reference's
-    /// `vte_apc_start` cancelled its kitty parser (libtsm `eeaf293`,
-    /// `src/tsm/tsm-vte-image.c:190-197`).
+    /// off during gives back what it holds.
     pub(super) fn image_apc_start(&mut self) {
         self.images.active = None;
         self.images.apc_open = true;
@@ -662,11 +657,7 @@ impl Terminal {
     /// ignored as every string vtium does not take is. A protocol turned
     /// off has its handler cancelled at once, so a string it was being fed
     /// ends and an upload in chunks gives back what it holds; sixel's is
-    /// reset too, dropping the registers the pictures share. The C
-    /// reference's `tsm_vte_set_sixel` dropped the sixel decoder and the
-    /// shared registers, and `tsm_vte_set_kitty_graphics` cancelled the
-    /// kitty parser (libtsm `eeaf293`, `src/tsm/tsm-vte-image.c:466-474`
-    /// and `:493-503`).
+    /// reset too, dropping the registers the pictures share.
     pub fn set_image_switches(&mut self, switches: Switches) {
         let old = self.state.images.switches;
         self.state.images.switches = switches;
@@ -694,14 +685,13 @@ impl Terminal {
     /// Sets the limits D11's settings give the handlers.
     ///
     /// A change of `max-graphic-size` cancels a sixel string being fed and
-    /// resets the sixel handler, as the C reference's
-    /// `tsm_vte_set_graphic_max_size` dropped the decoder and the shared
-    /// registers (libtsm `eeaf293`, `src/tsm/tsm-vte-image.c:477-504`). A
-    /// change of `num-color-registers` or `private-color-registers` does
-    /// that and resets what the program set from them, as the C reference's
-    /// `tsm_vte_set_sixel_registers` did (`:505-518`): the register count
-    /// returns to the new limit, and modes 80, 1070 and 8452 return to
-    /// their state at reset, 1070's from the new `private-color-registers`.
+    /// resets the sixel handler. A change of `num-color-registers` or
+    /// `private-color-registers` does that and resets what the program set
+    /// from them: the register count returns to the new limit, and modes
+    /// 80, 1070 and 8452 return to their state at reset, 1070's from the
+    /// new `private-color-registers`. A call that sets the values already
+    /// in force changes nothing, so a host that rereads its configuration
+    /// keeps a program's registers and modes.
     pub fn set_image_limits(&mut self, limits: Limits) {
         let old = self.state.images.limits;
         self.state.images.limits = limits;
@@ -1121,10 +1111,10 @@ mod tests {
         assert_eq!(probe(&t).sixel.map(|s| s.registers), Some(1024));
     }
 
-    // The C reference dropped the sixel decoder and the shared registers on
-    // a change of max-graphic-size, of the register settings, and of the
-    // count XTSMGRAPHICS sets; only the register settings reset the count
-    // and the modes too.
+    // A change of max-graphic-size, of the register settings, or of the
+    // count XTSMGRAPHICS sets resets the sixel handler and the shared
+    // registers; only the register settings reset the count and the modes
+    // too, and setting the count in force again changes nothing.
     #[test]
     fn a_change_of_the_sixel_settings_resets_the_handler() {
         let mut t = Terminal::new(8, 4, 16);

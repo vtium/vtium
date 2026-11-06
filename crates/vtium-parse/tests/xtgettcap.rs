@@ -1,20 +1,19 @@
-//! XTGETTCAP collection, transcribed from tsm-vte.c:3128-3170 and
-//! 3282-3287 and from the test_vte_xtgettcap_* cases of libtsm's
-//! test_vte.c.
+//! XTGETTCAP collection: how the parser takes a request's payload, ends
+//! it and bounds it.
 
 mod common;
 
 use common::{Act, Recorder, csi, esc, hook, parse, parse8, tcap};
 use vtium_parse::{Parser, XTGETTCAP_MAX};
 
-// test_vte_xtgettcap_found: ESC \ ends the request, which is answered at the
+// ESC \ ends the request, which is answered at the
 // '\', before the ESC \ itself dispatches.
 #[test]
 fn ended_by_esc_backslash() {
     assert_eq!(parse(b"\x1bP+q544e\x1b\\"), [tcap(b"544e"), esc("", b'\\')]);
 }
 
-// test_vte_xtgettcap_end: ST as U+009C answers it.
+// ST as U+009C answers it.
 #[test]
 fn ended_by_c1_st() {
     assert_eq!(
@@ -23,34 +22,34 @@ fn ended_by_c1_st() {
     );
 }
 
-// test_vte_xtgettcap_end: CAN and SUB drop it.
+// CAN and SUB drop it.
 #[test]
 fn dropped_by_can_and_sub() {
     assert_eq!(parse(b"\x1bP+q544e\x18"), [Act::Execute(0x18)]);
     assert_eq!(parse(b"\x1bP+q544e\x1a"), [Act::Execute(0x1a)]);
 }
 
-// test_vte_xtgettcap_end: an ESC not followed by '\' drops it, and the
+// An ESC not followed by '\' drops it, and the
 // sequence after the ESC runs.
 #[test]
 fn dropped_by_esc_without_backslash() {
     assert_eq!(parse(b"\x1bP+q544e\x1b[2C"), [csi(&[2], "", b'C')]);
 }
 
-// test_vte_xtgettcap_end: the ESC of a dropped request is not left waiting
+// The ESC of a dropped request is not left waiting
 // for a '\'.
 #[test]
 fn esc_esc_backslash_drops() {
     assert_eq!(parse(b"\x1bP+q544e\x1b\x1b\\"), [esc("", b'\\')]);
 }
 
-// tsm-vte.c:3291-3298, 3164-3168: another C1 control drops it.
+// Another C1 control drops it.
 #[test]
 fn dropped_by_other_c1() {
     assert_eq!(parse8(b"\x1bP+q544e\x85"), [Act::Execute(0x85)]);
 }
 
-// test_vte_xtgettcap_end: DCS + q with a parameter, a marker or another
+// DCS + q with a parameter, a marker or another
 // intermediate is not XTGETTCAP, and goes to the consumer.
 #[test]
 fn not_xtgettcap_with_param_or_other_flags() {
@@ -71,8 +70,8 @@ fn not_xtgettcap_with_param_or_other_flags() {
     }
 }
 
-// test_vte_xtgettcap_invalid: the parser keeps the payload as sent, controls
-// included, and a character past ASCII as 0 (tsm-vte.c:3149-3150).
+// The parser keeps the payload as sent, controls
+// included, and a character past ASCII as 0.
 #[test]
 fn payload_as_sent() {
     assert_eq!(parse(b"\x1bP+q\x1b\\")[0], tcap(b""));
@@ -80,7 +79,7 @@ fn payload_as_sent() {
     assert_eq!(parse(b"\x1bP+q54\xc3\xa94e\x1b\\")[0], tcap(b"54\x004e"));
 }
 
-// tsm-vte.c:3567-3568: DEL is dropped from the payload.
+// DEL is dropped from the payload.
 #[test]
 fn payload_drops_del() {
     assert_eq!(parse(b"\x1bP+q54\x7f4e\x1b\\")[0], tcap(b"544e"));
@@ -93,7 +92,7 @@ fn request(payload_len: usize) -> Vec<u8> {
     seq
 }
 
-// test_vte_xtgettcap_bounds: a 1039-byte payload is kept whole.
+// A 1039-byte payload is kept whole.
 #[test]
 fn payload_of_1039_kept() {
     let seq = request(XTGETTCAP_MAX);
@@ -105,8 +104,8 @@ fn payload_of_1039_kept() {
     assert_eq!(XTGETTCAP_MAX, 1039);
 }
 
-// test_vte_xtgettcap_bounds: one byte more passes the bound, so the request
-// has no payload (tsm-vte.c:3149-3152, 3087-3091).
+// One byte more passes the bound, so the request
+// has no payload.
 #[test]
 fn payload_past_1039_flagged() {
     let seq = request(XTGETTCAP_MAX + 1);
@@ -122,8 +121,7 @@ fn payload_flood_bounded() {
     assert_eq!(acts[0], Act::Xtgettcap(None));
 }
 
-// A request after a flagged one starts empty and unflagged
-// (tsm-vte.c:3137-3138).
+// A request after a flagged one starts empty and unflagged.
 #[test]
 fn next_request_starts_clean() {
     let mut seq = request(XTGETTCAP_MAX + 1);
@@ -132,7 +130,7 @@ fn next_request_starts_clean() {
     assert_eq!(acts[2], tcap(b"436f"));
 }
 
-// test_vte_xtgettcap_split: a request split at every byte.
+// A request split at every byte.
 #[test]
 fn split_at_every_byte() {
     let query = b"\x1bP+q544e;436f\x1b\\";
@@ -144,7 +142,7 @@ fn split_at_every_byte() {
     assert_eq!(rec.acts, [tcap(b"544e;436f"), esc("", b'\\')]);
 }
 
-// test_vte_xtgettcap_esc_reset: a reset between the ESC and the '\' drops
+// A reset between the ESC and the '\' drops
 // the request.
 #[test]
 fn reset_between_esc_and_backslash_drops() {
@@ -158,7 +156,7 @@ fn reset_between_esc_and_backslash_drops() {
     assert_eq!(rec.acts[1], tcap(b"544e"));
 }
 
-// tsm-vte.c:3282-3287: the check for '\' takes the next character, and a
+// The check for '\' takes the next character, and a
 // stray UTF-8 continuation byte is one: U+FFFD, under the decoder's
 // contract. It drops the request, and the ESC sequence it interrupts with
 // it, so the '\' prints.

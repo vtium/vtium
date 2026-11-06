@@ -1,12 +1,12 @@
-//! XTGETTCAP's table and its lookup (aaronsb/libtsm#80): the capabilities
+//! XTGETTCAP's table and its lookup: the capabilities
 //! the host gives the terminal, generated from vtium's terminfo entry
 //! (vtium/vtium#21), and the reply to `DCS + q names ST`.
 //!
 //! The reply is xterm's: `DCS 1 + r name=value;name=value ST`, each value
 //! hex encoded and a boolean its name alone. Each name is printed in
 //! uppercase hex from the table's entry, never in the request's spelling,
-//! by the reply rule (docs/architecture.md, "Determinism"); the C reference
-//! echoed the request's spelling. A name the table lacks, or that is not
+//! by the reply rule (docs/architecture.md, "Determinism"). A name the
+//! table lacks, or that is not
 //! hex for a name, ends the list there, after the `;` before it, and when
 //! it is the first the reply is `DCS 0 + r ST`. So does the name past
 //! [`XTGETTCAP_NAMES`], or one whose pair would take the reply past

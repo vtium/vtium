@@ -3,8 +3,8 @@
 //! and kitty's OSC 30001 and 30101 (`color-stack`), each stack at its
 //! bound, empty, and across DECSTR and RIS.
 //!
-//! The C reference ignored every one of these sequences; the crate's
-//! README lists what vtium does and where it departs from xterm.
+//! The crate's README, "Colors", says what vtium does with each and where
+//! it differs from xterm.
 
 mod common;
 
@@ -349,8 +349,7 @@ fn a_flood_of_pushes_and_pops_stays_at_the_bounds() {
     assert!(pen(&t).attrs.contains(Attrs::BOLD));
 }
 
-// The C reference ignored each of these sequences; none of them moves the
-// cursor or prints.
+// None of these sequences moves the cursor or prints.
 #[test]
 fn the_stacks_print_nothing() {
     let t = term(

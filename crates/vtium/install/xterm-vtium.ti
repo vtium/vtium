@@ -1,6 +1,9 @@
 # vtium's terminfo entry. vtium sets TERM=xterm-vtium by default, so a session
-# finds this entry, and vtium answers XTGETTCAP from it under that name only.
-# Under TERM=kmscon vtium answers from the C reference's table, kmscon.ti's.
+# finds this entry. The entry also carries the bare name vtium, so a user who
+# sets TERM=vtium gets the same capabilities. vtium answers XTGETTCAP from
+# this entry under either name, and the same way: TN and name answer
+# xterm-vtium under both. Under TERM=kmscon vtium answers from kmscon.ti, the
+# entry for the released kmscon's name.
 # The name starts with "xterm-" because programs that do not know vtium
 # recognize an xterm-like terminal by that prefix: mc, for one, turns its
 # mouse on. The entry describes what vtium does, which is largely what kitty
@@ -13,9 +16,7 @@
 # the table.
 #
 # Each comment names the rows of docs/architecture/term/ADR-1000-*.tsv that
-# say vtium supports what the capabilities below it ask for. The core of the
-# entry is the C reference's kmscon entry (scripts/terminfo/kmscon.ti at
-# kmscon b1f7a7c5), whose probes judge it.
+# say vtium supports what the capabilities below it ask for.
 #
 # Left out on purpose:
 # - fullkbd, kitty's sign of its keyboard protocol: vtium does not build the
@@ -25,7 +26,7 @@
 # - smkx and rmkx: the key capabilities below are the keys vtium sends with
 #   DECCKM reset, the state a program finds at start.
 # - hs, tsl, fsl and dsl: vtium ignores titles (window.title).
-xterm-vtium|VTium terminal for the Linux console,
+xterm-vtium|vtium|VTium terminal for the Linux console,
 # DEC-7 (am), ctl.bce (bce), DEC-1036 (km), ANSI-4 (mir), ctl.edit (msgr,
 # npc, xenl)
   am, bce, km, mir, msgr, npc, xenl,

@@ -49,15 +49,12 @@
 //! assert_eq!(text.0, "bold é");
 //! ```
 //!
-//! The state machine is the C reference's, libtsm's `tsm-vte.c`, which
-//! follows the DEC/ANSI parser described at vt100.net. The C reference is
-//! the floor: the parser does everything it does, each rule cited to its
-//! line in `tsm-vte.c`, and where the C reference departs from a protocol
-//! specification, the parser follows the specification. The crate's README
-//! lists each departure with its reason and the specification it follows:
-//! among them, strings that act only when ST or BEL completes them, ordered
+//! The state machine follows the DEC/ANSI parser described at vt100.net.
+//! Where ECMA-48 and vt100.net read differently, or neither covers a case,
+//! the crate's README gives the rule the parser follows and why: among
+//! them, strings that act only when ST or BEL completes them, ordered
 //! intermediates, and every empty parameter omitted. UTF-8 decoding follows
-//! the Unicode Standard, as the C reference's does.
+//! the Unicode Standard.
 //!
 //! Charset mapping, screen effects and replies are the consumer's.
 //!

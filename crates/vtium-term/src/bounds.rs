@@ -38,7 +38,7 @@ const CLUSTER: Bound = Bound {
     value: 32,
     what: "Codepoints one grapheme cluster keeps",
     past: "Codepoints past it are dropped, and the cluster keeps its first 32",
-    cite: "kmscon ADR 102, \"Cells and clusters\": \"at most 32 codepoints each (extenders past 32 are dropped)\"",
+    cite: "ADR-1001, \"The line\": a cluster keeps at most 32 codepoints, its extenders past them dropped",
 };
 
 const CLUSTER_BYTES: Bound = Bound {
@@ -110,7 +110,7 @@ const REPLIES_PENDING: Bound = Bound {
     value: 65_536,
     what: "Bytes of replies and input reports the terminal holds before the host takes them",
     past: "The input call returns after the byte whose reply reached it, and takes nothing until the host has taken the replies, so a program that queries without reading cannot grow them",
-    cite: "vtium's own, at `PTY_REPLY_HIGH` (64 KiB), where the C reference stopped reading a child that queried without reading (pty.c:68)",
+    cite: "vtium's own, at vtium-platform's `REPLY_HIGH` (64 KiB), past which vtium stops reading a program that queries without reading",
 };
 
 const VERSION: Bound = Bound {
@@ -118,7 +118,7 @@ const VERSION: Bound = Bound {
     value: 64,
     what: "Bytes of the text XTVERSION replies, which the host sets",
     past: "`Terminal::set_version` refuses the text, and the reply keeps the one before",
-    cite: "`TSM_VTE_VERSION_MAX`, libtsm.h:1497",
+    cite: "vtium's own: XTVERSION's text is a program's name and version, which 64 bytes hold with room to spare",
 };
 
 const TERMCAP_ENTRIES: Bound = Bound {
@@ -126,7 +126,7 @@ const TERMCAP_ENTRIES: Bound = Bound {
     value: 1024,
     what: "Capabilities in the table XTGETTCAP answers from",
     past: "`Termcap::new` refuses the table",
-    cite: "`TSM_VTE_TERMCAP_MAX`, libtsm.h:1537",
+    cite: "vtium's own: over five times the 182 names XTGETTCAP answers from vtium's terminfo entry",
 };
 
 const TERMCAP_NAME: Bound = Bound {
@@ -134,7 +134,7 @@ const TERMCAP_NAME: Bound = Bound {
     value: 32,
     what: "Bytes of a capability's name, in the table and in a request",
     past: "`Termcap::new` refuses the table; a requested name past it ends the reply's list",
-    cite: "`TSM_VTE_TERMCAP_NAME_MAX`, libtsm.h:1538",
+    cite: "vtium's own: the longest name in vtium's terminfo entry takes 7 bytes",
 };
 
 const TERMCAP_VALUE: Bound = Bound {
@@ -142,7 +142,7 @@ const TERMCAP_VALUE: Bound = Bound {
     value: 256,
     what: "Bytes of a capability's value",
     past: "`Termcap::new` refuses the table",
-    cite: "`TSM_VTE_TERMCAP_VALUE_MAX`, libtsm.h:1539",
+    cite: "vtium's own: the longest value in vtium's terminfo entry, `initc`'s, takes 93 bytes",
 };
 
 const XTGETTCAP_NAMES_BOUND: Bound = Bound {
@@ -150,7 +150,7 @@ const XTGETTCAP_NAMES_BOUND: Bound = Bound {
     value: 16,
     what: "Names one XTGETTCAP request is answered for",
     past: "The reply's list ends after the sixteenth, with the `;` before the seventeenth",
-    cite: "`XTGETTCAP_NAMES`, tsm-vte-int.h:36; vtium-parse's `XTGETTCAP_MAX` holds sixteen names of `TERMCAP_NAME_MAX` bytes",
+    cite: "vtium's own: vtium-parse's `XTGETTCAP_MAX` holds sixteen names of `TERMCAP_NAME_MAX` bytes",
 };
 
 const XTGETTCAP_REPLY: Bound = Bound {
@@ -158,7 +158,7 @@ const XTGETTCAP_REPLY: Bound = Bound {
     value: 4096,
     what: "Bytes of one XTGETTCAP reply, its DCS and ST included",
     past: "The list ends before the pair that would pass it; a reply of exactly this many bytes is sent",
-    cite: "`XTGETTCAP_REPLY_MAX`, tsm-vte.c:131; the C reference reserved a byte for a `;` the last pair does not take, so it refused a reply of exactly 4096 bytes",
+    cite: "vtium's own: a page of memory, which holds sixteen of the longest pairs vtium's entry has",
 };
 
 const CLIPBOARD: Bound = Bound {
@@ -198,7 +198,7 @@ const INPUT_WORK: Bound = Bound {
     value: 1 << 24,
     what: "Image work one input call does, in a build with images: each placement or image a scroll, an ED 2, an eviction or a handler's search visits, and each pixel a handler decodes",
     past: "The input call stops after the byte that passed the bound and returns how many bytes it took; the next call takes the rest, and the resulting state is the same. That byte may lie inside a run of sixel or kitty string data, because an image handler takes a run only as far as the bound allows",
-    cite: "The C reference's `VTE_INPUT_WORK`, 2^24 a call; ADR-1100, D5",
+    cite: "ADR-1100, D5: 2^24 a call, so one input call's image work stays bounded however much image data one read brings",
 };
 
 const IMAGE_NOTE_REASONS: Bound = Bound {

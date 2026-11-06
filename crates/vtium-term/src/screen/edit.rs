@@ -348,8 +348,8 @@ impl Screen {
 
     /// SU, and a line feed at the bottom margin: the region moves up `n`
     /// rows. On the main screen the lines leaving the region's top enter
-    /// the scrollback, wherever the region starts, as in the C reference,
-    /// unwrapped when it starts below the first row; blank lines come in
+    /// the scrollback, wherever the region starts, unwrapped when it
+    /// starts below the first row; blank lines come in
     /// at the bottom.
     pub fn scroll_up(&mut self, n: usize) {
         if n == 0 {

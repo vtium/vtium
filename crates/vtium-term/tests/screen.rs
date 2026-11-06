@@ -2,9 +2,9 @@
 //! cursor movement, editing, erasing, scrolling, tab stops, margins, the
 //! scrollback, resizing, the alternate screen and the selection.
 //!
-//! Each expected screen is the C reference's behaviour, or the
-//! specification's where vtium departs from it (the crate's README lists
-//! each departure, and `departures.rs` tests them).
+//! Each expected screen is the one its specification gives, and the
+//! crate's README says what vtium does where no specification covers a
+//! case. `choices.rs` tests the choices the README states one by one.
 
 mod common;
 
@@ -165,9 +165,8 @@ fn scrolling_moves_the_region_and_the_scrollback_takes_the_top() {
     assert_eq!(text(&t), ["1", "2", "", "4"]);
 }
 
-// The C reference's flow (tsm-screen.c:388-399): a line leaving the top of
-// the main screen's region enters the scrollback wherever the region
-// starts; on the alternate screen it goes.
+// A line leaving the top of the main screen's region enters the
+// scrollback wherever the region starts; on the alternate screen it goes.
 #[test]
 fn a_line_leaving_any_region_enters_the_scrollback() {
     let mut t = Terminal::new(4, 4, 10);
@@ -245,7 +244,7 @@ fn decstbm_sets_the_scroll_region() {
 
 // Background color erase: an erased, inserted or scrolled-in cell takes
 // the pen's background and nothing else of it, as Ghostty's and foot's
-// do (the C reference's probe erase-colours-only).
+// do (the capability probe erase-colours-only).
 // covers: ctl.bce
 #[test]
 fn erasing_takes_only_the_pens_background() {
@@ -299,10 +298,9 @@ fn a_grapheme_cluster_takes_one_cell() {
 }
 
 // VS16 makes an emoji-style base two cells wide; VS15 leaves a width as
-// it is, as in the C reference. A wide character with only the last column
-// left wraps whole, the cell it leaves a pad (ADR-1003); without autowrap
-// it is not printed (the C reference's probes vs16-width and
-// wide-at-margin).
+// it is. A wide character with only the last column left wraps whole, the
+// cell it leaves a pad (ADR-1003); without autowrap it is not printed (the
+// capability probes vs16-width and wide-at-margin).
 // covers: text.vs-width
 #[test]
 fn vs16_widens_and_a_wide_character_wraps_whole() {
@@ -374,7 +372,6 @@ fn the_width_method_cuts_text_into_cells() {
 
 // A selection from where the pointer started to where it is, across the
 // scrollback and the screen; a word selection stops at spaces.
-// C notes: the C reference's tsm-selection.c.
 // covers: clipboard.selection
 #[test]
 fn a_selection_copies_its_text() {
@@ -509,7 +506,7 @@ fn a_selection_follows_a_wrapped_line() {
 // screen, the screen's rows a taller screen replaces) takes the selection
 // with it: a copy must not reach into other text. Only a line the
 // scrollback drops when full leaves the selection to start at the oldest
-// line, as the C reference's did.
+// line.
 #[test]
 fn a_discarded_line_takes_the_selection_with_it() {
     let mut t = Terminal::new(8, 3, 10);
