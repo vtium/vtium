@@ -1210,11 +1210,11 @@ fn each_view_at_80x25_and_100x30() {
             assert_eq!(lines.len(), rows, "{name} at {cols}x{rows}");
             assert!(lines.iter().all(|l| l.chars().count() <= cols), "{name}");
             assert!(lines[0].contains(" Flow "), "{name}: {screen}");
-            // the last row holds the key that leaves, or the route card's
+            // the last row holds the key that quits, or the route card's
             // that goes back
             let last = lines[rows - 1];
             assert!(
-                last.contains("leave") || last.contains("back"),
+                last.contains(" quit") || last.contains("q back"),
                 "{name}: {screen}"
             );
             golden(&format!("{name}-{cols}x{rows}"), &screen, &bytes);
