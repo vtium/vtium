@@ -110,20 +110,228 @@ fn keys_send_xterms_legacy_encoding() {
         key(&mut t, PAGE_UP, 0, Mods::CTRL.union(Mods::SHIFT), None),
         b"\x1b[5;6~"
     );
-    assert_eq!(key(&mut t, PAGE_UP, 0, Mods::ALT, None), b"\x1b\x1b[5~");
+    assert_eq!(key(&mut t, PAGE_UP, 0, Mods::ALT, None), b"\x1b[5;3~");
     assert_eq!(key(&mut t, UP, 0, Mods::SHIFT, None), b"\x1b[1;2A");
     assert_eq!(key(&mut t, UP, 0, Mods::ALT, None), b"\x1b[1;3A");
     assert_eq!(key(&mut t, UP, 0, ctrl_alt(), None), b"\x1b[1;7A");
     assert_eq!(key(&mut t, F1, 0, none, None), b"\x1bOP");
-    assert_eq!(key(&mut t, F1, 0, Mods::SHIFT, None), b"\x1b[23~");
+    assert_eq!(key(&mut t, F1, 0, Mods::SHIFT, None), b"\x1b[1;2P");
     assert_eq!(key(&mut t, F1 + 4, 0, none, None), b"\x1b[15~");
-    assert_eq!(key(&mut t, F1 + 4, 0, Mods::SHIFT, None), b"\x1b[28~");
+    assert_eq!(key(&mut t, F1 + 4, 0, Mods::SHIFT, None), b"\x1b[15;2~");
     assert_eq!(key(&mut t, F1 + 11, 0, none, None), b"\x1b[24~");
     assert_eq!(key(&mut t, F1 + 11, 0, Mods::SHIFT, None), b"\x1b[24;2~");
     assert!(
         !t.key(0xffe1, 0, Mods::SHIFT, None),
         "Shift alone sends nothing"
     );
+}
+
+/// Each combination of Shift, Alt and Ctrl, with xterm's modifier
+/// parameter for it: 1 plus 1 for Shift, 2 for Alt and 4 for Ctrl.
+fn modifier_combinations() -> [(Mods, u8); 7] {
+    let s = Mods::SHIFT;
+    let a = Mods::ALT;
+    let c = Mods::CTRL;
+    [
+        (s, 2),
+        (a, 3),
+        (s.union(a), 4),
+        (c, 5),
+        (s.union(c), 6),
+        (a.union(c), 7),
+        (s.union(a).union(c), 8),
+    ]
+}
+
+/// DECCKM reset and set: the cursor keys' mode.
+const CURSOR_MODES: [&[u8]; 2] = [b"\x1b[?1l", b"\x1b[?1h"];
+
+// ctlseqs, "PC-Style Function Keys": with a modifier, the cursor keys,
+// Home and End send `CSI 1 ; m X` whatever DECCKM says, and Insert, Delete,
+// Page Up and Page Down send `CSI n ; m ~`, as xterm 411 sends them with
+// modifyCursorKeys and modifyFunctionKeys at their default, 2. With no
+// modifier, DECCKM chooses `CSI X` or `SS3 X`.
+// covers: input.legacy
+#[test]
+fn editing_and_cursor_keys_carry_xterms_modifier_parameter() {
+    const HOME: u32 = 0xff50;
+    const LEFT: u32 = 0xff51;
+    const RIGHT: u32 = 0xff53;
+    const DOWN: u32 = 0xff54;
+    const PAGE_DOWN: u32 = 0xff56;
+    const END: u32 = 0xff57;
+    const KP_HOME: u32 = 0xff95;
+    const KP_UP: u32 = 0xff97;
+    let lettered = [
+        (UP, b'A'),
+        (KP_UP, b'A'),
+        (DOWN, b'B'),
+        (RIGHT, b'C'),
+        (LEFT, b'D'),
+        (HOME, b'H'),
+        (KP_HOME, b'H'),
+        (END, b'F'),
+    ];
+    let numbered = [(INSERT, 2), (DELETE, 3), (PAGE_UP, 5), (PAGE_DOWN, 6)];
+    for (decckm, ss3) in CURSOR_MODES.into_iter().zip([false, true]) {
+        let mut t = term(8, 2, decckm);
+        for (sym, letter) in lettered {
+            let intro: &[u8] = if ss3 { b"\x1bO" } else { b"\x1b[" };
+            let plain = [intro, &[letter]].concat();
+            assert_eq!(key(&mut t, sym, 0, Mods::empty(), None), plain, "{sym:x}");
+            for (mods, m) in modifier_combinations() {
+                let want = format!("\x1b[1;{m}{}", char::from(letter));
+                assert_eq!(
+                    key(&mut t, sym, 0, mods, None),
+                    want.as_bytes(),
+                    "{sym:x} with {mods:?}, DECCKM {ss3}"
+                );
+            }
+        }
+        for (sym, n) in numbered {
+            let plain = format!("\x1b[{n}~");
+            assert_eq!(key(&mut t, sym, 0, Mods::empty(), None), plain.as_bytes());
+            for (mods, m) in modifier_combinations() {
+                let want = format!("\x1b[{n};{m}~");
+                assert_eq!(
+                    key(&mut t, sym, 0, mods, None),
+                    want.as_bytes(),
+                    "{sym:x} with {mods:?}, DECCKM {ss3}"
+                );
+            }
+        }
+    }
+}
+
+// ctlseqs, "PC-Style Function Keys": F1 to F4 send `SS3 P` to `SS3 S`, and
+// with a modifier `CSI 1 ; m P` to `CSI 1 ; m S`; F5 to F12 send
+// `CSI n ~`, and with a modifier `CSI n ; m ~`. Shift with F1 to F10 is
+// Shift's parameter, as xterm 411 sends it, never the code of F11 to F20.
+// DECCKM changes none of them. The keys F13 to F20 keep their own codes.
+// covers: input.legacy
+#[test]
+fn function_keys_carry_xterms_modifier_parameter() {
+    const CODES: [u8; 8] = [15, 17, 18, 19, 20, 21, 23, 24];
+    for decckm in CURSOR_MODES {
+        let mut t = term(8, 2, decckm);
+        for (n, letter) in (0..4).zip(b'P'..=b'S') {
+            let plain = [b"\x1bO", &[letter][..]].concat();
+            assert_eq!(key(&mut t, F1 + n, 0, Mods::empty(), None), plain);
+            for (mods, m) in modifier_combinations() {
+                let want = format!("\x1b[1;{m}{}", char::from(letter));
+                assert_eq!(
+                    key(&mut t, F1 + n, 0, mods, None),
+                    want.as_bytes(),
+                    "F{} with {mods:?}",
+                    n + 1
+                );
+            }
+        }
+        for (n, code) in (4..).zip(CODES) {
+            let plain = format!("\x1b[{code}~");
+            assert_eq!(
+                key(&mut t, F1 + n, 0, Mods::empty(), None),
+                plain.as_bytes()
+            );
+            for (mods, m) in modifier_combinations() {
+                let want = format!("\x1b[{code};{m}~");
+                assert_eq!(
+                    key(&mut t, F1 + n, 0, mods, None),
+                    want.as_bytes(),
+                    "F{} with {mods:?}",
+                    n + 1
+                );
+            }
+        }
+    }
+    let mut t = term(8, 2, b"");
+    assert_eq!(key(&mut t, F1 + 12, 0, Mods::empty(), None), b"\x1b[25~");
+    assert_eq!(key(&mut t, F1 + 12, 0, Mods::SHIFT, None), b"\x1b[25;2~");
+    assert_eq!(key(&mut t, F1 + 19, 0, Mods::CTRL, None), b"\x1b[34;5~");
+}
+
+// xterm 411 encodes Alt with these keys as their parameter, 3, under each
+// of modes 1036 (metaSendsEscape) and 1034 (eightBitInput): Alt puts no
+// ESC before them and sets no eighth bit.
+// covers: input.legacy
+#[test]
+fn alt_with_an_editing_or_function_key_is_its_parameter() {
+    const HOME: u32 = 0xff50;
+    for modes in [&b""[..], b"\x1b[?1036l", b"\x1b[?1036l\x1b[?1034l"] {
+        let mut t = term(8, 2, modes);
+        let alt = Mods::ALT;
+        assert_eq!(
+            key(&mut t, PAGE_UP, 0, alt, None),
+            b"\x1b[5;3~",
+            "{modes:?}"
+        );
+        assert_eq!(key(&mut t, INSERT, 0, alt, None), b"\x1b[2;3~", "{modes:?}");
+        assert_eq!(key(&mut t, HOME, 0, alt, None), b"\x1b[1;3H", "{modes:?}");
+        assert_eq!(key(&mut t, F1, 0, alt, None), b"\x1b[1;3P", "{modes:?}");
+        assert_eq!(
+            key(&mut t, F1 + 4, 0, alt, None),
+            b"\x1b[15;3~",
+            "{modes:?}"
+        );
+        assert_eq!(key(&mut t, UP, 0, alt, None), b"\x1b[1;3A", "{modes:?}");
+    }
+}
+
+// ctlseqs, "VT220-Style Keypad" and DECKPAM: in application mode the
+// keypad's operators send * `SS3 j`, + `SS3 k`, , `SS3 l`, - `SS3 m`,
+// . `SS3 n`, / `SS3 o`, = `SS3 X` and Enter `SS3 M`; in numeric mode
+// each sends its character, = included. xterm 411 sends the same, and puts
+// a modifier's parameter after the SS3 in application mode (`SS3 2 j`),
+// while in numeric mode it sends the character alone, with Alt too.
+// covers: input.legacy
+#[test]
+fn keypad_operators_follow_the_specification() {
+    const KP_ENTER: u32 = 0xff8d;
+    const KP_MULTIPLY: u32 = 0xffaa;
+    const KP_ADD: u32 = 0xffab;
+    const KP_SEPARATOR: u32 = 0xffac;
+    const KP_SUBTRACT: u32 = 0xffad;
+    const KP_DECIMAL: u32 = 0xffae;
+    const KP_DIVIDE: u32 = 0xffaf;
+    const KP_EQUAL: u32 = 0xffbd;
+    const KP_F1: u32 = 0xff91;
+    let keys = [
+        (KP_MULTIPLY, b'j', b'*'),
+        (KP_ADD, b'k', b'+'),
+        (KP_SEPARATOR, b'l', b','),
+        (KP_SUBTRACT, b'm', b'-'),
+        (KP_DECIMAL, b'n', b'.'),
+        (KP_DIVIDE, b'o', b'/'),
+        (KP_EQUAL, b'X', b'='),
+        (KP_ENTER, b'M', b'\r'),
+    ];
+    let mut t = term(8, 2, b"\x1b=");
+    for (sym, app, _) in keys {
+        let want = [b"\x1bO", &[app][..]].concat();
+        assert_eq!(key(&mut t, sym, 0, Mods::empty(), None), want, "{sym:x}");
+        for (mods, m) in modifier_combinations() {
+            let want = [b"\x1bO", &[b'0' + m, app][..]].concat();
+            assert_eq!(key(&mut t, sym, 0, mods, None), want, "{sym:x} {mods:?}");
+        }
+    }
+    assert_eq!(key(&mut t, KP_F1, 0, Mods::empty(), None), b"\x1bOP");
+    assert_eq!(key(&mut t, KP_F1, 0, Mods::SHIFT, None), b"\x1bO2P");
+    t.input(b"\x1b>");
+    for (sym, _, numeric) in keys {
+        assert_eq!(
+            key(&mut t, sym, 0, Mods::empty(), None),
+            [numeric],
+            "{sym:x}"
+        );
+        for (mods, _) in modifier_combinations() {
+            assert_eq!(
+                key(&mut t, sym, 0, mods, None),
+                [numeric],
+                "{sym:x} {mods:?}"
+            );
+        }
+    }
+    assert_eq!(key(&mut t, KP_F1, 0, Mods::CTRL, None), b"\x1bO5P");
 }
 
 // ctlseqs, "Alt and Meta Keys", and xterm's "Modified Other Keys (us-pc105)"
