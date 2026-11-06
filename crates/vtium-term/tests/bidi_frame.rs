@@ -255,6 +255,55 @@ mod with_the_feature {
         assert_eq!(t.arrow_keysym(LEFT), RIGHT);
     }
 
+    // ADR-1004 D11 through the key encoder: under 1243 the Left arrow
+    // key sends Right's sequence in a right-to-left paragraph, and its own
+    // once 1243 is reset or in a left-to-right paragraph.
+    // covers: DEC-1243
+    #[test]
+    fn terminal_key_swaps_the_arrows_in_a_right_to_left_paragraph() {
+        use vtium_term::Mods;
+        const LEFT: u32 = 0xff51;
+        let mut key = |t: &mut Terminal, sym: u32| {
+            t.take_replies();
+            t.key(sym, 0, Mods::empty(), None);
+            t.take_replies()
+        };
+        let mut t = term(8, 1, b"ab");
+        assert_eq!(key(&mut t, LEFT), b"\x1b[D");
+        t.input(b"\r\x1b[2 k");
+        assert_eq!(key(&mut t, LEFT), b"\x1b[C");
+        t.input(b"\x1b[?1243l");
+        assert_eq!(key(&mut t, LEFT), b"\x1b[D");
+    }
+
+    // ADR-1004 D10 through the mouse encoder: a press over a reordered cell
+    // reports the logical cell, in cells and, under mode 1016, in pixels.
+    // covers: text.bidi
+    #[test]
+    fn terminal_mouse_reports_the_logical_cell() {
+        use vtium_term::{Mods, MouseButton, MouseEvent};
+        let press = |t: &mut Terminal, col: usize, px: u32| {
+            t.take_replies();
+            t.mouse(
+                col,
+                0,
+                px,
+                5,
+                MouseButton::Left,
+                MouseEvent::Press,
+                Mods::empty(),
+            );
+            t.take_replies()
+        };
+        // visual column 4 shows the final mem, logical column 7
+        let mut t = term(12, 1, "\x1b[?1000h\x1b[?1006habc שלום".as_bytes());
+        t.set_cell_size(10, 20);
+        assert_eq!(press(&mut t, 4, 43), b"\x1b[<0;8;1M");
+        assert_eq!(press(&mut t, 1, 15), b"\x1b[<0;2;1M");
+        t.input(b"\x1b[?1016h");
+        assert_eq!(press(&mut t, 4, 43), b"\x1b[<0;74;6M");
+    }
+
     // ADR-1004 D10: a drag from one drawn cell to another selects the
     // logical range between the cells it names, and copies it in the
     // order it was written; a word takes the logical word.

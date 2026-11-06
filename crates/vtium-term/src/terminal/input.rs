@@ -554,9 +554,11 @@ impl Terminal {
     /// X11 keysym after Shift, `ascii` the keysym an ASCII layout gives
     /// the same key (0 for none), `unicode` the character it makes, and
     /// `mods` the modifiers held, with [`Mods::NUM`] while NumLock is on.
-    /// Alt acts where xterm lets it, as modes 1034 and 1036 say. Returns
+    /// Alt acts where xterm lets it, as modes 1034 and 1036 say, and Left
+    /// and Right swap as [`arrow_keysym`](Self::arrow_keysym) says. Returns
     /// whether anything was sent.
     pub fn key(&mut self, keysym: u32, ascii: u32, mods: Mods, unicode: Option<char>) -> bool {
+        let (keysym, ascii) = (self.arrow_keysym(keysym), self.arrow_keysym(ascii));
         // Ctrl reads the ASCII layout's keysym, so Ctrl+C works whatever
         // layout is active.
         let sym = if ascii == 0 { keysym } else { ascii };
