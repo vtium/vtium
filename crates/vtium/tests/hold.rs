@@ -3,6 +3,7 @@
 //! pty master from one vtium for the next and exiting once it holds none.
 
 use std::os::fd::AsFd;
+use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::process::Command;
 
@@ -49,7 +50,18 @@ fn the_holder_keeps_a_session_from_one_vtium_for_the_next() {
 
     let (first, kept) = hold::start(&run, exe).expect("the first vtium starts a holder");
     assert!(kept.is_empty(), "a new holder holds nothing");
+    // The holder answers once it runs as `vtium hold`, so it can be found.
+    assert!(first.take().expect("the holder answers").is_empty());
     let holder = holder_pid();
+    let mode = std::fs::metadata(hold::socket_path(&run))
+        .expect("the socket")
+        .permissions()
+        .mode();
+    assert_eq!(
+        mode & 0o777,
+        0o600,
+        "only root may open the holder's socket"
+    );
     first.keep(&name, pty.master()).expect("the master kept");
     // the first vtium ends
     drop(first);

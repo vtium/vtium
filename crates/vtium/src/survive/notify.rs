@@ -34,6 +34,8 @@ use super::storable;
 pub struct Store {
     socket: OwnedFd,
     addr: SocketAddrUnix,
+    /// How many descriptors the store takes, `FDSTORE`.
+    capacity: usize,
 }
 
 /// The value of `name` in `env`.
@@ -49,12 +51,12 @@ impl Store {
     /// without either, or when the socket cannot be opened, which is
     /// logged.
     pub fn from_env(env: &[(OsString, OsString)]) -> Option<Store> {
-        let max: u32 = var(env, "FDSTORE")?.to_str()?.parse().ok()?;
-        if max == 0 {
+        let capacity: usize = var(env, "FDSTORE")?.to_str()?.parse().ok()?;
+        if capacity == 0 {
             return None;
         }
         let path = var(env, "NOTIFY_SOCKET")?;
-        match Store::open(path.as_bytes()) {
+        match Store::open(path.as_bytes(), capacity) {
             Ok(store) => Some(store),
             Err(e) => {
                 log::warn!(
@@ -65,9 +67,10 @@ impl Store {
         }
     }
 
-    /// The store behind the notification socket at `path`: a file's path,
-    /// or, starting `@`, a name in the abstract namespace.
-    pub fn open(path: &[u8]) -> io::Result<Store> {
+    /// The store of `capacity` descriptors behind the notification socket
+    /// at `path`: a file's path, or, starting `@`, a name in the abstract
+    /// namespace.
+    pub fn open(path: &[u8], capacity: usize) -> io::Result<Store> {
         let addr = match path.strip_prefix(b"@") {
             Some(name) => SocketAddrUnix::new_abstract_name(name)?,
             None if path.starts_with(b"/") => SocketAddrUnix::new(path)?,
@@ -79,7 +82,16 @@ impl Store {
             SocketFlags::CLOEXEC,
             None,
         )?;
-        Ok(Store { socket, addr })
+        Ok(Store {
+            socket,
+            addr,
+            capacity,
+        })
+    }
+
+    /// How many descriptors the store takes.
+    pub fn capacity(&self) -> usize {
+        self.capacity
     }
 
     /// Stores a copy of `fd` under `name`.

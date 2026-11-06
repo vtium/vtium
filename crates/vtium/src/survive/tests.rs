@@ -259,6 +259,11 @@ fn no_session_inherits_systemds_word_to_vtium() {
         "LISTEN_FDNAMES",
         "NOTIFY_SOCKET",
         "FDSTORE",
+        "INVOCATION_ID",
+        "JOURNAL_STREAM",
+        "SYSTEMD_EXEC_PID",
+        "MEMORY_PRESSURE_WATCH",
+        "MEMORY_PRESSURE_WRITE",
         "HOME",
     ]
     .iter()
@@ -475,5 +480,97 @@ fn the_holder_keeps_masters_from_one_vtium_for_the_next() {
     assert!(kept.is_empty(), "console 2 was forgotten");
     next.forget(&Name::new("console", 1).encode()).unwrap();
     drop(next);
+    assert!(holder.join().unwrap().is_ok(), "the holder exits empty");
+}
+
+// A keeper that fails, here a store whose socket is gone, is given up
+// after one failure: the ledger holds nothing and tells it nothing more.
+#[test]
+fn a_failing_keeper_is_given_up() {
+    let dir = Scratch::new("gone");
+    let gone = dir.join("no-socket");
+    let mut keeper =
+        Keeper::Store(notify::Store::open(gone.as_os_str().as_encoded_bytes(), 50).unwrap());
+    let mut ledger = Ledger::default();
+    let pty = session();
+    let name = Name::new("console", 1).encode();
+    ledger.sync(&mut keeper, [(name.clone(), 1, pty.master())]);
+    assert!(!keeper.keeps(), "the failed keeper is given up");
+    assert!(!ledger.holds(&name));
+    ledger.sync(&mut keeper, [(name.clone(), 1, pty.master())]);
+    assert!(!keeper.keeps());
+}
+
+// A store with room for one: the master of a session that ended is
+// forgotten before the next is kept, so the next fits; a session past the
+// store's room is not recorded as held.
+#[test]
+fn the_ledger_makes_room_before_it_keeps_and_records_no_refused_keep() {
+    let dir = Scratch::new("room");
+    let mut systemd = Systemd::new(&dir, 1);
+    let mut keeper = Keeper::Store(notify::Store::from_env(&systemd.env()).unwrap());
+    let mut ledger = Ledger::default();
+    let (a, b) = (session(), session());
+    let (one, two) = (
+        Name::new("console", 1).encode(),
+        Name::new("console", 2).encode(),
+    );
+    ledger.sync(&mut keeper, [(one.clone(), 1, a.master())]);
+    ledger.sync(&mut keeper, [(two.clone(), 2, b.master())]);
+    assert_eq!(
+        systemd.names(),
+        ["pty.2.console"],
+        "console 1's master made room"
+    );
+    ledger.sync(
+        &mut keeper,
+        [(two.clone(), 2, b.master()), (one.clone(), 3, a.master())],
+    );
+    assert_eq!(systemd.names(), ["pty.2.console"]);
+    assert!(
+        !ledger.holds(&one),
+        "a keep the store has no room for is not held"
+    );
+    assert!(keeper.keeps());
+}
+
+/// A listening holder socket in `dir`.
+fn holder_socket(dir: &Path) -> (PathBuf, OwnedFd) {
+    let path = hold::socket_path(dir);
+    let listener = socket_with(
+        AddressFamily::UNIX,
+        SocketType::SEQPACKET,
+        SocketFlags::CLOEXEC,
+        None,
+    )
+    .unwrap();
+    bind(&listener, &SocketAddrUnix::new(&path).unwrap()).unwrap();
+    rustix::net::listen(&listener, 4).unwrap();
+    (path, listener)
+}
+
+/// A user other than this process's.
+fn other_user() -> rustix::process::Uid {
+    rustix::process::Uid::from_raw(rustix::process::geteuid().as_raw().wrapping_add(1))
+}
+
+// The holder serves only its own user, and vtium trusts only a socket its
+// own user set up.
+#[test]
+fn the_holder_and_vtium_each_refuse_another_user() {
+    let dir = Scratch::new("peer-holder");
+    let (path, listener) = holder_socket(&dir);
+    std::thread::spawn(move || hold::serve_for(listener, other_user()));
+    let vtium = hold::Client::connect(&path).unwrap();
+    assert!(vtium.take().is_err(), "the holder turns another user away");
+
+    let dir = Scratch::new("peer-client");
+    let (path, listener) = holder_socket(&dir);
+    let holder = std::thread::spawn(move || hold::serve(listener));
+    let refused = hold::Client::connect_for(&path, other_user()).map(|_| ());
+    assert_eq!(
+        refused.map_err(|e| e.kind()),
+        Err(std::io::ErrorKind::PermissionDenied)
+    );
     assert!(holder.join().unwrap().is_ok(), "the holder exits empty");
 }

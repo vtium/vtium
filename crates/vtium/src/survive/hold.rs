@@ -40,7 +40,7 @@ use rustix::net::{
     SendAncillaryMessage, SendFlags, SocketAddrUnix, SocketFlags, SocketType, accept_with, bind,
     connect, listen, recvmsg, sendmsg, socket_with, sockopt,
 };
-use rustix::process::geteuid;
+use rustix::process::{Uid, geteuid};
 
 use super::{NAME_MAX, Name};
 
@@ -71,9 +71,11 @@ fn seqpacket() -> io::Result<OwnedFd> {
     )?)
 }
 
-/// Whether the peer on `conn` runs as this process's user.
-fn same_user(conn: BorrowedFd<'_>) -> bool {
-    sockopt::socket_peercred(conn).is_ok_and(|c| c.uid == geteuid())
+/// Whether the peer on `conn` runs as `owner`, vtium's user: the
+/// connecting vtium, as the holder sees it, or the vtium that bound the
+/// holder's socket, as a connecting vtium sees it.
+fn peer_is(conn: BorrowedFd<'_>, owner: Uid) -> bool {
+    sockopt::socket_peercred(conn).is_ok_and(|c| c.uid == owner)
 }
 
 /// Sends `text`, with `fd` attached when there is one.
@@ -125,10 +127,15 @@ fn receive(conn: BorrowedFd<'_>) -> io::Result<Option<(String, Vec<OwnedFd>)>> {
 /// connection closes with no master held. A peer that runs as another
 /// user is turned away.
 pub fn serve(listener: OwnedFd) -> io::Result<()> {
+    serve_for(listener, geteuid())
+}
+
+/// [`serve`], turning away every peer that does not run as `owner`.
+pub(super) fn serve_for(listener: OwnedFd, owner: Uid) -> io::Result<()> {
     let mut held: Vec<(String, OwnedFd)> = Vec::new();
     loop {
         let conn = accept_with(&listener, SocketFlags::CLOEXEC)?;
-        if !same_user(conn.as_fd()) {
+        if !peer_is(conn.as_fd(), owner) {
             continue;
         }
         serve_one(conn.as_fd(), &mut held);
@@ -183,9 +190,14 @@ impl Client {
     /// up by vtium's user: the socket's credentials name the vtium that
     /// bound it and handed it to the holder.
     pub fn connect(path: &Path) -> io::Result<Client> {
+        Client::connect_for(path, geteuid())
+    }
+
+    /// [`Client::connect`], refusing a socket that `owner` did not set up.
+    pub(super) fn connect_for(path: &Path, owner: Uid) -> io::Result<Client> {
         let conn = seqpacket()?;
         connect(&conn, &SocketAddrUnix::new(path)?)?;
-        if !same_user(conn.as_fd()) {
+        if !peer_is(conn.as_fd(), owner) {
             return Err(io::Error::new(
                 io::ErrorKind::PermissionDenied,
                 format!("{} was set up by another user", path.display()),
@@ -296,19 +308,19 @@ pub fn subcommand(args: &[OsString]) -> Option<i32> {
     // A session of its own, so that no signal for vtium's session or
     // process group reaches the holder.
     if let Err(e) = rustix::process::setsid() {
-        log::warn!("the holder stays in vtium's session: {e}");
+        log::warn!("vtium hold cannot lead a session of its own, so it stays in vtium's: {e}");
     }
     let listener = match io::stdin().as_fd().try_clone_to_owned() {
         Ok(fd) => fd,
         Err(e) => {
-            log::error!("the holder has no socket: {e}");
+            log::error!("vtium hold has no socket to serve: {e}");
             return Some(1);
         }
     };
     match serve(listener) {
         Ok(()) => Some(0),
         Err(e) => {
-            log::error!("the holder stops: {e}");
+            log::error!("vtium hold stops: {e}");
             Some(1)
         }
     }

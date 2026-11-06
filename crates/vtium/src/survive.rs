@@ -82,23 +82,46 @@ pub fn storable(name: &str) -> bool {
     name.len() <= NAME_MAX && name.bytes().all(|b| (0x20..0x7f).contains(&b) && b != b':')
 }
 
-/// The variables systemd sets for vtium's own use, which no session
-/// inherits: the descriptors passed at a restart, the notification
-/// socket and the size of the file-descriptor store.
-const SYSTEMD_ONLY: [&str; 5] = [
+/// The variables systemd sets for the service that vtium is, which no
+/// session inherits: the descriptors passed at a restart, the
+/// notification socket, the size of the file-descriptor store, the id of
+/// the unit's run, the stream of its journal and its main process.
+const SYSTEMD_ONLY: [&str; 8] = [
     "LISTEN_FDS",
     "LISTEN_PID",
     "LISTEN_FDNAMES",
     "NOTIFY_SOCKET",
     "FDSTORE",
+    "INVOCATION_ID",
+    "JOURNAL_STREAM",
+    "SYSTEMD_EXEC_PID",
 ];
+
+/// The start of the names of the variables that tell the service how to
+/// watch its memory pressure (`MEMORY_PRESSURE_WATCH`,
+/// `MEMORY_PRESSURE_WRITE`), which no session inherits either.
+const SYSTEMD_ONLY_PREFIX: &str = "MEMORY_PRESSURE_";
 
 /// vtium's environment without the variables that are systemd's word to
 /// vtium alone, as the sessions inherit it with `reset-env` off.
 pub fn session_env(env: Vec<(OsString, OsString)>) -> Vec<(OsString, OsString)> {
     env.into_iter()
-        .filter(|(k, _)| !SYSTEMD_ONLY.iter().any(|v| k == v))
+        .filter(|(k, _)| {
+            !SYSTEMD_ONLY.iter().any(|v| k == v)
+                && !k
+                    .as_encoded_bytes()
+                    .starts_with(SYSTEMD_ONLY_PREFIX.as_bytes())
+        })
         .collect()
+}
+
+/// A kept master's name in the words a person reads in the log: its head
+/// and its console, or that vtium does not know the name.
+pub fn describe(name: &str) -> String {
+    match Name::parse(name) {
+        Some(n) => format!("head {}: console {}", n.head, n.console),
+        None => "a session kept under a name vtium does not know".to_owned(),
+    }
 }
 
 /// The keeper of a vtium starting on the VT at `tty` with the environment
@@ -134,13 +157,15 @@ pub fn start(
     match hold::start(&run_dir.join(format!("tty{vt}")), exe) {
         Ok((client, mut kept)) => {
             log::info!(
-                "vtium keeps each session's pty in its holder, vtium hold, so the sessions outlive a restart"
+                "vtium keeps each session's pty in vtium hold, a process of its own, so the sessions outlive a restart"
             );
             kept.extend(passed);
             (Keeper::Hold(client), kept)
         }
         Err(e) => {
-            log::warn!("vtium cannot start its holder, so the sessions end if vtium restarts: {e}");
+            log::warn!(
+                "vtium cannot start vtium hold, the process that keeps the sessions' ptys, so the sessions end if vtium restarts: {e}"
+            );
             (Keeper::Off, passed)
         }
     }
@@ -228,6 +253,16 @@ impl Keeper {
         !matches!(self, Keeper::Off)
     }
 
+    /// How many masters the keeper takes: the size of systemd's store, or
+    /// the most the holder keeps.
+    pub fn capacity(&self) -> usize {
+        match self {
+            Keeper::Off => 0,
+            Keeper::Store(store) => store.capacity(),
+            Keeper::Hold(_) => hold::MAX_KEPT,
+        }
+    }
+
     /// Gives the keeper a copy of `master` under `name`.
     pub fn keep(&mut self, name: &str, master: BorrowedFd<'_>) -> io::Result<()> {
         match self {
@@ -250,17 +285,25 @@ impl Keeper {
 /// Which master the keeper holds under each name, so vtium tells it only
 /// what changed. The seat gives each pty it opens or takes back an id it
 /// never gives again in a run, and the ledger records each name's id.
+///
+/// A keeper that fails, such as a holder that died or a store whose socket
+/// is gone, is given up: vtium logs one warning, asks it to drop what it
+/// holds, and keeps nothing more, so the sessions end if vtium restarts.
+/// A session the keeper has no room for is logged once and left unkept
+/// while it runs.
 #[derive(Default)]
 pub struct Ledger {
     held: Vec<(String, u64)>,
+    /// The live names the keeper had no room for.
+    refused: Vec<String>,
 }
 
 impl Ledger {
     /// What vtium tells `keeper` so that it holds exactly `live`: each
-    /// name with the id of its pty and the pty's master. A master under a
-    /// name whose id changed replaces the one kept, and a name no longer
-    /// live is forgotten. A failure is logged, and the session it concerns
-    /// does not survive a restart.
+    /// name with the id of its pty and the pty's master, as far as the
+    /// keeper has room. The masters of names no longer live, or whose id
+    /// changed, are forgotten first, so a full store has room for what
+    /// replaces them.
     pub fn sync<'a>(
         &mut self,
         keeper: &mut Keeper,
@@ -269,36 +312,65 @@ impl Ledger {
         if !keeper.keeps() {
             return;
         }
-        let mut seen: Vec<String> = Vec::new();
-        for (name, id, master) in live {
-            let had = self.held.iter().position(|(n, _)| *n == name);
-            if let Some(at) = had {
-                if self.held.get(at).is_some_and(|&(_, held)| held == id) {
-                    seen.push(name);
-                    continue;
-                }
-                self.held.swap_remove(at);
-                if let Err(e) = keeper.forget(&name) {
-                    log::warn!("cannot drop the kept copy of {name}: {e}");
-                }
-            }
-            match keeper.keep(&name, master) {
-                Ok(()) => self.held.push((name.clone(), id)),
-                Err(e) => {
-                    log::warn!("cannot keep {name}, so its session ends if vtium restarts: {e}");
-                }
-            }
-            seen.push(name);
-        }
+        let live: Vec<(String, u64, BorrowedFd<'a>)> = live.into_iter().collect();
         let (stay, gone): (Vec<_>, Vec<_>) = std::mem::take(&mut self.held)
             .into_iter()
-            .partition(|(n, _)| seen.contains(n));
+            .partition(|(n, id)| live.iter().any(|(l, lid, _)| l == n && lid == id));
         self.held = stay;
+        self.refused.retain(|n| live.iter().any(|(l, _, _)| l == n));
         for (name, _) in gone {
-            if let Err(e) = keeper.forget(&name) {
-                log::warn!("cannot drop the kept copy of {name}: {e}");
+            if !self.forget(keeper, &name) {
+                return;
             }
         }
+        for (name, id, master) in live {
+            if self.holds(&name) || self.refused.contains(&name) {
+                continue;
+            }
+            if self.held.len() >= keeper.capacity() {
+                log::warn!(
+                    "{}: vtium keeps no copy of its pty, as the keeper holds {} already, so its session ends if vtium restarts",
+                    describe(&name),
+                    self.held.len()
+                );
+                self.refused.push(name);
+                continue;
+            }
+            if let Err(e) = keeper.keep(&name, master) {
+                self.give_up(keeper, &e);
+                return;
+            }
+            self.held.push((name, id));
+        }
+    }
+
+    /// Tells `keeper` to drop the master kept under `name`, and gives the
+    /// keeper up when it fails; returns whether the keeper still keeps.
+    pub fn forget(&mut self, keeper: &mut Keeper, name: &str) -> bool {
+        self.held.retain(|(n, _)| n != name);
+        match keeper.forget(name) {
+            Ok(()) => true,
+            Err(e) => {
+                self.give_up(keeper, &e);
+                false
+            }
+        }
+    }
+
+    /// Gives up `keeper`, which failed with `e`: one warning, a last
+    /// attempt to drop what it holds, and no keeper from then on.
+    fn give_up(&mut self, keeper: &mut Keeper, e: &io::Error) {
+        if !keeper.keeps() {
+            return;
+        }
+        log::warn!(
+            "vtium can no longer keep the sessions' ptys through a restart ({e}), so the sessions end if vtium restarts"
+        );
+        for (name, _) in self.held.drain(..) {
+            let _ = keeper.forget(&name);
+        }
+        self.refused.clear();
+        *keeper = Keeper::Off;
     }
 
     /// Records that the keeper holds `name`'s master, whose pty has the id
