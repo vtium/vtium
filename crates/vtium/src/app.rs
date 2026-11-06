@@ -5329,7 +5329,8 @@ mod tests {
                 .collect::<Vec<_>>()
         };
         let before = drawn(&app);
-        let (width, height) = before[0].0[0];
+        let b_before = before.get(1).unwrap();
+        let &(width, height) = before.first().unwrap().0.first().unwrap();
         let other = at + 11;
         let outline = vtium_font::Cell {
             width: 9,
@@ -5347,12 +5348,13 @@ mod tests {
         };
         app.late_cell("t", at, Ok(helper::OwnCell::Bitmap(own)));
         let after = drawn(&app);
+        let (a_cells, (a_columns, _)) = after.first().unwrap();
         let wide = (own.width, own.height);
         assert_eq!(app.heads.first().map(|h| h.cell), Some(wide));
-        assert_eq!(after[0].0, [wide], "a is laid out in the late cell");
+        assert_eq!(a_cells.as_slice(), [wide], "a is laid out in the late cell");
         let columns = usize::try_from(320 / own.width).unwrap();
-        assert_eq!(after[0].1.0, columns, "a's grid takes the late cell");
-        assert_eq!(after[1], before[1], "b is not laid out");
+        assert_eq!(*a_columns, columns, "a's grid takes the late cell");
+        assert_eq!(after.get(1).unwrap(), b_before, "b is not laid out");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
