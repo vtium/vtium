@@ -204,10 +204,65 @@ impl Segmenter {
     }
 }
 
+/// The cells the grapheme cluster `cluster` takes on a screen whose
+/// clusters follow UAX #29 (mode 2027 set, the terminal's default): its
+/// first codepoint's width, 0, 1 or 2, or two when that codepoint is the
+/// base of an emoji-style variation sequence and U+FE0F follows it. It is
+/// the width the screen stores for the cluster, given here so that the
+/// glyph helper places each glyph in the cells the terminal gives it.
+pub fn cluster_width(cluster: &[char]) -> u8 {
+    let Some((&first, rest)) = cluster.split_first() else {
+        return 1;
+    };
+    if is_vs16_base(first) && rest.contains(&'\u{FE0F}') {
+        return 2;
+    }
+    char_width(first)
+}
+
 #[cfg(test)]
 #[expect(clippy::panic, reason = "a test fails by panicking")]
 mod tests {
     use super::*;
+
+    // cluster_width gives the width the screen stores for each cluster
+    // printed by the Unicode width method: an ideograph, the heart with
+    // VS16, with VS15 and alone, a letter and its combining acute, and the
+    // ZWJ family
+    #[test]
+    fn a_clusters_width_is_the_one_the_screen_stores() {
+        let clusters: [&[char]; 6] = [
+            &['\u{4E2D}'],
+            &['\u{2764}', '\u{FE0F}'],
+            &['\u{2764}', '\u{FE0E}'],
+            &['\u{2764}'],
+            &['e', '\u{301}'],
+            &[
+                '\u{1F468}',
+                '\u{200D}',
+                '\u{1F469}',
+                '\u{200D}',
+                '\u{1F467}',
+            ],
+        ];
+        let widths: Vec<u8> = clusters.iter().map(|k| cluster_width(k)).collect();
+        assert_eq!(widths, [2, 2, 1, 1, 1, 2]);
+        for cluster in clusters {
+            let mut screen = crate::Screen::new(10, 1, 0);
+            screen.set_width_method(crate::WidthMethod::Unicode);
+            for &c in cluster {
+                screen.print(c);
+            }
+            let stored = match screen.line(0).map(|l| l.cell(0).width()) {
+                Some(crate::Width::Wide) => 2,
+                Some(crate::Width::Narrow) => 1,
+                other => panic!("{cluster:?}: {other:?}"),
+            };
+            assert_eq!(cluster_width(cluster), stored, "{cluster:?}");
+        }
+        assert_eq!(cluster_width(&[]), 1);
+        assert_eq!(cluster_width(&['\u{301}']), 0, "a mark alone");
+    }
 
     #[test]
     fn widths_of_named_codepoints() {
