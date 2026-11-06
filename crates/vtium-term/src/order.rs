@@ -209,30 +209,37 @@ struct RowText {
     end: usize,
 }
 
-/// The drawing order of each row of one paragraph, `lines` in reading
-/// order, each read `cols` wide. The paragraph's properties are those of
-/// its first row (ADR-1004 D2). `too_long` draws it as in explicit mode, as
-/// a paragraph of more than [`BIDI_PARAGRAPH_ROWS_MAX`](crate::bounds::BIDI_PARAGRAPH_ROWS_MAX) rows is. The rows'
-/// `paragraph` ranges are left empty for the caller.
-pub(crate) fn paragraph(lines: &[&Line], cols: usize, too_long: bool) -> Vec<RowOrder> {
+/// The drawing order of the rows of one paragraph that the caller draws,
+/// `wanted`, each with its index in `lines`: `lines` is the whole
+/// paragraph in reading order, each row read `cols` wide. The paragraph's
+/// properties are those of its first row (ADR-1004 D2). `too_long` draws
+/// it as in explicit mode, as a paragraph of more than
+/// [`BIDI_PARAGRAPH_ROWS_MAX`](crate::bounds::BIDI_PARAGRAPH_ROWS_MAX) rows
+/// is. The algorithm reads the whole paragraph, and the rows outside
+/// `wanted` cost it nothing more. The rows' `paragraph` ranges are left
+/// empty for the caller.
+pub(crate) fn paragraph(
+    lines: &[&Line],
+    cols: usize,
+    too_long: bool,
+    wanted: Range<usize>,
+) -> Vec<(usize, RowOrder)> {
     let flags = lines.first().map_or(LineFlags::empty(), |l| l.flags());
-    let rows: Vec<RowText> = lines
-        .iter()
-        .map(|l| {
-            let (units, end) = units(l, cols);
-            RowText { units, end }
-        })
-        .collect();
+    let text = |l: &&Line| {
+        let (units, end) = units(l, cols);
+        RowText { units, end }
+    };
     let box_mirror = flags.contains(LineFlags::BOX_MIRROR);
     let explicit = flags.contains(LineFlags::EXPLICIT) || too_long;
     if explicit {
         let rtl = flags.contains(LineFlags::RTL);
-        return rows
-            .iter()
-            .map(|row| explicit_row(row, cols, rtl, box_mirror))
+        return wanted
+            .filter_map(|i| lines.get(i).map(|l| (i, text(l))))
+            .map(|(i, row)| (i, explicit_row(&row, cols, rtl, box_mirror)))
             .collect();
     }
-    implicit(&rows, cols, flags, box_mirror)
+    let rows: Vec<RowText> = lines.iter().map(text).collect();
+    implicit(&rows, cols, flags, box_mirror, wanted)
 }
 
 /// A row in explicit mode: drawn as written in a left-to-right paragraph
@@ -263,7 +270,13 @@ fn explicit_row(row: &RowText, cols: usize, rtl: bool, box_mirror: bool) -> RowO
 /// over the paragraph's characters, each row reordered on its own, and
 /// the letters joined in logical order across the whole paragraph
 /// (ADR-1004 D3, D6).
-fn implicit(rows: &[RowText], cols: usize, flags: LineFlags, box_mirror: bool) -> Vec<RowOrder> {
+fn implicit(
+    rows: &[RowText],
+    cols: usize,
+    flags: LineFlags,
+    box_mirror: bool,
+    wanted: Range<usize>,
+) -> Vec<(usize, RowOrder)> {
     let text: Vec<char> = rows
         .iter()
         .flat_map(|r| r.units.iter().map(|u| u.c))
@@ -287,16 +300,20 @@ fn implicit(rows: &[RowText], cols: usize, flags: LineFlags, box_mirror: bool) -
     let (rtl, levels) = if direction == Direction::LeftToRight && !moves {
         (false, vec![0; text.len()])
     } else {
-        let resolved = levels::resolve(&text, direction, false, &lens);
+        let resolved = levels::resolve(&text, direction, false, &lens, wanted.clone());
         (resolved.level % 2 == 1, resolved.levels)
     };
     let joins = bidi::joins(&text);
     let mut at: usize = 0;
     rows.iter()
-        .map(|row| {
+        .enumerate()
+        .filter_map(|(i, row)| {
             let n = row.units.len();
             let span = at..at.saturating_add(n);
             at = span.end;
+            if !wanted.contains(&i) {
+                return None;
+            }
             let row_levels = levels.get(span.clone()).unwrap_or_default();
             let order = levels::visual_order(row_levels);
             let mut marks = vec![if rtl { RTL } else { 0 }; cols];
@@ -313,7 +330,7 @@ fn implicit(rows: &[RowText], cols: usize, flags: LineFlags, box_mirror: bool) -
                     .unwrap_or_default();
                 mark_joins(&mut marks, unit.col, j);
             }
-            build(row, &order, cols, rtl, box_mirror, marks)
+            Some((i, build(row, &order, cols, rtl, box_mirror, marks)))
         })
         .collect()
 }
@@ -341,6 +358,8 @@ fn build(
     box_mirror: bool,
     marks: Vec<u8>,
 ) -> RowOrder {
+    #[cfg(test)]
+    BUILT.with(|n| n.set(n.get().saturating_add(1)));
     let trailing = row.end..cols.max(row.end);
     let mut visual: Vec<usize> = Vec::with_capacity(cols);
     if rtl {
@@ -368,6 +387,19 @@ fn build(
         box_mirror,
         paragraph: 0..0,
     }
+}
+
+#[cfg(test)]
+std::thread_local! {
+    /// The rows [`build`] has ordered on this thread, which a test counts
+    /// to check that a frame orders only the rows it draws.
+    static BUILT: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
+/// The rows [`build`] has ordered on this thread so far.
+#[cfg(test)]
+pub(crate) fn rows_built() -> usize {
+    BUILT.with(core::cell::Cell::get)
 }
 
 #[cfg(test)]
@@ -427,7 +459,10 @@ mod tests {
 
     fn one(text: &str, cols: usize, flags: LineFlags) -> String {
         let l = line(text, cols, flags);
-        let r = paragraph(&[&l], cols, false);
+        let r: Vec<RowOrder> = paragraph(&[&l], cols, false, 0..1)
+            .into_iter()
+            .map(|(_, r)| r)
+            .collect();
         drawn(&l, &r[0], cols)
     }
 
@@ -469,7 +504,7 @@ mod tests {
     #[test]
     fn the_maps_are_inverse() {
         let l = line("abc שלום (1) def", 20, LineFlags::RTL);
-        let r = &paragraph(&[&l], 20, false)[0];
+        let r = &paragraph(&[&l], 20, false, 0..1)[0].1;
         for v in 0..20 {
             assert_eq!(r.visual_at(r.logical_at(v)), v);
         }

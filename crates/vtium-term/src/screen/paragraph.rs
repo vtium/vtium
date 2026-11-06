@@ -144,6 +144,27 @@ impl Screen {
         }
     }
 
+    /// The rows of the screen's paragraph that holds row `y`, when that
+    /// paragraph draws in another order than it was written: it runs right
+    /// to left, or one of its rows has held a right-to-left or joining
+    /// character. Empty otherwise.
+    pub(super) fn reordered_rows(&self, y: usize) -> Range<usize> {
+        let mut first = y;
+        while let Some(above) = first.checked_sub(1)
+            && self
+                .line(above)
+                .is_some_and(|l| l.flags().contains(LineFlags::WRAPPED))
+        {
+            first = above;
+        }
+        let rows = self.paragraph_from(first);
+        let reorders = rows
+            .clone()
+            .filter_map(|row| self.line(row))
+            .any(|l| l.flags().contains(LineFlags::RTL) || l.flags().contains(LineFlags::REORDERS));
+        if reorders { rows } else { y..y }
+    }
+
     /// Gives row `y` the paragraph properties `values`, and marks it
     /// changed when they differ from those it held, since its drawn order
     /// may change with them (ADR-1004 D8).
@@ -193,33 +214,29 @@ impl Screen {
     /// The order each row of the view is drawn in: each paragraph with a
     /// row in view that runs right to left, or that holds a row that has
     /// held a right-to-left or joining character, ordered once, every row
-    /// of it in view taking its row's order. The paragraph is read whole,
-    /// its rows above and below the view included, up to
-    /// [`BIDI_PARAGRAPH_ROWS_MAX`] rows, so each frame reads each character
-    /// of a drawn paragraph once (ADR-1004 D3, D8).
+    /// of it in view taking its row's order. The bidirectional algorithm
+    /// reads the paragraph whole, its rows above and below the view
+    /// included, up to [`BIDI_PARAGRAPH_ROWS_MAX`] rows, once for each
+    /// character's level; rule L1 and the drawing order then cost only the
+    /// rows the view shows (ADR-1004 D3, D8).
     pub(crate) fn order(&self) -> Order {
         let rows = self.view().len();
         let base = self.view_place(0);
+        let view = base..base.saturating_add(rows);
         let mut out: Vec<Option<RowOrder>> = vec![None; rows];
         let mut y = 0;
         while y < rows {
             let place = base.saturating_add(y);
-            let (first, last, orders) = self.paragraph_orders(place);
+            let (first, last, orders) = self.paragraph_orders(place, view.clone());
             let next = last
                 .saturating_add(1)
                 .saturating_sub(base)
                 .max(y.saturating_add(1));
-            if let Some(orders) = orders {
-                let top = first.max(base).saturating_sub(base);
-                let view = top..next.min(rows);
-                for (p, mut row) in (first..).zip(orders) {
-                    let Some(at) = p.checked_sub(base).filter(|&r| r < rows) else {
-                        continue;
-                    };
-                    row.paragraph = view.clone();
-                    if let Some(slot) = out.get_mut(at) {
-                        *slot = Some(row);
-                    }
+            let shown = first.max(base).saturating_sub(base)..next.min(rows);
+            for (p, mut row) in orders.into_iter().flatten() {
+                row.paragraph = shown.clone();
+                if let Some(slot) = p.checked_sub(base).and_then(|at| out.get_mut(at)) {
+                    *slot = Some(row);
                 }
             }
             y = next;
@@ -241,19 +258,28 @@ impl Screen {
         self.place_order(place).is_some_and(|r| r.rtl)
     }
 
-    /// The order of the line at `place` in reading order alone, as
-    /// [`row_order`](Self::row_order) gives a view row's.
+    /// The order of the line at `place` in reading order alone,
+    /// as [`row_order`](Self::row_order) gives a view row's.
     pub(super) fn place_order(&self, place: usize) -> Option<RowOrder> {
-        let (first, _, orders) = self.paragraph_orders(place);
-        orders?.into_iter().nth(place.checked_sub(first)?)
+        let wanted = place..place.saturating_add(1);
+        let (_, _, orders) = self.paragraph_orders(place, wanted);
+        orders?.into_iter().next().map(|(_, row)| row)
     }
 
     /// The paragraph that holds the line at `place` in reading order: its
-    /// first and last places, and the order of each of its rows, or `None`
-    /// when it draws in logical order. A paragraph of more than
-    /// [`BIDI_PARAGRAPH_ROWS_MAX`] rows is drawn as in explicit mode, so it
-    /// gives the line at `place` alone, ordered as explicit.
-    fn paragraph_orders(&self, place: usize) -> (usize, usize, Option<Vec<RowOrder>>) {
+    /// first and last places, and the order of each of its rows whose place
+    /// is in `wanted`, each with its place, or `None` when it draws in
+    /// logical order. A paragraph of more than [`BIDI_PARAGRAPH_ROWS_MAX`]
+    /// rows is drawn as in explicit mode, so it gives the line at `place`
+    /// alone, ordered as explicit.
+    fn paragraph_orders(
+        &self,
+        place: usize,
+        wanted: Range<usize>,
+    ) -> (usize, usize, Option<Vec<(usize, RowOrder)>>) {
+        // walk at most one row past the bound each way, which tells a
+        // paragraph of more than BIDI_PARAGRAPH_ROWS_MAX rows from one of
+        // exactly that many
         let mut first = place;
         while place.saturating_sub(first) < BIDI_PARAGRAPH_ROWS_MAX
             && let Some(above) = first.checked_sub(1)
@@ -265,8 +291,7 @@ impl Screen {
         while last.saturating_sub(first) < BIDI_PARAGRAPH_ROWS_MAX && self.continues(last) {
             last = last.saturating_add(1);
         }
-        let too_long = last.saturating_sub(first) >= BIDI_PARAGRAPH_ROWS_MAX
-            && (first.checked_sub(1).is_some_and(|a| self.continues(a)) || self.continues(last));
+        let too_long = last.saturating_sub(first) >= BIDI_PARAGRAPH_ROWS_MAX;
         let (first, last) = if too_long {
             (place, place)
         } else {
@@ -283,11 +308,13 @@ impl Screen {
         if draws_in_order {
             return (first, last, None);
         }
-        (
-            first,
-            last,
-            Some(order::paragraph(&lines, self.cols, too_long)),
-        )
+        let rows = wanted.start.max(first).saturating_sub(first)
+            ..wanted.end.min(last.saturating_add(1)).saturating_sub(first);
+        let orders = order::paragraph(&lines, self.cols, too_long, rows)
+            .into_iter()
+            .map(|(i, row)| (first.saturating_add(i), row))
+            .collect();
+        (first, last, Some(orders))
     }
 }
 
@@ -299,46 +326,96 @@ pub(crate) fn hold(flags: &mut LineFlags, values: LineFlags) {
 }
 
 #[cfg(test)]
-#[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
+#[expect(
+    clippy::unwrap_used,
+    clippy::arithmetic_side_effects,
+    clippy::indexing_slicing,
+    reason = "a test fails by panicking"
+)]
 mod tests {
     use crate::Terminal;
-    use crate::unicode::bidi::levels::resolved_chars;
+    use crate::bounds::BIDI_PARAGRAPH_ROWS_MAX;
+    use crate::order::rows_built;
+    use crate::unicode::bidi::levels::chars_read;
+
+    /// What `f` costs: the characters the algorithm reads and the rows
+    /// ordered.
+    fn cost(f: impl FnOnce()) -> (usize, usize) {
+        let (chars, rows) = (chars_read(), rows_built());
+        f();
+        (chars_read() - chars, rows_built() - rows)
+    }
 
     // ADR-1004 D3, D8: a frame reads each character of a drawn paragraph
-    // once, however many of its rows the view shows, so drawing a screen
-    // of one wrapped paragraph costs its characters and not its rows
-    // times its characters.
+    // once for its level, and each character of a drawn row once more for
+    // rule L1, and orders only the rows it draws. A row that read the whole
+    // paragraph again would cost the paragraph's length a row.
     #[test]
-    fn a_frame_reads_each_character_of_a_paragraph_once() {
+    fn a_frame_reads_a_paragraph_once_and_each_drawn_row_once_more() {
         let (cols, rows) = (40, 100);
         let mut t = Terminal::new(cols, rows, 0);
         let n = cols * rows - 1;
         t.input("\u{05D0}".repeat(n).as_bytes());
-        let before = resolved_chars();
-        let order = t.screen().order();
-        assert_eq!(resolved_chars() - before, n);
-        assert_eq!(order.rows().count(), rows);
-        // the pointer reads the paragraph of its own row once
-        let before = resolved_chars();
-        let _ = t.screen().pointer_col(3, rows - 1);
-        assert_eq!(resolved_chars() - before, n);
+        let mut order = None;
+        assert_eq!(cost(|| order = Some(t.screen().order())), (2 * n, rows));
+        assert_eq!(order.unwrap().rows().count(), rows);
+        // the pointer orders its own row: the paragraph's levels and its row
+        assert_eq!(cost(|| _ = t.screen().pointer_col(3, 7)), (n + cols, 1));
     }
 
-    // ADR-1004 D3: a paragraph of more than BIDI_PARAGRAPH_ROWS_MAX rows
-    // is drawn as explicit, so the algorithm reads none of it.
+    // ADR-1004 D8: a paragraph that runs into the scrollback is read whole
+    // for its levels, and only the rows the view shows are ordered.
     #[test]
-    fn a_paragraph_past_the_bound_reads_nothing() {
-        let (cols, rows) = (4, crate::bounds::BIDI_PARAGRAPH_ROWS_MAX + 20);
-        let mut t = Terminal::new(cols, rows, 0);
-        t.input("\u{05D0}b".repeat(cols * rows / 2 - 1).as_bytes());
-        let before = resolved_chars();
+    fn rows_above_the_view_are_read_but_not_ordered() {
+        let (cols, rows, paragraph) = (40, 10, 30);
+        let mut t = Terminal::new(cols, rows, 1000);
+        t.screen_mut().set_scrollback_max(1000);
+        let n = cols * paragraph - 1;
+        t.input("\u{05D0}".repeat(n).as_bytes());
+        // the last row shows 39 letters and the cursor
+        let shown = cols * rows - 1;
+        assert_eq!(cost(|| _ = t.screen().order()), (n + shown, rows));
+    }
+
+    /// Each row of the view as drawn, a character a cell.
+    fn drawn(t: &Terminal) -> Vec<String> {
         let order = t.screen().order();
-        assert_eq!(resolved_chars() - before, 0);
-        // each row is drawn as written, in its left-to-right paragraph
-        let row = order.rows().next().unwrap().1;
-        assert_eq!(
-            (0..cols).map(|c| row.logical_at(c)).collect::<Vec<_>>(),
-            [0, 1, 2, 3]
-        );
+        let screen = t.screen();
+        (0..screen.rows())
+            .map(|y| {
+                let line = screen.line(y).unwrap();
+                (0..screen.cols())
+                    .map(|v| {
+                        let col = order.row(y).map_or(v, |r| r.logical_at(v));
+                        match line.glyph(line.cell(col)) {
+                            crate::line::Glyph::Char(c) => c,
+                            _ => '.',
+                        }
+                    })
+                    .collect()
+            })
+            .collect()
+    }
+
+    // ADR-1004 D3: a paragraph of BIDI_PARAGRAPH_ROWS_MAX rows is resolved,
+    // and one of a row more is drawn as explicit, as written in its
+    // left-to-right direction, with nothing read.
+    #[test]
+    fn a_paragraph_of_more_than_the_bound_draws_as_explicit() {
+        for (rows, read, row) in [
+            (BIDI_PARAGRAPH_ROWS_MAX, true, "\u{05D1}\u{05D0}"),
+            (BIDI_PARAGRAPH_ROWS_MAX + 1, false, "\u{05D0}\u{05D1}"),
+        ] {
+            let mut t = Terminal::new(2, rows, 0);
+            t.input("\u{05D0}\u{05D1}".repeat(rows).as_bytes());
+            let (chars, _) = cost(|| _ = t.screen().order());
+            assert_eq!(chars > 0, read, "{rows} rows");
+            let d = drawn(&t);
+            assert_eq!(
+                (d[0].as_str(), d[rows - 1].as_str()),
+                (row, row),
+                "{rows} rows"
+            );
+        }
     }
 }
