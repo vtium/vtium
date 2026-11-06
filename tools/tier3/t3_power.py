@@ -48,7 +48,8 @@ CHECKS = {
                      "suspends to RAM with no sleep target of systemd's, and after the wake-up "
                      "vtium draws its screen again.",
     "power-off-sysvinit": "grab-power-off (Ctrl+Alt+End) on the guest without systemd, whose "
-                          "PID 1, sysvinit, catches SIGRTMIN+4 as systemd does. Correct: vtium "
+                          "PID 1, sysvinit, catches SIGRTMIN+4 with a handler, where systemd "
+                          "blocks it and reads it from a signalfd. Correct: vtium "
                           "gives no warning at its start, sends the signal, sysvinit switches to "
                           "runlevel 0, stopping the services and unmounting the filesystems, and "
                           "the machine powers off.",
@@ -59,10 +60,11 @@ CHECKS = {
                        "filesystems, and the kernel restarts.",
 }
 
-# The start of each of vtium's warnings at its start that a bound
-# grab-power-off may power nothing off: PID 1 does not catch SIGRTMIN+4, or
-# /proc/1/status does not say.
-POWER_OFF_WARNING = "grab-power-off is bound"
+# The words that open each of vtium's warnings at its start that a bound
+# grab-power-off may power nothing off: PID 1 neither catches SIGRTMIN+4 nor
+# blocks it ("will not work"), or /proc/1/status does not say ("may not
+# work"). vtium's check-config notices (crates/vtium/src/notice.rs) word them.
+POWER_OFF_WARNING = "the grab-power-off key"
 
 POWER_OFF = {
     "before": {"forbid": [POWER_OFF_WARNING]},

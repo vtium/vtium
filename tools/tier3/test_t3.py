@@ -1604,9 +1604,12 @@ class PowerTest(unittest.TestCase):
                                "Will now halt.",
                                "[ 9.9] reboot: Power down"],
     }
-    # vtium's warning at its start where PID 1 does not catch SIGRTMIN+4.
-    WARNING = ("[ 3.2] vtium[404]: config: grab-power-off is bound, and PID 1 does not catch "
-               "SIGRTMIN+4 (signal 38, from SigCgt in /proc/1/status): it powers nothing off")
+    # vtium's warning at its start where PID 1 neither catches nor blocks
+    # SIGRTMIN+4.
+    WARNING = ("[ 3.2] vtium[404]: config: the grab-power-off key will not work: the init "
+               "system (PID 1) neither handles nor blocks SIGRTMIN+4 (signal 38, from SigCgt "
+               "and SigBlk in /proc/1/status). Unbind the key, or use an init system that "
+               "powers off on that signal, such as systemd or sysvinit.")
 
     # What a power-off after S3 ends with in QEMU: systemd-shutdown exits
     # when reboot(2) returns, ten seconds after the kernel's last line.
@@ -1734,8 +1737,9 @@ class PowerTest(unittest.TestCase):
                               % t3_power.POWER_OFF_WARNING, why or "")
 
     def test_no_known_failure_on_the_sysvinit_guest(self):
-        # sysvinit catches SIGRTMIN+4, so vtium gives no warning and
-        # power-off-sysvinit passes with no note; a warning fails it.
+        # sysvinit catches SIGRTMIN+4 with a handler, so vtium gives no
+        # warning and power-off-sysvinit passes with no note; a warning
+        # fails it.
         case = "power-off-sysvinit"
         self.assertNotIn(case, t3_power.KNOWN)
         self.assertEqual(t3_power.verdict(case, self.log(case), 0, "guest-shutdown"),
@@ -2957,6 +2961,14 @@ class DevicesTest(unittest.TestCase):
         self.assertEqual(m.groups(), ("/dev/input/event6", "QEMU QEMU USB Keyboard"))
         self.assertIsNone(t3_devices.KEYBOARD_LINE.search(
             "input: using /dev/input/event4 [VirtualPS/2 VMware VMMouse] as Virtual mouse"))
+        # vtium names the vendor and product ids a device reports after its name.
+        m = t3_devices.KEYBOARD_LINE.search(
+            "[ 7.3] vtium[556]: input: using /dev/input/event2 [QEMU QEMU USB Keyboard] "
+            "0627:0001 as keyboard\n")
+        self.assertEqual(m.groups(), ("/dev/input/event2", "QEMU QEMU USB Keyboard"))
+        self.assertIsNone(t3_devices.KEYBOARD_LINE.search(
+            "input: using /dev/input/event4 [VirtualPS/2 VMware VMMouse] 0002:0013 as "
+            "Virtual mouse"))
 
     # The guest's account of each keyboard-hotplug run (screens/keyboard-hotplug.sh).
     PS2 = "T3-KBD platform-i8042-serio-0-event-kbd /dev/input/event1"

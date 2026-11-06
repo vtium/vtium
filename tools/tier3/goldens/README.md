@@ -125,4 +125,4 @@ The `sgr`, `colour-forms`, `underline-styles`, `underline-colour`, `strike`, `em
 
 ## The screens' heading
 
-The screens print `vtium tier 3` and no longer name another program: `boxdraw`'s box is headed `vtium tier 3`, and `sixel-bound`'s heading reads `One sixel with more work than vtium parses at once:`. Three goldens still show the old heading `kmscon tier 3`, so they differ from vtium's capture in that row: `gl-1280x800/boxdraw` and `gl-1280x800/sixel-bound`, which are the record above, and `2d-7680x2160-font32/boxdraw`. That golden also draws its box lines two pixels wide where vtium draws them one pixel wide at the 20x38 cell, and `2d-7680x2160-font32/blocks` differs the same way. No decision lists that change, and both wait for the maintainer to settle the line width.
+The screens print `vtium tier 3` and no longer name another program: `boxdraw`'s box is headed `vtium tier 3`, and `sixel-bound`'s heading reads `One sixel with more work than vtium parses at once:`. Two goldens still show the old heading `kmscon tier 3`: `gl-1280x800/boxdraw` and `gl-1280x800/sixel-bound`, which are the record above and judge no capture.

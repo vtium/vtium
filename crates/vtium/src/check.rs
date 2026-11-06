@@ -77,20 +77,28 @@ fn frit(config: &Config, frits: &Path) -> Vec<String> {
     }
 }
 
-/// Whether PID 1 catches `signal`, from the text of `/proc/1/status`:
-/// the `SigCgt` line is a hex mask with bit `signal - 1` set for a caught
-/// signal. `Err` is the report of why the text does not answer.
-fn init_catches(status: &str, signal: i32) -> Result<bool, String> {
-    let mask = status
-        .lines()
-        .find_map(|line| line.strip_prefix("SigCgt:"))
-        .ok_or_else(|| check_config::power_off_no_sigcgt(signal))?;
-    let mask = u64::from_str_radix(mask.trim(), 16)
-        .map_err(|_| check_config::power_off_bad_mask(signal, mask.trim()))?;
+/// Whether PID 1 takes `signal`, from the text of `/proc/1/status`. The
+/// kernel drops a signal sent to PID 1 that PID 1 neither catches with a
+/// handler nor blocks, and keeps one it blocks pending until PID 1 reads it
+/// (kernel/signal.c, `sig_task_ignored` and `sig_ignored`). sysvinit catches
+/// SIGRTMIN+4 with a handler; systemd blocks it and reads it from a
+/// signalfd. The `SigCgt` and `SigBlk` lines are hex masks with bit
+/// `signal - 1` set for a caught and for a blocked signal. `Err` is the
+/// report of why the text does not answer.
+fn init_takes(status: &str, signal: i32) -> Result<bool, String> {
     let bit = u32::try_from(signal).ok().and_then(|n| n.checked_sub(1));
-    Ok(bit
-        .and_then(|b| mask.checked_shr(b))
-        .is_some_and(|m| m & 1 == 1))
+    let has_bit = |line: &str| -> Result<bool, String> {
+        let mask = status
+            .lines()
+            .find_map(|l| l.strip_prefix(line)?.strip_prefix(':'))
+            .ok_or_else(|| check_config::power_off_no_mask(signal, line))?;
+        let mask = u64::from_str_radix(mask.trim(), 16)
+            .map_err(|_| check_config::power_off_bad_mask(signal, line, mask.trim()))?;
+        Ok(bit
+            .and_then(|b| mask.checked_shr(b))
+            .is_some_and(|m| m & 1 == 1))
+    };
+    Ok(has_bit("SigCgt")? || has_bit("SigBlk")?)
 }
 
 /// [`semantics`] where `status` is what reading `/proc/1/status` gave (the
@@ -112,16 +120,16 @@ fn semantics_under(config: &Config, status: &Result<String, String>, signal: i32
         out.push(check_config::MODE_OVER_ORIGINAL.to_owned());
     }
     if !config.chords(&keys::GRAB_POWER_OFF).is_empty() {
-        let caught = match status {
-            Ok(text) => init_catches(text, signal),
+        let taken = match status {
+            Ok(text) => init_takes(text, signal),
             Err(system_error) => Err(check_config::power_off_status_unreadable(
                 signal,
                 system_error,
             )),
         };
-        match caught {
+        match taken {
             Ok(true) => {}
-            Ok(false) => out.push(check_config::power_off_uncaught(signal)),
+            Ok(false) => out.push(check_config::power_off_not_taken(signal)),
             Err(report) => out.push(report),
         }
     }
@@ -783,9 +791,11 @@ mod tests {
         );
     }
 
-    fn status(cgt: &str) -> Result<String, String> {
+    /// The text of `/proc/1/status` for a PID 1 whose caught signals are
+    /// `cgt` and whose blocked signals are `blk`.
+    fn status(cgt: &str, blk: &str) -> Result<String, String> {
         Ok(format!(
-            "Name:\tinit\nSigIgn:\t0000000000001000\nSigCgt:\t{cgt}\nCapInh:\t0\n"
+            "Name:\tinit\nSigBlk:\t{blk}\nSigIgn:\t0000000000001000\nSigCgt:\t{cgt}\nCapInh:\t0\n"
         ))
     }
 
@@ -799,29 +809,38 @@ mod tests {
     const BOUND: &str = "grab-power-off=<Ctrl><Alt>End\n";
 
     #[test]
-    fn grab_power_off_is_silent_where_init_catches_the_signal() {
-        // Both masks have bit 37 (signal 38) set.
-        for cgt in ["00000021fdc1fefb", "0000002000014a03"] {
+    fn grab_power_off_is_silent_where_init_takes_the_signal() {
+        // systemd blocks SIGRTMIN+4 and reads it from a signalfd, so bit 37
+        // (signal 38) is set in its SigBlk and not in its SigCgt; these are
+        // the masks of systemd 262 as PID 1. sysvinit catches the signal
+        // with a handler, so the bit is set in its SigCgt.
+        for (cgt, blk) in [
+            ("00000000000004ec", "7fefc1fe28014a03"),
+            ("00000021fdc1fefb", "0000000000000000"),
+        ] {
             assert_eq!(
-                power_off_warnings(BOUND, &status(cgt)),
+                power_off_warnings(BOUND, &status(cgt, blk)),
                 [] as [&str; 0],
-                "{cgt}"
+                "SigCgt {cgt}, SigBlk {blk}"
             );
         }
     }
 
     #[test]
-    fn grab_power_off_warns_where_init_catches_nothing_of_it() {
+    fn grab_power_off_warns_where_init_neither_catches_nor_blocks_it() {
         assert_eq!(
-            power_off_warnings(BOUND, &status("0000000000000000")),
+            power_off_warnings(BOUND, &status("0000000000000000", "0000000000000000")),
             [
-                "the grab-power-off key will not work: the init system (PID 1) does not \
-                 handle SIGRTMIN+4 (signal 38, from SigCgt in /proc/1/status)"
+                "the grab-power-off key will not work: the init system (PID 1) neither \
+                 handles nor blocks SIGRTMIN+4 (signal 38, from SigCgt and SigBlk in \
+                 /proc/1/status). Unbind the key, or use an init system that powers off on \
+                 that signal, such as systemd or sysvinit."
             ]
         );
         // Bit 38 (signal 39) is a neighbour, not the signal.
+        let neighbour = "0000004000000000";
         assert_eq!(
-            power_off_warnings(BOUND, &status("0000004000000000")).len(),
+            power_off_warnings(BOUND, &status(neighbour, neighbour)).len(),
             1
         );
     }
@@ -837,24 +856,32 @@ mod tests {
                  not be read: Permission denied (os error 13)"
             ]
         );
+        let says = |status: Result<String, String>, what: &str| {
+            let lines = power_off_warnings(BOUND, &status);
+            matches!(lines.as_slice(), [line] if line.contains(what))
+        };
         let no_line = Ok("Name:\tinit\n".to_owned());
-        let says = |lines: Vec<String>, what: &str| lines.iter().all(|l| l.contains(what));
+        assert!(says(no_line, "because /proc/1/status has no SigCgt line"));
+        // A SigCgt without the bit sends the check on to SigBlk.
+        let no_blk = Ok("Name:\tinit\nSigCgt:\t0\n".to_owned());
+        assert!(says(no_blk, "because /proc/1/status has no SigBlk line"));
         assert!(says(
-            power_off_warnings(BOUND, &no_line),
-            "because /proc/1/status has no SigCgt line"
+            status("zz", "0"),
+            "because the SigCgt line of /proc/1/status is not a hex mask: \"zz\""
         ));
         assert!(says(
-            power_off_warnings(BOUND, &status("zz")),
-            "not a hex mask"
+            status("0", "zz"),
+            "because the SigBlk line of /proc/1/status is not a hex mask: \"zz\""
         ));
-        assert_eq!(power_off_warnings(BOUND, &no_line).len(), 1);
-        assert_eq!(power_off_warnings(BOUND, &status("zz")).len(), 1);
     }
 
     #[test]
     fn an_unbound_grab_power_off_checks_nothing() {
         let unbound = "grab-reboot=<Ctrl><Alt>Delete\n";
-        assert_eq!(power_off_warnings(unbound, &status("0")), [] as [&str; 0]);
+        assert_eq!(
+            power_off_warnings(unbound, &status("0", "0")),
+            [] as [&str; 0]
+        );
         assert_eq!(
             power_off_warnings(unbound, &Err("x".to_owned())),
             [] as [&str; 0]
