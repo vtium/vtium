@@ -1087,3 +1087,29 @@ fn decaln_fills_the_screen_with_e_and_resets_the_margins_and_cursor() {
     t.input(b"\x1b[4;1H\n");
     assert_eq!(rows(t.screen()), ["EEEEE", "EEEEE", "EEEEE", ""]);
 }
+
+// ctlseqs, DECRQM: a mode vtium always or never has answers that state as
+// permanent, 3 for one always set and 4 for one always reset, and SM and RM
+// change nothing. vtium always scrolls the view to the bottom on a key
+// press (1011) and always allows the alternate screen (1046); it never
+// switches to 132 columns (40), never encodes the mouse in UTF-8 (1005),
+// which SGR mouse replaces, and keeps the view where it is while output
+// arrives (1010).
+// covers: DEC-40, DEC-1005, DEC-1010, DEC-1011, DEC-1046
+#[test]
+fn modes_vtium_always_or_never_has_answer_their_fixed_state_and_change_nothing() {
+    let rows: [(u32, u8); 5] = [(40, 4), (1005, 4), (1010, 4), (1011, 3), (1046, 3)];
+    let mut t = term(6, 3, b"ab\x1b[1;31m");
+    let before = format!("{t:?}");
+    for (n, fixed) in rows {
+        t.take_replies();
+        t.input(format!("\x1b[?{n}$p").as_bytes());
+        let reply = String::from_utf8(t.take_replies()).unwrap();
+        assert_eq!(reply, format!("\x1b[?{n};{fixed}$y"), "DECRQM ?{n}");
+        t.input(format!("\x1b[?{n}h").as_bytes());
+        assert_eq!(rqm(&mut t, true, n), fixed, "?{n} set");
+        t.input(format!("\x1b[?{n}l").as_bytes());
+        assert_eq!(rqm(&mut t, true, n), fixed, "?{n} reset");
+        assert_eq!(format!("{t:?}"), before, "?{n} changed the state");
+    }
+}
