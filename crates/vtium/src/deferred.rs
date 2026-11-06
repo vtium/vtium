@@ -34,6 +34,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use crate::font::DisplayFace;
 
 use vtium_font::set::{PixelFormat, Set, SetBuilder, SetFace, StrikeBuilder, StrikeInfo};
+use vtium_font::spacing::{Band, Fit, SpacedCell};
 use vtium_font::sprite::Range;
 use vtium_font::{
     Cell, Decorations, Face, Format, Glyph, RangeCoverage, SpritePolicy, Style, Width,
@@ -361,12 +362,14 @@ fn scaled(rows: &[u8], from: usize, to: usize) -> Option<Vec<u8>> {
     Some(out)
 }
 
-/// One set the helper sent, or its rebuild: its cell, the style of its
-/// strikes, the face it draws through, each text it maps with when the
-/// screen last showed it, and its bytes.
+/// One set the helper sent, or its rebuild: its cell and the rows line
+/// spacing adds to it, the style of its strikes, the face it draws
+/// through, each text it maps with when the screen last showed it, and its
+/// bytes.
 #[derive(Debug)]
 struct Entry {
     cell: Cell,
+    band: Band,
     style: Style,
     face: SetFace,
     /// Sorted by text.
@@ -386,6 +389,14 @@ fn draw_text(face: &SetFace, text: &[char], style: Style, unscaled: bool) -> Opt
 }
 
 impl Entry {
+    /// The cell and band it was generated for, which it is held by.
+    fn at(&self) -> SpacedCell {
+        SpacedCell {
+            cell: self.cell,
+            band: self.band,
+        }
+    }
+
     fn find(&self, text: &[char]) -> Result<usize, usize> {
         self.glyphs
             .binary_search_by(|(t, _)| t.as_slice().cmp(text))
@@ -539,26 +550,28 @@ impl Fresh {
 }
 
 impl Generated {
-    /// A checked set of glyphs at `cell` in `style`, mapping the codepoints
-    /// of `runs` and the clusters its cluster map holds at `cell` in that
+    /// A checked set of glyphs at `at`, a cell and the rows line spacing
+    /// adds to it (ADR-1302 D13), in `style`, mapping the codepoints of
+    /// `runs` and the clusters its cluster map holds at the cell in that
     /// style, and taking `bytes`, without the glyphs the store holds at
-    /// `cell` in `style` (ADR-1200 D18): a set that carries some is written again without them, as
+    /// `at` in `style` (ADR-1200 D18): a set that carries some is written again without them, as
     /// compaction writes one ([`rewrite`]), and counts the bytes written.
     /// It adds nothing when it carries nothing new, or when it cannot be
-    /// written again. `None` when `set` has no face at `cell`.
+    /// written again. `None` when `set` has no face at the cell.
     pub fn fresh(
         &self,
-        (cell, style): (Cell, Style),
+        (at, style): (impl Into<SpacedCell>, Style),
         set: Arc<Set>,
         runs: &[(u32, u32)],
         bytes: u64,
     ) -> Option<Fresh> {
+        let at: SpacedCell = at.into();
         let clusters: Vec<Text> = set
             .clusters()
-            .filter(|&(at, of, _)| at == cell && of == style)
+            .filter(|&(of_cell, of, _)| of_cell == at.cell && of == style)
             .map(|(_, _, key)| key)
             .collect();
-        let face = SetFace::new(set, cell.height)?;
+        let face = SetFace::new(set, at.cell.height)?;
         let mut glyphs: Vec<(Text, u64)> = runs
             .iter()
             .flat_map(|&(first, n)| (0..n).map(move |i| first.checked_add(i)))
@@ -572,11 +585,12 @@ impl Generated {
         let held: Vec<Text> = glyphs
             .iter()
             .map(|(t, _)| t)
-            .filter(|t| self.held(cell, style, t))
+            .filter(|t| self.held(at, style, t))
             .cloned()
             .collect();
         let mut entry = Entry {
-            cell,
+            cell: at.cell,
+            band: at.band,
             style,
             face,
             glyphs,
@@ -601,36 +615,36 @@ impl Generated {
         Some(face)
     }
 
-    /// Whether the store holds at `cell`, in any style, the glyph of a
+    /// Whether the store holds at `at`, in any style, the glyph of a
     /// cluster `c` begins.
-    fn begins(&self, cell: Cell, c: char) -> bool {
-        self.entries.iter().filter(|e| e.cell == cell).any(|e| {
-            let at = e
+    fn begins(&self, at: SpacedCell, c: char) -> bool {
+        self.entries.iter().filter(|e| e.at() == at).any(|e| {
+            let i = e
                 .glyphs
                 .partition_point(|(t, _)| t.as_slice() <= [c].as_slice());
             e.glyphs
-                .get(at)
+                .get(i)
                 .is_some_and(|(t, _)| t.len() > 1 && t.first() == Some(&c))
         })
     }
 
-    /// Whether the store holds `text`'s glyph at `cell` in `style`.
-    fn held(&self, cell: Cell, style: Style, text: &[char]) -> bool {
-        self.entry(cell, style, text).is_some()
+    /// Whether the store holds `text`'s glyph at `at` in `style`.
+    fn held(&self, at: SpacedCell, style: Style, text: &[char]) -> bool {
+        self.entry(at, style, text).is_some()
     }
 
-    /// Whether the store holds `text`'s glyph at `cell` in any style.
-    fn held_any(&self, cell: Cell, text: &[char]) -> bool {
+    /// Whether the store holds `text`'s glyph at `at` in any style.
+    fn held_any(&self, at: SpacedCell, text: &[char]) -> bool {
         self.entries
             .iter()
-            .any(|e| e.cell == cell && e.find(text).is_ok())
+            .any(|e| e.at() == at && e.find(text).is_ok())
     }
 
-    /// The entry holding `text`'s glyph at `cell` in `style`.
-    fn entry(&self, cell: Cell, style: Style, text: &[char]) -> Option<&Entry> {
+    /// The entry holding `text`'s glyph at `at` in `style`.
+    fn entry(&self, at: SpacedCell, style: Style, text: &[char]) -> Option<&Entry> {
         self.entries
             .iter()
-            .find(|e| e.cell == cell && e.style == style && e.find(text).is_ok())
+            .find(|e| e.at() == at && e.style == style && e.find(text).is_ok())
     }
 
     /// The bytes held: each set's as the helper sent it or as compaction
@@ -644,10 +658,10 @@ impl Generated {
     /// share of their sets' bytes covers it, and writes each set they
     /// leave again without them ([`rewrite`]). When the rewritten sets
     /// free less than their share, the next least recently shown glyphs
-    /// go too. The texts no longer held, by cell and style; nothing is
-    /// redrawn, and each is asked for again when the screen shows it.
-    pub fn make_room(&mut self, overrun: u64) -> Vec<(Cell, Style, Vec<Text>)> {
-        let mut out: Vec<(Cell, Style, Vec<Text>)> = Vec::new();
+    /// go too. The texts no longer held, by cell, band and style; nothing
+    /// is redrawn, and each is asked for again when the screen shows it.
+    pub fn make_room(&mut self, overrun: u64) -> Vec<(SpacedCell, Style, Vec<Text>)> {
+        let mut out: Vec<(SpacedCell, Style, Vec<Text>)> = Vec::new();
         let mut short = overrun;
         while short > 0 && !self.entries.is_empty() {
             let held = self.bytes();
@@ -681,16 +695,16 @@ impl Generated {
                 };
                 list.sort_unstable();
                 let (lost, empty) = e.compact(&list);
-                let (cell, style) = (e.cell, e.style);
+                let (at, style) = (e.at(), e.style);
                 if empty {
                     self.entries.remove(i);
                 }
                 match out
                     .iter_mut()
-                    .find(|(at, of, _)| (*at, *of) == (cell, style))
+                    .find(|(of_at, of, _)| (*of_at, *of) == (at, style))
                 {
                     Some((_, _, texts)) => texts.extend(lost),
-                    None => out.push((cell, style, lost)),
+                    None => out.push((at, style, lost)),
                 }
             }
             short = short.saturating_sub(held.saturating_sub(self.bytes()));
@@ -703,9 +717,9 @@ impl Generated {
         out
     }
 
-    /// The screen shows `shown` at `cell`: the glyphs of its characters
+    /// The screen shows `shown` at `at`: the glyphs of its characters
     /// and its clusters in its style are the most recently shown.
-    pub fn touch(&mut self, cell: Cell, shown: &Shown) {
+    pub fn touch(&mut self, at: SpacedCell, shown: &Shown) {
         self.tick = self.tick.saturating_add(1);
         let tick = self.tick;
         let singles = shown.chars.iter().map(std::slice::from_ref);
@@ -715,7 +729,7 @@ impl Generated {
         for e in self
             .entries
             .iter_mut()
-            .filter(|e| e.cell == cell && e.style == shown.style)
+            .filter(|e| e.at() == at && e.style == shown.style)
         {
             for &t in &texts {
                 if let Ok(i) = e.find(t)
@@ -727,29 +741,29 @@ impl Generated {
         }
     }
 
-    /// Drops the glyphs of every cell but `cells`.
-    pub fn retain(&mut self, cells: &[Cell]) {
-        self.entries.retain(|e| cells.contains(&e.cell));
+    /// Drops the glyphs of every cell and band but `cells`.
+    pub fn retain(&mut self, cells: &[SpacedCell]) {
+        self.entries.retain(|e| cells.contains(&e.at()));
     }
 
-    /// Whether any glyph at `cell` is held.
-    pub fn holds(&self, cell: Cell) -> bool {
-        self.entries.iter().any(|e| e.cell == cell)
+    /// Whether any glyph at `at` is held.
+    pub fn holds(&self, at: SpacedCell) -> bool {
+        self.entries.iter().any(|e| e.at() == at)
     }
 
-    /// The underline and strike-through the helper's strikes at `cell`
-    /// report (ADR-1302 D3): every answer at one cell reports the frit's
-    /// first source's, so the first set held there gives them. `None` while
-    /// no set at `cell` is held.
-    fn decorations(&self, cell: Cell) -> Option<Decorations> {
-        let e = self.entries.iter().find(|e| e.cell == cell)?;
+    /// The underline and strike-through the helper's strikes at `at`
+    /// report (ADR-1302 D3): every answer at one cell and band reports the
+    /// frit's first source's, so the first set held there gives them.
+    /// `None` while no set at `at` is held.
+    fn decorations(&self, at: SpacedCell) -> Option<Decorations> {
+        let e = self.entries.iter().find(|e| e.at() == at)?;
         Some(e.face.decorations())
     }
 
-    /// `text`'s glyph at `cell` in `style`, from the store: a set of that
+    /// `text`'s glyph at `at` in `style`, from the store: a set of that
     /// style's, drawn as it is.
-    fn draw(&self, cell: Cell, text: &[char], style: Style) -> Option<Glyph> {
-        let face = &self.entry(cell, style, text)?.face;
+    fn draw(&self, at: SpacedCell, text: &[char], style: Style) -> Option<Glyph> {
+        let face = &self.entry(at, style, text)?.face;
         match text {
             [_] => face.draw(text, style),
             _ => face.cluster(text, style),
@@ -760,13 +774,22 @@ impl Generated {
 /// A display's face while the font is a frit: the generated glyph where
 /// the helper sent one, else the built-in font's, in the frit's cell
 /// (#145), a cluster found as the module says. The built-in fonts in a
-/// look's cell draw through it with a store that stays empty. Its cell
-/// never moves when glyphs arrive. A built-in glyph is centred in a larger
-/// cell and cropped to a smaller one, so both kinds come at the cell's size
-/// and the renderer stores them alike.
+/// look's cell, and in a cell made taller by line spacing, draw through it
+/// with a store that stays empty. Its cell never moves when glyphs arrive.
+/// A built-in glyph is centred in a larger cell and cropped to a smaller
+/// one, so both kinds come at the cell's size and the renderer stores them
+/// alike.
+///
+/// Where line spacing adds rows above and below the text band (ADR-1302
+/// D13), the helper sends glyphs already placed in the whole cell, and a
+/// built-in glyph is fitted to the text band and placed in the whole cell
+/// by its default fit ([`Fit::default_for`]): a line or block character
+/// stretches, by repeating its top and bottom rows, and the rest keeps its
+/// size with blank rows above and below.
 pub struct DeferredFace {
     builtin: DisplayFace,
     cell: Cell,
+    band: Band,
     step: u32,
     generated: Shared,
 }
@@ -774,23 +797,57 @@ pub struct DeferredFace {
 impl DeferredFace {
     /// `builtin` drawing in `cell`, which a zoom moves by `step`.
     pub fn new(builtin: DisplayFace, cell: Cell, step: u32, generated: Shared) -> DeferredFace {
+        DeferredFace::spaced(builtin, cell, Band::NONE, step, generated)
+    }
+
+    /// `builtin` drawing in `text`, the text band of a cell that line
+    /// spacing makes taller by `band` (ADR-1302 D13), which a zoom moves
+    /// by `step`.
+    pub fn spaced(
+        builtin: DisplayFace,
+        text: Cell,
+        band: Band,
+        step: u32,
+        generated: Shared,
+    ) -> DeferredFace {
         DeferredFace {
             builtin,
-            cell,
+            cell: Cell {
+                width: text.width,
+                height: text.height.saturating_add(band.added()),
+            },
+            band,
             step,
             generated,
         }
     }
 
+    /// The cell and band the store holds the face's glyphs by.
+    fn at(&self) -> SpacedCell {
+        SpacedCell {
+            cell: self.cell,
+            band: self.band,
+        }
+    }
+
+    /// The cell's text band, the cell less the rows line spacing adds.
+    fn text(&self) -> Cell {
+        Cell {
+            width: self.cell.width,
+            height: self.cell.height.saturating_sub(self.band.added()),
+        }
+    }
+
     fn generated_has(&self, c: char) -> bool {
-        lock(&self.generated).held_any(self.cell, &[c])
+        lock(&self.generated).held_any(self.at(), &[c])
     }
 
     /// `c`'s glyph in `style`: the store's in that style, else the built-in
     /// font's in the cell, which draws the style itself.
     fn single(&self, c: char, style: Style) -> Option<Glyph> {
-        let held = lock(&self.generated).draw(self.cell, &[c], style);
-        held.or_else(|| self.fit(self.builtin.draw(&[c], style)?))
+        let held = lock(&self.generated).draw(self.at(), &[c], style);
+        let fit = Fit::default_for(u32::from(c), is_mark(c));
+        held.or_else(|| self.fit(self.builtin.draw(&[c], style)?, fit))
     }
 
     /// A cluster the store does not hold drawn without its own glyph
@@ -808,7 +865,7 @@ impl DeferredFace {
     /// where its body stands before its letter, as the vowel sign i does.
     fn unshaped(&self, cluster: &[char], style: Style) -> Option<Glyph> {
         if let Some(c) = precomposed(cluster)
-            && let Some(g) = lock(&self.generated).draw(self.cell, &[c], style)
+            && let Some(g) = lock(&self.generated).draw(self.at(), &[c], style)
         {
             return Some(g);
         }
@@ -846,12 +903,21 @@ impl DeferredFace {
         beside(letter, &stand)
     }
 
-    /// The built-in's `glyph` at the cell's size: centred, padded or
+    /// The built-in's `glyph` at the cell's size: centred in the text
+    /// band, padded or cropped, the spare row or column after it, and then
+    /// placed in the whole cell as `fit` says (ADR-1302 D13).
+    fn fit(&self, glyph: Glyph, fit: Fit) -> Option<Glyph> {
+        let boxed = self.boxed(glyph)?;
+        vtium_font::spacing::place(&boxed, self.band, fit, true)
+    }
+
+    /// The built-in's `glyph` at the text band's size: centred, padded or
     /// cropped, the spare row or column after it.
-    fn fit(&self, glyph: Glyph) -> Option<Glyph> {
+    fn boxed(&self, glyph: Glyph) -> Option<Glyph> {
         let cells = glyph.cells();
-        let width = self.cell.width.checked_mul(cells.cells())?;
-        let height = self.cell.height;
+        let text = self.text();
+        let width = text.width.checked_mul(cells.cells())?;
+        let height = text.height;
         if (glyph.width(), glyph.height()) == (width, height) {
             return Some(glyph);
         }
@@ -899,7 +965,7 @@ impl Face for DeferredFace {
     fn has_glyph(&self, c: char) -> bool {
         self.generated_has(c)
             || self.builtin.has_glyph(c)
-            || lock(&self.generated).begins(self.cell, c)
+            || lock(&self.generated).begins(self.at(), c)
     }
 
     /// The built-in font's, so the sprites draw the same ranges before the
@@ -917,14 +983,18 @@ impl Face for DeferredFace {
             [] => None,
             &[c] => self.single(c, style),
             _ => {
-                let held = lock(&self.generated).draw(self.cell, cluster, style);
+                let held = lock(&self.generated).draw(self.at(), cluster, style);
                 held.or_else(|| self.unshaped(cluster, style))
             }
         }
     }
 
     fn last_resort(&self, style: Style) -> Option<Glyph> {
-        self.fit(self.builtin.last_resort(style)?)
+        self.fit(self.builtin.last_resort(style)?, Fit::Natural)
+    }
+
+    fn band(&self) -> Band {
+        self.band
     }
 
     /// The lines the helper's strikes at the cell report, once a set there
@@ -934,15 +1004,23 @@ impl Face for DeferredFace {
     /// the cell inside it, and the set reader refuses a strike whose line
     /// passes its cell, so a line held here always lies in the cell's rows.
     /// Before any set at the cell is held: the built-in font's in its own
-    /// cell, and in another the lines for the cell's height.
+    /// cell, and in another the lines for the cell's height. Line spacing
+    /// moves the built-in font's lines down with its text band (ADR-1302
+    /// D13); the helper's strikes report them moved already.
     fn decorations(&self) -> Decorations {
-        if let Some(lines) = lock(&self.generated).decorations(self.cell) {
+        if let Some(lines) = lock(&self.generated).decorations(self.at()) {
             return lines;
         }
-        if self.builtin.cell() == self.cell {
+        let text = self.text();
+        let lines = if self.builtin.cell() == text {
             self.builtin.decorations()
         } else {
-            Decorations::for_height(self.cell.height)
+            Decorations::for_height(text.height)
+        };
+        Decorations {
+            underline: lines.underline.saturating_add(self.band.above),
+            strike: lines.strike.saturating_add(self.band.above),
+            ..lines
         }
     }
 }
@@ -957,6 +1035,9 @@ impl Face for DeferredFace {
 mod tests {
     use super::*;
     use vtium_font::{Font, Unifont};
+
+    /// [`CELL`] with no line spacing.
+    const AT: SpacedCell = SpacedCell::plain(CELL);
 
     const CELL: Cell = Cell {
         width: 8,
@@ -976,6 +1057,29 @@ mod tests {
         Arc::new(Set::from_bytes(SetBuilder::new("t").strike(s).write().unwrap()).unwrap())
     }
 
+    // ADR-1302 D13: the store holds glyphs by the cell and the rows line
+    // spacing adds to it, so a set generated for one band never draws for
+    // the same cell size at another
+    #[test]
+    fn a_set_held_at_one_band_does_not_draw_at_another() {
+        let spaced = SpacedCell {
+            cell: CELL,
+            band: Band { above: 2, below: 2 },
+        };
+        let mut g = Generated::default();
+        let set = solid(CELL, &['A']);
+        let fresh = g
+            .fresh((spaced, Style::default()), set, &[(0x41, 1)], 1)
+            .unwrap();
+        assert!(g.add(fresh).is_some());
+        assert!(g.held(spaced, Style::default(), &['A']));
+        assert!(!g.held(AT, Style::default(), &['A']));
+        assert!(g.draw(AT, &['A'], Style::default()).is_none());
+        assert!(g.holds(spaced) && !g.holds(AT));
+        g.retain(&[AT]);
+        assert!(!g.holds(spaced), "the band no display draws at leaves");
+    }
+
     /// Adds `set` at `cell` to `store` as the helper does: what it adds.
     fn add(
         store: &mut Generated,
@@ -984,7 +1088,12 @@ mod tests {
         runs: Vec<(u32, u32)>,
         bytes: u64,
     ) -> Option<SetFace> {
-        let fresh = store.fresh((cell, Style::default()), set, &runs, bytes)?;
+        let fresh = store.fresh(
+            (SpacedCell::plain(cell), Style::default()),
+            set,
+            &runs,
+            bytes,
+        )?;
         store.add(fresh)
     }
 
@@ -1033,10 +1142,10 @@ mod tests {
         let generated = Shared::default();
         {
             let mut store = lock(&generated);
-            let fresh = store.fresh((CELL, italic), set, &[(0x41, 1)], 1).unwrap();
+            let fresh = store.fresh((AT, italic), set, &[(0x41, 1)], 1).unwrap();
             assert!(store.add(fresh).is_some());
-            assert!(store.held(CELL, italic, &['A']));
-            assert!(!store.held(CELL, Style::default(), &['A']));
+            assert!(store.held(AT, italic, &['A']));
+            assert!(!store.held(AT, Style::default(), &['A']));
         }
         let f = face(&generated);
         let unifont = Unifont::new(16);
@@ -1302,16 +1411,10 @@ mod tests {
         add(&mut g, CELL, solid(CELL, &['B']), vec![(0x42, 1)], 20);
         assert_eq!(g.bytes(), 30);
         // A is on the screen, B is not
-        g.touch(CELL, &shown(&['A']));
-        assert_eq!(
-            g.make_room(1),
-            vec![(CELL, Style::default(), texts(&['B']))]
-        );
+        g.touch(AT, &shown(&['A']));
+        assert_eq!(g.make_room(1), vec![(AT, Style::default(), texts(&['B']))]);
         assert_eq!(g.bytes(), 10);
-        assert_eq!(
-            g.make_room(1),
-            vec![(CELL, Style::default(), texts(&['A']))]
-        );
+        assert_eq!(g.make_room(1), vec![(AT, Style::default(), texts(&['A']))]);
         assert_eq!(g.make_room(1), vec![]);
         assert_eq!(g.bytes(), 0);
     }
@@ -1391,9 +1494,9 @@ mod tests {
         };
         assert_eq!(lock(&generated).bytes(), before);
         // shown: D, then A, then C and the wide one; B and E never
-        lock(&generated).touch(CELL, &shown(&['D']));
-        lock(&generated).touch(CELL, &shown(&['A']));
-        lock(&generated).touch(CELL, &shown(&['C', wide]));
+        lock(&generated).touch(AT, &shown(&['D']));
+        lock(&generated).touch(AT, &shown(&['A']));
+        lock(&generated).touch(AT, &shown(&['C', wide]));
         let f = face(&generated);
         let kept = ['A', 'C', wide, 'D'];
         let drawn = kept.map(|k| f.draw(&[k], Style::default()).unwrap());
@@ -1401,7 +1504,7 @@ mod tests {
         let after = answer(&[], &[a, c, w]).len() as u64 + answer(&[d], &[]).len() as u64;
         assert!(after < before);
         let gone = lock(&generated).make_room(before - after);
-        assert_eq!(gone, vec![(CELL, Style::default(), texts(&['B', 'E']))]);
+        assert_eq!(gone, vec![(AT, Style::default(), texts(&['B', 'E']))]);
         assert_eq!(lock(&generated).bytes(), after);
         for (k, glyph) in kept.into_iter().zip(drawn) {
             assert_eq!(f.draw(&[k], Style::default()), Some(glyph), "{k}");
@@ -1424,11 +1527,8 @@ mod tests {
         let d = ('D', Width::Narrow, bits(5));
         let e = ('E', Width::Narrow, bits(6));
         put(&mut g, answer(&[d.clone(), e], std::slice::from_ref(&a)));
-        g.touch(CELL, &shown(&['A', 'D']));
-        assert_eq!(
-            g.make_room(1),
-            vec![(CELL, Style::default(), texts(&['E']))]
-        );
+        g.touch(AT, &shown(&['A', 'D']));
+        assert_eq!(g.make_room(1), vec![(AT, Style::default(), texts(&['E']))]);
         let strikes: Vec<_> = g.entries[0]
             .face
             .set()
@@ -1527,10 +1627,10 @@ mod tests {
     fn the_store_keys_a_cluster_by_its_whole_text() {
         let mut g = Generated::default();
         add(&mut g, CELL, with_clusters(&['e'], &[]), vec![(0x65, 1)], 1);
-        assert!(g.held(CELL, Style::default(), &['e']) && !g.held(CELL, Style::default(), &ACUTE));
+        assert!(g.held(AT, Style::default(), &['e']) && !g.held(AT, Style::default(), &ACUTE));
         let fresh = g
             .fresh(
-                (CELL, Style::default()),
+                (AT, Style::default()),
                 with_clusters(&['e'], &[(&ACUTE, 7)]),
                 &[(0x65, 1)],
                 1,
@@ -1539,10 +1639,10 @@ mod tests {
         assert_eq!(fresh.texts().cloned().collect::<Vec<_>>(), [ACUTE.to_vec()]);
         assert!(g.add(fresh).is_some());
         let grave = ['e', '\u{300}'];
-        assert!(g.held(CELL, Style::default(), &ACUTE) && !g.held(CELL, Style::default(), &grave));
+        assert!(g.held(AT, Style::default(), &ACUTE) && !g.held(AT, Style::default(), &grave));
         let fresh = g
             .fresh(
-                (CELL, Style::default()),
+                (AT, Style::default()),
                 with_clusters(&[], &[(&grave, 9)]),
                 &[],
                 1,
@@ -2001,18 +2101,18 @@ mod tests {
             chars: vec!['e'],
             clusters: vec![ACUTE.to_vec()],
         };
-        lock(&generated).touch(CELL, &shown);
+        lock(&generated).touch(AT, &shown);
         assert_eq!(
             lock(&generated).make_room(1),
-            vec![(CELL, Style::default(), vec![grave.to_vec()])]
+            vec![(AT, Style::default(), vec![grave.to_vec()])]
         );
         let f = face(&generated);
         assert!(all(&f.draw(&ACUTE, Style::default()).unwrap(), 7));
-        assert!(!lock(&generated).held(CELL, Style::default(), &grave));
+        assert!(!lock(&generated).held(AT, Style::default(), &grave));
         // a frame of the held cluster and a new one adds the new one alone
         let fresh = lock(&generated)
             .fresh(
-                (CELL, Style::default()),
+                (AT, Style::default()),
                 with_clusters(&[], &[(&ACUTE, 3), (&grave, 9)]),
                 &[],
                 100,
@@ -2040,8 +2140,8 @@ mod tests {
             f.draw(&['A'], Style::default()),
             Unifont::new(16).draw(&['A'], Style::default())
         );
-        assert!(lock(&generated).holds(other));
-        lock(&generated).retain(&[CELL]);
-        assert!(!lock(&generated).holds(other));
+        assert!(lock(&generated).holds(SpacedCell::plain(other)));
+        lock(&generated).retain(&[AT]);
+        assert!(!lock(&generated).holds(SpacedCell::plain(other)));
     }
 }

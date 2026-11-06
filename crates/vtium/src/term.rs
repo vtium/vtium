@@ -710,9 +710,10 @@ pub struct View {
     pub orientation: vtium_render::Orientation,
     /// Who draws the pointer: the display's cursor plane or the renderer.
     pub pointer: Pointer,
-    /// The drawing's font cell, arrow, depth and font policy, read while
-    /// the render thread holds it.
+    /// The drawing's font cell, the rows line spacing adds to it, arrow,
+    /// depth and font policy, read while the render thread holds it.
     cell: vtium_font::Cell,
+    band: vtium_font::spacing::Band,
     arrow: Arrow,
     depth: Depth,
     policy: (SpritePolicy, Missing),
@@ -745,6 +746,7 @@ impl View {
             height: 0,
             orientation: config.orientation,
             cell: renderer.font().cell(),
+            band: renderer.font().face().band(),
             arrow: renderer.arrow().clone(),
             depth: renderer.depth(),
             policy: (renderer.font().policy(), renderer.font().missing()),
@@ -774,6 +776,7 @@ impl View {
     /// The drawing's renderer, the one frames are drawn with from now on.
     fn install(&mut self, renderer: Renderer<DisplayFace>) {
         self.cell = renderer.font().cell();
+        self.band = renderer.font().face().band();
         self.arrow = renderer.arrow().clone();
         self.depth = renderer.depth();
         self.policy = (renderer.font().policy(), renderer.font().missing());
@@ -836,6 +839,21 @@ impl View {
     /// The font's cell.
     pub fn cell(&self) -> vtium_font::Cell {
         self.cell
+    }
+
+    /// The rows line spacing adds to the font's cell above and below its
+    /// text band (ADR-1302 D13).
+    pub fn band(&self) -> vtium_font::spacing::Band {
+        self.band
+    }
+
+    /// The font's cell with the rows line spacing adds to it: what a
+    /// frit's glyphs for this view are asked for and held by.
+    pub fn spaced(&self) -> vtium_font::spacing::SpacedCell {
+        vtium_font::spacing::SpacedCell {
+            cell: self.cell,
+            band: self.band,
+        }
     }
 
     /// The pointer's arrow, as the renderer draws it.

@@ -203,6 +203,10 @@ pub struct Head {
     /// The cell the head's look states, `cell`, which the frit the head
     /// draws takes over its own `cell=` (ADR-1403 D5).
     look_cell: Option<vtium_font::Cell>,
+    /// `font-line-spacing`, vtium.conf's or the head's look's, which
+    /// overrides the frit's `line-spacing=` (ADR-1302 D13); `None` when
+    /// neither sets it.
+    pub(crate) line_spacing: Option<u32>,
     /// The base font was found once: a later failure keeps it.
     pub(crate) has_font: bool,
     /// The base font's size step, which a zoom takes.
@@ -437,6 +441,7 @@ impl Head {
             auto_size,
             sized,
             look_cell: look_cell(config),
+            line_spacing: config.font_line_spacing().map(u32::from),
             has_font: false,
             step: 16,
             cell: CELL,
@@ -883,15 +888,18 @@ impl Head {
         self.font.as_ref().unwrap_or(&Chosen::BUILTINS)
     }
 
-    /// The font set's face at `height`.
+    /// The font set's face at `height`, its cell taller by the head's
+    /// line spacing where that applies (ADR-1302 D13).
     pub(crate) fn face(&self, height: u32, locale: &str) -> Result<DisplayFace, String> {
         let chosen = self.chosen();
-        chosen.face(height, locale).ok_or_else(|| {
-            format!(
-                "font set {} has no characters at {height} pixels high",
-                chosen.name(height, locale)
-            )
-        })
+        chosen
+            .face_spaced(height, locale, self.line_spacing)
+            .ok_or_else(|| {
+                format!(
+                    "font set {} has no characters at {height} pixels high",
+                    chosen.name(height, locale)
+                )
+            })
     }
 
     /// The font at `height`, with the frit's sprite policy and the
@@ -1387,7 +1395,7 @@ pub(crate) struct Frit {
     pub(crate) refused: bool,
     /// The cells whose glyphs the helper was asked for, over every head
     /// drawing the frit.
-    pub(crate) asked: Vec<vtium_font::Cell>,
+    pub(crate) asked: Vec<vtium_font::spacing::SpacedCell>,
     /// The helper's answer to each cell query, or why there was none, by
     /// the height asked at.
     pub(crate) own: BTreeMap<u32, Result<crate::helper::OwnCell, crate::helper::NoCell>>,

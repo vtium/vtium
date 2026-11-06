@@ -79,7 +79,9 @@
 ## When unset, the font set's `line-spacing=` decides, and 0 where it has
 ## none.
 ##
-## This key has no effect yet.
+## Letters keep their size in the middle of the taller line, and line and
+## block characters stretch to fill it. A font set's `fit=` lines choose this
+## for each set of characters.
 
 #font-size=0
 #font-hinting=

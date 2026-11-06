@@ -78,6 +78,7 @@ mod policy;
 mod psf;
 pub mod set;
 mod sha256;
+pub mod spacing;
 pub mod sprite;
 #[cfg(feature = "unifont")]
 mod unifont;

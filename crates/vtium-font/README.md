@@ -120,6 +120,10 @@ Scale does not change what a source keeps, only what a draw returns: a font scal
 
 **The drawn-glyph cache is vtium-render's** (vtium/vtium#16) and is not decided here. A draw costs an allocation, a bit-to-byte expansion for a 1-bit glyph, and for a set an inflate only the first time a chunk is used, so the cache saves the allocation and never repeats an inflate.
 
+## Line spacing
+
+`spacing` holds what the console and the glyph helper share for added line spacing (ADR-1302 D13). `Band::of` gives the rows a percentage of the text's height adds, rounded to the nearest pixel with a half rounding up, split evenly with the odd pixel above, and cut so the cell stays inside `CELL_SIDE_MAX`. `Fit::default_for` gives a character's fit when its frit's set names none: box drawing, block elements, Braille, Powerline (U+E0A0 to U+E0D7) and the two Legacy Computing blocks are `fill`; Hebrew, Arabic, Syriac, Thaana, N'Ko and any combining mark are `room`; the rest is `natural`. `place` puts a glyph drawn at the text band's height into the taller cell: a `fill` mask stretches, a bitmap's by repeating its top and bottom rows and an outline's by scaling vertically, and everything else, every color glyph included, gets blank rows above and below. A face reports the rows its cell adds through `Face::band`, none by default.
+
 ## Notes for vtium-render
 
 - Ask `Font::glyph` for every cell's glyph: it draws the sprites, the face and the fallbacks, and boxes the result to exactly the cells asked for, marked with that cell count. Check its `format()`: a mask is blended in the cell's colors, RGBA is composited as it is. It returns `None` only for an empty cluster or a face that can draw nothing at all.

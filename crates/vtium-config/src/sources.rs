@@ -836,6 +836,7 @@ mod tests {
             cover: Vec::new(),
             cp_size: None,
             style: vtium_font::Style::default(),
+            fits: Vec::new(),
             line: 1,
         }
     }

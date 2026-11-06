@@ -4,6 +4,7 @@
 use crate::glyph::Glyph;
 use crate::hex;
 use crate::policy::{Coverage, Missing, RangeCoverage, Source, SpritePolicy};
+use crate::spacing::Band;
 use crate::sprite::{self, Range};
 
 /// How a glyph is drawn. Bitmap faces draw bold by widening each row by a
@@ -128,6 +129,13 @@ pub trait Face {
     fn last_resort_unscaled(&self, _style: Style) -> Option<Glyph> {
         None
     }
+
+    /// The rows the cell adds above and below its text band for line
+    /// spacing (ADR-1302 D13): none for a face whose cell is the text's
+    /// own height.
+    fn band(&self) -> Band {
+        Band::NONE
+    }
 }
 
 impl<F: Face + ?Sized> Face for Box<F> {
@@ -163,6 +171,9 @@ impl<F: Face + ?Sized> Face for Box<F> {
     }
     fn last_resort_unscaled(&self, style: Style) -> Option<Glyph> {
         (**self).last_resort_unscaled(style)
+    }
+    fn band(&self) -> Band {
+        (**self).band()
     }
 }
 
