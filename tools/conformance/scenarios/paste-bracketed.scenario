@@ -1,0 +1,16 @@
+# Bracketed paste, mode 2004: a paste arrives between CSI 200 ~ and
+# CSI 201 ~, filtered as a plain paste is, and never carrying its own end
+# marker, whose ESC becomes a space. DECRQM reports the mode.
+# spec: ctlseqs, Bracketed Paste Mode
+# covers: DEC-2004 input.paste-end-marker
+size 20 2
+send "\e[?2004$p"
+send "\e[?2004h"
+send "\e[?2004$p"
+paste "x"
+paste "line one\nline two\n"
+paste "inside \e[201~ the end marker"
+paste "\e[200~nested start"
+paste "a\x08b\x7fc\u{9b}d"
+send "\e[?2004l"
+paste "x"

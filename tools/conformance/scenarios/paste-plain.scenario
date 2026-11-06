@@ -1,0 +1,13 @@
+# A paste while bracketed paste mode is reset: the text arrives as typed,
+# with each LF sent as CR, so that a CR LF arrives as CR CR, and each C0
+# control but HT, LF and CR, DEL and each C1 control becoming a space, as
+# xterm filters a paste.
+# spec: ctlseqs, Bracketed Paste Mode; xterm's paste filtering
+# covers: input.paste-end-marker
+size 20 2
+paste "hello"
+paste "one\ntwo\r\nthree\rfour"
+paste "a\tb"
+paste "bell\a esc\e del\x7f nul-free\x01\x1f"
+paste "c1 \u{85} \u{9b}2J"
+paste "caf\u{e9} \u{20ac}"

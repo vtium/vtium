@@ -1,0 +1,11 @@
+# The X10 encoding carries a position up to 223 (255 less 32): a press past
+# column or row 223 reports 223; SGR carries the full position.
+# spec: ctlseqs, Mouse Tracking, X10 encoding
+# covers: DEC-1000
+size 300 230
+send "\e[?1000h"
+mouse press left at 222,0
+mouse press left at 223,229
+mouse press left at 299,229
+send "\e[?1006h"
+mouse press left at 299,229

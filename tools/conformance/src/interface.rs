@@ -16,9 +16,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
-use crate::probes::unquote;
 use crate::replay::{self, Input};
 use crate::runner::Corpus;
+use crate::scenario::unquote;
 use crate::spec::{Spec, fenced};
 use crate::view::View;
 

@@ -1,0 +1,80 @@
+# The keypad in numeric mode (DECKPNM, the default) and in application
+# mode (DECKPAM, ESC =), each key once in each mode, and with Shift and Ctrl
+# in application mode.
+# spec: ctlseqs, VT220-Style Function Keys and the numeric keypad
+# covers: ctl.deckpam
+size 20 2
+send "\e>"
+key KP_0
+key KP_1
+key KP_2
+key KP_3
+key KP_4
+key KP_5
+key KP_6
+key KP_7
+key KP_8
+key KP_9
+key KP_Decimal
+key KP_Add
+key KP_Subtract
+key KP_Multiply
+key KP_Divide
+key KP_Enter
+key KP_Equal
+key KP_Separator
+key KP_Space
+key KP_Tab
+key KP_F1
+key KP_F4
+key KP_Up
+key KP_Down
+key KP_Left
+key KP_Right
+key KP_Home
+key KP_End
+key KP_Prior
+key KP_Next
+key KP_Begin
+key KP_Insert
+key KP_Delete
+send "\e="
+key KP_0
+key KP_1
+key KP_2
+key KP_3
+key KP_4
+key KP_5
+key KP_6
+key KP_7
+key KP_8
+key KP_9
+key KP_Decimal
+key KP_Add
+key KP_Subtract
+key KP_Multiply
+key KP_Divide
+key KP_Enter
+key KP_Equal
+key KP_Separator
+key KP_Space
+key KP_Tab
+key KP_F1
+key KP_F4
+key KP_Up
+key KP_Down
+key KP_Left
+key KP_Right
+key KP_Home
+key KP_End
+key KP_Prior
+key KP_Next
+key KP_Begin
+key KP_Insert
+key KP_Delete
+key KP_1 mods=shift
+key KP_1 mods=ctrl
+key KP_Enter mods=shift
+key KP_Up mods=shift
+send "\e>"
+key KP_1

@@ -1,0 +1,116 @@
+> size 20 2
+> send "\e[?4m"
+< reply "\e[>4;0m"
+> key a mods=ctrl
+< reply "\x01"
+> key a mods=alt
+< reply "\ea"
+> key a mods=ctrl+alt
+< reply "\e\x01"
+> key A mods=shift+ctrl
+< reply "\x01"
+> key 1 mods=ctrl
+< reply "1"
+> key space mods=ctrl
+< reply "\x00"
+> key space mods=shift
+< reply " "
+> key Tab mods=ctrl
+< reply "\t"
+> key Tab mods=shift
+< reply "\t"
+> key Return mods=ctrl
+< reply "\r"
+> key Return mods=shift
+< reply "\r"
+> key Escape mods=ctrl
+< reply "\e"
+> key BackSpace mods=ctrl
+< reply "\b"
+> key BackSpace mods=alt
+< reply "\e\b"
+> key comma mods=ctrl
+< reply ","
+> key i mods=ctrl
+< reply "\t"
+> key m mods=ctrl
+< reply "\r"
+> send "\e[>4;1m"
+> send "\e[?4m"
+< reply "\e[>4;1m"
+> key a mods=ctrl
+< reply "\x01"
+> key a mods=alt
+< reply "\e[27;3;97~"
+> key a mods=ctrl+alt
+< reply "\e[27;7;97~"
+> key A mods=shift+ctrl
+< reply "\x01"
+> key 1 mods=ctrl
+< reply "\e[27;5;49~"
+> key space mods=ctrl
+< reply "\x00"
+> key space mods=shift
+< reply " "
+> key Tab mods=ctrl
+< reply "\e[27;5;9~"
+> key Tab mods=shift
+< reply "\e[27;2;9~"
+> key Return mods=ctrl
+< reply "\e[27;5;13~"
+> key Return mods=shift
+< reply "\e[27;2;13~"
+> key Escape mods=ctrl
+< reply "\e"
+> key BackSpace mods=ctrl
+< reply "\b"
+> key BackSpace mods=alt
+< reply "\e\b"
+> key comma mods=ctrl
+< reply "\e[27;5;44~"
+> key i mods=ctrl
+< reply "\t"
+> key m mods=ctrl
+< reply "\r"
+> send "\e[>4;2m"
+> send "\e[?4m"
+< reply "\e[>4;2m"
+> key a mods=ctrl
+< reply "\e[27;5;97~"
+> key a mods=alt
+< reply "\e[27;3;97~"
+> key a mods=ctrl+alt
+< reply "\e[27;7;97~"
+> key A mods=shift+ctrl
+< reply "\e[27;6;65~"
+> key 1 mods=ctrl
+< reply "\e[27;5;49~"
+> key space mods=ctrl
+< reply "\e[27;5;32~"
+> key space mods=shift
+< reply "\e[27;2;32~"
+> key Tab mods=ctrl
+< reply "\e[27;5;9~"
+> key Tab mods=shift
+< reply "\e[27;2;9~"
+> key Return mods=ctrl
+< reply "\e[27;5;13~"
+> key Return mods=shift
+< reply "\e[27;2;13~"
+> key Escape mods=ctrl
+< reply "\e[27;5;27~"
+> key BackSpace mods=ctrl
+< reply "\b"
+> key BackSpace mods=alt
+< reply "\e[27;3;8~"
+> key comma mods=ctrl
+< reply "\e[27;5;44~"
+> key i mods=ctrl
+< reply "\e[27;5;105~"
+> key m mods=ctrl
+< reply "\e[27;5;109~"
+> send "\e[>4m"
+> send "\e[?4m"
+< reply "\e[>4;0m"
+> key a mods=ctrl
+< reply "\x01"

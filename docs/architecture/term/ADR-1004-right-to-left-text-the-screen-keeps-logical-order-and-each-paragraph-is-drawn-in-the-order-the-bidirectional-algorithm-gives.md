@@ -65,6 +65,9 @@ considered:
   - operator: aaronsb
     said: "Accept it"
     via: the steering session's question tool, 2026-11-06, after all seven answers were recorded and the successor research found none better than unicode-bidi; the option wording is the steering session's
+  - operator: aaronsb
+    said: "[A direction change sent mid-paragraph: follow the recommendation or keep D2?] Follow the recommendation (Rec.)"
+    via: AskUserQuestion, 2026-11-06; the option label is the steering session's wording
 observable:
   - "The probe `bidi` passes: in the replay interface's display view, `abc` then the Hebrew word shalom then ` (1) def`, printed in the default mode, reads `abc (1) <shalom reversed> def`"
   - "vtium-term, calling unicode-bidi as D13 guards it, passes every case of the Unicode Character Database's BidiTest.txt and BidiCharacterTest.txt at the version its tables pin, the visual order included"
@@ -132,9 +135,13 @@ Each paragraph carries four properties, held in four of the nine spare bits of `
 | direction detected | DEC private mode 2501 | from `text-direction` (D5) |
 | box drawing mirrored | DEC private mode 2500 | off |
 
-The terminal keeps a current value of each. A sequence that changes one sets it on every row of the cursor's paragraph. A new row, one that a line feed or a scroll brings onto the screen, takes the current values. A wrap carries the paragraph's values to the row it starts. A rewrap (ADR-1003) gives every row it makes the values of the paragraph's first row. When the scrollback drops a paragraph's first rows, its remaining rows keep their values. Other SCP and SPD parameters are ignored.
+The terminal keeps a current value of each, and a sequence that changes one always changes its current value. When the cursor stands at the first logical position of its paragraph, the first column of the paragraph's first row, the sequence also sets the new value on every row of that paragraph, even where the current value already had it, and the paragraph's other properties stay as they are. Anywhere else, the first column of the paragraph's second or a later row included, it changes no row, and the new value reaches only the paragraphs that start after it. This is the recommendation's rule in its chapter on how these sequences apply. For this rule the screen's first row starts a paragraph, so a paragraph whose first rows have scrolled into the scrollback starts again there.
 
-RIS and DECSTR return the current values to their defaults and apply them to the cursor's paragraph, as SM and RM would. DECRQM reports BDSM, 2500 and 2501 as set or reset, DCSM as permanently set, and 1243 (D11) as set or reset.
+A new row, one that a scroll brings onto the screen, takes the current values. A line feed, IND or NEL that moves the cursor into a new paragraph, on a new row or on one already on the screen, gives that paragraph the current values; one that moves the cursor to the next row of the same paragraph changes nothing, as the recommendation says. ED gives every row it clears whole the current values, as the recommendation says: ED 0 the rows below the cursor, ED 1 the rows above it, and ED 2 every row of the screen, the scrollback left out, and so does the clear that mode 1049 makes as it enters the alternate screen. Each such row ends its paragraph, as vtium-term already ends a cleared row's wrap. A wrap carries the paragraph's values to the row it starts. A rewrap (ADR-1003) gives every row it makes the values of the paragraph's first row. When the scrollback drops a paragraph's first rows, its remaining rows keep their values. Other SCP and SPD parameters are ignored.
+
+RIS and DECSTR return the current values to their defaults and apply them to the cursor's paragraph, as SM and RM would, so to its rows only when the cursor stands at the paragraph's first logical position. RIS then clears the screen, which gives every row the defaults. DECRQM reports BDSM, 2500 and 2501 as set or reset, DCSM as permanently set, and 1243 (D11) as set or reset.
+
+> Edited 2026-11-06: the review of the paragraph state's code against the Terminal Working Group's recommendation found three rules this section had stated otherwise or left out. Before this edit, a sequence set its value on every row of the cursor's paragraph wherever the cursor stood, a line feed gave the current values only to a new row, and ED left the rows it cleared as they were. The maintainer chose to follow the recommendation for a change sent in the middle of a paragraph (`considered`), and the line feed and ED rules take the recommendation's wording as well.
 
 ### D3: implicit mode
 

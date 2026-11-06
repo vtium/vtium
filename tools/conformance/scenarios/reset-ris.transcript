@@ -1,0 +1,34 @@
+> size 12 4
+> send "\e[?1h\e=\e[4h\e[?7l\e[?25l\e[?2004h\e[?1000h\e[?1006h\e[?1004h"
+> send "\e[2;4r\e[?6h\e[1;31;44mstyled\e[?5h"
+> send "\e[?1$p\e[?66$p\e[4$p\e[?7$p\e[?25$p\e[?2004$p\e[?1000$p\e[?1006$p\e[?1004$p\e[?6$p\e[?5$p"
+< reply "\e[?1;1$y\e[?66;1$y\e[4;1$y\e[?7;2$y\e[?25;2$y\e[?2004;1$y\e[?1000;1$y\e[?1006;1$y\e[?1004;1$y\e[?6;1$y\e[?5;1$y"
+> dump screen
+size 12x4
+cursor 6,1
+flags INSERT_MODE|REL_ORIGIN|INVERSE|HIDE_CURSOR
+row 0 ||
+attr 0 0-11 inverse
+row 1 |styled|
+attr 1 0-5 fg=1 bg=4 bold inverse
+attr 1 6-11 inverse
+row 2 ||
+attr 2 0-11 inverse
+row 3 ||
+attr 3 0-11 inverse
+> send "\ec"
+> send "\e[?1$p\e[?66$p\e[4$p\e[?7$p\e[?25$p\e[?2004$p\e[?1000$p\e[?1006$p\e[?1004$p\e[?6$p\e[?5$p"
+< reply "\e[?1;2$y\e[?66;2$y\e[4;2$y\e[?7;1$y\e[?25;1$y\e[?2004;2$y\e[?1000;2$y\e[?1006;2$y\e[?1004;2$y\e[?6;2$y\e[?5;2$y"
+> key Up
+< reply "\e[A"
+> key KP_5
+< reply "5"
+> mouse press left at 1,1
+> dump screen
+size 12x4
+cursor 0,0
+flags AUTO_WRAP
+row 0 ||
+row 1 ||
+row 2 ||
+row 3 ||

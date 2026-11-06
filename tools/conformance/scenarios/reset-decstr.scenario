@@ -1,0 +1,18 @@
+# DECSTR, the soft reset (CSI ! p): the modes return to their defaults,
+# the mouse modes included, the scrolling region to the whole screen, the
+# pen to the default and the cursor to visible, and the screen's text
+# stays. A key and a mouse press after it show the input modes reset.
+# spec: DEC STD 070, DECSTR; ctlseqs, DECSTR
+# covers: ctl.decstr
+size 12 4
+send "\e[?1h\e=\e[4h\e[?7l\e[?25l\e[?2004h\e[?1000h\e[?1006h\e[?1004h"
+send "\e[2;4r\e[?6h\e[1;31;44mstyled\e[?5h"
+send "\e[?1$p\e[?66$p\e[4$p\e[?7$p\e[?25$p\e[?2004$p\e[?1000$p\e[?1006$p\e[?1004$p\e[?6$p\e[?5$p"
+dump screen
+send "\e[!p"
+send "\e[?1$p\e[?66$p\e[4$p\e[?7$p\e[?25$p\e[?2004$p\e[?1000$p\e[?1006$p\e[?1004$p\e[?6$p\e[?5$p"
+send "after"
+key Up
+key KP_5
+mouse press left at 1,1
+dump screen

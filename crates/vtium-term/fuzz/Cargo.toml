@@ -12,7 +12,9 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
-vtium-term = { path = ".." }
+# With the bidi feature, so the target reaches the paragraph state and
+# the modes that set it (ADR-1004 D14).
+vtium-term = { path = "..", features = ["bidi"] }
 
 [[bin]]
 name = "screen"

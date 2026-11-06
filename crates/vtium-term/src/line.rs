@@ -87,7 +87,8 @@ pub enum LineSize {
 
 /// What a line records about itself in 16 bits: the reflow flag, the
 /// three shell-integration marks, the line size, the mark of mode 2028
-/// reset, and nine bits spare for bidirectional state (vtium/vtium#43).
+/// reset, the four properties of the paragraph the line belongs to
+/// (ADR-1004 D2), and five bits spare.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct LineFlags(u16);
 
@@ -108,8 +109,27 @@ impl LineFlags {
     pub const FIXED: Self = Self(1 << 6);
     /// The shell-integration marks.
     pub const MARKS: Self = Self(Self::PROMPT.0 | Self::INPUT.0 | Self::OUTPUT.0);
+    /// The paragraph is in explicit mode: BDSM was reset (`CSI 8 l`), so
+    /// vtium draws its cells in the order they were written, in the
+    /// paragraph's direction. Without it the paragraph is in implicit mode,
+    /// BDSM's default (ADR-1004 D3, D4).
+    pub const EXPLICIT: Self = Self(1 << 7);
+    /// The paragraph runs right to left: SCP 2, SPD 3, or vtium.conf's
+    /// `text-direction = rtl`. Without it the paragraph runs left to right
+    /// (ADR-1004 D5).
+    pub const RTL: Self = Self(1 << 8);
+    /// The paragraph's direction is detected from its first strong
+    /// character: mode 2501, or `text-direction = auto` (ADR-1004 D5).
+    pub const DETECT: Self = Self(1 << 9);
+    /// Box-drawing characters in a right-to-left paragraph draw mirrored:
+    /// mode 2500 (ADR-1004 D7).
+    pub const BOX_MIRROR: Self = Self(1 << 10);
+    /// The paragraph's four properties. Every row of a paragraph holds the
+    /// same values of them (ADR-1004 D2).
+    pub const PARAGRAPH: Self =
+        Self(Self::EXPLICIT.0 | Self::RTL.0 | Self::DETECT.0 | Self::BOX_MIRROR.0);
 
-    const FLAGS: u16 = ((1 << 4) - 1) | Self::FIXED.0;
+    const FLAGS: u16 = ((1 << 4) - 1) | Self::FIXED.0 | Self::PARAGRAPH.0;
     const SIZE_SHIFT: u16 = 4;
     const SIZE_MASK: u16 = 0b11 << Self::SIZE_SHIFT;
 

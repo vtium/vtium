@@ -1,0 +1,66 @@
+# modifyOtherKeys: XTMODKEYS (CSI > 4 ; Pv m) sets the level and
+# XTQMODKEYS (CSI ? 4 m) reports it. The same keys, letters, digits, the
+# space bar, Tab, Return, Escape and BackSpace with modifiers, are pressed
+# at level 0, 1 and 2, and Ctrl+a once more after CSI > 4 m resets it.
+# spec: ctlseqs, XTMODKEYS and modifyOtherKeys
+# covers: input.modify-other-keys
+size 20 2
+send "\e[?4m"
+key a mods=ctrl
+key a mods=alt
+key a mods=ctrl+alt
+key A mods=shift+ctrl
+key 1 mods=ctrl
+key space mods=ctrl
+key space mods=shift
+key Tab mods=ctrl
+key Tab mods=shift
+key Return mods=ctrl
+key Return mods=shift
+key Escape mods=ctrl
+key BackSpace mods=ctrl
+key BackSpace mods=alt
+key comma mods=ctrl
+key i mods=ctrl
+key m mods=ctrl
+send "\e[>4;1m"
+send "\e[?4m"
+key a mods=ctrl
+key a mods=alt
+key a mods=ctrl+alt
+key A mods=shift+ctrl
+key 1 mods=ctrl
+key space mods=ctrl
+key space mods=shift
+key Tab mods=ctrl
+key Tab mods=shift
+key Return mods=ctrl
+key Return mods=shift
+key Escape mods=ctrl
+key BackSpace mods=ctrl
+key BackSpace mods=alt
+key comma mods=ctrl
+key i mods=ctrl
+key m mods=ctrl
+send "\e[>4;2m"
+send "\e[?4m"
+key a mods=ctrl
+key a mods=alt
+key a mods=ctrl+alt
+key A mods=shift+ctrl
+key 1 mods=ctrl
+key space mods=ctrl
+key space mods=shift
+key Tab mods=ctrl
+key Tab mods=shift
+key Return mods=ctrl
+key Return mods=shift
+key Escape mods=ctrl
+key BackSpace mods=ctrl
+key BackSpace mods=alt
+key comma mods=ctrl
+key i mods=ctrl
+key m mods=ctrl
+send "\e[>4m"
+send "\e[?4m"
+key a mods=ctrl

@@ -1,0 +1,33 @@
+> size 20 2
+> send "\e[?1036$p"
+< reply "\e[?1036;1$y"
+> send "\e[?1034$p"
+< reply "\e[?1034;1$y"
+> key a mods=alt
+< reply "\ea"
+> key A mods=shift+alt
+< reply "\eA"
+> key Up mods=alt
+< reply "\e[1;3A"
+> key a mods=ctrl+alt
+< reply "\e\x01"
+> send "\e[?1036l"
+> send "\e[?1036$p"
+< reply "\e[?1036;2$y"
+> key a mods=alt
+< reply "\xc3\xa1"
+> send "\e[?1034h"
+> send "\e[?1034$p"
+< reply "\e[?1034;1$y"
+> key a mods=alt
+< reply "\xc3\xa1"
+> key A mods=shift+alt
+< reply "\xc3\x81"
+> key a mods=ctrl+alt
+< reply "\xc2\x81"
+> send "\e[?1034l"
+> key a mods=alt
+< reply "a"
+> send "\e[?1036h"
+> key a mods=alt
+< reply "\ea"

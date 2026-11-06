@@ -1,0 +1,25 @@
+# What Alt does to a key: ESC before the key's bytes while mode 1036
+# (metaSendsEscape) is set, the default; with 1036 reset and 1034
+# (eightBitInput) set, the key's byte with its eighth bit set, sent as
+# UTF-8. DECRQM reports both modes.
+# spec: ctlseqs, Alt and Meta Keys; modes 1034 and 1036
+# covers: DEC-1034 DEC-1036
+size 20 2
+send "\e[?1036$p"
+send "\e[?1034$p"
+key a mods=alt
+key A mods=shift+alt
+key Up mods=alt
+key a mods=ctrl+alt
+send "\e[?1036l"
+send "\e[?1036$p"
+key a mods=alt
+send "\e[?1034h"
+send "\e[?1034$p"
+key a mods=alt
+key A mods=shift+alt
+key a mods=ctrl+alt
+send "\e[?1034l"
+key a mods=alt
+send "\e[?1036h"
+key a mods=alt

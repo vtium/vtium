@@ -44,7 +44,16 @@ Tags:
     The test is named crates/<crate>/tests/<file>.rs::<fn>. A replay file
     (*.replay) carries the same tag as a # comment. A tag above a
     `probe NAME` line, with only comments and blank lines between, names
-    that probe, path::NAME; anywhere else it names the file. Ids in one tag
+    that probe, path::NAME; anywhere else it names the file.
+
+    A tier 1 scenario (*.scenario, ADR-1504 D7) carries the tag in its
+    header as a # comment, and the tag names the scenario's file. A tag of
+    a scenario that tools/conformance/scenarios/provisional.tsv lists does
+    not count yet, since a provisional transcript judges nothing: its ids
+    are checked, and the row's tests column leaves the scenario out until
+    it leaves the list. A capability scenario, one with a
+    `# capability:` line, carries no tag, since capabilities.list names
+    its rows; a tag there is an error. Ids in one tag
     are separated by commas or spaces, and a test may carry several tag
     lines. `covers:` matches in any case; a line holding `covers:` in any
     other form, such as /* covers: x */, is an error.
@@ -63,11 +72,11 @@ Checks (exit 1 on any failure):
 Options:
     --update         rewrite the `tests` columns from the tags
     --layer LAYER    select the rows whose layer column names LAYER
-                     (minspec, text, images, gpu, seat or top)
+                     (minspec, text, bidi, images, gpu, seat or top)
     --require        fail while a selected row that needs a test has none
 
 Exit 0 when every check passes, 1 when one fails, 2 when the scan found no
-Rust or replay files, a table cannot be read, or no row has LAYER.
+Rust, replay or scenario files, a table cannot be read, or no row has LAYER.
 """
 
 import argparse
@@ -99,6 +108,9 @@ RUST_FN = re.compile(
     r'^\s*(?:pub(?:\([^)]*\))?\s+)?(?:const\s+)?(?:async\s+)?(?:unsafe\s+)?'
     r'(?:extern\s+"[^"]*"\s+)?fn\s+([A-Za-z_][A-Za-z0-9_]*)')
 REPLAY_PROBE = re.compile(r'^probe\s+(\S+)')
+SCENARIO_CAPABILITY = re.compile(r'^\s*#+\s*capability:', re.IGNORECASE)
+# the behaviour scenarios whose transcripts wait for review, NAME<TAB>REASON
+SCENARIO_PROVISIONAL = 'tools/conformance/scenarios/provisional.tsv'
 
 
 class Table:
@@ -251,14 +263,55 @@ def scan_replay(path, rel, found, errors):
     bind(rel)
 
 
+def provisional_scenarios(root, errors):
+    """The names tools/conformance/scenarios/provisional.tsv lists, or none. A line that is not
+    NAME, a tab and a reason is an error, as the conformance tool reads the list."""
+    path = root / SCENARIO_PROVISIONAL
+    if not path.is_file():
+        return set()
+    names = set()
+    for number, line in enumerate(path.read_text(encoding='utf-8').split('\n'), start=1):
+        if not line.strip() or line.startswith('#'):
+            continue
+        name, tab, reason = line.partition('\t')
+        if not name or not tab or not reason.strip():
+            errors.append(f'{SCENARIO_PROVISIONAL}:{number}: this line is not NAME, a tab and '
+                          'a reason, so coverage cannot tell which scenario it lists')
+            continue
+        names.add(name)
+    return names
+
+
+def scan_scenario(path, rel, found, errors, provisional):
+    """Add a scenario's tags to found, each naming the scenario's file. A tag of a scenario
+    the provisional list names goes in with no test, so main checks its ids and counts it for
+    no row."""
+    lines = path.read_text(encoding='utf-8', errors='replace').split('\n')
+    pending = []
+    capability = None
+    for number, line in enumerate(lines, start=1):
+        where = f'{rel}:{number}'
+        if SCENARIO_CAPABILITY.match(line):
+            capability = where
+        read_tag(REPLAY_TAG, line, where, pending, errors)
+    if pending and capability:
+        errors.append(f'{pending[0][0]}: a capability scenario carries no covers tag; '
+                      f'capabilities.list names its rows (its capability line is {capability})')
+        return
+    name = Path(rel).stem
+    for where, row_id in pending:
+        found.append((row_id, None if name in provisional else rel, where))
+
+
 def scan(found, errors):
-    """Read every tag in the repository's files; returns (rust files, replay files).
+    """Read every tag in the repository's files; returns the count of each kind read.
 
     The files are the ones git tracks or would track: committed, staged, or new and
     not ignored. A build's output or an extracted copy (gitignored) is never
     read, so a tag in such a copy can't count toward vtium's coverage.
     """
-    counts = {'.rs': 0, '.replay': 0}
+    counts = {'.rs': 0, '.replay': 0, '.scenario': 0}
+    provisional = provisional_scenarios(ROOT, errors)
     listed = subprocess.run(
         ['git', '-C', str(ROOT), 'ls-files', '-z', '--cached', '--others', '--exclude-standard'],
         capture_output=True, check=False)
@@ -275,9 +328,11 @@ def scan(found, errors):
         counts[suffix] += 1
         if suffix == '.rs':
             scan_rust(path, rel, found, errors)
+        elif suffix == '.scenario':
+            scan_scenario(path, rel, found, errors, provisional)
         else:
             scan_replay(path, rel, found, errors)
-    return counts['.rs'], counts['.replay']
+    return counts
 
 
 def stale_cells(tables, tests_for):
@@ -346,17 +401,17 @@ def main():
     errors = []
     rows = check_ids(tables, errors)
     found = []
-    rust, replay = scan(found, errors)
-    if rust + replay == 0:
-        print(f'coverage: no Rust or replay files found under {ROOT}', file=sys.stderr)
+    counts = scan(found, errors)
+    if sum(counts.values()) == 0:
+        print(f'coverage: no Rust, replay or scenario files found under {ROOT}', file=sys.stderr)
         return 2
 
     tests = {row_id: set() for row_id in rows}
     for row_id, test, where in found:
-        if row_id in tests:
-            tests[row_id].add(test)
-        else:
+        if row_id not in tests:
             errors.append(f'{where}: unknown id `{row_id}`')
+        elif test is not None:
+            tests[row_id].add(test)
 
     def tests_for(row_id):
         return sorted(tests.get(row_id, ()))
@@ -377,7 +432,10 @@ def main():
 
     covered = sum(1 for t, c in counted if tests[t.cell(c, 'id')])
     scope = f'layer {args.layer}' if args.layer else 'all layers'
-    print(f'coverage: scanned {rust} Rust and {replay} replay files, {len(found)} tags; '
+    waiting = sum(1 for _, test, _ in found if test is None)
+    print(f"coverage: scanned {counts['.rs']} Rust, {counts['.replay']} replay and "
+          f"{counts['.scenario']} scenario files, {len(found)} tags, {waiting} of them on "
+          f"provisional scenarios, which do not count yet; "
           f'{scope}: {covered} of {len(counted)} rows that need a test have one')
     return fail(errors) if errors else 0
 

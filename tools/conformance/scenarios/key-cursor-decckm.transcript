@@ -1,0 +1,105 @@
+> size 20 2
+> send "\e[?1$p"
+< reply "\e[?1;2$y"
+> send "\e[?1h"
+> send "\e[?1$p"
+< reply "\e[?1;1$y"
+> key Up
+< reply "\eOA"
+> key Up mods=shift
+< reply "\e[1;2A"
+> key Up mods=alt
+< reply "\e[1;3A"
+> key Up mods=shift+alt
+< reply "\e[1;4A"
+> key Up mods=ctrl
+< reply "\e[1;5A"
+> key Up mods=shift+ctrl
+< reply "\e[1;6A"
+> key Up mods=alt+ctrl
+< reply "\e[1;7A"
+> key Up mods=shift+alt+ctrl
+< reply "\e[1;8A"
+> key Down
+< reply "\eOB"
+> key Down mods=shift
+< reply "\e[1;2B"
+> key Down mods=alt
+< reply "\e[1;3B"
+> key Down mods=shift+alt
+< reply "\e[1;4B"
+> key Down mods=ctrl
+< reply "\e[1;5B"
+> key Down mods=shift+ctrl
+< reply "\e[1;6B"
+> key Down mods=alt+ctrl
+< reply "\e[1;7B"
+> key Down mods=shift+alt+ctrl
+< reply "\e[1;8B"
+> key Right
+< reply "\eOC"
+> key Right mods=shift
+< reply "\e[1;2C"
+> key Right mods=alt
+< reply "\e[1;3C"
+> key Right mods=shift+alt
+< reply "\e[1;4C"
+> key Right mods=ctrl
+< reply "\e[1;5C"
+> key Right mods=shift+ctrl
+< reply "\e[1;6C"
+> key Right mods=alt+ctrl
+< reply "\e[1;7C"
+> key Right mods=shift+alt+ctrl
+< reply "\e[1;8C"
+> key Left
+< reply "\eOD"
+> key Left mods=shift
+< reply "\e[1;2D"
+> key Left mods=alt
+< reply "\e[1;3D"
+> key Left mods=shift+alt
+< reply "\e[1;4D"
+> key Left mods=ctrl
+< reply "\e[1;5D"
+> key Left mods=shift+ctrl
+< reply "\e[1;6D"
+> key Left mods=alt+ctrl
+< reply "\e[1;7D"
+> key Left mods=shift+alt+ctrl
+< reply "\e[1;8D"
+> key Home
+< reply "\eOH"
+> key Home mods=shift
+< reply "\eOH"
+> key Home mods=alt
+< reply "\e\eOH"
+> key Home mods=shift+alt
+< reply "\e\eOH"
+> key Home mods=ctrl
+< reply "\eOH"
+> key Home mods=shift+ctrl
+< reply "\eOH"
+> key Home mods=alt+ctrl
+< reply "\e\eOH"
+> key Home mods=shift+alt+ctrl
+< reply "\e\eOH"
+> key End
+< reply "\eOF"
+> key End mods=shift
+< reply "\eOF"
+> key End mods=alt
+< reply "\e\eOF"
+> key End mods=shift+alt
+< reply "\e\eOF"
+> key End mods=ctrl
+< reply "\eOF"
+> key End mods=shift+ctrl
+< reply "\eOF"
+> key End mods=alt+ctrl
+< reply "\e\eOF"
+> key End mods=shift+alt+ctrl
+< reply "\e\eOF"
+> send "\e[?1l"
+> key Up
+< reply "\e[A"

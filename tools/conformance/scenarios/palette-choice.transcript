@@ -1,0 +1,32 @@
+> size 12 2
+> send "\e[31mred\e[42mgreen\e[m plain"
+> send "\e]4;1;?\a\e]10;?\a\e]11;?\a"
+< reply "\e]4;1;rgb:cdcd/0000/0000\a\e]10;rgb:e5e5/e5e5/e5e5\a\e]11;rgb:0000/0000/0000\a"
+> dump frame
+size 12x2
+cursor 2,1
+flags AUTO_WRAP
+palette legacy fg=#e5e5e5 bg=#000000
+changed 0
+frame-cursor 2,1 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 |redgreen pla|
+cells 0 0-2 w=1 fg=#cd0000 bg=#000000 ul=#cd0000
+cells 0 3-7 w=1 fg=#cd0000 bg=#00cd00 ul=#cd0000
+row 1 |in|
+> palette solarized
+> send "\e]4;1;?\a\e]10;?\a\e]11;?\a"
+< reply "\e]4;1;rgb:dcdc/3232/2f2f\a\e]10;rgb:eeee/e8e8/d5d5\a\e]11;rgb:0707/3636/4242\a"
+> dump frame
+size 12x2
+cursor 2,1
+flags AUTO_WRAP
+palette solarized fg=#eee8d5 bg=#073642
+changed 0
+frame-cursor 2,1 default visible w=1 fg=#073642 bg=#eee8d5 ul=#073642
+row 0 |redgreen pla|
+cells 0 0-2 w=1 fg=#dc322f bg=#073642 ul=#dc322f
+cells 0 3-7 w=1 fg=#dc322f bg=#859900 ul=#dc322f
+row 1 |in|
+> palette legacy
+> send "\e]4;1;?\a"
+< reply "\e]4;1;rgb:cdcd/0000/0000\a"
