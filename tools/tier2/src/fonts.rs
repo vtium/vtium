@@ -335,11 +335,22 @@ pub fn chosen(
     (color, spacing): (bool, u32),
     shown: impl FnOnce(Cell) -> Result<Vec<Shown>, String>,
 ) -> Result<Chosen, String> {
+    check(dir)?;
+    let text = frit_text(dir, color, spacing);
+    chosen_frit((frit_name(color), text), dir, HEIGHT, shown)
+}
+
+/// The frit `name` of `text`, whose fonts are in `dir`, as the console
+/// holds it at `height` pixels once the helper has answered for what the
+/// screen shows in each style, as [`chosen`] gives the test frit.
+pub fn chosen_frit(
+    (name, text): (&str, String),
+    dir: &Path,
+    height: u32,
+    shown: impl FnOnce(Cell) -> Result<Vec<Shown>, String>,
+) -> Result<Chosen, String> {
     use vtium_config::serve::{Engine, FritText as EngineFrit, OwnCell as EngineCell, Paths};
     use vtium_font::spacing::SpacedCell;
-    check(dir)?;
-    let name = frit_name(color);
-    let text = frit_text(dir, color, spacing);
     let paths = Paths {
         font_dirs: vec![dir.to_path_buf()],
         ..Paths::default()
@@ -360,7 +371,7 @@ pub fn chosen(
             .collect();
         return Err(format!("the frit {name} left out {}", why.join("; ")));
     }
-    let cell = match engine.own_cell(HEIGHT)? {
+    let cell = match engine.own_cell(height)? {
         EngineCell::Outline(cell) => cell,
         EngineCell::Bitmap(cell) => {
             return Err(format!(
@@ -377,16 +388,16 @@ pub fn chosen(
         false,
         None,
     )?;
-    if !chosen.wants_own_cell(HEIGHT, false) {
+    if !chosen.wants_own_cell(height, false) {
         return Err(format!(
-            "the frit {name} asks for no cell at {HEIGHT} pixels"
+            "the frit {name} asks for no cell at {height} pixels"
         ));
     }
     chosen.set_own_cell(OwnCell::Outline(cell), false);
     // the cell and the rows its spacing adds, as the console reads them
     // from a display's face to ask the helper at
     let at = {
-        let face = face(&chosen)?;
+        let face = face_at(&chosen, height)?;
         SpacedCell {
             cell: face.cell(),
             band: face.band(),
@@ -429,9 +440,15 @@ pub fn chosen(
 /// The face `chosen` draws through at [`HEIGHT`], as a display of the
 /// console's takes it.
 pub fn face(chosen: &Chosen) -> Result<DisplayFace, String> {
+    face_at(chosen, HEIGHT)
+}
+
+/// The face `chosen` draws through at `height` pixels, as a display of
+/// the console's takes it.
+pub fn face_at(chosen: &Chosen, height: u32) -> Result<DisplayFace, String> {
     chosen
-        .face(HEIGHT, LOCALE)
-        .ok_or_else(|| format!("no face at {HEIGHT} pixels"))
+        .face(height, LOCALE)
+        .ok_or_else(|| format!("no face at {height} pixels"))
 }
 
 #[cfg(test)]

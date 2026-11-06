@@ -22,7 +22,7 @@ use std::path::Path;
 
 use vtium_font::{Face, Font};
 use vtium_render::gpu::{Config as GpuConfig, DrawTarget, Gl, PictureStep, Pipeline, Size};
-use vtium_render::{Canvas, Config, Depth, DrawState, Picture, Placed, Rect, Renderer, Surface};
+use vtium_render::{Canvas, Config, Depth, Picture, Placed, Rect, Renderer, Surface};
 use vtium_term::{Age, Terminal};
 
 use crate::compare::{Comparison, Verdict, compare, diff_image};
@@ -74,13 +74,10 @@ fn frame<G: Gl, F: Face>(
     pipeline: &mut Pipeline,
     r: &mut Renderer<F>,
     buffers: &mut Buffers,
-    (term, since): (&mut Terminal, &mut Age),
+    (term, since, phase): (&mut Terminal, &mut Age, draw::Phase),
     overlays: &[Placed],
 ) -> Result<(), String> {
-    let state = DrawState {
-        background: term.palette().bg(),
-        ..DrawState::default()
-    };
+    let state = phase.state(term.palette().bg());
     let age = buffers.age();
     let drew = {
         let frame = term.screen().frame(term.palette(), *since);
@@ -187,7 +184,14 @@ impl<G: Gl> Gpu<'_, G> {
         let mut r = Renderer::new(font, w, h, draw::screen_config(screen, config));
         let mut since = Age::NEVER;
         let mut step = |gl: &mut G, r: &mut Renderer<F>, term: &mut Terminal, o: &[Placed]| {
-            frame(gl, pipeline, r, buffers, (term, &mut since), o)
+            frame(
+                gl,
+                pipeline,
+                r,
+                buffers,
+                (term, &mut since, screen.phase),
+                o,
+            )
         };
         step(gl, &mut r, &mut term, &[])?;
         if let Some(next) = screen.next {

@@ -29,6 +29,9 @@ vtium-render = { workspace = true, features = ["images"] }
 vtium-config = { path = "../../crates/vtium-config" }
 # the small displays' PSF fonts, built in memory
 vtium-testfont = { path = "../testfont" }
+# the PNG writer of vtium-config's test font writer, which the ink test
+# font includes
+miniz_oxide = "0.8.9"
 # the head file's trust, for the notice of a head file with errors
 vtium-settings.workspace = true
 # the console's own overlay, which draws the notices and the on-screen
