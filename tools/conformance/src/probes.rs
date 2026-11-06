@@ -17,6 +17,7 @@ use regex::bytes::Regex as BytesRegex;
 
 use crate::spec::{Spec, whole};
 
+pub(crate) use judge::judge_blocks;
 pub use judge::{Outcome, Replay, build_feature, check_list, verdict};
 
 /// The keys that build a probe's input; every other key judges the block
@@ -32,7 +33,7 @@ const VIEW_FEATURES: [(&str, Option<&str>); 3] = [
 
 /// One step of a probe, with the line it was read from.
 #[derive(Clone, Debug)]
-enum Step {
+pub(crate) enum Step {
     Send(Vec<u8>),
     Cmd(String),
     Check,
@@ -46,7 +47,7 @@ enum Step {
 }
 
 impl Step {
-    fn key(&self) -> &'static str {
+    pub(crate) fn key(&self) -> &'static str {
         match self {
             Self::Send(_) => "send",
             Self::Cmd(_) => "cmd",
@@ -67,14 +68,14 @@ pub struct Probe {
     pub name: String,
     /// The file and line the stanza opens on.
     pub at: String,
-    size: Option<(usize, usize)>,
-    view: String,
-    placeholder: Option<String>,
-    needs: BTreeSet<String>,
+    pub(crate) size: Option<(usize, usize)>,
+    pub(crate) view: String,
+    pub(crate) placeholder: Option<String>,
+    pub(crate) needs: BTreeSet<String>,
     pub fixtures: Vec<String>,
-    steps: Vec<(Step, usize)>,
+    pub(crate) steps: Vec<(Step, usize)>,
     /// The example after a `want-re` or `reply-re`, by the step's index.
-    examples: BTreeMap<usize, (Vec<u8>, usize)>,
+    pub(crate) examples: BTreeMap<usize, (Vec<u8>, usize)>,
 }
 
 impl Probe {
@@ -88,48 +89,10 @@ impl Probe {
     }
 }
 
-/// The bytes of a `"..."` string written with `\e`, `\r`, `\n`, `\t`,
-/// `\\`, `\"` and `\xHH`, or None.
-pub fn unquote(text: &str) -> Option<Vec<u8>> {
-    let body = text.strip_prefix('"')?.strip_suffix('"')?;
-    let mut out = Vec::with_capacity(body.len());
-    let mut chars = body.char_indices();
-    while let Some((i, c)) = chars.next() {
-        match c {
-            '"' => return None,
-            '\\' => {
-                let (_, e) = chars.next()?;
-                let byte = match e {
-                    'e' => 0x1b,
-                    'r' => b'\r',
-                    'n' => b'\n',
-                    't' => b'\t',
-                    '\\' => b'\\',
-                    '"' => b'"',
-                    'x' => {
-                        let hex = body.get(i.saturating_add(2)..i.saturating_add(4))?;
-                        if !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
-                            return None;
-                        }
-                        chars.next();
-                        chars.next();
-                        u8::from_str_radix(hex, 16).ok()?
-                    }
-                    _ => return None,
-                };
-                out.push(byte);
-            }
-            c => {
-                let mut buf = [0; 4];
-                out.extend_from_slice(c.encode_utf8(&mut buf).as_bytes());
-            }
-        }
-    }
-    Some(out)
-}
+pub use crate::scenario::unquote;
 
 /// `data` printable: ESC as `\e` and the other controls as `\xNN`.
-fn shown(data: &[u8]) -> String {
+pub(crate) fn shown(data: &[u8]) -> String {
     String::from_utf8_lossy(data)
         .chars()
         .map(|c| match c {
@@ -144,7 +107,7 @@ fn shown(data: &[u8]) -> String {
 /// whole against the replies: any byte for `.`, a newline included, and
 /// each byte that is not printable ASCII, or that a backslash escapes,
 /// written as `\xHH`.
-fn bytes_regex(pattern: &[u8]) -> Result<BytesRegex, String> {
+pub(crate) fn bytes_regex(pattern: &[u8]) -> Result<BytesRegex, String> {
     let mut text = String::new();
     let mut i = 0;
     while let Some(&b) = pattern.get(i) {
@@ -458,19 +421,6 @@ pub fn check_expectations(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn strings_unquote_with_their_escapes_and_refuse_the_rest() {
-        assert_eq!(
-            unquote(r#""a\e[\x41\\\"é""#),
-            Some(b"a\x1b[A\\\"\xc3\xa9".to_vec())
-        );
-        assert_eq!(unquote(r#""a"b""#), None, "a bare quote");
-        assert_eq!(unquote(r#""\q""#), None, "an unknown escape");
-        assert_eq!(unquote(r#""\x4""#), None, "one hex digit");
-        assert_eq!(unquote(r#""\""#), None, "a trailing backslash");
-        assert_eq!(unquote("abc"), None, "no quotes");
-    }
 
     #[test]
     fn byte_patterns_match_whole_with_escaped_bytes_and_dot_matching_any_byte() {
