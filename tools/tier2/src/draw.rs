@@ -1,8 +1,7 @@
 //! Drawing a screen: the bytes through `vtium-term`, the frames through
 //! `vtium-render` into memory, as a double-buffered display takes them.
 //!
-//! The flow is the C reference's tier 2 renderer's (`tests/test_pixels.c`,
-//! `render_screen`): the cursor hidden, the bytes fed, a frame drawn; for a
+//! The flow: the cursor hidden, the bytes fed, a frame drawn; for a
 //! screen with a second part, a frame repeating it into the other buffer,
 //! the second part fed, and two more frames, after which both buffers must
 //! hold the same picture, and the picture a fresh renderer draws. The image
@@ -34,10 +33,10 @@ use crate::ppm::Image;
 pub enum FontKind {
     /// The built-in unifont at 16 pixels, 8x16 cells.
     Unifont,
-    /// Sprites only, in a cell of the size the C reference's outline font
-    /// gave: the screen holds nothing but sprites and spaces, which draw
-    /// the same in any font of that cell, so the C reference's golden
-    /// judges it while vtium has no outline font (vtium/vtium#23).
+    /// Sprites only, in the cell size of the outline font the golden was
+    /// drawn with: the screen holds nothing but sprites and spaces, which draw
+    /// the same in any font of that cell, so the golden judges it while
+    /// vtium has no outline font (vtium/vtium#23).
     Sprites { width: u32, height: u32 },
     /// A PSF font `tools/testfont` writes, read through vtium-font's PSF
     /// loader at its own size.
@@ -172,8 +171,7 @@ pub struct Decorations {
 
 impl Decorations {
     /// The colors as the renderer takes them: an index resolved through
-    /// each frame's palette, as the C reference resolved it on every frame
-    /// when it drew vtium's goldens.
+    /// each frame's palette, resolved again on every frame.
     fn colors(&self) -> DecorationColors {
         let color = |spec: Option<DecoSpec>| match spec {
             None => DecoColor::Foreground,
@@ -538,8 +536,8 @@ fn feed(term: &mut Terminal, mut bytes: &[u8]) -> Result<(), String> {
 }
 
 /// Refuses a sprites-only screen holding a character that is not a sprite
-/// or a space, a combining mark on either included: the C reference drew
-/// it from an outline font, which vtium does not have.
+/// or a space, a combining mark on either included: an outline font
+/// would draw it, and vtium does not have one.
 fn check_sprites<F: Face>(font: &Font<F>, term: &Terminal) -> Result<(), String> {
     let frame = term.screen().frame(term.palette(), Age::NEVER);
     for row in 0..frame.rows() {
@@ -867,8 +865,8 @@ mod tests {
         );
     }
 
-    // A decoration color that names an index follows the palette, as the
-    // C reference resolved it on every frame: a second part that changes the
+    // A decoration color that names an index follows the palette, resolved
+    // again on every frame: a second part that changes the
     // index with OSC 4 draws, where the renderer that took the color once
     // had the screen refused.
     #[test]

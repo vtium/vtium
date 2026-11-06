@@ -1,6 +1,5 @@
-//! The report: one JSON shape for tiers 2 and 3, the C reference's tier 2
-//! report (`tests/tier2/run.py`) with tier 3's fields where they meet
-//! (aaronsb/kmscon#18).
+//! The report: one JSON shape for tiers 2 and 3, with tier 3's fields
+//! where they meet.
 //!
 //! ```text
 //! {"tier": 2, "run_id": "...", "tools": {...}, "cases": [
