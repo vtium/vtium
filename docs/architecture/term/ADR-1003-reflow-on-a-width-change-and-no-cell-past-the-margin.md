@@ -241,7 +241,7 @@ Mode 2028, contour's line reflow mode, is set by default and by RIS. SM and RM 2
 - Cells past a line's end read in its fill, which is the default style unless the program erased the line's end in a color; the pen still has no claim on them (vtium-term's README, "Cells past a line's end read in the default style").
 - Printing's wrap of a wide character writes a pad where it erases a cell today; the cell draws the same.
 - The selection's check for text past a narrower margin (crates/vtium-term/src/screen/selection.rs, `continues`) and the README's sentence on it go when reflow lands, since no row has any.
-- vtium-term's README lists the departures from the C reference this brings: rewrapping, the cut at the margin, and the fill in a widening's new columns.
+- vtium-term's README listed the departures from the C reference this brought: rewrapping, the cut at the margin, and the fill in a widening's new columns.
 
 ## Alternatives Considered
 

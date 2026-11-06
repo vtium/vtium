@@ -465,7 +465,7 @@ The maintainer answered this section's questions on 2026-11-01 in four rounds (`
 
 ## Departures from the C reference
 
-Each is listed in vtium-render's README, or vtium-vitrify's for placement, when the outline-font build makes it, and each tier 2 or tier 3 golden the C reference drew that showed it listed the cells where it differed, in `tools/tier2/departures.tsv` or `tools/tier3/departures.tsv`. No specification covers glyph overhang.
+Each was listed in vtium-render's README, or vtium-vitrify's for placement, when the outline-font build made it, and each tier 2 or tier 3 golden the C reference drew that showed it listed the cells where it differed, in `tools/tier2/departures.tsv` or `tools/tier3/departures.tsv`. No specification covers glyph overhang.
 
 - **Glyph ink reaches into the cells beside it.** The C reference cut every glyph at its cell's edges. vtium draws a glyph's ink up to one cell to each side (D1). The reason: italic and symbol glyphs are drawn whole, as foot and Ghostty draw them.
 - **A glyph sits where its font puts it.** The C reference's FreeType engine moved a gray glyph that passed its cell's right edge left by half of the overflow, and a 1-bit glyph that passed its left edge right; its pango engine kept the bearings and cut. vtium centres a glyph's advance in its cells, keeps its bearings, and draws the overflow (D2). The reason: moving a glyph to fit its cell bends an italic run's spacing and a letter's place.
@@ -530,7 +530,7 @@ Each test that drives this behaviour through vtium-render or vtium-vitrify carri
 - A changed cell whose ink reaches redraws up to two more cells, and composing a cell can mean blending two more glyphs' lines into it. The cost is not measured; it falls only on cells beside ink that reaches.
 - Rows where a selection's edge crosses a leaning letter are read twice.
 - The glyph chunk format, the console's check and the cache's stored glyph gain an ink box, a change in three crates.
-- vtium-render's README departure "A keystroke damages only the cells it changes" gains the cells beside it that a leaning glyph reaches: three cells, or four in the middle of an italic line (D9).
+- The damage rule that a keystroke damages only the cells it changes (vtium-render's README listed it as a departure) gains the cells beside it that a leaning glyph reaches: three cells, or four in the middle of an italic line (D9).
 - A neighbour's ink inside a selection or a block cursor loses its own color.
 - Where a font's baseline rises, its whole line sits a pixel higher than the C reference drew it.
 - Ink past one cell, or past the row, is still cut, a base letter's included, so the hamza on alef loses its top in DejaVu Sans Mono.
