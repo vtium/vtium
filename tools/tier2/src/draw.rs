@@ -69,10 +69,24 @@ pub enum FontKind {
     /// source gives there, drawn as the console draws a frit: the glyphs
     /// vtium-config's engine generates for what the screen shows, and the
     /// built-in font for what no source holds. Without `color`, the frit
-    /// leaves out its color emoji font. With `spacing` not 0, the frit's
-    /// `line-spacing=` makes each row taller by that whole percentage of
-    /// the text's height (ADR-1302 D13).
-    Outline { color: bool, spacing: u32 },
+    /// leaves out its color emoji font. With a `spacing`, the frit's
+    /// `line-spacing=` makes each row taller (ADR-1302 D13).
+    Outline {
+        color: bool,
+        spacing: Option<Spacing>,
+    },
+}
+
+/// Line spacing a spaced outline screen sets, and the rows it must add:
+/// `percent` goes in the frit's `line-spacing=`, and `above` and `below`
+/// are the rows the screen expects the console to add above and below
+/// the text band, stated by hand so that [`crate::bands::check`] holds the
+/// console's rounding and split to them (ADR-1302 D13).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Spacing {
+    pub percent: u32,
+    pub above: u32,
+    pub below: u32,
 }
 
 /// The PSF fonts the small displays draw with (vtium/vtium#75).
@@ -487,15 +501,62 @@ pub fn draw_on(screen: &Screen, painter: &mut impl Paint) -> Result<Image, Strin
         }
         FontKind::Outline { color, spacing } => {
             let dir = crate::fonts::cache_dir();
-            let chosen = crate::fonts::chosen(&dir, (color, spacing), |cell| shown(screen, cell))?;
+            let percent = spacing.map_or(0, |s| s.percent);
+            let chosen = crate::fonts::chosen(&dir, (color, percent), |cell| shown(screen, cell))?;
             crate::fonts::face(&chosen)?;
-            draw_with(
+            let img = draw_with(
                 screen,
                 || Font::new(crate::fonts::face(&chosen).expect("a face, as it was before")),
                 p,
-            )
+            )?;
+            if let Some(spacing) = spacing {
+                spaced_as_plain(screen, color, spacing, &img)?;
+            }
+            Ok(img)
         }
     }
+}
+
+/// Checks that `img`, `screen` drawn with `spacing`, holds in each of
+/// its rows the text band of the same screen drawn with no spacing, at
+/// the rows `spacing` says the console adds (ADR-1302 D13): a cell holding
+/// a sprite, which stretches to the whole taller cell, is not compared.
+fn spaced_as_plain(
+    screen: &Screen,
+    color: bool,
+    spacing: Spacing,
+    img: &Image,
+) -> Result<(), String> {
+    if screen.next.is_some() || screen.pictures.is_some() || screen.display.is_some() {
+        return Err("a spaced screen is one frame of text sized to its grid".to_owned());
+    }
+    let plain = Screen {
+        font: FontKind::Outline {
+            color,
+            spacing: None,
+        },
+        ..*screen
+    };
+    let unspaced = draw(&plain)?;
+    let term = terminal(screen, (0, 0))?;
+    let frame = term.screen().frame(term.palette(), Age::NEVER);
+    let sprites: Vec<Vec<bool>> = (0..screen.rows)
+        .map(|row| {
+            let mut at = vec![false; screen.cols];
+            for (col, cell) in frame.cells(row).enumerate().take(screen.cols) {
+                at[col] = matches!(cell.glyph, Text::Char(c) if vtium_font::sprite::has(c));
+            }
+            at
+        })
+        .collect();
+    crate::bands::check(
+        img,
+        &unspaced,
+        (screen.cols, screen.rows),
+        spacing,
+        |col, row| sprites[row][col],
+    )
+    .map_err(|e| format!("{}: {e}", screen.name))
 }
 
 /// What `screen` shows in a font of `cell` before each frame it draws,
