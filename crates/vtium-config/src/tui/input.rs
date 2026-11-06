@@ -1,10 +1,14 @@
 //! What the terminal sends the TUI, decoded: keys as a terminal of the
-//! VT100 line sends them, as vtium-term encodes them, and the replies to
-//! the TUI's requests (ADR-1201 D4, D7).
+//! VT100 line sends them, as vtium-term encodes them, the mouse as the
+//! flow view asks for it (ADR-1403 D7), and the replies to the TUI's
+//! requests (ADR-1201 D4, D7).
 //!
-//! A sequence split across reads waits in the decoder for its end. The
-//! escape key alone is never a key: a lone ESC cannot be told from the
-//! start of a sequence without waiting, so the TUI binds nothing to it.
+//! A sequence split across reads waits in the decoder for its end. In the
+//! TUI's decoder ([`Decoder::keys`]), an ESC that is the last byte of a
+//! read is the escape key: a terminal writes a sequence in one write, and
+//! the escape key alone arrives alone, so the decoder takes it as the key
+//! without waiting for a byte that may never come. The decoder that only
+//! reads replies, as `set` does, keeps a lone ESC for the next read.
 
 /// A key the TUI acts on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -23,7 +27,35 @@ pub enum Key {
     Backspace,
     /// Ctrl-C, a byte in raw mode.
     Interrupt,
+    /// The escape key, alone at the end of a read.
+    Escape,
+    /// A mouse event, which only the Flow view asks for.
+    Mouse(Mouse),
     Char(char),
+    /// Ctrl-D or Ctrl-U, by its letter, which the pager scrolls by half a
+    /// page with (ADR-1403 D7).
+    Ctrl(char),
+}
+
+/// A mouse event, as modes 1000 and 1006 report it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Mouse {
+    pub button: Button,
+    /// The cell, counted from 0 at the top left.
+    pub col: usize,
+    pub row: usize,
+}
+
+/// What the mouse did.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Button {
+    /// A button went down: 0 the left, 1 the middle, 2 the right.
+    Press(u8),
+    /// A button came up.
+    Release,
+    /// The wheel turned up, away from the user.
+    WheelUp,
+    WheelDown,
 }
 
 /// A reply to one of the TUI's requests.
@@ -55,6 +87,8 @@ const STRING_MAX: usize = 4096;
 #[derive(Debug, Default)]
 pub struct Decoder {
     held: Vec<u8>,
+    /// A lone ESC at the end of a read is the escape key.
+    escape: bool,
 }
 
 /// What the bytes at the front hold.
@@ -66,6 +100,15 @@ enum Front {
 }
 
 impl Decoder {
+    /// The TUI's decoder, which takes an ESC that ends a read as the
+    /// escape key.
+    pub fn keys() -> Decoder {
+        Decoder {
+            held: Vec::new(),
+            escape: true,
+        }
+    }
+
     /// Decodes `bytes` after what was held, and holds a sequence they end
     /// in the middle of.
     pub fn feed(&mut self, bytes: &[u8]) -> Vec<Input> {
@@ -83,6 +126,10 @@ impl Decoder {
             }
         }
         self.held.drain(..at.min(self.held.len()));
+        if self.escape && self.held == [0x1b] {
+            self.held.clear();
+            out.push(Input::Key(Key::Escape));
+        }
         out
     }
 }
@@ -113,6 +160,8 @@ fn front(bytes: &[u8]) -> Front {
         b'\r' | b'\n' => key(1, Key::Enter),
         b'\t' => key(1, Key::Tab),
         0x7f | 0x08 => key(1, Key::Backspace),
+        0x04 => key(1, Key::Ctrl('d')),
+        0x15 => key(1, Key::Ctrl('u')),
         b if b < 0x20 => Front::Took(1, None),
         _ => {
             // a UTF-8 character, whole
@@ -195,6 +244,27 @@ fn csi(body: &[u8]) -> Front {
     };
     let params = body.get(..end).unwrap_or_default();
     let last = body.get(end).copied().unwrap_or(0);
+    if let Some(sgr) = params.strip_prefix(b"<")
+        && matches!(last, b'M' | b'm')
+    {
+        let mouse = sgr_mouse(sgr, last == b'm').map(|m| Input::Key(Key::Mouse(m)));
+        return Front::Took(end.saturating_add(3), mouse);
+    }
+    if params.is_empty() && last == b'M' {
+        // mode 1000 without 1006: three bytes, each its value plus 32
+        let Some(&[b, x, y]) = body.get(end.saturating_add(1)..end.saturating_add(4)) else {
+            return Front::Short;
+        };
+        let mouse = button(u16::from(b.saturating_sub(32)), false).map(|button| Mouse {
+            button,
+            col: usize::from(x.saturating_sub(33)),
+            row: usize::from(y.saturating_sub(33)),
+        });
+        return Front::Took(
+            end.saturating_add(6),
+            mouse.map(|m| Input::Key(Key::Mouse(m))),
+        );
+    }
     let key = match (params, last) {
         (p, b'c') if p.first() == Some(&b'?') => {
             return Front::Took(end.saturating_add(3), Some(Input::Reply(Reply::Attributes)));
@@ -210,13 +280,46 @@ fn csi(body: &[u8]) -> Front {
     Front::Took(end.saturating_add(3), key.map(Input::Key))
 }
 
+/// What a mouse report's button number says: its low two bits and the
+/// wheel's bit, with the modifier bits (4, 8, 16) and motion (32) left out;
+/// `None` for motion, which the TUI never asks for.
+fn button(cb: u16, released: bool) -> Option<Button> {
+    if cb & 32 != 0 {
+        return None;
+    }
+    let low = u8::try_from(cb & 3).unwrap_or(0);
+    Some(match (cb & 64 != 0, low) {
+        (true, 0) => Button::WheelUp,
+        (true, 1) => Button::WheelDown,
+        (true, _) => return None,
+        (false, 3) => Button::Release,
+        (false, _) if released => Button::Release,
+        (false, b) => Button::Press(b),
+    })
+}
+
+/// A mode 1006 report's parameters, `Cb;Cx;Cy`, the cell counted from 1.
+fn sgr_mouse(params: &[u8], released: bool) -> Option<Mouse> {
+    let text = std::str::from_utf8(params).ok()?;
+    let mut n = text.split(';').map(|p| p.parse::<u16>().ok());
+    let (cb, x, y) = (n.next()??, n.next()??, n.next()??);
+    if n.next().is_some() {
+        return None;
+    }
+    Some(Mouse {
+        button: button(cb, released)?,
+        col: usize::from(x.checked_sub(1)?),
+        row: usize::from(y.checked_sub(1)?),
+    })
+}
+
 #[cfg(test)]
 #[expect(clippy::indexing_slicing, reason = "a test fails by panicking")]
 mod tests {
     use super::*;
 
     fn keys(bytes: &[u8]) -> Vec<Input> {
-        Decoder::default().feed(bytes)
+        Decoder::keys().feed(bytes)
     }
 
     #[test]
@@ -263,8 +366,8 @@ mod tests {
     #[test]
     fn a_sequence_cut_by_a_read_waits_for_its_end() {
         let mut d = Decoder::default();
-        assert_eq!(d.feed(b"\x1b"), []);
-        assert_eq!(d.feed(b"]50;ti"), []);
+        assert_eq!(d.feed(b"\x1b]"), []);
+        assert_eq!(d.feed(b"50;ti"), []);
         assert_eq!(d.feed(b"ny\x1b"), []);
         assert_eq!(
             d.feed(b"\\\x1b["),
@@ -273,6 +376,56 @@ mod tests {
         assert_eq!(d.feed(b"B"), [Input::Key(Key::Down)]);
         assert_eq!(d.feed(&"é".as_bytes()[..1]), []);
         assert_eq!(d.feed(&"é".as_bytes()[1..]), [Input::Key(Key::Char('é'))]);
+    }
+
+    #[test]
+    fn an_esc_that_ends_a_read_is_the_escape_key() {
+        assert_eq!(keys(b"\x1b"), [Input::Key(Key::Escape)]);
+        assert_eq!(
+            keys(b"q\x1b"),
+            [Input::Key(Key::Char('q')), Input::Key(Key::Escape)]
+        );
+        // an ESC followed by more in the same read starts a sequence
+        assert_eq!(keys(b"\x1b[A"), [Input::Key(Key::Up)]);
+        let mut d = Decoder::keys();
+        assert_eq!(d.feed(b"\x1b"), [Input::Key(Key::Escape)]);
+        // the decoder that reads replies keeps a lone ESC for the next read
+        let mut replies = Decoder::default();
+        assert_eq!(replies.feed(b"\x1b"), []);
+        assert_eq!(replies.feed(b"[B"), [Input::Key(Key::Down)]);
+        assert_eq!(
+            d.feed(b"[B"),
+            [Input::Key(Key::Char('[')), Input::Key(Key::Char('B'))]
+        );
+    }
+
+    #[test]
+    fn mouse_reports_decode_in_both_encodings() {
+        let at = |button, col, row| Input::Key(Key::Mouse(Mouse { button, col, row }));
+        assert_eq!(
+            keys(b"\x1b[<0;10;5M\x1b[<0;10;5m\x1b[<2;1;1M\x1b[<64;3;4M\x1b[<65;3;4M"),
+            [
+                at(Button::Press(0), 9, 4),
+                at(Button::Release, 9, 4),
+                at(Button::Press(2), 0, 0),
+                at(Button::WheelUp, 2, 3),
+                at(Button::WheelDown, 2, 3),
+            ]
+        );
+        // Ctrl held (16) still clicks; motion (32) is dropped
+        assert_eq!(keys(b"\x1b[<16;2;2M"), [at(Button::Press(0), 1, 1)]);
+        assert_eq!(keys(b"\x1b[<32;2;2M"), []);
+        // mode 1000 alone: each byte its value plus 32, the cell from 1
+        assert_eq!(
+            keys(b"\x1b[M #%\x1b[M##%"),
+            [at(Button::Press(0), 2, 4), at(Button::Release, 2, 4)]
+        );
+        // cut by a read, the three bytes wait
+        let mut d = Decoder::keys();
+        assert_eq!(d.feed(b"\x1b[M "), []);
+        assert_eq!(d.feed(b"#%"), [at(Button::Press(0), 2, 4)]);
+        // a report with a cell of 0 or too many numbers is dropped
+        assert_eq!(keys(b"\x1b[<0;0;5M\x1b[<0;1;2;3M"), []);
     }
 
     #[test]

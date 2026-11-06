@@ -187,9 +187,6 @@ pub(super) fn parse_cmap(bytes: &[u8], strikes: &mut [Strike]) -> Result<(), Set
                 return Err(SetError::Malformed("runs out of order or overlapping"));
             }
             let glyph_stored = strike.size(wide).ok_or(SetError::Truncated)?;
-            if glyph_stored > u64::from(SET_CHUNK_BYTES) {
-                return Err(SetError::Bound("SET_CHUNK_BYTES"));
-            }
             if glyph == next {
                 spans.push(Span {
                     glyph,
@@ -310,15 +307,29 @@ pub(super) fn parse_poly(bytes: &[u8], strikes: &mut [Strike]) -> Result<SpriteP
     Ok(policy)
 }
 
+/// The most bytes a chunk of `GLYF` or `CLUS` may hold: `SET_CHUNK_BYTES`,
+/// or the largest glyph a strike holds where that is larger, since such a
+/// glyph takes a chunk of its own (ADR-1302 D6). Each strike's cell is
+/// inside `CELL_SIDE_MAX`, so this is too.
+fn largest_chunk(strikes: &[Strike]) -> u32 {
+    strikes
+        .iter()
+        .filter_map(|s| s.size(true))
+        .filter_map(|n| u32::try_from(n).ok())
+        .fold(SET_CHUNK_BYTES, u32::max)
+}
+
 /// A chunk table of `count` records of `size` bytes, read from `c`, its
 /// first chunk `at` bytes into its section, `section` its offset in the
 /// file and its length: chunks packed in order and filling the section,
-/// each within `SET_CHUNK_BYTES`.
+/// each within `SET_CHUNK_BYTES`, except a raw chunk of at most `largest`
+/// bytes, which its section's reader holds to one glyph.
 fn chunk_table(
     c: &mut Cursor<'_>,
     (count, size): (u32, usize),
     mut at: u64,
     section: (u64, u64),
+    largest: u32,
 ) -> Result<Vec<Chunk>, SetError> {
     let mut chunks = Vec::new();
     for _ in 0..count {
@@ -335,7 +346,11 @@ fn chunk_table(
         if stored == 0 || decoded == 0 {
             return Err(SetError::Malformed("an empty chunk"));
         }
-        if stored > SET_CHUNK_BYTES || decoded > SET_CHUNK_BYTES {
+        // only a raw chunk passes the bound, so its decoded bytes are bytes
+        // the set holds
+        if (stored > SET_CHUNK_BYTES || decoded > SET_CHUNK_BYTES)
+            && (deflated || stored.max(decoded) > largest)
+        {
             return Err(SetError::Bound("SET_CHUNK_BYTES"));
         }
         if !deflated && stored != decoded {
@@ -358,8 +373,9 @@ fn chunk_table(
 }
 
 /// `GLYF`'s index: chunks packed in order after it and filling the
-/// section, each within `SET_CHUNK_BYTES`, and each strike's glyph bytes
-/// cut into whole chunks on glyph boundaries, strike after strike.
+/// section, each within `SET_CHUNK_BYTES` but a raw chunk holding exactly
+/// one glyph larger than that, and each strike's glyph bytes cut into
+/// whole chunks on glyph boundaries, strike after strike.
 pub(super) fn parse_index(
     bytes: &[u8],
     glyf: (u64, u64),
@@ -374,7 +390,7 @@ pub(super) fn parse_index(
             u64::try_from(table.1).map_err(|_| SetError::Truncated)?,
         )?,
     )?;
-    let mut chunks = chunk_table(&mut c, table, at, glyf)?;
+    let mut chunks = chunk_table(&mut c, table, at, glyf, largest_chunk(strikes))?;
     c.end()?;
     let mut next = 0usize;
     for (i, strike) in strikes.iter_mut().enumerate() {
@@ -387,6 +403,13 @@ pub(super) fn parse_index(
             let chunk = chunks
                 .get_mut(next)
                 .ok_or(SetError::Malformed("fewer chunk bytes than glyph bytes"))?;
+            if chunk.decoded > SET_CHUNK_BYTES
+                && strike.glyph_at(pos) != Some(u64::from(chunk.decoded))
+            {
+                return Err(SetError::Malformed(
+                    "a chunk past SET_CHUNK_BYTES that is not one glyph",
+                ));
+            }
             chunk.strike = i;
             chunk.start = pos;
             pos = add(pos, u64::from(chunk.decoded))?;
@@ -560,7 +583,13 @@ pub(super) fn parse_clusters(
         .saturating_add(20);
     let body = bytes.get(20..end).ok_or(SetError::Truncated)?;
     let mut c = Cursor(bytes.get(end..).unwrap_or_default());
-    let chunks = chunk_table(&mut c, (chunks, chunk_size as usize), len, clus)?;
+    let chunks = chunk_table(
+        &mut c,
+        (chunks, chunk_size as usize),
+        len,
+        clus,
+        largest_chunk(strikes),
+    )?;
     let map = ClusterMap {
         bytes: body.into(),
         size,
@@ -583,7 +612,14 @@ pub(super) fn parse_clusters(
             .as_ref()
             .and_then(|s| s.size(flags == 1))
             .zip(chunks.get(chunk))
-            .is_some_and(|(n, ch)| (offset as u64).saturating_add(n) <= u64::from(ch.decoded));
+            .is_some_and(|(n, ch)| {
+                // a chunk past the bound holds exactly this one glyph
+                if ch.decoded > SET_CHUNK_BYTES {
+                    offset == 0 && n == u64::from(ch.decoded)
+                } else {
+                    (offset as u64).saturating_add(n) <= u64::from(ch.decoded)
+                }
+            });
         // after the record before it: a later strike, or a greater key
         let after = match i.checked_sub(1).and_then(|p| Some((p, map.record(p)?[0]))) {
             None => true,
@@ -609,21 +645,23 @@ pub(super) fn parse_clusters(
 impl Strike {
     /// Whether a glyph starts at offset `pos` of the strike's glyph bytes.
     fn boundary(&self, pos: u64) -> bool {
-        let Some(span) = self
+        self.glyph_at(pos).is_some()
+    }
+
+    /// The bytes of the glyph that starts at offset `pos` of the strike's
+    /// glyph bytes; `None` when no glyph starts there.
+    fn glyph_at(&self, pos: u64) -> Option<u64> {
+        let span = self
             .spans
             .partition_point(|s| s.stored <= pos)
             .checked_sub(1)
-            .and_then(|i| self.spans.get(i))
-        else {
-            return false;
-        };
-        let (Some(size), Some(rel)) = (self.size(span.wide), pos.checked_sub(span.stored)) else {
-            return false;
-        };
-        rel.checked_rem(size) == Some(0)
+            .and_then(|i| self.spans.get(i))?;
+        let (size, rel) = (self.size(span.wide)?, pos.checked_sub(span.stored)?);
+        (rel.checked_rem(size) == Some(0)
             && rel
                 .checked_div(size)
-                .is_some_and(|k| k < u64::from(span.len))
+                .is_some_and(|k| k < u64::from(span.len)))
+        .then_some(size)
     }
 }
 
@@ -731,7 +769,13 @@ pub(super) fn parse_inks(
     let at = u64::try_from(end)
         .map_err(|_| SetError::Truncated)?
         .saturating_add(u64::from(chunk_count).saturating_mul(u64::from(chunk_size)));
-    let chunks = chunk_table(&mut c, (chunk_count, chunk_size as usize), at, inkx)?;
+    let chunks = chunk_table(
+        &mut c,
+        (chunk_count, chunk_size as usize),
+        at,
+        inkx,
+        SET_CHUNK_BYTES,
+    )?;
     let map = InkMap {
         bytes: body.into(),
         size,

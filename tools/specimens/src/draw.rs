@@ -48,14 +48,36 @@ impl Image {
 
 /// What the profiles draw from beyond the built-in sets: the desktop
 /// frit's glyphs at each outline profile's cell, and the tiny5 frit's at
-/// its own, each or why they could not be generated (`crate::fonts`).
+/// its own, each or why the caller does not have them (`crate::fonts`).
 pub struct Sources {
     pub desktop: Generated,
     pub tiny5: Generated,
 }
 
-/// A frit's glyphs, one set at each cell, or why they were not generated.
-pub type Generated = Result<Vec<(Cell, Arc<Set>)>, String>;
+/// A frit's glyphs, one set at each cell, or why the caller does not have
+/// them.
+pub type Generated = Result<Vec<(Cell, Arc<Set>)>, Absent>;
+
+/// Why a caller does not have a frit's glyphs.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Absent {
+    /// The caller tried to generate them and could not, and says why: a
+    /// pinned font is missing, or the engine refused the frit.
+    Failed(String),
+    /// The caller does not generate them, and names the other job that
+    /// draws and judges the profiles drawn from them. `cargo test` names
+    /// `make specimens-check` in CI this way.
+    JudgedBy(&'static str),
+}
+
+impl std::fmt::Display for Absent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Absent::Failed(why) => f.write_str(why),
+            Absent::JudgedBy(judge) => write!(f, "not drawn here; {judge} draws and judges it"),
+        }
+    }
+}
 
 impl Sources {
     /// The generated glyphs `glyphs` draws from, if it draws from any.
@@ -68,9 +90,9 @@ impl Sources {
     }
 }
 
-/// Why `profile` cannot be drawn here, if it cannot: the set it needs was
-/// not built. Such a profile is skipped, never failed.
-pub fn skipped<'a>(profile: &Profile, sources: &'a Sources) -> Option<&'a str> {
+/// Why `profile` cannot be drawn here, if it cannot: the caller does not
+/// have the set it needs. `crate::check` decides whether that skip fails.
+pub fn skipped<'a>(profile: &Profile, sources: &'a Sources) -> Option<&'a Absent> {
     match sources.generated(profile.glyphs) {
         Some(Err(why)) => Some(why),
         _ => None,
@@ -89,7 +111,7 @@ pub fn font(profile: &Profile, sources: &Sources) -> Result<Font<SetFace>, Strin
                 .generated(glyphs)
                 .ok_or("no generated glyphs")?
                 .as_ref()
-                .map_err(Clone::clone)?;
+                .map_err(Absent::to_string)?;
             sets.iter()
                 .find(|(c, _)| *c == Cell { width, height })
                 .map(|(_, set)| Arc::clone(set))

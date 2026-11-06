@@ -1,6 +1,9 @@
-"""Tier 3's head-file variants (ADR-1401): a head file installed at
-/etc/vtium/heads.conf in the guest, root's, and what the guest's real KMS
-device and systemd make of it, which unit tests cannot show.
+"""Tier 3's head variants (ADR-1401, ADR-1403): heads, rules and looks
+installed as the sections of /etc/vtium/vtium.conf in the guest, root's, and
+what the guest's real KMS device and systemd make of them, which unit tests
+cannot show. A variant names its head file, the sections and the `version`
+and `policy` lines above them; the guest's vtium.conf is the variant's
+configuration with the head file below it (guest_conf).
 
 A console that gives no login leaves the driver no shell in the guest, so
 these variants run the agent (guest/t3-agent), a root program on the third
@@ -40,7 +43,8 @@ from t3_common import GUEST, ROOT, rel
 from t3_qemu import char_qcodes, wait_stable
 
 # The guest's head files, beside the screens; a variant names one of these,
-# or a shipped one under docs/heads.
+# or a shipped one under docs/heads. Each is the flow part of a vtium.conf:
+# its `version` and `policy` lines, then its sections.
 HEADS = os.path.join(GUEST, "heads")
 
 # The units of VT 2, as the agent reports them: vtium's, its fallback's and
@@ -89,8 +93,8 @@ KERNEL_CELL = (8, 16)
 # (crates/vtium/src/app.rs).
 NO_DISPLAY_LINE = re.compile(r"no display appeared within (\d+) s")
 # The cell of each head's display in two-heads.conf, by connector: the cell
-# each head's frit states, desk's 8x16 on the first output and panel's 8x8
-# on the second.
+# the frit of each head's look states, desk's 8x16 on the first output and
+# panel's 8x8 on the second.
 TWO_HEADS = {"Virtual-1": "8x16", "Virtual-2": "8x8"}
 
 # The second keyboard the kiosk check plugs into the hub's port 3.3, by the
@@ -107,9 +111,9 @@ HOLD_PAST_S = 2
 # Seconds a check waits for a state it asks the agent for.
 STATE_TIMEOUT = 60
 
-# Where guest/setup installs the variant's head file, as the console's log
+# Where guest/setup installs the variant's vtium.conf, as the console's log
 # names it.
-GUEST_HEAD_FILE = "/etc/vtium/heads.conf"
+GUEST_CONF = "/etc/vtium/vtium.conf"
 # The console lines of the outcomes that run some of the file, partly broken
 # under either policy, or the shipped default in its place (ADR-1401 D7). A
 # file whose policy line vtium cannot read never shows either, as it is
@@ -149,8 +153,8 @@ CHECKS = {
                     "display-wait. Correct: the same vtium still running, no line that no "
                     "display appeared, the marker written and no getty on tty2 (ADR-1401 "
                     "D8).",
-    "two-heads": "A valid open head file with two heads, one on each output of the card, "
-                 "each with its own profile's font: the second output, the panel, read "
+    "two-heads": "A valid open vtium.conf with two heads, one on each output of the card, "
+                 "each with its own look's font: the second output, the panel, read "
                  "after the first head, desk, took the login and drew its screens. "
                  "Correct: desk's display in 8x16 cells and panel's in 8x8; panel's "
                  "screen, its own login prompt, as it was before the login, and not "
@@ -163,10 +167,10 @@ CHECKS = {
              "stays 2 after the chord and the claimed keyboard still reaches the session; "
              "the guest lists the second keyboard, and the screen stays as it was while it "
              "types.",
-    "policy-line": "A head file whose policy line holds a value vtium does not know, "
+    "policy-line": "A vtium.conf whose policy line holds a value vtium does not know, "
                    "`policy = opne`, read from the console's log once its panic screen "
-                   "settled. Correct: the console logged that line's error with the head "
-                   "file's path and the line's number, and logged no outcome that runs some "
+                   "settled. Correct: the console logged that line's error with the path "
+                   "/etc/vtium/vtium.conf and the line's number, and logged no outcome that runs some "
                    "of the file or the shipped default (ADR-1401 D7). The capture is the screen "
                    "when the log was read.",
     "display-exit": "No display device under an open policy, the control of display-held. "
@@ -186,25 +190,26 @@ LINES = {"panic": "vtium: config invalid, policy closed: input off",
 # The cases judged by a golden that no screen script draws: the console's
 # first screen, before any key.
 FIRST = {
-    "panic": "The broken closed head file's panic screen on the boot display: `vtium: "
-             "config invalid, policy closed: input off`, then that its errors leave no "
-             "head that can run, each error with its line of /etc/vtium/heads.conf, and "
-             "how to read the full report (ADR-1401 D7). Correct: the report alone, with "
+    "panic": "The panic screen on the boot display of a vtium.conf whose closed flow is "
+             "broken: `vtium: config invalid, policy closed: input off`, then that its "
+             "errors leave no head that can run, each error with its line of "
+             "/etc/vtium/vtium.conf, and how to read the full report (ADR-1401 D7). Correct: the report alone, with "
              "no login prompt and no shell.",
-    "policy-panic": "The panic screen on the boot display of a head file whose policy line "
-                    "vtium cannot read, `policy = opne`, though the rest of the file would "
-                    "run a head with every keyboard roaming (ADR-1401 D3, D7). Correct: "
-                    "`vtium: config invalid, policy closed: input off`, then that no head "
-                    "can run, then the policy line's error with its line of "
-                    "/etc/vtium/heads.conf, listed first, before the error of the line "
-                    "above it, and how to read the full report; no login prompt and no "
-                    "shell.",
-    "partly-notice": "The partly broken open head file's notice at the top of the head's "
-                     "screen: `config partly invalid, running what's valid` and what to "
+    "policy-panic": "The panic screen on the boot display of a vtium.conf whose policy "
+                    "line vtium cannot read, `policy = opne`, below a line naming a "
+                    "version vtium does not know, `version = 2` (ADR-1401 D3, D7). "
+                    "Correct: `vtium: config invalid, policy closed: input off`, then that "
+                    "no head can run, then the policy line's error with its line of "
+                    "/etc/vtium/vtium.conf, listed first, before the error of the version "
+                    "line above it, and how to read the full report; no login prompt and "
+                    "no shell.",
+    "partly-notice": "The notice of a vtium.conf whose open flow is partly broken, at "
+                     "the top of the head's screen: `config partly invalid, running "
+                     "what's valid` and what to "
                      "do next (ADR-1401 D7). It covers the rows of the login prompt, "
                      "which takes keys as before. Correct: the notice over a screen "
                      "otherwise blank.",
-    "no-display-notice": "A closed head file whose one head matches no display: the "
+    "no-display-notice": "A closed vtium.conf whose one head matches no display: the "
                          "display guard lights the guest's display for the notice "
                          "`vtium: no display for any head` alone, with what to do next "
                          "(ADR-1401 D9). Correct: the notice, with no login prompt.",
@@ -576,14 +581,14 @@ def judge_exit(first, state, wait_s, logged):
 
 
 def judge_policy_line(serial, lines, policy_line):
-    """Why the console's log `serial` does not show a head file whose
+    """Why the console's log `serial` does not show a vtium.conf whose
     `lines` hold `policy_line`, a policy line vtium cannot read, as closed
     and broken (CHECKS "policy-line"); None when it does."""
     if policy_line not in lines:
-        raise ValueError("the head file holds no line %r" % policy_line)
+        raise ValueError("the vtium.conf holds no line %r" % policy_line)
     n = lines.index(policy_line) + 1
     value = policy_line.split("=", 1)[1].strip()
-    error = '%s:%d: `policy` cannot be "%s"' % (GUEST_HEAD_FILE, n, value)
+    error = '%s:%d: `policy` cannot be "%s"' % (GUEST_CONF, n, value)
     if error not in serial:
         return "the console logged no error %r for the policy line" % error
     for line in RUN_LINES:
@@ -598,8 +603,7 @@ def check_policy_line(variant, vm, work, caps, errors, log):
     screen has settled."""
     case = "policy-line"
     try:
-        with open(head_file(variant)) as f:
-            lines = f.read().splitlines()
+        lines = guest_conf(variant).splitlines()
         path = os.path.join(work, case + ".ppm")
         wait_stable(vm, path)
         why = judge_policy_line(serial_after(vm, 0), lines, variant["policy_line"])
@@ -707,6 +711,21 @@ def head_file(variant):
     """The path of the head file `variant` installs, which its "heads"
     names from the repository's root."""
     return os.path.join(ROOT, variant["heads"])
+
+
+def guest_conf(variant):
+    """The vtium.conf guest/setup installs for `variant`: its configuration,
+    vtium's own keys, then its head file, if it names one, whose `version`
+    and `policy` lines join the top level and whose sections come below it
+    (ADR-1403 D1)."""
+    with open(os.path.join(GUEST, variant["conf"])) as f:
+        text = f.read()
+    if "heads" in variant:
+        if text and not text.endswith("\n"):
+            text += "\n"
+        with open(head_file(variant)) as f:
+            text += f.read()
+    return text
 
 
 def ask_state(vm):

@@ -21,13 +21,15 @@
 use std::fmt;
 
 use crate::error::{
-    AtStart, Drops, Fate, Note, PolicyFault, Problem, Remark, Renamed, Shown, Stating, Syntax,
-    Untrusted, Warning,
+    AtStart, Drops, Fate, Mend, Note, PolicyFault, Problem, Refusal, Remark, Renamed, Shown,
+    Stating, Syntax, Untrusted, Warning,
 };
 use crate::identity::{Class, Kind};
+use crate::keys::{Level, Levels};
 use crate::matching::Token;
 use crate::outcome::{Line, Policy, Read, Rescue, Runs, Stated, Trusted, resolve};
 use crate::parse::{Takes, range, takes};
+use crate::route::{Judged, Missing};
 
 /// The file's own words `items`, each in backticks, separated by commas:
 /// a list for a message to name, written as it is shown.
@@ -49,6 +51,10 @@ impl fmt::Display for Listed<'_> {
 /// never words to translate.
 pub mod syntax {
     pub const HEAD_HEADING: &str = "[head NAME]";
+    pub const LOOK_HEADING: &str = "[look NAME]";
+    pub const PROFILE_HEADING: &str = "[profile NAME]";
+    /// A head's key that names its look.
+    pub const LOOK: &str = "look";
     pub const RULES_HEADING: &str = "[rules]";
     pub const GUARDS_HEADING: &str = "[guards]";
     pub const VERSION: &str = "version";
@@ -116,6 +122,11 @@ impl fmt::Display for Syntax {
                 "A head's heading names exactly one head, as `{head}`. Give it one name, with no spaces in it.",
                 head = HEAD_HEADING,
             ),
+            Syntax::LookOneName => write!(
+                f,
+                "A look's heading names exactly one look, as `{look}`. Give it one name, with no spaces in it.",
+                look = LOOK_HEADING,
+            ),
             Syntax::NotKeyValue => write!(
                 f,
                 "This line should read `{key_value}`. Put an `{equals}` between the key and its value.",
@@ -160,7 +171,7 @@ impl fmt::Display for Problem {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Problem::NotAFile => f.write_str(
-                "This is not a regular file. Put the head file's text in a regular file at this path.",
+                "This is not a regular file. Put vtium.conf's text in a regular file at this path.",
             ),
             Problem::Unreadable(system_error) => write!(
                 f,
@@ -187,7 +198,7 @@ impl fmt::Display for Problem {
             ),
             Problem::ControlCharacter(c) => write!(
                 f,
-                "This line holds the control character {character}, which a head file may not hold. Delete it.",
+                "This line holds the control character {character}, which vtium.conf may not hold. Delete it.",
                 character = c.escape_unicode(),
             ),
             Problem::MissingVersion => write!(
@@ -201,12 +212,6 @@ impl fmt::Display for Problem {
                 version = VERSION_LINE,
             ),
             Problem::Syntax(syntax) => write!(f, "{syntax}"),
-            Problem::UnknownSection(s) => write!(
-                f,
-                "vtium knows no section {s}. Rename it to `{head}` or `{rules}`, the sections vtium knows.",
-                head = HEAD_HEADING,
-                rules = RULES_HEADING,
-            ),
             Problem::DuplicateSection(_) => write!(
                 f,
                 "The file already has a `{rules}` section, and may have only one. Move this section's lines into the first one.",
@@ -261,6 +266,12 @@ impl fmt::Display for Problem {
                     "`{key}` cannot be {value}. Change it to a number of seconds up to {max}."
                 ),
                 Takes::Text => write!(f, "`{key}` cannot be empty. Give it a value."),
+                Takes::Name => write!(
+                    f,
+                    "`{key}` cannot be {value}: a name is 1 to {max} characters, each a letter, a digit or one of `{punctuation}`. Change it to such a name.",
+                    max = crate::NAME_MAX,
+                    punctuation = NAME_PUNCTUATION,
+                ),
             },
             Problem::OutOfRange { key, value } => match range(key) {
                 Takes::Number { min, max: None } => write!(
@@ -278,7 +289,7 @@ impl fmt::Display for Problem {
                     f,
                     "{value} is outside the range `{key}` takes, up to {max} seconds. Choose a shorter duration."
                 ),
-                Takes::Words(_) | Takes::Text => write!(
+                Takes::Words(_) | Takes::Text | Takes::Name => write!(
                     f,
                     "{value} is outside the range `{key}` takes. Choose a value inside it."
                 ),
@@ -352,6 +363,47 @@ impl fmt::Display for Problem {
                 version = VERSION,
             ),
             Problem::UnreadablePolicy(fault) => write!(f, "{fault}"),
+            Problem::NotASection(s) => write!(
+                f,
+                "vtium.conf has no section {s}. Rename it to `{look}`, `{head}` or `{rules}`, the sections vtium.conf takes.",
+                look = LOOK_HEADING,
+                head = HEAD_HEADING,
+                rules = RULES_HEADING,
+            ),
+            Problem::BadLookName(n) => write!(
+                f,
+                "The look's name {n} must be 1 to {max} characters, each a letter, a digit or one of `{punctuation}`. Rename the look, and every head's `{look}` that names it.",
+                max = crate::NAME_MAX,
+                punctuation = NAME_PUNCTUATION,
+                look = LOOK,
+            ),
+            Problem::DuplicateLook(n) => write!(
+                f,
+                "vtium.conf already declares a look named {n}, so vtium skips this second one. Give one of the two another name, or move this section's lines into the first."
+            ),
+            Problem::TooManyLooks => write!(
+                f,
+                "vtium.conf declares more than {max} looks, the most vtium reads. Remove the looks it does not need.",
+                max = crate::LOOKS_MAX,
+            ),
+            Problem::NotHere {
+                key,
+                section,
+                levels,
+            } => write!(
+                f,
+                "{}",
+                NotHere {
+                    key,
+                    section: *section,
+                    levels: *levels,
+                }
+            ),
+            Problem::TooLong(key) => write!(
+                f,
+                "The value of `{key}` is longer than {max} bytes, the most a value may hold. Shorten it.",
+                max = crate::keys::TEXT_MAX,
+            ),
             Problem::HiddenOutsideSection(start) => write!(
                 f,
                 "Above the first section the file takes only `{version}` and `{policy}`, and this line is neither. From just before a character that does not show on screen, it reads {start}, with that character escaped. Delete that character, or move the line under the heading it belongs to, such as `{head}` or `{rules}`.",
@@ -443,11 +495,17 @@ impl fmt::Display for Warning {
                 consoles = CONSOLES,
             ),
             Warning::MissingFrit {
-                head, profile, dir, ..
+                look, frit, dir, ..
             } => write!(
                 f,
-                "The head {head}'s profile names the frit {profile}, which is not in {dir}, so the head draws the default frit. Put that frit in {dir}, or change the head's `{key}`.",
-                key = PROFILE,
+                "The look {look} names the frit {frit}, which is not in {dir}, so vtium reads {frit} as the name of a kbd font and draws its built-in font when there is none. Put that frit in {dir}, or change the look's `{key}`.",
+                key = crate::keys::FONT_NAME.name,
+            ),
+            Warning::NoLook { head, look, .. } => write!(
+                f,
+                "The head {head} names the look {look}, which vtium.conf does not declare, so the head draws with the default look. Add a `{heading}` section of that name, or change the head's `{key}`.",
+                heading = LOOK_HEADING,
+                key = LOOK,
             ),
             Warning::Shadowed { by, .. } => write!(
                 f,
@@ -502,10 +560,18 @@ impl fmt::Display for Renamed {
                 rescue = RESCUE,
                 isolated = ISOLATED_YES,
             ),
-            Renamed::HeadFont(key) => write!(
+            Renamed::Profile => write!(
                 f,
-                "A head has no `{key}` of its own: its `{profile}` sets its font. Set the font in the head's profile, or remove the line.",
+                "In vtium.conf a head names its look with `{look}`, not `{profile}`. Rename the key to `{look}`, and give the look a `{look_heading}` section.",
+                look = LOOK,
                 profile = PROFILE,
+                look_heading = LOOK_HEADING,
+            ),
+            Renamed::ProfileSection => write!(
+                f,
+                "In vtium.conf a profile is called a look, so this section is written `{look}`, not `{profile}`. Rename the heading.",
+                look = LOOK_HEADING,
+                profile = PROFILE_HEADING,
             ),
             Renamed::Guards => write!(
                 f,
@@ -514,6 +580,168 @@ impl fmt::Display for Renamed {
                 policy = POLICY,
                 open = POLICY_OPEN,
                 closed = POLICY_CLOSED,
+            ),
+        }
+    }
+}
+
+impl fmt::Display for Missing {
+    /// The first thing a complete route lacks, and what to do about it
+    /// (ADR-1403 D3).
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Missing::NoDisplay {
+                display,
+                rule: Some(rule),
+            } => write!(
+                f,
+                "No display present is sent to a head: display {display} falls to rule {rule}, which sends it to `{off}`. Add a rule above it that sends the display to a head.",
+                off = OFF,
+            ),
+            Missing::NoDisplay {
+                display,
+                rule: None,
+            } => write!(
+                f,
+                "No display present is sent to a head: no rule matches display {display}, so it stays off. Add a display rule that sends it to a head."
+            ),
+            Missing::NoKeyboard { head, display } => write!(
+                f,
+                "Head {head} shows {display}, but no keyboard present reaches {head}: add an input rule that sends a keyboard to {head} or to `{roaming}`.",
+                roaming = ROAMING,
+            ),
+            Missing::Isolated { head } => write!(
+                f,
+                "Head {head} is isolated, so roaming keyboards do not reach it. Add an input rule that sends a keyboard to {head}, or write `{not}` in its section.",
+                not = ISOLATED_NO,
+            ),
+            Missing::NoDisplayRule => write!(
+                f,
+                "No display rule sends displays to a head. Add a rule `{rule}` whose target is a head.",
+                rule = DISPLAY_RULE,
+            ),
+            Missing::NoKeyboardRule { head, rule } => write!(
+                f,
+                "Head {head} takes displays by rule {rule}, but no input rule sends keyboards to {head} or to `{roaming}`: add an input rule that sends a keyboard to {head} or to `{roaming}`.",
+                roaming = ROAMING,
+            ),
+        }
+    }
+}
+
+impl fmt::Display for Judged {
+    /// How the route was judged, which `vtium check-config` notes when it
+    /// judged by the rules alone (ADR-1403 D3).
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Judged::Devices => "vtium judged the route by the devices present.",
+            Judged::NoDisplay => {
+                "No display is present, so vtium judged the route by the rules alone."
+            }
+            Judged::NoKeyboard => {
+                "No keyboard is present, so vtium judged the route by the rules alone."
+            }
+            Judged::RulesAlone => {
+                "vtium judged the route by the rules alone, without the devices present."
+            }
+        })
+    }
+}
+
+/// A key a section cannot set, and where the key table lets it be set:
+/// each pairing of the section and the levels is a whole message.
+struct NotHere<'a> {
+    key: &'a str,
+    section: Level,
+    levels: Levels,
+}
+
+impl fmt::Display for NotHere<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let key = self.key;
+        match (self.section, self.levels) {
+            (_, Levels::NONE) => write!(
+                f,
+                "`{key}` is set only on vtium's command line, never in vtium.conf. Remove the line."
+            ),
+            (Level::Head, Levels::TOP_LOOK) => write!(
+                f,
+                "A head's section cannot set `{key}`: the head takes it from its look. Set it in the `{look}` section the head names, or at the top of vtium.conf, above the first section, for every head.",
+                look = LOOK_HEADING,
+            ),
+            (Level::Head, Levels::LOOK) => write!(
+                f,
+                "A head's section cannot set `{key}`: the head takes it from its look, and only a look sets it. Set it in the `{look}` section the head names.",
+                look = LOOK_HEADING,
+            ),
+            (Level::Look, Levels::TOP_HEAD) => write!(
+                f,
+                "A look cannot set `{key}`. Set it in a `{head}` section for one head, or at the top of vtium.conf, above the first section, for every head.",
+                head = HEAD_HEADING,
+            ),
+            (Level::Head, _) => write!(
+                f,
+                "A head's section cannot set `{key}`, which vtium takes for every head alike. Set it at the top of vtium.conf, above the first section."
+            ),
+            (Level::Look | Level::Top, _) => write!(
+                f,
+                "A look cannot set `{key}`, which vtium takes for every head alike. Set it at the top of vtium.conf, above the first section."
+            ),
+        }
+    }
+}
+
+/// A path as a shell command takes it: bare when every character is one a
+/// shell reads as itself, else in single quotes, with every control and
+/// format character escaped so the message stays on one line.
+struct ShellPath<'a>(&'a str);
+
+impl fmt::Display for ShellPath<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let plain = |c: char| {
+            c.is_ascii_alphanumeric() || matches!(c, '/' | '.' | '_' | '-' | '+' | ':' | ',')
+        };
+        if !self.0.is_empty() && self.0.chars().all(plain) {
+            return f.write_str(self.0);
+        }
+        f.write_str("'")?;
+        for c in self.0.chars() {
+            match c {
+                '\'' => f.write_str("'\\''")?,
+                c if c.escape_debug().count() > 1 && c != '\\' && c != '"' => {
+                    for e in c.escape_debug() {
+                        fmt::Write::write_char(f, e)?;
+                    }
+                }
+                c => fmt::Write::write_char(f, c)?,
+            }
+        }
+        f.write_str("'")
+    }
+}
+
+impl fmt::Display for Mend<'_> {
+    /// `chown root:root PATH` or `chmod go-w PATH`, the path as a shell
+    /// takes it.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.0 {
+            Untrusted::Owner { path, .. } => write!(f, "chown root:root {}", ShellPath(path.raw())),
+            Untrusted::Writable { path, .. } => write!(f, "chmod go-w {}", ShellPath(path.raw())),
+        }
+    }
+}
+
+impl fmt::Display for Refusal<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mend = self.0.mend();
+        match self.0 {
+            Untrusted::Owner { path, uid } => write!(
+                f,
+                "vtium does not read this file, because {path} belongs to user {uid} and not to root, so it runs its compiled-in configuration. Run `{mend}` to make root its owner.",
+            ),
+            Untrusted::Writable { path, mode } => write!(
+                f,
+                "vtium does not read this file, because {path} can be changed by its group or by other users (mode {mode:o}), so it runs its compiled-in configuration. Run `{mend}` so that only its owner can change it.",
             ),
         }
     }
@@ -598,7 +826,7 @@ impl fmt::Display for AtStart {
         let line = outcome.line.map_or("", Line::text);
         match self.0 {
             Read::Missing => f.write_str(
-                "There is no head file here, so a start runs the compiled-in configuration and shows nothing.",
+                "There is no vtium.conf here, so a start runs the compiled-in configuration and shows nothing.",
             ),
             Read::Untrusted => write!(
                 f,
@@ -773,26 +1001,49 @@ impl fmt::Display for Remark {
     }
 }
 
-impl fmt::Display for crate::write::ProfileEdit {
+impl fmt::Display for crate::write::SectionEdit {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         use crate::error::Quoted;
-        use crate::write::ProfileEdit;
-        use syntax::{CHECK_CONFIG, HEAD_HEADING, NAME_PUNCTUATION, PROFILE};
+        use crate::write::SectionEdit;
+        use syntax::NAME_PUNCTUATION;
         match self {
-            ProfileEdit::Unreadable(_) => write!(
+            SectionEdit::NoSection(name) => write!(
                 f,
-                "The head file holds errors, so vtium-config leaves it as it is. Run {CHECK_CONFIG} on the file to see them, and fix them first."
+                "vtium.conf has no section named {}. Pick one of the sections it declares.",
+                Quoted::new(name)
             ),
-            ProfileEdit::NoHead(head) => write!(
+            SectionEdit::Exists(name) => write!(
                 f,
-                "The head file has no head named {head}. Each head is a {HEAD_HEADING} section; pick one of the heads it names.",
-                head = Quoted::new(head),
+                "vtium.conf already has a section named {}. Choose another name.",
+                Quoted::new(name)
             ),
-            ProfileEdit::BadName(name) => write!(
+            SectionEdit::BadName(name) => write!(
                 f,
-                "A {PROFILE}'s name is 1 to {max} letters, digits or {NAME_PUNCTUATION}, so vtium would refuse {name}. Choose a name of those characters.",
-                max = crate::bounds::NAME_MAX,
-                name = Quoted::new(name),
+                "A section's name is 1 to {max} letters, digits or {NAME_PUNCTUATION}, so vtium would refuse {}. Choose a name of those characters.",
+                Quoted::new(name),
+                max = crate::NAME_MAX,
+            ),
+            SectionEdit::BadKey(key) => write!(
+                f,
+                "This section does not take the key {}. Set it where vtium.conf takes it.",
+                Quoted::new(key)
+            ),
+            SectionEdit::BadValue { key, value } => write!(
+                f,
+                "vtium would not read {} back as the value of `{key}`. Write a value of one line, with no comment in it.",
+                Quoted::new(value)
+            ),
+            SectionEdit::NoRule(n) => write!(
+                f,
+                "vtium.conf has no rule {n}. The rules are numbered from 1 in the order `[rules]` lists them."
+            ),
+            SectionEdit::BadRule(_) => f.write_str(
+                "This is not a rule vtium reads. Write it as `display MATCH -> TARGET` or `input MATCH -> TARGET`.",
+            ),
+            SectionEdit::Ambiguous(name) => write!(
+                f,
+                "vtium.conf has two sections named {}, so vtium-config cannot tell which to change. Rename or remove one of them with vtium config edit.",
+                Quoted::new(name)
             ),
         }
     }

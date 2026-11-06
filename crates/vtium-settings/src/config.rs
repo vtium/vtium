@@ -1,10 +1,11 @@
-//! A parsed head file: its policy, its heads and its rules (ADR-1401 D3,
-//! D9).
+//! A parsed head file, or the sections of vtium.conf: the policy, the
+//! looks, the heads and the rules (ADR-1401 D3, D9; ADR-1403 D1, D5).
 
 use crate::identity::Kind;
+use crate::keys::{Key, Level};
 use crate::matching::Match;
 use crate::outcome::Policy;
-use crate::parse::parse;
+use crate::parse::{parse, sections};
 
 /// The head file's commented template. The compiled-in configuration is
 /// its parse, so the built-in configuration, the file `vtiumctl template`
@@ -27,11 +28,33 @@ pub enum WhenDisplayLost {
     HangupAfter(u32),
 }
 
-/// The font keys, as vtium.conf carries them; `None` is a key not set.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Font {
-    pub name: Option<String>,
-    pub size: Option<u32>,
+/// One key of the key table that a section sets: the key, its value as
+/// the file writes it, and its line.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Setting {
+    pub key: &'static Key,
+    /// The value's text, which the section reader has checked against the
+    /// key's values and bounds and which the console reads as it reads the
+    /// same key at the top level.
+    pub value: String,
+    pub line: usize,
+}
+
+/// One `[look NAME]` section of vtium.conf (ADR-1403 D1, D5): what a head
+/// that names it draws with.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Look {
+    pub name: String,
+    /// The line of its `[look NAME]`.
+    pub line: usize,
+    /// The keys of the key table it sets, `font-name` naming its frit
+    /// among them, in the file's order.
+    pub settings: Vec<Setting>,
+    /// The vtlook it names with `vtlook =`, ADR-1304's file of frame
+    /// filters; unset, the built-in default vtlook.
+    pub vtlook: Option<String>,
+    /// The line of its `vtlook`, 0 for none.
+    pub vtlook_line: usize,
 }
 
 /// One `[head NAME]` section.
@@ -40,10 +63,10 @@ pub struct Head {
     pub name: String,
     /// The line of its `[head NAME]`, 0 for none.
     pub line: usize,
-    /// The profile's name; unset, `default`.
-    pub profile: String,
-    /// The line of its `profile`, 0 for none.
-    pub profile_line: usize,
+    /// The name of the head's look, its `look =`; unset, `default`.
+    pub look: String,
+    /// The line of its `look`, 0 for none.
+    pub look_line: usize,
     /// The number of consoles, 1 to [`CONSOLES_MAX`](crate::CONSOLES_MAX).
     pub consoles: u32,
     /// The line of its `consoles`, 0 for none.
@@ -55,6 +78,10 @@ pub struct Head {
     /// `isolated` as the file writes it, `None` for unset, which the
     /// policy decides (D5); [`Config::isolated`] reads it.
     pub isolated: Option<bool>,
+    /// The keys of the key table a head's section of vtium.conf sets, such
+    /// as `login`, in the file's order; the head file's reading leaves it
+    /// empty.
+    pub settings: Vec<Setting>,
 }
 
 impl Head {
@@ -62,25 +89,14 @@ impl Head {
         Head {
             name: name.to_owned(),
             line,
-            profile: "default".to_owned(),
-            profile_line: 0,
+            look: "default".to_owned(),
+            look_line: 0,
             consoles: 1,
             consoles_line: 0,
             login: None,
             when_display_lost: WhenDisplayLost::Keep,
             isolated: None,
-        }
-    }
-
-    /// The head's font: vtium.conf's keys, `base`, with the head's
-    /// profile over them (D3). Until profiles have files, the `default`
-    /// profile states nothing and any other profile states only its frit,
-    /// the frit of its name.
-    pub fn font(&self, base: &Font) -> Font {
-        let profile_name = (self.profile != "default").then(|| self.profile.clone());
-        Font {
-            name: profile_name.or_else(|| base.name.clone()),
-            size: base.size,
+            settings: Vec::new(),
         }
     }
 }
@@ -114,6 +130,8 @@ pub struct Config {
     /// `closed` where a `policy = closed` line is readable, else `open`;
     /// it sets the guards and what the rules leave unsaid (D3, D9).
     pub policy: Policy,
+    /// The looks in the file's order; the head file has none.
+    pub looks: Vec<Look>,
     /// The heads in the file's order.
     pub heads: Vec<Head>,
     /// The rules in the file's order, which each device walks.
@@ -145,6 +163,36 @@ impl Config {
         self.heads.iter().find(|h| h.name == name)
     }
 
+    /// The look `head` draws with: the `[look NAME]` section its `look =`
+    /// names, `default` when it names none. `None` is the built-in default
+    /// look, which sets nothing: for a head that names `default` with no
+    /// `[look default]` section, and for one whose look has no section or
+    /// was dropped by an error, which `vtium check-config` warns of (ADR-1403
+    /// D5; ADR-1200 D16).
+    pub fn look(&self, head: &Head) -> Option<&Look> {
+        self.looks.iter().find(|l| l.name == head.look)
+    }
+
+    /// The keys a head's sections set over the top level, each key once,
+    /// at the most specific level that sets it: the head's own section,
+    /// then its look's (ADR-1403 D5). The caller lays them over the top
+    /// level, which the command line has already set over the file's own
+    /// lines, since a section wins over both.
+    pub fn settings<'a>(&'a self, head: &'a Head) -> Vec<(Level, &'a Setting)> {
+        let mut out: Vec<(Level, &Setting)> =
+            head.settings.iter().map(|s| (Level::Head, s)).collect();
+        for s in self
+            .look(head)
+            .map(|l| l.settings.as_slice())
+            .unwrap_or_default()
+        {
+            if !out.iter().any(|(_, o)| o.key.name == s.key.name) {
+                out.push((Level::Look, s));
+            }
+        }
+        out
+    }
+
     /// The rules using a key that needs a udev daemon, each with its line
     /// and the key, for `vtium check-config` to note on a system with none
     /// (D4).
@@ -160,4 +208,23 @@ impl Config {
             })
             .collect()
     }
+}
+
+/// The value vtium takes for the key `key` on the head named `head`, and
+/// the level it comes from (ADR-1403 D5): the head's section of `text`,
+/// else its look's, else the top level's last line that sets it, as vtium
+/// runs the file: from what survives of the sections, so an error in one
+/// section changes only what that error drops. The command line, which
+/// wins over the top level and loses to a section, is the caller's. A head
+/// the surviving sections do not declare takes the top level's value.
+pub fn value_for(text: &str, head: &str, key: &str) -> Option<(String, Level)> {
+    let config = sections(text.as_bytes()).map(|r| r.parsed.config);
+    let section = config.as_ref().and_then(|c| {
+        let h = c.head(head)?;
+        c.settings(h)
+            .into_iter()
+            .find(|(_, s)| s.key.name == key)
+            .map(|(level, s)| (s.value.clone(), level))
+    });
+    section.or_else(|| crate::conf::setting(text, key).map(|v| (v, Level::Top)))
 }

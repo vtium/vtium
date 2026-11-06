@@ -94,6 +94,7 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
+use vtium_devices::Card;
 use vtium_platform::calloop::LoopHandle;
 use vtium_platform::display::{Blank, Buffers, DPI_ASSUMED, DisplayId, Dpms, Event};
 use vtium_platform::input::{
@@ -115,7 +116,6 @@ use crate::font::{self, Chosen};
 use crate::grab::{self, Chord, Grab};
 use crate::head::chord::{self, HeadChord};
 use crate::head::console::Console;
-use crate::head::identity::{self, Card};
 use crate::head::route::{self, Routes};
 use crate::head::session::{self, AfterExit, Caps};
 use crate::head::{Attached, Frit, Head, Start, place_display};
@@ -355,6 +355,15 @@ pub struct App {
 /// the start.
 pub type Reread = Box<dyn FnMut() -> crate::config::Loaded>;
 
+impl Drop for App {
+    /// Lets go of every head's render thread at once before the heads drop,
+    /// so heads whose GPU driver hangs hold vtium's exit
+    /// [`crate::painter::LET_GO_MS`] in all, not that for each head.
+    fn drop(&mut self) {
+        self.let_go_of_painters();
+    }
+}
+
 impl App {
     /// The seat for `config` on `vt`, with the compiled-in configuration's
     /// heads ([`App::set_heads`] gives the head file's); each head's child
@@ -517,6 +526,7 @@ impl App {
         let caps = self.caps;
         self.scrollback_bytes = session::scrollback_bytes(&self.config, caps, declared.heads.len());
         let scrollback = (self.scrollback, self.scrollback_bytes);
+        self.let_go_of_painters();
         self.heads = session::heads(&declared, &self.config, scrollback, caps, &self.clock);
         self.screen = (rules.policy == Policy::Closed).then(|| {
             let term = crate::head::terminal(&self.config, (0, 0), 0, Rc::clone(&self.clock));
@@ -835,15 +845,31 @@ impl App {
         self.share(h);
     }
 
+    /// The configuration head `h` reads the keys a section may set from:
+    /// the top level, with the command line over it, and the head's
+    /// sections over both (ADR-1403 D5). With no such head, the top level.
+    fn head_config(&self, h: usize) -> Config {
+        match self.heads.get(h) {
+            Some(head) if !head.settings.is_empty() => {
+                let path = crate::config::path(&self.config);
+                self.config.for_head(&path, &head.settings).0
+            }
+            _ => self.config.clone(),
+        }
+    }
+
     /// The font the configuration gives head `h` (ADR-1200 D9, ADR-1401
     /// D3): the head's own font, else the frit `font-name` or vconsole
     /// names, or the one-source frit made on the fly for a kbd name, a
     /// path or vconsole's font, generated at run time (ADR-1301 D2); else
-    /// the built-in font, with one line naming the font and why.
+    /// the built-in font, with one line naming the font and why. The font
+    /// draws in the cell the head's look states, the built-in font as a
+    /// frit does (ADR-1200 D7, ADR-1403 D5).
     fn configured_font(&self, h: usize) -> Chosen {
         let Some(head) = self.heads.get(h) else {
-            return Chosen::Builtin(None);
+            return Chosen::BUILTINS;
         };
+        let look = head.look_cell();
         let s = &self.font_sources;
         let wanted = match &head.font_name {
             Some(name) => Some(font::Wanted {
@@ -851,21 +877,21 @@ impl App {
                 came: font::Came::Config,
             }),
             None => font::wanted(
-                &self.config,
+                &self.head_config(h),
                 &font::read_text(&s.vconsole_conf),
                 &font::read_text(&s.kernel_cmdline),
             ),
         };
         let Some(wanted) = wanted else {
-            return Chosen::Builtin(None);
+            return Chosen::builtins(look);
         };
-        if let Some(builtin) = font::builtin_named(&wanted.name) {
+        if let Some(builtin) = font::builtin_named(&wanted.name, look) {
             return builtin;
         }
         // The frit's cell is read as text before the first frame; its fonts
         // are the helper's to parse (#145).
-        let chosen =
-            font::frit_named(&s.frits, &wanted).and_then(|frit| Chosen::frit(frit, head.sized()));
+        let chosen = font::frit_named(&s.frits, &wanted)
+            .and_then(|frit| Chosen::frit(frit, head.sized(), look));
         match chosen {
             Ok(chosen) => {
                 log::info!(
@@ -879,7 +905,7 @@ impl App {
                     "the font {} is not drawn ({why}): vtium draws its built-in font",
                     wanted.name
                 );
-                Chosen::Builtin(None)
+                Chosen::builtins(look)
             }
         }
     }
@@ -1019,19 +1045,15 @@ impl App {
         };
         let same = match head.chosen() {
             Chosen::Frit { name: now, .. } => now == name,
-            Chosen::Builtin(Some(n)) => *n == name,
-            Chosen::Builtin(None) => false,
+            Chosen::Builtin { name: Some(n), .. } => *n == name,
+            Chosen::Builtin { name: None, .. } => false,
         };
         if same {
             return;
         }
-        let sized = head.sized();
+        let (sized, look) = (head.sized(), head.look_cell());
         let was = head.frit().map(str::to_owned);
-        let new = font::by_name(&self.font_sources, name).and_then(|new| {
-            let new = match new {
-                Chosen::Frit { frit, .. } => Chosen::frit(frit, sized)?,
-                builtin => builtin,
-            };
+        let new = font::by_name(&self.font_sources, name, sized, look).and_then(|new| {
             let Some(head) = self.heads.get_mut(h) else {
                 return Ok(());
             };
@@ -1106,8 +1128,8 @@ impl App {
             .position(|&d| d == id)
             .map_or(u32::MAX, |i| u32::try_from(i).unwrap_or(u32::MAX));
         Some(match video.identity(id) {
-            Some(named) => identity::display(&named, &card, order),
-            None => identity::unnamed_display(&video.name(id), &card, order),
+            Some(named) => vtium_devices::display(&named, &card, order),
+            None => vtium_devices::unnamed_display(&video.name(id), &card, order),
         })
     }
 
@@ -1164,7 +1186,7 @@ impl App {
             return;
         };
         if !measured
-            && self.config.number(&keys::DISPLAY_DPI).is_none()
+            && self.head_config(h).number(&keys::DISPLAY_DPI).is_none()
             && self.assumed.insert((node.to_owned(), id))
         {
             crate::warn::warn(format_args!(
@@ -1186,7 +1208,7 @@ impl App {
             size,
             refresh,
             RenderConfig {
-                depth: depth(&self.config, levels),
+                depth: depth(&self.head_config(h), levels),
                 ..head.render_config(&self.config)
             },
             self.measure(),
@@ -1212,11 +1234,13 @@ impl App {
         self.lit.insert(key.clone(), display);
         self.focus_due = true;
         self.guard_due = true;
-        // the render thread chooses the head's path as it starts, so the
-        // line names the path that draws the display (ADR-1303 D10)
+        // the line names the path that draws the display (ADR-1303 D10):
+        // a render thread that has not told the loop its path yet logs it
+        // with the head's other display lines once it has
         self.painter(h);
         if let Some(head) = self.heads.get(h)
             && let Some(v) = head.views.get(&key)
+            && head.painter.as_ref().is_none_or(Painter::known)
         {
             let path = head.painter.as_ref().map(Painter::path).unwrap_or_default();
             display_line(&name, backend, path, v);
@@ -1355,7 +1379,7 @@ impl App {
     /// [`DPI_ASSUMED`] where it measures none; [`DPI_ASSUMED`] with no
     /// display.
     fn dpi(&self, h: usize) -> f64 {
-        if let Some(dpi) = self.config.number(&keys::DISPLAY_DPI) {
+        if let Some(dpi) = self.head_config(h).number(&keys::DISPLAY_DPI) {
             return dpi as f64;
         }
         let Some(head) = self.heads.get(h) else {
@@ -1564,15 +1588,20 @@ impl App {
                 for (cell, chars) in &arrived {
                     let (shown, hidden): (Vec<char>, Vec<char>) =
                         chars.iter().partition(|c| visible.binary_search(c).is_ok());
+                    let mut missing = false;
                     for v in head.views.values_mut() {
                         if v.cell() == *cell {
                             v.forget_glyphs(&hidden);
                             if !shown.is_empty() {
                                 v.glyphs_changed(&shown);
                             }
+                            missing |= v.redraws_missing();
                         }
                     }
-                    head.draw_now |= !shown.is_empty();
+                    // a cell that drew the font's missing glyph draws it
+                    // again from the set that arrived, though no cell shows
+                    // a character of the set
+                    head.draw_now |= !shown.is_empty() || missing;
                 }
             }
         }
@@ -1863,6 +1892,13 @@ impl App {
                 for video in self.videos.values_mut() {
                     video.sleep();
                 }
+                // A head on the GPU path gives back its textures while the
+                // VT is another's (ADR-1303 D9).
+                for head in &mut self.heads {
+                    if let Some(painter) = &mut head.painter {
+                        painter.release();
+                    }
+                }
             }
             VtEvent::Retaken if self.blank.blanked() => {
                 // As a hotplug while blanked: the set-up waits for the
@@ -2060,7 +2096,7 @@ impl App {
             .flat_map(|(node, video)| {
                 let card = self.cards.get(node).cloned().unwrap_or_default();
                 video.dark().into_iter().map(move |named| {
-                    let display = identity::display(&named, &card, u32::MAX);
+                    let display = vtium_devices::display(&named, &card, u32::MAX);
                     (node.clone(), named.connector, display)
                 })
             })
@@ -2342,7 +2378,7 @@ impl App {
                     let identity = dev
                         .input
                         .as_deref()
-                        .map_or_else(vtium_settings::Identity::input, identity::input);
+                        .map_or_else(vtium_settings::Identity::input, vtium_devices::input);
                     self.add_input(&dev.node, identity);
                 }
                 DeviceKind::Fbdev if dev.flags.drm_backed => {
@@ -2840,8 +2876,9 @@ impl App {
     /// and starts the head's login in it (ADR-1401 D1, D5), unless the head
     /// has `head-consoles-max` consoles or every head together has
     /// `consoles-max`: then nothing opens, and vtium logs a line and shows
-    /// a brief line on the head's on-screen display. Returns whether one
-    /// opened.
+    /// a brief line on the head's on-screen display. A console whose login
+    /// cannot start leaves, and the head shows a notice. Returns whether
+    /// one opened.
     fn open_console(&mut self, h: usize, now: Instant) -> bool {
         let total: usize = self
             .heads
@@ -2850,6 +2887,7 @@ impl App {
             .map(Head::console_count)
             .sum();
         let caps = self.caps;
+        let osd = self.osd;
         let App {
             heads,
             config,
@@ -2878,9 +2916,7 @@ impl App {
             None
         };
         if let Some(line) = full {
-            head.brief = Some(line);
-            head.brief_due = None;
-            head.draw_now = true;
+            head.show_brief(line, osd);
             return false;
         }
         let term = crate::head::terminal(config, *scrollback, *scrollback_bytes, Rc::clone(clock));
@@ -2893,12 +2929,14 @@ impl App {
         // The C reference kept such a session and tried to open its
         // terminal again at each activation (`src/terminal.c:1771-1772` at
         // kmscon b1f7a7c5), a departure the crate's README lists.
+        // That the console did not open is a notice of a problem, which
+        // shows whatever `osd` says, and goes as the guards' notices go
+        // (ADR-1401 D5, D7).
         if let Err(why) = self.start_session(h, id) {
             if let Some(head) = self.heads.get_mut(h) {
                 log::warn!("head {}: console {id} does not open: {why}", head.name());
                 head.drop_hidden(id);
-                head.brief = Some(crate::notice::NO_CONSOLE_OPENED.to_owned());
-                head.brief_due = None;
+                head.add_notice(crate::notice::NO_CONSOLE_OPENED);
             }
             return false;
         }
@@ -3035,12 +3073,13 @@ impl App {
             return;
         }
         self.reread_font_keys();
+        let config = self.head_config(h);
         let Some(head) = self.heads.get_mut(h) else {
             return;
         };
         let mut kept = head.keep(id);
         let was_sized = head.sized();
-        head.reconfigure(&self.config);
+        head.reconfigure(&config);
         let shown = head.console.id == id;
         let new = if due.font {
             head.switched = None;
@@ -3049,7 +3088,9 @@ impl App {
             // The frit drawn, with its own cell or without it as the
             // `font-size` read again now says (ADR-1200 D16).
             match &head.font {
-                Some(Chosen::Frit { frit, .. }) => Chosen::frit(frit.clone(), head.sized()).ok(),
+                Some(Chosen::Frit { frit, .. }) => {
+                    Chosen::frit(frit.clone(), head.sized(), head.look_cell()).ok()
+                }
                 _ => None,
             }
         } else {
@@ -3124,8 +3165,10 @@ impl App {
 
     /// Reads the configuration again with the reader vtium started with,
     /// for its font keys alone (ADR-1201 D11): each report naming a font
-    /// key, or a file that could not be read whole, is logged, and the key
-    /// is dropped as it is at the start. Every other key, its reports and
+    /// key, a file that could not be read whole, or a file the ownership
+    /// check refuses, with why and the command that mends it (ADR-1403
+    /// D3), is logged as the start logs it, and the key is dropped as it
+    /// is at the start. Every other key, its reports and
     /// the count of reports past the most kept wait for the next start.
     /// With no reader, the configuration vtium started with stands.
     fn reread_font_keys(&mut self) {
@@ -3140,7 +3183,10 @@ impl App {
         for r in &loaded.reports {
             let file = matches!(
                 r.problem,
-                Problem::Unreadable(_) | Problem::NotAFile | Problem::FileTooLong
+                Problem::Unreadable(_)
+                    | Problem::NotAFile
+                    | Problem::FileTooLong
+                    | Problem::Untrusted(_)
             );
             if file || r.problem.key().is_some_and(font_key) {
                 crate::warn::warn(r);
@@ -3392,10 +3438,7 @@ impl App {
                 head.osd_due = None;
                 head.osd_shown = false;
             }
-            if head.brief_due.is_some_and(|d| d <= now) {
-                head.brief_due = None;
-                head.brief = None;
-            }
+            head.brief_turn(now);
             if let Some(due) = head.text_due.filter(|&d| d <= now) {
                 head.draw_now |= head.console.term.blink.fired(Timer::Text, awake);
                 head.text_due = Some(after(due, crate::blink::TEXT_PERIOD));
@@ -3506,20 +3549,26 @@ impl App {
             });
             // The brief line answers one press at a cap: for `osd-timeout`,
             // or 3 s under `never`, from its first frame, in place of the
-            // full line, and never under `off`.
-            if mode == osd::Mode::Off {
-                head.brief = None;
-            }
-            if head.brief.is_some() && head.brief_due.is_none() && !head.views.is_empty() {
-                head.brief_due = Some(after(now, timeout.unwrap_or(BRIEF_NEVER)));
-            }
-            let status = head.brief.clone().or(full);
+            // full line. [`Head::show_brief`] sets none under `off`.
+            head.arm_brief(after(now, timeout.unwrap_or(BRIEF_NEVER)));
+            let status = head.brief().map(str::to_owned).or(full);
             if head.mark != mark || head.status != status {
                 head.mark = mark;
                 head.status = status;
                 head.draw_now = true;
             }
         }
+    }
+
+    /// Lets go of every head's render thread at once, as at a head file
+    /// reload and at vtium's exit: heads whose GPU driver hangs hold the loop
+    /// [`crate::painter::LET_GO_MS`] in all (ADR-1303 D9).
+    fn let_go_of_painters(&mut self) {
+        let clock = Rc::clone(&self.clock);
+        crate::painter::let_go(
+            self.heads.iter_mut().filter_map(|h| h.painter.take()),
+            &*clock,
+        );
     }
 
     /// Starts head `h`'s render thread at its first frame (ADR-1401 D2),
@@ -3549,12 +3598,7 @@ impl App {
             return;
         };
         match started {
-            Ok(mut painter) => {
-                if let Some(why) = painter.take_refusal() {
-                    log::warn!("head {}: {why}: it draws on the CPU path", head.name());
-                }
-                head.painter = Some(painter);
-            }
+            Ok(painter) => head.painter = Some(painter),
             Err(why) => {
                 log::warn!(
                     "head {}: the render thread cannot start ({why}): the loop draws its frames",
@@ -3608,7 +3652,12 @@ impl App {
             let Some(painter) = &mut head.painter else {
                 continue;
             };
-            for mut composed in painter.take() {
+            let frames = painter.take();
+            // the render thread told the loop which path draws the head
+            if painter.take_known() {
+                display_lines(head, videos);
+            }
+            for mut composed in frames {
                 if let Some(why) = composed.left_gpu.take() {
                     left_gpu(head, videos, &why);
                 }
@@ -3713,7 +3762,7 @@ impl App {
             due.extend(head.hangup_due);
             due.extend(head.notice_due);
             due.extend(head.osd_due);
-            due.extend(head.brief_due);
+            due.extend(head.brief_due());
             #[cfg(feature = "images")]
             due.extend(head.image_due());
             #[cfg(feature = "images")]
@@ -3848,7 +3897,9 @@ fn height_at(head: &Head, size: (Option<u32>, bool), dpi: f64, locale: &str) -> 
 /// the same frit, by its name and its text.
 fn same_font(a: &Chosen, b: &Chosen) -> bool {
     match (a, b) {
-        (Chosen::Builtin(x), Chosen::Builtin(y)) => x == y,
+        (Chosen::Builtin { name: x, cell: a }, Chosen::Builtin { name: y, cell: b }) => {
+            x == y && a == b
+        }
         (Chosen::Frit { frit: x, .. }, Chosen::Frit { frit: y, .. }) => {
             x.name == y.name && x.text == y.text
         }
@@ -4139,7 +4190,7 @@ pub fn open_video(app: &mut App, node: &Path, kind: DeviceKind, card: Card) -> i
                 if !lit.get() {
                     return false;
                 }
-                let display = identity::display(named, &at, 0);
+                let display = vtium_devices::display(named, &at, 0);
                 place_display(&rules, &display)
                     .map_err(|line| log::info!("{line}"))
                     .is_err()
@@ -4341,7 +4392,7 @@ mod tests {
             .chain(&["--login", "--", "/bin/true"])
             .map(OsString::from)
             .collect();
-        let loaded = crate::config::load(&args, None, &mut |_: &Path| Ok(None));
+        let loaded = crate::config::load(&args, &mut |_: &Path| Ok(None));
         let lp: Loop<App> = Loop::new().unwrap();
         let mut app = App::new(
             loaded.config,
@@ -4403,7 +4454,10 @@ mod tests {
         let heads = "version = 1\n[head a]\n[head b]\n[rules]\ndisplay connector:mem/A -> a\ndisplay connector:mem/B -> b\n";
         let (_lp, mut app) = seat(Some(heads), no_fonts());
         if let Some(head) = app.heads.first_mut() {
-            head.font = Some(Chosen::Builtin(Some("no-such-set")));
+            head.font = Some(Chosen::Builtin {
+                name: Some("no-such-set"),
+                cell: None,
+            });
         }
         app.add_video(
             PathBuf::from("/dev/mem0"),
@@ -4419,7 +4473,7 @@ mod tests {
     }
 
     // ADR-1401 D1: a frit's helper fills the cells of the heads drawing
-    // it, here `t` for both heads' profile, b zoomed to a cell of its own.
+    // it, here `t` for both heads' look, b zoomed to a cell of its own.
     // Once one of the two switches away by OSC 50, `t` keeps the other
     // head's cell alone.
     #[test]
@@ -4437,7 +4491,7 @@ mod tests {
             }),
             ..no_fonts()
         };
-        let heads = "version = 1\n[head a]\nprofile = t\n[head b]\nprofile = t\n[rules]\ndisplay connector:mem/A -> a\ndisplay connector:mem/B -> b\n";
+        let heads = "version = 1\n[look t]\nfont-name = t\n[head a]\nlook = t\n[head b]\nlook = t\n[rules]\ndisplay connector:mem/A -> a\ndisplay connector:mem/B -> b\n";
         let (_lp, mut app) = seat(Some(heads), fonts);
         app.add_video(
             PathBuf::from("/dev/mem0"),
@@ -4468,7 +4522,7 @@ mod tests {
     #[test]
     fn mouse_off_closes_a_pointer_the_shipped_rules_would_deliver() {
         let args: Vec<OsString> = ["--no-mouse"].iter().map(OsString::from).collect();
-        let loaded = crate::config::load(&args, None, &mut |_: &Path| Ok(None));
+        let loaded = crate::config::load(&args, &mut |_: &Path| Ok(None));
         let lp: Loop<App> = Loop::new().unwrap();
         let mut app = App::new(
             loaded.config,
@@ -4507,7 +4561,7 @@ mod tests {
     #[test]
     fn mouse_off_closes_a_pointer_the_shipped_rules_tail_would_deliver() {
         let args: Vec<OsString> = ["--no-mouse"].iter().map(OsString::from).collect();
-        let loaded = crate::config::load(&args, None, &mut |_: &Path| Ok(None));
+        let loaded = crate::config::load(&args, &mut |_: &Path| Ok(None));
         let lp: Loop<App> = Loop::new().unwrap();
         let mut app = App::new(
             loaded.config,
@@ -4542,7 +4596,7 @@ mod tests {
     #[test]
     fn a_head_file_sets_each_consoles_scrollback_by_its_heads() {
         let args: Vec<OsString> = ["--sb-memory=1G"].iter().map(OsString::from).collect();
-        let loaded = crate::config::load(&args, None, &mut |_: &Path| Ok(None));
+        let loaded = crate::config::load(&args, &mut |_: &Path| Ok(None));
         let lp: Loop<App> = Loop::new().unwrap();
         let mut app = App::new(
             loaded.config,
@@ -4608,7 +4662,7 @@ mod tests {
     #[test]
     fn two_heads_ringing_in_one_turn_ring_the_vt_once() {
         let args: Vec<OsString> = ["--bell"].iter().map(OsString::from).collect();
-        let loaded = crate::config::load(&args, None, &mut |_: &Path| Ok(None));
+        let loaded = crate::config::load(&args, &mut |_: &Path| Ok(None));
         let lp: Loop<App> = Loop::new().unwrap();
         let mut app = App::new(
             loaded.config,
@@ -4635,7 +4689,7 @@ mod tests {
     #[test]
     fn a_hidden_consoles_bel_rings_the_vt() {
         let args: Vec<OsString> = ["--bell"].iter().map(OsString::from).collect();
-        let loaded = crate::config::load(&args, None, &mut |_: &Path| Ok(None));
+        let loaded = crate::config::load(&args, &mut |_: &Path| Ok(None));
         let lp: Loop<App> = Loop::new().unwrap();
         let mut app = App::new(
             loaded.config,
@@ -4675,7 +4729,7 @@ mod tests {
         use vtium_platform::display::Buffers;
         let count = |args: &[&str], file: Option<&[u8]>| {
             let args: Vec<OsString> = args.iter().map(OsString::from).collect();
-            let loaded = crate::config::load(&args, None, &mut |p: &Path| {
+            let loaded = crate::config::load(&args, &mut |p: &Path| {
                 Ok(file
                     .filter(|_| p == Path::new("/etc/vtium/vtium.conf"))
                     .map(<[u8]>::to_vec))
@@ -4716,7 +4770,7 @@ mod tests {
     fn natural_scrolling_comes_from_the_file_and_the_command_line() {
         let natural = |args: &[&str], file: Option<&[u8]>| {
             let args: Vec<OsString> = args.iter().map(OsString::from).collect();
-            let loaded = crate::config::load(&args, None, &mut |p: &Path| {
+            let loaded = crate::config::load(&args, &mut |p: &Path| {
                 Ok(file
                     .filter(|_| p == Path::new("/etc/vtium/vtium.conf"))
                     .map(<[u8]>::to_vec))
@@ -5114,7 +5168,7 @@ mod tests {
             }),
             ..no_fonts()
         };
-        let heads = "version = 1\n[head a]\nprofile = t\n[head b]\nprofile = u\n[rules]\ndisplay connector:mem/A -> a\ndisplay connector:mem/B -> b\n";
+        let heads = "version = 1\n[look t]\nfont-name = t\n[look u]\nfont-name = u\n[head a]\nlook = t\n[head b]\nlook = u\n[rules]\ndisplay connector:mem/A -> a\ndisplay connector:mem/B -> b\n";
         let (lp, mut app) = seat_with(&["--font-size=0"], Some(heads), fonts);
         app.add_video(
             PathBuf::from("/dev/mem0"),
@@ -5306,7 +5360,7 @@ mod tests {
     fn display_depth_overrides_what_the_device_says() {
         let config = |args: &[&str]| {
             let args: Vec<std::ffi::OsString> = args.iter().map(Into::into).collect();
-            crate::config::load(&args, None, &mut |_: &std::path::Path| Ok(None)).config
+            crate::config::load(&args, &mut |_: &std::path::Path| Ok(None)).config
         };
         for (args, levels, want) in [
             (&[][..], None, Depth::Color),

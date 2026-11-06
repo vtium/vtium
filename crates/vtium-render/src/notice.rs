@@ -446,9 +446,8 @@ impl Mark {
 /// sprite of partial coverage.
 fn standin<F: Face>(font: &Font<F>, depth: Depth, c: char, width: Width) -> Option<Glyph> {
     let g = font.glyph(&[c], width, Style::default())?;
-    let thick = font.decorations().underline_thickness;
     Some(
-        Fallback::new(depth, font.cell(), thick)
+        Fallback::new(depth, font.cell())
             .and_then(|f| f.glyph(&g, 1, &[c], width, Style::default()))
             .unwrap_or(g),
     )
@@ -1486,7 +1485,7 @@ mod tests {
         Notice::new("\u{2591}")
             .draw(&font, d, Colors::NOTICE, None, &mut canvas)
             .expect("it fits");
-        let thick = font.decorations().underline_thickness;
+        let thick = vtium_font::sprite::light_line(8);
         let want: Vec<u32> = vtium_font::sprite::one_bit('\u{2591}', 8, 8, thick)
             .expect("a 1-bit shade")
             .pixels()

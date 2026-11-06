@@ -47,6 +47,7 @@ pub use frame::FramePlacement;
 use relative::{Drawn, Located, Spot};
 pub(crate) use relative::{Link, Placing};
 pub use reserve::Reservation;
+pub use runs::{ChangedFloating, FloatingRegion};
 
 /// The lines of one buffer's screen, as the terminal holds them when an
 /// event reaches the store: `screen` the screen's rows top to bottom, and
@@ -453,6 +454,12 @@ pub struct Store {
     /// since vtium-term last took them, for it to mark that image's
     /// placeholder cells (D13).
     changed_virtual: BTreeSet<(bool, u32)>,
+    /// The buffer and the box of each relative placement that follows a
+    /// virtual placement and changed since vtium-term last took them, and
+    /// the buffers, main then alternate, whose boxes passed the notes'
+    /// bound and changed whole (D13).
+    changed_floating: BTreeSet<(bool, FloatingRegion)>,
+    floating_whole: [bool; 2],
 }
 
 /// Two stores compare by what they hold; the work an input call counted
@@ -515,6 +522,8 @@ impl Store {
             next_reservation: 0,
             runs: [Vec::new(), Vec::new()],
             changed_virtual: BTreeSet::new(),
+            changed_floating: BTreeSet::new(),
+            floating_whole: [false; 2],
         }
     }
 
@@ -1286,6 +1295,7 @@ impl Store {
         let visited = family.len();
         self.count(visited);
         // each box is worked out while every parent is still there
+        self.note_floating(b, &family);
         let boxes: Vec<(PlacementKey, Option<Region>)> = family
             .into_iter()
             .map(|k| (k, self.buffers.get(b).and_then(|buf| buf.region(k))))
@@ -1335,6 +1345,36 @@ impl Store {
             self.give_back(b, p.image, PLACEMENT_OVERHEAD);
         }
         Some(p.image)
+    }
+
+    /// Reports every placement of image `key` of buffer `b` as changed, as
+    /// when the pixels they show change: the box of each placement on a
+    /// line or following one, the placeholder cells of the image's virtual
+    /// placements, and where the runs place each placement that follows a
+    /// virtual one.
+    fn mark_image(&mut self, b: usize, key: ImageKey) {
+        let Some(buf) = self.buffers.get(b) else {
+            return;
+        };
+        let visited = buf.placements.len();
+        let mut keys = Vec::new();
+        let mut boxes = Vec::new();
+        let mut placeholders = false;
+        for (&k, p) in &buf.placements {
+            if p.image != key {
+                continue;
+            }
+            placeholders |= p.spot == Spot::Virtual;
+            boxes.extend(buf.region(k));
+            keys.push(k);
+        }
+        let id = buf.images.get(&key).map_or(0, |i| i.id);
+        self.changed.extend(boxes);
+        if placeholders {
+            self.note_virtual(b, id);
+        }
+        self.note_floating(b, &keys);
+        self.count(visited);
     }
 
     /// Removes an image and every placement of it, and gives its bytes
@@ -1408,6 +1448,12 @@ impl Store {
     /// Empties buffer `b`, giving back every byte its images hold.
     fn clear(&mut self, b: usize) {
         self.drop_spare();
+        let keys: Vec<PlacementKey> = self
+            .buffers
+            .get(b)
+            .map(|buf| buf.placements.keys().copied().collect())
+            .unwrap_or_default();
+        self.note_floating(b, &keys);
         let Some(buf) = self.buffers.get_mut(b) else {
             return;
         };

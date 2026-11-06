@@ -1,0 +1,25 @@
+ Flow  Looks  Fonts  Settings  Help       View Install Revert Restore New Delete
+ draft workstation · 1 change · no problems                      text · t: live
+ Route card: keyboard, usb-0:3.3
+ It types into desk, the active head, by roaming; into panel when panel is
+ active.
+
+ route 1 of 2
+   display        DP-8, LARGE00001
+   display rule   1, edid:AAA:0x0001:LARGE00001 -> desk
+   head           desk, the active head
+   look           big, frit monoid, 14 pt
+   input rule     5, class:keyboard -> roaming
+▸  input device   keyboard, usb-0:3.3
+ route 2 of 2, when panel is active
+   display        HDMI-A-2, SMALL00001
+   display rule   2, edid:BBB:0x0002:SMALL00001 -> panel
+   head           panel
+   look           small, frit dejavu, 12 pt
+   input rule     5, class:keyboard -> roaming
+▸  input device   keyboard, usb-0:3.3
+
+
+
+
+ ↑↓ route  Enter open the item  q back to the flow

@@ -2,9 +2,10 @@
 # generated from crates/vtium-settings/src/keys.rs, and docs/config.md
 # describes each key.
 #
-# One key a line: key=value, or a switch's key to turn it on and no-key to
-# turn it off. Each key is shown at its default, commented out. The command
-# line wins over this file.
+# Above the first section, one key a line: key=value, or a switch's key to
+# turn it on and no-key to turn it off. Each key is shown at its default,
+# commented out. The command line wins over these lines, and a look's or a
+# head's section below wins over both.
 
 # ══ Fonts and text ══════════════════════════════════════════════════════════
 #
@@ -23,14 +24,32 @@
 ## its built-in fonts and logs the name and why.
 #
 ## font-frits: The directory of the frits, the `NAME.vtfrit` files that
-## `font-name` and a head's profile name. The default is the directory vtium
-## was built with.
+## `font-name` names, at the top level and in a look's section.
+##
+## It is an absolute path. vtium ignores a relative or an empty one, as it
+## ignores any value it cannot read, and says why.
+##
+## The default is the directory vtium was built with.
+#
+## font-paths: The folders the glyph helper searches, in order, for an
+## installed font that a frit's `font:` source names.
+##
+## Each folder is an absolute path, and `:` separates them, as in `PATH`. The
+## list takes the place of the build's list, so it can order or leave out the
+## system's own folders. vtium ignores a folder that is not an absolute path,
+## keeps the rest, and says why.
+##
+## Unset, the helper searches the build's list, `/usr/share/fonts` and
+## `/usr/local/share/fonts`. A user's own font folder, such as
+## `~/.local/share/fonts`, is searched only when the list names it, and before
+## anyone logs in the helper runs as `nobody`, which cannot read it.
 #
 ## font-engine: The font source to use. Unset, each the build has, in this
 ## order.
 
 #font-name=
 #font-frits=/etc/vtium/fonts
+#font-paths=
 #font-engine=
 
 # ── Font size and spacing ───────────────────────────────────────────────────
@@ -130,7 +149,7 @@
 ## Let a program switch the font among the frits and the built-in fonts with
 ## xterm's OSC 50, and ask which is in use.
 ##
-## A program switches with `OSC 50 ; NAME ST`, as `vtium-config set NAME`
+## A program switches with `OSC 50 ; NAME ST`, as `vtium-config use-frit NAME`
 ## sends it, and asks with `OSC 50 ; ? ST`. A switch lasts until the session
 ## it came from ends, when vtium returns the console to the font and size
 ## `font-name` and `font-size` give.
@@ -376,13 +395,13 @@
 
 # ── Consoles ────────────────────────────────────────────────────────────────
 
-## head-consoles-max: The most consoles one head holds: the head file's
-## `consoles` opens no more.
+## head-consoles-max: The most consoles one head holds: a head's `consoles`
+## opens no more.
 #
 ## consoles-max: The most consoles every head holds together.
 ##
-## Each head keeps its first console; the others open, in the head file's
-## order, while the total is below this.
+## Each head keeps its first console; the others open, in the order vtium.conf
+## declares the heads, while the total is below this.
 
 #head-consoles-max=4
 #consoles-max=8
@@ -410,7 +429,8 @@
 ##
 ## With `minimal`, it draws a dot in the top-right cell, filled on the active
 ## head and hollow on the others. With `full`, it draws a line across the top,
-## such as `● desk · console 2 of 3`. With `off`, it draws nothing.
+## such as `● desk · console 2 of 3`. With `off`, it never draws anything,
+## after any change.
 ##
 ## A notice of a problem shows whatever `osd` says.
 #
@@ -431,7 +451,7 @@
 # ── Notice colors ───────────────────────────────────────────────────────────
 
 ## notice-foreground: The color of a notice's text. A notice tells of a
-## problem, such as an invalid head file, and shows whatever `osd` says.
+## problem, such as an invalid vtium.conf, and shows whatever `osd` says.
 #
 ## notice-background: The color of a notice's box. While a notice shows, the
 ## on-screen display's full line shares its box and takes the notice's colors.
@@ -543,7 +563,7 @@
 ## shown.
 ##
 ## With no display by then, vtium exits with status 1, so the unit's
-## `OnFailure=` can start a getty. Under a head file whose policy is closed
+## `OnFailure=` can start a getty. Under a vtium.conf whose policy is closed
 ## vtium waits however long it takes, as under `forever` (ADR-1401 D8).
 ##
 ## The wait runs only while the VT is vtium's. When another program takes the
@@ -572,10 +592,10 @@
 ## A framebuffer (fbdev) keeps one buffer whatever this key says. Unset, the
 ## build decides: the count it was built with (`VTIUM_DISPLAY_BUFFERS`), or
 ## else 3 in a build with features on top of minspec, 2 in the minspec build,
-## 1 only in a build smaller than minspec.
-## `vtium config config display-buffers` prints the value vtium.conf gives it,
-## or the build's default followed by `default`, which is `unset` when the
-## build names no count, and the rule above then picks it.
+## 1 only in a build smaller than minspec. `vtium config get display-buffers`
+## prints the value the current draft gives it, followed by `draft`, or the
+## build's default followed by `default`, which is `unset` when the build
+## names no count, and the rule above then picks it.
 
 #display-buffers=
 
@@ -584,8 +604,9 @@
 ## Draw through the GPU, in a build that has it.
 ##
 ## Off unless vtium was built to turn it on (`VTIUM_HWACCEL`).
-## `vtium config config hwaccel` prints the value vtium.conf gives it, or the
-## build's default followed by `default`.
+## `vtium config get hwaccel` prints the value the current draft gives it,
+## followed by `draft`, or the build's default followed by `default`, and
+## `vtium config set hwaccel on` turns it on in the draft.
 
 #no-hwaccel
 
@@ -756,3 +777,149 @@
 ## with vtium-render's `performance-cache` feature.
 
 #glyph-cache=
+
+# ══ Looks, heads and rules ══════════════════════════════════════════════════
+#
+# The sections below the keys: the looks, the heads and the rules that place
+# each display and each input device in a head. These are the sections vtium
+# runs when vtium.conf holds none, live as shipped.
+
+# vtium.conf's sections: its looks, its heads, and the rules that place
+# each display and each input in a head.
+#
+# Above the first section heading sit vtium's own keys, the defaults every
+# head inherits, and the two keys of the sections, version and policy, in
+# any order. With no section in vtium.conf, vtium runs the sections below,
+# compiled into it from this same text, so a file written from them
+# changes nothing until edited.
+#
+# vtium reads vtium.conf only when root owns it and neither group nor
+# others can write it or a directory above it. vtium never changes the
+# file. It logs each error with its line, and each error in the sections
+# drops what it takes: a bad rule drops that rule, an error in a head's
+# section drops that head with every rule naming it, an error in a look's
+# section drops that look, and an error in the sections' structure, such
+# as a missing version, drops all but the policy. An error here never
+# drops a key above the first section. `vtium check-config FILE` checks a
+# file before it is installed.
+#
+# A file with a section needs version = 1. A # starts a comment at the
+# start of a line or after a blank; a # inside a word, as in --x#1, is
+# part of the word.
+version = 1
+
+# The policy decides what the rules leave unsaid. Under open, an input no
+# rule places roams, typing into the active head, no head is isolated
+# unless it says so, and the anti-lockout guard and the rescue key are on.
+# Under closed, an input no rule places is ignored, every head is isolated
+# unless it says otherwise, and the anti-lockout guard and the rescue key
+# are off: no keyboard reaches a head the file does not send it to. The
+# display guard is on under both.
+# policy = open
+
+# A look is what a head draws with: a [look NAME] section takes
+# font-name, which names its frit, the font keys above, vtlook, and cell,
+# the cell in pixels as a frit's cell= line writes it. Within one look,
+# font-size wins over cell. The shipped configuration declares none, so
+# its head draws with the keys above. For example:
+#   [look big]
+#   font-name = desktop
+#   font-size = 14
+#
+# A head is a terminal for one or more displays: its displays, its inputs,
+# a look and its consoles. A name is 1 to 64 of A-Z a-z 0-9 . _ + -
+# and roaming, ignore and off are reserved. Each key below is shown at its
+# default.
+[head console]
+# The look the head draws with, a [look NAME] section's name. Unset,
+# default: the [look default] section where there is one, else the keys
+# above the first section.
+# look = default
+#
+# How many consoles the head has, 1 to 50; one is shown at a time.
+# consoles = 1
+#
+# The consoles' command, as vtium.conf's login takes it. Unset, the
+# consoles run vtium.conf's.
+# login = /bin/login -p
+#
+# What the head's sessions do when it loses its last display: keep runs
+# them on until a display of the head returns; hangup hangs them up at
+# once; hangup DURATION (30, 30s, 5m or 1h) resumes them on a return
+# within the time and hangs them up after it.
+# when-display-lost = keep
+#
+# yes isolates the head: its keyboards' Ctrl-Alt-F<n> reach its session as
+# keys and switch no VT, the rescue key leaves its keyboards where they
+# are, and it is never the active head, so no roaming input reaches it.
+# Unset, no under policy = open and yes under policy = closed.
+# isolated = no
+
+[rules]
+# Each display and each input walks these rules alone, top to bottom, and
+# the first that matches places it:
+#   display MATCH -> TARGET
+#   input MATCH -> TARGET
+# MATCH is * (every device of that kind) or key:value tokens, every one of
+# which must hold. TARGET is a head's name; for an input, roaming (it types
+# into the active head) or ignore (vtium never opens it, but under open
+# for a keyboard watched for the rescue key); for a display, off (vtium
+# sets it off). A display no rule matches is off, logged with a rule line
+# to paste; an input no rule matches roams under open and is ignored under
+# closed. `vtiumctl detect` lists every device with its keys filled in.
+#
+# Keys for an input:
+#   path:ID_PATH                  the USB port, and every interface below it
+#   serial:VENDOR:PRODUCT:SERIAL  one unit, wherever it is plugged
+#   bluetooth:ADDRESS             one device, once bonded
+#   id:VENDOR:PRODUCT             every unit of a model; devices lie
+#   name:GLOB                     anything that names itself so
+#   class:CLASS                   keyboard, key, mouse, touchpad,
+#                                 touchscreen, trackball, pointingstick,
+#                                 tablet, tablet-pad, joystick,
+#                                 accelerometer or switch, as udev tags it
+#   udev:NAME=GLOB                any udev property of the device
+# For a head whose sessions need protecting, use path plus serial where the
+# device has a serial, and path alone otherwise. id or name alone is for
+# convenience only. A glob's * takes any run of characters and ? one; a
+# value holds no blank, so ? stands for a space in a name.
+#
+# Keys for a display:
+#   edid:MAKER:PRODUCT:SERIAL     one monitor, the recommended key
+#   connector-path:PATH           one port of a DisplayPort multi-stream hub,
+#                                 globs allowed
+#   connector:CARD/CONNECTOR      a port of a GPU, globs allowed
+#   card:GLOB                     every output of a GPU
+# A card is its udev ID_PATH (pci-0000:03:00.0), never cardN. A
+# multi-stream connector's name, such as DP-8, can move after a replug or a
+# resume; its PATH (mst:...) stays, so use connector-path there and
+# connector only where the name is stable. The PATH's first number, the
+# card connector the hub is plugged into, can change across a kernel or
+# firmware update.
+#
+# path, serial, card, connector and udev read udev's database, and match
+# nothing on a system with no udev daemon.
+#
+# Customise by adding rules above the shipped ones, as in:
+#   display edid:AAA:0x0001:LARGE00001 -> desk
+#   input path:pci-0000:15:00.0-usb-0:3.3 -> desk
+#   input udev:VTIUM_IGNORE=1 -> ignore
+# A udev rule can mark a device for the last of these, copied into
+# /etc/udev/rules.d/ (the examples are in /usr/share/doc/vtium/examples/):
+#   SUBSYSTEM=="input", ATTRS{name}=="Headset", ENV{VTIUM_IGNORE}="1"
+# and an hwdb entry, copied into /etc/udev/hwdb.d/, can mark a token or a
+# numpad, which the anti-lockout guard then does not count as a keyboard:
+#   evdev:input:b0003vBBBBp0001*
+#    VTIUM_ROLE=token
+#
+# The shipped rules: one head mirroring every display, every keyboard,
+# key device and pointer typing into it, and every other input left closed.
+display * -> console
+input class:keyboard -> roaming
+input class:mouse -> roaming
+input class:touchpad -> roaming
+input class:touchscreen -> roaming
+input class:trackball -> roaming
+input class:pointingstick -> roaming
+input class:key -> roaming
+input * -> ignore

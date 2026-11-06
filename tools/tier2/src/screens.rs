@@ -22,21 +22,10 @@ use crate::draw::{Alone, DecoSpec, Decorations, FontKind, Overlay, Screen, TestF
 use crate::notices;
 use crate::pictures;
 
-/// Where a screen's golden lives.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Source {
-    /// The C reference's, copied from its `tests/goldens/tier2/` into
-    /// `tools/tier2/reference/goldens/<name>.ppm`.
-    Kmscon,
-    /// vtium's own, `tools/tier2/goldens/<name>.ppm`.
-    Vtium,
-}
-
-/// A screen and where its golden lives.
+/// A screen, whose golden is `tools/tier2/goldens/<name>.ppm`.
 #[derive(Clone, Copy, Debug)]
 pub struct Case {
     pub screen: Screen,
-    pub source: Source,
 }
 
 /// Block elements and box drawing stacked across rows and columns
@@ -377,7 +366,6 @@ const fn edges(name: &'static str, orientation: Orientation) -> Case {
             display: Some((11 * 8 + 5, 4 * 16 + 3)),
             ..Screen::new(name, EDGES_DESC, EDGES, 12, 4)
         },
-        source: Source::Vtium,
     }
 }
 
@@ -447,7 +435,6 @@ const fn small(name: &'static str, desc: &'static str, overlay: Overlay) -> Case
             overlay: Some(overlay),
             ..Screen::new(name, desc, OVERLAY_SHELL, 100, 30)
         },
-        source: Source::Vtium,
     }
 }
 
@@ -462,7 +449,6 @@ const fn large(name: &'static str, desc: &'static str, overlay: Overlay) -> Case
             overlay: Some(overlay),
             ..Screen::new(name, desc, OVERLAY_SHELL, 160, 10)
         },
-        source: Source::Vtium,
     }
 }
 
@@ -479,7 +465,6 @@ const fn alone_small(name: &'static str, desc: &'static str, alone: Alone) -> Ca
             alone: Some(alone),
             ..Screen::new(name, desc, BLANK, 100, 30)
         },
-        source: Source::Vtium,
     }
 }
 
@@ -496,7 +481,6 @@ const fn alone_large(name: &'static str, desc: &'static str, alone: Alone) -> Ca
             alone: Some(alone),
             ..Screen::new(name, desc, BLANK, 160, 10)
         },
-        source: Source::Vtium,
     }
 }
 
@@ -519,7 +503,6 @@ const fn scheme(
             }),
             ..Screen::new(name, desc, bytes, 100, 8)
         },
-        source: Source::Vtium,
     }
 }
 
@@ -577,27 +560,29 @@ const FOUR: &[Words] = &[
 
 const NO_KEYBOARD_DESC: &str = "vtium's notice that the start found no keyboard (ADR-1401 D8), over a shell session. Correct: the notice on one line, saying no keyboard was found and to plug one in, in a pale red box with a dark red edge across the top, the width of the display, its text dark, its first letter half a cell in from the edge; the session's first row hidden behind the box; the row just below the box partly covered, on purpose, since the box is painted over the terminal's text and is not a whole number of rows tall; and the rows below it as the terminal drew them.";
 
-const ANTI_LOCKOUT_DESC: &str = "vtium's notice that the anti-lockout guard sent every keyboard to the head desk (ADR-1401 D9), over a shell session. Correct: the notice saying no keyboard was reaching a screen that is on, so every keyboard now types into desk, then that a keyboard is sent elsewhere by changing its rule in /etc/vtium/heads.conf and restarting vtium or rebooting, wrapped at a space where it is wider than the box, in the notices' pale red box with a dark red edge across the top, the width of the display, its text dark; the row just below the box partly covered, on purpose, since the box is painted over the terminal's text and is not a whole number of rows tall; and the rows below it as the terminal drew them.";
+const ANTI_LOCKOUT_DESC: &str = "vtium's notice that the anti-lockout guard sent every keyboard to the head desk (ADR-1401 D9), over a shell session. Correct: the notice saying no keyboard was reaching a screen that is on, so every keyboard now types into desk, then that a keyboard is sent elsewhere by changing its rule in /etc/vtium/vtium.conf and restarting vtium or rebooting, wrapped at a space where it is wider than the box, in the notices' pale red box with a dark red edge across the top, the width of the display, its text dark; the row just below the box partly covered, on purpose, since the box is painted over the terminal's text and is not a whole number of rows tall; and the rows below it as the terminal drew them.";
 
-const RESCUE_DESC: &str = "vtium's notice that the rescue key moved the keyboard at /dev/input/event3 while desk is the active head (ADR-1401 D9), over a shell session. Correct: the notice naming the keyboard's device and saying it types into the active screen, desk, until the next boot, then that a rule in /etc/vtium/heads.conf keeps it there after that, in the notices' pale red box with a dark red edge across the top, the width of the display, its text dark, wrapped at a space onto a second line where it is wider than the box; the row just below the box partly covered, on purpose, since the box is painted over the terminal's text and is not a whole number of rows tall; and the rows below it as the terminal drew them.";
+const RESCUE_DESC: &str = "vtium's notice that the rescue key moved the keyboard at /dev/input/event3 while desk is the active head (ADR-1401 D9), over a shell session. Correct: the notice naming the keyboard's device and saying it types into the active screen, desk, until the next boot, then that a rule in /etc/vtium/vtium.conf keeps it there after that, in the notices' pale red box with a dark red edge across the top, the width of the display, its text dark, wrapped at a space onto a second line where it is wider than the box; the row just below the box partly covered, on purpose, since the box is painted over the terminal's text and is not a whole number of rows tall; and the rows below it as the terminal drew them.";
 
 const RESCUE_NO_HEAD_DESC: &str = "vtium's notice that the rescue key moved the keyboard at /dev/input/event3 while no head is active (ADR-1401 D9), over a shell session. Correct: the notice naming the keyboard's device, saying it types into the active screen until the next boot and that no screen is active now, then to press Ctrl+Super+↑ to choose one, in the notices' pale red box with a dark red edge across the top, wrapped at a space onto a second line where it is wider than the box; the row just below the box partly covered, on purpose, since the box is painted over the terminal's text and is not a whole number of rows tall; and the rows below it as the terminal drew them.";
 
 const ONESHOT_DESC: &str = "vtium's notice that the head's session ended under `oneshot` and will not start again (vtium/vtium#156), over the session's last screen. Correct: the notice saying the session has ended and will not start again, then to press Ctrl+Super+↑ to switch to another screen, in the notices' pale red box with a dark red edge across the top, the width of the display, its text dark, wrapped at a space where it is wider than the box; the row just below the box partly covered, on purpose, since the box is painted over the terminal's text and is not a whole number of rows tall; and the rows below it as the terminal drew them.";
 
-const HEAD_FILE_DESC: &str = "vtium's notice of a partly broken head file (ADR-1401 D7): its rule on line 4 names the head `desc`, which the file does not declare, so that rule alone is dropped. Correct: two lines in the notices' pale red box with a dark red edge across the top, the console line `config partly invalid, running what's valid`, naming no error, since the log keeps the errors, then its next step, `Run vtium check-config /etc/vtium/heads.conf to see why.`; the row just below the box partly covered, on purpose, since the box is painted over the terminal's text and is not a whole number of rows tall; and the rows below it as the terminal drew them.";
+const NO_CONSOLE_OPENED_DESC: &str = "vtium's notice that a console the open chord opened did not open, because its login could not start (ADR-1401 D5), a notice of a problem that shows whatever `osd` says, over a shell session. Correct: the notice `Console not opened: login could not start.` on one line, in the notices' pale red box with a dark red edge across the top, the width of the display, its text dark, its first letter half a cell in from the edge; the row just below the box partly covered, on purpose, since the box is painted over the terminal's text and is not a whole number of rows tall; and the rows below it as the terminal drew them.";
 
-const HEAD_FILE_TWO_DESC: &str = "vtium's notice of a broken head file under the open policy (ADR-1401 D7): a key the head section does not take on line 3 drops the head, and with it every rule naming it, so nothing usable survives and the shipped rules run. Correct: two lines in the notices' pale red box with a dark red edge across the top, the console line `invalid config skipped, using builtin`, naming no error, then its next step, `Run vtium check-config /etc/vtium/heads.conf to see why.`; the row just below the box partly covered, on purpose, since the box is painted over the terminal's text and is not a whole number of rows tall; and the rows below it as the terminal drew them.";
+const HEAD_FILE_DESC: &str = "vtium's notice of partly broken sections of vtium.conf (ADR-1401 D7, ADR-1403 D3): its rule on line 4 names the head `desc`, which the file does not declare, so that rule alone is dropped. Correct: two lines in the notices' pale red box with a dark red edge across the top, the console line `config partly invalid, running what's valid`, naming no error, since the log keeps the errors, then its next step, `Run vtium check-config /etc/vtium/vtium.conf to see why.`; the row just below the box partly covered, on purpose, since the box is painted over the terminal's text and is not a whole number of rows tall; and the rows below it as the terminal drew them.";
 
-const PANIC_DESC: &str = "vtium's panic screen (ADR-1401 D7): a closed head file has four errors and no head survives them, so vtium runs nothing and shows this on the boot display for as long as it runs, with no session behind it. Correct: one pale red box with a dark red edge across the top of an otherwise empty screen, holding, each on a line of its own and wrapped at a space where it is wider than the box, `vtium: config invalid, policy closed: input off`; that the errors in /etc/vtium/heads.conf leave no head that can run; the file's first three errors, on lines 4, 5 and 7, each starting with the file and its line; `More errors: 1`; and last, that nothing on this console takes input and to run vtium check-config /etc/vtium/heads.conf over ssh or from other boot media for the full report; and below the box, the screen's background and nothing else.";
+const HEAD_FILE_TWO_DESC: &str = "vtium's notice of broken sections of vtium.conf under the open policy (ADR-1401 D7, ADR-1403 D3): a key the head section does not take on line 3 drops the head, and with it every rule naming it, so nothing usable survives and the shipped rules run. Correct: two lines in the notices' pale red box with a dark red edge across the top, the console line `invalid config skipped, using builtin`, naming no error, then its next step, `Run vtium check-config /etc/vtium/vtium.conf to see why.`; the row just below the box partly covered, on purpose, since the box is painted over the terminal's text and is not a whole number of rows tall; and the rows below it as the terminal drew them.";
 
-const PANIC_SMALL_DESC: &str = "vtium's panic screen (ADR-1401 D7) on minspec's 320x240 display floor, in unifont as 40 by 15 cells, too small for the whole report. Correct: the box keeps the report's first two lines, `vtium: config invalid, policy closed: input off` and that the errors in /etc/vtium/heads.conf leave no head that can run, and its last, that nothing on this console takes input and to run vtium check-config /etc/vtium/heads.conf over ssh or from other boot media for the full report, each wrapped at a space; between them, the file's first error, on line 4, then `More errors: 3`, which counts the two errors the screen has no room for and the one past the three it lists, so no error goes uncounted and no line is cut; below the box, the screen's background and nothing else.";
+const PANIC_DESC: &str = "vtium's panic screen (ADR-1401 D7): the sections of a closed vtium.conf have four errors and no head survives them, so vtium runs nothing and shows this on the boot display for as long as it runs, with no session behind it. Correct: one pale red box with a dark red edge across the top of an otherwise empty screen, holding, each on a line of its own and wrapped at a space where it is wider than the box, `vtium: config invalid, policy closed: input off`; that the errors in /etc/vtium/vtium.conf leave no head that can run; the file's first three errors, on lines 4, 5 and 7, each starting with the file and its line; `More errors: 1`; and last, that nothing on this console takes input and to run vtium check-config /etc/vtium/vtium.conf over ssh or from other boot media for the full report; and below the box, the screen's background and nothing else.";
 
-const ALONE_NO_DISPLAY_DESC: &str = "vtium's notice that no head has a display, alone on the boot display (ADR-1401 D9): a closed head file's heads have no display lit, so the display guard lights the boot display for this notice alone, with no session behind it, until a head lights. Correct: one pale red box with a dark red edge across the top of an otherwise empty screen, holding `vtium: no display for any head` and, on the next line, to connect a display that a rule in /etc/vtium/heads.conf sends to a head; below the box, the screen's background and nothing else.";
+const PANIC_SMALL_DESC: &str = "vtium's panic screen (ADR-1401 D7) on minspec's 320x240 display floor, in unifont as 40 by 15 cells, too small for the whole report. Correct: the box keeps the report's first two lines, `vtium: config invalid, policy closed: input off` and that the errors in /etc/vtium/vtium.conf leave no head that can run, and its last, that nothing on this console takes input and to run vtium check-config /etc/vtium/vtium.conf over ssh or from other boot media for the full report, each wrapped at a space; between them, the file's first error, on line 4, then `More errors: 3`, which counts the two errors the screen has no room for and the one past the three it lists, so no error goes uncounted and no line is cut; below the box, the screen's background and nothing else.";
 
-const ALONE_PARTLY_DESC: &str = "vtium's notice of a partly broken head file, alone on the boot display (ADR-1401 D7, D9): under the closed policy the heads that survive have no display lit, so the display guard lights the boot display for the start's notice alone, with no session behind it, until a head lights. Correct: one pale red box with a dark red edge across the top of an otherwise empty screen, holding `config partly invalid, running what's valid` and, on the next line, `Run vtium check-config /etc/vtium/heads.conf to see why.`; below the box, the screen's background and nothing else.";
+const ALONE_NO_DISPLAY_DESC: &str = "vtium's notice that no head has a display, alone on the boot display (ADR-1401 D9): the heads of a closed vtium.conf have no display lit, so the display guard lights the boot display for this notice alone, with no session behind it, until a head lights. Correct: one pale red box with a dark red edge across the top of an otherwise empty screen, holding `vtium: no display for any head` and, on the next line, to connect a display that a rule in /etc/vtium/vtium.conf sends to a head; below the box, the screen's background and nothing else.";
 
-const ALONE_STOPPED_DESC: &str = "vtium's notice that a crash loop stopped every head under the closed policy, alone on the boot display (ADR-1401 D1): a session kept ending as soon as it started, so vtium hung every session up and holds its VT with this notice for as long as it runs, with no session behind it. Correct: one pale red box with a dark red edge across the top of an otherwise empty screen, holding the notice that a session kept ending as soon as it started, so vtium stopped every screen and nothing here takes input, then to fix the login command in /etc/vtium/heads.conf or vtium.conf and restart vtium or reboot, wrapped at a space where it is wider than the box; below the box, the screen's background and nothing else.";
+const ALONE_PARTLY_DESC: &str = "vtium's notice of partly broken sections of vtium.conf, alone on the boot display (ADR-1401 D7, D9, ADR-1403 D3): under the closed policy the heads that survive have no display lit, so the display guard lights the boot display for the start's notice alone, with no session behind it, until a head lights. Correct: one pale red box with a dark red edge across the top of an otherwise empty screen, holding `config partly invalid, running what's valid` and, on the next line, `Run vtium check-config /etc/vtium/vtium.conf to see why.`; below the box, the screen's background and nothing else.";
+
+const ALONE_STOPPED_DESC: &str = "vtium's notice that a crash loop stopped every head under the closed policy, alone on the boot display (ADR-1401 D1): a session kept ending as soon as it started, so vtium hung every session up and holds its VT with this notice for as long as it runs, with no session behind it. Correct: one pale red box with a dark red edge across the top of an otherwise empty screen, holding the notice that a session kept ending as soon as it started, so vtium stopped every screen and nothing here takes input, then to fix the login command in /etc/vtium/vtium.conf and restart vtium or reboot, wrapped at a space where it is wider than the box; below the box, the screen's background and nothing else.";
 
 const OSD_FULL_DESC: &str = "vtium's on-screen display under `osd = full` on the active head, alone (ADR-1401 D5, vtium/vtium#169). Correct: a dark box with a grey edge across the top, the width of the display, holding `● desk · console 2 of 3` in light text, its first letter half a cell in from the edge, the filled dot meaning desk is the active head; the row just below the box partly covered, on purpose, since the box is painted over the terminal's text and is not a whole number of rows tall; and the rows below it as the terminal drew them.";
 
@@ -611,7 +596,7 @@ const OSD_FULL_NOTICE_DESC: &str = "vtium's on-screen display under `osd = full`
 
 const OSD_MINIMAL_NOTICE_DESC: &str = "vtium's on-screen display under `osd = minimal`, the default, with the notice that no keyboard was found, as a head shows them at the start (ADR-1401 D5, D7). Correct: the notice in the notices' pale red box with a dark red edge across the top, and the filled circle drawn over the top-right cell, at the box's top right, the notice's line ending before that cell; the row just below the box partly covered, on purpose, since the box is painted over the terminal's text and is not a whole number of rows tall; and the rows below it as the terminal drew them.";
 
-const NOTICES_FOUR_DESC: &str = "Four notices at once, the most a head shows (ADR-1401 D7): a head file with one error, no keyboard found, the anti-lockout guard and the rescue key, oldest first. Correct: one pale red box with a dark red edge across the top holding the four, the head file's two lines first, its console line and its next step, each notice starting on a line of its own and wrapping at a space where it is wider than the box; the box as tall as the lines it holds; the row just below the box partly covered, on purpose, since the box is painted over the terminal's text and is not a whole number of rows tall; and the rows below it as the terminal drew them.";
+const NOTICES_FOUR_DESC: &str = "Four notices at once, the most a head shows (ADR-1401 D7): one error in vtium.conf's sections, no keyboard found, the anti-lockout guard and the rescue key, oldest first. Correct: one pale red box with a dark red edge across the top holding the four, the two lines of the error's notice first, its console line and its next step, each notice starting on a line of its own and wrapping at a space where it is wider than the box; the box as tall as the lines it holds; the row just below the box partly covered, on purpose, since the box is painted over the terminal's text and is not a whole number of rows tall; and the rows below it as the terminal drew them.";
 
 const PICTURES_KITTY_DESC: &str = "Kitty pictures over unifont text and colored cells (ADR-1100 D4, D5; ADR-1303 D2): across the top, one at its own size, then pictures shrunk by 1.5, 2.5, 4 and 8, grown by 2 and 3, and one shrunk across and grown down; below them a picture below the backgrounds, a picture below the text, two half transparent pictures above it, and a half transparent picture over an opaque one. Correct: each picture fills its cells' box, filtered smoothly with no lost lines; the picture below the backgrounds shows only through cells of the default background; text draws over the picture below the text; the half transparent pictures let the text and cells beneath show through.";
 
@@ -627,10 +612,7 @@ const PICTURES_TILED_DESC: &str = "Three pictures wider and taller than 64 pixel
 
 /// A picture screen: vtium's golden, drawn by vtium.
 const fn picture(screen: Screen) -> Case {
-    Case {
-        screen,
-        source: Source::Vtium,
-    }
+    Case { screen }
 }
 
 /// Every case, in the order the report lists them.
@@ -643,7 +625,6 @@ pub const CASES: &[Case] = &[
             },
             ..Screen::new("blocks", BLOCKS_DESC, BLOCKS, 48, 10)
         },
-        source: Source::Kmscon,
     },
     // DejaVu Sans Mono at 22 pixels, its line height and 6 pixel rows more
     Case {
@@ -654,7 +635,6 @@ pub const CASES: &[Case] = &[
             },
             ..Screen::new("blocks-spaced", BLOCKS_DESC, BLOCKS, 48, 10)
         },
-        source: Source::Kmscon,
     },
     edges("edges", Orientation::Normal),
     edges("edges-right", Orientation::Right),
@@ -673,7 +653,6 @@ pub const CASES: &[Case] = &[
             40,
             6,
         ),
-        source: Source::Vtium,
     },
     Case {
         screen: Screen::new(
@@ -686,7 +665,6 @@ pub const CASES: &[Case] = &[
             32,
             5,
         ),
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -701,7 +679,6 @@ pub const CASES: &[Case] = &[
                 5,
             )
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen::new(
@@ -714,7 +691,6 @@ pub const CASES: &[Case] = &[
             48,
             10,
         ),
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -732,7 +708,6 @@ pub const CASES: &[Case] = &[
                 10,
             )
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -744,7 +719,6 @@ pub const CASES: &[Case] = &[
                 10,
             )
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -756,7 +730,6 @@ pub const CASES: &[Case] = &[
                 10,
             )
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -768,7 +741,6 @@ pub const CASES: &[Case] = &[
                 10,
             )
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -780,7 +752,6 @@ pub const CASES: &[Case] = &[
                 10,
             )
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -792,7 +763,6 @@ pub const CASES: &[Case] = &[
                 10,
             )
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -804,7 +774,6 @@ pub const CASES: &[Case] = &[
                 10,
             )
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -816,14 +785,12 @@ pub const CASES: &[Case] = &[
                 10,
             )
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
             pointer: Some((5, 0)),
             ..Screen::new("link-hover-unifont", LINK_HOVER_DESC, LINK_HOVER, 40, 7)
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -837,7 +804,6 @@ pub const CASES: &[Case] = &[
                 7,
             )
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -849,7 +815,6 @@ pub const CASES: &[Case] = &[
                 10,
             )
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -862,7 +827,6 @@ pub const CASES: &[Case] = &[
                 10,
             )
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -878,7 +842,6 @@ pub const CASES: &[Case] = &[
                 10,
             )
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -890,7 +853,6 @@ pub const CASES: &[Case] = &[
                 10,
             )
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -902,7 +864,6 @@ pub const CASES: &[Case] = &[
                 16,
             )
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -914,7 +875,6 @@ pub const CASES: &[Case] = &[
                 10,
             )
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -927,7 +887,6 @@ pub const CASES: &[Case] = &[
                 10,
             )
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -941,7 +900,6 @@ pub const CASES: &[Case] = &[
                 30,
             )
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -955,7 +913,6 @@ pub const CASES: &[Case] = &[
                 30,
             )
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -970,7 +927,6 @@ pub const CASES: &[Case] = &[
                 30,
             )
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -985,7 +941,6 @@ pub const CASES: &[Case] = &[
                 30,
             )
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -998,7 +953,6 @@ pub const CASES: &[Case] = &[
                 10,
             )
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -1011,7 +965,6 @@ pub const CASES: &[Case] = &[
                 10,
             )
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -1024,7 +977,6 @@ pub const CASES: &[Case] = &[
                 5,
             )
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -1040,7 +992,6 @@ pub const CASES: &[Case] = &[
                 30,
             )
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -1057,7 +1008,6 @@ pub const CASES: &[Case] = &[
                 30,
             )
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -1075,7 +1025,6 @@ pub const CASES: &[Case] = &[
                 6,
             )
         },
-        source: Source::Vtium,
     },
     Case {
         screen: Screen {
@@ -1093,7 +1042,6 @@ pub const CASES: &[Case] = &[
                 6,
             )
         },
-        source: Source::Vtium,
     },
     small(
         "notice-no-keyboard-800x480",
@@ -1119,6 +1067,11 @@ pub const CASES: &[Case] = &[
         "notice-oneshot-800x480",
         ONESHOT_DESC,
         shown(&[notices::oneshot]),
+    ),
+    small(
+        "notice-no-console-opened-800x480",
+        NO_CONSOLE_OPENED_DESC,
+        shown(&[notices::no_console_opened]),
     ),
     small(
         "notice-head-file-800x480",
@@ -1195,6 +1148,11 @@ pub const CASES: &[Case] = &[
         shown(&[notices::oneshot]),
     ),
     large(
+        "notice-no-console-opened-3840x540",
+        NO_CONSOLE_OPENED_DESC,
+        shown(&[notices::no_console_opened]),
+    ),
+    large(
         "notice-head-file-3840x540",
         HEAD_FILE_DESC,
         shown(&[notices::head_file_one_error]),
@@ -1248,7 +1206,6 @@ pub const CASES: &[Case] = &[
             alone: Some(notices::panic_screen),
             ..Screen::new("panic-320x240", PANIC_SMALL_DESC, BLANK, 40, 15)
         },
-        source: Source::Vtium,
     },
     scheme(
         "scheme-light-notice",
@@ -1266,7 +1223,7 @@ pub const CASES: &[Case] = &[
     ),
     scheme(
         "scheme-dark-notice",
-        "The example configuration's `dark` color scheme (ADR-1401 D5) on the notice that no keyboard was found, with the on-screen display's dot under `osd = minimal`, over a shell session. Correct: a deep red `#7f1d1d` box with a light red `#f87171` edge across the top, the width of the display, holding the notice in pale `#fee2e2`; the filled circle in light grey `#d1d5db` on near black `#111827` over the top-right cell, at the box's top right; the row just below the box partly covered, on purpose; and the rows below it as the terminal drew them.",
+        "The example configuration's `dark` color scheme (ADR-1401 D5) on the notice that no keyboard was found, with the on-screen display's dot under `osd = minimal`, over a shell session. Correct: a red `#b91c1c` box with a light red `#f87171` edge across the top, the width of the display, holding the notice in pale `#fee2e2`; the filled circle in light grey `#d1d5db` on near black `#111827` over the top-right cell, at the box's top right; the row just below the box partly covered, on purpose; and the rows below it as the terminal drew them.",
         OSD_SHELL,
         OSD_MINIMAL_NOTICE,
         &keys::DARK,

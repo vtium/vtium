@@ -2,17 +2,18 @@
 //! the privileged step that checks a draft and installs it.
 //!
 //! A draft is a directory the user owns, under `$XDG_STATE_HOME/vtium/drafts`:
-//! the whole edited `vtium.conf` and `heads.conf`, each frit to write under
+//! the whole edited `vtium.conf`, each frit to write under
 //! `fonts/`, and `MANIFEST`, one line a file, tab-separated: `write` or
 //! `remove`, the file's name in the draft, and the SHA-256 of the installed
 //! file it replaces as it was when the draft was made, or `new`.
 //!
 //! `apply`, run as root through `sudo vtium-config apply DIR`, takes no
 //! option that names a path or a program ([`crate::cli::root_refusal`]),
-//! so it writes only `/etc/vtium`'s `vtium.conf` and `heads.conf` and the
-//! frits in the frits' directory the installed vtium.conf names in
-//! `font-frits`, else the one the build names, as the console reads them,
-//! and checks them with the console the build names, [`VTIUM`]:
+//! so it writes only `/etc/vtium/vtium.conf` and the frits in the frits'
+//! directory the installed vtium.conf names in `font-frits`, else the one
+//! the build names, read as the console reads it
+//! ([`crate::switch::frits_dir`]), and checks them with the console the
+//! build names, [`VTIUM`]:
 //!
 //! 1. reads the draft without following a link, takes only regular files
 //!    with names it knows, and bounds each file's size, since root is
@@ -20,12 +21,12 @@
 //! 2. refuses the draft, writing nothing, when a file it replaces has
 //!    changed since the draft was made, naming the file;
 //! 3. checks every file before it writes any: each frit with the helper's
-//!    frit reader, strictly, and the edited vtium.conf and head file with
-//!    the console's own `vtium check-config`, so the verdict before writing
-//!    is the verdict at the next start;
-//! 4. writes the frits, then the head file, then vtium.conf, so neither
-//!    configuration file names a frit that is not yet there, and removes
-//!    frits last; each file goes in through
+//!    frit reader, strictly, and the edited vtium.conf, both its parts in
+//!    one run, with the console's own `vtium check-config`, so the verdict
+//!    before writing is the verdict at the next start (ADR-1403 D3);
+//! 4. writes the frits, then vtium.conf, so vtium.conf never names a frit
+//!    that is not yet there, and removes frits last; each file goes in
+//!    through
 //!    [`vtium_settings::install_file`], in one rename, mode 0644, the old
 //!    one kept as `NAME.bak`;
 //! 5. prints one line a file, `wrote PATH`, `removed PATH`, `failed PATH`
@@ -51,11 +52,6 @@ use crate::tui::{CONF_MAX, Paths};
 /// Runs an argv with the terminal given back for a password, and says
 /// whether it succeeded, with what it printed.
 pub type Runner<'a> = &'a mut dyn FnMut(&[OsString]) -> io::Result<(bool, String)>;
-
-/// What the TUI calls to save: writes `plan`'s draft and runs the
-/// privileged step through the runner; the files written, or why none
-/// was, with what the step printed.
-pub type Saver = Box<dyn FnMut(&Plan, Runner<'_>) -> Result<usize, String>>;
 
 /// The draft's list of files.
 pub const MANIFEST: &str = "MANIFEST";
@@ -112,10 +108,10 @@ fn hash(bytes: &[u8]) -> String {
     sha256_hex(&Sha256::digest(bytes))
 }
 
-/// Whether `name` is a name a draft may hold: `vtium.conf`, `heads.conf`,
-/// or `fonts/NAME.vtfrit` for a frit's name.
+/// Whether `name` is a name a draft may hold: `vtium.conf`, or
+/// `fonts/NAME.vtfrit` for a frit's name.
 fn known(name: &str) -> bool {
-    matches!(name, "vtium.conf" | "heads.conf")
+    name == "vtium.conf"
         || name
             .strip_prefix("fonts/")
             .and_then(|n| n.strip_suffix(".vtfrit"))
@@ -140,7 +136,7 @@ fn target(targets: &Targets, name: &str) -> Result<PathBuf, String> {
 fn name_for(targets: &Targets, path: &Path) -> Option<String> {
     if path.parent() == Some(targets.configdir.as_path()) {
         let name = path.file_name()?.to_str()?;
-        return matches!(name, "vtium.conf" | "heads.conf").then(|| name.to_owned());
+        return (name == "vtium.conf").then(|| name.to_owned());
     }
     if targets
         .frits
@@ -229,8 +225,9 @@ pub enum Route {
 
 impl Targets {
     /// The system's directories and console: `/etc/vtium`, the frits'
-    /// directory its vtium.conf names in `font-frits`, else the one the
-    /// build names, and the console the build names.
+    /// directory its configuration files name in `font-frits`, else the
+    /// one the build names ([`crate::switch::frits_dir`]), and the console
+    /// the build names.
     pub fn system() -> Targets {
         let configdir = crate::cli::default_configdir();
         Targets {
@@ -243,9 +240,12 @@ impl Targets {
 
 /// How a save to `targets` is installed, with `sudo` the program that runs
 /// a privileged command. The TUI that saves runs as the user (ADR-1201
-/// D5).
+/// D5). The directories decide: the system's need root to write, and
+/// sudo's `apply DIR` takes no option, so it checks with the console it
+/// was built with whatever console the user's own check ran.
 pub fn route(targets: &Targets, sudo: &OsString) -> Route {
-    if *targets == Targets::system() {
+    let system = Targets::system();
+    if targets.configdir == system.configdir && targets.frits == system.frits {
         Route::Sudo(sudo.clone())
     } else {
         Route::User
@@ -271,31 +271,6 @@ pub fn save_argv(route: &Route, program: &Path, targets: &Targets, draft: &Path)
     argv.push("apply".into());
     argv.push(draft.into());
     argv
-}
-
-/// The TUI's saver for `paths`: the draft under `paths.drafts`, then the
-/// install the route takes.
-pub fn saver(paths: Paths) -> Saver {
-    Box::new(move |plan, run| {
-        let targets = paths.targets();
-        let draft = write_draft(&paths.drafts, plan, &targets)
-            .map_err(|e| format!("the draft under {}: {e}", paths.drafts.display()))?;
-        let program = std::env::current_exe().map_err(|e| e.to_string())?;
-        let argv = save_argv(&route(&targets, &paths.sudo), &program, &targets, &draft);
-        match run(&argv) {
-            Ok((true, _)) => Ok(plan.len()),
-            Ok((false, said)) => Err(format!(
-                "the command failed, and the draft stays in {}.\n{}",
-                draft.display(),
-                said.trim_end()
-            )),
-            Err(e) => Err(format!(
-                "{}: {e}",
-                argv.first()
-                    .map_or_else(String::new, |a| a.to_string_lossy().into_owned())
-            )),
-        }
-    })
 }
 
 /// The owners a draft and its files may have: root, and the user `sudo`
@@ -499,19 +474,24 @@ fn summarize(stderr: &str, copies: &[(PathBuf, &str)]) -> String {
     out.join("\n")
 }
 
-/// Runs the console's `vtium check-config` on the draft's configuration:
-/// vtium.conf in `confdir`, and the head file `heads` in the head file's
-/// place; what it refused, as [`summarize`] says it, when the check fails.
+/// Runs the console's `vtium check-config` on the draft's vtium.conf,
+/// `file`, both its parts in one run, against the installed configuration
+/// directory `configdir`, or on the installed vtium.conf where the draft
+/// holds none; what it refused, as [`summarize`] says it, when the check
+/// fails.
 fn check_config(
     vtium: &OsString,
-    confdir: &Path,
-    heads: Option<&Path>,
+    configdir: &Path,
+    file: Option<&Path>,
     copies: &[(PathBuf, &str)],
 ) -> Result<(), String> {
     let mut command = std::process::Command::new(vtium);
-    command.arg("check-config").arg("--configdir").arg(confdir);
-    if let Some(heads) = heads {
-        command.arg(heads);
+    command
+        .arg("check-config")
+        .arg("--configdir")
+        .arg(configdir);
+    if let Some(file) = file {
+        command.arg(file);
     }
     let out = command
         .stdin(std::process::Stdio::null())
@@ -602,7 +582,7 @@ pub fn make(plan: &Plan, paths: &Paths, out: &mut dyn Write, err: &mut dyn Write
 /// Installs `plan` at once, as root: the draft written into a directory of
 /// root's own under `/tmp`, then applied, so every file goes through the
 /// checks `apply` makes.
-fn install_now(plan: &Plan, targets: &Targets, out: &mut dyn Write) -> Result<bool, String> {
+pub fn install_now(plan: &Plan, targets: &Targets, out: &mut dyn Write) -> Result<bool, String> {
     install_under(Scratch::system()?, plan, targets, out)
 }
 
@@ -644,27 +624,29 @@ impl Copy {
     }
 }
 
-/// What names the frit `name` and so keeps it from being removed:
-/// vtium.conf's `font-name` in `conf`, or a head's `profile =` line in the
-/// head file `heads`, since a head's profile other than `default` draws the
-/// frit of its name; `None` when nothing does. The head file is read as
-/// the console reads it, what survives its errors included.
-pub fn naming(name: &str, conf: Option<&str>, heads: Option<&str>) -> Option<String> {
-    if conf
-        .and_then(|c| vtium_settings::setting(c, "font-name"))
-        .as_deref()
-        == Some(name)
-    {
-        return Some("vtium.conf's font-name".to_owned());
+/// What names the frit `name` and so keeps it from being removed, in
+/// vtium.conf's text `conf`: the top level's `font-name`, or a look's
+/// `font-name` in its `[look NAME]` section (ADR-1403 D5), named with its
+/// line; `None` when nothing does. The sections are read as the console
+/// reads them, what survives their errors included.
+pub fn naming(name: &str, conf: Option<&str>) -> Option<String> {
+    let conf = conf?;
+    let key = vtium_settings::keys::FONT_NAME.name;
+    if vtium_settings::setting(conf, key).as_deref() == Some(name) {
+        return Some(format!("vtium.conf's {key}"));
     }
-    let heads = vtium_settings::reading(heads?.as_bytes())
-        .parsed
-        .config
-        .heads;
-    heads
-        .iter()
-        .find(|h| h.profile != "default" && h.profile == name)
-        .map(|h| format!("head {}'s profile", h.name))
+    let config = vtium_settings::sections(conf.as_bytes())?.parsed.config;
+    config.looks.iter().find_map(|look| {
+        look.settings
+            .iter()
+            .find(|s| s.key.name == key && s.value == name)
+            .map(|s| {
+                format!(
+                    "`{key}` in `[look {}]`, vtium.conf line {},",
+                    look.name, s.line
+                )
+            })
+    })
 }
 
 /// A file read from the draft, checked, waiting to be written.
@@ -699,7 +681,6 @@ fn apply(dir: &Path, targets: &Targets, out: &mut dyn Write) -> Result<bool, Str
     let manifest = String::from_utf8(manifest).map_err(|_| format!("{MANIFEST}: not UTF-8"))?;
     let entries = entries(&manifest)?;
     let mut frits = Vec::new();
-    let mut heads = None;
     let mut conf = None;
     let mut removals = Vec::new();
     for entry in &entries {
@@ -750,7 +731,6 @@ fn apply(dir: &Path, targets: &Targets, out: &mut dyn Write) -> Result<bool, Str
             bytes: Some(bytes),
         };
         match name.as_str() {
-            "heads.conf" => heads = Some(staged),
             "vtium.conf" => conf = Some(staged),
             _ => frits.push(staged),
         }
@@ -772,34 +752,19 @@ fn apply(dir: &Path, targets: &Targets, out: &mut dyn Write) -> Result<bool, Str
             return Err(FRITS_MOVE_FIRST.to_owned());
         }
     }
-    // step 3: the console's own check, on copies root made, so what is
+    // step 3: the console's own check, on a copy root made, so what is
     // checked is what is written
-    if heads.is_some() || conf.is_some() {
+    if let Some(c) = &conf {
         let scratch = Scratch::system()?;
-        let confdir = match &conf {
-            Some(c) => {
-                scratch.write("vtium.conf", c.bytes.as_deref().unwrap_or_default())?;
-                scratch.path.clone()
-            }
-            None => targets.configdir.clone(),
-        };
-        let heads_file = match &heads {
-            Some(h) => Some(scratch.write("heads.conf", h.bytes.as_deref().unwrap_or_default())?),
-            None => Some(targets.configdir.join("heads.conf")).filter(|p| p.exists()),
-        };
+        let file = scratch.write("vtium.conf", c.bytes.as_deref().unwrap_or_default())?;
         let copies = [
-            (scratch.path.join("vtium.conf"), "vtium.conf"),
-            (scratch.path.join("heads.conf"), "heads.conf"),
+            (file.clone(), "vtium.conf"),
             (
                 targets.configdir.join("vtium.conf"),
                 "the installed vtium.conf",
             ),
-            (
-                targets.configdir.join("heads.conf"),
-                "the installed heads.conf",
-            ),
         ];
-        let checked = check_config(&targets.vtium, &confdir, heads_file.as_deref(), &copies);
+        let checked = check_config(&targets.vtium, &targets.configdir, Some(&file), &copies);
         drop(scratch);
         checked.map_err(|why| {
             format!(
@@ -808,31 +773,26 @@ fn apply(dir: &Path, targets: &Targets, out: &mut dyn Write) -> Result<bool, Str
             )
         })?;
     }
-    // a frit vtium.conf or a head names after the save is never removed
+    // a frit vtium.conf names after the save is never removed
     let conf_text = match &conf {
         Some(c) => String::from_utf8_lossy(c.bytes.as_deref().unwrap_or_default()).into_owned(),
         None => std::fs::read_to_string(targets.configdir.join("vtium.conf")).unwrap_or_default(),
-    };
-    let heads_text = match &heads {
-        Some(h) => String::from_utf8_lossy(h.bytes.as_deref().unwrap_or_default()).into_owned(),
-        None => std::fs::read_to_string(targets.configdir.join("heads.conf")).unwrap_or_default(),
     };
     for path in &removals {
         let stem = path
             .file_stem()
             .and_then(|s| s.to_str())
             .unwrap_or_default();
-        if let Some(by) = naming(stem, Some(&conf_text), Some(&heads_text)) {
+        if let Some(by) = naming(stem, Some(&conf_text)) {
             return Err(format!(
                 "{} is the frit {by} names, so it is not removed",
                 path.display()
             ));
         }
     }
-    // step 4: frits, the head file, vtium.conf, then removals
+    // step 4: frits, vtium.conf, then removals
     let order: Vec<Staged> = frits
         .into_iter()
-        .chain(heads)
         .chain(conf)
         .chain(removals.into_iter().map(|target| Staged {
             target,

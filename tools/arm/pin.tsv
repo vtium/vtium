@@ -3,7 +3,10 @@
 # against bookworm's glibc 2.36 runs on that glibc and later.
 # `tools/arm/sysroot pin` resolves the deb rows again from the snapshot's
 # index, verified against the key; a change of snapshot or package goes in a
-# commit of its own.
+# commit of its own. tools/arm/sysroot fetch downloads each package from
+# the main archive while it still carries the pinned version, and from the
+# snapshot after.
+archive	https://deb.debian.org/debian
 snapshot	https://snapshot.debian.org/archive/debian/20261020T000000Z
 suite	bookworm
 key	04B54C3CDCA79751B16BC6B5225629DF75B188BD

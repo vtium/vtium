@@ -9,8 +9,8 @@
 #[cfg(feature = "images")]
 mod with {
     use vtium_image::{
-        FramePlacement, ImageKey, LineKey, NewImage, Place, PlaceholderRun, PlacementKey, Refusal,
-        Rows, Screens, Store,
+        FloatingRegion, FramePlacement, ImageKey, LineKey, NewImage, Place, PlaceholderRun,
+        PlacementKey, Refusal, Rows, Screens, Store,
     };
 
     use std::collections::BTreeSet;
@@ -237,26 +237,53 @@ mod with {
         /// as the store's other changes mark it. The cells read count as
         /// input work (D5).
         pub fn mark_placeholders(&mut self, alt: bool, image: u32) {
-            self.mark_placeholders_of(alt, &BTreeSet::from([image]));
+            self.mark_placeholders_of(alt, &BTreeSet::from([image]), &[]);
         }
 
         /// [`mark_placeholders`](Self::mark_placeholders) for every kitty
-        /// image id of `images` at once, through one read of the screen.
-        fn mark_placeholders_of(&mut self, alt: bool, images: &BTreeSet<u32>) {
-            if alt != self.flags.alternate || images.is_empty() {
+        /// image id of `images` at once, and the cells where each box of
+        /// `floating` draws, through one read of the screen. A box follows
+        /// a virtual placement, so it lies `row` rows and `col` columns from
+        /// the origin that placement's runs give (D13); a box whose virtual
+        /// placement no run shows draws nowhere and marks nothing.
+        fn mark_placeholders_of(
+            &mut self,
+            alt: bool,
+            images: &BTreeSet<u32>,
+            floating: &[FloatingRegion],
+        ) {
+            if alt != self.flags.alternate || images.is_empty() && floating.is_empty() {
                 return;
             }
             if self.scrollback.offset() != 0 {
                 self.damage.mark_all();
                 return;
             }
-            for (y, run) in self.screen_runs(alt) {
+            let runs = self.screen_runs(alt);
+            for (y, run) in &runs {
                 if !images.contains(&run.image) {
                     continue;
                 }
                 let x0 = usize::try_from(run.col).unwrap_or(usize::MAX);
                 let x1 = x0.saturating_add(usize::try_from(run.cells).unwrap_or(usize::MAX));
-                self.damage.mark_cells(y, x0..x1.min(self.cols));
+                self.damage.mark_cells(*y, x0..x1.min(self.cols));
+            }
+            let rows = || {
+                runs.iter()
+                    .map(|(y, run)| (i64::try_from(*y).unwrap_or(i64::MAX), run))
+            };
+            for region in floating {
+                let Some((top, left)) = region.top_left(rows()) else {
+                    continue;
+                };
+                let clip = |v: i64, end: usize| usize::try_from(v.max(0)).unwrap_or(0).min(end);
+                let y0 = clip(top, self.rows);
+                let y1 = clip(top.saturating_add(i64::from(region.rows)), self.rows);
+                let x0 = clip(left, self.cols);
+                let x1 = clip(left.saturating_add(i64::from(region.cols)), self.cols);
+                for y in y0..y1 {
+                    self.damage.mark_cells(y, x0..x1);
+                }
             }
         }
 
@@ -529,17 +556,6 @@ mod with {
         /// Ends a screen event: what the pieces it cut owe is settled, and
         /// the cells under every box the store changed are marked.
         fn images_settled(&mut self) {
-            // one read of the shown screen marks every changed image's cells;
-            // a buffer not shown has no cells on the display
-            let shown = self.flags.alternate;
-            let changed: BTreeSet<u32> = self
-                .images
-                .take_changed_virtual()
-                .into_iter()
-                .filter(|&(alt, _)| alt == shown)
-                .map(|(_, id)| id)
-                .collect();
-            self.mark_placeholders_of(shown, &changed);
             if self.images.owes() {
                 let (main, alt) = (self.keys(false), self.keys(true));
                 let screens = Screens {
@@ -547,6 +563,31 @@ mod with {
                     alt: alt.rows(),
                 };
                 self.images.settle_event(screens);
+            }
+            // one read of the shown screen marks every changed image's
+            // placeholder cells and every changed box that follows a
+            // virtual placement; a buffer not shown has no cells on the
+            // display
+            let shown = self.flags.alternate;
+            let placeholders: BTreeSet<u32> = self
+                .images
+                .take_changed_virtual()
+                .into_iter()
+                .filter(|&(alt, _)| alt == shown)
+                .map(|(_, id)| id)
+                .collect();
+            let floating = self.images.take_changed_floating();
+            if floating.whole.get(usize::from(shown)) == Some(&true) {
+                // more boxes changed than the store keeps notes of
+                self.damage.mark_all();
+            } else {
+                let boxes: Vec<FloatingRegion> = floating
+                    .boxes
+                    .into_iter()
+                    .filter(|&(alt, _)| alt == shown)
+                    .map(|(_, region)| region)
+                    .collect();
+                self.mark_placeholders_of(shown, &placeholders, &boxes);
             }
             let changed = self.images.take_changed();
             if changed.is_empty() {

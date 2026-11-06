@@ -57,6 +57,12 @@
 # /bin/login's session, so with --login the run uses the system's
 # xterm-vtium entry when one is installed, as the packaged vtium's sessions
 # do, and runs vtium with --term=kmscon when none is, saying so.
+# The run copies the review's configuration, tools/vt/config/vtium.conf, into
+# /run/vtium-vt/config/, owned by root and mode 0644, and runs vtium with
+# --configdir naming that directory. vtium reads a vtium.conf only when root
+# owns it and no one else can write it or a directory above it (ADR-1403
+# D3), which a file in the checkout never is, so the run reads the copy and
+# never the system's /etc/vtium/vtium.conf.
 # /run/vtium-vt/ is removed when the run ends.
 # --dry-run asks what it would ask (the VT on screen, the sessions, the active
 # units) and prints every command that would change anything without running
@@ -322,12 +328,13 @@ fi
 # bounding set and no-new-privs are left alone: sudo works in the shell.
 drop=("$setpriv" --reuid="$uid" --regid="$gid" --init-groups --inh-caps=-all --reset-env)
 
-# vtium, the glyph helper, the image helper, the frits and the terminfo source
-# that root runs, copies or compiles are first read as the user, so the user's
-# own permissions decide what is read: a symlink to a file the user may not
-# read, or a second hard link to one, fails to open, and no check races a
-# change, because root checks only what it holds. The files of the checkout
-# itself, such as this script and the --configdir, are not read this way. read_dir is a
+# vtium, the glyph helper, the image helper, the frits, the review's
+# vtium.conf and the terminfo source that root runs, copies or compiles are
+# first read as the user, so the user's own permissions decide what is read:
+# a symlink to a file the user may not read, or a second hard link to one,
+# fails to open, and no check races a change, because root checks only what
+# it holds. The other files of the checkout, such as this script, are not
+# read this way. read_dir is a
 # directory of root's alone, removed when the run ends. Run without root
 # (a dry run, the tests), the reader is the caller itself.
 reader=()
@@ -436,6 +443,17 @@ for f in "$system_frits"/*.vtfrit "$here"/sections/frits/*.vtfrit; do
 	frit_files+=("$f")
 	frit_srcs+=("$fetched")
 done
+# The review's vtium.conf, which root copies into a directory of root's for
+# vtium to read, is held to the frits' rules: a regular file of root's or the
+# user's with one link, writable by no one else.
+config_src=$here/config/vtium.conf
+[ ! -L "$config_src" ] || die "$config_src is a symlink; the run copies only the file it checked"
+[ -f "$config_src" ] || die "no $config_src, the configuration the review's vtium reads"
+fetch "$config_src" || die "$user cannot read $config_src"
+[ "$fkind" = file ] || die "$config_src is a symlink; the run copies only the file it checked"
+check_file "$config_src" "vtium, as root, would read it"
+[ "$flinks" -eq 1 ] || die "$config_src has $flinks hard links; the run copies only a file of its own"
+config_copy=$fetched
 # vtium names itself TERM=xterm-vtium; the run compiles that entry from the
 # checkout, as the package does, for the sessions it starts itself.
 terminfo_src=$checkout/crates/vtium/install/xterm-vtium.ti
@@ -707,17 +725,18 @@ EOF
 # brings a new prompt rather than the end, and this script ends the run at the
 # first logout instead, below. vtium is started in the background so that it
 # ignores Ctrl-C (bash does that for background jobs in a script) and this
-# script decides how it stops: SIGTERM from restore(). --configdir keeps the
-# system's config out of the run; config/ holds the review's own.
+# script decides how it stops: SIGTERM from restore(). --configdir names the
+# stage's copy of config/vtium.conf, the review's own configuration, so the
+# system's is never read.
 terminfo=(TERMINFO="$stage/terminfo")
 # The acceptance pass records the build it judges: the VT, the binary and its
 # features, beside the label (ADR-1501 D5).
 accept=(ACCEPT_LABEL="vtium $label" ACCEPT_VT="$vt" ACCEPT_BINARY="$bin" ACCEPT_FEATURES="${features:-none}")
 [ -z "$passes" ] || accept+=(ACCEPT_DIR="$passes")
 # The pages that blink text name the style vtium draws it in (blink.inc): from
-# the config this run gives vtium, which --configdir names, and from the blink
-# options given to vtium, the last of each winning as it does in vtium.
-accept+=(ACCEPT_VTIUM_CONF="$here/config/vtium.conf")
+# the config this run gives vtium, the copy --configdir names, and from the
+# blink options given to vtium, the last of each winning as it does in vtium.
+accept+=(ACCEPT_VTIUM_CONF="$stage/config/vtium.conf")
 for o in "${extra[@]}"; do
 	case $o in
 	--blink-text=*) accept+=(ACCEPT_BLINK_TEXT="${o#*=}") ;;
@@ -756,18 +775,19 @@ if [ -n "$login" ]; then
 	once=()
 	login_argv=(/bin/login -p)
 fi
-cmd=("$stage/vtium" --vt="tty$vt" --no-switchvt --configdir "$here/config" "${once[@]}" "${helper_opt[@]}"
+cmd=("$stage/vtium" --vt="tty$vt" --no-switchvt --configdir "$stage/config" "${once[@]}" "${helper_opt[@]}"
 	"${term_opt[@]}" "${debug_opt[@]}" "${extra[@]}" --login -- "${login_argv[@]}")
-# The helper's copy, the terminfo entry and the frits, in a directory of root's alone,
-# made fresh for this run and removed when it ends. tic makes the entry's
-# directory and file under the umask, and the caller's may be 077, which
-# would leave the entry unreadable to the session that runs as the user, so
-# the staging runs under 022.
+# The helper's copy, the terminfo entry, the frits and the configuration, in
+# a directory of root's alone, made fresh for this run and removed when it
+# ends. tic makes the entry's directory and file under the umask, and the
+# caller's may be 077, which would leave the entry unreadable to the session
+# that runs as the user, so the staging runs under 022.
 stage_made=1
 (
 	umask 022
 	act rm -rf -- "$stage"
-	act install -d -m 0755 "${own[@]}" -- "$stage" "$stage/terminfo" "$stage/frits"
+	act install -d -m 0755 "${own[@]}" -- "$stage" "$stage/terminfo" "$stage/frits" "$stage/config"
+	copy 0644 "$config_copy" "$config_src" "$stage/config/vtium.conf"
 	for i in "${!frit_files[@]}"; do
 		copy 0644 "${frit_srcs[i]}" "${frit_files[i]}" "$stage/frits/${frit_files[i]##*/}"
 	done

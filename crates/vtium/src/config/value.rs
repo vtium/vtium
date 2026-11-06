@@ -120,6 +120,46 @@ pub(super) fn parse(
             }
         }
         Kind::Text => text_ok(key, text, origin, reports).then(|| Value::Text(text.to_owned())),
+        Kind::Path => {
+            if !text_ok(key, text, origin, reports) {
+                return None;
+            }
+            if keys::absolute(text) {
+                return Some(Value::Text(text.to_owned()));
+            }
+            let value = text.to_owned();
+            reports.push(
+                origin.clone(),
+                Problem::BadValue {
+                    key: key.name,
+                    value,
+                    why: keys::NOT_ABSOLUTE,
+                },
+            );
+            None
+        }
+        Kind::Paths => {
+            if !text_ok(key, text, origin, reports) {
+                return None;
+            }
+            // each folder that is no absolute path is reported and left out
+            let mut kept = Vec::new();
+            for folder in text.split(':') {
+                if keys::absolute(folder) {
+                    kept.push(folder);
+                } else {
+                    reports.push(
+                        origin.clone(),
+                        Problem::BadValue {
+                            key: key.name,
+                            value: folder.to_owned(),
+                            why: keys::NOT_ABSOLUTE,
+                        },
+                    );
+                }
+            }
+            (!kept.is_empty()).then(|| Value::Text(kept.join(":")))
+        }
         Kind::Command => {
             if !text_ok(key, text, origin, reports) {
                 return None;
@@ -184,6 +224,22 @@ pub(super) fn parse(
                 }
             }
         }
+        Kind::Cell => match keys::parse_cell(text) {
+            Some((w, h)) => Some(Value::Size(w, h)),
+            None => {
+                let value = text.to_owned();
+                let why = "a cell is WIDTHxHEIGHT in pixels, as a frit's cell= line writes it";
+                reports.push(
+                    origin.clone(),
+                    Problem::BadValue {
+                        key: key.name,
+                        value,
+                        why,
+                    },
+                );
+                None
+            }
+        },
         Kind::Size { max } => match parse_size(text, max) {
             Ok((w, h)) => Some(Value::Size(w, h)),
             Err(why) => {

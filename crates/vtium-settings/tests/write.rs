@@ -1,13 +1,19 @@
 //! The head file's one writer (ADR-1201 D6): a head's `profile =` line set
-//! in its section with every other byte kept, a file vtium refuses to read
-//! refused, and a file replaced in one rename with the old one kept
+//! in its section with every other byte kept, a file vtium reads only in
+//! part still edited, and a file replaced in one rename with the old one kept
 //! beside it.
 
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
-use vtium_settings::{ProfileEdit, install_file, parse, set_profile};
+use vtium_settings::{Of, SectionEdit, install_file, parse, set_key};
+
+/// Sets the look of the head `head` in `text` to `look`, with the section
+/// writer.
+fn set_look(text: &str, head: &str, look: &str) -> Result<String, SectionEdit> {
+    set_key(text, Of::Head(head), "look", Some(look))
+}
 
 /// Every head file the tree ships or tests read, by its path from the
 /// workspace's root.
@@ -52,15 +58,15 @@ fn changed(a: &str, b: &str) -> Vec<(usize, String, String)> {
 }
 
 #[test]
-fn every_shipped_file_with_its_own_profiles_comes_back_byte_for_byte() {
+fn every_shipped_file_with_its_own_looks_comes_back_byte_for_byte() {
     let mut heads = 0;
     for path in SHIPPED {
         let text = shipped(path);
         let Ok(parsed) = parse(&text) else { continue };
         for head in &parsed.config.heads {
-            let out = set_profile(&text, &head.name, &head.profile)
+            let out = set_look(&text, &head.name, &head.look)
                 .unwrap_or_else(|e| panic!("{path} [head {}]: {e}", head.name));
-            if head.profile_line != 0 {
+            if head.look_line != 0 {
                 assert_eq!(out, text, "{path} [head {}]", head.name);
             }
             heads += 1;
@@ -70,33 +76,33 @@ fn every_shipped_file_with_its_own_profiles_comes_back_byte_for_byte() {
 }
 
 #[test]
-fn every_shipped_file_changes_only_the_profile_and_reads_the_same_otherwise() {
+fn every_shipped_file_changes_only_the_look_and_reads_the_same_otherwise() {
     for path in SHIPPED {
         let text = shipped(path);
         let Ok(before) = parse(&text) else { continue };
         for (i, head) in before.config.heads.iter().enumerate() {
-            let out = set_profile(&text, &head.name, "fresh.one").expect("the edit");
+            let out = set_look(&text, &head.name, "fresh.one").expect("the edit");
             let after = parse(&out).unwrap_or_else(|e| panic!("{path}: {e:?}"));
             let mut want = before.config.clone();
-            want.heads[i].profile = "fresh.one".into();
+            want.heads[i].look = "fresh.one".into();
             let got = &after.config;
-            assert_eq!(got.heads[i].profile, "fresh.one", "{path}");
-            if head.profile_line == 0 {
+            assert_eq!(got.heads[i].look, "fresh.one", "{path}");
+            if head.look_line == 0 {
                 // one line inserted below the heading, every line after it
                 // moved down by one
                 assert_eq!(out.lines().count(), text.lines().count() + 1, "{path}");
                 let lines: Vec<&str> = out.lines().collect();
-                assert_eq!(lines[head.line], "profile = fresh.one", "{path}");
+                assert_eq!(lines[head.line], "look = fresh.one", "{path}");
                 let mut kept = lines.clone();
                 kept.remove(head.line);
                 assert_eq!(kept, text.lines().collect::<Vec<_>>(), "{path}");
             } else {
                 let diff = changed(&text, &out);
                 assert_eq!(diff.len(), 1, "{path}: {diff:?}");
-                assert_eq!(diff[0].0, head.profile_line, "{path}");
+                assert_eq!(diff[0].0, head.look_line, "{path}");
                 // the rest of the file reads as it did
                 let mut same = got.clone();
-                same.heads[i].profile_line = want.heads[i].profile_line;
+                same.heads[i].look_line = want.heads[i].look_line;
                 assert_eq!(same, want, "{path}");
             }
         }
@@ -105,11 +111,11 @@ fn every_shipped_file_changes_only_the_profile_and_reads_the_same_otherwise() {
 
 #[test]
 fn a_value_is_replaced_in_place_and_its_comment_kept() {
-    let text = "version = 1\n[head desk]\n  profile\t=  desk    # the desk's font\n[rules]\ndisplay * -> desk\n";
-    let out = set_profile(text, "desk", "big").expect("the edit");
+    let text = "version = 1\n[head desk]\n  look\t=  desk    # the desk's font\n[rules]\ndisplay * -> desk\n";
+    let out = set_look(text, "desk", "big").expect("the edit");
     assert_eq!(
         out,
-        "version = 1\n[head desk]\n  profile\t=  big    # the desk's font\n[rules]\ndisplay * -> desk\n"
+        "version = 1\n[head desk]\n  look\t=  big    # the desk's font\n[rules]\ndisplay * -> desk\n"
     );
 }
 
@@ -117,10 +123,10 @@ fn a_value_is_replaced_in_place_and_its_comment_kept() {
 fn a_missing_line_goes_below_the_heading_with_the_heading_s_line_ending() {
     let text =
         "version = 1\r\n[head  desk ]   # mine\r\nconsoles = 2\r\n[rules]\r\ndisplay * -> desk\r\n";
-    let out = set_profile(text, "desk", "big").expect("the edit");
+    let out = set_look(text, "desk", "big").expect("the edit");
     assert_eq!(
         out,
-        "version = 1\r\n[head  desk ]   # mine\r\nprofile = big\r\nconsoles = 2\r\n[rules]\r\ndisplay * -> desk\r\n"
+        "version = 1\r\n[head  desk ]   # mine\r\nlook = big\r\nconsoles = 2\r\n[rules]\r\ndisplay * -> desk\r\n"
     );
 }
 
@@ -128,83 +134,106 @@ fn a_missing_line_goes_below_the_heading_with_the_heading_s_line_ending() {
 fn a_heading_on_the_last_line_without_a_newline_gains_the_line_after_it() {
     let text = "version = 1\n[head desk]";
     assert_eq!(
-        set_profile(text, "desk", "big").expect("the edit"),
-        "version = 1\n[head desk]\nprofile = big"
+        set_look(text, "desk", "big").expect("the edit"),
+        "version = 1\n[head desk]\nlook = big\n"
     );
 }
 
 #[test]
-fn a_byte_order_mark_and_a_crlf_profile_line_stay() {
-    let text = "\u{feff}version = 1\r\n[head desk]\r\nprofile = a\r\n";
+fn a_byte_order_mark_and_a_crlf_look_line_stay() {
+    let text = "\u{feff}version = 1\r\n[head desk]\r\nlook = a\r\n";
     assert_eq!(
-        set_profile(text, "desk", "b").expect("the edit"),
-        "\u{feff}version = 1\r\n[head desk]\r\nprofile = b\r\n"
+        set_look(text, "desk", "b").expect("the edit"),
+        "\u{feff}version = 1\r\n[head desk]\r\nlook = b\r\n"
     );
 }
 
 #[test]
 fn the_head_named_is_the_one_edited() {
-    let text = "version = 1\n[head a]\nprofile = x\n[head b]\nprofile = x\n";
+    let text = "version = 1\n[head a]\nlook = x\n[head b]\nlook = x\n";
     assert_eq!(
-        set_profile(text, "b", "y").expect("the edit"),
-        "version = 1\n[head a]\nprofile = x\n[head b]\nprofile = y\n"
+        set_look(text, "b", "y").expect("the edit"),
+        "version = 1\n[head a]\nlook = x\n[head b]\nlook = y\n"
     );
 }
 
+// A draft may be unfinished (ADR-1403 D8): a file vtium reads only in
+// part is still edited, one line at a time, and the check reports its
+// errors.
 #[test]
-fn a_file_vtium_refuses_to_read_is_refused() {
+fn a_file_vtium_reads_only_in_part_is_still_edited() {
+    let mut edited = 0;
     for path in SHIPPED {
         let text = shipped(path);
         if parse(&text).is_ok() {
             continue;
         }
-        match set_profile(&text, "desk", "big") {
-            Err(ProfileEdit::Unreadable(rejected)) => assert!(!rejected.errors.is_empty()),
+        match set_look(&text, "desk", "big") {
+            Ok(out) => {
+                // one line changed in place, or one line added
+                let moved = changed(&text, &out);
+                let added = out.lines().count() == text.lines().count() + 1;
+                if added {
+                    let at = moved.first().map_or(0, |(n, _, _)| n - 1);
+                    let mut back: Vec<&str> = out.split_inclusive('\n').collect();
+                    assert_eq!(back.remove(at).trim_end(), "look = big", "{path}");
+                    assert_eq!(back.concat(), text, "{path}");
+                } else {
+                    assert_eq!(moved.len(), 1, "{path}: {moved:?}");
+                }
+                edited += 1;
+            }
+            Err(SectionEdit::NoSection(name)) => assert_eq!(name, "desk", "{path}"),
             other => panic!("{path}: {other:?}"),
         }
     }
-    // no version line
-    assert!(matches!(
-        set_profile("[head desk]\n", "desk", "big"),
-        Err(ProfileEdit::Unreadable(_))
-    ));
+    assert!(edited > 0, "no broken shipped file has a head desk");
+    // a section with no version line gains its look all the same
+    assert_eq!(
+        set_look("[head desk]\n", "desk", "big").expect("the edit"),
+        "[head desk]\nlook = big\n"
+    );
 }
 
 #[test]
 fn a_head_the_file_does_not_declare_is_refused() {
     let text = "version = 1\n[head desk]\n";
-    match set_profile(text, "panel", "big") {
-        Err(ProfileEdit::NoHead(name)) => assert_eq!(name, "panel"),
+    match set_look(text, "panel", "big") {
+        Err(SectionEdit::NoSection(name)) => assert_eq!(name, "panel"),
         other => panic!("{other:?}"),
     }
 }
 
 #[test]
-fn a_profile_name_vtium_would_refuse_is_refused() {
+fn a_look_name_the_writer_cannot_write_is_refused_and_the_check_judges_the_rest() {
     let text = "version = 1\n[head desk]\n";
-    for bad in ["", "two words", "a#b", "é", &"x".repeat(65), "a=b", "a\nb"] {
-        match set_profile(text, "desk", bad) {
-            Err(ProfileEdit::BadName(name)) => assert_eq!(name, bad),
-            other => panic!("{bad:?}: {other:?}"),
-        }
+    for bad in ["", "a\nb", "a #b"] {
+        assert!(
+            matches!(
+                set_look(text, "desk", bad),
+                Err(SectionEdit::BadValue { .. })
+            ),
+            "{bad:?}"
+        );
     }
-    assert!(set_profile(text, "desk", &"x".repeat(64)).is_ok());
+    // a name vtium refuses is written, and the check reports it
+    for refused in ["two words", "é", &"x".repeat(65), "a=b"] {
+        let out = set_look(text, "desk", refused).expect("the edit");
+        assert_eq!(out, format!("{text}look = {refused}\n"));
+        assert!(parse(&out).is_err(), "{refused:?}");
+    }
+    assert!(set_look(text, "desk", &"x".repeat(64)).is_ok());
 }
 
 #[test]
 fn each_refusal_says_what_to_do() {
     let text = "version = 1\n[head desk]\n";
-    let no_head = set_profile(text, "panel", "big").unwrap_err().to_string();
-    assert!(
-        no_head.contains("panel") && no_head.contains("[head NAME]"),
-        "{no_head}"
-    );
-    let bad = set_profile(text, "desk", "a b").unwrap_err().to_string();
-    assert!(bad.contains("\"a b\""), "{bad}");
-    let unreadable = set_profile("[head desk]\n", "desk", "b")
+    let no_head = set_look(text, "panel", "big").unwrap_err().to_string();
+    assert!(no_head.contains("panel"), "{no_head}");
+    let twice = set_look("version = 1\n[head desk]\n[head desk]\n", "desk", "b")
         .unwrap_err()
         .to_string();
-    assert!(unreadable.contains("vtium check-config"), "{unreadable}");
+    assert!(twice.contains("two sections named"), "{twice}");
 }
 
 /// A fresh directory of its own for one test.

@@ -19,6 +19,7 @@ struct Options {
     vconsole_conf: Option<PathBuf>,
     kernel_cmdline: Option<PathBuf>,
     sys: Option<PathBuf>,
+    udev_data: Option<PathBuf>,
     helper: Option<PathBuf>,
     root: Option<PathBuf>,
     words: Vec<String>,
@@ -37,6 +38,7 @@ impl Options {
             "--vconsole-conf" => self.vconsole_conf = Some(value.into()),
             "--kernel-cmdline" => self.kernel_cmdline = Some(value.into()),
             "--sys" => self.sys = Some(value.into()),
+            "--udev-data" => self.udev_data = Some(value.into()),
             "--helper" => self.helper = Some(value.into()),
             "--root" => self.root = Some(value.into()),
             // the table's test reads every name, so none lands here
@@ -66,6 +68,26 @@ impl Options {
                 .into(),
             helper: self.helper(),
             sys: self.sys.clone().unwrap_or_else(|| PathBuf::from("/sys")),
+        }
+    }
+
+    /// Where the flow's commands read the devices present: sysfs and
+    /// udev's database as the options name them, and the control socket
+    /// beside the database that names a running udev daemon.
+    fn devices(&self) -> crate::flowcli::Devices {
+        let system = vtium_platform::listing::Roots::system();
+        let control = match &self.udev_data {
+            Some(data) => data
+                .parent()
+                .map_or_else(|| PathBuf::from("control"), |p| p.join("control")),
+            None => PathBuf::from(vtium_devices::UDEV_CONTROL),
+        };
+        crate::flowcli::Devices {
+            roots: vtium_platform::listing::Roots {
+                sys: self.sys.clone().unwrap_or(system.sys),
+                udev_data: self.udev_data.clone().unwrap_or(system.udev_data),
+            },
+            control,
         }
     }
 
@@ -106,7 +128,7 @@ pub struct ValueOption {
 /// by the refusal. Run as root, vtium-config takes none of the flagged
 /// ones, so `sudo vtium-config` reads and writes only the system's
 /// directories and runs only the console it was built with.
-pub const VALUE_OPTIONS: [ValueOption; 11] = [
+pub const VALUE_OPTIONS: [ValueOption; 12] = [
     ValueOption {
         name: "--configdir",
         path: true,
@@ -144,6 +166,10 @@ pub const VALUE_OPTIONS: [ValueOption; 11] = [
         path: true,
     },
     ValueOption {
+        name: "--udev-data",
+        path: true,
+    },
+    ValueOption {
         name: "--helper",
         path: true,
     },
@@ -155,9 +181,9 @@ pub const VALUE_OPTIONS: [ValueOption; 11] = [
 
 /// Why vtium-config, run with the effective uid `euid`, refuses
 /// `args`: a path or program option of [`VALUE_OPTIONS`], the step that releases the
-/// TUI's signals and runs another program, `tui` or `new` with nothing
-/// after it, which open the TUI, or a command that runs as the user: `check`,
-/// `fonts`, `preview` and `new --from`, which read files the user names or
+/// TUI's signals and runs another program, `tui` or `new-frit` with
+/// nothing after it, which open the TUI, or a command that runs as the
+/// user: `check`, `fonts`, `preview` and `new-frit --from`, which read files the user names or
 /// start the glyph helper, which refuses root, or `report --save` in any
 /// form, since root's report writes no file; `None` when it takes them.
 /// It refuses only as root, an effective uid of 0; `main` runs it first.
@@ -183,10 +209,10 @@ pub fn root_refusal(euid: u32, args: &[OsString]) -> Option<String> {
         }
     });
     // the TUI runs as the user from start to end (ADR-1201 D5); `tui` opens
-    // it, and `new` alone opens it too
+    // it, and `new-frit` alone opens it too
     let tui = parse_args(args)
         .is_ok_and(|o| match o.words.as_slice() {
-            [w] => w == "tui" || w == "new",
+            [w] => w == "tui" || w == "new-frit",
             _ => false,
         })
         .then(|| "run vtium config as yourself; it asks for sudo when it saves".to_owned());
@@ -196,8 +222,8 @@ pub fn root_refusal(euid: u32, args: &[OsString]) -> Option<String> {
     let own = parse_args(args).ok().and_then(|o| {
         let user_only = match o.words.as_slice() {
             [c, ..] if matches!(c.as_str(), "check" | "fonts" | "preview") => Some(c.clone()),
-            [c, rest @ ..] if c == "new" && rest.iter().any(|w| w.starts_with("--from")) => {
-                Some("new --from".to_owned())
+            [c, rest @ ..] if c == "new-frit" && rest.iter().any(|w| w.starts_with("--from")) => {
+                Some("new-frit --from".to_owned())
             }
             _ => None,
         };
@@ -220,7 +246,7 @@ pub fn root_refusal(euid: u32, args: &[OsString]) -> Option<String> {
     named.or(tui).or(own).or(save)
 }
 
-/// The directory of vtium.conf and the head file, as the console's.
+/// The directory of vtium.conf, as the console's.
 pub fn default_configdir() -> PathBuf {
     PathBuf::from("/etc/vtium")
 }
@@ -258,7 +284,7 @@ fn parse_args(args: &[OsString]) -> Result<Options, Usage> {
                 }
             }
             // after the command, an option this table does not name is the
-            // command's own, as `new --name`
+            // command's own, as `new-frit --name`
             a if a.starts_with('-')
                 && a != "-"
                 && o.words.is_empty()
@@ -314,20 +340,29 @@ impl Cli<'_> {
         match command {
             Command::Fonts => crate::commands::fonts(rest, &o.paths(), self.out, self.err),
             Command::Check => crate::commands::check(rest, &o.paths(), self.out, self.err),
-            Command::Config => crate::commands::config(rest, &o.paths(), self.out, self.err),
             Command::RemoveFrit => {
                 crate::commands::remove_frit(rest, &o.paths(), self.out, self.err)
             }
-            Command::New if rest.is_empty() => {
+            c if c.flow() => {
+                crate::flowcli::run(c.name(), rest, &o.paths(), &o.devices(), self.out, self.err)
+            }
+            Command::NewFrit if rest.is_empty() => {
                 if std::io::stdin().is_terminal() && std::io::stdout().is_terminal() {
-                    crate::tui::run(&o.paths(), crate::tui::model::View::New, self.err)
+                    crate::tui::run(
+                        &o.paths(),
+                        o.devices(),
+                        crate::tui::model::View::New,
+                        self.err,
+                    )
                 } else {
-                    self.usage("new takes FONT..., --from FILE or --template away from a terminal")
+                    self.usage(
+                        "new-frit takes FONT..., --from FILE or --template away from a terminal",
+                    )
                 }
             }
-            Command::New => crate::commands::new(rest, &o.paths(), self.out, self.err),
+            Command::NewFrit => crate::commands::new(rest, &o.paths(), self.out, self.err),
             Command::Preview => crate::preview::command(rest, &o.paths(), self.out, self.err),
-            Command::Set => match o.paths().frits {
+            Command::UseFrit => match o.paths().frits {
                 Ok(frits) => crate::switch::command(rest, &frits, self.out, self.err),
                 Err(why) => {
                     let _ = writeln!(self.err, "vtium-config: {why}");
@@ -345,9 +380,16 @@ impl Cli<'_> {
             ),
             Command::Tui if !rest.is_empty() => self.usage("tui takes no argument"),
             Command::Tui if std::io::stdin().is_terminal() && std::io::stdout().is_terminal() => {
-                crate::tui::run(&o.paths(), crate::tui::model::View::Fonts, self.err)
+                crate::tui::run(
+                    &o.paths(),
+                    o.devices(),
+                    crate::tui::model::View::Flow,
+                    self.err,
+                )
             }
             Command::Tui => self.usage("tui opens the interactive tool at a terminal only"),
+            // the flow's commands are dispatched above
+            _ => self.usage("this command is the flow's"),
         }
     }
 }

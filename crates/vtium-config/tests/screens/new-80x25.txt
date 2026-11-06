@@ -1,13 +1,13 @@
- VTium Vitrifier                                               live preview: on
-  Fonts  Sizes  Settings  Heads  New
--------------------------------------------------------------------------------
+ Flow  Looks  Fonts  Settings  Help       View Install Revert Restore New Delete
+ draft workstation · 1 change · no problems                      text · t: live
+--------------------------------------------------------------------------------
  > Name     _
    Source 1
    Source 2
    Source 3
    Cell
    Size
-   Add the frit to the save
+   Add the frit to the install
 
  A source is a font's family, as JetBrains Mono, or a source as a frit writes
  it, as kbd:ter-v16n. Each later source fills what the ones before it lack.
@@ -21,5 +21,5 @@
 
 
 
--------------------------------------------------------------------------------
- type a field  Enter next  Tab next view  Ctrl-C leave, undo
+--------------------------------------------------------------------------------
+ type a field  Enter next  Esc back  Ctrl-C leave, undo

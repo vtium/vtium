@@ -12,7 +12,6 @@
 
 pub(crate) mod chord;
 pub mod console;
-pub mod identity;
 pub mod images;
 pub(crate) mod route;
 pub(crate) mod session;
@@ -121,14 +120,12 @@ pub struct Head {
     next_id: u64,
     /// A new console's `font-size`, as configured: in points, or `0`.
     configured: (Option<u32>, bool),
-    /// The head file's own `font-size` for the head, which wins over
-    /// vtium.conf's (ADR-1401 D3).
-    own_size: Option<u32>,
     /// The consoles the head opens at its start, its file's `consoles`
     /// within the caps.
     pub(crate) wanted: usize,
-    /// The configuration its consoles' command is read from: vtium.conf's
-    /// with the head's own `login` over it.
+    /// The configuration its consoles' command is read from, where the
+    /// head's section sets its own `login`: the top level's with the
+    /// head's sections over it.
     pub(crate) login: Option<Config>,
     /// What the head shows while its shown console's session has ended,
     /// from the catalog: the roaming chord's keys while no other console of
@@ -159,10 +156,11 @@ pub struct Head {
     /// or its brief line while that shows.
     pub(crate) status: Option<String>,
     /// The on-screen display's brief line, which answers one press of the
-    /// open chord at a cap, until `brief_due` (ADR-1401 D5).
-    pub(crate) brief: Option<String>,
+    /// open chord at a cap, until `brief_due` (ADR-1401 D5). Only
+    /// [`Head::show_brief`] sets it, which sets none under `osd = off`.
+    brief: Option<String>,
     /// When the brief line goes, armed at its first frame.
-    pub(crate) brief_due: Option<Instant>,
+    brief_due: Option<Instant>,
     /// The colors of the notices and the on-screen display, which
     /// vtium.conf sets for every head (ADR-1401 D5).
     overlay_colors: crate::term::OverlayColors,
@@ -183,9 +181,14 @@ pub struct Head {
     /// The mouse tracking the program asked for, last seen: a change
     /// clears the selection.
     tracking: MouseTracking,
-    /// The head's font keys, vtium.conf's with the head file's over them
-    /// (ADR-1401 D3): the name, `None` for vtium.conf's own choice.
+    /// The frit the head's look names with `font-name` (ADR-1403 D5),
+    /// `None` for the top level's own choice.
     pub(crate) font_name: Option<String>,
+    /// The keys the head's sections set over the top level, each once at
+    /// the most specific level that sets it (ADR-1403 D5), which
+    /// [`Config::for_head`] lays over the configuration wherever the
+    /// console reads a key a section may set.
+    pub(crate) settings: Vec<vtium_settings::Setting>,
     /// The base font's height; each display may draw larger
     /// ([`crate::layout::layout`]).
     pub(crate) font_size: u32,
@@ -195,8 +198,12 @@ pub struct Head {
     /// `font-size=0`: the base height follows the smallest display, until
     /// a zoom.
     pub(crate) auto_size: bool,
-    /// A `font-size` other than 0 is configured.
+    /// A `font-size` other than 0 is configured, and the head's look
+    /// states no cell.
     sized: bool,
+    /// The cell the head's look states, `cell`, which the frit the head
+    /// draws takes over its own `cell=` (ADR-1403 D5).
+    look_cell: Option<vtium_font::Cell>,
     /// The base font was found once: a later failure keeps it.
     pub(crate) has_font: bool,
     /// The base font's size step, which a zoom takes.
@@ -332,14 +339,21 @@ fn screen_text(console: &Console) -> Vec<String> {
         .collect()
 }
 
-/// The size a console of a head draws at, from the head file's own
-/// `font-size` for the head, `own`, else `config`'s: in points, unless
-/// `font-size=0` or unset picks it from the displays; and whether a
-/// `font-size` other than 0 is configured.
-pub(crate) fn configured_size(own: Option<u32>, config: &Config) -> (Option<u32>, bool, bool) {
-    let size = own
-        .map(u64::from)
-        .or_else(|| config.number(&keys::FONT_SIZE));
+/// The size a console of a head draws at, from the `font-size` of the
+/// head's configuration `config`, the one [`Config::for_head`] gives, so
+/// its look's size wins over the top level's (ADR-1403 D5): in points,
+/// unless `font-size=0` or unset picks it from the displays; and whether
+/// a `font-size` other than 0 is configured. A cell the head's look
+/// states wins over the top level's `font-size`, since the look is the
+/// more specific level (ADR-1200 D16): the head then draws at that cell's
+/// height, as at `font-size=0` with a frit that states a cell, and counts
+/// as sized by none. [`Config::for_head`] has already dropped a look's
+/// cell where the same look sets a `font-size`.
+pub(crate) fn configured_size(config: &Config) -> (Option<u32>, bool, bool) {
+    if look_cell(config).is_some() {
+        return (None, true, false);
+    }
+    let size = config.number(&keys::FONT_SIZE);
     let points = size
         .filter(|&n| n != 0)
         .map(|n| u32::try_from(n).unwrap_or(u32::MAX));
@@ -347,20 +361,37 @@ pub(crate) fn configured_size(own: Option<u32>, config: &Config) -> (Option<u32>
     (points, auto_size, !auto_size)
 }
 
+/// The cell the head's look states, from the head's configuration
+/// `config`, the one [`Config::for_head`] gives.
+pub(crate) fn look_cell(config: &Config) -> Option<vtium_font::Cell> {
+    config
+        .size(&keys::CELL)
+        .map(|(width, height)| vtium_font::Cell { width, height })
+}
+
 /// What [`Head`]'s `draw_hook` runs.
 pub type DrawHook = std::sync::Arc<dyn Fn() + Send + std::marker::Sync>;
 
 impl Head {
-    /// The head `name` for `config`, its one console's terminal `term`,
-    /// and the font keys `font` (ADR-1401 D3): its session starts at its
-    /// first display.
+    /// The head `name` for its configuration `config`, the one
+    /// [`Config::for_head`] gives for the keys `settings` its sections set,
+    /// its one console's terminal `term`: it draws at `config`'s
+    /// `font-size`, its look's where its look sets one (ADR-1401 D3,
+    /// ADR-1403 D5), and its session starts at its first display.
     pub(crate) fn new(
         name: &str,
         config: &Config,
-        font: &vtium_settings::Font,
+        settings: Vec<vtium_settings::Setting>,
         term: Term,
     ) -> Head {
-        let (points, auto_size, sized) = configured_size(font.size, config);
+        let own = |key: &keys::Key| {
+            settings
+                .iter()
+                .find(|s| s.key.name == key.name)
+                .map(|s| s.value.clone())
+        };
+        let font_name = own(&keys::FONT_NAME);
+        let (points, auto_size, sized) = configured_size(config);
         let fit = Fit {
             grid: GRID,
             font_size: 0,
@@ -375,7 +406,6 @@ impl Head {
             at: 0,
             next_id: 2,
             configured: (points, auto_size),
-            own_size: font.size,
             wanted: 1,
             login: None,
             ended_notice: crate::notice::session_ended(),
@@ -401,11 +431,13 @@ impl Head {
             pointer: Pointer::default(),
             focused: false,
             tracking: MouseTracking::Off,
-            font_name: font.name.clone(),
+            font_name,
+            settings,
             font_size: 0,
             points,
             auto_size,
             sized,
+            look_cell: look_cell(config),
             has_font: false,
             step: 16,
             cell: CELL,
@@ -432,7 +464,7 @@ impl Head {
     /// reaches. Its notice stays for as long as it is lit (D7), on a
     /// screen with no cursor.
     pub(crate) fn notice_screen(config: &Config, term: Term) -> Head {
-        let mut head = Head::new("", config, &vtium_settings::Font::default(), term);
+        let mut head = Head::new("", config, Vec::new(), term);
         head.notice_only = true;
         head.console.term.terminal.input(b"\x1b[?25l");
         head
@@ -587,6 +619,45 @@ impl Head {
     /// The on-screen display's line, while it shows.
     pub fn status(&self) -> Option<&str> {
         self.status.as_deref()
+    }
+
+    /// The on-screen display shows `line` as its brief line from the
+    /// head's next frame, which answers one press (ADR-1401 D5). Under
+    /// `osd = off`, which `osd` gives, vtium shows no brief line, so the
+    /// press leaves the screen as it was and draws no frame.
+    pub(crate) fn show_brief(&mut self, line: String, osd: crate::osd::Osd) {
+        if osd.mode == crate::osd::Mode::Off {
+            return;
+        }
+        self.brief = Some(line);
+        self.brief_due = None;
+        self.draw_now = true;
+    }
+
+    /// The brief line, while it shows.
+    pub(crate) fn brief(&self) -> Option<&str> {
+        self.brief.as_deref()
+    }
+
+    /// When the brief line goes.
+    pub(crate) fn brief_due(&self) -> Option<Instant> {
+        self.brief_due
+    }
+
+    /// The brief line's time starts at its first frame, to end at `due`:
+    /// once, while the head has a display to draw it on.
+    pub(crate) fn arm_brief(&mut self, due: Instant) {
+        if self.brief.is_some() && self.brief_due.is_none() && !self.views.is_empty() {
+            self.brief_due = Some(due);
+        }
+    }
+
+    /// The brief line goes once its time has passed at `now`.
+    pub(crate) fn brief_turn(&mut self, now: Instant) {
+        if self.brief_due.is_some_and(|d| d <= now) {
+            self.brief_due = None;
+            self.brief = None;
+        }
     }
 
     /// The on-screen display shows from the head's next frame, its time
@@ -804,10 +875,14 @@ impl Head {
         self.sized
     }
 
+    /// The cell the head's look states, which the frit it draws takes.
+    pub(crate) fn look_cell(&self) -> Option<vtium_font::Cell> {
+        self.look_cell
+    }
+
     /// The font set in use, the built-ins before one is chosen.
     pub(crate) fn chosen(&self) -> &Chosen {
-        const BUILTIN: &Chosen = &Chosen::Builtin(None);
-        self.font.as_ref().unwrap_or(BUILTIN)
+        self.font.as_ref().unwrap_or(&Chosen::BUILTINS)
     }
 
     /// The font set's face at `height`.
@@ -827,7 +902,7 @@ impl Head {
         let font = Font::new(face);
         let own = match self.chosen() {
             Chosen::Frit { frit, .. } => font::frit_policy(&frit.text, font.policy()),
-            Chosen::Builtin(_) => font.policy(),
+            Chosen::Builtin { .. } => font.policy(),
         };
         let policy = font::policy(config, own);
         font.with_policy(policy).with_missing(font::missing(config))
@@ -1369,8 +1444,9 @@ impl Head {
     }
 }
 
-/// What the start runs for its head file (ADR-1401 D7): the outcome its
-/// three levels resolve to, and the rules that outcome runs.
+/// What the start runs for vtium.conf's sections, the flow (ADR-1401 D7,
+/// ADR-1403 D3): the outcome their three levels resolve to, and the rules
+/// that outcome runs.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Start {
     pub outcome: vtium_settings::Outcome,
@@ -1384,11 +1460,18 @@ pub struct Start {
 }
 
 impl Start {
-    /// The start of a trusted head file at `path` whose bytes are `bytes`:
-    /// each error, warning and note logged with its line.
+    /// The start of a trusted vtium.conf at `path` whose bytes are
+    /// `bytes`: each error, warning and note of its sections logged with
+    /// its line. A file with no flow, one with no section and no policy
+    /// line, runs the compiled-in flow, as a missing file does.
     pub fn trusted(path: &std::path::Path, bytes: &[u8]) -> Start {
         use vtium_settings::at;
-        let reading = vtium_settings::reading(bytes);
+        let Some(reading) = vtium_settings::sections(bytes) else {
+            return Start::of(
+                &vtium_settings::Read::Missing,
+                vtium_settings::Config::builtin(),
+            );
+        };
         for e in &reading.errors.errors {
             log::error!("{}", at(path, e.line(), e));
         }
@@ -1471,37 +1554,30 @@ impl Start {
 }
 
 /// The notice of an outcome's console line `line` (ADR-1401 D7): the line
-/// as the catalog words it, then what to do next about vtium's head file.
+/// as the catalog words it, then what to do next about the installed
+/// vtium.conf.
 pub fn outcome_notice(line: vtium_settings::Line) -> String {
-    let next = line.next(std::path::Path::new(vtium_settings::HEAD_FILE));
+    let next = line.next(std::path::Path::new(vtium_settings::CONF_FILE));
     format!("{}\n{next}", line.text())
 }
 
-/// The head file the start runs (ADR-1401 D3, D7): the file at `path` read
-/// under `trust` and resolved at its three levels. A missing file runs the
-/// compiled-in configuration, silently; a file that fails the ownership
-/// check, or that cannot be read as a file, is never read and runs the
-/// shipped rules; a trusted file runs what its policy and its errors leave
-/// ([`vtium_settings::resolve`]). Each error is logged with its line, and
-/// the file is never written.
-pub fn rules(path: &std::path::Path, trust: &vtium_settings::Trust) -> Start {
-    use vtium_settings::{Problem, Read, at};
+/// The flow the start runs (ADR-1401 D3, D7; ADR-1403 D3): vtium.conf's
+/// sections as [`crate::config::load`] found the file at `path`, resolved
+/// at their three levels. A missing file, and one with no flow, runs the
+/// compiled-in flow, silently; a file that fails the ownership check, or
+/// that cannot be read as a file, is never read and runs the shipped
+/// rules, `load` having reported why; a trusted file runs what its policy
+/// and its errors leave ([`vtium_settings::resolve`]). Each error is
+/// logged with its line, and the file is never written.
+pub fn rules(path: &std::path::Path, file: &crate::config::File) -> Start {
+    use crate::config::File;
+    use vtium_settings::Read;
     let builtin = vtium_settings::Config::builtin;
-    match vtium_settings::inspect(path, trust) {
-        Ok(None) => Start::of(&Read::Missing, builtin()),
-        Ok(Some(inspected)) => match inspected.trusted {
-            Ok(()) => Start::trusted(path, &inspected.bytes),
-            Err(why) => {
-                log::error!("{}", at(path, None, Problem::Untrusted(why)));
-                Start::of(&Read::Untrusted, builtin())
-            }
-        },
-        Err(rejected) => {
-            for e in &rejected.errors {
-                log::error!("{}", at(path, e.line(), e));
-            }
-            Start::of(&Read::Inaccessible, builtin())
-        }
+    match file {
+        File::Missing => Start::of(&Read::Missing, builtin()),
+        File::Read(bytes) => Start::trusted(path, bytes),
+        File::Untrusted(_) => Start::of(&Read::Untrusted, builtin()),
+        File::Inaccessible => Start::of(&Read::Inaccessible, builtin()),
     }
 }
 
@@ -1519,7 +1595,7 @@ pub fn place_display(
     match (placed.place, placed.by) {
         (Place::Head(h), _) => Ok(h),
         (_, By::Rule(line)) => Err(format!(
-            "display {name} is left dark by the head file's rule on line {line}"
+            "display {name} is left dark by vtium.conf's rule on line {line}"
         )),
         _ => {
             let target = rules.heads.first().map_or("console", |h| h.name.as_str());
@@ -1528,7 +1604,7 @@ pub fn place_display(
                 |rule| format!("the rule `{rule}` gives it a head"),
             );
             Err(format!(
-                "display {name} matches no rule of the head file and is left dark; {rule}"
+                "display {name} matches no rule of vtium.conf and is left dark; {rule}"
             ))
         }
     }
@@ -1582,41 +1658,25 @@ mod tests {
     /// The panic screen of [`a_broken_closed_files_start_shows_the_panic_screens_report`]'s file.
     const PANIC: &str = concat!(
         "vtium: config invalid, policy closed: input off\n",
-        "The errors in /etc/vtium/heads.conf, listed below, leave no head that can run.\n",
-        "/etc/vtium/heads.conf:4: This section takes no key named \"focs\". Check the key's spelling, or remove the line.\n",
-        "/etc/vtium/heads.conf:5: This section takes no key named \"font-weight\". Check the key's spelling, or remove the line.\n",
-        "/etc/vtium/heads.conf:7: This rule sends devices to the head \"k\\u{202e}x\", which the file does not declare. Correct the name, or declare the head with its own `[head NAME]` section.\n",
+        "The errors in /etc/vtium/vtium.conf, listed below, leave no head that can run.\n",
+        "/etc/vtium/vtium.conf:4: This section takes no key named \"focs\". Check the key's spelling, or remove the line.\n",
+        "/etc/vtium/vtium.conf:5: This section takes no key named \"font-weight\". Check the key's spelling, or remove the line.\n",
+        "/etc/vtium/vtium.conf:7: This rule sends devices to the head \"k\\u{202e}x\", which the file does not declare. Correct the name, or declare the head with its own `[head NAME]` section.\n",
         "More errors: 2\n",
-        "Nothing on this console takes input. Run vtium check-config /etc/vtium/heads.conf over ssh, or from other boot media, for the full report.",
+        "Nothing on this console takes input. Run vtium check-config /etc/vtium/vtium.conf over ssh, or from other boot media, for the full report.",
     );
 
-    /// A head file in a fixture directory of its own, and the trust that
-    /// reads it as the start reads root's files.
-    #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
-    fn fixture(name: &str, text: Option<&str>) -> (PathBuf, vtium_settings::Trust) {
-        use std::os::unix::fs::PermissionsExt;
-        let dir =
-            std::env::temp_dir().join(format!("vtium-head-rules-{name}-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
-        let file = dir.join("heads.conf");
-        if let Some(text) = text {
-            std::fs::write(&file, text).unwrap();
-            std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
-        }
-        let trust = vtium_settings::Trust::owner(rustix::process::geteuid().as_raw()).below(&dir);
-        (file, trust)
-    }
-
-    // ADR-1401 D7: the start runs a valid file, the compiled-in
-    // configuration without one, and what survives of a partly broken
-    // one, with its console line, and leaves the file's bytes as they were.
+    // ADR-1401 D7, ADR-1403 D3: the start runs vtium.conf's sections, the
+    // compiled-in flow for a file with none and for no file, what survives
+    // of a partly broken one with its console line, and the shipped rules,
+    // with the skipped line, for a file the ownership check fails
     #[test]
-    fn the_start_runs_the_head_file_else_the_shipped_rules_and_writes_none() {
-        let valid = "version = 1\n[head desk]\n[rules]\ndisplay * -> desk\n";
-        let partly = "version = 1\n[head desk]\n[rules]\ndisplay * -> desc\ndisplay * -> desk\n";
-        let (file, trust) = fixture("valid", Some(valid));
-        let ran = rules(&file, &trust);
+    fn the_start_runs_vtium_conf_s_sections_else_the_shipped_rules() {
+        use crate::config::File;
+        let path = std::path::Path::new("/etc/vtium/vtium.conf");
+        let read = |text: &str| rules(path, &File::Read(text.as_bytes().to_vec()));
+        let valid = "font-size=12\nversion = 1\n[head desk]\n[rules]\ndisplay * -> desk\n";
+        let ran = read(valid);
         assert_eq!(ran.line(), None);
         assert_eq!(
             ran.rules
@@ -1626,30 +1686,63 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["desk"]
         );
-        let (absent, trust) = fixture("absent", None);
-        let ran = rules(&absent, &trust);
-        assert_eq!(
-            (ran.rules, ran.outcome.line),
-            (vtium_settings::Config::builtin(), None)
-        );
-        assert!(!absent.exists(), "nothing written");
-        let (bad, trust) = fixture("partly", Some(partly));
-        let ran = rules(&bad, &trust);
+        let builtin = (vtium_settings::Config::builtin(), None);
+        for no_flow in ["font-size=12\nmouse\n", ""] {
+            let ran = read(no_flow);
+            assert_eq!((ran.rules, ran.outcome.line), builtin, "{no_flow:?}");
+        }
+        let ran = rules(path, &File::Missing);
+        assert_eq!((ran.rules, ran.outcome.line), builtin);
+        let partly = "font-size=12\nversion = 1\n[head desk]\n[rules]\ndisplay * -> desc\ndisplay * -> desk\n";
+        let ran = read(partly);
         assert_eq!(ran.outcome.runs, vtium_settings::Runs::Survivors);
         assert_eq!(
             ran.line(),
             Some("config partly invalid, running what's valid")
         );
+        // the rule keeps its line in the whole file
         assert_eq!(
             ran.rules.rules.iter().map(|r| r.line).collect::<Vec<_>>(),
-            [5]
+            [6]
         );
-        assert_eq!(std::fs::read_to_string(&bad).ok().as_deref(), Some(partly));
-        for f in [file, absent, bad] {
-            if let Some(dir) = f.parent() {
-                std::fs::remove_dir_all(dir).ok();
-            }
-        }
+        let why = vtium_settings::Untrusted::Owner {
+            path: vtium_settings::Quoted::path(path),
+            uid: 1000,
+        };
+        let ran = rules(path, &File::Untrusted(why));
+        assert_eq!(ran.rules, vtium_settings::Config::builtin());
+        assert_eq!(
+            ran.notice().as_deref(),
+            Some(
+                "invalid config skipped, using builtin\nRun vtium check-config /etc/vtium/vtium.conf to see why."
+            )
+        );
+        let ran = rules(path, &File::Inaccessible);
+        assert_eq!(ran.line(), Some("invalid config skipped, using builtin"));
+    }
+
+    // ADR-1403 D3: the start never judges the complete route, since
+    // missing hardware never makes a file invalid at start: a closed file
+    // whose rules send no keyboard to its head runs as written, silently
+    // covers: platform.heads.policy
+    #[test]
+    fn a_file_with_no_complete_route_runs_at_start() {
+        let text = "version = 1\npolicy = closed\n[head desk]\n[rules]\ndisplay * -> desk\n";
+        let start = Start::trusted(
+            std::path::Path::new("/etc/vtium/vtium.conf"),
+            text.as_bytes(),
+        );
+        assert_eq!(start.outcome.runs, vtium_settings::Runs::File);
+        assert_eq!(start.notice(), None);
+        assert_eq!(
+            start
+                .rules
+                .heads
+                .iter()
+                .map(|h| h.name.as_str())
+                .collect::<Vec<_>>(),
+            ["desk"]
+        );
     }
 
     // ADR-1401 D7: a broken closed file's start shows the panic screen:
@@ -1660,7 +1753,7 @@ mod tests {
     fn a_broken_closed_files_start_shows_the_panic_screens_report() {
         let text = "version = 1\npolicy = closed\n[head kiosk]\nfocs = 1\nfont-weight = bold\n[rules]\ndisplay * -> k\u{202e}x\ninput * -> desc\ninput * -> nowhere\n";
         let start = Start::trusted(
-            std::path::Path::new("/etc/vtium/heads.conf"),
+            std::path::Path::new("/etc/vtium/vtium.conf"),
             text.as_bytes(),
         );
         assert_eq!(start.outcome.line, Some(vtium_settings::Line::ClosedOff));
@@ -1675,7 +1768,7 @@ mod tests {
         // any other start shows its console line and next step alone
         let partly = "version = 1\npolicy = closed\n[head desk]\n[head kiosk]\nfocs = 1\n[rules]\ndisplay * -> desk\n";
         let start = Start::trusted(
-            std::path::Path::new("/etc/vtium/heads.conf"),
+            std::path::Path::new("/etc/vtium/vtium.conf"),
             partly.as_bytes(),
         );
         assert_eq!(
@@ -1691,14 +1784,14 @@ mod tests {
     // covers: platform.heads.policy
     #[test]
     fn the_panic_screen_lists_an_unreadable_policy_lines_error_first() {
-        // past the file bound, with no `version` and a stray top-level line
-        // before the policy line: three errors would sort ahead of it
-        let mut text = String::from("junk\npolicy = opne\n");
+        // past the file bound, with a section and no `version`: the two
+        // errors that name no line would sort ahead of it
+        let mut text = String::from("junk\npolicy = opne\n[head a]\n");
         while text.len() <= vtium_settings::FILE_MAX {
             text.push_str("# padding past the bound\n");
         }
         let start = Start::trusted(
-            std::path::Path::new("/etc/vtium/heads.conf"),
+            std::path::Path::new("/etc/vtium/vtium.conf"),
             text.as_bytes(),
         );
         assert_eq!(start.outcome.line, Some(vtium_settings::Line::ClosedOff));
@@ -1706,25 +1799,24 @@ mod tests {
         assert_eq!(items.len(), PANIC_ERRORS_MAX, "{items:?}");
         assert!(
             items.first().is_some_and(
-                |i| i.starts_with("/etc/vtium/heads.conf:2: `policy` cannot be \"opne\"")
+                |i| i.starts_with("/etc/vtium/vtium.conf:2: `policy` cannot be \"opne\"")
             ),
             "{items:?}"
         );
-        // the others follow in their order: the two errors with no line,
-        // and the stray line's past the three shown
+        // the others follow in their order: the two errors with no line
         assert!(
             items
                 .get(1)
-                .is_some_and(|i| i.starts_with("/etc/vtium/heads.conf: This file is longer")),
+                .is_some_and(|i| i.starts_with("/etc/vtium/vtium.conf: This file is longer")),
             "{items:?}"
         );
         assert!(
             items
                 .get(2)
-                .is_some_and(|i| i.starts_with("/etc/vtium/heads.conf: The file needs")),
+                .is_some_and(|i| i.starts_with("/etc/vtium/vtium.conf: The file needs")),
             "{items:?}"
         );
-        assert_eq!(start.report().map(|r| r.more), Some(1));
+        assert_eq!(start.report().map(|r| r.more), Some(0));
     }
 
     // ADR-1401 D7, D9: the screen the display guard lights for a notice
@@ -1734,12 +1826,12 @@ mod tests {
     #[test]
     #[expect(clippy::disallowed_methods, reason = "a test's clock is the host's")]
     fn the_notice_screen_draws_its_notice_as_a_report() {
-        let config = crate::config::load(&[], None, &mut |_: &std::path::Path| Ok(None)).config;
+        let config = crate::config::load(&[], &mut |_: &std::path::Path| Ok(None)).config;
         let clock: Clock = std::rc::Rc::new(Instant::now);
         let term = || terminal(&config, (0, 0), 0, std::rc::Rc::clone(&clock));
         let report = crate::notice::panic(
-            std::path::Path::new("heads.conf"),
-            vec!["heads.conf:4: an error".to_owned()],
+            std::path::Path::new("vtium.conf"),
+            vec!["vtium.conf:4: an error".to_owned()],
             0,
         );
         let mut screen = Head::notice_screen(&config, term());
@@ -1758,7 +1850,7 @@ mod tests {
             screen.overlay().notice,
             Some(vtium_render::Notice::new("vtium: no display for any head"))
         );
-        let mut head = Head::new("h", &config, &vtium_settings::Font::default(), term());
+        let mut head = Head::new("h", &config, Vec::new(), term());
         head.add_notice(&report.text());
         assert_eq!(
             head.overlay().notice,
@@ -1772,10 +1864,10 @@ mod tests {
     #[test]
     #[expect(clippy::disallowed_methods, reason = "a test's clock is the host's")]
     fn a_console_shown_on_an_unlit_head_brings_its_own_cell() {
-        let config = crate::config::load(&[], None, &mut |_: &std::path::Path| Ok(None)).config;
+        let config = crate::config::load(&[], &mut |_: &std::path::Path| Ok(None)).config;
         let clock: Clock = std::rc::Rc::new(Instant::now);
         let term = || terminal(&config, (0, 0), 0, std::rc::Rc::clone(&clock));
-        let mut head = Head::new("h", &config, &vtium_settings::Font::default(), term());
+        let mut head = Head::new("h", &config, Vec::new(), term());
         let zoomed = Fit {
             grid: (40, 10),
             font_size: 32,
@@ -1806,12 +1898,12 @@ mod tests {
     fn a_return_that_cannot_draw_puts_back_all_it_changed() {
         let load = |args: &[&str]| {
             let args: Vec<std::ffi::OsString> = args.iter().map(Into::into).collect();
-            crate::config::load(&args, None, &mut |_: &std::path::Path| Ok(None)).config
+            crate::config::load(&args, &mut |_: &std::path::Path| Ok(None)).config
         };
         let config = load(&["--font-size=0"]);
         let clock: Clock = std::rc::Rc::new(Instant::now);
         let term = || terminal(&config, (0, 0), 0, std::rc::Rc::clone(&clock));
-        let mut head = Head::new("h", &config, &vtium_settings::Font::default(), term());
+        let mut head = Head::new("h", &config, Vec::new(), term());
         let zoomed = Fit {
             grid: (20, 5),
             font_size: 32,
@@ -1820,7 +1912,10 @@ mod tests {
             auto_size: false,
         };
         head.hidden.push(Console::new(2, term(), zoomed));
-        head.font = Some(Chosen::Builtin(Some("unscii-8")));
+        head.font = Some(Chosen::Builtin {
+            name: Some("unscii-8"),
+            cell: None,
+        });
         head.switched = Some(2);
         (head.points, head.auto_size, head.font_size) = (None, false, 24);
         let before = |h: &Head| {
@@ -1837,7 +1932,10 @@ mod tests {
         let mut kept = head.keep(2);
         head.reconfigure(&load(&["--font-size=12"]));
         head.switched = None;
-        kept.font = Some(head.font.replace(Chosen::Builtin(Some("unifont"))));
+        kept.font = Some(head.font.replace(Chosen::Builtin {
+            name: Some("unifont"),
+            cell: None,
+        }));
         let fresh = head.fresh_fit();
         head.configured_size(
             2,
@@ -1866,10 +1964,10 @@ mod tests {
         reason = "a test's clock is the host's, and a test fails by panicking"
     )]
     fn the_console_the_close_chord_closes_is_told_nothing() {
-        let config = crate::config::load(&[], None, &mut |_: &std::path::Path| Ok(None)).config;
+        let config = crate::config::load(&[], &mut |_: &std::path::Path| Ok(None)).config;
         let clock: Clock = std::rc::Rc::new(Instant::now);
         let term = || terminal(&config, (0, 0), 0, std::rc::Rc::clone(&clock));
-        let mut head = Head::new("h", &config, &vtium_settings::Font::default(), term());
+        let mut head = Head::new("h", &config, Vec::new(), term());
         head.hidden.push(Console::new(2, term(), head.fresh_fit()));
         head.focused = true;
         for console in head.consoles_mut() {
@@ -1896,9 +1994,9 @@ mod tests {
     #[test]
     #[expect(clippy::disallowed_methods, reason = "a test's clock is the host's")]
     fn a_head_keeps_each_notice_once_and_the_newest_few() {
-        let config = crate::config::load(&[], None, &mut |_: &std::path::Path| Ok(None)).config;
+        let config = crate::config::load(&[], &mut |_: &std::path::Path| Ok(None)).config;
         let term = terminal(&config, (0, 0), 0, std::rc::Rc::new(Instant::now));
-        let mut head = Head::new("h", &config, &vtium_settings::Font::default(), term);
+        let mut head = Head::new("h", &config, Vec::new(), term);
         for n in 0..6 {
             head.add_notice(&format!("n{n}"));
             head.add_notice(&format!("n{n}"));
@@ -1928,11 +2026,11 @@ mod tests {
     #[expect(clippy::disallowed_methods, reason = "a test's clock is the host's")]
     fn overlay_colors(args: &[&str]) -> [[u8; 3]; 8] {
         let args: Vec<std::ffi::OsString> = args.iter().map(Into::into).collect();
-        let loaded = crate::config::load(&args, None, &mut |_: &std::path::Path| Ok(None));
+        let loaded = crate::config::load(&args, &mut |_: &std::path::Path| Ok(None));
         assert_eq!(loaded.reports, [], "{args:?}");
         let config = loaded.config;
         let term = terminal(&config, (0, 0), 0, std::rc::Rc::new(Instant::now));
-        let mut head = Head::new("h", &config, &vtium_settings::Font::default(), term);
+        let mut head = Head::new("h", &config, Vec::new(), term);
         let draw = |head: &Head| {
             let face: DisplayFace = Box::new(vtium_font::Unifont::new(16));
             let renderer =
@@ -2042,11 +2140,11 @@ mod tests {
         assert_eq!(place_display(&rules, &display("DP-2")), Ok(0));
         assert_eq!(
             place_display(&rules, &display("DP-1")),
-            Err("display DP-1 is left dark by the head file's rule on line 4".to_owned())
+            Err("display DP-1 is left dark by vtium.conf's rule on line 4".to_owned())
         );
         assert_eq!(
             place_display(&rules, &display("HDMI-A-1")),
-            Err("display HDMI-A-1 matches no rule of the head file and is left dark; the rule `display connector:pci-0000:03:00.0/HDMI-A-1 -> desk` gives it a head".to_owned())
+            Err("display HDMI-A-1 matches no rule of vtium.conf and is left dark; the rule `display connector:pci-0000:03:00.0/HDMI-A-1 -> desk` gives it a head".to_owned())
         );
         let bare = vtium_settings::Identity {
             connector: Some("fb\u{1b}".to_owned()),
@@ -2054,7 +2152,7 @@ mod tests {
         };
         assert_eq!(
             place_display(&rules, &bare),
-            Err("display fb\\u{1b} matches no rule of the head file and is left dark; it offers no value a rule can name".to_owned())
+            Err("display fb\\u{1b} matches no rule of vtium.conf and is left dark; it offers no value a rule can name".to_owned())
         );
     }
 
@@ -2068,7 +2166,7 @@ mod tests {
     fn a_consoles_scrollback_budget_follows_its_grid_unless_set() {
         let budget = |args: &[&str], share: usize, grid: (usize, usize)| {
             let args: Vec<std::ffi::OsString> = args.iter().map(Into::into).collect();
-            let loaded = crate::config::load(&args, None, &mut |_: &std::path::Path| Ok(None));
+            let loaded = crate::config::load(&args, &mut |_: &std::path::Path| Ok(None));
             assert_eq!(loaded.reports, [], "{args:?}");
             let mut term = terminal(
                 &loaded.config,

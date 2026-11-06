@@ -22,7 +22,10 @@
 //!
 //! The helper runs with an empty environment in `/`, in its own process
 //! group, holding only its pipes, as `nobody` when the console is root
-//! (ADR-1400 D2's last account before login), and sandboxes itself. A
+//! (ADR-1400 D2's last account before login), and sandboxes itself. The
+//! console reads that drop back from the helper's `/proc/<pid>/status`
+//! before it sends a request, and refuses a helper that holds another
+//! uid or gid or any supplementary group (`Launcher::dropped`). A
 //! thread writes the requests and another reads the answers, so neither
 //! a slow nor a hung helper stalls the loop; the reader wakes the loop
 //! after each answer. A third reaps the helper as it exits, ending first
@@ -214,9 +217,12 @@ impl Launcher {
         })
     }
 
-    /// The helper `config` names, `font-helper`, opened.
+    /// The helper `config` names, `font-helper`, opened, with the font
+    /// folders `font-paths` lists in place of the build's (ADR-1200 D25).
     pub fn configured(config: &Config) -> Result<Launcher, String> {
-        Launcher::open(Command::system(&program(config))?)
+        let mut command = Command::system(&program(config))?;
+        command.args.extend(font_dirs(config));
+        Launcher::open(command)
     }
 
     /// The process that starts a helper: the opened program, through
@@ -238,6 +244,26 @@ impl Launcher {
         process
     }
 
+    /// Checks that the helper started as `pid` holds the account the
+    /// console dropped it to, read back from its `/proc/<pid>/status` once
+    /// it runs, as the C reference's image helper read its ids back before
+    /// its exec (`image_host.c`, `exec_helper`). std drops the supplementary
+    /// groups before it sets the uid, but goes on when the kernel refuses
+    /// it that, so a console without the capability to change its groups
+    /// would start a helper holding root's groups. A helper whose four
+    /// uids are not the account's uid, whose four gids are not its gid, or
+    /// that holds any supplementary group is refused. A console that keeps
+    /// its own account checks nothing, since the helper holds what the
+    /// console holds.
+    fn dropped(&self, pid: u32) -> Result<(), String> {
+        let Some(account) = self.command.account else {
+            return Ok(());
+        };
+        let status = std::fs::read_to_string(format!("/proc/{pid}/status"))
+            .map_err(|e| format!("cannot read the helper's ids from /proc/{pid}/status: {e}"))?;
+        holds_account(&status, account)
+    }
+
     /// Why a start failed with `e`. vtium starts the helper from the file it
     /// opened, through `/proc/self/fd`, so the message names that path: with
     /// `/proc` unmounted the start fails there, not at the program's path.
@@ -248,6 +274,58 @@ impl Launcher {
             self.program.as_raw_fd()
         )
     }
+}
+
+/// The ids a `/proc/<pid>/status` line names after its `key`, such as
+/// `Uid:`'s real, effective, saved and filesystem uids, or `Groups:`'s
+/// supplementary groups; `None` when the line is missing or a field is not
+/// a number.
+fn status_ids(status: &str, key: &str) -> Option<Vec<u32>> {
+    let line = status.lines().find_map(|l| l.strip_prefix(key))?;
+    line.split_whitespace().map(|id| id.parse().ok()).collect()
+}
+
+/// Whether `status`, a helper's `/proc/<pid>/status`, shows it holding
+/// `(uid, gid)` alone: each of its four uids `uid`, each of its four gids
+/// `gid`, and no supplementary group. Says why not.
+fn holds_account(status: &str, (uid, gid): (u32, u32)) -> Result<(), String> {
+    let ids = |key: &str| {
+        status_ids(status, key).ok_or_else(|| {
+            format!("the helper's ids do not read: its status has no {key} line vtium reads")
+        })
+    };
+    let (uids, gids, groups) = (ids("Uid:")?, ids("Gid:")?, ids("Groups:")?);
+    if uids.len() != 4 || uids.iter().any(|&u| u != uid) {
+        return Err(format!(
+            "the helper runs as uids {uids:?}, not as {uid} alone, the account vtium started it as"
+        ));
+    }
+    if gids.len() != 4 || gids.iter().any(|&g| g != gid) {
+        return Err(format!(
+            "the helper runs with gids {gids:?}, not with {gid} alone, the account vtium started it as"
+        ));
+    }
+    if !groups.is_empty() {
+        return Err(format!(
+            "the helper holds the supplementary groups {groups:?}, which vtium could not drop as it started it as uid {uid}"
+        ));
+    }
+    Ok(())
+}
+
+/// The options that hand the helper the folders `font-paths` lists, a
+/// `--font-dir` before each, in their order; none when it is unset, so
+/// the helper searches the build's list (ADR-1200 D25).
+pub fn font_dirs(config: &Config) -> Vec<OsString> {
+    config
+        .text(&crate::config::keys::FONT_PATHS)
+        .map(|paths| {
+            paths
+                .split(':')
+                .flat_map(|dir| [OsString::from("--font-dir"), OsString::from(dir)])
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// The helper's program `config` names, `font-helper`.
@@ -1186,6 +1264,12 @@ impl Helper {
             .stderr(Stdio::null())
             .spawn()
             .map_err(|e| self.launcher.failed(&e))?;
+        // the child is not reaped before the check, so its pid is its own
+        if let Err(why) = self.launcher.dropped(child.id()) {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(why);
+        }
         // a pidfd names this child alone, even once the reaper has reaped it
         let pidfd = i32::try_from(child.id())
             .ok()
@@ -2479,6 +2563,81 @@ mod tests {
     }
 
     #[test]
+    fn a_helper_is_held_to_the_account_it_was_started_as() {
+        let status = |uid: &str, gid: &str, groups: &str| {
+            format!("Name:\tvtium-config\nUid:\t{uid}\nGid:\t{gid}\nGroups:\t{groups}\n")
+        };
+        let nobody = "65534\t65534\t65534\t65534";
+        let account = (65534, 65534);
+        assert_eq!(holds_account(&status(nobody, nobody, ""), account), Ok(()));
+        // a supplementary group the drop left, as when the console may not
+        // change its groups
+        for groups in ["0", "998", "1000 998 "] {
+            let why = holds_account(&status(nobody, nobody, groups), account).unwrap_err();
+            assert!(why.contains("supplementary groups"), "{why}");
+        }
+        // any of the four uids or gids another account's, root's saved id
+        // included
+        for (uid, gid) in [
+            ("0\t0\t0\t0", nobody),
+            ("65534\t65534\t0\t65534", nobody),
+            (nobody, "65534\t0\t65534\t65534"),
+            (nobody, "65534\t65534\t65534\t0"),
+            ("65534\t65534", nobody),
+        ] {
+            let why = holds_account(&status(uid, gid, ""), account).unwrap_err();
+            assert!(
+                why.contains("not as 65534") || why.contains("not with 65534"),
+                "{why}"
+            );
+        }
+        for broken in [String::new(), format!("Uid:\t{nobody}\nGid:\t{nobody}\n")] {
+            let why = holds_account(&broken, account).unwrap_err();
+            assert!(why.contains("do not read"), "{why}");
+        }
+    }
+
+    #[test]
+    fn a_helper_that_keeps_supplementary_groups_is_refused_at_its_start() {
+        // a console that is not root asks std for its own account: std's
+        // drop of the supplementary groups fails as it would for a root
+        // without the capability, std goes on, and the helper starts holding
+        // the console's groups, which the console must refuse
+        let own = std::fs::read_to_string("/proc/self/status").unwrap();
+        let groups = status_ids(&own, "Groups:").unwrap();
+        let me = rustix::process::geteuid().as_raw();
+        if me == 0 || groups.is_empty() {
+            // as root the drop works, and with no group there is none to keep
+            return;
+        }
+        let gid = rustix::process::getegid().as_raw();
+        let command = Command {
+            program: PathBuf::from("/bin/sh"),
+            args: vec!["-c".into(), "cat >/dev/null".into()],
+            account: Some((me, gid)),
+        };
+        let (tx, woke) = mpsc::channel::<()>();
+        let tx = std::sync::Mutex::new(tx);
+        let mut helper = Helper::new(
+            Launcher::open(command).unwrap(),
+            Arc::new(move || {
+                let _ = tx.lock().map(|t| t.send(()));
+            }),
+            t0(),
+            frit("source=builtin:unscii-8\n"),
+            None,
+            Shared::default(),
+            64 << 20,
+        );
+        helper.ask(CELL, &shown(&['A']), t0());
+        let why = helper.failed().unwrap();
+        assert!(why.contains("supplementary groups"), "{why}");
+        assert!(helper.running.is_none());
+        assert!(!helper.busy());
+        drop(woke);
+    }
+
+    #[test]
     fn a_helper_that_crashes_is_started_again_a_bounded_number_of_times() {
         let (why, restarts) = given_up("dies", "kill -SEGV $$", b"", false);
         assert!(why.contains("signal 11"), "{why}");
@@ -3496,7 +3655,7 @@ mod tests {
     fn font_helper_names_the_program_vtium_opens() {
         let config = |args: &[&str]| {
             let args: Vec<std::ffi::OsString> = args.iter().map(Into::into).collect();
-            crate::config::load(&args, None, &mut |_: &Path| Ok(None)).config
+            crate::config::load(&args, &mut |_: &Path| Ok(None)).config
         };
         assert_eq!(program(&config(&[])), Path::new(PROGRAM));
         let sh = config(&["--font-helper=/bin/sh"]);

@@ -2,11 +2,14 @@
 //! sandbox, answering a request on stdin with frames on stdout; and a
 //! source that fails as it draws, left out while the others answer.
 
+#[path = "common/home.rs"]
+mod home;
+
 #[path = "common/ttf.rs"]
 mod ttf;
 
 use std::io::{Read, Write};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -83,7 +86,7 @@ fn the_helper_answers_under_its_sandbox_and_exits_when_the_console_closes() {
         held: Vec::new(),
         console: None,
     };
-    let mut child = Command::new(env!("CARGO_BIN_EXE_vtium-config"))
+    let mut child = home::command(env!("CARGO_BIN_EXE_vtium-config"))
         .arg("serve")
         .env_clear()
         .current_dir("/")
@@ -213,7 +216,7 @@ fn a_cell_stopped_and_filled_again_is_filled_again() {
         held: Vec::new(),
         console: None,
     };
-    let mut child = Command::new(env!("CARGO_BIN_EXE_vtium-config"))
+    let mut child = home::command(env!("CARGO_BIN_EXE_vtium-config"))
         .arg("serve")
         .env_clear()
         .current_dir("/")
@@ -288,7 +291,7 @@ fn each_fill_sends_the_cells_coverage_in_full_once() {
         held: Vec::new(),
         console: None,
     };
-    let mut child = Command::new(env!("CARGO_BIN_EXE_vtium-config"))
+    let mut child = home::command(env!("CARGO_BIN_EXE_vtium-config"))
         .arg("serve")
         .env_clear()
         .current_dir("/")
@@ -460,7 +463,7 @@ fn the_helper_sheds_a_descriptor_it_inherits() {
     let file = std::fs::File::create(scratch.join("held")).unwrap();
     // a copy that is not close-on-exec, which the child inherits
     let leaked = rustix::io::dup(&file).unwrap();
-    let mut child = Command::new(env!("CARGO_BIN_EXE_vtium-config"))
+    let mut child = home::command(env!("CARGO_BIN_EXE_vtium-config"))
         .arg("serve")
         .env_clear()
         .stdin(Stdio::piped())
@@ -513,4 +516,74 @@ fn the_helper_sheds_a_descriptor_it_inherits() {
     );
     drop(stdin);
     assert!(child.wait().unwrap().success());
+}
+
+// every thread of the running helper is under its socket filter (ADR-1200
+// D15): the filter and the landlock domain come before the reader's thread
+// starts, which inherits them, so each thread's status reads Seccomp: 2,
+// the filter mode; once the helper has answered a request, its reader's
+// thread runs, so the helper holds at least two threads to check
+#[cfg(any(
+    target_arch = "x86_64",
+    target_arch = "aarch64",
+    target_arch = "riscv64"
+))]
+#[test]
+#[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
+fn every_thread_of_the_helper_runs_under_its_socket_filter() {
+    use vtium_config::serve::{FRAME_SOURCES, SOURCES};
+    let mut child = home::command(env!("CARGO_BIN_EXE_vtium-config"))
+        .arg("serve")
+        .env_clear()
+        .current_dir("/")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let query = ServeRequest {
+        style: Default::default(),
+        kind: SOURCES,
+        frit: FritText {
+            name: "t".to_owned(),
+            text: "source=builtin:unscii-8\n".to_owned(),
+        },
+        cell: Cell {
+            width: 0,
+            height: 0,
+        },
+        codepoints: Vec::new(),
+        clusters: Vec::new(),
+        held: Vec::new(),
+        console: None,
+    };
+    let mut stdin = child.stdin.take().unwrap();
+    stdin.write_all(&query.encode()).unwrap();
+    stdin.flush().unwrap();
+    let mut stdout = child.stdout.take().unwrap();
+    let answer = frames_until(&mut stdout, &[FRAME_SOURCES]);
+    assert_eq!(answer.last().map(|f| f.0), Some(FRAME_SOURCES));
+    let threads: Vec<(String, Option<String>)> =
+        std::fs::read_dir(format!("/proc/{}/task", child.id()))
+            .unwrap()
+            .flatten()
+            .map(|t| {
+                let status = std::fs::read_to_string(t.path().join("status")).unwrap();
+                let mode = status
+                    .lines()
+                    .find_map(|l| l.strip_prefix("Seccomp:"))
+                    .map(|m| m.trim().to_owned());
+                (t.file_name().to_string_lossy().into_owned(), mode)
+            })
+            .collect();
+    drop(stdin);
+    assert!(child.wait().unwrap().success());
+    assert!(
+        threads.len() >= 2,
+        "the main thread and the reader's: {threads:?}"
+    );
+    assert!(
+        threads.iter().all(|(_, mode)| mode.as_deref() == Some("2")),
+        "every thread under the filter: {threads:?}"
+    );
 }

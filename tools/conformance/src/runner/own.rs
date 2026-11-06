@@ -1,10 +1,10 @@
 //! vtium's own cases: streams for behaviour the C reference's corpus does
 //! not hold, under `vtium/`, beside the copied corpus and laid out as it
 //! is, with `cases.list`, `cases/` and the goldens in `golden/` and
-//! `golden-frame/`. The goldens are vtium's own. `provisional.tsv` lists
-//! the cases whose goldens the maintainer has not reviewed yet: such a
+//! `golden-frame/`. `provisional.tsv` lists the cases, of this set or of
+//! the corpus, whose goldens the maintainer has not reviewed yet: such a
 //! golden judges nothing, so a difference from it is reported and fails
-//! nothing. Every other case's golden judges as a copied golden does.
+//! nothing. Every other case's golden judges.
 
 use std::collections::BTreeMap;
 

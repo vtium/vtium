@@ -122,7 +122,11 @@ use std::sync::Arc;
 use std::sync::mpsc::{self, RecvTimeoutError, TryRecvError};
 use std::time::Duration;
 
-use rustix::process::{Resource, Rlimit, Uid, geteuid, setrlimit};
+use landlock::{
+    ABI, Access, AccessFs, AccessNet, CompatLevel, Compatible, Ruleset, RulesetAttr, RulesetStatus,
+    Scope,
+};
+use rustix::process::{Resource, Rlimit, setrlimit};
 use vtium_font::set::{PixelFormat, SetBuilder, StrikeBuilder};
 use vtium_font::{CELL_SIDE_MAX, CLUSTER_SCALARS_MAX, Cell, Decorations, Style, Width};
 use vtium_platform::vt::font::{ConsoleFont, FONT_GLYPHS_MAX, FONT_PITCH_TALL, UniPair};
@@ -1173,6 +1177,23 @@ impl Engine {
         why
     }
 
+    /// The most bytes one glyph at `cell` can take: two cells of
+    /// premultiplied RGBA when a source is an outline font, which may draw
+    /// in color, else two cells of 1-bit rows.
+    fn glyph_bytes_max(&self, cell: Cell) -> usize {
+        let outline = self
+            .sources
+            .iter()
+            .any(|(_, l)| matches!(l, Loaded::Outline { .. }));
+        let (w, h) = (cell.width.saturating_mul(2), cell.height);
+        let bytes = if outline {
+            w.saturating_mul(h).saturating_mul(4)
+        } else {
+            w.div_ceil(8).saturating_mul(h)
+        };
+        usize::try_from(bytes).unwrap_or(usize::MAX)
+    }
+
     /// The regular glyphs at `cell` for `want`, sorted codepoints, as
     /// [`Engine::glyphs`] draws them.
     pub fn draw(&self, cell: Cell, want: &[u32]) -> Result<Option<Vec<u8>>, String> {
@@ -1416,7 +1437,17 @@ fn send_glyphs(
     out: &mut dyn Write,
     max: usize,
 ) -> io::Result<Result<bool, String>> {
-    let mut queue: VecDeque<(&[u32], &[Vec<u32>])> = VecDeque::from([(want, clusters)]);
+    // no more glyphs drawn at once than a frame holds at their largest, so
+    // a cell whose glyphs each pass a set's chunk (ADR-1302 D6) never draws
+    // a batch whose bytes would outgrow the helper's memory limit
+    let at_once = (max / engine.glyph_bytes_max(cell).max(1)).max(1);
+    let mut queue: VecDeque<(&[u32], &[Vec<u32>])> = VecDeque::new();
+    if want.len().saturating_add(clusters.len()) <= at_once {
+        queue.push_back((want, clusters));
+    } else {
+        queue.extend(want.chunks(at_once).map(|w| (w, &[][..])));
+        queue.extend(clusters.chunks(at_once).map(|k| (&[][..], k)));
+    }
     let mut any = false;
     while let Some((want, clusters)) = queue.pop_front() {
         if want.is_empty() && clusters.is_empty() {
@@ -1827,21 +1858,143 @@ fn limits() -> Result<(), String> {
         };
         setrlimit(resource, limit).map_err(|e| format!("the helper cannot set its limits: {e}"))?;
     }
-    refuse_root(geteuid())
+    let status = std::fs::read_to_string("/proc/self/status")
+        .map_err(|e| format!("the helper cannot read its ids from /proc/self/status: {e}"))?;
+    refuse_root(&status)
 }
 
-/// The helper never runs as root (ADR-1200 D15): `euid` root is refused.
-fn refuse_root(euid: Uid) -> Result<(), String> {
-    if euid.is_root() {
+/// The ids a `/proc/<pid>/status` line names after its `key`, such as
+/// `Uid:`'s real, effective, saved and filesystem uids, or `Groups:`'s
+/// supplementary groups; `None` when the line is missing or a field is not
+/// a number.
+fn status_ids(status: &str, key: &str) -> Option<Vec<u32>> {
+    let line = status.lines().find_map(|l| l.strip_prefix(key))?;
+    line.split_whitespace().map(|id| id.parse().ok()).collect()
+}
+
+/// The helper never runs as root, nor with root's group (ADR-1200 D15).
+/// `status` is its `/proc/self/status`, and the helper refuses to run when
+/// any of its real, effective, saved and filesystem uids is 0, when any of
+/// those gids is 0, or when its supplementary groups include 0. A saved id
+/// of 0 would let it take root's id back, and group 0 reads what root's
+/// group may read. A status it cannot read is refused too.
+fn refuse_root(status: &str) -> Result<(), String> {
+    let ids = |key: &str| {
+        status_ids(status, key)
+            .filter(|ids| key == "Groups:" || ids.len() == 4)
+            .ok_or_else(|| {
+                format!(
+                    "the helper cannot read its ids: /proc/self/status has no {key} line it reads"
+                )
+            })
+    };
+    if ids("Uid:")?.contains(&0) {
         return Err("the helper refuses to run as root".to_owned());
+    }
+    if ids("Gid:")?.contains(&0) || ids("Groups:")?.contains(&0) {
+        return Err("the helper refuses to run with group 0, root's group".to_owned());
     }
     Ok(())
 }
 
-/// `vtium-config serve`: no-new-privileges, the requests' reader, the
-/// limits, then the requests on stdin answered on stdout until
-/// [`HELPER_IDLE_MS`] passes with none. A failure to sandbox is written as
-/// a failed frame, so the console logs it.
+/// The newest landlock version this build knows; the helper's domain
+/// handles every write right and every network right of the kernel's
+/// version up to it.
+const LANDLOCK_NEWEST: ABI = ABI::V9;
+
+/// Enters a landlock domain for the calling thread and the threads it
+/// starts later (ADR-1200 D15, the maintainer, 2026-11-04). The domain
+/// handles every right to write, create, remove, rename or truncate a
+/// file and grants none, refuses binding and connecting TCP sockets, and
+/// is scoped, so the helper connects to no abstract Unix socket made
+/// outside it and signals no process outside it, each as far as the
+/// kernel's landlock version knows it. It leaves reads open, since a frit
+/// may name a font by an absolute path anywhere. Returns whether the
+/// domain is in force; on a kernel without landlock the helper runs as
+/// before, with none.
+fn lock_out() -> Result<bool, String> {
+    let status = Ruleset::default()
+        .set_compatibility(CompatLevel::BestEffort)
+        .handle_access(AccessFs::from_write(LANDLOCK_NEWEST))
+        .and_then(|r| r.handle_access(AccessNet::from_all(LANDLOCK_NEWEST)))
+        .and_then(|r| r.scope(Scope::from_all(LANDLOCK_NEWEST)))
+        .and_then(|r| r.create())
+        .and_then(|r| r.restrict_self())
+        .map_err(|e| format!("the helper cannot enter its landlock domain: {e}"))?;
+    Ok(status.ruleset != RulesetStatus::NotEnforced)
+}
+
+/// Installs the helper's socket filter on the calling thread and the
+/// threads it starts later (ADR-1200 D15, the maintainer, 2026-11-04): a
+/// seccomp filter under which `socket`, `socketpair` and the three
+/// io_uring calls answer EPERM and every other call goes on as before, so
+/// the helper makes no socket of any kind on any kernel, the UDP and Unix
+/// sockets landlock leaves open included. io_uring is refused whole
+/// because its `IORING_OP_SOCKET`, from Linux 5.19, makes a socket without
+/// calling `socket`. It is built as the image helper builds its worker's filter
+/// (`vtium-image-helper`'s `sandbox::filter::refuse`). Returns whether the
+/// filter is in force; on 32-bit ARM, which seccompiler builds no filter
+/// for, there is none.
+fn refuse_sockets() -> Result<bool, String> {
+    #[cfg(any(
+        target_arch = "x86_64",
+        target_arch = "aarch64",
+        target_arch = "riscv64"
+    ))]
+    {
+        seccompiler::apply_filter(&socket_filter()?)
+            .map_err(|e| format!("the helper cannot install its socket filter: {e}"))?;
+        Ok(true)
+    }
+    #[cfg(not(any(
+        target_arch = "x86_64",
+        target_arch = "aarch64",
+        target_arch = "riscv64"
+    )))]
+    Ok(false)
+}
+
+/// The helper's socket filter, compiled ([`refuse_sockets`]).
+#[cfg(any(
+    target_arch = "x86_64",
+    target_arch = "aarch64",
+    target_arch = "riscv64"
+))]
+fn socket_filter() -> Result<seccompiler::BpfProgram, String> {
+    use seccompiler::{BpfProgram, SeccompAction, SeccompFilter, TargetArch};
+    #[cfg(target_arch = "x86_64")]
+    const ARCH: TargetArch = TargetArch::x86_64;
+    #[cfg(target_arch = "aarch64")]
+    const ARCH: TargetArch = TargetArch::aarch64;
+    #[cfg(target_arch = "riscv64")]
+    const ARCH: TargetArch = TargetArch::riscv64;
+    // io_uring's IORING_OP_SOCKET (Linux 5.19) makes a socket without
+    // calling socket, so the helper gets no io_uring at all
+    let rules = [
+        libc::SYS_socket,
+        libc::SYS_socketpair,
+        libc::SYS_io_uring_setup,
+        libc::SYS_io_uring_enter,
+        libc::SYS_io_uring_register,
+    ]
+    .into_iter()
+    .map(|n| (n, Vec::new()))
+    .collect();
+    let eperm = u32::try_from(libc::EPERM).unwrap_or(1);
+    SeccompFilter::new(
+        rules,
+        SeccompAction::Allow,
+        SeccompAction::Errno(eperm),
+        ARCH,
+    )
+    .and_then(BpfProgram::try_from)
+    .map_err(|e| format!("the helper cannot build its socket filter: {e}"))
+}
+
+/// `vtium-config serve`: no-new-privileges, the socket filter, the
+/// landlock domain, the requests' reader, the limits, then the requests on
+/// stdin answered on stdout until [`HELPER_IDLE_MS`] passes with none. A
+/// failure to sandbox is written as a failed frame, so the console logs it.
 pub fn command(paths: &Paths) -> u8 {
     let mut out = io::stdout().lock();
     if let Some(why) = shed_inherited() {
@@ -1853,6 +2006,16 @@ pub fn command(paths: &Paths) -> u8 {
             &mut out,
             &format!("the helper cannot set no-new-privileges: {e}"),
         );
+        return 1;
+    }
+    // before the reader's thread starts, which inherits the filter and the
+    // domain, and before any font is read
+    if let Err(why) = refuse_sockets() {
+        let _ = failed(&mut out, &why);
+        return 1;
+    }
+    if let Err(why) = lock_out() {
+        let _ = failed(&mut out, &why);
         return 1;
     }
     let requests = read_requests(io::stdin());
@@ -2419,6 +2582,93 @@ mod tests {
             sets[1].clusters().map(|(_, _, k)| k).collect::<Vec<_>>(),
             [vec!['e', '\u{301}']]
         );
+    }
+
+    // an 8x16 bitmap font scaled 33 times: each glyph takes 17,424 bytes cut
+    // to its cell of 264x528, past a set's 16 KiB chunk, and the answer
+    // carries every glyph, each in a chunk of its own, never a failure
+    // (issue 272, ADR-1302 D6)
+    #[test]
+    fn a_bitmap_font_scaled_33_times_is_answered_whole() {
+        let dir = Scratch::new("huge");
+        let path = dir.join("8x16.psf");
+        let font = crate::decode::tests::psf2(8, 16, 3, Some(&[(1, 'A'), (2, 'B')]));
+        std::fs::write(&path, font).unwrap();
+        let frit = frit(&format!("source=file:{}\n", path.display()));
+        let huge = Cell {
+            width: 264,
+            height: 528,
+        };
+        let asked = run(&[ServeRequest {
+            cell: huge,
+            ..request(ASK, frit.clone(), &['A', 'B'])
+        }]);
+        let kinds: Vec<u32> = asked.iter().map(|f| f.0).collect();
+        assert_eq!(kinds, [FRAME_GLYPHS, FRAME_DONE]);
+        let set = Arc::new(Set::from_bytes(asked[0].1.clone()).unwrap());
+        assert_eq!(set.cells(), vec![huge]);
+        let face = SetFace::new(set, huge.height).unwrap();
+        // glyph 1's rows are 0x01, its last column lit, and glyph 2's 0x02;
+        // each scaled 33 times and placed across the cell's full width
+        for (c, column) in [('A', 7), ('B', 6)] {
+            let g = face.draw(&[c], Style::default()).unwrap();
+            assert_eq!((g.width(), g.height()), (264, 528));
+            for y in [0, 263, 527] {
+                for x in 0..264 {
+                    let lit = g.pixel(x, y).unwrap()[0] != 0;
+                    assert_eq!(lit, x / 33 == column, "{c:?} at {x},{y}");
+                }
+            }
+        }
+        // a fill at that cell is answered too
+        let filled = run(&[ServeRequest {
+            cell: huge,
+            ..request(FILL, frit, &[])
+        }]);
+        assert!(
+            filled.iter().all(|f| f.0 != FRAME_FAILED),
+            "{:?}",
+            filled.iter().map(|f| f.0).collect::<Vec<_>>()
+        );
+        assert!(filled.iter().any(|f| f.0 == FRAME_FILL));
+    }
+
+    // a batch is drawn no larger than a frame holds at its glyphs' largest:
+    // with room for one 264x528 glyph a frame, each glyph is drawn and sent
+    // alone
+    #[test]
+    fn a_batch_of_large_glyphs_is_drawn_a_frame_at_a_time() {
+        let dir = Scratch::new("batch");
+        let path = dir.join("8x16.psf");
+        let font = crate::decode::tests::psf2(8, 16, 3, Some(&[(1, 'A'), (2, 'B')]));
+        std::fs::write(&path, font).unwrap();
+        let engine = Engine::load(
+            &frit(&format!("source=file:{}\n", path.display())),
+            &Paths::default(),
+            None,
+        )
+        .unwrap();
+        let huge = Cell {
+            width: 264,
+            height: 528,
+        };
+        assert_eq!(engine.glyph_bytes_max(huge), 66 * 528);
+        let mut out = Vec::new();
+        let sent = send_glyphs(
+            &engine,
+            (huge, REGULAR),
+            (&[u32::from('A'), u32::from('B')], &[]),
+            FRAME_GLYPHS,
+            &mut out,
+            66 * 528 + 4096,
+        )
+        .unwrap();
+        assert_eq!(sent, Ok(true));
+        let sets: Vec<Set> = frames(&out)
+            .into_iter()
+            .map(|(_, p)| Set::from_bytes(p).unwrap())
+            .collect();
+        assert_eq!(sets.len(), 2);
     }
 
     /// A cell query for `frit`: at no cell, naming nothing.
@@ -3140,11 +3390,220 @@ mod tests {
         assert_eq!(HELPER_IDLE_MS, 60_000);
     }
 
+    // the helper's landlock domain refuses every file write and every TCP
+    // bind and connect, and an abstract Unix socket made outside it, and
+    // leaves reads open (ADR-1200 D15, the maintainer, 2026-11-04); a
+    // thread of its own enters it, as the helper's main thread does, so the
+    // rest of the test process stays outside it
+    #[test]
+    fn the_helpers_landlock_domain_refuses_writes_and_the_network() {
+        use std::os::linux::net::SocketAddrExt;
+        use std::os::unix::net::{SocketAddr, UnixListener, UnixStream};
+        let dir = Scratch::new("landlock");
+        let existing = dir.join("existing");
+        std::fs::write(&existing, b"font").unwrap();
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let tcp = listener.local_addr().unwrap();
+        let name = format!("vtium-landlock-{}", std::process::id());
+        let abstract_addr = SocketAddr::from_abstract_name(name.as_bytes()).unwrap();
+        let _unix = UnixListener::bind_addr(&abstract_addr).unwrap();
+        let (existing_in, dir_in) = (existing.clone(), dir.to_path_buf());
+        let locked = std::thread::spawn(move || {
+            let enforced = lock_out().unwrap();
+            if !enforced {
+                return None;
+            }
+            let read = std::fs::read(&existing_in).ok();
+            let created = std::fs::write(dir_in.join("new"), b"x").is_ok();
+            let opened = std::fs::OpenOptions::new()
+                .write(true)
+                .open(&existing_in)
+                .is_ok();
+            let removed = std::fs::remove_file(&existing_in).is_ok();
+            let bound = std::net::TcpListener::bind("127.0.0.1:0").is_ok();
+            let connected = std::net::TcpStream::connect(tcp).is_ok();
+            let reached = UnixStream::connect_addr(&abstract_addr).is_ok();
+            Some((read, created, opened, removed, bound, connected, reached))
+        })
+        .join()
+        .unwrap();
+        let Some((read, created, opened, removed, bound, connected, reached)) = locked else {
+            eprintln!(
+                "skipped: this kernel offers no landlock, so the helper runs without its domain"
+            );
+            return;
+        };
+        assert_eq!(read.as_deref(), Some(&b"font"[..]), "reads stay open");
+        assert!(!created, "a file created");
+        assert!(!opened, "a file opened for writing");
+        assert!(!removed, "a file removed");
+        assert!(!bound, "a TCP socket bound");
+        assert!(!connected, "a TCP socket connected");
+        assert!(
+            !reached,
+            "an abstract Unix socket made outside the domain reached"
+        );
+        // the test's own threads are outside the domain
+        assert!(std::fs::write(dir.join("outside"), b"x").is_ok());
+    }
+
+    // the helper's socket filter refuses every new socket on any kernel,
+    // UDP and Unix ones included, which landlock leaves open, and lets
+    // every other call through (ADR-1200 D15, the maintainer, 2026-11-04);
+    // a thread of its own installs it, as the helper's main thread does
+    #[test]
+    fn the_helpers_socket_filter_refuses_every_new_socket() {
+        use std::os::unix::net::{UnixDatagram, UnixStream};
+        let dir = Scratch::new("sockets");
+        let made = std::thread::spawn(move || {
+            if !refuse_sockets().unwrap() {
+                return None;
+            }
+            let read = std::fs::read("/proc/self/status").is_ok();
+            let written = std::fs::write(dir.join("allowed"), b"x").is_ok();
+            Some((
+                read && written,
+                std::net::UdpSocket::bind("127.0.0.1:0").is_ok(),
+                std::net::TcpListener::bind("127.0.0.1:0").is_ok(),
+                UnixDatagram::unbound().is_ok(),
+                UnixStream::pair().is_ok(),
+            ))
+        })
+        .join()
+        .unwrap();
+        let Some((others, udp, tcp, unix, pair)) = made else {
+            eprintln!("skipped: seccompiler builds no filter for this architecture");
+            return;
+        };
+        assert!(others, "a call other than socket refused");
+        assert!(!udp, "a UDP socket made");
+        assert!(!tcp, "a TCP socket made");
+        assert!(!unix, "a Unix socket made");
+        assert!(!pair, "a socket pair made");
+        // the test's own threads are outside the filter
+        assert!(std::net::UdpSocket::bind("127.0.0.1:0").is_ok());
+    }
+
+    // the socket filter refuses io_uring, whose IORING_OP_SOCKET makes a
+    // socket without calling socket (Linux 5.19). The test cannot make the
+    // calls itself, since the crate forbids unsafe code, and std cannot
+    // start a process under the filter, so it hands the compiled filter to
+    // a python3, which installs it through ctypes, as the helper's
+    // seccompiler does, and then makes each io_uring call with arguments
+    // that fail on their own (EFAULT or EBADF) and prints its errno. The
+    // same python3 without the filter shows that the kernel offers
+    // io_uring, else the test skips and says so
+    #[cfg(any(
+        target_arch = "x86_64",
+        target_arch = "aarch64",
+        target_arch = "riscv64"
+    ))]
+    #[test]
+    fn the_helpers_socket_filter_refuses_io_uring() {
+        const SCRIPT: &str = "import ctypes, struct, sys\n\
+            libc = ctypes.CDLL(None, use_errno=True)\n\
+            code = bytes.fromhex(sys.argv[4])\n\
+            if code:\n\
+            \x20   class Prog(ctypes.Structure):\n\
+            \x20       _fields_ = [('len', ctypes.c_ushort), ('filter', ctypes.c_char_p)]\n\
+            \x20   prog = Prog(len(code) // 8, code)\n\
+            \x20   assert libc.prctl(38, 1, 0, 0, 0) == 0\n\
+            \x20   assert libc.prctl(22, 2, ctypes.byref(prog), 0, 0) == 0\n\
+            out = []\n\
+            for call, args in ((sys.argv[1], (1, None)), (sys.argv[2], (-1, 0, 0, 0, None, 0)), (sys.argv[3], (-1, 0, None, 0))):\n\
+            \x20   ctypes.set_errno(0)\n\
+            \x20   r = libc.syscall(ctypes.c_long(int(call)), *[ctypes.c_long(a) if isinstance(a, int) else a for a in args])\n\
+            \x20   out.append(str(ctypes.get_errno() if r < 0 else 0))\n\
+            print(' '.join(out))\n";
+        let errnos = |filter: &[seccompiler::sock_filter]| -> Option<Vec<i32>> {
+            let code: String = filter
+                .iter()
+                .flat_map(|f| {
+                    let mut b = f.code.to_ne_bytes().to_vec();
+                    b.extend([f.jt, f.jf]);
+                    b.extend(f.k.to_ne_bytes());
+                    b
+                })
+                .map(|b| format!("{b:02x}"))
+                .collect();
+            let calls = [
+                libc::SYS_io_uring_setup,
+                libc::SYS_io_uring_enter,
+                libc::SYS_io_uring_register,
+            ];
+            let out = std::process::Command::new("python3")
+                .args(["-I", "-c", SCRIPT])
+                .args(calls.map(|n| n.to_string()))
+                .arg(code)
+                .env_clear()
+                .output()
+                .ok()?;
+            String::from_utf8(out.stdout)
+                .ok()?
+                .split_whitespace()
+                .map(|e| e.parse().ok())
+                .collect::<Option<Vec<i32>>>()
+                .filter(|e| e.len() == 3)
+        };
+        let Some(outside) = errnos(&[]) else {
+            eprintln!("skipped: no python3 to make the io_uring calls with");
+            return;
+        };
+        if outside.contains(&libc::EPERM) || outside.contains(&libc::ENOSYS) {
+            eprintln!("skipped: this kernel refuses io_uring already: {outside:?}");
+            return;
+        }
+        let inside = errnos(&socket_filter().unwrap());
+        assert_eq!(
+            inside,
+            Some(vec![libc::EPERM; 3]),
+            "outside the filter: {outside:?}"
+        );
+    }
+
     #[test]
     fn the_helper_refuses_to_run_as_root() {
-        let why = refuse_root(Uid::ROOT).unwrap_err();
-        assert!(why.contains("refuses to run as root"), "{why}");
-        assert_eq!(refuse_root(Uid::from_raw(65534)), Ok(()));
+        let status = |uid: &str, gid: &str, groups: &str| {
+            format!("Name:\tvtium-config\nUid:\t{uid}\nGid:\t{gid}\nGroups:\t{groups}\nNgid:\t0\n")
+        };
+        let nobody = "65534\t65534\t65534\t65534";
+        assert_eq!(refuse_root(&status(nobody, nobody, "")), Ok(()));
+        assert_eq!(refuse_root(&status(nobody, nobody, "1000 998 ")), Ok(()));
+        // root in any of the four uids, its saved uid included, which would
+        // let the helper take root's id back
+        for uid in [
+            "0\t0\t0\t0",
+            "65534\t0\t65534\t65534",
+            "65534\t65534\t0\t65534",
+            "65534\t65534\t65534\t0",
+        ] {
+            let why = refuse_root(&status(uid, nobody, "")).unwrap_err();
+            assert!(why.contains("refuses to run as root"), "{why}");
+        }
+        // group 0 as any of the four gids, or among the supplementary groups
+        for (gid, groups) in [
+            ("0\t0\t0\t0", ""),
+            ("65534\t65534\t0\t65534", ""),
+            (nobody, "0"),
+            (nobody, "1000 0 998"),
+        ] {
+            let why = refuse_root(&status(nobody, gid, groups)).unwrap_err();
+            assert!(why.contains("group 0"), "{why}");
+        }
+        // a status it cannot read is refused
+        for broken in [
+            String::new(),
+            status("65534\t65534", nobody, ""),
+            status(nobody, "x\t65534\t65534\t65534", ""),
+            format!("Uid:\t{nobody}\nGid:\t{nobody}\n"),
+        ] {
+            let why = refuse_root(&broken).unwrap_err();
+            assert!(why.contains("cannot read its ids"), "{why}");
+        }
+        // the helper's own status reads, as the test's account
+        let own = std::fs::read_to_string("/proc/self/status").unwrap();
+        assert!(status_ids(&own, "Uid:").is_some_and(|ids| ids.len() == 4));
+        assert!(status_ids(&own, "Groups:").is_some());
     }
 
     #[test]

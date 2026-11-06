@@ -2,7 +2,9 @@
 # The Debian sysroots vtium's ARM builds link against and qemu-user runs the
 # tests in. pin.tsv names the archive snapshot, the key its index is signed
 # by, and each package by version and SHA-256; a sysroot is those packages
-# extracted, with no package manager and no root.
+# extracted, with no package manager and no root. The packages are
+# downloaded from pin.tsv's main archive while it still carries the pinned
+# version, and from the snapshot after.
 #
 #   sysroot fetch ARCH...   extract ARCH's pinned packages into its sysroot
 #   sysroot dir ARCH        print ARCH's sysroot
@@ -29,17 +31,33 @@ dir() {
 
 # Copies the package at pool path $2 into $3 and checks the copy against
 # SHA-256 $1; a cached package that fails is fetched again, and a download
-# enters the cache only once it matches.
+# enters the cache only once it matches. A package is fetched from the main
+# archive first and from the snapshot when the main archive does not serve
+# it. A download whose SHA-256 differs from the pin stops the fetch, and no
+# other archive is asked.
 deb() {
-    cached=$root/debs/${2##*/}
+    name=${2##*/}
+    cached=$root/debs/$name
     if [ -f "$cached" ]; then
         cp "$cached" "$3"
         echo "$1  $3" | sha256sum -c --quiet - 2>/dev/null && return
         rm -f "$cached"
     fi
-    part=$(mktemp "$root/debs/.${2##*/}.XXXXXX")
-    curl -fsSL --retry 3 -o "$part" "$(field snapshot)/$2" || { rm -f "$part"; die "${2##*/}: download failed"; }
-    echo "$1  $part" | sha256sum -c --quiet - || { rm -f "$part"; die "${2##*/}: SHA-256 differs from pin.tsv"; }
+    part=$(mktemp "$root/debs/.$name.XXXXXX")
+    tried=
+    last=
+    got=
+    for base in $(field archive) $(field snapshot); do
+        [ -z "$last" ] || echo "sysroot: $name: not fetched from $last, trying $base" >&2
+        last=$base
+        tried=${tried:+$tried and }$base
+        curl -fsSL --retry 3 -o "$part" "$base/$2" || continue
+        echo "$1  $part" | sha256sum -c --quiet - 2>/dev/null ||
+            { rm -f "$part"; die "$name: the copy from $base has a SHA-256 that differs from pin.tsv"; }
+        got=1
+        break
+    done
+    [ -n "$got" ] || { rm -f "$part"; die "$name: download failed from $tried"; }
     mv "$part" "$cached"
     cp "$cached" "$3"
     echo "$1  $3" | sha256sum -c --quiet - || die "${2##*/}: SHA-256 of the copy differs from pin.tsv"

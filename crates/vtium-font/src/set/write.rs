@@ -150,9 +150,6 @@ fn lay_out(strike: &RawStrike) -> Result<Laid, WriteError> {
                 if u32_of(bytes.len())? != want {
                     return Err("a glyph whose bytes do not fit its cells and format");
                 }
-                if want > SET_CHUNK_BYTES {
-                    return Err("a glyph larger than a chunk");
-                }
                 stream.push(bytes.clone());
                 *slot = Some(i);
                 (i, true)
@@ -215,27 +212,39 @@ struct Chunk {
 /// A strike's glyph bytes cut into chunks of at most `SET_CHUNK_BYTES` on
 /// glyph boundaries, each deflated when `compress` asks, the build
 /// deflates and that makes it smaller; with each glyph's chunk, counted
-/// from 0, and its offset in it.
+/// from 0, and its offset in it. A glyph larger than `SET_CHUNK_BYTES`
+/// takes a chunk of its own, exactly its bytes and never deflated
+/// (ADR-1302 D6), so a chunk's decoded bytes past the bound are always
+/// bytes the set holds.
 fn chunks(stream: &[Vec<u8>], compress: bool) -> Result<(Vec<Chunk>, Vec<Place>), WriteError> {
     let limit = usize::try_from(SET_CHUNK_BYTES).map_err(|_| "a chunk past usize")?;
-    let mut raws: Vec<Vec<u8>> = Vec::new();
+    // each chunk's bytes, and whether they are one glyph past the bound
+    let mut raws: Vec<(Vec<u8>, bool)> = Vec::new();
     let mut raw: Vec<u8> = Vec::new();
     let mut at = Vec::with_capacity(stream.len());
     for glyph in stream {
+        if glyph.len() > limit {
+            if !raw.is_empty() {
+                raws.push((std::mem::take(&mut raw), false));
+            }
+            at.push((u32_of(raws.len())?, 0));
+            raws.push((glyph.clone(), true));
+            continue;
+        }
         if raw.len().saturating_add(glyph.len()) > limit {
-            raws.push(std::mem::take(&mut raw));
+            raws.push((std::mem::take(&mut raw), false));
         }
         at.push((u32_of(raws.len())?, u32_of(raw.len())?));
         raw.extend_from_slice(glyph);
     }
     if !raw.is_empty() {
-        raws.push(raw);
+        raws.push((raw, false));
     }
     let chunks = raws
         .into_iter()
-        .map(|raw| {
+        .map(|(raw, alone)| {
             let decoded = u32_of(raw.len())?;
-            if let Some(packed) = compress.then(|| deflate(&raw)).flatten()
+            if let Some(packed) = (compress && !alone).then(|| deflate(&raw)).flatten()
                 && packed.len() < raw.len()
             {
                 return Ok(Chunk {
@@ -309,7 +318,7 @@ fn clusters(order: &[&RawStrike]) -> Result<Option<(Vec<u8>, usize)>, WriteError
                     if *wide { 2 } else { 1 },
                 )
                 .ok_or("an unknown pixel format")?;
-                if u32_of(bytes.len())? != want || want > SET_CHUNK_BYTES {
+                if u32_of(bytes.len())? != want {
                     return Err("a glyph whose bytes do not fit its cells and format");
                 }
                 stored.insert(*g, stream.len());
@@ -739,6 +748,67 @@ mod tests {
                 )],
             }],
         }
+    }
+
+    /// `five_chunks` in a cell 9 pixels wide, its three glyphs of 900
+    /// bytes sharing a chunk, each a different pattern, so deflate and
+    /// the chunks' boundaries both show in its bytes.
+    fn patterned(compress: bool) -> RawSet {
+        let mut set = five_chunks();
+        for strike in &mut set.strikes {
+            strike.compress = compress;
+            strike.cell_width = 9;
+            for (i, (_, bytes)) in (3u8..).zip(strike.glyphs.iter_mut()) {
+                *bytes = (0..900u16)
+                    .map(|p| u8::try_from(p.wrapping_mul(u16::from(i)) % 251).unwrap_or(0))
+                    .collect();
+            }
+            for (_, ink) in &mut strike.inks {
+                *ink = RawInk {
+                    left: -1,
+                    width: 11,
+                    bytes: vec![2; 11 * 100],
+                };
+            }
+        }
+        set
+    }
+
+    // a set whose glyphs all fit a chunk is written byte for byte as before
+    // a glyph could pass one (ADR-1302 D6), so the format stays 2.0: the
+    // SHA-256 of each set below was taken from the writer before that change
+    #[test]
+    fn a_set_with_no_glyph_past_a_chunk_is_written_as_before() {
+        let sha = |bytes: &[u8]| crate::sha256::hex(&crate::sha256::Sha256::digest(bytes));
+        let written = |set: &RawSet| encode(set).map(|bytes| sha(&bytes));
+        let raw = "d1b3685dc145be370440b69d2935969f87711863f6ff28a7c7a636a92887c770";
+        assert_eq!(written(&patterned(false)).as_deref(), Ok(raw));
+        // deflated only where the build deflates (`deflate`)
+        let packed = if cfg!(feature = "deflate") {
+            "e0d026403e03ab1292cffe34b12bd20c9fbd1414cf01f83218339dc2bc7f870a"
+        } else {
+            raw
+        };
+        assert_eq!(written(&patterned(true)).as_deref(), Ok(packed));
+        assert_eq!(
+            written(&five_chunks()).as_deref(),
+            Ok("f9589d871394767b3c8ea121db80c43e99e7bb566e08a12b5a14aacefcc17ca3")
+        );
+        // the built-in sets, which build.rs writes with this writer, each
+        // chunk deflated
+        #[cfg(feature = "unifont")]
+        assert_eq!(
+            sha(include_bytes!(concat!(env!("OUT_DIR"), "/unifont.vtglass"))),
+            "c71702ba2fd5da57e970db9a442833ad4bb0b69d2138bb975b06fa4ba80d12ce"
+        );
+        #[cfg(feature = "unscii")]
+        assert_eq!(
+            sha(include_bytes!(concat!(
+                env!("OUT_DIR"),
+                "/unscii-8.vtglass"
+            ))),
+            "0f5d83363b4f35b0d43f5b9a1a347fd454c76c97b50ca16365f988ca5bd02709"
+        );
     }
 
     // encode refuses a set whose GLYF, CLUS and INKX chunks together pass

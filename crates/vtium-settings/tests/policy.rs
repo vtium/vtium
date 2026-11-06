@@ -1,4 +1,4 @@
-//! A policy line vtium cannot read makes the head file closed and broken
+//! A policy line vtium cannot read makes vtium.conf's sections closed and broken
 //! (ADR-1401 D7, level 2, the maintainer's ruling of 2026-11-01 and the
 //! maintainer's answer of the same day on its five cases).
 //!
@@ -11,8 +11,14 @@
 
 use vtium_settings::{
     Drops, FILE_MAX, LINE_MAX, Line, Policy, PolicyFault, PolicyLine, Problem, Reading, Rest, Runs,
-    Stated, Trusted, reading, resolve,
+    Stated, Trusted, reading, resolve, split,
 };
+
+/// Whether line `n` of `text` is among the top-level lines vtium's own
+/// key reader reads, which the section reader leaves to it.
+fn a_key_line(text: &str, n: usize) -> bool {
+    split(text.as_bytes()).key_lines().any(|(at, _)| at == n)
+}
 
 /// A file that declares a usable head, so only the policy line can break
 /// it.
@@ -184,26 +190,17 @@ fn a_line_that_begins_with_policy_and_names_another_key_makes_the_file_closed_an
             _ => false,
         });
     }
-    // `policies` does not begin with `policy`, so the rule's own words
-    // leave it a top-level line of no key, which drops that line alone; its
-    // error names the keys the top level takes and picks neither, since
-    // vtium does not guess what an invalid file meant (the maintainer's
-    // answer of 2026-11-01)
-    let r = reading(format!("version = 1\npolicies = closed\n{BODY}").as_bytes());
+    // `policies` does not begin with `policy`, so it is no policy line:
+    // it is a top-level line of vtium's own keys, which the console's
+    // reader reports as a key it does not know, and the sections run as
+    // written under the open policy, since vtium does not guess what a
+    // line meant (the maintainer's answer of 2026-11-01; ADR-1403 D3)
+    let text = format!("version = 1\npolicies = closed\n{BODY}");
+    let r = reading(text.as_bytes());
     let o = outcome(&r);
-    assert_eq!(
-        (o.runs, o.policy, o.line),
-        (Runs::Survivors, Policy::Open, Some(Line::Partly))
-    );
-    let [error] = r.errors.errors.as_slice() else {
-        panic!("{:?}", r.errors);
-    };
-    assert_eq!(error.line, Some(2));
-    let shown = error.to_string();
-    assert!(
-        shown.contains("`version`") && shown.contains("`policy`"),
-        "{shown}"
-    );
+    assert_eq!((o.runs, o.policy, o.line), (Runs::File, Policy::Open, None));
+    assert!(r.errors.is_empty(), "{:?}", r.errors);
+    assert!(a_key_line(&text, 2));
 }
 
 // a policy line vtium cannot read wins over a readable one, in any order
@@ -301,9 +298,11 @@ fn a_policy_line_inside_a_section_is_still_ignored() {
 // covers: platform.heads.policy
 #[test]
 fn a_policy_lines_error_is_kept_past_the_error_bound() {
+    // seventy `version` lines given twice, each an error above the first
+    // section, ahead of the policy line
     let mut text = String::from("version = 1\n");
-    for i in 0..70 {
-        text.push_str(&format!("junk{i}\n"));
+    for _ in 0..70 {
+        text.push_str("version = 1\n");
     }
     let line = text.matches('\n').count() + 1;
     let bad = format!("{text}policy = op\u{1b}en\n{BODY}");
@@ -329,9 +328,9 @@ fn a_policy_lines_error_is_kept_past_the_error_bound() {
     closed_and_broken(cut.as_bytes(), line, |f| *f == PolicyFault::Cut);
     // and when an error found once every line is read, such as a missing
     // `version`, sorts ahead of it
-    let mut late = String::new();
-    for i in 0..63 {
-        late.push_str(&format!("junk{i}\n"));
+    let mut late = String::from("policy = open\n");
+    for _ in 0..62 {
+        late.push_str("policy = open\n");
     }
     late.push_str("policy = opne\n");
     late.push_str(BODY);
@@ -358,39 +357,25 @@ fn a_heading_past_the_line_bound_still_ends_the_top_level() {
     );
 }
 
-// ADR-1401 D7: a line that shows as `policy = closed` but begins with a
-// character that does not show is no policy line, since vtium does not
-// guess what an invalid file meant; its error shows that character,
-// escaped, so the owner can see why
+// ADR-1401 D7, ADR-1403 D3: a line that shows as `policy = closed` but
+// begins with a character that does not show is no policy line, since
+// vtium does not guess what an invalid file meant: it is a top-level line
+// of vtium's own keys, which the console's reader reports
 // covers: platform.heads.policy
 #[test]
-fn a_hidden_character_before_policy_is_shown_in_its_error() {
-    for (hidden, escaped) in [
-        ('\u{a0}', "\\u{a0}"),
-        ('\u{200b}', "\\u{200b}"),
-        ('\u{feff}', "\\u{feff}"),
-        ('\u{3000}', "\\u{3000}"),
-    ] {
+fn a_hidden_character_before_policy_is_no_policy_line() {
+    for hidden in ['\u{a0}', '\u{200b}', '\u{3000}'] {
         let text = format!("version = 1\n{hidden}policy = closed\n{BODY}");
         let r = reading(text.as_bytes());
         let o = outcome(&r);
-        assert_eq!(
-            (o.runs, o.policy),
-            (Runs::Survivors, Policy::Open),
-            "{escaped}"
-        );
-        let [error] = r.errors.errors.as_slice() else {
-            panic!("{escaped}: {:?}", r.errors);
-        };
-        assert_eq!(error.line, Some(2));
-        let shown = error.to_string();
-        assert!(shown.contains(escaped), "{shown}");
-        assert!(!shown.contains(hidden), "{shown}");
-        assert!(
-            shown.contains("`version`") && shown.contains("`policy`"),
-            "{shown}"
-        );
+        assert_eq!((o.runs, o.policy), (Runs::File, Policy::Open), "{hidden:?}");
+        assert!(r.errors.is_empty(), "{hidden:?}: {:?}", r.errors);
+        // the line is the top level's, whose reader reports it
+        assert!(a_key_line(&text, 2), "{hidden:?}");
     }
+    // a byte-order mark before the first line is no part of it
+    let text = format!("\u{feff}policy = closed\nversion = 1\n{BODY}");
+    assert_eq!(outcome(&reading(text.as_bytes())).policy, Policy::Closed);
 }
 
 // the file bound cutting a `policy` line inside a section closes nothing:
@@ -442,19 +427,4 @@ fn a_policy_lines_error_escapes_what_it_quotes() {
         assert!(shown.contains(escaped), "{shown}");
         assert!(!shown.contains(hidden), "{shown}");
     }
-}
-
-// the quote starts just before the hidden character, so a long key never
-// cuts it off before the character the error says it shows
-// covers: platform.heads.policy
-#[test]
-fn a_hidden_character_past_the_quote_bound_is_still_shown() {
-    let key = format!("{}\u{a0}policy", "x".repeat(70));
-    let r = reading(format!("version = 1\n{key} = closed\n{BODY}").as_bytes());
-    let [error] = r.errors.errors.as_slice() else {
-        panic!("{:?}", r.errors);
-    };
-    let shown = error.to_string();
-    assert!(shown.contains("\\u{a0}"), "{shown}");
-    assert!(!shown.contains('\u{a0}'), "{shown}");
 }

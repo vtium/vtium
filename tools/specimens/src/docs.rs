@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use crate::card;
-use crate::draw::{self, Image, Sources};
+use crate::draw::{self, Absent, Image, Sources};
 use crate::profiles::{Glyphs, PROFILES, Profile};
 
 /// A file's contents: an image, judged by its pixels, or text, judged by
@@ -90,7 +90,7 @@ pub fn dir(p: &Profile) -> String {
 #[derive(Debug)]
 pub struct Drawn {
     pub files: BTreeMap<String, Content>,
-    pub skipped: Vec<(&'static Profile, String)>,
+    pub skipped: Vec<(&'static Profile, Absent)>,
 }
 
 /// Every file under `docs/specimens/`. Its text comes from the profile
@@ -103,7 +103,7 @@ pub fn files(provisional: &[String], sources: &Sources) -> Result<Drawn, String>
         let d = dir(p);
         let names = screen_names(screen_count(p, &p.layout()?));
         match draw::skipped(p, sources) {
-            Some(why) => skipped.push((p, why.to_owned())),
+            Some(why) => skipped.push((p, why.clone())),
             None => {
                 let screens = draw::screens(p, sources)?;
                 if screens.len() > 1 {
@@ -269,7 +269,7 @@ fn index(rows: &[String], simulated: &[String]) -> String {
          ## The message bars\n\n\
          After the card, each profile draws vtium's message bars, its notices and its on-screen display (ADR-1401 D5, D7), drawn by the console's own overlay code, on one screen, or on two on the 320x240 displays, where the four notices fill a screen of their own. A display shows one box, across its top, so the screens stack four bands, each the top of a drawing of its own with a line beneath the bar saying what it is: four notices at once, the most a head shows; the on-screen display's full line sharing the box with a notice; the full line alone; and the minimal dot in the top-right cell.\n\n\
          ## Drawing and judging\n\n\
-         `make specimens` draws every file here from the profile table. `make specimens-check`, and `cargo test` through `tools/specimens/tests/`, draw them again and compare them with what is committed: an image by its pixels, a text by its bytes, and a file here that the table does not draw. A difference in an accepted profile fails; one in a provisional profile is drift, reported and not failed; a stale simulation is reported as its own kind of fault. The outline profiles are drawn only where the pinned fonts are at hand, as `make specimens-fonts` gives them, and `cargo test` draws none; elsewhere a provisional one is skipped with why, and an accepted one fails. A branch that moves specimens regenerates them in their own commit, listing what moved; `provisional.tsv` is the only file here written by hand, and a conflict in the rest resolves by `make specimens-fonts && make specimens`.\n",
+         `make specimens` draws every file here from the profile table. `make specimens-check` draws them again and compares them with what is committed: an image by its pixels, a text by its bytes, and a file here that the table does not draw. A difference in an accepted profile fails; one in a provisional profile is drift, reported and not failed; a stale simulation is reported as its own kind of fault. Three profiles draw from fonts that `make specimens-fonts` fetches: the outline profiles `1920x1080` and `2560x1440`, and `320x240-tiny5`. CI's specimens job runs `make specimens-fonts` and then `make specimens-check`, so it judges every profile. `cargo test` runs the same check through `tools/specimens/tests/` but fetches no fonts: it judges every other profile and the text of all of them, and skips the images of those three, naming CI's specimens job as their judge. When `make specimens-check` cannot draw a profile because a pinned font is missing, it skips a provisional one with why and fails an accepted one. A branch that moves specimens regenerates them in their own commit, listing what moved; `provisional.tsv` is the only file here written by hand, and a conflict in the rest resolves by `make specimens-fonts && make specimens`.\n",
         rows = rows.join("\n"),
         simulated = simulated.join("\n"),
     )

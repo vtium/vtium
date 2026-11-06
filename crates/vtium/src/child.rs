@@ -127,7 +127,7 @@ mod tests {
 
     fn config(args: &[&str]) -> Config {
         let args: Vec<OsString> = args.iter().map(OsString::from).collect();
-        load(&args, None, &mut |_: &Path| Ok(None)).config
+        load(&args, &mut |_: &Path| Ok(None)).config
     }
 
     fn os(pairs: &[(&str, &str)]) -> BTreeMap<OsString, OsString> {

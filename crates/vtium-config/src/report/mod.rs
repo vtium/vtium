@@ -168,6 +168,12 @@ fn utc(now: SystemTime) -> Utc {
     }
 }
 
+/// `secs` since 1970 as `2026-11-03 20:30:44` in UTC, as `vtium config
+/// history` says when each installed file was replaced.
+pub fn utc_text(secs: u64) -> String {
+    utc(UNIX_EPOCH + std::time::Duration::from_secs(secs)).text()
+}
+
 /// The name `--save` gives the report made at `now`:
 /// `vtium-report-YYYYMMDD-HHMMSS.txt`, in UTC.
 pub fn file_name(now: SystemTime) -> String {

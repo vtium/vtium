@@ -4,15 +4,15 @@ vtium's test card, drawn by vtium's renderer in memory for each display profile,
 
 | Profile | Depth | Cell | Grid | Font | Screens | Status | Preview |
 |---|---|---|---|---|---|---|---|
-| [320x240-1bit](320x240-1bit/) | 1-bit | 8x8 | 40x30 | `unscii-8` | 7 | provisional | [<img src="320x240-1bit/collage.png" width="160">](320x240-1bit/collage.png) |
-| [320x240](320x240/) | 24-bit color | 8x8 | 40x30 | `unscii-8` | 7 | provisional | [<img src="320x240/collage.png" width="160">](320x240/collage.png) |
-| [320x240-tiny5](320x240-tiny5/) | 24-bit color | 6x9 | 53x26 | `tiny5` | 12 | provisional | [<img src="320x240-tiny5/collage.png" width="160">](320x240-tiny5/collage.png) |
-| [480x320](480x320/) | 24-bit color | 8x8 | 60x40 | `unscii-8` | 6 | provisional | [<img src="480x320/collage.png" width="160">](480x320/collage.png) |
-| [640x480](640x480/) | 24-bit color | 8x16 | 80x30 | `unifont` | 4 | provisional | [<img src="640x480/collage.png" width="160">](640x480/collage.png) |
-| [800x480](800x480/) | 24-bit color | 8x16 | 100x30 | `unifont` | 4 | provisional | [<img src="800x480/collage.png" width="160">](800x480/collage.png) |
-| [1366x768](1366x768/) | 24-bit color | 8x16 | 170x48 | `unifont` | 3 | provisional | [<img src="1366x768/collage.png" width="160">](1366x768/collage.png) |
-| [1920x1080](1920x1080/) | 24-bit color | 11x24 | 174x45 | `desktop` | 3 | provisional | [<img src="1920x1080/collage.png" width="160">](1920x1080/collage.png) |
-| [2560x1440](2560x1440/) | 24-bit color | 14x32 | 182x45 | `desktop` | 3 | provisional | [<img src="2560x1440/collage.png" width="160">](2560x1440/collage.png) |
+| [320x240-1bit](320x240-1bit/) | 1-bit | 8x8 | 40x30 | `unscii-8` | 7 | accepted | [<img src="320x240-1bit/collage.png" width="160">](320x240-1bit/collage.png) |
+| [320x240](320x240/) | 24-bit color | 8x8 | 40x30 | `unscii-8` | 7 | accepted | [<img src="320x240/collage.png" width="160">](320x240/collage.png) |
+| [320x240-tiny5](320x240-tiny5/) | 24-bit color | 6x9 | 53x26 | `tiny5` | 12 | accepted | [<img src="320x240-tiny5/collage.png" width="160">](320x240-tiny5/collage.png) |
+| [480x320](480x320/) | 24-bit color | 8x8 | 60x40 | `unscii-8` | 6 | accepted | [<img src="480x320/collage.png" width="160">](480x320/collage.png) |
+| [640x480](640x480/) | 24-bit color | 8x16 | 80x30 | `unifont` | 4 | accepted | [<img src="640x480/collage.png" width="160">](640x480/collage.png) |
+| [800x480](800x480/) | 24-bit color | 8x16 | 100x30 | `unifont` | 4 | accepted | [<img src="800x480/collage.png" width="160">](800x480/collage.png) |
+| [1366x768](1366x768/) | 24-bit color | 8x16 | 170x48 | `unifont` | 3 | accepted | [<img src="1366x768/collage.png" width="160">](1366x768/collage.png) |
+| [1920x1080](1920x1080/) | 24-bit color | 11x24 | 174x45 | `desktop` | 3 | accepted | [<img src="1920x1080/collage.png" width="160">](1920x1080/collage.png) |
+| [2560x1440](2560x1440/) | 24-bit color | 14x32 | 182x45 | `desktop` | 3 | accepted | [<img src="2560x1440/collage.png" width="160">](2560x1440/collage.png) |
 
 `320x240-tiny5` shows an example frit, `tiny5`, the smallest font, which vtium does not use by default; vtium's own choice at 320x240 is the profile `320x240`.
 
@@ -46,4 +46,4 @@ After the card, each profile draws vtium's message bars, its notices and its on-
 
 ## Drawing and judging
 
-`make specimens` draws every file here from the profile table. `make specimens-check`, and `cargo test` through `tools/specimens/tests/`, draw them again and compare them with what is committed: an image by its pixels, a text by its bytes, and a file here that the table does not draw. A difference in an accepted profile fails; one in a provisional profile is drift, reported and not failed; a stale simulation is reported as its own kind of fault. The outline profiles are drawn only where the pinned fonts are at hand, as `make specimens-fonts` gives them, and `cargo test` draws none; elsewhere a provisional one is skipped with why, and an accepted one fails. A branch that moves specimens regenerates them in their own commit, listing what moved; `provisional.tsv` is the only file here written by hand, and a conflict in the rest resolves by `make specimens-fonts && make specimens`.
+`make specimens` draws every file here from the profile table. `make specimens-check` draws them again and compares them with what is committed: an image by its pixels, a text by its bytes, and a file here that the table does not draw. A difference in an accepted profile fails; one in a provisional profile is drift, reported and not failed; a stale simulation is reported as its own kind of fault. Three profiles draw from fonts that `make specimens-fonts` fetches: the outline profiles `1920x1080` and `2560x1440`, and `320x240-tiny5`. CI's specimens job runs `make specimens-fonts` and then `make specimens-check`, so it judges every profile. `cargo test` runs the same check through `tools/specimens/tests/` but fetches no fonts: it judges every other profile and the text of all of them, and skips the images of those three, naming CI's specimens job as their judge. When `make specimens-check` cannot draw a profile because a pinned font is missing, it skips a provisional one with why and fails an accepted one. A branch that moves specimens regenerates them in their own commit, listing what moved; `provisional.tsv` is the only file here written by hand, and a conflict in the rest resolves by `make specimens-fonts && make specimens`.

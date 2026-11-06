@@ -52,30 +52,32 @@ font-name=eurlatgr
 
 ## Choosing a font with vtium config
 
-`vtium config tui`, run inside a vtium console, opens a full-screen tool that lists the frits and the built-in fonts. Each font you move the highlight to becomes the console's font at once, so you judge the real console in it:
+`vtium config tui`, run inside a vtium console, opens vtium-config's full-screen tool. Its Fonts view lists the frits and the built-in fonts. Where the console draws kitty graphics, the tool shows each font you move the highlight to as a picture, and leaves the console's own font alone; without pictures, it says the cell and the grid in words. `t` tries the highlighted font on the console itself:
 
 ```
 $ vtium config tui
 ```
 
-Up and Down move the highlight, Enter keeps the highlighted font for saving, Tab moves to the sizes, to vtium.conf's font keys and to the heads, `s` shows what a save changes, and `q` or Ctrl-C leaves and puts back the font the console had when the tool started. Where the console draws kitty graphics, a vtium built with the `images` feature, each size shows a picture of the font at that size, and the console's own font and grid stay as they were. Without pictures, a size shows only once it is saved.
+The tool opens on its Flow view, and Tab steps through the columns and then the views to Fonts; a click on Fonts in the top row goes there at once. Up and Down move the highlight, and Enter keeps the highlighted font: the tool writes it as `font-name` into your draft, your working copy of vtium.conf. `t` switches the console to the highlighted font for 10 seconds: `k` keeps it, and any other key, or the end of the 10 seconds, puts back the font the console drew before, so a font that leaves the screen unreadable undoes itself. The picture beside the list is a specimen of every character the font covers, at its real size, in which a character the font itself lacks shows grey where the built-in font draws it and as an empty box where nothing does, and the line under the list gives the grid the font makes on the display; `s` switches the picture to the console drawn in the font, and `vtium config preview FONT` prints the same specimen. `n` makes a new frit and `r` marks a frit to be removed. `i` installs the draft, and `q` or Ctrl-C leaves and puts back the font the console had when the tool started. The Looks view shows each size the same way, as a picture of the display in the font at that size; the console draws pictures when vtium is built with the `images` feature. To give one head a font of its own, set the frit as the `font-name` of that head's look ([The sections of vtium.conf](head-file.md#reading-the-sections)).
 
-Saving lists each line of vtium.conf that changes and the one command it runs, `sudo /usr/bin/vtium-config apply DRAFT`, which asks for your password once. Run as root, vtium-config takes no option that names a directory or a program, so that command can change only `/etc/vtium/vtium.conf`, `/etc/vtium/heads.conf` and the frits in `/etc/vtium/fonts`, each after vtium's own checks have accepted it, and you can allow exactly that command in a sudo rule. The command checks the changed files with `vtium check-config`, installs them, and keeps each old file beside the new one as `vtium.conf.bak` or `heads.conf.bak`; it changes only the lines that need it, so your comments stay. A font saved this way, like any change to vtium.conf, takes effect at the console's next start, and the console you saved from stays in the saved font meanwhile.
+Install asks first, counting the lines of vtium.conf that change and the frits that go in with it, and then runs the one command that needs root, `sudo /usr/bin/vtium-config apply DIR`, which asks for your password once. That command checks each frit and the new vtium.conf with vtium's own checks, writes the frits first and vtium.conf after them, and keeps each old file beside the new one as `NAME.bak`, such as `vtium.conf.bak`. vtium-config changes only the lines that need it, so your comments stay. [When vtium-config asks for sudo](configure.md#when-vtium-config-asks-for-sudo) describes each step. A font installed this way, like any change to vtium.conf, takes effect at the console's next start, and the console you installed from stays in that font meanwhile.
 
-In a terminal that is not vtium, such as a desktop terminal, the tool shows the same lists and saves the same way, but sends the terminal no font, and says so. With `allow-font-ops` off, it says so and offers to turn the key on as part of the save.
+In a terminal that is not vtium, such as a desktop terminal, the tool shows the same lists and installs the same way, but sends the terminal no font, and says so. With `allow-font-ops` off, it says so and offers to turn the key on in the draft.
+
+`vtium config new-frit` and `vtium config remove-frit` make and remove a frit without the full-screen tool. Run as you, each writes an install bundle and prints the `sudo` command that installs it; run as root, each installs at once.
 
 ## Switching and zooming
 
-`vtium config set NAME` switches the console it runs in to the frit NAME, or to a built-in font, `unifont` or `unscii-8`:
+`vtium config use-frit NAME` switches the console it runs in to the frit NAME, or to a built-in font, `unifont` or `unscii-8`:
 
 ```
-$ vtium config set monoid
+$ vtium config use-frit monoid
 ```
 
 It writes xterm's font sequence, OSC 50, to its own terminal, and vtium takes it while the `allow-font-ops` key is on, as it is by default.
 
-`vtium config set` first asks the terminal what it is, and sends nothing to a terminal that is not vtium, such as a desktop terminal; there it prints `failed`. Run it inside a vtium console.
+`vtium config use-frit` first asks the terminal what it is, and sends nothing to a terminal that is not vtium, such as a desktop terminal; there it prints `failed`. Run it inside a vtium console.
 
 Ctrl+= and Ctrl+- zoom the console on screen in and out, and so does Ctrl with the mouse wheel.
 
-A font switch and a zoom last until you log out. When the session in a console ends, vtium reads `font-name`, `font-size` and `font-engine` from `vtium.conf` again and returns that console to the font and size they give before the next login prompt appears. So a font you saved with `vtium config` is the font the next login sees, and a font you only tried is gone. When a screen has several consoles, logging out of one console returns the font only if the switch came from that console, or if it is the only console left. Closing the console the switch came from with Ctrl+Super+Backspace returns the font too, and so does vtium hanging up a screen's sessions when its last display goes under `when-display-lost = hangup`. A font key that vtium cannot read is logged and skipped, as at the start. vtium reads the other keys of `vtium.conf` only when it starts again. Set `font-name` and `font-size` ([Size](#size)) for a font and size that last.
+A font switch and a zoom last until you log out. When the session in a console ends, vtium reads `font-name`, `font-size` and `font-engine` from `vtium.conf` again and returns that console to the font and size they give before the next login prompt appears. So a font you installed with `vtium config` is the font the next login sees, and a font you only tried is gone. When a screen has several consoles, logging out of one console returns the font only if the switch came from that console, or if it is the only console left. Closing the console the switch came from with Ctrl+Super+Backspace returns the font too, and so does vtium hanging up a screen's sessions when its last display goes under `when-display-lost = hangup`. A font key that vtium cannot read is logged and skipped, as at the start. vtium reads the other keys of `vtium.conf` only when it starts again. Set `font-name` and `font-size` ([Size](#size)) for a font and size that last.

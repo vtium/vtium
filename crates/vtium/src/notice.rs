@@ -20,7 +20,7 @@ pub const NO_KEYBOARD: &str = "No keyboard was found. Plug one in to type.";
 pub fn anti_lockout(to: &str) -> String {
     format!(
         "No keyboard was reaching a screen that is on, so every keyboard now types into {to}. To send a keyboard somewhere else, change its rule in {}, then restart vtium or reboot.",
-        vtium_settings::HEAD_FILE
+        vtium_settings::CONF_FILE
     )
 }
 
@@ -29,7 +29,7 @@ pub fn anti_lockout(to: &str) -> String {
 pub fn rescue(device: impl Display, to: &str) -> String {
     format!(
         "The rescue key moved the keyboard at {device}. It types into the active screen, {to}, until the next boot. To keep it there after that, give it a rule in {}.",
-        vtium_settings::HEAD_FILE
+        vtium_settings::CONF_FILE
     )
 }
 
@@ -66,8 +66,8 @@ pub fn session_ended_console() -> String {
 /// the closed policy, for as long as vtium runs (ADR-1401 D1).
 pub fn stopped() -> String {
     format!(
-        "A session kept ending as soon as it started, so vtium stopped every screen, and nothing here takes input. Fix the login command in {} or vtium.conf, then restart vtium or reboot.",
-        vtium_settings::HEAD_FILE
+        "A session kept ending as soon as it started, so vtium stopped every screen, and nothing here takes input. Fix the login command in {}, then restart vtium or reboot.",
+        vtium_settings::CONF_FILE
     )
 }
 
@@ -114,9 +114,10 @@ pub fn more_errors(n: usize) -> String {
     format!("{MORE_ERRORS} {n}")
 }
 
-/// The on-screen display's brief line when the session of a console the
-/// open chord opened cannot start, and the console leaves (ADR-1401 D5).
-pub const NO_CONSOLE_OPENED: &str = "No console opened: its login could not start.";
+/// vtium's notice when the session of a console the open chord opened
+/// cannot start, and the console leaves: a notice of a problem, which
+/// shows whatever `osd` says (ADR-1401 D5).
+pub const NO_CONSOLE_OPENED: &str = "Console not opened: login could not start.";
 
 /// The on-screen display's brief line on head `head` when the open chord
 /// finds it at `head-consoles-max`, its `n` consoles (ADR-1401 D5).
@@ -139,38 +140,42 @@ pub fn osd_line(active: bool, head: &str, console: usize, of: usize) -> String {
     format!("{dot} {head} \u{b7} console {console} of {of}")
 }
 
-/// What `vtium check-config` prints (ADR-1401 D7, D12): its help, and the
-/// lines of its report that it writes itself. The head file's errors come
-/// from vtium-settings's catalog, and the configuration's reports from the
-/// configuration's reader.
+/// What `vtium check-config` prints (ADR-1401 D7, D12; ADR-1403 D3): its
+/// help, and the lines of its report that it writes itself. The errors of
+/// vtium.conf's sections come from vtium-settings's catalog, and the
+/// reports of its top level from the configuration's reader.
 pub mod check_config {
     use std::fmt::Display;
 
     /// The subcommand's help.
-    pub const HELP: &str = "Usage: vtium check-config [OPTION]... [FILE]\n\n\
-Reads the configuration as vtium would start with these options:\n\
-vtium.conf and the seat's file in the configuration directory, then the\n\
-options, and the head file, /etc/vtium/heads.conf, or FILE in its place\n\
-to check it before it is installed. It prints each warning, and each\n\
-of the head file's errors, each followed by what it drops, and its\n\
-warnings: a shadowed rule, a head's consoles past its cap or past the\n\
-total, and a profile naming a missing frit. It exits 1 when there is\n\
-any, 0 when there is none. It notes on standard output what it does not\n\
-count: the density font sizes in points convert at, which the start\n\
-reads from each display, and of the head file a weak match, a rule that\n\
-needs a udev daemon where none runs, a rule using connector-path:, which\n\
-it cannot check without opening the card, a head no rule names, every\n\
-head isolated, and, of the devices present, each rule matching none, each\n\
-device no rule places and what the policy does with it, no head that\n\
-can be the active head, under closed no keyboard reaching any head, a\n\
-head claiming pointers while every keyboard is claimed elsewhere, every\n\
-keyboard ignored, and a head whose only keyboard is one device. Its\n\
-notes end with what a start does with the file, and the file's policy.\n\
-It also notes when vtium would refuse the glyph helper font-helper\n\
-names. It only checks: it opens nothing under /dev, writes nothing and\n\
-applies nothing. It reads the configuration files, the frit font-name\n\
-names, the helper's owner and mode, and the devices present from /sys\n\
-and udev's database, /run/udev/data.\n";
+    pub const HELP: &str = "Usage: vtium check-config [OPTION]... [--no-devices] [FILE]\n\n\
+Reads the configuration as vtium would start with these options: the\n\
+vtium.conf in the configuration directory, /etc/vtium/vtium.conf, or FILE\n\
+in its place to check it before it is installed, then the options. It\n\
+checks both parts of the file in one run: the keys above the first\n\
+section, and the looks, heads and rules below it. It prints each warning\n\
+of the keys, and each error of the sections, each followed by what it\n\
+drops, and their warnings: a shadowed rule, a head's consoles past its\n\
+cap or past the total, and a look naming a missing frit. It counts a\n\
+file that wires no complete route, a display present sent to a head that\n\
+a keyboard present reaches, and says what is missing. With no display or\n\
+no keyboard present, or with --no-devices, it judges the rules alone and\n\
+says so. It exits 1 when there is any, 0 when there is none. It notes on\n\
+standard output what it does not count: the density font sizes in\n\
+points convert at, which the start reads from each display, and of the\n\
+sections a weak match, a rule that needs a udev daemon where none runs,\n\
+a rule using connector-path:, which it cannot check without opening the\n\
+card, a head no rule names, every head isolated, and, of the devices\n\
+present, each rule matching none, each device no rule places and what\n\
+the policy does with it, no head that can be the active head, under\n\
+closed no keyboard reaching any head, a head claiming pointers while\n\
+every keyboard is claimed elsewhere, every keyboard ignored, and a head\n\
+whose only keyboard is one device. Its notes end with what a start does\n\
+with the file, and the file's policy. It also notes when vtium would\n\
+refuse the glyph helper font-helper names. It only checks: it opens\n\
+nothing under /dev, writes nothing and applies nothing. It reads\n\
+vtium.conf, the frit font-name names, the helper's owner and mode, and\n\
+the devices present from /sys and udev's database, /run/udev/data.\n";
 
     /// The frit `font-name` names could not be read.
     pub fn frit_unreadable(name: &str, why: &str) -> String {
@@ -261,12 +266,30 @@ and udev's database, /run/udev/data.\n";
         )
     }
 
-    /// A candidate head file that is not there.
+    /// A folder of `font-paths` that does not exist (ADR-1200 D25).
+    pub fn font_path_missing(dir: &str) -> String {
+        format!("font-paths: {dir:?} does not exist, so the glyph helper finds no font there")
+    }
+
+    /// A folder of `font-paths` that other accounts cannot read and
+    /// search (ADR-1200 D25).
+    pub fn font_path_private(dir: &str) -> String {
+        format!(
+            "font-paths: other accounts cannot read {dir:?}, so before anyone logs in the glyph helper, which runs as nobody, finds no font there, and a font there appears only after login"
+        )
+    }
+
+    /// A candidate vtium.conf that is not there.
     pub const NO_SUCH_FILE: &str = "does not exist";
 
-    pub const ROOT_ONLY: &str = "permission denied: the head file can be checked only as root";
+    pub const ROOT_ONLY: &str = "permission denied: this file can be checked only as root";
 
-    /// A candidate head file owned by `uid`, not root: the start trusts it
+    /// A vtium.conf with no section and no policy line: a kmscon.conf,
+    /// whose keys apply and for which vtium runs its compiled-in flow
+    /// (ADR-1403 D3).
+    pub const NO_FLOW: &str = "This file has no section and no policy line, so a start reads its keys and runs the compiled-in looks, heads and rules, and shows nothing.";
+
+    /// A candidate vtium.conf owned by `uid`, not root: the start trusts it
     /// once it is installed.
     pub fn candidate_owner(path: impl Display, uid: u32) -> String {
         format!(
@@ -274,7 +297,7 @@ and udev's database, /run/udev/data.\n";
         )
     }
 
-    /// A candidate head file its group or others may change, in `mode`:
+    /// A candidate vtium.conf its group or others may change, in `mode`:
     /// the start trusts it once it is installed.
     pub fn candidate_writable(path: impl Display, mode: u32) -> String {
         format!(

@@ -190,27 +190,30 @@ impl Drop for Raw<'_> {
 pub type Frits = Result<PathBuf, String>;
 
 /// The frits' directory the console reads with the vtium.conf in
-/// `configdir`: the file's `font-frits`, read as the console reads it,
-/// else the key's default, the directory the build names. vtium-config
-/// takes `font-frits` only as an absolute path: a relative one would be
-/// read against whatever directory the tool runs in, and an empty one
-/// names that directory itself, so either is refused, naming vtium.conf
-/// and the key. A vtium.conf that cannot be read is refused with its
+/// `configdir`, the one file it reads (ADR-1403 D2): the `font-frits` of
+/// the last line of its top level that sets it, else the key's default,
+/// the directory the build names.
+///
+/// vtium-config takes `font-frits` only as an absolute path, as the
+/// console does. The console ignores a relative or empty one and keeps the
+/// directory an earlier line names. vtium-config refuses it and names the
+/// file and the key, so it never lists or writes frits in a directory the
+/// user did not mean. A file that cannot be read is refused with its
 /// reason, as the TUI's start refuses it.
 pub fn frits_dir(configdir: &Path) -> Frits {
     let key = vtium_settings::keys::FONT_FRITS.name;
-    let conf = configdir.join("vtium.conf");
-    let Some(value) =
-        crate::tui::read_conf(&conf)?.and_then(|text| vtium_settings::setting(&text, key))
-    else {
+    let file = configdir.join("vtium.conf");
+    let set = crate::tui::read_conf(&file)?.and_then(|text| vtium_settings::setting(&text, key));
+    let Some(value) = set else {
         return Ok(PathBuf::from(vtium_settings::keys::FRITS));
     };
-    if Path::new(&value).is_absolute() {
+    if vtium_settings::keys::absolute(&value) {
         Ok(PathBuf::from(value))
     } else {
         Err(format!(
-            "{}: {key}={value:?} is not an absolute path, so vtium-config does not know which directory the frits are in; set {key} to an absolute path, or name the directory with --frits",
-            conf.display()
+            "{}: {key}={value:?}: {}, so vtium-config does not know which directory the frits are in; set {key} to an absolute path, or name the directory with --frits",
+            file.display(),
+            vtium_settings::keys::NOT_ABSOLUTE
         ))
     }
 }

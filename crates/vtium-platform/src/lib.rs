@@ -85,6 +85,7 @@ mod queue;
 pub mod rt_signal;
 pub mod udev;
 pub mod vt;
+pub mod watch;
 
 pub use bounds::{
     DAMAGE_CLIPS_MAX, EXIT_FEED_MAX, FLIP_WAIT_MS, IMAGE_CRASHES_MAX, IMAGE_HELPER_BASE,

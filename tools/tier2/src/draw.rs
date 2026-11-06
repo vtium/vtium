@@ -789,21 +789,21 @@ mod tests {
         assert_eq!(refused, "5 notices, where a head shows at most 4");
     }
 
-    // The head file's notices are the console lines of their outcomes,
-    // from the catalog, each with its next step, naming vtium's head file
-    // and no error (ADR-1401 D7).
+    // The notices of vtium.conf's sections are the console lines of their
+    // outcomes, from the catalog, each with its next step, naming the
+    // installed vtium.conf and no error (ADR-1401 D7, ADR-1403 D6).
     #[test]
     fn the_head_file_notices_are_their_outcomes_console_lines() {
         assert_eq!(
             crate::notices::head_file_one_error().as_deref(),
             Ok(
-                "config partly invalid, running what's valid\nRun vtium check-config /etc/vtium/heads.conf to see why."
+                "config partly invalid, running what's valid\nRun vtium check-config /etc/vtium/vtium.conf to see why."
             )
         );
         assert_eq!(
             crate::notices::head_file_two_errors().as_deref(),
             Ok(
-                "invalid config skipped, using builtin\nRun vtium check-config /etc/vtium/heads.conf to see why."
+                "invalid config skipped, using builtin\nRun vtium check-config /etc/vtium/vtium.conf to see why."
             )
         );
     }
@@ -817,12 +817,12 @@ mod tests {
             crate::notices::panic().as_deref(),
             Ok(concat!(
                 "vtium: config invalid, policy closed: input off\n",
-                "The errors in /etc/vtium/heads.conf, listed below, leave no head that can run.\n",
-                "/etc/vtium/heads.conf:4: This section takes no key named \"focs\". Check the key's spelling, or remove the line.\n",
-                "/etc/vtium/heads.conf:5: A head has no `font-size` of its own: its `profile` sets its font. Set the font in the head's profile, or remove the line.\n",
-                "/etc/vtium/heads.conf:7: This rule sends devices to the head \"kisok\", which the file does not declare. Correct the name, or declare the head with its own `[head NAME]` section.\n",
+                "The errors in /etc/vtium/vtium.conf, listed below, leave no head that can run.\n",
+                "/etc/vtium/vtium.conf:4: This section takes no key named \"focs\". Check the key's spelling, or remove the line.\n",
+                "/etc/vtium/vtium.conf:5: A head's section cannot set `font-size`: the head takes it from its look. Set it in the `[look NAME]` section the head names, or at the top of vtium.conf, above the first section, for every head.\n",
+                "/etc/vtium/vtium.conf:7: This rule sends devices to the head \"kisok\", which the file does not declare. Correct the name, or declare the head with its own `[head NAME]` section.\n",
                 "More errors: 1\n",
-                "Nothing on this console takes input. Run vtium check-config /etc/vtium/heads.conf over ssh, or from other boot media, for the full report.",
+                "Nothing on this console takes input. Run vtium check-config /etc/vtium/vtium.conf over ssh, or from other boot media, for the full report.",
             ))
         );
     }
@@ -837,10 +837,10 @@ mod tests {
         fn shown() -> Result<vtium_render::Notice, String> {
             Ok(vtium_render::Notice::new(concat!(
                 "vtium: config invalid, policy closed: input off\n",
-                "The errors in /etc/vtium/heads.conf, listed below, leave no head that can run.\n",
-                "/etc/vtium/heads.conf:4: This section takes no key named \"focs\". Check the key's spelling, or remove the line.\n",
+                "The errors in /etc/vtium/vtium.conf, listed below, leave no head that can run.\n",
+                "/etc/vtium/vtium.conf:4: This section takes no key named \"focs\". Check the key's spelling, or remove the line.\n",
                 "More errors: 3\n",
-                "Nothing on this console takes input. Run vtium check-config /etc/vtium/heads.conf over ssh, or from other boot media, for the full report.",
+                "Nothing on this console takes input. Run vtium check-config /etc/vtium/vtium.conf over ssh, or from other boot media, for the full report.",
             )))
         }
         let screen = |alone: Alone| Screen {

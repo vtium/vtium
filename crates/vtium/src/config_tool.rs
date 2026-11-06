@@ -64,7 +64,7 @@ pub fn subcommand(args: &[OsString]) -> Option<i32> {
     // The configuration files alone: every word after `config` is the
     // tool's. A file that does not read leaves the key at its default, as
     // at a start.
-    let loaded = config::load(&[], Some("seat0"), &mut config::read_file);
+    let loaded = config::load(&[], &mut config::read_file);
     Some(run(
         &loaded.config,
         rest,
@@ -94,16 +94,32 @@ mod tests {
     /// The configuration with `font-helper` naming `program`, and no file.
     fn naming(program: &Path) -> Config {
         let arg = OsString::from(format!("--font-helper={}", program.display()));
-        config::load(&[arg], None, &mut |_| Ok(None)).config
+        config::load(&[arg], &mut |_| Ok(None)).config
     }
 
-    /// A directory of the test's own, emptied.
-    fn scratch(name: &str) -> PathBuf {
+    /// A directory of a test's own, emptied, and removed when the test
+    /// drops it, whether the test passes or fails.
+    struct Scratch(PathBuf);
+
+    impl std::ops::Deref for Scratch {
+        type Target = Path;
+        fn deref(&self) -> &Path {
+            &self.0
+        }
+    }
+
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn scratch(name: &str) -> Scratch {
         let dir =
             std::env::temp_dir().join(format!("vtium-config-tool-{}-{name}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
-        dir
+        Scratch(dir)
     }
 
     /// `run` on the tool at `program`: its status, what it wrote, and the
@@ -150,7 +166,6 @@ mod tests {
             )),
             "{err}"
         );
-        fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
@@ -176,7 +191,6 @@ mod tests {
                 )
             );
         }
-        fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
@@ -196,7 +210,6 @@ mod tests {
                 "{err}"
             );
         }
-        fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

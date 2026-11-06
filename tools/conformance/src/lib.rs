@@ -6,8 +6,7 @@
 //! over `vtium-term`: a byte stream and the test commands
 //! in it go in, and the screen or frame view comes out as text.
 //! `conformance` replays every case of the corpus and judges each against
-//! its golden, expecting vtium's own output for exactly the cases
-//! `expected.tsv` lists, and judges the capability probes against
+//! its golden, and judges the capability probes against
 //! `capabilities.list`. The crate's README describes both.
 
 pub mod command;

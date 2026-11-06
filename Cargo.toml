@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/*", "tools/conformance", "tools/cover-tables", "tools/site", "tools/specimens", "tools/tier2"]
+members = ["crates/*", "tools/conformance", "tools/cover-tables", "tools/site", "tools/specimens", "tools/tier2", "tools/tui-review"]
 
 [workspace.package]
 version = "0.1.0-alpha.5"
@@ -18,6 +18,7 @@ vtium-font = { path = "crates/vtium-font" }
 vtium-render = { path = "crates/vtium-render" }
 vtium-platform = { path = "crates/vtium-platform" }
 vtium-settings = { path = "crates/vtium-settings" }
+vtium-devices = { path = "crates/vtium-devices" }
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"

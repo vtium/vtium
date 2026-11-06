@@ -19,6 +19,6 @@ for ((b = 0; b < 8; b++)); do
 	done
 	s+='-'
 done
-printf 'One sixel with more work than kmscon parses at once:\n'
+printf 'One sixel with more work than vtium parses at once:\n'
 printf '%s%s\\\r\n' "$s" "$esc"
 printf 'Parsed in order: this line comes after the picture.\n'

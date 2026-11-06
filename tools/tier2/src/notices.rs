@@ -4,26 +4,24 @@
 //! active and showing console 2 of 3, the head `side` beside it, and the
 //! keyboard at `/dev/input/event3`.
 
-use std::sync::atomic::{AtomicU64, Ordering};
-
 use vtium::notice;
 use vtium_render::Notice;
 
 /// The keyboard the rescue key moves.
 const KEYBOARD: &str = "/dev/input/event3";
 
-/// A head file with one error, a rule naming a head the file does not
+/// A vtium.conf with one error in its sections, a rule naming a head the file does not
 /// declare, which drops that rule alone: partly broken.
 const ONE_ERROR: &str = "version = 1\n[head desk]\n[rules]\ndisplay * -> desc\n";
 
-/// A head file with two errors: the same rule, and a `[head]` key vtium
+/// A vtium.conf with two errors in its sections: the same rule, and a `[head]` key vtium
 /// does not know, which drops the head: broken, under open.
 const TWO_ERRORS: &str =
     "version = 1\n[head desk]\nfont-weight = bold\n[rules]\ndisplay * -> desc\n";
 
-/// A closed kiosk's head file with four errors: a key its head section
-/// does not take, a head font key the format no longer has, which drops
-/// the head, a rule naming a head the file does not declare, and a second
+/// A closed kiosk's vtium.conf with four errors in its sections: a key
+/// its head section does not take, a font key that only the top level
+/// and a look may set, which drops the head, a rule naming a head the file does not declare, and a second
 /// `[rules]`. No head survives, so the start shows the panic screen
 /// (ADR-1401 D7).
 const BROKEN_CLOSED: &str = "version = 1\npolicy = closed\n[head kiosk]\nfocs = 1\nfont-size = 24\n[rules]\ndisplay * -> kisok\n[rules]\ninput * -> kiosk\n";
@@ -56,6 +54,12 @@ pub fn rescue_no_head() -> Result<String, String> {
     Ok(notice::rescue_no_head(KEYBOARD))
 }
 
+/// The notice of a console the open chord opened whose login could not
+/// start (ADR-1401 D5).
+pub fn no_console_opened() -> Result<String, String> {
+    Ok(notice::NO_CONSOLE_OPENED.to_owned())
+}
+
 pub fn oneshot() -> Result<String, String> {
     Ok(notice::session_ended())
 }
@@ -68,7 +72,7 @@ pub fn head_file_two_errors() -> Result<String, String> {
     head_file(TWO_ERRORS)
 }
 
-/// The text of the panic screen of a broken closed head file, every error
+/// The text of the panic screen of a broken closed vtium.conf, every error
 /// it holds, as the start at vtium's own path builds it from the file's
 /// bytes (ADR-1401 D7).
 pub fn panic() -> Result<String, String> {
@@ -82,11 +86,11 @@ pub fn panic_screen() -> Result<Notice, String> {
 }
 
 fn panic_report() -> Result<vtium_render::NoticeReport, String> {
-    let path = std::path::Path::new(vtium_settings::HEAD_FILE);
+    let path = std::path::Path::new(vtium_settings::CONF_FILE);
     vtium::head::Start::trusted(path, BROKEN_CLOSED.as_bytes())
         .report()
         .cloned()
-        .ok_or_else(|| format!("the head file {BROKEN_CLOSED:?} shows no panic screen"))
+        .ok_or_else(|| format!("the file {BROKEN_CLOSED:?} shows no panic screen"))
 }
 
 /// The notice of a closed file whose heads have no display, alone on the
@@ -111,32 +115,12 @@ pub fn stopped() -> Result<Notice, String> {
     Ok(Notice::new(notice::stopped()))
 }
 
-/// The notice the start shows for the head file `text`, its console line
-/// and the next step, as
-/// [`vtium::head::rules`] reads it (ADR-1401 D7). The file is written to a
-/// scratch directory of this process's own.
+/// The notice the start shows for the vtium.conf `text`, read as the
+/// installed file, its console line and the next step, as
+/// [`vtium::head::Start::trusted`] reads it (ADR-1401 D7, ADR-1403 D3).
 fn head_file(text: &str) -> Result<String, String> {
-    use std::os::unix::fs::MetadataExt;
-    static CALLS: AtomicU64 = AtomicU64::new(0);
-    let dir = std::env::temp_dir().join(format!(
-        "vtium-tier2-heads-{}-{}",
-        std::process::id(),
-        CALLS.fetch_add(1, Ordering::Relaxed)
-    ));
-    let path = dir.join("heads.conf");
-    let read = || {
-        std::fs::create_dir(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-        std::fs::write(&path, text).map_err(|e| format!("{}: {e}", path.display()))?;
-        let uid = std::fs::metadata(&path)
-            .map_err(|e| format!("{}: {e}", path.display()))?
-            .uid();
-        let trust = vtium_settings::Trust::owner(uid).below(&dir);
-        let start = vtium::head::rules(&path, &trust);
-        start
-            .notice()
-            .ok_or_else(|| format!("the head file {text:?} shows no notice"))
-    };
-    let shown = read();
-    let _ = std::fs::remove_dir_all(&dir);
-    shown
+    let path = std::path::Path::new(vtium_settings::CONF_FILE);
+    vtium::head::Start::trusted(path, text.as_bytes())
+        .notice()
+        .ok_or_else(|| format!("the file {text:?} shows no notice"))
 }

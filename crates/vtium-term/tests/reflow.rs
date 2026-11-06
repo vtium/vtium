@@ -885,39 +885,92 @@ fn reflow_cost() {
     }
 }
 
-/// The time, the least of three runs, to lower the byte budget under a
-/// logical line of `rows` rows with no wide character, waiting after a
-/// narrowing, so that nearly all of it goes.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "a scaling check reads the clock; nothing it reads reaches the screen"
-)]
-fn drop_time(rows: usize) -> std::time::Duration {
-    (0..3)
-        .map(|_| {
-            let mut t = Terminal::new(100, 4, 100_000);
-            t.screen_mut().set_scrollback_max(100_000);
-            t.screen_mut().set_scrollback_memory(1 << 30);
-            t.input("x".repeat(100 * rows).as_bytes());
-            t.screen_mut().resize(99, 4);
-            let start = std::time::Instant::now();
-            t.screen_mut().set_scrollback_memory(1 << 12);
-            let took = start.elapsed();
-            assert!(t.screen().scrollback_bytes() <= 1 << 12);
-            took
-        })
-        .min()
-        .unwrap()
+/// The work of lowering the byte budget under a logical line of `rows`
+/// rows with no wide character, waiting after a narrowing, so that nearly
+/// all of it goes: the times the allocator is asked for memory, and the
+/// rows the scrollback reads to find its oldest waiting line.
+fn drop_work(rows: usize) -> (usize, usize) {
+    let mut t = Terminal::new(100, 4, 100_000);
+    t.screen_mut().set_scrollback_max(100_000);
+    t.screen_mut().set_scrollback_memory(1 << 30);
+    t.input("x".repeat(100 * rows).as_bytes());
+    t.screen_mut().resize(99, 4);
+    let before = t.screen().scrollback_rows_read();
+    let (asked, ()) = counting::asked(|| t.screen_mut().set_scrollback_memory(1 << 12));
+    assert!(t.screen().scrollback_bytes() <= 1 << 12);
+    (asked, t.screen().scrollback_rows_read() - before)
 }
 
 // vtium/vtium#131's review: dropping past `sb-memory` from a waiting line
-// that breaks by length is linear in the rows dropped. Four times the rows
-// take about four times as long; a drop a row at a time took sixteen.
+// that breaks by length drops as many rows at once as free the excess, so
+// the work is linear in the rows dropped. A drop a row at a time reread
+// the waiting line for each row it dropped: four times the rows took
+// sixteen times as long, and the drop asked the allocator for memory at
+// least once for each row. Dropped in batches, the drop reads each row of
+// the line a few times at most and asks the allocator fewer than once for
+// every 10 rows.
 #[test]
 fn dropping_past_the_byte_budget_is_linear() {
-    let (small, large) = (drop_time(2000), drop_time(8000));
-    assert!(
-        large < small * 8,
-        "2,000 rows {small:?}, 8,000 rows {large:?}"
-    );
+    for rows in [2000, 8000] {
+        let (asked, read) = drop_work(rows);
+        assert!(asked * 10 < rows, "{rows} rows asked {asked} times");
+        assert!(read <= 4 * rows, "{rows} rows read {read} rows");
+    }
+}
+
+/// The allocator of this test binary: the system's, counting on each
+/// thread the times that thread asks for memory, so a test can measure the
+/// work a call does by its allocations, whatever else runs at the same
+/// time.
+mod counting {
+    use std::alloc::{GlobalAlloc, Layout, System};
+    use std::cell::Cell;
+
+    thread_local! {
+        static ASKED: Cell<usize> = const { Cell::new(0) };
+    }
+
+    fn count() {
+        // A thread being torn down counts nothing.
+        let _ = ASKED.try_with(|a| a.set(a.get().saturating_add(1)));
+    }
+
+    /// The times this thread asked for memory while `f` ran, and what `f`
+    /// returned.
+    pub fn asked<T>(f: impl FnOnce() -> T) -> (usize, T) {
+        let before = ASKED.with(Cell::get);
+        let out = f();
+        (ASKED.with(Cell::get).saturating_sub(before), out)
+    }
+
+    pub struct Counting;
+
+    // SAFETY: each call is passed on to the system allocator unchanged.
+    unsafe impl GlobalAlloc for Counting {
+        unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+            count();
+            // SAFETY: the caller's layout, passed on.
+            unsafe { System.alloc(layout) }
+        }
+
+        unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
+            count();
+            // SAFETY: the caller's layout, passed on.
+            unsafe { System.alloc_zeroed(layout) }
+        }
+
+        unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+            // SAFETY: the caller's pointer and layout, passed on.
+            unsafe { System.dealloc(ptr, layout) }
+        }
+
+        unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, size: usize) -> *mut u8 {
+            count();
+            // SAFETY: the caller's pointer, layout and size, passed on.
+            unsafe { System.realloc(ptr, layout, size) }
+        }
+    }
+
+    #[global_allocator]
+    static COUNTING: Counting = Counting;
 }

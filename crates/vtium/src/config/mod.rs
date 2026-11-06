@@ -1,12 +1,20 @@
-//! The configuration: `vtium.conf` in the C reference's key syntax,
-//! `<seat>.seat.conf` over it, and the command line over both.
+//! The configuration: the top level of `vtium.conf` in the C reference's
+//! key syntax, and the command line over it (ADR-1403 D2, D3).
 //!
-//! [`keys`] holds the one table of keys. [`load`] reads every source and
+//! [`keys`] holds the one table of keys. [`load`] reads both sources and
 //! gives the [`Config`] and the [`Report`]s of what it could not take: a
 //! key it does not know, reported once however often it appears, a value
 //! out of its bound, clamped, and a value it cannot read, ignored with the
-//! key left as the sources below it set it. Nothing in a file stops the
-//! rest of the file being read.
+//! key left as the sources below it set it. Nothing in the top level stops
+//! the rest of it being read. vtium.conf's sections, the flow of ADR-1403,
+//! are the head layer's to read: [`Loaded::file`] keeps the file as
+//! [`load`] found it for that reading, and [`Config::for_head`] lays a
+//! head's sections over the top level (D5).
+//!
+//! [`read_file`] reads vtium.conf only when the ownership check trusts it
+//! (D3): a file root owns, or one the account vtium runs as owns, that
+//! neither its group nor others can write, in directories that pass the
+//! same check. vtium reads none of a file that fails and says why.
 //!
 //! A file is untrusted input and every size is bounded: [`FILE_MAX`] bytes
 //! of a file are read, a line holds at most [`LINE_MAX`] bytes, a text
@@ -24,12 +32,11 @@ mod value;
 #[cfg(test)]
 mod tests;
 
-use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::ffi::OsString;
 use std::fmt;
-use std::io::{self, Read};
+use std::io;
 use std::path::{Path, PathBuf};
 
 pub use keys::{KEYS, Key, Kind, Scope, TEXT_MAX};
@@ -54,7 +61,8 @@ pub const REPORTS_MAX: usize = 64;
 pub enum Value {
     Switch(bool),
     Number(u64),
-    /// A [`Kind::Text`], [`Kind::Choice`] or [`Kind::Char`] value.
+    /// A [`Kind::Text`], [`Kind::Path`], [`Kind::Choice`] or [`Kind::Char`]
+    /// value.
     Text(String),
     /// A command's words, passed to it as given.
     Command(Vec<OsString>),
@@ -143,6 +151,9 @@ pub enum Problem {
     UnknownKey(String),
     /// The key is set on the command line only.
     CommandLineOnly(&'static str),
+    /// The key is set in a section of vtium.conf only, never at its top
+    /// level or on the command line, such as a look's `cell`.
+    SectionOnly(&'static str),
     /// The key needs a value and was given none.
     NeedsValue(&'static str),
     /// A switch was given a value.
@@ -192,8 +203,9 @@ pub enum Problem {
     StrayArgument(String),
     /// `--login` with no command after `--`.
     LoginWithoutCommand,
-    /// The seat's name cannot name a file, so its file is not read.
-    BadSeatName(String),
+    /// The file fails the ownership check, so none of it is read
+    /// (ADR-1403 D3).
+    Untrusted(vtium_settings::Untrusted),
     /// This many reports more were not kept.
     More(usize),
 }
@@ -204,6 +216,7 @@ impl Problem {
         match self {
             Problem::UnknownKey(k) => Some(k),
             Problem::CommandLineOnly(k)
+            | Problem::SectionOnly(k)
             | Problem::NeedsValue(k)
             | Problem::TakesNoValue(k)
             | Problem::TooLong(k)
@@ -222,7 +235,7 @@ impl Problem {
             | Problem::NotAFile
             | Problem::StrayArgument(_)
             | Problem::LoginWithoutCommand
-            | Problem::BadSeatName(_)
+            | Problem::Untrusted(_)
             | Problem::More(_) => None,
         }
     }
@@ -247,6 +260,9 @@ impl fmt::Display for Problem {
             Problem::UnknownKey(k) => write!(f, "unknown key {}, ignored", quote(k)),
             Problem::CommandLineOnly(k) => {
                 write!(f, "{k} is set on the command line only, ignored")
+            }
+            Problem::SectionOnly(k) => {
+                write!(f, "{k} is set only in a [look NAME] section, ignored")
             }
             Problem::NeedsValue(k) => write!(f, "{k} needs a value, ignored"),
             Problem::TakesNoValue(k) => write!(f, "{k} takes no value, ignored"),
@@ -292,9 +308,7 @@ impl fmt::Display for Problem {
             Problem::LoginWithoutCommand => {
                 write!(f, "--login needs a command after --, ignored")
             }
-            Problem::BadSeatName(s) => {
-                write!(f, "the seat {} names no file, its file not read", quote(s))
-            }
+            Problem::Untrusted(why) => write!(f, "{}", why.refusal()),
             Problem::More(n) => write!(f, "{n} more reports"),
         }
     }
@@ -360,7 +374,10 @@ pub struct Config {
     values: BTreeMap<&'static str, (Option<Value>, Origin)>,
     /// The keys whose value was asked for, which a test holds against
     /// the table: each key a file sets is read or listed as not built.
-    read: RefCell<BTreeSet<&'static str>>,
+    /// A head's configuration ([`Config::for_head`]) is a clone that
+    /// records the keys asked of it here too, so the record covers the
+    /// keys every head reads.
+    read: std::sync::Arc<std::sync::Mutex<BTreeSet<&'static str>>>,
 }
 
 impl PartialEq for Config {
@@ -380,7 +397,7 @@ impl std::default::Default for Config {
             .collect();
         Config {
             values,
-            read: RefCell::default(),
+            read: std::sync::Arc::default(),
         }
     }
 }
@@ -403,7 +420,9 @@ impl Config {
     }
 
     fn get(&self, key: &Key) -> Option<&Value> {
-        self.read.borrow_mut().insert(key.name);
+        if let Ok(mut read) = self.read.lock() {
+            read.insert(key.name);
+        }
         self.values.get(key.name).and_then(|(v, _)| v.as_ref())
     }
 
@@ -419,7 +438,7 @@ impl Config {
 
     /// The names of the keys whose value was asked for so far.
     pub fn read(&self) -> BTreeSet<&'static str> {
-        self.read.borrow().clone()
+        self.read.lock().map(|r| r.clone()).unwrap_or_default()
     }
 
     /// A switch's value; false for a key that is no switch.
@@ -459,22 +478,49 @@ impl Config {
         }
     }
 
-    /// This configuration with `login` the command `text`, read as a
-    /// file's `login` line is: a head's own `login` (ADR-1401 D3). The
-    /// reports when `text` gives no command.
-    pub fn with_login(&self, text: &str) -> Result<Config, Vec<Report>> {
+    /// This configuration, the top level with the command line over it,
+    /// with a head's section keys `settings` laid over it (ADR-1403 D5):
+    /// the keys [`vtium_settings::Config::settings`] gives, each once at
+    /// the most specific level that sets it, its head's section or its
+    /// look's, since a section wins over the top level and the command
+    /// line alike. Each value goes through the parser the top level's
+    /// lines go through, with its line of `path`; the section reader has
+    /// checked it against the same table, so a report here is one the
+    /// section reader let pass, and the key keeps the top level's value.
+    ///
+    /// A look's `cell` reaches the head only where the same look sets no
+    /// `font-size` other than 0: within one look, its `font-size` wins
+    /// over its `cell` (ADR-1200 D16, ADR-1403 D5). Only a look sets
+    /// `cell`, so a `cell` in the configuration this gives is the look's,
+    /// and it wins over the top level's `font-size` ([`crate::head`]).
+    pub fn for_head(
+        &self,
+        path: &Path,
+        settings: &[vtium_settings::Setting],
+    ) -> (Config, Vec<Report>) {
         let mut reports = Reports::default();
-        let value = value::parse(&keys::LOGIN, text, &Origin::Default, &mut reports);
-        let Some(value) = value else {
-            return Err(reports.finish());
-        };
         let mut config = self.clone();
-        config.set(Assignment {
-            key: &keys::LOGIN,
-            value,
-            origin: Origin::Default,
-        });
-        Ok(config)
+        let mut sized = false;
+        for setting in settings {
+            let origin = Origin::File {
+                path: path.to_owned(),
+                line: setting.line,
+            };
+            if let Some(value) = value::parse(setting.key, &setting.value, &origin, &mut reports) {
+                if setting.key.name == keys::FONT_SIZE.name {
+                    sized = value != Value::Number(0);
+                }
+                config.set(Assignment {
+                    key: setting.key,
+                    value,
+                    origin,
+                });
+            }
+        }
+        if sized {
+            config.values.remove(keys::CELL.name);
+        }
+        (config, reports.finish())
     }
 
     /// A color key's value, if set.
@@ -547,6 +593,22 @@ impl Config {
     }
 }
 
+/// vtium.conf as [`load`] found it, for the reading of its sections, the
+/// flow of ADR-1403, which the head layer makes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum File {
+    /// There is no vtium.conf: vtium runs its compiled-in flow.
+    Missing,
+    /// vtium.conf fails the ownership check, and none of it is read
+    /// (ADR-1403 D3).
+    Untrusted(vtium_settings::Untrusted),
+    /// vtium.conf cannot be read as a file.
+    Inaccessible,
+    /// vtium.conf's bytes, at most [`FILE_MAX`] and one, the top level's
+    /// and the sections' alike.
+    Read(Vec<u8>),
+}
+
 /// What [`load`] gives: the configuration, and what it could not take.
 #[derive(Debug)]
 pub struct Loaded {
@@ -554,9 +616,17 @@ pub struct Loaded {
     pub reports: Vec<Report>,
     /// The command line names the subcommand `check-config`.
     pub check: bool,
-    /// The head file the command line gives `check-config` to check in
+    /// The vtium.conf the command line gives `check-config` to check in
     /// place of the installed one.
     pub candidate: Option<PathBuf>,
+    /// `check-config --no-devices`: the rules are judged alone, without
+    /// the devices present (ADR-1403 D3).
+    pub no_devices: bool,
+    /// The vtium.conf read: the candidate, else `vtium.conf` in the
+    /// configuration directory.
+    pub path: PathBuf,
+    /// vtium.conf as it was found.
+    pub file: File,
 }
 
 impl Loaded {
@@ -574,39 +644,31 @@ impl Loaded {
     }
 }
 
-/// The configuration files under `dir`, the lowest precedence first: the
-/// main file, `vtium.conf`, then the seat's. The configuration directory
-/// is `/etc/vtium` unless `--configdir` names another, and vtium never
-/// reads the C reference's `/etc/kmscon` (ADR-1500 D4).
-pub fn files(dir: &Path, seat: Option<&str>) -> Vec<PathBuf> {
-    let mut out = vec![dir.join("vtium.conf")];
-    if let Some(seat) = seat {
-        out.push(dir.join(format!("{seat}.seat.conf")));
-    }
-    out
+/// The configuration file in the configuration directory `dir`:
+/// `vtium.conf`, the one file vtium reads (ADR-1403 D2). The configuration
+/// directory is `/etc/vtium` unless `--configdir` names another, and vtium
+/// never reads the C reference's `/etc/kmscon` (ADR-1500 D4).
+pub fn file(dir: &Path) -> PathBuf {
+    dir.join("vtium.conf")
 }
 
-/// A seat's name as logind allows it, which names a file under the
-/// configuration directory and nothing outside it.
-fn seat_name_ok(seat: &str) -> bool {
-    const SUFFIX: usize = ".seat.conf".len();
-    !seat.is_empty()
-        && seat.len().saturating_add(SUFFIX) <= 255
-        && seat
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+/// The vtium.conf the console reads under `config`: [`file`] in the
+/// configuration directory `config` names.
+pub fn path(config: &Config) -> PathBuf {
+    file(Path::new(config.text(&keys::CONFIGDIR).unwrap_or_default()))
 }
 
 /// Reads the configuration: `args` (the command line after the program's
-/// name), then the files [`files`] names under `configdir`, which `args`
-/// may set, for `seat`. `read` gives a file's bytes, or `None` when it does
-/// not exist, and needs to give no more than [`FILE_MAX`] and one.
+/// name), then the top level of vtium.conf, the file [`file`] names in the
+/// configuration directory `args` may set, or the candidate `check-config`
+/// is given. `read` gives a file's bytes, or `None` when it does not
+/// exist, and needs to give no more than [`FILE_MAX`] and one; an error
+/// that wraps [`NotTrusted`] is a file the ownership check fails, which
+/// [`read_file`] gives.
 ///
-/// The command line wins over the seat's file, and the seat's file over the
-/// main one.
+/// The command line wins over the file.
 pub fn load(
     args: &[OsString],
-    seat: Option<&str>,
     read: &mut dyn FnMut(&Path) -> io::Result<Option<Vec<u8>>>,
 ) -> Loaded {
     let mut reports = Reports::default();
@@ -614,6 +676,7 @@ pub fn load(
         assignments: given,
         check,
         candidate,
+        no_devices,
     } = cmdline::parse(args, &mut reports);
 
     let mut config = Config::default();
@@ -625,37 +688,39 @@ pub fn load(
         config.set(dir.clone());
     }
     let dir = PathBuf::from(config.text(&keys::CONFIGDIR).unwrap_or_default());
-    let seat = seat.filter(|s| {
-        let ok = seat_name_ok(s);
-        if !ok {
-            reports.push(Origin::Default, Problem::BadSeatName((*s).to_owned()));
-        }
-        ok
-    });
-
-    for path in files(&dir, seat) {
-        let origin = Origin::File {
-            path: path.clone(),
-            line: 0,
-        };
-        let mut bytes = match read(&path) {
-            Ok(Some(bytes)) => bytes,
-            Ok(None) => continue,
-            Err(e) => {
-                let problem = if e.get_ref().is_some_and(|e| e.is::<NotAFile>()) {
+    let path = candidate.clone().unwrap_or_else(|| file(&dir));
+    let origin = Origin::File {
+        path: path.clone(),
+        line: 0,
+    };
+    let found = match read(&path) {
+        Ok(Some(bytes)) => File::Read(bytes),
+        Ok(None) => File::Missing,
+        Err(e) => {
+            let inner = e.get_ref();
+            if let Some(NotTrusted(why)) = inner.and_then(|e| e.downcast_ref::<NotTrusted>()) {
+                reports.push(origin.clone(), Problem::Untrusted(why.clone()));
+                File::Untrusted(why.clone())
+            } else {
+                let problem = if inner.is_some_and(|e| e.is::<NotAFile>()) {
                     Problem::NotAFile
                 } else {
                     Problem::Unreadable(e.kind())
                 };
-                reports.push(origin, problem);
-                continue;
+                reports.push(origin.clone(), problem);
+                File::Inaccessible
             }
-        };
-        if bytes.len() > FILE_MAX {
-            bytes.truncate(FILE_MAX);
-            reports.push(origin, Problem::FileTooLong);
         }
-        for a in file::parse(&bytes, &path, &mut reports) {
+    };
+    if let File::Read(bytes) = &found {
+        let top = match bytes.get(..FILE_MAX) {
+            Some(within) if bytes.len() > FILE_MAX => {
+                reports.push(origin, Problem::FileTooLong);
+                within
+            }
+            _ => bytes.as_slice(),
+        };
+        for a in file::parse(top, &path, &mut reports) {
             config.set(a);
         }
     }
@@ -667,6 +732,9 @@ pub fn load(
         reports: reports.finish(),
         check,
         candidate,
+        no_devices,
+        path,
+        file: found,
     }
 }
 
@@ -682,13 +750,53 @@ impl fmt::Display for NotAFile {
 
 impl std::error::Error for NotAFile {}
 
-/// Reads `path` for [`load`]: `None` when it does not exist, and at most
-/// [`FILE_MAX`] and one bytes. It is opened as the C reference opened it,
-/// so that a tty never becomes the controlling one (`O_NOCTTY`,
-/// `src/misc/conf.c:533-590`), and without blocking, so that a FIFO is
-/// refused at once with anything else that is not a regular file.
+/// The error [`read_file`] gives for a file the ownership check fails,
+/// with why it fails.
+#[derive(Debug)]
+pub struct NotTrusted(pub vtium_settings::Untrusted);
+
+impl fmt::Display for NotTrusted {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0.refusal())
+    }
+}
+
+impl std::error::Error for NotTrusted {}
+
+/// Reads `path` for [`load`] as the console reads vtium.conf: `None` when
+/// it does not exist, and at most [`FILE_MAX`] and one bytes once the
+/// ownership check trusts it (ADR-1403 D3). The check trusts root's file
+/// and, for a vtium that runs as another user, as the tests and a run by
+/// hand do, that user's own, where neither the file's group nor others
+/// can write it or a directory above it. Anything but a regular file is
+/// refused before it is opened, and the file is opened as
+/// [`read_bytes`] opens it.
 pub fn read_file(path: &Path) -> io::Result<Option<Vec<u8>>> {
+    let trust = vtium_settings::Trust::running_as(rustix::process::geteuid().as_raw());
+    let inspected = match vtium_settings::inspect(path, &trust) {
+        Ok(Some(inspected)) => inspected,
+        Ok(None) => return Ok(None),
+        Err(rejected) => return Err(rejection(&rejected)),
+    };
+    match inspected.trusted {
+        Ok(()) => Ok(Some(inspected.bytes)),
+        Err(why) => Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            NotTrusted(why),
+        )),
+    }
+}
+
+/// Reads `path` whoever owns it: `None` when it does not exist, and at
+/// most [`FILE_MAX`] and one bytes. It is opened as the C reference opened
+/// its files, so that a tty never becomes the controlling one
+/// (`O_NOCTTY`, `src/misc/conf.c:533-590`), and without blocking, so that
+/// a FIFO is refused at once with anything else that is not a regular
+/// file. It reads a frit, and the vtium.conf `vtium check-config` checks
+/// before it is installed, whose ownership it judges apart.
+pub fn read_bytes(path: &Path) -> io::Result<Option<Vec<u8>>> {
     use rustix::fs::{Mode, OFlags};
+    use std::io::Read;
     let flags = OFlags::RDONLY | OFlags::NOCTTY | OFlags::NONBLOCK | OFlags::CLOEXEC;
     let fd = match rustix::fs::open(path, flags, Mode::empty()) {
         Ok(fd) => fd,
@@ -705,4 +813,15 @@ pub fn read_file(path: &Path) -> io::Result<Option<Vec<u8>>> {
         .saturating_add(1);
     file.take(limit).read_to_end(&mut bytes)?;
     Ok(Some(bytes))
+}
+
+/// The error a refusal to open or read the file gives [`load`].
+fn rejection(rejected: &vtium_settings::Rejected) -> io::Error {
+    match rejected.errors.first().map(|e| &e.problem) {
+        Some(vtium_settings::Problem::NotAFile) => {
+            io::Error::new(io::ErrorKind::InvalidInput, NotAFile)
+        }
+        Some(vtium_settings::Problem::Unreadable(kind)) => io::Error::from(*kind),
+        _ => io::Error::other("cannot be read"),
+    }
 }

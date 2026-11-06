@@ -37,17 +37,19 @@ The packages install these files:
 | File | What it is |
 |---|---|
 | `/usr/bin/vtium` | the console, with its subcommands `vtium console`, `vtium check-config`, `vtium config`, `vtium blank` and `vtium wake` |
-| `/usr/bin/vtium-config` | the font and settings tool, which `vtium config` runs: `vtium config tui` opens a tool that tries each font on the live console and saves your choice into vtium.conf, and `vtium config set` switches the font; it is also the glyph helper, which draws a font's glyphs for the console |
+| `/usr/bin/vtium-config` | the configuration tool, which `vtium config` runs: it keeps your changes in a draft and installs the draft as `/etc/vtium/vtium.conf` ([Configure vtium](configure.md)), `vtium config tui` opens its full-screen view, which also tries each font on the live console, and `vtium config use-frit` switches the font; it is also the glyph helper, which draws a font's glyphs for the console |
 | `/usr/lib/systemd/system/vtium@.service` | the unit that runs vtium on one VT in place of its getty |
 | `/usr/lib/systemd/system/vtium-getty@.service` | the fallback that starts a getty on the VT when vtium fails |
 | `/usr/bin/vtium-image` | the image helper, which reads a picture a program names by its file, in a console built with `images` |
 | `/usr/lib/sysusers.d/vtium-image.conf` | the image helper's account, in a console built with `images` |
 | `/usr/bin/vtium-gallery` | the picture gallery tool, which shows PNG pictures as a grid of thumbnails, in a console built with `images` |
-| `/etc/vtium/vtium.conf.example` | the example configuration, which lists every key at its default, commented out |
+| `/etc/vtium/vtium.conf.example` | the example configuration, which lists every key at its default, commented out, and then the heads and rules vtium runs with no configuration |
 | `/etc/vtium/fonts/` | the frits `desktop`, `minspec-16` and `minspec-8`; each is ready to choose with `vtium config` or vtium.conf's `font-name`, and a frit that nothing names changes nothing |
-| `/usr/share/doc/vtium/examples/` | an example udev rule and hwdb fragment, which are documentation and never active, and `heads.conf`, the head file's commented template, to copy to `/etc/vtium/heads.conf` for a terminal of its own on each display |
+| `/usr/share/doc/vtium/examples/` | an example udev rule and hwdb fragment, which are documentation and never active |
 | `/usr/share/terminfo/x/xterm-vtium` | the terminfo entry, from the terminfo package |
 | `/usr/share/licenses/<package>/LICENSE` | the license, in each package |
+| `/usr/share/licenses/<package>/COPYING` | vtium's authors and the notices for the third-party code and data vtium builds in, in each package except `vtium-fonts`, which carries only its own `LICENSE` |
+| `/usr/share/licenses/<package>/OFL-1.1.txt`, `rgb-license.txt` | the two license texts that `COPYING` points to, the SIL Open Font License of the Unifont font and the license of X.Org's color names, in each console package |
 
 Installing the packages gives vtium no VT and starts nothing. [Giving vtium a VT](#giving-vtium-a-vt) does that.
 
@@ -79,7 +81,7 @@ $ VTIUM_GIT_URL=file:///home/me/src/vtium VTIUM_GIT_BRANCH=my-branch makepkg -si
 
 On another distribution, `make install DESTDIR=DIR PREFIX=/usr` stages under DIR exactly the files a console package ships, and `make install-terminfo DESTDIR=DIR PREFIX=/usr` stages the terminfo entry, so that a package build can call them. `make install` builds the console with the features `FEATURES='...'` names, none by default, and stages the frits `FRITS='...'` names, by default `desktop`, `minspec-16` and `minspec-8`. `HWACCEL=on` or `off` and `DISPLAY_BUFFERS=1`, `2` or `3` set the defaults of `hwaccel` and `display-buffers` that the build compiles in. The Arch recipes name all three. Both refuse an empty DESTDIR and `/`, so neither installs onto the machine itself. The [vtium-arch README](https://github.com/vtium/vtium-arch) describes how the Arch recipes use them.
 
-`make install-tree` stages the same programs under `target/install-tree`: the console, `vtium-config`, the VT unit and its getty fallback, the terminfo entry, the example configuration, the frits and the head file's template. It also needs `tic`, which compiles the terminfo entry. Tier 3, vtium's test harness on a virtual machine, installs that tree in its guest.
+`make install-tree` stages the same programs under `target/install-tree`: the console, `vtium-config`, the VT unit and its getty fallback, the terminfo entry, the example configuration and the frits. It also needs `tic`, which compiles the terminfo entry. Tier 3, vtium's test harness on a virtual machine, installs that tree in its guest.
 
 ## Giving vtium a VT
 

@@ -1,6 +1,6 @@
 # Heads, by scenario
 
-This page shows the head file, `/etc/vtium/heads.conf`, in the setups it is made for: each scenario's purpose, a complete head file, and what to expect, on an unplug and of what stays shared. [head-file.md](head-file.md) is the file's reference, with its [terms](head-file.md#terms) such as the active head and the rescue key, its syntax and its match keys, and [Heads](concepts/heads.md#two-policies-open-and-closed) explains the two policies the scenarios are sorted by. [ADR-1401](architecture/platform/ADR-1401-heads-a-terminal-per-physical-display-placed-by-a-first-match-ruleset.md) holds every rule; this page applies them. Each scenario's file is also a file of its own under [heads/](heads/), and the `edid:` and `path:` values in them are illustrative.
+This page shows the sections of vtium's configuration file, `/etc/vtium/vtium.conf`, in the setups they are made for: each scenario's purpose, the sections it needs, and what to expect, on an unplug and of what stays shared. The sections are the heads, their looks and the rules, which come below vtium's settings in vtium.conf. Each scenario's text is also a whole vtium.conf on its own, which leaves every setting at its default, so you can check it with `vtium check-config FILE`, or add your settings above its `version` line. [Configure vtium](configure.md) explains how to put it in place, and [head-file.md](head-file.md) is the reference for the sections, with its [terms](head-file.md#terms) such as the active head and the rescue key, its syntax and its match keys, and [Heads](concepts/heads.md#two-policies-open-and-closed) explains the two policies the scenarios are sorted by. [ADR-1401](architecture/platform/ADR-1401-heads-a-terminal-per-physical-display-placed-by-a-first-match-ruleset.md) holds every rule; this page applies them. Each scenario's file is also a file of its own under [heads/](heads/), and the `edid:` and `path:` values in them are illustrative.
 
 ## Under the open policy
 
@@ -8,17 +8,18 @@ This page shows the head file, `/etc/vtium/heads.conf`, in the setups it is made
 
 **Purpose.** A console that can be typed on with no configuration at all.
 
-With no file present, this is what vtium runs today. `vtiumctl template` will write the file with every other setting as a commented line.
+With no section in vtium.conf, or no vtium.conf at all, this is what vtium runs. The shipped example, `/etc/vtium/vtium.conf.example`, lists every setting at its default, commented out, and then these sections.
 
 ```ini
-# /etc/vtium/heads.conf: the compiled-in configuration, written out.
-# Deleting this file gives exactly the same behaviour.
+# The sections of /etc/vtium/vtium.conf that vtium runs when the file has
+# none: the compiled-in configuration, written out. Leaving them out gives
+# exactly the same behaviour.
 version = 1
 policy = open              # open: heads are not isolated, and an input no rule places roams
 
 [head console]             # one head, named "console"
                            # every head key is unset, so:
-                           #   consoles = 1, profile = default,
+                           #   consoles = 1, look = default,
                            #   when-display-lost = keep, isolated = no
 
 [rules]                    # first match wins, top to bottom
@@ -51,11 +52,17 @@ input * -> ignore          # joysticks, tablets, switches: nothing they send is 
 version = 1
 policy = open
 
+[look desk]
+font-name = desk           # the frit desk draws with
+
+[look small]
+font-name = small
+
 [head desk]
-profile = desk             # its font and look, from the profile named desk
+look = desk                # its font, from the look named desk
 
 [head panel]
-profile = small
+look = small
 consoles = 2               # two consoles, which the console chords switch
 when-display-lost = hangup 30s   # panel unplugged: sessions end after 30 s
 
@@ -204,7 +211,9 @@ input path:pci-0000:15:00.0-usb-0:3.3 -> station-3  # station's keyboard and mou
 ```ini
 version = 1
 policy = closed
-# No heads and no rules: a valid file that lights no display and opens no input.
+# No heads and no rules: vtium lights no display and opens no input.
+# vtium check-config refuses this file, since no keyboard can reach a
+# display, so vtium-config never installs it.
 ```
 
 [heads/off.conf](heads/off.conf)

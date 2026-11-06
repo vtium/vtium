@@ -26,7 +26,8 @@ blink_default() {
 # winning, then from its command line, which wins over the file (docs/config.md);
 # with the blink switch off, no text blinks, whatever blink-text says. The
 # file is ACCEPT_VTIUM_CONF, which a review run sets to the config it gives
-# vtium (tools/vt/config/vtium.conf), else /etc/vtium/vtium.conf.
+# vtium (its copy of tools/vt/config/vtium.conf in /run/vtium-vt/config),
+# else /etc/vtium/vtium.conf.
 # ACCEPT_BLINK_TEXT and ACCEPT_BLINK, which a review run sets from the vtium
 # options it was given, stand for the command line. Without any of them the
 # style is vtium's default (blink_default), or unknown when the key table gives

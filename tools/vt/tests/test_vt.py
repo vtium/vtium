@@ -58,6 +58,12 @@ UNITS_SH = os.path.join(VT, "units.sh")
 GUIDE_SH = os.path.join(VT, "checks", "guide.sh")
 ACCEPT_SH = os.path.join(VT, "accept.sh")
 FEEDBACK_SH = os.path.join(VT, "feedback.sh")
+# The sysroot cache tools/arm/sysroot keeps, which every checkout shares, as
+# the caller's environment names it: VTIUM_ARM_SYSROOTS, else under
+# XDG_CACHE_HOME or HOME. Stage.env names it to the tests' builds, because it
+# moves HOME and drops every VTIUM_ variable.
+SYSROOTS = os.path.dirname(subprocess.run([os.path.join(ROOT, "tools", "arm", "sysroot"), "dir", "amd64"],
+                                          capture_output=True, text=True, check=True).stdout.strip())
 # The real systemctl, outside the stand-ins, for the links under a root.
 REAL_SYSTEMCTL = shutil.which("systemctl")
 REAL_ANALYZE = shutil.which("systemd-analyze")
@@ -439,6 +445,10 @@ class Stage:
             # A home of the tests' own, so nothing a test runs can write under
             # the real one, such as the passes directory's default.
             HOME=self.caller_home,
+            # The caller's sysroot cache, which the moved HOME would otherwise
+            # replace with an empty one, where every build's sysroot fetch
+            # would download each package from the Debian mirror again.
+            VTIUM_ARM_SYSROOTS=SYSROOTS,
             CALLS=self.calls,
             COUNT=os.path.join(self.tmp, "count"),
             BIN_ARGS=self.bin_args,
@@ -542,7 +552,7 @@ class RunVt(Case):
         p = self.run_vt("--dry-run", "8", "--", "--font-size=30")
         self.assertEqual(p.returncode, 0, p.stderr)
         self.assertIn("+ " + os.path.join(self.s.standins, "systemctl") + " stop kmsconvt@tty8.service", p.stdout)
-        self.assertIn(f"+ {self.s.standins}/run-vtium-vt/vtium --vt=tty8 --no-switchvt --configdir {VT}/config --oneshot "
+        self.assertIn(f"+ {self.s.standins}/run-vtium-vt/vtium --vt=tty8 --no-switchvt --configdir {self.s.standins}/run-vtium-vt/config --oneshot "
                       f"--font-frits={self.s.standins}/run-vtium-vt/frits --font-size=30 --login --",
                       p.stdout)
         self.assertIn(" start kmsconvt@tty8.service", p.stdout)
@@ -866,7 +876,7 @@ class RunVt(Case):
                                          "--init-groups", "--inh-caps=-all", "--reset-env", "--", *CARRY,
                                          "/usr/bin/env", f"TERMINFO={self.s.standins}/run-vtium-vt/terminfo",
                                          "ACCEPT_LABEL=vtium dev build abc", "ACCEPT_VT=8", f"ACCEPT_BINARY={self.s.bin}",
-                                         "ACCEPT_FEATURES=none", f"ACCEPT_VTIUM_CONF={VT}/config/vtium.conf",
+                                         "ACCEPT_FEATURES=none", f"ACCEPT_VTIUM_CONF={self.s.standins}/run-vtium-vt/config/vtium.conf",
                                          "/bin/bash", os.path.join(VT, "accept.sh")])
 
     def test_the_acceptance_pass_reads_the_blink_style_vtium_is_given(self):
@@ -876,7 +886,7 @@ class RunVt(Case):
         self.assertEqual(p.returncode, 0, p.stderr)
         argv = read(self.s.bin_args).splitlines()
         words = [a for a in argv if a.startswith(("ACCEPT_VTIUM_CONF=", "ACCEPT_BLINK"))]
-        self.assertEqual(words, [f"ACCEPT_VTIUM_CONF={VT}/config/vtium.conf", "ACCEPT_BLINK_TEXT=off",
+        self.assertEqual(words, [f"ACCEPT_VTIUM_CONF={self.s.standins}/run-vtium-vt/config/vtium.conf", "ACCEPT_BLINK_TEXT=off",
                                  "ACCEPT_BLINK=off", "ACCEPT_BLINK=on", "ACCEPT_BLINK_TEXT=full"])
 
     def test_a_file_swapped_in_after_the_check_is_never_copied(self):
@@ -1042,6 +1052,36 @@ class RunVt(Case):
         p = self.run_vt("8")
         self.assertEqual(p.returncode, 0, p.stderr)
         self.assertFalse([a for a in read(self.s.bin_args).splitlines() if a.startswith("--image-helper")])
+
+    def test_vtium_reads_the_reviews_config_from_a_copy_of_roots(self):
+        # vtium reads a vtium.conf only when root owns it and no one else can
+        # write it or a directory above it (ADR-1403 D3), so the run copies
+        # the review's config, read as the user, into the stage, a directory
+        # of root's, and names that directory as --configdir. The checkout's
+        # own directory is never vtium's config directory.
+        source = os.path.join(VT, "config", "vtium.conf")
+        stage = os.path.join(self.s.standins, "run-vtium-vt")
+        p = self.run_vt("--dry-run", "8")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertIn(f"+ install -d -m 0755 -- {stage} {stage}/terminfo {stage}/frits {stage}/config\n",
+                      p.stdout)
+        self.assertIn(f"+ install -m 0644 -- {source} {stage}/config/vtium.conf\n", p.stdout)
+        self.assertIn(f" --configdir {stage}/config ", p.stdout)
+        self.assertNotIn(f"--configdir {VT}/config", p.stdout)
+        self.assertFalse(os.path.exists(stage))
+        # A real run: the copy holds the checkout's file, mode 0644, and is
+        # gone once the run ends.
+        seen = os.path.join(self.s.tmp, "stage-copy")
+        os.mkdir(seen)
+        p = self.run_vt("8", BIN_STAGE_COPY=seen)
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        argv = read(self.s.bin_args).splitlines()
+        at = argv.index("--configdir")
+        self.assertEqual(argv[at + 1], f"{stage}/config")
+        copy = os.path.join(seen, "config", "vtium.conf")
+        self.assertEqual(read(copy), read(source))
+        self.assertEqual(stat.S_IMODE(os.stat(copy).st_mode), 0o644)
+        self.assertFalse(os.path.exists(stage))
 
     def test_an_image_helper_another_user_could_have_written_is_refused(self):
         for mode in (0o775, 0o757):
@@ -1397,7 +1437,7 @@ class RunVt(Case):
         # A dry run names the option it would give vtium.
         p = self.run_vt("--dry-run", "--debug=/nowhere", "8")
         self.assertEqual(p.returncode, 0, p.stderr)
-        self.assertIn(f"+ {self.s.standins}/run-vtium-vt/vtium --vt=tty8 --no-switchvt --configdir {VT}/config --oneshot "
+        self.assertIn(f"+ {self.s.standins}/run-vtium-vt/vtium --vt=tty8 --no-switchvt --configdir {self.s.standins}/run-vtium-vt/config --oneshot "
                       f"--font-frits={self.s.standins}/run-vtium-vt/frits --debug --login --",
                       p.stdout)
 
@@ -1758,6 +1798,16 @@ class VtSh(Case):
 class Make(Case):
     """The Makefile's guards, which act before anything is built."""
 
+    def test_the_builds_find_the_callers_sysroot_cache(self):
+        # The tests' builds fetch the amd64 sysroot first. Stage.env moves
+        # HOME, so a cache found through HOME would be an empty one under the
+        # tests' home, and each build would download every package from the
+        # Debian mirror again (#309).
+        sysroot = [os.path.join(ROOT, "tools", "arm", "sysroot"), "dir", "amd64"]
+        callers = subprocess.run(sysroot, capture_output=True, text=True, check=True).stdout
+        tests = subprocess.run(sysroot, env=self.s.env(), capture_output=True, text=True, check=True).stdout
+        self.assertEqual(tests, callers)
+
     def make(self, *args, **env):
         # The review targets build the helper unless one is named; these
         # tests name the stand-in's, as they name the binary.
@@ -1862,6 +1912,44 @@ class Make(Case):
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         self.assertIn(f"--guide={os.path.join(VT, 'checks', 'start.guide')} --steps=2 5 --", p.stdout)
         self.assertEqual(self.s.calls_of("sudo"), [])
+
+    # A stand-in cargo that records, beside its arguments, the build
+    # settings for hwaccel and display-buffers when it is given them.
+    CARGO_SETTINGS = "#!/bin/bash\n" + ('printf "%s\\n" "cargo ${VTIUM_HWACCEL+VTIUM_HWACCEL=$VTIUM_HWACCEL }'
+                                        '${VTIUM_DISPLAY_BUFFERS+VTIUM_DISPLAY_BUFFERS=$VTIUM_DISPLAY_BUFFERS }'
+                                        '$*" >>"$CALLS"\n')
+
+    def test_every_review_target_hands_hwaccel_and_display_buffers_to_its_builds(self):
+        # The console, the glyph helper and, with pictures, the image helper
+        # each take the two settings, as make install's builds do (ADR-1500
+        # D8).
+        write(os.path.join(self.s.standins, "cargo"), self.CARGO_SETTINGS)
+        builds = {"rustc --profile minspec -p vtium --bin vtium", "build --release -p vtium-config",
+                  "build --release -p vtium-image-helper"}
+        for target, extra in (("vt-accept", ()), ("vt-login", ()), ("vt-shell", ()), ("vt-check", ("GUIDE=start",))):
+            with self.subTest(target=target):
+                open(self.s.calls, "w").close()
+                p = self.make(target, "DRY_RUN=1", *extra, f"VTIUM_MINSPEC={self.s.bin}",
+                              f"CONFIG_RELEASE={self.s.helper}", f"IMAGE_RELEASE={self.s.image}",
+                              "FEATURES=images", "HWACCEL=on", "DISPLAY_BUFFERS=2")
+                self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+                calls = self.s.calls_of("cargo")
+                want = builds if target == "vt-accept" else builds - {"build --release -p vtium-image-helper"}
+                self.assertEqual({c for c in want if any(f" {c} " in f" {call} " for call in calls)}, want, calls)
+                for call in calls:
+                    self.assertTrue(call.startswith("VTIUM_HWACCEL=on VTIUM_DISPLAY_BUFFERS=2 "), call)
+
+    def test_a_review_target_given_a_built_console_refuses_the_build_settings(self):
+        # The settings are baked into a build, and a binary named with
+        # VTIUM_BIN is built already, so naming them would change nothing.
+        for setting in ("HWACCEL=on", "DISPLAY_BUFFERS=2"):
+            with self.subTest(setting=setting):
+                p = self.make("vt-accept", "DRY_RUN=1", f"VTIUM_BIN={self.s.bin}", setting)
+                self.assertNotEqual(p.returncode, 0, p.stdout)
+                self.assertIn("HWACCEL and DISPLAY_BUFFERS set the defaults a build bakes into the console", p.stderr)
+                self.assertEqual(self.s.calls_of("cargo") + self.s.calls_of("sudo"), [])
+        p = self.make("vt-accept", "DRY_RUN=1", f"VTIUM_BIN={self.s.bin}", HWACCEL="on")
+        self.assertEqual(p.returncode, 0, "one exported in the shell is not refused: " + p.stderr)
 
 
 
@@ -3137,7 +3225,10 @@ exec "$@"
     # with images among its features the line only a build with images
     # carries. $CARGO_STALE builds as if VTIUM_IMAGE never reached the build.
     CARGO_BUILDS = "#!/bin/bash\n" + ('printf "%s\\n" "cargo VTIUM_FONT_HELPER=${VTIUM_FONT_HELPER-unset} '
-                                      'VTIUM_IMAGE=${VTIUM_IMAGE-unset} $*" >>"$CALLS"\n') + """
+                                      'VTIUM_IMAGE=${VTIUM_IMAGE-unset} '
+                                      '${VTIUM_HWACCEL+VTIUM_HWACCEL=$VTIUM_HWACCEL }'
+                                      '${VTIUM_DISPLAY_BUFFERS+VTIUM_DISPLAY_BUFFERS=$VTIUM_DISPLAY_BUFFERS }'
+                                      '$*" >>"$CALLS"\n') + """
 if [ "$1" = rustc ] && [[ " $* " == *" -p vtium "* ]]; then
 	image=${VTIUM_IMAGE:-/usr/bin/vtium-image}
 	[ -z "${CARGO_STALE-}" ] || image=/usr/bin/vtium-image
@@ -3185,6 +3276,26 @@ fi
         self.assertIn(f"+ sudo install -D -m 0755 -- {self.s.image} {self.root}/usr/local/bin/.vtium-dev-image.vt-install-new",
                       p.stdout)
         self.assertIn(f"+ sudo {self.s.standins}/systemd-sysusers {self.at(self.SYSUSERS)}", p.stdout)
+
+    def test_make_hands_hwaccel_and_display_buffers_to_every_build(self):
+        # The development console, its glyph helper and its image helper each
+        # take the two settings, as make install's builds do (ADR-1500 D8).
+        p = self.make_vt_install("FEATURES=images gpu", "HWACCEL=on", "DISPLAY_BUFFERS=2")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        builds = self.s.calls_of("cargo")
+        self.assertEqual(len(builds), 3, builds)
+        for build in builds:
+            self.assertIn(" VTIUM_HWACCEL=on VTIUM_DISPLAY_BUFFERS=2 ", build)
+        self.assertIn("--target-dir " + TARGET + "/vt-dev --features images gpu ", " ".join(builds))
+        # A console named with VTIUM_BIN is built already, so the settings
+        # are refused before anything is built.
+        open(self.s.calls, "w").close()
+        p = subprocess.run(["make", "--no-print-directory", "-C", ROOT, "vt-install", "VT=4", "DRY_RUN=1",
+                            f"VTIUM_BIN={self.s.bin}", f"VTIUM_CONFIG_BIN={self.s.helper}", "HWACCEL=on"],
+                           env=self.s.env(), capture_output=True, text=True, timeout=BUILD_BOUND)
+        self.assertNotEqual(p.returncode, 0, p.stdout)
+        self.assertIn("vt-install: HWACCEL and DISPLAY_BUFFERS set the defaults a build bakes into the console", p.stderr)
+        self.assertEqual(self.s.calls_of("cargo") + self.s.calls_of("sudo"), [])
 
     def test_make_builds_a_console_without_pictures_and_no_image_helper(self):
         # A console built without images names the packaged image helper,
@@ -3259,9 +3370,11 @@ class Package(Case):
         "usr/lib/systemd/system/vtium@.service",
         "usr/lib/systemd/system/vtium-getty@.service",
         "usr/share/doc/vtium/examples/71-vtium-local.rules",
-        "usr/share/doc/vtium/examples/heads.conf",
         "usr/share/doc/vtium/examples/vtium.hwdb",
+        "usr/share/licenses/vtium/COPYING",
         "usr/share/licenses/vtium/LICENSE",
+        "usr/share/licenses/vtium/OFL-1.1.txt",
+        "usr/share/licenses/vtium/rgb-license.txt",
     ])
 
     # What the ordinary-machine build, FEATURES='images logind gpu', stages
@@ -3275,7 +3388,10 @@ class Package(Case):
         "etc/vtium/fonts/minspec-16.vtfrit": "crates/vtium-config/frits/minspec-16.vtfrit",
         "etc/vtium/fonts/minspec-8.vtfrit": "crates/vtium-config/frits/minspec-8.vtfrit",
         "usr/bin/vtium-gallery": "tools/gallery/gallery",
-        "usr/share/doc/vtium/examples/heads.conf": "crates/vtium-settings/templates/heads.conf",
+        "usr/share/licenses/vtium/COPYING": "COPYING",
+        "usr/share/licenses/vtium/LICENSE": "LICENSE",
+        "usr/share/licenses/vtium/OFL-1.1.txt": "crates/vtium-font/data/OFL-1.1.txt",
+        "usr/share/licenses/vtium/rgb-license.txt": "crates/vtium-term/gen-color-names/src/rgb-license.txt",
     }
 
     # A stand-in cargo that records the helper paths each build bakes in,
@@ -3435,6 +3551,17 @@ class Package(Case):
             p = self.make(target, f"DESTDIR={self.dest}", f"INSTALL_TARGET_DIR={self.build}", "FRITS=minspec-16 absent")
             self.assertNotEqual(p.returncode, 0, target)
             self.assertIn("no frit absent in", p.stderr, target)
+        # Every target that builds checks the settings, the tier 3 runs that
+        # build the install tree among them. make -n only prints the
+        # recipes, so a target that failed to check would build and run
+        # nothing here either.
+        for target in ("install-tree", "minspec", "vt-dev-console", "config-release", "image-release",
+                       "tier3", "tier3-minimal", "tier3-images", "tier3-nosystemd"):
+            for arg, why in (("HWACCEL=yes", "HWACCEL is on or off"),
+                             ("DISPLAY_BUFFERS=0", "DISPLAY_BUFFERS is 1, 2 or 3")):
+                p = self.make("-n", target, arg)
+                self.assertNotEqual(p.returncode, 0, (target, arg))
+                self.assertIn(why, p.stderr, (target, arg))
         # each is refused as make reads the Makefile, before any build
         self.assertEqual(self.s.calls_of("cargo"), [])
 
@@ -3474,8 +3601,11 @@ class Package(Case):
         p = self.make("install", f"DESTDIR={self.dest}", "PREFIX=/usr", f"INSTALL_TARGET_DIR={self.build}",
                       "PKGNAME=vtium-git")
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
-        self.assertIn("usr/share/licenses/vtium-git/LICENSE", self.staged())
-        self.assertNotIn("usr/share/licenses/vtium/LICENSE", self.staged())
+        self.assertEqual([f for f in self.staged() if f.startswith("usr/share/licenses/")],
+                         ["usr/share/licenses/vtium-git/COPYING", "usr/share/licenses/vtium-git/LICENSE",
+                          "usr/share/licenses/vtium-git/OFL-1.1.txt",
+                          "usr/share/licenses/vtium-git/rgb-license.txt"])
+        self.assertFalse([f for f in self.staged() if f.startswith("usr/share/licenses/vtium/")], self.staged())
 
     def test_enabling_the_packaged_template_with_no_vt_links_nothing(self):
         # Enabling the template with no VT named must link nothing on every
@@ -3526,11 +3656,17 @@ class Package(Case):
         write(src, self.TERMINFO, 0o644)
         p = self.make("install-terminfo", f"DESTDIR={self.dest}", "PREFIX=/usr", f"TERMINFO_SRC={src}")
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
-        self.assertEqual(self.staged(), ["usr/share/licenses/vtium-terminfo/LICENSE", "usr/share/terminfo/x/xterm-vtium"])
+        self.assertEqual(self.staged(), ["usr/share/licenses/vtium-terminfo/COPYING",
+                                         "usr/share/licenses/vtium-terminfo/LICENSE",
+                                         "usr/share/terminfo/x/xterm-vtium"])
+        for name in ("COPYING", "LICENSE"):
+            self.assertEqual(read(os.path.join(self.dest, "usr/share/licenses/vtium-terminfo", name)),
+                             read(os.path.join(ROOT, name)), name)
         p = self.make("install-terminfo", f"DESTDIR={self.dest}-git", "PREFIX=/usr", f"TERMINFO_SRC={src}",
                       "PKGNAME=vtium-terminfo-git")
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
-        self.assertTrue(os.path.isfile(os.path.join(self.dest + "-git", "usr/share/licenses/vtium-terminfo-git/LICENSE")))
+        for name in ("COPYING", "LICENSE"):
+            self.assertTrue(os.path.isfile(os.path.join(self.dest + "-git", "usr/share/licenses/vtium-terminfo-git", name)), name)
         # Without the entry's source it stops, and stages nothing.
         shutil.rmtree(self.dest)
         p = self.make("install-terminfo", f"DESTDIR={self.dest}", "PREFIX=/usr", f"TERMINFO_SRC={src}.missing")
@@ -3742,6 +3878,126 @@ class Guide(Case):
         p = self.check("title: T\nstep: S\nrun: ls /usr/share/logo\nexpect: e\nstep: U\ndo: d\nexpect: e\n")
         self.assertEqual(p.returncode, 0, p.stderr)
         self.assertEqual(p.stdout, "T: 2 steps\n   1  run          S\n   2  (no probe)   U\n")
+
+    def test_a_cleanup_line_is_checked(self):
+        ok = "title: T\nstep: S\ndo: d\nexpect: e\n"
+        for text, why in ((ok + "cleanup: true\n", "cleanup: goes before the first step"),
+                          ("title: T\ncleanup: true\ncleanup: true\n" + ok[9:], "one cleanup: line"),
+                          ("title: T\ncleanup:\n" + ok[9:], "cleanup: needs the command")):
+            with self.subTest(why=why):
+                self.refused(self.check(text), why)
+        p = self.check("title: T\ncleanup: rm -f x\n" + ok[9:])
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertEqual(p.stdout, "T: 1 steps\n   1  (no probe)   S\n  cleanup when the checks end: rm -f x\n")
+
+    def test_the_cleanup_runs_however_the_checks_end(self):
+        # A guide that changes the machine for some steps puts it back in its
+        # cleanup: command, which runs once whether the checks end at q, at
+        # the last step, when the terminal closes or on a signal.
+        marks = os.path.join(self.s.tmp, "cleaned")
+        guide = os.path.join(self.s.tmp, "t.guide")
+        write(guide, f"title: Cleanup guide\ncleanup: echo cleaned >>{marks}\n"
+                     "step: One\ndo: look\nexpect: e\nstep: Two\ndo: look\nexpect: e\n", 0o644)
+        log = os.path.join(self.s.dir, "vt-check.log")
+
+        def start():
+            g = Pty(["/bin/bash", GUIDE_SH, guide], self.guide_env())
+            g.wait_for(b"Press Enter to begin.")
+            g.send(b"\r")
+            g.wait_for(b"Step 1 of 2: One")
+            g.wait_for(b"Press Enter when done")
+            return g
+
+        def answer(g):
+            g.send(b"\r")
+            g.wait_for(b"[y]es [n]o [s]kip: ")
+            g.send(b"y")
+            g.wait_for(b"Note (Enter for none): ")
+            g.send(b"\r")
+
+        def last(g):
+            answer(g)
+            g.wait_for(b"Step 2 of 2: Two")
+            g.wait_for(b"Press Enter when done")
+            answer(g)
+            g.wait_for(b"Press Enter to end the run.")
+            g.send(b"\r")
+
+        for how, end, status in (("q", lambda g: g.send(b"q\r"), 0),
+                                 ("the last step", last, 0),
+                                 ("end of input", lambda g: g.send(b"\x04"), 0),
+                                 ("SIGTERM", lambda g: os.kill(g.pid, signal.SIGTERM), -signal.SIGTERM),
+                                 ("SIGHUP", lambda g: os.kill(g.pid, signal.SIGHUP), -signal.SIGHUP)):
+            with self.subTest(how=how):
+                if os.path.exists(marks):
+                    os.unlink(marks)
+                g = start()
+                end(g)
+                code = g.finish()
+                if status:
+                    self.assertIn(code, (status, 128 - status))
+                else:
+                    self.assertEqual(code, 0)
+                self.assertEqual(read(marks), "cleaned\n")
+        self.assertIn(f"  cleanup: echo cleaned >>{marks}", read(log))
+        # A guide with no cleanup: line runs nothing at its end.
+        write(guide, "title: Plain guide\nstep: One\ndo: look\nexpect: e\n", 0o644)
+        os.unlink(marks)
+        g = Pty(["/bin/bash", GUIDE_SH, guide], self.guide_env())
+        g.wait_for(b"Press Enter to begin.")
+        g.send(b"\r")
+        g.wait_for(b"Press Enter when done")
+        g.send(b"q\r")
+        self.assertEqual(g.finish(), 0)
+        self.assertNotIn(b"Cleanup:", g.seen)
+        self.assertFalse(os.path.exists(marks))
+
+    def test_restart_guide_gives_its_closed_policy_to_one_unit_and_takes_it_back(self):
+        # restart.guide never changes /etc/vtium, which every vtium reads: its
+        # closed vtium.conf goes into a directory of root's under /run, and a
+        # drop-in under /run/systemd/system gives vtium-dev@ttyN alone that
+        # directory as --configdir. Step 8 and the cleanup remove both.
+        checks = os.path.join(VT, "checks")
+        text = read(os.path.join(checks, "restart.guide"))
+        dropin = read(os.path.join(checks, "restart-closed.service.conf"))
+        confdir = "/run/vtium-restart-guide"
+        unitdir = "/run/systemd/system/vtium-dev@tty{vt}.service.d"
+        # The drop-in's ExecStart is make vt-install's, with the directory.
+        out = os.path.join(self.s.tmp, "units")
+        p = subprocess.run(["bash", UNITS_SH, "--name", "vtium-dev", "--exec", "/usr/local/bin/vtium-dev",
+                            "--by", "a test", out], capture_output=True, text=True, timeout=WAIT_BOUND,
+                           env=self.s.env())
+        self.assertEqual(p.returncode, 0, p.stderr)
+        unit = [l for l in read(os.path.join(out, "vtium-dev@.service")).splitlines() if l.startswith("ExecStart=")]
+        self.assertEqual(len(unit), 1, unit)
+        lines = [l for l in dropin.splitlines() if l and not l.startswith("#")]
+        self.assertEqual(lines, ["[Service]", "ExecStart=", f"{unit[0]} --configdir {confdir}"])
+        steps = {}
+        for line in text.splitlines():
+            if line.startswith("step: "):
+                title = line[6:]
+            elif line.startswith("run: "):
+                steps[title] = line[5:]
+            elif line.startswith("cleanup: "):
+                steps["cleanup"] = line[9:]
+        install = steps["vtium reads a closed policy"]
+        self.assertIn(f"install -m 0644 -o root -g root tools/vt/checks/restart-closed.conf {confdir}/vtium.conf",
+                      install)
+        self.assertIn("install -m 0644 -o root -g root tools/vt/checks/restart-closed.service.conf "
+                      f"{unitdir}/restart-guide.conf", install)
+        self.assertLess(install.index("check-config"), install.index("sudo"))
+        self.assertIn("daemon-reload", install)
+        for name in ("Recovery after the start limit", "cleanup"):
+            with self.subTest(name=name):
+                run = steps[name]
+                self.assertIn(f"d={unitdir}; ", run)
+                self.assertIn('sudo rm -f "$d/restart-guide.conf"', run)
+                self.assertIn(f"sudo rm -rf {confdir}", run)
+                self.assertIn("daemon-reload", run)
+        # Nothing the guide runs writes under /etc/vtium.
+        for name, run in steps.items():
+            with self.subTest(name=name):
+                self.assertNotRegex(run, r"(install|cp|mv|rm|rmdir|tee)\b[^;&|]*/etc/vtium")
 
     def guide_env(self, **extra):
         env = {"PATH": os.environ["PATH"], "TERM": "linux", "VTIUM_VT_DIR": self.s.dir,

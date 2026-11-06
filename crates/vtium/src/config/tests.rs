@@ -7,18 +7,18 @@ use super::keys::*;
 use super::*;
 
 /// [`load`] over files held in memory, by path.
-fn load_with(args: &[&str], seat: Option<&str>, files: &[(&str, &[u8])]) -> Loaded {
+fn load_with(args: &[&str], files: &[(&str, &[u8])]) -> Loaded {
     let files: BTreeMap<PathBuf, Vec<u8>> = files
         .iter()
         .map(|(p, b)| (PathBuf::from(p), b.to_vec()))
         .collect();
     let args: Vec<OsString> = args.iter().map(OsString::from).collect();
-    load(&args, seat, &mut |p: &Path| Ok(files.get(p).cloned()))
+    load(&args, &mut |p: &Path| Ok(files.get(p).cloned()))
 }
 
 /// The main file alone.
 fn main_file(text: &str) -> Loaded {
-    load_with(&[], None, &[("/etc/vtium/vtium.conf", text.as_bytes())])
+    load_with(&[], &[("/etc/vtium/vtium.conf", text.as_bytes())])
 }
 
 fn problems(l: &Loaded) -> Vec<&Problem> {
@@ -85,7 +85,7 @@ fn tier3_guest_configurations() {
 #[test]
 fn tier3_command_lines() {
     // vtium@.service's ExecStart, which tier 3's guest starts on tty2.
-    let l = load_with(&["--vt=tty2", "--no-switchvt"], None, &[]);
+    let l = load_with(&["--vt=tty2", "--no-switchvt"], &[]);
     assert_eq!(l.reports, []);
     assert_eq!(l.config.text(&VT), Some("tty2"));
     assert!(!l.config.switch(&SWITCHVT));
@@ -105,7 +105,6 @@ fn tier3_command_lines() {
             "DEMO_LABEL=vtium dev",
             "/bin/bash",
         ],
-        None,
         &[("/review/config/vtium.conf", b"font-size=24\n")],
     );
     assert_eq!(l.reports, []);
@@ -160,23 +159,19 @@ fn defaults() {
 }
 
 #[test]
-fn command_line_wins_over_the_seat_file_over_the_main_file() {
+fn command_line_wins_over_the_file() {
     let l = load_with(
         &["--sb-size=300"],
-        Some("seat0"),
-        &[
-            (
-                "/etc/vtium/vtium.conf",
-                b"sb-size=100\nfont-size=12\nterm=xterm\n",
-            ),
-            ("/etc/vtium/seat0.seat.conf", b"sb-size=200\nfont-size=14\n"),
-        ],
+        &[(
+            "/etc/vtium/vtium.conf",
+            b"sb-size=100\nfont-size=12\nterm=xterm\n",
+        )],
     );
     assert_eq!(l.reports, []);
     let c = &l.config;
     assert_eq!(c.number(&SB_SIZE), Some(300));
     assert_eq!(c.origin(&SB_SIZE), Some(&Origin::CommandLine { arg: 1 }));
-    assert_eq!(c.number(&FONT_SIZE), Some(14));
+    assert_eq!(c.number(&FONT_SIZE), Some(12));
     assert_eq!(c.text(&TERM), Some("xterm"));
     // Within one source the last line wins.
     assert_eq!(
@@ -185,44 +180,193 @@ fn command_line_wins_over_the_seat_file_over_the_main_file() {
     );
 }
 
-// ADR-1500 D4: with no `--configdir`, vtium reads `/etc/vtium/vtium.conf`
-// and the seat's file beside it, and never opens the C reference's
-// `/etc/kmscon`, even where a file is there.
+// A relative or empty font-frits is reported and ignored, so the
+// directory stays where the sources before it put it: the default under
+// vtium.conf's, and vtium.conf's under the command line's.
 #[test]
-fn the_files_are_read_from_etc_vtium_and_never_from_etc_kmscon() {
-    let mut read = Vec::new();
-    let l = load(&[], Some("seat0"), &mut |p: &Path| {
-        read.push(p.to_owned());
-        Ok(p.starts_with("/etc/kmscon")
-            .then(|| b"sb-size=7\n".to_vec()))
-    });
-    assert_eq!(
-        read,
-        [
-            PathBuf::from("/etc/vtium/vtium.conf"),
-            PathBuf::from("/etc/vtium/seat0.seat.conf")
-        ]
+fn a_relative_or_empty_font_frits_leaves_the_directory_set_before_it() {
+    let l = load_with(
+        &["--font-frits=fonts"],
+        &[("/etc/vtium/vtium.conf", b"font-frits=/srv/frits\n")],
     );
+    assert_eq!(l.config.text(&FONT_FRITS), Some("/srv/frits"));
+    assert_eq!(
+        problems(&l),
+        [&Problem::BadValue {
+            key: "font-frits",
+            value: "fonts".into(),
+            why: NOT_ABSOLUTE,
+        }]
+    );
+    let l = main_file("font-frits=\n");
+    assert_eq!(l.config.text(&FONT_FRITS), Some(FRITS));
+    let origins: Vec<&Origin> = l.reports.iter().map(|r| &r.origin).collect();
+    assert_eq!(origins, [&line(1)]);
+    let l = load_with(&["--font-frits=fonts"], &[]);
+    assert_eq!(l.config.text(&FONT_FRITS), Some(FRITS));
+    assert_eq!(l.reports.len(), 1, "{:?}", l.reports);
+}
+
+// ADR-1500 D4, ADR-1403 D2: with no `--configdir`, vtium reads
+// `/etc/vtium/vtium.conf` and nothing else: never the seat's file beside
+// it, and never the C reference's `/etc/kmscon`, even where a file is
+// there.
+#[test]
+fn vtium_conf_is_the_one_file_read() {
+    let mut read = Vec::new();
+    let l = load(&[], &mut |p: &Path| {
+        read.push(p.to_owned());
+        let other = p.starts_with("/etc/kmscon") || p.ends_with("seat0.seat.conf");
+        Ok(other.then(|| b"sb-size=7\n".to_vec()))
+    });
+    assert_eq!(read, [PathBuf::from("/etc/vtium/vtium.conf")]);
     assert_eq!(l.reports, []);
     assert_eq!(l.config.number(&SB_SIZE), Some(1000));
+    assert_eq!(l.path, Path::new("/etc/vtium/vtium.conf"));
+    assert_eq!(l.file, File::Missing);
+}
+
+// ADR-1403 D5: a head's section wins over its look's, its look's over
+// the top level, and a section wins over the command line as well; a key
+// no section sets keeps the top level's value
+#[test]
+#[expect(clippy::expect_used, reason = "a test's set-up fails loudly")]
+fn a_head_s_sections_win_over_the_top_level_and_the_command_line() {
+    let text = "font-size=12\nfont-engine=pango\nversion = 1\n\
+                [look big]\nfont-size = 14\nfont-engine = freetype\n\
+                [head large]\nlook = big\nlogin = /bin/large\n\
+                [head small]\n";
+    let rules = vtium_settings::sections(text.as_bytes())
+        .expect("a flow")
+        .parsed
+        .config;
+    let own = |head: &str, args: &[&str]| {
+        let top = load_with(args, &[("/etc/vtium/vtium.conf", text.as_bytes())]).config;
+        let h = rules.head(head).expect("the head");
+        let settings: Vec<vtium_settings::Setting> = rules
+            .settings(h)
+            .into_iter()
+            .map(|(_, s)| s.clone())
+            .collect();
+        let (config, reports) = top.for_head(Path::new("/etc/vtium/vtium.conf"), &settings);
+        assert_eq!(reports, []);
+        config
+    };
+    let large = own("large", &[]);
+    assert_eq!(large.number(&FONT_SIZE), Some(14));
+    assert_eq!(large.text(&FONT_ENGINE), Some("freetype"));
+    assert_eq!(
+        large.origin(&FONT_SIZE),
+        Some(&Origin::File {
+            path: "/etc/vtium/vtium.conf".into(),
+            line: 5
+        })
+    );
+    assert_eq!(
+        large.command(&LOGIN),
+        Some(&[OsString::from("/bin/large")][..])
+    );
+    let small = own("small", &[]);
+    assert_eq!(small.number(&FONT_SIZE), Some(12));
+    assert_eq!(small.text(&FONT_ENGINE), Some("pango"));
+    // the command line wins over the top level, and loses to a section
+    let large = own("large", &["--font-size=10"]);
+    assert_eq!(large.number(&FONT_SIZE), Some(14));
+    let small = own("small", &["--font-size=10"]);
+    assert_eq!(small.number(&FONT_SIZE), Some(10));
+}
+
+// ADR-1403 D5, ADR-1200 D16: only a look sets `cell`, and within one
+// look its `font-size`, other than 0, wins over its `cell`, so the head's
+// configuration keeps a look's cell only where that look sets no size
+#[test]
+#[expect(clippy::expect_used, reason = "a test's set-up fails loudly")]
+fn a_look_s_cell_reaches_its_head_unless_the_look_sets_a_size() {
+    let text = "font-size=12\nversion = 1\n\
+                [look cell]\ncell = 12x24\n\
+                [look both]\ncell = 12x24\nfont-size = 32\n\
+                [look auto]\ncell = 12x24\nfont-size = 0\n\
+                [head a]\nlook = cell\n[head b]\nlook = both\n[head c]\nlook = auto\n";
+    let rules = vtium_settings::sections(text.as_bytes())
+        .expect("a flow")
+        .parsed
+        .config;
+    let top = load_with(&[], &[("/etc/vtium/vtium.conf", text.as_bytes())]).config;
+    assert_eq!(top.size(&CELL), None, "the top level has no cell");
+    let own = |head: &str| {
+        let h = rules.head(head).expect("the head");
+        let settings: Vec<vtium_settings::Setting> = rules
+            .settings(h)
+            .into_iter()
+            .map(|(_, s)| s.clone())
+            .collect();
+        let (config, reports) = top.for_head(Path::new("/etc/vtium/vtium.conf"), &settings);
+        assert_eq!(reports, []);
+        config
+    };
+    assert_eq!(own("a").size(&CELL), Some((12, 24)));
+    assert_eq!(own("a").number(&FONT_SIZE), Some(12));
+    assert_eq!(own("b").size(&CELL), None, "the look's size wins");
+    assert_eq!(own("b").number(&FONT_SIZE), Some(32));
+    assert_eq!(own("c").size(&CELL), Some((12, 24)), "0 sets no size");
+}
+
+// ADR-1403 D5: `cell` is a look's alone, so the top level and the command
+// line refuse it and name where it goes
+#[test]
+fn the_top_level_and_the_command_line_refuse_a_cell() {
+    let l = main_file("cell=12x24\n");
+    assert_eq!(problems(&l), [&Problem::SectionOnly("cell")]);
+    assert_eq!(l.config.size(&CELL), None);
+    for args in [&["--cell=12x24"][..], &["--cell", "12x24"]] {
+        let l = load_with(args, &[]);
+        assert_eq!(problems(&l), [&Problem::SectionOnly("cell")], "{args:?}");
+        assert_eq!(l.config.size(&CELL), None);
+    }
+    assert_eq!(
+        Problem::SectionOnly("cell").to_string(),
+        "cell is set only in a [look NAME] section, ignored"
+    );
+}
+
+// ADR-1200 D25: font-paths is a list of absolute folders, each that is
+// not left out and reported; unset, the helper searches the build's list
+#[test]
+fn font_paths_keeps_its_absolute_folders_in_order() {
+    let l = main_file("font-paths=/srv/fonts:fonts:/usr/share/fonts\n");
+    assert_eq!(
+        l.config.text(&FONT_PATHS),
+        Some("/srv/fonts:/usr/share/fonts")
+    );
+    assert_eq!(
+        problems(&l),
+        [&Problem::BadValue {
+            key: "font-paths",
+            value: "fonts".into(),
+            why: NOT_ABSOLUTE,
+        }]
+    );
+    assert_eq!(
+        crate::helper::font_dirs(&l.config),
+        ["--font-dir", "/srv/fonts", "--font-dir", "/usr/share/fonts"].map(OsString::from)
+    );
+    let unset = main_file("");
+    assert_eq!(unset.config.text(&FONT_PATHS), None);
+    assert!(crate::helper::font_dirs(&unset.config).is_empty());
+    // no absolute folder at all leaves the key unset
+    assert_eq!(main_file("font-paths=a:b\n").config.text(&FONT_PATHS), None);
 }
 
 #[test]
-fn configdir_names_the_files_read() {
+fn configdir_names_the_file_read() {
     let mut read = Vec::new();
     let args = [OsString::from("-c"), OsString::from("/x")];
-    load(&args, Some("seat1"), &mut |p: &Path| {
+    load(&args, &mut |p: &Path| {
         read.push(p.to_owned());
         Ok(None)
     });
-    assert_eq!(
-        read,
-        [
-            PathBuf::from("/x/vtium.conf"),
-            PathBuf::from("/x/seat1.seat.conf")
-        ]
-    );
-    let l = load_with(&["-c/y"], None, &[]);
+    assert_eq!(read, [PathBuf::from("/x/vtium.conf")]);
+    let l = load_with(&["-c/y"], &[]);
     assert_eq!(l.config.text(&CONFIGDIR), Some("/y"));
     // It cannot be set from a file.
     let l = main_file("configdir=/z\n");
@@ -231,42 +375,10 @@ fn configdir_names_the_files_read() {
 }
 
 #[test]
-fn a_seat_name_that_names_no_file_is_not_read() {
-    // `.seat.conf` is 10 bytes: a 245-byte name makes a 255-byte file
-    // name, the most one holds.
-    let long = "s".repeat(246);
-    for seat in ["../etc/shadow", "/etc/x", "a/b", ".", "", &long] {
-        let mut read = Vec::new();
-        let l = load(&[], Some(seat), &mut |p: &Path| {
-            read.push(p.to_owned());
-            Ok(None)
-        });
-        assert_eq!(read, [PathBuf::from("/etc/vtium/vtium.conf")], "{seat}");
-        assert_eq!(problems(&l), [&Problem::BadSeatName(seat.to_owned())]);
-    }
-    for seat in ["seat0", "seat_1-a", &long[1..]] {
-        let mut read = Vec::new();
-        let l = load(&[], Some(seat), &mut |p: &Path| {
-            read.push(p.to_owned());
-            Ok(None)
-        });
-        assert_eq!(l.reports, [], "{seat}");
-        assert_eq!(
-            read.get(1),
-            Some(&PathBuf::from(format!("/etc/vtium/{seat}.seat.conf")))
-        );
-    }
-}
-
-#[test]
 fn an_unknown_key_is_reported_once() {
     let l = load_with(
         &["--frobnicate", "--frobnicate"],
-        Some("seat0"),
-        &[
-            ("/etc/vtium/vtium.conf", b"frob=1\nfrob=2\nwarble\n"),
-            ("/etc/vtium/seat0.seat.conf", b"frob=3\n"),
-        ],
+        &[("/etc/vtium/vtium.conf", b"frob=1\nfrob=2\nwarble\nfrob=3\n")],
     );
     assert_eq!(
         l.reports,
@@ -344,7 +456,7 @@ fn a_number_out_of_bounds_is_clamped_and_reported() {
             },
         ]
     );
-    let l = load_with(&["--sync-timeout=10001"], None, &[]);
+    let l = load_with(&["--sync-timeout=10001"], &[]);
     assert_eq!(l.config.number(&SYNC_TIMEOUT), Some(10_000));
     assert_eq!(l.reports.len(), 1);
 }
@@ -374,7 +486,7 @@ fn the_wait_for_a_display_is_read_and_bounded() {
         problems(&l).first().map(ToString::to_string).as_deref(),
         Some("display-wait=\"never\" is not a whole number or forever, ignored")
     );
-    let l = load_with(&["--display-wait=601"], None, &[]);
+    let l = load_with(&["--display-wait=601"], &[]);
     assert_eq!(l.config.number(&DISPLAY_WAIT), Some(600));
     assert_eq!(
         problems(&l),
@@ -390,7 +502,6 @@ fn the_wait_for_a_display_is_read_and_bounded() {
 fn a_value_that_cannot_be_read_keeps_the_one_before() {
     let l = load_with(
         &["--font-size=-3", "--render-timer=loud"],
-        None,
         &[(
             "/etc/vtium/vtium.conf",
             b"font-size=12\nfont-size=12px\nfont-size=\nrender-timer=osd\n",
@@ -434,7 +545,7 @@ fn switches() {
             &Problem::UnknownKey("no-font-size".into()),
         ]
     );
-    let l = load_with(&["--no-reset-env", "--blink=no", "-h"], None, &[]);
+    let l = load_with(&["--no-reset-env", "--blink=no", "-h"], &[]);
     assert!(!l.config.switch(&RESET_ENV));
     assert!(l.config.switch(&HELP));
     assert_eq!(problems(&l), [&Problem::TakesNoValue("blink")]);
@@ -447,7 +558,7 @@ fn comments_blanks_and_colors() {
          # a comment\n\
          \n\
          term=#a0b1c2 # a color is not a comment\n\
-         sb-size=10#comment\n\
+         sb-size=10 # a comment after a blank\n\
          hwaccel # on\n",
     );
     assert_eq!(l.reports, []);
@@ -455,8 +566,25 @@ fn comments_blanks_and_colors() {
     assert_eq!(l.config.text(&TERM), Some("#a0b1c2"));
     assert_eq!(l.config.number(&SB_SIZE), Some(10));
     assert!(l.config.switch(&HWACCEL));
-    // Not six hex digits, so the '#' starts a comment and the value is empty.
-    assert_eq!(main_file("term=#a0b1c\n").config.text(&TERM), Some(""));
+    // ADR-1403 D4: a '#' glued to a value stays in it, which the C
+    // reference read as the start of a comment (a departure), so the value
+    // does not read and the key keeps its default
+    let l = main_file("sb-size=10#comment\n");
+    assert_eq!(l.config.number(&SB_SIZE), Some(1000));
+    assert_eq!(
+        problems(&l),
+        [&Problem::NotANumber {
+            key: "sb-size",
+            value: "10#comment".into()
+        }]
+    );
+    // A '#' right after the '=' is in the value too, six hex digits or not.
+    assert_eq!(
+        main_file("term=#a0b1c\n").config.text(&TERM),
+        Some("#a0b1c")
+    );
+    // '\#' after a blank is a literal '#'.
+    assert_eq!(main_file("term=a \\#b\n").config.text(&TERM), Some("a #b"));
 }
 
 #[test]
@@ -488,11 +616,11 @@ fn login_commands() {
         );
         assert_eq!(l.config.command(&LOGIN), None);
     }
-    let l = load_with(&["--login", "--"], None, &[]);
+    let l = load_with(&["--login", "--"], &[]);
     assert_eq!(problems(&l), [&Problem::LoginWithoutCommand]);
-    let l = load_with(&["--login=/bin/sh"], None, &[]);
+    let l = load_with(&["--login=/bin/sh"], &[]);
     assert_eq!(problems(&l), [&Problem::TakesNoValue("login")]);
-    let l = load_with(&["-l", "--", "/bin/sh"], None, &[]);
+    let l = load_with(&["-l", "--", "/bin/sh"], &[]);
     assert_eq!(
         l.config.command(&LOGIN),
         Some(&[OsString::from("/bin/sh")][..])
@@ -501,7 +629,7 @@ fn login_commands() {
 
 #[test]
 fn stray_arguments_never_reach_the_command() {
-    let l = load_with(&["/bin/sh", "--login", "x", "--", "/bin/login"], None, &[]);
+    let l = load_with(&["/bin/sh", "--login", "x", "--", "/bin/login"], &[]);
     assert_eq!(
         l.config.command(&LOGIN),
         Some(&[OsString::from("/bin/login")][..])
@@ -513,23 +641,19 @@ fn stray_arguments_never_reach_the_command() {
             &Problem::StrayArgument("x".into())
         ]
     );
-    let l = load_with(&["--", "/bin/sh"], None, &[]);
+    let l = load_with(&["--", "/bin/sh"], &[]);
     assert_eq!(l.config.command(&LOGIN), None);
     assert_eq!(problems(&l), [&Problem::StrayArgument("/bin/sh".into())]);
 }
 
 #[test]
 fn option_values() {
-    let l = load_with(
-        &["--font-name", "Hack", "-t", "linux", "--sb-size"],
-        None,
-        &[],
-    );
+    let l = load_with(&["--font-name", "Hack", "-t", "linux", "--sb-size"], &[]);
     assert_eq!(l.config.text(&FONT_NAME), Some("Hack"));
     assert_eq!(l.config.text(&TERM), Some("linux"));
     assert_eq!(problems(&l), [&Problem::NeedsValue("sb-size")]);
     // A name is matched whole, as no prefix of another.
-    let l = load_with(&["--font-nam=x", "-x"], None, &[]);
+    let l = load_with(&["--font-nam=x", "-x"], &[]);
     assert_eq!(
         problems(&l),
         [
@@ -546,7 +670,7 @@ fn text_is_bounded() {
     assert_eq!(problems(&l), [&Problem::TooLong("font-name")]);
     let l = main_file(&format!("font-name={}\n", "a".repeat(TEXT_MAX)));
     assert_eq!(l.reports, []);
-    let l = load_with(&["--term=x\u{1b}[2J"], None, &[]);
+    let l = load_with(&["--term=x\u{1b}[2J"], &[]);
     assert_eq!(problems(&l), [&Problem::ControlCharacter("term")]);
     assert_eq!(l.config.text(&TERM), Some("xterm-vtium"));
 }
@@ -559,13 +683,13 @@ fn files_are_bounded() {
         .into_bytes();
     assert_eq!(big.len(), FILE_MAX);
     big.extend_from_slice(b"no-blink\n");
-    let l = load_with(&[], None, &[("/etc/vtium/vtium.conf", &big)]);
+    let l = load_with(&[], &[("/etc/vtium/vtium.conf", &big)]);
     assert!(l.config.switch(&BLINK));
     assert_eq!(problems(&l), [&Problem::FileTooLong]);
 
     let mut text = format!("#{}\n", "x".repeat(LINE_MAX)).into_bytes();
     text.extend_from_slice(b"sb-size=7\0\nterm=\xff\n=3\nsb-size=8\n");
-    let l = load_with(&[], None, &[("/etc/vtium/vtium.conf", &text)]);
+    let l = load_with(&[], &[("/etc/vtium/vtium.conf", &text)]);
     assert_eq!(l.config.number(&SB_SIZE), Some(8));
     assert_eq!(
         problems(&l),
@@ -591,7 +715,7 @@ fn reports_are_bounded() {
 
 #[test]
 fn an_unreadable_file_is_reported() {
-    let l = load(&[], None, &mut |_: &Path| {
+    let l = load(&[], &mut |_: &Path| {
         Err(io::Error::from(io::ErrorKind::PermissionDenied))
     });
     assert_eq!(
@@ -638,7 +762,7 @@ fn palette_names_a_palette_vtium_term_holds() {
             "{name}"
         );
     }
-    let l = load_with(&["--palette=base16-light"], None, &[]);
+    let l = load_with(&["--palette=base16-light"], &[]);
     let p = l.config.palette();
     assert_eq!(p.bg(), vtium_term::Rgb::new(0xd8, 0xd8, 0xd8));
     assert_eq!(p.color(1), vtium_term::Rgb::new(0xab, 0x46, 0x42));
@@ -667,7 +791,6 @@ fn a_palette_vtium_does_not_hold_is_reported_and_leaves_the_value_below() {
     );
     let l = load_with(
         &["--palette=Nord"],
-        None,
         &[("/etc/vtium/vtium.conf", b"palette=vga\n")],
     );
     assert_eq!(l.reports.len(), 1);
@@ -722,14 +845,14 @@ fn custom_takes_the_palette_keys() {
 }
 
 #[test]
-fn read_file_is_bounded() {
+fn read_bytes_is_bounded() {
     let dir = std::env::temp_dir().join(format!("vtium-settings-{}", std::process::id()));
     std::fs::create_dir_all(&dir).ok();
     let path = dir.join("big.conf");
     std::fs::write(&path, vec![b'#'; FILE_MAX * 2]).ok();
-    let got = read_file(&path).ok().flatten().map(|b| b.len());
+    let got = read_bytes(&path).ok().flatten().map(|b| b.len());
     assert_eq!(got, Some(FILE_MAX + 1));
-    assert_eq!(read_file(&dir.join("absent.conf")).ok(), Some(None));
+    assert_eq!(read_bytes(&dir.join("absent.conf")).ok(), Some(None));
     std::fs::remove_dir_all(&dir).ok();
 }
 
@@ -779,17 +902,10 @@ fn mode(gpu: Option<&str>, connector: Option<&str>, w: u32, h: u32, rate: Option
 fn mode_lines_add_up_and_the_command_line_replaces_them() {
     let l = load_with(
         &[],
-        Some("seat0"),
-        &[
-            (
-                "/etc/vtium/vtium.conf",
-                b"mode=1920x1080\nmode=[HDMI-A-1]3840x2160@60\n",
-            ),
-            (
-                "/etc/vtium/seat0.seat.conf",
-                b"mode=pci-0000:00:02.0[eDP-1]1366x768\n",
-            ),
-        ],
+        &[(
+            "/etc/vtium/vtium.conf",
+            b"mode=1920x1080\nmode=[HDMI-A-1]3840x2160@60\nmode=pci-0000:00:02.0[eDP-1]1366x768\n",
+        )],
     );
     assert_eq!(l.reports, []);
     assert_eq!(
@@ -802,7 +918,6 @@ fn mode_lines_add_up_and_the_command_line_replaces_them() {
     );
     let l = load_with(
         &["--mode=800x600", "--mode", "[DP-1]1024x768@75"],
-        None,
         &[("/etc/vtium/vtium.conf", b"mode=1920x1080\n")],
     );
     assert_eq!(
@@ -883,7 +998,6 @@ fn the_power_keys_are_unbound_until_set() {
     }
     let l = load_with(
         &["--grab-suspend=<Logo>s"],
-        None,
         &[(
             "/etc/vtium/vtium.conf",
             b"grab-reboot=<Ctrl><Alt>Delete\ngrab-power-off=<Ctrl><Alt>End,<Logo>p\ngrab-suspend=<Logo>z\n",
@@ -904,7 +1018,6 @@ fn the_power_keys_are_unbound_until_set() {
     // An empty value unbinds what a file before it bound.
     let l = load_with(
         &["--grab-reboot="],
-        None,
         &[("/etc/vtium/vtium.conf", b"grab-reboot=<Ctrl><Alt>Delete\n")],
     );
     assert_eq!(l.reports, []);
@@ -924,7 +1037,6 @@ fn tier3_power_configuration_binds_each_power_key() {
 fn a_chord_that_does_not_read_is_reported_and_leaves_the_value_below() {
     let l = load_with(
         &["--grab-reboot=<Ctrl><Alt>delete"],
-        None,
         &[("/etc/vtium/vtium.conf", b"grab-reboot=<Ctrl><Alt>Delete\n")],
     );
     assert_eq!(
@@ -973,7 +1085,7 @@ fn only_a_regular_file_is_read() {
         assert_eq!(got, Err(io::ErrorKind::InvalidInput), "{}", path.display());
     }
     let args: Vec<OsString> = ["-c".into(), dir.clone().into_os_string()].into();
-    let l = load(&args, None, &mut read_file);
+    let l = load(&args, &mut read_file);
     assert_eq!(
         l.reports,
         [Report {
@@ -990,7 +1102,7 @@ fn only_a_regular_file_is_read() {
 #[test]
 fn login_without_its_command_is_reported() {
     for args in [&["--login"][..], &["--login", "--oneshot"], &["-l"]] {
-        let l = load_with(args, None, &[]);
+        let l = load_with(args, &[]);
         assert_eq!(problems(&l), [&Problem::LoginWithoutCommand], "{args:?}");
         assert_eq!(l.config.command(&LOGIN), None);
     }
@@ -1004,15 +1116,15 @@ fn check_config_is_found_wherever_the_options_put_it() {
         &["check-config", "-c", "/x"],
         &["--oneshot", "check-config", "--no-blink"],
     ] {
-        let l = load_with(args, None, &[]);
+        let l = load_with(args, &[]);
         assert!(l.check, "{args:?}");
         assert_eq!(l.reports, [], "{args:?}");
     }
     // An option's value and the command's words are not the subcommand.
-    let l = load_with(&["-c", "check-config"], None, &[]);
+    let l = load_with(&["-c", "check-config"], &[]);
     assert!(!l.check);
     assert_eq!(l.config.text(&CONFIGDIR), Some("check-config"));
-    let l = load_with(&["--login", "--", "check-config"], None, &[]);
+    let l = load_with(&["--login", "--", "check-config"], &[]);
     assert!(!l.check);
     assert_eq!(
         l.config.command(&LOGIN),
@@ -1028,7 +1140,7 @@ fn a_stray_argument_or_a_login_without_its_command_refuses_the_start() {
         &["--login"],
         &["--login", "--"],
     ] {
-        let l = load_with(args, None, &[]);
+        let l = load_with(args, &[]);
         assert!(l.refuses_start(), "{args:?}");
     }
     for args in [
@@ -1036,7 +1148,7 @@ fn a_stray_argument_or_a_login_without_its_command_refuses_the_start() {
         &["--sb-size=x"],
         &["--login", "--", "/bin/sh"],
     ] {
-        let l = load_with(args, None, &[]);
+        let l = load_with(args, &[]);
         assert!(!l.refuses_start(), "{args:?}");
     }
     // A file's report never refuses the start.
@@ -1052,7 +1164,7 @@ fn a_command_word_that_is_not_utf8_is_passed_as_given() {
         OsString::from("--"),
         word.clone(),
     ];
-    let l = load(&args, None, &mut |_: &Path| Ok(None));
+    let l = load(&args, &mut |_: &Path| Ok(None));
     assert_eq!(l.reports, []);
     assert_eq!(l.config.command(&LOGIN), Some(&[word][..]));
 }
@@ -1114,7 +1226,6 @@ fn blink_text_and_blink_decorations_take_their_values() {
     assert!(!d.config.switch(&BLINK_DECORATIONS));
     let l = load_with(
         &["--blink-text=off"],
-        None,
         &[(
             "/etc/vtium/vtium.conf",
             b"blink-text=partial\nblink-decorations\n",
@@ -1143,7 +1254,7 @@ fn program_blank_is_on_until_turned_off() {
     let l = main_file("no-program-blank\n");
     assert!(!l.config.switch(&PROGRAM_BLANK));
     assert!(problems(&l).is_empty());
-    let l = load_with(&["--no-program-blank"], None, &[]);
+    let l = load_with(&["--no-program-blank"], &[]);
     assert!(!l.config.switch(&PROGRAM_BLANK));
 }
 
@@ -1188,7 +1299,6 @@ fn decoration_colors_read_as_the_c_reference_read_them() {
     ] {
         let l = load_with(
             &[&format!("--underline-color={bad}"), "--strike-color=fg"],
-            None,
             &[],
         );
         assert_eq!(
@@ -1211,7 +1321,7 @@ fn pointer_char_takes_one_character() {
     assert_eq!(l.reports, []);
     assert_eq!(l.config.char(&POINTER_CHAR), Some('✛'));
     for bad in ["", "ab", "\u{7f}", " ", "\u{3000}", "\u{a0}"] {
-        let l = load_with(&[&format!("--pointer-char={bad}")], None, &[]);
+        let l = load_with(&[&format!("--pointer-char={bad}")], &[]);
         assert_eq!(
             problems(&l),
             [&Problem::BadValue {
@@ -1249,7 +1359,7 @@ fn sb_memory_is_fenced_from_1_mib_to_1_gib() {
         ("1073741825", 1 << 30),
         ("99999999999999999999999", 1 << 30),
     ] {
-        let l = load_with(&[&format!("--sb-memory={asked}")], None, &[]);
+        let l = load_with(&[&format!("--sb-memory={asked}")], &[]);
         assert_eq!(l.config.number(&SB_MEMORY), Some(used), "{asked}");
         assert_eq!(
             problems(&l),
@@ -1377,17 +1487,12 @@ fn display_buffers_takes_one_two_or_three() {
     );
     // The command line wins over the file, in either form of the option.
     for args in [&["--display-buffers=1"][..], &["--display-buffers", "1"]] {
-        let l = load_with(
-            args,
-            None,
-            &[("/etc/vtium/vtium.conf", b"display-buffers=3\n")],
-        );
+        let l = load_with(args, &[("/etc/vtium/vtium.conf", b"display-buffers=3\n")]);
         assert_eq!(l.config.display_buffers(), Some(1), "{args:?}");
         assert_eq!(l.reports, [], "{args:?}");
     }
     let l = load_with(
         &["--display-buffers=5"],
-        None,
         &[("/etc/vtium/vtium.conf", b"display-buffers=3\n")],
     );
     assert_eq!(l.config.display_buffers(), Some(3), "the file's value kept");
@@ -1418,11 +1523,7 @@ fn font_hinting_takes_light_or_full() {
         );
     }
     for args in [&["--font-hinting=light"][..], &["--font-hinting", "light"]] {
-        let l = load_with(
-            args,
-            None,
-            &[("/etc/vtium/vtium.conf", b"font-hinting=full\n")],
-        );
+        let l = load_with(args, &[("/etc/vtium/vtium.conf", b"font-hinting=full\n")]);
         assert_eq!(l.config.font_hinting(), Some(Hinting::Light), "{args:?}");
         assert_eq!(l.reports, [], "{args:?}");
     }
@@ -1471,7 +1572,6 @@ fn font_line_spacing_is_a_percentage_from_0_to_100() {
     ] {
         let l = load_with(
             args,
-            None,
             &[("/etc/vtium/vtium.conf", b"font-line-spacing=40\n")],
         );
         assert_eq!(l.config.font_line_spacing(), Some(0), "{args:?}");

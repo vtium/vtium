@@ -848,14 +848,18 @@ fn disable_n_under_the_vtium_template_says_logind_still_starts_vtium() {
     let mut m = Machine::new("template-still");
     assert_eq!(m.console(&["enable", "--all"]).0, 0);
     assert_eq!(m.console(&["enable", "3"]).0, 0);
-    let (status, _, err) = m.console(&["disable", "3"]);
-    assert_eq!(status, 1);
-    assert!(err.contains("logind still starts vtium on VT 3"), "{err}");
-    assert!(err.contains("vtium console disable --all"), "{err}");
+    // The disable undoes the enable, so it succeeds, and it notes on
+    // standard output what the template link still starts there.
+    let (status, out, err) = m.console(&["disable", "3"]);
+    assert_eq!((status, err.as_str()), (0, ""), "{out}");
+    assert!(out.contains("VT 3 is no longer vtium's"), "{out}");
+    assert!(out.contains("logind still starts vtium on VT 3"), "{out}");
+    assert!(out.contains("vtium console disable --all"), "{out}");
     assert!(!m.wanted("vtium@tty3.service"));
     // VT 1 had no getty, its record says so, and it gets none back.
-    let (status, _, err) = m.console(&["disable", "1"]);
-    assert_eq!(status, 1, "{err}");
+    let (status, out, err) = m.console(&["disable", "1"]);
+    assert_eq!((status, err.as_str()), (0, ""), "{out}");
+    assert!(out.contains("logind still starts vtium on VT 1"), "{out}");
     assert!(!m.wanted("getty@tty1.service"));
 }
 

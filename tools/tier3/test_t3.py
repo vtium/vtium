@@ -63,6 +63,15 @@ from t3_common import Logger  # noqa: E402
 
 LOG = Logger()
 
+# What a run writes, the tests write into a directory of their own, never
+# into the checkout's target/tier3/run, which `make tier3` writes. Each
+# module that took RUNDIR from t3_common when it was imported reads this
+# directory instead, and the directory is removed when the tests end.
+_RUN = tempfile.TemporaryDirectory(prefix="vtium-test-t3-run-")
+for _module in (t3_common, t3_evaluate, t3_impl, t3_runner, t3_scenario, t3_showcase):
+    _module.RUNDIR = _RUN.name
+t3_common.TREE_RECORD = os.path.join(_RUN.name, "tree.json")
+
 SCRIPTS = {
     "colors": r"printf '\033[1;31mred\033[0m plain\nnext\n'",
     "fails": "echo partial; exit 3",
@@ -534,11 +543,13 @@ class ImplementationTest(unittest.TestCase):
         with open(os.path.join(t3_common.GUEST, "setup")) as f:
             self.assertIn('if [ -f "$disc"/pointer ]; then', f.read())
         # Each guest installs the disc's configuration where vtium reads it,
-        # /etc/vtium/vtium.conf (ADR-1500 D4), and nothing into /etc/kmscon.
+        # /etc/vtium/vtium.conf (ADR-1500 D4), as root's, which the start's
+        # ownership check trusts (ADR-1403 D3), and nothing into /etc/kmscon.
         for guest in (t3_common.GUEST, t3_common.GUEST_SYSVINIT):
             with self.subTest(guest), open(os.path.join(guest, "setup")) as f:
                 setup = f.read()
-                self.assertIn('install -Dm644 "$disc"/vtium.conf /etc/vtium/vtium.conf\n', setup)
+                self.assertIn('install -Dm644 -o root -g root "$disc"/vtium.conf '
+                              '/etc/vtium/vtium.conf\n', setup)
                 self.assertNotIn("/etc/kmscon", setup)
 
     def test_frit_variants(self):
@@ -555,7 +566,7 @@ class ImplementationTest(unittest.TestCase):
         for name, held in (("2d-640x480-frit", False), ("2d-640x480-frit-held", True)):
             with self.subTest(name), mock.patch.object(t3_scenario, "make_iso"):
                 v = t3_scenario.VARIANTS[name]
-                for key in ("device", "cpus", "memory_mb", "renderer", "images", "goldens"):
+                for key in ("device", "cpus", "memory_mb", "renderer", "images"):
                     self.assertEqual(v[key], small[key])
                 self.assertIn(name, minimal)
                 self.assertNotIn("frits", v)
@@ -865,14 +876,16 @@ class PreflightTest(unittest.TestCase):
         self.copied = os.path.join(self.root, "c")
 
     def test_the_goldens(self):
-        # Every golden a variant judged by the C reference's goldens compares
-        # with is in the tree, and every one in the tree is one a case
-        # compares with.
-        cases_of = t3_scenario.c_golden_cases()
+        # Every golden a case compares with is in the tree, and every one in
+        # the tree is one a case compares with, in the one directory of
+        # goldens.
+        cases_of = t3_scenario.golden_cases()
         self.assertEqual(t3_evaluate.check_goldens(cases_of, t3_common.GOLDEN), [])
-        wanted = t3_scenario.c_goldens_judging(t3_common.GOLDEN)
+        wanted = {t3_evaluate.golden_for(v, c)[0] for v, cases in cases_of.items()
+                  for c in cases} - {None}
         self.assertTrue(wanted)
-        self.assertEqual(sorted(p for p in wanted if not os.path.exists(p)), [])
+        self.assertEqual(sorted(t3_common.rel(p) for p in wanted if not os.path.exists(p)), [])
+        self.assertEqual(os.path.basename(t3_common.GOLDEN), "goldens")
 
     def planted(self):
         """A planted goldens directory c holding two goldens 2d-potato-min's
@@ -882,20 +895,23 @@ class PreflightTest(unittest.TestCase):
 
     def test_preflight(self):
         # Clean on the planted goldens, judged as 2d-potato-min's two cases
-        # alone; then a stray golden no case draws, and a golden a case
-        # compares with gone missing.
+        # alone; then a stray golden no case draws, and a provisional row
+        # for a golden that does not exist. A golden a case compares with
+        # that is missing does not refuse the run: that case is "missing".
         self.planted()
-        cases = mock.patch.object(t3_scenario, "c_golden_cases",
+        cases = mock.patch.object(t3_scenario, "golden_cases",
                                   lambda: {"2d-potato-min": ["sgr", "cjk"]})
-        with cases:
+        with cases, mock.patch.object(t3_evaluate, "PROVISIONAL", {}):
+            self.assertEqual(t3.preflight(LOG, self.copied), [])
+            os.unlink(os.path.join(self.copied, "2d-potato-min", "cjk.png"))
             self.assertEqual(t3.preflight(LOG, self.copied), [])
             write_tree(self.root, {"c/2d-potato-min/stray.png": "no case"})
-            os.unlink(os.path.join(self.copied, "2d-potato-min", "cjk.png"))
             golden = lambda name: t3_common.rel(os.path.join(self.copied, "2d-potato-min", name))
-            self.assertEqual(sorted(t3.preflight(LOG, self.copied)),
-                             sorted(["%s is a golden no case draws" % golden("stray.png"),
-                                     "%s is missing, and a case compares with it"
-                                     % golden("cjk.png")]))
+            with mock.patch.object(t3_evaluate, "PROVISIONAL", {"2d-potato-min/cjk": "why"}):
+                self.assertEqual(sorted(t3.preflight(LOG, self.copied)),
+                                 sorted(["%s is a golden no case draws" % golden("stray.png"),
+                                         "provisional.tsv lists 2d-potato-min/cjk, which has "
+                                         "no golden"]))
 
     def test_run_refuses_a_bad_tree(self):
         # run() makes those checks under the run lock and refuses before the
@@ -1021,143 +1037,20 @@ class PreflightTest(unittest.TestCase):
         self.assertEqual((self.built, t3_impl.describe(impl)["features"]), ([], ["images"]))
 
 
-class DeparturesTest(unittest.TestCase):
-    """departures.tsv: a listed difference inside its departure's rectangles
-    is a "departure", which passes; anything else about a listed case fails,
-    and a list that names an unknown case or departure refuses the run."""
+class VerdictTest(unittest.TestCase):
+    """The statuses that pass a run."""
 
-    TITLE = "DA1 reports a VT220 with color, `CSI ? 62 ; 22 c`."
-
-    def setUp(self):
-        self.dir = tempfile.TemporaryDirectory()
-        self.addCleanup(self.dir.cleanup)
-
-    def tsv(self, text):
-        path = os.path.join(self.dir.name, "departures.tsv")
-        with open(path, "w") as f:
-            f.write("# a comment\n" + text)
-        return path
-
-    def test_shipped(self):
-        # The list in the tree reads, and every case and title in it is known.
-        deps = t3_evaluate.read_departures()
-        self.assertEqual(t3_evaluate.check_departures(deps, t3_scenario.variant_cases), [])
-        self.assertEqual(deps["2d-potato-min-psf/flood"],
-                         [{"readme": "crates/vtium-term/README.md", "title": self.TITLE,
-                           "rects": [[203, 16, 491, 32]]}])
-        self.assertEqual(deps["2d-potato-min/underline-styles"][0]["rects"],
-                         [[123, 80, 251, 96], [123, 224, 339, 240]])
-        self.assertEqual(len(deps), 28)
-        self.assertEqual([d["title"] for d in deps["2d-potato-min-psf/underline-styles"]],
-                         ["A dash runs from the cell's left edge for five eighths of it.",
-                          "A character the frit lacks draws in the built-in font."])
-
-    def test_read(self):
-        path = self.tsv("a,b\tx,y\tR.md\tT\t0,0,8,16;8,0,16,16\n")
-        deps = t3_evaluate.read_departures(path)
-        self.assertEqual(sorted(deps), ["a/x", "a/y", "b/x", "b/y"])
-        self.assertEqual(deps["b/y"], [{"readme": "R.md", "title": "T",
-                                        "rects": [[0, 0, 8, 16], [8, 0, 16, 16]]}])
-        # a case under two departures, each a line of its own
-        path = self.tsv("a\tx\tR.md\tT\t0,0,8,16\na\tx\tR.md\tU\t8,0,16,16\n")
-        self.assertEqual([d["title"] for d in t3_evaluate.read_departures(path)["a/x"]],
-                         ["T", "U"])
-
-    def test_refused(self):
-        for text, why in (("a\tx\tR.md\tT\n", "want VARIANTS, SCREENS"),
-                          ("a\tx\tR.md\t\t0,0,1,1\n", "want VARIANTS, SCREENS"),
-                          ("a\tx\tR.md\tT\t0,0,1\n", "a rectangle is"),
-                          ("a\tx\tR.md\tT\t1,0,1,1\n", "a rectangle is"),
-                          ("a\tx\tR.md\tT\tz,0,1,1\n", "a rectangle is"),
-                          ("a\tx,x\tR.md\tT\t0,0,1,1\n", "a/x is listed twice"),
-                          ("a\tx\tR.md\tT\t0,0,1,1\na\tx\tR.md\tT\t1,0,2,1\n",
-                           "a/x is listed twice under 'T'"),
-                          # one pixel, 7,15, in a rectangle of each: it would
-                          # show both departures
-                          ("a\tx\tR.md\tT\t0,0,8,16\na\tx,y\tR.md\tU\t20,0,24,4;7,15,16,32\n",
-                           "a/x: a rectangle of 'U' overlaps one of 'T'")):
-            with self.subTest(text):
-                with self.assertRaisesRegex(SystemExit, re.escape(why)):
-                    t3_evaluate.read_departures(self.tsv(text))
-
-    def test_checked(self):
-        readme = os.path.join(self.dir.name, "R.md")
-        with open(readme, "w") as f:
-            f.write("## Departures\n\n- **Listed.** Why.\n\n## Other\n\n- **Elsewhere.** No.\n")
-        dep = {"readme": readme, "title": "Listed.", "rects": [[0, 0, 1, 1]]}
-        deps = {"2d-potato-min/sixel": [dep],
-                "2d-potato-min/photo-scrollback": [dep],
-                "no-such/sgr": [dep],
-                "2d-potato-min/vt-switch": [dep],
-                "2d-potato-min/cjk": [dep, dict(dep, title="Elsewhere.")],
-                "2d-potato-min/sgr": [dict(dep, readme=readme + ".missing")]}
-        errors = t3_evaluate.check_departures(deps, lambda v: t3_scenario.variant_cases(v)
-                                              if v in t3_scenario.VARIANTS else [])
-        self.assertEqual(len(errors), 5, errors)
-        for why in ("lists 2d-potato-min/photo-scrollback, which no variant draws",
-                    "lists no-such/sgr, which no variant draws",
-                    "lists 2d-potato-min/vt-switch, a check without a golden",
-                    "2d-potato-min/cjk: %s lists no departure 'Elsewhere.'" % readme,
-                    "2d-potato-min/sgr: [Errno 2]"):
-            self.assertTrue(any(why in e for e in errors), (why, errors))
-
-    def judged(self, actual_pixels, listed=True, golden_pixels=(), also=()):
-        """The entry for 2d-potato-min/sixel with a black 32x32 golden and a capture
-        differing at `actual_pixels`, listed under a departure whose rectangle
-        is 8,0,24,16, and under `also`'s departures after it."""
-        golden = os.path.join(self.dir.name, "golden")
-        img = t3img.Image(32, 32, bytes(32 * 32 * 3))
-        os.makedirs(os.path.join(golden, "2d-potato-min"), exist_ok=True)
-        t3img.write_png(os.path.join(golden, "2d-potato-min", "sixel.png"), img)
-        data = bytearray(img.data)
-        for x, y in actual_pixels:
-            data[(y * 32 + x) * 3] = 200
-        cap = os.path.join(self.dir.name, "cap.png")
-        t3img.write_png(cap, t3img.Image(32, 32, bytes(data)))
-        dep = {"readme": "R.md", "title": "T", "rects": [[8, 0, 24, 16]]}
-        deps = {"2d-potato-min/sixel": [dep, *also]} if listed else {}
-        with mock.patch.object(t3_evaluate, "GOLDEN", golden), \
-                mock.patch.object(t3_evaluate, "RUNDIR", os.path.join(self.dir.name, "run")), \
-                mock.patch.object(t3_evaluate, "DEPARTURES", deps):
-            return t3_evaluate.evaluate("2d-potato-min", "sixel", cap, {}, LOG)
-
-    def test_judged(self):
-        inside = [(8, 0), (23, 15), (12, 7)]
-        e = self.judged(inside)
-        self.assertEqual((e["status"], e["departure"], e["stats"]["pixels"]),
-                         ("departure", "T", 3))
-        e = self.judged(inside + [(24, 0), (8, 16)])
-        self.assertEqual((e["status"], e["error"]),
-                         ("fail", "2 differing pixel(s) outside the rectangles of the "
-                                  "departure 'T'"))
-        e = self.judged([])
-        self.assertEqual((e["status"], e["error"]),
-                         ("fail", "listed under the departure 'T', which it no longer shows"))
-        e = self.judged(inside, listed=False)
-        self.assertEqual((e["status"], "departure" in e), ("fail", False))
-        # under two departures: the difference lies in their rectangles
-        # together, and each shows in its own
-        u = {"readme": "R.md", "title": "U", "rects": [[0, 16, 8, 32]]}
-        e = self.judged(inside + [(0, 16)], also=[u])
-        self.assertEqual((e["status"], e["departure"]), ("departure", "T; U"))
-        e = self.judged(inside + [(0, 16), (31, 31)], also=[u])
-        self.assertEqual((e["status"], e["error"]),
-                         ("fail", "1 differing pixel(s) outside the rectangles of the "
-                                  "departures 'T' and 'U'"))
-        e = self.judged(inside, also=[u])
-        self.assertEqual((e["status"], e["error"]),
-                         ("fail", "listed under the departure 'U', which it no longer shows"))
-
-    def test_departure_passes_the_run(self):
-        # The run's verdict counts a departure, a provisional case and a
-        # showcase capture as a pass.
+    def test_the_statuses_that_pass_the_run(self):
+        # The run's verdict counts a near case, a provisional case and a
+        # showcase capture as a pass, and nothing else: a difference from a
+        # golden is a fail.
         with open(os.path.join(t3_common.HERE, "t3.py")) as f:
-            self.assertIn('c["status"] in ("pass", "near", "departure", "provisional", "capture")',
+            self.assertIn('c["status"] in ("pass", "near", "provisional", "capture")',
                           f.read())
 
 
 class VtiumGoldenTest(unittest.TestCase):
-    """vtium's own goldens: the provisional list, and a golden no case draws."""
+    """vtium's goldens: the provisional list, and a golden no case draws."""
 
     VARIANT = "2d-320x240-psf8"
 
@@ -1178,30 +1071,10 @@ class VtiumGoldenTest(unittest.TestCase):
         return path
 
     def test_shipped(self):
-        # The operator accepted vtium's sixteen small-display goldens on
-        # 2026-10-28, the four vtium/vtium#119 adds in advance, so the list
-        # in the tree names only the guest without systemd's (vtium/vtium#104),
-        # those vtium/vtium#126 recaptured from the sets' fills and the frit
-        # variants' (vtium/vtium#145), the device variants' and the head-file
-        # variants'; every golden it names must be one a case draws.
+        # The maintainer reviewed every provisional golden on 2026-11-05, so
+        # the list in the tree is empty; a golden it names later must be one a
+        # case draws.
         prov = t3_evaluate.read_provisional()
-        moved = ["%s/%s" % (v, s) for v in ("2d-320x240-psf8", "2d-640x480-psf16")
-                 for s in ("underline-styles", "strike", "wide-margin", "cjk")]
-        frit = ["%s/%s" % (v, s) for v in ("2d-640x480-frit", "2d-640x480-frit-held")
-                for s in ("small-console", "cjk")]
-        devices = ["two-outputs-mirror/sgr", "two-outputs-mirror/sgr@1",
-                   "two-outputs-mirror/cjk", "two-outputs-mirror/cjk@1",
-                   "two-cards-mirror/sgr", "two-cards-mirror/sgr@card1",
-                   "two-cards-mirror/cjk", "two-cards-mirror/cjk@card1", "usb-keyboards/cjk"]
-        heads = ["heads-two-heads/cjk", "heads-partly-open/partly-notice", "heads-partly-open/cjk",
-                 "heads-closed-broken/panic", "heads-policy-typo/policy-panic",
-                 "heads-closed-unmatched/no-display-notice",
-                 "heads-kiosk/cjk"]
-        images = ["images-640x480/" + s for s in ("img-sixel", "img-kitty", "img-relative",
-                                                  "img-overwrite", "img-delete", "img-scroll",
-                                                  "img-scrollback", "img-tmux-pane",
-                                                  "img-animation", "img-iterm2",
-                                                  "img-placeholder", "img-png")]
         # the default 2D variants' re-baselined goldens (vtium/vtium#24)
         rebaselined = ["%s/%s" % (v, s)
                        for v in ("2d-1280x800", "2d-1366x768-potato", "2d-7680x2160",
@@ -1213,12 +1086,12 @@ class VtiumGoldenTest(unittest.TestCase):
                                  "photo-scrollback", "mpv-sixel", "tmux-2x2", "tmux-3x3", "kitty",
                                  "kitty-photo", "kitty-files", "kitty-layers", "s1-scroll", "flood",
                                  "cjk")]
-        self.assertEqual(sorted(prov), sorted(["sysvinit-640x480/cjk", "sysvinit-640x480/sgr",
-                                               "sysvinit-no-udev/cjk", "sysvinit-no-udev/sgr",
-                                               "sysvinit-two-vts/cjk"] + moved + frit + devices
-                                              + heads + images + rebaselined))
-        self.assertEqual(t3_evaluate.check_goldens(t3_scenario.vtium_golden_cases(),
-                                                   t3_evaluate.VTIUM_GOLDEN, prov), [])
+        # the maintainer accepted every one of them on 2026-11-05, the last two
+        # once box lines at a 20x38 cell drew 2 px wide
+        self.assertEqual(sorted(prov), [])
+        self.assertTrue(set(prov) <= set(rebaselined))
+        self.assertEqual(t3_evaluate.check_goldens(t3_scenario.golden_cases(),
+                                                   t3_evaluate.GOLDEN, prov), [])
         with open(os.path.join(t3_common.HERE, "goldens", "README.md")) as f:
             self.assertIn("provisional.tsv", f.read())
 
@@ -1280,7 +1153,7 @@ class VtiumGoldenTest(unittest.TestCase):
         # With its row removed, the golden judges.
         self.assertEqual(self.judged("cjk", True, {})["status"], "fail")
         self.assertEqual(self.judged("cjk", False, {})["status"], "pass")
-        # The C reference's goldens are never provisional.
+        # The row holds for the golden in the default directory, GOLDEN, too.
         with mock.patch.object(t3_evaluate, "GOLDEN", self.root):
             self.golden("cjk")
             cap = os.path.join(self.dir.name, "cap.png")
@@ -1288,7 +1161,7 @@ class VtiumGoldenTest(unittest.TestCase):
             with mock.patch.object(t3_evaluate, "RUNDIR", os.path.join(self.dir.name, "run")), \
                     mock.patch.object(t3_evaluate, "PROVISIONAL", listed):
                 e = t3_evaluate.evaluate(self.VARIANT, "cjk", cap, {}, LOG)
-        self.assertEqual(e["status"], "fail")
+        self.assertEqual(e["status"], "provisional")
 
 
 class ProvisionTest(unittest.TestCase):
@@ -1501,7 +1374,7 @@ class VariantTest(unittest.TestCase):
                     self.assertEqual(v[key], potato[key])
                 self.assertIn(size, v["device"])
                 self.assertTrue(v["fonts"])
-                self.assertEqual(v["goldens"], t3_evaluate.VTIUM_GOLDEN)
+                self.assertIn(name, t3_scenario.golden_cases())
                 self.assertEqual(t3_scenario.screens_of(name), t3_evaluate.SMALL_SCREENS)
                 self.assertNotIn(name, t3_scenario.DEFAULT_VARIANTS)
                 self.assertIn(name, minimal)
@@ -1534,14 +1407,13 @@ class VariantTest(unittest.TestCase):
                 self.assertIn("source=file:%s\n" % font, f.read(), variant)
         # vt-restore compares with the last screen, cjk, as in SCREENS
         self.assertEqual(t3_evaluate.SMALL_SCREENS[-1], t3_evaluate.SCREENS[-1])
-        # the minimal variants are re-baselined: sgr, whose italic vtium
-        # shears, is judged by vtium's golden, and every other case by the
-        # C reference's
+        # every case of the minimal variants is judged by its golden in
+        # goldens/
         entries = t3_scenario.evaluate_variant("2d-potato-min", {}, t3_scenario.failure_meta("x"),
                                                LOG)
         goldens = {e["name"].split("/", 1)[1]: e["golden"] for e in entries}
         self.assertEqual(goldens["sgr"], "tools/tier3/goldens/2d-potato-min/sgr.png")
-        self.assertEqual(goldens["boxdraw"], "tools/tier3/c-goldens/2d-potato-min/boxdraw.png")
+        self.assertEqual(goldens["boxdraw"], "tools/tier3/goldens/2d-potato-min/boxdraw.png")
 
     def test_resident_memory(self):
         # guest/t3's T3-RSS lines: the largest VmRSS of the kmscon
@@ -1977,7 +1849,7 @@ class SysvinitTest(unittest.TestCase):
         for name in ("sysvinit-640x480", "sysvinit-no-udev"):
             with self.subTest(name):
                 v = t3_scenario.VARIANTS[name]
-                for key in ("device", "conf", "renderer", "images", "fonts", "goldens"):
+                for key in ("device", "conf", "renderer", "images", "fonts"):
                     self.assertEqual(v[key], small[key])
                 self.assertEqual(t3_scenario.variant_cases(name),
                                  ["sgr", "cjk", "vt-switch", "vt-restore"])
@@ -2670,7 +2542,7 @@ class DevicesTest(unittest.TestCase):
                                  (1, 512, "kmscon-small-8x16.conf"))
                 self.assertIn("id=video0", v["device"])
                 self.assertIn("xres=640,yres=480", v["device"])
-                self.assertEqual(v["goldens"], t3_evaluate.VTIUM_GOLDEN)
+                self.assertIn(name, t3_scenario.golden_cases())
                 self.assertNotIn(name, t3_scenario.DEFAULT_VARIANTS)
                 self.assertEqual(t3_scenario.variant_cases(name), want)
                 self.assertEqual(t3_scenario.base_of(name)[0], t3_common.BASE)
@@ -2689,7 +2561,7 @@ class DevicesTest(unittest.TestCase):
         self.assertEqual(t3_devices.split("cjk"), ("cjk", ""))
 
     def test_a_case_on_another_output_has_its_own_golden(self):
-        root = t3_evaluate.VTIUM_GOLDEN
+        root = t3_evaluate.GOLDEN
         self.assertEqual(t3_evaluate.golden_for("two-outputs-mirror", "cjk@1", root)[0],
                          os.path.join(root, "two-outputs-mirror", "cjk@1.png"))
         self.assertEqual(t3_evaluate.golden_for("two-outputs-mirror", "vt-restore@1", root)[0],
@@ -2993,10 +2865,11 @@ class DevicesTest(unittest.TestCase):
                       "crates/vtium/install/examples/71-vtium-local.rules "
                       "crates/vtium/install/examples/vtium.hwdb", lines)
 
-    def test_the_tree_stages_the_frits_the_head_template_and_the_gallery_with_images(self):
+    def test_the_tree_stages_the_frits_and_the_gallery_with_images(self):
         # make install-tree stages what make install does (ADR-1500 D8): the
-        # frits, which change nothing until a profile names one, the head
-        # file's template as an example, and with images the gallery tool.
+        # frits, which change nothing until a look names one, and with images
+        # the gallery tool. It stages no head file: the heads are sections
+        # of vtium.conf, whose example the tree holds (ADR-1403 D6).
         def make_n(*args):
             r = subprocess.run(["make", "-n", "--no-print-directory", "install-tree", "DESTDIR=/D", *args],
                                cwd=t3_common.ROOT, capture_output=True, text=True, check=True)
@@ -3005,10 +2878,25 @@ class DevicesTest(unittest.TestCase):
         self.assertIn("install -Dm644 -t /D/etc/vtium/fonts tools/specimens/frits/desktop.vtfrit "
                       "crates/vtium-config/frits/minspec-16.vtfrit "
                       "crates/vtium-config/frits/minspec-8.vtfrit", lines)
-        self.assertIn("install -Dm644 crates/vtium-settings/templates/heads.conf "
-                      "/D/usr/share/doc/vtium/examples/heads.conf", lines)
+        self.assertFalse([l for l in lines if "heads.conf" in l], lines)
+        self.assertIn("install -Dm644 crates/vtium/install/vtium.conf.example "
+                      "/D/etc/vtium/vtium.conf.example", lines)
         self.assertFalse([l for l in lines if "vtium-gallery" in l], lines)
         self.assertIn("install -Dm755 tools/gallery/gallery /D/usr/bin/vtium-gallery", make_n("FEATURES=images"))
+
+    def test_the_tree_installs_the_license_and_the_notices(self):
+        # make install-tree installs LICENSE, COPYING and the two license
+        # texts COPYING points to in vtium's license directory, as make
+        # install does for a package. COPYING holds the notices for what
+        # vtium builds in, such as Unicode's data tables, whose license asks
+        # that its notice go with every copy, and Unifont, whose license, the
+        # SIL Open Font License, asks that its text go with the font.
+        r = subprocess.run(["make", "-n", "--no-print-directory", "install-tree", "DESTDIR=/D"],
+                           cwd=t3_common.ROOT, capture_output=True, text=True, check=True)
+        lines = [l for l in r.stdout.splitlines() if "/D/usr/share/licenses" in l]
+        self.assertEqual(lines, ["install -Dm644 -t /D/usr/share/licenses/vtium LICENSE COPYING "
+                                 "crates/vtium-font/data/OFL-1.1.txt "
+                                 "crates/vtium-term/gen-color-names/src/rgb-license.txt"])
 
     def test_the_tree_installs_vtiums_own_units(self):
         # make install-tree generates vtium@.service and vtium-getty@.service
@@ -3158,7 +3046,7 @@ class HeadsTest(unittest.TestCase):
                 v = t3_scenario.VARIANTS[name]
                 self.assertEqual(t3_scenario.variant_cases(name), want)
                 self.assertEqual((v["cpus"], v["memory_mb"]), (1, 512))
-                self.assertEqual(v["goldens"], t3_evaluate.VTIUM_GOLDEN)
+                self.assertIn(name, t3_scenario.golden_cases())
                 self.assertNotIn(name, t3_scenario.DEFAULT_VARIANTS)
                 self.assertTrue(os.path.isfile(t3_heads.head_file(v)), v["heads"])
                 with open(t3_heads.head_file(v)) as f:
@@ -3196,29 +3084,31 @@ class HeadsTest(unittest.TestCase):
                 self.assertLessEqual(set(v.get("checks", [])), set(t3_scenario.CHECK_RUNS))
 
     def test_policy_line(self):
-        # The console's log shows the file whose policy line vtium cannot
-        # read as closed and broken: that line's error with the head file's
-        # path and the line's number, and no outcome that runs any of the
-        # file.
+        # The console's log shows the vtium.conf whose policy line vtium
+        # cannot read as closed and broken: that line's error with the
+        # installed file's path and the line's number in the whole file the
+        # guest holds, and no outcome that runs any of the file.
         v = t3_scenario.VARIANTS["heads-policy-typo"]
-        with open(t3_heads.head_file(v)) as f:
-            lines = f.read().splitlines()
-        # the line of an unknown top-level key comes before the policy line
-        self.assertEqual(lines[9:11], ["color = amber", "policy = opne"])
-        logged = ("[    9.1] vtium[502]: /etc/vtium/heads.conf:10: Above the first section "
-                  "the file takes only `version` and `policy`, and this line is neither.\n"
-                  "[    9.1] vtium[502]: /etc/vtium/heads.conf:11: `policy` cannot be "
+        lines = t3_heads.guest_conf(v).splitlines()
+        # the variant's configuration comes first, so the head file's policy
+        # line is line 18 of the guest's vtium.conf, not line 9 of its own,
+        # below the line of a version vtium does not know
+        self.assertEqual(lines[16:18], ["version = 2", "policy = opne"])
+        logged = ("[    9.1] vtium[502]: /etc/vtium/vtium.conf:18: `policy` cannot be "
                   "\"opne\", so vtium cannot read this line and counts the file as closed "
                   "and broken.\n"
+                  "[    9.1] vtium[502]: /etc/vtium/vtium.conf:17: vtium knows only "
+                  "`version = 1`, not version \"2\".\n"
                   "[    9.2] vtium[502]: vtium: config invalid, policy closed: input off\n")
         self.assertIsNone(t3_heads.judge_policy_line(logged, lines, v["policy_line"]))
-        # the error names another line, or none is logged
-        for wrong in (logged.replace("heads.conf:11:", "heads.conf:10:"),
+        # the error names another line, another file, or none is logged
+        for wrong in (logged.replace("vtium.conf:18:", "vtium.conf:9:"),
                       logged.replace("cannot be \"opne\"", "cannot be \"open\""),
-                      logged.replace("/etc/vtium/heads.conf:11", "heads.conf:11")):
+                      logged.replace("/etc/vtium/vtium.conf:18", "/etc/vtium/heads.conf:18"),
+                      logged.replace("/etc/vtium/vtium.conf:18", "vtium.conf:18")):
             with self.subTest(wrong=wrong):
                 self.assertRegex(t3_heads.judge_policy_line(wrong, lines, v["policy_line"]),
-                                 "logged no error '/etc/vtium/heads.conf:11: `policy` "
+                                 "logged no error '/etc/vtium/vtium.conf:18: `policy` "
                                  "cannot be \"opne\"'")
         # the file run, partly broken under either policy, or the shipped
         # default in its place
@@ -3234,7 +3124,8 @@ class HeadsTest(unittest.TestCase):
 
     def test_broken_closed_is_tier_2s_file(self):
         # The guest's broken closed file is tier 2's BROKEN_CLOSED, so the
-        # panic screen tier 3 captures reports the errors tier 2 draws.
+        # panic screen tier 3 captures reports the errors tier 2 draws, each
+        # on its line of the guest's vtium.conf, below the variant's keys.
         with open(os.path.join(t3_common.ROOT, "tools", "tier2", "src", "notices.rs")) as f:
             m = re.search(r'const BROKEN_CLOSED: &str = "(.*)";', f.read())
         with open(os.path.join(t3_heads.HEADS, "broken-closed.conf")) as f:
@@ -3251,13 +3142,15 @@ class HeadsTest(unittest.TestCase):
         for case in t3_heads.FIRST:
             self.assertIn(case, t3_heads.LINES)
             self.assertEqual(t3_evaluate.golden_for("heads-closed-broken", case,
-                                                    t3_evaluate.VTIUM_GOLDEN)[0],
-                             os.path.join(t3_evaluate.VTIUM_GOLDEN, "heads-closed-broken",
+                                                    t3_evaluate.GOLDEN)[0],
+                             os.path.join(t3_evaluate.GOLDEN, "heads-closed-broken",
                                           case + ".png"))
 
     def test_disc(self):
-        # The disc carries the head file as heads.conf, and the agent with
-        # its unit; guest/setup installs both.
+        # The disc carries one vtium.conf, the variant's configuration with
+        # its head file below it, and the agent with its unit; guest/setup
+        # installs the file as root's and the agent, and no head file of its
+        # own (ADR-1403 D6).
         d = tempfile.TemporaryDirectory()
         self.addCleanup(d.cleanup)
         tree = os.path.join(d.name, "tree")
@@ -3268,17 +3161,31 @@ class HeadsTest(unittest.TestCase):
         disc = os.path.join(d.name, "disc")
         with mock.patch.object(t3_scenario, "make_iso"):
             t3_scenario.build_disc("heads-closed-broken", d.name, impl)
-            self.assertTrue({"heads.conf", "t3-agent", "t3-agent.service"}
+            self.assertTrue({"vtium.conf", "t3-agent", "t3-agent.service"}
                             <= set(os.listdir(disc)))
-            with open(os.path.join(disc, "heads.conf")) as f, \
-                    open(os.path.join(t3_heads.HEADS, "broken-closed.conf")) as g:
-                self.assertEqual(f.read(), g.read())
+            self.assertNotIn("heads.conf", os.listdir(disc))
+            v = t3_scenario.VARIANTS["heads-closed-broken"]
+            with open(os.path.join(disc, "vtium.conf")) as f, \
+                    open(os.path.join(t3_common.GUEST, v["conf"])) as g, \
+                    open(os.path.join(t3_heads.HEADS, "broken-closed.conf")) as h:
+                self.assertEqual(f.read(), g.read() + h.read())
+            # vtium's own keys stay above the first section
+            with open(os.path.join(disc, "vtium.conf")) as f:
+                lines = f.read().splitlines()
+            first = next(i for i, l in enumerate(lines) if l.startswith("["))
+            self.assertIn("font-engine=psf", lines[:first])
+            self.assertEqual(lines[first - 2:first], ["version = 1", "policy = closed"])
+            # a variant with no head file gets its configuration alone
             t3_scenario.build_disc("2d-640x480-psf16", d.name, impl)
             self.assertFalse({"heads.conf", "t3-agent"} & set(os.listdir(disc)))
+            with open(os.path.join(disc, "vtium.conf")) as f, \
+                    open(os.path.join(t3_common.GUEST, "kmscon-small-8x16.conf")) as g:
+                self.assertEqual(f.read(), g.read())
         with open(os.path.join(t3_common.GUEST, "setup")) as f:
             setup = f.read()
-        self.assertIn('install -Dm644 -o root -g root "$disc"/heads.conf /etc/vtium/heads.conf',
+        self.assertIn('install -Dm644 -o root -g root "$disc"/vtium.conf /etc/vtium/vtium.conf\n',
                       setup)
+        self.assertNotIn("heads.conf", setup)
         self.assertIn("systemctl start --no-block t3-agent.service", setup)
         # the units the agent reads are the ones the tree installs
         with open(os.path.join(t3_common.GUEST, "t3-agent")) as f:
@@ -4021,9 +3928,9 @@ class ImagesVariantTest(unittest.TestCase):
             "img-animation", "img-iterm2", "img-placeholder", "img-png",
             "vt-switch", "vt-restore"])
         v = t3_scenario.VARIANTS[self.VARIANT]
-        self.assertEqual((v["device"], v["cpus"], v["memory_mb"], v["images"], v["goldens"]),
-                         ("virtio-vga,xres=640,yres=480,edid=on", 1, 512, True,
-                          t3_evaluate.VTIUM_GOLDEN))
+        self.assertEqual((v["device"], v["cpus"], v["memory_mb"], v["images"]),
+                         ("virtio-vga,xres=640,yres=480,edid=on", 1, 512, True))
+        self.assertIn(self.VARIANT, t3_scenario.golden_cases())
         self.assertEqual(v["tree_features"], ["images"])
         for screen in t3_evaluate.PICTURE_SCREENS:
             with self.subTest(screen):
@@ -4041,15 +3948,15 @@ class ImagesVariantTest(unittest.TestCase):
         self.assertEqual(t3_evaluate.same_as("vt-restore", self.VARIANT), "img-png")
         self.assertEqual(t3_evaluate.same_as("img-scrollforward", self.VARIANT), "img-scroll")
         self.assertEqual(t3_evaluate.golden_for(self.VARIANT, "vt-restore",
-                                                t3_evaluate.VTIUM_GOLDEN)[0],
-                         os.path.join(t3_evaluate.VTIUM_GOLDEN, self.VARIANT, "img-png.png"))
+                                                t3_evaluate.GOLDEN)[0],
+                         os.path.join(t3_evaluate.GOLDEN, self.VARIANT, "img-png.png"))
         for variant in t3_scenario.VARIANTS:
             if "vt-restore" in t3_scenario.variant_cases(variant):
                 with self.subTest(variant):
                     self.assertEqual(t3_evaluate.same_as("vt-restore", variant),
                                      t3_scenario.screens_of(variant)[-1])
         entry = t3_evaluate.evaluate(self.VARIANT, "vt-restore", None, {}, LOG,
-                                     t3_evaluate.VTIUM_GOLDEN)
+                                     t3_evaluate.GOLDEN)
         self.assertIn("the img-png screen redrawn", entry["description"])
 
     def test_restore_must_match_before(self):
@@ -4401,10 +4308,10 @@ class ImagesVariantTest(unittest.TestCase):
                          ["img-animation", "img-iterm2", "img-placeholder"])
         for name in t3_evaluate.SHOWS:
             with self.subTest(name):
-                golden = t3img.read(os.path.join(t3_evaluate.VTIUM_GOLDEN, self.VARIANT,
+                golden = t3img.read(os.path.join(t3_evaluate.GOLDEN, self.VARIANT,
                                                  name + ".png"))
                 self.assertIsNone(t3_evaluate.not_shown(name, golden))
-                other = t3img.read(os.path.join(t3_evaluate.VTIUM_GOLDEN, self.VARIANT,
+                other = t3img.read(os.path.join(t3_evaluate.GOLDEN, self.VARIANT,
                                                 "img-kitty.png"))
                 self.assertRegex(t3_evaluate.not_shown(name, other),
                                  "^the screen settled without showing ")
@@ -4499,7 +4406,7 @@ class PictureGoldenTest(unittest.TestCase):
     GLYPH = (229, 229, 229)
 
     def golden(self, screen):
-        return t3img.read(os.path.join(t3_evaluate.VTIUM_GOLDEN, self.VARIANT, screen + ".png"))
+        return t3img.read(os.path.join(t3_evaluate.GOLDEN, self.VARIANT, screen + ".png"))
 
     @staticmethod
     def pixel(img, x, y):
@@ -4671,7 +4578,7 @@ class PictureGoldenTest(unittest.TestCase):
         self.placed(img, "quad", 63, 3)
 
 
-class RebaselinedTest(unittest.TestCase):
+class DefaultVariantsTest(unittest.TestCase):
     """The default display variants: their console built with images, the
     goldens that judge each case, and the benchmark's CPU figure."""
 
@@ -4680,25 +4587,21 @@ class RebaselinedTest(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
         self.addCleanup(self.dir.cleanup)
-        self.vtium = os.path.join(self.dir.name, "goldens")
-        self.c = os.path.join(self.dir.name, "c-goldens")
-        for root in (self.vtium, self.c):
-            os.makedirs(os.path.join(root, self.VARIANT))
+        self.root = os.path.join(self.dir.name, "goldens")
+        os.makedirs(os.path.join(self.root, self.VARIANT))
 
-    def golden(self, root, screen):
-        t3img.write_png(os.path.join(root, self.VARIANT, screen + ".png"),
+    def golden(self, screen):
+        t3img.write_png(os.path.join(self.root, self.VARIANT, screen + ".png"),
                         t3img.Image(8, 8, bytes(8 * 8 * 3)))
 
     def test_default_variants(self):
         # Every default variant draws the image screens, so its console is
-        # built with images; the four 2D ones are re-baselined, and the GL
-        # one, which ADR-1303 D11 judges later, is not.
+        # built with images, and goldens judge each one.
         for name in t3_scenario.DEFAULT_VARIANTS:
             with self.subTest(name):
                 v = t3_scenario.VARIANTS[name]
                 self.assertEqual(v["tree_features"], ["images"])
-                self.assertEqual(v.get("rebaselined", False), name != "gl-1280x800")
-                self.assertNotIn("goldens", v)
+                self.assertIn(name, t3_scenario.golden_cases())
                 self.assertEqual(t3_scenario.check_tree_features([name], {"tree_features": []}),
                                  ["%s needs a tree whose console is built with images, and the "
                                   "tree's was built with no features; make tier3 and make "
@@ -4716,34 +4619,21 @@ class RebaselinedTest(unittest.TestCase):
                 size = int(re.search(r"^font-size=(\d+)$", conf, re.M).group(1))
                 self.assertEqual(round(size * 86 / 72), {16: 19, 32: 38}[size])
 
-    def test_golden_root(self):
-        # A re-baselined variant's case is judged by vtium's golden where
-        # goldens/ holds it, and by the C reference's where it does not;
-        # vt-restore follows cjk's, photo-scrollforward photo-scroll's.
-        self.golden(self.vtium, "cjk")
-        self.golden(self.vtium, "photo-scroll")
-        self.golden(self.c, "sgr")
-        with mock.patch.object(t3_scenario, "VTIUM_GOLDEN", self.vtium), \
-                mock.patch.object(t3_evaluate, "GOLDEN", self.c):
-            for case, root in (("cjk", self.vtium), ("vt-restore", self.vtium),
-                               ("photo-scroll", self.vtium),
-                               ("photo-scrollforward", self.vtium), ("sgr", None),
-                               ("emoji", None), ("vt-switch", None)):
-                with self.subTest(case):
-                    self.assertEqual(t3_scenario.golden_root(self.VARIANT, case), root)
-            # a variant not re-baselined never takes vtium's, even where one is
-            os.makedirs(os.path.join(self.vtium, "gl-1280x800"))
-            t3img.write_png(os.path.join(self.vtium, "gl-1280x800", "cjk.png"),
-                            t3img.Image(8, 8, bytes(8 * 8 * 3)))
-            self.assertIsNone(t3_scenario.golden_root("gl-1280x800", "cjk"))
-            # the report names the golden that judged each case
+    def test_the_report_names_each_golden(self):
+        # The report names the golden that judged each case: its own in
+        # GOLDEN/VARIANT/, vt-restore cjk's, photo-scrollforward
+        # photo-scroll's, and none for a check.
+        with mock.patch.object(t3_evaluate, "GOLDEN", self.root):
             meta = t3_scenario.failure_meta("no boot")
             goldens = {e["name"].split("/", 1)[1]: e["golden"]
                        for e in t3_scenario.evaluate_variant(self.VARIANT, {}, meta, LOG)}
-        self.assertEqual(goldens["vt-restore"],
-                         t3_common.rel(os.path.join(self.vtium, self.VARIANT, "cjk.png")))
-        self.assertEqual(goldens["sgr"],
-                         t3_common.rel(os.path.join(self.c, self.VARIANT, "sgr.png")))
+        named = lambda screen: t3_common.rel(os.path.join(self.root, self.VARIANT,
+                                                          screen + ".png"))
+        for case, screen in (("cjk", "cjk"), ("vt-restore", "cjk"), ("sgr", "sgr"),
+                             ("photo-scrollforward", "photo-scroll")):
+            with self.subTest(case):
+                self.assertEqual(goldens[case], named(screen))
+        self.assertIsNone(goldens["vt-switch"])
 
     def test_the_gpu_variant_is_judged_by_the_cpu_paths_captures(self):
         # gpu-1280x800 draws 2d-1280x800's screens with hwaccel on, on a
@@ -4756,8 +4646,7 @@ class RebaselinedTest(unittest.TestCase):
         self.assertEqual(t3_scenario.SAME_AS_CAPTURE["gpu-1280x800"], "2d-1280x800")
         self.assertTrue(t3_scenario.uses_virgl("gpu-1280x800"))
         self.assertIn("gpu", v["tree_features"])
-        self.assertNotIn("gpu-1280x800", t3_scenario.vtium_golden_cases())
-        self.assertNotIn("gpu-1280x800", t3_scenario.c_golden_cases())
+        self.assertNotIn("gpu-1280x800", t3_scenario.golden_cases())
         with open(os.path.join(t3_common.GUEST, v["conf"])) as f:
             self.assertIn("\nhwaccel\n", f.read())
         # a console that drew the variant on the CPU path fails every case
@@ -4795,8 +4684,8 @@ class RebaselinedTest(unittest.TestCase):
             t3_scenario.judge_by_capture(["2d-1280x800", "gpu-1280x800"], both)
             got = {e["name"].split("/")[1]: (e["status"], e.get("error"))
                    for e in both["gpu-1280x800"][0]}
-            # the CPU variant's own verdict, here a C golden's failure,
-            # does not move to the GPU variant
+            # the CPU variant's own verdict, here a golden's failure, does
+            # not move to the GPU variant
             self.assertEqual(got["same"], ("pass", None))
             self.assertEqual(got["other"],
                              ("fail", "4 pixel(s) differ from 2d-1280x800's capture"))
@@ -4811,21 +4700,14 @@ class RebaselinedTest(unittest.TestCase):
                 self.assertEqual(e["status"], "fail", e["name"])
                 self.assertIn("which this run did not draw", e["error"])
 
-    def test_rebaselined_goldens_are_cases(self):
-        # A golden under goldens/ of a re-baselined variant must be one of
-        # its cases, and the C reference's golden of the same case stays in
-        # c-goldens/ as the record without being one no case draws.
-        self.golden(self.vtium, "cjk")
-        self.golden(self.vtium, "stray")
-        cases = {v: c for v, c in t3_scenario.vtium_golden_cases().items() if v == self.VARIANT}
-        self.assertIn(self.VARIANT, t3_scenario.vtium_golden_cases())
-        self.assertIn(self.VARIANT, t3_scenario.c_golden_cases())
-        self.assertEqual(t3_evaluate.check_goldens(cases, self.vtium),
+    def test_goldens_are_cases(self):
+        # A golden of the variant must be one of its cases.
+        self.golden("cjk")
+        self.golden("stray")
+        cases = {v: c for v, c in t3_scenario.golden_cases().items() if v == self.VARIANT}
+        self.assertEqual(t3_evaluate.check_goldens(cases, self.root),
                          ["%s is a golden no case draws" % t3_common.rel(
-                             os.path.join(self.vtium, self.VARIANT, "stray.png"))])
-        self.golden(self.c, "cjk")
-        self.assertEqual(t3_evaluate.check_goldens(
-            {self.VARIANT: t3_scenario.variant_cases(self.VARIANT)}, self.c), [])
+                             os.path.join(self.root, self.VARIANT, "stray.png"))])
 
     def test_tree_features(self):
         # A tree built for a run has the features declared and those its
@@ -4841,12 +4723,17 @@ class RebaselinedTest(unittest.TestCase):
 
     def test_provisional_rate(self):
         # A provisional golden passes the case's pixels, but not its
-        # figures: mpv-sixel of a re-baselined variant is still judged on
+        # figures: mpv-sixel with a provisional golden is still judged on
         # its rate, so a video that showed no frame fails, and one that
         # kept up stays provisional.
         variant = "2d-1280x800"
-        golden = t3_evaluate.golden_for(variant, "mpv-sixel", t3_evaluate.VTIUM_GOLDEN)[0]
-        self.assertIn("%s/mpv-sixel" % variant, t3_evaluate.PROVISIONAL)
+        golden = t3_evaluate.golden_for(variant, "mpv-sixel", t3_evaluate.GOLDEN)[0]
+        # the maintainer accepted mpv-sixel's golden on 2026-11-05, so the
+        # test lists it as provisional itself
+        listed = mock.patch.dict(t3_evaluate.PROVISIONAL,
+                                 {"%s/mpv-sixel" % variant: "a provisional golden for this test"})
+        listed.start()
+        self.addCleanup(listed.stop)
         ppm = os.path.join(self.dir.name, "mpv-sixel.ppm")
         t3_qemu.write_ppm(ppm, t3img.read(golden))
         fine = {"mpv_frames": 150, "mpv_per_s": 29.1, "presented_per_s": 59.0,
@@ -4857,7 +4744,7 @@ class RebaselinedTest(unittest.TestCase):
                     mock.patch.object(t3_evaluate, "RUNDIR", os.path.join(self.dir.name, "run")):
                 entry = t3_evaluate.evaluate(variant, "mpv-sixel", ppm,
                                              {"bench": {"mpv-sixel": figures}}, LOG,
-                                             t3_evaluate.VTIUM_GOLDEN)
+                                             t3_evaluate.GOLDEN)
                 self.assertEqual(entry["status"], status)
                 self.assertIn("judged, it would be pass", entry["note"])
 
@@ -4907,10 +4794,8 @@ class ShowcaseTest(unittest.TestCase):
         self.assertEqual(t3_scenario.variant_cases(self.VARIANT), self.SCREENS)
         self.assertEqual(t3_showcase.SCREENS, self.SCREENS)
         self.assertNotIn(self.VARIANT, t3_scenario.DEFAULT_VARIANTS)
-        self.assertFalse(os.path.exists(os.path.join(t3_evaluate.VTIUM_GOLDEN, self.VARIANT)))
         self.assertFalse(os.path.exists(os.path.join(t3_common.GOLDEN, self.VARIANT)))
-        self.assertNotIn(self.VARIANT, t3_scenario.c_golden_cases())
-        self.assertNotIn(self.VARIANT, t3_scenario.vtium_golden_cases())
+        self.assertNotIn(self.VARIANT, t3_scenario.golden_cases())
 
     def evaluated(self, captured=True, meta=None):
         cap = None

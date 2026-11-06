@@ -7,6 +7,7 @@ use core::ops::Range;
 use std::collections::VecDeque;
 #[cfg(feature = "images")]
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::bounds::{
     COLUMNS_MAX, LINKS_BYTES_MAX, ROWS_MAX, SB_MEMORY_MAX, SB_MEMORY_MIN, SB_SIZE_CAP_LARGE,
@@ -226,6 +227,38 @@ pub(crate) struct Scrollback {
     /// empties it.
     #[cfg(feature = "images")]
     anchors: BTreeMap<LineId, Vec<u32>>,
+    /// The rows read to find the oldest waiting logical line, which the
+    /// drops past `sb-memory` read.
+    rows_read: RowsRead,
+}
+
+/// A count of rows read, which a test reads to check that a drop reads
+/// each row a bounded number of times. It counts through a shared
+/// reference, as [`Scrollback::rows_to_free`] reads, and two scrollbacks
+/// compare equal whatever their counts.
+#[derive(Debug, Default)]
+struct RowsRead(AtomicUsize);
+
+impl RowsRead {
+    fn add(&self, rows: usize) {
+        self.0.fetch_add(rows, Ordering::Relaxed);
+    }
+
+    fn get(&self) -> usize {
+        self.0.load(Ordering::Relaxed)
+    }
+}
+
+impl Clone for RowsRead {
+    fn clone(&self) -> Self {
+        RowsRead(AtomicUsize::new(self.get()))
+    }
+}
+
+impl PartialEq for RowsRead {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
 }
 
 /// The scrollback's oldest rows, waiting to be rewrapped at `width`.
@@ -254,10 +287,11 @@ struct Waiting {
 
 impl Waiting {
     /// The rows of the oldest logical line not yet rewrapped, and how many
-    /// it takes at `width`.
-    fn oldest(&self) -> (usize, usize) {
+    /// it takes at `width`, with the line's rows counted in `read`.
+    fn oldest(&self, read: &RowsRead) -> (usize, usize) {
         let rows = self.rows.range(self.ready..);
         let len = line_len(rows.clone());
+        read.add(len);
         (len, reflow::rows_at(rows.take(len), self.width))
     }
 
@@ -526,7 +560,14 @@ impl Scrollback {
             log: Vec::new(),
             #[cfg(feature = "images")]
             anchors: BTreeMap::new(),
+            rows_read: RowsRead::default(),
         }
+    }
+
+    /// The rows read to find the oldest waiting logical line since the
+    /// scrollback was made.
+    pub(crate) fn rows_read(&self) -> usize {
+        self.rows_read.get()
     }
 
     /// The rewrapped rows.
@@ -727,7 +768,7 @@ impl Scrollback {
         if w.ready > 0 {
             return enough(&mut w.rows.range(..w.ready));
         }
-        let (len, rows) = w.oldest();
+        let (len, rows) = w.oldest(&self.rows_read);
         let held = charge(w.rows.range(..len));
         if held <= excess {
             return rows.max(1);
@@ -747,7 +788,7 @@ impl Scrollback {
         let w = &mut self.waiting;
         while n > 0 && w.count > 0 {
             if w.ready == 0 {
-                let (len, rows) = w.oldest();
+                let (len, rows) = w.oldest(&self.rows_read);
                 let extra = u64::try_from(rows.saturating_sub(1)).unwrap_or(0);
                 if w.take_fresh(0) {
                     // Held rewrapped already: its rows are ready as they

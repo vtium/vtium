@@ -6,6 +6,7 @@ use std::fmt::{self, Write as _};
 
 use crate::bounds::{ERRORS_MAX, QUOTE_MAX};
 use crate::identity::Kind;
+use crate::keys::{Level, Levels};
 use crate::outcome::{Read, Scope, Trusted, Within};
 
 /// Text quoted from a file: at most [`QUOTE_MAX`] characters, escaped
@@ -29,7 +30,7 @@ impl Quoted {
 
     /// A path, quoted whole: a path is bounded by the system, and a log
     /// line naming a file needs all of it.
-    pub(crate) fn path(path: &std::path::Path) -> Quoted {
+    pub fn path(path: &std::path::Path) -> Quoted {
         Quoted {
             text: path.to_string_lossy().into_owned(),
             cut: false,
@@ -66,6 +67,31 @@ pub enum Untrusted {
     Writable { path: Quoted, mode: u32 },
 }
 
+impl Untrusted {
+    /// The command that mends the path that fails (ADR-1403 D3):
+    /// `chown root:root PATH` for one another user owns, and
+    /// `chmod go-w PATH` for one its group or others can write.
+    pub fn mend(&self) -> Mend<'_> {
+        Mend(self)
+    }
+
+    /// Why vtium does not read vtium.conf, with the command that mends it,
+    /// as the start's log and `vtium check-config` say it (ADR-1403 D3).
+    pub fn refusal(&self) -> Refusal<'_> {
+        Refusal(self)
+    }
+}
+
+/// The command that mends an [`Untrusted`] path, which
+/// [`Untrusted::mend`] gives.
+#[derive(Clone, Copy, Debug)]
+pub struct Mend<'a>(pub(crate) &'a Untrusted);
+
+/// Why vtium does not read vtium.conf, and the command that mends it,
+/// which [`Untrusted::refusal`] gives.
+#[derive(Clone, Copy, Debug)]
+pub struct Refusal<'a>(pub(crate) &'a Untrusted);
+
 /// A line whose shape is not one the file's syntax takes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Syntax {
@@ -76,6 +102,8 @@ pub enum Syntax {
     UnclosedHeading,
     /// `[head]` with no name or with more than one.
     HeadOneName,
+    /// `[look]` with no name or with more than one.
+    LookOneName,
     /// A line of a section that takes keys with no `=` in it.
     NotKeyValue,
     /// A rule that starts with neither kind.
@@ -108,11 +136,14 @@ pub enum Renamed {
     Nohup,
     /// The head key `rescue`, which `isolated` replaced.
     Rescue,
-    /// A head's own `font-name` or `font-size`, which its `profile`
-    /// replaced.
-    HeadFont(&'static str),
     /// The `[guards]` section, which the policy replaced.
     Guards,
+    /// A head's `profile` in vtium.conf, which `look` replaced (ADR-1403
+    /// D1).
+    Profile,
+    /// A `[profile NAME]` section in vtium.conf, which `[look NAME]`
+    /// replaced (ADR-1403 D1).
+    ProfileSection,
 }
 
 /// One thing that makes the file invalid.
@@ -139,7 +170,6 @@ pub enum Problem {
     UnknownVersion(Quoted),
     /// A line that is not a section, a `key = value` or a rule.
     Syntax(Syntax),
-    UnknownSection(Quoted),
     /// A second `[rules]`.
     DuplicateSection(&'static str),
     /// A key a section does not take.
@@ -153,15 +183,9 @@ pub enum Problem {
     /// Two heads of one name.
     DuplicateHead(Quoted),
     /// A value its key cannot take.
-    BadValue {
-        key: &'static str,
-        value: Quoted,
-    },
+    BadValue { key: &'static str, value: Quoted },
     /// A number outside its key's range.
-    OutOfRange {
-        key: &'static str,
-        value: Quoted,
-    },
+    OutOfRange { key: &'static str, value: Quoted },
     /// A rule's match key D4 does not name.
     UnknownMatchKey(Quoted),
     /// A match token whose value its key cannot take.
@@ -170,10 +194,7 @@ pub enum Problem {
     UndefinedHead(Quoted),
     /// A target the rule's kind cannot take: `roaming` or `ignore` for a
     /// display, `off` for an input.
-    WrongKind {
-        target: &'static str,
-        kind: Kind,
-    },
+    WrongKind { target: &'static str, kind: Kind },
     /// More than [`HEADS_MAX`](crate::HEADS_MAX) heads.
     TooManyHeads,
     /// More than [`RULES_MAX`](crate::RULES_MAX) rules.
@@ -193,6 +214,27 @@ pub enum Problem {
     /// such as a no-break space: the line from just before that character,
     /// quoted, so its message shows the character escaped (D7).
     HiddenOutsideSection(Quoted),
+    /// A section of vtium.conf that is none of `[look NAME]`, `[head NAME]`
+    /// and `[rules]` (ADR-1403 D4).
+    NotASection(Quoted),
+    /// A look's name outside the name rule.
+    BadLookName(Quoted),
+    /// A second look of one name; the first stays.
+    DuplicateLook(Quoted),
+    /// More than [`LOOKS_MAX`](crate::LOOKS_MAX) looks.
+    TooManyLooks,
+    /// A key of the key table that a section of this kind cannot set, which
+    /// the key table lets `levels` set (ADR-1403 D5).
+    NotHere {
+        key: &'static str,
+        /// The kind of section the line sits in.
+        section: Level,
+        /// Where the key may be set; empty for a key the command line
+        /// alone sets.
+        levels: Levels,
+    },
+    /// A value longer than [`TEXT_MAX`](crate::keys::TEXT_MAX) bytes.
+    TooLong(&'static str),
 }
 
 /// Why vtium cannot read a policy line, a line above the first section
@@ -245,7 +287,9 @@ impl Drops {
             (Scope::Head, _) => Drops::Head,
             (Scope::Section, _) => Drops::Section,
             (Scope::Line, Within::Rules) => Drops::Rule,
-            (Scope::Line, Within::Top | Within::Header | Within::Head) => Drops::Line,
+            (Scope::Line, Within::Top | Within::Header | Within::Head | Within::Look) => {
+                Drops::Line
+            }
         }
     }
 }
@@ -375,13 +419,21 @@ pub enum Warning {
         gets: u32,
         total: u32,
     },
-    /// The head's `profile`, on `line`, names a frit that is not in `dir`,
-    /// so the head draws the default frit (D7).
+    /// The look's `font-name`, on `line`, names a frit that is not in
+    /// `dir` (D7; ADR-1403 D5).
     MissingFrit {
         line: usize,
-        head: Quoted,
-        profile: Quoted,
+        look: Quoted,
+        frit: Quoted,
         dir: Quoted,
+    },
+    /// The head's `look`, on `line`, names a look vtium.conf has no
+    /// `[look NAME]` section for, so the head draws with the default look
+    /// (ADR-1403 D5).
+    NoLook {
+        line: usize,
+        head: Quoted,
+        look: Quoted,
     },
 }
 
@@ -401,7 +453,8 @@ impl Warning {
             | Warning::Shadowed { line, .. }
             | Warning::PastHeadCap { line, .. }
             | Warning::PastTotal { line, .. }
-            | Warning::MissingFrit { line, .. } => *line,
+            | Warning::MissingFrit { line, .. }
+            | Warning::NoLook { line, .. } => *line,
         }
     }
 }

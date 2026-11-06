@@ -15,10 +15,6 @@ import t3_power
 import t3img
 from t3_common import GOLDEN, GUEST, HERE, ROOT, RUNDIR, rel
 
-# vtium's own goldens, for variants whose screens the C reference never
-# drew: VTIUM_GOLDEN/VARIANT/SCREEN.png.
-VTIUM_GOLDEN = os.path.join(HERE, "goldens")
-
 # Screens drawn by `t3 NAME` in the guest (guest/screens/NAME.sh), in the
 # order of the C reference's VT demo (fork/demo/sections), then sixel-bound and
 # the benchmark scenarios, which have no demo page, except that cjk
@@ -224,89 +220,6 @@ NO_GOLDEN = {"vt-switch", *t3_power.CHECKS, *t3_pointer.CHECKS, *t3_devices.CHEC
              *t3_images.CHECKS,
              *t3_heads.CHECKS}
 
-DEPARTURES_FILE = os.path.join(HERE, "departures.tsv")
-
-
-def overlap(a, b):
-    """Whether rectangles `a` and `b`, each x0,y0,x1,y1 with the far edges
-    outside, share a pixel."""
-    return a[0] < b[2] and b[0] < a[2] and a[1] < b[3] and b[1] < a[3]
-
-
-def read_departures(path=DEPARTURES_FILE):
-    """departures.tsv as {case "VARIANT/SCREEN": [{"readme", "title", "rects"}]}:
-    each departure that explains part of the case's difference from its
-    golden, in the file's order, and the rectangles its part must lie in. A
-    malformed line, a case listed twice under one departure, or a case under
-    two departures whose rectangles overlap, where one differing pixel would
-    show both, is refused."""
-    out = {}
-    with open(path) as f:
-        for n, line in enumerate(f, 1):
-            if not line.strip() or line.startswith("#"):
-                continue
-            where = "%s:%d" % (rel(path), n)
-            fields = line.rstrip("\n").split("\t")
-            if len(fields) != 5 or not all(fields):
-                raise SystemExit("%s: want VARIANTS, SCREENS, README, TITLE and RECTS, "
-                                 "separated by tabs" % where)
-            variants, screens, readme, title, rects = fields
-            try:
-                rects = [[int(v) for v in r.split(",")] for r in rects.split(";")]
-            except ValueError:
-                rects = None
-            if not rects or any(len(r) != 4 or r[0] >= r[2] or r[1] >= r[3] for r in rects):
-                raise SystemExit("%s: a rectangle is x0,y0,x1,y1 with x0<x1 and y0<y1" % where)
-            for v in variants.split(","):
-                for s in screens.split(","):
-                    case = "%s/%s" % (v, s)
-                    listed = out.setdefault(case, [])
-                    if any(d["title"] == title for d in listed):
-                        raise SystemExit("%s: %s is listed twice under %r" % (where, case, title))
-                    for d in listed:
-                        if any(overlap(a, b) for a in rects for b in d["rects"]):
-                            raise SystemExit("%s: %s: a rectangle of %r overlaps one of %r"
-                                             % (where, case, title, d["title"]))
-                    listed.append({"readme": readme, "title": title, "rects": rects})
-    return out
-
-
-def readme_departures(text):
-    """The titles a README lists: each "- **Title**" under "## Departures"."""
-    inside, out = False, []
-    for line in text.splitlines():
-        if line.startswith("## "):
-            inside = line[3:].strip() == "Departures"
-        elif inside and line.startswith("- **") and "**" in line[4:]:
-            out.append(line[4:].split("**", 1)[0])
-    return out
-
-
-def check_departures(departures, cases_of):
-    """Every reason departures.tsv cannot judge a run: a case no variant has
-    (`cases_of` gives each variant's cases), one without a golden of its own,
-    or a departure its README does not list."""
-    errors = []
-    for case, d in ((c, d) for c, listed in departures.items() for d in listed):
-        variant, _, screen = case.partition("/")
-        if screen not in cases_of(variant):
-            errors.append("departures.tsv lists %s, which no variant draws" % case)
-        elif golden_for(variant, screen)[0] is None:
-            errors.append("departures.tsv lists %s, a check without a golden" % case)
-        try:
-            with open(os.path.join(ROOT, d["readme"])) as f:
-                titles = readme_departures(f.read())
-        except OSError as e:
-            errors.append("departures.tsv: %s: %s" % (case, e))
-            continue
-        if d["title"] not in titles:
-            errors.append("departures.tsv: %s: %s lists no departure %r"
-                          % (case, d["readme"], d["title"]))
-    return sorted(set(errors))
-
-
-DEPARTURES = read_departures()
-
 PROVISIONAL_FILE = os.path.join(HERE, "provisional.tsv")
 
 
@@ -438,8 +351,7 @@ def screen_text(case, log, variant=None):
 
 def golden_for(variant, case, root=None):
     """(golden, tolerance sidecar) paths for a case under `root` (default
-    GOLDEN, the C reference's), or (None, None) for a check without a golden
-    (NO_GOLDEN)."""
+    GOLDEN), or (None, None) for a check without a golden (NO_GOLDEN)."""
     if case in NO_GOLDEN:
         return None, None
     base = same_as(case, variant)
@@ -453,14 +365,13 @@ def write_thumb(img, path):
     return rel(path)
 
 
-def evaluate(variant, case, ppm, meta, log, golden_root=None, verdict=None):
+def evaluate(variant, case, ppm, meta, log, root=None, verdict=None):
     """The report entry for one case, from its capture (or None), judged by
-    the golden under `golden_root` (golden_for). A case of a variant whose
+    its golden under `root` (golden_for). A case of a variant whose
     `verdict` is "capture", the showcase's, has no golden: it carries the
     status capture once captured, which passes and judges nothing, and
     fails only when it has no capture or the scenario found it wrong."""
-    golden, tolpath = (None, None) if verdict == "capture" else golden_for(variant, case,
-                                                                            golden_root)
+    golden, tolpath = (None, None) if verdict == "capture" else golden_for(variant, case, root)
     stem = os.path.join(RUNDIR, variant, case)
     description, wrong = describe(case)
     if t3_devices.split(case)[0] == "vt-restore" and variant in RESTORED:
@@ -517,11 +428,8 @@ def evaluate(variant, case, ppm, meta, log, golden_root=None, verdict=None):
         entry["thumb_diff"] = write_thumb(t3img.diff_thumbnail(img, points),
                                           stem + ".diff.thumb.png")
     entry["status"] = t3img.verdict(stats, tol)
-    departures = DEPARTURES.get(entry["name"])
-    if departures:
-        judge_departure(entry, departures, stats, points)
     reviewed = "%s/%s" % (variant, same_as(case, variant))
-    if golden_root and reviewed in PROVISIONAL:
+    if reviewed in PROVISIONAL:
         entry["note"] = ("provisional: not yet reviewed, so not judged; judged, it would be %s"
                          % entry["status"])
         entry["status"] = "provisional"
@@ -536,34 +444,6 @@ def evaluate(variant, case, ppm, meta, log, golden_root=None, verdict=None):
     if error:  # captured, but the scenario found the case wrong
         entry["status"], entry["error"] = "fail", error
     return entry
-
-
-def judge_departure(entry, departures, stats, points):
-    """A listed case: "departure" when every differing pixel lies in its
-    departures' rectangles; a fail when one lies outside them all, or when
-    a departure shows no differing pixel in its own, so a line leaves with
-    its difference."""
-    titles = [d["title"] for d in departures]
-    entry["departure"] = "; ".join(titles)
-    if "size_mismatch" in stats:
-        return
-    inside = lambda rects, x, y: any(x0 <= x < x1 and y0 <= y < y1
-                                     for x0, y0, x1, y1 in rects)
-    for d in departures:
-        if not any(inside(d["rects"], x, y) for x, y in points):
-            entry["status"] = "fail"
-            entry["error"] = ("listed under the departure %r, which it no longer shows"
-                              % d["title"])
-            return
-    outside = sum(1 for x, y in points
-                  if not any(inside(d["rects"], x, y) for d in departures))
-    if outside:
-        named = " and ".join(repr(t) for t in titles)
-        entry["status"] = "fail"
-        entry["error"] = ("%d differing pixel(s) outside the rectangles of the departure%s %s"
-                          % (outside, "s" if len(titles) > 1 else "", named))
-    else:
-        entry["status"] = "departure"
 
 
 def judge_rate(entry, variant, case, figures):

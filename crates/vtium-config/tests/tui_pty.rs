@@ -9,13 +9,16 @@
 //! Each wait is for a state the console reaches, bounded only so that a
 //! test fails instead of hanging.
 
+#[path = "common/home.rs"]
+mod home;
+
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
 use std::os::fd::AsFd;
 use std::os::unix::fs::OpenOptionsExt;
 use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::JoinHandle;
 use std::time::Duration;
@@ -26,6 +29,9 @@ use vtium_term::{Glyph, Terminal};
 
 #[path = "common/console.rs"]
 mod console_bin;
+
+#[path = "common/script.rs"]
+mod script;
 
 /// A pty's master and its slave, neither the test's controlling terminal.
 fn pair(cols: u16, rows: u16) -> (File, File) {
@@ -190,8 +196,15 @@ impl Console {
         }
     }
 
-    /// Waits until `done` holds of what the console has seen.
-    fn until(&self, what: &str, done: impl Fn(&Seen) -> bool) {
+    /// Waits until `done` holds of what the console has seen, and returns
+    /// the screen on which it held.
+    ///
+    /// The TUI paints its screen row by row in one write, and the console
+    /// may read that write in pieces, so a screen can hold the top of a new
+    /// frame and the bottom of the old one, with one row cut partway. A
+    /// test therefore waits until every text it checks is on the screen,
+    /// and checks the screen this returns rather than reading it again.
+    fn until(&self, what: &str, done: impl Fn(&Seen) -> bool) -> String {
         let (lock, cv) = &*self.seen;
         let guard = lock.lock().expect("the lock");
         let (guard, timeout) = cv
@@ -203,6 +216,7 @@ impl Console {
             guard.screen,
             String::from_utf8_lossy(&guard.written)
         );
+        guard.screen.clone()
     }
 
     /// Waits until the console has read every byte written to the
@@ -225,10 +239,6 @@ impl Console {
 
     fn written(&self) -> Vec<u8> {
         self.seen.0.lock().expect("the lock").written.clone()
-    }
-
-    fn screen(&self) -> String {
-        self.seen.0.lock().expect("the lock").screen.clone()
     }
 
     fn font(&self) -> String {
@@ -266,7 +276,7 @@ fn fixture(name: &str) -> (PathBuf, PathBuf) {
 /// The TUI on `slave`, with the slave as its controlling terminal.
 fn tui(slave: &File, root: &Path, fonts: &Path) -> Child {
     let io = || Stdio::from(slave.as_fd().try_clone_to_owned().expect("dup"));
-    Command::new("setsid")
+    home::command("setsid")
         .arg("--ctty")
         .arg(env!("CARGO_BIN_EXE_vtium-config"))
         .arg("--no-banner")
@@ -274,8 +284,14 @@ fn tui(slave: &File, root: &Path, fonts: &Path) -> Child {
         .arg(root)
         .arg("--frits")
         .arg(fonts)
+        // the devices of the fixture's own, none, and no udev daemon
+        .arg("--sys")
+        .arg(root.join("sys"))
+        .arg("--udev-data")
+        .arg(root.join("udev/data"))
         .arg("tui")
         .env("XDG_STATE_HOME", root.join("state"))
+        .env("XDG_CONFIG_HOME", root.join("config"))
         .stdin(io())
         .stdout(io())
         .stderr(io())
@@ -293,15 +309,28 @@ const TAKES: &[&str] = &[
 ];
 const UP: &[u8] = b"\x1b[A";
 
-/// Starts the TUI against a console of `kind` and waits for it to have
-/// decided what the terminal is.
+/// A click on the Fonts tab, as mode 1006 reports it: row 1, column 16,
+/// counted from 1.
+const FONTS_TAB: &[u8] = b"\x1b[<0;16;1M\x1b[<0;16;1m";
+
+/// Clicks the Fonts tab of the Flow view, which the TUI opens on, and
+/// waits for the Fonts view's keys.
+fn to_fonts(c: &mut Console) {
+    c.until("opened on the flow", |s| s.screen.contains("DISPLAYS"));
+    c.key(FONTS_TAB);
+    c.until("showed the fonts", |s| s.screen.contains("r remove"));
+}
+
+/// Starts the TUI against a console of `kind`, waits for it to have
+/// decided what the terminal is, and goes to the Fonts view.
 fn started(name: &str, kind: Kind, cols: u16, rows: u16) -> (Console, Child, File) {
     let (master, slave) = pair(cols, rows);
     let (root, fonts) = fixture(name);
-    let console = Console::start(master, cols.into(), rows.into(), kind, TAKES);
+    let mut console = Console::start(master, cols.into(), rows.into(), kind, TAKES);
     let child = tui(&slave, &root, &fonts);
     console.until("drew its keys", |s| s.screen.contains("q leave"));
     console.until("decided", |s| !s.screen.contains("asking the terminal"));
+    to_fonts(&mut console);
     (console, child, slave)
 }
 
@@ -323,11 +352,18 @@ fn cooked(slave: &File) -> bool {
 fn the_tui_starts_on_the_alternate_screen_with_the_four_requests() {
     let (mut c, child, slave) = started("start", Kind::Vtium { ops: true }, 80, 25);
     let written = c.written();
-    let start = b"\x1b[?1049h\x1b[?25l\x1b[>q\x1b]50;?\x1b\\\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\\x1b[c";
+    // the four requests, then mouse reporting for the Flow view it opens on
+    let start = b"\x1b[?1049h\x1b[?25l\x1b[>q\x1b]50;?\x1b\\\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\\x1b[c\x1b[?1000h\x1b[?1006h";
     assert!(
         written.starts_with(start),
         "{:?}",
-        String::from_utf8_lossy(&written[..written.len().min(80)])
+        String::from_utf8_lossy(&written[..written.len().min(100)])
+    );
+    // the click on the Fonts tab turned it off again
+    let text = String::from_utf8_lossy(&written).into_owned();
+    assert!(
+        text.contains("\x1b[?1006l\x1b[?1000l"),
+        "mouse reporting off"
     );
     c.key(b"q");
     assert_eq!(status(child), 0);
@@ -340,14 +376,19 @@ fn the_tui_starts_on_the_alternate_screen_with_the_four_requests() {
 }
 
 #[test]
-fn a_highlighted_font_switches_the_console_and_q_gives_the_start_font_back() {
+fn t_tries_the_highlighted_font_and_q_gives_the_start_font_back() {
     let (mut c, child, slave) = started("browse", Kind::Vtium { ops: true }, 80, 25);
     assert_eq!(c.font(), "unifont");
+    // the highlight alone sends the console nothing (ADR-1201 D4)
     c.key(UP);
+    c.until("highlighted tiny5", |s| s.screen.contains("> tiny5"));
+    assert_eq!(c.switches(), Vec::<String>::new());
+    c.key(b"t");
     c.until("switched to tiny5", |s| {
         String::from_utf8_lossy(&s.written).contains("\x1b]50;tiny5\x1b\\\x1b]50;?\x1b\\")
     });
     c.until("drew tiny5", |s| s.font == "tiny5");
+    c.key(b"k");
     c.key(b"q");
     assert_eq!(status(child), 0);
     c.drained(&slave);
@@ -360,6 +401,7 @@ fn a_highlighted_font_switches_the_console_and_q_gives_the_start_font_back() {
 fn ctrl_c_gives_the_start_font_back() {
     let (mut c, child, slave) = started("ctrl-c", Kind::Vtium { ops: true }, 80, 25);
     c.key(UP);
+    c.key(b"t");
     c.until("drew tiny5", |s| s.font == "tiny5");
     c.key(b"\x03");
     assert_eq!(status(child), 130);
@@ -372,6 +414,7 @@ fn ctrl_c_gives_the_start_font_back() {
 fn sigterm_from_another_terminal_gives_the_start_font_back() {
     let (mut c, child, slave) = started("sigterm", Kind::Vtium { ops: true }, 80, 25);
     c.key(UP);
+    c.key(b"t");
     c.until("drew tiny5", |s| s.font == "tiny5");
     let pid = rustix::process::Pid::from_raw(child.id() as i32).expect("a pid");
     rustix::process::kill_process(pid, rustix::process::Signal::TERM).expect("kill");
@@ -402,11 +445,9 @@ fn a_terminal_that_answers_only_da1_gets_no_osc_50_switch() {
 #[test]
 fn with_font_operations_off_no_osc_50_switch_goes() {
     let (mut c, child, slave) = started("ops-off", Kind::Vtium { ops: false }, 80, 25);
-    assert!(
-        c.screen().contains("allow-font-ops is off"),
-        "{}",
-        c.screen()
-    );
+    c.until("said font operations are off", |s| {
+        s.screen.contains("allow-font-ops is off")
+    });
     c.key(UP);
     c.key(b"q");
     assert_eq!(status(child), 0);
@@ -423,34 +464,31 @@ fn the_screen_fits_80x25_and_100x30() {
             cols,
             rows,
         );
-        let screen = c.screen();
-        let lines: Vec<&str> = screen.lines().collect();
-        assert_eq!(lines.len(), usize::from(rows));
-        assert!(
-            lines[0].contains("VTium Vitrifier") && lines[0].contains("live preview: on"),
-            "{screen}"
-        );
-        for name in [
-            "minspec-16",
-            "minspec-8",
-            "proof",
-            "tiny5",
-            "unifont",
-            "unscii-8",
-        ] {
-            assert!(screen.contains(name), "{name}: {screen}");
-        }
-        assert!(
-            lines[usize::from(rows) - 1].contains("q leave, undo"),
-            "{screen}"
-        );
+        // the tabs, the live trial, every frit and the keys, each on its
+        // row of the grid
+        c.until("drew the fonts view in the grid", |s| {
+            let lines: Vec<&str> = s.screen.lines().collect();
+            lines[0].contains(" Fonts ")
+                && lines[1].contains("t: live")
+                && [
+                    "minspec-16",
+                    "minspec-8",
+                    "proof",
+                    "tiny5",
+                    "unifont",
+                    "unscii-8",
+                ]
+                .iter()
+                .all(|name| s.screen.contains(name))
+                && lines[usize::from(rows) - 1].contains("q leave, undo")
+        });
         c.key(b"q");
         assert_eq!(status(child), 0);
         c.drained(&slave);
     }
 }
 
-/// `vtium-config set NAME` on the pty, as its controlling terminal.
+/// `vtium-config use-frit NAME` on the pty, as its controlling terminal.
 fn set(name: &str, kind: Kind) -> (i32, String, Vec<String>) {
     let (master, slave) = pair(80, 25);
     let label = match kind {
@@ -460,12 +498,12 @@ fn set(name: &str, kind: Kind) -> (i32, String, Vec<String>) {
     };
     let (_root, fonts) = fixture(&format!("set-{name}-{label}"));
     let c = Console::start(master, 80, 25, kind, TAKES);
-    let out = Command::new("setsid")
+    let out = home::command("setsid")
         .arg("--ctty")
         .arg(env!("CARGO_BIN_EXE_vtium-config"))
         .arg("--frits")
         .arg(&fonts)
-        .args(["set", name])
+        .args(["use-frit", name])
         .stdin(Stdio::from(
             slave.as_fd().try_clone_to_owned().expect("dup"),
         ))
@@ -497,13 +535,14 @@ fn set_sends_nothing_to_a_terminal_that_is_not_vtium() {
 /// Spawns the TUI on `slave` with `options` before its own.
 fn tui_with(slave: &File, root: &Path, options: &[&std::ffi::OsStr]) -> Child {
     let io = || Stdio::from(slave.as_fd().try_clone_to_owned().expect("dup"));
-    Command::new("setsid")
+    home::command("setsid")
         .arg("--ctty")
         .arg(env!("CARGO_BIN_EXE_vtium-config"))
         .arg("--no-banner")
         .args(options)
         .arg("tui")
         .env("XDG_STATE_HOME", root.join("state"))
+        .env("XDG_CONFIG_HOME", root.join("config"))
         .stdin(io())
         .stdout(io())
         .stderr(io())
@@ -531,19 +570,21 @@ fn saving_into_directories_not_the_system_s_installs_as_the_user() {
             vtium.as_os_str(),
         ],
     );
-    c.until("decided", |s| s.screen.contains("live preview: on"));
+    c.until("decided", |s| s.screen.contains("t: live"));
+    to_fonts(&mut c);
     c.key(UP);
-    c.until("drew tiny5", |s| s.font == "tiny5");
     c.key(UP);
+    c.key(b"t");
     c.until("drew proof", |s| s.font == "proof");
+    c.key(b"k");
     c.key(b"\r");
-    c.key(b"s");
-    c.until("showed the save", |s| {
-        s.screen.contains("+ font-name=proof")
+    c.key(b"i");
+    c.until("asked", |s| {
+        s.screen
+            .contains("Install the draft? 1 line added, 1 removed.")
     });
-    assert!(c.screen().contains("with no sudo"), "{}", c.screen());
-    c.key(b"\r");
-    c.until("saved", |s| s.screen.contains("Saved 1 file."));
+    c.key(b"y");
+    c.until("installed", |s| s.screen.contains("Installed draft"));
     c.key(b"q");
     assert_eq!(status(child), 0);
     c.drained(&slave);
@@ -558,7 +599,7 @@ fn saving_into_directories_not_the_system_s_installs_as_the_user() {
         conf
     );
     assert_eq!(c.font(), "proof");
-    assert_eq!(c.switches(), ["tiny5", "proof"]);
+    assert_eq!(c.switches(), ["proof"]);
     // the TUI left its screen for the command and came back
     let written = String::from_utf8_lossy(&c.written()).into_owned();
     assert!(
@@ -574,38 +615,48 @@ fn saving_the_system_s_files_runs_exactly_sudo_vtium_config_apply_dir() {
     // the stand-in for sudo records its argv and its blocked signals and
     // installs nothing
     let sudo = root.join("sudo");
-    std::fs::write(
+    script::executable(
         &sudo,
         "#!/bin/sh\ngrep '^SigBlk' /proc/self/status > \"$0.sigblk\"\nprintf '%s\\n' \"$@\" > \"$0.argv\"\necho 'the stand-in installs nothing'\nexit 1\n",
-    )
-    .expect("the stand-in");
-    std::fs::set_permissions(&sudo, std::os::unix::fs::PermissionsExt::from_mode(0o755))
-        .expect("its mode");
+    );
+    // the draft starts as the shipped example, which the check passes on
+    // any machine with a display and a keyboard, whatever the system's own
+    // vtium.conf holds
+    let example = Path::new(env!("CARGO_MANIFEST_DIR")).join("../vtium/install/vtium.conf.example");
+    let drafts = root.join("config/vtium/drafts");
+    std::fs::create_dir_all(&drafts).expect("the store");
+    std::fs::copy(&example, drafts.join("pty.conf")).expect("the draft");
+    std::fs::write(root.join("config/vtium/vtium-config.conf"), "draft = pty\n")
+        .expect("the settings");
     let mut c = Console::start(master, 80, 25, Kind::Vtium { ops: true }, TAKES);
-    let child = tui_with(&slave, &root, &["--sudo".as_ref(), sudo.as_os_str()]);
-    c.until("decided", |s| s.screen.contains("live preview: on"));
-    // a size, so the save changes the system's vtium.conf whatever it holds
-    c.key(b"\t");
+    // the check runs the console this build made, never the host's
+    let vtium = console_bin::vtium();
+    let child = tui_with(
+        &slave,
+        &root,
+        &[
+            "--sudo".as_ref(),
+            sudo.as_os_str(),
+            "--vtium".as_ref(),
+            vtium.as_os_str(),
+        ],
+    );
+    c.until("decided", |s| s.screen.contains("t: live"));
+    to_fonts(&mut c);
+    // a size, so the draft differs from the system's vtium.conf whatever it
+    // holds
+    c.key(b"\x1b[Z");
     c.key(b"\x1b[B");
     c.key(b"\r");
-    c.key(b"s");
-    c.until("showed the save", |s| s.screen.contains("+ font-size=6"));
+    c.key(b"i");
+    c.until("asked", |s| s.screen.contains("Install the draft?"));
     let program = env!("CARGO_BIN_EXE_vtium-config");
-    // the command wraps where the paths' lengths put the screen's edge, so
-    // it is read by its words, the screen's rows joined
-    let screen = c.screen();
-    let words: Vec<&str> = screen.split_whitespace().collect();
-    assert!(
-        words.windows(2).any(|w| w == ["apply", "DRAFT"]),
-        "the command shown: {screen}"
-    );
-    c.key(b"\r");
-    c.until("failed", |s| s.screen.contains("Nothing was saved"));
-    assert!(
-        c.screen().contains("the stand-in installs nothing"),
-        "{}",
-        c.screen()
-    );
+    c.key(b"y");
+    // the failure, with what the stand-in printed
+    c.until("failed", |s| {
+        s.screen.contains("Nothing is installed")
+            && s.screen.contains("the stand-in installs nothing")
+    });
     c.key(b"q");
     assert_eq!(status(child), 0);
     c.drained(&slave);
@@ -615,7 +666,7 @@ fn saving_the_system_s_files_runs_exactly_sudo_vtium_config_apply_dir() {
     assert_eq!(argv[0], program);
     assert_eq!(argv[1], "apply");
     assert!(
-        argv[2].starts_with(root.join("state/vtium/drafts").to_str().expect("a path")),
+        argv[2].starts_with(root.join("state/vtium").to_str().expect("a path")),
         "{argv:?}"
     );
     // the command ran with no signal held
@@ -623,16 +674,56 @@ fn saving_the_system_s_files_runs_exactly_sudo_vtium_config_apply_dir() {
     assert_eq!(blocked.trim(), "SigBlk:\t0000000000000000", "{blocked}");
 }
 
+/// The command line's `--udev-data` reaches the TUI: beside a database
+/// with no udev control socket, the status line says the view cannot
+/// follow hotplug, where this machine's own udev runs.
 #[test]
-fn two_keys_at_once_send_one_switch_and_the_next_after_its_reply() {
-    let (mut c, child, slave) = started("in-flight", Kind::Vtium { ops: true }, 80, 25);
-    // two Ups in one write: tiny5, then proof once tiny5's reply is in
-    c.key(&[UP, UP].concat());
-    c.until("drew proof", |s| s.font == "proof");
+fn the_udev_database_the_command_line_names_reaches_the_tui() {
+    let (master, slave) = pair(100, 30);
+    let (root, fonts) = fixture("udev-data");
+    std::fs::create_dir_all(root.join("udev/data")).expect("the database");
+    let mut c = Console::start(master, 100, 30, Kind::Vtium { ops: true }, TAKES);
+    let child = tui_with(
+        &slave,
+        &root,
+        &[
+            "--configdir".as_ref(),
+            root.as_os_str(),
+            "--frits".as_ref(),
+            fonts.as_os_str(),
+            "--vtium".as_ref(),
+            "/bin/true".as_ref(),
+            "--sys".as_ref(),
+            root.join("sys").as_os_str(),
+            "--udev-data".as_ref(),
+            root.join("udev/data").as_os_str(),
+        ],
+    );
+    c.until("followed no hotplug", |s| {
+        s.screen.contains("cannot follow hotplug")
+    });
     c.key(b"q");
     assert_eq!(status(child), 0);
     c.drained(&slave);
-    assert_eq!(c.switches(), ["tiny5", "proof", "unifont"]);
+}
+
+#[test]
+fn two_keys_at_once_send_one_switch_and_the_next_after_its_reply() {
+    let (mut c, child, slave) = started("in-flight", Kind::Vtium { ops: true }, 80, 25);
+    // in one write: two Ups to proof, t to try it, and a key that puts
+    // unifont back, which waits for proof's reply
+    c.key(&[UP, UP, b"t", b"x"].concat());
+    c.until("drew proof and then unifont", |s| {
+        s.font == "unifont"
+            && String::from_utf8_lossy(&s.written)
+                .matches("\x1b]50;unifont\x1b\\")
+                .count()
+                == 1
+    });
+    c.key(b"q");
+    assert_eq!(status(child), 0);
+    c.drained(&slave);
+    assert_eq!(c.switches(), ["proof", "unifont"]);
     let per_read = c.seen.0.lock().expect("the lock").switches_per_read.clone();
     assert!(
         per_read.iter().all(|&n| n == 1),
@@ -647,6 +738,7 @@ fn sighup_sigint_and_sigquit_give_the_start_font_back() {
         let (mut c, child, slave) =
             started(&format!("signal-{n}"), Kind::Vtium { ops: true }, 80, 25);
         c.key(UP);
+        c.key(b"t");
         c.until("drew tiny5", |s| s.font == "tiny5");
         let pid = rustix::process::Pid::from_raw(child.id() as i32).expect("a pid");
         rustix::process::kill_process(pid, signal).expect("kill");
@@ -674,7 +766,10 @@ fn a_terminal_that_closes_ends_the_tui() {
     master
         .write_all(b"\x1bP>|vtium(test)\x1b\\\x1b]50;unifont\x1b\\\x1b[?62c")
         .expect("the answers");
+    // the TUI opens on the flow: the Fonts tab, then a font
+    master.write_all(FONTS_TAB).expect("a click");
     master.write_all(UP).expect("a key");
+    master.write_all(b"t").expect("the trial key");
     while !got.windows(9).any(|w| w == b"\x1b]50;tiny") {
         let n = master.read(&mut buf).expect("the switch");
         got.extend_from_slice(&buf[..n]);
@@ -721,13 +816,10 @@ fn the_helper_holds_none_of_the_terminal_and_a_silent_one_marks_no_frit_broken()
     // no list or the whole of it, and the partial list's name carries the
     // shell's pid, so no other stand-in can rename it.
     let helper = root.join("helper");
-    std::fs::write(
+    script::executable(
         &helper,
         "#!/bin/bash\n( ls -l /proc/$$/fd ) > \"$0.fds.$$\"\nmv \"$0.fds.$$\" \"$0.fds\"\nexec sleep 30\n",
-    )
-    .expect("helper");
-    std::fs::set_permissions(&helper, std::os::unix::fs::PermissionsExt::from_mode(0o755))
-        .expect("its mode");
+    );
     let mut c = Console::start(master, 80, 25, Kind::Vtium { ops: true }, TAKES);
     // The TUI inherits a descriptor without close-on-exec, as a CI runner
     // leaves some open, and must not pass it on to the helper. dup's copy
@@ -748,7 +840,8 @@ fn the_helper_holds_none_of_the_terminal_and_a_silent_one_marks_no_frit_broken()
         ],
     );
     drop(leaked);
-    c.until("decided", |s| s.screen.contains("live preview: on"));
+    c.until("decided", |s| s.screen.contains("t: live"));
+    to_fonts(&mut c);
     // the stand-in lists what the TUI gave it
     let fds_file = root.join("helper.fds");
     let deadline = now() + Duration::from_secs(10);
@@ -796,19 +889,26 @@ fn the_helper_holds_none_of_the_terminal_and_a_silent_one_marks_no_frit_broken()
     );
     // a key reaches the TUI while the helper is silent
     c.key(UP);
+    c.key(b"t");
     c.until("switched", |s| s.font == "tiny5");
-    // once its wait is out, no frit is said to draw nothing
+    c.key(b"k");
+    // once its wait is out, the TUI says it has not checked the sources
     c.until("gave up on the helper", |s| {
         s.screen.contains("sources not checked")
     });
-    assert!(
-        !c.screen().contains("no source on this machine"),
-        "{}",
-        c.screen()
-    );
     c.key(b"q");
     assert_eq!(status(child), 0);
     c.drained(&slave);
+    // and in no frame it drew did it say a frit draws nothing; the test
+    // reads every byte the TUI wrote, so no frame is caught half drawn
+    let written = String::from_utf8_lossy(&c.written()).into_owned();
+    if let Some(at) = written.find("no source on this machine") {
+        // the frame's bytes around the words, a row or so to each side
+        let before: String = written[..at].chars().rev().take(200).collect();
+        let before: String = before.chars().rev().collect();
+        let after: String = written[at..].chars().take(200).collect();
+        panic!("a frame said a frit draws nothing: {before:?} {after:?}");
+    }
 }
 
 /// Now, for a wait bounded only so the test fails instead of hanging.

@@ -1,7 +1,7 @@
 size 80x24
 cursor 1,0
 flags AUTO_WRAP
-reply 1b5b3f36303b313b343b363b393b313563
+reply 1b5b3f36323b343b323263
 row 0 |q|
 row 1 ||
 row 2 ||

@@ -6,12 +6,11 @@
 //! {"tier": 2, "run_id": "...", "tools": {...}, "cases": [
 //!   {"name", "status", "description", "golden", "actual", "diff",
 //!    "tolerance": null | {"max_delta", "max_pixels", "masks"},
-//!    "stats": {"pixels", "bbox", "max_delta"}, "note", "departure"}]}
+//!    "stats": {"pixels", "bbox", "max_delta"}, "note"}]}
 //! ```
 //!
 //! Statuses: `pass` (identical outside the masks), `near` (within the
-//! tolerance), `departure` (differs only where a listed departure says),
-//! `pending` (a golden of the C reference's that vtium cannot draw yet,
+//! tolerance), `pending` (a screen tier 2 owes and does not draw yet,
 //! with the issue that owes it), `provisional` (a golden of vtium's the
 //! operator has not reviewed: compared, its difference noted, never
 //! failing), `fail`, `missing` (no golden, or a golden
@@ -27,7 +26,6 @@ use crate::tol::{Rect, Tolerance};
 pub enum Status {
     Pass,
     Near,
-    Departure,
     Pending,
     Provisional,
     Fail,
@@ -40,7 +38,6 @@ impl Status {
         match self {
             Status::Pass => "pass",
             Status::Near => "near",
-            Status::Departure => "departure",
             Status::Pending => "pending",
             Status::Provisional => "provisional",
             Status::Fail => "fail",
@@ -53,7 +50,7 @@ impl Status {
     pub fn passes(self) -> bool {
         matches!(
             self,
-            Status::Pass | Status::Near | Status::Departure | Status::Pending | Status::Provisional
+            Status::Pass | Status::Near | Status::Pending | Status::Provisional
         )
     }
 }
@@ -72,7 +69,6 @@ pub struct CaseReport {
     pub regions: Vec<Rect>,
     pub max_delta: u8,
     pub note: Option<String>,
-    pub departure: Option<String>,
 }
 
 impl CaseReport {
@@ -89,7 +85,6 @@ impl CaseReport {
             regions: Vec::new(),
             max_delta: 0,
             note: None,
-            departure: None,
         }
     }
 }
@@ -154,7 +149,7 @@ pub fn json(run_id: &str, tools: &[(&str, String)], cases: &[CaseReport]) -> Str
             out,
             "{}\n    {{\"name\": {}, \"status\": {}, \"description\": {}, \"golden\": {}, \
              \"actual\": {}, \"diff\": {}, \"tolerance\": {}, \"stats\": {{\"pixels\": {}, \
-             \"bbox\": {}, \"max_delta\": {}}}, \"note\": {}, \"departure\": {}}}",
+             \"bbox\": {}, \"max_delta\": {}}}, \"note\": {}}}",
             if i == 0 { "" } else { "," },
             string(&c.name),
             string(c.status.name()),
@@ -167,7 +162,6 @@ pub fn json(run_id: &str, tools: &[(&str, String)], cases: &[CaseReport]) -> Str
             rects(&c.regions),
             c.max_delta,
             opt(&c.note),
-            opt(&c.departure),
         );
     }
     out.push_str("\n  ]\n}\n");

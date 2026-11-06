@@ -20,6 +20,16 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import terminal  # noqa: E402
 
+# The tests start the tool as a terminal starts it, with SIGINT at its
+# default. A launcher can leave SIGINT ignored, as a shell does in a job it
+# starts in the background, and every process the tests start inherits
+# that. bash cannot trap a signal that was ignored when it started, so the
+# tool would not end at the interrupt a test sends it. So the tests put
+# SIGINT back to its default before they start anything, as
+# tools/vt/tests/test_vt.py does.
+if signal.getsignal(signal.SIGINT) == signal.SIG_IGN:
+    signal.signal(signal.SIGINT, signal.default_int_handler)
+
 GALLERY = os.path.join(os.path.dirname(HERE), "gallery")
 # What the tool asks the terminal before it draws.
 PROBE = b"\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\\x1b[16t\x1b[c"

@@ -830,6 +830,7 @@ dependencies = [
  "log",
  "rustix",
  "vtium-config",
+ "vtium-devices",
  "vtium-font",
  "vtium-image",
  "vtium-platform",
@@ -845,13 +846,17 @@ version = "0.1.0-alpha.5"
 dependencies = [
  "bzip2",
  "harfrust",
+ "landlock",
+ "libc",
  "lzma-rust2",
  "miniz_oxide",
  "nix",
  "rustix",
  "ruzstd",
+ "seccompiler",
  "skrifa",
  "swash",
+ "vtium-devices",
  "vtium-font",
  "vtium-platform",
  "vtium-settings",
@@ -874,6 +879,14 @@ name = "vtium-cover-tables"
 version = "0.1.0-alpha.5"
 dependencies = [
  "vtium-font",
+]
+
+[[package]]
+name = "vtium-devices"
+version = "0.1.0-alpha.5"
+dependencies = [
+ "vtium-platform",
+ "vtium-settings",
 ]
 
 [[package]]
@@ -993,6 +1006,17 @@ dependencies = [
  "vtium-settings",
  "vtium-term",
  "vtium-testfont",
+]
+
+[[package]]
+name = "vtium-tui-review"
+version = "0.1.0-alpha.5"
+dependencies = [
+ "rustix",
+ "vtium-config",
+ "vtium-specimens",
+ "vtium-term",
+ "vtium-tier2",
 ]
 
 [[package]]

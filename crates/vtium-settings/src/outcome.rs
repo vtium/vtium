@@ -145,6 +145,8 @@ closed! {
         Header = "header",
         /// Inside a `[head NAME]` section.
         Head = "head",
+        /// Inside a `[look NAME]` section of vtium.conf.
+        Look = "look",
         Rules = "rules",
     }
 }
@@ -156,7 +158,7 @@ closed! {
         File = "file",
         /// One head, with every rule naming it, each of which falls through to the next rule.
         Head = "head",
-        /// One section that is unknown, repeated or headed by a line that does not parse, with its lines.
+        /// One section that is unknown, repeated or headed by a line that does not parse, with its lines, or one look with an error inside it, whose heads draw with the default look.
         Section = "section",
         /// One line: a rule, which falls through to the next one, or a top-level key.
         Line = "line",
@@ -570,11 +572,14 @@ pub fn scope(problem: &Problem, within: Within) -> Result<Scope, Read> {
         | Problem::UnknownVersion(_)
         | Problem::LineTooLong
         | Problem::TooManyHeads
+        | Problem::TooManyLooks
         | Problem::TooManyRules => Some(Scope::File),
-        // a second section of a head's name is dropped, and the first stays
-        Problem::UnknownSection(_) | Problem::DuplicateSection(_) | Problem::DuplicateHead(_) => {
-            Some(Scope::Section)
-        }
+        // a second section of a head's or a look's name is dropped, and the first stays
+        Problem::NotASection(_)
+        | Problem::DuplicateSection(_)
+        | Problem::DuplicateHead(_)
+        | Problem::DuplicateLook(_)
+        | Problem::BadLookName(_) => Some(Scope::Section),
         Problem::BadName(_)
         | Problem::ReservedName(_)
         | Problem::Renamed(Renamed::FocusHead | Renamed::DarkHead) => Some(Scope::Head),
@@ -594,13 +599,15 @@ pub fn scope(problem: &Problem, within: Within) -> Result<Scope, Read> {
         | Problem::DuplicateKey(_)
         | Problem::BadValue { .. }
         | Problem::OutOfRange { .. }
+        | Problem::NotHere { .. }
+        | Problem::TooLong(_)
         | Problem::Renamed(_) => None,
     };
     Ok(match fixed {
         Some(scope) => scope,
         None => match within {
             Within::Top | Within::Rules => Scope::Line,
-            Within::Header => Scope::Section,
+            Within::Header | Within::Look => Scope::Section,
             Within::Head => Scope::Head,
         },
     })

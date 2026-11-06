@@ -18,7 +18,8 @@ use vtium::font::Sources;
 use vtium::head::{Head, Start};
 use vtium::video::Video;
 use vtium_platform::display::{
-    DisplayId, Dpms, Event, Identity, Memory as Shared, Rect, SwapError, Swapped, Token,
+    DisplayId, Dpms, Edid, EdidId, Event, Identity, Memory as Shared, Rect, SwapError, Swapped,
+    Token,
 };
 use vtium_platform::event_loop::Loop;
 use vtium_platform::input::{InputEvent, KeyEvent, Mods};
@@ -52,6 +53,8 @@ struct Memory {
     refresh_mhz: u32,
     connector: &'static str,
     card: &'static str,
+    /// The monitor its EDID names, where it has one.
+    edid: Option<EdidId>,
     dpi: f64,
     /// Its connector was lit at start, so it is the boot display.
     lit: bool,
@@ -99,6 +102,7 @@ impl Memory {
             refresh_mhz: 60_000,
             connector,
             card,
+            edid: None,
             dpi: 72.0,
             lit: false,
             held: false,
@@ -123,6 +127,20 @@ impl Memory {
     /// This display, measuring `dpi`.
     fn at(self, dpi: f64) -> Memory {
         Memory { dpi, ..self }
+    }
+
+    /// This display, with an EDID naming maker `AAA`, product 0x0001 and
+    /// the serial number `serial`.
+    fn named(self, serial: u32) -> Memory {
+        let mut base = [0u8; 128];
+        base[..8].copy_from_slice(&[0, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0]);
+        // `A` is 1 in each five-bit letter of the maker id
+        base[8..12].copy_from_slice(&[0x04, 0x21, 0x01, 0x00]);
+        base[12..16].copy_from_slice(&serial.to_le_bytes());
+        base[127] = 0u8.wrapping_sub(base.iter().fold(0u8, |sum, &b| sum.wrapping_add(b)));
+        let edid = Edid::parse(&base).map(|e| e.id().clone());
+        assert!(edid.is_some(), "the fixture is an EDID");
+        Memory { edid, ..self }
     }
 
     /// This display, lit at start.
@@ -199,7 +217,7 @@ impl Video for Memory {
         Some(Identity {
             connector: self.connector.to_owned(),
             card: Some(self.card.to_owned()),
-            edid: None,
+            edid: self.edid.clone(),
             connector_path: None,
             lit_at_start: self.lit,
         })
@@ -435,6 +453,24 @@ struct Seat {
     app: App,
     /// How many VT releases vtium has acknowledged.
     released: Rc<Cell<u32>>,
+    /// Dropped after the app, as fields drop in order.
+    _reap: Reap,
+}
+
+/// Joins, as the harness drops after its app, the render threads the app
+/// went on without because their GPU driver had not let go in time
+/// (ADR-1303 D9). No such thread is then inside the GPU driver when the
+/// test binary runs its exit handlers, which would tear libEGL and Mesa
+/// down under it, as the gpu harness's seat does too.
+struct Reap;
+
+impl Drop for Reap {
+    fn drop(&mut self) {
+        let running = vtium::painter::wait_for_left(BOUND, &now);
+        if !std::thread::panicking() {
+            assert_eq!(running, 0, "a render thread left running");
+        }
+    }
 }
 
 impl Drop for Seat {
@@ -543,7 +579,7 @@ impl Seat {
             .chain(&["--login", "--", "/bin/sh", "-c", script])
             .map(OsString::from)
             .collect();
-        let loaded = config::load(&args, None, &mut |_: &Path| Ok(None));
+        let loaded = config::load(&args, &mut |_: &Path| Ok(None));
         assert_eq!(loaded.reports, [], "the seat's command line");
         let lp: Loop<App> = Loop::new().expect("a loop");
         let env = vec![(OsString::from("PATH"), OsString::from("/usr/bin:/bin"))];
@@ -560,7 +596,12 @@ impl Seat {
         app.vt.activate().expect("the fake VT");
         app.start();
         app.turn(now());
-        Seat { lp, app, released }
+        Seat {
+            lp,
+            app,
+            released,
+            _reap: Reap,
+        }
     }
 
     /// Turns the loop until `done` holds, at most `limit`.
@@ -764,6 +805,37 @@ fn a_heads_points_convert_at_its_own_displays_density() {
     assert_eq!(two.app.cells(), [(8, 16), (16, 32)]);
 }
 
+/// ADR-1401 D4: an `edid:` rule places a display by its EDID's maker,
+/// product code and serial, so two monitors of one model on one card go
+/// to the heads their serials name.
+#[test]
+fn edid_rules_place_two_monitors_of_one_model_by_their_serials() {
+    let heads = "version = 1
+[head small]
+[head large]
+[rules]
+display edid:AAA:0x0001:0x00000002 -> large
+display edid:AAA:0x0001:0x00000001 -> small
+";
+    let displays = [
+        (
+            "/dev/mem0",
+            Memory::new(320, 160, "MEM-1", "mem-card").named(1),
+        ),
+        (
+            "/dev/mem1",
+            Memory::new(640, 320, "MEM-2", "mem-card").named(2),
+        ),
+    ];
+    let mut s = Seat::with_heads(&[], Some(heads), displays, "read x");
+    assert!(
+        s.until(BOUND, |a| a.cells().len() == 2),
+        "both displays lit"
+    );
+    assert_eq!(grid(&s.app, "small"), Some((40, 10)));
+    assert_eq!(grid(&s.app, "large"), Some((80, 20)));
+}
+
 /// D3: a display a rule sends `dark` and a display no rule claims are
 /// left off, set dark, and join no head.
 #[test]
@@ -924,17 +996,19 @@ fn frits(test: &str, names: &[&str]) -> (Scratch, Sources, PathBuf) {
     (dir, fonts, starts)
 }
 
-/// D3 and D6: the more specific setting wins. A head's profile names its
-/// frit, over vtium.conf's font; a head with the default profile takes
-/// vtium.conf's, the built-in font here. A head has no font key of its
-/// own.
+/// D3 and D6, ADR-1403 D5: the more specific setting wins. A head's look
+/// names its frit, over the top level's font; a head with the default look
+/// takes the top level's, the built-in font here. A head has no font key
+/// of its own.
 #[test]
-fn a_heads_profile_names_its_frit_over_vtium_confs_font() {
+fn a_heads_look_names_its_frit_over_the_top_levels_font() {
     let (_dir, fonts, starts) = frits("profile", &["t"]);
     let heads = "version = 1
+[look t]
+font-name = t
 [head small]
 [head large]
-profile = t
+look = t
 [rules]
 display card:mem-small -> small
 display card:mem-large -> large
@@ -954,6 +1028,368 @@ display card:mem-large -> large
         s.until(BOUND, |_| starts.exists()),
         "the large head's frit started its helper"
     );
+    drop(s);
+}
+
+/// ADR-1403 D5: a look's `font-size` and `display-dpi` reach the head
+/// whose section names the look, over the top level's, and a head whose
+/// section names no look draws at the top level's. The seat's command
+/// line sets 16 points, which a section wins over too. The small head's
+/// look sets 144 DPI, so 16 points draw a 16x32 cell on the 72 DPI small
+/// display; the large head's look sets 32 points, a 16x32 cell at 72 DPI.
+/// A head's section sets no font key of its own, since a head's font
+/// comes from its look.
+#[test]
+fn a_heads_look_sets_the_size_its_head_draws_at() {
+    let heads = "version = 1
+[look dense]
+display-dpi = 144
+[look big]
+font-size = 32
+[head small]
+look = dense
+[head large]
+look = big
+[rules]
+display card:mem-small -> small
+display card:mem-large -> large
+";
+    let script = "echo \"size:$(stty size)\"; read x";
+    let mut s = Seat::with_heads(&[], Some(heads), two_displays(), script);
+    assert!(s.until(BOUND, |a| a.cells().len() == 2));
+    assert_eq!(
+        s.app.head("small").map(Head::cells),
+        Some(vec![(16, 32)]),
+        "the look's display-dpi"
+    );
+    assert_eq!(
+        s.app.head("large").map(Head::cells),
+        Some(vec![(16, 32)]),
+        "the look's font-size"
+    );
+    assert_eq!(grid(&s.app, "small"), Some((20, 5)));
+    assert_eq!(grid(&s.app, "large"), Some((40, 10)));
+    assert!(s.until(BOUND, |a| size(a, "small").is_some()
+        && size(a, "large").is_some()));
+    assert_eq!(size(&s.app, "small").as_deref(), Some("5 20"));
+    assert_eq!(size(&s.app, "large").as_deref(), Some("10 40"));
+    // a head section with no look draws at the top level's 16 points
+    let plain = "version = 1
+[look big]
+font-size = 32
+[head small]
+[head large]
+look = big
+[rules]
+display card:mem-small -> small
+display card:mem-large -> large
+";
+    let mut s = Seat::with_heads(&[], Some(plain), two_displays(), "read x");
+    assert!(s.until(BOUND, |a| a.cells().len() == 2));
+    assert_eq!(s.app.head("small").map(Head::cells), Some(vec![(8, 16)]));
+    assert_eq!(s.app.head("large").map(Head::cells), Some(vec![(16, 32)]));
+}
+
+/// ADR-1403 D5, ADR-1200 D16: a look's `cell` reaches the head whose
+/// section names the look. It wins over the cell its frit states, 10x20,
+/// and over the seat's 16 points, so the small head draws 12x24 cells on
+/// its 320x160 display. The small head's frit is an outline frit, which
+/// would draw at the 16 points' height were the cell to lose to them.
+/// Within one look, the look's `font-size` wins over its `cell`: the large
+/// head's look sets both, and the head draws at 32 points, a 16x32 cell at
+/// 72 DPI, as with no cell at all.
+#[test]
+fn a_heads_look_sets_its_cell_and_the_looks_size_wins_over_it() {
+    let (dir, fonts, _starts) = frits("look-cell", &[]);
+    std::fs::write(dir.join("c.vtfrit"), "cell=10x20\nsource=builtin:unifont\n")
+        .expect("a frit that states its cell");
+    std::fs::write(
+        dir.join("o.vtfrit"),
+        "cell=10x20\nsource=outline:/nonexistent/vtium-test.ttf\n",
+    )
+    .expect("an outline frit that states its cell");
+    let heads = "version = 1
+[look cell]
+font-name = o
+cell = 12x24
+[look both]
+font-name = c
+cell = 12x24
+font-size = 32
+[head small]
+look = cell
+[head large]
+look = both
+[rules]
+display card:mem-small -> small
+display card:mem-large -> large
+";
+    let mut s = Seat::with_fonts(&[], Some(heads), two_displays(), "read x", fonts);
+    assert!(s.until(BOUND, |a| a.cells().len() == 2));
+    assert_eq!(
+        s.app.head("small").map(Head::cells),
+        Some(vec![(12, 24)]),
+        "the look's cell"
+    );
+    assert_eq!(grid(&s.app, "small"), Some((26, 6)));
+    assert_eq!(
+        s.app.head("large").map(Head::cells),
+        Some(vec![(16, 32)]),
+        "the look's font-size"
+    );
+    assert_eq!(grid(&s.app, "large"), Some((40, 10)));
+    drop(s);
+}
+
+/// ADR-1403 D5, ADR-1200 D5: a look's `cell` holds across an OSC 50
+/// switch. The head's look draws frit `c` in a 12x24 cell, which
+/// `a_heads_look_sets_its_cell_and_the_looks_size_wins_over_it` checks;
+/// the program switches to frit `d`, which states a 10x20 cell of its own, and `d`
+/// draws in the look's 12x24 cell too, since the look is more specific
+/// than any frit the head draws. A switch to a built-in font, `unifont`,
+/// draws it in the look's cell as well (ADR-1200 D7).
+#[test]
+fn an_osc_50_switch_keeps_the_looks_cell() {
+    let (dir, fonts, _starts) = frits("look-cell-osc50", &[]);
+    for name in ["c", "d"] {
+        std::fs::write(
+            dir.join(format!("{name}.vtfrit")),
+            "cell=10x20\nsource=builtin:unifont\n",
+        )
+        .expect("a frit that states its cell");
+    }
+    let heads = "version = 1
+[look cell]
+font-name = c
+cell = 12x24
+[head small]
+look = cell
+[rules]
+display card:mem-small -> small
+";
+    let script = "printf '\\033]50;d\\007'; echo switched; read b";
+    let [small, _] = two_displays();
+    let mut s = Seat::with_fonts(&[], Some(heads), [small], script, fonts.clone());
+    assert!(s.until(BOUND, |a| head_shows(a, "small", "switched")));
+    assert_eq!(s.app.font_name(), "d", "the switch took");
+    assert_eq!(
+        s.app.head("small").map(Head::cells),
+        Some(vec![(12, 24)]),
+        "the new frit draws in the look's cell"
+    );
+    drop(s);
+    let script = "printf '\\033]50;unifont\\007'; echo switched; read b";
+    let [small, _] = two_displays();
+    let mut s = Seat::with_fonts(&[], Some(heads), [small], script, fonts);
+    assert!(s.until(BOUND, |a| head_shows(a, "small", "switched")));
+    assert_eq!(s.app.font_name(), "unifont", "the switch took");
+    assert_eq!(
+        s.app.head("small").map(Head::cells),
+        Some(vec![(12, 24)]),
+        "the built-in font draws in the look's cell"
+    );
+    drop(s);
+}
+
+/// ADR-1200 D7, D17, ADR-1403 D5: a head that draws the built-in fonts
+/// alone draws them in the cell its look states, fitted to that cell, as
+/// it would draw a frit, and not at the display's automatic size. The
+/// look of the small head names the frit `bad`, whose `cell=` line vtium
+/// cannot read, so vtium draws the built-in fonts; the look of the large
+/// head names no font, and nothing else names one. Both looks state a
+/// 12x24 cell, which wins over the seat's 16 points, so the small head's
+/// 320x160 display holds 26 by 6 cells and the large head's 640x320
+/// display 53 by 13. A look that names a built-in font, `unscii-8`, draws
+/// it in the look's cell too.
+#[test]
+fn the_built_in_fonts_alone_draw_in_the_looks_cell() {
+    let (dir, fonts, _starts) = frits("builtin-cell", &[]);
+    std::fs::write(
+        dir.join("bad.vtfrit"),
+        "cell=wide\nsource=builtin:unifont\n",
+    )
+    .expect("a frit whose cell cannot be read");
+    let heads = "version = 1
+[look unread]
+font-name = bad
+cell = 12x24
+[look none]
+cell = 12x24
+[head small]
+look = unread
+[head large]
+look = none
+[rules]
+display card:mem-small -> small
+display card:mem-large -> large
+";
+    let mut s = Seat::with_fonts(&[], Some(heads), two_displays(), "read x", fonts.clone());
+    assert!(s.until(BOUND, |a| a.cells().len() == 2));
+    assert_eq!(
+        s.app.head("small").map(Head::cells),
+        Some(vec![(12, 24)]),
+        "a frit vtium cannot read"
+    );
+    assert_eq!(grid(&s.app, "small"), Some((26, 6)));
+    assert_eq!(
+        s.app.head("large").map(Head::cells),
+        Some(vec![(12, 24)]),
+        "no font named"
+    );
+    assert_eq!(grid(&s.app, "large"), Some((53, 13)));
+    drop(s);
+    let named = "version = 1
+[look small]
+font-name = unscii-8
+cell = 12x24
+[head small]
+look = small
+[rules]
+display card:mem-small -> small
+";
+    let [small, _] = two_displays();
+    let mut s = Seat::with_fonts(&[], Some(named), [small], "read x", fonts);
+    assert!(s.until(BOUND, |a| a.cells().len() == 1));
+    assert_eq!(
+        s.app.head("small").map(Head::cells),
+        Some(vec![(12, 24)]),
+        "a built-in font named"
+    );
+    drop(s);
+    // A 6x16 cell is too narrow for unifont's 8 columns, so Unscii-8
+    // draws in it, and OSC 50's query names Unscii-8.
+    let narrow = "version = 1
+[look narrow]
+cell = 6x16
+[head small]
+look = narrow
+[rules]
+display card:mem-small -> small
+";
+    let (_dir, fonts, _starts) = frits("builtin-narrow", &[]);
+    let [small, _] = two_displays();
+    let mut s = Seat::with_fonts(&[], Some(narrow), [small], "read x", fonts);
+    assert!(s.until(BOUND, |a| a.cells().len() == 1));
+    assert_eq!(s.app.head("small").map(Head::cells), Some(vec![(6, 16)]));
+    assert_eq!(s.app.font_name(), "unscii-8", "the strike that draws");
+    drop(s);
+}
+
+/// ADR-1200 D9, ADR-1403 D5: a look whose `font-name` names no frit in the
+/// frits' directory names a kbd font, and vtium makes a one-source frit
+/// for it on the fly. That frit draws in the look's 12x24 cell, and the
+/// built-in fonts draw its glyphs while no helper sends any.
+#[test]
+fn a_look_naming_a_frit_with_no_file_draws_in_the_looks_cell() {
+    let (_dir, fonts, _starts) = frits("look-no-frit", &[]);
+    let heads = "version = 1
+[look missing]
+font-name = no-such-frit
+cell = 12x24
+[head small]
+look = missing
+[rules]
+display card:mem-small -> small
+";
+    let [small, _] = two_displays();
+    let mut s = Seat::with_fonts(&[], Some(heads), [small], "read x", fonts);
+    assert!(s.until(BOUND, |a| a.cells().len() == 1));
+    assert_eq!(s.app.head("small").map(Head::cells), Some(vec![(12, 24)]));
+    assert_eq!(grid(&s.app, "small"), Some((26, 6)));
+    assert_eq!(s.app.font_name(), "no-such-frit");
+    drop(s);
+}
+
+/// ADR-1200 D5, D16: a configured `font-size` wins over the cell of a frit
+/// that an OSC 50 switch draws, as it does over the frit vtium starts with.
+/// At the seat's 72 DPI, 32 points are 32 pixels; the head starts in the
+/// built-in fonts at that size, and the program switches to frit `c`,
+/// which states a 10x20 cell, and `c` draws in the 16x32 cell of 32
+/// pixels.
+#[test]
+fn an_osc_50_switch_under_a_configured_font_size_drops_the_frits_cell() {
+    let (dir, fonts, _starts) = frits("osc50-sized", &[]);
+    std::fs::write(dir.join("c.vtfrit"), "cell=10x20\nsource=builtin:unifont\n")
+        .expect("a frit that states its cell");
+    let heads = "version = 1
+[head small]
+[rules]
+display card:mem-small -> small
+";
+    let script = "printf '\\033]50;c\\007'; echo switched; read b";
+    let [small, _] = two_displays();
+    let mut s = Seat::with_fonts(&["--font-size=32"], Some(heads), [small], script, fonts);
+    assert!(s.until(BOUND, |a| head_shows(a, "small", "switched")));
+    assert_eq!(s.app.font_name(), "c", "the switch took");
+    assert_eq!(s.app.head("small").map(Head::cells), Some(vec![(16, 32)]));
+    drop(s);
+}
+
+/// ADR-1200 D16, D17: a head that draws the built-in fonts alone, with no
+/// look's cell, draws them at the top level's `font-size`. At the seat's
+/// 72 DPI, 32 points are 32 pixels, unifont's 16x32 cell, so the small
+/// head's 320x160 display holds 20 by 5 cells. Its look names the frit
+/// `bad`, which vtium cannot read; the large head has no look.
+#[test]
+fn the_built_in_fonts_alone_draw_at_the_top_levels_font_size() {
+    let (dir, fonts, _starts) = frits("builtin-size", &[]);
+    std::fs::write(
+        dir.join("bad.vtfrit"),
+        "cell=wide\nsource=builtin:unifont\n",
+    )
+    .expect("a frit whose cell cannot be read");
+    let heads = "version = 1
+[look unread]
+font-name = bad
+[head small]
+look = unread
+[head large]
+[rules]
+display card:mem-small -> small
+display card:mem-large -> large
+";
+    let mut s = Seat::with_fonts(
+        &["--font-size=32"],
+        Some(heads),
+        two_displays(),
+        "read x",
+        fonts,
+    );
+    assert!(s.until(BOUND, |a| a.cells().len() == 2));
+    assert_eq!(s.app.head("small").map(Head::cells), Some(vec![(16, 32)]));
+    assert_eq!(grid(&s.app, "small"), Some((20, 5)));
+    assert_eq!(s.app.head("large").map(Head::cells), Some(vec![(16, 32)]));
+    drop(s);
+}
+
+/// ADR-1200 D16, ADR-1403 D5: within one look, its `font-size` wins over
+/// its `cell` on the built-in fonts too. The look names the frit `bad`,
+/// which vtium cannot read, states a 12x24 cell and sets 32 points, so the
+/// head draws the built-in fonts at 32 pixels, unifont's 16x32 cell, and
+/// not in the 12x24 cell.
+#[test]
+fn within_one_look_its_font_size_wins_over_its_cell_on_the_built_in_fonts() {
+    let (dir, fonts, _starts) = frits("builtin-both", &[]);
+    std::fs::write(
+        dir.join("bad.vtfrit"),
+        "cell=wide\nsource=builtin:unifont\n",
+    )
+    .expect("a frit whose cell cannot be read");
+    let heads = "version = 1
+[look both]
+font-name = bad
+cell = 12x24
+font-size = 32
+[head small]
+look = both
+[rules]
+display card:mem-small -> small
+";
+    let [small, _] = two_displays();
+    let mut s = Seat::with_fonts(&[], Some(heads), [small], "read x", fonts);
+    assert!(s.until(BOUND, |a| a.cells().len() == 1));
+    assert_eq!(s.app.head("small").map(Head::cells), Some(vec![(16, 32)]));
+    assert_eq!(grid(&s.app, "small"), Some((20, 5)));
     drop(s);
 }
 
@@ -991,10 +1427,12 @@ fn an_osc_50_switch_back_asks_again_after_a_timeout_but_not_a_refusal() {
             ..no_fonts()
         };
         let heads = "version = 1
+[look t]
+font-name = t
 [head a]
-profile = t
+look = t
 [head b]
-profile = t
+look = t
 [rules]
 display card:mem-small -> a
 display card:mem-large -> b
@@ -1107,12 +1545,16 @@ fn with_no_head_file_the_seat_runs_the_compiled_in_heads() {
 fn heads_drawing_one_frit_share_its_helper_and_another_frit_has_its_own() {
     let (_dir, fonts, starts) = frits("share", &["t", "u"]);
     let heads = "version = 1
+[look t]
+font-name = t
+[look u]
+font-name = u
 [head a]
-profile = t
+look = t
 [head b]
-profile = t
+look = t
 [head c]
-profile = u
+look = u
 [rules]
 display card:mem-a -> a
 display card:mem-b -> b
@@ -2250,11 +2692,10 @@ fn a_console_the_open_chord_cannot_start_leaves_and_the_run_goes_on() {
     std::fs::remove_file(&login).expect("the login removed");
     press_chord(&mut s, KBD_SMALL, RETURN);
     assert_eq!(consoles(&s.app, "small"), Some((1, 0)), "the console left");
-    let line = Some("No console opened: its login could not start.");
-    assert!(
-        s.until(BOUND, |a| a.head("small").and_then(Head::status) == line),
-        "the line at the top of the head: {:?}",
-        s.app.head("small").and_then(Head::status)
+    assert_eq!(
+        notice(&s.app, "small").as_deref(),
+        Some("Console not opened: login could not start."),
+        "the notice at the top of the head"
     );
     s.type_on(KBD_SMALL, "on\r");
     assert!(
@@ -4280,28 +4721,25 @@ impl HeadFile {
         use std::sync::atomic::{AtomicUsize, Ordering};
         static MADE: AtomicUsize = AtomicUsize::new(0);
         let n = MADE.fetch_add(1, Ordering::Relaxed);
-        let dir =
-            std::env::temp_dir().join(format!("vtium-heads-{test}-{}-{n}", std::process::id()));
+        // under the build's own temporary directory, which no other user
+        // can write, so the ownership check passes it (ADR-1403 D3)
+        let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
+            .join(format!("vtium-heads-{test}-{}-{n}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("the directory");
         std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).expect("0700");
-        let path = dir.join("heads.conf");
-        std::fs::write(&path, text).expect("the head file");
+        let path = dir.join("vtium.conf");
+        std::fs::write(&path, text).expect("vtium.conf");
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).expect("0644");
         HeadFile { dir, path }
     }
 
-    /// The trust the start reads the file under, with the test's user in
-    /// root's place.
-    fn trust(&self) -> vtium_settings::Trust {
-        use std::os::unix::fs::MetadataExt;
-        let uid = std::fs::metadata(&self.dir).expect("the directory").uid();
-        vtium_settings::Trust::owner(uid).below(&self.dir)
-    }
-
-    /// What the start runs for the file.
+    /// What the start runs for the file, read as the console reads its
+    /// vtium.conf, by the account the test runs as (ADR-1403 D3).
     fn rules(&self) -> Start {
-        vtium::head::rules(&self.path, &self.trust())
+        let configdir = OsString::from(format!("--configdir={}", self.dir.display()));
+        let loaded = vtium::config::load(&[configdir], &mut vtium::config::read_file);
+        vtium::head::rules(&loaded.path, &loaded.file)
     }
 
     /// Every file of the directory, each with the hash of its bytes and
@@ -4481,10 +4919,10 @@ fn notice(app: &App, name: &str) -> Option<String> {
 
 /// The notices of D7's outcomes: each console line as the catalog words
 /// it, then what to do next about vtium's head file.
-const SKIPPED: &str = "invalid config skipped, using builtin\nRun vtium check-config /etc/vtium/heads.conf to see why.";
-const PARTLY: &str = "config partly invalid, running what's valid\nRun vtium check-config /etc/vtium/heads.conf to see why.";
-const CLOSED_OFF: &str = "vtium: config invalid, policy closed: input off\nNothing on this console takes input. Run vtium check-config /etc/vtium/heads.conf over ssh, or from other boot media, for the full report.";
-const NO_DISPLAY: &str = "vtium: no display for any head\nConnect a display that a rule in /etc/vtium/heads.conf sends to a head.";
+const SKIPPED: &str = "invalid config skipped, using builtin\nRun vtium check-config /etc/vtium/vtium.conf to see why.";
+const PARTLY: &str = "config partly invalid, running what's valid\nRun vtium check-config /etc/vtium/vtium.conf to see why.";
+const CLOSED_OFF: &str = "vtium: config invalid, policy closed: input off\nNothing on this console takes input. Run vtium check-config /etc/vtium/vtium.conf over ssh, or from other boot media, for the full report.";
+const NO_DISPLAY: &str = "vtium: no display for any head\nConnect a display that a rule in /etc/vtium/vtium.conf sends to a head.";
 
 /// The panic screen of a broken closed file whose one error, on line 4,
 /// is the key `focs`, read as `heads.conf` (D7): the console line, that
@@ -5367,46 +5805,123 @@ fn an_idle_seat_wakes_to_take_the_osd_down() {
     );
 }
 
-/// D5: under `osd = off` the active head's move composes no frame, since
-/// it leaves the picture as it was; under `minimal` it composes one with
-/// the dot, the control.
+/// The loop's turns a test gives a press to start a frame. Under
+/// `minimal` the press's frame starts in the first turn after it, so a
+/// frame that has not started after this many turns never will.
+const TURNS: usize = 8;
+
+/// The turn, counted from 1, in which the display at `node` is asked for
+/// a frame after `press`, within [`TURNS`] turns: the loop asks the
+/// display for a buffer, which [`Memory`] counts, as it starts each frame.
+/// `None` when no frame starts. The seat's start is drawn first, with no
+/// frame of it still out.
+fn turn_of_frame(s: &mut Seat, node: &str, press: impl FnOnce(&mut Seat)) -> Option<usize> {
+    assert!(
+        s.until_memory(node, BOUND, |m| m.inked(0, 1..5)),
+        "the start drawn"
+    );
+    assert!(
+        s.until(BOUND, |a| a.heads().iter().all(|h| h.frames_out() == 0)),
+        "no frame of the start out"
+    );
+    let lent = s.memory(node).ages.len();
+    press(s);
+    (1..=TURNS).find(|_| {
+        s.app.turn(now());
+        s.memory(node).ages.len() > lent
+    })
+}
+
+/// D5: under `osd = off` the active head's move starts no frame, since it
+/// leaves the picture as it was; under `minimal` it starts one with the
+/// dot, in the first turn, the control.
 #[test]
 fn under_osd_off_a_move_composes_no_frame() {
-    use std::sync::Arc;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    for (osd, drawn) in [("--osd=off", false), ("--osd=minimal", true)] {
+    for (osd, drawn) in [("--osd=off", None), ("--osd=minimal", Some(1))] {
         let mut s = claimed_with(&[osd, "--no-blink"]);
-        // The large display shows "ready", past the cursor's first cell:
-        // its last frame of the start is drawn and no other is on its way.
-        assert!(
-            s.until_memory("/dev/mem1", BOUND, |m| m.inked(0, 1..5)),
-            "the start drawn"
+        let moved = turn_of_frame(&mut s, "/dev/mem1", |s| {
+            s.app
+                .device_input(Path::new(KBD_FOCUS), ctrl_super(UP), now());
+        });
+        assert_eq!(moved, drawn, "{osd}");
+    }
+}
+
+/// D5: with `osd = off`, the open chord at a cap leaves the picture as it
+/// was, so it starts no frame; under `minimal` it starts one with the
+/// brief line, in the first turn, the control.
+#[test]
+fn under_osd_off_the_open_chord_at_a_cap_composes_no_frame() {
+    for (osd, drawn) in [("--osd=off", None), ("--osd=minimal", Some(1))] {
+        let mut s = claimed_with(&[osd, "--no-blink", "--head-consoles-max=1"]);
+        let pressed = turn_of_frame(&mut s, "/dev/mem0", |s| {
+            press_chord(s, KBD_SMALL, RETURN);
+        });
+        assert_eq!(consoles(&s.app, "small"), Some((1, 0)), "{osd}");
+        assert_eq!(pressed, drawn, "{osd}");
+    }
+}
+
+/// Each way vtium.conf turns the on-screen display off: `osd = off`, the
+/// older `focus-mark = off`, and `off` beside an `osd-timeout` or a
+/// `focus-mark` that would otherwise keep it up from the start.
+const OSD_OFF: [&[&str]; 5] = [
+    &["--osd=off"],
+    &["--focus-mark=off"],
+    &["--osd=off", "--osd-timeout=never"],
+    &["--focus-mark=always", "--osd=off"],
+    &["--focus-mark=off", "--osd-timeout=never"],
+];
+
+/// D5 and D7, the maintainer's decision of 2026-11-05: a console the open
+/// chord opens whose login cannot start is a notice of a problem, which
+/// shows whatever `osd` says: under every way of turning the OSD off and
+/// under `minimal` and `full`, the head shows the notice in the notices'
+/// colors and no brief line, and a key reaching the head ends it, as it
+/// ends the guards' notices.
+// covers: platform.heads
+#[test]
+fn a_console_that_cannot_start_shows_a_notice_under_every_osd() {
+    let dir = Scratch::new("heads-osd-unstartable");
+    let login = dir.join("login");
+    let heads = CLAIMED.replace(
+        "[head small]\n",
+        &format!("[head small]\nlogin = {}\n", login.display()),
+    );
+    let modes = OSD_OFF
+        .iter()
+        .copied()
+        .chain([&["--osd=minimal"][..], &["--osd=full"][..]]);
+    for args in modes {
+        script_file(
+            &login,
+            "#!/bin/sh\necho ready; while read a; do echo \"got:$a\"; done\n",
+        );
+        let mut s = claimed_on(args, &heads);
+        assert_eq!(notice(&s.app, "small"), None, "{args:?}");
+        std::fs::remove_file(&login).expect("the login removed");
+        press_chord(&mut s, KBD_SMALL, RETURN);
+        assert_eq!(consoles(&s.app, "small"), Some((1, 0)), "{args:?}");
+        assert_eq!(
+            notice(&s.app, "small").as_deref(),
+            Some(vtium::notice::NO_CONSOLE_OPENED),
+            "{args:?}: the notice"
+        );
+        assert_eq!(
+            s.app.head("small").and_then(Head::status),
+            None,
+            "{args:?}: no brief line"
         );
         assert!(
-            s.until(BOUND, |a| a
-                .head("large")
-                .is_some_and(|h| h.frames_out() == 0)),
-            "no frame of the start composing"
+            s.until_memory("/dev/mem0", BOUND, |m| m.has(PAPER)),
+            "{args:?}: drawn in the notices' colors"
         );
-        let composed = Arc::new(AtomicUsize::new(0));
-        let count = Arc::clone(&composed);
-        let hook = move || {
-            count.fetch_add(1, Ordering::SeqCst);
-        };
-        s.app.set_draw_hook("large", Some(Arc::new(hook)));
-        s.app
-            .device_input(Path::new(KBD_FOCUS), ctrl_super(UP), now());
-        if drawn {
-            assert!(
-                s.until(BOUND, |_| composed.load(Ordering::SeqCst) > 0),
-                "{osd}: a frame composed"
-            );
-        } else {
-            // No frame comes to wait for: the window only gives one the
-            // chance to.
-            s.until(Duration::from_millis(200), |_| false);
-            assert_eq!(composed.load(Ordering::SeqCst), 0, "{osd}");
-        }
+        s.type_on(KBD_SMALL, "on\r");
+        assert!(
+            s.until(BOUND, |a| head_shows(a, "small", "got:on")),
+            "{args:?}: the first console's session runs on"
+        );
+        assert_eq!(notice(&s.app, "small"), None, "{args:?}: a key ended it");
     }
 }
 
@@ -6003,7 +6518,7 @@ fn reset_seat(dir: &Path, heads: &str, fonts: Sources) -> (Seat, Rc<Cell<u32>>) 
     .iter()
     .map(OsString::from)
     .collect();
-    let loaded = config::load(&args, None, &mut config::read_file);
+    let loaded = config::load(&args, &mut config::read_file);
     assert_eq!(loaded.reports, [], "the seat's configuration");
     let lp: Loop<App> = Loop::new().expect("a loop");
     let env = vec![(OsString::from("PATH"), OsString::from("/usr/bin:/bin"))];
@@ -6014,7 +6529,7 @@ fn reset_seat(dir: &Path, heads: &str, fonts: Sources) -> (Seat, Rc<Cell<u32>>) 
     let counted = Rc::clone(&reads);
     app.set_config_reader(Box::new(move || {
         counted.set(counted.get() + 1);
-        config::load(&args, None, &mut config::read_file)
+        config::load(&args, &mut config::read_file)
     }));
     app.set_heads(start(heads));
     app.add_video(
@@ -6024,7 +6539,12 @@ fn reset_seat(dir: &Path, heads: &str, fonts: Sources) -> (Seat, Rc<Cell<u32>>) 
     app.vt.activate().expect("the fake VT");
     app.start();
     app.turn(now());
-    let mut s = Seat { lp, app, released };
+    let mut s = Seat {
+        lp,
+        app,
+        released,
+        _reap: Reap,
+    };
     s.app.add_input(Path::new(KBD_SMALL), keyboard("kbd-small"));
     (s, reads)
 }
@@ -6093,6 +6613,31 @@ fn a_sessions_end_undoes_its_zoom() {
     let size = end_shown_session(&mut s);
     assert_eq!(size, "size:10 40", "the next login starts at 16 points");
     assert_eq!(s.app.cells(), [(8, 16)]);
+}
+
+/// ADR-1201 D11, ADR-1403 D5: the size a session's end returns to is the
+/// head's, its look's `font-size` over vtium.conf's, so a zoom made in the
+/// session is undone back to the look's size.
+#[test]
+fn a_sessions_end_returns_to_its_looks_size() {
+    let (dir, fonts) = reset_fixture("reset-look", "font-size=16\n");
+    let heads = "version = 1\n[look big]\nfont-size = 32\n[head small]\nlook = big\n\
+                 [rules]\ndisplay card:mem-small -> small\ninput path:kbd-small -> small\n";
+    let (mut s, reads) = reset_seat(&dir, heads, fonts);
+    assert!(s.until(BOUND, |a| sizes(a) == [Some("size:5 20".to_owned())]));
+    let minus = InputEvent::Key(KeyEvent {
+        mods: Mods::CTRL,
+        ..char_key('-')
+    });
+    s.app.device_input(Path::new(KBD_SMALL), minus, now());
+    assert_ne!(grid(&s.app, "small"), Some((20, 5)), "zoomed");
+    let size = end_shown_session(&mut s);
+    assert_eq!(
+        size, "size:5 20",
+        "the next login starts at the look's 32 points"
+    );
+    assert_eq!(s.app.cells(), [(16, 32)]);
+    assert_eq!(reads.get(), 1, "vtium.conf read again once");
 }
 
 /// ADR-1201 D11: one font for a head. A session ending in another console
@@ -6164,6 +6709,34 @@ fn a_font_key_that_does_not_read_at_a_sessions_end_is_reported_and_dropped() {
     assert!(lines.iter().any(|l| l.ends_with(&report)), "{lines:?}");
     assert_eq!(size, "size:8 32");
     assert_eq!(s.app.font_name(), "a");
+}
+
+/// ADR-1201 D11, ADR-1403 D3: a vtium.conf that others can write by the
+/// session's end is refused at the read again, as at the start: the log
+/// says why and gives the command that mends it, and none of the file's
+/// font keys apply, so the head returns to the default font.
+#[test]
+fn a_file_refused_at_a_sessions_end_is_reported_as_at_the_start() {
+    use std::os::unix::fs::PermissionsExt;
+    let (dir, fonts) = reset_fixture("reset-untrusted", "font-name=a\nfont-size=0\n");
+    std::fs::write(dir.join("switch.1"), "b").expect("the switch");
+    let (mut s, reads) = reset_seat(&dir, &small_consoles(1), fonts);
+    assert!(s.until(BOUND, |a| a.font_name() == "b"), "switched to b");
+    let file = dir.join("vtium.conf");
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o664)).expect("0664");
+    logged();
+    end_shown_session(&mut s);
+    let lines = logged();
+    let mend = format!("Run `chmod go-w {}`", file.display());
+    assert!(
+        lines
+            .iter()
+            .any(|l| l.contains("(mode 664)") && l.contains(&mend)),
+        "{lines:?}"
+    );
+    assert_eq!(reads.get(), 1, "vtium.conf read again once");
+    assert_ne!(s.app.font_name(), "a", "none of the file applies");
+    assert_ne!(s.app.font_name(), "b", "the switch is undone");
 }
 
 /// ADR-1201 D11: with nothing switched or zoomed, a session's end returns

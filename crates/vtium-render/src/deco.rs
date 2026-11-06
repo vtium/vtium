@@ -349,8 +349,9 @@ mod tests {
     // cell, and the dash in a cell 2 or more pixels wide, are the render
     // crate's departures: each must differ from the C reference's and draw
     // the fallback or the dash. When a digest differs, the test writes every
-    // `deco` line as vtium draws it to `vtium-render-digests/deco.tsv` in
-    // the system's temporary directory, a departure's line as it is, and
+    // `deco` line as vtium draws it to `vtium-render-digests-<pid>/deco.tsv`
+    // in the system's temporary directory, named for the test's process so
+    // two runs at once write two files, a departure's line as it is, and
     // fails naming that file and how many lines differ.
     // covers: platform.compositor
     #[test]
@@ -401,7 +402,7 @@ mod tests {
             drawn.push('\n');
         }
         let out = std::env::temp_dir()
-            .join("vtium-render-digests")
+            .join(format!("vtium-render-digests-{}", std::process::id()))
             .join("deco.tsv");
         if differ > 0 {
             std::fs::create_dir_all(out.parent().unwrap()).unwrap();

@@ -4,10 +4,12 @@
 //! answers the graphics query: the console's own terminal built with
 //! `images`, under the `kitty-check` feature.
 
+#[path = "common/home.rs"]
+mod home;
+
 use std::fs::{File, OpenOptions};
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use rustix::pty::{OpenptFlags, grantpt, openpt, ptsname, unlockpt};
 
@@ -35,7 +37,7 @@ fn frits() -> PathBuf {
 
 /// `preview` with `args`, its output a pipe: its status and output.
 fn preview(root: &Path, args: &[&str]) -> (i32, String, String) {
-    let o = Command::new(BIN)
+    let o = home::command(BIN)
         .arg("--configdir")
         .arg(root)
         .arg("--frits")
@@ -62,11 +64,13 @@ fn away_from_a_terminal_each_font_is_a_line_of_text() {
     let (status, out, err) = preview(&root, &["unifont", "unscii-8", "--size", "12"]);
     assert_eq!(status, 0, "{err}");
     let lines: Vec<&str> = out.lines().collect();
+    // the detailed specimen's 323 characters (ADR-1201 D4): unifont draws
+    // them all, and unscii-8 lacks 27, the CJK line's among them
     assert_eq!(
         lines,
         [
-            "unifont\t12 pt\tcell 8x16\tdraws 51 of the specimen's 51 characters",
-            "unscii-8\t12 pt\tcell 8x8\tdraws 51 of the specimen's 51 characters",
+            "unifont\t12 pt\tcell 8x16\tdraws 323 of the specimen's 323 characters",
+            "unscii-8\t12 pt\tcell 8x8\tdraws 296 of the specimen's 323 characters",
         ]
     );
     assert!(!out.contains('\x1b'), "no picture to a pipe");
@@ -129,7 +133,7 @@ fn the_display_s_edid_sets_the_density_and_its_mode_the_grid() {
     assert_eq!(status, 0, "{err}");
     assert_eq!(
         out,
-        "unifont\t12 pt\tcell 8x16\t240x67 cells\tdraws 51 of the specimen's 51 characters\n"
+        "unifont\t12 pt\tcell 8x16\t240x67 cells\tdraws 323 of the specimen's 323 characters\n"
     );
 }
 
@@ -138,7 +142,7 @@ fn the_display_s_edid_sets_the_density_and_its_mode_the_grid() {
 #[test]
 fn the_locale_adds_a_line_in_its_script() {
     let root = fixture("locale", None);
-    let o = Command::new(BIN)
+    let o = home::command(BIN)
         .arg("--configdir")
         .arg(&root)
         .arg("--frits")
@@ -152,13 +156,14 @@ fn the_locale_adds_a_line_in_its_script() {
     let out = String::from_utf8_lossy(&o.stdout).into_owned();
     let lines: Vec<&str> = out.lines().collect();
     assert_eq!(lines.len(), 2, "{out}");
-    // the Cyrillic line's 27 letters, after the Latin lines' 51 characters
+    // the Russian line's 18 letters the detailed specimen's Cyrillic line
+    // lacks, after its 323 characters
     assert!(
-        lines[0].ends_with("draws 78 of the specimen's 78 characters"),
+        lines[0].ends_with("draws 341 of the specimen's 341 characters"),
         "{out}"
     );
     assert!(
-        lines[1].contains("of the specimen's 78 characters"),
+        lines[1].contains("of the specimen's 341 characters"),
         "{out}"
     );
 }
@@ -198,7 +203,7 @@ fn on_a_terminal(answers_da1: bool) -> (i32, String) {
     let root = fixture(if answers_da1 { "da1-only" } else { "silent" }, None);
     let (mut master, slave) = pair();
     let io = || Stdio::from(slave.as_fd().try_clone_to_owned().expect("dup"));
-    let mut child = Command::new("setsid")
+    let mut child = home::command("setsid")
         .arg("--ctty")
         .arg(BIN)
         .arg("--configdir")
@@ -278,7 +283,7 @@ mod pictures {
         let root = fixture("pictures", None);
         let (mut master, slave) = pair();
         let io = || Stdio::from(slave.as_fd().try_clone_to_owned().expect("dup"));
-        let mut child = Command::new("setsid")
+        let mut child = home::command("setsid")
             .arg("--ctty")
             .arg(BIN)
             .arg("--configdir")

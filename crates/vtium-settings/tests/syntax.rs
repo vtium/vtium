@@ -177,10 +177,10 @@ fn the_first_cuts_names_are_errors_that_name_the_new_word() {
         let shown = first_error(&format!("version = 1\n{lines}"));
         assert!(shown.contains(word), "{lines:?}: {shown}");
     }
-    // a head takes its font from its profile alone, and the error says so
+    // a head takes its font from its look alone, and the error says so
     for key in ["font-name = t", "font-size = 12"] {
         let shown = first_error(&format!("version = 1\n[head a]\n{key}\n"));
-        assert!(shown.contains("`profile`"), "{key}: {shown}");
+        assert!(shown.contains("`[look NAME]`"), "{key}: {shown}");
     }
     // a misplaced policy line says what it means for the file
     let shown = first_error("version = 1\npolicy = closed\n[head a]\npolicy = closed\n");

@@ -161,7 +161,7 @@ impl<F: Face> Renderer<F> {
             Ok(glyphs) => glyphs,
             Err(e) => return Err(self.failed_after_plan(e)),
         };
-        glyphs.forget(&sorted(&core::mem::take(&mut self.gpu.forget)));
+        glyphs.forget(&sorted(&core::mem::take(&mut self.gpu.forget)), &self.font);
         let mut back = GpuBack::new(gl, &mut *glyphs, turn);
         let counts = self.paint(&plan, frame, state, &mut back);
         #[cfg(feature = "images")]
@@ -172,7 +172,8 @@ impl<F: Face> Renderer<F> {
         glyphs.end_frame();
         let uploads = glyphs.take_uploads();
         let gpu_counts = glyphs.take_counts();
-        let drawn = self.finish(&plan, counts, start);
+        let drew_missing = glyphs.take_drew_missing();
+        let drawn = self.finish(&plan, counts, drew_missing, start);
         let changed: Vec<_> = drawn.damage.iter().map(|&r| turn.up(r)).collect();
         let stats = drawn.stats;
         if let Some(e) = error {
@@ -257,11 +258,7 @@ impl<F: Face> Renderer<F> {
             owner: self.gpu.id,
             budgets: self.gpu.budgets,
             storage: self.config.storage,
-            fallback: Fallback::new(
-                self.config.depth,
-                self.font.cell(),
-                self.font.decorations().underline_thickness,
-            ),
+            fallback: Fallback::new(self.config.depth, self.font.cell()),
             cell: Size::new(
                 u32::try_from(self.layout.cw).unwrap_or(1),
                 u32::try_from(self.layout.ch).unwrap_or(1),

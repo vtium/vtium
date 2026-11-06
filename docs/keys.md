@@ -19,8 +19,8 @@ vtium keeps these keys for itself. A "head" is a terminal for one or more displa
 | Ctrl+Super+Backspace | closes the console on screen, unless it is the head's last |
 | Ctrl+Super+Up, Ctrl+Super+Down | makes the next or previous head active, from a keyboard that roams among heads |
 
-Selecting text with the pointer copies it into vtium's selection. The console has no system clipboard: vtium holds one selection, and a program can set it with OSC 52, but no program can read it back. Under a head file whose policy is `closed`, Ctrl+Super+Return and Ctrl+Super+Backspace do nothing, so each head keeps the consoles it started with.
+Selecting text with the pointer copies it into vtium's selection. The console has no system clipboard: vtium holds one selection, and a program can set it with OSC 52, but no program can read it back. Under a vtium.conf whose policy is `closed`, Ctrl+Super+Return and Ctrl+Super+Backspace do nothing, so each head keeps the consoles it started with.
 
 No key reboots, powers off or suspends the machine until you bind one with `grab-reboot`, `grab-power-off` or `grab-suspend` ([config.md](config.md), [systemd.md](systemd.md)). `grab-paste` changes the paste keys.
 
-[The head file's terms](head-file.md#terms) define the keys that act on heads and consoles: the roaming chord, the console chords and the rescue key.
+[The terms of vtium.conf's sections](head-file.md#terms) define the keys that act on heads and consoles: the roaming chord, the console chords and the rescue key.

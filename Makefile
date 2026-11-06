@@ -123,9 +123,9 @@ endif
 endif
 
 .PHONY: minspec
-minspec: ## Build the minspec binary for x86_64 against the glibc 2.36 sysroot, target/x86_64-unknown-linux-gnu/minspec/vtium, with FEATURES='...' when named (needs clang)
+minspec: ## Build the minspec binary for x86_64 against the glibc 2.36 sysroot, target/x86_64-unknown-linux-gnu/minspec/vtium, with FEATURES='...', HWACCEL=on|off and DISPLAY_BUFFERS=1|2|3 when named (needs clang)
 	tools/arm/sysroot fetch amd64
-	VTIUM_REVISION=$(or $(shell git describe --always --dirty 2>/dev/null),unknown) cargo rustc --profile minspec -p vtium --bin vtium --target $(X86_TARGET) $(if $(strip $(FEATURES)),--features '$(strip $(FEATURES))') -- $(RELR_LINK)
+	$(build_settings)VTIUM_REVISION=$(or $(shell git describe --always --dirty 2>/dev/null),unknown) cargo rustc --profile minspec -p vtium --bin vtium --target $(X86_TARGET) $(if $(strip $(FEATURES)),--features '$(strip $(FEATURES))') -- $(RELR_LINK)
 	$(call check-relr,$(VTIUM_MINSPEC))
 	$(call check-glibc,$(VTIUM_MINSPEC))
 
@@ -139,9 +139,8 @@ minspec: ## Build the minspec binary for x86_64 against the glibc 2.36 sysroot, 
 # /etc/vtium/vtium.conf.example beside the file vtium reads,
 # /etc/vtium/vtium.conf (ADR-1500 D3, D4), the frits FRITS names in
 # /etc/vtium/fonts, the example udev rules and hwdb fragment, which are
-# documentation and never active (ADR-1401 D4), the head file's template
-# as an example beside them, and with images in FEATURES the picture
-# gallery tool as vtium-gallery (ADR-1500 D8). Tier 3 installs this tree
+# documentation and never active (ADR-1401 D4), and with images in
+# FEATURES the picture gallery tool as vtium-gallery (ADR-1500 D8). Tier 3 installs this tree
 # in its guest.
 # DESTDIR's default is install-tree's alone: make install refuses it below.
 DESTDIR ?= target/install-tree
@@ -165,21 +164,18 @@ frit_files = $(foreach f,$(FRITS),$(or $(firstword $(wildcard $(addsuffix /$(f).
 ifneq ($(filter install install-build install-tree,$(MAKECMDGOALS)),)
 _frits := $(frit_files)
 endif
-# The head file's commented template, which every install ships as an
-# example for a user to copy to /etc/vtium/heads.conf (ADR-1500 D8).
-HEADS_TEMPLATE := crates/vtium-settings/templates/heads.conf
 # The picture gallery tool, which a console with images ships as
 # vtium-gallery (ADR-1500 D8).
 GALLERY := tools/gallery/gallery
 
 .PHONY: config-release
 config-release: ## Build vtium-config, the font tool and glyph helper, for x86_64 against the glibc 2.36 sysroot, target/x86_64-unknown-linux-gnu/release/vtium-config
-	cargo build --release -p vtium-config --target $(X86_TARGET)
+	$(build_settings)cargo build --release -p vtium-config --target $(X86_TARGET)
 	$(call check-glibc,$(CONFIG_RELEASE))
 
 .PHONY: image-release
 image-release: ## Build vtium-image, the image helper, for x86_64 against the glibc 2.36 sysroot, target/x86_64-unknown-linux-gnu/release/vtium-image
-	cargo build --release -p vtium-image-helper --target $(X86_TARGET)
+	$(build_settings)cargo build --release -p vtium-image-helper --target $(X86_TARGET)
 	$(call check-glibc,$(IMAGE_RELEASE))
 
 .PHONY: install-tree
@@ -196,7 +192,7 @@ install-tree: minspec config-release $(if $(IMAGES),image-release) ## Stage vtiu
 	install -Dm644 $(VTIUM_INSTALL)/vtium.conf.example $(DESTDIR)/etc/vtium/vtium.conf.example
 	$(if $(strip $(FRITS)),install -Dm644 -t $(DESTDIR)/etc/vtium/fonts $(frit_files))
 	install -Dm644 -t $(DESTDIR)/usr/share/doc/vtium/examples $(VTIUM_INSTALL)/examples/71-vtium-local.rules $(VTIUM_INSTALL)/examples/vtium.hwdb
-	install -Dm644 $(HEADS_TEMPLATE) $(DESTDIR)/usr/share/doc/vtium/examples/heads.conf
+	install -Dm644 -t $(DESTDIR)/usr/share/licenses/vtium $(LICENSE_FILES)
 ifneq ($(IMAGES),)
 	install -Dm755 $(IMAGE_RELEASE) $(DESTDIR)/usr/bin/vtium-image
 	$(call check-glibc,$(DESTDIR)/usr/bin/vtium-image)
@@ -219,36 +215,68 @@ endif
 # configuration /etc/vtium/vtium.conf.example and the frits FRITS names in
 # /etc/vtium/fonts, which stay in /etc whatever PREFIX is, because vtium
 # reads its configuration and its frits from /etc/vtium alone (ADR-1500
-# D3, D4, D8), the example udev rules and hwdb fragment and the head
-# file's template as documentation, and the license under PKGNAME's name.
+# D3, D4, D8), the example udev rules and hwdb fragment as
+# documentation, and LICENSE_FILES under PKGNAME's name.
 # HWACCEL and DISPLAY_BUFFERS set the defaults of hwaccel and
 # display-buffers that both builds read from the key table (ADR-1500 D8).
-# make install-terminfo stages vtium's
-# terminfo entry, compiled under its name xterm-vtium, for the package that
-# holds it alone. Neither stages a file the C reference's packages own:
-# nothing under /etc/kmscon, no terminfo entry named kmscon and no kmsconvt@
-# unit. The builds use the host's toolchain, as a distribution's package
+# make install-terminfo stages vtium's terminfo entry, compiled under its
+# name xterm-vtium, with LICENSE and COPYING, for the package that holds
+# the terminfo entry alone. Neither target stages a file the C reference's
+# packages own: nothing under /etc/kmscon, no terminfo entry named kmscon
+# and no kmsconvt@ unit. The builds use the host's toolchain, as a distribution's package
 # builds do, in a target directory of their own, INSTALL_TARGET_DIR.
 # CARGO_BUILD_FLAGS goes to each cargo call, as --frozen for a package build
 # that fetched its crates first.
 PREFIX := /usr/local
 PKGNAME := vtium
+# The license files make install and make install-tree stage in the
+# package's license directory: vtium's LICENSE, COPYING, which holds the
+# notices for the third-party code and data vtium builds in, and the two
+# license texts COPYING points to, the SIL Open Font License of the Unifont
+# font and the license of X.Org's color names. make install-terminfo stages
+# LICENSE and COPYING alone, because the terminfo entry holds neither the
+# font nor the color names.
+LICENSE_FILES := LICENSE COPYING crates/vtium-font/data/OFL-1.1.txt crates/vtium-term/gen-color-names/src/rgb-license.txt
 INSTALL_TARGET_DIR := $(or $(CARGO_TARGET_DIR),target)/install
 CARGO_BUILD_FLAGS :=
 UNITDIR := $(PREFIX)/lib/systemd/system
 TERMINFO_SRC := $(VTIUM_INSTALL)/xterm-vtium.ti
 # The build settings a package names for two defaults (ADR-1500 D8):
-# HWACCEL, on or off, and DISPLAY_BUFFERS, 1, 2 or 3. make install-build
-# hands each one named to the console's build and to vtium-config's, as
-# VTIUM_HWACCEL and VTIUM_DISPLAY_BUFFERS, and the key table makes it the
-# key's default. Unnamed, the key table's own defaults stand.
+# HWACCEL, on or off, and DISPLAY_BUFFERS, 1, 2 or 3. Each target that
+# builds the console or a helper hands each setting named to its builds as
+# VTIUM_HWACCEL and VTIUM_DISPLAY_BUFFERS. Those targets are make
+# install-build, make minspec, make vt-dev-console, make config-release
+# and make image-release. The review targets, make vt-install, make
+# install-tree and the tier 3 runs build through them, so their builds
+# take the settings too. The key table makes each setting the key's
+# default. Unnamed, the key table's own defaults stand.
+#
+# make reads a setting named on its command line, and one exported in the
+# shell. An exported HWACCEL or DISPLAY_BUFFERS therefore reaches tier 3's
+# install tree as well. make checks each value for every target that
+# builds.
+#
+# A review target or make vt-install given a binary with VTIUM_BIN builds
+# no console. It refuses either setting named on make's command line,
+# because it could not give that setting to the binary.
 build_settings = $(if $(HWACCEL),VTIUM_HWACCEL=$(HWACCEL) )$(if $(DISPLAY_BUFFERS),VTIUM_DISPLAY_BUFFERS=$(DISPLAY_BUFFERS) )
-ifneq ($(filter install install-build,$(MAKECMDGOALS)),)
+SETTINGS_GOALS := install install-build install-tree minspec vt-dev-console config-release image-release $(VT_GOALS) vt-install tier3 tier3-minimal tier3-images tier3-nosystemd
+ifneq ($(filter $(SETTINGS_GOALS),$(MAKECMDGOALS)),)
 ifneq ($(and $(HWACCEL),$(filter-out on off,$(HWACCEL))$(word 2,$(HWACCEL))),)
 $(error HWACCEL is on or off, not '$(HWACCEL)')
 endif
 ifneq ($(and $(DISPLAY_BUFFERS),$(filter-out 1 2 3,$(DISPLAY_BUFFERS))$(word 2,$(DISPLAY_BUFFERS))),)
 $(error DISPLAY_BUFFERS is 1, 2 or 3, not '$(DISPLAY_BUFFERS)')
+endif
+endif
+# The console a review target or make vt-install builds, or none when
+# VTIUM_BIN names one already built.
+vt_console_build := $(strip $(vt_build) $(if $(filter vt-install,$(MAKECMDGOALS)),$(filter $(VTIUM_DEV),$(VTIUM_BIN))))
+ifneq ($(filter $(VT_GOALS) vt-install,$(MAKECMDGOALS)),)
+ifeq ($(vt_console_build),)
+ifneq ($(strip $(filter command line,$(origin HWACCEL)) $(filter command line,$(origin DISPLAY_BUFFERS))),)
+$(error $(firstword $(filter $(VT_GOALS) vt-install,$(MAKECMDGOALS))): HWACCEL and DISPLAY_BUFFERS set the defaults a build bakes into the console, and VTIUM_BIN=$(VTIUM_BIN) is built already; leave them out, or leave VTIUM_BIN out so the console is built with them)
+endif
 endif
 endif
 # Both stage under DESTDIR alone: DESTDIR is named, not empty, and not the
@@ -293,8 +321,7 @@ endif
 	install -Dm644 $(VTIUM_INSTALL)/vtium.conf.example $(DESTDIR)/etc/vtium/vtium.conf.example
 	$(if $(strip $(FRITS)),install -Dm644 -t $(DESTDIR)/etc/vtium/fonts $(frit_files))
 	install -Dm644 -t $(DESTDIR)$(PREFIX)/share/doc/vtium/examples $(VTIUM_INSTALL)/examples/71-vtium-local.rules $(VTIUM_INSTALL)/examples/vtium.hwdb
-	install -Dm644 $(HEADS_TEMPLATE) $(DESTDIR)$(PREFIX)/share/doc/vtium/examples/heads.conf
-	install -Dm644 LICENSE $(DESTDIR)$(PREFIX)/share/licenses/$(PKGNAME)/LICENSE
+	install -Dm644 -t $(DESTDIR)$(PREFIX)/share/licenses/$(PKGNAME) $(LICENSE_FILES)
 
 .PHONY: install-terminfo
 install-terminfo: ## Stage vtium's terminfo entry, compiled as xterm-vtium, under DESTDIR=DIR for PREFIX and PKGNAME (default vtium-terminfo) (needs tic)
@@ -302,7 +329,7 @@ install-terminfo: ## Stage vtium's terminfo entry, compiled as xterm-vtium, unde
 	install -dm755 $(DESTDIR)$(PREFIX)/share/terminfo
 	tic -x -e xterm-vtium -o $(DESTDIR)$(PREFIX)/share/terminfo $(TERMINFO_SRC)
 	@[ -f '$(DESTDIR)$(PREFIX)/share/terminfo/x/xterm-vtium' ] && [ -z "$$(find '$(DESTDIR)$(PREFIX)/share/terminfo' -type f ! -path '*/x/xterm-vtium')" ] || { echo "install-terminfo: tic did not compile xterm-vtium alone" >&2; exit 1; }
-	install -Dm644 LICENSE $(DESTDIR)$(PREFIX)/share/licenses/$(if $(filter command line,$(origin PKGNAME)),$(PKGNAME),vtium-terminfo)/LICENSE
+	install -Dm644 -t $(DESTDIR)$(PREFIX)/share/licenses/$(if $(filter command line,$(origin PKGNAME)),$(PKGNAME),vtium-terminfo) LICENSE COPYING
 
 # The ARM single-board computers minspec is judged against
 # (docs/architecture.md): each target links against a pinned Debian sysroot
@@ -376,14 +403,14 @@ conformance-record: ## Record the corpus's programs into OUT=DIR, each <name>.bi
 	$(or $(CARGO_TARGET_DIR),target)/release/conformance-record $(OUT) $(NAMES)
 
 .PHONY: conformance-issues
-conformance-issues: ## Check that every issue the conformance lists say owes a case or a capability is open (needs gh)
+conformance-issues: ## Check that every issue the capability list says owes a capability is open (needs gh)
 	cargo build --release -p vtium-conformance --bins
 	$(or $(CARGO_TARGET_DIR),target)/release/conformance issues
 
 .PHONY: test-tools
 # shellcheck gates at warning: its info notes differ between versions, and
 # the scripts' `A && B || die` is deliberate.
-test-tools: ## Test the VT review tools, the tier 3 harness, the gallery tool, the fuzz runner and the gate runner without a VT, sudo, logind, a VM or nightly (shellcheck when installed), the set writer without its deflate, the key table's crates built as a package names HWACCEL and DISPLAY_BUFFERS, that the console leaves the deflate out, and that make gates runs AGENTS.md's gate line
+test-tools: ## Test the VT review tools, the tier 3 harness, the gallery tool, the fuzz runner, the gate runner and the sysroot fetch without a VT, sudo, logind, a VM or nightly (shellcheck when installed), the set writer without its deflate, the key table's crates built as a package names HWACCEL and DISPLAY_BUFFERS, that the console leaves the deflate out, and that make gates runs AGENTS.md's gate line
 	python3 -I tools/vt/tests/test_vt.py
 	python3 -I tools/vt/tests/test_accept.py
 	python3 -I -B tools/tier3/test_t3img.py
@@ -391,6 +418,7 @@ test-tools: ## Test the VT review tools, the tier 3 harness, the gallery tool, t
 	python3 -I -B tools/gallery/tests/test_gallery.py
 	python3 -I -B tools/fuzz/test_run.py
 	python3 -I -B tools/gates/test_run.py
+	python3 -I -B tools/arm/test_sysroot.py
 	cargo test -q -p vtium-font --test set
 	$(TEST_BUILD_SETTINGS)
 	@if cargo tree -p vtium --target $(X86_TARGET) -e no-dev,features -i vtium-font | grep -q 'feature "deflate"'; then echo "the console enables vtium-font's deflate feature, which only vtium-config takes (ADR-1200 D19)" >&2; exit 1; else echo "the console links no deflate"; fi
@@ -495,9 +523,9 @@ $(VT_INSTALL_GOALS): export VTIUM_VT_DRY_RUN = $(value DRY_RUN)
 # VT_IMAGES_MARKER exactly when it is built with images, as vt-install reads
 # it.
 .PHONY: vt-dev-console
-vt-dev-console: ## Build the console make vt-install installs, target/vt-dev/x86_64-unknown-linux-gnu/minspec/vtium, with FEATURES='...' when named (needs clang)
+vt-dev-console: ## Build the console make vt-install installs, target/vt-dev/x86_64-unknown-linux-gnu/minspec/vtium, with FEATURES='...', HWACCEL=on|off and DISPLAY_BUFFERS=1|2|3 when named (needs clang)
 	tools/arm/sysroot fetch amd64
-	VTIUM_FONT_HELPER=$(VTIUM_DEV_HELPER) $(if $(IMAGES),VTIUM_IMAGE=$(VTIUM_DEV_IMAGE)) VTIUM_REVISION=$(or $(shell git describe --always --dirty 2>/dev/null),unknown) cargo rustc --profile minspec -p vtium --bin vtium --target $(X86_TARGET) --target-dir $(VTIUM_DEV_DIR) $(if $(strip $(FEATURES)),--features '$(strip $(FEATURES))') -- $(RELR_LINK)
+	$(build_settings)VTIUM_FONT_HELPER=$(VTIUM_DEV_HELPER) $(if $(IMAGES),VTIUM_IMAGE=$(VTIUM_DEV_IMAGE)) VTIUM_REVISION=$(or $(shell git describe --always --dirty 2>/dev/null),unknown) cargo rustc --profile minspec -p vtium --bin vtium --target $(X86_TARGET) --target-dir $(VTIUM_DEV_DIR) $(if $(strip $(FEATURES)),--features '$(strip $(FEATURES))') -- $(RELR_LINK)
 	$(call check-relr,$(VTIUM_DEV))
 	$(call check-glibc,$(VTIUM_DEV))
 ifneq ($(IMAGES),)
@@ -508,7 +536,7 @@ else
 endif
 
 .PHONY: vt-install
-vt-install: $(vt_build) $(vt_dev_build) ## Install a development build as vtium-dev on VT N in place of its getty, started at every boot (VT=N, DRY_RUN=1, FEATURES='...')
+vt-install: $(vt_build) $(vt_dev_build) ## Install a development build as vtium-dev on VT N in place of its getty, started at every boot (VT=N, DRY_RUN=1, FEATURES='...', HWACCEL=on|off, DISPLAY_BUFFERS=1|2|3)
 	@case "$$VTIUM_VT_DRY_RUN" in '') tools/vt/vt-install.sh install "$$VTIUM_VT_NR" ;; 1) tools/vt/vt-install.sh install --dry-run "$$VTIUM_VT_NR" ;; *) echo "DRY_RUN=$$VTIUM_VT_DRY_RUN: 1 or nothing" >&2; exit 1 ;; esac
 
 .PHONY: vt-uninstall
@@ -540,6 +568,23 @@ specimens-fonts: ## Fetch the outline profiles' pinned fonts into the cache, che
 	cargo build --release -p vtium-specimens --bins
 	$(or $(CARGO_TARGET_DIR),target)/release/specimens fetch-fonts
 
+# What the maintainer reviews vtium-config's TUI screen goldens on
+# (crates/vtium-config/README.md, "Reviewing the screens"); neither is a gate.
+# tui-shots plays the bytes the golden tests capture through vtium's
+# renderer into PNGs; tui-demo opens the TUI on the goldens' fixtures in a
+# throwaway home that tools/tui-review/demo removes afterwards.
+TUI_SHOTS := $(or $(OUT),$(or $(CARGO_TARGET_DIR),target)/tui-shots)
+.PHONY: tui-shots tui-demo
+tui-shots: ## Draw every TUI screen golden as a PNG through vtium's renderer in unifont, into OUT=DIR (default target/tui-shots)
+	rm -rf $(TUI_SHOTS)/bytes
+	VTIUM_CONFIG_SHOTS=$(abspath $(TUI_SHOTS))/bytes cargo test -p vtium-config --test tui -- each_view_at_80x25_and_100x30 a_draft_s_card_question_and_pager_at_80x25_and_100x30
+	cargo build --release -p vtium-tui-review --bin tui-shots
+	$(or $(CARGO_TARGET_DIR),target)/release/tui-shots crates/vtium-config/tests/screens $(TUI_SHOTS)/bytes $(TUI_SHOTS)
+
+tui-demo: ## Open vtium-config's TUI in this terminal on the screen goldens' fixtures, in a throwaway home removed afterwards (FIXTURE=draft, the default, or figure)
+	cargo build -p vtium-config -p vtium-tui-review --bins
+	tools/tui-review/demo $(or $(FIXTURE),draft) $(or $(CARGO_TARGET_DIR),target)/debug/tui-demo $(or $(CARGO_TARGET_DIR),target)/debug/vtium-config
+
 # The documentation site (ADR-1502): Zensical, pinned with hashes in
 # tools/site/requirements.txt, installed into a virtual environment under
 # target/ and run from there. Its first run needs Python 3.11 or later and the
@@ -562,9 +607,8 @@ showcase: ## Make the showcase screens in docs/showcase (tier 3, QEMU/KVM)
 	tools/tier3/showcase.sh
 
 # Tier 3: vtium's install tree in a QEMU/KVM guest with a real kernel VT and
-# KMS device, its screens captured and compared with the C reference's
-# goldens copied into tools/tier3/c-goldens, and vtium's own
-# (tools/tier3/README.md). QEMU runs headless as the invoking user. Each
+# KMS device, its screens captured and compared with the goldens in
+# tools/tier3/goldens (tools/tier3/README.md). QEMU runs headless as the invoking user. Each
 # variant boots the machine tools/tier3/t3_scenario.py names; JOBS=N runs up to
 # N variants at once, and with JOBS above 1, T3_DEADLINE=S stops a variant
 # still running after S seconds. GL variants never run together.

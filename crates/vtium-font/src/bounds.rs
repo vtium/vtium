@@ -140,9 +140,9 @@ const SET_CHUNKS: Bound = Bound {
 const SET_CHUNK: Bound = Bound {
     name: "SET_CHUNK_BYTES",
     value: 16 * 1024,
-    what: "Bytes a glyph chunk holds, as stored and decoded. No glyph is split across two, so a glyph is at most this",
+    what: "Bytes a glyph chunk holds, as stored and decoded. No glyph is split across two. A glyph larger than this, in `GLYF` or `CLUS`, takes a raw chunk of its own, exactly its bytes, so its cell bounds it instead",
     past: "The set is refused; the writer starts a new chunk",
-    cite: "ADR-1200 D2: \"chunks of at most 16 KiB, no glyph split across two\", the built-in unifont's chunk size",
+    cite: "ADR-1200 D2: \"chunks of at most 16 KiB, no glyph split across two\", the built-in unifont's chunk size. ADR-1302 D6: a glyph whose own cells pass the bound is carried, not left out (the maintainer, 2026-11-01)",
 };
 
 const SET_RECORD: Bound = Bound {

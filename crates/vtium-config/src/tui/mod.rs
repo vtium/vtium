@@ -1,18 +1,33 @@
 //! The TUI that `vtium config` opens at a terminal (ADR-1201 D3, D4, D7):
-//! a full-screen program drawn in the terminal's text cells, which lists
-//! the frits (font set files) and the built-in fonts, tries each font the
-//! user highlights on the live console through OSC 50, and saves what the
-//! user keeps through `apply`.
+//! a full-screen program drawn in the terminal's text cells. Its views are
+//! Flow, which draws the configuration from the displays to the input
+//! devices (ADR-1403 D7), Looks, Fonts, which lists the frits (font set
+//! files) and the built-in fonts, Settings and Help. A change the user
+//! highlights is previewed as a picture of the console with it applied,
+//! and `t` tries a font on the live console through OSC 50 ([`shot`]). It installs what
+//! the user keeps through `apply`.
 //!
-//! [`model`] is the state machine, [`view`] its screen, [`input`] the
+//! [`model`] is the state machine, [`view`] its screen, [`flow`] the flow
+//! the Flow view draws and [`flowdraw`] how it draws it, [`canvas`] the
+//! cells a screen is drawn into, [`color`] its colors, [`input`] the
 //! decoder of what the terminal sends, [`words`] the catalog of what the
 //! TUI says, and [`port`] the loop and the terminal it runs on. [`gather`]
 //! reads what the TUI starts from: the frits as text, never a font file
-//! (D3), vtium.conf and the head file.
+//! (D3), and vtium.conf, which holds the heads, looks and rules too.
 
+pub mod canvas;
+pub mod color;
+pub mod desk;
+pub mod edit;
+#[doc(hidden)]
+pub mod fixture;
+pub mod flow;
+pub mod flowdraw;
+mod flowedit;
 pub mod input;
 pub mod model;
 pub mod port;
+pub mod shot;
 pub mod view;
 pub mod words;
 
@@ -24,13 +39,13 @@ use vtium_font::set::builtin;
 use crate::frit::{Frit, RESERVED, valid_name};
 use model::{DpiFrom, Font, FontState, Inputs};
 
-/// The most bytes the TUI reads of vtium.conf or the head file.
+/// The most bytes the TUI reads of vtium.conf.
 pub const CONF_MAX: u64 = 1 << 20;
 
 /// Where the TUI reads from and saves to, as the command line names them.
 #[derive(Clone, Debug)]
 pub struct Paths {
-    /// The directory of vtium.conf and the head file.
+    /// The directory of vtium.conf.
     pub configdir: PathBuf,
     /// The frits' directory, or why there is none.
     pub frits: crate::switch::Frits,
@@ -163,25 +178,6 @@ pub fn installed(dir: &Path) -> std::collections::BTreeMap<String, Vec<u8>> {
     out
 }
 
-/// How a save from `paths` is installed, with the command it runs, built
-/// by the function that builds the command the save runs.
-pub fn saving(paths: &Paths) -> model::Saving {
-    let targets = paths.targets();
-    let route = crate::apply::route(&targets, &paths.sudo);
-    let program = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("vtium-config"));
-    let shown = |argv: Vec<OsString>| {
-        argv.iter()
-            .map(|a| a.to_string_lossy().into_owned())
-            .collect::<Vec<_>>()
-            .join(" ")
-    };
-    let argv = crate::apply::save_argv(&route, &program, &targets, Path::new(model::DRAFT));
-    match route {
-        crate::apply::Route::Sudo(_) => model::Saving::Sudo(shown(argv)),
-        crate::apply::Route::User => model::Saving::User(shown(argv)),
-    }
-}
-
 /// The density pictures are drawn at, in ADR-1200 D17's order:
 /// vtium.conf's `display-dpi` where it is set within the bounds the
 /// console believes; else the density of the first of `displays` whose
@@ -205,9 +201,7 @@ pub fn density(conf: Option<&str>, displays: &[crate::display::Display]) -> (u32
 /// What the TUI starts from, read from `paths`, opening at `view`.
 pub fn gather(paths: &Paths, view: model::View) -> Result<Inputs, String> {
     let conf_path = paths.configdir.join("vtium.conf");
-    let heads_path = paths.configdir.join("heads.conf");
     let conf = read_conf(&conf_path)?;
-    let heads = read_conf(&heads_path)?;
     let frits = paths.frits.clone()?;
     let displays = crate::display::displays(&paths.sys);
     let dpi = density(conf.as_deref(), &displays);
@@ -215,15 +209,16 @@ pub fn gather(paths: &Paths, view: model::View) -> Result<Inputs, String> {
         fonts: fonts(&frits),
         conf_path,
         conf,
-        heads_path,
-        heads,
-        saving: saving(paths),
-        drafts: paths.drafts.clone(),
         dpi,
         installed: installed(&frits),
         frits,
         view,
         display: displays.first().map(|d| d.pixels),
+        // the desk reads the draft's flow once the loop runs
+        flow: flow::Flow::default(),
+        color: color::enabled(&|name| std::env::var(name).ok()),
+        desk: false,
+        hotplug: false,
     })
 }
 
@@ -259,12 +254,33 @@ pub fn locale() -> String {
         .unwrap_or_default()
 }
 
-/// The TUI's painter: a font's specimen in `locale`, drawn by `helper`,
-/// from the frit in `frits` or the built-in font of that name.
+/// The TUI's painter: a picture of the console in a font, its glyphs in
+/// `locale` drawn by `helper` from the frit in `frits` or the built-in
+/// font of that name (ADR-1201 D4).
 pub fn painter(frits: PathBuf, helper: crate::specimen::Helper, locale: String) -> port::Painter {
-    Box::new(move |font, height, max| {
+    std::sync::Arc::new(move |shot| {
+        let frit = frit_text(&frits, &shot.font)?;
+        crate::specimen::screen(&helper, &frit, shot, &locale)
+    })
+}
+
+/// The TUI's detailer: a font's detailed specimen in `locale`, drawn by
+/// `helper` from the frit in `frits` or the built-in font of that name,
+/// as `preview` draws it (ADR-1201 D4, D9).
+pub fn detailer(frits: PathBuf, helper: crate::specimen::Helper, locale: String) -> port::Detailer {
+    std::sync::Arc::new(move |font, height, max, display| {
         let frit = frit_text(&frits, font)?;
-        crate::specimen::draw(&helper, &frit, height, max, &locale)
+        let sample = crate::specimen::detail(&helper, &frit, height, &locale)?;
+        Ok((sample.detailed(max)?, sample.summary(Some(display))))
+    })
+}
+
+/// The TUI's measurer: a font's cell at a pixel height, as `helper` gives
+/// it, from the frit in `frits` or the built-in font of that name.
+pub fn measurer(frits: PathBuf, helper: crate::specimen::Helper) -> port::Measurer {
+    std::sync::Arc::new(move |font, height| {
+        let frit = frit_text(&frits, font)?;
+        crate::specimen::own_cell(&helper, &frit, height)
     })
 }
 
@@ -277,7 +293,7 @@ pub fn summarizer(
     locale: String,
     display: Option<(u32, u32)>,
 ) -> port::Summarizer {
-    Box::new(move |font, height| {
+    std::sync::Arc::new(move |font, height| {
         let frit = frit_text(&frits, font)?;
         crate::specimen::sample(&helper, &frit, height, &locale).map(|s| s.summary(display))
     })
@@ -319,9 +335,14 @@ pub fn finder(frits: PathBuf, helper: crate::specimen::Helper) -> port::Finder {
     Box::new(move |names| find_sources(&frits, &helper, &names))
 }
 
-/// Opens the TUI on the terminal at `view` and runs it until the user
-/// leaves; returns the exit status.
-pub fn run(paths: &Paths, view: model::View, err: &mut dyn std::io::Write) -> u8 {
+/// Opens the TUI on the terminal at `view`, the devices present read from
+/// `devices`, and runs it until the user leaves; returns the exit status.
+pub fn run(
+    paths: &Paths,
+    devices: crate::flowcli::Devices,
+    view: model::View,
+    err: &mut dyn std::io::Write,
+) -> u8 {
     // the TUI runs as the user from start to end (ADR-1201 D5); main
     // refuses root before this, and so does this
     if rustix::process::geteuid().is_root() {
@@ -331,32 +352,42 @@ pub fn run(paths: &Paths, view: model::View, err: &mut dyn std::io::Write) -> u8
         );
         return 2;
     }
-    let inputs = match gather(paths, view) {
+    let mut inputs = match gather(paths, view) {
         Ok(inputs) => inputs,
         Err(why) => {
             let _ = writeln!(err, "vtium-config: {why}");
             return 1;
         }
     };
-    let saver = crate::apply::saver(paths.clone());
+    let store = match crate::store::Store::system() {
+        Ok(store) => store,
+        Err(fail) => {
+            let _ = writeln!(err, "vtium-config: {}", fail.text());
+            return fail.code();
+        }
+    };
+    let mut desk = desk::Store::new(store, paths.clone(), desk::machine(devices));
     let tools = port::Tools {
         painter: painter(inputs.frits.clone(), paths.helper.clone(), locale()),
+        measurer: measurer(inputs.frits.clone(), paths.helper.clone()),
+        detailer: detailer(inputs.frits.clone(), paths.helper.clone(), locale()),
         summarizer: summarizer(
             inputs.frits.clone(),
             paths.helper.clone(),
             locale(),
-            inputs.display,
+            Some(inputs.display.unwrap_or(shot::ASSUMED_DISPLAY)),
         ),
         finder: Some(finder(inputs.frits.clone(), paths.helper.clone())),
     };
-    let mut tty = match port::Tty::open(saver, tools) {
+    let mut tty = match port::Tty::open(tools) {
         Ok(tty) => tty,
         Err(e) => {
             let _ = writeln!(err, "vtium-config: the terminal: {e}");
             return 1;
         }
     };
-    let status = port::drive(&mut tty, inputs);
+    inputs.hotplug = tty.watches_hotplug();
+    let status = port::drive_with(&mut tty, inputs, Some(&mut desk));
     drop(tty);
     match status {
         Ok(status) => status,

@@ -3,6 +3,9 @@
 //! forms and decoders are judged through the helper's engine
 //! (`tests/engine.rs`).
 
+#[path = "common/home.rs"]
+mod home;
+
 use std::fs;
 use std::io::{Read, Write};
 use std::process::{Command, Output, Stdio};
@@ -30,11 +33,11 @@ fn usage_errors_exit_2() {
         &["--frits"],
         &["serve", "x"],
     ] {
-        let o = Command::new(BIN).args(args).output().unwrap();
+        let o = home::command(BIN).args(args).output().unwrap();
         assert_eq!(status(&o), 2, "{args:?}: {}", stderr(&o));
         assert!(stderr(&o).contains("--help"), "{args:?}");
     }
-    let o = Command::new(BIN).arg("--help").output().unwrap();
+    let o = home::command(BIN).arg("--help").output().unwrap();
     assert_eq!(status(&o), 0);
     assert!(stdout(&o).starts_with("Usage: vtium-config"));
 }
@@ -43,7 +46,7 @@ fn usage_errors_exit_2() {
 /// its limits before it reads anything.
 #[test]
 fn the_parser_runs_without_new_privileges_and_within_its_limits() {
-    let mut child = Command::new(BIN)
+    let mut child = home::command(BIN)
         .arg("--parse")
         .env_clear()
         .stdin(Stdio::piped())
@@ -108,12 +111,12 @@ fn the_parser_runs_without_new_privileges_and_within_its_limits() {
 }
 
 // ADR-1200 (#145): the prerendered store is gone, and with it the commands
-// that built, installed, listed, verified and removed its sets. Each is now
-// an unknown command, a usage error.
+// that built, listed, verified and removed its sets. Each is now an unknown
+// command, a usage error. `install` is the flow's own since ADR-1403 D8.
 #[test]
 fn the_store_commands_are_gone() {
-    for command in ["create", "install", "list", "verify", "remove"] {
-        let o = Command::new(BIN).arg(command).output().unwrap();
+    for command in ["create", "list", "verify", "remove"] {
+        let o = home::command(BIN).arg(command).output().unwrap();
         assert_eq!(status(&o), 2, "{command}: {}", stderr(&o));
         assert!(
             stderr(&o).contains(&format!("unknown command {command}")),
@@ -157,7 +160,7 @@ fn as_root_every_path_and_program_option_is_refused() {
     // the one command sudo runs, and the other commands, pass
     assert_eq!(root_refusal(0, &args(&["apply", "/home/me/d"])), None);
     assert_eq!(
-        root_refusal(0, &args(&["--no-banner", "set", "proof"])),
+        root_refusal(0, &args(&["--no-banner", "use-frit", "proof"])),
         None
     );
 }
@@ -169,7 +172,7 @@ fn as_root_the_tui_does_not_open() {
     use std::ffi::OsString;
     use vtium_config::cli::root_refusal;
     let args = |words: &[&str]| words.iter().map(OsString::from).collect::<Vec<_>>();
-    for words in [&["tui"][..], &["--no-banner", "tui"], &["new"]] {
+    for words in [&["tui"][..], &["--no-banner", "tui"], &["new-frit"]] {
         let why = root_refusal(0, &args(words)).expect("refused as root");
         assert!(why.contains("as yourself") && why.contains("sudo"), "{why}");
         assert_eq!(root_refusal(1000, &args(words)), None);
@@ -194,8 +197,11 @@ fn as_root_the_commands_that_run_as_the_user_are_refused() {
         (&["check", "/etc/shadow"][..], "check"),
         (&["fonts"], "fonts"),
         (&["preview", "unifont"], "preview"),
-        (&["new", "--from", "/etc/shadow"], "new --from"),
-        (&["new", "--name", "x", "--from=/etc/shadow"], "new --from"),
+        (&["new-frit", "--from", "/etc/shadow"], "new-frit --from"),
+        (
+            &["new-frit", "--name", "x", "--from=/etc/shadow"],
+            "new-frit --from",
+        ),
     ] {
         let why = root_refusal(0, &args(words)).unwrap_or_else(|| panic!("{words:?}"));
         assert!(why.contains(says) && why.contains("as yourself"), "{why}");
@@ -204,8 +210,8 @@ fn as_root_the_commands_that_run_as_the_user_are_refused() {
     // the commands that change the system's files from text they build
     // themselves still run as root
     for words in [
-        &["config", "font-size", "12"][..],
-        &["new", "kbd:lat0-16", "--name", "lat"],
+        &["set", "font-size", "12"][..],
+        &["new-frit", "kbd:lat0-16", "--name", "lat"],
         &["remove-frit", "old"],
     ] {
         assert_eq!(root_refusal(0, &args(words)), None, "{words:?}");
@@ -231,7 +237,7 @@ fn as_namespace_root_with(args: &[&str], envs: &[(&str, &str)]) -> Option<Output
         return None;
     }
     Some(
-        Command::new("unshare")
+        home::command("unshare")
             .arg("-r")
             .arg(BIN)
             .args(args)
@@ -252,9 +258,9 @@ fn the_binary_run_as_root_refuses_paths_programs_and_the_tui() {
         (&["--vtium", "/bin/true", "apply", "/tmp/d"], "--vtium"),
         (&["--run-with-signals", "/bin/sh"], "--run-with-signals"),
         (&["tui"], "as yourself"),
-        (&["new"], "as yourself"),
+        (&["new-frit"], "as yourself"),
         (&["check", "/etc/shadow"], "as yourself"),
-        (&["new", "--from", "/etc/shadow"], "as yourself"),
+        (&["new-frit", "--from", "/etc/shadow"], "as yourself"),
     ] {
         let Some(o) = as_namespace_root(args) else {
             return;
@@ -298,4 +304,33 @@ fn the_binary_run_as_root_refuses_more_than_one_tools_user() {
         return;
     };
     assert_eq!(status(&o), 0, "{}", stderr(&o));
+}
+
+/// A test that forgets to give the binary a home of its own, as this one
+/// does on purpose, is refused before anything is read or written: under
+/// cargo, vtium-config refuses the real user's store, so the real user's
+/// drafts are never a test's.
+#[test]
+fn a_test_that_forgets_its_home_is_refused_loudly() {
+    let euid = rustix::process::geteuid().as_raw();
+    let Some(home) = vtium_config::store::home_of(euid) else {
+        return;
+    };
+    let config = home.join(".config/vtium");
+    let before = std::fs::read_dir(&config).map(|d| d.count()).ok();
+    let o = Command::new(BIN)
+        .arg("flow")
+        .env("HOME", &home)
+        .env_remove("XDG_CONFIG_HOME")
+        .env_remove("XDG_STATE_HOME")
+        .output()
+        .unwrap();
+    assert_eq!(status(&o), 5, "{}", stderr(&o));
+    assert!(
+        stderr(&o).contains("refuses the real user's store"),
+        "{}",
+        stderr(&o)
+    );
+    let after = std::fs::read_dir(&config).map(|d| d.count()).ok();
+    assert_eq!(before, after, "nothing was made under {}", config.display());
 }

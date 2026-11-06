@@ -8,7 +8,9 @@ set -eu
 disc=$1
 tar -xpf "$disc"/tree.tar -C / --no-overwrite-dir --keep-directory-symlink
 tree=$(sha256sum "$disc"/tree.tar | cut -d' ' -f1)
-install -Dm644 "$disc"/vtium.conf /etc/vtium/vtium.conf
+# The variant's vtium.conf goes in as root's and written by no one else,
+# which the start's ownership check trusts (ADR-1403 D3).
+install -Dm644 -o root -g root "$disc"/vtium.conf /etc/vtium/vtium.conf
 # A variant drawing with the test fonts names them in its config.
 if [ -d "$disc"/fonts ]; then
     install -Dm644 -t /usr/local/share/tier3-fonts "$disc"/fonts/*

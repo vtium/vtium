@@ -15,7 +15,7 @@ fn the_compiled_in_configuration_is_the_parse_of_the_template() {
         "the compiled-in text is the template file's"
     );
     vtium_settings::text(file.as_bytes()).expect("the template passes the file checks");
-    let parsed = parse(&file).expect("the template is a valid head file");
+    let parsed = parse(&file).expect("the template is valid sections of vtium.conf");
     assert!(parsed.warnings.is_empty(), "{:?}", parsed.warnings);
     assert!(parsed.notes.is_empty(), "{:?}", parsed.notes);
     assert_eq!(Config::builtin(), parsed.config);
@@ -25,7 +25,7 @@ fn the_compiled_in_configuration_is_the_parse_of_the_template() {
         panic!("the template declares one head: {:?}", config.heads);
     };
     assert_eq!(head.name, "console");
-    assert_eq!(head.profile, "default");
+    assert_eq!(head.look, "default");
     assert_eq!(head.consoles, 1);
     assert_eq!(head.login, None);
     assert_eq!(head.when_display_lost, WhenDisplayLost::Keep);
@@ -60,7 +60,7 @@ fn the_template_writes_the_policy_and_every_head_key_as_a_commented_line() {
     // template changes nothing until edited (D6)
     for key in [
         "policy",
-        "profile",
+        "look",
         "consoles",
         "login",
         "when-display-lost",

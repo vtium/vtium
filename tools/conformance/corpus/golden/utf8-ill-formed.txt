@@ -1,5 +1,5 @@
 size 80x24
-cursor 13,8
+cursor 17,8
 flags AUTO_WRAP
 row 0 |wf é߿ࠀ퟿�𐀀􏿿|
 row 1 |lone �|�|�|�|�|�|��|
@@ -10,8 +10,7 @@ attr 4 6-9 bold
 row 5 |overlong ��[7mx ���[6n ����c ��|
 row 6 |surrogate ��� ��� ퟿|
 row 7 |above ���� ���� 􏿿|
-row 8 |c1 bold plain|
-attr 8 3-6 bold
+row 8 |c1 1mbold0m plain|
 row 9 ||
 row 10 ||
 row 11 ||

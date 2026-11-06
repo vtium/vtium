@@ -1,25 +1,31 @@
-//! A configuration file in the C reference's key syntax (`kmscon.conf(5)`):
-//! one key a line, `key=value` or a switch's `key` or `no-key`; `#` starts
-//! a comment anywhere but where it opens a `#rrggbb` color value; spaces,
-//! tabs and carriage returns around the key and the value are dropped.
-//! vtium-settings' `split_line` reads each line, the one reading vtium-config's
-//! editor shares.
+//! vtium.conf's top level, the lines above its first section heading, in
+//! the C reference's key syntax (`kmscon.conf(5)`): one key a line,
+//! `key=value` or a switch's `key` or `no-key`, with the blanks around the
+//! key and the value dropped (ADR-1403 D3).
+//!
+//! vtium-settings' [`split`] decides where the top level ends and leaves
+//! out the flow's own `version` and `policy` lines, which the section
+//! reader reads, and its [`key_line`] reads each line by vtium.conf's one
+//! comment rule: a `#` starts a comment at the start of a line or after a
+//! blank, `\#` is a literal `#`, and a `#` that opens a `#rrggbb` value is
+//! part of it. vtium-config's line editor reads the file the same way.
 
 use std::path::Path;
 
-use vtium_settings::split_line as split;
+use vtium_settings::{key_line, split};
 
 use super::keys::{Kind, Scope};
 use super::{Assignment, LINE_MAX, Origin, Problem, Reports, Value, value};
 
-/// The values a file's bytes give, in order, with what they could not
-/// give reported.
+/// The values the top level of a vtium.conf's bytes gives, in order, with
+/// what they could not give reported. A line keeps its number in the whole
+/// file.
 pub(super) fn parse(bytes: &[u8], path: &Path, reports: &mut Reports) -> Vec<Assignment> {
     let mut out = Vec::new();
-    for (n, line) in bytes.split(|&b| b == b'\n').enumerate() {
+    for (n, line) in split(bytes).key_lines() {
         let origin = Origin::File {
             path: path.to_owned(),
-            line: n.saturating_add(1),
+            line: n,
         };
         if line.len() > LINE_MAX {
             reports.push(origin, Problem::LineTooLong);
@@ -29,12 +35,12 @@ pub(super) fn parse(bytes: &[u8], path: &Path, reports: &mut Reports) -> Vec<Ass
             reports.push(origin, Problem::Nul);
             continue;
         }
-        let Some((key, text)) = split(line) else {
+        let Some(read) = key_line(line) else {
             continue;
         };
         let (Ok(name), Ok(text)) = (
-            std::str::from_utf8(key),
-            text.map(std::str::from_utf8).transpose(),
+            std::str::from_utf8(read.key),
+            read.value.as_deref().map(std::str::from_utf8).transpose(),
         ) else {
             reports.push(origin, Problem::NotUtf8);
             continue;
@@ -47,9 +53,16 @@ pub(super) fn parse(bytes: &[u8], path: &Path, reports: &mut Reports) -> Vec<Ass
             reports.push(origin, Problem::UnknownKey(name.to_owned()));
             continue;
         };
-        if key.scope == Scope::CommandLine {
-            reports.push(origin, Problem::CommandLineOnly(key.name));
-            continue;
+        match key.scope {
+            Scope::CommandLine => {
+                reports.push(origin, Problem::CommandLineOnly(key.name));
+                continue;
+            }
+            Scope::Section => {
+                reports.push(origin, Problem::SectionOnly(key.name));
+                continue;
+            }
+            Scope::Anywhere => {}
         }
         let value = match (key.kind, text) {
             (Kind::Switch, None) => Some(Value::Switch(!negated)),
