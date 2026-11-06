@@ -194,11 +194,13 @@ fn host_errors(_: &Inputs) -> Made {
 /// with o=z (inflate); t=s PNG (png, min 0); t=f PNG with o=z and S
 /// (inflate,png; S a read bound, no exact); inline raw with o=z (inflate,
 /// min s x v x bpp); inline PNG, S ignored; inline PNG with o=z and S=30
-/// (inflate,png,exact, min 30); without S and with S=0, no exact; a
-/// refused t=t and a refused t=s handed over as discards (EINVAL); a
-/// refused t=f and a refused inline PNG never reaching the host (EINVAL).
-/// No fixture exists: the file media answer UNREADABLE (EBADF) and inline
-/// data CORRUPT (EINVAL).
+/// (inflate,png,exact, min 30); without S and with S=0, no exact; a t=t
+/// without s and v, refused (EINVAL:Zero width/height not allowed), and a
+/// t=s frame on an image that does not exist (ENOENT), each handed over as
+/// a discard; a t=f without s and v (EINVAL:Zero width/height not allowed)
+/// and a refused inline PNG (EINVAL) never reaching the host. No fixture
+/// exists: the file media answer UNREADABLE (EBADF) and inline data CORRUPT
+/// (EINVAL).
 fn host_requests(_: &Inputs) -> Made {
     [
         cell(8, 16),
@@ -279,7 +281,7 @@ fn host_outcomes(_: &Inputs) -> Made {
 /// take bytes 10 to 12 (OK, i=3 and 4); S=2 for 3 bytes, and S=3 for a
 /// 2x1 that needs 6, too few (TOO_SHORT, EBADF, i=5 and 6); an offset at
 /// the end and one past it (UNREADABLE, EBADF, i=7 and 8); the same on
-/// t=t (OK, i=9); inline, too few (EINVAL, i=10) and past s x v (OK, the
+/// t=t (OK, i=9); inline, too few (ENODATA, i=10) and past s x v (OK, the
 /// excess ignored, i=11).
 fn host_lengths(_: &Inputs) -> Made {
     let pix = pix47();

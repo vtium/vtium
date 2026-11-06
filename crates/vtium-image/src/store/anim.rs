@@ -683,12 +683,6 @@ impl Store {
         })
     }
 
-    /// The width and height of image `key` of the buffer in use.
-    pub(crate) fn image_size(&self, key: ImageKey) -> Option<(u32, u32)> {
-        let image = self.image(self.active(), key)?;
-        Some((image.width, image.height))
-    }
-
     fn any_image(&self, key: ImageKey) -> Option<&Image> {
         self.buffers.iter().find_map(|b| b.images.get(&key))
     }
