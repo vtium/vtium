@@ -89,7 +89,7 @@ When a test drives a row's behaviour through the crate that implements it and ch
 |---|---|
 | `docs/scripts/coverage` | Fails if it finds an unknown, duplicate or malformed id, a tag above a function that is not a test, a tag that is close to the right form but that it cannot read, or a `tests` column that does not match the tags. CI runs it. |
 | `docs/scripts/coverage --update` | Rewrites each row's `tests` column from the tags. Run it after you add or move a tag. It is idempotent: running it a second time changes nothing. To resolve a merge conflict in the TSVs' `tests` column, run it again. |
-| `docs/scripts/coverage --layer minspec --require` | Fails while any minspec row, other than those marked `no row`, has no test. Minspec is the default, smallest build, and the minspec slice is done when this passes. It joins CI when the vtium binary lands (#21). |
+| `docs/scripts/coverage --layer minspec --require` | Fails while any minspec row that needs a test has none. Every row needs one, apart from a mode whose note says it is not in vtium's mode table. Minspec is the default, smallest build, and the minspec slice is done when this passes. It joins CI when the vtium binary lands (#21). |
 
 The docstring of `docs/scripts/coverage` explains how feature ids are formed. Once an id is committed it never changes, apart from the one rename that ADR-1000 records (#114). A row's `status` records the decision, and it changes only through an edit to ADR-1000. A row's coverage comes from the tags, and nobody edits it by hand.
 
