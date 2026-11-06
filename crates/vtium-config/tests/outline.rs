@@ -30,6 +30,7 @@ fn request(cells: &[(u32, u32)], cover: &[(u32, u32)]) -> OutlineRequest {
         clusters: Vec::new(),
         baselines: Vec::new(),
         sizes: Vec::new(),
+        reaches: Vec::new(),
         hinting: Hinting::Light,
     }
 }
@@ -482,6 +483,35 @@ fn an_answer_with_a_box_past_the_reach_is_refused() {
         Outline::decode(&short.encode(), &req).is_err(),
         "a box cut short"
     );
+    // ADR-1306 D1, D3: a box may reach the request's reach above and below
+    // the cell, a row of the 20-pixel cell with none, and no further
+    let rows = |top: i32, height: u32, req: &OutlineRequest| {
+        let mut tall = o.clone();
+        let ink = tall.strikes[0].glyphs[l].ink.as_mut().expect("a box");
+        (ink.top, ink.height) = (top, height);
+        ink.pixels = vec![0; (ink.width * height) as usize];
+        Outline::decode(&tall.encode(), req).map(|_| ())
+    };
+    assert_eq!(rows(-20, 60, &req), Ok(()), "a row up and a row down");
+    assert!(rows(-21, 41, &req).is_err(), "a pixel above the reach");
+    assert!(rows(0, 41, &req).is_err(), "a pixel below the reach");
+    assert!(
+        rows(-1, 20, &req).is_err(),
+        "the cell's bottom row left out"
+    );
+    let near = OutlineRequest {
+        reaches: vec![(5, 3)],
+        ..req.clone()
+    };
+    assert_eq!(rows(-5, 28, &near), Ok(()), "the request's reach");
+    assert!(
+        rows(-6, 26, &near).is_err(),
+        "past the request's reach above"
+    );
+    assert!(
+        rows(0, 24, &near).is_err(),
+        "past the request's reach below"
+    );
 }
 
 /// Test Mono with an underscore from 200 to 100 units below the baseline
@@ -885,6 +915,7 @@ fn a_color_bitmap_is_scaled_from_its_strike_by_the_chosen_method() {
         clusters: Vec::new(),
         baselines: Vec::new(),
         sizes: Vec::new(),
+        reaches: Vec::new(),
         hinting: Hinting::Light,
     };
     let o = rasterise(&req).expect("rasterised");
@@ -939,6 +970,26 @@ fn a_request_with_sizes_and_fit_reads_back_and_a_bad_one_is_refused() {
         OutlineRequest::decode(&fallback.encode()),
         Ok(fallback.clone())
     );
+    // the reach each cell's glyphs' ink may use above and below it reads
+    // back (ADR-1306 D8); a reach for no cell, or past a cell, is refused
+    let reached = OutlineRequest {
+        reaches: vec![(20, 18), (24, 22)],
+        ..r.clone()
+    };
+    assert_eq!(
+        OutlineRequest::decode(&reached.encode()),
+        Ok(reached.clone())
+    );
+    for bad in [vec![(20, 18)], vec![(20, 18), (24, 1 << 20)]] {
+        let wrong = OutlineRequest {
+            reaches: bad,
+            ..r.clone()
+        };
+        assert_eq!(
+            OutlineRequest::decode(&wrong.encode()),
+            Err("a reach for no cell, or past a cell")
+        );
+    }
     let mut other = fallback.encode();
     let n = other.len();
     assert_eq!(other[n - 3], 1);

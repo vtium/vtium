@@ -129,7 +129,11 @@
 //! bitmap glyph by repeating its top and bottom rows and an outline glyph
 //! by scaling vertically, and a `natural` or `room` glyph keeps its size
 //! with blank rows above and below. A color glyph always keeps its size.
-//! The strike's baseline and lines move down by the rows added above.
+//! An outline glyph's ink may reach past the text band into the added
+//! rows and then a row of the whole cell (ADR-1306 D8): its ink in the
+//! added rows joins its own pixels, and the rest stays in its ink box
+//! ([`spacing::place_rows`]). The strike's baseline and lines move down by
+//! the rows added above.
 
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -147,7 +151,8 @@ use rustix::process::{Resource, Rlimit, setrlimit};
 use vtium_font::set::{PixelFormat, SetBuilder, StrikeBuilder};
 use vtium_font::spacing::{self, Band, Fit, SpacedCell};
 use vtium_font::{
-    CELL_SIDE_MAX, CLUSTER_SCALARS_MAX, Cell, Decorations, SET_CHUNK_BYTES, Style, Width,
+    CELL_SIDE_MAX, CLUSTER_SCALARS_MAX, Cell, Decorations, REACH_CELLS, REACH_ROWS,
+    SET_CHUNK_BYTES, Style, Width,
 };
 use vtium_platform::vt::font::{ConsoleFont, FONT_GLYPHS_MAX, FONT_PITCH_TALL, UniPair};
 
@@ -893,7 +898,8 @@ fn place_styled(
         out
     };
     let span = i64::from(dst_w);
-    let reach = -i64::from(cell.width)..span + i64::from(cell.width);
+    let across = i64::from(cell.width) * i64::from(REACH_CELLS);
+    let reach = -across..span + across;
     let inked = |x: i64| (0..cell.height).any(|y| at(x, y));
     let first = reach.clone().find(|&x| inked(x));
     let last = reach.rev().find(|&x| inked(x));
@@ -934,38 +940,28 @@ fn bitmap_baseline(font: &Font) -> u32 {
     vtium_font::italic::bitmap_baseline(h.as_deref(), font.cell.height)
 }
 
-/// What a glyph is drawn from, which says how `fill` stretches it
-/// (ADR-1302 D13).
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum Kind {
-    /// A bitmap font's 1-bit rows, stretched by repeating the top and
-    /// bottom rows.
-    Bitmap,
-    /// An outline font's coverage, scaled vertically.
-    Outline,
-    /// A color glyph, never stretched.
-    Color,
-}
-
-/// A glyph drawn in the text band, `rows` of `stride` bytes, placed in the
-/// cell that `band` makes taller as its `fit` and its [`Kind`] say
-/// ([`vtium_font::spacing`]); the rows as they are with no band. `None`
-/// for rows that are not whole.
-fn spaced(rows: Vec<u8>, stride: usize, (band, fit, kind): (Band, Fit, Kind)) -> Option<Vec<u8>> {
+/// A bitmap glyph drawn in the text band, 1-bit `rows` of `stride`
+/// bytes, placed in the cell that `band` makes taller as its `fit` says
+/// ([`vtium_font::spacing`]): `fill` repeats its top and bottom rows, and
+/// any other fit pads it with blank rows; the rows as they are with no
+/// band. `None` for rows that are not whole. An outline glyph is placed by
+/// [`spacing::place_rows`], with its ink box.
+fn spaced(rows: Vec<u8>, stride: usize, (band, fit): (Band, Fit)) -> Option<Vec<u8>> {
     if band.is_none() {
         return Some(rows);
     }
-    match (fit, kind) {
-        (Fit::Fill, Kind::Bitmap) => spacing::repeat_rows(&rows, stride, band),
-        (Fit::Fill, Kind::Outline) => spacing::scale_rows(&rows, stride, band),
+    match fit {
+        Fit::Fill => spacing::repeat_rows(&rows, stride, band),
         _ => spacing::pad_rows(&rows, stride, band),
     }
 }
 
-/// An ink box's rows placed as [`spaced`] places its glyph's; `None` where
-/// the box placed would pass a set's chunk, which the set's writer
-/// refuses, so the glyph is sent cut to its cells (ADR-1302 D6).
-fn spaced_ink(rows: Vec<u8>, stride: usize, how: (Band, Fit, Kind)) -> Option<Vec<u8>> {
+/// A bitmap glyph's ink box's rows placed as [`spaced`] places its
+/// glyph's: a bitmap glyph's ink never leaves its row (ADR-1302 D1), so
+/// its box is its row's height. `None` where the box placed would pass a
+/// set's chunk, which the set's writer refuses, so the glyph is sent cut
+/// to its cells (ADR-1302 D6).
+fn spaced_ink(rows: Vec<u8>, stride: usize, how: (Band, Fit)) -> Option<Vec<u8>> {
     spaced(rows, stride, how).filter(|r| r.len() <= SET_CHUNK_BYTES as usize)
 }
 
@@ -1461,7 +1457,7 @@ impl Engine {
                                     rows, *width, font.cell, cell, scale, synth, baseline,
                                 );
                                 let stride = (cell.width * width.cells()).div_ceil(8) as usize;
-                                let how = (band, fit, Kind::Bitmap);
+                                let how = (band, fit);
                                 let Some(rows) = spaced(rows, stride, how) else {
                                     continue;
                                 };
@@ -1504,6 +1500,14 @@ impl Engine {
                             .map(f32::to_bits)
                             .into_iter()
                             .collect(),
+                        // a glyph's ink may use the rows spacing adds and
+                        // then a row of the whole cell (ADR-1306 D1, D8)
+                        reaches: vec![(
+                            band.above
+                                .saturating_add(whole.height.saturating_mul(REACH_ROWS)),
+                            band.below
+                                .saturating_add(whole.height.saturating_mul(REACH_ROWS)),
+                        )],
                         hinting: self.hinting,
                         synth,
                         // a fallback source: any source but the first of its
@@ -1526,36 +1530,39 @@ impl Engine {
                         continue;
                     };
                     let mut placed: BTreeMap<(u32, Fit), Option<u32>> = BTreeMap::new();
-                    let mut index =
-                        |(g, fit): (u32, Fit), target: &mut StrikeBuilder, glyph: &Placed| {
-                            *placed.entry((g, fit)).or_insert_with(|| {
-                                let width = if glyph.wide {
-                                    Width::Wide
-                                } else {
-                                    Width::Narrow
-                                };
-                                let (kind, bpp) = if glyph.color {
-                                    (Kind::Color, 4)
-                                } else {
-                                    (Kind::Outline, 1)
-                                };
-                                let how = (band, fit, kind);
-                                let stride = (cell.width * width.cells()) as usize * bpp;
-                                let pixels = spaced(glyph.pixels.clone(), stride, how)?;
-                                let at = target.glyph(width, pixels);
-                                let ink = glyph.ink.as_ref().and_then(|ink| {
-                                    Some((
-                                        ink.left,
-                                        ink.width,
-                                        spaced_ink(ink.pixels.clone(), ink.width as usize, how)?,
-                                    ))
-                                });
-                                if let Some((left, w, pixels)) = ink {
-                                    target.ink(at, (left, 0), (w, whole.height), pixels);
-                                }
-                                Some(at)
-                            })
-                        };
+                    let mut index = |(g, fit): (u32, Fit),
+                                     target: &mut StrikeBuilder,
+                                     glyph: &Placed| {
+                        *placed.entry((g, fit)).or_insert_with(|| {
+                            let width = if glyph.wide {
+                                Width::Wide
+                            } else {
+                                Width::Narrow
+                            };
+                            let format = if glyph.color {
+                                vtium_font::Format::Rgba
+                            } else {
+                                vtium_font::Format::Mask
+                            };
+                            let size = (cell.width * width.cells(), cell.height);
+                            let (pixels, ink) = spacing::place_rows(
+                                &glyph.pixels,
+                                size,
+                                format,
+                                glyph.ink.as_ref(),
+                                (band, fit, false),
+                            )?;
+                            let at = target.glyph(width, pixels);
+                            // a box past a set's chunk is not sent, and
+                            // the glyph is cut to its cells (ADR-1306 D3)
+                            let ink = ink.filter(|i| i.pixels.len() <= SET_CHUNK_BYTES as usize);
+                            if let Some(ink) = ink {
+                                let at_box = ((ink.left, ink.top), (ink.width, ink.height));
+                                target.ink(at, at_box.0, at_box.1, ink.pixels);
+                            }
+                            Some(at)
+                        })
+                    };
                     for &(c, g) in &s.map {
                         let (Some(glyph), Some(ch)) = (s.glyphs.get(g as usize), char::from_u32(c))
                         else {

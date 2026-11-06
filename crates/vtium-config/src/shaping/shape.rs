@@ -229,10 +229,13 @@ pub(crate) fn draw_all(
 ) -> Result<Vec<(Vec<u32>, u32)>, String> {
     let upem = f32::from(drawer.font.metrics(&[]).units_per_em);
     let scale = cell.ppem / upem.max(1.0);
-    // the row's top and bottom edges, in pixels up from the baseline
+    // the reach's top and bottom edges, in pixels up from the baseline: a
+    // stack of marks moves in or scales only where it would pass them
+    // (ADR-1306 D2)
+    let base = i32::try_from(cell.baseline).unwrap_or(0);
     let row = (
-        i32::try_from(cell.baseline).unwrap_or(0),
-        i32::try_from(cell.baseline).unwrap_or(0) - i32::try_from(cell.height).unwrap_or(0),
+        base + i32::try_from(cell.reach.0).unwrap_or(0),
+        base - i32::try_from(cell.height).unwrap_or(0) - i32::try_from(cell.reach.1).unwrap_or(0),
     );
     let mut seen: BTreeMap<Placed, u32> = BTreeMap::new();
     let mut out = Vec::new();
