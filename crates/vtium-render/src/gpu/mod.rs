@@ -17,6 +17,7 @@ mod gl;
 pub(crate) mod glyphs;
 mod ink;
 mod ledger;
+mod model;
 #[cfg(feature = "images")]
 pub(crate) mod pictures;
 mod pipeline;

@@ -683,6 +683,20 @@ impl Glyphs {
             .ok_or_else(|| Error::new(ErrorKind::Misuse, "no such box"))
     }
 
+    /// Takes `stored` as the glyph for `text`, as a cache miss takes the
+    /// font's: a test puts glyphs whose ink reaches further than the font
+    /// crate's bound lets a font draw.
+    #[cfg(test)]
+    pub(crate) fn put<G: Gl>(
+        &mut self,
+        gl: &mut G,
+        (text, width, style): (&[char], Width, Style),
+        stored: Stored,
+    ) -> Result<Option<Place>, Error> {
+        let pool = pool_of(stored.is_rgba(), width == Width::Wide);
+        Ok(self.boxed(gl, (text, width, style), pool, stored)?.ok())
+    }
+
     /// Gives `text` as a note for the log, unless a note was given in the
     /// last [`GPU_IDLE_FRAMES`] frames.
     fn note(&mut self, text: String) {
