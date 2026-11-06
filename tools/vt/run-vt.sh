@@ -176,7 +176,7 @@ else
 	own=(-o root -g root)
 fi
 # The units that may hold the VT and that the run borrows it from: vtium as
-# make vt-install installs it, a getty, the C reference's console, and
+# make vt-install installs it, a getty, an installed kmscon's console, and
 # autovt@, which logind starts on a switch to the VT and which names one of
 # them or another console. A VT the packaged vtium@ holds is refused below.
 units=("vtium-dev@tty$vt.service" "getty@tty$vt.service" "kmsconvt@tty$vt.service" "autovt@tty$vt.service")
@@ -195,11 +195,11 @@ act() {
 
 [[ $vt =~ ^[1-9][0-9]*$ ]] && [ "$vt" -ge 2 ] && [ "$vt" -le 12 ] ||
 	die "VT must be a number from 2 to 12, not '$vt'"
-# The allowlist is written for the command line #21 gives vtium, the C
-# reference's; vtium parses no arguments yet. The checks below are made for
+# The allowlist is written for the command line #21 gives vtium; vtium
+# parses no arguments yet. The checks below are made for
 # VT $vt with the acceptance pass as the session, so only options that cannot change that
-# are let through: an allowlist of exact names, since the C reference's
-# getopt_long also took a unique prefix (--lo for --login). An
+# are let through: an allowlist of exact names, since a getopt_long
+# parser also takes a unique prefix (--lo for --login). An
 # option with a value carries it in the same word: a separate word would be
 # taken as the value, or, as a stray word, moved to the end of argv, into the
 # login command that runs as root. Left out on purpose: the VT, seat and
