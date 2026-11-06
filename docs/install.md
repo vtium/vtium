@@ -17,7 +17,7 @@ Each recipe also builds a terminfo package, `vtium-terminfo` beside `vtium` and 
 
 A recipe builds the console with the features that `VTIUM_FEATURES` names in makepkg's environment. The `images` feature draws sixel and kitty graphics pictures, the `logind` feature lets the suspend key ask logind, systemd's login manager, to suspend the machine, and the `gpu` feature builds in the path that draws through the GPU. When `VTIUM_FEATURES` is unset, both recipes build `images logind gpu`, for an ordinary desktop or laptop. To build another set of features from a checkout, stage it with `make install` ([From a checkout](#from-a-checkout)).
 
-Both recipes build with `HWACCEL=off DISPLAY_BUFFERS=3`, which compiles in `hwaccel` off and three buffers for each display as the defaults ([config.md](config.md)). A console built with `gpu` therefore draws on the CPU until a line `hwaccel` in `/etc/vtium/vtium.conf` turns the GPU path on. Both depend on `libglvnd` and `mesa`, which hold the two libraries the GPU path loads, `libEGL.so.1` and `libgbm.so.1`.
+From v0.1.0-alpha.6 on, both recipes build with `HWACCEL=on DISPLAY_BUFFERS=3`, which compiles in `hwaccel` on and three buffers for each display as the defaults ([config.md](config.md)). The console therefore draws on the GPU path, and draws a head on the CPU when the head's GPU set-up fails. A line `no-hwaccel` in `/etc/vtium/vtium.conf` turns the GPU path off. v0.1.0-alpha.5 built with `HWACCEL=off`, so its console drew on the CPU until a line `hwaccel` in `/etc/vtium/vtium.conf` turned the GPU path on. Both depend on `libglvnd` and `mesa`, which hold the two libraries the GPU path loads, `libEGL.so.1` and `libgbm.so.1`.
 
 No package ships a font. The console draws with its built-in fonts, unifont and unscii-8. Both packages install three frits (font set files) that name fonts the distribution packages, `desktop`, `minspec-16` and `minspec-8`. A frit leaves out a font the machine lacks, so a frit with none of its fonts installed draws the built-in fonts. On Arch the frits' fonts are in `ttf-jetbrains-mono`, `ttf-nerd-fonts-symbols-mono` and `noto-fonts-emoji`.
 
@@ -57,7 +57,6 @@ Installing the packages gives vtium no VT and starts nothing. [Giving vtium a VT
 
 The recipe repository is to change the two packages it publishes and to publish more, as [ADR-1500](architecture/project/ADR-1500-vtium-is-packaged-from-a-recipe-repo-per-package-manager-under-names-of-its-own.md) D8 sets out. None of this is published yet:
 
-- A later release of `vtium` and `vtium-git` turns `hwaccel` on by default.
 - `vtium-minspec` and `vtium-minspec-git` are to build the minspec console with no feature, for a small machine such as a single-board computer, a server's console or a kiosk.
 - `vtium-minspec-gpu` and `vtium-minspec-gpu-git` are to build the minspec console with the GPU path and leave `hwaccel` off, with `libglvnd` and `mesa` as optional dependencies.
 - The minspec packages are to keep two buffers for each display, where `vtium` keeps three ([config.md](config.md), `display-buffers`).
