@@ -615,6 +615,82 @@ class ImplementationTest(unittest.TestCase):
             self.assertIn('install -Dm644 -t /usr/local/share/tier3-fonts "$disc"/fonts/*',
                           f.read())
 
+    def test_text_font_set(self):
+        # Tier 3's default 2D variants and its GPU variants draw from its
+        # text font set, the frit tier3-text (ADR-1503 D9): each one's
+        # configuration names the frit, which the disc carries to be
+        # installed with no set built, beside Noto Sans CJK SC, the set's font
+        # the guest image lacks, which guest/setup installs where the frit
+        # names it.
+        cache = os.path.join(self.dir.name, "cache")
+        os.makedirs(cache)
+        for font in t3_scenario.TEXT_FONTS:
+            with open(os.path.join(cache, font.file), "w") as f:
+                f.write(font.name)
+        impl = dict(t3_impl.tree(self.tree, self.tar), text_fonts=cache)
+        disc = os.path.join(self.dir.name, "disc")
+        drawn = ["2d-1280x800", "2d-1366x768-potato", "2d-7680x2160", "2d-7680x2160-font32",
+                 "gl-1280x800", "gpu-1280x800"]
+        self.assertEqual(sorted(v for v, conf in t3_scenario.VARIANTS.items()
+                                if conf.get("text_fonts")), sorted(drawn))
+        self.assertLessEqual(set(t3_scenario.DEFAULT_VARIANTS), set(drawn))
+        for variant in drawn:
+            with self.subTest(variant), mock.patch.object(t3_scenario, "make_iso"):
+                v = t3_scenario.VARIANTS[variant]
+                self.assertEqual(v["deferred_frits"], ["tier3-text.vtfrit"])
+                with open(os.path.join(t3_common.GUEST, v["conf"])) as f:
+                    conf = f.read()
+                self.assertIn("\nfont-name=tier3-text\n", conf)
+                self.assertNotIn("font-engine", conf)
+                t3_scenario.build_disc(variant, self.dir.name, impl)
+                self.assertEqual(os.listdir(os.path.join(disc, "deferred-frits")),
+                                 ["tier3-text.vtfrit"])
+                self.assertEqual(os.listdir(os.path.join(disc, "text-fonts")),
+                                 ["NotoSansCJKsc-Regular.otf"])
+        with mock.patch.object(t3_scenario, "make_iso"):
+            t3_scenario.build_disc("2d-potato-min", self.dir.name, impl)
+        self.assertNotIn("text-fonts", os.listdir(disc))
+        # The frit names DejaVu Sans Mono's four faces, each style by
+        # style=, then the CJK font where guest/setup installs it, then Noto
+        # Color Emoji, and states no size or cell, so each configuration's
+        # font-size sets the cell by the W rule.
+        with open(os.path.join(t3_common.GUEST, "frits", "tier3-text.vtfrit")) as f:
+            frit = [line for line in f.read().splitlines() if line and not line.startswith("#")]
+        cjk = "%s/NotoSansCJKsc-Regular.otf" % t3_scenario.TEXT_FONTS_DIR
+        self.assertEqual([line for line in frit if not line.startswith("license=")], [
+            "name=tier3-text",
+            "source=outline:/usr/share/fonts/TTF/DejaVuSansMono.ttf",
+            "source=outline:/usr/share/fonts/TTF/DejaVuSansMono-Bold.ttf", "style=bold",
+            "source=outline:/usr/share/fonts/TTF/DejaVuSansMono-Oblique.ttf", "style=italic",
+            "source=outline:/usr/share/fonts/TTF/DejaVuSansMono-BoldOblique.ttf",
+            "style=bold-italic",
+            "source=outline:" + cjk,
+            "source=outline:/usr/share/fonts/noto/NotoColorEmoji.ttf"])
+        with open(os.path.join(t3_common.GUEST, "setup")) as f:
+            self.assertIn('install -Dm644 -t %s "$disc"/text-fonts/*' % t3_scenario.TEXT_FONTS_DIR,
+                          f.read())
+
+    def test_text_fonts_fetch(self):
+        # A run fetches the text font set's pinned fonts into the cache
+        # before any variant boots, and only when one of its variants draws
+        # from the set; a fetch that fails stops the run with the reason.
+        fetched = []
+        fetch = lambda fonts: fetched.append(fonts) or "/cache"
+        self.assertIsNone(t3.text_fonts(["2d-potato-min"], LOG, fetch))
+        self.assertEqual(fetched, [])
+        self.assertEqual(t3.text_fonts(["2d-potato-min", "2d-1280x800"], LOG, fetch), "/cache")
+        self.assertEqual(fetched, [t3_scenario.TEXT_FONTS])
+        self.assertEqual([f.sha256 for f in t3_scenario.TEXT_FONTS],
+                         ["2c76254f6fc379fddfce0a7e84fb5385bb135d3e399294f6eeb6680d0365b74b"])
+
+        def fail(fonts):
+            raise subprocess.CalledProcessError(6, ["curl"])
+
+        with self.assertRaisesRegex(SystemExit, "fetching the text font set's fonts failed"):
+            t3.text_fonts(["gl-1280x800"], LOG, fail)
+        with self.assertRaisesRegex(ValueError, "pins no font X.ttf"):
+            t3_showcase.pinned("X.ttf")
+
     def test_power_disc(self):
         # The hard reboot's disc carries its sysctl settings, which
         # guest/setup applies; the other power variants' carry none.
@@ -4624,7 +4700,8 @@ class DefaultVariantsTest(unittest.TestCase):
 
     def test_density(self):
         # The default variants' configurations state the density that draws
-        # DejaVu Sans Mono at 16 points in a 10x19 cell:
+        # the text font set's first source, DejaVu Sans Mono, at 16 points in
+        # a 10x19 cell:
         # 16 x 86 / 72 = 19.1 pixels, and 32 points in a 38-pixel cell.
         for name in t3_scenario.DEFAULT_VARIANTS:
             with self.subTest(name):

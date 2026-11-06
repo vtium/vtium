@@ -1,21 +1,22 @@
 //! Tier 2's screens, each with the golden that judges it.
 //!
-//! The first goldens were drawn with an outline font, DejaVu Sans Mono through
-//! FreeType, so they judge vtium only where no outline glyph shows:
-//! the two block screens, which hold only sprites and spaces. The others
-//! are re-baselined when the Rust font layer lands (vtium/vtium#24).
-//! The screens after them are vtium's, drawn in unifont, then color glyphs from an RGBA strike of a vitrified set built in memory
-//! (vtium/vtium#23), and last the small displays in the PSF fonts
-//! `tools/testfont` writes (vtium/vtium#75), and vtium's own drawing over
-//! a frame, its notices and on-screen display, at two display sizes
-//! (ADR-1401 D5, D7).
+//! The first goldens were drawn with an outline font, DejaVu Sans Mono
+//! through FreeType; two of them judge vtium where no outline glyph shows,
+//! the two block screens, which hold only sprites and spaces. vtium's own
+//! screens follow: text in unifont, color glyphs from an RGBA strike of a
+//! vitrified set built in memory (vtium/vtium#23), the small displays in
+//! the PSF fonts `tools/testfont` writes (vtium/vtium#75), vtium's own
+//! drawing over a frame, its notices and on-screen display, at two display
+//! sizes (ADR-1401 D5, D7), and pictures. The outline screens come last,
+//! drawn from the test font set of outline fonts that [`crate::fonts`]
+//! fetches (ADR-1503 D9).
 
 use vtium_render::{Depth, Mark, Orientation};
 use vtium_term::WidthMethod;
 
 use vtium::config::keys::{self, Scheme};
 
-use crate::draw::{Alone, DecoSpec, Decorations, FontKind, Overlay, Screen, TestFont, Words};
+use crate::draw::{Alone, DecoSpec, Decorations, Feed, FontKind, Overlay, Screen, TestFont, Words};
 use crate::notices;
 use crate::pictures;
 
@@ -119,6 +120,19 @@ const BOLD: &[u8] = concat!(
     "\x1b[1mThe quick brown fox jumps over\r\n",
     "the lazy dog 0123456789 !@#$%^&*()\x1b[0m\r\n",
     "\x1b[1;31mbold red\x1b[0m \x1b[1;32mbold green\x1b[0m \x1b[1;34mbold blue\x1b[0m\r\n",
+)
+.as_bytes();
+
+/// The `bold` screen in the outline fonts: the `bold` screen's lines, then
+/// italic and bold italic, which the test font set draws from DejaVu Sans
+/// Mono's Oblique and Bold Oblique faces.
+const FACES: &[u8] = concat!(
+    "regular \x1b[1mbold\x1b[0m regular\r\n",
+    "\x1b[1mThe quick brown fox jumps over\r\n",
+    "the lazy dog 0123456789 !@#$%^&*()\x1b[0m\r\n",
+    "\x1b[1;31mbold red\x1b[0m \x1b[1;32mbold green\x1b[0m \x1b[1;34mbold blue\x1b[0m\r\n",
+    "\x1b[3mitalic The quick brown fox\x1b[0m regular\r\n",
+    "\x1b[1;3mbold italic jumps over the lazy dog\x1b[0m\r\n",
 )
 .as_bytes();
 
@@ -606,7 +620,153 @@ const PICTURES_BUDGET_DESC: &str = "A 160x64 display, whose pictures' bound is t
 
 const PICTURES_TILED_DESC: &str = "Three pictures wider and taller than 64 pixels, which the GPU path holds in textures of at most 64 a side for this screen (ADR-1303 D2): one grown by about 2, one shrunk by 1.5 and one shrunk by 4 below the text. Correct: each picture whole and smooth, with no seam where its tiles meet on the GPU path.";
 
+/// A row of text that pictures cover, 47 characters long.
+macro_rules! text_row {
+    () => {
+        "sixels over text, text over sixels, sixels over\r\n"
+    };
+}
+
+/// The text below one layer's picture in `img-bands` and `kitty-bands`,
+/// on the row `$row` from 1: a word, blue cells, a word, green cells and
+/// a word.
+macro_rules! band_text {
+    ($row:literal) => {
+        concat!(
+            "\x1b[",
+            $row,
+            ";16HText \x1b[44m    \x1b[0m over \x1b[42m  \x1b[0m pic"
+        )
+    };
+}
+
+/// Each layer's name, and the text its picture covers.
+const BANDS: &[u8] = concat!(
+    "lowest band",
+    band_text!(2),
+    "\x1b[4;1Hmiddle band",
+    band_text!(5),
+    "\x1b[7;1Htop band",
+    band_text!(8),
+)
+.as_bytes();
+
+/// Five rows of text under `img-sixel`'s sixels.
+const SIXEL_ROWS: &[u8] = concat!(
+    text_row!(),
+    text_row!(),
+    text_row!(),
+    text_row!(),
+    text_row!()
+)
+.as_bytes();
+
+/// Eight rows of text under `img-moves`'s pictures.
+const MOVES_ROWS: &[u8] = concat!(
+    text_row!(),
+    text_row!(),
+    text_row!(),
+    text_row!(),
+    text_row!(),
+    text_row!(),
+    text_row!(),
+    text_row!(),
+)
+.as_bytes();
+
+/// Six rows of text under `img-ed2`'s pictures.
+const ED2_ROWS: &[u8] = concat!(
+    text_row!(),
+    text_row!(),
+    text_row!(),
+    text_row!(),
+    text_row!(),
+    text_row!(),
+)
+.as_bytes();
+
+/// `img-scale`'s labels, on the eighth row under each picture.
+const SCALE_LABELS: &[u8] =
+    b"\x1b[8;2H1:1\x1b[8;8Hfit 10x5\x1b[8;20Hshrunk 12x2\x1b[8;34H5x8 cells";
+
+/// The ten rows `img-region` scrolls.
+const REGION_ROWS: &[u8] =
+    b"row 0\r\nrow 1\r\nrow 2\r\nrow 3\r\nrow 4\r\nrow 5\r\nrow 6\r\nrow 7\r\nrow 8\r\nrow 9";
+
+/// The banner screens' scroll region, the last two rows, with the cursor
+/// on the last.
+const BANNER_REGION: &[u8] = b"\x1b[9;10r\x1b[10;1H";
+
+/// The text `kitty-text`'s disc covers, and the screen's title.
+const KITTY_TEXT_ROWS: &[u8] = b"kitty pictures under and over text\x1b[3;26Hfirst row, around it\x1b[4;26Hmiddle row, erased\x1b[5;26Hlast row, around it";
+
+/// The text under `sixel-vte`'s second sixel.
+const SIXEL_VTE_TEXT: &[u8] = concat!(
+    "sixel strings through the vte\r\n",
+    "\r\n",
+    "                    text text text text\r\n",
+    "                    text text text text\r\n",
+)
+.as_bytes();
+
+/// `sixel-vte`'s sixels, written by hand as a program sends them: four
+/// bands of red, green, blue and white bars, 40x24, with `TEXT` written
+/// across their second row; and orange stripes 5 pixels wide with clear
+/// gaps between them, 30x24, which leave their unset pixels clear.
+const SIXEL_VTE: &[u8] = concat!(
+    "\x1b[3;2H\x1bPq\"1;1;40;24",
+    "#1;2;100;0;0#2;2;0;100;0#3;2;0;0;100#4;2;100;100;100",
+    "#1!10~#2!10~#3!10~#4!10~-",
+    "#1!10~#2!10~#3!10~#4!10~-",
+    "#1!10~#2!10~#3!10~#4!10~-",
+    "#1!10~#2!10~#3!10~#4!10~",
+    "\x1b\\",
+    "\x1b[4;4HTEXT",
+    "\x1b[3;21H\x1bP0;1q\"1;1;30;24#5;2;100;50;0",
+    "#5!5~!5?!5~!5?!5~!5?-",
+    "#5!5~!5?!5~!5?!5~!5?-",
+    "#5!5~!5?!5~!5?!5~!5?-",
+    "#5!5~!5?!5~!5?!5~!5?",
+    "\x1b\\",
+)
+.as_bytes();
+
+/// Feeds `sixel-vte`'s sixels.
+fn sixel_vte(f: &mut Feed) -> Result<(), String> {
+    f.bytes(SIXEL_VTE)
+}
+
+const IMG_BANDS_DESC: &str = "One picture in each layer a kitty picture can draw in (ADR-1100 D4), its left half opaque and its right half at half alpha, each over a row of text in DejaVu Sans Mono at 16 pixels with blue and green cells: below the cell backgrounds at the top, below the text in the middle, above the text at the bottom. Each image is sent first and then put at its cell by a command of its own. Correct: in the lowest band the picture shows only through cells on the default background, so the blue and green cells stay solid, and the text draws over it; in the middle band the picture covers the backgrounds, the blue cells hidden under its opaque half and the green ones tinted under its clear half, and the text draws over it; in the top band the opaque half hides the text and the clear half shows it dimmed.";
+const KITTY_BANDS_DESC: &str = "The img-bands screen with each picture sent and placed by one kitty command at the cursor, which DECSC and DECRC keep where it was, in chunks of 4096 base64 characters. Correct: the same as img-bands, pixel for pixel.";
+const IMG_SIXEL_DESC: &str = "Three sixels over five rows of text in DejaVu Sans Mono at 16 pixels: a gradient 3 pixels narrower and 5 shorter than 10 by 3 cells, a disc whose corners are clear, and a gradient that `TEXT` is written over afterwards. Correct: the left picture hides the text under it, its right and bottom edges ending inside their cells, where the text past them shows; the disc hides the text inside it and the text shows around it; the right picture has a hole where `TEXT` was written over it, and the word draws there as plain text on the background, since a character written into a cell cuts a sixel there (ADR-1100 D3).";
+const SIXEL_VTE_DESC: &str = "Two sixel strings written by hand, as a program sends them, over text in DejaVu Sans Mono at 16 pixels: at the left, red, green, blue and white bars 10 pixels wide and 24 tall, with `TEXT` written across their second row; at the right, orange stripes 5 pixels wide with clear gaps between them, over two rows of text, a string that asks for its unset pixels to stay clear. Correct: at the left the four bars side by side, `TEXT` on the background with no picture behind it, and the bars' lower 8 pixel rows left only in the two cells the word does not reach; at the right the stripes, with the text under them showing through the gaps.";
+const IMG_SCALE_DESC: &str = "Kitty pictures at their own size and scaled, above `1:1`, `fit 10x5`, `shrunk 12x2` and `5x8 cells` in DejaVu Sans Mono at 16 pixels: a 40x20 gradient at its own size; the same image put again fitted to 10 by 5 cells; 480x160 stripes a pixel wide fitted to 12 by 2 cells; and a 20x16 gradient made while the terminal told programs a cell of 5x8 pixels, at its own size there, 4 by 2 of those cells. Correct: the gradients smooth with no steps; the fitted one 90x45, keeping its shape, centred in its box of 90x80; the stripes shrunk to an even olive 96x32, centred in their 108x32 box, with no moire; the last picture drawn over 4 by 2 of the font's 9x16 cells, 36x32.";
+const IMG_REGION_DESC: &str = "A scroll of two lines in a region from the third row to the eighth, over `row 0` to `row 9` in DejaVu Sans Mono at 16 pixels, with three pictures on the screen: a sixel inside the region from its top row, a kitty picture of 6 by 2 cells inside it, and a kitty picture of 6 by 4 cells that starts above it. Correct: the rows read `row 0`, `row 1`, `row 4` to `row 7`, two empty rows, `row 8` and `row 9`; the sixel lost the rows that left the region and its lower half sits in the third and fourth rows; the small kitty picture moved up two rows and its top row, pushed past the region's top, is cut, so only its lower half shows, in the third row; the tall kitty picture, which crosses the region's edge, stays where it was (ADR-1100 D3).";
+const IMG_ROTATED_DESC: &str = "A display turned a quarter right, 24 by 6 cells of DejaVu Sans Mono at 16 pixels: a line of text, and one half-transparent picture placed twice, at its own size above the text and fitted to 6 by 3 cells below it. Correct: the text reads from top to bottom and the pictures turn with it, each in its own cells, the opaque half of each toward the top of the image; the text under the first picture hidden by its opaque half and dimmed under its clear half, and drawn over the second.";
+const IMG_MOVES_DESC: &str = "Four frames into a double-buffered display over eight rows of text in DejaVu Sans Mono at 16 pixels. Before the first frame, two kitty pictures and a sixel disc; before the third, the first kitty placement moved by a put with the same placement id, the second picture's image sent again, which removes its placement, the sixel's two rows erased from its first column to the end, and a new picture placed below the text. Both buffers must then hold what a fresh draw of the last screen draws. Correct: the moved picture at its new place and no trace of its old one, where the text shows whole; no trace of the removed picture at the right, where the text shows whole; the sixel gone with the text of its rows from its first column; the new picture under the text of its rows.";
+const IMG_BANNER_BG_DESC: &str = "A picture the size of the screen sent again as the same image before each of three frames, which removes the last one's placement, and put at the top left below the cell backgrounds; after it, a banner line of blue and green cells that scrolls in the bottom two rows, in DejaVu Sans Mono at 16 pixels. Both buffers must then hold what a fresh draw of the last screen draws. Correct: the last frame's picture alone, `banner 1` and `banner 2` in the bottom rows, their blue and green cells solid over the picture.";
+const IMG_BANNER_TEXT_DESC: &str = "The img-banner-bg screen with the picture below the text and over the cell backgrounds. Correct: the last frame's picture under every cell, the banner's blue and green cells hidden under it, and only the banner's letters drawn over it.";
+const IMG_ED2_DESC: &str = "A sixel and a kitty disc below the text over six rows of text, shown for two frames; then ED 2 and `cleared`, in DejaVu Sans Mono at 16 pixels. Both buffers must then hold what a fresh draw of the last screen draws. Correct: only the word `cleared`, with no pixel of either picture left, since ED 2 removes every placement on the screen (ADR-1100 D8).";
+const KITTY_TEXT_DESC: &str = "Text and kitty pictures in DejaVu Sans Mono at 16 pixels. At the left, an opaque gradient sent as RGB below the text, placed with the cursor moving past it, so the `<after` that follows starts on its last row just past its right edge; then `TEXT`, white on red, and `on it` written over its middle row. At the right, a disc above three rows of text, the middle row then erased from the twentieth column by EL. Correct: the gradient whole under the white `TEXT`, with no red showing, since the picture covers the cell backgrounds; the disc whole, since only ED 2 removes a kitty picture; the words of the first and last rows showing only outside the disc, and nothing left of the middle row's.";
+const KITTY_BANNER_BG_DESC: &str = "The img-banner-bg screen with each frame's picture sent and placed by one kitty command at the top left, as RGBA, RGB and RGBA in turn, each replacing the last image. Correct: the same as img-banner-bg, pixel for pixel.";
+const KITTY_BANNER_TEXT_DESC: &str = "The img-banner-text screen with each frame's picture sent and placed by one kitty command at the top left, as RGBA, RGB and RGBA in turn, each replacing the last image. Correct: the same as img-banner-text, pixel for pixel.";
+
 /// A picture screen: vtium's golden, drawn by vtium.
+/// A screen of `cols` by `rows` in the test frit of outline fonts
+/// (ADR-1503 D9), with its color emoji font.
+const fn outline(
+    name: &'static str,
+    desc: &'static str,
+    bytes: &'static [u8],
+    cols: usize,
+    rows: usize,
+) -> Screen {
+    Screen {
+        font: FontKind::Outline { color: true },
+        ..Screen::new(name, desc, bytes, cols, rows)
+    }
+}
+
 const fn picture(screen: Screen) -> Case {
     Case { screen }
 }
@@ -1310,4 +1470,301 @@ pub const CASES: &[Case] = &[
             16,
         )
     }),
+    // The outline screens (ADR-1503 D9), in the test font set's outline
+    // fonts, which `make tier2-fonts` fetches
+    Case {
+        screen: outline(
+            "ascii",
+            "Printable ASCII in the regular face: a pangram in both cases, digits and punctuation, runs of narrow and wide letters, and a line of code. In DejaVu Sans Mono at 16 pixels, its 9x16 cell. Correct: every glyph whole, anti-aliased and inside its own cell, with columns aligned down the screen.",
+            ASCII,
+            48,
+            10,
+        ),
+    },
+    Case {
+        screen: outline(
+            "bold",
+            "Bold beside regular, a bold pangram over two lines, bold in red, green and blue, then italic beside regular and bold italic. In DejaVu Sans Mono at 16 pixels, with its Bold, Oblique and Bold Oblique faces. Correct: the bold text drawn from DejaVu Sans Mono Bold, heavier than the regular text and at the same cell width; the colored words in their colors; the italic text slanted, drawn from DejaVu Sans Mono Oblique, and the bold italic from DejaVu Sans Mono Bold Oblique.",
+            FACES,
+            48,
+            10,
+        ),
+    },
+    Case {
+        screen: outline(
+            "palette",
+            "The 16 ANSI background colors, the 16 foreground colors on letter pairs, a ramp through the 256-color palette, and a 24-bit gradient from red to green. In DejaVu Sans Mono at 16 pixels. Correct: each block filled edge to edge in its own color, with no gaps between cells, and each letter pair in its color.",
+            PALETTE,
+            48,
+            10,
+        ),
+    },
+    Case {
+        screen: outline(
+            "inverse",
+            "Reverse video (SGR 7): one word, a whole line, red on green swapped, and bold with reverse. In DejaVu Sans Mono at 16 pixels. Correct: foreground and background exchanged, so the swapped word is green on red, and the bold reversed text drawn from the bold face.",
+            INVERSE,
+            48,
+            10,
+        ),
+    },
+    Case {
+        screen: outline(
+            "box",
+            "Box drawing in light and double lines, shades and block elements, eighth blocks, and rounded, heavy and diagonal pieces, with the word cell in DejaVu Sans Mono at 16 pixels. Correct: vtium's sprites draw the lines and blocks, so lines join from cell to cell with no gaps and blocks fill their 9x16 cells.",
+            BOX,
+            48,
+            10,
+        ),
+    },
+    Case {
+        screen: outline(
+            "underline",
+            "Each underline style (single, double, curly, dotted, dashed) in the text color and in an SGR 58 color, over descenders; a red curl ended by SGR 59; underlines on a background, in reverse and in bold. In DejaVu Sans Mono at 16 pixels, the underline placed where the font's own tables put it. Correct: the five styles distinct, the colored ones in their SGR 58 color, the line after SGR 59 in the text color, and the dashed line one dash in each cell, from the cell's left edge for five eighths of its width.",
+            UNDERLINE,
+            48,
+            10,
+        ),
+    },
+    Case {
+        screen: outline(
+            "strike",
+            "Strike-through (SGR 9) alone, in color, on a background, with straight and curly underlines, in bold, in reverse, and over spaces. In DejaVu Sans Mono at 16 pixels, the strike placed where the font's own tables put it. Correct: a line through every struck cell, the spaces included, at the same height in every cell.",
+            STRIKE,
+            48,
+            10,
+        ),
+    },
+    Case {
+        screen: Screen {
+            decorations: DECO_CONF,
+            ..outline(
+                "deco-config",
+                "Underline and strike with the configured colors (underline-color=196, strike-color=#00c0ff), beside SGR 58 colors and colored text. In DejaVu Sans Mono at 16 pixels. Correct: underlines and strikes without an SGR 58 color take the configured colors; an SGR 58 color still applies.",
+                DECO_CONFIG,
+                48,
+                10,
+            )
+        },
+    },
+    Case {
+        screen: Screen {
+            decorations: Decorations {
+                force: true,
+                ..DECO_CONF
+            },
+            ..outline(
+                "deco-force",
+                "The deco-config screen with force-decoration-colors set. In DejaVu Sans Mono at 16 pixels. Correct: every underline and strike in the configured color, the SGR 58 ones included.",
+                DECO_CONFIG,
+                48,
+                10,
+            )
+        },
+    },
+    Case {
+        screen: outline(
+            "combining",
+            "Accented letters precomposed and as a base letter with combining marks, in words, underlined, struck and in bold. In DejaVu Sans Mono at 16 pixels, whose glyphs vtium-config's engine shapes for each cluster. Correct: each mark sits on its base letter in one cell, matching the precomposed form where there is one.",
+            COMBINING,
+            48,
+            10,
+        ),
+    },
+    Case {
+        screen: outline(
+            "mosaic",
+            "Every Braille pattern, sextant and octant in codepoint order; then checkerboards of sextants and of octants, a grid of eight-dot Braille, a Braille wave, and sextant and octant bands that cross the boundaries between rows; then the checkerboards and grid in yellow on blue; in the 9x16 cell DejaVu Sans Mono gives at 16 pixels. Correct: vtium's sprites draw them all, square dots on the same 2x4 grid in every cell and blocks on exact halves and thirds or quarters of the cell, so the checkerboards and bands run across cells with no seam.",
+            MOSAIC,
+            72,
+            16,
+        ),
+    },
+    Case {
+        screen: Screen {
+            font: FontKind::Outline { color: false },
+            ..Screen::new(
+                "emoji-mono",
+                "The emoji screen in the test font set without its color emoji font: DejaVu Sans Mono, then Noto Sans CJK, at 16 pixels. Correct: no emoji in color; each emoji drawn in the text color as the glyph DejaVu Sans Mono or Noto Sans CJK has for it, else as the built-in font's, at the same places and widths as on the emoji screen.",
+                EMOJI,
+                48,
+                10,
+            )
+        },
+    },
+    Case {
+        screen: Screen {
+            next: Some(
+                b"\x1b[2;1Hline 2 CHANGED \x1b[4:3mcurly\x1b[0m\x1b[4;1H\x1b[9mnew struck\x1b[0m",
+            ),
+            ..outline(
+                "redraw",
+                "Four frames into a double-buffered display: the second part rewrites line 2 and adds a struck line 4, and both buffers must then hold it and equal a fresh draw. In DejaVu Sans Mono at 16 pixels. Correct: line 2 reads 'line 2 CHANGED curly' with nothing left of the first part's text.",
+                b"unchanged line\r\nline two, before\r\nline three stays\r\n",
+                48,
+                10,
+            )
+        },
+    },
+    // The outline picture screens: pictures over text in the test font
+    // set, sent as kitty commands and sixel strings through the
+    // terminal's own handlers (ADR-1100)
+    picture(Screen {
+        pictures: Some(pictures::img_bands),
+        ..outline("img-bands", IMG_BANDS_DESC, BANDS, 48, 10)
+    }),
+    picture(Screen {
+        pictures: Some(pictures::kitty_bands),
+        ..outline("kitty-bands", KITTY_BANDS_DESC, BANDS, 48, 10)
+    }),
+    picture(Screen {
+        pictures: Some(pictures::img_sixel),
+        ..outline("img-sixel", IMG_SIXEL_DESC, SIXEL_ROWS, 48, 10)
+    }),
+    picture(Screen {
+        pictures: Some(sixel_vte),
+        ..outline("sixel-vte", SIXEL_VTE_DESC, SIXEL_VTE_TEXT, 48, 10)
+    }),
+    picture(Screen {
+        pictures: Some(pictures::img_scale),
+        ..outline("img-scale", IMG_SCALE_DESC, SCALE_LABELS, 48, 10)
+    }),
+    picture(Screen {
+        pictures: Some(pictures::img_region),
+        ..outline("img-region", IMG_REGION_DESC, REGION_ROWS, 48, 10)
+    }),
+    picture(Screen {
+        pictures: Some(pictures::img_rotated),
+        orientation: Orientation::Right,
+        ..outline(
+            "img-rotated",
+            IMG_ROTATED_DESC,
+            b"rotated: pictures turn with the text",
+            24,
+            6,
+        )
+    }),
+    picture(Screen {
+        pictures: Some(pictures::img_moves),
+        next: Some(b""),
+        ..outline("img-moves", IMG_MOVES_DESC, MOVES_ROWS, 48, 10)
+    }),
+    picture(Screen {
+        pictures: Some(pictures::img_banner_bg),
+        next: Some(b""),
+        ..outline("img-banner-bg", IMG_BANNER_BG_DESC, BANNER_REGION, 48, 10)
+    }),
+    picture(Screen {
+        pictures: Some(pictures::img_banner_text),
+        next: Some(b""),
+        ..outline(
+            "img-banner-text",
+            IMG_BANNER_TEXT_DESC,
+            BANNER_REGION,
+            48,
+            10,
+        )
+    }),
+    picture(Screen {
+        pictures: Some(pictures::img_ed2),
+        next: Some(b"\x1b[2J\x1b[Hcleared"),
+        ..outline("img-ed2", IMG_ED2_DESC, ED2_ROWS, 48, 10)
+    }),
+    picture(Screen {
+        pictures: Some(pictures::kitty_text),
+        ..outline("kitty-text", KITTY_TEXT_DESC, KITTY_TEXT_ROWS, 48, 10)
+    }),
+    picture(Screen {
+        pictures: Some(pictures::kitty_banner_bg),
+        next: Some(b""),
+        ..outline(
+            "kitty-banner-bg",
+            KITTY_BANNER_BG_DESC,
+            BANNER_REGION,
+            48,
+            10,
+        )
+    }),
+    picture(Screen {
+        pictures: Some(pictures::kitty_banner_text),
+        next: Some(b""),
+        ..outline(
+            "kitty-banner-text",
+            KITTY_BANNER_TEXT_DESC,
+            BANNER_REGION,
+            48,
+            10,
+        )
+    }),
+];
+
+/// Three rows of text, which the `osd` screen draws the render timer's
+/// line over.
+const OSD_TEXT: &[u8] = concat!(
+    "sixels over text, text over sixels, sixels over\r\n",
+    "sixels over text, text over sixels, sixels over\r\n",
+    "sixels over text, text over sixels, sixels over\r\n",
+)
+.as_bytes();
+
+/// The outline screens whose drawing shows a defect, each listed in
+/// `pending.tsv` with the issue that owes the fix. `tier2 run` does not
+/// draw them, so no golden records the defect; `tier2 render` draws them
+/// with the others, so the defect can be seen. When its fix lands, a
+/// screen moves to [`CASES`], its golden is added and its pending row
+/// goes.
+pub const WAITING: &[Case] = &[
+    Case {
+        screen: outline(
+            "cjk",
+            "Double-width Japanese, Chinese and Korean, full-width Latin, narrow letters between wide characters, and wide text in bold and in reverse. The wide characters come from Noto Sans CJK, the narrow ones from DejaVu Sans Mono, at 16 pixels in the 9x16 cell. Correct: each wide character drawn by Noto Sans CJK across two cells, the bold ones emboldened, since the font set names no bold CJK face, and the narrow letters between them in their own columns.",
+            CJK,
+            48,
+            10,
+        ),
+    },
+    Case {
+        screen: outline(
+            "emoji",
+            "Emoji: two wide emoji and a narrow text smiley; a ZWJ family, a skin tone, a flag and a keycap; a heart with VS16, VS15 and no selector; an emoji between letters; emoji under underline, strike, reverse and a red curl; the shaking face of Unicode 15; and an emoji written at the last column, which wraps. The emoji come from Noto Color Emoji 2.051, the text from DejaVu Sans Mono, at 16 pixels. Correct: each emoji in color, whole and fitted to its two cells whatever the foreground and reverse; the family, the tone, the flag and the keycap one picture each where the font holds one; the VS16 heart in color across two cells, the other hearts and the smiley one cell each in the text color.",
+            EMOJI,
+            48,
+            10,
+        ),
+    },
+    Case {
+        screen: outline(
+            "vs16",
+            "A heart with VS16, with no selector and with VS15, and the VS16 heart underlined, by the Unicode width method (mode 2027 set). At 16 pixels in the test font set. Correct: the VS16 hearts take two cells and draw as Noto Color Emoji's red heart, the b after each a column further right; the other hearts one cell each, DejaVu Sans Mono's text heart in the text color.",
+            VS16,
+            32,
+            5,
+        ),
+    },
+    Case {
+        screen: outline(
+            "wide-deco",
+            "Wide characters under each underline style and under strike, a decorated run mixing narrow and wide, and a decorated wide character written at the last column, which wraps to the start of the next row. Noto Sans CJK and DejaVu Sans Mono at 16 pixels. Correct: every decoration spans both cells of its wide character, the dashed line one dash in each cell.",
+            WIDE_DECO,
+            48,
+            10,
+        ),
+    },
+    Case {
+        screen: Screen {
+            overlay: Some(Overlay {
+                line: Some(notices::render_timer),
+                notices: &[],
+                mark: None,
+                scheme: None,
+            }),
+            ..outline(
+                "osd",
+                "The render timer's line, `59.9 fps 12.345 ms 100.0%`, drawn by the console's overlay as the on-screen display's line over three rows of text in DejaVu Sans Mono at 16 pixels. Correct: the line in the on-screen display's colors in a box across the top of the display, over the text there; its characters drawn by the built-in font in the 9x16 cell, since the console asks the helper only for what the terminal shows; the rows below it as the terminal drew them.",
+                OSD_TEXT,
+                48,
+                10,
+            )
+        },
+    },
 ];

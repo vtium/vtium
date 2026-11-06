@@ -15,6 +15,7 @@
 use std::sync::Arc;
 
 use vtium::config::keys::Scheme;
+use vtium::deferred::Shown;
 use vtium::head::NOTICES_MAX;
 use vtium::term::OverlayColors;
 use vtium_font::set::{Set, SetFace};
@@ -63,6 +64,13 @@ pub enum FontKind {
         width: u32,
         height: u32,
     },
+    /// The test frit of outline fonts [`crate::fonts`] fetches (ADR-1503
+    /// D9), at [`crate::fonts::HEIGHT`] pixels in the cell its first
+    /// source gives there, drawn as the console draws a frit: the glyphs
+    /// vtium-config's engine generates for what the screen shows, and the
+    /// built-in font for what no source holds. Without `color`, the frit
+    /// leaves out its color emoji font.
+    Outline { color: bool },
 }
 
 /// The PSF fonts the small displays draw with (vtium/vtium#75).
@@ -242,6 +250,39 @@ impl Overlay {
     }
 }
 
+/// What a picture screen feeds before one of its frames.
+pub type Pictures = fn(&mut Feed) -> Result<(), String>;
+
+/// What a picture screen's pictures are fed through before one of its
+/// frames: the terminal, the frame they come before, and the cell size
+/// in pixels the pictures are made in.
+pub struct Feed<'a> {
+    term: &'a mut Terminal,
+    /// The frame the pictures come before: 0 after the screen's bytes;
+    /// for a screen with a second part 1, 2 after the second part, and 3.
+    pub frame: u32,
+    /// The cell the terminal makes pictures in, as it tells programs.
+    pub cell: (u32, u32),
+}
+
+impl Feed<'_> {
+    /// Feeds `bytes` to the terminal, as a program's output reaches it.
+    pub fn bytes(&mut self, bytes: &[u8]) -> Result<(), String> {
+        feed(self.term, bytes)
+    }
+
+    /// Makes the pictures that follow in cells of `cell` pixels, as a
+    /// host sets the cell size it tells programs; a picture keeps the
+    /// cell it was made in, and is drawn scaled to the font's cells.
+    pub fn made_in(&mut self, (width, height): (u32, u32)) -> Result<(), String> {
+        self.cell = (width, height);
+        self.term
+            .screen_mut()
+            .set_image_cell(width, height)
+            .map_err(|e| format!("the picture cell {width}x{height}: {e:?}"))
+    }
+}
+
 /// One screen of tier 2.
 #[derive(Clone, Copy, Debug)]
 pub struct Screen {
@@ -272,9 +313,11 @@ pub struct Screen {
     /// The cell under the pointer, a column and a row, set after the
     /// bytes: the link there draws hovered (ADR-1002, "Drawing").
     pub pointer: Option<(usize, usize)>,
-    /// The pictures' strings, fed after the bytes with the terminal's
-    /// sixel and kitty handlers on (`crate::pictures`).
-    pub pictures: Option<fn() -> Vec<u8>>,
+    /// The pictures, fed with the terminal's sixel and kitty handlers on
+    /// (`crate::pictures`): before the first frame, after the bytes, and,
+    /// for a screen with a second part, before each later frame too, the
+    /// third after the second part.
+    pub pictures: Option<Pictures>,
     /// The cell size the terminal tells programs and makes its pictures
     /// in, when it is not the font's: a picture made in a larger cell is
     /// drawn smaller.
@@ -440,7 +483,78 @@ pub fn draw_on(screen: &Screen, painter: &mut impl Paint) -> Result<Image, Strin
             let face = SetFace::new(set, height).ok_or_else(|| format!("{builtin}: no strike"))?;
             draw_with(screen, || Font::new(face.clone()), p)
         }
+        FontKind::Outline { color } => {
+            let dir = crate::fonts::cache_dir();
+            let chosen = crate::fonts::chosen(&dir, color, |cell| shown(screen, cell))?;
+            crate::fonts::face(&chosen)?;
+            draw_with(
+                screen,
+                || Font::new(crate::fonts::face(&chosen).expect("a face, as it was before")),
+                p,
+            )
+        }
     }
+}
+
+/// What `screen` shows in a font of `cell` before each frame it draws,
+/// merged style by style, as the console reads what its displays show to
+/// ask the helper for their glyphs: in each style a cell draws its glyph
+/// in, bold, italic, both or neither, the characters, every character of
+/// a cluster among them, and the clusters whole, each sorted and once,
+/// white space left out. The regular style comes first.
+pub fn shown(screen: &Screen, cell: Cell) -> Result<Vec<Shown>, String> {
+    use vtium_term::Attrs;
+    let made = picture_cell(screen, cell);
+    let mut term = terminal(screen, made)?;
+    let mut all = vec![Shown::default()];
+    let mut read = |term: &Terminal| {
+        let frame = term.screen().frame(term.palette(), Age::NEVER);
+        for row in 0..frame.rows() {
+            for cell in frame.cells(row) {
+                let style = FontStyle {
+                    bold: cell.attrs.contains(Attrs::BOLD),
+                    italic: cell.attrs.contains(Attrs::ITALIC),
+                };
+                let at = match all.iter().position(|s| s.style == style) {
+                    Some(at) => at,
+                    None => {
+                        all.push(Shown {
+                            style,
+                            ..Shown::default()
+                        });
+                        all.len() - 1
+                    }
+                };
+                let one = &mut all[at];
+                match cell.glyph {
+                    Text::Char(c) => one.chars.push(c),
+                    Text::Cluster(text) => {
+                        one.chars.extend(text.chars());
+                        one.clusters.push(text.chars().collect());
+                    }
+                    Text::Empty => {}
+                }
+            }
+        }
+    };
+    read(&term);
+    if let Some(next) = screen.next {
+        later(screen, &mut term, 1, made)?;
+        read(&term);
+        feed(&mut term, next)?;
+        later(screen, &mut term, 2, made)?;
+        read(&term);
+        later(screen, &mut term, 3, made)?;
+        read(&term);
+    }
+    for one in &mut all {
+        one.chars.retain(|c| !c.is_whitespace());
+        one.chars.sort_unstable();
+        one.chars.dedup();
+        one.clusters.sort_unstable();
+        one.clusters.dedup();
+    }
+    Ok(all)
 }
 
 fn draw_with<F: Face>(
@@ -569,12 +683,14 @@ pub(crate) fn screen_config(screen: &Screen, config: Config) -> Config {
     }
 }
 
-/// `screen`'s terminal with its bytes fed and its pointer set, and its
-/// display's size, turned, for `font`.
-pub(crate) fn prepare<F: Face>(
-    screen: &Screen,
-    font: &Font<F>,
-) -> Result<(Terminal, u32, u32), String> {
+/// The cell `screen`'s pictures are made in, in a font of `cell`.
+pub(crate) fn picture_cell(screen: &Screen, cell: Cell) -> (u32, u32) {
+    screen.made_cell.unwrap_or((cell.width, cell.height))
+}
+
+/// `screen`'s terminal with its bytes fed and, for a picture screen, its
+/// pictures, made in cells of `made`, before the first frame.
+fn terminal(screen: &Screen, made: (u32, u32)) -> Result<Terminal, String> {
     let mut term = Terminal::new(screen.cols, screen.rows, 0);
     // as a host sets it at start: the screen's method, and what RIS
     // returns to
@@ -584,12 +700,7 @@ pub(crate) fn prepare<F: Face>(
     feed(&mut term, b"\x1b[?25l")?;
     feed(&mut term, screen.bytes)?;
     if let Some(pictures) = screen.pictures {
-        let cell = font.cell();
-        let (cw, ch) = screen.made_cell.unwrap_or((cell.width, cell.height));
         term.screen_mut().set_image_limit(1 << 26);
-        term.screen_mut()
-            .set_image_cell(cw, ch)
-            .map_err(|e| format!("the picture cell {cw}x{ch}: {e:?}"))?;
         term.set_image_switches(Switches {
             sixel: true,
             kitty: true,
@@ -597,7 +708,7 @@ pub(crate) fn prepare<F: Face>(
         });
         term.set_image_handler(ImageString::Sixel, Some(Box::new(Sixel::default())));
         term.set_image_handler(ImageString::Kitty, Some(Box::new(Kitty::default())));
-        feed(&mut term, &pictures())?;
+        run_pictures(pictures, &mut term, 0, made)?;
         if term
             .screen()
             .frame(term.palette(), Age::NEVER)
@@ -607,6 +718,48 @@ pub(crate) fn prepare<F: Face>(
             return Err("the screen's pictures placed nothing".to_owned());
         }
     }
+    Ok(term)
+}
+
+/// Feeds `pictures` before frame `frame`, made in cells of `made`, and
+/// leaves the terminal making pictures in that cell again.
+fn run_pictures(
+    pictures: Pictures,
+    term: &mut Terminal,
+    frame: u32,
+    made: (u32, u32),
+) -> Result<(), String> {
+    let mut f = Feed {
+        term,
+        frame,
+        cell: made,
+    };
+    f.made_in(made)?;
+    pictures(&mut f)?;
+    f.made_in(made)
+}
+
+/// Feeds `screen`'s pictures before its later frame `frame`, 1 to 3, made
+/// in cells of `made`; a screen without pictures feeds nothing.
+pub(crate) fn later(
+    screen: &Screen,
+    term: &mut Terminal,
+    frame: u32,
+    made: (u32, u32),
+) -> Result<(), String> {
+    match screen.pictures {
+        Some(pictures) => run_pictures(pictures, term, frame, made),
+        None => Ok(()),
+    }
+}
+
+/// `screen`'s terminal with its bytes and first pictures fed and its
+/// pointer set, and its display's size, turned, for `font`.
+pub(crate) fn prepare<F: Face>(
+    screen: &Screen,
+    font: &Font<F>,
+) -> Result<(Terminal, u32, u32), String> {
+    let mut term = terminal(screen, picture_cell(screen, font.cell()))?;
     if let Some(((c0, r0), (c1, r1))) = screen.selection {
         term.screen_mut().select_start(c0, r0);
         term.screen_mut().select_to(c1, r1);
@@ -656,15 +809,19 @@ fn draw_config<F: Face>(
 ) -> Result<Image, String> {
     let font = make_font();
     let config = screen_config(screen, config);
+    let made = picture_cell(screen, font.cell());
     let (mut term, w, h) = prepare(screen, &font)?;
     let mut display = Display::new(w, h);
     let mut r = Renderer::new(font, w, h, config);
     let mut since = Age::NEVER;
     display.frame(&mut r, &mut term, &mut since);
     if let Some(next) = screen.next {
+        later(screen, &mut term, 1, made)?;
         display.frame(&mut r, &mut term, &mut since);
         feed(&mut term, next)?;
+        later(screen, &mut term, 2, made)?;
         display.frame(&mut r, &mut term, &mut since);
+        later(screen, &mut term, 3, made)?;
         display.frame(&mut r, &mut term, &mut since);
         if display.buffers[0].pixels() != display.buffers[1].pixels() {
             return Err("the two buffers differ after the last frame".to_owned());
@@ -696,6 +853,44 @@ mod tests {
 
     /// A glyph's size and pixels, for comparing.
     type Drawn = (u32, u32, Vec<u8>);
+
+    /// The regular style's characters `screen` shows in DejaVu Sans Mono's
+    /// 9x16 cell.
+    fn regular(name: &str) -> Vec<char> {
+        let screen = crate::screens::CASES
+            .iter()
+            .find(|c| c.screen.name == name)
+            .map(|c| c.screen)
+            .expect("the screen");
+        let cell = Cell {
+            width: 9,
+            height: 16,
+        };
+        shown(&screen, cell).expect("what it shows")[0]
+            .chars
+            .clone()
+    }
+
+    // What a picture screen shows is read with its pictures fed and before
+    // each of its frames, as the console reads its displays, so the glyphs
+    // asked for hold the text the pictures' strings write: `TEXT` over
+    // img-sixel's third sixel, and each frame's banner line, `banner 0`
+    // among them, which scrolls away by the last frame.
+    #[test]
+    fn what_a_picture_screen_shows_holds_the_text_its_pictures_write() {
+        let sixel = regular("img-sixel");
+        assert!(
+            ['T', 'E', 'X'].iter().all(|c| sixel.contains(c)),
+            "{sixel:?}"
+        );
+        let banner = regular("kitty-banner-bg");
+        assert!(
+            ['b', 'n', 'v', '0', '1', '2']
+                .iter()
+                .all(|c| banner.contains(c)),
+            "{banner:?}"
+        );
+    }
 
     /// `glyph`, drawn for a font of `from`'s cell, placed in `cell` as the
     /// helper's engine places a bitmap source: scaled by the largest whole

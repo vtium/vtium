@@ -22,6 +22,7 @@ _Escape protocols and the screen model - parser, modes, cells, scrollback_
 | [ADR-1001](./term/ADR-1001-cells-are-8-bytes-with-styles-links-and-clusters-in-line-tables.md) | Cells are 8 bytes, with styles, links and clusters in line tables | accepted |
 | [ADR-1002](./term/ADR-1002-links-are-copied-never-opened-and-prompt-marks-are-line-flags-the-view-jumps-between.md) | Links are copied, never opened, and prompt marks are line flags the view jumps between | accepted |
 | [ADR-1003](./term/ADR-1003-reflow-on-a-width-change-and-no-cell-past-the-margin.md) | Reflow on a width change, and no cell past the margin | accepted |
+| [ADR-1004](./term/ADR-1004-right-to-left-text-the-screen-keeps-logical-order-and-each-paragraph-is-drawn-in-the-order-the-bidirectional-algorithm-gives.md) | Right-to-left text: the screen keeps logical order and each paragraph is drawn in the order the bidirectional algorithm gives | accepted |
 
 ## Image
 _Inline images - sixel and the kitty graphics protocol, storage and placement_
