@@ -858,8 +858,8 @@ def resident_kb(vm):
 def resident(rss_kb, screens=SCREENS):
     """The minspec memory figures from `resident_kb`: the resident set after
     the first of `screens`, and the peak over `screens` with the screen it
-    followed (s1-scroll, once its lines fill the scrollback, for the C
-    reference's minimal build); the pointer case's readings are no screen.
+    followed (s1-scroll in the minimal build, once its lines fill the
+    scrollback); the pointer case's readings are no screen.
     VmRSS is in KiB; None where nothing was read, as for a variant that
     draws no screen."""
     first = screens[0] if screens else None

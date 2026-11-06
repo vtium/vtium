@@ -1196,8 +1196,8 @@ mod tests {
 
     // the operator's decision on #145, 2026-10-28: a bitmap frit with no
     // cell stated asks for its fonts' own cell, and takes it at the largest
-    // whole multiple not over the automatic height, at least once, as the C
-    // reference scaled a PSF font; it zooms by the cell's height
+    // whole multiple not over the automatic height, at least once; it zooms
+    // by the cell's height
     #[test]
     fn a_frits_own_cell_scales_by_whole_factors_under_the_automatic_height() {
         for text in ["source=kbd:x\n", "source=kbd:x\nsize=16\n"] {

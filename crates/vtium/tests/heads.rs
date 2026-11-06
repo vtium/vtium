@@ -2938,10 +2938,10 @@ fn under_osd_full_opening_and_closing_a_console_shows_the_new_count() {
 }
 
 /// D5: closing the shown console gives mode 1004's focus to the console
-/// shown next. Turning mode 1004 on reports nothing, as in the C
-/// reference, so the keyboard comes, and the switch is pressed, only once
-/// both sessions have printed their ids, which they print after they turn
-/// the mode on: a focus given before then is never reported.
+/// shown next. Turning mode 1004 on reports nothing, so the keyboard
+/// comes, and the switch is pressed, only once both sessions have printed
+/// their ids, which they print after they turn the mode on: a focus given
+/// before then is never reported.
 // covers: platform.heads
 #[test]
 fn closing_a_console_gives_the_console_shown_next_the_focus() {

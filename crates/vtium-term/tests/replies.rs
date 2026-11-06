@@ -643,8 +643,8 @@ fn decrqss_reports_the_conformance_level() {
     }
 }
 
-// ctlseqs, S7C1T and S8C1T: taken, and the replies stay 7-bit, as the C
-// reference sent them; an 8-bit C1 control acts in 8-bit input.
+// ctlseqs, S7C1T and S8C1T: taken, and the replies stay 7-bit; an 8-bit C1
+// control acts in 8-bit input.
 // covers: text.c1
 #[test]
 fn c1_controls_and_their_announcers() {

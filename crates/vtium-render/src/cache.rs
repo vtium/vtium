@@ -35,8 +35,7 @@ pub enum Profile {
     /// Twice the screen's cells of narrow glyphs and once of wide, each
     /// pool's bytes at most two screens of its format.
     Minspec,
-    /// Twice minspec's glyphs, each pool's bytes at most 64 MiB, as the C
-    /// reference's GPU renderer allowed.
+    /// Twice minspec's glyphs, each pool's bytes at most 64 MiB.
     Performance,
 }
 

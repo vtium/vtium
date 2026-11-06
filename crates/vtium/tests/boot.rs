@@ -6074,9 +6074,8 @@ fn a_family_is_generated_as_a_one_source_frit() {
     );
 }
 
-// ADR-1200 D17: a zoom steps an outline frit by 1 pixel, as the C
-// reference's outline engines did, each height but the stated one as
-// wide as the built-in font there
+// ADR-1200 D17: a zoom steps an outline frit by 1 pixel, each height but
+// the stated one as wide as the built-in font there
 #[test]
 fn a_zoom_steps_an_outline_frit_by_one_pixel() {
     let (equal, minus) = (0x3d, 0x2d);

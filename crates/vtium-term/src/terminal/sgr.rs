@@ -8,8 +8,8 @@
 //! apart from the color-space form by its count of sub-parameters, as
 //! foot does (csi.c, MIT, Copyright (c) 2019 Daniel Eklöf). An index or
 //! component above 255 rejects a colon form; a semicolon form keeps a
-//! component's low byte and draws an index past 255 black, as the C
-//! reference's goldens record.
+//! component's low byte and draws an index past 255 black, as tier 1's
+//! goldens record.
 //!
 //! XTPUSHSGR and XTPOPSGR (`CSI Pm # {` and `CSI # }`, and their aliases
 //! `CSI Pm # p` and `CSI # q`) keep pens on a stack, as xterm's ctlseqs

@@ -63,8 +63,7 @@ impl<T> PerRange<T> {
 /// `missing = box` or `missing = hex` (vtium/vtium#85).
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Default)]
 pub enum Missing {
-    /// `box`: U+25A1, else `?`, else the face's last resort, as the C
-    /// reference drew.
+    /// `box`: U+25A1, else `?`, else the face's last resort.
     #[default]
     Replacement,
     /// `hex`: the character's codepoint in hex digits, drawn to fill its

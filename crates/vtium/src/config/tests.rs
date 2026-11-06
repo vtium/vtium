@@ -564,9 +564,8 @@ fn comments_blanks_and_colors() {
     assert_eq!(l.config.text(&TERM), Some("#a0b1c2"));
     assert_eq!(l.config.number(&SB_SIZE), Some(10));
     assert!(l.config.switch(&HWACCEL));
-    // ADR-1403 D4: a '#' glued to a value stays in it, which the C
-    // reference read as the start of a comment (a departure), so the value
-    // does not read and the key keeps its default
+    // ADR-1403 D4: a '#' glued to a value stays in it, so the value does not
+    // read and the key keeps its default
     let l = main_file("sb-size=10#comment\n");
     assert_eq!(l.config.number(&SB_SIZE), Some(1000));
     assert_eq!(

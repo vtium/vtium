@@ -3,13 +3,12 @@
 //! of terminal behaviour, with the cuts of a case that has them and the
 //! fixtures the replay serves it.
 //!
-//! The streams are committed under `corpus/cases/`, copied from the C
-//! reference, whose `test/conformance/gen-synthetic.py` wrote them; this
-//! generator writes every one of them byte for byte, which
-//! `tests/generate.rs` checks. A new case is added here, written with
-//! `conformance generate DIR`, and its goldens reviewed as their own
-//! change. The streams a client recorded, and the sixel strings libsixel's
-//! `img2sixel` wrote, are inputs, copied under `generator/`.
+//! The streams are committed under `corpus/cases/`. This generator writes
+//! every one of them byte for byte, which `tests/generate.rs` checks. A
+//! new case is added here, written with `conformance generate DIR`, and
+//! its goldens reviewed as their own change. The streams a client
+//! recorded, and the sixel strings libsixel's `img2sixel` wrote, are
+//! inputs, copied under `generator/`.
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -56,8 +55,8 @@ const INPUTS: [&str; 6] = [
     "sixel/palette16.six",
 ];
 
-/// The generator's inputs: the streams a client wrote in the C
-/// reference's probes, and `img2sixel`'s sixel strings.
+/// The generator's inputs: the streams clients wrote, recorded under
+/// `recorded/`, and `img2sixel`'s sixel strings.
 pub struct Inputs {
     files: BTreeMap<&'static str, Vec<u8>>,
 }
