@@ -200,6 +200,8 @@ vtium-term computes the drawing order when it builds a frame, and a renderer dra
 
 The computation is a pure function of the screen and the four properties, so a frame of the same screen is the same however the output reached it, which the determinism rules require.
 
+> Edited 2026-11-06: building the frame found four points this section left open. A row whose last right-to-left character is erased draws in written order again, so a frame computed from the screen alone could not tell that its cells moved. Each line therefore keeps a fifth flag, set when a right-to-left or joining character is written into it or a rewrap gives it one, and a paragraph that holds such a line redraws all its visible rows on any change; that leaves four of `LineFlags`' spare bits, not five. A change to a paragraph property marks every row whose properties it changes. A character that carries combining marks is drawn as written, unmirrored, since the frame lends out the cell's own cluster and has no mirrored copy of it. The replay interface's screen and frame views keep printing each row in the order it was written, so their goldens hold in both builds, and the display view of D14 alone prints the drawn order.
+
 ### D9: the cursor
 
 The cursor stays on its logical cell and is drawn wherever that cell is drawn, as the recommendation says. A bar cursor stands on the right side of its cell when the cell's character resolves right to left, and on the left side otherwise; this settles what ADR-1302 D8 left to this record. A block or underline cursor covers its cell. A cursor on an erased cell at a row's end is drawn where that erased cell is drawn (D3). A cursor waiting to wrap at the right margin is drawn on the row's last logical cell, as today.
