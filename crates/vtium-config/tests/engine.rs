@@ -980,3 +980,34 @@ fn outline_sources_behind_a_bitmap_first_source_keep_their_own_size() {
     let inked_rows = rows.iter().filter(|r| r.iter().any(|&p| p != 0)).count();
     assert_eq!((columns, inked_rows), (11, 6));
 }
+
+// ADR-1200 D21, D22: when no source has a color glyph for the heart with
+// U+FE0F and none ligates it, the helper draws no glyph for the cluster:
+// a text font's glyph for the heart alone is the heart's own, which the
+// console draws for the cluster from its store (D22, step 3), as the first
+// source in the frit's order gives it. Kept as a cluster, the same glyph
+// would be placed by the helper and move tier 2's emoji-mono screen's
+// heart by a pixel
+#[test]
+fn a_character_with_vs16_and_no_color_source_draws_as_its_character() {
+    let w = World::new("vs16-no-color");
+    let mut plain = ttf::test_mono();
+    plain.family = "Test Plain".to_owned();
+    plain.colr.clear();
+    plain.cmap.push((0x2764, 2));
+    fs::write(w.path("fonts/TestPlain-Regular.ttf"), plain.build()).expect("font");
+    let engine = w
+        .engine("source=font:Test Plain\n")
+        .expect("the frit loads");
+    let heart: Vec<u32> = vec![0x2764, 0xfe0f];
+    assert_eq!(
+        engine.draw_clusters(cell(12, 20), &[heart]).expect("draws"),
+        None,
+        "no glyph for the cluster"
+    );
+    let face = drawn_for(&w, "source=font:Test Plain\n", &[0x2764], &[]);
+    let g = face
+        .draw(&['\u{2764}'], Style::default())
+        .expect("the heart");
+    assert_eq!(g.format(), Format::Mask);
+}

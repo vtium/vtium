@@ -286,6 +286,9 @@ pub(crate) fn draw_all(
         ) else {
             continue;
         };
+        // a text font's own glyph for the character is the character's, which
+        // the console draws for the cluster from its store (ADR-1200 D22,
+        // step 3), from the first source in the frit's order that has it
         if s.own && !placed.color {
             continue;
         }
