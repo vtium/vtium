@@ -1,5 +1,5 @@
 //! Each malformed input the tools take is refused, never judged as if it
-//! passed (aaronsb/kmscon#10): PPMs, tolerance sidecars and their masks,
+//! passed: PPMs, tolerance sidecars and their masks,
 //! and the run's lists. `tier2 compare` exits 2 on each.
 
 use std::path::PathBuf;

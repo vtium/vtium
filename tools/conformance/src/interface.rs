@@ -10,8 +10,7 @@
 //! resolves each palette of the `palettes` block to its row; each
 //! malformed or edge input of the refusals table exits as the interface
 //! gives; and the grammar rejects outputs known to be bad and accepts one
-//! known to be good, so a grammar grown too loose or too strict shows. The
-//! C reference ran the same checks from `test/conformance/interface-check.py`;
+//! known to be good, so a grammar grown too loose or too strict shows.
 //! `--describe` is checked by the runner (`check_describe`).
 
 use std::collections::{BTreeMap, BTreeSet};

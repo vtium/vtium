@@ -1317,7 +1317,7 @@ class BaseImageTest(unittest.TestCase):
             make = dict(re.findall(r"^(T3_IMAGE_VER|T3_ARCHIVE)\s*:=\s*(\S+)", f.read(), re.M))
         image = "Arch-Linux-x86_64-cloudimg-%s.qcow2" % make["T3_IMAGE_VER"]
         self.assertEqual(os.path.basename(t3_common.base_image(image, make["T3_ARCHIVE"])),
-                         "a801c98304d282ae.qcow2")
+                         "23c8323a4a59d1fe.qcow2")
 
 
 class VariantTest(unittest.TestCase):

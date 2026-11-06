@@ -18,7 +18,7 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         Err(failure) => {
-            // what printed before the failure, as the C reference printed it
+            // what printed before the failure
             let _ = std::io::stdout()
                 .lock()
                 .write_all(failure.output.as_bytes());

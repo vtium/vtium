@@ -161,7 +161,7 @@ VARIANTS = {
         "tree_features": ["images"],
     },
     # The 7680x2160 display with DejaVu Sans Mono at 32 points, a 20x38 cell
-    # (the C reference drew 19x38), near the 20x40 of Monoid at 30 the
+    # near the 20x40 of Monoid at 30 the
     # operator runs: pictures sized from the cell (sixel) are checked at a
     # cell other than the 10x19 of the rest.
     "2d-7680x2160-font32": {
@@ -173,12 +173,12 @@ VARIANTS = {
         "memory_mb": 4096,
         "tree_features": ["images"],
     },
-    # The C reference's GL variant, run on vtium's GPU path: 2d-1280x800's
+    # The GL variant, run on vtium's GPU path: 2d-1280x800's
     # display on virtio-gpu with virgl, with hwaccel on (kmscon-gl.conf).
     # The log must name the gpu renderer for every display, and each case
     # is judged by 2d-1280x800's golden of it, exactly
     # (t3_evaluate.GOLDENS_OF), since the GPU path draws the CPU path's
-    # bytes (ADR-1303 D1, D11). The C reference's own GL goldens stay in
+    # bytes (ADR-1303 D1, D11). The first GL goldens stay in
     # goldens/gl-1280x800/ as a record (t3_evaluate.RECORDS).
     "gl-1280x800": {
         "device": "virtio-vga-gl,xres=1280,yres=800,edid=on",

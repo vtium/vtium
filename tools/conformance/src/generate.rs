@@ -75,7 +75,7 @@ impl Inputs {
     }
 
     /// An input's bytes, each read as the character of the same number,
-    /// as the C reference's generator read them (Latin-1): a byte past
+    /// (Latin-1): a byte past
     /// 0x7f is written back as two bytes of UTF-8.
     fn latin1(&self, name: &str) -> String {
         self.files

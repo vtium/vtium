@@ -1,9 +1,9 @@
 # Tier 1 for vtium: vtium-replay meets the replay interface, and
-# conformance judges it against the goldens and probes copied here from the
-# C reference. A workspace member, so cargo test builds and checks it.
+# conformance judges it against the goldens and probes kept here. A
+# workspace member, so cargo test builds and checks it.
 [package]
 name = "vtium-conformance"
-description = "The replay interface over vtium-term, and the runner that judges it against the C reference's goldens"
+description = "The replay interface over vtium-term, and the runner that judges it against the corpus goldens"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

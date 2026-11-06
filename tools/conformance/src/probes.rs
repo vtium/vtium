@@ -402,7 +402,7 @@ pub fn check_expectations(
             ));
         }
         // a masked count stands for a nonzero one, a frame's own `changed`
-        // line included, which the C reference's runner could not take
+        // line included
         let unmasked = match damage_count(line) {
             Some("N") => format!("{} 1", &line[..line.len() - 2]),
             _ => line.to_owned(),

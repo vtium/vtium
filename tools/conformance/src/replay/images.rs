@@ -112,8 +112,7 @@ impl Images {
     /// `image`: `w` by `h` pixels of `fill`, as a sixel would make it or a
     /// kitty image of id `id`, transient with `tr`.
     fn image(&mut self, term: &mut Terminal, i: command::Image) -> Result<(), i32> {
-        // a kitty image is named by its id, as the C reference's test
-        // image was
+        // a kitty image is named by its id
         if i.kitty && i.id == 0 {
             return Err(-22);
         }

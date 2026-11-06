@@ -30,7 +30,7 @@ pub struct Failure {
     pub code: u8,
     pub message: String,
     /// The blocks and test lines printed before the failure, which the
-    /// command line prints as it goes, as the C reference did.
+    /// command line prints as it goes.
     pub output: String,
 }
 

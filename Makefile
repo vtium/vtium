@@ -222,7 +222,7 @@ endif
 # make install-terminfo stages vtium's terminfo entry, compiled under its
 # name xterm-vtium and its alias vtium, with LICENSE and COPYING, for the
 # package that holds the terminfo entry alone. Neither target stages a file
-# the C reference's packages own: nothing under /etc/kmscon, no terminfo
+# an installed kmscon's packages own: nothing under /etc/kmscon, no terminfo
 # entry named kmscon and no kmsconvt@ unit. The builds use the host's
 # toolchain, as a distribution's package builds do, in a target directory
 # of their own, INSTALL_TARGET_DIR.
@@ -384,7 +384,7 @@ arm-test: arm-sysroot ## Run the workspace's tests for each ARM target under qem
 	cargo test --workspace --all-features --no-fail-fast $(addprefix --target ,$(ARM_TEST_TARGETS))
 
 # Tier 1 and the capability probes, against the goldens and probes in
-# tools/conformance/, copied from the C reference.
+# tools/conformance/.
 .PHONY: conformance
 conformance: ## Judge vtium against tier 1's goldens
 	cargo build --release -p vtium-conformance --features images --bins
@@ -544,8 +544,7 @@ vt-install: $(vt_build) $(vt_dev_build) ## Install a development build as vtium-
 vt-uninstall: ## Undo make vt-install on VT N: vtium-dev off, its getty back, the files it wrote removed (VT=N, DRY_RUN=1)
 	@case "$$VTIUM_VT_DRY_RUN" in '') tools/vt/vt-install.sh uninstall "$$VTIUM_VT_NR" ;; 1) tools/vt/vt-install.sh uninstall --dry-run "$$VTIUM_VT_NR" ;; *) echo "DRY_RUN=$$VTIUM_VT_DRY_RUN: 1 or nothing" >&2; exit 1 ;; esac
 
-# Tier 2 against vtium's goldens and the C reference's, copied into
-# tools/tier2/reference. The report names this checkout's commit, as tier 3's
+# Tier 2 against its goldens in tools/tier2/goldens. The report names this checkout's commit, as tier 3's
 # does (T3_REV).
 .PHONY: tier2
 tier2: ## Draw tier 2's screens and judge them against their goldens

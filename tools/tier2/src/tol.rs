@@ -1,5 +1,5 @@
 //! Tolerance sidecars: `<screen>.tol` beside a golden, the format tier 3's
-//! goldens use (aaronsb/kmscon#18).
+//! goldens use.
 //!
 //! `key=value` lines, `#` starting a comment:
 //!
@@ -14,7 +14,7 @@
 //! or repeated key, a value that is not a decimal number, a max_delta past
 //! 255, a mask that is empty or inverted, and a tolerance with one limit at
 //! 0 and the other not, which allows nothing and reads as if it allowed
-//! something (aaronsb/kmscon#10). A mask that reaches past the image is
+//! something. A mask that reaches past the image is
 //! refused when the image is compared.
 
 use std::fmt;

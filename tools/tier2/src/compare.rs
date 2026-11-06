@@ -1,4 +1,4 @@
-//! One image comparison for tiers 2 and 3 (aaronsb/kmscon#18): exact
+//! One image comparison for tiers 2 and 3: exact
 //! outside the masks, the verdict under a tolerance, the clustered regions
 //! of what differs, and a diff image. It is tier 3's `t3img.py` compare,
 //! carried over: its verdicts, its end-exclusive masks and its regions.
