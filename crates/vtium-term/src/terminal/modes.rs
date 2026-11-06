@@ -162,6 +162,8 @@ const SET: Initial = Initial::Set;
 const RESET: Initial = Initial::Reset;
 const FIXED: &[&str] =
     &["modes.rs::ignored_and_refused_modes_answer_their_fixed_state_and_change_nothing"];
+const ALWAYS: &[&str] =
+    &["modes.rs::modes_vtium_always_or_never_has_answer_their_fixed_state_and_change_nothing"];
 const MOUSE: &[&str] = &["modes.rs::mouse_tracking_reports_by_its_mode"];
 const SGR_MOUSE: &[&str] = &["modes.rs::sgr_mouse_encodings_report_cells_or_pixels"];
 const SIXEL_MODES: &[&str] = &[
@@ -210,6 +212,7 @@ pub(crate) static MODES: &[Row] = &[
     row!(DEC, 18, "DECPFF", Ignored, RESET, Never, Nothing, "", "ctlseqs; VT510; a console has no printer", FIXED, None),
     row!(DEC, 19, "DECPEX", Ignored, RESET, Never, Nothing, "", "ctlseqs; VT510; a console has no printer", FIXED, None),
     row!(DEC, 25, "DECTCEM", Supported, SET, Soft, Nothing, "civis cnorm", "ctlseqs; VT510", &["modes.rs::dectcem_shows_and_hides_the_cursor"], Some(Mode::Dectcem)),
+    row!(DEC, 40, "ALLOW80TO132", Ignored, RESET, Never, Nothing, "", "ctlseqs; DECCOLM is refused, so 80 to 132 columns is never allowed", ALWAYS, None),
     row!(DEC, 42, "DECNRCM", Refused, RESET, Never, Nothing, "", "ctlseqs; VT510; refused: national replacement sets are obsolete next to UTF-8 (libtsm#57)", FIXED, None),
     row!(DEC, 45, "XTREVWRAP", Supported, RESET, Soft, Nothing, "", "ctlseqs, reverse wraparound: while DECAWM is set, BS and CUB go on from the first column to the last column of the row above when printing wrapped from that row, as xterm moves; a pending wrap takes one step, so CUB n from it ends n - 1 columns left of the last column, where xterm's CursorBack counts the pending wrap twice for n of 2 or more and ends n - 2 columns left", &["modes.rs::mode_45_wraps_backwards_into_the_row_that_wrapped"], Some(Mode::ReverseWrap)),
     row!(DEC, 47, "ALTBUF", Supported, RESET, Soft, Nothing, "", "ctlseqs, the alternate screen, neither cleared nor the cursor saved", &["modes.rs::mode_47_switches_screens_only"], Some(Mode::AltScreen)),
@@ -220,14 +223,18 @@ pub(crate) static MODES: &[Row] = &[
     row!(DEC, 1002, "BTNMOUSE", Supported, RESET, Soft, Input, "", "ctlseqs, button-event tracking; DECSTR resets it, where xterm resets it on RIS only (libtsm#76)", MOUSE, Some(Mode::ButtonMouse)),
     row!(DEC, 1003, "ANYMOUSE", Supported, RESET, Soft, Input, "", "ctlseqs, any-event tracking; DECSTR resets it, where xterm resets it on RIS only (libtsm#76)", MOUSE, Some(Mode::AnyMouse)),
     row!(DEC, 1004, "FOCUS", Supported, RESET, Soft, Input, "fe fd", "ctlseqs, FocusIn and FocusOut; DECSTR resets it, where xterm resets it on RIS only (libtsm#76)", &["modes.rs::focus_events_are_reported_while_set"], Some(Mode::Focus)),
+    row!(DEC, 1005, "UTF8MOUSE", Ignored, RESET, Never, Nothing, "", "ctlseqs; never on: SGR mouse (1006) replaces the UTF-8 encoding", ALWAYS, None),
     row!(DEC, 1006, "SGRMOUSE", Supported, RESET, Soft, Input, "XM", "ctlseqs, SGR encoding, whatever order the modes were set in; DECSTR resets it, where xterm resets it on RIS only (libtsm#76)", SGR_MOUSE, Some(Mode::SgrMouse)),
     row!(DEC, 1007, "ALTSCROLL", Supported, SET, Soft, Input, "", "ctlseqs, alternate scroll: on the alternate screen, while no tracking mode is set, a wheel step the host does not report is sent as cursor-up or cursor-down keys, one a line, as DECCKM encodes them; set at start, as foot and Ghostty start it", &["modes.rs::mode_1007_sends_wheel_steps_as_cursor_keys_on_the_alternate_screen"], Some(Mode::AlternateScroll)),
+    row!(DEC, 1010, "SCROLLTTYOUTPUT", Ignored, SET, Never, Nothing, "", "ctlseqs, rxvt; always on: output scrolls the view back to the bottom", ALWAYS, None),
+    row!(DEC, 1011, "SCROLLKEY", Ignored, SET, Never, Nothing, "", "ctlseqs, rxvt; always on: a key press scrolls the view back to the bottom", ALWAYS, None),
     row!(DEC, 1015, "URXVTMOUSE", Supported, RESET, Soft, Input, "", "ctlseqs, urxvt encoding: CSI Cb ; Cx ; Cy M in decimal, Cb as the X10 encoding's byte and the cell counted from 1, with no limit; one encoding at a time, as 1006; DECSTR resets it, where xterm resets it on RIS only (libtsm#76)", &["modes.rs::urxvt_mouse_encoding_reports_in_decimal"], Some(Mode::UrxvtMouse)),
     row!(DEC, 1016, "PIXMOUSE", Supported, RESET, Soft, Input, "", "ctlseqs, SGR-Pixels encoding, pixels counted from 1; DECSTR resets it, where xterm resets it on RIS only (libtsm#76)", SGR_MOUSE, Some(Mode::PixelMouse)),
     row!(DEC, 1034, "META8BIT", Supported, SET, Soft, Nothing, "", "ctlseqs, eightBitInput: while 1036 is reset, Alt sets the eighth bit of a key that sends one byte below 0x80, sent as U+0080 to U+00FF in the input's encoding; neither set, Alt sends nothing of its own", &["modes.rs::modes_1034_and_1036_choose_what_alt_sends"], Some(Mode::EightBitMeta)),
     row!(DEC, 1035, "NUMLOCK", Supported, SET, Soft, Input, "", "ctlseqs, numLock: while NumLock is on, a keypad key that makes a character sends it whatever DECKPAM says; set at start, as xterm's numLock resource; vtium has one Alt modifier, so the mode changes only how NumLock reads", &["modes.rs::mode_1035_lets_numlock_override_the_application_keypad"], Some(Mode::NumLock)),
     row!(DEC, 1036, "METAESC", Supported, SET, Soft, Nothing, "", "ctlseqs, metaSendsEscape: Alt puts ESC before a key's bytes; set at start, as the C reference sent Alt", &["modes.rs::modes_1034_and_1036_choose_what_alt_sends"], Some(Mode::MetaEscape)),
     row!(DEC, 1042, "BELL", Supported, SET, Soft, Bell, "", "ctlseqs, bellIsUrgent; vtium has no window to mark urgent, so set lets BEL reach the host, which rings the VT bell by its bell setting, and reset BEL does nothing; set at start, so BEL rings as the C reference rang it", &["modes.rs::mode_1042_lets_bel_reach_the_host"], Some(Mode::Bell)),
+    row!(DEC, 1046, "TITEINHIBIT", Ignored, SET, Never, Nothing, "", "ctlseqs; always on: the alternate screen is always allowed", ALWAYS, None),
     row!(DEC, 1047, "ALTBUF1047", Supported, RESET, Soft, Nothing, "", "ctlseqs, the alternate screen, cleared as it is left", &["modes.rs::mode_1047_clears_the_alternate_screen_as_it_leaves"], Some(Mode::AltScreenClear)),
     row!(DEC, 1048, "SAVECUR", Supported, RESET, Never, Nothing, "", "ctlseqs, \"Save cursor as in DECSC\": set saves, reset restores as DECRC does, and nothing stays set", &["modes.rs::mode_1048_saves_and_restores_the_cursor_as_decsc_does"], Some(Mode::SaveCursor)),
     row!(DEC, 1049, "ALTBUF1049", Supported, RESET, Soft, Nothing, "smcup rmcup", "ctlseqs, the cursor saved as in DECSC and the alternate screen cleared as it is entered; leaving restores the cursor and the pen as DECRC does (libtsm#20)", &["modes.rs::mode_1049_saves_the_cursor_and_the_pen_around_the_alternate_screen"], Some(Mode::AltScreenSaveCursor)),
