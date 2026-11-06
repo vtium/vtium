@@ -806,15 +806,12 @@ fn a_character_of_emoji_presentation_draws_from_a_color_source_where_there_is_on
     assert_eq!(g.format(), Format::Mask);
 }
 
-// ADR-1200 D21: a CJK font behind a Latin one is sized so its ascent and
-// descent fill the cell, which here, ascent 1160 and descent 288 to the
-// 1000-unit em as Noto Sans CJK's, puts U+4E00's 1000-unit advance at
-// about 10.7 pixels in a 9x16 cell, under one and a half cells. The
-// terminal gives the ideograph two cells, so it is drawn across both, its
-// advance centred in them, and its ink reaches into the second cell
-#[test]
-fn an_ideograph_behind_a_latin_source_spans_both_its_cells() {
-    let w = World::new("cjk-behind-latin");
+/// A Latin font and a CJK font behind it: `Test Latin`, the outline
+/// fixture without U+4E00, ascent 800 and descent 200 to the 1000-unit em,
+/// and `Test CJK`, whose U+4E00 is a bar 900 units across and 500 high,
+/// advancing 1000, under an ascent of 1160 and a descent of 288, as Noto
+/// Sans CJK's reach further than DejaVu Sans Mono's.
+fn latin_and_cjk(w: &World) {
     let mut latin = ttf::test_mono();
     latin.family = "Test Latin".to_owned();
     latin.colr.clear();
@@ -826,9 +823,20 @@ fn an_ideograph_behind_a_latin_source_spans_both_its_cells() {
     (cjk.ascent, cjk.descent) = (1160, -288);
     cjk.cmap = vec![(0x4e00, 4)];
     fs::write(w.path("fonts/TestCJK-Regular.ttf"), cjk.build()).expect("font");
-    let engine = w
-        .engine("source=font:Test Latin\nsource=font:Test CJK\n")
-        .expect("the frit loads");
+}
+
+const LATIN_THEN_CJK: &str = "source=font:Test Latin\nsource=font:Test CJK\n";
+
+// ADR-1200 D21: the terminal gives U+4E00 two cells, so the helper draws
+// it across both, its advance centred in them, and its ink reaches into
+// the second cell. Sized by its own ascent and descent, the CJK font's
+// 1000-unit advance came to about 10.7 pixels in a 9x16 cell, under the
+// one and a half cells the helper once took as two
+#[test]
+fn an_ideograph_behind_a_latin_source_spans_both_its_cells() {
+    let w = World::new("cjk-behind-latin");
+    latin_and_cjk(&w);
+    let engine = w.engine(LATIN_THEN_CJK).expect("the frit loads");
     let bytes = engine
         .draw(cell(9, 16), &[0x4e00])
         .expect("draws")
@@ -863,4 +871,33 @@ fn an_ideograph_behind_a_latin_source_spans_both_its_cells() {
         .cluster(&ivs, Style::default())
         .expect("the ideograph with its selector");
     spans_both(&g, "the ideograph with its selector");
+}
+
+// ADR-1200 D17 (the maintainer, 2026-11-06): an outline source behind an
+// outline first source draws at the first source's size. Test Latin's
+// ascent and descent span 1000 units, so in a 16-pixel cell it draws at
+// 15.5 pixels to the em, and U+4E00 from Test CJK, 900 units across and 500
+// high, 14 by 7.75 pixels, inks 15 columns and 9 rows with its partly
+// covered edges. Sized by its own ascent and descent, 1448 units, it drew
+// at 10.7 and inked 11 columns and 6 rows
+#[test]
+fn a_fallback_outline_font_draws_at_the_first_fonts_size() {
+    let w = World::new("cjk-at-latin-size");
+    latin_and_cjk(&w);
+    let engine = w.engine(LATIN_THEN_CJK).expect("the frit loads");
+    let bytes = engine
+        .draw(cell(9, 16), &[0x4e00])
+        .expect("draws")
+        .expect("a glyph");
+    let face =
+        SetFace::new(Arc::new(Set::from_bytes(bytes).expect("the set reads")), 16).expect("a face");
+    let g = face
+        .draw(&['\u{4e00}'], Style::default())
+        .expect("the ideograph");
+    let rows: Vec<&[u8]> = g.rows().collect();
+    let columns = (0..g.width() as usize)
+        .filter(|&x| rows.iter().any(|r| r.get(x).is_some_and(|&p| p != 0)))
+        .count();
+    let inked_rows = rows.iter().filter(|r| r.iter().any(|&p| p != 0)).count();
+    assert_eq!((columns, inked_rows), (15, 9));
 }

@@ -67,6 +67,7 @@ fuzz_target!(|data: &[u8]| {
         cover,
         clusters: keys.iter().map(|k| ask(k)).collect(),
         baselines: Vec::new(),
+        sizes: Vec::new(),
         hinting: Hinting::Light,
         synth: vtium_font::Style {
             bold: pick & 2 != 0,

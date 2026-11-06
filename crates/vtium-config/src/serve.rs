@@ -1189,9 +1189,29 @@ impl Engine {
             })
     }
 
-    /// Source `i`'s baseline in a cell `height` pixels high, found once
-    /// for the engine's life (ADR-1302 D3); `None` for a bitmap source or
-    /// one whose font cannot be read, which the rasteriser then refuses.
+    /// The size, in pixels to the em, source `i` draws at in a cell
+    /// `height` pixels high when it is an outline source after an outline
+    /// first source: the first source's size (ADR-1200 D17). The first
+    /// source is the frit's first regular one, the one whose metrics every
+    /// strike reports ([`Engine::metrics_at`]). `None` draws the source at
+    /// its own size, so its ascent and descent span the height, as the
+    /// first source itself and every source behind a bitmap first source
+    /// do.
+    fn size(&self, i: usize, height: u32) -> Option<f32> {
+        let first = self.sources.iter().position(|(s, _)| s.style == REGULAR)?;
+        if i == first {
+            return None;
+        }
+        let Some((_, Loaded::Outline { font, family, .. })) = self.sources.get(first) else {
+            return None;
+        };
+        crate::outline::size(font, family, height).ok()
+    }
+
+    /// Source `i`'s baseline in a cell `height` pixels high, at the size it
+    /// draws at ([`Engine::size`]), found once for the engine's life
+    /// (ADR-1302 D3); `None` for a bitmap source or one whose font cannot
+    /// be read, which the rasteriser then refuses.
     fn baseline(&self, i: usize, height: u32) -> Option<u32> {
         if let Some(&b) = self.baselines.borrow().get(&(i, height)) {
             return Some(b);
@@ -1199,7 +1219,8 @@ impl Engine {
         let Some((_, Loaded::Outline { font, family, .. })) = self.sources.get(i) else {
             return None;
         };
-        let b = crate::outline::baseline(font, family, height, self.hinting).ok()?;
+        let size = self.size(i, height);
+        let b = crate::outline::baseline(font, family, height, size, self.hinting).ok()?;
         self.baselines.borrow_mut().insert((i, height), b);
         Some(b)
     }
@@ -1478,6 +1499,11 @@ impl Engine {
                         cover: ranges(&cover),
                         clusters: unshaped.iter().map(|k| crate::shaping::ask(k)).collect(),
                         baselines: self.baseline(i, cell.height).into_iter().collect(),
+                        sizes: self
+                            .size(i, cell.height)
+                            .map(f32::to_bits)
+                            .into_iter()
+                            .collect(),
                         hinting: self.hinting,
                         synth,
                     };

@@ -28,6 +28,7 @@ fn request(cells: &[(u32, u32)], cover: &[(u32, u32)]) -> OutlineRequest {
         cover: cover.to_vec(),
         clusters: Vec::new(),
         baselines: Vec::new(),
+        sizes: Vec::new(),
         hinting: Hinting::Light,
     }
 }
@@ -503,7 +504,7 @@ fn underscored() -> Vec<u8> {
 #[test]
 fn the_baseline_rises_where_ascii_ink_passes_the_cell() {
     let font = underscored();
-    let at = |h| baseline(&font, "Test Mono", h, Hinting::Light).expect("a baseline");
+    let at = |h| baseline(&font, "Test Mono", h, None, Hinting::Light).expect("a baseline");
     assert_eq!([at(10), at(12), at(20)], [8, 9, 16]);
     let o = rasterise(&OutlineRequest {
         font: font.clone().into(),
@@ -694,7 +695,10 @@ fn the_lowest_ink_is_measured_on_the_pixels() {
         ..ttf::test_mono()
     }
     .build();
-    assert_eq!(baseline(&font, "Test Mono", 20, Hinting::Light), Ok(16));
+    assert_eq!(
+        baseline(&font, "Test Mono", 20, None, Hinting::Light),
+        Ok(16)
+    );
 }
 
 #[test]
@@ -875,6 +879,7 @@ fn a_color_bitmap_is_scaled_from_its_strike_by_the_chosen_method() {
         cover: Vec::new(),
         clusters: Vec::new(),
         baselines: Vec::new(),
+        sizes: Vec::new(),
         hinting: Hinting::Light,
     };
     let o = rasterise(&req).expect("rasterised");
@@ -905,4 +910,31 @@ fn a_color_bitmap_is_scaled_from_its_strike_by_the_chosen_method() {
         want[((y + 1) * 10) * 4..((y + 1) * 10 + 9) * 4].copy_from_slice(row);
     }
     assert_eq!(fire.pixels, want);
+}
+
+// ADR-1200 D17: a request names the size each cell's glyphs draw at, one
+// for each cell, as the first source's size, and reads back. A size for
+// no cell, or one that is not a positive number of pixels to the em, is
+// refused before the font is read
+#[test]
+fn a_request_with_sizes_reads_back_and_a_bad_size_is_refused() {
+    let mut r = request(&[(0, 16), (0, 20)], &[]);
+    r.sizes = vec![15.5f32.to_bits(), 19.5f32.to_bits()];
+    assert_eq!(OutlineRequest::decode(&r.encode()), Ok(r.clone()));
+    let o = rasterise(&r).expect("rasterised");
+    assert_eq!(o.strikes.len(), 2);
+    for bad in [
+        vec![15.5f32.to_bits()],
+        vec![0.0f32.to_bits(), 1.0f32.to_bits()],
+        vec![f32::NAN.to_bits(), 1.0f32.to_bits()],
+        vec![(-3.0f32).to_bits(), 1.0f32.to_bits()],
+        vec![1e9f32.to_bits(), 1.0f32.to_bits()],
+    ] {
+        r.sizes = bad;
+        assert!(
+            OutlineRequest::decode(&r.encode()).is_err(),
+            "{:?}",
+            r.sizes
+        );
+    }
 }

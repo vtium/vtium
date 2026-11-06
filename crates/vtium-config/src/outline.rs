@@ -9,12 +9,14 @@
 //! which the parent checks field by field before it trusts any:
 //!
 //! ```text
-//! request  magic "VTVOUT5\0", font length u32, the font, family length u32,
+//! request  magic "VTVOUT6\0", font length u32, the font, family length u32,
 //!          the family, cell count u32, each cell's width u32 (0: the font
 //!          sets it) and height u32, range count u32, each range's first
 //!          and last codepoint u32, cluster count u32, each cluster's kind
 //!          u8, length u8 and scalar values u32, baseline count u32 (0, or
-//!          the cell count), each baseline u32, hinting u8 (0 light, 1
+//!          the cell count), each baseline u32, size count u32 (0, or the
+//!          cell count), each size in pixels to the em as f32 bits u32,
+//!          hinting u8 (0 light, 1
 //!          full), synthesis u8 (bit 1 bold, bit 2 italic)
 //! answer   magic "VTVOUTL3", family length u32, the family, format length
 //!          u32, the format, licence length u32, the licence, strike count
@@ -30,9 +32,10 @@
 //!
 //! Little-endian throughout.
 //!
-//! Each cell's font size is the size of a FreeType request for a cell half
-//! a pixel under the height: the font's ascent
-//! and descent span the cell's height less half a pixel, the baseline sits
+//! Each cell's font size is the size the request names for it, the frit's
+//! first source's (ADR-1200 D17), or with none the size of a FreeType
+//! request for a cell half a pixel under the height: the font's ascent
+//! and descent span the cell's height less half a pixel. The baseline sits
 //! the ascent below the top, rounded up, and rises by what the lowest ink
 //! of the font's printable ASCII passes the cell's bottom (ADR-1302 D3),
 //! and the font that sets the cell sets its width
@@ -96,7 +99,7 @@ const GLYPHS_MAX: usize = 65536;
 /// [`crate::shaping::asks`] lists is under half of it.
 pub const CLUSTERS_MAX: usize = 1 << 14;
 
-pub(crate) const REQUEST_MAGIC: &[u8; 8] = b"VTVOUT5\0";
+pub(crate) const REQUEST_MAGIC: &[u8; 8] = b"VTVOUT6\0";
 const ANSWER_MAGIC: &[u8; 8] = b"VTVOUTL3";
 
 const GLYPH_WIDE: u8 = 1;
@@ -126,6 +129,12 @@ pub struct OutlineRequest {
     /// [`baseline`] gives it and the helper keeps it for the source and the
     /// cell's height; empty, the rasteriser finds each itself.
     pub baselines: Vec<u32>,
+    /// The size to draw each cell's glyphs at, in pixels to the em, one for
+    /// each cell, as `f32::to_bits` gives it: the size of the frit's first
+    /// source, at which a later outline source draws (ADR-1200 D17); empty,
+    /// the rasteriser sizes the font so its own ascent and descent span
+    /// each cell's height ([`size`]).
+    pub sizes: Vec<u32>,
     /// How the outline glyphs are fitted to the pixel grid, the frit's
     /// `hinting=` (ADR-1200 D1).
     pub hinting: Hinting,
@@ -312,6 +321,10 @@ impl OutlineRequest {
         for &b in &self.baselines {
             put32(&mut out, b);
         }
+        put32(&mut out, len32(self.sizes.len()));
+        for &size in &self.sizes {
+            put32(&mut out, size);
+        }
         out.push(match self.hinting {
             Hinting::Light => 0,
             Hinting::Full => 1,
@@ -360,6 +373,23 @@ impl OutlineRequest {
         {
             return Err("a baseline for no cell, or below its cell");
         }
+        let mut sizes = Vec::new();
+        for _ in 0..r.count(OUTLINE_CELLS_MAX)? {
+            sizes.push(r.u32()?);
+        }
+        // a size is a positive number of pixels to the em, at most what a
+        // cell's height drawn by a font whose ascent and descent span an
+        // eighth of its em would take
+        let size_max = 8.0 * CELL_SIDE_MAX as f32;
+        if !sizes.is_empty()
+            && (sizes.len() != cells.len()
+                || sizes
+                    .iter()
+                    .map(|&b| f32::from_bits(b))
+                    .any(|v| !v.is_finite() || v <= 0.0 || v > size_max))
+        {
+            return Err("a size for no cell, or not a size");
+        }
         let hinting = match r.u8()? {
             0 => Hinting::Light,
             1 => Hinting::Full,
@@ -382,6 +412,7 @@ impl OutlineRequest {
             cover,
             clusters,
             baselines,
+            sizes,
             hinting,
             synth,
         })
@@ -614,7 +645,7 @@ pub fn family_key(name: &str) -> String {
         .collect()
 }
 
-pub use raster::{baseline, cell_width, decorations, rasterise};
+pub use raster::{baseline, cell_width, decorations, rasterise, size};
 
 /// The child's side: swash, on bytes no one has checked. A panic here ends
 /// the child, which fails the source and nothing else (ADR-1200 D14).
@@ -1275,13 +1306,25 @@ pub(crate) mod raster {
         }
     }
 
+    /// The size, in pixels to the em, at which the face `family` of `font`
+    /// draws in a cell `height` pixels high when nothing else sizes it: its
+    /// ascent and descent span the height less half a pixel. A frit's first
+    /// outline source draws at it, and the sources after it draw at the
+    /// first source's (ADR-1200 D17).
+    pub fn size(font: &[u8], family: &str, height: u32) -> Result<f32, String> {
+        let (font, _, _) = face(font, family)?;
+        Ok(ppem(&metrics(font)?, height))
+    }
+
     /// The baseline of the face `family` of `font` in a cell `height`
-    /// pixels high, its glyphs hinted as `hinting` says, as [`rasterise`]
-    /// draws it (ADR-1302 D3).
+    /// pixels high, drawn at `size` pixels to the em, or at its own
+    /// ([`size`]) with none, its glyphs hinted as `hinting` says, as
+    /// [`rasterise`] draws it (ADR-1302 D3).
     pub fn baseline(
         font: &[u8],
         family: &str,
         height: u32,
+        size: Option<f32>,
         hinting: Hinting,
     ) -> Result<u32, String> {
         if !(1..=vtium_font::CELL_SIDE_MAX).contains(&height) {
@@ -1293,12 +1336,8 @@ pub(crate) mod raster {
         let (font, _, index) = face(font, family)?;
         let metrics = metrics(font)?;
         let mut drawer = Drawer::new(font, index, hinting);
-        Ok(baseline_at(
-            &mut drawer,
-            &metrics,
-            ppem(&metrics, height),
-            height,
-        ))
+        let at = size.unwrap_or_else(|| ppem(&metrics, height));
+        Ok(baseline_at(&mut drawer, &metrics, at, height))
     }
 
     /// Where the underline and strike-through go in a cell `height` pixels
@@ -1410,7 +1449,10 @@ pub(crate) mod raster {
         let mut plain = Drawer::new(font, index, request.hinting);
         let mut strikes = Vec::new();
         for (i, &(want_w, h)) in request.cells.iter().enumerate() {
-            let ppem = ppem(&metrics, h);
+            let ppem = request
+                .sizes
+                .get(i)
+                .map_or_else(|| ppem(&metrics, h), |&bits| f32::from_bits(bits));
             let baseline = match request.baselines.get(i) {
                 Some(&b) => b,
                 None => baseline_at(&mut plain, &metrics, ppem, h),
