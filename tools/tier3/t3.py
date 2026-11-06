@@ -353,7 +353,7 @@ def text_fonts(variants, log, fetch=None):
     if not any(t3_scenario.VARIANTS[v].get("text_fonts") for v in variants):
         return None
     fetch = fetch or t3_showcase.fetch
-    log("fetching the text font set's %s into the showcase's font cache, where it is missing"
+    log("the text font set's %s: from the showcase's font cache, which fetches what it lacks"
         % ", ".join(f.file for f in t3_scenario.TEXT_FONTS))
     try:
         return fetch(fonts=t3_scenario.TEXT_FONTS)
