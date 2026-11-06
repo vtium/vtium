@@ -103,7 +103,7 @@ fn random_style(rng: &mut Rng) -> Style {
 }
 
 /// One change, described for a failure's message.
-fn change(t: &mut Terminal, rng: &mut Rng) -> String {
+fn change(t: &mut Terminal, rng: &mut Rng, text: &[&str]) -> String {
     let s = t.screen_mut();
     let (cols, rows) = (s.cols(), s.rows());
     match rng.below(24) {
@@ -213,7 +213,7 @@ fn change(t: &mut Terminal, rng: &mut Rng) -> String {
                 let piece = if rng.below(2) == 0 {
                     rng.pick(SEQUENCES)
                 } else {
-                    rng.pick(TEXT)
+                    rng.pick(text)
                 };
                 bytes.extend_from_slice(piece.as_bytes());
             }
@@ -228,7 +228,46 @@ fn change(t: &mut Terminal, rng: &mut Rng) -> String {
 #[test]
 fn a_frames_changed_set_covers_every_cell_that_differs() {
     for seed in 0..common::seeds(80) {
-        covers_every_change(seed);
+        covers_every_change(seed, TEXT);
+    }
+}
+
+/// The text pieces with Hebrew, Arabic and the sequences that set a
+/// paragraph's direction, for a build with the bidi feature.
+#[cfg(feature = "bidi")]
+const BIDI_TEXT: &[&str] = &[
+    "a",
+    " ",
+    "1",
+    "(",
+    ")",
+    "\u{05D0}",
+    "\u{05E9}\u{05DC}\u{05D5}\u{05DD}",
+    "\u{0628}\u{0628}",
+    "\u{0627}",
+    "\u{0661}",
+    "\u{2500}\u{250C}",
+    "\x1b[2 k",
+    "\x1b[1 k",
+    "\x1b[?2501h",
+    "\x1b[?2501l",
+    "\x1b[?2500h",
+    "\x1b[8l",
+    "\x1b[8h",
+    "\x1b[X",
+    "\x1b[K",
+    "\x1b[1;1H",
+];
+
+// ADR-1004 D8: with right-to-left text, the frame's changed set still
+// covers every cell that is drawn differently, through every kind of
+// change, reordered paragraphs, split paragraphs and property changes
+// among them.
+#[cfg(feature = "bidi")]
+#[test]
+fn a_frames_changed_set_covers_every_cell_of_right_to_left_text() {
+    for seed in 0..common::seeds(80) {
+        covers_every_change(seed, BIDI_TEXT);
     }
 }
 
@@ -236,11 +275,12 @@ fn a_frames_changed_set_covers_every_cell_that_differs() {
 // in its last column into an empty narrow cell unmarked (ADR-1003).
 #[test]
 fn an_ended_wrap_marks_the_pad_it_empties() {
-    covers_every_change(218);
+    covers_every_change(218, TEXT);
 }
 
-/// Runs the property's 100 random changes from `seed`.
-fn covers_every_change(seed: u64) {
+/// Runs the property's 100 random changes from `seed`, the text it writes
+/// picked from `text`.
+fn covers_every_change(seed: u64, text: &[&str]) {
     {
         let mut rng = Rng(seed);
         let mut t = Terminal::new(1 + rng.below(12), 1 + rng.below(8), 6);
@@ -248,7 +288,7 @@ fn covers_every_change(seed: u64) {
         for step in 0..100 {
             let seen = t.screen_mut().checkpoint();
             let before = draw(t.screen(), seen);
-            let what = change(&mut t, &mut rng);
+            let what = change(&mut t, &mut rng, text);
             let after = draw(t.screen(), seen);
             if before.len() != after.len()
                 || before.first().map(Vec::len) != after.first().map(Vec::len)

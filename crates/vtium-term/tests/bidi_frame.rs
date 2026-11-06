@@ -382,6 +382,26 @@ mod with_the_feature {
         assert!(frame.cells(0).all(|c| c.changed));
     }
 
+    // ADR-1004 D8: an edit that ends a row's wrap splits its paragraph,
+    // and the rows below it, which now resolve on their own, are marked
+    // changed: digits that followed Hebrew, and Latin text whose detected
+    // direction came from Hebrew above it.
+    // covers: text.bidi
+    #[test]
+    fn a_split_paragraph_marks_the_rows_whose_order_changes() {
+        for (input, before, after) in [
+            ("\u{5D0}\u{5D1}\u{5D2}\u{5D3}1 2", "2 1.", "1 2."),
+            ("\x1b[?2501h\u{5D0}\u{5D1}\u{5D2}\u{5D3}ab", "..ab", "ab.."),
+        ] {
+            let mut t = term(4, 2, input.as_bytes());
+            assert_eq!(drawn(&t)[1], before, "{input:?}");
+            let since = t.screen_mut().checkpoint();
+            t.input(b"\x1b[1;1H\x1b[X");
+            assert_eq!(drawn(&t)[1], after, "{input:?}");
+            assert_eq!(changed_rows(&t, since), [true, true], "{input:?}");
+        }
+    }
+
     // ADR-1004 D8: a change of a paragraph property marks the rows of the
     // paragraph whose order it changes; a left-to-right row of Latin text
     // keeps its per-cell damage.

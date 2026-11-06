@@ -169,12 +169,24 @@ impl Screen {
     }
 
     /// Ends the wrap of each row of `rows`: their text no longer continues
-    /// on the next row.
+    /// on the next row. In a build with the bidi feature, a paragraph the
+    /// end splits that draws in another order than it was written is marked
+    /// changed whole, since each part now resolves on its own (ADR-1004
+    /// D8).
     pub(super) fn unwrap_rows(&mut self, rows: impl IntoIterator<Item = usize>) {
         for y in rows {
             let cols = self.cols;
+            #[cfg(feature = "bidi")]
+            let split = self
+                .line(y)
+                .is_some_and(|l| l.flags().contains(crate::line::LineFlags::WRAPPED))
+                .then(|| self.reordered_rows(y));
             if self.line_mut(y).is_some_and(Line::unwrap) {
                 self.mark_cells(y, cols.saturating_sub(1)..cols);
+            }
+            #[cfg(feature = "bidi")]
+            for row in split.into_iter().flatten() {
+                self.mark_cells(row, 0..cols);
             }
         }
     }
