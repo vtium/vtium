@@ -1,7 +1,7 @@
 //! The four orientations draw the same picture turned: each turned screen,
 //! turned back, is the unturned screen pixel for pixel. Its screen has a
 //! wide character cut at the last column the display holds, which shows
-//! its left half in every orientation (aaronsb/kmscon#44).
+//! its left half in every orientation.
 
 mod common;
 
@@ -212,8 +212,8 @@ fn the_pointer_turns_with_the_display() {
 }
 
 // An odd remainder is split rounding down in the display's own
-// coordinates in every orientation, as the C reference's edges goldens
-// split it: 5 pixels across and 3 down leave 2 left, 3 right, 1 above and
+// coordinates in every orientation, as tier 2's `edges` goldens show it:
+// 5 pixels across and 3 down leave 2 left, 3 right, 1 above and
 // 2 below unturned and upside down; a turned display, 3 across and 5
 // down, leaves 1, 2, 2 and 3.
 #[test]

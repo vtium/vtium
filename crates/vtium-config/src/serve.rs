@@ -390,7 +390,9 @@ impl ServeRequest {
         };
         let query = matches!(kind, OWN_CELL | SOURCES);
         if query && (cell.width != 0 || cell.height > CELL_SIDE_MAX) {
-            return Err("a cell query at a cell, or at a height past CELL_SIDE_MAX".to_owned());
+            return Err(format!(
+                "a cell query at a cell, or at a height of more than {CELL_SIDE_MAX} pixels"
+            ));
         }
         if kind == SOURCES && cell.height != 0 {
             return Err("a sources query at a height".to_owned());
@@ -399,7 +401,9 @@ impl ServeRequest {
             && (!(1..=CELL_SIDE_MAX).contains(&cell.width)
                 || !(1..=CELL_SIDE_MAX).contains(&cell.height))
         {
-            return Err("a cell past CELL_SIDE_MAX".to_owned());
+            return Err(format!(
+                "a cell side of 0 or of more than {CELL_SIDE_MAX} pixels"
+            ));
         }
         let style = style_of(f.u32()?).ok_or("an unknown style")?;
         if kind != ASK && style != Style::default() {
@@ -1081,9 +1085,9 @@ impl Engine {
     }
 
     /// The frit's bold face, which the W rule measures beside the regular
-    /// face (ADR-1200 D17), as the C reference took the larger of its
-    /// regular and bold faces' cells: the first outline source the frit
-    /// gave `style=bold` that has not failed, its bytes and its family.
+    /// face (ADR-1200 D17), so a bold face wider than the regular one
+    /// still fits the cell: the first outline source the frit gave
+    /// `style=bold` that has not failed, its bytes and its family.
     /// `None` when the frit names none.
     fn bold_face(&self) -> Option<(&[u8], &str)> {
         let failed = self.failed.borrow();
@@ -2438,7 +2442,7 @@ mod tests {
             .collect();
         assert_eq!(
             warnings,
-            ["t:2: compress= has nothing to act on, and is ignored"]
+            ["t:2: compress= has no effect here, and is ignored"]
         );
         assert_eq!(frames.first().map(|f| f.0), Some(FRAME_WARNING));
         let quiet = run(&[request(ASK, frit("source=builtin:unifont\n"), &['A'])]);
@@ -2516,8 +2520,8 @@ mod tests {
         assert_eq!(
             warnings,
             [format!(
-                "t:2: source=bdf:{}: zstd: the font's window is 32 MiB and vtium-config reads \
-                 at most 16 MiB, so the font needs recompressing with a window of 16 MiB or \
+                "t:2: source=bdf:{}: zstd: the font is compressed with a 32 MiB window and \
+                 vtium-config reads at most 16 MiB: recompress it with a window of 16 MiB or \
                  less; the source is left out",
                 wide.display()
             )]
@@ -2533,7 +2537,7 @@ mod tests {
             text: "source=builtin:unifont\n".to_owned(),
         };
         let e = Engine::load(&bad, &Paths::default(), None).err().unwrap();
-        assert!(e.contains("is not a set name"), "{e}");
+        assert!(e.contains("cannot be a font set's name"), "{e}");
     }
 
     // a set past its frame's bound, of one codepoint and a cluster, is cut

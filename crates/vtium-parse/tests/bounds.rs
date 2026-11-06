@@ -1,5 +1,5 @@
-//! Every bound the parser enforces, at its edge, with the C reference's
-//! behaviour past it.
+//! Every bound the parser enforces, at its edge, and what the parser does
+//! past it.
 
 mod common;
 
@@ -10,7 +10,7 @@ fn csi_with(params: &str, final_byte: char) -> Vec<u8> {
     format!("\x1b[{params}{final_byte}").into_bytes()
 }
 
-// tsm-vte.c:1283, 2542-2543: 16 parameters are kept.
+// 16 parameters are kept.
 #[test]
 fn sixteen_params_kept() {
     let list: Vec<String> = (1..=PARAMS_MAX).map(|i| i.to_string()).collect();
@@ -21,7 +21,7 @@ fn sixteen_params_kept() {
     );
 }
 
-// tsm-vte.c:1283, 1293-1294, 2542: the 17th and later are dropped, and the
+// The 17th and later are dropped, and the
 // sequence still dispatches with 16.
 #[test]
 fn params_past_sixteen_dropped() {
@@ -41,7 +41,7 @@ fn sixteenth_param_omitted_before_separator() {
     assert_eq!(parse(&csi_with(&list, 'm')), [csi(&[-1; 16], "", b'm')]);
 }
 
-// tsm-vte.c:1314-1316: a value takes digits until it is past 0xffff.
+// A value takes digits until it is past 0xffff.
 #[test]
 fn value_stops_past_0xffff() {
     assert_eq!(parse(b"\x1b[65535m"), [csi(&[65535], "", b'm')]);
@@ -52,7 +52,7 @@ fn value_stops_past_0xffff() {
     assert_eq!(parse(b"\x1b[99999999m"), [csi(&[99999], "", b'm')]);
 }
 
-// tsm-vte.c:1314-1316 applies to sub-parameters too.
+// The value cap applies to sub-parameters too.
 #[test]
 fn subparam_value_stops_past_0xffff() {
     let mut parser = Parser::new();
@@ -61,7 +61,7 @@ fn subparam_value_stops_past_0xffff() {
     assert_eq!(rec.acts, [csi_subs(&[4], "", b'm', &[(0, &[99999])])]);
 }
 
-// tsm-vte.c:1300-1301: 8 sub-parameters are kept.
+// 8 sub-parameters are kept.
 #[test]
 fn eight_subparams_kept() {
     let mut parser = Parser::new();
@@ -74,7 +74,7 @@ fn eight_subparams_kept() {
     assert_eq!(SUBPARAMS_MAX, 8);
 }
 
-// tsm-vte.c:1302-1303, 1307-1308, 1289: past 8, the colon and every digit up
+// Past 8, the colon and every digit up
 // to the next ';' are dropped, and the sequence still dispatches.
 #[test]
 fn subparams_past_eight_dropped_until_separator() {
@@ -92,7 +92,7 @@ fn subparams_past_eight_dropped_until_separator() {
     );
 }
 
-// tsm-vte.c:1293-1294: the 17th parameter's sub-parameters are dropped with
+// The 17th parameter's sub-parameters are dropped with
 // it.
 #[test]
 fn subparams_of_dropped_param_dropped() {
@@ -144,9 +144,9 @@ fn osc_bound_is_a_mebibyte() {
     assert_eq!(OSC_MAX, 1 << 20);
 }
 
-// Departure, decided by the operator: the kept bytes are always a prefix.
-// Once a character fails to fit, nothing after it is kept, where the C
-// reference kept a shorter character after it (tsm-vte.c:2915-2917).
+// The kept bytes are always a prefix of what the program sent: once a
+// character fails to fit, nothing after it is kept, not even a shorter
+// character that would.
 #[test]
 fn osc_keeps_a_prefix_once_a_character_does_not_fit() {
     let mut seq = b"\x1b]".to_vec();
@@ -242,7 +242,7 @@ fn osc_at_its_bound_in_pieces() {
     }
 }
 
-// tsm-vte.c:3142-3145, tsm-vte-image.c:117-131: DCS data is streamed, not
+// DCS data is streamed, not
 // kept, so a megabyte of it all reaches the consumer.
 #[test]
 fn dcs_streams_unbounded_data() {
@@ -254,7 +254,7 @@ fn dcs_streams_unbounded_data() {
     assert_eq!(n, 1 << 20);
 }
 
-// tsm-vte.c:3622-3638: APC data is streamed, so a megabyte of a kitty
+// APC data is streamed, so a megabyte of a kitty
 // payload all reaches the consumer.
 #[test]
 fn apc_streams_unbounded_data() {

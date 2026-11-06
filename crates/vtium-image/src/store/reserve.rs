@@ -11,10 +11,10 @@
 //! The store keeps a ledger of the reservations it granted and has not
 //! seen spent. Spending one, to store an image or to give it back, takes
 //! it out of the ledger, so a copy of a reservation already spent gives
-//! back nothing, holds nothing and pays for nothing. The C reference's
-//! caller held its reservation in a struct that spending zeroed, so the
-//! same struct spent twice gave back nothing, but a copy of it gave its
-//! bytes back twice.
+//! back nothing, holds nothing and pays for nothing. Without the ledger, a
+//! handler that gave back a copy of a reservation it had already spent
+//! would give its bytes back twice, and the budget would then count less
+//! than the images it holds.
 
 use super::{Screens, Store};
 use crate::image::{ImageKey, Refusal};

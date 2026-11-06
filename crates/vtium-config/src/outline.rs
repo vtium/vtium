@@ -30,8 +30,8 @@
 //!
 //! Little-endian throughout.
 //!
-//! Each cell's font size follows the C reference's flow (`font_freetype.c`,
-//! a cell request for half a pixel under the height): the font's ascent
+//! Each cell's font size is the size of a FreeType request for a cell half
+//! a pixel under the height: the font's ascent
 //! and descent span the cell's height less half a pixel, the baseline sits
 //! the ascent below the top, rounded up, and rises by what the lowest ink
 //! of the font's printable ASCII passes the cell's bottom (ADR-1302 D3),
@@ -46,8 +46,7 @@
 //! its cells is drawn again at the size that fits them, centred across
 //! them and kept inside the cell's height. Outlines are hinted as the
 //! request says ([`Hinting`], ADR-1200 D1): lightly by default, which
-//! moves a glyph's rows only, as the C reference's FreeType light hinting
-//! did, or fully. Color glyphs are not hinted, and a COLR glyph's layers
+//! moves a glyph's rows only, as FreeType's light hinting does, or fully. Color glyphs are not hinted, and a COLR glyph's layers
 //! are laid over each other here, premultiplied with the renderer's
 //! rounding.
 //!
@@ -244,7 +243,9 @@ impl<'a> Reader<'a> {
     fn key(&mut self) -> Result<Vec<u32>, &'static str> {
         let n = self.u8()?;
         if n == 0 || u32::from(n) > CLUSTER_SCALARS_MAX {
-            return Err("a cluster empty or past CLUSTER_SCALARS_MAX");
+            return Err(static_message!(
+                "a cluster that is empty or holds more than {CLUSTER_SCALARS_MAX} characters"
+            ));
         }
         (0..n)
             .map(|_| {
@@ -330,7 +331,9 @@ impl OutlineRequest {
         for _ in 0..r.count(OUTLINE_CELLS_MAX)? {
             let (w, h) = (r.u32()?, r.u32()?);
             if w > CELL_SIDE_MAX || !(1..=CELL_SIDE_MAX).contains(&h) {
-                return Err("a cell past CELL_SIDE_MAX");
+                return Err(static_message!(
+                    "a cell wider than {CELL_SIDE_MAX} pixels, or a height of 0 or of more than {CELL_SIDE_MAX} pixels"
+                ));
             }
             cells.push((w, h));
         }
@@ -452,7 +455,9 @@ impl Outline {
     /// nothing after the last strike.
     pub fn decode(bytes: &[u8], request: &OutlineRequest) -> Result<Outline, &'static str> {
         if bytes.len() > OUTLINE_ANSWER_BYTES_MAX {
-            return Err("larger than OUTLINE_ANSWER_BYTES_MAX");
+            return Err(static_message!(
+                "larger than {OUTLINE_ANSWER_BYTES_MAX} bytes"
+            ));
         }
         let mut r = Reader(bytes);
         if r.take(8)? != ANSWER_MAGIC {
@@ -474,7 +479,9 @@ impl Outline {
                 return Err("a strike at a cell not asked for");
             }
             if !(1..=CELL_SIDE_MAX).contains(&width) || baseline > height {
-                return Err("a cell past CELL_SIDE_MAX, or a baseline below it");
+                return Err(static_message!(
+                    "a cell width of 0 or of more than {CELL_SIDE_MAX} pixels, or a baseline below the cell"
+                ));
             }
             let glyph_count = r.count(usize::MAX)?;
             let map_len = r.count(MAP_MAX)?;
@@ -485,7 +492,9 @@ impl Outline {
             // every glyph is one the map or a cluster names, so a strike
             // holds no more glyphs than those, nor than a set's strike holds
             if glyph_count > map_len.saturating_add(cluster_count).min(GLYPHS_MAX) {
-                return Err("more glyphs than the map and clusters name, or than GLYPHS_MAX");
+                return Err(static_message!(
+                    "more glyphs than the map and clusters name, or more than {GLYPHS_MAX}"
+                ));
             }
             let mut glyphs = Vec::new();
             for _ in 0..glyph_count {
@@ -974,9 +983,9 @@ pub(crate) mod raster {
         }
 
         /// How the hinter is set for this face (ADR-1200 D1), as FreeType
-        /// chose for the C reference. Light hinting gives a TrueType face
-        /// to the automatic hinter, which moves rows only, since FreeType's
-        /// TrueType driver did not hint lightly itself and FreeType sent a
+        /// sets it for a light load. Light hinting gives a TrueType face to
+        /// the automatic hinter, which moves rows only, since FreeType's
+        /// TrueType driver does not hint lightly itself and FreeType sends a
         /// light load to the automatic hinter; a CFF face keeps its own
         /// hints, which move rows only. Full hinting runs a TrueType face's
         /// own instructions, or the automatic hinter at full strength for a
@@ -1164,23 +1173,22 @@ pub(crate) mod raster {
 
     /// The size a face is drawn at in a cell `h` pixels high, in pixels to
     /// the em: its ascent and descent span the height less half a pixel,
-    /// as the C reference asked FreeType for a cell half a pixel under the
-    /// height (`request_size`).
+    /// the size a FreeType request for a cell half a pixel under the
+    /// height gives.
     fn ppem(metrics: &swash::Metrics, h: u32) -> f32 {
         let span = metrics.ascent + metrics.descent.abs();
         (h as f32 - 0.5) * f32::from(metrics.units_per_em) / span
     }
 
     /// The W rule (ADR-1200 D17): the cell's width is the wider of `W`'s
-    /// advance, rounded, and the columns its ink covers at `ppem`, as the
-    /// C reference's `font_get_width` took it; a face with no `W` takes
-    /// `M`'s, then `0`'s, and a face with none of them half the height
-    /// `h`. The ink is measured on the outline as it is, not hinted: the
-    /// C reference loaded it with FreeType's light hinting, which in a
-    /// TrueType font moves only rows, so its ink kept the outline's width
-    /// across. DejaVu Sans
-    /// Mono's `W` at 16 pixels spans 8.02 pixels, 9 columns, where full
-    /// hinting snaps it to 8. A glyph with no outline, a color or bitmap
+    /// advance, rounded, and the columns its ink covers at `ppem`; a face
+    /// with no `W` takes `M`'s, then `0`'s, and a face with none of them
+    /// half the height `h`, so the width never comes from the face's
+    /// missing-glyph box. The ink is measured on the outline as it is, not
+    /// hinted: light hinting, the default, moves only rows in a TrueType
+    /// font, so the outline's width across is the width it draws. DejaVu
+    /// Sans Mono's `W` at 16 pixels spans 8.02 pixels, 9 columns, where
+    /// full hinting snaps it to 8. A glyph with no outline, a color or bitmap
     /// one, is measured as it is drawn.
     fn w_width(drawer: &mut Drawer<'_>, ppem: f32, h: u32) -> u32 {
         let font = drawer.font;
@@ -1195,13 +1203,13 @@ pub(crate) mod raster {
                     .render(&mut scaler, g)
                     .or_else(|| drawer.draw(g, ppem, (u32::MAX, u32::MAX)))
                     .map_or(0, |i| i.placement.width);
-                // vtium rounds the advance once, from a float; the C
-                // reference took FreeType's advance, already rounded in 26.6
-                // fixed point. They can differ when the fraction is near a
-                // half, as DejaVu Sans Mono's W at 15 pixels advances
-                // 7.4995, which vtium rounds to 7 and FreeType to 8. That
-                // changes the cell only for a font whose W ink is narrower
-                // than its advance; DejaVu's covers 8 columns either way
+                // vtium rounds the advance once, from a float, where
+                // FreeType's advance is already rounded in 26.6 fixed point.
+                // They can differ when the fraction is near a half, as
+                // DejaVu Sans Mono's W at 15 pixels advances 7.4995, which
+                // vtium rounds to 7 and FreeType to 8. That changes the cell
+                // only for a font whose W ink is narrower than its advance;
+                // DejaVu's covers 8 columns either way
                 (advances.advance_width(g).round() as u32).max(ink)
             })
             .unwrap_or(h.div_ceil(2))
@@ -1210,14 +1218,16 @@ pub(crate) mod raster {
 
     /// The width of an outline font's own cell `height` pixels high
     /// (ADR-1200 D17): the W rule's over each of `faces`, each a font's
-    /// bytes and the family to take from it, the widest of them, as the C
-    /// reference took the larger of its regular and bold faces' cells
-    /// (`kmscon_font_freetype_init`). A face that cannot be read fails the
-    /// whole answer, as the C reference failed its font when its bold face
-    /// did not load.
+    /// bytes and the family to take from it, the widest of them, so a bold
+    /// face wider than the regular one still fits the cell. A face that
+    /// cannot be read fails the whole answer, since a cell taken without it
+    /// could be too narrow for its glyphs.
     pub fn cell_width(faces: &[(&[u8], &str)], height: u32) -> Result<u32, String> {
         if !(1..=vtium_font::CELL_SIDE_MAX).contains(&height) {
-            return Err(format!("a cell {height} pixels high, past CELL_SIDE_MAX"));
+            return Err(format!(
+                "a cell {height} pixels high, more than {}",
+                vtium_font::CELL_SIDE_MAX
+            ));
         }
         let mut widest = None;
         for &(data, family) in faces {
@@ -1274,7 +1284,10 @@ pub(crate) mod raster {
         hinting: Hinting,
     ) -> Result<u32, String> {
         if !(1..=vtium_font::CELL_SIDE_MAX).contains(&height) {
-            return Err(format!("a cell {height} pixels high, past CELL_SIDE_MAX"));
+            return Err(format!(
+                "a cell {height} pixels high, more than {}",
+                vtium_font::CELL_SIDE_MAX
+            ));
         }
         let (font, _, index) = face(font, family)?;
         let metrics = metrics(font)?;
@@ -1289,13 +1302,11 @@ pub(crate) mod raster {
 
     /// Where the underline and strike-through go in a cell `height` pixels
     /// high whose baseline is row `baseline`, from the face `family` of
-    /// `font` (ADR-1302 D3, ADR-1200 D2), as the C reference took them
-    /// (`kmscon_font_freetype_get_deco`, `kmscon_font_get_deco`). The
-    /// underline's thickness comes from the `post` table when the font has
+    /// `font` (ADR-1302 D3, ADR-1200 D2). The underline's thickness comes from the `post` table when the font has
     /// one and it gives a thickness that rounds above 0, else a fourteenth
     /// of the cell. Its centre is below the baseline by `post`'s position
     /// less half its thickness, divided as integers, as FreeType's
-    /// `underline_position` gave it, where that is not 0, else a thickness
+    /// `underline_position` gives it, where that is not 0, else a thickness
     /// and a half above the cell's bottom. The
     /// strike-through's top and thickness come from the `OS/2` table's
     /// strikeout, above the baseline, when its size is above 0. Else it is
@@ -1330,10 +1341,10 @@ pub(crate) mod raster {
         if thick <= 0.0 {
             thick = (h / 14.0).floor().max(1.0);
         }
-        // FreeType's underline_position, which the C reference took as the
-        // stroke's centre whenever it was not 0, is post's
-        // underlinePosition less half its underlineThickness, divided as
-        // integers; a font with no post table gives 0
+        // the stroke's centre is FreeType's underline_position whenever it
+        // is not 0: post's underlinePosition less half its
+        // underlineThickness, divided as integers; a font with no post
+        // table gives 0
         let freetype = position.map(|p| p as i32 - size.unwrap_or(0.0) as i32 / 2);
         let centre = match freetype.filter(|&p| p != 0) {
             Some(p) => base - f64::from(p) * scale,
@@ -1544,8 +1555,8 @@ pub(crate) mod raster {
             let top = (base - image.placement.top).clamp(0, (h_i - ih).max(0));
             ((bw_i - iw) / 2, top)
         } else {
-            // the C reference's `centre_dx` rounded the advance, (adv + 32) >> 6
-            // a negative advance counts as none, as centre_dx clamped it at 0
+            // the advance rounded to the nearest pixel (ADR-1302 D2), and a
+            // negative advance counts as none
             let pen = advance.map_or(0, |a| (bw_i - a.max(0.0).round() as i32).div_euclid(2));
             (pen + image.placement.left, base - image.placement.top)
         };
@@ -1684,8 +1695,7 @@ mod tests {
     }
 
     // a negative advance, which a shaped cluster's pen sum can give, is
-    // taken as 0, as the C reference's centre_dx clamped it (review finding
-    // A9): in a 12-pixel cell the pen goes half the cell in, column 6,
+    // taken as 0 (review finding A9): in a 12-pixel cell the pen goes half the cell in, column 6,
     // where an unclamped advance of -10 would put it at column 11
     #[test]
     fn a_negative_advance_is_taken_as_none() {

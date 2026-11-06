@@ -338,7 +338,7 @@ def logged(fmt, values):
 
 def body(lines):
     """A shipped unit's lines from its first section on: the generated unit
-    replaces the opening comment, which names the C reference's units."""
+    replaces the opening comment, which names an installed kmscon's units."""
     i = next(i for i, l in enumerate(lines) if l.startswith("["))
     return lines[i:]
 
@@ -1980,7 +1980,7 @@ class Install(Case):
 
     def seed(self):
         """The root as this machine has it: getty@.service with its alias
-        autovt@, the C reference's kmsconvt@.service, the template alias
+        autovt@, an installed kmscon's kmsconvt@.service, the template alias
         autovt@.service pointing at kmsconvt@, a getty enabled on VTs 1 to 6,
         and the programs the units run."""
         lib = self.at("usr/lib/systemd/system")
@@ -2057,7 +2057,7 @@ class Install(Case):
         # Conflicts= sets no order, so vtium starts only once the getty, whose
         # stop hangs up and resets the VT, has stopped.
         self.assertIn("After=getty@%i.service", unit)
-        # It stops the packaged vtium and the C reference's console on its
+        # It stops the packaged vtium and an installed kmscon's console on its
         # VT before it starts, as it stops the getty (ADR-1500 D4).
         for other in ("vtium@%i.service", "kmsconvt@%i.service"):
             self.assertIn(f"Conflicts={other}", unit)
@@ -2069,7 +2069,7 @@ class Install(Case):
         self.assertFalse([l for l in directives if l not in ordering and ("kmsconvt" in l or "/usr/bin/vtium" in l
                           or ("vtium@" in l and "vtium-dev" not in l))], directives)
         # The alias stays, so logind's autovt@tty4 on a switch to VT 4 is
-        # vtium and never the C reference's console beside it.
+        # vtium and never an installed kmscon's console beside it.
         self.assertIn("Alias=autovt@.service", unit)
         links = self.links()
         self.assertEqual(links["autovt@tty4.service"], "/etc/systemd/system/vtium-dev@.service")
@@ -2708,7 +2708,7 @@ exec "$@"
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         self.assertIn("/etc/systemd/system/autovt@.service points at vtium-dev@.service", p.stdout)
         self.assertEqual(os.readlink(template), "/etc/systemd/system/vtium-dev@.service")
-        # The C reference's template alias is named by nobody.
+        # A kmscon template alias is named by nobody.
         os.unlink(template)
         os.symlink("/usr/lib/systemd/system/kmsconvt@.service", template)
         p = self.vt_install("install", "4")
@@ -3436,7 +3436,7 @@ class Package(Case):
         p = self.make("install", f"DESTDIR={self.dest}", "PREFIX=/usr", f"INSTALL_TARGET_DIR={self.build}")
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         self.assertEqual(self.staged(), self.STAGED)
-        # The C reference's packages own /etc/kmscon/kmscon.conf.example, the
+        # An installed kmscon's packages own /etc/kmscon/kmscon.conf.example, the
         # compiled terminfo entry kmscon and the kmsconvt@ units. vtium's own
         # example sits in /etc/vtium, beside the file vtium reads, whatever
         # PREFIX is.
@@ -3614,7 +3614,7 @@ class Package(Case):
         # before it refuses the template, so on a machine with no
         # /etc/systemd/system/autovt@.service yet, logind would start vtium
         # on every VT it spawns. Each root: none, the getty's link, which
-        # systemd's preset makes, and the C reference's.
+        # systemd's preset makes, and kmscon's.
         if not REAL_SYSTEMCTL:
             self.skipTest("no systemctl")
         for holder in (None, "getty@.service", "kmsconvt@.service"):
@@ -3645,11 +3645,11 @@ class Package(Case):
                 self.assertEqual(links, sorted(before + ["autovt@tty3.service", "getty.target.wants/vtium@tty3.service"]))
                 self.assertEqual(os.readlink(os.path.join(etc, "autovt@tty3.service")), "/usr/lib/systemd/system/vtium@.service")
 
-    # A small entry under vtium's terminfo name, as the test's stand-in for
-    # crates/vtium/install/xterm-vtium.ti.
-    TERMINFO = "xterm-vtium|a stand-in for vtium's entry,\n\tam, cols#80, lines#24, bel=^G, clear=\\E[H\\E[2J,\n"
+    # A small entry under vtium's terminfo name and its alias, as the test's
+    # stand-in for crates/vtium/install/xterm-vtium.ti.
+    TERMINFO = "xterm-vtium|vtium|a stand-in for vtium's entry,\n\tam, cols#80, lines#24, bel=^G, clear=\\E[H\\E[2J,\n"
 
-    def test_install_terminfo_stages_xterm_vtium_alone(self):
+    def test_install_terminfo_stages_xterm_vtium_and_its_alias(self):
         if not shutil.which("tic"):
             self.skipTest("no tic")
         src = os.path.join(self.s.tmp, "xterm-vtium.ti")
@@ -3658,7 +3658,16 @@ class Package(Case):
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         self.assertEqual(self.staged(), ["usr/share/licenses/vtium-terminfo/COPYING",
                                          "usr/share/licenses/vtium-terminfo/LICENSE",
+                                         "usr/share/terminfo/v/vtium",
                                          "usr/share/terminfo/x/xterm-vtium"])
+        # An entry without the alias compiles xterm-vtium alone, and the check
+        # refuses it, so a package never ships without TERM=vtium.
+        bare = os.path.join(self.s.tmp, "bare", "xterm-vtium.ti")
+        os.makedirs(os.path.dirname(bare))
+        write(bare, self.TERMINFO.replace("xterm-vtium|vtium|", "xterm-vtium|"), 0o644)
+        p = self.make("install-terminfo", f"DESTDIR={self.dest}-bare", "PREFIX=/usr", f"TERMINFO_SRC={bare}")
+        self.assertNotEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn("did not compile xterm-vtium and its alias vtium alone", p.stderr)
         for name in ("COPYING", "LICENSE"):
             self.assertEqual(read(os.path.join(self.dest, "usr/share/licenses/vtium-terminfo", name)),
                              read(os.path.join(ROOT, name)), name)

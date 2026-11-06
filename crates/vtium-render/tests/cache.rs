@@ -6,7 +6,7 @@
 
 mod common;
 
-use common::{Screen, reference_screens, rgb, style};
+use common::{Screen, digest_screens, rgb, style};
 use vtium_font::{Font, Unifont};
 use vtium_render::{Budgets, Canvas, Config, DrawState, Profile, Renderer, Storage};
 use vtium_term::{Age, Attrs, CursorShape, Rgb, UnderlineStyle};
@@ -168,8 +168,8 @@ fn check(height: u32, frames: &[Screen]) -> u32 {
 
 // covers: platform.compositor
 #[test]
-fn the_reference_screens_draw_the_same_at_every_cache_size() {
-    for (name, s) in reference_screens() {
+fn the_digest_screens_draw_the_same_at_every_cache_size() {
+    for (name, s) in digest_screens() {
         let frames = [s];
         let _ = check(16, &frames);
         assert!(!name.is_empty());

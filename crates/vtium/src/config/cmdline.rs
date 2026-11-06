@@ -56,7 +56,7 @@ pub(super) fn parse(args: &[OsString], reports: &mut Reports) -> Parsed {
         if word == "--" {
             dashes = true;
             // The words are passed as given, bytes that are not UTF-8
-            // included, as the C reference passed them.
+            // included, since a command's arguments are bytes.
             let rest = words.by_ref().map(|(_, w)| w.clone()).collect::<Vec<_>>();
             if !login {
                 for w in rest {

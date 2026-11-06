@@ -8,9 +8,9 @@ basis:
     level: directed
     said: "It bounds scrollback by the machine's memory with the operator's caps (2026-10-26): `sb-size` is accepted up to 10,000 lines below 2 GiB, 30,000 from 2 GiB, and 100,000 from 4 GiB."
     via: the body of the GitHub issue for vtium-term's cell, line and frame model
-  - upstream: "kmscon ADR-304 §4 and §5 (aaronsb/kmscon): the cell model is designed fresh, budgeted for reflow's wrapped-line flag, hyperlink ids, overline and conceal, and measured against the minspec targets: resident after the first screen at most 10.3 MiB with unifont, at peak with the scrollback full at most 15.7 MiB"
-  - upstream: "kmscon ADR-102 (aaronsb/kmscon): cells carry clusters and unresolved colour; the C reference's cell was 32 bytes, held there by a static assert, with an 8-byte change age; clusters keep at most 32 codepoints"
-  - upstream: "kmscon ADR-103 (aaronsb/kmscon): an image placement is anchored to the line holding its top row and travels with it; kmscon's README, \"Minimal build\": the 15.7 MiB peak held a full 1,000-line scrollback"
+  - upstream: "kmscon ADR-304 §4 and §5: the cell model is designed fresh, budgeted for reflow's wrapped-line flag, hyperlink ids, overline and conceal, and measured against the minspec targets: resident after the first screen at most 10.3 MiB with unifont, at peak with the scrollback full at most 15.7 MiB"
+  - upstream: "kmscon ADR-102: cells carry clusters and unresolved colour; the C reference's cell was 32 bytes, held there by a static assert, with an 8-byte change age; clusters keep at most 32 codepoints"
+  - upstream: "kmscon ADR-103: an image placement is anchored to the line holding its top row and travels with it; kmscon's README, \"Minimal build\": the 15.7 MiB peak held a full 1,000-line scrollback"
   - upstream: "the C fork's issues on a region scroll that flagged every cell, no mark for the default background, padding drawn with the pen, the cursor color, and no continuation flag for reflow"
   - standard: "kitty graphics protocol, z-index: images below -1,073,741,824 are drawn under cells with non-default background colors"
   - standard: "ECMA-48 §8.3.117 (SGR); xterm control sequences (DECSCUSR, DECSCA, OSC 12); mintty's SGR 73-75; FinalTerm's OSC 133"

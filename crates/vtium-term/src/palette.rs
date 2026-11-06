@@ -4,9 +4,9 @@
 //!
 //! A palette sets the sixteen ANSI colors and the two defaults; colors
 //! 16 to 255 are xterm's 6x6x6 cube (levels 0, 95, 135, 175, 215, 255)
-//! and grey ramp (8 to 238 in steps of 10) in every palette. The named
-//! tables are the C reference's (`src/tsm/tsm-vte.c:254-451` at libtsm
-//! eeaf2931), and `tests/palettes.rs` checks each against that source.
+//! and grey ramp (8 to 238 in steps of 10) in every palette.
+//! `tests/palettes.rs` checks each named table against
+//! `tests/palettes.c.txt`, the tables as libtsm published them.
 //!
 //! A palette also holds the colors OSC 12 to 19 name: the cursor's, the
 //! pointer's and the selection's, each unset until a program or the host
@@ -83,7 +83,7 @@ pub const PALETTE_NAMES: [&str; 9] = [
     NAMED[8].name,
 ];
 
-/// The named palettes, in the C reference's order.
+/// The named palettes, in the order of [`PALETTE_NAMES`].
 const NAMED: [Named; 9] = [
     Named {
         name: "legacy",

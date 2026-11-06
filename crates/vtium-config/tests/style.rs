@@ -376,9 +376,8 @@ fn bold_italic_with_no_face_of_its_own_comes_from_the_regular_glyph() {
     );
 }
 
-// the W rule takes the bold face's W too, the wider of the two, as the C
-// reference took the larger of its regular and bold faces' cells
-// (ADR-1200 D17)
+// the W rule takes the bold face's W too, the wider of the two, so a bold
+// face wider than the regular one still fits the cell (ADR-1200 D17)
 #[test]
 fn the_w_rule_takes_the_bold_faces_w() {
     let dir = Scratch::new("w");

@@ -12,9 +12,8 @@
 //!
 //! The grid therefore sits in the upright frame where the CPU path puts it
 //! on the display, mapped back, with an odd margin's spare pixel where the
-//! CPU path leaves it once the frame is turned. The C reference's gltex
-//! centred a turned grid in its own rotated axes instead, and drew it a
-//! pixel away from bbulk's.
+//! CPU path leaves it once the frame is turned, so the two paths draw a
+//! turned grid at the same pixels.
 
 use super::gl::Size;
 use crate::compose::Area;

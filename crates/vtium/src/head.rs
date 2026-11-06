@@ -6,9 +6,8 @@
 //! [`identity`] maps vtium-platform's identities of a display and of an
 //! input into the head file's, which the rules walk. The app holds the
 //! heads, places each display in one, and drives each head's session as
-//! it drove the seat's one session before heads, as the C reference's
-//! seat held its sessions, each one terminal with its own grid
-//! (`src/seat.c:53-108`, `src/terminal.c:1107-1170` at kmscon b1f7a7c5).
+//! it drove the seat's one session before heads: each head is one
+//! terminal with its own grid.
 
 pub(crate) mod chord;
 pub mod console;
@@ -59,7 +58,7 @@ pub const NOTICES_MAX: usize = 4;
 /// D7); it counts the rest. `vtium check-config` lists them all.
 pub const PANIC_ERRORS_MAX: usize = 3;
 
-/// The lines of scrollback a wheel event scrolls (`src/terminal.c:1648`).
+/// The lines of scrollback a wheel event scrolls.
 const WHEEL_LINES: usize = 3;
 
 /// Whether a head has a display to draw on.
@@ -757,11 +756,10 @@ impl Head {
     /// head takes `new`'s fit, and the old keeps the head's. While
     /// `visible`, the new one is potentially visible (mode 2033), and it
     /// takes mode 1004's focus from the old while a keyboard delivers to
-    /// the head; an old console that is `closing` is told nothing, as the
-    /// C reference sent a closing session no focus-out. Every display draws the new one whole, as the C reference
-    /// redrew a session's displays at its activation
-    /// (`src/terminal.c:1750-1762` at kmscon b1f7a7c5), each drawing kept
-    /// per session there and per head here.
+    /// the head; an old console that is `closing` is told nothing, since
+    /// its pty is closing and no program reads a focus-out. Every display
+    /// draws the new one whole, since what each display last drew belongs
+    /// to the old console.
     fn swap_shown(&mut self, new: Console, visible: bool, closing: bool) -> Console {
         let fit = self.fit();
         self.grid = new.fit.grid;
@@ -890,7 +888,7 @@ impl Head {
         let chosen = self.chosen();
         chosen.face(height, locale).ok_or_else(|| {
             format!(
-                "the set {} draws nothing at {height} pixels",
+                "font set {} has no characters at {height} pixels high",
                 chosen.name(height, locale)
             )
         })
@@ -1155,8 +1153,7 @@ impl Head {
                 }
             }
             PointerEvent::Sync => {}
-            // The C reference cleared the selection as it hid the pointer
-            // (`src/terminal.c:1655-1659` at kmscon b1f7a7c5).
+            // Hiding the pointer clears the selection.
             PointerEvent::Hide => {
                 self.pointer.visible = false;
                 self.console.term.terminal.screen_mut().clear_selection();
@@ -1178,8 +1175,7 @@ impl Head {
     }
 
     /// A change of the mouse tracking the program asked for clears the
-    /// selection, as the C reference's did (`src/terminal.c:890-897` at
-    /// kmscon b1f7a7c5).
+    /// selection.
     pub(crate) fn tracking_changed(&mut self) {
         let tracking = self.console.term.terminal.mouse_tracking();
         if tracking != self.tracking {
@@ -1190,8 +1186,8 @@ impl Head {
     }
 
     /// The cell under the pointer, or the grid's nearest when the pointer
-    /// is in the strip a display leaves past the grid, as the C reference
-    /// kept it (`src/terminal.c:173-190` at kmscon b1f7a7c5).
+    /// is in the strip a display leaves past the grid, so a click there
+    /// still selects.
     fn pointer_cell(&self) -> (usize, usize) {
         let cell = |p: u32, size: u32, cells: usize| {
             usize::try_from(p.checked_div(size).unwrap_or(0))
@@ -1253,8 +1249,7 @@ impl Head {
             .mouse(col, row, x, y, button, event, mods);
     }
 
-    /// A button that selects or pastes, as the C reference's did
-    /// (`src/terminal.c:1509-1542` at kmscon b1f7a7c5): the left button
+    /// A button that selects or pastes: the left button
     /// starts a selection that its drag extends and its release copies, a
     /// double click selects and copies a word, and a triple click a line,
     /// as xterm's does; the middle button pastes at its release, as
@@ -1595,16 +1590,16 @@ pub fn place_display(
     match (placed.place, placed.by) {
         (Place::Head(h), _) => Ok(h),
         (_, By::Rule(line)) => Err(format!(
-            "display {name} is left dark by vtium.conf's rule on line {line}"
+            "display {name} stays off: the rule on line {line} of vtium.conf sends it to off"
         )),
         _ => {
             let target = rules.heads.first().map_or("console", |h| h.name.as_str());
             let rule = vtium_settings::rule_for(display, target).map_or_else(
-                || "it offers no value a rule can name".to_owned(),
-                |rule| format!("the rule `{rule}` gives it a head"),
+                || "it reports nothing a rule can match".to_owned(),
+                |rule| format!("add the rule `{rule}` to give it a head"),
             );
             Err(format!(
-                "display {name} matches no rule of vtium.conf and is left dark; {rule}"
+                "display {name} stays off: no rule in vtium.conf matches it; {rule}"
             ))
         }
     }
@@ -1624,10 +1619,8 @@ enum Wheel {
 
 /// What a wheel event of `steps` does: one report while the program
 /// tracks the pointer, else a zoom with Ctrl, else a scroll, whatever
-/// the number of steps (`src/terminal.c:1492-1497, 1639-1650` at kmscon
-/// b1f7a7c5). Under `natural` scrolling the report and the scroll go the
-/// other way, and the zoom keeps the wheel's own direction, as the C
-/// reference's `natural-scrolling` did (`src/terminal.c:1474-1476, 1646`).
+/// the number of steps. Under `natural` scrolling the report and the
+/// scroll go the other way, and the zoom keeps the wheel's own direction.
 fn wheel(steps: i32, natural: bool, tracking: bool, ctrl: bool) -> Wheel {
     let up = (steps > 0) != natural;
     if tracking {
@@ -1657,13 +1650,13 @@ mod tests {
 
     /// The panic screen of [`a_broken_closed_files_start_shows_the_panic_screens_report`]'s file.
     const PANIC: &str = concat!(
-        "vtium: config invalid, policy closed: input off\n",
-        "The errors in /etc/vtium/vtium.conf, listed below, leave no head that can run.\n",
-        "/etc/vtium/vtium.conf:4: This section takes no key named \"focs\". Check the key's spelling, or remove the line.\n",
-        "/etc/vtium/vtium.conf:5: This section takes no key named \"font-weight\". Check the key's spelling, or remove the line.\n",
-        "/etc/vtium/vtium.conf:7: This rule sends devices to the head \"k\\u{202e}x\", which the file does not declare. Correct the name, or declare the head with its own `[head NAME]` section.\n",
+        "vtium.conf has errors and counts as closed: all input is off.\n",
+        "No head can run because of the errors in /etc/vtium/vtium.conf, listed below.\n",
+        "/etc/vtium/vtium.conf:4: This section has no key named \"focs\". Check the spelling, or remove the line.\n",
+        "/etc/vtium/vtium.conf:5: This section has no key named \"font-weight\". Check the spelling, or remove the line.\n",
+        "/etc/vtium/vtium.conf:7: This rule sends devices to head \"k\\u{202e}x\", but the file has no head of that name. Correct the name, or add a `[head NAME]` section for it.\n",
         "More errors: 2\n",
-        "Nothing on this console takes input. Run vtium check-config /etc/vtium/vtium.conf over ssh, or from other boot media, for the full report.",
+        "This console takes no input. For the full report, run vtium check-config /etc/vtium/vtium.conf over ssh or from other boot media.",
     );
 
     // ADR-1401 D7, ADR-1403 D3: the start runs vtium.conf's sections, the
@@ -1698,7 +1691,7 @@ mod tests {
         assert_eq!(ran.outcome.runs, vtium_settings::Runs::Survivors);
         assert_eq!(
             ran.line(),
-            Some("config partly invalid, running what's valid")
+            Some("vtium.conf has errors: running the parts without errors.")
         );
         // the rule keeps its line in the whole file
         assert_eq!(
@@ -1714,11 +1707,14 @@ mod tests {
         assert_eq!(
             ran.notice().as_deref(),
             Some(
-                "invalid config skipped, using builtin\nRun vtium check-config /etc/vtium/vtium.conf to see why."
+                "vtium.conf not used: running the built-in configuration.\nTo see why, run vtium check-config /etc/vtium/vtium.conf."
             )
         );
         let ran = rules(path, &File::Inaccessible);
-        assert_eq!(ran.line(), Some("invalid config skipped, using builtin"));
+        assert_eq!(
+            ran.line(),
+            Some("vtium.conf not used: running the built-in configuration.")
+        );
     }
 
     // ADR-1403 D3: the start never judges the complete route, since
@@ -1807,13 +1803,13 @@ mod tests {
         assert!(
             items
                 .get(1)
-                .is_some_and(|i| i.starts_with("/etc/vtium/vtium.conf: This file is longer")),
+                .is_some_and(|i| i.starts_with("/etc/vtium/vtium.conf: This file is too long")),
             "{items:?}"
         );
         assert!(
-            items
-                .get(2)
-                .is_some_and(|i| i.starts_with("/etc/vtium/vtium.conf: The file needs")),
+            items.get(2).is_some_and(
+                |i| i.starts_with("/etc/vtium/vtium.conf: `version = 1` must be at the top")
+            ),
             "{items:?}"
         );
         assert_eq!(start.report().map(|r| r.more), Some(0));
@@ -1845,10 +1841,12 @@ mod tests {
         );
         assert!(overlay.problem);
         // a notice that is no report draws as it is, and replaces the report
-        screen.set_notice("vtium: no display for any head");
+        screen.set_notice("No head has a connected display.");
         assert_eq!(
             screen.overlay().notice,
-            Some(vtium_render::Notice::new("vtium: no display for any head"))
+            Some(vtium_render::Notice::new(
+                "No head has a connected display."
+            ))
         );
         let mut head = Head::new("h", &config, Vec::new(), term());
         head.add_notice(&report.text());
@@ -1954,9 +1952,8 @@ mod tests {
     }
 
     // ADR-1401 D5, binary-review's finding 3: the console the close chord
-    // closes is told nothing, as the C reference sent a closing session no
-    // focus-out: no focus-out joins what it owed its program, and nothing
-    // it owed is sent; the console shown next gains the focus.
+    // closes is told nothing: no focus-out joins what it owed its program,
+    // and nothing it owed is sent; the console shown next gains the focus.
     #[test]
     #[expect(
         clippy::disallowed_methods,
@@ -2140,11 +2137,14 @@ mod tests {
         assert_eq!(place_display(&rules, &display("DP-2")), Ok(0));
         assert_eq!(
             place_display(&rules, &display("DP-1")),
-            Err("display DP-1 is left dark by vtium.conf's rule on line 4".to_owned())
+            Err(
+                "display DP-1 stays off: the rule on line 4 of vtium.conf sends it to off"
+                    .to_owned()
+            )
         );
         assert_eq!(
             place_display(&rules, &display("HDMI-A-1")),
-            Err("display HDMI-A-1 matches no rule of vtium.conf and is left dark; the rule `display connector:pci-0000:03:00.0/HDMI-A-1 -> desk` gives it a head".to_owned())
+            Err("display HDMI-A-1 stays off: no rule in vtium.conf matches it; add the rule `display connector:pci-0000:03:00.0/HDMI-A-1 -> desk` to give it a head".to_owned())
         );
         let bare = vtium_settings::Identity {
             connector: Some("fb\u{1b}".to_owned()),
@@ -2152,7 +2152,7 @@ mod tests {
         };
         assert_eq!(
             place_display(&rules, &bare),
-            Err("display fb\\u{1b} matches no rule of vtium.conf and is left dark; it offers no value a rule can name".to_owned())
+            Err("display fb\\u{1b} stays off: no rule in vtium.conf matches it; it reports nothing a rule can match".to_owned())
         );
     }
 

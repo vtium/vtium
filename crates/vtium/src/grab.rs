@@ -1,14 +1,10 @@
 //! The keys vtium takes for itself, before the encoder: the [`Chord`]s a
 //! grab key binds, which the power keys ([`crate::power`]) take, and the
-//! terminal's grabs, third in the key order. Each grab is the C
-//! reference's default (`src/config.c:1275-1303` at
-//! kmscon b1f7a7c5), matched as it matched them
-//! (`src/misc/conf.c:1103-1131`): the held modifiers exactly, and the
-//! key's keysyms. The C reference had no key to paste; `grab-paste`
-//! binds one, Shift+Insert by default, as xterm's `insert-selection`
+//! terminal's grabs, third in the key order. A grab matches the held
+//! modifiers exactly, and the key's keysyms. `grab-paste` binds the
+//! paste, Shift+Insert by default, as xterm's `insert-selection`
 //! translation does. The prompt jumps, Ctrl+Shift+Up and Down, are
-//! ADR-1002's, beside the scroll keys as Ghostty places its own; the C
-//! reference had no prompt marks to jump between.
+//! ADR-1002's, beside the scroll keys as Ghostty places its own.
 
 /// What a grab does.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -66,8 +62,8 @@ const GRABS: [(Grab, u8, u32); 12] = [
     (Grab::RotateCcw, LOGO, MINUS),
 ];
 
-/// The grab a key held with `mods` (the C reference's bits) and making
-/// `keysyms` takes, if any.
+/// The grab a key held with `mods` (the bits `SHIFT` to `LOGO`) and
+/// making `keysyms` takes, if any.
 pub fn grab(mods: u8, keysyms: &[u32]) -> Option<Grab> {
     GRABS
         .iter()
@@ -93,8 +89,8 @@ const MODIFIERS: [(&str, u8); 6] = [
     ("logo", LOGO),
 ];
 
-/// The chords `text` binds, in the C reference's syntax
-/// (`src/misc/conf.c:859-1012`): a comma-separated list, each chord
+/// The chords `text` binds, in the syntax `kmscon` configuration files
+/// use for grab keys: a comma-separated list, each chord
 /// `<Mod>...` and then keysym names joined by `+`, such as
 /// `<Ctrl><Alt>Delete`. Spaces around a name are dropped. A chord with no
 /// keysym, and so an empty list, binds nothing.
@@ -129,8 +125,7 @@ pub fn parse(text: &str) -> Result<Vec<Chord>, &'static str> {
     Ok(chords)
 }
 
-/// The keysym xkb names `name`, case-sensitively, as the C reference
-/// looked it up.
+/// The keysym xkb names `name`, case-sensitively.
 fn keysym(name: &str) -> Result<u32, &'static str> {
     use xkbcommon::xkb;
     if name.contains('\0') {
@@ -160,7 +155,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_c_references_defaults() {
+    fn the_default_grabs_match_their_modifiers_and_keys() {
         assert_eq!(grab(SHIFT, &[UP]), Some(Grab::ScrollUp));
         assert_eq!(grab(SHIFT, &[NEXT]), Some(Grab::PageDown));
         assert_eq!(grab(CTRL, &[EQUAL]), Some(Grab::ZoomIn));
@@ -196,7 +191,7 @@ mod tests {
     }
 
     #[test]
-    fn a_chord_reads_as_the_c_reference_read_it() {
+    fn a_chord_reads_its_modifiers_and_keysym_names() {
         assert_eq!(
             parse("<Ctrl><Alt>Delete"),
             Ok(vec![chord(CTRL | ALT, &[DELETE])])

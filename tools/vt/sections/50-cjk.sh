@@ -4,8 +4,7 @@
 # wrong-looks-like: Characters cut, squeezed into one cell or overlapping,
 # wrong-looks-like: bars of the last two rows out of line, or empty boxes
 # wrong-looks-like: for a missing font.
-# Double-width CJK characters mixed with Latin text (the C reference's cjk
-# screen).
+# Double-width CJK characters mixed with Latin text.
 printf 'Latin then CJK: 中文測試 end\n'
 printf '日本語のテキスト | 한국어 | ASCII\n'
 printf '|一|二|三|四|五|\n'

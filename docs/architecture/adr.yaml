@@ -11,7 +11,7 @@
 project_name: vtium
 
 # Domain Number Series
-# vtium numbers from 1000. The C reference's records hold 100-399, and vtium
+# vtium numbers from 1000. The C reference's records held 100-399, and vtium
 # cites them by number (kmscon ADR-304, for one), so the two never share a number.
 domains:
   term:
@@ -109,9 +109,8 @@ defaults:
 viewer: cat {file}
 
 # Paths whose ADR-N citations are not vtium's. tier 3's guest screens cite
-# the C reference's records (kmscon ADR-103); they are kept byte-identical
-# with the kmscon fork's, so their captions match the goldens' and the fork's
-# base image is reused.
+# the C reference's records (kmscon ADR-103), and their captions match the
+# goldens' captions.
 cite:
   exclude:
     - tools/tier3/guest/screens/

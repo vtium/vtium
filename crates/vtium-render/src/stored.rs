@@ -30,9 +30,9 @@ pub(crate) struct Stored {
     data: Vec<u8>,
 }
 
-/// `width` by `height` pixels of `bpp` bytes turned by `o`, as the C
-/// reference's `picture_rotate` turned them: the pixel at column `u`, row
-/// `v` of the source lands where the display's mapping of the cell puts it.
+/// `width` by `height` pixels of `bpp` bytes turned by `o`: the pixel at
+/// column `u`, row `v` of the source lands where the display's mapping of
+/// the cell puts it.
 fn turn(src: &[u8], width: u32, height: u32, bpp: usize, o: Orientation) -> (u32, u32, Vec<u8>) {
     let (w, h) = (width as usize, height as usize);
     let (tw, th) = if o.turned() { (h, w) } else { (w, h) };
@@ -520,9 +520,11 @@ mod tests {
         assert_eq!(line, [0; 8]);
     }
 
-    // picture.c:235-269: each orientation as the C reference turned pixels
+    // A glyph turns with the display: a quarter turn clockwise on a display
+    // turned right, counterclockwise on one turned left, and a half turn
+    // upside down.
     #[test]
-    fn turning_follows_the_c_reference() {
+    fn each_orientation_turns_a_glyphs_pixels_with_the_display() {
         let g = glyph(3, 2, |x, y| u8::try_from(1 + x + 3 * y).unwrap());
         let rows = |o| {
             drawn(

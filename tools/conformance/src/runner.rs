@@ -1,5 +1,5 @@
-//! The runner: every case of the corpus, copied from the C reference,
-//! replayed through vtium and judged against its golden.
+//! The runner: every case of the corpus replayed
+//! through vtium and judged against its golden.
 //!
 //! A case passes when vtium's output equals its golden, after the masking
 //! INTERFACE.md's "Comparing with the goldens" asks for. Any difference

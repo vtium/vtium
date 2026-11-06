@@ -69,7 +69,11 @@ HOT_ID = "kbd33"
 HOT_PORT = "3.3"
 HOT_NAME = "pci-0000:15:00.0-usb-0:3.3:1.0-event-kbd"
 # vtium's log line for each input device it opens (vtium-platform's input).
-KEYBOARD_LINE = re.compile(r"input: using (/dev/input/event\d+) \[([^\]]*)\] as keyboard")
+# After the name in brackets, the line carries the vendor and product ids the
+# device reports, as four hex digits each, and leaves them out when the device
+# does not say.
+KEYBOARD_LINE = re.compile(
+    r"input: using (/dev/input/event\d+) \[([^\]]*)\](?: [0-9a-f]{4}:[0-9a-f]{4})? as keyboard")
 
 # The port the example rule names, and the property it sets.
 PANEL_PORT = "-usb-0:3.2:"

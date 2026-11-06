@@ -1,6 +1,5 @@
 //! Keys through libxkbcommon: the keymap and compose table the seat
-//! shares, and each keyboard's own state, compose state and repeat
-//! (input_uxkb.c).
+//! shares, and each keyboard's own state, compose state and repeat.
 
 use std::ffi::OsStr;
 use std::path::Path;
@@ -13,8 +12,7 @@ use crate::ioctl::{LED_CAPSL, LED_NUML, LED_SCROLLL};
 /// evdev's key codes start 8 below xkb's.
 const EVDEV_KEYCODE_OFFSET: u32 = 8;
 
-/// The keymap the C reference built in when nothing else compiled
-/// (input_fallback.xkb).
+/// The keymap built in for when nothing else compiles.
 const FALLBACK: &str = include_str!("fallback.xkb");
 
 /// Where the keymap comes from: a keymap file, or the rules' names
@@ -34,7 +32,7 @@ pub struct KeymapConfig {
 }
 
 /// The locale for compose, found as locale(7) says without setting it:
-/// `LC_ALL`, then `LC_CTYPE`, then `LANG`, then `C` (seat.c:639-657).
+/// `LC_ALL`, then `LC_CTYPE`, then `LANG`, then `C`.
 pub fn locale() -> String {
     ["LC_ALL", "LC_CTYPE", "LANG"]
         .iter()
@@ -59,8 +57,8 @@ impl std::fmt::Debug for Keymap {
 
 impl Keymap {
     /// The configured keymap: the keymap file, else the names, else the
-    /// system's default names, else the built-in fallback
-    /// (input_uxkb.c:89-156). `None` only when even the fallback fails.
+    /// system's default names, else the built-in fallback. `None` only
+    /// when even the fallback fails.
     pub fn new(config: &KeymapConfig) -> Option<Keymap> {
         let context = xkb::Context::new(xkb::CONTEXT_NO_FLAGS);
         let keymap = config
@@ -101,7 +99,7 @@ impl Keymap {
     }
 
     /// The compose table: the compose file, else the locale's, else none,
-    /// which turns compose off (input_uxkb.c:158-189).
+    /// which turns compose off.
     pub fn set_compose(&mut self, config: &KeymapConfig) {
         self.compose = None;
         if let Some(path) = &config.compose_file {
@@ -262,8 +260,8 @@ pub struct Leds {
 }
 
 impl Leds {
-    /// The `EV_LED` codes and values, in the order the C reference wrote
-    /// them for the xkb state (input_uxkb.c:260-288).
+    /// The `EV_LED` codes and values for the xkb state: Num Lock, Caps
+    /// Lock, Scroll Lock.
     pub(crate) fn codes(self) -> [(u16, bool); 3] {
         [
             (LED_NUML, self.num_lock),
@@ -293,10 +291,10 @@ impl Keyboard {
         }
     }
 
-    /// A key from evdev: `code` is evdev's, `state` its value
-    /// (input_uxkb.c:431-545). The keysyms are read before the state
-    /// changes; compose sees presses; a press finishing no compose sequence
-    /// is dispatched, and starts or stops the repeat.
+    /// A key from evdev: `code` is evdev's, `state` its value. The keysyms
+    /// are read before the state changes; compose sees presses; a press
+    /// finishing no compose sequence is dispatched, and starts or stops the
+    /// repeat.
     pub(crate) fn process(&mut self, state: KeyState, code: u16) -> Processed {
         let mut out = Processed::default();
         if state == KeyState::Repeated {
@@ -369,7 +367,7 @@ impl Keyboard {
 
     /// Starts the repeat for a press of a repeating key, stops it at the
     /// repeating key's release, and while it repeats takes a change of
-    /// modifiers into the repeated keysyms (input_uxkb.c:381-429).
+    /// modifiers into the repeated keysyms.
     fn repeat_change(&mut self, state: KeyState, event: &KeyEvent) -> Option<RepeatChange> {
         let keymap = self.state.get_keymap();
         let keycode = Keycode::new(event.keycode);
@@ -457,7 +455,7 @@ impl Keyboard {
     }
 
     /// A fresh state on waking, keeping the locked modifiers and layout, so
-    /// no key held across a VT switch sticks (input_uxkb.c:555-585). Keys
+    /// no key held across a VT switch sticks. Keys
     /// held then are pressed again.
     pub(crate) fn wake_up(&mut self, keymap: &Keymap) -> Leds {
         let locked_mods = self.state.serialize_mods(xkb::STATE_MODS_LOCKED);

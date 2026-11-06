@@ -96,11 +96,14 @@ pub fn read_conf(path: &Path) -> Result<Option<String>, String> {
         .read_to_end(&mut bytes)
         .map_err(|e| format!("{}: {e}", path.display()))?;
     if u64::try_from(bytes.len()).unwrap_or(u64::MAX) > CONF_MAX {
-        return Err(format!("{}: larger than {CONF_MAX} bytes", path.display()));
+        return Err(format!(
+            "{} is too large: the limit is {CONF_MAX} bytes",
+            path.display()
+        ));
     }
     String::from_utf8(bytes)
         .map(Some)
-        .map_err(|_| format!("{}: not UTF-8 text", path.display()))
+        .map_err(|_| format!("{} is not UTF-8 text", path.display()))
 }
 
 /// The frits in `dir` and the built-in fonts, sorted by name, each with
@@ -320,7 +323,7 @@ pub fn find_sources(
         .map(|(name, text)| {
             let found = match text {
                 Ok(_) => answers.next().unwrap_or_else(|| {
-                    crate::specimen::Sources::Unknown("the helper did not answer".to_owned())
+                    crate::specimen::Sources::Unknown("the font helper did not answer".to_owned())
                 }),
                 Err(why) => crate::specimen::Sources::DrawsNothing(why),
             };
@@ -348,7 +351,7 @@ pub fn run(
     if rustix::process::geteuid().is_root() {
         let _ = writeln!(
             err,
-            "vtium-config: run vtium config as yourself; it asks for sudo when it saves"
+            "vtium-config: do not run this as root. Run it as yourself; it asks for sudo when it installs."
         );
         return 2;
     }
@@ -382,7 +385,7 @@ pub fn run(
     let mut tty = match port::Tty::open(tools) {
         Ok(tty) => tty,
         Err(e) => {
-            let _ = writeln!(err, "vtium-config: the terminal: {e}");
+            let _ = writeln!(err, "vtium-config: cannot use this terminal: {e}");
             return 1;
         }
     };
@@ -392,7 +395,7 @@ pub fn run(
     match status {
         Ok(status) => status,
         Err(e) => {
-            let _ = writeln!(err, "vtium-config: the terminal: {e}");
+            let _ = writeln!(err, "vtium-config: cannot use this terminal: {e}");
             1
         }
     }

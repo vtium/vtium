@@ -1,8 +1,7 @@
 //! The colors a program sets, drawn: the selection's colors (OSC 17 and
 //! 19) in place of its inversion, and a configured decoration color that
 //! names a palette index following the palette a program changes (OSC 4),
-//! as the C reference resolved it on every frame. Every expected color is
-//! a literal.
+//! resolved on every frame. Every expected color is a literal.
 
 mod common;
 
@@ -55,9 +54,9 @@ fn the_selection_draws_in_its_colors() {
     assert_eq!(colors(&c, 2), [0x21_a0_c3, 0xff_80_40]);
 }
 
-// The C reference resolved the configured decoration colors through the
-// palette on every frame (`kmscon_conf_resolve_deco`): an underline color
-// configured as index 196 follows a change to 196.
+// A configured decoration color resolves through the palette on every
+// frame: an underline color configured as index 196 follows a change to
+// 196.
 #[test]
 fn a_palette_decoration_color_follows_the_palette() {
     let mut underlined = style(rgb("ff8040"), rgb("21a0c3"));

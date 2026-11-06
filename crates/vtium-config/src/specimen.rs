@@ -162,16 +162,16 @@ type Frame = (u32, Vec<u8>);
 fn frame(from: &mut dyn Read) -> Result<Frame, String> {
     let mut head = [0u8; 8];
     from.read_exact(&mut head)
-        .map_err(|_| "the helper ended without an answer".to_owned())?;
+        .map_err(|_| "the font helper stopped without answering".to_owned())?;
     let (kind, len) = head.split_at(4);
     let kind = u32::from_le_bytes(kind.try_into().unwrap_or_default());
     let len = u32::from_le_bytes(len.try_into().unwrap_or_default());
     if len > FRAME_BYTES_MAX {
-        return Err("the helper sent a frame past its bound".to_owned());
+        return Err("the font helper sent too much".to_owned());
     }
     let mut payload = vec![0u8; usize::try_from(len).unwrap_or(0)];
     from.read_exact(&mut payload)
-        .map_err(|_| "the helper's frame was cut short".to_owned())?;
+        .map_err(|_| "the font helper's answer was cut short".to_owned())?;
     Ok((kind, payload))
 }
 
@@ -214,7 +214,7 @@ fn send(stdin: &mut dyn Write, r: &ServeRequest) -> Result<(), String> {
     stdin
         .write_all(&r.encode())
         .and_then(|()| stdin.flush())
-        .map_err(|e| format!("the helper: {e}"))
+        .map_err(|e| format!("the font helper: {e}"))
 }
 
 /// Sends `r`, as [`send`] does. A helper that fails as it starts sends its
@@ -284,7 +284,7 @@ fn with_helper<T: Send + 'static>(
     });
     let result = answer
         .recv_timeout(HELPER_WAIT)
-        .unwrap_or_else(|_| Err("the helper did not answer in time".to_owned()));
+        .unwrap_or_else(|_| Err("the font helper did not answer in time".to_owned()));
     let _ = child.kill();
     let _ = child.wait();
     result
@@ -297,7 +297,7 @@ pub enum Sources {
     /// machine lacks or refuses, none when it has them all.
     LeftOut(Vec<LeftOut>),
     /// The helper read the frit and found no source of it it can draw from,
-    /// or the frit does not read: why.
+    /// or the frit cannot be read: why.
     DrawsNothing(String),
     /// No answer came for the frit: the helper did not start, failed, or
     /// stalled before it answered; why. Nothing is known of its sources.
@@ -348,17 +348,15 @@ pub fn sources_of(helper: &Helper, frits: Vec<FritText>) -> Vec<Sources> {
                             break Ok(Sources::DrawsNothing(text(&payload)));
                         }
                         Ok((FRAME_FAILED, payload)) => {
-                            break Err(format!("the helper failed: {}", text(&payload)));
+                            break Err(format!("the font helper failed: {}", text(&payload)));
                         }
                         // a warning a frit's text gave comes before its
                         // answer; any other kind answers no sources query,
                         // and taking the next frame as this frit's answer
                         // would give each later frit the one before's
                         Ok((FRAME_WARNING, _)) => {}
-                        Ok((kind, _)) => {
-                            break Err(format!(
-                                "the helper sent a frame of kind {kind}, which answers no sources query"
-                            ));
+                        Ok(_) => {
+                            break Err("the font helper sent an unexpected answer".to_owned());
                         }
                         Err(why) => break Err(unsent.clone().unwrap_or(why)),
                     }
@@ -381,10 +379,10 @@ pub fn sources_of(helper: &Helper, frits: Vec<FritText>) -> Vec<Sources> {
                     Ok(Ok(found)) => answers.push(found),
                     Ok(Err(why)) => break why,
                     Err(mpsc::RecvTimeoutError::Timeout) => {
-                        break "the helper did not answer in time".to_owned();
+                        break "the font helper did not answer in time".to_owned();
                     }
                     Err(mpsc::RecvTimeoutError::Disconnected) => {
-                        break "the helper ended without an answer".to_owned();
+                        break "the font helper stopped without answering".to_owned();
                     }
                 }
             };
@@ -445,7 +443,7 @@ fn ask_cell(
     )?;
     loop {
         let (kind, payload) = frame(stdout)?;
-        let pair = || pair(&payload).ok_or("the helper's cell is cut short");
+        let pair = || pair(&payload).ok_or("the font helper's answer was cut short");
         match kind {
             FRAME_OWN_CELL => {
                 let (w, h) = pair()?;
@@ -1003,7 +1001,7 @@ fn lay_out(
     let cell = faces
         .first()
         .map(Face::cell)
-        .ok_or("the helper drew no glyph")?;
+        .ok_or("the font helper drew nothing")?;
     let room = max.0.checked_div(cell.width).unwrap_or(0);
     // each line's glyphs and the cells each takes, as many as fit the room
     let laid: Vec<Vec<Placed>> = lines
@@ -1413,7 +1411,7 @@ mod tests {
         let mut stdout = std::io::Cursor::new(Vec::new());
         let sent = send_or_failure(&mut Closed, &mut stdout, &any_request());
         assert!(
-            matches!(&sent, Err(why) if why.starts_with("the helper: ")),
+            matches!(&sent, Err(why) if why.starts_with("the font helper: ")),
             "{sent:?}"
         );
     }

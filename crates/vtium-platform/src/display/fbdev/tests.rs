@@ -777,8 +777,8 @@ fn drawing(v: &mut Fbdev<FakeFb>) -> (std::sync::mpsc::Sender<()>, std::thread::
 
 // A sleep that finds the render thread drawing into the framebuffer holds
 // `Asleep`, and so the VT release, until the token comes back, then clears
-// the framebuffer and revokes the token: the C reference cleared and
-// unmapped the framebuffer before it acknowledged a release.
+// the framebuffer and revokes the token, so the framebuffer is cleared
+// before the release is acknowledged.
 #[test]
 fn a_sleep_waits_for_a_token_drawing_into_the_framebuffer() {
     let mut v = awake(FakeFb::new(32));

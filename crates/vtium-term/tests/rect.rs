@@ -3,8 +3,7 @@
 //! DECSED and DECSEL.
 //!
 //! The behaviour is xterm's ctlseqs and DEC STD 070's, as the crate's
-//! README states with each difference from xterm. The C reference had no
-//! rectangle operations, and honoured a protection nothing set.
+//! README states with each difference from xterm.
 
 mod common;
 

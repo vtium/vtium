@@ -1,4 +1,4 @@
-//! The named palettes against the C reference's tables.
+//! The named palettes against the tables they were taken from.
 //!
 //! `palettes.c.txt` is lines 254-451 of libtsm's `src/tsm/tsm-vte.c`,
 //! copied verbatim under the MIT notice COPYING carries for libtsm.
@@ -84,8 +84,8 @@ fn c_tables() -> Vec<CTable> {
     tables
 }
 
-/// The table, as the C reference's tables hold it: the sixteen, then the
-/// default foreground and background.
+/// The table, as `palettes.c.txt` holds it: the sixteen, then the default
+/// foreground and background.
 fn eighteen(p: &Palette) -> [Option<Rgb>; 18] {
     let mut out = [None; 18];
     for (i, c) in out.iter_mut().take(16).enumerate() {
@@ -98,7 +98,7 @@ fn eighteen(p: &Palette) -> [Option<Rgb>; 18] {
 
 // covers: color.palette.named
 #[test]
-fn each_named_palette_is_the_c_references_table() {
+fn each_named_palette_holds_its_tables_colors() {
     let tables = c_tables();
     let c_names: Vec<&str> = tables.iter().map(|t| t.name.as_str()).collect();
     assert_eq!(
@@ -129,7 +129,7 @@ fn each_named_palette_is_the_c_references_table() {
 // covers: color.palette.named
 #[test]
 fn every_palette_shares_the_cube_and_the_grey_ramp() {
-    // xterm's 256 colors (the C reference's tsm-render.c:54-66).
+    // xterm's 256 colors.
     let cube = |i: u8| {
         let levels = [0x00, 0x5f, 0x87, 0xaf, 0xd7, 0xff];
         let n = usize::from(i - 16);

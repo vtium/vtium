@@ -9,10 +9,8 @@
 //! shows from it ([`Gbm::allocate`]), each exported as a dma-buf
 //! ([`Bo::export`]) for the head's context to import.
 //!
-//! The C reference made its GBM device on the card's descriptor and drew
-//! through a GBM surface that EGL swapped (`kmscon/src/video/drm3d_video.c`,
-//! `drm3d_video_init` and `display_allocfb`). vtium allocates buffer objects
-//! itself and imports them, because a display's buffers live with the
+//! vtium allocates buffer objects itself and imports them, with no GBM
+//! surface for EGL to swap, because a display's buffers live with the
 //! display on the event loop and the head's render thread draws into them
 //! (ADR-1401 D2).
 

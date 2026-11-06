@@ -75,7 +75,7 @@ while IFS= read -r line || [ -n "$line" ]; do
 	text=${BASH_REMATCH[2]}
 	text=${text//\{vt\}/$vt}
 	text=${text//\{desktop\}/$desktop}
-	# "Logo" was misread at the C reference's first guided pass; a guide names
+	# "Logo" was misread at the first guided pass; a guide names
 	# the key as the operator's keyboard does. A command's words are not prose.
 	[ "$key" = run ] || [[ ! ${text,,} =~ (^|[^[:alnum:]])logo([^[:alnum:]]|$) ]] ||
 		die "$guide:$n: name the Super (Windows) key, not Logo"

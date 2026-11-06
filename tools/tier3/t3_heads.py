@@ -118,8 +118,8 @@ GUEST_CONF = "/etc/vtium/vtium.conf"
 # under either policy, or the shipped default in its place (ADR-1401 D7). A
 # file whose policy line vtium cannot read never shows either, as it is
 # closed and broken and runs nothing.
-RUN_LINES = ("config partly invalid, running what's valid",
-              "invalid config skipped, using builtin")
+RUN_LINES = ("vtium.conf has errors: running the parts without errors.",
+              "vtium.conf not used: running the built-in configuration.")
 
 CHECKS = {
     "no-login": "A line typed on the console's keyboard, which reaches the guest (the PS/2 "
@@ -182,36 +182,36 @@ CHECKS = {
 # The console line of the outcome each first screen shows (ADR-1401 D7,
 # D9), which vtium also logs: a first screen is captured only once the
 # console has logged it.
-LINES = {"panic": "vtium: config invalid, policy closed: input off",
-         "policy-panic": "vtium: config invalid, policy closed: input off",
-         "partly-notice": "config partly invalid, running what's valid",
-         "no-display-notice": "vtium: no display for any head"}
+LINES = {"panic": "vtium.conf has errors and counts as closed: all input is off.",
+         "policy-panic": "vtium.conf has errors and counts as closed: all input is off.",
+         "partly-notice": "vtium.conf has errors: running the parts without errors.",
+         "no-display-notice": "No head has a connected display."}
 
 # The cases judged by a golden that no screen script draws: the console's
 # first screen, before any key.
 FIRST = {
     "panic": "The panic screen on the boot display of a vtium.conf whose closed flow is "
-             "broken: `vtium: config invalid, policy closed: input off`, then that its "
+             "broken: `vtium.conf has errors and counts as closed: all input is off.`, then that its "
              "errors leave no head that can run, each error with its line of "
              "/etc/vtium/vtium.conf, and how to read the full report (ADR-1401 D7). Correct: the report alone, with "
              "no login prompt and no shell.",
     "policy-panic": "The panic screen on the boot display of a vtium.conf whose policy "
                     "line vtium cannot read, `policy = opne`, below a line naming a "
                     "version vtium does not know, `version = 2` (ADR-1401 D3, D7). "
-                    "Correct: `vtium: config invalid, policy closed: input off`, then that "
+                    "Correct: `vtium.conf has errors and counts as closed: all input is off.`, then that "
                     "no head can run, then the policy line's error with its line of "
                     "/etc/vtium/vtium.conf, listed first, before the error of the version "
                     "line above it, and how to read the full report; no login prompt and "
                     "no shell.",
     "partly-notice": "The notice of a vtium.conf whose open flow is partly broken, at "
-                     "the top of the head's screen: `config partly invalid, running "
-                     "what's valid` and what to "
+                     "the top of the head's screen: `vtium.conf has errors: running the "
+                     "parts without errors.` and what to "
                      "do next (ADR-1401 D7). It covers the rows of the login prompt, "
                      "which takes keys as before. Correct: the notice over a screen "
                      "otherwise blank.",
     "no-display-notice": "A closed vtium.conf whose one head matches no display: the "
                          "display guard lights the guest's display for the notice "
-                         "`vtium: no display for any head` alone, with what to do next "
+                         "`No head has a connected display.` alone, with what to do next "
                          "(ADR-1401 D9). Correct: the notice, with no login prompt.",
 }
 

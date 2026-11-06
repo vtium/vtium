@@ -376,8 +376,8 @@ fn a_change_keeps_an_event_node_on_its_parents_seat() {
     kbd.seat = Some(String::from("seat1"));
     monitor.handle(Action::Add, &kbd, &mut Answers::default());
     assert_eq!(monitor.events().count(), 1);
-    // The C reference read the node's own ID_SEAT at a change, unset on an
-    // event node, and removed and added the keyboard again.
+    // The node's own ID_SEAT, unset on an event node, would remove and add
+    // the keyboard again at the change.
     monitor.handle(Action::Change, &kbd, &mut Answers::default());
     assert_eq!(monitor.events().count(), 0);
 }

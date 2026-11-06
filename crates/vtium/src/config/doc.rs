@@ -22,12 +22,12 @@ fn kind(k: &Key) -> String {
         Kind::Choice(c) => format!("one of `{}`", c.join("`, `")),
         Kind::Command => "command".to_owned(),
         Kind::Rgb => "color, `r,g,b`".to_owned(),
-        Kind::Mode => "mode, a line each".to_owned(),
-        Kind::Grab => "chords, `<Mod>...key`, separated by commas".to_owned(),
-        Kind::DecoColor => "color, `fg`, a palette index or `#rrggbb`".to_owned(),
+        Kind::Mode => "resolution, one per line".to_owned(),
+        Kind::Grab => "key combinations, `<Mod>...key`, separated by commas".to_owned(),
+        Kind::DecoColor => "color: `fg`, a palette number or `#rrggbb`".to_owned(),
         Kind::Char => "character".to_owned(),
         Kind::Size { .. } => "size, `WxH`".to_owned(),
-        Kind::Cell => "cell, `WIDTHxHEIGHT` in pixels".to_owned(),
+        Kind::Cell => "character cell, `WIDTHxHEIGHT` in pixels".to_owned(),
     }
 }
 
@@ -50,7 +50,7 @@ fn bound(k: &Key) -> String {
         Kind::Grab => format!(
             "{TEXT_MAX} bytes; modifiers Shift, Lock, Control, Alt, Logo; keys as xkb names them"
         ),
-        Kind::DecoColor => "an index 0 to 255, or six hex digits".to_owned(),
+        Kind::DecoColor => "a palette number from 0 to 255, or six hex digits".to_owned(),
         Kind::Char => "one character, no control character or space".to_owned(),
         Kind::Size { max } => format!("each side 1 to {max}"),
         Kind::Cell => format!("each side {FRIT_CELL_MIN} to {FRIT_CELL_MAX}, no leading zero"),
@@ -78,7 +78,7 @@ fn default(k: &Key) -> String {
 /// whichever build generates them.
 fn sb_memory_defaults() -> String {
     format!(
-        "{} without images, {} with them",
+        "{} without image support, {} with it",
         vtium_term::SB_MEMORY_DEFAULT_MINSPEC,
         vtium_term::SB_MEMORY_DEFAULT_IMAGES
     )
@@ -105,7 +105,7 @@ pub(super) fn markdown() -> String {
          \n\
          <!-- Generated from {SOURCE}; do not edit. `{BLESS}` rewrites it. -->\n\
          \n\
-         vtium reads one file, `vtium.conf` in the configuration directory (`--configdir`, `/etc/vtium` by default), then its command line, which wins over the file (ADR-1403 D2). vtium never reads the C reference's `/etc/kmscon` or a seat file such as `seat0.seat.conf`: a `kmscon.conf` from kmscon is copied to `/etc/vtium/vtium.conf` by hand, and vtium reads its keys as the C reference did, with the departures the vtium crate's README lists. With no file, vtium runs its defaults and its compiled-in heads and rules. The file is read once, at start: a change applies when vtium starts again, as at a restart of its service.\n\
+         vtium reads one file, `vtium.conf` in the configuration directory (`--configdir`, `/etc/vtium` by default), then its command line, which wins over the file (ADR-1403 D2). vtium never reads `/etc/kmscon` or a seat file such as `seat0.seat.conf`: a `kmscon.conf` from kmscon is copied to `/etc/vtium/vtium.conf` by hand, and vtium reads the keys `kmscon` takes, in the ways the vtium crate's README, \"Reading the configuration\", sets out. With no file, vtium runs its defaults and its compiled-in heads and rules. The file is read once, at start: a change applies when vtium starts again, as at a restart of its service.\n\
          \n\
          The file has two parts (ADR-1403 D3). Every line above the first section heading is the top level: vtium's own keys, the defaults every head inherits, and the flow's `version` and `policy`. From the first section heading on come the sections: a `[look NAME]` for each look, which names a frit and its size, a `[head NAME]` for each head, and one `[rules]` list, which sends each display and each input device to a head (ADR-1401 D3). A file with a section needs `version = 1`. A head's section wins over its look's, and its look's over the top level, for the keys the table below says each may set (ADR-1403 D5).\n\
          \n\
@@ -117,7 +117,7 @@ pub(super) fn markdown() -> String {
          \n\
          vtium reports, once at start, a top-level key it does not know, however often it appears, and a value it cannot use: a number out of bounds, which it clamps, and a value it cannot read, which it ignores, keeping the value the sources before it gave. An error in a section drops what ADR-1401 D7 says it takes, and never a top-level key. It reads at most {FILE_MAX} bytes of the file and {LINE_MAX} of a line.\n\
          \n\
-         `install/vtium.conf.example` in `crates/vtium` lists the same keys at their defaults, under the same sections, then the compiled-in looks, heads and rules. Source cites the C reference, kmscon at `b1f7a7c5`, or the decision a key comes from.\n"
+         `install/vtium.conf.example` in `crates/vtium` lists the same keys at their defaults, under the same sections, then the compiled-in looks, heads and rules. Source names the decision record, the specification or the released program each key comes from.\n"
     );
     for section in &SECTIONS {
         let _ = write!(
@@ -321,7 +321,7 @@ fn schemes() -> String {
         paragraphs(
             "##",
             [
-                "Other schemes for the six colors above. To use one, remove the # at the start of its six lines. vtium draws whatever colors are set and checks no contrast between a text and its box."
+                "Alternatives for the six colors above. To use one, remove the # at the start of its six lines. vtium uses whatever colors you set; it does not check that text stands out against its box."
             ]
         )
     );
@@ -367,8 +367,8 @@ pub(super) fn example() -> String {
     let mut out = paragraphs(
         "#",
         [
-            format!("vtium's configuration, installed as /etc/vtium/vtium.conf.example. It is generated from {SOURCE}, and docs/config.md describes each key.").as_str(),
-            "Above the first section, one key a line: key=value, or a switch's key to turn it on and no-key to turn it off. Each key is shown at its default, commented out. The command line wins over these lines, and a look's or a head's section below wins over both.",
+            format!("An example of vtium's configuration file. Copy it to /etc/vtium/vtium.conf and edit it. It is generated from {SOURCE}, and docs/config.md describes each setting.").as_str(),
+            "The settings come first, one per line: key=value. For an on/off setting, write its key to turn it on and no-key to turn it off. Each setting is shown commented out, at its default. An option on vtium's command line overrides these lines, and a [look] or [head] section below overrides both.",
         ],
     );
     for section in &SECTIONS {
@@ -402,7 +402,7 @@ pub(super) fn example() -> String {
 const SECTIONS_TITLE: &str = "Looks, heads and rules";
 
 /// What the example's sections are.
-const SECTIONS_ABOUT: &str = "The sections below the keys: the looks, the heads and the rules that place each display and each input device in a head. These are the sections vtium runs when vtium.conf holds none, live as shipped.";
+const SECTIONS_ABOUT: &str = "The sections after the settings. A look is a font and its size; a head is a screen with its own consoles; the rules send each display and each input device to a head. These are the sections vtium uses, as shipped, when vtium.conf has none.";
 
 /// The most bytes the generated example may hold, so at least 16 KiB of
 /// vtium.conf's [`FILE_MAX`] stay for a user's own heads, looks and rules
@@ -551,7 +551,7 @@ mod tests {
         }
         // the header's first paragraph wraps
         assert!(example.starts_with(
-            "# vtium's configuration, installed as /etc/vtium/vtium.conf.example. It is\n# generated from"
+            "# An example of vtium's configuration file. Copy it to /etc/vtium/vtium.conf\n# and edit it."
         ));
     }
 
@@ -716,7 +716,7 @@ mod tests {
             .collect();
         assert_eq!(
             osd.first().copied(),
-            Some("## osd: What vtium's on-screen display draws at the top of each head after a")
+            Some("## osd: What the on-screen display shows at the top of each screen after a")
         );
         assert!(osd.contains(&"##"), "paragraphs are separated");
         let next = osd
@@ -726,7 +726,7 @@ mod tests {
         assert_eq!(osd[next - 1], "#", "a key break before osd-timeout");
         assert_eq!(
             osd[next - 2],
-            "## A notice of a problem shows whatever `osd` says.",
+            "## A notice about a problem appears whatever `osd` says.",
             "osd's last paragraph ends above the break"
         );
         for name in ["osd-timeout: ", "focus-mark: "] {

@@ -8,13 +8,6 @@
 //!
 //! The cursor plane's image is a dumb buffer whatever the source, and
 //! drm2d makes it itself.
-//!
-//! The C reference split its DRM backends the same way. Its shared logic
-//! took each buffer's framebuffer id, while drm2d made dumb buffers and
-//! drm3d made GBM buffers, each adding the framebuffer over its own
-//! (`kmscon/src/video/drm2d_video.c:51-185`,
-//! `kmscon/src/video/drm3d_video.c:89-342`). The cursor's dumb buffer
-//! belonged to the shared logic (`kmscon/src/video/drm_shared.c:338-399`).
 
 use std::io;
 use std::sync::{Arc, Mutex};

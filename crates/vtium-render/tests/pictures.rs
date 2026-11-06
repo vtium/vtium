@@ -620,8 +620,8 @@ fn scroll<F: Face>(
     (out, c)
 }
 
-// issue #30: the C reference kept a scaled picture under its visible part,
-// so one scrolling off the top was scaled again every frame
+// issue #30: a scaled copy is kept for the whole picture, so one scrolling
+// off the top is scaled once
 // covers: image.compositor
 #[test]
 fn a_scaled_placement_moved_up_a_row_each_frame_is_scaled_once() {
@@ -826,8 +826,8 @@ fn redraw<F: Face>(
     out
 }
 
-// issue #30: in tmux sixel grids the C reference damaged 97 to 100 percent
-// of the screen per flip; a picture that changes damages only its pane
+// issue #30: in tmux's grids of sixel panes, a picture that changes
+// damages only its pane
 // covers: image.compositor
 #[test]
 fn a_picture_that_changes_or_moves_redraws_only_the_cells_it_covers() {
@@ -1093,9 +1093,8 @@ fn a_picture_on_a_1_bit_display_draws_black_and_white() {
     assert!(lit > 0 && lit < c.pixels().len());
 }
 
-// A cropped picture shows its crop and nothing past it, at any size: the
-// C reference keyed its copies on the visible source rectangle and never
-// read past the crop
+// A cropped picture shows its crop and nothing past it, at any size: a
+// copy is keyed on the crop and never reads past it
 // covers: image.compositor
 #[test]
 fn a_cropped_picture_never_shows_the_pixels_past_its_crop() {
@@ -1219,8 +1218,8 @@ fn only_the_picture_that_shows_gets_a_scaled_copy() {
     );
 }
 
-// The C reference sent a run of cells under one opaque picture as one
-// request; vtium writes each display line of such a run as one copy
+// vtium writes each display line of a run of cells under one opaque
+// picture as one copy
 // covers: image.compositor
 #[test]
 fn a_run_of_cells_under_one_picture_is_written_a_display_line_at_a_time() {

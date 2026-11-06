@@ -1,4 +1,4 @@
-//! Tier 1 for vtium: the corpus, copied from the C reference, replayed
+//! Tier 1 for vtium: the corpus replayed
 //! through vtium and judged against its goldens; and the capability
 //! probes run through vtium-replay. The crate's README gives the commands.
 
@@ -13,7 +13,7 @@ use vtium_conformance::runner::{self, Corpus, VIEWS, Verdict, chunking, own};
 use vtium_conformance::spec::Spec;
 
 const TOOL: &str = env!("CARGO_MANIFEST_DIR");
-/// The corpus, copied from the C reference; the probes sit in `probes/`,
+/// The corpus; the probes sit in `probes/`,
 /// vtium's own beside the copied file.
 const CORPUS: &str = "corpus";
 /// vtium's own cases, laid out as the corpus is, with the list of those
@@ -23,9 +23,8 @@ const PROVISIONAL: &str = "vtium/provisional.tsv";
 /// The interface's documents, each a later version of the one before.
 const INTERFACE: [&str; 2] = ["corpus/INTERFACE.md", "INTERFACE-vtium.md"];
 const PROBES: [&str; 2] = ["probes/probes.replay", "probes/vtium.replay"];
-/// The build features the capability list names. Its `-Dimages` is the
-/// C reference's build option, which built the sixel and kitty handlers
-/// with the image pipeline. vtium-replay is built with images, which holds
+/// The build features the capability list names. Its `-Dimages` names the
+/// image pipeline with the sixel and kitty handlers. vtium-replay is built with images, which holds
 /// the pipeline and both handlers (#48, #49), so the probes that need them
 /// are judged as working.
 const BUILD: [(&str, bool); 1] = [("images", true)];

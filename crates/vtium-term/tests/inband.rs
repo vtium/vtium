@@ -2,11 +2,9 @@
 //! without polling: the text area's size (mode 2048), the console's
 //! visibility (mode 2033 and `CSI ? 998 n`) and its color scheme (mode
 //! 2031 and `CSI ? 996 n`). Each report is sent while its mode is set, and
-//! only on a change; the queries answer whatever the modes hold.
-//!
-//! The C reference had none of them: it told a program of a resize only by
-//! the SIGWINCH that TIOCSWINSZ sends (kmscon `src/terminal.c:1149-1163`,
-//! `src/misc/pty.c:955`).
+//! only on a change; the queries answer whatever the modes hold. Without
+//! them a program hears of a resize only by the SIGWINCH that TIOCSWINSZ
+//! sends.
 
 mod common;
 

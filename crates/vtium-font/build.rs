@@ -161,9 +161,9 @@ fn pack(b: &Builtin) -> Vec<u8> {
     ];
     let set = RawSet {
         meta: meta.into_iter().map(|(k, v)| (k.to_owned(), v)).collect(),
-        // the sprites for every range, as the C reference drew over its
-        // unifont and the goldens hold; Unscii-8, which has no C reference
-        // behind it, draws them the same
+        // the sprites for every range, though unifont covers all six: the
+        // sprites line up exactly at every cell size, and the goldens show
+        // them; Unscii-8 draws them the same
         policy: [SOURCE_SPRITES; 6],
         strikes: vec![strike],
     };

@@ -62,13 +62,13 @@ pub fn decompress(bytes: &[u8]) -> Result<(Vec<u8>, Compression), String> {
     let kind = Compression::of(bytes);
     if kind == Compression::Plain {
         if bytes.len() > limit {
-            return Err(format!("larger than {PSF_BYTES_MAX} bytes"));
+            return Err(format!("the file is larger than {PSF_BYTES_MAX} bytes"));
         }
         return Ok((bytes.to_vec(), kind));
     }
     if bytes.len() > COMPRESSED_BYTES_MAX {
         return Err(format!(
-            "{}: larger than {COMPRESSED_BYTES_MAX} bytes before it is decompressed",
+            "{} is larger than {COMPRESSED_BYTES_MAX} bytes before it is decompressed",
             kind.name()
         ));
     }
@@ -115,12 +115,12 @@ fn unzstd(mut input: &[u8], limit: usize) -> Result<Vec<u8>, String> {
         let frame = read_bounded(&mut decoder, limit.saturating_sub(out.len()))?;
         let frame_decoder = decoder.into_frame_decoder();
         if !frame_decoder.is_finished() {
-            return Err("a frame cut short".to_owned());
+            return Err("the compressed data is cut short".to_owned());
         }
         if let Some(want) = frame_decoder.get_checksum_from_data()
             && frame_decoder.get_calculated_checksum() != Some(want)
         {
-            return Err("a frame's checksum does not match its data".to_owned());
+            return Err("the compressed data is damaged (checksum mismatch)".to_owned());
         }
         out.extend_from_slice(&frame);
     }
@@ -132,7 +132,7 @@ fn unzstd(mut input: &[u8], limit: usize) -> Result<Vec<u8>, String> {
 /// `frit:line: source=...: zstd: <this>; the source is left out`.
 fn window_too_big(requested: u64) -> String {
     format!(
-        "the font's window is {} MiB and vtium-config reads at most {} MiB, so the font needs recompressing with a window of {} MiB or less",
+        "the font is compressed with a {} MiB window and vtium-config reads at most {} MiB: recompress it with a window of {} MiB or less",
         requested.div_ceil(1 << 20),
         ZSTD_WINDOW_MAX >> 20,
         ZSTD_WINDOW_MAX >> 20,
@@ -145,9 +145,9 @@ fn read_bounded(reader: impl Read, limit: usize) -> Result<Vec<u8>, String> {
     reader
         .take((limit as u64).saturating_add(1))
         .read_to_end(&mut out)
-        .map_err(|e| format!("corrupt or cut short: {e}"))?;
+        .map_err(|e| format!("the data is damaged or cut short: {e}"))?;
     if out.len() > limit {
-        return Err(format!("decompresses past {limit} bytes"));
+        return Err(format!("the data decompresses to more than {limit} bytes"));
     }
     Ok(out)
 }
@@ -172,7 +172,7 @@ pub fn gunzip(mut input: &[u8], limit: usize) -> Result<Vec<u8>, String> {
             input = input.get(r.bytes_consumed..).unwrap_or_default();
             let written = buf.get(..r.bytes_written).unwrap_or_default();
             if out.len().saturating_add(written.len()) > limit {
-                return Err(format!("decompresses past {limit} bytes"));
+                return Err(format!("the data decompresses to more than {limit} bytes"));
             }
             out.extend_from_slice(written);
             match r.status {
@@ -253,7 +253,7 @@ const UNIMAP_GLYPHS: u32 = 512;
 /// codepoint's glyph, a later line's taking a codepoint from an earlier
 /// one's, as the kernel's table does.
 pub fn unimap(bytes: &[u8]) -> Result<Vec<(u32, u32)>, String> {
-    let text = std::str::from_utf8(bytes).map_err(|_| "a unimap that is not UTF-8".to_owned())?;
+    let text = std::str::from_utf8(bytes).map_err(|_| "the unimap is not UTF-8 text".to_owned())?;
     let mut map = std::collections::BTreeMap::new();
     let mut count = 0usize;
     for (line, n) in text.lines().zip(1usize..) {
@@ -264,7 +264,9 @@ pub fn unimap(bytes: &[u8]) -> Result<Vec<(u32, u32)>, String> {
         }
         let (glyphs, rest) = glyph_range(body).ok_or_else(|| err("no glyph number"))?;
         if glyphs.1 >= UNIMAP_GLYPHS || glyphs.0 > glyphs.1 {
-            return Err(err("a glyph number past 0x1ff, or a range that runs back"));
+            return Err(err(
+                "a glyph number above 0x1ff, or a range that runs backwards",
+            ));
         }
         let mut pairs = Vec::new();
         let words: Vec<&str> = rest.split_whitespace().collect();
@@ -276,10 +278,10 @@ pub fn unimap(bytes: &[u8]) -> Result<Vec<(u32, u32)>, String> {
                     Some((a, b)) => {
                         let (a, b) = (codepoint(a), codepoint(b));
                         let (Some(a), Some(b)) = (a, b) else {
-                            return Err(err("a codepoint that is not U+XXXX"));
+                            return Err(err("a code point not written as U+XXXX"));
                         };
                         if b.checked_sub(a) != Some(span) {
-                            return Err(err("a codepoint range of another length"));
+                            return Err(err("a code point range of the wrong length"));
                         }
                         pairs.extend((0..=span).map(|i| (glyphs.0 + i, a + i)));
                     }
@@ -288,7 +290,7 @@ pub fn unimap(bytes: &[u8]) -> Result<Vec<(u32, u32)>, String> {
                         pairs.extend((glyphs.0..=glyphs.1).map(|g| (g, c)));
                     }
                 },
-                _ => return Err(err("a range takes idem, U+XXXX or U+XXXX-U+YYYY")),
+                _ => return Err(err("a range is idem, U+XXXX or U+XXXX-U+YYYY")),
             }
         } else {
             for w in words {
@@ -298,7 +300,7 @@ pub fn unimap(bytes: &[u8]) -> Result<Vec<(u32, u32)>, String> {
         }
         count = count.saturating_add(pairs.len());
         if count > UNIMAP_ENTRIES_MAX {
-            return Err(err("more entries than a unimap holds"));
+            return Err(err("more entries than a unimap can hold"));
         }
         for (g, c) in pairs {
             map.insert(c, g);
@@ -410,11 +412,11 @@ fn cpi_fonts(bytes: &[u8]) -> Option<Vec<CpiFont<'_>>> {
 /// codepage's fonts read, and the one of that height taken.
 pub fn cpi(bytes: &[u8], height: u32) -> Result<Vec<u8>, String> {
     let (plain, _) = decompress(bytes)?;
-    let fonts = cpi_fonts(&plain).ok_or("cp-size= is for a CPI font, and this is none")?;
+    let fonts = cpi_fonts(&plain).ok_or("cp-size= is for a CPI font, and this is not one")?;
     let font = fonts.iter().find(|f| f.height == height).ok_or_else(|| {
         let held: Vec<String> = fonts.iter().map(|f| f.height.to_string()).collect();
         format!(
-            "cp-size={height}: the CPI font holds {} pixels high, none {height}",
+            "cp-size={height}: the CPI font has sizes {} pixels high, but not {height}",
             held.join(", ")
         )
     })?;
@@ -446,12 +448,11 @@ pub fn font(bytes: &[u8], unimap: Option<&[u8]>, def_uni: Option<&[u8]>) -> Resu
         [0x36, 0x04, ..] => "psf1",
         [0x72, 0xb5, 0x4a, 0x86, ..] => "psf2",
         [b'S', b'T', b'A', b'R', b'T', b'F', b'O', b'N', b'T', ..] => {
-            return Err("a BDF font, which a bdf: source names".to_owned());
+            return Err("this is a BDF font: name it with a bdf: source".to_owned());
         }
         _ if cpi_fonts(&plain).is_some() => {
             return Err(
-                "a CPI font holds a font of each size: give the source a cp-size= of 8, 14 or 16"
-                    .to_owned(),
+                "a CPI font has several sizes: give the source cp-size= 8, 14 or 16".to_owned(),
             );
         }
         // a file of no magic is a raw font when its size is one: Psf::parse
@@ -503,7 +504,7 @@ pub fn font(bytes: &[u8], unimap: Option<&[u8]>, def_uni: Option<&[u8]>) -> Resu
         (None, false, Some(d)) => (unicode(d)?, "def.uni"),
         (None, false, None) => {
             return Err(
-                "the font has no Unicode table and kbd's def.uni was not found: give the source a unimap="
+                "the font has no Unicode table, and kbd's def.uni was not found: give the source a unimap= line"
                     .to_owned(),
             );
         }
@@ -734,7 +735,7 @@ pub(crate) mod tests {
             let bomb = zstd_frame(0x50, 2, &zstd_match_block(count, u16::MAX));
             assert!(bomb.len() < 1100, "{count}: the fixture is small");
             let e = decompress(&bomb).expect_err("a block past its bound");
-            assert!(e.starts_with("zstd: corrupt"), "{count}: {e}");
+            assert!(e.starts_with("zstd: the data is damaged"), "{count}: {e}");
         }
     }
 
@@ -762,8 +763,8 @@ pub(crate) mod tests {
         let e = decompress(&piped).expect_err("a 32 MiB window");
         assert_eq!(
             e,
-            "zstd: the font's window is 32 MiB and vtium-config reads at most 16 MiB, \
-             so the font needs recompressing with a window of 16 MiB or less"
+            "zstd: the font is compressed with a 32 MiB window and vtium-config reads at \
+             most 16 MiB: recompress it with a window of 16 MiB or less"
         );
     }
 
@@ -784,7 +785,7 @@ pub(crate) mod tests {
             let frame = zstd_rle_frame(window, 129);
             assert!(frame.len() < 600, "the fixture is small");
             let e = decompress(&frame).expect_err("past PSF_BYTES_MAX");
-            assert!(e.contains("decompresses past"), "{window:#x}: {e}");
+            assert!(e.contains("decompresses to more than"), "{window:#x}: {e}");
         }
         let e = decompress(&zstd_rle_frame(0x88, 129)).expect_err("a 128 MiB window");
         assert!(e.contains("window"), "{e}");
@@ -804,7 +805,7 @@ pub(crate) mod tests {
                 "{name}: the fixture is small"
             );
             let e = decompress(&packed).expect_err(name);
-            assert!(e.contains("past"), "{name}: {e}");
+            assert!(e.contains("decompresses to more than"), "{name}: {e}");
         }
         let mut long = bzip2(b"x");
         long.resize(COMPRESSED_BYTES_MAX + 1, 0);
@@ -979,7 +980,7 @@ pub(crate) mod tests {
         let e = cpi(&cpi_file(&[16, 8]), 14).expect_err("no 14");
         assert_eq!(
             e,
-            "cp-size=14: the CPI font holds 16, 8 pixels high, none 14"
+            "cp-size=14: the CPI font has sizes 16, 8 pixels high, but not 14"
         );
         let e = cpi(&psf2(8, 16, 256, None), 16).expect_err("a PSF");
         assert!(e.contains("cp-size= is for a CPI font"), "{e}");
@@ -996,7 +997,7 @@ pub(crate) mod tests {
             [file.as_slice(), &[0]].concat(),
             file[..0x21].to_vec(),
         ] {
-            assert!(cpi(&bad, 16).expect_err("refused").contains("is none"));
+            assert!(cpi(&bad, 16).expect_err("refused").contains("is not one"));
         }
         let mut printer = file.clone();
         printer[6] = 2;

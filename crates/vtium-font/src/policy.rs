@@ -10,8 +10,8 @@ pub enum Source {
     /// The face's glyph; a character the face lacks draws as any missing
     /// character does, the font's [`Missing`] glyph.
     Font,
-    /// The sprite, whatever the face holds: the C reference's behaviour,
-    /// and the sprites line up exactly at every cell size.
+    /// The sprite, whatever the face holds: the sprites line up exactly at
+    /// every cell size.
     Sprites,
     /// The face's glyph where it has one, and the sprite where it doesn't.
     Auto,
@@ -63,8 +63,7 @@ impl<T> PerRange<T> {
 /// `missing = box` or `missing = hex` (vtium/vtium#85).
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Default)]
 pub enum Missing {
-    /// `box`: U+25A1, else `?`, else the face's last resort, as the C
-    /// reference drew.
+    /// `box`: U+25A1, else `?`, else the face's last resort.
     #[default]
     Replacement,
     /// `hex`: the character's codepoint in hex digits, drawn to fill its
@@ -78,7 +77,7 @@ pub enum Missing {
 pub struct SpritePolicy(PerRange<Source>);
 
 impl SpritePolicy {
-    /// Sprites for every range, as the C reference drew.
+    /// Sprites for every range.
     pub const SPRITES: SpritePolicy = SpritePolicy::all(Source::Sprites);
 
     /// The default for a font the operator names (vtium/vtium#85): the

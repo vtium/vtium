@@ -16,7 +16,7 @@ import t3img
 from t3_common import GOLDEN, GUEST, HERE, ROOT, RUNDIR, rel
 
 # Screens drawn by `t3 NAME` in the guest (guest/screens/NAME.sh), in the
-# order of the C reference's VT demo (fork/demo/sections), then sixel-bound and
+# the order the guided demo shows them in, then sixel-bound and
 # the benchmark scenarios, which have no demo page, except that cjk
 # stays last: vt-restore is compared with the last screen's golden, and its
 # golden is the cjk one (test_t3.py holds the two together).
@@ -71,7 +71,7 @@ RATE_CHECKED = ["mpv-sixel"]
 # the issue that tracks it, as {"mpv-sixel": {"2d-7680x2160": "owner/repo#N"}}.
 # Such a case passes with a note while the bottleneck lasts and fails once
 # it is gone, so the entry goes with the fix. None today: both 7680x2160
-# variants carried aaronsb/kmscon#139 until #152 fixed it there.
+# variants once waited on a console bottleneck that is fixed.
 KNOWN_BOTTLENECKS = {}
 # A case compared with another case's golden: back from the scrollback, and
 # back from tty3 (vt-restore, with the last screen's).
@@ -80,6 +80,15 @@ SAME_AS = {"photo-scrollforward": "photo-scroll", "img-scrollforward": "img-scro
 # The variants whose last screen is not SCREENS[-1], by variant: the screen
 # their vt-restore is compared with, the last they draw.
 RESTORED = {"images-640x480": PICTURE_SCREENS[-1]}
+# The variants judged by another variant's goldens, by variant: the
+# directory under goldens/ their cases compare with. gl-1280x800 draws on the
+# GPU path, which draws the CPU path's bytes, so 2d-1280x800's goldens judge
+# it exactly (ADR-1303 D1, D11).
+GOLDENS_OF = {"gl-1280x800": "2d-1280x800"}
+# The directories under goldens/ kept as a record, which no case compares
+# with: the first GL goldens, drawn by a renderer vtium does not use
+# (ADR-1303 D11).
+RECORDS = {"gl-1280x800": "what the first GL renderer drew"}
 
 
 def same_as(case, variant=None):
@@ -92,7 +101,7 @@ def same_as(case, variant=None):
 
 # The screens that draw sixel or kitty pictures. Every variant with images
 # draws them: both renderers draw image placements, bbulk on the 2D variants
-# and gltex on the GL one, in the C reference. A variant
+# and gltex on the GL one. A variant
 # without images ("images": False, the minimal build) shows each screen's
 # "not offered" page instead (t3_scenario.not_offered).
 IMAGE_SCREENS = ["sixel", "sixel-ramps", "sixel-article", "sixel-bound", "sixel-evict",
@@ -248,8 +257,18 @@ PROVISIONAL = read_provisional()
 def check_goldens(cases_of, root, provisional=()):
     """Every reason the goldens under `root` cannot judge a run: a golden or
     sidecar no case of a variant they judge compares with (`cases_of` maps
-    each such variant to its cases), and a `provisional` row (vtium's
-    provisional.tsv) for a golden that does not exist."""
+    each such variant to its cases, and GOLDENS_OF names the directory a
+    variant compares with); a file in a record (RECORDS) that is none of
+    its variant's screens, though no case compares with the record; a
+    `provisional` row (vtium's provisional.tsv) for a golden in a record,
+    which judges nothing; and a provisional row for a golden that does not
+    exist."""
+    used = {}
+    for variant, cases_of_variant in cases_of.items():
+        used.setdefault(GOLDENS_OF.get(variant, variant), set()).update(
+            same_as(c, variant) for c in cases_of_variant)
+    for record in RECORDS:
+        used[record] = {same_as(c, record) for c in cases_of.get(record, ())}
     errors = []
     for dirpath, _, names in os.walk(root):
         for name in names:
@@ -257,12 +276,14 @@ def check_goldens(cases_of, root, provisional=()):
             stem, ext = os.path.splitext(os.path.relpath(path, root))
             if ext not in (".png", ".tol"):
                 continue
-            variant, _, screen = stem.partition(os.sep)
-            used = {same_as(c, variant) for c in cases_of.get(variant, ())}
-            if screen not in used:
+            directory, _, screen = stem.partition(os.sep)
+            if screen not in used.get(directory, ()):
                 errors.append("%s is a golden no case draws" % rel(path))
     for golden in provisional:
-        if not os.path.exists(os.path.join(root, golden + ".png")):
+        if golden.partition("/")[0] in RECORDS:
+            errors.append("provisional.tsv lists %s, which is in a record that judges nothing "
+                          "(RECORDS)" % golden)
+        elif not os.path.exists(os.path.join(root, golden + ".png")):
             errors.append("provisional.tsv lists %s, which has no golden" % golden)
     return sorted(errors)
 
@@ -351,13 +372,14 @@ def screen_text(case, log, variant=None):
 
 def golden_for(variant, case, root=None):
     """(golden, tolerance sidecar) paths for a case under `root` (default
-    GOLDEN), or (None, None) for a check without a golden (NO_GOLDEN)."""
+    GOLDEN), in the variant's directory or the one GOLDENS_OF names, or
+    (None, None) for a check without a golden (NO_GOLDEN)."""
     if case in NO_GOLDEN:
         return None, None
     base = same_as(case, variant)
-    root = root or GOLDEN
-    return (os.path.join(root, variant, base + ".png"),
-            os.path.join(root, variant, base + ".tol"))
+    directory = os.path.join(root or GOLDEN, GOLDENS_OF.get(variant, variant))
+    return (os.path.join(directory, base + ".png"),
+            os.path.join(directory, base + ".tol"))
 
 
 def write_thumb(img, path):
@@ -428,7 +450,7 @@ def evaluate(variant, case, ppm, meta, log, root=None, verdict=None):
         entry["thumb_diff"] = write_thumb(t3img.diff_thumbnail(img, points),
                                           stem + ".diff.thumb.png")
     entry["status"] = t3img.verdict(stats, tol)
-    reviewed = "%s/%s" % (variant, same_as(case, variant))
+    reviewed = "%s/%s" % (GOLDENS_OF.get(variant, variant), same_as(case, variant))
     if reviewed in PROVISIONAL:
         entry["note"] = ("provisional: not yet reviewed, so not judged; judged, it would be %s"
                          % entry["status"])

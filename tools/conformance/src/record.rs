@@ -4,10 +4,9 @@
 //! had settled, after start-up and after each key. The recordings are
 //! committed, and their goldens reviewed as their own change.
 //!
-//! The C reference recorded the corpus's `prog-*` cases the same way
-//! (libtsm's `test/conformance/record-programs.py`), inside its dev
-//! container, so its recordings carry that image's program versions; a
-//! recording made here carries this machine's.
+//! The corpus's `prog-*` cases were first recorded the same way inside a
+//! dev container, so they carry that image's program versions; a recording
+//! made here carries this machine's.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -288,8 +287,7 @@ pub fn record(rec: &Recording, home: &Path, cwd: &Path) -> std::io::Result<(Vec<
         cell_height: 0,
     };
     let mut lp: Loop<Host> = Loop::new()?;
-    // The kernel's default erase character, which the C reference's pty
-    // kept.
+    // The kernel's default erase character.
     let mut pty = Pty::spawn(command, size, Erase::Delete)?;
     pty.insert(&lp.handle(), parts)?;
     let mut h = Host {

@@ -4,7 +4,7 @@
 # against the goldens in this tree.
 [package]
 name = "vtium-tier2"
-description = "Tier 2: the renderer's screens against the C reference's pixel goldens"
+description = "Tier 2: the renderer's screens against the pixel goldens"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

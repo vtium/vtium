@@ -1,25 +1,25 @@
  Flow  Looks  Fonts  Settings  Help       View Install Revert Restore New Delete
- draft bench · no changes · no problems                          text · t: live
- base   font-size 12   (102 keys at their defaults)
-DISPLAYS     DISPLAY RULES  HEADS       LOOK         INPUT RULES    DEVICES
+ draft bench · no changes · no problems              text preview · t: try live
+ shared settings   font-size 12   (102 others at their defaults)
+DISPLAYS     DISPLAY RULES  HEADS       LOOKS        INPUT RULES    DEVICES
              1 * -> desk  ╌► desk        big, auto… ┌2 path:…0:3.3◄─ kbd
-               matches no    1 console   └ proof    │  -> panel      pci-0:3.3
-               display …                            ├3 class…board
+               none          1 console   └ proof    │  -> panel      pci-0:3.3
+               connected                            ├3 class…board
              + new rule…     panel       look …ault◄┤  -> roaming
-                             1 console              ╎  matches no
-                                                    ╎  device …
+                             1 console              ╎  none
+                                                    ╎  connected
                             + new head… + new look… ╎+ new rule…
                                                     ╎
                              roaming   types into …◄┘
                              ignore    vtium never…
                              off       vtium turns…
-                             policy open takes wha…
+                             policy open places ea…
 ────────────────────────────────────────────────────────────────────────────────
  head desk · 1 console
    login              type…
    when-display-lost  keep  hangup  type…
    isolated           yes  no  type…
  ▸                    delete
- Delete head desk? Rule 1 still sends to it and stays, broken, until you point
- it elsewhere or delete it.
+ Delete head desk? Rule 1 sends to it and will not work until you change or
+ delete it.
  y yes  any other key no

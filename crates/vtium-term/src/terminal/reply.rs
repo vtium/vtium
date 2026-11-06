@@ -13,8 +13,8 @@ use vtium_parse::{Params, StringEnd};
 use super::State;
 use crate::bounds::VERSION_MAX;
 
-/// The fewest color registers XTSMGRAPHICS may set, as the C reference's
-/// `TSM_SIXEL_REGISTERS_MIN` and vtium-image's decoder hold it.
+/// The fewest color registers XTSMGRAPHICS may set, as vtium-image's
+/// decoder holds it.
 #[cfg(feature = "images")]
 const REGISTERS_MIN: u32 = 2;
 use crate::screen::Extent;
@@ -268,7 +268,7 @@ impl State {
         }
     }
 
-    /// DA2: a VT220, firmware 1, as the C reference answered.
+    /// DA2: a VT220, firmware 1 (ADR-1000, query.da2).
     pub(super) fn reply_da2(&mut self) {
         self.reply(Query::Da2, b"\x1b[>1;1;0c");
     }

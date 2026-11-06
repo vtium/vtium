@@ -58,12 +58,12 @@ fn each_warning_is_printed_and_it_exits_one() {
         "{err}"
     );
     assert!(
-        lines[1].ends_with("vtium.conf:1: sb-size=\"200000\" is out of bounds, 100000 used"),
+        lines[1].ends_with("vtium.conf:1: sb-size=\"200000\" is out of range, so 100000 is used"),
         "{err}"
     );
     assert!(
         lines[2].ends_with(
-            "vtium.conf:2: palette=\"frob\" is none of legacy, custom, nord, \
+            "vtium.conf:2: palette=\"frob\" is not one of legacy, custom, nord, \
              solarized, solarized-black, solarized-white, soft-black, base16-dark, base16-light, \
              vga, ignored"
         ),
@@ -84,7 +84,7 @@ fn a_relative_or_empty_font_frits_is_reported_and_it_exits_one() {
     let err = String::from_utf8_lossy(&out.stderr);
     let lines: Vec<&str> = err.lines().collect();
     assert_eq!(lines.len(), 2, "{err}");
-    let why = "an absolute path is needed, one that starts with /, ignored";
+    let why = "the path must be absolute, starting with /, ignored";
     assert!(
         lines[0].ends_with(&format!("vtium.conf:1: font-frits=\"fonts\": {why}")),
         "{err}"
@@ -105,7 +105,7 @@ fn help_says_it_only_checks() {
     let d = dir("help", "");
     let out = check(&d, &["--help"]);
     assert_eq!(out.status.code(), Some(0));
-    assert!(String::from_utf8_lossy(&out.stderr).contains("It only checks"));
+    assert!(String::from_utf8_lossy(&out.stderr).contains("It only reads"));
 }
 
 /// The syscalls that change a file or its metadata by name or by a
@@ -287,7 +287,7 @@ fn check_config_after_the_options_still_checks() {
         .output()
         .expect("vtium runs");
     assert_eq!(out.status.code(), Some(0));
-    assert!(String::from_utf8_lossy(&out.stderr).contains("It only checks"));
+    assert!(String::from_utf8_lossy(&out.stderr).contains("It only reads"));
     assert_eq!(String::from_utf8_lossy(&out.stdout), "");
 }
 
@@ -328,18 +328,60 @@ fn check_config_lists_each_planted_head_file_error_with_its_line_and_exits_1() {
             "no line {line} naming {what:?}: {err}"
         );
     };
-    at(4, "This section takes no key named \"frob\".");
-    at(5, "The file already declares a head named \"desk\".");
-    at(7, "A display rule cannot have `roaming` as its target.");
+    at(4, "This section has no key named \"frob\".");
+    at(5, "The file already has a head named \"desk\".");
+    at(7, "A display rule cannot send to `roaming`.");
     at(
         8,
-        "This rule sends devices to the head \"desc\", which the file does not declare.",
+        "This rule sends devices to head \"desc\", but the file has no head of that name.",
     );
     at(
         9,
-        "The file already has a `[rules]` section, and may have only one.",
+        "The file has a second `[rules]` section, and only one is allowed.",
     );
-    assert!(!err.contains("is no option"), "{err}");
+    assert!(!err.contains("unknown option"), "{err}");
+}
+
+// vtium-config counts the problems of a draft from `vtium check-config`'s
+// standard error, where each error is followed by the line that says what
+// it drops: run on vtium's own report, it counts each error once and none
+// of those lines, whatever words the drops lines use
+#[test]
+fn vtium_config_counts_each_error_of_check_config_once() {
+    let (d, _) = head_file(
+        "counted",
+        "version = 1\n\
+         [head desk]\n\
+         frob = 1\n\
+         [rules]\n\
+         display * -> desk\n\
+         input path:pci-0000:15:00.0-usb-0:3.3 -> desc\n",
+    );
+    let out = check(&d, &["--no-devices"]);
+    assert_eq!(out.status.code(), Some(1));
+    let problems: Vec<String> = String::from_utf8_lossy(&out.stderr)
+        .lines()
+        .map(str::to_owned)
+        .collect();
+    let drops = problems
+        .iter()
+        .filter(|l| {
+            vtium_settings::Drops::ALL
+                .iter()
+                .any(|d| l.ends_with(&d.to_string()))
+        })
+        .count();
+    // the two errors, each followed by what it drops
+    assert_eq!(drops, 2, "{problems:#?}");
+    let checked = vtium_config::drafts::Checked {
+        passed: false,
+        problems: problems.clone(),
+        notes: Vec::new(),
+    };
+    // the two errors, `frob` and the rule to `desc`, and none of what they
+    // drop
+    assert_eq!(checked.count(), 2, "{problems:#?}");
+    assert_eq!(problems.len(), 4, "{problems:#?}");
 }
 
 // ADR-1401 D7: a policy line vtium cannot read makes the file closed and
@@ -364,7 +406,9 @@ fn check_config_names_a_policy_line_it_cannot_read_and_exits_1() {
         "{err}"
     );
     assert!(
-        named.iter().any(|l| l.contains("closed and broken")),
+        named
+            .iter()
+            .any(|l| l.contains("broken with the closed policy")),
         "{err}"
     );
 }
@@ -398,19 +442,21 @@ fn each_error_says_what_it_drops_and_the_outcome_follows() {
         lines,
         [
             format!(
-                "{f}:5: This section takes no key named \"frob\". Check the key's spelling, or remove the line."
-            ),
-            format!("{f}:5: For this error vtium drops this head, with every rule that names it."),
-            format!(
-                "{f}:9: This rule sends devices to the head \"nosuch\", which the file does not declare. Correct the name, or declare the head with its own `[head NAME]` section."
+                "{f}:5: This section has no key named \"frob\". Check the spelling, or remove the line."
             ),
             format!(
-                "{f}:9: For this error vtium drops this rule alone, and a device walks on to the next rule."
+                "{f}:5: Because of this error, vtium ignores this head and every rule that names it."
+            ),
+            format!(
+                "{f}:9: This rule sends devices to head \"nosuch\", but the file has no head of that name. Correct the name, or add a `[head NAME]` section for it."
+            ),
+            format!(
+                "{f}:9: Because of this error, vtium ignores this rule, and each device goes on to the next rule."
             ),
             // ADR-1403 D3: what survives sends no keyboard to desk, which
             // the closed policy isolates
             format!(
-                "{f}: Head \"desk\" takes displays by rule 1, but no input rule sends keyboards to \"desk\" or to `roaming`: add an input rule that sends a keyboard to \"desk\" or to `roaming`."
+                "{f}: No input rule sends a keyboard to head \"desk\", which gets its displays from rule 1. Add an input rule that sends a keyboard to \"desk\" or to `roaming`."
             ),
         ],
         "{err}"
@@ -421,10 +467,10 @@ fn each_error_says_what_it_drops_and_the_outcome_follows() {
         tail,
         [
             format!(
-                "{f}: The policy is closed: an input no rule places is ignored, a head that leaves `isolated` unset is isolated, and the anti-lockout guard and the rescue key are off."
+                "{f}: The policy is closed: an input device no rule places is ignored, a head without an `isolated` line is isolated, and the keyboard safeguards (anti-lockout and the rescue key) are off."
             ),
             format!(
-                "{f}: A start runs the heads and rules that survive, with the rescue key off; each head keeps the isolation it states, and a head that states none is isolated. It shows `config partly invalid, running what's valid`."
+                "{f}: vtium starts with the heads and rules that have no errors, and the rescue key off. Each head keeps its `isolated` setting, and a head without one is isolated. It shows `vtium.conf has errors: running the parts without errors.`."
             ),
         ],
         "{notes}"
@@ -451,7 +497,7 @@ input * -> roaming
     assert_eq!(
         String::from_utf8_lossy(&out.stderr),
         format!(
-            "{}:3: The head \"desk\" asks for more consoles than `head-consoles-max` allows, 4, so it gets 4. Lower its `consoles` to 4 or fewer, or raise `head-consoles-max` in vtium.conf.\n",
+            "{}:3: Head \"desk\" asks for more consoles than `head-consoles-max` allows, so it gets 4. Lower its `consoles` to 4 or fewer, or raise `head-consoles-max` in vtium.conf.\n",
             file.display()
         )
     );
@@ -473,7 +519,7 @@ fn a_candidate_with_only_notes_exits_0_and_prints_them_on_stdout() {
     assert_eq!(String::from_utf8_lossy(&out.stderr), "");
     let notes = String::from_utf8_lossy(&out.stdout);
     let weak = format!(
-        "{}:5: input reaches a head by `id` or `name` alone, which any device can claim",
+        "{}:5: weak match: this rule matches by `id` or `name` alone, which any device can claim",
         file.display()
     );
     assert!(notes.lines().any(|l| l == weak), "{notes}");

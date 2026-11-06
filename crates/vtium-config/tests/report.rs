@@ -147,7 +147,7 @@ fn vtium_script(version: &str, extra: &str) -> String {
 case "$1" in
 --version) printf '%s\n' "{version}" ;;
 --help) printf 'Usage: vtium [OPTION]...\n       vtium check-config [OPTION]... [FILE]\n       vtium console status                    show what each VT runs\n' ;;
-console) printf 'VT  at boot  when switched to  running\n2   getty recorded  vtium@tty2  vtium@tty2\n7   -  -  graphical session of alice on {HOST}\n' ;;
+console) printf 'VT  at boot  when switched to  running\n2   getty to restore  vtium@tty2  vtium@tty2\n7   -  -  graphical session of alice on {HOST}\n' ;;
 check-config)
   printf '/etc/vtium/vtium.conf:3: unknown key frob\n'
   printf '/etc/vtium/heads.conf:2: edid:del:0x4321:HEADSER7 matches no display\n'
@@ -288,7 +288,7 @@ fn part<'a>(doc: &'a str, name: &str) -> &'a str {
 }
 
 const PARTS: [&str; 8] = [
-    "What this report holds",
+    "What this report contains",
     "vtium",
     "System",
     "Consoles",
@@ -479,17 +479,14 @@ fn the_system_part_reads_the_kernel_the_distribution_and_systemd() {
     assert!(p.contains("kernel: 6.9.1-test\n"), "{p}");
     assert!(p.contains("architecture: aarch64\n"), "{p}");
     assert!(p.contains("distribution: Test Linux, version 42\n"), "{p}");
-    assert!(p.contains("systemd: runs as the init system\n"), "{p}");
+    assert!(p.contains("systemd: running as the init system\n"), "{p}");
     assert!(p.contains("logind: runs\n"), "{p}");
 
     fs::remove_dir_all(t.path("run/systemd")).expect("removed");
     let doc = report(&t.machine(1000));
     let p = part(&doc, "System");
-    assert!(
-        p.contains("systemd: does not run as the init system\n"),
-        "{p}"
-    );
-    assert!(p.contains("logind: does not run\n"), "{p}");
+    assert!(p.contains("systemd: not the init system\n"), "{p}");
+    assert!(p.contains("logind: not running\n"), "{p}");
 }
 
 #[test]
@@ -497,7 +494,7 @@ fn the_consoles_part_holds_console_status_and_each_unit_s_state() {
     let doc = report(&Tree::new("consoles").machine(1000));
     let p = part(&doc, "Consoles");
     assert!(
-        p.contains("    2   getty recorded  vtium@tty2  vtium@tty2\n"),
+        p.contains("    2   getty to restore  vtium@tty2  vtium@tty2\n"),
         "{p}"
     );
     assert!(
@@ -560,11 +557,11 @@ fn a_machine_with_no_card_says_so() {
     fs::create_dir_all(t.path("sys/class/drm")).expect("an empty class");
     let doc = report(&t.machine(0));
     assert!(
-        part(&doc, "Displays").contains("No DRM card is in /sys/class/drm."),
+        part(&doc, "Displays").contains("No DRM card in /sys/class/drm."),
         "{doc}"
     );
     assert!(
-        part(&doc, "Kernel display state").contains("No DRM card is in /sys/class/drm."),
+        part(&doc, "Kernel display state").contains("No DRM card in /sys/class/drm."),
         "{doc}"
     );
 }
@@ -614,7 +611,7 @@ fn no_vtium_conf_says_vtium_runs_with_its_defaults() {
     let doc = report(&t.machine(1000));
     let p = part(&doc, "Configuration");
     assert!(
-        p.contains("There is no /etc/vtium/vtium.conf, so vtium runs with its defaults."),
+        p.contains("There is no /etc/vtium/vtium.conf, so vtium uses its defaults."),
         "{p}"
     );
 }
@@ -651,7 +648,7 @@ fn an_unreadable_journal_says_how_to_read_it() {
     t.program("usr/bin/journalctl", JOURNALCTL_UNREADABLE);
     let doc = report(&t.machine(1000));
     let p = part(&doc, "Logs");
-    assert!(p.contains("The journal is not readable to you."), "{p}");
+    assert!(p.contains("You cannot read the journal."), "{p}");
     assert!(p.contains("sudo vtium-config report"), "{p}");
     assert!(p.contains("systemd-journal"), "{p}");
     assert!(!p.contains("No entries"), "{p}");
@@ -672,7 +669,7 @@ fn an_unreadable_journal_is_noticed_with_no_unit_loaded() {
     t.program("usr/bin/systemctl", "#!/bin/sh\nexit 0\n");
     let doc = report(&t.machine(1000));
     let p = part(&doc, "Logs");
-    assert!(p.contains("The journal is not readable to you."), "{p}");
+    assert!(p.contains("You cannot read the journal."), "{p}");
     assert!(p.contains("systemd-journal"), "{p}");
 }
 
@@ -694,10 +691,7 @@ fn a_journal_with_no_previous_boot_says_so() {
     m.previous_boot = true;
     let doc = report(&m);
     let p = part(&doc, "Logs");
-    assert!(
-        p.contains("The journal holds no boot before this one"),
-        "{p}"
-    );
+    assert!(p.contains("The journal has no earlier boot"), "{p}");
     assert!(p.contains("/var/log/journal"), "{p}");
     assert!(
         p.contains("No journal boot entry found for the specified boot (-1)."),
@@ -794,7 +788,7 @@ fn neither_the_hostname_nor_a_serial_appears() {
     assert!(doc.contains("[serial]"), "{doc}");
     // the raw EDID never appears, in bytes or in hex
     assert!(!doc.contains("00ffffffffffff00"), "{doc}");
-    let what = part(&doc, "What this report holds");
+    let what = part(&doc, "What this report contains");
     for warned in [
         "a login writes the user's name",
         "vtium console status names the user",

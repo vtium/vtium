@@ -773,7 +773,7 @@ class ImplementationTest(unittest.TestCase):
 
     def test_vtium_process(self):
         # vtium's process logs as vtium[pid]; its render-timer and startup
-        # lines are read as the C reference's were.
+        # lines are read like the console's.
         line = timer_line(100.5, 60, 60).replace("kmscon[505]", "vtium[505]")
         self.assertEqual(t3_bench.timer_lines(line)[0]["pid"], 505)
         with tempfile.NamedTemporaryFile("w", delete=False) as f:
@@ -785,7 +785,7 @@ class ImplementationTest(unittest.TestCase):
             self.assertEqual(t3_scenario.console_startup_ms(f.name), 76.7)
         finally:
             os.unlink(f.name)
-        # vtium logs its Display line without the C reference's "terminal:"
+        # vtium logs its Display line without the "terminal:" the earlier console wrote
         with tempfile.NamedTemporaryFile("w", delete=False) as f:
             f.write("[    6.663227] vtium[459]: log: vtium Revision 0.1\n"
                     "[    6.700000] vtium[459]: vt: using tty /dev/tty2\n"
@@ -1071,9 +1071,10 @@ class VtiumGoldenTest(unittest.TestCase):
         return path
 
     def test_shipped(self):
-        # The maintainer reviewed every provisional golden on 2026-11-05, so
-        # the list in the tree is empty; a golden it names later must be one a
-        # case draws.
+        # The maintainer reviewed every provisional golden on 2026-11-05, and
+        # the four notice goldens recaptured with the reworded notices on
+        # 2026-11-06, so the list in the tree is empty; a golden it names
+        # later must be one a case draws.
         prov = t3_evaluate.read_provisional()
         # the default 2D variants' re-baselined goldens (vtium/vtium#24)
         rebaselined = ["%s/%s" % (v, s)
@@ -1317,7 +1318,7 @@ class BaseImageTest(unittest.TestCase):
             make = dict(re.findall(r"^(T3_IMAGE_VER|T3_ARCHIVE)\s*:=\s*(\S+)", f.read(), re.M))
         image = "Arch-Linux-x86_64-cloudimg-%s.qcow2" % make["T3_IMAGE_VER"]
         self.assertEqual(os.path.basename(t3_common.base_image(image, make["T3_ARCHIVE"])),
-                         "a801c98304d282ae.qcow2")
+                         "23c8323a4a59d1fe.qcow2")
 
 
 class VariantTest(unittest.TestCase):
@@ -1338,8 +1339,8 @@ class VariantTest(unittest.TestCase):
     def test_potato_minimal(self):
         # The potato machine with the minimal configuration, unifont and a
         # PSF font, which make tier3-minimal runs, out of the default run.
-        for name, conf in (("2d-potato-min", "kmscon-minimal.conf"),
-                           ("2d-potato-min-psf", "kmscon-minimal-psf.conf")):
+        for name, conf in (("2d-potato-min", "vtium-minimal.conf"),
+                           ("2d-potato-min-psf", "vtium-minimal-psf.conf")):
             with self.subTest(name):
                 v = t3_scenario.VARIANTS[name]
                 potato = t3_scenario.VARIANTS["2d-1366x768-potato"]
@@ -1355,7 +1356,7 @@ class VariantTest(unittest.TestCase):
                 self.assertIn("vt-restore", cases)
         for name in t3_scenario.DEFAULT_VARIANTS:
             self.assertEqual(t3_scenario.variant_cases(name), t3_evaluate.CASES)
-        with open(os.path.join(t3_common.GUEST, "kmscon-minimal-psf.conf")) as f:
+        with open(os.path.join(t3_common.GUEST, "vtium-minimal-psf.conf")) as f:
             self.assertIn("font-engine=psf\n", f.read())
 
     def test_small_displays(self):
@@ -1394,7 +1395,7 @@ class VariantTest(unittest.TestCase):
                 self.assertIsNone(goldens["vt-switch"])
         # no font size is set: at 320x240 the default size is the font's
         # own, 8 (vtium/vtium#118)
-        with open(os.path.join(t3_common.GUEST, "kmscon-small-8x8.conf")) as f:
+        with open(os.path.join(t3_common.GUEST, "vtium-small-8x8.conf")) as f:
             self.assertNotIn("font-size", f.read())
         # each PSF variant's frits are in guest/frits, and each names its
         # variant's font as its first source
@@ -1486,11 +1487,11 @@ class VariantTest(unittest.TestCase):
             os.unlink(f.name)
 
     def test_gl_draws_images(self):
-        # gltex draws image placements, so the GL
-        # variant runs every case, the image screens and their keyed cases
-        # included, as the 2D variants do; the no-images check it ran while
-        # gltex drew none is gone with its flag. Its goldens are blessed, so
-        # it is in the default run.
+        # The GPU path draws image placements, so the GL variant runs every
+        # case, the image screens and their keyed cases included, as the 2D
+        # variants do; the no-images check it ran while the earlier
+        # gltex renderer drew none is gone with its flag. 2d-1280x800's goldens judge
+        # it, so it is in the default run.
         self.assertIn("gl-1280x800", t3_scenario.DEFAULT_VARIANTS)
         self.assertNotIn("draws_images", t3_scenario.VARIANTS["gl-1280x800"])
         self.assertNotIn("no-images", t3_evaluate.CASES)
@@ -1603,9 +1604,12 @@ class PowerTest(unittest.TestCase):
                                "Will now halt.",
                                "[ 9.9] reboot: Power down"],
     }
-    # vtium's warning at its start where PID 1 does not catch SIGRTMIN+4.
-    WARNING = ("[ 3.2] vtium[404]: config: grab-power-off is bound, and PID 1 does not catch "
-               "SIGRTMIN+4 (signal 38, from SigCgt in /proc/1/status): it powers nothing off")
+    # vtium's warning at its start where PID 1 neither catches nor blocks
+    # SIGRTMIN+4.
+    WARNING = ("[ 3.2] vtium[404]: config: the grab-power-off key will not work: the init "
+               "system (PID 1) neither handles nor blocks SIGRTMIN+4 (signal 38, from SigCgt "
+               "and SigBlk in /proc/1/status). Unbind the key, or use an init system that "
+               "powers off on that signal, such as systemd or sysvinit.")
 
     # What a power-off after S3 ends with in QEMU: systemd-shutdown exits
     # when reboot(2) returns, ten seconds after the kernel's last line.
@@ -1633,7 +1637,7 @@ class PowerTest(unittest.TestCase):
                 v = t3_scenario.VARIANTS[name]
                 for key in ("device", "cpus", "memory_mb", "renderer"):
                     self.assertEqual(v[key], potato[key])
-                self.assertEqual(v["conf"], "kmscon-power.conf")
+                self.assertEqual(v["conf"], "vtium-power.conf")
                 self.assertNotIn(name, t3_scenario.DEFAULT_VARIANTS)
                 cases = t3_scenario.variant_cases(name)
                 self.assertEqual(cases, v["power"])
@@ -1670,14 +1674,14 @@ class PowerTest(unittest.TestCase):
             self.assertEqual(t3_scenario.VARIANTS[name]["power"][-1], "power-off-after-s3")
 
     def test_chords_match_the_configuration(self):
-        # Each qcode chord the driver presses is the chord kmscon-power.conf
+        # Each qcode chord the driver presses is the chord vtium-power.conf
         # binds for its key.
         keys = {"reboot": "grab-reboot", "reboot-hard": "grab-reboot",
                 "power-off": "grab-power-off", "power-off-after-s3": "grab-power-off",
                 "suspend": "grab-suspend", "suspend-sysfs": "grab-suspend",
                 "reboot-sysvinit": "grab-reboot",
                 "power-off-sysvinit": "grab-power-off"}
-        with open(os.path.join(t3_common.GUEST, "kmscon-power.conf")) as f:
+        with open(os.path.join(t3_common.GUEST, "vtium-power.conf")) as f:
             conf = dict(line.strip().split("=", 1) for line in f if line.startswith("grab-"))
         for case, chord in t3_power.CHORDS.items():
             with self.subTest(case):
@@ -1733,8 +1737,9 @@ class PowerTest(unittest.TestCase):
                               % t3_power.POWER_OFF_WARNING, why or "")
 
     def test_no_known_failure_on_the_sysvinit_guest(self):
-        # sysvinit catches SIGRTMIN+4, so vtium gives no warning and
-        # power-off-sysvinit passes with no note; a warning fails it.
+        # sysvinit catches SIGRTMIN+4 with a handler, so vtium gives no
+        # warning and power-off-sysvinit passes with no note; a warning
+        # fails it.
         case = "power-off-sysvinit"
         self.assertNotIn(case, t3_power.KNOWN)
         self.assertEqual(t3_power.verdict(case, self.log(case), 0, "guest-shutdown"),
@@ -2163,11 +2168,11 @@ class BenchTest(unittest.TestCase):
                 self.assertNotIn("error", got)
         # the variant keeps two display buffers, so a frame's damage counts
         # two frames' changes
-        with open(os.path.join(t3_common.GUEST, "kmscon-images.conf")) as f:
+        with open(os.path.join(t3_common.GUEST, "vtium-images.conf")) as f:
             self.assertIn("display-buffers=2\n", f.read())
-        self.assertEqual(t3_scenario.VARIANTS["images-640x480"]["conf"], "kmscon-images.conf")
+        self.assertEqual(t3_scenario.VARIANTS["images-640x480"]["conf"], "vtium-images.conf")
         self.assertIn("img-tmux-pane", t3_evaluate.BENCHMARKS)
-    MPV = "T3-BENCH mpv-sixel start=100.00 end=102.00 mpv_frames=60 mpv_dropped=2 kmscon_cpu_ms=500"
+    MPV = "T3-BENCH mpv-sixel start=100.00 end=102.00 mpv_frames=60 mpv_dropped=2 console_cpu_ms=500"
     CONF = ["font-size=16", "render-timer=log"]
 
     def test_timer_lines(self):
@@ -2193,7 +2198,7 @@ class BenchTest(unittest.TestCase):
         # A program's screen reports its own counts after the window.
         self.assertEqual(t3_bench.bench_window(self.MPV),
                          ("mpv-sixel", 100.0, 102.0,
-                          {"mpv_frames": 60, "mpv_dropped": 2, "kmscon_cpu_ms": 500}))
+                          {"mpv_frames": 60, "mpv_dropped": 2, "console_cpu_ms": 500}))
         self.assertIsNone(t3_bench.bench_window("T3-BENCH x start=1.0 end=2.0 frames=many"))
 
     def test_summarize(self):
@@ -2282,7 +2287,7 @@ class BenchTest(unittest.TestCase):
         # kmscon presents as many frames either way, so the screen counts
         # the sixel pictures tmux sent to kmscon.
         line = ("T3-BENCH tmux-2x2 start=100.00 end=102.00 mpv_frames=600 mpv_dropped=0 "
-                "kmscon_cpu_ms=700 panes=4 tmux_sixels=%d")
+                "console_cpu_ms=700 panes=4 tmux_sixels=%d")
         got = t3_bench.measure(serial, line % 412, self.CONF)
         self.assertNotIn("error", got)
         self.assertEqual(got["tmux_sixels"], 412)
@@ -2294,13 +2299,13 @@ class BenchTest(unittest.TestCase):
         # picture tmux sent is reported, and no figure of it fails the grid.
         serial = timer_line(101.0, 20, 20)
         line = ("T3-BENCH tmux-3x3 start=100.00 end=102.00 mpv_frames=300 mpv_dropped=900 "
-                "kmscon_cpu_ms=%d panes=9 tmux_sixels=100")
+                "console_cpu_ms=%d panes=9 tmux_sixels=100")
         got = t3_bench.measure(serial, line % 1400, self.CONF)
         self.assertNotIn("error", got)
-        self.assertEqual(got["kmscon_cpu_ms_per_tmux_sixel"], 14.0)
+        self.assertEqual(got["console_cpu_ms_per_tmux_sixel"], 14.0)
         got = t3_bench.measure(serial, line % 3400, self.CONF)
         self.assertNotIn("error", got)
-        self.assertEqual(got["kmscon_cpu_ms_per_tmux_sixel"], 34.0)
+        self.assertEqual(got["console_cpu_ms_per_tmux_sixel"], 34.0)
 
     def test_measure_program(self):
         # mpv's counts beside the render timer's: its output rate over the
@@ -2313,9 +2318,9 @@ class BenchTest(unittest.TestCase):
         self.assertEqual((got["mpv_frames"], got["mpv_dropped"]), (60, 2))
         self.assertEqual(got["mpv_per_s"], 30.0)
         self.assertEqual(got["presented_per_s"], 30.0)
-        self.assertEqual(got["kmscon_cpu_ms"], 500)
-        self.assertEqual(got["kmscon_cpu_ms_per_mpv_frame"], 8.333)
-        self.assertEqual(got["kmscon_cpu_pct"], 25.0)
+        self.assertEqual(got["console_cpu_ms"], 500)
+        self.assertEqual(got["console_cpu_ms_per_mpv_frame"], 8.333)
+        self.assertEqual(got["console_cpu_pct"], 25.0)
 
     def test_bench_error_fails_case(self):
         meta = {"bench": {"s1-scroll": {"error": "no render-timer line"}}}
@@ -2349,9 +2354,9 @@ class BottleneckTest(unittest.TestCase):
     time per frame mpv sent stays under the clip's frame interval, and it
     presents at least as many frames as mpv sends."""
     FINE = {"mpv_frames": 150, "mpv_per_s": 29.1, "presented_per_s": 59.0,
-            "kmscon_cpu_ms_per_mpv_frame": 6.733}
+            "console_cpu_ms_per_mpv_frame": 6.733}
     SLOW = {"mpv_frames": 69, "mpv_per_s": 2.1, "presented_per_s": 4.2,
-            "kmscon_cpu_ms_per_mpv_frame": 375.797}
+            "console_cpu_ms_per_mpv_frame": 375.797}
 
     def test_bottleneck(self):
         self.assertEqual(t3_bench.bottleneck(self.FINE), [])
@@ -2391,7 +2396,7 @@ class BottleneckTest(unittest.TestCase):
         # A known bottleneck, named by its issue, passes with a note, and
         # fails once it is gone, so its entry is removed with the fix. The
         # entry is the test's own, since none is known today.
-        variant, issue = "v-known", "aaronsb/kmscon#0"
+        variant, issue = "v-known", "vtium/vtium#0"
         with mock.patch.dict(t3_evaluate.KNOWN_BOTTLENECKS, {"mpv-sixel": {variant: issue}}):
             self.known(variant, issue)
         # Without the entry the same variant is judged like any other.
@@ -2539,7 +2544,7 @@ class DevicesTest(unittest.TestCase):
             with self.subTest(name):
                 v = t3_scenario.VARIANTS[name]
                 self.assertEqual((v["cpus"], v["memory_mb"], v["conf"]),
-                                 (1, 512, "kmscon-small-8x16.conf"))
+                                 (1, 512, "vtium-small-8x16.conf"))
                 self.assertIn("id=video0", v["device"])
                 self.assertIn("xres=640,yres=480", v["device"])
                 self.assertIn(name, t3_scenario.golden_cases())
@@ -2956,6 +2961,14 @@ class DevicesTest(unittest.TestCase):
         self.assertEqual(m.groups(), ("/dev/input/event6", "QEMU QEMU USB Keyboard"))
         self.assertIsNone(t3_devices.KEYBOARD_LINE.search(
             "input: using /dev/input/event4 [VirtualPS/2 VMware VMMouse] as Virtual mouse"))
+        # vtium names the vendor and product ids a device reports after its name.
+        m = t3_devices.KEYBOARD_LINE.search(
+            "[ 7.3] vtium[556]: input: using /dev/input/event2 [QEMU QEMU USB Keyboard] "
+            "0627:0001 as keyboard\n")
+        self.assertEqual(m.groups(), ("/dev/input/event2", "QEMU QEMU USB Keyboard"))
+        self.assertIsNone(t3_devices.KEYBOARD_LINE.search(
+            "input: using /dev/input/event4 [VirtualPS/2 VMware VMMouse] 0002:0013 as "
+            "Virtual mouse"))
 
     # The guest's account of each keyboard-hotplug run (screens/keyboard-hotplug.sh).
     PS2 = "T3-KBD platform-i8042-serio-0-event-kbd /dev/input/event1"
@@ -3099,7 +3112,7 @@ class HeadsTest(unittest.TestCase):
                   "and broken.\n"
                   "[    9.1] vtium[502]: /etc/vtium/vtium.conf:17: vtium knows only "
                   "`version = 1`, not version \"2\".\n"
-                  "[    9.2] vtium[502]: vtium: config invalid, policy closed: input off\n")
+                  "[    9.2] vtium[502]: vtium.conf has errors and counts as closed: all input is off.\n")
         self.assertIsNone(t3_heads.judge_policy_line(logged, lines, v["policy_line"]))
         # the error names another line, another file, or none is logged
         for wrong in (logged.replace("vtium.conf:18:", "vtium.conf:9:"),
@@ -3112,8 +3125,8 @@ class HeadsTest(unittest.TestCase):
                                  "cannot be \"opne\"'")
         # the file run, partly broken under either policy, or the shipped
         # default in its place
-        self.assertEqual(t3_heads.RUN_LINES, ("config partly invalid, running what's valid",
-                                              "invalid config skipped, using builtin"))
+        self.assertEqual(t3_heads.RUN_LINES, ("vtium.conf has errors: running the parts without errors.",
+                                              "vtium.conf not used: running the built-in configuration."))
         for line in t3_heads.RUN_LINES:
             with self.subTest(line=line):
                 self.assertRegex(t3_heads.judge_policy_line(
@@ -3179,7 +3192,7 @@ class HeadsTest(unittest.TestCase):
             t3_scenario.build_disc("2d-640x480-psf16", d.name, impl)
             self.assertFalse({"heads.conf", "t3-agent"} & set(os.listdir(disc)))
             with open(os.path.join(disc, "vtium.conf")) as f, \
-                    open(os.path.join(t3_common.GUEST, "kmscon-small-8x16.conf")) as g:
+                    open(os.path.join(t3_common.GUEST, "vtium-small-8x16.conf")) as g:
                 self.assertEqual(f.read(), g.read())
         with open(os.path.join(t3_common.GUEST, "setup")) as f:
             setup = f.read()
@@ -4596,21 +4609,23 @@ class DefaultVariantsTest(unittest.TestCase):
 
     def test_default_variants(self):
         # Every default variant draws the image screens, so its console is
-        # built with images, and goldens judge each one.
+        # built with images, and the GL one, which draws on the GPU path,
+        # with gpu too; goldens judge each one.
         for name in t3_scenario.DEFAULT_VARIANTS:
             with self.subTest(name):
                 v = t3_scenario.VARIANTS[name]
-                self.assertEqual(v["tree_features"], ["images"])
+                features = ["gpu", "images"] if name == "gl-1280x800" else ["images"]
+                self.assertEqual(v["tree_features"], features)
                 self.assertIn(name, t3_scenario.golden_cases())
                 self.assertEqual(t3_scenario.check_tree_features([name], {"tree_features": []}),
-                                 ["%s needs a tree whose console is built with images, and the "
+                                 ["%s needs a tree whose console is built with %s, and the "
                                   "tree's was built with no features; make tier3 and make "
-                                  "tier3-images build one" % name])
+                                  "tier3-images build one" % (name, " ".join(features))])
 
     def test_density(self):
         # The default variants' configurations state the density that draws
-        # DejaVu Sans Mono at 16 points in the C reference's 10x19 cell:
-        # 16 x 86 / 72 = 19.1 pixels, and 32 points in its 38-pixel cell.
+        # DejaVu Sans Mono at 16 points in a 10x19 cell:
+        # 16 x 86 / 72 = 19.1 pixels, and 32 points in a 38-pixel cell.
         for name in t3_scenario.DEFAULT_VARIANTS:
             with self.subTest(name):
                 with open(os.path.join(t3_common.GUEST, t3_scenario.VARIANTS[name]["conf"])) as f:
@@ -4642,7 +4657,7 @@ class DefaultVariantsTest(unittest.TestCase):
         # the same run, byte for byte (ADR-1303 D1)
         v = t3_scenario.VARIANTS["gpu-1280x800"]
         self.assertEqual((v["renderer"], v["conf"], v["verdict"]),
-                         ("gpu", "kmscon-hwaccel.conf", "capture"))
+                         ("gpu", "vtium-hwaccel.conf", "capture"))
         self.assertEqual(t3_scenario.SAME_AS_CAPTURE["gpu-1280x800"], "2d-1280x800")
         self.assertTrue(t3_scenario.uses_virgl("gpu-1280x800"))
         self.assertIn("gpu", v["tree_features"])
@@ -4655,6 +4670,90 @@ class DefaultVariantsTest(unittest.TestCase):
             "gpu", {}, {}, None)
         self.assertTrue(drop)
         self.assertIn("did not draw with gpu", errors[0])
+
+    def test_the_gl_variant_is_judged_by_the_cpu_paths_goldens(self):
+        # gl-1280x800 draws with hwaccel on, must log the gpu renderer, and
+        # each case is judged by 2d-1280x800's golden of it, exactly, as
+        # the GPU path draws the CPU path's bytes (ADR-1303 D1, D11). The
+        # first GL goldens stay in goldens/gl-1280x800/ as the
+        # record of what an earlier renderer drew, and judge nothing.
+        v = t3_scenario.VARIANTS["gl-1280x800"]
+        self.assertEqual((v["renderer"], v["conf"]), ("gpu", "vtium-gl.conf"))
+        self.assertTrue(t3_scenario.uses_virgl("gl-1280x800"))
+        self.assertIn("gpu", v["tree_features"])
+        self.assertNotIn("verdict", v)
+        self.assertIn("gl-1280x800", t3_scenario.golden_cases())
+        self.assertEqual(t3_evaluate.GOLDENS_OF["gl-1280x800"], "2d-1280x800")
+        self.assertIn("gl-1280x800", t3_evaluate.RECORDS)
+        with open(os.path.join(t3_common.GUEST, v["conf"])) as f:
+            self.assertIn("\nhwaccel\n", f.read())
+        for case, screen in (("sgr", "sgr"), ("vt-restore", "cjk"),
+                             ("photo-scrollforward", "photo-scroll")):
+            with self.subTest(case):
+                self.assertEqual(t3_evaluate.golden_for("gl-1280x800", case),
+                                 t3_evaluate.golden_for("2d-1280x800", screen))
+        # a golden of 2d-1280x800's in this tree's goldens, and the GL
+        # record beside it: a capture with the same bytes passes, one
+        # pixel off fails, and a provisional 2d golden makes the gl case
+        # provisional too
+        os.makedirs(os.path.join(self.root, "2d-1280x800"))
+        os.makedirs(os.path.join(self.root, "gl-1280x800"))
+        black = t3img.Image(4, 4, bytes(4 * 4 * 3))
+        t3img.write_png(os.path.join(self.root, "2d-1280x800", "sgr.png"), black)
+        t3img.write_png(os.path.join(self.root, "gl-1280x800", "sgr.png"), black)
+        ppm = os.path.join(self.dir.name, "sgr.ppm")
+        run = os.path.join(self.dir.name, "run")
+        with mock.patch.object(t3_evaluate, "RUNDIR", run), \
+                mock.patch.object(t3_evaluate, "PROVISIONAL", {}):
+            t3_qemu.write_ppm(ppm, black)
+            entry = t3_evaluate.evaluate("gl-1280x800", "sgr", ppm, {}, LOG, root=self.root)
+            self.assertEqual(entry["status"], "pass")
+            self.assertEqual(entry["golden"], t3_common.rel(
+                os.path.join(self.root, "2d-1280x800", "sgr.png")))
+            t3_qemu.write_ppm(ppm, t3img.Image(4, 4, bytes([1]) + bytes(4 * 4 * 3 - 1)))
+            entry = t3_evaluate.evaluate("gl-1280x800", "sgr", ppm, {}, LOG, root=self.root)
+            self.assertEqual(entry["status"], "fail")
+            with mock.patch.object(t3_evaluate, "PROVISIONAL", {"2d-1280x800/sgr": "why"}):
+                entry = t3_evaluate.evaluate("gl-1280x800", "sgr", ppm, {}, LOG, root=self.root)
+                self.assertEqual(entry["status"], "provisional")
+            # a provisional row for the record's golden judges nothing:
+            # the case stays failed, and the preflight refuses the row
+            with mock.patch.object(t3_evaluate, "PROVISIONAL", {"gl-1280x800/sgr": "why"}):
+                entry = t3_evaluate.evaluate("gl-1280x800", "sgr", ppm, {}, LOG, root=self.root)
+                self.assertEqual(entry["status"], "fail")
+            self.assertEqual(
+                t3_evaluate.check_goldens({"gl-1280x800": ["sgr"]}, self.root,
+                                          {"gl-1280x800/sgr": "why"}),
+                ["provisional.tsv lists gl-1280x800/sgr, which is in a record that judges "
+                 "nothing (RECORDS)"])
+            # the record judges nothing and is no stray, but a golden of
+            # 2d-1280x800's that only gl-1280x800 compares with is used
+            self.assertEqual(t3_evaluate.check_goldens({"gl-1280x800": ["sgr"]}, self.root), [])
+            # a file in the record that is none of the variant's screens is
+            # a stray
+            t3img.write_png(os.path.join(self.root, "gl-1280x800", "stray.png"), black)
+            self.assertEqual(
+                t3_evaluate.check_goldens({"gl-1280x800": ["sgr"]}, self.root),
+                ["%s is a golden no case draws" % t3_common.rel(
+                    os.path.join(self.root, "gl-1280x800", "stray.png"))])
+            os.unlink(os.path.join(self.root, "gl-1280x800", "stray.png"))
+            with mock.patch.object(t3_evaluate, "RECORDS", {}):
+                self.assertEqual(
+                    t3_evaluate.check_goldens({"gl-1280x800": ["sgr"]}, self.root),
+                    ["%s is a golden no case draws" % t3_common.rel(
+                        os.path.join(self.root, "gl-1280x800", "sgr.png"))])
+            # with sgr none of the variant's cases, both its 2d golden and
+            # the record's are strays
+            self.assertEqual(
+                t3_evaluate.check_goldens({"gl-1280x800": ["cjk"]}, self.root),
+                ["%s is a golden no case draws" % t3_common.rel(
+                    os.path.join(self.root, d, "sgr.png"))
+                 for d in ("2d-1280x800", "gl-1280x800")])
+        # a console that drew the variant on the CPU path fails every case
+        errors, drop = t3_scenario.variant_errors(
+            None, ["Display Virtual-1 with backend [drm2d] text renderer [cpu], cell size 10x19"],
+            "gpu", {}, {}, None)
+        self.assertTrue(drop)
 
     def test_judge_by_capture_passes_identical_bytes_and_refuses_a_run_without_the_cpu_variant(self):
         run = tempfile.mkdtemp()
@@ -4714,7 +4813,8 @@ class DefaultVariantsTest(unittest.TestCase):
         # variants need, each once.
         for declared, variants, want in (
                 (None, ["2d-potato-min"], []),
-                (None, t3_scenario.DEFAULT_VARIANTS, ["images"]),
+                (None, t3_scenario.DEFAULT_VARIANTS, ["gpu", "images"]),
+                (None, ["2d-1280x800", "2d-7680x2160"], ["images"]),
                 (["logind"], [self.VARIANT], ["images", "logind"]),
                 (["images"], [self.VARIANT, "2d-potato-min"], ["images"]),
                 ([], ["images-640x480", "2d-640x480-psf16"], ["images"])):
@@ -4737,9 +4837,9 @@ class DefaultVariantsTest(unittest.TestCase):
         ppm = os.path.join(self.dir.name, "mpv-sixel.ppm")
         t3_qemu.write_ppm(ppm, t3img.read(golden))
         fine = {"mpv_frames": 150, "mpv_per_s": 29.1, "presented_per_s": 59.0,
-                "kmscon_cpu_ms_per_mpv_frame": 6.733}
+                "console_cpu_ms_per_mpv_frame": 6.733}
         for figures, status in ((dict(fine, mpv_frames=0), "fail"), (fine, "provisional"),
-                                (dict(fine, kmscon_cpu_ms_per_mpv_frame=375.8), "fail")):
+                                (dict(fine, console_cpu_ms_per_mpv_frame=375.8), "fail")):
             with self.subTest(figures=figures), \
                     mock.patch.object(t3_evaluate, "RUNDIR", os.path.join(self.dir.name, "run")):
                 entry = t3_evaluate.evaluate(variant, "mpv-sixel", ppm,
@@ -4749,15 +4849,15 @@ class DefaultVariantsTest(unittest.TestCase):
                 self.assertIn("judged, it would be pass", entry["note"])
 
     def test_console_pid(self):
-        # acceptance.inc's kmscon_pid finds the console a benchmark screen
+        # acceptance.inc's console_pid finds the console a benchmark screen
         # runs under: the nearest ancestor named vtium, or kmscon, and none
         # under any other name, so the CPU figure is never another
         # program's.
         with open(os.path.join(t3_common.GUEST, "screens", "acceptance.inc")) as f:
-            func = re.search(r"^kmscon_pid\(\) \{\n.*?^\}\n", f.read(), re.M | re.S).group(0)
+            func = re.search(r"^console_pid\(\) \{\n.*?^\}\n", f.read(), re.M | re.S).group(0)
         script = os.path.join(self.dir.name, "pid.sh")
         with open(script, "w") as f:
-            f.write(func + "kmscon_pid || echo none\n")
+            f.write(func + "console_pid || echo none\n")
         for name, found in (("vtium", True), ("kmscon", True), ("vtium-config", False)):
             with self.subTest(name):
                 console = os.path.join(self.dir.name, name)
@@ -4790,7 +4890,7 @@ class ShowcaseTest(unittest.TestCase):
         self.assertIn("xres=1920,yres=1080", v["device"])
         self.assertEqual((v["cpus"], v["memory_mb"], v["renderer"], v["tree_features"]),
                          (4, 4096, "cpu", ["images"]))
-        self.assertEqual((v["verdict"], v["conf"]), ("capture", "kmscon-showcase.conf"))
+        self.assertEqual((v["verdict"], v["conf"]), ("capture", "vtium-showcase.conf"))
         self.assertEqual(t3_scenario.variant_cases(self.VARIANT), self.SCREENS)
         self.assertEqual(t3_showcase.SCREENS, self.SCREENS)
         self.assertNotIn(self.VARIANT, t3_scenario.DEFAULT_VARIANTS)

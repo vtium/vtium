@@ -2,7 +2,7 @@
 //! the table in this crate's README.
 //!
 //! Each bound is a [`Bound`] row holding its value, what happens past it,
-//! and the C reference lines that set it; the public constant takes its
+//! and why it has that value; the public constant takes its
 //! value from the row. The README table is generated from [`BOUNDS`], and
 //! `readme_table_matches_bounds` fails when the committed copy differs.
 //! `VTIUM_PARSE_BLESS=1 cargo test -p vtium-parse readme_table` rewrites it.
@@ -22,7 +22,7 @@ const PARAMS: Bound = Bound {
     value: 16,
     what: "Parameters a CSI sequence or DCS string keeps",
     past: "Dropped, and the sequence still dispatches with 16",
-    cite: "`CSI_ARG_MAX`, tsm-vte-int.h:25; tsm-vte.c:1283, 1293-1294, 2542-2543",
+    cite: "vtium's own: the parser holds the parameters inline, with no allocation, so this bound sets its size",
 };
 
 const SUBPARAMS: Bound = Bound {
@@ -30,7 +30,7 @@ const SUBPARAMS: Bound = Bound {
     value: 8,
     what: "Colon sub-parameters one parameter keeps",
     past: "The colon and every digit up to the next `;` are dropped, and the sequence still dispatches",
-    cite: "`CSI_SUBARG_MAX`, tsm-vte-int.h:28; tsm-vte.c:1298-1308",
+    cite: "vtium's own: ITU T.416's full direct-color form, `38:2:Pi:R:G:B:unused:tolerance:tolerance-space`, takes eight sub-parameters after the 38, and the parser holds them inline",
 };
 
 const VALUE: Bound = Bound {
@@ -38,7 +38,7 @@ const VALUE: Bound = Bound {
     value: 0xffff,
     what: "A parameter or sub-parameter takes digits while it is at most this",
     past: "Further digits are dropped, so a value reaches at most 655359",
-    cite: "tsm-vte.c:1314-1316",
+    cite: "vtium's own: vt100.net asks a parser to take values up to at least 16383, and a value of up to 655359 is more than any count or position on a screen within vtium-term's bounds",
 };
 
 const OSC: Bound = Bound {
@@ -46,22 +46,22 @@ const OSC: Bound = Bound {
     value: 1 << 20,
     what: "Bytes an OSC string keeps, as UTF-8, in a buffer that doubles from 4 KiB to at most this size and is released after a string past 64 KiB: an OSC 52 payload at vtium-term's `CLIPBOARD_MAX` with room to spare, and 500 times an OSC 8 URI at the 2083 bytes VTE and iTerm2 allow",
     past: "The character that would pass it and everything after it are dropped as they arrive, so the kept bytes are a prefix, and the string still dispatches, marked truncated; vtium-term acts on no truncated string, so it is dropped whole",
-    cite: "vtium's own, at tmux's `input-buffer-size` (`tmux.h:3509` at `df302c5`), which drops a longer sequence; xterm ignores a string past `maxStringParse`, 20000 bytes, or 600000 with sixel or ReGIS (`main.h:277-283` at `5c75ead`); Ghostty keeps 2048 bytes of an OSC string and 8 MiB of an OSC 52 (`src/terminal/osc.zig:361, 365` at `a732580`) and drops a longer one; foot grows its buffer with no bound short of half the address space (`osc.c:1708-1723` at `152487e`). The C reference kept 127 (`OSC_MAX_LEN`, tsm-vte-int.h:31; tsm-vte.c:2912-2921)",
+    cite: "vtium's own, at tmux's `input-buffer-size` (`tmux.h:3509` at `df302c5`), which drops a longer sequence; xterm ignores a string past `maxStringParse`, 20000 bytes, or 600000 with sixel or ReGIS (`main.h:277-283` at `5c75ead`); Ghostty keeps 2048 bytes of an OSC string and 8 MiB of an OSC 52 (`src/terminal/osc.zig:361, 365` at `a732580`) and drops a longer one; foot grows its buffer with no bound short of half the address space (`osc.c:1708-1723` at `152487e`)",
 };
 
 const XTGETTCAP: Bound = Bound {
     name: "XTGETTCAP_MAX",
     value: 16 * (2 * 32 + 1) - 1,
     what: "Bytes an XTGETTCAP payload keeps: 16 hex-encoded names of 32 bytes and the `;` between each two",
-    past: "The rest is dropped and the request reaches `xtgettcap` with no payload, which the C reference answers `DCS 0 + r ST`",
-    cite: "`XTGETTCAP_MAX_LEN`, tsm-vte-int.h:33-38; libtsm.h:1538; tsm-vte.c:3087-3091, 3149-3152",
+    past: "The rest is dropped and the request reaches `xtgettcap` with no payload, which vtium-term answers `DCS 0 + r ST`",
+    cite: "vtium's own: the 16 names vtium-term answers in one request, each at most its `TERMCAP_NAME_MAX`, 32 bytes, hex-encoded",
 };
 
 const INTERMEDIATES: Bound = Bound {
     name: "INTERMEDIATES_MAX",
     value: 2,
     what: "Intermediate bytes an ESC, CSI or DCS sequence keeps, in order",
-    past: "The sequence dispatches nothing (vt100.net); the C reference kept intermediates as a set of flags with no count bound",
+    past: "The sequence dispatches nothing",
     cite: "vt100.net, collect: \"If more than two intermediate characters arrive, the parser can just flag this so that the dispatch can be turned into a null operation\"",
 };
 
@@ -146,22 +146,23 @@ mod tests {
         );
     }
 
-    // tsm-vte-int.h:25, 28, 33-38; libtsm.h:1538
+    // 16 parameters of 8 sub-parameters each, a value cap of 65535, and 16
+    // hex-encoded names of 32 bytes with the `;` between each two.
     #[test]
-    fn values_are_the_c_references() {
+    fn the_inline_bounds_have_their_values() {
         assert_eq!(PARAMS_MAX, 16);
         assert_eq!(SUBPARAMS_MAX, 8);
         assert_eq!(PARAM_VALUE_CAP, 0xffff);
         assert_eq!(XTGETTCAP_MAX, 1039);
     }
 
-    // tmux.h:3509, input-buffer-size; the C reference kept 127.
+    // tmux.h:3509, input-buffer-size.
     #[test]
     fn osc_max_is_tmuxs_input_buffer() {
         assert_eq!(OSC_MAX, 1_048_576);
     }
 
-    // vt100.net, collect; the C reference has no such bound.
+    // vt100.net, collect.
     #[test]
     fn intermediates_max_is_vt100_nets() {
         assert_eq!(INTERMEDIATES_MAX, 2);

@@ -13,13 +13,13 @@ use std::fmt::Display;
 use crate::head::chord::{self, HeadChord};
 
 /// The start found no keyboard on the seat (ADR-1401 D8).
-pub const NO_KEYBOARD: &str = "No keyboard was found. Plug one in to type.";
+pub const NO_KEYBOARD: &str = "No keyboard found. Connect one to type.";
 
 /// The anti-lockout guard sent every keyboard to the head named `to`
 /// (ADR-1401 D9).
 pub fn anti_lockout(to: &str) -> String {
     format!(
-        "No keyboard was reaching a screen that is on, so every keyboard now types into {to}. To send a keyboard somewhere else, change its rule in {}, then restart vtium or reboot.",
+        "Every keyboard now types into {to}, because no keyboard reached a screen that is on. To send a keyboard elsewhere, change its rule in {}, then restart vtium or reboot.",
         vtium_settings::CONF_FILE
     )
 }
@@ -28,7 +28,7 @@ pub fn anti_lockout(to: &str) -> String {
 /// (ADR-1401 D9).
 pub fn rescue(device: impl Display, to: &str) -> String {
     format!(
-        "The rescue key moved the keyboard at {device}. It types into the active screen, {to}, until the next boot. To keep it there after that, give it a rule in {}.",
+        "Keyboard {device} now types into {to}, the active screen, until the next boot (the rescue key moved it). To keep it there, give it a rule in {}.",
         vtium_settings::CONF_FILE
     )
 }
@@ -37,7 +37,7 @@ pub fn rescue(device: impl Display, to: &str) -> String {
 /// (ADR-1401 D9).
 pub fn rescue_no_head(device: impl Display) -> String {
     format!(
-        "The rescue key moved the keyboard at {device}. It types into the active screen until the next boot, and no screen is active now. Press {} to choose one.",
+        "Keyboard {device} now types into the active screen until the next boot (the rescue key moved it), but no screen is active. Press {} to choose one.",
         chord::keys(HeadChord::NextHead)
     )
 }
@@ -47,7 +47,7 @@ pub fn rescue_no_head(device: impl Display) -> String {
 /// to another screen (vtium/vtium#156, ADR-1401 D1).
 pub fn session_ended() -> String {
     format!(
-        "This session has ended and will not start again. To keep working, press {} to switch to another screen.",
+        "Session ended. It will not start again. Press {} to switch to another screen.",
         chord::keys(HeadChord::NextHead)
     )
 }
@@ -57,7 +57,7 @@ pub fn session_ended() -> String {
 /// that console (ADR-1401 D1, D5).
 pub fn session_ended_console() -> String {
     format!(
-        "This session has ended and will not start again. To keep working, press {} to show another console on this screen.",
+        "Session ended. It will not start again. Press {} to show another console on this screen.",
         chord::keys(HeadChord::NextConsole)
     )
 }
@@ -66,7 +66,7 @@ pub fn session_ended_console() -> String {
 /// the closed policy, for as long as vtium runs (ADR-1401 D1).
 pub fn stopped() -> String {
     format!(
-        "A session kept ending as soon as it started, so vtium stopped every screen, and nothing here takes input. Fix the login command in {}, then restart vtium or reboot.",
+        "All screens stopped: a session kept ending as soon as it started. Nothing here takes input. Fix the login command in {}, then restart vtium or reboot.",
         vtium_settings::CONF_FILE
     )
 }
@@ -75,7 +75,7 @@ pub fn stopped() -> String {
 /// broken closed head file at `path` left.
 pub fn no_head_left(path: &std::path::Path) -> String {
     format!(
-        "The errors in {}, listed below, leave no head that can run.",
+        "No head can run because of the errors in {}, listed below.",
         vtium_settings::Shown(path)
     )
 }
@@ -122,13 +122,13 @@ pub const NO_CONSOLE_OPENED: &str = "Console not opened: login could not start."
 /// The on-screen display's brief line on head `head` when the open chord
 /// finds it at `head-consoles-max`, its `n` consoles (ADR-1401 D5).
 pub fn no_more_consoles(head: &str, n: usize) -> String {
-    format!("No more consoles: {head} has {n}, its most.")
+    format!("No more consoles: {head} has its limit of {n}.")
 }
 
 /// The on-screen display's brief line when the open chord finds every head
 /// together at `consoles-max`, their `n` consoles (ADR-1401 D5).
 pub fn no_more_consoles_together(n: usize) -> String {
-    format!("No more consoles: every head together has {n}, the most.")
+    format!("No more consoles: all heads together have the limit of {n}.")
 }
 
 /// The on-screen display's full line on a head (ADR-1401 D5), such as
@@ -149,55 +149,48 @@ pub mod check_config {
 
     /// The subcommand's help.
     pub const HELP: &str = "Usage: vtium check-config [OPTION]... [--no-devices] [FILE]\n\n\
-Reads the configuration as vtium would start with these options: the\n\
-vtium.conf in the configuration directory, /etc/vtium/vtium.conf, or FILE\n\
-in its place to check it before it is installed, then the options. It\n\
-checks both parts of the file in one run: the keys above the first\n\
-section, and the looks, heads and rules below it. It prints each warning\n\
-of the keys, and each error of the sections, each followed by what it\n\
-drops, and their warnings: a shadowed rule, a head's consoles past its\n\
-cap or past the total, and a look naming a missing frit. It counts a\n\
-file that wires no complete route, a display present sent to a head that\n\
-a keyboard present reaches, and says what is missing. With no display or\n\
-no keyboard present, or with --no-devices, it judges the rules alone and\n\
-says so. It exits 1 when there is any, 0 when there is none. It notes on\n\
-standard output what it does not count: the density font sizes in\n\
-points convert at, which the start reads from each display, and of the\n\
-sections a weak match, a rule that needs a udev daemon where none runs,\n\
-a rule using connector-path:, which it cannot check without opening the\n\
-card, a head no rule names, every head isolated, and, of the devices\n\
-present, each rule matching none, each device no rule places and what\n\
-the policy does with it, no head that can be the active head, under\n\
-closed no keyboard reaching any head, a head claiming pointers while\n\
-every keyboard is claimed elsewhere, every keyboard ignored, and a head\n\
-whose only keyboard is one device. Its notes end with what a start does\n\
-with the file, and the file's policy. It also notes when vtium would\n\
-refuse the glyph helper font-helper names. It only checks: it opens\n\
-nothing under /dev, writes nothing and applies nothing. It reads\n\
-vtium.conf, the frit font-name names, the helper's owner and mode, and\n\
-the devices present from /sys and udev's database, /run/udev/data.\n";
+Checks vtium's configuration without applying it. It reads\n\
+/etc/vtium/vtium.conf (or the vtium.conf in --configdir, or FILE, to\n\
+check a file before you install it) and the other options, as vtium\n\
+would at start.\n\n\
+It checks the whole file: the settings at the top, and the [look],\n\
+[head] and [rules] sections. It prints each error with what vtium would\n\
+skip because of it, and each warning, such as a rule that never matches,\n\
+a head with too many consoles, or a look whose font set is missing.\n\n\
+It also checks that at least one display that is connected reaches a\n\
+head that a keyboard reaches, and says what is missing if not. With no\n\
+display or keyboard connected, or with --no-devices, it checks the rules\n\
+alone and says so.\n\n\
+It exits 1 when it finds an error or warning, and 0 when it finds none.\n\
+Notes, printed on standard output, do not count: for example a weak\n\
+match, a rule that needs udev, a head no rule uses, a device no rule\n\
+places, or a font helper vtium would refuse. The notes end with what\n\
+vtium would do with the file at start, and the file's policy.\n\n\
+It only reads: vtium.conf, the font set font-name names, the font\n\
+helper's owner and mode, and the devices from /sys and /run/udev/data.\n\
+It opens nothing under /dev and changes nothing.\n";
 
     /// The frit `font-name` names could not be read.
     pub fn frit_unreadable(name: &str, why: &str) -> String {
-        format!("the frit {name} cannot be read ({why}); vtium draws its built-in font")
+        format!("font set {name} cannot be read ({why}), so vtium uses its built-in font")
     }
 
     /// `hwaccel` on in a build without the `gpu` feature (ADR-1303 D9).
     pub const HWACCEL_NOT_IN_BUILD: &str =
-        "hwaccel needs a build with the gpu feature; vtium draws in software";
+        "hwaccel needs a build with GPU support, so vtium draws in software";
 
     /// A key vtium takes and does not act on yet, set by a source.
     pub fn not_built(key: &str) -> String {
-        format!("{key} is not built yet; vtium ignores it")
+        format!("{key} has no effect yet, so vtium ignores it")
     }
 
     pub const MODE_OVER_ORIGINAL: &str = "mode is set, so use-original-mode is off";
 
-    /// `grab-power-off` is bound and PID 1 does not catch the power-off
-    /// `signal`.
-    pub fn power_off_uncaught(signal: i32) -> String {
+    /// `grab-power-off` is bound and PID 1 neither catches nor blocks the
+    /// power-off `signal`.
+    pub fn power_off_not_taken(signal: i32) -> String {
         format!(
-            "grab-power-off is bound, and PID 1 does not catch SIGRTMIN+4 (signal {signal}, from SigCgt in /proc/1/status): it powers nothing off"
+            "the grab-power-off key will not work: the init system (PID 1) neither handles nor blocks SIGRTMIN+4 (signal {signal}, from SigCgt and SigBlk in /proc/1/status). Unbind the key, or use an init system that powers off on that signal, such as systemd or sysvinit."
         )
     }
 
@@ -205,39 +198,40 @@ the devices present from /sys and udev's database, /run/udev/data.\n";
     /// the system saying `system_error`.
     pub fn power_off_status_unreadable(signal: i32, system_error: impl Display) -> String {
         format!(
-            "grab-power-off is bound, and whether PID 1 catches SIGRTMIN+4 (signal {signal}) is unknown, since /proc/1/status could not be read: {system_error}"
+            "the grab-power-off key may not work: vtium cannot tell whether the init system (PID 1) handles SIGRTMIN+4 (signal {signal}), because /proc/1/status could not be read: {system_error}"
         )
     }
 
-    /// `grab-power-off` is bound and `/proc/1/status` has no `SigCgt` line.
-    pub fn power_off_no_sigcgt(signal: i32) -> String {
+    /// `grab-power-off` is bound and `/proc/1/status` has no `line` line,
+    /// `SigCgt` or `SigBlk`.
+    pub fn power_off_no_mask(signal: i32, line: &str) -> String {
         format!(
-            "grab-power-off is bound, and whether PID 1 catches SIGRTMIN+4 (signal {signal}) is unknown, since /proc/1/status has no SigCgt line"
+            "the grab-power-off key may not work: vtium cannot tell whether the init system (PID 1) handles SIGRTMIN+4 (signal {signal}), because /proc/1/status has no {line} line"
         )
     }
 
-    /// `grab-power-off` is bound and `/proc/1/status`'s `SigCgt` line,
-    /// `mask`, is not a hex mask.
-    pub fn power_off_bad_mask(signal: i32, mask: &str) -> String {
+    /// `grab-power-off` is bound and the `line` line of `/proc/1/status`,
+    /// `SigCgt` or `SigBlk`, holds `mask`, which is not a hex mask.
+    pub fn power_off_bad_mask(signal: i32, line: &str, mask: &str) -> String {
         format!(
-            "grab-power-off is bound, and whether PID 1 catches SIGRTMIN+4 (signal {signal}) is unknown, since the SigCgt line of /proc/1/status is not a hex mask: {mask:?}"
+            "the grab-power-off key may not work: vtium cannot tell whether the init system (PID 1) handles SIGRTMIN+4 (signal {signal}), because the {line} line of /proc/1/status is not a hex mask: {mask:?}"
         )
     }
 
     pub fn display_dpi(dpi: u64) -> String {
         format!(
-            "display-dpi={dpi}: every display converts points at {dpi} DPI, its measured density aside"
+            "display-dpi={dpi}: every display uses {dpi} DPI for font sizes, whatever density it reports"
         )
     }
 
-    pub const MEASURED_DENSITY: &str = "each display converts points at the density it measures from its physical size, else at 96 DPI with a warning naming it; the start logs which";
+    pub const MEASURED_DENSITY: &str = "each display uses the density it reports from its physical size for font sizes, or 96 DPI with a warning if it reports none; vtium logs which at start";
 
     /// The helper `font-helper` names is one vtium refuses, `why`, for the
     /// account the check runs as; the start, which may run as another,
     /// checks it again.
     pub fn helper_refused(why: &str) -> String {
         format!(
-            "font-helper: {why}; vtium would draw its built-in font, and the start checks again for the account it runs as"
+            "font-helper: {why}. vtium would use its built-in font. vtium checks again at start, for the account it runs as."
         )
     }
 
@@ -245,7 +239,7 @@ the devices present from /sys and udev's database, /run/udev/data.\n";
     /// `why`, though the account the check runs as takes it.
     pub fn helper_refused_as_root(why: &str) -> String {
         format!(
-            "font-helper: started as root, vtium refuses it: {why}; the root start draws its built-in font"
+            "font-helper: when vtium runs as root, it refuses this helper: {why}. vtium would then use its built-in font."
         )
     }
 
@@ -254,7 +248,7 @@ the devices present from /sys and udev's database, /run/udev/data.\n";
     /// another, checks it again.
     pub fn image_helper_refused(why: &str) -> String {
         format!(
-            "image-helper: {why}; every console would answer files, shared memory, PNG and zlib itself, as with no helper, and the start checks again for the account it runs as"
+            "image-helper: {why}. vtium would refuse images sent as files or shared memory, and PNG and zlib images. vtium checks again at start, for the account it runs as."
         )
     }
 
@@ -262,38 +256,38 @@ the devices present from /sys and udev's database, /run/udev/data.\n";
     /// `why`, though the account the check runs as takes it.
     pub fn image_helper_refused_as_root(why: &str) -> String {
         format!(
-            "image-helper: started as root, vtium refuses it: {why}; under the root start every console answers files, shared memory, PNG and zlib itself, as with no helper"
+            "image-helper: when vtium runs as root, it refuses this helper: {why}. vtium would then refuse images sent as files or shared memory, and PNG and zlib images."
         )
     }
 
     /// A folder of `font-paths` that does not exist (ADR-1200 D25).
     pub fn font_path_missing(dir: &str) -> String {
-        format!("font-paths: {dir:?} does not exist, so the glyph helper finds no font there")
+        format!("font-paths: {dir:?} does not exist, so no fonts can be found there")
     }
 
     /// A folder of `font-paths` that other accounts cannot read and
     /// search (ADR-1200 D25).
     pub fn font_path_private(dir: &str) -> String {
         format!(
-            "font-paths: other accounts cannot read {dir:?}, so before anyone logs in the glyph helper, which runs as nobody, finds no font there, and a font there appears only after login"
+            "font-paths: other users cannot read {dir:?}. Before someone logs in, the font helper runs as nobody and cannot use the fonts there; they appear only after login."
         )
     }
 
     /// A candidate vtium.conf that is not there.
     pub const NO_SUCH_FILE: &str = "does not exist";
 
-    pub const ROOT_ONLY: &str = "permission denied: this file can be checked only as root";
+    pub const ROOT_ONLY: &str = "permission denied: only root can check this file";
 
     /// A vtium.conf with no section and no policy line: a kmscon.conf,
     /// whose keys apply and for which vtium runs its compiled-in flow
     /// (ADR-1403 D3).
-    pub const NO_FLOW: &str = "This file has no section and no policy line, so a start reads its keys and runs the compiled-in looks, heads and rules, and shows nothing.";
+    pub const NO_FLOW: &str = "This file has no sections and no policy line, so vtium uses its settings with the built-in looks, heads and rules, and shows no notice.";
 
     /// A candidate vtium.conf owned by `uid`, not root: the start trusts it
     /// once it is installed.
     pub fn candidate_owner(path: impl Display, uid: u32) -> String {
         format!(
-            "{path} belongs to user {uid}, not to root. The start reads this file once it is installed, owned by root and writable only by root."
+            "{path} belongs to user {uid}, not to root. That is fine for a check: vtium reads the file once it is installed, owned by root and writable only by root."
         )
     }
 
@@ -301,7 +295,7 @@ the devices present from /sys and udev's database, /run/udev/data.\n";
     /// the start trusts it once it is installed.
     pub fn candidate_writable(path: impl Display, mode: u32) -> String {
         format!(
-            "{path} can be changed by its group or by other users (mode {mode:o}). The start reads this file once it is installed, owned by root and writable only by root."
+            "Other users can change {path} (mode {mode:o}). That is fine for a check: vtium reads the file once it is installed, owned by root and writable only by root."
         )
     }
 
@@ -315,7 +309,7 @@ the devices present from /sys and udev's database, /run/udev/data.\n";
 
     /// A rule matching on `key`, which only a udev daemon gives.
     pub fn no_udev(key: impl Display) -> String {
-        format!("no udev daemon runs, so `{key}:` matches nothing")
+        format!("`{key}:` matches nothing, because udev is not running")
     }
 
     /// A rule using `connector-path:`, which vtium matches when it finds
@@ -323,7 +317,7 @@ the devices present from /sys and udev's database, /run/udev/data.\n";
     /// present.
     pub fn unchecked_connector_path() -> String {
         format!(
-            "check-config opens no card, so it cannot read a connector's PATH and does not check `{token}` against the displays present; vtium matches it when it finds the display",
+            "`{token}` is not checked against the connected displays, because check-config does not open the graphics card; vtium matches it when it finds the display",
             token = "connector-path:",
         )
     }
@@ -331,12 +325,10 @@ the devices present from /sys and udev's database, /run/udev/data.\n";
     /// A device that reports no name, path or connector.
     pub const UNNAMED_DEVICE: &str = "a device with no name";
 
-    pub const MATCHES_NOTHING: &str = "the rule matches no device present";
+    pub const MATCHES_NOTHING: &str = "the rule matches no connected device";
 
     pub fn pointers_only(head: &str) -> String {
-        format!(
-            "head {head} claims pointers and no keyboard, and every keyboard is claimed by another head"
-        )
+        format!("head {head} has mice but no keyboard: every keyboard goes to another head")
     }
 
     pub const EVERY_KEYBOARD_IGNORED: &str = "every keyboard is ignored";
@@ -344,7 +336,7 @@ the devices present from /sys and udev's database, /run/udev/data.\n";
     /// The head `head`'s only keyboard is the one `device`, as it reports
     /// itself.
     pub fn one_keyboard(head: &str, device: &str) -> String {
-        format!("head {head}'s only keyboard is one device, {device}")
+        format!("head {head} has only one keyboard, {device}")
     }
 }
 
@@ -354,10 +346,10 @@ pub mod blank {
     use std::fmt::{Debug, Display};
 
     /// `vtium blank`'s usage.
-    pub const USAGE_BLANK: &str = "Usage: vtium blank --vt N\nFinds the vtium on VT N and blanks its displays now (SIGRTMIN+1). Root or the user vtium runs as may send it.\n";
+    pub const USAGE_BLANK: &str = "Usage: vtium blank --vt N\nTurns off the displays of the vtium on VT N now (it sends SIGRTMIN+1). Run it as root or as the user vtium runs as.\n";
 
     /// `vtium wake`'s usage.
-    pub const USAGE_WAKE: &str = "Usage: vtium wake --vt N\nFinds the vtium on VT N and wakes its displays (SIGRTMIN+2). Root or the user vtium runs as may send it.\n";
+    pub const USAGE_WAKE: &str = "Usage: vtium wake --vt N\nTurns on the displays of the vtium on VT N (it sends SIGRTMIN+2). Run it as root or as the user vtium runs as.\n";
 
     /// The subcommand `word` refused its words for `why`, then its
     /// `usage`.
@@ -366,10 +358,10 @@ pub mod blank {
     }
 
     pub fn not_utf8(word: impl Debug) -> String {
-        format!("{word:?} is not UTF-8")
+        format!("{word:?} is not UTF-8 text")
     }
 
-    pub const VT_NEEDS_NUMBER: &str = "--vt needs a VT's number";
+    pub const VT_NEEDS_NUMBER: &str = "--vt needs a VT number";
 
     pub fn unknown_option(word: &str) -> String {
         format!("unknown option {word}")
@@ -378,15 +370,15 @@ pub mod blank {
     pub const VT_TWICE: &str = "--vt is given twice";
 
     pub fn not_a_vt(value: &str, last: u16) -> String {
-        format!("{value} is no VT 1 to {last}")
+        format!("{value} is not a VT number from 1 to {last}")
     }
 
-    pub const VT_MISSING: &str = "--vt N names the VT";
+    pub const VT_MISSING: &str = "give the VT with --vt N";
 
     /// No vtium found on VT `vt`, and another user's could not be read.
     pub fn none_readable(word: &str, vt: u16) -> String {
         format!(
-            "vtium {word}: no vtium found on VT {vt}; another user's vtium cannot be read: run as root or as vtium's user"
+            "vtium {word}: no vtium found on VT {vt}. A vtium run by another user cannot be seen: run this as root or as that user."
         )
     }
 
@@ -395,11 +387,11 @@ pub mod blank {
     }
 
     pub fn left_before(word: &str, pid: u32, vt: u16) -> String {
-        format!("vtium {word}: vtium {pid} left VT {vt} before the signal")
+        format!("vtium {word}: vtium (process {pid}) left VT {vt} before the signal reached it")
     }
 
     pub fn cannot_signal(word: &str, pid: u32, vt: u16, why: impl Display) -> String {
-        format!("vtium {word}: cannot signal vtium {pid} on VT {vt}: {why}")
+        format!("vtium {word}: cannot signal vtium (process {pid}) on VT {vt}: {why}")
     }
 }
 
@@ -412,15 +404,15 @@ pub mod config_tool {
     /// helper's own reason, which names the path.
     pub fn refused(why: &str) -> String {
         format!(
-            "vtium config: {why}. vtium config runs vtium-config, the font and settings tool, from the glyph helper's path, which the font-helper key sets."
+            "vtium config: {why}. vtium config runs vtium-config from the path in the font-helper setting."
         )
     }
 
-    /// The tool at `program`, opened as descriptor `fd`, could not be
-    /// started, for `why`.
-    pub fn cannot_run(program: impl Display, fd: i32, why: impl Display) -> String {
+    /// The tool at `program`, which vtium config starts through
+    /// `/proc/self/fd`, could not be started, for `why`.
+    pub fn cannot_run(program: impl Display, why: impl Display) -> String {
         format!(
-            "vtium config: cannot start {program} through /proc/self/fd/{fd}: {why}; vtium config starts the tool from the file it opened, through /proc/self/fd, so /proc must be mounted."
+            "vtium config: cannot start {program}: {why}. vtium config starts it through /proc/self/fd, so /proc must be mounted."
         )
     }
 }
@@ -435,7 +427,7 @@ mod tests {
     fn the_ended_session_names_the_keys_that_switch_screens() {
         assert_eq!(
             session_ended(),
-            "This session has ended and will not start again. To keep working, press Ctrl+Super+↑ to switch to another screen."
+            "Session ended. It will not start again. Press Ctrl+Super+↑ to switch to another screen."
         );
     }
 
@@ -445,7 +437,7 @@ mod tests {
     fn the_ended_session_names_the_keys_that_show_another_console() {
         assert_eq!(
             session_ended_console(),
-            "This session has ended and will not start again. To keep working, press Ctrl+Super+→ to show another console on this screen."
+            "Session ended. It will not start again. Press Ctrl+Super+→ to show another console on this screen."
         );
     }
 

@@ -17,14 +17,10 @@
 //! never lit has nothing left to run, so it holds up no exit (the team
 //! lead's steering of 2026-10-30).
 //!
-//! The C reference started a session's child again in the same terminal,
-//! which closed its pty and hard-reset its parser first, and each pty
-//! counted its own quick exits (`src/misc/pty.c:737-768`,
-//! `src/terminal.c:1711-1748, 1856-1868` at kmscon b1f7a7c5). Under
-//! `oneshot` it ended the whole process at the first exit, where vtium
-//! ends that console alone. Its seat's chords opened a session next to
-//! the current one and showed it, and closed the current one, showing the
-//! next and refusing the last (`src/seat.c:584-640, 1165-1236`).
+//! Before a console's session starts again, the console closes its pty
+//! and hard-resets its terminal. The open chord opens a console next to
+//! the one shown and shows it, and the close chord closes the one shown,
+//! shows the next, and does nothing on the head's last console.
 
 use std::rc::Rc;
 use std::time::Duration;
@@ -59,7 +55,7 @@ pub(crate) fn console_shares(rules: &vtium_settings::Config, caps: Caps) -> Vec<
             let asked = usize::try_from(h.consoles).unwrap_or(usize::MAX).max(1);
             if asked > caps.head {
                 log::warn!(
-                    "head {}: consoles = {asked} is past head-consoles-max: it opens {}",
+                    "head {}: consoles = {asked} is more than head-consoles-max, so it opens {}",
                     h.name,
                     caps.head
                 );
@@ -68,7 +64,7 @@ pub(crate) fn console_shares(rules: &vtium_settings::Config, caps: Caps) -> Vec<
             let given = more.min(spare);
             if given < more {
                 log::warn!(
-                    "head {}: consoles-max, {}, leaves it {} consoles",
+                    "head {}: consoles-max ({}) leaves it {} consoles",
                     h.name,
                     caps.total,
                     given.saturating_add(1)
@@ -409,7 +405,7 @@ impl Head {
             // The run ends in this turn, so the head draws no notice.
             Next::TooQuick => {
                 log::error!(
-                    "head {}: the session of console {id} ended less than {} s after it started, more than {QUICK_RESTARTS} times running",
+                    "head {}: the session of console {id} ended within {} s of starting, more than {QUICK_RESTARTS} times in a row",
                     self.name(),
                     QUICK.as_secs()
                 );
@@ -429,8 +425,7 @@ impl Head {
         console.term.terminal.take_font_request();
         if after == AfterExit::Restart {
             // A new session starts from a hard reset (RIS), with nothing of
-            // the last session's output left (`terminal_close` at kmscon
-            // b1f7a7c5).
+            // the last session's output left.
             let term = &mut console.term;
             term.terminal.input(b"\x1bc");
             term.terminal.take_replies();

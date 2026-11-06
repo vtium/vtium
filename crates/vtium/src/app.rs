@@ -130,8 +130,9 @@ use crate::term::{Clock, Prepared, Term, View};
 use crate::video::Video;
 use crate::wait::Wait;
 
-/// How long the loop is served at exit while the switch back is pending
-/// (`src/main.c:203-209` at kmscon b1f7a7c5).
+/// How long the loop is served at exit while the switch back is pending,
+/// so the kernel's SIGUSR2 for the switch back is answered before vtium
+/// ends.
 pub const LEAVE_WAIT: Duration = Duration::from_millis(100);
 
 /// How long the on-screen display's brief line shows where `osd-timeout`
@@ -622,8 +623,8 @@ impl App {
     }
 
     /// The seat's keyboards and pointers. On a fake VT, the app holds one
-    /// wake-up of them for as long as it runs, as the C reference's fake
-    /// VT did, so they stay open while the VT is released and the
+    /// wake-up of them for as long as it runs, so they stay open while the
+    /// VT is released and the
     /// Ctrl+Super+F12 that takes it back can arrive. A kernel VT's
     /// release closes them, and its acquire opens them again.
     pub fn set_input(&mut self, mut input: vtium_platform::input::Input) {
@@ -914,8 +915,8 @@ impl App {
     /// `height`, the height head `h` draws at, which the helper is asked
     /// for and waited for at most [`helper::OWN_CELL_MS`], the one wait on
     /// the helper (ADR-1200 D17): a bitmap source's own cell, where no
-    /// `font-size` is configured, as the C reference drew a PSF font at its
-    /// own size (the operator, 2026-10-28), or an outline source's cell at
+    /// `font-size` is configured, so a bitmap font draws at its own size
+    /// (the operator, 2026-10-28), or an outline source's cell at
     /// `height` (the maintainer, 2026-11-01). Each answer is kept for the
     /// frit, by the height asked at, for every head drawing it. A refusal,
     /// or no answer in time, leaves the display's cell, or for an outline
@@ -1521,7 +1522,7 @@ impl App {
                 }
                 Err(why) => {
                     log::warn!(
-                        "the font's glyphs are not generated ({why}): vtium draws its built-in font, and each cluster unshaped, a glyph a codepoint"
+                        "the font helper could not draw the font ({why}), so vtium uses its built-in font, one character at a time with no combined characters"
                     );
                     Err(())
                 }
@@ -1866,10 +1867,9 @@ impl App {
                 }
                 self.darken();
                 self.wait.shown(now);
-                // The blank's countdown starts afresh from the acquire, as
-                // the C reference's reset its DPMS timer when a display
-                // became active (`src/seat.c:196-202`), and a blank in force
-                // ends; while the VT was another's it ran no blank.
+                // The blank's countdown starts afresh from the acquire, and
+                // a blank in force ends; while the VT was another's it ran
+                // no blank, since its displays were not vtium's.
                 self.user_input(now);
                 self.activate(now);
             }
@@ -2221,7 +2221,7 @@ impl App {
                     .and_then(|h| self.heads.get(h))
                     .map_or("", Head::name);
                 let line = crate::notice::anti_lockout(to);
-                log::warn!("the anti-lockout guard: {line}");
+                log::warn!("anti-lockout: {line}");
                 if let Some(head) = self.focus.and_then(|h| self.heads.get_mut(h)) {
                     head.add_notice(&line);
                 }
@@ -2600,16 +2600,15 @@ impl App {
 
     /// A pointer event for head `h`, with the modifiers held on the
     /// keyboards delivering to it. A move, a button or the wheel is the
-    /// user's activity; the end of a frame and the hide are vtium's own,
-    /// as the C reference counted them (`src/seat.c:578-590` at kmscon
-    /// b1f7a7c5).
+    /// user's activity; the end of a frame and the hide are vtium's own
+    /// events, so they neither wake the displays nor restart the blank's
+    /// countdown.
     fn pointer_to(&mut self, h: Option<usize>, event: PointerEvent, mods: InputMods, now: Instant) {
         match event {
             // While the terminals are not awake, a VT the user released or
             // displays blanked, the pointer's action reaches no program and
-            // selects, pastes or zooms nothing, as a key reaches none (the
-            // C reference's pointer callback returned while its terminal
-            // was not awake, `src/terminal.c:1610`). It may end a blank,
+            // selects, pastes or zooms nothing, as a key reaches none. It
+            // may end a blank,
             // which wakes the terminals first.
             PointerEvent::Moved { .. } | PointerEvent::Button { .. } | PointerEvent::Wheel(_) => {
                 self.activity(now);
@@ -2623,15 +2622,11 @@ impl App {
             // comes from no one device. While the VT is another's, as a
             // released fake VT is with its pointers still open, the mouse
             // moving in the other session arms the hide. That hide clears no
-            // selection, so the selection stays for the user's return, as
-            // in the C reference, whose pointer callback dropped the hide
-            // while its session was not in the foreground
-            // (`src/terminal.c:1609-1611` at kmscon origin/main). It still
-            // hides the arrow, which the C reference drew again at its old
-            // place on the return (`src/terminal.c:1750-1772`): the input
-            // keeps adding up the moves made in the other session, so an
-            // arrow at the old place would jump at the next move (the
-            // README's "Departures").
+            // selection, so the selection stays for the user's return. It
+            // still hides the arrow, which stays hidden at the return until
+            // the pointer moves: the input keeps adding up the moves made in
+            // the other session, so an arrow at the old place would jump at
+            // the next move (the README's "A fake VT").
             PointerEvent::Hide => {
                 let ours = self.vt.is_active();
                 for head in &mut self.heads {
@@ -2679,17 +2674,13 @@ impl App {
 
     /// The key order: the VT's keys, the seat's, then the terminal of
     /// head `h`, the head the key's device delivers to: its grabs, DECARM,
-    /// the encoder. Each key that passes the seat's clears the selection,
-    /// as the C reference's did (`src/terminal.c:1370` at kmscon
-    /// b1f7a7c5).
+    /// the encoder. Each key that passes the seat's clears the selection.
     ///
     /// The VT's keys switch the VT only `from` a keyboard asking a head that
     /// is not isolated; from any other, the press goes on down the key
     /// order to the session as an ordinary key, as a serial terminal sends
     /// it (ADR-1401 D5). The roaming chord is taken only from a roaming
     /// keyboard; from a claimed one it reaches the head's session as a key.
-    /// The C reference took the VT's keys first from every keyboard
-    /// (`src/uterm/vt_real.c:484-520, 705` at kmscon b1f7a7c5).
     fn key(&mut self, h: Option<usize>, key: &KeyEvent, from: KeyFrom, now: Instant) {
         if from.vt_keys && self.vt.key(key) || !self.awake {
             return;
@@ -2925,10 +2916,9 @@ impl App {
         log::info!("head {}: console {id} opens", head.name());
         // The session starts while the console is hidden, so a session that
         // cannot start leaves the console shown before told nothing. That
-        // leaves the run alive: the console leaves, and the head says so.
-        // The C reference kept such a session and tried to open its
-        // terminal again at each activation (`src/terminal.c:1771-1772` at
-        // kmscon b1f7a7c5), a departure the crate's README lists.
+        // leaves the run alive: the console leaves, and the head says so,
+        // since vtium never keeps a console with no session (the README's
+        // "The session").
         // That the console did not open is a notice of a problem, which
         // shows whatever `osd` says, and goes as the guards' notices go
         // (ADR-1401 D5, D7).
@@ -3251,17 +3241,17 @@ impl App {
     /// keyboard (D9), so vtium hangs every session up and holds its VT: no
     /// session starts again, no input is delivered, every display a head
     /// held goes dark, and the display guard lights the boot display for a
-    /// notice alone, which stays as long as vtium runs. The C reference
-    /// ended its process on any session's crash loop
-    /// (`src/terminal.c:1856-1868` at kmscon b1f7a7c5).
+    /// notice alone, which stays as long as vtium runs.
     fn gave_up(&mut self) {
         if self.rules.policy == Policy::Open {
-            log::error!("a session kept ending as soon as it started, so vtium exits");
+            log::error!(
+                "a session kept ending as soon as it started, so vtium exits. Check the login command in vtium.conf."
+            );
             self.request_exit(Exit::TooQuick);
             return;
         }
         log::error!(
-            "a session kept ending as soon as it started, so vtium stops every head and holds its VT under the closed policy"
+            "a session kept ending as soon as it started, so vtium stops every head; with the closed policy it keeps the VT"
         );
         self.stopped = true;
         self.focus = None;
@@ -3381,7 +3371,10 @@ impl App {
             })
         });
         if let Some(wait) = self.wait.turn(now, self.presented, flipping) {
-            log::error!("no display appeared within {} s", wait.as_secs());
+            log::error!(
+                "no display appeared within {} s (display-wait), so vtium exits",
+                wait.as_secs()
+            );
             self.request_exit(Exit::NoDisplay);
         }
         self.exiting(now);
@@ -3398,8 +3391,8 @@ impl App {
         };
         // The console has no system clipboard: a selection OSC 52 set is
         // held for a paste, or dropped under `no-clipboard-write`.
-        // Any console's BEL rings the VT under `bell`, as each of the C
-        // reference's terminals rang it.
+        // Any console's BEL rings the VT under `bell`, a hidden console's as
+        // well as the shown one's.
         let mut bell = false;
         for console in head.consoles_mut() {
             if let Some(selection) = console.term.terminal.take_clipboard_write()
@@ -3461,9 +3454,7 @@ impl App {
             }
         }
         // While the VT is another's its displays are not vtium's to blank,
-        // and its countdown waits for the acquire, as the C reference's
-        // DPMS timer blanked nothing while its seat was not in the
-        // foreground (`src/seat.c:520`).
+        // and its countdown waits for the acquire.
         if self.vt.is_active() && self.blank.fire(now) {
             self.blank_now(now);
         }
@@ -4684,8 +4675,8 @@ mod tests {
     }
 
     // `bell`, the maintainer's answer of 2026-11-01: a BEL from a console
-    // the head does not show rings the VT too, as the C reference rang it
-    // from every session's terminal.
+    // the head does not show rings the VT too, since the bell is the
+    // VT's and a hidden console's program may need the user's attention.
     #[test]
     fn a_hidden_consoles_bel_rings_the_vt() {
         let args: Vec<OsString> = ["--bell"].iter().map(OsString::from).collect();
@@ -4763,8 +4754,8 @@ mod tests {
         );
     }
 
-    // vtium/vtium#203: vtium.conf's `natural-scrolling`, off by default
-    // as the C reference had it (src/config.c:1386), turns the seat's
+    // vtium/vtium#203: vtium.conf's `natural-scrolling`, off by default,
+    // turns the seat's
     // natural scrolling on, from the file and from the command line
     #[test]
     fn natural_scrolling_comes_from_the_file_and_the_command_line() {
@@ -5001,9 +4992,9 @@ mod tests {
     }
 
     // vtium/vtium#229: on a fake VT the app holds one wake-up of the input
-    // for as long as it runs, as the C reference's fake VT did, so the
-    // keyboards stay open after Ctrl+Super+F12 releases it, and the same
-    // chord can take it back; a kernel VT's release closes them
+    // for as long as it runs, so the keyboards stay open after
+    // Ctrl+Super+F12 releases it, and the same chord can take it back; a
+    // kernel VT's release closes them
     #[test]
     fn a_released_fake_vt_keeps_the_keyboards_open_to_take_it_back() {
         use vtium_platform::input::{Direct, Input, InputConfig, Keymap};

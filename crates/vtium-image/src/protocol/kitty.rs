@@ -40,8 +40,7 @@
 //! - **Data past the pixels.** A raw upload, or an `a=q` that counts one,
 //!   ignores the bytes past the pixels `s` and `v` call for, as kitty
 //!   ignores them, and answers as if they had not come. The handler notes
-//!   them for vtium's log ([`Context::note`]), as the C reference logged
-//!   them at debug level (libtsm `eeaf293`, `src/tsm/tsm-kitty.c:806-826`).
+//!   them for vtium's log ([`Context::note`]).
 //! - **Notes for the operator.** A program may leave a command unanswered
 //!   with `q=2` or no id, so the handler also notes the refusals an
 //!   operator can act on: the budget's ENOSPC, a picture past
@@ -50,8 +49,7 @@
 //!   or finds the picture past its bounds.
 //! - **Replies.** Only a command that carries `i` or `I` is answered; `q=1`
 //!   leaves out OK and `q=2` every reply. An `a=q` without `i` reads nothing
-//!   and is answered under no `q`, as kitty 0.49.2 behaved when the C
-//!   reference ran it as a black box (kmscon's ADR 107). A delete answers only
+//!   and is answered under no `q`, as kitty 0.49.2 answers it. A delete answers only
 //!   an error.
 //! - **The cursor.** After a placement the cursor goes down one row fewer
 //!   than the box has rows, then to the column after the box; when that
@@ -101,12 +99,13 @@ mod tests;
 
 use command::{Answer, Command, Error, Within, charge, graphic, reply};
 
-/// The most bytes of control keys a command may carry, as the C reference
-/// bounded them (its `KITTY_KEYS_MAX`).
+/// The most bytes of control keys a command may carry; the handler
+/// ignores a string whose keys pass it. A command that gives every key
+/// kitty's spec names fits in far fewer bytes.
 pub const KEYS_MAX: usize = 1024;
 
 /// The most bytes a file, temporary-file or shared-memory name may decode
-/// to, as the C reference bounded it (its `KITTY_NAME_MAX`).
+/// to, the same bound as the image helper's [`crate::decode::wire::NAME_MAX`].
 pub const NAME_MAX: usize = 4095;
 
 /// The first size of the buffer a PNG or zlib payload is kept in; it

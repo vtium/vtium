@@ -11,7 +11,9 @@ fn main() -> ExitCode {
     // child holding only what its spawn hands it. vtium-config hands no child
     // an inherited descriptor on purpose.
     if let Err(e) = vtium_platform::cloexec_above_stdio() {
-        eprintln!("vtium-config: cannot mark the inherited descriptors close-on-exec: {e}");
+        eprintln!(
+            "vtium-config: cannot start safely: cannot mark inherited file descriptors close-on-exec: {e}"
+        );
         return ExitCode::from(1);
     }
     let args: Vec<OsString> = std::env::args_os().skip(1).collect();

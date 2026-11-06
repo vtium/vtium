@@ -1,6 +1,6 @@
 //! SGR, `CSI Pm m`: the pen printed text takes.
 //!
-//! The forms are the C reference's. An index below 256 or an RGB color
+//! An index below 256 or an RGB color
 //! comes from xterm's `38;5;n` and `38;2;r;g;b`, which always take
 //! exactly three values, and from ITU T.416's colon forms `38:5:n` and
 //! `38:2:cs:r:g:b`, where the color space may be empty and the fields T.416
@@ -8,8 +8,8 @@
 //! apart from the color-space form by its count of sub-parameters, as
 //! foot does (csi.c, MIT, Copyright (c) 2019 Daniel Eklöf). An index or
 //! component above 255 rejects a colon form; a semicolon form keeps a
-//! component's low byte and draws an index past 255 black, as the C
-//! reference's goldens record.
+//! component's low byte and draws an index past 255 black, as tier 1's
+//! goldens record.
 //!
 //! XTPUSHSGR and XTPOPSGR (`CSI Pm # {` and `CSI # }`, and their aliases
 //! `CSI Pm # p` and `CSI # q`) keep pens on a stack, as xterm's ctlseqs
@@ -156,8 +156,8 @@ fn color(params: &Params, i: usize) -> Option<(Color, usize)> {
     }
 
     // The semicolon forms: each value a parameter of its own, carrying no
-    // sub-parameters. An empty one before a `;` is 0 and the last one
-    // missing, as the C reference read them.
+    // sub-parameters. An empty one before a `;` reads as 0, and one past
+    // the last parameter is missing, so the color is not read.
     let count = params.count();
     let arg = |k: usize| -> Option<u32> {
         let j = i.checked_add(k)?;

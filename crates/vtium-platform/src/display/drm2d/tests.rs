@@ -1,4 +1,4 @@
-//! drm2d against the stand-in card (aaronsb/kmscon#119): modesets, the
+//! drm2d against the stand-in card: modesets, the
 //! damage clips and cursor commits a frame sequence sends, failed swaps,
 //! the waits on a pending flip, a monitor's power cycle and the wake-up
 //! retries.
@@ -204,7 +204,7 @@ fn the_first_frame_is_whole_and_drawn_into_cleared_buffers() {
     assert_eq!(clips(&c, primary(&v, A)), None);
 }
 
-// The clips a frame sequence sends (aaronsb/kmscon#119).
+// The clips a frame sequence sends.
 #[test]
 fn each_frame_sends_its_damage_as_clips() {
     let mut v = awake(one());
@@ -243,7 +243,7 @@ fn buffer_ages_follow_the_flips() {
 }
 
 // A device with universal planes and no atomic commits presents whole
-// frames through the legacy calls (aaronsb/kmscon#84).
+// frames through the legacy calls.
 #[test]
 fn damage_clips_go_only_with_atomic_commits() {
     let card = FakeCard::new(&[(A, vec![mode(640, 480, 60, true)])]);
@@ -261,7 +261,7 @@ fn damage_clips_go_only_with_atomic_commits() {
 }
 
 // A failed swap is not a queued frame: its error reaches the caller and
-// the next swap carries its damage (aaronsb/kmscon#93).
+// the next swap carries its damage.
 #[test]
 fn a_failed_swap_keeps_its_damage() {
     let mut v = awake(one());
@@ -367,7 +367,7 @@ fn a_wake_up_while_blanked_brings_every_display_on() {
     assert_eq!(age(&mut v, A), 0);
 }
 
-// The cursor commits (aaronsb/kmscon#119).
+// The cursor commits.
 #[test]
 fn the_cursor_goes_with_the_next_commit() {
     let mut v = awake(one());
@@ -2347,7 +2347,7 @@ fn a_card_opened_without_master_sleeps_quietly() {
 }
 
 // A monitor's power cycle: the connector goes, and another comes, as an
-// MST connector is replaced (aaronsb/kmscon#237). With no display left the
+// MST connector is replaced. With no display left the
 // card keeps master, as its VT is still shown.
 #[test]
 fn a_power_cycle_skips_the_gone_connector() {
@@ -2383,7 +2383,7 @@ fn a_power_cycle_skips_the_gone_connector() {
 
 // While another process holds master, the test-only commit is refused
 // with EACCES; that is expected, so it is no error in the log, and the
-// modeset is not tried again with default modes (aaronsb/kmscon#237).
+// modeset is not tried again with default modes.
 #[test]
 fn eacces_from_the_test_commit_is_not_an_error() {
     let card = FakeCard::new(&[
@@ -2411,8 +2411,8 @@ fn eacces_from_the_test_commit_is_not_an_error() {
     assert!(events(&mut v).contains(&Event::Added(DisplayId(B))));
 }
 
-// The C reference retried a failed test commit with each display's default
-// mode, but the retry sent the first attempt's mode blob and buffers.
+// A failed test commit is retried with each display's default mode: a mode
+// blob of that mode and buffers of its size, not the first attempt's.
 #[test]
 fn a_failed_test_commit_retries_with_the_default_mode() {
     let card = FakeCard::new(&[(A, vec![mode(640, 480, 60, true), mode(320, 240, 60, false)])]);
@@ -5014,8 +5014,7 @@ fn three_buffers_take_turns() {
 }
 
 // Two displays of one card count their own frames, so their ages differ
-// when one draws more often (the C reference kept a text layer, and its
-// ages, for each display).
+// when one draws more often.
 #[test]
 fn two_displays_of_one_card_keep_their_ages_apart() {
     let card = FakeCard::new(&[
@@ -5255,8 +5254,7 @@ fn a_token_back_after_a_blank_without_dpms_leaves_every_buffer_age_0() {
 
 // A retake, a wake-up with no release before it, sets every display up
 // again: what each buffer holds counts as unknown, so a token lent before
-// it comes back too late, and each buffer is drawn whole after it, as the
-// C reference's text layer drew both buffers whole after a wake-up.
+// it comes back too late, and each buffer is drawn whole after it.
 #[test]
 fn a_token_back_after_a_retake_is_dropped() {
     let mut v = awake(one());
@@ -6146,7 +6144,7 @@ fn a_buffer_retired_for_a_dropped_token_is_freed_at_the_next_scan() {
 /// 100 and A's on none, and C is plugged in; the card refuses CRTC
 /// `refuse`. The wake-up's outputs, its events, and the connectors whose
 /// displays a hotplug moves no lit display for.
-fn woken_with_c_refused(atomic: bool, refuse: u32) -> (Vec<(u32, u32)>, Vec<Event>, Vec<u32>) {
+fn woken_with_a_crtc_refused(atomic: bool, refuse: u32) -> (Vec<(u32, u32)>, Vec<Event>, Vec<u32>) {
     const C: u32 = 43;
     let card = reaching(&[0b011, 0b011, 0b100], 2);
     {
@@ -6178,7 +6176,7 @@ fn woken_with_c_refused(atomic: bool, refuse: u32) -> (Vec<(u32, u32)>, Vec<Even
 // refused for C, since no display moved for it.
 #[test]
 fn a_refused_wake_up_moves_back_only_a_display_moved_for_a_new_one() {
-    let (outs, _, refused) = woken_with_c_refused(true, 102);
+    let (outs, _, refused) = woken_with_a_crtc_refused(true, 102);
     assert_eq!(outs, [(A, 101), (B, 100)]);
     assert_eq!(refused, Vec::<u32>::new());
 }
@@ -6187,7 +6185,7 @@ fn a_refused_wake_up_moves_back_only_a_display_moved_for_a_new_one() {
 // every other display lit: B is not let go, though no display moved.
 #[test]
 fn a_legacy_wake_up_that_cannot_set_one_display_keeps_the_others() {
-    let (outs, ev, _) = woken_with_c_refused(false, 101);
+    let (outs, ev, _) = woken_with_a_crtc_refused(false, 101);
     assert!(!ev.contains(&Event::Removed(DisplayId(B))), "{ev:?}");
     assert!(outs.iter().any(|o| o.0 == B), "{outs:?}");
 }

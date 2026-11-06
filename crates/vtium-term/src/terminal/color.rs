@@ -254,7 +254,7 @@ impl State {
     /// OSC 4: `index ; spec` pairs, each `?` answered with the palette's
     /// color and each spec vtium reads set; an index past 255 and a spec
     /// it does not read are skipped. A pair that is not a number and a
-    /// field stops the list, as in the C reference. Once the replies
+    /// field stops the list. Once the replies
     /// waiting for the host reach [`REPLIES_PENDING_MAX`], the list's
     /// further queries are skipped, as the input stops at the byte whose
     /// reply reaches it: one string at vtium-parse's `OSC_MAX` holds a

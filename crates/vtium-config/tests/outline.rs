@@ -39,8 +39,8 @@ fn glyph(o: &Outline, strike: usize, c: u32) -> &vtium_config::outline::Placed {
 }
 
 // The font sets the cell from W, its ascent and descent span the height
-// less half a pixel, and the baseline sits the ascent below the top (the
-// C reference's `font_freetype.c` flow)
+// less half a pixel, as a FreeType request for a cell half a pixel under
+// the height sizes it, and the baseline sits the ascent below the top
 #[test]
 fn the_first_outline_font_sets_the_cell() {
     let o = rasterise(&request(&[(0, 10), (0, 20)], &[])).expect("rasterised");
@@ -64,8 +64,8 @@ fn the_first_outline_font_sets_the_cell() {
 }
 
 // ADR-1200 D17: an outline font's own cell is as wide as the W rule gives
-// at the height asked, the widest of the faces given, as the C reference
-// took the larger of its regular and bold faces' cells. Test Mono's W
+// at the height asked, the widest of the faces given, so a bold face
+// wider than the regular one still fits the cell. Test Mono's W
 // advances 600 of 1000 units and the bold one's 700: at 16 pixels, 15.5
 // to the em, 9.3 inked over 10 pixels and 10.85 over 11
 #[test]
@@ -79,6 +79,15 @@ fn an_outline_cell_is_as_wide_as_the_widest_faces_w() {
     assert_eq!(cell_width(&[b], 16), Ok(11));
     assert_eq!(cell_width(&[r, b], 16), Ok(11));
     assert_eq!(cell_width(&[b, r], 16), Ok(11));
+    // a height past the cell's bound is refused by its number
+    let past = vtium_font::CELL_SIDE_MAX + 1;
+    assert_eq!(
+        cell_width(&[r], past),
+        Err(format!(
+            "a cell {past} pixels high, more than {}",
+            vtium_font::CELL_SIDE_MAX
+        ))
+    );
     // the strike rasterise draws at a width of 0 takes the same width
     let o = rasterise(&request(&[(0, 16)], &[])).expect("rasterised");
     assert_eq!(o.strikes[0].width, 10);
@@ -90,8 +99,8 @@ fn an_outline_cell_is_as_wide_as_the_widest_faces_w() {
     assert!(cell_width(&[r], 0).is_err());
 }
 
-// The W rule measures W's ink on the unhinted outline, as the C
-// reference's FreeType light hinting left a TrueType glyph's width: a
+// The W rule measures W's ink on the unhinted outline, which is the width
+// light hinting leaves a TrueType glyph, since it moves only rows: a
 // subset of DejaVu Sans Mono keeping its hinting instructions
 // (`tests/fixtures/README.md`), whose W full hinting snaps to 8 columns
 // at 16 pixels where its outline covers 9
@@ -132,9 +141,8 @@ fn inked_columns(rows: &[Vec<u8>]) -> Vec<usize> {
 }
 
 // ADR-1200 D1 (the maintainer, 2026-11-01): outline glyphs are hinted
-// lightly where the frit says nothing, as the C reference loaded every
-// glyph with FreeType's light hinting, which fits a glyph to the pixel
-// grid up and down only. DejaVu Sans Mono at 16 pixels, 13.3 to the em:
+// lightly where the frit says nothing, as FreeType's light hinting does,
+// which fits a glyph to the pixel grid up and down only. DejaVu Sans Mono at 16 pixels, 13.3 to the em:
 // light hinting puts the top of T's bar on a whole row, 10 rows above the
 // baseline, so the bar's first row is solid where the outline alone
 // covers 0.7 of it, and leaves H across the 8 columns its outline covers.
@@ -224,9 +232,8 @@ fn a_face_with_no_w_takes_m_then_0_then_half_the_height() {
 }
 
 // The W rule on DejaVu Sans Mono as the machine installs it: 9 wide at 16
-// pixels and 12 at 22, the cells the C reference's FreeType backend gave
-// it. It reads a font outside vtium's tree, so it runs only when asked:
-// `cargo test -p vtium-config --test outline -- --ignored`
+// pixels and 12 at 22. It reads a font outside vtium's tree, so it runs
+// only when asked: `cargo test -p vtium-config --test outline -- --ignored`
 #[test]
 #[ignore = "reads DejaVu Sans Mono from the machine's fonts"]
 fn dejavu_sans_mono_takes_the_w_rules_cell() {
@@ -401,7 +408,7 @@ fn a_glyph_is_placed_by_its_rounded_advance() {
         "from 2 left of the cell to 12.6"
     );
     // W: an advance of 11.7, rounded 12, in a 12-pixel cell keeps the pen
-    // on the cell's left edge, as the C reference drew it
+    // on the cell's left edge (ADR-1302 D2)
     assert!(column(glyph(&o, 0, 0x57), 12, 0) > 0);
 }
 
@@ -517,8 +524,7 @@ fn the_baseline_rises_where_ascii_ink_passes_the_cell() {
     );
 }
 
-// ADR-1302 D3 and the C reference's kmscon_font_freetype_get_deco: the
-// underline's centre is FreeType's underline_position below the baseline,
+// ADR-1302 D3: the underline's centre is FreeType's underline_position below the baseline,
 // post's underlinePosition less half its underlineThickness. Test Mono at
 // 20 pixels, 0.0195 of a pixel to the unit, baseline 16, with an underline
 // at -100 units and 50 thick: a row thick, round(0.975); its centre 16 +
@@ -535,10 +541,9 @@ fn the_underline_is_centred_below_the_baseline_as_freetype_gives_it() {
     assert_eq!((d.underline, d.underline_thickness), (18, 1));
 }
 
-// The C reference took the underline from the font when FreeType's
-// underline_position was not 0 (kmscon_font_freetype_get_deco), and
-// FreeType gave underlinePosition less underlineThickness / 2, divided as
-// integers. A post table with underlinePosition 0 and thickness 50 gives
+// The helper takes the underline from the font when FreeType's
+// underline_position is not 0, and FreeType gives underlinePosition less
+// underlineThickness / 2, divided as integers. A post table with underlinePosition 0 and thickness 50 gives
 // -25, which is not 0: the centre is 16 + 25 * 0.0195 = 16.49 at Test
 // Mono's 20 pixels, its top row round(15.99) = 16. Position 25 and
 // thickness 50 give 0, so the underline takes the cell's rule: its centre
@@ -559,9 +564,8 @@ fn the_underline_follows_post_where_freetypes_position_is_not_0() {
     assert_eq!(at(25, 50), (18, 1), "underlinePosition 25, thickness 50");
 }
 
-// The lines a strike reports, each pinned to the C reference's formula
-// (kmscon_font_freetype_get_deco, kmscon_font_get_deco), for Test Mono at
-// 20 pixels, baseline 16, 0.0195 of a pixel to the unit. With an OS/2
+// The lines a strike reports, each pinned to its formula (ADR-1302 D3),
+// for Test Mono at 20 pixels, baseline 16, 0.0195 of a pixel to the unit. With an OS/2
 // strikeout 50 units thick at 300: a row thick, its top row floor(16 -
 // 5.85 + 0.5) = 10. With no post underline and no OS/2: the underline a
 // fourteenth of the cell thick, floor(20 / 14) = 1, centred 1.5 rows above
@@ -570,7 +574,7 @@ fn the_underline_follows_post_where_freetypes_position_is_not_0() {
 // its top row floor(12 - 0.5 + 0.5) = 12
 // covers: text.overhang
 #[test]
-fn the_lines_follow_the_font_as_the_c_reference_placed_them() {
+fn the_underline_and_strike_through_follow_the_fonts_tables() {
     let lines = |font: ttf::Font| {
         let d = decorations(&font.build(), "Test Mono", 20, 16, Hinting::Light).expect("the lines");
         (
@@ -590,9 +594,8 @@ fn the_lines_follow_the_font_as_the_c_reference_placed_them() {
 }
 
 // A font with no `post` table takes the underline a fourteenth of the
-// cell thick, as the C reference did when FreeType gave it no underline
-// thickness (kmscon_font_freetype_get_deco), whatever the OS/2
-// strikeout's size (review finding 3; swash gives that size as the
+// cell thick, as when FreeType gives no underline thickness, whatever the
+// OS/2 strikeout's size (review finding 3; swash gives that size as the
 // stroke's when `post` is missing). Test Mono at 20 pixels, baseline 16,
 // with an OS/2 strikeout 100 units thick, 2 rows, and no `post`: the
 // underline floor(20 / 14) = 1 row thick, centred 1.5 rows above the
@@ -613,7 +616,7 @@ fn a_font_with_no_post_table_takes_the_underline_from_the_cell() {
     assert_eq!(d.strike_thickness, 2, "the strike-through from OS/2");
 }
 
-// The strike-through as the C reference drew it (review finding A3): as
+// The strike-through (ADR-1302 D3, review finding A3): as
 // thick as OS/2's yStrikeoutSize, when it is above 0; else as thick as the
 // underline, centred on half the x-height, which OS/2's sxHeight gives,
 // else the x glyph's height. Test Mono at 20 pixels, baseline 16: a

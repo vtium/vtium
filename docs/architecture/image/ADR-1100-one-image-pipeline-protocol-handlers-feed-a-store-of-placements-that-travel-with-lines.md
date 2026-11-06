@@ -20,15 +20,15 @@ basis:
     level: directed
     said: "kitty graphics relative placements (`image.kitty-relative`) and Unicode placeholders (`image.kitty-placeholders`) are both supported targets, as ADR-1000's tables now record (integration 73adb77). Both belong to this issue."
     via: a comment of 2026-10-27 on the GitHub issue for the kitty graphics handler, headed "The operator (2026-10-27)", posted from the operator's account
-  - upstream: "kmscon ADR-103 (aaronsb/kmscon b1f7a7c5, docs/architecture/render/): one store per screen buffer; placements anchored to the line of their top row; sixel as cell content and kitty by its spec's erase rules; eviction by rank, then last use, with kitty images on the screen's own lines oldest transmission first and sixels on the screen never evicted; payloads decoded as they stream in; the host hook, the pause and the helper; one budget per process sized from the displays, 16 to 192 MiB. Its Notes record the operator's choices of per-cell sixel coverage, the storage-quota rule and the minimal build without the decoders"
-  - upstream: "libtsm eeaf293 (aaronsb/libtsm): src/tsm/tsm-image.c (the store, eviction, the frame's placement list renewing each drawn image's use at line 1120 on one process-wide clock, lines 46-50), tsm-sixel.c, tsm-kitty.c, tsm-vte-image.c (routing, the pause, the work bound), and tsm-replay's fixture host"
-  - upstream: "aaronsb/kmscon b1f7a7c5: src/image_host.c, src/image_helper.c, src/image_identity.c, src/render/image_budget.c, src/terminal_image.c, and tests/test_pty.c's test_pause"
+  - upstream: "kmscon ADR-103 (the C reference at b1f7a7c5, docs/architecture/render/): one store per screen buffer; placements anchored to the line of their top row; sixel as cell content and kitty by its spec's erase rules; eviction by rank, then last use, with kitty images on the screen's own lines oldest transmission first and sixels on the screen never evicted; payloads decoded as they stream in; the host hook, the pause and the helper; one budget per process sized from the displays, 16 to 192 MiB. Its Notes record the operator's choices of per-cell sixel coverage, the storage-quota rule and the minimal build without the decoders"
+  - upstream: "libtsm eeaf293: src/tsm/tsm-image.c (the store, eviction, the frame's placement list renewing each drawn image's use at line 1120 on one process-wide clock, lines 46-50), tsm-sixel.c, tsm-kitty.c, tsm-vte-image.c (routing, the pause, the work bound), and tsm-replay's fixture host"
+  - upstream: "the C reference's kmscon at b1f7a7c5: src/image_host.c, src/image_helper.c, src/image_identity.c, src/render/image_budget.c, src/terminal_image.c, and tests/test_pty.c's test_pause"
   - upstream: "fixes the C reference made and vtium carries: a reservation that cannot fit refused before anything is evicted; scroll and ED 2 scans counted as input work; a refused replacement keeps the old image"
   - standard: "the kitty graphics protocol (sw.kovidgoyal.net/kitty/graphics-protocol), read 2026-11-01: a storage quota (\"the quota in kitty is 320MB per buffer\", kitty's own example) that deletes older images first; \"The clear screen escape code (usually <ESC>[2J) should also clear all images\" and \"The other commands to erase text must have no effect on graphics\"; only images entirely within the margins scroll with them; images in the alternate screen cleared on switching to it; the z bands; and at equal z, \"the image with the lower id is considered to have the lower z-index\""
   - standard: "xterm's ctlseqs and the VT330/VT340 graphics manual: sixel, DECSDM, modes 1070 and 8452, XTSMGRAPHICS"
   - standard: "the kitty graphics protocol (sw.kovidgoyal.net/kitty/graphics-protocol), read 2026-11-01: Relative placements (P, Q, H, V; a chain of at least 8; ETOODEEP, ECYCLE, ENOPARENT; a virtual placement may be a parent and never a child; no cursor movement), Unicode placeholders (U=1 virtual placements; U+10EEEE with row, column and top-byte diacritics from rowcolumn-diacritics.txt; the image id in the foreground color and the placement id in the underline color; the rules for diacritics left out; the deletes that reach a virtual placement), and the feature query's e key"
-  - upstream: "libtsm eeaf293 (aaronsb/libtsm): src/tsm/tsm-vte-image.c, vte_xtsmgraphics, which answered status 1 for every item while sixel was off; src/tsm/tsm-kitty.c:325, which answered EINVAL to P, Q, H, V and U"
-  - evidence: "docs/c-reference.md §9, Images: its Check (a use clock per store leaves eviction across stores, or a budget split per store, to decide) and its Not planned (whether the compositor's scaled pictures share the image budget)"
+  - upstream: "libtsm eeaf293: src/tsm/tsm-vte-image.c, vte_xtsmgraphics, which answered status 1 for every item while sixel was off; src/tsm/tsm-kitty.c:325, which answered EINVAL to P, Q, H, V and U"
+  - evidence: "the image section of vtium's notes on the C reference, which was a page of the docs and is gone: its Check (a use clock per store leaves eviction across stores, or a budget split per store, to decide) and its Not planned (whether the compositor's scaled pictures share the image budget)"
   - evidence: "the review titled Keep the GPU and image paths open (2026-11-01): lines carry a LineId for placements, Damage has mark_rect, FrameCell::default_bg serves the lowest layer, Snapshot carries no placements yet and takes them when the image pipeline is built, with their pixels shared"
   - precedent: ADR-1000
   - precedent: ADR-1001
@@ -210,7 +210,7 @@ The C reference built this in kmscon ADR-103 and its Notes: one store per screen
 
 Several of vtium's own records already decide parts of the pipeline's surroundings. ADR-1001 gives each line a permanent `LineId` for placements to anchor to, and says that a placement added, moved, clipped or removed marks the cells under its old and new boxes. ADR-1003 decides how an anchor moves through a rewrap. ADR-1300 fixes the color glyph format, premultiplied RGBA, and the row scratch that pictures are composed in. ADR-1400 D2 carries the C reference's helper forward: its own process, the session's user, never root by fallback, a 2-second timeout with input paused. ADR-1401 D1 gives each head its consoles, each a session with its own screen, and D2 gives each head a render thread of its own. `docs/architecture.md` names the eviction rule and the decode timeout among its determinism rules. A review of vtium's frame path found that the line, damage and frame models already have room for placements, and that the head's `Snapshot` carries none yet.
 
-`docs/c-reference.md` §9 left two questions this record answers: how eviction orders images across stores once each store has its own use clock, and whether the compositor's scaled pictures share the image budget.
+The image section of vtium's notes on the C reference, a page of the docs that is gone, left two questions this record answers: how eviction orders images across stores once each store has its own use clock, and whether the compositor's scaled pictures share the image budget.
 
 vtium sets its own performance targets and measures them on vtium (the maintainer, 2026-11-01). Meeting or measuring the C reference's targets, such as ADR-103's A5 and A7, is not a condition of this record or of its build.
 
@@ -266,7 +266,7 @@ The store knows two tags, sixel and kitty. The iTerm2 compatibility handler has 
 
 The events every placement meets alike are D8's and are not in the table.
 
-**A sixel dot is one pixel.** The sixel handler draws every dot of a sixel picture as one square pixel, whatever aspect the string asks for: the pixel aspect that the DCS string's first parameter selects, and the aspect that raster attributes give as Pan;Pad, are read and not applied (the maintainer, 2026-11-01). The C reference, xterm, WezTerm and mlterm draw sixel dots the same way. DEC's VT340 manual draws each dot twice as tall as it is wide unless the picture says otherwise, so vtium lists this as a departure from the specification. For example, a program that sends a circle 100 dots wide and 100 dots high without stating its aspect gets a circle 100 pixels across, where the VT340 would draw an oval 100 pixels wide and 200 pixels tall. Most programs, libsixel's `img2sixel` among them, state that their dots are square, so the two rules agree for them. The C reference's sixel goldens assume square dots.
+**A sixel dot is one pixel.** The sixel handler draws every dot of a sixel picture as one square pixel, whatever aspect the string asks for: the pixel aspect that the DCS string's first parameter selects, and the aspect that raster attributes give as Pan;Pad, are read and not applied (the maintainer, 2026-11-01). xterm, WezTerm and mlterm draw sixel dots the same way, and the C reference did too. DEC's VT340 manual draws each dot twice as tall as it is wide unless the picture says otherwise, so vtium lists this as a departure from the specification. For example, a program that sends a circle 100 dots wide and 100 dots high without stating its aspect gets a circle 100 pixels across, where the VT340 would draw an oval 100 pixels wide and 200 pixels tall. Most programs, libsixel's `img2sixel` among them, state that their dots are square, so the two rules agree for them. The C reference's sixel goldens assume square dots.
 
 ### D4: the order a frame draws placements in
 
@@ -537,7 +537,7 @@ These passages said something this record decides otherwise. Each changes in its
 
 - **`docs/architecture.md`, "Eviction follows the bytes",** named "a transmission or a placement" as the events that advance the use clock. It now names the command that names an existing image too (D5), as the maintainer's determinism comment does.
 - **ADR-1001, "The frame",** said vtium-image "marks its boxes through `Damage`". It now says that vtium-term marks the boxes the store reports changed (D1), with a dated note.
-- **`docs/c-reference.md` §9** said the C reference bounded "a box of 10,000 cells"; the bound was 10,000 cells a side (`libtsm/src/tsm/tsm-image.c:1899`), and the passage now says so. Its "Check" and "Not planned" are answered by D5.
+- **The image section of the notes on the C reference** said the C reference bounded "a box of 10,000 cells"; the bound was 10,000 cells a side (`libtsm/src/tsm/tsm-image.c:1899`), and the passage now says so. Its "Check" and "Not planned" are answered by D5.
 
 These wait for their owners:
 
@@ -617,7 +617,7 @@ How the C reference handled images, as the logical reference for the decisions a
 - A file or compressed image pauses that console's output for a round trip to the helper, up to 2 seconds when the helper hangs.
 - Several consoles can each hold a full budget of pictures, and frames in flight can keep deleted pictures alive past the budgets.
 - A picture too large for the scaled-copy cache is scaled again on every frame it draws.
-- The C reference's goldens that mix sixel and kitty at equal z judge a different order, so those cases become listed departures.
+- The C reference's goldens that mixed sixel and kitty at equal z judged a different order, so those cases were listed as departures.
 - Every handler, the compositor and the helper build against the store's interface, so changing it later touches all of them.
 
 ### Neutral

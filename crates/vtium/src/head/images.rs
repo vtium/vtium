@@ -1,8 +1,7 @@
 //! Pictures in each console (ADR-1100 D5, D7, D9, D10, D11).
 //!
 //! Six keys set how a console takes pictures ([`Settings`]). Every build
-//! reads them, as the C reference read its image options in every build
-//! (`src/config.c:1221-1247` at kmscon b1f7a7c5); a build without the
+//! reads them, so one vtium.conf serves every build; a build without the
 //! `images` feature then draws no picture, and the rest of this module is
 //! not built.
 //!
@@ -16,15 +15,13 @@
 //!   display joins or leaves it or changes size.
 //! - **The offering rule.** A head switches sixel and kitty graphics on
 //!   while the protocol's key is on and every display of the head draws
-//!   pictures, as the C reference turned both off while any display of a
-//!   terminal could not draw them (`src/render/image_budget.c:449-457,
-//!   505-514`). A head with no display yet switches them on, as the C
-//!   reference's did. vtium-term offers a protocol switched on only while
+//!   pictures, so a program is never offered a protocol that one of the
+//!   displays showing it cannot draw. A head with no display yet switches
+//!   them on. vtium-term offers a protocol switched on only while
 //!   the budget is above 0, so a budget of 0 turns both off.
 //! - **The cell size** the console's pictures are placed in: the shown
-//!   console's is the head's cell, and a hidden console keeps its own, as
-//!   the C reference gave libtsm the font's cell whenever it changed
-//!   (`src/terminal.c:1147-1162`).
+//!   console's is the head's cell, and a hidden console keeps its own,
+//!   since only the shown console draws in the head's font.
 //!
 //! Each of these is a host event: the head gives it between two input
 //! calls, so what a console's store holds follows from its bytes and its
@@ -49,11 +46,7 @@
 //! nothing is counted. While a console's host cannot start a helper, with
 //! no program or past the crash limit, its terminal is told that no
 //! helper runs, so the kitty handler answers such a request at once with
-//! the reply ADR-1100 D7 gives for "no helper", as the C reference
-//! answered a request no helper could take
-//! (`src/terminal_image.c:84-89`). The C reference also paused the pty
-//! when it sent a request and resumed it after the reply
-//! (`src/terminal_image.c:58-92, 100-122`).
+//! the reply ADR-1100 D7 gives for "no helper".
 //!
 //! **Notes.** A handler that drops or ignores what a program sent says
 //! why, and vtium-term hands the host a note the first time each
@@ -66,10 +59,7 @@
 //! image helper refusing a picture that then never draws, goes out at info
 //! level, which vtium shows by default. A note about what the program sent
 //! breaking its protocol goes out at debug level, since only the program's
-//! author can act on it. The C reference logged every picture it did not
-//! store or place at debug level (libtsm `eeaf293`,
-//! `src/tsm/tsm-vte-image.c:161-171`), where an operator whose pictures
-//! never drew found no word of why.
+//! author can act on it.
 //!
 //! [`crate::app::App`] opens the program `image-helper` names once at
 //! start and makes each console's host from it
@@ -157,7 +147,7 @@ mod built {
 
     /// How long the image helper has to answer a request before the
     /// request fails, the one place time enters the image pipeline
-    /// (ADR-1100 D7, ADR-1101 D8): 2,000 ms, the C reference's.
+    /// (ADR-1100 D7, ADR-1101 D8): 2,000 ms.
     pub const REPLY_TIMEOUT: Duration = Duration::from_millis(2000);
 
     /// One console's image helper host, vtium-platform's [`ImageHost`] or
@@ -410,7 +400,7 @@ mod built {
             if old.is_none_or(|o| o.cell != given.cell) {
                 let (w, h) = given.cell;
                 if terminal.screen_mut().set_image_cell(w, h).is_err() {
-                    log::warn!("pictures cannot be placed in cells of {w}x{h}");
+                    log::warn!("images cannot be shown with character cells of {w}x{h}");
                 }
             }
             if old.is_none_or(|o| o.limit != given.limit) {
@@ -494,8 +484,7 @@ mod built {
         /// The console's session ended: the request out is dropped with no
         /// reply, and the host stops its helper and clears its crash count
         /// (ADR-1101 D8), so the next session starts with none out and no
-        /// crash counted, as the C reference reset its parser and
-        /// cancelled the request (`src/terminal_image.c:172-178`).
+        /// crash counted.
         pub(crate) fn end_session(&mut self, term: &mut Term) {
             if let Some(host) = &mut self.host {
                 host.session_ended();
@@ -695,9 +684,7 @@ mod built {
         // ADR-1103 D1: a picture a protocol answers nothing for is dropped
         // without a word to the program, and its reason goes to vtium's
         // log. A string that breaks the protocol is the program's to fix,
-        // so it goes out at debug level, as the C reference logged its
-        // dropped pictures (libtsm `eeaf293`,
-        // `src/tsm/tsm-vte-image.c:161-171`).
+        // so it goes out at debug level.
         #[test]
         fn a_refused_pictures_note_reaches_the_log_once_and_repeats_do_not_flood_it() {
             let mut term = console(true);

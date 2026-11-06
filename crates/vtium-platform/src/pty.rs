@@ -117,13 +117,12 @@ impl Pty {
     /// in the background ignores SIGINT and SIGQUIT, the Rust runtime
     /// ignores SIGPIPE, and the loop blocks the signals it reads from its
     /// signalfd; an exec keeps ignored signals and the mask, so the
-    /// session would inherit all three. The C reference emptied the mask
-    /// and reset the signals below SIGSYS (pty.c:313-320); vtium resets
-    /// every signal (see the crate README's Departures).
+    /// session would inherit all three. vtium resets every signal from 1
+    /// to the kernel's last, SIGKILL and SIGSTOP aside.
     ///
     /// The child holds no other descriptor of vtium's: every descriptor
-    /// vtium inherited is marked close-on-exec before the fork, as the C
-    /// reference's child did not (see the crate README's Departures). It is
+    /// vtium inherited is marked close-on-exec before the fork (see the
+    /// crate README's pty rules). It is
     /// called from vtium's one thread only: a descriptor another thread
     /// opened between the marking and the fork would reach the child.
     pub fn spawn(mut command: Command, size: Size, erase: Erase) -> io::Result<Pty> {

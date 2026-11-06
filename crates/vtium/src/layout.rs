@@ -1,15 +1,14 @@
 //! A head's grid and each of its displays' font height, with several
-//! displays at different sizes, the zoom's direction and the rotation step
-//! (`src/terminal.c:961-1138, 1166-1203, 1325-1355` at kmscon b1f7a7c5).
+//! displays at different sizes, the zoom's direction and the rotation
+//! step.
 //! The heights a zoom steps through are the font's ([`crate::font::zoom`]).
 //!
 //! A head's grid is the smallest every display of the head holds at the
 //! base font, so displays mirror one grid within a head (ADR-1401 D1). A
 //! larger display then draws at the largest height that still holds that
 //! grid, tried from the height that would fill it and down a size step at
-//! a time, and at the base height when no larger one fits: the C
-//! reference's `multi-monitor=scaled`, the operator's choice on
-//! vtium/vtium#21.
+//! a time, and at the base height when no larger one fits. The operator
+//! chose this on vtium/vtium#21.
 
 use vtium_render::Orientation;
 
@@ -117,8 +116,8 @@ mod tests {
     #[test]
     fn a_larger_display_scales_up_to_the_smaller_ones_grid() {
         // 1366x768 holds 170x48. 3840x2160 holds 480x135 at 16, so the
-        // height that fills it is min(480 * 16 / 170, 135 * 16 / 48) = 45,
-        // as the C reference asked for; the bitmap draws 45 at scale 2, a
+        // height that fills it is min(480 * 16 / 170, 135 * 16 / 48) = 45;
+        // the bitmap draws 45 at scale 2, a
         // 16x32 cell, 240x67, which holds 170x48.
         let l = layout(&[(1366, 768), (3840, 2160)], false, 16, 16, bitmap);
         assert_eq!(

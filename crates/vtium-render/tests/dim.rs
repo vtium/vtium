@@ -1,6 +1,5 @@
 //! SGR 2, dim: the foreground draws halfway to the background, each
-//! channel the sum of the two halved, as the C reference drew it (libtsm's
-//! `color_dim`). Dim follows reverse video and comes before the cursor, and
+//! channel the sum of the two halved. Dim follows reverse video and comes before the cursor, and
 //! the decorations that follow the foreground follow it dimmed. Every
 //! expected color is a literal.
 

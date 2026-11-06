@@ -138,10 +138,10 @@ fn remove_frit_removes_a_frit_but_not_the_one_font_name_names() {
     let f = fixture("remove", Some("font-name=tiny\n"));
     let fonts = f.etc().join("fonts");
     for (name, says) in [
-        ("tiny", "font-name names"),
+        ("tiny", "font-name in vtium.conf uses it"),
         ("unifont", "built-in font"),
         ("nosuch", "nosuch.vtfrit"),
-        ("../x", "no frit's name"),
+        ("../x", "there is no font set named"),
     ] {
         let ran = f.run(&["remove-frit", name]);
         assert_eq!(ran.status, 1, "{name}: {}", ran.out);
@@ -220,7 +220,7 @@ fn new_makes_a_frit_of_fonts_and_installs_one_from_a_file() {
         (
             &["new-frit", "x", "--name", "unifont"][..],
             1,
-            "cannot name a frit",
+            "cannot be a font set's name",
         ),
         (&["new-frit", "x", "--cell", "200x200"], 1, "cell="),
         (
@@ -465,13 +465,13 @@ fn fonts_lists_each_font_its_state_and_the_sources_this_machine_lacks() {
     let lines: Vec<&str> = ran.out.lines().collect();
     assert_eq!(lines.len(), 7, "{}", ran.out);
     assert!(
-        lines[0].starts_with("broken\tdoes not read: "),
+        lines[0].starts_with("broken\tcannot be read: "),
         "{}",
         lines[0]
     );
     assert_eq!(lines[1], "half\treads\tfont:No Such Family Anywhere");
     assert!(
-        lines[2].starts_with("none\tdraws nothing: "),
+        lines[2].starts_with("none\tno font file found: "),
         "{}",
         lines[2]
     );
@@ -557,7 +557,8 @@ fn a_frame_of_an_unknown_kind_marks_every_frit_unknown() {
     assert_eq!(ran.status, 0, "{}", ran.err);
     let lines: Vec<&str> = ran.out.lines().collect();
     assert!(
-        lines[0].starts_with("spare\treads\tunknown: ") && lines[0].contains("99"),
+        lines[0].starts_with("spare\treads\tunknown: ")
+            && lines[0].contains("the font helper sent an unexpected answer"),
         "{}",
         ran.out
     );
@@ -583,7 +584,7 @@ fn a_helper_that_fails_at_start_marks_every_frit_unknown() {
     );
     let ran = f.run(&["--helper", helper.to_str().expect("a path"), "fonts"]);
     assert_eq!(ran.status, 0, "{}", ran.err);
-    assert!(!ran.out.contains("draws nothing"), "{}", ran.out);
+    assert!(!ran.out.contains("no font file found"), "{}", ran.out);
     let lines: Vec<&str> = ran.out.lines().collect();
     for (at, name) in [(0, "spare"), (1, "tiny")] {
         assert!(
@@ -650,7 +651,11 @@ fn fonts_keeps_the_answers_that_came_and_marks_the_rest_unknown() {
         script::executable(&helper, &format!("#!/bin/sh\n{script}\n"));
         let ran = f.run(&["--helper", helper.to_str().expect("a path"), "fonts"]);
         assert_eq!(ran.status, 0, "{name}: {}", ran.err);
-        assert!(!ran.out.contains("draws nothing"), "{name}: {}", ran.out);
+        assert!(
+            !ran.out.contains("no font file found"),
+            "{name}: {}",
+            ran.out
+        );
         let lines: Vec<&str> = ran.out.lines().collect();
         assert!(
             format!("{}\n", lines[0]).starts_with(first),
@@ -658,7 +663,7 @@ fn fonts_keeps_the_answers_that_came_and_marks_the_rest_unknown() {
             ran.out
         );
         assert!(
-            lines[1].starts_with("tiny\treads\tunknown: the helper did not answer in time"),
+            lines[1].starts_with("tiny\treads\tunknown: the font helper did not answer in time"),
             "{name}: {}",
             ran.out
         );

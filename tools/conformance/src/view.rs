@@ -65,7 +65,7 @@ fn screen_cell(
 ) -> (Option<String>, Width, String) {
     let cell = line.cell(col);
     let mut style = line.style(cell);
-    // the C reference drew reverse video as every cell's inverse toggled
+    // reverse video draws as every cell's inverse toggled
     if reverse && style.attrs.contains(Attrs::INVERSE) {
         style.attrs.remove(Attrs::INVERSE);
     } else if reverse {
@@ -74,7 +74,7 @@ fn screen_cell(
     let underlined = style.attrs.underline() != UnderlineStyle::None;
     let text = match line.glyph(cell) {
         Glyph::Empty => None,
-        // the C reference drew a space with no underline as an empty cell
+        // a space with no underline draws as an empty cell
         Glyph::Char(' ') if !underlined => None,
         Glyph::Char(c) => Some(c.to_string()),
         Glyph::Cluster(s) => Some(s.to_owned()),

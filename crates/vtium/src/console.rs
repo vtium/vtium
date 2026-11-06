@@ -19,7 +19,7 @@
 //!
 //! The subcommand starts and stops nothing, since either ends every
 //! session on the VT, and masks nothing, since a mask is the
-//! administrator's. It refuses a VT that the C reference's console holds.
+//! administrator's. It refuses a VT that kmscon's console holds.
 //!
 //! Everything it touches is reached through [`Host`]: a root directory,
 //! `/` on the running system and a scratch directory in the tests, and a
@@ -57,7 +57,7 @@ const VTIUM: &str = "vtium";
 const DEV: &str = "vtium-dev";
 /// systemd's getty.
 const GETTY: &str = "getty";
-/// The C reference's console.
+/// kmscon's console, the released `kmscon`'s unit `kmsconvt@.service`.
 const KMSCON: &str = "kmsconvt";
 /// The consoles `vtium console` knows by name, each with rules of its own.
 const CONSOLES: [&str; 4] = [VTIUM, DEV, GETTY, KMSCON];
@@ -923,7 +923,7 @@ impl Run<'_, '_, '_> {
         self.systemctl(&["daemon-reload"])
     }
 
-    /// Refuses VT `n` while the C reference's console holds it.
+    /// Refuses VT `n` while kmscon's console holds it.
     fn refuse_kmscon(&self, state: &State, n: u16) -> Step {
         if state.holds(n, KMSCON) {
             return Err(Stop(text::kmscon_holds(n, state.own(n).names(KMSCON))));

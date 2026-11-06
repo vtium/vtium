@@ -62,4 +62,4 @@ read -r sixels <"$dir/sixels" || sixels=0
 rm -rf "$dir"
 printf 'tmux played the test pattern in %d panes, %d by %d, each through\n' $((n * n)) "$n" "$n"
 printf 'mpv --vo=sixel, and returned to this page when they closed.\n'
-report "tmux-${n}x$n" "mpv_frames=$frames mpv_dropped=$dropped kmscon_cpu_ms=$kmscon_ms panes=$((n * n)) tmux_sixels=$sixels"
+report "tmux-${n}x$n" "mpv_frames=$frames mpv_dropped=$dropped console_cpu_ms=$console_ms panes=$((n * n)) tmux_sixels=$sixels"

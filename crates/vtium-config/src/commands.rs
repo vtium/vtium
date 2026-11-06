@@ -65,11 +65,11 @@ pub fn fonts(words: &[String], paths: &Paths, out: &mut dyn Write, err: &mut dyn
     for font in fonts {
         let (state, left_out) = match &font.state {
             FontState::BuiltIn => ("built in".to_owned(), String::new()),
-            FontState::Refused(why) => (format!("does not read: {why}"), String::new()),
+            FontState::Refused(why) => (format!("cannot be read: {why}"), String::new()),
             FontState::Reads => match found.next().map(|(_, f)| f) {
                 Some(Sources::LeftOut(left)) => ("reads".to_owned(), left_out_text(&left)),
                 Some(Sources::DrawsNothing(why)) => {
-                    (format!("draws nothing: {why}"), String::new())
+                    (format!("no font file found: {why}"), String::new())
                 }
                 // no answer came: nothing is known of its sources, and it
                 // is not said to draw nothing
@@ -203,15 +203,15 @@ pub fn value_text(key: &keys::Key, text: Option<&str>) -> (String, bool) {
 pub fn conf_key(name: &str) -> Result<&'static keys::Key, String> {
     match keys::find(name) {
         Some(key) if key.scope == Scope::CommandLine => Err(format!(
-            "{name} is set on vtium's command line only, never in vtium.conf"
+            "{name} can be set only on vtium's command line, not in vtium.conf"
         )),
         Some(key) if key.scope == Scope::Section => Err(format!(
-            "{name} is set only in a [look NAME] section: vtium-config look set NAME {} VALUE sets it",
+            "{name} can be set only in a [look NAME] section. Use vtium-config look set NAME {} VALUE.",
             crate::ops::look_option(name).unwrap_or(name)
         )),
         Some(key) => Ok(key),
         None => Err(format!(
-            "vtium.conf has no key named {name:?}; docs/config.md lists them"
+            "there is no setting named {name:?}. The Settings view of vtium-config tui, and docs/config.md, list them all."
         )),
     }
 }
@@ -225,7 +225,7 @@ pub fn set_edit<'a>(key: &'static keys::Key, value: &'a str) -> Result<Edit<'a>,
         Kind::Switch => match value {
             "on" => Ok(Edit::Switch(key.name, true)),
             "off" => Ok(Edit::Switch(key.name, false)),
-            _ => Err(format!("{} is a switch, on or off", key.name)),
+            _ => Err(format!("{} is on or off", key.name)),
         },
         Kind::Choice(words) if !words.contains(&value) => {
             Err(format!("{} takes one of {}", key.name, words.join(", ")))
@@ -234,7 +234,7 @@ pub fn set_edit<'a>(key: &'static keys::Key, value: &'a str) -> Result<Edit<'a>,
             Err(format!("{}={value:?}: {}", key.name, keys::NOT_ABSOLUTE))
         }
         Kind::Paths if !value.split(':').all(keys::absolute) => Err(format!(
-            "{}={value:?}: each folder needs to be {}",
+            "{}={value:?}: each folder must be {}",
             key.name,
             keys::NOT_ABSOLUTE.trim_start_matches("an ")
         )),
@@ -249,16 +249,13 @@ pub fn set_edit<'a>(key: &'static keys::Key, value: &'a str) -> Result<Edit<'a>,
 /// refuses it.
 pub fn removal_refusal(name: &str, conf: Option<&str>) -> Option<String> {
     if RESERVED.contains(&name) {
-        return Some(format!("{name} is a built-in font, not a frit"));
+        return Some(format!("{name} is a built-in font, not a font set"));
     }
     if !valid_name(name) {
-        return Some(format!("{name:?} is no frit's name"));
+        return Some(format!("there is no font set named {name:?}"));
     }
-    crate::apply::naming(name, conf).map(|by| {
-        format!(
-            "{name} is the frit {by} names, so it is not removed; name another font there first"
-        )
-    })
+    crate::apply::naming(name, conf)
+        .map(|by| format!("{name} is not removed: {by} uses it. Choose another font there first."))
 }
 
 /// `remove-frit NAME`: removes the frit `NAME.vtfrit`, refusing a built-in
@@ -271,7 +268,7 @@ pub fn remove_frit(
     err: &mut dyn Write,
 ) -> u8 {
     let [name] = words else {
-        return usage(err, "remove-frit takes one frit's name");
+        return usage(err, "remove-frit takes one font set's name");
     };
     // the name is judged before it names a file
     if let Some(why) = removal_refusal(name, None) {
@@ -306,7 +303,7 @@ fn read_bounded(path: &Path) -> Result<Vec<u8>, String> {
     let shown = path.display();
     let meta = std::fs::metadata(path).map_err(|e| format!("{shown}: {e}"))?;
     if !meta.is_file() {
-        return Err(format!("{shown}: not a regular file"));
+        return Err(format!("{shown} is not a regular file"));
     }
     let mut bytes = Vec::new();
     std::fs::File::open(path)
@@ -316,7 +313,7 @@ fn read_bounded(path: &Path) -> Result<Vec<u8>, String> {
         })
         .map_err(|e| format!("{shown}: {e}"))?;
     if bytes.len() > FRIT_BYTES_MAX {
-        return Err(format!("{shown}: larger than {FRIT_BYTES_MAX} bytes"));
+        return Err(format!("{shown} is larger than {FRIT_BYTES_MAX} bytes"));
     }
     Ok(bytes)
 }
@@ -324,31 +321,34 @@ fn read_bounded(path: &Path) -> Result<Vec<u8>, String> {
 /// What `new-frit --template` prints: a frit with each key it takes
 /// explained, to edit and install with `new-frit --from FILE`.
 pub const TEMPLATE: &str = "\
-# A frit: a font set file, NAME.vtfrit in /etc/vtium/fonts, which the
-# console's glyph helper draws from. One key=value a line; # starts a
-# comment. vtium-config new-frit --from FILE checks this file and installs it.
+# A font set (frit): a file named NAME.vtfrit in /etc/vtium/fonts, from which
+# the console's font helper draws the characters. Write one key=value per
+# line; # starts a comment. vtium-config new-frit --from FILE checks this file
+# and installs it.
 #
-# The frit's name, as font-name and OSC 50 name it: letters, digits, '.',
-# '_', '+' and '-'. Left out, the file's name less .vtfrit.
+# The font set's name, as font-name and OSC 50 name it: letters, digits, '.',
+# '_', '+' and '-'. When left out, the name is the file's name without
+# .vtfrit.
 #name=myfont
 #
-# The fonts, in order: each later source fills only the characters the
-# ones before it lack. A source is font:FAMILY, a family matched on the
-# machine that draws it; kbd:NAME, a kbd console font; file:PATH, a PSF
+# The fonts, in order: each later source= line supplies only the characters
+# the fonts before it lack. A source is font:FAMILY, a font family found on
+# the machine that draws it; kbd:NAME, a kbd console font; file:PATH, a PSF
 # file; bdf:PATH, a BDF font; outline:PATH, a TrueType or OpenType file;
 # vconsole, the console font vconsole.conf names; console:VT, the font the
-# kernel's console held at start; or builtin:unifont or builtin:unscii-8.
+# kernel's console had when vtium started; or builtin:unifont or
+# builtin:unscii-8.
 source=font:DejaVu Sans Mono
 #source=builtin:unifont
 #
-# The cell in pixels, WIDTHxHEIGHT, each side 6 to 96. Left out, the first
-# source sets it.
+# The character cell in pixels, WIDTHxHEIGHT, each side from 6 to 96. When
+# left out, the first font sets it.
 #cell=8x16
 #
-# An outline frit's starting size in points, 6 to 96.
+# The starting size in points of a font set with outline fonts, from 6 to 96.
 #size=12
 #
-# How outline glyphs are hinted: light, the default, or full.
+# How outline fonts are hinted: light, the default, or full.
 #hinting=light
 ";
 
@@ -406,7 +406,7 @@ fn new_args(words: &[String]) -> Result<NewArgs, String> {
         let mut value = |flag: &str| {
             it.next()
                 .cloned()
-                .ok_or_else(|| format!("new-frit's {flag} takes a value"))
+                .ok_or_else(|| format!("new-frit's {flag} needs a value"))
         };
         match word.as_str() {
             "--template" => a.template = true,
@@ -414,7 +414,7 @@ fn new_args(words: &[String]) -> Result<NewArgs, String> {
             "--name" => a.name = Some(value("--name")?),
             "--cell" => a.cell = Some(value("--cell")?),
             "--size" => a.size = Some(value("--size")?),
-            w if w.starts_with("--") => return Err(format!("new-frit takes no option {w}")),
+            w if w.starts_with("--") => return Err(format!("new-frit has no option {w}")),
             w => a.fonts.push(w.to_owned()),
         }
     }
@@ -441,7 +441,7 @@ pub fn frit_from(name: &str, fonts: &[String], cell: Option<&str>, size: Option<
 pub fn frit_plan(paths: &Paths, name: &str, text: &str) -> Result<Plan, String> {
     if !valid_name(name) || RESERVED.contains(&name) {
         return Err(format!(
-            "{name:?} cannot name a frit: 1 to 64 letters, digits, '.', '_', '+' and '-', and not a built-in font's name"
+            "{name:?} cannot be a font set's name: a name has 1 to 64 letters, digits, '.', '_', '+' or '-', and cannot be a built-in font's name"
         ));
     }
     let path = paths
@@ -452,15 +452,17 @@ pub fn frit_plan(paths: &Paths, name: &str, text: &str) -> Result<Plan, String> 
     let frit = Frit::parse(text.as_bytes(), &path, name).map_err(|e| e.to_string())?;
     if frit.name != name {
         return Err(format!(
-            "the frit says name={}, but it is installed as {name}; make them one",
+            "the font set says name={}, but it would be installed as {name}. Make the two names the same.",
             frit.name
         ));
     }
     let old = match std::fs::read(&path) {
-        Ok(bytes) => Some(
-            String::from_utf8(bytes)
-                .map_err(|_| format!("{}: the installed frit is not UTF-8 text", path.display()))?,
-        ),
+        Ok(bytes) => Some(String::from_utf8(bytes).map_err(|_| {
+            format!(
+                "the installed font set {} is not UTF-8 text",
+                path.display()
+            )
+        })?),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
         Err(e) => return Err(format!("{}: {e}", path.display())),
     };
@@ -489,7 +491,7 @@ pub fn new(words: &[String], paths: &Paths, out: &mut dyn Write, err: &mut dyn W
     };
     if a.template {
         if !a.fonts.is_empty() || a.from.is_some() || a.name.is_some() {
-            return usage(err, "new-frit --template takes nothing else");
+            return usage(err, "new-frit --template takes no other argument");
         }
         let _ = write!(out, "{TEMPLATE}");
         return 0;

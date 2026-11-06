@@ -845,7 +845,7 @@ fn a_valid_closed_file_whose_heads_lose_every_display_shows_its_one_notice() {
     let v = settle(&c, EVERY & !displays | 4, 0, None);
     assert_eq!(o.line, None);
     assert_eq!(v.notice, Some(Line::NoDisplay));
-    assert_eq!(Line::NoDisplay.text(), "vtium: no display for any head");
+    assert_eq!(Line::NoDisplay.text(), "No head has a connected display.");
     assert_eq!(v.reach & (session(H1) | session(H2) | session(DEF)), 0);
 }
 

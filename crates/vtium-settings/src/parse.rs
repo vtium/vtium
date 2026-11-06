@@ -114,9 +114,9 @@ pub fn reading(bytes: &[u8]) -> Reading {
 /// `policy` lines of its top level, as [`reading`] reads a head file, with
 /// the whole file's line numbers (ADR-1403 D3). Every other top-level line
 /// is vtium's own key, which this reader skips. `None` for a file with no
-/// flow, one with no section heading and no policy line, which is a
-/// kmscon.conf: vtium runs its compiled-in flow for it, and the top level
-/// still applies.
+/// flow, one with no section heading and no policy line, as a copied
+/// kmscon.conf is: vtium runs its compiled-in flow for it, and the top
+/// level still applies.
 pub fn sections(bytes: &[u8]) -> Option<Reading> {
     split(bytes).has_flow().then(|| read(bytes))
 }
@@ -198,26 +198,6 @@ fn read(bytes: &[u8]) -> Reading {
         p.unreadable_policy(n, PolicyFault::Cut);
     }
     p.finish()
-}
-
-/// Whether `c` does not show on screen as itself: a space or a format
-/// character other than a blank or a tab, such as a no-break space, a
-/// zero-width space or a byte-order mark, which a quote escapes.
-fn hidden(c: char) -> bool {
-    !matches!(c, ' ' | '\t' | '"' | '\'' | '\\') && c.escape_debug().count() > 1
-}
-
-/// `line` from the character before the first one in its key that does
-/// not show on screen, or from that character when it starts the line;
-/// `None` when the key holds none.
-fn hidden_from(line: &str) -> Option<&str> {
-    let key = line.split('=').next().unwrap_or_default();
-    let at = key.char_indices().find(|&(_, c)| hidden(c))?.0;
-    let before = key
-        .get(..at)
-        .and_then(|k| k.char_indices().next_back())
-        .map_or(at, |(i, _)| i);
-    line.get(before..)
 }
 
 /// Parses a head file's text, strictly: its [`Config`] when it holds no
@@ -740,9 +720,18 @@ impl Parser {
             return;
         }
         let section = *self.section.get_or_insert(Section::Top);
-        if section != Section::Top && matches!(key_value(&line), Some(("policy", _))) {
+        // a section vtium cannot read is ignored whole, the `policy` and
+        // `version` lines in it with the rest
+        let readable_section = !matches!(section, Section::Top | Section::Broken);
+        if readable_section && matches!(key_value(&line), Some(("policy", _))) {
             self.policies.push(PolicyLine::InSection);
             self.error(Some(n), Problem::PolicyInSection, self.within());
+            return;
+        }
+        // `version` is the top line misplaced, never the command line's
+        // option of that name
+        if readable_section && matches!(key_value(&line), Some((VERSION_KEY, _))) {
+            self.error(Some(n), Problem::VersionInSection, self.within());
             return;
         }
         match section {
@@ -774,29 +763,21 @@ impl Parser {
         true
     }
 
+    /// A top-level line other than a policy line: a `version` line, else
+    /// one of vtium's own keys, which the console reads and this reader
+    /// skips (ADR-1403 D3).
     fn top_key(&mut self, n: usize, line: &str) {
-        match key_value(line) {
-            Some(("version", value)) => {
-                if self.once(n, Seen::Top, "version") {
-                    self.versioned = true;
-                    if value != "1" {
-                        self.error(
-                            Some(n),
-                            Problem::UnknownVersion(Quoted::new(value)),
-                            Within::Top,
-                        );
-                    }
-                }
-            }
-            // a key that holds a character that does not show is quoted from
-            // just before that character, so its message shows the
-            // character the owner cannot see however long the key is
-            _ => {
-                let problem = match hidden_from(line) {
-                    Some(from) => Problem::HiddenOutsideSection(Quoted::new(from)),
-                    None => Problem::Syntax(Syntax::OutsideSection),
-                };
-                self.error(Some(n), problem, Within::Top);
+        let Some((VERSION_KEY, value)) = key_value(line) else {
+            return;
+        };
+        if self.once(n, Seen::Top, VERSION_KEY) {
+            self.versioned = true;
+            if value != "1" {
+                self.error(
+                    Some(n),
+                    Problem::UnknownVersion(Quoted::new(value)),
+                    Within::Top,
+                );
             }
         }
     }
@@ -1204,7 +1185,7 @@ impl Parser {
     }
 
     fn finish(mut self) -> Reading {
-        // a vtium.conf with no section is a kmscon.conf, which needs no
+        // a file with no section, as a copied kmscon.conf is, needs no
         // version even when it states a policy (ADR-1403 D3)
         let needs_version = self.headed;
         if !self.versioned && needs_version {

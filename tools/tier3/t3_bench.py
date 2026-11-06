@@ -7,7 +7,7 @@ A benchmark screen script reports its window on the event port as
 the guest's monotonic clock (/proc/uptime), the clock that also stamps
 kmscon's console lines. The other keys are the screen's own counts: "lines"
 for text it printed, or for a screen that plays video through mpv
-"mpv_frames" and "mpv_dropped" (mpv-stats.lua) and "kmscon_cpu_ms",
+"mpv_frames" and "mpv_dropped" (mpv-stats.lua) and "console_cpu_ms",
 kmscon's CPU time over the window from /proc, and for the tmux grids
 "tmux_sixels", the sixel pictures tmux sent to kmscon while it played. The
 images variant's tmux screen (img-tmux-pane) also reports "pane_px", the
@@ -123,14 +123,14 @@ def program(counts, seconds):
     timer does not count), and as a share of one CPU."""
     if "mpv_frames" not in counts or seconds <= 0:
         return {}
-    frames, ms = counts["mpv_frames"], counts.get("kmscon_cpu_ms")
+    frames, ms = counts["mpv_frames"], counts.get("console_cpu_ms")
     out = {"mpv_frames": frames, "mpv_dropped": counts.get("mpv_dropped", 0),
            "mpv_per_s": round(frames / seconds, 1)}
     if ms is not None:
-        out["kmscon_cpu_ms"] = ms
-        out["kmscon_cpu_pct"] = round(ms / (seconds * 10), 1)
+        out["console_cpu_ms"] = ms
+        out["console_cpu_pct"] = round(ms / (seconds * 10), 1)
         if frames:
-            out["kmscon_cpu_ms_per_mpv_frame"] = round(ms / frames, 3)
+            out["console_cpu_ms_per_mpv_frame"] = round(ms / frames, 3)
     return out
 
 
@@ -149,7 +149,7 @@ def bottleneck(figures):
     if not figures["mpv_frames"]:
         return ["mpv showed no frame, so nothing was played to judge"]
     out = []
-    per = figures.get("kmscon_cpu_ms_per_mpv_frame")
+    per = figures.get("console_cpu_ms_per_mpv_frame")
     if per is not None and per > CLIP_FRAME_MS:
         out.append("kmscon's CPU time per frame mpv sent, %.1f ms, is over the clip's "
                    "%.1f ms frame interval" % (per, CLIP_FRAME_MS))
@@ -231,11 +231,11 @@ def measure(serial_text, event_line, config):
         if not counts["tmux_sixels"]:
             out["error"] = ("tmux sent kmscon no sixel picture: it drew placeholders, or "
                             "nothing played")
-        elif out.get("kmscon_cpu_ms") is not None:
+        elif out.get("console_cpu_ms") is not None:
             # Reported, not judged: A4 is compatibility, and
             # kmscon's streaming is judged apart from tmux (#161).
-            out["kmscon_cpu_ms_per_tmux_sixel"] = round(
-                out["kmscon_cpu_ms"] / counts["tmux_sixels"], 3)
+            out["console_cpu_ms_per_tmux_sixel"] = round(
+                out["console_cpu_ms"] / counts["tmux_sixels"], 3)
     if "pane_px" in counts:
         out["pane_px"] = counts["pane_px"]
         # each render-timer second's mean damage per frame, of the seconds

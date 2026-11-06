@@ -25,12 +25,13 @@ from t3_qemu import Qemu, char_qcodes, make_iso, not_blank, wait_stable
 
 # Display variants. Each boots its own guest from the base image, with its
 # own vCPUs and memory, and names the text renderer its console must log
-# (ADR-1303 D10): cpu for the 2D variants, gpu for gpu-1280x800, and gltex
-# on virgl for the GL one, a renderer vtium never names, so that variant
-# fails every case. Each draws every screen, the image ones included
-# (t3_evaluate.IMAGE_SCREENS), so its console is built with images
-# ("tree_features"). Every variant's cases are judged by the goldens in
-# goldens/VARIANT/, but those of a variant judged another way ("verdict").
+# (ADR-1303 D10): cpu for the 2D variants, and gpu for the two that draw on
+# the GPU path under virgl, gl-1280x800 and gpu-1280x800. Each draws every
+# screen, the image ones included (t3_evaluate.IMAGE_SCREENS), so its
+# console is built with images ("tree_features"). Every variant's cases are
+# judged by the goldens in goldens/VARIANT/, but those of a variant judged
+# by another's goldens (t3_evaluate.GOLDENS_OF) and those of a variant
+# judged another way ("verdict").
 # The screens the frit variants draw: Latin text the frit's font holds, and
 # CJK it lacks, which the built-in unifont draws in its place (#141); cjk
 # last, as vt-restore compares with it.
@@ -40,7 +41,7 @@ VARIANTS = {
     "2d-1280x800": {
         "device": "virtio-vga,xres=1280,yres=800,edid=on",
         "display": "none",
-        "conf": "kmscon.conf",
+        "conf": "vtium.conf",
         "renderer": "cpu",
         "cpus": 4,
         "memory_mb": 4096,
@@ -52,7 +53,7 @@ VARIANTS = {
     "2d-1366x768-potato": {
         "device": "virtio-vga,xres=1366,yres=768,edid=on",
         "display": "none",
-        "conf": "kmscon.conf",
+        "conf": "vtium.conf",
         "renderer": "cpu",
         "cpus": 1,
         "memory_mb": 512,
@@ -66,7 +67,7 @@ VARIANTS = {
     "2d-potato-min": {
         "device": "virtio-vga,xres=1366,yres=768,edid=on",
         "display": "none",
-        "conf": "kmscon-minimal.conf",
+        "conf": "vtium-minimal.conf",
         "renderer": "cpu",
         "cpus": 1,
         "memory_mb": 512,
@@ -76,7 +77,7 @@ VARIANTS = {
     "2d-potato-min-psf": {
         "device": "virtio-vga,xres=1366,yres=768,edid=on",
         "display": "none",
-        "conf": "kmscon-minimal-psf.conf",
+        "conf": "vtium-minimal-psf.conf",
         "renderer": "cpu",
         "cpus": 1,
         "memory_mb": 512,
@@ -97,7 +98,7 @@ VARIANTS = {
     "2d-320x240-psf8": {
         "device": "virtio-vga,xres=320,yres=240,edid=on",
         "display": "none",
-        "conf": "kmscon-small-8x8.conf",
+        "conf": "vtium-small-8x8.conf",
         "renderer": "cpu",
         "cpus": 1,
         "memory_mb": 512,
@@ -109,7 +110,7 @@ VARIANTS = {
     "2d-640x480-psf16": {
         "device": "virtio-vga,xres=640,yres=480,edid=on",
         "display": "none",
-        "conf": "kmscon-small-8x16.conf",
+        "conf": "vtium-small-8x16.conf",
         "renderer": "cpu",
         "cpus": 1,
         "memory_mb": 512,
@@ -128,7 +129,7 @@ VARIANTS = {
     "2d-640x480-frit": {
         "device": "virtio-vga,xres=640,yres=480,edid=on",
         "display": "none",
-        "conf": "kmscon-frit.conf",
+        "conf": "vtium-frit.conf",
         "renderer": "cpu",
         "cpus": 1,
         "memory_mb": 512,
@@ -139,7 +140,7 @@ VARIANTS = {
     "2d-640x480-frit-held": {
         "device": "virtio-vga,xres=640,yres=480,edid=on",
         "display": "none",
-        "conf": "kmscon-frit.conf",
+        "conf": "vtium-frit.conf",
         "renderer": "cpu",
         "cpus": 1,
         "memory_mb": 512,
@@ -153,39 +154,46 @@ VARIANTS = {
         # instances and their double buffers exceed the 256 MiB default.
         "device": "virtio-vga,xres=7680,yres=2160,edid=on,max_hostmem=1G",
         "display": "none",
-        "conf": "kmscon.conf",
+        "conf": "vtium.conf",
         "renderer": "cpu",
         "cpus": 4,
         "memory_mb": 4096,
         "tree_features": ["images"],
     },
     # The 7680x2160 display with DejaVu Sans Mono at 32 points, a 20x38 cell
-    # (the C reference drew 19x38), near the 20x40 of Monoid at 30 the
+    # near the 20x40 of Monoid at 30 the
     # operator runs: pictures sized from the cell (sixel) are checked at a
     # cell other than the 10x19 of the rest.
     "2d-7680x2160-font32": {
         "device": "virtio-vga,xres=7680,yres=2160,edid=on,max_hostmem=1G",
         "display": "none",
-        "conf": "kmscon-font32.conf",
+        "conf": "vtium-font32.conf",
         "renderer": "cpu",
         "cpus": 4,
         "memory_mb": 4096,
         "tree_features": ["images"],
     },
+    # The GL variant, run on vtium's GPU path: 2d-1280x800's
+    # display on virtio-gpu with virgl, with hwaccel on (vtium-gl.conf).
+    # The log must name the gpu renderer for every display, and each case
+    # is judged by 2d-1280x800's golden of it, exactly
+    # (t3_evaluate.GOLDENS_OF), since the GPU path draws the CPU path's
+    # bytes (ADR-1303 D1, D11). The first GL goldens stay in
+    # goldens/gl-1280x800/ as a record (t3_evaluate.RECORDS).
     "gl-1280x800": {
         "device": "virtio-vga-gl,xres=1280,yres=800,edid=on",
         "display": "egl-headless,rendernode=%s"
                    % os.environ.get("T3_RENDERNODE", "/dev/dri/renderD128"),
-        "conf": "kmscon-gl.conf",
-        "renderer": "gltex",
+        "conf": "vtium-gl.conf",
+        "renderer": "gpu",
         "capture": "vnc",
         "cpus": 4,
         "memory_mb": 4096,
-        "tree_features": ["images"],
+        "tree_features": ["gpu", "images"],
     },
     # The GPU path on the installed console (ADR-1303): 2d-1280x800's
     # display on virtio-gpu with virgl, whose render node in the guest the
-    # head makes its GL context on, with hwaccel on (kmscon-hwaccel.conf).
+    # head makes its GL context on, with hwaccel on (vtium-hwaccel.conf).
     # The log must name the gpu renderer for every display, and each case
     # is judged by 2d-1280x800's capture of it in the same run, byte for
     # byte (SAME_AS_CAPTURE), since the GPU path draws the CPU path's bytes
@@ -194,7 +202,7 @@ VARIANTS = {
         "device": "virtio-vga-gl,xres=1280,yres=800,edid=on",
         "display": "egl-headless,rendernode=%s"
                    % os.environ.get("T3_RENDERNODE", "/dev/dri/renderD128"),
-        "conf": "kmscon-hwaccel.conf",
+        "conf": "vtium-hwaccel.conf",
         "renderer": "gpu",
         "capture": "vnc",
         "cpus": 4,
@@ -212,7 +220,7 @@ VARIANTS = {
 SAME_AS_CAPTURE = {"gpu-1280x800": "2d-1280x800"}
 
 # The power keys (vtium/vtium#21) on the minspec machine, with the
-# minimal configuration and the keys bound (guest/kmscon-power.conf). Each
+# minimal configuration and the keys bound (guest/vtium-power.conf). Each
 # variant's "power" lists its cases (t3_power), pressed in order on the
 # console's login prompt. A reboot or a power-off ends the VM, so each
 # has a variant of its own, and only a suspend comes before another case.
@@ -228,7 +236,7 @@ VERBOSE = "kernel.printk = 7 4 1 7\n"
 POWER = {
     "device": "virtio-vga,xres=1366,yres=768,edid=on",
     "display": "none",
-    "conf": "kmscon-power.conf",
+    "conf": "vtium-power.conf",
     "renderer": "cpu",
     "cpus": 1,
     "memory_mb": 512,
@@ -266,7 +274,7 @@ SYSVINIT = {
     "guest": "sysvinit",
     "device": "virtio-vga,xres=640,yres=480,edid=on",
     "display": "none",
-    "conf": "kmscon-small-8x16.conf",
+    "conf": "vtium-small-8x16.conf",
     "renderer": "cpu",
     "cpus": 1,
     "memory_mb": 512,
@@ -299,7 +307,7 @@ SYSVINIT_VARIANTS = ["sysvinit-640x480", "sysvinit-no-udev", "sysvinit-reboot",
 DEVICES = {
     "device": "virtio-vga,id=video0,xres=640,yres=480,edid=on",
     "display": "none",
-    "conf": "kmscon-small-8x16.conf",
+    "conf": "vtium-small-8x16.conf",
     "renderer": "cpu",
     "cpus": 1,
     "memory_mb": 512,
@@ -335,7 +343,7 @@ DEVICE_VARIANTS = ["two-outputs-mirror", "two-cards-mirror", "usb-keyboards"]
 # img-tmux-pane's damage per frame counts two frames' changes, not three
 # (t3_bench.pane_verdict).
 VARIANTS["images-640x480"] = dict(DEVICES, device="virtio-vga,xres=640,yres=480,edid=on",
-                                  conf="kmscon-images.conf",
+                                  conf="vtium-images.conf",
                                   images=True, tree_features=["images"], pictures=True,
                                   screens=PICTURE_SCREENS, agent=True, prelogin=True,
                                   rpc_pipefs=True)
@@ -359,7 +367,7 @@ IMAGE_VARIANTS = ["images-640x480", "images-640x480-nobody"]
 VARIANTS["showcase-1920x1080"] = {
     "device": "virtio-vga,xres=1920,yres=1080,edid=on",
     "display": "none",
-    "conf": "kmscon-showcase.conf",
+    "conf": "vtium-showcase.conf",
     "renderer": "cpu",
     "cpus": 4,
     "memory_mb": 4096,
@@ -385,7 +393,7 @@ VARIANTS["showcase-1920x1080"] = {
 # heads-partly-open is the open control of the closed variants' fallback:
 # there the getty does start. The two without a display device ("device":
 # None) wait for vtium on tty2 with no screen to capture, one under each
-# policy, at a display-wait of 5 s (guest/kmscon-nodisplay.conf). The kiosk
+# policy, at a display-wait of 5 s (guest/vtium-nodisplay.conf). The kiosk
 # switches no VT ("vt_switch": False): its claimed keyboard's VT keys reach
 # its session, and the kiosk check presses them itself. heads-policy-typo's
 # file holds a policy line vtium cannot read ("policy_line"), which makes
@@ -393,7 +401,7 @@ VARIANTS["showcase-1920x1080"] = {
 # policy.
 HEAD_VARIANT = dict(DEVICES, agent=True, screens=[])
 NO_DISPLAY = dict({k: v for k, v in HEAD_VARIANT.items() if k not in ("fonts", "frits")},
-                  device=None, conf="kmscon-nodisplay.conf", renderer=None, login=False)
+                  device=None, conf="vtium-nodisplay.conf", renderer=None, login=False)
 VARIANTS.update({
     "heads-partly-open": dict(HEAD_VARIANT, heads="tools/tier3/guest/heads/partly-open.conf",
                               policy="open", first="partly-notice", screens=["cjk"],
@@ -850,8 +858,8 @@ def resident_kb(vm):
 def resident(rss_kb, screens=SCREENS):
     """The minspec memory figures from `resident_kb`: the resident set after
     the first of `screens`, and the peak over `screens` with the screen it
-    followed (s1-scroll, once its lines fill the scrollback, for the C
-    reference's minimal build); the pointer case's readings are no screen.
+    followed (s1-scroll in the minimal build, once its lines fill the
+    scrollback); the pointer case's readings are no screen.
     VmRSS is in KiB; None where nothing was read, as for a variant that
     draws no screen."""
     first = screens[0] if screens else None

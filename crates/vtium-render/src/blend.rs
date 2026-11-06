@@ -1,6 +1,6 @@
-//! The per-pixel arithmetic, carried forward from the C reference
-//! (ADR-1300, "Carried forward"): tier 2's goldens were drawn with it, so
-//! vtium draws with exactly the same integers.
+//! The per-pixel arithmetic (ADR-1300, "Carried forward"), in whole
+//! numbers, so a frame draws to the same bytes on every machine and tier
+//! 2's goldens judge it exactly.
 //!
 //! A display pixel is `0x00RRGGBB`. The composing pixel is premultiplied
 //! `0xAARRGGBB`, its colors already multiplied by its alpha.
@@ -97,7 +97,7 @@ pub(crate) fn argb_over(p: u32, src: u32) -> u32 {
 mod tests {
     use super::*;
 
-    // drm2d_render.c:46-51: exact for every product of two bytes
+    // exact for every product of two bytes
     #[test]
     fn div255_rounds_to_nearest_over_its_range() {
         for t in 0..=255 * 255 {

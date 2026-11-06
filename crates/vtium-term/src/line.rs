@@ -1370,7 +1370,7 @@ mod tests {
         assert_eq!(line.heap_bytes(), 4 * 8);
     }
 
-    // kmscon ADR 102, "Cells and clusters": extenders past 32 are dropped.
+    // ADR-1001, "The line": extenders past 32 are dropped.
     #[test]
     fn a_cluster_keeps_its_first_cluster_max_codepoints() {
         let mut line = Line::new(LineId::new(1), 64);
@@ -1482,9 +1482,8 @@ mod tests {
         assert!(line.cells().iter().all(|c| c.is_blank()));
     }
 
-    // libtsm#47: cells past a stored line's end were drawn with the pen,
-    // so an SGR under BCE recolored them. They read as the blank cell in
-    // the default style.
+    // Cells past a stored line's end read as the blank cell in the default
+    // style, so an SGR under BCE does not recolor them.
     #[test]
     fn cells_past_the_end_read_blank_in_the_default_style() {
         let mut line = Line::new(LineId::new(1), 4);

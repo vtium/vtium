@@ -413,7 +413,7 @@ fn a_kbd_name_does_not_follow_a_link_out_of_the_data_directory() {
             .engine(&format!("source={source}\n"))
             .err()
             .expect("refused");
-        assert!(why.contains("leaves"), "{source}: {why}");
+        assert!(why.contains("leads out of"), "{source}: {why}");
     }
 }
 

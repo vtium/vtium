@@ -298,7 +298,11 @@ fn the_binary_run_as_root_refuses_more_than_one_tools_user() {
         "{}",
         stderr(&o)
     );
-    assert!(stderr(&o).contains("Nothing was written"), "{}", stderr(&o));
+    assert!(
+        stderr(&o).contains("Nothing was installed"),
+        "{}",
+        stderr(&o)
+    );
     // with one tool's variable alone, the same draft applies, writing nothing
     let Some(o) = as_namespace_root_with(&["apply", dir], &[("DOAS_USER", "root")]) else {
         return;

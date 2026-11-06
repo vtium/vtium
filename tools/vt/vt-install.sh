@@ -40,9 +40,9 @@
 # /usr/local/bin/vtium-dev-config, and a binary built with images that does
 # not name /usr/local/bin/vtium-dev-image, and make vt-install builds one
 # that names the development install's own helpers. The names kmsconvt@ and
-# kmsconvt-getty@ are left alone: they belong to the C reference's package.
+# kmsconvt-getty@ are left alone: they belong to an installed kmscon's package.
 # The template alias /etc/systemd/system/autovt@.service is left alone too,
-# whichever console it names: a getty, the C reference's console, or the
+# whichever console it names: a getty, an installed kmscon's console, or the
 # packaged vtium after vtium console enable --all. Enabling vtium-dev@ttyN
 # adds the per-VT alias autovt@ttyN.service -> vtium-dev@.service, so that
 # logind, which starts autovt@ttyN on a VT nothing holds, starts vtium-dev
@@ -450,7 +450,7 @@ elif grep -qaF -- "$images_marker" "$bin"; then
 	die "$bin is built with images but does not look for its image helper at $image_path, so it would start the packaged helper, another build's, or none; make vt-install FEATURES=images builds one that looks there"
 fi
 
-# The C reference's console, or the packaged vtium, on the VT would fight
+# An installed kmscon's console, or the packaged vtium, on the VT would fight
 # this one for it.
 ! "$systemctl" is-active --quiet "kmsconvt@tty$vt.service" ||
 	die "kmsconvt@tty$vt is running on VT $vt; stop it first, or pick another VT"
@@ -486,7 +486,7 @@ trap 'rm -rf -- "$tmp"' EXIT
 
 # The two units, generated from the shipped ones by units.sh, the one place
 # both this and the package's make install make them. The unit stops the
-# packaged vtium and the C reference's console on its VT before it starts,
+# packaged vtium and an installed kmscon's console on its VT before it starts,
 # as it stops the getty (ADR-1500 D4).
 "$here/units.sh" --name vtium-dev --exec "$bin_path" --by "make vt-install" \
 	--conflicts 'vtium@%i.service' --conflicts 'kmsconvt@%i.service' \

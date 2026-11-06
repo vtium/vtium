@@ -1,6 +1,4 @@
-//! The blink timers: text with SGR 5 and the blinking cursor
-//! (`src/terminal.c:163-165, 715-724, 821-830, 1357-1374, 1764-1795` at
-//! kmscon b1f7a7c5).
+//! The blink timers: text with SGR 5 and the blinking cursor.
 //!
 //! With `blink` on, two timers run while the terminal is active. The text
 //! timer fires every [`TEXT_PERIOD`]; the cursor timer every

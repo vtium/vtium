@@ -9,7 +9,7 @@ use vtium_parse::{
 };
 
 /// The largest value a parameter reaches: digits stop once it is past
-/// 0xffff (tsm-vte.c:1314-1316).
+/// 0xffff.
 pub const VALUE_MAX: i32 = 0xffff * 10 + 9;
 
 /// One recorded action. String data is recorded a character at a time, so
@@ -43,8 +43,7 @@ pub enum Act {
 pub struct Recorder {
     pub acts: Vec<Act>,
     pub mode: InputMode,
-    /// Switch the input mode as the C reference's DECSCL, DECSTR and RIS
-    /// do (tsm-vte.c:1032-1036, 1784-1823, 2692-2709).
+    /// Switch the input mode as vtium-term's DECSCL, DECSTR and RIS do.
     pub follow_decscl: bool,
     /// Pause after each action that matches.
     pub pause_on: Option<fn(&Act) -> bool>,
@@ -150,7 +149,7 @@ impl Consumer for Recorder {
     }
 
     fn execute(&mut self, control: u8) {
-        // tsm-vte.c:3291-3298, 3325-3331
+        // C0 controls but ESC, and C1 controls but the string introducers
         assert!(
             matches!(control, 0x00..=0x1a | 0x1c..=0x1f | 0x80..=0x8f | 0x91..=0x97 | 0x99 | 0x9a | 0x9c),
             "execute {control:#x}"
@@ -176,7 +175,7 @@ impl Consumer for Recorder {
         );
         check_params(params);
         if self.follow_decscl && final_byte == b'p' && !params.has_subparams() {
-            // tsm-vte.c:2692-2709, with intermediates matched exactly
+            // DECSCL, DECSTR and RIS, with intermediates matched exactly
             let ims = intermediates.as_bytes();
             if params.marker().is_some() {
             } else if ims == b"!" {

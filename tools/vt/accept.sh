@@ -747,7 +747,7 @@ start_rows=$rows start_cols=$cols
 # the terminal's answer to cursor_row lands on a page. read_comment turns it on
 # while a comment is typed.
 #
-# Line editing stays off too, as the C reference's demo learned. read -n1 turns
+# Line editing stays off too. read -n1 turns
 # it off only while it reads, and a Ctrl-D that arrives between two reads,
 # while the page or a prompt is drawn, meets a line-editing terminal: it
 # becomes an end of file, which the next read receives as a NUL byte and

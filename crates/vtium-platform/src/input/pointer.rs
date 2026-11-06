@@ -1,6 +1,5 @@
 //! The pointer: a mouse's relative motion, a touchpad's or touchscreen's
-//! absolute motion, buttons with double clicks, and the wheel
-//! (input_pointer.c).
+//! absolute motion, buttons with double clicks, and the wheel.
 
 use std::time::{Duration, Instant};
 
@@ -10,11 +9,10 @@ use crate::ioctl::{
     BTN_TOUCH, REL_WHEEL, REL_X, REL_Y,
 };
 
-/// Two left presses closer than this are a double click
-/// (input_pointer.c:193).
+/// Two left presses closer than this are a double click.
 pub(crate) const DOUBLE_CLICK: Duration = Duration::from_millis(500);
 
-/// What moves the pointer (input.c:279-292).
+/// What moves the pointer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Kind {
     None,
@@ -207,8 +205,8 @@ fn axis(
             }
         }
         Kind::Touchscreen | Kind::VirtualMouse => {
-            // An axis whose range is one value moves nothing; the C
-            // reference divided by zero.
+            // An axis whose range is one value moves nothing, since
+            // scaling it would divide by zero.
             let span = i64::from(range.max).checked_sub(i64::from(range.min))?;
             let scaled = i64::from(value)
                 .saturating_sub(i64::from(range.min))

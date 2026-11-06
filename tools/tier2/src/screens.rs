@@ -1,13 +1,10 @@
 //! Tier 2's screens, each with the golden that judges it.
 //!
-//! The C reference's tier 2 drew every screen with an outline font, DejaVu Sans Mono through
-//! FreeType, so its goldens judge vtium only where no outline glyph shows:
+//! The first goldens were drawn with an outline font, DejaVu Sans Mono through
+//! FreeType, so they judge vtium only where no outline glyph shows:
 //! the two block screens, which hold only sprites and spaces. The others
-//! are re-baselined when the Rust font layer lands (vtium/vtium#24), as
-//! kmscon's ADR-304 §6 decides (adr-cite-ignore: kmscon's record).
-//! The screens after them are vtium's, drawn in unifont, for the harness
-//! work the C reference had queued (aaronsb/kmscon#8, #10, #70, #118, #122),
-//! then color glyphs from an RGBA strike of a vitrified set built in memory
+//! are re-baselined when the Rust font layer lands (vtium/vtium#24).
+//! The screens after them are vtium's, drawn in unifont, then color glyphs from an RGBA strike of a vitrified set built in memory
 //! (vtium/vtium#23), and last the small displays in the PSF fonts
 //! `tools/testfont` writes (vtium/vtium#75), and vtium's own drawing over
 //! a frame, its notices and on-screen display, at two display sizes
@@ -29,7 +26,7 @@ pub struct Case {
 }
 
 /// Block elements and box drawing stacked across rows and columns
-/// (aaronsb/kmscon#46): the C reference's `BLOCKS_BYTES`.
+/// in one picture.
 const BLOCKS: &[u8] = concat!(
     "██████ ▄▄▄▄ ┌──┬──┐ ╔══╦══╗ ┏━━┳━━┓ ╭──╮\r\n",
     "██████ ████ │  │  │ ║  ║  ║ ┃  ┃  ┃ │  │\r\n",
@@ -70,7 +67,7 @@ Correct: the grid centred, with the 5 spare pixel columns and 3 spare pixel rows
 the default background; each wide character's left half, with its underline or reverse, in \
 the last whole column, cut at the margin";
 
-/// The C reference's `vs16` screen.
+/// The `vs16` screen.
 const VS16: &[u8] = concat!(
     "a\u{2764}\u{fe0f}b  VS16, wide\r\n",
     "a\u{2764}b  no selector, narrow\r\n",
@@ -80,8 +77,7 @@ const VS16: &[u8] = concat!(
 .as_bytes();
 
 /// Text, then erases, an insert and a scroll under a pen of bold,
-/// underline, strike and a red background (aaronsb/kmscon#122,
-/// aaronsb/libtsm#13).
+/// underline, strike and a red background.
 const ERASE: &[u8] = concat!(
     "line one stays as it is\r\n",
     "line two is erased from here to its end\r\n",
@@ -97,7 +93,7 @@ const ERASE: &[u8] = concat!(
 )
 .as_bytes();
 
-/// The C reference's `wide-deco` screen: wide characters under each
+/// The `wide-deco` screen: wide characters under each
 /// underline style and strike, and one written at the last column.
 const WIDE_DECO: &[u8] = concat!(
     "\x1b[4m日本語\x1b[0m \x1b[4:3m漢字\x1b[0m \x1b[4:4;58:5:196mカタカナ\x1b[0m\r\n",
@@ -107,7 +103,7 @@ const WIDE_DECO: &[u8] = concat!(
 )
 .as_bytes();
 
-/// The C reference's `ascii` screen.
+/// The `ascii` screen.
 const ASCII: &[u8] = concat!(
     "The quick brown fox jumps over the lazy dog.\r\n",
     "THE QUICK BROWN FOX JUMPS OVER THE LAZY DOG.\r\n",
@@ -117,7 +113,7 @@ const ASCII: &[u8] = concat!(
 )
 .as_bytes();
 
-/// The C reference's `bold` screen.
+/// The `bold` screen.
 const BOLD: &[u8] = concat!(
     "regular \x1b[1mbold\x1b[0m regular\r\n",
     "\x1b[1mThe quick brown fox jumps over\r\n",
@@ -126,7 +122,7 @@ const BOLD: &[u8] = concat!(
 )
 .as_bytes();
 
-/// The C reference's `palette` screen.
+/// The `palette` screen.
 const PALETTE: &[u8] = concat!(
     "\x1b[40m  \x1b[41m  \x1b[42m  \x1b[43m  \x1b[44m  \x1b[45m  \x1b[46m  \x1b[47m  \x1b[100m  \x1b[101m  \x1b[102m  \x1b[103m  \x1b[104m  \x1b[105m  \x1b[106m  \x1b[107m  \x1b[0m\r\n",
     "\x1b[30mAB\x1b[31mAB\x1b[32mAB\x1b[33mAB\x1b[34mAB\x1b[35mAB\x1b[36mAB\x1b[37mAB\x1b[90mAB\x1b[91mAB\x1b[92mAB\x1b[93mAB\x1b[94mAB\x1b[95mAB\x1b[96mAB\x1b[97mAB\x1b[0m\r\n",
@@ -134,7 +130,7 @@ const PALETTE: &[u8] = concat!(
     "\x1b[48;2;255;0;0m  \x1b[48;2;223;32;0m  \x1b[48;2;191;64;0m  \x1b[48;2;159;96;0m  \x1b[48;2;127;128;0m  \x1b[48;2;95;160;0m  \x1b[48;2;63;192;0m  \x1b[48;2;31;224;0m  \x1b[48;2;0;255;0m  \x1b[0m\r\n",
 ).as_bytes();
 
-/// The C reference's `inverse` screen.
+/// The `inverse` screen.
 const INVERSE: &[u8] = concat!(
     "normal \x1b[7minverse\x1b[0m normal\r\n",
     "\x1b[7mWhole line inverted\x1b[0m\r\n",
@@ -143,7 +139,7 @@ const INVERSE: &[u8] = concat!(
 )
 .as_bytes();
 
-/// The C reference's `cjk` screen.
+/// The `cjk` screen.
 const CJK: &[u8] = concat!(
     "日本語の端末表示 テスト\r\n",
     "中文字符 漢字 ひらがな カタカナ\r\n",
@@ -154,7 +150,7 @@ const CJK: &[u8] = concat!(
 )
 .as_bytes();
 
-/// The C reference's `box` screen.
+/// The `box` screen.
 const BOX: &[u8] = concat!(
     "┌──────┬──────┐ ╔══════╦══════╗\r\n",
     "│ cell │ cell │ ║ cell ║ cell ║\r\n",
@@ -185,7 +181,7 @@ piece of the first link takes a dashed underline in place of its own, in the tex
 in green under the SGR 58 curl, the wrapped piece on both rows; `another link` and the text \
 outside the links draw as plain text, and the curl outside the link stays curly.";
 
-/// The C reference's `underline` screen.
+/// The `underline` screen.
 const UNDERLINE: &[u8] = concat!(
     "\x1b[4mSingle gjpqy\x1b[0m  \x1b[4;58:5:196mSingle gjpqy\x1b[0m\r\n",
     "\x1b[4:2mDouble gjpqy\x1b[0m  \x1b[4:2;58:2::0:200:255mDouble gjpqy\x1b[0m\r\n",
@@ -197,7 +193,7 @@ const UNDERLINE: &[u8] = concat!(
 )
 .as_bytes();
 
-/// The C reference's `strike` screen.
+/// The `strike` screen.
 const STRIKE: &[u8] = concat!(
     "\x1b[9mstruck through gjpqy\x1b[0m plain\r\n",
     "\x1b[9;31mred strike\x1b[0m \x1b[9;42mstrike on green\x1b[0m\r\n",
@@ -207,7 +203,7 @@ const STRIKE: &[u8] = concat!(
 )
 .as_bytes();
 
-/// The C reference's `deco-config` screen.
+/// The `deco-config` screen.
 /// Also the `deco-force` screen's.
 const DECO_CONFIG: &[u8] = concat!(
     "\x1b[4mconfigured underline\x1b[0m \x1b[9mconfigured strike\x1b[0m\r\n",
@@ -217,7 +213,7 @@ const DECO_CONFIG: &[u8] = concat!(
 )
 .as_bytes();
 
-/// The C reference's `combining` screen.
+/// The `combining` screen.
 const COMBINING: &[u8] = concat!(
     "precomposed: é ã ñ\r\n",
     "decomposed:  e\u{301} a\u{303}\u{300} n\u{308}\r\n",
@@ -227,7 +223,7 @@ const COMBINING: &[u8] = concat!(
 )
 .as_bytes();
 
-/// The C reference's `mosaic` screen.
+/// The `mosaic` screen.
 const MOSAIC: &[u8] = concat!(
     "braille ⠀⠁⠂⠃⠄⠅⠆⠇⠈⠉⠊⠋⠌⠍⠎⠏⠐⠑⠒⠓⠔⠕⠖⠗⠘⠙⠚⠛⠜⠝⠞⠟⠠⠡⠢⠣⠤⠥⠦⠧⠨⠩⠪⠫⠬⠭⠮⠯⠰⠱⠲⠳⠴⠵⠶⠷⠸⠹⠺⠻⠼⠽⠾⠿\r\n",
     "        ⡀⡁⡂⡃⡄⡅⡆⡇⡈⡉⡊⡋⡌⡍⡎⡏⡐⡑⡒⡓⡔⡕⡖⡗⡘⡙⡚⡛⡜⡝⡞⡟⡠⡡⡢⡣⡤⡥⡦⡧⡨⡩⡪⡫⡬⡭⡮⡯⡰⡱⡲⡳⡴⡵⡶⡷⡸⡹⡺⡻⡼⡽⡾⡿\r\n",
@@ -248,7 +244,7 @@ const MOSAIC: &[u8] = concat!(
 )
 .as_bytes();
 
-/// The C reference's `emoji` screen.
+/// The `emoji` screen.
 const EMOJI: &[u8] = concat!(
     "😀 👍 a☺b  wide, wide, narrow text\r\n",
     "👨\u{200d}👩\u{200d}👧 👍🏽 🇯🇵 1\u{fe0f}\u{20e3}  family, tone, flag, keycap\r\n",
@@ -350,7 +346,7 @@ const SMALL_80: &[u8] = concat!(
 )
 .as_bytes();
 
-/// The C reference's `deco-config` settings: `underline-color=196`,
+/// The `deco-config` settings: `underline-color=196`,
 /// `strike-color=#00c0ff`.
 const DECO_CONF: Decorations = Decorations {
     underline: Some(DecoSpec::Index(196)),
@@ -685,7 +681,7 @@ pub const CASES: &[Case] = &[
             "wide-deco-unifont",
             "Wide characters under each underline style and under strike, a decorated run \
              mixing narrow and wide, and a decorated wide character written at the last \
-             column, which wraps to the start of the next row (aaronsb/kmscon#70). Correct: \
+             column, which wraps to the start of the next row. Correct: \
              every decoration spans both cells of its wide character.",
             WIDE_DECO,
             48,

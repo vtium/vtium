@@ -197,11 +197,11 @@ fn a_sigterm_during_the_wait_ends_set_with_the_mode_back() {
     );
 }
 
-// ADR-1200 D5: `set` checks NAME against the frits, `NAME.vtfrit` in the
+// ADR-1200 D5: `use-frit` checks NAME against the frits, `NAME.vtfrit` in the
 // frits' directory, and the built-in fonts; no store is read. A frit there
 // passes the check, and the console's reply naming it ends the command 0.
 #[test]
-fn set_names_a_frit_with_no_store() {
+fn use_frit_names_a_frit_with_no_store() {
     use std::os::fd::AsFd;
     use std::process::Stdio;
     let frits = concat!(env!("CARGO_TARGET_TMPDIR"), "/vtium-config-set-frits");
@@ -240,7 +240,7 @@ fn set_names_a_frit_with_no_store() {
     let (status, err) = cli(&["--frits", frits, "use-frit", "nosuch"]);
     assert_eq!(status, 1, "{err}");
     assert!(
-        err.contains("no frit is named nosuch") && err.contains("nosuch.vtfrit"),
+        err.contains("there is no font set named nosuch: font sets are in ") && err.contains(frits),
         "{err}"
     );
 }

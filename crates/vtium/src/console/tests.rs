@@ -31,7 +31,7 @@ use super::*;
 const GETTY_UNIT: &str = "[Unit]\nDescription=Getty on %I\n\n[Service]\nExecStart=-/sbin/agetty -o '-- \\\\u' --noreset --noclear - ${TERM}\n\n[Install]\nAlias=autovt@.service\n\nWantedBy=getty.target\nDefaultInstance=tty1\n";
 
 /// The shipped unit, `vtium@.service`, whose `[Install]` section is the
-/// C reference's `kmsconvt@.service`'s, written below under that name.
+/// one kmscon's `kmsconvt@.service` has, written below under that name.
 const KMSCON_UNIT: &str = include_str!("../../install/vtium@.service");
 
 /// A stand-in for `systemctl` and `loginctl` on the running system whose
@@ -396,8 +396,8 @@ fn generate(name: &str, exec: &str, dir: &Path) {
 
 impl Machine {
     /// A host booted with systemd that has vtium's packaged unit, the
-    /// development install's unit, systemd's getty and the C reference's
-    /// console installed, and nothing enabled.
+    /// development install's unit, systemd's getty and kmscon's console
+    /// installed, and nothing enabled.
     fn new(name: &str) -> Machine {
         let root =
             std::env::temp_dir().join(format!("vtium-console-{name}-{}", std::process::id()));
@@ -607,7 +607,7 @@ fn a_host_without_systemd_changes_nothing_and_says_so() {
         let (status, out, err) = m.console_as(false, verb);
         assert_eq!(status, 1, "{verb:?}");
         assert!(out.is_empty(), "{verb:?}: {out}");
-        assert!(err.contains("not booted with systemd"), "{verb:?}: {err}");
+        assert!(err.contains("not started with systemd"), "{verb:?}: {err}");
         assert!(err.contains("vtium --vt=ttyN --no-switchvt"), "{err}");
         assert!(err.contains("docs/systemd.md"), "{err}");
     }
@@ -651,13 +651,13 @@ fn without_the_packaged_unit_nothing_changes() {
     ] {
         let (status, _, err) = m.console(verb);
         assert_eq!(status, 1, "{verb:?}");
-        assert!(err.contains("vtium@.service is in none of"), "{err}");
+        assert!(err.contains("vtium@.service is not installed"), "{err}");
     }
     assert!(m.changes().is_empty());
     // status says so, and shows the VTs all the same.
     let (status, out, _) = m.console(&["status"]);
     assert_eq!(status, 0);
-    assert!(out.starts_with("vtium@.service is in none of"), "{out}");
+    assert!(out.starts_with("vtium@.service is not installed"), "{out}");
     assert!(out.contains("getty@tty3"), "{out}");
 }
 
@@ -813,7 +813,10 @@ fn enable_all_leaves_a_getty_above_loginds_vts_and_names_it() {
     let (status, out, _) = m.console(&["enable", "--all"]);
     assert_eq!(status, 0);
     assert!(m.wanted("getty@tty8.service"));
-    assert!(out.contains("VT 8 keeps getty@tty8"), "{out}");
+    assert!(
+        out.contains("VT 8 keeps its login prompt (getty@tty8)"),
+        "{out}"
+    );
     assert!(out.contains("vtium console enable 8"), "{out}");
 }
 
@@ -852,7 +855,7 @@ fn disable_n_under_the_vtium_template_says_logind_still_starts_vtium() {
     // standard output what the template link still starts there.
     let (status, out, err) = m.console(&["disable", "3"]);
     assert_eq!((status, err.as_str()), (0, ""), "{out}");
-    assert!(out.contains("VT 3 is no longer vtium's"), "{out}");
+    assert!(out.contains("vtium is disabled on VT 3"), "{out}");
     assert!(out.contains("logind still starts vtium on VT 3"), "{out}");
     assert!(out.contains("vtium console disable --all"), "{out}");
     assert!(!m.wanted("vtium@tty3.service"));
@@ -876,7 +879,7 @@ fn disable_n_on_a_vt_vtium_does_not_hold_changes_nothing() {
 }
 
 #[test]
-fn enable_refuses_a_vt_the_c_references_console_holds() {
+fn enable_refuses_a_vt_kmscons_console_holds() {
     // Enabled there, linked there, or running there.
     let mut m = Machine::gettys("kmscon-vt");
     m.link("getty.target.wants/kmsconvt@tty2.service", "kmsconvt");
@@ -887,7 +890,7 @@ fn enable_refuses_a_vt_the_c_references_console_holds() {
         let (status, _, err) = m.console(&["enable", n]);
         assert_eq!(status, 1, "{n}");
         assert!(
-            err.contains(&format!("kmsconvt@tty{n}.service, holds VT {n}")),
+            err.contains(&format!("kmscon (kmsconvt@tty{n}.service) runs on VT {n}")),
             "{err}"
         );
         assert!(
@@ -906,10 +909,7 @@ fn enable_refuses_a_vt_the_c_references_console_holds() {
     let (status, out, err) = m.console(&["enable", "--all"]);
     assert_eq!((status, err.as_str()), (0, ""), "{out}");
     for n in 2..=4 {
-        assert!(
-            out.contains(&format!("VT {n} keeps the C reference's console")),
-            "{out}"
-        );
+        assert!(out.contains(&format!("VT {n} stays with kmscon")), "{out}");
         assert!(m.wanted(&format!("getty@tty{n}.service")), "{n}");
         assert!(
             !m.root().join(RECORDS).join(format!("tty{n}")).exists(),
@@ -933,13 +933,13 @@ fn kmscon_on_one_vt_beside_vtiums_template_keeps_it() {
     m.link("autovt@tty3.service", "kmsconvt");
     let (status, _, err) = m.console(&["enable", "3"]);
     assert_eq!(status, 1);
-    assert!(err.contains("kmsconvt@tty3.service, holds VT 3"), "{err}");
+    assert!(
+        err.contains("kmscon (kmsconvt@tty3.service) runs on VT 3"),
+        "{err}"
+    );
     let (status, out, _) = m.console(&["enable", "--all"]);
     assert_eq!(status, 0, "{out}");
-    assert!(
-        out.contains("VT 3 keeps the C reference's console"),
-        "{out}"
-    );
+    assert!(out.contains("VT 3 stays with kmscon"), "{out}");
     let (_, out, _) = m.console(&["status"]);
     assert!(
         out.lines()
@@ -952,7 +952,7 @@ fn kmscon_on_one_vt_beside_vtiums_template_keeps_it() {
 }
 
 #[test]
-fn enable_all_refuses_the_c_references_template_and_enable_n_works_beside_it() {
+fn enable_all_refuses_kmscons_template_and_enable_n_works_beside_it() {
     // This machine: autovt@.service links to kmsconvt@.service.
     let mut m = Machine::gettys("kmscon-template");
     std::fs::remove_file(m.root().join(ETC).join(TEMPLATE)).unwrap();
@@ -984,7 +984,10 @@ fn enable_refuses_a_vt_of_the_development_install_and_enable_all_passes_it_by() 
     assert!(m.changes().is_empty());
     let (status, out, _) = m.console(&["enable", "--all"]);
     assert_eq!(status, 0);
-    assert!(out.contains("VT 3 keeps the development install"), "{out}");
+    assert!(
+        out.contains("VT 3 stays with the development build of vtium"),
+        "{out}"
+    );
     assert_eq!(m.links("autovt@tty3.service"), to("vtium-dev"));
     assert!(m.wanted("vtium-dev@tty3.service"));
 }
@@ -1048,7 +1051,7 @@ fn status_shows_what_each_vt_starts_and_runs() {
     let lines: Vec<&str> = out.lines().collect();
     assert_eq!(
         lines[0],
-        "On a VT with no link of its own, logind starts a getty: autovt@.service links to getty@.service."
+        "On a VT with no link of its own, logind starts a login prompt (getty): autovt@.service links to getty@.service."
     );
     let row = |n: &str| {
         lines
@@ -1068,7 +1071,7 @@ fn status_shows_what_each_vt_starts_and_runs() {
         row("3"),
         [
             "3",
-            "vtium@tty3, getty recorded",
+            "vtium@tty3, getty to restore",
             "vtium@tty3",
             "vtium@tty3"
         ]
@@ -1135,7 +1138,7 @@ fn an_enabled_display_manager_keeps_vt_1() {
     let (status, _, err) = m.console(&["enable", "1"]);
     assert_eq!(status, 1);
     assert!(
-        err.contains("the display manager sddm.service holds VT 1"),
+        err.contains("the display manager sddm.service uses VT 1"),
         "{err}"
     );
     assert!(m.changes().is_empty(), "{:?}", m.changes());
@@ -1146,7 +1149,7 @@ fn an_enabled_display_manager_keeps_vt_1() {
     assert!(m.wanted("getty@tty1.service"));
     assert!(!m.root().join(RECORDS).join("tty1").exists());
     assert!(
-        out.contains("VT 1 is left as it is: the display manager sddm.service holds VT 1 at boot: a display manager is enabled, and by common convention VT 1 stays the display manager's and its getty's"),
+        out.contains("VT 1 is unchanged: the display manager sddm.service uses VT 1 at boot: a display manager is enabled, and by convention VT 1 belongs to the display manager and its login prompt"),
         "{out}"
     );
     assert!(!out.contains("systemctl start vtium@tty1.service"), "{out}");
@@ -1161,7 +1164,7 @@ fn an_enabled_display_manager_keeps_vt_1() {
         "{out}"
     );
     assert!(
-        out.contains("VT 1: the display manager sddm.service holds VT 1 at boot: a display manager is enabled, and by common convention"),
+        out.contains("VT 1: the display manager sddm.service uses VT 1 at boot: a display manager is enabled, and by convention"),
         "{out}"
     );
     assert_eq!(m.console(&["disable", "--all"]).0, 0);
@@ -1185,13 +1188,13 @@ fn a_display_managers_drop_in_adds_a_vt_it_claims() {
     let (status, _, err) = m.console(&["enable", "2"]);
     assert_eq!(status, 1);
     assert!(
-        err.contains("the display manager sddm.service holds VT 2"),
+        err.contains("the display manager sddm.service uses VT 2"),
         "{err}"
     );
     let (status, _, err) = m.console(&["enable", "1"]);
     assert_eq!(status, 1);
     assert!(
-        err.contains("the display manager sddm.service holds VT 1"),
+        err.contains("the display manager sddm.service uses VT 1"),
         "{err}"
     );
     let (status, out, _) = m.console(&["enable", "--all"]);
@@ -1219,7 +1222,7 @@ fn a_graphical_session_keeps_its_vt() {
     }
     let (_, _, err) = m.console(&["enable", "3"]);
     assert!(
-        err.contains("the graphical session of bob (gdm-password, x11) holds VT 3"),
+        err.contains("the graphical session of bob (gdm-password, x11) uses VT 3"),
         "{err}"
     );
     // A text login is no graphical session.
@@ -1231,11 +1234,11 @@ fn a_graphical_session_keeps_its_vt() {
     assert!(m.wanted("getty@tty3.service"));
     assert!(!m.root().join(RECORDS).join("tty3").exists());
     assert!(
-        out.contains("VT 3 is left as it is: the graphical session of bob"),
+        out.contains("VT 3 is unchanged: the graphical session of bob"),
         "{out}"
     );
     assert!(
-        out.contains("VT 7 is left as it is: the graphical session of aaron (sddm, wayland)"),
+        out.contains("VT 7 is unchanged: the graphical session of aaron (sddm, wayland)"),
         "{out}"
     );
     assert!(!m.wanted("getty@tty5.service"));
@@ -1257,7 +1260,7 @@ fn a_greeter_keeps_its_vt() {
     let (status, _, err) = m.console(&["enable", "1"]);
     assert_eq!(status, 1);
     assert!(
-        err.contains("the greeter of sddm (sddm-greeter) holds VT 1"),
+        err.contains("the greeter of sddm (sddm-greeter) uses VT 1"),
         "{err}"
     );
     assert_eq!(m.console(&["enable", "--all"]).0, 0);
@@ -1340,7 +1343,7 @@ fn enable_refuses_a_vts_own_unit_file() {
     let (status, _, err) = m.console(&["enable", "4"]);
     assert_eq!(status, 1);
     assert!(
-        err.contains("autovt@tty4.service is a file, not a link"),
+        err.contains("autovt@tty4.service: it is a file, not a link"),
         "{err}"
     );
     assert!(m.changes().is_empty(), "{:?}", m.changes());
@@ -1401,7 +1404,7 @@ fn the_template_in_force_is_read_along_the_search_path() {
     let (status, out, _) = m.console(&["status"]);
     assert_eq!(status, 0);
     assert!(
-        out.starts_with("On a VT with no link of its own, logind starts a getty"),
+        out.starts_with("On a VT with no link of its own, logind starts a login prompt (getty)"),
         "{out}"
     );
     assert!(
@@ -1443,7 +1446,7 @@ fn a_display_manager_whose_unit_claims_another_vt_keeps_that_vt_and_vt_1() {
     let (status, _, err) = m.console(&["enable", "2"]);
     assert_eq!(status, 1);
     assert!(
-        err.contains("the display manager gdm.service holds VT 2"),
+        err.contains("the display manager gdm.service uses VT 2"),
         "{err}"
     );
     assert_eq!(m.console(&["enable", "--all"]).0, 0);
@@ -1482,7 +1485,7 @@ fn enable_all_passes_by_a_masked_vt_whose_getty_holds_it() {
         );
         assert!(
             out.contains(&format!(
-                "VT {n} is left as it is, its getty included: vtium@tty{n}.service is masked"
+                "VT {n} is unchanged, and so is its login prompt: vtium@tty{n}.service is masked"
             )),
             "{out}"
         );
@@ -1517,7 +1520,7 @@ fn enable_all_refuses_a_masked_vt_the_template_still_reaches() {
         assert_eq!(status, 1, "{n}");
         assert!(
             err.contains(&format!(
-                "vtium@tty{n}.service is masked, but with autovt@.service linked to vtium"
+                "Nothing changed: vtium@tty{n}.service is masked, but a mask does not apply to a unit loaded through a link"
             )),
             "{err}"
         );
@@ -1551,14 +1554,14 @@ fn status_shows_no_console_logind_starts_on_vt_1() {
     let (status, out, _) = m.console(&["enable", "1"]);
     assert_eq!(status, 0);
     assert!(
-        out.contains("systemd starts vtium@tty1 there at the next boot."),
+        out.contains("systemd starts it there at the next boot."),
         "{out}"
     );
     assert!(!out.contains("switch to VT 1"), "{out}");
     let (_, out, _) = m.console(&["status"]);
     assert!(
         out.lines().any(|l| l.split_whitespace().collect::<Vec<_>>()
-            == ["1", "vtium@tty1,", "getty", "recorded", "-", "-"]),
+            == ["1", "vtium@tty1,", "getty", "to", "restore", "-", "-"]),
         "{out}"
     );
 }
@@ -1586,7 +1589,7 @@ fn a_rerun_after_a_failed_reload_reloads() {
         assert_eq!(status, 1, "{words:?}");
         assert!(err.contains("systemctl daemon-reload failed"), "{err}");
         assert!(
-            err.contains("Running the same command again finishes"),
+            err.contains("Run the same command again to finish the change"),
             "{err}"
         );
         m.fake.fail = None;
@@ -1731,7 +1734,7 @@ fn a_login_on_loginds_reserved_vt_is_refused() {
         assert_eq!(status, 1, "{words:?}");
         assert!(
             err.contains(
-                "the login session of carol (login, tty) is on VT 6, logind's reserved VT"
+                "the login session of carol (login, tty) runs on VT 6, logind's reserved VT"
             ),
             "{err}"
         );
@@ -1748,7 +1751,7 @@ fn a_login_on_loginds_reserved_vt_is_refused() {
     assert_eq!((status, err.as_str()), (0, ""), "{out}");
     assert!(
         out.contains(
-            "which stops a getty there if one waits at its login prompt; that ends no session"
+            "(logind's reserved VT; a login prompt waiting there is stopped, but no session ends)"
         ),
         "{out}"
     );
@@ -1757,12 +1760,12 @@ fn a_login_on_loginds_reserved_vt_is_refused() {
     let (status, out, err) = m.console(&["enable", "--all"]);
     assert_eq!((status, err.as_str()), (0, ""), "{out}");
     assert!(
-        out.contains("A getty running now on VTs 2 to 5 keeps its VT"),
+        out.contains("A login prompt running now on VTs 2 to 5 keeps its VT"),
         "{out}"
     );
     assert!(
         out.contains(
-            "On VT 6, logind's reserved VT, logind starts vtium at the next switch to it, which stops a getty there if one waits at its login prompt; that ends no session."
+            "On VT 6, logind's reserved VT, logind starts vtium the next time you switch to it; a login prompt waiting there is stopped, but no session ends."
         ),
         "{out}"
     );
@@ -1779,7 +1782,9 @@ fn kmscon_on_loginds_reserved_vt_keeps_it_only_by_its_own_link() {
     let (status, _, err) = m.console(&["enable", "--all"]);
     assert_eq!(status, 1);
     assert!(
-        err.contains("kmsconvt@tty6.service, is enabled or running on VT 6, logind's reserved VT"),
+        err.contains(
+            "kmscon (kmsconvt@tty6.service) is enabled or running on VT 6, logind's reserved VT"
+        ),
         "{err}"
     );
     assert!(m.changes().is_empty(), "{:?}", m.changes());
@@ -1788,10 +1793,7 @@ fn kmscon_on_loginds_reserved_vt_keeps_it_only_by_its_own_link() {
     m.link("autovt@tty6.service", "kmsconvt");
     let (status, out, err) = m.console(&["enable", "--all"]);
     assert_eq!((status, err.as_str()), (0, ""), "{out}");
-    assert!(
-        out.contains("VT 6 keeps the C reference's console"),
-        "{out}"
-    );
+    assert!(out.contains("VT 6 stays with kmscon"), "{out}");
     assert!(!out.contains("logind's reserved VT"), "{out}");
 }
 
@@ -1803,7 +1805,9 @@ fn the_development_install_on_loginds_reserved_vt_keeps_it_only_by_its_own_link(
     let (status, _, err) = m.console(&["enable", "--all"]);
     assert_eq!(status, 1);
     assert!(
-        err.contains("vtium-dev@tty6.service, is enabled or running on VT 6, logind's reserved VT"),
+        err.contains(
+            "(vtium-dev@tty6.service) is enabled or running on VT 6, logind's reserved VT"
+        ),
         "{err}"
     );
     assert!(err.contains("make vt-uninstall VT=6"), "{err}");
@@ -1813,7 +1817,10 @@ fn the_development_install_on_loginds_reserved_vt_keeps_it_only_by_its_own_link(
     m.link("autovt@tty6.service", "vtium-dev");
     let (status, out, err) = m.console(&["enable", "--all"]);
     assert_eq!((status, err.as_str()), (0, ""), "{out}");
-    assert!(out.contains("VT 6 keeps the development install"), "{out}");
+    assert!(
+        out.contains("VT 6 stays with the development build of vtium"),
+        "{out}"
+    );
 }
 
 #[test]
@@ -1835,7 +1842,7 @@ fn a_login_inside_vtium_on_loginds_reserved_vt_is_no_refusal() {
     // nothing to start.
     let (status, out, err) = m.console(&["enable", "6"]);
     assert_eq!((status, err.as_str()), (0, ""), "{out}");
-    assert!(out.contains("vtium@tty6 runs there already."), "{out}");
+    assert!(out.contains("vtium already runs there."), "{out}");
     assert!(!out.contains("getty"), "{out}");
     assert!(!out.contains("To start it now"), "{out}");
     // A second enable 6 says that VT 6 is vtium's already, a login on VT 6
@@ -1846,7 +1853,7 @@ fn a_login_inside_vtium_on_loginds_reserved_vt_is_no_refusal() {
         }
         let (status, out, err) = m.console(&["enable", "6"]);
         assert_eq!((status, err.as_str()), (0, ""), "{running}: {out}");
-        assert!(out.contains("VT 6 is vtium's already"), "{out}");
+        assert!(out.contains("vtium is already enabled on VT 6"), "{out}");
     }
 }
 
@@ -1861,12 +1868,12 @@ fn a_masked_vt_whose_own_link_names_vtium_still_has_vtium() {
     let (status, out, err) = m.console(&["enable", "--all"]);
     assert_eq!((status, err.as_str()), (0, ""), "{out}");
     assert!(
-        out.contains("VT 3 is left as it is: vtium@tty3.service is masked, but VT 3's own link"),
+        out.contains("VT 3 is unchanged, and still runs vtium: vtium@tty3.service is masked, but VT 3's own link"),
         "{out}"
     );
     assert!(out.contains("vtium console disable 3"), "{out}");
     assert!(
-        !out.contains("VT 3 is left as it is, its getty included"),
+        !out.contains("VT 3 is unchanged, its getty included"),
         "{out}"
     );
     // A masked VT above 6 with no getty keeps nothing it does not have.
@@ -1875,7 +1882,7 @@ fn a_masked_vt_whose_own_link_names_vtium_still_has_vtium() {
     let (status, out, _) = m.console(&["enable", "--all"]);
     assert_eq!(status, 0, "{out}");
     assert!(
-        out.contains("VT 9 is left as it is: vtium@tty9.service is masked"),
+        out.contains("VT 9 is unchanged: vtium@tty9.service is masked"),
         "{out}"
     );
 }
@@ -1918,13 +1925,13 @@ fn sddm_whose_greeter_runs_on_vt_2_still_keeps_vt_1() {
     let (status, _, err) = m.console(&["enable", "1"]);
     assert_eq!(status, 1);
     assert!(
-        err.contains("the display manager sddm.service holds VT 1 at boot: a display manager is enabled, and by common convention VT 1 stays the display manager's and its getty's, whatever VT the display manager uses now"),
+        err.contains("the display manager sddm.service uses VT 1 at boot: a display manager is enabled, and by convention VT 1 belongs to the display manager and its login prompt, whatever VT it uses now"),
         "{err}"
     );
     let (status, _, err) = m.console(&["enable", "2"]);
     assert_eq!(status, 1);
     assert!(
-        err.contains("the greeter of sddm (sddm-greeter) holds VT 2 now"),
+        err.contains("the greeter of sddm (sddm-greeter) uses VT 2 now"),
         "{err}"
     );
     assert_eq!(m.snapshot(), before);
@@ -1958,13 +1965,13 @@ fn a_display_manager_enabled_without_the_alias_keeps_vt_1() {
     assert_eq!(status, 1, "{err}");
     assert!(
         err.contains(
-            "the display manager ly@tty2.service holds VT 1 at boot: a display manager is enabled"
+            "the display manager ly@tty2.service uses VT 1 at boot: a display manager is enabled"
         ),
         "{err}"
     );
     let (status, _, err) = m.console(&["enable", "2"]);
     assert_eq!(status, 1);
-    assert!(err.contains("ly@tty2.service holds VT 2 at boot"), "{err}");
+    assert!(err.contains("ly@tty2.service uses VT 2 at boot"), "{err}");
     assert_eq!(m.snapshot(), before);
     m.console(&["enable", "--all"]);
     assert!(
@@ -1988,7 +1995,7 @@ fn a_display_manager_whose_unit_names_no_getty_keeps_vt_1() {
     assert_eq!(status, 1);
     assert!(
         err.contains(
-            "the display manager lightdm.service holds VT 1 at boot: a display manager is enabled"
+            "the display manager lightdm.service uses VT 1 at boot: a display manager is enabled"
         ),
         "{err}"
     );
@@ -2006,7 +2013,7 @@ fn an_sddm_minimum_vt_adds_its_vt() {
     let (status, _, err) = m.console(&["enable", "3"]);
     assert_eq!(status, 1);
     assert!(
-        err.contains("the display manager sddm.service holds VT 3 at boot, by MinimumVT=3 in /etc/sddm.conf: SDDM before 0.20 starts its greeter on VT 3 or the first free VT above it"),
+        err.contains("the display manager sddm.service uses VT 3 at boot, because of MinimumVT=3 in /etc/sddm.conf: SDDM before 0.20 starts its login screen on VT 3 or the first free VT after it"),
         "{err}"
     );
     assert_eq!(m.console(&["enable", "1"]).0, 1);
@@ -2022,7 +2029,7 @@ fn gdm_on_vt_1_holds_it() {
     let (status, _, err) = m.console(&["enable", "1"]);
     assert_eq!(status, 1);
     assert!(
-        err.contains("the display manager gdm.service holds VT 1 at boot"),
+        err.contains("the display manager gdm.service uses VT 1 at boot"),
         "{err}"
     );
     let (_, out, _) = m.console(&["enable", "--all"]);
@@ -2040,22 +2047,18 @@ fn lightdm_holds_vt_1_and_vt_7() {
     let (status, _, err) = m.console(&["enable", "7"]);
     assert_eq!(status, 1);
     assert!(
-        err.contains("the display manager lightdm.service holds VT 7 at boot, by LightDM's built-in minimum-vt=7, which no file changes: LightDM starts its first greeter on VT 7"),
+        err.contains("the display manager lightdm.service uses VT 7 at boot, because of LightDM's built-in minimum-vt=7, which no file changes: LightDM starts its first login screen on VT 7"),
         "{err}"
     );
     let (status, out, err) = m.console(&["enable", "--all"]);
     assert_eq!((status, err.as_str()), (0, ""), "{out}");
     assert!(!m.wanted("vtium@tty1.service"), "{out}");
     assert!(
-        out.contains(
-            "VT 1 is left as it is: the display manager lightdm.service holds VT 1 at boot"
-        ),
+        out.contains("VT 1 is unchanged: the display manager lightdm.service uses VT 1 at boot"),
         "{out}"
     );
     assert!(
-        out.contains(
-            "VT 7 is left as it is: the display manager lightdm.service holds VT 7 at boot"
-        ),
+        out.contains("VT 7 is unchanged: the display manager lightdm.service uses VT 7 at boot"),
         "{out}"
     );
 }
@@ -2074,13 +2077,15 @@ fn greetd_holds_vt_1_and_the_vt_its_configuration_names() {
         let (status, _, err) = m.console(&["enable", n]);
         assert_eq!(status, 1, "{n}");
         assert!(
-            err.contains(&format!("greetd.service holds VT {n} at boot")),
+            err.contains(&format!("greetd.service uses VT {n} at boot")),
             "{err}"
         );
     }
     let (_, _, err) = m.console(&["enable", "2"]);
     assert!(
-        err.contains("by vt = 2 in /etc/greetd/config.toml: greetd runs its greeter on VT 2"),
+        err.contains(
+            "because of vt = 2 in /etc/greetd/config.toml: greetd runs its login screen on VT 2"
+        ),
         "{err}"
     );
 }
@@ -2098,7 +2103,7 @@ fn an_unknown_display_manager_holds_vt_1_and_the_vt_its_conflicts_name() {
     let (status, _, err) = m.console(&["enable", "2"]);
     assert_eq!(status, 1);
     assert!(
-        err.contains("the display manager ly.service holds VT 2 at boot: its unit names getty@tty2.service in Conflicts=, so it takes the VT from its getty"),
+        err.contains("the display manager ly.service uses VT 2 at boot: its unit lists getty@tty2.service in Conflicts=, so it takes the VT from the login prompt"),
         "{err}"
     );
     assert_eq!(m.console(&["enable", "1"]).0, 1);
@@ -2139,13 +2144,13 @@ fn a_unit_enabled_on_a_vt_or_another_console_running_there_holds_it() {
     for (n, says) in [
         (
             "3",
-            "cage@tty3.service holds VT 3 at boot: it is enabled at boot on that VT",
+            "cage@tty3.service uses VT 3 at boot: it is enabled at boot on that VT",
         ),
         (
             "9",
-            "debug-shell.service holds VT 9 at boot: its unit runs on /dev/tty9 (TTYPath=)",
+            "debug-shell.service uses VT 9 at boot: its unit runs on /dev/tty9 (TTYPath=)",
         ),
-        ("4", "another console, fbterm@tty4.service, holds VT 4 now"),
+        ("4", "another console, fbterm@tty4.service, uses VT 4 now"),
     ] {
         let (status, _, err) = m.console(&["enable", n]);
         assert_eq!(status, 1, "{n}");
@@ -2260,7 +2265,7 @@ fn the_fallback_starts_no_getty_whose_start_stops_the_display_manager() {
         assert_eq!((status, err.as_str()), (0, ""), "{says}: {out}");
         assert!(!started(&m), "{says}: {:?}", m.fake.calls);
         assert!(
-            out.contains(&format!("vtium on VT 1 failed, and VT 1 is left without a console: starting getty@tty1.service would stop {says}, which conflicts with it, so vtium starts nothing.")),
+            out.contains(&format!("vtium on VT 1 failed, and VT 1 has no console now. No login prompt was started, because getty@tty1.service would stop {says}.")),
             "{says}: {out}"
         );
     }
@@ -2274,7 +2279,7 @@ fn the_fallback_gives_an_ordinary_vt_its_getty_back() {
     let (status, out, err) = m.console(&["fallback", "3"]);
     assert_eq!((status, err.as_str()), (0, ""), "{out}");
     assert!(
-        out.contains("vtium on VT 3 failed: starting getty@tty3.service in its place, which stops no other program."),
+        out.contains("vtium on VT 3 failed. Starting a login prompt (getty@tty3.service) in its place; this stops no other program."),
         "{out}"
     );
     assert_eq!(
@@ -2305,7 +2310,7 @@ fn the_fallback_starts_nothing_when_it_cannot_ask_the_manager() {
     let (status, _, err) = m.console(&["fallback", "1"]);
     assert_eq!(status, 1);
     assert!(
-        err.contains("VT 1 is left without a console: vtium cannot tell whether starting getty@tty1.service would stop another program"),
+        err.contains("VT 1 has no console now. No login prompt was started, because vtium cannot tell whether starting getty@tty1.service would stop another program"),
         "{err}"
     );
     assert!(!started(&m), "{:?}", m.fake.calls);
@@ -2324,7 +2329,7 @@ fn the_fallback_starts_nothing_when_the_manager_answers_for_fewer_units() {
     let (status, _, err) = m.console(&["fallback", "1"]);
     assert_eq!(status, 1);
     assert!(
-        err.contains("systemctl show did not give the state of each of rescue.service, shutdown.target, sddm.service."),
+        err.contains("systemctl show did not report the state of rescue.service, shutdown.target, sddm.service."),
         "{err}"
     );
     assert!(!started(&m), "{:?}", m.fake.calls);

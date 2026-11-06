@@ -1,0 +1,227 @@
+#!/usr/bin/env python3
+"""
+fork-refs - check that the committed tree does not name the C fork
+
+Usage:
+    docs/scripts/fork-refs [--root DIR] [FILE...]
+
+vtium describes itself by what it does and by the specifications it follows,
+and its committed tree does not name the maintainer's C fork of kmscon and
+libtsm (ADR-1503 D8). This script reads every file that git tracks in the
+checkout (`git ls-files`), passes over binary files, prints
+`file:line: found 'TEXT': LINE` for each place that names the fork, and exits
+1 if it finds any. It exits 0 when it finds none, and 2 when git lists no
+file, so a wrong root never passes.
+
+--root DIR reads the files git tracks in the checkout at DIR instead of this
+one. FILE arguments read only those files; each is matched against the skip
+list by its path relative to the root.
+
+What it looks for, in any case:
+    - the phrases "C reference", "C fork", "kmscon fork" and "libtsm fork",
+      with their plurals and possessives. A line break may fall between the
+      two words, and the second line may start with a comment marker, such as
+      `//`, `//!`, `///`, `#`, `*`, `--`, `;` or `>`: a comment that ends one
+      line with "C" and starts the next with "reference" still counts. The
+      hit is reported at the line where the phrase starts;
+    - the fork's repositories, `aaronsb/kmscon` and `aaronsb/libtsm`, also
+      inside a URL;
+    - the fork's issue and PR forms, `kmscon#12` and `libtsm#12`;
+    - in a README.md under crates/, a heading that starts "Departures",
+      "Golden differences", "C behaviour kept", "Beyond the C reference" or
+      "C notes", at any level, so that the crate READMEs' lists of departures
+      from the C reference do not come back.
+
+What it leaves alone:
+    The plain names `kmscon` and `libtsm`. They name the released programs, a
+    terminal name a user can choose, and the licence's authors (ADR-1503 D3
+    and D4), and people review them.
+
+The skip list:
+    SKIPS below lists every file or line the check passes over, each with the
+    check it skips and a one-line reason. An entry names a path, as an
+    fnmatch pattern in which `*` also matches `/`, and may also name a line
+    pattern and limit itself to a record's YAML frontmatter. A hit is skipped
+    only when one entry matches its path, its check, and the line where it
+    starts.
+"""
+
+import argparse
+import bisect
+import re
+import subprocess
+import sys
+from dataclasses import dataclass
+from fnmatch import fnmatchcase
+from pathlib import Path
+
+# Between the two words of a phrase: spaces, or a line break with an
+# optional comment marker at the start of the next line.
+GAP = r"(?:[ \t]+|[ \t]*\r?\n[ \t]*(?:(?://[/!]?|#+|\*+|--|;+|>+|%+)[ \t]*)?)"
+
+PHRASE = "phrase"
+REPOSITORY = "repository"
+ISSUE = "issue"
+HEADING = "heading"
+ALL = frozenset({PHRASE, REPOSITORY, ISSUE, HEADING})
+
+PATTERNS = {
+    PHRASE: re.compile(rf"\b(?:C{GAP}(?:reference|fork)|(?:kmscon|libtsm){GAP}fork)s?\b", re.IGNORECASE),
+    REPOSITORY: re.compile(r"\baaronsb/(?:kmscon|libtsm)\b", re.IGNORECASE),
+    ISSUE: re.compile(r"\b(?:kmscon|libtsm)#\d+\b", re.IGNORECASE),
+    HEADING: re.compile(
+        r"^#{1,6}[ \t]+(?:Departures|Golden differences|C behaviou?r kept|Beyond the C reference|C notes)\b",
+        re.IGNORECASE | re.MULTILINE,
+    ),
+}
+
+# The files whose headings are checked.
+CRATE_README = "crates/*/README.md"
+
+
+@dataclass(frozen=True)
+class Skip:
+    path: str
+    checks: frozenset
+    reason: str
+    line: re.Pattern = None
+    frontmatter: bool = False
+
+    def holds(self, path, check, text, in_frontmatter):
+        return (
+            fnmatchcase(path, self.path)
+            and check in self.checks
+            and (self.line is None or self.line.search(text) is not None)
+            and (not self.frontmatter or in_frontmatter)
+        )
+
+
+SKIPS = [
+    Skip("AGENTS.md", ALL, "AGENTS.md keeps its rules for working with the C reference until the revisit (ADR-1503 D6)"),
+    Skip("CLAUDE.md", ALL, "CLAUDE.md stays as it is until the revisit (ADR-1503 D6)"),
+    Skip("docs/scripts/fork-refs", ALL, "this script names the patterns it looks for"),
+    Skip("docs/scripts/test_fork_refs.py", ALL, "the script's tests plant each pattern"),
+    Skip("docs/architecture/*", frozenset({PHRASE, HEADING}), "the decision records keep their history, which names the C reference (ADR-1503 D1 and D5)"),
+    Skip(
+        "docs/architecture/*",
+        frozenset({REPOSITORY, ISSUE}),
+        "a basis entry's said and via fields record what the maintainer said and how it was relayed",
+        line=re.compile(r"^\s*(?:- )?(?:said|via):"),
+        frontmatter=True,
+    ),
+    Skip(
+        "docs/architecture/project/ADR-1503-*.md",
+        frozenset({REPOSITORY, ISSUE}),
+        "D8 states the forms this check looks for",
+        line=re.compile(r"^`docs/scripts/fork-refs` fails when a committed file names the fork"),
+    ),
+    *(
+        Skip(
+            path,
+            frozenset({PHRASE}),
+            "a ported file keeps its copyright notice (ADR-1503 D4)",
+            line=re.compile(r"^\W*Copyright \(c\) \d{4}(?:-\d{4})? the kmscon fork authors\s*$"),
+        )
+        for path in ("crates/vtium-font/src/sprite.rs", "crates/vtium-render/src/deco.rs")
+    ),
+    Skip(
+        "COPYING",
+        frozenset({PHRASE}),
+        "the licence file says where the box sprites' geometry came from: font_box.c, which the fork added and the released kmscon never had",
+        line=re.compile(r"\bby way of the C fork's font_box\.c\b"),
+    ),
+]
+
+
+def tracked(root):
+    """The paths git tracks under ROOT, or None when git cannot list them."""
+    p = subprocess.run(["git", "-C", str(root), "ls-files", "-z"], capture_output=True)
+    if p.returncode != 0:
+        return None
+    return [name.decode("utf-8", "surrogateescape") for name in p.stdout.split(b"\0") if name]
+
+
+def read_text(path):
+    """The file's text, or None for a binary file, a link or a missing file."""
+    if path.is_symlink() or not path.is_file():
+        return None
+    data = path.read_bytes()
+    if b"\0" in data:
+        return None
+    return data.decode("utf-8", "replace")
+
+
+def frontmatter_end(lines):
+    """The number of the line that closes a leading `---` block, or 0."""
+    if not lines or lines[0].rstrip() != "---":
+        return 0
+    for number, line in enumerate(lines[1:], 2):
+        if line.rstrip() == "---":
+            return number
+    return 0
+
+
+def hits(shown, text):
+    """Yield (line number, found text, line) for each hit the skips leave."""
+    lines = text.split("\n")
+    starts = [0]
+    for line in lines[:-1]:
+        starts.append(starts[-1] + len(line) + 1)
+    closes = frontmatter_end(lines)
+    checks = [PHRASE, REPOSITORY, ISSUE]
+    if fnmatchcase(shown, CRATE_README):
+        checks.append(HEADING)
+    found = []
+    for check in checks:
+        for m in PATTERNS[check].finditer(text):
+            number = bisect.bisect_right(starts, m.start())
+            line = lines[number - 1]
+            in_frontmatter = 1 < number < closes
+            if any(skip.holds(shown, check, line, in_frontmatter) for skip in SKIPS):
+                continue
+            found.append((number, re.sub(GAP, " ", m.group(0)), line))
+    yield from sorted(set(found))
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[1].split(" - ")[1])
+    parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[2])
+    parser.add_argument("files", nargs="*", type=Path)
+    args = parser.parse_args()
+    root = args.root.resolve()
+
+    if args.files:
+        names = []
+        for f in args.files:
+            try:
+                names.append(f.resolve().relative_to(root).as_posix())
+            except ValueError:
+                names.append(f.as_posix())
+    else:
+        names = tracked(root)
+    if not names:
+        print(f"fork-refs: git lists no file under {root}", file=sys.stderr)
+        return 2
+
+    count = 0
+    files = set()
+    for name in names:
+        text = read_text(root / name)
+        if text is None:
+            continue
+        for number, what, line in hits(name, text):
+            print(f"{name}:{number}: found '{what}': {line.strip()}")
+            count += 1
+            files.add(name)
+
+    if count:
+        places = "1 place" if count == 1 else f"{count} places"
+        where = "1 file" if len(files) == 1 else f"{len(files)} files"
+        print(f"fork-refs: {places} in {where} name the C fork", file=sys.stderr)
+        return 1
+    print(f"fork-refs: {len(names)} files name no C fork")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

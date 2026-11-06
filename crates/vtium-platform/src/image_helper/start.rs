@@ -9,7 +9,7 @@
 //!
 //! The account is resolved in vtium's own process before the fork, since
 //! a child forked from a process with threads may call only what is safe
-//! after a fork. The child then, in the C reference's order: starts a
+//! after a fork. The child then, in this order: starts a
 //! session of its own with no controlling terminal; sets every signal to
 //! its default and clears its mask; puts `/dev/null` on descriptors 0 to
 //! 2 and its end of the socket on 3, every other descriptor marked

@@ -9,7 +9,7 @@
 //! selection with it, so a copy never reaches into other text. Only an end
 //! whose line left the scrollback (dropped when it was full, or emptied by
 //! ED 3) leaves the selection standing: copying then starts at the oldest
-//! line, as in the C reference.
+//! line.
 //! A line selection's copy ends with a line end, as xterm's does with
 //! `cutNewline`, its default.
 //! A line that wrapped is one line to the selection, as in xterm: a word

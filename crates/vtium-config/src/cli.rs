@@ -114,7 +114,7 @@ impl Options {
     }
 }
 
-/// An option that takes a value, and whether that value names a path or
+/// An option that needs a value, and whether that value names a path or
 /// a program.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ValueOption {
@@ -122,7 +122,7 @@ pub struct ValueOption {
     pub path: bool,
 }
 
-/// Every option that takes a value: the one table the parser reads its
+/// Every option that needs a value: the one table the parser reads its
 /// options from and root's refusal reads the path and program options
 /// from ([`root_refusal`]), so an option the parser takes cannot be missed
 /// by the refusal. Run as root, vtium-config takes none of the flagged
@@ -200,10 +200,10 @@ pub fn root_refusal(euid: u32, args: &[OsString]) -> Option<String> {
             .find(|o| a == *o || a.strip_prefix(*o).is_some_and(|r| r.starts_with('=')));
         match named {
             Some(option) => Some(format!(
-                "run as root, vtium-config takes no {option}: as root it reads and writes only /etc/vtium and its frits' directory, and checks files with the console it was built with"
+                "{option} cannot be used as root: as root, vtium-config reads and writes only /etc/vtium and its font set directory, and checks files with the vtium it was built with"
             )),
             None if a == crate::tui::port::UNBLOCK_ARG => Some(format!(
-                "run as root, vtium-config takes no {a}: that step runs another program and is the TUI's own, run as the user"
+                "{a} cannot be used as root: it is an internal step of the full-screen tool, which runs as your user"
             )),
             None => None,
         }
@@ -215,7 +215,7 @@ pub fn root_refusal(euid: u32, args: &[OsString]) -> Option<String> {
             [w] => w == "tui" || w == "new-frit",
             _ => false,
         })
-        .then(|| "run vtium config as yourself; it asks for sudo when it saves".to_owned());
+        .then(|| "do not run this as root. Run vtium config as yourself; it asks for sudo when it installs.".to_owned());
     // a command that reads a file the user names, or runs the glyph helper,
     // which refuses root, runs as the user: as root it would read any file
     // and could print what is in it
@@ -229,7 +229,7 @@ pub fn root_refusal(euid: u32, args: &[OsString]) -> Option<String> {
         };
         user_only.map(|c| {
             format!(
-                "run vtium config {c} as yourself: it needs no privilege, and as root it would read files only the user should name"
+                "run vtium config {c} as yourself, not as root: it needs no root, and as root it could read files that only you should choose"
             )
         })
     });
@@ -267,7 +267,7 @@ fn parse_args(args: &[OsString]) -> Result<Options, Usage> {
         let arg = text(arg)?;
         let mut value = |name: &str| {
             it.next()
-                .ok_or_else(|| Usage(format!("{name} takes a value")))
+                .ok_or_else(|| Usage(format!("{name} needs a value")))
                 .and_then(text)
         };
         if let Some(option) = VALUE_OPTIONS.iter().find(|v| v.name == arg) {
@@ -387,9 +387,9 @@ impl Cli<'_> {
                     self.err,
                 )
             }
-            Command::Tui => self.usage("tui opens the interactive tool at a terminal only"),
+            Command::Tui => self.usage("tui needs a terminal"),
             // the flow's commands are dispatched above
-            _ => self.usage("this command is the flow's"),
+            _ => self.usage("this command works on the draft"),
         }
     }
 }

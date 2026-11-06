@@ -72,7 +72,7 @@ pub fn named(name: &str) -> Result<&str, Fail> {
         Ok(name)
     } else {
         Err(Fail::Usage(format!(
-            "{name:?} cannot name a draft: 1 to 64 letters, digits, '.', '_', '+' and '-', not starting with '.' or '-'"
+            "{name:?} cannot be a draft's name: a name has 1 to 64 letters, digits, '.', '_', '+' or '-', and cannot start with '.' or '-'"
         )))
     }
 }
@@ -196,7 +196,7 @@ impl Store {
     ) -> Result<Store, String> {
         if euid == 0 {
             let home = home_of(0).ok_or_else(|| {
-                "the password database names no home for root, so vtium-config has nowhere to keep root's draft".to_owned()
+                "vtium-config has nowhere to keep root's draft: the password database gives root no home directory".to_owned()
             })?;
             return Ok(Store {
                 config: home.join(".config/vtium"),
@@ -209,7 +209,11 @@ impl Store {
             set(xdg)
                 .or_else(|| home.as_ref().map(|h| h.join(fallback)))
                 .map(|d| d.join("vtium"))
-                .ok_or_else(|| format!("neither {xdg} nor HOME is set, so vtium-config has nowhere to keep its drafts"))
+                .ok_or_else(|| {
+                    format!(
+                        "vtium-config has nowhere to keep its drafts: neither {xdg} nor HOME is set"
+                    )
+                })
         };
         Ok(Store {
             config: under("XDG_CONFIG_HOME", ".config")?,

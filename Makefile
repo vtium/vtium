@@ -220,11 +220,12 @@ endif
 # HWACCEL and DISPLAY_BUFFERS set the defaults of hwaccel and
 # display-buffers that both builds read from the key table (ADR-1500 D8).
 # make install-terminfo stages vtium's terminfo entry, compiled under its
-# name xterm-vtium, with LICENSE and COPYING, for the package that holds
-# the terminfo entry alone. Neither target stages a file the C reference's
-# packages own: nothing under /etc/kmscon, no terminfo entry named kmscon
-# and no kmsconvt@ unit. The builds use the host's toolchain, as a distribution's package
-# builds do, in a target directory of their own, INSTALL_TARGET_DIR.
+# name xterm-vtium and its alias vtium, with LICENSE and COPYING, for the
+# package that holds the terminfo entry alone. Neither target stages a file
+# an installed kmscon's packages own: nothing under /etc/kmscon, no terminfo
+# entry named kmscon and no kmsconvt@ unit. The builds use the host's
+# toolchain, as a distribution's package builds do, in a target directory
+# of their own, INSTALL_TARGET_DIR.
 # CARGO_BUILD_FLAGS goes to each cargo call, as --frozen for a package build
 # that fetched its crates first.
 PREFIX := /usr/local
@@ -324,11 +325,11 @@ endif
 	install -Dm644 -t $(DESTDIR)$(PREFIX)/share/licenses/$(PKGNAME) $(LICENSE_FILES)
 
 .PHONY: install-terminfo
-install-terminfo: ## Stage vtium's terminfo entry, compiled as xterm-vtium, under DESTDIR=DIR for PREFIX and PKGNAME (default vtium-terminfo) (needs tic)
+install-terminfo: ## Stage vtium's terminfo entry, compiled as xterm-vtium and its alias vtium, under DESTDIR=DIR for PREFIX and PKGNAME (default vtium-terminfo) (needs tic)
 	@[ -f '$(TERMINFO_SRC)' ] || { echo "install-terminfo: no $(TERMINFO_SRC), the entry it compiles" >&2; exit 1; }
 	install -dm755 $(DESTDIR)$(PREFIX)/share/terminfo
 	tic -x -e xterm-vtium -o $(DESTDIR)$(PREFIX)/share/terminfo $(TERMINFO_SRC)
-	@[ -f '$(DESTDIR)$(PREFIX)/share/terminfo/x/xterm-vtium' ] && [ -z "$$(find '$(DESTDIR)$(PREFIX)/share/terminfo' -type f ! -path '*/x/xterm-vtium')" ] || { echo "install-terminfo: tic did not compile xterm-vtium alone" >&2; exit 1; }
+	@[ -f '$(DESTDIR)$(PREFIX)/share/terminfo/x/xterm-vtium' ] && [ -f '$(DESTDIR)$(PREFIX)/share/terminfo/v/vtium' ] && [ -z "$$(find '$(DESTDIR)$(PREFIX)/share/terminfo' -type f ! -path '*/x/xterm-vtium' ! -path '*/v/vtium')" ] || { echo "install-terminfo: tic did not compile xterm-vtium and its alias vtium alone" >&2; exit 1; }
 	install -Dm644 -t $(DESTDIR)$(PREFIX)/share/licenses/$(if $(filter command line,$(origin PKGNAME)),$(PKGNAME),vtium-terminfo) LICENSE COPYING
 
 # The ARM single-board computers minspec is judged against
@@ -383,7 +384,7 @@ arm-test: arm-sysroot ## Run the workspace's tests for each ARM target under qem
 	cargo test --workspace --all-features --no-fail-fast $(addprefix --target ,$(ARM_TEST_TARGETS))
 
 # Tier 1 and the capability probes, against the goldens and probes in
-# tools/conformance/, copied from the C reference.
+# tools/conformance/.
 .PHONY: conformance
 conformance: ## Judge vtium against tier 1's goldens
 	cargo build --release -p vtium-conformance --features images --bins
@@ -410,7 +411,7 @@ conformance-issues: ## Check that every issue the capability list says owes a ca
 .PHONY: test-tools
 # shellcheck gates at warning: its info notes differ between versions, and
 # the scripts' `A && B || die` is deliberate.
-test-tools: ## Test the VT review tools, the tier 3 harness, the gallery tool, the fuzz runner, the gate runner and the sysroot fetch without a VT, sudo, logind, a VM or nightly (shellcheck when installed), the set writer without its deflate, the key table's crates built as a package names HWACCEL and DISPLAY_BUFFERS, that the console leaves the deflate out, and that make gates runs AGENTS.md's gate line
+test-tools: ## Test the VT review tools, the tier 3 harness, the gallery tool, the fuzz runner, the gate runner, the fork-refs check and the sysroot fetch without a VT, sudo, logind, a VM or nightly (shellcheck when installed), the set writer without its deflate, the key table's crates built as a package names HWACCEL and DISPLAY_BUFFERS, that the console leaves the deflate out, and that make gates runs AGENTS.md's gate line
 	python3 -I tools/vt/tests/test_vt.py
 	python3 -I tools/vt/tests/test_accept.py
 	python3 -I -B tools/tier3/test_t3img.py
@@ -418,6 +419,7 @@ test-tools: ## Test the VT review tools, the tier 3 harness, the gallery tool, t
 	python3 -I -B tools/gallery/tests/test_gallery.py
 	python3 -I -B tools/fuzz/test_run.py
 	python3 -I -B tools/gates/test_run.py
+	python3 -I -B docs/scripts/test_fork_refs.py
 	python3 -I -B tools/arm/test_sysroot.py
 	cargo test -q -p vtium-font --test set
 	$(TEST_BUILD_SETTINGS)
@@ -543,8 +545,7 @@ vt-install: $(vt_build) $(vt_dev_build) ## Install a development build as vtium-
 vt-uninstall: ## Undo make vt-install on VT N: vtium-dev off, its getty back, the files it wrote removed (VT=N, DRY_RUN=1)
 	@case "$$VTIUM_VT_DRY_RUN" in '') tools/vt/vt-install.sh uninstall "$$VTIUM_VT_NR" ;; 1) tools/vt/vt-install.sh uninstall --dry-run "$$VTIUM_VT_NR" ;; *) echo "DRY_RUN=$$VTIUM_VT_DRY_RUN: 1 or nothing" >&2; exit 1 ;; esac
 
-# Tier 2 against vtium's goldens and the C reference's, copied into
-# tools/tier2/reference. The report names this checkout's commit, as tier 3's
+# Tier 2 against its goldens in tools/tier2/goldens. The report names this checkout's commit, as tier 3's
 # does (T3_REV).
 .PHONY: tier2
 tier2: ## Draw tier 2's screens and judge them against their goldens

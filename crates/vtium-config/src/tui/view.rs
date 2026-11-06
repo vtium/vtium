@@ -516,38 +516,45 @@ pub fn tab_at(app: &App, col: usize, row: usize) -> Option<View> {
 /// a font live.
 fn status(canvas: &mut Canvas, app: &App) {
     let flow = &app.inputs.flow;
-    let mut left = match &flow.draft {
-        Some(d) => words::draft_state(&d.name, d.changes, d.problems),
-        None => words::NO_DRAFT.to_owned(),
+    // the left side with `waiting`, the words for the font sets waiting
+    // to be installed
+    let left_with = |waiting: &dyn Fn(usize) -> String| {
+        let mut left = match &flow.draft {
+            Some(d) => words::draft_state(&d.name, d.changes, d.problems),
+            None => words::NO_DRAFT.to_owned(),
+        };
+        let pending = app
+            .pending
+            .frits
+            .len()
+            .saturating_add(app.pending.removals.len());
+        if pending > 0 {
+            left = format!("{left} · {}", waiting(pending));
+        }
+        if app.view == View::Flow && !app.tags.is_empty() {
+            let names: Vec<String> = app.tags.iter().map(|t| flow.name(*t)).collect();
+            left = format!("{left} · {}", words::tagged(&names));
+        }
+        if app.view == View::Flow && app.draft.is_some() {
+            if let Some(came) = &app.came {
+                left = format!("{left} · {came}");
+            }
+            if !(app.inputs.hotplug && app.present.udev) {
+                left = format!("{left} · {}", words::NO_HOTPLUG);
+            }
+        }
+        left
     };
-    let waiting = app
-        .pending
-        .frits
-        .len()
-        .saturating_add(app.pending.removals.len());
-    if waiting > 0 {
-        left = format!("{left} · {}", words::frits_waiting(waiting));
-    }
-    if app.view == View::Flow && !app.tags.is_empty() {
-        let names: Vec<String> = app.tags.iter().map(|t| flow.name(*t)).collect();
-        left = format!("{left} · {}", words::tagged(&names));
-    }
-    if app.view == View::Flow && app.draft.is_some() {
-        if let Some(came) = &app.came {
-            left = format!("{left} · {came}");
-        }
-        if !(app.inputs.hotplug && app.present.udev) {
-            left = format!("{left} · {}", words::NO_HOTPLUG);
-        }
-    }
-    let live = match (&app.live, app.graphics) {
+    // the right side, in its long or its short words
+    let live_with = |short: bool| match (&app.live, app.graphics) {
         (Live::Asking, _) => words::PREVIEW_ASKING.to_owned(),
         (live, graphics) => format!(
             "{} · {}",
-            if graphics {
-                words::PREVIEW_PICTURE
-            } else {
-                words::PREVIEW_TEXT
+            match (graphics, short) {
+                (true, false) => words::PREVIEW_PICTURE,
+                (true, true) => words::PREVIEW_PICTURE_SHORT,
+                (false, false) => words::PREVIEW_TEXT,
+                (false, true) => words::PREVIEW_TEXT_SHORT,
             },
             if *live == Live::On {
                 words::TRIAL_KEY
@@ -556,11 +563,29 @@ fn status(canvas: &mut Canvas, app: &App) {
             }
         ),
     };
-    let room = app
-        .cols
-        .saturating_sub(live.chars().count())
-        .saturating_sub(3);
-    let left = super::canvas::fit(&format!(" {left}"), room);
+    // the room the left side has beside the right side, with the gap
+    // between them and the margin after
+    let room = |live: &str| {
+        app.cols
+            .saturating_sub(live.chars().count())
+            .saturating_sub(3)
+    };
+    // the long words where they fit, else the short words for the font
+    // sets waiting, else the short words on the right as well; only then
+    // is the left side cut
+    let long = format!(" {}", left_with(&words::frits_waiting));
+    let short = format!(" {}", left_with(&words::frits_waiting_short));
+    let fits = |left: &str, live: &str| left.chars().count() <= room(live);
+    let (live_long, live_short) = (live_with(false), live_with(true));
+    let (left, live) = if fits(&long, &live_long) {
+        (long, live_long)
+    } else if fits(&short, &live_long) {
+        (short, live_long)
+    } else {
+        (short, live_short)
+    };
+    let room = room(&live);
+    let left = super::canvas::fit(&left, room);
     canvas.put(
         0,
         1,

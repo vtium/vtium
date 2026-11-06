@@ -18,9 +18,8 @@
 //! paths share one key, one set of budgets and one LRU (ADR-1300 D6).
 //!
 //! A glyph the font draws nothing for is remembered in a small table, so
-//! a screen that shows it does not ask the font again every frame, as the
-//! C reference's GPU renderer remembered such glyphs (`gltex.c`, the
-//! glyph cache's comment). Any arrival empties the table. A glyph refused
+//! a screen that shows it does not ask the font again every frame. Any
+//! arrival empties the table. A glyph refused
 //! for room is not remembered: the next frame may have the room.
 
 use vtium_font::{Face, Font, Style, Width};
@@ -36,8 +35,7 @@ pub enum Profile {
     /// Twice the screen's cells of narrow glyphs and once of wide, each
     /// pool's bytes at most two screens of its format.
     Minspec,
-    /// Twice minspec's glyphs, each pool's bytes at most 64 MiB, as the C
-    /// reference's GPU renderer allowed.
+    /// Twice minspec's glyphs, each pool's bytes at most 64 MiB.
     Performance,
 }
 
@@ -942,8 +940,7 @@ mod tests {
     }
 
     // The font is asked once for a glyph it draws nothing for, until the
-    // glyph is forgotten, as the C reference's GPU renderer remembered such
-    // glyphs (gltex.c, the glyph cache's comment)
+    // glyph is forgotten
     #[test]
     fn a_glyph_the_font_draws_nothing_for_is_asked_for_once_until_forgotten() {
         let f = Font::new(Blank);

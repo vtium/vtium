@@ -195,7 +195,7 @@ fn render() -> String {
 
 /// vtium's entry, `xterm-vtium`.
 pub(super) const ENTRY: &str = include_str!("../../install/xterm-vtium.ti");
-/// The C reference's entry, `kmscon`, with `Ms`.
+/// The entry for the released `kmscon`'s name, with `Ms`.
 pub(super) const KMSCON: &str = include_str!("../../install/kmscon.ti");
 
 /// Each table's constant, the file it is generated from and that file's
@@ -261,7 +261,7 @@ fn the_entry_reads() {
     names.sort_unstable();
     names.dedup();
     assert_eq!(names.len(), 181);
-    // the C reference's 136 and Ms
+    // 136 names and Ms
     let (name, caps) = parse(KMSCON);
     assert_eq!(name, super::KMSCON);
     assert_eq!(caps.len(), 137);
@@ -362,8 +362,8 @@ fn the_table_and_the_entry_agree() {
 }
 
 // Each mode an entry sets and resets is one vtium-term sets and resets, as
-// DECRQM reports it. The C reference's entry lacks the margins' and insert
-// mode's capabilities.
+// DECRQM reports it. kmscon.ti lacks the margins' and insert mode's
+// capabilities.
 // covers: platform.terminfo
 #[test]
 fn the_entrys_modes_are_vtiums() {
@@ -405,8 +405,9 @@ fn the_entrys_modes_are_vtiums() {
 }
 
 // A terminal answers XTGETTCAP from vtium's table under xterm-vtium and
-// from the C reference's under kmscon, as the C reference answered under
-// its own name; under any other name it answers nothing.
+// its alias vtium, and from kmscon.ti's under kmscon, the name of the
+// released kmscon's entry; under any other name every name XTGETTCAP asks
+// for is unknown.
 // covers: query.xtgettcap
 #[test]
 fn each_entrys_name_gets_its_own_table() {
@@ -426,7 +427,24 @@ fn each_entrys_name_gets_its_own_table() {
     );
     // TN=kmscon
     assert_eq!(ask("kmscon"), b"\x1bP1+r544E=6B6D73636F6E\x1b\\");
-    for other in ["xterm-kitty", "xterm", "xterm-vtium ", "KMSCON", ""] {
+    // The entry's second name is the bare vtium, and under TERM=vtium the
+    // terminal answers as under xterm-vtium, TN with xterm-vtium.
+    let names = fields(ENTRY)
+        .into_iter()
+        .next()
+        .expect("an entry starts with its names");
+    assert_eq!(names.split('|').nth(1), Some(super::ALIAS));
+    assert_eq!(super::entries(super::ALIAS), super::entries(super::NAME));
+    assert_eq!(ask(super::ALIAS), ask(super::NAME));
+    for other in [
+        "xterm-kitty",
+        "xterm",
+        "xterm-vtium ",
+        "KMSCON",
+        "VTIUM",
+        "vtium ",
+        "",
+    ] {
         assert!(super::for_term(other).is_none(), "{other:?}");
         assert_eq!(ask(other), b"\x1bP0+r\x1b\\", "{other:?}");
     }

@@ -104,7 +104,7 @@ pub struct Screen {
     rows: usize,
     /// The main and alternate screens' lines, each `cols` cells. Each holds
     /// at least `rows` lines: lines below the screen after it shrank keep
-    /// their text and come back when it grows again, as in the C reference.
+    /// their text and come back when it grows again.
     main: Vec<Line>,
     alt: Vec<Line>,
     flags: Flags,

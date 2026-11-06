@@ -63,7 +63,7 @@ pub fn mark(dir: &Path, tty: Option<&Path>, policy: Policy) {
     match vt_number(tty) {
         Some(vt) => mark_vt(dir, vt, policy),
         None if matches!(policy, Policy::Closed) => log::warn!(
-            "{} is no VT, so vtium writes no getty marker for it under the closed policy",
+            "{} is not a VT, so vtium cannot mark it to keep a login prompt off it (closed policy)",
             tty.display()
         ),
         None => {}
@@ -78,22 +78,19 @@ fn mark_vt(dir: &Path, vt: u16, policy: Policy) {
     match policy {
         Policy::Closed => match write(dir, &marker) {
             Ok(()) => log::info!(
-                "{} keeps the unit's getty off this VT under the closed policy",
+                "{} keeps a login prompt off this VT if vtium fails (closed policy)",
                 marker.display()
             ),
             Err(e) => log::error!(
-                "cannot write {}: {e}; if vtium fails, its unit starts a getty on this VT, though the policy is closed",
+                "cannot write {}: {e}; if vtium fails, a login prompt starts on this VT although the policy is closed",
                 marker.display()
             ),
         },
         Policy::Open => match std::fs::remove_file(&marker) {
-            Ok(()) => log::info!(
-                "{} removed: the head file's policy is open",
-                marker.display()
-            ),
+            Ok(()) => log::info!("{} removed: vtium.conf's policy is open", marker.display()),
             Err(e) if e.kind() == io::ErrorKind::NotFound => {}
             Err(e) => log::warn!(
-                "cannot remove {}: {e}; a failure of vtium starts no getty on this VT",
+                "cannot remove {}: {e}; if vtium fails, no login prompt starts on this VT",
                 marker.display()
             ),
         },
@@ -203,7 +200,9 @@ mod tests {
         assert!(!dir.exists(), "no marker is written");
         assert_eq!(
             logged(),
-            ["/dev/null is no VT, so vtium writes no getty marker for it under the closed policy"]
+            [
+                "/dev/null is not a VT, so vtium cannot mark it to keep a login prompt off it (closed policy)"
+            ]
         );
         mark(&dir, Some(Path::new("/dev/null")), Policy::Open);
         assert_eq!(logged(), Vec::<String>::new(), "nothing to keep off");

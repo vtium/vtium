@@ -22,9 +22,8 @@
 //! A font is looked up at the size asked for. When none is in use yet, a
 //! failure tries [`FALLBACK_SIZE`] once, and a second failure is the
 //! error; with a font in use, as at a zoom, a failure is the error and
-//! that font stays. The C reference retried at 16 for as long as the
-//! lookup failed (`src/terminal.c:921-939` at kmscon b1f7a7c5,
-//! aaronsb/kmscon#63).
+//! that font stays, so a font that cannot be found never holds the start
+//! in a loop.
 
 use std::path::{Path, PathBuf};
 
@@ -129,7 +128,7 @@ pub fn select<F, E>(
 /// The height `font-size=0` picks for a display `width` by `height`, for
 /// a font whose smallest height is `smallest`: at most 120 columns,
 /// taking a cell as half as wide as it is high, and at least 40 rows, and
-/// never under 16 (`src/terminal.c:899-918`); but where 16-pixel cells
+/// never under 16; but where 16-pixel cells
 /// would leave fewer than 80 by 25, the font's own smallest height, so a
 /// 320x240 display draws an 8x8 font as 40 by 30 cells (vtium/vtium#118).
 pub fn auto_size(width: u32, height: u32, smallest: u32) -> u32 {
@@ -180,20 +179,23 @@ pub fn frit(frits: &Path, name: &str) -> Option<PathBuf> {
 /// The smallest and largest side of a frit's `cell=` and a look's
 /// `cell`, from the key table.
 pub use crate::config::keys::{FRIT_CELL_MAX, FRIT_CELL_MIN};
+/// The smallest and largest size a frit's `size=` names, in points, from
+/// the key table, which vtium-config reads it within too.
+use crate::config::keys::{FRIT_SIZE_MAX, FRIT_SIZE_MIN};
 
 /// The frit at `path`'s text: a regular file of at most `FILE_MAX`
 /// bytes, as vtium-config's `FRIT_BYTES_MAX`, in UTF-8.
 pub fn frit_text(path: &Path) -> Result<String, String> {
     let bytes = crate::config::read_bytes(path)
         .map_err(|e| e.to_string())?
-        .ok_or("it is gone")?;
+        .ok_or("the file is missing")?;
     if bytes.len() > crate::config::FILE_MAX {
         return Err(format!(
-            "it is longer than {} bytes",
+            "the file is longer than {} bytes",
             crate::config::FILE_MAX
         ));
     }
-    String::from_utf8(bytes).map_err(|_| "it is not UTF-8".to_owned())
+    String::from_utf8(bytes).map_err(|_| "the file is not UTF-8 text".to_owned())
 }
 
 /// The value of the one `key=` line in a frit's `text`, with its line
@@ -212,7 +214,7 @@ fn frit_line<'a>(text: &'a str, key: &str) -> Result<Option<(usize, &'a str)>, S
             continue;
         }
         if found.is_some() {
-            return Err(format!("line {n}: {key}= given twice"));
+            return Err(format!("line {n}: {key}= appears twice"));
         }
         found = Some((n, value.trim()));
     }
@@ -220,11 +222,11 @@ fn frit_line<'a>(text: &'a str, key: &str) -> Result<Option<(usize, &'a str)>, S
 }
 
 /// A frit's `size=`, in points: digits only, no leading zero,
-/// [`FRIT_CELL_MIN`] to [`FRIT_CELL_MAX`], as vtium-config reads it.
+/// [`FRIT_SIZE_MIN`] to [`FRIT_SIZE_MAX`], as vtium-config reads it.
 fn frit_points(s: &str) -> Option<u32> {
     s.parse::<u32>()
         .ok()
-        .filter(|v| (FRIT_CELL_MIN..=FRIT_CELL_MAX).contains(v) && !s.starts_with(['0', '+']))
+        .filter(|v| (FRIT_SIZE_MIN..=FRIT_SIZE_MAX).contains(v) && !s.starts_with(['0', '+']))
 }
 
 /// The cell a frit's `text` states, `cell=WIDTHxHEIGHT` (#145); `None`
@@ -238,7 +240,7 @@ pub fn frit_cell(text: &str) -> Result<Option<Cell>, String> {
         crate::config::keys::parse_cell(value).map(|(width, height)| Cell { width, height });
     parsed.map(Some).ok_or_else(|| {
         format!(
-            "line {n}: cell={value} is not WIDTHxHEIGHT in pixels, each {FRIT_CELL_MIN} to {FRIT_CELL_MAX}"
+            "line {n}: cell={value} is not WIDTHxHEIGHT in pixels, each from {FRIT_CELL_MIN} to {FRIT_CELL_MAX}"
         )
     })
 }
@@ -252,7 +254,7 @@ pub fn frit_size(text: &str) -> Result<Option<u32>, String> {
     };
     frit_points(value).map(Some).ok_or_else(|| {
         format!(
-            "line {n}: size={value} is not a size in points, {FRIT_CELL_MIN} to {FRIT_CELL_MAX}"
+            "line {n}: size={value} is not a size in points from {FRIT_SIZE_MIN} to {FRIT_SIZE_MAX}"
         )
     })
 }
@@ -312,14 +314,14 @@ pub fn frit_warnings(name: &str, text: &str) -> Vec<String> {
         Ok(None) => return Vec::new(),
         Err(why) => {
             return vec![format!(
-                "the frit {name}: {why}; vtium draws its built-in font"
+                "font set {name}: {why}, so vtium uses its built-in font"
             )];
         }
     };
     let mut out = Vec::new();
     if cell.width < 8 || cell.height < 8 {
         out.push(format!(
-            "the frit {name}: its {}x{} cell is smaller than the built-in font's 8x8, which is cropped to it until the glyphs are generated",
+            "font set {name}: its {}x{} character cell is smaller than the built-in font's 8x8, so the built-in font is cut to fit until the font set's characters are ready",
             cell.width, cell.height
         ));
     }
@@ -335,7 +337,7 @@ pub fn frit_warnings(name: &str, text: &str) -> Vec<String> {
         };
         if own.0 > cell.width || own.1 > cell.height {
             out.push(format!(
-                "the frit {name}: line {n}: source={}'s {}x{} cell does not fit its {}x{} cell, so it gives nothing",
+                "font set {name}: line {n}: the characters of source={} ({}x{}) do not fit the {}x{} character cell, so vtium does not use that source",
                 value.trim(),
                 own.0,
                 own.1,
@@ -523,7 +525,7 @@ pub fn vconsole_font(conf: &str, cmdline: &str) -> Option<String> {
 
 /// The font the configuration asks for (ADR-1200 D9): `font-name`, set in
 /// a file or on the command line, unless `font-engine` names the built-in
-/// unifont or the C reference's 8x16; unset, vconsole's font; else none,
+/// unifont or the 8x16 font; unset, vconsole's font; else none,
 /// and vtium draws its built-in font.
 pub fn wanted(config: &Config, vconsole_conf: &str, cmdline: &str) -> Option<Wanted> {
     if matches!(config.text(&FONT_ENGINE), Some("unifont" | "8x16")) {
@@ -585,7 +587,7 @@ pub fn by_name(
     if let Some(builtin) = builtin_named(name, look) {
         return Ok(builtin);
     }
-    let path = frit(&sources.frits, name).ok_or("no frit is named so")?;
+    let path = frit(&sources.frits, name).ok_or("there is no font set of that name")?;
     Chosen::frit(FritText::read(&path)?, sized, look)
 }
 
@@ -816,16 +818,16 @@ impl Chosen {
             let at = Chosen::BUILTINS.face(height, locale)?;
             let stated = self.base_cell();
             let (cell, step) = match (stated, self.outline()) {
-                // D17, the C reference's outline increase_step of 1: the
-                // stated cell at its own height, else the helper's answer
+                // D17, an outline frit steps by 1: the stated cell at its
+                // own height, else the helper's answer
                 // at this height, else the built-in font's width
                 (Some(c), true) if c.height == height => (c, 1),
                 (_, true) => match heights.get(&height) {
                     Some(c) => (*c, 1),
                     None => (frit_cell_at(None, height, at.cell()), 1),
                 },
-                // D17, the C reference's PSF increase_step of the font's
-                // height: the stated or own cell's whole multiples
+                // D17, a bitmap frit steps by the font's height: the
+                // stated or own cell's whole multiples
                 (Some(c), false) => (frit_cell_at(Some(c), height, at.cell()), c.height),
                 // D17: with no cell stated, the display's
                 (None, false) => (frit_cell_at(None, height, at.cell()), at.size_step()),
@@ -856,7 +858,7 @@ impl Chosen {
             min: step,
             end: u32::MAX,
         };
-        // D17, the C reference's outline increase_step of 1
+        // D17, an outline frit steps by 1
         if self.outline() {
             return vec![Rung {
                 step: 1,
@@ -864,7 +866,7 @@ impl Chosen {
                 end: u32::MAX,
             }];
         }
-        // D17, the C reference's PSF increase_step of the font's height
+        // D17, a bitmap frit steps by the font's height
         if let Some(cell) = self.base_cell() {
             return vec![all(cell.height)];
         }
@@ -895,8 +897,8 @@ impl Chosen {
     /// `size=` in points at `dpi`, which no display's size moves (#145,
     /// ADR-1200 D17); else [`auto_size`] for the font's smallest height,
     /// which a frit's own cell takes at the largest whole multiple not
-    /// over it, at least the cell itself, as the C reference scaled a PSF
-    /// font (the operator, 2026-10-28).
+    /// over it, at least the cell itself, so a bitmap font keeps its own
+    /// pixels whole (the operator, 2026-10-28).
     pub fn auto_height(&self, width: u32, height: u32, locale: &str, dpi: f64) -> u32 {
         if let Some(cell) = self.stated() {
             return cell.height;
@@ -921,8 +923,7 @@ impl Chosen {
 
     /// The height a zoom asks for from `size` at `dpi` (ADR-1200 D17): an
     /// outline frit's next whole point in its direction whose pixels
-    /// differ from `size`, as the C reference's outline engines stepped by
-    /// 1 in their own units (the operator's decision on vtium/vtium#145);
+    /// differ from `size` (the operator's decision on vtium/vtium#145);
     /// else the next of its rungs. `None` past [`ZOOM_IN_MAX`]
     /// in, or below the smallest out.
     pub fn zoom(&self, size: u32, dir: Zoom, locale: &str, dpi: f64) -> Option<u32> {
@@ -953,8 +954,7 @@ impl Chosen {
     }
 }
 
-/// The largest height a zoom in starts from, as the C reference refused
-/// above 150 pixels.
+/// The largest height a zoom in starts from.
 pub const ZOOM_IN_MAX: u32 = 150;
 
 /// The points an outline frit's zoom looks through for a height that
@@ -1124,7 +1124,7 @@ mod tests {
             ("cell=8x97\n", "is not"),
             ("cell=08x16\n", "is not"),
             ("cell=+8x16\n", "is not"),
-            ("cell=8x16\ncell=8x16\n", "line 2: cell= given twice"),
+            ("cell=8x16\ncell=8x16\n", "line 2: cell= appears twice"),
         ] {
             let e = frit_cell(text).expect_err(text);
             assert!(e.contains(why), "{text:?}: {e}");
@@ -1168,10 +1168,9 @@ mod tests {
         Chosen::frit(frit, sized, None).expect("a frit")
     }
 
-    // ADR-1200 D17: at 72 DPI, the C reference's fixed density, an
-    // outline frit zooms by 1 pixel, as its outline engines' increase_step
-    // did, from its stated cell, each height but the stated one as wide as
-    // the built-in font there
+    // ADR-1200 D17: at 72 DPI, where a point is a pixel, an outline frit
+    // zooms by 1 pixel, from its stated cell, each height but the stated
+    // one as wide as the built-in font there
     #[test]
     fn an_outline_frit_at_72_dpi_zooms_by_one_pixel() {
         for text in [
@@ -1197,8 +1196,8 @@ mod tests {
 
     // the operator's decision on #145, 2026-10-28: a bitmap frit with no
     // cell stated asks for its fonts' own cell, and takes it at the largest
-    // whole multiple not over the automatic height, at least once, as the C
-    // reference scaled a PSF font; it zooms by the cell's height
+    // whole multiple not over the automatic height, at least once; it zooms
+    // by the cell's height
     #[test]
     fn a_frits_own_cell_scales_by_whole_factors_under_the_automatic_height() {
         for text in ["source=kbd:x\n", "source=kbd:x\nsize=16\n"] {
@@ -1300,10 +1299,10 @@ mod tests {
         let f = frit_of("source=outline:/f.ttf\ncell=10x20\nsize=16\n", true);
         assert_eq!(f.auto_height(320, 240, "C", 96.0), 8);
         for (text, why) in [
-            ("size=24\nsize=32\n", "line 2: size= given twice"),
+            ("size=24\nsize=32\n", "line 2: size= appears twice"),
             (
                 "size=5\n",
-                "line 1: size=5 is not a size in points, 6 to 96",
+                "line 1: size=5 is not a size in points from 6 to 96",
             ),
             ("size=016\n", "line 1: size=016 is not"),
         ] {
@@ -1506,8 +1505,8 @@ mod tests {
 
     // ADR-1200 D7: Tiny5 Mono's 6x9 cell is narrower than Unscii-8's
     // 8x8, so the built-in glyph is centered and cut evenly, a column off
-    // each side, as the C reference's fit_glyph cut a glyph wider than
-    // its cells; it is never scaled. It sits in the top 8 rows, its
+    // each side, as a glyph wider than its cells is cut; it is never
+    // scaled. It sits in the top 8 rows, its
     // baseline on Tiny5 Mono's, and the 9th row is blank.
     #[test]
     fn unscii_8_in_a_narrower_cell_is_centered_and_cut_evenly() {
@@ -1563,8 +1562,8 @@ mod tests {
         }
     }
 
-    // ADR-1200 D17: with no stated cell, the display's: the C reference's
-    // automatic height, #118's floor first, as wide as the built-in font
+    // ADR-1200 D17: with no stated cell, the display's: the automatic
+    // height, #118's floor first, as wide as the built-in font
     // is at that height
     #[test]
     fn with_no_stated_cell_the_cell_comes_from_the_display() {
@@ -1587,6 +1586,31 @@ mod tests {
         );
     }
 
+    // A font set's `size=` is read within the size bounds that vtium-config
+    // reads it within, never the character cell's, at both ends.
+    #[test]
+    fn a_font_sets_size_is_read_within_the_size_bounds() {
+        use crate::config::keys::{FRIT_SIZE_MAX, FRIT_SIZE_MIN};
+        for (size, read) in [
+            (FRIT_SIZE_MIN - 1, None),
+            (FRIT_SIZE_MIN, Some(FRIT_SIZE_MIN)),
+            (FRIT_SIZE_MAX, Some(FRIT_SIZE_MAX)),
+            (FRIT_SIZE_MAX + 1, None),
+        ] {
+            let got = frit_size(&format!("size={size}\n"));
+            match read {
+                Some(points) => assert_eq!(got, Ok(Some(points)), "{size}"),
+                None => assert_eq!(
+                    got,
+                    Err(format!(
+                        "line 1: size={size} is not a size in points from {FRIT_SIZE_MIN} to {FRIT_SIZE_MAX}"
+                    )),
+                    "{size}"
+                ),
+            }
+        }
+    }
+
     #[test]
     fn check_config_names_a_cell_that_does_not_suit_its_frit() {
         assert!(frit_warnings("f", "source=kbd:x\n").is_empty());
@@ -1594,7 +1618,7 @@ mod tests {
         assert_eq!(
             frit_warnings("f", "cell=8\n"),
             [
-                "the frit f: line 1: cell=8 is not WIDTHxHEIGHT in pixels, each 6 to 96; vtium draws its built-in font"
+                "font set f: line 1: cell=8 is not WIDTHxHEIGHT in pixels, each from 6 to 96, so vtium uses its built-in font"
             ]
         );
         assert_eq!(
@@ -1603,9 +1627,9 @@ mod tests {
                 "source=outline:/f.ttf\nsource=builtin:unifont\nsource=builtin:unscii-8\ncell=6x12\n"
             ),
             [
-                "the frit f: its 6x12 cell is smaller than the built-in font's 8x8, which is cropped to it until the glyphs are generated",
-                "the frit f: line 2: source=builtin:unifont's 8x16 cell does not fit its 6x12 cell, so it gives nothing",
-                "the frit f: line 3: source=builtin:unscii-8's 8x8 cell does not fit its 6x12 cell, so it gives nothing",
+                "font set f: its 6x12 character cell is smaller than the built-in font's 8x8, so the built-in font is cut to fit until the font set's characters are ready",
+                "font set f: line 2: the characters of source=builtin:unifont (8x16) do not fit the 6x12 character cell, so vtium does not use that source",
+                "font set f: line 3: the characters of source=builtin:unscii-8 (8x8) do not fit the 6x12 character cell, so vtium does not use that source",
             ]
         );
     }

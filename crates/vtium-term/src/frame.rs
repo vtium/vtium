@@ -6,7 +6,7 @@
 //! draw time is what lets a palette change recolor text already on the
 //! screen.
 //!
-//! A cell's colors resolve in the C reference's order: bold brightens a
+//! A cell's colors resolve in this order: bold brightens a
 //! foreground palette color below 8 to its bright twin, the palette gives
 //! RGB, inverse video and DECSCNM swap the two, the selection swaps them
 //! again or takes the selection colors OSC 17 and 19 set, and dim draws
@@ -29,8 +29,7 @@ use crate::palette::{Palette, Special};
 use crate::style::{Attrs, Color, Rgb, Style};
 
 /// SGR 2's foreground: halfway from `fg` to `bg`, each channel the sum of
-/// the two halved (the C reference's `color_dim`). The renderer dims
-/// blinking text with it too.
+/// the two halved. The renderer dims blinking text with it too.
 pub fn dim(fg: Rgb, bg: Rgb) -> Rgb {
     let ch = |f: u8, b: u8| (f / 2).saturating_add(b / 2);
     Rgb::new(ch(fg.r, bg.r), ch(fg.g, bg.g), ch(fg.b, bg.b))
@@ -89,7 +88,8 @@ pub struct FrameCell<'a> {
     /// bold as bright are already in the colors.
     pub attrs: Attrs,
     /// The background is the default one and not inverted: an image placed
-    /// below cell backgrounds shows through (libtsm#35).
+    /// below cell backgrounds shows through, as the kitty graphics protocol
+    /// draws one at a z-index below -1,073,741,824.
     pub default_bg: bool,
     pub link: Option<LinkId>,
     /// Part of the link under the pointer, which draws a dashed underline
@@ -401,7 +401,7 @@ mod tests {
     }
 
     // ADR-1000's feature row "Colors resolved at draw time, so a palette
-    // change recolors text" (the C reference's probe palette-at-draw).
+    // change recolors text" (the capability probe palette-at-draw).
     // covers: sgr.draw-time-color
     #[test]
     fn a_palette_change_recolors_text_already_written() {
@@ -454,8 +454,8 @@ mod tests {
         assert!(cell.default_bg);
     }
 
-    // libtsm#35: a background set to the default's color is not the
-    // default background, and an inverted default background is not.
+    // A background set to the default's color is not the default
+    // background, and an inverted default background is not.
     #[test]
     fn default_bg_marks_only_the_default_background_uninverted() {
         let damage = Damage::new(4, 1);
@@ -556,8 +556,8 @@ mod tests {
         assert_eq!((blank.fg, blank.bg), (BLACK, WHITE));
     }
 
-    // kmscon ADR 102: a set underline color stays under reverse video,
-    // and the default follows the foreground.
+    // A set underline color stays under reverse video, and the default
+    // follows the foreground.
     #[test]
     fn a_set_underline_color_survives_inverse() {
         let mut style = Style {
@@ -617,8 +617,8 @@ mod tests {
         }
     }
 
-    // The C reference's color_resolve: bold adds 8 to a palette color
-    // below 8 in the foreground. Colors 8 to 255, RGB, the default
+    // Bold adds 8 to a palette color below 8 in the foreground. Colors 8
+    // to 255, RGB, the default
     // foreground, the background and SGR 58's color stay as set.
     // covers: sgr.bold
     #[test]
@@ -695,7 +695,7 @@ mod tests {
 
     const FG: Rgb = Rgb::new(0xff, 0x80, 0x40);
     const BG: Rgb = Rgb::new(0x21, 0xa0, 0xc3);
-    /// The C reference's color_dim of `FG` and `BG`: ff/2 + 21/2,
+    /// [`dim`] of `FG` and `BG`: ff/2 + 21/2,
     /// 80/2 + a0/2, 40/2 + c3/2. A rounded mean would give 90 in red.
     const DIM: Rgb = Rgb::new(0x8f, 0x90, 0x81);
 

@@ -83,7 +83,7 @@ fn a_file_others_can_write_applies_nothing_and_says_how_to_mend_it() {
     assert_eq!(
         start.notice().as_deref(),
         Some(
-            "invalid config skipped, using builtin\nRun vtium check-config /etc/vtium/vtium.conf to see why."
+            "vtium.conf not used: running the built-in configuration.\nTo see why, run vtium check-config /etc/vtium/vtium.conf."
         )
     );
     // the command line still applies

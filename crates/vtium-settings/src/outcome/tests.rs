@@ -311,7 +311,7 @@ fn an_untrusted_or_unopenable_file_runs_the_shipped_rules_with_the_skipped_line(
     assert_eq!(resolve(&Read::Inaccessible), skipped);
     assert_eq!(
         Line::Skipped.text(),
-        "invalid config skipped, using builtin"
+        "vtium.conf not used: running the built-in configuration."
     );
 }
 
@@ -769,11 +769,6 @@ fn every_problem_has_its_scope() {
         (Problem::TooManyHeads, Within::Header, Scope::File),
         (Problem::TooManyRules, Within::Rules, Scope::File),
         (
-            Problem::Syntax(crate::error::Syntax::OutsideSection),
-            Within::Top,
-            Scope::Line,
-        ),
-        (
             Problem::Syntax(crate::error::Syntax::UnclosedHeading),
             Within::Header,
             Scope::Section,
@@ -824,6 +819,8 @@ fn every_problem_has_its_scope() {
             Scope::Head,
         ),
         (Problem::PolicyInSection, Within::Head, Scope::Line),
+        (Problem::VersionInSection, Within::Head, Scope::Head),
+        (Problem::VersionInSection, Within::Rules, Scope::Line),
         // a policy line vtium cannot read takes the whole file
         (
             Problem::UnreadablePolicy(crate::error::PolicyFault::NotUtf8),
@@ -898,4 +895,26 @@ fn the_shipped_rules_close_inputs_an_open_file_gives_the_focus() {
     assert_eq!(Config::builtin().walk(&joystick).place, Place::Ignore);
     let open = parse("version = 1\n").map(|p| p.config).unwrap_or_default();
     assert_eq!(open.walk(&joystick).place, Place::Roaming);
+}
+
+// Under the open policy the display guard lights a head when no head has
+// a display, so the notice that no head has a connected display shows only
+// under the closed policy (ADR-1401 D9)
+#[test]
+fn no_head_has_a_connected_display_never_shows_under_the_open_policy() {
+    let mut reads = vec![Read::Missing, Read::Untrusted, Read::Inaccessible];
+    for &stated in Stated::ALL {
+        for &rest in Rest::ALL {
+            reads.push(Read::Trusted(Trusted { stated, rest }));
+        }
+    }
+    let mut closed = 0;
+    for read in &reads {
+        let o = resolve(read);
+        match o.policy {
+            Policy::Open => assert_ne!(o.dark_notice(), Some(Line::NoDisplay), "{read:?}"),
+            Policy::Closed => closed += usize::from(o.dark_notice() == Some(Line::NoDisplay)),
+        }
+    }
+    assert!(closed > 0, "the closed policy shows it somewhere");
 }

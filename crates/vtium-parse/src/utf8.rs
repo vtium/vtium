@@ -26,8 +26,7 @@
 //! OSC string drops.
 //!
 //! The decoder follows the Unicode Standard. This is vtium's contract for
-//! it, and the C reference's decoder follows the same contract
-//! (aaronsb/libtsm#83):
+//! it:
 //!
 //! 1. Well-formed sequences (Table 3-7) decode to their scalar value.
 //! 2. Each maximal subpart of an ill-formed sequence becomes one U+FFFD
@@ -44,7 +43,9 @@
 //!    either side of the cut decode as they do whole.
 //! 7. A reset drops an incomplete sequence with no U+FFFD.
 //!
-//! The noncharacter rule is the C reference's encoder's.
+//! An OSC string drops the noncharacters, which the Unicode Standard
+//! reserves for a program's internal use and never for interchange (§23.7,
+//! "Noncharacters").
 
 /// What an ill-formed sequence becomes.
 pub(crate) const REPLACEMENT: char = '\u{fffd}';
@@ -137,8 +138,7 @@ impl Decoder {
 }
 
 /// Whether `c` is a noncharacter, U+FDD0 to U+FDEF or the last two of a
-/// plane, which the C reference's encoder writes nothing for
-/// (tsm-unicode.c:604-607), so an OSC string drops it.
+/// plane, which an OSC string drops.
 pub(crate) fn is_noncharacter(c: char) -> bool {
     let c = u32::from(c);
     (0xfdd0..=0xfdef).contains(&c) || c & 0xfffe == 0xfffe
@@ -328,9 +328,10 @@ mod tests {
         assert!(d.idle());
     }
 
-    // tsm-unicode.c:604-607
+    // The Unicode Standard's 66 noncharacters: U+FDD0 to U+FDEF, and the
+    // last two code points of each plane.
     #[test]
-    fn noncharacters_as_the_reference_has_them() {
+    fn the_noncharacters_are_fdd0_to_fdef_and_each_planes_last_two() {
         for c in [
             '\u{fdd0}',
             '\u{fdef}',

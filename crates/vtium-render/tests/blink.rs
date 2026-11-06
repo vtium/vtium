@@ -250,7 +250,7 @@ fn blink_text_off_draws_blinking_text_steady() {
 }
 
 // blink-text=full: the off phase hides the glyph. With the decorations
-// steady, the C reference's way, the underline and strike stay; with them
+// steady, the underline and strike stay; with them
 // blinking, xterm's way, the cell shows only its background.
 // covers: sgr.blink.style, sgr.blink.decorations
 #[test]

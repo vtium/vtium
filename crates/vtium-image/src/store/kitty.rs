@@ -13,8 +13,7 @@
 //! `c`, `p`, `q` and `y` choose by the cells a placement covers on the
 //! screen's own rows, or its rows reaching up into the scrollback from
 //! them; `i`, `n`, `r`, `x` and `z` choose from the whole buffer, the
-//! scrollback included. The C reference chose the same way (its
-//! `screen_kitty_delete`, after Ghostty's reading of the spec).
+//! scrollback included, as Ghostty reads the spec.
 //!
 //! A relative placement is chosen by the cells it draws on, and goes with
 //! its parent (ADR-1100, D13). A virtual placement has no cells, so only

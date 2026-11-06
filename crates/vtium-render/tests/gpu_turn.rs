@@ -285,9 +285,9 @@ fn a_turned_pipeline_holds_its_upright_frame_with_the_sides_swapped() {
 
 #[test]
 fn the_grid_lands_on_the_cpu_paths_pixels_at_every_turn_with_an_odd_margin() {
-    // ADR-1303 D3: the C reference's gltex centred a turned grid in its own
-    // axes and drew it a pixel away from bbulk's; the GPU path puts it
-    // where the CPU path puts it, mapped back into the upright frame
+    // ADR-1303 D3: the GPU path puts a turned grid where the CPU path puts
+    // it, mapped back into the upright frame, so the two paths draw it at
+    // the same pixels
     let (first, ink, last) = ("ff0000", "ffff00", "00ff00");
     for o in ALL {
         let (cols, rows) = grid(o, DISPLAY);
@@ -510,8 +510,8 @@ fn set_up(calls: &[Call]) -> Vec<&Call> {
 
 #[test]
 fn a_turn_keeps_every_texture_and_compiles_nothing() {
-    // ADR-1303 D9: the C reference's gltex dropped and rebuilt all its GL
-    // state on a turn, and a turn whose set-up failed left the screen frozen
+    // ADR-1303 D9: a turn keeps the GL state it can, so a turn makes nothing
+    // that could fail and leave the screen frozen
     let square = Size::new(64, 64);
     let mut b = Both::new(Orientation::Normal, square, StandIn::LIMITS);
     let mut s = Screen::new(8, 4, rgb(FG), rgb(BG));

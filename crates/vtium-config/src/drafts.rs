@@ -123,11 +123,16 @@ pub struct Checked {
 
 impl Checked {
     /// How many problems the status line counts: each problem line, not
-    /// the lines that say what an error drops.
+    /// the lines that say what an error drops. Those end with one of
+    /// vtium's own words for what an error drops.
     pub fn count(&self) -> usize {
         self.problems
             .iter()
-            .filter(|l| !l.contains(": For this error"))
+            .filter(|l| {
+                !vtium_settings::Drops::ALL
+                    .iter()
+                    .any(|d| l.ends_with(&d.to_string()))
+            })
             .count()
     }
 }
@@ -232,7 +237,7 @@ impl Session<'_> {
             .output()
             .map_err(|e| {
                 Fail::File(format!(
-                    "{}: {e}; the check could not run",
+                    "the check could not run: {}: {e}",
                     self.paths.vtium.to_string_lossy()
                 ))
             })?;
@@ -264,7 +269,7 @@ impl Session<'_> {
         let installed = self.installed()?;
         if self.stale(name, installed.as_deref())? {
             return Err(Fail::Changed(format!(
-                "{} changed since draft {name} was made from it, so nothing is installed. Run vtium config diff to see the difference, or vtium config revert to start again from the installed file.",
+                "Nothing installed: {} changed after draft {name} was made from it. Run vtium config diff to see the difference, or vtium config revert to start again from the installed file.",
                 self.installed_path().display()
             )));
         }
@@ -274,13 +279,13 @@ impl Session<'_> {
         }
         if !checked.passed {
             return Err(Fail::Check(format!(
-                "the check found problems in draft {name}, so nothing is installed; the draft keeps every change"
+                "nothing installed: the check found problems in draft {name}. The draft keeps your changes."
             )));
         }
         if installed.as_deref() == Some(text) {
             let _ = writeln!(
                 out,
-                "draft {name} is the installed file; nothing to install"
+                "Nothing to install: draft {name} is the same as the installed vtium.conf."
             );
             self.store.set_base(name, Some(text.as_bytes()))?;
             return Ok(None);
@@ -333,7 +338,7 @@ impl Session<'_> {
                 }
             }
             Err(e) if sudo => Err(Fail::Privilege(format!(
-                "{shown}: {e}. Install the draft as root with vtium config install, or install sudo."
+                "cannot run {shown}: {e}. Run vtium config install as root, or install sudo."
             ))),
             Err(e) => Err(Fail::File(format!("{shown}: {e}"))),
         }
@@ -422,18 +427,20 @@ pub fn classify(said: &str, sudo: bool) -> Fail {
     });
     if sudo && !apply_ran {
         return Fail::Privilege(
-            "sudo refused to run vtium-config apply, so nothing is installed; the draft keeps every change. Run vtium config install again, or install it as root.".to_owned(),
+            "Nothing installed: sudo refused to run vtium-config apply. The draft keeps your changes. Run vtium config install again, or run it as root.".to_owned(),
         );
     }
-    if said.contains("changed since") {
+    if said.contains(crate::apply::CHANGED) {
         return Fail::Changed(
-            "the installed vtium.conf changed while the draft was being installed, so nothing is installed".to_owned(),
+            "nothing installed: the installed vtium.conf changed during the install".to_owned(),
         );
     }
     if said.lines().any(|l| l.starts_with("failed")) {
-        return Fail::File("apply could not write every file; it names each above".to_owned());
+        return Fail::File(
+            "apply could not write every file; the lines above name each one".to_owned(),
+        );
     }
-    Fail::Check("apply refused the draft; the draft keeps every change".to_owned())
+    Fail::Check("apply refused the draft; the draft keeps your changes".to_owned())
 }
 
 #[cfg(test)]
@@ -475,10 +482,13 @@ mod tests {
             classify("sudo: 3 incorrect password attempts\n", true).code(),
             4
         );
-        assert_eq!(classify("vtium-config: vtium.conf line 3: the console's check refused this line\nNothing was written.\n", true).code(), 1);
+        assert_eq!(classify("vtium-config: vtium.conf line 3: vtium check-config refused this line\nNothing was installed.\n", true).code(), 1);
         assert_eq!(
             classify(
-                "vtium-config: /etc/vtium/vtium.conf changed since the draft was made\n",
+                &format!(
+                    "vtium-config: /etc/vtium/vtium.conf {}\n",
+                    crate::apply::CHANGED
+                ),
                 false
             )
             .code(),

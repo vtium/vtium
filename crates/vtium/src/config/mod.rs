@@ -1,5 +1,6 @@
-//! The configuration: the top level of `vtium.conf` in the C reference's
-//! key syntax, and the command line over it (ADR-1403 D2, D3).
+//! The configuration: the top level of `vtium.conf`, in the key syntax of
+//! `kmscon` configuration files, and the command line over it (ADR-1403
+//! D2, D3).
 //!
 //! [`keys`] holds the one table of keys. [`load`] reads both sources and
 //! gives the [`Config`] and the [`Report`]s of what it could not take: a
@@ -101,7 +102,7 @@ pub struct ModeSpec {
 impl ModeSpec {
     /// The mode configured for `connector` on the card at `gpu` among
     /// `modes`: one naming both first, then one naming the connector,
-    /// then one naming neither (`src/config.c:663-698`).
+    /// then one naming neither.
     pub fn find<'a>(
         modes: &'a [ModeSpec],
         gpu: Option<&str>,
@@ -259,10 +260,10 @@ impl fmt::Display for Problem {
         match self {
             Problem::UnknownKey(k) => write!(f, "unknown key {}, ignored", quote(k)),
             Problem::CommandLineOnly(k) => {
-                write!(f, "{k} is set on the command line only, ignored")
+                write!(f, "{k} can be set only on the command line, ignored")
             }
             Problem::SectionOnly(k) => {
-                write!(f, "{k} is set only in a [look NAME] section, ignored")
+                write!(f, "{k} can be set only in a [look NAME] section, ignored")
             }
             Problem::NeedsValue(k) => write!(f, "{k} needs a value, ignored"),
             Problem::TakesNoValue(k) => write!(f, "{k} takes no value, ignored"),
@@ -278,38 +279,42 @@ impl fmt::Display for Problem {
                 )
             }
             Problem::Clamped { key, value, used } => {
-                write!(f, "{key}={} is out of bounds, {used} used", quote(value))
+                write!(
+                    f,
+                    "{key}={} is out of range, so {used} is used",
+                    quote(value)
+                )
             }
             Problem::NotAChoice { key, value } => {
                 let choices = match keys::find(key).map(|k| k.kind) {
                     Some(Kind::Choice(c)) => c.join(", "),
                     _ => String::new(),
                 };
-                write!(f, "{key}={} is none of {choices}, ignored", quote(value))
+                write!(f, "{key}={} is not one of {choices}, ignored", quote(value))
             }
             Problem::TooLong(k) => write!(f, "{k} is longer than {TEXT_MAX} bytes, ignored"),
             Problem::ControlCharacter(k) => {
-                write!(f, "{k} holds a control character, ignored")
+                write!(f, "{k} contains a control character, ignored")
             }
             Problem::BadCommand { key, why } => write!(f, "{key}: {why}, ignored"),
             Problem::BadValue { key, value, why } => {
                 write!(f, "{key}={}: {why}, ignored", quote(value))
             }
             Problem::NoKey => write!(f, "a line with no key, ignored"),
-            Problem::Nul => write!(f, "a line holding a NUL byte, ignored"),
-            Problem::NotUtf8 => write!(f, "not UTF-8, ignored"),
+            Problem::Nul => write!(f, "a line with a NUL byte, ignored"),
+            Problem::NotUtf8 => write!(f, "not UTF-8 text, ignored"),
             Problem::LineTooLong => write!(f, "a line longer than {LINE_MAX} bytes, ignored"),
             Problem::FileTooLong => {
-                write!(f, "longer than {FILE_MAX} bytes; the rest is ignored")
+                write!(f, "longer than {FILE_MAX} bytes, so the rest is ignored")
             }
             Problem::Unreadable(e) => write!(f, "cannot be read ({e}), ignored"),
-            Problem::NotAFile => write!(f, "is not a regular file, ignored"),
-            Problem::StrayArgument(a) => write!(f, "{} is no option, ignored", quote(a)),
+            Problem::NotAFile => write!(f, "not a regular file, ignored"),
+            Problem::StrayArgument(a) => write!(f, "unknown option {}, ignored", quote(a)),
             Problem::LoginWithoutCommand => {
                 write!(f, "--login needs a command after --, ignored")
             }
             Problem::Untrusted(why) => write!(f, "{}", why.refusal()),
-            Problem::More(n) => write!(f, "{n} more reports"),
+            Problem::More(n) => write!(f, "{n} more warnings"),
         }
     }
 }
@@ -631,8 +636,7 @@ pub struct Loaded {
 
 impl Loaded {
     /// The command line cannot start vtium: it holds a word that is no
-    /// option, or `--login` with no command after `--`. The C reference
-    /// refused both (`src/misc/conf.c:310-313`, `src/config.c:439-450`).
+    /// option, or `--login` with no command after `--`.
     pub fn refuses_start(&self) -> bool {
         self.reports.iter().any(|r| {
             matches!(r.origin, Origin::CommandLine { .. })
@@ -647,7 +651,7 @@ impl Loaded {
 /// The configuration file in the configuration directory `dir`:
 /// `vtium.conf`, the one file vtium reads (ADR-1403 D2). The configuration
 /// directory is `/etc/vtium` unless `--configdir` names another, and vtium
-/// never reads the C reference's `/etc/kmscon` (ADR-1500 D4).
+/// never reads `/etc/kmscon`, the released `kmscon`'s (ADR-1500 D4).
 pub fn file(dir: &Path) -> PathBuf {
     dir.join("vtium.conf")
 }
@@ -788,9 +792,8 @@ pub fn read_file(path: &Path) -> io::Result<Option<Vec<u8>>> {
 }
 
 /// Reads `path` whoever owns it: `None` when it does not exist, and at
-/// most [`FILE_MAX`] and one bytes. It is opened as the C reference opened
-/// its files, so that a tty never becomes the controlling one
-/// (`O_NOCTTY`, `src/misc/conf.c:533-590`), and without blocking, so that
+/// most [`FILE_MAX`] and one bytes. It is opened with `O_NOCTTY`, so that
+/// a tty never becomes the controlling one, and without blocking, so that
 /// a FIFO is refused at once with anything else that is not a regular
 /// file. It reads a frit, and the vtium.conf `vtium check-config` checks
 /// before it is installed, whose ownership it judges apart.

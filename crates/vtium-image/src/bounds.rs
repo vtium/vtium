@@ -3,8 +3,8 @@
 //!
 //! Each bound is a [`Bound`] row holding its value, what happens past it,
 //! and where it comes from; the public constant takes its value from the
-//! row. The values start from the C reference's and move later by
-//! measurement on vtium. The README table is generated from [`BOUNDS`],
+//! row. Each value is a starting point that moves later by measurement
+//! on vtium. The README table is generated from [`BOUNDS`],
 //! and `readme_table_matches_bounds` fails when the committed copy
 //! differs; `VTIUM_IMAGE_BLESS=1 cargo test -p vtium-image readme_table`
 //! rewrites it.
@@ -24,7 +24,7 @@ const IMAGES: Bound = Bound {
     value: 1024,
     what: "Images one buffer of a store holds, main or alternate",
     past: "A new image evicts from that buffer alone in the eviction order, and is refused when nothing there may go",
-    cite: "The C reference's `TSM_SCREEN_IMAGES_PER_STORE`",
+    cite: "vtium's own: it bounds the store's bookkeeping, and the work an eviction does, whatever the byte budget allows",
 };
 
 const PLACEMENTS: Bound = Bound {
@@ -32,7 +32,7 @@ const PLACEMENTS: Bound = Bound {
     value: 4096,
     what: "Placements one buffer holds",
     past: "A new placement evicts from that buffer alone, or is refused; a cut or a scroll keeps its largest pieces and drops the smallest, as if their cells were erased",
-    cite: "The C reference's `TSM_SCREEN_PLACEMENTS_PER_STORE`",
+    cite: "vtium's own: it bounds the placements a screen event walks and a frame draws, whatever the byte budget allows",
 };
 
 const SIDE: Bound = Bound {
@@ -40,7 +40,7 @@ const SIDE: Bound = Bound {
     value: 65_535,
     what: "Pixels an image has a side, in every protocol",
     past: "The image is refused (EINVAL); `max-graphic-size` sets the working limit below it",
-    cite: "The C reference's `TSM_SCREEN_IMAGE_MAX`",
+    cite: "The largest number 16 bits hold, far above the side of any display",
 };
 
 const CELL: Bound = Bound {
@@ -48,7 +48,7 @@ const CELL: Bound = Bound {
     value: 1024,
     what: "Pixels a cell has a side, the unit a placement measures its pixels in",
     past: "The cell size is refused and the one before it stays",
-    cite: "The C reference's `TSM_SCREEN_CELL_MAX`",
+    cite: "vtium's own, far above the cell of any font vtium draws",
 };
 
 const BOX: Bound = Bound {
@@ -56,7 +56,7 @@ const BOX: Bound = Bound {
     value: 10_000,
     what: "Cells a placement's box has in each direction, columns and rows each",
     past: "The placement is refused (EINVAL), and so is a picture scaled past that box",
-    cite: "The C reference's `TSM_SCREEN_IMAGE_MAX_CELLS`, checked against the columns and the rows each",
+    cite: "vtium's own: it bounds the cells a placement's box marks and draws, checked against the columns and the rows each",
 };
 
 const RELATIVE_DEPTH: Bound = Bound {
@@ -72,7 +72,7 @@ const IMAGE_CHARGE: Bound = Bound {
     value: 512,
     what: "Bytes of the budget an image costs beside its pixels, which pay for its first placement",
     past: "Counted in every reservation",
-    cite: "The C reference's `TSM_SCREEN_IMAGE_OVERHEAD`; the maintainer, 2026-11-01",
+    cite: "The store's bookkeeping for an image and its first placement; the maintainer, 2026-11-01",
 };
 
 const PLACEMENT_CHARGE: Bound = Bound {
@@ -80,7 +80,7 @@ const PLACEMENT_CHARGE: Bound = Bound {
     value: 256,
     what: "Bytes of the budget each placement of an image past its first costs, a piece a cut makes included",
     past: "A new placement whose charge the budget refuses is refused; a piece whose charge it refuses goes, smallest first",
-    cite: "The C reference's `TSM_SCREEN_PLACEMENT_OVERHEAD`",
+    cite: "The store's bookkeeping for a placement",
 };
 
 const FRAMES: Bound = Bound {
@@ -96,7 +96,7 @@ const FLOOR: Bound = Bound {
     value: 16 << 20,
     what: "The fewest bytes `auto` allows a console, 16 MiB",
     past: "A smaller sum is raised to it",
-    cite: "The maintainer, 2026-11-01, as the C reference's budget had it",
+    cite: "The maintainer, 2026-11-01",
 };
 
 const CAP: Bound = Bound {
@@ -104,7 +104,7 @@ const CAP: Bound = Bound {
     value: 192 << 20,
     what: "The most bytes `auto` allows a console, 192 MiB",
     past: "A larger sum is lowered to it",
-    cite: "The maintainer, 2026-11-01, as the C reference's budget had it",
+    cite: "The maintainer, 2026-11-01",
 };
 
 const FRAMES_COUNT: Bound = Bound {

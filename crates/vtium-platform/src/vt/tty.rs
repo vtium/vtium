@@ -21,7 +21,7 @@ pub struct Tty {
 
 impl Tty {
     /// Opens the VT at `path` and returns it with its number, the device's
-    /// minor (vt_real.c:197-225).
+    /// minor.
     pub fn open(path: &Path) -> io::Result<(Tty, u16)> {
         log::info!(target: "vt", "using tty {}", path.display());
         let fd = rustix::fs::open(
@@ -37,7 +37,7 @@ impl Tty {
         Ok((Tty { fd }, num))
     }
 
-    /// The VT to use when none is configured (vt_real.c:627-675): the one
+    /// The VT to use when none is configured: the one
     /// stderr is, when it is a VT, or else the first free VT. `None` on a
     /// system without VTs, which gets a [`super::FakeVt`].
     pub fn find() -> io::Result<Option<PathBuf>> {
@@ -176,8 +176,7 @@ fn signal_number(signal: rustix::process::Signal) -> io::Result<i16> {
     i16::try_from(signal.as_raw()).map_err(|_| io::Error::from(io::ErrorKind::InvalidInput))
 }
 
-/// vtium's `VT_PROCESS`: SIGUSR2 to release, SIGUSR1 to acquire, as the
-/// C reference set them (vt_real.c:239-240).
+/// vtium's `VT_PROCESS`: SIGUSR2 to release, SIGUSR1 to acquire.
 fn process_mode() -> io::Result<ioctl::VtMode> {
     Ok(ioctl::VtMode {
         mode: ioctl::VT_PROCESS,

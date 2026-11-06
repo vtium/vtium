@@ -125,7 +125,7 @@ impl Machine {
                 "; needs root: sudo vtium-config report > vtium-report.txt"
             }
             (Some(EPERM), 0) => {
-                "; the kernel refuses it even to root, as its lockdown mode refuses debugfs"
+                "; the kernel refuses it even to root, because its lockdown mode blocks debugfs"
             }
             _ => "",
         };

@@ -211,10 +211,9 @@ jobs:
           path: ~/.cache/vtium/arm/debs
           key: tools-debs-${{ hashFiles('tools/arm/pin.tsv') }}-${{ github.run_id }}-${{ github.run_attempt }}
 
-  # Tier 2: the renderer's screens against vtium's goldens and the C
-  # reference's, copied into tools/tier2/reference, and the GPU path's
-  # drawing of each against the CPU path's, on llvmpipe; vtium is the only
-  # checkout. The report and the images are kept whatever the result.
+  # Tier 2: the renderer's screens against vtium's goldens in
+  # tools/tier2/goldens, and the GPU path's drawing of each against the CPU
+  # path's, on llvmpipe; vtium is the only checkout. The report and the images are kept whatever the result.
   tier2:
     runs-on: ubuntu-latest
     steps:

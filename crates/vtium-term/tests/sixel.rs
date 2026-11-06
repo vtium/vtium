@@ -132,9 +132,9 @@ mod images {
         assert_eq!(t.screen().cursor(), (11, 0));
     }
 
-    // C reference: tsm-screen.c's screen_sixel_place scrolled the region
-    // first, as far as it allowed, so a picture that fits the region moves
-    // whole, and indexed for the rest.
+    // A picture past the bottom margin scrolls the region first, as far as
+    // it allows, so a picture that fits the region moves whole, and indexes
+    // for the rest.
     // covers: image.sixel
     #[test]
     fn a_picture_past_the_bottom_margin_scrolls_the_region_first_and_moves_whole() {
@@ -246,10 +246,9 @@ mod images {
         });
     }
 
-    // The C reference dropped the shared registers whenever sixel went off,
-    // max-graphic-size changed, or XTSMGRAPHICS changed the count
-    // (tsm-vte-image.c's sixel_drop): each change here leaves register 5 at
-    // its default for the next picture.
+    // The shared registers start again whenever sixel goes off,
+    // max-graphic-size changes, or XTSMGRAPHICS changes the count: each
+    // change here leaves register 5 at its default for the next picture.
     // covers: DEC-1070, query.xtsmgraphics
     #[test]
     fn the_shared_registers_start_again_after_each_change_of_their_settings() {
@@ -289,8 +288,7 @@ mod images {
     }
 
     // A max-graphic-size the host lowers while a string streams in ends
-    // that string, as the C reference's tsm_vte_set_graphic_max_size
-    // dropped the decoder: the picture 50 pixels wide is not placed.
+    // that string: the picture 50 pixels wide is not placed.
     // covers: image.sixel
     #[test]
     fn a_lower_max_graphic_size_mid_string_drops_the_picture() {
@@ -311,9 +309,8 @@ mod images {
         assert_eq!((p[0].image_width, p[0].image_height), (10, 10));
     }
 
-    // C reference: tsm-modes.def marked 80, 1070 and 8452 HOST_SIXEL, and
-    // mode_offered reported their fixed state while sixel was off; SM and
-    // RM still stored them.
+    // Modes 80, 1070 and 8452 report their fixed state while sixel is not
+    // offered, and SM and RM still store them (ADR-1100, D10).
     // covers: DEC-80, DEC-1070, DEC-8452
     #[test]
     fn the_sixel_modes_are_offered_while_sixel_is() {
@@ -366,7 +363,9 @@ mod images {
         assert_eq!(reply(&mut t, b"\x1b[c"), "\x1b[?62;22c", "no handler");
     }
 
-    // C reference: tsm-vte-image.c's vte_xtsmgraphics.
+    // ctlseqs, XTSMGRAPHICS: item 1, the color registers, read (1), reset
+    // (2), set (3) and read as the most allowed (4); item 2, the geometry,
+    // read and never set.
     // covers: query.xtsmgraphics
     #[test]
     fn xtsmgraphics_reads_sets_and_resets_the_register_count() {
@@ -424,8 +423,8 @@ mod images {
         s
     }
 
-    // libtsm#49's case: chafa's frames, padded with clear pixels, stacked on
-    // each other until the budget refused the next. Each frame removes the
+    // chafa's frames, padded with clear pixels, would stack on each other
+    // until the budget refused the next. Each frame removes the
     // last under every cell it covers fully, and the last's pieces in the
     // padding hold no pixel set and go too, so one picture stays.
     // covers: image.sixel, image.overlap
@@ -527,8 +526,8 @@ mod images {
         work
     }
 
-    // ADR-1100 D5, and the C reference's tsm_sixel_feed_some: the bound
-    // stops the input call inside one run of data, within one band's work
+    // ADR-1100 D5: the bound stops the input call inside one run of data,
+    // within one band's work
     // of it. One run of 65 KB of `#1!10000~$` repeats a 10,000-pixel band
     // 6,500 times; a call that took the run whole did 390 million work,
     // 23 times the bound.
@@ -610,10 +609,9 @@ mod images {
         assert_eq!(shown(&whole).len(), 2);
     }
 
-    // The C reference's flow (tsm-vte-image.c's vte_sixel_run) took sixel
-    // bytes from the stream as they came; vtium never holds the string,
-    // only the picture's pixels, so a picture costs its pixels and nothing
-    // more, however its string is cut.
+    // vtium takes sixel bytes from the stream as they come and never holds
+    // the string, only the picture's pixels, so a picture costs its pixels
+    // and nothing more, however its string is cut.
     // covers: image.sixel
     #[test]
     fn a_picture_holds_its_pixels_of_the_budget_while_its_string_streams() {
@@ -640,9 +638,7 @@ mod images {
 
     // Sixel answers nothing, so the handler notes for the log why it drops
     // a picture: a picture with no size is the program's doing, and one the
-    // budget refuses is the console's, which the operator can act on. The C
-    // reference logged a sixel picture it did not store (libtsm `eeaf293`,
-    // `src/tsm/tsm-vte-image.c:161-171`).
+    // budget refuses is the console's, which the operator can act on.
     #[test]
     fn a_dropped_picture_is_noted_for_the_log() {
         let mut t = term(12, 6);

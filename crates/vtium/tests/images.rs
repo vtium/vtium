@@ -113,7 +113,7 @@ impl Video for Memory {
         Some(60_000)
     }
     fn dpi(&self, _: DisplayId) -> Option<(f64, f64)> {
-        // the C reference's fixed density, where a point is a pixel
+        // 72 DPI, where a point is a pixel
         Some((72.0, 72.0))
     }
     fn identity(&self, _: DisplayId) -> Option<Identity> {

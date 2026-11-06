@@ -1,13 +1,13 @@
 //! Change tracking, as a property: after any change, every cell a display
-//! would draw differently is marked changed for it (aaronsb/libtsm#48).
+//! would draw differently is marked changed for it.
 //!
 //! Each step takes the frame a display drew, makes one change through the
 //! byte stream or the screen's own calls (the pen, the modes, resizing,
 //! the view, the selection), and compares the frame after it cell by cell.
 //! A cell that differs and is not marked fails the test, which prints the
-//! seed, the step and the change. The rows the marks may spare are the
-//! point of aaronsb/libtsm#34: a region scroll marks only the region, and
-//! this test holds that sparing honest.
+//! seed, the step and the change. A region scroll marks only the region,
+//! so the marks may spare rows, and this test checks that every row they
+//! spare draws the same.
 
 mod common;
 
@@ -223,8 +223,8 @@ fn change(t: &mut Terminal, rng: &mut Rng) -> String {
     }
 }
 
-// aaronsb/libtsm#48: the frame's changed set covers every cell that
-// differs, through every kind of change.
+// The frame's changed set covers every cell that differs, through every
+// kind of change.
 #[test]
 fn a_frames_changed_set_covers_every_cell_that_differs() {
     for seed in 0..common::seeds(80) {
