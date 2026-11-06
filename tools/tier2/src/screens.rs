@@ -16,7 +16,7 @@ use vtium_term::WidthMethod;
 
 use vtium::config::keys::{self, Scheme};
 
-use crate::draw::{Alone, DecoSpec, Decorations, FontKind, Overlay, Screen, TestFont, Words};
+use crate::draw::{Alone, DecoSpec, Decorations, Feed, FontKind, Overlay, Screen, TestFont, Words};
 use crate::notices;
 use crate::pictures;
 
@@ -619,6 +619,137 @@ const PICTURES_SIXEL_DESC: &str = "Sixel pictures made in a 10x20 cell and drawn
 const PICTURES_BUDGET_DESC: &str = "A 160x64 display, whose pictures' bound is two screens of it, 81,920 bytes (ADR-1100 D5, ADR-1303 D2): a 200x200 picture drawn in 8 by 2 cells, whose own pixels pass the bound and whose drawn copy fits, and one drawn over 40 by 12 cells, far past the display, whose copy passes it too, scaled for each frame. Correct: both pictures drawn smoothly as the CPU path keeps or scales them, the second cut at the display's edge.";
 
 const PICTURES_TILED_DESC: &str = "Three pictures wider and taller than 64 pixels, which the GPU path holds in textures of at most 64 a side for this screen (ADR-1303 D2): one grown by about 2, one shrunk by 1.5 and one shrunk by 4 below the text. Correct: each picture whole and smooth, with no seam where its tiles meet on the GPU path.";
+
+/// A row of text that pictures cover, 47 characters long.
+macro_rules! text_row {
+    () => {
+        "sixels over text, text over sixels, sixels over\r\n"
+    };
+}
+
+/// The text below one layer's picture in `img-bands` and `kitty-bands`,
+/// on the row `$row` from 1: a word, blue cells, a word, green cells and
+/// a word.
+macro_rules! band_text {
+    ($row:literal) => {
+        concat!(
+            "\x1b[",
+            $row,
+            ";16HText \x1b[44m    \x1b[0m over \x1b[42m  \x1b[0m pic"
+        )
+    };
+}
+
+/// Each layer's name, and the text its picture covers.
+const BANDS: &[u8] = concat!(
+    "lowest band",
+    band_text!(2),
+    "\x1b[4;1Hmiddle band",
+    band_text!(5),
+    "\x1b[7;1Htop band",
+    band_text!(8),
+)
+.as_bytes();
+
+/// Five rows of text under `img-sixel`'s sixels.
+const SIXEL_ROWS: &[u8] = concat!(
+    text_row!(),
+    text_row!(),
+    text_row!(),
+    text_row!(),
+    text_row!()
+)
+.as_bytes();
+
+/// Eight rows of text under `img-moves`'s pictures.
+const MOVES_ROWS: &[u8] = concat!(
+    text_row!(),
+    text_row!(),
+    text_row!(),
+    text_row!(),
+    text_row!(),
+    text_row!(),
+    text_row!(),
+    text_row!(),
+)
+.as_bytes();
+
+/// Six rows of text under `img-ed2`'s pictures.
+const ED2_ROWS: &[u8] = concat!(
+    text_row!(),
+    text_row!(),
+    text_row!(),
+    text_row!(),
+    text_row!(),
+    text_row!(),
+)
+.as_bytes();
+
+/// `img-scale`'s labels, on the eighth row under each picture.
+const SCALE_LABELS: &[u8] =
+    b"\x1b[8;2H1:1\x1b[8;8Hfit 10x5\x1b[8;20Hshrunk 12x2\x1b[8;34H5x8 cells";
+
+/// The ten rows `img-region` scrolls.
+const REGION_ROWS: &[u8] =
+    b"row 0\r\nrow 1\r\nrow 2\r\nrow 3\r\nrow 4\r\nrow 5\r\nrow 6\r\nrow 7\r\nrow 8\r\nrow 9";
+
+/// The banner screens' scroll region, the last two rows, with the cursor
+/// on the last.
+const BANNER_REGION: &[u8] = b"\x1b[9;10r\x1b[10;1H";
+
+/// The text `kitty-text`'s disc covers, and the screen's title.
+const KITTY_TEXT_ROWS: &[u8] = b"kitty pictures under and over text\x1b[3;26Hfirst row, around it\x1b[4;26Hmiddle row, erased\x1b[5;26Hlast row, around it";
+
+/// The text under `sixel-vte`'s second sixel.
+const SIXEL_VTE_TEXT: &[u8] = concat!(
+    "sixel strings through the vte\r\n",
+    "\r\n",
+    "                    text text text text\r\n",
+    "                    text text text text\r\n",
+)
+.as_bytes();
+
+/// `sixel-vte`'s sixels, written by hand as a program sends them: four
+/// bands of red, green, blue and white bars, 40x24, with `TEXT` written
+/// across their second row; and orange stripes 5 pixels wide with clear
+/// gaps between them, 30x24, which leave their unset pixels clear.
+const SIXEL_VTE: &[u8] = concat!(
+    "\x1b[3;2H\x1bPq\"1;1;40;24",
+    "#1;2;100;0;0#2;2;0;100;0#3;2;0;0;100#4;2;100;100;100",
+    "#1!10~#2!10~#3!10~#4!10~-",
+    "#1!10~#2!10~#3!10~#4!10~-",
+    "#1!10~#2!10~#3!10~#4!10~-",
+    "#1!10~#2!10~#3!10~#4!10~",
+    "\x1b\\",
+    "\x1b[4;4HTEXT",
+    "\x1b[3;21H\x1bP0;1q\"1;1;30;24#5;2;100;50;0",
+    "#5!5~!5?!5~!5?!5~!5?-",
+    "#5!5~!5?!5~!5?!5~!5?-",
+    "#5!5~!5?!5~!5?!5~!5?-",
+    "#5!5~!5?!5~!5?!5~!5?",
+    "\x1b\\",
+)
+.as_bytes();
+
+/// Feeds `sixel-vte`'s sixels.
+fn sixel_vte(f: &mut Feed) -> Result<(), String> {
+    f.bytes(SIXEL_VTE)
+}
+
+const IMG_BANDS_DESC: &str = "One picture in each layer a kitty picture can draw in (ADR-1100 D4), its left half opaque and its right half at half alpha, each over a row of text in DejaVu Sans Mono at 16 pixels with blue and green cells: below the cell backgrounds at the top, below the text in the middle, above the text at the bottom. Each image is sent first and then put at its cell by a command of its own. Correct: in the lowest band the picture shows only through cells on the default background, so the blue and green cells stay solid, and the text draws over it; in the middle band the picture covers the backgrounds, the blue cells hidden under its opaque half and the green ones tinted under its clear half, and the text draws over it; in the top band the opaque half hides the text and the clear half shows it dimmed.";
+const KITTY_BANDS_DESC: &str = "The img-bands screen with each picture sent and placed by one kitty command at the cursor, which DECSC and DECRC keep where it was, in chunks of 4096 base64 characters. Correct: the same as img-bands, pixel for pixel.";
+const IMG_SIXEL_DESC: &str = "Three sixels over five rows of text in DejaVu Sans Mono at 16 pixels: a gradient 3 pixels narrower and 5 shorter than 10 by 3 cells, a disc whose corners are clear, and a gradient that `TEXT` is written over afterwards. Correct: the left picture hides the text under it, its right and bottom edges ending inside their cells, where the text past them shows; the disc hides the text inside it and the text shows around it; the right picture has a hole where `TEXT` was written over it, and the word draws there as plain text on the background, since a character written into a cell cuts a sixel there (ADR-1100 D3).";
+const SIXEL_VTE_DESC: &str = "Two sixel strings written by hand, as a program sends them, over text in DejaVu Sans Mono at 16 pixels: at the left, red, green, blue and white bars 10 pixels wide and 24 tall, with `TEXT` written across their second row; at the right, orange stripes 5 pixels wide with clear gaps between them, over two rows of text, a string that asks for its unset pixels to stay clear. Correct: at the left the four bars side by side, `TEXT` on the background with no picture behind it, and the bars' lower 8 pixel rows left only in the two cells the word does not reach; at the right the stripes, with the text under them showing through the gaps.";
+const IMG_SCALE_DESC: &str = "Kitty pictures at their own size and scaled, above `1:1`, `fit 10x5`, `shrunk 12x2` and `5x8 cells` in DejaVu Sans Mono at 16 pixels: a 40x20 gradient at its own size; the same image put again fitted to 10 by 5 cells; 480x160 stripes a pixel wide fitted to 12 by 2 cells; and a 20x16 gradient made while the terminal told programs a cell of 5x8 pixels, at its own size there, 4 by 2 of those cells. Correct: the gradients smooth with no steps; the fitted one 90x45, keeping its shape, centred in its box of 90x80; the stripes shrunk to an even olive 96x32, centred in their 108x32 box, with no moire; the last picture drawn over 4 by 2 of the font's 9x16 cells, 36x32.";
+const IMG_REGION_DESC: &str = "A scroll of two lines in a region from the third row to the eighth, over `row 0` to `row 9` in DejaVu Sans Mono at 16 pixels, with three pictures on the screen: a sixel inside the region from its top row, a kitty picture of 6 by 2 cells inside it, and a kitty picture of 6 by 4 cells that starts above it. Correct: the rows read `row 0`, `row 1`, `row 4` to `row 7`, two empty rows, `row 8` and `row 9`; the sixel lost the rows that left the region and its lower half sits in the third and fourth rows; the small kitty picture moved up two rows and its top row, pushed past the region's top, is cut, so only its lower half shows, in the third row; the tall kitty picture, which crosses the region's edge, stays where it was (ADR-1100 D3).";
+const IMG_ROTATED_DESC: &str = "A display turned a quarter right, 24 by 6 cells of DejaVu Sans Mono at 16 pixels: a line of text, and one half-transparent picture placed twice, at its own size above the text and fitted to 6 by 3 cells below it. Correct: the text reads from top to bottom and the pictures turn with it, each in its own cells, the opaque half of each toward the top of the image; the text under the first picture hidden by its opaque half and dimmed under its clear half, and drawn over the second.";
+const IMG_MOVES_DESC: &str = "Four frames into a double-buffered display over eight rows of text in DejaVu Sans Mono at 16 pixels. Before the first frame, two kitty pictures and a sixel disc; before the third, the first kitty placement moved by a put with the same placement id, the second picture's image sent again, which removes its placement, the sixel's two rows erased from its first column to the end, and a new picture placed below the text. Both buffers must then hold what a fresh draw of the last screen draws. Correct: the moved picture at its new place and no trace of its old one, where the text shows whole; no trace of the removed picture at the right, where the text shows whole; the sixel gone with the text of its rows from its first column; the new picture under the text of its rows.";
+const IMG_BANNER_BG_DESC: &str = "A picture the size of the screen sent again as the same image before each of three frames, which removes the last one's placement, and put at the top left below the cell backgrounds; after it, a banner line of blue and green cells that scrolls in the bottom two rows, in DejaVu Sans Mono at 16 pixels. Both buffers must then hold what a fresh draw of the last screen draws. Correct: the last frame's picture alone, `banner 1` and `banner 2` in the bottom rows, their blue and green cells solid over the picture.";
+const IMG_BANNER_TEXT_DESC: &str = "The img-banner-bg screen with the picture below the text and over the cell backgrounds. Correct: the last frame's picture under every cell, the banner's blue and green cells hidden under it, and only the banner's letters drawn over it.";
+const IMG_ED2_DESC: &str = "A sixel and a kitty disc below the text over six rows of text, shown for two frames; then ED 2 and `cleared`, in DejaVu Sans Mono at 16 pixels. Both buffers must then hold what a fresh draw of the last screen draws. Correct: only the word `cleared`, with no pixel of either picture left, since ED 2 removes every placement on the screen (ADR-1100 D8).";
+const KITTY_TEXT_DESC: &str = "Text and kitty pictures in DejaVu Sans Mono at 16 pixels. At the left, an opaque gradient sent as RGB below the text, placed with the cursor moving past it, so the `<after` that follows starts on its last row just past its right edge; then `TEXT`, white on red, and `on it` written over its middle row. At the right, a disc above three rows of text, the middle row then erased from the twentieth column by EL. Correct: the gradient whole under the white `TEXT`, with no red showing, since the picture covers the cell backgrounds; the disc whole, since only ED 2 removes a kitty picture; the words of the first and last rows showing only outside the disc, and nothing left of the middle row's.";
+const KITTY_BANNER_BG_DESC: &str = "The img-banner-bg screen with each frame's picture sent and placed by one kitty command at the top left, as RGBA, RGB and RGBA in turn, each replacing the last image. Correct: the same as img-banner-bg, pixel for pixel.";
+const KITTY_BANNER_TEXT_DESC: &str = "The img-banner-text screen with each frame's picture sent and placed by one kitty command at the top left, as RGBA, RGB and RGBA in turn, each replacing the last image. Correct: the same as img-banner-text, pixel for pixel.";
 
 /// A picture screen: vtium's golden, drawn by vtium.
 /// A screen of `cols` by `rows` in the test frit of outline fonts
@@ -1475,6 +1606,96 @@ pub const CASES: &[Case] = &[
             )
         },
     },
+    // The outline picture screens: pictures over text in the test font
+    // set, sent as kitty commands and sixel strings through the
+    // terminal's own handlers (ADR-1100)
+    picture(Screen {
+        pictures: Some(pictures::img_bands),
+        ..outline("img-bands", IMG_BANDS_DESC, BANDS, 48, 10)
+    }),
+    picture(Screen {
+        pictures: Some(pictures::kitty_bands),
+        ..outline("kitty-bands", KITTY_BANDS_DESC, BANDS, 48, 10)
+    }),
+    picture(Screen {
+        pictures: Some(pictures::img_sixel),
+        ..outline("img-sixel", IMG_SIXEL_DESC, SIXEL_ROWS, 48, 10)
+    }),
+    picture(Screen {
+        pictures: Some(sixel_vte),
+        ..outline("sixel-vte", SIXEL_VTE_DESC, SIXEL_VTE_TEXT, 48, 10)
+    }),
+    picture(Screen {
+        pictures: Some(pictures::img_scale),
+        ..outline("img-scale", IMG_SCALE_DESC, SCALE_LABELS, 48, 10)
+    }),
+    picture(Screen {
+        pictures: Some(pictures::img_region),
+        ..outline("img-region", IMG_REGION_DESC, REGION_ROWS, 48, 10)
+    }),
+    picture(Screen {
+        pictures: Some(pictures::img_rotated),
+        orientation: Orientation::Right,
+        ..outline(
+            "img-rotated",
+            IMG_ROTATED_DESC,
+            b"rotated: pictures turn with the text",
+            24,
+            6,
+        )
+    }),
+    picture(Screen {
+        pictures: Some(pictures::img_moves),
+        next: Some(b""),
+        ..outline("img-moves", IMG_MOVES_DESC, MOVES_ROWS, 48, 10)
+    }),
+    picture(Screen {
+        pictures: Some(pictures::img_banner_bg),
+        next: Some(b""),
+        ..outline("img-banner-bg", IMG_BANNER_BG_DESC, BANNER_REGION, 48, 10)
+    }),
+    picture(Screen {
+        pictures: Some(pictures::img_banner_text),
+        next: Some(b""),
+        ..outline(
+            "img-banner-text",
+            IMG_BANNER_TEXT_DESC,
+            BANNER_REGION,
+            48,
+            10,
+        )
+    }),
+    picture(Screen {
+        pictures: Some(pictures::img_ed2),
+        next: Some(b"\x1b[2J\x1b[Hcleared"),
+        ..outline("img-ed2", IMG_ED2_DESC, ED2_ROWS, 48, 10)
+    }),
+    picture(Screen {
+        pictures: Some(pictures::kitty_text),
+        ..outline("kitty-text", KITTY_TEXT_DESC, KITTY_TEXT_ROWS, 48, 10)
+    }),
+    picture(Screen {
+        pictures: Some(pictures::kitty_banner_bg),
+        next: Some(b""),
+        ..outline(
+            "kitty-banner-bg",
+            KITTY_BANNER_BG_DESC,
+            BANNER_REGION,
+            48,
+            10,
+        )
+    }),
+    picture(Screen {
+        pictures: Some(pictures::kitty_banner_text),
+        next: Some(b""),
+        ..outline(
+            "kitty-banner-text",
+            KITTY_BANNER_TEXT_DESC,
+            BANNER_REGION,
+            48,
+            10,
+        )
+    }),
 ];
 
 /// Three rows of text, which the `osd` screen draws the render timer's
