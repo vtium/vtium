@@ -40,9 +40,9 @@ pub(crate) struct At {
 
 /// A cluster as the font shapes it: each glyph and the cluster's advance,
 /// in font units. A glyph is a mark by its own character, which its
-/// cluster index names, as the C reference read a glyph's combining class
-/// through it (`render_cluster`): HarfRust gives a right-to-left cluster
-/// in visual order, its marks before their letter.
+/// cluster index names, so a mark is found wherever HarfRust puts it:
+/// HarfRust gives a right-to-left cluster in visual order, its marks
+/// before their letter.
 pub(crate) struct Shaped {
     key: Vec<u32>,
     kind: Kind,
@@ -408,10 +408,9 @@ fn span((image, _, dy): &(Image, i32, i32)) -> (i32, i32) {
 }
 
 /// Places each mark above or below its base that the shaper left at the
-/// pen, with no advance and no offset, as the C reference did after
-/// HarfBuzz's fallback mark positioning (`render_cluster`): centred over
-/// the ink of its base, a row above all the ink since that base for a mark
-/// above, or directly under it for a mark below. A mark's base is the
+/// pen, with no advance and no offset: centred over the ink of its base,
+/// a row above all the ink since that base for a mark above, or directly
+/// under it for a mark below. A mark's base is the
 /// letter before it in the order the text is written, as Unicode's
 /// combining character sequence and OpenType's mark-to-base attachment
 /// take it, so the glyphs are walked in that order ([`At::logical`]):

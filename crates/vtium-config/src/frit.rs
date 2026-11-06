@@ -127,9 +127,8 @@ pub enum Antialias {
 /// glyphs to the pixel grid. Bitmap sources take no hinting.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Default)]
 pub enum Hinting {
-    /// Up and down only, as the C reference hinted every glyph
-    /// (`FT_LOAD_TARGET_LIGHT`, `kmscon/src/font/font_freetype.c:119`):
-    /// stems and the tops and bottoms of letters land on whole rows, and
+    /// Up and down only, as FreeType's light load
+    /// (`FT_LOAD_TARGET_LIGHT`) hints: stems and the tops and bottoms of letters land on whole rows, and
     /// each glyph keeps the width and side bearings its outline gives it.
     #[default]
     Light,
@@ -748,8 +747,7 @@ mod tests {
         let r = parse("source=kbd:x\n").expect("parses");
         assert_eq!(r.name, "t");
         assert_eq!((r.size, r.cell, r.antialias), (None, None, Antialias::Auto));
-        // ADR-1200 D1: light hinting where the frit states none, as the C
-        // reference hinted every glyph
+        // ADR-1200 D1: light hinting where the frit states none
         assert_eq!(r.hinting, Hinting::Light);
         assert_eq!(r.glyph_source, []);
         assert_eq!(r.text, "source=kbd:x\n");

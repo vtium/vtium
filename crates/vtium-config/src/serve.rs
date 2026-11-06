@@ -1085,9 +1085,9 @@ impl Engine {
     }
 
     /// The frit's bold face, which the W rule measures beside the regular
-    /// face (ADR-1200 D17), as the C reference took the larger of its
-    /// regular and bold faces' cells: the first outline source the frit
-    /// gave `style=bold` that has not failed, its bytes and its family.
+    /// face (ADR-1200 D17), so a bold face wider than the regular one
+    /// still fits the cell: the first outline source the frit gave
+    /// `style=bold` that has not failed, its bytes and its family.
     /// `None` when the frit names none.
     fn bold_face(&self) -> Option<(&[u8], &str)> {
         let failed = self.failed.borrow();
