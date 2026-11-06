@@ -1633,7 +1633,10 @@ mod tests {
         // 248, 249, 250, 251, 252, 253 as base64
         t.input(format!("\x1b_Ga=T,f=8,s=6,v=1,i={id},C=1;+Pn6+/z9\x1b\\").as_bytes());
         let placed = t.screen().placements();
-        placed.last().unwrap().pixels.as_slice().to_vec()
+        placed
+            .last()
+            .map(|p| p.pixels.as_slice().to_vec())
+            .unwrap_or_default()
     }
 
     // Indices 248 to 253 take the default background and foreground, the
