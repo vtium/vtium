@@ -176,6 +176,12 @@ impl<'a> Edit<'a> {
         self.store.add_frame(frame, reservation)
     }
 
+    /// Marks `image` as one that arrived as palette indices, which takes no
+    /// frames and no composition (ADR-1100, D15).
+    pub(crate) fn set_indexed(&mut self, image: ImageKey) {
+        self.store.set_indexed(image);
+    }
+
     /// A composition of frames, `a=c`.
     pub(crate) fn compose_frames(&mut self, image: ImageKey, c: Compose) -> Result<(), Refusal> {
         self.store.compose_frames(image, c)

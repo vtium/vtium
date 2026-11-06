@@ -753,6 +753,9 @@ impl Kitty {
         let answer = match refused(ctx, &cmd) {
             Some(e) => Err(e),
             None => animated(ctx, &cmd).and_then(|key| {
+                if cmd.action == b'c' && ctx.store().indexed(key) {
+                    return Err(Error::IndexedComposition);
+                }
                 let done = if cmd.action == b'a' {
                     let control = Control {
                         current: cmd.cols,
@@ -850,7 +853,12 @@ fn store(
         opaque: Some(opaque),
     };
     let key = match ctx.add_image(image, Some(reservation)) {
-        Ok(key) => key,
+        Ok(key) => {
+            if cmd.indexed() {
+                ctx.edit(|e| e.set_indexed(key));
+            }
+            key
+        }
         Err(Refusal::NoSpace) => return reply(ctx, cmd, cmd.id, Err(Error::NoSpace)),
         Err(_) => return reply(ctx, cmd, cmd.id, Err(Error::Invalid)),
     };
@@ -887,6 +895,13 @@ fn animated(ctx: &mut dyn Context, cmd: &Command) -> Result<ImageKey, Error> {
 /// only once it is decoded, so only its offset is checked here.
 fn frame_target(ctx: &mut dyn Context, cmd: &Command) -> Result<ImageKey, Error> {
     let key = animated(ctx, cmd)?;
+    // as kitty checks them: the image, palette indices, then the size
+    if cmd.indexed() || ctx.store().indexed(key) {
+        return Err(Error::IndexedFrame);
+    }
+    if cmd.format != 100 && (cmd.width == 0 || cmd.height == 0) {
+        return Err(Error::ZeroSize);
+    }
     let rect = if cmd.format == 100 {
         (cmd.x, cmd.y, 1, 1)
     } else {

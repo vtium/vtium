@@ -179,6 +179,9 @@ considered:
   - operator: aaronsb
     said: "[Download kitty's official prebuilt release (0.50 or later) into scratch and run it in a private X display to check f=8 and f=16?] Yes, scratch copy (Rec.)"
     via: AskUserQuestion, 2026-11-06; the option label is the steering session's wording
+  - operator: aaronsb
+    said: "[Four differences from kitty 0.50.0: 1. frames onto a palette-index picture, 2. a raw upload without s or v, 3. r=N in frame replies, 4. linear-light blending of partly transparent pixels] 1-3 like kitty, 4 now"
+    via: AskUserQuestion, 2026-11-06; the option label is the steering session's wording
 observable:
   - "`cargo tree -p vtium -e normal` with default features lists no vtium-image, and with `--features images` lists it"
   - "The flood test feeds a stream of transmissions and placements past a full store whole and cut at random points, with frames drawn at different points, and every run ends in the same store; with the input-work count removed from a scan, planted, it fails"
@@ -534,7 +537,9 @@ Kitty's specification added two raw formats in kitty 0.50.0, `f=8` and `f=16`, i
 - **Index 254 is the default foreground.** vtium highlights no link under the pointer, so it has no link color of its own. The default foreground is the color the specification gives the reserved index 255, and it stays readable against the default background.
 - **Alpha.** An `f=16` pixel's alpha applies to the color its index gives, which is then premultiplied as a `f=32` pixel's is. The specification says that 248 is always drawn opaque, ignoring the window's background opacity; vtium draws no window with background opacity, so 248 needs no rule of its own.
 - **The media.** vtium takes `f=8` and `f=16` sent directly and uncompressed (`t=d` with no `o=z`), which the console decodes as the bytes stream in (D7). The image helper's pixel description (ADR-1101 D7) carries RGB and RGBA only, so `f=8` or `f=16` from a file, a temporary file or shared memory, or with `o=z`, is refused with EINVAL, and a temporary file or shared-memory object is removed as every refused one is.
-- **Animation.** The specification says that animation and frame composition are not supported for pictures in these formats, so a frame (`a=f`) sent as `f=8` or `f=16` is refused with EINVAL. A picture that arrived as palette indices is stored as colors, so vtium takes frames in the other formats onto it, as onto any picture.
+- **Animation.** The specification says that animation and frame composition are not supported for pictures in these formats, and vtium refuses them as kitty 0.50.0 does (the maintainer, 2026-11-06, `considered`; `basis`). A frame (`a=f`) in `f=8` or `f=16` on any picture, and a frame in any format on a picture that arrived as palette indices, answer `EINVAL:Animation is not supported for indexed color images`. A composition (`a=c`) on such a picture answers `EINVAL:Composition is not supported for indexed color images`. The store remembers which pictures arrived as palette indices, and a picture sent again under the same id in another format takes frames again.
+
+  > Edited 2026-11-06, the maintainer's answer on kitty 0.50.0's differences: the bullet read "**Animation.** The specification says that animation and frame composition are not supported for pictures in these formats, so a frame (`a=f`) sent as `f=8` or `f=16` is refused with EINVAL. A picture that arrived as palette indices is stored as colors, so vtium takes frames in the other formats onto it, as onto any picture."
 - **Detection.** A program finds out whether vtium takes the formats with the graphics query, as the specification suggests: `a=q` with `f=8` is answered OK.
 - **Raw data short of its picture.** A transmission (`a=t`, `a=T` or `a=q`) whose raw data, sent directly and uncompressed in any of the formats `f=8`, `f=16`, `f=24` and `f=32`, holds fewer bytes than its width and height need is answered `ENODATA:Insufficient image data: GOT < WANT`, where GOT is the bytes that came, in every chunk together, and WANT the bytes the picture needs. The specification names no error for it, and kitty 0.49.2 answers it so (`basis`), so vtium follows kitty (D14). kitty answers raw data that inflates short with EINVAL and raw data read short from a file with EBADF, and vtium answers both the same way. A frame's data short of its rectangle is answered with the same ENODATA (ADR-1102 D2).
 
@@ -629,8 +634,9 @@ How the C reference handled images, as the logical reference for the decisions a
 
 - **A palette-index picture keeps the colors it arrived with.** Kitty's specification redraws an `f=8` or `f=16` picture in the terminal's current colors whenever they change; vtium turns its indices into colors once, as it arrives, so a later palette change, a theme change included, leaves it as it was (D15).
 - **`f=8` and `f=16` are taken only sent directly and uncompressed.** The specification lets every medium and `o=z` carry them; vtium refuses them from a file, a temporary file or shared memory, and with `o=z`, with EINVAL, because the image helper's pixel description has no layout for palette indices (D15).
-- **A picture that arrived as palette indices takes frames.** The specification supports no animation for pictures in these formats; vtium refuses a frame sent as `f=8` or `f=16`, but stores the picture as colors, so it takes frames in the other formats onto it (D15).
 - **A sixel dot is one square pixel,** where DEC's VT340 manual draws each dot twice as tall as it is wide unless the picture says otherwise (D3). The C reference drew square dots too, so vtium's sixel goldens hold.
+
+> Edited 2026-11-06: the departure "A picture that arrived as palette indices takes frames." is gone, since vtium now refuses frames on such a picture as kitty does (D15).
 
 ## Consequences
 

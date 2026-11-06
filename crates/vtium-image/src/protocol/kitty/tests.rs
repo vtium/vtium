@@ -622,6 +622,57 @@ fn a_palette_change_after_the_first_chunk_leaves_the_picture_as_it_arrived() {
     assert_eq!(h.top_pixels(), vec![opaque([8, 8, 8])]);
 }
 
+// Frames and compositions on a picture that arrived as palette indices,
+// and a frame in f=8 or f=16 on any picture, are refused as kitty 0.50.0
+// refuses them, and store nothing (ADR-1100, D15).
+// covers: image.kitty
+#[test]
+fn frames_on_palette_index_pictures_are_refused_as_kitty_refuses_them() {
+    let (mut k, mut h) = (Kitty::default(), Host::new());
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=t,f=8,s=2,v=2,i=2;{}", b64(&[1, 2, 3, 4])),
+    );
+    send(&mut k, &mut h, &format!("a=t,f=32,s=2,v=2,i=1;{}", red(4)));
+    // a new frame and an edit in f=32, and a composition, on the f=8 picture
+    send(&mut k, &mut h, &format!("a=f,f=32,i=2,s=2,v=2;{}", red(4)));
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=f,f=32,i=2,r=1,s=1,v=1;{}", red(1)),
+    );
+    send(&mut k, &mut h, "a=c,i=2,r=1,c=1");
+    // f=8 and f=16 frames on the f=32 picture, the second without s or v
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=f,f=8,i=1,s=2,v=2;{}", b64(&[1, 2, 3, 4])),
+    );
+    send(&mut k, &mut h, &format!("a=f,f=16,i=1;{}", b64(&[1; 8])));
+    // an f=8 frame on an image that does not exist
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=f,f=8,i=78,s=1,v=1;{}", b64(&[1])),
+    );
+    let anim = "EINVAL:Animation is not supported for indexed color images";
+    let comp = "EINVAL:Composition is not supported for indexed color images";
+    assert_eq!(
+        h.take(),
+        format!(
+            "\x1b_Gi=2;OK\x1b\\\x1b_Gi=1;OK\x1b\\\x1b_Gi=2;{anim}\x1b\\\x1b_Gi=2;{anim}\x1b\\\
+             \x1b_Gi=2;{comp}\x1b\\\x1b_Gi=1;{anim}\x1b\\\x1b_Gi=1;{anim}\x1b\\\
+             \x1b_Gi=78;ENOENT:image not found\x1b\\"
+        )
+    );
+    assert_eq!(h.store.frame_bytes(), 0, "no frame is stored");
+    // a picture sent as colors under the same id takes frames again
+    send(&mut k, &mut h, &format!("a=t,f=32,s=2,v=2,i=2;{}", red(4)));
+    send(&mut k, &mut h, &format!("a=f,f=32,i=2,s=2,v=2;{}", red(4)));
+    assert_eq!(h.take(), "\x1b_Gi=2;OK\x1b\\\x1b_Gi=2;OK\x1b\\");
+}
+
 // covers: image.kitty
 #[test]
 fn palette_index_pictures_are_refused_where_vtium_cannot_take_them() {
@@ -647,10 +698,11 @@ fn palette_index_pictures_are_refused_where_vtium_cannot_take_them() {
         &format!("a=t,f=8,s=5,v=1,i=5;{}", b64(&[1; 5])),
     );
     let bad = "EINVAL:invalid argument";
+    let indexed = "EINVAL:Animation is not supported for indexed color images";
     assert_eq!(
         h.take(),
         format!(
-            "\x1b_Gi=1;OK\x1b\\\x1b_Gi=1;{bad}\x1b\\\x1b_Gi=2;{bad}\x1b\\\x1b_Gi=3;{bad}\x1b\\\
+            "\x1b_Gi=1;OK\x1b\\\x1b_Gi=1;{indexed}\x1b\\\x1b_Gi=2;{bad}\x1b\\\x1b_Gi=3;{bad}\x1b\\\
              \x1b_Gi=4;{bad}\x1b\\\x1b_Gi=5;{bad}\x1b\\"
         )
     );

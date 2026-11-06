@@ -29,6 +29,12 @@ pub(super) enum Error {
     NoData { got: u64, want: u64 },
     /// A raw frame without `s` or `v`, as kitty answers it (ADR-1102, D2).
     ZeroSize,
+    /// A frame on a picture that arrived as palette indices, or a frame in
+    /// `f=8` or `f=16`, as kitty answers it (ADR-1100, D15).
+    IndexedFrame,
+    /// A composition on a picture that arrived as palette indices, as kitty
+    /// answers it (ADR-1100, D15).
+    IndexedComposition,
     /// Anything else the handler cannot do.
     Invalid,
 }
@@ -44,6 +50,10 @@ impl Error {
             Self::TooDeep => "ETOODEEP:chain of relative placements is too deep",
             Self::NoData { .. } => "ENODATA:Insufficient image data",
             Self::ZeroSize => "EINVAL:Zero width/height not allowed",
+            Self::IndexedFrame => "EINVAL:Animation is not supported for indexed color images",
+            Self::IndexedComposition => {
+                "EINVAL:Composition is not supported for indexed color images"
+            }
             Self::Invalid => "EINVAL:invalid argument",
         }
     }
@@ -339,19 +349,17 @@ impl Command {
             || self.virtual_placement > 1
             || (self.virtual_placement() && self.relative())
             || (self.transmits()
+                && self.action != b'f'
                 && self.indexed()
-                && (self.action == b'f' || self.medium != b'd' || self.compression == b'z'))
+                && (self.medium != b'd' || self.compression == b'z'))
         {
             return Some(Error::Invalid);
         }
         let (max_w, max_h) = graphic(ctx);
         let raw = self.transmits() && self.format != 100;
-        if raw && (self.width == 0 || self.height == 0) {
-            return Some(if self.action == b'f' {
-                Error::ZeroSize
-            } else {
-                Error::Invalid
-            });
+        // a frame's size is checked once its image is found (frame_target)
+        if raw && self.action != b'f' && (self.width == 0 || self.height == 0) {
+            return Some(Error::Invalid);
         }
         if raw && (self.width > max_w || self.height > max_h) {
             return Some(Error::Invalid);

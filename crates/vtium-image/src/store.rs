@@ -130,6 +130,9 @@ struct Image {
     /// The use clock's value when it was transmitted.
     sent_at: u64,
     transient: bool,
+    /// It arrived as palette indices, kitty's `f=8` or `f=16`, which take no
+    /// frames and no composition (ADR-1100, D15).
+    indexed: bool,
     placements: u32,
     /// Held while an operation that may evict works for it.
     hold: u32,
@@ -801,6 +804,7 @@ impl Store {
             used_at: stamp,
             sent_at: stamp,
             transient: new.transient,
+            indexed: false,
             placements: 0,
             hold: 0,
             revision,
@@ -999,6 +1003,22 @@ impl Store {
         }
         self.mark_family(b, key, true);
         Ok(key)
+    }
+
+    /// Marks image `key` of the buffer in use as one that arrived as
+    /// palette indices (ADR-1100, D15).
+    pub(crate) fn set_indexed(&mut self, key: ImageKey) {
+        let b = self.active();
+        if let Some(image) = self.image_mut(b, key) {
+            image.indexed = true;
+        }
+    }
+
+    /// Whether image `key`, in either buffer, arrived as palette indices.
+    pub fn indexed(&self, key: ImageKey) -> bool {
+        self.buffers
+            .iter()
+            .any(|b| b.images.get(&key).is_some_and(|i| i.indexed))
     }
 
     fn image(&self, b: usize, key: ImageKey) -> Option<&Image> {
