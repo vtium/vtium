@@ -1,3 +1,16 @@
 # vtium's goldens the operator has not reviewed: NAME and why. A
 # provisional case is drawn and compared, and a difference is noted but
 # does not fail the run; the row goes when the operator accepts the golden.
+ascii	new with the test font set of outline fonts (ADR-1503 D9), 2026-11-06; the maintainer reviews it as a picture
+bold	new with the test font set of outline fonts (ADR-1503 D9), 2026-11-06; the maintainer reviews it as a picture
+palette	new with the test font set of outline fonts (ADR-1503 D9), 2026-11-06; the maintainer reviews it as a picture
+inverse	new with the test font set of outline fonts (ADR-1503 D9), 2026-11-06; the maintainer reviews it as a picture
+box	new with the test font set of outline fonts (ADR-1503 D9), 2026-11-06; the maintainer reviews it as a picture
+underline	new with the test font set of outline fonts (ADR-1503 D9), 2026-11-06; the maintainer reviews it as a picture
+strike	new with the test font set of outline fonts (ADR-1503 D9), 2026-11-06; the maintainer reviews it as a picture
+deco-config	new with the test font set of outline fonts (ADR-1503 D9), 2026-11-06; the maintainer reviews it as a picture
+deco-force	new with the test font set of outline fonts (ADR-1503 D9), 2026-11-06; the maintainer reviews it as a picture
+combining	new with the test font set of outline fonts (ADR-1503 D9), 2026-11-06; the maintainer reviews it as a picture
+mosaic	new with the test font set of outline fonts (ADR-1503 D9), 2026-11-06; the maintainer reviews it as a picture
+emoji-mono	new with the test font set of outline fonts (ADR-1503 D9), 2026-11-06; the maintainer reviews it as a picture
+redraw	new with the test font set of outline fonts (ADR-1503 D9), 2026-11-06; the maintainer reviews it as a picture
