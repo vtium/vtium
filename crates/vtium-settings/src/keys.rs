@@ -648,7 +648,7 @@ pub const TERM: Key = Key {
     levels: TOP,
     reader: "vtium",
     what: "The value of `TERM` that programs on the console see.\n\n\
-           The default is vtium's own terminfo entry, and vtium answers capability queries (XTGETTCAP) from it. With `kmscon`, vtium answers from kmscon's entry. With any other value, vtium answers every query as unknown.",
+           The default is vtium's own terminfo entry, `xterm-vtium`, which is also named `vtium`. With either name, vtium answers capability queries (XTGETTCAP) from that entry. With `kmscon`, vtium answers from kmscon's entry. With any other value, vtium answers every query as unknown.",
     cite: "src/config.c:1368; meson.options:51-52; src/terminal_vte.c:36-56; ADR-1000, \"The terminfo entry and TERM\"",
 };
 

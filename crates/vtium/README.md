@@ -124,12 +124,12 @@ sudo pacman -R kmscon                         # if you want: removes kmscon itse
 
 ### ssh from vtium
 
-vtium sets `TERM=xterm-vtium` in its session, or `TERM=kmscon` when it runs with `--term=kmscon`. ssh passes `TERM` on to the remote host, and most hosts have no terminfo entry by either name, so the programs there cannot look up how to drive the terminal, and the remote shell misbehaves: zsh, for one, echoes every keystroke.
+vtium sets `TERM=xterm-vtium` in its session, `TERM=vtium` when it runs with `--term=vtium` (another name of the same entry), or `TERM=kmscon` when it runs with `--term=kmscon`. ssh passes `TERM` on to the remote host, and most hosts have no terminfo entry by any of these names, so the programs there cannot look up how to drive the terminal, and the remote shell misbehaves: zsh, for one, echoes every keystroke.
 
 The fix the maintainer uses is to wrap ssh in the shell's rc file on the machine that runs vtium, so that a plain `ssh` from vtium presents the remote host with `xterm-256color`, an entry nearly every host has. In `~/.zshrc`:
 
 ```zsh
-if [[ $TERM == (xterm-vtium|kmscon) ]]; then
+if [[ $TERM == (xterm-vtium|vtium|kmscon) ]]; then
   ssh() { TERM=xterm-256color command ssh "$@" }
 fi
 ```
@@ -138,7 +138,7 @@ In `~/.bashrc`:
 
 ```bash
 case $TERM in
-xterm-vtium | kmscon) ssh() { TERM=xterm-256color command ssh "$@"; } ;;
+xterm-vtium | vtium | kmscon) ssh() { TERM=xterm-256color command ssh "$@"; } ;;
 esac
 ```
 

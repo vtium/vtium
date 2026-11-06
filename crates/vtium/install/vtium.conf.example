@@ -347,8 +347,9 @@
 
 ## term: The value of `TERM` that programs on the console see.
 ##
-## The default is vtium's own terminfo entry, and vtium answers capability
-## queries (XTGETTCAP) from it. With `kmscon`, vtium answers from kmscon's
+## The default is vtium's own terminfo entry, `xterm-vtium`, which is also
+## named `vtium`. With either name, vtium answers capability queries
+## (XTGETTCAP) from that entry. With `kmscon`, vtium answers from kmscon's
 ## entry. With any other value, vtium answers every query as unknown.
 #
 ## reset-env: Start each console's command with only the environment variables
