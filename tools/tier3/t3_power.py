@@ -60,10 +60,11 @@ CHECKS = {
                        "filesystems, and the kernel restarts.",
 }
 
-# The start of each of vtium's warnings at its start that a bound
+# The words that open each of vtium's warnings at its start that a bound
 # grab-power-off may power nothing off: PID 1 neither catches SIGRTMIN+4 nor
-# blocks it, or /proc/1/status does not say.
-POWER_OFF_WARNING = "grab-power-off is bound"
+# blocks it ("will not work"), or /proc/1/status does not say ("may not
+# work"). vtium's check-config notices (crates/vtium/src/notice.rs) word them.
+POWER_OFF_WARNING = "the grab-power-off key"
 
 POWER_OFF = {
     "before": {"forbid": [POWER_OFF_WARNING]},

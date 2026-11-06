@@ -186,11 +186,11 @@ It opens nothing under /dev and changes nothing.\n";
 
     pub const MODE_OVER_ORIGINAL: &str = "mode is set, so use-original-mode is off";
 
-    /// `grab-power-off` is bound and PID 1 does not catch the power-off
-    /// `signal`.
-    pub fn power_off_uncaught(signal: i32) -> String {
+    /// `grab-power-off` is bound and PID 1 neither catches nor blocks the
+    /// power-off `signal`.
+    pub fn power_off_not_taken(signal: i32) -> String {
         format!(
-            "the grab-power-off key will not work: the init system (PID 1) does not handle SIGRTMIN+4 (signal {signal}, from SigCgt in /proc/1/status)"
+            "the grab-power-off key will not work: the init system (PID 1) neither handles nor blocks SIGRTMIN+4 (signal {signal}, from SigCgt and SigBlk in /proc/1/status). Unbind the key, or use an init system that powers off on that signal, such as systemd or sysvinit."
         )
     }
 
@@ -202,18 +202,19 @@ It opens nothing under /dev and changes nothing.\n";
         )
     }
 
-    /// `grab-power-off` is bound and `/proc/1/status` has no `SigCgt` line.
-    pub fn power_off_no_sigcgt(signal: i32) -> String {
+    /// `grab-power-off` is bound and `/proc/1/status` has no `line` line,
+    /// `SigCgt` or `SigBlk`.
+    pub fn power_off_no_mask(signal: i32, line: &str) -> String {
         format!(
-            "the grab-power-off key may not work: vtium cannot tell whether the init system (PID 1) handles SIGRTMIN+4 (signal {signal}), because /proc/1/status has no SigCgt line"
+            "the grab-power-off key may not work: vtium cannot tell whether the init system (PID 1) handles SIGRTMIN+4 (signal {signal}), because /proc/1/status has no {line} line"
         )
     }
 
-    /// `grab-power-off` is bound and `/proc/1/status`'s `SigCgt` line,
-    /// `mask`, is not a hex mask.
-    pub fn power_off_bad_mask(signal: i32, mask: &str) -> String {
+    /// `grab-power-off` is bound and the `line` line of `/proc/1/status`,
+    /// `SigCgt` or `SigBlk`, holds `mask`, which is not a hex mask.
+    pub fn power_off_bad_mask(signal: i32, line: &str, mask: &str) -> String {
         format!(
-            "the grab-power-off key may not work: vtium cannot tell whether the init system (PID 1) handles SIGRTMIN+4 (signal {signal}), because the SigCgt line of /proc/1/status is not a hex mask: {mask:?}"
+            "the grab-power-off key may not work: vtium cannot tell whether the init system (PID 1) handles SIGRTMIN+4 (signal {signal}), because the {line} line of /proc/1/status is not a hex mask: {mask:?}"
         )
     }
 

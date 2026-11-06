@@ -1604,9 +1604,12 @@ class PowerTest(unittest.TestCase):
                                "Will now halt.",
                                "[ 9.9] reboot: Power down"],
     }
-    # vtium's warning at its start where PID 1 does not catch SIGRTMIN+4.
-    WARNING = ("[ 3.2] vtium[404]: config: grab-power-off is bound, and PID 1 does not catch "
-               "SIGRTMIN+4 (signal 38, from SigCgt in /proc/1/status): it powers nothing off")
+    # vtium's warning at its start where PID 1 neither catches nor blocks
+    # SIGRTMIN+4.
+    WARNING = ("[ 3.2] vtium[404]: config: the grab-power-off key will not work: the init "
+               "system (PID 1) neither handles nor blocks SIGRTMIN+4 (signal 38, from SigCgt "
+               "and SigBlk in /proc/1/status). Unbind the key, or use an init system that "
+               "powers off on that signal, such as systemd or sysvinit.")
 
     # What a power-off after S3 ends with in QEMU: systemd-shutdown exits
     # when reboot(2) returns, ten seconds after the kernel's last line.
@@ -1734,8 +1737,9 @@ class PowerTest(unittest.TestCase):
                               % t3_power.POWER_OFF_WARNING, why or "")
 
     def test_no_known_failure_on_the_sysvinit_guest(self):
-        # sysvinit catches SIGRTMIN+4, so vtium gives no warning and
-        # power-off-sysvinit passes with no note; a warning fails it.
+        # sysvinit catches SIGRTMIN+4 with a handler, so vtium gives no
+        # warning and power-off-sysvinit passes with no note; a warning
+        # fails it.
         case = "power-off-sysvinit"
         self.assertNotIn(case, t3_power.KNOWN)
         self.assertEqual(t3_power.verdict(case, self.log(case), 0, "guest-shutdown"),
