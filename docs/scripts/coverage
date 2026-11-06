@@ -57,13 +57,14 @@ Checks (exit 1 on any failure):
       the two tables;
     - every tag is readable, names a known id, and in Rust sits above a test;
     - each committed `tests` cell equals what the tags give.
-    With --require, every selected row other than `no row` has a test.
+    With --require, every selected row has a test, apart from a mode whose
+    note says it is not in vtium's mode table, which DECRQM answers 0.
 
 Options:
     --update         rewrite the `tests` columns from the tags
     --layer LAYER    select the rows whose layer column names LAYER
                      (minspec, text, images, gpu, seat or top)
-    --require        fail while a selected row other than `no row` has no test
+    --require        fail while a selected row that needs a test has none
 
 Exit 0 when every check passes, 1 when one fails, 2 when the scan found no
 Rust or replay files, a table cannot be read, or no row has LAYER.
@@ -300,13 +301,19 @@ def write_tables(tables, tests_for):
             print(f'coverage: rewrote {table.path.relative_to(ROOT)}')
 
 
+# ADR-1000, "The target set": a mode whose note says this has no row in vtium's mode
+# table, so DECRQM answers it 0 and no test drives it.
+NOT_LISTED = "not in vtium's mode table"
+
+
 def select_rows(rows, layer):
-    """The rows other than `no row` whose layer column names LAYER (all without one)."""
+    """The rows whose layer column names LAYER (all without one), and those of them that need
+    a test: every row but a mode whose note says it is not in vtium's mode table."""
     selected = list(rows.values())
     if layer:
         selected = [(t, c) for t, c in selected
                     if layer in [part.strip() for part in t.cell(c, 'layer').split(',')]]
-    return selected, [(t, c) for t, c in selected if t.cell(c, 'status') != 'no row']
+    return selected, [(t, c) for t, c in selected if NOT_LISTED not in t.cell(c, 'note')]
 
 
 def untested(counted, tests):
@@ -327,7 +334,7 @@ def main():
     parser.add_argument('--update', action='store_true', help='rewrite the tests columns from the tags')
     parser.add_argument('--layer', help='select the rows whose layer column names LAYER')
     parser.add_argument('--require', action='store_true',
-                        help="fail while a selected row other than `no row` has no test")
+                        help='fail while a selected row that needs a test has none')
     args = parser.parse_args()
 
     try:
@@ -371,7 +378,7 @@ def main():
     covered = sum(1 for t, c in counted if tests[t.cell(c, 'id')])
     scope = f'layer {args.layer}' if args.layer else 'all layers'
     print(f'coverage: scanned {rust} Rust and {replay} replay files, {len(found)} tags; '
-          f'{scope}: {covered} of {len(counted)} rows other than `no row` have a test')
+          f'{scope}: {covered} of {len(counted)} rows that need a test have one')
     return fail(errors) if errors else 0
 
 

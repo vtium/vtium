@@ -64,8 +64,8 @@ related: [ADR-1503]
 
 ## Summary
 
-- **Decided:** vtium's target set is the capabilities terminals generally support, combined with the operator's list. Two tables beside this record list the candidates considered, every ANSI and DEC private mode and every capability beyond modes that the C reference, xterm, ECMA-48, the DEC references, foot, Ghostty, WezTerm, contour or kitty's specifications define, each with its status, so a "no row" entry is the decision not to support that mode. Each row gives what the Linux kernel's own console does, which terminals document it, vtium's status, its layer and the issue that carries it. A new mode or feature is supported when xterm and one of foot, Ghostty, WezTerm or kitty document it, when it is on the operator's list, or when the console has a named use for it. The record also fixes the refusals and the reply policy.
-- **Trades away:** A mode that falls short of xterm and one other terminal gets no row unless it is on the operator's list or its row names a console use, so DECRQM replies 0 for it, as the C reference did. Features that put clipboard data, host files or terminal control in the stream's reach are refused even where another terminal offers them behind a setting.
+- **Decided:** vtium's target set is the capabilities terminals generally support, combined with the operator's list. Two tables beside this record list the candidates considered, every ANSI and DEC private mode and every capability beyond modes that the C reference, xterm, ECMA-48, the DEC references, foot, Ghostty, WezTerm, contour or kitty's specifications define, each with its status and the reason for it, so a refused mode is the decision not to support it. Each row gives what the Linux kernel's own console does, which terminals document it, vtium's status, its layer and the issue that carries it. A new mode or feature is supported when xterm and one of foot, Ghostty, WezTerm or kitty document it, when it is on the operator's list, or when the console has a named use for it. The record also fixes the refusals and the reply policy.
+- **Trades away:** A mode that falls short of xterm and one other terminal is refused unless it is on the operator's list or its row names a console use, so DECRQM replies 0 for it, as the C reference did. Features that put clipboard data, host files or terminal control in the stream's reach are refused even where another terminal offers them behind a setting.
 - **One-way?** No. Each row changes in one edit; a row that turns supported changes what DECRQM and the capability probes report, which is the intent.
 - **Probes:** *Confident (honest replies):* a program that asks vtium what it supports gets an answer that matches what vtium does, and never a reply carrying text from the stream. *Not confident (where the line falls):* that "xterm plus one other terminal" draws the line where the operator wants it for keyboard modes such as 1034 and 1035, which come in under it.
 - **Inversion:** Between "the C reference's set, no more" and "every sequence any terminal accepts". The answer sits between: the C reference is the floor, the documented common set is the target, and anything that lets output read from or steer the host is refused whoever offers it.
@@ -78,7 +78,7 @@ The C reference recognised 34 modes in one declarative table (libtsm's `tsm-mode
 
 ### The target set
 
-The tables are `ADR-1000-modes.tsv` (128 rows: 39 supported, 4 ignored, 4 refused, 1 planned, 80 with no row) and `ADR-1000-features.tsv` (181 rows: 110 supported, 3 partial, 44 ignored, 7 refused, 16 planned, 1 weighed in another issue). Both tables use the same statuses:
+The tables are `ADR-1000-modes.tsv` (128 rows: 39 supported, 4 ignored, 78 refused, 1 planned, 6 weighed) and `ADR-1000-features.tsv` (181 rows: 110 supported, 3 partial, 44 ignored, 7 refused, 16 planned, 1 weighed in another issue). Both tables use the same statuses:
 
 - **supported**: set and reset, or the feature, do what the specification says.
 - **partial**: vtium does part of it; the note says what is missing, and the issue column names the work that builds the rest.
@@ -86,11 +86,10 @@ The tables are `ADR-1000-modes.tsv` (128 rows: 39 supported, 4 ignored, 4 refuse
 - **weighed**: another issue decides whether vtium builds it, and the row takes that decision: baked glyph atlases (carried by the work on vtium-vitrify, the profile builder), weighed in the work on outline fonts.
 - **ignored**: vtium accepts it and does nothing with it; the reason says why.
 - **refused**: vtium deliberately does not build it, for the reason given.
-- **no row** (modes only, until each such mode has one of the statuses above): vtium does not recognise the number.
 
-DECRQM, the query by which a program asks whether a mode is set, answers from vtium's mode table in vtium-term. A mode the table lists answers 1 (set) or 2 (reset) when it is supported, and its fixed state when it is ignored or refused: 3 (permanently set) for DECANM, and 4 (permanently reset) for the rest, KAM, DECCOLM, DECNRCM and 1001 among them. A mode the table does not list answers 0, whatever its status here, and SM and RM change nothing for it; a planned mode joins the table, and its answer changes, in the change that builds it.
+DECRQM, the query by which a program asks whether a mode is set, answers from vtium's mode table in vtium-term. A mode the table lists answers 1 (set) or 2 (reset) when it is supported, and its fixed state when it is ignored or refused: 3 (permanently set) for DECANM, and 4 (permanently reset) for the rest, KAM, DECCOLM, DECNRCM and 1001 among them. A mode whose note says it is "not in vtium's mode table" is one vtium does not recognise: DECRQM answers it 0, and SM and RM change nothing. Every planned and weighed mode is such a mode, and so are the refused modes that carry that note; a planned mode joins the table, and its answer changes, in the change that builds it. vtium-term's test `the_table_agrees_with_adr_1000` holds the two to each other: a mode marked supported, partial, ignored or refused has a row in the table unless its note says it is not in vtium's mode table, and no other mode has one.
 
-> Edited 2026-11-06: the two tables now share one list of statuses, where parked and weighed were the features table's alone. An audit of the open issues found one mode row and seventeen feature rows marked supported that vtium does not implement, so a reader took them for capabilities vtium has. DECLRMM (DEC 69), which nothing implements, is planned, since vtium has no left and right margins yet. Of the feature rows, fourteen, which nothing implements, are planned: kmscon's setBackground and setForeground strings, XTWINOPS 8, OSC 22, kitty's text sizing, double-size lines, the login image, ligatures, the kitty keyboard protocol, bidirectional text, SGR 6, 8, 53 and 55, and 73 to 75, and DECIC with its kin. Three, which vtium implements in part, are partial: the display hand-back, whose wake-up retry is built; font merging, whose second source a frit's `cover=` already serves; and DECSLRM's row, whose SCOSC and SCORC are built. Each row's note says what is missing, and the decision to support each of them stands. Before this edit the counts above read 40 supported modes, and 179 feature rows with 125 supported and 2 parked. The same day, the maintainer renamed `parked` to `planned`, to say that vtium will build each such row and its issue says how.
+> Edited 2026-11-06: the two tables now share one list of statuses, where parked and weighed were the features table's alone. An audit of the open issues found one mode row and seventeen feature rows marked supported that vtium does not implement, so a reader took them for capabilities vtium has. DECLRMM (DEC 69), which nothing implements, is planned, since vtium has no left and right margins yet. Of the feature rows, fourteen, which nothing implements, are planned: kmscon's setBackground and setForeground strings, XTWINOPS 8, OSC 22, kitty's text sizing, double-size lines, the login image, ligatures, the kitty keyboard protocol, bidirectional text, SGR 6, 8, 53 and 55, and 73 to 75, and DECIC with its kin. Three, which vtium implements in part, are partial: the display hand-back, whose wake-up retry is built; font merging, whose second source a frit's `cover=` already serves; and DECSLRM's row, whose SCOSC and SCORC are built. Each row's note says what is missing, and the decision to support each of them stands. The same day the maintainer retired `no row`: each of the 80 modes vtium does not recognise took a status and a reason, 74 refused and 6 weighed, with a note that it is not in vtium's mode table, and no DECRQM answer changed. Before this edit the counts above read 40 supported modes and 80 with no row, and 179 feature rows with 125 supported and 2 parked. The same day, the maintainer renamed `parked` to `planned`, to say that vtium will build each such row and its issue says how.
 
 Each row names the layer it lands in, from the project's plan: minspec, text, images, gpu, seat or top.
 
@@ -120,7 +119,7 @@ vtium supports everything the C reference supported, apart from the departures v
 
 ### The rule for a new mode or feature
 
-A mode or feature the C reference had keeps its status unless this record changes it. Beyond those, the target set is the union of two parts: the capabilities terminals generally support, which this rule admits, and the operator's list, the features the operator named as ones they use (the comment of 2026-10-26 on the issue for vtium-term's modes, SGR and replies). The rule admits a new one when xterm's control sequences and at least one of foot, Ghostty, WezTerm or kitty document it, or when the console has a use for it that its row names (mode 2028 for reflow, mode 2033 for VT switching, mode 2048 for a display hot-plugged or changing mode). vtium is not a superset of every reference terminal, and obscure DEC-era modes are not the aim: a new mode neither part brings in gets no row, and a new feature neither part brings in is ignored. A refusal carries a reason a reader can check.
+A mode or feature the C reference had keeps its status unless this record changes it. Beyond those, the target set is the union of two parts: the capabilities terminals generally support, which this rule admits, and the operator's list, the features the operator named as ones they use (the comment of 2026-10-26 on the issue for vtium-term's modes, SGR and replies). The rule admits a new one when xterm's control sequences and at least one of foot, Ghostty, WezTerm or kitty document it, or when the console has a use for it that its row names (mode 2028 for reflow, mode 2033 for VT switching, mode 2048 for a display hot-plugged or changing mode). vtium is not a superset of every reference terminal, and obscure DEC-era modes are not the aim: a new mode neither part brings in is refused and stays out of vtium's mode table, and a new feature neither part brings in is ignored. A refusal carries a reason a reader can check.
 
 The support columns count only published documentation: for xterm and foot, whose documents list everything they do, absence reads "no"; elsewhere silence reads "unverified". kitty is read from its specification pages, never its source.
 
@@ -155,7 +154,7 @@ Every reply follows the reply rule (docs/architecture.md, "Determinism"): it is 
 - **Focus (1004) and visibility (2033) reports are allowed:** a program opts in, and what they reveal is that the user switched VTs.
 - **setBackground and setForeground**, kmscon's private OSC strings (`kmscon/src/terminal.c:863` in the C reference), hand the display back and take it again. No DEC or ECMA specification defines them. vtium keeps them behind a configuration key, on by default, as the C reference behaved.
 - **OSC 21** takes kitty's color-protocol meaning, which Ghostty shares, not xterm's DECSWT title. A query for a key vtium does not know is left out of the reply. kitty answers it with `unknown=` and the key's name in base64, which carries request bytes, so vtium lists this as a departure from kitty.
-- **Bidirectional modes** (BDSM, DCSM, DECRLM, DECRLCM) have no row until the work on bidirectional text decides vtium's bidi model.
+- **Bidirectional modes** (BDSM, DCSM, DECRLM, DECRLCM) are weighed: the work on bidirectional text decides vtium's bidi model, and until then vtium does not recognise them.
 - **LNM (ANSI 20) stays supported**, as xterm and the C reference have it, though ECMA-48's 5th edition withdraws it.
 
 ### The terminfo entry and TERM
@@ -195,7 +194,7 @@ Each row proves its coverage by the contract of the issue that traces each row t
 - A `tests` column lists the tests that cite the row. Only the lint writes it.
 - `status` records the decision. Coverage is derived from the tags.
 - Ignored and refused rows are covered too, by a test that the mode or feature stays ignored or refused.
-- The minspec slice is done when every minspec row other than `no row` has a test.
+- The minspec slice is done when every minspec row that needs a test has one: every row but a mode that is not in vtium's mode table.
 
 ## Consequences
 
@@ -207,7 +206,7 @@ Each row proves its coverage by the contract of the issue that traces each row t
 
 ### Negative
 
-- 80 mode rows record "no row"; the table carries them so the decision is visible.
+- 74 mode rows are refused and 6 weighed with no row in vtium's mode table; the table carries them so each decision and its reason are visible.
 - The Ghostty, WezTerm and kitty columns are mostly "unverified" for standard modes, since their docs do not list them; a later edit can settle them from documentation.
 - The ignored and refused rows have to stay ignored and refused through every later handler.
 
