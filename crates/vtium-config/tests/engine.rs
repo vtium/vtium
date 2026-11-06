@@ -950,3 +950,33 @@ fn a_fallback_glyph_too_big_for_its_cell_is_drawn_smaller_to_fit() {
     // columns as its edges fall on the pixel grid
     assert!(columns.len() >= 8, "drawn as large as fits: {columns:?}");
 }
+
+// ADR-1200 D17: behind a bitmap first source, each outline source is sized
+// so its own ascent and descent span the cell's height, not at the size of
+// the first outline source after the bitmap one. In the frit ter-v16n,
+// Test Latin, Test CJK, U+4E00 comes from Test CJK at its own 10.7 pixels to
+// the em in the 8x16 cell, and inks 11 columns and 6 rows; at Test Latin's
+// 15.5 it would ink 15 columns and 9 rows
+#[test]
+fn outline_sources_behind_a_bitmap_first_source_keep_their_own_size() {
+    let w = World::new("outline-behind-bitmap");
+    latin_and_cjk(&w);
+    let engine = w
+        .engine("source=kbd:ter-v16n\nsource=font:Test Latin\nsource=font:Test CJK\n")
+        .expect("the frit loads");
+    let bytes = engine
+        .draw(cell(8, 16), &[0x4e00])
+        .expect("draws")
+        .expect("a glyph");
+    let face =
+        SetFace::new(Arc::new(Set::from_bytes(bytes).expect("the set reads")), 16).expect("a face");
+    let g = face
+        .draw(&['\u{4e00}'], Style::default())
+        .expect("the ideograph");
+    let rows: Vec<&[u8]> = g.rows().collect();
+    let columns = (0..g.width() as usize)
+        .filter(|&x| rows.iter().any(|r| r.get(x).is_some_and(|&p| p != 0)))
+        .count();
+    let inked_rows = rows.iter().filter(|r| r.iter().any(|&p| p != 0)).count();
+    assert_eq!((columns, inked_rows), (11, 6));
+}
