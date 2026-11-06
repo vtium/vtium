@@ -349,6 +349,7 @@ mod tests {
         let text = super::version();
         let lines: Vec<&str> = text.lines().collect();
         let built: Vec<&str> = [
+            ("bidi", cfg!(feature = "bidi")),
             ("gpu", cfg!(feature = "gpu")),
             ("images", cfg!(feature = "images")),
             ("logind", cfg!(feature = "logind")),
