@@ -12,9 +12,28 @@ use rustix::process::{Pid, PidfdFlags, Signal, WaitOptions, pidfd_open, waitpid}
 use vtium::survive::{Kept, Name, hold};
 use vtium_platform::pty::{Erase, Pty, Size};
 
-#[path = "common/scratch.rs"]
-mod scratch;
-use scratch::Scratch;
+/// The directory the holder's run directory goes in: `vtium-hold-<pid>`
+/// under the system's temporary directory, removed when the test ends.
+/// The build's own temporary directory, where other tests keep their
+/// scratch, can sit deep enough that the socket's path passes the 108
+/// bytes a Unix socket's address holds, as it does under the gates' target
+/// directories. vtium's own run directory, `/run/vtium/ttyN`, is short.
+struct ShortDir(std::path::PathBuf);
+
+impl ShortDir {
+    fn new() -> ShortDir {
+        let dir = std::env::temp_dir().join(format!("vtium-hold-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("the test's short directory");
+        ShortDir(dir)
+    }
+}
+
+impl Drop for ShortDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
 
 const SIZE: Size = Size {
     cols: 80,
@@ -40,8 +59,8 @@ fn holder_pid() -> Pid {
 
 #[test]
 fn the_holder_keeps_a_session_from_one_vtium_for_the_next() {
-    let dir = Scratch::new("hold");
-    let run = dir.join("tty9");
+    let dir = ShortDir::new();
+    let run = dir.0.join("tty9");
     let exe = Path::new(env!("CARGO_BIN_EXE_vtium"));
     let mut sleeper = Command::new("sleep");
     sleeper.arg("1000");
