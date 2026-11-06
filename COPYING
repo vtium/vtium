@@ -128,6 +128,12 @@ BidiTest.txt and BidiCharacterTest.txt of the Unicode Character Database
 18.0.0, under the Unicode License v3. Each list carries the notice. The tests
 read them; vtium installs none of them.
 
+The test input crates/vtium-term/src/unicode/bidi/level_overflow.txt: a
+3,637-byte text file attached by its reporter to
+https://github.com/servo/unicode-bidi/issues/145, the unicode-bidi crate's
+report of a panic on a level overflow, copied byte for byte. It carries no
+notice of its own. A test reads it; vtium installs none of it.
+
 vtium-config's named cover= sets (crates/vtium-config/src/cover.rs), built
 into vtium-config: for each of GB2312, GBK, Big5, JIS X 0208 and KS X 1001,
 the codepoints that Unicode's mapping file for that character set maps to.
