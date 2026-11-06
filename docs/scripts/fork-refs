@@ -115,11 +115,14 @@ SKIPS = [
         "D8 states the forms this check looks for",
         line=re.compile(r"^`docs/scripts/fork-refs` fails when a committed file names the fork"),
     ),
-    Skip(
-        "*",
-        frozenset({PHRASE}),
-        "a ported file keeps its copyright notice (ADR-1503 D4)",
-        line=re.compile(r"^\W*Copyright \(c\) \d{4}(?:-\d{4})? the kmscon fork authors\s*$"),
+    *(
+        Skip(
+            path,
+            frozenset({PHRASE}),
+            "a ported file keeps its copyright notice (ADR-1503 D4)",
+            line=re.compile(r"^\W*Copyright \(c\) \d{4}(?:-\d{4})? the kmscon fork authors\s*$"),
+        )
+        for path in ("crates/vtium-font/src/sprite.rs", "crates/vtium-render/src/deco.rs")
     ),
     Skip(
         "COPYING",

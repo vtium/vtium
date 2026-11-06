@@ -179,9 +179,12 @@ class ForkRefs(unittest.TestCase):
     def test_a_ported_files_copyright_notice_is_skipped_and_nothing_past_it(self):
         self.assertFound({"crates/vtium-font/src/sprite.rs":
                           "//! Copyright (c) 2026 the kmscon fork authors\n//! the kmscon fork drew it\n",
-                          "src/other.c": " * Copyright (c) 2025-2026 the kmscon fork authors\n",
-                          "src/more.rs": "// Copyright (c) 2026 the kmscon fork authors and aaronsb/kmscon\n"},
-                         "crates/vtium-font/src/sprite.rs:2", "src/more.rs:1", "src/more.rs:1")
+                          "crates/vtium-render/src/deco.rs": " * Copyright (c) 2025-2026 the kmscon fork authors\n",
+                          "crates/vtium-render/src/more.rs": "//! Copyright (c) 2026 the kmscon fork authors\n",
+                          "crates/vtium-font/src/other.rs":
+                          "// Copyright (c) 2026 the kmscon fork authors and aaronsb/kmscon\n"},
+                         "crates/vtium-font/src/other.rs:1", "crates/vtium-font/src/other.rs:1",
+                         "crates/vtium-font/src/sprite.rs:2", "crates/vtium-render/src/more.rs:1")
 
     def test_the_font_box_line_of_copying_is_skipped_and_nothing_past_it(self):
         line = "adapted from Ghostty's sprite font, by way of the C fork's font_box.c, under\n"
