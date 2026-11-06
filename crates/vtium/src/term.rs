@@ -2195,8 +2195,7 @@ mod tests {
 
     // The child's output that changes nothing on the screen, as a sixel
     // picture's parts before its end, composes no frame (vtium/vtium#242):
-    // the C reference drew only a screen that changed since a display's
-    // last frame (`kmscon_text_changed`).
+    // a display draws only a screen that changed since its last frame.
     #[test]
     fn output_that_changes_nothing_on_screen_composes_no_frame() {
         let (mut term, mut view) = view();

@@ -120,7 +120,7 @@ impl Memory {
             asleep_owed: false,
             refresh_mhz: 60_000,
             refuses: false,
-            // the C reference's fixed density, where a point is a pixel
+            // 72 DPI, where a point is a pixel
             dpi: Some((72.0, 72.0)),
             double: None,
         }
@@ -837,7 +837,7 @@ fn the_fonts_policy_follows_the_keys() {
     use vtium_font::sprite::Range;
     use vtium_font::{Missing, Source, SpritePolicy};
     let h = Harness::new(&[]);
-    // The built-in unifont draws the sprites, as the C reference did.
+    // The built-in unifont draws the sprites.
     assert_eq!(
         h.app.font_policy(),
         Some((SpritePolicy::SPRITES, Missing::Replacement))
@@ -872,7 +872,7 @@ fn a_custom_palette_reaches_the_terminal() {
     let p = h.app.term().expect("a head").terminal.palette();
     assert_eq!(p.color(1), Rgb::new(1, 2, 3));
     assert_eq!(p.bg(), Rgb::new(4, 5, 6));
-    // Unset keys keep the C reference's custom defaults.
+    // Unset keys keep legacy's colors.
     assert_eq!(p.color(4), Rgb::new(0, 0, 238));
     let h = Harness::new(&[]);
     assert_eq!(
@@ -1461,8 +1461,7 @@ fn blank_in_two(script: &str) -> Harness {
 }
 
 // The end of a pointer frame and the pointer's hide are vtium's own, not
-// the user's: neither restarts the blank's countdown, as the C reference's
-// did not (`src/seat.c:578-590` at kmscon b1f7a7c5).
+// the user's: neither restarts the blank's countdown.
 #[test]
 fn the_pointers_frame_end_and_hide_are_not_activity() {
     let mut h = blank_in_a_minute("read x");
@@ -2432,12 +2431,10 @@ fn the_wheel_sends_cursor_keys_on_the_alternate_screen_under_mode_1007() {
     }
 }
 
-/// #203: natural scrolling reverses the wheel, as the C reference's
-/// `natural-scrolling` did (`src/terminal.c:1474-1476, 1646` at kmscon
-/// origin/main): a step up scrolls the view down and a step down scrolls
-/// it back, the cursor keys mode 1007 sends on the alternate screen
-/// reverse, and a program tracking the pointer reads the other wheel
-/// button. Ctrl's zoom keeps the wheel's own direction.
+/// #203: natural scrolling reverses the wheel: a step up scrolls the view
+/// down and a step down scrolls it back, the cursor keys mode 1007 sends on
+/// the alternate screen reverse, and a program tracking the pointer reads
+/// the other wheel button. Ctrl's zoom keeps the wheel's own direction.
 #[test]
 fn natural_scrolling_reverses_the_wheel_but_not_its_zoom() {
     let back = |h: &Harness| {
@@ -2915,8 +2912,8 @@ fn typing_hides_the_pointer_under_pointer_hide_while_typing() {
     }
 }
 
-/// A chord with Shift names the keysym Shift makes, as the C reference
-/// matched grabs: Ctrl+Shift+v makes `V`, so `<Ctrl><Shift>V` binds it and
+/// A chord with Shift names the keysym Shift makes, as a grab matches the
+/// key's keysyms: Ctrl+Shift+v makes `V`, so `<Ctrl><Shift>V` binds it and
 /// `<Ctrl><Shift>v` never fires.
 #[test]
 fn a_shift_chord_names_the_shifted_keysym() {
@@ -3048,8 +3045,7 @@ fn a_drag_ends_without_its_button_and_at_a_vt_release() {
 /// vtium/vtium#229's review: with the fake VT released and its pointers
 /// still open, vtium delivers no pointer action to the console, so a
 /// program tracking the mouse gets no report of a move, a click or the
-/// wheel from a pointer device, as the C reference's pointer callback
-/// returned while its terminal was not awake (`src/terminal.c:1610`).
+/// wheel from a pointer device.
 /// Taken back, the VT's console gets the next key alone.
 #[test]
 fn a_released_fake_vt_reports_no_pointer_action_to_the_program() {
@@ -3097,10 +3093,8 @@ fn a_released_fake_vt_reports_no_pointer_action_to_the_program() {
 
 /// The fix branch's re-review: a released fake VT keeps its pointers open,
 /// so the mouse moving in the other session keeps arming the pointer's
-/// hide, and that hide leaves vtium's selection for the user's return, as
-/// the C reference's pointer callback dropped the hide while its session
-/// was not in the foreground (`src/terminal.c:1609-1611, 1655-1659` at
-/// kmscon origin/main). On vtium's own VT, blanked, the hide still clears
+/// hide, and that hide leaves vtium's selection for the user's return. On
+/// vtium's own VT, blanked, the hide still clears
 /// the selection.
 #[test]
 fn a_pointer_hide_on_a_released_vt_keeps_the_selection() {

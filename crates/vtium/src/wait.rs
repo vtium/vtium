@@ -10,9 +10,7 @@
 //! does at boot (vtium/vtium#270). The release stops the wait, and vtium
 //! waits for the VT to come back, as it does for a switch away later in
 //! its run. The next acquire sets every display up afresh, so the wait
-//! starts again from the full `display-wait`. The C reference had no such
-//! wait: on a release its seat went to the background and slept until the
-//! VT came back (`src/seat.c:438-462` at kmscon b1f7a7c5).
+//! starts again from the full `display-wait`.
 //!
 //! A frame reaches the screen at its flip, which the turn after its draw
 //! reads at the earliest. So the wait runs out at the end of a turn after
@@ -24,8 +22,8 @@
 use std::time::{Duration, Instant};
 
 /// How long a frame on its way to a screen is waited for past the due
-/// time: the C reference's wait for a page flip
-/// (`src/video/drm_shared.c:834-860` at kmscon b1f7a7c5).
+/// time, so that vtium does not exit just before a frame it has already
+/// sent shows.
 pub const FLIP_WAIT: Duration = Duration::from_secs(1);
 
 /// Where the wait stands.

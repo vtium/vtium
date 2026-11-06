@@ -3,9 +3,8 @@
 //!
 //! It starts again unless `oneshot` is set, which ends the console, or it
 //! has exited within [`QUICK`] of its start more than [`QUICK_RESTARTS`]
-//! times running, which ends vtium (ADR-1401 D1): the C reference's limit of 5
-//! restarts within 2 seconds
-//! (`src/misc/pty.c:52-53, 737-768` at kmscon b1f7a7c5). The time is an
+//! times running, which ends vtium (ADR-1401 D1): 5 restarts within 2
+//! seconds. The time is an
 //! argument, read from the monotonic clock by the loop when the child
 //! exits, so the policy is a function of the exit times it is given.
 
@@ -16,10 +15,7 @@ use std::time::Duration;
 /// due once the VT is shown and a display is set up, so the child starts
 /// on the grid of every display set up by then and sees no SIGWINCH as it
 /// starts; a display set up a turn later, as one udev brings, resizes the
-/// session. The C reference opened the pty as its VT was activated, at the
-/// first display it activated, and resized it for each display after
-/// (`src/seat.c:179-212, 244-250, 438-447` and `src/terminal.c:1711-1737,
-/// 1764-1778` at kmscon b1f7a7c5). A head whose displays never appear
+/// session. A head whose displays never appear
 /// starts no session, under `display-wait=forever` too (ADR-1401 D1).
 pub fn first_start_due(shown: bool, display: bool) -> bool {
     shown && display
@@ -158,7 +154,7 @@ mod tests {
             assert_eq!(r.exited(ms(t), false), Next::Restart);
         }
         // The sixth child ran a minute: it starts again, and the count
-        // starts over. The C reference exited here, whatever the timing.
+        // starts over.
         t += 60_000;
         assert_eq!(r.exited(ms(t), false), Next::Restart);
         for _ in 0..5 {

@@ -22,9 +22,8 @@
 //! A font is looked up at the size asked for. When none is in use yet, a
 //! failure tries [`FALLBACK_SIZE`] once, and a second failure is the
 //! error; with a font in use, as at a zoom, a failure is the error and
-//! that font stays. The C reference retried at 16 for as long as the
-//! lookup failed (`src/terminal.c:921-939` at kmscon b1f7a7c5,
-//! aaronsb/kmscon#63).
+//! that font stays, so a font that cannot be found never holds the start
+//! in a loop.
 
 use std::path::{Path, PathBuf};
 
@@ -129,7 +128,7 @@ pub fn select<F, E>(
 /// The height `font-size=0` picks for a display `width` by `height`, for
 /// a font whose smallest height is `smallest`: at most 120 columns,
 /// taking a cell as half as wide as it is high, and at least 40 rows, and
-/// never under 16 (`src/terminal.c:899-918`); but where 16-pixel cells
+/// never under 16; but where 16-pixel cells
 /// would leave fewer than 80 by 25, the font's own smallest height, so a
 /// 320x240 display draws an 8x8 font as 40 by 30 cells (vtium/vtium#118).
 pub fn auto_size(width: u32, height: u32, smallest: u32) -> u32 {
@@ -526,7 +525,7 @@ pub fn vconsole_font(conf: &str, cmdline: &str) -> Option<String> {
 
 /// The font the configuration asks for (ADR-1200 D9): `font-name`, set in
 /// a file or on the command line, unless `font-engine` names the built-in
-/// unifont or the C reference's 8x16; unset, vconsole's font; else none,
+/// unifont or the 8x16 font; unset, vconsole's font; else none,
 /// and vtium draws its built-in font.
 pub fn wanted(config: &Config, vconsole_conf: &str, cmdline: &str) -> Option<Wanted> {
     if matches!(config.text(&FONT_ENGINE), Some("unifont" | "8x16")) {
@@ -819,16 +818,16 @@ impl Chosen {
             let at = Chosen::BUILTINS.face(height, locale)?;
             let stated = self.base_cell();
             let (cell, step) = match (stated, self.outline()) {
-                // D17, the C reference's outline increase_step of 1: the
-                // stated cell at its own height, else the helper's answer
+                // D17, an outline frit steps by 1: the stated cell at its
+                // own height, else the helper's answer
                 // at this height, else the built-in font's width
                 (Some(c), true) if c.height == height => (c, 1),
                 (_, true) => match heights.get(&height) {
                     Some(c) => (*c, 1),
                     None => (frit_cell_at(None, height, at.cell()), 1),
                 },
-                // D17, the C reference's PSF increase_step of the font's
-                // height: the stated or own cell's whole multiples
+                // D17, a bitmap frit steps by the font's height: the
+                // stated or own cell's whole multiples
                 (Some(c), false) => (frit_cell_at(Some(c), height, at.cell()), c.height),
                 // D17: with no cell stated, the display's
                 (None, false) => (frit_cell_at(None, height, at.cell()), at.size_step()),
@@ -859,7 +858,7 @@ impl Chosen {
             min: step,
             end: u32::MAX,
         };
-        // D17, the C reference's outline increase_step of 1
+        // D17, an outline frit steps by 1
         if self.outline() {
             return vec![Rung {
                 step: 1,
@@ -867,7 +866,7 @@ impl Chosen {
                 end: u32::MAX,
             }];
         }
-        // D17, the C reference's PSF increase_step of the font's height
+        // D17, a bitmap frit steps by the font's height
         if let Some(cell) = self.base_cell() {
             return vec![all(cell.height)];
         }
@@ -898,8 +897,8 @@ impl Chosen {
     /// `size=` in points at `dpi`, which no display's size moves (#145,
     /// ADR-1200 D17); else [`auto_size`] for the font's smallest height,
     /// which a frit's own cell takes at the largest whole multiple not
-    /// over it, at least the cell itself, as the C reference scaled a PSF
-    /// font (the operator, 2026-10-28).
+    /// over it, at least the cell itself, so a bitmap font keeps its own
+    /// pixels whole (the operator, 2026-10-28).
     pub fn auto_height(&self, width: u32, height: u32, locale: &str, dpi: f64) -> u32 {
         if let Some(cell) = self.stated() {
             return cell.height;
@@ -924,8 +923,7 @@ impl Chosen {
 
     /// The height a zoom asks for from `size` at `dpi` (ADR-1200 D17): an
     /// outline frit's next whole point in its direction whose pixels
-    /// differ from `size`, as the C reference's outline engines stepped by
-    /// 1 in their own units (the operator's decision on vtium/vtium#145);
+    /// differ from `size` (the operator's decision on vtium/vtium#145);
     /// else the next of its rungs. `None` past [`ZOOM_IN_MAX`]
     /// in, or below the smallest out.
     pub fn zoom(&self, size: u32, dir: Zoom, locale: &str, dpi: f64) -> Option<u32> {
@@ -956,8 +954,7 @@ impl Chosen {
     }
 }
 
-/// The largest height a zoom in starts from, as the C reference refused
-/// above 150 pixels.
+/// The largest height a zoom in starts from.
 pub const ZOOM_IN_MAX: u32 = 150;
 
 /// The points an outline frit's zoom looks through for a height that
@@ -1171,10 +1168,9 @@ mod tests {
         Chosen::frit(frit, sized, None).expect("a frit")
     }
 
-    // ADR-1200 D17: at 72 DPI, the C reference's fixed density, an
-    // outline frit zooms by 1 pixel, as its outline engines' increase_step
-    // did, from its stated cell, each height but the stated one as wide as
-    // the built-in font there
+    // ADR-1200 D17: at 72 DPI, where a point is a pixel, an outline frit
+    // zooms by 1 pixel, from its stated cell, each height but the stated
+    // one as wide as the built-in font there
     #[test]
     fn an_outline_frit_at_72_dpi_zooms_by_one_pixel() {
         for text in [
@@ -1509,8 +1505,8 @@ mod tests {
 
     // ADR-1200 D7: Tiny5 Mono's 6x9 cell is narrower than Unscii-8's
     // 8x8, so the built-in glyph is centered and cut evenly, a column off
-    // each side, as the C reference's fit_glyph cut a glyph wider than
-    // its cells; it is never scaled. It sits in the top 8 rows, its
+    // each side, as a glyph wider than its cells is cut; it is never
+    // scaled. It sits in the top 8 rows, its
     // baseline on Tiny5 Mono's, and the 9th row is blank.
     #[test]
     fn unscii_8_in_a_narrower_cell_is_centered_and_cut_evenly() {
@@ -1566,8 +1562,8 @@ mod tests {
         }
     }
 
-    // ADR-1200 D17: with no stated cell, the display's: the C reference's
-    // automatic height, #118's floor first, as wide as the built-in font
+    // ADR-1200 D17: with no stated cell, the display's: the automatic
+    // height, #118's floor first, as wide as the built-in font
     // is at that height
     #[test]
     fn with_no_stated_cell_the_cell_comes_from_the_display() {

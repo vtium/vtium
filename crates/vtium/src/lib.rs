@@ -21,8 +21,8 @@
 //! fallback and the pointer's route to the cursor plane or the renderer).
 //!
 //! Each is a function of what it is given, time included, so a unit test
-//! drives it without a VT, a display or a pty. The crate's README lists
-//! where vtium departs from the C reference and the bounds it sets.
+//! drives it without a VT, a display or a pty. The crate's README says
+//! what each part does and why, and the bounds it sets.
 
 #[cfg(feature = "images")]
 pub mod animation;

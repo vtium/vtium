@@ -1,7 +1,6 @@
 //! The palette the `palette` key names (vtium/vtium#94): one of
 //! vtium-term's named palettes, or `custom`, whose sixteen colors and two
-//! defaults the `palette-<color>` keys set (`src/config.c:1305-1324,
-//! 1427-1448` at kmscon b1f7a7c5).
+//! defaults the `palette-<color>` keys set.
 
 use vtium_term::{Palette, Rgb};
 

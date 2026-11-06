@@ -929,13 +929,12 @@ impl Face for DeferredFace {
 
     /// The lines the helper's strikes at the cell report, once a set there
     /// is held: an outline first source's own, measured from the font's
-    /// `post` and `OS/2` tables as the C reference's FreeType engine took
-    /// them, and a bitmap first source's the lines for the cell's height.
-    /// The helper moves a font's line that would pass the cell inside it,
-    /// and the set reader refuses a strike whose line passes its cell, so a
-    /// line held here always lies in the cell's rows. Before any set at the
-    /// cell is held: the built-in font's in its own cell, and in another the
-    /// lines for the cell's height.
+    /// `post` and `OS/2` tables, and a bitmap first source's the lines for
+    /// the cell's height. The helper moves a font's line that would pass
+    /// the cell inside it, and the set reader refuses a strike whose line
+    /// passes its cell, so a line held here always lies in the cell's rows.
+    /// Before any set at the cell is held: the built-in font's in its own
+    /// cell, and in another the lines for the cell's height.
     fn decorations(&self) -> Decorations {
         if let Some(lines) = lock(&self.generated).decorations(self.cell) {
             return lines;

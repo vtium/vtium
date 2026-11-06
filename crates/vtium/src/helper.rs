@@ -250,8 +250,7 @@ impl Launcher {
 
     /// Checks that the helper started as `pid` holds the account the
     /// console dropped it to, read back from its `/proc/<pid>/status` once
-    /// it runs, as the C reference's image helper read its ids back before
-    /// its exec (`image_host.c`, `exec_helper`). std drops the supplementary
+    /// it runs. std drops the supplementary
     /// groups before it sets the uid, but goes on when the kernel refuses
     /// it that, so a console without the capability to change its groups
     /// would start a helper holding root's groups. A helper whose four

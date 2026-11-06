@@ -35,8 +35,7 @@ pub struct Console {
 /// How a console fits its head's displays: its grid, the base font height
 /// it draws at and that font's cell, which a zoom changes for the console
 /// shown alone. A hidden console's program starts again at its own grid
-/// and cell (ADR-1401 D1), as the C reference opened a terminal's pty at
-/// that terminal's own size (`terminal_open` at kmscon b1f7a7c5).
+/// and cell (ADR-1401 D1), so it sees no resize when it is shown.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Fit {
     pub(crate) grid: (usize, usize),

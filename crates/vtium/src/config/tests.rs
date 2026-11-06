@@ -136,8 +136,7 @@ fn defaults() {
     assert_eq!(c.number(&SYNC_TIMEOUT), Some(200));
     assert_eq!(c.number(&DPMS_TIMEOUT), Some(600));
     assert_eq!(c.number(&FONT_SIZE), Some(0));
-    // unset: vconsole's font, else the built-ins, where the C reference
-    // asked fontconfig for "monospace" (src/config.c:1424)
+    // unset: vconsole's font, else the built-ins
     assert_eq!(c.text(&FONT_NAME), None);
     assert_eq!(c.text(&RENDER_TIMER), Some("none"));
     assert_eq!(c.text(&GLYPH_CACHE), None);
@@ -209,8 +208,7 @@ fn a_relative_or_empty_font_frits_leaves_the_directory_set_before_it() {
 
 // ADR-1500 D4, ADR-1403 D2: with no `--configdir`, vtium reads
 // `/etc/vtium/vtium.conf` and nothing else: never the seat's file beside
-// it, and never the C reference's `/etc/kmscon`, even where a file is
-// there.
+// it, and never `/etc/kmscon`, even where a file is there.
 #[test]
 fn vtium_conf_is_the_one_file_read() {
     let mut read = Vec::new();
@@ -800,7 +798,7 @@ fn a_palette_vtium_does_not_hold_is_reported_and_leaves_the_value_below() {
 // covers: color.palette.named
 #[test]
 fn custom_takes_the_palette_keys() {
-    // Unset, they hold the C reference's defaults, which are legacy's.
+    // Unset, they hold legacy's colors.
     let l = main_file("palette=custom\n");
     assert_eq!(
         Some(l.config.palette()),
@@ -863,7 +861,7 @@ fn colors() {
     assert_eq!(l.config.text(&PALETTE), Some("custom"));
     assert_eq!(l.config.rgb(&PALETTE_RED), Some([10, 20, 30]));
     assert_eq!(l.config.rgb(&PALETTE_BACKGROUND), Some([1, 2, 3]));
-    // The C reference's default colors.
+    // legacy's colors.
     assert_eq!(l.config.rgb(&PALETTE_BLUE), Some([0, 0, 238]));
     assert_eq!(l.config.rgb(&PALETTE_FOREGROUND), Some([229, 229, 229]));
     let l =
@@ -1286,7 +1284,7 @@ fn grab_paste_binds_shift_insert_until_set() {
 }
 
 #[test]
-fn decoration_colors_read_as_the_c_reference_read_them() {
+fn decoration_colors_read_fg_an_index_or_rgb() {
     use vtium_render::DecoColor;
     use vtium_term::Rgb;
     let d = Config::default();
