@@ -121,7 +121,7 @@ input path:pci-0000:15:00.0-usb-0:3.1 -> kiosk   # the kiosk's own USB port
 - The kiosk has one console; `Ctrl-Alt-F<n>` for another VT reaches the program as keys, and the rescue key pressed on its keyboard moves nothing and is swallowed.
 - `vtium check-config` notes that no keyboard can switch the VT, that no head can be the active head, that only one keyboard reaches the kiosk, and the keyboards present on other ports as ignored, and exits 0.
 - As written, the operator gets in only from outside, since the machine has one display.
-- The display unplugged leaves the program running, and it comes back when the display returns. With the kiosk's monitor absent at boot and another display connected, that display shows `vtium: no display for any head`; with no display connected at all, vtium holds its VT and waits.
+- The display unplugged leaves the program running, and it comes back when the display returns. With the kiosk's monitor absent at boot and another display connected, that display shows `No head has a connected display.`; with no display connected at all, vtium holds its VT and waits.
 
 ### A kiosk with an operator's head
 
