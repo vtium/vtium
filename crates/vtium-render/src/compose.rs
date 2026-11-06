@@ -77,12 +77,6 @@ pub(crate) struct Job {
     /// draw.
     #[cfg(feature = "images")]
     pub(crate) under: Under,
-    /// A block cursor or the selection marks the cell: every ink in it
-    /// takes the mark's text color, its foreground (ADR-1306 D6).
-    pub(crate) marked: bool,
-    /// The neighbours whose ink the cell receives, a range of the
-    /// composer's sources in the order they are drawn.
-    pub(crate) recv: (usize, usize),
 }
 
 /// A neighbour's glyph whose ink a cell receives (ADR-1306 D4).
@@ -132,6 +126,10 @@ pub(crate) struct Composer {
     pub(crate) text: Vec<char>,
     /// The neighbours' glyphs the row's jobs receive ink from.
     pub(crate) sources: Vec<Source>,
+    /// For each job, by its place among the jobs, the range of `sources`
+    /// it receives ink from, in the order they are drawn; empty when no
+    /// job receives any.
+    pub(crate) received: Vec<(usize, usize)>,
     /// The ink a job receives from its neighbours, premultiplied, over the
     /// job's lines in the band.
     recv: Vec<u32>,
@@ -153,6 +151,7 @@ impl Composer {
             jobs: Vec::new(),
             text: Vec::new(),
             sources: Vec::new(),
+            received: Vec::new(),
             recv: Vec::new(),
             scratch: Vec::new(),
             pens: Pens::new((0, 0)),
@@ -233,6 +232,7 @@ impl Composer {
             jobs,
             text,
             sources,
+            received,
             recv,
             scratch,
             pens,
@@ -249,7 +249,7 @@ impl Composer {
             // the run of cells under one opaque picture being gathered
             #[cfg(feature = "images")]
             let mut covered: Option<Cover> = None;
-            for job in run {
+            for (k, job) in (start..).zip(run) {
                 let dx = usize::try_from(job.r.x.saturating_sub(area.x)).unwrap_or(0);
                 let jw = usize::try_from(job.r.w).unwrap_or(0);
                 let y0 = job.r.y.max(top);
@@ -259,14 +259,15 @@ impl Composer {
                     .saturating_add(dx);
                 // the job's lines in the band: the last ends at its width
                 let n = usize::try_from(job.r.bottom().min(bottom).saturating_sub(y0)).unwrap_or(0);
-                let from = sources.get(job.recv.0..job.recv.1).unwrap_or_default();
-                let received = receive(
-                    (cache, font, text),
-                    from,
-                    job,
-                    (y0, n, jw),
-                    (recv, &mut lines.cov),
-                );
+                let (from, to) = received.get(k).copied().unwrap_or_default();
+                let received = to > from
+                    && receive(
+                        (cache, font, text),
+                        sources.get(from..to).unwrap_or_default(),
+                        job,
+                        (y0, n, jw),
+                        (recv, &mut lines.cov),
+                    );
                 let glyph = glyph(cache, font, text, job);
                 let len = n
                     .checked_sub(1)

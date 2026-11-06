@@ -142,6 +142,11 @@ pub(crate) trait Held {
     /// Bytes it counts against its pool's ceiling.
     fn bytes(&self) -> usize;
 
+    /// Whether its glyph's ink passes its cells.
+    fn reaches(&self) -> bool {
+        false
+    }
+
     /// Whether the cache hands back what it evicts ([`GlyphCache::take_evicted`]),
     /// for a slot its owner reuses. Pixels are dropped.
     const RECLAIM: bool = false;
@@ -150,6 +155,10 @@ pub(crate) trait Held {
 impl Held for Stored {
     fn bytes(&self) -> usize {
         Stored::bytes(self)
+    }
+
+    fn reaches(&self) -> bool {
+        !self.reach().is_none()
     }
 }
 
@@ -272,6 +281,8 @@ pub(crate) struct GlyphCache<T = Stored> {
     drew_missing: bool,
     /// A color glyph's bitmap stand-in on a 1-bit or gray display.
     fallback: Option<Fallback>,
+    /// The font has drawn a glyph whose ink passes its cells.
+    reaching: bool,
     /// How far the glyph of each ASCII character in each style reaches,
     /// once read: the renderer asks for every cell that changes, and the
     /// answer changes only when the font's glyphs do.
@@ -312,6 +323,7 @@ impl<T: Held> GlyphCache<T> {
             counts: CacheCounts::default(),
             drew_missing: false,
             fallback: None,
+            reaching: false,
             reaches: Vec::new(),
         }
     }
@@ -439,6 +451,12 @@ impl<T: Held> GlyphCache<T> {
         ))
     }
 
+    /// Whether the font has drawn a glyph whose ink passes its cells: until
+    /// it has, no cell's ink reaches another.
+    pub(crate) fn reaching(&self) -> bool {
+        self.reaching
+    }
+
     /// Keeps `glyph` for `text` in pool `pool` when the pool has room
     /// without evicting a glyph this frame draws, evicting older glyphs to
     /// make it. Otherwise it is drawn uncached: the cache keeps it as its
@@ -451,6 +469,7 @@ impl<T: Held> GlyphCache<T> {
         pool: usize,
         glyph: T,
     ) -> Option<&T> {
+        self.reaching |= glyph.reaches();
         if !self.make_room(pool, glyph.bytes()) {
             self.counts.uncached = self.counts.uncached.saturating_add(1);
             return Some(self.spare.insert(glyph));

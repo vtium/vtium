@@ -92,8 +92,9 @@ impl CellState {
         old
     }
 
-    /// Whether its reach is to be read again: it was never read, or the
-    /// visible cursor came or went, as `held` says, which it keeps.
+    /// Records whether the visible cursor stands on the cell now, `held`,
+    /// and returns whether its reach is to be read again: it was never
+    /// read, or the cursor has come or gone since it was.
     pub(crate) fn reach_stale(&mut self, held: bool) -> bool {
         let stale = !self.flag(REACH_KNOWN) || self.flag(REACH_CURSOR) != held;
         self.set_flag(REACH_CURSOR, held);
@@ -210,6 +211,19 @@ impl Cells {
         (old, old_span)
     }
 
+    /// Forgets every cell's reach, so each is read again, and marks every
+    /// cell changed on this frame.
+    pub(crate) fn forget_reaches(&mut self) {
+        let serial = self.serial;
+        for s in &mut self.states {
+            s.reach = Reach::NONE;
+            s.set_flag(REACH_KNOWN | REACH_WIDE, false);
+            s.stamp = serial;
+        }
+        self.row_reaching.fill(0);
+        self.row_stamps.fill(serial);
+    }
+
     /// Whether any cell of the rows from `first` to `last` sends ink into
     /// another cell.
     pub(crate) fn rows_reach(&self, first: usize, last: usize) -> bool {
@@ -282,18 +296,17 @@ impl Cells {
             .any(|s| self.stale(s.stamp))
     }
 
-    /// Whether the cell at `col`, `row` is drawn on this frame.
-    pub(crate) fn drawn(&self, col: usize, row: usize) -> bool {
-        self.get(col, row).is_some_and(|s| s.flag(DRAWN))
-    }
-
-    /// `n` cells from `col` in `row` are drawn on this frame.
-    pub(crate) fn mark_drawn(&mut self, col: usize, row: usize, n: usize) {
+    /// `n` cells from `col` in `row` are drawn on this frame; returns
+    /// whether the first was not drawn on it before.
+    pub(crate) fn mark_drawn(&mut self, col: usize, row: usize, n: usize) -> bool {
+        let mut new = false;
         for c in col..col.saturating_add(n) {
             if let Some(s) = self.get_mut(c, row) {
+                new |= c == col && !s.flag(DRAWN);
                 s.set_flag(DRAWN, true);
             }
         }
+        new
     }
 
     /// Clears the drawn marks into this frame's damage: `whole` after a

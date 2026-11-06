@@ -1,9 +1,9 @@
 //! The composition and damage at a sideways bound of two cells (ADR-1306
-//! D12): the same checks against a whole draw at every buffer age, with
-//! glyphs whose ink reaches two cells past their own. The font crate's
-//! glyphs cannot reach that far while its bound is one cell, so these
-//! glyphs are put in the cache directly, stored as the renderer stores any
-//! glyph at its ink box.
+//! D12), and at a bound of two rows up and down: the same checks against a
+//! whole draw at every buffer age, with glyphs whose ink reaches two cells
+//! or two rows past their own. The font crate's glyphs cannot reach that
+//! far while its bounds are one, so these glyphs are put in the cache
+//! directly, stored as the renderer stores any glyph at its ink box.
 
 #![expect(
     clippy::unwrap_used,
@@ -31,17 +31,24 @@ const CH: u32 = 16;
 type Ink = (i32, i32, i32, i32);
 
 /// The test glyphs: `R` reaches two cells after its own, `L` two cells
-/// before it, `U` the row above and two cells to each side, `x` stays in
-/// its cell.
+/// before it, `U` the row above and two cells to each side, `T` two rows
+/// above, `>` and `<` the two cells after and before it across the same
+/// lines, 11 and 12; `x` stays in its cell.
 fn shape(c: char) -> &'static [Ink] {
     const BODY: Ink = (1, 6, 7, 14);
     match c {
         'R' => &[BODY, (6, 4, 24, 6)],
         'L' => &[BODY, (-16, 8, 2, 10)],
         'U' => &[BODY, (-12, -3, 20, 0)],
+        'T' => &[BODY, (2, -20, 6, 0)],
+        '>' => &[BODY, (8, 11, 24, 13)],
+        '<' => &[BODY, (-16, 11, 0, 13)],
         _ => &[BODY],
     }
 }
+
+/// The glyphs the cache holds at their ink boxes.
+const REACHING: [char; 6] = ['R', 'L', 'U', 'T', '>', '<'];
 
 fn cov(c: char, x: i32, y: i32) -> u8 {
     let inside = |&(x0, y0, x1, y1): &Ink| x >= x0 && x < x1 && y >= y0 && y < y1;
@@ -98,7 +105,7 @@ fn renderer(cols: usize, rows: usize, bound: Bound) -> Renderer<Plain> {
     let (w, h) = (cols as u32 * CW, rows as u32 * CH);
     let mut r = Renderer::new(Font::new(Plain), w, h, Config::default());
     r.bound = bound;
-    for c in ['R', 'L', 'U'] {
+    for c in REACHING {
         let g = stored(c);
         let pool = pool_of(false, false);
         r.compose
@@ -112,6 +119,8 @@ const WIDER: Bound = Bound {
     side: 2,
     rows: Bound::ROWS,
 };
+
+const TALLER: Bound = Bound { side: 2, rows: 2 };
 
 struct Screen {
     cols: usize,
@@ -236,10 +245,18 @@ impl Target for Recorder {
 
 #[test]
 fn every_frame_matches_a_whole_draw_at_a_sideways_bound_of_two() {
-    let (cols, rows) = (10usize, 5usize);
+    for bound in [WIDER, TALLER] {
+        typing(bound);
+    }
+}
+
+/// A script typing and erasing the reaching glyphs at `bound`, each frame
+/// checked against a whole draw, at 1, 2 and 3 buffers.
+fn typing(bound: Bound) {
+    let (cols, rows) = (10usize, 6usize);
     for buffers in 1..=3usize {
         let mut s = Screen::new(cols, rows);
-        let mut r = renderer(cols, rows, WIDER);
+        let mut r = renderer(cols, rows, bound);
         let mut bufs: Vec<Recorder> = (0..buffers)
             .map(|_| Recorder {
                 canvas: Canvas::new(cols as u32 * CW, rows as u32 * CH, 0xdead_beef),
@@ -257,7 +274,7 @@ fn every_frame_matches_a_whole_draw_at_a_sideways_bound_of_two() {
         };
         for step in 0..150 {
             for _ in 0..rand(4) {
-                let c = ['R', 'L', 'U', 'x', ' '][rand(5) as usize];
+                let c = ['R', 'L', 'U', 'T', '>', '<', 'x', ' '][rand(8) as usize];
                 let fg = Rgb::new(rand(256) as u8, 100, 200);
                 s.put(
                     rand(cols as u32) as usize,
@@ -289,8 +306,8 @@ fn every_frame_matches_a_whole_draw_at_a_sideways_bound_of_two() {
                 assert!(inside, "step {step}: a write {w:?} outside the damage");
             }
             assert!(
-                buf.canvas == whole(&s, WIDER),
-                "step {step}, {buffers} buffers at age {age}: differs from a whole draw"
+                buf.canvas == whole(&s, bound),
+                "{bound:?}, step {step}, {buffers} buffers at age {age}: differs from a whole draw"
             );
             if !damage.is_empty() {
                 frames += 1;
@@ -298,5 +315,56 @@ fn every_frame_matches_a_whole_draw_at_a_sideways_bound_of_two() {
                 back = (back + 1) % buffers;
             }
         }
+    }
+}
+
+// D4's step 5 and D12: the ink of the cells beside a cell is drawn farthest
+// first and, at one distance, the cell before it first, so the nearest cell
+// after it lies on top where all four meet.
+#[test]
+fn ink_from_beside_is_drawn_farthest_first_and_the_cell_before_first() {
+    let mut s = Screen::new(7, 1);
+    let (far_before, near_before) = (Rgb::new(250, 0, 0), Rgb::new(0, 250, 0));
+    let (near_after, far_after) = (Rgb::new(0, 0, 250), Rgb::new(250, 250, 0));
+    s.put(1, 0, '>', far_before);
+    s.put(2, 0, '>', near_before);
+    s.put(4, 0, '<', near_after);
+    s.put(5, 0, '<', far_after);
+    let c = whole(&s, WIDER);
+    // column 3 draws nothing of its own; all four reach its line 11
+    assert_eq!(c.pixel(3 * CW + 4, 11).unwrap(), 0x0000fa);
+    // where only the two farthest meet, the cell after lies on top: column
+    // 3 is the one cell both reach, so remove the nearer two
+    s.put(2, 0, ' ', near_before);
+    s.put(4, 0, ' ', near_after);
+    let c = whole(&s, WIDER);
+    assert_eq!(c.pixel(3 * CW + 4, 11).unwrap(), 0xfafa00);
+}
+
+#[test]
+fn a_bound_of_two_rows_draws_and_damages_two_rows_above_a_glyph() {
+    let mut s = Screen::new(5, 4);
+    for (bound, reached) in [(TALLER, true), (WIDER, false)] {
+        let mut r = renderer(5, 4, bound);
+        let mut canvas = Canvas::new(5 * CW, 4 * CH, 0);
+        r.draw(&s.frame(Age::NEVER), &mut canvas, 0, &DrawState::default());
+        let since = s.damage.checkpoint();
+        s.put(2, 3, 'T', RED);
+        let drawn = r.draw(&s.frame(since), &mut canvas, 1, &DrawState::default());
+        let mut want = vec![(2, 2), (2, 3)];
+        if reached {
+            want.insert(0, (2, 1));
+        }
+        assert_eq!(cells(drawn.damage, &s), want, "{bound:?}");
+        // the ink's lines 12 to 15 of the row two above, and of the row above
+        let two = canvas.pixel(2 * CW + 3, CH + 14).unwrap();
+        let one = canvas.pixel(2 * CW + 3, 2 * CH + 4).unwrap();
+        assert_eq!(one, 0xdc1e1e, "{bound:?}");
+        assert_eq!(two, if reached { 0xdc1e1e } else { 0x101010 }, "{bound:?}");
+        let since = s.damage.checkpoint();
+        s.put(2, 3, ' ', RED);
+        r.draw(&s.frame(since), &mut canvas, 1, &DrawState::default());
+        s.damage.checkpoint();
+        assert!(canvas == whole(&s, bound), "{bound:?}");
     }
 }

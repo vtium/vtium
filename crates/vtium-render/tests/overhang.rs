@@ -410,7 +410,10 @@ fn a_changed_cell_redraws_exactly_its_block() {
     let mut s = screen(7, 5);
     let st = state(&s);
     s.text(0, 0, "xxxxxxx", style(rgb(FG), rgb(BG)));
-    s.text(0, 4, "xxxxxxx", style(rgb(FG), rgb(BG)));
+    s.text(0, 4, "xxxxxx", style(rgb(FG), rgb(BG)));
+    // the font has drawn a glyph whose ink passes its cells before the
+    // frames measured, so none of them is the frame that draws whole for it
+    s.put(6, 4, 'A', false, style(rgb(FG), rgb(BG)));
     let mut d = Display::new(&s, 1, Config::default());
     d.draw(&mut s, &st);
     // a glyph whose ink reaches every cell around it
@@ -990,4 +993,112 @@ fn at_1_bit_received_ink_is_the_opposite_of_its_cells_background() {
     assert_eq!(px(&c, (1, 0), (3, 14)), 0x000000, "the accent on it");
     assert_eq!(px(&c, (2, 0), (1, 14)), 0x000000, "the dark background");
     assert_eq!(px(&c, (2, 0), (3, 14)), 0xffffff, "the accent on it");
+}
+
+// Until the font draws a glyph whose ink passes its cells, no reach is
+// read; the frame that draws the first one draws the whole grid again with
+// every reach read, and the frames after it damage only what changed.
+// covers: text.overhang
+#[test]
+fn the_first_glyph_whose_ink_passes_its_cells_redraws_the_grid_once() {
+    let mut s = screen(5, 3);
+    let st = state(&s);
+    s.text(0, 0, "xxxxx", style(rgb(FG), rgb(BG)));
+    let mut d = Display::new(&s, 1, Config::default());
+    d.draw(&mut s, &st);
+    s.put(2, 2, 'x', false, style(WHITE, rgb(BG)));
+    let (damage, _) = d.draw(&mut s, &st);
+    assert_eq!(cells(&damage, &s), vec![(2, 2)]);
+    s.put(2, 2, 'A', false, style(WHITE, rgb(BG)));
+    let (damage, c) = d.draw(&mut s, &st);
+    assert_eq!(cells(&damage, &s).len(), 15, "the whole grid");
+    assert_eq!(px(&c, (2, 1), (3, 14)), pixel(WHITE));
+    s.put(2, 2, 'x', false, style(WHITE, rgb(BG)));
+    let (damage, _) = d.draw(&mut s, &st);
+    assert_eq!(cells(&damage, &s), vec![(2, 1), (2, 2)]);
+}
+
+// ADR-1306 D6: ink invisible in its own cell, its foreground the same as
+// its background, is invisible everywhere.
+// covers: text.overhang
+#[test]
+fn ink_its_own_background_hides_reaches_no_other_cell() {
+    let mut s = screen(4, 3);
+    let st = state(&s);
+    s.put(1, 2, 'Q', false, style(BLUE, BLUE));
+    s.put(2, 2, 'A', false, style(WHITE, rgb(BG)));
+    let c = whole(&s, &[], &st, Config::default());
+    // the visible capital's accent shows, so reaches are read
+    assert_eq!(px(&c, (2, 1), (3, 14)), pixel(WHITE));
+    // the hidden letter's ink reaches neither the row above nor the side
+    for (cell, at) in [((1, 1), (4, 14)), ((0, 2), (6, 8)), ((0, 1), (6, 14))] {
+        assert_eq!(px(&c, cell, at), pixel(rgb(BG)), "{cell:?}");
+    }
+}
+
+// A wide glyph's ink past its second cell reaches the cell after it.
+// covers: text.overhang
+#[test]
+fn a_wide_glyphs_ink_reaches_past_its_second_cell() {
+    let mut s = screen(5, 2);
+    let st = state(&s);
+    s.put(1, 1, 'W', true, style(WHITE, rgb(BG)));
+    let c = whole(&s, &[], &st, Config::default());
+    // its lean, columns 14 to 17 of its cells at lines 3 and 4, lies in
+    // the first two columns of cell 3
+    assert_eq!(px(&c, (3, 1), (1, 3)), pixel(WHITE));
+    // and its accent over both cells in the row above
+    assert_eq!(px(&c, (2, 0), (4, 15)), pixel(WHITE));
+}
+
+/// A face whose `A` gains an accent above its row once `arrived` is set,
+/// as a glyph from the helper replaces the built-in drawing.
+struct Arriving(std::rc::Rc<std::cell::Cell<bool>>);
+
+impl Face for Arriving {
+    fn cell(&self) -> Cell {
+        Reaching.cell()
+    }
+    fn size_step(&self) -> u32 {
+        1
+    }
+    fn has_glyph(&self, c: char) -> bool {
+        Reaching.has_glyph(c)
+    }
+    fn draw(&self, cluster: &[char], style: Style) -> Option<Glyph> {
+        match cluster.first() {
+            Some('A') if !self.0.get() => glyph('x'),
+            _ => Reaching.draw(cluster, style),
+        }
+    }
+}
+
+// ADR-1306 D5: a glyph arriving from the helper in place of the drawing
+// before it is an ink change, and the reach the renderer read for the old
+// glyph is read again.
+// covers: text.overhang
+#[test]
+fn a_glyph_that_arrives_with_ink_past_its_cell_draws_it() {
+    let arrived = std::rc::Rc::new(std::cell::Cell::new(false));
+    let mut s = screen(4, 3);
+    let st = state(&s);
+    let (w, h) = size(&s, Config::default());
+    let mut r = Renderer::new(
+        Font::new(Arriving(arrived.clone())),
+        w,
+        h,
+        Config::default(),
+    );
+    let mut c = Canvas::new(w, h, 0);
+    // the font has drawn a reaching glyph, so the old A's reach is read
+    s.put(0, 2, 'g', false, style(WHITE, rgb(BG)));
+    s.put(2, 2, 'A', false, style(WHITE, rgb(BG)));
+    r.draw(&s.frame(Age::NEVER), &mut c, 0, &st);
+    assert_eq!(px(&c, (2, 1), (3, 14)), pixel(rgb(BG)), "no accent yet");
+    let since = s.damage.checkpoint();
+    arrived.set(true);
+    r.glyphs_changed(&['A']);
+    let drawn = r.draw(&s.frame(since), &mut c, 1, &st);
+    assert!(!drawn.damage.is_empty());
+    assert_eq!(px(&c, (2, 1), (3, 14)), pixel(WHITE), "the accent arrived");
 }
