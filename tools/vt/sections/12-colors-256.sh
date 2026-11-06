@@ -6,8 +6,7 @@
 # wrong-looks-like: swatch of the default background, or visible steps in the
 # wrong-looks-like: 24-bit ramp.
 # The 256-color palette, SGR 48;5;n: the 6x6x6 color cube (16 to 231) and the
-# grey ramp (232 to 255), then a 24-bit ramp, SGR 48;2;r;g;b, as the C
-# reference's sgr screen drew them.
+# grey ramp (232 to 255), then a 24-bit ramp, SGR 48;2;r;g;b.
 printf '  the 6x6x6 cube, colors 16 to 231\n'
 for row in 0 1 2 3 4 5; do
 	printf '  '

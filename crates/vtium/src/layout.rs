@@ -7,9 +7,8 @@
 //! base font, so displays mirror one grid within a head (ADR-1401 D1). A
 //! larger display then draws at the largest height that still holds that
 //! grid, tried from the height that would fill it and down a size step at
-//! a time, and at the base height when no larger one fits: the C
-//! reference's `multi-monitor=scaled`, the operator's choice on
-//! vtium/vtium#21.
+//! a time, and at the base height when no larger one fits. The operator
+//! chose this on vtium/vtium#21.
 
 use vtium_render::Orientation;
 

@@ -30,9 +30,9 @@ pub(crate) struct Stored {
     data: Vec<u8>,
 }
 
-/// `width` by `height` pixels of `bpp` bytes turned by `o`, as the C
-/// reference's `picture_rotate` turned them: the pixel at column `u`, row
-/// `v` of the source lands where the display's mapping of the cell puts it.
+/// `width` by `height` pixels of `bpp` bytes turned by `o`: the pixel at
+/// column `u`, row `v` of the source lands where the display's mapping of
+/// the cell puts it.
 fn turn(src: &[u8], width: u32, height: u32, bpp: usize, o: Orientation) -> (u32, u32, Vec<u8>) {
     let (w, h) = (width as usize, height as usize);
     let (tw, th) = if o.turned() { (h, w) } else { (w, h) };

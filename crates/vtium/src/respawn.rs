@@ -167,8 +167,8 @@ mod tests {
     #[test]
     fn each_start_is_timed_from_its_own_start() {
         // A session that ran an hour, then a command that fails at once:
-        // the failures are quick, timed from each new start. The C
-        // reference timed them from an older start and never stopped.
+        // the failures are quick, timed from each new start, and the sixth
+        // quick one in a row ends vtium.
         let mut r = Respawn::new(ms(0));
         let mut t = 3_600_000;
         assert_eq!(r.exited(ms(t), false), Next::Restart);

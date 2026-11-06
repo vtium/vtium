@@ -3391,8 +3391,8 @@ impl App {
         };
         // The console has no system clipboard: a selection OSC 52 set is
         // held for a paste, or dropped under `no-clipboard-write`.
-        // Any console's BEL rings the VT under `bell`, as each of the C
-        // reference's terminals rang it.
+        // Any console's BEL rings the VT under `bell`, a hidden console's as
+        // well as the shown one's.
         let mut bell = false;
         for console in head.consoles_mut() {
             if let Some(selection) = console.term.terminal.take_clipboard_write()

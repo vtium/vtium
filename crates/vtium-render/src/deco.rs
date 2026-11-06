@@ -532,8 +532,7 @@ mod tests {
         let px = draw(Kind::Curly, 16, 16, &m);
         assert_eq!(rows(&px, 16), Some((12, 16)));
         assert_ne!(px, draw(Kind::Single, 16, 16, &m));
-        // 8x16: 2 rows peak to peak and the line take 3, as the C
-        // reference drew it
+        // 8x16: 2 rows peak to peak and the line take 3
         assert_eq!(rows(&draw(Kind::Curly, 8, 16, &m), 8), Some((13, 16)));
     }
 

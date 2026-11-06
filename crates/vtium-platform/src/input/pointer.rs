@@ -205,8 +205,8 @@ fn axis(
             }
         }
         Kind::Touchscreen | Kind::VirtualMouse => {
-            // An axis whose range is one value moves nothing; the C
-            // reference divided by zero.
+            // An axis whose range is one value moves nothing, since
+            // scaling it would divide by zero.
             let span = i64::from(range.max).checked_sub(i64::from(range.min))?;
             let scaled = i64::from(value)
                 .saturating_sub(i64::from(range.min))

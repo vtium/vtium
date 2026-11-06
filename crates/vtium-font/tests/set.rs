@@ -1,7 +1,8 @@
 //! Vitrified sets (ADR-1200 D2, D10, D13): a set written and read back,
 //! the same inputs giving the same bytes, deflated and raw chunks drawing
-//! alike, the four PSF fixtures drawn through their sets to the C
-//! reference's digests, and every refusal of the format's reader.
+//! alike, the four PSF fixtures drawn through their sets to the page
+//! digests in tests/digests/psf.tsv, and every refusal of the format's
+//! reader.
 
 mod common;
 

@@ -136,9 +136,9 @@ products that support the Unicode Standard.
 
 vtium's terminfo tables (crates/vtium/src/termcap/table.rs), built into
 vtium: the capabilities of crates/vtium/install/xterm-vtium.ti, vtium's own
-entry, and of crates/vtium/install/kmscon.ti, the C reference's entry, which
-a test in crates/vtium/src/termcap.rs writes into the table. They come under
-vtium's and kmscon's notices above and need no other.
+entry, and of crates/vtium/install/kmscon.ti, the entry for the released
+kmscon's name, which a test in crates/vtium/src/termcap.rs writes into the
+table. They come under vtium's and kmscon's notices above and need no other.
 
 DejaVu Sans Mono's subsets, the test fixtures
 crates/vtium-config/tests/fixtures/DejaVuSansMono-W-M-0.ttf,
