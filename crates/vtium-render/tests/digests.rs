@@ -1,19 +1,19 @@
 //! Whole screens against their digests: each screen of
-//! `reference/screens.tsv`, drawn through vtium-term's frame with unifont,
-//! must give the pixels its digest in `reference/cells.tsv` covers
-//! (`reference/README.md`). A dashed underline is the one exception: the
+//! `digests/screens.tsv`, drawn through vtium-term's frame with unifont,
+//! must give the pixels its digest in `digests/cells.tsv` covers
+//! (`digests/README.md`). A dashed underline is the one exception: the
 //! stored digest covers the dash's earlier shape, so the dashed screen is
 //! checked with that dash put back.
 
 mod common;
 
-use common::{Screen, digest, digest_pixels, parse_screens, reference_screens_tsv, rgb, unifont};
+use common::{Screen, digest, digest_pixels, digest_screens_tsv, parse_screens, rgb, unifont};
 use vtium_font::Decorations;
 use vtium_render::{Canvas, Config, DrawState, Renderer};
 use vtium_term::Age;
 
 fn want(name: &str) -> u64 {
-    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/reference/cells.tsv");
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/digests/cells.tsv");
     let tsv = std::fs::read_to_string(path).expect("cells.tsv");
     tsv.lines()
         .map(|l| l.split('\t').collect::<Vec<_>>())
@@ -38,7 +38,7 @@ fn draw(screen: &Screen) -> Canvas {
 /// The screens of screens.tsv, the dashed cells' underline taken off when
 /// `bare`.
 fn screens(bare: bool) -> Vec<(String, Screen)> {
-    let tsv: Vec<String> = reference_screens_tsv()
+    let tsv: Vec<String> = digest_screens_tsv()
         .lines()
         .map(|l| {
             let mut f: Vec<&str> = l.split('\t').collect();
@@ -55,7 +55,7 @@ fn screens(bare: bool) -> Vec<(String, Screen)> {
 fn dashed(name: &str) -> Vec<(u32, u32, u32, u32)> {
     let mut screen = String::new();
     let mut out = Vec::new();
-    for line in reference_screens_tsv().lines() {
+    for line in digest_screens_tsv().lines() {
         let f: Vec<&str> = line.split('\t').collect();
         match f[0] {
             "screen" => screen = f[1].to_owned(),
@@ -131,7 +131,7 @@ fn every_screen_matches_its_digest() {
         let path = dir.join("screens.tsv");
         std::fs::write(&path, drawn).unwrap();
         panic!(
-            "{} of {} screen digests differ from tests/reference/cells.tsv ({}); \
+            "{} of {} screen digests differ from tests/digests/cells.tsv ({}); \
              vtium's digests for every screen line are in {}",
             differ.len(),
             screens.len(),

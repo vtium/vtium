@@ -1,5 +1,5 @@
-//! vtium-font against its glyph digests: each line of `reference/*.tsv` is
-//! a digest of glyphs vtium draws (`reference/README.md`), and vtium must
+//! vtium-font against its glyph digests: each line of `digests/*.tsv` is
+//! a digest of glyphs vtium draws (`digests/README.md`), and vtium must
 //! draw the same pixels. A change to a sprite, a PSF glyph or a unifont
 //! glyph fails here first. The digests were taken on x86-64 and are
 //! checked on every host, so this is also the check that a glyph is the
@@ -26,7 +26,7 @@ fn digest(h: u64, g: &Glyph) -> u64 {
 }
 
 fn lines(name: &str) -> Vec<Vec<String>> {
-    let path = format!("{}/tests/reference/{name}", env!("CARGO_MANIFEST_DIR"));
+    let path = format!("{}/tests/digests/{name}", env!("CARGO_MANIFEST_DIR"));
     std::fs::read_to_string(&path)
         .unwrap_or_else(|e| panic!("{path}: {e}"))
         .lines()
@@ -46,7 +46,7 @@ fn fixture(name: &str) -> String {
     format!("{}/tests/fixtures/{name}", env!("CARGO_MANIFEST_DIR"))
 }
 
-/// Checks every line of `reference/{file}`. When any differs, it writes
+/// Checks every line of `digests/{file}`. When any differs, it writes
 /// the file as vtium draws it, each checked line with vtium's digest and
 /// every other line as it is, to `digests/{file}` under the test's scratch
 /// directory, and fails naming that file and how many lines differ.
@@ -76,7 +76,7 @@ fn check(file: &str, mut ours: impl FnMut(&[String]) -> Option<u64>) {
         let path = dir.join(file);
         std::fs::write(&path, drawn).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
         panic!(
-            "{file}: {differ} of {checked} digests differ from tests/reference/{file}; \
+            "{file}: {differ} of {checked} digests differ from tests/digests/{file}; \
              vtium's digests for every line are in {}",
             path.display()
         );
