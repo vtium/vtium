@@ -41,8 +41,9 @@
 //! what its cells exceed its advance rounded, rounded down, and its ink at
 //! its bearing from the pen on the baseline; its pixels are cut at its
 //! cells' edges, and the ink past them goes to its ink box, cut one cell
-//! past its cells. A glyph advancing more
-//! than one and a half cells is two cells wide. A color glyph larger than
+//! past its cells. A glyph takes the cells the terminal gives its
+//! character, whatever its advance ([`crate::shaping::wide`], ADR-1200
+//! D21). A color glyph larger than
 //! its cells is drawn again at the size that fits them, centred across
 //! them and kept inside the cell's height. Outlines are hinted as the
 //! request says ([`Hinting`], ADR-1200 D1): lightly by default, which
@@ -1437,7 +1438,9 @@ pub(crate) mod raster {
                         // a glyph larger than a set's chunk goes in a chunk of
                         // its own (ADR-1302 D6), so none is left out for its size
                         let joins = crate::shaping::joins(c);
-                        let Some(placed) = place(&mut drawer, g, advance, joins, &cell) else {
+                        let wide = crate::shaping::wide(&[c]);
+                        let Some(placed) = place(&mut drawer, g, advance, joins, wide, &cell)
+                        else {
                             continue;
                         };
                         let i = u32::try_from(glyphs.len()).map_err(|_| "too many glyphs")?;
@@ -1489,9 +1492,9 @@ pub(crate) mod raster {
         pub(crate) ppem: f32,
     }
 
-    /// Glyph `g`, advancing `advance` pixels, placed in `cell`, one or two
-    /// cells wide by its advance; `None` when the font draws nothing for
-    /// it. A glyph of a character that joins (ADR-1302 D2, `joins`) is
+    /// Glyph `g`, advancing `advance` pixels, placed in `cell`, two cells
+    /// wide when `wide`, as the terminal gives its character two cells
+    /// (ADR-1200 D21); `None` when the font draws nothing for it. A glyph of a character that joins (ADR-1302 D2, `joins`) is
     /// stretched sideways before it is rasterised, by its cells' width over
     /// its advance, unrounded, its pen on its cell's left edge, so its
     /// advance fills its cells and its joining strokes meet the next
@@ -1501,9 +1504,9 @@ pub(crate) mod raster {
         g: u16,
         advance: f32,
         joins: bool,
+        wide: bool,
         cell: &Cell,
     ) -> Option<Placed> {
-        let wide = advance > cell.width as f32 * 1.5;
         let span = cell.width as f32 * if wide { 2.0 } else { 1.0 };
         if joins && advance > 0.0 {
             let sx = span / advance;

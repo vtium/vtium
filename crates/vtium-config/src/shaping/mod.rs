@@ -18,10 +18,11 @@ pub(crate) mod shape;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Kind {
     /// An emoji sequence: kept only when the font shapes it to one glyph
-    /// that is no scalar value's own, placed two cells wide.
+    /// that is no scalar value's own, placed in the cells the terminal
+    /// gives it ([`wide`]).
     Emoji = 1,
     /// A letter and its marks: kept when the font holds every glyph it
-    /// shapes to, one or two cells wide by its advance.
+    /// shapes to, placed in the cells the terminal gives it ([`wide`]).
     Marks = 2,
     /// A joining form: a letter keyed with U+200D on each side it joins,
     /// or lam and alef as their ligature, with any marks on it. Kept only
@@ -147,6 +148,15 @@ pub fn asks_for_emoji(key: &[u32]) -> bool {
     }
     let first = key.iter().copied().find(|&c| c != ZWJ);
     first.is_some_and(emoji_by_default) || (key.len() > 1 && kind(key) == Kind::Emoji)
+}
+
+/// Whether the terminal gives the character or cluster `key` two cells:
+/// vtium-term's rule for the width it stores (ADR-1200 D21), East_Asian_Width
+/// W or F, Emoji_Presentation=Yes, or an emoji-style base with U+FE0F. The
+/// helper places a glyph in those cells whatever its advance.
+pub fn wide(key: &[u32]) -> bool {
+    let chars: Vec<char> = key.iter().filter_map(|&c| char::from_u32(c)).collect();
+    vtium_term::cluster_width(&chars) == 2
 }
 
 /// `key` as the engine asks a source for it.

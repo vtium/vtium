@@ -238,8 +238,8 @@ pub(crate) fn draw_all(
     let mut out = Vec::new();
     for s in shaped {
         let wide = match s.kind {
-            Kind::Emoji => true,
-            Kind::Marks => s.advance as f32 * scale > cell.width as f32 * 1.5,
+            // the cells the terminal gives the cluster (ADR-1200 D21)
+            Kind::Emoji | Kind::Marks => super::wide(&s.key),
             // a cell for each letter, the marks on it taking none: lam-alef
             // takes the two its letters do
             Kind::Joining => {

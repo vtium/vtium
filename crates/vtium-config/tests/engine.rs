@@ -704,7 +704,10 @@ fn text_and_color(w: &World) {
     text.colr.clear();
     text.glyphs.push(ttf::Glyph::empty(0));
     text.glyphs.push(ttf::Glyph::rect(600, 200, 0, 400, 300));
-    let (vs16, ligature) = ((text.glyphs.len() - 2) as u16, (text.glyphs.len() - 1) as u16);
+    let (vs16, ligature) = (
+        (text.glyphs.len() - 2) as u16,
+        (text.glyphs.len() - 1) as u16,
+    );
     text.cmap.extend([(0x2764, 2), (0x231a, 2), (0xfe0f, vs16)]);
     text.gsub = vec![(
         *b"ccmp",
@@ -801,4 +804,63 @@ fn a_character_of_emoji_presentation_draws_from_a_color_source_where_there_is_on
         .draw(&['\u{231a}'], Style::default())
         .expect("the watch");
     assert_eq!(g.format(), Format::Mask);
+}
+
+// ADR-1200 D21: a CJK font behind a Latin one is sized so its ascent and
+// descent fill the cell, which here, ascent 1160 and descent 288 to the
+// 1000-unit em as Noto Sans CJK's, puts U+4E00's 1000-unit advance at
+// about 10.7 pixels in a 9x16 cell, under one and a half cells. The
+// terminal gives the ideograph two cells, so it is drawn across both, its
+// advance centred in them, and its ink reaches into the second cell
+#[test]
+fn an_ideograph_behind_a_latin_source_spans_both_its_cells() {
+    let w = World::new("cjk-behind-latin");
+    let mut latin = ttf::test_mono();
+    latin.family = "Test Latin".to_owned();
+    latin.colr.clear();
+    latin.cmap.retain(|&(c, _)| c != 0x4e00 && c != 0x1f600);
+    fs::write(w.path("fonts/TestLatin-Regular.ttf"), latin.build()).expect("font");
+    let mut cjk = ttf::test_mono();
+    cjk.family = "Test CJK".to_owned();
+    cjk.colr.clear();
+    (cjk.ascent, cjk.descent) = (1160, -288);
+    cjk.cmap = vec![(0x4e00, 4)];
+    fs::write(w.path("fonts/TestCJK-Regular.ttf"), cjk.build()).expect("font");
+    let engine = w
+        .engine("source=font:Test Latin\nsource=font:Test CJK\n")
+        .expect("the frit loads");
+    let bytes = engine
+        .draw(cell(9, 16), &[0x4e00])
+        .expect("draws")
+        .expect("a glyph");
+    let face =
+        SetFace::new(Arc::new(Set::from_bytes(bytes).expect("the set reads")), 16).expect("a face");
+    let g = face
+        .draw(&['\u{4e00}'], Style::default())
+        .expect("the ideograph");
+    let spans_both = |g: &vtium_font::Glyph, what: &str| {
+        assert_eq!((g.cells(), g.width()), (Width::Wide, 18), "{what}");
+        let inked: Vec<usize> = (0..18)
+            .filter(|&x| g.rows().any(|row| row.get(x).is_some_and(|&p| p != 0)))
+            .collect();
+        assert!(
+            inked.first() < Some(&9) && inked.last() >= Some(&9),
+            "{what}: ink in both cells: {inked:?}"
+        );
+    };
+    spans_both(&g, "the ideograph");
+    // the ideograph with an ideographic variation selector, U+E0100, which
+    // the helper shapes as a cluster, is placed the same way
+    let ivs = ['\u{4e00}', '\u{e0100}'];
+    let key: Vec<u32> = ivs.iter().map(|&c| u32::from(c)).collect();
+    let bytes = engine
+        .draw_clusters(cell(9, 16), &[key])
+        .expect("draws")
+        .expect("a glyph");
+    let face =
+        SetFace::new(Arc::new(Set::from_bytes(bytes).expect("the set reads")), 16).expect("a face");
+    let g = face
+        .cluster(&ivs, Style::default())
+        .expect("the ideograph with its selector");
+    spans_both(&g, "the ideograph with its selector");
 }

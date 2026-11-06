@@ -629,7 +629,8 @@ fn a_mark_left_at_the_pen_is_centred_over_its_base() {
 // it with an offset. Stretched with its offset, the fatha covers columns 3
 // to 9 of row 7, centred over the stretched beh; with its offset left
 // unstretched, columns 2 to 8. A seen advancing 1,000 units, 19.5 pixels,
-// is two cells wide, and stretched to fill both
+// takes the one cell the terminal gives it (ADR-1200 D21) and is squeezed
+// to fill it, as ADR-1302 D2 squeezes a letter wider than its cell
 #[test]
 fn a_stretched_cluster_keeps_its_marks_over_its_letter() {
     let mut f = ttf::test_mono();
@@ -659,10 +660,10 @@ fn a_stretched_cluster_keeps_its_marks_over_its_letter() {
         "the fatha centred over the beh"
     );
     let seen = codepoint(&o, '\u{633}');
-    assert!(seen.wide, "two cells");
+    assert!(!seen.wide, "one cell");
     assert!(
-        seen.pixels[12 * 24..13 * 24].iter().all(|&p| p == 255),
-        "the bar fills both cells"
+        seen.pixels[12 * 12..13 * 12].iter().all(|&p| p == 255),
+        "the bar fills its cell"
     );
 }
 

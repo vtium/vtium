@@ -273,13 +273,25 @@ fn an_outline_glyph_is_r8_on_the_baseline() {
     assert!(space.pixels.iter().all(|&p| p == 0));
 }
 
+// ADR-1200 D21: a glyph takes the cells the terminal gives its character,
+// never as many as its advance would fill. U+4E00, of East_Asian_Width W,
+// takes two, and W one. U+2190 LEFTWARDS ARROW, of East_Asian_Width A,
+// takes one though its glyph here advances 1.2 em, 18.6 pixels, more than
+// one and a half cells of 12
 #[test]
-fn a_glyph_advancing_past_one_and_a_half_cells_is_wide() {
-    let o = rasterise(&request(&[(0, 20)], &[])).expect("rasterised");
+fn a_glyph_takes_the_cells_the_terminal_gives_its_character() {
+    let mut req = request(&[(0, 20)], &[]);
+    let mut font = ttf::test_mono();
+    font.cmap.push((0x2190, 6));
+    req.font = font.build().into();
+    let o = rasterise(&req).expect("rasterised");
     let wide = glyph(&o, 0, 0x4e00);
     assert!(wide.wide && !wide.color);
     assert_eq!(wide.pixels.len(), 24 * 20);
     assert!(!glyph(&o, 0, 0x57).wide);
+    let arrow = glyph(&o, 0, 0x2190);
+    assert!(!arrow.wide && !arrow.color);
+    assert_eq!(arrow.pixels.len(), 12 * 20);
 }
 
 // covers: text.emoji
