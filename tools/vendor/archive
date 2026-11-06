@@ -25,10 +25,15 @@
 # the fuzz targets under crates/*/fuzz have lock files of their own and are
 # not part of any package's build, so the archive leaves their crates out.
 #
-# The same commit gives byte-identical files when the same cargo, tar and
-# zstd make them: tar writes the members sorted by name, each with the
+# It needs GNU tar, for --sort and --pax-option, and zstd. The same commit
+# gives byte-identical files when the same cargo, tar and zstd make them: tar writes the members sorted by name, each with the
 # commit's time, owner and group 0 and normalised permissions, and no
-# extended attributes, and zstd compresses the stream with fixed settings.
+# extended attributes, and zstd compresses the tar file with fixed settings.
+#
+# sh has no pipefail, so the script runs no command whose failure a pipe
+# would hide: each writes a file in its scratch, and the next reads it. After
+# packing, it reads the archive back and fails unless it lists the README,
+# .cargo/config.toml and a Cargo.toml for each vendored crate.
 #
 # check builds with an empty CARGO_HOME and CARGO_NET_OFFLINE=true, inside a
 # network namespace of its own when unprivileged user namespaces allow one
@@ -70,7 +75,18 @@ trap 'exit 1' INT TERM
 # A clean copy of the commit, in $work/src.
 export_commit() {
     mkdir "$work/src"
-    git archive "$commit" | tar -x -C "$work/src"
+    git archive --output="$work/src.tar" "$commit" || die "git archive $commit failed"
+    tar -x -f "$work/src.tar" -C "$work/src" || die "cannot unpack git archive's copy of $commit"
+}
+
+# The members of the archive at $1 that are files, without a leading ./,
+# sorted, in $2.
+list_members() {
+    zstd -q -d -c "$1" > "$work/list.tar" || die "cannot decompress $1"
+    tar -t -f "$work/list.tar" > "$work/list.raw" || die "cannot list $1"
+    sed -n 's|^\(\./\)*||; /[^/]$/p' "$work/list.raw" > "$work/list.files" || die "cannot list $1"
+    sort "$work/list.files" > "$2" || die "cannot list $1"
+    rm -f "$work/list.tar"
 }
 
 pack() {
@@ -91,7 +107,8 @@ pack() {
     sed "s|^directory = \".*\"\$|directory = \"vendor\"|" "$work/config.toml" > "$stage/.cargo/config.toml"
     grep -q '^directory = "vendor"$' "$stage/.cargo/config.toml" ||
         die "cargo vendor printed no directory source"
-    crates=$(find "$stage/vendor" -mindepth 1 -maxdepth 1 -type d | wc -l)
+    find "$stage/vendor" -mindepth 1 -maxdepth 1 -type d > "$work/crates"
+    crates=$(wc -l < "$work/crates")
     cat > "$stage/vendor/README.md" <<EOF
 # The crates vtium $version builds with
 
@@ -109,11 +126,19 @@ EOF
     # Sorted members, the commit's time, root's owner and group by number,
     # permissions that do not follow the umask, and pax headers with fixed
     # names and no access or change times. zstd stores no name or time.
-    (cd "$stage" && tar --create --file=- --sort=name --format=pax \
+    tar --create --file="$work/vendor.tar" --directory="$stage" --sort=name --format=pax \
         --pax-option=exthdr.name=%d/PaxHeaders/%f,delete=atime,delete=ctime \
         --mtime="@$epoch" --owner=0 --group=0 --numeric-owner \
         --mode=u=rwX,go=rX --no-xattrs --no-acls --no-selinux \
-        .cargo vendor) | zstd -q -19 -T0 -c > "$work/$name"
+        .cargo vendor || die "tar cannot pack the staged files"
+    zstd -q -19 -T0 "$work/vendor.tar" -o "$work/$name" || die "zstd cannot compress the tar file"
+    # The archive must hold what was staged.
+    list_members "$work/$name" "$work/members"
+    for f in .cargo/config.toml vendor/README.md; do
+        grep -qxF "$f" "$work/members" || die "the packed archive lacks $f"
+    done
+    packed=$(grep -c '^vendor/[^/]*/Cargo\.toml$' "$work/members") || true
+    [ "$packed" -eq "$crates" ] || die "the packed archive holds $packed crates of the $crates vendored"
     (cd "$work" && sha256sum "$name" > "$name.sha256")
     mv "$work/$name" "$out/$name"
     mv "$work/$name.sha256" "$out/$name.sha256"
@@ -127,11 +152,13 @@ check() {
     export_commit
     # Unpacking must add files and replace none of the commit's. A member
     # named ./PATH unpacks to PATH, and directories replace nothing.
-    zstd -q -d -c "$out/$name" | tar -t | sed -n 's|^\(\./\)*||; /[^/]$/p' | sort > "$work/members"
-    git ls-tree -r --name-only "$commit" | sort > "$work/tracked"
+    list_members "$out/$name" "$work/members"
+    git ls-tree -r --name-only "$commit" > "$work/tracked.raw"
+    sort "$work/tracked.raw" > "$work/tracked"
     clash=$(comm -12 "$work/members" "$work/tracked")
     [ -z "$clash" ] || die "the archive replaces the commit's files: $clash"
-    zstd -q -d -c "$out/$name" | tar -x -C "$work/src"
+    zstd -q -d -c "$out/$name" > "$work/archive.tar" || die "cannot decompress $name"
+    tar -x -f "$work/archive.tar" -C "$work/src" || die "cannot unpack $name"
     mkdir "$work/cargo-home"
     if unshare -rn true 2>/dev/null; then
         set -- unshare -rn
