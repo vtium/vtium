@@ -1,0 +1,38 @@
+> size 20 5
+> send "\e[?1000h"
+> send "\e[?1005h"
+> send "\e[?1005$p"
+< reply "\e[?1005;4$y"
+> mouse press left at 1,0
+< reply "\e[M \"!"
+> mouse release left at 1,0
+< reply "\e[M#\"!"
+> mouse press middle at 2,1
+< reply "\e[M!#\""
+> mouse release middle at 2,1
+< reply "\e[M##\""
+> mouse press right at 3,2
+< reply "\e[M\"$#"
+> mouse release right at 3,2
+< reply "\e[M#$#"
+> wheel up at 4,3
+< reply "\e[M`%$"
+> wheel down at 4,3
+< reply "\e[Ma%$"
+> mouse press left at 5,4 mods=shift
+< reply "\e[M$&%"
+> mouse release left at 5,4 mods=shift
+< reply "\e[M'&%"
+> mouse press left at 6,4 mods=alt
+< reply "\e[M('%"
+> mouse release left at 6,4 mods=alt
+< reply "\e[M+'%"
+> mouse press left at 7,4 mods=ctrl
+< reply "\e[M0(%"
+> mouse release left at 7,4 mods=ctrl
+< reply "\e[M3(%"
+> wheel down at 8,4 mods=ctrl
+< reply "\e[Mq)%"
+> mouse move at 9,4
+> send "\e[?1000l"
+> mouse press left at 1,0

@@ -1,0 +1,16 @@
+> size 20 2
+> focus out
+> focus in
+> send "\e[?1004$p"
+< reply "\e[?1004;2$y"
+> send "\e[?1004h"
+> send "\e[?1004$p"
+< reply "\e[?1004;1$y"
+> focus out
+< reply "\e[O"
+> focus in
+< reply "\e[I"
+> focus in
+< reply "\e[I"
+> send "\e[?1004l"
+> focus out

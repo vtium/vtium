@@ -1,0 +1,18 @@
+# X10 compatibility tracking, mode 9: only presses are reported, with no
+# modifier; releases, moves and the wheel are not. Mode 1000 then replaces
+# it, as setting one tracking mode replaces another.
+# spec: ctlseqs, Mouse Tracking, X10 compatibility mode
+# covers: DEC-9
+size 20 5
+send "\e[?9h"
+send "\e[?9$p"
+mouse press left at 1,0
+mouse release left at 1,0
+mouse press right at 2,1 mods=shift
+mouse release right at 2,1
+wheel up at 3,2
+mouse move left at 4,2
+send "\e[?1000h"
+send "\e[?9$p"
+send "\e[?1000$p"
+mouse press left at 1,0

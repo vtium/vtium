@@ -1,0 +1,66 @@
+# The cursor keys, Home and End while DECCKM is reset, each alone and with
+# each combination of Shift, Alt and Ctrl, then with Logo and with Lock.
+# spec: ctlseqs, PC-Style Function Keys
+# covers: input.legacy
+size 20 2
+send "\e[?1l"
+key Up
+key Up mods=shift
+key Up mods=alt
+key Up mods=shift+alt
+key Up mods=ctrl
+key Up mods=shift+ctrl
+key Up mods=alt+ctrl
+key Up mods=shift+alt+ctrl
+key Up mods=logo
+key Up mods=lock
+key Down
+key Down mods=shift
+key Down mods=alt
+key Down mods=shift+alt
+key Down mods=ctrl
+key Down mods=shift+ctrl
+key Down mods=alt+ctrl
+key Down mods=shift+alt+ctrl
+key Down mods=logo
+key Down mods=lock
+key Right
+key Right mods=shift
+key Right mods=alt
+key Right mods=shift+alt
+key Right mods=ctrl
+key Right mods=shift+ctrl
+key Right mods=alt+ctrl
+key Right mods=shift+alt+ctrl
+key Right mods=logo
+key Right mods=lock
+key Left
+key Left mods=shift
+key Left mods=alt
+key Left mods=shift+alt
+key Left mods=ctrl
+key Left mods=shift+ctrl
+key Left mods=alt+ctrl
+key Left mods=shift+alt+ctrl
+key Left mods=logo
+key Left mods=lock
+key Home
+key Home mods=shift
+key Home mods=alt
+key Home mods=shift+alt
+key Home mods=ctrl
+key Home mods=shift+ctrl
+key Home mods=alt+ctrl
+key Home mods=shift+alt+ctrl
+key Home mods=logo
+key Home mods=lock
+key End
+key End mods=shift
+key End mods=alt
+key End mods=shift+alt
+key End mods=ctrl
+key End mods=shift+ctrl
+key End mods=alt+ctrl
+key End mods=shift+alt+ctrl
+key End mods=logo
+key End mods=lock

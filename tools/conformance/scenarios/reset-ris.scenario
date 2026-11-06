@@ -1,0 +1,15 @@
+# RIS, the full reset (ESC c): the modes return to their defaults as
+# DECSTR returns them, the screen is erased and the cursor goes home.
+# spec: DEC STD 070, RIS; ctlseqs, RIS
+# covers: ctl.decstr
+size 12 4
+send "\e[?1h\e=\e[4h\e[?7l\e[?25l\e[?2004h\e[?1000h\e[?1006h\e[?1004h"
+send "\e[2;4r\e[?6h\e[1;31;44mstyled\e[?5h"
+send "\e[?1$p\e[?66$p\e[4$p\e[?7$p\e[?25$p\e[?2004$p\e[?1000$p\e[?1006$p\e[?1004$p\e[?6$p\e[?5$p"
+dump screen
+send "\ec"
+send "\e[?1$p\e[?66$p\e[4$p\e[?7$p\e[?25$p\e[?2004$p\e[?1000$p\e[?1006$p\e[?1004$p\e[?6$p\e[?5$p"
+key Up
+key KP_5
+mouse press left at 1,1
+dump screen

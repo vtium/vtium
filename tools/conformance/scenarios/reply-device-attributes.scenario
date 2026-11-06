@@ -1,0 +1,11 @@
+# The device attributes vtium reports: DA1 (CSI c and CSI 0 c), DA2
+# (CSI > c), DA3 (CSI = c) and DECID (ESC Z), which answers as DA1 does.
+# spec: ctlseqs, Send Device Attributes; DEC STD 070, DA1, DA2, DA3, DECID
+# covers: query.da1 query.da2 query.da3
+size 20 2
+send "\e[c"
+send "\e[0c"
+send "\e[>c"
+send "\e[>0c"
+send "\e[=c"
+send "\eZ"

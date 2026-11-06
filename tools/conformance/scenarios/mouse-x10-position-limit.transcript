@@ -1,0 +1,11 @@
+> size 300 230
+> send "\e[?1000h"
+> mouse press left at 222,0
+< reply "\e[M \xff!"
+> mouse press left at 223,229
+< reply "\e[M \xff\xff"
+> mouse press left at 299,229
+< reply "\e[M \xff\xff"
+> send "\e[?1006h"
+> mouse press left at 299,229
+< reply "\e[<0;300;230M"
