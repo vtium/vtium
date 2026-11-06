@@ -607,7 +607,8 @@ fn style_asks_are_answered_in_their_style() {
             let payload = rest[8..8 + len].to_vec();
             rest = &rest[8 + len..];
             match kind {
-                FRAME_GLYPHS => answers.push(glyph(payload, CELL, 'A').0),
+                // the band, none here, then the set
+                FRAME_GLYPHS => answers.push(glyph(payload[8..].to_vec(), CELL, 'A').0),
                 FRAME_DONE => {}
                 other => panic!("a frame of kind {other}"),
             }

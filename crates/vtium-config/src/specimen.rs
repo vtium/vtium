@@ -494,7 +494,9 @@ fn ask_glyphs(
         let (kind, payload) = frame(stdout)?;
         match kind {
             FRAME_GLYPHS => {
-                let set = Set::from_bytes(payload).map_err(|e| format!("{e:?}"))?;
+                // the rows line spacing adds, none here, then the set
+                let set = payload.get(8..).ok_or("glyphs without their band")?;
+                let set = Set::from_bytes(set.to_vec()).map_err(|e| format!("{e:?}"))?;
                 sets.push(Arc::new(set));
             }
             FRAME_DONE => return Ok(sets),

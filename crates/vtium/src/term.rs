@@ -847,6 +847,15 @@ impl View {
         self.band
     }
 
+    /// The font's cell with the rows line spacing adds to it: what a
+    /// frit's glyphs for this view are asked for and held by.
+    pub fn spaced(&self) -> vtium_font::spacing::SpacedCell {
+        vtium_font::spacing::SpacedCell {
+            cell: self.cell,
+            band: self.band,
+        }
+    }
+
     /// The pointer's arrow, as the renderer draws it.
     pub fn arrow(&self) -> &Arrow {
         &self.arrow

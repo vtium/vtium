@@ -69,14 +69,18 @@
 //!          width u32, height u32, glyph count u32, data length u32, the
 //!          data, map count u32, each (codepoint u16, glyph u16)
 //! answer   frames: kind u32, length u32, then the payload; kind 1 an
-//!          ask's glyphs and 4 a fill's, each a vitrified set of one cell's
+//!          ask's glyphs and 4 a fill's, each the rows line spacing adds
+//!          above and below the cell u32 and u32, as the request named
+//!          them, then a vitrified set of one cell's
 //!          glyphs, its strikes in the style the request named, an ask's
 //!          clusters in its cluster map; kind 2 the oldest ask answered (no payload); kind 5 a
-//!          cell's fill done (its width u32 and height u32); kind 6 a
+//!          cell's fill done (its width u32, height u32, and rows added
+//!          above u32 and below u32); kind 6 a
 //!          bitmap frit's own cell (its width u32 and height u32); kind 10
 //!          an outline frit's cell at the height asked (its width u32 and
 //!          height u32); kind 7 no own cell (UTF-8 reason); kind 8 a stop
-//!          taken (its cell's width u32 and height u32), one for each
+//!          taken (its cell's width u32, height u32, and rows added above
+//!          u32 and below u32), one for each
 //!          stop; kind 9 a warning the frit's text gave as it was read,
 //!          once for each frit read (UTF-8); kind 11 a sources query's
 //!          answer, one line for each source left out, `missing` or
@@ -165,6 +169,10 @@ pub const HELPER_IDLE_MS: u64 = 60_000;
 pub const HELPER_SECONDS: u64 = 300;
 
 pub const REQUEST_MAGIC: &[u8; 8] = b"VTVSREQ5";
+/// Why the helper refuses a request of another layout of its format: the
+/// console that sent it comes from another build, and the console logs
+/// this as the reason the font helper failed.
+pub const OTHER_BUILD: &str = "the console and the font helper come from different builds of vtium, so the font helper cannot read the console's request; reinstall vtium so that both come from one build";
 /// A frame of an ask's glyphs: a vitrified set.
 pub const FRAME_GLYPHS: u32 = 1;
 /// The oldest ask is answered whole.
@@ -222,6 +230,9 @@ pub const HELD_RANGES_MAX: usize = 65_536;
 pub const FRAME_BYTES_MAX: u32 = 16 << 20;
 /// [`FRAME_BYTES_MAX`] as a length.
 const FRAME: usize = FRAME_BYTES_MAX as usize;
+/// The most bytes a set in a glyph frame holds: the frame's, less the
+/// band in front of it.
+const FRAME_SET: usize = FRAME - 8;
 /// The most bytes a failure's reason holds.
 pub const REASON_BYTES_MAX: usize = 4096;
 /// The most bytes a frit's name holds, a frit name's own bound
@@ -391,7 +402,13 @@ impl ServeRequest {
         r.read_exact(rest)
             .map_err(|_| "a request cut short".to_owned())?;
         if &magic != REQUEST_MAGIC {
-            return Err("not a serve request".to_owned());
+            // a request of another layout of this format comes from a
+            // console of another build
+            return Err(if magic.starts_with(b"VTVSREQ") {
+                OTHER_BUILD.to_owned()
+            } else {
+                "not a serve request".to_owned()
+            });
         }
         let mut f = Fields(r);
         let kind = f.u32()?;
@@ -1610,7 +1627,7 @@ fn send_glyphs(
             }
             Ok(Some(set)) if set.len() > max => {}
             Ok(Some(set)) => {
-                write_frame(out, kind, &set)?;
+                write_frame(out, kind, &glyph_payload(band, &set))?;
                 any = true;
             }
             Err(why) => return Ok(Err(why)),
@@ -1670,6 +1687,27 @@ fn cell_payload(cell: Cell) -> Vec<u8> {
     let mut payload = Vec::with_capacity(8);
     put32(&mut payload, cell.width);
     put32(&mut payload, cell.height);
+    payload
+}
+
+/// A frame's payload of `cell` whose line spacing adds `band`: its width,
+/// its height, and the rows added above and below (ADR-1302 D13). Two
+/// heads can draw one cell size with different bands, so a fill's end and
+/// a stop name both.
+fn spaced_payload(cell: Cell, band: Band) -> Vec<u8> {
+    let mut payload = cell_payload(cell);
+    put32(&mut payload, band.above);
+    put32(&mut payload, band.below);
+    payload
+}
+
+/// A frame of glyphs: the rows line spacing adds to their cell, then
+/// `set`, so the console holds them by the cell and its band.
+fn glyph_payload(band: Band, set: &[u8]) -> Vec<u8> {
+    let mut payload = Vec::with_capacity(set.len().saturating_add(8));
+    put32(&mut payload, band.above);
+    put32(&mut payload, band.below);
+    payload.extend_from_slice(set);
     payload
 }
 
@@ -1807,7 +1845,8 @@ impl Work<'_> {
         if request.kind != STOP {
             self.load(&request.frit, out)?;
         }
-        let same = |f: &Fill| f.frit == request.frit && f.cell == request.cell;
+        let same =
+            |f: &Fill| f.frit == request.frit && f.cell == request.cell && f.band == request.band;
         match request.kind {
             ASK => self.asks.push_back(request),
             FILL => {
@@ -1845,7 +1884,11 @@ impl Work<'_> {
             }
             _ => {
                 self.fills.retain(|f| !same(f));
-                return write_frame(out, FRAME_STOPPED, &cell_payload(request.cell));
+                return write_frame(
+                    out,
+                    FRAME_STOPPED,
+                    &spaced_payload(request.cell, request.band),
+                );
             }
         }
         Ok(())
@@ -1875,7 +1918,7 @@ impl Work<'_> {
                         (w, k),
                         FRAME_GLYPHS,
                         out,
-                        FRAME,
+                        FRAME_SET,
                     )? {
                         result = Err(why);
                         break;
@@ -1907,7 +1950,7 @@ impl Work<'_> {
                 (&batch, &[]),
                 FRAME_FILL,
                 out,
-                FRAME,
+                FRAME_SET,
             )?,
             Err(why) => Err(why.clone()),
         };
@@ -1926,7 +1969,7 @@ impl Work<'_> {
             };
             return failed(out, &why);
         }
-        write_frame(out, FRAME_FILLED, &cell_payload(fill.cell))
+        write_frame(out, FRAME_FILLED, &spaced_payload(fill.cell, fill.band))
     }
 }
 
@@ -2220,7 +2263,20 @@ mod tests {
     }
 
     /// The frames in `bytes`, kind and payload.
-    fn frames(mut bytes: &[u8]) -> Vec<(u32, Vec<u8>)> {
+    /// Each frame in `bytes`, a glyph frame's payload without the band in
+    /// front of its set, which [`bands`] gives.
+    fn frames(bytes: &[u8]) -> Vec<(u32, Vec<u8>)> {
+        raw_frames(bytes)
+            .into_iter()
+            .map(|(kind, payload)| match kind {
+                FRAME_GLYPHS | FRAME_FILL => (kind, payload[8..].to_vec()),
+                _ => (kind, payload),
+            })
+            .collect()
+    }
+
+    /// Each frame in `bytes`, as the helper wrote it.
+    fn raw_frames(mut bytes: &[u8]) -> Vec<(u32, Vec<u8>)> {
         let mut out = Vec::new();
         while !bytes.is_empty() {
             let kind = u32::from_le_bytes(bytes[..4].try_into().unwrap());
@@ -2229,6 +2285,18 @@ mod tests {
             bytes = &bytes[8 + len..];
         }
         out
+    }
+
+    /// The band each glyph frame in `bytes` names, in order.
+    fn bands(bytes: &[u8]) -> Vec<Band> {
+        raw_frames(bytes)
+            .into_iter()
+            .filter(|f| matches!(f.0, FRAME_GLYPHS | FRAME_FILL))
+            .map(|(_, p)| Band {
+                above: u32::from_le_bytes(p[..4].try_into().unwrap()),
+                below: u32::from_le_bytes(p[4..8].try_into().unwrap()),
+            })
+            .collect()
     }
 
     /// The frit `t` of `text`, handed over with no file.
@@ -2259,6 +2327,11 @@ mod tests {
     }
 
     fn run(input: &[ServeRequest]) -> Vec<(u32, Vec<u8>)> {
+        frames(&run_bytes(input))
+    }
+
+    /// What the helper writes for `input`, as it writes it.
+    fn run_bytes(input: &[ServeRequest]) -> Vec<u8> {
         let bytes: Vec<u8> = input.iter().flat_map(ServeRequest::encode).collect();
         let mut out = Vec::new();
         assert_eq!(
@@ -2270,7 +2343,7 @@ mod tests {
             ),
             0
         );
-        frames(&out)
+        out
     }
 
     /// Each glyph frame's set as a face at the 8x16 cell, with its kind.
@@ -2317,8 +2390,11 @@ mod tests {
     };
 
     // the style changed the request's layout, so its magic moved from
-    // VTVSREQ3 to VTVSREQ4 and a request of the old layout is refused
-    // whole; an ask alone names a style (ADR-1200 D21)
+    // ADR-1302 D13's band moved the magic from VTVSREQ4 to VTVSREQ5, as the
+    // style moved it from VTVSREQ3 to VTVSREQ4: a request of an older layout
+    // is refused whole, with the reason a person can act on, and one of no
+    // layout of this format as not a request; an ask alone names a style
+    // (ADR-1200 D21)
     #[test]
     fn the_old_magic_and_a_style_off_an_ask_are_refused() {
         let ask = ServeRequest {
@@ -2327,10 +2403,18 @@ mod tests {
         };
         let bytes = ask.encode();
         assert_eq!(ServeRequest::read(&mut &bytes[..]), Ok(Some(ask)));
-        let mut old = bytes.clone();
-        old[..8].copy_from_slice(b"VTVSREQ3");
+        for magic in [b"VTVSREQ3", b"VTVSREQ4"] {
+            let mut old = bytes.clone();
+            old[..8].copy_from_slice(magic);
+            assert_eq!(
+                ServeRequest::read(&mut &old[..]),
+                Err(OTHER_BUILD.to_owned())
+            );
+        }
+        let mut other = bytes.clone();
+        other[..8].copy_from_slice(b"GARBAGE!");
         assert_eq!(
-            ServeRequest::read(&mut &old[..]),
+            ServeRequest::read(&mut &other[..]),
             Err("not a serve request".to_owned())
         );
         for kind in [FILL, STOP, OWN_CELL, SOURCES] {
@@ -3233,18 +3317,25 @@ mod tests {
     // ADR-1200 D17: a frit that states its cell is drawn at it, the W
     /// The glyphs an ask for `chars` draws from `frit` at `cell`, whose
     /// line spacing adds `band`, as rows, each glyph's in order, with the
-    /// strike's lines.
+    /// first strike's lines and baseline.
     fn spaced_rows(
         frit: &FritText,
         cell: Cell,
         band: Band,
         chars: &[char],
-    ) -> (Vec<Vec<Vec<u8>>>, Decorations) {
-        let frames = run(&[ServeRequest {
+    ) -> (Vec<Vec<Vec<u8>>>, (Decorations, u32)) {
+        let bytes = run_bytes(&[ServeRequest {
             cell,
             band,
             ..request(ASK, frit.clone(), chars)
         }]);
+        // every glyph frame names the band its request named
+        assert!(
+            bands(&bytes).iter().all(|&b| b == band),
+            "{:?}",
+            bands(&bytes)
+        );
+        let frames = frames(&bytes);
         let faces: Vec<SetFace> = frames
             .iter()
             .filter(|f| f.0 == FRAME_GLYPHS)
@@ -3266,7 +3357,8 @@ mod tests {
                 g.rows().map(<[u8]>::to_vec).collect()
             })
             .collect();
-        (rows, faces[0].decorations())
+        let baseline = faces[0].set().strikes().next().unwrap().baseline;
+        (rows, (faces[0].decorations(), baseline))
     }
 
     /// `rows` with `above` blank rows over them and `below` under them.
@@ -3297,8 +3389,8 @@ mod tests {
         };
         let band = Band { above: 2, below: 1 };
         let chars = ['A', '\u{2502}', '\u{2588}'];
-        let (plain, plain_lines) = spaced_rows(&unscii, text, Band::NONE, &chars);
-        let (rows, lines) = spaced_rows(&unscii, cell, band, &chars);
+        let (plain, (plain_lines, plain_base)) = spaced_rows(&unscii, text, Band::NONE, &chars);
+        let (rows, (lines, base)) = spaced_rows(&unscii, cell, band, &chars);
         assert_eq!(rows[0], padded(&plain[0], 2, 1), "A keeps its size");
         for (i, c) in [(1, "a box line"), (2, "a full block")] {
             let p = &plain[i];
@@ -3309,6 +3401,30 @@ mod tests {
         }
         assert_eq!(lines.underline, plain_lines.underline + 2);
         assert_eq!(lines.strike, plain_lines.strike + 2);
+        // the baseline moves down with the text band, so a bitmap glyph
+        // sheared for italic about it leans as it does with no spacing
+        assert_eq!(base, plain_base + 2);
+        let lean = |cell: Cell, band: Band| -> Vec<Vec<u8>> {
+            let frames = run(&[ServeRequest {
+                cell,
+                band,
+                ..request(ASK, unscii.clone(), &['A'])
+            }]);
+            let set = Arc::new(Set::from_bytes(frames[0].1.clone()).unwrap());
+            let face = SetFace::new(set, cell.height).unwrap();
+            let italic = Style {
+                bold: false,
+                italic: true,
+            };
+            let g = face.draw(&['A'], italic).unwrap();
+            g.rows().map(<[u8]>::to_vec).collect()
+        };
+        let (plain_italic, spaced_italic) = (lean(text, Band::NONE), lean(cell, band));
+        assert_eq!(
+            spaced_italic,
+            padded(&plain_italic, 2, 1),
+            "the italic A leans alike"
+        );
         let natural = frit("source=builtin:unscii-8\nfit=natural\n");
         let (rows, _) = spaced_rows(&natural, cell, band, &chars);
         assert_eq!(
@@ -3335,8 +3451,13 @@ mod tests {
         };
         let band = Band { above: 3, below: 3 };
         let chars = ['A', '\u{e0a0}', '\u{1f600}'];
-        let (plain, _) = spaced_rows(&mono, text, Band::NONE, &chars);
-        let (rows, _) = spaced_rows(&mono, cell, band, &chars);
+        let (plain, (_, plain_base)) = spaced_rows(&mono, text, Band::NONE, &chars);
+        let (rows, (_, base)) = spaced_rows(&mono, cell, band, &chars);
+        assert_eq!(
+            base,
+            plain_base + 3,
+            "the baseline moves down with the text band"
+        );
         assert_eq!(rows[0], padded(&plain[0], 3, 3), "A keeps its size");
         assert_ne!(
             rows[1],
@@ -3358,6 +3479,34 @@ mod tests {
             "fit=fill does not stretch a color glyph"
         );
         assert_eq!(rows[0], rows[1], "fit=fill stretches the letter");
+    }
+
+    // ADR-1302 D13: two fills at one cell size with two bands are two
+    // fills, each drawn at its band, each ending with a frame that names
+    // its band; neither replaces the other
+    #[test]
+    fn one_cell_size_with_two_bands_fills_twice() {
+        let unscii = frit("source=builtin:unscii-8\n");
+        let band = Band { above: 2, below: 2 };
+        let fill = |band| ServeRequest {
+            band,
+            ..request(FILL, unscii.clone(), &['A'])
+        };
+        let bytes = run_bytes(&[fill(Band::NONE), fill(band)]);
+        let ends: Vec<Vec<u8>> = raw_frames(&bytes)
+            .into_iter()
+            .filter(|f| f.0 == FRAME_FILLED)
+            .map(|f| f.1)
+            .collect();
+        assert_eq!(
+            ends,
+            [spaced_payload(CELL, Band::NONE), spaced_payload(CELL, band)]
+        );
+        let bands = bands(&bytes);
+        assert!(
+            bands.contains(&Band::NONE) && bands.contains(&band),
+            "{bands:?}"
+        );
     }
 
     // ADR-1302 D13: a request whose line spacing leaves its cell no text
@@ -3507,7 +3656,10 @@ mod tests {
         };
         let frames = run(&[fill]);
         assert_eq!(frames.last().map(|f| f.0), Some(FRAME_FILLED));
-        assert_eq!(frames.last().unwrap().1, [8, 0, 0, 0, 16, 0, 0, 0]);
+        assert_eq!(
+            frames.last().unwrap().1,
+            [8, 0, 0, 0, 16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+        );
         let faces = faces(&frames);
         assert!(faces.len() > 1, "{}", faces.len());
         assert!(faces.iter().all(|f| f.0 == FRAME_FILL));
@@ -3573,7 +3725,10 @@ mod tests {
         assert!(out.is_empty());
         work.take(request(STOP, frit, &[]), &mut out).unwrap();
         assert!(work.fills.is_empty());
-        assert_eq!(frames(&out), [(FRAME_STOPPED, cell_payload(CELL))]);
+        assert_eq!(
+            frames(&out),
+            [(FRAME_STOPPED, spaced_payload(CELL, Band::NONE))]
+        );
     }
 
     // a stop is answered as it is taken, between the stopped fill's last
@@ -3592,7 +3747,11 @@ mod tests {
             .filter(|&i| kinds[i] == FRAME_STOPPED)
             .collect();
         assert_eq!(stops.len(), 2, "{kinds:?}");
-        assert!(stops.iter().all(|&i| frames[i].1 == cell_payload(CELL)));
+        assert!(
+            stops
+                .iter()
+                .all(|&i| frames[i].1 == spaced_payload(CELL, Band::NONE))
+        );
         // the first stop, with no fill, comes first; the first fill's
         // frames, and its end if it reached it, come before the second,
         // and the second fill runs whole after it

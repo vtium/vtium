@@ -5101,14 +5101,22 @@ fn solid_ascii(cell: vtium_font::Cell) -> Vec<u8> {
         s.map(c, g);
     }
     let set = SetBuilder::new("t").strike(s).write().expect("a set");
-    // a fill's frame, then the fill's end
+    fill_of(&set, cell)
+}
+
+/// The helper's answer of `set` as a fill at `cell`, with no line spacing:
+/// the fill's frame, its band of none before the set, then the fill's end,
+/// naming the cell and its band.
+fn fill_of(set: &[u8], cell: vtium_font::Cell) -> Vec<u8> {
     let mut out = 4u32.to_le_bytes().to_vec();
-    out.extend((set.len() as u32).to_le_bytes());
+    out.extend((set.len() as u32 + 8).to_le_bytes());
+    out.extend([0u8; 8]);
     out.extend(set);
     out.extend(5u32.to_le_bytes());
-    out.extend(8u32.to_le_bytes());
+    out.extend(16u32.to_le_bytes());
     out.extend(cell.width.to_le_bytes());
     out.extend(cell.height.to_le_bytes());
+    out.extend([0u8; 8]);
     out
 }
 
@@ -5257,14 +5265,7 @@ fn solid_white_square(cell: vtium_font::Cell) -> Vec<u8> {
     );
     s.map('\u{25a1}', g);
     let set = SetBuilder::new("t").strike(s).write().expect("a set");
-    let mut out = 4u32.to_le_bytes().to_vec();
-    out.extend((set.len() as u32).to_le_bytes());
-    out.extend(set);
-    out.extend(5u32.to_le_bytes());
-    out.extend(8u32.to_le_bytes());
-    out.extend(cell.width.to_le_bytes());
-    out.extend(cell.height.to_le_bytes());
-    out
+    fill_of(&set, cell)
 }
 
 // vtium/vtium#314: a character no font holds draws the font's missing

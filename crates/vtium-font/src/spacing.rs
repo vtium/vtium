@@ -65,6 +65,27 @@ impl Band {
     }
 }
 
+/// A cell and the rows line spacing adds to it: the key a frit's glyphs
+/// are asked for, generated and held by. One cell size can carry two bands
+/// on two heads, as when one head's `font-size` and line spacing reach the
+/// size another head's frit states with no spacing, and the two draw
+/// different glyphs.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct SpacedCell {
+    pub cell: crate::face::Cell,
+    pub band: Band,
+}
+
+impl SpacedCell {
+    /// `cell` with no rows added.
+    pub const fn plain(cell: crate::face::Cell) -> SpacedCell {
+        SpacedCell {
+            cell,
+            band: Band::NONE,
+        }
+    }
+}
+
 /// How a set of characters uses the taller row (ADR-1302 D13, a frit's
 /// `fit=`, ADR-1200 D1).
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]

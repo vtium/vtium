@@ -1395,7 +1395,7 @@ pub(crate) struct Frit {
     pub(crate) refused: bool,
     /// The cells whose glyphs the helper was asked for, over every head
     /// drawing the frit.
-    pub(crate) asked: Vec<vtium_font::Cell>,
+    pub(crate) asked: Vec<vtium_font::spacing::SpacedCell>,
     /// The helper's answer to each cell query, or why there was none, by
     /// the height asked at.
     pub(crate) own: BTreeMap<u32, Result<crate::helper::OwnCell, crate::helper::NoCell>>,

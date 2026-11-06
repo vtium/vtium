@@ -95,7 +95,7 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use vtium_devices::Card;
-use vtium_font::spacing::Band;
+use vtium_font::spacing::SpacedCell;
 use vtium_platform::calloop::LoopHandle;
 use vtium_platform::display::{Blank, Buffers, DPI_ASSUMED, DisplayId, Dpms, Event};
 use vtium_platform::input::{
@@ -1415,15 +1415,15 @@ impl App {
             .iter()
             .filter(|head| head.frit() == Some(name.as_str()))
             .collect();
-        // each cell with the rows line spacing adds to it (ADR-1302 D13),
-        // which one cell always has the same of
-        let mut spaced: Vec<(vtium_font::Cell, Band)> = drawing
+        // each cell with the rows line spacing adds to it (ADR-1302 D13):
+        // two heads can draw one cell size with different bands, and each
+        // band has glyphs of its own
+        let mut cells: Vec<SpacedCell> = drawing
             .iter()
-            .flat_map(|head| head.views.values().map(|v| (v.cell(), v.band())))
+            .flat_map(|head| head.views.values().map(View::spaced))
             .collect();
-        spaced.sort_unstable_by_key(|(c, _)| (c.height, c.width));
-        spaced.dedup_by_key(|(c, _)| *c);
-        let cells: Vec<vtium_font::Cell> = spaced.iter().map(|&(c, _)| c).collect();
+        cells.sort_unstable_by_key(|a| (a.cell.height, a.cell.width, a.band));
+        cells.dedup();
         let now = (self.clock)();
         let Some(frit) = self.frits.get_mut(&name) else {
             return;
@@ -1432,14 +1432,14 @@ impl App {
             helper.retain(&cells, now);
         }
         frit.asked.retain(|c| cells.contains(c));
-        let new: Vec<(vtium_font::Cell, Band, Vec<crate::deferred::Shown>)> = spaced
+        let new: Vec<(SpacedCell, Vec<crate::deferred::Shown>)> = cells
             .into_iter()
-            .filter(|(c, _)| !frit.asked.contains(c))
-            .map(|(cell, band)| {
-                let at = drawing
+            .filter(|c| !frit.asked.contains(c))
+            .map(|at| {
+                let showing = drawing
                     .iter()
-                    .filter(|head| head.views.values().any(|v| v.cell() == cell));
-                (cell, band, shown(at))
+                    .filter(|head| head.views.values().any(|v| v.spaced() == at));
+                (at, shown(showing))
             })
             .collect();
         if new.is_empty() {
@@ -1448,19 +1448,19 @@ impl App {
         let Some(helper) = self.helper(&name) else {
             return;
         };
-        for (cell, band, visible) in &new {
+        for (at, visible) in &new {
             for shown in visible {
-                helper.ask(*cell, *band, shown, now);
+                helper.ask(at.cell, at.band, shown, now);
             }
             // the fill is regular, and draws the regular glyphs shown first
             let first = visible
                 .first()
                 .map(|s| s.chars.as_slice())
                 .unwrap_or_default();
-            helper.fill(*cell, *band, first, now);
+            helper.fill(at.cell, at.band, first, now);
         }
         if let Some(frit) = self.frits.get_mut(&name) {
-            frit.asked.extend(new.into_iter().map(|(cell, _, _)| cell));
+            frit.asked.extend(new.into_iter().map(|(at, _)| at));
         }
     }
 
@@ -1479,16 +1479,11 @@ impl App {
             return;
         };
         let visible = head.visible();
-        for &cell in &frit.asked {
-            if let Some(band) = head
-                .views
-                .values()
-                .find(|v| v.cell() == cell)
-                .map(View::band)
-            {
+        for &at in &frit.asked {
+            if head.views.values().any(|v| v.spaced() == at) {
                 for shown in &visible {
-                    crate::deferred::lock(&frit.generated).touch(cell, shown);
-                    helper.ask(cell, band, shown, now);
+                    crate::deferred::lock(&frit.generated).touch(at, shown);
+                    helper.ask(at.cell, at.band, shown, now);
                 }
             }
         }
@@ -1579,11 +1574,11 @@ impl App {
             // the last turn merge into one set per cell, which the next
             // frame draws once, and only the cells showing their
             // characters draw.
-            let mut arrived: Vec<(vtium_font::Cell, Vec<char>)> = Vec::new();
-            for Answer { cell, chars, .. } in answers {
-                match arrived.iter_mut().find(|(at, _)| *at == cell) {
+            let mut arrived: Vec<(SpacedCell, Vec<char>)> = Vec::new();
+            for Answer { at, chars, .. } in answers {
+                match arrived.iter_mut().find(|(of, _)| *of == at) {
                     Some((_, all)) => all.extend(chars),
-                    None => arrived.push((cell, chars)),
+                    None => arrived.push((at, chars)),
                 }
             }
             for head in &mut self.heads {
@@ -1595,12 +1590,12 @@ impl App {
                     head.visible().into_iter().flat_map(|s| s.chars).collect();
                 visible.sort_unstable();
                 visible.dedup();
-                for (cell, chars) in &arrived {
+                for (at, chars) in &arrived {
                     let (shown, hidden): (Vec<char>, Vec<char>) =
                         chars.iter().partition(|c| visible.binary_search(c).is_ok());
                     let mut missing = false;
                     for v in head.views.values_mut() {
-                        if v.cell() == *cell {
+                        if v.spaced() == *at {
                             v.forget_glyphs(&hidden);
                             if !shown.is_empty() {
                                 v.glyphs_changed(&shown);
@@ -4503,7 +4498,12 @@ mod tests {
             let mut cells: Vec<(u32, u32)> = app
                 .frits
                 .get("t")
-                .map(|f| f.asked.iter().map(|c| (c.width, c.height)).collect())
+                .map(|f| {
+                    f.asked
+                        .iter()
+                        .map(|c| (c.cell.width, c.cell.height))
+                        .collect()
+                })
                 .unwrap_or_default();
             cells.sort_unstable();
             cells
@@ -4512,6 +4512,49 @@ mod tests {
         app.switch_font(0, "unifont");
         assert_eq!(app.heads.first().and_then(Head::frit), None);
         assert_eq!(asked(&app), [(16, 32)], "b's cell alone");
+        drop(app);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // ADR-1302 D13: one cell size can carry two bands on two heads. Here
+    // head a sizes the frit `t` with `font-size` to text 16 rows high and
+    // adds 25% line spacing, an 8x20 cell with 2 rows above and 2 below,
+    // while head b draws `t` in the 8x20 cell it states, with no spacing.
+    // The helper is asked for each, and each keeps glyphs of its own.
+    #[test]
+    fn one_cell_size_with_two_bands_is_asked_for_twice() {
+        let dir = std::env::temp_dir().join(format!("vtium-app-bands-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("t.vtfrit"), "source=builtin:unifont\ncell=8x20\n").unwrap();
+        let fonts = font::Sources {
+            frits: dir.clone(),
+            helper: Some(helper::Command {
+                program: PathBuf::from("/bin/sh"),
+                args: vec!["-c".into(), "exec sleep 30".into()],
+                account: None,
+            }),
+            ..no_fonts()
+        };
+        let heads = "version = 1\n[look spaced]\nfont-name = t\nfont-size = 16\ndisplay-dpi = 72\nfont-line-spacing = 25\n[look stated]\nfont-name = t\nfont-size = 0\n[head a]\nlook = spaced\n[head b]\nlook = stated\n[rules]\ndisplay connector:mem/A -> a\ndisplay connector:mem/B -> b\n";
+        let (_lp, mut app) = seat(Some(heads), fonts);
+        app.add_video(
+            PathBuf::from("/dev/mem0"),
+            Box::new(Still::new(&[(1, "A"), (2, "B")])),
+        );
+        shown(&mut app);
+        let mut asked: Vec<(u32, u32, u32, u32)> = app
+            .frits
+            .get("t")
+            .map(|f| {
+                f.asked
+                    .iter()
+                    .map(|a| (a.cell.width, a.cell.height, a.band.above, a.band.below))
+                    .collect()
+            })
+            .unwrap_or_default();
+        asked.sort_unstable();
+        assert_eq!(asked, [(8, 20, 0, 0), (8, 20, 2, 2)]);
         drop(app);
         let _ = std::fs::remove_dir_all(&dir);
     }
