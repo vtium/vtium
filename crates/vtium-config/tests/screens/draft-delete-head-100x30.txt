@@ -1,6 +1,6 @@
  Flow  Looks  Fonts  Settings  Help               View  Install  Revert  Restore  New  Delete draft
  draft bench · no changes · no problems                                  text preview · t: try live
- shared settings   font-size 12   (102 others at their defaults)
+ shared settings   font-size 12   (103 others at their defaults)
 DISPLAYS        DISPLAY RULES       HEADS       LOOKS           INPUT RULES         INPUT DEVICES
                 1 * -> desk      ╌╌► desk        big, automa… ┌─2 path:pci-0:3.3 ◄── kbd
                   none connected     1 console   └ proof      │   -> panel           pci-0:3.3
