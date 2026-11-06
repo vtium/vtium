@@ -220,11 +220,12 @@ endif
 # HWACCEL and DISPLAY_BUFFERS set the defaults of hwaccel and
 # display-buffers that both builds read from the key table (ADR-1500 D8).
 # make install-terminfo stages vtium's terminfo entry, compiled under its
-# name xterm-vtium and its alias vtium, with LICENSE and COPYING, for the package that holds
-# the terminfo entry alone. Neither target stages a file the C reference's
-# packages own: nothing under /etc/kmscon, no terminfo entry named kmscon
-# and no kmsconvt@ unit. The builds use the host's toolchain, as a distribution's package
-# builds do, in a target directory of their own, INSTALL_TARGET_DIR.
+# name xterm-vtium and its alias vtium, with LICENSE and COPYING, for the
+# package that holds the terminfo entry alone. Neither target stages a file
+# the C reference's packages own: nothing under /etc/kmscon, no terminfo
+# entry named kmscon and no kmsconvt@ unit. The builds use the host's
+# toolchain, as a distribution's package builds do, in a target directory
+# of their own, INSTALL_TARGET_DIR.
 # CARGO_BUILD_FLAGS goes to each cargo call, as --frozen for a package build
 # that fetched its crates first.
 PREFIX := /usr/local

@@ -53,7 +53,7 @@ The packages install these files:
 | `/etc/vtium/vtium.conf.example` | the example configuration, which lists every key at its default, commented out, and then the heads and rules vtium runs with no configuration |
 | `/etc/vtium/fonts/` | the frits `desktop`, `minspec-16` and `minspec-8`; each is ready to choose with `vtium config` or vtium.conf's `font-name`, and a frit that nothing names changes nothing |
 | `/usr/share/doc/vtium/examples/` | an example udev rule and hwdb fragment, which are documentation and never active |
-| `/usr/share/terminfo/x/xterm-vtium` | the terminfo entry, from the terminfo package |
+| `/usr/share/terminfo/x/xterm-vtium`, `/usr/share/terminfo/v/vtium` | the terminfo entry, under its name and its alias `vtium`, from the terminfo package |
 | `/usr/share/licenses/<package>/LICENSE` | the license, in each package |
 | `/usr/share/licenses/<package>/COPYING` | vtium's authors and the notices for the third-party code and data vtium builds in, in each package except `vtium-fonts`, which carries only its own `LICENSE` |
 | `/usr/share/licenses/<package>/OFL-1.1.txt`, `rgb-license.txt` | the two license texts that `COPYING` points to, the SIL Open Font License of the Unifont font and the license of X.Org's color names, in each console package |

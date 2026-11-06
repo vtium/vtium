@@ -3645,11 +3645,11 @@ class Package(Case):
                 self.assertEqual(links, sorted(before + ["autovt@tty3.service", "getty.target.wants/vtium@tty3.service"]))
                 self.assertEqual(os.readlink(os.path.join(etc, "autovt@tty3.service")), "/usr/lib/systemd/system/vtium@.service")
 
-    # A small entry under vtium's terminfo name, as the test's stand-in for
-    # crates/vtium/install/xterm-vtium.ti.
-    TERMINFO = "xterm-vtium|a stand-in for vtium's entry,\n\tam, cols#80, lines#24, bel=^G, clear=\\E[H\\E[2J,\n"
+    # A small entry under vtium's terminfo name and its alias, as the test's
+    # stand-in for crates/vtium/install/xterm-vtium.ti.
+    TERMINFO = "xterm-vtium|vtium|a stand-in for vtium's entry,\n\tam, cols#80, lines#24, bel=^G, clear=\\E[H\\E[2J,\n"
 
-    def test_install_terminfo_stages_xterm_vtium_alone(self):
+    def test_install_terminfo_stages_xterm_vtium_and_its_alias(self):
         if not shutil.which("tic"):
             self.skipTest("no tic")
         src = os.path.join(self.s.tmp, "xterm-vtium.ti")
@@ -3658,7 +3658,16 @@ class Package(Case):
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         self.assertEqual(self.staged(), ["usr/share/licenses/vtium-terminfo/COPYING",
                                          "usr/share/licenses/vtium-terminfo/LICENSE",
+                                         "usr/share/terminfo/v/vtium",
                                          "usr/share/terminfo/x/xterm-vtium"])
+        # An entry without the alias compiles xterm-vtium alone, and the check
+        # refuses it, so a package never ships without TERM=vtium.
+        bare = os.path.join(self.s.tmp, "bare", "xterm-vtium.ti")
+        os.makedirs(os.path.dirname(bare))
+        write(bare, self.TERMINFO.replace("xterm-vtium|vtium|", "xterm-vtium|"), 0o644)
+        p = self.make("install-terminfo", f"DESTDIR={self.dest}-bare", "PREFIX=/usr", f"TERMINFO_SRC={bare}")
+        self.assertNotEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn("did not compile xterm-vtium and its alias vtium alone", p.stderr)
         for name in ("COPYING", "LICENSE"):
             self.assertEqual(read(os.path.join(self.dest, "usr/share/licenses/vtium-terminfo", name)),
                              read(os.path.join(ROOT, name)), name)

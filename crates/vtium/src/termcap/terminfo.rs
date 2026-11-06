@@ -405,8 +405,9 @@ fn the_entrys_modes_are_vtiums() {
 }
 
 // A terminal answers XTGETTCAP from vtium's table under xterm-vtium and
-// from the C reference's under kmscon, as the C reference answered under
-// its own name; under any other name it answers nothing.
+// its alias vtium, and from kmscon.ti's under kmscon, the name of the
+// released kmscon's entry; under any other name every name XTGETTCAP asks
+// for is unknown.
 // covers: query.xtgettcap
 #[test]
 fn each_entrys_name_gets_its_own_table() {
