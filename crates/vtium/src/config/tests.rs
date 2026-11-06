@@ -47,15 +47,9 @@ fn tier3_guest_configurations() {
     // Each file, its font-engine, font-name and font-size, and hwaccel.
     type Case<'a> = (&'a str, Option<&'a str>, Option<&'a str>, u64, bool);
     let cases: [Case; 5] = [
-        (TIER3_2D, Some("pango"), Some("DejaVu Sans Mono"), 16, false),
-        (
-            TIER3_FONT32,
-            Some("pango"),
-            Some("DejaVu Sans Mono"),
-            32,
-            false,
-        ),
-        (TIER3_GL, Some("pango"), Some("DejaVu Sans Mono"), 16, true),
+        (TIER3_2D, None, Some("tier3-text"), 16, false),
+        (TIER3_FONT32, None, Some("tier3-text"), 32, false),
+        (TIER3_GL, None, Some("tier3-text"), 16, true),
         (
             TIER3_MIN_PSF,
             Some("psf"),
