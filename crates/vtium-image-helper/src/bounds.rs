@@ -29,8 +29,8 @@ pub const SHM_DIR: &str = "/dev/shm";
 
 /// The most bytes the PNG decoder may allocate beside the picture it
 /// writes, for its rows and chunks: the request's `max_bytes`, but at
-/// most this, the png crate's own default. The C reference bounded
-/// libpng's chunks at 8 MiB.
+/// most this, the png crate's own default. It keeps a hostile PNG from
+/// making the decoder allocate more than the request allows.
 pub const PNG_WORK_MAX: u64 = 64 << 20;
 
 /// The descriptor the helper's socket to vtium is on (ADR-1101 D3).

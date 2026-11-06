@@ -7,8 +7,7 @@
 //! height past the largest the request allows as `TOO_LARGE`, and a
 //! picture whose width × height × 4 bytes pass `max_bytes` as
 //! `OVER_BUDGET`, before it allocates a pixel. It decodes to 8-bit RGBA
-//! with no gamma or color-profile correction, as the C reference did, and
-//! premultiplies the result through vtium-image's one conversion, so the
+//! with no gamma or color-profile correction, and premultiplies the result through vtium-image's one conversion, so the
 //! picture comes back in the store's format. A file that does not decode
 //! is `CORRUPT`. Each takes the worker's proof that it has locked itself
 //! in ([`Locked`]).
@@ -103,8 +102,8 @@ fn png_failure(e: &png::DecodingError) -> Failure {
 
 /// A PNG decoded: palette, grey, 16-bit and interlaced pictures expanded
 /// to 8-bit RGBA. Bytes after the end chunk are counted as unused; a
-/// stream whose end chunk is missing after a whole picture decodes and
-/// counts none, as the C reference accepted.
+/// stream whose end chunk is missing after a whole picture decodes, since
+/// every pixel is there, and counts none.
 pub fn png(data: &[u8], bounds: Bounds, _: &Locked) -> Result<Picture, Failure> {
     let mut cursor = Cursor::new(data);
     let work = usize::try_from(bounds.max_bytes.min(PNG_WORK_MAX)).unwrap_or(usize::MAX);
@@ -180,8 +179,7 @@ fn expand(rgba: &mut [u8], channels: usize) {
 /// its table of colors without these checks and slices past a palette
 /// whose length is not a multiple of three, a panic a hostile file can
 /// cause. A transparency chunk with more entries than the palette is no
-/// such danger: `png` ignores the chunk and decodes the picture opaque,
-/// and the C reference showed such files too.
+/// such danger: `png` ignores the chunk and decodes the picture opaque.
 fn palette_whole(info: &png::Info<'_>) -> Result<(), Failure> {
     if info.color_type != png::ColorType::Indexed {
         return Ok(());

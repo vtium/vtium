@@ -1,7 +1,7 @@
 //! zlib (kitty's `o=z`), inflated as a stream that stops at its bound
 //! (ADR-1101 D6), through `miniz_oxide`.
 //!
-//! How much comes out follows the C reference's rules: for raw pixels,
+//! How much comes out follows these rules: for raw pixels,
 //! once the bytes the picture needs are out the rest is ignored; where the
 //! request asks for exactly that many bytes, one byte more is `CORRUPT`;
 //! otherwise, for a PNG inside zlib, a byte past `max_bytes` is
@@ -58,8 +58,8 @@ pub fn inflate_bounded(input: &[u8], goal: Goal, _: &Locked) -> Result<Inflated,
     };
     let limit = usize::try_from(limit).map_err(|_| over(format!("{limit} bytes to inflate")))?;
     // raw pixels need exactly their bytes, which are allocated at once;
-    // a PNG takes the C reference's first guess, four times the input and
-    // at least 4 KiB, and grows toward the budget
+    // a PNG starts with room for four times the input, at least 4 KiB,
+    // and grows toward the budget
     let first = match goal {
         Goal::Stop(_) | Goal::Exact(_) => limit,
         Goal::Budget { .. } => input.len().saturating_mul(4).max(4096).min(limit),
