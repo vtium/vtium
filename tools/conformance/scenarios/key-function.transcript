@@ -2,195 +2,195 @@
 > key F1
 < reply "\eOP"
 > key F1 mods=shift
-< reply "\e[23~"
+< reply "\e[1;2P"
 > key F1 mods=alt
-< reply "\e\eOP"
+< reply "\e[1;3P"
 > key F1 mods=shift+alt
-< reply "\e\e[23~"
+< reply "\e[1;4P"
 > key F1 mods=ctrl
-< reply "\eOP"
+< reply "\e[1;5P"
 > key F1 mods=shift+ctrl
-< reply "\e[23~"
+< reply "\e[1;6P"
 > key F1 mods=alt+ctrl
-< reply "\e\eOP"
+< reply "\e[1;7P"
 > key F1 mods=shift+alt+ctrl
-< reply "\e\e[23~"
+< reply "\e[1;8P"
 > key F2
 < reply "\eOQ"
 > key F2 mods=shift
-< reply "\e[24~"
+< reply "\e[1;2Q"
 > key F2 mods=alt
-< reply "\e\eOQ"
+< reply "\e[1;3Q"
 > key F2 mods=shift+alt
-< reply "\e\e[24~"
+< reply "\e[1;4Q"
 > key F2 mods=ctrl
-< reply "\eOQ"
+< reply "\e[1;5Q"
 > key F2 mods=shift+ctrl
-< reply "\e[24~"
+< reply "\e[1;6Q"
 > key F2 mods=alt+ctrl
-< reply "\e\eOQ"
+< reply "\e[1;7Q"
 > key F2 mods=shift+alt+ctrl
-< reply "\e\e[24~"
+< reply "\e[1;8Q"
 > key F3
 < reply "\eOR"
 > key F3 mods=shift
-< reply "\e[25~"
+< reply "\e[1;2R"
 > key F3 mods=alt
-< reply "\e\eOR"
+< reply "\e[1;3R"
 > key F3 mods=shift+alt
-< reply "\e\e[25~"
+< reply "\e[1;4R"
 > key F3 mods=ctrl
-< reply "\eOR"
+< reply "\e[1;5R"
 > key F3 mods=shift+ctrl
-< reply "\e[25~"
+< reply "\e[1;6R"
 > key F3 mods=alt+ctrl
-< reply "\e\eOR"
+< reply "\e[1;7R"
 > key F3 mods=shift+alt+ctrl
-< reply "\e\e[25~"
+< reply "\e[1;8R"
 > key F4
 < reply "\eOS"
 > key F4 mods=shift
-< reply "\e[26~"
+< reply "\e[1;2S"
 > key F4 mods=alt
-< reply "\e\eOS"
+< reply "\e[1;3S"
 > key F4 mods=shift+alt
-< reply "\e\e[26~"
+< reply "\e[1;4S"
 > key F4 mods=ctrl
-< reply "\eOS"
+< reply "\e[1;5S"
 > key F4 mods=shift+ctrl
-< reply "\e[26~"
+< reply "\e[1;6S"
 > key F4 mods=alt+ctrl
-< reply "\e\eOS"
+< reply "\e[1;7S"
 > key F4 mods=shift+alt+ctrl
-< reply "\e\e[26~"
+< reply "\e[1;8S"
 > key F5
 < reply "\e[15~"
 > key F5 mods=shift
-< reply "\e[28~"
+< reply "\e[15;2~"
 > key F5 mods=alt
-< reply "\e\e[15~"
+< reply "\e[15;3~"
 > key F5 mods=shift+alt
-< reply "\e\e[28~"
+< reply "\e[15;4~"
 > key F5 mods=ctrl
-< reply "\e[15~"
+< reply "\e[15;5~"
 > key F5 mods=shift+ctrl
-< reply "\e[28~"
+< reply "\e[15;6~"
 > key F5 mods=alt+ctrl
-< reply "\e\e[15~"
+< reply "\e[15;7~"
 > key F5 mods=shift+alt+ctrl
-< reply "\e\e[28~"
+< reply "\e[15;8~"
 > key F6
 < reply "\e[17~"
 > key F6 mods=shift
-< reply "\e[29~"
+< reply "\e[17;2~"
 > key F6 mods=alt
-< reply "\e\e[17~"
+< reply "\e[17;3~"
 > key F6 mods=shift+alt
-< reply "\e\e[29~"
+< reply "\e[17;4~"
 > key F6 mods=ctrl
-< reply "\e[17~"
+< reply "\e[17;5~"
 > key F6 mods=shift+ctrl
-< reply "\e[29~"
+< reply "\e[17;6~"
 > key F6 mods=alt+ctrl
-< reply "\e\e[17~"
+< reply "\e[17;7~"
 > key F6 mods=shift+alt+ctrl
-< reply "\e\e[29~"
+< reply "\e[17;8~"
 > key F7
 < reply "\e[18~"
 > key F7 mods=shift
-< reply "\e[31~"
+< reply "\e[18;2~"
 > key F7 mods=alt
-< reply "\e\e[18~"
+< reply "\e[18;3~"
 > key F7 mods=shift+alt
-< reply "\e\e[31~"
+< reply "\e[18;4~"
 > key F7 mods=ctrl
-< reply "\e[18~"
+< reply "\e[18;5~"
 > key F7 mods=shift+ctrl
-< reply "\e[31~"
+< reply "\e[18;6~"
 > key F7 mods=alt+ctrl
-< reply "\e\e[18~"
+< reply "\e[18;7~"
 > key F7 mods=shift+alt+ctrl
-< reply "\e\e[31~"
+< reply "\e[18;8~"
 > key F8
 < reply "\e[19~"
 > key F8 mods=shift
-< reply "\e[32~"
+< reply "\e[19;2~"
 > key F8 mods=alt
-< reply "\e\e[19~"
+< reply "\e[19;3~"
 > key F8 mods=shift+alt
-< reply "\e\e[32~"
+< reply "\e[19;4~"
 > key F8 mods=ctrl
-< reply "\e[19~"
+< reply "\e[19;5~"
 > key F8 mods=shift+ctrl
-< reply "\e[32~"
+< reply "\e[19;6~"
 > key F8 mods=alt+ctrl
-< reply "\e\e[19~"
+< reply "\e[19;7~"
 > key F8 mods=shift+alt+ctrl
-< reply "\e\e[32~"
+< reply "\e[19;8~"
 > key F9
 < reply "\e[20~"
 > key F9 mods=shift
-< reply "\e[33~"
+< reply "\e[20;2~"
 > key F9 mods=alt
-< reply "\e\e[20~"
+< reply "\e[20;3~"
 > key F9 mods=shift+alt
-< reply "\e\e[33~"
+< reply "\e[20;4~"
 > key F9 mods=ctrl
-< reply "\e[20~"
+< reply "\e[20;5~"
 > key F9 mods=shift+ctrl
-< reply "\e[33~"
+< reply "\e[20;6~"
 > key F9 mods=alt+ctrl
-< reply "\e\e[20~"
+< reply "\e[20;7~"
 > key F9 mods=shift+alt+ctrl
-< reply "\e\e[33~"
+< reply "\e[20;8~"
 > key F10
 < reply "\e[21~"
 > key F10 mods=shift
-< reply "\e[34~"
+< reply "\e[21;2~"
 > key F10 mods=alt
-< reply "\e\e[21~"
+< reply "\e[21;3~"
 > key F10 mods=shift+alt
-< reply "\e\e[34~"
+< reply "\e[21;4~"
 > key F10 mods=ctrl
-< reply "\e[21~"
+< reply "\e[21;5~"
 > key F10 mods=shift+ctrl
-< reply "\e[34~"
+< reply "\e[21;6~"
 > key F10 mods=alt+ctrl
-< reply "\e\e[21~"
+< reply "\e[21;7~"
 > key F10 mods=shift+alt+ctrl
-< reply "\e\e[34~"
+< reply "\e[21;8~"
 > key F11
 < reply "\e[23~"
 > key F11 mods=shift
 < reply "\e[23;2~"
 > key F11 mods=alt
-< reply "\e\e[23~"
+< reply "\e[23;3~"
 > key F11 mods=shift+alt
-< reply "\e\e[23;2~"
+< reply "\e[23;4~"
 > key F11 mods=ctrl
-< reply "\e[23~"
+< reply "\e[23;5~"
 > key F11 mods=shift+ctrl
-< reply "\e[23;2~"
+< reply "\e[23;6~"
 > key F11 mods=alt+ctrl
-< reply "\e\e[23~"
+< reply "\e[23;7~"
 > key F11 mods=shift+alt+ctrl
-< reply "\e\e[23;2~"
+< reply "\e[23;8~"
 > key F12
 < reply "\e[24~"
 > key F12 mods=shift
 < reply "\e[24;2~"
 > key F12 mods=alt
-< reply "\e\e[24~"
+< reply "\e[24;3~"
 > key F12 mods=shift+alt
-< reply "\e\e[24;2~"
+< reply "\e[24;4~"
 > key F12 mods=ctrl
-< reply "\e[24~"
+< reply "\e[24;5~"
 > key F12 mods=shift+ctrl
-< reply "\e[24;2~"
+< reply "\e[24;6~"
 > key F12 mods=alt+ctrl
-< reply "\e\e[24~"
+< reply "\e[24;7~"
 > key F12 mods=shift+alt+ctrl
-< reply "\e\e[24;2~"
+< reply "\e[24;8~"
 > send "\e[?1h"
 > key F1
 < reply "\eOP"

@@ -83,19 +83,19 @@
 > key Home
 < reply "\e[H"
 > key Home mods=shift
-< reply "\e[H"
+< reply "\e[1;2H"
 > key Home mods=alt
-< reply "\e\e[H"
+< reply "\e[1;3H"
 > key Home mods=shift+alt
-< reply "\e\e[H"
+< reply "\e[1;4H"
 > key Home mods=ctrl
-< reply "\e[H"
+< reply "\e[1;5H"
 > key Home mods=shift+ctrl
-< reply "\e[H"
+< reply "\e[1;6H"
 > key Home mods=alt+ctrl
-< reply "\e\e[H"
+< reply "\e[1;7H"
 > key Home mods=shift+alt+ctrl
-< reply "\e\e[H"
+< reply "\e[1;8H"
 > key Home mods=logo
 < reply "\e[H"
 > key Home mods=lock
@@ -103,19 +103,19 @@
 > key End
 < reply "\e[F"
 > key End mods=shift
-< reply "\e[F"
+< reply "\e[1;2F"
 > key End mods=alt
-< reply "\e\e[F"
+< reply "\e[1;3F"
 > key End mods=shift+alt
-< reply "\e\e[F"
+< reply "\e[1;4F"
 > key End mods=ctrl
-< reply "\e[F"
+< reply "\e[1;5F"
 > key End mods=shift+ctrl
-< reply "\e[F"
+< reply "\e[1;6F"
 > key End mods=alt+ctrl
-< reply "\e\e[F"
+< reply "\e[1;7F"
 > key End mods=shift+alt+ctrl
-< reply "\e\e[F"
+< reply "\e[1;8F"
 > key End mods=logo
 < reply "\e[F"
 > key End mods=lock
