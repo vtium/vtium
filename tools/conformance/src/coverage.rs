@@ -90,7 +90,7 @@ pub fn render(
     tests: &BTreeMap<String, Vec<String>>,
 ) -> Result<String, String> {
     let mut out = String::from(
-        "# Coverage\n\n<!-- generated from capabilities.list and ADR-1000's tables; VTIUM_CONFORMANCE_BLESS=1 cargo test -p vtium-conformance coverage rewrites it -->\n\nEach capability the C reference's probes judge, the ADR-1000 rows its probe covers, the tests that guard those rows, and the gap: the issue that owes a missing capability, or a row no test guards yet. The probes themselves run through `conformance probes` (README.md).\n\n| Capability | Status | ADR-1000 rows | Tests | Gap |\n|---|---|---|---|---|\n",
+        "# Coverage\n\n<!-- generated from capabilities.list and ADR-1000's tables; VTIUM_CONFORMANCE_BLESS=1 cargo test -p vtium-conformance coverage rewrites it -->\n\nEach capability the capability probes judge, the ADR-1000 rows its probe covers, the tests that guard those rows, and the gap: the issue that owes a missing capability, or a row no test guards yet. The probes themselves run through `conformance probes` (README.md).\n\n| Capability | Status | ADR-1000 rows | Tests | Gap |\n|---|---|---|---|---|\n",
     );
     for c in caps {
         let mut guards: Vec<&str> = Vec::new();
