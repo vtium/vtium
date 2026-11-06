@@ -846,8 +846,13 @@ impl DeferredFace {
     /// font's in the cell, which draws the style itself.
     fn single(&self, c: char, style: Style) -> Option<Glyph> {
         let held = lock(&self.generated).draw(self.at(), &[c], style);
+        held.or_else(|| self.built_in(c, style))
+    }
+
+    /// `c`'s glyph in `style` from the built-in font, fitted to the cell.
+    fn built_in(&self, c: char, style: Style) -> Option<Glyph> {
         let fit = Fit::default_for(u32::from(c), is_mark(c));
-        held.or_else(|| self.fit(self.builtin.draw(&[c], style)?, fit))
+        self.fit(self.builtin.draw(&[c], style)?, fit)
     }
 
     /// A cluster the store does not hold drawn without its own glyph
@@ -997,6 +1002,12 @@ impl Face for DeferredFace {
         self.band
     }
 
+    /// The face's built-in font alone, fitted to its cell as it draws a
+    /// character the store lacks, whatever the store holds.
+    fn builtins(&self) -> Option<Box<dyn Face + '_>> {
+        Some(Box::new(Builtins(self)))
+    }
+
     /// The lines the helper's strikes at the cell report, once a set there
     /// is held: an outline first source's own, measured from the font's
     /// `post` and `OS/2` tables, and a bitmap first source's the lines for
@@ -1022,6 +1033,48 @@ impl Face for DeferredFace {
             strike: lines.strike.saturating_add(self.band.above),
             ..lines
         }
+    }
+}
+
+/// A [`DeferredFace`]'s built-in font alone, in the face's cell: what the
+/// console draws its notices and focus mark with (ADR-1401 D5, D7), so a
+/// notice draws in one font on one baseline whatever the helper sent for
+/// the characters the terminal shows. It draws a cluster as its first
+/// character, and its lines are the built-in font's as the face places
+/// them.
+struct Builtins<'a>(&'a DeferredFace);
+
+impl Face for Builtins<'_> {
+    fn cell(&self) -> Cell {
+        self.0.cell
+    }
+
+    fn size_step(&self) -> u32 {
+        self.0.step
+    }
+
+    fn has_glyph(&self, c: char) -> bool {
+        self.0.builtin.has_glyph(c)
+    }
+
+    fn coverage(&self, range: Range) -> RangeCoverage {
+        self.0.builtin.coverage(range)
+    }
+
+    fn sprite_policy(&self) -> SpritePolicy {
+        self.0.builtin.sprite_policy()
+    }
+
+    fn draw(&self, cluster: &[char], style: Style) -> Option<Glyph> {
+        self.0.built_in(*cluster.first()?, style)
+    }
+
+    fn last_resort(&self, style: Style) -> Option<Glyph> {
+        self.0.last_resort(style)
+    }
+
+    fn band(&self) -> Band {
+        self.0.band
     }
 }
 
@@ -1120,6 +1173,47 @@ mod tests {
             .flat_map(|y| (0..g.width()).map(move |x| (x, y)))
             .filter(|&(x, y)| g.pixel(x, y).unwrap()[0] > 0)
             .count()
+    }
+
+    // ADR-1401 D5, D7: the console draws a notice and the focus mark from
+    // the built-in fonts in the head's cell, whatever the helper sent. The
+    // store holds solid glyphs for `f`, `p`, `s` and the filled circle, as
+    // a frit's glyphs for characters the terminal shows; the overlay over
+    // that face draws the same pixels as over a face whose store is empty,
+    // and the glyphs the store holds never reach it.
+    #[test]
+    fn a_notice_and_the_mark_draw_from_the_built_in_fonts_alone() {
+        use crate::term::{Overlay, OverlayColors};
+        use vtium_render::{Canvas, Config as RenderConfig, Mark, Orientation, Renderer};
+        let chars = ['f', 'p', 's', '\u{25cf}'];
+        let generated = Shared::default();
+        let runs = chars.iter().map(|&c| (u32::from(c), 1)).collect();
+        assert!(add(&mut lock(&generated), CELL, solid(CELL, &chars), runs, 1).is_some());
+        let held = face(&generated);
+        assert!(
+            all(&held.draw(&['s'], Style::default()).unwrap(), 255),
+            "s is held"
+        );
+        let overlay = Overlay::new(
+            Some("59.9 fps 12.345 ms"),
+            &[],
+            Some(Mark::Focus),
+            OverlayColors::default(),
+        );
+        let drawn = |face: DeferredFace| {
+            let face: DisplayFace = Box::new(face);
+            let renderer = Renderer::new(Font::new(face), 320, 96, RenderConfig::default());
+            let mut canvas = Canvas::new(320, 96, 0);
+            let areas = overlay.draw(&renderer, (40, 6), Orientation::Normal, &mut canvas);
+            assert_eq!(areas.len(), 2, "the box and the mark");
+            canvas
+        };
+        let built_in = drawn(face(&Shared::default()));
+        let over_held = drawn(held);
+        assert!(
+            built_in.pixels() == over_held.pixels(),
+            "the notice and the mark draw from the built-in fonts alone"
+        );
     }
 
     // ADR-1200 D20, D21: the store keys a glyph by its style as well as

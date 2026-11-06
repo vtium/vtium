@@ -387,21 +387,49 @@ impl Overlay {
     }
 
     /// Draws the overlay into `target`, a display buffer of `size` that is
-    /// only written, as [`Overlay::draw`] does.
+    /// only written, as [`Overlay::draw`] does. Every character of a notice
+    /// and the mark comes from the built-in fonts in the renderer's cell
+    /// (ADR-1401 D5, D7): from the face's [`Face::builtins`] where it draws
+    /// a font set's glyphs over them, as a frit's face does, and otherwise
+    /// from the renderer's face, a built-in font itself. The renderer's
+    /// sprite policy and missing glyph hold for either.
     pub fn draw_into<F: Face>(
         &self,
         renderer: &Renderer<F>,
         grid: (usize, usize),
         orientation: Orientation,
+        size: (u32, u32),
+        target: &mut impl Target,
+    ) -> Vec<DisplayRect> {
+        let own = renderer.font();
+        let depth = renderer.depth();
+        match own.face().builtins() {
+            Some(face) => {
+                let font = Font::new(face)
+                    .with_policy(own.policy())
+                    .with_missing(own.missing());
+                self.draw_with(&font, depth, grid, orientation, size, target)
+            }
+            None => self.draw_with(own, depth, grid, orientation, size, target),
+        }
+    }
+
+    /// Draws the overlay into `target` with `font`, as
+    /// [`Overlay::draw_into`] does.
+    fn draw_with<F: Face>(
+        &self,
+        font: &Font<F>,
+        depth: Depth,
+        grid: (usize, usize),
+        orientation: Orientation,
         (width, height): (u32, u32),
         target: &mut impl Target,
     ) -> Vec<DisplayRect> {
-        let font = renderer.font();
         let surface = Surface {
             width,
             height,
             orientation,
-            depth: renderer.depth(),
+            depth,
         };
         let cell = self
             .mark
