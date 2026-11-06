@@ -17,9 +17,9 @@ use crate::bounds::{
 };
 use crate::set::format::{
     CHUNK_DEFLATED, CHUNK_RECORD, CLUS, CLUSTER_RECORD, CMAP, COVERAGE_RECORD, FORMAT_BITS,
-    FORMAT_R8, FORMAT_RGBA, GLYF, INK_CLUSTER, INK_GLYPH, INK_RECORD, INKX, MAGIC, MAJOR, META,
-    MINOR, POLY, PRELUDE_BYTES, RUN_RECORD, RUN_WIDE, SECTION_BYTES, SOURCE_AUTO, STRIKE_RECORD,
-    STRK, glyph_bytes, in_reach,
+    FORMAT_R8, FORMAT_RGBA, GLYF, INK_CLUSTER, INK_GLYPH, INK_RECORD, INKX, InkRect, MAGIC, MAJOR,
+    META, MINOR, POLY, PRELUDE_BYTES, RUN_RECORD, RUN_WIDE, SECTION_BYTES, SOURCE_AUTO,
+    STRIKE_RECORD, STRK, glyph_bytes,
 };
 use crate::set::pack::deflate;
 use std::collections::BTreeMap;
@@ -391,9 +391,15 @@ fn check_ink(s: &RawStrike, wide: bool, ink: &RawInk) -> Result<(), WriteError> 
     if s.format == FORMAT_RGBA {
         return Err("an ink box in a color strike");
     }
-    let cell = i64::from(s.cell_width);
-    let cells = cell.saturating_mul(if wide { 2 } else { 1 });
-    if !in_reach(i64::from(ink.left), i64::from(ink.width), cell, cells) {
+    let cell = (i64::from(s.cell_width), i64::from(s.cell_height));
+    let cells = (cell.0.saturating_mul(if wide { 2 } else { 1 }), cell.1);
+    let boxed = InkRect {
+        left: i64::from(ink.left),
+        top: 0,
+        width: i64::from(ink.width),
+        height: cell.1,
+    };
+    if !boxed.in_reach(cell, cells) {
         return Err("an ink box outside its glyph's reach, or not past its cells");
     }
     let want = glyph_bytes(s.format, ink.width, u32::from(s.cell_height), 1)

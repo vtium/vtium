@@ -780,9 +780,10 @@ impl Set {
         };
         let left = ink.left.checked_mul(i32::try_from(scale).ok()?)?;
         let width = ink.width.checked_mul(scale)?;
+        let height = glyph.height();
         glyph
             .clone()
-            .with_ink(left, width, box_pixels)
+            .with_ink((left, 0), (width, height), box_pixels)
             .or(Some(glyph))
     }
 }

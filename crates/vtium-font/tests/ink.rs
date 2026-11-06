@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use common::{sections, with_section};
 use vtium_font::set::{PixelFormat, Set, SetBuilder, SetError, SetFace, StrikeBuilder};
-use vtium_font::{Cell, Face, Style, Width};
+use vtium_font::{Cell, Face, Glyph, REACH_CELLS, REACH_ROWS, Style, Width};
 
 const CELL: Cell = Cell {
     width: 4,
@@ -197,4 +197,49 @@ fn the_reader_refuses_a_box_in_a_color_strike() {
         Err(SetError::Malformed(why)) => assert!(why.contains("color"), "{why}"),
         other => panic!("{other:?}"),
     }
+}
+
+// ADR-1306 D1, D3: a glyph's box may reach REACH_ROWS rows above and below
+// its row as well as REACH_CELLS cells beside it, and no further; a box
+// that only covers the glyph's own cells is no box
+// covers: text.overhang
+#[test]
+fn a_glyphs_box_reaches_a_row_up_and_down_and_no_further() {
+    let (w, h) = (CELL.width, CELL.height);
+    let (across, down) = ((w * REACH_CELLS) as i32, (h * REACH_ROWS) as i32);
+    let glyph = || Glyph::mask(w, h).expect("a glyph");
+    let boxed = |left: i32, top: i32, width: u32, height: u32| {
+        let n = (width * height) as usize;
+        glyph().with_ink((left, top), (width, height), vec![7; n])
+    };
+    // the whole reach: the 3 by 3 block of cells around the glyph's own
+    let full = (w + 2 * across as u32, h + 2 * down as u32);
+    let g = boxed(-across, -down, full.0, full.1).expect("the whole reach");
+    let ink = g.ink().expect("its box");
+    assert_eq!(
+        (ink.left(), ink.top(), ink.width(), ink.height()),
+        (-across, -down, full.0, full.1)
+    );
+    // a row up only, and a row down only
+    assert!(boxed(0, -down, w, h + down as u32).is_some(), "up");
+    assert!(boxed(0, 0, w, h + down as u32).is_some(), "down");
+    // a pixel past the reach above, below, left or right
+    assert!(
+        boxed(0, -down - 1, w, h + down as u32 + 1).is_none(),
+        "above"
+    );
+    assert!(boxed(0, 0, w, h + down as u32 + 1).is_none(), "below");
+    assert!(
+        boxed(-across - 1, 0, w + across as u32 + 1, h).is_none(),
+        "left"
+    );
+    assert!(boxed(0, 0, w + across as u32 + 1, h).is_none(), "right");
+    // a box that leaves out a row of the glyph's own, or only covers them
+    assert!(
+        boxed(0, -1, w, h).is_none(),
+        "the cell's bottom row left out"
+    );
+    assert!(boxed(0, 0, w, h).is_none(), "not past the cells");
+    // the pixels must be the box's
+    assert!(glyph().with_ink((0, -1), (w, h + 1), vec![7; 3]).is_none());
 }
