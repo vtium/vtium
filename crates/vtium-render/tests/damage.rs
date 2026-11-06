@@ -239,7 +239,7 @@ fn whole(w: u32, h: u32) -> Vec<Rect> {
     }]
 }
 
-// aaronsb/kmscon#156: typing one character at a prompt damages the cell it
+// Typing one character at a prompt damages the cell it
 // wrote and the cell the cursor moved to, on this frame and the next
 // buffer's, and nothing after
 // covers: platform.compositor
@@ -268,8 +268,9 @@ fn a_keystroke_damages_only_the_cells_it_changes() {
     assert!(d.back().writes.is_empty(), "an idle frame writes nothing");
 }
 
-// aaronsb/kmscon#81: after a resize, the first two frames draw everything,
-// one into each buffer, and the third only what changed
+// After a resize, the first two frames draw everything, one into each
+// buffer, and the third only what changed: a buffer drawn whole lacks
+// nothing
 // covers: platform.compositor
 #[test]
 fn a_full_redraw_reaches_each_buffer_once() {

@@ -7,10 +7,9 @@ use crate::policy::{Coverage, Missing, RangeCoverage, Source, SpritePolicy};
 use crate::sprite::{self, Range};
 
 /// How a glyph is drawn. Bitmap faces draw bold by widening each row by a
-/// pixel, as the C reference's did, and draw italic by shearing the glyph
-/// about its baseline ([`crate::italic`], ADR-1302 D4), where the C
-/// reference drew it upright. For bold italic the widening comes first and
-/// the shear moves the widened rows.
+/// pixel, and draw italic by shearing the glyph about its baseline
+/// ([`crate::italic`], ADR-1302 D4). For bold italic the widening comes
+/// first and the shear moves the widened rows.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub struct Style {
     pub bold: bool,
@@ -56,7 +55,7 @@ impl Decorations {
     /// The lines a cell `height` tall gets from a face with no metrics of
     /// its own: a sixteenth of the cell thick, between 1 and a quarter of
     /// the cell, the underline on the bottom rows and the strike from the
-    /// middle. The C reference's `kmscon_font_get_deco` (font.c:370-408).
+    /// middle.
     pub fn for_height(height: u32) -> Decorations {
         let h = height.max(1);
         let thick = (h / 16).clamp(1, (h / 4).max(1));
@@ -259,8 +258,8 @@ impl<F: Face> Font<F> {
     /// The character `cluster` draws as a sprite: a single character the
     /// policy draws as one, or the first of a longer cluster when the
     /// policy draws it as one and the face lacks it. The marks are
-    /// dropped, as the C reference's bitmap faces dropped them; it drew
-    /// U+25A1 for such a cluster (font.c:345-366).
+    /// dropped, since a bitmap face draws no marks, and the character
+    /// still draws as its sprite instead of as a missing glyph.
     fn sprite_base(&self, cluster: &[char]) -> Option<char> {
         match *cluster {
             [c] => self.draws_sprite(c).then_some(c),
@@ -277,7 +276,6 @@ impl<F: Face> Font<F> {
     /// glyph, whose last fallback is U+25A1, else `?`, else the face's last
     /// resort; a glyph of another width is centred and cut to the cells.
     /// `None` only for an empty cluster or a face that can draw nothing.
-    /// The C reference's `kmscon_font_render` (font.c:310-368).
     pub fn glyph(&self, cluster: &[char], width: Width, style: Style) -> Option<Glyph> {
         let &first = cluster.first()?;
         let cell = self.face.cell();

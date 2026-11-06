@@ -21,7 +21,7 @@ const POOL_BYTES: Bound = Bound {
     value: 64 * 1024 * 1024,
     what: "Bytes of glyph pixels each of the four glyph pools holds in the performance profile; minspec's pools hold two screens of their format",
     past: "Older glyphs are evicted; a glyph that would evict one the frame draws, or that alone passes it, is drawn uncached",
-    cite: "gltex's per-pool budget, `GLTEX_CACHE_MAX_BYTES` (gltex.c:207-241); ADR-1300 D3 and D4",
+    cite: "ADR-1300 D3 and D4: it bounds the glyph cache's memory, and a full cache changes no pixel",
 };
 
 const ROW_SCRATCH: Bound = Bound {
@@ -37,7 +37,7 @@ const TIMER_SAMPLES: Bound = Bound {
     value: 1024,
     what: "Frames whose time the render timer keeps in an interval, for the median and the 95th percentile",
     past: "Later frames count in the mean and the maximum only",
-    cite: "`RENDER_TIMER_SAMPLES`, render_timer.h",
+    cite: "It keeps the timer's memory fixed: 1,024 frames is about 17 seconds at 60 frames a second",
 };
 
 const POINTER_SIDE: Bound = Bound {
@@ -45,7 +45,7 @@ const POINTER_SIDE: Bound = Bound {
     value: 64,
     what: "Pixels on the longest side of the pointer's arrow, which is a cell tall",
     past: "The arrow stays this tall over taller cells",
-    cite: "`VIDEO_CURSOR_MAX_SIZE` (video.h:172), the C reference's largest hardware cursor and I-beam",
+    cite: "64 by 64 is the cursor size DRM reports for `DRM_CAP_CURSOR_WIDTH` and `DRM_CAP_CURSOR_HEIGHT` when a driver sets none, so the arrow fits a cursor plane",
 };
 
 const PICTURE_SCREENS: Bound = Bound {
@@ -53,7 +53,7 @@ const PICTURE_SCREENS: Bound = Bound {
     value: 2,
     what: "Screens of the display, in 4-byte pixels, that its scaled and turned copies of pictures hold, in a build with `images`",
     past: "The copy no placement of the frame shows that was placed longest ago is evicted; a copy that still does not fit is scaled for each frame it draws and not kept",
-    cite: "`image_budget_cache_limit` (image_budget.c:105-110) and bbulk's pictures (bbulk.c:71); ADR-1100 D5",
+    cite: "ADR-1100 D5: it bounds the memory a display's copies take, whatever pictures a program sends",
 };
 
 const PRESENT_FRAMES: Bound = Bound {
@@ -69,7 +69,7 @@ const FAILED: Bound = Bound {
     value: 1024,
     what: "Glyphs the font drew nothing for that the glyph cache remembers, so the font is not asked for them again every frame",
     past: "A glyph that lands on a remembered one's place takes it over, and the one it replaced is asked for again the next time it is drawn",
-    cite: "`GLTEX_FAILED_GLYPHS` (gltex.c, the C fork's issue on a glyph asked for every frame); vtium keeps no expiry, since `Renderer::glyphs_changed` and `forget_glyphs` forget the glyphs whose characters arrive",
+    cite: "It bounds the table's memory however many characters a screen shows that no font holds; the table keeps no expiry, since `Renderer::glyphs_changed` and `forget_glyphs` forget the glyphs whose characters arrive",
 };
 
 const GLYPH_TEXTURE: Bound = Bound {
@@ -77,15 +77,15 @@ const GLYPH_TEXTURE: Bound = Bound {
     value: 2048,
     what: "Pixels on the longer side of each texture a GPU glyph pool lays its slots out in, at most the GPU's largest texture, in a build with `gpu`",
     past: "The pool takes another texture",
-    cite: "gltex capped its atlases at the smaller of `GL_MAX_TEXTURE_SIZE` and 2048 (gltex.c:582-586); ADR-1300 D6",
+    cite: "2048 is the least `GL_MAX_TEXTURE_SIZE` OpenGL ES 3.0 allows, so every GPU takes the pools' textures; ADR-1300 D6",
 };
 
 const GLYPH_CEILING: Bound = Bound {
     name: "GLYPH_TEXTURE_CEILING",
     value: 512 * 1024 * 1024,
     what: "Bytes of the textures one display's GPU glyph pools and decoration sprites hold together, in a build with `gpu`",
-    past: "A pool takes no new texture: a glyph it has no free slot for is drawn blank, as gltex drew one past its hard stop, and the pool's slots are reused as its budget evicts glyphs",
-    cite: "gltex's hard stop, `GLTEX_CACHE_HARD_BYTES`, twice its 256 MiB `GLTEX_CACHE_MAX_BYTES` (gltex.c:207-241, 1031-1041); the issue on GPU texture garbage collection; ADR-1303 D9",
+    past: "A pool takes no new texture: a glyph it has no free slot for is drawn blank, and the pool's slots are reused as its budget evicts glyphs",
+    cite: "It bounds the GPU memory a display's glyphs take at twice the 256 MiB the four pools' budgets hold together, which leaves room for the slots a frame holds past its budgets; the issue on GPU texture garbage collection; ADR-1303 D9",
 };
 
 const IDLE: Bound = Bound {
@@ -93,7 +93,7 @@ const IDLE: Bound = Bound {
     value: 600,
     what: "Frames a GPU texture may go unused before the GPU path gives it back: a glyph pool's last texture with no glyph in it, a picture's texture no placement showed, and the copy of the pixels beneath that no draw read, in a build with `gpu`",
     past: "The texture is freed, and made again if a later frame needs it; frames are counted, never wall time, so a display that draws nothing frees nothing",
-    cite: "gltex gave back a pool's strips the last frame drew nothing from (`pool_give_back`, gltex.c:1105-1123) and kept its failed glyphs and its log line 600 frames (`GLTEX_FAILED_FRAMES`, `GLTEX_HARD_STOP_LOG_FRAMES`); ADR-1303 D9",
+    cite: "600 frames is ten seconds at 60 frames a second; ADR-1303 D9",
 };
 
 /// Every bound, in the README table's order.

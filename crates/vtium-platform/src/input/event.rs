@@ -1,7 +1,7 @@
 //! What the input devices tell their owner: keys, pointer events, and
 //! the device each came from.
 
-/// The modifiers held with a key, as the C reference numbered them.
+/// The modifiers held with a key, one bit each.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Mods(u8);
 

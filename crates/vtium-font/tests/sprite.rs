@@ -1,6 +1,5 @@
-//! The sprites against the C reference's box model (`tests/box_model.h`
-//! and `tests/test_font_box.c` in aaronsb/kmscon), at every cell size from
-//! 1x1 to 32x64 and in one large cell:
+//! The sprites against a box model, at every cell size from 1x1 to 32x64
+//! and in one large cell:
 //! - the sprite ranges are claimed and nothing either side of them, those
 //!   of `tests/legacy.rs` among them;
 //! - each Braille, sextant and octant sprite is the cell's size and equals
@@ -351,8 +350,8 @@ fn check_size(w: u32, h: u32, f: &mut Failures) {
     check_braille(w, h, f);
 }
 
-/// Every run of characters drawn as sprites, the C reference's and those of
-/// `tests/legacy.rs`.
+/// Every run of characters drawn as sprites: box drawing, block elements,
+/// Braille, the sextants and octants, and those of `tests/legacy.rs`.
 const CLAIMED: [(u32, u32); 8] = [
     (0x2500, 0x259f),
     (0x2800, 0x28ff),
@@ -399,10 +398,9 @@ fn sizes_outside_the_bounds_draw_nothing() {
 type Layout = (u32, u32, u32, [u32; 2], [u32; 4]);
 
 /// Braille dot layouts worked out by hand from braille.zig draw2800_28FF()
-/// (Ghostty, MIT, at f987028f) in the C reference's test_font_box.c, for
-/// the cell sizes the tiers draw, the operator's 20x40, the smallest cells
-/// and two lopsided ones: the cell, the dot's side, the two columns' x and
-/// the four rows' y.
+/// (Ghostty, MIT, at f987028f), for the cell sizes the tiers draw, the
+/// operator's 20x40, the smallest cells and two lopsided ones: the cell,
+/// the dot's side, the two columns' x and the four rows' y.
 #[rustfmt::skip]
 const BRAILLE_LAYOUTS: [Layout; 10] = [
     (1, 1, 0, [0, 0], [0, 0, 0, 0]),          // no room for a dot

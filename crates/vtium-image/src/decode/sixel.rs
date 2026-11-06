@@ -47,7 +47,7 @@
 use std::fmt;
 
 /// The fewest and most color registers a picture may have, and the count
-/// when none is given (the C reference's `TSM_SIXEL_REGISTERS_*`).
+/// when none is given.
 pub(crate) const REGISTERS_MIN: u32 = 2;
 pub(crate) const REGISTERS_MAX: u32 = 65_535;
 pub(crate) const REGISTERS_DEFAULT: u32 = 1024;
@@ -643,8 +643,7 @@ impl Decoder {
 
     /// Feeds the string's data until the work done reaches `limit`, and
     /// returns how many bytes it took: it stops right after the byte that
-    /// brought the work to `limit` or past it, as the C reference's
-    /// `tsm_sixel_feed_some` stopped, and takes at least one byte of data
+    /// brought the work to `limit` or past it, and takes at least one byte of data
     /// that is not empty. A sixel costs at most 7 work, its byte and its
     /// six dots, so a run of them is taken a stretch at a time that cannot
     /// pass the limit by more than one sixel's work, and a repeat by its
@@ -924,8 +923,8 @@ mod tests {
         assert_eq!(one(b"#2;2;100~"), RED);
     }
 
-    /// The C reference's HLS, in floating point, as its sixel decoder
-    /// computed it.
+    /// HLS in floating point, the usual way of computing it, each channel
+    /// rounded to the nearest of the 256 levels.
     fn hls_float(h: u32, l: u32, s: u32) -> u32 {
         let unit = |v: f64| {
             if v <= 0.0 {
@@ -961,14 +960,14 @@ mod tests {
         argb(unit(r + m), unit(g + m), unit(b + m))
     }
 
-    // Every HLS color, by integers, equals the C reference's floating
-    // point but where the exact value of a channel lies halfway between
+    // Every HLS color, by integers, equals the floating point result
+    // but where the exact value of a channel lies halfway between
     // two levels: there the integers round up, where the floating point
     // went either way by how the decimal fractions were stored. The exact
     // halves are counted from the integers' own remainder.
     // covers: image.sixel
     #[test]
-    fn hls_in_integers_is_the_c_references_but_at_exact_halves() {
+    fn hls_in_integers_matches_floating_point_but_at_exact_halves() {
         let channels = |c: u32| [(c >> 16) & 0xff, (c >> 8) & 0xff, c & 0xff];
         let (mut differ, mut halves) = (0, 0);
         for h in 0..=360 {

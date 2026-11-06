@@ -23,7 +23,7 @@ const READ: Bound = Bound {
     value: 16 * 1024,
     what: "Bytes one read takes from the pty",
     past: "The rest stays in the kernel for the next read",
-    cite: "`KMSCON_NREAD`, pty.c:50",
+    cite: "The size of the one buffer each read fills, made once for the pty",
 };
 
 const READS: Bound = Bound {
@@ -31,7 +31,7 @@ const READS: Bound = Bound {
     value: 50,
     what: "Reads one readiness event makes before the loop serves its other sources",
     past: "The pty's registration is renewed, so the next turn reads on",
-    cite: "pty.c:627-651",
+    cite: "Keeps one readiness event from holding the loop with many short reads; `READ_BUDGET` bounds the bytes",
 };
 
 const BUDGET: Bound = Bound {
@@ -39,7 +39,7 @@ const BUDGET: Bound = Bound {
     value: 64 * 1024,
     what: "Bytes one readiness event reads from the pty before the loop serves its other sources",
     past: "The pty's registration is renewed, so the next turn reads on, and the loop serves every other head's keys, output and frames in between",
-    cite: "ADR-1401 D2, where one head cannot delay another head's frames or any input; the C reference bounded the reads alone (pty.c:627-651)",
+    cite: "ADR-1401 D2, where one head cannot delay another head's frames or any input",
 };
 
 const HIGH: Bound = Bound {
@@ -47,7 +47,7 @@ const HIGH: Bound = Bound {
     value: 64 * 1024,
     what: "Replies queued for the child, past which its output is no longer read",
     past: "The consumer stops after the reply that reached it, and nothing more is read or fed until the replies drain below `REPLY_LOW`, so a child that queries without reading stalls itself",
-    cite: "`PTY_REPLY_HIGH`, pty.c:68; aaronsb/kmscon#245",
+    cite: "Keeps a child that queries and never reads the replies from growing vtium's memory: it stalls itself instead",
 };
 
 const LOW: Bound = Bound {
@@ -55,7 +55,7 @@ const LOW: Bound = Bound {
     value: 16 * 1024,
     what: "Replies queued for the child below which reading resumes after a stall",
     past: "Reading and feeding resume",
-    cite: "`PTY_REPLY_LOW`, pty.c:69",
+    cite: "A quarter of `REPLY_HIGH`, so a child that reads slowly does not stall and resume at every reply",
 };
 
 const CEILING: Bound = Bound {
@@ -63,14 +63,14 @@ const CEILING: Bound = Bound {
     value: 256 * 1024,
     what: "Replies queued for the child, a ceiling only a consumer that does not stop at `REPLY_HIGH` reaches",
     past: "The reply that would pass it and every later one are dropped until the replies drain below `REPLY_LOW`",
-    cite: "`PTY_REPLY_MAX`, pty.c:70, 479-484",
+    cite: "Four times `REPLY_HIGH`: bounds the replies' memory even for a consumer that does not stop",
 };
 
 const MOTION: Bound = Bound {
     name: "MOTION_COALESCE_AT",
     value: 4 * 1024,
     what: "Bytes queued for the child from which pointer motion reports are coalesced",
-    past: "A motion report replaces the unsent motion reports at the queue's end, so the child reads the latest position; keys, pastes and button reports are queued whole and never dropped. The C reference queued every motion report (aaronsb/kmscon#247)",
+    past: "A motion report replaces the unsent motion reports at the queue's end, so the child reads the latest position; keys, pastes and button reports are queued whole and never dropped",
     cite: "vtium/vtium#20",
 };
 
@@ -79,7 +79,7 @@ const EXIT_FEED: Bound = Bound {
     value: 64 * 1024,
     what: "Bytes fed after the child exits before the exit is told, unless a read finds nothing more first",
     past: "The exit is told and the host closes the pty, dropping what a process the child started writes on. A pty holds at most about 20 KiB for its master (4 KiB in the line discipline and 16 KiB of flip buffers, measured on Linux 7.2), all of it ahead of anything written after the exit, so the child's own output is fed first",
-    cite: "vtium/vtium#20; the C reference told the exit at the child's reaping and dropped what was unread (pty.c:737-768, 830-848)",
+    cite: "vtium/vtium#20: the screen shows the output the child left, and a process the child started that writes on cannot hold the exit back",
 };
 
 const FLIP_WAIT: Bound = Bound {
@@ -87,7 +87,7 @@ const FLIP_WAIT: Bound = Bound {
     value: 1000,
     what: "Milliseconds each page flip in flight waits for its completion event: a swap's, a cursor commit's or a modeset's, and a modeset or a sleep waiting on it. A commit the card refused as busy waits as long for the event of the display's next vblank",
     past: "The flip is taken as done, logged at warn level for the first lost event until the card delivers one again: the display reports `Event::Flipped`, or nothing for a vblank, and lends its token again, and a modeset or a sleep waiting on it goes ahead. The loop runs on while it waits",
-    cite: "drm_shared.c:834-859, where the C reference blocked its loop for the wait and bounded no swap's flip; the operator's decision on vtium/vtium#18",
+    cite: "The operator's decision on vtium/vtium#18: a lost flip event never leaves a display swapping for good, and no wait stops the loop",
 };
 
 const FENCE_WAIT: Bound = Bound {
@@ -95,7 +95,7 @@ const FENCE_WAIT: Bound = Bound {
     value: 2000,
     what: "Milliseconds a head's render thread waits for the GPU to finish a frame, on the fence the frame ended with, in a build with `gpu`",
     past: "The fence is destroyed and the frame fails as a lost context, so the head draws on the CPU path until vtium restarts (ADR-1303 D9): a GPU or a virtual GPU's host that stalls would otherwise hold the VT switch, which waits for the frame composing",
-    cite: "ADR-1303 D7; the C reference waited in `eglSwapBuffers`, with no bound",
+    cite: "ADR-1303 D7",
 };
 
 const WAKE_RETRY: Bound = Bound {
@@ -103,7 +103,7 @@ const WAKE_RETRY: Bound = Bound {
     value: 50,
     what: "Milliseconds between tries to wake a DRM card that failed to wake, as while another process holds DRM master, and between tries to unblank a framebuffer",
     past: "The next try",
-    cite: "drm_shared.c:1212-1224",
+    cite: "vtium/vtium#19: a try soon after the process that held DRM master lets it go",
 };
 
 const RETRIES: Bound = Bound {
@@ -111,14 +111,14 @@ const RETRIES: Bound = Bound {
     value: 2 * FLIP_WAIT.value / WAKE_RETRY.value,
     what: "Tries to wake a DRM card after a wake-up, a hotplug scan or an unblank's modeset failed, and to unblank a framebuffer after `FBIOBLANK` failed",
     past: "The tries stop with `Event::WakeFailed`, until the next wake-up, hotplug, key press or pointer action; a framebuffer's, until the next wake-up, unblank, key press or pointer action",
-    cite: "Twice `FLIP_WAIT_MS` at `WAKE_RETRY_MS`, so the tries outlast the sleep of a process that held DRM master before, which a flip in flight delays by up to `FLIP_WAIT_MS`; the C reference tried 20 times (`MAX_VT_TIMEOUT_RETRIES`, drm_shared.c:51). vtium/vtium#19",
+    cite: "Twice `FLIP_WAIT_MS` at `WAKE_RETRY_MS`, so the tries outlast the sleep of a process that held DRM master before, which a flip in flight delays by up to `FLIP_WAIT_MS`. vtium/vtium#19",
 };
 
 const DAMAGE_CLIPS: Bound = Bound {
     name: "DAMAGE_CLIPS_MAX",
     value: 128,
     what: "Damage rectangles one swap sends, its frame's and those of earlier frames whose swaps failed",
-    past: "The rectangles become their bounding box. The C reference sent each frame's rectangles and freed them on a failed swap",
+    past: "The rectangles become their bounding box",
     cite: "vtium/vtium#18",
 };
 
@@ -127,7 +127,7 @@ const INPUT_READS: Bound = Bound {
     value: 16,
     what: "Reads of 16 events each that one readiness event makes on an input device before the loop serves its other sources",
     past: "The device stays readable, and the next turn reads on",
-    cite: "vtium/vtium#19; the C reference read 16 events at a time until a short read, with no cap (input.c:78-113)",
+    cite: "vtium/vtium#19: a device that keeps its buffer full cannot hold the loop",
 };
 
 const RETAKE_QUIET: Bound = Bound {
@@ -135,7 +135,7 @@ const RETAKE_QUIET: Bound = Bound {
     value: 10_000,
     what: "Milliseconds with no re-take of the VT after which the next re-take is logged as a warning again",
     past: "The next re-take is a warning and its count starts again; until then each is counted at debug level, so a steady stream of input on the tty logs one warning",
-    cite: "vtium/vtium#19; the C reference flushed the tty's input and logged nothing (vt_real.c:184-186)",
+    cite: "vtium/vtium#19: a steady stream of input on the tty cannot fill the log",
 };
 
 const RESOURCE_READS: Bound = Bound {
@@ -159,7 +159,7 @@ const MODES: Bound = Bound {
     value: 1024,
     what: "Modes of a DRM connector vtium reads",
     past: "The connector is not read: a warning names it, the scan leaves it unbound, and the next scan reads it again. The operator's monitor lists 40 modes (measured on Linux 7.2)",
-    cite: "vtium/vtium#192; the kernel sets no limit on a connector's modes. The C reference read them through libdrm with no bound (drm_shared.c:734, 1485)",
+    cite: "vtium/vtium#192; the kernel sets no limit on a connector's modes, so the bound keeps a card from growing vtium's memory",
 };
 
 const ENCODERS: Bound = Bound {
@@ -175,7 +175,7 @@ const OBJECT_PROPERTIES: Bound = Bound {
     value: 64,
     what: "Properties of one KMS object (a connector, CRTC or plane) vtium reads",
     past: "The object's properties are not read: a warning names the object. A connector found by the scan is left unbound and read again at the next scan; a plane is passed over, as one whose properties cannot be read",
-    cite: "vtium/vtium#192; the kernel attaches at most 64 properties to an object (`DRM_OBJECT_MAX_PROPERTY`). The C reference read them through libdrm with no bound (drm_shared.c:114)",
+    cite: "vtium/vtium#192; the kernel attaches at most 64 properties to an object (`DRM_OBJECT_MAX_PROPERTY`)",
 };
 
 const PLANES: Bound = Bound {
@@ -183,7 +183,7 @@ const PLANES: Bound = Bound {
     value: 32,
     what: "Planes of a DRM card vtium reads",
     past: "The planes are not listed: a warning says so, and a display bound meanwhile finds no primary plane and is bound again at the next scan",
-    cite: "vtium/vtium#192; the kernel gives a card at most 32 planes, since it keeps their indices in 32-bit masks (`__drm_universal_plane_init`). The C reference read them through libdrm with no bound (drm_shared.c:238)",
+    cite: "vtium/vtium#192; the kernel gives a card at most 32 planes, since it keeps their indices in 32-bit masks (`__drm_universal_plane_init`)",
 };
 
 const PROPERTIES: Bound = Bound {
@@ -207,7 +207,7 @@ const IMAGE_CRASHES: Bound = Bound {
     value: 3,
     what: "Image helper crashes one console's session takes: a worker killed by a signal, a helper that ends with an exit status other than 0, or a reply that fails a check; a helper that idles out as a request goes out fails that request and counts nothing",
     past: "That console starts no more image helpers until its session ends, logs it once, and answers as with no helper; other consoles keep theirs",
-    cite: "ADR-1101 D8, the maintainer (2026-11-01); the C reference restarted its helper after every failure",
+    cite: "ADR-1101 D8, the maintainer (2026-11-01): a picture that crashes the helper cannot restart it without end",
 };
 
 const IMAGE_BASE: Bound = Bound {
@@ -215,7 +215,7 @@ const IMAGE_BASE: Bound = Bound {
     value: 64 << 20,
     what: "Bytes of address space the image helper has beyond three copies of a request's `max_bytes`, for its code and libraries",
     past: "An allocation past the cap fails: the decoders answer `OVER_BUDGET`, and anything else ends the worker",
-    cite: "`HELPER_AS_BASE`, image_host.c:48; ADR-1101 D3",
+    cite: "ADR-1101 D3",
 };
 
 /// Every bound, in the README table's order.
@@ -395,9 +395,9 @@ mod tests {
         );
     }
 
-    // pty.c:50, 68-70; drm_shared.c:838, 1220
+    // The values the README documents for the pty and the flips.
     #[test]
-    fn values_are_the_c_references() {
+    fn the_pty_and_flip_bounds_keep_their_values() {
         assert_eq!(READ_MAX, 16384);
         assert_eq!(READS_PER_TURN, 50);
         assert_eq!(REPLY_HIGH, 64 * 1024);

@@ -15,8 +15,7 @@
 //! not; the host keeps the blank and its countdown. A hotplug does not:
 //! while blanked it commits nothing, and `unblank` runs the modeset it
 //! left owed. The timeout is the configuration's `dpms-timeout`, 600 s by
-//! default as in the C reference (config.c:1388), until the owner changes
-//! it ([`Blank::set_timeout`]), as a program may with the Linux console's
+//! default, until the owner changes it ([`Blank::set_timeout`]), as a program may with the Linux console's
 //! `CSI 9 ; n ]`.
 
 use std::time::{Duration, Instant};
@@ -245,7 +244,7 @@ mod tests {
     }
 
     #[test]
-    fn the_default_is_the_c_references() {
+    fn the_default_timeout_is_600_seconds() {
         assert_eq!(DPMS_TIMEOUT, T);
     }
 }

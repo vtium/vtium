@@ -278,7 +278,7 @@ fn modifiers_do_not_repeat() {
 }
 
 #[test]
-fn the_repeat_settings_take_the_c_references_defaults_and_bounds() {
+fn the_repeat_settings_default_to_250_and_50_ms_and_stay_below_a_second() {
     let c = InputConfig::default();
     assert_eq!(c.repeat_delay, Duration::from_millis(250));
     assert_eq!(c.repeat_rate, Duration::from_millis(50));

@@ -2,8 +2,7 @@
 //! scales to the same pixels on every machine (docs/architecture.md,
 //! "Determinism").
 //!
-//! The filter is the C reference's (kmscon `src/render/picture.c`): each
-//! output pixel is a weighted sum of source pixels, with one list of
+//! Each output pixel is a weighted sum of source pixels, with one list of
 //! weights for each output column and one for each output row. A weight is
 //! 16-bit fixed point, and each list sums to exactly 65,536, so an opaque
 //! picture stays opaque and a premultiplied channel never passes its alpha.
@@ -11,8 +10,9 @@
 //! its span covers, weighted by how much of each it covers (a box filter);
 //! where it grows, it blends the two source pixels nearest its centre
 //! (bilinear). Each output pixel is computed directly from its weights and
-//! rounded once, which gives the bytes the C reference's two passes gave,
-//! whether the pixel goes into a kept copy or is scaled for one frame.
+//! rounded once, which gives the bytes the two passes of [`turned_copy`]
+//! give, whether the pixel goes into a kept copy or is scaled for one
+//! frame.
 
 use crate::target::Orientation;
 
@@ -227,7 +227,7 @@ pub(crate) fn uv(o: Orientation, (w, h): (u32, u32), (ox, oy): (u32, u32)) -> (u
 
 /// Sums the ring of filtered rows holds at most, four to a pixel: the
 /// output columns go in slices narrow enough that the rows one output row
-/// reads fit, as the C reference's `RING_MAX` bounded them.
+/// reads fit, so the ring's memory stays bounded however wide the picture.
 const RING_MAX: usize = 1 << 16;
 
 /// Where the picture's column `u`, row `v` lands in its display rectangle,
@@ -249,7 +249,7 @@ fn display_index(o: Orientation, (w, h): (u32, u32), (u, v): (u32, u32), dw: u32
 /// The source rectangle `sw` by `sh` of `src` scaled to `w` by `h` and
 /// turned as `o` says, row by row in display order.
 ///
-/// It runs in two passes, as the C reference's scaler did: each source row
+/// It runs in two passes: each source row
 /// an output row reads is filtered across once, into a ring holding the
 /// rows one output row needs, and each output pixel then sums those rows
 /// down and is rounded once. The sums are whole numbers, so the bytes are
@@ -375,7 +375,8 @@ mod tests {
         }
     }
 
-    // picture.c: each output pixel's weights sum to exactly one
+    // Each output pixel's weights sum to exactly one, so an opaque picture
+    // stays opaque
     #[test]
     fn every_output_pixels_weights_sum_to_one() {
         for (s, d) in [

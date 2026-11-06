@@ -415,8 +415,8 @@ enum Pictured {
 }
 
 /// Cells side by side under one opaque picture, whose every display line
-/// is copied from the picture at once, as the C reference sent such a run
-/// as one request: picture `pic` from display column `x` to `end`, its
+/// is copied from the picture at once, one copy for the whole run instead
+/// of one a cell: picture `pic` from display column `x` to `end`, its
 /// `lines` lines from `y0`, the first at `at` in the row scratch.
 #[cfg(feature = "images")]
 #[derive(Clone, Copy)]

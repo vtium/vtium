@@ -1,9 +1,9 @@
-//! vtium-font against the C reference, glyph for glyph: each line of
-//! `reference/*.tsv` is a digest of glyphs the C reference drew
-//! (`reference/README.md`), and vtium must draw the same pixels. This is what lets tier 2's
-//! bitmap-font goldens (vtium/vtium#17) judge vtium unchanged, and since
-//! the digests were taken on one host and are checked on every other, it
-//! is also the check that a glyph is the same bytes everywhere.
+//! vtium-font against its glyph digests: each line of `reference/*.tsv` is
+//! a digest of glyphs vtium draws (`reference/README.md`), and vtium must
+//! draw the same pixels. A change to a sprite, a PSF glyph or a unifont
+//! glyph fails here first. The digests were taken on x86-64 and are
+//! checked on every host, so this is also the check that a glyph is the
+//! same bytes everywhere.
 
 use vtium_font::{Face, Font, Glyph, Psf, Style, Width, sprite};
 
@@ -83,10 +83,10 @@ fn check(file: &str, mut ours: impl FnMut(&[String]) -> Option<u64>) {
     }
 }
 
-/// The characters vtium draws as sprites where the C reference drew the
-/// font's glyph (vtium/vtium#27), which the digests leave out;
-/// `tests/legacy.rs` holds them.
-fn beyond_reference(cp: u32) -> bool {
+/// The Symbols for Legacy Computing characters vtium draws as sprites
+/// (vtium/vtium#27), which the page digests leave out; `tests/legacy.rs`
+/// holds them.
+fn outside_digests(cp: u32) -> bool {
     matches!(
         cp,
         0x1cea0..=0x1ceaf
@@ -103,7 +103,7 @@ fn beyond_reference(cp: u32) -> bool {
 fn the_characters_left_out_are_all_sprites() {
     let mut left_out = 0;
     for cp in (0x1ce00..0x1cf00).chain(0x1fb00..0x1fc00) {
-        if beyond_reference(cp) {
+        if outside_digests(cp) {
             left_out += 1;
             let c = char::from_u32(cp).expect("a char");
             assert!(sprite::has(c), "U+{cp:04X} is left out but is no sprite");
@@ -112,8 +112,8 @@ fn the_characters_left_out_are_all_sprites() {
     assert_eq!(left_out, 168);
 }
 
-/// The characters of `page` drawn through the font, less those beyond the
-/// C reference, as the `render` digests cover them; `None` for the
+/// The characters of `page` drawn through the font, less those the page
+/// digests leave out, as the `render` digests cover them; `None` for the
 /// surrogate pages, which a `char` cannot hold and the terminal never
 /// draws.
 fn render_page<F: Face>(font: &Font<F>, page: u32, cells: u32, bold: bool) -> Option<u64> {
@@ -127,7 +127,7 @@ fn render_page<F: Face>(font: &Font<F>, page: u32, cells: u32, bold: bool) -> Op
         italic: false,
     };
     let mut d = FNV_OFFSET;
-    for cp in (page << 8..(page + 1) << 8).filter(|&cp| !beyond_reference(cp)) {
+    for cp in (page << 8..(page + 1) << 8).filter(|&cp| !outside_digests(cp)) {
         let c = char::from_u32(cp)?;
         let g = font
             .glyph(&[c], width, style)
@@ -137,11 +137,11 @@ fn render_page<F: Face>(font: &Font<F>, page: u32, cells: u32, bold: bool) -> Op
     Some(d)
 }
 
-// font_box.c over 800 cell sizes and 858 line thicknesses, and in a
-// 1000x2000 cell
+// every sprite over 800 cell sizes, the box-drawing lines at 858 more
+// sizes and thicknesses, and in a 1000x2000 cell
 // covers: text.sprites
 #[test]
-fn sprites_match_the_c_reference() {
+fn sprites_match_their_digests() {
     check("box.tsv", |row| {
         let [_, range, w, h, t, _] = row else {
             panic!("bad line {row:?}")
@@ -158,11 +158,11 @@ fn sprites_match_the_c_reference() {
     });
 }
 
-// font_psf.c's glyphs and font.c's kmscon_font_render over the fixtures,
-// at 1, 2 and 3 times their height
+// every glyph of the PSF fixtures, and pages of characters drawn through
+// `Font::glyph`, at 1, 2 and 3 times their height
 // covers: text.psf
 #[test]
-fn psf_fonts_match_the_c_reference() {
+fn psf_fonts_match_their_digests() {
     let mut fonts = std::collections::BTreeMap::new();
     let mut font = |name: &str, height: u32| -> Font<Psf> {
         let psf = fonts
@@ -194,13 +194,12 @@ fn psf_fonts_match_the_c_reference() {
     });
 }
 
-// font_unifont.c's glyphs, each at its own width, and font.c's
-// kmscon_font_render over all of plane 0 and a sample beyond, at 1 and 2
-// times 16
+// unifont's glyphs, each at its own width, and every page of plane 0 and a
+// sample beyond drawn through `Font::glyph`, at 1 and 2 times 16
 #[cfg(feature = "unifont")]
 // covers: text.psf
 #[test]
-fn unifont_matches_the_c_reference() {
+fn unifont_matches_its_digests() {
     use vtium_font::Unifont;
     check("unifont.tsv", |row| match row {
         [kind, height, bold, page, _] if kind == "unifont-glyphs" => {

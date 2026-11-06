@@ -1,12 +1,8 @@
 //! A context's objects: textures, upright frames, imported buffers and
 //! programs.
 //!
-//! The C reference set `GL_UNPACK_ALIGNMENT` to 1 around each glyph upload
-//! and set each atlas texture's filters to nearest
-//! (`kmscon/src/render/gltex.c`, `upload` and `atlas_new`). It drew with
-//! OpenGL ES 2.0, which has no row length, so it uploaded a picture a row
-//! at a time; vtium's 3.0 context takes a rectangle of a larger image in one
-//! call.
+//! OpenGL ES 3.0 has a row length (`GL_UNPACK_ROW_LENGTH`), so an upload
+//! takes a rectangle of a larger image in one call.
 
 use glow::HasContext;
 

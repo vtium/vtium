@@ -256,9 +256,8 @@ impl Glyph {
 
     /// This glyph boxed to `width` pixels and marked as spanning `cells`,
     /// centred, with what overflows cut off evenly from both sides; the
-    /// pixels unchanged when it is that wide already. The C reference's
-    /// `fit_glyph` (font.c:267-308). A glyph boxed to another width loses
-    /// its ink box, which was placed for its own cells.
+    /// pixels unchanged when it is that wide already. A glyph boxed to
+    /// another width loses its ink box, which was placed for its own cells.
     pub(crate) fn fit(self, width: u32, cells: Width) -> Option<Glyph> {
         if width == self.width {
             return Some(self.with_cells(cells));

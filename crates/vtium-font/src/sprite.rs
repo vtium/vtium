@@ -7,7 +7,7 @@
 //! vertical lines leave a gap between rows, and Braille dots and mosaic
 //! blocks miss the cell's grid.
 //!
-//! Ported from the C reference's `font_box.c` (aaronsb/kmscon#46, #76):
+//! Ported from kmscon's `font_box.c`, under this notice:
 //!
 //! Copyright (c) 2026 the kmscon fork authors
 //! Copyright (c) 2024 Mitchell Hashimoto, Ghostty contributors
@@ -204,9 +204,9 @@ pub fn one_bit(c: char, width: u32, height: u32, thickness: u32) -> Option<Glyph
 /// tall: a sixteenth of the height, at least 1 and at most a quarter of
 /// it, the thickness [`Decorations::for_height`] gives a face with no line
 /// metrics. The weight grows with the cell whatever the font, so box
-/// drawing looks the same in every font at one cell size. The C reference
-/// drew its light lines in the font's own underline thickness, which for
-/// an outline font is often a single row at large cells (font.c:346-350).
+/// drawing looks the same in every font at one cell size. A font's own
+/// underline thickness, which for an outline font is often a single row at
+/// large cells, would draw thin lines in a large cell.
 pub fn light_line(height: u32) -> u32 {
     Decorations::for_height(height).underline_thickness
 }

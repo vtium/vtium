@@ -349,7 +349,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     }
 
     /// Whether a swap carries its damage to the device. Damage clips go
-    /// only with atomic commits (aaronsb/kmscon#84).
+    /// only with atomic commits (the operator's decision of 2026-10-26).
     pub fn supports_damage(&self, id: DisplayId) -> bool {
         !self.legacy
             && self
@@ -473,7 +473,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     /// or else nothing. A rectangle covering the screen is the whole
     /// screen. A failed swap does not count as presented: its error
     /// reaches the caller, and the frame, its damage and the cursor's state
-    /// go with the next swap (aaronsb/kmscon#93).
+    /// go with the next swap.
     ///
     /// A token that comes back too late, to a display that has gone, has
     /// been given new buffers, or was let go for a VT release or powered
@@ -1784,13 +1784,11 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     /// lit displays moved for it (`move_refused`) moves no display: it is
     /// placed after the others, on a CRTC none of them takes.
     ///
-    /// The C reference chose each display's CRTC on its own as it bound it,
-    /// the CRTC its connector's encoder drove where no display had taken it
-    /// and else the first free one, and never moved a display it had bound
-    /// (`modeset_find_crtc`, drm_shared.c:172-228). So at its first scan
-    /// the first display could take the only CRTC a later one could drive,
-    /// and at a hotplug a display plugged in stayed dark where a lit
-    /// display held the only CRTCs it could drive. vtium departs from both.
+    /// The displays are placed together, not each on its own as it is
+    /// bound. Placed one at a time, the first display at the first scan
+    /// could take the only CRTC a later one can drive, and a display
+    /// plugged in would stay dark where a lit display held the only CRTCs
+    /// it can drive.
     ///
     /// A wake-up after the first scan (`follow`) places each display bound
     /// before on the CRTC its connector is on now, read from the connectors

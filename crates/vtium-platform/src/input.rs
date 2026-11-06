@@ -1,8 +1,8 @@
 //! Keyboards and pointers through evdev, keys through libxkbcommon with
 //! compose.
 //!
-//! [`Input`] merges every keyboard and pointer of the seat, as the C
-//! reference's input object did (input.c). The udev monitor adds and
+//! [`Input`] merges every keyboard and pointer of the seat. The udev
+//! monitor adds and
 //! removes devices; the VT's acquire and release wake them and put them to
 //! sleep, which opens and closes them. Each device's events are read 16 at
 //! a time and become [`InputEvent`]s the owner drains once a turn and
@@ -57,7 +57,7 @@ use crate::ioctl::{EV_ABS, EV_KEY, EV_REL, EV_SYN};
 use crate::vt::Vt;
 
 /// The pointer hides after this long without a frame, unless the
-/// configuration says otherwise (input_pointer.c:9-18).
+/// configuration says otherwise.
 pub const POINTER_HIDE: Duration = Duration::from_secs(20);
 
 /// The repeat and the pointer, as the configuration sets them.
@@ -82,8 +82,7 @@ impl Default for InputConfig {
 
 impl InputConfig {
     /// The configuration's values in milliseconds: 0 takes the default,
-    /// 250 and 50, and a value of a second or more is cut to 999
-    /// (input.c:570-585).
+    /// 250 and 50, and a value of a second or more is cut to 999.
     pub fn new(repeat_delay_ms: u32, repeat_rate_ms: u32, mouse: bool) -> InputConfig {
         let ms = |v: u32, default: u32| match v {
             0 => default,
@@ -307,8 +306,7 @@ impl<O: Open + 'static> Input<O> {
     }
 
     /// A device udev reported, opened and probed at once while awake, and
-    /// dropped when it is no keyboard or pointer vtium takes
-    /// (input.c:620-637).
+    /// dropped when it is no keyboard or pointer vtium takes.
     pub fn add(&mut self, node: &Path) -> Option<DeviceId> {
         self.add_device(node, None)
     }
@@ -378,7 +376,7 @@ impl<O: Open + 'static> Input<O> {
     /// Opens every device, probing those not probed yet; a device that
     /// cannot be opened or is not one vtium takes is dropped. Wake-ups and
     /// sleeps are counted, so the devices open at the first wake-up and
-    /// close at the matching sleep (input.c:721-770).
+    /// close at the matching sleep.
     pub fn wake_up(&mut self) {
         self.awake = self.awake.saturating_add(1);
         if self.awake != 1 {
@@ -520,7 +518,7 @@ impl<O: Open + 'static> Input<O> {
         true
     }
 
-    /// Closes a device, keeping it to open again (input.c:193-203), with
+    /// Closes a device, keeping it to open again, with
     /// its pointer's buttons let go.
     fn close(&mut self, id: DeviceId) {
         let Some(device) = self.devices.iter_mut().find(|d| d.id == id) else {
@@ -543,7 +541,7 @@ impl<O: Open + 'static> Input<O> {
 
     /// Reads a device's events at `now` until none are waiting, at most
     /// [`crate::INPUT_READS_PER_TURN`] reads; the device stays readable for
-    /// the next turn (input.c:78-113). An end or a read error closes it,
+    /// the next turn. An end or a read error closes it,
     /// kept to open at the next wake-up, as a seat manager revokes devices
     /// on a switch; udev reports a device unplugged.
     pub fn dispatch(&mut self, id: DeviceId, now: Instant) {
@@ -583,7 +581,7 @@ impl<O: Open + 'static> Input<O> {
         self.close(id);
     }
 
-    /// One evdev event, by type (input.c:56-74).
+    /// One evdev event, by type.
     fn event(&mut self, id: DeviceId, ev: RawEvent, now: Instant) {
         let Some(device) = self.devices.iter_mut().find(|d| d.id == id) else {
             return;

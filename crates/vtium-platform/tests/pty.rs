@@ -591,7 +591,7 @@ fn sigterm_is_served_while_the_loop_waits() {
     assert!(data.term.get());
 }
 
-// vtium/vtium#20, aaronsb/kmscon#245: the reply bound, timers and signals
+// vtium/vtium#20: the reply bound, timers and signals
 // served throughout, and a pty reopened with an empty queue.
 fn replies_to_a_child_that_does_not_read_stay_bounded() {
     let mut lp = host_loop();
@@ -660,7 +660,7 @@ fn replies_to_a_child_that_does_not_read_stay_bounded() {
 
 const LAST_RELEASE: &[u8] = b"\x1b[<0;999;999m";
 
-// vtium/vtium#20, aaronsb/kmscon#247: under any-motion tracking (mode
+// vtium/vtium#20: under any-motion tracking (mode
 // 1003) a child that does not read sees a bounded queue, every button
 // report in order, and the latest position.
 fn a_child_under_1003_sees_every_button_and_a_bounded_queue() {
@@ -780,7 +780,6 @@ fn output_and_replies_do_not_depend_on_how_reads_split() {
     }
 }
 
-// pty.c:770-783, 941-964
 fn the_window_size_reaches_the_child() {
     let mut lp = host_loop();
     let mut h = Host::default();
@@ -803,10 +802,10 @@ fn the_window_size_reaches_the_child() {
     turn_until(&mut lp, &mut h, 500, |h| h.term.exited.is_some());
 }
 
-// pty.c:313-320. A vtium started in the background ignores SIGINT and
-// SIGQUIT, and its loop blocks the signals it reads: login, the shell and
-// everything they start must inherit neither. SIGSYS and SIGRTMAX lie past
-// the C reference's reset, which stopped below SIGSYS. env's
+// A vtium started in the background ignores SIGINT and SIGQUIT, and its
+// loop blocks the signals it reads: login, the shell and everything they
+// start must inherit neither. SIGSYS and SIGRTMAX are checked too, since a
+// reset that stopped below SIGSYS would pass them on. env's
 // --ignore-signal and --block-signal need coreutils 8.31 or later.
 fn the_child_starts_with_default_signals_and_none_blocked() {
     let out = Command::new("env")
@@ -847,7 +846,7 @@ fn the_child_starts_with_default_signals_and_none_blocked() {
     assert_eq!(state("child "), (0, 0), "the child's ignored and blocked");
 }
 
-// pty.c:252-297. A descriptor vtium's parent passed down without
+// A descriptor vtium's parent passed down without
 // close-on-exec reaches neither the login shell nor what it starts.
 fn the_child_holds_only_the_pty() {
     // numbered high so it is never the one ls opens
@@ -872,8 +871,7 @@ fn the_child_holds_only_the_pty() {
     );
 }
 
-// pty.c:830-848: the C reference closed the master alone. The kernel's
-// hangup wakes a reader of the pty with EIO before it sends SIGHUP to the
+// Closing the master alone is not enough: the kernel's hangup wakes a reader of the pty with EIO before it sends SIGHUP to the
 // session's leader, so a leader that read the EIO and exited in between
 // was never signalled. Dropping the pty sends the leader SIGHUP before the
 // master closes: the leader, which blocks SIGHUP, finds pending the one
