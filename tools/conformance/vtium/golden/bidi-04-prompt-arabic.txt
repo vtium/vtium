@@ -1,0 +1,7 @@
+size 30x4
+cursor 0,1
+flags AUTO_WRAP
+row 0 |$ مرحبا|
+row 1 ||
+row 2 ||
+row 3 ||
