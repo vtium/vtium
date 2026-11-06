@@ -835,16 +835,23 @@ impl App {
         };
         let mut pty = Pty::spawn(command, size, erase)
             .map_err(|e| format!("cannot start the session: {e}"))?;
+        self.watch(h, id, &mut pty)
+            .map_err(|e| format!("cannot watch the session's pty: {e}"))?;
+        let pty_id = self.next_pty_id();
+        if let Some(console) = self.heads.get_mut(h).and_then(|head| head.console_mut(id)) {
+            console.pty_id = Some(pty_id);
+            console.pty = Some(pty);
+        }
+        Ok(())
+    }
+
+    /// Puts `pty`, the session of head `h`'s console `id`, in the loop,
+    /// which feeds its output to the console's terminal.
+    fn watch(&self, h: usize, id: u64, pty: &mut Pty) -> io::Result<()> {
         pty.insert(&self.handle, move |app: &mut App| {
             let Console { pty, term, .. } = app.heads.get_mut(h)?.console_mut(id)?;
             pty.as_mut().map(|p| (p, term))
         })
-        .map_err(|e| format!("cannot watch the session's pty: {e}"))?;
-        if let Some(console) = self.heads.get_mut(h).and_then(|head| head.console_mut(id)) {
-            console.number = pty.number().ok();
-            console.pty = Some(pty);
-        }
-        Ok(())
     }
 
     /// Chooses head `h`'s font once, at its first display (ADR-1200 D9,
@@ -3781,6 +3788,9 @@ impl App {
         match self.leaving {
             None => {
                 self.deactivate();
+                // The sessions a keeper holds run on for the next vtium
+                // (ADR-1401 D13); every other session is hung up.
+                self.release_sessions();
                 for console in self.heads.iter_mut().flat_map(Head::consoles_mut) {
                     console.pty = None;
                 }

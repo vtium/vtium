@@ -19,7 +19,6 @@
 pub mod hold;
 pub mod notify;
 
-use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::io;
 use std::os::fd::{BorrowedFd, OwnedFd};
@@ -148,10 +147,11 @@ pub fn start(
 }
 
 /// The masters a starting vtium took back from its keeper, waiting for
-/// their consoles.
+/// their consoles. They are at most as many as the consoles vtium opens,
+/// so a list serves.
 #[derive(Default)]
 pub struct Kept {
-    masters: BTreeMap<Name, OwnedFd>,
+    masters: Vec<(Name, OwnedFd)>,
     /// Masters whose name is not one vtium writes, which have no place.
     unnamed: Vec<(String, OwnedFd)>,
 }
@@ -164,8 +164,8 @@ impl Kept {
         let mut kept = Kept::default();
         for (text, fd) in named {
             match Name::parse(&text) {
-                Some(name) if !kept.masters.contains_key(&name) => {
-                    kept.masters.insert(name, fd);
+                Some(name) if !kept.masters.iter().any(|(n, _)| *n == name) => {
+                    kept.masters.push((name, fd));
                 }
                 _ => kept.unnamed.push((text, fd)),
             }
@@ -175,16 +175,21 @@ impl Kept {
 
     /// Takes the master of head `head`'s console `console`.
     pub fn take(&mut self, head: &str, console: u64) -> Option<OwnedFd> {
-        self.masters.remove(&Name::new(head, console))
+        let at = self
+            .masters
+            .iter()
+            .position(|(n, _)| n.head == head && n.console == console)?;
+        Some(self.masters.swap_remove(at).1)
     }
 
     /// The ids of head `head`'s consoles with a master waiting, in order.
     pub fn consoles(&self, head: &str) -> Vec<u64> {
-        self.masters
-            .keys()
-            .filter(|n| n.head == head)
-            .map(|n| n.console)
-            .collect()
+        let mut ids: Vec<u64> = Vec::new();
+        for (name, _) in self.masters.iter().filter(|(n, _)| n.head == head) {
+            let at = ids.binary_search(&name.console).unwrap_or_else(|at| at);
+            ids.insert(at, name.console);
+        }
+        ids
     }
 
     pub fn is_empty(&self) -> bool {
@@ -194,18 +199,12 @@ impl Kept {
     /// Takes the masters of the heads `stays` keeps no place for, and those
     /// whose name is not vtium's, each with the name it was kept under.
     pub fn without_place(&mut self, stays: impl Fn(&str) -> bool) -> Vec<(String, OwnedFd)> {
-        let gone: Vec<Name> = self
-            .masters
-            .keys()
-            .filter(|n| !stays(&n.head))
-            .cloned()
-            .collect();
         let mut out: Vec<(String, OwnedFd)> = std::mem::take(&mut self.unnamed);
-        for name in gone {
-            if let Some(fd) = self.masters.remove(&name) {
-                out.push((name.encode(), fd));
-            }
-        }
+        let (keep, gone): (Vec<_>, Vec<_>) = std::mem::take(&mut self.masters)
+            .into_iter()
+            .partition(|(n, _)| stays(&n.head));
+        self.masters = keep;
+        out.extend(gone.into_iter().map(|(n, fd)| (n.encode(), fd)));
         out
     }
 }
@@ -248,73 +247,70 @@ impl Keeper {
     }
 }
 
-/// Which master the keeper holds for each name, so vtium tells it only
-/// what changed: the pty's number in `/dev/pts`, which no two open ptys
-/// share.
+/// Which master the keeper holds under each name, so vtium tells it only
+/// what changed. The seat gives each pty it opens or takes back an id it
+/// never gives again in a run, and the ledger records each name's id.
 #[derive(Default)]
 pub struct Ledger {
-    held: BTreeMap<String, u32>,
+    held: Vec<(String, u64)>,
 }
 
 impl Ledger {
     /// What vtium tells `keeper` so that it holds exactly `live`: each
-    /// name with the pty number of its master and the master. A master
-    /// under a name whose number changed replaces the one kept, and a name
-    /// no longer live is forgotten. A failure is logged, and the session
-    /// it concerns does not survive a restart.
+    /// name with the id of its pty and the pty's master. A master under a
+    /// name whose id changed replaces the one kept, and a name no longer
+    /// live is forgotten. A failure is logged, and the session it concerns
+    /// does not survive a restart.
     pub fn sync<'a>(
         &mut self,
         keeper: &mut Keeper,
-        live: impl IntoIterator<Item = (String, u32, BorrowedFd<'a>)>,
+        live: impl IntoIterator<Item = (String, u64, BorrowedFd<'a>)>,
     ) {
         if !keeper.keeps() {
             return;
         }
-        let mut seen: BTreeMap<String, u32> = BTreeMap::new();
-        for (name, number, master) in live {
-            seen.insert(name.clone(), number);
-            match self.held.get(&name) {
-                Some(&n) if n == number => continue,
-                Some(_) => {
-                    if let Err(e) = keeper.forget(&name) {
-                        log::warn!("cannot drop the kept copy of {name}: {e}");
-                    }
+        let mut seen: Vec<String> = Vec::new();
+        for (name, id, master) in live {
+            let had = self.held.iter().position(|(n, _)| *n == name);
+            if let Some(at) = had {
+                if self.held.get(at).is_some_and(|&(_, held)| held == id) {
+                    seen.push(name);
+                    continue;
                 }
-                None => {}
+                self.held.swap_remove(at);
+                if let Err(e) = keeper.forget(&name) {
+                    log::warn!("cannot drop the kept copy of {name}: {e}");
+                }
             }
             match keeper.keep(&name, master) {
-                Ok(()) => {
-                    self.held.insert(name, number);
-                }
+                Ok(()) => self.held.push((name.clone(), id)),
                 Err(e) => {
-                    self.held.remove(&name);
                     log::warn!("cannot keep {name}, so its session ends if vtium restarts: {e}");
                 }
             }
+            seen.push(name);
         }
-        let gone: Vec<String> = self
-            .held
-            .keys()
-            .filter(|n| !seen.contains_key(*n))
-            .cloned()
-            .collect();
-        for name in gone {
-            self.held.remove(&name);
+        let (stay, gone): (Vec<_>, Vec<_>) = std::mem::take(&mut self.held)
+            .into_iter()
+            .partition(|(n, _)| seen.contains(n));
+        self.held = stay;
+        for (name, _) in gone {
             if let Err(e) = keeper.forget(&name) {
                 log::warn!("cannot drop the kept copy of {name}: {e}");
             }
         }
     }
 
-    /// Records that the keeper holds `name`'s master, numbered `number`,
-    /// as it does for a master vtium took back at its start.
-    pub fn held(&mut self, name: String, number: u32) {
-        self.held.insert(name, number);
+    /// Records that the keeper holds `name`'s master, whose pty has the id
+    /// `id`, as it does for a master vtium took back at its start.
+    pub fn held(&mut self, name: String, id: u64) {
+        self.held.retain(|(n, _)| *n != name);
+        self.held.push((name, id));
     }
 
     /// Whether the keeper holds a master under `name`.
     pub fn holds(&self, name: &str) -> bool {
-        self.held.contains_key(name)
+        self.held.iter().any(|(n, _)| n == name)
     }
 }
 

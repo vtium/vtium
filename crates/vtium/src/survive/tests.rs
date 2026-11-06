@@ -414,21 +414,12 @@ fn the_ledger_tells_the_store_only_what_changed() {
     let mut ledger = Ledger::default();
     let first = session();
     let name = Name::new("console", 1).encode();
-    ledger.sync(
-        &mut keeper,
-        [(name.clone(), first.number().unwrap(), first.master())],
-    );
-    ledger.sync(
-        &mut keeper,
-        [(name.clone(), first.number().unwrap(), first.master())],
-    );
+    ledger.sync(&mut keeper, [(name.clone(), 1, first.master())]);
+    ledger.sync(&mut keeper, [(name.clone(), 1, first.master())]);
     assert_eq!(systemd.names(), ["pty.1.console"], "kept once");
     // the console's program starts again on a new pty
     let second = session();
-    ledger.sync(
-        &mut keeper,
-        [(name.clone(), second.number().unwrap(), second.master())],
-    );
+    ledger.sync(&mut keeper, [(name.clone(), 2, second.master())]);
     assert_eq!(systemd.names(), ["pty.1.console"]);
     let mut kept = restarted(&mut systemd);
     let back = kept.take("console", 1).unwrap();

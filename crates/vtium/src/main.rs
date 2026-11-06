@@ -144,13 +144,14 @@ fn main() -> ExitCode {
     // Before the loop blocks any signal, since a holder started here
     // inherits the mask (ADR-1401 D13).
     let env: Vec<(OsString, OsString)> = std::env::vars_os().collect();
-    let survival = vtium::survive::start(
+    let (keeper, kept) = vtium::survive::start(
         &env,
         path.as_deref(),
         Path::new(vtium::getty::DIR),
         Path::new("/proc/self/exe"),
         vtium_platform::take_passed,
     );
+    let survival = (keeper, kept, env);
     let status = match path {
         Some(path) => run_kernel(config, reread, start, heads, survival, &path),
         None => {
@@ -259,9 +260,13 @@ fn kernel_font(path: &Path) -> Option<ConsoleFont> {
 /// How the seat's VT is opened, in the loop it runs in.
 type Open = Box<dyn FnOnce(&mut Loop<App>) -> io::Result<Box<dyn SeatVt>>>;
 
-/// Where each session's pty is kept through a restart, and the ptys an
-/// earlier vtium left (ADR-1401 D13).
-type Survival = (vtium::survive::Keeper, Vec<(String, OwnedFd)>);
+/// Where each session's pty is kept through a restart, the ptys an earlier
+/// vtium left (ADR-1401 D13), and vtium's environment.
+type Survival = (
+    vtium::survive::Keeper,
+    Vec<(String, OwnedFd)>,
+    Vec<(OsString, OsString)>,
+);
 
 /// Runs the seat on the VT `open` gives, with the head file `heads`
 /// resolved to, until it ends; returns the exit status. It is compiled
@@ -275,6 +280,7 @@ fn run(
     console: Option<ConsoleFont>,
     open: Open,
 ) -> io::Result<i32> {
+    let (keeper, kept, env) = survival;
     let mut lp: Loop<App> = Loop::new()?;
     for signal in [Signal::SIGTERM, Signal::SIGINT] {
         lp.on_signal(signal, |app: &mut App| app.request_exit(Exit::Signal))?;
@@ -289,14 +295,14 @@ fn run(
         vt,
         lp.handle(),
         clock.clone(),
-        vtium::survive::session_env(std::env::vars_os().collect()),
+        vtium::survive::session_env(env),
     );
     if let Some(font) = console {
         app.set_console_font(font);
     }
     app.set_config_reader(reread);
     app.set_heads(heads);
-    app.set_survival(survival.0, survival.1);
+    app.set_survival(keeper, kept);
 
     match start.input() {
         Some(mut input) => {

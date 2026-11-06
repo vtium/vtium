@@ -30,7 +30,7 @@ use std::ffi::OsString;
 use std::io::{self, IoSlice, IoSliceMut};
 use std::mem::MaybeUninit;
 use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
-use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt};
+use std::os::unix::fs::{DirBuilderExt, MetadataExt};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
@@ -268,7 +268,7 @@ pub fn start(dir: &Path, exe: &Path) -> io::Result<(Client, Vec<(String, OwnedFd
     }
     let listener = seqpacket()?;
     bind(&listener, &SocketAddrUnix::new(&path)?)?;
-    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
+    rustix::fs::chmod(&path, rustix::fs::Mode::from_raw_mode(0o600))?;
     listen(&listener, 4)?;
     vtium_platform::cloexec_above_stdio()?;
     Command::new(exe)

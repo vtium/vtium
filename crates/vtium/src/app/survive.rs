@@ -22,7 +22,6 @@ use std::time::Duration;
 use vtium_platform::pty::Pty;
 
 use super::App;
-use crate::head::console::Console;
 use crate::head::session::AfterExit;
 use crate::respawn::Respawn;
 use crate::survive::{Keeper, Kept, Ledger, Name};
@@ -34,6 +33,11 @@ pub(crate) struct Survival {
     /// The masters an earlier vtium left, until their consoles start.
     kept: Kept,
     ledger: Ledger,
+    /// vtium let go of the sessions the keeper holds, as it exits, so it
+    /// tells the keeper nothing more.
+    released: bool,
+    /// The id the next pty the seat opens or takes back gets.
+    next_pty_id: u64,
 }
 
 /// What became of a console's kept master at its start.
@@ -63,11 +67,20 @@ impl App {
         self.survival = Survival {
             keeper,
             kept,
-            ledger: Ledger::default(),
+            next_pty_id: self.survival.next_pty_id,
+            ..Survival::default()
         };
         for (name, master) in apart {
             self.hang_up_kept(&name, master, "it names no head of this vtium.conf");
         }
+    }
+
+    /// The id of a pty the seat opens or takes back now, which no other
+    /// pty of this run has.
+    pub(super) fn next_pty_id(&mut self) -> u64 {
+        let id = self.survival.next_pty_id;
+        self.survival.next_pty_id = id.saturating_add(1);
+        id
     }
 
     /// Whether the sessions outlive this vtium.
@@ -185,26 +198,20 @@ impl App {
         {
             log::warn!("head {head_name}: console {id}: cannot size the recovered session: {e}");
         }
-        let watched = pty.insert(&self.handle, move |app: &mut App| {
-            let Console { pty, term, .. } = app.heads.get_mut(h)?.console_mut(id)?;
-            pty.as_mut().map(|p| (p, term))
-        });
-        if let Err(e) = watched {
+        if let Err(e) = self.watch(h, id, &mut pty) {
             log::warn!("head {head_name}: console {id}: cannot watch the recovered session: {e}");
             if let Err(e) = self.survival.keeper.forget(&name) {
                 log::warn!("cannot drop the kept copy of {name}: {e}");
             }
             return Taken::None;
         }
-        let number = pty.number().ok();
-        if let Some(n) = number {
-            self.survival.ledger.held(name, n);
-        }
+        let pty_id = self.next_pty_id();
+        self.survival.ledger.held(name, pty_id);
         let Some(console) = self.heads.get_mut(h).and_then(|head| head.console_mut(id)) else {
             return Taken::None;
         };
         console.pty = Some(pty);
-        console.number = number;
+        console.pty_id = Some(pty_id);
         console.respawn = Some(Respawn::recovered(since));
         log::info!(
             "head {head_name}: console {id} takes back the session that outlived the last vtium"
@@ -218,10 +225,10 @@ impl App {
         let App {
             heads, survival, ..
         } = self;
-        if !survival.keeper.keeps() {
+        if !survival.keeper.keeps() || survival.released {
             return;
         }
-        let live: Vec<(String, u32, BorrowedFd<'_>)> = heads
+        let live: Vec<(String, u64, BorrowedFd<'_>)> = heads
             .iter()
             .filter(|head| !head.notice_only)
             .flat_map(|head| {
@@ -229,7 +236,7 @@ impl App {
                     let pty = c.pty.as_ref()?;
                     Some((
                         Name::new(head.name(), c.id).encode(),
-                        c.number?,
+                        c.pty_id?,
                         pty.master(),
                     ))
                 })
@@ -239,14 +246,15 @@ impl App {
     }
 
     /// Lets go of every session the keeper holds, as vtium exits, without
-    /// hanging it up, so that the next vtium takes it back. A session the
-    /// keeper does not hold stays in its console, and dropping the seat
-    /// hangs it up.
+    /// hanging it up, so that the next vtium takes it back, and tells the
+    /// keeper nothing from then on. A session the keeper does not hold
+    /// stays in its console, and dropping the seat hangs it up.
     pub fn release_sessions(&mut self) {
-        if !self.survival.keeper.keeps() {
+        if !self.survival.keeper.keeps() || self.survival.released {
             return;
         }
         self.sync_kept();
+        self.survival.released = true;
         let App {
             heads, survival, ..
         } = self;
@@ -478,6 +486,10 @@ mod tests {
         });
         assert!(until(&mut lp, &mut app, |a| shows(a, "fresh")));
         let leader = app.heads()[0].pty().and_then(Pty::child_id).unwrap();
+        // vtium ends as SIGTERM ends it, through its turns, then lets go of
+        // the seat as main does.
+        app.request_exit(crate::app::Exit::Signal);
+        assert!(until(&mut lp, &mut app, |a| a.finished().is_some()));
         app.release_sessions();
         drop(app);
         drop(lp);
