@@ -21,6 +21,7 @@ const BIN: &str = env!("CARGO_BIN_EXE_vtium-config");
 
 fn request(cells: &[(u32, u32)], cover: &[(u32, u32)]) -> OutlineRequest {
     OutlineRequest {
+        fit: false,
         synth: Default::default(),
         font: ttf::test_mono().build().into(),
         family: "Test Mono".to_owned(),
@@ -332,6 +333,7 @@ fn overhanging(right: i16) -> OutlineRequest {
     font.cmap.push((0x52, 9));
     font.cmap.sort_unstable();
     OutlineRequest {
+        fit: false,
         font: font.build().into(),
         ..request(&[(0, 20)], &[])
     }
@@ -818,6 +820,7 @@ fn the_request_reads_back() {
     let r = request(&[(0, 10), (8, 16)], &[(0x41, 0x5a)]);
     assert_eq!(OutlineRequest::decode(&r.encode()), Ok(r.clone()));
     let full = OutlineRequest {
+        fit: false,
         hinting: Hinting::Full,
         ..r.clone()
     };
@@ -835,6 +838,7 @@ fn the_request_reads_back() {
     );
     // the synthesis is its last byte, bold 1 and italic 2 (ADR-1302 D4)
     let slanted = OutlineRequest {
+        fit: false,
         synth: vtium_font::Style {
             bold: true,
             italic: true,
@@ -872,6 +876,7 @@ fn the_parsers_child_rasterises() {
 #[test]
 fn a_color_bitmap_is_scaled_from_its_strike_by_the_chosen_method() {
     let req = OutlineRequest {
+        fit: false,
         synth: Default::default(),
         font: ttf::test_emoji().build().into(),
         family: "Test Emoji".to_owned(),
@@ -917,12 +922,28 @@ fn a_color_bitmap_is_scaled_from_its_strike_by_the_chosen_method() {
 // no cell, or one that is not a positive number of pixels to the em, is
 // refused before the font is read
 #[test]
-fn a_request_with_sizes_reads_back_and_a_bad_size_is_refused() {
+fn a_request_with_sizes_and_fit_reads_back_and_a_bad_one_is_refused() {
     let mut r = request(&[(0, 16), (0, 20)], &[]);
     r.sizes = vec![15.5f32.to_bits(), 19.5f32.to_bits()];
     assert_eq!(OutlineRequest::decode(&r.encode()), Ok(r.clone()));
     let o = rasterise(&r).expect("rasterised");
     assert_eq!(o.strikes.len(), 2);
+    // a fallback source's request, whose glyphs too big for their cells
+    // are drawn smaller, reads back; its fit is the byte before the
+    // hinting, 0 or 1
+    let fallback = OutlineRequest {
+        fit: true,
+        ..r.clone()
+    };
+    assert_eq!(
+        OutlineRequest::decode(&fallback.encode()),
+        Ok(fallback.clone())
+    );
+    let mut other = fallback.encode();
+    let n = other.len();
+    assert_eq!(other[n - 3], 1);
+    other[n - 3] = 2;
+    assert_eq!(OutlineRequest::decode(&other), Err("an unknown fit"));
     for bad in [
         vec![15.5f32.to_bits()],
         vec![0.0f32.to_bits(), 1.0f32.to_bits()],

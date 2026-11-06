@@ -280,6 +280,8 @@ pub(crate) fn draw_all(
             },
             wide,
             advance,
+            // a cluster's marks keep the row by the mark rule (ADR-1302 D3)
+            false,
             cell,
         ) else {
             continue;

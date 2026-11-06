@@ -901,3 +901,52 @@ fn a_fallback_outline_font_draws_at_the_first_fonts_size() {
     let inked_rows = rows.iter().filter(|r| r.iter().any(|&p| p != 0)).count();
     assert_eq!((columns, inked_rows), (15, 9));
 }
+
+// ADR-1200 D17 (the maintainer, 2026-11-06): a glyph from an outline source
+// behind an outline first source whose ink would pass its cells at the
+// first source's size is drawn smaller until it fits. Test Icons' U+E0B0
+// is a bar 1200 units across and 1300 high, from 300 below the baseline,
+// which at Test Latin's 15.5 pixels to the em spans 18.6 by 20.2 pixels,
+// more than its 9x16 cell. Drawn smaller, its ink lies in the cell with
+// blank rows above and below it, about as wide as the cell, and no ink
+// past the cell; cut at the cell, as before, it inked every row and
+// carried an ink box
+#[test]
+fn a_fallback_glyph_too_big_for_its_cell_is_drawn_smaller_to_fit() {
+    let w = World::new("icon-too-big");
+    latin_and_cjk(&w);
+    let mut icons = ttf::test_mono();
+    icons.family = "Test Icons".to_owned();
+    icons.colr.clear();
+    icons
+        .glyphs
+        .push(ttf::Glyph::rect(600, -300, -300, 900, 1000));
+    icons.cmap = vec![(0xe0b0, (icons.glyphs.len() - 1) as u16)];
+    fs::write(w.path("fonts/TestIcons-Regular.ttf"), icons.build()).expect("font");
+    let engine = w
+        .engine("source=font:Test Latin\nsource=font:Test Icons\n")
+        .expect("the frit loads");
+    let bytes = engine
+        .draw(cell(9, 16), &[0xe0b0])
+        .expect("draws")
+        .expect("a glyph");
+    let face =
+        SetFace::new(Arc::new(Set::from_bytes(bytes).expect("the set reads")), 16).expect("a face");
+    let g = face
+        .draw(&['\u{e0b0}'], Style::default())
+        .expect("the icon");
+    assert_eq!((g.cells(), g.width(), g.height()), (Width::Narrow, 9, 16));
+    assert!(g.ink().is_none(), "no ink past the cell");
+    let rows: Vec<&[u8]> = g.rows().collect();
+    let inked: Vec<usize> = (0..rows.len())
+        .filter(|&y| rows[y].iter().any(|&p| p != 0))
+        .collect();
+    assert!(
+        inked.first() > Some(&0) && inked.last() < Some(&15),
+        "blank rows above and below: {inked:?}"
+    );
+    let columns: Vec<usize> = (0..9).filter(|&x| rows.iter().any(|r| r[x] != 0)).collect();
+    // the width sets the size, 9 of 18.6 pixels: the bar inks 8 or 9
+    // columns as its edges fall on the pixel grid
+    assert!(columns.len() >= 8, "drawn as large as fits: {columns:?}");
+}

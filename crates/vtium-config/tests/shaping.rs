@@ -30,6 +30,7 @@ fn ask(cs: &[char], kind: Kind) -> Ask {
 /// `Test Shaping` at a 20-pixel cell, asked for `asks`.
 fn request(asks: Vec<Ask>) -> OutlineRequest {
     OutlineRequest {
+        fit: false,
         synth: Default::default(),
         font: ttf::test_shaping().build().into(),
         family: "Test Shaping".to_owned(),
@@ -258,6 +259,7 @@ fn lam_shadda_fatha_is_scaled_to_fit_the_row_it_is_drawn_in() {
     .expect("the fixture");
     let stack = ['\u{644}', '\u{651}', '\u{64e}'];
     let o = rasterise(&OutlineRequest {
+        fit: false,
         font: font.into(),
         cells: vec![(9, 16)],
         clusters: vec![ask(&stack, Kind::Marks)],
@@ -307,6 +309,7 @@ fn marked(keys: &[&[char]], height: u32) -> OutlineRequest {
     add(0x64d, ttf::Glyph::rect(0, -400, 0, -200, 150));
     f.cmap.sort_unstable();
     OutlineRequest {
+        fit: false,
         synth: Default::default(),
         font: f.build().into(),
         family: "Test Mono".to_owned(),
@@ -440,6 +443,7 @@ fn a_cluster_with_a_negative_advance_is_placed_as_one_with_none() {
     let key = ['x', '\u{307}'];
     let drawn = |by: Option<i16>| {
         let o = rasterise(&OutlineRequest {
+            fit: false,
             synth: Default::default(),
             font: font(by).into(),
             family: "Test Mono".to_owned(),
@@ -476,6 +480,7 @@ fn alef_damma() -> OutlineRequest {
     f.cmap.push((0x64f, 9));
     f.cmap.sort_unstable();
     OutlineRequest {
+        fit: false,
         synth: Default::default(),
         font: f.build().into(),
         family: "Test Mono".to_owned(),
@@ -561,6 +566,7 @@ fn a_vocalised_letter_with_a_joiner_draws_as_a_joining_form() {
         .map(|k| vtium_config::shaping::ask(&key(k)))
         .collect();
     let o = rasterise(&OutlineRequest {
+        fit: false,
         font: font.build().into(),
         ..request(asks)
     })
@@ -602,6 +608,7 @@ fn a_mark_left_at_the_pen_is_centred_over_its_base() {
     f.cmap.sort_unstable();
     let key = ['x', '\u{302}', '\u{301}'];
     let o = rasterise(&OutlineRequest {
+        fit: false,
         synth: Default::default(),
         font: f.build().into(),
         family: "Test Mono".to_owned(),
@@ -646,6 +653,7 @@ fn a_stretched_cluster_keeps_its_marks_over_its_letter() {
     f.cmap.sort_unstable();
     let key = ['\u{628}', '\u{64e}'];
     let o = rasterise(&OutlineRequest {
+        fit: false,
         synth: Default::default(),
         font: f.build().into(),
         family: "Test Mono".to_owned(),
@@ -719,6 +727,7 @@ fn an_unplaced_mark_in_right_to_left_text_is_placed_over_its_letter() {
     ]);
     let (accent, hamza) = (['\u{5d0}', '\u{592}'], [ALEF, '\u{655}']);
     let o = rasterise(&OutlineRequest {
+        fit: false,
         font: f.build().into(),
         family: "Test Mono".to_owned(),
         cells: vec![(0, 20)],
@@ -796,6 +805,7 @@ fn a_letter_drawn_as_several_glyphs_is_one_base_for_an_unplaced_mark() {
     ]);
     let k = ['\u{1e0d}', '\u{302}'];
     let o = rasterise(&OutlineRequest {
+        fit: false,
         font: f.build().into(),
         family: "Test Mono".to_owned(),
         cells: vec![(0, 20)],
@@ -850,6 +860,7 @@ fn a_joining_form_the_font_draws_as_several_glyphs_is_kept() {
         &[BEH, FATHA, ZWJ],
     ];
     let o = rasterise(&OutlineRequest {
+        fit: false,
         font: naskh().into(),
         cells: vec![(12, 24)],
         clusters: forms
@@ -892,6 +903,7 @@ fn a_joining_cluster_drawn_as_its_letter_alone_is_left_out() {
     f.gsub = vec![(*b"ccmp", ttf::Lookup::Single(vec![(beh, other)]))];
     let keys = [[BEH, ZWJ], [ZWJ, BEH]];
     let o = rasterise(&OutlineRequest {
+        fit: false,
         font: f.build().into(),
         family: "Test Mono".to_owned(),
         cells: vec![(0, 20)],
@@ -929,6 +941,7 @@ fn a_letter_composed_with_its_mark_and_not_joined_is_left_out() {
     f.gsub = vec![(*b"fina", ttf::Lookup::Single(vec![(composed, fina)]))];
     let (after, before) = ([ALEF, '\u{654}', ZWJ], [ZWJ, ALEF, '\u{654}']);
     let o = rasterise(&OutlineRequest {
+        fit: false,
         font: f.build().into(),
         family: "Test Mono".to_owned(),
         cells: vec![(0, 20)],

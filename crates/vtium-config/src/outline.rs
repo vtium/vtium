@@ -15,8 +15,9 @@
 //!          and last codepoint u32, cluster count u32, each cluster's kind
 //!          u8, length u8 and scalar values u32, baseline count u32 (0, or
 //!          the cell count), each baseline u32, size count u32 (0, or the
-//!          cell count), each size in pixels to the em as f32 bits u32,
-//!          hinting u8 (0 light, 1
+//!          cell count), each size in pixels to the em as f32 bits u32, fit
+//!          u8 (1 for a fallback source, whose glyphs too big for their
+//!          cells are drawn smaller, else 0), hinting u8 (0 light, 1
 //!          full), synthesis u8 (bit 1 bold, bit 2 italic)
 //! answer   magic "VTVOUTL3", family length u32, the family, format length
 //!          u32, the format, licence length u32, the licence, strike count
@@ -138,6 +139,10 @@ pub struct OutlineRequest {
     /// How the outline glyphs are fitted to the pixel grid, the frit's
     /// `hinting=` (ADR-1200 D1).
     pub hinting: Hinting,
+    /// Whether a glyph whose ink would pass its cells is drawn smaller
+    /// until it fits, as a fallback source's glyph is (ADR-1200 D17): set
+    /// for every outline source but the first of its style.
+    pub fit: bool,
     /// The style drawn over the font's own glyphs: bold emboldens each
     /// outline and italic slants it (ADR-1302 D4). Regular draws the
     /// glyphs as the font draws them.
@@ -325,6 +330,7 @@ impl OutlineRequest {
         for &size in &self.sizes {
             put32(&mut out, size);
         }
+        out.push(u8::from(self.fit));
         out.push(match self.hinting {
             Hinting::Light => 0,
             Hinting::Full => 1,
@@ -390,6 +396,11 @@ impl OutlineRequest {
         {
             return Err("a size for no cell, or not a size");
         }
+        let fit = match r.u8()? {
+            0 => false,
+            1 => true,
+            _ => return Err("an unknown fit"),
+        };
         let hinting = match r.u8()? {
             0 => Hinting::Light,
             1 => Hinting::Full,
@@ -415,6 +426,7 @@ impl OutlineRequest {
             sizes,
             hinting,
             synth,
+            fit,
         })
     }
 
@@ -1481,7 +1493,10 @@ pub(crate) mod raster {
                         // its own (ADR-1302 D6), so none is left out for its size
                         let joins = crate::shaping::joins(c);
                         let wide = crate::shaping::wide(&[c]);
-                        let Some(placed) = place(&mut drawer, g, advance, joins, wide, &cell)
+                        // a fallback source's glyph too big for its cells is
+                        // drawn smaller to fit them (ADR-1200 D17)
+                        let fit = request.fit;
+                        let Some(placed) = place(&mut drawer, g, advance, joins, wide, fit, &cell)
                         else {
                             continue;
                         };
@@ -1536,33 +1551,38 @@ pub(crate) mod raster {
 
     /// Glyph `g`, advancing `advance` pixels, placed in `cell`, two cells
     /// wide when `wide`, as the terminal gives its character two cells
-    /// (ADR-1200 D21); `None` when the font draws nothing for it. A glyph of a character that joins (ADR-1302 D2, `joins`) is
-    /// stretched sideways before it is rasterised, by its cells' width over
-    /// its advance, unrounded, its pen on its cell's left edge, so its
-    /// advance fills its cells and its joining strokes meet the next
-    /// letter's.
+    /// (ADR-1200 D21); `None` when the font draws nothing for it. A glyph
+    /// of a character that joins (ADR-1302 D2, `joins`) is stretched
+    /// sideways before it is rasterised, by its cells' width over its
+    /// advance, unrounded, its pen on its cell's left edge, so its advance
+    /// fills its cells and its joining strokes meet the next letter's. Any
+    /// other glyph whose ink would pass its cells is drawn smaller to fit
+    /// them when `fit`, as a later source's glyph is (ADR-1200 D17).
     fn place(
         drawer: &mut Drawer<'_>,
         g: u16,
         advance: f32,
         joins: bool,
         wide: bool,
+        fit: bool,
         cell: &Cell,
     ) -> Option<Placed> {
         let span = cell.width as f32 * if wide { 2.0 } else { 1.0 };
         if joins && advance > 0.0 {
             let sx = span / advance;
             return place_drawn(
-                &mut |ppem, fit| drawer.draw_stretched(g, ppem, fit, sx),
+                &mut |ppem, bounds| drawer.draw_stretched(g, ppem, bounds, sx),
                 wide,
                 None,
+                false,
                 cell,
             );
         }
         place_drawn(
-            &mut |ppem, fit| drawer.draw(g, ppem, fit),
+            &mut |ppem, bounds| drawer.draw(g, ppem, bounds),
             wide,
             Some(advance),
+            fit,
             cell,
         )
     }
@@ -1575,37 +1595,55 @@ pub(crate) mod raster {
     /// its ink lies at its bearing from the pen; with no advance, as for a
     /// ligature shaping places, the pen stays on the left edge. Nothing
     /// moves it to keep its ink inside its cells: the ink past them goes
-    /// to its ink box, cut at its reach. A color image larger than its
-    /// cells is drawn again at the size that fits them and centred across
-    /// them.
+    /// to its ink box, cut at its reach. A color image, and when `fit` a
+    /// mask whose ink so placed would pass its cells, is fitted instead
+    /// (ADR-1200 D17, D21): drawn again, smaller, while it is larger than
+    /// its cells, centred across them, and kept on its baseline as far as
+    /// the row allows.
     pub(crate) fn place_drawn(
         draw: &mut dyn FnMut(f32, (u32, u32)) -> Option<Image>,
         wide: bool,
         advance: Option<f32>,
+        fit: bool,
         cell: &Cell,
     ) -> Option<Placed> {
         let h = cell.height;
         let bw = cell.width * if wide { 2 } else { 1 };
         let mut image = draw(cell.ppem, (bw, h))?;
         let color = image.content == Content::Color;
-        let (iw, ih) = (image.placement.width, image.placement.height);
-        if color && (iw > bw || ih > h) && iw > 0 && ih > 0 {
-            // a COLR glyph, drawn again at the size that fits
-            let fit = (bw as f32 / iw as f32).min(h as f32 / ih as f32);
-            image = draw(cell.ppem * fit, (bw, h))?;
+        let (bw_i, h_i, base) = (bw as i32, h as i32, cell.baseline as i32);
+        // where the font places a mask: the advance rounded to the nearest
+        // pixel (ADR-1302 D2), and a negative advance counts as none
+        let pen = advance.map_or(0, |a| (bw_i - a.max(0.0).round() as i32).div_euclid(2));
+        let at = |image: &Image| (pen + image.placement.left, base - image.placement.top);
+        let passes = |image: &Image| {
+            let (left, top) = at(image);
+            let (iw, ih) = (image.placement.width as i32, image.placement.height as i32);
+            iw > 0 && ih > 0 && (left < 0 || top < 0 || left + iw > bw_i || top + ih > h_i)
+        };
+        let fitted = color || (fit && passes(&image));
+        if fitted {
+            // drawn again at the size that fits, a few times at most, since
+            // hinting can leave the smaller drawing a pixel over
+            let mut ppem = cell.ppem;
+            for _ in 0..4 {
+                let (iw, ih) = (image.placement.width, image.placement.height);
+                if iw == 0 || ih == 0 || (iw <= bw && ih <= h) {
+                    break;
+                }
+                let scale = (bw as f32 / iw as f32).min(h as f32 / ih as f32);
+                ppem *= scale;
+                image = draw(ppem, (bw, h))?;
+            }
         }
         let (iw, ih) = (image.placement.width as i32, image.placement.height as i32);
-        let (bw_i, h_i, base) = (bw as i32, h as i32, cell.baseline as i32);
-        let (left, top) = if color {
+        let (left, top) = if fitted {
             let top = (base - image.placement.top).clamp(0, (h_i - ih).max(0));
             ((bw_i - iw) / 2, top)
         } else {
-            // the advance rounded to the nearest pixel (ADR-1302 D2), and a
-            // negative advance counts as none
-            let pen = advance.map_or(0, |a| (bw_i - a.max(0.0).round() as i32).div_euclid(2));
-            (pen + image.placement.left, base - image.placement.top)
+            at(&image)
         };
-        let ink = if color {
+        let ink = if fitted {
             None
         } else {
             ink_box(&image, cell.width, bw, h, left, top)
@@ -1750,8 +1788,8 @@ mod tests {
             baseline: 10,
             ppem: 10.0,
         };
-        let placed =
-            place_drawn(&mut |_, _| Some(bar(10)), false, Some(-10.0), &cell).expect("placed");
+        let placed = place_drawn(&mut |_, _| Some(bar(10)), false, Some(-10.0), false, &cell)
+            .expect("placed");
         let row: Vec<usize> = (0..12).filter(|&x| placed.pixels[x] > 0).collect();
         assert_eq!(row, [6]);
     }

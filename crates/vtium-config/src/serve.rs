@@ -1506,6 +1506,14 @@ impl Engine {
                             .collect(),
                         hinting: self.hinting,
                         synth,
+                        // a fallback source: any source but the first of its
+                        // style, the frit's own face for that style, draws
+                        // a glyph too big for its cells smaller (ADR-1200 D17)
+                        fit: self
+                            .sources
+                            .iter()
+                            .position(|(s, _)| s.style == source.style)
+                            != Some(i),
                     };
                     let outline = match rasterise(&request) {
                         Ok(outline) => outline,

@@ -650,6 +650,7 @@ fn outline(font: Vec<u8>, family: &str) -> Input {
         sizes: Vec::new(),
         hinting: Hinting::default(),
         synth: vtium_font::Style::default(),
+        fit: false,
     })
 }
 
