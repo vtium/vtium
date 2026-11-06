@@ -894,6 +894,23 @@ fn a_capability_scenario_replays_the_bytes_and_cuts_its_probe_had() {
 }
 
 #[test]
+fn every_scenario_in_the_tree_reads() {
+    let dir = Path::new(TOOL).join("scenarios");
+    let mut count = 0;
+    for entry in std::fs::read_dir(&dir).unwrap_or_else(|e| panic!("{}: {e}", dir.display())) {
+        let path = entry.map(|e| e.path()).unwrap_or_default();
+        if path.extension().is_some_and(|x| x == "scenario") {
+            let name = path.file_stem().unwrap_or_default().to_string_lossy();
+            let text = std::fs::read_to_string(&path).unwrap_or_default();
+            scenario::parse(&name, &path.display().to_string(), &text)
+                .unwrap_or_else(|e| panic!("{e}"));
+            count += 1;
+        }
+    }
+    assert!(count > 0, "no scenarios in {}", dir.display());
+}
+
+#[test]
 fn a_provisional_transcript_that_differs_judges_nothing_but_its_assertions_still_do() {
     use vtium_conformance::scenario::run::{Played, Verdict, verdict};
     let played = |assertions: Outcome| -> Result<Played, String> {

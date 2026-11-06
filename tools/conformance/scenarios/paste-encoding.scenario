@@ -1,0 +1,15 @@
+# A paste in the input's encoding: ill-formed UTF-8 becomes U+FFFD in
+# 7-bit input (the default); DECSCL level 2 with 8-bit controls (CSI 62 " p)
+# sends Latin-1, and a character it cannot carry as ?; level 1 (CSI 61 " p)
+# sends ASCII.
+# spec: DEC STD 070, DECSCL; ctlseqs, Bracketed Paste Mode
+# covers: input.paste-end-marker
+size 20 2
+paste "bad \xff\xc3 end"
+paste "\u{20ac} \u{e9}\u{a0}"
+send "\e[62\"p"
+paste "\u{20ac} \u{e9}\u{a0}"
+send "\e[?2004h"
+paste "\u{e9}"
+send "\e[61\"p"
+paste "\u{20ac} \u{e9}"

@@ -1,0 +1,21 @@
+# DECNKM, mode 66, switches the keypad as DECKPAM and DECKPNM do, and
+# DECRQM reports it; ESC = and ESC > set and reset the same mode.
+# spec: DEC STD 070, DECNKM; ctlseqs, DECNKM
+# covers: DEC-66
+size 20 2
+send "\e[?66$p"
+key KP_5
+key KP_Add
+key KP_Enter
+send "\e[?66h"
+send "\e[?66$p"
+key KP_5
+key KP_Add
+key KP_Enter
+send "\e[?66l"
+send "\e[?66$p"
+key KP_5
+send "\e="
+send "\e[?66$p"
+send "\e>"
+send "\e[?66$p"

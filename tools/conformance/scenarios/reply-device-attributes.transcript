@@ -1,0 +1,13 @@
+> size 20 2
+> send "\e[c"
+< reply "\e[?62;4;22c"
+> send "\e[0c"
+< reply "\e[?62;4;22c"
+> send "\e[>c"
+< reply "\e[>1;1;0c"
+> send "\e[>0c"
+< reply "\e[>1;1;0c"
+> send "\e[=c"
+< reply "\eP!|00000000\e\\"
+> send "\eZ"
+< reply "\e[?62;4;22c"

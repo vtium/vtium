@@ -1,0 +1,218 @@
+> size 20 2
+> key F1
+< reply "\eOP"
+> key F1 mods=shift
+< reply "\e[23~"
+> key F1 mods=alt
+< reply "\e\eOP"
+> key F1 mods=shift+alt
+< reply "\e\e[23~"
+> key F1 mods=ctrl
+< reply "\eOP"
+> key F1 mods=shift+ctrl
+< reply "\e[23~"
+> key F1 mods=alt+ctrl
+< reply "\e\eOP"
+> key F1 mods=shift+alt+ctrl
+< reply "\e\e[23~"
+> key F2
+< reply "\eOQ"
+> key F2 mods=shift
+< reply "\e[24~"
+> key F2 mods=alt
+< reply "\e\eOQ"
+> key F2 mods=shift+alt
+< reply "\e\e[24~"
+> key F2 mods=ctrl
+< reply "\eOQ"
+> key F2 mods=shift+ctrl
+< reply "\e[24~"
+> key F2 mods=alt+ctrl
+< reply "\e\eOQ"
+> key F2 mods=shift+alt+ctrl
+< reply "\e\e[24~"
+> key F3
+< reply "\eOR"
+> key F3 mods=shift
+< reply "\e[25~"
+> key F3 mods=alt
+< reply "\e\eOR"
+> key F3 mods=shift+alt
+< reply "\e\e[25~"
+> key F3 mods=ctrl
+< reply "\eOR"
+> key F3 mods=shift+ctrl
+< reply "\e[25~"
+> key F3 mods=alt+ctrl
+< reply "\e\eOR"
+> key F3 mods=shift+alt+ctrl
+< reply "\e\e[25~"
+> key F4
+< reply "\eOS"
+> key F4 mods=shift
+< reply "\e[26~"
+> key F4 mods=alt
+< reply "\e\eOS"
+> key F4 mods=shift+alt
+< reply "\e\e[26~"
+> key F4 mods=ctrl
+< reply "\eOS"
+> key F4 mods=shift+ctrl
+< reply "\e[26~"
+> key F4 mods=alt+ctrl
+< reply "\e\eOS"
+> key F4 mods=shift+alt+ctrl
+< reply "\e\e[26~"
+> key F5
+< reply "\e[15~"
+> key F5 mods=shift
+< reply "\e[28~"
+> key F5 mods=alt
+< reply "\e\e[15~"
+> key F5 mods=shift+alt
+< reply "\e\e[28~"
+> key F5 mods=ctrl
+< reply "\e[15~"
+> key F5 mods=shift+ctrl
+< reply "\e[28~"
+> key F5 mods=alt+ctrl
+< reply "\e\e[15~"
+> key F5 mods=shift+alt+ctrl
+< reply "\e\e[28~"
+> key F6
+< reply "\e[17~"
+> key F6 mods=shift
+< reply "\e[29~"
+> key F6 mods=alt
+< reply "\e\e[17~"
+> key F6 mods=shift+alt
+< reply "\e\e[29~"
+> key F6 mods=ctrl
+< reply "\e[17~"
+> key F6 mods=shift+ctrl
+< reply "\e[29~"
+> key F6 mods=alt+ctrl
+< reply "\e\e[17~"
+> key F6 mods=shift+alt+ctrl
+< reply "\e\e[29~"
+> key F7
+< reply "\e[18~"
+> key F7 mods=shift
+< reply "\e[31~"
+> key F7 mods=alt
+< reply "\e\e[18~"
+> key F7 mods=shift+alt
+< reply "\e\e[31~"
+> key F7 mods=ctrl
+< reply "\e[18~"
+> key F7 mods=shift+ctrl
+< reply "\e[31~"
+> key F7 mods=alt+ctrl
+< reply "\e\e[18~"
+> key F7 mods=shift+alt+ctrl
+< reply "\e\e[31~"
+> key F8
+< reply "\e[19~"
+> key F8 mods=shift
+< reply "\e[32~"
+> key F8 mods=alt
+< reply "\e\e[19~"
+> key F8 mods=shift+alt
+< reply "\e\e[32~"
+> key F8 mods=ctrl
+< reply "\e[19~"
+> key F8 mods=shift+ctrl
+< reply "\e[32~"
+> key F8 mods=alt+ctrl
+< reply "\e\e[19~"
+> key F8 mods=shift+alt+ctrl
+< reply "\e\e[32~"
+> key F9
+< reply "\e[20~"
+> key F9 mods=shift
+< reply "\e[33~"
+> key F9 mods=alt
+< reply "\e\e[20~"
+> key F9 mods=shift+alt
+< reply "\e\e[33~"
+> key F9 mods=ctrl
+< reply "\e[20~"
+> key F9 mods=shift+ctrl
+< reply "\e[33~"
+> key F9 mods=alt+ctrl
+< reply "\e\e[20~"
+> key F9 mods=shift+alt+ctrl
+< reply "\e\e[33~"
+> key F10
+< reply "\e[21~"
+> key F10 mods=shift
+< reply "\e[34~"
+> key F10 mods=alt
+< reply "\e\e[21~"
+> key F10 mods=shift+alt
+< reply "\e\e[34~"
+> key F10 mods=ctrl
+< reply "\e[21~"
+> key F10 mods=shift+ctrl
+< reply "\e[34~"
+> key F10 mods=alt+ctrl
+< reply "\e\e[21~"
+> key F10 mods=shift+alt+ctrl
+< reply "\e\e[34~"
+> key F11
+< reply "\e[23~"
+> key F11 mods=shift
+< reply "\e[23;2~"
+> key F11 mods=alt
+< reply "\e\e[23~"
+> key F11 mods=shift+alt
+< reply "\e\e[23;2~"
+> key F11 mods=ctrl
+< reply "\e[23~"
+> key F11 mods=shift+ctrl
+< reply "\e[23;2~"
+> key F11 mods=alt+ctrl
+< reply "\e\e[23~"
+> key F11 mods=shift+alt+ctrl
+< reply "\e\e[23;2~"
+> key F12
+< reply "\e[24~"
+> key F12 mods=shift
+< reply "\e[24;2~"
+> key F12 mods=alt
+< reply "\e\e[24~"
+> key F12 mods=shift+alt
+< reply "\e\e[24;2~"
+> key F12 mods=ctrl
+< reply "\e[24~"
+> key F12 mods=shift+ctrl
+< reply "\e[24;2~"
+> key F12 mods=alt+ctrl
+< reply "\e\e[24~"
+> key F12 mods=shift+alt+ctrl
+< reply "\e\e[24;2~"
+> send "\e[?1h"
+> key F1
+< reply "\eOP"
+> key F2
+< reply "\eOQ"
+> key F3
+< reply "\eOR"
+> key F4
+< reply "\eOS"
+> key F5
+< reply "\e[15~"
+> key F6
+< reply "\e[17~"
+> key F7
+< reply "\e[18~"
+> key F8
+< reply "\e[19~"
+> key F9
+< reply "\e[20~"
+> key F10
+< reply "\e[21~"
+> key F11
+< reply "\e[23~"
+> key F12
+< reply "\e[24~"

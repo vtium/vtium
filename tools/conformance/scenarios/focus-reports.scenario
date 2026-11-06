@@ -1,0 +1,15 @@
+# Focus reports, mode 1004: focus in and out send CSI I and CSI O while
+# the mode is set, and nothing while it is reset. DECRQM reports the mode.
+# spec: ctlseqs, FocusIn/FocusOut
+# covers: DEC-1004
+size 20 2
+focus out
+focus in
+send "\e[?1004$p"
+send "\e[?1004h"
+send "\e[?1004$p"
+focus out
+focus in
+focus in
+send "\e[?1004l"
+focus out

@@ -1,0 +1,14 @@
+# The host chooses a named palette: text colored by palette index and the
+# default colors take the new palette's colors when the frame draws, and
+# OSC 4, 10 and 11 report them.
+# spec: ADR-1000 color.palette.named; ctlseqs, OSC 4, 10 and 11
+# covers: color.palette.named
+size 12 2
+send "\e[31mred\e[42mgreen\e[m plain"
+send "\e]4;1;?\a\e]10;?\a\e]11;?\a"
+dump frame
+palette solarized
+send "\e]4;1;?\a\e]10;?\a\e]11;?\a"
+dump frame
+palette legacy
+send "\e]4;1;?\a"

@@ -1,0 +1,28 @@
+# Normal tracking, mode 1000, reported in SGR-Pixels, mode 1016: the SGR form with the pointer's pixel, counted from 1, in place of its cell.
+# Each button is pressed and released over a cell, the wheel steps up and
+# down, Shift, Alt and Ctrl are held over a press, and a move with no
+# button held is not reported in this mode.
+# spec: ctlseqs, Mouse Tracking
+# covers: DEC-1016
+size 20 5
+send "\e[?1000h"
+send "\e[?1016h"
+send "\e[?1016$p"
+mouse press left at 1,0 px=11,5
+mouse release left at 1,0 px=11,5
+mouse press middle at 2,1 px=19,21
+mouse release middle at 2,1 px=19,21
+mouse press right at 3,2 px=27,37
+mouse release right at 3,2 px=27,37
+wheel up at 4,3 px=35,53
+wheel down at 4,3 px=35,53
+mouse press left at 5,4 px=43,69 mods=shift
+mouse release left at 5,4 px=43,69 mods=shift
+mouse press left at 6,4 px=51,69 mods=alt
+mouse release left at 6,4 px=51,69 mods=alt
+mouse press left at 7,4 px=59,69 mods=ctrl
+mouse release left at 7,4 px=59,69 mods=ctrl
+wheel down at 8,4 px=67,69 mods=ctrl
+mouse move at 9,4 px=75,69
+send "\e[?1000l"
+mouse press left at 1,0

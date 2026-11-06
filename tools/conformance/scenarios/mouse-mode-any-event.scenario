@@ -1,0 +1,17 @@
+# Any-event tracking, mode 1003, in SGR encoding: every move is
+# reported, with no button as button code 35 and with a held button as
+# that button plus 32. Mode 1003 reset stops the reports.
+# spec: ctlseqs, Mouse Tracking, Any-event tracking
+# covers: DEC-1003
+size 20 5
+send "\e[?1003h\e[?1006h"
+send "\e[?1003$p"
+mouse move at 1,1
+mouse move at 2,1 mods=shift
+mouse press middle at 2,1
+mouse move middle at 3,1
+mouse release middle at 3,1
+mouse move at 4,4
+send "\e[?1003l"
+mouse move at 5,4
+send "\e[?1003$p"
