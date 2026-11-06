@@ -93,7 +93,7 @@ basis:
     level: directed
     said: "`font:` names a font family and nothing else; size and style go on their own lines (`size=`, `style=`)."
     via: the GitHub issue for vitrify's guided builder, comment of 2026-10-28 headed "The operator's decision (2026-10-28)"; posted from the operator's account, the wording agent-written
-  - upstream: "aaronsb/kmscon origin/main: with `font-engine=psf`, `font-name` was the path of a PSF font the C reference read and inflated at run time (src/font/font_psf.c; the fork's render ADR-103, 'A console font takes two settings'); the C reference made no KDFONTOP or GIO_UNIMAP call, resolved no kbd name and read no vconsole.conf"
+  - upstream: "the C reference's last commit: with `font-engine=psf`, `font-name` was the path of a PSF font the C reference read and inflated at run time (src/font/font_psf.c; the C reference's render ADR-103, 'A console font takes two settings'); the C reference made no KDFONTOP or GIO_UNIMAP call, resolved no kbd name and read no vconsole.conf"
   - upstream: "kbd (legionus/kbd master, read 2026-10-28; kbd 2.10.0 is the installed program): src/libkfont/setfont.c loads def.uni only for its default font, when that font has no Unicode table, and loads no map for a named font without one; the default font is the first of default, default8x16, default8x14 and default8x8 found; font lookup and suffixes as the console-fonts issue cites (src/libkfont/context.c, kbdfile.c)"
   - standard: "Linux 7.3 UAPI, include/uapi/linux/kd.h: KDFONTOP with KD_FONT_OP_GET and KD_FONT_OP_GET_TALL, and GIO_UNIMAP; the kernel refuses a font get on a VT outside text mode (drivers/tty/vt/vt.c, con_font_get, as the console-fonts issue cites)"
   - standard: "xterm ctlseqs, OSC 50 (set and query the font); xterm(1), allowFontOps: 'The default is “true”'"
@@ -175,7 +175,7 @@ basis:
     via: "the maintainer in the steering session, 2026-11-02, relayed by the team lead, on light hinting, after looking at the before and after cards of the helper's hinting work; it stands beside the light-by-default decision of 2026-11-01"
     paraphrase: true
   - evidence: "the work that replaces the prerendered store with deferred rendering, Phase 1's measurements (feat/deferred at d075494), accepted by the operator on 2026-10-28: from vtium's start to the helper's first ask 51-55 ms in the tier 3 guest (1 vCPU, 512 MB); first batch 6-18 ms and whole coverage 29-39 ms for DejaVu Sans Mono there, 31-43 ms and 265-276 ms for WenQuanYi Micro Hei; the helper's peak 5.8 MB and 13.8 MB; on the development machine 2 ms and 16-23 ms with a 12 MB peak for DejaVu Sans Mono, 50-61 ms and 409-537 ms with a 43 MB peak for Noto Sans CJK; the first frame drawn in the built-in font 60 ms after start; the console's resident memory from 5.6 MiB to 6.1 MiB with DejaVu's glyphs"
-  - upstream: "aaronsb/kmscon b1f7a7c5 and aaronsb/libtsm eeaf293, the C reference's font load, automatic size, resize and zoom, cluster table, glyph cache and damage, each cited by file and line in this record's C notes"
+  - upstream: "the C reference's kmscon at b1f7a7c5 and libtsm at eeaf293: the font load, automatic size, resize and zoom, cluster table, glyph cache and damage, each cited by file and line in this record's C notes"
   - precedent: ADR-1301
 agent:
   name: Claude
