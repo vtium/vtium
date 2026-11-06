@@ -25,12 +25,13 @@ from t3_qemu import Qemu, char_qcodes, make_iso, not_blank, wait_stable
 
 # Display variants. Each boots its own guest from the base image, with its
 # own vCPUs and memory, and names the text renderer its console must log
-# (ADR-1303 D10): cpu for the 2D variants, gpu for gpu-1280x800, and gltex
-# on virgl for the GL one, a renderer vtium never names, so that variant
-# fails every case. Each draws every screen, the image ones included
-# (t3_evaluate.IMAGE_SCREENS), so its console is built with images
-# ("tree_features"). Every variant's cases are judged by the goldens in
-# goldens/VARIANT/, but those of a variant judged another way ("verdict").
+# (ADR-1303 D10): cpu for the 2D variants, and gpu for the two that draw on
+# the GPU path under virgl, gl-1280x800 and gpu-1280x800. Each draws every
+# screen, the image ones included (t3_evaluate.IMAGE_SCREENS), so its
+# console is built with images ("tree_features"). Every variant's cases are
+# judged by the goldens in goldens/VARIANT/, but those of a variant judged
+# by another's goldens (t3_evaluate.GOLDENS_OF) and those of a variant
+# judged another way ("verdict").
 # The screens the frit variants draw: Latin text the frit's font holds, and
 # CJK it lacks, which the built-in unifont draws in its place (#141); cjk
 # last, as vt-restore compares with it.
@@ -172,16 +173,23 @@ VARIANTS = {
         "memory_mb": 4096,
         "tree_features": ["images"],
     },
+    # The C reference's GL variant, run on vtium's GPU path: 2d-1280x800's
+    # display on virtio-gpu with virgl, with hwaccel on (kmscon-gl.conf).
+    # The log must name the gpu renderer for every display, and each case
+    # is judged by 2d-1280x800's golden of it, exactly
+    # (t3_evaluate.GOLDENS_OF), since the GPU path draws the CPU path's
+    # bytes (ADR-1303 D1, D11). The C reference's own GL goldens stay in
+    # goldens/gl-1280x800/ as a record (t3_evaluate.RECORDS).
     "gl-1280x800": {
         "device": "virtio-vga-gl,xres=1280,yres=800,edid=on",
         "display": "egl-headless,rendernode=%s"
                    % os.environ.get("T3_RENDERNODE", "/dev/dri/renderD128"),
         "conf": "kmscon-gl.conf",
-        "renderer": "gltex",
+        "renderer": "gpu",
         "capture": "vnc",
         "cpus": 4,
         "memory_mb": 4096,
-        "tree_features": ["images"],
+        "tree_features": ["gpu", "images"],
     },
     # The GPU path on the installed console (ADR-1303): 2d-1280x800's
     # display on virtio-gpu with virgl, whose render node in the guest the
