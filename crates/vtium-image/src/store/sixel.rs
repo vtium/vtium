@@ -10,7 +10,7 @@
 //! its kind under the new one's box that draws nothing is removed too: one
 //! left with no pixel set, or one whose every set pixel lies under an
 //! opaque pixel of the new picture, so that it shows nowhere. This is the
-//! per-cell coverage the operator chose for the C reference after chafa's
+//! per-cell coverage the operator chose after chafa's
 //! frames, padded with clear pixels, stacked on each other until the
 //! budget refused the next. The second kind of piece that draws nothing
 //! is vtium's reading: without it, two pictures of the same size that end

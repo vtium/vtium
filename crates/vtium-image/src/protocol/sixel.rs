@@ -22,9 +22,7 @@
 //!
 //! Sixel answers nothing, so a picture that ends with no size, or that the
 //! budget or the store refuses, is dropped without a word to the program,
-//! and the handler notes why for vtium's log ([`Context::note`]). The C
-//! reference logged a sixel picture it did not store or place, at debug
-//! level (libtsm `eeaf293`, `src/tsm/tsm-vte-image.c:161-171`).
+//! and the handler notes why for vtium's log ([`Context::note`]).
 
 use vtium_parse::Chunk;
 
@@ -37,8 +35,7 @@ use crate::protocol::{chunk_work, place_scrolling};
 use crate::rules::Protocol;
 use crate::store::Reservation;
 
-/// `max-graphic-size` when the host gives none, as the C reference's
-/// `TSM_SIXEL_MAX_SIZE_DEFAULT`.
+/// `max-graphic-size` when the host gives none.
 const GRAPHIC_DEFAULT: u32 = 10_000;
 
 /// The sixel protocol's front end.

@@ -75,8 +75,8 @@ pub const ANY_IMAGE: u8 = 0x10;
 pub const FRAMES: u8 = 0x20;
 const FLAGS: u8 = INFLATE | PNG | EXACT | DISCARD | ANY_IMAGE | FRAMES;
 
-/// The longest name of a file or shared-memory object, in bytes: the C
-/// reference's `KMSCON_IMAGE_NAME_MAX`.
+/// The longest name of a file or shared-memory object, in bytes: the
+/// kernel's `PATH_MAX` less its terminating NUL.
 pub const NAME_MAX: usize = 4095;
 /// The longest reason a reply carries, in bytes.
 pub const REASON_MAX: usize = 255;
@@ -332,16 +332,15 @@ pub fn encode_request(id: u64, request: &Request) -> Result<Vec<u8>, Malformed> 
     Ok(out)
 }
 
-/// The id and request in `packet`, or why it is refused: the C reference's
-/// version 2 refusals (a length that is not the fixed fields and the name,
+/// The id and request in `packet`, or why it is refused: version 2's
+/// refusals (a length that is not the fixed fields and the name,
 /// a version, flag or reserved value it does not know, a medium with the
 /// wrong name, exact without inflate, a discard with another flag, of a file or inline bytes, or with
 /// a bound, and more bytes needed than the budget), and those of the pixel
 /// description: a layout or alpha it does not know, a description beside
 /// PNG, any image or a discard, a described size of no pixels or whose
 /// bytes are not the fewest the request needs, raw pixels without a
-/// description (which also refuses the C reference's raw request that
-/// needs no bytes), inline raw pixels without zlib, which the console decodes
+/// description (which also refuses a raw request that needs no bytes), inline raw pixels without zlib, which the console decodes
 /// itself, and any image from anything but inline bytes. A name holding a
 /// NUL byte is not refused here; the helper answers it UNREADABLE.
 pub fn decode_request(packet: &[u8]) -> Result<(u64, Request), Malformed> {
@@ -630,7 +629,7 @@ mod tests {
     }
 
     #[test]
-    fn each_refusal_of_the_c_reference_and_of_the_description_holds() {
+    fn each_refusal_of_the_request_and_of_the_pixel_description_holds() {
         let refuse = |r: Request| encode_request(1, &r).unwrap_err();
         let discard = Request {
             medium: Medium::TempFile(b"/tmp/x".to_vec()),

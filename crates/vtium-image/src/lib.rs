@@ -34,7 +34,7 @@
 //! - The three [protocol] handlers, [`Sixel`], [`Kitty`] and [`Iterm2`].
 //! - The [decode request and reply types](decode), which the image helper
 //!   answers.
-//! - Its bounds, named constants from the C reference's values, and the
+//! - Its bounds, named constants, and the
 //!   `auto` budget's rule, [`auto_limit`].
 //!
 //! The crate is not part of the minspec build: vtium-term takes it behind

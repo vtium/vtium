@@ -5,8 +5,8 @@
 //! A [`Raw`] takes the decoded bytes of a payload in any pieces and turns
 //! each whole pixel into one `u32` as soon as its bytes are in, holding at
 //! most one partial pixel between pieces. It wants exactly the pixels its
-//! width and height call for: bytes past them are ignored, as
-//! kitty ignores them (the C reference's black-box survey of kitty 0.49.2, kmscon's ADR 107).
+//! width and height call for: bytes past them are ignored, as kitty 0.49.2
+//! ignores them.
 //!
 //! Each pixel goes through [`super::convert`], the one conversion the
 //! image helper and the fixture host use too.
