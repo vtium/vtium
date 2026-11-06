@@ -1,3 +1,35 @@
 # vtium's goldens the operator has not reviewed: NAME and why. A
 # provisional case is drawn and compared, and a difference is noted but
 # does not fail the run; the row goes when the operator accepts the golden.
+notice-no-keyboard-800x480	reworded with the strings card (the notice text), 2026-11-05; the maintainer reviews it as a picture
+notice-anti-lockout-800x480	reworded with the strings card (the notice text), 2026-11-05; the maintainer reviews it as a picture
+notice-rescue-800x480	reworded with the strings card (the notice text), 2026-11-05; the maintainer reviews it as a picture
+notice-rescue-no-head-800x480	reworded with the strings card (the notice text), 2026-11-05; the maintainer reviews it as a picture
+notice-oneshot-800x480	reworded with the strings card (the notice text), 2026-11-05; the maintainer reviews it as a picture
+notice-head-file-800x480	reworded with the strings card (the notice text), 2026-11-05; the maintainer reviews it as a picture
+notice-head-file-two-800x480	reworded with the strings card (the notice text), 2026-11-05; the maintainer reviews it as a picture
+osd-full-notice-800x480	reworded with the strings card (the notice text), 2026-11-05; the maintainer reviews it as a picture
+osd-minimal-notice-800x480	reworded with the strings card (the notice text), 2026-11-05; the maintainer reviews it as a picture
+notices-four-800x480	reworded with the strings card (the notice text), 2026-11-05; the maintainer reviews it as a picture
+panic-800x480	reworded with the strings card (the notice text), 2026-11-05; the maintainer reviews it as a picture
+notice-alone-no-display-800x480	reworded with the strings card (the notice text), 2026-11-05; the maintainer reviews it as a picture
+notice-alone-partly-800x480	reworded with the strings card (the notice text), 2026-11-05; the maintainer reviews it as a picture
+notice-alone-stopped-800x480	reworded with the strings card (the notice text), 2026-11-05; the maintainer reviews it as a picture
+notice-no-keyboard-3840x540	reworded with the strings card (the notice text), 2026-11-05; the maintainer reviews it as a picture
+notice-anti-lockout-3840x540	reworded with the strings card (the notice text), 2026-11-05; the maintainer reviews it as a picture
+notice-rescue-3840x540	reworded with the strings card (the notice text), 2026-11-05; the maintainer reviews it as a picture
+notice-rescue-no-head-3840x540	reworded with the strings card (the notice text), 2026-11-05; the maintainer reviews it as a picture
+notice-oneshot-3840x540	reworded with the strings card (the notice text), 2026-11-05; the maintainer reviews it as a picture
+notice-head-file-3840x540	reworded with the strings card (the notice text), 2026-11-05; the maintainer reviews it as a picture
+notice-head-file-two-3840x540	reworded with the strings card (the notice text), 2026-11-05; the maintainer reviews it as a picture
+osd-full-notice-3840x540	reworded with the strings card (the notice text), 2026-11-05; the maintainer reviews it as a picture
+osd-minimal-notice-3840x540	reworded with the strings card (the notice text), 2026-11-05; the maintainer reviews it as a picture
+notices-four-3840x540	reworded with the strings card (the notice text), 2026-11-05; the maintainer reviews it as a picture
+panic-3840x540	reworded with the strings card (the notice text), 2026-11-05; the maintainer reviews it as a picture
+notice-alone-no-display-3840x540	reworded with the strings card (the notice text), 2026-11-05; the maintainer reviews it as a picture
+notice-alone-partly-3840x540	reworded with the strings card (the notice text), 2026-11-05; the maintainer reviews it as a picture
+notice-alone-stopped-3840x540	reworded with the strings card (the notice text), 2026-11-05; the maintainer reviews it as a picture
+panic-320x240	reworded with the strings card (the notice text), 2026-11-05; the maintainer reviews it as a picture
+scheme-light-notice	reworded with the strings card (the notice text), 2026-11-05; the maintainer reviews it as a picture
+scheme-dark-notice	reworded with the strings card (the notice text), 2026-11-05; the maintainer reviews it as a picture
+scheme-color-blind-safe-notice	reworded with the strings card (the notice text), 2026-11-05; the maintainer reviews it as a picture
