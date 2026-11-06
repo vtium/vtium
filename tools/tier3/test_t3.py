@@ -773,7 +773,7 @@ class ImplementationTest(unittest.TestCase):
 
     def test_vtium_process(self):
         # vtium's process logs as vtium[pid]; its render-timer and startup
-        # lines are read as the C reference's were.
+        # lines are read like the console's.
         line = timer_line(100.5, 60, 60).replace("kmscon[505]", "vtium[505]")
         self.assertEqual(t3_bench.timer_lines(line)[0]["pid"], 505)
         with tempfile.NamedTemporaryFile("w", delete=False) as f:
@@ -785,7 +785,7 @@ class ImplementationTest(unittest.TestCase):
             self.assertEqual(t3_scenario.console_startup_ms(f.name), 76.7)
         finally:
             os.unlink(f.name)
-        # vtium logs its Display line without the C reference's "terminal:"
+        # vtium logs its Display line without the "terminal:" the earlier console wrote
         with tempfile.NamedTemporaryFile("w", delete=False) as f:
             f.write("[    6.663227] vtium[459]: log: vtium Revision 0.1\n"
                     "[    6.700000] vtium[459]: vt: using tty /dev/tty2\n"
@@ -1489,8 +1489,8 @@ class VariantTest(unittest.TestCase):
     def test_gl_draws_images(self):
         # The GPU path draws image placements, so the GL variant runs every
         # case, the image screens and their keyed cases included, as the 2D
-        # variants do; the no-images check it ran while the C reference's
-        # gltex drew none is gone with its flag. 2d-1280x800's goldens judge
+        # variants do; the no-images check it ran while the earlier
+        # gltex renderer drew none is gone with its flag. 2d-1280x800's goldens judge
         # it, so it is in the default run.
         self.assertIn("gl-1280x800", t3_scenario.DEFAULT_VARIANTS)
         self.assertNotIn("draws_images", t3_scenario.VARIANTS["gl-1280x800"])
@@ -2396,7 +2396,7 @@ class BottleneckTest(unittest.TestCase):
         # A known bottleneck, named by its issue, passes with a note, and
         # fails once it is gone, so its entry is removed with the fix. The
         # entry is the test's own, since none is known today.
-        variant, issue = "v-known", "aaronsb/kmscon#0"
+        variant, issue = "v-known", "vtium/vtium#0"
         with mock.patch.dict(t3_evaluate.KNOWN_BOTTLENECKS, {"mpv-sixel": {variant: issue}}):
             self.known(variant, issue)
         # Without the entry the same variant is judged like any other.
@@ -4624,8 +4624,8 @@ class DefaultVariantsTest(unittest.TestCase):
 
     def test_density(self):
         # The default variants' configurations state the density that draws
-        # DejaVu Sans Mono at 16 points in the C reference's 10x19 cell:
-        # 16 x 86 / 72 = 19.1 pixels, and 32 points in its 38-pixel cell.
+        # DejaVu Sans Mono at 16 points in a 10x19 cell:
+        # 16 x 86 / 72 = 19.1 pixels, and 32 points in a 38-pixel cell.
         for name in t3_scenario.DEFAULT_VARIANTS:
             with self.subTest(name):
                 with open(os.path.join(t3_common.GUEST, t3_scenario.VARIANTS[name]["conf"])) as f:
@@ -4675,8 +4675,8 @@ class DefaultVariantsTest(unittest.TestCase):
         # gl-1280x800 draws with hwaccel on, must log the gpu renderer, and
         # each case is judged by 2d-1280x800's golden of it, exactly, as
         # the GPU path draws the CPU path's bytes (ADR-1303 D1, D11). The
-        # C reference's GL goldens stay in goldens/gl-1280x800/ as the
-        # record of what gltex drew, and judge nothing.
+        # first GL goldens stay in goldens/gl-1280x800/ as the
+        # record of what an earlier renderer drew, and judge nothing.
         v = t3_scenario.VARIANTS["gl-1280x800"]
         self.assertEqual((v["renderer"], v["conf"]), ("gpu", "vtium-gl.conf"))
         self.assertTrue(t3_scenario.uses_virgl("gl-1280x800"))
