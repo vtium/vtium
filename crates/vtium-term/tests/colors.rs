@@ -414,9 +414,8 @@ fn a_set_marks_the_screen_changed() {
 // xterm's ReallyReset (charproc.c, xterm 412) resets the OSC 4 palette on
 // DECSTR and RIS alike, and neither resets the colors OSC 10 to 19 set:
 // vtium's DECSTR follows it. vtium's RIS returns every color to the
-// configured palette, a departure the crate's README lists: the C
-// reference's RIS also ended on the configured colors, and RIS returns
-// the terminal to its initial state.
+// configured palette, since RIS returns the terminal to its initial state
+// (the crate's README, "Colors").
 #[test]
 fn decstr_resets_the_palette_and_ris_every_color() {
     let nord = Palette::named("nord").unwrap();

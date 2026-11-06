@@ -231,8 +231,8 @@ mod tests {
         assert!(!d.row_changed(0, seen));
     }
 
-    // libtsm#34: a region scroll flagged every cell. It marks the rows
-    // that moved, and the rows outside the region stay unchanged.
+    // A region scroll marks the rows that moved, and the rows outside the
+    // region stay unchanged.
     #[test]
     fn a_region_scroll_marks_only_the_region() {
         let mut d = Damage::new(4, 6);

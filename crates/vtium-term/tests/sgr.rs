@@ -2,8 +2,8 @@
 //! the palette and extended colors in their semicolon and colon forms,
 //! the underline styles and color, and the forms vtium ignores.
 //!
-//! Each expected pen is the C reference's, or the specification's where
-//! vtium departs from it (the crate's README lists each departure).
+//! Each expected pen is the one ECMA-48 8.3.117, ctlseqs and ITU T.416
+//! give.
 
 mod common;
 
@@ -158,7 +158,7 @@ fn palette_colors_are_set_and_returned_to_the_default() {
 // ctlseqs; ITU T.416: 38 and 48 with 5 and an index, or 2 and RGB, in the
 // semicolon form and the colon forms with and without a color space. A
 // semicolon component keeps its low byte and an index past 255 is black,
-// as the C reference's goldens record; a colon form past 255 is refused.
+// as the conformance goldens record; a colon form past 255 is refused.
 // covers: sgr.extended-color
 #[test]
 fn extended_colors_take_both_forms() {
@@ -178,14 +178,14 @@ fn extended_colors_take_both_forms() {
     assert_eq!((p.fg, p.bg), (Color::Indexed(3), rgb(4, 5, 6)));
     assert!(p.attrs.contains(Attrs::BOLD) && p.attrs.contains(Attrs::ITALIC));
     // A color that is no form leaves the pen; the values after it are
-    // read as attributes, as in the C reference.
+    // read as attributes.
     let p = pen_after(b"\x1b[38;5m");
     assert_eq!(p.fg, Color::Default);
     assert!(p.attrs.contains(Attrs::BLINK));
 }
 
 // ECMA-48 5.4.2 e and 8.3.117: an empty SGR parameter is its default, 0,
-// wherever it falls; the C reference skipped one at the end.
+// wherever it falls, at the end too.
 #[test]
 fn an_empty_sgr_parameter_resets() {
     assert_eq!(pen_after(b"\x1b[1;m"), Style::DEFAULT);

@@ -141,10 +141,9 @@ fn a_child_above_a_parent_below_a_scrolled_back_view_is_drawn() {
     );
 }
 
-// The C reference logged the data past s and v at debug level, since a
-// program can send it every frame (libtsm `eeaf293`,
-// `src/tsm/tsm-kitty.c:806-826`). vtium's handler notes it for the log,
-// once for each upload, and answers as if it had not come.
+// A program can send data past s and v with every frame, so vtium's
+// handler notes it for the log once for each upload, and answers as if it
+// had not come.
 #[test]
 fn data_past_the_pixels_is_noted_for_the_log_and_answered_ok() {
     let mut t = term(12, 4);

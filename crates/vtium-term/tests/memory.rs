@@ -22,21 +22,22 @@ const COLS: usize = 170;
 const ROWS: usize = 48;
 const MIB: f64 = 1024.0 * 1024.0;
 
-/// The C reference's figure with unifont on the minspec machine, measured
-/// (kmscon's README, "Minimal build"; 1 MiB is 1,024 KiB): resident after
-/// the first screen. Its peak, once 500,000 lines had filled its
-/// 1,000-line scrollback, was 15.7 MiB.
-const C_FIRST_SCREEN: f64 = 10.3 * MIB;
+/// The minspec target for the resident size after the first screen, with
+/// unifont: 10.3 MiB, 1 MiB being 1,024 KiB (ADR-1001, "Memory"). The
+/// figure was measured on a console whose two screens held 32-byte cells,
+/// [`WIDE_SCREENS`], so the rest of the process costs this less those
+/// screens.
+const FIRST_SCREEN_TARGET: f64 = 10.3 * MIB;
 
-/// The minspec peak vtium holds to: the operator's round figure
+/// The minspec peak vtium holds to: the maintainer's round figure
 /// (vtium/vtium#131).
 const PEAK: f64 = 16.0 * MIB;
 
-/// The C reference's cell was 32 bytes, its age included, and it allocated
-/// the main and the alternate screen (libtsm's tsm-screen.c:801-845). These
-/// are derived from that layout, not measured.
-const C_CELL: usize = 32;
-const C_SCREENS: usize = 2 * ROWS * COLS * C_CELL;
+/// The cell of the console the first-screen figure was measured on: 32
+/// bytes, its change age included, in a main and an alternate screen.
+/// These are derived from that layout, not measured.
+const WIDE_CELL: usize = 32;
+const WIDE_SCREENS: usize = 2 * ROWS * COLS * WIDE_CELL;
 
 /// The bytes one line costs: its struct, held in the scrollback's ring or
 /// the screen's rows, and its heap. A clone holds exactly its length, as a
@@ -129,7 +130,7 @@ fn worst_at(cols: usize) -> Line {
 
 /// vtium's main and alternate screens, 48 blank lines each, and the one
 /// set of change ages they share, as the first screen holds them: like for
-/// like with `C_SCREENS`.
+/// like with `WIDE_SCREENS`.
 fn screens_bytes() -> usize {
     let line = Line::new(LineId::new(0), COLS);
     2 * ROWS * line_bytes(&line) + Damage::new(COLS, ROWS).heap_bytes()
@@ -143,9 +144,9 @@ fn mib(bytes: usize) -> f64 {
 fn the_minspec_grid_and_scrollback() {
     let screens = screens_bytes();
     println!(
-        "screens {COLS}x{ROWS}, main and alternate: {screens} bytes, {:.2} MiB; the C reference's {:.2} MiB",
+        "screens {COLS}x{ROWS}, main and alternate: {screens} bytes, {:.2} MiB; at 32 bytes a cell {:.2} MiB",
         mib(screens),
-        mib(C_SCREENS)
+        mib(WIDE_SCREENS)
     );
     let common = [SB_SIZE_DEFAULT, SB_SIZE_CAP_SMALL];
     let caps = [
@@ -747,8 +748,8 @@ fn rows_hold_to_their_bound_through_random_edits_and_resizes() {
 // The worst default scrollback, every row at the bound a rewrap allows,
 // the two screens every row at its worst and the link store full, stays
 // inside the minspec peak on each of minspec's grids, taking the rest of vtium's
-// process at what the rest of the C reference's cost: its first screen
-// less its two screens (ADR-1002, "Link storage"). `sb-memory`'s default
+// process at the first-screen target less two screens of 32-byte cells
+// (ADR-1002, "Link storage"). `sb-memory`'s default
 // follows the grid: it is what the peak leaves after the rest, so a
 // smaller grid keeps more, and at the minspec grid it drops the oldest of
 // the worst rows before the default 1,000 lines (`tests/flood.rs` holds
@@ -756,11 +757,11 @@ fn rows_hold_to_their_bound_through_random_edits_and_resizes() {
 // under its charge.
 #[test]
 fn the_worst_default_scrollback_fits_the_minspec_peak() {
-    let rest = C_FIRST_SCREEN - C_SCREENS as f64;
+    let rest = FIRST_SCREEN_TARGET - WIDE_SCREENS as f64;
     assert!(MINSPEC_REST as f64 >= rest && MINSPEC_REST as f64 - rest < 1024.0);
     assert_eq!(MINSPEC_PEAK as f64, PEAK);
     let first = rest + screens_bytes() as f64;
-    assert!(first <= C_FIRST_SCREEN);
+    assert!(first <= FIRST_SCREEN_TARGET);
     let mut figures = Vec::new();
     for (cols, rows) in GRIDS {
         let screens = 2 * rows * worst_screen_row(cols) + Damage::new(cols, rows).heap_bytes();
@@ -862,10 +863,11 @@ fn the_scrollback_budget_follows_the_grid() {
     assert!(screens_bytes_max(480, 135) > screens_bytes_max(COLS, ROWS));
 }
 
-// The C reference's 1,000 lines of 32-byte cells, derived from its layout.
+// The default 1,000 lines of a shell cost under a third of 1,000 lines of
+// 32-byte cells, derived from that layout.
 #[test]
-fn the_default_scrollback_costs_less_than_the_c_references() {
-    let c_cells = SB_SIZE_DEFAULT * COLS * C_CELL;
+fn the_default_scrollback_costs_under_a_third_of_32_byte_cells() {
+    let wide_cells = SB_SIZE_DEFAULT * COLS * WIDE_CELL;
     let ours = SB_SIZE_DEFAULT * line_bytes(&shell(COLS));
-    assert!(ours * 3 < c_cells);
+    assert!(ours * 3 < wide_cells);
 }

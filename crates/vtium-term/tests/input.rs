@@ -1,12 +1,12 @@
 //! What the terminal sends the program for keys and pastes: xterm's legacy
-//! encoding with its Ctrl control bytes (aaronsb/libtsm#72), modifyOtherKeys
-//! (aaronsb/libtsm#25), and pastes filtered as xterm filters them. The
+//! encoding with its Ctrl control bytes, modifyOtherKeys, and pastes
+//! filtered as xterm filters them. The
 //! pointer and focus reports are in `modes.rs`, beside the modes that ask
 //! for them.
 //!
-//! Each expected sequence is the C reference's, or the specification's
-//! where vtium departs from it (the crate's README lists each departure).
-//! Keys are X11 keysyms, as the host reports them.
+//! Each expected sequence is xterm's, and the crate's README, "Input",
+//! says where vtium differs from xterm's default and why. Keys are X11
+//! keysyms, as the host reports them.
 
 mod common;
 

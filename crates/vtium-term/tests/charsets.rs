@@ -4,9 +4,9 @@
 //! and DECSC, DECRC, DECSTR and RIS around them.
 //!
 //! In UTF-8 input a decoded character prints as itself whatever the sets
-//! hold, as in xterm's UTF-8 mode. Each expected screen is the C
-//! reference's, or xterm's and the VT220's where vtium departs from the C
-//! reference (the crate's README lists each departure).
+//! hold, as in xterm's UTF-8 mode. Each expected screen is the VT220
+//! manual's or xterm's, and the crate's README, "Character sets", says
+//! which where they differ.
 
 mod common;
 
@@ -58,8 +58,8 @@ fn shift_out_invokes_g1_into_gl() {
 }
 
 // vtium/vtium#13: a character decoded from UTF-8 prints as itself, whatever
-// G1 to G3 hold and whichever of them GR holds. The C reference ran U+00A1
-// to U+00FE through GR, so after ESC ) 0 an ñ printed as a line.
+// G1 to G3 hold and whichever of them GR holds, so after ESC ) 0, which
+// TERM=linux's enacs sends, an ñ still prints as ñ.
 // covers: text.charsets
 #[test]
 fn a_utf8_character_prints_as_itself_whatever_g1_to_g3_hold() {

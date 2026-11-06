@@ -4,9 +4,8 @@
 //! resets its mode and checks the effect; the ignored and refused rows
 //! stay at their fixed state.
 //!
-//! Each expected value is the C reference's behaviour, or the
-//! specification's where vtium departs from it (the crate's README lists
-//! each departure).
+//! Each expected value is the one the mode's row in `docs/modes.md`
+//! gives, from ctlseqs, the DEC manuals and ADR-1000.
 
 mod common;
 
@@ -130,7 +129,7 @@ fn decscnm_reverses_the_screen() {
 
 // ctlseqs, DECOM: addressing counts from the region's top. VT100 User
 // Guide, DECOM: "The cursor is moved to the new home position when this
-// mode is set or reset"; the C reference left it where it was.
+// mode is set or reset".
 // covers: DEC-6
 #[test]
 fn decom_addresses_from_the_region() {
@@ -236,8 +235,8 @@ fn mode_1047_clears_the_alternate_screen_as_it_leaves() {
     t.input(b"\x1b[?1047h");
     assert_eq!(rows(t.screen())[0], "");
     toggles(&mut t, true, 1047);
-    // ctlseqs: the screen is cleared "if in the Alternate Screen Buffer";
-    // the C reference cleared the main screen too.
+    // ctlseqs: the screen is cleared "if in the Alternate Screen Buffer",
+    // so the main screen keeps its text.
     t.input(b"\x1b[?1047l");
     assert_eq!(rows(t.screen())[0], "main");
 }
@@ -258,7 +257,7 @@ fn mode_1048_saves_and_restores_the_cursor_as_decsc_does() {
 
 // ctlseqs, mode 1049: the cursor saved as DECSC saves it, the alternate
 // screen cleared as it is entered; leaving restores the cursor and the
-// pen, so the main screen erases with its own color (aaronsb/libtsm#20).
+// pen, so the main screen erases with its own color.
 // covers: DEC-1049
 #[test]
 fn mode_1049_saves_the_cursor_and_the_pen_around_the_alternate_screen() {
@@ -336,8 +335,8 @@ fn mouse_tracking_reports_by_its_mode() {
 }
 
 // ctlseqs, SGR mouse (1006) and SGR-Pixels (1016), each independent of the
-// order the modes were set in (aaronsb/libtsm#30), pixels counted from 1
-// (aaronsb/libtsm#67); RM of an encoding clears only itself.
+// order the modes were set in, pixels counted from 1; RM of an encoding
+// clears only itself.
 // covers: DEC-1006, DEC-1016
 #[test]
 fn sgr_mouse_encodings_report_cells_or_pixels() {
@@ -526,9 +525,8 @@ fn ignored_and_refused_modes_answer_their_fixed_state_and_change_nothing() {
 
 // ctlseqs, DECSTR: a soft reset returns the modes, the pen, the cursor
 // style and the saved cursor to their defaults, and leaves the text and the
-// cursor. DECSTR also resets the mouse modes and 1004, as the C reference
-// did and xterm does only on RIS (aaronsb/libtsm#76, the operator's
-// decision).
+// cursor. DECSTR also resets the mouse modes and 1004, which xterm resets
+// only on RIS: the maintainer's decision, recorded in each mode's row.
 // covers: ctl.decstr
 #[test]
 fn decstr_returns_the_modes_to_their_defaults() {

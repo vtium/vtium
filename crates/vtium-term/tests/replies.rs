@@ -4,10 +4,10 @@
 //! DECRC, the keypad and conformance levels, and the sequences vtium
 //! ignores or refuses, which change nothing and send nothing.
 //!
-//! Each expected reply is the C reference's, or the specification's where
-//! vtium departs from it (the crate's README lists each departure). The
-//! reply rule's test, with hostile text in every field, is the unit test
-//! in `src/terminal/reply.rs`.
+//! Each expected reply is the one its specification gives, and the
+//! crate's README, "Replies", says where vtium chooses between readings.
+//! The reply rule's test, with hostile text in every field, is the unit
+//! test in `src/terminal/reply.rs`.
 
 mod common;
 
@@ -46,8 +46,8 @@ fn inert(seqs: &[&[u8]]) {
 }
 
 // ctlseqs, DA1: a VT220 (62), one of xterm's defined levels, with ANSI
-// color (22); the C reference sent level 60 (aaronsb/libtsm#31). DECID
-// (ESC Z) answers the same; a parameter other than 0 is another request.
+// color (22). DECID (ESC Z) answers the same; a parameter other than 0 is
+// another request.
 // covers: query.da1, query.decid
 #[test]
 fn da1_reports_a_vt220_with_color() {
@@ -58,7 +58,7 @@ fn da1_reports_a_vt220_with_color() {
     assert_eq!(reply(&mut t, b"\x1b[1c"), b"");
 }
 
-// ctlseqs, DA2: a VT220, firmware 1, as the C reference answered.
+// ctlseqs, DA2: a VT220, firmware 1.
 // covers: query.da2
 #[test]
 fn da2_reports_a_vt220() {
@@ -67,8 +67,7 @@ fn da2_reports_a_vt220() {
     assert_eq!(reply(&mut t, b"\x1b[>0c"), b"\x1b[>1;1;0c");
 }
 
-// VT510, DA3 and DECRPTUI: a unit id of zeros, as xterm answers; the C
-// reference answered `CSI = c` as DA1 (aaronsb/libtsm#31).
+// VT510, DA3 and DECRPTUI: a unit id of zeros, as xterm answers.
 // covers: query.da3
 #[test]
 fn da3_reports_a_unit_id() {
@@ -196,8 +195,7 @@ fn xtgettcap_answers_sixteen_names() {
 
 // The bound of the reply: a reply of exactly XTGETTCAP_REPLY_MAX bytes is
 // sent whole, and one byte longer drops its last pair. Each pair here is
-// the name (6 hex digits), `=`, and the value; the C reference refused a
-// reply of exactly the bound.
+// the name (6 hex digits), `=`, and the value.
 // covers: query.xtgettcap
 #[test]
 fn xtgettcap_replies_up_to_its_bound() {
@@ -234,7 +232,7 @@ fn xtgettcap_replies_up_to_its_bound() {
     assert!(cut.ends_with(b";\x1b\\"));
 }
 
-// libtsm.h's bounds on the host's table: names of 1 to 32 printable bytes,
+// The bounds on the host's table: names of 1 to 32 printable bytes,
 // values of at most 256 bytes and no NUL, at most 1024 entries, each name
 // once.
 // covers: query.xtgettcap
@@ -469,7 +467,8 @@ fn the_reports_vtium_does_not_give_are_ignored() {
     ]);
 }
 
-// ADR-1000: ENQ answers an empty answerback; the C reference answered ACK.
+// ADR-1000: ENQ answers an empty answerback, as xterm's empty
+// answerbackString does.
 // covers: query.enq
 #[test]
 fn enq_answers_nothing() {
@@ -477,7 +476,7 @@ fn enq_answers_nothing() {
     assert_eq!(reply(&mut t, b"\x05"), b"");
 }
 
-// ctlseqs, XTMODKEYS and XTQMODKEYS (aaronsb/libtsm#25): modifyOtherKeys's
+// ctlseqs, XTMODKEYS and XTQMODKEYS: modifyOtherKeys's
 // levels 0 to 2 are taken, level 3 is not, an omitted value is 0, and
 // `CSI > m` and `CSI > 4 n` return it to 0. The query answers the
 // XTMODKEYS that restores the level.
@@ -504,9 +503,8 @@ fn xtmodkeys_sets_and_reports_the_level() {
 }
 
 // ctlseqs and VT510, DECSCUSR: 0 the host's style, 1 to 6 a shape that
-// blinks or stays steady; a value past 6 is ignored, as xterm ignores it
-// (aaronsb/libtsm#78, the operator's decision). DECSC does not save the
-// style.
+// blinks or stays steady; a value past 6 is ignored, as xterm ignores it.
+// DECSC does not save the style.
 // covers: cursor.style
 #[test]
 fn decscusr_sets_the_cursor_style() {
@@ -559,7 +557,6 @@ fn decsc_saves_and_decrc_restores_the_cursor_state() {
 // it does while DECLRMM is reset, and `CSI u` with no parameter restores it,
 // in DECSC's slot. A program that lays pictures out in a grid saves the
 // cursor this way before each picture and returns to it after.
-// covers: ctl.decslrm
 #[test]
 fn scosc_and_scorc_save_and_restore_the_cursor_as_decsc_and_decrc_do() {
     let mut t = term(6, 4, b"\x1b[2;3H\x1b[1m\x1b[s\x1b[H\x1b[m\x1b[u");
@@ -604,8 +601,8 @@ fn deckpam_switches_the_keypad() {
 }
 
 // VT510, DECSCL: a soft reset, then 7-bit input for a VT100 level and
-// 8-bit input for VT200 to VT400, as the C reference took it; a key then
-// sends what the input can carry.
+// 8-bit input for VT200 to VT400; a key then sends what the input can
+// carry.
 // covers: ctl.decscl
 #[test]
 fn decscl_resets_and_sets_the_input() {
@@ -770,8 +767,8 @@ fn the_ignored_control_functions_change_nothing() {
     ]);
 }
 
-// The Linux console's `CSI 16 ; Pn ]`, the cursor's blink interval, as the
-// C reference took it.
+// The Linux console's `CSI 16 ; Pn ]` (console_codes(4)), the cursor's
+// blink interval, kept for the host.
 #[test]
 fn the_cursor_blink_interval_is_kept_for_the_host() {
     let t = term(8, 2, b"\x1b[16;250]");
