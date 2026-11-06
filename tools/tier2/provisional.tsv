@@ -12,3 +12,21 @@ wide-deco	new 2026-11-06, waited for wide characters across both cells; the main
 emoji	new 2026-11-06, waited for the VS16 heart from the color emoji font; the maintainer reviews it as a picture
 vs16	new 2026-11-06, waited for the VS16 heart from the color emoji font; the maintainer reviews it as a picture
 osd	new 2026-11-06, waited for the on-screen display's line in the built-in font; the maintainer reviews it as a picture
+overflow-accents	new 2026-11-06, the ink test font built in memory, its ink past its cells (ADR-1302, ADR-1306); the maintainer reviews it as a picture
+overflow-accents-1bit	new 2026-11-06, the ink test font built in memory, its ink past its cells (ADR-1302, ADR-1306); the maintainer reviews it as a picture
+overflow-marks	new 2026-11-06, the ink test font built in memory, its ink past its cells (ADR-1302, ADR-1306); the maintainer reviews it as a picture
+overflow-marks-1bit	new 2026-11-06, the ink test font built in memory, its ink past its cells (ADR-1302, ADR-1306); the maintainer reviews it as a picture
+overflow-meet	new 2026-11-06, the ink test font built in memory, its ink past its cells (ADR-1302, ADR-1306); the maintainer reviews it as a picture
+overflow-meet-1bit	new 2026-11-06, the ink test font built in memory, its ink past its cells (ADR-1302, ADR-1306); the maintainer reviews it as a picture
+overflow-spaced	new 2026-11-06, the ink test font built in memory, its ink past its cells (ADR-1302, ADR-1306); the maintainer reviews it as a picture
+overflow-spaced-1bit	new 2026-11-06, the ink test font built in memory, its ink past its cells (ADR-1302, ADR-1306); the maintainer reviews it as a picture
+overflow-pictures	new 2026-11-06, the ink test font built in memory, its ink past its cells (ADR-1302, ADR-1306); the maintainer reviews it as a picture
+overflow-pictures-1bit	new 2026-11-06, the ink test font built in memory, its ink past its cells (ADR-1302, ADR-1306); the maintainer reviews it as a picture
+overhang-italic	new 2026-11-06, the ink test font built in memory, its ink past its cells (ADR-1302, ADR-1306); the maintainer reviews it as a picture
+overhang-italic-1bit	new 2026-11-06, the ink test font built in memory, its ink past its cells (ADR-1302, ADR-1306); the maintainer reviews it as a picture
+overhang-wm	new 2026-11-06, the ink test font built in memory, its ink past its cells (ADR-1302, ADR-1306); the maintainer reviews it as a picture
+overhang-wm-1bit	new 2026-11-06, the ink test font built in memory, its ink past its cells (ADR-1302, ADR-1306); the maintainer reviews it as a picture
+overhang-underscore	new 2026-11-06, the ink test font built in memory, its ink past its cells (ADR-1302, ADR-1306); the maintainer reviews it as a picture
+overhang-underscore-1bit	new 2026-11-06, the ink test font built in memory, its ink past its cells (ADR-1302, ADR-1306); the maintainer reviews it as a picture
+overhang-wide	new 2026-11-06, the ink test font built in memory, its ink past its cells (ADR-1302, ADR-1306); the maintainer reviews it as a picture
+overhang-wide-1bit	new 2026-11-06, the ink test font built in memory, its ink past its cells (ADR-1302, ADR-1306); the maintainer reviews it as a picture
