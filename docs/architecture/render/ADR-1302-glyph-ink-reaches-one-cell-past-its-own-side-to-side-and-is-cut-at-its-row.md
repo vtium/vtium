@@ -262,6 +262,8 @@ Two words are used carefully below. A **strike** is a font's set of glyphs at on
 - **The grid's edge cuts ink.** Ink that would reach left of the first column or right of the last is cut there, so the border around the grid never shows ink (the maintainer, 2026-11-01). A wide glyph cut at the margin keeps the rule vtium-render already has for it (its README's departures).
 - **Right-to-left characters** take this rule as it stands, since the reach is the same on both sides (D11).
 
+> Note 2026-11-06: ADR-1306 D12 weighs, at the maintainer's request, a reach of two cells side to side against this one cell. It is proposed and leans to keeping one cell; until the maintainer decides it, this decision's one cell stands.
+
 The bound of one cell holds every letter measured in Context, the most being 4 pixels of a 17-pixel cell, and it bounds what one changed cell can damage (D9). Ghostty lets a symbol take two cells beside a blank one and fits symbols per codepoint; font merging decides both for merged symbol fonts, and fits a symbol before this rule applies (the maintainer, 2026-11-01).
 
 ### D2: where a glyph sits in its cells

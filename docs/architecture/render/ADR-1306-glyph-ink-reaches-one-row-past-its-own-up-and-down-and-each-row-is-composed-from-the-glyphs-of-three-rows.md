@@ -32,6 +32,7 @@ basis:
   - evidence: "WezTerm e68a8ec2 (MIT), read on 2026-11-06 for how it layers pictures against glyphs: wezterm-gui/src/termwindow/render/screen_line.rs:490-495 puts a kitty picture with z below 0 on layer 0 with the backgrounds, and lines 685-690 and 719-730 put a picture with z of 0 or more on layer 2, over the glyphs of layer 1; wezterm-gui/src/termwindow/render/pane.rs:426-446 caches each line's quads keyed by its content, the cursor, the selection and its place."
   - evidence: "Ghostty 2f967e3a6ab2 (MIT), read on 2026-11-06: src/renderer/generic.zig:1582-1599 marks rows dirty and rebuilds their cell data, and lines 1934-2006 draw the frame in passes, the pictures below the backgrounds, every cell's background, the pictures below the text, every cell's text, then the pictures above the text."
   - evidence: "Measured by this record's agent on 2026-11-06 with the same probe, on sample text (the first article of the Universal Declaration of Human Rights in English, French, German and Vietnamese, and in Arabic without vowel marks; a shell listing; a line of accented capitals; and the opening of the Quran's first sura, fully vocalized), counting the non-space cells whose glyph has ink outside its cell. DejaVu Sans Mono at 16 pixels: English 0 of 141, the shell listing 0 of 111, French 3 of 173, German 3 of 168, Vietnamese 3 of 148, the capitals 9 of 76; at 32 pixels: Vietnamese 1 of 148 and the others 0; no glyph sends ink sideways. Arabic clusters passing the row by half a pixel or more, unhinted: unvocalized, DejaVu Sans Mono 2 of 92 at 16 and 32 pixels, Noto Sans Arabic at DejaVu Sans Mono's size 7 and 6 of 94; fully vocalized, DejaVu Sans Mono 10 and 15 of 78, Noto Sans Arabic at DejaVu Sans Mono's size 16 of 78 at both."
+  - evidence: "Measured by this record's agent on 2026-11-06 with skrifa 0.44.0 and HarfRust 0.12.0, from unhinted outline control points, with each glyph's advance centred in its cells as ADR-1302 D2 places it, in DejaVu Sans Mono's cells of 9x16 and 17x32 (13.32 and 27.06 pixels to the em), every other font drawn at DejaVu Sans Mono's size as ADR-1200 D17 draws fallback fonts; the fonts from the tier 2 and specimen font caches and the system's Noto fonts. The most past a cell's left and right edges, at 32 pixels: DejaVu Sans Mono Book 0 and 0.04 (Bold 0.06 and 0.15), Oblique 0.09 and 0.20, Bold Oblique 0.11 and 0.31, Book slanted by 0.2 0.05 and 0.28, Bold slanted 0.05 and 0.39, of printable ASCII, Latin-1 and Latin Extended-A; DejaVu Sans Mono's Arabic with joining letters stretched to their cells 0.26 and 0.03; Noto Sans Arabic stretched 0 and 0.19, unstretched 0.53 and 0.66, its lam-alef fitting its two cells; Noto Sans Devanagari, each grapheme cluster in one cell, कि 0.32 and 0.34, क्षि 0.28 and 0.30, स्त्र 0.25 and 0.27, र्त्स्न्य 0.76 and 0.78; MesloLGS DZ Nerd Font icons 0.04 and 0.68; Symbols Nerd Font Mono icons 0.39 and 0.34. Noto Sans Arabic at DejaVu Sans Mono's size and baseline: 4 of the 110 letter glyphs, not marks, of the first article of the Universal Declaration of Human Rights pass the row's bottom by half a pixel or more, and none its top, at 16 and at 32 pixels. The probe is the scratch crate's side and vert programs (ink-overflow/probe), uncommitted."
   - evidence: "VTE's documentation for `vte_terminal_set_cell_height_scale`, read on 2026-11-06: valid values go from 1.0, the default, to 2.0, so a VTE row is never shorter than the font's line height. GNOME Terminal and VTE are not installed on the machine, and were not run."
   - upstream: "the C reference's kmscon at b1f7a7c5: the pango engine set the font's em to the requested height, measured a layout of the ASCII letters and punctuation and took the cell's height from its logical extents, the font's line height (src/font/font_pango.c:324 and 337-347), so DejaVu Sans Mono's accented capitals fitted a cell taller than the request; every engine cut each glyph at its box (ADR-1302's basis gives the lines)"
   - precedent: ADR-1302
@@ -63,6 +64,10 @@ considered:
   - operator: aaronsb
     said: "[Four smaller calls (fit=room draws as natural; where two rows' ink meets the row below draws on top; a blinking accented capital shows its accent cut while it blinks; an underline cursor can be crossed by an accent from the row below) and the build going into alpha.6] Accept all (Recommended)"
     via: AskUserQuestion, 2026-11-06; the option label is the steering session's wording
+  - operator: aaronsb
+    said: "Design input, not a final answer: since ink now reaches the rows above and below, ink could also reach further to either side, possibly two cells each way; the bound is left open."
+    via: the maintainer in the steering session, 2026-11-06, relayed by the team lead; the wording is this record's agent's, stated cleanly as the maintainer asks for musings
+    paraphrase: true
 observable:
   - "Tier 2's `overflow-accents` screen shows À, É, Î, Ő, Ű and Ộ whole, their accents drawn over the background of the row above, beside a row of `gjpqy___` whose underscores and descenders stay whole in their own row"
   - "Tier 2's `emoji-spaced-12` and `emoji-spaced-30` screens show the first line's `ÀÉÎ` with whole accents"
@@ -90,6 +95,7 @@ related:
 - **Probes:**
   - *Confident (accents whole):* in DejaVu Sans Mono at a 16-pixel cell, À, É and Î show their whole accents, which reach two pixel rows up into the line above and draw over that line's background, the way Alacritty, WezTerm and Ghostty draw them, while a screen of plain English text looks and costs exactly as it does today. Right? (Confirmed 2026-11-06; see `considered`.)
   - *Not confident (marks where the font puts them):* an Arabic vowel mark that reaches above or below its line draws where the font puts it, up to a whole line away, instead of being moved toward its letter or shrunk together with its letter to fit the line, as you decided on 2026-11-01 and 2026-11-02. Only a mark that would reach further than a whole line is still moved or shrunk. Is that what you want? (Confirmed 2026-11-06; see `considered`.)
+  - *Not confident (two cells sideways):* every glyph measured, italic, bold italic, Arabic, Devanagari and icons, reaches less than one cell past its own side to side, so the record keeps the reach beside a glyph at one cell, as it is today, rather than two. Is one cell enough? (Proposed 2026-11-06; D12.)
 - **Inversion:** The decision sits between "every glyph is cut at its row", which ADR-1302 and the C reference draw, and "a glyph draws wherever its font puts it", which Ghostty, WezTerm and Alacritty draw because they draw every background of the frame before any glyph and redraw the whole frame each time. vtium bounds the ink to one row each way, so that the renderer keeps composing one row at a time in its row scratch (ADR-1300 D5), keeps its damage cell by cell, and never reads the display's buffer.
 
 ## Context
@@ -283,6 +289,57 @@ Each slice is a card of its own, branched from `integration`. The build goes int
 3. **The screens** (tools/tier2): the screens of the Verification section, and the screens whose pixels move, `emoji-spaced-12` and `emoji-spaced-30` among them, each set of goldens in a commit of its own that the maintainer reviews as pictures. Right-to-left text's screens slice (ADR-1004 D15, slice 5) holds Arabic with marks, so if this slice lands first those goldens are reviewed once; if it lands after, they move again and are reviewed again.
 4. **The GPU path** (vtium-render's GPU path): D9, with the GPU path's own work; it blocks nothing.
 
+### D12: how far ink reaches side to side
+
+*Proposed, for the maintainer to decide (2026-11-06). The rest of this record is accepted; this decision is not yet. Until it is decided, the reach side to side stays one cell, as ADR-1302 D1 has it.*
+
+The maintainer asked, as a design input, whether ink should reach further to either side now that it reaches the rows above and below, possibly two cells each way (`considered`, 2026-11-06). This decision weighs one cell against two.
+
+**How far ink reaches past its cell side to side,** measured on 2026-11-06 (`basis`) in DejaVu Sans Mono's 9x16 and 17x32 cells, with each glyph's advance centred in its cells (ADR-1302 D2), as a share of a cell, the larger of the two sizes:
+
+| Glyphs | Most past the left edge | Most past the right edge |
+|---|---|---|
+| DejaVu Sans Mono Book and Bold, printable ASCII, Latin-1 and Latin Extended-A | 0.06 | 0.15 |
+| DejaVu Sans Mono Oblique, its italic face | 0.09 | 0.20 |
+| DejaVu Sans Mono Bold Oblique | 0.11 | 0.31 |
+| Book and Bold slanted by 0.2, synthetic italic | 0.05 | 0.39 |
+| DejaVu Sans Mono's Arabic, joining letters stretched to their cells (ADR-1302 D2) | 0.26 | 0.03 |
+| Noto Sans Arabic at DejaVu Sans Mono's size, joining letters stretched to their cells | 0 | 0.19 |
+| Noto Sans Arabic at that size, if its letters were not stretched (seen and sad) | 0.53 | 0.66 |
+| Noto Sans Arabic's lam-alef, in its two cells | 0 | 0 |
+| Noto Sans Devanagari at that size, a syllable in the one cell vtium gives a grapheme cluster (कि, क्षि, स्त्र) | 0.32 | 0.34 |
+| Noto Sans Devanagari, a five-consonant conjunct in one cell (र्त्स्न्य) | 0.76 | 0.78 |
+| MesloLGS DZ Nerd Font, not Mono, icons in one cell | 0.04 | 0.68 |
+| Symbols Nerd Font Mono icons at DejaVu Sans Mono's size, in one cell | 0.39 | 0.34 |
+
+No glyph measured reaches a whole cell past its own, so none would draw in a second cell. The furthest, the five-consonant conjunct, reaches 0.78 of a cell. The icons are drawn smaller to fit their cells where their font is a fallback (ADR-1200 D17), so their reach is used only where a Nerd Font is the frit's first source.
+
+**What a reach of two cells costs against one:**
+
+| | One cell each side | Two cells each side |
+|---|---|---|
+| The block a narrow glyph's ink may lie in | 3 by 3 cells, 8 neighbours | 5 by 3 cells, 14 neighbours |
+| A wide glyph's block | 4 by 3 cells | 6 by 3 cells |
+| The reach each cell remembers (D5) | 8 bits, one byte a cell: 8,160 bytes at 1366x768 in 8x16 cells | 14 bits, two bytes a cell: 16,320 bytes |
+| Cells a changed cell can damage | 8 | 14 |
+| Glyphs a pixel's composition may look at (D4) | its own and 8 neighbours, in 3 columns | its own and 14 neighbours, in 5 columns |
+| The cell size at which a wide glyph's box at its full reach passes the 16 KiB chunk bound (D3) | more than 1,365 pixels a cell, 26x52 | more than 910 pixels a cell, 22x44 |
+| The row scratch (D4) | unchanged | unchanged |
+| A scroll, and a scroll region's margins (D4) | the rows beside a changed row | the same rows: the reach side to side adds no row |
+
+The cost of a wider reach comes only where a glyph's ink actually reaches: a cell whose neighbours send it no ink still costs one test, of two bytes instead of one, and a glyph's box holds only the columns its ink covers. What grows is the bound: the damage block of a changed cell, the columns a composed cell looks at, the box the console's check allows, and the size at which a wide glyph's box is cut to its cells. The order of D4's step 5 would name the cells two away first, then the cells beside it, so the nearer ink lies on top.
+
+**The lean: keep one cell.** Every glyph measured stays within it, the furthest by a fifth of a cell to spare. A second cell would double the damage bound and the reach each cell keeps, for no glyph measured. A font whose ink reaches further, such as a script italic or a font of very wide symbols, would draw that ink cut at one cell past its own, as it does today. The alternative, two cells, leaves room for such fonts and for marks placed far from their letter, at the costs above.
+
+If the maintainer chooses two cells, D1, D3, D4, D5 and D9 take the new bound, ADR-1302 D1, D6, D7 and D9 take dated notes, and the slices grow: slice 1's ink box and the console's check allow two cells, and slice 2's composition reads five columns and keeps two bytes of reach a cell. With one cell, the slices are as D11 has them.
+
+**These stay as they are,** as the maintainer decided them:
+
+- **A fallback font's glyph that would pass its cells is drawn smaller** (ADR-1200 D17, the maintainer, 2026-11-06). The reach, one cell or two, is for ink that a font draws past its cell on purpose, such as an italic's lean, not for a fallback glyph too big for its cells.
+- **The letter under the cursor keeps its ink beside its cell inside the cell** (ADR-1302 D8, the maintainer, 2026-11-01).
+
+The measurements give one reason to revisit the first, which this record raises as a question and does not change (For the operator's check, open question 2): Noto Sans Arabic as a fallback at DejaVu Sans Mono's size has 4 of the 110 letter glyphs of a sentence of unvocalized Arabic passing the row's bottom, so ADR-1200 D17 draws those 4 smaller than the letters beside them in the same words, while the marks of a shaped cluster reach the row below (D2). After the stretch to their cells, the same font's joining letters still pass their cells sideways by up to 0.19 of a cell, and ADR-1200 D17 does not say whether such a letter is drawn smaller as well as stretched.
+
 ### For the operator's check
 
 The maintainer answered on 2026-11-06 (`considered`), taking each lean, and each answer is written into the decision above:
@@ -293,6 +350,11 @@ The maintainer answered on 2026-11-06 (`considered`), taking each lean, and each
 4. `fit=room` draws as `natural` and stays a value a frit may write (D8); where two rows' ink meets, the row below draws on top (D4); a blinking accented capital shows its accent cut while it blinks (D6); an underline cursor can be crossed by an accent from the row below (D6); and the build goes into v0.1.0-alpha.6 (D11).
 
 Two of the record's own calls, both stated in the Summary the maintainer read before answering, were not put as questions: the overflow blends and is never XORed, in place of the maintainer's sketch of 2026-11-06 (D4), and a picture's cells do not cut the ink of the text around them (D7).
+
+#### Open, proposed 2026-11-06
+
+1. **How far ink reaches side to side** (D12): one cell, as ADR-1302 D1 has it, or two. The lean: one cell. Evidence: no glyph measured, italic, bold italic, Arabic, Devanagari or icon, reaches a whole cell past its own, the furthest 0.78 of a cell; two cells would raise the damage bound from 8 neighbours to 14 and double the reach each cell keeps.
+2. **A fallback letter of a joining script that passes its row or its cells** (D12): ADR-1200 D17 draws it smaller, so 4 of 110 Noto Sans Arabic letters in a sentence draw smaller than their neighbours, while the marks of a shaped cluster reach the row below. The lean: let a fallback joining-script letter's own ink use the reach, as the first source's does, and keep D17's shrink for every other fallback glyph. This changes a decision the maintainer made on 2026-11-06, so the record leaves D17 as it is until the maintainer answers.
 
 ## Departures from the C reference
 
