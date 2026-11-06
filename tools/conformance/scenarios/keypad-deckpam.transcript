@@ -33,7 +33,7 @@
 > key KP_Enter
 < reply "\r"
 > key KP_Equal
-< reply "/"
+< reply "="
 > key KP_Separator
 < reply ","
 > key KP_Space
@@ -61,10 +61,11 @@
 > key KP_Next
 < reply "\e[6~"
 > key KP_Begin
+< reply "\e[E"
 > key KP_Insert
-< reply "0"
+< reply "\e[2~"
 > key KP_Delete
-< reply "."
+< reply "\e[3~"
 > send "\e="
 > key KP_0
 < reply "\eOp"
@@ -93,19 +94,19 @@
 > key KP_Subtract
 < reply "\eOm"
 > key KP_Multiply
-< reply "\eOo"
-> key KP_Divide
 < reply "\eOj"
+> key KP_Divide
+< reply "\eOo"
 > key KP_Enter
 < reply "\eOM"
 > key KP_Equal
-< reply "\eOj"
+< reply "\eOX"
 > key KP_Separator
 < reply "\eOl"
 > key KP_Space
-< reply " "
+< reply "\eO "
 > key KP_Tab
-< reply "\t"
+< reply "\eOI"
 > key KP_F1
 < reply "\eOP"
 > key KP_F4
@@ -127,16 +128,17 @@
 > key KP_Next
 < reply "\e[6~"
 > key KP_Begin
+< reply "\e[E"
 > key KP_Insert
-< reply "\eOp"
+< reply "\e[2~"
 > key KP_Delete
-< reply "\eOn"
+< reply "\e[3~"
 > key KP_1 mods=shift
-< reply "\eOq"
+< reply "\eO2q"
 > key KP_1 mods=ctrl
-< reply "\eOq"
+< reply "\eO5q"
 > key KP_Enter mods=shift
-< reply "\eOM"
+< reply "\eO2M"
 > key KP_Up mods=shift
 < reply "\e[1;2A"
 > send "\e>"

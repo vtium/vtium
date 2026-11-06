@@ -32,7 +32,7 @@ checkpoint 624
 size 20x2
 cursor 0,0
 flags AUTO_WRAP
-reply 0d08091b5b5a1b1b5b337e1b4f501b5b31357e1b5b32387e
+reply 0d08091b5b5a1b1b5b337e1b4f501b5b31357e1b5b31353b327e
 palette legacy fg=#e5e5e5 bg=#000000
 changed 0
 frame-cursor 0,0 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000

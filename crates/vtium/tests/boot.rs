@@ -2873,7 +2873,7 @@ fn grab_paste_binds_the_paste() {
     h.app.input_event(shift_insert.clone(), h.at());
     h.type_str("q");
     assert!(
-        h.until(BOUND, |a| shows(a, "E[200~pastedE[201~E[2~")),
+        h.until(BOUND, |a| shows(a, "E[200~pastedE[201~E[2;2~")),
         "{:?}",
         h.app.screen_text()
     );
@@ -2882,7 +2882,7 @@ fn grab_paste_binds_the_paste() {
     h.app.input_event(shift_insert, h.at());
     h.type_str("q");
     assert!(
-        h.until(BOUND, |a| shows(a, "E[2~")),
+        h.until(BOUND, |a| shows(a, "E[2;2~")),
         "{:?}",
         h.app.screen_text()
     );
