@@ -78,15 +78,17 @@ The C reference recognised 34 modes in one declarative table (libtsm's `tsm-mode
 
 ### The target set
 
-The tables are `ADR-1000-modes.tsv` (128 rows: 40 supported, 4 ignored, 4 refused, 80 with no row) and `ADR-1000-features.tsv` (179 rows: 125 supported, 44 ignored, 7 refused, 2 parked, 1 weighed in another issue). Their status vocabulary is the C reference's, with two statuses the features table adds:
+The tables are `ADR-1000-modes.tsv` (128 rows: 40 supported, 4 ignored, 4 refused, 80 with no row) and `ADR-1000-features.tsv` (181 rows: 110 supported, 3 partial, 44 ignored, 7 refused, 16 parked, 1 weighed in another issue). Their status vocabulary is the C reference's, with two statuses the features table adds:
 
 - **supported**: set and reset, or the feature, do what the specification says.
 - **partial**: part of it, with the missing part's issue.
 - **ignored**: accepted with no effect; the note says why or names the issue for the effect.
 - **refused**: deliberately not built, with the reason.
 - **no row** (modes): vtium does not recognise the number; DECRQM replies 0 and SM and RM change nothing.
-- **parked** (features): its own issue designs it before anything is built: input methods and Braille displays.
+- **parked** (features): its own issue designs it before anything is built: input methods and Braille displays among them.
 - **weighed** (features): another issue decides whether vtium builds it, and the row takes that decision: baked glyph atlases (carried by the work on vtium-vitrify, the profile builder), weighed in the work on outline fonts.
+
+> Edited 2026-11-06: an audit of the open issues found seventeen feature rows marked supported that vtium does not implement, so a reader took them for capabilities vtium has. Fourteen, which nothing implements, are parked: kmscon's setBackground and setForeground strings, XTWINOPS 8, OSC 22, kitty's text sizing, double-size lines, the login image, ligatures, the kitty keyboard protocol, bidirectional text, SGR 6, 8, 53 and 55, and 73 to 75, and DECIC with its kin. Three, which vtium implements in part, are partial: the display hand-back, whose wake-up retry is built; font merging, whose second source a frit's `cover=` already serves; and DECSLRM's row, whose SCOSC and SCORC are built. Each row's note says what is missing, and the decision to support each of them stands. The counts above read 179 rows, 125 supported and 2 parked before this edit.
 
 An ignored or refused mode answers DECRQM with its fixed default, as the C reference did: 3 (permanently set) for DECANM, and 4 (permanently reset) for the rest, KAM, DECCOLM, DECNRCM and 1001 among them.
 
