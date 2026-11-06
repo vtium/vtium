@@ -298,8 +298,7 @@ pub(super) fn parse(
     }
 }
 
-/// A color, `r,g,b`, each a whole number from 0 to 255
-/// (`src/config.c:806-855`).
+/// A color, `r,g,b`, each a whole number from 0 to 255.
 pub(super) fn parse_rgb(text: &str) -> Result<[u8; 3], &'static str> {
     let mut out = [0_u8; 3];
     let mut parts = text.split(',');
@@ -317,8 +316,7 @@ pub(super) fn parse_rgb(text: &str) -> Result<[u8; 3], &'static str> {
 }
 
 /// A decoration color: `fg`, a palette index of one to three decimal
-/// digits from 0 to 255, a leading 0 not octal, or `#rrggbb`
-/// (`src/config.c:868-933`).
+/// digits from 0 to 255, a leading 0 not octal, or `#rrggbb`.
 pub(super) fn parse_deco_color(text: &str) -> Result<DecoColor, &'static str> {
     const WHY: &str = "use fg, a palette number from 0 to 255, or #rrggbb";
     if text == "fg" {
@@ -338,8 +336,7 @@ pub(super) fn parse_deco_color(text: &str) -> Result<DecoColor, &'static str> {
     text.parse::<u8>().map(DecoColor::Indexed).map_err(|_| WHY)
 }
 
-/// The most bytes of a card's or a connector's name in a mode line, the
-/// C reference's buffers less their NUL.
+/// The most bytes of a card's or a connector's name in a mode line.
 const MODE_NAME_MAX: usize = 63;
 
 /// A size, `WxH`, each side a whole number from 1 to `max`.
@@ -354,7 +351,7 @@ fn parse_size(text: &str, max: u32) -> Result<(u32, u32), &'static str> {
         .ok_or("a size is WxH, each side a whole number from 1 up to the limit")
 }
 
-/// A mode line, `[GPU][CONNECTOR]WxH[@RATE]` (`src/config.c:564-617`).
+/// A mode line, `[GPU][CONNECTOR]WxH[@RATE]`.
 pub(super) fn parse_mode(text: &str) -> Result<ModeSpec, &'static str> {
     let name = |s: &str| -> Result<Option<String>, &'static str> {
         if s.is_empty() {
@@ -402,7 +399,8 @@ pub(super) fn parse_mode(text: &str) -> Result<ModeSpec, &'static str> {
     })
 }
 
-/// A command line split into words as the C reference's `login` key was:
+/// A command line split into words as a `kmscon` configuration file's
+/// `login` key is:
 /// spaces and tabs separate words; single quotes keep everything up to the
 /// next one; double quotes keep everything up to the next one but a
 /// backslash before `"` or `\`; outside quotes a backslash keeps the next

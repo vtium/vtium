@@ -1,6 +1,5 @@
 //! When the terminal presents: synchronized output (mode 2026) and the
-//! coalescing of the child's output without it (`src/terminal_sync.h`
-//! and `src/terminal_sync.c` at kmscon b1f7a7c5).
+//! coalescing of the child's output without it.
 //!
 //! **The hold.** A program brackets a frame in `CSI ? 2026 h` and
 //! `CSI ? 2026 l`. While the hold is in force the displays keep the last
@@ -219,9 +218,7 @@ impl Wait {
         self.due
     }
 
-    /// The wait's time came, so the draw it held is asked for now, as the
-    /// C reference's timer ended its coalescing when it fired
-    /// (`coalesce_end`). A draw that cannot run yet waits on what holds
+    /// The wait's time came, so the draw it held is asked for now. A draw that cannot run yet waits on what holds
     /// it, a flip or a hold, and not on this time.
     pub fn end(&mut self) {
         self.due = None;

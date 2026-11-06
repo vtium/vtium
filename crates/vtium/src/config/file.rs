@@ -1,5 +1,6 @@
 //! vtium.conf's top level, the lines above its first section heading, in
-//! the C reference's key syntax (`kmscon.conf(5)`): one key a line,
+//! the key syntax of `kmscon` configuration files (`kmscon.conf(5)`): one
+//! key a line,
 //! `key=value` or a switch's `key` or `no-key`, with the blanks around the
 //! key and the value dropped (ADR-1403 D3).
 //!

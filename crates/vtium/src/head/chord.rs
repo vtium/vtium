@@ -4,11 +4,10 @@
 //! focus chord, which moves the focus between the heads. Each is held
 //! with Ctrl and Super exactly, as the grabs match their modifiers, and is
 //! matched after the VT's keys and the power keys and before the
-//! terminal's grabs, the C reference's place for its session keys
-//! (`src/seat.c:584-640` at kmscon b1f7a7c5). The console chords are the
-//! C reference's defaults for its next, previous, new and closed session
-//! (`src/config.c:169-176`). The focus chord's keys are the operator's
-//! (vtium/vtium#156, 2026-10-30).
+//! terminal's grabs. The console chords are the keys `kmscon` binds by
+//! default to its next, previous, new and closed session, so a user who
+//! knows them finds them in vtium. The focus chord's keys are the
+//! operator's (vtium/vtium#156, 2026-10-30).
 
 /// What a chord does.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -29,7 +28,7 @@ pub(crate) enum HeadChord {
 
 use crate::grab::{ALT, CTRL, LOGO, SHIFT};
 
-/// Ctrl and Super, in the C reference's bits.
+/// Ctrl and Super, in the grab keys' bits.
 const CTRL_SUPER: u8 = CTRL | LOGO;
 
 /// Each chord and the key that makes it, held with [`CTRL_SUPER`]: the one
@@ -92,7 +91,7 @@ impl HeadChord {
     }
 }
 
-/// The chord a key held with `mods` (the C reference's bits) and making
+/// The chord a key held with `mods` (the grab keys' bits) and making
 /// `keysyms` is, if any.
 pub(crate) fn chord(mods: u8, keysyms: &[u32]) -> Option<HeadChord> {
     if mods != CTRL_SUPER {

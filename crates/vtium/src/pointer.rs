@@ -5,10 +5,8 @@
 //! ([`Renderer::arrow`]), sized to the display's cells and turned with it.
 //! At the first draw that shows the pointer after the renderer changes (a
 //! set, a zoom, a rotation), the display's [`Pointer`] puts the new arrow
-//! on the display's cursor plane,
-//! as the C reference set its hardware cursor up again after each change
-//! (`src/terminal.c:303-338` at kmscon b1f7a7c5); a pointer that never
-//! shows, as with `mouse` off, sets no plane up. A display that takes the
+//! on the display's cursor plane, since the arrow's size and turn follow
+//! the renderer's cells; a pointer that never shows, as with `mouse` off, sets no plane up. A display that takes the
 //! arrow shows the pointer there, moved and hidden by the next commit with
 //! no cell drawn; one without a cursor plane, fbdev's or a card's on the
 //! legacy calls, or whose plane refused the arrow or failed a commit, has
@@ -16,20 +14,18 @@
 //! plane at a draw, when the display is lent for one and so awake and
 //! online: a display that is not yet tries again at the next draw, and
 //! draws the pointer in software until then. Each decision is logged
-//! with the display's connector name, as the C reference named the
-//! cursor, `HW` or `SW`, in its display's line. A zoom or a rotation
+//! with the display's connector name, `HW` or `SW`, in the display's
+//! line. A zoom or a rotation
 //! makes a new renderer, and so a new decision, which is most often the
 //! one before: vtium logs a decision at info level only when it differs
 //! from the last one logged for the display, and a repeat at debug level.
 //!
 //! `soft-cursor` has the renderer draw the pointer on every display and
-//! sets no cursor plane up, as the C reference's key did
-//! (`src/terminal.c:1269-1270`).
+//! sets no cursor plane up.
 //!
 //! A failed renderer set keeps the renderer the display had, and with it
-//! the arrow on its plane. The C reference set the hardware cursor up from
-//! the failed set's text, which had no font, and so drew the pointer
-//! nowhere (aaronsb/kmscon#211).
+//! the arrow on its plane: an arrow made from the failed set would have no
+//! font to size it by, and the pointer would show nowhere.
 
 use std::io;
 

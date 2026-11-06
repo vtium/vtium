@@ -73,8 +73,7 @@ impl Power for System {
 /// `sleeping`, the last such child has not exited, and a suspend does
 /// nothing more.
 ///
-/// The reboot takes the C reference's two paths (`src/seat.c:479-513`),
-/// chosen by `/proc/sys/kernel/ctrl-alt-del`, which the kernel reads for
+/// The reboot takes one of two paths, chosen by `/proc/sys/kernel/ctrl-alt-del`, which the kernel reads for
 /// its own Ctrl+Alt+Del: at 0, or when it cannot be read, PID 1 is asked
 /// to reboot; at any other number the kernel restarts at once. Power-off
 /// asks PID 1, and suspend asks logind, or the kernel where logind is not
@@ -120,7 +119,7 @@ pub fn name(key: PowerKey) -> &'static str {
 }
 
 /// `/proc/sys/kernel/ctrl-alt-del`'s number; 0, with a warning, when it
-/// cannot be read, as the C reference took it.
+/// cannot be read, so that a reboot then asks PID 1, the safer path.
 fn ctrl_alt_del(power: &mut dyn Power) -> i64 {
     match power.ctrl_alt_del() {
         Ok(text) => text.trim().parse().unwrap_or_else(|_| {

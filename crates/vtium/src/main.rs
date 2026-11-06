@@ -7,11 +7,10 @@
 //! the VT switches back, the loop is served while that is pending, and the
 //! VT is put back before the loop goes.
 //!
-//! This departs from the C reference's order, which opened the loop, its
-//! signals and the VT right after the configuration (`src/main.c:161-222`
-//! at kmscon b1f7a7c5). vtium reads the flow first because the marker
-//! needs the file's policy before the VT opens, so that a failure opening
-//! the loop or the VT under a closed policy still leaves the marker.
+//! vtium reads the flow before it opens the loop, its signals and the VT,
+//! because the marker needs the file's policy before the VT opens, so
+//! that a failure opening the loop or the VT under a closed policy still
+//! leaves the marker.
 
 use std::ffi::OsString;
 use std::io;

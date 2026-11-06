@@ -12,8 +12,7 @@
 //! id (ADR-1401 D5), when it runs in a head's console. Then each word
 //! of the command that is `$NAME` becomes that variable of the
 //! environment, empty when it is unset, and a word starting `$$` loses one
-//! `$` (`src/misc/pty.c:252-302` and `src/shl/misc.h:395-449` at kmscon
-//! b1f7a7c5).
+//! `$`.
 
 use std::collections::BTreeMap;
 use std::ffi::{OsStr, OsString};

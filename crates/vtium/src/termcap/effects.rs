@@ -745,7 +745,7 @@ fn check(entry: &Entry, name: &str, cap: &Cap) {
                 let have = pen(&t).attrs;
                 assert!(!have.contains(Attrs::ITALIC), "sgr resets first");
                 match want {
-                    // KNOWN GAP: the C reference's entry asks for SGR 8,
+                    // KNOWN GAP: kmscon.ti's sgr asks for SGR 8,
                     // which vtium-term does not do until the work on SGR
                     // 8 and 28 lands (vtium/vtium#37); vtium's entry
                     // leaves it out. This fails once it lands: then check

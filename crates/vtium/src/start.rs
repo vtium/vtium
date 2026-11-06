@@ -1,7 +1,6 @@
 //! What start-up takes from the configuration before the seat runs: the
 //! log's level, the VT, whether to switch to it, the keymap, and the key
-//! repeat and pointers (`src/config.c:329-361, 1346, 1352-1353, 1377-1385,
-//! 1515-1539` at kmscon b1f7a7c5), with the pointer's hide timeout.
+//! repeat and pointers, with the pointer's hide timeout.
 
 use std::path::{Path, PathBuf};
 
@@ -94,7 +93,7 @@ impl Start {
 }
 
 /// The VT's device for the `vt` key: a number names `/dev/ttyN`, a name
-/// is under `/dev`, a path is itself (`src/config.c:329-361`).
+/// is under `/dev`, a path is itself.
 fn vt_path(vt: &str) -> PathBuf {
     if !vt.is_empty() && vt.bytes().all(|b| b.is_ascii_digit()) {
         PathBuf::from(format!("/dev/tty{vt}"))

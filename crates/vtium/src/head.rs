@@ -6,9 +6,8 @@
 //! [`identity`] maps vtium-platform's identities of a display and of an
 //! input into the head file's, which the rules walk. The app holds the
 //! heads, places each display in one, and drives each head's session as
-//! it drove the seat's one session before heads, as the C reference's
-//! seat held its sessions, each one terminal with its own grid
-//! (`src/seat.c:53-108`, `src/terminal.c:1107-1170` at kmscon b1f7a7c5).
+//! it drove the seat's one session before heads: each head is one
+//! terminal with its own grid.
 
 pub(crate) mod chord;
 pub mod console;
@@ -59,7 +58,7 @@ pub const NOTICES_MAX: usize = 4;
 /// D7); it counts the rest. `vtium check-config` lists them all.
 pub const PANIC_ERRORS_MAX: usize = 3;
 
-/// The lines of scrollback a wheel event scrolls (`src/terminal.c:1648`).
+/// The lines of scrollback a wheel event scrolls.
 const WHEEL_LINES: usize = 3;
 
 /// Whether a head has a display to draw on.
@@ -757,11 +756,10 @@ impl Head {
     /// head takes `new`'s fit, and the old keeps the head's. While
     /// `visible`, the new one is potentially visible (mode 2033), and it
     /// takes mode 1004's focus from the old while a keyboard delivers to
-    /// the head; an old console that is `closing` is told nothing, as the
-    /// C reference sent a closing session no focus-out. Every display draws the new one whole, as the C reference
-    /// redrew a session's displays at its activation
-    /// (`src/terminal.c:1750-1762` at kmscon b1f7a7c5), each drawing kept
-    /// per session there and per head here.
+    /// the head; an old console that is `closing` is told nothing, since
+    /// its pty is closing and no program reads a focus-out. Every display
+    /// draws the new one whole, since what each display last drew belongs
+    /// to the old console.
     fn swap_shown(&mut self, new: Console, visible: bool, closing: bool) -> Console {
         let fit = self.fit();
         self.grid = new.fit.grid;
@@ -1155,8 +1153,7 @@ impl Head {
                 }
             }
             PointerEvent::Sync => {}
-            // The C reference cleared the selection as it hid the pointer
-            // (`src/terminal.c:1655-1659` at kmscon b1f7a7c5).
+            // Hiding the pointer clears the selection.
             PointerEvent::Hide => {
                 self.pointer.visible = false;
                 self.console.term.terminal.screen_mut().clear_selection();
@@ -1178,8 +1175,7 @@ impl Head {
     }
 
     /// A change of the mouse tracking the program asked for clears the
-    /// selection, as the C reference's did (`src/terminal.c:890-897` at
-    /// kmscon b1f7a7c5).
+    /// selection.
     pub(crate) fn tracking_changed(&mut self) {
         let tracking = self.console.term.terminal.mouse_tracking();
         if tracking != self.tracking {
@@ -1190,8 +1186,8 @@ impl Head {
     }
 
     /// The cell under the pointer, or the grid's nearest when the pointer
-    /// is in the strip a display leaves past the grid, as the C reference
-    /// kept it (`src/terminal.c:173-190` at kmscon b1f7a7c5).
+    /// is in the strip a display leaves past the grid, so a click there
+    /// still selects.
     fn pointer_cell(&self) -> (usize, usize) {
         let cell = |p: u32, size: u32, cells: usize| {
             usize::try_from(p.checked_div(size).unwrap_or(0))
@@ -1253,8 +1249,7 @@ impl Head {
             .mouse(col, row, x, y, button, event, mods);
     }
 
-    /// A button that selects or pastes, as the C reference's did
-    /// (`src/terminal.c:1509-1542` at kmscon b1f7a7c5): the left button
+    /// A button that selects or pastes: the left button
     /// starts a selection that its drag extends and its release copies, a
     /// double click selects and copies a word, and a triple click a line,
     /// as xterm's does; the middle button pastes at its release, as
@@ -1624,10 +1619,8 @@ enum Wheel {
 
 /// What a wheel event of `steps` does: one report while the program
 /// tracks the pointer, else a zoom with Ctrl, else a scroll, whatever
-/// the number of steps (`src/terminal.c:1492-1497, 1639-1650` at kmscon
-/// b1f7a7c5). Under `natural` scrolling the report and the scroll go the
-/// other way, and the zoom keeps the wheel's own direction, as the C
-/// reference's `natural-scrolling` did (`src/terminal.c:1474-1476, 1646`).
+/// the number of steps. Under `natural` scrolling the report and the
+/// scroll go the other way, and the zoom keeps the wheel's own direction.
 fn wheel(steps: i32, natural: bool, tracking: bool, ctrl: bool) -> Wheel {
     let up = (steps > 0) != natural;
     if tracking {
@@ -1959,8 +1952,7 @@ mod tests {
     }
 
     // ADR-1401 D5, binary-review's finding 3: the console the close chord
-    // closes is told nothing, as the C reference sent a closing session no
-    // focus-out: no focus-out joins what it owed its program, and nothing
+    // closes is told nothing: no focus-out joins what it owed its program, and nothing
     // it owed is sent; the console shown next gains the focus.
     #[test]
     #[expect(

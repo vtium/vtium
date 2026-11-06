@@ -1,5 +1,6 @@
-//! The configuration: the top level of `vtium.conf` in the C reference's
-//! key syntax, and the command line over it (ADR-1403 D2, D3).
+//! The configuration: the top level of `vtium.conf`, in the key syntax of
+//! `kmscon` configuration files, and the command line over it (ADR-1403
+//! D2, D3).
 //!
 //! [`keys`] holds the one table of keys. [`load`] reads both sources and
 //! gives the [`Config`] and the [`Report`]s of what it could not take: a
@@ -101,7 +102,7 @@ pub struct ModeSpec {
 impl ModeSpec {
     /// The mode configured for `connector` on the card at `gpu` among
     /// `modes`: one naming both first, then one naming the connector,
-    /// then one naming neither (`src/config.c:663-698`).
+    /// then one naming neither.
     pub fn find<'a>(
         modes: &'a [ModeSpec],
         gpu: Option<&str>,
@@ -635,8 +636,7 @@ pub struct Loaded {
 
 impl Loaded {
     /// The command line cannot start vtium: it holds a word that is no
-    /// option, or `--login` with no command after `--`. The C reference
-    /// refused both (`src/misc/conf.c:310-313`, `src/config.c:439-450`).
+    /// option, or `--login` with no command after `--`.
     pub fn refuses_start(&self) -> bool {
         self.reports.iter().any(|r| {
             matches!(r.origin, Origin::CommandLine { .. })
@@ -651,7 +651,7 @@ impl Loaded {
 /// The configuration file in the configuration directory `dir`:
 /// `vtium.conf`, the one file vtium reads (ADR-1403 D2). The configuration
 /// directory is `/etc/vtium` unless `--configdir` names another, and vtium
-/// never reads the C reference's `/etc/kmscon` (ADR-1500 D4).
+/// never reads `/etc/kmscon`, the released `kmscon`'s (ADR-1500 D4).
 pub fn file(dir: &Path) -> PathBuf {
     dir.join("vtium.conf")
 }
@@ -792,9 +792,8 @@ pub fn read_file(path: &Path) -> io::Result<Option<Vec<u8>>> {
 }
 
 /// Reads `path` whoever owns it: `None` when it does not exist, and at
-/// most [`FILE_MAX`] and one bytes. It is opened as the C reference opened
-/// its files, so that a tty never becomes the controlling one
-/// (`O_NOCTTY`, `src/misc/conf.c:533-590`), and without blocking, so that
+/// most [`FILE_MAX`] and one bytes. It is opened with `O_NOCTTY`, so that
+/// a tty never becomes the controlling one, and without blocking, so that
 /// a FIFO is refused at once with anything else that is not a regular
 /// file. It reads a frit, and the vtium.conf `vtium check-config` checks
 /// before it is installed, whose ownership it judges apart.

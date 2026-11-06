@@ -93,8 +93,7 @@ struct Memory {
 }
 
 impl Memory {
-    /// At 72 DPI, the C reference's fixed density, where a point is a
-    /// pixel.
+    /// At 72 DPI, where a point is a pixel.
     fn new(w: u32, h: u32, connector: &'static str, card: &'static str) -> Memory {
         Memory {
             w,
@@ -2669,9 +2668,7 @@ fn closing_a_console_hangs_up_its_session_alone() {
 }
 
 /// D5 and binary-review's finding 2: a session the open chord cannot
-/// start leaves the run alive, as the C reference ignored a terminal that
-/// would not open (`src/terminal.c:1771-1772`, `src/seat.c:624-628`). The
-/// console that could not start leaves the head, which shows the console it
+/// start leaves the run alive. The console that could not start leaves the head, which shows the console it
 /// showed before, and the top of the head says so; the other sessions run
 /// on. The head's login here is a script removed once the first console's
 /// session has started, so the second cannot start.

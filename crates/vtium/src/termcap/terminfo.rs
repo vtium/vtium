@@ -195,7 +195,7 @@ fn render() -> String {
 
 /// vtium's entry, `xterm-vtium`.
 pub(super) const ENTRY: &str = include_str!("../../install/xterm-vtium.ti");
-/// The C reference's entry, `kmscon`, with `Ms`.
+/// The entry for the released `kmscon`'s name, with `Ms`.
 pub(super) const KMSCON: &str = include_str!("../../install/kmscon.ti");
 
 /// Each table's constant, the file it is generated from and that file's
@@ -261,7 +261,7 @@ fn the_entry_reads() {
     names.sort_unstable();
     names.dedup();
     assert_eq!(names.len(), 181);
-    // the C reference's 136 and Ms
+    // 136 names and Ms
     let (name, caps) = parse(KMSCON);
     assert_eq!(name, super::KMSCON);
     assert_eq!(caps.len(), 137);
@@ -362,8 +362,8 @@ fn the_table_and_the_entry_agree() {
 }
 
 // Each mode an entry sets and resets is one vtium-term sets and resets, as
-// DECRQM reports it. The C reference's entry lacks the margins' and insert
-// mode's capabilities.
+// DECRQM reports it. kmscon.ti lacks the margins' and insert mode's
+// capabilities.
 // covers: platform.terminfo
 #[test]
 fn the_entrys_modes_are_vtiums() {

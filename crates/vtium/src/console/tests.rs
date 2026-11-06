@@ -31,7 +31,7 @@ use super::*;
 const GETTY_UNIT: &str = "[Unit]\nDescription=Getty on %I\n\n[Service]\nExecStart=-/sbin/agetty -o '-- \\\\u' --noreset --noclear - ${TERM}\n\n[Install]\nAlias=autovt@.service\n\nWantedBy=getty.target\nDefaultInstance=tty1\n";
 
 /// The shipped unit, `vtium@.service`, whose `[Install]` section is the
-/// C reference's `kmsconvt@.service`'s, written below under that name.
+/// one kmscon's `kmsconvt@.service` has, written below under that name.
 const KMSCON_UNIT: &str = include_str!("../../install/vtium@.service");
 
 /// A stand-in for `systemctl` and `loginctl` on the running system whose
@@ -396,8 +396,8 @@ fn generate(name: &str, exec: &str, dir: &Path) {
 
 impl Machine {
     /// A host booted with systemd that has vtium's packaged unit, the
-    /// development install's unit, systemd's getty and the C reference's
-    /// console installed, and nothing enabled.
+    /// development install's unit, systemd's getty and kmscon's console
+    /// installed, and nothing enabled.
     fn new(name: &str) -> Machine {
         let root =
             std::env::temp_dir().join(format!("vtium-console-{name}-{}", std::process::id()));
@@ -879,7 +879,7 @@ fn disable_n_on_a_vt_vtium_does_not_hold_changes_nothing() {
 }
 
 #[test]
-fn enable_refuses_a_vt_the_c_references_console_holds() {
+fn enable_refuses_a_vt_kmscons_console_holds() {
     // Enabled there, linked there, or running there.
     let mut m = Machine::gettys("kmscon-vt");
     m.link("getty.target.wants/kmsconvt@tty2.service", "kmsconvt");
@@ -952,7 +952,7 @@ fn kmscon_on_one_vt_beside_vtiums_template_keeps_it() {
 }
 
 #[test]
-fn enable_all_refuses_the_c_references_template_and_enable_n_works_beside_it() {
+fn enable_all_refuses_kmscons_template_and_enable_n_works_beside_it() {
     // This machine: autovt@.service links to kmsconvt@.service.
     let mut m = Machine::gettys("kmscon-template");
     std::fs::remove_file(m.root().join(ETC).join(TEMPLATE)).unwrap();
