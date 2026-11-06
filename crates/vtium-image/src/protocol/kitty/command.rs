@@ -23,6 +23,9 @@ pub(super) enum Error {
     Cycle,
     /// A chain of relative placements would pass `RELATIVE_DEPTH_MAX`.
     TooDeep,
+    /// Raw data short of the pixels its width and height call for, as
+    /// kitty answers it (ADR-1100, D15).
+    NoData,
     /// Anything else the handler cannot do.
     Invalid,
 }
@@ -36,6 +39,7 @@ impl Error {
             Self::NoParent => "ENOPARENT:parent placement not found",
             Self::Cycle => "ECYCLE:relative placement would make a cycle",
             Self::TooDeep => "ETOODEEP:chain of relative placements is too deep",
+            Self::NoData => "ENODATA:Insufficient image data",
             Self::Invalid => "EINVAL:invalid argument",
         }
     }
@@ -88,7 +92,8 @@ pub(super) struct Command {
     pub(super) delete: u8,
     /// `q`: which replies are left out.
     pub(super) quiet: u32,
-    /// `f`: the format, 24, 32 or 100.
+    /// `f`: the format: 8 or 16 palette indices, 24 RGB, 32 RGBA or 100
+    /// PNG.
     pub(super) format: u32,
     /// `s`, `v`: the picture's width and height in pixels.
     pub(super) width: u32,
@@ -223,7 +228,7 @@ impl Command {
         if !known(b"tTqpdfac", cmd.action)
             || !known(b"dfts", cmd.medium)
             || (cmd.seen & bit(b'o') != 0 && cmd.compression != b'z')
-            || !matches!(cmd.format, 24 | 32 | 100)
+            || !matches!(cmd.format, 8 | 16 | 24 | 32 | 100)
             || !known(b"aAiInNcCfFpPqQrRxXyYzZ", cmd.delete)
         {
             cmd.bad = true;
@@ -287,7 +292,28 @@ impl Command {
 
     /// A direct transmission of a raw format: the bytes a pixel.
     pub(super) fn bpp(&self) -> u8 {
-        if self.format == 24 { 3 } else { 4 }
+        match self.format {
+            8 => 1,
+            16 => 2,
+            24 => 3,
+            _ => 4,
+        }
+    }
+
+    /// The pixels are palette indices, `f=8` or `f=16` (ADR-1100, D15).
+    pub(super) fn indexed(&self) -> bool {
+        matches!(self.format, 8 | 16)
+    }
+
+    /// What raw data short of its pixels is answered: ENODATA for a
+    /// transmission, as kitty answers it, and EINVAL for a frame
+    /// (ADR-1100, D15; ADR-1102).
+    pub(super) fn short(&self) -> Error {
+        if self.action == b'f' {
+            Error::Invalid
+        } else {
+            Error::NoData
+        }
     }
 
     /// Whether the helper decodes this transmission's data.
@@ -311,13 +337,17 @@ impl Command {
     /// `i` with `I`, as the spec asks; a `U` other than 0 or 1, and `U=1` with a parent, since a virtual
     /// placement is never a relative one (D13); a raw format without `s` and
     /// `v`, which a frame's data alone may leave out, or past
-    /// `max-graphic-size`; and a placement whose pixel offset lies outside
-    /// its cell or whose box passes [`BOX_CELLS_MAX`].
+    /// `max-graphic-size`; palette indices in a frame, from a named medium
+    /// or with `o=z` (ADR-1100, D15); and a placement whose pixel offset
+    /// lies outside its cell or whose box passes [`BOX_CELLS_MAX`].
     pub(super) fn refusal(&self, ctx: &dyn Context) -> Option<Error> {
         if self.bad
             || (self.id != 0 && self.number != 0)
             || self.virtual_placement > 1
             || (self.virtual_placement() && self.relative())
+            || (self.transmits()
+                && self.indexed()
+                && (self.action == b'f' || self.medium != b'd' || self.compression == b'z'))
         {
             return Some(Error::Invalid);
         }

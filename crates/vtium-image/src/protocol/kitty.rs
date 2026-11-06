@@ -7,10 +7,10 @@
 //! A string is a command: control keys up to the first `;`, at most
 //! [`KEYS_MAX`] bytes of them, then a base64 payload. A longer key section
 //! makes the whole string ignored. The payload is decoded as it streams in,
-//! never collected whole: raw `f=24` and `f=32` pixels go straight into the
-//! pending image, whose bytes the store reserves when the first chunk
-//! names its size, and a file or shared-memory name goes into a buffer of
-//! at most [`NAME_MAX`] bytes.
+//! never collected whole: raw `f=8`, `f=16`, `f=24` and `f=32` pixels go
+//! straight into the pending image, whose bytes the store reserves when the
+//! first chunk names its size, and a file or shared-memory name goes into a
+//! buffer of at most [`NAME_MAX`] bytes.
 //!
 //! - **Chunks.** A direct transmission (`t=d`) may come in chunks: `m=1` on
 //!   every chunk but the last. While an upload is open, a command does what
@@ -37,6 +37,15 @@
 //!   the object, since the spec gives its removal to the terminal. Without
 //!   a helper, every named medium answers EBADF and PNG and zlib answer
 //!   EINVAL, as D7's "Without a helper" says.
+//! - **Palette indices** (D15). `f=8` and `f=16` pixels are indices into
+//!   the terminal's palette, which the handler turns into colors as they
+//!   arrive, with the colors [`Context::colors`] gives when the upload's
+//!   first chunk arrives; a later palette change leaves the picture as it
+//!   is. They are taken only sent directly and uncompressed: a frame, a
+//!   named medium, `o=z`, and a host that gives no colors answer EINVAL.
+//! - **Data short of the pixels.** Raw data that holds fewer bytes than `s`
+//!   and `v` call for answers ENODATA, as kitty answers it (D15), sent
+//!   directly or inflated by the helper; a frame's answers EINVAL.
 //! - **Data past the pixels.** A raw upload, or an `a=q` that counts one,
 //!   ignores the bytes past the pixels `s` and `v` call for, as kitty
 //!   ignores them, and answers as if they had not come. The handler notes
@@ -84,7 +93,7 @@ use vtium_parse::Chunk;
 use crate::bounds::IMAGE_OVERHEAD;
 use crate::decode::base64::{Base64, Sink};
 use crate::decode::convert::{Alpha, Layout};
-use crate::decode::raw::Raw;
+use crate::decode::raw::{Format, Raw};
 use crate::decode::{Description, Medium, Payload, Reply, Request};
 use crate::handler::{Cause, Context, Handler, Intro};
 use crate::image::{ImageKey, NewImage, Place, Refusal};
@@ -149,7 +158,8 @@ enum Mode {
     /// Refused or failed: its chunks are swallowed, and its last answers
     /// this.
     Skip(Answer),
-    /// `f=24` or `f=32` into the pending image, whose bytes are reserved.
+    /// `f=8`, `f=16`, `f=24` or `f=32` into the pending image, whose bytes
+    /// are reserved.
     Raw { raw: Raw, reservation: Reservation },
     /// `a=q`: the bytes counted, not kept, and whether bytes past `want`
     /// came.
@@ -444,6 +454,19 @@ impl Kitty {
             };
             return;
         }
+        // palette indices take the terminal's colors as they are now, once
+        // for the whole upload (D15)
+        let colors = if cmd.indexed() {
+            match ctx.colors() {
+                Some(colors) => Some(Box::new(colors.resolved())),
+                None => {
+                    self.upload.mode = Mode::Skip(Err(Error::Invalid));
+                    return;
+                }
+            }
+        } else {
+            None
+        };
         let pixels = cmd.pixels();
         let want = pixels.saturating_mul(u64::from(cmd.bpp()));
         if cmd.action == b'q' {
@@ -470,8 +493,14 @@ impl Kitty {
             self.upload.mode = Mode::Skip(Err(Error::NoSpace));
             return;
         };
+        let format = match (colors, cmd.format) {
+            (Some(colors), 8) => Format::Index(colors),
+            (Some(colors), _) => Format::IndexAlpha(colors),
+            (None, 24) => Format::Rgb,
+            (None, _) => Format::Rgba,
+        };
         self.upload.mode = Mode::Raw {
-            raw: Raw::new(cmd.bpp(), count, buffer),
+            raw: Raw::new(format, count, buffer),
             reservation,
         };
     }
@@ -486,11 +515,7 @@ impl Kitty {
                 if past {
                     ctx.note(Cause::Program, PAST);
                 }
-                let answer = if len < want {
-                    Err(Error::Invalid)
-                } else {
-                    Ok(())
-                };
+                let answer = if len < want { Err(cmd.short()) } else { Ok(()) };
                 reply(ctx, &cmd, cmd.id, answer);
             }
             Mode::Host {
@@ -513,7 +538,7 @@ impl Kitty {
                 // raw data must hold every pixel the keys call for
                 if !raw.complete() {
                     ctx.unreserve(reservation);
-                    reply(ctx, &cmd, cmd.id, Err(Error::Invalid));
+                    reply(ctx, &cmd, cmd.id, Err(cmd.short()));
                     return;
                 }
                 ctx.add_work(cmd.pixels());
@@ -1030,12 +1055,14 @@ fn refused(ctx: &mut dyn Context, cmd: &Command) -> Option<Error> {
     Some(e)
 }
 
-/// The kitty answer to a helper's outcome other than OK. Too few bytes
-/// read from a named medium is a failure to read, EBADF, as kitty answers
-/// it; too few inflated, or sent directly, is EINVAL.
-fn outcome(reply: &Reply, named: bool, inflate: bool) -> Error {
+/// The kitty answer to a helper's outcome other than OK for `cmd`. Too
+/// few bytes read from a named medium is a failure to read, EBADF, as
+/// kitty answers it; raw pixels inflated too few are short of their
+/// picture ([`Command::short`]); a PNG inflated too few is EINVAL.
+fn outcome(reply: &Reply, cmd: &Command, named: bool, inflate: bool) -> Error {
     match reply {
         Reply::TooShort if named && !inflate => Error::BadFile,
+        Reply::TooShort if cmd.format != 100 => cmd.short(),
         Reply::TooShort | Reply::Corrupt | Reply::TooLarge => Error::Invalid,
         Reply::OverBudget => Error::NoSpace,
         Reply::Unreadable | Reply::Failed | Reply::Ok(_) => Error::BadFile,
@@ -1160,7 +1187,7 @@ impl Handler for Kitty {
                     ),
                     _ => {}
                 }
-                let e = outcome(&other, named, inflate);
+                let e = outcome(&other, &cmd, named, inflate);
                 return reply(ctx, &cmd, cmd.id, Err(e));
             }
         };

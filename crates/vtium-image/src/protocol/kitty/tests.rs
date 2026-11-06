@@ -21,10 +21,13 @@ use vtium_parse::Chunk;
 
 use super::Kitty;
 use crate::IMAGE_OVERHEAD;
+use crate::decode::convert::premultiply;
 use crate::decode::{
     Alpha, Description, Layout, Medium, Payload, Reply, ReplyFile, ReplySource, Request,
 };
-use crate::handler::{Context, Handler, Intro, Limits, Margins, ReplyKind, SixelState, Switches};
+use crate::handler::{
+    Colors, Context, Handler, Intro, Limits, Margins, ReplyKind, SixelState, Switches,
+};
 use crate::image::LineKey;
 use crate::store::{Edit, Rows, Screens, Store};
 
@@ -46,6 +49,30 @@ struct Host {
     /// The rows of each index the handler asked for, which the real screen
     /// would scroll by past the bottom margin.
     indexed: Vec<usize>,
+    /// The terminal's colors, [`palette`] unless a test changes them.
+    colors: Option<Colors>,
+}
+
+/// A palette whose every color differs from the others: color `i` of the
+/// table is `i`, `255 - i`, `i ^ 0x5a`, and none of the selection's and the
+/// cursor's colors is set.
+fn palette() -> Colors {
+    Colors {
+        table: core::array::from_fn(|i| {
+            let i = u8::try_from(i).unwrap();
+            [i, 255 - i, i ^ 0x5a]
+        }),
+        fg: [0xf0, 0xf1, 0xf2],
+        bg: [0x10, 0x11, 0x12],
+        selection_bg: None,
+        selection_fg: None,
+        cursor: None,
+    }
+}
+
+/// The store's opaque pixel of `rgb`.
+fn opaque([r, g, b]: [u8; 3]) -> u32 {
+    0xff00_0000 | u32::from(r) << 16 | u32::from(g) << 8 | u32::from(b)
 }
 
 impl Host {
@@ -67,7 +94,19 @@ impl Host {
             limits: Limits::default(),
             work: 0,
             indexed: Vec::new(),
+            colors: Some(palette()),
         }
+    }
+
+    /// The pixels of the picture drawn on top, the placement a frame draws
+    /// last.
+    fn top_pixels(&self) -> Vec<u32> {
+        let view = Rows {
+            screen: &self.screen,
+            above: &self.above,
+        };
+        let frame = self.store.frame(view, self.cols);
+        frame.last().unwrap().pixels.as_slice().to_vec()
     }
 
     /// The replies so far, as text, taken.
@@ -212,6 +251,10 @@ impl Context for Host {
     fn add_work(&mut self, work: u64) {
         self.work = self.work.saturating_add(work);
     }
+
+    fn colors(&self) -> Option<Colors> {
+        self.colors.clone()
+    }
 }
 
 /// Feeds one APC `G` string's data, the bytes after its `G`, in `pieces`,
@@ -333,7 +376,7 @@ fn a_query_without_an_id_reads_nothing_and_is_never_answered() {
     send(&mut k, &mut h, "a=q,s=2,v=1,f=24,i=4;AAAA");
     assert_eq!(
         h.take(),
-        "\x1b_Gi=3;OK\x1b\\\x1b_Gi=4;EINVAL:invalid argument\x1b\\"
+        "\x1b_Gi=3;OK\x1b\\\x1b_Gi=4;ENODATA:Insufficient image data\x1b\\"
     );
     assert!(h.store.is_empty(), "a query stores nothing");
 }
@@ -344,9 +387,9 @@ fn keys_that_cannot_be_read_and_keys_the_spec_lacks() {
     let px = red(1);
     // unknown keys, the feature query's e among them, are ignored
     send(&mut k, &mut h, &format!("a=t,s=1,v=1,i=1,e=T,K=9,,;{px}"));
-    // a format past 24, 32 and 100, such as 8 or 16, is refused
-    send(&mut k, &mut h, &format!("a=t,f=8,s=1,v=1,i=2;{px}"));
-    send(&mut k, &mut h, &format!("a=t,f=16,s=1,v=1,i=3;{px}"));
+    // a format other than 8, 16, 24, 32 and 100 is refused
+    send(&mut k, &mut h, &format!("a=t,f=9,s=1,v=1,i=2;{px}"));
+    send(&mut k, &mut h, &format!("a=t,f=64,s=1,v=1,i=3;{px}"));
     // a value past 32 bits, a letter key of two letters, a key with no value
     send(&mut k, &mut h, &format!("a=t,s=4294967296,v=1,i=4;{px}"));
     send(&mut k, &mut h, &format!("a=tt,s=1,v=1,i=5;{px}"));
@@ -384,16 +427,238 @@ fn a_key_section_past_1_kib_ignores_the_whole_string() {
 }
 
 #[test]
-fn raw_data_short_of_its_pixels_is_refused_and_data_past_them_ignored() {
+fn raw_data_short_of_its_pixels_is_enodata_and_data_past_them_ignored() {
     let (mut k, mut h) = (Kitty::default(), Host::new());
     send(&mut k, &mut h, &format!("a=t,s=2,v=1,i=1;{}", red(1)));
     send(&mut k, &mut h, &format!("a=t,s=1,v=1,i=2;{}", red(3)));
     assert_eq!(
         h.take(),
-        "\x1b_Gi=1;EINVAL:invalid argument\x1b\\\x1b_Gi=2;OK\x1b\\"
+        "\x1b_Gi=1;ENODATA:Insufficient image data\x1b\\\x1b_Gi=2;OK\x1b\\"
     );
     assert_eq!(h.store.image_count(), 1);
     assert_eq!(h.store.bytes(), 4 + IMAGE_OVERHEAD);
+}
+
+// covers: image.kitty
+#[test]
+fn raw_data_short_of_its_picture_is_enodata_in_every_raw_format() {
+    let (mut k, mut h) = (Kitty::default(), Host::new());
+    // each a 2x1 picture one byte short of its pixels, then an a=q the same
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=t,f=8,s=2,v=1,i=1;{}", b64(&[1])),
+    );
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=t,f=16,s=2,v=1,i=2;{}", b64(&[1, 2, 3])),
+    );
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=t,f=24,s=2,v=1,i=3;{}", b64(&[1; 5])),
+    );
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=t,f=32,s=2,v=1,i=4;{}", b64(&[1; 7])),
+    );
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=q,f=8,s=2,v=1,i=5;{}", b64(&[1])),
+    );
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=q,f=16,s=2,v=1,i=6;{}", b64(&[1, 2, 3])),
+    );
+    let short = "ENODATA:Insufficient image data";
+    assert_eq!(
+        h.take(),
+        format!(
+            "\x1b_Gi=1;{short}\x1b\\\x1b_Gi=2;{short}\x1b\\\x1b_Gi=3;{short}\x1b\\\
+             \x1b_Gi=4;{short}\x1b\\\x1b_Gi=5;{short}\x1b\\\x1b_Gi=6;{short}\x1b\\"
+        )
+    );
+    assert!(h.store.is_empty());
+    // the whole pixels are taken, and bytes past them ignored
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=q,f=8,s=2,v=1,i=5;{}", b64(&[1, 2, 3])),
+    );
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=t,f=16,s=2,v=1,i=6;{}", b64(&[1, 2, 3, 4])),
+    );
+    assert_eq!(h.take(), "\x1b_Gi=5;OK\x1b\\\x1b_Gi=6;OK\x1b\\");
+    assert_eq!(h.store.image_count(), 1);
+}
+
+// covers: image.kitty
+#[test]
+fn palette_index_pictures_store_the_colors_their_indices_give() {
+    let p = palette();
+    let (fg, bg) = (p.fg, p.bg);
+    let indices = [0u8, 17, 200, 247, 248, 249, 250, 251, 252, 253, 254, 255];
+    let table = |i: u8| p.table[usize::from(i)];
+    // with no selection or cursor color set, 250 and 252 are the default
+    // foreground and 251 and 253 the default background
+    let unset = [
+        table(0),
+        table(17),
+        table(200),
+        table(247),
+        bg,
+        fg,
+        fg,
+        bg,
+        fg,
+        bg,
+        fg,
+        fg,
+    ];
+    let (mut k, mut h) = (Kitty::default(), Host::new());
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=T,f=8,s=12,v=1,i=1;{}", b64(&indices)),
+    );
+    assert_eq!(h.take(), "\x1b_Gi=1;OK\x1b\\");
+    assert_eq!(h.top_pixels(), unset.map(opaque).to_vec());
+    // with them set, 250 to 252 take them; vtium has no color of its own
+    // for the text under the cursor, so 253 stays the default background
+    let (sel_bg, sel_fg, cursor) = ([1, 2, 3], [4, 5, 6], [7, 8, 9]);
+    let mut set = palette();
+    set.selection_bg = Some(sel_bg);
+    set.selection_fg = Some(sel_fg);
+    set.cursor = Some(cursor);
+    let (mut k, mut h) = (Kitty::default(), Host::new());
+    h.colors = Some(set);
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=T,f=8,s=4,v=1,i=1;{}", b64(&[250, 251, 252, 253])),
+    );
+    assert_eq!(h.take(), "\x1b_Gi=1;OK\x1b\\");
+    assert_eq!(
+        h.top_pixels(),
+        [sel_bg, sel_fg, cursor, bg].map(opaque).to_vec()
+    );
+    // f=16 gives each index an alpha, which premultiplies its color
+    let (mut k, mut h) = (Kitty::default(), Host::new());
+    let data = [17, 0xff, 200, 0x80, 249, 0x01, 248, 0];
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=T,f=16,s=4,v=1,i=1;{}", b64(&data)),
+    );
+    assert_eq!(h.take(), "\x1b_Gi=1;OK\x1b\\");
+    let pm = |[r, g, b]: [u8; 3], a: u8| premultiply(r, g, b, a);
+    assert_eq!(
+        h.top_pixels(),
+        vec![
+            opaque(table(17)),
+            pm(table(200), 0x80),
+            pm(fg, 0x01),
+            pm(bg, 0)
+        ]
+    );
+    assert_ne!(pm(table(200), 0x80), opaque(table(200)));
+    // the query the specification suggests finds the formats taken
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=q,f=8,s=1,v=1,i=9;{}", b64(&[3])),
+    );
+    assert_eq!(h.take(), "\x1b_Gi=9;OK\x1b\\");
+}
+
+// covers: image.kitty
+#[test]
+fn a_palette_change_after_the_first_chunk_leaves_the_picture_as_it_arrived() {
+    let p = palette();
+    let mut other = palette();
+    other.table = core::array::from_fn(|_| [9, 9, 9]);
+    other.fg = [8, 8, 8];
+    let (mut k, mut h) = (Kitty::default(), Host::new());
+    // the colors change between the upload's two chunks
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=T,f=8,s=4,v=1,i=1,m=1;{}", b64(&[1, 2, 3])),
+    );
+    h.colors = Some(other.clone());
+    send(&mut k, &mut h, &format!("m=0;{}", b64(&[4, 5, 6])));
+    assert_eq!(h.take(), "\x1b_Gi=1;OK\x1b\\");
+    let arrived = [1u8, 2, 3, 4]
+        .map(|i| opaque(p.table[usize::from(i)]))
+        .to_vec();
+    assert_eq!(h.top_pixels(), arrived);
+    // and again after it is stored: the stored picture keeps its colors
+    h.colors = Some(palette());
+    assert_eq!(h.top_pixels(), arrived);
+    // a new picture takes the colors in force when it arrives
+    h.colors = Some(other);
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=T,f=8,s=1,v=1,i=2;{}", b64(&[249])),
+    );
+    assert_eq!(h.take(), "\x1b_Gi=2;OK\x1b\\");
+    assert_eq!(h.top_pixels(), vec![opaque([8, 8, 8])]);
+}
+
+// covers: image.kitty
+#[test]
+fn palette_index_pictures_are_refused_where_vtium_cannot_take_them() {
+    let (mut k, mut h) = (Kitty::default(), Host::new());
+    h.helper = true;
+    let px = b64(&[1]);
+    // a frame, which the specification does not support in these formats
+    send(&mut k, &mut h, &format!("a=t,f=32,s=1,v=1,i=1;{}", red(1)));
+    send(&mut k, &mut h, &format!("a=f,f=8,s=1,v=1,i=1;{px}"));
+    // zlib, and a file, which the image helper would read
+    send(&mut k, &mut h, &format!("a=t,f=8,o=z,s=1,v=1,i=2;{px}"));
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=t,t=f,f=16,s=1,v=1,i=3;{}", b64(b"/x")),
+    );
+    // no size, and a size past max-graphic-size
+    send(&mut k, &mut h, &format!("a=t,f=8,i=4;{px}"));
+    h.limits.graphic = (4, 4);
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=t,f=8,s=5,v=1,i=5;{}", b64(&[1; 5])),
+    );
+    let bad = "EINVAL:invalid argument";
+    assert_eq!(
+        h.take(),
+        format!(
+            "\x1b_Gi=1;OK\x1b\\\x1b_Gi=1;{bad}\x1b\\\x1b_Gi=2;{bad}\x1b\\\x1b_Gi=3;{bad}\x1b\\\
+             \x1b_Gi=4;{bad}\x1b\\\x1b_Gi=5;{bad}\x1b\\"
+        )
+    );
+    assert!(h.requests.is_empty(), "nothing goes to the helper");
+    // a host that gives no colors refuses them, the query included
+    h.limits = Limits::default();
+    h.colors = None;
+    send(&mut k, &mut h, &format!("a=t,f=8,s=1,v=1,i=6;{px}"));
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=q,f=16,s=1,v=1,i=7;{}", b64(&[1, 2])),
+    );
+    assert_eq!(
+        h.take(),
+        format!("\x1b_Gi=6;{bad}\x1b\\\x1b_Gi=7;{bad}\x1b\\")
+    );
+    assert_eq!(h.store.image_count(), 1);
 }
 
 // covers: image.kitty
@@ -1238,7 +1503,7 @@ fn a_named_medium_goes_to_the_helper_and_its_answer_is_stored() {
     );
     assert_eq!(h.take(), "\x1b_Gi=1;OK\x1b\\");
     assert_eq!(h.boxes(), vec![(0, 0, 1, 1)]);
-    // a read too short is EBADF; an inflate too short is EINVAL
+    // a read too short is EBADF; raw data inflated too short is ENODATA
     send(
         &mut k,
         &mut h,
@@ -1260,7 +1525,7 @@ fn a_named_medium_goes_to_the_helper_and_its_answer_is_stored() {
     assert_eq!(
         h.take(),
         "\x1b_Gi=2;EBADF:Failed to read image file\x1b\\\
-         \x1b_Gi=3;EINVAL:invalid argument\x1b\\\
+         \x1b_Gi=3;ENODATA:Insufficient image data\x1b\\\
          \x1b_Gi=4;ENOSPC:image storage is full\x1b\\"
     );
 }

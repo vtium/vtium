@@ -86,6 +86,14 @@ pub fn pixel(layout: Layout, alpha: Alpha, bytes: &[u8]) -> u32 {
     }
 }
 
+/// The store's pixel of palette index `index` with straight alpha `a`,
+/// whose color `colors` gives, as kitty's `f=8` and `f=16` send it
+/// (ADR-1100, D15).
+pub fn indexed(colors: &[[u8; 3]; 256], index: u8, a: u8) -> u32 {
+    let [r, g, b] = colors.get(usize::from(index)).copied().unwrap_or([0; 3]);
+    premultiply(r, g, b, a)
+}
+
 /// The R, G, B, A bytes of the store's pixel `px`, as a reply carries it.
 pub fn reply_bytes(px: u32) -> [u8; 4] {
     let [a, r, g, b] = px.to_be_bytes();

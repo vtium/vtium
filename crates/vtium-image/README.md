@@ -114,6 +114,18 @@ These follow the kitty spec where it leaves a choice open. Each stays vtium's re
 - **`d=f` and `d=F` with neither `i` nor `I` delete nothing,** since the spec asks every animation command for one of them (ADR-1102, D5).
 - **The text after ENOPARENT, ECYCLE and ETOODEEP is vtium's own.** The spec names the three codes and no message, so each reply is a fixed message of vtium's: `ENOPARENT:parent placement not found`, `ECYCLE:relative placement would make a cycle` and `ETOODEEP:chain of relative placements is too deep`.
 
+## How kitty's palette formats work
+
+Kitty's `f=8` and `f=16` send each pixel as an index into the terminal's palette, and `f=16` adds an alpha byte after each index (ADR-1100, D15). The kitty handler asks the terminal for its colors through `Context::colors` when the upload's first chunk arrives, resolves all 256 indices to colors once, and turns each pixel into a premultiplied color as its bytes arrive, so the store keeps its one pixel format. vtium-term answers with the palette its frames draw through. A host whose context gives no colors gets both formats refused with EINVAL, and so does the graphics query `a=q` with `f=8`, which programs use to find out whether the terminal takes them. Tests: `palette_index_pictures_store_the_colors_their_indices_give`, `a_palette_change_after_the_first_chunk_leaves_the_picture_as_it_arrived`, `palette_index_pictures_are_refused_where_vtium_cannot_take_them`, and `palette_indices_take_their_tables_colors_in_any_pieces` in `src/decode/raw.rs`.
+
+Raw data that holds fewer bytes than its picture's width and height need is answered `ENODATA:Insufficient image data` in every raw format, as kitty answers it, whether it was sent directly or inflated by the image helper (`raw_data_short_of_its_picture_is_enodata_in_every_raw_format`). The message after the code is vtium's own, since the specification names no error for short data.
+
+## Departures from the kitty spec
+
+- **A palette-index picture keeps the colors it arrived with.** Kitty's specification redraws an `f=8` or `f=16` picture whenever the terminal's colors change. vtium turns the indices into colors once, as the picture arrives, so a later palette change leaves it as it was (the maintainer, 2026-11-06).
+- **`f=8` and `f=16` are taken only sent directly and uncompressed.** From a file, a temporary file or shared memory, or with `o=z`, they answer EINVAL, because the image helper's pixel description has no layout for palette indices.
+- **A picture that arrived as palette indices takes frames.** The specification supports no animation for pictures in these formats. vtium refuses a frame sent as `f=8` or `f=16`, but stores the picture as colors, so frames in the other formats can be added to it.
+
 ## Bounds
 
 The kitty handler's two bounds live in `src/protocol/kitty.rs`, not yet in this table: `KEYS_MAX`, 1024 bytes of control keys, past which the whole string is ignored, and `NAME_MAX`, 4095 bytes of a decoded file or shared-memory name, past which the command answers EBADF. `KEYS_MAX` bounds what the handler holds before it parses a command, and `NAME_MAX` is the image helper's name bound, the kernel's `PATH_MAX` less its terminating NUL.
