@@ -179,14 +179,16 @@ pub struct Client {
 }
 
 impl Client {
-    /// Connects to the holder at `path`, which must run as vtium's user.
+    /// Connects to the holder at `path`, whose socket must have been set
+    /// up by vtium's user: the socket's credentials name the vtium that
+    /// bound it and handed it to the holder.
     pub fn connect(path: &Path) -> io::Result<Client> {
         let conn = seqpacket()?;
         connect(&conn, &SocketAddrUnix::new(path)?)?;
         if !same_user(conn.as_fd()) {
             return Err(io::Error::new(
                 io::ErrorKind::PermissionDenied,
-                format!("{} is held by another user", path.display()),
+                format!("{} was set up by another user", path.display()),
             ));
         }
         Ok(Client { conn })
