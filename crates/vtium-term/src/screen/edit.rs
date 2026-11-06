@@ -221,11 +221,10 @@ impl Screen {
     pub fn erase_above(&mut self, which: Erase) {
         let y = self.cursor_y;
         let whole = self.erase_region((0, 0), (self.cursor_x, y), which);
-        let whole: Vec<usize> = whole.into_iter().filter(|&row| row != y).collect();
         // The rows cleared whole take the current paragraph values.
         #[cfg(feature = "bidi")]
-        self.give_current(whole.iter().copied());
-        self.unwrap_rows(whole);
+        self.give_current(whole.iter().copied().filter(|&row| row != y));
+        self.unwrap_rows(whole.into_iter().filter(|&row| row != y));
     }
 
     /// ED 0: from the cursor to the end of the screen.
