@@ -1655,6 +1655,32 @@ fn a_larger_display_draws_a_larger_font_on_the_same_grid() {
     assert_eq!(h.app.cells(), [(8, 16), (16, 32)]);
 }
 
+// ADR-1302 D13: `font-line-spacing` makes each row taller by a whole
+// percentage of the text's height, so the grid has fewer rows, and a zoom
+// keeps the spacing at the new height
+#[test]
+fn line_spacing_makes_rows_taller_and_the_grid_shorter() {
+    let mut h = Harness::new(&[
+        "--font-size=16",
+        "--font-line-spacing=25",
+        "--login",
+        "--",
+        "/bin/sh",
+        "-c",
+        "read x",
+    ]);
+    // 320x160 holds 40x8 cells of 8x20: 16 rows of text and 4 added
+    assert_eq!(h.app.cells(), [(8, 20)]);
+    assert_eq!(h.app.grid(), (40, 8));
+    h.app.input_event(key(Mods::CTRL, 0x3d), h.at());
+    assert_eq!(
+        h.app.cells(),
+        [(16, 40)],
+        "zoomed in to 32 rows of text and 8 added"
+    );
+    assert_eq!(h.app.grid(), (20, 4));
+}
+
 #[test]
 fn zoom_and_rotate_change_the_grid() {
     let mut h = Harness::new(&["--font-size=16", "--login", "--", "/bin/sh", "-c", "read x"]);
@@ -5866,7 +5892,7 @@ fn recording(name: &str) -> (Scratch, Sources) {
 /// rest of the request.
 fn first_request(bytes: &[u8]) -> Option<(String, String, &[u8])> {
     let u32_at = |b: &[u8]| Some(u32::from_le_bytes(b.get(..4)?.try_into().ok()?) as usize);
-    let rest = bytes.strip_prefix(b"VTVSREQ4")?.get(4..)?;
+    let rest = bytes.strip_prefix(b"VTVSREQ5")?.get(4..)?;
     let n = u32_at(rest)?;
     let name = String::from_utf8(rest.get(4..4 + n)?.to_vec()).ok()?;
     let rest = rest.get(4 + n..)?;
@@ -5919,6 +5945,42 @@ fn a_kbd_name_no_frit_bears_is_generated_as_a_one_source_frit() {
     assert_eq!(
         recorded(&mut h, &fonts, 1),
         [pair("ter-v16n", "source=kbd:ter-v16n\n")]
+    );
+}
+
+// ADR-1302 D13: a frit drawn with line spacing is asked for its glyphs at
+// the taller cell, with the rows the spacing adds above and below the text
+// band, so the helper draws them in the text band and places them
+#[test]
+fn a_spaced_cell_is_asked_for_with_its_band() {
+    let (_dir, fonts) = recording("spaced");
+    let mut h = Harness::fonts(
+        &[
+            "--font-name=ter-v16n",
+            "--font-size=16",
+            "--font-line-spacing=25",
+            "--login",
+            "--",
+            "/bin/sh",
+            "-c",
+            "printf A; read x",
+        ],
+        Memory::default(),
+        fonts.clone(),
+    );
+    // the cell, 8x20, then 2 rows above and 2 below the text band
+    let cell: Vec<u8> = [8u32, 20, 2, 2]
+        .iter()
+        .flat_map(|w| w.to_le_bytes())
+        .collect();
+    let asked = |h: &mut Harness| {
+        requests(h, &fonts, 1)
+            .iter()
+            .any(|b| first_request(b).is_some_and(|(_, _, rest)| rest.starts_with(&cell)))
+    };
+    assert!(
+        h.eventually(BOUND, asked),
+        "the glyphs are asked for at 8x20 with its band"
     );
 }
 
@@ -6530,11 +6592,17 @@ fn the_kernels_font_is_handed_to_the_helper() {
             .map(|w| u32::from_le_bytes(w.try_into().expect("a word")))
             .collect()
     };
-    // the cell, the style, regular, the reserved capabilities, then the
-    // codepoints, the clusters and the held ranges, each counted
-    assert_eq!(words(&rest[8..], 2), [0, 0], "regular, and no capabilities");
-    let codepoints = words(&rest[16..], 1)[0] as usize;
-    let mut rest = &rest[20 + 4 * codepoints..];
+    // the cell, the rows line spacing adds, the style, regular, the
+    // reserved capabilities, then the codepoints, the clusters and the
+    // held ranges, each counted
+    assert_eq!(words(&rest[8..], 2), [0, 0], "no line spacing");
+    assert_eq!(
+        words(&rest[16..], 2),
+        [0, 0],
+        "regular, and no capabilities"
+    );
+    let codepoints = words(&rest[24..], 1)[0] as usize;
+    let mut rest = &rest[28 + 4 * codepoints..];
     let clusters = words(rest, 1)[0] as usize;
     rest = &rest[4..];
     for _ in 0..clusters {

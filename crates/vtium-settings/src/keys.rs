@@ -1494,7 +1494,7 @@ pub const FONT_LINE_SPACING: Key = Key {
     reader: "vtium-font",
     what: "Extra space between lines of text. It overrides a font set's `line-spacing=` line.\n\n\
            The value is a whole percentage of the text height, rounded to whole pixels and split evenly above and below each line, so the console has fewer lines. It does not change a font set's own `cell=` size, but it applies when `font-size` overrides that size: the character cell grows by the spacing. When unset, the font set's `line-spacing=` decides, and 0 where it has none.\n\n\
-           This key has no effect yet.",
+           Letters keep their size in the middle of the taller line, and line and block characters stretch to fill it. A font set's `fit=` lines choose this for each set of characters.",
     cite: "ADR-1302 D13; ADR-1200 D1",
 };
 
@@ -2228,7 +2228,7 @@ pub const SECTIONS: [Section; 10] = [
 /// The keys vtium takes and does not act on yet, which the crate
 /// README's "Not yet built" lists; `check::semantics` warns when one is
 /// set.
-pub const NOT_BUILT: [&Key; 2] = [&FONT_HINTING, &FONT_LINE_SPACING];
+pub const NOT_BUILT: [&Key; 1] = [&FONT_HINTING];
 
 /// The keys a section of `level` may set, in the table's order.
 pub fn at(level: Level) -> impl Iterator<Item = &'static Key> {

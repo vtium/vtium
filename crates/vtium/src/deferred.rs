@@ -34,6 +34,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use crate::font::DisplayFace;
 
 use vtium_font::set::{PixelFormat, Set, SetBuilder, SetFace, StrikeBuilder, StrikeInfo};
+use vtium_font::spacing::{Band, Fit};
 use vtium_font::sprite::Range;
 use vtium_font::{
     Cell, Decorations, Face, Format, Glyph, RangeCoverage, SpritePolicy, Style, Width,
@@ -760,13 +761,22 @@ impl Generated {
 /// A display's face while the font is a frit: the generated glyph where
 /// the helper sent one, else the built-in font's, in the frit's cell
 /// (#145), a cluster found as the module says. The built-in fonts in a
-/// look's cell draw through it with a store that stays empty. Its cell
-/// never moves when glyphs arrive. A built-in glyph is centred in a larger
-/// cell and cropped to a smaller one, so both kinds come at the cell's size
-/// and the renderer stores them alike.
+/// look's cell, and in a cell made taller by line spacing, draw through it
+/// with a store that stays empty. Its cell never moves when glyphs arrive.
+/// A built-in glyph is centred in a larger cell and cropped to a smaller
+/// one, so both kinds come at the cell's size and the renderer stores them
+/// alike.
+///
+/// Where line spacing adds rows above and below the text band (ADR-1302
+/// D13), the helper sends glyphs already placed in the whole cell, and a
+/// built-in glyph is fitted to the text band and placed in the whole cell
+/// by its default fit ([`Fit::default_for`]): a line or block character
+/// stretches, by repeating its top and bottom rows, and the rest keeps its
+/// size with blank rows above and below.
 pub struct DeferredFace {
     builtin: DisplayFace,
     cell: Cell,
+    band: Band,
     step: u32,
     generated: Shared,
 }
@@ -774,11 +784,36 @@ pub struct DeferredFace {
 impl DeferredFace {
     /// `builtin` drawing in `cell`, which a zoom moves by `step`.
     pub fn new(builtin: DisplayFace, cell: Cell, step: u32, generated: Shared) -> DeferredFace {
+        DeferredFace::spaced(builtin, cell, Band::NONE, step, generated)
+    }
+
+    /// `builtin` drawing in `text`, the text band of a cell that line
+    /// spacing makes taller by `band` (ADR-1302 D13), which a zoom moves
+    /// by `step`.
+    pub fn spaced(
+        builtin: DisplayFace,
+        text: Cell,
+        band: Band,
+        step: u32,
+        generated: Shared,
+    ) -> DeferredFace {
         DeferredFace {
             builtin,
-            cell,
+            cell: Cell {
+                width: text.width,
+                height: text.height.saturating_add(band.added()),
+            },
+            band,
             step,
             generated,
+        }
+    }
+
+    /// The cell's text band, the cell less the rows line spacing adds.
+    fn text(&self) -> Cell {
+        Cell {
+            width: self.cell.width,
+            height: self.cell.height.saturating_sub(self.band.added()),
         }
     }
 
@@ -790,7 +825,8 @@ impl DeferredFace {
     /// font's in the cell, which draws the style itself.
     fn single(&self, c: char, style: Style) -> Option<Glyph> {
         let held = lock(&self.generated).draw(self.cell, &[c], style);
-        held.or_else(|| self.fit(self.builtin.draw(&[c], style)?))
+        let fit = Fit::default_for(u32::from(c), is_mark(c));
+        held.or_else(|| self.fit(self.builtin.draw(&[c], style)?, fit))
     }
 
     /// A cluster the store does not hold drawn without its own glyph
@@ -846,12 +882,21 @@ impl DeferredFace {
         beside(letter, &stand)
     }
 
-    /// The built-in's `glyph` at the cell's size: centred, padded or
+    /// The built-in's `glyph` at the cell's size: centred in the text
+    /// band, padded or cropped, the spare row or column after it, and then
+    /// placed in the whole cell as `fit` says (ADR-1302 D13).
+    fn fit(&self, glyph: Glyph, fit: Fit) -> Option<Glyph> {
+        let boxed = self.boxed(glyph)?;
+        vtium_font::spacing::place(&boxed, self.band, fit, true)
+    }
+
+    /// The built-in's `glyph` at the text band's size: centred, padded or
     /// cropped, the spare row or column after it.
-    fn fit(&self, glyph: Glyph) -> Option<Glyph> {
+    fn boxed(&self, glyph: Glyph) -> Option<Glyph> {
         let cells = glyph.cells();
-        let width = self.cell.width.checked_mul(cells.cells())?;
-        let height = self.cell.height;
+        let text = self.text();
+        let width = text.width.checked_mul(cells.cells())?;
+        let height = text.height;
         if (glyph.width(), glyph.height()) == (width, height) {
             return Some(glyph);
         }
@@ -924,7 +969,11 @@ impl Face for DeferredFace {
     }
 
     fn last_resort(&self, style: Style) -> Option<Glyph> {
-        self.fit(self.builtin.last_resort(style)?)
+        self.fit(self.builtin.last_resort(style)?, Fit::Natural)
+    }
+
+    fn band(&self) -> Band {
+        self.band
     }
 
     /// The lines the helper's strikes at the cell report, once a set there
@@ -934,15 +983,23 @@ impl Face for DeferredFace {
     /// the cell inside it, and the set reader refuses a strike whose line
     /// passes its cell, so a line held here always lies in the cell's rows.
     /// Before any set at the cell is held: the built-in font's in its own
-    /// cell, and in another the lines for the cell's height.
+    /// cell, and in another the lines for the cell's height. Line spacing
+    /// moves the built-in font's lines down with its text band (ADR-1302
+    /// D13); the helper's strikes report them moved already.
     fn decorations(&self) -> Decorations {
         if let Some(lines) = lock(&self.generated).decorations(self.cell) {
             return lines;
         }
-        if self.builtin.cell() == self.cell {
+        let text = self.text();
+        let lines = if self.builtin.cell() == text {
             self.builtin.decorations()
         } else {
-            Decorations::for_height(self.cell.height)
+            Decorations::for_height(text.height)
+        };
+        Decorations {
+            underline: lines.underline.saturating_add(self.band.above),
+            strike: lines.strike.saturating_add(self.band.above),
+            ..lines
         }
     }
 }

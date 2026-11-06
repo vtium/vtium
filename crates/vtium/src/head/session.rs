@@ -358,13 +358,20 @@ impl Head {
 
     /// Takes the font size the head's configuration `config` configures,
     /// read again at a session's end (ADR-1201 D11), for the consoles that
-    /// open and the sessions that end from now on. `config` is the one
+    /// open and the sessions that end from now on, and its line spacing,
+    /// which changes the cell, so the font is drawn again (ADR-1302 D13). `config` is the one
     /// [`Config::for_head`] gives, so the head's look's `font-size` still
     /// wins over the top level's.
     pub(crate) fn reconfigure(&mut self, config: &Config) {
         let (points, auto_size, sized) = crate::head::configured_size(config);
         self.configured = (points, auto_size);
         self.sized = sized;
+        let spacing = config.font_line_spacing().map(u32::from);
+        if spacing != self.line_spacing {
+            // ADR-1302 D13: the cell changes with the spacing
+            self.line_spacing = spacing;
+            self.refont = true;
+        }
     }
 
     /// Console `id` draws at the configured size from now on: the shown

@@ -84,6 +84,7 @@ use rustix::process::{
     pidfd_send_signal, waitid,
 };
 use vtium_font::set::{Set, SetFace};
+use vtium_font::spacing::Band;
 use vtium_font::{Cell, Style};
 use vtium_platform::vt::font::ConsoleFont;
 
@@ -130,7 +131,7 @@ pub const WARNINGS_MAX: usize = 16;
 // The helper starts and reads a PSF well inside it on minspec, and a start that waits longer stalls visibly (the operator, 2026-10-28).
 pub const OWN_CELL_MS: u64 = 100;
 
-const REQUEST_MAGIC: &[u8; 8] = b"VTVSREQ4";
+const REQUEST_MAGIC: &[u8; 8] = b"VTVSREQ5";
 const ASK: u32 = 1;
 const FILL: u32 = 2;
 const STOP: u32 = 3;
@@ -435,14 +436,14 @@ impl FritText {
     }
 }
 
-/// One request's bytes: `kind` at `cell` in `style` for `frit`, naming
-/// `codepoints` and `clusters` (each cut at [`FIRST_MAX`]) and `held`, with
-/// the kernel's font. The display's capabilities are reserved, and sent
-/// empty.
+/// One request's bytes: `kind` at `cell`, whose line spacing adds `band`
+/// (ADR-1302 D13), in `style` for `frit`, naming `codepoints` and
+/// `clusters` (each cut at [`FIRST_MAX`]) and `held`, with the kernel's
+/// font. The display's capabilities are reserved, and sent empty.
 fn encode(
     frit: &FritText,
     console: Option<&ConsoleFont>,
-    (kind, cell, style): (u32, Cell, Style),
+    (kind, cell, band, style): (u32, Cell, Band, Style),
     (codepoints, clusters): (&[u32], &[Text]),
     held: &[(u32, u32)],
 ) -> Vec<u8> {
@@ -454,6 +455,8 @@ fn encode(
     }
     put32(&mut out, cell.width);
     put32(&mut out, cell.height);
+    put32(&mut out, band.above);
+    put32(&mut out, band.below);
     put32(
         &mut out,
         u32::from(style.bold) | u32::from(style.italic) << 1,
@@ -839,6 +842,9 @@ struct Clusters {
 /// other style's.
 struct CellState {
     cell: Cell,
+    /// The rows line spacing adds to the cell (ADR-1302 D13), which the
+    /// helper is told with each ask and fill at it.
+    band: Band,
     style: Style,
     held: Bits,
     absent: Bits,
@@ -878,6 +884,7 @@ impl CellState {
     fn new(cell: Cell, style: Style) -> CellState {
         CellState {
             cell,
+            band: Band::NONE,
             style,
             held: Bits::new(),
             absent: Bits::new(),
@@ -1022,14 +1029,16 @@ impl Helper {
     }
 
     /// Fills `cell`'s coverage of regular glyphs, `first` first, while
-    /// nothing is asked; bold and italic come by ask alone.
-    pub fn fill(&mut self, cell: Cell, first: &[char], now: Instant) {
+    /// nothing is asked; bold and italic come by ask alone. Line spacing
+    /// adds `band` to the cell (ADR-1302 D13).
+    pub fn fill(&mut self, cell: Cell, band: Band, first: &[char], now: Instant) {
         if self.failed.is_some() {
             return;
         }
         let Some(state) = self.state(cell, Style::default()) else {
             return;
         };
+        state.band = band;
         state.fill = Fill::Active;
         state.brought = Bits::new();
         state.first = first.iter().map(|&c| u32::from(c)).collect();
@@ -1050,8 +1059,9 @@ impl Helper {
     /// [`CLUSTERS_WAITING_MAX`] clusters waiting at the cell, and nothing
     /// while [`ASKS_MAX`] asks wait; what is left is asked for on a later
     /// change. A cluster longer than [`vtium_font::CLUSTER_SCALARS_MAX`]
-    /// is never asked for. A cluster not asked for draws unshaped.
-    pub fn ask(&mut self, cell: Cell, shown: &Shown, now: Instant) {
+    /// is never asked for. A cluster not asked for draws unshaped. Line
+    /// spacing adds `band` to the cell (ADR-1302 D13).
+    pub fn ask(&mut self, cell: Cell, band: Band, shown: &Shown, now: Instant) {
         if self.failed.is_some() || self.asks.len() >= ASKS_MAX {
             return;
         }
@@ -1059,6 +1069,7 @@ impl Helper {
         let Some(state) = self.state(cell, style) else {
             return;
         };
+        state.band = band;
         let mut want = BTreeSet::new();
         for c in shown.chars.iter().map(|&c| u32::from(c)) {
             if want.len() >= FIRST_MAX {
@@ -1230,7 +1241,9 @@ impl Helper {
     }
 
     /// Sends one request of `kind` at `cell` in `style`, starting the
-    /// helper first when it is not running.
+    /// helper first when it is not running. An ask or a fill names the
+    /// rows line spacing adds to the cell, as the console last told them
+    /// for the cell; a stop and a query name none.
     fn send(
         &mut self,
         what: (u32, Cell, Style),
@@ -1244,7 +1257,22 @@ impl Helper {
                 Err(why) => return self.fail(&why),
             }
         }
-        let bytes = encode(&self.frit, self.console.as_ref(), what, named, held);
+        let (kind, cell, style) = what;
+        let band = match kind {
+            ASK | FILL => self
+                .cells
+                .iter()
+                .find(|c| c.cell == cell)
+                .map_or(Band::NONE, |c| c.band),
+            _ => Band::NONE,
+        };
+        let bytes = encode(
+            &self.frit,
+            self.console.as_ref(),
+            (kind, cell, band, style),
+            named,
+            held,
+        );
         if let Some(r) = &self.running {
             // a send fails only once the writer is gone, which the reader
             // reports as the helper closing
@@ -1999,20 +2027,22 @@ mod tests {
         let bytes = encode(
             &frit("x=y\n"),
             None,
-            (ASK, CELL, both),
+            (ASK, CELL, Band { above: 2, below: 1 }, both),
             (&[0x41], &[vec!['e', '\u{301}']]),
             &[(0x42, 0x43)],
         );
-        let mut want = b"VTVSREQ4".to_vec();
+        let mut want = b"VTVSREQ5".to_vec();
         want.extend_from_slice(&ASK.to_le_bytes());
         want.extend_from_slice(&1u32.to_le_bytes());
         want.extend_from_slice(b"t");
         want.extend_from_slice(&4u32.to_le_bytes());
         want.extend_from_slice(b"x=y\n");
-        // the cell, the style, bold 1 and italic 2, the reserved
-        // capabilities, the codepoint, the cluster of two, the held range,
-        // no console font
-        for v in [8u32, 16, 3, 0, 1, 0x41, 1, 2, 0x65, 0x301, 1, 0x42, 0x43, 0] {
+        // the cell, the rows line spacing adds above and below it, the
+        // style, bold 1 and italic 2, the reserved capabilities, the
+        // codepoint, the cluster of two, the held range, no console font
+        for v in [
+            8u32, 16, 2, 1, 3, 0, 1, 0x41, 1, 2, 0x65, 0x301, 1, 0x42, 0x43, 0,
+        ] {
             want.extend_from_slice(&v.to_le_bytes());
         }
         assert_eq!(bytes, want);
@@ -2045,7 +2075,7 @@ mod tests {
         let ask = encode(
             &frit("source=builtin:unscii-8\n"),
             None,
-            (ASK, CELL, ITALIC),
+            (ASK, CELL, Band::NONE, ITALIC),
             (&[0x41], &[]),
             &[],
         );
@@ -2062,7 +2092,7 @@ mod tests {
             chars: vec!['A'],
             clusters: Vec::new(),
         };
-        s.helper.ask(CELL, &italic, now);
+        s.helper.ask(CELL, Band::NONE, &italic, now);
         let answers = s.run(now);
         assert_eq!(s.helper.failed(), None);
         assert_eq!(answers.len(), 1);
@@ -2076,9 +2106,9 @@ mod tests {
         assert!(held(ITALIC), "held as italic");
         assert!(!held(Style::default()), "and not as regular");
         // asked again in italic, it is held; in regular, it is not
-        s.helper.ask(CELL, &italic, now);
+        s.helper.ask(CELL, Band::NONE, &italic, now);
         assert!(!s.helper.busy());
-        s.helper.ask(CELL, &shown(&['A']), now);
+        s.helper.ask(CELL, Band::NONE, &shown(&['A']), now);
         assert!(s.helper.busy());
     }
 
@@ -2093,7 +2123,7 @@ mod tests {
         let one = encode(
             &frit("source=builtin:unscii-8\n"),
             None,
-            (ASK, CELL, ITALIC),
+            (ASK, CELL, Band::NONE, ITALIC),
             (&[0x41], &[]),
             &[],
         )
@@ -2113,9 +2143,9 @@ mod tests {
             chars: vec!['A'],
             clusters: Vec::new(),
         };
-        s.helper.ask(CELL, &italic, now);
+        s.helper.ask(CELL, Band::NONE, &italic, now);
         assert_eq!(s.run(now).len(), 1);
-        s.helper.ask(CELL, &shown(&['B']), now);
+        s.helper.ask(CELL, Band::NONE, &shown(&['B']), now);
         assert_eq!(s.run(now).len(), 1);
         assert_eq!(s.helper.failed(), None);
         let held = |s: &StandIn, style, c: char| {
@@ -2126,7 +2156,7 @@ mod tests {
         };
         assert!(held(&s, Style::default(), 'B'));
         assert!(!held(&s, ITALIC, 'A'), "italic A left the store");
-        s.helper.ask(CELL, &italic, now);
+        s.helper.ask(CELL, Band::NONE, &italic, now);
         assert!(s.helper.busy(), "and is asked for again");
     }
 
@@ -2158,14 +2188,14 @@ mod tests {
             let mut s = StandIn::new(name, ANSWERS, &frame_bytes(kind, &set));
             let now = t0();
             if fill {
-                s.helper.fill(CELL, &[], now);
+                s.helper.fill(CELL, Band::NONE, &[], now);
             } else {
                 let ask = Shown {
                     style,
                     chars: vec!['A'],
                     clusters: Vec::new(),
                 };
-                s.helper.ask(CELL, &ask, now);
+                s.helper.ask(CELL, Band::NONE, &ask, now);
             }
             assert!(s.run(now).is_empty(), "{name}");
             let why = s.helper.failed().unwrap_or_default();
@@ -2198,7 +2228,7 @@ mod tests {
         fixture.extend(frame_bytes(FRAME_DONE, &[]));
         let mut s = StandIn::new("ask", ANSWERS, &fixture);
         let now = t0();
-        s.helper.ask(CELL, &shown(&['A', 'B']), now);
+        s.helper.ask(CELL, Band::NONE, &shown(&['A', 'B']), now);
         let answers = s.run(now);
         assert_eq!(s.helper.failed(), None);
         assert_eq!(answers.len(), 1);
@@ -2206,7 +2236,7 @@ mod tests {
         assert!(answers[0].face.has_glyph('A'));
         assert!(s.held('A'));
         // A is held and B is known lacking: nothing more is asked
-        s.helper.ask(CELL, &shown(&['A', 'B']), now);
+        s.helper.ask(CELL, Band::NONE, &shown(&['A', 'B']), now);
         assert!(!s.helper.busy());
     }
 
@@ -2252,7 +2282,7 @@ mod tests {
             chars: Vec::new(),
             clusters: vec![ACUTE.to_vec(), GRAVE.to_vec()],
         };
-        s.helper.ask(CELL, &only_clusters, now);
+        s.helper.ask(CELL, Band::NONE, &only_clusters, now);
         let answers = s.run(now);
         assert_eq!(s.helper.failed(), None);
         assert_eq!(answers.len(), 1);
@@ -2276,7 +2306,7 @@ mod tests {
                 .is_none(),
             "the store holds it by its text"
         );
-        s.helper.ask(CELL, &only_clusters, now);
+        s.helper.ask(CELL, Band::NONE, &only_clusters, now);
         assert!(!s.helper.busy());
     }
 
@@ -2288,7 +2318,8 @@ mod tests {
         fixture.extend(frame_bytes(FRAME_DONE, &[]));
         let mut s = StandIn::new("decomposed", ANSWERS, &fixture);
         let now = t0();
-        s.helper.ask(CELL, &shown(&['\u{e9}', 'A']), now);
+        s.helper
+            .ask(CELL, Band::NONE, &shown(&['\u{e9}', 'A']), now);
         let answers = s.run(now);
         assert_eq!(s.helper.failed(), None);
         assert_eq!(answers.len(), 1);
@@ -2305,7 +2336,7 @@ mod tests {
             &frame_bytes(FRAME_GLYPHS, &cluster_set(CELL, &[&GRAVE])),
         );
         let now = t0();
-        s.helper.ask(CELL, &clustered(&[&ACUTE]), now);
+        s.helper.ask(CELL, Band::NONE, &clustered(&[&ACUTE]), now);
         let _ = s.run(now);
         let why = s.helper.failed().unwrap();
         assert!(why.contains("cluster the ask did not name"), "{why}");
@@ -2333,7 +2364,7 @@ mod tests {
         fixture.extend(frame_bytes(FRAME_DONE, &[]));
         let mut s = StandIn::new("warnings", ANSWERS, &fixture);
         let now = t0();
-        s.helper.ask(CELL, &shown(&['A']), now);
+        s.helper.ask(CELL, Band::NONE, &shown(&['A']), now);
         let _ = s.run(now);
         assert_eq!(s.helper.failed(), None);
         assert_eq!(s.helper.warned.len(), WARNINGS_MAX);
@@ -2356,7 +2387,7 @@ mod tests {
         }
         let mut s = StandIn::new("warn-only", ANSWERS, &fixture);
         let now = t0();
-        s.helper.ask(CELL, &shown(&['A']), now);
+        s.helper.ask(CELL, Band::NONE, &shown(&['A']), now);
         for _ in 0..3 {
             s.woke.recv_timeout(Duration::from_secs(10)).unwrap();
         }
@@ -2395,7 +2426,7 @@ mod tests {
             chars: Vec::new(),
             clusters: vec![long, vec!['e']],
         };
-        helper.ask(CELL, &shown, t0());
+        helper.ask(CELL, Band::NONE, &shown, t0());
         assert!(helper.asks.is_empty());
         assert_eq!(helper.failed(), None);
     }
@@ -2420,7 +2451,7 @@ mod tests {
                 chars: Vec::new(),
                 clusters: (0..10).map(|j| cluster(i, j)).collect(),
             };
-            s.helper.ask(CELL, &shown, now);
+            s.helper.ask(CELL, Band::NONE, &shown, now);
             assert!(s.helper.asks.len() <= ASKS_MAX);
         }
         assert_eq!(s.helper.asks.len(), ASKS_MAX);
@@ -2442,9 +2473,9 @@ mod tests {
             chars: Vec::new(),
             clusters: (0..5000).map(|i| cluster(i / 10, i % 10)).collect(),
         };
-        t.helper.ask(other, &shown, now);
+        t.helper.ask(other, Band::NONE, &shown, now);
         assert_eq!(waiting(&t.helper, other), CLUSTERS_WAITING_MAX);
-        t.helper.ask(other, &shown, now);
+        t.helper.ask(other, Band::NONE, &shown, now);
         assert_eq!(t.helper.asks.len(), 1, "nothing more fits");
     }
 
@@ -2458,7 +2489,7 @@ mod tests {
         let chars: Vec<char> = (0..n)
             .map(|i| char::from_u32(0x4e00 + i).unwrap())
             .collect();
-        s.helper.ask(CELL, &shown(&chars), now);
+        s.helper.ask(CELL, Band::NONE, &shown(&chars), now);
         let _ = s.run(now);
         assert_eq!(s.helper.failed(), None);
         let state = s.helper.cells.iter().find(|c| c.cell == CELL).unwrap();
@@ -2485,7 +2516,7 @@ mod tests {
             }
             assert_eq!(state.clusters.absent.len(), CLUSTERS_LACKED_MAX);
         }
-        s.helper.ask(CELL, &clustered(&[&ACUTE]), now);
+        s.helper.ask(CELL, Band::NONE, &clustered(&[&ACUTE]), now);
         let _ = s.run(now);
         assert_eq!(s.helper.failed(), None);
         let state = s.helper.cells.iter().find(|c| c.cell == CELL).unwrap();
@@ -2502,7 +2533,7 @@ mod tests {
         fixture.extend(filled(CELL));
         let mut s = StandIn::new("fill", ANSWERS, &fixture);
         let now = t0();
-        s.helper.fill(CELL, &[], now);
+        s.helper.fill(CELL, Band::NONE, &[], now);
         assert_eq!(s.run(now).len(), 2);
         assert_eq!(s.helper.failed(), None);
         assert!(s.held('A') && s.held('B'));
@@ -2515,7 +2546,7 @@ mod tests {
         fixture.extend(frame_bytes(FRAME_DONE, &[]));
         let mut s = StandIn::new("idle", "head -c 1 >/dev/null; cat \"$1\"", &fixture);
         let now = t0();
-        s.helper.ask(CELL, &shown(&['A']), now);
+        s.helper.ask(CELL, Band::NONE, &shown(&['A']), now);
         assert_eq!(s.run(now).len(), 1);
         s.until_gone(now);
         assert_eq!(s.helper.failed(), None);
@@ -2524,7 +2555,7 @@ mod tests {
         // no helper running, the drop starts none
         s.helper.retain(&[], now);
         assert!(s.helper.running.is_none());
-        s.helper.ask(CELL, &shown(&['A']), now);
+        s.helper.ask(CELL, Band::NONE, &shown(&['A']), now);
         assert_eq!(s.run(now).len(), 1);
         assert_eq!(s.helper.failed(), None);
     }
@@ -2541,7 +2572,7 @@ mod tests {
             &fixture,
         );
         let now = t0();
-        s.helper.ask(CELL, &shown(&['A']), now);
+        s.helper.ask(CELL, Band::NONE, &shown(&['A']), now);
         assert_eq!(s.run(now).len(), 1);
         s.until_gone(now);
         assert_eq!(s.helper.failed(), None);
@@ -2552,14 +2583,14 @@ mod tests {
         let mut s = StandIn::new(name, script, fixture);
         let now = t0();
         if fill {
-            s.helper.fill(CELL, &[], now);
+            s.helper.fill(CELL, Band::NONE, &[], now);
         } else {
-            s.helper.ask(CELL, &shown(&['A']), now);
+            s.helper.ask(CELL, Band::NONE, &shown(&['A']), now);
         }
         let _ = s.run(now);
         let why = s.helper.failed().unwrap().to_owned();
         // given up: nothing more is asked
-        s.helper.ask(CELL, &shown(&['Z']), now);
+        s.helper.ask(CELL, Band::NONE, &shown(&['Z']), now);
         assert!(!s.helper.busy());
         (why, s.helper.restarts)
     }
@@ -2631,7 +2662,7 @@ mod tests {
             Shared::default(),
             64 << 20,
         );
-        helper.ask(CELL, &shown(&['A']), t0());
+        helper.ask(CELL, Band::NONE, &shown(&['A']), t0());
         let why = helper.failed().unwrap();
         assert!(why.contains("supplementary groups"), "{why}");
         assert!(helper.running.is_none());
@@ -2747,8 +2778,8 @@ mod tests {
         fixture.extend(filled(CELL));
         let mut s = StandIn::new("fillafterask", ANSWERS, &fixture);
         let now = t0();
-        s.helper.fill(CELL, &[], now);
-        s.helper.ask(CELL, &shown(&['A']), now);
+        s.helper.fill(CELL, Band::NONE, &[], now);
+        s.helper.ask(CELL, Band::NONE, &shown(&['A']), now);
         let answers = s.run(now);
         assert_eq!(s.helper.failed(), None);
         assert_eq!(answers.len(), 2);
@@ -2771,8 +2802,8 @@ mod tests {
         fixture.extend(filled(CELL));
         let mut s = StandIn::new("askinfill", ANSWERS, &fixture);
         let now = t0();
-        s.helper.fill(CELL, &[], now);
-        s.helper.ask(CELL, &shown(&['A']), now);
+        s.helper.fill(CELL, Band::NONE, &[], now);
+        s.helper.ask(CELL, Band::NONE, &shown(&['A']), now);
         let answers = s.run(now);
         assert_eq!(s.helper.failed(), None);
         assert_eq!(answers.len(), 2);
@@ -2798,8 +2829,8 @@ mod tests {
         fixture.extend(filled(CELL));
         let mut s = StandIn::new("fillbeforeask", ANSWERS, &fixture);
         let now = t0();
-        s.helper.fill(CELL, &[], now);
-        s.helper.ask(CELL, &shown(&['A']), now);
+        s.helper.fill(CELL, Band::NONE, &[], now);
+        s.helper.ask(CELL, Band::NONE, &shown(&['A']), now);
         let answers = s.run(now);
         assert_eq!(s.helper.failed(), None);
         assert_eq!(answers.len(), 1);
@@ -2826,8 +2857,8 @@ mod tests {
         fixture.extend(filled(CELL));
         let mut s = StandIn::limited("fillfits", ANSWERS, &fixture, limit);
         let now = t0();
-        s.helper.fill(CELL, &[], now);
-        s.helper.ask(CELL, &shown(&['A']), now);
+        s.helper.fill(CELL, Band::NONE, &[], now);
+        s.helper.ask(CELL, Band::NONE, &shown(&['A']), now);
         let answers = s.run(now);
         assert_eq!(s.helper.failed(), None);
         assert_eq!(answers.len(), 2);
@@ -2848,8 +2879,8 @@ mod tests {
         fixture.extend(filled(CELL));
         let mut s = StandIn::limited("evictheld", ANSWERS, &fixture, limit);
         let now = t0();
-        s.helper.fill(CELL, &[], now);
-        s.helper.ask(CELL, &shown(&['B', 'C']), now);
+        s.helper.fill(CELL, Band::NONE, &[], now);
+        s.helper.ask(CELL, Band::NONE, &shown(&['B', 'C']), now);
         let answers = s.run(now);
         assert_eq!(s.helper.failed(), None);
         assert_eq!(answers.len(), 2);
@@ -2895,7 +2926,7 @@ mod tests {
         ask.extend(frame_bytes(FRAME_DONE, &[]));
         std::fs::write(s.dir.join("answer.ask"), ask).unwrap();
         let now = t0();
-        s.helper.fill(CELL, &[], now);
+        s.helper.fill(CELL, Band::NONE, &[], now);
         assert_eq!(s.run(now).len(), 1);
         assert_eq!(
             crate::deferred::lock(&s.helper.store).bytes(),
@@ -2903,7 +2934,7 @@ mod tests {
         );
         // the screen shows A and B; C and D are the least recently shown
         crate::deferred::lock(&s.helper.store).touch(CELL, &shown(&['A', 'B']));
-        s.helper.ask(CELL, &shown(&['E']), now);
+        s.helper.ask(CELL, Band::NONE, &shown(&['E']), now);
         let answers = s.run(now);
         assert_eq!(s.helper.failed(), None);
         assert_eq!(answers.len(), 1);
@@ -2918,7 +2949,7 @@ mod tests {
         );
         assert!(crate::deferred::lock(&s.helper.store).bytes() <= limit);
         // C, evicted, is asked for again when the screen shows it
-        s.helper.ask(CELL, &shown(&['C']), now);
+        s.helper.ask(CELL, Band::NONE, &shown(&['C']), now);
         assert!(s.helper.busy());
     }
 
@@ -2931,7 +2962,7 @@ mod tests {
         fixture.extend(stopped(CELL));
         let mut s = StandIn::new("late", ANSWERS, &fixture);
         let now = t0();
-        s.helper.fill(CELL, &[], now);
+        s.helper.fill(CELL, Band::NONE, &[], now);
         s.helper.retain(&[], now);
         // the three frames read, then taken
         for _ in 0..3 {
@@ -2955,9 +2986,9 @@ mod tests {
         fixture.extend(filled(CELL));
         let mut s = StandIn::new("zoomback", ANSWERS, &fixture);
         let now = t0();
-        s.helper.fill(CELL, &[], now);
+        s.helper.fill(CELL, Band::NONE, &[], now);
         s.helper.retain(&[], now);
-        s.helper.fill(CELL, &[], now);
+        s.helper.fill(CELL, Band::NONE, &[], now);
         let answers = s.run(now);
         assert_eq!(s.helper.failed(), None);
         assert_eq!(answers.len(), 1);
@@ -2978,9 +3009,9 @@ mod tests {
         fixture.extend(filled(CELL));
         let mut s = StandIn::new("zoombackend", ANSWERS, &fixture);
         let now = t0();
-        s.helper.fill(CELL, &[], now);
+        s.helper.fill(CELL, Band::NONE, &[], now);
         s.helper.retain(&[], now);
-        s.helper.fill(CELL, &[], now);
+        s.helper.fill(CELL, Band::NONE, &[], now);
         let answers = s.run(now);
         assert_eq!(s.helper.failed(), None);
         assert_eq!(answers.len(), 2);
@@ -3005,7 +3036,7 @@ mod tests {
         encode(
             &frit("source=builtin:unscii-8\n"),
             None,
-            (kind, CELL, Style::default()),
+            (kind, CELL, Band::NONE, Style::default()),
             (&[], &[]),
             &[],
         )
@@ -3030,7 +3061,7 @@ mod tests {
         std::fs::write(s.dir.join("answer.late"), late).unwrap();
         std::fs::write(s.dir.join("answer.stop"), stopped(CELL)).unwrap();
         let now = t0();
-        s.helper.fill(CELL, &[], now);
+        s.helper.fill(CELL, Band::NONE, &[], now);
         // A past the store's limit: dropped, and the fill stopped
         s.woke.recv_timeout(Duration::from_secs(10)).unwrap();
         assert!(s.helper.poll(now).is_empty());
@@ -3058,7 +3089,7 @@ mod tests {
         let mut s = StandIn::new("donestop", &script, &fixture);
         std::fs::write(s.dir.join("answer.taken"), stopped(CELL)).unwrap();
         let now = t0();
-        s.helper.fill(CELL, &[], now);
+        s.helper.fill(CELL, Band::NONE, &[], now);
         assert_eq!(s.run(now).len(), 1);
         assert!(!s.helper.busy());
         s.helper.retain(&[], now);
@@ -3067,7 +3098,7 @@ mod tests {
         let stop = encode(
             &s.helper.frit,
             None,
-            (STOP, CELL, Style::default()),
+            (STOP, CELL, Band::NONE, Style::default()),
             (&[], &[]),
             &[],
         );
@@ -3109,8 +3140,8 @@ mod tests {
         fixture.extend(frame_bytes(FRAME_DONE, &[]));
         let mut s = StandIn::limited("limit", ANSWERS, &fixture, limit);
         let now = t0();
-        s.helper.fill(CELL, &[], now);
-        s.helper.ask(CELL, &shown(&['D']), now);
+        s.helper.fill(CELL, Band::NONE, &[], now);
+        s.helper.ask(CELL, Band::NONE, &shown(&['D']), now);
         let answers = s.run(now);
         assert_eq!(s.helper.failed(), None);
         // the fill took A and stopped; the ask's D evicted A, and the
@@ -3124,7 +3155,7 @@ mod tests {
         assert!(s.helper.stopped.is_empty());
         assert!(!s.helper.busy());
         // A, evicted, is asked for again when the screen shows it
-        s.helper.ask(CELL, &shown(&['A']), now);
+        s.helper.ask(CELL, Band::NONE, &shown(&['A']), now);
         assert!(s.helper.busy());
     }
 
@@ -3138,12 +3169,12 @@ mod tests {
         fixture.extend(frame_bytes(FRAME_DONE, &[]));
         let mut s = StandIn::limited("toolarge", ANSWERS, &fixture, limit);
         let now = t0();
-        s.helper.ask(CELL, &shown(&['A']), now);
+        s.helper.ask(CELL, Band::NONE, &shown(&['A']), now);
         assert!(s.run(now).is_empty());
         assert_eq!(s.helper.failed(), None);
         assert!(!s.held('A'));
         assert!(!s.helper.busy());
-        s.helper.ask(CELL, &shown(&['A']), now);
+        s.helper.ask(CELL, Band::NONE, &shown(&['A']), now);
         assert!(s.helper.busy());
     }
 
@@ -3151,7 +3182,7 @@ mod tests {
     fn a_helper_that_hangs_is_started_again_then_given_up() {
         let mut s = StandIn::new("hangs", "exec sleep 30", b"");
         let mut now = t0();
-        s.helper.ask(CELL, &shown(&['A']), now);
+        s.helper.ask(CELL, Band::NONE, &shown(&['A']), now);
         assert!(s.helper.poll(now).is_empty());
         assert_eq!(
             s.helper.deadline(),
@@ -3175,8 +3206,8 @@ mod tests {
             &frame_bytes(FRAME_FILL, &set(CELL, &['B'])),
         );
         let now = t0();
-        s.helper.fill(CELL, &[], now);
-        s.helper.ask(CELL, &shown(&['A']), now);
+        s.helper.fill(CELL, Band::NONE, &[], now);
+        s.helper.ask(CELL, Band::NONE, &shown(&['A']), now);
         let _ = s.woke.recv_timeout(Duration::from_secs(10));
         let nearly = after(now, Duration::from_millis(REQUEST_MS - 1));
         let late = after(now, Duration::from_millis(REQUEST_MS));
@@ -3200,7 +3231,7 @@ mod tests {
         let now = t0();
         for round in 0..=RESTARTS_MAX {
             s.helper.retain(&[], now);
-            s.helper.ask(CELL, &shown(&['A']), now);
+            s.helper.ask(CELL, Band::NONE, &shown(&['A']), now);
             assert_eq!(s.run(now).len(), 1, "round {round}");
             s.until_gone(now);
             if round < RESTARTS_MAX {
@@ -3277,7 +3308,7 @@ mod tests {
         fixture.extend(frame_bytes(FRAME_DONE, &[]));
         fixture.extend(cell_frame(FRAME_OUTLINE_CELL, 9, 16));
         let mut s = StandIn::new("cell-behind", ANSWERS, &fixture);
-        s.helper.ask(CELL, &shown(&['A']), t0());
+        s.helper.ask(CELL, Band::NONE, &shown(&['A']), t0());
         let nine = Cell {
             width: 9,
             height: 16,
@@ -3443,7 +3474,7 @@ mod tests {
         s.run(t0());
         assert!(s.helper.failed().unwrap().contains("past CELL_SIDE_MAX"));
         let mut s = StandIn::new("own-cell-unasked", ANSWERS, &own_cell_frame(8, 16));
-        s.helper.ask(CELL, &shown(&['A']), t0());
+        s.helper.ask(CELL, Band::NONE, &shown(&['A']), t0());
         s.run(t0());
         assert!(s.helper.failed().unwrap().contains("a cell query not made"));
     }
@@ -3686,7 +3717,7 @@ mod tests {
             Shared::default(),
             1 << 20,
         );
-        helper.ask(CELL, &shown(&['A']), t0());
+        helper.ask(CELL, Band::NONE, &shown(&['A']), t0());
         assert_eq!(
             helper.failed(),
             Some(

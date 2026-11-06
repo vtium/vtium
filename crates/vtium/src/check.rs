@@ -757,31 +757,25 @@ mod tests {
     fn a_key_not_built_yet_warns() {
         // Every other key not built yet warns once a source sets it, to
         // any value it takes, in the file or on the command line.
+        // `font-line-spacing` is built (ADR-1302 D13), and says nothing.
         let (lines, status) = run_with(
-            &["--font-line-spacing=0"],
+            &["--font-line-spacing=20"],
             "display-buffers=3\nfont-hinting=light\n",
         );
         assert_eq!(status, 1);
         assert_eq!(
             lines,
-            [
-                "font-hinting has no effect yet, so vtium ignores it",
-                "font-line-spacing has no effect yet, so vtium ignores it",
-            ]
+            ["font-hinting has no effect yet, so vtium ignores it"]
         );
-        for (arg, key) in [
-            ("--font-hinting=full", "font-hinting"),
-            ("--font-line-spacing=20", "font-line-spacing"),
-        ] {
-            assert_eq!(
-                run_with(&[arg], ""),
-                (
-                    vec![format!("{key} has no effect yet, so vtium ignores it")],
-                    1
-                ),
-                "{arg}"
-            );
-        }
+        assert_eq!(run_with(&["--font-line-spacing=20"], ""), (Vec::new(), 0));
+        assert_eq!(run_with(&[], "font-line-spacing=100\n"), (Vec::new(), 0));
+        assert_eq!(
+            run_with(&["--font-hinting=full"], ""),
+            (
+                vec!["font-hinting has no effect yet, so vtium ignores it".to_owned()],
+                1
+            )
+        );
         // A value vtium cannot take leaves the key unset: its report
         // alone.
         let (lines, _) = run_with(&[], "display-buffers=4\n");

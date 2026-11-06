@@ -95,6 +95,7 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use vtium_devices::Card;
+use vtium_font::spacing::Band;
 use vtium_platform::calloop::LoopHandle;
 use vtium_platform::display::{Blank, Buffers, DPI_ASSUMED, DisplayId, Dpms, Event};
 use vtium_platform::input::{
@@ -1414,12 +1415,15 @@ impl App {
             .iter()
             .filter(|head| head.frit() == Some(name.as_str()))
             .collect();
-        let mut cells: Vec<vtium_font::Cell> = drawing
+        // each cell with the rows line spacing adds to it (ADR-1302 D13),
+        // which one cell always has the same of
+        let mut spaced: Vec<(vtium_font::Cell, Band)> = drawing
             .iter()
-            .flat_map(|head| head.views.values().map(View::cell))
+            .flat_map(|head| head.views.values().map(|v| (v.cell(), v.band())))
             .collect();
-        cells.sort_unstable_by_key(|c| (c.height, c.width));
-        cells.dedup();
+        spaced.sort_unstable_by_key(|(c, _)| (c.height, c.width));
+        spaced.dedup_by_key(|(c, _)| *c);
+        let cells: Vec<vtium_font::Cell> = spaced.iter().map(|&(c, _)| c).collect();
         let now = (self.clock)();
         let Some(frit) = self.frits.get_mut(&name) else {
             return;
@@ -1428,14 +1432,14 @@ impl App {
             helper.retain(&cells, now);
         }
         frit.asked.retain(|c| cells.contains(c));
-        let new: Vec<(vtium_font::Cell, Vec<crate::deferred::Shown>)> = cells
+        let new: Vec<(vtium_font::Cell, Band, Vec<crate::deferred::Shown>)> = spaced
             .into_iter()
-            .filter(|c| !frit.asked.contains(c))
-            .map(|cell| {
+            .filter(|(c, _)| !frit.asked.contains(c))
+            .map(|(cell, band)| {
                 let at = drawing
                     .iter()
                     .filter(|head| head.views.values().any(|v| v.cell() == cell));
-                (cell, shown(at))
+                (cell, band, shown(at))
             })
             .collect();
         if new.is_empty() {
@@ -1444,19 +1448,19 @@ impl App {
         let Some(helper) = self.helper(&name) else {
             return;
         };
-        for (cell, visible) in &new {
+        for (cell, band, visible) in &new {
             for shown in visible {
-                helper.ask(*cell, shown, now);
+                helper.ask(*cell, *band, shown, now);
             }
             // the fill is regular, and draws the regular glyphs shown first
             let first = visible
                 .first()
                 .map(|s| s.chars.as_slice())
                 .unwrap_or_default();
-            helper.fill(*cell, first, now);
+            helper.fill(*cell, *band, first, now);
         }
         if let Some(frit) = self.frits.get_mut(&name) {
-            frit.asked.extend(new.into_iter().map(|(cell, _)| cell));
+            frit.asked.extend(new.into_iter().map(|(cell, _, _)| cell));
         }
     }
 
@@ -1476,10 +1480,15 @@ impl App {
         };
         let visible = head.visible();
         for &cell in &frit.asked {
-            if head.views.values().any(|v| v.cell() == cell) {
+            if let Some(band) = head
+                .views
+                .values()
+                .find(|v| v.cell() == cell)
+                .map(View::band)
+            {
                 for shown in &visible {
                     crate::deferred::lock(&frit.generated).touch(cell, shown);
-                    helper.ask(cell, shown, now);
+                    helper.ask(cell, band, shown, now);
                 }
             }
         }

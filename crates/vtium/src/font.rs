@@ -28,6 +28,7 @@
 use std::path::{Path, PathBuf};
 
 use vtium_font::set::{SetFace, builtin, builtin_name};
+use vtium_font::spacing::{Band, LINE_SPACING_MAX};
 use vtium_font::sprite::Range;
 use vtium_font::{CELL_SIDE_MAX, Cell, Face, Missing, Source, SpritePolicy, Unifont};
 
@@ -259,6 +260,30 @@ pub fn frit_size(text: &str) -> Result<Option<u32>, String> {
     })
 }
 
+/// The line spacing a frit's `text` states, `line-spacing=` (ADR-1302
+/// D13), a whole percentage of the text's height; `None` when it states
+/// none; an error naming the line for a value vtium-config refuses, or a
+/// second `line-spacing=`.
+pub fn frit_line_spacing(text: &str) -> Result<Option<u32>, String> {
+    let Some((n, value)) = frit_line(text, "line-spacing")? else {
+        return Ok(None);
+    };
+    value
+        .parse::<u32>()
+        .ok()
+        .filter(|&v| {
+            v <= LINE_SPACING_MAX
+                && !value.starts_with('+')
+                && (value == "0" || !value.starts_with('0'))
+        })
+        .map(Some)
+        .ok_or_else(|| {
+            format!(
+                "line {n}: line-spacing={value} is not a whole percentage from 0 to {LINE_SPACING_MAX}"
+            )
+        })
+}
+
 /// Points in an inch: a point is 1/72 inch.
 const POINTS_PER_INCH: f64 = 72.0;
 
@@ -309,6 +334,11 @@ fn frit_outline(text: &str) -> bool {
 /// whose own cell does not fit it, which gives nothing. Whether a font
 /// file's glyphs fit is vtium-config's to check.
 pub fn frit_warnings(name: &str, text: &str) -> Vec<String> {
+    if let Err(why) = frit_line_spacing(text) {
+        return vec![format!(
+            "font set {name}: {why}, so vtium uses its built-in font"
+        )];
+    }
     let cell = match frit_cell(text) {
         Ok(Some(cell)) => cell,
         Ok(None) => return Vec::new(),
@@ -627,6 +657,10 @@ pub enum Chosen {
         /// Its first source is an outline font, so a zoom steps by 1
         /// pixel: guessed from its text until the helper's answer says.
         outline: bool,
+        /// `line-spacing=`, a whole percentage of the text's height
+        /// (ADR-1302 D13), which vtium.conf's `font-line-spacing`
+        /// overrides.
+        line_spacing: Option<u32>,
         generated: Shared,
     },
 }
@@ -667,6 +701,7 @@ impl Chosen {
     pub fn frit(mut frit: FritText, sized: bool, look: Option<Cell>) -> Result<Chosen, String> {
         let cell = frit_cell(&frit.text)?;
         let size = frit_size(&frit.text)?;
+        let line_spacing = frit_line_spacing(&frit.text)?;
         let outline = frit_outline(&frit.text);
         let name = frit.name.clone();
         if !frit_name(&name) {
@@ -680,6 +715,7 @@ impl Chosen {
             size: size.filter(|_| !sized && outline && look.is_none()),
             own: None,
             heights: std::collections::BTreeMap::new(),
+            line_spacing,
             generated: Shared::default(),
         })
     }
@@ -794,8 +830,42 @@ impl Chosen {
     /// in a look's cell, fitted to that cell's whole multiple at that
     /// height; else the built-in's strike of that height, else the tallest
     /// under it scaled by the largest whole factor that fits. The built-in
-    /// unifont draws through its own face.
+    /// unifont draws through its own face. A frit's own `line-spacing=`
+    /// makes the cell taller where it applies ([`Chosen::face_spaced`]).
     pub fn face(&self, height: u32, locale: &str) -> Option<DisplayFace> {
+        self.face_spaced(height, locale, None)
+    }
+
+    /// The rows line spacing adds to a cell whose text is `text` pixels
+    /// high (ADR-1302 D13): `spacing`, vtium.conf's `font-line-spacing`,
+    /// else a frit's `line-spacing=`, else none. A cell the look or the
+    /// frit states, `cell` or `cell=`, is exact and takes none; the cell
+    /// vtium works out takes it: a frit's fonts' own cell, the automatic
+    /// rule's, and the cell a configured `font-size` gives in place of a
+    /// frit's `cell=`.
+    fn band(&self, text: u32, spacing: Option<u32>) -> Band {
+        if self.stated().is_some() {
+            return Band::NONE;
+        }
+        let own = match self {
+            Chosen::Frit { line_spacing, .. } => *line_spacing,
+            Chosen::Builtin { .. } => None,
+        };
+        Band::of(text, spacing.or(own).unwrap_or(0))
+    }
+
+    /// [`Chosen::face`], with `spacing`, vtium.conf's
+    /// `font-line-spacing`, over a frit's own `line-spacing=`: the cell is
+    /// taller by the rows [`Chosen::band`] gives, split above and below
+    /// the text band, and each glyph is placed in it (ADR-1302 D13). The
+    /// text band is the cell [`Chosen::face`] would draw in, so `height`
+    /// stays the text's height.
+    pub fn face_spaced(
+        &self,
+        height: u32,
+        locale: &str,
+        spacing: Option<u32>,
+    ) -> Option<DisplayFace> {
         if let Chosen::Builtin {
             name,
             cell: Some(look),
@@ -833,17 +903,33 @@ impl Chosen {
                 (None, false) => (frit_cell_at(None, height, at.cell()), at.size_step()),
             };
             let builtin = builtin_in(None, cell, locale)?;
-            return Some(Box::new(DeferredFace::new(
+            let band = self.band(cell.height, spacing);
+            return Some(Box::new(DeferredFace::spaced(
                 builtin,
                 cell,
+                band,
                 step,
                 std::sync::Arc::clone(generated),
             )));
         }
-        match self.builtin_at(height, locale) {
-            "unifont" => Some(Box::new(Unifont::new(height))),
-            name => SetFace::new(builtin(name)?, height).map(|f| Box::new(f) as DisplayFace),
+        let face: DisplayFace = match self.builtin_at(height, locale) {
+            "unifont" => Box::new(Unifont::new(height)),
+            name => Box::new(SetFace::new(builtin(name)?, height)?),
+        };
+        let band = self.band(face.cell().height, spacing);
+        if band.is_none() {
+            return Some(face);
         }
+        // D13: the built-in font in a taller cell, placed by the face that
+        // places a frit's built-in glyphs, with a store that stays empty
+        let (cell, step) = (face.cell(), face.size_step());
+        Some(Box::new(DeferredFace::spaced(
+            face,
+            cell,
+            band,
+            step,
+            Shared::default(),
+        )))
     }
 
     /// The heights a zoom steps through (ADR-1200 D17): an outline frit's
@@ -1315,6 +1401,107 @@ mod tests {
         }
     }
 
+    /// The rows of `c`'s glyph in `face`.
+    fn glyph_rows(face: &DisplayFace, c: char) -> Vec<Vec<u8>> {
+        let g = face
+            .draw(&[c], vtium_font::Style::default())
+            .expect("a glyph");
+        g.rows().map(<[u8]>::to_vec).collect()
+    }
+
+    // ADR-1302 D13: a frit's `line-spacing=`, and vtium.conf's
+    // `font-line-spacing` over it, make the cell vtium works out taller by
+    // a whole percentage of the text's height, split above and below the
+    // text band with the odd pixel above; the text band stays the cell the
+    // face had without spacing
+    #[test]
+    fn line_spacing_makes_the_cell_taller_split_above_and_below() {
+        let plain = frit_of("source=kbd:x\n", false);
+        let spaced = frit_of("source=kbd:x\nline-spacing=20\n", false);
+        let at = |f: &Chosen, spacing| f.face_spaced(16, "C", spacing).expect("a face");
+        assert_eq!(at(&plain, None).cell(), cell(8, 16));
+        assert_eq!(at(&plain, None).band(), Band::NONE);
+        // 20% of 16 is 3.2: 3 rows, 2 above and 1 below
+        let face = at(&spaced, None);
+        assert_eq!(face.cell(), cell(8, 19));
+        assert_eq!(face.band(), Band { above: 2, below: 1 });
+        // vtium.conf's font-line-spacing wins over the frit's, 0 included
+        assert_eq!(at(&spaced, Some(50)).cell(), cell(8, 24));
+        assert_eq!(at(&spaced, Some(0)).cell(), cell(8, 16));
+        assert_eq!(at(&plain, Some(25)).band(), Band { above: 2, below: 2 });
+        // the built-in fonts with no frit take it too
+        let face = Chosen::BUILTINS
+            .face_spaced(16, "C", Some(25))
+            .expect("a face");
+        assert_eq!(
+            (face.cell(), face.band()),
+            (cell(8, 20), Band { above: 2, below: 2 })
+        );
+        // a letter keeps its rows in the text band, blank above and below,
+        // and a box line, drawn by the built-in font, stretches to fill
+        let unspaced = Chosen::BUILTINS.face(16, "C").expect("a face");
+        let a = glyph_rows(&unspaced, 'A');
+        let blank = vec![0u8; a[0].len()];
+        let mut want = vec![blank.clone(); 2];
+        want.extend(a.iter().cloned());
+        want.extend(vec![blank; 2]);
+        assert_eq!(glyph_rows(&face, 'A'), want);
+        let line = glyph_rows(&unspaced, '\u{2502}');
+        let mut want = vec![line[0].clone(); 2];
+        want.extend(line.iter().cloned());
+        want.extend(vec![line[15].clone(); 2]);
+        assert_eq!(glyph_rows(&face, '\u{2502}'), want);
+        // the lines move down with the text band
+        let (u, d) = (unspaced.decorations(), face.decorations());
+        assert_eq!((d.underline, d.strike), (u.underline + 2, u.strike + 2));
+        for (text, why) in [
+            (
+                "line-spacing=101\n",
+                "line 1: line-spacing=101 is not a whole percentage from 0 to 100",
+            ),
+            (
+                "line-spacing=5\nline-spacing=5\n",
+                "line 2: line-spacing= appears twice",
+            ),
+        ] {
+            let frit = FritText {
+                name: "f".into(),
+                text: text.into(),
+            };
+            let e = Chosen::frit(frit, false, None).expect_err(text);
+            assert!(e.contains(why), "{text:?}: {e}");
+        }
+    }
+
+    // ADR-1302 D13: a cell the frit or the look states is exact and takes
+    // no spacing; where a configured font-size overrides the frit's cell=,
+    // the cell vtium works out takes it
+    #[test]
+    fn a_stated_cell_takes_no_spacing_unless_font_size_overrides_it() {
+        let text = "source=kbd:x\ncell=10x20\nline-spacing=50\n";
+        let stated = frit_of(text, false);
+        let face = stated.face_spaced(20, "C", Some(50)).expect("a face");
+        assert_eq!((face.cell(), face.band()), (cell(10, 20), Band::NONE));
+        let sized = frit_of(text, true);
+        let face = sized.face_spaced(20, "C", None).expect("a face");
+        assert_eq!(face.cell().height, 30);
+        assert_eq!(face.band(), Band { above: 5, below: 5 });
+        let look = Chosen::frit(
+            FritText {
+                name: "f".into(),
+                text: text.into(),
+            },
+            true,
+            Some(cell(12, 24)),
+        )
+        .expect("a frit");
+        let face = look.face_spaced(24, "C", Some(50)).expect("a face");
+        assert_eq!((face.cell(), face.band()), (cell(12, 24), Band::NONE));
+        let builtins = Chosen::builtins(Some(cell(12, 24)));
+        let face = builtins.face_spaced(24, "C", Some(50)).expect("a face");
+        assert_eq!((face.cell(), face.band()), (cell(12, 24), Band::NONE));
+    }
+
     // ADR-1403 D5, ADR-1200 D16: the look is more specific than its frit,
     // so a cell the look states wins over the frit's cell= and size=, and
     // the frit asks the helper for no cell of its own
@@ -1608,6 +1795,27 @@ mod tests {
                     "{size}"
                 ),
             }
+        }
+    }
+
+    // ADR-1302 D13: check-config names a frit's line-spacing= that
+    // vtium-config refuses, for which vtium draws its built-in font
+    #[test]
+    fn check_config_names_a_line_spacing_the_frit_reader_refuses() {
+        assert!(frit_warnings("f", "source=kbd:x\nline-spacing=0\n").is_empty());
+        assert!(frit_warnings("f", "source=kbd:x\nline-spacing=100\n").is_empty());
+        assert_eq!(
+            frit_warnings("f", "source=kbd:x\nline-spacing=120\n"),
+            [
+                "font set f: line 2: line-spacing=120 is not a whole percentage from 0 to 100, so vtium uses its built-in font"
+            ]
+        );
+        for bad in ["010", "+5", "5%", "-1", "1.5"] {
+            assert_eq!(
+                frit_warnings("f", &format!("line-spacing={bad}\n")).len(),
+                1,
+                "{bad}"
+            );
         }
     }
 
