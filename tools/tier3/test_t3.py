@@ -4703,18 +4703,39 @@ class DefaultVariantsTest(unittest.TestCase):
             with mock.patch.object(t3_evaluate, "PROVISIONAL", {"2d-1280x800/sgr": "why"}):
                 entry = t3_evaluate.evaluate("gl-1280x800", "sgr", ppm, {}, LOG, root=self.root)
                 self.assertEqual(entry["status"], "provisional")
+            # a provisional row for the record's golden judges nothing:
+            # the case stays failed, and the preflight refuses the row
+            with mock.patch.object(t3_evaluate, "PROVISIONAL", {"gl-1280x800/sgr": "why"}):
+                entry = t3_evaluate.evaluate("gl-1280x800", "sgr", ppm, {}, LOG, root=self.root)
+                self.assertEqual(entry["status"], "fail")
+            self.assertEqual(
+                t3_evaluate.check_goldens({"gl-1280x800": ["sgr"]}, self.root,
+                                          {"gl-1280x800/sgr": "why"}),
+                ["provisional.tsv lists gl-1280x800/sgr, which is in a record that judges "
+                 "nothing (RECORDS)"])
             # the record judges nothing and is no stray, but a golden of
             # 2d-1280x800's that only gl-1280x800 compares with is used
             self.assertEqual(t3_evaluate.check_goldens({"gl-1280x800": ["sgr"]}, self.root), [])
+            # a file in the record that is none of the variant's screens is
+            # a stray
+            t3img.write_png(os.path.join(self.root, "gl-1280x800", "stray.png"), black)
+            self.assertEqual(
+                t3_evaluate.check_goldens({"gl-1280x800": ["sgr"]}, self.root),
+                ["%s is a golden no case draws" % t3_common.rel(
+                    os.path.join(self.root, "gl-1280x800", "stray.png"))])
+            os.unlink(os.path.join(self.root, "gl-1280x800", "stray.png"))
             with mock.patch.object(t3_evaluate, "RECORDS", {}):
                 self.assertEqual(
                     t3_evaluate.check_goldens({"gl-1280x800": ["sgr"]}, self.root),
                     ["%s is a golden no case draws" % t3_common.rel(
                         os.path.join(self.root, "gl-1280x800", "sgr.png"))])
+            # with sgr none of the variant's cases, both its 2d golden and
+            # the record's are strays
             self.assertEqual(
                 t3_evaluate.check_goldens({"gl-1280x800": ["cjk"]}, self.root),
                 ["%s is a golden no case draws" % t3_common.rel(
-                    os.path.join(self.root, "2d-1280x800", "sgr.png"))])
+                    os.path.join(self.root, d, "sgr.png"))
+                 for d in ("2d-1280x800", "gl-1280x800")])
         # a console that drew the variant on the CPU path fails every case
         errors, drop = t3_scenario.variant_errors(
             None, ["Display Virtual-1 with backend [drm2d] text renderer [cpu], cell size 10x19"],

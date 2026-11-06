@@ -258,13 +258,17 @@ def check_goldens(cases_of, root, provisional=()):
     """Every reason the goldens under `root` cannot judge a run: a golden or
     sidecar no case of a variant they judge compares with (`cases_of` maps
     each such variant to its cases, and GOLDENS_OF names the directory a
-    variant compares with), outside the records (RECORDS), and a
-    `provisional` row (vtium's provisional.tsv) for a golden that does not
+    variant compares with); a file in a record (RECORDS) that is none of
+    its variant's screens, though no case compares with the record; a
+    `provisional` row (vtium's provisional.tsv) for a golden in a record,
+    which judges nothing; and a provisional row for a golden that does not
     exist."""
     used = {}
     for variant, cases_of_variant in cases_of.items():
         used.setdefault(GOLDENS_OF.get(variant, variant), set()).update(
             same_as(c, variant) for c in cases_of_variant)
+    for record in RECORDS:
+        used[record] = {same_as(c, record) for c in cases_of.get(record, ())}
     errors = []
     for dirpath, _, names in os.walk(root):
         for name in names:
@@ -273,12 +277,13 @@ def check_goldens(cases_of, root, provisional=()):
             if ext not in (".png", ".tol"):
                 continue
             directory, _, screen = stem.partition(os.sep)
-            if directory in RECORDS:
-                continue
             if screen not in used.get(directory, ()):
                 errors.append("%s is a golden no case draws" % rel(path))
     for golden in provisional:
-        if not os.path.exists(os.path.join(root, golden + ".png")):
+        if golden.partition("/")[0] in RECORDS:
+            errors.append("provisional.tsv lists %s, which is in a record that judges nothing "
+                          "(RECORDS)" % golden)
+        elif not os.path.exists(os.path.join(root, golden + ".png")):
             errors.append("provisional.tsv lists %s, which has no golden" % golden)
     return sorted(errors)
 
