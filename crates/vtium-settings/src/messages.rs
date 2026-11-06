@@ -567,6 +567,26 @@ impl fmt::Display for Renamed {
     }
 }
 
+/// The words that begin the message of a display that reaches no head.
+const NO_DISPLAY_REACHES: &str = "No connected display reaches a head";
+/// The words that begin the message of a head that no keyboard reaches,
+/// before the head's name.
+const NO_KEYBOARD_REACHES: &str = "No keyboard reaches head";
+/// The words after the name of an isolated head that no keyboard reaches.
+const ISOLATED_FROM_ROAMING: &str = "is isolated, so roaming keyboards do not reach it";
+
+impl Missing {
+    /// Words that only the messages of the gaps a connected device leaves
+    /// contain: a display that reaches no head, a head no keyboard reaches,
+    /// and an isolated head no keyboard reaches. A reader of `vtium
+    /// check-config`'s report finds those messages by them.
+    pub const DEVICE_GAPS: [&'static str; 3] = [
+        NO_DISPLAY_REACHES,
+        NO_KEYBOARD_REACHES,
+        ISOLATED_FROM_ROAMING,
+    ];
+}
+
 impl fmt::Display for Missing {
     /// The first thing a complete route lacks, and what to do about it
     /// (ADR-1403 D3).
@@ -577,7 +597,8 @@ impl fmt::Display for Missing {
                 rule: Some(rule),
             } => write!(
                 f,
-                "No connected display reaches a head: rule {rule} sends display {display} to `{off}`. Add a rule above it that sends the display to a head.",
+                "{lead}: rule {rule} sends display {display} to `{off}`. Add a rule above it that sends the display to a head.",
+                lead = NO_DISPLAY_REACHES,
                 off = OFF,
             ),
             Missing::NoDisplay {
@@ -585,16 +606,19 @@ impl fmt::Display for Missing {
                 rule: None,
             } => write!(
                 f,
-                "No connected display reaches a head: no rule matches display {display}, so it stays off. Add a display rule that sends it to a head."
+                "{lead}: no rule matches display {display}, so it stays off. Add a display rule that sends it to a head.",
+                lead = NO_DISPLAY_REACHES,
             ),
             Missing::NoKeyboard { head, display } => write!(
                 f,
-                "No keyboard reaches head {head}, which shows on {display}. Add an input rule that sends a keyboard to {head} or to `{roaming}`.",
+                "{lead} {head}, which shows on {display}. Add an input rule that sends a keyboard to {head} or to `{roaming}`.",
+                lead = NO_KEYBOARD_REACHES,
                 roaming = ROAMING,
             ),
             Missing::Isolated { head } => write!(
                 f,
-                "Head {head} is isolated, so roaming keyboards do not reach it. Add an input rule that sends a keyboard to {head}, or write `{not}` in its section.",
+                "Head {head} {isolated}. Add an input rule that sends a keyboard to {head}, or write `{not}` in its section.",
+                isolated = ISOLATED_FROM_ROAMING,
                 not = ISOLATED_NO,
             ),
             Missing::NoDisplayRule => write!(

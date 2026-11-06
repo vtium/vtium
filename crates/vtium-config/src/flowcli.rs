@@ -883,9 +883,9 @@ fn missing(checked: &Checked) -> Vec<String> {
         .problems
         .iter()
         .filter(|l| {
-            l.contains("No connected display reaches a head")
-                || l.contains("No keyboard reaches head")
-                || l.contains("isolated, so roaming")
+            vtium_settings::Missing::DEVICE_GAPS
+                .iter()
+                .any(|words| l.contains(words))
         })
         .cloned()
         .collect()
@@ -911,5 +911,42 @@ mod tests {
         );
         assert_eq!(editor(|k| Some(k.to_lowercase())), "visual");
         assert_eq!(editor(|_| None), "vi");
+    }
+
+    // what a complete route lacks is read from vtium's own messages for
+    // the gaps a connected device leaves, and from no other route message
+    #[test]
+    fn a_route_s_gaps_are_read_from_vtium_s_own_messages() {
+        use vtium_settings::{Missing, Quoted};
+        let q = |s: &str| Quoted::path(std::path::Path::new(s));
+        let gaps = [
+            Missing::NoDisplay {
+                display: q("DP-8"),
+                rule: Some(3),
+            },
+            Missing::NoDisplay {
+                display: q("DP-8"),
+                rule: None,
+            },
+            Missing::NoKeyboard {
+                head: q("desk"),
+                display: q("DP-8"),
+            },
+            Missing::Isolated { head: q("desk") },
+        ];
+        let others = [
+            Missing::NoDisplayRule,
+            Missing::NoKeyboardRule {
+                head: q("desk"),
+                rule: 2,
+            },
+        ];
+        let line = |m: &Missing| format!("vtium.conf line 4: {m}");
+        let checked = Checked {
+            passed: false,
+            problems: gaps.iter().chain(&others).map(line).collect(),
+            notes: Vec::new(),
+        };
+        assert_eq!(missing(&checked), gaps.iter().map(line).collect::<Vec<_>>());
     }
 }
