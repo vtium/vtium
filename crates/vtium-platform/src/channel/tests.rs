@@ -650,7 +650,7 @@ impl Consumer for Whole {
     fn exited(&mut self, _: ExitStatus) {}
 }
 
-// aaronsb/kmscon#245: a child that queries without reading stalls itself.
+// A child that queries without reading stalls itself.
 // covers: platform.pty
 #[test]
 fn replies_to_a_child_that_does_not_read_stop_the_reading() {
@@ -714,7 +714,7 @@ impl Consumer for Amplifier {
     fn exited(&mut self, _: ExitStatus) {}
 }
 
-// pty.c:479-484: past REPLY_MAX replies are dropped until the drain.
+// Past REPLY_MAX, replies are dropped until the drain.
 #[test]
 fn a_consumer_that_ignores_the_stall_loses_replies_past_the_ceiling() {
     let mut d = flood(READ_MAX);
@@ -799,7 +799,6 @@ fn a_held_part_is_fed_on_a_later_turn() {
     assert_eq!(h.0.len(), d.child.borrow().read);
 }
 
-// pty.c:627-651
 #[test]
 fn a_turn_reads_at_most_reads_per_turn_times() {
     let n = READS_PER_TURN + 5;

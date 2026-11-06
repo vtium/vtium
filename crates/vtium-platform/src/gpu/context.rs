@@ -13,10 +13,6 @@
 //! This file sets the context up and reads its errors; `objects.rs` makes,
 //! fills and frees its textures, frames, imported buffers and programs, and
 //! `draw.rs` draws, clears, submits and reads back.
-//!
-//! The C reference read GL's error flag once after a batch of uploads and
-//! once after a frame's draws (`kmscon/src/render/gltex.c`, `upload` and
-//! `gltex_render`).
 
 use std::cell::Cell;
 use std::collections::BTreeMap;

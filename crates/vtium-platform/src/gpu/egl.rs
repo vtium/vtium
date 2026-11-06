@@ -10,15 +10,9 @@
 //! the software device draws the same pixels on every machine.
 //!
 //! The context is OpenGL ES 3.0 or later with no surface, current on the
-//! thread that made it.
-//!
-//! The C reference made its display with `eglGetDisplay` over its GBM
-//! device, required `EGL_KHR_surfaceless_context`, chose a config whose
-//! native visual was XRGB8888 or ARGB8888, asked for OpenGL ES 2.0 and drew
-//! through a GBM surface (`kmscon/src/video/drm3d_video.c`,
-//! `drm3d_video_init`). vtium asks for 3.0, needs no config where the
-//! driver has `EGL_KHR_no_config_context`, draws into imported buffers and
-//! asks for a context that reports a GPU reset where the driver offers it.
+//! thread that made it. It needs no config where the driver has
+//! `EGL_KHR_no_config_context`, draws into imported buffers, and reports a
+//! GPU reset where the driver offers that.
 
 use std::cell::Cell;
 use std::ffi::{CStr, c_char, c_void};

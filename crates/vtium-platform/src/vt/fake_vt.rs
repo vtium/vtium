@@ -1,6 +1,5 @@
 //! The fake VT, for a system without kernel VTs: always the seat's only
-//! session, taken and given up on request or with Ctrl+Super+F12
-//! (vt_fake.c). A test gives it a VT number, so its own key follows the
+//! session, taken and given up on request or with Ctrl+Super+F12. A test gives it a VT number, so its own key follows the
 //! kernel VT's rule.
 
 use std::io;

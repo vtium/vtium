@@ -13,7 +13,7 @@ use crate::ioctl::{
     INPUT_PROP_DIRECT, KEY_MIN_INTERESTING, REL_WHEEL, REL_X, REL_Y, bit_is_set,
 };
 
-/// Events one read takes (input.c:81).
+/// Events one read takes.
 pub(crate) const EVENTS_PER_READ: usize = 16;
 
 /// `struct input_event`'s time: two `long`s.
@@ -59,7 +59,7 @@ impl RawEvent {
     }
 }
 
-/// What a device reports (input.c:299-369).
+/// What a device reports.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct Capabilities {
     /// A key from Escape to Mute.
@@ -113,7 +113,7 @@ impl Capabilities {
     }
 
     /// Whether vtium takes the device: a keyboard, or with `mouse` on a
-    /// pointer with buttons or touch (input.c:377-389).
+    /// pointer with buttons or touch.
     pub(crate) fn usable(self, mouse: bool) -> bool {
         self.keys
             || (mouse

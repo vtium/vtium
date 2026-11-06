@@ -19,7 +19,7 @@
 //!   stopped.
 //! - **The start.** [`Program`] is the program, opened once and checked;
 //!   each helper starts from it as `start.rs` describes.
-//! - **The reply.** Every packet is checked in the C reference's order:
+//! - **The reply.** Every packet is checked in this order:
 //!   a request out, the exact length, the version, id and status, the
 //!   bytes ignored, the one descriptor of a picture, a regular file whose
 //!   seals hold before its size is read, the exact size. The reply then
@@ -218,7 +218,7 @@ impl ImageHost {
             return Err(without_helper(request));
         }
         // more bytes needed than the budget is answered without the helper,
-        // which would exit on it, as the C reference did
+        // which would exit on it
         if !request.discard && request.min > request.largest_bytes {
             return Err(Reply::OverBudget);
         }

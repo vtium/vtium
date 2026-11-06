@@ -27,8 +27,9 @@ pub(super) const PLANE_OVERLAY: u64 = 0;
 pub(super) const PLANE_PRIMARY: u64 = 1;
 pub(super) const PLANE_CURSOR: u64 = 2;
 
-/// The longest side of the hardware cursor, `VIDEO_CURSOR_MAX_SIZE` in the
-/// C reference (video.h:172). vtium-render's `POINTER_SIDE_MAX` bounds the
+/// The longest side of the hardware cursor: 64 pixels, the size the
+/// kernel reports for the cursor plane of a driver that sets none
+/// (`DRM_CAP_CURSOR_WIDTH`). vtium-render's `POINTER_SIDE_MAX` bounds the
 /// arrow to the same side, which a test in vtium holds equal.
 pub const CURSOR_MAX: u64 = 64;
 

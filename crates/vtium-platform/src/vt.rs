@@ -1,7 +1,7 @@
 //! The virtual terminal: who holds the screen and the keyboard.
 //!
-//! A seat has one [`Vt`] backend, chosen at start as the C reference chose
-//! it (vt.c:84-110): libseat when configured and connected (vtium/vtium#34),
+//! A seat has one [`Vt`] backend, chosen at start: libseat when configured
+//! and connected (vtium/vtium#34),
 //! otherwise the kernel's VT ([`KernelVt`]), otherwise a fake VT that is
 //! the seat's only session ([`FakeVt`]). The backend reports through
 //! [`VtEvent`]s the owner drains once a turn, as the displays do:
@@ -25,8 +25,7 @@
 //!
 //! [`KernelVt`] owns the VT's state and restores its tty's line settings,
 //! the keyboard mode, `KD_TEXT` and `VT_AUTO` when dropped, so every return
-//! after the VT is opened restores them, a failed setup's included
-//! (aaronsb/kmscon#253).
+//! after the VT is opened restores them, a failed setup's included.
 //! A [`Restore`] does the same from a panic hook, where `panic = "abort"`
 //! runs no `Drop`.
 
@@ -201,8 +200,7 @@ pub(crate) enum Switching {
     /// The kernel switches on its own.
     Auto,
     /// The kernel signals the release and the acquire and waits for the
-    /// process to acknowledge them: SIGUSR2 to release, SIGUSR1 to acquire,
-    /// as the C reference set them (vt_real.c:239-240).
+    /// process to acknowledge them: SIGUSR2 to release, SIGUSR1 to acquire.
     Process,
 }
 

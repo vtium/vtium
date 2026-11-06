@@ -1,6 +1,5 @@
 //! The seat's devices through udev: DRM cards, framebuffers and input
-//! devices, found at start and followed as they come and go
-//! (monitor.c).
+//! devices, found at start and followed as they come and go.
 //!
 //! [`Udev`] enumerates the `drm`, `graphics` and `input` subsystems once
 //! ([`Udev::scan`]) and then watches udev's monitor socket. Each device is
@@ -44,8 +43,7 @@ pub enum DeviceKind {
     Input,
 }
 
-/// What the seat needs to know of a card or framebuffer
-/// (monitor.c:166-188).
+/// What the seat needs to know of a card or framebuffer.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct DeviceFlags {
     /// The GPU the system booted on: a PCI card with `boot_vga`, or a
@@ -300,7 +298,7 @@ impl Monitor {
         self.events.drain(..)
     }
 
-    /// One event from the monitor socket (monitor.c:470-499).
+    /// One event from the monitor socket.
     pub(crate) fn handle(&mut self, action: Action, dev: &Uevent, probe: &mut dyn Probe) {
         match action {
             Action::Add => self.add(dev, probe),
@@ -310,7 +308,7 @@ impl Monitor {
         }
     }
 
-    /// A device found by the scan or added (monitor.c:352-428).
+    /// A device found by the scan or added.
     pub(crate) fn add(&mut self, dev: &Uevent, probe: &mut dyn Probe) {
         let Some(node) = dev.devnode.as_ref() else {
             return;
@@ -374,7 +372,7 @@ impl Monitor {
 
     /// A known device that moved to another seat is removed and added
     /// again; an unknown one may have moved to this seat; a known card
-    /// reports a hotplug (monitor.c:442-468).
+    /// reports a hotplug.
     fn change(&mut self, dev: &Uevent, probe: &mut dyn Probe) {
         let Some(node) = dev.devnode.as_ref() else {
             return;
@@ -404,7 +402,7 @@ fn numbered(name: &str, prefix: &str) -> bool {
 }
 
 /// A card is primary when its PCI parent was the boot VGA device, or when
-/// it is a platform display controller not on USB (monitor.c:232-350).
+/// it is a platform display controller not on USB.
 pub(crate) fn primary(dev: &Uevent) -> bool {
     match dev.pci_boot_vga {
         Some(boot_vga) => boot_vga,
@@ -412,8 +410,7 @@ pub(crate) fn primary(dev: &Uevent) -> bool {
     }
 }
 
-/// A card is [`primary`], and auxiliary when its driver is `udl`
-/// (monitor.c:232-350).
+/// A card is [`primary`], and auxiliary when its driver is `udl`.
 fn drm_flags(dev: &Uevent, node: &Path, probe: &mut dyn Probe) -> DeviceFlags {
     let primary = primary(dev);
     let aux = match probe.drm_driver(node) {
@@ -434,8 +431,7 @@ fn drm_flags(dev: &Uevent, node: &Path, probe: &mut dyn Probe) -> DeviceFlags {
 }
 
 /// A framebuffer is DRM-backed unless its id says otherwise: a DRM
-/// driver's ends in `drmfb`, or is `nouveaufb` or `psbfb`
-/// (monitor.c:190-230).
+/// driver's ends in `drmfb`, or is `nouveaufb` or `psbfb`.
 fn fb_flags(node: &Path, probe: &mut dyn Probe) -> DeviceFlags {
     match probe.fb_id(node) {
         Ok(id) => fb_id_flags(Some(&id)),
@@ -463,8 +459,7 @@ pub(crate) fn fb_id_flags(id: Option<&str>) -> DeviceFlags {
     flags
 }
 
-/// Opens each card and framebuffer to read its driver or id, read-write
-/// as the C reference opened them.
+/// Opens each card and framebuffer read-write to read its driver or id.
 struct Nodes;
 
 impl Probe for Nodes {
@@ -508,7 +503,7 @@ impl std::fmt::Debug for Udev {
 
 impl Udev {
     /// Listens to udev for the `drm` (`drm_minor`), `graphics` and `input`
-    /// subsystems on behalf of `seat` (monitor.c:502-603). Nothing is
+    /// subsystems on behalf of `seat`. Nothing is
     /// reported until [`Udev::scan`].
     pub fn new(seat: &str) -> io::Result<Udev> {
         let socket = udev::MonitorBuilder::new()?
@@ -524,7 +519,7 @@ impl Udev {
         })
     }
 
-    /// Reports every device of the seat present now (monitor.c:638-703).
+    /// Reports every device of the seat present now.
     pub fn scan(&mut self) -> io::Result<()> {
         self.scan_with(&mut Nodes)
     }

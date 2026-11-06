@@ -63,8 +63,8 @@ impl KernelVt<Tty> {
     /// Takes VT `num` through `tty`, as [`Tty::open`] opened it, in the
     /// loop. The release and acquire signals go into the loop's signalfd
     /// first, which blocks them in this thread before `VT_PROCESS` asks the
-    /// kernel to send them, as the C reference registered them before the
-    /// open; otherwise a switch at that moment would end the process with
+    /// kernel to send them; otherwise a switch at that moment would end the
+    /// process with
     /// the VT taken. Call it before any thread starts ([`Loop::on_signal`]),
     /// and store the VT where `access` finds it before the loop dispatches
     /// again: a signal that comes in between waits in the signalfd. The
@@ -157,7 +157,7 @@ impl<C: Console + 'static> KernelVt<C> {
 impl<C: Console> KernelVt<C> {
     /// Takes the VT: graphics mode, `VT_PROCESS` switching, the keyboard
     /// mode saved and set to `K_RAW`, then `K_OFF`, so keys reach only
-    /// evdev (vt_real.c:261-361). A VT on screen now is reported
+    /// evdev. A VT on screen now is reported
     /// [`VtEvent::Acquired`] at the first drain.
     pub(crate) fn open(console: C, num: u16) -> io::Result<KernelVt<C>> {
         let mut vt = KernelVt {
@@ -291,7 +291,7 @@ impl<C: Console> KernelVt<C> {
         }
     }
 
-    /// SIGUSR1: the VT was switched to (vt_real.c:109-139).
+    /// SIGUSR1: the VT was switched to.
     pub(crate) fn acquire_signal(&mut self) {
         if self.on_screen() != Some(true) {
             return;
@@ -312,7 +312,7 @@ impl<C: Console> KernelVt<C> {
         }
     }
 
-    /// SIGUSR2: the VT is asked for (vt_real.c:141-178). The answer waits
+    /// SIGUSR2: the VT is asked for. The answer waits
     /// for the owner, which acknowledges once the displays are asleep.
     pub(crate) fn release_signal(&mut self) {
         if self.on_screen() != Some(true) {
@@ -440,7 +440,7 @@ impl<C: Console> KernelVt<C> {
     }
 
     /// The VT is ours, not hung up, and on screen: when its switch keys
-    /// act (vt_real.c:491-502).
+    /// act.
     fn shown_and_ours(&self) -> bool {
         self.state == State::Active && !self.hup && self.on_screen() == Some(true)
     }
@@ -558,7 +558,7 @@ impl<C: Console> Vt for KernelVt<C> {
     }
 
     /// Ctrl+Alt+F1 to F12 and the XF86Switch_VT keys ask the kernel for
-    /// that VT (vt_real.c:484-530); this VT's own key is taken and does
+    /// that VT; this VT's own key is taken and does
     /// nothing. Unless `VT_GETMODE` shows vtium's own `VT_PROCESS`, the
     /// key sets it first: the kernel drops a switch from a VT in `VT_AUTO`
     /// and `KD_GRAPHICS`, as another process can leave it (vt.c:3153-3172),
@@ -590,13 +590,13 @@ impl<C: Console> Vt for KernelVt<C> {
     }
 
     /// `Ctrl+Alt+F<n>` or `XF86Switch_VT_<n>` for this VT, while it is ours
-    /// and shown, as the C reference ignored it (vt_real.c:505-516).
+    /// and shown: a switch to the VT already shown, which does nothing.
     fn is_own_key(&self, key: &KeyEvent) -> bool {
         switch_target(key) == Some(self.num) && self.shown_and_ours()
     }
 
     /// Graphics mode, `VT_PROCESS`, the keyboard off and the tty silent
-    /// again (vt_real.c:227-259), as a re-take sets them: each tried on its
+    /// again, as a re-take sets them: each tried on its
     /// own, and `VT_PROCESS` left as it is where it is vtium's own.
     fn restore(&mut self) -> io::Result<()> {
         self.retake()
@@ -615,7 +615,7 @@ impl<C: Console> Vt for KernelVt<C> {
 
 impl<C: Console> Drop for KernelVt<C> {
     /// The tty's line settings, the keyboard mode, `VT_AUTO` and `KD_TEXT`,
-    /// each where it was set (vt_real.c:363-400); a hung-up VT fails them
+    /// each where it was set; a hung-up VT fails them
     /// quietly. Then SIGUSR1 and SIGUSR2 are ignored: the loop's signalfd
     /// unblocks them when the loop drops, which comes after the VT's, and a
     /// release still pending would otherwise end the process by default.
@@ -692,8 +692,8 @@ struct Saved<'a, T> {
     termios: Option<&'a T>,
 }
 
-/// What a drop puts back: the tty's line settings, then the C reference's
-/// order.
+/// What a drop puts back, in this order: the tty's line settings, the
+/// keyboard mode, `VT_AUTO`, then text mode.
 fn put_back<C: Console>(
     console: &C,
     num: u16,
