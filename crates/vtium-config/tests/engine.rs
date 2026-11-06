@@ -951,6 +951,65 @@ fn a_fallback_glyph_too_big_for_its_cell_is_drawn_smaller_to_fit() {
     assert!(columns.len() >= 8, "drawn as large as fits: {columns:?}");
 }
 
+// ADR-1306 D12 and ADR-1200 D17 (the maintainer, 2026-11-06): a fallback
+// glyph of a joining script uses the reach and is not drawn smaller, where
+// any other fallback glyph that passes its cells still is. Test Arabic's
+// beh (U+0628, Joining_Type D) and its U+E0B0 are the same bar, 600 units
+// across, from 300 below the baseline to 700 above it; at Test Latin's
+// 15.5 pixels to the em in the 9x16 cell, baseline 13, it reaches 4.7
+// pixels below the baseline, past the cell's bottom, 3 below. The icon is
+// drawn smaller to fit its cell; the beh keeps its size, stretched to its
+// cell, and its ink below the cell goes to its box, in the row below
+// covers: text.overhang
+#[test]
+fn a_fallback_joining_letter_uses_the_reach_and_an_icon_is_drawn_smaller() {
+    let w = World::new("joining-fallback");
+    latin_and_cjk(&w);
+    let mut arabic = ttf::test_mono();
+    arabic.family = "Test Arabic".to_owned();
+    arabic.colr.clear();
+    arabic.glyphs.push(ttf::Glyph::rect(600, 0, -300, 600, 700));
+    let bar = (arabic.glyphs.len() - 1) as u16;
+    arabic.cmap = vec![(0x628, bar), (0xe0b0, bar)];
+    fs::write(w.path("fonts/TestArabic-Regular.ttf"), arabic.build()).expect("font");
+    let engine = w
+        .engine("source=font:Test Latin\nsource=font:Test Arabic\n")
+        .expect("the frit loads");
+    let bytes = engine
+        .draw(cell(9, 16), &[0x628, 0xe0b0])
+        .expect("draws")
+        .expect("the glyphs");
+    let face =
+        SetFace::new(Arc::new(Set::from_bytes(bytes).expect("the set reads")), 16).expect("a face");
+    let inked_rows = |g: &vtium_font::Glyph| -> Vec<usize> {
+        let rows: Vec<&[u8]> = g.rows().collect();
+        (0..rows.len())
+            .filter(|&y| rows[y].iter().any(|&p| p != 0))
+            .collect()
+    };
+    let icon = face
+        .draw(&['\u{e0b0}'], Style::default())
+        .expect("the icon");
+    assert!(
+        icon.ink().is_none(),
+        "the icon drawn smaller, inside its cell"
+    );
+    let beh = face.draw(&['\u{628}'], Style::default()).expect("the beh");
+    assert_eq!(
+        inked_rows(&beh).last(),
+        Some(&15),
+        "the beh fills its cell to the bottom row"
+    );
+    let ink = beh.ink().expect("the beh's ink below its cell");
+    assert_eq!((ink.left(), ink.top(), ink.width()), (0, 0, 9));
+    assert!(ink.height() > 16 && ink.height() <= 32, "{}", ink.height());
+    let below = &ink.pixels()[16 * 9..17 * 9];
+    assert!(
+        below.iter().any(|&p| p != 0),
+        "ink in the row below: {below:?}"
+    );
+}
+
 // ADR-1200 D17: behind a bitmap first source, each outline source is sized
 // so its own ascent and descent span the cell's height, not at the size of
 // the first outline source after the bitmap one. In the frit ter-v16n,

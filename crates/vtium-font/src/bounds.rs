@@ -94,7 +94,7 @@ const SET_SECTIONS: Bound = Bound {
     value: 16,
     what: "Sections a set's header lists",
     past: "The set is refused",
-    cite: "vtium's own: format 2.0 writes at most seven (ADR-1200 D2), and a minor version adds sections a reader skips",
+    cite: "vtium's own: format 2.1 writes at most seven (ADR-1200 D2), and a minor version adds sections a reader skips",
 };
 
 const SET_META: Bound = Bound {
@@ -150,7 +150,7 @@ const SET_RECORD: Bound = Bound {
     value: 64,
     what: "Bytes a record of a set's tables declares",
     past: "The set is refused",
-    cite: "vtium's own: format 2.0's largest record is 48 bytes, and a minor version adds fields at a record's end (ADR-1200 D2); it bounds what a table's counts can make the reader hold",
+    cite: "vtium's own: format 2.1's largest record is 48 bytes, and a minor version adds fields at a record's end (ADR-1200 D2); it bounds what a table's counts can make the reader hold",
 };
 
 const SET_CLUSTERS: Bound = Bound {
@@ -166,7 +166,7 @@ const SET_INKS: Bound = Bound {
     value: 1 << 18,
     what: "Ink boxes a set's `INKX` holds, over every strike: one for each glyph and each cluster whose ink passes its cells",
     past: "The set is refused",
-    cite: "vtium's own, as `SET_CHUNKS_MAX` is: a box is a glyph's, and a strike's glyphs that reach past their cells are its italic and symbol glyphs. A box's record takes 24 bytes in memory, so the boxes hold at most 6 MiB",
+    cite: "vtium's own, as `SET_CHUNKS_MAX` is: a box is a glyph's, and a strike's glyphs that reach past their cells are its italic and symbol glyphs. A box's record takes 32 bytes in memory, so the boxes hold at most 8 MiB",
 };
 
 const CLUSTER_SCALARS: Bound = Bound {

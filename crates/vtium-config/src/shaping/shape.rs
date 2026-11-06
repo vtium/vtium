@@ -229,10 +229,13 @@ pub(crate) fn draw_all(
 ) -> Result<Vec<(Vec<u32>, u32)>, String> {
     let upem = f32::from(drawer.font.metrics(&[]).units_per_em);
     let scale = cell.ppem / upem.max(1.0);
-    // the row's top and bottom edges, in pixels up from the baseline
+    // the reach's top and bottom edges, in pixels up from the baseline: a
+    // stack of marks moves in or scales only where it would pass them
+    // (ADR-1306 D2)
+    let base = i32::try_from(cell.baseline).unwrap_or(0);
     let row = (
-        i32::try_from(cell.baseline).unwrap_or(0),
-        i32::try_from(cell.baseline).unwrap_or(0) - i32::try_from(cell.height).unwrap_or(0),
+        base + i32::try_from(cell.reach.0).unwrap_or(0),
+        base - i32::try_from(cell.height).unwrap_or(0) - i32::try_from(cell.reach.1).unwrap_or(0),
     );
     let mut seen: BTreeMap<Placed, u32> = BTreeMap::new();
     let mut out = Vec::new();
@@ -280,7 +283,8 @@ pub(crate) fn draw_all(
             },
             wide,
             advance,
-            // a cluster's marks keep the row by the mark rule (ADR-1302 D3)
+            // a cluster's marks keep to the reach by the mark rule (ADR-1302
+            // D3, ADR-1306 D2), not by being drawn smaller
             false,
             cell,
         ) else {
@@ -391,10 +395,11 @@ fn compose(
 /// Each glyph of a shaped cluster drawn at `ppem`, with its position from
 /// the cluster's origin in pixels, `scale` pixels to a font unit. The
 /// whole cluster is stretched sideways by `sx`, each outline and each
-/// offset, so a mark stays over its base. With `row`, its top and bottom
-/// edges in pixels up from the baseline, the marks of a mask cluster of
-/// more than one glyph are placed and fitted to the row ([`place_unplaced`],
-/// [`fit_marks`]). `None` when a glyph cannot be drawn.
+/// offset, so a mark stays over its base. With `row`, the top and bottom
+/// edges of the glyph's reach in pixels up from the baseline, the marks of
+/// a mask cluster of more than one glyph are placed and fitted to the
+/// reach ([`place_unplaced`], [`fit_marks`]). `None` when a glyph cannot
+/// be drawn.
 fn draw_parts(
     drawer: &mut Drawer<'_>,
     glyphs: &[At],
@@ -485,20 +490,22 @@ fn place_unplaced(parts: &mut [(Image, i32, i32)], glyphs: &[At]) {
     }
 }
 
-/// The mark rule (ADR-1302 D3, the maintainer's decisions of 2026-11-01):
-/// the marks of a cluster, `row` its top and bottom edges in pixels up
-/// from the baseline, are fitted to the row. Marks over the middle of the
-/// base letter's ink form one stack and those under it another. A stack
-/// whose ink passes the row's edge moves toward the baseline until it
-/// fits, as long as the move lands no more of its ink on the letter's ink
-/// than lies there already and leaves the stack inside the row's other
-/// edge. When the move fails either test, the whole cluster, letter and
-/// marks together, is scaled vertically just enough to fit the row,
-/// keeping the font's arrangement. The letter's own ink need not reach
-/// the row's edge for that: lam with shadda and fatha in DejaVu Sans Mono
-/// has blank rows above the lam, and is scaled because its marks, moved
-/// down, would land on the lam's stem. Otherwise base letters never move,
-/// and a mark keeps the sideways place the shaper gave it.
+/// The mark rule (ADR-1302 D3, the maintainer's decisions of 2026-11-01;
+/// ADR-1306 D2, which moved its edges from the row to the reach): the
+/// marks of a cluster, `row` the top and bottom edges of the glyph's reach
+/// in pixels up from the baseline, are fitted to the reach. Marks over the
+/// middle of the base letter's ink form one stack and those under it
+/// another. A stack whose ink passes the reach's edge moves toward the
+/// baseline until it fits, as long as the move lands no more of its ink on
+/// the letter's ink than lies there already and leaves the stack inside the
+/// reach's other edge. When the move fails either test, the whole cluster,
+/// letter and marks together, is scaled vertically just enough to fit the
+/// reach, keeping the font's arrangement. The letter's own ink need not
+/// reach the edge for that: lam with shadda and fatha in DejaVu Sans Mono,
+/// fitted to edges at its row's, has blank rows above the lam and is
+/// scaled because its marks, moved down, would land on the lam's stem.
+/// Inside the reach marks stay where the shaper placed them; base letters
+/// never move, and a mark keeps the sideways place the shaper gave it.
 fn fit_marks(parts: &mut [(Image, i32, i32)], marks: &[bool], row: (i32, i32)) {
     let (row_top, row_bottom) = row;
     let inked = |p: &(Image, i32, i32)| p.0.placement.height > 0 && p.0.placement.width > 0;
@@ -724,8 +731,10 @@ mod tests {
             .collect()
     }
 
-    // ADR-1302 D3 (the maintainer, 2026-11-01): lam with shadda and fatha
-    // in DejaVu Sans Mono at 16 pixels is scaled to fit the row, though
+    // ADR-1302 D3 (the maintainer, 2026-11-01): fitted to edges at its
+    // row's top and bottom, as a reach of no rows gives (ADR-1306 D2), lam
+    // with shadda and fatha in DejaVu Sans Mono at 16 pixels is scaled to
+    // fit the row, though
     // the lam's own ink stops three rows under the row's top. The shaper
     // puts both marks at the same offset, the fatha's ink inside the
     // bottom of the shadda's, and the pair passes the row's top. Moved
