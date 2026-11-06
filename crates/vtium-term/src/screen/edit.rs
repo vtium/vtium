@@ -221,13 +221,20 @@ impl Screen {
     pub fn erase_above(&mut self, which: Erase) {
         let y = self.cursor_y;
         let whole = self.erase_region((0, 0), (self.cursor_x, y), which);
-        self.unwrap_rows(whole.into_iter().filter(|&row| row != y));
+        let whole: Vec<usize> = whole.into_iter().filter(|&row| row != y).collect();
+        // The rows cleared whole take the current paragraph values.
+        #[cfg(feature = "bidi")]
+        self.give_current(whole.iter().copied());
+        self.unwrap_rows(whole);
     }
 
     /// ED 0: from the cursor to the end of the screen.
     pub fn erase_below(&mut self, which: Erase) {
         let (x, y) = (self.erase_column(), self.cursor_y);
         let whole = self.erase_region((x, y), (self.cols, self.rows), which);
+        // The rows cleared whole take the current paragraph values.
+        #[cfg(feature = "bidi")]
+        self.give_current(whole.iter().copied().filter(|&row| row != y));
         self.unwrap_rows(whole);
         self.unwrap_rows(y..y.saturating_add(1));
     }
@@ -245,6 +252,9 @@ impl Screen {
                 line.flags_mut().remove(LineFlags::MARKS);
             }
         }
+        // The rows cleared whole take the current paragraph values.
+        #[cfg(feature = "bidi")]
+        self.give_current(whole.iter().copied());
         self.unwrap_rows(whole);
     }
 

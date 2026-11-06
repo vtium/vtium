@@ -6,21 +6,23 @@
 //! A paragraph is the rows a wrap joins: a row whose text continues on the
 //! next row ([`LineFlags::WRAPPED`]) and the row after it belong to one
 //! paragraph. Each row holds its paragraph's four properties in its
-//! [`LineFlags`], and every row of a paragraph holds the same values.
+//! [`LineFlags`].
 //!
-//! The screen keeps a current value of each property. A new row, one that
-//! a line feed, a scroll, an insert or a resize brings onto the screen,
-//! takes the current values (`Screen::new_line`). A sequence that changes
-//! a property changes its current value and sets it on every row of the
-//! cursor's paragraph. A print that wraps carries the paragraph's values to
-//! the row it starts, and a rewrap gives every row it makes the values of
-//! the paragraph's first row (`reflow.rs`). Drawing by these properties is
-//! the frame's work, which a later part of ADR-1004 adds.
+//! The screen keeps a current value of each property, and the Terminal
+//! Working Group's recommendation, which ADR-1004 follows, says where it
+//! goes. A sequence that changes a property changes its current value, and
+//! sets it on every row of the cursor's paragraph only when the cursor
+//! stands at the paragraph's first logical position, the first column of
+//! its first row. A line feed into a new paragraph, ED's cleared rows and
+//! every new row a scroll, an insert or a resize brings take the current
+//! values (`Screen::new_line`). A print that wraps carries the paragraph's
+//! values to the row it starts, and a rewrap gives every row it makes the
+//! values of the paragraph's first row (`reflow.rs`). Drawing by these
+//! properties is the frame's work, which a later part of ADR-1004 adds.
 
 use core::ops::Range;
 
 use super::Screen;
-use crate::bounds::BIDI_PARAGRAPH_ROWS_MAX;
 use crate::line::{Glyph, LineFlags};
 
 impl Screen {
@@ -31,37 +33,38 @@ impl Screen {
     }
 
     /// Sets the current value of one paragraph property, `flag`, one of
-    /// [`LineFlags::PARAGRAPH`]'s bits, and sets it on every row of the
-    /// cursor's paragraph, as SM, RM, SCP and SPD do.
+    /// [`LineFlags::PARAGRAPH`]'s bits, as SM, RM, SCP and SPD do. At the
+    /// first logical position of the cursor's paragraph it sets the value
+    /// on every row of that paragraph too, and leaves its other properties
+    /// as they are.
     pub(crate) fn set_paragraph_flag(&mut self, flag: LineFlags, on: bool) {
-        let mut values = self.paragraph;
+        let flag = flag.intersection(LineFlags::PARAGRAPH);
         if on {
-            values.insert(flag);
+            self.paragraph.insert(flag);
         } else {
-            values.remove(flag);
+            self.paragraph.remove(flag);
         }
-        self.set_paragraph(values);
-    }
-
-    /// Sets the current values of every paragraph property to `values` and
-    /// sets them on every row of the cursor's paragraph, as DECSTR and RIS
-    /// do with the defaults.
-    pub(crate) fn set_paragraph(&mut self, values: LineFlags) {
-        let values = values.intersection(LineFlags::PARAGRAPH);
-        self.paragraph = values;
-        let rows = self.cursor_paragraph();
-        let reached = rows.len();
-        for y in rows.clone() {
-            if let Some(line) = self.line_mut(y) {
-                hold(line.flags_mut(), values);
+        if let Some(rows) = self.paragraph_at_cursor() {
+            for y in rows {
+                if let Some(line) = self.line_mut(y) {
+                    if on {
+                        line.flags_mut().insert(flag);
+                    } else {
+                        line.flags_mut().remove(flag);
+                    }
+                }
             }
         }
-        // A paragraph whose first rows scrolled off the main screen goes on
-        // in the scrollback, the newest row there wrapping into the
-        // screen's first row.
-        if rows.start == 0 && !self.flags.alternate {
-            let most = BIDI_PARAGRAPH_ROWS_MAX.saturating_sub(reached);
-            self.scrollback.set_paragraph_above(values, most);
+    }
+
+    /// Sets the current values of every paragraph property to `values`, as
+    /// DECSTR and RIS do with the defaults, and sets them on every row of
+    /// the cursor's paragraph when the cursor stands at its first logical
+    /// position, as SM and RM would.
+    pub(crate) fn set_paragraph(&mut self, values: LineFlags) {
+        self.paragraph = values.intersection(LineFlags::PARAGRAPH);
+        if let Some(rows) = self.paragraph_at_cursor() {
+            self.give_current(rows);
         }
     }
 
@@ -73,6 +76,32 @@ impl Screen {
         self.paragraph = values;
         for line in self.main.iter_mut().chain(self.alt.iter_mut()) {
             if line.cells().iter().all(|&c| line.glyph(c) == Glyph::Empty) {
+                hold(line.flags_mut(), values);
+            }
+        }
+    }
+
+    /// Row `y`, where a line feed just put the cursor: the paragraph that
+    /// starts there takes the current values, and a row the row above wraps
+    /// into, the same paragraph, takes that paragraph's values.
+    pub(super) fn line_fed(&mut self, y: usize) {
+        let continues = y
+            .checked_sub(1)
+            .and_then(|a| self.line(a))
+            .is_some_and(|l| l.flags().contains(LineFlags::WRAPPED));
+        if continues {
+            self.carry_paragraph(y);
+        } else {
+            self.give_current(self.paragraph_from(y));
+        }
+    }
+
+    /// Gives each row of `rows` the current values: the rows ED clears
+    /// whole, and the rows of a paragraph a line feed or a reset reaches.
+    pub(super) fn give_current(&mut self, rows: impl IntoIterator<Item = usize>) {
+        let values = self.paragraph;
+        for y in rows {
+            if let Some(line) = self.line_mut(y) {
                 hold(line.flags_mut(), values);
             }
         }
@@ -102,26 +131,32 @@ impl Screen {
         }
     }
 
-    /// The rows of the screen in use that hold the cursor's paragraph: up
-    /// from the cursor's row while the row above wraps into it, and down
-    /// while a row wraps into the next.
-    fn cursor_paragraph(&self) -> Range<usize> {
+    /// The rows of the cursor's paragraph when the cursor stands at its
+    /// first logical position: the first column of a row that no row above
+    /// wraps into. The screen's first row starts a paragraph for this, even
+    /// where the scrollback's newest row wraps into it.
+    fn paragraph_at_cursor(&self) -> Option<Range<usize>> {
+        let y = self.cursor_y;
+        let starts = self.cursor_x == 0
+            && y.checked_sub(1)
+                .and_then(|a| self.line(a))
+                .is_none_or(|l| !l.flags().contains(LineFlags::WRAPPED));
+        starts.then(|| self.paragraph_from(y))
+    }
+
+    /// The rows of the screen in use from row `y` down while a row wraps
+    /// into the next.
+    fn paragraph_from(&self, y: usize) -> Range<usize> {
         let lines = self.lines();
-        let y = self.cursor_y.min(lines.len().saturating_sub(1));
-        let wraps = |row: usize| {
-            lines
-                .get(row)
-                .is_some_and(|l| l.flags().contains(LineFlags::WRAPPED))
-        };
-        let mut first = y;
-        while first > 0 && wraps(first.saturating_sub(1)) {
-            first = first.saturating_sub(1);
-        }
         let mut last = y;
-        while last.saturating_add(1) < lines.len() && wraps(last) {
+        while last.saturating_add(1) < lines.len()
+            && lines
+                .get(last)
+                .is_some_and(|l| l.flags().contains(LineFlags::WRAPPED))
+        {
             last = last.saturating_add(1);
         }
-        first..last.saturating_add(1)
+        y..last.saturating_add(1)
     }
 }
 

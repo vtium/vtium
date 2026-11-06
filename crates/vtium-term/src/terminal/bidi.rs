@@ -25,18 +25,6 @@ pub enum TextDirection {
     Auto,
 }
 
-impl TextDirection {
-    /// The paragraph properties a paragraph starts with: implicit mode, no
-    /// box drawing mirrored, and the direction and detection this gives.
-    pub(super) fn paragraph(self) -> LineFlags {
-        match self {
-            Self::Ltr => LineFlags::empty(),
-            Self::Rtl => LineFlags::RTL,
-            Self::Auto => LineFlags::DETECT,
-        }
-    }
-}
-
 impl Terminal {
     /// Sets the paragraph direction vtium.conf's `text-direction` gives.
     /// The current paragraph properties return to the defaults it gives,
@@ -45,9 +33,8 @@ impl Terminal {
     /// direction; a row already written keeps its values (ADR-1004 D5).
     pub fn set_text_direction(&mut self, direction: TextDirection) {
         self.state.host.text_direction = direction;
-        self.state
-            .screen
-            .set_unwritten_paragraphs(direction.paragraph());
+        let defaults = self.state.paragraph_defaults();
+        self.state.screen.set_unwritten_paragraphs(defaults);
     }
 }
 
@@ -79,11 +66,22 @@ impl State {
         self.screen.set_paragraph_flag(LineFlags::RTL, rtl);
     }
 
-    /// Returns the current paragraph properties to the defaults
-    /// `text-direction` gives and applies them to the cursor's paragraph,
-    /// as DECSTR and RIS do (ADR-1004 D2).
+    /// The paragraph properties a paragraph starts with: BDSM, 2500 and
+    /// 2501 at their rows' initial states, which `text-direction` sets for
+    /// 2501, and the direction `text-direction` gives.
+    pub(super) fn paragraph_defaults(&self) -> LineFlags {
+        let mut defaults = super::modes::paragraph_modes_initial(self);
+        if self.host.text_direction == TextDirection::Rtl {
+            defaults.insert(LineFlags::RTL);
+        }
+        defaults
+    }
+
+    /// Returns the current paragraph properties to their defaults and
+    /// applies them to the cursor's paragraph at its first logical
+    /// position, as DECSTR and RIS do (ADR-1004 D2).
     pub(super) fn reset_paragraph(&mut self) {
-        let defaults = self.host.text_direction.paragraph();
+        let defaults = self.paragraph_defaults();
         self.screen.set_paragraph(defaults);
     }
 }

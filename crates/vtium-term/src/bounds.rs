@@ -217,17 +217,9 @@ const IMAGE_NOTE_BYTES: Bound = Bound {
     cite: "vtium's own: vtium-image's handlers write no reason longer than 70 bytes",
 };
 
-const BIDI_PARAGRAPH_ROWS: Bound = Bound {
-    name: "BIDI_PARAGRAPH_ROWS_MAX",
-    value: 500,
-    what: "Rows of the cursor's paragraph (the rows a wrap joins) that a change of one of its properties reaches, in a build with the bidi feature: SM and RM of BDSM, 2500 and 2501, SCP and SPD set the property on every row of the paragraph on the screen, then on its rows in the scrollback, newest first, until the paragraph's rows they reached number this many",
-    past: "The paragraph's older rows in the scrollback keep the values they had, so the work one sequence does stays bounded however long the paragraph is",
-    cite: "ADR-1004 D3: 500 rows a paragraph, as the Terminal Working Group's BiDi recommendation suggests",
-};
-
 /// Every bound, in the README table's order.
 #[cfg_attr(not(test), allow(dead_code))]
-pub(crate) const BOUNDS: [Bound; 26] = [
+pub(crate) const BOUNDS: [Bound; 25] = [
     COLUMNS,
     ROWS,
     CLUSTER,
@@ -253,7 +245,6 @@ pub(crate) const BOUNDS: [Bound; 26] = [
     INPUT_WORK,
     IMAGE_NOTE_REASONS,
     IMAGE_NOTE_BYTES,
-    BIDI_PARAGRAPH_ROWS,
 ];
 
 /// Cells a line holds, and columns a screen and its damage have. The
@@ -340,11 +331,6 @@ pub(crate) const IMAGE_NOTE_REASONS_MAX: usize = IMAGE_NOTE_REASONS.value;
 /// images.
 #[cfg_attr(not(feature = "images"), allow(dead_code))]
 pub(crate) const IMAGE_NOTE_BYTES_MAX: usize = IMAGE_NOTE_BYTES.value;
-
-/// Rows of the cursor's paragraph a change of its properties reaches, in
-/// a build with the bidi feature.
-#[cfg_attr(not(feature = "bidi"), allow(dead_code))]
-pub(crate) const BIDI_PARAGRAPH_ROWS_MAX: usize = BIDI_PARAGRAPH_ROWS.value;
 
 /// The most bytes of XTVERSION's text.
 pub const VERSION_MAX: usize = VERSION.value;

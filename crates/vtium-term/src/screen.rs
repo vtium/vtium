@@ -793,6 +793,10 @@ impl Screen {
             self.rows
         };
         let room = end.saturating_sub(self.cursor_y).saturating_sub(1);
+        // A line feed (LF, IND, NEL) that moves the cursor or scrolls takes
+        // it into the next row's paragraph (ADR-1004 D2).
+        #[cfg(feature = "bidi")]
+        let moves = scroll && n == 1 && (room > 0 || self.cursor_y <= self.bottom);
         if n > room {
             if scroll && self.cursor_y <= self.bottom {
                 self.scroll_up(n.saturating_sub(room));
@@ -800,6 +804,10 @@ impl Screen {
             self.move_cursor(self.cursor_x, end.saturating_sub(1));
         } else {
             self.move_cursor(self.cursor_x, self.cursor_y.saturating_add(n));
+        }
+        #[cfg(feature = "bidi")]
+        if moves {
+            self.line_fed(self.cursor_y);
         }
     }
 

@@ -232,11 +232,11 @@ mod bidi_modes {
 #[cfg(any(test, feature = "bidi"))]
 #[rustfmt::skip]
 static BIDI_MODES: &[Row] = &[
-    row!(ANSI, 8, "BDSM", Supported, SET, Soft, Nothing, "", "ECMA-48 §7.2.1, the Terminal Working Group's BiDi recommendation: set, the cursor's paragraph (the rows a wrap joins) is in implicit mode, reset in explicit mode (ADR-1004 D3, D4); SM and RM mark every row of the cursor's paragraph and each new row; in a build with the bidi feature, and a build without it has no such row, so DECRQM answers 0", &["bidi.rs::bdsm_sets_explicit_mode_on_the_cursors_paragraph_and_each_new_row", BIDI_RESETS], bidi_modes::BDSM),
+    row!(ANSI, 8, "BDSM", Supported, SET, Soft, Nothing, "", "ECMA-48 §7.2.1, the Terminal Working Group's BiDi recommendation: set, the cursor's paragraph (the rows a wrap joins) is in implicit mode, reset in explicit mode (ADR-1004 D3, D4); SM and RM set the current value, which each new paragraph takes, and mark the cursor's paragraph when the cursor stands at its first position; in a build with the bidi feature, and a build without it has no such row, so DECRQM answers 0", &["bidi.rs::bdsm_marks_the_paragraph_at_its_first_position_and_only_new_ones_elsewhere", BIDI_RESETS], bidi_modes::BDSM),
     row!(ANSI, 9, "DCSM", Ignored, SET, Never, Nothing, "", "ECMA-48 §7.2.3; permanently set: editing always acts on the data, the order the program wrote (ADR-1004 D1); in a build with the bidi feature, and a build without it has no such row, so DECRQM answers 0", &["bidi.rs::dcsm_answers_permanently_set_and_changes_nothing"], None),
     row!(DEC, 1243, "BIDIARROWS", Supported, SET, Soft, Nothing, "", "the Terminal Working Group's BiDi recommendation, as mintty documents it: set, the Left and Right arrow keys swap while the cursor's paragraph resolves right to left (ADR-1004 D11); in a build with the bidi feature, and a build without it has no such row, so DECRQM answers 0", &["bidi.rs::mode_1243_is_set_by_default_and_toggles", BIDI_RESETS], bidi_modes::ARROWS),
-    row!(DEC, 2500, "BIDIBOX", Supported, RESET, Soft, Nothing, "", "the Terminal Working Group's BiDi recommendation, as mintty documents it: set, box drawing in a right-to-left paragraph draws mirrored (ADR-1004 D7); SM and RM mark every row of the cursor's paragraph and each new row; in a build with the bidi feature, and a build without it has no such row, so DECRQM answers 0", &["bidi.rs::mode_2500_marks_box_drawing_mirrored_on_the_cursors_paragraph", BIDI_RESETS], bidi_modes::BOX_MIRROR),
-    row!(DEC, 2501, "BIDIAUTO", Supported, Initial::Host("text-direction"), Soft, Nothing, "", "the Terminal Working Group's BiDi recommendation, as mintty documents it: set, each paragraph's direction is detected from its first strong character (ADR-1004 D5); SM and RM mark every row of the cursor's paragraph and each new row, and DECSTR and RIS return it to vtium.conf's `text-direction`, set under `auto`; in a build with the bidi feature, and a build without it has no such row, so DECRQM answers 0", &["bidi.rs::mode_2501_marks_detection_and_starts_as_text_direction_says", BIDI_RESETS], bidi_modes::DETECT),
+    row!(DEC, 2500, "BIDIBOX", Supported, RESET, Soft, Nothing, "", "the Terminal Working Group's BiDi recommendation, as mintty documents it: set, box drawing in a right-to-left paragraph draws mirrored (ADR-1004 D7); SM and RM set the current value, which each new paragraph takes, and mark the cursor's paragraph when the cursor stands at its first position; in a build with the bidi feature, and a build without it has no such row, so DECRQM answers 0", &["bidi.rs::mode_2500_marks_box_drawing_mirrored_on_the_cursors_paragraph", BIDI_RESETS], bidi_modes::BOX_MIRROR),
+    row!(DEC, 2501, "BIDIAUTO", Supported, Initial::Host("text-direction"), Soft, Nothing, "", "the Terminal Working Group's BiDi recommendation, as mintty documents it: set, each paragraph's direction is detected from its first strong character (ADR-1004 D5); SM and RM set the current value, which each new paragraph takes, and mark the cursor's paragraph when the cursor stands at its first position, and DECSTR and RIS return it to vtium.conf's `text-direction`, set under `auto`; in a build with the bidi feature, and a build without it has no such row, so DECRQM answers 0", &["bidi.rs::mode_2501_marks_detection_and_starts_as_text_direction_says", BIDI_RESETS], bidi_modes::DETECT),
 ];
 
 /// Every mode vtium recognises, ANSI modes first, each kind by number,
@@ -719,6 +719,25 @@ impl State {
             _ => true,
         }
     }
+}
+
+/// The paragraph properties BDSM, 2500 and 2501 give at their rows'
+/// initial states: explicit mode where BDSM starts reset, box drawing
+/// mirrored where 2500 starts set, and detection where 2501 does.
+#[cfg(feature = "bidi")]
+pub(super) fn paragraph_modes_initial(state: &State) -> crate::LineFlags {
+    use crate::LineFlags;
+    let mut flags = LineFlags::empty();
+    for row in BIDI_MODES {
+        let initial = state.initial(row);
+        match row.mode {
+            Some(Mode::Bdsm) if !initial => flags.insert(LineFlags::EXPLICIT),
+            Some(Mode::BoxMirror) if initial => flags.insert(LineFlags::BOX_MIRROR),
+            Some(Mode::DetectDirection) if initial => flags.insert(LineFlags::DETECT),
+            _ => {}
+        }
+    }
+    flags
 }
 
 /// SM or RM of one mode number: the row's setter, or nothing for an

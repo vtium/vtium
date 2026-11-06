@@ -630,8 +630,9 @@ impl State {
     /// DECSTR, and the first half of RIS: the modes, the pen, the cursor
     /// style, the character sets, the saved cursors, the margins, the tab
     /// stops, the 256 palette colors and, in a build with the bidi
-    /// feature, the current paragraph properties and those of the cursor's
-    /// paragraph return to their initial state;
+    /// feature, the current paragraph properties, and those of the cursor's
+    /// paragraph when the cursor stands at its first position, return to
+    /// their initial state;
     /// the text, the cursor, the colors OSC 10 to 19 set, what XTSAVE
     /// saved and XTSHIFTESCAPE stay, as Ghostty keeps the last two.
     fn soft_reset(&mut self) {
@@ -653,9 +654,9 @@ impl State {
     /// RIS: DECSTR's reset, the modes only RIS resets, every color the
     /// program set, the SGR and color stacks emptied, what XTSAVE saved
     /// cleared and XTSHIFTESCAPE 0, the open link ended, the screen and the
-    /// scrollback erased, the cursor home, the paragraph it is home on
-    /// given the initial paragraph properties in a build with the bidi
-    /// feature, and the blank timeout the host's again.
+    /// scrollback erased, which gives every row the initial paragraph
+    /// properties in a build with the bidi feature, the cursor home, and
+    /// the blank timeout the host's again.
     fn hard_reset(&mut self) {
         self.soft_reset();
         self.xtsave = SavedModes::default();
@@ -675,9 +676,6 @@ impl State {
             .set_attribute_extent(crate::screen::Extent::Stream);
         modes::reset(self, true);
         self.screen.move_to(0, 0);
-        // The row the cursor is home on takes the paragraph defaults too.
-        #[cfg(feature = "bidi")]
-        self.reset_paragraph();
         self.reset_blank_timeout();
     }
 
