@@ -290,13 +290,7 @@ fn run(
     vtium::blank::listen(&lp.handle())?;
     let vt = open(&mut lp)?;
     let clock = clock();
-    let mut app = App::new(
-        config,
-        vt,
-        lp.handle(),
-        clock.clone(),
-        vtium::survive::session_env(env),
-    );
+    let mut app = App::new(config, vt, lp.handle(), clock.clone(), env);
     if let Some(font) = console {
         app.set_console_font(font);
     }

@@ -506,7 +506,8 @@ impl App {
             image_helpers,
             exit: None,
             leaving: None,
-            inherited,
+            // No session inherits systemd's word to vtium (ADR-1401 D13).
+            inherited: crate::survive::session_env(inherited),
             survival: survive::Survival::default(),
         }
     }
@@ -708,9 +709,9 @@ impl App {
             if !due {
                 continue;
             }
-            // The consoles whose sessions outlived the last vtium open
-            // first, keeping their ids (ADR-1401 D13).
-            self.open_kept(h);
+            // A head with sessions that outlived the last vtium opens those
+            // consoles alone, keeping their ids (ADR-1401 D13).
+            let restored = self.open_kept(h);
             let App {
                 heads,
                 config,
@@ -722,9 +723,11 @@ impl App {
             let Some(head) = heads.get_mut(h) else {
                 continue;
             };
-            head.open_wanted(|| {
-                crate::head::terminal(config, *scrollback, *scrollback_bytes, Rc::clone(clock))
-            });
+            if !restored {
+                head.open_wanted(|| {
+                    crate::head::terminal(config, *scrollback, *scrollback_bytes, Rc::clone(clock))
+                });
+            }
             for id in head.start_consoles(since) {
                 self.start_console(h, id, since);
             }
@@ -3072,7 +3075,10 @@ impl App {
             if adopted {
                 // vtium did not start it, so it cannot read its status
                 // (ADR-1401 D13).
-                log::info!("a session that outlived the last vtium ended");
+                let name = self.heads.get(h).map(Head::name).unwrap_or_default();
+                log::info!(
+                    "head {name}: console {id}: its session, which outlived the last vtium, ended; vtium did not start it, so its exit status is not known"
+                );
             } else {
                 log::info!("child exited: {status}");
             }

@@ -24,7 +24,7 @@ use vtium_platform::pty::Pty;
 use super::App;
 use crate::head::session::AfterExit;
 use crate::respawn::Respawn;
-use crate::survive::{Keeper, Kept, Ledger, Name};
+use crate::survive::{Keeper, Kept, Ledger, Name, describe};
 
 /// What the seat keeps through a restart.
 #[derive(Default)]
@@ -38,6 +38,10 @@ pub(crate) struct Survival {
     released: bool,
     /// The id the next pty the seat opens or takes back gets.
     next_pty_id: u64,
+    /// The names under which the keeper held a second master, which vtium
+    /// hung up: the keeper drops every master of such a name when the
+    /// first is taken back, and is given it again at the turn's end.
+    rekeep: Vec<String>,
 }
 
 /// What became of a console's kept master at its start.
@@ -71,7 +75,21 @@ impl App {
             ..Survival::default()
         };
         for (name, master) in apart {
-            self.hang_up_kept(&name, master, "it names no head of this vtium.conf");
+            match Name::parse(&name) {
+                // A second master under a name whose first has a place:
+                // dropping the name would drop the first too.
+                Some(n) if heads.contains(&n.head) => {
+                    self.survival.rekeep.push(name.clone());
+                    self.hang_up_kept(
+                        &name,
+                        master,
+                        "another session was kept for the same console",
+                        false,
+                    );
+                }
+                Some(_) => self.hang_up_kept(&name, master, "its head is not in vtium.conf", true),
+                None => self.hang_up_kept(&name, master, "", true),
+            }
         }
     }
 
@@ -89,26 +107,42 @@ impl App {
     }
 
     /// Hangs up the kept session `name` for the reason `why`, which is
-    /// logged: the keeper drops its copy, and the session's leader gets
-    /// SIGHUP before the master closes, as a console that closes does.
-    fn hang_up_kept(&mut self, name: &str, master: OwnedFd, why: &str) {
-        log::warn!("vtium hangs up the session it kept as {name}, because {why}");
-        if let Err(e) = self.survival.keeper.forget(name) {
-            log::warn!("cannot drop the kept copy of {name}: {e}");
+    /// logged while its session still runs: with `forget`, the keeper
+    /// drops its copy, and the session's leader gets SIGHUP before the
+    /// master closes, as a console that closes does.
+    fn hang_up_kept(&mut self, name: &str, master: OwnedFd, why: &str, forget: bool) {
+        if forget {
+            let Survival { keeper, ledger, .. } = &mut self.survival;
+            ledger.forget(keeper, name);
         }
-        drop(Pty::adopt(master));
+        let Ok(pty) = Pty::adopt(master) else {
+            return;
+        };
+        if Name::parse(name).is_some() {
+            log::warn!(
+                "{}: vtium hangs up its session, kept from the last vtium, because {why}",
+                describe(name)
+            );
+        } else {
+            log::warn!(
+                "vtium hangs up a session kept from the last vtium under a name it does not know"
+            );
+        }
+        drop(pty);
     }
 
-    /// Opens the consoles of head `h` that have a kept master and that the
-    /// head does not open at its start, within the caps (ADR-1401 D10),
-    /// and hangs up each kept session the caps leave no room for.
-    pub(super) fn open_kept(&mut self, h: usize) {
+    /// Opens on head `h` exactly the consoles it has kept masters for, the
+    /// lowest shown, within the caps (ADR-1401 D10), and hangs up each
+    /// kept session the caps leave no room for. Returns whether the head
+    /// had kept masters, in which case it opens no other console at its
+    /// start.
+    pub(super) fn open_kept(&mut self, h: usize) -> bool {
         let Some(name) = self.heads.get(h).map(|head| head.name().to_owned()) else {
-            return;
+            return false;
         };
         let ids = self.survival.kept.consoles(&name);
         if ids.is_empty() {
-            return;
+            return false;
         }
         // The consoles the other heads have, or will open at their start.
         let others: usize = self
@@ -134,7 +168,7 @@ impl App {
             ..
         } = self;
         let Some(head) = heads.get_mut(h) else {
-            return;
+            return false;
         };
         let left = head.open_kept(&ids, room, || {
             crate::head::terminal(config, *scrollback, *scrollback_bytes, Rc::clone(clock))
@@ -142,9 +176,10 @@ impl App {
         for id in left {
             if let Some(master) = self.survival.kept.take(&name, id) {
                 let key = Name::new(&name, id).encode();
-                self.hang_up_kept(&key, master, "the console caps leave no room for it");
+                self.hang_up_kept(&key, master, "the console caps leave no room for it", true);
             }
         }
+        true
     }
 
     /// Starts the session of head `h`'s console `id` at `since`: the one
@@ -181,15 +216,18 @@ impl App {
             return Taken::None;
         };
         let name = Name::new(&head_name, id).encode();
+        let rekeep = self.survival.rekeep.contains(&name);
+        if rekeep {
+            self.survival.rekeep.retain(|n| *n != name);
+        }
         let mut pty = match Pty::adopt(master) {
             Ok(pty) => pty,
-            Err(e) => {
+            Err(_) => {
                 log::info!(
-                    "head {head_name}: console {id}: its session ended while vtium was away ({e})"
+                    "head {head_name}: console {id}: its session ended while vtium was away"
                 );
-                if let Err(e) = self.survival.keeper.forget(&name) {
-                    log::warn!("cannot drop the kept copy of {name}: {e}");
-                }
+                let Survival { keeper, ledger, .. } = &mut self.survival;
+                ledger.forget(keeper, &name);
                 return Taken::Ended;
             }
         };
@@ -200,13 +238,19 @@ impl App {
         }
         if let Err(e) = self.watch(h, id, &mut pty) {
             log::warn!("head {head_name}: console {id}: cannot watch the recovered session: {e}");
-            if let Err(e) = self.survival.keeper.forget(&name) {
-                log::warn!("cannot drop the kept copy of {name}: {e}");
-            }
+            let Survival { keeper, ledger, .. } = &mut self.survival;
+            ledger.forget(keeper, &name);
             return Taken::None;
         }
         let pty_id = self.next_pty_id();
-        self.survival.ledger.held(name, pty_id);
+        let Survival { keeper, ledger, .. } = &mut self.survival;
+        if rekeep {
+            // Drops the second master too; the turn's end keeps this one
+            // again.
+            ledger.forget(keeper, &name);
+        } else {
+            ledger.held(name, pty_id);
+        }
         let Some(console) = self.heads.get_mut(h).and_then(|head| head.console_mut(id)) else {
             return Taken::None;
         };
@@ -353,6 +397,17 @@ mod tests {
     /// A seat whose new sessions run `script`, with one display, set up
     /// with `set` before its start, shown, after its first turn.
     fn seat(options: &[&str], script: &str, set: impl FnOnce(&mut App)) -> (Loop<App>, App) {
+        let env = vec![("PATH".into(), "/usr/bin:/bin".into())];
+        seat_with_env(options, script, env, set)
+    }
+
+    /// [`seat`], vtium's environment `env`.
+    fn seat_with_env(
+        options: &[&str],
+        script: &str,
+        env: Vec<(OsString, OsString)>,
+        set: impl FnOnce(&mut App),
+    ) -> (Loop<App>, App) {
         let args: Vec<OsString> = ["--font-size=16"]
             .iter()
             .chain(options)
@@ -366,7 +421,7 @@ mod tests {
             Box::new(FakeVt::new()),
             lp.handle(),
             Rc::new(Instant::now),
-            vec![("PATH".into(), "/usr/bin:/bin".into())],
+            env,
         );
         app.set_font_sources(no_fonts());
         app.add_video(
@@ -506,5 +561,120 @@ mod tests {
         assert!(holder.join().unwrap().is_ok());
         end(leader);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A holder serving on a socket in a directory of its own, and that
+    /// directory.
+    fn holder(name: &str) -> (PathBuf, std::thread::JoinHandle<std::io::Result<()>>) {
+        let dir = std::env::temp_dir().join(format!("vtium-app-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = hold::socket_path(&dir);
+        let listener = rustix::net::socket_with(
+            rustix::net::AddressFamily::UNIX,
+            rustix::net::SocketType::SEQPACKET,
+            rustix::net::SocketFlags::CLOEXEC,
+            None,
+        )
+        .unwrap();
+        rustix::net::bind(&listener, &rustix::net::SocketAddrUnix::new(&path).unwrap()).unwrap();
+        rustix::net::listen(&listener, 4).unwrap();
+        (path, std::thread::spawn(move || hold::serve(listener)))
+    }
+
+    // The maintainer's answer of 2026-11-06 (ADR-1401 D13): a head with
+    // kept sessions opens exactly those consoles and no fresh one, and
+    // shows the lowest. Consoles 2 to 5 under head-consoles-max 4 all come
+    // back, and nothing is hung up.
+    #[test]
+    fn a_head_with_kept_sessions_opens_exactly_those_consoles() {
+        let kept: Vec<(u64, u32, OwnedFd)> = (2..=5)
+            .map(|id| {
+                let (leader, master) = left_running("while read a; do :; done");
+                (id, leader, master)
+            })
+            .collect();
+        let leaders: Vec<(u64, u32)> = kept.iter().map(|&(id, leader, _)| (id, leader)).collect();
+        let named = kept
+            .into_iter()
+            .map(|(id, _, master)| (Name::new("console", id).encode(), master))
+            .collect();
+        let (_lp, app) = seat(&["--head-consoles-max=4"], FRESH, |app| {
+            app.set_survival(Keeper::Off, named);
+        });
+        let head = &app.heads()[0];
+        let ids: Vec<u64> = head.consoles().map(|c| c.id).collect();
+        assert_eq!(ids, [2, 3, 4, 5], "the kept consoles, the lowest shown");
+        for (id, leader) in &leaders {
+            let pty = head
+                .consoles()
+                .find(|c| c.id == *id)
+                .and_then(|c| c.pty.as_ref());
+            assert_eq!(pty.and_then(Pty::child_id), Some(*leader), "console {id}");
+            assert!(runs(*leader), "console {id}'s session runs");
+        }
+        drop(app);
+        for (_, leader) in leaders {
+            end(leader);
+        }
+    }
+
+    // Two masters kept under one console's name: the second is hung up,
+    // and the keeper ends up holding the first, which the console took
+    // back, and only it.
+    #[test]
+    fn a_second_master_for_one_console_is_hung_up_and_the_first_kept() {
+        let (first, master) = left_running("while read a; do :; done");
+        let (second, again) = left_running("while read a; do :; done");
+        let held = master.try_clone().unwrap();
+        let (path, holder) = holder("duplicate");
+        let client = hold::Client::connect(&path).unwrap();
+        let name = Name::new("console", 1).encode();
+        let (mut lp, mut app) = seat(&[], FRESH, |app| {
+            app.set_survival(
+                Keeper::Hold(client),
+                vec![(name.clone(), master), (name.clone(), again)],
+            );
+        });
+        assert!(exits(second), "the second session is hung up");
+        assert_eq!(app.heads()[0].pty().and_then(Pty::child_id), Some(first));
+        app.request_exit(crate::app::Exit::Signal);
+        assert!(until(&mut lp, &mut app, |a| a.finished().is_some()));
+        app.release_sessions();
+        drop(app);
+        drop(lp);
+        let next = hold::Client::connect(&path).unwrap();
+        let kept = next.take().unwrap();
+        let pts = |fd| rustix::pty::ptsname(fd, Vec::new()).unwrap();
+        let names: Vec<&str> = kept.iter().map(|(n, _)| n.as_str()).collect();
+        assert_eq!(names, [name.as_str()], "one master kept");
+        assert_eq!(pts(&kept[0].1), pts(&held), "the first session's");
+        next.forget(&name).unwrap();
+        drop(next);
+        assert!(holder.join().unwrap().is_ok());
+        end(first);
+    }
+
+    // No session inherits what systemd says to vtium alone, through the
+    // seat as main builds it, with reset-env off.
+    #[test]
+    fn no_session_inherits_systemds_variables() {
+        let env = [
+            ("PATH", "/usr/bin:/bin"),
+            ("HOME", "/home-of-the-test"),
+            ("NOTIFY_SOCKET", "/run/systemd/notify"),
+            ("INVOCATION_ID", "1234"),
+            ("MEMORY_PRESSURE_WATCH", "/sys/fs/cgroup/memory.pressure"),
+        ]
+        .iter()
+        .map(|(k, v)| ((*k).into(), (*v).into()))
+        .collect();
+        let script = "echo \"N=${NOTIFY_SOCKET:-none} I=${INVOCATION_ID:-none} M=${MEMORY_PRESSURE_WATCH:-none} H=$HOME\"; read a";
+        let (mut lp, mut app) = seat_with_env(&["--no-reset-env"], script, env, |_| {});
+        assert!(until(&mut lp, &mut app, |a| shows(
+            a,
+            "H=/home-of-the-test"
+        )));
+        assert!(shows(&app, "N=none I=none M=none H=/home-of-the-test"));
     }
 }

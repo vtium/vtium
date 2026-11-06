@@ -185,18 +185,26 @@ impl Head {
         }
     }
 
-    /// Opens, behind the consoles the head has, a console for each of
-    /// `ids` it lacks, in order, on a terminal `term` makes, until the head
-    /// has `room` consoles; returns the ids left without one. These are the
-    /// consoles whose sessions an earlier vtium left running (ADR-1401
-    /// D13), which keep their ids, so the head's next new console takes an
-    /// id after the last of them.
+    /// Opens exactly the consoles of `ids`, in order, on terminals `term`
+    /// makes, until the head has `room` consoles; returns the ids left
+    /// without one. These are the consoles whose sessions an earlier vtium
+    /// left running (ADR-1401 D13), which keep their ids: the console
+    /// shown, which has no session yet, takes the lowest id where `ids`
+    /// lacks its own, and the head's next new console takes an id after the
+    /// last of them.
     pub(crate) fn open_kept(
         &mut self,
         ids: &[u64],
         room: usize,
         mut term: impl FnMut() -> Term,
     ) -> Vec<u64> {
+        if let Some(&lowest) = ids.first()
+            && !ids.contains(&self.console.id)
+            && !self.console.started()
+        {
+            self.console.id = lowest;
+            self.next_id = self.next_id.max(lowest.saturating_add(1));
+        }
         let mut left = Vec::new();
         for &id in ids {
             if self.consoles().any(|c| c.id == id) {
