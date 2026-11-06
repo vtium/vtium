@@ -431,12 +431,12 @@ fn fnv(mut h: u64, bytes: &[u8]) -> u64 {
     h
 }
 
-// The page digests of the PSF fixtures (tests/reference/psf.tsv) hold
+// The page digests of the PSF fixtures (tests/digests/psf.tsv) hold
 // through vitrify: each page drawn through a Font of the fixture's set
 // (ADR-1200 D10)
 #[test]
 fn psf_digests_hold_through_vitrify() {
-    let path = format!("{}/tests/reference/psf.tsv", env!("CARGO_MANIFEST_DIR"));
+    let path = format!("{}/tests/digests/psf.tsv", env!("CARGO_MANIFEST_DIR"));
     let rows = std::fs::read_to_string(path).expect("psf.tsv");
     let mut sets = BTreeMap::new();
     let mut checked = 0;

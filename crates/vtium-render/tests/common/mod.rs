@@ -107,15 +107,15 @@ pub fn style(fg: Rgb, bg: Rgb) -> Style {
     }
 }
 
-/// The text of tests/reference/screens.tsv.
-pub fn reference_screens_tsv() -> String {
-    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/reference/screens.tsv");
+/// The text of tests/digests/screens.tsv.
+pub fn digest_screens_tsv() -> String {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/digests/screens.tsv");
     std::fs::read_to_string(path).expect("screens.tsv")
 }
 
-/// The screens of tests/reference/screens.tsv, by name.
-pub fn reference_screens() -> Vec<(String, Screen)> {
-    parse_screens(&reference_screens_tsv())
+/// The screens of tests/digests/screens.tsv, by name.
+pub fn digest_screens() -> Vec<(String, Screen)> {
+    parse_screens(&digest_screens_tsv())
 }
 
 /// The screens of `text`, in screens.tsv's form, by name.

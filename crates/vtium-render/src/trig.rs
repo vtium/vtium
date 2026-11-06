@@ -144,7 +144,7 @@ mod tests {
 
     // Within an ulp of the platform's, over the angles a sprite asks for;
     // the sprites themselves are checked against their digests in
-    // tests/reference/cells.tsv.
+    // tests/digests/cells.tsv.
     #[test]
     fn agrees_with_the_platform_to_an_ulp() {
         let ulps = |a: f64, b: f64| a.to_bits().abs_diff(b.to_bits());

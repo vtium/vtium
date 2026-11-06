@@ -305,7 +305,8 @@ pub struct Key {
     /// line, `\n\n`, separates two paragraphs, and the text holds no other
     /// newline.
     pub what: &'static str,
-    /// Where it comes from: the C reference's lines or the decision.
+    /// Where it comes from: the decision or specification that defines it,
+    /// or the released kmscon's key it came from.
     pub cite: &'static str,
 }
 
@@ -340,8 +341,8 @@ impl Key {
 /// The values of `glyph-source` and its per-range keys.
 const GLYPH_SOURCES: &[&str] = &["font", "sprites", "auto"];
 
-/// The C reference's `unsigned int`, the bound of a number it left
-/// unbounded.
+/// The bound of a number with no bound of its own: the largest value a
+/// 32-bit unsigned field holds.
 const UINT_MAX: u64 = u32::MAX as u64;
 
 pub const CONFIGDIR: Key = Key {
@@ -353,7 +354,7 @@ pub const CONFIGDIR: Key = Key {
     levels: NONE,
     reader: "vtium",
     what: "The directory that holds `vtium.conf`, vtium's configuration file.",
-    cite: "src/config.c:1349, ADR-1500 D4",
+    cite: "kmscon's `configdir` key; ADR-1500 D4",
 };
 
 pub const HELP: Key = Key {
@@ -365,7 +366,7 @@ pub const HELP: Key = Key {
     levels: NONE,
     reader: "vtium",
     what: "Print the options and exit.",
-    cite: "src/config.c:1342",
+    cite: "kmscon's `help` key",
 };
 
 pub const VERSION: Key = Key {
@@ -377,7 +378,7 @@ pub const VERSION: Key = Key {
     levels: NONE,
     reader: "vtium",
     what: "Print the version, the source revision of the build, and the optional features it was built with, then exit.",
-    cite: "src/config.c:1343",
+    cite: "kmscon's `version` key",
 };
 
 pub const DEBUG: Key = Key {
@@ -389,7 +390,7 @@ pub const DEBUG: Key = Key {
     levels: TOP,
     reader: "vtium",
     what: "Log debug messages too, to help find what went wrong. When off, vtium logs information messages, warnings and errors.",
-    cite: "src/config.c:1346, 1515-1539",
+    cite: "kmscon's `debug` key",
 };
 
 pub const VT: Key = Key {
@@ -401,7 +402,7 @@ pub const VT: Key = Key {
     levels: TOP,
     reader: "vtium-platform",
     what: "The VT to run on: a number N for `/dev/ttyN`, a name under `/dev`, or a path. When unset, vtium runs on the VT it was started on, or else the next free one.",
-    cite: "src/config.c:329-361, 1352",
+    cite: "kmscon's `vt` key",
 };
 
 pub const SWITCHVT: Key = Key {
@@ -413,7 +414,7 @@ pub const SWITCHVT: Key = Key {
     levels: TOP,
     reader: "vtium-platform",
     what: "Switch to vtium's VT when vtium starts. When off, vtium waits until something else switches to it.",
-    cite: "src/config.c:1353",
+    cite: "kmscon's `switchvt` key",
 };
 
 pub const LOGIN: Key = Key {
@@ -426,7 +427,7 @@ pub const LOGIN: Key = Key {
     reader: "vtium",
     what: "The command each console runs, such as a login prompt or a shell.\n\n\
            When unset, the command is `/bin/login -p` with `reset-env` on and `/bin/login` with it off. A word written `$NAME` is replaced by that environment variable's value, and `$$` writes a literal `$` at the start of a word.",
-    cite: "src/config.c:372-494, 1365; src/misc/pty.c:252-302",
+    cite: "kmscon's `login` key",
 };
 
 pub const ONESHOT: Key = Key {
@@ -438,7 +439,7 @@ pub const ONESHOT: Key = Key {
     levels: TOP,
     reader: "vtium",
     what: "Exit when the console's command exits, instead of starting it again.",
-    cite: "src/config.c:1367; src/misc/pty.c:752-756",
+    cite: "kmscon's `oneshot` key",
 };
 
 pub const HEAD_CONSOLES_MAX: Key = Key {
@@ -455,7 +456,7 @@ pub const HEAD_CONSOLES_MAX: Key = Key {
     levels: TOP,
     reader: "vtium",
     what: "The most consoles one head can have. A head's `consoles` cannot open more than this.",
-    cite: "ADR-1401 D10; the C reference's `session-max` (src/config.c:1357) bounded the seat's sessions",
+    cite: "ADR-1401 D10",
 };
 
 pub const OSD: Key = Key {
@@ -636,7 +637,7 @@ pub const CONSOLES_MAX: Key = Key {
     reader: "vtium",
     what: "The most consoles all heads can have together.\n\n\
            Every head keeps its first console. More consoles open, in the order the heads appear in vtium.conf, until the total reaches this number.",
-    cite: "ADR-1401 D10; the C reference's `session-max` (src/config.c:1357)",
+    cite: "ADR-1401 D10",
 };
 
 pub const TERM: Key = Key {
@@ -649,7 +650,7 @@ pub const TERM: Key = Key {
     reader: "vtium",
     what: "The value of `TERM` that programs on the console see.\n\n\
            The default is vtium's own terminfo entry, `xterm-vtium`, which is also named `vtium`. With either name, vtium answers capability queries (XTGETTCAP) from that entry. With `kmscon`, vtium answers from kmscon's entry. With any other value, vtium answers every query as unknown.",
-    cite: "src/config.c:1368; meson.options:51-52; src/terminal_vte.c:36-56; ADR-1000, \"The terminfo entry and TERM\"",
+    cite: "kmscon's `term` key; ADR-1000, \"The terminfo entry and TERM\"",
 };
 
 pub const RESET_ENV: Key = Key {
@@ -661,7 +662,7 @@ pub const RESET_ENV: Key = Key {
     levels: TOP,
     reader: "vtium",
     what: "Start each console's command with only the environment variables vtium sets. When off, the command also gets vtium's own environment.",
-    cite: "src/config.c:1369; src/misc/pty.c:261-272",
+    cite: "kmscon's `reset-env` key",
 };
 
 pub const BACKSPACE_DELETE: Key = Key {
@@ -673,7 +674,7 @@ pub const BACKSPACE_DELETE: Key = Key {
     levels: TOP,
     reader: "vtium-platform",
     what: "Backspace sends DEL (0x7f). When off, it sends BS (0x08).",
-    cite: "src/config.c:1370; src/misc/pty.c:360-366",
+    cite: "kmscon's `backspace-delete` key",
 };
 
 pub const SB_SIZE: Key = Key {
@@ -690,7 +691,7 @@ pub const SB_SIZE: Key = Key {
     levels: TOP,
     reader: "vtium-term",
     what: "How many lines of scrollback each console keeps, up to `sb-size-cap`.",
-    cite: "src/config.c:1371; ADR-1001, \"Scrollback size\"",
+    cite: "kmscon's `sb-size` key; ADR-1001, \"Scrollback size\"",
 };
 
 pub const SB_SIZE_CAP: Key = Key {
@@ -741,7 +742,7 @@ pub const BELL: Key = Key {
     reader: "vtium",
     what: "Ring the console's bell when a program sends BEL.\n\n\
            A program can silence its own bells by resetting mode 1042, which starts set. When off, no bell rings.",
-    cite: "src/config.c:125-126, 1372; src/terminal.c:872-879",
+    cite: "kmscon's `bell` key",
 };
 
 pub const BLINK: Key = Key {
@@ -753,7 +754,7 @@ pub const BLINK: Key = Key {
     levels: TOP,
     reader: "vtium",
     what: "Blink blinking text (SGR 5) and the cursor, every 500 ms. When off, neither blinks.",
-    cite: "src/config.c:1373; src/terminal.c:163, 715-724",
+    cite: "kmscon's `blink` key",
 };
 
 pub const BLINK_TEXT: Key = Key {
@@ -766,7 +767,7 @@ pub const BLINK_TEXT: Key = Key {
     reader: "vtium-render",
     what: "How blinking text (SGR 5 or 6) looks while a blink is off.\n\n\
            `full` hides it, `partial` dims it halfway to its background, as faint text (SGR 2) is, and `off` keeps it steady. The cursor follows `blink` either way.",
-    cite: "src/render/bbulk.c:1521, which hid the glyph; the operator on vtium/vtium#81; the maintainer's decision of 2026-11-03",
+    cite: "the operator on vtium/vtium#81; the maintainer's decision of 2026-11-03",
 };
 
 pub const BLINK_DECORATIONS: Key = Key {
@@ -779,7 +780,7 @@ pub const BLINK_DECORATIONS: Key = Key {
     reader: "vtium-render",
     what: "Blink the underline and strikethrough of blinking text with it.\n\n\
            They hide while a blink is off with `blink-text = full`, and dim with `partial`. When off, they stay visible while the text blinks.",
-    cite: "src/render/bbulk.c:1521; the operator on vtium/vtium#81",
+    cite: "the operator on vtium/vtium#81",
 };
 
 pub const SYNC_TIMEOUT: Key = Key {
@@ -796,7 +797,7 @@ pub const SYNC_TIMEOUT: Key = Key {
     levels: TOP,
     reader: "vtium",
     what: "The longest vtium waits for a program to finish a synchronized update (mode 2026) before it shows the screen as it is. 0 turns mode 2026 off.",
-    cite: "src/config.c:1374; src/terminal_sync.h:62-66, `TERMINAL_SYNC_MAX_MS`",
+    cite: "ADR-1000 (`DEC-2026`)",
 };
 
 pub const DPMS_TIMEOUT: Key = Key {
@@ -813,7 +814,7 @@ pub const DPMS_TIMEOUT: Key = Key {
     levels: TOP,
     reader: "vtium-platform",
     what: "Turn the displays off after this long with no key press or mouse action (a move, a click or the wheel). 0 never turns them off.",
-    cite: "src/config.c:1388",
+    cite: "kmscon's `dpms-timeout` key",
 };
 
 pub const PROGRAM_BLANK: Key = Key {
@@ -861,7 +862,7 @@ pub const DISPLAY_BUFFERS: Key = Key {
     what: "How many frame buffers each display keeps (DRM displays only; every display gets the same number).\n\n\
            `3` is triple buffering: no frame waits for the previous one to reach the screen, at the cost of one more frame of memory per display (8 MB at 1080p). `2` is double buffering. `1` is single buffering, which uses the least memory, but vtium then draws into the buffer on screen, so a half-drawn frame can show.\n\n\
            A framebuffer device (fbdev) always keeps one buffer. When unset, the build decides: the number it was built with (`VTIUM_DISPLAY_BUFFERS`), or else 3 in a build with optional features, 2 in the smallest build (minspec), and 1 only in a build smaller than that. `vtium config get display-buffers` prints the draft's value followed by `draft`, or the build's default followed by `default` (`unset` when the build sets no number, in which case the rule above decides).",
-    cite: "ADR-1401 D2; the C reference's drm2d kept 2, src/video/drm2d_internal.h:49",
+    cite: "ADR-1401 D2",
 };
 
 pub const HWACCEL: Key = Key {
@@ -874,7 +875,7 @@ pub const HWACCEL: Key = Key {
     reader: "vtium",
     what: "Draw with the GPU, in a build that supports it.\n\n\
            It is off unless vtium was built with it on (`VTIUM_HWACCEL`). `vtium config get hwaccel` prints the draft's value followed by `draft`, or the build's default followed by `default`. `vtium config set hwaccel on` turns it on in the draft.",
-    cite: "src/config.c:1413",
+    cite: "kmscon's `hwaccel` key",
 };
 
 pub const USE_ORIGINAL_MODE: Key = Key {
@@ -886,7 +887,7 @@ pub const USE_ORIGINAL_MODE: Key = Key {
     levels: TOP,
     reader: "vtium-platform",
     what: "Keep each display's current resolution. When off, vtium sets each display's preferred resolution.",
-    cite: "src/config.c:1416; vtium/vtium#5",
+    cite: "kmscon's `use-original-mode` key; vtium/vtium#5",
 };
 
 pub const MODE: Key = Key {
@@ -899,7 +900,7 @@ pub const MODE: Key = Key {
     reader: "vtium-platform",
     what: "A display's resolution and refresh rate.\n\n\
            `WxH[@RATE]` sets it for every display, `[CONNECTOR]WxH` for one connector, and `GPU[CONNECTOR]WxH` for one connector on one graphics card, named by its udev `ID_PATH`. Write one `mode` line per display; the most specific match wins. When unset, each display uses its preferred resolution. Setting it turns `use-original-mode` off.",
-    cite: "src/config.c:546-660, 1417, 1541-1548",
+    cite: "kmscon's `mode` key",
 };
 
 pub const PALETTE: Key = Key {
@@ -923,7 +924,7 @@ pub const PALETTE: Key = Key {
     reader: "vtium-term",
     what: "The sixteen basic colors, and the default text and background colors.\n\n\
            The value is the name of a palette, or `custom`, which takes the colors from the `palette-*` keys. Colors 16 to 255 are xterm's in every palette.",
-    cite: "src/config.c:1427; libtsm src/tsm/tsm-vte.c:254-478",
+    cite: "kmscon's `palette` key",
 };
 
 pub const PALETTE_BLACK: Key = Key {
@@ -935,7 +936,7 @@ pub const PALETTE_BLACK: Key = Key {
     levels: TOP,
     reader: "vtium-term",
     what: "Color 0 (black) when `palette = custom`.",
-    cite: "src/config.c:1305-1324, 1428-1448",
+    cite: "kmscon's `palette-black` key",
 };
 
 pub const PALETTE_RED: Key = Key {
@@ -947,7 +948,7 @@ pub const PALETTE_RED: Key = Key {
     levels: TOP,
     reader: "vtium-term",
     what: "Color 1 (red) when `palette = custom`.",
-    cite: "src/config.c:1305-1324, 1428-1448",
+    cite: "kmscon's `palette-red` key",
 };
 
 pub const PALETTE_GREEN: Key = Key {
@@ -959,7 +960,7 @@ pub const PALETTE_GREEN: Key = Key {
     levels: TOP,
     reader: "vtium-term",
     what: "Color 2 (green) when `palette = custom`.",
-    cite: "src/config.c:1305-1324, 1428-1448",
+    cite: "kmscon's `palette-green` key",
 };
 
 pub const PALETTE_YELLOW: Key = Key {
@@ -971,7 +972,7 @@ pub const PALETTE_YELLOW: Key = Key {
     levels: TOP,
     reader: "vtium-term",
     what: "Color 3 (yellow) when `palette = custom`.",
-    cite: "src/config.c:1305-1324, 1428-1448",
+    cite: "kmscon's `palette-yellow` key",
 };
 
 pub const PALETTE_BLUE: Key = Key {
@@ -983,7 +984,7 @@ pub const PALETTE_BLUE: Key = Key {
     levels: TOP,
     reader: "vtium-term",
     what: "Color 4 (blue) when `palette = custom`.",
-    cite: "src/config.c:1305-1324, 1428-1448",
+    cite: "kmscon's `palette-blue` key",
 };
 
 pub const PALETTE_MAGENTA: Key = Key {
@@ -995,7 +996,7 @@ pub const PALETTE_MAGENTA: Key = Key {
     levels: TOP,
     reader: "vtium-term",
     what: "Color 5 (magenta) when `palette = custom`.",
-    cite: "src/config.c:1305-1324, 1428-1448",
+    cite: "kmscon's `palette-magenta` key",
 };
 
 pub const PALETTE_CYAN: Key = Key {
@@ -1007,7 +1008,7 @@ pub const PALETTE_CYAN: Key = Key {
     levels: TOP,
     reader: "vtium-term",
     what: "Color 6 (cyan) when `palette = custom`.",
-    cite: "src/config.c:1305-1324, 1428-1448",
+    cite: "kmscon's `palette-cyan` key",
 };
 
 pub const PALETTE_LIGHT_GREY: Key = Key {
@@ -1019,7 +1020,7 @@ pub const PALETTE_LIGHT_GREY: Key = Key {
     levels: TOP,
     reader: "vtium-term",
     what: "Color 7 (light grey) when `palette = custom`.",
-    cite: "src/config.c:1305-1324, 1428-1448",
+    cite: "kmscon's `palette-light-grey` key",
 };
 
 pub const PALETTE_DARK_GREY: Key = Key {
@@ -1031,7 +1032,7 @@ pub const PALETTE_DARK_GREY: Key = Key {
     levels: TOP,
     reader: "vtium-term",
     what: "Color 8 (dark grey) when `palette = custom`.",
-    cite: "src/config.c:1305-1324, 1428-1448",
+    cite: "kmscon's `palette-dark-grey` key",
 };
 
 pub const PALETTE_LIGHT_RED: Key = Key {
@@ -1043,7 +1044,7 @@ pub const PALETTE_LIGHT_RED: Key = Key {
     levels: TOP,
     reader: "vtium-term",
     what: "Color 9 (light red) when `palette = custom`.",
-    cite: "src/config.c:1305-1324, 1428-1448",
+    cite: "kmscon's `palette-light-red` key",
 };
 
 pub const PALETTE_LIGHT_GREEN: Key = Key {
@@ -1055,7 +1056,7 @@ pub const PALETTE_LIGHT_GREEN: Key = Key {
     levels: TOP,
     reader: "vtium-term",
     what: "Color 10 (light green) when `palette = custom`.",
-    cite: "src/config.c:1305-1324, 1428-1448",
+    cite: "kmscon's `palette-light-green` key",
 };
 
 pub const PALETTE_LIGHT_YELLOW: Key = Key {
@@ -1067,7 +1068,7 @@ pub const PALETTE_LIGHT_YELLOW: Key = Key {
     levels: TOP,
     reader: "vtium-term",
     what: "Color 11 (light yellow) when `palette = custom`.",
-    cite: "src/config.c:1305-1324, 1428-1448",
+    cite: "kmscon's `palette-light-yellow` key",
 };
 
 pub const PALETTE_LIGHT_BLUE: Key = Key {
@@ -1079,7 +1080,7 @@ pub const PALETTE_LIGHT_BLUE: Key = Key {
     levels: TOP,
     reader: "vtium-term",
     what: "Color 12 (light blue) when `palette = custom`.",
-    cite: "src/config.c:1305-1324, 1428-1448",
+    cite: "kmscon's `palette-light-blue` key",
 };
 
 pub const PALETTE_LIGHT_MAGENTA: Key = Key {
@@ -1091,7 +1092,7 @@ pub const PALETTE_LIGHT_MAGENTA: Key = Key {
     levels: TOP,
     reader: "vtium-term",
     what: "Color 13 (light magenta) when `palette = custom`.",
-    cite: "src/config.c:1305-1324, 1428-1448",
+    cite: "kmscon's `palette-light-magenta` key",
 };
 
 pub const PALETTE_LIGHT_CYAN: Key = Key {
@@ -1103,7 +1104,7 @@ pub const PALETTE_LIGHT_CYAN: Key = Key {
     levels: TOP,
     reader: "vtium-term",
     what: "Color 14 (light cyan) when `palette = custom`.",
-    cite: "src/config.c:1305-1324, 1428-1448",
+    cite: "kmscon's `palette-light-cyan` key",
 };
 
 pub const PALETTE_WHITE: Key = Key {
@@ -1115,7 +1116,7 @@ pub const PALETTE_WHITE: Key = Key {
     levels: TOP,
     reader: "vtium-term",
     what: "Color 15 (white) when `palette = custom`.",
-    cite: "src/config.c:1305-1324, 1428-1448",
+    cite: "kmscon's `palette-white` key",
 };
 
 pub const PALETTE_FOREGROUND: Key = Key {
@@ -1127,7 +1128,7 @@ pub const PALETTE_FOREGROUND: Key = Key {
     levels: TOP,
     reader: "vtium-term",
     what: "The default text color when `palette = custom`.",
-    cite: "src/config.c:1305-1324, 1428-1448",
+    cite: "kmscon's `palette-foreground` key",
 };
 
 pub const PALETTE_BACKGROUND: Key = Key {
@@ -1139,7 +1140,7 @@ pub const PALETTE_BACKGROUND: Key = Key {
     levels: TOP,
     reader: "vtium-term",
     what: "The default background color when `palette = custom`.",
-    cite: "src/config.c:1305-1324, 1428-1448",
+    cite: "kmscon's `palette-background` key",
 };
 
 pub const UNDERLINE_COLOR: Key = Key {
@@ -1152,7 +1153,7 @@ pub const UNDERLINE_COLOR: Key = Key {
     reader: "vtium-render",
     what: "The color of underlines (SGR 4 in every style, and SGR 21).\n\n\
            `fg` uses the text's color, a palette number uses that palette color (which a program can change with OSC 4), and `#rrggbb` uses that color. A color a program sets with SGR 58 wins, unless `force-decoration-colors` is on.",
-    cite: "src/config.c:263-265, 868-933, 1453-1454",
+    cite: "ADR-1000 (`sgr.underline-color`)",
 };
 
 pub const STRIKE_COLOR: Key = Key {
@@ -1164,7 +1165,7 @@ pub const STRIKE_COLOR: Key = Key {
     levels: TOP,
     reader: "vtium-render",
     what: "The color of strikethrough (SGR 9). It takes the same values as `underline-color`.",
-    cite: "src/config.c:266-267, 1455-1456",
+    cite: "ADR-1000 (`sgr.strike`)",
 };
 
 pub const FORCE_DECORATION_COLORS: Key = Key {
@@ -1176,7 +1177,7 @@ pub const FORCE_DECORATION_COLORS: Key = Key {
     levels: TOP,
     reader: "vtium-render",
     what: "Use `underline-color` even when a program sets its own underline color (SGR 58).",
-    cite: "src/config.c:268-270, 1457-1458",
+    cite: "ADR-1000 (`sgr.underline-color`, `sgr.strike`)",
 };
 
 pub const CLIPBOARD_WRITE: Key = Key {
@@ -1201,7 +1202,7 @@ pub const XKB_MODEL: Key = Key {
     levels: TOP,
     reader: "vtium-platform",
     what: "The keyboard model, as xkeyboard-config names it.",
-    cite: "src/config.c:1377-1382",
+    cite: "kmscon's `xkb-model` key",
 };
 
 pub const XKB_LAYOUT: Key = Key {
@@ -1213,7 +1214,7 @@ pub const XKB_LAYOUT: Key = Key {
     levels: TOP,
     reader: "vtium-platform",
     what: "The keyboard layout, such as `us` or `de`.",
-    cite: "src/config.c:1377-1382",
+    cite: "kmscon's `xkb-layout` key",
 };
 
 pub const XKB_VARIANT: Key = Key {
@@ -1225,7 +1226,7 @@ pub const XKB_VARIANT: Key = Key {
     levels: TOP,
     reader: "vtium-platform",
     what: "The keyboard layout's variant, such as `dvorak`.",
-    cite: "src/config.c:1377-1382",
+    cite: "kmscon's `xkb-variant` key",
 };
 
 pub const XKB_OPTIONS: Key = Key {
@@ -1237,7 +1238,7 @@ pub const XKB_OPTIONS: Key = Key {
     levels: TOP,
     reader: "vtium-platform",
     what: "Keyboard options for xkb, separated by commas, such as `ctrl:nocaps`.",
-    cite: "src/config.c:1377-1382",
+    cite: "kmscon's `xkb-options` key",
 };
 
 pub const XKB_KEYMAP: Key = Key {
@@ -1249,7 +1250,7 @@ pub const XKB_KEYMAP: Key = Key {
     levels: TOP,
     reader: "vtium-platform",
     what: "A keymap file. When set, vtium uses it instead of the model, layout, variant and options, and falls back to them if the file cannot be used.",
-    cite: "src/config.c:1377-1382",
+    cite: "kmscon's `xkb-keymap` key",
 };
 
 pub const XKB_COMPOSE_FILE: Key = Key {
@@ -1261,7 +1262,7 @@ pub const XKB_COMPOSE_FILE: Key = Key {
     levels: TOP,
     reader: "vtium-platform",
     what: "A compose table file, used instead of the locale's.",
-    cite: "src/config.c:1377-1382",
+    cite: "kmscon's `xkb-compose-file` key",
 };
 
 pub const XKB_REPEAT_DELAY: Key = Key {
@@ -1278,7 +1279,7 @@ pub const XKB_REPEAT_DELAY: Key = Key {
     levels: TOP,
     reader: "vtium-platform",
     what: "How long a held key waits before it starts to repeat. 0 means 250 ms.",
-    cite: "src/config.c:1383; src/input/input.c:570-585",
+    cite: "kmscon's `xkb-repeat-delay` key",
 };
 
 pub const XKB_REPEAT_RATE: Key = Key {
@@ -1295,7 +1296,7 @@ pub const XKB_REPEAT_RATE: Key = Key {
     levels: TOP,
     reader: "vtium-platform",
     what: "The time between the repeats of a held key. 0 means 50 ms.",
-    cite: "src/config.c:1384; src/input/input.c:570-585",
+    cite: "kmscon's `xkb-repeat-rate` key",
 };
 
 pub const MOUSE: Key = Key {
@@ -1307,7 +1308,7 @@ pub const MOUSE: Key = Key {
     levels: TOP,
     reader: "vtium-platform",
     what: "Use mice, touchpads and touchscreens.",
-    cite: "src/config.c:1385",
+    cite: "kmscon's `mouse` key",
 };
 
 pub const NATURAL_SCROLLING: Key = Key {
@@ -1320,7 +1321,7 @@ pub const NATURAL_SCROLLING: Key = Key {
     reader: "vtium",
     what: "Reverse the mouse wheel.\n\n\
            The wheel then scrolls the other way, both in vtium's scrollback and for programs, including the arrow keys it sends in full-screen programs (mode 1007). Ctrl with the wheel turned up still zooms in.",
-    cite: "src/config.c:149-150, 1386; src/terminal.c:1474-1476, 1646",
+    cite: "kmscon's `natural-scrolling` key",
 };
 
 pub const POINTER_CHAR: Key = Key {
@@ -1345,7 +1346,7 @@ pub const SOFT_CURSOR: Key = Key {
     levels: TOP,
     reader: "vtium",
     what: "Draw the mouse pointer in software on every display, never with the display's hardware cursor.",
-    cite: "src/config.c:151-152, 1387; src/terminal.c:1269-1270",
+    cite: "kmscon's `soft-cursor` key",
 };
 
 pub const POINTER_HIDE_TIMEOUT: Key = Key {
@@ -1362,7 +1363,7 @@ pub const POINTER_HIDE_TIMEOUT: Key = Key {
     levels: TOP,
     reader: "vtium-platform",
     what: "Hide the mouse pointer after this long without mouse activity, until it moves again. 0 never hides it.",
-    cite: "src/input/input_pointer.c:9-18, the C reference's fixed 20 s; the operator on vtium/vtium#102",
+    cite: "the operator on vtium/vtium#102",
 };
 
 pub const POINTER_HIDE_WHILE_TYPING: Key = Key {
@@ -1386,7 +1387,7 @@ pub const FONT_ENGINE: Key = Key {
     levels: TOP_LOOK,
     reader: "vtium-font",
     what: "Which kind of font to use. When unset, vtium tries each kind the build supports, in the order listed.",
-    cite: "src/config.c:1422; src/font/font.c:331-368",
+    cite: "kmscon's `font-engine` key",
 };
 
 pub const FONT_NAME: Key = Key {
@@ -1400,7 +1401,7 @@ pub const FONT_NAME: Key = Key {
     what: "The console's font.\n\n\
            The value is the name of a font set (a frit file, `NAME.vtfrit` in `/etc/vtium/fonts`). It can also be the name of a kbd console font, or with `font-engine = psf` the path of a PSF font; vtium then uses that one font.\n\n\
            When unset, vtium uses the font from vconsole.conf. If there is none, or vtium cannot find the font, vtium uses its built-in font and logs why.",
-    cite: "src/config.c:1424; ADR-1200 (D9); vtium/vtium#126",
+    cite: "kmscon's `font-name` key; ADR-1200 (D9); vtium/vtium#126",
 };
 
 pub const FONT_FRITS: Key = Key {
@@ -1461,7 +1462,7 @@ pub const FONT_SIZE: Key = Key {
     reader: "vtium-font",
     what: "The font size in points (1/72 inch).\n\n\
            The size in pixels is points × DPI ÷ 72, at the display's density (`display-dpi`). It overrides a font set's `cell=` line. 0 picks a size to suit each display.",
-    cite: "src/config.c:1423; vtium-font's `CELL_SIDE_MAX`; the operator on vtium/vtium#145",
+    cite: "kmscon's `font-size` key; vtium-font's `CELL_SIDE_MAX`; the operator on vtium/vtium#145",
 };
 
 pub const FONT_HINTING: Key = Key {
@@ -1475,7 +1476,7 @@ pub const FONT_HINTING: Key = Key {
     what: "How outline fonts are fitted to the pixel grid (hinting). It overrides a font set's `hinting=` line.\n\n\
            `light` fits each character vertically only. `full` fits a TrueType font both ways, and treats a CFF font as `light`. Bitmap fonts are not hinted.\n\n\
            This key has no effect yet: each font set's `hinting=` line decides, and `light` is used where it has none.",
-    cite: "ADR-1200 D1; the C reference hinted every glyph lightly, src/font/font_freetype.c:119",
+    cite: "ADR-1200 D1",
 };
 
 pub const FONT_LINE_SPACING: Key = Key {
@@ -1618,7 +1619,7 @@ pub const MISSING: Key = Key {
     levels: TOP,
     reader: "vtium-font",
     what: "What vtium shows for a character the font cannot display: `box` shows □ (U+25A1), and `hex` shows the character's code in hex digits.",
-    cite: "src/font/font.c:345-366; vtium/vtium#85",
+    cite: "vtium/vtium#85",
 };
 
 pub const GLYPH_CACHE: Key = Key {
@@ -1674,7 +1675,7 @@ pub const RENDER_TIMER: Key = Key {
     levels: TOP,
     reader: "vtium-render",
     what: "Measure each display's frame times once a second, and write the figures to the log, show them on screen, or both.",
-    cite: "src/config.c:972-1015, 1475",
+    cite: "ADR-1000 (`platform.compositor`)",
 };
 
 pub const GRAB_PASTE: Key = Key {
@@ -1700,7 +1701,7 @@ pub const GRAB_REBOOT: Key = Key {
     reader: "vtium",
     what: "The key that reboots the machine.\n\n\
            When `/proc/sys/kernel/ctrl-alt-del` is 0, vtium asks init to reboot, as Ctrl+Alt+Del does, so the services stop first; otherwise the kernel restarts at once. When unset, no key reboots.",
-    cite: "src/config.c:1409; src/seat.c:479-513, 631-636",
+    cite: "kmscon's `grab-reboot` key",
 };
 
 pub const GRAB_POWER_OFF: Key = Key {
@@ -1745,7 +1746,7 @@ pub const IMAGE_STORAGE_LIMIT: Key = Key {
     what: "The most memory each console uses for images, on both its screens together.\n\n\
            The value is in bytes, or in KiB, MiB or GiB with `K`, `M` or `G` (such as `64M`), up to 1 TiB. `auto` gives each console enough for four screenfuls of its head's displays, from 16 MiB to 192 MiB, and recalculates when a display is added, removed or resized. `0` turns sixel and kitty graphics off.\n\n\
            A build without image support accepts this key and shows no images.",
-    cite: "ADR-1100 D5, D11; Ghostty's `image-storage-limit`; src/config.c:1023-1064, 1462",
+    cite: "ADR-1100 D5, D11; Ghostty's `image-storage-limit`",
 };
 
 pub const MAX_GRAPHIC_SIZE: Key = Key {
@@ -1758,7 +1759,7 @@ pub const MAX_GRAPHIC_SIZE: Key = Key {
     reader: "vtium-image",
     what: "The largest image a program can send, in pixels (`WxH`), for sixel and kitty graphics alike. vtium refuses a larger one.\n\n\
            A build without image support accepts this key and shows no images.",
-    cite: "ADR-1100 D11; xterm's `maxGraphicSize`; src/config.c:1071-1107, 1467",
+    cite: "ADR-1100 D11; xterm's `maxGraphicSize`",
 };
 
 pub const NUM_COLOR_REGISTERS: Key = Key {
@@ -1776,7 +1777,7 @@ pub const NUM_COLOR_REGISTERS: Key = Key {
     reader: "vtium-term",
     what: "How many colors a sixel image can use (its color registers), and the most a program can ask for with XTSMGRAPHICS.\n\n\
            A build without image support accepts this key and shows no images.",
-    cite: "ADR-1100 D11; xterm's `numColorRegisters`; src/config.c:1114-1145, 1469",
+    cite: "ADR-1100 D11; xterm's `numColorRegisters`",
 };
 
 pub const PRIVATE_COLOR_REGISTERS: Key = Key {
@@ -1789,7 +1790,7 @@ pub const PRIVATE_COLOR_REGISTERS: Key = Key {
     reader: "vtium-term",
     what: "Give each sixel image its own colors (mode 1070, after a reset).\n\n\
            When on, each sixel image starts from the default colors. When off, images share their colors. A build without image support accepts this key and shows no images.",
-    cite: "ADR-1100 D11; xterm's `privateColorRegisters`; src/config.c:1471",
+    cite: "ADR-1100 D11; xterm's `privateColorRegisters`",
 };
 
 pub const IMAGE_HELPER: Key = Key {
@@ -1817,7 +1818,7 @@ pub const SIXEL: Key = Key {
     reader: "vtium-term",
     what: "Show sixel images.\n\n\
            When off, vtium neither offers nor shows sixel: its device attributes (DA1) leave out attribute 4, and it ignores sixel data. vtium offers sixel only while `image-storage-limit` is above 0 and every display of the console's head can show images. A build without image support never offers it.",
-    cite: "ADR-1100 D10, D11; src/config.c:1221-1234, 1464",
+    cite: "ADR-1100 D10, D11",
 };
 
 pub const KITTY_GRAPHICS: Key = Key {
@@ -1830,7 +1831,7 @@ pub const KITTY_GRAPHICS: Key = Key {
     reader: "vtium-term",
     what: "Show images sent with the kitty graphics protocol.\n\n\
            When off, vtium neither offers nor shows them: it ignores graphics commands and does not answer queries. vtium offers it only while `image-storage-limit` is above 0 and every display of the console's head can show images. A build without image support never offers it.",
-    cite: "ADR-1100 D10, D11; src/config.c:1236-1247, 1465",
+    cite: "ADR-1100 D10, D11",
 };
 
 /// Every key, in the order the generated files list them.

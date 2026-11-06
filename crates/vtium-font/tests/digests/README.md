@@ -1,6 +1,6 @@
 # Glyph digests
 
-`reference.rs` holds vtium-font to these: each line is an FNV-1a 64 digest of glyphs vtium draws, and a change to what vtium draws fails the test. A digest covers each glyph's width and height as little-endian u32 and then its pixels, row by row, over the glyphs of the line in order.
+`digests.rs` holds vtium-font to these: each line is an FNV-1a 64 digest of glyphs vtium draws, and a change to what vtium draws fails the test. A digest covers each glyph's width and height as little-endian u32 and then its pixels, row by row, over the glyphs of the line in order.
 
 The digests are vtium's goldens. They were taken on x86-64 and are checked on every host, so they also check that a glyph is the same bytes everywhere.
 
@@ -12,4 +12,4 @@ The digests are vtium's goldens. They were taken on x86-64 and are checked on ev
 
 ## Changing a digest
 
-A changed digest is a change to what vtium draws, so it is a golden change. When vtium draws other pixels, `cargo test -p vtium-font --all-features --test reference` checks every line before it fails. For each file with a line that differs, the test writes the whole file as vtium draws it, every checked line with vtium's digest and every other line as it is, to `digests/<file>` in the test's scratch directory (`CARGO_TARGET_TMPDIR`, under the target directory), and fails with the number of lines that differ and that file's path. A deliberate change copies that file over the one here in a commit of its own, which lists each line that moved and why, and the maintainer reviews it.
+A changed digest is a change to what vtium draws, so it is a golden change. When vtium draws other pixels, `cargo test -p vtium-font --all-features --test digests` checks every line before it fails. For each file with a line that differs, the test writes the whole file as vtium draws it, every checked line with vtium's digest and every other line as it is, to `digests/<file>` in the test's scratch directory (`CARGO_TARGET_TMPDIR`, under the target directory), and fails with the number of lines that differ and that file's path. A deliberate change copies that file over the one here in a commit of its own, which lists each line that moved and why, and the maintainer reviews it.

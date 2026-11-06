@@ -412,7 +412,7 @@ fn a_letter_and_mark_that_fit_are_untouched() {
 
 // A cluster whose pen sum is negative is placed as one with no advance
 // (review finding A9, through rasterise): its pen goes half the cell in,
-// as the C reference's centre_dx clamped the advance at 0. Test Mono with
+// since a negative advance counts as none. Test Mono with
 // an x, a bar from 100 to 500 units across and 400 tall, and a dot above,
 // at 20 pixels: as the font gives it,
 // x advances 600 units, 11.7 pixels, which rounds to the 12-pixel cell,
@@ -580,8 +580,8 @@ fn a_vocalised_letter_with_a_joiner_draws_as_a_joining_form() {
 
 // A mark the shaper leaves at the pen, with no advance and no offset, as
 // HarfRust leaves an acute after a circumflex in DejaVu Sans Mono (review
-// finding B5), goes where the C reference put it (render_cluster):
-// centred over its base's ink, a row above all the ink since the base.
+// finding B5), is placed by the helper itself: centred over its base's
+// ink, a row above all the ink since the base.
 // Here x's ink fills rows 8 to 15 of columns 1 to 9; the font's empty
 // GPOS leaves the circumflex and the acute, zero-width bars drawn right of
 // the pen, where HarfRust put them, which is in the next cell

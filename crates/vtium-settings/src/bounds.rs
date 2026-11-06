@@ -79,7 +79,7 @@ const CONSOLES: Bound = Bound {
     value: 50,
     what: "Consoles one head asks for with `consoles`",
     past: "The head gets this many, with a warning",
-    cite: "a starting value, the C reference's `session-max` (`kmscon/src/config.c:1357`); ADR-1401 D10 and its probe 6 set the caps",
+    cite: "a starting value; ADR-1401 D10 and its probe 6 set the caps",
 };
 
 const ERRORS: Bound = Bound {

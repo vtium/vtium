@@ -345,7 +345,7 @@ mod tests {
     }
 
     // Every sprite at every cell size from 1x1 to 24x48 against its digest
-    // in `tests/reference/cells.tsv` (tests/reference/README.md); the
+    // in `tests/digests/cells.tsv` (tests/digests/README.md); the
     // curly wave's sine is computed by `src/trig.rs`, so this is also the
     // check that the wave's bytes stay the same on every host. A double or
     // curl past a quarter of the cell, and the dash in a cell 2 or more
@@ -359,7 +359,7 @@ mod tests {
     // covers: platform.compositor
     #[test]
     fn every_sprite_matches_its_digest_or_its_redrawn_shape() {
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/reference/cells.tsv");
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/digests/cells.tsv");
         let tsv = std::fs::read_to_string(path).unwrap();
         let mut checked = 0;
         let mut refit = 0;
@@ -419,7 +419,7 @@ mod tests {
         assert_eq!(
             differ,
             0,
-            "{differ} of {checked} deco digests differ from tests/reference/cells.tsv; \
+            "{differ} of {checked} deco digests differ from tests/digests/cells.tsv; \
              vtium's digests for every deco line are in {}",
             out.display()
         );

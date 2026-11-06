@@ -188,8 +188,8 @@ pub struct KeyLine<'a> {
 /// after `=` with its blanks and any comment after it dropped and each
 /// `\#` read as `#`; `None` for a blank or comment line. `line` holds no
 /// newline. A `#` glued to a value, as in `font-size=12#big`, stays in the
-/// value, which the C reference read as `12` (`src/misc/conf.c`,
-/// `parse_line`).
+/// value, so the console reports `12#big` as a value it cannot read
+/// instead of taking `12`.
 pub fn key_line(line: &[u8]) -> Option<KeyLine<'_>> {
     let s = scan(line)?;
     let key = line.get(s.key).unwrap_or_default();

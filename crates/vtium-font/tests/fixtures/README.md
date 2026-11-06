@@ -1,6 +1,6 @@
 # vtium-font test fixtures
 
-Fonts the tests load, among them those whose glyphs the digests in `reference/` cover. Only fonts whose licence lets vtium redistribute them are here; kbd's other console fonts, most under the GPL, are read from the machine by the kbd sweep in `psf.rs` and never copied.
+Fonts the tests load, among them those whose glyphs the digests in `digests/` cover. Only fonts whose licence lets vtium redistribute them are here; kbd's other console fonts, most under the GPL, are read from the machine by the kbd sweep in `psf.rs` and never copied.
 
 | Path | What it is | Source | Licence |
 |---|---|---|---|

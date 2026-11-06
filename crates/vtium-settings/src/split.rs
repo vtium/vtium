@@ -135,8 +135,8 @@ impl<'a> Split<'a> {
     }
 
     /// Whether the file holds a flow: a section, or a policy line at the
-    /// top level. A file with neither is a kmscon.conf, for which vtium
-    /// runs its compiled-in flow (ADR-1403 D3); a policy line alone still
+    /// top level. For a file with neither, as a copied kmscon.conf is,
+    /// vtium runs its compiled-in flow (ADR-1403 D3); a policy line alone still
     /// counts, so a file that states `policy = closed` is never read as
     /// open.
     pub fn has_flow(&self) -> bool {

@@ -324,7 +324,8 @@ fn a_section_is_added_where_its_kind_goes() {
             "{bad}"
         );
     }
-    // a kmscon.conf gains its version with its first section
+    // a file with no section, as a copied kmscon.conf is, gains its
+    // version with its first section
     let kmscon = "font-size=12\nbell\n";
     let out = add_section(kmscon, Of::Head("console")).expect("the head");
     assert_eq!(out, "font-size=12\nbell\nversion = 1\n\n[head console]\n");
