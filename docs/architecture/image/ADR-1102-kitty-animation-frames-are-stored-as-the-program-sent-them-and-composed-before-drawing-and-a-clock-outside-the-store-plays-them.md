@@ -51,6 +51,9 @@ considered:
   - operator: aaronsb
     said: "The compose-on-arrival limits (a whole frame of 64 KiB or less, a change covering half the picture or more, more than 8 layers) and a cache of 2 composed frames per image are accepted as starting values, held as named constants."
     via: the maintainer, in the steering session's interview, 2026-11-02
+  - operator: aaronsb
+    said: "[Switch short animation frames to ENODATA too, like kitty?] ENODATA, like kitty (Rec.)"
+    via: AskUserQuestion, 2026-11-06; the option label is the steering session's wording
 status: accepted
 date: 2026-11-01
 deciders:
@@ -130,7 +133,9 @@ Composition follows the kitty spec's rules. vtium-image's frame code, beside the
 - **A composition** (`a=c`) lays the rectangle `w` by `h` at `X`, `Y` of frame `r` onto the rectangle at `x`, `y` of frame `c`, by alpha blending, or by replacement where `C=1`; `w` and `h` default to the whole image. It is applied to whole pixels (D1).
 - **The blend** is premultiplied "source over", in whole numbers, per channel: `src + (dst × (255 − a) + 127) / 255`, where `a` is the source's alpha and the division drops its remainder. The same bytes give the same frame on every machine, and a frame composed when its command arrives holds the same bytes as the same frame composed when it is shown.
 - **Work.** Every pixel that a canvas fill, a blend, a replacement or a composition writes while a command is handled counts as input work, as decoded pixels do (ADR-1100 D5), so a stream of large compositions stops an input call early and the rest is taken by the next. Composing a frame for a snapshot is not input work, since no input call is running; it writes at most (1 + `FRAME_CHAIN_MAX`) × width × height pixels, a copy of the base and at most 8 layers, and the binary composes at most one frame of each animated image for each snapshot.
-- **Refusals,** each of which changes nothing: an image or frame that does not exist answers ENOENT; a rectangle that leaves the image, and a composition whose source and destination are the same frame with rectangles that overlap, answer EINVAL, as the spec requires; a frame that does not fit the allowance or the count answers ENOSPC (D1).
+- **Refusals,** each of which changes nothing: an image or frame that does not exist answers ENOENT; a rectangle that leaves the image, and a composition whose source and destination are the same frame with rectangles that overlap, answer EINVAL, as the spec requires; a frame whose data, sent directly and uncompressed, holds fewer bytes than its rectangle needs answers `ENODATA:Insufficient image data: GOT < WANT`, with the bytes that came in every chunk together and the bytes the rectangle needs, as kitty 0.49.2 and 0.50.0 answer it (the maintainer, 2026-11-06, `considered`; ADR-1100 D15's `basis`); a frame that does not fit the allowance or the count answers ENOSPC (D1).
+
+  > Edited 2026-11-06: the bullet gains the frame whose data is short of its rectangle. vtium answered it EINVAL, the reply ADR-1100 D15 first kept for frames, and the maintainer chose kitty's ENODATA.
 
 ### D3: who owns the timing
 

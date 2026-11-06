@@ -45,8 +45,8 @@
 //!   named medium, `o=z`, and a host that gives no colors answer EINVAL.
 //! - **Data short of the pixels.** Raw data sent directly and uncompressed
 //!   that holds fewer bytes than `s` and `v` call for answers
-//!   `ENODATA:Insufficient image data: GOT < WANT`, as kitty answers it
-//!   (D15). A frame's answers EINVAL, as ADR-1102 decides, and data the
+//!   `ENODATA:Insufficient image data: GOT < WANT`, a transmission's and a
+//!   frame's alike, as kitty answers it (D15; ADR-1102, D2). Data the
 //!   helper inflates short answers EINVAL, as kitty answers it.
 //! - **Data past the pixels.** A raw upload, or an `a=q` that counts one,
 //!   ignores the bytes past the pixels `s` and `v` call for, as kitty
@@ -518,7 +518,7 @@ impl Kitty {
                     ctx.note(Cause::Program, PAST);
                 }
                 let answer = if len < want {
-                    Err(cmd.short(len, want))
+                    Err(Error::NoData { got: len, want })
                 } else {
                     Ok(())
                 };
@@ -545,7 +545,7 @@ impl Kitty {
                 if !raw.complete() {
                     let (got, want) = (raw.received(), raw.wanted());
                     ctx.unreserve(reservation);
-                    reply(ctx, &cmd, cmd.id, Err(cmd.short(got, want)));
+                    reply(ctx, &cmd, cmd.id, Err(Error::NoData { got, want }));
                     return;
                 }
                 ctx.add_work(cmd.pixels());

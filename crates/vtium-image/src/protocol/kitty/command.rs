@@ -306,17 +306,6 @@ impl Command {
         matches!(self.format, 8 | 16)
     }
 
-    /// What raw data sent directly is answered when `got` of the `want`
-    /// bytes its pixels need came: ENODATA for a transmission, as kitty
-    /// answers it, and EINVAL for a frame (ADR-1100, D15; ADR-1102).
-    pub(super) fn short(&self, got: u64, want: u64) -> Error {
-        if self.action == b'f' {
-            Error::Invalid
-        } else {
-            Error::NoData { got, want }
-        }
-    }
-
     /// Whether the helper decodes this transmission's data.
     pub(super) fn for_helper(&self) -> bool {
         self.format == 100 || self.compression == b'z'

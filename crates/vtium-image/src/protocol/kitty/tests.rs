@@ -953,8 +953,52 @@ fn a_frame_without_s_and_v_reaches_the_images_edge() {
     );
     // data short of the rectangle is refused
     send(&mut k, &mut h, &format!("a=f,i=1;{}", red(5)));
-    assert_eq!(h.take(), "\x1b_Gi=1;EINVAL:invalid argument\x1b\\");
+    assert_eq!(
+        h.take(),
+        "\x1b_Gi=1;ENODATA:Insufficient image data: 20 < 24\x1b\\"
+    );
     assert_eq!(h.store.frame_bytes(), 3 * 2 * 4 + crate::FRAME_OVERHEAD);
+}
+
+// A frame's data short of its rectangle is answered as kitty 0.49.2 and
+// 0.50.0 answer it, with the bytes that came and the bytes the rectangle
+// needs, and stores nothing (ADR-1102, D2).
+// covers: image.kitty-animation
+#[test]
+fn a_frame_short_of_its_rectangle_is_enodata_as_kitty_answers_it() {
+    let (mut k, mut h) = (Kitty::default(), Host::new());
+    send(&mut k, &mut h, &format!("a=t,s=2,v=2,i=1;{}", red(4)));
+    // the whole image, a 1x1 rectangle, RGB, and two chunks
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=f,i=1,s=2,v=2;{}", b64(&[1; 15])),
+    );
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=f,i=1,x=1,y=1,s=1,v=1;{}", b64(&[1; 3])),
+    );
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=f,i=1,f=24,s=2,v=1;{}", b64(&[1; 5])),
+    );
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=f,i=1,s=2,v=2,m=1;{}", b64(&[1; 9])),
+    );
+    send(&mut k, &mut h, &format!("a=f,m=0;{}", b64(&[1; 3])));
+    let short = "ENODATA:Insufficient image data";
+    assert_eq!(
+        h.take(),
+        format!(
+            "\x1b_Gi=1;OK\x1b\\\x1b_Gi=1;{short}: 15 < 16\x1b\\\x1b_Gi=1;{short}: 3 < 4\x1b\\\
+             \x1b_Gi=1;{short}: 5 < 6\x1b\\\x1b_Gi=1;{short}: 12 < 16\x1b\\"
+        )
+    );
+    assert_eq!(h.store.frame_bytes(), 0, "no frame is stored");
 }
 
 // covers: image.kitty-animation
@@ -2485,8 +2529,11 @@ fn a_frames_refusal_names_the_image_as_its_success_does() {
     send(&mut k, &mut h, &format!("a=f,I=5,c=9,s=1,v=1;{}", red(1)));
     assert_eq!(h.take(), enoent);
     // refused at the end: data short of its rectangle
-    send(&mut k, &mut h, &format!("a=f,I=5,s=1,v=2;{}", red(1)));
-    assert_eq!(h.take(), einval);
+    send(&mut k, &mut h, &format!("a=f,I=5,s=1,v=1;{}", b64(&[1; 3])));
+    assert_eq!(
+        h.take(),
+        "\x1b_Gi=1,I=5;ENODATA:Insufficient image data: 3 < 4\x1b\\"
+    );
     // refused with a named medium, before the request and at the answer
     send(
         &mut k,
