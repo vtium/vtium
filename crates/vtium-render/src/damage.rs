@@ -10,9 +10,14 @@
 //! everything. Nothing assumes the buffers take turns, and drawing one
 //! buffer whole leaves the stamps, and so every other buffer's history, as
 //! they were.
+//!
+//! Each cell also keeps the reach of the glyph it last drew (ADR-1306 D5):
+//! a cell whose ink changes stamps the neighbours its old or new reach
+//! covers, so each is composed again with the new ink or without the old.
 
 use vtium_term::{CursorShape, Rgb};
 
+use crate::reach::Reach;
 use crate::target::Rect;
 
 /// Damaged cells of a row at most this many cells apart share one damage
@@ -24,19 +29,81 @@ const DAMAGE_MERGE: u8 = 3;
 const BORDER_AREAS: usize = 16;
 
 /// What the renderer last drew at a cell, for the changes the frame cannot
-/// know.
+/// know, in 16 bytes.
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct CellState {
     /// The serial of the frame that last changed what the cell shows.
     stamp: u64,
     /// The cursor it drew: its shape and OSC 12's color.
     pub(crate) cursor: Option<(CursorShape, Option<Rgb>)>,
-    /// It drew in the text blink's off phase.
-    pub(crate) blink_off: bool,
-    /// The cells it drew over: 0 as a trailing half, 1 or 2.
-    pub(crate) span: u8,
-    /// Drawn on this frame: in its damage.
-    drawn: bool,
+    /// How far the ink of the glyph it last drew reaches into the cells
+    /// around it, as drawn: cut by the bound, the cursor and the blink.
+    reach: Reach,
+    /// The flags below, and the cells it drew over in [`SPAN`].
+    bits: u8,
+}
+
+/// It drew in the text blink's off phase.
+const BLINK_OFF: u8 = 1;
+/// Drawn on this frame: in its damage.
+const DRAWN: u8 = 1 << 1;
+/// Its reach is known: read once the cell's glyph has been read since the
+/// grid was reset.
+const REACH_KNOWN: u8 = 1 << 2;
+/// The cursor stood on it, visible, when its reach was read.
+const REACH_CURSOR: u8 = 1 << 3;
+/// The glyph its reach counts from spanned two cells.
+const REACH_WIDE: u8 = 1 << 4;
+/// Where the cells it drew over lie: 0 as a trailing half, 1 or 2.
+const SPAN_SHIFT: u8 = 5;
+const SPAN: u8 = 3 << SPAN_SHIFT;
+
+impl CellState {
+    fn flag(&self, f: u8) -> bool {
+        self.bits & f != 0
+    }
+
+    fn set_flag(&mut self, f: u8, on: bool) {
+        if on {
+            self.bits |= f;
+        } else {
+            self.bits &= !f;
+        }
+    }
+
+    /// The cells it drew over, 0 as a trailing half, 1 or 2, which `span`
+    /// replaces; returns the old.
+    pub(crate) fn replace_span(&mut self, span: u8) -> u8 {
+        let old = (self.bits & SPAN) >> SPAN_SHIFT;
+        self.bits = self.bits & !SPAN | (span.min(2) << SPAN_SHIFT);
+        old
+    }
+
+    /// The cells it drew over.
+    pub(crate) fn span(&self) -> u8 {
+        (self.bits & SPAN) >> SPAN_SHIFT
+    }
+
+    /// Whether it drew in the text blink's off phase, which `off`
+    /// replaces; returns the old.
+    pub(crate) fn replace_blink_off(&mut self, off: bool) -> bool {
+        let old = self.flag(BLINK_OFF);
+        self.set_flag(BLINK_OFF, off);
+        old
+    }
+
+    /// Whether its reach is to be read again: it was never read, or the
+    /// visible cursor came or went, as `held` says, which it keeps.
+    pub(crate) fn reach_stale(&mut self, held: bool) -> bool {
+        let stale = !self.flag(REACH_KNOWN) || self.flag(REACH_CURSOR) != held;
+        self.set_flag(REACH_CURSOR, held);
+        stale
+    }
+
+    /// How far the ink of the glyph it last drew reaches.
+    pub(crate) fn reach(&self) -> Reach {
+        self.reach
+    }
 }
 
 /// The grid's cells, their history, and this frame's damage.
@@ -47,6 +114,8 @@ pub(crate) struct Cells {
     states: Vec<CellState>,
     /// Each row's newest stamp.
     row_stamps: Vec<u64>,
+    /// How many of each row's cells send ink into another cell.
+    row_reaching: Vec<u32>,
     /// The serial of the frame that last changed the whole border.
     border: u64,
     /// Areas of the border the pointer changed, with the serial of the
@@ -87,6 +156,8 @@ impl Cells {
         );
         self.row_stamps.clear();
         self.row_stamps.resize(rows, self.serial);
+        self.row_reaching.clear();
+        self.row_reaching.resize(rows, 0);
         self.border = self.serial;
         self.border_areas.clear();
     }
@@ -101,6 +172,50 @@ impl Cells {
     pub(crate) fn get_mut(&mut self, col: usize, row: usize) -> Option<&mut CellState> {
         let i = self.index(col, row)?;
         self.states.get_mut(i)
+    }
+
+    pub(crate) fn get(&self, col: usize, row: usize) -> Option<&CellState> {
+        let i = self.index(col, row)?;
+        self.states.get(i)
+    }
+
+    /// The grid's columns and rows.
+    pub(crate) fn size(&self) -> (usize, usize) {
+        (self.cols, self.rows)
+    }
+
+    /// Sets the reach of the cell at `col`, `row`, whose glyph spans
+    /// `span` cells; returns the reach it had and the cells its glyph
+    /// spanned.
+    pub(crate) fn set_reach(
+        &mut self,
+        col: usize,
+        row: usize,
+        (reach, span): (Reach, u8),
+    ) -> (Reach, u8) {
+        let Some(s) = self.get_mut(col, row) else {
+            return (Reach::NONE, 1);
+        };
+        let old = core::mem::replace(&mut s.reach, reach);
+        let old_span = if s.flag(REACH_WIDE) { 2 } else { 1 };
+        s.set_flag(REACH_WIDE, span == 2);
+        s.set_flag(REACH_KNOWN, true);
+        if let Some(n) = self.row_reaching.get_mut(row) {
+            match (old.is_none(), reach.is_none()) {
+                (true, false) => *n = n.saturating_add(1),
+                (false, true) => *n = n.saturating_sub(1),
+                _ => {}
+            }
+        }
+        (old, old_span)
+    }
+
+    /// Whether any cell of the rows from `first` to `last` sends ink into
+    /// another cell.
+    pub(crate) fn rows_reach(&self, first: usize, last: usize) -> bool {
+        self.row_reaching
+            .get(first..=last.min(self.rows.saturating_sub(1)))
+            .is_some_and(|rows| rows.iter().any(|&n| n > 0))
     }
 
     /// Whether the buffer lacks something stamped `stamp`.
@@ -147,6 +262,19 @@ impl Cells {
         }
     }
 
+    /// Every cell of the block from column `c0` and row `r0` to column
+    /// `c1` and row `r1` that lies in the grid changed on this frame.
+    pub(crate) fn stamp_block(&mut self, (c0, r0): (i64, i64), (c1, r1): (i64, i64)) {
+        let clamp = |v: i64, n: usize| usize::try_from(v.max(0)).unwrap_or(usize::MAX).min(n);
+        let (c0, c1) = (clamp(c0, self.cols), clamp(c1.saturating_add(1), self.cols));
+        let (r0, r1) = (clamp(r0, self.rows), clamp(r1.saturating_add(1), self.rows));
+        for row in r0..r1 {
+            for col in c0..c1 {
+                self.stamp(col, row);
+            }
+        }
+    }
+
     /// Whether the buffer lacks any of `n` cells from `col` in `row`.
     pub(crate) fn stale_cells(&self, col: usize, row: usize, n: usize) -> bool {
         (col..col.saturating_add(n))
@@ -154,11 +282,16 @@ impl Cells {
             .any(|s| self.stale(s.stamp))
     }
 
+    /// Whether the cell at `col`, `row` is drawn on this frame.
+    pub(crate) fn drawn(&self, col: usize, row: usize) -> bool {
+        self.get(col, row).is_some_and(|s| s.flag(DRAWN))
+    }
+
     /// `n` cells from `col` in `row` are drawn on this frame.
     pub(crate) fn mark_drawn(&mut self, col: usize, row: usize, n: usize) {
         for c in col..col.saturating_add(n) {
             if let Some(s) = self.get_mut(c, row) {
-                s.drawn = true;
+                s.set_flag(DRAWN, true);
             }
         }
     }
@@ -182,11 +315,11 @@ impl Cells {
                 let Some(s) = self.get_mut(col, row) else {
                     continue;
                 };
-                if !s.drawn {
+                if !s.flag(DRAWN) {
                     gap = gap.saturating_sub(1);
                     continue;
                 }
-                s.drawn = false;
+                s.set_flag(DRAWN, false);
                 if whole.is_some() {
                     continue;
                 }
@@ -233,5 +366,24 @@ fn union(a: Rect, b: Rect) -> Rect {
         y,
         width: right.saturating_sub(x),
         height: bottom.saturating_sub(y),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ADR-1306 D4: each cell keeps its reach in one byte, and its flags
+    // share one more, so the history of a cell takes the 16 bytes it took
+    // before (8,160 cells at 1366x768 in 8x16 cells: 130,560 bytes)
+    #[test]
+    fn a_cells_history_keeps_its_reach_in_its_old_size() {
+        assert_eq!(core::mem::size_of::<Reach>(), 1);
+        assert_eq!(core::mem::size_of::<CellState>(), 16);
+        let mut s = CellState::default();
+        assert_eq!(s.replace_span(2), 0);
+        assert!(!s.replace_blink_off(true));
+        assert_eq!((s.span(), s.replace_blink_off(false)), (2, true));
+        assert_eq!(s.replace_span(1), 2);
     }
 }

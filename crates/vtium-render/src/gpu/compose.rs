@@ -1528,6 +1528,9 @@ impl<G: Gl> Back for GpuBack<'_, G> {
             push(&mut self.cells, place.map(|p| (p.texture, p.color)), quad);
         }
     }
+
+    // the GPU path draws no ink past a glyph's cells yet (ADR-1306 D9)
+    const RECEIVES: bool = false;
 }
 
 /// A cell job as the cell shader's quad: where it draws, `r` in the

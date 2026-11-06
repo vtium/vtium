@@ -75,6 +75,7 @@ mod mono;
 mod notice;
 #[cfg(feature = "images")]
 mod picture;
+mod reach;
 mod renderer;
 mod stored;
 mod target;

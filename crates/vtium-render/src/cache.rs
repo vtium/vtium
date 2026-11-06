@@ -26,6 +26,7 @@ use vtium_font::{Face, Font, Style, Width};
 
 use crate::bounds::{FAILED_GLYPHS, POOL_BYTES_PERFORMANCE};
 use crate::mono::Fallback;
+use crate::reach::Reach;
 use crate::stored::Stored;
 use crate::target::Orientation;
 
@@ -271,6 +272,22 @@ pub(crate) struct GlyphCache<T = Stored> {
     drew_missing: bool,
     /// A color glyph's bitmap stand-in on a 1-bit or gray display.
     fallback: Option<Fallback>,
+    /// How far the glyph of each ASCII character in each style reaches,
+    /// once read: the renderer asks for every cell that changes, and the
+    /// answer changes only when the font's glyphs do.
+    reaches: Vec<Option<Reach>>,
+}
+
+/// Where the reach of `text` in `style`, `width` cells wide, is remembered:
+/// a narrow ASCII character's place among [`GlyphCache::reaches`].
+fn reach_slot(text: &[char], width: Width, style: Style) -> Option<usize> {
+    match (text, width) {
+        ([c], Width::Narrow) if c.is_ascii() => {
+            let styles = usize::from(style.bold) | usize::from(style.italic) << 1;
+            Some(usize::from(*c as u8) << 2 | styles)
+        }
+        _ => None,
+    }
 }
 
 impl<T: Held> GlyphCache<T> {
@@ -295,6 +312,7 @@ impl<T: Held> GlyphCache<T> {
             counts: CacheCounts::default(),
             drew_missing: false,
             fallback: None,
+            reaches: Vec::new(),
         }
     }
 
@@ -315,6 +333,7 @@ impl<T: Held> GlyphCache<T> {
             return;
         }
         self.failed.clear();
+        self.reaches.clear();
         // eviction frees an entry in place, so the indices ahead stand
         for i in 0..self.entries.len() {
             let Ok(i) = u32::try_from(i) else { break };
@@ -706,6 +725,33 @@ impl GlyphCache<Stored> {
         let glyph = self.draw(font, text, width, style)?;
         let pool = pool_of(glyph.is_rgba(), wide);
         self.keep(text, width, style, pool, glyph)
+    }
+
+    /// How far the glyph for `text` in `style`, `width` cells wide, reaches
+    /// past its cells: none for a glyph the font draws nothing for.
+    pub(crate) fn reach<F: Face>(
+        &mut self,
+        font: &Font<F>,
+        text: &[char],
+        width: Width,
+        style: Style,
+    ) -> Reach {
+        let slot = reach_slot(text, width, style);
+        if let Some(r) = slot.and_then(|i| self.reaches.get(i).copied().flatten()) {
+            return r;
+        }
+        let reach = self
+            .get(font, text, width, style)
+            .map_or(Reach::NONE, Stored::reach);
+        if let Some(i) = slot {
+            if self.reaches.is_empty() {
+                self.reaches.resize(128 << 2, None);
+            }
+            if let Some(r) = self.reaches.get_mut(i) {
+                *r = Some(reach);
+            }
+        }
+        reach
     }
 }
 

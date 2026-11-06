@@ -1,10 +1,13 @@
 //! [`Stored`]: a glyph or decoration as the renderer keeps it, turned to
 //! the display's orientation once, at 1 bit a pixel when that loses
 //! nothing, and at its font's own size with the whole factor it is drawn
-//! at (ADR-1300 D2).
+//! at (ADR-1300 D2). A glyph whose ink passes its cells is stored at its
+//! ink box (ADR-1306 D3), whose pixels inside its cells are the glyph's
+//! own.
 
 use vtium_font::{Format as FontFormat, Glyph};
 
+use crate::reach::{self, Reach};
 use crate::target::Orientation;
 
 /// How a stored glyph's pixels are held.
@@ -19,7 +22,10 @@ pub(crate) enum Format {
 }
 
 /// A glyph or sprite ready to draw. Its size is as stored, already turned;
-/// it is drawn `scale` times larger, each pixel a square.
+/// it is drawn `scale` times larger, each pixel a square. Every drawing
+/// call takes its coordinates from the top left of the glyph's cells as
+/// the display shows them, and a glyph stored at its ink box keeps where
+/// the box's top left lies from there.
 #[derive(Clone, Debug)]
 pub(crate) struct Stored {
     width: u32,
@@ -28,6 +34,11 @@ pub(crate) struct Stored {
     format: Format,
     stride: usize,
     data: Vec<u8>,
+    /// Where the stored pixels' top left lies from the top left of the
+    /// glyph's cells, turned, in stored pixels: 0 or negative.
+    at: (i32, i32),
+    /// How many cells its ink reaches past its own on each side, upright.
+    reach: Reach,
 }
 
 /// `width` by `height` pixels of `bpp` bytes turned by `o`: the pixel at
@@ -149,19 +160,87 @@ impl Pens {
 impl Stored {
     /// `glyph`, drawn `scale` times larger, stored for orientation `o`; at
     /// 1 bit a pixel when `bits` allows it and every pixel is 0 or 255.
+    /// A glyph whose ink passes its cells is stored at its ink box, and
+    /// keeps how far the box reaches.
     pub(crate) fn new(glyph: &Glyph, scale: u32, o: Orientation, bits: bool) -> Stored {
         let (format, bpp) = match glyph.format() {
             FontFormat::Mask => (Format::Mask, 1),
             FontFormat::Rgba => (Format::Rgba, 4),
         };
+        let (gw, gh) = (glyph.width(), glyph.height());
+        match reach::ink_box(glyph) {
+            Some(b) => Stored::boxed(b, (gw, gh, glyph.cells().cells()), scale, o, bits),
+            None => {
+                let src = Pixels {
+                    data: glyph.pixels(),
+                    width: gw,
+                    height: gh,
+                    format,
+                    bpp,
+                };
+                Stored::from_pixels(src, scale, o, bits)
+            }
+        }
+    }
+
+    /// A coverage mask stored at its ink box `b`, for a glyph `gw` by `gh`
+    /// pixels that spans `cells` cells, drawn `scale` times larger, turned
+    /// for `o`.
+    pub(crate) fn boxed(
+        b: reach::InkBox<'_>,
+        (gw, gh, cells): (u32, u32, u32),
+        scale: u32,
+        o: Orientation,
+        bits: bool,
+    ) -> Stored {
         let src = Pixels {
-            data: glyph.pixels(),
-            width: glyph.width(),
-            height: glyph.height(),
-            format,
-            bpp,
+            data: b.pixels,
+            width: b.width,
+            height: b.height,
+            format: Format::Mask,
+            bpp: 1,
         };
-        Stored::from_pixels(src, scale, o, bits)
+        let i = |v: u32| i64::from(v);
+        let reach = reach::of_box(
+            (i64::from(b.left), i64::from(b.top), i(b.width), i(b.height)),
+            (i(gw), i(gh)),
+            i(cells),
+        );
+        // where the box's top left lands once turned, as the display's
+        // mapping of the cells puts it
+        let far = |span: u32, near: i32, side: u32| {
+            let v = i(span)
+                .saturating_sub(i64::from(near))
+                .saturating_sub(i(side));
+            i32::try_from(v).unwrap_or(0)
+        };
+        let at = match o {
+            Orientation::Normal => (b.left, b.top),
+            Orientation::UpsideDown => (far(gw, b.left, b.width), far(gh, b.top, b.height)),
+            Orientation::Right => (far(gh, b.top, b.height), b.left),
+            Orientation::Left => (b.top, far(gw, b.left, b.width)),
+        };
+        Stored {
+            at,
+            reach,
+            ..Stored::from_pixels(src, scale, o, bits)
+        }
+    }
+
+    /// How many cells its ink reaches past its own on each side, upright.
+    pub(crate) fn reach(&self) -> Reach {
+        self.reach
+    }
+
+    /// The drawn column and line from the stored pixels' top left, for
+    /// `x`, `y` from the glyph cells' top left.
+    fn local(&self, x: i64, y: i64) -> (i64, i64) {
+        let s = i64::from(self.scale);
+        let (ax, ay) = self.at;
+        (
+            x.saturating_sub(i64::from(ax).saturating_mul(s)),
+            y.saturating_sub(i64::from(ay).saturating_mul(s)),
+        )
     }
 
     /// A coverage mask `width` by `height` drawn at its size, as the
@@ -215,6 +294,8 @@ impl Stored {
                 format: Format::Bits,
                 stride,
                 data: packed,
+                at: (0, 0),
+                reach: Reach::NONE,
             };
         }
         Stored {
@@ -224,6 +305,8 @@ impl Stored {
             format,
             stride: w.saturating_mul(bpp),
             data,
+            at: (0, 0),
+            reach: Reach::NONE,
         }
     }
 
@@ -282,6 +365,7 @@ impl Stored {
     /// is its alpha.
     pub(crate) fn mask_line(&self, x0: i64, y: i64, out: &mut [u8]) {
         out.fill(0);
+        let (x0, y) = self.local(x0, y);
         let Some((row, drawn_w)) = self.row(y) else {
             return;
         };
@@ -319,6 +403,7 @@ impl Stored {
     /// as [`Stored::bits_line`] draws each in `pens`, into `rows`.
     pub(crate) fn bits_rows(&self, x0: i64, y0: i64, pens: &Pens, rows: Rows<'_>) {
         let Rows { out, stride, width } = rows;
+        let (x0, y0) = self.local(x0, y0);
         let (fg, bg) = pens.colors;
         let lines = out.chunks_mut(stride.max(1));
         let lines = lines.filter_map(|line| line.get_mut(..width));
@@ -377,6 +462,7 @@ impl Stored {
     /// column `x0`, 0 outside the glyph. A mask is white at its coverage.
     pub(crate) fn argb_line(&self, x0: i64, y: i64, out: &mut [u32]) {
         out.fill(0);
+        let (x0, y) = self.local(x0, y);
         let Some((row, drawn_w)) = self.row(y) else {
             return;
         };
