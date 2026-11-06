@@ -16,13 +16,6 @@
 //! range EastAsianWidth.txt's header names is W. Any other takes one.
 
 #[cfg(feature = "bidi")]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the frame, the third slice of ADR-1004, reads these; until it lands only the tests do"
-    )
-)]
 pub(crate) mod bidi;
 mod data;
 

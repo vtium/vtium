@@ -499,6 +499,13 @@ impl Modes {
     pub(super) fn resize_report(&self) -> bool {
         self.resize_report
     }
+
+    /// Mode 1243: the Left and Right arrow keys swap while the cursor's
+    /// paragraph resolves right to left (ADR-1004 D11).
+    #[cfg(feature = "bidi")]
+    pub(super) fn arrow_direction(&self) -> bool {
+        self.arrow_direction
+    }
 }
 
 impl State {

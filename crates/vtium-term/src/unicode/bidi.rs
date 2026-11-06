@@ -9,6 +9,10 @@
 //! `gen-unicode`. `levels` is the only module that calls the unicode-bidi
 //! crate, and it passes the crate these tables.
 
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "only a test reads the tables' version")
+)]
 mod data;
 pub(crate) mod levels;
 
@@ -144,6 +148,23 @@ pub(crate) fn box_mirrored(c: char) -> Option<char> {
     pair(&data::BOX_MIRRORS, c)
 }
 
+/// Whether `c` can move text or change a letter's form when a paragraph is
+/// drawn: a character of class R, AL or AN, which the bidirectional
+/// algorithm reorders, or one that joins a neighbour (Joining_Type D, R, L
+/// or C). A line that has held one is drawn through its paragraph's order
+/// (ADR-1004 D8). Every character below U+0590, the start of the Hebrew
+/// block, is neither.
+pub(crate) fn reorders(c: char) -> bool {
+    if c < '\u{0590}' {
+        return false;
+    }
+    matches!(class(c), Class::R | Class::Al | Class::An)
+        || matches!(
+            joining(c),
+            JoiningType::Dual | JoiningType::Right | JoiningType::Left | JoiningType::Causing
+        )
+}
+
 /// If `c` is a paired bracket, the opening bracket of its pair after
 /// canonical decomposition and whether `c` opens, as rule BD16 matches
 /// brackets.
@@ -270,6 +291,27 @@ mod tests {
         assert_eq!(joining('a'), JoiningType::NonJoining);
         // the presentation forms, shaped already, join nothing
         assert_eq!(joining('\u{FE91}'), JoiningType::NonJoining);
+    }
+
+    #[test]
+    fn right_to_left_and_joining_characters_reorder() {
+        assert!(reorders('\u{05D0}')); // alef, R
+        assert!(reorders('\u{0627}')); // alef, AL
+        assert!(reorders('\u{0660}')); // Arabic-Indic zero, AN
+        assert!(reorders('\u{1820}')); // a Mongolian letter: L, but it joins
+        assert!(reorders('\u{200D}')); // ZWJ joins (type C)
+        assert!(!reorders('a'));
+        assert!(!reorders('('));
+        assert!(!reorders('\u{0400}'));
+        assert!(!reorders('\u{064E}')); // a mark, type T, NSM
+        // nothing below U+0590 reorders, so the quick path is exact
+        assert!((0..0x0590).filter_map(char::from_u32).all(|c| {
+            !matches!(class(c), Class::R | Class::Al | Class::An)
+                && matches!(
+                    joining(c),
+                    JoiningType::NonJoining | JoiningType::Transparent
+                )
+        }));
     }
 
     #[test]

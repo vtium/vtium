@@ -217,9 +217,17 @@ const IMAGE_NOTE_BYTES: Bound = Bound {
     cite: "vtium's own: vtium-image's handlers write no reason longer than 70 bytes",
 };
 
+const BIDI_PARAGRAPH_ROWS: Bound = Bound {
+    name: "BIDI_PARAGRAPH_ROWS_MAX",
+    value: 500,
+    what: "Rows of one paragraph the bidirectional algorithm reads when a frame is drawn, in a build with the bidi feature",
+    past: "A longer paragraph is drawn as in explicit mode, each row as written in a left-to-right paragraph and reversed in a right-to-left one, so the work a frame does for one paragraph is bounded",
+    cite: "ADR-1004 D3, after the Terminal Working Group's BiDi recommendation, which suggests 500 rows",
+};
+
 /// Every bound, in the README table's order.
 #[cfg_attr(not(test), allow(dead_code))]
-pub(crate) const BOUNDS: [Bound; 25] = [
+pub(crate) const BOUNDS: [Bound; 26] = [
     COLUMNS,
     ROWS,
     CLUSTER,
@@ -245,6 +253,7 @@ pub(crate) const BOUNDS: [Bound; 25] = [
     INPUT_WORK,
     IMAGE_NOTE_REASONS,
     IMAGE_NOTE_BYTES,
+    BIDI_PARAGRAPH_ROWS,
 ];
 
 /// Cells a line holds, and columns a screen and its damage have. The
@@ -331,6 +340,12 @@ pub(crate) const IMAGE_NOTE_REASONS_MAX: usize = IMAGE_NOTE_REASONS.value;
 /// images.
 #[cfg_attr(not(feature = "images"), allow(dead_code))]
 pub(crate) const IMAGE_NOTE_BYTES_MAX: usize = IMAGE_NOTE_BYTES.value;
+
+/// Rows of one paragraph the bidirectional algorithm reads, in a build with
+/// the bidi feature; a longer paragraph is drawn as in explicit mode
+/// (ADR-1004 D3).
+#[cfg_attr(not(feature = "bidi"), allow(dead_code))]
+pub(crate) const BIDI_PARAGRAPH_ROWS_MAX: usize = BIDI_PARAGRAPH_ROWS.value;
 
 /// The most bytes of XTVERSION's text.
 pub const VERSION_MAX: usize = VERSION.value;

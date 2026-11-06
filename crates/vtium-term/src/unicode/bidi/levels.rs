@@ -85,6 +85,8 @@ pub(crate) fn resolve(
         Direction::LeftToRight => Level::ltr(),
         Direction::RightToLeft => Level::rtl(),
     };
+    #[cfg(test)]
+    RESOLVED.with(|n| n.set(n.get().saturating_add(text.len())));
     let mut levels = Vec::with_capacity(text.len());
     if text.is_empty() {
         return Resolved {
@@ -124,6 +126,19 @@ pub(crate) fn resolve(
         level: info.paragraph_level.number(),
         levels,
     }
+}
+
+#[cfg(test)]
+std::thread_local! {
+    /// The characters [`resolve`] has read on this thread, which a test
+    /// counts to bound the work a frame does.
+    static RESOLVED: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
+/// The characters [`resolve`] has read on this thread so far.
+#[cfg(test)]
+pub(crate) fn resolved_chars() -> usize {
+    RESOLVED.with(core::cell::Cell::get)
 }
 
 /// The visual order of characters at `levels` by rule L2: for each place

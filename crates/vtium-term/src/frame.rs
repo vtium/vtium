@@ -25,6 +25,8 @@ use core::ops::Range;
 use crate::cell::{Cell, StyleIndex, Width};
 use crate::damage::{Age, Damage};
 use crate::line::{Glyph, Line, LinkId};
+#[cfg(feature = "bidi")]
+use crate::order::Order;
 use crate::palette::{Palette, Special};
 use crate::style::{Attrs, Color, Rgb, Style};
 
@@ -56,6 +58,10 @@ pub struct Cursor {
     pub blink: bool,
     /// OSC 12's color; `None` draws the cell under it inverted.
     pub color: Option<Rgb>,
+    /// The character under the cursor resolves right to left, so a bar
+    /// cursor stands at its cell's right side (ADR-1004 D9).
+    #[cfg(feature = "bidi")]
+    pub rtl: bool,
 }
 
 /// The row that shows the hovered link's URI while Ctrl is held
@@ -100,6 +106,17 @@ pub struct FrameCell<'a> {
     pub selected: bool,
     /// Changed since the age the reading display passed.
     pub changed: bool,
+    /// The logical column the cell holds, the column the program wrote
+    /// it at, which a reordered row draws elsewhere (ADR-1004 D8).
+    #[cfg(feature = "bidi")]
+    pub col: usize,
+    /// The cell's character resolves right to left (ADR-1004 D8).
+    #[cfg(feature = "bidi")]
+    pub rtl: bool,
+    /// Which sides of the cell join its neighbours, for a letter of a
+    /// joining script such as Arabic (ADR-1004 D6).
+    #[cfg(feature = "bidi")]
+    pub joins: crate::order::Joins,
 }
 
 /// The visible screen, as one display reads it.
@@ -119,6 +136,13 @@ pub struct Frame<'a> {
     /// D9).
     #[cfg(feature = "images")]
     placements: Vec<vtium_image::FramePlacement>,
+    /// The order each row is drawn in (ADR-1004 D8).
+    #[cfg(feature = "bidi")]
+    order: Order,
+    /// For each row with an order, whether any row of its paragraph
+    /// changed since `since`, which marks every cell of the row changed.
+    #[cfg(feature = "bidi")]
+    paragraph_changed: Vec<bool>,
 }
 
 impl<'a> Frame<'a> {
@@ -144,7 +168,57 @@ impl<'a> Frame<'a> {
             overlay: None,
             #[cfg(feature = "images")]
             placements: Vec::new(),
+            #[cfg(feature = "bidi")]
+            order: Order::default(),
+            #[cfg(feature = "bidi")]
+            paragraph_changed: Vec::new(),
         }
+    }
+
+    /// The frame with each row drawn in the order `order` gives, as the
+    /// screen built it. A row of a paragraph that draws in another order
+    /// than it was written reads as changed in every cell whenever any row
+    /// of the paragraph changed since `since` (ADR-1004 D8).
+    #[cfg(feature = "bidi")]
+    pub fn with_order(mut self, order: Order) -> Self {
+        let mut changed = vec![false; self.lines.len()];
+        let mut last: Option<(Range<usize>, bool)> = None;
+        for (row, r) in order.rows() {
+            let any = match &last {
+                Some((p, any)) if *p == r.paragraph => *any,
+                _ => {
+                    let any = r
+                        .paragraph
+                        .clone()
+                        .any(|y| self.damage.row_changed(y, self.since));
+                    last = Some((r.paragraph.clone(), any));
+                    any
+                }
+            };
+            if let Some(slot) = changed.get_mut(row) {
+                *slot = any;
+            }
+        }
+        self.order = order;
+        self.paragraph_changed = changed;
+        self
+    }
+
+    /// The order each row is drawn in, which a holder of the frame's parts
+    /// hands back with [`with_order`](Self::with_order).
+    #[cfg(feature = "bidi")]
+    pub fn order(&self) -> &Order {
+        &self.order
+    }
+
+    /// The logical column drawn at column `col` of `row`.
+    fn logical(&self, row: usize, col: usize) -> usize {
+        #[cfg(feature = "bidi")]
+        if let Some(r) = self.order.row(row) {
+            return r.logical_at(col);
+        }
+        let _ = row;
+        col
     }
 
     /// The frame with the image placements the view shows, in draw order.
@@ -162,10 +236,17 @@ impl<'a> Frame<'a> {
     }
 
     /// The frame with the columns of each row, top to bottom, that the
-    /// selection covers.
+    /// selection covers, as logical columns: in a row drawn in another
+    /// order, the cells they hold can show in pieces (ADR-1004 D10).
     pub fn with_selection(mut self, selection: Vec<Range<usize>>) -> Self {
         self.selection = selection;
         self
+    }
+
+    /// The logical columns of each row, top to bottom, that the selection
+    /// covers.
+    pub fn selection(&self) -> &[Range<usize>] {
+        &self.selection
     }
 
     /// The frame with the link under the pointer, and the overlay row
@@ -216,15 +297,23 @@ impl<'a> Frame<'a> {
 
     /// Whether any cell of `row` changed for this display.
     pub fn row_changed(&self, row: usize) -> bool {
+        #[cfg(feature = "bidi")]
+        if self.order.row(row).is_some() {
+            return self.paragraph_changed.get(row).copied().unwrap_or(true);
+        }
         self.damage.row_changed(row, self.since)
     }
 
-    /// The cell at `row`, `col`, resolved; `None` outside the frame.
+    /// The cell drawn at `row`, column `col` from the left, resolved;
+    /// `None` outside the frame. A row drawn in another order than it was
+    /// written shows there the cell of another logical column
+    /// ([`FrameCell::col`] in a build with the bidi feature).
     pub fn cell(&self, row: usize, col: usize) -> Option<FrameCell<'a>> {
         let line = self.line(row)?;
         if col >= self.cols() {
             return None;
         }
+        let col = self.logical(row, col);
         let cell = line.cell(col);
         let selected = self.selection.get(row).is_some_and(|r| r.contains(&col));
         let placeholder = is_placeholder(line, cell);
@@ -232,9 +321,9 @@ impl<'a> Frame<'a> {
         Some(self.frame_cell(line, cell, row, col, colors))
     }
 
-    /// The cells of `row`, left to right, each as [`Frame::cell`] reads it;
-    /// none outside the frame. A run of cells in one style, all selected or
-    /// none, resolves its colors once.
+    /// The cells of `row` as drawn, left to right, each as [`Frame::cell`]
+    /// reads it; none outside the frame. A run of cells in one style, all
+    /// selected or none, resolves its colors once.
     pub fn cells(&self, row: usize) -> impl Iterator<Item = FrameCell<'a>> + '_ {
         let line = self.line(row);
         let cols = line.map_or(0, |_| self.cols());
@@ -243,6 +332,7 @@ impl<'a> Frame<'a> {
         line.into_iter()
             .flat_map(move |line| (0..cols).map(move |col| (line, col)))
             .map(move |(line, col)| {
+                let col = self.logical(row, col);
                 let cell = line.cell(col);
                 let selected = selection.is_some_and(|r| r.contains(&col));
                 let placeholder = is_placeholder(line, cell);
@@ -271,8 +361,20 @@ impl<'a> Frame<'a> {
         c: Colors,
     ) -> FrameCell<'a> {
         let link = line.link(cell);
+        #[cfg(feature = "bidi")]
+        let order = self.order.row(row);
+        #[cfg(feature = "bidi")]
+        let (glyph, changed) = match order {
+            Some(r) => (
+                r.drawn(col, line.glyph(cell)),
+                self.paragraph_changed.get(row).copied().unwrap_or(true),
+            ),
+            None => (line.glyph(cell), self.damage.changed(row, col, self.since)),
+        };
+        #[cfg(not(feature = "bidi"))]
+        let (glyph, changed) = (line.glyph(cell), self.damage.changed(row, col, self.since));
         FrameCell {
-            glyph: line.glyph(cell),
+            glyph,
             width: cell.width(),
             fg: c.fg,
             bg: c.bg,
@@ -282,7 +384,13 @@ impl<'a> Frame<'a> {
             link,
             hovered: link.is_some() && link == self.hovered,
             selected: c.selected,
-            changed: self.damage.changed(row, col, self.since),
+            changed,
+            #[cfg(feature = "bidi")]
+            col,
+            #[cfg(feature = "bidi")]
+            rtl: order.is_some_and(|r| r.rtl_at(col)),
+            #[cfg(feature = "bidi")]
+            joins: order.map(|r| r.joins_at(col)).unwrap_or_default(),
         }
     }
 
