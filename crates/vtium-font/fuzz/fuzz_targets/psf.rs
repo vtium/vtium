@@ -3,11 +3,13 @@
 //! plain, bold, italic and bold italic, and the first 0x300 codepoints and
 //! the last drawn through a [`Font`] bold and bold italic, each exactly its
 //! cells' size, and each sheared glyph's ink box inside its reach: its
-//! cell and one cell past it on each side (ADR-1302 D1, D4, D6).
+//! cell and `REACH_CELLS` cells past it on each side, over its own row's
+//! height, since a bitmap glyph's shear moves rows sideways only
+//! (ADR-1302 D1, D4, D6).
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
-use vtium_font::{Face, Font, Psf, Style, Width};
+use vtium_font::{Face, Font, Psf, REACH_CELLS, Style, Width};
 
 fuzz_target!(|data: &[u8]| {
     let Ok(mut psf) = Psf::parse(data) else {
@@ -29,9 +31,11 @@ fuzz_target!(|data: &[u8]| {
             assert_eq!((g.width(), g.height()), (cell.width, cell.height));
             if let Some(ink) = g.ink() {
                 let (w, left) = (i64::from(cell.width), i64::from(ink.left()));
+                let across = w * i64::from(REACH_CELLS);
                 let right = left + i64::from(ink.width());
-                assert!(left <= 0 && left >= -w, "{left}");
-                assert!(right >= w && right <= 2 * w, "{right}");
+                assert!(left <= 0 && left >= -across, "{left}");
+                assert!(right >= w && right <= w + across, "{right}");
+                assert_eq!((ink.top(), ink.height()), (0, g.height()));
                 assert_eq!(ink.pixels().len(), (ink.width() * g.height()) as usize);
             }
         }
