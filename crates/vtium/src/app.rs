@@ -1114,8 +1114,22 @@ impl App {
         }
     }
 
+    /// What `render-timer` asks for: whether the console writes each
+    /// display's figures to the log, and whether it draws them on screen.
+    fn render_timer(&self) -> (bool, bool) {
+        match self.config.text(&keys::RENDER_TIMER) {
+            Some("log") => (true, false),
+            Some("osd") => (false, true),
+            Some("both") => (true, true),
+            _ => (false, false),
+        }
+    }
+
+    /// Whether the console measures each display's frames, for the log,
+    /// the screen or both.
     fn measure(&self) -> bool {
-        matches!(self.config.text(&keys::RENDER_TIMER), Some("log" | "both"))
+        let (log, osd) = self.render_timer();
+        log || osd
     }
 
     /// The rules' identity of the display `id` of `node`, its place in
@@ -1679,7 +1693,12 @@ impl App {
                         .as_ref()
                         .is_some_and(|f| f.wants_own_cell(at, head.sized()))
             });
+            // The cell's width can change at the height a view already
+            // draws at, so each view is rebuilt with the new face.
             if takes {
+                if let Some(head) = self.heads.get_mut(h) {
+                    head.refont = true;
+                }
                 self.relayout(h);
             }
         }
@@ -1709,8 +1728,11 @@ impl App {
                     }
                 }
             }
+            // A line measured before the VT switched away no longer
+            // describes this second, so each display drops it.
             for v in head.views.values_mut() {
                 v.lost = true;
+                v.timer_line = None;
             }
             head.draw_now = true;
         }
@@ -3690,7 +3712,11 @@ impl App {
         }
     }
 
-    /// The render timer's line, once a second.
+    /// The render timer's figures for each display, once a second: its
+    /// line in the log under `render-timer=log` or `both`, and its line in
+    /// the on-screen display's box under `osd` or `both`, and the console
+    /// redraws the display so the new line shows. That frame counts in the
+    /// next second's figures, as the C reference's redraw for its line did.
     fn report(&mut self, now: Instant) {
         for head in &mut self.heads {
             if let Some(line) = head.figures_line(now) {
@@ -3701,17 +3727,27 @@ impl App {
             return;
         };
         self.timer_due = Some(after(due, Duration::from_secs(1)));
+        let (log, osd) = self.render_timer();
         for head in &mut self.heads {
+            let mut shows = false;
             for ((node, id), view) in &mut head.views {
                 let px = u64::from(view.size.0).saturating_mul(u64::from(view.size.1));
-                if let Some(report) = view
+                let Some(report) = view
                     .timer
                     .as_mut()
                     .and_then(|t| t.report(Duration::from_secs(1), px))
-                {
+                else {
+                    continue;
+                };
+                if log {
                     log::info!(target: "terminal", "{}", render_timer_line(&report, node, *id));
                 }
+                if osd {
+                    view.timer_line = Some(report.osd());
+                    shows = true;
+                }
             }
+            head.draw_now |= shows;
         }
     }
 
@@ -3916,7 +3952,12 @@ fn draw_head(
     now: Instant,
 ) {
     let state = head.draw_state();
-    let overlay = head.overlay();
+    // each display draws its own render timer's line in the box
+    let overlays: Vec<crate::term::Overlay> = head
+        .views
+        .values()
+        .map(|v| head.overlay(v.timer_line.as_deref()))
+        .collect();
     // The notice screen's notice stays for as long as it is lit (D7).
     if head.has_notices()
         && head.notice_due.is_none()
@@ -3932,7 +3973,7 @@ fn draw_head(
     let holding = term.sync.holding(&term.terminal);
     let base = head.cell;
     let mut snapshot = None;
-    for (key, view) in head.views.iter_mut() {
+    for ((key, view), overlay) in head.views.iter_mut().zip(&overlays) {
         let Some(video) = videos.get_mut(&key.0) else {
             continue;
         };
@@ -3976,7 +4017,7 @@ fn draw_head(
             ..state
         };
         let hook = head.draw_hook.as_ref();
-        view.overlay.clone_from(&overlay);
+        view.overlay.clone_from(overlay);
         let Prepared::Job(job) = view.prepare(
             key,
             term,
@@ -5225,6 +5266,76 @@ mod tests {
         (lp, app, dir)
     }
 
+    // ADR-1200 D17: a late outline answer at the height the head draws at
+    // changes the cell's width, and the head's grid and every one of its
+    // views take the new cell together, so the next frame draws each cell
+    // as wide as the grid lays it out. The cases are the ones the issue
+    // about late cells lists: 18x40 and 42x40 at 40 pixels, and 13x32 at
+    // 32 pixels. Before the fix the grid took the new width while each
+    // view kept drawing the built-in font's width, because a view is
+    // rebuilt only when its height changes or the head is marked
+    // `refont`.
+    #[test]
+    fn a_late_outline_cell_is_drawn_at_its_own_width() {
+        for (width, height) in [(18, 40), (42, 40), (13, 32)] {
+            let test = format!("late-outline-{width}x{height}");
+            let dir = std::env::temp_dir().join(format!("vtium-app-{test}-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(dir.join("t.vtfrit"), "source=outline:/nonexistent/t.ttf\n").unwrap();
+            let fonts = font::Sources {
+                frits: dir.clone(),
+                helper: Some(helper::Command {
+                    program: PathBuf::from("/bin/sh"),
+                    args: vec!["-c".into(), "exec sleep 30".into()],
+                    account: None,
+                }),
+                ..no_fonts()
+            };
+            let size = format!("--font-size={height}");
+            let (_lp, mut app) = seat_with(&[&size, "--font-name=t"], None, fonts);
+            app.add_video(
+                PathBuf::from("/dev/mem0"),
+                Box::new(Still::new(&[(1, "A")])),
+            );
+            shown(&mut app);
+            let head = app.heads.first().unwrap();
+            let at = draw_height(head, app.dpi(0), &app.locale);
+            assert_eq!(at, height, "the head draws at {height} pixels");
+            let view = |app: &App| {
+                let head = app.heads.first().unwrap();
+                let v = head.views.values().next().unwrap();
+                (v.cell().width, v.cell().height)
+            };
+            let fallback = view(&app);
+            assert_ne!(fallback.0, width, "the fallback's width differs");
+            let known = app.frits.get("t").map(|f| f.own.clone()).unwrap();
+            assert!(
+                known
+                    .get(&at)
+                    .is_some_and(|k| k.as_ref().is_err_and(|no| no.late)),
+                "the start's query had no answer in time: {known:?}"
+            );
+            let cell = vtium_font::Cell { width, height };
+            app.late_cell("t", at, Ok(helper::OwnCell::Outline(cell)));
+            let head = app.heads.first().unwrap();
+            assert_eq!(
+                head.cell,
+                (width, height),
+                "{width}x{height}: the head's cell"
+            );
+            assert_eq!(
+                view(&app),
+                (width, height),
+                "{width}x{height}: the view's cell"
+            );
+            let columns = usize::try_from(320 / width).unwrap();
+            let rows = usize::try_from(160 / height).unwrap();
+            assert_eq!(head.grid(), (columns, rows), "{width}x{height}: the grid");
+            let _ = std::fs::remove_dir_all(&dir);
+        }
+    }
+
     // ADR-1200 D17 (the maintainer, 2026-11-03), fix round 1 of the work
     // that keeps a late answer: a late answer lays out again only the
     // heads drawing the frit that take a cell from it. An outline cell for
@@ -5232,8 +5343,10 @@ mod tests {
     // bitmap first source's own cell, given to frit `t`, lays out the head
     // drawing `t` and not the head drawing `u`, which still wants its own
     // cell. Each frit gets one kind of answer, as one frit's first source
-    // answers one kind for the whole boot. `refont`, which a layout takes,
-    // marks each head.
+    // answers one kind for the whole boot. The views' cells and the
+    // heads' grids show what was laid out: the late cell is as tall as
+    // the cell drawn before it and wider, so a layout that rebuilt no view
+    // leaves the view drawing the old width.
     #[test]
     fn a_late_cell_lays_out_only_the_heads_that_take_it() {
         let (_lp, mut app, dir) = late_seat("late-heads");
@@ -5245,31 +5358,39 @@ mod tests {
                 .is_some_and(|k| k.as_ref().is_err_and(|no| no.late)),
             "the start's query had no answer in time: {known:?}"
         );
-        let mark = |app: &mut App| {
-            for head in &mut app.heads {
-                head.refont = true;
-            }
+        let drawn = |app: &App| {
+            app.heads
+                .iter()
+                .map(|h| (h.cells(), h.grid()))
+                .collect::<Vec<_>>()
         };
-        let marked = |app: &App| app.heads.iter().map(|h| h.refont).collect::<Vec<_>>();
+        let before = drawn(&app);
+        let b_before = before.get(1).unwrap();
+        let &(width, height) = before.first().unwrap().0.first().unwrap();
         let other = at + 11;
-        mark(&mut app);
         let outline = vtium_font::Cell {
             width: 9,
             height: other,
         };
         app.late_cell("u", other, Ok(helper::OwnCell::Outline(outline)));
         assert_eq!(
-            marked(&app),
-            [true, true],
+            drawn(&app),
+            before,
             "an outline cell at {other} lays out nothing"
         );
         let own = vtium_font::Cell {
-            width: 8,
-            height: 16,
+            width: width + 2,
+            height,
         };
         app.late_cell("t", at, Ok(helper::OwnCell::Bitmap(own)));
-        assert_eq!(marked(&app), [false, true], "a is laid out, b is not");
-        assert_eq!(app.heads.first().map(|h| h.cell), Some((8, 16)));
+        let after = drawn(&app);
+        let (a_cells, (a_columns, _)) = after.first().unwrap();
+        let wide = (own.width, own.height);
+        assert_eq!(app.heads.first().map(|h| h.cell), Some(wide));
+        assert_eq!(a_cells.as_slice(), [wide], "a is laid out in the late cell");
+        let columns = usize::try_from(320 / own.width).unwrap();
+        assert_eq!(*a_columns, columns, "a's grid takes the late cell");
+        assert_eq!(after.get(1).unwrap(), b_before, "b is not laid out");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -5401,6 +5522,150 @@ mod tests {
             assert_eq!(frit.answer_at(20, false), Some(failed));
         }
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A seat on one display under `render-timer=value`, shown at the
+    /// returned time, its first frames handed back.
+    fn timer_seat(value: &str) -> (Loop<App>, App, Instant) {
+        let option = format!("--render-timer={value}");
+        let (mut lp, mut app) = seat_with(&["--font-size=16", &option], None, no_fonts());
+        app.add_video(
+            PathBuf::from("/dev/mem0"),
+            Box::new(Still::new(&[(1, "A")])),
+        );
+        let t = Instant::now();
+        app.vt.activate().unwrap();
+        app.turn(t);
+        settle_frames(&mut lp, &mut app, t);
+        (lp, app, t)
+    }
+
+    /// Turns `app` at `at` until every head's render thread has handed
+    /// back each frame it composed.
+    fn settle_frames(lp: &mut Loop<App>, app: &mut App, at: Instant) {
+        let back = |app: &App| app.heads.iter().all(|h| h.frames_out() == 0);
+        for _ in 0..1000 {
+            if back(app) {
+                break;
+            }
+            lp.dispatch(Some(Duration::from_millis(10)), app).unwrap();
+            app.turn(at);
+        }
+        assert!(back(app), "the render thread handed every frame back");
+    }
+
+    /// The overlay the first display draws next.
+    fn first_overlay(app: &App) -> crate::term::Overlay {
+        let head = app.heads.first().unwrap();
+        head.views.values().next().unwrap().overlay.clone()
+    }
+
+    /// The text of the box the first display draws next.
+    fn box_text(app: &App) -> Option<String> {
+        first_overlay(app).notice.map(|n| n.text().to_owned())
+    }
+
+    // ADR-1401 D5: under `render-timer=osd` the console measures each
+    // display's frames, and once a second draws the render timer's line,
+    // `Report::osd`'s, in the on-screen display's box, in the on-screen
+    // display's colors; under `log` it draws none. The display reports
+    // three flips in the second, so the line reads 3.0 frames a second.
+    #[test]
+    fn render_timer_osd_draws_each_seconds_figures_in_the_box() {
+        for (value, shows) in [("osd", true), ("both", true), ("log", false)] {
+            let (mut lp, mut app, t) = timer_seat(value);
+            let measures = app
+                .heads
+                .first()
+                .and_then(|h| h.views.values().next())
+                .is_some_and(|v| v.timer.is_some());
+            assert!(measures, "{value}: the console measures");
+            assert_eq!(box_text(&app), None, "{value}: no line before a second");
+            let still = app.videos.get_mut(Path::new("/dev/mem0")).unwrap();
+            let still = still.as_any().downcast_mut::<Still>().unwrap();
+            still.events.extend([Event::Flipped(DisplayId(1)); 3]);
+            let half = t + Duration::from_millis(500);
+            app.turn(half);
+            settle_frames(&mut lp, &mut app, half);
+            let second = t + Duration::from_secs(1);
+            app.turn(second);
+            settle_frames(&mut lp, &mut app, second);
+            let line = box_text(&app);
+            if !shows {
+                assert_eq!(line, None, "{value}: no line on screen");
+                continue;
+            }
+            let line = line.unwrap_or_default();
+            assert!(
+                line.starts_with("3.0 fps ") && line.contains(" ms ") && line.ends_with('%'),
+                "{value}: the line drawn is {line:?}"
+            );
+            assert!(
+                !first_overlay(&app).problem,
+                "{value}: in the on-screen display's colors"
+            );
+        }
+    }
+
+    // ADR-1401 D5: a render timer line measured before the VT switched
+    // away describes no second after it. Shown again, a display that kept
+    // its view across the switch, as on a DRM card, draws no line until
+    // the first report after the switch back, a second later, which draws
+    // one again.
+    #[test]
+    fn a_vt_switch_drops_the_render_timer_line_until_the_next_report() {
+        let (mut lp, mut app, t) = timer_seat("osd");
+        let second = t + Duration::from_secs(1);
+        app.turn(second);
+        settle_frames(&mut lp, &mut app, second);
+        assert!(
+            box_text(&app).is_some_and(|l| l.contains(" fps ")),
+            "the first second's line: {:?}",
+            box_text(&app)
+        );
+        app.vt.leave().unwrap();
+        let away = second + Duration::from_millis(10);
+        app.turn(away);
+        let still = app.videos.get_mut(Path::new("/dev/mem0")).unwrap();
+        let still = still.as_any().downcast_mut::<Still>().unwrap();
+        still.events.push(Event::Asleep);
+        app.turn(away);
+        assert!(!app.awake && !app.vt.is_active(), "the VT is let go");
+        // A DRM card keeps its displays across the switch and reports
+        // `Awake` at the wake-up, so each display keeps its view and the
+        // line on it. The stand-in would announce its displays again,
+        // which builds new views, so it wakes as the card does.
+        let still = app.videos.get_mut(Path::new("/dev/mem0")).unwrap();
+        let still = still.as_any().downcast_mut::<Still>().unwrap();
+        still.awake = true;
+        still.events.push(Event::Awake);
+        let kept = app.heads.first().map(|h| h.views.len());
+        app.vt.activate().unwrap();
+        let back = second + Duration::from_secs(5);
+        app.turn(back);
+        settle_frames(&mut lp, &mut app, back);
+        assert!(app.awake, "the VT is shown again");
+        assert_eq!(
+            app.heads.first().map(|h| h.views.len()),
+            kept,
+            "the display kept its view"
+        );
+        assert!(
+            app.heads
+                .first()
+                .and_then(|h| h.views.values().next())
+                .is_some_and(|v| v.timer.is_some()),
+            "the view measures still"
+        );
+        assert_eq!(box_text(&app), None, "no line until the next report");
+        let next = back + Duration::from_secs(1);
+        app.turn(next);
+        settle_frames(&mut lp, &mut app, next);
+        assert!(
+            box_text(&app).is_some_and(|l| l.contains(" fps ")),
+            "the next report's line: {:?}",
+            box_text(&app)
+        );
     }
 
     #[test]

@@ -7,6 +7,12 @@ disallowed-methods = [
     { path = "std::time::Instant::now", reason = "time enters only in vtium-platform and vtium-render" },
     { path = "std::time::SystemTime::now", reason = "time enters only in vtium-platform and vtium-render" },
     { path = "std::thread::sleep", reason = "time enters only in vtium-platform and vtium-render" },
+    # unicode-bidi 0.3.18's visual_runs panics on a level overflow and on an
+    # empty line, and reorder_line calls it (ADR-1004 D13).
+    { path = "unicode_bidi::ParagraphBidiInfo::visual_runs", reason = "ADR-1004 D13: it panics in unicode-bidi 0.3.18; call reordered_levels_per_char and reorder_visual" },
+    { path = "unicode_bidi::ParagraphBidiInfo::reorder_line", reason = "ADR-1004 D13: it calls visual_runs, which panics in unicode-bidi 0.3.18; call reordered_levels_per_char and reorder_visual" },
+    { path = "unicode_bidi::BidiInfo::visual_runs", reason = "ADR-1004 D13: it panics in unicode-bidi 0.3.18; call reordered_levels_per_char and reorder_visual" },
+    { path = "unicode_bidi::BidiInfo::reorder_line", reason = "ADR-1004 D13: it calls visual_runs, which panics in unicode-bidi 0.3.18; call reordered_levels_per_char and reorder_visual" },
 ]
 disallowed-types = [
     { path = "std::collections::HashMap", reason = "its iteration order is randomised; use BTreeMap" },

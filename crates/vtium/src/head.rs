@@ -706,12 +706,13 @@ impl Head {
         self.compose_notices();
     }
 
-    /// What vtium draws over the head's frames: one box at the top holding
-    /// the on-screen display's line and the notices beneath it, a problem
+    /// What vtium draws over a display of the head: one box at the top
+    /// holding the on-screen display's line, the display's render timer
+    /// line `timer` under it, and the notices beneath them, a problem
     /// while a notice is in it, and the on-screen display's dot, in the
     /// colors vtium.conf sets. The notice screen draws its notice alone,
     /// its report as a report.
-    pub(crate) fn overlay(&self) -> crate::term::Overlay {
+    pub(crate) fn overlay(&self, timer: Option<&str>) -> crate::term::Overlay {
         if let Some(text) = self.notice().filter(|_| self.notice_only) {
             let notice = match &self.report {
                 Some(report) => vtium_render::Notice::report(report.clone()),
@@ -720,12 +721,9 @@ impl Head {
             return crate::term::Overlay::alone(notice, self.overlay_colors);
         }
         let notices: Vec<&str> = self.notice().into_iter().collect();
-        crate::term::Overlay::new(
-            self.status.as_deref(),
-            &notices,
-            self.mark,
-            self.overlay_colors,
-        )
+        let lines: Vec<&str> = self.status.as_deref().into_iter().chain(timer).collect();
+        let status = (!lines.is_empty()).then(|| lines.join("\n"));
+        crate::term::Overlay::new(status.as_deref(), &notices, self.mark, self.overlay_colors)
     }
 
     /// How the shown console fits the displays.
@@ -1839,10 +1837,10 @@ mod tests {
             0,
         );
         let mut screen = Head::notice_screen(&config, term());
-        assert_eq!(screen.overlay().notice, None, "nothing yet");
+        assert_eq!(screen.overlay(None).notice, None, "nothing yet");
         screen.set_report(report.clone());
         assert_eq!(screen.notice(), Some(report.text().as_str()));
-        let overlay = screen.overlay();
+        let overlay = screen.overlay(None);
         assert_eq!(
             overlay.notice,
             Some(vtium_render::Notice::report(report.clone()))
@@ -1851,7 +1849,7 @@ mod tests {
         // a notice that is no report draws as it is, and replaces the report
         screen.set_notice("No head has a connected display.");
         assert_eq!(
-            screen.overlay().notice,
+            screen.overlay(None).notice,
             Some(vtium_render::Notice::new(
                 "No head has a connected display."
             ))
@@ -1859,7 +1857,7 @@ mod tests {
         let mut head = Head::new("h", &config, Vec::new(), term());
         head.add_notice(&report.text());
         assert_eq!(
-            head.overlay().notice,
+            head.overlay(None).notice,
             Some(vtium_render::Notice::new(report.text()))
         );
     }
@@ -2041,7 +2039,7 @@ mod tests {
             let renderer =
                 vtium_render::Renderer::new(Font::new(face), 320, 96, RenderConfig::default());
             let mut canvas = vtium_render::Canvas::new(320, 96, 0);
-            head.overlay()
+            head.overlay(None)
                 .draw(&renderer, (40, 6), Orientation::Normal, &mut canvas);
             canvas
         };
