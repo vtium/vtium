@@ -225,8 +225,8 @@ pub fn cluster_width(cluster: &[char]) -> u8 {
 mod tests {
     use super::*;
 
-    // cluster_width gives the width the screen stores for each cluster
-    // printed by the Unicode width method: an ideograph, the heart with
+    // cluster_width gives the width the screen stores for each cluster a
+    // terminal prints by the Unicode width method: an ideograph, the heart with
     // VS16, with VS15 and alone, a letter and its combining acute, and the
     // ZWJ family
     #[test]
@@ -248,12 +248,11 @@ mod tests {
         let widths: Vec<u8> = clusters.iter().map(|k| cluster_width(k)).collect();
         assert_eq!(widths, [2, 2, 1, 1, 1, 2]);
         for cluster in clusters {
-            let mut screen = crate::Screen::new(10, 1, 0);
-            screen.set_width_method(crate::WidthMethod::Unicode);
-            for &c in cluster {
-                screen.print(c);
-            }
-            let stored = match screen.line(0).map(|l| l.cell(0).width()) {
+            // a terminal prints by the Unicode width method from its start
+            let mut term = crate::Terminal::new(10, 1, 0);
+            let text: String = cluster.iter().collect();
+            term.input(text.as_bytes());
+            let stored = match term.screen().line(0).map(|l| l.cell(0).width()) {
                 Some(crate::Width::Wide) => 2,
                 Some(crate::Width::Narrow) => 1,
                 other => panic!("{cluster:?}: {other:?}"),
