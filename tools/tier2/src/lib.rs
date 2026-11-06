@@ -4,7 +4,8 @@
 //! [`screens`] holds the screens and where each one's golden lives,
 //! [`draw`] draws them through `vtium-term` and `vtium-render`, [`ppm`],
 //! [`tol`] and [`compare`] read and judge the images as tier 3 does, and
-//! [`runner`] runs them all and writes the [`report`]. [`colorset`] builds
+//! [`runner`] runs them all and writes the [`report`]. [`fonts`] fetches the
+//! outline fonts the outline screens draw with, [`colorset`] builds
 //! the vitrified set the color glyph screen draws with, [`notices`] the
 //! words of the screens of vtium's notices and on-screen display, and
 //! [`pictures`] the sixel and kitty strings of the picture screens.
@@ -14,6 +15,7 @@
 pub mod colorset;
 pub mod compare;
 pub mod draw;
+pub mod fonts;
 #[cfg(feature = "gpu")]
 pub mod gpu;
 pub mod notices;
