@@ -334,6 +334,96 @@ fn keypad_operators_follow_the_specification() {
     assert_eq!(key(&mut t, KP_F1, 0, Mods::CTRL, None), b"\x1bO5P");
 }
 
+// With NumLock off, xterm 411 sends the keypad's Insert, Delete and Begin
+// as the editing keys: `CSI 2 ~`, `CSI 3 ~` and `CSI E` (`SS3 E` under
+// DECCKM), with a modifier `CSI 2 ; m ~`, `CSI 3 ; m ~` and `CSI 1 ; m E`,
+// in either keypad mode.
+// covers: input.legacy
+#[test]
+fn the_keypads_editing_keys_send_the_editing_keys_sequences() {
+    const KP_BEGIN: u32 = 0xff9d;
+    const KP_INSERT: u32 = 0xff9e;
+    const KP_DELETE: u32 = 0xff9f;
+    for keypad in [&b"\x1b>"[..], b"\x1b="] {
+        for (decckm, ss3) in CURSOR_MODES.into_iter().zip([false, true]) {
+            let mut t = term(8, 2, &[keypad, decckm].concat());
+            let begin: &[u8] = if ss3 { b"\x1bOE" } else { b"\x1b[E" };
+            let none = Mods::empty();
+            assert_eq!(key(&mut t, KP_INSERT, 0, none, None), b"\x1b[2~");
+            assert_eq!(key(&mut t, KP_DELETE, 0, none, None), b"\x1b[3~");
+            assert_eq!(key(&mut t, KP_BEGIN, 0, none, None), begin);
+            for (mods, m) in modifier_combinations() {
+                let context = format!("{mods:?}, {keypad:?}, DECCKM {ss3}");
+                let want = format!("\x1b[2;{m}~");
+                assert_eq!(
+                    key(&mut t, KP_INSERT, 0, mods, None),
+                    want.as_bytes(),
+                    "{context}"
+                );
+                let want = format!("\x1b[3;{m}~");
+                assert_eq!(
+                    key(&mut t, KP_DELETE, 0, mods, None),
+                    want.as_bytes(),
+                    "{context}"
+                );
+                let want = format!("\x1b[1;{m}E");
+                assert_eq!(
+                    key(&mut t, KP_BEGIN, 0, mods, None),
+                    want.as_bytes(),
+                    "{context}"
+                );
+            }
+        }
+    }
+}
+
+// ctlseqs, "VT220-Style Keypad": in application mode the keypad's Tab
+// sends `SS3 I` and its space `SS3 SP`, with a modifier `SS3 m I`, as
+// xterm 411 sends them; in numeric mode they send a tab and a space, with
+// any modifier.
+// covers: input.legacy
+#[test]
+fn the_keypads_tab_and_space_follow_the_specification() {
+    const KP_SPACE: u32 = 0xff80;
+    const KP_TAB: u32 = 0xff89;
+    let mut t = term(8, 2, b"\x1b=");
+    assert_eq!(key(&mut t, KP_TAB, 0, Mods::empty(), None), b"\x1bOI");
+    assert_eq!(key(&mut t, KP_SPACE, 0, Mods::empty(), None), b"\x1bO ");
+    for (mods, m) in modifier_combinations() {
+        let tab = [b"\x1bO", &[b'0' + m, b'I'][..]].concat();
+        assert_eq!(key(&mut t, KP_TAB, 0, mods, None), tab, "{mods:?}");
+        let space = [b"\x1bO", &[b'0' + m, b' '][..]].concat();
+        assert_eq!(key(&mut t, KP_SPACE, 0, mods, None), space, "{mods:?}");
+    }
+    t.input(b"\x1b>");
+    for mods in [Mods::empty(), Mods::SHIFT, Mods::ALT, ctrl_alt()] {
+        assert_eq!(key(&mut t, KP_TAB, 0, mods, None), b"\t", "{mods:?}");
+        assert_eq!(key(&mut t, KP_SPACE, 0, mods, None), b" ", "{mods:?}");
+    }
+}
+
+// xterm 411 sends Shift+Tab, which arrives as ISO_Left_Tab, as `CSI Z`
+// with Alt and Ctrl held too: Alt puts no ESC before it.
+// covers: input.legacy
+#[test]
+fn shift_tab_is_csi_z_with_any_modifier() {
+    let mut t = term(8, 2, b"");
+    let shift = Mods::SHIFT;
+    for mods in [
+        shift,
+        shift.union(Mods::ALT),
+        shift.union(Mods::CTRL),
+        shift.union(ctrl_alt()),
+        Mods::ALT,
+    ] {
+        assert_eq!(
+            key(&mut t, ISO_LEFT_TAB, 0, mods, None),
+            b"\x1b[Z",
+            "{mods:?}"
+        );
+    }
+}
+
 // ctlseqs, "Alt and Meta Keys", and xterm's "Modified Other Keys (us-pc105)"
 // table: at level 1 a printable key with Alt, or with Ctrl where Ctrl makes
 // no control byte, and Ctrl+?, are sent as `CSI 27 ; mod ; code ~`; Tab and

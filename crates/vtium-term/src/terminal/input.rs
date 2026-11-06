@@ -109,6 +109,7 @@ mod sym {
     pub const KP_PAGE_UP: u32 = 0xff9a;
     pub const KP_PAGE_DOWN: u32 = 0xff9b;
     pub const KP_END: u32 = 0xff9c;
+    pub const KP_BEGIN: u32 = 0xff9d;
     pub const KP_INSERT: u32 = 0xff9e;
     pub const KP_DELETE: u32 = 0xff9f;
     pub const KP_MULTIPLY: u32 = 0xffaa;
@@ -300,11 +301,14 @@ impl State {
             sym::KP_ENTER if app => keypad_application(b'M', mods),
             sym::KP_ENTER if self.modes.newline() => b"\r\n".to_vec(),
             sym::KP_ENTER => vec![0x0d],
-            sym::KP_TAB => vec![0x09],
-            sym::KP_SPACE => vec![b' '],
+            sym::KP_TAB => keypad(b'I', b'\t'),
+            sym::KP_SPACE => keypad(b' ', b' '),
+            sym::ISO_LEFT_TAB => b"\x1b[Z".to_vec(),
             sym::FIND => numbered(1, mods),
-            sym::INSERT => numbered(2, mods),
-            sym::DELETE => numbered(3, mods),
+            // With NumLock off the keypad's Insert and Delete are the
+            // editing keys, as xterm sends them.
+            sym::INSERT | sym::KP_INSERT => numbered(2, mods),
+            sym::DELETE | sym::KP_DELETE => numbered(3, mods),
             sym::SELECT => numbered(4, mods),
             sym::PAGE_UP | sym::KP_PAGE_UP => numbered(5, mods),
             sym::PAGE_DOWN | sym::KP_PAGE_DOWN => numbered(6, mods),
@@ -314,7 +318,7 @@ impl State {
             sym::LEFT | sym::KP_LEFT => lettered(b'D', ckm, mods),
             sym::HOME | sym::KP_HOME => lettered(b'H', ckm, mods),
             sym::END | sym::KP_END => lettered(b'F', ckm, mods),
-            sym::KP_INSERT => keypad(b'p', b'0'),
+            sym::KP_BEGIN => lettered(b'E', ckm, mods),
             sym::KP_0..=sym::KP_9 => {
                 let digit = u8::try_from(keysym.saturating_sub(sym::KP_0)).unwrap_or(0);
                 keypad(b'p'.saturating_add(digit), b'0'.saturating_add(digit))
@@ -323,7 +327,7 @@ impl State {
             sym::KP_ADD => keypad(b'k', b'+'),
             sym::KP_SEPARATOR => keypad(b'l', b','),
             sym::KP_SUBTRACT => keypad(b'm', b'-'),
-            sym::KP_DELETE | sym::KP_DECIMAL => keypad(b'n', b'.'),
+            sym::KP_DECIMAL => keypad(b'n', b'.'),
             sym::KP_DIVIDE => keypad(b'o', b'/'),
             sym::KP_EQUAL => keypad(b'X', b'='),
             // PF1 to PF4 are SS3 keys in either keypad mode.
@@ -346,7 +350,6 @@ impl State {
                     sym::BACKSPACE if self.host.backspace_delete => vec![0x7f],
                     sym::BACKSPACE => vec![0x08],
                     sym::TAB => vec![0x09],
-                    sym::ISO_LEFT_TAB => b"\x1b[Z".to_vec(),
                     sym::LINEFEED => vec![0x0a],
                     sym::CLEAR => vec![0x0b],
                     sym::SYS_REQ => vec![0x15],
