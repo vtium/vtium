@@ -208,8 +208,9 @@ impl Screen {
     }
 
     /// The cells the cluster stored at `x`, `y` takes: its first
-    /// codepoint's width, or two for an emoji-style base with a VS16 when
-    /// clusters follow UAX #29. What counts is what the line kept, since a
+    /// codepoint's width, or, when clusters follow UAX #29,
+    /// [`unicode::cluster_width`]'s, which is two for an emoji-style base
+    /// with a VS16. What counts is what the line kept, since a
     /// line past its cluster budget keeps only the first codepoints.
     fn stored_width(&self, x: usize, y: usize) -> u8 {
         let Some(line) = self.line(y) else {
@@ -220,17 +221,10 @@ impl Screen {
             Glyph::Char(c) => return unicode::char_width(c),
             Glyph::Cluster(s) => s,
         };
-        let mut chars = text.chars();
-        let Some(first) = chars.next() else {
-            return 1;
-        };
-        if self.width_method == WidthMethod::Unicode
-            && unicode::is_vs16_base(first)
-            && chars.any(|c| c == '\u{FE0F}')
-        {
-            return 2;
+        if self.width_method == WidthMethod::Unicode {
+            return unicode::width_of(text.chars());
         }
-        unicode::char_width(first)
+        text.chars().next().map_or(1, unicode::char_width)
     }
 
     /// A VS16 made the one-cell cluster at `x`, `y` two cells wide: it takes

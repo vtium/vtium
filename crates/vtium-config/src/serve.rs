@@ -1189,9 +1189,29 @@ impl Engine {
             })
     }
 
-    /// Source `i`'s baseline in a cell `height` pixels high, found once
-    /// for the engine's life (ADR-1302 D3); `None` for a bitmap source or
-    /// one whose font cannot be read, which the rasteriser then refuses.
+    /// The size, in pixels to the em, source `i` draws at in a cell
+    /// `height` pixels high when it is an outline source after an outline
+    /// first source: the first source's size (ADR-1200 D17). The first
+    /// source is the frit's first regular one, the one whose metrics every
+    /// strike reports ([`Engine::metrics_at`]). `None` draws the source at
+    /// its own size, so its ascent and descent span the height, as the
+    /// first source itself and every source behind a bitmap first source
+    /// do.
+    fn size(&self, i: usize, height: u32) -> Option<f32> {
+        let first = self.sources.iter().position(|(s, _)| s.style == REGULAR)?;
+        if i == first {
+            return None;
+        }
+        let Some((_, Loaded::Outline { font, family, .. })) = self.sources.get(first) else {
+            return None;
+        };
+        crate::outline::size(font, family, height).ok()
+    }
+
+    /// Source `i`'s baseline in a cell `height` pixels high, at the size it
+    /// draws at ([`Engine::size`]), found once for the engine's life
+    /// (ADR-1302 D3); `None` for a bitmap source or one whose font cannot
+    /// be read, which the rasteriser then refuses.
     fn baseline(&self, i: usize, height: u32) -> Option<u32> {
         if let Some(&b) = self.baselines.borrow().get(&(i, height)) {
             return Some(b);
@@ -1199,7 +1219,8 @@ impl Engine {
         let Some((_, Loaded::Outline { font, family, .. })) = self.sources.get(i) else {
             return None;
         };
-        let b = crate::outline::baseline(font, family, height, self.hinting).ok()?;
+        let size = self.size(i, height);
+        let b = crate::outline::baseline(font, family, height, size, self.hinting).ok()?;
         self.baselines.borrow_mut().insert((i, height), b);
         Some(b)
     }
@@ -1335,7 +1356,11 @@ impl Engine {
     /// order that the step's face is and that gives it, and each cluster
     /// from the first such outline source that covers its first scalar
     /// value other than U+200D and shapes it (ADR-1200 D21), with the
-    /// step's synthesis drawn over the glyph (ADR-1302 D4). A source that
+    /// step's synthesis drawn over the glyph (ADR-1302 D4). A codepoint or
+    /// cluster that asks for emoji presentation
+    /// ([`crate::shaping::asks_for_emoji`]) is first drawn, by the same
+    /// order, from the first source that gives it a color glyph, and only
+    /// when none does from the first that gives it any (ADR-1200 D21). A source that
     /// fails as it draws is left out, and the next one gives its glyphs.
     fn glyphs(
         &self,
@@ -1386,23 +1411,33 @@ impl Engine {
                 .filter(move |(_, (source, _))| source.style == step.face)
                 .map(move |(i, source)| (i, source, step.synth))
         });
-        for (i, (source, loaded), synth) in order {
+        // what asks for emoji presentation goes first to the sources in
+        // order that give it a color glyph, then everything left to the
+        // sources in order (ADR-1200 D21)
+        let passes = [true, false]
+            .into_iter()
+            .flat_map(|color| order.clone().map(move |source| (color, source)));
+        for (color_only, (i, (source, loaded), synth)) in passes {
             if self.failed.borrow().contains_key(&i) {
                 continue;
             }
+            let asked = |k: &[u32]| !color_only || crate::shaping::asks_for_emoji(k);
             let left: Vec<u32> = want
                 .iter()
                 .copied()
-                .filter(|&c| !mapped.contains(&c) && source.covers(c))
+                .filter(|&c| !mapped.contains(&c) && source.covers(c) && asked(&[c]))
                 .collect();
             let lead = |k: &[u32]| k.iter().copied().find(|&c| c != ZWJ);
             let unshaped: Vec<&[u32]> = clusters
                 .iter()
                 .map(Vec::as_slice)
-                .filter(|k| !shaped.contains(k) && lead(k).is_some_and(|c| source.covers(c)))
+                .filter(|k| {
+                    !shaped.contains(k) && lead(k).is_some_and(|c| source.covers(c)) && asked(k)
+                })
                 .collect();
             match loaded {
-                Loaded::Bitmap(_) if left.is_empty() => {}
+                // a bitmap font has no color glyph
+                Loaded::Bitmap(_) if left.is_empty() || color_only => {}
                 Loaded::Bitmap(font) => {
                     let scale = (cell.width / font.cell.width.max(1))
                         .min(cell.height / font.cell.height.max(1));
@@ -1464,8 +1499,21 @@ impl Engine {
                         cover: ranges(&cover),
                         clusters: unshaped.iter().map(|k| crate::shaping::ask(k)).collect(),
                         baselines: self.baseline(i, cell.height).into_iter().collect(),
+                        sizes: self
+                            .size(i, cell.height)
+                            .map(f32::to_bits)
+                            .into_iter()
+                            .collect(),
                         hinting: self.hinting,
                         synth,
+                        // a fallback source: any source but the first of its
+                        // style, the frit's own face for that style, draws
+                        // a glyph too big for its cells smaller (ADR-1200 D17)
+                        fit: self
+                            .sources
+                            .iter()
+                            .position(|(s, _)| s.style == source.style)
+                            != Some(i),
                     };
                     let outline = match rasterise(&request) {
                         Ok(outline) => outline,
@@ -1513,7 +1561,10 @@ impl Engine {
                         else {
                             continue;
                         };
-                        if mapped.contains(&c) || left.binary_search(&c).is_err() {
+                        if mapped.contains(&c)
+                            || left.binary_search(&c).is_err()
+                            || (color_only && !glyph.color)
+                        {
                             continue;
                         }
                         let target = if glyph.color { &mut rgba } else { &mut r8 };
@@ -1530,6 +1581,9 @@ impl Engine {
                         let Some(&asked) = unshaped.iter().find(|k| **k == key.as_slice()) else {
                             continue;
                         };
+                        if color_only && !glyph.color {
+                            continue;
+                        }
                         let chars: Option<Vec<char>> =
                             key.iter().map(|&c| char::from_u32(c)).collect();
                         let Some(chars) = chars else {

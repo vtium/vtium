@@ -18,6 +18,8 @@ use std::sync::Arc;
 use vtium_font::set::Set;
 use vtium_font::{Cell, Sha256, sha256_hex};
 
+use crate::draw::{CellGlyphs, StyleClusters};
+
 /// One pinned font: its file in the cache, where it comes from, and the
 /// SHA-256 of its bytes, which the frit's comment above its source repeats.
 #[derive(Clone, Copy, Debug)]
@@ -118,22 +120,31 @@ pub fn fetch(dir: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// The desktop frit's glyphs at each of `cells`, generated from the fonts
-/// in `fonts`, or why they are not.
-pub fn desktop(fonts: &Path, cells: &[Cell]) -> Result<Vec<(Cell, Arc<Set>)>, String> {
+/// The desktop frit's glyphs at each of `cells`, and `clusters` drawn
+/// whole in each style ([`crate::draw::clusters_shown`]), generated from the fonts in `fonts`, or why they
+/// are not.
+pub fn desktop(
+    fonts: &Path,
+    cells: &[Cell],
+    clusters: &[StyleClusters],
+) -> Result<Vec<CellGlyphs>, String> {
     if let Some(why) = FONTS.iter().find_map(|f| fault(fonts, f)) {
         return Err(format!(
             "{why}; `make specimens-fonts` fetches the pinned fonts"
         ));
     }
-    generate("desktop", FRIT, fonts, cells)
+    generate("desktop", FRIT, fonts, cells, clusters)
 }
 
-/// The shipped frit `tiny5`'s glyphs at each of `cells`, generated from
-/// Tiny5 Mono's BDF file in `fonts`, or why they are not: the frit's one
-/// `source=` line is pointed at the cache's copy, and nothing else in the
-/// frit changes.
-pub fn tiny5(fonts: &Path, cells: &[Cell]) -> Result<Vec<(Cell, Arc<Set>)>, String> {
+/// The shipped frit `tiny5`'s glyphs at each of `cells`, and `clusters`
+/// drawn whole in each style, generated from Tiny5 Mono's BDF file in
+/// `fonts`, or why they are not: the frit's one `source=` line is pointed
+/// at the cache's copy, and nothing else in the frit changes.
+pub fn tiny5(
+    fonts: &Path,
+    cells: &[Cell],
+    clusters: &[StyleClusters],
+) -> Result<Vec<CellGlyphs>, String> {
     if let Some(why) = fault(fonts, &TINY5) {
         return Err(format!(
             "{why}; `make specimens-fonts` fetches the pinned fonts"
@@ -148,20 +159,25 @@ pub fn tiny5(fonts: &Path, cells: &[Cell]) -> Result<Vec<(Cell, Arc<Set>)>, Stri
         &TINY5_FRIT.replace(TINY5_SOURCE, &here),
         fonts,
         cells,
+        clusters,
     )
 }
 
 /// The glyphs of the frit `name`, `text`, at each of `cells`, as
 /// vtium-config's engine, the one the helper runs (ADR-1301 D2), draws
-/// every codepoint the frit gives, `fonts` its only font directory. A cell
-/// at which a source gives nothing, or fails as it draws, is refused: the
-/// glyphs of only some of the frit's sources are not the profile's.
+/// every codepoint the frit gives, as its fill does, and each of
+/// `clusters` whole in its style, as it answers the console's asks for
+/// them (ADR-1200 D21), `fonts` its only font directory. A cell at which a
+/// source gives nothing, or fails as it draws, is refused: the glyphs of
+/// only some of the frit's sources are not the profile's. A style none of
+/// whose clusters the frit draws gives no set.
 fn generate(
     name: &str,
     text: &str,
     fonts: &Path,
     cells: &[Cell],
-) -> Result<Vec<(Cell, Arc<Set>)>, String> {
+    clusters: &[StyleClusters],
+) -> Result<Vec<CellGlyphs>, String> {
     use vtium_config::serve::{Engine, FritText, Paths};
     let frit = FritText {
         name: name.to_owned(),
@@ -182,8 +198,23 @@ fn generate(
                 Some(bytes) if !why.contains("source=") => bytes,
                 _ => return Err(format!("the frit {name}: {why}")),
             };
-            let set = Set::from_bytes(bytes).map_err(|e| format!("the frit {name}: {e:?}"))?;
-            Ok((cell, Arc::new(set)))
+            let read = |bytes| {
+                Set::from_bytes(bytes)
+                    .map(Arc::new)
+                    .map_err(|e| format!("the frit {name}: {e:?}"))
+            };
+            let set = read(bytes)?;
+            let mut whole = Vec::new();
+            for (style, keys) in clusters {
+                if let Some(bytes) = engine.draw_style(cell, *style, &[], keys)? {
+                    whole.push((*style, read(bytes)?));
+                }
+            }
+            Ok(CellGlyphs {
+                cell,
+                set,
+                clusters: whole,
+            })
         })
         .collect()
 }
@@ -260,9 +291,9 @@ mod tests {
         for f in pinned() {
             std::fs::write(dir.join(f.file), b"not the font").unwrap();
         }
-        let why = desktop(&dir, &[]).unwrap_err();
+        let why = desktop(&dir, &[], &[]).unwrap_err();
         assert!(why.contains("has SHA-256"), "{why}");
-        let why = tiny5(&dir, &[]).unwrap_err();
+        let why = tiny5(&dir, &[], &[]).unwrap_err();
         assert!(why.contains("Tiny5Mono.bdf has SHA-256"), "{why}");
     }
 
@@ -285,13 +316,15 @@ mod tests {
             "source=builtin:unscii-8\n",
             Path::new("/nonexistent"),
             &cells,
+            &[],
         )
         .unwrap();
-        assert_eq!(sets.iter().map(|(c, _)| *c).collect::<Vec<_>>(), cells);
-        for (cell, set) in sets {
-            let face = vtium_font::set::SetFace::new(set, cell.height).unwrap();
-            assert_eq!(face.cell(), cell);
+        assert_eq!(sets.iter().map(|g| g.cell).collect::<Vec<_>>(), cells);
+        for g in sets {
+            let face = vtium_font::set::SetFace::new(g.set, g.cell.height).unwrap();
+            assert_eq!(face.cell(), g.cell);
             assert!(face.has_glyph('A'));
+            assert!(g.clusters.is_empty());
         }
     }
 
@@ -304,7 +337,7 @@ mod tests {
             height: 8,
         };
         let frit = "source=builtin:unscii-8\nsource=builtin:unifont\n";
-        let why = generate("t", frit, Path::new("/nonexistent"), &[cell]).unwrap_err();
+        let why = generate("t", frit, Path::new("/nonexistent"), &[cell], &[]).unwrap_err();
         assert!(why.contains("source=builtin:unifont"), "{why}");
     }
 
