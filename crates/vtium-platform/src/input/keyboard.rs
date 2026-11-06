@@ -291,9 +291,10 @@ impl Keyboard {
         }
     }
 
-    /// A key from evdev: `code` is evdev's, `state` its value. The keysyms are read before the state
-    /// changes; compose sees presses; a press finishing no compose sequence
-    /// is dispatched, and starts or stops the repeat.
+    /// A key from evdev: `code` is evdev's, `state` its value. The keysyms
+    /// are read before the state changes; compose sees presses; a press
+    /// finishing no compose sequence is dispatched, and starts or stops the
+    /// repeat.
     pub(crate) fn process(&mut self, state: KeyState, code: u16) -> Processed {
         let mut out = Processed::default();
         if state == KeyState::Repeated {

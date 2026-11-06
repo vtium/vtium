@@ -140,7 +140,7 @@ A font file and a set are untrusted input: their sizes are bounded, and a malfor
 <!-- bounds table: generated from src/bounds.rs -->
 | Bound | Value | What it bounds | Past it | Source |
 |---|---|---|---|---|
-| `PSF_GLYPHS_MAX` | 65535 | Glyphs a PSF font holds | The font is refused | vtium's unicode table holds glyph indices in 16 bits, so a font holds at most 65,535 glyphs and the table needs no wider index |
+| `PSF_GLYPHS_MAX` | 65535 | Glyphs a PSF font holds | The font is refused | It bounds the glyphs a crafted header can make vtium read, and keeps every glyph index inside the unicode table's 16-bit field. Indices run from 0 to 0xfffe, so 0xffff is never a glyph |
 | `PSF_WIDTH_MAX` | 32 | A PSF glyph's width in pixels | The font is refused | A glyph's row is read into 32 bits |
 | `PSF_HEIGHT_MAX` | 256 | A PSF glyph's height in pixels | The font is refused | PSF1 holds the height in a byte, and PSF2 is held to the same bound |
 | `RAW_HEIGHT_MAX` | 32 | A raw font glyph's height in pixels: a raw font is 256 glyphs of N bytes, one byte a row, 8 pixels across | The file is refused as a font | setfont(8): "Raw font files are binary files of size 256*N bytes ... (0 < N <= 32)" |

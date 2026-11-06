@@ -22,7 +22,7 @@ const GLYPHS: Bound = Bound {
     value: 0xffff,
     what: "Glyphs a PSF font holds",
     past: "The font is refused",
-    cite: "vtium's unicode table holds glyph indices in 16 bits, so a font holds at most 65,535 glyphs and the table needs no wider index",
+    cite: "It bounds the glyphs a crafted header can make vtium read, and keeps every glyph index inside the unicode table's 16-bit field. Indices run from 0 to 0xfffe, so 0xffff is never a glyph",
 };
 
 const WIDTH: Bound = Bound {

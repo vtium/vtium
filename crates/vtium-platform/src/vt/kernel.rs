@@ -60,18 +60,16 @@ pub struct KernelVt<C: Console = Tty> {
 }
 
 impl KernelVt<Tty> {
-    /// Takes VT `num` through `tty`, as [`Tty::open`] opened it, in the
-    /// loop. The release and acquire signals go into the loop's signalfd
-    /// first, which blocks them in this thread before `VT_PROCESS` asks the
-    /// kernel to send them; otherwise a switch at that moment would end the
-    /// process with
-    /// the VT taken. Call it before any thread starts ([`Loop::on_signal`]),
-    /// and store the VT where `access` finds it before the loop dispatches
-    /// again: a signal that comes in between waits in the signalfd. The
-    /// tty is watched: input on it takes the VT again ([`VtEvent::Retaken`])
-    /// and a hangup is reported. So is tty0's `active`, the VT the kernel
-    /// shows ([`KernelVt::shown_changed`]); without it, vtium runs on with a
-    /// warning.
+    /// Takes VT `num` through `tty`, as [`Tty::open`] opened it, in the loop.
+    /// The release and acquire signals go into the loop's signalfd first, which
+    /// blocks them in this thread before `VT_PROCESS` asks the kernel to send
+    /// them; otherwise a switch at that moment would end the process with the
+    /// VT taken. Call it before any thread starts ([`Loop::on_signal`]), and
+    /// store the VT where `access` finds it before the loop dispatches again: a
+    /// signal that comes in between waits in the signalfd. The tty is watched:
+    /// input on it takes the VT again ([`VtEvent::Retaken`]) and a hangup is
+    /// reported. So is tty0's `active`, the VT the kernel shows
+    /// ([`KernelVt::shown_changed`]); without it, vtium runs on with a warning.
     pub fn new<D, A>(lp: &mut Loop<D>, tty: Tty, num: u16, access: A) -> io::Result<KernelVt<Tty>>
     where
         D: 'static,
