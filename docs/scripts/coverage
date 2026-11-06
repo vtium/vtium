@@ -263,15 +263,22 @@ def scan_replay(path, rel, found, errors):
     bind(rel)
 
 
-def provisional_scenarios(root):
-    """The names tools/conformance/scenarios/provisional.tsv lists, or none."""
+def provisional_scenarios(root, errors):
+    """The names tools/conformance/scenarios/provisional.tsv lists, or none. A line that is not
+    NAME, a tab and a reason is an error, as the conformance tool reads the list."""
     path = root / SCENARIO_PROVISIONAL
     if not path.is_file():
         return set()
     names = set()
-    for line in path.read_text(encoding='utf-8').split('\n'):
-        if line.strip() and not line.startswith('#'):
-            names.add(line.split('\t', 1)[0])
+    for number, line in enumerate(path.read_text(encoding='utf-8').split('\n'), start=1):
+        if not line.strip() or line.startswith('#'):
+            continue
+        name, tab, reason = line.partition('\t')
+        if not name or not tab or not reason.strip():
+            errors.append(f'{SCENARIO_PROVISIONAL}:{number}: this line is not NAME, a tab and '
+                          'a reason, so coverage cannot tell which scenario it lists')
+            continue
+        names.add(name)
     return names
 
 
@@ -304,7 +311,7 @@ def scan(found, errors):
     read, so a tag in such a copy can't count toward vtium's coverage.
     """
     counts = {'.rs': 0, '.replay': 0, '.scenario': 0}
-    provisional = provisional_scenarios(ROOT)
+    provisional = provisional_scenarios(ROOT, errors)
     listed = subprocess.run(
         ['git', '-C', str(ROOT), 'ls-files', '-z', '--cached', '--others', '--exclude-standard'],
         capture_output=True, check=False)

@@ -20,6 +20,42 @@ pub struct Played {
     pub assertions: Outcome,
 }
 
+/// The reason `--write` gives a new scenario on the provisional list.
+pub const NEW_SCENARIO: &str = "a new scenario; its transcript waits for the maintainer's review";
+
+/// Writes `transcript` as the transcript of the scenario `name` in `dir`,
+/// and returns whether it added the scenario to the provisional list at
+/// `list`. A transcript that exists is refused unless `replace` says to
+/// rewrite it, in a golden commit; a new one goes on the list, and a
+/// rewritten one leaves the list as it is.
+pub fn write_transcript(
+    dir: &std::path::Path,
+    list: &std::path::Path,
+    name: &str,
+    transcript: &str,
+    replace: bool,
+) -> Result<bool, String> {
+    let path = dir.join(format!("{name}.transcript"));
+    if path.exists() && !replace {
+        return Err(format!(
+            "{name}.transcript exists. A transcript changes only in a golden commit, written with `--write --replace {name}`."
+        ));
+    }
+    let text = std::fs::read_to_string(list).map_err(|e| format!("{}: {e}", list.display()))?;
+    let listed = crate::runner::own::provisional(&text)?;
+    std::fs::write(&path, transcript).map_err(|e| format!("{}: {e}", path.display()))?;
+    if replace || listed.contains_key(name) {
+        return Ok(false);
+    }
+    let mut text = text;
+    if !text.is_empty() && !text.ends_with('\n') {
+        text.push('\n');
+    }
+    text.push_str(&format!("{name}\t{NEW_SCENARIO}\n"));
+    std::fs::write(list, text).map_err(|e| format!("{}: {e}", list.display()))?;
+    Ok(true)
+}
+
 /// A behaviour scenario's verdict against its transcript on file.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Verdict {

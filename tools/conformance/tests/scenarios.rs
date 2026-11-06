@@ -290,6 +290,11 @@ fn the_parser_refuses_bad_files_and_says_what_a_good_one_has() {
             "# spec: x\n# capability: da1\nsize 4 1\nplaceholder vtium lacks it\n",
             "has commands",
         ),
+        (
+            "key-a",
+            "# spec: x\nsize 4 1\nkey #\n",
+            "Write the key # as `key numbersign`",
+        ),
     ];
     for (name, text, want) in cases {
         let e = refusal(name, text);
@@ -989,4 +994,53 @@ fn play_shows_each_command_its_side_effects_and_each_dumped_screen_then_waits() 
         !text.contains("> send"),
         "it stops after the first command:\n{text}"
     );
+}
+
+#[test]
+fn write_refuses_an_existing_transcript_without_replace_and_lists_a_new_scenario() {
+    use vtium_conformance::scenario::run::{NEW_SCENARIO, write_transcript};
+    let dir = std::env::temp_dir().join(format!("vtium-scenarios-write-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap_or_else(|e| panic!("{e}"));
+    let list = dir.join("provisional.tsv");
+    let head = "# NAME<TAB>REASON\nkey-old\treviewed later\n";
+    std::fs::write(&list, head).unwrap_or_else(|e| panic!("{e}"));
+    let read = |p: &Path| std::fs::read_to_string(p).unwrap_or_default();
+
+    assert_eq!(
+        write_transcript(&dir, &list, "key-new", "> size 4 1\n", false),
+        Ok(true)
+    );
+    assert_eq!(read(&dir.join("key-new.transcript")), "> size 4 1\n");
+    assert_eq!(read(&list), format!("{head}key-new\t{NEW_SCENARIO}\n"));
+
+    let refused = write_transcript(&dir, &list, "key-new", "> size 5 1\n", false);
+    assert!(
+        matches!(&refused, Err(e) if e.contains("exists") && e.contains("--write --replace key-new")),
+        "{refused:?}"
+    );
+    assert_eq!(
+        read(&dir.join("key-new.transcript")),
+        "> size 4 1\n",
+        "the refusal writes nothing"
+    );
+
+    assert_eq!(
+        write_transcript(&dir, &list, "key-new", "> size 5 1\n", true),
+        Ok(false)
+    );
+    assert_eq!(read(&dir.join("key-new.transcript")), "> size 5 1\n");
+    assert_eq!(
+        read(&list),
+        format!("{head}key-new\t{NEW_SCENARIO}\n"),
+        "--replace leaves the list"
+    );
+
+    assert_eq!(
+        write_transcript(&dir, &list, "key-old", "> size 4 1\n", false),
+        Ok(false),
+        "already listed"
+    );
+    assert_eq!(read(&list).matches("key-old").count(), 1);
+    let _ = std::fs::remove_dir_all(&dir);
 }

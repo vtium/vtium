@@ -79,13 +79,18 @@ pub(super) fn line_item(
         };
         return Ok(Some(Item::Assert(step)));
     }
+    if word == "key" && rest.trim_start().starts_with('#') {
+        return Err(format!(
+            "{at}: This `key` line names no key, because a `#` that starts a word starts a comment. Write the key # as `key numbersign`."
+        ));
+    }
     let words = strings::words(&format!("{word} {rest}")).map_err(|e| format!("{at}: {e}"))?;
     let args: Vec<&str> = words.iter().skip(1).map(String::as_str).collect();
     let echo = words.join(" ");
     let mut c = Command::new(n, echo);
     let string = |arg: Option<&&str>| -> Result<Vec<u8>, String> {
         arg.and_then(|a| unquote(a)).ok_or_else(|| {
-            format!(r#"{at}: `{word}` takes one string in double quotes, as in `{word} "\e[?1h"`. Inside it, \e, \a, \b, \t, \n, \r, \\, \" , \xHH and \u{{HEX}} stand for bytes."#)
+            format!(r#"{at}: `{word}` takes one string in double quotes, as in `{word} "\e[?1h"`. Inside it, \e, \a, \b, \t, \n, \r, \\, \", \xHH and \u{{HEX}} stand for bytes."#)
         })
     };
     let only = |count: usize, form: &str| -> Result<(), String> {

@@ -353,7 +353,7 @@ pub fn check_expectations(
             return Err(format!(
                 "{file}:{n}: {line:?}: {}",
                 if exact {
-                    "a probe that needs damage-exact compares exact counts"
+                    "an expectation that needs damage-exact compares exact counts"
                 } else {
                     "a nonzero count is informative unless damage-exact; write N, or add needs damage-exact"
                 }
@@ -377,7 +377,7 @@ pub fn check_expectations(
                 if missing {
                     ""
                 } else {
-                    " (reserved keys are for missing probes)"
+                    " (the reserved keys are only for a capability listed missing)"
                 }
             ));
         }
@@ -390,7 +390,7 @@ pub fn check_expectations(
                 let Some((example, m)) = probe.examples.get(&i) else {
                     if missing {
                         return Err(format!(
-                            "{file}:{n}: a missing probe's {} needs an example line after it, a reply or line the feature would print",
+                            "{file}:{n}: This {} needs an example line after it, because its capability is listed missing: a reply or a line the feature would print.",
                             step.key()
                         ));
                     }

@@ -66,15 +66,25 @@ class Scenarios(unittest.TestCase):
     def test_the_provisional_list_gives_its_names_and_skips_its_comments(self):
         self.write(coverage.SCENARIO_PROVISIONAL,
                    '# NAME<TAB>REASON\nkey-cursor\tnew\n\nmouse-sgr\tnew\n')
-        self.assertEqual(coverage.provisional_scenarios(self.root), {'key-cursor', 'mouse-sgr'})
-        self.assertEqual(coverage.provisional_scenarios(self.root / 'none'), set())
+        errors = []
+        self.assertEqual(coverage.provisional_scenarios(self.root, errors), {'key-cursor', 'mouse-sgr'})
+        self.assertEqual(errors, [])
+        self.assertEqual(coverage.provisional_scenarios(self.root / 'none', errors), set())
+
+    def test_a_provisional_line_without_a_tab_and_a_reason_is_refused(self):
+        self.write(coverage.SCENARIO_PROVISIONAL, 'key-cursor\nmouse-sgr\t \npaste-plain\tnew\n')
+        errors = []
+        self.assertEqual(coverage.provisional_scenarios(self.root, errors), {'paste-plain'})
+        self.assertEqual([e.split(': ')[0] for e in errors],
+                         [f'{coverage.SCENARIO_PROVISIONAL}:1', f'{coverage.SCENARIO_PROVISIONAL}:2'])
 
     def test_the_trees_scenarios_read_without_error(self):
         found, errors = [], []
         counts = coverage.scan(found, errors)
         self.assertEqual(errors, [])
         self.assertGreater(counts['.scenario'], 0)
-        listed = coverage.provisional_scenarios(coverage.ROOT)
+        listed = coverage.provisional_scenarios(coverage.ROOT, errors)
+        self.assertEqual(errors, [])
         for _, test, where in found:
             if where.startswith('tools/conformance/scenarios/'):
                 name = Path(where.split(':')[0]).stem

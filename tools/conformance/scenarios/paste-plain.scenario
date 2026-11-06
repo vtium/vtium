@@ -1,7 +1,7 @@
 # A paste while bracketed paste mode is reset: the text arrives as typed,
-# with each line end, LF or CR LF, sent as CR, and each C0 control but HT,
-# LF and CR, DEL and each C1 control becoming a space, as xterm filters a
-# paste.
+# with each LF sent as CR, so that a CR LF arrives as CR CR, and each C0
+# control but HT, LF and CR, DEL and each C1 control becoming a space, as
+# xterm filters a paste.
 # spec: ctlseqs, Bracketed Paste Mode; xterm's paste filtering
 # covers: input.paste-end-marker
 size 20 2

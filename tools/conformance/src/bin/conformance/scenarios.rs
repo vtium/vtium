@@ -11,7 +11,7 @@ use std::process::{Command, Stdio};
 use vtium_conformance::probes::Outcome;
 use vtium_conformance::runner::own;
 use vtium_conformance::scenario::play::{self, Step};
-use vtium_conformance::scenario::run::{Runner, Verdict, verdict};
+use vtium_conformance::scenario::run::{Runner, Verdict, verdict, write_transcript};
 use vtium_conformance::scenario::{self, Scenario, Sort, transcript};
 use vtium_conformance::spec::Spec;
 
@@ -23,8 +23,6 @@ pub const DIR: &str = "scenarios";
 /// The behaviour scenarios whose transcripts wait for the maintainer's
 /// review, `NAME REASON` a line.
 pub const PROVISIONAL: &str = "scenarios/provisional.tsv";
-/// The reason `--write` gives a new scenario on the provisional list.
-const NEW: &str = "a new scenario; its transcript waits for the maintainer's review";
 
 pub const USAGE: &str = "       conformance scenarios [NAME...]
        conformance scenarios --write [--replace] NAME...
@@ -123,8 +121,10 @@ pub fn judge(
     for s in &behaviour {
         let reason = provisional.get(&s.name);
         let on_file = std::fs::read_to_string(transcript_path(&s.name)).ok();
+        let played = runner.play(s, &[]);
+        let playable = played.is_ok();
         let mut ok = true;
-        match verdict(&runner.play(s, &[]), on_file.as_deref(), reason.is_some()) {
+        match verdict(&played, on_file.as_deref(), reason.is_some()) {
             Verdict::Pass => {}
             Verdict::Provisional(why) => {
                 drift += 1;
@@ -138,6 +138,11 @@ pub fn judge(
                 ok = false;
                 println!("FAIL scenario {}: {}", s.name, why.replace("NAME", &s.name));
             }
+        }
+        // a scenario that cannot be played has one failure, printed above
+        if !playable {
+            fail += 1;
+            continue;
         }
         match runner.chunking(s, seed, rounds) {
             Ok(()) => chunked += 1,
@@ -202,8 +207,7 @@ fn write(
                 s.name
             ));
         }
-        let path = transcript_path(&s.name);
-        if path.exists() && !replace {
+        if transcript_path(&s.name).exists() && !replace {
             return Err(format!(
                 "{DIR}/{}.transcript exists. A transcript changes only in a golden commit, written with `--write --replace {}`.",
                 s.name, s.name
@@ -218,17 +222,9 @@ fn write(
                 s.name
             ));
         }
-        std::fs::write(&path, &played.transcript)
-            .map_err(|e| format!("{}: {e}", path.display()))?;
+        let listed = write_transcript(&dir(), &list_path, &s.name, &played.transcript, replace)?;
         println!("wrote {DIR}/{}.transcript", s.name);
-        let list = read(&list_path)?;
-        if !replace && !own::provisional(&list).is_ok_and(|l| l.contains_key(&s.name)) {
-            let mut list = list;
-            if !list.is_empty() && !list.ends_with('\n') {
-                list.push('\n');
-            }
-            list.push_str(&format!("{}\t{NEW}\n", s.name));
-            std::fs::write(&list_path, list).map_err(|e| format!("{PROVISIONAL}: {e}"))?;
+        if listed {
             println!("listed {} in {PROVISIONAL}", s.name);
         }
     }

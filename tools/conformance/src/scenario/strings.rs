@@ -141,6 +141,12 @@ mod tests {
         assert_eq!(unquote(r#""\u{110000}""#), None, "past the last code point");
         assert_eq!(unquote(r#""\u{d800}""#), None, "a surrogate");
         assert_eq!(unquote(r#""\u{}""#), None, "no digits");
+        assert_eq!(
+            unquote(r#""\u{10FFFF}\u{000041}""#),
+            Some(b"\xf4\x8f\xbf\xbfA".to_vec()),
+            "six hex digits, Unicode's most"
+        );
+        assert_eq!(unquote(r#""\u{0000041}""#), None, "seven hex digits");
         assert_eq!(unquote(r#""\u41""#), None, "no braces");
         assert_eq!(unquote(r#""\""#), None, "a trailing backslash");
         assert_eq!(unquote("abc"), None, "no quotes");

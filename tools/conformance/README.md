@@ -111,11 +111,12 @@ The reader holds these rules beyond the record:
 
 - A behaviour scenario's name starts with its area and a hyphen, one of `key`, `keypad`, `mouse`, `paste`, `focus`, `select`, `view`, `palette`, `reset`, `reply` and `bidi`; a capability scenario's file is named for its capability.
 - The `# spec:`, `# covers:` and `# capability:` lines belong to the header, before `size`, and `size` is the first command.
-- `want`, `want-re`, `reject`, `reject-re` and `placeholder` take the rest of their line whole, `#` included, because a view's line may hold one; every other line ends at a `#` that starts a word outside a string.
 - `key` fills `ascii` with the key's own keysym for a printable ASCII key and leaves it out for any other, and fills the character from the keysym: printable ASCII and Latin-1 keysyms and the keysyms of `scenario/keys.rs`'s table make their character, and the function, keypad and modifier keys make none. `type` presses one key for each character with no modifier held, and refuses a control character, which `key` presses by name.
 - `mouse` and `wheel` leave out `px` and `py`, which the interface then takes as 0, unless the line gives `px=X,Y`.
 - A command that adds nothing to the stream, such as `size` or `dump`, still has a cut of its own, at the same offset as the cut before it.
 - The commands interface 1.3 adds (`select`, `copy`, `scroll prompt-up` and `prompt-down`, `backspace` and `dump state`) are read and compiled now; until vtium-replay declares their features, a scenario that uses one is reported as not run, and the run fails on it.
+
+Interface 1.3 (ADR-1504 D9, slice 4) owes two things the runner leaves open. The transcript masks the frame view's counts whatever a scenario's `needs` line says, which holds while vtium-replay declares no `damage-exact`; a scenario that needs exact counts will need them unmasked once an implementation declares it. A `dump state` prints its `test state` lines after the views it names, and where they fall against the command's other `test` lines is settled with the state lines' grammar.
 
 Two of the first scenarios the gap-check named cannot be written over interface 1.2: the keypad under NumLock (mode 1035) needs NumLock among the `key` command's modifiers, whose `mods` stops at 31, and alternate scroll (mode 1007) is the host's call, which no test command makes.
 
