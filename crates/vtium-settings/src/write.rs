@@ -28,7 +28,7 @@ pub use sections::{
 fn beside(path: &Path, prefix: &str, suffix: &str) -> io::Result<PathBuf> {
     let name = path
         .file_name()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "the path names no file"))?;
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "the path has no file name"))?;
     let mut file = std::ffi::OsString::from(prefix);
     file.push(name);
     file.push(suffix);
@@ -69,7 +69,7 @@ fn regular(path: &Path) -> io::Result<Option<u32>> {
         Ok(_) => Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             format!(
-                "{} is not a regular file, and only one is replaced",
+                "{} is not a regular file, so it cannot be replaced",
                 path.display()
             ),
         )),
@@ -81,8 +81,9 @@ fn regular(path: &Path) -> io::Result<Option<u32>> {
 /// A copy of the regular file at `path`, with its mode, as a new file at
 /// `staging`.
 fn copy_backup(path: &Path, staging: &Path) -> io::Result<()> {
-    let mode =
-        regular(path)?.ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "nothing to keep"))?;
+    let mode = regular(path)?.ok_or_else(|| {
+        io::Error::new(io::ErrorKind::NotFound, "there is no earlier file to keep")
+    })?;
     let bytes = {
         let mut f = OpenOptions::new()
             .read(true)

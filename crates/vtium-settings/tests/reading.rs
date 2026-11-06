@@ -385,3 +385,43 @@ fn the_strict_parse_is_the_reading_of_a_file_with_no_error() {
     assert_eq!(rule_lines(&r), [4]);
     assert_eq!(vtium_settings::parse(partly), Err(r.errors));
 }
+
+// Above the first section the reader acts only on `version` and `policy`
+// lines: every other line there is one of vtium's own settings, which the
+// console reads, so no line above the first section is a section error,
+// whether it is a setting, an unknown word or a key with a character that
+// does not show on screen
+// covers: platform.heads.rules
+#[test]
+fn no_line_above_the_first_section_is_a_section_error() {
+    let top = "version = 1\nfont-size = 14\nnonsense words\nfont\u{a0}size = 2\nfo\u{200b}o = 1\n";
+    for text in [
+        format!("{top}[head a]\n[rules]\ndisplay * -> a\n"),
+        top.to_owned(),
+    ] {
+        let r = read(&text);
+        assert_eq!(problems(&r), [], "{text:?}");
+    }
+}
+
+// `version` inside a section is the top line misplaced, not a key of the
+// command line, so its message says where it belongs
+// covers: platform.heads.rules
+#[test]
+fn version_inside_a_section_says_it_belongs_at_the_top() {
+    let want = "`version` must be at the top of vtium.conf, above the first section. Move this line there.";
+    for text in [
+        "version = 1\n[head a]\nversion = 1\n[rules]\ndisplay * -> a\n",
+        "version = 1\n[look big]\nversion = 1\n[head a]\n[rules]\ndisplay * -> a\n",
+        "version = 1\n[head a]\n[rules]\nversion = 1\ndisplay * -> a\n",
+    ] {
+        let r = read(text);
+        let shown: Vec<String> = r
+            .errors
+            .errors
+            .iter()
+            .map(|e| e.problem.to_string())
+            .collect();
+        assert_eq!(shown, [want], "{text:?}");
+    }
+}

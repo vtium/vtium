@@ -311,7 +311,7 @@ fn an_untrusted_or_unopenable_file_runs_the_shipped_rules_with_the_skipped_line(
     assert_eq!(resolve(&Read::Inaccessible), skipped);
     assert_eq!(
         Line::Skipped.text(),
-        "invalid config skipped, using builtin"
+        "vtium.conf not used: running the built-in configuration."
     );
 }
 
@@ -769,11 +769,6 @@ fn every_problem_has_its_scope() {
         (Problem::TooManyHeads, Within::Header, Scope::File),
         (Problem::TooManyRules, Within::Rules, Scope::File),
         (
-            Problem::Syntax(crate::error::Syntax::OutsideSection),
-            Within::Top,
-            Scope::Line,
-        ),
-        (
             Problem::Syntax(crate::error::Syntax::UnclosedHeading),
             Within::Header,
             Scope::Section,
@@ -824,6 +819,8 @@ fn every_problem_has_its_scope() {
             Scope::Head,
         ),
         (Problem::PolicyInSection, Within::Head, Scope::Line),
+        (Problem::VersionInSection, Within::Head, Scope::Head),
+        (Problem::VersionInSection, Within::Rules, Scope::Line),
         // a policy line vtium cannot read takes the whole file
         (
             Problem::UnreadablePolicy(crate::error::PolicyFault::NotUtf8),

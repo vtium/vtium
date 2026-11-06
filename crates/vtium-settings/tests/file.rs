@@ -430,7 +430,7 @@ fn a_refusal_names_the_command_that_mends_the_path() {
     assert_eq!(
         writable.refusal().to_string(),
         format!(
-            "vtium does not read this file, because \"{shown}\" can be changed by its group or by other users (mode 666), so it runs its compiled-in configuration. Run `chmod go-w {shown}` so that only its owner can change it."
+            "vtium ignores this file and uses its built-in configuration, because other users can change \"{shown}\" (mode 666). Run `chmod go-w {shown}` so that only its owner can change it."
         )
     );
     fs::set_permissions(&file, fs::Permissions::from_mode(0o644)).expect("mode");
@@ -439,7 +439,7 @@ fn a_refusal_names_the_command_that_mends_the_path() {
     assert_eq!(
         owner.refusal().to_string(),
         format!(
-            "vtium does not read this file, because \"{shown}\" belongs to user {uid} and not to root, so it runs its compiled-in configuration. Run `chown root:root {shown}` to make root its owner."
+            "vtium ignores this file and uses its built-in configuration, because \"{shown}\" belongs to user {uid}, not to root. Run `chown root:root {shown}` to make root the owner."
         )
     );
     // a path a shell would split is quoted

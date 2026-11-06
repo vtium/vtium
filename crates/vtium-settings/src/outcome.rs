@@ -386,7 +386,7 @@ impl Outcome {
         }
     }
 
-    /// The notice the display guard shows on the boot display when no head the running text declares has a display: the run's own line, else `vtium: no display for any head`, the one notice a valid file shows, and none for a valid closed file that declares no head, which is dark and silent. Under open the guard lights a head instead.
+    /// The notice the display guard shows on the boot display when no head the running text declares has a display: the run's own line, else `No head has a connected display.`, the one notice a valid file shows, and none for a valid closed file that declares no head, which is dark and silent. Under open the guard lights a head instead.
     pub fn dark_notice(&self) -> Option<Line> {
         match (self.fallback, self.line) {
             (Fallback::FirstHead, _) => None,
@@ -594,7 +594,7 @@ pub fn scope(problem: &Problem, within: Within) -> Result<Scope, Read> {
         Problem::NotUtf8
         | Problem::ControlCharacter(_)
         | Problem::Syntax(_)
-        | Problem::HiddenOutsideSection(_)
+        | Problem::VersionInSection
         | Problem::UnknownKey(_)
         | Problem::DuplicateKey(_)
         | Problem::BadValue { .. }

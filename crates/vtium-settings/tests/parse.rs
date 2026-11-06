@@ -26,7 +26,7 @@ fn a_rule_naming_an_undefined_head_rejects_the_file_at_its_line() {
     assert!(matches!(&error.problem, Problem::UndefinedHead(name) if name.raw() == "desc"));
     assert_eq!(
         error.to_string(),
-        "This rule sends devices to the head \"desc\", which the file does not declare. Correct the name, or declare the head with its own `[head NAME]` section."
+        "This rule sends devices to head \"desc\", but the file has no head of that name. Correct the name, or add a `[head NAME]` section for it."
     );
 }
 
@@ -39,7 +39,7 @@ fn a_finding_is_shown_at_its_file_and_line_with_the_path_escaped() {
     let heads = Path::new(vtium_settings::CONF_FILE);
     assert_eq!(
         at(heads, error.line(), error).to_string(),
-        "/etc/vtium/vtium.conf:6: This rule sends devices to the head \"desc\", which the file does not declare. Correct the name, or declare the head with its own `[head NAME]` section."
+        "/etc/vtium/vtium.conf:6: This rule sends devices to head \"desc\", but the file has no head of that name. Correct the name, or add a `[head NAME]` section for it."
     );
     assert_eq!(
         at(heads, None, "absent").to_string(),
@@ -56,7 +56,7 @@ fn a_finding_is_shown_at_its_file_and_line_with_the_path_escaped() {
     assert_eq!(
         notes,
         [
-            "/etc/vtium/vtium.conf:5: input reaches a head by `id` or `name` alone, which any device can claim"
+            "/etc/vtium/vtium.conf:5: weak match: this rule matches by `id` or `name` alone, which any device can claim"
         ]
     );
     let odd = Path::new("/tmp/a\nb\u{1b}[2J\u{202e}c\\d\"e.conf");
@@ -662,7 +662,7 @@ fn an_error_lists_what_its_key_takes() {
         "{policy}"
     );
     let range = first_error("[head a]\nconsoles = 0\n");
-    assert!(range.contains("takes, 1 or more."), "{range}");
+    assert!(range.ends_with("it takes 1 or more."), "{range}");
     let key = first_error("[head a]\n[rules]\ndisplay frob:x -> a\n");
     assert!(key.contains("Use one of `path`, `serial`, "), "{key}");
     let class = first_error("[head a]\n[rules]\ninput class:toaster -> a\n");

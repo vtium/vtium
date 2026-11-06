@@ -182,11 +182,11 @@ fn the_first_cuts_names_are_errors_that_name_the_new_word() {
         let shown = first_error(&format!("version = 1\n[head a]\n{key}\n"));
         assert!(shown.contains("`[look NAME]`"), "{key}: {shown}");
     }
-    // a misplaced policy line says what it means for the file
+    // a misplaced policy line says where it belongs and that vtium ignores it
     let shown = first_error("version = 1\npolicy = closed\n[head a]\npolicy = closed\n");
     assert!(
         shown.contains(
-            "so it ignores this line, and the file's policy comes from the lines above the first section"
+            "must be at the top of vtium.conf, above the first section, so vtium ignores this line"
         ),
         "{shown}"
     );
