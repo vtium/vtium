@@ -263,7 +263,7 @@ mod with_the_feature {
     fn terminal_key_swaps_the_arrows_in_a_right_to_left_paragraph() {
         use vtium_term::Mods;
         const LEFT: u32 = 0xff51;
-        let mut key = |t: &mut Terminal, sym: u32| {
+        let key = |t: &mut Terminal, sym: u32| {
             t.take_replies();
             t.key(sym, 0, Mods::empty(), None);
             t.take_replies()
