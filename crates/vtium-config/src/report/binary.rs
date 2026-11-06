@@ -124,7 +124,7 @@ fn features(path: &Path, v: &Version) -> String {
             .map(|f| format!("{f} unknown")),
     );
     format!(
-        "{}, read from text in the binary, since its --version lists none",
+        "{}, found in the binary, because its --version lists none",
         said.join(", ")
     )
 }

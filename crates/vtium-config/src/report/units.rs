@@ -137,9 +137,10 @@ impl Units {
             }
             // a run that fails and prints nothing says why on stderr
             let log = if ran.code != Some(0) && ran.out.trim().is_empty() {
-                let code = ran
-                    .code
-                    .map_or_else(|| "ends on a signal".to_owned(), |c| format!("exits {c}"));
+                let code = ran.code.map_or_else(
+                    || "stopped by a signal".to_owned(),
+                    |c| format!("exits {c}"),
+                );
                 format!("journalctl {code}: {}\n", ran.err.trim())
             } else {
                 ran.out
@@ -183,7 +184,7 @@ fn loaded(m: &Machine) -> (Vec<String>, Option<String>) {
     let Some(systemctl) = m.program("systemctl") else {
         return (
             Vec::new(),
-            Some("systemctl is not on this machine, so no unit list is read.".to_owned()),
+            Some("systemctl is not on this machine, so there is no list of units.".to_owned()),
         );
     };
     let patterns: Vec<String> = UNIT_PREFIXES.iter().map(|p| format!("{p}*")).collect();
