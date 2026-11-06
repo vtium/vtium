@@ -59,7 +59,7 @@ pub(crate) fn console_shares(rules: &vtium_settings::Config, caps: Caps) -> Vec<
             let asked = usize::try_from(h.consoles).unwrap_or(usize::MAX).max(1);
             if asked > caps.head {
                 log::warn!(
-                    "head {}: consoles = {asked} is past head-consoles-max: it opens {}",
+                    "head {}: consoles = {asked} is more than head-consoles-max, so it opens {}",
                     h.name,
                     caps.head
                 );
@@ -68,7 +68,7 @@ pub(crate) fn console_shares(rules: &vtium_settings::Config, caps: Caps) -> Vec<
             let given = more.min(spare);
             if given < more {
                 log::warn!(
-                    "head {}: consoles-max, {}, leaves it {} consoles",
+                    "head {}: consoles-max ({}) leaves it {} consoles",
                     h.name,
                     caps.total,
                     given.saturating_add(1)
@@ -409,7 +409,7 @@ impl Head {
             // The run ends in this turn, so the head draws no notice.
             Next::TooQuick => {
                 log::error!(
-                    "head {}: the session of console {id} ended less than {} s after it started, more than {QUICK_RESTARTS} times running",
+                    "head {}: the session of console {id} ended within {} s of starting, more than {QUICK_RESTARTS} times in a row",
                     self.name(),
                     QUICK.as_secs()
                 );

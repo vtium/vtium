@@ -2892,11 +2892,11 @@ fn the_open_chord_at_a_cap_opens_nothing_and_says_so_on_the_osd() {
     let cases = [
         (
             &["--head-consoles-max=2"][..],
-            Some("No more consoles: small has 2, its most."),
+            Some("No more consoles: small has its limit of 2."),
         ),
         (
             &["--consoles-max=3"][..],
-            Some("No more consoles: every head together has 3, the most."),
+            Some("No more consoles: all heads together have the limit of 3."),
         ),
         (&["--head-consoles-max=2", "--osd=off"][..], None),
     ];
@@ -4879,13 +4879,14 @@ impl Memory {
 }
 
 /// The notice of a head whose session ended for good under `oneshot`.
-const ENDED: &str = "This session has ended and will not start again. To keep working, press Ctrl+Super+↑ to switch to another screen.";
+const ENDED: &str =
+    "Session ended. It will not start again. Press Ctrl+Super+↑ to switch to another screen.";
 
 /// The same notice while another console of its head still runs.
-const ENDED_CONSOLE: &str = "This session has ended and will not start again. To keep working, press Ctrl+Super+→ to show another console on this screen.";
+const ENDED_CONSOLE: &str = "Session ended. It will not start again. Press Ctrl+Super+→ to show another console on this screen.";
 
 /// The start of the anti-lockout guard's notice.
-const LOCKED_OUT: &str = "No keyboard was reaching a screen that is on";
+const LOCKED_OUT: &str = "because no keyboard reached a screen that is on";
 
 /// The log lines this thread wrote since the last call.
 fn logged() -> Vec<String> {
@@ -4919,20 +4920,20 @@ fn notice(app: &App, name: &str) -> Option<String> {
 
 /// The notices of D7's outcomes: each console line as the catalog words
 /// it, then what to do next about vtium's head file.
-const SKIPPED: &str = "invalid config skipped, using builtin\nRun vtium check-config /etc/vtium/vtium.conf to see why.";
-const PARTLY: &str = "config partly invalid, running what's valid\nRun vtium check-config /etc/vtium/vtium.conf to see why.";
-const CLOSED_OFF: &str = "vtium: config invalid, policy closed: input off\nNothing on this console takes input. Run vtium check-config /etc/vtium/vtium.conf over ssh, or from other boot media, for the full report.";
-const NO_DISPLAY: &str = "vtium: no display for any head\nConnect a display that a rule in /etc/vtium/vtium.conf sends to a head.";
+const SKIPPED: &str = "vtium.conf not used: running the built-in configuration.\nTo see why, run vtium check-config /etc/vtium/vtium.conf.";
+const PARTLY: &str = "vtium.conf has errors: running the parts without errors.\nTo see why, run vtium check-config /etc/vtium/vtium.conf.";
+const CLOSED_OFF: &str = "vtium.conf has errors and counts as closed: all input is off.\nThis console takes no input. For the full report, run vtium check-config /etc/vtium/vtium.conf over ssh or from other boot media.";
+const NO_DISPLAY: &str = "No head has a connected display.\nConnect a display that a rule in /etc/vtium/vtium.conf sends to a head.";
 
 /// The panic screen of a broken closed file whose one error, on line 4,
 /// is the key `focs`, read as `heads.conf` (D7): the console line, that
 /// no head is left, the error with its file and line, and the next step,
 /// each naming the file the start read.
 const PANIC: &str = concat!(
-    "vtium: config invalid, policy closed: input off\n",
-    "The errors in heads.conf, listed below, leave no head that can run.\n",
-    "heads.conf:4: This section takes no key named \"focs\". Check the key's spelling, or remove the line.\n",
-    "Nothing on this console takes input. Run vtium check-config heads.conf over ssh, or from other boot media, for the full report.",
+    "vtium.conf has errors and counts as closed: all input is off.\n",
+    "No head can run because of the errors in heads.conf, listed below.\n",
+    "heads.conf:4: This section has no key named \"focs\". Check the spelling, or remove the line.\n",
+    "This console takes no input. For the full report, run vtium check-config heads.conf over ssh or from other boot media.",
 );
 
 /// A head file's head and its rule for every display, which [`d7_row`]
@@ -5020,24 +5021,24 @@ fn d7_row(row: &Row) {
                 let error = match test {
                     "broken-closed" => at(
                         ":4",
-                        "This section takes no key named \"focs\". Check the key's spelling, or remove the line.",
+                        "This section has no key named \"focs\". Check the spelling, or remove the line.",
                     ),
                     // the policy line vtium cannot read, at its line
                     "unreadable-policy" | "unreadable-policy-no-head" => at(
                         ":2",
-                        "`policy` cannot be \"maybe\", so vtium cannot read this line and counts the file as closed and broken. Change it to one of `open`, `closed`.",
+                        "`policy` cannot be \"maybe\", so vtium treats the file as broken with the closed policy. Change it to one of `open`, `closed`.",
                     ),
                     _ => at(
                         "",
-                        "The file needs `version = 1` above its first section. Add that line at the top.",
+                        "`version = 1` must be at the top of vtium.conf, above the first section. Add that line at the top.",
                     ),
                 };
                 let want = [
-                    "vtium: config invalid, policy closed: input off".to_owned(),
-                    format!("The errors in {path}, listed below, leave no head that can run."),
+                    "vtium.conf has errors and counts as closed: all input is off.".to_owned(),
+                    format!("No head can run because of the errors in {path}, listed below."),
                     error,
                     format!(
-                        "Nothing on this console takes input. Run vtium check-config {path} over ssh, or from other boot media, for the full report."
+                        "This console takes no input. For the full report, run vtium check-config {path} over ssh or from other boot media."
                     ),
                 ];
                 let errors: Vec<&str> = screen.notice().map_or(Vec::new(), |n| n.lines().collect());
@@ -5280,7 +5281,7 @@ fn a_broken_closed_file_runs_nothing_and_shows_the_panic_screen_on_the_boot_disp
     // the start logged each error with its line, so the seat logs the
     // console line alone, never the report
     let lines = logged();
-    let line = "vtium: config invalid, policy closed: input off";
+    let line = "vtium.conf has errors and counts as closed: all input is off.";
     assert!(lines.iter().all(|l| !l.contains('\n')), "{lines:#?}");
     assert!(lines.iter().any(|l| l == line), "{lines:#?}");
     assert!(
@@ -5317,7 +5318,7 @@ fn a_broken_closed_file_runs_nothing_and_shows_the_panic_screen_on_the_boot_disp
 }
 
 /// D9: under `policy = closed` a file whose heads have no display lights
-/// the boot display for `vtium: no display for any head` alone, which
+/// the boot display for `No head has a connected display.` alone, which
 /// stays until a head lights, when the head takes its display.
 // covers: platform.heads.guards
 #[test]
@@ -6202,7 +6203,7 @@ fn with_no_keyboard_at_start_the_notice_says_so() {
     s.app.scanned();
     s.app.turn(now());
     let shown = notice(&s.app, "console").unwrap_or_default();
-    assert!(shown.contains("No keyboard was found."), "{shown:?}");
+    assert!(shown.contains("No keyboard found."), "{shown:?}");
     assert!(s.until(BOUND, |a| shows(a, "ready")), "vtium runs");
     let mut s = Seat::boot(&[], displays(), "echo ready; read x");
     s.app.add_input(Path::new(KBD_A), keyboard("kbd-a"));
@@ -6253,7 +6254,7 @@ fn with_no_keyboard_the_anti_lockout_guard_does_nothing() {
         let shown = notice(&s.app, name).unwrap_or_default();
         assert!(!shown.contains(LOCKED_OUT), "{name}: {shown:?}");
     }
-    assert!(notice(&s.app, "small").is_some_and(|n| n.contains("No keyboard was found.")));
+    assert!(notice(&s.app, "small").is_some_and(|n| n.contains("No keyboard found.")));
 }
 
 /// D7 and D9: a file with `version = 1` alone runs its default head, which
@@ -6374,7 +6375,7 @@ fn the_rescue_notice_names_the_head_typing_goes_to() {
     assert_eq!(s.app.focus_head(), Some("large"));
     let shown = notice(&s.app, "large").unwrap_or_default();
     assert!(
-        shown.contains("It types into the active screen, large, until the next boot."),
+        shown.contains("now types into large, the active screen, until the next boot"),
         "{shown:?}"
     );
 }
@@ -6393,7 +6394,7 @@ fn the_rescue_notice_says_when_no_head_is_active() {
     for name in ["small", "large"] {
         let shown = notice(&s.app, name).unwrap_or_default();
         assert!(
-            shown.contains("no screen is active now."),
+            shown.contains("but no screen is active."),
             "{name}: {shown:?}"
         );
     }

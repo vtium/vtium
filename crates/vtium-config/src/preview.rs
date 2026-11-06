@@ -75,10 +75,10 @@ fn draws_pictures() -> bool {
 pub fn summary_text(s: &Summary) -> String {
     let grid = s
         .grid
-        .map(|(c, r)| format!("\t{c}x{r} cells"))
+        .map(|(c, r)| format!(", console {c}x{r} characters"))
         .unwrap_or_default();
     format!(
-        "cell {}x{}{grid}\tdraws {} of the specimen's {} characters",
+        "character cell {}x{}{grid}\tcan display {} of the preview's {} characters",
         s.cell.width, s.cell.height, s.covered, s.of
     )
 }
@@ -104,7 +104,7 @@ pub fn command(words: &[String], paths: &Paths, out: &mut dyn Write, err: &mut d
             w if w.starts_with("--") => {
                 let _ = writeln!(
                     err,
-                    "vtium-config: preview takes no option {w}\nTry vtium-config --help."
+                    "vtium-config: preview has no option {w}\nTry vtium-config --help."
                 );
                 return 2;
             }
@@ -114,7 +114,7 @@ pub fn command(words: &[String], paths: &Paths, out: &mut dyn Write, err: &mut d
     if fonts.is_empty() {
         let _ = writeln!(
             err,
-            "vtium-config: preview takes one font or more\nTry vtium-config --help."
+            "vtium-config: preview needs at least one font\nTry vtium-config --help."
         );
         return 2;
     }

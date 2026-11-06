@@ -101,7 +101,7 @@ pub fn report(m: &Machine) -> String {
         m.boot_words()
     ));
     doc.push('\n');
-    heading(&mut doc, "What this report holds", '-');
+    heading(&mut doc, "What this report contains", '-');
     doc.push_str(parts::HOLDS);
     for (name, gather) in PARTS {
         doc.push('\n');
@@ -204,7 +204,7 @@ struct Args {
 /// What vtium-config says when root asks `report` to save: root writes no
 /// file, so that no rule that lets a user run the report as root lets that
 /// user create a file wherever root can.
-pub const ROOT_SAVES_NOTHING: &str = "run as root, vtium-config report writes no file, so it takes no --save. Run sudo vtium-config report > vtium-report.txt, and your own shell writes the file, as you";
+pub const ROOT_SAVES_NOTHING: &str = "as root, vtium-config report writes no file, so it takes no --save. Run sudo vtium-config report > vtium-report.txt instead, so that your own shell writes the file, as you";
 
 /// Whether `rest`, `report`'s own arguments, ask it to save, in any form.
 pub fn saves(rest: &[impl AsRef<str>]) -> bool {
@@ -232,19 +232,19 @@ fn parse(rest: &[String]) -> Result<Args, String> {
             "--save" => args.save = Save::Here,
             "--previous-boot" => args.previous_boot = true,
             "--lines" => {
-                let v = it.next().ok_or("--lines takes a number")?;
+                let v = it.next().ok_or("--lines needs a number")?;
                 args.lines = number(v)?;
             }
             a => {
                 if let Some(path) = a.strip_prefix("--save=") {
                     if path.is_empty() {
-                        return Err("--save= takes a path".to_owned());
+                        return Err("--save= needs a path".to_owned());
                     }
                     args.save = Save::At(path.into());
                 } else if let Some(v) = a.strip_prefix("--lines=") {
                     args.lines = number(v)?;
                 } else {
-                    return Err(format!("report takes no {a}"));
+                    return Err(format!("report has no option {a}"));
                 }
             }
         }

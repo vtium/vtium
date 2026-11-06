@@ -95,9 +95,6 @@ pub struct Refusal<'a>(pub(crate) &'a Untrusted);
 /// A line whose shape is not one the file's syntax takes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Syntax {
-    /// A line above the first section that is neither `version` nor
-    /// `policy`, such as a head's key above its heading.
-    OutsideSection,
     /// A section heading that does not end in `]`.
     UnclosedHeading,
     /// `[head]` with no name or with more than one.
@@ -209,11 +206,9 @@ pub enum Problem {
     /// A line above the first section that begins with `policy` and that
     /// vtium cannot read, which makes the file closed and broken (D7).
     UnreadablePolicy(PolicyFault),
-    /// A line above the first section that is neither `version` nor
-    /// `policy`, whose key holds a character that does not show on screen,
-    /// such as a no-break space: the line from just before that character,
-    /// quoted, so its message shows the character escaped (D7).
-    HiddenOutsideSection(Quoted),
+    /// A `version` line inside a section, where it is the top line
+    /// misplaced.
+    VersionInSection,
     /// A section of vtium.conf that is none of `[look NAME]`, `[head NAME]`
     /// and `[rules]` (ADR-1403 D4).
     NotASection(Quoted),
@@ -280,6 +275,18 @@ pub enum Drops {
 }
 
 impl Drops {
+    /// Every scope an error can drop, so a reader of `vtium check-config`'s
+    /// report can tell the line that says what an error drops from the
+    /// error itself.
+    pub const ALL: [Drops; 6] = [
+        Drops::File,
+        Drops::Head,
+        Drops::Section,
+        Drops::Rule,
+        Drops::Line,
+        Drops::Closed,
+    ];
+
     /// What an error of `scope` drops on a line `within` the file.
     pub fn of(scope: Scope, within: Within) -> Drops {
         match (scope, within) {

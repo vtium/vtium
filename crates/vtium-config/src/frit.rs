@@ -18,13 +18,12 @@ pub const FRIT_BYTES_MAX: usize = 64 * 1024;
 pub const FRIT_LINE_MAX: usize = 4096;
 /// The most sources a frit names.
 pub const FRIT_SOURCES_MAX: usize = 16;
-/// The smallest and largest size `size=` names, in points, the bounds the
-/// console reads it within.
-pub const FRIT_SIZE_MIN: u32 = 6;
-pub const FRIT_SIZE_MAX: u32 = 96;
 /// The smallest and largest side of the cell `cell=` states, in pixels,
 /// from the key table, whose look's `cell` takes the same bounds.
 pub use vtium_settings::keys::{FRIT_CELL_MAX, FRIT_CELL_MIN};
+/// The smallest and largest size `size=` names, in points, from the key
+/// table, which the console reads it within too.
+pub use vtium_settings::keys::{FRIT_SIZE_MAX, FRIT_SIZE_MIN};
 /// The heights `cp-size=` picks among a CPI font's, as `setfont`'s `-8`,
 /// `-14` and `-16` do.
 pub const CP_SIZES: [u32; 3] = [8, 14, 16];
@@ -227,7 +226,10 @@ impl Frit {
             why: why.to_owned(),
         };
         if bytes.len() > FRIT_BYTES_MAX {
-            return Err(err(0, "larger than FRIT_BYTES_MAX"));
+            return Err(err(
+                0,
+                &format!("the file is too large ({FRIT_BYTES_MAX} bytes at most)"),
+            ));
         }
         let text = std::str::from_utf8(bytes).map_err(|_| err(0, "not UTF-8"))?;
         let mut name = None;
@@ -244,28 +246,28 @@ impl Frit {
         let mut styled: Vec<usize> = Vec::new();
         for (line, n) in text.split('\n').zip(1usize..) {
             if line.len() > FRIT_LINE_MAX {
-                return Err(err(n, "longer than FRIT_LINE_MAX"));
+                return Err(err(n, "the line is too long"));
             }
             if line.contains('\0') {
-                return Err(err(n, "holds a NUL byte"));
+                return Err(err(n, "the line contains a NUL byte"));
             }
             let body = line.split('#').next().unwrap_or_default().trim();
             if body.is_empty() {
                 continue;
             }
             let Some((key, value)) = body.split_once('=') else {
-                return Err(err(n, "not key=value"));
+                return Err(err(n, "the line is not key=value"));
             };
             let (key, value) = (key.trim(), value.trim());
             if value.is_empty() {
                 return Err(err(n, &format!("{key}= has no value")));
             }
             if value.chars().any(char::is_control) {
-                return Err(err(n, &format!("{key}= holds a control character")));
+                return Err(err(n, &format!("{key}= contains a control character")));
             }
             let once = |seen: bool| {
                 if seen {
-                    Err(err(n, &format!("{key}= given twice")))
+                    Err(err(n, &format!("{key}= appears twice")))
                 } else {
                     Ok(())
                 }
@@ -274,7 +276,7 @@ impl Frit {
                 sources
                     .len()
                     .checked_sub(1)
-                    .ok_or_else(|| err(n, &format!("{key}= before any source=")))
+                    .ok_or_else(|| err(n, &format!("{key}= comes before any source= line")))
             };
             match key {
                 "name" => {
@@ -283,7 +285,10 @@ impl Frit {
                 }
                 "source" => {
                     if sources.len() >= FRIT_SOURCES_MAX {
-                        return Err(err(n, "more sources than FRIT_SOURCES_MAX"));
+                        return Err(err(
+                            n,
+                            &format!("too many sources (at most {FRIT_SOURCES_MAX})"),
+                        ));
                     }
                     let origin = origin(value).map_err(|why| err(n, &why))?;
                     sources.push(Source {
@@ -298,7 +303,9 @@ impl Frit {
                 }
                 "unimap" => {
                     let i = current(&mut sources)?;
-                    let source = sources.get_mut(i).ok_or_else(|| err(n, "no source"))?;
+                    let source = sources
+                        .get_mut(i)
+                        .ok_or_else(|| err(n, "there is no source line"))?;
                     once(source.unimap.is_some())?;
                     if matches!(
                         source.origin,
@@ -307,10 +314,13 @@ impl Frit {
                             | Origin::Outline(_)
                             | Origin::Bdf(_)
                     ) {
-                        return Err(err(n, "unimap= for a source that carries its own map"));
+                        return Err(err(n, "unimap= is for a source without its own map"));
                     }
                     if value.contains('/') && !value.starts_with('/') {
-                        return Err(err(n, "unimap= is a kbd unimap name or an absolute path"));
+                        return Err(err(
+                            n,
+                            "unimap= takes a kbd unimap name or an absolute path",
+                        ));
                     }
                     source.unimap = Some(value.to_owned());
                 }
@@ -323,7 +333,9 @@ impl Frit {
                 }
                 "cp-size" => {
                     let i = current(&mut sources)?;
-                    let source = sources.get_mut(i).ok_or_else(|| err(n, "no source"))?;
+                    let source = sources
+                        .get_mut(i)
+                        .ok_or_else(|| err(n, "there is no source line"))?;
                     once(source.cp_size.is_some())?;
                     if !matches!(
                         source.origin,
@@ -344,13 +356,16 @@ impl Frit {
                 }
                 "style" => {
                     let i = current(&mut sources)?;
-                    let source = sources.get_mut(i).ok_or_else(|| err(n, "no source"))?;
+                    let source = sources
+                        .get_mut(i)
+                        .ok_or_else(|| err(n, "there is no source line"))?;
                     if styled.contains(&i) {
-                        return Err(err(n, "style= given twice for one source"));
+                        return Err(err(n, "style= appears twice for one source"));
                     }
                     styled.push(i);
-                    source.style = style(value)
-                        .ok_or_else(|| err(n, "style= is regular, bold, italic or bold-italic"))?;
+                    source.style = style(value).ok_or_else(|| {
+                        err(n, "style= takes regular, bold, italic or bold-italic")
+                    })?;
                 }
                 "compress" => {
                     // ADR-1200 D1: it chose how a stored set was
@@ -359,7 +374,7 @@ impl Frit {
                     // what was drawn
                     once(compress)?;
                     compress = true;
-                    warnings.push(err(n, "compress= has nothing to act on, and is ignored"));
+                    warnings.push(err(n, "compress= has no effect here, and is ignored"));
                 }
                 "license" => {
                     once(license.is_some())?;
@@ -379,7 +394,7 @@ impl Frit {
                                 err(
                                     n,
                                     &format!(
-                                        "size= is a size in points, {FRIT_SIZE_MIN} to {FRIT_SIZE_MAX}"
+                                        "size= takes a size in points from {FRIT_SIZE_MIN} to {FRIT_SIZE_MAX}"
                                     ),
                                 )
                             })?,
@@ -391,7 +406,7 @@ impl Frit {
                         err(
                             n,
                             &format!(
-                                "cell= is WIDTHxHEIGHT in pixels, each {FRIT_CELL_MIN} to {FRIT_CELL_MAX}"
+                                "cell= takes WIDTHxHEIGHT in pixels, each from {FRIT_CELL_MIN} to {FRIT_CELL_MAX}"
                             ),
                         )
                     })?);
@@ -401,7 +416,7 @@ impl Frit {
                     antialias = Some(match value {
                         "auto" => Antialias::Auto,
                         "no" => Antialias::No,
-                        _ => return Err(err(n, "antialias= is auto or no")),
+                        _ => return Err(err(n, "antialias= takes auto or no")),
                     });
                 }
                 "hinting" => {
@@ -409,7 +424,7 @@ impl Frit {
                     hinting = Some(match value {
                         "light" => Hinting::Light,
                         "full" => Hinting::Full,
-                        _ => return Err(err(n, "hinting= is light or full")),
+                        _ => return Err(err(n, "hinting= takes light or full")),
                     });
                 }
                 k if k == "glyph-source" || k.starts_with("glyph-source-") => {
@@ -424,20 +439,20 @@ impl Frit {
                                     err(
                                         n,
                                         &format!(
-                                            "{k}= names no range: box, block, braille, sextants, octants or legacy"
+                                            "{k}= names no range: use box, block, braille, sextants, octants or legacy"
                                         ),
                                     )
                                 })?,
                         ),
                     };
                     if glyph_source.iter().any(|&(r, _)| r == range) {
-                        return Err(err(n, &format!("{k}= given twice")));
+                        return Err(err(n, &format!("{k}= appears twice")));
                     }
                     let source = match value {
                         "font" => vtium_font::Source::Font,
                         "sprites" => vtium_font::Source::Sprites,
                         "auto" => vtium_font::Source::Auto,
-                        _ => return Err(err(n, &format!("{k}= is font, sprites or auto"))),
+                        _ => return Err(err(n, &format!("{k}= takes font, sprites or auto"))),
                     };
                     glyph_source.push((range, source));
                 }
@@ -449,15 +464,18 @@ impl Frit {
             return Err(err(
                 0,
                 &format!(
-                    "{name:?} is not a set name: 1 to 64 of A-Z a-z 0-9 . _ + -, not starting with ."
+                    "{name:?} cannot be a font set's name: use 1 to 64 of A-Z a-z 0-9 . _ + -, not starting with ."
                 ),
             ));
         }
         if RESERVED.contains(&name.as_str()) {
-            return Err(err(0, &format!("{name} is a built-in set's name")));
+            return Err(err(
+                0,
+                &format!("{name} is the name of a built-in font set"),
+            ));
         }
         if sources.is_empty() {
-            return Err(err(0, "no source="));
+            return Err(err(0, "there is no source= line"));
         }
         Ok(Frit {
             name,
@@ -488,7 +506,7 @@ fn origin(value: &str) -> Result<Origin, String> {
     }
     let Some((kind, rest)) = value.split_once(':') else {
         return Err(format!(
-            "source={value} is none of font:, kbd:, file:, bdf:, outline:, vconsole, console: or builtin:"
+            "source={value} is not one of font:, kbd:, file:, bdf:, outline:, vconsole, console: or builtin:"
         ));
     };
     match kind {
@@ -500,7 +518,7 @@ fn origin(value: &str) -> Result<Origin, String> {
         }
         "kbd" if !rest.is_empty() && !rest.contains('\0') => {
             if rest.split('/').any(|c| c == "..") {
-                return Err("a kbd: name holds ..".to_owned());
+                return Err("a kbd: name cannot contain ..".to_owned());
             }
             Ok(Origin::Kbd(rest.to_owned()))
         }
@@ -520,11 +538,11 @@ fn origin(value: &str) -> Result<Origin, String> {
             .ok()
             .filter(|&vt| (1..=63).contains(&vt) && !rest.starts_with('0'))
             .map(Origin::Console)
-            .ok_or_else(|| "console: takes a VT's number, 1 to 63".to_owned()),
+            .ok_or_else(|| "console: takes a VT number from 1 to 63".to_owned()),
         "builtin" if RESERVED.contains(&rest) => Ok(Origin::Builtin(rest.to_owned())),
-        "builtin" => Err("builtin: is unifont or unscii-8".to_owned()),
+        "builtin" => Err("builtin: takes unifont or unscii-8".to_owned()),
         _ => Err(format!(
-            "source={value} is none of font:, kbd:, file:, bdf:, outline:, vconsole, console: or builtin:"
+            "source={value} is not one of font:, kbd:, file:, bdf:, outline:, vconsole, console: or builtin:"
         )),
     }
 }
@@ -561,7 +579,7 @@ fn cover(value: &str) -> Result<Vec<Cover>, String> {
     match (a, b) {
         (Some(a), Some(b)) if a <= b => Ok(vec![(a, b)]),
         _ => Err(format!(
-            "cover={value} is none of ascii, latin-1, gb2312, gbk, big5, jis-x-0208, ks-x-1001, U+XXXX or U+XXXX-U+YYYY"
+            "cover={value} is not one of ascii, latin-1, gb2312, gbk, big5, jis-x-0208, ks-x-1001, U+XXXX or U+XXXX-U+YYYY"
         )),
     }
 }
@@ -595,6 +613,25 @@ mod tests {
     fn refusal(text: &str) -> (usize, String) {
         let e = parse(text).expect_err("refused");
         (e.line, e.why)
+    }
+
+    // a bound's error gives the number, never the name of the constant
+    // that holds it
+    #[test]
+    fn a_bounds_error_names_the_number_not_the_constant() {
+        let many: String = (0..=FRIT_SOURCES_MAX).map(|_| "source=kbd:a\n").collect();
+        let (_, why) = refusal(&many);
+        assert_eq!(
+            why,
+            format!("too many sources (at most {FRIT_SOURCES_MAX})")
+        );
+        let big = "#".repeat(FRIT_BYTES_MAX.saturating_add(1));
+        let (_, why) = refusal(&big);
+        assert_eq!(
+            why,
+            format!("the file is too large ({FRIT_BYTES_MAX} bytes at most)")
+        );
+        assert!(!why.contains("_MAX"), "{why}");
     }
 
     // a source takes the style its `style=` line names, regular unless one
@@ -722,16 +759,16 @@ mod tests {
     fn each_refusal_names_its_line() {
         for (text, line, why) in [
             ("source=kbd:x\nbogus=1\n", 2, "unknown key bogus"),
-            ("source=kbd:x\njust words\n", 2, "not key=value"),
+            ("source=kbd:x\njust words\n", 2, "the line is not key=value"),
             ("unimap=x\n", 1, "before any source="),
             ("cover=ascii\n", 1, "before any source="),
             (
                 "source=kbd:x\ncompress=yes\ncompress=no\n",
                 3,
-                "given twice",
+                "appears twice",
             ),
-            ("source=kbd:x\nname=a\nname=b\n", 3, "given twice"),
-            ("source=kbd:x\ncell=8x16\ncell=8x16\n", 3, "given twice"),
+            ("source=kbd:x\nname=a\nname=b\n", 3, "appears twice"),
+            ("source=kbd:x\ncell=8x16\ncell=8x16\n", 3, "appears twice"),
             ("source=kbd:x\ncell=16\n", 2, "WIDTHxHEIGHT"),
             ("source=kbd:x\ncell=5x16\n", 2, "WIDTHxHEIGHT"),
             ("source=kbd:x\ncell=8x97\n", 2, "WIDTHxHEIGHT"),
@@ -744,18 +781,18 @@ mod tests {
             ("source=bdf:/x.bdf\nunimap=x\n", 2, "its own map"),
             ("source=outline:x.ttf\n", 1, "absolute path"),
             ("source=outline:/x.ttf\nunimap=x\n", 2, "its own map"),
-            ("source=x\n", 1, "none of"),
+            ("source=x\n", 1, "not one of"),
             ("source=kbd:../x\n", 1, ".."),
-            ("source=kbd:x\nsize=5\n", 2, "in points, 6 to 96"),
-            ("source=kbd:x\nsize=97\n", 2, "in points, 6 to 96"),
+            ("source=kbd:x\nsize=5\n", 2, "in points from 6 to 96"),
+            ("source=kbd:x\nsize=97\n", 2, "in points from 6 to 96"),
             ("source=kbd:x\nsize=016\n", 2, "in points"),
             ("source=kbd:x\nsize=12.5\n", 2, "in points"),
-            ("source=kbd:x\nsize=16\nsize=24\n", 3, "given twice"),
-            ("source=kbd:x\nlicense=a\nlicense=b\n", 3, "given twice"),
+            ("source=kbd:x\nsize=16\nsize=24\n", 3, "appears twice"),
+            ("source=kbd:x\nlicense=a\nlicense=b\n", 3, "appears twice"),
             ("cp-size=8\n", 1, "before any source="),
             ("source=kbd:x\ncp-size=12\n", 2, "8, 14 or 16"),
             ("source=kbd:x\ncp-size=016\n", 2, "8, 14 or 16"),
-            ("source=kbd:x\ncp-size=8\ncp-size=8\n", 3, "given twice"),
+            ("source=kbd:x\ncp-size=8\ncp-size=8\n", 3, "appears twice"),
             ("source=bdf:/x.bdf\ncp-size=8\n", 2, "for a CPI font"),
             ("source=builtin:unifont\ncp-size=8\n", 2, "for a CPI font"),
             ("source=console:1\ncp-size=8\n", 2, "for a CPI font"),
@@ -766,12 +803,12 @@ mod tests {
             (
                 "source=kbd:x\nhinting=light\nhinting=full\n",
                 3,
-                "given twice",
+                "appears twice",
             ),
             (
                 "source=kbd:x\nantialias=no\nantialias=no\n",
                 3,
-                "given twice",
+                "appears twice",
             ),
             (
                 "source=kbd:x\nstyle=oblique\n",
@@ -779,7 +816,11 @@ mod tests {
                 "regular, bold, italic or bold-italic",
             ),
             ("source=kbd:x\nstyle=Bold\n", 2, "regular, bold, italic"),
-            ("source=kbd:x\nstyle=bold\nstyle=italic\n", 3, "given twice"),
+            (
+                "source=kbd:x\nstyle=bold\nstyle=italic\n",
+                3,
+                "appears twice",
+            ),
             ("style=bold\n", 1, "before any source="),
             (
                 "source=kbd:x\nglyph-source=fonts\n",
@@ -800,16 +841,16 @@ mod tests {
             (
                 "source=kbd:x\nglyph-source=font\nglyph-source=auto\n",
                 3,
-                "given twice",
+                "appears twice",
             ),
             (
                 "source=kbd:x\nglyph-source-box=font\nglyph-source-box=auto\n",
                 3,
-                "given twice",
+                "appears twice",
             ),
-            ("source=kbd:x\ncover=GBK\n", 2, "none of"),
-            ("source=kbd:x\ncover=U+9FFF-U+4E00\n", 2, "none of"),
-            ("source=kbd:x\ncover=U+41\n", 2, "none of"),
+            ("source=kbd:x\ncover=GBK\n", 2, "not one of"),
+            ("source=kbd:x\ncover=U+9FFF-U+4E00\n", 2, "not one of"),
+            ("source=kbd:x\ncover=U+41\n", 2, "not one of"),
             ("source=font: \n", 1, "family name"),
             ("source=font:a/b\n", 1, "family name"),
             // the store's keys are not a frit's (ADR-1200 D1's key table)
@@ -828,9 +869,13 @@ mod tests {
             ("source=kbd:x\nlicense=\n", 2, "has no value"),
             ("source=file:/a\tb.psf\n", 1, "control character"),
             ("name=unifont\nsource=kbd:x\n", 0, "built-in"),
-            ("name=.hidden\nsource=kbd:x\n", 0, "not a set name"),
-            ("name=a b\nsource=kbd:x\n", 0, "not a set name"),
-            ("# nothing\n", 0, "no source="),
+            (
+                "name=.hidden\nsource=kbd:x\n",
+                0,
+                "cannot be a font set's name",
+            ),
+            ("name=a b\nsource=kbd:x\n", 0, "cannot be a font set's name"),
+            ("# nothing\n", 0, "there is no source= line"),
         ] {
             let (l, w) = refusal(text);
             assert_eq!(l, line, "{text:?}: {w}");
@@ -847,7 +892,7 @@ mod tests {
             let lines: Vec<String> = r.warnings.iter().map(ToString::to_string).collect();
             assert_eq!(
                 lines,
-                ["/r/t.vtfrit:3: compress= has nothing to act on, and is ignored"],
+                ["/r/t.vtfrit:3: compress= has no effect here, and is ignored"],
                 "compress={value}"
             );
         }

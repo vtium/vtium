@@ -48,6 +48,17 @@ Upstream means the original projects the forks came from, `kmscon/kmscon` and `k
 - When you brief a subagent that will write prose for people to read, put these rules in the brief so that it follows them.
 - Write the name as "vtium" in running text, code, paths and commands. Write "VTium" in a title or heading that names the project, with VT capitalized the way the hardware terminals printed it. Spell it "color", not "colour".
 
+## Strings on screen
+
+A string on screen is any text vtium, vtium-config or `vtium check-config` shows a person: a notice on the console, an error about vtium.conf, a help page, a log line read after a failed start. Whoever writes or rewords one follows these rules.
+
+1. **The topic comes first.** Say what the message is about, then the details and what to do. Write "This rule has no `->`. A rule reads `display MATCH -> TARGET` or `input MATCH -> TARGET`.", not "A rule reads `display MATCH -> TARGET` or `input MATCH -> TARGET`, and this one has no `->`."
+2. **Use the reader's words, not the project's.** Write "font set" for a frit and "connected" for a device that is present: "Look big uses the font set monoid", not "The look big names the frit monoid". A project term that stays, such as head or look, is explained the first time a screen uses it.
+3. **Name things in full.** Write "the font helper", not "the helper", and "character cell", not "cell": "cannot start the font helper /usr/bin/vtium-config", not "cannot start /usr/bin/vtium-config".
+4. **Say what something can do, from the reader's side.** Write "The font can display 40 of the 51 characters in the preview.", not "It draws 40 of the specimen's 51 characters itself."
+5. **Keep "this terminal" apart from "the console".** "This terminal" is the one vtium-config runs in; "the console" is the vtium console being set up. Write "Live trial is off: this terminal is not a vtium console, so t cannot try a font on it."
+6. **Follow the Writing section above.** Whole sentences, plain words, and who does what: "Because of this error, vtium ignores this rule.", not "For this error vtium drops this rule alone."
+
 ## The gates
 
 A gate is a check that must pass before a change goes to review. The gate line below lists every gate in order. `make gates` is a Makefile target that runs the same commands, each to the end, and reports each exit code in the gate line's order. It runs up to 8 gates at once: `make gates JOBS=N` sets the number, and `JOBS=1` runs them one after another. Each gate builds in a cargo target directory of its own under `target/gates/`, and writes its output to a log of its own under `target/gates/logs/`, which the report names when the gate fails. When you set `CARGO_TARGET_DIR` yourself, those directories go under it. Never share one `CARGO_TARGET_DIR` between worktrees whose sources differ: cargo can give both worktrees' builds the same artifact names, and a test run in one worktree then runs a test binary built from the other's sources. The line below is the full set of gates. The steering session runs all of it on the merged tree before every push, and the author of a change runs only the checks of what it touched (see [The working loop](#the-working-loop), step 4):

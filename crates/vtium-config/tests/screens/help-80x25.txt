@@ -1,25 +1,25 @@
  Flow  Looks  Fonts  Settings  Help       View Install Revert Restore New Delete
- draft workstation · 1 change · no problems                      text · t: live
+ draft workstation · 1 change · no problems          text preview · t: try live
 --------------------------------------------------------------------------------
- Flow draws the configuration from the displays to the input devices: each
- display, the rule that sends it to a head, the head and its look, and each
- input device with the rule that sends its typing to a head.
+ Flow shows how the console is set up, from the displays to the input devices:
+ each display, the rule that sends it to a head (a screen with its own
+ consoles), the head and its look (its font and size), and each input device
+ with the rule that sends its typing to a head.
      Tab ←→ columns  ↑↓ move  Enter open  Space tag  c connect  f follow  d
      devices  ? route  v view  i install  r revert  o restore  n new  x delete
-     q leave
+     q quit
 
- Looks manages the looks, each a frit and its size; until looks are built it
- offers the console's sizes, automatic first, and shows each.
-     Enter keep  Tab next  i install  q leave, undo
+ Looks lists the console's font sizes, automatic first, with a preview of each.
+ Later it will manage the looks, each a font set and a size.
+     Enter choose  Tab next view  i install  q quit without installing
 
- Fonts lists the frits and the built-in fonts with what each lacks, shows each
- as a picture of the console or, with s, as a specimen of every character it
- covers, tries one on a vtium console with t, and makes a new frit with n.
-     Enter keep  t try live  s screen  n new  r remove  i install  q leave,
-     undo
+ Fonts lists the font sets (frits) and the built-in fonts, with any font files
+ each is missing. It shows each as an image of the console, or with s as a
+ preview of every character it can display. On a vtium console, t tries a font
+ live. Press n to make a new font set.
+     Enter choose  t try live  s preview  n new  r remove  i install  q quit
 
- Settings lists every top-level key of vtium.conf, with its value and what it
- does.
+ Settings lists every setting at the top of vtium.conf, with its value and what
 
 --------------------------------------------------------------------------------
- ←→ Help, About  ↑↓ scroll  Tab next  q leave
+ ←→ Help, About  ↑↓ scroll  Tab next view  q quit

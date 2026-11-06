@@ -46,8 +46,9 @@ pub enum SectionEdit {
     Exists(String),
     /// A name vtium would refuse for a section of this kind.
     BadName(String),
-    /// A key a section of this kind does not take.
-    BadKey(String),
+    /// A key a section of this kind does not take, with the kind of
+    /// section, so the message can say where the key is set.
+    BadKey { key: String, section: Level },
     /// A value vtium would read back as another value, or not at all.
     BadValue { key: String, value: String },
     /// No rule of this number, counting the rules from 1.
@@ -227,6 +228,19 @@ pub fn rule_lines(text: &str) -> Vec<usize> {
     Lines::of(text).rules()
 }
 
+/// The refusal of the key `key`, which a section of kind `of` does not
+/// take.
+fn bad_key(of: Of<'_>, key: &str) -> SectionEdit {
+    let section = match of {
+        Of::Head(_) => Level::Head,
+        Of::Look(_) => Level::Look,
+    };
+    SectionEdit::BadKey {
+        key: key.to_owned(),
+        section,
+    }
+}
+
 /// Whether a section of kind `of` takes the key `key` (ADR-1403 D5).
 fn takes(of: Of<'_>, key: &str) -> bool {
     let (own, level): (&[&str], Level) = match of {
@@ -251,7 +265,7 @@ pub fn set_key(
     value: Option<&str>,
 ) -> Result<String, SectionEdit> {
     if !takes(of, key) {
-        return Err(SectionEdit::BadKey(key.to_owned()));
+        return Err(bad_key(of, key));
     }
     if let Some(value) = value {
         let line = format!("{key} = {value}");
@@ -280,7 +294,7 @@ pub fn set_key(
             let inner = body.get(range.clone()).unwrap_or_default();
             // the value runs from after `=` and its blanks to the content's end
             let Some(eq) = inner.find('=') else {
-                return Err(SectionEdit::BadKey(key.to_owned()));
+                return Err(bad_key(of, key));
             };
             let after = inner.get(eq.saturating_add(1)..).unwrap_or_default();
             let lead = after

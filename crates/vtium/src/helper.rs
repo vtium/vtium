@@ -181,9 +181,13 @@ impl Command {
     /// as root.
     pub fn system(program: &Path) -> Result<Command, String> {
         let account = if rustix::process::geteuid().is_root() {
-            let passwd = std::fs::read_to_string("/etc/passwd")
-                .map_err(|e| format!("cannot read /etc/passwd for the helper's account: {e}"))?;
-            Some(nobody(&passwd).ok_or("/etc/passwd holds no nobody to run the helper as")?)
+            let passwd = std::fs::read_to_string("/etc/passwd").map_err(|e| {
+                format!("cannot read /etc/passwd to find the font helper's account: {e}")
+            })?;
+            Some(
+                nobody(&passwd)
+                    .ok_or("/etc/passwd has no user nobody to run the font helper as")?,
+            )
         } else {
             None
         };
@@ -265,13 +269,13 @@ impl Launcher {
     }
 
     /// Why a start failed with `e`. vtium starts the helper from the file it
-    /// opened, through `/proc/self/fd`, so the message names that path: with
-    /// `/proc` unmounted the start fails there, not at the program's path.
+    /// opened, through `/proc/self/fd`, so the message says `/proc` must be
+    /// mounted: with `/proc` unmounted the start fails there, not at the
+    /// program's path.
     fn failed(&self, e: &std::io::Error) -> String {
         format!(
-            "cannot start {} through /proc/self/fd/{}: {e}; vtium starts the helper from the file it opened, through /proc/self/fd, so /proc must be mounted",
+            "cannot start the font helper {}: {e}. vtium starts it through /proc/self/fd, so /proc must be mounted.",
             self.command.program.display(),
-            self.program.as_raw_fd()
         )
     }
 }
@@ -344,20 +348,21 @@ pub fn open_program(path: &Path, me: u32) -> Result<OwnedFd, String> {
     let name = path.display();
     if !path.is_absolute() {
         return Err(format!(
-            "the helper's path {name} is not absolute, so vtium does not start it"
+            "vtium does not start the font helper {name}: the path is not absolute"
         ));
     }
     let opened = rustix::fs::open(path, OFlags::PATH | OFlags::CLOEXEC, Mode::empty())
-        .map_err(|e| format!("cannot open the helper {name}: {e}"))?;
+        .map_err(|e| format!("cannot open the font helper {name}: {e}"))?;
     // A descriptor from 0 to 2 would be replaced by a child's stdio before
     // its exec. Rust's runtime opens /dev/null on each of them that vtium
     // starts with closed, so this keeps that from mattering to the helper
     // if it ever stops.
     let file = rustix::io::fcntl_dupfd_cloexec(&opened, 3)
-        .map_err(|e| format!("cannot move the helper {name}'s descriptor above stdio: {e}"))?;
+        .map_err(|e| format!("cannot prepare the font helper {name}: {e}"))?;
     drop(opened);
-    let stat = rustix::fs::fstat(&file)
-        .map_err(|e| format!("cannot read the helper {name}'s owner and mode: {e}"))?;
+    let stat = rustix::fs::fstat(&file).map_err(|e| {
+        format!("cannot read the owner and permissions of the font helper {name}: {e}")
+    })?;
     match refusal(
         FileType::from_raw_mode(stat.st_mode),
         stat.st_uid,
@@ -366,7 +371,7 @@ pub fn open_program(path: &Path, me: u32) -> Result<OwnedFd, String> {
     ) {
         None => Ok(file),
         Some(why) => Err(format!(
-            "the helper {name} {why}, so vtium does not start it"
+            "vtium does not start the font helper {name}: it {why}"
         )),
     }
 }
@@ -384,12 +389,12 @@ fn refusal(kind: FileType, owner: u32, mode: u32, me: u32) -> Option<String> {
     }
     if owner != 0 && owner != me {
         return Some(format!(
-            "is owned by uid {owner}, which is neither root nor the account vtium runs as"
+            "belongs to uid {owner}, which is neither root nor vtium's own account"
         ));
     }
     if mode & 0o022 != 0 {
         return Some(format!(
-            "may be written by its group or by others (mode {:o})",
+            "can be changed by its group or by other users (mode {:o})",
             mode & 0o7777
         ));
     }
@@ -421,7 +426,7 @@ impl FritText {
             .and_then(|n| n.to_str())
             .map(|n| n.strip_suffix(".vtfrit").unwrap_or(n))
             .filter(|n| !n.is_empty())
-            .ok_or_else(|| format!("{} names no frit", path.display()))?;
+            .ok_or_else(|| format!("there is no font set named {}", path.display()))?;
         let text = crate::font::frit_text(path)
             .map_err(|why| format!("cannot read {}: {why}", path.display()))?;
         Ok(FritText {
@@ -1355,7 +1360,7 @@ impl Helper {
         self.due = None;
         if self.failed.is_none() {
             log::warn!(
-                "the font's glyphs are not generated ({why}): vtium draws its built-in font for them, and each cluster unshaped, a glyph a codepoint"
+                "the font helper could not draw the font ({why}), so vtium uses its built-in font, one character at a time with no combined characters"
             );
             self.failed = Some(why.to_owned());
         }
@@ -1376,13 +1381,11 @@ impl Helper {
     fn restart(&mut self, why: &str, now: Instant) {
         self.stop();
         if self.restarts >= RESTARTS_MAX {
-            return self.fail(&format!(
-                "{why}, after {RESTARTS_MAX} starts again this boot"
-            ));
+            return self.fail(&format!("{why}, after {RESTARTS_MAX} restarts this boot"));
         }
         self.restarts = self.restarts.saturating_add(1);
         log::warn!(
-            "the glyph helper {why}: it is started again ({} of {RESTARTS_MAX} this boot)",
+            "the font helper {why}; restarting it ({} of {RESTARTS_MAX} this boot)",
             self.restarts
         );
         self.due = None;
@@ -1769,12 +1772,12 @@ impl Helper {
         if !clean {
             if self.restarts >= RESTARTS_MAX {
                 return self.fail(&format!(
-                    "the helper {why}, after {RESTARTS_MAX} starts again this boot"
+                    "the font helper {why}, after {RESTARTS_MAX} restarts this boot"
                 ));
             }
             self.restarts = self.restarts.saturating_add(1);
             log::warn!(
-                "the glyph helper {why}: the next need starts it again ({} of {RESTARTS_MAX} this boot)",
+                "the font helper {why}; vtium restarts it when it next needs it ({} of {RESTARTS_MAX} this boot)",
                 self.restarts
             );
         }
@@ -3509,14 +3512,15 @@ mod tests {
         }
         assert_eq!(
             refusal(FileType::RegularFile, 1001, 0o100_755, me).as_deref(),
-            Some("is owned by uid 1001, which is neither root nor the account vtium runs as")
+            Some("belongs to uid 1001, which is neither root nor vtium's own account")
         );
         // as root, only root's file
         assert!(refusal(FileType::RegularFile, me, 0o100_755, 0).is_some());
         for mode in [0o100_775, 0o100_757, 0o100_777, 0o100_765] {
             assert!(
-                refusal(FileType::RegularFile, 0, mode, me)
-                    .is_some_and(|why| why.starts_with("may be written by its group or by others")),
+                refusal(FileType::RegularFile, 0, mode, me).is_some_and(
+                    |why| why.starts_with("can be changed by its group or by other users")
+                ),
                 "{mode:o}"
             );
         }
@@ -3531,13 +3535,10 @@ mod tests {
         let why = refused(Path::new("usr/bin/vtium-config"), me);
         assert_eq!(
             why,
-            "the helper's path usr/bin/vtium-config is not absolute, so vtium does not start it"
+            "vtium does not start the font helper usr/bin/vtium-config: the path is not absolute"
         );
         let why = refused(&dir, me);
-        assert!(
-            why.ends_with("is not a regular file, so vtium does not start it"),
-            "{why}"
-        );
+        assert!(why.ends_with(": it is not a regular file"), "{why}");
         let fifo = dir.join("fifo");
         rustix::fs::mknodat(
             rustix::fs::CWD,
@@ -3548,16 +3549,13 @@ mod tests {
         )
         .unwrap();
         let why = refused(&fifo, me);
-        assert!(
-            why.ends_with("is not a regular file, so vtium does not start it"),
-            "{why}"
-        );
+        assert!(why.ends_with(": it is not a regular file"), "{why}");
         let program = dir.join("vtium-config");
         program_copy("/bin/true", &program, 0o755);
         assert!(open_program(&program, me).is_ok());
         let why = refused(&program, me.wrapping_add(1));
         assert!(
-            why.contains(&format!("is owned by uid {me}, which is neither root")),
+            why.contains(&format!("belongs to uid {me}, which is neither root")),
             "{why}"
         );
         program_copy("/bin/true", &program, 0o4755);
@@ -3569,7 +3567,7 @@ mod tests {
             assert_eq!(
                 why,
                 format!(
-                    "the helper {} may be written by its group or by others (mode {shown}), so vtium does not start it",
+                    "vtium does not start the font helper {}: it can be changed by its group or by other users (mode {shown})",
                     program.display()
                 )
             );
@@ -3678,7 +3676,6 @@ mod tests {
         // no one may execute it
         program_copy("/bin/true", &program, 0o644);
         let launcher = Launcher::open(sh(&program, "")).unwrap();
-        let fd = launcher.program.as_raw_fd();
         // the error the kernel gives this start, for the message's text
         let e = launcher.process().spawn().unwrap_err();
         let mut helper = Helper::new(
@@ -3695,7 +3692,7 @@ mod tests {
             helper.failed(),
             Some(
                 format!(
-                    "cannot start {} through /proc/self/fd/{fd}: {e}; vtium starts the helper from the file it opened, through /proc/self/fd, so /proc must be mounted",
+                    "cannot start the font helper {}: {e}. vtium starts it through /proc/self/fd, so /proc must be mounted.",
                     program.display()
                 )
                 .as_str()
@@ -3714,7 +3711,7 @@ mod tests {
         })
         .unwrap_err();
         assert!(
-            why.starts_with("cannot open the helper /nonexistent/vtium-config"),
+            why.starts_with("cannot open the font helper /nonexistent/vtium-config"),
             "{why}"
         );
     }

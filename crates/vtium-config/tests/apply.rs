@@ -158,8 +158,14 @@ fn a_draft_whose_target_changed_since_is_refused_with_nothing_written() {
     std::fs::write(f.conf_path(), "font-size=11\n").expect("an edit by hand meanwhile");
     let (status, out, err) = f.apply(&draft);
     assert_eq!(status, 1, "{out}{err}");
-    assert!(err.contains("changed since the draft was made"), "{err}");
+    assert!(err.contains("changed after the draft was made"), "{err}");
     assert!(err.contains(&f.conf_path().display().to_string()), "{err}");
+    // install reads apply's words to choose its exit code: 3, file changed
+    assert_eq!(
+        vtium_config::drafts::classify(&err, true).code(),
+        3,
+        "{err}"
+    );
     assert_eq!(f.conf(), "font-size=11\n");
     assert!(!f.targets.configdir.join("vtium.conf.bak").exists());
 }
@@ -212,7 +218,10 @@ fn a_vtium_conf_whose_sections_hold_errors_is_refused() {
     let draft = f.draft(&f.conf_plan(&format!("{old}[head desk]\n")));
     let (status, out, err) = f.apply(&draft);
     assert_eq!(status, 1, "{out}{err}");
-    assert!(err.contains("the console's check refused"), "{err}");
+    assert!(
+        err.contains("vtium check-config refused the draft"),
+        "{err}"
+    );
     assert_eq!(f.conf(), old);
 }
 
@@ -403,7 +412,7 @@ fn a_frit_a_font_name_of_vtium_conf_names_is_not_removed() {
         }],
     };
     for (name, says) in [
-        ("tiny", "vtium.conf's font-name"),
+        ("tiny", "font-name in vtium.conf uses it"),
         ("desk", "`font-name` in `[look big]`, vtium.conf line 4,"),
     ] {
         let (status, out, err) = f.apply(&f.draft(&removal(name)));
@@ -565,7 +574,10 @@ fn the_user_a_draft_belongs_to_comes_from_sudo_pkexec_or_doas() {
         for name in named {
             assert!(why.contains(name), "{pairs:?}: {why}");
         }
-        assert!(why.contains("kept or forged"), "{why}");
+        assert!(
+            why.contains("at least one came from your own environment"),
+            "{why}"
+        );
     }
 }
 

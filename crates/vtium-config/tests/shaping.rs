@@ -182,7 +182,11 @@ fn the_answers_clusters_are_checked() {
     // a key longer than CLUSTER_SCALARS_MAX
     let mut bad = o.clone();
     bad.strikes[0].clusters[0].0 = vec![0x41; 17];
-    refused(&bad.encode(), &req, "CLUSTER_SCALARS_MAX");
+    refused(
+        &bad.encode(),
+        &req,
+        &format!("more than {} characters", vtium_font::CLUSTER_SCALARS_MAX),
+    );
 }
 
 const ZWJ: char = '\u{200d}';

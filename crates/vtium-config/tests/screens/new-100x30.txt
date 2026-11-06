@@ -1,19 +1,19 @@
  Flow  Looks  Fonts  Settings  Help               View  Install  Revert  Restore  New  Delete draft
- draft workstation · 1 change · no problems                                          text · t: live
+ draft workstation · 1 change · no problems                              text preview · t: try live
 ----------------------------------------------------------------------------------------------------
  > Name     _
-   Source 1
-   Source 2
-   Source 3
-   Cell
+   Font 1
+   Font 2
+   Font 3
+   Character cell
    Size
-   Add the frit to the install
+   Add this font set to the install
 
- A source is a font's family, as JetBrains Mono, or a source as a frit writes it, as kbd:ter-v16n.
- Each later source fills what the ones before it lack. Cell is WIDTHxHEIGHT and Size is points;
- leave them empty for the fonts' own. An empty name is made from the first source.
-
-
+ A font set (frit) combines up to three fonts. Name each font by its family, such as JetBrains
+ Mono, or as a frit file names it, such as kbd:ter-v16n. Each later font supplies the characters
+ the fonts before it lack. Character cell is WIDTHxHEIGHT in pixels and Size is in points; leave
+ both empty to use the fonts' own size. If you leave Name empty, the name comes from the first
+ font.
 
 
 
@@ -27,4 +27,4 @@
 
 
 ----------------------------------------------------------------------------------------------------
- type a field  Enter next  Esc back  Ctrl-C leave, undo
+ type into a field  Enter next field  Esc back  Ctrl-C quit without installing

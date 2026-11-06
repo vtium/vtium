@@ -1,6 +1,6 @@
  Flow  Looks  Fonts  Settings  Help       View Install Revert Restore New Delete
- draft bench · no changes · no problems                          text · t: live
- The draft, read only · draft bench
+ draft bench · no changes · no problems              text preview · t: try live
+ The draft (read only) · draft bench
 
     1 font-size=12
     2 version = 1

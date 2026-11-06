@@ -26,7 +26,7 @@ bad=$(grep -n BAD "$file" | cut -d: -f1)
 if [ -n "$bad" ]; then
   for n in $bad; do
     echo "$file:$n: BAD is not a key vtium reads" >&2
-    echo "$file:$n: For this error vtium drops this line alone." >&2
+    echo "$file:$n: Because of this error, vtium ignores this line." >&2
   done
   exit 1
 fi
@@ -160,7 +160,7 @@ fn an_unfinished_draft_is_written_and_the_command_exits_0() {
         (ran.status, ran.out.as_str()),
         (
             0,
-            "wrote ROOT/home/config/vtium/drafts/desk.conf\nROOT/home/config/vtium/drafts/desk.conf:3: BAD is not a key vtium reads\nROOT/home/config/vtium/drafts/desk.conf:3: For this error vtium drops this line alone.\ndraft desk: 1 line added · 1 problem\n"
+            "wrote ROOT/home/config/vtium/drafts/desk.conf\nROOT/home/config/vtium/drafts/desk.conf:3: BAD is not a key vtium reads\nROOT/home/config/vtium/drafts/desk.conf:3: Because of this error, vtium ignores this line.\ndraft desk: 1 line added · 1 problem\n"
         )
     );
     // the line editor adds a new key after the last top-level line
@@ -180,7 +180,7 @@ fn an_unfinished_draft_is_written_and_the_command_exits_0() {
     assert_eq!(install.status, 1, "{}{}", install.out, install.err);
     assert_eq!(
         install.err,
-        "vtium-config: the check found problems in draft desk, so nothing is installed; the draft keeps every change\n"
+        "vtium-config: nothing installed: the check found problems in draft desk. The draft keeps your changes.\n"
     );
     assert_eq!(f.installed(), INSTALLED);
     assert!(f.draft().contains("font-name=BAD"));
@@ -203,7 +203,7 @@ fn install_refuses_a_draft_made_before_the_installed_file_changed() {
         (ran.status, ran.err.as_str()),
         (
             3,
-            "vtium-config: ROOT/etc/vtium.conf changed since draft desk was made from it, so nothing is installed. Run vtium config diff to see the difference, or vtium config revert to start again from the installed file.\n"
+            "vtium-config: Nothing installed: ROOT/etc/vtium.conf changed after draft desk was made from it. Run vtium config diff to see the difference, or vtium config revert to start again from the installed file.\n"
         )
     );
     assert_eq!(f.installed(), by_hand);
@@ -259,8 +259,8 @@ fn edit_installs_nothing_when_the_editor_adds_a_bad_line() {
         (ran.status, ran.out.as_str(), ran.err.as_str()),
         (
             1,
-            "wrote ROOT/home/config/vtium/drafts/desk.conf\nROOT/home/config/vtium/drafts/desk.conf:7: BAD is not a key vtium reads\nROOT/home/config/vtium/drafts/desk.conf:7: For this error vtium drops this line alone.\nThe check finds problems. Edit again? [y/N] ",
-            "vtium-config: the check found problems in draft desk, so nothing is installed; the draft keeps every change\n"
+            "wrote ROOT/home/config/vtium/drafts/desk.conf\nROOT/home/config/vtium/drafts/desk.conf:7: BAD is not a key vtium reads\nROOT/home/config/vtium/drafts/desk.conf:7: Because of this error, vtium ignores this line.\nThe check found problems. Edit again? [y/N] ",
+            "vtium-config: nothing installed: the check found problems in draft desk. The draft keeps your changes.\n"
         )
     );
     assert_eq!(f.installed(), INSTALLED);
@@ -287,9 +287,9 @@ fn flow_json_carries_its_version_and_the_draft_s_state() {
             r#""base":{"set":[{"key":"font-size","value":"12"}],"defaults":"#,
             "@DEFAULTS@",
             r#"},"displays":[],"#,
-            r#""rules":[{"number":1,"line":5,"kind":"display","selector":"*","target":"desk","state":"matches-nothing","words":"matches no display present"},"#,
+            r#""rules":[{"number":1,"line":5,"kind":"display","selector":"*","target":"desk","state":"matches-nothing","words":"matches no connected display"},"#,
             r#"{"number":2,"line":6,"kind":"input","selector":"serial:046d:c31c:X","target":"desk","state":"needs-udev","words":"needs udev"},"#,
-            r#"{"number":3,"line":7,"kind":"input","selector":"class:keyboard","target":"roaming","state":"matches-nothing","words":"matches no device present"}],"#,
+            r#"{"number":3,"line":7,"kind":"input","selector":"class:keyboard","target":"roaming","state":"matches-nothing","words":"matches no connected device"}],"#,
             r#""heads":[{"name":"desk","consoles":1,"look":"default","keys":[]}],"looks":[],"#,
             r#""inputs":[{"name":"046d:c31c:X","detail":"","keys":["serial:046d:c31c:X"],"found":false,"rule":2}],"problems":[],"missing":[]}"#,
             "\n"
@@ -314,7 +314,7 @@ fn a_new_draft_never_overwrites_one_and_the_list_marks_the_current() {
     f.desk();
     let again = f.run(&["draft", "new", "desk"]);
     assert_eq!(again.status, 2);
-    assert!(again.err.contains("exists already"), "{}", again.err);
+    assert!(again.err.contains("already exists"), "{}", again.err);
     assert_eq!(
         f.run(&["draft", "new", "spare", "--from", "empty"]).status,
         0
@@ -352,25 +352,28 @@ fn a_command_that_cannot_be_used_exits_2_and_changes_nothing() {
     f.desk();
     for (args, says) in [
         (&["rule", "rm", "9"][..], "no rule 9"),
-        (&["rule", "add", "input * ->"], "not a rule"),
+        (&["rule", "add", "input * ->"], "not a valid rule"),
         (
             &["head", "set", "nobody", "--consoles", "2"],
             "no section named",
         ),
-        (&["set", "colour", "red"], "no key named"),
-        (&["get", "colour"], "no key named"),
-        (&["set", "configdir", "/x"], "command line only"),
+        (&["set", "colour", "red"], "there is no setting named"),
+        (&["get", "colour"], "there is no setting named"),
+        (
+            &["set", "configdir", "/x"],
+            "can be set only on vtium's command line",
+        ),
         (&["set", "allow-font-ops", "maybe"], "on or off"),
         (&["set", "font-hinting", "heavy"], "light, full"),
-        (&["set", "font-name", "a\nb"], "cannot be written"),
-        (
-            &["set", "font-frits", "fonts"],
-            "an absolute path is needed",
-        ),
-        (&["set", "font-frits", ""], "an absolute path is needed"),
+        (&["set", "font-name", "a\nb"], "cannot be set to"),
+        (&["set", "font-frits", "fonts"], "the path must be absolute"),
+        (&["set", "font-frits", ""], "the path must be absolute"),
         (&["set"], "set takes KEY VALUE"),
         (&["rule", "frob"], "rule takes add"),
-        (&["head", "active", "desk"], "control socket"),
+        (
+            &["head", "active", "desk"],
+            "has no way to receive the request",
+        ),
     ] {
         let ran = f.run(args);
         assert_eq!(ran.status, 2, "{args:?}: {}", ran.err);
@@ -386,7 +389,7 @@ fn dry_run_prints_the_change_and_writes_nothing() {
     let ran = f.run(&["rule", "move", "2", "--before", "1", "--dry-run"]);
     assert_eq!(
         ran.out,
-        "--- ROOT/home/config/vtium/drafts/desk.conf\n+++ ROOT/home/config/vtium/drafts/desk.conf (after)\n@@ line 5\n-display * -> desk\n@@ line 6\n+display * -> desk\nROOT/home/config/vtium/drafts/desk.conf: checked\nthe check passes; nothing is written\n"
+        "--- ROOT/home/config/vtium/drafts/desk.conf\n+++ ROOT/home/config/vtium/drafts/desk.conf (after)\n@@ line 5\n-display * -> desk\n@@ line 6\n+display * -> desk\nROOT/home/config/vtium/drafts/desk.conf: checked\nthe check passes; nothing was saved (--dry-run)\n"
     );
     assert_eq!(f.draft(), INSTALLED);
     let revert = f.run(&["revert", "--dry-run"]);
@@ -405,13 +408,13 @@ fn route_says_why_no_route_passes_through_an_item() {
         (ran.status, ran.out.as_str()),
         (
             0,
-            "route card: rule 1\nnot used: matches no display present\n"
+            "route card: rule 1\nnot used: matches no connected display\n"
         )
     );
     let json = f.run(&["route", "head", "desk", "--json"]);
     assert_eq!(
         json.out,
-        "{\"version\":1,\"item\":\"head desk\",\"says\":\"not used: no complete route passes through it\",\"routes\":[]}\n"
+        "{\"version\":1,\"item\":\"head desk\",\"says\":\"not used: no complete route goes through it\",\"routes\":[]}\n"
     );
     assert_eq!(f.run(&["route", "head", "nobody"]).status, 2);
 }
@@ -432,7 +435,7 @@ fn a_removed_head_keeps_its_rules_and_a_rename_takes_them_along() {
         (ran.status, ran.out.as_str()),
         (
             0,
-            "the rules 1 still send to office, which the check lists until each is pointed elsewhere or removed\nwrote ROOT/home/config/vtium/drafts/desk.conf\nROOT/home/config/vtium/drafts/desk.conf: checked\ndraft desk: 3 lines added, 2 removed · no problems\n"
+            "rules 1 still send to office; the check reports them until you change or remove each one\nwrote ROOT/home/config/vtium/drafts/desk.conf\nROOT/home/config/vtium/drafts/desk.conf: checked\ndraft desk: 3 lines added, 2 removed · no problems\n"
         )
     );
     assert_eq!(
@@ -457,7 +460,8 @@ fn a_look_in_use_is_kept_unless_forced_to_the_default() {
     let kept = f.run(&["look", "rm", "big"]);
     assert_eq!(kept.status, 2);
     assert!(
-        kept.err.contains("The heads desk use the look big"),
+        kept.err
+            .contains("Head desk uses look big. Switch it to another look first"),
         "{}",
         kept.err
     );
@@ -537,7 +541,7 @@ fn a_draft_name_that_leaves_the_store_is_refused_and_touches_nothing() {
         let ran = f.run(args);
         assert_eq!(ran.status, 2, "{args:?}: {}{}", ran.out, ran.err);
         assert!(
-            ran.err.contains("cannot name a draft"),
+            ran.err.contains("cannot be a draft's name"),
             "{args:?}: {}",
             ran.err
         );

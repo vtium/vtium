@@ -91,13 +91,43 @@ fn a_look_s_key_is_set_in_place_with_its_comment_kept() {
 
 #[test]
 fn the_writer_refuses_only_what_it_cannot_place() {
+    let look = set_key(FILE, Of::Look("big"), "font-frits", Some("/x"));
     assert_eq!(
-        set_key(FILE, Of::Look("big"), "font-frits", Some("/x")),
-        Err(SectionEdit::BadKey("font-frits".to_owned()))
+        look,
+        Err(SectionEdit::BadKey {
+            key: "font-frits".to_owned(),
+            section: vtium_settings::keys::Level::Look
+        })
+    );
+    let head = set_key(FILE, Of::Head("desk"), "font-size", Some("3"));
+    assert_eq!(
+        head,
+        Err(SectionEdit::BadKey {
+            key: "font-size".to_owned(),
+            section: vtium_settings::keys::Level::Head
+        })
+    );
+    // the refusal says where the key is set, as the section reader does
+    let shown = |r: Result<String, SectionEdit>| r.err().map(|e| e.to_string());
+    assert_eq!(
+        shown(look).as_deref(),
+        Some(
+            "A look cannot set `font-frits`: it applies to every head alike. Set it at the top of vtium.conf, above the first section."
+        )
     );
     assert_eq!(
-        set_key(FILE, Of::Head("desk"), "font-size", Some("3")),
-        Err(SectionEdit::BadKey("font-size".to_owned()))
+        shown(head).as_deref(),
+        Some(
+            "A head's section cannot set `font-size`: a head gets it from its look. Set it in the head's `[look NAME]` section, or at the top of vtium.conf for every head."
+        )
+    );
+    assert_eq!(
+        shown(set_key(FILE, Of::Head("desk"), "version", Some("1"))).as_deref(),
+        Some("`version` must be at the top of vtium.conf, above the first section.")
+    );
+    assert_eq!(
+        shown(set_key(FILE, Of::Head("desk"), "frob", Some("1"))).as_deref(),
+        Some("This section has no key named \"frob\". Check the spelling.")
     );
     assert_eq!(
         set_key(FILE, Of::Look("small"), "font-size", Some("3")),

@@ -37,7 +37,7 @@ impl Osd {
         let old = config.text(&keys::FOCUS_MARK);
         if let Some(old) = old {
             log::warn!(
-                "focus-mark = {old} is the older name of osd and osd-timeout, which replace it"
+                "focus-mark is an old key: use osd and osd-timeout instead (focus-mark = {old} is read as their equivalent)"
             );
         }
         let mode = match config.text(&keys::OSD) {

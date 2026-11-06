@@ -33,7 +33,7 @@ use vtium_platform::vt::{FakeVt, KernelVt, Switch, Tty};
 
 fn help() -> String {
     let mut out = String::from(
-        "Usage: vtium [OPTION]... [--login -- COMMAND...]\n       vtium check-config [OPTION]... [FILE]   check the configuration, apply nothing\n       vtium config [COMMAND] [ARG]...         run vtium-config, the font and settings tool\n       vtium blank --vt N                      blank the displays of the vtium on VT N now\n       vtium wake --vt N                       wake the displays of the vtium on VT N\n       vtium console enable N|--all            give VT N, or every VT, to vtium@.service\n       vtium console disable N|--all           take VT N, or every VT, back\n       vtium console status                    show what each VT runs\n\n",
+        "Usage: vtium [OPTION]... [--login -- COMMAND...]\n       vtium check-config [OPTION]... [FILE]   check the configuration without applying it\n       vtium config [COMMAND] [ARG]...         run vtium-config, the font and settings tool\n       vtium blank --vt N                      turn off the displays of the vtium on VT N now\n       vtium wake --vt N                       turn on the displays of the vtium on VT N\n       vtium console enable N|--all            run vtium on VT N, or on every VT, from the next start\n       vtium console disable N|--all           stop running vtium on VT N, or on every VT\n       vtium console status                    show what runs on each VT\n       vtium console fallback N                start a login prompt on VT N after vtium failed there\n\n",
     );
     for k in &KEYS {
         let arg = match k.kind {
@@ -107,7 +107,7 @@ fn main() -> ExitCode {
         vtium::warn::warn(w);
     }
     if loaded.refuses_start() {
-        log::error!("the command line cannot start vtium; see --help");
+        log::error!("vtium cannot start with these options. See vtium --help.");
         return ExitCode::FAILURE;
     }
     let config = loaded.config;
@@ -127,7 +127,7 @@ fn main() -> ExitCode {
         None => match Tty::find() {
             Ok(path) => path,
             Err(e) => {
-                log::error!("cannot find a VT: {e}");
+                log::error!("cannot start: no VT found: {e}");
                 return ExitCode::FAILURE;
             }
         },
@@ -185,7 +185,7 @@ fn leave(code: u8) -> ExitCode {
         // process with its status and runs no exit handler.
         if running > 0 {
             log::warn!(
-                "{running} render thread(s) are still inside the GPU driver: vtium ends without running its exit handlers"
+                "{running} drawing thread(s) are still waiting on the GPU driver, so vtium exits at once, without its usual clean-up"
             );
             use std::io::Write;
             let _ = io::stdout().flush();
@@ -283,18 +283,18 @@ fn run(
             input.insert(&lp.handle(), |app: &mut App| app.input.as_mut());
             app.set_input(input);
         }
-        None => log::error!("no keymap: keys are not read"),
+        None => log::error!("no keymap, so vtium cannot read the keyboard"),
     }
     match Udev::new(app.vt.seat()) {
         Ok(mut udev) => {
             if let Err(e) = udev.scan() {
-                log::warn!("cannot scan the seat's devices: {e}");
+                log::warn!("cannot list the devices: {e}");
             }
             app.scanned();
             udev.insert(&lp.handle(), |app: &mut App| app.udev.as_mut())?;
             app.udev = Some(udev);
         }
-        Err(e) => log::warn!("cannot watch the seat's devices: {e}"),
+        Err(e) => log::warn!("cannot watch for new devices: {e}"),
     }
 
     let started = if start.switch {
@@ -303,7 +303,7 @@ fn run(
         app.vt.wait()
     };
     if let Err(e) = started.as_ref() {
-        log::error!("cannot switch to the VT: {e}");
+        log::error!("cannot switch to vtium's VT: {e}");
     }
     if matches!(started, Ok(Switch::Done)) && app.vt.is_active() {
         log::debug!("the VT is shown");
@@ -327,6 +327,21 @@ fn run(
 
 #[cfg(test)]
 mod tests {
+    /// `--help`'s synopsis names every command of `vtium console`, the
+    /// fallback that vtium-getty@.service runs included.
+    #[test]
+    fn help_names_every_console_command() {
+        let help = super::help();
+        for command in [
+            "vtium console enable N|--all",
+            "vtium console disable N|--all",
+            "vtium console status",
+            "vtium console fallback N",
+        ] {
+            assert!(help.contains(command), "{command}");
+        }
+    }
+
     /// `--version` keeps its first line as it was, so a reader of that line
     /// alone sees no change, and adds the revision and the features, each
     /// read here from the build itself.

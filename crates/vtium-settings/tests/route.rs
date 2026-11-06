@@ -81,14 +81,14 @@ fn a_display_sent_to_off_names_the_rule_it_falls_to() {
     assert_eq!(
         said(&route).1.as_deref(),
         Some(
-            "No display present is sent to a head: display \"DP-8\" falls to rule 3, which sends it to `off`. Add a rule above it that sends the display to a head."
+            "No connected display reaches a head: rule 3 sends display \"DP-8\" to `off`. Add a rule above it that sends the display to a head."
         )
     );
     let none = flow("version = 1\n[head desk]\n[rules]\ninput * -> desk\n");
     assert_eq!(
         said(&complete_route(&none, Some(&devices))).1.as_deref(),
         Some(
-            "No display present is sent to a head: no rule matches display \"DP-8\", so it stays off. Add a display rule that sends it to a head."
+            "No connected display reaches a head: no rule matches display \"DP-8\", so it stays off. Add a display rule that sends it to a head."
         )
     );
 }
@@ -101,7 +101,7 @@ fn a_head_no_keyboard_reaches_is_named_with_its_display() {
         said(&complete_route(&config, Some(&devices))),
         (
             Judged::Devices,
-            Some("Head \"desk\" shows \"DP-8\", but no keyboard present reaches \"desk\": add an input rule that sends a keyboard to \"desk\" or to `roaming`.".to_owned())
+            Some("No keyboard reaches head \"desk\", which shows on \"DP-8\". Add an input rule that sends a keyboard to \"desk\" or to `roaming`.".to_owned())
         )
     );
     // a keyboard sent to the head itself completes the route
@@ -161,7 +161,7 @@ fn by_the_rules_alone_a_keyboard_rule_must_be_class_keyboard_a_star_or_one_devic
     assert_eq!(
         said(&complete_route(&no_display, None)).1.as_deref(),
         Some(
-            "No display rule sends displays to a head. Add a rule `display MATCH -> TARGET` whose target is a head."
+            "No display rule sends a display to a head. Add a rule `display MATCH -> TARGET` whose target is a head."
         )
     );
     let by_id = flow(
@@ -170,7 +170,7 @@ fn by_the_rules_alone_a_keyboard_rule_must_be_class_keyboard_a_star_or_one_devic
     assert_eq!(
         said(&complete_route(&by_id, None)).1.as_deref(),
         Some(
-            "Head \"desk\" takes displays by rule 1, but no input rule sends keyboards to \"desk\" or to `roaming`: add an input rule that sends a keyboard to \"desk\" or to `roaming`."
+            "No input rule sends a keyboard to head \"desk\", which gets its displays from rule 1. Add an input rule that sends a keyboard to \"desk\" or to `roaming`."
         )
     );
     for rule in [
@@ -203,9 +203,9 @@ fn the_judgement_says_why_it_read_the_rules_alone() {
     assert_eq!(
         texts,
         [
-            "No display is present, so vtium judged the route by the rules alone.",
-            "No keyboard is present, so vtium judged the route by the rules alone.",
-            "vtium judged the route by the rules alone, without the devices present.",
+            "No display is connected, so vtium checked the routes by the rules alone.",
+            "No keyboard is connected, so vtium checked the routes by the rules alone.",
+            "vtium checked the routes by the rules alone, without the connected devices.",
         ]
     );
 }

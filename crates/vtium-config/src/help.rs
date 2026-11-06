@@ -159,27 +159,27 @@ const TOPICS: &[Topic] = &[
         command: Command::Flow,
         forms: &[form(
             "flow [--json]",
-            "print the draft's flow, with the devices present placed on it",
+            "show how the draft connects displays and input devices",
         )],
-        detail: "Prints the flow of the current draft: the displays, the display rules, the heads, the looks, the input rules and the input devices, each device placed by the first rule that matches it. The first line names the draft and says how it stands against the installed file and how many problems vtium check-config finds. With --json it prints one JSON object whose version field is 1. It exits 0 whenever it prints, whatever problems it lists.",
+        detail: "Shows how the current draft connects the connected displays and input devices: the displays, the display rules, the heads, the looks, the input rules and the input devices. Each device appears under the first rule that matches it. The first line names the draft, says how it differs from the installed vtium.conf, and counts the problems vtium check-config finds. With --json it prints one JSON object whose version field is 1. It exits 0 whenever it prints, whatever problems it lists.",
         example: "vtium-config flow --json",
     },
     Topic {
         command: Command::Route,
         forms: &[form(
             "route ITEM [--json]",
-            "print the complete routes an item is part of",
+            "show every route through an item",
         )],
-        detail: "Prints the route card of ITEM, which is display NAME, rule N, head NAME, look NAME or input NAME: each complete route from a display to a keyboard that the item is part of, with the item marked, or why none passes through it. With --json it prints one JSON object whose version field is 1.",
+        detail: "Shows each route from a display to a keyboard that passes through ITEM, with ITEM marked, or why no route does. ITEM is display NAME, rule N, head NAME, look NAME or input NAME. With --json it prints one JSON object whose version field is 1.",
         example: "vtium-config route rule 5",
     },
     Topic {
         command: Command::Diff,
         forms: &[form(
             "diff",
-            "print the difference between the installed file and the draft",
+            "show how the draft differs from the installed vtium.conf",
         )],
-        detail: "Prints each line the current draft changes from the installed /etc/vtium/vtium.conf, under the number of its line in the draft. It changes nothing.",
+        detail: "Shows each line the current draft changes from the installed /etc/vtium/vtium.conf, with its line number in the draft. It changes nothing.",
         example: "vtium-config diff",
     },
     Topic {
@@ -188,58 +188,52 @@ const TOPICS: &[Topic] = &[
             "install",
             "check the draft and install it as /etc/vtium/vtium.conf",
         )],
-        detail: "Checks the current draft with vtium check-config and installs it through sudo vtium-config apply DIR, which asks for your password; run as root it installs without sudo. It refuses a draft the check fails (exit 1) and a draft made before the installed file changed (exit 3), and exits 4 when sudo refuses. The file it replaces is kept in the installed history.",
+        detail: "Checks the current draft with vtium check-config, then installs it with sudo vtium-config apply DIR, which asks for your password (as root, it installs without sudo). It does not install a draft that fails the check (exit 1), or a draft made before the installed file last changed (exit 3). It exits 4 when sudo refuses. vtium-config keeps the file it replaces, so restore can bring it back.",
         example: "vtium-config install",
     },
     Topic {
         command: Command::Get,
-        forms: &[form(
-            "get KEY",
-            "print a top-level key's value in the draft",
-        )],
-        detail: "Prints KEY, its value in the draft's top level and where the value comes from, draft or default. It changes nothing.",
+        forms: &[form("get KEY", "show a setting's value in the draft")],
+        detail: "Shows KEY, its value at the top of the draft, and whether the value is set in the draft or is the default. It changes nothing.",
         example: "vtium-config get font-size",
     },
     Topic {
         command: Command::Set,
         forms: &[
-            form("set KEY VALUE", "set a top-level key in the draft"),
-            form("set --unset KEY", "leave a top-level key at its default"),
+            form("set KEY VALUE", "change a setting in the draft"),
+            form("set --unset KEY", "put a setting back to its default"),
         ],
-        detail: "Sets a key above the draft's first section, the defaults every head inherits, through the line editor, which keeps every other byte; --unset comments out the line vtium takes the key from. Like every command that changes the draft, it writes the draft whatever the check says and prints what the check finds. --dry-run prints the change and writes nothing, and --install installs the draft afterwards.",
+        detail: "Changes a setting at the top of the draft, where it applies to every head, and leaves the rest of the file exactly as it was. --unset comments out the line that sets the key. Like every command that changes the draft, it saves the change even when the check finds problems, and prints what the check finds. --dry-run shows the change without saving it, and --install installs the draft afterwards.",
         example: "vtium-config set font-size 14",
     },
     Topic {
         command: Command::Revert,
         forms: &[form("revert [--dry-run]", "throw away the draft's changes")],
-        detail: "Copies the installed file back over the current draft, so the draft's changes are lost; the installed file is untouched. --dry-run says how many lines would be lost.",
+        detail: "Replaces the current draft with a copy of the installed vtium.conf, so the draft's changes are lost. The installed file does not change. --dry-run says how many lines would be lost.",
         example: "vtium-config revert",
     },
     Topic {
         command: Command::New,
         forms: &[form(
             "new [--dry-run]",
-            "empty the draft to the defaults and one look",
+            "start the draft over from the defaults",
         )],
-        detail: "Empties the current draft to the top level at its defaults, every key commented out as in the shipped example, and one look, [look default], with no keys. The draft's heads, rules and looks are lost. --dry-run says how many lines would be lost.",
+        detail: "Starts the current draft over: every setting at its default (commented out, as in the example file vtium ships) and one empty look, [look default]. The draft's heads, rules and looks are lost. --dry-run says how many lines would be lost.",
         example: "vtium-config new",
     },
     Topic {
         command: Command::Rule,
         forms: &[
-            form(
-                "rule add [--before N] 'KIND SELECTOR -> TARGET'",
-                "add a rule",
-            ),
-            form("rule set N 'KIND SELECTOR -> TARGET'", "replace rule N"),
+            form("rule add [--before N] 'KIND MATCH -> TARGET'", "add a rule"),
+            form("rule set N 'KIND MATCH -> TARGET'", "replace rule N"),
             form(
                 "rule set N [--selector S] [--target T]",
-                "change rule N's selector or target",
+                "change what rule N matches or where it sends",
             ),
             form("rule move N --before M | --last", "move rule N"),
             form("rule rm N", "remove rule N"),
         ],
-        detail: "Changes [rules] in the draft. A rule's N is its place in [rules], counted from 1, as vtium config flow prints it. Without --before, rule add puts a rule that names one device before the first rule of its kind that names a kind of device, and a rule that names a kind of device before the first * rule of its kind, so a wider rule does not match its devices first. Each takes --dry-run and --install.",
+        detail: "Changes the [rules] section of the draft. A rule's number N is its place in [rules], counted from 1, as vtium config flow shows it. Without --before, rule add places the new rule so that a broader rule does not catch its devices first: a rule for one device goes before the first rule of its kind for a class of devices, and a rule for a class goes before the first * rule of its kind. Each takes --dry-run and --install.",
         example: "vtium-config rule add 'input path:pci-0000:15:00.0-usb-0:3.3 -> desk'",
     },
     Topic {
@@ -248,15 +242,15 @@ const TOPICS: &[Topic] = &[
             form("head add NAME [--look L]", "add a head"),
             form(
                 "head set NAME [--name NEW] [--look L] [--consoles N] [--login CMD] [--when-display-lost V] [--isolated yes|no]",
-                "change a head's keys",
+                "change a head's settings",
             ),
             form("head rm NAME", "delete a head, keeping its rules"),
             form(
                 "head active NAME",
-                "ask the running vtium to make NAME the active head",
+                "make NAME the active head of the running vtium",
             ),
         ],
-        detail: "Adds, changes or deletes a [head NAME] section in the draft. --name renames the head and every rule that names it. head rm keeps the rules that send to the head, and the check lists them until each is pointed elsewhere or removed. head active needs the control socket the running vtium does not have yet, and says so with exit 2. Each change takes --dry-run and --install.",
+        detail: "Adds, changes or deletes a [head NAME] section in the draft. A head is a screen: one or more displays that show the same consoles. --name renames the head and every rule that names it. head rm keeps the rules that send to the head; the check reports them until you change or remove each one. head active does not work yet (vtium has no way to receive the request), and exits 2. Each change takes --dry-run and --install.",
         example: "vtium-config head set desk --look big",
     },
     Topic {
@@ -268,11 +262,11 @@ const TOPICS: &[Topic] = &[
             ),
             form(
                 "look set NAME [--name NEW] [--frit F] [--size PT] [--cell WxH] [--engine E] [--hinting H] [--line-spacing PCT] [--display-depth D] [--display-dpi DPI]",
-                "change a look's keys",
+                "change a look's settings",
             ),
             form("look rm NAME [--force]", "delete a look"),
         ],
-        detail: "Adds, changes or deletes a [look NAME] section in the draft. --frit sets its font-name, --size its font-size and --cell its cell; --engine, --hinting and --line-spacing set the font- key of that name, and --display-depth and --display-dpi the key of their own name. look add takes the same keys as look set. A key a look leaves out is inherited from the top level, and within one look a font-size other than 0 wins over a cell. look rm refuses a look a head uses, naming the heads, unless --force sets those heads to the default look. Each takes --dry-run and --install.",
+        detail: "Adds, changes or deletes a [look NAME] section in the draft. A look is a font and its size, which heads use. --frit sets its font-name, --size its font-size and --cell its character cell; --engine, --hinting and --line-spacing set font-engine, font-hinting and font-line-spacing; --display-depth and --display-dpi set the keys of the same name. look add takes the same options as look set. A setting a look leaves out comes from the top of vtium.conf, and in one look a font-size other than 0 overrides cell. look rm does not delete a look a head uses, and names those heads, unless --force switches them to the default look. Each takes --dry-run and --install.",
         example: "vtium-config look add big --frit monoid --size 14",
     },
     Topic {
@@ -286,45 +280,42 @@ const TOPICS: &[Topic] = &[
             form("draft switch NAME", "make another draft current"),
             form("draft rm [NAME]", "delete a draft"),
         ],
-        detail: "Manages the drafts under ~/.config/vtium/drafts. A new draft is made from the installed file unless --from says otherwise, and without a name takes the machine's hostname, with -2, -3 and so on appended so that no draft is overwritten. draft rm deletes the current draft when no name is given; the next change starts a new one from the installed file.",
+        detail: "Manages the drafts in ~/.config/vtium/drafts. A draft is your working copy of vtium.conf. A new draft starts as a copy of the installed file unless --from says otherwise. Without a name it is named after the machine, with -2, -3 and so on added so that no draft is overwritten. draft rm without a name deletes the current draft; the next change starts a new one from the installed file.",
         example: "vtium-config draft new laptop --from empty",
     },
     Topic {
         command: Command::History,
         forms: &[form(
             "history",
-            "list the installed files that installs replaced",
+            "list the earlier vtium.conf files that installs replaced",
         )],
-        detail: "Lists the installed history, newest first: the number restore takes, the file's name, which names the draft whose install replaced it, and when it was replaced, in UTC. vtium-config keeps the 10 newest, a count history = N in ~/.config/vtium/vtium-config.conf changes.",
+        detail: "Lists the vtium.conf files that installs replaced, newest first: the number to give restore, the file's name (which names the draft whose install replaced it), and when it was replaced, in UTC. vtium-config keeps the 10 newest; set history = N in ~/.config/vtium/vtium-config.conf to keep another number.",
         example: "vtium-config history",
     },
     Topic {
         command: Command::Restore,
         forms: &[form(
             "restore [N] [--dry-run]",
-            "copy an installed-history file into the draft",
+            "copy an earlier vtium.conf into the draft",
         )],
-        detail: "Copies file N of the installed history, the newest when no number is given, into the current draft, where the check runs and you install it as usual.",
+        detail: "Copies earlier file N (from history; the newest when no number is given) into the current draft. The check runs on it there, and you install it as usual.",
         example: "vtium-config restore 2",
     },
     Topic {
         command: Command::Library,
         forms: &[
-            form("library list", "list the library's looks, heads and rules"),
+            form("library list", "list the saved looks, heads and rules"),
             form(
                 "library add look|head NAME",
-                "copy a node of the draft into the library",
+                "save a look or head from the draft",
             ),
             form(
                 "library take look|head NAME",
-                "copy a node of the library into the draft",
+                "copy a saved look or head into the draft",
             ),
-            form(
-                "library rm look|head|rule NAME",
-                "delete a node from the library",
-            ),
+            form("library rm look|head|rule NAME", "delete a saved item"),
         ],
-        detail: "Keeps looks, heads and rules outside any draft, in ~/.config/vtium/library.conf, written as vtium.conf's sections. A node is copied when it moves, either way. The library's rules and removing a node wait on the section writer, and say so.",
+        detail: "Keeps looks, heads and rules outside any draft, in ~/.config/vtium/library.conf, written as vtium.conf sections. Adding and taking copy an item; the original stays. Rules in the library, and removing an item, do not work yet; vtium-config says so when you try.",
         example: "vtium-config library add look big",
     },
     Topic {
@@ -333,25 +324,25 @@ const TOPICS: &[Topic] = &[
             "edit [--install]",
             "edit the draft in your editor, as visudo does",
         )],
-        detail: "Copies the current draft to a file and opens it in the editor $VISUAL names, else $EDITOR, else vi. When the editor exits with the file changed, the copy becomes the draft and vtium check-config checks it; when the check finds an error or a warning, it prints each and asks whether to edit again. With --install it then installs the draft, only when the check passes.",
+        detail: "Opens a copy of the current draft in your editor ($VISUAL, else $EDITOR, else vi). When you save and quit, the copy becomes the draft and vtium check-config checks it. If the check finds errors or warnings, vtium-config prints them and asks whether to edit again. With --install, it then installs the draft, but only if the check passes.",
         example: "vtium-config edit --install",
     },
     Topic {
         command: Command::Fonts,
         forms: &[form(
             "fonts",
-            "list the frits and built-in fonts, and the sources each lacks",
+            "list the font sets and built-in fonts, and the font files each is missing",
         )],
-        detail: "Lists every frit (a font set file) and built-in font, one line each, with the name, whether vtium reads it, and the sources this machine lacks. It writes nothing and needs no privilege.",
+        detail: "Lists every font set (frit) and built-in font, one per line: its name, whether vtium can read it, and the font files it needs that are not on this machine. It changes nothing and needs no root.",
         example: "vtium-config fonts",
     },
     Topic {
         command: Command::Check,
         forms: &[form(
             "check FILE",
-            "check a frit (NAME.vtfrit) or a vtium.conf, writing nothing",
+            "check a font set (NAME.vtfrit) or a vtium.conf",
         )],
-        detail: "Checks FILE as the console would read it. A file named NAME.vtfrit is read as a frit, and any other file as a vtium.conf, its keys and its sections in one run. Each problem prints with the file's name and line, and a good frit prints \"ok FILE\". It writes nothing and needs no privilege.",
+        detail: "Checks FILE as the console would read it. A file named NAME.vtfrit is checked as a font set, and any other file as a vtium.conf, settings and sections together. Each problem prints with the file's name and line number, and a good font set prints \"ok FILE\". It changes nothing and needs no root.",
         example: "vtium-config check /etc/vtium/vtium.conf",
     },
     Topic {
@@ -359,55 +350,55 @@ const TOPICS: &[Topic] = &[
         forms: &[
             form(
                 "new-frit FONT... [--name NAME] [--cell WxH] [--size POINTS]",
-                "make a frit of fonts, each a family or a source",
+                "make a font set from fonts",
             ),
             form(
                 "new-frit --from FILE [--name NAME]",
-                "install the frit in FILE",
+                "install the font set in FILE",
             ),
             form(
                 "new-frit --template",
-                "print a frit to edit for new-frit --from",
+                "print a font set to edit, for new-frit --from",
             ),
             form(
                 "new-frit",
-                "at a terminal, open the interactive tool at its new frit",
+                "open the full-screen tool at its new font set page",
             ),
         ],
-        detail: "Makes a frit from the fonts, in order. A FONT is a source as a frit spells it (kbd:ter-v16n, builtin:unifont) or a family name. --name names the frit; without it the name comes from the first font. --cell and --size set the glyph size. --from installs a frit file you wrote, and --template prints one to start from. The frit is checked before anything is drafted. Run as a user, it writes a draft and prints the command that installs it.",
+        detail: "Makes a font set (frit) from the fonts, in order: each later font supplies characters the earlier ones lack. A FONT is a family name, or a source as a frit file writes it (kbd:ter-v16n, builtin:unifont). --name names the font set; without it, the name comes from the first font. --cell and --size set the character size. --from installs a frit file you wrote, and --template prints one to start from. vtium-config checks the font set before it saves anything. Run as a user, it writes a draft and prints the command that installs it.",
         example: "vtium-config new-frit unifont --name my-font --size 14",
     },
     Topic {
         command: Command::Tui,
-        forms: &[form("tui", "at a terminal, open the interactive tool")],
-        detail: "Opens the full-screen tool that lists the frits and the built-in fonts and tries each on the live console. It runs as you, never as root, asks for sudo when it saves, and needs a terminal on both standard input and standard output.",
+        forms: &[form("tui", "open the full-screen tool")],
+        detail: "Opens the full-screen tool, where you set up the console's displays, keyboards, fonts and settings, and preview fonts live on a vtium console. It runs as you, never as root, asks for sudo when it installs, and needs a terminal on both standard input and standard output.",
         example: "vtium-config tui",
     },
     Topic {
         command: Command::RemoveFrit,
         forms: &[form(
             "remove-frit NAME",
-            "remove a frit that vtium.conf does not name",
+            "remove a font set that vtium.conf does not use",
         )],
-        detail: "Removes the frit NAME.vtfrit. It refuses a built-in font, a name with no frit, the frit that vtium.conf's font-name names, and a frit that a look's font-name names. Installing the removal keeps the file as NAME.vtfrit.bak.",
+        detail: "Removes the font set NAME.vtfrit. It does not remove a built-in font, a name with no font set, or a font set that font-name names, at the top of vtium.conf or in a look. When the removal is installed, the file is kept as NAME.vtfrit.bak.",
         example: "vtium-config remove-frit my-font",
     },
     Topic {
         command: Command::Preview,
         forms: &[form(
             "preview FONT... [--size POINTS]",
-            "draw each font's specimen, as a picture where the terminal draws them",
+            "show a preview of each font, as an image if this terminal supports images",
         )],
-        detail: "Draws each font's specimen and prints one line for it: the name, the size, the cell and how many specimen characters the font draws. At a terminal that draws kitty graphics the line is followed by the specimen as a picture. A FONT is a frit's name, a built-in font's, or a source as new takes it. --size sets the points, else vtium.conf's font-size, else 12.",
+        detail: "Prints one line for each font: its name, size, character cell, and how many of the preview's characters it can display. In a terminal that supports kitty graphics, an image of the preview follows the line. A FONT is the name of a font set or a built-in font, or a source as new-frit takes it. --size sets the size in points; the default is vtium.conf's font-size, else 12.",
         example: "vtium-config preview unifont --size 16",
     },
     Topic {
         command: Command::UseFrit,
         forms: &[form(
             "use-frit NAME",
-            "switch the running console to a frit or a built-in font",
+            "switch the running console to a font set or built-in font",
         )],
-        detail: "Switches the vtium console this terminal is attached to to the frit or built-in font NAME, for this session only. It checks NAME first, then asks the terminal what it is, and sends nothing to a terminal that is not vtium. It fails and says why when NAME is neither a frit nor a built-in font.",
+        detail: "Switches the vtium console you are typing in to the font set or built-in font NAME, until this session ends. vtium-config checks NAME first, then checks that this terminal is a vtium console, and sends nothing otherwise. It fails and says why when NAME is neither a font set nor a built-in font.",
         example: "vtium-config use-frit unifont",
     },
     Topic {
@@ -416,25 +407,25 @@ const TOPICS: &[Topic] = &[
             "apply DIR",
             "check a saved draft and install it (as root)",
         )],
-        detail: "Checks the draft in DIR, which a command that changes something wrote, and installs it. It runs as root; the command a draft prints runs it through sudo.",
+        detail: "Checks the draft in DIR and installs it. A command that changes something writes DIR and prints the sudo command that runs apply on it. apply runs as root.",
         example: "sudo vtium-config apply /home/me/.local/state/vtium/drafts/1",
     },
     Topic {
         command: Command::Serve,
         forms: &[form(
             "serve",
-            "generate glyphs for the console (the console starts it)",
+            "draw characters for the console (vtium starts it)",
         )],
-        detail: "Generates glyphs for the console from a frit's fonts. The console starts it, and it takes no argument; running it by hand does nothing useful.",
+        detail: "Draws a font set's characters for the console: vtium starts it as its font helper. It takes no argument; running it by hand does nothing useful.",
         example: "vtium-config serve",
     },
     Topic {
         command: Command::Report,
         forms: &[form(
             "report [--save[=PATH]] [--lines N] [--previous-boot]",
-            "gather what a bug report needs into one document, changing nothing",
+            "collect what a bug report needs into one document",
         )],
-        detail: "Gathers what a bug report needs into one plain-text document and prints it: the vtium builds installed and the features each was built with, the kernel and the distribution, the state of each vtium console, the displays the kernel sees, vtium's configuration, and the log of each console. It changes nothing on the machine. --save writes the document to a new file in the current directory, named vtium-report-YYYYMMDD-HHMMSS.txt after the time in UTC, and --save=PATH writes it to PATH; either prints the file's path and never replaces a file that exists. --lines sets how many of each console's latest log lines it holds, 300 by default. --previous-boot reads the logs of the boot before this one, as after a defect that forced a reboot. Run as a user, each part it cannot read says so and names the command that reads it. Run as root, for the kernel's display state and the whole journal, it writes no file and takes no --save, so save what it prints with sudo vtium-config report > vtium-report.txt. It leaves out the hostname and each monitor's serial number, but it can still name user accounts, in the logs, in vtium console status and in vtium.conf, and the logs' times show your time zone, so read the report before you share it.",
+        detail: "Collects what a bug report needs into one plain-text document and prints it: the vtium builds installed and the features each was built with, the kernel and the distribution, the state of each vtium console, the displays the kernel sees, vtium's configuration, and the log of each console. It changes nothing on the machine. --save writes the document to a new file in the current directory, named vtium-report-YYYYMMDD-HHMMSS.txt (the time in UTC); --save=PATH writes it to PATH. Either prints the file's path and never replaces an existing file. --lines sets how many of each console's latest log lines to include (300 by default). --previous-boot reads the logs of the boot before this one, for example after a crash that forced a reboot. Run as a user, each part it cannot read says so and names the command that reads it. Run as root (for the kernel's display state and the whole journal), it writes no file and takes no --save, so save its output with sudo vtium-config report > vtium-report.txt. It leaves out the hostname and monitors' serial numbers, but it can still name user accounts (in the logs, in vtium console status and in vtium.conf), and the log times show your time zone. Read the report before you share it.",
         example: "vtium-config report --save",
     },
 ];
@@ -445,34 +436,35 @@ const ABOUT_LINE: &str = "about                              vtium-config's name
 const HEAD: &str = "\
 Usage: vtium-config [OPTION]... [COMMAND [ARG]...]
 
-Manages the vtium console's fonts and settings, trying each font on the live console.
+Sets up the vtium console's fonts and settings, and can preview each font live on a vtium console.
 
-With no command, prints this help. To open the interactive tool, run vtium-config tui.
+With no command, vtium-config prints this help. To open the full-screen tool, run vtium-config tui.
 
 Commands:
 ";
 
 const TAIL: &str = "
-The flow's commands change the draft, ~/.config/vtium/drafts/NAME.conf,
-and only install writes /etc/vtium/vtium.conf. They exit 0 when done, 1
-when the check fails at an install, 2 on a usage error, 3 when the
-installed file changed since the draft was made, 4 when sudo refuses, and 5
-when a file cannot be read or written. The frit commands write an install
-bundle and print the command that installs it.
+The commands from flow to edit change your draft, a copy of vtium.conf in
+~/.config/vtium/drafts/NAME.conf; only install writes
+/etc/vtium/vtium.conf. They exit 0 when done, 1 when the check fails at
+install, 2 on a usage error, 3 when the installed file changed after the
+draft was made, 4 when sudo refuses, and 5 when a file cannot be read or
+written. The font set commands (new-frit, remove-frit) write a draft and
+print the command that installs it.
 
 Options:
-  --configdir DIR       the directory of vtium.conf, in place of /etc/vtium
-  --frits DIR           the frits directory, in place of the one font-frits names
-  --sudo PROGRAM        the program that runs apply as root, in place of sudo
-  --vtium PROGRAM       the console binary apply checks files with, in place of /usr/bin/vtium
-  --kbd-dir DIR         a kbd data directory, in place of the build's list (repeatable)
-  --font-dir DIR        an outline font directory, in place of the build's list (repeatable)
-  --vconsole-conf FILE  vconsole.conf, in place of /etc/vconsole.conf
-  --kernel-cmdline FILE the kernel command line, in place of /proc/cmdline
-  --sys DIR             sysfs, where displays and inputs are read, in place of /sys
-  --udev-data DIR       udev's database, in place of /run/udev/data
-  --helper PROGRAM      the glyph helper the tool starts, in place of this binary's serve
-  --root DIR            the root report reads the machine under, in place of /
+  --configdir DIR       the directory of vtium.conf, instead of /etc/vtium
+  --frits DIR           the font set directory, instead of the one font-frits names
+  --sudo PROGRAM        the program that runs apply as root, instead of sudo
+  --vtium PROGRAM       the vtium binary apply checks files with, instead of /usr/bin/vtium
+  --kbd-dir DIR         a kbd data directory, instead of the built-in list (repeatable)
+  --font-dir DIR        an outline font directory, instead of the built-in list (repeatable)
+  --vconsole-conf FILE  vconsole.conf, instead of /etc/vconsole.conf
+  --kernel-cmdline FILE the kernel command line, instead of /proc/cmdline
+  --sys DIR             sysfs, where displays and input devices are read, instead of /sys
+  --udev-data DIR       udev's database, instead of /run/udev/data
+  --helper PROGRAM      the font helper to start, instead of this program's serve
+  --root DIR            the root directory report reads the machine under, instead of /
   --help [TOPIC], --version
 ";
 
@@ -494,7 +486,7 @@ pub fn usage() -> String {
             line(&mut text, f);
         }
     }
-    text.push_str("\nHelp topics, for vtium-config --help TOPIC:\n  every command above, and\n  ");
+    text.push_str("\nHelp on one command: vtium-config --help COMMAND. Also:\n  ");
     text.push_str(ABOUT_LINE);
     text.push('\n');
     text.push_str(TAIL);

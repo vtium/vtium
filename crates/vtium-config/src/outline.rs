@@ -244,7 +244,9 @@ impl<'a> Reader<'a> {
     fn key(&mut self) -> Result<Vec<u32>, &'static str> {
         let n = self.u8()?;
         if n == 0 || u32::from(n) > CLUSTER_SCALARS_MAX {
-            return Err("a cluster empty or past CLUSTER_SCALARS_MAX");
+            return Err(static_message!(
+                "a cluster that is empty or holds more than {CLUSTER_SCALARS_MAX} characters"
+            ));
         }
         (0..n)
             .map(|_| {
@@ -330,7 +332,9 @@ impl OutlineRequest {
         for _ in 0..r.count(OUTLINE_CELLS_MAX)? {
             let (w, h) = (r.u32()?, r.u32()?);
             if w > CELL_SIDE_MAX || !(1..=CELL_SIDE_MAX).contains(&h) {
-                return Err("a cell past CELL_SIDE_MAX");
+                return Err(static_message!(
+                    "a cell wider than {CELL_SIDE_MAX} pixels, or a height of 0 or of more than {CELL_SIDE_MAX} pixels"
+                ));
             }
             cells.push((w, h));
         }
@@ -452,7 +456,9 @@ impl Outline {
     /// nothing after the last strike.
     pub fn decode(bytes: &[u8], request: &OutlineRequest) -> Result<Outline, &'static str> {
         if bytes.len() > OUTLINE_ANSWER_BYTES_MAX {
-            return Err("larger than OUTLINE_ANSWER_BYTES_MAX");
+            return Err(static_message!(
+                "larger than {OUTLINE_ANSWER_BYTES_MAX} bytes"
+            ));
         }
         let mut r = Reader(bytes);
         if r.take(8)? != ANSWER_MAGIC {
@@ -474,7 +480,9 @@ impl Outline {
                 return Err("a strike at a cell not asked for");
             }
             if !(1..=CELL_SIDE_MAX).contains(&width) || baseline > height {
-                return Err("a cell past CELL_SIDE_MAX, or a baseline below it");
+                return Err(static_message!(
+                    "a cell width of 0 or of more than {CELL_SIDE_MAX} pixels, or a baseline below the cell"
+                ));
             }
             let glyph_count = r.count(usize::MAX)?;
             let map_len = r.count(MAP_MAX)?;
@@ -485,7 +493,9 @@ impl Outline {
             // every glyph is one the map or a cluster names, so a strike
             // holds no more glyphs than those, nor than a set's strike holds
             if glyph_count > map_len.saturating_add(cluster_count).min(GLYPHS_MAX) {
-                return Err("more glyphs than the map and clusters name, or than GLYPHS_MAX");
+                return Err(static_message!(
+                    "more glyphs than the map and clusters name, or more than {GLYPHS_MAX}"
+                ));
             }
             let mut glyphs = Vec::new();
             for _ in 0..glyph_count {
@@ -1217,7 +1227,10 @@ pub(crate) mod raster {
     /// did not load.
     pub fn cell_width(faces: &[(&[u8], &str)], height: u32) -> Result<u32, String> {
         if !(1..=vtium_font::CELL_SIDE_MAX).contains(&height) {
-            return Err(format!("a cell {height} pixels high, past CELL_SIDE_MAX"));
+            return Err(format!(
+                "a cell {height} pixels high, more than {}",
+                vtium_font::CELL_SIDE_MAX
+            ));
         }
         let mut widest = None;
         for &(data, family) in faces {
@@ -1274,7 +1287,10 @@ pub(crate) mod raster {
         hinting: Hinting,
     ) -> Result<u32, String> {
         if !(1..=vtium_font::CELL_SIDE_MAX).contains(&height) {
-            return Err(format!("a cell {height} pixels high, past CELL_SIDE_MAX"));
+            return Err(format!(
+                "a cell {height} pixels high, more than {}",
+                vtium_font::CELL_SIDE_MAX
+            ));
         }
         let (font, _, index) = face(font, family)?;
         let metrics = metrics(font)?;

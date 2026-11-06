@@ -65,7 +65,7 @@ pub fn rule_text(text: &str, number: usize) -> Result<RuleText, Fail> {
         .and_then(RuleText::read)
         .ok_or_else(|| {
             Fail::Usage(format!(
-                "rule {number} is not KIND SELECTOR -> TARGET, so only rule set {number} 'KIND SELECTOR -> TARGET' or rule rm {number} can change it"
+                "rule {number} is not written as KIND MATCH -> TARGET, so only rule set {number} 'KIND MATCH -> TARGET' or rule rm {number} can change it"
             ))
         })
 }
@@ -224,10 +224,15 @@ pub fn head_rm(text: &str, name: &str) -> Result<String, Fail> {
 pub fn look_rm(text: &str, name: &str, force: bool) -> Result<String, Fail> {
     let users = heads_using(text, name);
     if !users.is_empty() && !force {
-        return Err(Fail::Usage(format!(
-            "The heads {} use the look {name}. Point them at another look first, or pass --force to set them to the default look.",
-            users.join(", ")
-        )));
+        return Err(Fail::Usage(match users.as_slice() {
+            [one] => format!(
+                "Head {one} uses look {name}. Switch it to another look first, or pass --force to switch it to the default look."
+            ),
+            _ => format!(
+                "Heads {} use look {name}. Switch them to another look first, or pass --force to switch them to the default look.",
+                users.join(", ")
+            ),
+        }));
     }
     let mut out = text.to_owned();
     for head in &users {

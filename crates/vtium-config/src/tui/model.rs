@@ -1276,7 +1276,7 @@ impl App {
                     .then(|| super::words::remove_unread(&name))
             });
         if let Some(why) = refused {
-            self.message = Some(super::words::remove_refused(why));
+            self.message = Some(super::words::remove_refused(&name, why));
             return;
         }
         self.pending.removals.push(name.clone());
@@ -1286,7 +1286,7 @@ impl App {
             Ok(_) => self.message = Some(super::words::remove_pending(&name)),
             Err(why) => {
                 self.pending.removals.retain(|n| *n != name);
-                self.message = Some(super::words::remove_refused(why));
+                self.message = Some(super::words::remove_refused(&name, why));
             }
         }
     }

@@ -402,7 +402,7 @@ impl Painter {
         if self.path.is_none() && self.ended.is_some() && !self.told_waiting {
             self.told_waiting = true;
             log::info!(
-                "head {}: waiting for the GPU driver to set up the head's GL context: the head draws nothing until it has",
+                "head {}: waiting for the GPU driver to get ready; the head shows nothing until then",
                 self.name
             );
         }
@@ -470,7 +470,7 @@ impl Painter {
         self.path = Some(path);
         self.told = true;
         if let Some(why) = refused {
-            log::warn!("head {}: {why}: it draws on the CPU path", self.name);
+            log::warn!("head {}: {why}, so it draws without the GPU", self.name);
         }
     }
 }
@@ -601,7 +601,7 @@ impl Painter {
         match let_go {
             Some(Err(RecvTimeoutError::Timeout)) => {
                 log::warn!(
-                    "head {}: the GPU driver did not let go of the head's GL context within {LET_GO_MS} ms: vtium goes on without it",
+                    "head {}: the GPU driver did not release the head within {LET_GO_MS} ms; vtium goes on without waiting",
                     self.name
                 );
                 left().push(Left {

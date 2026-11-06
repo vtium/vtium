@@ -79,6 +79,15 @@ fn an_outline_cell_is_as_wide_as_the_widest_faces_w() {
     assert_eq!(cell_width(&[b], 16), Ok(11));
     assert_eq!(cell_width(&[r, b], 16), Ok(11));
     assert_eq!(cell_width(&[b, r], 16), Ok(11));
+    // a height past the cell's bound is refused by its number
+    let past = vtium_font::CELL_SIDE_MAX + 1;
+    assert_eq!(
+        cell_width(&[r], past),
+        Err(format!(
+            "a cell {past} pixels high, more than {}",
+            vtium_font::CELL_SIDE_MAX
+        ))
+    );
     // the strike rasterise draws at a width of 0 takes the same width
     let o = rasterise(&request(&[(0, 16)], &[])).expect("rasterised");
     assert_eq!(o.strikes[0].width, 10);

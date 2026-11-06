@@ -22,7 +22,7 @@ Below the settings come the sections, each starting with a heading in brackets. 
 
 Every setting is also an option on vtium's command line, such as `--font-name=monoid` or `--no-mouse`. The command line wins over the settings at the top of the file, and a look's or a head's own section wins over both. `--configdir=DIR` names another directory than `/etc/vtium`, for a vtium you run by hand.
 
-vtium reads the file only when root owns it and neither its group nor others can write it, nor any directory above it. It refuses a file that fails this check: it reads none of it, runs its built-in configuration, and every head shows `invalid config skipped, using builtin` with the next step, `Run vtium check-config /etc/vtium/vtium.conf to see why.` `vtium check-config` names the file or directory that fails and the `chown` or `chmod` command that mends it.
+vtium reads the file only when root owns it and neither its group nor others can write it, nor any directory above it. It refuses a file that fails this check: it reads none of it, runs its built-in configuration, and every head shows `vtium.conf not used: running the built-in configuration.` with the next step, `To see why, run vtium check-config /etc/vtium/vtium.conf.` `vtium check-config` names the file or directory that fails and the `chown` or `chmod` command that mends it.
 
 vtium reads the file once, when it starts, together with the frits it names. A change reaches a VT at that VT's next start, so log out of the VT and restart its vtium, as in [Upgrading and removing](install.md#upgrading-and-removing).
 

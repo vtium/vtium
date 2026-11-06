@@ -1,17 +1,17 @@
  Flow  Looks  Fonts  Settings  Help       View Install Revert Restore New Delete
- draft workstation · 1 change · no problems                      text · t: live
+ draft workstation · 1 change · no problems          text preview · t: try live
 --------------------------------------------------------------------------------
-   broken     does not read: line 2: unknown key colour
+   broken     cannot be read: line 2: unknown key colour
    minspec-16 reads
-   proof      reads, 1 source missing
-   tiny5      no source on this machine
+   proof      reads, 1 font file missing
+   tiny5      no font file on this machine
  > unifont    built in, installed
    unscii-8   built in
 
- This terminal draws no pictures, so a change is described in words. At this
- size the cell is 8x16 pixels, the display holds 80x30 cells, and the font
- draws 40 of the specimen's 51 characters itself.
-
+ This terminal does not support images, so here is a written description
+ instead. With this font and size, each character cell is 8x16 pixels, the
+ console will be 80x30 characters, and the font can display 40 of the 51
+ characters in the preview.
 
 
 
@@ -22,4 +22,4 @@
 
 
 --------------------------------------------------------------------------------
- Enter keep  t try live  s screen  n new  r remove  i install  q leave, undo
+ Enter choose  t try live  s preview  n new  r remove  i install  q quit

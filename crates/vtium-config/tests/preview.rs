@@ -69,8 +69,8 @@ fn away_from_a_terminal_each_font_is_a_line_of_text() {
     assert_eq!(
         lines,
         [
-            "unifont\t12 pt\tcell 8x16\tdraws 323 of the specimen's 323 characters",
-            "unscii-8\t12 pt\tcell 8x8\tdraws 296 of the specimen's 323 characters",
+            "unifont\t12 pt\tcharacter cell 8x16\tcan display 323 of the preview's 323 characters",
+            "unscii-8\t12 pt\tcharacter cell 8x8\tcan display 296 of the preview's 323 characters",
         ]
     );
     assert!(!out.contains('\x1b'), "no picture to a pipe");
@@ -133,7 +133,7 @@ fn the_display_s_edid_sets_the_density_and_its_mode_the_grid() {
     assert_eq!(status, 0, "{err}");
     assert_eq!(
         out,
-        "unifont\t12 pt\tcell 8x16\t240x67 cells\tdraws 323 of the specimen's 323 characters\n"
+        "unifont\t12 pt\tcharacter cell 8x16, console 240x67 characters\tcan display 323 of the preview's 323 characters\n"
     );
 }
 
@@ -159,11 +159,11 @@ fn the_locale_adds_a_line_in_its_script() {
     // the Russian line's 18 letters the detailed specimen's Cyrillic line
     // lacks, after its 323 characters
     assert!(
-        lines[0].ends_with("draws 341 of the specimen's 341 characters"),
+        lines[0].ends_with("can display 341 of the preview's 341 characters"),
         "{out}"
     );
     assert!(
-        lines[1].contains("of the specimen's 341 characters"),
+        lines[1].contains("of the preview's 341 characters"),
         "{out}"
     );
 }
@@ -245,7 +245,10 @@ fn a_terminal_that_answers_nothing_or_da1_alone_gets_no_picture() {
             written.contains("\x1b_Gi=31,s=1,v=1,a=q"),
             "asked: {written:?}"
         );
-        assert!(written.contains("unifont\t12 pt\tcell 8x16"), "{written:?}");
+        assert!(
+            written.contains("unifont\t12 pt\tcharacter cell 8x16"),
+            "{written:?}"
+        );
         assert!(!written.contains("a=T"), "no picture: {written:?}");
     }
 }
@@ -326,6 +329,9 @@ mod pictures {
             assert!(!keys.contains("C=1"), "the cursor moves: {keys}");
         }
         assert_eq!(t.screen().placements().len(), 2);
-        assert!(text.contains("unifont\t12 pt\tcell 8x16"), "{text:?}");
+        assert!(
+            text.contains("unifont\t12 pt\tcharacter cell 8x16"),
+            "{text:?}"
+        );
     }
 }

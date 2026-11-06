@@ -187,7 +187,7 @@ fn font_paths_notes(config: &Config) -> Vec<String> {
         .collect()
 }
 
-/// What check-config notes of the glyph helper at `program` when it runs
+/// What check-config notes of the font helper at `program` when it runs
 /// as `me` ([`refusal_note`]).
 fn helper_note(program: &Path, me: u32) -> Option<String> {
     refusal_note(
@@ -699,7 +699,7 @@ mod tests {
             lines,
             [
                 "argument 2: unknown key \"--bogus\", ignored",
-                "/etc/vtium/vtium.conf:1: sb-size=\"200000\" is out of bounds, 100000 used",
+                "/etc/vtium/vtium.conf:1: sb-size=\"200000\" is out of range, so 100000 is used",
                 "/etc/vtium/vtium.conf:2: unknown key \"frob\", ignored",
             ]
         );
@@ -719,7 +719,7 @@ mod tests {
         assert_eq!(
             lines,
             [
-                "argument 2: palette=\"frob\" is none of legacy, custom, nord, solarized, \
+                "argument 2: palette=\"frob\" is not one of legacy, custom, nord, solarized, \
                  solarized-black, solarized-white, soft-black, base16-dark, base16-light, vga, \
                  ignored"
             ]
@@ -739,7 +739,7 @@ mod tests {
             assert_eq!(status, 1);
             assert_eq!(
                 lines,
-                ["hwaccel needs a build with the gpu feature; vtium draws in software"]
+                ["hwaccel needs a build with GPU support, so vtium draws in software"]
             );
         }
         assert_eq!(run_with(&[], "no-hwaccel\n"), (Vec::new(), 0));
@@ -757,8 +757,8 @@ mod tests {
         assert_eq!(
             lines,
             [
-                "font-hinting is not built yet; vtium ignores it",
-                "font-line-spacing is not built yet; vtium ignores it",
+                "font-hinting has no effect yet, so vtium ignores it",
+                "font-line-spacing has no effect yet, so vtium ignores it",
             ]
         );
         for (arg, key) in [
@@ -767,7 +767,10 @@ mod tests {
         ] {
             assert_eq!(
                 run_with(&[arg], ""),
-                (vec![format!("{key} is not built yet; vtium ignores it")], 1),
+                (
+                    vec![format!("{key} has no effect yet, so vtium ignores it")],
+                    1
+                ),
                 "{arg}"
             );
         }
@@ -776,7 +779,7 @@ mod tests {
         let (lines, _) = run_with(&[], "display-buffers=4\n");
         assert_eq!(
             lines,
-            ["/etc/vtium/vtium.conf:1: display-buffers=\"4\" is none of 1, 2, 3, ignored"]
+            ["/etc/vtium/vtium.conf:1: display-buffers=\"4\" is not one of 1, 2, 3, ignored"]
         );
     }
 
@@ -812,8 +815,8 @@ mod tests {
         assert_eq!(
             power_off_warnings(BOUND, &status("0000000000000000")),
             [
-                "grab-power-off is bound, and PID 1 does not catch SIGRTMIN+4 (signal 38, \
-                 from SigCgt in /proc/1/status): it powers nothing off"
+                "the grab-power-off key will not work: the init system (PID 1) does not \
+                 handle SIGRTMIN+4 (signal 38, from SigCgt in /proc/1/status)"
             ]
         );
         // Bit 38 (signal 39) is a neighbour, not the signal.
@@ -829,15 +832,16 @@ mod tests {
         assert_eq!(
             power_off_warnings(BOUND, &unreadable),
             [
-                "grab-power-off is bound, and whether PID 1 catches SIGRTMIN+4 (signal 38) is \
-                 unknown, since /proc/1/status could not be read: Permission denied (os error 13)"
+                "the grab-power-off key may not work: vtium cannot tell whether the init \
+                 system (PID 1) handles SIGRTMIN+4 (signal 38), because /proc/1/status could \
+                 not be read: Permission denied (os error 13)"
             ]
         );
         let no_line = Ok("Name:\tinit\n".to_owned());
         let says = |lines: Vec<String>, what: &str| lines.iter().all(|l| l.contains(what));
         assert!(says(
             power_off_warnings(BOUND, &no_line),
-            "since /proc/1/status has no SigCgt line"
+            "because /proc/1/status has no SigCgt line"
         ));
         assert!(says(
             power_off_warnings(BOUND, &status("zz")),
@@ -884,7 +888,7 @@ mod tests {
         assert_eq!(
             frit(&config("small"), &dir),
             [
-                "the frit small: line 1: source=builtin:unifont's 8x16 cell does not fit its 8x12 cell, so it gives nothing"
+                "font set small: line 1: the characters of source=builtin:unifont (8x16) do not fit the 8x12 character cell, so vtium does not use that source"
             ]
         );
         assert!(frit(&config("fine"), &dir).is_empty());
@@ -911,13 +915,13 @@ mod tests {
         assert_eq!(
             note(&["--display-dpi=109", helper, image]),
             [
-                "display-dpi=109: every display converts points at 109 DPI, its measured density aside"
+                "display-dpi=109: every display uses 109 DPI for font sizes, whatever density it reports"
             ]
         );
         assert_eq!(
             note(&[helper, image]),
             [
-                "each display converts points at the density it measures from its physical size, else at 96 DPI with a warning naming it; the start logs which"
+                "each display uses the density it reports from its physical size for font sizes, or 96 DPI with a warning if it reports none; vtium logs which at start"
             ]
         );
         assert_eq!(run_with(&["--display-dpi=109"], ""), (Vec::new(), 0));
@@ -941,14 +945,14 @@ mod tests {
             note(&["--font-helper=bin/vtium-config"]),
             [
                 density,
-                "font-helper: the helper's path bin/vtium-config is not absolute, so vtium does not start it; vtium would draw its built-in font, and the start checks again for the account it runs as"
+                "font-helper: vtium does not start the font helper bin/vtium-config: the path is not absolute. vtium would use its built-in font. vtium checks again at start, for the account it runs as."
             ]
         );
         assert_eq!(
             note(&["--font-helper=/"]),
             [
                 density,
-                "font-helper: the helper / is not a regular file, so vtium does not start it; vtium would draw its built-in font, and the start checks again for the account it runs as"
+                "font-helper: vtium does not start the font helper /: it is not a regular file. vtium would use its built-in font. vtium checks again at start, for the account it runs as."
             ]
         );
         assert_eq!(
@@ -984,7 +988,7 @@ mod tests {
     }
 
     // ADR-1101 D1: an image helper vtium would refuse is noted outside the
-    // status, as the glyph helper is, since the start may run as another
+    // status, as the font helper is, since the start may run as another
     // account and checks it again
     #[cfg(feature = "images")]
     // covers: image.helper
@@ -1004,14 +1008,14 @@ mod tests {
             note(&["--image-helper=bin/vtium-image"]),
             [
                 density,
-                "image-helper: the image helper's path bin/vtium-image is not absolute, so vtium does not start it; every console would answer files, shared memory, PNG and zlib itself, as with no helper, and the start checks again for the account it runs as"
+                "image-helper: the image helper's path bin/vtium-image is not absolute, so vtium does not start it. vtium would refuse images sent as files or shared memory, and PNG and zlib images. vtium checks again at start, for the account it runs as."
             ]
         );
         assert_eq!(
             note(&["--image-helper=/"]),
             [
                 density,
-                "image-helper: the image helper / is not a regular file, so vtium does not start it; every console would answer files, shared memory, PNG and zlib itself, as with no helper, and the start checks again for the account it runs as"
+                "image-helper: the image helper / is not a regular file, so vtium does not start it. vtium would refuse images sent as files or shared memory, and PNG and zlib images. vtium checks again at start, for the account it runs as."
             ]
         );
         assert_eq!(
@@ -1043,7 +1047,7 @@ mod tests {
             assert_eq!(
                 note.unwrap(),
                 format!(
-                    "image-helper: started as root, vtium refuses it: the image helper {} is owned by uid {owner}, which is neither root nor the account vtium runs as, so vtium does not start it; under the root start every console answers files, shared memory, PNG and zlib itself, as with no helper",
+                    "image-helper: when vtium runs as root, it refuses this helper: the image helper {} is owned by uid {owner}, which is neither root nor the account vtium runs as, so vtium does not start it. vtium would then refuse images sent as files or shared memory, and PNG and zlib images.",
                     program.display()
                 )
             );
@@ -1074,12 +1078,15 @@ mod tests {
             assert_eq!(
                 note.unwrap(),
                 format!(
-                    "font-helper: started as root, vtium refuses it: the helper {} is owned by uid {owner}, which is neither root nor the account vtium runs as, so vtium does not start it; the root start draws its built-in font",
+                    "font-helper: when vtium runs as root, it refuses this helper: vtium does not start the font helper {}: it belongs to uid {owner}, which is neither root nor vtium's own account. vtium would then use its built-in font.",
                     program.display()
                 )
             );
             let other = helper_note(&program, owner.wrapping_add(1)).unwrap();
-            assert!(other.starts_with("font-helper: the helper"), "{other}");
+            assert!(
+                other.starts_with("font-helper: vtium does not start the font helper"),
+                "{other}"
+            );
         }
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -1150,7 +1157,7 @@ mod tests {
         assert_eq!(
             out.counted,
             [format!(
-                "{f}:6: the rule on line 5 takes every device this one matches"
+                "{f}:6: this rule never matches: the rule on line 5 matches every device it would"
             )]
         );
         assert_eq!(verdict(&out, &f), [AS_WRITTEN, UNSET]);
@@ -1173,18 +1180,19 @@ mod tests {
             .collect()
     }
 
-    const OPEN: &str = "The policy is open: an input no rule places roams, a head is isolated only where it says `isolated = yes`, and the anti-lockout guard and the rescue key are on.";
-    const UNSET: &str = "The file sets no `policy`, so its policy is open: an input no rule places roams, a head is isolated only where it says `isolated = yes`, and the anti-lockout guard and the rescue key are on.";
-    const CLOSED: &str = "The policy is closed: an input no rule places is ignored, a head that leaves `isolated` unset is isolated, and the anti-lockout guard and the rescue key are off.";
-    const AS_WRITTEN: &str = "A start runs this file as written and shows nothing.";
+    const OPEN: &str = "The policy is open: an input device no rule places roams, a head is isolated only where it says `isolated = yes`, and the keyboard safeguards (anti-lockout and the rescue key) are on.";
+    const UNSET: &str = "The file sets no `policy`, so its policy is open: an input device no rule places roams, a head is isolated only where it says `isolated = yes`, and the keyboard safeguards (anti-lockout and the rescue key) are on.";
+    const CLOSED: &str = "The policy is closed: an input device no rule places is ignored, a head without an `isolated` line is isolated, and the keyboard safeguards (anti-lockout and the rescue key) are off.";
+    const AS_WRITTEN: &str = "vtium starts with this file as written and shows no notice.";
     /// What a check with no devices says of how it judged the route
     /// (ADR-1403 D3).
     const RULES_ALONE: &str =
-        "vtium judged the route by the rules alone, without the devices present.";
-    const NO_DISPLAY: &str = "No display is present, so vtium judged the route by the rules alone.";
-    const PARTLY_OPEN: &str = "A start runs the heads and rules that survive, then the shipped rules' tail, with every head acting as not isolated whatever its `isolated` says, and shows `config partly invalid, running what's valid`.";
-    const PARTLY_UNSET_POLICY: &str = "The file sets no `policy`, so its policy is open, and since the file is partly broken every head acts as not isolated whatever its `isolated` says: an input no surviving rule places walks the shipped rules' tail, and the anti-lockout guard and the rescue key are on.";
-    const PARTLY_OPEN_POLICY: &str = "The policy is open, and since the file is partly broken every head acts as not isolated whatever its `isolated` says: an input no surviving rule places walks the shipped rules' tail, and the anti-lockout guard and the rescue key are on.";
+        "vtium checked the routes by the rules alone, without the connected devices.";
+    const NO_DISPLAY: &str =
+        "No display is connected, so vtium checked the routes by the rules alone.";
+    const PARTLY_OPEN: &str = "vtium starts with the heads and rules that have no errors, then the built-in rules. Every head acts as not isolated, whatever its `isolated` says. It shows `vtium.conf has errors: running the parts without errors.`.";
+    const PARTLY_UNSET_POLICY: &str = "The file sets no `policy`, so its policy is open. Because parts of the file have errors, every head acts as not isolated, whatever its `isolated` says; an input device that no working rule places goes on to the built-in rules; and the keyboard safeguards (anti-lockout and the rescue key) are on.";
+    const PARTLY_OPEN_POLICY: &str = "The policy is open. Because parts of the file have errors, every head acts as not isolated, whatever its `isolated` says; an input device that no working rule places goes on to the built-in rules; and the keyboard safeguards (anti-lockout and the rescue key) are on.";
 
     // ADR-1401 D7, level 3: each error names its line and what it drops,
     // and the file is read on past it, so what survives is checked too
@@ -1213,32 +1221,32 @@ mod tests {
             [
                 at(
                     3,
-                    "This section takes no key named \"frob\". Check the key's spelling, or remove the line."
+                    "This section has no key named \"frob\". Check the spelling, or remove the line."
                 ),
                 at(
                     3,
-                    "For this error vtium drops this head, with every rule that names it."
+                    "Because of this error, vtium ignores this head and every rule that names it."
                 ),
                 at(
                     5,
-                    "The file already declares a head named \"kiosk\". Give one of the two another name."
+                    "The file already has a head named \"kiosk\". Rename one of the two."
                 ),
                 at(
                     5,
-                    "For this error vtium drops this section, with every line in it."
+                    "Because of this error, vtium ignores this whole section."
                 ),
                 at(
                     9,
-                    "This rule sends devices to the head \"desc\", which the file does not declare. Correct the name, or declare the head with its own `[head NAME]` section."
+                    "This rule sends devices to head \"desc\", but the file has no head of that name. Correct the name, or add a `[head NAME]` section for it."
                 ),
                 at(
                     9,
-                    "For this error vtium drops this rule alone, and a device walks on to the next rule."
+                    "Because of this error, vtium ignores this rule, and each device goes on to the next rule."
                 ),
                 // the survivors' own warning: line 11 went with head desk
                 at(
                     12,
-                    "the rule on line 10 takes every device this one matches"
+                    "this rule never matches: the rule on line 10 matches every device it would"
                 ),
             ]
         );
@@ -1254,23 +1262,23 @@ mod tests {
         let rows = [
             (
                 format!("version = 1\npolicy = open\n{head}"),
-                "A start runs this file as written and shows nothing.",
+                "vtium starts with this file as written and shows no notice.",
                 OPEN,
             ),
             (
                 format!("policy = closed\nversion = 1\n{head}"),
-                "A start runs this file as written and shows nothing.",
+                "vtium starts with this file as written and shows no notice.",
                 CLOSED,
             ),
             ("version = 1\n".to_owned(), check_config::NO_FLOW, UNSET),
             (
                 "version = 1\n[rules]\ninput * -> roaming\n".to_owned(),
-                "This file has rules and declares no head, so a start runs its rules, and the display guard lights the boot display for the default head.",
+                "This file has rules but no head, so vtium starts with its rules and turns on the boot display for the default head.",
                 UNSET,
             ),
             (
                 "version = 1\npolicy = closed\n".to_owned(),
-                "This file declares no head under the closed policy, so a start lights no display, delivers no input and shows nothing: loaded but off.",
+                "This file has no head and its policy is closed, so vtium starts with every display off, takes no input and shows nothing.",
                 CLOSED,
             ),
             (
@@ -1280,23 +1288,23 @@ mod tests {
             ),
             (
                 format!("version = 1\npolicy = closed\n{head}display * -> b\n"),
-                "A start runs the heads and rules that survive, with the rescue key off; each head keeps the isolation it states, and a head that states none is isolated. It shows `config partly invalid, running what's valid`.",
+                "vtium starts with the heads and rules that have no errors, and the rescue key off. Each head keeps its `isolated` setting, and a head without one is isolated. It shows `vtium.conf has errors: running the parts without errors.`.",
                 CLOSED,
             ),
             (
                 format!("version = 2\n{head}"),
-                "No head survives this file's errors, so a start runs the shipped default and shows `invalid config skipped, using builtin`.",
+                "Every head in this file has errors, so vtium starts with its built-in configuration and shows `vtium.conf not used: running the built-in configuration.`.",
                 UNSET,
             ),
             (
                 format!("version = 2\npolicy = closed\n{head}"),
-                "No head survives this file's errors under the closed policy, so a start delivers no input and shows the panic screen on the boot display, starting `vtium: config invalid, policy closed: input off`.",
+                "Every head in this file has errors and the policy is closed, so vtium takes no input and shows an error screen on the boot display, starting `vtium.conf has errors and counts as closed: all input is off.`.",
                 CLOSED,
             ),
             (
                 format!("version = 1\npolicy = maybe\n{head}"),
-                "vtium cannot read a `policy` line of this file, so a start counts the whole file as closed and broken: it delivers no input and shows the panic screen on the boot display, starting `vtium: config invalid, policy closed: input off`.",
-                "vtium cannot read a `policy` line above the first section, so the file's policy is closed. Write that line as `policy = open` or `policy = closed`.",
+                "vtium cannot read a `policy` line of this file, so at start it treats the whole file as broken with the closed policy: it takes no input and shows an error screen on the boot display, starting `vtium.conf has errors and counts as closed: all input is off.`.",
+                "vtium cannot read the `policy` line above the first section, so the file's policy is closed. Write that line as `policy = open` or `policy = closed`.",
             ),
         ];
         for (n, (text, outcome, policy)) in rows.iter().enumerate() {
@@ -1331,7 +1339,7 @@ mod tests {
             [
                 format!("{f}:5: This line is not UTF-8 text. Save the file as UTF-8."),
                 format!(
-                    "{f}:5: For this error vtium drops this rule alone, and a device walks on to the next rule."
+                    "{f}:5: Because of this error, vtium ignores this rule, and each device goes on to the next rule."
                 ),
             ]
         );
@@ -1346,7 +1354,7 @@ mod tests {
     fn consoles_past_the_head_cap_count_against_the_file() {
         let past = |n: u32| {
             format!(
-                "The head \"a\" asks for more consoles than `head-consoles-max` allows, {n}, so it gets {n}. Lower its `consoles` to {n} or fewer, or raise `head-consoles-max` in vtium.conf."
+                "Head \"a\" asks for more consoles than `head-consoles-max` allows, so it gets {n}. Lower its `consoles` to {n} or fewer, or raise `head-consoles-max` in vtium.conf."
             )
         };
         for (consoles, cap, want) in [
@@ -1357,7 +1365,7 @@ mod tests {
                 60,
                 50,
                 Some(
-                    "`consoles` is past 50, the most consoles a head may have, so the head gets 50 at most. Lower it to 50 or fewer."
+                    "`consoles` is too high: a head can have at most 50 consoles, so this head gets 50. Lower it to 50 or fewer."
                         .to_owned(),
                 ),
             ),
@@ -1406,7 +1414,7 @@ mod tests {
         );
         let short = |line: usize, head: &str, gets: u32| {
             format!(
-                "{f}:{line}: The heads together ask for more consoles than `consoles-max` allows, 8, so the head \"{head}\" gets {gets}. Lower the heads' `consoles`, or raise `consoles-max` in vtium.conf."
+                "{f}:{line}: The heads together ask for more consoles than `consoles-max` (8) allows, so head \"{head}\" gets {gets}. Lower the heads' `consoles`, or raise `consoles-max` in vtium.conf."
             )
         };
         assert_eq!(out.counted, [short(5, "b", 3), short(7, "c", 1)]);
@@ -1435,7 +1443,7 @@ mod tests {
         assert_eq!(
             missing.counted,
             [format!(
-                "{f}:3: The look \"big\" names the frit \"desk\", which is not in \"{dir}\", so vtium reads \"desk\" as the name of a kbd font and draws its built-in font when there is none. Put that frit in \"{dir}\", or change the look's `font-name`."
+                "{f}:3: Look \"big\" uses the font set \"desk\", but \"{dir}\" has no \"desk\".vtfrit. vtium then looks for a kbd font named \"desk\", and uses its built-in font if there is none. Put the font set in \"{dir}\", or change the look's `font-name`."
             )]
         );
         assert_eq!(installed.counted, [] as [String; 0]);
@@ -1452,9 +1460,11 @@ mod tests {
             out.counted,
             [
                 format!(
-                    "{f}:1: vtium knows only `version = 1`, not version \"2\". Change the version line to `version = 1`."
+                    "{f}:1: vtium does not know version \"2\"; it reads only `version = 1`. Change the version line to `version = 1`."
                 ),
-                format!("{f}:1: For this error vtium drops the whole file but its `policy`."),
+                format!(
+                    "{f}:1: Because of this error, vtium ignores the whole file except its `policy` line."
+                ),
             ]
         );
         let (out, f) = checked(
@@ -1466,9 +1476,9 @@ mod tests {
             out.counted,
             [
                 format!(
-                    "{f}:3: vtium reads `policy` only above the first section, so it ignores this line, and the file's policy comes from the lines above the first section. Move it there, beside `version`."
+                    "{f}:3: `policy` must be at the top of vtium.conf, above the first section, so vtium ignores this line. Move it there, beside `version`."
                 ),
-                format!("{f}:3: For this error vtium drops this line alone."),
+                format!("{f}:3: Because of this error, vtium ignores this line."),
             ]
         );
     }
@@ -1513,7 +1523,7 @@ mod tests {
             out.notes,
             [
                 format!(
-                    "{f}:3: No rule names the head \"b\", so no display or input reaches it. Add a rule that sends a display to it, or remove the head."
+                    "{f}:3: Head \"b\" is not used: no rule sends a display or input device to it. Add a rule that sends a display to it, or remove the head."
                 ),
                 format!("{f}: {RULES_ALONE}"),
                 format!("{f}: {AS_WRITTEN}"),
@@ -1551,7 +1561,7 @@ mod tests {
 
     /// What a check against the devices present counts of a file whose
     /// display rules send no display present to a head (ADR-1403 D3).
-    const NO_DISPLAY_SENT: &str = "No display present is sent to a head: no rule matches display \"display 1\", so it stays off. Add a display rule that sends it to a head.";
+    const NO_DISPLAY_SENT: &str = "No connected display reaches a head: no rule matches display \"display 1\", so it stays off. Add a display rule that sends it to a head.";
 
     /// What it counts of a file whose only head is isolated, with no
     /// input rule that sends a keyboard to it.
@@ -1586,7 +1596,7 @@ mod tests {
         assert_eq!(
             notes,
             [
-                "No rule matches the input \"Keyboard A\", so the open policy lets it roam into the active head. Add an `input` rule for it to place it anywhere else.",
+                "No rule matches input device \"Keyboard A\", so with the open policy it types into the active head. Add an `input` rule to send it somewhere else.",
             ]
         );
     }
@@ -1607,8 +1617,8 @@ mod tests {
         assert_eq!(
             notes,
             [
-                "head a's only keyboard is one device, \"Keyboard A\"",
-                "No head that can be the active head has a display present, so a keyboard that roams reaches no head until one lights. Connect a display for a head that is not isolated.",
+                "head a has only one keyboard, \"Keyboard A\"",
+                "No head that can be active has a connected display, so a roaming keyboard reaches no head until one turns on. Connect a display for a head that is not isolated.",
             ]
         );
     }
@@ -1626,16 +1636,16 @@ mod tests {
         assert_eq!(
             counted,
             [
-                "Head \"a\" shows \"display 1\", but no keyboard present reaches \"a\": add an input rule that sends a keyboard to \"a\" or to `roaming`."
+                "No keyboard reaches head \"a\", which shows on \"display 1\". Add an input rule that sends a keyboard to \"a\" or to `roaming`."
             ]
         );
         assert_eq!(
             notes,
             [
-                "No keyboard present reaches any head, so under the closed policy nobody can type at this machine. Send a keyboard to a head, or to `roaming` with a head that is not isolated, before you install the file.",
+                "No keyboard reaches any head, so with the closed policy nobody can type at this machine. Before you install the file, send a keyboard to a head, or to `roaming` with a head that is not isolated.",
                 "every keyboard is ignored",
-                "No rule matches the input \"Keyboard A\", so the closed policy ignores it. Add an `input` rule for it if it should reach a head.",
-                "No rule matches the input \"Pad\", so the closed policy ignores it. Add an `input` rule for it if it should reach a head.",
+                "No rule matches input device \"Keyboard A\", so with the closed policy vtium ignores it. Add an `input` rule for it if it should reach a head.",
+                "No rule matches input device \"Pad\", so with the closed policy vtium ignores it. Add an `input` rule for it if it should reach a head.",
             ]
         );
     }
@@ -1655,8 +1665,8 @@ mod tests {
         assert_eq!(
             notes,
             [
-                "head a's only keyboard is one device, \"Keyboard A\"",
-                "Every head is isolated, so no keyboard can switch the VT and no head can be the active head: only a keyboard a head's own rule claims reaches it. Write `isolated = no` on a head if a keyboard should roam to it."
+                "head a has only one keyboard, \"Keyboard A\"",
+                "Every head is isolated, so no keyboard can switch the VT and no head can be the active head. A head gets only the keyboards its own rules send to it. Write `isolated = no` in a head's section if a keyboard should roam to it."
             ]
         );
     }
@@ -1675,8 +1685,8 @@ mod tests {
         assert_eq!(
             notes,
             [
-                "No surviving rule matches the input \"Keyboard A\", so it walks the shipped rules' tail and roams into the active head. Fix the file's errors, or add an `input` rule for it to place it anywhere else.",
-                "No surviving rule matches the input \"Pad\", so it walks the shipped rules' tail and is ignored. Fix the file's errors, or add an `input` rule for it if it should reach a head.",
+                "No working rule matches input device \"Keyboard A\", so it goes on to the built-in rules and types into the active head. Fix the file's errors, or add an `input` rule to send it somewhere else.",
+                "No working rule matches input device \"Pad\", so it goes on to the built-in rules, which ignore it. Fix the file's errors, or add an `input` rule for it if it should reach a head.",
             ]
         );
     }
@@ -1689,7 +1699,7 @@ mod tests {
     #[test]
     fn the_first_head_no_rule_names_is_lit_by_the_display_guard() {
         let file = "version = 1\n[head a]\n[rules]\ninput * -> roaming\n";
-        let lit = "No rule names the head \"a\", so it has a display only when the display guard gives it the boot display, which the guard does under the open policy while no other head has a display. Add a rule that sends a display to it, or remove the head.";
+        let lit = "No rule names head \"a\". It gets a display only when no other head has one: then, under the open policy, vtium gives it the boot display. Add a rule that sends a display to it, or remove the head.";
         let (counted, notes) = remarked("unnamed-guard", file, &present());
         assert_eq!(counted, [NO_DISPLAY_SENT]);
         assert_eq!(notes, [format!("2: {lit}")]);
@@ -1726,9 +1736,9 @@ mod tests {
         assert_eq!(
             notes,
             [
-                "No head that can be the active head has a display present, so a keyboard that roams reaches no head until one lights. Connect a display for a head that is not isolated.",
-                "No rule matches the input \"Keyboard A\", so the open policy lets it roam, but no head that can be the active head has a display present, so it reaches no head. Add an `input` rule that sends it to a head.",
-                "4: No rule names the head \"b\", so no display or input reaches it. Add a rule that sends a display to it, or remove the head.",
+                "No head that can be active has a connected display, so a roaming keyboard reaches no head until one turns on. Connect a display for a head that is not isolated.",
+                "Input device \"Keyboard A\" reaches no head: no rule matches it, so with the open policy it roams, but no head that can be active has a connected display. Add an `input` rule that sends it to a head.",
+                "4: Head \"b\" is not used: no rule sends a display or input device to it. Add a rule that sends a display to it, or remove the head.",
             ]
         );
         let (counted, notes) = remarked(
@@ -1738,7 +1748,7 @@ mod tests {
         );
         assert_eq!(counted.len(), 2, "{counted:?}");
         assert!(
-            notes.contains(&"No surviving rule matches the input \"Keyboard A\", so it walks the shipped rules' tail and roams, but no head that can be the active head has a display present, so it reaches no head. Fix the file's errors, or add an `input` rule that sends it to a head.".to_owned()),
+            notes.contains(&"Input device \"Keyboard A\" reaches no head: no working rule matches it, so it goes on to the built-in rules and roams, but no head that can be active has a connected display. Fix the file's errors, or add an `input` rule that sends it to a head.".to_owned()),
             "{notes:?}"
         );
     }
@@ -1757,7 +1767,7 @@ mod tests {
         assert_eq!(
             notes.first().map(String::as_str),
             Some(
-                "No keyboard present reaches any head, so under the closed policy nobody can type at this machine. Send a keyboard to a head, or to `roaming` with a head that is not isolated, before you install the file."
+                "No keyboard reaches any head, so with the closed policy nobody can type at this machine. Before you install the file, send a keyboard to a head, or to `roaming` with a head that is not isolated."
             ),
             "{notes:?}"
         );
@@ -1806,7 +1816,7 @@ mod tests {
         assert_eq!(
             verdict(&out, &f),
             [
-                "No head survives this file's errors, so a start runs the shipped default and shows `invalid config skipped, using builtin`.",
+                "Every head in this file has errors, so vtium starts with its built-in configuration and shows `vtium.conf not used: running the built-in configuration.`.",
                 UNSET
             ]
         );
@@ -1827,7 +1837,7 @@ mod tests {
         assert_eq!(out.counted, [] as [String; 0]);
         let weak = |line: usize| {
             format!(
-                "{f}:{line}: input reaches a head by `id` or `name` alone, which any device can claim"
+                "{f}:{line}: weak match: this rule matches by `id` or `name` alone, which any device can claim"
             )
         };
         let shown = |what: &str| format!("{f}: {what}");
@@ -1857,12 +1867,12 @@ mod tests {
         let (out, f) = checked("udev", text, false);
         assert_eq!(out.counted, [] as [String; 0]);
         let no = |line: usize, key: &str| {
-            format!("{f}:{line}: no udev daemon runs, so `{key}:` matches nothing")
+            format!("{f}:{line}: `{key}:` matches nothing, because udev is not running")
         };
         let udev: Vec<&String> = out
             .notes
             .iter()
-            .filter(|n| n.contains("udev daemon"))
+            .filter(|n| n.contains("udev is not running"))
             .collect();
         assert_eq!(
             udev,
@@ -1902,9 +1912,9 @@ mod tests {
                 .collect();
             let none = |line: usize| {
                 format!(
-                    "{f}:{line}: check-config opens no card, so it cannot read a \
-                     connector's PATH and does not check `connector-path:` against the \
-                     displays present; vtium matches it when it finds the display"
+                    "{f}:{line}: `connector-path:` is not checked against the connected \
+                     displays, because check-config does not open the graphics card; vtium \
+                     matches it when it finds the display"
                 )
             };
             assert_eq!(mst, [&none(5), &none(7)], "udev {udev}");
@@ -1924,7 +1934,7 @@ mod tests {
             HeadCheck {
                 counted: Vec::new(),
                 notes: vec![format!(
-                    "{shown}: There is no vtium.conf here, so a start runs the compiled-in configuration and shows nothing."
+                    "{shown}: There is no vtium.conf here, so vtium starts with its built-in configuration and shows no notice."
                 )],
                 refused: false,
             }
@@ -1950,14 +1960,14 @@ mod tests {
         // ADR-1403 D3: the refusal names the path, its mode and the
         // command that mends it
         let untrusted = format!(
-            "{f}: vtium does not read this file, because \"{f}\" can be changed by its group or by other users (mode 666), so it runs its compiled-in configuration. Run `chmod go-w {f}` so that only its owner can change it."
+            "{f}: vtium ignores this file and uses its built-in configuration, because other users can change \"{f}\" (mode 666). Run `chmod go-w {f}` so that only its owner can change it."
         );
         let installed = conf_file(&file, false, &trust, &machine(true), &caps(4));
         assert_eq!(installed.counted, [untrusted]);
         assert_eq!(
             installed.notes,
             [format!(
-                "{f}: A start never reads a file it does not trust, so it runs the shipped default and shows `invalid config skipped, using builtin`."
+                "{f}: vtium does not read a file it does not trust, so it starts with its built-in configuration and shows `vtium.conf not used: running the built-in configuration.`."
             )]
         );
         let candidate = conf_file(&file, true, &trust, &machine(true), &caps(4));
@@ -1965,7 +1975,7 @@ mod tests {
             candidate.notes,
             [
                 format!(
-                    "{f}: \"{f}\" can be changed by its group or by other users (mode 666). The start reads this file once it is installed, owned by root and writable only by root."
+                    "{f}: Other users can change \"{f}\" (mode 666). That is fine for a check: vtium reads the file once it is installed, owned by root and writable only by root."
                 ),
                 format!("{f}: {RULES_ALONE}"),
                 format!("{f}: {PARTLY_OPEN}"),
@@ -1976,10 +1986,10 @@ mod tests {
             candidate.counted,
             [
                 format!(
-                    "{f}:5: This rule sends devices to the head \"desc\", which the file does not declare. Correct the name, or declare the head with its own `[head NAME]` section."
+                    "{f}:5: This rule sends devices to head \"desc\", but the file has no head of that name. Correct the name, or add a `[head NAME]` section for it."
                 ),
                 format!(
-                    "{f}:5: For this error vtium drops this rule alone, and a device walks on to the next rule."
+                    "{f}:5: Because of this error, vtium ignores this rule, and each device goes on to the next rule."
                 ),
             ]
         );
@@ -2005,9 +2015,9 @@ mod tests {
         assert_eq!(
             device_findings(path, &config, &[Identity::display(), keyboard, mouse], &[]),
             [
-                "/etc/vtium/heads.conf:8: the rule matches no device present",
-                "/etc/vtium/heads.conf: head desk's only keyboard is one device, \"Keyb\\u{1b}[2J\"",
-                "/etc/vtium/heads.conf: head panel claims pointers and no keyboard, and every keyboard is claimed by another head",
+                "/etc/vtium/heads.conf:8: the rule matches no connected device",
+                "/etc/vtium/heads.conf: head desk has only one keyboard, \"Keyb\\u{1b}[2J\"",
+                "/etc/vtium/heads.conf: head panel has mice but no keyboard: every keyboard goes to another head",
             ]
         );
     }
@@ -2041,7 +2051,9 @@ mod tests {
     fn a_head_file_the_user_may_not_read_can_be_checked_only_as_root() {
         use std::os::unix::fs::PermissionsExt;
         if rustix::process::geteuid().is_root() {
-            eprintln!("run as root, every file is readable: the check is skipped");
+            eprintln!(
+                "running as root, which can read every file, so the readability check is skipped"
+            );
             return;
         }
         let mode = |p: &Path, m: u32| {
@@ -2051,7 +2063,7 @@ mod tests {
         let dir = file.parent().unwrap().to_path_buf();
         let denied = HeadCheck {
             counted: vec![format!(
-                "{}: permission denied: this file can be checked only as root",
+                "{}: permission denied: only root can check this file",
                 file.display()
             )],
             notes: Vec::new(),
@@ -2119,13 +2131,13 @@ mod tests {
         assert_eq!(
             out.stderr,
             [format!(
-                "{f}: vtium does not read this file, because \"{f}\" belongs to user {} and not to root, so it runs its compiled-in configuration. Run `chown root:root {f}` to make root its owner.",
+                "{f}: vtium ignores this file and uses its built-in configuration, because \"{f}\" belongs to user {}, not to root. Run `chown root:root {f}` to make root the owner.",
                 rustix::process::geteuid().as_raw()
             ),]
         );
         assert!(
             out.stdout.contains(&format!(
-                "{f}: A start never reads a file it does not trust, so it runs the shipped default and shows `invalid config skipped, using builtin`."
+                "{f}: vtium does not read a file it does not trust, so it starts with its built-in configuration and shows `vtium.conf not used: running the built-in configuration.`."
             )),
             "{:?}",
             out.stdout
@@ -2138,7 +2150,7 @@ mod tests {
         assert_eq!((out.status, out.stderr), (0, Vec::new()));
         assert!(
             out.stdout.contains(&format!(
-                "{c}:5: no udev daemon runs, so `path:` matches nothing"
+                "{c}:5: `path:` matches nothing, because udev is not running"
             )),
             "{:?}",
             out.stdout
@@ -2163,7 +2175,7 @@ mod tests {
             out.stdout
                 .iter()
                 .any(|n| n.ends_with(
-                    "absent.conf: There is no vtium.conf here, so a start runs the compiled-in configuration and shows nothing."
+                    "absent.conf: There is no vtium.conf here, so vtium starts with its built-in configuration and shows no notice."
                 ))
         );
         std::fs::remove_dir_all(file.parent().unwrap()).ok();
@@ -2196,7 +2208,7 @@ mod tests {
             assert_eq!(
                 out.stderr,
                 [format!(
-                    "{n}: vtium does not read this file, because \"{n}\" belongs to user {} and not to root, so it runs its compiled-in configuration. Run `chown root:root {n}` to make root its owner.",
+                    "{n}: vtium ignores this file and uses its built-in configuration, because \"{n}\" belongs to user {}, not to root. Run `chown root:root {n}` to make root the owner.",
                     rustix::process::geteuid().as_raw()
                 )],
                 "{named:?}"
@@ -2252,7 +2264,7 @@ mod tests {
                 Some("off.conf") => (
                     1,
                     vec![format!(
-                        "{}: No display rule sends displays to a head. Add a rule `display MATCH -> TARGET` whose target is a head.",
+                        "{}: No display rule sends a display to a head. Add a rule `display MATCH -> TARGET` whose target is a head.",
                         f.display()
                     )],
                 ),
@@ -2430,13 +2442,13 @@ mod tests {
             heads,
             [
                 &format!(
-                    "{f}: \"{f}\" belongs to user {}, not to root. The start reads this file once it is installed, owned by root and writable only by root.",
+                    "{f}: \"{f}\" belongs to user {}, not to root. That is fine for a check: vtium reads the file once it is installed, owned by root and writable only by root.",
                     rustix::process::geteuid().as_raw()
                 ),
-                &format!("{f}:8: the rule matches no device present"),
-                &format!("{f}: head desk's only keyboard is one device, \"Keyboard A\""),
+                &format!("{f}:8: the rule matches no connected device"),
+                &format!("{f}: head desk has only one keyboard, \"Keyboard A\""),
                 &format!(
-                    "{f}: head panel claims pointers and no keyboard, and every keyboard is claimed by another head"
+                    "{f}: head panel has mice but no keyboard: every keyboard goes to another head"
                 ),
                 &format!("{f}: {AS_WRITTEN}"),
                 &format!("{f}: {UNSET}"),
@@ -2465,13 +2477,13 @@ mod tests {
         assert_eq!(
             out.notes,
             [
-                format!("{f}:5: no udev daemon runs, so `path:` matches nothing"),
+                format!("{f}:5: `path:` matches nothing, because udev is not running"),
                 format!(
-                    "{f}:4: check-config opens no card, so it cannot read a connector's PATH and does not check `connector-path:` against the displays present; vtium matches it when it finds the display"
+                    "{f}:4: `connector-path:` is not checked against the connected displays, because check-config does not open the graphics card; vtium matches it when it finds the display"
                 ),
-                format!("{f}:6: the rule matches no device present"),
+                format!("{f}:6: the rule matches no connected device"),
                 format!(
-                    "{f}: No head that can be the active head has a display present, so a keyboard that roams reaches no head until one lights. Connect a display for a head that is not isolated."
+                    "{f}: No head that can be active has a connected display, so a roaming keyboard reaches no head until one turns on. Connect a display for a head that is not isolated."
                 ),
                 format!("{f}: {NO_DISPLAY}"),
                 format!("{f}: {AS_WRITTEN}"),
@@ -2496,9 +2508,10 @@ mod tests {
         let (lines, status) = run_with(&["--help"], "");
         assert_eq!(status, 0);
         assert_eq!(lines, [HELP.trim_end()]);
-        assert!(HELP.contains("It only checks"));
-        assert!(HELP.replace('\n', " ").contains(
-            "a rule using connector-path:, which it cannot check without opening the card,"
-        ));
+        assert!(HELP.contains("It only reads"));
+        assert!(
+            HELP.replace('\n', " ")
+                .contains("It opens nothing under /dev and changes nothing.")
+        );
     }
 }
