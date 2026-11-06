@@ -202,6 +202,8 @@ impl<'a> Runner<'a> {
         for d in s.views() {
             let view = match d {
                 Dump::Frame => View::Frame,
+                #[cfg(feature = "bidi")]
+                Dump::Display => View::Display,
                 _ => View::Screen,
             };
             let (input, t) = self.input(s, view, extra);

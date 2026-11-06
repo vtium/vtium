@@ -20,6 +20,11 @@ pub const VIEWS: [(View, &str, &str); 2] = [
     (View::Frame, "frame", "golden-frame"),
 ];
 
+/// The display view of a build with the bidi feature, with its golden
+/// directory, which holds a golden only for the cases judged in it.
+#[cfg(feature = "bidi")]
+pub const DISPLAY: (View, &str, &str) = (View::Display, "display", "golden-display");
+
 /// A case of `cases.list`: its name and the screen it starts with.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Case {

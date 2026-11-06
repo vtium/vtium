@@ -1,6 +1,6 @@
 # vtium's additions to the replay interface
 
-Interface 1.2 is `corpus/INTERFACE.md`, interface 1.0, with the additions below. Each is a command, a feature, or a line that only a new command or feature prints, so it raises MINOR under 1.0's "Versioning and features", and every golden stays as it is. The runner and the probe runner read the fenced blocks here after 1.0's: this `describe` block's version line replaces 1.0's, and its view, feature and command lines follow 1.0's lines of the same kind; this `grammar` block's lines join 1.0's, using its fragments.
+Interface 1.3 is `corpus/INTERFACE.md`, interface 1.0, with the additions below. Each is a command, a feature, a view, or a line that only a new command, feature or view prints, so it raises MINOR under 1.0's "Versioning and features", and every golden stays as it is. The runner and the probe runner read the fenced blocks here after 1.0's: this `describe` block's version line replaces 1.0's, and its view, feature and command lines follow 1.0's lines of the same kind; this `grammar` block's lines join 1.0's, using its fragments.
 
 ## The fixture host checks a picture's size
 
@@ -59,18 +59,51 @@ anim 0 frame 1 gap 0 digest bc648309
 anim 0 frame 2 gap 80 digest f052c40d
 ```
 
+## Right-to-left text: the display view
+
+vtium keeps every row in the order the program wrote it, and draws each paragraph (the rows a wrap joins) in the order Unicode's bidirectional algorithm gives (ADR-1004). The screen and frame views print each row in the order it was written, with each cell where the program wrote it and its damage as the screen keeps it, so their goldens are the same in a build with right-to-left text and one without. The display view prints the rows as vtium draws them, so a case can judge the drawn order without pixels.
+
+`--display` prints the display view. A block of it starts with the head every view prints (`size`, `cursor`, `flags` and the replies), then a `display-cursor` line, then one `row` line for each row of the screen, and prints no runs, placements or images.
+
+`display-cursor X,Y SIDE` is the cell the cursor is drawn on, counted from the left of the drawn row, and the side of that cell a bar cursor stands on: `right` when the cell's character resolves right to left, and `left` otherwise. The `cursor` line of the head still gives the cursor's logical cell.
+
+`row N |TEXT|` is row N as drawn, from the left: a character drawn mirrored prints as its counterpart, as `(` prints `)` inside right-to-left text, an empty cell prints a space, a cell prints all the codepoints it holds, and the second cell of a wide character prints nothing. The empty cells at the right end of the row are trimmed, so the empty cells a right-to-left paragraph draws at its left print as spaces.
+
+| Feature | What declaring it means |
+|---|---|
+| `bidi` | vtium draws each paragraph in the order the bidirectional algorithm gives, and `--display` prints the display view. |
+
+A worked example: `abc`, the Hebrew word shalom, ` (1) ` and `def`, written left to right, are drawn with the Hebrew word reversed and its brackets mirrored, and the cursor is drawn after `def`.
+
+```example bidi
+size 20 1
+view display
+needs bidi
+send "abc \u{5E9}\u{5DC}\u{5D5}\u{5DD} (1) def"
+```
+
+```output bidi
+size 20x1
+cursor 16,0
+flags AUTO_WRAP
+display-cursor 16,0 left
+row 0 |abc (1) םולש def|
+```
+
 ## The worked examples' strings
 
 The worked examples, here and in 1.0, read each `send` string with the string syntax of tier 1's scenarios (ADR-1504, D2), so the examples and the scenarios have one syntax. It adds three escapes to 1.0's list: `\a` stands for the byte 07, `\b` for the byte 08, and `\u{HEX}` for the UTF-8 of the code point HEX. Every string 1.0's list accepts reads as it did, so no example's input changes.
 
 ## The describe block and the grammar
 
-The grammar below adds the clipboard's `test` line and the two forms of the `anim` line. An `anim` line follows its image's `image` line, so `IMAGES` and the fragments and structures built on it are given again here: a fragment takes its value where it is defined, so the views' fragments and structures must be restated to use the new `IMAGES`. They differ from 1.0's only in that `IMAGES`.
+The grammar below adds the clipboard's `test` line, the two forms of the `anim` line, and the display view's `display-cursor` line and structure. An `anim` line follows its image's `image` line, so `IMAGES` and the fragments and structures built on it are given again here: a fragment takes its value where it is defined, so the views' fragments and structures must be restated to use the new `IMAGES`. They differ from 1.0's only in that `IMAGES`.
 
 ```describe
-interface 1.2
+interface 1.3
+view display
 feature clipboard
 feature kitty-animation
+feature bidi
 command clipboard clipboard
 ```
 
@@ -79,6 +112,7 @@ line test * test clipboard (?:none|(?:[0-9a-f]{2})+)
 line host: * host: [1-9][0-9]* t=d flags=any(?:,frames)? O=0 max=0 min=0 name= len={N}
 line anim * anim {N} frames [1-9][0-9]* current [1-9][0-9]* run (?:stopped|loading|looping) loops [1-9][0-9]* stamps {N} {N}
 line anim * anim {N} frame [1-9][0-9]* gap {INT} digest [0-9a-f]{8}
+line display-cursor display display-cursor {N},{N} (?:left|right)
 define IMAGES (?: placement)*(?: image(?: anim)*)*
 define SCREEN {HEAD}(?: row(?: attr)*)+{IMAGES}
 define DRAW2 {HEAD}(?: palette)(?: row(?: cells)*)+{IMAGES}
@@ -86,4 +120,6 @@ define FRAME {HEAD}(?: palette)(?: changed)(?: frame-cursor)(?: row(?: cells)*)+
 structure screen (?:(?: test)*(?: checkpoint){SCREEN})+|(?: test)*{SCREEN}
 structure draw2 (?:(?: test)*(?: checkpoint){DRAW2})+|(?: test)*{DRAW2}
 structure frame (?:(?: test)*(?: checkpoint){FRAME})+|(?: test)*{FRAME}
+define DISPLAY {HEAD}(?: display-cursor)(?: row)+
+structure display (?:(?: test)*(?: checkpoint){DISPLAY})+|(?: test)*{DISPLAY}
 ```

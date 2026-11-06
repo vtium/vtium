@@ -1,6 +1,8 @@
 //! The screen and frame views (INTERFACE.md, "Output"): the rows, their
 //! runs and, in the frame view, the palette, the changed count and the
-//! cursor. The head of each block (`size`, `cursor`, `flags`, the replies)
+//! cursor; and, in a build with the bidi feature, the display view
+//! (INTERFACE-vtium.md, "Right-to-left text"): each row in the order it is
+//! drawn. The head of each block (`size`, `cursor`, `flags`, the replies)
 //! is the replay's.
 
 use core::fmt::Write;
@@ -15,6 +17,44 @@ use vtium_term::{
 pub enum View {
     Screen,
     Frame,
+    /// Each row in the order it is drawn, in a build with the bidi
+    /// feature.
+    #[cfg(feature = "bidi")]
+    Display,
+}
+
+/// The display view: where the cursor is drawn and the side of its cell a
+/// bar stands on, then each row as drawn from the left, a mirrored
+/// character as its counterpart, an empty cell as a space and the second
+/// cell of a wide character as nothing, the empty cells at its right end
+/// trimmed (ADR-1004 D14).
+#[cfg(feature = "bidi")]
+pub fn display(term: &Terminal, out: &mut String) {
+    let palette = Palette::default();
+    let frame = term.screen().frame(&palette, Age::NEVER);
+    let cursor = frame.cursor();
+    let side = if cursor.rtl { "right" } else { "left" };
+    let _ = writeln!(out, "display-cursor {},{} {side}", cursor.col, cursor.row);
+    for row in 0..frame.rows() {
+        let cells: Vec<Option<String>> = frame
+            .cells(row)
+            .map(|c| match c.glyph {
+                Glyph::Char(ch) => Some(ch.to_string()),
+                Glyph::Cluster(s) => Some(s.to_owned()),
+                Glyph::Empty if c.width == Width::WideTail => Some(String::new()),
+                Glyph::Empty => None,
+            })
+            .collect();
+        let last = cells
+            .iter()
+            .rposition(Option::is_some)
+            .map_or(0, |i| i.saturating_add(1));
+        let _ = write!(out, "row {row} |");
+        for cell in cells.iter().take(last) {
+            out.push_str(cell.as_deref().unwrap_or(" "));
+        }
+        out.push_str("|\n");
+    }
 }
 
 /// The screen view's rows, each with its `attr` runs.
@@ -300,7 +340,7 @@ fn digest(pixels: &[u32]) -> u32 {
 /// it never drew, and the age it keeps after this frame.
 pub fn changed(term: &mut Terminal, since: Option<Age>) -> (usize, Age) {
     let screen = term.screen();
-    let frame = screen.frame(term.palette(), since.unwrap_or(Age::NEVER));
+    let frame = written(screen.frame(term.palette(), since.unwrap_or(Age::NEVER)));
     let (rows, cols) = (frame.rows(), screen.cols());
     let n = match since {
         None => rows.saturating_mul(cols),
@@ -312,13 +352,23 @@ pub fn changed(term: &mut Terminal, since: Option<Age>) -> (usize, Age) {
     (n, term.screen_mut().checkpoint())
 }
 
+/// `frame` with every row in the order it was written, its cells' damage
+/// as the screen keeps it: the frame view prints the cells as the program
+/// wrote them, as interface 1.0's goldens hold, and the display view prints
+/// the order a build with the bidi feature draws.
+fn written(frame: vtium_term::Frame<'_>) -> vtium_term::Frame<'_> {
+    #[cfg(feature = "bidi")]
+    let frame = frame.with_order(vtium_term::Order::default());
+    frame
+}
+
 /// The frame view's lines after the block's head.
 pub fn frame(term: &mut Terminal, state: &mut FrameState, out: &mut String) {
     let (changed, age) = changed(term, state.since);
     state.since = Some(age);
     let screen = term.screen();
     let palette = term.palette();
-    let frame = screen.frame(palette, Age::NEVER);
+    let frame = written(screen.frame(palette, Age::NEVER));
     let reverse = screen.reverse_video();
     let _ = writeln!(
         out,
