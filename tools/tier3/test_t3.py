@@ -3099,7 +3099,7 @@ class HeadsTest(unittest.TestCase):
                   "and broken.\n"
                   "[    9.1] vtium[502]: /etc/vtium/vtium.conf:17: vtium knows only "
                   "`version = 1`, not version \"2\".\n"
-                  "[    9.2] vtium[502]: vtium: config invalid, policy closed: input off\n")
+                  "[    9.2] vtium[502]: vtium.conf has errors and counts as closed: all input is off.\n")
         self.assertIsNone(t3_heads.judge_policy_line(logged, lines, v["policy_line"]))
         # the error names another line, another file, or none is logged
         for wrong in (logged.replace("vtium.conf:18:", "vtium.conf:9:"),
@@ -3112,8 +3112,8 @@ class HeadsTest(unittest.TestCase):
                                  "cannot be \"opne\"'")
         # the file run, partly broken under either policy, or the shipped
         # default in its place
-        self.assertEqual(t3_heads.RUN_LINES, ("config partly invalid, running what's valid",
-                                              "invalid config skipped, using builtin"))
+        self.assertEqual(t3_heads.RUN_LINES, ("vtium.conf has errors: running the parts without errors.",
+                                              "vtium.conf not used: running the built-in configuration."))
         for line in t3_heads.RUN_LINES:
             with self.subTest(line=line):
                 self.assertRegex(t3_heads.judge_policy_line(
