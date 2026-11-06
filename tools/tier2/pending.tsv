@@ -2,9 +2,9 @@
 # owes the screen, and why. The run reports each row as a pending case. A
 # row that a screen draws, or whose golden goldens/ holds, is refused. A
 # screen that takes one up adds its golden, and the row goes.
-cjk	vtium/vtium#24	outline-font text, once Noto Sans CJK's ideographs draw across their two cells; they draw one cell wide in DejaVu Sans Mono's 9x16 cell
+cjk	vtium/vtium#323	outline-font text, waiting for Chinese, Japanese and Korean characters to draw across both of their cells; in the test font set each draws small, in the first of its two cells
 emoji-spaced	vtium/vtium#24	outline-font text: DejaVu Sans Mono through FreeType
-emoji	vtium/vtium#24	outline-font text, once the heart with VS16 draws as Noto Color Emoji's; it draws as DejaVu Sans Mono's text heart
+emoji	vtium/vtium#324	outline-font text, waiting for the heart with VS16 to draw as Noto Color Emoji's red heart; it draws as DejaVu Sans Mono's black-and-white heart
 img-bands	vtium/vtium#24	pictures over outline-font text: DejaVu Sans Mono through FreeType
 img-banner-bg	vtium/vtium#24	pictures over outline-font text: DejaVu Sans Mono through FreeType
 img-banner-text	vtium/vtium#24	pictures over outline-font text: DejaVu Sans Mono through FreeType
@@ -19,7 +19,7 @@ kitty-banner-bg	vtium/vtium#24	pictures over outline-font text: DejaVu Sans Mono
 kitty-banner-text	vtium/vtium#24	pictures over outline-font text: DejaVu Sans Mono through FreeType
 kitty-text	vtium/vtium#24	pictures over outline-font text: DejaVu Sans Mono through FreeType
 mosaic-spaced	vtium/vtium#24	outline-font text: DejaVu Sans Mono through FreeType
-osd	vtium/vtium#24	outline-font text, once the console draws the render timer's figures and a notice over an outline frit draws in one font
+osd	vtium/vtium#325	outline-font text, waiting for a notice over an outline font set to draw all its words in one font (now some letters come from DejaVu Sans Mono and the rest from unifont), and for the console to draw the render timer's figures at all, which vtium/vtium#326 owes
 sixel-vte	vtium/vtium#24	pictures over outline-font text: DejaVu Sans Mono through FreeType
-vs16	vtium/vtium#24	outline-font text, once the heart with VS16 draws as Noto Color Emoji's; it draws as DejaVu Sans Mono's text heart
-wide-deco	vtium/vtium#24	outline-font text, once Noto Sans CJK's ideographs draw across their two cells; they draw one cell wide in DejaVu Sans Mono's 9x16 cell
+vs16	vtium/vtium#324	outline-font text, waiting for the heart with VS16 to draw as Noto Color Emoji's red heart; it draws as DejaVu Sans Mono's black-and-white heart
+wide-deco	vtium/vtium#323	outline-font text, waiting for Chinese, Japanese and Korean characters to draw across both of their cells; in the test font set each draws small, in the first of its two cells

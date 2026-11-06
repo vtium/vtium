@@ -1476,3 +1476,74 @@ pub const CASES: &[Case] = &[
         },
     },
 ];
+
+/// Three rows of text, which the `osd` screen draws the render timer's
+/// line over.
+const OSD_TEXT: &[u8] = concat!(
+    "sixels over text, text over sixels, sixels over\r\n",
+    "sixels over text, text over sixels, sixels over\r\n",
+    "sixels over text, text over sixels, sixels over\r\n",
+)
+.as_bytes();
+
+/// The outline screens whose drawing shows a defect, each listed in
+/// `pending.tsv` with the issue that owes the fix. `tier2 run` does not
+/// draw them, so no golden records the defect; `tier2 render` draws them
+/// with the others, so the defect can be seen. When its fix lands, a
+/// screen moves to [`CASES`], its golden is added and its pending row
+/// goes.
+pub const WAITING: &[Case] = &[
+    Case {
+        screen: outline(
+            "cjk",
+            "Double-width Japanese, Chinese and Korean, full-width Latin, narrow letters between wide characters, and wide text in bold and in reverse. The wide characters come from Noto Sans CJK, the narrow ones from DejaVu Sans Mono, at 16 pixels in the 9x16 cell. Correct: each wide character drawn by Noto Sans CJK across two cells, the bold ones emboldened, since the font set names no bold CJK face, and the narrow letters between them in their own columns.",
+            CJK,
+            48,
+            10,
+        ),
+    },
+    Case {
+        screen: outline(
+            "emoji",
+            "Emoji: two wide emoji and a narrow text smiley; a ZWJ family, a skin tone, a flag and a keycap; a heart with VS16, VS15 and no selector; an emoji between letters; emoji under underline, strike, reverse and a red curl; the shaking face of Unicode 15; and an emoji written at the last column, which wraps. The emoji come from Noto Color Emoji 2.051, the text from DejaVu Sans Mono, at 16 pixels. Correct: each emoji in color, whole and fitted to its two cells whatever the foreground and reverse; the family, the tone, the flag and the keycap one picture each where the font holds one; the VS16 heart in color across two cells, the other hearts and the smiley one cell each in the text color.",
+            EMOJI,
+            48,
+            10,
+        ),
+    },
+    Case {
+        screen: outline(
+            "vs16",
+            "A heart with VS16, with no selector and with VS15, and the VS16 heart underlined, by the Unicode width method (mode 2027 set). At 16 pixels in the test font set. Correct: the VS16 hearts take two cells and draw as Noto Color Emoji's red heart, the b after each a column further right; the other hearts one cell each, DejaVu Sans Mono's text heart in the text color.",
+            VS16,
+            32,
+            5,
+        ),
+    },
+    Case {
+        screen: outline(
+            "wide-deco",
+            "Wide characters under each underline style and under strike, a decorated run mixing narrow and wide, and a decorated wide character written at the last column, which wraps to the start of the next row. Noto Sans CJK and DejaVu Sans Mono at 16 pixels. Correct: every decoration spans both cells of its wide character, the dashed line one dash in each cell.",
+            WIDE_DECO,
+            48,
+            10,
+        ),
+    },
+    Case {
+        screen: Screen {
+            overlay: Some(Overlay {
+                line: Some(notices::render_timer),
+                notices: &[],
+                mark: None,
+                scheme: None,
+            }),
+            ..outline(
+                "osd",
+                "The render timer's line, `59.9 fps 12.345 ms 100.0%`, drawn by the console's overlay as the on-screen display's line over three rows of text in DejaVu Sans Mono at 16 pixels. Correct: the line in the on-screen display's colors in a box across the top of the display, over the text there; its characters drawn by the built-in font in the 9x16 cell, since the console asks the helper only for what the terminal shows; the rows below it as the terminal drew them.",
+                OSD_TEXT,
+                48,
+                10,
+            )
+        },
+    },
+];

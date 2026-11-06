@@ -26,7 +26,7 @@ use vtium_tier2::ppm;
 use vtium_tier2::report::CaseReport;
 use vtium_tier2::report::Status;
 use vtium_tier2::runner::{self, Run};
-use vtium_tier2::screens::CASES;
+use vtium_tier2::screens::{CASES, WAITING};
 use vtium_tier2::tol::Tolerance;
 
 const HERE: &str = env!("CARGO_MANIFEST_DIR");
@@ -179,7 +179,8 @@ fn render(opts: &[(String, String)]) -> ExitCode {
         return refuse(format!("{}: {e}", out.display()));
     }
     let mut failed = false;
-    for case in CASES {
+    // the screens that wait on a defect's fix draw too, so it can be seen
+    for case in CASES.iter().chain(WAITING) {
         let s = &case.screen;
         match draw::draw(s) {
             Ok(img) => {
