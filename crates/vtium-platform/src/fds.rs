@@ -37,16 +37,36 @@ pub fn take_passed(count: usize) -> io::Result<Vec<OwnedFd>> {
             "the passed descriptors were already taken",
         ));
     }
+    #[expect(
+        unsafe_code,
+        reason = "taking ownership of the descriptors the process inherited"
+    )]
+    // SAFETY: the service manager passed the descriptors from 3 up, so
+    // nothing in this process opened them or owns them, and TAKEN makes
+    // this the only call that takes them.
+    unsafe {
+        take_from(LISTEN_FDS_START, count)
+    }
+}
+
+/// Takes ownership of the `count` descriptors from `first` up, each marked
+/// close-on-exec, once each is shown open; takes none when one is not.
+///
+/// # Safety
+///
+/// Nothing else in the process owns or will close any open descriptor in
+/// the range.
+#[expect(
+    unsafe_code,
+    reason = "taking ownership of descriptors no Rust value owns"
+)]
+unsafe fn take_from(first: RawFd, count: usize) -> io::Result<Vec<OwnedFd>> {
     let last = RawFd::try_from(count)
         .ok()
-        .and_then(|n| LISTEN_FDS_START.checked_add(n))
+        .and_then(|n| first.checked_add(n))
         .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?;
-    let fds: Vec<RawFd> = (LISTEN_FDS_START..last).collect();
+    let fds: Vec<RawFd> = (first..last).collect();
     for &fd in &fds {
-        #[expect(
-            unsafe_code,
-            reason = "fcntl(2) on a descriptor the process inherited and nothing owns yet"
-        )]
         // SAFETY: F_SETFD sets the descriptor's flags, of which
         // FD_CLOEXEC is the only one, and touches no memory; a number that
         // is not open gives EBADF.
@@ -57,19 +77,9 @@ pub fn take_passed(count: usize) -> io::Result<Vec<OwnedFd>> {
     }
     Ok(fds
         .into_iter()
-        .map(|fd| {
-            #[expect(
-                unsafe_code,
-                reason = "taking ownership of a descriptor the process inherited"
-            )]
-            // SAFETY: the descriptor is open, as its fcntl above showed.
-            // The service manager passed it, so nothing in this process
-            // opened it or owns it, and TAKEN makes this the only call that
-            // takes it: no other owner closes it under this one.
-            unsafe {
-                OwnedFd::from_raw_fd(fd)
-            }
-        })
+        // SAFETY: each descriptor is open, as its fcntl above showed, and
+        // the caller promises that nothing else owns it.
+        .map(|fd| unsafe { OwnedFd::from_raw_fd(fd) })
         .collect())
 }
 
@@ -225,6 +235,23 @@ mod tests {
             "{e}"
         );
         assert_eq!(e.kind(), io::ErrorKind::NotFound);
+    }
+
+    // A descriptor that is not open is never taken: the number at the
+    // limit on open descriptors cannot be open.
+    #[test]
+    fn a_closed_descriptor_is_not_taken() {
+        let limit = rustix::process::getrlimit(rustix::process::Resource::Nofile)
+            .current
+            .and_then(|n| RawFd::try_from(n).ok())
+            .unwrap();
+        #[expect(unsafe_code, reason = "the descriptor taken is not open")]
+        // SAFETY: no descriptor at the limit is open, so nothing owns it.
+        let taken = unsafe { take_from(limit, 1) };
+        assert_eq!(
+            taken.map(|fds| fds.len()).map_err(|e| e.raw_os_error()),
+            Err(Some(libc::EBADF))
+        );
     }
 
     // The descriptors a service manager passed are taken once: a second

@@ -452,16 +452,6 @@ impl Pty {
         self.master.as_fd()
     }
 
-    /// The pty's number, `N` of `/dev/pts/N`, which no other open pty
-    /// shares.
-    pub fn number(&self) -> io::Result<u32> {
-        let name = rustix::pty::ptsname(&*self.master, Vec::new())?;
-        name.to_bytes()
-            .strip_prefix(b"/dev/pts/")
-            .and_then(|n| std::str::from_utf8(n).ok()?.parse().ok())
-            .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidData))
-    }
-
     /// Lets the pty go without hanging its session up: it leaves its loop
     /// and closes this copy of the master, sends no SIGHUP, and neither
     /// kills nor waits for the child. vtium calls it at its exit for each

@@ -59,7 +59,8 @@ fn the_holder_keeps_a_session_from_one_vtium_for_the_next() {
     let mut kept = Kept::new(kept);
     let back = kept.take("console", 1).expect("the holder kept console 1");
     let adopted = Pty::adopt(back).expect("the session still runs");
-    assert_eq!(adopted.number().ok(), pty.number().ok(), "the same pty");
+    let pts = |fd| rustix::pty::ptsname(fd, Vec::new()).expect("the pty's name");
+    assert_eq!(pts(adopted.master()), pts(pty.master()), "the same pty");
     adopted.release();
 
     next.forget(&name).expect("the master forgotten");

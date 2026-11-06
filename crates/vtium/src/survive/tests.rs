@@ -36,15 +36,10 @@ fn session() -> Pty {
     Pty::spawn(sleeper, SIZE, Erase::Delete).unwrap()
 }
 
-/// The pty number of the master `fd`.
-fn number(fd: &OwnedFd) -> u32 {
-    Pty::adopt(fd.try_clone().unwrap())
-        .map(|p| {
-            let n = p.number().unwrap();
-            p.release();
-            n
-        })
-        .unwrap()
+/// The name of the pty whose master is `fd`, `/dev/pts/N`, which no other
+/// open pty shares.
+fn pts(fd: impl std::os::fd::AsFd) -> std::ffi::CString {
+    rustix::pty::ptsname(fd, Vec::new()).unwrap()
 }
 
 /// A directory of its own for each test, removed when the test ends.
@@ -293,8 +288,8 @@ fn a_stored_master_comes_back_under_its_name_after_a_restart() {
         .take("console", 1)
         .expect("console 1's master comes back");
     let three = kept.take("right", 3).expect("right's console 3 comes back");
-    assert_eq!(number(&one), first.number().unwrap());
-    assert_eq!(number(&three), second.number().unwrap());
+    assert_eq!(pts(&one), pts(first.master()));
+    assert_eq!(pts(&three), pts(second.master()));
     assert!(kept.is_empty());
 }
 
@@ -424,8 +419,8 @@ fn the_ledger_tells_the_store_only_what_changed() {
     let mut kept = restarted(&mut systemd);
     let back = kept.take("console", 1).unwrap();
     assert_eq!(
-        number(&back),
-        second.number().unwrap(),
+        pts(&back),
+        pts(second.master()),
         "the new pty replaced the old"
     );
     ledger.sync(&mut keeper, []);
@@ -476,7 +471,7 @@ fn the_holder_keeps_masters_from_one_vtium_for_the_next() {
     let next = hold::Client::connect(&path).unwrap();
     let mut kept = Kept::new(next.take().unwrap());
     let back = kept.take("console", 1).expect("console 1 is held");
-    assert_eq!(number(&back), first.number().unwrap());
+    assert_eq!(pts(&back), pts(first.master()));
     assert!(kept.is_empty(), "console 2 was forgotten");
     next.forget(&Name::new("console", 1).encode()).unwrap();
     drop(next);
