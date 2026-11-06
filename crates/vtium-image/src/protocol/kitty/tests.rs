@@ -2396,12 +2396,12 @@ fn a_composition_lays_frame_r_onto_frame_c_and_gives_c_a_new_pixel_revision() {
     send(
         &mut k,
         &mut h,
-        &format!("a=f,i=1;{}", rgba([0, 0, 0xff, 0xff], 16)),
+        &format!("a=f,i=1,s=4,v=4;{}", rgba([0, 0, 0xff, 0xff], 16)),
     );
     send(
         &mut k,
         &mut h,
-        &format!("a=f,i=1;{}", rgba([0, 0xff, 0, 0xff], 16)),
+        &format!("a=f,i=1,s=4,v=4;{}", rgba([0, 0xff, 0, 0xff], 16)),
     );
     let _ = h.take();
     let (two, three) = (frame_of(&mut h, 2), frame_of(&mut h, 3));
@@ -2439,7 +2439,7 @@ fn an_edit_of_the_root_frame_gives_it_a_new_pixel_revision() {
     assert_eq!(after.pixels.as_slice()[0], 0xff00_00ff);
     assert!(after.revision > before.revision);
     // a composition onto the root moves it again
-    send(&mut k, &mut h, &format!("a=f,i=1;{}", red(16)));
+    send(&mut k, &mut h, &format!("a=f,i=1,s=4,v=4;{}", red(16)));
     send(&mut k, &mut h, "a=c,i=1,r=2,c=1,w=1,h=1,C=1");
     let again = h.store.frame_pixels(key, 1).unwrap();
     assert_eq!(again.pixels.as_slice()[0], 0xffff_0000);
@@ -2461,12 +2461,12 @@ fn an_animation_command_moves_its_images_use_clock() {
     }
     h.store.set_limit(128 << 10);
     let whole = rgba([0, 0, 0xff, 0xff], 256 * 256);
-    send(&mut k, &mut h, &format!("a=f,i=1;{whole}"));
-    send(&mut k, &mut h, &format!("a=f,i=2;{whole}"));
+    send(&mut k, &mut h, &format!("a=f,i=1,s=256,v=256;{whole}"));
+    send(&mut k, &mut h, &format!("a=f,i=2,s=256,v=256;{whole}"));
     // a control names image 1, so image 2 is now used least recently, and
     // its frames go for image 3's
     send(&mut k, &mut h, "a=a,i=1,s=1");
-    send(&mut k, &mut h, &format!("a=f,i=3;{whole}"));
+    send(&mut k, &mut h, &format!("a=f,i=3,s=256,v=256;{whole}"));
     let frames = |h: &mut Host, id| {
         let key = h.store.find_image(id, 0).unwrap();
         h.store.animation(key).unwrap().frames
