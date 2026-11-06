@@ -9,6 +9,7 @@
 use std::fmt;
 use std::path::{Path, PathBuf};
 
+use vtium_font::spacing::{Fit, LINE_SPACING_MAX};
 use vtium_font::sprite::Range;
 use vtium_font::{Cell, Style};
 
@@ -96,8 +97,23 @@ pub struct Source {
     /// `style=`: the style the source draws, regular unless the frit names
     /// another (ADR-1200 D1, D21).
     pub style: Style,
+    /// `fit=`: how each of the source's sets uses a row made taller by
+    /// line spacing (ADR-1302 D13), in the frit's order.
+    pub fits: Vec<SetFit>,
     /// The `source=` line, from 1.
     pub line: usize,
+}
+
+/// One `fit=` line: the set it is for and its value. The set is the
+/// whole source when the line follows the `source=` line, or the ranges
+/// of the `cover=` line it follows.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct SetFit {
+    /// The `cover=` line's ranges, or `None` for the whole source.
+    pub cover: Option<Vec<Cover>>,
+    pub fit: Fit,
+    /// The `source=` or `cover=` line the set comes from, from 1.
+    pub set_line: usize,
 }
 
 impl Source {
@@ -111,6 +127,21 @@ impl Source {
             .checked_sub(1)
             .and_then(|i| self.cover.get(i))
             .is_some_and(|&(_, b)| c <= b)
+    }
+
+    /// How the source's set holding `c` uses a taller row: the `fit=` of
+    /// a `cover=` line whose ranges hold `c`, else the source's own
+    /// `fit=`, else `None`, and `c` takes its default
+    /// ([`Fit::default_for`]).
+    pub fn fit(&self, c: u32) -> Option<Fit> {
+        let in_cover = |cover: &[Cover]| cover.iter().any(|&(a, b)| (a..=b).contains(&c));
+        let by_cover = self
+            .fits
+            .iter()
+            .find(|f| f.cover.as_deref().is_some_and(in_cover));
+        by_cover
+            .or_else(|| self.fits.iter().find(|f| f.cover.is_none()))
+            .map(|f| f.fit)
     }
 }
 
@@ -162,6 +193,10 @@ pub struct Frit {
     pub cell: Option<Cell>,
     pub antialias: Antialias,
     pub hinting: Hinting,
+    /// `line-spacing=`: the height added to each row, a whole percentage
+    /// of the text's height from 0 to 100 (ADR-1302 D13); `None` when the
+    /// frit states none, which adds nothing.
+    pub line_spacing: Option<u32>,
     /// `glyph-source=`, for every range (`None`), and each
     /// `glyph-source-<range>=`, in the frit's order: the #85 sprite policy,
     /// the configuration's keys over it.
@@ -238,6 +273,10 @@ impl Frit {
         let mut cell = None;
         let mut antialias = None;
         let mut hinting = None;
+        let mut line_spacing = None;
+        // the set a `fit=` line is for: the last `source=` or `cover=`
+        // line, its line and its ranges (`None` for a whole source)
+        let mut set: Option<(usize, Option<Vec<Cover>>)> = None;
         let mut glyph_source = Vec::new();
         let mut license = None;
         let mut warnings = Vec::new();
@@ -297,8 +336,10 @@ impl Frit {
                         cover: Vec::new(),
                         cp_size: None,
                         style: Style::default(),
+                        fits: Vec::new(),
                         line: n,
                     });
+                    set = Some((n, None));
                 }
                 "unimap" => {
                     let i = current(&mut sources)?;
@@ -326,6 +367,7 @@ impl Frit {
                 "cover" => {
                     let i = current(&mut sources)?;
                     let ranges = cover(value).map_err(|why| err(n, &why))?;
+                    set = Some((n, Some(ranges.clone())));
                     if let Some(source) = sources.get_mut(i) {
                         source.cover = merged([std::mem::take(&mut source.cover), ranges].concat());
                     }
@@ -418,6 +460,44 @@ impl Frit {
                         _ => return Err(err(n, "antialias= takes auto or no")),
                     });
                 }
+                "line-spacing" => {
+                    once(line_spacing.is_some())?;
+                    line_spacing = Some(
+                        value
+                            .parse::<u32>()
+                            .ok()
+                            .filter(|&v| {
+                                v <= LINE_SPACING_MAX
+                                    && !value.starts_with('+')
+                                    && (value == "0" || !value.starts_with('0'))
+                            })
+                            .ok_or_else(|| {
+                                err(
+                                    n,
+                                    &format!(
+                                        "line-spacing= takes a whole percentage from 0 to {LINE_SPACING_MAX}"
+                                    ),
+                                )
+                            })?,
+                    );
+                }
+                "fit" => {
+                    let i = current(&mut sources)?;
+                    let fit = Fit::parse(value)
+                        .ok_or_else(|| err(n, "fit= takes fill, natural or room"))?;
+                    let (set_line, cover) = set.clone().unwrap_or_default();
+                    let source = sources
+                        .get_mut(i)
+                        .ok_or_else(|| err(n, "there is no source line"))?;
+                    if source.fits.iter().any(|f| f.set_line == set_line) {
+                        return Err(err(n, "fit= appears twice for one set"));
+                    }
+                    source.fits.push(SetFit {
+                        cover,
+                        fit,
+                        set_line,
+                    });
+                }
                 "hinting" => {
                     once(hinting.is_some())?;
                     hinting = Some(match value {
@@ -483,6 +563,7 @@ impl Frit {
             cell,
             antialias: antialias.unwrap_or_default(),
             hinting: hinting.unwrap_or_default(),
+            line_spacing,
             glyph_source,
             license,
             text: text.to_owned(),
@@ -676,6 +757,7 @@ mod tests {
              unimap=lat1u\n\
              cover=ascii\n\
              cover=U+2500-U+257F\n\
+             fit=natural\n\
              style=regular\n\
              source=file:/usr/share/fonts/x.cp.gz\n\
              cp-size=14\n\
@@ -692,6 +774,7 @@ mod tests {
              cell=10x20\n\
              antialias=no\n\
              hinting=full\n\
+             line-spacing=25\n\
              glyph-source=font\n\
              glyph-source-braille = sprites\n\
              glyph-source-legacy=auto\n",
@@ -715,7 +798,10 @@ mod tests {
         );
         let cp: Vec<Option<u32>> = r.sources.iter().map(|s| s.cp_size).collect();
         assert_eq!(cp, [None, Some(14), None, None, None, None, None, None]);
-        assert_eq!(r.sources[5].line, 13);
+        assert_eq!(r.sources[5].line, 14);
+        assert_eq!(r.line_spacing, Some(25));
+        assert_eq!(r.sources[0].fit(0x2500), Some(Fit::Natural));
+        assert_eq!(r.sources[0].fit(0x41), None);
         assert_eq!(r.sources[7].cover, [(0x1f600, 0x1f64f)]);
         assert_eq!(r.size, Some(12));
         assert_eq!(
@@ -751,6 +837,48 @@ mod tests {
         assert_eq!(r.hinting, Hinting::Light);
         assert_eq!(r.glyph_source, []);
         assert_eq!(r.text, "source=kbd:x\n");
+        // ADR-1302 D13: no spacing, and every set takes its default fit
+        assert_eq!(r.line_spacing, None);
+        assert_eq!(r.sources[0].fits, []);
+    }
+
+    // ADR-1302 D13, ADR-1200 D1: `line-spacing=` is a whole percentage
+    // from 0 to 100
+    #[test]
+    fn line_spacing_is_a_whole_percentage_from_0_to_100() {
+        for n in [0u32, 1, 10, 99, 100] {
+            let r = parse(&format!("source=kbd:x\nline-spacing={n}\n")).expect("parses");
+            assert_eq!(r.line_spacing, Some(n), "{n}");
+        }
+    }
+
+    // ADR-1302 D13, ADR-1200 D1: `fit=` sets how the set on the `source=`
+    // or `cover=` line above it uses the taller row; a `cover=` line's set
+    // wins over its source's, and a codepoint in no set with a fit takes
+    // the default
+    #[test]
+    fn fit_names_the_fit_of_the_set_above_it() {
+        let r = parse(
+            "source=kbd:a\n\
+             fit=natural\n\
+             cover=U+2500-U+257F\n\
+             fit=fill\n\
+             cover=ascii\n\
+             source=kbd:b\n\
+             cover=U+0600-U+06FF\n\
+             fit=room\n\
+             source=kbd:c\n",
+        )
+        .expect("parses");
+        let a = &r.sources[0];
+        assert_eq!(a.fit(0x2502), Some(Fit::Fill));
+        // ascii's cover line has no fit of its own: the source's
+        assert_eq!(a.fit(0x41), Some(Fit::Natural));
+        assert_eq!(a.fit(0x2588), Some(Fit::Natural));
+        let b = &r.sources[1];
+        assert_eq!(b.fit(0x0628), Some(Fit::Room));
+        assert_eq!(b.fit(0x41), None);
+        assert_eq!(r.sources[2].fits, []);
     }
 
     #[test]
@@ -797,6 +925,30 @@ mod tests {
             ("source=outline:/x.ttf\ncp-size=8\n", 2, "for a CPI font"),
             ("source=kbd:x\nantialias=yes\n", 2, "auto or no"),
             ("source=kbd:x\nhinting=none\n", 2, "light or full"),
+            ("source=kbd:x\nline-spacing=101\n", 2, "from 0 to 100"),
+            ("source=kbd:x\nline-spacing=-1\n", 2, "from 0 to 100"),
+            ("source=kbd:x\nline-spacing=010\n", 2, "from 0 to 100"),
+            ("source=kbd:x\nline-spacing=+10\n", 2, "from 0 to 100"),
+            ("source=kbd:x\nline-spacing=12.5\n", 2, "from 0 to 100"),
+            ("source=kbd:x\nline-spacing=10%\n", 2, "from 0 to 100"),
+            (
+                "source=kbd:x\nline-spacing=10\nline-spacing=10\n",
+                3,
+                "appears twice",
+            ),
+            ("fit=fill\n", 1, "before any source="),
+            ("source=kbd:x\nfit=stretch\n", 2, "fill, natural or room"),
+            ("source=kbd:x\nfit=Fill\n", 2, "fill, natural or room"),
+            (
+                "source=kbd:x\nfit=fill\nfit=natural\n",
+                3,
+                "appears twice for one set",
+            ),
+            (
+                "source=kbd:x\ncover=ascii\nfit=fill\nstyle=bold\nfit=room\n",
+                5,
+                "appears twice for one set",
+            ),
             ("source=kbd:x\nhinting=Light\n", 2, "light or full"),
             (
                 "source=kbd:x\nhinting=light\nhinting=full\n",

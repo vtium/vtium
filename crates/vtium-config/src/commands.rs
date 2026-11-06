@@ -350,6 +350,19 @@ source=font:DejaVu Sans Mono
 #
 # How outline fonts are hinted: light, the default, or full.
 #hinting=light
+#
+# Extra space between lines of text: a whole percentage of the text's
+# height, from 0, the default, to 100. The space is split evenly above and
+# below each line. A cell= line takes none, unless font-size overrides it.
+#line-spacing=0
+#
+# How the characters of the source= or cover= line above it use that extra
+# space: fill stretches them to the whole cell, natural keeps them at the
+# font's size, and room keeps the letters at the font's size and lets their
+# marks use the space. When left out, line and block characters fill;
+# Arabic, Hebrew, Syriac, Thaana, N'Ko and combining marks take room; and
+# the rest is natural. Color characters and emoji always keep their size.
+#fit=natural
 ";
 
 /// A source as `new` takes it: a source's spelling when it starts with a
