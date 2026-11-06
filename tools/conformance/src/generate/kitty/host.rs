@@ -279,7 +279,7 @@ fn host_outcomes(_: &Inputs) -> Made {
 /// take bytes 10 to 12 (OK, i=3 and 4); S=2 for 3 bytes, and S=3 for a
 /// 2x1 that needs 6, too few (TOO_SHORT, EBADF, i=5 and 6); an offset at
 /// the end and one past it (UNREADABLE, EBADF, i=7 and 8); the same on
-/// t=t (OK, i=9); inline, too few (EINVAL, i=10) and past s x v (OK, the
+/// t=t (OK, i=9); inline, too few (ENODATA, i=10) and past s x v (OK, the
 /// excess ignored, i=11).
 fn host_lengths(_: &Inputs) -> Made {
     let pix = pix47();
