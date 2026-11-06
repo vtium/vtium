@@ -14,6 +14,7 @@
 
 use std::ffi::OsString;
 use std::io;
+use std::os::fd::OwnedFd;
 use std::path::Path;
 use std::process::ExitCode;
 use std::rc::Rc;
@@ -87,6 +88,7 @@ fn main() -> ExitCode {
     if let Some(status) = vtium::config_tool::subcommand(&args)
         .or_else(|| vtium::blank::subcommand(&args))
         .or_else(|| vtium::console::subcommand(&args))
+        .or_else(|| vtium::survive::hold::subcommand(&args))
     {
         return ExitCode::from(u8::try_from(status).unwrap_or(1));
     }
@@ -139,8 +141,19 @@ fn main() -> ExitCode {
         path.as_deref(),
         heads.outcome.policy,
     );
+    // Before the loop blocks any signal, since a holder started here
+    // inherits the mask (ADR-1401 D13).
+    let env: Vec<(OsString, OsString)> = std::env::vars_os().collect();
+    let (keeper, kept) = vtium::survive::start(
+        &env,
+        path.as_deref(),
+        Path::new(vtium::getty::DIR),
+        Path::new("/proc/self/exe"),
+        vtium_platform::take_passed,
+    );
+    let survival = (keeper, kept, env);
     let status = match path {
-        Some(path) => run_kernel(config, reread, start, heads, &path),
+        Some(path) => run_kernel(config, reread, start, heads, survival, &path),
         None => {
             log::info!(target: "vt", "no VTs: using a fake VT");
             run(
@@ -148,6 +161,7 @@ fn main() -> ExitCode {
                 reread,
                 start,
                 heads,
+                survival,
                 None,
                 Box::new(|_| Ok(Box::new(FakeVt::new()))),
             )
@@ -200,6 +214,7 @@ fn run_kernel(
     reread: vtium::app::Reread,
     start: Start,
     heads: vtium::head::Start,
+    survival: Survival,
     path: &Path,
 ) -> io::Result<i32> {
     let console = kernel_font(path);
@@ -209,6 +224,7 @@ fn run_kernel(
         reread,
         start,
         heads,
+        survival,
         console,
         // The VT opens once the loop blocks its signals: `vtium blank`
         // finds a vtium by its open VT, and its signal at the default
@@ -244,6 +260,14 @@ fn kernel_font(path: &Path) -> Option<ConsoleFont> {
 /// How the seat's VT is opened, in the loop it runs in.
 type Open = Box<dyn FnOnce(&mut Loop<App>) -> io::Result<Box<dyn SeatVt>>>;
 
+/// Where each session's pty is kept through a restart, the ptys an earlier
+/// vtium left (ADR-1401 D13), and vtium's environment.
+type Survival = (
+    vtium::survive::Keeper,
+    Vec<(String, OwnedFd)>,
+    Vec<(OsString, OsString)>,
+);
+
 /// Runs the seat on the VT `open` gives, with the head file `heads`
 /// resolved to, until it ends; returns the exit status. It is compiled
 /// once, whichever VT it runs on.
@@ -252,9 +276,11 @@ fn run(
     reread: vtium::app::Reread,
     start: Start,
     heads: vtium::head::Start,
+    survival: Survival,
     console: Option<ConsoleFont>,
     open: Open,
 ) -> io::Result<i32> {
+    let (keeper, kept, env) = survival;
     let mut lp: Loop<App> = Loop::new()?;
     for signal in [Signal::SIGTERM, Signal::SIGINT] {
         lp.on_signal(signal, |app: &mut App| app.request_exit(Exit::Signal))?;
@@ -264,18 +290,13 @@ fn run(
     vtium::blank::listen(&lp.handle())?;
     let vt = open(&mut lp)?;
     let clock = clock();
-    let mut app = App::new(
-        config,
-        vt,
-        lp.handle(),
-        clock.clone(),
-        std::env::vars_os().collect(),
-    );
+    let mut app = App::new(config, vt, lp.handle(), clock.clone(), env);
     if let Some(font) = console {
         app.set_console_font(font);
     }
     app.set_config_reader(reread);
     app.set_heads(heads);
+    app.set_survival(keeper, kept);
 
     match start.input() {
         Some(mut input) => {
@@ -318,7 +339,9 @@ fn run(
             break exit;
         }
     };
-    // The VT is put back before the loop's signalfd goes.
+    // The sessions a keeper holds run on for the next vtium (ADR-1401
+    // D13); the VT is put back before the loop's signalfd goes.
+    app.release_sessions();
     drop(app);
     drop(lp);
     Ok(exit.status())
