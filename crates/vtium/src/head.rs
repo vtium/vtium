@@ -268,6 +268,17 @@ pub(crate) fn terminal(
     terminal.set_backspace_sends_delete(config.switch(&keys::BACKSPACE_DELETE));
     terminal.set_palette(config.palette());
     terminal.set_font_ops(config.switch(&keys::ALLOW_FONT_OPS));
+    // Every build reads `text-direction`; a build without the bidi
+    // feature does nothing with it (ADR-1004 D13).
+    let direction = config.text(&keys::TEXT_DIRECTION);
+    #[cfg(feature = "bidi")]
+    terminal.set_text_direction(match direction {
+        Some("rtl") => vtium_term::TextDirection::Rtl,
+        Some("auto") => vtium_term::TextDirection::Auto,
+        _ => vtium_term::TextDirection::Ltr,
+    });
+    #[cfg(not(feature = "bidi"))]
+    let _ = direction;
     if let Some(Ok(table)) = crate::termcap::for_term(config.text(&keys::TERM).unwrap_or_default())
     {
         terminal.set_termcap(table);

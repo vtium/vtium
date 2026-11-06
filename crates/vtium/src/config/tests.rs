@@ -1621,3 +1621,47 @@ fn the_image_keys_take_auto_a_size_and_bytes() {
         );
     }
 }
+
+// ADR-1004 D5: `text-direction` reads `ltr`, `rtl` or `auto`, `ltr` when
+// unset; a value it does not take is reported and leaves the default.
+#[test]
+fn text_direction_reads_its_three_values_and_reports_any_other() {
+    assert_eq!(main_file("").config.text(&TEXT_DIRECTION), Some("ltr"));
+    for value in ["ltr", "rtl", "auto"] {
+        let l = main_file(&format!("text-direction = {value}\n"));
+        assert_eq!(l.reports, [], "{value}");
+        assert_eq!(l.config.text(&TEXT_DIRECTION), Some(value));
+    }
+    let l = main_file("text-direction = up\n");
+    assert_eq!(l.config.text(&TEXT_DIRECTION), Some("ltr"));
+    assert!(
+        matches!(
+            &problems(&l)[..],
+            [Problem::NotAChoice {
+                key: "text-direction",
+                ..
+            }]
+        ),
+        "{:?}",
+        l.reports
+    );
+}
+
+// ADR-1004 D5: each console's terminal starts in the direction
+// `text-direction` gives, in a build with the bidi feature.
+#[cfg(feature = "bidi")]
+#[test]
+#[expect(clippy::disallowed_methods, reason = "a test's clock is the host's")]
+fn each_console_starts_in_the_direction_text_direction_gives() {
+    use vtium_term::LineFlags;
+    for (value, want) in [
+        ("ltr", LineFlags::empty()),
+        ("rtl", LineFlags::RTL),
+        ("auto", LineFlags::DETECT),
+    ] {
+        let l = main_file(&format!("text-direction = {value}\n"));
+        let clock = std::rc::Rc::new(std::time::Instant::now);
+        let term = crate::head::terminal(&l.config, (0, 0), 0, clock);
+        assert_eq!(term.terminal.screen().paragraph(), want, "{value}");
+    }
+}
