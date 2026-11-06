@@ -2,3 +2,7 @@
 # golden under goldens/, and why. A case compared with a provisional golden
 # is drawn and compared, and its difference is noted but does not fail the
 # run; the row goes when the operator accepts the golden.
+heads-partly-open/partly-notice	reworded with the strings card (the notice text), 2026-11-05; the maintainer reviews it as a picture
+heads-closed-broken/panic	reworded with the strings card (the notice text), 2026-11-05; the maintainer reviews it as a picture
+heads-policy-typo/policy-panic	reworded with the strings card (the notice text), 2026-11-05; the maintainer reviews it as a picture
+heads-closed-unmatched/no-display-notice	reworded with the strings card (the notice text), 2026-11-05; the maintainer reviews it as a picture
