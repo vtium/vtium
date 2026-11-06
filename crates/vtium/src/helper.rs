@@ -1945,7 +1945,13 @@ mod tests {
 
     /// A fill's end or a stop of `kind` naming `cell` at no line spacing.
     fn fill_frame(kind: u32, cell: Cell) -> Vec<u8> {
-        let words = [cell.width, cell.height, 0, 0];
+        spaced_end(kind, SpacedCell::plain(cell))
+    }
+
+    /// A fill's end or a stop of `kind` naming `at`, a cell and its band:
+    /// the width, the height, the rows above and the rows below.
+    fn spaced_end(kind: u32, at: SpacedCell) -> Vec<u8> {
+        let words = [at.cell.width, at.cell.height, at.band.above, at.band.below];
         let c: Vec<u8> = words.iter().flat_map(|w| w.to_le_bytes()).collect();
         raw_frame(kind, &c)
     }
@@ -2601,15 +2607,13 @@ mod tests {
     // go to that band's record and store alone
     #[test]
     fn one_cell_size_with_two_bands_fills_twice() {
-        let band = Band { above: 2, below: 2 };
+        // more rows above than below, so reading the two the wrong way
+        // round names a band no fill was asked at
+        let band = Band { above: 2, below: 1 };
         let spaced = SpacedCell { cell: CELL, band };
         let mut fixture = spaced_frame(FRAME_FILL, band, &set(CELL, &['A']));
         fixture.extend(frame_bytes(FRAME_FILL, &set(CELL, &['B'])));
-        let mut end = Vec::new();
-        for w in [CELL.width, CELL.height, 2, 2] {
-            end.extend(w.to_le_bytes());
-        }
-        fixture.extend(raw_frame(FRAME_FILLED, &end));
+        fixture.extend(spaced_end(FRAME_FILLED, spaced));
         fixture.extend(filled(CELL));
         let mut s = StandIn::new("bands", ANSWERS, &fixture);
         let now = t0();
@@ -3187,6 +3191,39 @@ mod tests {
     }
 
     // a cell dropped whose fill is done is stopped too
+    // ADR-1302 D13: a stop at a cell with a band names the band, and the
+    // helper's word that it took the stop names it too, so the console
+    // takes it against the stop it sent at that band
+    #[test]
+    fn a_stop_at_a_band_is_taken_at_that_band() {
+        let band = Band { above: 2, below: 1 };
+        let at = SpacedCell { cell: CELL, band };
+        let mut fixture = spaced_frame(FRAME_FILL, band, &set(CELL, &['A']));
+        fixture.extend(spaced_end(FRAME_FILLED, at));
+        let script = format!(
+            "head -c {} >/dev/null; cat \"$1\"; head -c {} >\"$1.stop\"; cat \"$1.taken\"",
+            request_bytes(FILL),
+            request_bytes(STOP)
+        );
+        let mut s = StandIn::new("bandstop", &script, &fixture);
+        std::fs::write(s.dir.join("answer.taken"), spaced_end(FRAME_STOPPED, at)).unwrap();
+        let now = t0();
+        s.helper.fill(CELL, band, &[], now);
+        assert_eq!(s.run(now).len(), 1);
+        s.helper.retain(&[], now);
+        s.until_gone(now);
+        assert_eq!(s.helper.failed(), None, "the stop at the band is taken");
+        assert!(s.helper.stopped.is_empty(), "no stop is left waiting");
+        let stop = encode(
+            &s.helper.frit,
+            None,
+            (STOP, CELL, band, Style::default()),
+            (&[], &[]),
+            &[],
+        );
+        assert_eq!(std::fs::read(s.dir.join("answer.stop")).unwrap(), stop);
+    }
+
     #[test]
     fn a_cell_dropped_after_its_fill_is_stopped() {
         let mut fixture = frame_bytes(FRAME_FILL, &set(CELL, &['A']));

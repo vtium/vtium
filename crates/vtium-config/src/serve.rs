@@ -2263,7 +2263,6 @@ mod tests {
         }
     }
 
-    /// The frames in `bytes`, kind and payload.
     /// Each frame in `bytes`, a glyph frame's payload without the band in
     /// front of its set, which [`bands`] gives.
     fn frames(bytes: &[u8]) -> Vec<(u32, Vec<u8>)> {
@@ -2390,7 +2389,6 @@ mod tests {
         italic: true,
     };
 
-    // the style changed the request's layout, so its magic moved from
     // ADR-1302 D13's band moved the magic from VTVSREQ4 to VTVSREQ5, as the
     // style moved it from VTVSREQ3 to VTVSREQ4: a request of an older layout
     // is refused whole, with the reason a person can act on, and one of no
@@ -3508,6 +3506,25 @@ mod tests {
             bands.contains(&Band::NONE) && bands.contains(&band),
             "{bands:?}"
         );
+    }
+
+    // ADR-1302 D13: a stop at a cell with a band ends that band's fill
+    // alone, and the helper's word that it took it names the band
+    #[test]
+    fn a_stop_at_a_band_is_taken_naming_the_band() {
+        let unscii = frit("source=builtin:unscii-8\n");
+        let band = Band { above: 2, below: 1 };
+        let at = |kind| ServeRequest {
+            band,
+            ..request(kind, unscii.clone(), &['A'])
+        };
+        let frames = run(&[at(FILL), at(STOP)]);
+        let stops: Vec<&Vec<u8>> = frames
+            .iter()
+            .filter(|f| f.0 == FRAME_STOPPED)
+            .map(|f| &f.1)
+            .collect();
+        assert_eq!(stops, [&spaced_payload(CELL, band)]);
     }
 
     // ADR-1302 D13: a request whose line spacing leaves its cell no text
