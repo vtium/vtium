@@ -791,23 +791,36 @@ def shell_of(ptys):
     return shells[0] if len(shells) == 1 else None
 
 
+def prompt_of(ptys):
+    """The process id of the one login prompt that leads a session on a pty
+    in the agent's answer `ptys`, or None when there is not exactly one."""
+    prompts = [pid for pid, (_, _, command) in ptys["ptys"].items() if command == "login"]
+    return prompts[0] if len(prompts) == 1 else None
+
+
 def judge_survived(before, after, vtium, took_back):
-    """Why the session in `before` did not survive the restart that left
+    """Why the sessions in `before` did not survive the restart that left
     `after` (the agent's answers to `ptys`) with vtium's new process id
     `vtium`, and `took_back`, whether the new vtium logged that it took a
-    session back; None when it survived."""
-    shell = shell_of(before)
+    session back; None when they survived. The sessions are the logged-in
+    shell and the login prompt nobody has used, which lives in vtium's
+    unit until someone logs in."""
+    shell, prompt = shell_of(before), prompt_of(before)
     if shell is None:
         return "no one shell leads a session on a pty before the restart: %s" % before["ptys"]
+    if prompt is None:
+        return "no one login prompt leads a session on a pty before the restart: %s" % (
+            before["ptys"])
     if not took_back:
         return "the new vtium did not log that it took a session back"
-    if shell not in after["ptys"]:
-        return "the shell %d is gone after the restart: %s" % (shell, after["ptys"])
-    (pty, size, _), (pty_after, size_after, _) = before["ptys"][shell], after["ptys"][shell]
-    if pty_after != pty:
-        return "the shell %d leads its session on %s, not %s" % (shell, pty_after, pty)
-    if size_after != size:
-        return "the shell's pty is %s after the restart, not %s" % (size_after, size)
+    for what, pid in (("shell", shell), ("login prompt", prompt)):
+        if pid not in after["ptys"]:
+            return "the %s %d is gone after the restart: %s" % (what, pid, after["ptys"])
+        (pty, size, _), (pty_after, size_after, _) = before["ptys"][pid], after["ptys"][pid]
+        if pty_after != pty:
+            return "the %s %d leads its session on %s, not %s" % (what, pid, pty_after, pty)
+        if size_after != size:
+            return "the %s's pty is %s after the restart, not %s" % (what, size_after, size)
     if after["masters"] is None or after["masters"][0] != vtium or after["masters"][1] < 1:
         return "the new vtium %d holds no pty master: %s" % (vtium, after["masters"])
     return None
@@ -852,8 +865,36 @@ def check_session_survives(variant, vm, work, caps, errors, log):
         path = os.path.join(work, case + ".ppm")
         wait_stable(vm, path)
         caps[case] = path
+        # A stop is no restart: systemd closes the stored masters, and the
+        # kernel hangs the sessions up.
+        before = ask_ptys(vm)
+        answer = vm.ask("stop")
+        log("%s: stop: %s" % (case, " ".join(answer)))
+        deadline = time.time() + STATE_TIMEOUT
+        while True:
+            after = ask_ptys(vm)
+            why = judge_stopped(before, after)
+            if why is None or time.time() > deadline:
+                break
+            time.sleep(0.5)
+        log("%s: stop: %s" % (case, why or "the sessions ended"))
+        if why:
+            raise RuntimeError("after the stop: %s" % why)
     except RuntimeError as e:
         errors[case] = str(e)
+
+
+def judge_stopped(before, after):
+    """Why the sessions in `before` did not end with the stop of vtium's
+    unit that left `after` (the agent's answers to `ptys`); None when they
+    ended."""
+    left = sorted(pid for pid in (shell_of(before), prompt_of(before))
+                  if pid is not None and pid in after["ptys"])
+    if left:
+        return "sessions still run after vtium's unit stopped: %s" % left
+    if shell_of(before) is None:
+        return "no shell led a session before the stop: %s" % before["ptys"]
+    return None
 
 
 def check_no_login(variant, vm, work, caps, errors, log):

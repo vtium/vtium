@@ -22,6 +22,7 @@
 #   hangup           hangs tty2 up, as the kernel's vhangup does
 #   start            starts vtium's unit on tty2 again
 #   restart          restarts vtium's unit on tty2, as after an upgrade
+#   stop             stops vtium's unit on tty2
 #   ptys             each process that leads a session on a pty, with the
 #                    pty and its size; how many pty masters vtium on tty2
 #                    holds; and each answer a line typed in a session wrote
@@ -227,6 +228,7 @@ answer() {
             ;;
         start) systemctl start --no-block "${units[0]}" && echo "started ${units[0]}" ;;
         restart) systemctl restart --no-block "${units[0]}" && echo "restarted ${units[0]}" ;;
+        stop) systemctl stop --no-block "${units[0]}" && echo "stopped ${units[0]}" ;;
         ptys) ptys ;;
         reset-failed)
             systemctl reset-failed "${units[0]}" && echo "reset ${units[0]}"

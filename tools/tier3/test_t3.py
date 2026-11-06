@@ -3356,7 +3356,7 @@ class HeadsTest(unittest.TestCase):
                     "hangup && touch pwned-and", "watch /dev/input/event0", "Watch",
                     "limit 99", "Limit", "reset-failed getty@tty2.service", "reset-failed;id",
                     "prelogin now", "Prelogin", "prelogin;id", "restart now", "Restart",
-                    "restart;id", "ptys tty2", "Ptys", "ptys;id"]
+                    "restart;id", "ptys tty2", "Ptys", "ptys;id", "stop now", "Stop", "stop;id"]
         for n, request in enumerate(requests, 1):
             with self.subTest(request):
                 os.write(master, b"%d %s\n" % (n, request.encode()))
@@ -3371,19 +3371,22 @@ class HeadsTest(unittest.TestCase):
         self.assertEqual(os.listdir(d.name), [])
 
     def test_the_session_survives_judged_both_ways(self):
-        before = t3_heads.parse_ptys(["pty 700 pts/0 80x30 bash", "masters 410 1"])
-        good = t3_heads.parse_ptys(["pty 700 pts/0 80x30 bash", "masters 512 1"])
+        prompt = "pty 701 pts/1 80x30 login"
+        before = t3_heads.parse_ptys(["pty 700 pts/0 80x30 bash", prompt, "masters 410 2"])
+        good = t3_heads.parse_ptys(["pty 700 pts/0 80x30 bash", prompt, "masters 512 2"])
         self.assertEqual(t3_heads.shell_of(before), 700)
         self.assertIsNone(t3_heads.judge_survived(before, good, 512, True))
         for after, vtium, took, why in (
                 (good, 512, False, "did not log"),
-                (t3_heads.parse_ptys(["masters 512 1"]), 512, True, "is gone"),
-                (t3_heads.parse_ptys(["pty 700 pts/1 80x30 bash", "masters 512 1"]), 512, True,
-                 "not pts/0"),
-                (t3_heads.parse_ptys(["pty 700 pts/0 10x5 bash", "masters 512 1"]), 512, True,
-                 "not 80x30"),
-                (t3_heads.parse_ptys(["pty 700 pts/0 80x30 bash", "masters 512 0"]), 512, True,
-                 "holds no pty master"),
+                (t3_heads.parse_ptys([prompt, "masters 512 1"]), 512, True, "shell 700 is gone"),
+                (t3_heads.parse_ptys(["pty 700 pts/0 80x30 bash", "masters 512 1"]), 512, True,
+                 "login prompt 701 is gone"),
+                (t3_heads.parse_ptys(["pty 700 pts/2 80x30 bash", prompt, "masters 512 1"]), 512,
+                 True, "not pts/0"),
+                (t3_heads.parse_ptys(["pty 700 pts/0 10x5 bash", prompt, "masters 512 1"]), 512,
+                 True, "not 80x30"),
+                (t3_heads.parse_ptys(["pty 700 pts/0 80x30 bash", prompt, "masters 512 0"]), 512,
+                 True, "holds no pty master"),
                 (good, 513, True, "holds no pty master")):
             with self.subTest(why):
                 self.assertIn(why, t3_heads.judge_survived(before, after, vtium, took))
@@ -3391,6 +3394,10 @@ class HeadsTest(unittest.TestCase):
         self.assertIn("no one shell", t3_heads.judge_survived(none, good, 512, True))
         self.assertEqual(t3_heads.parse_ptys(["answer restart 700"])["answers"],
                          {"restart": "700"})
+        self.assertIsNone(t3_heads.judge_stopped(before, t3_heads.parse_ptys([])))
+        self.assertIn("still run", t3_heads.judge_stopped(before, good))
+        self.assertIn("still run", t3_heads.judge_stopped(
+            before, t3_heads.parse_ptys([prompt])))
 
     def test_parse_state(self):
         st = t3_heads.parse_state(agent_state(tty2="agetty", fallback=("inactive", "success",
