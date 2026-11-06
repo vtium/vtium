@@ -36,6 +36,11 @@ use vtium_term::{Termcap, TermcapError};
 /// table's.
 pub const NAME: &str = vtium_settings::keys::TERM_NAME;
 
+/// The bare name vtium's terminfo entry also carries, `xterm-vtium|vtium|`,
+/// for a user who sets `TERM=vtium`: vtium answers XTGETTCAP under it as
+/// under [`NAME`], with its table and its `TN` and `name`.
+pub const ALIAS: &str = "vtium";
+
 /// The name of the C reference's terminfo entry.
 pub const KMSCON: &str = "kmscon";
 
@@ -47,7 +52,7 @@ pub type Entries = &'static [(&'static str, Option<&'static [u8]>)];
 /// entry vtium has no table for.
 pub fn entries(term: &str) -> Option<Entries> {
     match term {
-        NAME => Some(table::XTERM_VTIUM),
+        NAME | ALIAS => Some(table::XTERM_VTIUM),
         KMSCON => Some(table::KMSCON),
         _ => None,
     }

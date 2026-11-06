@@ -426,7 +426,24 @@ fn each_entrys_name_gets_its_own_table() {
     );
     // TN=kmscon
     assert_eq!(ask("kmscon"), b"\x1bP1+r544E=6B6D73636F6E\x1b\\");
-    for other in ["xterm-kitty", "xterm", "xterm-vtium ", "KMSCON", ""] {
+    // The entry's second name is the bare vtium, and under TERM=vtium the
+    // terminal answers as under xterm-vtium, TN with xterm-vtium.
+    let names = fields(ENTRY)
+        .into_iter()
+        .next()
+        .expect("an entry starts with its names");
+    assert_eq!(names.split('|').nth(1), Some(super::ALIAS));
+    assert_eq!(super::entries(super::ALIAS), super::entries(super::NAME));
+    assert_eq!(ask(super::ALIAS), ask(super::NAME));
+    for other in [
+        "xterm-kitty",
+        "xterm",
+        "xterm-vtium ",
+        "KMSCON",
+        "VTIUM",
+        "vtium ",
+        "",
+    ] {
         assert!(super::for_term(other).is_none(), "{other:?}");
         assert_eq!(ask(other), b"\x1bP0+r\x1b\\", "{other:?}");
     }
