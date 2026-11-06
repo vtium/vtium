@@ -1,3 +1,17 @@
 # vtium's goldens the operator has not reviewed: NAME and why. A
 # provisional case is drawn and compared, and a difference is noted but
 # does not fail the run; the row goes when the operator accepts the golden.
+img-bands	new, pictures over text in the test font set of outline fonts (ADR-1503 D9), 2026-11-06; the maintainer reviews it as a picture
+kitty-bands	new, pictures over text in the test font set of outline fonts (ADR-1503 D9), 2026-11-06; the maintainer reviews it as a picture
+img-sixel	new, pictures over text in the test font set of outline fonts (ADR-1503 D9), 2026-11-06; the maintainer reviews it as a picture
+sixel-vte	new, pictures over text in the test font set of outline fonts (ADR-1503 D9), 2026-11-06; the maintainer reviews it as a picture
+img-scale	new, pictures over text in the test font set of outline fonts (ADR-1503 D9), 2026-11-06; the maintainer reviews it as a picture
+img-region	new, pictures over text in the test font set of outline fonts (ADR-1503 D9), 2026-11-06; the maintainer reviews it as a picture
+img-rotated	new, pictures over text in the test font set of outline fonts (ADR-1503 D9), 2026-11-06; the maintainer reviews it as a picture
+img-moves	new, pictures over text in the test font set of outline fonts (ADR-1503 D9), 2026-11-06; the maintainer reviews it as a picture
+img-banner-bg	new, pictures over text in the test font set of outline fonts (ADR-1503 D9), 2026-11-06; the maintainer reviews it as a picture
+img-banner-text	new, pictures over text in the test font set of outline fonts (ADR-1503 D9), 2026-11-06; the maintainer reviews it as a picture
+img-ed2	new, pictures over text in the test font set of outline fonts (ADR-1503 D9), 2026-11-06; the maintainer reviews it as a picture
+kitty-text	new, pictures over text in the test font set of outline fonts (ADR-1503 D9), 2026-11-06; the maintainer reviews it as a picture
+kitty-banner-bg	new, pictures over text in the test font set of outline fonts (ADR-1503 D9), 2026-11-06; the maintainer reviews it as a picture
+kitty-banner-text	new, pictures over text in the test font set of outline fonts (ADR-1503 D9), 2026-11-06; the maintainer reviews it as a picture

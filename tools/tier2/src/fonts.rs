@@ -27,7 +27,7 @@ use vtium::deferred::{Shown, lock};
 use vtium::font::{Chosen, DisplayFace};
 use vtium::helper::{FritText, OwnCell};
 use vtium_font::set::{Set, SetFace};
-use vtium_font::{Face, Sha256, sha256_hex};
+use vtium_font::{Cell, Face, Sha256, sha256_hex};
 
 /// The archive a font is unpacked from, pinned by its URL and SHA-256.
 #[derive(Clone, Copy, Debug)]
@@ -317,13 +317,18 @@ fn runs(chars: &[char]) -> Vec<(u32, u32)> {
 
 /// The test frit, in the fonts in `dir`, less the color emoji font unless
 /// `color`, as the console holds it at [`HEIGHT`] once the helper has
-/// answered for `shown`, what the screen shows in each style: the cell
-/// the frit's first source gives at that height, and in the console's
-/// store of generated glyphs, the glyphs the engine generates for each
-/// style's characters and clusters, as the helper answers the console's
-/// asks for them. [`Chosen::face`] then draws through that store, and in
-/// the built-in font what no source holds.
-pub fn chosen(dir: &Path, color: bool, shown: &[Shown]) -> Result<Chosen, String> {
+/// answered for what the screen shows in each style, which `shown` reads
+/// in the frit's cell: the cell the frit's first source gives at that
+/// height, and in the console's store of generated glyphs, the glyphs the
+/// engine generates for each style's characters and clusters, as the
+/// helper answers the console's asks for them. [`Chosen::face`] then
+/// draws through that store, and in the built-in font what no source
+/// holds.
+pub fn chosen(
+    dir: &Path,
+    color: bool,
+    shown: impl FnOnce(Cell) -> Result<Vec<Shown>, String>,
+) -> Result<Chosen, String> {
     use vtium_config::serve::{Engine, FritText as EngineFrit, OwnCell as EngineCell, Paths};
     check(dir)?;
     let name = frit_name(color);
@@ -374,7 +379,7 @@ pub fn chosen(dir: &Path, color: bool, shown: &[Shown]) -> Result<Chosen, String
     let Chosen::Frit { generated, .. } = &chosen else {
         return Err(format!("the frit {name} is not taken as a frit"));
     };
-    for one in shown {
+    for one in &shown(cell)? {
         let want: Vec<u32> = one.chars.iter().map(|&c| u32::from(c)).collect();
         let clusters: Vec<Vec<u32>> = one
             .clusters
