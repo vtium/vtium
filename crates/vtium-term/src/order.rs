@@ -139,21 +139,35 @@ impl RowOrder {
         }
     }
 
-    /// The glyph logical column `col` draws for `glyph`, the character the
-    /// program wrote there: by rule L4 a character with a mirrored glyph
-    /// draws it when the cell resolves right to left, and under mode 2500 a
-    /// box-drawing character in a right-to-left paragraph draws its
-    /// left-right counterpart (ADR-1004 D7). A cluster, a character with
-    /// marks on it, draws as written.
-    pub(crate) fn drawn<'a>(&self, col: usize, glyph: Glyph<'a>) -> Glyph<'a> {
-        let Glyph::Char(c) = glyph else {
-            return glyph;
+    /// The character logical column `col` draws in place of the first
+    /// character of `glyph`, the cell the program wrote: by rule L4 a
+    /// character with a mirrored glyph draws it when the cell resolves
+    /// right to left, and under mode 2500 a box-drawing character in a
+    /// right-to-left paragraph draws its left-right counterpart (ADR-1004
+    /// D7). A character's marks stay with it, drawn on the counterpart.
+    /// `None` when the cell draws as written.
+    pub(crate) fn mirror(&self, col: usize, glyph: Glyph<'_>) -> Option<char> {
+        let c = match glyph {
+            Glyph::Empty => return None,
+            Glyph::Char(c) => c,
+            Glyph::Cluster(s) => s.chars().next()?,
         };
         let mirrored = self.rtl_at(col).then(|| bidi::mirrored(c)).flatten();
         let boxed = (self.box_mirror && self.rtl)
             .then(|| bidi::box_mirrored(c))
             .flatten();
-        mirrored.or(boxed).map_or(glyph, Glyph::Char)
+        mirrored.or(boxed)
+    }
+
+    /// The glyph logical column `col` draws for `glyph`: a single character
+    /// drawn mirrored is its counterpart, as [`mirror`](Self::mirror) says.
+    /// A cluster keeps its own text, and the frame carries its mirrored
+    /// first character beside it.
+    pub(crate) fn drawn<'a>(&self, col: usize, glyph: Glyph<'a>) -> Glyph<'a> {
+        match (glyph, self.mirror(col, glyph)) {
+            (Glyph::Char(_), Some(m)) => Glyph::Char(m),
+            _ => glyph,
+        }
     }
 }
 

@@ -40,7 +40,12 @@ pub fn display(term: &Terminal, out: &mut String) {
             .cells(row)
             .map(|c| match c.glyph {
                 Glyph::Char(ch) => Some(ch.to_string()),
-                Glyph::Cluster(s) => Some(s.to_owned()),
+                // a mirrored cluster draws its first character's
+                // counterpart with the cluster's marks on it
+                Glyph::Cluster(s) => Some(match c.mirror {
+                    Some(m) => core::iter::once(m).chain(s.chars().skip(1)).collect(),
+                    None => s.to_owned(),
+                }),
                 Glyph::Empty if c.width == Width::WideTail => Some(String::new()),
                 Glyph::Empty => None,
             })

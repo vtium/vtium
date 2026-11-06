@@ -29,6 +29,9 @@ fn rows_of(frame: &Frame<'_>) -> Vec<String> {
                 .cells(r)
                 .filter_map(|c| match c.glyph {
                     Glyph::Char(ch) => Some(ch),
+                    #[cfg(feature = "bidi")]
+                    Glyph::Cluster(s) => c.mirror.or_else(|| s.chars().next()),
+                    #[cfg(not(feature = "bidi"))]
                     Glyph::Cluster(s) => s.chars().next(),
                     Glyph::Empty if c.width == vtium_term::Width::WideTail => None,
                     Glyph::Empty => Some('.'),
@@ -195,6 +198,22 @@ mod with_the_feature {
         let t = term(8, 1, "\x1b[2 k┌─┐ (a)".as_bytes());
         assert_eq!(drawn(&t)[0], ".(a) ┐─┌");
         assert_eq!(common::rows(t.screen())[0], "┌─┐ (a)");
+    }
+
+    // ADR-1004 D7: a bracket with a mark on it mirrors too; the frame
+    // carries the counterpart, and the cell keeps the program's cluster.
+    // covers: text.bidi
+    #[test]
+    fn a_mirrored_character_keeps_its_marks() {
+        let t = term(10, 1, "\u{5D0}(\u{301}\u{5D1})".as_bytes());
+        assert_eq!(drawn(&t)[0], "(\u{5D1})\u{5D0}......");
+        let palette = Palette::default();
+        let frame = t.screen().frame(&palette, Age::NEVER);
+        let cell = frame.cell(0, 2).unwrap();
+        assert_eq!(
+            (cell.glyph, cell.mirror),
+            (Glyph::Cluster("(\u{301}"), Some(')'))
+        );
     }
 
     // ADR-1004 D9: the cursor stays on its logical cell and is drawn where

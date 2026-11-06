@@ -117,6 +117,12 @@ pub struct FrameCell<'a> {
     /// joining script such as Arabic (ADR-1004 D6).
     #[cfg(feature = "bidi")]
     pub joins: crate::order::Joins,
+    /// The character the cell draws in place of its first character, its
+    /// mirrored counterpart, with any marks of its cluster drawn on it;
+    /// `None` when it draws as written (ADR-1004 D7). A single character
+    /// drawn mirrored is the counterpart in `glyph` too.
+    #[cfg(feature = "bidi")]
+    pub mirror: Option<char>,
 }
 
 /// The visible screen, as one display reads it.
@@ -391,6 +397,8 @@ impl<'a> Frame<'a> {
             rtl: order.is_some_and(|r| r.rtl_at(col)),
             #[cfg(feature = "bidi")]
             joins: order.map(|r| r.joins_at(col)).unwrap_or_default(),
+            #[cfg(feature = "bidi")]
+            mirror: order.and_then(|r| r.mirror(col, line.glyph(cell))),
         }
     }
 

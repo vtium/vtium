@@ -67,7 +67,7 @@ vtium keeps every row in the order the program wrote it, and draws each paragrap
 
 `display-cursor X,Y SIDE` is the cell the cursor is drawn on, counted from the left of the drawn row, and the side of that cell a bar cursor stands on: `right` when the cell's character resolves right to left, and `left` otherwise. The `cursor` line of the head still gives the cursor's logical cell.
 
-`row N |TEXT|` is row N as drawn, from the left: a character drawn mirrored prints as its counterpart, as `(` prints `)` inside right-to-left text, an empty cell prints a space, a cell prints all the codepoints it holds, and the second cell of a wide character prints nothing. The empty cells at the right end of the row are trimmed, so the empty cells a right-to-left paragraph draws at its left print as spaces.
+`row N |TEXT|` is row N as drawn, from the left: a character drawn mirrored prints as its counterpart, as `(` prints `)` inside right-to-left text, with any marks on it after the counterpart, an empty cell prints a space, a cell prints all the codepoints it holds, and the second cell of a wide character prints nothing. The empty cells at the right end of the row are trimmed, so the empty cells a right-to-left paragraph draws at its left print as spaces.
 
 | Feature | What declaring it means |
 |---|---|
