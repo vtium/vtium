@@ -27,7 +27,8 @@ pub(super) enum Error {
     /// bytes that came and the bytes needed, as kitty answers it
     /// (ADR-1100, D15).
     NoData { got: u64, want: u64 },
-    /// A raw frame without `s` or `v`, as kitty answers it (ADR-1102, D2).
+    /// A raw upload or frame without `s` or `v`, as kitty answers it
+    /// (ADR-1100, D15; ADR-1102, D2).
     ZeroSize,
     /// A frame on a picture that arrived as palette indices, or a frame in
     /// `f=8` or `f=16`, as kitty answers it (ADR-1100, D15).
@@ -338,9 +339,8 @@ impl Command {
 
     /// What is refused before any data is read: a key that cannot be read;
     /// `i` with `I`, as the spec asks; a `U` other than 0 or 1, and `U=1` with a parent, since a virtual
-    /// placement is never a relative one (D13); a raw format without `s` and
-    /// `v`, which a frame answers as kitty does (ADR-1102, D2), or past
-    /// `max-graphic-size`; palette indices in a frame, from a named medium
+    /// placement is never a relative one (D13); a raw upload without `s` and
+    /// `v`, answered as kitty answers it (D15), or past `max-graphic-size`; palette indices in a frame, from a named medium
     /// or with `o=z` (ADR-1100, D15); and a placement whose pixel offset
     /// lies outside its cell or whose box passes [`BOX_CELLS_MAX`].
     pub(super) fn refusal(&self, ctx: &dyn Context) -> Option<Error> {
@@ -359,7 +359,7 @@ impl Command {
         let raw = self.transmits() && self.format != 100;
         // a frame's size is checked once its image is found (frame_target)
         if raw && self.action != b'f' && (self.width == 0 || self.height == 0) {
-            return Some(Error::Invalid);
+            return Some(Error::ZeroSize);
         }
         if raw && (self.width > max_w || self.height > max_h) {
             return Some(Error::Invalid);

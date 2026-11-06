@@ -439,6 +439,42 @@ fn raw_data_short_of_its_pixels_is_enodata_and_data_past_them_ignored() {
     assert_eq!(h.store.bytes(), 4 + IMAGE_OVERHEAD);
 }
 
+// A raw upload without s or v is refused as kitty 0.50.0 refuses it, in
+// every raw format and action (ADR-1100, D15); a PNG takes its size from
+// the picture.
+// covers: image.kitty
+#[test]
+fn a_raw_upload_without_s_or_v_is_refused_as_kitty_refuses_it() {
+    let (mut k, mut h) = (Kitty::default(), Host::new());
+    h.helper = true;
+    send(&mut k, &mut h, &format!("a=t,f=32,s=2,i=3;{}", red(2)));
+    send(&mut k, &mut h, &format!("a=q,f=32,i=4;{}", red(1)));
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=T,f=24,v=1,i=5;{}", b64(&[1; 3])),
+    );
+    send(&mut k, &mut h, &format!("a=t,f=8,i=6;{}", b64(&[1, 2])));
+    send(&mut k, &mut h, &format!("a=t,f=32,I=7;{}", red(1)));
+    send(&mut k, &mut h, &format!("a=t,t=f,f=24,i=8;{}", b64(b"/x")));
+    let zero = "EINVAL:Zero width/height not allowed";
+    assert_eq!(
+        h.take(),
+        format!(
+            "\x1b_Gi=3;{zero}\x1b\\\x1b_Gi=4;{zero}\x1b\\\x1b_Gi=5;{zero}\x1b\\\
+             \x1b_Gi=6;{zero}\x1b\\\x1b_GI=7;{zero}\x1b\\\x1b_Gi=8;{zero}\x1b\\"
+        )
+    );
+    assert!(h.store.is_empty() && h.requests.is_empty());
+    // a PNG needs neither: it goes to the helper
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=t,f=100,i=9;{}", b64(b"\x89PNG")),
+    );
+    assert_eq!(h.requests.len(), 1);
+}
+
 // covers: image.kitty
 #[test]
 fn raw_data_short_of_its_picture_is_enodata_in_every_raw_format() {
@@ -699,11 +735,12 @@ fn palette_index_pictures_are_refused_where_vtium_cannot_take_them() {
     );
     let bad = "EINVAL:invalid argument";
     let indexed = "EINVAL:Animation is not supported for indexed color images";
+    let zero = "EINVAL:Zero width/height not allowed";
     assert_eq!(
         h.take(),
         format!(
             "\x1b_Gi=1;OK\x1b\\\x1b_Gi=1;{indexed}\x1b\\\x1b_Gi=2;{bad}\x1b\\\x1b_Gi=3;{bad}\x1b\\\
-             \x1b_Gi=4;{bad}\x1b\\\x1b_Gi=5;{bad}\x1b\\"
+             \x1b_Gi=4;{zero}\x1b\\\x1b_Gi=5;{bad}\x1b\\"
         )
     );
     assert!(h.requests.is_empty(), "nothing goes to the helper");
@@ -1688,11 +1725,13 @@ fn a_refused_temporary_file_still_goes_to_the_helper_to_be_removed() {
     assert!(r.discard);
     assert_eq!((r.min, r.png, r.inflate), (0, false, false));
     k.decoded(&mut h, Reply::Ok(Payload::Discarded));
-    assert_eq!(h.take(), "\x1b_Gi=1;EINVAL:invalid argument\x1b\\");
+    // refused for its missing s and v, as kitty refuses it
+    let zero = "EINVAL:Zero width/height not allowed";
+    assert_eq!(h.take(), format!("\x1b_Gi=1;{zero}\x1b\\"));
     // a refused file is not removable and makes no request
     send(&mut k, &mut h, &format!("a=t,t=f,f=24,i=2;{}", b64(b"/a")));
     assert!(h.requests.is_empty());
-    assert_eq!(h.take(), "\x1b_Gi=2;EINVAL:invalid argument\x1b\\");
+    assert_eq!(h.take(), format!("\x1b_Gi=2;{zero}\x1b\\"));
 }
 
 #[test]
