@@ -121,6 +121,18 @@ pub(crate) enum Mode {
     SixelDisplay,
     SixelPrivateRegisters,
     SixelCursorRight,
+    /// BDSM: set, the cursor's paragraph is in implicit mode.
+    #[cfg(feature = "bidi")]
+    Bdsm,
+    /// Mode 1243: the arrow keys follow the paragraph's direction.
+    #[cfg(feature = "bidi")]
+    ArrowDirection,
+    /// Mode 2500: box drawing mirrored in a right-to-left paragraph.
+    #[cfg(feature = "bidi")]
+    BoxMirror,
+    /// Mode 2501: the paragraph's direction detected.
+    #[cfg(feature = "bidi")]
+    DetectDirection,
 }
 
 /// One mode.
@@ -192,7 +204,43 @@ macro_rules! row {
     };
 }
 
-/// Every mode vtium recognises, ANSI modes first, each kind by number.
+/// The test of DECSTR and RIS that each supported bidi row names.
+#[cfg(any(test, feature = "bidi"))]
+const BIDI_RESETS: &str = "bidi.rs::decstr_and_ris_return_the_paragraph_to_its_defaults";
+
+/// The accessors of the bidi rows: none in a build without the bidi
+/// feature, whose rows exist only for the documents.
+#[cfg(feature = "bidi")]
+mod bidi_modes {
+    use super::Mode;
+    pub(super) const BDSM: Option<Mode> = Some(Mode::Bdsm);
+    pub(super) const ARROWS: Option<Mode> = Some(Mode::ArrowDirection);
+    pub(super) const BOX_MIRROR: Option<Mode> = Some(Mode::BoxMirror);
+    pub(super) const DETECT: Option<Mode> = Some(Mode::DetectDirection);
+}
+#[cfg(all(test, not(feature = "bidi")))]
+mod bidi_modes {
+    pub(super) const BDSM: Option<super::Mode> = None;
+    pub(super) const ARROWS: Option<super::Mode> = None;
+    pub(super) const BOX_MIRROR: Option<super::Mode> = None;
+    pub(super) const DETECT: Option<super::Mode> = None;
+}
+
+/// The bidi modes (ADR-1004 D12, D13), in the table for its documents in
+/// every build that tests them, and recognised only in a build with the
+/// bidi feature, so a build without it carries none of them.
+#[cfg(any(test, feature = "bidi"))]
+#[rustfmt::skip]
+static BIDI_MODES: &[Row] = &[
+    row!(ANSI, 8, "BDSM", Supported, SET, Soft, Nothing, "", "ECMA-48 §7.2.1, the Terminal Working Group's BiDi recommendation: set, the cursor's paragraph (the rows a wrap joins) is in implicit mode, reset in explicit mode (ADR-1004 D3, D4); SM and RM mark every row of the cursor's paragraph and each new row; in a build with the bidi feature, and a build without it has no such row, so DECRQM answers 0", &["bidi.rs::bdsm_sets_explicit_mode_on_the_cursors_paragraph_and_each_new_row", BIDI_RESETS], bidi_modes::BDSM),
+    row!(ANSI, 9, "DCSM", Ignored, SET, Never, Nothing, "", "ECMA-48 §7.2.3; permanently set: editing always acts on the data, the order the program wrote (ADR-1004 D1); in a build with the bidi feature, and a build without it has no such row, so DECRQM answers 0", &["bidi.rs::dcsm_answers_permanently_set_and_changes_nothing"], None),
+    row!(DEC, 1243, "BIDIARROWS", Supported, SET, Soft, Nothing, "", "the Terminal Working Group's BiDi recommendation, as mintty documents it: set, the Left and Right arrow keys swap while the cursor's paragraph resolves right to left (ADR-1004 D11); in a build with the bidi feature, and a build without it has no such row, so DECRQM answers 0", &["bidi.rs::mode_1243_is_set_by_default_and_toggles", BIDI_RESETS], bidi_modes::ARROWS),
+    row!(DEC, 2500, "BIDIBOX", Supported, RESET, Soft, Nothing, "", "the Terminal Working Group's BiDi recommendation, as mintty documents it: set, box drawing in a right-to-left paragraph draws mirrored (ADR-1004 D7); SM and RM mark every row of the cursor's paragraph and each new row; in a build with the bidi feature, and a build without it has no such row, so DECRQM answers 0", &["bidi.rs::mode_2500_marks_box_drawing_mirrored_on_the_cursors_paragraph", BIDI_RESETS], bidi_modes::BOX_MIRROR),
+    row!(DEC, 2501, "BIDIAUTO", Supported, Initial::Host("text-direction"), Soft, Nothing, "", "the Terminal Working Group's BiDi recommendation, as mintty documents it: set, each paragraph's direction is detected from its first strong character (ADR-1004 D5); SM and RM mark every row of the cursor's paragraph and each new row, and DECSTR and RIS return it to vtium.conf's `text-direction`, set under `auto`; in a build with the bidi feature, and a build without it has no such row, so DECRQM answers 0", &["bidi.rs::mode_2501_marks_detection_and_starts_as_text_direction_says", BIDI_RESETS], bidi_modes::DETECT),
+];
+
+/// Every mode vtium recognises, ANSI modes first, each kind by number,
+/// but the bidi modes, which are in `BIDI_MODES`.
 #[rustfmt::skip]
 pub(crate) static MODES: &[Row] = &[
     row!(ANSI, 2, "KAM", Refused, RESET, Never, Nothing, "", "ECMA-48 §7.2.11; refused: a program could lock the keyboard of the only terminal on the console", FIXED, None),
@@ -249,13 +297,20 @@ pub(crate) static MODES: &[Row] = &[
     row!(DEC, 8452, "SIXELRIGHT", Supported, RESET, Hard, Sixel, "", "ctlseqs, sixel cursor to the right: set, the cursor ends a picture in the column after its right edge, at most the last column; reset, at its left column", SIXEL_MODES, Some(Mode::SixelCursorRight)),
 ];
 
+/// The rows of the table this build compiles in: [`MODES`], and in a
+/// build with the bidi feature the bidi rows (ADR-1004 D13).
+fn rows() -> impl Iterator<Item = &'static Row> {
+    let rows = MODES.iter();
+    #[cfg(feature = "bidi")]
+    let rows = rows.chain(BIDI_MODES);
+    rows
+}
+
 /// The row of a mode number, in this build: the sixel rows are in the
 /// table for its documents in every build, and only a build with images
 /// has them (ADR-1100, D10).
 fn find(dec: bool, number: u32) -> Option<&'static Row> {
-    MODES
-        .iter()
-        .find(|r| r.dec == dec && r.number == number && r.built())
+    rows().find(|r| r.dec == dec && r.number == number && r.built())
 }
 
 impl Row {
@@ -318,6 +373,9 @@ pub(super) struct Modes {
     sixel_display: bool,
     sixel_private_registers: bool,
     sixel_cursor_right: bool,
+    /// Mode 1243.
+    #[cfg(feature = "bidi")]
+    arrow_direction: bool,
 }
 
 impl Modes {
@@ -345,6 +403,8 @@ impl Modes {
         sixel_display: false,
         sixel_private_registers: true,
         sixel_cursor_right: false,
+        #[cfg(feature = "bidi")]
+        arrow_direction: true,
     };
 
     /// SRM: set, the default, sends with no local echo.
@@ -486,6 +546,14 @@ impl State {
             Mode::SixelDisplay => m.sixel_display,
             Mode::SixelPrivateRegisters => m.sixel_private_registers,
             Mode::SixelCursorRight => m.sixel_cursor_right,
+            #[cfg(feature = "bidi")]
+            Mode::Bdsm => !s.paragraph().contains(crate::LineFlags::EXPLICIT),
+            #[cfg(feature = "bidi")]
+            Mode::ArrowDirection => m.arrow_direction,
+            #[cfg(feature = "bidi")]
+            Mode::BoxMirror => s.paragraph().contains(crate::LineFlags::BOX_MIRROR),
+            #[cfg(feature = "bidi")]
+            Mode::DetectDirection => s.paragraph().contains(crate::LineFlags::DETECT),
         }
     }
 
@@ -571,6 +639,20 @@ impl State {
             Mode::SixelDisplay => self.modes.sixel_display = on,
             Mode::SixelPrivateRegisters => self.modes.sixel_private_registers = on,
             Mode::SixelCursorRight => self.modes.sixel_cursor_right = on,
+            // The paragraph modes mark every row of the cursor's paragraph
+            // and each new row (ADR-1004 D2).
+            #[cfg(feature = "bidi")]
+            Mode::Bdsm => self
+                .screen
+                .set_paragraph_flag(crate::LineFlags::EXPLICIT, !on),
+            #[cfg(feature = "bidi")]
+            Mode::ArrowDirection => self.modes.arrow_direction = on,
+            #[cfg(feature = "bidi")]
+            Mode::BoxMirror => self
+                .screen
+                .set_paragraph_flag(crate::LineFlags::BOX_MIRROR, on),
+            #[cfg(feature = "bidi")]
+            Mode::DetectDirection => self.screen.set_paragraph_flag(crate::LineFlags::DETECT, on),
         }
     }
 
@@ -615,6 +697,10 @@ impl State {
             #[cfg(feature = "images")]
             (Initial::Host(_), Some(Mode::SixelPrivateRegisters)) => {
                 self.image_limits().private_registers
+            }
+            #[cfg(feature = "bidi")]
+            (Initial::Host(_), Some(Mode::DetectDirection)) => {
+                self.host.text_direction == super::TextDirection::Auto
             }
             _ => false,
         }
@@ -672,7 +758,7 @@ pub(super) fn report(state: &State, dec: bool, number: u32) -> u8 {
 /// setter, where its state differs: DECSTR the soft rows, RIS the hard
 /// rows too.
 pub(super) fn reset(state: &mut State, hard: bool) {
-    for row in MODES {
+    for row in rows() {
         let covered = row.reset == Reset::Soft || (hard && row.reset == Reset::Hard);
         if let (true, Some(mode)) = (covered, row.mode) {
             let initial = state.initial(row);
@@ -791,8 +877,7 @@ impl Row {
 /// each once.
 fn empty_list_slots() -> Vec<Slot> {
     let mut slots: Vec<Slot> = Vec::new();
-    for slot in MODES
-        .iter()
+    for slot in rows()
         .filter(|r| r.in_empty_list())
         .filter_map(|r| r.mode.and_then(Mode::slot))
     {
@@ -877,6 +962,21 @@ mod tests {
 
     const CRATE: &str = env!("CARGO_MANIFEST_DIR");
 
+    /// Every row of the table, the bidi rows among the others, ANSI modes
+    /// first, each kind in the order [`MODES`] gives it.
+    fn every_row() -> Vec<&'static Row> {
+        let mut out: Vec<&'static Row> = Vec::new();
+        let mut bidi = BIDI_MODES.iter().peekable();
+        for row in MODES {
+            while let Some(b) = bidi.next_if(|b| (b.dec, b.number) < (row.dec, row.number)) {
+                out.push(b);
+            }
+            out.push(row);
+        }
+        out.extend(bidi);
+        out
+    }
+
     fn kind(row: &Row) -> &'static str {
         if row.dec { "DEC" } else { "ANSI" }
     }
@@ -949,7 +1049,7 @@ mod tests {
     /// `docs/modes.tsv`, generated from the table.
     fn tsv() -> String {
         let mut out = COLUMNS.join("\t") + "\n";
-        for row in MODES {
+        for row in every_row() {
             out += &(cells(row).join("\t") + "\n");
         }
         out
@@ -980,7 +1080,7 @@ mod tests {
         );
         out += &format!("| {} |\n", COLUMNS.join(" | "));
         out += &format!("|{}\n", "---|".repeat(COLUMNS.len()));
-        for row in MODES {
+        for row in every_row() {
             let cells = cells(row).map(|c| {
                 if c.is_empty() {
                     c
@@ -1029,7 +1129,7 @@ mod tests {
         let col = |name: &str| header.iter().position(|h| *h == name).expect(name);
         let (id, status_col, note) = (col("id"), col("status"), col("note"));
         let rows: Vec<Vec<&str>> = lines.map(|l| l.split('\t').collect()).collect();
-        for row in MODES {
+        for row in every_row() {
             let adr_row = rows
                 .iter()
                 .find(|r| r[id] == row.id())
@@ -1050,7 +1150,7 @@ mod tests {
             );
             let listed = answered && !unlisted;
             assert_eq!(
-                MODES.iter().any(|m| m.id() == r[id]),
+                every_row().iter().any(|m| m.id() == r[id]),
                 listed,
                 "ADR-1000's {} is {} with the note {:?}, so the mode table should {}list it",
                 r[id],
@@ -1065,7 +1165,7 @@ mod tests {
     // names a test that sets and resets it, and every test named exists.
     #[test]
     fn every_row_names_tests_that_exist() {
-        for row in MODES {
+        for row in every_row() {
             assert!(
                 row.status != Status::Supported || !row.tests.is_empty(),
                 "{} names no test",
@@ -1185,7 +1285,7 @@ mod tests {
                 checked += 1;
             }
         }
-        let built = MODES.iter().filter(|r| r.built()).count();
+        let built = rows().filter(|r| r.built()).count();
         assert_eq!(checked, 256 + 65536 - u32::try_from(built).expect("rows"));
     }
 }

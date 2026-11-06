@@ -101,6 +101,8 @@ pub use scrollback::{
 };
 pub use style::{Attrs, Color, Rgb, Script, Style, UnderlineStyle};
 pub use termcap::{Termcap, TermcapError};
+#[cfg(feature = "bidi")]
+pub use terminal::TextDirection;
 pub use terminal::{
     BlankRequest, BlankTimeout, CursorStyle, Mods, MouseButton, MouseEvent, MouseTracking,
     Terminal, VersionError,

@@ -7,5 +7,5 @@ From the repository's root, `make fuzz FUZZ_TARGETS=vtium-term:screen` runs a ta
 | Path | What it is |
 |---|---|
 | `fuzz_targets/screen.rs` | Any input, parsed by `vtium-parse` into the screen: no panic, and the input cut where its third byte says gives the screen and the replies it gives whole. Its first two bytes pick the screen's size. |
-| `Cargo.toml`, `Cargo.lock` | The fuzz crate and its pinned dependencies. |
+| `Cargo.toml`, `Cargo.lock` | The fuzz crate and its pinned dependencies. It builds vtium-term with the `bidi` feature, so the target reaches the paragraph properties and the modes and controls that set them (ADR-1004 D14). |
 | `.gitignore` | Leaves out `target`, `corpus`, `artifacts` and `coverage`. |

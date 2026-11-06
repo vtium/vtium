@@ -617,6 +617,26 @@ impl Scrollback {
         }
     }
 
+    /// Sets the paragraph properties `values` on the newest rows, rewrapped
+    /// then waiting, while each wraps into the row after it, at most
+    /// `most` of them: the rows of a paragraph that goes on into the
+    /// screen's first row (`screen/paragraph.rs`). The flags change no
+    /// row's cost.
+    #[cfg(feature = "bidi")]
+    pub(crate) fn set_paragraph_above(&mut self, values: LineFlags, most: usize) {
+        let rows = self
+            .lines
+            .iter_mut()
+            .rev()
+            .chain(self.waiting.rows.iter_mut().rev());
+        for line in rows.take(most) {
+            if !line.flags().contains(LineFlags::WRAPPED) {
+                break;
+            }
+            crate::screen::paragraph::hold(line.flags_mut(), values);
+        }
+    }
+
     /// The nearest rewrapped row above row `top` whose line `is` picks,
     /// rewrapping the waiting rows as the search reaches them; a view
     /// stays on its row.
