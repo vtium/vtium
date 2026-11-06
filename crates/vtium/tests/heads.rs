@@ -6614,12 +6614,12 @@ fn a_sessions_end_undoes_its_zoom() {
     assert_eq!(s.app.cells(), [(8, 16)]);
 }
 
-/// ADR-1201 D11, ADR-1302 D13: a session's end reads `font-name`,
-/// `font-size` and `font-engine` again and no other key, so the line
-/// spacing vtium started with stays: the zoom is undone back to text 16
-/// rows high with 25% added, an 8x20 cell, whatever vtium.conf now says.
+/// ADR-1201 D11, ADR-1302 D13: a session's end reads `font-line-spacing`
+/// again with the other font keys, so a spacing saved since the start is
+/// the spacing the next login draws with, at the configured size: the zoom
+/// is undone back to text 16 rows high, now with 50% added, an 8x24 cell.
 #[test]
-fn a_sessions_end_keeps_the_line_spacing_vtium_started_with() {
+fn a_sessions_end_takes_the_line_spacing_vtium_conf_names_now() {
     let (dir, fonts) = reset_fixture("reset-spacing", "font-size=16\nfont-line-spacing=25\n");
     let (mut s, reads) = reset_seat(&dir, &small_consoles(1), fonts);
     assert!(s.until(BOUND, |a| sizes(a) == [Some("size:8 40".to_owned())]));
@@ -6636,8 +6636,8 @@ fn a_sessions_end_keeps_the_line_spacing_vtium_started_with() {
     )
     .expect("the edit");
     let size = end_shown_session(&mut s);
-    assert_eq!(size, "size:8 40", "the next login starts with 25% added");
-    assert_eq!(s.app.cells(), [(8, 20)]);
+    assert_eq!(size, "size:6 40", "the next login starts with 50% added");
+    assert_eq!(s.app.cells(), [(8, 24)]);
     assert_eq!(reads.get(), 1, "vtium.conf read again once");
 }
 

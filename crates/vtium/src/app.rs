@@ -3166,8 +3166,12 @@ impl App {
     /// the count of reports past the most kept wait for the next start.
     /// With no reader, the configuration vtium started with stands.
     fn reread_font_keys(&mut self) {
-        const FONT_KEYS: [&crate::config::Key; 3] =
-            [&keys::FONT_NAME, &keys::FONT_SIZE, &keys::FONT_ENGINE];
+        const FONT_KEYS: [&crate::config::Key; 4] = [
+            &keys::FONT_NAME,
+            &keys::FONT_SIZE,
+            &keys::FONT_ENGINE,
+            &keys::FONT_LINE_SPACING,
+        ];
         let Some(read) = self.reread.as_mut() else {
             return;
         };
