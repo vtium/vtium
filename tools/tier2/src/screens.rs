@@ -269,6 +269,25 @@ const EMOJI: &[u8] = concat!(
     "\x1b[7;48H😀",
 ).as_bytes();
 
+/// The `emoji-spaced` screen: a box whose sides must join from row to
+/// row, around Latin text with ascenders, descenders and accents, emoji
+/// alone, in clusters, between letters, under each decoration and on a
+/// background; then blocks and lines, and underlined and struck Latin.
+const EMOJI_SPACED: &[u8] = concat!(
+    "┌──────────────────────────────────────────────┐\r\n",
+    "│ Hxgjpqy ÀÉÎ ŞĘ  Latin on its baseline\x1b[48G│\r\n",
+    "│ 😀 👍 🚀  wide emoji, never stretched\x1b[48G│\r\n",
+    "│ 👨\u{200d}👩\u{200d}👧 👍🏽 🇯🇵  family, tone, flag\x1b[48G│\r\n",
+    "│ a😀b a☺b  between letters, narrow text\x1b[48G│\r\n",
+    "│ \x1b[4m😀 under\x1b[0m \x1b[9m😀 struck\x1b[0m \x1b[7m😀 rev\x1b[0m ",
+    "\x1b[4:3;58:5:196m👍🏽curl\x1b[0m\x1b[48G│\r\n",
+    "│ \x1b[44m on blue, the added rows too \x1b[0m\x1b[48G│\r\n",
+    "└──────────────────────────────────────────────┘\r\n",
+    "▀▄█▌▐░▒▓▖▝ ═║╬ ╭╮╰╯  blocks and lines fill\r\n",
+    "\x1b[4mgjpq underlined\x1b[0m \x1b[9mgjpq struck\x1b[0m \x1b[4:3;9;31mboth, red\x1b[0m",
+)
+.as_bytes();
+
 /// Color glyphs from an RGBA strike (vtium/vtium#23): beside text, on
 /// colored backgrounds, reversed, under each decoration, in the narrow
 /// presentation, one the set lacks, and one written at the last column.
@@ -762,8 +781,35 @@ const fn outline(
     rows: usize,
 ) -> Screen {
     Screen {
-        font: FontKind::Outline { color: true },
+        font: FontKind::Outline {
+            color: true,
+            spacing: 0,
+        },
         ..Screen::new(name, desc, bytes, cols, rows)
+    }
+}
+
+/// The line spacing of the spaced outline screens: 30 per cent of the
+/// 16-pixel text height, 5 pixel rows, which ADR-1302 D13 splits 3 above
+/// the text band and 2 below it, the odd row above.
+const SPACING: u32 = 30;
+
+/// [`outline`]'s screen with each row made taller by [`SPACING`], set by
+/// the test frit's `line-spacing=` (ADR-1302 D13): DejaVu Sans Mono's
+/// 9x16 cell becomes 9x21.
+const fn spaced(
+    name: &'static str,
+    desc: &'static str,
+    bytes: &'static [u8],
+    cols: usize,
+    rows: usize,
+) -> Screen {
+    Screen {
+        font: FontKind::Outline {
+            color: true,
+            spacing: SPACING,
+        },
+        ..outline(name, desc, bytes, cols, rows)
     }
 }
 
@@ -1582,7 +1628,10 @@ pub const CASES: &[Case] = &[
     },
     Case {
         screen: Screen {
-            font: FontKind::Outline { color: false },
+            font: FontKind::Outline {
+                color: false,
+                spacing: 0,
+            },
             ..Screen::new(
                 "emoji-mono",
                 "The emoji screen in the test font set without its color emoji font: DejaVu Sans Mono, then Noto Sans CJK, at 16 pixels. Correct: no emoji in color; each emoji drawn in the text color as the glyph DejaVu Sans Mono or Noto Sans CJK has for it, else as the built-in font's, at the same places and widths as on the emoji screen.",
@@ -1605,6 +1654,26 @@ pub const CASES: &[Case] = &[
                 10,
             )
         },
+    },
+    // The spaced outline screens: the test font set with line spacing
+    // (ADR-1302 D13)
+    Case {
+        screen: spaced(
+            "mosaic-spaced",
+            "The mosaic screen with line spacing: the test font set's line-spacing=30 adds 30 per cent of the 16-pixel text height, 5 pixel rows, to each row, 3 above the text band and 2 below it, so DejaVu Sans Mono's 9x16 cell is 9x21. Every Braille pattern, sextant and octant in codepoint order; then checkerboards of sextants and of octants, a grid of eight-dot Braille, a Braille wave, and sextant and octant bands that cross the boundaries between rows; then the checkerboards and grid in yellow on blue. Correct: vtium's sprites stretch to the whole 9x21 cell, so the dots keep one 2x4 grid in every cell and the checkerboards, the grid and the bands run from row to row with no seam and no gap where the rows were added; the labels in DejaVu Sans Mono at their own size on the baseline, 3 rows lower in the cell than with no spacing, with blank rows above and below them.",
+            MOSAIC,
+            72,
+            16,
+        ),
+    },
+    Case {
+        screen: spaced(
+            "emoji-spaced",
+            "Emoji and Latin text with line spacing: the test font set's line-spacing=30 adds 30 per cent of the 16-pixel text height, 5 pixel rows, to each row, 3 above the text band and 2 below it, so DejaVu Sans Mono's 9x16 cell is 9x21. A box of light lines around Latin letters with ascenders, descenders and accents; three wide emoji; a ZWJ family, a skin tone and a flag; an emoji between letters and a narrow text smiley; emoji under underline, strike, reverse and a red curl; text on a blue background; then blocks, double lines and rounded corners, and Latin underlined, struck, and both in red. The emoji come from Noto Color Emoji 2.051, the text from DejaVu Sans Mono. No Arabic is drawn: its marks would reach into the added rows under fit=room, which draws as natural until the right-to-left work builds it. Correct: the box's sides and the blocks and lines stretch to the whole 9x21 cell and join from row to row; each Latin letter at DejaVu Sans Mono's own size on its baseline in the 16-row text band, with the added rows blank above and below it, the accents above À, É and Î cut at the top of the text band as they are cut at the top of a 9x16 row; each emoji whole, the size it is with no spacing, inside the text band and never stretched; each underline and strike moved 3 rows down with the text band; the blue background filling the whole cell, the added rows included.",
+            EMOJI_SPACED,
+            48,
+            10,
+        ),
     },
     // The outline picture screens: pictures over text in the test font
     // set, sent as kitty commands and sixel strings through the

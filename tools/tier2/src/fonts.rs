@@ -278,8 +278,9 @@ pub fn fetch(dir: &Path, fonts: &[Pinned]) -> Result<(), String> {
 
 /// The test frit's text, its sources the fonts in `dir`: every pinned
 /// font, less the color emoji font unless `color`, each named by its path
-/// with its `style=` line.
-pub fn frit_text(dir: &Path, color: bool) -> String {
+/// with its `style=` line, and `line-spacing=` with `spacing` when it is
+/// not 0 (ADR-1302 D13).
+pub fn frit_text(dir: &Path, color: bool, spacing: u32) -> String {
     let mut text = String::new();
     for font in FONTS.iter().filter(|f| color || !f.color) {
         text.push_str(&format!(
@@ -289,6 +290,9 @@ pub fn frit_text(dir: &Path, color: bool) -> String {
         if let Some(style) = font.style.line() {
             text.push_str(&format!("style={style}\n"));
         }
+    }
+    if spacing > 0 {
+        text.push_str(&format!("line-spacing={spacing}\n"));
     }
     text
 }
@@ -316,23 +320,26 @@ fn runs(chars: &[char]) -> Vec<(u32, u32)> {
 }
 
 /// The test frit, in the fonts in `dir`, less the color emoji font unless
-/// `color`, as the console holds it at [`HEIGHT`] once the helper has
-/// answered for what the screen shows in each style, which `shown` reads
-/// in the frit's cell: the cell the frit's first source gives at that
-/// height, and in the console's store of generated glyphs, the glyphs the
-/// engine generates for each style's characters and clusters, as the
-/// helper answers the console's asks for them. [`Chosen::face`] then
-/// draws through that store, and in the built-in font what no source
-/// holds.
+/// `color`, its rows made taller by `spacing` per cent of line spacing
+/// (ADR-1302 D13), as the console holds it at [`HEIGHT`] once the helper
+/// has answered for what the screen shows in each style, which `shown`
+/// reads in the frit's whole cell: the cell the frit's first source gives
+/// at that height, taller by the rows the spacing adds, and in the
+/// console's store of generated glyphs, the glyphs the engine generates
+/// for each style's characters and clusters at that cell and its added
+/// rows, as the helper answers the console's asks for them.
+/// [`Chosen::face`] then draws through that store, and in the built-in
+/// font what no source holds.
 pub fn chosen(
     dir: &Path,
-    color: bool,
+    (color, spacing): (bool, u32),
     shown: impl FnOnce(Cell) -> Result<Vec<Shown>, String>,
 ) -> Result<Chosen, String> {
     use vtium_config::serve::{Engine, FritText as EngineFrit, OwnCell as EngineCell, Paths};
+    use vtium_font::spacing::SpacedCell;
     check(dir)?;
     let name = frit_name(color);
-    let text = frit_text(dir, color);
+    let text = frit_text(dir, color, spacing);
     let paths = Paths {
         font_dirs: vec![dir.to_path_buf()],
         ..Paths::default()
@@ -376,23 +383,32 @@ pub fn chosen(
         ));
     }
     chosen.set_own_cell(OwnCell::Outline(cell), false);
+    // the cell and the rows its spacing adds, as the console reads them
+    // from a display's face to ask the helper at
+    let at = {
+        let face = face(&chosen)?;
+        SpacedCell {
+            cell: face.cell(),
+            band: face.band(),
+        }
+    };
     let Chosen::Frit { generated, .. } = &chosen else {
         return Err(format!("the frit {name} is not taken as a frit"));
     };
-    for one in &shown(cell)? {
+    for one in &shown(at.cell)? {
         let want: Vec<u32> = one.chars.iter().map(|&c| u32::from(c)).collect();
         let clusters: Vec<Vec<u32>> = one
             .clusters
             .iter()
             .map(|t| t.iter().map(|&c| u32::from(c)).collect())
             .collect();
-        let Some(bytes) = engine.draw_style(cell, one.style, &want, &clusters)? else {
+        let Some(bytes) = engine.draw_style(at, one.style, &want, &clusters)? else {
             continue;
         };
         let len = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
         let set = Arc::new(Set::from_bytes(bytes).map_err(|e| format!("the frit {name}: {e:?}"))?);
-        let face = SetFace::new(Arc::clone(&set), cell.height)
-            .ok_or_else(|| format!("the frit {name}: no strike at {}", cell.height))?;
+        let face = SetFace::new(Arc::clone(&set), at.cell.height)
+            .ok_or_else(|| format!("the frit {name}: no strike at {}", at.cell.height))?;
         // the codepoints the set maps in the style, as the helper's frame
         // names them
         let held: Vec<char> = one
@@ -403,7 +419,7 @@ pub fn chosen(
             .collect();
         let mut store = lock(generated);
         let fresh = store
-            .fresh((cell, one.style), set, &runs(&held), len)
+            .fresh((at, one.style), set, &runs(&held), len)
             .ok_or_else(|| format!("the frit {name}: the store refused its glyphs"))?;
         store.add(fresh);
     }
@@ -449,12 +465,13 @@ mod tests {
 
     // ADR-1503 D9: the frit names DejaVu Sans Mono's four faces by style,
     // then Noto Sans CJK, then Noto Color Emoji, and the emoji-mono
-    // screen's frit is the same without the color emoji font
+    // screen's frit is the same without the color emoji font; ADR-1302
+    // D13: a spaced screen's frit ends with its line-spacing= line
     #[test]
     fn the_frit_names_each_font_in_order_with_its_style() {
         let dir = Path::new("/c");
         assert_eq!(
-            frit_text(dir, true),
+            frit_text(dir, true, 0),
             "source=outline:/c/DejaVuSansMono.ttf\n\
              source=outline:/c/DejaVuSansMono-Bold.ttf\nstyle=bold\n\
              source=outline:/c/DejaVuSansMono-Oblique.ttf\nstyle=italic\n\
@@ -463,8 +480,12 @@ mod tests {
              source=outline:/c/NotoColorEmoji.ttf\n"
         );
         assert_eq!(
-            frit_text(dir, false),
-            frit_text(dir, true).replace("source=outline:/c/NotoColorEmoji.ttf\n", "")
+            frit_text(dir, false, 0),
+            frit_text(dir, true, 0).replace("source=outline:/c/NotoColorEmoji.ttf\n", "")
+        );
+        assert_eq!(
+            frit_text(dir, true, 30),
+            format!("{}line-spacing=30\n", frit_text(dir, true, 0))
         );
     }
 

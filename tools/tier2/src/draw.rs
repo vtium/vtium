@@ -69,8 +69,10 @@ pub enum FontKind {
     /// source gives there, drawn as the console draws a frit: the glyphs
     /// vtium-config's engine generates for what the screen shows, and the
     /// built-in font for what no source holds. Without `color`, the frit
-    /// leaves out its color emoji font.
-    Outline { color: bool },
+    /// leaves out its color emoji font. With `spacing` not 0, the frit's
+    /// `line-spacing=` makes each row taller by that whole percentage of
+    /// the text's height (ADR-1302 D13).
+    Outline { color: bool, spacing: u32 },
 }
 
 /// The PSF fonts the small displays draw with (vtium/vtium#75).
@@ -483,9 +485,9 @@ pub fn draw_on(screen: &Screen, painter: &mut impl Paint) -> Result<Image, Strin
             let face = SetFace::new(set, height).ok_or_else(|| format!("{builtin}: no strike"))?;
             draw_with(screen, || Font::new(face.clone()), p)
         }
-        FontKind::Outline { color } => {
+        FontKind::Outline { color, spacing } => {
             let dir = crate::fonts::cache_dir();
-            let chosen = crate::fonts::chosen(&dir, color, |cell| shown(screen, cell))?;
+            let chosen = crate::fonts::chosen(&dir, (color, spacing), |cell| shown(screen, cell))?;
             crate::fonts::face(&chosen)?;
             draw_with(
                 screen,
