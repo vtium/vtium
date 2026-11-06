@@ -28,6 +28,10 @@ pub const ACTIONS: [(&str, &str); 6] = [
 pub const PREVIEW_ASKING: &str = "checking this terminal";
 pub const PREVIEW_PICTURE: &str = "image preview";
 pub const PREVIEW_TEXT: &str = "text preview";
+/// The short forms, for a status line whose left side does not fit beside
+/// the long ones.
+pub const PREVIEW_PICTURE_SHORT: &str = "image";
+pub const PREVIEW_TEXT_SHORT: &str = "text";
 pub const TRIAL_KEY: &str = "t: try live";
 pub const TRIAL_NONE: &str = "no live trial";
 
@@ -257,7 +261,7 @@ pub fn draft_state(name: impl Display, changes: usize, problems: usize) -> Strin
 pub fn tagged(names: &[String]) -> String {
     format!("tagged: {}", names.join(", "))
 }
-pub const FLOW_NOT_READ: &str = "This build does not read vtium.conf's heads, looks and rules yet, so the flow has nothing to draw.";
+pub const FLOW_NOT_READ: &str = "The Flow view is empty: no draft of vtium.conf is open. Quit and start vtium config to open one.";
 pub const NOTHING_TO_FOLLOW: &str = "Nothing to follow: this item has no line to a head.";
 
 /// The flow's items (ADR-1403 D7).
@@ -860,6 +864,11 @@ pub fn leave_question(added: &[String], removed: &[String]) -> String {
     )
 }
 pub const NOT_LEFT: &str = "Nothing is lost.";
+/// The short form of [`frits_waiting`], for a status line too narrow for
+/// the long one.
+pub fn frits_waiting_short(n: usize) -> String {
+    format!("{n} to install")
+}
 pub fn frits_waiting(n: usize) -> String {
     if n == 1 {
         "1 font set to install".to_owned()

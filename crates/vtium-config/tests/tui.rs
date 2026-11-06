@@ -1072,16 +1072,33 @@ fn leaving_with_a_frit_waiting_asks_and_l_leaves_without_it() {
         text.contains("Quit without installing? You will lose the removal of tiny5."),
         "{screen}"
     );
-    // at 80 columns the status line has room for only the start of "1 font
-    // set to install", beside "text preview · t: try live" at its right
+    // at 80 columns the long words do not fit beside each other, nor "1 to
+    // install" beside "text preview", so both sides take their short words,
+    // whole
+    let status = screen.lines().nth(1).unwrap_or_default();
     assert!(
-        screen
-            .lines()
-            .nth(1)
-            .unwrap_or_default()
-            .contains("no problems · 1 font se…"),
+        status.starts_with(" draft mine · no changes · no problems · 1 to install "),
         "{screen}"
     );
+    assert!(status.ends_with("  text · t: try live"), "{screen}");
+    // at 100 columns the long words fit on both sides
+    let wide = (100, 30);
+    let mut c = Console::vtium(100, 30, true, "unifont")
+        .takes("minspec-16", wide)
+        .takes("proof", wide)
+        .takes("tiny5", wide)
+        .takes("unifont", wide)
+        .takes("unscii-8", wide)
+        .keys(&[UP, b"r", b"q"]);
+    let mut d = desk();
+    run_desk(&mut c, &mut d);
+    let screen = c.seen.clone().expect("the screen");
+    let status = screen.lines().nth(1).unwrap_or_default();
+    assert!(
+        status.starts_with(" draft mine · no changes · no problems · 1 font set to install "),
+        "{screen}"
+    );
+    assert!(status.ends_with("  text preview · t: try live"), "{screen}");
     let mut c = console().keys(&[UP, b"r", b"q", b"l"]);
     let mut d = desk();
     assert_eq!(run_desk(&mut c, &mut d), 0);
@@ -2586,6 +2603,12 @@ mod flow_view {
         let screen = text(&a);
         let joined = screen.lines().map(str::trim).collect::<Vec<_>>().join(" ");
         assert!(joined.contains(words::FLOW_NOT_READ), "{screen}");
+        assert!(
+            joined.contains(
+                "The Flow view is empty: no draft of vtium.conf is open. Quit and start vtium config to open one."
+            ),
+            "{screen}"
+        );
         assert!(screen.contains("no draft"), "{screen}");
     }
 
