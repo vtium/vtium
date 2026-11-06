@@ -15,6 +15,7 @@ amends:
   - "ADR-1300#D5: cells are composed a row at a time"
   - "ADR-1100#D4: the order a frame draws placements in"
   - "ADR-1200#D17: the cell"
+  - "ADR-1200#D15: the helper"
 basis:
   - operator: aaronsb
     level: guided
