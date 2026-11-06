@@ -72,7 +72,7 @@ Checks (exit 1 on any failure):
 Options:
     --update         rewrite the `tests` columns from the tags
     --layer LAYER    select the rows whose layer column names LAYER
-                     (minspec, text, images, gpu, seat or top)
+                     (minspec, text, bidi, images, gpu, seat or top)
     --require        fail while a selected row that needs a test has none
 
 Exit 0 when every check passes, 1 when one fails, 2 when the scan found no
