@@ -332,6 +332,24 @@ install-terminfo: ## Stage vtium's terminfo entry, compiled as xterm-vtium and i
 	@[ -f '$(DESTDIR)$(PREFIX)/share/terminfo/x/xterm-vtium' ] && [ -f '$(DESTDIR)$(PREFIX)/share/terminfo/v/vtium' ] && [ -z "$$(find '$(DESTDIR)$(PREFIX)/share/terminfo' -type f ! -path '*/x/xterm-vtium' ! -path '*/v/vtium')" ] || { echo "install-terminfo: tic did not compile xterm-vtium and its alias vtium alone" >&2; exit 1; }
 	install -Dm644 -t $(DESTDIR)$(PREFIX)/share/licenses/$(if $(filter command line,$(origin PKGNAME)),$(PKGNAME),vtium-terminfo) LICENSE COPYING
 
+# The vendor archive each GitHub release carries: the source of the outside
+# crates Cargo.lock names, for a package manager that builds with no network
+# (ADR-1500 D9). tools/vendor/archive's header describes the archive, how it
+# stays byte-identical for a commit and how the check builds offline.
+# VENDOR_VERSION names the version in the file name; without it the script
+# takes HEAD's tag, or git describe.
+VENDOR_DIR = $(or $(CARGO_TARGET_DIR),target)/vendor-archive
+
+.PHONY: vendor-archive
+vendor-archive: export VTIUM_VENDOR_VERSION = $(value VENDOR_VERSION)
+vendor-archive: ## Pack the source of every crate Cargo.lock names, for the commit HEAD names, as VENDOR_DIR/vtium-VERSION-vendor.tar.zst and its .sha256 (VENDOR_DIR=DIR, VENDOR_VERSION=VERSION)
+	tools/vendor/archive pack '$(VENDOR_DIR)'
+
+.PHONY: vendor-archive-check
+vendor-archive-check: export VTIUM_VENDOR_VERSION = $(value VENDOR_VERSION)
+vendor-archive-check: vendor-archive ## Pack the vendor archive, then build the workspace from a clean copy of HEAD with the archive unpacked over it, offline and --locked, and fail if it does not build
+	tools/vendor/archive check '$(VENDOR_DIR)'
+
 # The ARM single-board computers minspec is judged against
 # (docs/architecture.md): each target links against a pinned Debian sysroot
 # and runs its tests under qemu-user, through tools/arm's wrappers
