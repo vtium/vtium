@@ -23,9 +23,10 @@ pub(super) enum Error {
     Cycle,
     /// A chain of relative placements would pass `RELATIVE_DEPTH_MAX`.
     TooDeep,
-    /// Raw data short of the pixels its width and height call for, as
-    /// kitty answers it (ADR-1100, D15).
-    NoData,
+    /// Raw data short of the pixels its width and height call for: the
+    /// bytes that came and the bytes needed, as kitty answers it
+    /// (ADR-1100, D15).
+    NoData { got: u64, want: u64 },
     /// Anything else the handler cannot do.
     Invalid,
 }
@@ -39,7 +40,7 @@ impl Error {
             Self::NoParent => "ENOPARENT:parent placement not found",
             Self::Cycle => "ECYCLE:relative placement would make a cycle",
             Self::TooDeep => "ETOODEEP:chain of relative placements is too deep",
-            Self::NoData => "ENODATA:Insufficient image data",
+            Self::NoData { .. } => "ENODATA:Insufficient image data",
             Self::Invalid => "EINVAL:invalid argument",
         }
     }
@@ -305,14 +306,14 @@ impl Command {
         matches!(self.format, 8 | 16)
     }
 
-    /// What raw data short of its pixels is answered: ENODATA for a
-    /// transmission, as kitty answers it, and EINVAL for a frame
-    /// (ADR-1100, D15; ADR-1102).
-    pub(super) fn short(&self) -> Error {
+    /// What raw data sent directly is answered when `got` of the `want`
+    /// bytes its pixels need came: ENODATA for a transmission, as kitty
+    /// answers it, and EINVAL for a frame (ADR-1100, D15; ADR-1102).
+    pub(super) fn short(&self, got: u64, want: u64) -> Error {
         if self.action == b'f' {
             Error::Invalid
         } else {
-            Error::NoData
+            Error::NoData { got, want }
         }
     }
 
@@ -474,10 +475,13 @@ pub(super) fn reply(ctx: &mut dyn Context, cmd: &Command, id: u32, answer: Answe
     if cmd.placement != 0 {
         let _ = write!(text, ",p={}", cmd.placement);
     }
-    let message = match answer {
-        Ok(()) => "OK",
-        Err(e) => e.message(),
+    let _ = match answer {
+        Ok(()) => write!(text, ";OK\x1b\\"),
+        // kitty's message names the bytes that came and the bytes needed
+        Err(e @ Error::NoData { got, want }) => {
+            write!(text, ";{}: {got} < {want}\x1b\\", e.message())
+        }
+        Err(e) => write!(text, ";{}\x1b\\", e.message()),
     };
-    let _ = write!(text, ";{message}\x1b\\");
     ctx.reply(ReplyKind::KittyGraphics, text.as_bytes());
 }

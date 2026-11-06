@@ -376,7 +376,7 @@ fn a_query_without_an_id_reads_nothing_and_is_never_answered() {
     send(&mut k, &mut h, "a=q,s=2,v=1,f=24,i=4;AAAA");
     assert_eq!(
         h.take(),
-        "\x1b_Gi=3;OK\x1b\\\x1b_Gi=4;ENODATA:Insufficient image data\x1b\\"
+        "\x1b_Gi=3;OK\x1b\\\x1b_Gi=4;ENODATA:Insufficient image data: 3 < 6\x1b\\"
     );
     assert!(h.store.is_empty(), "a query stores nothing");
 }
@@ -433,7 +433,7 @@ fn raw_data_short_of_its_pixels_is_enodata_and_data_past_them_ignored() {
     send(&mut k, &mut h, &format!("a=t,s=1,v=1,i=2;{}", red(3)));
     assert_eq!(
         h.take(),
-        "\x1b_Gi=1;ENODATA:Insufficient image data\x1b\\\x1b_Gi=2;OK\x1b\\"
+        "\x1b_Gi=1;ENODATA:Insufficient image data: 4 < 8\x1b\\\x1b_Gi=2;OK\x1b\\"
     );
     assert_eq!(h.store.image_count(), 1);
     assert_eq!(h.store.bytes(), 4 + IMAGE_OVERHEAD);
@@ -443,7 +443,9 @@ fn raw_data_short_of_its_pixels_is_enodata_and_data_past_them_ignored() {
 #[test]
 fn raw_data_short_of_its_picture_is_enodata_in_every_raw_format() {
     let (mut k, mut h) = (Kitty::default(), Host::new());
-    // each a 2x1 picture one byte short of its pixels, then an a=q the same
+    // each a 2x1 picture one byte short of its pixels, then an a=q the same,
+    // and a 2x2 picture whose two chunks hold 9 of its 12 bytes; kitty
+    // 0.49.2 answers each with the bytes that came and the bytes needed
     send(
         &mut k,
         &mut h,
@@ -474,12 +476,20 @@ fn raw_data_short_of_its_picture_is_enodata_in_every_raw_format() {
         &mut h,
         &format!("a=q,f=16,s=2,v=1,i=6;{}", b64(&[1, 2, 3])),
     );
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=t,f=24,s=2,v=2,i=7,m=1;{}", b64(&[1; 6])),
+    );
+    send(&mut k, &mut h, &format!("m=0;{}", b64(&[1; 3])));
     let short = "ENODATA:Insufficient image data";
     assert_eq!(
         h.take(),
         format!(
-            "\x1b_Gi=1;{short}\x1b\\\x1b_Gi=2;{short}\x1b\\\x1b_Gi=3;{short}\x1b\\\
-             \x1b_Gi=4;{short}\x1b\\\x1b_Gi=5;{short}\x1b\\\x1b_Gi=6;{short}\x1b\\"
+            "\x1b_Gi=1;{short}: 1 < 2\x1b\\\x1b_Gi=2;{short}: 3 < 4\x1b\\\
+             \x1b_Gi=3;{short}: 5 < 6\x1b\\\x1b_Gi=4;{short}: 7 < 8\x1b\\\
+             \x1b_Gi=5;{short}: 1 < 2\x1b\\\x1b_Gi=6;{short}: 3 < 4\x1b\\\
+             \x1b_Gi=7;{short}: 9 < 12\x1b\\"
         )
     );
     assert!(h.store.is_empty());
@@ -1503,7 +1513,7 @@ fn a_named_medium_goes_to_the_helper_and_its_answer_is_stored() {
     );
     assert_eq!(h.take(), "\x1b_Gi=1;OK\x1b\\");
     assert_eq!(h.boxes(), vec![(0, 0, 1, 1)]);
-    // a read too short is EBADF; raw data inflated too short is ENODATA
+    // a read too short is EBADF; an inflate too short is EINVAL
     send(
         &mut k,
         &mut h,
@@ -1525,7 +1535,7 @@ fn a_named_medium_goes_to_the_helper_and_its_answer_is_stored() {
     assert_eq!(
         h.take(),
         "\x1b_Gi=2;EBADF:Failed to read image file\x1b\\\
-         \x1b_Gi=3;ENODATA:Insufficient image data\x1b\\\
+         \x1b_Gi=3;EINVAL:invalid argument\x1b\\\
          \x1b_Gi=4;ENOSPC:image storage is full\x1b\\"
     );
 }

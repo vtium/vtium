@@ -151,6 +151,17 @@ impl Raw {
         self.past
     }
 
+    /// The bytes taken so far, a partial pixel's included.
+    pub(crate) fn received(&self) -> u64 {
+        let whole = self.pixels.len().saturating_mul(self.format.bytes());
+        u64::try_from(whole.saturating_add(usize::from(self.held))).unwrap_or(u64::MAX)
+    }
+
+    /// The bytes the pixels wanted take.
+    pub(crate) fn wanted(&self) -> u64 {
+        u64::try_from(self.want.saturating_mul(self.format.bytes())).unwrap_or(u64::MAX)
+    }
+
     /// Whether every pixel wanted has arrived.
     pub(crate) fn complete(&self) -> bool {
         self.pixels.len() >= self.want

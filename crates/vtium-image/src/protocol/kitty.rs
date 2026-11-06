@@ -43,9 +43,11 @@
 //!   first chunk arrives; a later palette change leaves the picture as it
 //!   is. They are taken only sent directly and uncompressed: a frame, a
 //!   named medium, `o=z`, and a host that gives no colors answer EINVAL.
-//! - **Data short of the pixels.** Raw data that holds fewer bytes than `s`
-//!   and `v` call for answers ENODATA, as kitty answers it (D15), sent
-//!   directly or inflated by the helper; a frame's answers EINVAL.
+//! - **Data short of the pixels.** Raw data sent directly and uncompressed
+//!   that holds fewer bytes than `s` and `v` call for answers
+//!   `ENODATA:Insufficient image data: GOT < WANT`, as kitty answers it
+//!   (D15). A frame's answers EINVAL, as ADR-1102 decides, and data the
+//!   helper inflates short answers EINVAL, as kitty answers it.
 //! - **Data past the pixels.** A raw upload, or an `a=q` that counts one,
 //!   ignores the bytes past the pixels `s` and `v` call for, as kitty
 //!   ignores them, and answers as if they had not come. The handler notes
@@ -515,7 +517,11 @@ impl Kitty {
                 if past {
                     ctx.note(Cause::Program, PAST);
                 }
-                let answer = if len < want { Err(cmd.short()) } else { Ok(()) };
+                let answer = if len < want {
+                    Err(cmd.short(len, want))
+                } else {
+                    Ok(())
+                };
                 reply(ctx, &cmd, cmd.id, answer);
             }
             Mode::Host {
@@ -537,8 +543,9 @@ impl Kitty {
                 }
                 // raw data must hold every pixel the keys call for
                 if !raw.complete() {
+                    let (got, want) = (raw.received(), raw.wanted());
                     ctx.unreserve(reservation);
-                    reply(ctx, &cmd, cmd.id, Err(cmd.short()));
+                    reply(ctx, &cmd, cmd.id, Err(cmd.short(got, want)));
                     return;
                 }
                 ctx.add_work(cmd.pixels());
@@ -1055,14 +1062,12 @@ fn refused(ctx: &mut dyn Context, cmd: &Command) -> Option<Error> {
     Some(e)
 }
 
-/// The kitty answer to a helper's outcome other than OK for `cmd`. Too
-/// few bytes read from a named medium is a failure to read, EBADF, as
-/// kitty answers it; raw pixels inflated too few are short of their
-/// picture ([`Command::short`]); a PNG inflated too few is EINVAL.
-fn outcome(reply: &Reply, cmd: &Command, named: bool, inflate: bool) -> Error {
+/// The kitty answer to a helper's outcome other than OK. Too few bytes
+/// read from a named medium is a failure to read, EBADF, and too few
+/// inflated is EINVAL, as kitty 0.49.2 answers both (ADR-1100, D15).
+fn outcome(reply: &Reply, named: bool, inflate: bool) -> Error {
     match reply {
         Reply::TooShort if named && !inflate => Error::BadFile,
-        Reply::TooShort if cmd.format != 100 => cmd.short(),
         Reply::TooShort | Reply::Corrupt | Reply::TooLarge => Error::Invalid,
         Reply::OverBudget => Error::NoSpace,
         Reply::Unreadable | Reply::Failed | Reply::Ok(_) => Error::BadFile,
@@ -1187,7 +1192,7 @@ impl Handler for Kitty {
                     ),
                     _ => {}
                 }
-                let e = outcome(&other, &cmd, named, inflate);
+                let e = outcome(&other, named, inflate);
                 return reply(ctx, &cmd, cmd.id, Err(e));
             }
         };
