@@ -50,6 +50,7 @@ use crate::bounds::GPU_IDLE_FRAMES;
 use crate::compose::{Area, Composer, Job};
 use crate::deco::Kind;
 use crate::notice::Placed;
+use crate::reach::{Bound, Reach};
 use crate::renderer::Back;
 use crate::target::Rect;
 
@@ -62,9 +63,39 @@ const ES3: &str = "#version 300 es\n";
 /// beneath it, which it reads from a copy of them, with the CPU path's
 /// over_px in whole numbers: a cell's text layer or vtium's mark, or a
 /// picture that is not opaque.
-#[cfg(feature = "images")]
-const OVER: &str = "#define OVER\n";
-const CELL_FRAG: &str = include_str!("glsl/cell.frag");
+pub(crate) const OVER: &str = "#define OVER\n";
+pub(crate) const CELL_FRAG: &str = include_str!("glsl/cell.frag");
+/// The pieces that tell the cell shader how far a glyph's ink may reach
+/// past its own cells to each side, and above and below (ADR-1306 D12):
+/// the bound's two counts, each at most [`Reach::MAX`], as compile-time
+/// constants of the shader, which bound its loops over a cell's
+/// neighbours.
+const REACH_SIDE: [&str; 4] = [
+    "#define REACH_SIDE 0\n",
+    "#define REACH_SIDE 1\n",
+    "#define REACH_SIDE 2\n",
+    "#define REACH_SIDE 3\n",
+];
+const REACH_ROWS: [&str; 4] = [
+    "#define REACH_ROWS 0\n",
+    "#define REACH_ROWS 1\n",
+    "#define REACH_ROWS 2\n",
+    "#define REACH_ROWS 3\n",
+];
+
+/// The cell shader's source for `bound`, after `#version` and, for a text
+/// layer or a mark, [`OVER`].
+fn cell_frag(over: bool, bound: Bound) -> [&'static str; 5] {
+    let pick =
+        |pieces: [&'static str; 4], n: u8| pieces.get(usize::from(n)).copied().unwrap_or(pieces[3]);
+    [
+        ES3,
+        if over { OVER } else { "" },
+        pick(REACH_SIDE, bound.side),
+        pick(REACH_ROWS, bound.rows),
+        CELL_FRAG,
+    ]
+}
 const ARROW_FRAG: &str = include_str!("glsl/arrow.frag");
 #[cfg(feature = "images")]
 const PICTURE_FRAG: &str = include_str!("glsl/picture.frag");
@@ -75,7 +106,7 @@ pub(crate) const TARGET_SIZE: Input = Input {
     kind: InputKind::Vec2,
 };
 
-const CELL_INPUTS: [Input; 5] = [
+const CELL_INPUTS: [Input; 8] = [
     TARGET_SIZE,
     Input {
         name: "masks",
@@ -93,7 +124,27 @@ const CELL_INPUTS: [Input; 5] = [
         name: "cell",
         kind: InputKind::IVec4,
     },
+    Input {
+        name: "boxes",
+        kind: InputKind::Texture,
+    },
+    Input {
+        name: "box_slot",
+        kind: InputKind::IVec4,
+    },
+    Input {
+        name: "ink",
+        kind: InputKind::Texture,
+    },
 ];
+
+/// A cell job's flags, in the top byte of its quad's second parameter, as
+/// the cell shader reads them: it receives ink from its neighbours' glyphs;
+/// a block cursor or the selection marks it; a display line runs down a
+/// column of the upright frame, on a display turned a quarter.
+const RECEIVES: u32 = 1;
+const MARKED: u32 = 2;
+const DOWN: u32 = 4;
 
 /// What a shader that goes over the pixels beneath it takes besides its
 /// own inputs: the copy of those pixels, and the pixel of the target its
@@ -111,12 +162,15 @@ const BENEATH: [Input; 2] = [
 ];
 
 #[cfg(feature = "images")]
-const LAYER_INPUTS: [Input; 7] = [
+const LAYER_INPUTS: [Input; 10] = [
     CELL_INPUTS[0],
     CELL_INPUTS[1],
     CELL_INPUTS[2],
     CELL_INPUTS[3],
     CELL_INPUTS[4],
+    CELL_INPUTS[5],
+    CELL_INPUTS[6],
+    CELL_INPUTS[7],
     BENEATH[0],
     BENEATH[1],
 ];
@@ -249,6 +303,8 @@ pub(crate) struct Composition {
     overlap: u32,
     tiles: Vec<(Tile, DrawTarget)>,
     cell: Program,
+    /// The bound on a glyph's reach the cell shader was built with.
+    bound: Bound,
     arrow: Program,
     /// The arrow last uploaded and its texture.
     arrow_image: Option<(Arrow, Texture)>,
@@ -425,9 +481,10 @@ impl Composition {
     /// the composition's programs. A call that fails frees what it made.
     pub(crate) fn new<G: Gl>(gl: &mut G, size: Size, overlap: u32) -> Result<Composition, Error> {
         let made = make_tiles(gl, size, overlap)?;
+        let bound = Bound::DRAWN;
         let cell = match gl.compile(&Source {
             vertex: &[CELL_VERT],
-            fragment: &[ES3, CELL_FRAG],
+            fragment: &cell_frag(false, bound),
             inputs: &CELL_INPUTS,
         }) {
             Ok(p) => p,
@@ -453,6 +510,7 @@ impl Composition {
             overlap,
             tiles: made,
             cell,
+            bound,
             arrow,
             arrow_image: None,
             glyphs: None,
@@ -532,6 +590,21 @@ impl Composition {
     /// cell needs a new renderer, and the frame draws whole. Glyphs kept
     /// from the last frame give back the textures they no longer fill.
     pub(crate) fn glyphs<G: Gl>(&mut self, gl: &mut G, spec: &Spec<'_>) -> Result<(), Error> {
+        if spec.bound != self.bound {
+            // a renderer at another bound, as a test makes: the cell
+            // shader's loops follow it
+            let cell = gl.compile(&Source {
+                vertex: &[CELL_VERT],
+                fragment: &cell_frag(false, spec.bound),
+                inputs: &CELL_INPUTS,
+            })?;
+            gl.free_program(core::mem::replace(&mut self.cell, cell))?;
+            #[cfg(feature = "images")]
+            if let Some(layer) = self.layer.take() {
+                gl.free_program(layer)?;
+            }
+            self.bound = spec.bound;
+        }
         if self.glyphs.as_ref().map(Glyphs::owner) != Some(spec.owner) {
             if let Some(old) = self.glyphs.take() {
                 old.free(gl)?;
@@ -627,10 +700,11 @@ impl Composition {
         let layers = !work.text.is_empty() || !work.marks.is_empty();
         let needs = [opaque, clear, layers];
         let programs = [&mut self.picture, &mut self.picture_over, &mut self.layer];
+        let layer = cell_frag(true, self.bound);
         let sources: [(&[&'static str], &[Input]); 3] = [
             (&[ES3, PICTURE_FRAG], &PICTURE_INPUTS),
             (&[ES3, OVER, PICTURE_FRAG], &PICTURE_OVER_INPUTS),
-            (&[ES3, OVER, CELL_FRAG], &LAYER_INPUTS),
+            (&layer, &LAYER_INPUTS),
         ];
         for ((needed, program), (fragment, inputs)) in needs.into_iter().zip(programs).zip(sources)
         {
@@ -925,9 +999,12 @@ impl Composition {
         Ok(self.tiles.len())
     }
 
-    /// The textures a batch of cells samples, its masks, its colors and the
-    /// sprites, and the cell's size, as the cell shader's inputs.
-    fn cell_inputs(&self, batch: &Cells) -> Result<[(&'static str, Value<'_>); 4], Error> {
+    /// The textures a batch of cells samples, its masks, its colors, the
+    /// sprites, the boxes and the ink grid, the cell's size and the boxes'
+    /// slots, as the cell shader's inputs. A batch drawn before any glyph
+    /// has taken a box, or any cell has received ink, reads the sprites in
+    /// place of the boxes and the ink grid, and never samples them.
+    fn cell_inputs(&self, batch: &Cells) -> Result<[(&'static str, Value<'_>); 7], Error> {
         let glyphs = self
             .glyphs
             .as_ref()
@@ -944,6 +1021,12 @@ impl Composition {
             None => (sprites, sprites),
         };
         let cell = glyphs.cell();
+        let (boxes, [w, h, across]) = glyphs.boxes();
+        let boxes = match boxes {
+            Some(t) => texture(t)?,
+            None => sprites,
+        };
+        let ink = glyphs.ink.texture().unwrap_or(sprites);
         Ok([
             ("masks", Value::Texture(masks, Filter::Nearest)),
             ("colors", Value::Texture(colors, Filter::Nearest)),
@@ -952,13 +1035,19 @@ impl Composition {
                 "cell",
                 Value::IVec4([side(cell.width), side(cell.height), 0, 0]),
             ),
+            ("boxes", Value::Texture(boxes, Filter::Nearest)),
+            (
+                "box_slot",
+                Value::IVec4([side(w), side(h), side(across), 0]),
+            ),
+            ("ink", Value::Texture(ink, Filter::Nearest)),
         ])
     }
 
     /// The cells' quads, a draw for each texture of glyphs and tile.
     fn draw_cells<G: Gl>(&self, gl: &mut G, cells: &[Cells]) -> Result<(), Error> {
         for batch in cells {
-            let [masks, colors, sprites, cell] = self.cell_inputs(batch)?;
+            let [masks, colors, sprites, cell, boxes, box_slot, ink] = self.cell_inputs(batch)?;
             for (tile, target) in &self.tiles {
                 let quads = in_tile(&batch.quads, tile);
                 if quads.is_empty() {
@@ -973,6 +1062,9 @@ impl Composition {
                         colors,
                         sprites,
                         cell,
+                        boxes,
+                        box_slot,
+                        ink,
                     ],
                     quads: &quads,
                     blend: Blend::Replace,
@@ -997,7 +1089,7 @@ impl Composition {
             .ok_or_else(|| Error::new(ErrorKind::Misuse, "the layer shader is not made"))?;
         let beneath = self.beneath()?;
         for batch in cells {
-            let [masks, colors, sprites, cell] = self.cell_inputs(batch)?;
+            let [masks, colors, sprites, cell, boxes, box_slot, ink] = self.cell_inputs(batch)?;
             for (k, (tile, target)) in self.tiles.iter().enumerate() {
                 let quads = in_tile(&batch.quads, tile);
                 if quads.is_empty() {
@@ -1014,6 +1106,9 @@ impl Composition {
                         colors,
                         sprites,
                         cell,
+                        boxes,
+                        box_slot,
+                        ink,
                         under,
                         under_at,
                     ],
@@ -1354,12 +1449,33 @@ impl<'a, G: Gl> GpuBack<'a, G> {
         }
     }
 
-    /// Takes the cell `job`, whose glyph lies at `place`, apart into its
-    /// layers when pictures reach it, as the CPU path's `pictured` composes
-    /// it: no picture under a block cursor, and none hidden beneath the
-    /// last opaque picture over the whole cell. Says whether it did.
+    /// Forgets the quads and pictures the frame has drawn so far, for a
+    /// frame drawn again whole.
+    pub(crate) fn restart(&mut self) {
+        self.cells.clear();
+        #[cfg(feature = "images")]
+        {
+            self.picture_rects.clear();
+            self.text.clear();
+            self.tints.clear();
+            self.marks.clear();
+        }
+    }
+
+    /// Takes the cell `job` of grid row `row`, whose glyph lies at
+    /// `place`, apart into its layers when pictures reach it, as the CPU
+    /// path's `pictured` composes it: no picture under a block cursor, and
+    /// none hidden beneath the last opaque picture over the whole cell. Its
+    /// text layer takes the ink it receives, as `ink` flags it. Says
+    /// whether it did.
     #[cfg(feature = "images")]
-    fn pictured(&mut self, compose: &Composer, job: &Job, place: Option<Place>) -> bool {
+    fn pictured(
+        &mut self,
+        compose: &Composer,
+        job: &Job,
+        place: Option<Place>,
+        (row, ink): (usize, u32),
+    ) -> bool {
         use crate::picture::Mark;
         use vtium_image::Layer;
         if job.under.mark == Mark::Opaque {
@@ -1382,7 +1498,9 @@ impl<'a, G: Gl> GpuBack<'a, G> {
             strike: None,
             ..*job
         };
-        push(&mut self.cells, None, cell_quad(&bare, r, g, None));
+        let quad =
+            |j: &Job, place: Option<Place>, flags: u32| cell_quad(j, (r, g), place, (row, flags));
+        push(&mut self.cells, None, quad(&bare, None, 0));
         self.picture_rects
             .resize_with(pictures.pics().len(), Vec::new);
         for &i in self.meeting.get(top.unwrap_or(0)..).unwrap_or_default() {
@@ -1400,9 +1518,9 @@ impl<'a, G: Gl> GpuBack<'a, G> {
             ..*job
         };
         let glyph = place.filter(|_| mark != Mark::Bar);
-        if glyph.is_some() || text.layered() {
-            let quad = cell_quad(&text, r, g, glyph);
-            push(&mut self.text, glyph.map(|p| (p.texture, p.color)), quad);
+        if glyph.is_some() || text.layered() || ink != 0 {
+            let q = quad(&text, glyph, ink);
+            push(&mut self.text, glyph.map(|p| (p.texture, p.color)), q);
         }
         if job.under.selected
             && let Some(cell) = area_rect(r)
@@ -1412,8 +1530,8 @@ impl<'a, G: Gl> GpuBack<'a, G> {
         match mark {
             Mark::Bar => {
                 if let Some(p) = place {
-                    let quad = cell_quad(&bare, r, g, Some(p));
-                    push(&mut self.marks, Some((p.texture, p.color)), quad);
+                    let q = quad(&bare, Some(p), 0);
+                    push(&mut self.marks, Some((p.texture, p.color)), q);
                 }
             }
             Mark::Underline if job.underline.is_some() => {
@@ -1421,7 +1539,7 @@ impl<'a, G: Gl> GpuBack<'a, G> {
                     strike: None,
                     ..*job
                 };
-                push(&mut self.marks, None, cell_quad(&line, r, g, None));
+                push(&mut self.marks, None, quad(&line, None, 0));
             }
             _ => {}
         }
@@ -1494,11 +1612,17 @@ impl<G: Gl> Back for GpuBack<'_, G> {
         piece(r.x.max(gx1), my0, rx1, my1);
     }
 
-    fn row<F: Face>(&mut self, compose: &mut Composer, font: &Font<F>, _: (usize, usize)) {
+    fn row<F: Face>(
+        &mut self,
+        compose: &mut Composer,
+        font: &Font<F>,
+        _: (usize, usize),
+        row: usize,
+    ) {
         if self.error.is_some() {
             return;
         }
-        for job in &compose.jobs {
+        for (j, job) in compose.jobs.iter().enumerate() {
             let place = match job.text {
                 Some((start, len, width, style)) => {
                     let text = compose
@@ -1515,43 +1639,125 @@ impl<G: Gl> Back for GpuBack<'_, G> {
                 }
                 None => None,
             };
+            let (from, to) = compose.received.get(j).copied().unwrap_or_default();
+            let sources = compose.sources.get(from..to).unwrap_or_default();
+            let ink = match self.name_sources(compose, font, sources) {
+                Ok(ink) => ink,
+                Err(e) => {
+                    self.error = Some(e);
+                    return;
+                }
+            };
             #[cfg(feature = "images")]
-            if self.pictured(compose, job, place) {
+            if self.pictured(compose, job, place, (row, ink)) {
                 continue;
             }
             let quad = cell_quad(
                 job,
-                self.turn.up_area(job.r),
-                self.turn.up_area(job.g),
+                (self.turn.up_area(job.r), self.turn.up_area(job.g)),
                 place,
+                (row, ink),
             );
             push(&mut self.cells, place.map(|p| (p.texture, p.color)), quad);
         }
     }
 
-    // the GPU path draws no ink past a glyph's cells yet (ADR-1306 D9)
-    const RECEIVES: bool = false;
+    fn reaching(&self, _: &Composer) -> bool {
+        self.glyphs.reaching()
+    }
+
+    fn reach<F: Face>(
+        &mut self,
+        _: &mut Composer,
+        font: &Font<F>,
+        text: &[char],
+        width: vtium_font::Width,
+        style: vtium_font::Style,
+    ) -> Reach {
+        if self.error.is_some() {
+            return Reach::NONE;
+        }
+        match self.glyphs.reach(self.gl, font, text, width, style) {
+            Ok(r) => r,
+            Err(e) => {
+                self.error = Some(e);
+                Reach::NONE
+            }
+        }
+    }
+
+    const RECEIVES: bool = true;
 }
 
-/// A cell job as the cell shader's quad: where it draws, `r` in the
-/// upright frame; the glyph's texel under its top left, the glyph lying at
-/// `g`; and its colors, each with a kind in its top byte: the glyph's
-/// (none, a mask, a color glyph), the underline's sprite and the strike's,
-/// each its place among the sprites plus one, or 0 for none.
-pub(crate) fn cell_quad(job: &Job, r: Area, g: Area, place: Option<Place>) -> Quad {
+impl<G: Gl> GpuBack<'_, G> {
+    /// Names each of `sources`, the glyphs whose ink a job receives, in the
+    /// ink grid, so the cell shader finds its glyph's box and its color,
+    /// and gives the job's flags: none when no glyph sends it ink, else
+    /// [`RECEIVES`], with [`MARKED`] when a mark covers the job and
+    /// [`DOWN`] on a display turned a quarter. Each source's glyph is looked
+    /// up, which keeps its box for this frame.
+    fn name_sources<F: Face>(
+        &mut self,
+        compose: &Composer,
+        font: &Font<F>,
+        sources: &[crate::compose::Source],
+    ) -> Result<u32, Error> {
+        let mut flags = 0;
+        for s in sources {
+            let (start, len, width, style) = s.text;
+            let text = compose
+                .text
+                .get(start..start.saturating_add(len))
+                .unwrap_or_default();
+            let Some(place) = self.glyphs.glyph(self.gl, font, text, width, style)? else {
+                continue;
+            };
+            let Some((slot, _)) = place.boxed else {
+                continue;
+            };
+            self.glyphs.ink.name(s.cell, slot, s.own);
+            flags |= RECEIVES;
+            if s.marked {
+                flags |= MARKED;
+            }
+        }
+        if flags != 0 && self.turn.orientation.turned() {
+            flags |= DOWN;
+        }
+        Ok(flags)
+    }
+}
+
+/// A cell job of grid row `row` as the cell shader's quad: where it
+/// draws, `r` in the upright frame; the glyph's texel under its top left,
+/// the glyph lying at `g`, and the column and row of the job's first cell;
+/// and its colors, each with a kind in its top byte: the glyph's (none, a
+/// mask, a color glyph), `flags` with the background, the underline's
+/// sprite and the strike's, each its place among the sprites plus one, or
+/// 0 for none.
+pub(crate) fn cell_quad(
+    job: &Job,
+    (r, g): (Area, Area),
+    place: Option<Place>,
+    (row, flags): (usize, u32),
+) -> Quad {
     let i = |v: i64| i32::try_from(v).unwrap_or(if v < 0 { i32::MIN } else { i32::MAX });
     let u = |v: i64| u32::try_from(v.max(0)).unwrap_or(u32::MAX);
+    let (col, row) = (
+        u32::try_from(job.posx).unwrap_or(u32::MAX),
+        u32::try_from(row).unwrap_or(u32::MAX),
+    );
     let (src, kind) = match place {
         Some(p) => (
             [
                 p.x.saturating_add(u(r.x.saturating_sub(g.x))),
                 p.y.saturating_add(u(r.y.saturating_sub(g.y))),
-                0,
-                0,
+                col,
+                row,
             ],
             if p.color { 2 } else { 1 },
         ),
-        None => ([0; 4], 0),
+        None => ([0, 0, col, row], 0),
     };
     let sprite = |k: Kind| {
         Kind::ALL
@@ -1566,7 +1772,7 @@ pub(crate) fn cell_quad(job: &Job, r: Area, g: Area, place: Option<Place>) -> Qu
         src,
         params: [
             with(job.fg, kind),
-            pixel(job.bg),
+            with(job.bg, flags),
             job.underline.map_or(0, |(k, c)| with(c, sprite(k))),
             job.strike.map_or(0, |c| with(c, sprite(Kind::Strike))),
         ],

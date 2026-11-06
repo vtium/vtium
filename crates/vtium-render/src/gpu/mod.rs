@@ -15,6 +15,7 @@
 pub(crate) mod compose;
 mod gl;
 pub(crate) mod glyphs;
+mod ink;
 mod ledger;
 #[cfg(feature = "images")]
 pub(crate) mod pictures;

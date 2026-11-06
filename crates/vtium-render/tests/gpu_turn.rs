@@ -298,7 +298,16 @@ fn the_grid_lands_on_the_cpu_paths_pixels_at_every_turn_with_an_odd_margin() {
         b.frame(&mut s, 0, None);
         let cells = quads(
             b.gl.calls(),
-            &["target_size", "masks", "colors", "sprites", "cell"],
+            &[
+                "target_size",
+                "masks",
+                "colors",
+                "sprites",
+                "cell",
+                "boxes",
+                "box_slot",
+                "ink",
+            ],
         );
         let shown = presented(b.gl.calls(), DISPLAY);
         for (bg, colors) in [(first, [first, ink]), (last, [last, last])] {
@@ -349,7 +358,16 @@ fn the_pointer_and_the_border_beneath_it_land_where_the_cpu_path_draws_them_at_e
         let arrows = quads(b.gl.calls(), &["target_size", "arrow", "under", "under_at"]);
         let cells = quads(
             b.gl.calls(),
-            &["target_size", "masks", "colors", "sprites", "cell"],
+            &[
+                "target_size",
+                "masks",
+                "colors",
+                "sprites",
+                "cell",
+                "boxes",
+                "box_slot",
+                "ink",
+            ],
         );
         let clears: Vec<(Rect, u32)> =
             b.gl.calls()
