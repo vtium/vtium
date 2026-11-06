@@ -13,6 +13,7 @@ amends:
   - "ADR-1302#D10: the GPU path"
   - "ADR-1302#D13: added line spacing, the user's choice"
   - "ADR-1300#D5: cells are composed a row at a time"
+  - "ADR-1100#D4: the order a frame draws placements in"
 basis:
   - operator: aaronsb
     level: guided
@@ -27,6 +28,10 @@ basis:
   - evidence: "WezTerm e68a8ec2 (MIT), read on 2026-11-06 for its pattern: wezterm-gui/src/termwindow/render/screen_line.rs:251-275 puts cell backgrounds on quad layer 0, and lines 509-512 and 659-665 put each glyph on layer 1 at its bearing, its texture's full height, with no cut above or below (line 531 reads `// TODO: clipping`); the glyph is cut across into strips only to color the parts under the cursor or the selection."
   - evidence: "Ghostty 2f967e3a6ab2 (MIT), read on 2026-11-06 for its pattern, adding to ADR-1302's reading of its shaders: src/renderer/generic.zig:1934-1977 draws the frame as a background image and color, the pictures below the cells, every cell's background, the pictures below the text, then every cell's text, so no cell's background is drawn after any glyph."
   - evidence: "foot 152487e (MIT), read on 2026-11-06 for its pattern: render.c:1018-1022 clips each glyph to its row's height, its cells and one more cell to the right; doc/foot.ini.5.scd:124-139 lets `line-height` set the row's height and warns that too small a line height makes underscores disappear."
+  - evidence: "foot 152487e (MIT), read on 2026-11-06 for how it structures drawing into neighbouring cells: render.c:705 marks a cell `confined` when its glyph is drawn inside it, and render.c:1014 clears the mark for each cell of a glyph wider than its cells; render.c:3462-3525, before each frame, marks dirty on each side of a dirty cell every cell up to the next confined one, since each row is drawn right to left and a glyph's overflow is drawn over its neighbour; render.c:3554 draws sixels after every cell."
+  - evidence: "WezTerm e68a8ec2 (MIT), read on 2026-11-06 for how it layers pictures against glyphs: wezterm-gui/src/termwindow/render/screen_line.rs:490-495 puts a kitty picture with z below 0 on layer 0 with the backgrounds, and lines 685-690 and 719-730 put a picture with z of 0 or more on layer 2, over the glyphs of layer 1; wezterm-gui/src/termwindow/render/pane.rs:426-446 caches each line's quads keyed by its content, the cursor, the selection and its place."
+  - evidence: "Ghostty 2f967e3a6ab2 (MIT), read on 2026-11-06: src/renderer/generic.zig:1582-1599 marks rows dirty and rebuilds their cell data, and lines 1934-2006 draw the frame in passes, the pictures below the backgrounds, every cell's background, the pictures below the text, every cell's text, then the pictures above the text."
+  - evidence: "Measured by this record's agent on 2026-11-06 with the same probe, on sample text (the first article of the Universal Declaration of Human Rights in English, French, German and Vietnamese, and in Arabic without vowel marks; a shell listing; a line of accented capitals; and the opening of the Quran's first sura, fully vocalized), counting the non-space cells whose glyph has ink outside its cell. DejaVu Sans Mono at 16 pixels: English 0 of 141, the shell listing 0 of 111, French 3 of 173, German 3 of 168, Vietnamese 3 of 148, the capitals 9 of 76; at 32 pixels: Vietnamese 1 of 148 and the others 0; no glyph sends ink sideways. Arabic clusters passing the row by half a pixel or more, unhinted: unvocalized, DejaVu Sans Mono 2 of 92 at 16 and 32 pixels, Noto Sans Arabic at DejaVu Sans Mono's size 7 and 6 of 94; fully vocalized, DejaVu Sans Mono 10 and 15 of 78, Noto Sans Arabic at DejaVu Sans Mono's size 16 of 78 at both."
   - evidence: "VTE's documentation for `vte_terminal_set_cell_height_scale`, read on 2026-11-06: valid values go from 1.0, the default, to 2.0, so a VTE row is never shorter than the font's line height. GNOME Terminal and VTE are not installed on the machine, and were not run."
   - upstream: "the C reference's kmscon at b1f7a7c5: the pango engine set the font's em to the requested height, measured a layout of the ASCII letters and punctuation and took the cell's height from its logical extents, the font's line height (src/font/font_pango.c:324 and 337-347), so DejaVu Sans Mono's accented capitals fitted a cell taller than the request; every engine cut each glyph at its box (ADR-1302's basis gives the lines)"
   - precedent: ADR-1302
@@ -35,6 +40,15 @@ basis:
 agent:
   name: Claude
   model: claude-opus-5-5
+considered:
+  - operator: aaronsb
+    said: "Design input, not a decision: overflow could be drawn in two passes, every cell's glyph inside its own cell first, then the parts of glyphs that fall outside their cells, kept in a buffer of their own and put on with XOR. A record of which cells hold a glyph with ink outside its cell would let vtium redraw only those cells and their neighbours when a character changes. Other terminals' ways of writing into neighbouring cells are to be investigated."
+    via: the maintainer in the steering session, 2026-11-06, thinking aloud while the first draft was written, relayed by the team lead; the wording is this record's agent's, stated cleanly as the maintainer asks for musings
+    paraphrase: true
+  - operator: aaronsb
+    said: "Design input: drawing text on top of a picture, kitty graphics or sixel, raises challenges of its own that the overflow design must answer."
+    via: the maintainer in the steering session, 2026-11-06, relayed by the team lead; the wording is this record's agent's, stated cleanly as the maintainer asks for musings
+    paraphrase: true
 observable:
   - "Tier 2's `overflow-accents` screen shows À, É, Î, Ő, Ű and Ộ whole, their accents drawn over the background of the row above, beside a row of `gjpqy___` whose underscores and descenders stay whole in their own row"
   - "Tier 2's `emoji-spaced-12` and `emoji-spaced-30` screens show the first line's `ÀÉÎ` with whole accents"
@@ -49,14 +63,15 @@ related:
   - ADR-1300
   - ADR-1200
   - ADR-1004
+  - ADR-1100
 ---
 
 # ADR-1306: Glyph ink reaches one row past its own, up and down, and each row is composed from the glyphs of three rows
 
 ## Summary
 
-- **Decided:** A glyph from an outline font draws the ink that lies above or below its row into the row above or the row below, at most one row each way, where ADR-1302 cuts it at the row's top and bottom. Together with the reach of one cell to each side that ADR-1302 already gives, a glyph's ink lies within the block of cells around its own. Ink past that block, or past the grid's top or bottom edge, is cut. The renderer still composes one row at a time: to draw a pixel, it lays down that pixel's own cell's background first, then the ink of every glyph whose reach covers the pixel, so no row's background ever paints over ink from the row beside it. A cell whose ink changes redraws the neighbours, above and below as well as beside it, that its old or new ink reaches. A combining mark is moved toward the baseline, or scaled with its letter, only when it would pass that one-row reach, so Arabic marks and Vietnamese stacked accents draw where the font puts them, and a precomposed É and an E followed by a combining acute draw alike. Printable ASCII still stays inside its cell (ADR-1302 D3), and bitmap glyphs, color glyphs, emoji and vtium's own line and block drawing never leave their cells, so a screen in the built-in font draws exactly as it does today.
-- **Trades away:** The maintainer's answer of 2026-11-01 that ink does not reach up or down, and the move-and-scale rule's edge at the row, which this record asks the maintainer to reverse. A changed cell can redraw up to eight neighbours instead of two. Each row's pixels depend on the glyphs of three rows. Each cell keeps a byte of reach instead of two bits. The ink box in the glyph wire format gains a top and a height. Arabic marks and accents can touch the descenders of the line above in a tight cell, where today they are moved, scaled or cut.
+- **Decided:** A glyph from an outline font draws the ink that lies above or below its row into the row above or the row below, at most one row each way, where ADR-1302 cuts it at the row's top and bottom. Together with the reach of one cell to each side that ADR-1302 already gives, a glyph's ink lies within the block of cells around its own. Ink past that block, or past the grid's top or bottom edge, is cut. The renderer still composes one row at a time: to draw a pixel, it lays down that pixel's own cell's background first, then the ink of every glyph whose reach covers the pixel, so no row's background ever paints over ink from the row beside it. A cell whose ink changes redraws the neighbours, above and below as well as beside it, that its old or new ink reaches. A combining mark is moved toward the baseline, or scaled with its letter, only when it would pass that one-row reach, so Arabic marks and Vietnamese stacked accents draw where the font puts them, and a precomposed É and an E followed by a combining acute draw alike. Printable ASCII still stays inside its cell (ADR-1302 D3), and bitmap glyphs, color glyphs, emoji and vtium's own line and block drawing never leave their cells, so a screen in the built-in font draws exactly as it does today. Ink that reaches a cell is part of that cell's text layer, so a kitty picture below the text shows it on top, and a picture above the text or a sixel covers it.
+- **Trades away:** The maintainer's answer of 2026-11-01 that ink does not reach up or down, and the move-and-scale rule's edge at the row, which this record asks the maintainer to reverse. A changed cell can redraw up to eight neighbours instead of two. Each row's pixels depend on the glyphs of three rows. Each cell keeps a byte of reach instead of two bits. The ink box in the glyph wire format gains a top and a height. Arabic marks and accents can touch the descenders of the line above in a tight cell, where today they are moved, scaled or cut. The maintainer's sketch of putting the overflow on with XOR is replaced by blending, for antialiased ink and for ink over ink.
 - **One-way?** No. The rules live in vtium-config's placement and vtium-render's composition, and the glyph chunk format's ink box gains its new fields on both ends in one release. A font set already written to disk reads as ink cut at its row.
 - **Probes:**
   - *Confident (accents whole):* in DejaVu Sans Mono at a 16-pixel cell, À, É and Î show their whole accents, which reach two pixel rows up into the line above and draw over that line's background, the way Alacritty, WezTerm and Ghostty draw them, while a screen of plain English text looks and costs exactly as it does today. Right?
@@ -98,6 +113,31 @@ No glyph measured passes its row by as much as half a row. Noto Sans Arabic draw
 | VTE, GNOME Terminal | Its rows are never shorter than the font's line height | Not learnt | Not learnt | Documentation only (LGPL and GPL); not installed |
 
 Every terminal measured makes its row as tall as the font's line height by default, so accents fit there, and lets the user make rows shorter only by a setting (xterm's `scaleHeight`, Alacritty's offset, kitty's `modify_font`, foot's `line-height`). In a short row, the terminals that draw the whole frame each time let ink cross rows and draw every background first, and the ones that draw row by row either cut it or let the next row paint over it. None draws ink across rows while redrawing only the cells that changed, which is what vtium does on a dumb buffer (the plain buffer in memory that the CPU draws into and the display shows).
+
+How each one structures writing into the cells beside a glyph's own (`basis`):
+
+- **foot,** which draws on the CPU into shared memory as vtium does, marks each cell `confined` when its glyph stays in its cell. Before each frame it marks dirty, on each side of every dirty cell, the cells up to the next confined one, then draws each row from right to left, every cell's background and glyph in turn, so a glyph's overflow lands over the neighbour already drawn. A run of overflowing cells redraws together, because each cell's drawing paints over its neighbour's overflow. It cuts every glyph at its row, and draws sixels after every cell.
+- **Alacritty** draws every cell each frame, in batches of up to 65,536 cells, each batch in two passes: every background, then every glyph.
+- **WezTerm** builds each line's quads into three layers, backgrounds and pictures below the text on layer 0, glyphs on layer 1, and pictures above the text on layer 2. It caches each line's quads keyed by the line's content, cursor and selection, and draws all layers of all lines each frame.
+- **Ghostty** rebuilds the cell data of the rows marked dirty and draws the whole frame each time in fixed passes: the background, the pictures below the backgrounds, every cell's background, the pictures below the text, every cell's text, and the pictures above the text.
+- **kitty** cuts each glyph at its cell, as running it shows. **Konsole** draws row by row and lets the next row's backgrounds paint over ink, as running it shows. VTE keeps its rows at least as tall as the font's line height, by its documentation.
+
+The terminals that redraw only what changed, foot and the row-by-row ones, cut ink or let it be painted over; the ones that let ink cross freely redraw the whole frame. vtium's design takes foot's per-cell record of which glyphs leave their cell, and the order of Alacritty's, WezTerm's and Ghostty's passes, applied pixel by pixel.
+
+### How often a glyph sends ink out of its cell
+
+Measured through vtium-config's rasteriser for DejaVu Sans Mono, and with HarfRust's shaping for Arabic, on sample text (`basis`, 2026-11-06): the share of non-space cells whose glyph sends ink into another cell.
+
+| Text | 16-pixel cell | 32-pixel cell |
+|---|---|---|
+| English prose, a shell listing | none | none |
+| French, German, Vietnamese prose | 1.7 to 2.0 per cent | none to 0.7 per cent |
+| A line of accented capitals | 11.8 per cent | none |
+| Unvocalized Arabic, DejaVu Sans Mono | 2 per cent of clusters | 2 per cent |
+| Fully vocalized Arabic, DejaVu Sans Mono | 13 per cent | 19 per cent |
+| Fully vocalized Arabic, Noto Sans Arabic at DejaVu Sans Mono's size | 21 per cent | 21 per cent |
+
+Upright DejaVu Sans Mono sends no ink sideways in any of these texts, since its cell is as wide as its widest letter; all of it goes up or down.
 
 ### The C reference's flow
 
@@ -153,6 +193,8 @@ The renderer still composes one row of cells at a time in the row scratch, and c
 7. That cell's strike-through.
 
 - **No row's background paints over another row's ink,** because the only background a pixel ever takes is its own cell's, drawn first. This is the order Alacritty, WezTerm and Ghostty reach by drawing every background of the frame before any glyph; vtium reaches it pixel by pixel, so it needs neither a second pass over the frame nor a read of the display's buffer.
+- **These are the maintainer's two passes, folded into one walk over each pixel** (the maintainer's design input of 2026-11-06, `considered`). The first pass, every cell's glyph inside its own cell, is step 6; the second, the parts of glyphs that fall outside their cells, is steps 3 to 5. The second pass's buffer is the drawn-glyph cache: the parts of a glyph outside its cell are its ink box (D3), which the helper works out once when it draws the glyph and the cache stores with it, so the renderer reads them from there for each cell they land in. A buffer of overflow ink kept for the whole frame would cost 4 MiB at 1366x768 for a color and a coverage per pixel, and would have to be kept current through every change, where the cache already holds each glyph once.
+- **The overflow blends; it is never XORed.** XOR combines the bits of two colors, which composes neither antialiased ink nor ink over ink. White ink (255) half covering a dark background (31) blends to 143, a grey edge; XOR gives 31 XOR 128 = 159 for the half-covered pixel and 31 XOR 255 = 224 for a fully covered one, so even solid ink comes out tinted by the background. Two glyphs whose ink covers the same pixel XOR back to the background there, so ink vanishes exactly where a descender meets an accent. A color glyph or a picture beneath XORs to unrelated colors (D7). XOR's one strength, removing ink by XORing it again with no redraw, needs to know exactly what each buffer holds, and vtium's buffers hold frames of different ages; vtium composes each damaged cell from nothing instead (ADR-1300 D5), so it never needs to undo ink. On a 1-bit display ADR-1302 D8 already draws ink that lands in another cell as the opposite of that cell's background, the part of XOR that works there, and a pixel two glyphs cover stays drawn rather than cancelling.
 - **Where ink from two rows meets,** as a descender from the row above and an accent from the row below can in a tight cell, the row below's ink lies over the row above's, as a later line of text lies over an earlier one; ink from the pixel's own row lies over both, and the cell's own glyph on top. Only the color at a pixel where they meet depends on this order: ink of one color combines to the same coverage in either order.
 - **Steps 2 to 7 form the pixel's text layer,** premultiplied, which goes over the background in one step, as ADR-1302 D7 has it.
 - **A cell that no glyph's ink reaches from another cell draws exactly as today.** Each cell keeps one byte saying which of its eight neighbours its glyph sends ink into (D5), so the renderer finds the cells that receive ink by reading their neighbours' bytes, and every other cell costs that test alone. A screen drawn in bitmap fonts with no italic, or in printable ASCII, has no such cell.
@@ -170,8 +212,10 @@ This decision amends ADR-1302 D9.
 - **The same holds for every source of change:** program output, the cursor, the selection, a glyph arriving from the helper in place of the built-in drawing, and scrolling.
 - **The damage rectangles** handed to the display cover the neighbours drawn this way, in the rows above and below too.
 - Typing an accented capital whose accent passes the row draws the cell it wrote, the cell the cursor entered, and the cell above the written cell: three cells, where two are drawn today. A keystroke in an italic run of accented capitals draws at most the written cell and its eight neighbours, and the cell the cursor entered with the cell after it, as ADR-1302 D9 counts a leaning letter that the cursor arrives on.
+- **What a new character costs.** A glyph's reach is part of its ink box, worked out once when the helper draws it and stored with it (D3). Writing a character reads its eight bits from the stored glyph, compares them with the cell's last reach, and stamps the neighbours either names: a few instructions, and no stamp at all for a glyph whose ink stays in its cell, which every printable ASCII glyph and every bitmap glyph is. On the CPU path the frame then composes the cells stamped, each neighbour with one more glyph blend for this glyph's ink. On the GPU path the same stamps choose the cells drawn again, and the shader samples a neighbour's glyph only where the cell's reach byte names it.
+- **How often it happens,** measured (Context): in DejaVu Sans Mono, no cell of English prose or of a shell listing sends ink out of its cell at 16 or 32 pixels; about 2 per cent of the letters of French, German and Vietnamese prose do at 16 pixels, and almost none at 32; 12 per cent of a line of accented capitals at 16 pixels; about 2 per cent of the clusters of unvocalized Arabic, and 13 to 19 per cent of fully vocalized Arabic, up to 21 per cent in Noto Sans Arabic at the same size. A screen of fully vocalized Arabic therefore composes about a fifth of its cells with one or two more glyph blends.
 
-### D6: the cursor, the selection, reverse video, the decorations and pictures
+### D6: the cursor, the selection, reverse video and the decorations
 
 This decision amends ADR-1302 D8, whose rules hold for ink above and below the row as they hold for ink beside it:
 
@@ -182,10 +226,23 @@ This decision amends ADR-1302 D8, whose rules hold for ink above and below the r
 - **Ink invisible in its own cell is invisible everywhere** (the maintainer, 2026-11-01), up and down too.
 - **Underlines and strike-throughs stay in their own cells;** only glyph ink reaches. An accent from the row below lies over the underline of the row above (D4's steps 2 and 4), as a cell's own descender lies over its underline today. The underline cursor is its cell's underline, so the same accent can cross it; the bar cursor is its cell's glyph and lies over every neighbour's ink.
 - **On a 1-bit display** ink that lands in another cell, from any direction, is drawn as the opposite of that cell's background, as ADR-1302 D8 has it.
-- **Pictures** over and under text (ADR-1100 D4) treat ink from the rows above and below as part of the cell's text layer, as they treat ink from beside it: a picture over text covers it, and a picture under text shows it on top.
 - **vtium's notices and the focus mark** (ADR-1401) draw over the composed frame and cover whatever ink lies beneath them. Ink from the row below a notice that reaches into it stays hidden while the notice shows, and the frame drawn whole when the notice ends shows it again.
 
-### D7: line spacing
+### D7: pictures
+
+This decision adds to ADR-1100 D4, the order a frame draws pictures in, and replaces ADR-1302 D8's bullet on pictures. A picture here is a kitty graphics placement or a sixel, in the layers ADR-1100 D4 gives them.
+
+- **Ink that reaches a cell is part of that cell's text layer,** from whichever neighbour it comes, so it takes the text layer's place in ADR-1100 D4's order:
+  - a kitty picture below the backgrounds (z below -1,073,741,824) or below the text (z from -1,073,741,824 to -1) draws under it, so an accent from the row below lies over the picture as a letter in that cell would;
+  - a kitty picture at z 0 or more, and every sixel, draws over it, and hides it where the picture covers the cell;
+  - the selection's tint, the cursor, the pointer, vtium's notices and the focus mark draw over both, as ADR-1100 D4 has them.
+- **A picture's cells do not cut ink from the text around them.** A program that puts a picture below the text asks for text to show on it, and an accent reaching in from the row below is text; a picture above the text hides the ink already. A cut would also make the cells a glyph's ink reaches depend on pictures, so a picture appearing or leaving would change what its neighbours' glyphs damage.
+- **Ink blends over a picture's pixels** as it blends over a background, with the premultiplied arithmetic ADR-1300 carries forward. It is never XORed: an XOR of a picture's pixel with ink gives a color unrelated to both, as an orange photo pixel (200, 120, 40) XOR white ink gives blue (55, 135, 215).
+- **A picture's change repairs only the cells it covers.** A new frame of an animation, and a placement that appears, moves, is cut or is deleted, mark the cells under its old and new box changed (ADR-1100 D8). The renderer composes each of those cells whole: its background, the picture layers, and the ink that reaches it from its eight neighbours, read from their glyphs (D4). A picture changes no pixel outside its cells, and the ink that crosses into its cells is drawn again with them, so no cell outside them needs repair. The cell under a picture's ragged right or bottom edge is one of the cells it covers, and is composed whole too.
+- **A cell a picture covers sends ink like any other.** Its glyph, where a picture below the text leaves one there, reaches its neighbours as D1 says.
+- Ghostty and WezTerm, which draw kitty pictures and never cut glyphs, order them the same way. Ghostty draws its pictures below the backgrounds and below the text in passes before its text pass, and the pictures above the text after it. WezTerm puts pictures below the text on its background layer and pictures above it on a third layer over the glyphs. foot draws sixels after every cell, over every glyph's ink. kitty cuts each glyph at its cell, so none of its ink reaches into a picture's cell (`basis`).
+
+### D8: line spacing
 
 This decision amends ADR-1302 D13.
 
@@ -194,22 +251,22 @@ This decision amends ADR-1302 D13.
 - **`fill` and color glyphs are unchanged:** line and block characters fill the whole cell, and color glyphs and emoji stay inside the text band.
 - **D2's move-and-scale rule** applies at the reach's edges inside a taller row too.
 
-### D8: the GPU path
+### D9: the GPU path
 
 This decision amends ADR-1302 D10. The GPU path draws the CPU path's pixels (ADR-1300 D6): a cell's fragment shader samples its own glyph and the glyphs of the up to eight neighbours whose reach covers it, which the cell's reach byte names, in D4's order and with D6's colors. A glyph pool's slot holds the largest box its glyphs may have, so the GPU path may give glyphs whose ink passes their row pools of their own (ADR-1302 D6). Tier 2 compares the two paths byte for byte, as for every screen.
 
-### D9: the cell's size stays
+### D10: the cell's size stays
 
 ADR-1200 D17 stays as it is: the helper sizes an outline font so its ascent and descent fill the cell, and the cell's width comes from W. The terminals measured size their rows from the font's line height and the user shortens them by a setting; vtium's cell is set by the request and the font is fitted to it, and the reach of D1 draws what passes the font's ascent and descent. Shrinking the first font by up to 5 per cent, with precomposed letters refitted through the mark rule, would have kept Latin accents in the row and could not carry Arabic, whose marks pass it by up to 0.42 of the cell; full hinting by default changes every glyph and fixes some heights only. The measurement that Noto Sans Arabic, drawn as a fallback at its own size, draws at 0.55 of DejaVu Sans Mono's size belongs to how a frit sizes its fallback fonts, which font merging decides.
 
-### D10: the work, in slices
+### D11: the work, in slices
 
 Each slice is a card of its own, branched from `integration`.
 
-1. **The ink box above and below** (vtium-font, vtium-config, and the console's check in `crates/vtium`): the INKX record's top and height and their round trip; the helper's ink box cut to the reach up and down; D2's move-and-scale rule at the reach's edges and the letter's own ink cut there; D7's `natural` without the cut at the text band; the console's refusal of a box past the reach. It does not block right-to-left text's drawing slice (ADR-1004 D15, slice 4), which draws the forms and marks the helper gives it either way.
-2. **Composition and damage** (vtium-render): drawing ink into neighbours in all eight directions, which also builds the side-to-side drawing ADR-1302 decided and vtium-render does not draw yet, so both are built once; the reach byte, D4's order, D5's damage, D6's cursor, blink and selection rules, the stored glyph at its box, and the frame read without the selection for the rows ink lands in. It needs slice 1's box, or boxes its tests build.
+1. **The ink box above and below** (vtium-font, vtium-config, and the console's check in `crates/vtium`): the INKX record's top and height and their round trip; the helper's ink box cut to the reach up and down; D2's move-and-scale rule at the reach's edges and the letter's own ink cut there; D8's `natural` without the cut at the text band; the console's refusal of a box past the reach. It does not block right-to-left text's drawing slice (ADR-1004 D15, slice 4), which draws the forms and marks the helper gives it either way.
+2. **Composition and damage** (vtium-render): drawing ink into neighbours in all eight directions, which also builds the side-to-side drawing ADR-1302 decided and vtium-render does not draw yet, so both are built once; the reach byte, D4's order, D5's damage, D6's cursor, blink and selection rules, the stored glyph at its box, the frame read without the selection for the rows ink lands in, and the received ink in the text layer of a cell pictures reach (D7). It needs slice 1's box, or boxes its tests build.
 3. **The screens** (tools/tier2): the screens of the Verification section, and the screens whose pixels move, `emoji-spaced-12` and `emoji-spaced-30` among them, each set of goldens in a commit of its own that the maintainer reviews as pictures. Right-to-left text's screens slice (ADR-1004 D15, slice 5) holds Arabic with marks, so if this slice lands first those goldens are reviewed once; if it lands after, they move again and are reviewed again.
-4. **The GPU path** (vtium-render's GPU path): D8, with the GPU path's own work; it blocks nothing.
+4. **The GPU path** (vtium-render's GPU path): D9, with the GPU path's own work; it blocks nothing.
 
 ### For the operator's check
 
@@ -218,13 +275,15 @@ These are written as the decision until the maintainer confirms or overrules the
 1. **Ink reaches one row up and down** (D1), reversing the answer of 2026-11-01 that no ink reaches up or down and the baseline rises so ASCII's lowest ink fits; the rise itself stays (D2). The lean: reverse it. Evidence: every accent and Arabic mark measured passes its row by less than half a row; the per-pixel order keeps the renderer's row-at-a-time composition and cell-by-cell damage, the reason ADR-1302 gave for the cut; and the terminals that draw ink across rows draw these letters whole. The first probe asks it.
 2. **Marks and letters move, scale or are cut only at the reach's edge** (D2), where the maintainer's answers of 2026-11-01 and 2026-11-02 put that edge at the row. The lean: move the edge, and keep the rule. Evidence: lam with shadda and fatha keeps its stem's full height instead of losing 2 to 4 rows; precomposed and decomposed letters then draw alike; and the rule still guards stacks deeper than a row, as the maintainer chose showing a mark whole over cutting it. The alternative of dropping the rule and cutting at the reach is simpler, and cuts a mark the rule would have saved. The second probe asks it.
 3. **The letter under the cursor keeps its ink above and below the row** (D6), in its colors without the cursor, while its ink beside the cell stays cut as the maintainer decided on 2026-11-01. The lean: keep the accent. Evidence: the maintainer's reason for the cut, that no neighbour should change with the cursor's blink, holds, since the ink draws the same in both phases; an accent is part of the letter's identity, É against E, where an italic lean is not. The alternative cuts the ink at the row too, so É reads as E while the cursor stands on it.
-4. **`room` draws as `natural`, and stays a value a frit may write** (D7). The lean: keep it as a synonym. Evidence: every glyph's marks may now use the added rows, so the two values draw alike; `room` already draws as `natural` until the right-to-left work builds it, and dropping it would make frits that name it fail to read.
+4. **`room` draws as `natural`, and stays a value a frit may write** (D8). The lean: keep it as a synonym. Evidence: every glyph's marks may now use the added rows, so the two values draw alike; `room` already draws as `natural` until the right-to-left work builds it, and dropping it would make frits that name it fail to read.
 5. **Where two rows' ink meets, the row below lies over the row above** (D4). The record's call; ink of one color looks the same either way.
 6. **A blinking accented capital shows its accent cut while it blinks** (D6), the maintainer's blink rule applied up and down. The record's reading of that rule.
+7. **The overflow blends rather than being XORed** (D4), where the maintainer's sketch of 2026-11-06 put it on with XOR; the sketch's two passes and its per-cell record of which glyphs leave their cell are what D4 and D5 build. The lean: blend. Evidence: XOR turns a half-covered pixel of white ink on a dark background into a background-tinted grey, makes ink vanish where two glyphs overlap, and gives unrelated colors over color glyphs and pictures; vtium composes each damaged cell from nothing, so it never needs XOR's way of undoing ink.
+8. **A picture's cells do not cut the ink of the text around them** (D7): a picture below the text shows the ink on top, and a picture above the text hides it. The record's call, following ADR-1100 D4's layers; Ghostty and WezTerm order them the same way.
 
 ## Departures from the C reference
 
-Each is listed in vtium-render's README, or vtium-config's for placement, when the work in D10 makes it, and each tier 2 or tier 3 golden that shows it lists the cells where it differs. No specification covers glyph ink outside its cell.
+Each is listed in vtium-render's README, or vtium-config's for placement, when the work in D11 makes it, and each tier 2 or tier 3 golden that shows it lists the cells where it differs. No specification covers glyph ink outside its cell.
 
 - **Glyph ink reaches into the rows above and below.** The C reference cut every glyph at its box. vtium draws a glyph's ink up to one row above and one below its own (D1), so accented capitals and Arabic marks draw whole in a cell the font's ascent and descent fill.
 - **A mark draws where its font places it.** The C reference pushed a mark that did not fit back inside the cell. vtium moves or scales a mark only where it would pass a whole row past its own (D2).
@@ -243,8 +302,9 @@ Each test that drives this behaviour through vtium-render or vtium-config carrie
   - `overflow-marks`: Arabic letters with marks above and below at every cell height from 12 to 32 pixels, lam with shadda and fatha at its full height, and a stack that passes a whole row, moved or scaled to the reach.
   - `overflow-meet`: a descender in one row and an accent in the row below meeting in two different colors, the row below's on top.
   - `overflow-spaced`: the same accents and marks with line spacing added, using the added rows.
+  - `overflow-pictures`: accents and Arabic marks reaching into the cells of a kitty picture at z below -1,073,741,824, at z -1 and at z 0, and of a sixel: the ink shows over the first two and is hidden by the last two.
   - Each also in 1-bit mode, at a cache of 0 glyphs, and on the GPU path once it lands, as tier 2 draws every screen.
-- **Damage:** a frame draws a glyph whose ink reaches the row above, and the next frame writes a space over it; the cell above then equals a whole draw of the second frame in buffers of age 1, 2 and 0, and the damage rectangles include it. The same for the row below and for each corner; for a background changing under ink from the row below; for the cursor arriving on an accented capital and leaving it, and blinking there with no neighbour changing; for a selection whose edge lies between the rows; and for a scroll region whose margin lies under an accented row, scrolled one line both ways. A script of typing and erasing accented capitals at the rows' edges checks every frame against a whole draw at every buffer age, as `every_frame_matches_a_whole_draw_under_each_blink_option` does. Planted defects, each seen to fail: drop the damage of the cell above; drop that of the cell below; drop a corner's; draw a neighbour row's background over the ink; draw the row above's ink after the row below's; leave the cursor's cell's ink above the row out in one blink phase; draw a blinking letter's ink above its row; let ink pass the grid's top edge.
+- **Damage:** a frame draws a glyph whose ink reaches the row above, and the next frame writes a space over it; the cell above then equals a whole draw of the second frame in buffers of age 1, 2 and 0, and the damage rectangles include it. The same for the row below and for each corner; for a background changing under ink from the row below; for the cursor arriving on an accented capital and leaving it, and blinking there with no neighbour changing; for a selection whose edge lies between the rows; and for a scroll region whose margin lies under an accented row, scrolled one line both ways. A script of typing and erasing accented capitals at the rows' edges checks every frame against a whole draw at every buffer age, as `every_frame_matches_a_whole_draw_under_each_blink_option` does. Planted defects, each seen to fail: drop the damage of the cell above; drop that of the cell below; drop a corner's; draw a neighbour row's background over the ink; draw the row above's ink after the row below's; leave the cursor's cell's ink above the row out in one blink phase; draw a blinking letter's ink above its row; let ink pass the grid's top edge; draw received ink over a picture above the text; leave the received ink out of a cell a deleted picture uncovers. A picture that appears, moves, plays a frame and is deleted under an accent from the row below is checked against a whole draw at every buffer age.
 - **Placement:** for the test font, a glyph's ink box equals the union of its cells and its hinted ink, cut to the reach in all four directions; a precomposed and a decomposed accented capital give the same pixels; a mark inside the reach keeps HarfRust's place, and a stack past it moves or scales, a planted rule at the row's edge failing it; a box past the reach up or down, planted in a helper's answer, is refused; an INKX record written without the new fields reads as the cell's full height.
 - **Nothing else moves:** every tier 2 and tier 3 screen drawn only with bitmap fonts, or with outline text whose ink stays in its row, draws byte for byte as before; `crates/vtium-render/tests/figures.rs` shows the frame of such a screen at its present cost, and `tests/memory.rs` pins the reach byte.
 
@@ -273,7 +333,7 @@ Each test that drives this behaviour through vtium-render or vtium-config carrie
 
 ### Neutral
 
-- ADR-1302's title, "cut at its row", no longer describes what vtium draws once this record is accepted; ADR-1302's D1, D3, D6, D7, D8, D9, D10 and D13 and ADR-1300's D5 each take a dated note pointing here then.
+- ADR-1302's title, "cut at its row", no longer describes what vtium draws once this record is accepted; ADR-1302's D1, D3, D6, D7, D8, D9, D10 and D13, ADR-1300's D5 and ADR-1100's D4 each take a dated note pointing here then.
 - Fallback fonts drawn at their own size, such as Noto Sans Arabic, stay small; font merging decides how a frit sizes them.
 
 ## Alternatives Considered
@@ -284,4 +344,7 @@ Each test that drives this behaviour through vtium-render or vtium-config carrie
 - **Make the cell as tall as the font's line height,** as the C reference's pango engine did. Rejected: every outline frit's grid would lose rows, and the cell's height would no longer be the one the user or the frit asked for (ADR-1200 D17).
 - **Let ink go anywhere, as Ghostty and WezTerm do.** Rejected: with no bound, a changed cell's damage has no bound, and the renderer would have to draw the whole frame each time, which the minspec build's cell-by-cell damage avoids.
 - **Draw every background of the frame, then every glyph,** as Alacritty, WezTerm and Ghostty do. Rejected for the CPU path: with damage cell by cell, a second pass over a cell already drawn reads the display's buffer, the slow path ADR-1300 D5 measured at 0.16 GB/s on an integrated GPU against 87 GB/s from cache; D4's order gives the same pixels row by row.
+- **Two passes with the overflow put on by XOR,** the maintainer's sketch of 2026-11-06. Its two passes and its per-cell record of which glyphs leave their cell are adopted (D4, D5); XOR is not, for the reasons D4 gives.
+- **Keep the overflow in a buffer for the whole frame,** the second pass's own buffer. Rejected: 4 MiB at 1366x768, kept current through every change, where the drawn-glyph cache already holds each glyph's ink outside its cell once.
+- **Draw a band of three rows, every background first and then every glyph,** as Alacritty draws a batch. Not chosen: it gives D4's pixels, but needs a scratch three rows tall or draws each row three times, and the order where ink meets follows the order glyphs were drawn in rather than a rule.
 - **Bound the reach at half a row.** Not chosen: it holds every glyph measured, but costs the same, since a pixel still looks at three rows, and adds a second number to the rule.
