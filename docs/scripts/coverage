@@ -254,8 +254,8 @@ def scan(found, errors):
     """Read every tag in the repository's files; returns (rust files, replay files).
 
     The files are the ones git tracks or would track: committed, staged, or new and
-    not ignored. A build's output or a fork's extracted copy (gitignored) is never
-    read, so a tag in the C reference's corpus can't count toward vtium's coverage.
+    not ignored. A build's output or an extracted copy (gitignored) is never
+    read, so a tag in such a copy can't count toward vtium's coverage.
     """
     counts = {'.rs': 0, '.replay': 0}
     listed = subprocess.run(

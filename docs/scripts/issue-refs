@@ -18,8 +18,8 @@ an exported copy of another commit. FILE arguments read only those files.
 
 What counts as a reference:
     - a bare `#123`, as in "(#123)" or "#12's table";
-    - `owner/repo#123`, such as `vtium/vtium#47` or `aaronsb/libtsm#79`;
-    - `vtium#47`, `kmscon#254` or `libtsm#79`, a repository named without its
+    - `owner/repo#123`, such as `vtium/vtium#47` or `owner/other#79`;
+    - `vtium#47` or `other#79`, a repository named without its
       owner, in any case ("Vtium#47");
     - "PR 193", "PR#193", "pr 193", "issue 157", "issues #12", "Issue no.
       157", "pull request 162", in any case and with or without a space;
@@ -51,8 +51,8 @@ Where it looks in a record:
     - A fenced code block is skipped, except a `mermaid` block, whose labels
       are drawn in the rendered figure.
     - An inline code span is checked for every form above except the bare
-      `#123`, so `kmscon/kmscon#594`, `vtium/vtium#47's`, `libtsm#79`,
-      `kmscon/kmscon issue 594` and `gh issue view 41` all count. A bare
+      `#123`, so `owner/other#594`, `vtium/vtium#47's`, `other#79`,
+      `owner/other issue 594` and `gh issue view 41` all count. A bare
       `#123` inside a span reads as code, since a color such as `#123` looks
       the same; so does a `#` among other code, such as `cmd --x#1`.
 
