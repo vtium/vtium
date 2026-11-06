@@ -1622,6 +1622,21 @@ pub const MISSING: Key = Key {
     cite: "vtium/vtium#85",
 };
 
+pub const TEXT_DIRECTION: Key = Key {
+    name: "text-direction",
+    short: None,
+    kind: Kind::Choice(&["ltr", "rtl", "auto"]),
+    default: Default::Text("ltr"),
+    scope: Scope::Anywhere,
+    levels: TOP,
+    reader: "vtium-term",
+    what: "Which way a paragraph of text runs when the program writing it does not say: `ltr`, left to right, `rtl`, right to left, or `auto`, which takes each paragraph's direction from its first letter.\n\n\
+           A paragraph is the text between two line ends, however many rows it wraps across. `ltr`, the default, starts each paragraph at the left edge, as most terminals do. `rtl` starts each one at the right edge, for a console used mostly in Arabic, Hebrew or another right-to-left language. Under `auto`, a paragraph that starts with an Arabic or Hebrew letter runs right to left, and one that starts with a Latin letter, or has no letter, runs left to right.\n\n\
+           A program can change the direction with escape sequences, and a terminal reset returns it to this setting. vtium reads this key when it starts, so a change takes effect when vtium restarts, and it never changes text already on the screen.\n\n\
+           A build without right-to-left support (the `bidi` feature) accepts this key and does nothing with it.",
+    cite: "ADR-1004 D5",
+};
+
 pub const GLYPH_CACHE: Key = Key {
     name: "glyph-cache",
     short: None,
@@ -1834,8 +1849,9 @@ pub const KITTY_GRAPHICS: Key = Key {
     cite: "ADR-1100 D10, D11",
 };
 
-/// Every key, in the order the generated files list them.
-pub const KEYS: [Key; 107] = [
+/// Every key, in the order the generated files list them. A static, so
+/// each use reads the one table instead of a copy of it.
+pub static KEYS: [Key; 108] = [
     CONFIGDIR,
     HELP,
     VERSION,
@@ -1932,6 +1948,7 @@ pub const KEYS: [Key; 107] = [
     GLYPH_SOURCE_OCTANTS,
     GLYPH_SOURCE_LEGACY,
     MISSING,
+    TEXT_DIRECTION,
     GLYPH_CACHE,
     DISPLAY_DEPTH,
     DISPLAY_DPI,
@@ -1972,7 +1989,7 @@ pub struct Section {
 pub const SECTIONS: [Section; 10] = [
     Section {
         title: "Fonts and text",
-        about: "The console's font and its size, who draws box-drawing and block characters, and how blinking text looks.",
+        about: "The console's font and its size, who draws box-drawing and block characters, how blinking text looks, and which way text runs.",
         groups: &[
             Group {
                 title: "Font",
@@ -2005,6 +2022,10 @@ pub const SECTIONS: [Section; 10] = [
             Group {
                 title: "Font switching by programs",
                 keys: &[&ALLOW_FONT_OPS],
+            },
+            Group {
+                title: "Right-to-left text",
+                keys: &[&TEXT_DIRECTION],
             },
         ],
     },
@@ -2270,6 +2291,28 @@ mod tests {
                 assert!(!g.keys.is_empty(), "{}", g.title);
             }
         }
+    }
+
+    // ADR-1004 D5, D13: `text-direction` takes `ltr`, the default, `rtl`
+    // and `auto`, at vtium.conf's top level and on the command line, and
+    // says that a build without the bidi feature accepts it and does
+    // nothing with it.
+    #[test]
+    fn text_direction_takes_ltr_rtl_or_auto_and_defaults_to_ltr() {
+        let key = find("text-direction").unwrap_or(&HELP);
+        assert_eq!(key.name, "text-direction");
+        assert_eq!(key.kind, Kind::Choice(&["ltr", "rtl", "auto"]));
+        assert_eq!(key.default, Default::Text("ltr"));
+        assert_eq!(key.tree_default(), Default::Text("ltr"));
+        assert_eq!(key.scope, Scope::Anywhere);
+        assert_eq!(key.levels, Levels::TOP);
+        assert_eq!(key.reader, "vtium-term");
+        assert!(
+            key.what
+                .contains("A build without right-to-left support (the `bidi` feature) accepts this key and does nothing with it."),
+            "{}",
+            key.what
+        );
     }
 
     #[test]

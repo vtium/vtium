@@ -18,7 +18,7 @@ vtium reports, once at start, a top-level key it does not know, however often it
 
 ## Fonts and text
 
-The console's font and its size, who draws box-drawing and block characters, and how blinking text looks.
+The console's font and its size, who draws box-drawing and block characters, how blinking text looks, and which way text runs.
 
 | Key | Option | Type | Default | Bound | Read by | Set in | What | Source |
 |---|---|---|---|---|---|---|---|---|
@@ -42,6 +42,7 @@ The console's font and its size, who draws box-drawing and block characters, and
 | `blink-text` | `--blink-text=VALUE` | one of `full`, `partial`, `off` | `partial` | the choices | vtium-render | top level, command line | How blinking text (SGR 5 or 6) looks while a blink is off. `full` hides it, `partial` dims it halfway to its background, as faint text (SGR 2) is, and `off` keeps it steady. The cursor follows `blink` either way. | the operator on vtium/vtium#81; the maintainer's decision of 2026-11-03 |
 | `blink-decorations` | `--blink-decorations`, `--no-blink-decorations` | switch | off | on or off | vtium-render | top level, command line | Blink the underline and strikethrough of blinking text with it. They hide while a blink is off with `blink-text = full`, and dim with `partial`. When off, they stay visible while the text blinks. | the operator on vtium/vtium#81 |
 | `allow-font-ops` | `--allow-font-ops`, `--no-allow-font-ops` | switch | on | on or off | vtium | top level, command line | Let programs switch the console's font, and ask which font is in use (xterm's OSC 50). A program switches with `OSC 50 ; NAME ST`, as `vtium-config use-frit NAME` does, and asks with `OSC 50 ; ? ST`. A switch lasts until that program's session ends; then vtium returns to the font and size that `font-name` and `font-size` set. It is on by default, as xterm's `allowFontOps` is, because a program can choose only the installed font sets and the built-in fonts, never another file. When off, vtium ignores OSC 50, queries included. | ADR-1200 (D5); vtium/vtium#126 |
+| `text-direction` | `--text-direction=VALUE` | one of `ltr`, `rtl`, `auto` | `ltr` | the choices | vtium-term | top level, command line | Which way a paragraph of text runs when the program writing it does not say: `ltr`, left to right, `rtl`, right to left, or `auto`, which takes each paragraph's direction from its first letter. A paragraph is the text between two line ends, however many rows it wraps across. `ltr`, the default, starts each paragraph at the left edge, as most terminals do. `rtl` starts each one at the right edge, for a console used mostly in Arabic, Hebrew or another right-to-left language. Under `auto`, a paragraph that starts with an Arabic or Hebrew letter runs right to left, and one that starts with a Latin letter, or has no letter, runs left to right. A program can change the direction with escape sequences, and a terminal reset returns it to this setting. vtium reads this key when it starts, so a change takes effect when vtium restarts, and it never changes text already on the screen. A build without right-to-left support (the `bidi` feature) accepts this key and does nothing with it. | ADR-1004 D5 |
 
 ## Colors
 
