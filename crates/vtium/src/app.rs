@@ -1679,7 +1679,12 @@ impl App {
                         .as_ref()
                         .is_some_and(|f| f.wants_own_cell(at, head.sized()))
             });
+            // The cell's width can change at the height a view already
+            // draws at, so each view is rebuilt with the new face.
             if takes {
+                if let Some(head) = self.heads.get_mut(h) {
+                    head.refont = true;
+                }
                 self.relayout(h);
             }
         }
@@ -5225,6 +5230,76 @@ mod tests {
         (lp, app, dir)
     }
 
+    // ADR-1200 D17: a late outline answer at the height the head draws at
+    // changes the cell's width, and the head's grid and every one of its
+    // views take the new cell together, so the next frame draws each cell
+    // as wide as the grid lays it out. The cases are the ones the issue
+    // about late cells lists: 18x40 and 42x40 at 40 pixels, and 13x32 at
+    // 32 pixels. Before the fix the grid took the new width while each
+    // view kept drawing the built-in font's width, because a view is
+    // rebuilt only when its height changes or the head is marked
+    // `refont`.
+    #[test]
+    fn a_late_outline_cell_is_drawn_at_its_own_width() {
+        for (width, height) in [(18, 40), (42, 40), (13, 32)] {
+            let test = format!("late-outline-{width}x{height}");
+            let dir = std::env::temp_dir().join(format!("vtium-app-{test}-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(dir.join("t.vtfrit"), "source=outline:/nonexistent/t.ttf\n").unwrap();
+            let fonts = font::Sources {
+                frits: dir.clone(),
+                helper: Some(helper::Command {
+                    program: PathBuf::from("/bin/sh"),
+                    args: vec!["-c".into(), "exec sleep 30".into()],
+                    account: None,
+                }),
+                ..no_fonts()
+            };
+            let size = format!("--font-size={height}");
+            let (_lp, mut app) = seat_with(&[&size, "--font-name=t"], None, fonts);
+            app.add_video(
+                PathBuf::from("/dev/mem0"),
+                Box::new(Still::new(&[(1, "A")])),
+            );
+            shown(&mut app);
+            let head = app.heads.first().unwrap();
+            let at = draw_height(head, app.dpi(0), &app.locale);
+            assert_eq!(at, height, "the head draws at {height} pixels");
+            let view = |app: &App| {
+                let head = app.heads.first().unwrap();
+                let v = head.views.values().next().unwrap();
+                (v.cell().width, v.cell().height)
+            };
+            let fallback = view(&app);
+            assert_ne!(fallback.0, width, "the fallback's width differs");
+            let known = app.frits.get("t").map(|f| f.own.clone()).unwrap();
+            assert!(
+                known
+                    .get(&at)
+                    .is_some_and(|k| k.as_ref().is_err_and(|no| no.late)),
+                "the start's query had no answer in time: {known:?}"
+            );
+            let cell = vtium_font::Cell { width, height };
+            app.late_cell("t", at, Ok(helper::OwnCell::Outline(cell)));
+            let head = app.heads.first().unwrap();
+            assert_eq!(
+                head.cell,
+                (width, height),
+                "{width}x{height}: the head's cell"
+            );
+            assert_eq!(
+                view(&app),
+                (width, height),
+                "{width}x{height}: the view's cell"
+            );
+            let columns = usize::try_from(320 / width).unwrap();
+            let rows = usize::try_from(160 / height).unwrap();
+            assert_eq!(head.grid(), (columns, rows), "{width}x{height}: the grid");
+            let _ = std::fs::remove_dir_all(&dir);
+        }
+    }
+
     // ADR-1200 D17 (the maintainer, 2026-11-03), fix round 1 of the work
     // that keeps a late answer: a late answer lays out again only the
     // heads drawing the frit that take a cell from it. An outline cell for
@@ -5232,8 +5307,10 @@ mod tests {
     // bitmap first source's own cell, given to frit `t`, lays out the head
     // drawing `t` and not the head drawing `u`, which still wants its own
     // cell. Each frit gets one kind of answer, as one frit's first source
-    // answers one kind for the whole boot. `refont`, which a layout takes,
-    // marks each head.
+    // answers one kind for the whole boot. The views' cells and the
+    // heads' grids show what was laid out: the late cell is as tall as
+    // the cell drawn before it and wider, so a layout that rebuilt no view
+    // leaves the view drawing the old width.
     #[test]
     fn a_late_cell_lays_out_only_the_heads_that_take_it() {
         let (_lp, mut app, dir) = late_seat("late-heads");
@@ -5245,31 +5322,37 @@ mod tests {
                 .is_some_and(|k| k.as_ref().is_err_and(|no| no.late)),
             "the start's query had no answer in time: {known:?}"
         );
-        let mark = |app: &mut App| {
-            for head in &mut app.heads {
-                head.refont = true;
-            }
+        let drawn = |app: &App| {
+            app.heads
+                .iter()
+                .map(|h| (h.cells(), h.grid()))
+                .collect::<Vec<_>>()
         };
-        let marked = |app: &App| app.heads.iter().map(|h| h.refont).collect::<Vec<_>>();
+        let before = drawn(&app);
+        let (width, height) = before[0].0[0];
         let other = at + 11;
-        mark(&mut app);
         let outline = vtium_font::Cell {
             width: 9,
             height: other,
         };
         app.late_cell("u", other, Ok(helper::OwnCell::Outline(outline)));
         assert_eq!(
-            marked(&app),
-            [true, true],
+            drawn(&app),
+            before,
             "an outline cell at {other} lays out nothing"
         );
         let own = vtium_font::Cell {
-            width: 8,
-            height: 16,
+            width: width + 2,
+            height,
         };
         app.late_cell("t", at, Ok(helper::OwnCell::Bitmap(own)));
-        assert_eq!(marked(&app), [false, true], "a is laid out, b is not");
-        assert_eq!(app.heads.first().map(|h| h.cell), Some((8, 16)));
+        let after = drawn(&app);
+        let wide = (own.width, own.height);
+        assert_eq!(app.heads.first().map(|h| h.cell), Some(wide));
+        assert_eq!(after[0].0, [wide], "a is laid out in the late cell");
+        let columns = usize::try_from(320 / own.width).unwrap();
+        assert_eq!(after[0].1.0, columns, "a's grid takes the late cell");
+        assert_eq!(after[1], before[1], "b is not laid out");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
