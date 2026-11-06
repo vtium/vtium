@@ -16,7 +16,7 @@ import t3img
 from t3_common import GOLDEN, GUEST, HERE, ROOT, RUNDIR, rel
 
 # Screens drawn by `t3 NAME` in the guest (guest/screens/NAME.sh), in the
-# order of the C reference's VT demo (fork/demo/sections), then sixel-bound and
+# the order the guided demo shows them in, then sixel-bound and
 # the benchmark scenarios, which have no demo page, except that cjk
 # stays last: vt-restore is compared with the last screen's golden, and its
 # golden is the cjk one (test_t3.py holds the two together).
@@ -71,7 +71,7 @@ RATE_CHECKED = ["mpv-sixel"]
 # the issue that tracks it, as {"mpv-sixel": {"2d-7680x2160": "owner/repo#N"}}.
 # Such a case passes with a note while the bottleneck lasts and fails once
 # it is gone, so the entry goes with the fix. None today: both 7680x2160
-# variants carried aaronsb/kmscon#139 until #152 fixed it there.
+# variants once waited on a console bottleneck that is fixed.
 KNOWN_BOTTLENECKS = {}
 # A case compared with another case's golden: back from the scrollback, and
 # back from tty3 (vt-restore, with the last screen's).
@@ -86,9 +86,9 @@ RESTORED = {"images-640x480": PICTURE_SCREENS[-1]}
 # it exactly (ADR-1303 D1, D11).
 GOLDENS_OF = {"gl-1280x800": "2d-1280x800"}
 # The directories under goldens/ kept as a record, which no case compares
-# with: the C reference's GL goldens, what its gltex renderer drew at
-# b1f7a7c5 (ADR-1303 D11).
-RECORDS = {"gl-1280x800": "what the C reference's gltex drew"}
+# with: the first GL goldens, drawn by a renderer vtium does not use
+# (ADR-1303 D11).
+RECORDS = {"gl-1280x800": "what the first GL renderer drew"}
 
 
 def same_as(case, variant=None):
@@ -101,7 +101,7 @@ def same_as(case, variant=None):
 
 # The screens that draw sixel or kitty pictures. Every variant with images
 # draws them: both renderers draw image placements, bbulk on the 2D variants
-# and gltex on the GL one, in the C reference. A variant
+# and gltex on the GL one. A variant
 # without images ("images": False, the minimal build) shows each screen's
 # "not offered" page instead (t3_scenario.not_offered).
 IMAGE_SCREENS = ["sixel", "sixel-ramps", "sixel-article", "sixel-bound", "sixel-evict",

@@ -27,13 +27,13 @@ write_files:
         return 1
       }
       pac -Syyuu
-      # Runtime dependencies of kmscon-aaronsb and its modules, and the fonts
-      # the scenario draws with: DejaVu Sans Mono for Latin and box drawing,
-      # WenQuanYi Micro Hei as pango's fallback for CJK, Noto Color Emoji
-      # for colour emoji.
+      # The fonts the scenario draws with: DejaVu Sans Mono for Latin and box
+      # drawing, WenQuanYi Micro Hei for CJK, Noto Color Emoji for color emoji.
+      # vtium needs only libc, libudev, libxkbcommon and libgcc_s, which the
+      # base image has; mesa and libglvnd serve the GPU path's GL context.
       pac -S --needed \
-        bash dbus glib2 libdrm libxkbcommon systemd-libs zlib \
-        pango freetype2 fontconfig harfbuzz libglvnd mesa \
+        bash dbus libdrm libxkbcommon systemd-libs \
+        freetype2 fontconfig mesa libglvnd \
         ttf-dejavu wqy-microhei noto-fonts-emoji
       # ADR-103's sixel acceptance programs (A1, A2, A4): chafa, the
       # operator's everyday sixel tool, and img2sixel from libsixel for A1's
@@ -42,8 +42,6 @@ write_files:
       # run's disc; the run downloads nothing.
       pac -S --needed chafa libsixel mpv tmux
       echo LANG=C.UTF-8 > /etc/locale.conf
-      # VTs that logind spawns on switch (tty2 and up) run kmscon.
-      ln -sfn /usr/lib/systemd/system/kmsconvt@.service /etc/systemd/system/autovt@.service
       systemctl enable tier3-install.service
       # Runs have no network; nothing may wait for it.
       systemctl mask systemd-networkd-wait-online.service

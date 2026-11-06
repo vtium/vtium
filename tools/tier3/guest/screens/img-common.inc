@@ -45,7 +45,7 @@ reply_event() {
 # It reads the reply as kitty_ask does, and also takes one that names a
 # placement after the image (i=N,p=P;...), which kitty_ask skips while it
 # waits for i=N; alone. kitty_ask stays as it is, since kitty-common.inc is
-# a byte-for-byte copy of the C reference's harness.
+# kept as it is.
 ask_event() {
 	local mode r= id= n
 	[[ ,$1, =~ ,i=([0-9]+), ]] && id=${BASH_REMATCH[1]}

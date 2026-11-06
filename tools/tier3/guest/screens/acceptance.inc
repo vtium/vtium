@@ -72,9 +72,8 @@ clip() {
 }
 
 # The console process this terminal belongs to: the nearest ancestor named
-# vtium, or kmscon for the C reference, so another console on the machine
-# is never measured instead. The figure keeps the C reference's name,
-# kmscon_ms, which t3_bench reads.
+# vtium, so another console on the machine is never measured instead. The
+# figure is named kmscon_ms, which t3_bench reads.
 kmscon_pid() {
 	local p=$$ comm
 	while [ "$p" -gt 1 ]; do

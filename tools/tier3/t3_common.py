@@ -1,4 +1,4 @@
-"""Paths, the copies from the C reference and logging shared by the tier 3
+"""Paths, the copied files and logging shared by the tier 3
 modules.
 
 Paths are relative to the repository root, which is two levels above this
