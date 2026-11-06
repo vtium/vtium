@@ -24,6 +24,9 @@ logind = ["vtium-platform/logind"]
 # vtium-platform's GL context, which `src/gpu.rs` joins. It loads libEGL and
 # libgbm at run time and links no GL library.
 gpu = ["vtium-render/gpu", "vtium-platform/gpu"]
+# Right-to-left text (ADR-1004 D13): vtium-term's bidirectional algorithm
+# and its Unicode tables. The minspec build leaves it out.
+bidi = ["vtium-term/bidi"]
 
 [dependencies]
 vtium-term.workspace = true
