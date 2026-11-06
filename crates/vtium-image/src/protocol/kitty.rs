@@ -62,6 +62,9 @@
 //!   leaves out OK and `q=2` every reply. An `a=q` without `i` reads nothing
 //!   and is answered under no `q`, as kitty 0.49.2 answers it. A delete answers only
 //!   an error.
+//! - **A frame's reply** names its frame with `r`, after `i`, `I` and
+//!   `p`, as kitty does (ADR-1102, D2): the frame an edit names, or the
+//!   frame a new frame made, or would have made had it not been refused.
 //! - **The cursor.** After a placement the cursor goes down one row fewer
 //!   than the box has rows, then to the column after the box; when that
 //!   reaches the right edge it goes down once more, to column 0. `C=1`

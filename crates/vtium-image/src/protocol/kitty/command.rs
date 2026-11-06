@@ -5,6 +5,8 @@ use core::fmt::Write as _;
 
 use crate::bounds::{BOX_CELLS_MAX, IMAGE_OVERHEAD, IMAGE_SIDE_MAX};
 use crate::handler::{Cause, Context, ReplyKind};
+use crate::image::ImageKey;
+use crate::store::Store;
 
 /// What a command is answered when it fails: each a fixed message of the
 /// closed set of kitty replies (D6).
@@ -436,6 +438,26 @@ pub(super) fn charge(pixels: u64) -> u64 {
     pixels.saturating_mul(4).saturating_add(IMAGE_OVERHEAD)
 }
 
+/// The frame a frame command's reply names with `r`, as kitty 0.50.0's
+/// replies do (ADR-1102, D2): the frame an edit names, or else the frame a
+/// new frame made, the image's last, or on a refusal the number it would
+/// have had. A refusal for palette indices names only the `r` the command
+/// gave, and a reply to anything but a frame names none.
+fn frame_named(store: &Store, cmd: &Command, key: ImageKey, answer: Answer) -> Option<u32> {
+    if cmd.action != b'f' {
+        return None;
+    }
+    if cmd.rows != 0 || answer == Err(Error::IndexedFrame) {
+        return (cmd.rows != 0).then_some(cmd.rows);
+    }
+    let frames = store.animation(key).map_or(1, |a| a.frames);
+    Some(if answer.is_ok() {
+        frames
+    } else {
+        frames.saturating_add(1)
+    })
+}
+
 /// Answers `cmd` with `answer` for the image of id `id`, 0 when there is
 /// none to name: `ESC _ G i=ID[,I=N][,p=P];MESSAGE ESC \`, each key only
 /// when it is set. An animation command, `a=f`, `a=a` or `a=c`, names an
@@ -449,13 +471,13 @@ pub(super) fn reply(ctx: &mut dyn Context, cmd: &Command, id: u32, answer: Answe
     if (cmd.id == 0 && cmd.number == 0) || cmd.dropped() {
         return;
     }
-    let id = if matches!(cmd.action, b'f' | b'a' | b'c') {
+    let key = if matches!(cmd.action, b'f' | b'a' | b'c') {
         ctx.find_image(cmd.id, cmd.number)
-            .and_then(|key| ctx.store().kitty_id(key))
-            .unwrap_or(id)
     } else {
-        id
+        None
     };
+    let id = key.and_then(|key| ctx.store().kitty_id(key)).unwrap_or(id);
+    let frame = key.and_then(|key| frame_named(ctx.store(), cmd, key, answer));
     let quiet = match answer {
         Ok(()) => cmd.quiet >= 1,
         Err(_) => cmd.quiet >= 2,
@@ -473,6 +495,9 @@ pub(super) fn reply(ctx: &mut dyn Context, cmd: &Command, id: u32, answer: Answe
     }
     if cmd.placement != 0 {
         let _ = write!(text, ",p={}", cmd.placement);
+    }
+    if let Some(r) = frame {
+        let _ = write!(text, ",r={r}");
     }
     let _ = match answer {
         Ok(()) => write!(text, ";OK\x1b\\"),
