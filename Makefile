@@ -546,11 +546,17 @@ vt-uninstall: ## Undo make vt-install on VT N: vtium-dev off, its getty back, th
 	@case "$$VTIUM_VT_DRY_RUN" in '') tools/vt/vt-install.sh uninstall "$$VTIUM_VT_NR" ;; 1) tools/vt/vt-install.sh uninstall --dry-run "$$VTIUM_VT_NR" ;; *) echo "DRY_RUN=$$VTIUM_VT_DRY_RUN: 1 or nothing" >&2; exit 1 ;; esac
 
 # Tier 2 against its goldens in tools/tier2/goldens. The report names this checkout's commit, as tier 3's
-# does (T3_REV).
-.PHONY: tier2
-tier2: ## Draw tier 2's screens and judge them against their goldens
+# does (T3_REV). tier2 runs tier2-fonts first, which fetches the outline fonts the outline screens draw
+# with into $XDG_CACHE_HOME/vtium/tier2/fonts and checks each against its SHA-256; once they are cached,
+# it fetches nothing.
+.PHONY: tier2 tier2-fonts
+tier2: tier2-fonts ## Draw tier 2's screens and judge them against their goldens
 	cargo build --release -p vtium-tier2 --features gpu --bins
 	T2_VTIUM_REV=$(T3_REV) $(or $(CARGO_TARGET_DIR),target)/release/tier2 run
+
+tier2-fonts: ## Fetch tier 2's pinned outline fonts into the cache, checking each SHA-256
+	cargo build --release -p vtium-tier2 --features gpu --bins
+	$(or $(CARGO_TARGET_DIR),target)/release/tier2 fetch-fonts
 
 # The demonstration set (vtium/vtium#142): the test card drawn for each
 # display profile into docs/specimens/, and judged against what is committed.

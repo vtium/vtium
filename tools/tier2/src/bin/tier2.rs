@@ -5,7 +5,12 @@
 //! tier2 run [--out DIR]
 //! tier2 render [--out DIR]
 //! tier2 compare GOLDEN ACTUAL [--tol FILE] [--diff OUT.ppm]
+//! tier2 fetch-fonts
 //! ```
+//!
+//! `fetch-fonts` fetches the outline fonts the outline screens draw with
+//! into their cache and checks each against its SHA-256 (`fonts`); it exits
+//! 0 when every font is in place and 1 when one is not.
 //!
 //! `run` exits 0 when every case passes, 1 when one does not and 2 when it
 //! refuses to run; `compare` exits 0 on pass or near, 1 on fail and 2 on
@@ -29,7 +34,8 @@ const HERE: &str = env!("CARGO_MANIFEST_DIR");
 fn usage() -> ExitCode {
     eprintln!(
         "usage: tier2 run [--out DIR]\n       tier2 render [--out DIR]\n       \
-         tier2 compare GOLDEN ACTUAL [--tol FILE] [--diff OUT.ppm]"
+         tier2 compare GOLDEN ACTUAL [--tol FILE] [--diff OUT.ppm]\n       \
+         tier2 fetch-fonts"
     );
     ExitCode::from(2)
 }
@@ -243,6 +249,20 @@ fn compare_cmd(opts: &[(String, String)], files: &[String]) -> ExitCode {
     }
 }
 
+fn fetch_fonts() -> ExitCode {
+    let dir = vtium_tier2::fonts::cache_dir();
+    match vtium_tier2::fonts::fetch(&dir, &vtium_tier2::fonts::FONTS) {
+        Ok(()) => {
+            println!("tier2: the outline fonts are in {}", dir.display());
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("tier2: {e}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let Some((cmd, rest)) = args.split_first() else {
@@ -252,6 +272,7 @@ fn main() -> ExitCode {
         "run" => &["--out"],
         "render" => &["--out"],
         "compare" => &["--tol", "--diff"],
+        "fetch-fonts" => &[],
         _ => return usage(),
     };
     let Some((opts, files)) = split(rest, flags) else {
@@ -261,6 +282,7 @@ fn main() -> ExitCode {
         "run" if files.is_empty() => run(&opts),
         "render" if files.is_empty() => render(&opts),
         "compare" => compare_cmd(&opts, &files),
+        "fetch-fonts" if files.is_empty() => fetch_fonts(),
         _ => usage(),
     }
 }
