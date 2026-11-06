@@ -50,7 +50,7 @@ target/release/conformance interface      # the interface check alone
 
 ## The copies
 
-The corpus, the generator's inputs and the probes were first copied from the screen-and-parser library libtsm and the terminal kmscon, the released programs vtium began beside. The draw2 goldens, which vtium does not owe, stayed behind. One copy is an excerpt: vtium-term's `crates/vtium-term/tests/palettes.c.txt` holds libtsm's palette tables, which vtium-term's palette test reads.
+The corpus, the generator's inputs and the probes were first copied from the screen-and-parser library libtsm and the terminal kmscon, the released programs vtium began from. The draw2 goldens, which vtium does not owe, stayed behind. One copy is an excerpt: vtium-term's `crates/vtium-term/tests/palettes.c.txt` holds libtsm's palette tables, which vtium-term's palette test reads.
 
 A golden changes only in a commit of its own that lists each moved value, as CONTRIBUTING.md asks.
 

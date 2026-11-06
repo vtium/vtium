@@ -102,7 +102,7 @@ The goldens of `2d-1280x800`, `2d-1366x768-potato`, `2d-7680x2160` and `2d-7680x
 
 Four choices of vtium show in these goldens:
 
-- **Built-in font**: crates/vtium/README.md, "A character the frit lacks draws in the built-in font." The frit vtium makes for `font-name=DejaVu Sans Mono` names that font alone, so the CJK characters and the emoji, which DejaVu Sans Mono lacks, draw in the built-in unifont. This shows in `wide-margin` and `cjk`.
+- **Built-in font**: crates/vtium/README.md, "A character the frit lacks draws in the built-in font." The frit vtium makes for `font-name=DejaVu Sans Mono` names that font alone, so the CJK characters and the emoji, which DejaVu Sans Mono lacks, draw in the built-in unifont. This shows in `wide-margin`, `cjk`, and the CJK on row 14 of `underline-styles` and row 7 of `strike`.
 - **Cluster**: crates/vtium/README.md, "A cluster draws its own glyph, keyed by its whole text." In `combining`, `a` with U+0303 and U+0300 shows the grave above the tilde.
 - **No eviction**: crates/vtium-render/README.md, "No scaled copy evicts a stored picture." In `sixel-evict-history`, picture 1 is still drawn in the scrollback.
 - **W rule**: ADR-1200 D17. The cell is as wide as the wider of W's advance and W's ink at the cell's height: 10 pixels wide at a cell height of 19, 11 at 20, 20 at 38 and 20 at 39. In `sixel-evict-zoomed`, Ctrl+= zooms to an 11x20 cell, so the zoomed text and the picture's place move, and in the 32-point variant the grid is 20x38.
@@ -115,9 +115,9 @@ The `sgr`, `colour-forms`, `underline-styles`, `underline-colour`, `strike`, `em
 |---|---|---|
 | `sgr` | `italic` draws DejaVu Sans Mono's regular glyph slanted by 0.2, the helper's synthetic italic, where the golden shows DejaVu Sans Mono Oblique; `bold` draws the regular glyph synthetically emboldened, where the golden shows DejaVu Sans Mono Bold, since the frit vtium makes for `font-name=DejaVu Sans Mono` names no bold or italic face, so vtium synthesises both from the regular glyph (ADR-1200 D21, ADR-1302 D4). The underline and the strike sit where the font's `post` and `OS/2` tables put them, as in the golden. | none yet for the faces |
 | `colour-forms` | `bold green on blue` draws the regular glyph synthetically emboldened, where the golden shows DejaVu Sans Mono Bold, for the same reason as `sgr`'s `bold` | none yet |
-| `underline-styles` | The bold row, as in `colour-forms`. The two dashed lines draw each dash from the cell's left edge for five eighths of it (crates/vtium-render/README.md, "A dash runs from the cell's left edge for five eighths of it."), on the underline row only. The underlines sit on the same rows as in the golden. | the bold row as for `colour-forms` |
+| `underline-styles` | The bold row, as in `colour-forms`. The two dashed lines draw each dash from the cell's left edge for five eighths of it (crates/vtium-render/README.md, "A dash runs from the cell's left edge for five eighths of it."), on the underline row only. The CJK characters of row 14 draw in the built-in unifont. The underlines sit on the same rows as in the golden. | the bold row as for `colour-forms` |
 | `underline-colour` | Only the letters' anti-aliasing, at most 23 levels in a channel. The underlines sit on the same rows as in the golden, and the case names no departure of its own. | none; a golden commit can re-baseline it |
-| `strike` | The bold row, as in `colour-forms`. The strike sits on the same row as in the golden. | the bold row as for `colour-forms` |
+| `strike` | The bold row, as in `colour-forms`. The CJK characters of row 7 draw in the built-in unifont. The strike sits on the same row as in the golden. | the bold row as for `colour-forms` |
 | `emoji` | Every emoji in the built-in unifont's black and white, where the golden shows Noto Color Emoji | the color emoji work of vtium/vtium#24 and the glyph cache in crates/vtium-render |
 | `sixel-article` | Italic, bold and the emoji of its first paragraph, as above | as above |
 

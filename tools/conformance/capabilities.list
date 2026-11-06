@@ -71,7 +71,7 @@ mode-80                       works   -Dimages DEC-80                       DECR
 mode-1070                     works   -Dimages DEC-1070                     DECRQM 1070 (private sixel registers) replies 1 or 2 (#48)
 mode-8452                     works   -Dimages DEC-8452                     DECRQM 8452 (sixel cursor right) replies 1 or 2 (#48)
 
-# the modes and controls vtium adds to the original set (#54); 1007, 1035, 1042
+# the modes and controls the copied probes do not cover (#54); 1007, 1035, 1042
 # and XTSHIFTESCAPE need host calls the interface has no command for
 decaln                        works   -     ctl.decaln                     ESC # 8 fills the screen with E, origin mode off, the margins the whole screen
 reverse-wrap                  works   -     DEC-45                         mode 45: BS reverse-wraps only into the row that wrapped

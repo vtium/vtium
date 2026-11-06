@@ -14,7 +14,7 @@ check
 want test clipboard 68656c6c6f
 want test clipboard none
 
-# --- the modes and controls vtium adds to the original set (#54) ---
+# --- the modes and controls the copied probes do not cover (#54) ---
 
 # DECALN (ESC # 8): every cell an E, origin mode off and the cursor home,
 # and the margins the whole screen: the region before it leaves out the

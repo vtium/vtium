@@ -29,8 +29,11 @@ write_files:
       pac -Syyuu
       # The fonts the scenario draws with: DejaVu Sans Mono for Latin and box
       # drawing, WenQuanYi Micro Hei for CJK, Noto Color Emoji for color emoji.
-      # vtium needs only libc, libudev, libxkbcommon and libgcc_s, which the
-      # base image has; mesa and libglvnd serve the GPU path's GL context.
+      # vtium links libc, libsystemd, libudev, libxkbcommon and libgcc_s, and
+      # vtium-config also libm. The base image has all of them except
+      # libxkbcommon, which the command below installs. freetype2 and
+      # fontconfig stay because mpv, which the scenario runs, depends on them. vtium loads libEGL and libgbm at run time, and mesa
+      # and libglvnd provide them for the GPU path's GL context.
       pac -S --needed \
         bash dbus libdrm libxkbcommon systemd-libs \
         freetype2 fontconfig mesa libglvnd \

@@ -681,7 +681,7 @@ pub const CASES: &[Case] = &[
             "wide-deco-unifont",
             "Wide characters under each underline style and under strike, a decorated run \
              mixing narrow and wide, and a decorated wide character written at the last \
-             column, which wraps to the start of the next row Correct: \
+             column, which wraps to the start of the next row. Correct: \
              every decoration spans both cells of its wide character.",
             WIDE_DECO,
             48,

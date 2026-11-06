@@ -111,11 +111,12 @@ fi
 mkdir -p /etc/systemd/system/vtium@.service.d
 printf '[Service]\nStandardOutput=journal+console\nStandardError=journal+console\n' \
     > /etc/systemd/system/vtium@.service.d/tier3.conf
-# vtium takes the guest's VTs the way a user gives them to it. setup first
-# links autovt@.service, the unit logind starts on a VT the driver switches
-# to, to getty@.service, where Arch's systemd package links it, so the
-# guest starts from a stock install. The enable step below then links it
-# to vtium@.service, recording the getty. It changes only what starts
+# vtium takes the guest's VTs the way a user gives them to it. The base
+# image leaves autovt@.service, the unit logind starts on a VT the driver
+# switches to, linked as Arch's systemd package has it, to getty@.service.
+# The ln below states that link, so the guest starts from a stock install
+# whatever the image holds. The enable step then links it to vtium@.service,
+# recording the getty. It changes only what starts
 # next, and the boot's units are already queued, so tty1 keeps its getty and
 # logind starts vtium on tty2 at the driver's switch.
 ln -sfn /usr/lib/systemd/system/getty@.service /etc/systemd/system/autovt@.service
