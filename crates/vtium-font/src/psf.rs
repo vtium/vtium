@@ -16,9 +16,8 @@
 //! sequence and 0xFFFF to end an entry; PSF2 writes UTF-8, with the bytes
 //! 0xFE and 0xFF, which UTF-8 never uses.
 //!
-//! The behaviour follows the C reference's `font_psf.c`; the departures are
-//! listed in the crate's README. That file's notice, under the MIT licence
-//! whose text is in COPYING:
+//! The loader was ported from kmscon's `font_psf.c`, whose notice, under
+//! the MIT licence whose text is in COPYING, is:
 //!
 //! Copyright (c) awsq.code <awsq.code@gmail.com>, with fragments by David
 //! Herrmann <dh.herrmann@googlemail.com>

@@ -1,6 +1,6 @@
 //! The missing glyph `Missing::Hex` draws: a character's codepoint in hex
-//! digits (vtium/vtium#85). The C reference had no counterpart. The layout
-//! and the digit shapes are the ones the operator approved.
+//! digits (vtium/vtium#85). The layout and the digit shapes are the ones
+//! the operator approved.
 //!
 //! The design is 8x16 for a narrow cell and 16x16 for a wide one, scaled by
 //! the largest whole factor the cell holds and centred in it.

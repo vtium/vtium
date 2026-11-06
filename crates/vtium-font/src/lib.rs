@@ -51,9 +51,8 @@
 //! and the same font, size and character give the same bytes on every
 //! host.
 //!
-//! The behaviour is the C reference's (kmscon's `font_psf.c`,
-//! `font_unifont.c`, `font_box.c` and `font.c`), the floor for vtium; the
-//! crate's README lists where vtium departs from it and why.
+//! The crate's README says what each face and sprite draws and why, and
+//! which digests and models the tests hold them to.
 //!
 //! # Bounds
 //!

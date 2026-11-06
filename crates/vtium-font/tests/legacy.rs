@@ -202,7 +202,7 @@ const LEFT_TO_THE_FACE: [(u32, u32); 3] =
 /// Unassigned in Unicode 17.0.0.
 const UNASSIGNED: [(u32, u32); 2] = [(0x1fb93, 0x1fb93), (0x1fbfb, 0x1fbff)];
 
-/// The ranges vtium/vtium#27 names (aaronsb/kmscon#92).
+/// The ranges vtium/vtium#27 names.
 const ISSUE_RANGES: [(u32, u32); 4] = [
     (0x1cea0, 0x1ceaf),
     (0x1fb82, 0x1fb85),

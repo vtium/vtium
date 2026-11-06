@@ -1,7 +1,7 @@
 //! The per-font choice between a face's glyphs and the sprites for each
 //! range vtium draws as sprites (vtium/vtium#85), with stand-in faces that
-//! cover a range fully, partly and not at all. The C reference always drew
-//! the sprites (font.c:345-357); `Source::Sprites` is that behaviour.
+//! cover a range fully, partly and not at all. `Source::Sprites` draws the
+//! sprites whatever the face holds.
 
 use std::cell::Cell as Count;
 
@@ -249,8 +249,7 @@ fn unifont_covers_every_range() {
     }
 }
 
-// font.c:345-357: the C reference drew every one of these as a sprite,
-// whatever the font held
+// `sprites` draws every one of these as a sprite, whatever the face holds
 #[test]
 fn sprites_draw_the_sprite_whatever_the_face_holds() {
     for holds in [full as fn(char) -> bool, partial, none] {
@@ -445,8 +444,7 @@ fn a_named_font_draws_only_the_ranges_it_covers_whole() {
     }
 }
 
-// the built-in unifont keeps the C reference's sprites, though it covers
-// every range
+// the built-in unifont draws the sprites, though it covers every range
 #[cfg(feature = "unifont")]
 #[test]
 fn unifont_draws_the_sprites_by_default() {
@@ -510,11 +508,9 @@ fn a_range_one_codepoint_short_draws_the_sprites_and_warns() {
     assert_eq!(ink(&draw(&font, '─')), Some(FACE_INK));
 }
 
-// a cluster on a sprite character: the C reference took any cluster of
-// more than one codepoint to the font, which drew its first codepoint and
-// dropped the marks, or U+25A1 when the font lacked it (font.c:345-366).
-// vtium draws the base's sprite where the face lacks it and the policy
-// draws it as one, the marks dropped as the C reference dropped them
+// a cluster on a sprite character: where the face lacks the base and the
+// policy draws it as a sprite, the cluster draws the base's sprite with
+// its marks dropped, and not U+25A1
 #[test]
 fn a_cluster_on_a_sprite_the_face_lacks_draws_the_sprite() {
     let cluster = ['─', '\u{301}'];
@@ -527,7 +523,7 @@ fn a_cluster_on_a_sprite_the_face_lacks_draws_the_sprite() {
     // under `font` the face's missing glyph
     let font = Font::new(Stub::new(none)).with_policy(SpritePolicy::all(Source::Font));
     assert_eq!(ink(&draw_cluster(&font)), Some(BOX_INK));
-    // a face that holds the base draws the cluster, as the C reference did
+    // a face that holds the base draws the cluster
     let font = Font::new(Stub::new(full)).with_policy(SpritePolicy::SPRITES);
     assert_eq!(ink(&draw_cluster(&font)), Some(FACE_INK));
     // handed over at its drawn size, as a sprite
@@ -573,8 +569,7 @@ impl Face for Counted {
     }
 }
 
-// `sprites` draws the sprite without asking the face, as the C reference
-// did (font.c:345-357)
+// `sprites` draws the sprite without asking the face
 #[test]
 fn sprites_never_ask_the_face() {
     let face = Counted {

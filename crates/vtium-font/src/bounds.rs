@@ -22,7 +22,7 @@ const GLYPHS: Bound = Bound {
     value: 0xffff,
     what: "Glyphs a PSF font holds",
     past: "The font is refused",
-    cite: "`PSF_MAX_GLYPHS`, font_psf.c:62-64, 74, 200 (aaronsb/kmscon#229). The C reference kept 0xffff free as its table's no-entry index; vtium keeps the value, and its table holds glyph indices in 16 bits",
+    cite: "vtium's unicode table holds glyph indices in 16 bits, so a font holds at most 65,535 glyphs and the table needs no wider index",
 };
 
 const WIDTH: Bound = Bound {
@@ -30,7 +30,7 @@ const WIDTH: Bound = Bound {
     value: 32,
     what: "A PSF glyph's width in pixels",
     past: "The font is refused",
-    cite: "`PSF_MAX_WIDTH`, font_psf.c:65, 75, 200: a row is read into 32 bits",
+    cite: "A glyph's row is read into 32 bits",
 };
 
 const HEIGHT: Bound = Bound {
@@ -38,7 +38,7 @@ const HEIGHT: Bound = Bound {
     value: 256,
     what: "A PSF glyph's height in pixels",
     past: "The font is refused",
-    cite: "`PSF_MAX_HEIGHT`, font_psf.c:66-67, 76, 200: PSF1 holds the height in a byte",
+    cite: "PSF1 holds the height in a byte, and PSF2 is held to the same bound",
 };
 
 const RAW_HEIGHT: Bound = Bound {
@@ -46,7 +46,7 @@ const RAW_HEIGHT: Bound = Bound {
     value: 32,
     what: "A raw font glyph's height in pixels: a raw font is 256 glyphs of N bytes, one byte a row, 8 pixels across",
     past: "The file is refused as a font",
-    cite: "setfont(8): \"Raw font files are binary files of size 256*N bytes ... (0 < N <= 32)\"; the C reference read no raw font (font_psf.c:154-205 refused a file with neither PSF magic)",
+    cite: "setfont(8): \"Raw font files are binary files of size 256*N bytes ... (0 < N <= 32)\"",
 };
 
 const BYTES: Bound = Bound {
@@ -54,7 +54,7 @@ const BYTES: Bound = Bound {
     value: 16 << 20,
     what: "Bytes a PSF file holds: the whole file, decompressed when gzipped",
     past: "The font is refused, whatever the bytes past the glyphs hold",
-    cite: "`PSF_MAX_BYTES`, font_psf.c:68-69, 77, 207-208, 420-428; the C reference counted only the bytes it read, so it took a PSF1 font without a table whatever followed its glyphs",
+    cite: "It bounds the bytes a parse holds in memory. The whole file counts, so a PSF1 font without a table cannot carry any number of bytes after its glyphs",
 };
 
 const ENTRIES: Bound = Bound {
@@ -62,7 +62,7 @@ const ENTRIES: Bound = Bound {
     value: 0x11_0000,
     what: "Codepoints a PSF unicode table maps, before duplicates are merged",
     past: "The font is refused",
-    cite: "`PSF_MAX_ENTRIES`, font_psf.c:70-72, 78, 383-385: one entry for each Unicode codepoint",
+    cite: "One entry for each Unicode codepoint",
 };
 
 const GZIP: Bound = Bound {
@@ -70,7 +70,7 @@ const GZIP: Bound = Bound {
     value: 1 << 20,
     what: "Bytes a gzipped PSF file holds before it is decompressed. kbd's largest gzipped console font is 6 KiB",
     past: "The font is refused before anything is decompressed",
-    cite: "vtium's own: the inflater builds a Huffman table for each deflate block, about a microsecond, and a block can be 10 bits, so a 15 MiB file of empty blocks took 14 s to refuse. At 1 MiB the worst file takes about 1 s on the test machine. The C reference read through zlib, whose fixed tables are prebuilt",
+    cite: "vtium's own: the inflater builds a Huffman table for each deflate block, about a microsecond, and a block can be 10 bits, so a 15 MiB file of empty blocks took 14 s to refuse. At 1 MiB the worst file takes about 1 s on the test machine",
 };
 
 const CELL: Bound = Bound {
@@ -78,7 +78,7 @@ const CELL: Bound = Bound {
     value: 2048,
     what: "A cell's width or height in pixels. A glyph is at most two cells wide",
     past: "A font scales by the largest whole factor that keeps its cell inside; a sprite or glyph asked for past it is not drawn",
-    cite: "vtium's own: the C reference scaled a bitmap font to any height it was asked for (font_psf.c:247-249, font_unifont.c:229-231). A cell of 2048 is taller than a 7680x2160 display's one row",
+    cite: "vtium's own: it bounds a drawn glyph at 32 MiB, two RGBA cells of 2048 by 2048. A cell of 2048 is taller than a 7680x2160 display's one row",
 };
 
 const SET_BYTES: Bound = Bound {
@@ -319,9 +319,9 @@ mod tests {
         );
     }
 
-    // font_psf.c:74-78
+    // the PSF bounds the table above states
     #[test]
-    fn values_are_the_c_references() {
+    fn the_psf_bounds_keep_their_values() {
         assert_eq!(PSF_GLYPHS_MAX, 0xffff);
         assert_eq!(PSF_WIDTH_MAX, 32);
         assert_eq!(PSF_HEIGHT_MAX, 256);

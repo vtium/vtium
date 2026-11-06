@@ -1,7 +1,6 @@
-//! [`Font`]'s drawing of a cluster into its cells, the decoration lines and
-//! the built-in unifont, from the C reference's font.c
-//! (`kmscon_font_render`, `fit_glyph`, `kmscon_font_get_deco`) and
-//! font_unifont.c.
+//! [`Font`]'s drawing of a cluster into its cells: the sprites, the boxing
+//! of a glyph to its cells, the decoration lines a face with no metrics
+//! gets, and the built-in unifont's scaling and missing glyph.
 
 use vtium_font::{
     CELL_SIDE_MAX, Cell, Decorations, Face, Font, Format, Glyph, Psf, SpritePolicy, Style, Width,
@@ -33,8 +32,7 @@ fn an_empty_cluster_draws_nothing() {
     );
 }
 
-// font.c:345-357: a sprite fills the cells, its lines the underline's
-// thickness
+// a sprite fills the cells, its lines the underline's thickness
 // covers: text.sprites
 #[test]
 fn a_sprite_character_fills_its_cells() {
@@ -60,12 +58,12 @@ fn a_sprite_character_fills_its_cells() {
         }
     }
     // a cluster on a sprite character the face lacks draws the sprite,
-    // its mark dropped, where the C reference drew U+25A1 (vtium/vtium#85)
+    // its mark dropped, and not U+25A1 (vtium/vtium#85)
     let g = font.glyph(&['│', '\u{301}'], Width::Narrow, plain());
     assert_eq!(g, sprite::draw('│', 16, 32, 2));
 }
 
-// font.c:267-308: a glyph narrower than its cells is centred, a wider one
+// a glyph narrower than its cells is centred, a wider one
 // cut evenly from both sides
 #[test]
 fn a_glyph_is_boxed_to_its_cells() {
@@ -86,7 +84,7 @@ fn a_box_of_faces_is_a_face() {
     assert!(font.glyph(&['\u{2}'], Width::Narrow, plain()).is_some());
 }
 
-// font.c:370-408
+// a sixteenth of the cell thick, between 1 and a quarter of it
 #[test]
 fn decorations_for_a_face_without_metrics() {
     for (h, ul, thick, strike) in [
@@ -233,7 +231,7 @@ mod unifont {
     use super::*;
     use vtium_font::{REPLACEMENT, Unifont};
 
-    // font_unifont.c:229-235
+    // unifont scales by the largest whole multiple of 16 the height holds
     #[test]
     fn scales_by_whole_multiples_of_16() {
         for (height, cell) in [(0, (8, 16)), (16, (8, 16)), (31, (8, 16)), (32, (16, 32))] {
@@ -275,7 +273,7 @@ mod unifont {
         }
     }
 
-    // font.c:358-364: a character unifont lacks draws U+25A1
+    // a character unifont lacks draws U+25A1
     // covers: text.psf
     #[test]
     fn a_missing_character_draws_the_replacement() {
@@ -289,7 +287,7 @@ mod unifont {
         );
     }
 
-    // font.c:267-308: a wide glyph in one cell keeps its middle
+    // a wide glyph in one cell keeps its middle
     #[test]
     fn a_wide_glyph_in_one_cell_keeps_its_middle() {
         let font = Font::new(Unifont::new(16));

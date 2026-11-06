@@ -8,12 +8,11 @@
 //! cells, its glyph chunks of at most 16 KiB each deflated. A chunk is
 //! inflated the first time a glyph is drawn from it and kept 1-bit for the
 //! life of the process, each glyph expanded as it is drawn, so the binary
-//! carries the compressed font and memory holds only the chunks in use. The set is
-//! trusted by construction, so its chunks are not hashed again. The C
-//! reference inflated the whole font, 3.7 MB, when it loaded
-//! (font_unifont.c:203-245).
+//! carries the compressed font and memory holds only the chunks in use,
+//! not the whole font's 3.7 MB. The set is trusted by construction, so its
+//! chunks are not hashed again.
 //!
-//! The drawing follows the C reference's `font_unifont.c`, whose notice,
+//! The drawing was ported from kmscon's `font_unifont.c`, whose notice,
 //! under the MIT licence whose text is in COPYING, is:
 //!
 //! Copyright (c) 2012 Ted Kotz <ted@kotz.us>
@@ -104,9 +103,9 @@ impl Face for Unifont {
             .unwrap_or_else(|| RangeCoverage::count(range, |c| self.has_glyph(c)))
     }
 
-    /// The sprites, though unifont covers every range: the C reference
-    /// drew them over its unifont, and the goldens hold that look. The
-    /// built-in set carries this policy.
+    /// The sprites, though unifont covers every range: they line up exactly
+    /// at every cell size, and the goldens show that look. The built-in set
+    /// carries this policy.
     fn sprite_policy(&self) -> SpritePolicy {
         set().map_or(SpritePolicy::SPRITES, Set::policy)
     }

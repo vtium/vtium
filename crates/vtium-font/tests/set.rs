@@ -431,9 +431,9 @@ fn fnv(mut h: u64, bytes: &[u8]) -> u64 {
     h
 }
 
-// The C reference's digests of its kmscon_font_render over the PSF
-// fixtures (tests/reference/psf.tsv) hold through vitrify: each page drawn
-// through a Font of the fixture's set (ADR-1200 D10)
+// The page digests of the PSF fixtures (tests/reference/psf.tsv) hold
+// through vitrify: each page drawn through a Font of the fixture's set
+// (ADR-1200 D10)
 #[test]
 fn psf_digests_hold_through_vitrify() {
     let path = format!("{}/tests/reference/psf.tsv", env!("CARGO_MANIFEST_DIR"));
@@ -469,7 +469,7 @@ fn psf_digests_hold_through_vitrify() {
         let mut d = FNV_OFFSET;
         let mut skipped_page = false;
         for cp in page << 8..(page + 1) << 8 {
-            // the characters vtium draws as sprites beyond the C reference
+            // the Legacy Computing sprites the page digests leave out
             if matches!(cp, 0x1cea0..=0x1ceaf | 0x1fb3c..=0x1fb92 | 0x1fb94..=0x1fbaf | 0x1fbbd..=0x1fbbf | 0x1fbce..=0x1fbef)
             {
                 continue;
