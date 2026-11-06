@@ -1,0 +1,27 @@
+# tier 3's text font set, which its default 2D variants and its GPU
+# variants draw from (ADR-1503 D9). Tier 3 judges whether vtium draws each
+# script, so the set names one well-known open font for each script, in
+# fallback order: DejaVu Sans Mono for Latin and box drawing, with its bold,
+# oblique and bold oblique faces, then Noto Sans CJK SC for Chinese,
+# Japanese and Korean, then Noto Color Emoji. A character that none of them
+# holds draws in the built-in font.
+#
+# The guest image holds DejaVu Sans Mono and Noto Color Emoji. Noto Sans CJK
+# SC comes on the run's disc, pinned by t3_showcase.py, and guest/setup
+# installs it into /usr/local/share/fonts/vtium-tier3.
+#
+# The set states no size and no cell: each variant's font-size sets the
+# size, and DejaVu Sans Mono, the first source, gives the cell by the W rule
+# (ADR-1200 D17), 10x19 at 16 points and 20x38 at 32 points at the
+# configurations' 86 DPI.
+name=tier3-text
+license=Bitstream-Vera AND OFL-1.1
+source=outline:/usr/share/fonts/TTF/DejaVuSansMono.ttf
+source=outline:/usr/share/fonts/TTF/DejaVuSansMono-Bold.ttf
+style=bold
+source=outline:/usr/share/fonts/TTF/DejaVuSansMono-Oblique.ttf
+style=italic
+source=outline:/usr/share/fonts/TTF/DejaVuSansMono-BoldOblique.ttf
+style=bold-italic
+source=outline:/usr/local/share/fonts/vtium-tier3/NotoSansCJKsc-Regular.otf
+source=outline:/usr/share/fonts/noto/NotoColorEmoji.ttf
