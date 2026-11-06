@@ -25,6 +25,7 @@ basis:
   - precedent: ADR-1100
   - precedent: ADR-1101
   - precedent: ADR-1300
+  - evidence: "kitty 0.50.0, run as a black box on 2026-11-06 under a private Xvfb display with its configuration off: on an opaque black 8x8 image, a new frame on frame 1 (`c=1`) laid red 204 at alpha 17 by blending, and frame 2 then showed red 14, the premultiplied sRGB blend; a frame of that red on a clear canvas, composed with `a=c` onto a copy of frame 1, also showed 14. kitty composes frames in sRGB. A frame laid on a canvas given by `Y=255` showed 56, which matches the red blended in linear light over the window's black, as if the canvas came out clear and the blend happened when kitty drew it; that case is not explained further"
 agent:
   name: Claude
   model: claude-opus-5-5
@@ -51,6 +52,18 @@ considered:
   - operator: aaronsb
     said: "The compose-on-arrival limits (a whole frame of 64 KiB or less, a change covering half the picture or more, more than 8 layers) and a cache of 2 composed frames per image are accepted as starting values, held as named constants."
     via: the maintainer, in the steering session's interview, 2026-11-02
+  - operator: aaronsb
+    said: "[Switch short animation frames to ENODATA too, like kitty?] ENODATA, like kitty (Rec.)"
+    via: AskUserQuestion, 2026-11-06; the option label is the steering session's wording
+  - operator: aaronsb
+    said: "[A raw frame (f=24) without s and v: follow kitty, which refuses it with 'EINVAL:Zero width/height not allowed'?] Follow kitty (Rec.)"
+    via: AskUserQuestion, 2026-11-06; the option label is the steering session's wording
+  - operator: aaronsb
+    said: "[Four differences from kitty 0.50.0: 1. frames onto a palette-index picture, 2. a raw upload without s or v, 3. r=N in frame replies, 4. linear-light blending of partly transparent pixels] 1-3 like kitty, 4 now"
+    via: AskUserQuestion, 2026-11-06; the option label is the steering session's wording
+  - operator: Aaron Bockelie
+    said: "[kitty's frame composition: measure before deciding?] Measure first (Rec.)"
+    via: AskUserQuestion, 2026-11-06; the option label is the steering session's wording
 status: accepted
 date: 2026-11-01
 deciders:
@@ -125,12 +138,26 @@ Terms used below: a *frame* is one picture of an animation, numbered from 1; the
 
 Composition follows the kitty spec's rules. vtium-image's frame code, beside the store, does it once, on the CPU, on pixels already decoded, and no renderer ever composes (the maintainer, 2026-11-02): the CPU renderer and the GPU renderer both receive whole pixels, so the GPU path still draws the CPU path's bytes (ADR-1300 D6). The frame code composes at two times: when a command arrives, for a frame D1 stores whole and for the whole frames D1 composes ahead of an edit or a composition; and when the binary takes a head's snapshot, for a change frame that the animation clock chose and that is not in the cache (D3). A frame's data arrives as any transmission's does, raw in the console or as PNG or zlib through the image helper (ADR-1101), and the barrier holds the stream while the helper decodes it (ADR-1100 D7).
 
-- **A new frame** (`a=f` with `i` or `I`, and no `r`) starts from a canvas: the frame that `c` names, or, where `c` is left out, the color `Y` gives as 32-bit RGBA, transparent black by default. The transmitted data covers the rectangle that `x`, `y`, `s` and `v` give, or the whole image where they are left out, and is laid onto the canvas by alpha blending, or by plain replacement where `X=1`. The result is appended as the next frame: a change frame whose base is frame `c` or the color, with the data as its one layer, or the same frame composed whole when D1's rules say so.
-- **An edit** (`a=f` with `r`) lays the data onto frame `r` itself, by the same rules. The data becomes another layer of frame `r` when frame `r` is a change frame and D1 keeps it one; otherwise the store composes it into frame `r`'s whole pixels. Either way frame `r` then shows what it would show had its pixels been changed in place.
+- **A new frame** (`a=f` with `i` or `I`, and no `r`) starts from a canvas: the frame that `c` names, or, where `c` is left out, the color `Y` gives as 32-bit RGBA, transparent black by default. The transmitted data covers the rectangle that `x`, `y`, `s` and `v` give, and is laid onto the canvas by alpha blending, or by plain replacement where `X=1`. Raw data (`f=24` or `f=32`) needs both `s` and `v`: a frame without either is refused with `EINVAL:Zero width/height not allowed`, as kitty 0.49.2 and 0.50.0 refuse it (the maintainer, 2026-11-06, `considered`; ADR-1100 D15's `basis`). A PNG frame takes its rectangle's size from the picture. The result is appended as the next frame: a change frame whose base is frame `c` or the color, with the data as its one layer, or the same frame composed whole when D1's rules say so.
+
+  > Edited 2026-11-06: the bullet read "The transmitted data covers the rectangle that `x`, `y`, `s` and `v` give, or the whole image where they are left out", and vtium took a raw frame without `s` or `v` to the image's right or bottom edge from `x` or `y`. The maintainer chose to follow kitty, which refuses such a frame.
+- **An edit** (`a=f` with `r`) lays the data onto frame `r` itself, by the same rules. The data becomes another layer of frame `r` when frame `r` is a change frame and D1 keeps it one; otherwise the store composes it into frame `r`'s whole pixels. Either way frame `r` then shows what it would show had its pixels been changed in place. An edit that names a frame the image does not have adds a new frame instead, as kitty 0.50.0 does (the maintainer, 2026-11-06, `considered`; ADR-1100 D15's `basis`).
+- **Past the image's edge.** A frame's rectangle that passes the image's edge is cut to the image, and one wholly outside it lays nothing, as kitty 0.50.0 does; vtium refused both with EINVAL. A new frame whose base frame `c` does not exist is refused with `EINVAL:No frame with number: F found`, kitty's text.
+
+  > Edited 2026-11-06, the maintainer's answer on kitty 0.50.0's other differences: an edit of a missing frame was refused with ENOENT, and a rectangle past the image's edge with EINVAL.
 - **A composition** (`a=c`) lays the rectangle `w` by `h` at `X`, `Y` of frame `r` onto the rectangle at `x`, `y` of frame `c`, by alpha blending, or by replacement where `C=1`; `w` and `h` default to the whole image. It is applied to whole pixels (D1).
 - **The blend** is premultiplied "source over", in whole numbers, per channel: `src + (dst × (255 − a) + 127) / 255`, where `a` is the source's alpha and the division drops its remainder. The same bytes give the same frame on every machine, and a frame composed when its command arrives holds the same bytes as the same frame composed when it is shown.
 - **Work.** Every pixel that a canvas fill, a blend, a replacement or a composition writes while a command is handled counts as input work, as decoded pixels do (ADR-1100 D5), so a stream of large compositions stops an input call early and the rest is taken by the next. Composing a frame for a snapshot is not input work, since no input call is running; it writes at most (1 + `FRAME_CHAIN_MAX`) × width × height pixels, a copy of the base and at most 8 layers, and the binary composes at most one frame of each animated image for each snapshot.
-- **Refusals,** each of which changes nothing: an image or frame that does not exist answers ENOENT; a rectangle that leaves the image, and a composition whose source and destination are the same frame with rectangles that overlap, answer EINVAL, as the spec requires; a frame that does not fit the allowance or the count answers ENOSPC (D1).
+- **Refusals,** each of which changes nothing: an image that does not exist, and a composition's frame that does not exist, answer ENOENT; a new frame whose base frame `c` does not exist answers EINVAL; a composition's rectangle that leaves the image, and a composition whose source and destination are the same frame with rectangles that overlap, answer EINVAL, as the spec requires; a frame's own rectangle past the image's edge is cut, not refused, and an edit of a frame that does not exist adds a frame (Past the image's edge, An edit); a frame whose data, sent directly and uncompressed, holds fewer bytes than its rectangle needs answers `ENODATA:Insufficient image data: GOT < WANT`, with the bytes that came in every chunk together and the bytes the rectangle needs, as kitty 0.49.2 and 0.50.0 answer it (the maintainer, 2026-11-06, `considered`; ADR-1100 D15's `basis`); a frame or a composition on a picture that arrived as palette indices, and a frame in `f=8` or `f=16`, answers kitty's own EINVAL, as ADR-1100 D15 gives it; a frame that does not fit the allowance or the count answers ENOSPC (D1).
+- **The reply** to a frame (`a=f`) names its frame with `r` after `i`, `I` and `p`, as kitty 0.50.0's replies do (the maintainer, 2026-11-06, `considered`; ADR-1100 D15's `basis`): the frame an edit names, or else the frame a new frame made, or on a refusal the number the new frame would have had. A reply that finds no image, and a refusal for palette indices, names no `r` unless the command gave one. A composition's and a control's replies carry no `r`, as kitty's do not. A frame's reply, and a composition's, name `i` only when the command gave it; a command that named the image by `I` alone is answered `,I=N,...`, as kitty writes it. An animation control (`a=a`) is answered only when its image does not exist, since kitty answers nothing else to it; vtium answered every control as a put. ADR-1100 D15 lists the refusals' texts.
+
+  > Edited 2026-11-06, later: the reply bullet is new; vtium's frame replies named no frame.
+
+  > Edited 2026-11-06, after review: the bullet began "an image or frame that does not exist answers ENOENT; a rectangle that leaves the image, and a composition whose source and destination are the same frame with rectangles that overlap, answer EINVAL", which no longer matched the frame rules above it; the New frame bullet's last sentence, which an earlier note had swallowed, is back in its bullet.
+
+  > Edited 2026-11-06, later: the bullet gains the refusals for palette-index pictures (ADR-1100 D15), the maintainer's answer on kitty 0.50.0's differences (`considered`).
+
+  > Edited 2026-11-06: the bullet gains the frame whose data is short of its rectangle. vtium answered it EINVAL, the reply ADR-1100 D15 first kept for frames, and the maintainer chose kitty's ENODATA.
 
 ### D3: who owns the timing
 
@@ -205,6 +232,7 @@ The C reference had no animation. Its kitty parser refused `a=f`, `a=a` and `a=c
 
 - **vtium plays kitty animations,** where the C reference answered EINVAL; ADR-1100 lists this among its departures.
 - **Frames are held in memory,** where kitty keeps frame data on disk; the allowance is kitty's, five times the base.
+- **A raw frame needs `s` and `v`.** The kitty specification says that a frame's rectangle is the whole image where `x`, `y`, `s` and `v` are left out; vtium follows kitty, which refuses a raw frame without `s` or `v` (D2).
 
 ## Consequences
 

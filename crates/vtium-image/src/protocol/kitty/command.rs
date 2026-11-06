@@ -5,39 +5,143 @@ use core::fmt::Write as _;
 
 use crate::bounds::{BOX_CELLS_MAX, IMAGE_OVERHEAD, IMAGE_SIDE_MAX};
 use crate::handler::{Cause, Context, ReplyKind};
+use crate::image::ImageKey;
+use crate::store::Store;
 
-/// What a command is answered when it fails: each a fixed message of the
-/// closed set of kitty replies (D6).
+/// What a command is answered when it fails. Where kitty 0.50.0 was seen
+/// to answer a refusal, the text is kitty's, its numbers re-encoded
+/// (ADR-1100, D15); the others keep vtium's own fixed text.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Error {
-    /// No image of that id or number.
+    /// No image of that id or number, where kitty's text was not seen.
     NotFound,
+    /// A put names an image that does not exist.
+    PutNotFound { id: u32, number: u32 },
+    /// A frame, a composition or a control names an image that does not
+    /// exist.
+    AnimNotFound { id: u32, number: u32 },
+    /// A composition's destination frame does not exist.
+    NoDestFrame { frame: u32, id: u32 },
+    /// A new frame's base frame `c` does not exist.
+    NoBaseFrame { frame: u32 },
     /// Any failure to read a file, temporary file or shared-memory object:
     /// the spec's one reply for all of them.
     BadFile,
     /// The budget refused.
     NoSpace,
-    /// A relative placement's parent does not exist.
-    NoParent,
-    /// A relative placement would follow itself.
+    /// A relative placement's parent image does not exist.
+    NoParentImage { parent: u32 },
+    /// A relative placement's parent image exists, but not the placement.
+    NoParentPlacement { parent: u32, placement: u32 },
+    /// A relative placement names itself as its parent.
+    SelfParent,
+    /// A relative placement would follow itself through other placements.
     Cycle,
     /// A chain of relative placements would pass `RELATIVE_DEPTH_MAX`.
     TooDeep,
+    /// A virtual placement, `U=1`, names a parent.
+    VirtualParent,
+    /// Both `i` and `I`.
+    BothIds,
+    /// A format other than 8, 16, 24, 32 and 100.
+    UnknownFormat { format: u32 },
+    /// A raw picture past `max-graphic-size`, `max` the side it passes.
+    TooLarge { max: u32 },
+    /// Raw data short of the pixels its width and height call for: the
+    /// bytes that came and the bytes needed (ADR-1100, D15).
+    NoData { got: u64, want: u64 },
+    /// A raw upload or frame without `s` or `v` (ADR-1100, D15; ADR-1102,
+    /// D2).
+    ZeroSize,
+    /// A frame on a picture that arrived as palette indices, or a frame in
+    /// `f=8` or `f=16` (ADR-1100, D15).
+    IndexedFrame,
+    /// A composition on a picture that arrived as palette indices.
+    IndexedComposition,
+    /// A zlib payload that inflated to fewer bytes than needed.
+    InflateSize,
+    /// A composition within one frame whose rectangles overlap.
+    ComposeOverlap,
+    /// A composition whose destination rectangle leaves the image.
+    ComposeDestOut,
     /// Anything else the handler cannot do.
     Invalid,
 }
 
 impl Error {
-    pub(super) fn message(self) -> &'static str {
-        match self {
-            Self::NotFound => "ENOENT:image not found",
-            Self::BadFile => "EBADF:Failed to read image file",
-            Self::NoSpace => "ENOSPC:image storage is full",
-            Self::NoParent => "ENOPARENT:parent placement not found",
-            Self::Cycle => "ECYCLE:relative placement would make a cycle",
-            Self::TooDeep => "ETOODEEP:chain of relative placements is too deep",
-            Self::Invalid => "EINVAL:invalid argument",
-        }
+    /// Writes the reply's message, the code and the text after it.
+    pub(super) fn write_to(self, out: &mut String) {
+        let _ = match self {
+            Self::NotFound => write!(out, "ENOENT:image not found"),
+            Self::PutNotFound { id, number } => write!(
+                out,
+                "ENOENT:Put command refers to non-existent image with id: {id} and number: {number}"
+            ),
+            Self::AnimNotFound { id, number } => write!(
+                out,
+                "ENOENT:Animation command refers to non-existent image with id: {id} and number: {number}"
+            ),
+            // kitty's text ends with a line feed
+            Self::NoDestFrame { frame, id } => writeln!(
+                out,
+                "ENOENT:No destination frame number {frame} exists in image id: {id}"
+            ),
+            Self::NoBaseFrame { frame } => {
+                write!(out, "EINVAL:No frame with number: {frame} found")
+            }
+            Self::BadFile => write!(out, "EBADF:Failed to read image file"),
+            Self::NoSpace => write!(out, "ENOSPC:image storage is full"),
+            Self::NoParentImage { parent } => write!(
+                out,
+                "ENOPARENT:Put command refers to a parent image with id: {parent} that does not exist"
+            ),
+            Self::NoParentPlacement { parent, placement } => write!(
+                out,
+                "ENOPARENT:Put command refers to a parent image placement with id: {parent} and placement id: {placement} that does not exist"
+            ),
+            Self::SelfParent => {
+                write!(out, "EINVAL:Put command refers to itself as its own parent")
+            }
+            Self::Cycle => write!(out, "ECYCLE:relative placement would make a cycle"),
+            Self::TooDeep => write!(out, "ETOODEEP:Too many levels of parent references"),
+            Self::VirtualParent => write!(
+                out,
+                "EINVAL:Put command creating a virtual placement cannot refer to a parent"
+            ),
+            Self::BothIds => write!(
+                out,
+                "EINVAL:Must not specify both image id and image number"
+            ),
+            Self::UnknownFormat { format } => write!(out, "EINVAL:Unknown image format: {format}"),
+            Self::TooLarge { max } => write!(
+                out,
+                "EINVAL:Image too large, width or height greater than {max}"
+            ),
+            Self::NoData { got, want } => {
+                write!(out, "ENODATA:Insufficient image data: {got} < {want}")
+            }
+            Self::ZeroSize => write!(out, "EINVAL:Zero width/height not allowed"),
+            Self::IndexedFrame => write!(
+                out,
+                "EINVAL:Animation is not supported for indexed color images"
+            ),
+            Self::IndexedComposition => write!(
+                out,
+                "EINVAL:Composition is not supported for indexed color images"
+            ),
+            Self::InflateSize => write!(
+                out,
+                "EINVAL:Image data size post inflation does not match expected size"
+            ),
+            Self::ComposeOverlap => write!(
+                out,
+                "EINVAL:The source and destination rectangles overlap and the src and destination frames are the same"
+            ),
+            Self::ComposeDestOut => {
+                write!(out, "EINVAL:The destination rectangle is out of bounds")
+            }
+            Self::Invalid => write!(out, "EINVAL:invalid argument"),
+        };
     }
 }
 
@@ -88,7 +192,8 @@ pub(super) struct Command {
     pub(super) delete: u8,
     /// `q`: which replies are left out.
     pub(super) quiet: u32,
-    /// `f`: the format, 24, 32 or 100.
+    /// `f`: the format: 8 or 16 palette indices, 24 RGB, 32 RGBA or 100
+    /// PNG.
     pub(super) format: u32,
     /// `s`, `v`: the picture's width and height in pixels.
     pub(super) width: u32,
@@ -223,7 +328,7 @@ impl Command {
         if !known(b"tTqpdfac", cmd.action)
             || !known(b"dfts", cmd.medium)
             || (cmd.seen & bit(b'o') != 0 && cmd.compression != b'z')
-            || !matches!(cmd.format, 24 | 32 | 100)
+            || !matches!(cmd.format, 8 | 16 | 24 | 32 | 100)
             || !known(b"aAiInNcCfFpPqQrRxXyYzZ", cmd.delete)
         {
             cmd.bad = true;
@@ -287,7 +392,17 @@ impl Command {
 
     /// A direct transmission of a raw format: the bytes a pixel.
     pub(super) fn bpp(&self) -> u8 {
-        if self.format == 24 { 3 } else { 4 }
+        match self.format {
+            8 => 1,
+            16 => 2,
+            24 => 3,
+            _ => 4,
+        }
+    }
+
+    /// The pixels are palette indices, `f=8` or `f=16` (ADR-1100, D15).
+    pub(super) fn indexed(&self) -> bool {
+        matches!(self.format, 8 | 16)
     }
 
     /// Whether the helper decodes this transmission's data.
@@ -309,25 +424,42 @@ impl Command {
 
     /// What is refused before any data is read: a key that cannot be read;
     /// `i` with `I`, as the spec asks; a `U` other than 0 or 1, and `U=1` with a parent, since a virtual
-    /// placement is never a relative one (D13); a raw format without `s` and
-    /// `v`, which a frame's data alone may leave out, or past
-    /// `max-graphic-size`; and a placement whose pixel offset lies outside
-    /// its cell or whose box passes [`BOX_CELLS_MAX`].
+    /// placement is never a relative one (D13); a raw upload without `s` and
+    /// `v`, answered as kitty answers it (D15), or past `max-graphic-size`; palette indices in a frame, from a named medium
+    /// or with `o=z` (ADR-1100, D15); and a placement whose pixel offset
+    /// lies outside its cell or whose box passes [`BOX_CELLS_MAX`].
     pub(super) fn refusal(&self, ctx: &dyn Context) -> Option<Error> {
+        if !matches!(self.format, 8 | 16 | 24 | 32 | 100) {
+            return Some(Error::UnknownFormat {
+                format: self.format,
+            });
+        }
+        if self.id != 0 && self.number != 0 {
+            return Some(Error::BothIds);
+        }
+        if self.virtual_placement() && self.relative() {
+            return Some(Error::VirtualParent);
+        }
         if self.bad
-            || (self.id != 0 && self.number != 0)
             || self.virtual_placement > 1
-            || (self.virtual_placement() && self.relative())
+            || (self.transmits()
+                && self.action != b'f'
+                && self.indexed()
+                && (self.medium != b'd' || self.compression == b'z'))
         {
             return Some(Error::Invalid);
         }
         let (max_w, max_h) = graphic(ctx);
-        let sized = self.action == b'f' || (self.width != 0 && self.height != 0);
-        if self.transmits()
-            && self.format != 100
-            && (!sized || self.width > max_w || self.height > max_h)
-        {
-            return Some(Error::Invalid);
+        let raw = self.transmits() && self.format != 100;
+        // a frame's size is checked once its image is found (frame_target)
+        if raw && self.action != b'f' && (self.width == 0 || self.height == 0) {
+            return Some(Error::ZeroSize);
+        }
+        if raw && self.width > max_w {
+            return Some(Error::TooLarge { max: max_w });
+        }
+        if raw && self.height > max_h {
+            return Some(Error::TooLarge { max: max_h });
         }
         let (cw, ch) = ctx.cell_size();
         if matches!(self.action, b'T' | b'p')
@@ -348,12 +480,7 @@ impl Command {
     /// on a setting where only the program's author can act on a bad key.
     pub(super) fn bound(&self, ctx: &dyn Context) -> Option<&'static str> {
         let (max_w, max_h) = graphic(ctx);
-        let sized = self.action == b'f' || (self.width != 0 && self.height != 0);
-        if self.transmits()
-            && self.format != 100
-            && sized
-            && (self.width > max_w || self.height > max_h)
-        {
+        if self.transmits() && self.format != 100 && (self.width > max_w || self.height > max_h) {
             return Some("a kitty picture past max-graphic-size");
         }
         if matches!(self.action, b'T' | b'p')
@@ -406,11 +533,31 @@ pub(super) fn charge(pixels: u64) -> u64 {
     pixels.saturating_mul(4).saturating_add(IMAGE_OVERHEAD)
 }
 
+/// The frame a frame command's reply names with `r`, as kitty 0.50.0's
+/// replies do (ADR-1102, D2): the frame an edit names, or else the frame a
+/// new frame made, the image's last, or on a refusal the number it would
+/// have had. A refusal for palette indices names only the `r` the command
+/// gave, and a reply to anything but a frame names none.
+fn frame_named(store: &Store, cmd: &Command, key: ImageKey, answer: Answer) -> Option<u32> {
+    if cmd.action != b'f' {
+        return None;
+    }
+    if cmd.rows != 0 || answer == Err(Error::IndexedFrame) {
+        return (cmd.rows != 0).then_some(cmd.rows);
+    }
+    let frames = store.animation(key).map_or(1, |a| a.frames);
+    Some(if answer.is_ok() {
+        frames
+    } else {
+        frames.saturating_add(1)
+    })
+}
+
 /// Answers `cmd` with `answer` for the image of id `id`, 0 when there is
-/// none to name: `ESC _ G i=ID[,I=N][,p=P];MESSAGE ESC \`, each key only
-/// when it is set. An animation command, `a=f`, `a=a` or `a=c`, names an
-/// image that already exists, so every answer to it, a refusal as well as
-/// an OK, names that image's id; `id` names it only when no image is found.
+/// none to name: `ESC _ G [i=ID][,I=N][,p=P][,r=R];MESSAGE ESC \`, each key
+/// only when it is set, as kitty 0.50.0 writes it: `I` always after a
+/// comma, and an animation command names `i` only when the command gave it
+/// (ADR-1100, D15).
 pub(super) fn reply(ctx: &mut dyn Context, cmd: &Command, id: u32, answer: Answer) {
     // noted whether or not the program hears it
     if answer == Err(Error::NoSpace) {
@@ -419,12 +566,15 @@ pub(super) fn reply(ctx: &mut dyn Context, cmd: &Command, id: u32, answer: Answe
     if (cmd.id == 0 && cmd.number == 0) || cmd.dropped() {
         return;
     }
-    let id = if matches!(cmd.action, b'f' | b'a' | b'c') {
+    let key = if matches!(cmd.action, b'f' | b'a' | b'c') {
         ctx.find_image(cmd.id, cmd.number)
-            .and_then(|key| ctx.store().kitty_id(key))
-            .unwrap_or(id)
     } else {
-        id
+        None
+    };
+    // a frame to an image that does not exist names only the r it gave
+    let frame = match key {
+        Some(key) => frame_named(ctx.store(), cmd, key, answer),
+        None => (cmd.action == b'f' && cmd.rows != 0).then_some(cmd.rows),
     };
     let quiet = match answer {
         Ok(()) => cmd.quiet >= 1,
@@ -437,17 +587,21 @@ pub(super) fn reply(ctx: &mut dyn Context, cmd: &Command, id: u32, answer: Answe
     if id != 0 {
         let _ = write!(text, "i={id}");
     }
+    // kitty writes I after a comma even with no i before it
     if cmd.number != 0 {
-        let comma = if id != 0 { "," } else { "" };
-        let _ = write!(text, "{comma}I={}", cmd.number);
+        let _ = write!(text, ",I={}", cmd.number);
     }
     if cmd.placement != 0 {
         let _ = write!(text, ",p={}", cmd.placement);
     }
-    let message = match answer {
-        Ok(()) => "OK",
-        Err(e) => e.message(),
-    };
-    let _ = write!(text, ";{message}\x1b\\");
+    if let Some(r) = frame {
+        let _ = write!(text, ",r={r}");
+    }
+    text.push(';');
+    match answer {
+        Ok(()) => text.push_str("OK"),
+        Err(e) => e.write_to(&mut text),
+    }
+    text.push_str("\x1b\\");
     ctx.reply(ReplyKind::KittyGraphics, text.as_bytes());
 }

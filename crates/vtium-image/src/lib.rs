@@ -55,7 +55,7 @@ pub use bounds::{
     PLACEMENT_OVERHEAD, PLACEMENTS_PER_BUFFER, RELATIVE_DEPTH_MAX, auto_limit,
 };
 pub use handler::{
-    Cause, Context, Handler, Intro, Limits, Margins, ReplyKind, SixelState, Switches,
+    Cause, Colors, Context, Handler, Intro, Limits, Margins, ReplyKind, SixelState, Switches,
 };
 pub use image::{
     ImageKey, LineKey, NewImage, Pixels, Place, PlaceholderRun, PlacementKey, Refusal,
