@@ -4994,7 +4994,7 @@ fn the_start_logs_each_head_file_error_with_its_line() {
     let lines = logged();
     assert_eq!(
         start.line(),
-        Some("config partly invalid, running what's valid")
+        Some("vtium.conf has errors: running the parts without errors.")
     );
     let at = |n: usize| format!("{}:{n}: ", path.display());
     for n in [4, 7, 8] {
@@ -5310,7 +5310,7 @@ fn a_helper_that_dies_leaves_the_built_in_font_with_one_log_line() {
     }));
     // given up after its starts again, however long a loaded machine
     // takes to start a shell four times; then no second line
-    let given = |l: &String| l.starts_with("the font's glyphs are not generated");
+    let given = |l: &String| l.starts_with("the font helper could not draw the font");
     let mut lines = Vec::new();
     h.until(Duration::from_secs(10), |_| {
         lines.extend(logged());
@@ -5327,7 +5327,7 @@ fn a_helper_that_dies_leaves_the_built_in_font_with_one_log_line() {
     assert!(given_up[0].contains("signal 11"), "{given_up:?}");
     // ADR-1301 D1: the same line says the clusters draw unshaped
     assert!(
-        given_up[0].ends_with("and each cluster unshaped, a glyph a codepoint"),
+        given_up[0].ends_with("one character at a time with no combined characters"),
         "{given_up:?}"
     );
 }

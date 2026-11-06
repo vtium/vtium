@@ -25,37 +25,40 @@ pub const ACTIONS: [(&str, &str); 6] = [
 
 /// How the TUI previews a change, and whether the live trial works, at
 /// the right of the status line (ADR-1201 D4).
-pub const PREVIEW_ASKING: &str = "asking the terminal";
-pub const PREVIEW_PICTURE: &str = "picture";
-pub const PREVIEW_TEXT: &str = "text";
-pub const TRIAL_KEY: &str = "t: live";
-pub const TRIAL_NONE: &str = "no live";
+pub const PREVIEW_ASKING: &str = "checking this terminal";
+pub const PREVIEW_PICTURE: &str = "image preview";
+pub const PREVIEW_TEXT: &str = "text preview";
+/// The short forms, for a status line whose left side does not fit beside
+/// the long ones.
+pub const PREVIEW_PICTURE_SHORT: &str = "image";
+pub const PREVIEW_TEXT_SHORT: &str = "text";
+pub const TRIAL_KEY: &str = "t: try live";
+pub const TRIAL_NONE: &str = "no live trial";
 
 /// Why the live trial does not work, on the message line.
-pub const OPS_OFF: &str = "allow-font-ops is off in this vtium console, so t cannot try a font on the console. In the Fonts view, o turns it on when you install.";
-pub const NOT_VTIUM: &str =
-    "This terminal is not a vtium console, so t cannot try a font on it. Installing still works.";
+pub const OPS_OFF: &str = "Live trial is off: this vtium console has allow-font-ops turned off, so t cannot try a font on it. To turn it on, press o in the Fonts view, then install.";
+pub const NOT_VTIUM: &str = "Live trial is off: this terminal is not a vtium console, so t cannot try a font on it. You can still install fonts.";
 
 /// The live trial (ADR-1201 D4).
 pub const TRIAL_OFF: &str = "The live trial works only in a vtium console with allow-font-ops on.";
 pub fn trial_countdown(font: impl Display, left: u32) -> String {
     format!(
-        "Trying {font} on the console for {left} s: press k to keep it, any other key puts the font back."
+        "Trying {font} on the console for {left} s. Press k to keep it, or any other key to put the font back."
     )
 }
 pub fn trial_kept(font: impl Display) -> String {
     format!(
-        "The console keeps {font} until vtium-config leaves. Enter puts it in the draft, and Install makes it the configured font."
+        "The console keeps {font} until you quit vtium-config. Press Enter to put it in the draft, then install to keep it for good."
     )
 }
 pub fn trial_back(font: impl Display) -> String {
-    format!("The console is back in {font}.")
+    format!("The console is back to {font}.")
 }
 pub fn trial_same(font: impl Display) -> String {
-    format!("The console already draws {font}.")
+    format!("The console already uses {font}.")
 }
 pub fn trial_refused(font: impl Display) -> String {
-    format!("The console refused {font}; see its log.")
+    format!("The console refused {font}. Its log says why.")
 }
 
 /// The line beside the detailed specimen (ADR-1201 D4).
@@ -66,21 +69,21 @@ pub fn detail_caption(
     (w, h): (u32, u32),
     assumed: bool,
 ) -> String {
-    let marks = "Grey characters come from the built-in font, and a box marks one nothing draws. s shows the console.";
+    let marks = "Characters in grey come from the built-in font, and a box marks a character no font can display. Press s to see the console.";
     let Some(s) = summary else {
         return format!("{font} at {points} pt. {marks}");
     };
     let display = if assumed {
-        format!("an assumed {w}x{h} display")
+        format!("on a {w}x{h} display (assumed)")
     } else {
-        format!("this {w}x{h} display")
+        format!("on this {w}x{h} display")
     };
     let grid = s
         .grid
-        .map(|(c, r)| format!(", a grid of {c} by {r} on {display}"))
+        .map(|(c, r)| format!(", and the console will be {c}x{r} characters {display}"))
         .unwrap_or_default();
     format!(
-        "{font} at {points} pt: cells of {}x{} pixels{grid}. It draws {} of the specimen's {} characters itself. {marks}",
+        "{font} at {points} pt: each character cell is {}x{} pixels{grid}. The font can display {} of the {} characters in the preview. {marks}",
         s.cell.width, s.cell.height, s.covered, s.of
     )
 }
@@ -89,12 +92,12 @@ pub fn detail_caption(
 pub fn caption(c: &super::shot::Caption) -> String {
     let (w, h) = c.display;
     let display = if c.assumed {
-        format!("an assumed {w}x{h} display, since none is found,")
+        format!("a {w}x{h} display (assumed, because no display was found)")
     } else {
         format!("this {w}x{h} display")
     };
     format!(
-        "{} at {} pt on {display} draws cells of {}x{} pixels, a grid of {} columns by {} rows.",
+        "{} at {} pt on {display}: each character cell is {}x{} pixels, and the console will be {} characters wide and {} lines high.",
         c.font, c.points, c.cell.width, c.cell.height, c.grid.0, c.grid.1
     )
 }
@@ -103,18 +106,18 @@ pub fn caption(c: &super::shot::Caption) -> String {
 pub const READS: &str = "reads";
 pub const BUILT_IN: &str = "built in";
 pub fn does_not_read(why: impl Display) -> String {
-    format!("does not read: {why}")
+    format!("cannot be read: {why}")
 }
-pub const KEPT: &str = "kept by the console, see its log";
+pub const KEPT: &str = "not used: the console kept its font (see its log)";
 pub fn sources_missing(n: usize) -> String {
     if n == 1 {
-        "1 source missing".to_owned()
+        "1 font file missing".to_owned()
     } else {
-        format!("{n} sources missing")
+        format!("{n} font files missing")
     }
 }
-pub const DRAWS_NOTHING: &str = "no source on this machine";
-pub const SOURCES_UNKNOWN: &str = "sources not checked";
+pub const DRAWS_NOTHING: &str = "no font file on this machine";
+pub const SOURCES_UNKNOWN: &str = "font files not checked";
 
 /// Marks the choice that an install writes.
 pub const TO_SAVE: &str = "to install";
@@ -125,19 +128,19 @@ pub const TO_REMOVE: &str = "to remove";
 
 /// The fonts view's remove key, `r`.
 pub fn remove_pending(name: impl Display) -> String {
-    format!("{name} is removed when you install; r again keeps it.")
+    format!("{name} will be removed when you install. Press r again to keep it.")
 }
 pub fn remove_dropped(name: impl Display) -> String {
-    format!("{name} is kept.")
+    format!("{name} will be kept.")
 }
-pub fn remove_refused(why: impl Display) -> String {
-    format!("Not removed: {why}")
+pub fn remove_refused(name: impl Display, why: impl Display) -> String {
+    format!("{name} cannot be removed: {why}")
 }
 pub fn remove_replaced(name: impl Display) -> String {
-    format!("{name} is replaced by a new frit in this install")
+    format!("this install replaces {name} with a new font set")
 }
 pub fn remove_unread(name: impl Display) -> String {
-    format!("{name}.vtfrit could not be read when the tool started")
+    format!("{name}.vtfrit could not be read when vtium-config started")
 }
 
 /// The size that lets vtium choose.
@@ -146,60 +149,67 @@ pub fn points(n: u32) -> String {
     format!("{n} pt")
 }
 /// A size's line when the terminal draws no pictures.
-pub const NO_PICTURES: &str = "This terminal draws no pictures, so a change is described in words.";
+pub const NO_PICTURES: &str =
+    "This terminal does not support images, so here is a written description instead.";
 pub fn density(dpi: u32, from: impl Display) -> String {
-    format!("Pictures are drawn at {dpi} dpi, {from}.")
+    format!("The preview uses {dpi} dpi, {from}.")
 }
 pub fn no_picture(why: impl Display) -> String {
-    format!("No picture of the console: {why}")
+    format!("No preview image of the console: {why}")
 }
 pub fn size_summary(s: &crate::specimen::Summary) -> String {
     let grid = s
         .grid
-        .map(|(c, r)| format!(", the display holds {c}x{r} cells,"))
-        .unwrap_or_default();
+        .map(|(c, r)| format!(" the console will be {c}x{r} characters, and"))
+        .unwrap_or_else(|| " and".to_owned());
     format!(
-        "At this size the cell is {}x{} pixels{grid} and the font draws {} of the specimen's {} characters itself.",
+        "With this font and size, each character cell is {}x{} pixels,{grid} the font can display {} of the {} characters in the preview.",
         s.cell.width, s.cell.height, s.covered, s.of
     )
 }
 pub fn no_summary(why: impl Display) -> String {
-    format!("This size cannot be drawn: {why}")
+    format!("This size cannot be used: {why}")
 }
 pub const AUTOMATIC_PICTURE: &str =
-    "Automatic lets vtium pick the size from the display, so it has no picture.";
-pub const DPI_FROM_CONF: &str = "from vtium.conf's display-dpi";
+    "Automatic lets vtium pick the size for each display, so there is no preview.";
+pub const DPI_FROM_CONF: &str = "set by display-dpi in vtium.conf";
 pub const DPI_FROM_EDID: &str = "measured from the display";
-pub const DPI_ASSUMED: &str = "assumed, since no display reports its size";
+pub const DPI_ASSUMED: &str = "assumed, because no display reports its size";
 
 /// The settings view.
 pub fn default_value(value: impl Display) -> String {
     format!("{value} (default)")
 }
-pub const SETTINGS_HINT: &str = "Enter turns a switch on or off, steps a choice, or types a value; an empty value is the default.";
-pub const EDITING: &str = "Type the value; Enter keeps it, an empty value is the default.";
+pub const SETTINGS_HINT: &str = "Press Enter to turn a setting on or off, pick the next choice, or type a value. Leave a value empty to use the default.";
+pub const EDITING: &str = "Type the value and press Enter. Leave it empty to use the default.";
 pub const ON: &str = "on";
 pub const OFF: &str = "off";
 
 /// The Looks view, which holds the sizes until looks are built.
-pub const LOOKS_SIZES: &str = "The sizes the console's font takes, in points. A look of its own comes with vtium.conf's look sections.";
+pub const LOOKS_SIZES: &str = "Font sizes for the console, in points.";
 
 /// The new-frit view: its fields, and what it says.
-pub const NEW_FIELD_NAMES: [&str; 6] = ["Name", "Source 1", "Source 2", "Source 3", "Cell", "Size"];
-pub const NEW_ADD: &str = "Add the frit to the install";
-pub const NEW_HINT: &str = "A source is a font's family, as JetBrains Mono, or a source as a frit writes it, as kbd:ter-v16n. Each later source fills what the ones before it lack. Cell is WIDTHxHEIGHT and Size is points; leave them empty for the fonts' own. An empty name is made from the first source.";
-pub const NEW_BAD_NAME: &str =
-    "the name is 1 to 64 letters, digits, '.', '_', '+' and '-', and not a built-in font's";
+pub const NEW_FIELD_NAMES: [&str; 6] = [
+    "Name",
+    "Font 1",
+    "Font 2",
+    "Font 3",
+    "Character cell",
+    "Size",
+];
+pub const NEW_ADD: &str = "Add this font set to the install";
+pub const NEW_HINT: &str = "A font set (frit) combines up to three fonts. Name each font by its family, such as JetBrains Mono, or as a frit file names it, such as kbd:ter-v16n. Each later font supplies the characters the fonts before it lack. Character cell is WIDTHxHEIGHT in pixels and Size is in points; leave both empty to use the fonts' own size. If you leave Name empty, the name comes from the first font.";
+pub const NEW_BAD_NAME: &str = "A name has 1 to 64 letters, digits, '.', '_', '+' or '-', and cannot be a built-in font's name.";
 pub fn new_added(name: impl Display) -> String {
-    format!("{name} is added to the install; Enter installs it.")
+    format!("{name} is added to the install. Press Enter to install it.")
 }
 pub fn new_replaces_binary(name: impl Display) -> String {
     format!(
-        "the installed {name}.vtfrit is not UTF-8 text, so a new frit does not replace it; remove it with vtium config remove-frit {name} first"
+        "A new font set cannot replace {name}.vtfrit, because the installed file is not UTF-8 text. Remove it first with vtium config remove-frit {name}."
     )
 }
 pub fn new_refused(why: impl Display) -> String {
-    format!("The frit does not read: {why}")
+    format!("This font set cannot be read: {why}")
 }
 
 /// The install view, which installs the changes made in the views.
@@ -212,25 +222,26 @@ pub fn saved(files: usize) -> String {
 }
 
 /// The keys, on the last line of each view.
-pub const KEYS_FLOW: &str = "Tab ←→ columns  ↑↓ move  Enter open  Space tag  c connect  f follow  d devices  ? route  v view  i install  r revert  o restore  n new  x delete  q leave";
-pub const KEYS_ROUTE: &str = "↑↓ route  Enter open the item  q back to the flow";
-pub const KEYS_LOOKS: &str = "Enter keep  Tab next  i install  q leave, undo";
+pub const KEYS_FLOW: &str = "Tab ←→ columns  ↑↓ move  Enter open  Space tag  c connect  f follow  d devices  ? route  v view  i install  r revert  o restore  n new  x delete  q quit";
+pub const KEYS_ROUTE: &str = "↑↓ route  Enter open item  q back";
+pub const KEYS_LOOKS: &str = "Enter choose  Tab next view  i install  q quit without installing";
 pub const KEYS_FONTS: &str =
-    "Enter keep  t try live  s screen  n new  r remove  i install  q leave, undo";
-pub const KEYS_SETTINGS: &str = "Enter change  Tab next  i install  q leave, undo";
-pub const KEYS_HELP: &str = "←→ Help, About  ↑↓ scroll  Tab next  q leave";
-pub const KEYS_NEW: &str = "type a field  Enter next  Esc back  Ctrl-C leave, undo";
-pub const KEYS_EDITING: &str = "Enter keep  Up Down drop  Ctrl-C leave, undo";
+    "Enter choose  t try live  s preview  n new  r remove  i install  q quit";
+pub const KEYS_SETTINGS: &str = "Enter change  Tab next view  i install  q quit without installing";
+pub const KEYS_HELP: &str = "←→ Help, About  ↑↓ scroll  Tab next view  q quit";
+pub const KEYS_NEW: &str =
+    "type into a field  Enter next field  Esc back  Ctrl-C quit without installing";
+pub const KEYS_EDITING: &str = "Enter keep  ↑↓ cancel  Ctrl-C quit without installing";
 
 /// The screen below the TUI's minimum size (ADR-1201 D3).
 pub fn too_small(cols: usize, rows: usize) -> String {
     format!(
-        "vtium-config needs a terminal of at least 80 by 25 cells, and this one is {cols} by {rows}."
+        "This terminal is too small: vtium-config needs at least 80x25 characters, and this terminal is {cols}x{rows}."
     )
 }
 pub const TOO_SMALL_COMMANDS: &str =
-    "Make the terminal larger, or use the commands, which work at any size:";
-pub const TOO_SMALL_KEYS: &str = "q leaves. u puts back the console's font from when vtium-config started, when a font it tried left the grid too small.";
+    "Make this terminal larger, or use these commands, which work at any size:";
+pub const TOO_SMALL_KEYS: &str = "Press q to quit. If a font you tried made this terminal too small, press u to put back the font you had before.";
 
 /// The status line (ADR-1403 D7).
 pub const NO_DRAFT: &str = "no draft";
@@ -250,12 +261,12 @@ pub fn draft_state(name: impl Display, changes: usize, problems: usize) -> Strin
 pub fn tagged(names: &[String]) -> String {
     format!("tagged: {}", names.join(", "))
 }
-pub const FLOW_NOT_READ: &str = "This build does not read vtium.conf's heads, looks and rules yet, so the flow has nothing to draw.";
-pub const NOTHING_TO_FOLLOW: &str = "No line leaves this item toward the heads.";
+pub const FLOW_NOT_READ: &str = "The Flow view is empty: no draft of vtium.conf is open. Quit and start vtium config to open one.";
+pub const NOTHING_TO_FOLLOW: &str = "Nothing to follow: this item has no line to a head.";
 
 /// The flow's items (ADR-1403 D7).
-pub const NOT_FOUND: &str = "configured, not found";
-pub const NOT_FOUND_SHORT: &str = "not found";
+pub const NOT_FOUND: &str = "in a rule, not connected";
+pub const NOT_FOUND_SHORT: &str = "not connected";
 pub const BY_POLICY: &str = "placed by the policy";
 pub const BY_POLICY_SHORT: &str = "by policy";
 pub fn consoles(n: u32) -> String {
@@ -269,11 +280,11 @@ pub const ACTIVE_HEAD: &str = "the active head";
 pub const ACTIVE: &str = "active";
 pub const LOOK: &str = "look";
 pub const DEFAULT: &str = "default";
-pub const NO_SUCH_LOOK: &str = "! no such look";
+pub const NO_SUCH_LOOK: &str = "! look not found";
 pub const NO_SUCH_LOOK_SHORT: &str = "! missing";
 pub fn roaming(active: Option<&str>) -> String {
     match active {
-        Some(head) => format!("types into {head}, active"),
+        Some(head) => format!("types into {head} (active head)"),
         None => "types into the active head".to_owned(),
     }
 }
@@ -282,23 +293,27 @@ pub const OFF_DOES: &str = "vtium turns it off";
 pub fn policy(value: impl Display) -> String {
     format!("policy {value}")
 }
-pub const POLICY_DOES: &str = "takes what no rule matches";
+pub const POLICY_DOES: &str = "places each device no rule matches";
 pub const NEW_RULE: &str = "+ new rule…";
 pub const NEW_HEAD: &str = "+ new head…";
 pub const NEW_LOOK: &str = "+ new look…";
 pub const NEW_SHORT: &str = "+ new…";
 pub fn look_size(points: u32) -> String {
     if points == 0 {
-        "auto size".to_owned()
+        "automatic size".to_owned()
     } else {
         format!("{points} pt")
     }
 }
 pub const MISSING: &str = "missing";
-pub const NO_HEAD_USES: &str = "no head uses it";
-pub const NO_SUCH_HEAD: &str = "sends to a head that does not exist";
-pub const MATCHES_NO_DISPLAY: &str = "matches no display present";
-pub const MATCHES_NO_DEVICE: &str = "matches no device present";
+pub const NO_HEAD_USES: &str = "not used by any head";
+pub const NO_SUCH_HEAD: &str = "! head not found";
+/// Under a rule whose pattern matches none of the connected displays or
+/// devices, and the short form for a column too narrow to hold the long
+/// one whole on two rows.
+pub const MATCHES_NO_DISPLAY: &str = "matches no connected display";
+pub const MATCHES_NO_DEVICE: &str = "matches no connected device";
+pub const MATCHES_NONE_SHORT: &str = "none connected";
 pub fn shadowed(by: usize) -> String {
     format!("rule {by} matches first")
 }
@@ -306,8 +321,8 @@ pub const NEEDS_UDEV: &str = "needs udev";
 pub fn out_of_sight(above: usize, below: usize) -> String {
     match (above, below) {
         (0, b) => format!("↓ {b} more"),
-        (a, 0) => format!("↑ {a} above"),
-        (a, b) => format!("↑ {a} above ↓ {b} more"),
+        (a, 0) => format!("↑ {a} more"),
+        (a, b) => format!("↑ {a} more ↓ {b} more"),
     }
 }
 pub fn base_row(set: &[(String, String)], defaults: usize) -> String {
@@ -322,7 +337,7 @@ pub fn base_row(set: &[(String, String)], defaults: usize) -> String {
         })
         .collect();
     format!(
-        "base   {}   ({defaults} keys at their defaults)",
+        "shared settings   {}   ({defaults} others at their defaults)",
         set.join("   ")
     )
 }
@@ -330,7 +345,7 @@ pub fn base_row(set: &[(String, String)], defaults: usize) -> String {
 /// The card Enter opens below the columns.
 pub const SENDS_TO: &str = "sends to";
 pub const MATCHES: &str = "matches";
-pub const OR_TYPE: &str = " or type a selector";
+pub const OR_TYPE: &str = " or type a match";
 pub const AT_DEFAULT: &str = "default";
 pub fn rule_card(
     n: usize,
@@ -345,14 +360,14 @@ pub fn placed_by(n: usize, selector: impl Display, target: impl Display) -> Stri
     format!("placed by rule {n}: {selector} -> {target}")
 }
 pub fn named_by(n: usize) -> String {
-    format!("configured, not found: rule {n} names it, and nothing plugged in has it")
+    format!("not connected: rule {n} names this device, and no connected device matches it")
 }
 pub fn placed_by_policy(policy: impl Display) -> String {
-    format!("no rule matches it, so the policy, {policy}, places it")
+    format!("placed by the policy, {policy}, because no rule matches it")
 }
 pub fn match_keys(keys: &[String]) -> String {
     if keys.is_empty() {
-        "no match keys, since it is not plugged in".to_owned()
+        "no match keys: the device is not connected".to_owned()
     } else {
         format!("match keys: {}", keys.join("  "))
     }
@@ -366,25 +381,25 @@ pub fn head_card(name: impl Display, consoles: u32, active: bool) -> String {
     }
 }
 pub fn look_card(name: impl Display, frit: impl Display, points: u32) -> String {
-    format!("look {name} · frit {frit} · {}", look_size(points))
+    format!("look {name} · font set {frit} · {}", look_size(points))
 }
 pub fn look_fonts(fonts: &[&str]) -> String {
     if fonts.is_empty() {
-        "its frit lists no font".to_owned()
+        "its font set lists no font".to_owned()
     } else {
-        format!("draws with {}", fonts.join(", "))
+        format!("fonts: {}", fonts.join(", "))
     }
 }
 pub fn look_users(heads: &[&str]) -> String {
     if heads.is_empty() {
-        "no head uses it; the Looks view edits it".to_owned()
+        "not used by any head. Edit it in the Looks view.".to_owned()
     } else {
-        format!("used by {}; the Looks view edits it", heads.join(", "))
+        format!("used by {}. Edit it in the Looks view.", heads.join(", "))
     }
 }
-pub const BASE_CARD: &str = "base: the top-level keys, which every head inherits";
+pub const BASE_CARD: &str = "shared settings: the keys at the top of vtium.conf, which every head uses unless it sets its own";
 pub fn at_defaults(n: usize) -> String {
-    format!("{n} keys at their defaults; the Settings view lists every key")
+    format!("{n} keys at their defaults. The Settings view lists every key.")
 }
 
 /// The route card (ADR-1403 D7).
@@ -393,7 +408,7 @@ pub fn route_title(name: impl Display) -> String {
 }
 pub fn route_of(k: usize, n: usize, when: Option<&str>) -> String {
     match when {
-        Some(head) => format!("route {k} of {n}, when {head} is active"),
+        Some(head) => format!("route {k} of {n}, when {head} is the active head"),
         None => format!("route {k} of {n}"),
     }
 }
@@ -403,10 +418,11 @@ pub const SECTION_HEAD: &str = "head";
 pub const SECTION_LOOK: &str = "look";
 pub const SECTION_INPUT_RULE: &str = "input rule";
 pub const SECTION_INPUT: &str = "input device";
-pub const HEAD_NOT_USED: &str = "not used: no rule sends anything here";
-pub const LOOK_NOT_USED: &str = "not used: no head uses this look";
-pub const BASE_DOES: &str = "The top-level keys, which every head inherits.";
-pub const NEW_DOES: &str = "Opening it makes a new item of its column.";
+pub const HEAD_NOT_USED: &str = "Not used: no rule sends anything here.";
+pub const LOOK_NOT_USED: &str = "Not used: no head uses this look.";
+pub const BASE_DOES: &str =
+    "The keys at the top of vtium.conf, which every head uses unless it sets its own.";
+pub const NEW_DOES: &str = "Press Enter to add a new item to this column.";
 
 /// What an item does, the route card's first line.
 pub fn route_sentence(flow: &super::flow::Flow, item: super::flow::Item) -> String {
@@ -423,25 +439,27 @@ pub fn route_sentence(flow: &super::flow::Flow, item: super::flow::Item) -> Stri
         };
         let Some((r, rule)) = d.rule.and_then(|r| flow.rules.get(r).map(|rule| (r, rule))) else {
             return format!(
-                "No rule matches it, so the policy, {}, places it.",
+                "No rule matches this device, so the policy, {}, places it.",
                 flow.policy
             );
         };
         let n = r.saturating_add(1);
         if !d.found {
-            return format!(
-                "It is configured, not found: rule {n} names it, and nothing plugged in has it."
-            );
+            return format!("This device is not connected. Rule {n} names it.");
         }
         match (flow.target(rule), kind) {
-            (Target::Head(h), Kind::Display) => format!("It shows {}.", head_name(h)),
-            (Target::Head(h), Kind::Input) => format!("It types into {}.", head_name(h)),
-            (Target::Special(Special::Off), _) => "vtium turns it off.".to_owned(),
-            (Target::Special(Special::Ignore), _) => "vtium never opens it.".to_owned(),
+            (Target::Head(h), Kind::Display) => {
+                format!("This display shows head {}.", head_name(h))
+            }
+            (Target::Head(h), Kind::Input) => {
+                format!("This device types into head {}.", head_name(h))
+            }
+            (Target::Special(Special::Off), _) => "vtium turns this display off.".to_owned(),
+            (Target::Special(Special::Ignore), _) => "vtium never opens this device.".to_owned(),
             (Target::Special(Special::Roaming), _) => roams(flow),
             (Target::Missing, _) => format!(
-                "Rule {n} sends it to {}, a head that does not exist.",
-                rule.target
+                "Rule {n} sends this device to {target}, but there is no head named {target}.",
+                target = rule.target
             ),
         }
     };
@@ -456,29 +474,27 @@ pub fn route_sentence(flow: &super::flow::Flow, item: super::flow::Item) -> Stri
             let n = r.saturating_add(1);
             if flow.target(rule) == Target::Missing {
                 return format!(
-                    "Rule {n} sends {} to {}, a head that does not exist.",
-                    rule.selector, rule.target
+                    "Rule {n} sends {} to {target}, but there is no head named {target}.",
+                    rule.selector,
+                    target = rule.target
                 );
             }
             match &rule.state {
                 RuleState::Error(e) => {
                     return format!(
-                        "Rule {n} sends {} to {}, but the check finds an error in it: {e}.",
+                        "Rule {n} sends {} to {}, but it has an error: {e}.",
                         rule.selector, rule.target
                     );
                 }
                 RuleState::Shadowed(by) => {
                     return format!(
-                        "Rule {n} sends {} to {}, but rule {} comes first and matches everything it would, so it matches nothing.",
-                        rule.selector,
-                        rule.target,
+                        "Rule {n} never matches: rule {} comes first and matches everything rule {n} would.",
                         by.saturating_add(1)
                     );
                 }
                 RuleState::NeedsUdev => {
                     return format!(
-                        "Rule {n} sends {} to {}, but its selector needs udev, which this machine does not run, so it matches nothing.",
-                        rule.selector, rule.target
+                        "Rule {n} never matches: its match needs udev, and this machine does not run udev."
                     );
                 }
                 RuleState::Matches | RuleState::MatchesNothing => {}
@@ -491,12 +507,12 @@ pub fn route_sentence(flow: &super::flow::Flow, item: super::flow::Item) -> Stri
                 .collect();
             if caught.is_empty() {
                 format!(
-                    "Rule {n} sends {} to {}, and it matches no device present.",
+                    "Rule {n} sends {} to {}. No connected device matches it.",
                     rule.selector, rule.target
                 )
             } else {
                 format!(
-                    "Rule {n} sends {} to {}, and it matches {}.",
+                    "Rule {n} sends {} to {}. It matches {}.",
                     rule.selector,
                     rule.target,
                     caught.join(", ")
@@ -519,9 +535,9 @@ pub fn route_sentence(flow: &super::flow::Flow, item: super::flow::Item) -> Stri
                 .map(|d| d.name.as_str())
                 .collect();
             if shows.is_empty() {
-                format!("{} shows on no display present.", head_name(h))
+                format!("Head {} is not on any connected display.", head_name(h))
             } else {
-                format!("{} shows on {}.", head_name(h), shows.join(" and "))
+                format!("Head {} shows on {}.", head_name(h), shows.join(" and "))
             }
         }
         Item::HeadLook(h) => {
@@ -536,36 +552,36 @@ pub fn route_sentence(flow: &super::flow::Flow, item: super::flow::Item) -> Stri
                 .filter(|x| x.look == look)
                 .map(|x| x.name.as_str())
                 .collect();
-            let users = users.join(" and ");
+            let uses = match users.as_slice() {
+                [one] => format!("Head {one} uses look {look}"),
+                _ => format!("Heads {} use look {look}", users.join(" and ")),
+            };
             match flow.look_of(h).and_then(|l| flow.looks.get(l)) {
-                None if look == DEFAULT => format!("Look {look} draws {users}."),
+                None if look == DEFAULT => format!("{uses}."),
                 None => format!(
-                    "Head {} names look {look}, which the file does not have, so it draws with the default look.",
+                    "Head {} uses the default look, because vtium.conf has no look named {look}.",
                     head_name(h)
                 ),
-                Some(l) => look_said(l, &format!("Look {look} draws {users}")),
+                Some(l) => look_said(l, &uses),
             }
         }
         Item::Look(l) => match flow.looks.get(l) {
             Some(look) if look.problem.is_some() || look.fonts.iter().any(|(_, here)| !here) => {
-                look_said(
-                    look,
-                    &format!("Look {} is not used: no head uses it", look.name),
-                )
+                look_said(look, &format!("Look {} is not used by any head", look.name))
             }
             _ => LOOK_NOT_USED.to_owned(),
         },
         Item::Special(_) if unused(item) => HEAD_NOT_USED.to_owned(),
         Item::Special(Special::Roaming) => match flow.active.as_deref() {
             Some(active) => {
-                format!("A device sent here types into the active head, now {active}.")
+                format!("A device sent here types into the active head, which is {active} now.")
             }
             None => "A device sent here types into the active head.".to_owned(),
         },
         Item::Special(Special::Ignore) => "vtium never opens a device sent here.".to_owned(),
         Item::Special(Special::Off) => "vtium turns off a display sent here.".to_owned(),
         Item::Policy => format!(
-            "The policy, {}, places each device no rule matches.",
+            "The policy, {}, places each device that no rule matches.",
             flow.policy
         ),
         Item::Base => BASE_DOES.to_owned(),
@@ -583,9 +599,9 @@ fn look_said(look: &super::flow::Look, said: &str) -> String {
         .map(|(f, _)| f.as_str())
         .collect();
     match &look.problem {
-        Some(problem) => format!("{said}, but the check finds a problem in it: {problem}."),
+        Some(problem) => format!("{said}, but the look has a problem: {problem}."),
         None if !missing.is_empty() => format!(
-            "{said}, but this machine lacks {}, which its frit {} names.",
+            "{said}, but {} is not installed on this machine. Font set {} needs it.",
             missing.join(" and "),
             look.frit
         ),
@@ -601,14 +617,14 @@ fn roams(flow: &super::flow::Flow) -> String {
         .into_iter()
         .filter_map(|h| flow.heads.get(h).map(|h| h.name.clone()))
         .filter(|n| Some(n.as_str()) != flow.active.as_deref())
-        .map(|n| format!("; into {n} when {n} is active"))
+        .map(|n| format!("; into {n} when {n} is the active head"))
         .collect();
     match flow.active.as_deref() {
         Some(active) => format!(
-            "It types into {active}, the active head, by roaming{}.",
+            "This device roams: it types into the active head, which is {active} now{}.",
             others.concat()
         ),
-        None => "It types into whichever head is active, by roaming.".to_owned(),
+        None => "This device roams: it types into whichever head is active.".to_owned(),
     }
 }
 
@@ -618,74 +634,86 @@ pub const ABOUT_PAGE: &str = "About";
 pub const HELP_VIEWS: [(&str, &str, &str); 5] = [
     (
         FLOW,
-        "draws the configuration from the displays to the input devices: each display, the rule that sends it to a head, the head and its look, and each input device with the rule that sends its typing to a head.",
+        "shows how the console is set up, from the displays to the input devices: each display, the rule that sends it to a head (a screen with its own consoles), the head and its look (its font and size), and each input device with the rule that sends its typing to a head.",
         KEYS_FLOW,
     ),
     (
         LOOKS,
-        "manages the looks, each a frit and its size; until looks are built it offers the console's sizes, automatic first, and shows each.",
+        "lists the console's font sizes, automatic first, with a preview of each. Later it will manage the looks, each a font set and a size.",
         KEYS_LOOKS,
     ),
     (
         FONTS,
-        "lists the frits and the built-in fonts with what each lacks, shows each as a picture of the console or, with s, as a specimen of every character it covers, tries one on a vtium console with t, and makes a new frit with n.",
+        "lists the font sets (frits) and the built-in fonts, with any font files each is missing. It shows each as an image of the console, or with s as a preview of every character it can display. On a vtium console, t tries a font live. Press n to make a new font set.",
         KEYS_FONTS,
     ),
     (
         SETTINGS,
-        "lists every top-level key of vtium.conf, with its value and what it does.",
+        "lists every setting at the top of vtium.conf, with its value and what it does.",
         KEYS_SETTINGS,
     ),
     (
         HELP,
-        "holds this page, and About, with the tool's name and version.",
+        "shows this page, and About, with vtium-config's name and version.",
         KEYS_HELP,
     ),
 ];
-pub const HELP_ROUTE: &str = "In the Flow view, ? opens the route card of the selected item: what it does, and every route from a display to an input device that it is part of.";
-pub const HELP_COMMANDS: &str = "The commands, which work at any size:";
+pub const HELP_ROUTE: &str = "The route card: in the Flow view, press ? to see what the selected item does and every route through it, from a display to an input device.";
+pub const HELP_COMMANDS: &str = "Commands, which work in a terminal of any size:";
 
 /// What leaving shows while the console's font comes back.
-pub const LEAVING: &str = "Putting the console's font back.";
+pub const LEAVING: &str = "Restoring the console's font…";
 
 /// Why vtium.conf cannot take an edit.
 pub fn conf_edit(e: &vtium_settings::ConfEdit) -> String {
     match e {
         vtium_settings::ConfEdit::BadKey(key) => format!(
-            "vtium.conf has no key named {key:?}: a key is lowercase letters, digits and -."
+            "There is no setting named {key:?}. A setting's name uses lowercase letters, digits and -."
         ),
         vtium_settings::ConfEdit::BadValue { key, value } => format!(
-            "{value:?} cannot be written for {key}, since vtium would read it back as something else."
+            "{key} cannot be set to {value:?}: vtium would read it back as a different value."
         ),
     }
 }
 
 /// The Flow view's changes to the draft (ADR-1403 D7, D8).
 pub const NAME: &str = "name";
-pub const FRIT: &str = "frit";
+pub const FRIT: &str = "font set";
 pub const SIZE: &str = "size";
 pub const OR_TYPE_VALUE: &str = "type…";
-pub const NO_DESK: &str = "This view shows a sample flow and has no draft, so it changes nothing.";
-pub const NO_HOTPLUG: &str = "cannot follow hotplug";
+pub const NO_DESK: &str = "This is a sample setup with no draft, so changes here are not saved.";
+pub const NO_HOTPLUG: &str = "not watching for new devices";
 pub const NOT_DONE: &str = "Nothing changed.";
-pub const RULE_FIRST: &str = "This rule is the first of its kind already.";
-pub const RULE_LAST: &str = "This rule is the last of its kind already.";
-pub const FORM_RULE_NEEDS: &str = "A new rule needs what it matches and where it sends it.";
+/// A rule moved up from the first place of its kind, or down from the
+/// last.
+pub const fn rule_first(kind: super::flow::Kind) -> &'static str {
+    match kind {
+        super::flow::Kind::Display => "This rule is already the first display rule.",
+        super::flow::Kind::Input => "This rule is already the first input rule.",
+    }
+}
+pub const fn rule_last(kind: super::flow::Kind) -> &'static str {
+    match kind {
+        super::flow::Kind::Display => "This rule is already the last display rule.",
+        super::flow::Kind::Input => "This rule is already the last input rule.",
+    }
+}
+pub const FORM_RULE_NEEDS: &str = "A new rule needs a match and a target.";
 pub const FORM_NAME_NEEDED: &str = "A new head or look needs a name.";
 pub fn delete_rule(n: usize, line: &str) -> String {
-    format!("Delete rule {n}, {line}?")
+    format!("Delete rule {n} ({line})?")
 }
 pub fn delete_placeholder(device: &str, n: usize, line: &str) -> String {
-    format!("{device} is not plugged in. Delete rule {n}, {line}, which names it?")
+    format!("{device} is not connected. Delete rule {n} ({line}), which names it?")
 }
 pub fn delete_head(name: &str, rules: &[usize]) -> String {
     match rules {
         [] => format!("Delete head {name}? No rule sends to it."),
         [n] => format!(
-            "Delete head {name}? Rule {n} still sends to it and stays, broken, until you point it elsewhere or delete it."
+            "Delete head {name}? Rule {n} sends to it and will not work until you change or delete it."
         ),
         _ => format!(
-            "Delete head {name}? Rules {} still send to it and stay, broken, until you point them elsewhere or delete them.",
+            "Delete head {name}? Rules {} send to it and will not work until you change or delete them.",
             list(rules.iter().map(usize::to_string))
         ),
     }
@@ -693,9 +721,9 @@ pub fn delete_head(name: &str, rules: &[usize]) -> String {
 pub fn delete_look(name: &str, heads: &[String]) -> String {
     match heads {
         [] => format!("Delete look {name}? No head uses it."),
-        [h] => format!("Delete look {name}? The head {h} uses it and goes to the default look."),
+        [h] => format!("Delete look {name}? Head {h} uses it and will switch to the default look."),
         _ => format!(
-            "Delete look {name}? The heads {} use it and go to the default look.",
+            "Delete look {name}? Heads {} use it and will switch to the default look.",
             list(heads.iter().cloned())
         ),
     }
@@ -709,80 +737,80 @@ fn list(items: impl Iterator<Item = String>) -> String {
         None => String::new(),
     }
 }
-pub const CONNECT_TWO_TARGETS: &str =
-    "The tags name two heads or targets; tag one head, or one of roaming, ignore and off.";
-pub const CONNECT_TWO_LOOKS: &str = "The tags name two looks; tag one.";
-pub const CONNECT_TWO_RULES: &str = "The tags name two rules; tag one.";
-pub const CONNECT_TWO_KINDS: &str =
-    "The tags mix displays and input devices; a path holds one kind.";
-pub const CONNECT_RULE_ONE_DEVICE: &str = "A rule takes one tagged device; tag one.";
+pub const CONNECT_TWO_TARGETS: &str = "Cannot connect: two heads or targets are tagged. Tag one head, or one of roaming, ignore and off.";
+pub const CONNECT_TWO_LOOKS: &str = "Cannot connect: two looks are tagged. Tag one.";
+pub const CONNECT_TWO_RULES: &str = "Cannot connect: two rules are tagged. Tag one.";
+pub const CONNECT_TWO_KINDS: &str = "Cannot connect a display and an input device together. Tag displays or input devices, not both.";
+pub const CONNECT_RULE_ONE_DEVICE: &str = "Cannot connect: a rule takes one device. Tag one.";
 pub const CONNECT_NO_HEAD: &str =
-    "The tags name no head to connect to; tag a head, or roaming, ignore or off.";
-pub const CONNECT_LOOK_NO_HEAD: &str = "A look needs a head to connect to; tag a head too.";
-pub const CONNECT_NOTHING: &str = "Nothing is tagged; Space tags the selected item.";
-pub const CONNECT_NO_CHANGE: &str =
-    "The tags describe the draft as it is, so connecting changes nothing.";
+    "Cannot connect: no head is tagged. Tag a head, or roaming, ignore or off.";
+pub const CONNECT_LOOK_NO_HEAD: &str = "Cannot connect: a look connects to a head. Tag a head too.";
+pub const CONNECT_NOTHING: &str = "Nothing is tagged. Press Space to tag the selected item.";
+pub const CONNECT_NO_CHANGE: &str = "Nothing to change: the tagged items are already joined.";
 pub fn connect_display_to(target: &str) -> String {
-    format!("A display cannot be sent to {target}; displays go to a head or off.")
+    format!("A display cannot be sent to {target}. Send it to a head or to off.")
 }
 pub fn connect_input_to(target: &str) -> String {
-    format!("An input device cannot be sent to {target}; inputs go to a head, roaming or ignore.")
+    format!("An input device cannot be sent to {target}. Send it to a head, roaming or ignore.")
 }
 pub fn connect_look_to(target: &str) -> String {
-    format!("A look goes with a head, not with {target}.")
+    format!("A look connects to a head, not to {target}.")
 }
 pub fn connect_no_key(device: &str) -> String {
-    format!("{device} offers no key a rule could name it by.")
+    format!("No rule can name {device}: it reports no name, path or other key to match.")
 }
-pub const INSTALLING: &str = "Installing; sudo may ask for your password.";
-pub const NOTHING_TO_INSTALL: &str = "The draft is the installed file; nothing to install.";
+pub const INSTALLING: &str = "Installing. sudo may ask for your password.";
+pub const NOTHING_TO_INSTALL: &str =
+    "Nothing to install: the draft is the same as the installed vtium.conf.";
 pub fn install_question(added: usize, removed: usize, frits: usize) -> String {
     match frits {
         0 => format!("Install the draft? {}.", lines(added, removed)),
-        1 => format!("Install the draft? {}, and 1 frit.", lines(added, removed)),
+        1 => format!(
+            "Install the draft? {}, and 1 font set.",
+            lines(added, removed)
+        ),
         n => format!(
-            "Install the draft? {}, and {n} frits.",
+            "Install the draft? {}, and {n} font sets.",
             lines(added, removed)
         ),
     }
 }
-pub const NOT_PREPARED: &str = "Install has nothing ready; press i again.";
+pub const NOT_PREPARED: &str = "The install is not ready yet. Press i again.";
 pub fn install_failed(why: &str) -> String {
-    format!("Nothing is installed: {why}")
+    format!("Not installed: {why}")
 }
 pub fn installed(name: &str) -> String {
-    format!("Installed draft {name}. It takes effect when vtium next reads its configuration.")
+    format!("Installed draft {name}. The console uses it after vtium restarts.")
 }
 pub fn revert_question(added: usize, removed: usize) -> String {
     format!(
-        "Throw away the draft's changes? {} are lost.",
+        "Throw away the draft's changes? {} will be lost.",
         lost(added, removed)
     )
 }
-pub const REVERTED: &str = "The draft is the installed file again.";
+pub const REVERTED: &str = "The draft now matches the installed vtium.conf.";
 pub const NEW_QUESTION: &str =
-    "Start a new configuration? The draft's heads, rules and looks are lost.";
-pub const NEW_DONE: &str = "The draft starts over, with every key at its default and one look, default. Wire a display and a keyboard to a head before installing.";
+    "Start a new configuration? The draft's heads, rules and looks will be lost.";
+pub const NEW_DONE: &str = "The draft starts over, with every setting at its default and one look, named default. Send a display and a keyboard to a head before you install.";
 pub fn delete_draft_question(added: usize, removed: usize) -> String {
-    format!("Delete the draft? {} are lost.", lost(added, removed))
+    format!("Delete the draft? {} will be lost.", lost(added, removed))
 }
 pub fn deleted_draft(next: &str) -> String {
-    format!("The draft is deleted; draft {next} starts again from the installed file.")
+    format!("Draft deleted. Draft {next} starts again from the installed vtium.conf.")
 }
-pub const NO_HISTORY: &str =
-    "Nothing has been installed from vtium-config yet, so there is nothing to restore.";
+pub const NO_HISTORY: &str = "Nothing to restore: vtium-config has not installed anything yet.";
 pub fn restore_question(n: usize, added: usize, removed: usize) -> String {
     format!(
-        "Replace the draft with installed file {n}? {} are lost.",
+        "Replace the draft with earlier file {n}? {} will be lost.",
         lost(added, removed)
     )
 }
-pub const RESTORED: &str = "The draft is the installed file you chose. Install puts it back.";
+pub const RESTORED: &str = "The draft is now the file you chose. Install it to put it back in use.";
 pub fn no_history_file(n: usize) -> String {
-    format!("the installed history has no file {n}")
+    format!("There is no earlier file {n}")
 }
-pub const RESTORE_TITLE: &str = "Restore: the installed history, newest first";
-pub const PAGER_TITLE: &str = "The draft, read only";
+pub const RESTORE_TITLE: &str = "Restore an earlier vtium.conf, newest first";
+pub const PAGER_TITLE: &str = "The draft (read only)";
 /// `3 lines added and 1 removed`, as a question says what is lost.
 fn lost(added: usize, removed: usize) -> String {
     match (added, removed) {
@@ -800,49 +828,52 @@ fn lines(added: usize, removed: usize) -> String {
     crate::drafts::lines(added, removed)
 }
 pub fn came_went(came: &[String], went: &[String]) -> String {
-    let came = (!came.is_empty()).then(|| format!("{} came", list(came.iter().cloned())));
-    let went = (!went.is_empty()).then(|| format!("{} went", list(went.iter().cloned())));
+    let came = (!came.is_empty()).then(|| format!("connected: {}", list(came.iter().cloned())));
+    let went = (!went.is_empty()).then(|| format!("disconnected: {}", list(went.iter().cloned())));
     match (came, went) {
         (Some(c), Some(w)) => format!("{c}; {w}"),
         (Some(one), None) | (None, Some(one)) => one,
-        (None, None) => "the devices are as they were".to_owned(),
+        (None, None) => "no device changes".to_owned(),
     }
 }
-pub const KEYS_CARD: &str = "↑↓ field  ←→ pick  Enter choose  t try live  Esc close  q leave";
-pub const KEYS_TYPING: &str = "type the value  Enter keep  Esc drop";
+pub const KEYS_CARD: &str = "↑↓ field  ←→ pick  Enter choose  t try live  Esc close  q quit";
+pub const KEYS_TYPING: &str = "type the value  Enter keep  Esc cancel";
 pub const KEYS_CONFIRM: &str = "y yes  any other key no";
 pub const KEYS_PAGER: &str =
     "j k ↑↓ lines  h l ←→ sideways  g G top bottom  ^D ^U half page  q back";
 pub const KEYS_RESTORE: &str = "↑↓ choose  Enter restore  q back";
 pub const fn new_card(new: super::flow::New) -> &'static str {
     match new {
-        super::flow::New::DisplayRule => {
-            "new display rule: what it matches and the head it sends to"
-        }
-        super::flow::New::InputRule => "new input rule: what it matches and where it sends it",
-        super::flow::New::Head => "new head: its name and its look",
-        super::flow::New::Look => "new look: its name, its frit and its size",
+        super::flow::New::DisplayRule => "new display rule: a match and the head it sends to",
+        super::flow::New::InputRule => "new input rule: a match and its target",
+        super::flow::New::Head => "new head: a name and a look",
+        super::flow::New::Look => "new look: a name, a font set and a size",
     }
 }
 pub fn leave_question(added: &[String], removed: &[String]) -> String {
     let mut lost = Vec::new();
     if !added.is_empty() {
-        lost.push(format!("the new frits {}", list(added.iter().cloned())));
+        lost.push(format!("the new font sets {}", list(added.iter().cloned())));
     }
     if !removed.is_empty() {
         lost.push(format!("the removal of {}", list(removed.iter().cloned())));
     }
     format!(
-        "Leave without installing? You lose {}. i installs, l leaves anyway, any other key goes back.",
+        "Quit without installing? You will lose {}. Press i to install, l to quit anyway, or any other key to go back.",
         list(lost.into_iter())
     )
 }
-pub const NOT_LEFT: &str = "Back to the view; nothing is lost.";
+pub const NOT_LEFT: &str = "Nothing is lost.";
+/// The short form of [`frits_waiting`], for a status line too narrow for
+/// the long one.
+pub fn frits_waiting_short(n: usize) -> String {
+    format!("{n} to install")
+}
 pub fn frits_waiting(n: usize) -> String {
     if n == 1 {
-        "1 frit to install".to_owned()
+        "1 font set to install".to_owned()
     } else {
-        format!("{n} frits to install")
+        format!("{n} font sets to install")
     }
 }
 
@@ -858,11 +889,11 @@ mod tests {
         );
         assert_eq!(
             super::revert_question(3, 1),
-            "Throw away the draft's changes? 3 lines added and 1 removed are lost."
+            "Throw away the draft's changes? 3 lines added and 1 removed will be lost."
         );
         assert_eq!(
             super::NEW_QUESTION,
-            "Start a new configuration? The draft's heads, rules and looks are lost."
+            "Start a new configuration? The draft's heads, rules and looks will be lost."
         );
     }
 }

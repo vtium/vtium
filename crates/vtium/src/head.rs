@@ -890,7 +890,7 @@ impl Head {
         let chosen = self.chosen();
         chosen.face(height, locale).ok_or_else(|| {
             format!(
-                "the set {} draws nothing at {height} pixels",
+                "font set {} has no characters at {height} pixels high",
                 chosen.name(height, locale)
             )
         })
@@ -1595,16 +1595,16 @@ pub fn place_display(
     match (placed.place, placed.by) {
         (Place::Head(h), _) => Ok(h),
         (_, By::Rule(line)) => Err(format!(
-            "display {name} is left dark by vtium.conf's rule on line {line}"
+            "display {name} stays off: the rule on line {line} of vtium.conf sends it to off"
         )),
         _ => {
             let target = rules.heads.first().map_or("console", |h| h.name.as_str());
             let rule = vtium_settings::rule_for(display, target).map_or_else(
-                || "it offers no value a rule can name".to_owned(),
-                |rule| format!("the rule `{rule}` gives it a head"),
+                || "it reports nothing a rule can match".to_owned(),
+                |rule| format!("add the rule `{rule}` to give it a head"),
             );
             Err(format!(
-                "display {name} matches no rule of vtium.conf and is left dark; {rule}"
+                "display {name} stays off: no rule in vtium.conf matches it; {rule}"
             ))
         }
     }
@@ -1657,13 +1657,13 @@ mod tests {
 
     /// The panic screen of [`a_broken_closed_files_start_shows_the_panic_screens_report`]'s file.
     const PANIC: &str = concat!(
-        "vtium: config invalid, policy closed: input off\n",
-        "The errors in /etc/vtium/vtium.conf, listed below, leave no head that can run.\n",
-        "/etc/vtium/vtium.conf:4: This section takes no key named \"focs\". Check the key's spelling, or remove the line.\n",
-        "/etc/vtium/vtium.conf:5: This section takes no key named \"font-weight\". Check the key's spelling, or remove the line.\n",
-        "/etc/vtium/vtium.conf:7: This rule sends devices to the head \"k\\u{202e}x\", which the file does not declare. Correct the name, or declare the head with its own `[head NAME]` section.\n",
+        "vtium.conf has errors and counts as closed: all input is off.\n",
+        "No head can run because of the errors in /etc/vtium/vtium.conf, listed below.\n",
+        "/etc/vtium/vtium.conf:4: This section has no key named \"focs\". Check the spelling, or remove the line.\n",
+        "/etc/vtium/vtium.conf:5: This section has no key named \"font-weight\". Check the spelling, or remove the line.\n",
+        "/etc/vtium/vtium.conf:7: This rule sends devices to head \"k\\u{202e}x\", but the file has no head of that name. Correct the name, or add a `[head NAME]` section for it.\n",
         "More errors: 2\n",
-        "Nothing on this console takes input. Run vtium check-config /etc/vtium/vtium.conf over ssh, or from other boot media, for the full report.",
+        "This console takes no input. For the full report, run vtium check-config /etc/vtium/vtium.conf over ssh or from other boot media.",
     );
 
     // ADR-1401 D7, ADR-1403 D3: the start runs vtium.conf's sections, the
@@ -1698,7 +1698,7 @@ mod tests {
         assert_eq!(ran.outcome.runs, vtium_settings::Runs::Survivors);
         assert_eq!(
             ran.line(),
-            Some("config partly invalid, running what's valid")
+            Some("vtium.conf has errors: running the parts without errors.")
         );
         // the rule keeps its line in the whole file
         assert_eq!(
@@ -1714,11 +1714,14 @@ mod tests {
         assert_eq!(
             ran.notice().as_deref(),
             Some(
-                "invalid config skipped, using builtin\nRun vtium check-config /etc/vtium/vtium.conf to see why."
+                "vtium.conf not used: running the built-in configuration.\nTo see why, run vtium check-config /etc/vtium/vtium.conf."
             )
         );
         let ran = rules(path, &File::Inaccessible);
-        assert_eq!(ran.line(), Some("invalid config skipped, using builtin"));
+        assert_eq!(
+            ran.line(),
+            Some("vtium.conf not used: running the built-in configuration.")
+        );
     }
 
     // ADR-1403 D3: the start never judges the complete route, since
@@ -1807,13 +1810,13 @@ mod tests {
         assert!(
             items
                 .get(1)
-                .is_some_and(|i| i.starts_with("/etc/vtium/vtium.conf: This file is longer")),
+                .is_some_and(|i| i.starts_with("/etc/vtium/vtium.conf: This file is too long")),
             "{items:?}"
         );
         assert!(
-            items
-                .get(2)
-                .is_some_and(|i| i.starts_with("/etc/vtium/vtium.conf: The file needs")),
+            items.get(2).is_some_and(
+                |i| i.starts_with("/etc/vtium/vtium.conf: `version = 1` must be at the top")
+            ),
             "{items:?}"
         );
         assert_eq!(start.report().map(|r| r.more), Some(0));
@@ -1845,10 +1848,12 @@ mod tests {
         );
         assert!(overlay.problem);
         // a notice that is no report draws as it is, and replaces the report
-        screen.set_notice("vtium: no display for any head");
+        screen.set_notice("No head has a connected display.");
         assert_eq!(
             screen.overlay().notice,
-            Some(vtium_render::Notice::new("vtium: no display for any head"))
+            Some(vtium_render::Notice::new(
+                "No head has a connected display."
+            ))
         );
         let mut head = Head::new("h", &config, Vec::new(), term());
         head.add_notice(&report.text());
@@ -2140,11 +2145,14 @@ mod tests {
         assert_eq!(place_display(&rules, &display("DP-2")), Ok(0));
         assert_eq!(
             place_display(&rules, &display("DP-1")),
-            Err("display DP-1 is left dark by vtium.conf's rule on line 4".to_owned())
+            Err(
+                "display DP-1 stays off: the rule on line 4 of vtium.conf sends it to off"
+                    .to_owned()
+            )
         );
         assert_eq!(
             place_display(&rules, &display("HDMI-A-1")),
-            Err("display HDMI-A-1 matches no rule of vtium.conf and is left dark; the rule `display connector:pci-0000:03:00.0/HDMI-A-1 -> desk` gives it a head".to_owned())
+            Err("display HDMI-A-1 stays off: no rule in vtium.conf matches it; add the rule `display connector:pci-0000:03:00.0/HDMI-A-1 -> desk` to give it a head".to_owned())
         );
         let bare = vtium_settings::Identity {
             connector: Some("fb\u{1b}".to_owned()),
@@ -2152,7 +2160,7 @@ mod tests {
         };
         assert_eq!(
             place_display(&rules, &bare),
-            Err("display fb\\u{1b} matches no rule of vtium.conf and is left dark; it offers no value a rule can name".to_owned())
+            Err("display fb\\u{1b} stays off: no rule in vtium.conf matches it; it reports nothing a rule can match".to_owned())
         );
     }
 

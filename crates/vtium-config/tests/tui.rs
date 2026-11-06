@@ -599,7 +599,8 @@ fn the_refusal_mark_is_on_the_screen() {
     drive(&mut c, inputs).expect("the loop");
     let screen = c.seen.clone().expect("the screen");
     assert!(
-        screen.contains("tiny5") && screen.contains("kept by the console, see its log"),
+        screen.contains("tiny5")
+            && screen.contains("not used: the console kept its font (see its log)"),
         "{screen}"
     );
     assert!(screen.contains("The console refused tiny5"), "{screen}");
@@ -667,8 +668,8 @@ fn with_font_operations_off_the_tui_says_so_and_offers_the_key() {
     run(&mut c);
     assert_eq!(c.switches(), Vec::<String>::new());
     let screen = c.seen.clone().expect("the screen");
-    assert!(screen.contains("text · no live"), "{screen}");
-    assert!(screen.contains("allow-font-ops is off"), "{screen}");
+    assert!(screen.contains("text preview · no live trial"), "{screen}");
+    assert!(screen.contains("allow-font-ops turned off"), "{screen}");
     // t says why it does nothing, and sends nothing
     let mut c = Console::vtium(80, 25, false, "unifont")
         .takes("tiny5", (80, 25))
@@ -705,7 +706,7 @@ fn a_font_switch_that_changes_the_grid_redraws_at_the_new_grid() {
     let rows: Vec<&str> = screen.lines().collect();
     assert_eq!(rows.len(), 30);
     assert!(
-        rows[29].contains("Enter keep"),
+        rows[29].contains("Enter choose"),
         "the keys on the last row: {screen}"
     );
     assert!(
@@ -725,8 +726,12 @@ fn a_grid_too_small_draws_the_way_out() {
     let screen = c.seen.clone().expect("the screen");
     let rows: Vec<&str> = screen.lines().collect();
     assert_eq!(rows.len(), 8);
-    assert!(rows[0].starts_with("vtium-config needs a"), "{screen}");
+    // the whole of what is wrong, then the keys, in the 8 rows
     let joined = rows.iter().map(|r| r.trim()).collect::<Vec<_>>().join(" ");
+    assert!(
+        joined.starts_with(&vtium_config::tui::words::too_small(30, 8)),
+        "{screen}"
+    );
     assert!(
         joined.ends_with(vtium_config::tui::words::TOO_SMALL_KEYS),
         "{screen}"
@@ -776,7 +781,7 @@ fn a_failed_install_keeps_the_draft_and_says_why() {
     run_desk(&mut c, &mut d);
     let screen = c.seen.clone().expect("the screen");
     assert!(
-        screen.contains("Nothing is installed: sudo: a password is required"),
+        screen.contains("Not installed: sudo: a password is required"),
         "{screen}"
     );
     assert!(d.draft.contains("font-name=tiny5"), "{}", d.draft);
@@ -808,7 +813,7 @@ fn a_setting_shows_its_default_and_what_it_does() {
     let screen = c.seen.clone().expect("the screen");
     assert!(screen.contains("font-size"), "{screen}");
     assert!(screen.contains("0 (default)"), "{screen}");
-    assert!(screen.contains("The font's size in points"), "{screen}");
+    assert!(screen.contains("The font size in points"), "{screen}");
 }
 
 /// Enter types a value for a key that takes one, a second Enter keeps it,
@@ -897,7 +902,7 @@ fn a_new_frit_replaces_the_installed_one_of_its_name() {
     let screen = c.seen.clone().expect("the screen");
     let text = screen.split_whitespace().collect::<Vec<_>>().join(" ");
     assert!(
-        text.contains("the installed latin1.vtfrit is not UTF-8 text"),
+        text.contains("A new font set cannot replace latin1.vtfrit, because the installed file is not UTF-8 text."),
         "{screen}"
     );
     assert!(d.plans.is_empty());
@@ -918,7 +923,7 @@ fn r_removes_the_highlighted_frit_at_the_next_install() {
     let mut d = desk();
     run_desk(&mut c, &mut d);
     let screen = c.seen.clone().expect("the screen");
-    assert!(screen.contains("and 1 frit"), "{screen}");
+    assert!(screen.contains("and 1 font set"), "{screen}");
     let mut c = console().keys(&[UP, b"r", b"i", b"y", b"q"]);
     let mut d = desk();
     assert_eq!(run_desk(&mut c, &mut d), 0);
@@ -962,7 +967,7 @@ fn r_refuses_what_remove_frit_refuses() {
         run_desk(&mut c, &mut desk());
         let screen = c.seen.clone().expect("the screen");
         let text = screen.split_whitespace().collect::<Vec<_>>().join(" ");
-        assert!(text.contains("Not removed:"), "{says}: {screen}");
+        assert!(text.contains("cannot be removed:"), "{says}: {screen}");
         assert!(text.contains(says), "{says}: {screen}");
         let mut c = console().keys(&all);
         let mut d = desk();
@@ -1036,8 +1041,8 @@ fn a_new_frit_the_reader_refuses_stays_in_its_view_and_says_why() {
     let mut c = console().keys(&[b"n", b"\r", b"\r", b"\r", b"\r", b"\r", b"\r", b"\r"]);
     run(&mut c);
     let screen = c.seen.clone().expect("the screen");
-    assert!(screen.contains("The frit does not read"), "{screen}");
-    assert!(screen.contains("Source 1"), "{screen}");
+    assert!(screen.contains("This font set cannot be read"), "{screen}");
+    assert!(screen.contains("Font 1"), "{screen}");
     assert!(c.saves.is_empty());
 }
 
@@ -1048,7 +1053,10 @@ fn new_opens_the_tui_at_its_new_frit_view() {
     let mut c = console();
     drive(&mut c, inputs).expect("the loop");
     let screen = c.seen.clone().expect("the screen");
-    assert!(screen.contains("Add the frit to the install"), "{screen}");
+    assert!(
+        screen.contains("Add this font set to the install"),
+        "{screen}"
+    );
 }
 
 /// Leaving while a frit's removal waits for an install asks first and
@@ -1061,21 +1069,59 @@ fn leaving_with_a_frit_waiting_asks_and_l_leaves_without_it() {
     let screen = c.seen.clone().expect("the screen");
     let text = screen.split_whitespace().collect::<Vec<_>>().join(" ");
     assert!(
-        text.contains("Leave without installing? You lose the removal of tiny5."),
+        text.contains("Quit without installing? You will lose the removal of tiny5."),
         "{screen}"
     );
-    assert!(
-        screen
-            .lines()
-            .nth(1)
-            .unwrap_or_default()
-            .contains("1 frit to install"),
-        "{screen}"
-    );
+    // the status line says the font set waiting; the next test checks
+    // its words at each width
+    let status = screen.lines().nth(1).unwrap_or_default();
+    assert!(status.contains("· 1 to install"), "{screen}");
     let mut c = console().keys(&[UP, b"r", b"q", b"l"]);
     let mut d = desk();
     assert_eq!(run_desk(&mut c, &mut d), 0);
     assert!(d.plans.is_empty());
+}
+
+/// The status line with a font set waiting to be installed, on a screen
+/// `cols` wide.
+fn status_with_a_font_set_waiting(cols: u16) -> String {
+    let grid = (usize::from(cols), 25);
+    let mut c = Console::vtium(usize::from(cols), 25, true, "unifont")
+        .takes("minspec-16", grid)
+        .takes("proof", grid)
+        .takes("tiny5", grid)
+        .takes("unifont", grid)
+        .takes("unscii-8", grid)
+        .keys(&[UP, b"r", b"q"]);
+    let mut d = desk();
+    run_desk(&mut c, &mut d);
+    let screen = c.seen.clone().expect("the screen");
+    screen.lines().nth(1).unwrap_or_default().to_owned()
+}
+
+/// The status line keeps its long words where both sides fit; else the
+/// font sets waiting take their short words; else the preview's words
+/// shorten too, so the left side fits whole.
+#[test]
+fn the_status_line_shortens_its_left_side_then_its_right_side() {
+    let draft = " draft mine · no changes · no problems · ";
+    for (cols, left, right) in [
+        (100, "1 font set to install", "text preview · t: try live"),
+        (90, "1 to install", "text preview · t: try live"),
+        (82, "1 to install", "text preview · t: try live"),
+        (81, "1 to install", "text · t: try live"),
+        (80, "1 to install", "text · t: try live"),
+    ] {
+        let status = status_with_a_font_set_waiting(cols);
+        assert!(
+            status.starts_with(&format!("{draft}{left} ")),
+            "{cols}: {status:?}"
+        );
+        assert!(
+            status.ends_with(&format!("  {right}")),
+            "{cols}: {status:?}"
+        );
+    }
 }
 
 /// Any other key goes back with the frit still waiting, and `i` at the
@@ -1200,11 +1246,11 @@ fn each_view_at_80x25_and_100x30() {
             assert_eq!(lines.len(), rows, "{name} at {cols}x{rows}");
             assert!(lines.iter().all(|l| l.chars().count() <= cols), "{name}");
             assert!(lines[0].contains(" Flow "), "{name}: {screen}");
-            // the last row holds the key that leaves, or the route card's
+            // the last row holds the key that quits, or the route card's
             // that goes back
             let last = lines[rows - 1];
             assert!(
-                last.contains("leave") || last.contains("back"),
+                last.contains(" quit") || last.contains("q back"),
                 "{name}: {screen}"
             );
             golden(&format!("{name}-{cols}x{rows}"), &screen, &bytes);
@@ -1552,10 +1598,10 @@ fn the_small_screen_shows_the_live_trial_s_countdown() {
     let text = as_text(&screen(&app));
     let joined = text.split_whitespace().collect::<Vec<_>>().join(" ");
     assert!(
-        joined.starts_with("Trying tiny5 on the console for 10 s: press k to keep it"),
+        joined.starts_with("Trying tiny5 on the console for 10 s. Press k to keep it"),
         "{text}"
     );
-    assert!(joined.contains("vtium-config needs a"), "{text}");
+    assert!(joined.contains("vtium-config needs at least"), "{text}");
 }
 
 /// The picture shows the whole display at its resolution, laid out at the
@@ -1582,7 +1628,7 @@ fn the_picture_shows_the_display_at_the_grid_the_font_gives() {
     let screen = c.seen.clone().expect("the screen");
     let text = screen.split_whitespace().collect::<Vec<_>>().join(" ");
     assert!(
-        text.contains("tiny5 at 12 pt on this 640x480 display draws cells of 4x6 pixels, a grid of 160 columns by 80 rows."),
+        text.contains("tiny5 at 12 pt on this 640x480 display: each character cell is 4x6 pixels, and the console will be 160 characters wide and 80 lines high."),
         "{screen}"
     );
     // on a display too small for the TUI at that cell, the picture is the
@@ -1595,7 +1641,7 @@ fn the_picture_shows_the_display_at_the_grid_the_font_gives() {
     let shot = c.shots.first().expect("a picture");
     assert_eq!(shot.grid, (40, 15));
     let first = vtium_config::tui::view::text(&shot.screen[0]);
-    assert!(first.starts_with("vtium-config needs a"), "{first}");
+    assert!(first.starts_with("This terminal is too small"), "{first}");
 }
 
 #[test]
@@ -1612,13 +1658,13 @@ fn a_terminal_that_answers_nothing_is_settled_by_the_wait() {
 fn a_failed_command_s_words_show_on_the_message_line() {
     let mut c = console().keys(&[UP, b"\r", b"i", b"y"]);
     c.save_result = Err(
-        "vtium-config: the console's check refused the draft:\n/x/vtium.conf:2: font-size=\"lots\" is not a whole number, ignored".into(),
+        "vtium-config: vtium check-config refused the draft:\n/x/vtium.conf:2: font-size=\"lots\" is not a whole number, ignored".into(),
     );
     run_desk(&mut c, &mut desk());
     let screen = c.seen.clone().expect("the screen");
     let text = screen.split_whitespace().collect::<Vec<_>>().join(" ");
     assert!(
-        text.contains("Nothing is installed: vtium-config: the console's check refused the draft:"),
+        text.contains("Not installed: vtium-config: vtium check-config refused the draft:"),
         "{screen}"
     );
     assert!(text.contains("is not a whole number"), "{screen}");
@@ -1627,7 +1673,7 @@ fn a_failed_command_s_words_show_on_the_message_line() {
 /// The bytes that show the stand-in's picture at the Looks view's place,
 /// below its two rows of sentence and the blank row after them.
 fn shown() -> Vec<u8> {
-    let mut b = b"\x1b[7;26H".to_vec();
+    let mut b = b"\x1b[6;26H".to_vec();
     b.extend(kitty::show(
         kitty::IMAGE_ID,
         2,
@@ -1650,9 +1696,9 @@ fn each_highlighted_size_shows_its_specimen_and_deletes_the_last() {
     c.graphics = true;
     assert_eq!(run(&mut c), 0);
     // 6 pt and 7 pt at 96 dpi, unifont highlighted in the font view, in
-    // the area beside the list, 55 columns by 14 rows of 8x16 cells: down
+    // the area beside the list, 55 columns by 15 rows of 8x16 cells: down
     // to the room the keys and the longest message leave
-    let area = (55 * 8, 14 * 16);
+    let area = (55 * 8, 15 * 16);
     assert_eq!(
         c.pictures,
         [
@@ -1720,11 +1766,14 @@ fn s_switches_the_fonts_view_between_the_console_and_the_detailed_specimen() {
     let screen = c.seen.clone().expect("the screen");
     let text = screen.split_whitespace().collect::<Vec<_>>().join(" ");
     assert!(
-        text.contains("unifont at 12 pt: cells of 8x16 pixels, a grid of 80 by 30 on this 640x480 display. It draws 300 of the specimen's 323 characters itself."),
+        text.contains("unifont at 12 pt: each character cell is 8x16 pixels, and the console will be 80x30 characters on this 640x480 display. The font can display 300 of the 323 characters in the preview."),
         "{screen}"
     );
-    assert!(text.contains("a box marks one nothing draws"), "{screen}");
-    assert!(screen.contains("s screen"), "{screen}");
+    assert!(
+        text.contains("a box marks a character no font can display"),
+        "{screen}"
+    );
+    assert!(screen.contains("s preview"), "{screen}");
 }
 
 /// The font view shows each highlighted font as its detailed specimen, at
@@ -1774,7 +1823,7 @@ fn without_pictures_a_size_shows_its_cell_grid_and_coverage() {
     let text = screen.split_whitespace().collect::<Vec<_>>().join(" ");
     assert!(
         text.contains(
-            "At this size the cell is 8x16 pixels, the display holds 80x30 cells, and the font draws 40 of the specimen's 51 characters itself."
+            "With this font and size, each character cell is 8x16 pixels, the console will be 80x30 characters, and the font can display 40 of the 51 characters in the preview."
         ),
         "{screen}"
     );
@@ -1811,11 +1860,11 @@ fn the_font_list_names_the_sources_a_frit_lacks() {
     run(&mut c);
     let screen = c.seen.clone().expect("the screen");
     assert!(
-        screen.contains("proof      reads, 1 source missing"),
+        screen.contains("proof      reads, 1 font file missing"),
         "{screen}"
     );
     assert!(
-        screen.contains("tiny5      no source on this machine"),
+        screen.contains("tiny5      no font file on this machine"),
         "{screen}"
     );
     assert!(screen.contains("minspec-16 reads\n"), "{screen}");
@@ -1855,7 +1904,7 @@ fn without_kitty_graphics_no_picture_is_sent_and_the_view_says_so() {
     assert!(c.pictures.is_empty());
     assert_eq!(count(&c.written, b"\x1b_Ga=T"), 0);
     let screen = c.seen.clone().expect("the screen");
-    assert!(screen.contains("draws no pictures"), "{screen}");
+    assert!(screen.contains("does not support images"), "{screen}");
 }
 
 #[test]
@@ -1978,8 +2027,8 @@ fn the_fonts_key_line_is_one_row_at_80_columns() {
     let screen = reach(80, 25, &[]);
     let rows: Vec<&str> = screen.lines().collect();
     assert_eq!(rows.len(), 25);
-    assert!(rows[24].starts_with(" Enter keep"), "{screen}");
-    assert!(rows[24].ends_with("q leave, undo"), "{screen}");
+    assert!(rows[24].starts_with(" Enter choose"), "{screen}");
+    assert!(rows[24].ends_with("q quit"), "{screen}");
     assert!(rows[23].starts_with("---"), "the rule just above: {screen}");
 }
 
@@ -2066,7 +2115,7 @@ fn a_refused_frit_s_long_reason_wraps_by_words() {
     let screen = c.seen.clone().expect("the screen");
     let joined = screen.lines().map(str::trim).collect::<Vec<_>>().join(" ");
     assert!(
-        joined.contains(&format!("does not read: {reason}")),
+        joined.contains(&format!("cannot be read: {reason}")),
         "{screen}"
     );
     assert!(screen.lines().all(|l| l.chars().count() <= 80));
@@ -2104,6 +2153,24 @@ mod flow_view {
 
     fn writes(effects: &[Effect], bytes: &[u8]) -> bool {
         effects.iter().any(|e| *e == Effect::Write(bytes.to_vec()))
+    }
+
+    // The Flow view starts from a flow nothing has read, and says so, until
+    // the desk opens the draft; a desk that cannot open it leaves the view
+    // so, which is when a person sees the words
+    #[test]
+    fn a_flow_nothing_has_read_says_so() {
+        let mut i = inputs();
+        i.view = View::Flow;
+        i.flow = vtium_config::tui::flow::Flow::default();
+        let a = App::new(i, 80, 25).0;
+        let shown = text(&a).replace('\n', " ");
+        let first = words::FLOW_NOT_READ
+            .split(' ')
+            .take(4)
+            .collect::<Vec<_>>()
+            .join(" ");
+        assert!(shown.contains(&first), "{shown}");
     }
 
     #[test]
@@ -2281,7 +2348,7 @@ mod flow_view {
             "{screen}"
         );
         assert!(
-            screen.contains("route 2 of 2, when panel is active"),
+            screen.contains("route 2 of 2, when panel is the active head"),
             "{screen}"
         );
         assert!(
@@ -2486,14 +2553,27 @@ mod flow_view {
         }
         let screen = text(&a);
         assert!(screen.contains("[DP-8     ]"), "{screen}");
-        assert!(screen.contains("[not found ]"), "{screen}");
-        assert!(screen.contains("[base"), "{screen}");
+        assert!(screen.contains("[not       ]"), "{screen}");
+        assert!(screen.contains("[connected ]"), "{screen}");
+        assert!(screen.contains("[shared settings"), "{screen}");
         // the selection is still reverse video
         assert!(sgr(&bytes).iter().any(|p| p.contains(&7)));
         // and every state still has its words
-        assert!(screen.contains("not found"), "{screen}");
         a.flow_at = Item::Rule(2);
-        assert!(text(&a).contains("matches no"), "{}", text(&a));
+        // the rule's short words, "none" above "connected" in its column
+        let t = text(&a);
+        let rows: Vec<Vec<char>> = t.lines().map(|r| r.chars().collect()).collect();
+        let below = |i: usize, at: usize| -> String {
+            rows.get(i + 1)
+                .map(|r| r.iter().skip(at).take(9).collect())
+                .unwrap_or_default()
+        };
+        let said = rows.iter().enumerate().any(|(i, r)| {
+            (0..r.len()).any(|at| {
+                r[at..].starts_with(&['n', 'o', 'n', 'e', ' ']) && below(i, at) == "connected"
+            })
+        });
+        assert!(said, "{t}");
     }
 
     #[test]
@@ -2504,7 +2584,7 @@ mod flow_view {
         let (mut a, _) = App::new(i, 100, 30);
         let screen = text(&a);
         assert!(screen.contains("! 1 edid:"), "{screen}");
-        assert!(screen.contains("sends to a head"), "{screen}");
+        assert!(screen.contains("! head not"), "{screen}");
         let bytes = String::from_utf8_lossy(&view::draw(&a)).into_owned();
         assert!(bytes.contains("\x1b[91m! 1 edid:"), "bright red");
         // no line runs from it, and its route card says what is broken
@@ -2512,7 +2592,7 @@ mod flow_view {
         press(&mut a, Key::Char('?'));
         assert!(
             text(&a).contains(
-                "Rule 1 sends edid:AAA:0x0001:LARGE00001 to tv, a head that does not exist."
+                "Rule 1 sends edid:AAA:0x0001:LARGE00001 to tv, but there is no head named tv."
             ),
             "{}",
             text(&a)
@@ -2524,10 +2604,7 @@ mod flow_view {
         for (cols, rows) in [(79, 25), (80, 24)] {
             let mut a = app(cols, rows);
             let screen = text(&a);
-            assert!(
-                screen.starts_with("vtium-config needs a terminal"),
-                "{screen}"
-            );
+            assert!(screen.starts_with("This terminal is too small"), "{screen}");
             // the flow's keys do nothing there; q still leaves
             press(&mut a, Key::Right);
             assert_eq!(a.flow_at, Item::Display(0));
@@ -2545,6 +2622,12 @@ mod flow_view {
         let screen = text(&a);
         let joined = screen.lines().map(str::trim).collect::<Vec<_>>().join(" ");
         assert!(joined.contains(words::FLOW_NOT_READ), "{screen}");
+        assert!(
+            joined.contains(
+                "The Flow view is empty: no draft of vtium.conf is open. Quit and start vtium config to open one."
+            ),
+            "{screen}"
+        );
         assert!(screen.contains("no draft"), "{screen}");
     }
 
@@ -2556,7 +2639,7 @@ mod flow_view {
         assert_eq!(a.view, View::Help);
         let joined = |a: &App| text(a).lines().map(str::trim).collect::<Vec<_>>().join(" ");
         assert!(
-            joined(&a).contains("Flow draws the configuration"),
+            joined(&a).contains("Flow shows how the console is set up"),
             "{}",
             text(&a)
         );
@@ -2568,7 +2651,7 @@ mod flow_view {
             "{end}"
         );
         assert!(
-            end.contains("gather what a bug report needs into one document, changing nothing"),
+            end.contains("collect what a bug report needs into one document"),
             "{end}"
         );
         assert!(text(&a).lines().all(|l| l.chars().count() <= 80));
@@ -3046,7 +3129,8 @@ mod draft_flow {
         let b = bench("head-rm");
         let ran = run(&b, &[RIGHT, b"\r", END, b"\r"]);
         assert!(
-            ran.screen().contains("Rule 1 still sends to it"),
+            ran.screen()
+                .contains("Rule 1 sends to it and will not work"),
             "{}",
             ran.screen()
         );
@@ -3064,7 +3148,7 @@ mod draft_flow {
         let ran = run(&b, &[RIGHT, RIGHT, b"\r", END, b"\r"]);
         assert!(
             ran.screen()
-                .contains("The head desk uses it and goes to the default look."),
+                .contains("Head desk uses it and will switch to the default look."),
             "{}",
             ran.screen()
         );
@@ -3140,7 +3224,7 @@ mod draft_flow {
         let ran = run(&b, &[b"o", b"\r"]);
         assert!(
             ran.screen()
-                .contains("Replace the draft with installed file 1?"),
+                .contains("Replace the draft with earlier file 1?"),
             "{}",
             ran.screen()
         );
@@ -3157,7 +3241,7 @@ mod draft_flow {
         let edited = INSTALLED.replace("font-size=12", "font-size=14");
         std::fs::write(b.root.join("etc/vtium.conf"), &edited).expect("the hand edit");
         let ran = run(&b, &[b"i"]);
-        assert!(ran.said().contains("changed since"), "{}", ran.screen());
+        assert!(ran.said().contains("changed after"), "{}", ran.screen());
         // and no question asked, so a y installs nothing
         let ran = run(&b, &[b"i", b"y"]);
         assert!(ran.console.saves.is_empty());
@@ -3202,11 +3286,7 @@ mod draft_flow {
         run(&b, &change);
         assert_ne!(b.draft(), INSTALLED);
         let ran = run(&b, &[b"x", b"y"]);
-        assert!(
-            ran.screen().contains("The draft is deleted"),
-            "{}",
-            ran.screen()
-        );
+        assert!(ran.screen().contains("Draft deleted."), "{}", ran.screen());
         assert_eq!(b.draft(), INSTALLED);
     }
 
@@ -3240,7 +3320,11 @@ mod draft_flow {
         // selection moves to the placeholder, whose card deletes rule 2
         let keys: Vec<&[u8]> = vec![RIGHT, RIGHT, RIGHT, RIGHT, b"@"];
         let ran = run_on(&b, seen.clone(), true, &keys);
-        assert!(ran.status().contains("kbd went"), "{}", ran.status());
+        assert!(
+            ran.status().contains("disconnected: kbd"),
+            "{}",
+            ran.status()
+        );
         assert!(ran.screen().contains("* pci-0:3.3"), "{}", ran.screen());
         assert_eq!(b.draft(), INSTALLED);
         let keys: Vec<&[u8]> = vec![RIGHT, RIGHT, RIGHT, RIGHT, b"@", b"\r", b"\r", b"y"];
@@ -3257,7 +3341,11 @@ mod draft_flow {
             present(vec![other_keyboard()], true),
         ];
         let ran = run_on(&b, seen, true, &[b"@", b"@"]);
-        assert!(ran.status().contains("spare came"), "{}", ran.status());
+        assert!(
+            ran.status().contains("connected: spare"),
+            "{}",
+            ran.status()
+        );
         assert!(ran.screen().contains("spare"), "{}", ran.screen());
         assert_eq!(b.draft(), INSTALLED);
     }

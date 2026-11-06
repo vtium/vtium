@@ -613,9 +613,11 @@ dependencies = [
  "seccompiler",
  "skrifa",
  "swash",
+ "vtium-devices",
  "vtium-font",
  "vtium-platform",
  "vtium-settings",
+ "vtium-term",
 ]
 
 [[package]]
@@ -626,6 +628,14 @@ dependencies = [
  "miniz_oxide",
  "vtium-config",
  "vtium-font",
+]
+
+[[package]]
+name = "vtium-devices"
+version = "0.1.0-alpha.5"
+dependencies = [
+ "vtium-platform",
+ "vtium-settings",
 ]
 
 [[package]]

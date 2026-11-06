@@ -39,7 +39,7 @@ pub fn system(m: &Machine, _: &Units) -> String {
     match m.text("/proc/sys/kernel/arch", 256) {
         Ok(a) => s.push_str(&format!("architecture: {}\n", a.trim())),
         Err(_) => s.push_str(&format!(
-            "architecture: {}, as vtium-config was built, since the kernel does not say\n",
+            "architecture: {} (taken from vtium-config's build, because the kernel does not say)\n",
             std::env::consts::ARCH
         )),
     }
@@ -54,18 +54,18 @@ pub fn system(m: &Machine, _: &Units) -> String {
                 None => s.push_str(&format!("distribution: {name}\n")),
             }
         }
-        None => s.push_str("distribution: unknown, since there is no /etc/os-release\n"),
+        None => s.push_str("distribution: unknown (there is no /etc/os-release)\n"),
     }
     let systemd = m.path("/run/systemd/system").is_dir();
     s.push_str(if systemd {
-        "systemd: runs as the init system\n"
+        "systemd: running as the init system\n"
     } else {
-        "systemd: does not run as the init system\n"
+        "systemd: not the init system\n"
     });
     s.push_str(if m.path("/run/systemd/seats").is_dir() {
         "logind: runs\n"
     } else {
-        "logind: does not run\n"
+        "logind: not running\n"
     });
     s
 }
@@ -84,12 +84,13 @@ fn vtium_subcommand(m: &Machine, words: &[&str], label: &str) -> String {
     }
     match m.run(&path, words) {
         Ok(ran) => {
-            let code = ran
-                .code
-                .map_or_else(|| "ends on a signal".to_owned(), |c| format!("exits {c}"));
+            let code = ran.code.map_or_else(
+                || "stopped by a signal".to_owned(),
+                |c| format!("exits {c}"),
+            );
             let both = format!("{}{}", ran.out, ran.err);
             let text = if both.trim().is_empty() {
-                "    (it prints nothing)\n".to_owned()
+                "    (it printed nothing)\n".to_owned()
             } else {
                 indented(&both)
             };
@@ -116,7 +117,7 @@ pub fn consoles(m: &Machine, units: &Units) -> String {
         s.push('\n');
     }
     if units.units.is_empty() {
-        s.push_str(&format!("No vtium@, vtium-dev@, vtium-getty@ or vtium-dev-getty@ unit is loaded, and the journal names none in {}.\n", m.boot_words()));
+        s.push_str(&format!("No vtium@, vtium-dev@, vtium-getty@ or vtium-dev-getty@ unit is loaded, and the journal of {} names none.\n", m.boot_words()));
         return s;
     }
     let systemctl = m.program("systemctl");
@@ -160,7 +161,7 @@ pub fn consoles(m: &Machine, units: &Units) -> String {
                 }
             }
             Some(Err(e)) => line.push_str(&format!(" cannot run systemctl: {e}")),
-            None => line.push_str(" its state is not known without systemctl"),
+            None => line.push_str(" state unknown without systemctl"),
         }
         if journal
             && !u.name.contains("-getty@")
@@ -209,7 +210,7 @@ fn line(m: &Machine, dir: &str, file: &str) -> Option<String> {
     (!line.is_empty()).then_some(line)
 }
 
-const NO_CARD: &str = "No DRM card is in /sys/class/drm.\n";
+const NO_CARD: &str = "No DRM card in /sys/class/drm.\n";
 
 /// The displays part: each card's driver and render node, and each of its
 /// connectors.
@@ -249,7 +250,7 @@ pub fn displays(m: &Machine, _: &Units) -> String {
             }
             if let Some(edid) = Edid::read(m, &dir) {
                 said.push(edid.name().map_or_else(
-                    || "monitor not named".to_owned(),
+                    || "monitor has no name".to_owned(),
                     |n| format!("monitor {n}"),
                 ));
                 if let Some((w, h)) = edid.mm() {
@@ -274,7 +275,7 @@ pub fn configuration(m: &Machine, _: &Units) -> String {
                 .filter(|l| !l.trim().is_empty() && !l.trim_start().starts_with('#'))
                 .map(|l| format!("    {l}\n"))
                 .collect();
-            s.push_str(&format!("{conf}, without its comments and blank lines:\n"));
+            s.push_str(&format!("{conf}, without comments and blank lines:\n"));
             s.push_str(if kept.is_empty() {
                 "    (it sets nothing)\n"
             } else {
@@ -283,7 +284,7 @@ pub fn configuration(m: &Machine, _: &Units) -> String {
         }
         Err(e) if e.kind() == io::ErrorKind::NotFound => {
             s.push_str(&format!(
-                "There is no {conf}, so vtium runs with its defaults.\n"
+                "There is no {conf}, so vtium uses its defaults.\n"
             ));
         }
         Err(e) => s.push_str(&format!("{}\n", m.cannot(conf, &e))),
@@ -314,18 +315,18 @@ pub fn logs(m: &Machine, units: &Units) -> String {
     );
     match &units.journal {
         Journal::Missing => {
-            s.push_str("journalctl is not on this machine, so the report holds no log.\n");
+            s.push_str("journalctl is not on this machine, so the report has no log.\n");
             return s;
         }
         Journal::Unreadable(said) => {
             s.push_str(&format!(
-                "The journal is not readable to you. Run the report as root, with sudo vtium-config report > vtium-report.txt, or have root add your user to the systemd-journal group, whose members read the whole journal, with usermod -aG systemd-journal followed by your user name, and log in again. journalctl said: {said}\n"
+                "You cannot read the journal. Run the report as root (sudo vtium-config report > vtium-report.txt), or have root add your user to the systemd-journal group, whose members can read the whole journal: usermod -aG systemd-journal followed by your user name, and log in again. journalctl said: {said}\n"
             ));
             return s;
         }
         Journal::NoPreviousBoot(said) => {
             s.push_str(&format!(
-                "The journal holds no boot before this one, so there is no log of the previous boot. journald keeps its logs across a reboot only when the directory /var/log/journal exists. journalctl said: {said}\n"
+                "The journal has no earlier boot, so there is no log of the previous boot. journald keeps logs across a reboot only when /var/log/journal exists. journalctl said: {said}\n"
             ));
             return s;
         }
@@ -334,7 +335,7 @@ pub fn logs(m: &Machine, units: &Units) -> String {
     let logged: Vec<&Unit> = units.units.iter().filter(|u| u.log.is_some()).collect();
     if logged.is_empty() {
         s.push_str(&format!(
-            "No vtium@, vtium-dev@, vtium-getty@ or vtium-dev-getty@ unit logged in {}.\n",
+            "No vtium@, vtium-dev@, vtium-getty@ or vtium-dev-getty@ unit logged anything in {}.\n",
             m.boot_words()
         ));
     }

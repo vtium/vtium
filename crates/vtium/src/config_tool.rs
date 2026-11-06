@@ -28,7 +28,7 @@ use crate::notice::config_tool as text;
 /// The word that names the subcommand.
 pub const WORD: &str = "config";
 
-/// Runs the tool `config` names for the glyph helper with `args`, as the
+/// Runs the tool `config` names for the font helper with `args`, as the
 /// effective user: opens and checks it, then hands `exec` the command that
 /// runs the opened file. `exec` returns only when it could not run it.
 /// Returns the exit status vtium then ends with, 1, having said why on
@@ -52,7 +52,7 @@ pub fn run(
     let mut command = Command::new(format!("/proc/self/fd/{fd}"));
     command.arg0(&program).args(args);
     let why = exec(&mut command);
-    let _ = writeln!(err, "{}", text::cannot_run(program.display(), fd, why));
+    let _ = writeln!(err, "{}", text::cannot_run(program.display(), why));
     1
 }
 
@@ -160,10 +160,8 @@ mod tests {
         // The exec failed, so vtium says why and ends with 1.
         assert_eq!(status, 1);
         assert!(
-            err.starts_with(&format!(
-                "vtium config: cannot start {} through {program}: ",
-                tool.display()
-            )),
+            err.starts_with(&format!("vtium config: cannot start {}: ", tool.display()))
+                && err.contains("through /proc/self/fd, so /proc must be mounted"),
             "{err}"
         );
     }
@@ -174,8 +172,14 @@ mod tests {
         let tool = dir.join("vtium-config");
         fs::write(&tool, "").unwrap();
         for (mode, why) in [
-            (0o775, "may be written by its group or by others (mode 775)"),
-            (0o757, "may be written by its group or by others (mode 757)"),
+            (
+                0o775,
+                "can be changed by its group or by other users (mode 775)",
+            ),
+            (
+                0o757,
+                "can be changed by its group or by other users (mode 757)",
+            ),
             (0o4755, "is setuid or setgid (mode 4755)"),
             (0o2755, "is setuid or setgid (mode 2755)"),
         ] {
@@ -186,7 +190,7 @@ mod tests {
             assert_eq!(
                 err,
                 format!(
-                    "vtium config: the helper {} {why}, so vtium does not start it. vtium config runs vtium-config, the font and settings tool, from the glyph helper's path, which the font-helper key sets.\n",
+                    "vtium config: vtium does not start the font helper {}: it {why}. vtium config runs vtium-config from the path in the font-helper setting.\n",
                     tool.display()
                 )
             );
@@ -198,7 +202,7 @@ mod tests {
         let dir = scratch("missing");
         fs::create_dir_all(dir.join("dir")).unwrap();
         for (program, why) in [
-            (dir.join("absent"), "cannot open the helper"),
+            (dir.join("absent"), "cannot open the font helper"),
             (dir.join("dir"), "is not a regular file"),
             (PathBuf::from("bin/vtium-config"), "is not absolute"),
         ] {

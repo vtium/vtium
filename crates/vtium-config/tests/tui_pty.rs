@@ -328,8 +328,8 @@ fn started(name: &str, kind: Kind, cols: u16, rows: u16) -> (Console, Child, Fil
     let (root, fonts) = fixture(name);
     let mut console = Console::start(master, cols.into(), rows.into(), kind, TAKES);
     let child = tui(&slave, &root, &fonts);
-    console.until("drew its keys", |s| s.screen.contains("q leave"));
-    console.until("decided", |s| !s.screen.contains("asking the terminal"));
+    console.until("drew its keys", |s| s.screen.contains("q quit"));
+    console.until("decided", |s| !s.screen.contains("checking this terminal"));
     to_fonts(&mut console);
     (console, child, slave)
 }
@@ -446,7 +446,7 @@ fn a_terminal_that_answers_only_da1_gets_no_osc_50_switch() {
 fn with_font_operations_off_no_osc_50_switch_goes() {
     let (mut c, child, slave) = started("ops-off", Kind::Vtium { ops: false }, 80, 25);
     c.until("said font operations are off", |s| {
-        s.screen.contains("allow-font-ops is off")
+        s.screen.contains("allow-font-ops turned off")
     });
     c.key(UP);
     c.key(b"q");
@@ -469,7 +469,7 @@ fn the_screen_fits_80x25_and_100x30() {
         c.until("drew the fonts view in the grid", |s| {
             let lines: Vec<&str> = s.screen.lines().collect();
             lines[0].contains(" Fonts ")
-                && lines[1].contains("t: live")
+                && lines[1].contains(vtium_config::tui::words::TRIAL_KEY)
                 && [
                     "minspec-16",
                     "minspec-8",
@@ -480,7 +480,9 @@ fn the_screen_fits_80x25_and_100x30() {
                 ]
                 .iter()
                 .all(|name| s.screen.contains(name))
-                && lines[usize::from(rows) - 1].contains("q leave, undo")
+                && lines[usize::from(rows) - 1]
+                    .trim_end()
+                    .ends_with("i install  q quit")
         });
         c.key(b"q");
         assert_eq!(status(child), 0);
@@ -528,7 +530,7 @@ fn set_switches_a_vtium_console() {
 fn set_sends_nothing_to_a_terminal_that_is_not_vtium() {
     let (status, out, switches) = set("tiny5", Kind::Da1Only);
     assert_eq!(status, 1, "{out}");
-    assert!(out.contains("not vtium"), "{out}");
+    assert!(out.contains("not a vtium console"), "{out}");
     assert_eq!(switches, Vec::<String>::new());
 }
 
@@ -570,7 +572,7 @@ fn saving_into_directories_not_the_system_s_installs_as_the_user() {
             vtium.as_os_str(),
         ],
     );
-    c.until("decided", |s| s.screen.contains("t: live"));
+    c.until("decided", |s| s.screen.contains("t: try live"));
     to_fonts(&mut c);
     c.key(UP);
     c.key(UP);
@@ -641,7 +643,7 @@ fn saving_the_system_s_files_runs_exactly_sudo_vtium_config_apply_dir() {
             vtium.as_os_str(),
         ],
     );
-    c.until("decided", |s| s.screen.contains("t: live"));
+    c.until("decided", |s| s.screen.contains("t: try live"));
     to_fonts(&mut c);
     // a size, so the draft differs from the system's vtium.conf whatever it
     // holds
@@ -654,8 +656,7 @@ fn saving_the_system_s_files_runs_exactly_sudo_vtium_config_apply_dir() {
     c.key(b"y");
     // the failure, with what the stand-in printed
     c.until("failed", |s| {
-        s.screen.contains("Nothing is installed")
-            && s.screen.contains("the stand-in installs nothing")
+        s.screen.contains("Nothing installed") && s.screen.contains("the stand-in installs nothing")
     });
     c.key(b"q");
     assert_eq!(status(child), 0);
@@ -700,7 +701,7 @@ fn the_udev_database_the_command_line_names_reaches_the_tui() {
         ],
     );
     c.until("followed no hotplug", |s| {
-        s.screen.contains("cannot follow hotplug")
+        s.screen.contains("not watching for new devices")
     });
     c.key(b"q");
     assert_eq!(status(child), 0);
@@ -840,7 +841,7 @@ fn the_helper_holds_none_of_the_terminal_and_a_silent_one_marks_no_frit_broken()
         ],
     );
     drop(leaked);
-    c.until("decided", |s| s.screen.contains("t: live"));
+    c.until("decided", |s| s.screen.contains("t: try live"));
     to_fonts(&mut c);
     // the stand-in lists what the TUI gave it
     let fds_file = root.join("helper.fds");
@@ -894,7 +895,7 @@ fn the_helper_holds_none_of_the_terminal_and_a_silent_one_marks_no_frit_broken()
     c.key(b"k");
     // once its wait is out, the TUI says it has not checked the sources
     c.until("gave up on the helper", |s| {
-        s.screen.contains("sources not checked")
+        s.screen.contains("font files not checked")
     });
     c.key(b"q");
     assert_eq!(status(child), 0);
@@ -902,7 +903,7 @@ fn the_helper_holds_none_of_the_terminal_and_a_silent_one_marks_no_frit_broken()
     // and in no frame it drew did it say a frit draws nothing; the test
     // reads every byte the TUI wrote, so no frame is caught half drawn
     let written = String::from_utf8_lossy(&c.written()).into_owned();
-    if let Some(at) = written.find("no source on this machine") {
+    if let Some(at) = written.find("no font file on this machine") {
         // the frame's bytes around the words, a row or so to each side
         let before: String = written[..at].chars().rev().take(200).collect();
         let before: String = before.chars().rev().collect();

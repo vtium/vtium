@@ -153,12 +153,12 @@ impl App {
                 let (to, before) = if action == edit::UP {
                     match at.checked_sub(1).and_then(|p| same.get(p)) {
                         Some(&p) => (p, p.saturating_add(1)),
-                        None => return self.say(words::RULE_FIRST),
+                        None => return self.say(words::rule_first(kind)),
                     }
                 } else {
                     match same.get(at.saturating_add(1)) {
                         Some(&n) => (n, n.saturating_add(2)),
-                        None => return self.say(words::RULE_LAST),
+                        None => return self.say(words::rule_last(kind)),
                     }
                 };
                 self.make(

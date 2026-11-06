@@ -325,7 +325,7 @@ fn the_top_level_and_the_command_line_refuse_a_cell() {
     }
     assert_eq!(
         Problem::SectionOnly("cell").to_string(),
-        "cell is set only in a [look NAME] section, ignored"
+        "cell can be set only in a [look NAME] section, ignored"
     );
 }
 
@@ -605,7 +605,7 @@ fn login_commands() {
     );
     for (text, why) in [
         ("login='/bin/sh\n", "a quote is not closed"),
-        ("login=/bin/sh \\\n", "a backslash ends the command"),
+        ("login=/bin/sh \\\n", "the command ends with a backslash"),
         ("login=\"\"\n", "no command"),
     ] {
         let l = main_file(text);
@@ -735,7 +735,7 @@ fn reports_read_as_lines() {
     assert_eq!(
         text,
         [
-            "/etc/vtium/vtium.conf:1: font-size=\"9999\" is out of bounds, 2048 used",
+            "/etc/vtium/vtium.conf:1: font-size=\"9999\" is out of range, so 2048 is used",
             "/etc/vtium/vtium.conf:2: sb-size=\"x\\u{7}y\" is not a whole number, ignored",
         ]
     );
@@ -880,10 +880,10 @@ fn colors() {
     assert_eq!(
         whys,
         [
-            "each value is at most 255",
-            "three values are needed, r,g,b",
-            "each value is a whole number",
-            "three values are needed, r,g,b"
+            "each value must be 255 or less",
+            "a color is three values, r,g,b",
+            "each value must be a whole number",
+            "a color is three values, r,g,b"
         ]
     );
 }
@@ -932,12 +932,21 @@ fn mode_lines_add_up_and_the_command_line_replaces_them() {
 #[test]
 fn a_mode_that_does_not_read_is_reported() {
     for (text, why) in [
-        ("mode=0x768\n", "a size is WxH, each from 1 to 65535"),
-        ("mode=1366\n", "a size is WxH, each from 1 to 65535"),
-        ("mode=[HDMI-A-1 1366x768\n", "a '[' with no ']'"),
-        ("mode=[]1366x768\n", "an empty name in brackets"),
-        ("mode=1366x768@x\n", "a rate is a whole number of Hz"),
-        ("mode=70000x768\n", "a size is WxH, each from 1 to 65535"),
+        ("mode=0x768\n", "a resolution is WxH, each from 1 to 65535"),
+        ("mode=1366\n", "a resolution is WxH, each from 1 to 65535"),
+        ("mode=[HDMI-A-1 1366x768\n", "a '[' has no ']'"),
+        (
+            "mode=[]1366x768\n",
+            "the connector name in brackets is empty",
+        ),
+        (
+            "mode=1366x768@x\n",
+            "a refresh rate is a whole number of Hz",
+        ),
+        (
+            "mode=70000x768\n",
+            "a resolution is WxH, each from 1 to 65535",
+        ),
     ] {
         let l = main_file(text);
         assert_eq!(l.config.modes(&MODE), [], "{text}");
@@ -1306,7 +1315,7 @@ fn decoration_colors_read_as_the_c_reference_read_them() {
             [&Problem::BadValue {
                 key: "underline-color",
                 value: bad.into(),
-                why: "expected fg, a palette index 0-255 or #rrggbb",
+                why: "use fg, a palette number from 0 to 255, or #rrggbb",
             }],
             "{bad:?}"
         );
@@ -1327,7 +1336,7 @@ fn pointer_char_takes_one_character() {
             [&Problem::BadValue {
                 key: "pointer-char",
                 value: bad.into(),
-                why: "one character is needed, not a control character or a space",
+                why: "give one character that is not a control character or a space",
             }],
             "{bad:?}"
         );
@@ -1415,7 +1424,7 @@ fn sb_memory_is_fenced_from_1_mib_to_1_gib() {
             .first()
             .map(ToString::to_string)
             .as_deref(),
-        Some("sb-memory=\"0\" is out of bounds, 1048576 used")
+        Some("sb-memory=\"0\" is out of range, so 1048576 is used")
     );
 }
 
@@ -1483,7 +1492,7 @@ fn display_buffers_takes_one_two_or_three() {
             .first()
             .map(ToString::to_string)
             .as_deref(),
-        Some("/etc/vtium/vtium.conf:1: display-buffers=\"4\" is none of 1, 2, 3, ignored")
+        Some("/etc/vtium/vtium.conf:1: display-buffers=\"4\" is not one of 1, 2, 3, ignored")
     );
     // The command line wins over the file, in either form of the option.
     for args in [&["--display-buffers=1"][..], &["--display-buffers", "1"]] {

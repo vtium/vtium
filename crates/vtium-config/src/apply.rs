@@ -49,6 +49,10 @@ use crate::draft::Plan;
 use crate::frit::{FRIT_BYTES_MAX, Frit, valid_name};
 use crate::tui::{CONF_MAX, Paths};
 
+/// What `apply` says of a file that changed after the draft was made.
+/// `install` finds these words in `apply`'s output to choose its exit code.
+pub const CHANGED: &str = "changed after the draft was made";
+
 /// Runs an argv with the terminal given back for a password, and says
 /// whether it succeeded, with what it printed.
 pub type Runner<'a> = &'a mut dyn FnMut(&[OsString]) -> io::Result<(bool, String)>;
@@ -58,7 +62,7 @@ pub const MANIFEST: &str = "MANIFEST";
 
 /// Why a change that moves the frits' directory and also writes or
 /// removes a frit is refused, by the TUI's save and by `apply`.
-pub const FRITS_MOVE_FIRST: &str = "the change sets vtium.conf's font-frits to another directory and also writes or removes frits, which would go to the directory font-frits named before; save the font-frits change first, then change the frits";
+pub const FRITS_MOVE_FIRST: &str = "this install changes font-frits and also adds or removes font sets, which would go to the old directory. Install the font-frits change first, then change the font sets.";
 
 /// The most bytes of the manifest.
 const MANIFEST_MAX: u64 = 64 * 1024;
@@ -160,7 +164,7 @@ pub fn write_draft(root: &Path, plan: &Plan, targets: &Targets) -> io::Result<Pa
         let name = name_for(targets, &file.path).ok_or_else(|| {
             io::Error::new(
                 io::ErrorKind::InvalidInput,
-                format!("{} is no file a draft holds", file.path.display()),
+                format!("{} is not a file a draft can contain", file.path.display()),
             )
         })?;
         std::fs::write(dir.join(&name), &file.new)?;
@@ -176,7 +180,10 @@ pub fn write_draft(root: &Path, plan: &Plan, targets: &Targets) -> io::Result<Pa
             .ok_or_else(|| {
                 io::Error::new(
                     io::ErrorKind::InvalidInput,
-                    format!("{} is no frit a draft removes", removal.path.display()),
+                    format!(
+                        "{} is not a font set a draft can remove",
+                        removal.path.display()
+                    ),
                 )
             })?;
         let was = hash(&removal.old);
@@ -308,7 +315,7 @@ pub fn invoking_user(
         [("DOAS_USER", name)] => Ok(uid_of(name)),
         [(_, uid)] => Ok(uid.parse::<u32>().ok()),
         more => Err(format!(
-            "{} are set, but sudo, pkexec and doas each set only their own, so at least one was kept or forged from the user's environment. Run apply through one tool, with the environment it sets.",
+            "apply refuses to run: {} are all set, but sudo, pkexec and doas each set only their own, so at least one came from your own environment. Run apply through one of them, with the environment it sets.",
             more.iter()
                 .map(|(name, _)| *name)
                 .collect::<Vec<_>>()
@@ -348,7 +355,7 @@ fn owned(fd: &OwnedFd, name: &str, owners: &[u32]) -> Result<rustix::fs::Stat, S
     let stat = rustix::fs::fstat(fd).map_err(|e| format!("{name}: {e}"))?;
     if !owner_trusted(stat.st_uid, owners) {
         return Err(format!(
-            "{name} belongs to user {}, neither root nor the user who made the draft",
+            "{name} belongs to user {}, who is neither root nor the user who made the draft",
             stat.st_uid
         ));
     }
@@ -366,14 +373,14 @@ fn read_at(dir: &OwnedFd, name: &str, max: u64, owners: &[u32]) -> Result<Vec<u8
         OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC | OFlags::NONBLOCK,
         Mode::empty(),
     )
-    .map_err(|e| format!("{name}: {e}, and the draft holds no link"))?;
+    .map_err(|e| format!("{name}: {e} (a draft cannot contain a link)"))?;
     let stat = owned(&fd, name, owners)?;
     if FileType::from_raw_mode(stat.st_mode) != FileType::RegularFile {
-        return Err(format!("{name}: not a regular file"));
+        return Err(format!("{name} is not a regular file"));
     }
     if stat.st_nlink != 1 {
         return Err(format!(
-            "{name} has another name, a hard link, and the draft holds no link"
+            "{name} has a hard link, and a draft cannot contain a link"
         ));
     }
     let mut bytes = Vec::new();
@@ -382,7 +389,7 @@ fn read_at(dir: &OwnedFd, name: &str, max: u64, owners: &[u32]) -> Result<Vec<u8
         .read_to_end(&mut bytes)
         .map_err(|e| format!("{name}: {e}"))?;
     if u64::try_from(bytes.len()).unwrap_or(u64::MAX) > max {
-        return Err(format!("{name}: larger than {max} bytes"));
+        return Err(format!("{name} is larger than {max} bytes"));
     }
     Ok(bytes)
 }
@@ -403,7 +410,7 @@ fn entries(text: &str) -> Result<Vec<Entry>, String> {
                 was: (*was).to_owned(),
             },
             _ => {
-                return Err(format!("{MANIFEST} line {n} is not a line a draft holds"));
+                return Err(format!("{MANIFEST} line {n} is not a valid draft line"));
             }
         };
         out.push(entry);
@@ -457,19 +464,19 @@ fn summarize(stderr: &str, copies: &[(PathBuf, &str)]) -> String {
             Some(Some((n, message))) if n.bytes().all(|b| b.is_ascii_digit()) && !n.is_empty() => {
                 match key_in(message.trim_start()) {
                     Some(key) => {
-                        format!("{name} line {n}: the console's check refused the key {key}")
+                        format!("{name} line {n}: vtium check-config refused the key {key}")
                     }
-                    None => format!("{name} line {n}: the console's check refused this line"),
+                    None => format!("{name} line {n}: vtium check-config refused this line"),
                 }
             }
-            _ => format!("{name}: the console's check refused the file"),
+            _ => format!("{name}: vtium check-config refused the file"),
         };
         if !out.contains(&said) {
             out.push(said);
         }
     }
     if out.is_empty() {
-        out.push("the console's check refused the draft".to_owned());
+        out.push("vtium check-config refused the draft".to_owned());
     }
     out.join("\n")
 }
@@ -515,7 +522,7 @@ pub fn command(
     let [dir] = words else {
         let _ = writeln!(
             err,
-            "vtium-config: apply takes one draft's directory\nTry vtium-config --help."
+            "vtium-config: apply takes one draft directory\nTry vtium-config --help."
         );
         return 2;
     };
@@ -523,7 +530,7 @@ pub fn command(
         Ok(true) => 0,
         Ok(false) => 1,
         Err(why) => {
-            let _ = writeln!(err, "vtium-config: {why}\nNothing was written.");
+            let _ = writeln!(err, "vtium-config: {why}\nNothing was installed.");
             1
         }
     }
@@ -546,7 +553,7 @@ pub fn make(plan: &Plan, paths: &Paths, out: &mut dyn Write, err: &mut dyn Write
             Ok(true) => 0,
             Ok(false) => 1,
             Err(why) => {
-                let _ = writeln!(err, "vtium-config: {why}\nNothing was written.");
+                let _ = writeln!(err, "vtium-config: {why}\nNothing was installed.");
                 1
             }
         };
@@ -633,7 +640,7 @@ pub fn naming(name: &str, conf: Option<&str>) -> Option<String> {
     let conf = conf?;
     let key = vtium_settings::keys::FONT_NAME.name;
     if vtium_settings::setting(conf, key).as_deref() == Some(name) {
-        return Some(format!("vtium.conf's {key}"));
+        return Some(format!("{key} in vtium.conf"));
     }
     let config = vtium_settings::sections(conf.as_bytes())?.parsed.config;
     config.looks.iter().find_map(|look| {
@@ -692,7 +699,7 @@ fn apply(dir: &Path, targets: &Targets, out: &mut dyn Write) -> Result<bool, Str
         // step 2: a file changed since the draft was made is never lost
         if installed(&path)? != was {
             return Err(format!(
-                "{} changed since the draft was made, so the draft would undo that change. Make the change again in a new draft.",
+                "{} {CHANGED}, so installing the draft would undo that change. Make your change again in a new draft.",
                 path.display()
             ));
         }
@@ -719,8 +726,8 @@ fn apply(dir: &Path, targets: &Targets, out: &mut dyn Write) -> Result<bool, Str
                 .map_err(|e| format!("fonts/{e}"))?;
                 let stem = file.strip_suffix(".vtfrit").unwrap_or(file);
                 Frit::parse(&bytes, &path, stem).map_err(|e| match e.line {
-                    0 => format!("{name}: the frit reader refused it"),
-                    n => format!("{name} line {n}: the frit reader refused it"),
+                    0 => format!("{name}: not a valid font set"),
+                    n => format!("{name} line {n}: not a valid font set line"),
                 })?;
                 bytes
             }
@@ -768,7 +775,7 @@ fn apply(dir: &Path, targets: &Targets, out: &mut dyn Write) -> Result<bool, Str
         drop(scratch);
         checked.map_err(|why| {
             format!(
-                "the console's check refused the draft:\n{why}\nRun vtium check-config --configdir {} as yourself to read what it says.",
+                "vtium check-config refused the draft:\n{why}\nTo see the full report, run vtium check-config --configdir {} as yourself.",
                 dir.display()
             )
         })?;
@@ -784,10 +791,7 @@ fn apply(dir: &Path, targets: &Targets, out: &mut dyn Write) -> Result<bool, Str
             .and_then(|s| s.to_str())
             .unwrap_or_default();
         if let Some(by) = naming(stem, Some(&conf_text)) {
-            return Err(format!(
-                "{} is the frit {by} names, so it is not removed",
-                path.display()
-            ));
+            return Err(format!("{} is not removed: {by} uses it", path.display()));
         }
     }
     // step 4: frits, vtium.conf, then removals
@@ -879,7 +883,7 @@ impl Scratch {
             };
         }
         Err(format!(
-            "no free directory for the check under {}",
+            "no free directory for the check in {}",
             base.display()
         ))
     }
@@ -896,7 +900,7 @@ impl Scratch {
         let stat = rustix::fs::fstat(&dir).map_err(|e| format!("{}: {e}", path.display()))?;
         if stat.st_uid != owner || stat.st_mode & 0o077 != 0 {
             return Err(format!(
-                "{}: not a directory of this process's own",
+                "{} is not a directory this process made",
                 path.display()
             ));
         }
@@ -1018,7 +1022,7 @@ mod tests {
             .err()
             .expect("another owner's directory is not held");
         assert!(
-            why.contains("not a directory of this process's own"),
+            why.contains("is not a directory this process made"),
             "{why}"
         );
         assert!(entries_of(&base).is_empty(), "{:?}", entries_of(&base));

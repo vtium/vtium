@@ -514,7 +514,10 @@ pub fn run_with_signals(argv: &[OsString]) -> u8 {
         return 2;
     };
     let why = std::process::Command::new(program).args(args).exec();
-    eprintln!("vtium-config: {}: {why}", program.to_string_lossy());
+    eprintln!(
+        "vtium-config: cannot run {}: {why}",
+        program.to_string_lossy()
+    );
     127
 }
 
@@ -526,7 +529,10 @@ pub fn run_with_signals(argv: &[OsString]) -> u8 {
 fn spawn_foreground(argv: &[OsString]) -> io::Result<(bool, String)> {
     use std::os::unix::process::CommandExt;
     if argv.is_empty() {
-        return Err(io::Error::new(io::ErrorKind::InvalidInput, "no command"));
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "no command to run",
+        ));
     }
     let stdin = std::io::stdin();
     let controlling =

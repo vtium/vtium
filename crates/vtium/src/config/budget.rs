@@ -81,7 +81,7 @@ pub fn sb_memory(config: &Config) -> usize {
 pub fn memory_warning() -> Option<String> {
     physical_memory().is_none().then(|| {
         format!(
-            "cannot read the machine's memory from {MEMINFO}; sb-memory is at most {}",
+            "cannot read the machine's memory size from {MEMINFO}, so sb-memory is limited to {}",
             vtium_term::SB_MEMORY_DEFAULT
         )
     })
@@ -126,7 +126,7 @@ mod tests {
         assert_eq!(
             memory_warning(),
             Some(format!(
-                "cannot read the machine's memory from /proc/meminfo; sb-memory is at most {most}"
+                "cannot read the machine's memory size from /proc/meminfo, so sb-memory is limited to {most}"
             ))
         );
         set_test_memory(Some(512 << 20));

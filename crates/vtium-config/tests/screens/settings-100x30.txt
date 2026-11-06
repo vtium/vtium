@@ -1,5 +1,5 @@
  Flow  Looks  Fonts  Settings  Help               View  Install  Revert  Restore  New  Delete draft
- draft workstation · 1 change · no problems                                          text · t: live
+ draft workstation · 1 change · no problems                              text preview · t: try live
 ----------------------------------------------------------------------------------------------------
  > font-name                unifont
    font-size                0 (default)
@@ -18,13 +18,13 @@
    debug                    off (default)
    vt                       unset (default)
    switchvt                 on (default)
-   login                    unset (default)
 
- Enter turns a switch on or off, steps a choice, or types a value; an empty value is the default.
- The font vtium draws text with. It is a frit's name, `NAME.vtfrit` in `/etc/vtium/fonts`, whose
- glyphs the helper generates at run time. A kbd font's name, or with `font-engine=psf` a PSF font's
- path, that no frit bears becomes a one-source frit. Unset, vconsole's font; with none, or a name
- that is neither, vtium draws its built-in fonts and logs the name and why.
+ Press Enter to turn a setting on or off, pick the next choice, or type a value. Leave a value
+ empty to use the default.
+ The console's font. The value is the name of a font set (a frit file, `NAME.vtfrit` in
+ `/etc/vtium/fonts`). It can also be the name of a kbd console font, or with `font-engine = psf`
+ the path of a PSF font; vtium then uses that one font. When unset, vtium uses the font from
+ vconsole.conf. If there is none, or vtium cannot find the font, vtium uses its built-in font and …
 
 ----------------------------------------------------------------------------------------------------
- Enter change  Tab next  i install  q leave, undo
+ Enter change  Tab next view  i install  q quit without installing

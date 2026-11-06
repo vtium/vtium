@@ -656,7 +656,7 @@ fn a_head_whose_gpu_set_up_hangs_holds_neither_the_loop_nor_another_head() {
         "a line for the held head"
     );
     let told = format!(
-        "head {}: waiting for the GPU driver to set up the head's GL context: the head draws nothing until it has",
+        "head {}: waiting for the GPU driver to get ready; the head shows nothing until then",
         waiting.1
     );
     assert_eq!(
@@ -780,7 +780,7 @@ fn heads_whose_driver_hangs_letting_go_hold_the_exit_one_bound_in_all() {
         .iter()
         .filter(|l| {
             l.ends_with(&format!(
-                ": the GPU driver did not let go of the head's GL context within {} ms: vtium goes on without it",
+                ": the GPU driver did not release the head within {} ms; vtium goes on without waiting",
                 vtium::painter::LET_GO_MS
             ))
         })

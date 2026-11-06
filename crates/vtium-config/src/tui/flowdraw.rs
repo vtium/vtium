@@ -147,20 +147,8 @@ pub fn lines(ctx: &Ctx<'_>, item: Item, w: usize) -> Vec<Line> {
             if !dev.found {
                 let style = Style::block(palette::GREY);
                 let mut out = vec![block_line(named(&format!("* {}", dev.name)), style)];
-                // the words on two rows where each word fits, else the short
-                // form
-                let fits = words::NOT_FOUND
-                    .split(' ')
-                    .all(|w| w.chars().count() <= inner);
-                if fits {
-                    out.extend(
-                        wrap(words::NOT_FOUND, inner, 2)
-                            .into_iter()
-                            .map(|l| block_line(l, style)),
-                    );
-                } else {
-                    out.push(block_line(pick(inner, &[words::NOT_FOUND_SHORT]), style));
-                }
+                let lines = long_or_short(words::NOT_FOUND, words::NOT_FOUND_SHORT, inner);
+                out.extend(lines.into_iter().map(|l| block_line(l, style)));
                 return out;
             }
             let style = Style::block(color);
@@ -273,7 +261,7 @@ fn look_lines(ctx: &Ctx<'_>, l: usize, inner: usize, tag: &str, unused: bool) ->
             pick(
                 inner,
                 &[
-                    &format!("└ frit {}", look.frit),
+                    &format!("└ font set {}", look.frit),
                     &format!("└ {}", look.frit),
                 ],
             ),
@@ -372,13 +360,29 @@ fn rule_lines(ctx: &Ctx<'_>, r: usize, w: usize, tag: &str) -> Vec<Line> {
         }
     };
     if let Some((note, style)) = note {
-        out.extend(
-            wrap(&note, w.saturating_sub(2), 2)
-                .into_iter()
-                .map(|l| text_line(format!("  {l}"), style)),
-        );
+        let width = w.saturating_sub(2);
+        let rows = if matches!(rule.state, RuleState::MatchesNothing) && !broken {
+            long_or_short(&note, words::MATCHES_NONE_SHORT, width)
+        } else {
+            wrap(&note, width, 2)
+        };
+        out.extend(rows.into_iter().map(|l| text_line(format!("  {l}"), style)));
     }
     out
+}
+
+/// `long` on up to two rows of `width` where it fits whole, else `short`
+/// on up to two rows where it fits whole, else `short` cut on two rows. A
+/// text fits whole when its rows, joined again, give it back with nothing
+/// cut and no word broken.
+fn long_or_short(long: &str, short: &str, width: usize) -> Vec<String> {
+    let whole = |text: &str| {
+        let lines = wrap(text, width, 2);
+        (lines.join(" ") == text).then_some(lines)
+    };
+    whole(long)
+        .or_else(|| whole(short))
+        .unwrap_or_else(|| wrap(short, width, 2))
 }
 
 /// An item placed in its column: its rows, from the top of its unit.
@@ -635,7 +639,7 @@ const HEADINGS: [(&[&str], super::color::Color); 6] = [
     (&["DISPLAYS"], palette::DISPLAYS),
     (&["DISPLAY RULES", "DISP. RULES"], palette::DISPLAY_RULES),
     (&["HEADS"], palette::HEADS),
-    (&["LOOK"], palette::LOOKS),
+    (&["LOOKS"], palette::LOOKS),
     (&["INPUT RULES"], palette::INPUT_RULES),
     (&["INPUT DEVICES", "DEVICES"], palette::INPUTS),
 ];
@@ -1243,7 +1247,7 @@ fn route_line(flow: &Flow, item: Item, _route: &Route) -> RouteLine {
             words::SECTION_DISPLAY,
             describe_name(flow, item)
                 + if flow.displays.get(d).is_some_and(|d| !d.found) {
-                    ", configured, not found"
+                    ", not connected"
                 } else {
                     ""
                 },
@@ -1253,7 +1257,7 @@ fn route_line(flow: &Flow, item: Item, _route: &Route) -> RouteLine {
             words::SECTION_INPUT,
             describe_name(flow, item)
                 + if flow.inputs.get(d).is_some_and(|d| !d.found) {
-                    ", configured, not found"
+                    ", not connected"
                 } else {
                     ""
                 },
@@ -1301,7 +1305,7 @@ fn route_line(flow: &Flow, item: Item, _route: &Route) -> RouteLine {
                     || flow.name(item),
                     |l| {
                         format!(
-                            "{}, frit {}, {}",
+                            "{}, font set {}, {}",
                             l.name,
                             l.frit,
                             words::look_size(l.points)
@@ -1591,7 +1595,13 @@ mod tests {
         let grey = Style::text(palette::GREY);
         let l = lines(&ctx(&f), Item::Rule(2), 28);
         assert_eq!(l[0].style, grey);
-        assert_eq!(l[1].text, format!("  {}", words::MATCHES_NO_DISPLAY));
+        // the words, whole on two rows of the column's 28 cells
+        let texts: Vec<&str> = l[1..].iter().map(|l| l.text.as_str()).collect();
+        assert_eq!(texts, ["  matches no connected", "  display"]);
+        // in a column too narrow for them whole, the short words, whole
+        let l = lines(&ctx(&f), Item::Rule(2), 14);
+        let texts: Vec<&str> = l[1..].iter().map(|l| l.text.as_str()).collect();
+        assert_eq!(texts, ["  none", "  connected"]);
         // a rule naming one device that is not found carries no words; its
         // device's block says it
         let l = lines(&ctx(&f), Item::Rule(3), 40);
@@ -1606,7 +1616,7 @@ mod tests {
                 .map(|l| l.text.as_str())
                 .collect::<Vec<_>>()
                 .join(" "),
-            "configured, not found"
+            "not connected"
         );
         // a rule that sends to a head that does not exist, in the error's
         // color, marked and said
@@ -2040,35 +2050,35 @@ mod tests {
         f.rules[2].state = RuleState::Shadowed(0);
         assert_eq!(
             sentence(&f, Item::Rule(2)),
-            "Rule 3 sends * to desk, but rule 1 comes first and matches everything it would, so it matches nothing."
+            "Rule 3 never matches: rule 1 comes first and matches everything rule 3 would."
         );
         f.rules[2].state = RuleState::NeedsUdev;
         assert!(
-            sentence(&f, Item::Rule(2)).contains("needs udev, which this machine does not run")
+            sentence(&f, Item::Rule(2))
+                .contains("its match needs udev, and this machine does not run udev")
         );
         f.rules[2].state = RuleState::Error("a selector key it does not know".into());
         assert!(
             sentence(&f, Item::Rule(2))
-                .ends_with("the check finds an error in it: a selector key it does not know.")
+                .ends_with("but it has an error: a selector key it does not know.")
         );
         f.looks[0].fonts[0].1 = false;
         assert_eq!(
             sentence(&f, Item::HeadLook(0)),
-            "Look big draws desk, but this machine lacks Monoid, which its frit monoid names."
+            "Head desk uses look big, but Monoid is not installed on this machine. Font set monoid needs it."
         );
         f.looks[0].problem = Some("frit monoid does not exist".into());
         assert!(
-            sentence(&f, Item::HeadLook(0)).ends_with("problem in it: frit monoid does not exist.")
+            sentence(&f, Item::HeadLook(0))
+                .ends_with("but the look has a problem: frit monoid does not exist.")
         );
         f.heads[1].look = "huge".into();
         assert_eq!(
             sentence(&f, Item::HeadLook(1)),
-            "Head panel names look huge, which the file does not have, so it draws with the default look."
+            "Head panel uses the default look, because vtium.conf has no look named huge."
         );
         f.looks[2].problem = Some("frit minspec-16 does not read".into());
-        assert!(
-            sentence(&f, Item::Look(2)).starts_with("Look tiny is not used: no head uses it, but")
-        );
+        assert!(sentence(&f, Item::Look(2)).starts_with("Look tiny is not used by any head, but"));
     }
 
     #[test]
@@ -2078,7 +2088,7 @@ mod tests {
         assert_eq!(title, "Route card: keyboard, usb-0:3.3");
         assert_eq!(
             sentence,
-            "It types into desk, the active head, by roaming; into panel when panel is active."
+            "This device roams: it types into the active head, which is desk now; into panel when panel is the active head."
         );
         let items: Vec<Option<Item>> = lines.iter().map(|l| l.item).collect();
         assert_eq!(items[0], None);
@@ -2093,7 +2103,7 @@ mod tests {
                 Some(Item::Input(1)),
             ]
         );
-        assert_eq!(lines[7].text, "route 2 of 2, when panel is active");
+        assert_eq!(lines[7].text, "route 2 of 2, when panel is the active head");
         let (_, sentence, lines) = route_card(&f, Item::Look(2));
         assert_eq!(sentence, words::LOOK_NOT_USED);
         assert!(lines.is_empty());
