@@ -772,7 +772,7 @@ fn mode_1035_lets_numlock_override_the_application_keypad() {
     assert_eq!(sent(&mut t), b"1\r", "NumLock on");
     t.key(KP_INSERT, 0, num, None);
     t.key(KP_F1, 0, num, None);
-    assert_eq!(sent(&mut t), b"\x1bOp\x1bOP", "keys that make no character");
+    assert_eq!(sent(&mut t), b"\x1b[2~\x1bOP", "keys that make no character");
     t.input(b"\x1b[?1035l");
     assert_eq!(rqm(&mut t, true, 1035), 2);
     t.key(KP_1, 0, num, None);
