@@ -239,6 +239,10 @@ pub struct App {
     focus_due: bool,
     /// What the rules and the display guard read of each card.
     cards: BTreeMap<PathBuf, Card>,
+    /// Each video device the seat manager is not ready to give yet, with
+    /// what udev reported of it, opened once the VT names it settled
+    /// (vtium/vtium#34).
+    waiting_videos: BTreeMap<PathBuf, (DeviceKind, Card)>,
     /// Each display lit in a head, as the rules saw it.
     lit: BTreeMap<(PathBuf, DisplayId), vtium_settings::Identity>,
     /// Each display lit since the start until the focus settled, gone or
@@ -471,6 +475,7 @@ impl App {
             focus_settled: false,
             focus_due: false,
             cards: BTreeMap::new(),
+            waiting_videos: BTreeMap::new(),
             lit: BTreeMap::new(),
             start_lit: BTreeMap::new(),
             dark: BTreeMap::new(),
@@ -766,9 +771,12 @@ impl App {
         self.videos.insert(node, video);
     }
 
-    /// Removes a video device and its displays.
+    /// Removes a video device and its displays, or its wait for the seat
+    /// manager, and lets the VT close it.
     pub fn remove_video(&mut self, node: &Path) {
+        self.waiting_videos.remove(node);
         self.videos.remove(node);
+        self.vt.close_device(node);
         self.cards.remove(node);
         self.lit.retain(|(n, _), _| n != node);
         self.dark.retain(|(n, _), _| n != node);
@@ -2435,9 +2443,7 @@ impl App {
                 }
                 kind => {
                     let card = Card::at(&dev.node, dev.id_path.as_deref(), dev.flags.primary);
-                    if let Err(e) = open_video(self, &dev.node, kind, card) {
-                        log::warn!("cannot open {}: {e}", dev.node.display());
-                    }
+                    self.add_video_device(&dev.node, kind, card);
                 }
             },
             DeviceEvent::Removed { kind, node } => match kind {
@@ -2450,6 +2456,30 @@ impl App {
                 {
                     log::warn!("{}: hotplug: {e}", node.display());
                 }
+            }
+        }
+    }
+
+    /// Opens a video device udev reported. One the seat manager is not
+    /// ready to give waits, and opens once the VT names it settled
+    /// ([`App::settled_videos`]).
+    fn add_video_device(&mut self, node: &Path, kind: DeviceKind, card: Card) {
+        match open_video(self, node, kind, card.clone()) {
+            Ok(()) => {}
+            Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+                log::debug!("{} waits for the seat manager", node.display());
+                self.waiting_videos.insert(node.to_owned(), (kind, card));
+            }
+            Err(e) => log::warn!("cannot open {}: {e}", node.display()),
+        }
+    }
+
+    /// The waiting video devices whose open the VT has settled, opened now
+    /// or reported as failed.
+    fn settled_videos(&mut self) {
+        for node in self.vt.settled() {
+            if let Some((kind, card)) = self.waiting_videos.remove(&node) {
+                self.add_video_device(&node, kind, card);
             }
         }
     }
@@ -3363,6 +3393,7 @@ impl App {
         for e in devices {
             self.device_event(e);
         }
+        self.settled_videos();
         let nodes: Vec<PathBuf> = self.videos.keys().cloned().collect();
         for node in nodes {
             let events = self
@@ -4235,11 +4266,24 @@ fn physical_memory() -> u64 {
     crate::config::budget::physical_memory().unwrap_or(0)
 }
 
-/// Opens a device and wraps it as a video device in the loop, for
-/// [`App::add_video`], keeping what the rules read of its `card`.
+/// Opens a device through the VT and wraps it as a video device in the
+/// loop, for [`App::add_video`], keeping what the rules read of its
+/// `card`. A device opened that cannot be wrapped is closed through the VT
+/// again.
 pub fn open_video(app: &mut App, node: &Path, kind: DeviceKind, card: Card) -> io::Result<()> {
-    use vtium_platform::display::{Card as Drm, Drm2d, Fb, Fbdev, ModeLookup, ModePolicy, Wanted};
     let fd = app.vt.open_device(node)?;
+    wrap_video(app, node, kind, card, fd).inspect_err(|_| app.vt.close_device(node))
+}
+
+/// The device `fd`, opened from `node`, wrapped as a video device.
+fn wrap_video(
+    app: &mut App,
+    node: &Path,
+    kind: DeviceKind,
+    card: Card,
+    fd: std::os::fd::OwnedFd,
+) -> io::Result<()> {
+    use vtium_platform::display::{Card as Drm, Drm2d, Fb, Fbdev, ModeLookup, ModePolicy, Wanted};
     let key = node.to_owned();
     let video: Box<dyn Video> = match kind {
         DeviceKind::Drm => {
@@ -5724,5 +5768,112 @@ mod tests {
         ] {
             assert_eq!(depth(&config(args), levels), want, "{args:?} {levels:?}");
         }
+    }
+
+    /// A shown VT whose seat manager is not ready for a device until the
+    /// test says so, recording what the app asks of it.
+    #[derive(Default)]
+    struct Waits {
+        ready: bool,
+        settled: Vec<PathBuf>,
+        asked: Rc<std::cell::RefCell<Vec<PathBuf>>>,
+        closed: Rc<std::cell::RefCell<Vec<PathBuf>>>,
+        events: Vec<VtEvent>,
+    }
+
+    impl Vt for Waits {
+        fn events(&mut self) -> std::vec::Drain<'_, VtEvent> {
+            self.events.drain(..)
+        }
+        fn acknowledge_release(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+        fn refuse_release(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+        fn activate(&mut self) -> io::Result<vtium_platform::vt::Switch> {
+            Ok(vtium_platform::vt::Switch::Done)
+        }
+        fn leave(&mut self) -> io::Result<vtium_platform::vt::Switch> {
+            Ok(vtium_platform::vt::Switch::Done)
+        }
+        fn wait(&mut self) -> io::Result<vtium_platform::vt::Switch> {
+            Ok(vtium_platform::vt::Switch::Done)
+        }
+        fn is_active(&self) -> bool {
+            true
+        }
+        fn key(&mut self, _: &KeyEvent) -> bool {
+            false
+        }
+        fn restore(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+        fn bell(&mut self) {}
+        fn number(&self) -> Option<u16> {
+            None
+        }
+        fn open_device(&mut self, path: &Path) -> io::Result<std::os::fd::OwnedFd> {
+            self.asked.borrow_mut().push(path.to_owned());
+            if !self.ready {
+                return Err(io::Error::from(io::ErrorKind::WouldBlock));
+            }
+            Ok(std::fs::File::open("/dev/null")?.into())
+        }
+        fn close_device(&mut self, path: &Path) {
+            self.closed.borrow_mut().push(path.to_owned());
+        }
+        fn settled(&mut self) -> Vec<PathBuf> {
+            std::mem::take(&mut self.settled)
+        }
+    }
+
+    // vtium/vtium#34: a framebuffer the seat manager is not ready to give
+    // waits, opens in the turn the VT names it settled, and is let go
+    // through the VT when udev reports it gone.
+    #[test]
+    fn a_video_device_the_seat_manager_is_not_ready_for_opens_once_settled() {
+        let loaded = crate::config::load(&[], &mut |_: &Path| Ok(None));
+        let lp: Loop<App> = Loop::new().unwrap();
+        let (asked, closed) = (Rc::default(), Rc::default());
+        let waits = Waits {
+            asked: Rc::clone(&asked),
+            closed: Rc::clone(&closed),
+            ..Waits::default()
+        };
+        let mut app = App::new(
+            loaded.config,
+            Box::new(waits),
+            lp.handle(),
+            Rc::new(Instant::now),
+            Vec::new(),
+        );
+        let fb = PathBuf::from("/dev/fb0");
+        let added = vtium_platform::udev::Device {
+            kind: DeviceKind::Fbdev,
+            node: fb.clone(),
+            flags: vtium_platform::udev::DeviceFlags::default(),
+            id_path: None,
+            input: None,
+        };
+        app.device_event(DeviceEvent::Added(added));
+        assert_eq!(*asked.borrow(), std::slice::from_ref(&fb));
+        assert!(!app.videos.contains_key(&fb), "it waits");
+        app.turn(Instant::now());
+        assert_eq!(asked.borrow().len(), 1, "not asked again before it settles");
+        {
+            let waits = app.vt.get::<Waits>().unwrap();
+            waits.ready = true;
+            waits.settled = vec![fb.clone()];
+        }
+        app.turn(Instant::now());
+        assert_eq!(*asked.borrow(), [fb.clone(), fb.clone()]);
+        assert!(app.videos.contains_key(&fb), "opened once settled");
+        app.device_event(DeviceEvent::Removed {
+            kind: DeviceKind::Fbdev,
+            node: fb.clone(),
+        });
+        assert!(!app.videos.contains_key(&fb));
+        assert_eq!(*closed.borrow(), [fb]);
     }
 }
