@@ -731,3 +731,32 @@ fn notes_past_their_bound_report_the_buffer_changed_whole() {
     let again = s.take_changed_floating();
     assert_eq!((again.whole, again.boxes.len()), ([false, false], 2));
 }
+
+// Only an entry made from a placeholder run says it comes from one: the
+// accessor agrees with the keys the store gives run entries.
+// covers: image.kitty-placeholders
+#[test]
+fn only_an_entry_made_from_a_run_says_it_comes_from_a_placeholder_run() {
+    let (f, mut s) = (Fake::new(), store());
+    let virt = image(&mut s, &f, 7, 16, 32);
+    virtual_placement(&mut s, &f, virt, 2, 2, 0);
+    let plain = image(&mut s, &f, 8, 8, 16);
+    let at = Place {
+        col: 5,
+        row: 1,
+        cols: 1,
+        rows: 1,
+        ..Place::default()
+    };
+    s.place_at(plain, at, Link::Cell, f.screens(), COLS)
+        .expect("placed");
+    let entries = frame(&s, &f, &[run(11, 3, 2, 7, 0, 0), run(12, 3, 2, 7, 1, 0)]);
+    // the two run entries, the first of which takes the lowest run key,
+    // answer true, and the ordinary placement false
+    let mut from_runs: Vec<_> = entries
+        .iter()
+        .map(|p| (p.image == virt, p.from_placeholder_run()))
+        .collect();
+    from_runs.sort_unstable();
+    assert_eq!(from_runs, vec![(false, false), (true, true), (true, true)]);
+}
