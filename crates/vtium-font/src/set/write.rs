@@ -797,6 +797,33 @@ mod tests {
     /// without the box's top and height, with the chunks' offsets from the
     /// section's start moved back by the bytes cut. `INKX` is the last
     /// section, so no other section moves.
+    /// A set's prelude and every section but META, each as its tag and its
+    /// bytes in table order. The built-in sets' META names the crate's
+    /// version (build.rs's `tool` key), so a hash of this moves only when
+    /// what the set draws moves, never at a version bump.
+    #[expect(
+        clippy::unwrap_used,
+        clippy::indexing_slicing,
+        clippy::arithmetic_side_effects,
+        clippy::cast_possible_truncation,
+        reason = "a test fails by panicking"
+    )]
+    fn without_meta(set: &[u8]) -> Vec<u8> {
+        let word = |i: usize| u32::from_le_bytes(set[i..i + 4].try_into().unwrap());
+        let long = |i: usize| u64::from_le_bytes(set[i..i + 8].try_into().unwrap()) as usize;
+        let mut kept = set[..16].to_vec();
+        for k in 0..word(12) as usize {
+            let entry = 16 + 20 * k;
+            if &set[entry..entry + 4] == b"META" {
+                continue;
+            }
+            let (at, len) = (long(entry + 4), long(entry + 12));
+            kept.extend_from_slice(&set[entry..entry + 4]);
+            kept.extend_from_slice(&set[at..at + len]);
+        }
+        kept
+    }
+
     #[expect(
         clippy::unwrap_used,
         clippy::indexing_slicing,
@@ -869,22 +896,22 @@ mod tests {
             Ok("f9589d871394767b3c8ea121db80c43e99e7bb566e08a12b5a14aacefcc17ca3")
         );
         // the built-in sets, which build.rs writes with this writer, each
-        // chunk deflated
+        // chunk deflated, hashed without META (`without_meta`)
         #[cfg(feature = "unifont")]
         assert_eq!(
-            sha(&as_format_2_0(include_bytes!(concat!(
+            sha(&without_meta(&as_format_2_0(include_bytes!(concat!(
                 env!("OUT_DIR"),
                 "/unifont.vtglass"
-            )))),
-            "c71702ba2fd5da57e970db9a442833ad4bb0b69d2138bb975b06fa4ba80d12ce"
+            ))))),
+            "b75720a67660fefb8d42112da52280dbd07e4ed82243667360ee7f7fc8d891c3"
         );
         #[cfg(feature = "unscii")]
         assert_eq!(
-            sha(&as_format_2_0(include_bytes!(concat!(
+            sha(&without_meta(&as_format_2_0(include_bytes!(concat!(
                 env!("OUT_DIR"),
                 "/unscii-8.vtglass"
-            )))),
-            "0f5d83363b4f35b0d43f5b9a1a347fd454c76c97b50ca16365f988ca5bd02709"
+            ))))),
+            "9fcf711cafe672b88df8b067382df45b0bd67db64d3d8836ba1a71161fc82592"
         );
     }
 
