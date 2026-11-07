@@ -4,11 +4,13 @@
 # with no network has it (ADR-1500 D9). The repository keeps no copy of the
 # crates; Cargo.lock pins each one and its checksum.
 #
-#   archive pack OUT    write OUT/vtium-VERSION-vendor.tar.zst and
-#                       OUT/vtium-VERSION-vendor.tar.zst.sha256
+#   archive pack OUT    write OUT/vtium-VERSION-vendor.tar.zst,
+#                       OUT/vtium-VERSION-vendor.tar.zst.sha256 and the
+#                       manifest OUT/vtium-VERSION-dependencies.tsv
 #   archive check OUT   build the workspace from a clean copy of the commit
 #                       with OUT's archive unpacked over it, offline and
-#                       --locked, and fail if it does not build
+#                       --locked, and fail if it does not build or if the
+#                       manifest does not list the archive's crates
 #
 # Both work on the commit HEAD names, never on the working tree: each takes a
 # clean copy of the commit with `git archive`, the same files GitHub's source
@@ -25,7 +27,13 @@
 # the fuzz targets under crates/*/fuzz have lock files of their own and are
 # not part of any package's build, so the archive leaves their crates out.
 #
-# It needs GNU tar, for --sort and --pax-option, and zstd. The same commit
+# The manifest lists each crate in the archive with its version, its source,
+# its SPDX license expression and its checksum, one tab-separated row per
+# crate, so that a packager or an auditor can read what the archive holds
+# without unpacking it. tools/vendor/manifest writes and checks it, and its
+# docstring describes the columns.
+#
+# It needs GNU tar, for --sort and --pax-option, zstd and python3. The same commit
 # gives byte-identical files when the same cargo, tar and zstd make them: tar writes the members sorted by name, each with the
 # commit's time, owner and group 0 and normalised permissions, and no
 # extended attributes, and zstd compresses the tar file with fixed settings.
@@ -66,6 +74,7 @@ case $version in
     '' | */* | *[[:space:]]*) die "unusable version '$version'" ;;
 esac
 name=vtium-$version-vendor.tar.zst
+manifest=vtium-$version-dependencies.tsv
 arm_targets="aarch64-unknown-linux-gnu armv7-unknown-linux-gnueabihf"
 
 work=$(mktemp -d "$out/work.XXXXXX")
@@ -121,7 +130,15 @@ Unpack the archive at the top of vtium's source tree of the same version, beside
 Cargo then reads every crate from \`vendor/\` and checks each against the checksum that \`Cargo.lock\` pins. \`cargo build --offline --locked\` and \`make install\` build with no network, and the workflow that packs this archive checks both before it attaches the archive to the release. With \`CARGO_NET_OFFLINE=true\` set, Cargo stops with an error instead of reaching for the network.
 
 The generators under \`crates/*/gen-*\` and the fuzz targets under \`crates/*/fuzz\` have lock files of their own and are not part of a package's build, so the archive leaves their crates out.
+
+\`$manifest\`, which \`make vendor-archive\` writes beside this archive, lists each crate in it with its version, its source, its SPDX license expression and its checksum, one tab-separated row per crate.
 EOF
+    # The manifest, from the clean copy, whose crates cargo vendor has just
+    # fetched; it must list every vendored crate.
+    python3 -I -B "$repo/tools/vendor/manifest" write "$work/src" "$work/$manifest" ||
+        die "cannot write the manifest"
+    listed=$(($(wc -l < "$work/$manifest") - 1))
+    [ "$listed" -eq "$crates" ] || die "the manifest lists $listed crates of the $crates vendored"
     epoch=$(git log -1 --format=%ct "$commit")
     # Sorted members, the commit's time, root's owner and group by number,
     # permissions that do not follow the umask, and pax headers with fixed
@@ -142,12 +159,15 @@ EOF
     (cd "$work" && sha256sum "$name" > "$name.sha256")
     mv "$work/$name" "$out/$name"
     mv "$work/$name.sha256" "$out/$name.sha256"
+    mv "$work/$manifest" "$out/$manifest"
     echo "archive: $out/$name, $crates crates, $(wc -c < "$out/$name") bytes"
     cat "$out/$name.sha256"
+    echo "archive: $out/$manifest lists them"
 }
 
 check() {
     [ -f "$out/$name" ] || die "no $out/$name; make vendor-archive packs it"
+    [ -f "$out/$manifest" ] || die "no $out/$manifest; make vendor-archive writes it"
     (cd "$out" && sha256sum --check --quiet "$name.sha256") || die "$name does not match $name.sha256"
     export_commit
     # Unpacking must add files and replace none of the commit's. A member
@@ -175,6 +195,10 @@ check() {
     set -- "$@" env -u RUSTC_WRAPPER -u MAKEFLAGS -u MFLAGS -u MAKELEVEL \
         CARGO_HOME="$work/cargo-home" CARGO_NET_OFFLINE=true \
         CARGO_TARGET_DIR="$work/target" GIT_CEILING_DIRECTORIES="$work"
+    # The manifest must list the crates that cargo reads from the archive.
+    "$@" python3 -I -B "$repo/tools/vendor/manifest" check "$work/src" "$out/$manifest" ||
+        die "$manifest does not list the crates of $name"
+    echo "archive: $manifest lists the crates of $name"
     for t in $arm_targets; do
         "$@" cargo fetch --offline --locked --target "$t" ||
             die "cargo cannot resolve the crates for $t from the archive"

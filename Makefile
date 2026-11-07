@@ -342,12 +342,12 @@ VENDOR_DIR = $(or $(CARGO_TARGET_DIR),target)/vendor-archive
 
 .PHONY: vendor-archive
 vendor-archive: export VTIUM_VENDOR_VERSION = $(value VENDOR_VERSION)
-vendor-archive: ## Pack the source of every crate Cargo.lock names, for the commit HEAD names, as VENDOR_DIR/vtium-VERSION-vendor.tar.zst and its .sha256 (VENDOR_DIR=DIR, VENDOR_VERSION=VERSION)
+vendor-archive: ## Pack the source of every crate Cargo.lock names, for the commit HEAD names, as VENDOR_DIR/vtium-VERSION-vendor.tar.zst, its .sha256 and the manifest of its crates, vtium-VERSION-dependencies.tsv (VENDOR_DIR=DIR, VENDOR_VERSION=VERSION)
 	tools/vendor/archive pack '$(VENDOR_DIR)'
 
 .PHONY: vendor-archive-check
 vendor-archive-check: export VTIUM_VENDOR_VERSION = $(value VENDOR_VERSION)
-vendor-archive-check: vendor-archive ## Pack the vendor archive, then build the workspace from a clean copy of HEAD with the archive unpacked over it, offline and --locked, and fail if it does not build
+vendor-archive-check: vendor-archive ## Pack the vendor archive, then build the workspace from a clean copy of HEAD with the archive unpacked over it, offline and --locked, and fail if it does not build or if the manifest does not list the archive's crates
 	tools/vendor/archive check '$(VENDOR_DIR)'
 
 # The ARM single-board computers minspec is judged against
@@ -453,7 +453,7 @@ conformance-issues: ## Check ADR-1000's issue column and the capability list aga
 .PHONY: test-tools
 # shellcheck gates at warning: its info notes differ between versions, and
 # the scripts' `A && B || die` is deliberate.
-test-tools: ## Test the VT review tools, the tier 3 harness, the gallery tool, the fuzz runner, the gate runner, the fork-refs check and the sysroot fetch without a VT, sudo, logind, a VM or nightly (shellcheck when installed), the set writer without its deflate, the key table's crates built as a package names HWACCEL and DISPLAY_BUFFERS, that the console leaves the deflate out, and that make gates runs AGENTS.md's gate line
+test-tools: ## Test the VT review tools, the tier 3 harness, the gallery tool, the fuzz runner, the gate runner, the fork-refs check, the sysroot fetch and the vendor archive's manifest without a VT, sudo, logind, a VM or nightly (shellcheck when installed), the set writer without its deflate, the key table's crates built as a package names HWACCEL and DISPLAY_BUFFERS, that the console leaves the deflate out, and that make gates runs AGENTS.md's gate line
 	python3 -I tools/vt/tests/test_vt.py
 	python3 -I tools/vt/tests/test_accept.py
 	python3 -I -B tools/tier3/test_t3img.py
@@ -464,6 +464,7 @@ test-tools: ## Test the VT review tools, the tier 3 harness, the gallery tool, t
 	python3 -I -B docs/scripts/test_fork_refs.py
 	python3 -I -B docs/scripts/test_coverage.py
 	python3 -I -B tools/arm/test_sysroot.py
+	python3 -I -B tools/vendor/test_manifest.py
 	cargo test -q -p vtium-font --test set
 	$(TEST_BUILD_SETTINGS)
 	@if cargo tree -p vtium --target $(X86_TARGET) -e no-dev,features -i vtium-font | grep -q 'feature "deflate"'; then echo "the console enables vtium-font's deflate feature, which only vtium-config takes (ADR-1200 D19)" >&2; exit 1; else echo "the console links no deflate"; fi

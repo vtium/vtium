@@ -1,0 +1,123 @@
+#!/usr/bin/env python3
+"""
+manifest - the list of the crates in the vendor archive, with their sources, licenses and checksums
+
+Usage:
+
+    tools/vendor/manifest write SRC OUT
+    tools/vendor/manifest check SRC FILE
+
+SRC is a source tree of vtium whose crates cargo can read with no network. `write` writes OUT, the manifest of the crates that SRC's Cargo.lock names. `check` fails unless FILE is that manifest, byte for byte, and prints the rows that differ. tools/vendor/archive runs `write` on its clean copy of the commit after `cargo vendor` has fetched every crate, and `check` on a clean copy with the archive unpacked over it, where cargo reads every crate from the archive's vendor/ directory. So the check proves that the manifest describes the crates in the archive.
+
+The manifest is tab-separated UTF-8 text. Its first line names the columns, and each further line describes one crate, in Cargo.lock's order, which sorts the crates by name and then by version. The workspace's own crates are not listed, because the archive does not hold them. The columns are:
+
+- name: the crate's name.
+- version: the crate's version.
+- kind: `registry` for a crate from a registry, or `git` for a crate from a git repository.
+- source: the URL of the registry's index, such as https://github.com/rust-lang/crates.io-index, or the URL of the git repository.
+- commit: for a git crate, the commit that Cargo.lock pins. A registry crate leaves it empty.
+- license: the SPDX license expression that the crate's Cargo.toml declares.
+- sha256: for a registry crate, the SHA-256 of the .crate file that Cargo.lock pins, which is the file the registry serves. A git crate leaves it empty, because its commit pins it.
+
+The licenses come from `cargo metadata --all-features --offline --locked`, run in SRC. The script fails when Cargo.lock names a crate that cargo metadata does not describe, when a crate declares no license, when a crate comes from another kind of source than a registry or a git repository, or when a field holds a tab or a line break.
+"""
+
+import difflib
+import json
+import subprocess
+import sys
+import tomllib
+from pathlib import Path
+
+COLUMNS = ("name", "version", "kind", "source", "commit", "license", "sha256")
+
+
+class ManifestError(Exception):
+    pass
+
+
+def parse_source(source):
+    """The kind, URL and commit of a Cargo.lock source, such as `registry+https://github.com/rust-lang/crates.io-index` or `git+https://github.com/vtium/unicode-bidi?rev=REV#COMMIT`."""
+    kind, sep, rest = source.partition("+")
+    if not sep:
+        raise ManifestError(f"cannot read the source {source!r}")
+    if kind in ("registry", "sparse"):
+        return "registry", rest, ""
+    if kind == "git":
+        url, sep, commit = rest.partition("#")
+        if not sep or not commit:
+            raise ManifestError(f"the git source {source!r} names no commit")
+        return "git", url.partition("?")[0], commit
+    raise ManifestError(f"the source {source!r} is neither a registry nor a git repository")
+
+
+def licenses_of(metadata):
+    """Each package's license, by its name, version and source."""
+    return {(p["name"], p["version"], p.get("source")): p.get("license") for p in metadata["packages"]}
+
+
+def rows_of(lock, metadata):
+    """The manifest's rows for the parsed Cargo.lock and cargo metadata's output."""
+    licenses = licenses_of(metadata)
+    rows = []
+    for package in lock.get("package", []):
+        source = package.get("source")
+        if source is None:
+            continue
+        name, version = package["name"], package["version"]
+        key = (name, version, source)
+        if key not in licenses:
+            raise ManifestError(f"cargo metadata does not describe {name} {version} from {source}")
+        license = licenses[key]
+        if not license:
+            raise ManifestError(f"{name} {version} declares no SPDX license expression in its Cargo.toml")
+        kind, url, commit = parse_source(source)
+        sha256 = package.get("checksum", "") if kind == "registry" else ""
+        if kind == "registry" and not sha256:
+            raise ManifestError(f"Cargo.lock pins no checksum for {name} {version}")
+        row = (name, version, kind, url, commit, license, sha256)
+        for field in row:
+            if any(c in field for c in "\t\r\n"):
+                raise ManifestError(f"a field of {name} {version} holds a tab or a line break: {field!r}")
+        rows.append(row)
+    return rows
+
+
+def render(rows):
+    return "".join("\t".join(r) + "\n" for r in [COLUMNS, *rows])
+
+
+def manifest_of(src):
+    """The manifest of the source tree at src, as text."""
+    lock = tomllib.loads((src / "Cargo.lock").read_text(encoding="utf-8"))
+    cmd = ["cargo", "metadata", "--format-version", "1", "--all-features", "--offline", "--locked"]
+    done = subprocess.run(cmd, cwd=src, stdout=subprocess.PIPE, check=False)
+    if done.returncode != 0:
+        raise ManifestError(f"cargo metadata failed in {src}")
+    return render(rows_of(lock, json.loads(done.stdout)))
+
+
+def main(argv):
+    if len(argv) != 3 or argv[0] not in ("write", "check"):
+        print("usage: manifest write SRC OUT | manifest check SRC FILE", file=sys.stderr)
+        return 2
+    mode, src, path = argv[0], Path(argv[1]), Path(argv[2])
+    try:
+        text = manifest_of(src)
+    except ManifestError as e:
+        print(f"manifest: {e}", file=sys.stderr)
+        return 1
+    if mode == "write":
+        path.write_text(text, encoding="utf-8")
+        return 0
+    have = path.read_text(encoding="utf-8")
+    if have != text:
+        diff = difflib.unified_diff(have.splitlines(True), text.splitlines(True), str(path), f"the manifest of {src}")
+        sys.stderr.writelines(diff)
+        print(f"manifest: {path} does not list the crates of {src}", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
