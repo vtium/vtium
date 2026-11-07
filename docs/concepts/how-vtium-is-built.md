@@ -4,7 +4,7 @@ vtium has one maintainer, who decides what vtium does and judges whether it does
 
 ## The idea
 
-Any program worth using is more than one person can hold in their head, the way nobody can memorize a whole city. So the project has to be easy to find your way around. Whoever works on one part of it, a person or an agent, finds that part and its context from where they stand, without knowing the rest. vtium keeps its knowledge where it can be found when it is needed: in the decision records, in each crate's README, in AGENTS.md, in tests tagged to the rows of ADR-1000 they cover, in goldens kept beside the screens they judge, in guidance that reaches an agent at the moment it starts a kind of work, and in this section of the docs, one concept to a page.
+Any program worth using is more than one person can hold in their head, the way nobody can memorize a whole city. So the project has to be easy to find your way around. Whoever works on one part of it, a person or an agent, finds that part and its context from where they stand, without knowing the rest. vtium keeps its knowledge where it can be found when it is needed: in the decision records, in each crate's README, in AGENTS.md, in tests tagged with the id of the mode or feature they cover, in goldens kept beside the screens they judge, in guidance that reaches an agent at the moment it starts a kind of work, and in this section of the docs, one concept to a page.
 
 Agents can do dependable work on vtium because the project tells them where they are and what judges them. Nobody has to hold the whole program in mind. With enough machine time and money, the same structure lets one person maintain vtium without spending all of their time on it. The agents carry the labour. The person keeps the decisions and the judgement, and does not hand those to an agent.
 
@@ -49,7 +49,7 @@ The maintainer decides direction and answers the decision records, reviews every
 ## The limits and the costs
 
 - Agents make mistakes, and some of them look plausible. The gates and the fresh reviewers catch most of them, not all.
-- The goldens judge only what they cover. Behaviour no test covers is judged by nobody until someone writes the test. ADR-1000's rows list the tests that cover them, which shows where that is the case.
+- The goldens judge only what they cover. Behaviour no test covers is judged by nobody until someone writes the test. The table of the modes and features vtium supports lists the tests that cover each one, which shows where that is the case.
 - A golden the maintainer approves by mistake makes the mistake the expected result, and every later run passes against it until someone notices.
 - The checks cost machine time and money. Each change runs the gates at least three times, for the author, for the reviewer and on the merged tree, tier 3 boots virtual machines, and every agent is paid for.
 - The maintainer's attention is the part that does not scale. The process spends it on the decisions, the goldens and the screen.
