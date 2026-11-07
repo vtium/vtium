@@ -32,8 +32,7 @@ mod counting;
 // tests and shared by every crate whose tests run a program they made.
 #[path = "common/scratch.rs"]
 mod scratch;
-#[path = "../../vtium-config/tests/common/script.rs"]
-mod script;
+use vtium_testscript as script;
 #[path = "common/helper.rs"]
 mod stand_in;
 use counting::CountingVt;

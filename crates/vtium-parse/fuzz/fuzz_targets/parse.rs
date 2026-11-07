@@ -3,10 +3,7 @@
 //! actions it gives whole.
 #![no_main]
 
-#[path = "../../tests/common/mod.rs"]
-mod common;
-
-use common::{Act, Recorder};
+use vtium_parse_recorder::{Act, Recorder};
 use libfuzzer_sys::fuzz_target;
 use vtium_parse::{InputMode, Parser};
 

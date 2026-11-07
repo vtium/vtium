@@ -2,15 +2,15 @@
 //! their ink past their cells by known amounts (ADR-1302, ADR-1306).
 //!
 //! Tier 2 reads no font of the system's, so the screens that judge where
-//! ink past a cell draws use this font, written as vtium-config's tests
-//! write theirs (`crates/vtium-config/tests/common/ttf.rs`, which this
-//! module includes rather than copies). The font has 1000 units to the
-//! em, an ascent of 800 and a descent of 200. The glyph helper fits the
-//! ascent and descent to the cell less half a pixel, so the font draws at
-//! a little under one pixel to the em for each pixel of the cell's height,
-//! and every distance below is close to the fraction of the cell it gives:
-//! 100 units are about a tenth of the cell's height, and 150 units about a
-//! quarter of its width, since every narrow glyph advances 600.
+//! ink past a cell draws use this font, written by the TrueType writer of
+//! `tools/testfont`, which also writes vtium-config's test fonts. The
+//! font has 1000 units to the em, an ascent of 800 and a descent of 200.
+//! The glyph helper fits the ascent and descent to the cell less half a
+//! pixel, so the font draws at a little under one pixel to the em for each
+//! pixel of the cell's height, and every distance below is close to the
+//! fraction of the cell it gives: 100 units are about a tenth of the
+//! cell's height, and 150 units about a quarter of its width, since every
+//! narrow glyph advances 600.
 //!
 //! Each glyph is a few straight-edged shapes. The capitals, the lower case
 //! letters with descenders and the underscore keep their ink inside the
@@ -41,10 +41,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
-#[path = "../../../crates/vtium-config/tests/common/ttf.rs"]
-mod ttf;
-
-use ttf::{Font, Glyph};
+use vtium_testfont::ttf::{Font, Glyph};
 
 /// A contour of straight edges, clockwise, as TrueType fills.
 type Contour = Vec<(i16, i16)>;

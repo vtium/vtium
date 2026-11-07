@@ -1,10 +1,13 @@
-//! A TrueType font written in the test, the outline fixture: polygon glyphs
-//! in `glyf`, a format 12 `cmap`, a `name` table, for color a COLR version
-//! 0 table with its CPAL palette, and for shaping a GSUB table of single
-//! substitutions and ligatures, each under a feature of its own. Big-endian
-//! throughout, tables sorted by tag and padded to four bytes.
-
-#![allow(dead_code)]
+//! The TrueType test font writer: an outline font built in memory, with
+//! polygon glyphs in `glyf`, a format 12 `cmap`, a `name` table, for color
+//! a COLR version 0 table with its CPAL palette, and for shaping a GSUB
+//! table of single substitutions and ligatures, each under a feature of its
+//! own. Big-endian throughout, tables sorted by tag and padded to four
+//! bytes.
+//!
+//! vtium-config's tests and its shaping fuzz target write their outline
+//! fonts with it, and tier 2 writes its ink test font with it. Each of them
+//! depends on this crate, so none includes another crate's test file.
 
 /// One glyph: its advance and its polygons, each point on the curve, in
 /// font units with y up.

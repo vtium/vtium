@@ -1,16 +1,12 @@
 //! Clusters through the shaper and the rasteriser (ADR-1200 D14, ADR-1301
 //! D1): no panic, whatever the cluster or the font. Its first byte picks
 //! what the input is. Even: the rest is up to 16 clusters for the test
-//! font of `tests/common/ttf.rs`, each a length byte and that many scalar
-//! values of three bytes, folded into Unicode. Odd: the rest is the font,
-//! asked for a family, a flag, a keycap and a letter with its marks. The
-//! first byte's next two bits pick the style synthesised over the glyphs
-//! (ADR-1302 D4): bold emboldens each outline and italic slants it.
+//! font of `tools/testfont/src/ttf.rs`, each a length byte and that many
+//! scalar values of three bytes, folded into Unicode. Odd: the rest is the
+//! font, asked for a family, a flag, a keycap and a letter with its marks.
+//! The first byte's next two bits pick the style synthesised over the
+//! glyphs (ADR-1302 D4): bold emboldens each outline and italic slants it.
 #![no_main]
-
-#[path = "../../tests/common/ttf.rs"]
-#[allow(dead_code)]
-mod ttf;
 
 use std::sync::Arc;
 
@@ -18,6 +14,7 @@ use libfuzzer_sys::fuzz_target;
 use vtium_config::frit::Hinting;
 use vtium_config::outline::{OutlineRequest, rasterise};
 use vtium_config::shaping::ask;
+use vtium_testfont::ttf;
 
 /// Up to 16 clusters of `bytes`, each 1 to 16 scalar values.
 fn clusters(mut bytes: &[u8]) -> Vec<Vec<u32>> {

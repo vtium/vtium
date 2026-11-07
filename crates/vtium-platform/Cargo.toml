@@ -65,6 +65,11 @@ libseat = { version = "=0.2.4", default-features = false, optional = true }
 # build through libudev-sys.
 pkg-config = { version = "=0.3.34", optional = true }
 
+[dev-dependencies]
+# The stand-in programs the image helper's tests write and copy, put in
+# place so that the kernel never refuses to run one as busy.
+vtium-testscript = { path = "../../tools/testscript" }
+
 # One process, one thread: see the file's header.
 [[test]]
 name = "pty"

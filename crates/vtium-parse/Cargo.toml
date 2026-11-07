@@ -12,3 +12,9 @@ authors.workspace = true
 workspace = true
 
 [dependencies]
+
+[dev-dependencies]
+# The recorder the integration tests and the fuzz target check the parser
+# with. It depends on this crate in turn, which cargo allows for a
+# dev-dependency.
+vtium-parse-recorder = { path = "../../tools/parse-recorder" }

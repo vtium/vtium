@@ -73,3 +73,6 @@ calloop = { version = "=0.14.4", default-features = false }
 # its own as the helper an outline frit asks, so the console's tests meet
 # the checks the real helper makes.
 vtium-config = { path = "../vtium-config" }
+# The stand-in programs the tests write and copy, put in place so that
+# the kernel never refuses to run one as busy.
+vtium-testscript = { path = "../../tools/testscript" }

@@ -1,10 +1,9 @@
 //! A stand-in program that a test writes or copies and then runs, put in
 //! place so that the kernel never refuses to run it as busy.
 //!
-//! This one file serves the tests of every crate that runs a program it
-//! made: vtium-config's tests, and vtium's and vtium-platform's, which
-//! include it with `#[path]`. Each uses the functions it needs, so the
-//! others are dead code there.
+//! This crate serves the tests of every crate that runs a program it
+//! made: vtium-config's, vtium's and vtium-platform's, each of which names
+//! it as a dev-dependency (vtium/vtium#339).
 //!
 //! Linux refuses to run a file that any process holds open for writing,
 //! and fails with ETXTBSY ("Text file busy"). If the test process wrote
@@ -15,8 +14,6 @@
 //! place, because the child still holds the same file under its new name.
 //! So the test process never opens the file to write: a process of its
 //! own writes it, and has exited before these functions return.
-
-#![allow(dead_code)]
 
 use std::io::Write as _;
 use std::os::unix::fs::PermissionsExt as _;

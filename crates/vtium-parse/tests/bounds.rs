@@ -1,7 +1,7 @@
 //! Every bound the parser enforces, at its edge, and what the parser does
 //! past it.
 
-mod common;
+use vtium_parse_recorder as common;
 
 use common::{Act, Bel, St, VALUE_MAX, csi, csi_subs, osc, osc_truncated, parse};
 use vtium_parse::{OSC_MAX, PARAMS_MAX, Parser, SUBPARAMS_MAX};

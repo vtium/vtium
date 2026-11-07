@@ -16,8 +16,7 @@ use vtium_config::report::{Machine, file_name, marker, report};
 
 #[path = "common/console.rs"]
 mod console;
-#[path = "common/script.rs"]
-mod script;
+use vtium_testscript as script;
 
 const BIN: &str = env!("CARGO_BIN_EXE_vtium-config");
 

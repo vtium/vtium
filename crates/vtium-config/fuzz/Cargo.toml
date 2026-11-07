@@ -16,9 +16,9 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
-# The test font builder the target shares with the tests compresses its
-# PNG strikes; vtium-config already builds this version.
-miniz_oxide = "=0.8.9"
+# The TrueType test font writer the shaping target shares with
+# vtium-config's tests.
+vtium-testfont = { path = "../../../tools/testfont" }
 vtium-config = { path = ".." }
 # The style the shaping target synthesises over the glyphs.
 vtium-font = { path = "../../vtium-font" }
