@@ -338,8 +338,8 @@ fn a_kbd_font_in_each_compression_draws_the_same_glyphs() {
 // ADR-1200 D17: a later bitmap source's glyphs stand on the first
 // source's baseline. The test ter-v16n's H inks every row, so its baseline
 // is the cell's bottom edge, row 16; Unscii-8's is its row 7, so its 8x8
-// glyphs at factor 1 start at row 9 of the 8x16 cell, and its row 7, past
-// the cell's bottom, holds no ink of ▀ and is cut
+// glyphs at factor 1 start at row 9 of the 8x16 cell; its row 7, past the
+// cell's bottom, holds no ink of ▀, so ▀ needs no ink box
 #[test]
 fn a_fallback_fills_what_the_first_source_lacks_on_its_baseline() {
     let w = World::new("fallback");
@@ -442,16 +442,17 @@ fn psf2_inked(glyphs: &[(char, std::ops::Range<u32>)]) -> Vec<u8> {
     f
 }
 
-// ADR-1200 D17: a later bitmap source's glyphs stand on the first
-// source's baseline as far as their ink stays in the cell. The tour's
-// font set draws Vietnamese letters that Terminus lacks from unifont,
-// whose baseline is its row 14, where Terminus's is its row 12. Placed on
-// the cell's bottom row, as they were, they sat 2 rows below Terminus's
-// letters. Now ư (U+01B0), whose ink starts at unifont's row 4, rises the
-// 2 rows and ends on the row of Terminus's a; ả (U+1EA3), whose mark
-// starts at row 1, rises 1 row; ẳ (U+1EB3), whose mark starts at row 0,
-// cannot rise and keeps its whole mark. At twice the size, each of those
-// rows is two rows of the cell
+// ADR-1200 D17, ADR-1306 D1 (the maintainer, 2026-11-06): every glyph of
+// a later bitmap source stands on the first source's baseline, and the ink
+// that this raises past the cell goes to its ink box, which the renderer
+// draws into the row above. The tour's font set draws the Vietnamese
+// letters Terminus lacks from unifont, whose baseline is its row 14, where
+// Terminus's is its row 12. Placed on the cell's bottom row, as they were,
+// they sat 2 rows below Terminus's letters. Now each rises the 2 rows: ư
+// (U+01B0), whose ink starts at unifont's row 4, stays inside its cell,
+// and ẳ (U+1EB3), whose hook starts at unifont's row 0, ends on the row of
+// Terminus's a with the top 2 rows of its hook, whole, in its box above
+// the cell. At twice the size, each of those rows is two rows of the cell
 #[test]
 fn a_later_bitmap_source_stands_on_the_first_sources_baseline() {
     let w = World::new("bitmap-baseline");
@@ -462,17 +463,20 @@ fn a_later_bitmap_source_stands_on_the_first_sources_baseline() {
     .expect("font");
     let frit = "source=kbd:tvn\nsource=builtin:unifont\n";
     let engine = w.engine(frit).expect("the frit loads");
-    let ink = |g: &vtium_font::Glyph| {
-        let rows: Vec<&[u8]> = g.rows().collect();
-        let inked: Vec<usize> = (0..rows.len())
-            .filter(|&y| rows[y].iter().any(|&p| p != 0))
-            .collect();
-        (inked.first().copied(), inked.last().copied())
+    let rows_of = |pixels: &[u8], width: usize| -> Vec<usize> {
+        (0..pixels.len() / width)
+            .filter(|&y| pixels[y * width..(y + 1) * width].iter().any(|&p| p != 0))
+            .collect()
     };
+    let span = |rows: Vec<usize>| (rows.first().copied(), rows.last().copied());
+    let unifont = SetFace::new(vtium_font::set::builtin("unifont").expect("unifont"), 16)
+        .expect("a face")
+        .draw_unscaled(&['ẳ'], Style::default())
+        .expect("unifont's ẳ");
     for k in [1usize, 2] {
         let at = cell(8 * k as u32, 16 * k as u32);
         let bytes = engine
-            .draw(at, &[0x61, 0x1b0, 0x1ea3, 0x1eb3])
+            .draw(at, &[0x61, 0x1b0, 0x1eb3])
             .expect("draws")
             .expect("the glyphs");
         let face = SetFace::new(
@@ -480,24 +484,46 @@ fn a_later_bitmap_source_stands_on_the_first_sources_baseline() {
             at.height,
         )
         .expect("a face");
-        let drawn = |c: char| ink(&face.draw(&[c], Style::default()).expect("drawn"));
+        let drawn = |c: char| face.draw(&[c], Style::default()).expect("drawn");
         let (rows, last) = (|r: usize| r * k, |r: usize| r * k + k - 1);
+        let cw = 8 * k;
+        let a = drawn('a');
         assert_eq!(
-            drawn('a'),
+            span(rows_of(a.pixels(), cw)),
             (Some(rows(6)), Some(last(11))),
-            "{k}: Terminus's a"
+            "{k}: a"
         );
+        let u = drawn('ư');
+        assert!(u.ink().is_none(), "{k}: ư inside its cell");
         assert_eq!(
-            drawn('ư'),
+            span(rows_of(u.pixels(), cw)),
             (Some(rows(2)), Some(last(11))),
-            "{k}: ư on the baseline"
+            "{k}: ư"
         );
+        let g = drawn('ẳ');
         assert_eq!(
-            drawn('ả'),
-            (Some(rows(0)), Some(last(12))),
-            "{k}: ả one row up"
+            span(rows_of(g.pixels(), cw)),
+            (Some(0), Some(last(11))),
+            "{k}: ẳ on the baseline, cut to its cell"
         );
-        assert_eq!(drawn('ẳ'), (Some(rows(0)), Some(last(13))), "{k}: ẳ whole");
+        let ink = g.ink().expect("ẳ's box");
+        assert_eq!(
+            (ink.left(), ink.top(), ink.width(), ink.height()),
+            (0, -2 * k as i32, cw as u32, 18 * k as u32),
+            "{k}: ẳ's box, its cell and the 2 rows above"
+        );
+        // the box's rows above the cell are unifont's top 2 rows of ẳ, its
+        // hook's top, scaled
+        let above: Vec<u8> = ink.pixels()[..2 * k * cw].to_vec();
+        let want: Vec<u8> = (0..2 * k)
+            .flat_map(|y| (0..cw).map(move |x| (y / k, x / k)))
+            .map(|(y, x)| unifont.pixels()[y * 8 + x])
+            .collect();
+        assert!(
+            want.iter().any(|&p| p != 0),
+            "unifont's ẳ has ink in rows 0 and 1"
+        );
+        assert_eq!(above, want, "{k}: ẳ's hook whole above the cell");
     }
 }
 
