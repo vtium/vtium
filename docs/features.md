@@ -93,7 +93,7 @@ Tier 3 measures it in a guest with 1 vCPU and 512 MB. These figures come from `m
 
 | Measure | Value |
 |---|---|
-| Console binary | 3,216,864 bytes, against a budget of 3,670,016 bytes (3.5 MiB) that fails the run past it |
+| Console binary | 3,216,864 bytes, against a budget of 4,194,304 bytes (4 MiB) that fails the run past it |
 | Install tree, the font helper included | 7.63 MiB |
 | Peak resident memory at 320x240, 8x8 cells | 5.81 MiB |
 | Peak resident memory at 640x480, 8x16 cells | 7.77 MiB |
