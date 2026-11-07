@@ -63,7 +63,7 @@ key-backspace-del             works   -     input.legacy                   BackS
 # strings vtium does not take yet
 osc-8-hyperlink               missing #40   osc.8                          a placeholder scenario: OSC 8 hyperlinks
 osc-52-clipboard              works   -     osc.52.write                   OSC 52 sets the clipboard, which the host takes once
-osc-133-marks                 missing #40   osc.133                        a placeholder scenario: OSC 133 prompt marks
+osc-133-marks                 works   -     osc.133                        the view jumps between the prompts OSC 133 marks, and a command's output selects whole
 
 # images: working in a build with images and failing, as a missing capability
 # must, in one without. The list names the build feature -Dimages; vtium's
