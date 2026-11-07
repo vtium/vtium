@@ -5877,15 +5877,11 @@ mod tests {
         assert_eq!(*closed.borrow(), [fb]);
     }
 
+    /// The devices a [`Waits`] VT was asked for or told to close.
+    type Recorded = Rc<std::cell::RefCell<Vec<PathBuf>>>;
+
     /// An app on a [`Waits`] VT, ready or not, with what it asks and closes.
-    fn waiting_app(
-        ready: bool,
-    ) -> (
-        Loop<App>,
-        App,
-        Rc<std::cell::RefCell<Vec<PathBuf>>>,
-        Rc<std::cell::RefCell<Vec<PathBuf>>>,
-    ) {
+    fn waiting_app(ready: bool) -> (Loop<App>, App, Recorded, Recorded) {
         let loaded = crate::config::load(&[], &mut |_: &Path| Ok(None));
         let lp: Loop<App> = Loop::new().unwrap();
         let (asked, closed) = (Rc::default(), Rc::default());
