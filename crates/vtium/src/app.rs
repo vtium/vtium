@@ -3752,7 +3752,7 @@ impl App {
     /// line in the log under `render-timer=log` or `both`, and its line in
     /// the on-screen display's box under `osd` or `both`, and the console
     /// redraws the display so the new line shows. That frame counts in the
-    /// next second's figures, as the C reference's redraw for its line did.
+    /// next second's figures, so they include the cost of showing them.
     fn report(&mut self, now: Instant) {
         for head in &mut self.heads {
             if let Some(line) = head.figures_line(now) {
