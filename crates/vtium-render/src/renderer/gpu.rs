@@ -23,6 +23,8 @@ use crate::gpu::turn::Turn;
 use crate::gpu::{ArrowAt, DrawTarget, Error, ErrorKind, Gl, Pipeline, Size, Work};
 use crate::mono::{self, Depth, Fallback};
 use crate::notice::Placed;
+use crate::reach::Reach;
+use crate::renderer::Back;
 
 /// The next renderer's id: it tells the GPU path's glyphs whose font drew
 /// them and which history they follow, and never reaches a pixel.
@@ -162,13 +164,39 @@ impl<F: Face> Renderer<F> {
             Err(e) => return Err(self.failed_after_plan(e)),
         };
         glyphs.forget(&sorted(&core::mem::take(&mut self.gpu.forget)), &self.font);
+        // the reaches are read as the CPU path reads them (Renderer::draw)
+        let reaching = glyphs.reaching();
+        if reaching && !self.reaches_kept {
+            self.relearn_reaches();
+        }
+        glyphs.ink.begin(plan.grid.cols, plan.grid.rows);
         let mut back = GpuBack::new(gl, &mut *glyphs, turn);
-        let counts = self.paint(&plan, frame, state, &mut back);
+        let mut counts = self.paint(&plan, frame, state, &mut back);
+        if !reaching && back.reaching(&self.compose) {
+            // the first glyph whose ink passes its cells: the frame is
+            // drawn again, whole, with every reach read
+            self.relearn_reaches();
+            back.restart();
+            counts = self.paint(&plan, frame, state, &mut back);
+        }
         #[cfg(feature = "images")]
         let (text, tints, marks) = (back.text, back.tints, back.marks);
         #[cfg(feature = "images")]
         let shown = self.shown(turn, back.picture_rects);
-        let (clear, cells, error) = (back.clear, back.cells, back.error);
+        let (clear, cells, mut error) = (back.clear, back.cells, back.error);
+        // the neighbours named as sources of ink take the reach each cell
+        // has once the whole frame is scanned
+        let reach = |k: usize, r: usize| {
+            self.cells
+                .get(k, r)
+                .map_or((Reach::NONE, 0), |c| (c.reach(), c.span()))
+        };
+        glyphs.ink.settle(reach);
+        if error.is_none()
+            && let Err(e) = glyphs.ink_upload(gl)
+        {
+            error = Some(e);
+        }
         glyphs.end_frame();
         let uploads = glyphs.take_uploads();
         let gpu_counts = glyphs.take_counts();
@@ -264,6 +292,7 @@ impl<F: Face> Renderer<F> {
                 u32::try_from(self.layout.ch).unwrap_or(1),
             ),
             sprites: &self.gpu.sprites,
+            bound: self.bound,
         }
     }
 }

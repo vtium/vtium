@@ -50,6 +50,7 @@ use crate::bounds::GPU_IDLE_FRAMES;
 use crate::compose::{Area, Composer, Job};
 use crate::deco::Kind;
 use crate::notice::Placed;
+use crate::reach::{Bound, Reach};
 use crate::renderer::Back;
 use crate::target::Rect;
 
@@ -62,9 +63,46 @@ const ES3: &str = "#version 300 es\n";
 /// beneath it, which it reads from a copy of them, with the CPU path's
 /// over_px in whole numbers: a cell's text layer or vtium's mark, or a
 /// picture that is not opaque.
-#[cfg(feature = "images")]
-const OVER: &str = "#define OVER\n";
-const CELL_FRAG: &str = include_str!("glsl/cell.frag");
+pub(crate) const OVER: &str = "#define OVER\n";
+pub(crate) const CELL_FRAG: &str = include_str!("glsl/cell.frag");
+/// The pieces that tell the cell shader how far a glyph's ink may reach
+/// past its own cells to each side, and above and below (ADR-1306 D12):
+/// the bound's two counts, each at most [`Reach::MAX`], as compile-time
+/// constants of the shader, which bound its loops over a cell's
+/// neighbours.
+const REACH_SIDE: [&str; 4] = [
+    "#define REACH_SIDE 0\n",
+    "#define REACH_SIDE 1\n",
+    "#define REACH_SIDE 2\n",
+    "#define REACH_SIDE 3\n",
+];
+const REACH_ROWS: [&str; 4] = [
+    "#define REACH_ROWS 0\n",
+    "#define REACH_ROWS 1\n",
+    "#define REACH_ROWS 2\n",
+    "#define REACH_ROWS 3\n",
+];
+
+/// The piece that builds into the cell shader the ink a cell receives
+/// from its neighbours' glyphs (ADR-1306 D9), for the cells flagged
+/// [`RECEIVES`] and for the text layers over pictures. A cell that
+/// receives no ink is drawn without it.
+pub(crate) const INK: &str = "#define INK\n";
+
+/// The cell shader's source for `bound`, after `#version`: for a text
+/// layer or a mark, [`OVER`], and for a cell that receives ink, [`INK`].
+fn cell_frag(over: bool, ink: bool, bound: Bound) -> [&'static str; 6] {
+    let pick =
+        |pieces: [&'static str; 4], n: u8| pieces.get(usize::from(n)).copied().unwrap_or(pieces[3]);
+    [
+        ES3,
+        if over { OVER } else { "" },
+        if ink { INK } else { "" },
+        pick(REACH_SIDE, bound.side),
+        pick(REACH_ROWS, bound.rows),
+        CELL_FRAG,
+    ]
+}
 const ARROW_FRAG: &str = include_str!("glsl/arrow.frag");
 #[cfg(feature = "images")]
 const PICTURE_FRAG: &str = include_str!("glsl/picture.frag");
@@ -95,6 +133,36 @@ const CELL_INPUTS: [Input; 5] = [
     },
 ];
 
+/// The inputs of the cell shader built with [`INK`]: the cell shader's,
+/// the boxes, a box slot's size and the ink grid.
+const INK_INPUTS: [Input; 8] = [
+    CELL_INPUTS[0],
+    CELL_INPUTS[1],
+    CELL_INPUTS[2],
+    CELL_INPUTS[3],
+    CELL_INPUTS[4],
+    Input {
+        name: "boxes",
+        kind: InputKind::Texture,
+    },
+    Input {
+        name: "box_slot",
+        kind: InputKind::IVec4,
+    },
+    Input {
+        name: "ink",
+        kind: InputKind::Texture,
+    },
+];
+
+/// A cell job's flags, in the top byte of its quad's second parameter, as
+/// the cell shader reads them: it receives ink from its neighbours' glyphs;
+/// a block cursor or the selection marks it; a display line runs down a
+/// column of the upright frame, on a display turned a quarter.
+const RECEIVES: u32 = 1;
+const MARKED: u32 = 2;
+const DOWN: u32 = 4;
+
 /// What a shader that goes over the pixels beneath it takes besides its
 /// own inputs: the copy of those pixels, and the pixel of the target its
 /// first texel holds. The arrow's shader always takes them, the cell and
@@ -111,12 +179,15 @@ const BENEATH: [Input; 2] = [
 ];
 
 #[cfg(feature = "images")]
-const LAYER_INPUTS: [Input; 7] = [
-    CELL_INPUTS[0],
-    CELL_INPUTS[1],
-    CELL_INPUTS[2],
-    CELL_INPUTS[3],
-    CELL_INPUTS[4],
+const LAYER_INPUTS: [Input; 10] = [
+    INK_INPUTS[0],
+    INK_INPUTS[1],
+    INK_INPUTS[2],
+    INK_INPUTS[3],
+    INK_INPUTS[4],
+    INK_INPUTS[5],
+    INK_INPUTS[6],
+    INK_INPUTS[7],
     BENEATH[0],
     BENEATH[1],
 ];
@@ -168,10 +239,12 @@ const UNDER_INPUTS: [Input; 2] = [
 
 /// The cells of a frame that sample one texture of glyphs: its index among
 /// the glyphs' textures and whether it holds color glyphs, or `None` for
-/// cells with no glyph.
+/// cells with no glyph; and whether they receive ink from their
+/// neighbours' glyphs, which the cell shader built with [`INK`] draws.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct Cells {
     pub(crate) glyphs: Option<(usize, bool)>,
+    pub(crate) ink: bool,
     pub(crate) quads: Vec<Quad>,
 }
 
@@ -249,6 +322,11 @@ pub(crate) struct Composition {
     overlap: u32,
     tiles: Vec<(Tile, DrawTarget)>,
     cell: Program,
+    /// The cell shader built with [`INK`], compiled the first time a frame
+    /// draws a cell that receives ink.
+    ink: Option<Program>,
+    /// The bound on a glyph's reach the cell shaders were built with.
+    bound: Bound,
     arrow: Program,
     /// The arrow last uploaded and its texture.
     arrow_image: Option<(Arrow, Texture)>,
@@ -425,9 +503,10 @@ impl Composition {
     /// the composition's programs. A call that fails frees what it made.
     pub(crate) fn new<G: Gl>(gl: &mut G, size: Size, overlap: u32) -> Result<Composition, Error> {
         let made = make_tiles(gl, size, overlap)?;
+        let bound = Bound::DRAWN;
         let cell = match gl.compile(&Source {
             vertex: &[CELL_VERT],
-            fragment: &[ES3, CELL_FRAG],
+            fragment: &cell_frag(false, false, bound),
             inputs: &CELL_INPUTS,
         }) {
             Ok(p) => p,
@@ -453,6 +532,8 @@ impl Composition {
             overlap,
             tiles: made,
             cell,
+            ink: None,
+            bound,
             arrow,
             arrow_image: None,
             glyphs: None,
@@ -532,6 +613,24 @@ impl Composition {
     /// cell needs a new renderer, and the frame draws whole. Glyphs kept
     /// from the last frame give back the textures they no longer fill.
     pub(crate) fn glyphs<G: Gl>(&mut self, gl: &mut G, spec: &Spec<'_>) -> Result<(), Error> {
+        if spec.bound != self.bound {
+            // a renderer at another bound, as a test makes: the cell
+            // shaders' loops follow it
+            let cell = gl.compile(&Source {
+                vertex: &[CELL_VERT],
+                fragment: &cell_frag(false, false, spec.bound),
+                inputs: &CELL_INPUTS,
+            })?;
+            gl.free_program(core::mem::replace(&mut self.cell, cell))?;
+            if let Some(ink) = self.ink.take() {
+                gl.free_program(ink)?;
+            }
+            #[cfg(feature = "images")]
+            if let Some(layer) = self.layer.take() {
+                gl.free_program(layer)?;
+            }
+            self.bound = spec.bound;
+        }
         if self.glyphs.as_ref().map(Glyphs::owner) != Some(spec.owner) {
             if let Some(old) = self.glyphs.take() {
                 old.free(gl)?;
@@ -600,7 +699,15 @@ impl Composition {
     /// pixels already drawn the under shader and a copy large enough.
     /// Gives how many uploads it made.
     pub(crate) fn prepare<G: Gl>(&mut self, gl: &mut G, work: &Work<'_>) -> Result<usize, Error> {
-        let calls = self.prepare_arrow(gl, work.arrow)?;
+        let mut calls = self.prepare_arrow(gl, work.arrow)?;
+        if self.ink.is_none() && work.cells.iter().any(|c| c.ink) {
+            self.ink = Some(gl.compile(&Source {
+                vertex: &[CELL_VERT],
+                fragment: &cell_frag(false, true, self.bound),
+                inputs: &INK_INPUTS,
+            })?);
+            calls = calls.saturating_add(1);
+        }
         #[cfg(feature = "images")]
         let calls = calls.saturating_add(self.prepare_pictured(gl, work)?);
         // every pixel the frame draws over: the arrow's, and those of the
@@ -627,10 +734,11 @@ impl Composition {
         let layers = !work.text.is_empty() || !work.marks.is_empty();
         let needs = [opaque, clear, layers];
         let programs = [&mut self.picture, &mut self.picture_over, &mut self.layer];
+        let layer = cell_frag(true, true, self.bound);
         let sources: [(&[&'static str], &[Input]); 3] = [
             (&[ES3, PICTURE_FRAG], &PICTURE_INPUTS),
             (&[ES3, OVER, PICTURE_FRAG], &PICTURE_OVER_INPUTS),
-            (&[ES3, OVER, CELL_FRAG], &LAYER_INPUTS),
+            (&layer, &LAYER_INPUTS),
         ];
         for ((needed, program), (fragment, inputs)) in needs.into_iter().zip(programs).zip(sources)
         {
@@ -926,8 +1034,16 @@ impl Composition {
     }
 
     /// The textures a batch of cells samples, its masks, its colors and the
-    /// sprites, and the cell's size, as the cell shader's inputs.
-    fn cell_inputs(&self, batch: &Cells) -> Result<[(&'static str, Value<'_>); 4], Error> {
+    /// sprites, and the cell's size, as the cell shader's inputs; and for
+    /// the cell shader built with [`INK`], as `ink` asks, the boxes, a box
+    /// slot's size and the ink grid. A draw before any glyph has taken a
+    /// box, or any cell has received ink, binds the sprites in place of the
+    /// boxes and the ink grid, and never samples them.
+    fn cell_inputs(
+        &self,
+        batch: &Cells,
+        ink: bool,
+    ) -> Result<Vec<(&'static str, Value<'_>)>, Error> {
         let glyphs = self
             .glyphs
             .as_ref()
@@ -944,7 +1060,7 @@ impl Composition {
             None => (sprites, sprites),
         };
         let cell = glyphs.cell();
-        Ok([
+        let mut inputs = vec![
             ("masks", Value::Texture(masks, Filter::Nearest)),
             ("colors", Value::Texture(colors, Filter::Nearest)),
             ("sprites", Value::Texture(sprites, Filter::Nearest)),
@@ -952,28 +1068,48 @@ impl Composition {
                 "cell",
                 Value::IVec4([side(cell.width), side(cell.height), 0, 0]),
             ),
-        ])
+        ];
+        if ink {
+            let (boxes, [w, h, across]) = glyphs.boxes();
+            let boxes = match boxes {
+                Some(t) => texture(t)?,
+                None => sprites,
+            };
+            let grid = glyphs.ink.texture().unwrap_or(sprites);
+            inputs.extend([
+                ("boxes", Value::Texture(boxes, Filter::Nearest)),
+                (
+                    "box_slot",
+                    Value::IVec4([side(w), side(h), side(across), 0]),
+                ),
+                ("ink", Value::Texture(grid, Filter::Nearest)),
+            ]);
+        }
+        Ok(inputs)
     }
 
-    /// The cells' quads, a draw for each texture of glyphs and tile.
+    /// The cells' quads, a draw for each texture of glyphs, whether its
+    /// cells receive ink, and tile.
     fn draw_cells<G: Gl>(&self, gl: &mut G, cells: &[Cells]) -> Result<(), Error> {
         for batch in cells {
-            let [masks, colors, sprites, cell] = self.cell_inputs(batch)?;
+            let program = match batch.ink {
+                true => self.ink.as_ref().ok_or_else(|| {
+                    Error::new(ErrorKind::Misuse, "the cell shader with ink is not made")
+                })?,
+                false => &self.cell,
+            };
+            let inputs = self.cell_inputs(batch, batch.ink)?;
             for (tile, target) in &self.tiles {
                 let quads = in_tile(&batch.quads, tile);
                 if quads.is_empty() {
                     continue;
                 }
+                let mut bound = vec![("target_size", target_size(target))];
+                bound.extend(inputs.iter().copied());
                 gl.draw(&Draw {
                     target,
-                    program: &self.cell,
-                    inputs: &[
-                        ("target_size", target_size(target)),
-                        masks,
-                        colors,
-                        sprites,
-                        cell,
-                    ],
+                    program,
+                    inputs: &bound,
                     quads: &quads,
                     blend: Blend::Replace,
                     scissor: None,
@@ -997,26 +1133,20 @@ impl Composition {
             .ok_or_else(|| Error::new(ErrorKind::Misuse, "the layer shader is not made"))?;
         let beneath = self.beneath()?;
         for batch in cells {
-            let [masks, colors, sprites, cell] = self.cell_inputs(batch)?;
+            let inputs = self.cell_inputs(batch, true)?;
             for (k, (tile, target)) in self.tiles.iter().enumerate() {
                 let quads = in_tile(&batch.quads, tile);
                 if quads.is_empty() {
                     continue;
                 }
                 let copied = beneath.copy(gl, k, tile, target, &quads)?;
-                let [under, under_at] = copied.inputs();
+                let mut bound = vec![("target_size", target_size(target))];
+                bound.extend(inputs.iter().copied());
+                bound.extend(copied.inputs());
                 gl.draw(&Draw {
                     target,
                     program,
-                    inputs: &[
-                        ("target_size", target_size(target)),
-                        masks,
-                        colors,
-                        sprites,
-                        cell,
-                        under,
-                        under_at,
-                    ],
+                    inputs: &bound,
                     quads: &quads,
                     blend: Blend::Replace,
                     scissor: None,
@@ -1108,6 +1238,9 @@ impl Composition {
     /// Frees what it holds in GL.
     pub(crate) fn free<G: Gl>(self, gl: &mut G) -> Result<(), Error> {
         let mut out = gl.free_program(self.cell);
+        if let Some(p) = self.ink {
+            out = out.and(gl.free_program(p));
+        }
         out = out.and(gl.free_program(self.arrow));
         if let Some((_, t)) = self.arrow_image {
             out = out.and(gl.free_texture(t));
@@ -1309,10 +1442,20 @@ pub(crate) fn arrow_quads(a: ArrowAt<'_>, drawn: &[Rect], size: Size) -> Vec<Qua
 /// parts of each picture over it, its text layer, the selection's tint and
 /// vtium's mark. The front end gives each in the display's pixels, and
 /// `turn` maps it into the upright frame's.
+///
+/// The renderer can draw a cell twice in one frame: once with its row, and
+/// again once the row below has sent it ink (ADR-1306 D5). The CPU path
+/// draws in order, so the second drawing covers the first. The GPU path
+/// draws its quads in batches, each batch whole, so the cell's second
+/// drawing replaces its first here, in every list, and each cell is drawn
+/// once.
 pub(crate) struct GpuBack<'a, G: Gl> {
     gl: &'a mut G,
     glyphs: &'a mut Glyphs,
     turn: Turn,
+    /// The first grid row the frame has not drawn yet. The renderer draws
+    /// rows from the top, so a row above it is a row drawn again.
+    next_row: usize,
     pub(crate) clear: Vec<Rect>,
     pub(crate) cells: Vec<Cells>,
     pub(crate) error: Option<Error>,
@@ -1338,6 +1481,7 @@ impl<'a, G: Gl> GpuBack<'a, G> {
             gl,
             glyphs,
             turn,
+            next_row: 0,
             clear: Vec::new(),
             cells: Vec::new(),
             error: None,
@@ -1354,12 +1498,34 @@ impl<'a, G: Gl> GpuBack<'a, G> {
         }
     }
 
-    /// Takes the cell `job`, whose glyph lies at `place`, apart into its
-    /// layers when pictures reach it, as the CPU path's `pictured` composes
-    /// it: no picture under a block cursor, and none hidden beneath the
-    /// last opaque picture over the whole cell. Says whether it did.
+    /// Forgets the quads and pictures the frame has drawn so far, for a
+    /// frame drawn again whole.
+    pub(crate) fn restart(&mut self) {
+        self.next_row = 0;
+        self.cells.clear();
+        #[cfg(feature = "images")]
+        {
+            self.picture_rects.clear();
+            self.text.clear();
+            self.tints.clear();
+            self.marks.clear();
+        }
+    }
+
+    /// Takes the cell `job` of grid row `row`, whose glyph lies at
+    /// `place`, apart into its layers when pictures reach it, as the CPU
+    /// path's `pictured` composes it: no picture under a block cursor, and
+    /// none hidden beneath the last opaque picture over the whole cell. Its
+    /// text layer takes the ink it receives, as `ink` flags it. Says
+    /// whether it did.
     #[cfg(feature = "images")]
-    fn pictured(&mut self, compose: &Composer, job: &Job, place: Option<Place>) -> bool {
+    fn pictured(
+        &mut self,
+        compose: &Composer,
+        job: &Job,
+        place: Option<Place>,
+        (row, ink): (usize, u32),
+    ) -> bool {
         use crate::picture::Mark;
         use vtium_image::Layer;
         if job.under.mark == Mark::Opaque {
@@ -1382,7 +1548,9 @@ impl<'a, G: Gl> GpuBack<'a, G> {
             strike: None,
             ..*job
         };
-        push(&mut self.cells, None, cell_quad(&bare, r, g, None));
+        let quad =
+            |j: &Job, place: Option<Place>, flags: u32| cell_quad(j, (r, g), place, (row, flags));
+        push(&mut self.cells, None, quad(&bare, None, 0));
         self.picture_rects
             .resize_with(pictures.pics().len(), Vec::new);
         for &i in self.meeting.get(top.unwrap_or(0)..).unwrap_or_default() {
@@ -1400,9 +1568,9 @@ impl<'a, G: Gl> GpuBack<'a, G> {
             ..*job
         };
         let glyph = place.filter(|_| mark != Mark::Bar);
-        if glyph.is_some() || text.layered() {
-            let quad = cell_quad(&text, r, g, glyph);
-            push(&mut self.text, glyph.map(|p| (p.texture, p.color)), quad);
+        if glyph.is_some() || text.layered() || ink != 0 {
+            let q = quad(&text, glyph, ink);
+            push(&mut self.text, glyph.map(|p| (p.texture, p.color)), q);
         }
         if job.under.selected
             && let Some(cell) = area_rect(r)
@@ -1412,8 +1580,8 @@ impl<'a, G: Gl> GpuBack<'a, G> {
         match mark {
             Mark::Bar => {
                 if let Some(p) = place {
-                    let quad = cell_quad(&bare, r, g, Some(p));
-                    push(&mut self.marks, Some((p.texture, p.color)), quad);
+                    let q = quad(&bare, Some(p), 0);
+                    push(&mut self.marks, Some((p.texture, p.color)), q);
                 }
             }
             Mark::Underline if job.underline.is_some() => {
@@ -1421,7 +1589,7 @@ impl<'a, G: Gl> GpuBack<'a, G> {
                     strike: None,
                     ..*job
                 };
-                push(&mut self.marks, None, cell_quad(&line, r, g, None));
+                push(&mut self.marks, None, quad(&line, None, 0));
             }
             _ => {}
         }
@@ -1430,15 +1598,129 @@ impl<'a, G: Gl> GpuBack<'a, G> {
 }
 
 /// Adds `quad` to the batch of `cells` that samples the texture of glyphs
-/// `glyphs`.
+/// `glyphs` and, as the quad's flags say, receives ink or not.
 fn push(cells: &mut Vec<Cells>, glyphs: Option<(usize, bool)>, quad: Quad) {
-    match cells.iter_mut().find(|c| c.glyphs == glyphs) {
+    let ink = quad.params[1] >> 24 & RECEIVES != 0;
+    match cells
+        .iter_mut()
+        .find(|c| c.glyphs == glyphs && c.ink == ink)
+    {
         Some(c) => c.quads.push(quad),
         None => cells.push(Cells {
             glyphs,
+            ink,
             quads: vec![quad],
         }),
     }
+}
+
+/// How many quads each batch of each of a frame's lists held, and how many
+/// parts of each picture and tints, before the frame drew a row again: what
+/// it holds past these counts the row's second drawing pushed.
+struct Held {
+    cells: Vec<usize>,
+    #[cfg(feature = "images")]
+    text: Vec<usize>,
+    #[cfg(feature = "images")]
+    marks: Vec<usize>,
+    #[cfg(feature = "images")]
+    parts: Vec<usize>,
+    #[cfg(feature = "images")]
+    tints: usize,
+}
+
+impl Held {
+    fn of<G: Gl>(back: &GpuBack<'_, G>) -> Held {
+        let lens = |lists: &[Cells]| lists.iter().map(|c| c.quads.len()).collect();
+        Held {
+            cells: lens(&back.cells),
+            #[cfg(feature = "images")]
+            text: lens(&back.text),
+            #[cfg(feature = "images")]
+            marks: lens(&back.marks),
+            #[cfg(feature = "images")]
+            parts: back.picture_rects.iter().map(Vec::len).collect(),
+            #[cfg(feature = "images")]
+            tints: back.tints.len(),
+        }
+    }
+}
+
+impl<G: Gl> GpuBack<'_, G> {
+    /// Removes what the frame drew in the cells of a row before it drew
+    /// them again, `held` saying where the second drawing begins in each
+    /// list: each quad of the first drawing, from whichever list, a part
+    /// of a picture or a tint inside those cells. Each cell is then drawn
+    /// once, with its second drawing, as the CPU path's drawing in order
+    /// leaves it.
+    fn replace_earlier(&mut self, held: &Held) {
+        let mut again: Vec<[i32; 4]> = Vec::new();
+        let lists = [(&self.cells, &held.cells)];
+        #[cfg(feature = "images")]
+        let lists = [
+            lists[0],
+            (&self.text, &held.text),
+            (&self.marks, &held.marks),
+        ];
+        for (list, held) in lists {
+            for (c, &from) in list.iter().zip(held.iter().chain(core::iter::repeat(&0))) {
+                again.extend(
+                    c.quads
+                        .get(from..)
+                        .unwrap_or_default()
+                        .iter()
+                        .map(|q| q.dst),
+                );
+            }
+        }
+        if again.is_empty() {
+            return;
+        }
+        again.sort_unstable();
+        again.dedup();
+        let drawn_again = |dst: &[i32; 4]| again.binary_search(dst).is_ok();
+        drop_earlier(&mut self.cells, &held.cells, drawn_again);
+        #[cfg(feature = "images")]
+        {
+            drop_earlier(&mut self.text, &held.text, drawn_again);
+            drop_earlier(&mut self.marks, &held.marks, drawn_again);
+            let inside = |r: &Rect| again.iter().any(|&dst| contains(dst, r));
+            for (parts, &from) in self.picture_rects.iter_mut().zip(&held.parts) {
+                keep_unless_earlier(parts, from, |r| inside(r));
+            }
+            keep_unless_earlier(&mut self.tints, held.tints, |(r, _)| inside(r));
+        }
+    }
+}
+
+/// Removes from each batch of `lists` the quads it held before `held`
+/// counts that `drawn_again` names, and the batches left empty.
+fn drop_earlier(lists: &mut Vec<Cells>, held: &[usize], drawn_again: impl Fn(&[i32; 4]) -> bool) {
+    for (c, &from) in lists.iter_mut().zip(held) {
+        keep_unless_earlier(&mut c.quads, from, |q| drawn_again(&q.dst));
+    }
+    lists.retain(|c| !c.quads.is_empty());
+}
+
+/// Removes from the first `from` of `items` those `earlier` names.
+fn keep_unless_earlier<T>(items: &mut Vec<T>, from: usize, earlier: impl Fn(&T) -> bool) {
+    let mut n = 0usize;
+    items.retain(|t| {
+        let before = n < from;
+        n = n.saturating_add(1);
+        !(before && earlier(t))
+    });
+}
+
+/// Whether the quad's `dst` holds all of `r`.
+#[cfg(feature = "images")]
+fn contains(dst: [i32; 4], r: &Rect) -> bool {
+    let [x, y, w, h] = dst.map(i64::from);
+    let (rx, ry) = (i64::from(r.x), i64::from(r.y));
+    rx >= x
+        && ry >= y
+        && rx.saturating_add(i64::from(r.width)) <= x.saturating_add(w)
+        && ry.saturating_add(i64::from(r.height)) <= y.saturating_add(h)
 }
 
 /// Where `a` and `b` meet, empty when they do not.
@@ -1494,11 +1776,57 @@ impl<G: Gl> Back for GpuBack<'_, G> {
         piece(r.x.max(gx1), my0, rx1, my1);
     }
 
-    fn row<F: Face>(&mut self, compose: &mut Composer, font: &Font<F>, _: (usize, usize)) {
+    fn row<F: Face>(
+        &mut self,
+        compose: &mut Composer,
+        font: &Font<F>,
+        _: (usize, usize),
+        row: usize,
+    ) {
         if self.error.is_some() {
             return;
         }
-        for job in &compose.jobs {
+        if row < self.next_row {
+            let held = Held::of(self);
+            self.push_row(compose, font, row);
+            self.replace_earlier(&held);
+        } else {
+            self.next_row = row.saturating_add(1);
+            self.push_row(compose, font, row);
+        }
+    }
+
+    fn reaching(&self, _: &Composer) -> bool {
+        self.glyphs.reaching()
+    }
+
+    fn reach<F: Face>(
+        &mut self,
+        _: &mut Composer,
+        font: &Font<F>,
+        text: &[char],
+        width: vtium_font::Width,
+        style: vtium_font::Style,
+    ) -> Reach {
+        if self.error.is_some() {
+            return Reach::NONE;
+        }
+        match self.glyphs.reach(self.gl, font, text, width, style) {
+            Ok(r) => r,
+            Err(e) => {
+                self.error = Some(e);
+                Reach::NONE
+            }
+        }
+    }
+
+    const RECEIVES: bool = true;
+}
+
+impl<G: Gl> GpuBack<'_, G> {
+    /// Pushes the quads of the jobs of grid row `row`.
+    fn push_row<F: Face>(&mut self, compose: &Composer, font: &Font<F>, row: usize) {
+        for (j, job) in compose.jobs.iter().enumerate() {
             let place = match job.text {
                 Some((start, len, width, style)) => {
                     let text = compose
@@ -1515,40 +1843,101 @@ impl<G: Gl> Back for GpuBack<'_, G> {
                 }
                 None => None,
             };
+            let (from, to) = compose.received.get(j).copied().unwrap_or_default();
+            let ink = match compose.sources.get(from..to) {
+                Some(sources) if !sources.is_empty() => {
+                    match self.name_sources(compose, font, sources) {
+                        Ok(ink) => ink,
+                        Err(e) => {
+                            self.error = Some(e);
+                            return;
+                        }
+                    }
+                }
+                _ => 0,
+            };
             #[cfg(feature = "images")]
-            if self.pictured(compose, job, place) {
+            if self.pictured(compose, job, place, (row, ink)) {
                 continue;
             }
             let quad = cell_quad(
                 job,
-                self.turn.up_area(job.r),
-                self.turn.up_area(job.g),
+                (self.turn.up_area(job.r), self.turn.up_area(job.g)),
                 place,
+                (row, ink),
             );
             push(&mut self.cells, place.map(|p| (p.texture, p.color)), quad);
         }
     }
+
+    /// Names each of `sources`, the glyphs whose ink a job receives, in the
+    /// ink grid, so the cell shader finds its glyph's box and its color,
+    /// and gives the job's flags: none when no glyph sends it ink, else
+    /// [`RECEIVES`], with [`MARKED`] when a mark covers the job and
+    /// [`DOWN`] on a display turned a quarter. Each source's glyph is looked
+    /// up, which keeps its box for this frame.
+    fn name_sources<F: Face>(
+        &mut self,
+        compose: &Composer,
+        font: &Font<F>,
+        sources: &[crate::compose::Source],
+    ) -> Result<u32, Error> {
+        let mut flags = 0;
+        for s in sources {
+            let (start, len, width, style) = s.text;
+            let text = compose
+                .text
+                .get(start..start.saturating_add(len))
+                .unwrap_or_default();
+            let Some(place) = self.glyphs.glyph(self.gl, font, text, width, style)? else {
+                continue;
+            };
+            let Some((slot, _)) = place.boxed else {
+                continue;
+            };
+            self.glyphs.ink.name(s.cell, slot, s.own);
+            flags |= RECEIVES;
+            if s.marked {
+                flags |= MARKED;
+            }
+        }
+        if flags != 0 && self.turn.orientation.turned() {
+            flags |= DOWN;
+        }
+        Ok(flags)
+    }
 }
 
-/// A cell job as the cell shader's quad: where it draws, `r` in the
-/// upright frame; the glyph's texel under its top left, the glyph lying at
-/// `g`; and its colors, each with a kind in its top byte: the glyph's
-/// (none, a mask, a color glyph), the underline's sprite and the strike's,
-/// each its place among the sprites plus one, or 0 for none.
-pub(crate) fn cell_quad(job: &Job, r: Area, g: Area, place: Option<Place>) -> Quad {
+/// A cell job of grid row `row` as the cell shader's quad: where it
+/// draws, `r` in the upright frame; the glyph's texel under its top left,
+/// the glyph lying at `g`, and the column and row of the job's first cell;
+/// and its colors, each with a kind in its top byte: the glyph's (none, a
+/// mask, a color glyph), `flags` with the background, the underline's
+/// sprite and the strike's, each its place among the sprites plus one, or
+/// 0 for none.
+pub(crate) fn cell_quad(
+    job: &Job,
+    (r, g): (Area, Area),
+    place: Option<Place>,
+    (row, flags): (usize, u32),
+) -> Quad {
     let i = |v: i64| i32::try_from(v).unwrap_or(if v < 0 { i32::MIN } else { i32::MAX });
     let u = |v: i64| u32::try_from(v.max(0)).unwrap_or(u32::MAX);
+    let (col, row) = (
+        u32::try_from(job.posx).unwrap_or(u32::MAX),
+        u32::try_from(row).unwrap_or(u32::MAX),
+    );
     let (src, kind) = match place {
         Some(p) => (
             [
                 p.x.saturating_add(u(r.x.saturating_sub(g.x))),
                 p.y.saturating_add(u(r.y.saturating_sub(g.y))),
-                0,
-                0,
+                col,
+                row,
             ],
             if p.color { 2 } else { 1 },
         ),
-        None => ([0; 4], 0),
+        None => ([0, 0, col, row], 0),
     };
     let sprite = |k: Kind| {
         Kind::ALL
@@ -1563,7 +1952,7 @@ pub(crate) fn cell_quad(job: &Job, r: Area, g: Area, place: Option<Place>) -> Qu
         src,
         params: [
             with(job.fg, kind),
-            pixel(job.bg),
+            with(job.bg, flags),
             job.underline.map_or(0, |(k, c)| with(c, sprite(k))),
             job.strike.map_or(0, |c| with(c, sprite(Kind::Strike))),
         ],

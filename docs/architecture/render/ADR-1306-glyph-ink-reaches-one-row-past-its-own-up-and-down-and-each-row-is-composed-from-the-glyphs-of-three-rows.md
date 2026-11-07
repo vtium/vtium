@@ -15,6 +15,7 @@ amends:
   - "ADR-1300#D5: cells are composed a row at a time"
   - "ADR-1100#D4: the order a frame draws placements in"
   - "ADR-1200#D17: the cell"
+  - "ADR-1200#D15: the helper"
 basis:
   - operator: aaronsb
     level: guided
@@ -192,6 +193,10 @@ The words used below: a glyph's **reach** is the block of cells its ink may draw
 - **A fallback font's glyph that would pass its cells is drawn smaller to fit them,** as ADR-1200 D17 decides (the maintainer, 2026-11-06), and does not use the reach, unless it is a glyph of a joining script, such as an Arabic letter, which uses the reach like the first source's glyphs (D12; the maintainer, 2026-11-06). The reach is for ink that a font draws past its cells on purpose: the frit's first source and its own style faces, a joining letter from any source, and the marks of a shaped cluster, which D2 places, from any source.
 - **The grid's top and bottom edges cut ink,** as its left and right edges do (the maintainer, 2026-11-01, on the grid edge), so the border around the grid never shows ink. An accent on the grid's first row is cut at the grid's top.
 - **One row is the bound,** and the measured ink needs less than half of it: at most 0.42 of the cell above the row and 0.35 below (Context). The bound is a whole row, rather than a share of one, because what it costs is set by how many rows a pixel looks at, which is three for any bound up to a row, and one rule then names the same one cell in every direction. A script whose stacks pass a whole row, such as Tibetan with several subjoined letters, meets D2's move-and-scale rule at that edge.
+
+> Added 2026-11-06: a cluster that the console builds from its parts by ADR-1200 D22's step 3, because the font set holds no glyph for the whole cluster, takes part in the reach like any other glyph (the maintainer, 2026-11-06). Its parts are the store's glyph for as much of the cluster as the helper shaped and the marks left out of it, and its glyph's ink box is the union of their ink, cut to the reach, so its marks draw where they draw in a cluster the helper shaped whole, and the renderer keeps its reach, damages its neighbours and orders its ink as it does for every glyph.
+
+> Note 2026-11-06: the maintainer decided that a glyph from a bitmap source after the first may reach the row above or the row below, within the same one-row reach as an outline glyph (the maintainer, 2026-11-06). The helper places such a glyph so that its font's baseline meets the first source's baseline (ADR-1200 D17), and the ink that then passes the cell's top or bottom goes to the glyph's ink box, which the renderer draws into the row above or below as it draws an outline glyph's. unifont's ẳ behind Terminus is such a glyph: it rises 2 font rows onto Terminus's baseline, and the top of its hook draws in the row above. The second bullet's list of glyphs that stay inside their cells still holds for every other bitmap glyph: the first source's glyphs, and a later source's glyphs whose ink fits the cell once raised.
 
 ### D2: the baseline, the marks, and a letter's own ink
 

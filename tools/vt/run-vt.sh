@@ -283,6 +283,17 @@ entry=$("$getent" passwd "$user") || die "no such user: $user"
 IFS=: read -r _ _ uid gid _ home login_shell <<<"$entry"
 [[ $uid =~ ^[0-9]+$ && $gid =~ ^[0-9]+$ ]] || die "$user's entry in the password database is unreadable"
 [ "$uid" -ne 0 ] || die "$user has uid 0; the session runs as your own user, never as root"
+# setpriv --reset-env drops the locale, so every session, the acceptance
+# pass, the guide and the shell, gets the system's: LANG and LC_* from
+# locale.conf, each a value of locale-name characters. Without it, bash's
+# line editing at the pages' prompts takes a byte for a character.
+locale=()
+if [ -f "$locale_file" ]; then
+	assignment='^(LANG|LC_[A-Z]+)="?([[:alnum:]_.@-]+)"?$'
+	while IFS= read -r line || [ -n "$line" ]; do
+		[[ ! $line =~ $assignment ]] || locale+=("${BASH_REMATCH[1]}=${BASH_REMATCH[2]}")
+	done <"$locale_file"
+fi
 if [ -n "$shell" ]; then
 	# The shell reaches script(1) inside a command line, so its path takes no
 	# character a shell would read.
@@ -297,15 +308,6 @@ if [ -n "$shell" ]; then
 	# The shell would start nowhere, and the run would end as if it had exited.
 	[ -d "$home" ] && [ "$(stat -L -c %u -- "$home")" = "$uid" ] ||
 		die "$user's home directory $home is missing, not a directory, or not theirs"
-	# setpriv --reset-env drops the locale, so the shell gets the system's:
-	# LANG and LC_* from locale.conf, each a value of locale-name characters.
-	locale=()
-	if [ -f "$locale_file" ]; then
-		assignment='^(LANG|LC_[A-Z]+)="?([[:alnum:]_.@-]+)"?$'
-		while IFS= read -r line || [ -n "$line" ]; do
-			[[ ! $line =~ $assignment ]] || locale+=("${BASH_REMATCH[1]}=${BASH_REMATCH[2]}")
-		done <"$locale_file"
-	fi
 	# The user's runtime directory and bus, which the desktop session already
 	# gives the user: pipewire, systemctl --user and the user's agents. Only
 	# a directory of the user's alone, never a symlink; /run/user is root's,
@@ -744,9 +746,9 @@ for o in "${extra[@]}"; do
 	--no-blink) accept+=(ACCEPT_BLINK=off) ;;
 	esac
 done
-session=(/usr/bin/env "${terminfo[@]}" "${accept[@]}" /bin/bash "$here/accept.sh")
+session=(/usr/bin/env "${locale[@]}" "${terminfo[@]}" "${accept[@]}" /bin/bash "$here/accept.sh")
 if [ -n "$guide" ]; then
-	session=(/usr/bin/env "${terminfo[@]}" GUIDE_VT="$vt" GUIDE_DESKTOP="$fg" ${steps:+GUIDE_STEPS="$steps"}
+	session=(/usr/bin/env "${locale[@]}" "${terminfo[@]}" GUIDE_VT="$vt" GUIDE_DESKTOP="$fg" ${steps:+GUIDE_STEPS="$steps"}
 		/bin/bash "$here/checks/guide.sh" "$guide")
 elif [ -n "$shell" ]; then
 	session=(/usr/bin/env -C "$home" "${locale[@]}" "${runtime[@]}" "${terminfo[@]}" "$login_shell" -l)

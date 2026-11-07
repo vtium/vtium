@@ -88,7 +88,7 @@ fn glyph(bytes: Vec<u8>, cell: Cell, c: char) -> (Style, Glyph) {
 /// a strike of that style.
 fn drawn(engine: &Engine, cell: Cell, style: Style, c: char) -> Glyph {
     let set = engine
-        .draw_style(cell, style, &[u32::from(c)], &[])
+        .draw_style(cell, style, &[u32::from(c)], (&[], false))
         .expect("draws")
         .expect("a glyph");
     let (got, g) = glyph(set, cell, c);
@@ -496,7 +496,7 @@ fn the_helper_shears_a_bitmap_as_vtium_font_does() {
     // 12 at the font's own cell, so vtium-font's set reader leans the
     // regular glyph for italic as the helper does
     let regular = e
-        .draw_style(at8, REGULAR, &[u32::from('|')], &[])
+        .draw_style(at8, REGULAR, &[u32::from('|')], (&[], false))
         .expect("draws")
         .expect("a glyph");
     let set = Arc::new(Set::from_bytes(regular).expect("a set"));

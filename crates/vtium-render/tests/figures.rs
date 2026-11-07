@@ -3,6 +3,11 @@
 //! cache, a frame with one row of decorated text changed, a keystroke and
 //! an idle frame. They are machine figures and are printed, not pinned.
 //!
+//! Each figure is measured twice (ADR-1306 D4): with unifont, whose ink
+//! stays in its cells, and with unifont whose vowels carry an accent two
+//! pixels above their row, so that about a third of the letters send ink
+//! into the row above.
+//!
 //! `cargo test --release -p vtium-render --test figures -- --nocapture`
 
 mod common;
@@ -10,6 +15,7 @@ mod common;
 use std::time::Duration;
 
 use common::{Screen, rgb, style, unifont};
+use vtium_font::{Cell, Face, Font, Glyph, Style, Unifont};
 use vtium_render::{Config, DrawState, Mapped, RenderTimer, Renderer};
 use vtium_term::{Age, Attrs, UnderlineStyle};
 
@@ -30,9 +36,46 @@ fn text(s: &mut Screen, seed: usize) {
     }
 }
 
+/// Unifont whose vowels carry an accent two pixels above their row, in the
+/// glyph's ink box, as an outline font's accented letters do.
+struct Accented(Unifont);
+
+impl Face for Accented {
+    fn cell(&self) -> Cell {
+        self.0.cell()
+    }
+    fn size_step(&self) -> u32 {
+        self.0.size_step()
+    }
+    fn has_glyph(&self, c: char) -> bool {
+        self.0.has_glyph(c)
+    }
+    fn draw(&self, cluster: &[char], style: Style) -> Option<Glyph> {
+        let g = self.0.draw(cluster, style)?;
+        if !cluster.first().is_some_and(|c| "aeiou".contains(*c)) {
+            return Some(g);
+        }
+        let w = g.width() as usize;
+        let mut boxed = vec![0u8; 2 * w];
+        boxed[3..5].fill(255);
+        boxed[w + 3..w + 5].fill(255);
+        boxed.extend_from_slice(g.pixels());
+        g.clone()
+            .with_ink((0, -2), (g.width(), g.height() + 2), boxed)
+            .or(Some(g))
+    }
+}
+
 #[test]
 fn figures_at_1366x768() {
-    let mut r = Renderer::new(unifont(), W, H, Config::default());
+    println!("unifont, whose ink stays in its cells:");
+    figures(unifont());
+    println!("unifont with accents above its vowels, whose ink reaches the row above:");
+    figures(Font::new(Accented(Unifont::new(16))));
+}
+
+fn figures<F: Face>(font: Font<F>) {
+    let mut r = Renderer::new(font, W, H, Config::default());
     let (cols, rows) = r.grid_size();
     let mut s = Screen::new(cols, rows, rgb("c0c0c0"), rgb("101010"));
     s.cursor.visible = true;

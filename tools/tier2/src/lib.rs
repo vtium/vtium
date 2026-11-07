@@ -7,7 +7,8 @@
 //! [`runner`] runs them all and writes the [`report`]. [`bands`] checks
 //! that a screen drawn with line spacing keeps its text as it is drawn
 //! without it. [`fonts`] fetches the outline fonts the outline screens
-//! draw with, [`colorset`] builds
+//! draw with, [`inkfont`] builds the ink test font the ink screens draw
+//! with, [`colorset`] builds
 //! the vitrified set the color glyph screen draws with, [`notices`] the
 //! words of the screens of vtium's notices and on-screen display, and
 //! [`pictures`] the sixel and kitty strings of the picture screens.
@@ -21,6 +22,7 @@ pub mod draw;
 pub mod fonts;
 #[cfg(feature = "gpu")]
 pub mod gpu;
+pub mod inkfont;
 pub mod notices;
 pub mod pictures;
 pub mod ppm;

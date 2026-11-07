@@ -4,14 +4,14 @@ This page lists what vtium draws and does, and what is still to come. [Concepts]
 
 ## Status
 
-vtium's latest release is the pre-release v0.1.0-alpha.5. It brings the GPU path: a console built with the `gpu` feature draws each head whose `hwaccel` is on through the GPU, and a guard keeps a failing display from switching its head back and forth between the GPU and the CPU. `vtium console enable` follows the common convention for VTs: where a display manager is enabled, it leaves VT 1 to the display manager, and it never takes a VT that another program holds. When vtium fails, its fallback starts no getty that would stop another program. When a new display is plugged in and every display controller (CRTC) is already driving a display, vtium can move a lit display to another controller so that the new display lights. Bold and italic text draws through the glyph helper, from the bold and italic faces a frit (a font set file) names, or else from the regular face emboldened and slanted. A checkout builds and runs everything on this page except these, which are designed and landing:
+See [the releases](https://github.com/vtium/vtium/releases) for the latest version and what changed in it. A checkout builds and runs everything on this page except these, which are designed and landing:
 
 - **The GPU path's remaining pieces** ([the GPU path's issue](https://github.com/vtium/vtium/issues/33)). A console built with the `gpu` feature draws on the GPU, through glow over EGL and GBM, on each head whose `hwaccel` is on, and `hwaccel` is off unless the build turns it on ([config.md](config.md)), as the AUR's `vtium` and `vtium-git` packages do from v0.1.0-alpha.6 on. [ADR-1303](architecture/render/ADR-1303-the-gpu-path-draws-each-frame-through-a-fixed-pipeline-of-slots-and-turns-it-at-present.md) D11 lists the pieces still to come.
 - **libseat,** for seat access through seatd or logind ([the libseat issue](https://github.com/vtium/vtium/issues/34)). Today vtium opens the VT, the cards and the input devices itself, as root.
 - **Handing the display back without a VT switch,** through the `setBackground` sequence ([the hand-back issue](https://github.com/vtium/vtium/issues/36)).
 - **Showing a link's address in the console:** Ctrl+click copies an OSC 8 link's address, Ctrl+Shift+Up and Ctrl+Shift+Down move the view between the prompts OSC 133 marks, and the link under the pointer draws a dashed underline. The renderer does not yet draw the overlay row that shows the link's address while Ctrl is held ([ADR-1002](architecture/term/ADR-1002-links-are-copied-never-opened-and-prompt-marks-are-line-flags-the-view-jumps-between.md)).
 
-Also not built yet: glyph ink reaching into the next cell ([ADR-1302](architecture/render/ADR-1302-glyph-ink-reaches-one-cell-past-its-own-side-to-side.md), decided), ligatures and shaping across cells, the kitty keyboard protocol, bidirectional text, input methods, `vtiumctl`, `vtium-clipboard`, and reading a changed vtium.conf without a restart. The plan and its order are in [the tracker issue](https://github.com/vtium/vtium/issues/47).
+Also not built yet: ligatures and shaping across cells, the kitty keyboard protocol, input methods, `vtiumctl`, `vtium-clipboard`, and reading a changed vtium.conf without a restart. The plan and its order are in [the tracker issue](https://github.com/vtium/vtium/issues/47).
 
 ## Displays
 
@@ -73,6 +73,7 @@ The console never opens a file a program names and never decodes PNG, JPEG, GIF 
 
 - vtium draws 24-bit color, the 256-color palette and named palettes. It draws bold, faint, strike, blink and reverse, and underline in five styles (single, double, curly, dotted, dashed), each in a color of its own.
 - It cuts Unicode text into extended grapheme clusters, draws wide characters and emoji presentation, and uses the codepoint-width method when a program resets mode 2027.
+- In a console built with the `bidi` feature, it lays out right-to-left text such as Arabic and Hebrew in the order the Unicode bidirectional algorithm gives, draws mirrored characters as their counterparts, joins Arabic letters, and moves the cursor, the selection, mouse reports and the arrow keys in that order.
 - It reports the mouse (modes 9, 1000, 1002 and 1003, in the SGR, urxvt and pixel encodings), focus, bracketed pastes and in-band resizes (mode 2048), and holds frames for synchronized output (mode 2026).
 - It keeps OSC 8 links and OSC 133 prompt marks. Ctrl+click copies a link's address, never opening it, and Ctrl+Shift+Up and Ctrl+Shift+Down move the view from prompt to prompt.
 - Programs set, query and reset colors with OSC 4, 10, 11 and 12, and with xterm's and kitty's color stacks. vtium carries out DEC's rectangular area operations, character protection, XTSAVE and XTRESTORE, and answers XTGETTCAP, XTVERSION and DECRQM.

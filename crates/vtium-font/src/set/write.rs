@@ -17,9 +17,9 @@ use crate::bounds::{
 };
 use crate::set::format::{
     CHUNK_DEFLATED, CHUNK_RECORD, CLUS, CLUSTER_RECORD, CMAP, COVERAGE_RECORD, FORMAT_BITS,
-    FORMAT_R8, FORMAT_RGBA, GLYF, INK_CLUSTER, INK_GLYPH, INK_RECORD, INKX, MAGIC, MAJOR, META,
-    MINOR, POLY, PRELUDE_BYTES, RUN_RECORD, RUN_WIDE, SECTION_BYTES, SOURCE_AUTO, STRIKE_RECORD,
-    STRK, glyph_bytes, in_reach,
+    FORMAT_R8, FORMAT_RGBA, GLYF, INK_CLUSTER, INK_GLYPH, INK_RECORD, INKX, InkRect, MAGIC, MAJOR,
+    META, MINOR, POLY, PRELUDE_BYTES, RUN_RECORD, RUN_WIDE, SECTION_BYTES, SOURCE_AUTO,
+    STRIKE_RECORD, STRK, glyph_bytes,
 };
 use crate::set::pack::deflate;
 use std::collections::BTreeMap;
@@ -55,11 +55,13 @@ pub(crate) struct RawStrike {
 }
 
 /// A glyph's ink box: its first column's offset from its first cell's
-/// left edge, 0 or negative, its width, and its bytes in the strike's
-/// format over the cell's height.
+/// left edge and its first row's offset from its row's top, each 0 or
+/// negative, its width and height, and its bytes in the strike's format.
 pub(crate) struct RawInk {
     pub left: i32,
+    pub top: i32,
     pub width: u32,
+    pub height: u32,
     pub bytes: Vec<u8>,
 }
 
@@ -385,19 +387,24 @@ fn clusters(order: &[&RawStrike]) -> Result<Option<(Vec<u8>, usize)>, WriteError
 
 /// Checks `ink` as the box of a glyph of strike `s`, `wide` or not: in
 /// an R8 or 1-bit strike, its bytes the box's, inside a chunk, spanning
-/// the glyph's cells and reaching past them by at most one cell on each
-/// side, and past them on at least one (ADR-1302 D1, D6).
+/// the glyph's cells, past them on at least one side and inside their
+/// reach (ADR-1302 D1, D6, ADR-1306 D1, D3).
 fn check_ink(s: &RawStrike, wide: bool, ink: &RawInk) -> Result<(), WriteError> {
     if s.format == FORMAT_RGBA {
         return Err("an ink box in a color strike");
     }
-    let cell = i64::from(s.cell_width);
-    let cells = cell.saturating_mul(if wide { 2 } else { 1 });
-    if !in_reach(i64::from(ink.left), i64::from(ink.width), cell, cells) {
+    let cell = (i64::from(s.cell_width), i64::from(s.cell_height));
+    let cells = (cell.0.saturating_mul(if wide { 2 } else { 1 }), cell.1);
+    let boxed = InkRect {
+        left: i64::from(ink.left),
+        top: i64::from(ink.top),
+        width: i64::from(ink.width),
+        height: i64::from(ink.height),
+    };
+    if !boxed.in_reach(cell, cells) {
         return Err("an ink box outside its glyph's reach, or not past its cells");
     }
-    let want = glyph_bytes(s.format, ink.width, u32::from(s.cell_height), 1)
-        .ok_or("an unknown pixel format")?;
+    let want = glyph_bytes(s.format, ink.width, ink.height, 1).ok_or("an unknown pixel format")?;
     if u32_of(ink.bytes.len())? != want {
         return Err("an ink box whose bytes do not fit its width and format");
     }
@@ -407,12 +414,16 @@ fn check_ink(s: &RawStrike, wide: bool, ink: &RawInk) -> Result<(), WriteError> 
     Ok(())
 }
 
+/// An `INKX` record as the writer lays it out: its strike, kind and
+/// number, then the box's left, width, chunk, offset, top and height.
+type InkRecord = (u16, u16, u32, (i32, u32, u32, u32, i32, u32));
+
 /// `INKX`, or `None` when no glyph holds an ink box: each strike's boxes
 /// stored once each, with a record for each glyph `GLYF` numbers and each
 /// cluster `CLUS` holds that draws a glyph with a box, sorted by strike,
 /// kind and number.
 fn inks(order: &[&RawStrike], laid: &[Laid]) -> Result<Option<(Vec<u8>, usize)>, WriteError> {
-    let mut records: Vec<(u16, u16, u32, i32, u32, u32, u32)> = Vec::new();
+    let mut records: Vec<InkRecord> = Vec::new();
     let mut all: Vec<Chunk> = Vec::new();
     // the number of the strike's first cluster in `CLUS`
     let mut cluster_base = 0u32;
@@ -444,24 +455,25 @@ fn inks(order: &[&RawStrike], laid: &[Laid]) -> Result<Option<(Vec<u8>, usize)>,
         let (chunks, at) = self::chunks(&stream, s.compress)?;
         let first = u32_of(all.len())?;
         for &(g, n, ink) in &boxed {
-            let &(chunk, offset) = at.get(n).ok_or("an ink box lost")?;
+            let &(chunk, start) = at.get(n).ok_or("an ink box lost")?;
             let chunk = checked(first, chunk)?;
+            // the record names the box's row at the top of its glyph's row
+            let row = glyph_bytes(s.format, ink.width, 1, 1).ok_or("an unknown pixel format")?;
+            let above = ink
+                .top
+                .unsigned_abs()
+                .checked_mul(row)
+                .ok_or("an ink box past u32")?;
+            let offset = checked(start, above)?;
+            let at = (ink.left, ink.width, chunk, offset, ink.top, ink.height);
             let gi = usize::try_from(g).map_err(|_| "a glyph index past usize")?;
             if let Some(index) = l.renumbered.get(gi).copied().flatten() {
-                records.push((strike, INK_GLYPH, index, ink.left, ink.width, chunk, offset));
+                records.push((strike, INK_GLYPH, index, at));
             }
             for (k, (_, cg)) in sorted.iter().enumerate() {
                 if *cg == g {
                     let index = checked(cluster_base, u32_of(k)?)?;
-                    records.push((
-                        strike,
-                        INK_CLUSTER,
-                        index,
-                        ink.left,
-                        ink.width,
-                        chunk,
-                        offset,
-                    ));
+                    records.push((strike, INK_CLUSTER, index, at));
                 }
             }
         }
@@ -484,7 +496,7 @@ fn inks(order: &[&RawStrike], laid: &[Laid]) -> Result<Option<(Vec<u8>, usize)>,
     ] {
         put32(&mut out, v);
     }
-    for (strike, kind, index, left, width, chunk, offset) in records {
+    for (strike, kind, index, (left, width, chunk, offset, top, height)) in records {
         put16(&mut out, strike);
         put16(&mut out, kind);
         put32(&mut out, index);
@@ -492,6 +504,8 @@ fn inks(order: &[&RawStrike], laid: &[Laid]) -> Result<Option<(Vec<u8>, usize)>,
         put32(&mut out, width);
         put32(&mut out, chunk);
         put32(&mut out, offset);
+        out.extend_from_slice(&top.to_le_bytes());
+        put32(&mut out, height);
     }
     put_chunks(&mut out, &all)?;
     Ok(Some((out, all.len())))
@@ -742,7 +756,9 @@ mod tests {
                     1,
                     RawInk {
                         left: -10,
+                        top: 0,
                         width: 100,
+                        height: 100,
                         bytes: vec![2; 100 * 100],
                     },
                 )],
@@ -766,7 +782,9 @@ mod tests {
             for (_, ink) in &mut strike.inks {
                 *ink = RawInk {
                     left: -1,
+                    top: 0,
                     width: 11,
+                    height: 100,
                     bytes: vec![2; 11 * 100],
                 };
             }
@@ -774,13 +792,96 @@ mod tests {
         set
     }
 
+    /// `set`, written by format 2.1, as format 2.0 wrote it: the header's
+    /// and META's minor version 0, and each `INKX` record cut to 24 bytes,
+    /// without the box's top and height, with the chunks' offsets from the
+    /// section's start moved back by the bytes cut. `INKX` is the last
+    /// section, so no other section moves.
+    /// A set's prelude and every section but META, each as its tag and its
+    /// bytes in table order. The built-in sets' META names the crate's
+    /// version (build.rs's `tool` key), so a hash of this moves only when
+    /// what the set draws moves, never at a version bump.
+    #[expect(
+        clippy::unwrap_used,
+        clippy::indexing_slicing,
+        clippy::arithmetic_side_effects,
+        clippy::cast_possible_truncation,
+        reason = "a test fails by panicking"
+    )]
+    fn without_meta(set: &[u8]) -> Vec<u8> {
+        let word = |i: usize| u32::from_le_bytes(set[i..i + 4].try_into().unwrap());
+        let long = |i: usize| u64::from_le_bytes(set[i..i + 8].try_into().unwrap()) as usize;
+        let mut kept = set[..16].to_vec();
+        for k in 0..word(12) as usize {
+            let entry = 16 + 20 * k;
+            if &set[entry..entry + 4] == b"META" {
+                continue;
+            }
+            let (at, len) = (long(entry + 4), long(entry + 12));
+            kept.extend_from_slice(&set[entry..entry + 4]);
+            kept.extend_from_slice(&set[at..at + len]);
+        }
+        kept
+    }
+
+    #[expect(
+        clippy::unwrap_used,
+        clippy::indexing_slicing,
+        clippy::arithmetic_side_effects,
+        clippy::cast_possible_truncation,
+        reason = "a test fails by panicking"
+    )]
+    fn as_format_2_0(set: &[u8]) -> Vec<u8> {
+        let word = |b: &[u8], i: usize| u32::from_le_bytes(b[i..i + 4].try_into().unwrap());
+        let mut out = set.to_vec();
+        out[10..12].copy_from_slice(&0u16.to_le_bytes());
+        // a set the builder writes names its version in META too
+        if let Some(meta) = out.windows(10).position(|w| w == b"format=2.1") {
+            out[meta..meta + 10].copy_from_slice(b"format=2.0");
+        }
+        let sections = word(&out, 12) as usize;
+        let Some(entry) = (0..sections)
+            .map(|k| 16 + 20 * k)
+            .find(|&e| &out[e..e + 4] == b"INKX")
+        else {
+            return out;
+        };
+        let at = u64::from_le_bytes(out[entry + 4..entry + 12].try_into().unwrap()) as usize;
+        let inkx = out[at..].to_vec();
+        let (count, chunks) = (word(&inkx, 0) as usize, word(&inkx, 8) as usize);
+        assert_eq!(word(&inkx, 4), 32);
+        let mut cut = inkx[..16].to_vec();
+        cut[4..8].copy_from_slice(&24u32.to_le_bytes());
+        for r in 0..count {
+            let record = &inkx[16 + r * 32..16 + r * 32 + 32];
+            assert_eq!(&record[24..28], &0i32.to_le_bytes(), "a box of its row");
+            cut.extend_from_slice(&record[..24]);
+        }
+        let table = 16 + count * 32;
+        for c in 0..chunks {
+            let mut record = inkx[table + c * 20..table + c * 20 + 20].to_vec();
+            let from = u64::from_le_bytes(record[..8].try_into().unwrap()) - (count * 8) as u64;
+            record[..8].copy_from_slice(&from.to_le_bytes());
+            cut.extend_from_slice(&record);
+        }
+        cut.extend_from_slice(&inkx[table + chunks * 20..]);
+        out.truncate(at);
+        out.extend_from_slice(&cut);
+        let len = (cut.len() as u64).to_le_bytes();
+        out[entry + 12..entry + 20].copy_from_slice(&len);
+        out
+    }
+
     // a set whose glyphs all fit a chunk is written byte for byte as before
-    // a glyph could pass one (ADR-1302 D6), so the format stays 2.0: the
-    // SHA-256 of each set below was taken from the writer before that change
+    // a glyph could pass one (ADR-1302 D6), which added no version: the
+    // SHA-256 of each set below was taken from the writer before that
+    // change, and each set is taken back to format 2.0 first, so the test
+    // also shows that format 2.1 changed nothing but the version and the
+    // two fields each INKX record gained
     #[test]
     fn a_set_with_no_glyph_past_a_chunk_is_written_as_before() {
         let sha = |bytes: &[u8]| crate::sha256::hex(&crate::sha256::Sha256::digest(bytes));
-        let written = |set: &RawSet| encode(set).map(|bytes| sha(&bytes));
+        let written = |set: &RawSet| encode(set).map(|bytes| sha(&as_format_2_0(&bytes)));
         let raw = "d1b3685dc145be370440b69d2935969f87711863f6ff28a7c7a636a92887c770";
         assert_eq!(written(&patterned(false)).as_deref(), Ok(raw));
         // deflated only where the build deflates (`deflate`)
@@ -795,19 +896,22 @@ mod tests {
             Ok("f9589d871394767b3c8ea121db80c43e99e7bb566e08a12b5a14aacefcc17ca3")
         );
         // the built-in sets, which build.rs writes with this writer, each
-        // chunk deflated
+        // chunk deflated, hashed without META (`without_meta`)
         #[cfg(feature = "unifont")]
         assert_eq!(
-            sha(include_bytes!(concat!(env!("OUT_DIR"), "/unifont.vtglass"))),
-            "c71702ba2fd5da57e970db9a442833ad4bb0b69d2138bb975b06fa4ba80d12ce"
+            sha(&without_meta(&as_format_2_0(include_bytes!(concat!(
+                env!("OUT_DIR"),
+                "/unifont.vtglass"
+            ))))),
+            "b75720a67660fefb8d42112da52280dbd07e4ed82243667360ee7f7fc8d891c3"
         );
         #[cfg(feature = "unscii")]
         assert_eq!(
-            sha(include_bytes!(concat!(
+            sha(&without_meta(&as_format_2_0(include_bytes!(concat!(
                 env!("OUT_DIR"),
                 "/unscii-8.vtglass"
-            ))),
-            "0f5d83363b4f35b0d43f5b9a1a347fd454c76c97b50ca16365f988ca5bd02709"
+            ))))),
+            "9fcf711cafe672b88df8b067382df45b0bd67db64d3d8836ba1a71161fc82592"
         );
     }
 

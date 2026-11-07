@@ -28,7 +28,7 @@ use vtium_platform::pty::{Pty, Size};
 use vtium_render::{
     Config as RenderConfig, DecorationColors, DrawState, Orientation, PointerShape, Profile,
 };
-use vtium_term::{Content, Mods, MouseButton, MouseEvent, MouseTracking, Terminal};
+use vtium_term::{Content, CursorStyle, Mods, MouseButton, MouseEvent, MouseTracking, Terminal};
 
 use crate::blink::Blink;
 use crate::config::{Config, keys};
@@ -1023,6 +1023,7 @@ impl Head {
     /// every character of a cluster among them, and the clusters whole,
     /// each sorted and once. The regular style comes first, shown or not,
     /// and each other style only where a cell shows it.
+    #[cfg(not(feature = "bidi"))]
     pub(crate) fn visible(&self) -> Vec<Shown> {
         use vtium_term::{Age, Attrs, Glyph};
         let palette = self.console.term.terminal.palette();
@@ -1068,10 +1069,48 @@ impl Head {
         all
     }
 
-    pub(crate) fn draw_state(&self) -> DrawState {
+    /// What the displays show, read from the view each buffer draws,
+    /// scrolled back or not (#149), as [`crate::deferred::read_shown`]
+    /// reads it: in each style a cell draws its glyph in, the characters
+    /// and the clusters, each sorted and once. The regular style comes
+    /// first, shown or not, and each other style only where a cell shows
+    /// it.
+    #[cfg(feature = "bidi")]
+    pub(crate) fn visible(&self) -> Vec<Shown> {
+        use vtium_term::Age;
         let palette = self.console.term.terminal.palette();
+        let frame = self
+            .console
+            .term
+            .terminal
+            .screen()
+            .frame(palette, Age::NEVER);
+        let mut all = vec![Shown::default()];
+        crate::deferred::read_shown(&frame, &mut all);
+        crate::deferred::settle(&mut all);
+        all
+    }
+
+    /// What the next frame draws beyond the terminal's state. A cursor
+    /// whose style blinks follows the blink timer's phase, and a steady
+    /// one (DECSCUSR 2, 4 and 6, or mode 12 reset) is drawn in every
+    /// phase. The default style blinks, since vtium leaves the host's
+    /// cursor blink on and lets the `blink` key decide whether the timer
+    /// runs.
+    pub(crate) fn draw_state(&self) -> DrawState {
+        let terminal = &self.console.term.terminal;
+        let palette = terminal.palette();
+        let blinks = match terminal.cursor_style() {
+            CursorStyle::Default
+            | CursorStyle::BlockBlink
+            | CursorStyle::UnderlineBlink
+            | CursorStyle::BarBlink => true,
+            CursorStyle::BlockSteady | CursorStyle::UnderlineSteady | CursorStyle::BarSteady => {
+                false
+            }
+        };
         DrawState {
-            cursor_on: self.console.term.blink.cursor_shown(),
+            cursor_on: !blinks || self.console.term.blink.cursor_shown(),
             blink_hidden: !self.console.term.blink.text_shown(),
             background: palette.bg(),
             pointer: self
@@ -1832,6 +1871,53 @@ mod tests {
         assert_eq!(start.report().map(|r| r.more), Some(0));
     }
 
+    // ADR-1004 D6: a row of Arabic asks the helper for each letter's
+    // joined form, keyed with U+200D on the sides it joins, for lam and
+    // alef as their ligature, and for the presentation form each of those
+    // draws where no font holds the joined form. Beh, lam and alef make
+    // beh's initial form, lam's medial and alef's final, and lam-alef's
+    // final ligature
+    // covers: text.bidi
+    #[cfg(feature = "bidi")]
+    #[test]
+    #[expect(
+        clippy::disallowed_methods,
+        clippy::panic,
+        reason = "a test's clock is the host's, and a test fails by panicking"
+    )]
+    fn a_row_of_arabic_asks_for_its_joined_forms() {
+        const ZWJ: char = '\u{200d}';
+        let (beh, lam, alef) = ('\u{628}', '\u{644}', '\u{627}');
+        let config = crate::config::load(&[], &mut |_: &std::path::Path| Ok(None)).config;
+        let clock: Clock = std::rc::Rc::new(Instant::now);
+        let mut head = Head::new(
+            "h",
+            &config,
+            Vec::new(),
+            terminal(&config, (0, 0), 0, clock),
+        );
+        head.console.term.terminal.input("بلا".as_bytes());
+        let shown = head.visible();
+        let Some(regular) = shown.first() else {
+            panic!("no style shown");
+        };
+        for key in [
+            vec![beh, ZWJ],
+            vec![ZWJ, lam, ZWJ],
+            vec![ZWJ, alef],
+            vec![ZWJ, lam, alef],
+        ] {
+            assert!(regular.clusters.contains(&key), "{key:?}: {regular:?}");
+        }
+        for form in ['\u{fe91}', '\u{fee0}', '\u{fe8e}', '\u{fefc}'] {
+            assert!(regular.chars.contains(&form), "{form:?}: {regular:?}");
+        }
+        assert!(
+            !regular.chars.contains(&ZWJ),
+            "U+200D is asked for in keys alone"
+        );
+    }
+
     // ADR-1401 D7, D9: the screen the display guard lights for a notice
     // alone draws it as a report, which keeps its next step on a display
     // too small for all of it; a head draws its notices as they come
@@ -2268,5 +2354,48 @@ mod tests {
         assert_eq!(wheel(-1, true, false, false), Wheel::Scroll { up: true });
         assert_eq!(wheel(1, true, false, true), Wheel::Zoom(Zoom::In));
         assert_eq!(wheel(-1, true, false, true), Wheel::Zoom(Zoom::Out));
+    }
+
+    // The tour's cursor page: a steady cursor (DECSCUSR 2, 4 and 6, or a
+    // blinking style that mode 12 resets) is drawn in the blink timer's
+    // off phase, and a blinking one is not.
+    // covers: DEC-12
+    #[test]
+    #[expect(clippy::disallowed_methods, reason = "a test's clock is the host's")]
+    fn a_steady_cursor_is_drawn_in_the_blink_timers_off_phase() {
+        use crate::blink::Timer;
+        let config = crate::config::load(&[], &mut |_: &std::path::Path| Ok(None)).config;
+        let clock: Clock = std::rc::Rc::new(Instant::now);
+        let term = terminal(&config, (0, 0), 0, std::rc::Rc::clone(&clock));
+        let mut head = Head::new("h", &config, Vec::new(), term);
+        head.console.term.blink = Blink::new(true);
+        assert!(head.console.term.blink.fired(Timer::Cursor, true));
+        assert!(!head.console.term.blink.cursor_shown(), "the off phase");
+        let cases: [(&[u8], bool); 11] = [
+            (b"\x1b[0 q", false),
+            (b"\x1b[1 q", false),
+            (b"\x1b[2 q", true),
+            (b"\x1b[3 q", false),
+            (b"\x1b[4 q", true),
+            (b"\x1b[5 q", false),
+            (b"\x1b[6 q", true),
+            (b"\x1b[3 q\x1b[?12l", true),
+            (b"\x1b[4 q\x1b[?12h", false),
+            (b"\x1b[5 q\x1b[?12l", true),
+            (b"\x1b[0 q\x1b[?12l", false),
+        ];
+        for (bytes, on) in cases {
+            head.console.term.terminal.input(bytes);
+            assert_eq!(
+                head.draw_state().cursor_on,
+                on,
+                "{}",
+                String::from_utf8_lossy(bytes).escape_debug()
+            );
+        }
+        // the on phase draws every style
+        assert!(head.console.term.blink.fired(Timer::Cursor, true));
+        head.console.term.terminal.input(b"\x1b[1 q");
+        assert!(head.draw_state().cursor_on);
     }
 }

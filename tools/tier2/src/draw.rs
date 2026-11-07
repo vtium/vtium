@@ -34,6 +34,12 @@ use crate::ppm::Image;
 pub enum FontKind {
     /// The built-in unifont at 16 pixels, 8x16 cells.
     Unifont,
+    /// The built-in font at 16 pixels as the console draws it for a display
+    /// with no font set, through the console's own face for it
+    /// (`vtium::font::Chosen::BUILTINS`): GNU Unifont in 8x16 cells, which
+    /// in a build with the bidi feature draws a joined Arabic letter by the
+    /// Arabic presentation form of its joined form (ADR-1004 D6).
+    Builtin,
     /// Sprites only, in the cell size of the outline font the golden was
     /// drawn with: the screen holds nothing but sprites and spaces, which draw
     /// the same in any font of that cell, so the golden judges it while
@@ -75,6 +81,71 @@ pub enum FontKind {
         color: bool,
         spacing: Option<Spacing>,
     },
+    /// A frit of `fonts`, its rows made taller by `spacing` when it is set
+    /// (ADR-1302 D13), drawn as the console draws a frit, as for
+    /// [`FontKind::Outline`]. The screen is drawn once for each of
+    /// `takes`, and the drawings are stacked from the top in their order.
+    Ink {
+        takes: &'static [Take],
+        spacing: Option<Spacing>,
+        fonts: InkFonts,
+    },
+}
+
+/// The fonts a [`FontKind::Ink`] screen draws with.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InkFonts {
+    /// The ink test font [`crate::inkfont`] builds in memory, alone in a
+    /// frit: glyphs whose ink passes their cells by known amounts.
+    Test,
+    /// The test frit of outline fonts [`crate::fonts`] fetches, without
+    /// its color emoji font: DejaVu Sans Mono's four faces, then Noto Sans
+    /// CJK, whose ink passes their cells as those fonts draw it.
+    DejaVu,
+}
+
+/// One drawing of a [`FontKind::Ink`] screen: at `height` pixels, with
+/// `tail` fed after the screen's bytes, and in the blink phase `phase`.
+/// The terminal hides the cursor before the bytes, so a tail that shows
+/// the cursor draws it, in its blink phase that shows it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Take {
+    pub height: u32,
+    pub tail: &'static [u8],
+    pub blink_hidden: bool,
+}
+
+impl Take {
+    /// A drawing at `height` pixels with nothing fed after the bytes, the
+    /// cursor hidden and blinking text shown.
+    pub const fn at(height: u32) -> Take {
+        Take {
+            height,
+            tail: b"",
+            blink_hidden: false,
+        }
+    }
+}
+
+/// The blink phases a screen's frames are drawn in: whether the cursor's
+/// shows it, and whether blinking text is in its hidden phase.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Phase {
+    pub cursor_on: bool,
+    pub blink_hidden: bool,
+}
+
+impl Phase {
+    /// What a frame of a terminal of default background `background`
+    /// needs beyond the terminal's state, in this phase.
+    pub(crate) fn state(self, background: Rgb) -> DrawState {
+        DrawState {
+            cursor_on: self.cursor_on,
+            blink_hidden: self.blink_hidden,
+            background,
+            ..DrawState::default()
+        }
+    }
 }
 
 /// Line spacing a spaced outline screen sets, and the rows it must add:
@@ -344,6 +415,11 @@ pub struct Screen {
     /// The largest texture side the GPU path's pictures use, set small so
     /// a picture is held in tiles (ADR-1303 D2).
     pub largest_texture: Option<u32>,
+    /// Bytes fed after `bytes` and before the pictures, set by a
+    /// [`Take`].
+    pub tail: &'static [u8],
+    /// The blink phases every frame is drawn in.
+    pub phase: Phase,
 }
 
 impl Screen {
@@ -380,6 +456,11 @@ impl Screen {
             made_cell: None,
             selection: None,
             largest_texture: None,
+            tail: b"",
+            phase: Phase {
+                cursor_on: false,
+                blink_hidden: false,
+            },
         }
     }
 }
@@ -459,6 +540,15 @@ pub fn draw_on(screen: &Screen, painter: &mut impl Paint) -> Result<Image, Strin
     let p = painter;
     match screen.font {
         FontKind::Unifont => draw_with(screen, || Font::new(Unifont::new(16)), p),
+        FontKind::Builtin => {
+            let face = || vtium::font::Chosen::BUILTINS.face(16, "C");
+            face().ok_or("the console has no built-in face at 16 pixels")?;
+            draw_with(
+                screen,
+                || Font::new(face().expect("a face, as it was before")),
+                p,
+            )
+        }
         FontKind::Sprites { width, height } => {
             draw_with(screen, || Font::new(SpritesOnly(Cell { width, height })), p)
         }
@@ -514,7 +604,73 @@ pub fn draw_on(screen: &Screen, painter: &mut impl Paint) -> Result<Image, Strin
             }
             Ok(img)
         }
+        FontKind::Ink {
+            takes,
+            spacing,
+            fonts,
+        } => {
+            let percent = spacing.map_or(0, |s| s.percent);
+            let fetched = crate::fonts::cache_dir();
+            let (name, text, dir) = match fonts {
+                InkFonts::Test => {
+                    let dir = crate::inkfont::dir()?;
+                    ("tier2-ink", crate::inkfont::frit_text(dir, percent), dir)
+                }
+                InkFonts::DejaVu => {
+                    crate::fonts::check(&fetched)?;
+                    let text = crate::fonts::frit_text(&fetched, false, percent);
+                    ("tier2-outline-mono", text, fetched.as_path())
+                }
+            };
+            let mut drawn = Vec::new();
+            for take in takes {
+                let one = Screen {
+                    tail: take.tail,
+                    phase: Phase {
+                        cursor_on: true,
+                        blink_hidden: take.blink_hidden,
+                    },
+                    ..*screen
+                };
+                let chosen =
+                    crate::fonts::chosen_frit((name, text.clone()), dir, take.height, |cell| {
+                        shown(&one, cell)
+                    })?;
+                crate::fonts::face_at(&chosen, take.height)?;
+                let img = draw_with(
+                    &one,
+                    || {
+                        Font::new(
+                            crate::fonts::face_at(&chosen, take.height)
+                                .expect("a face, as it was before"),
+                        )
+                    },
+                    p,
+                )
+                .map_err(|e| format!("at {} pixels: {e}", take.height))?;
+                drawn.push(img);
+            }
+            stack(&drawn)
+        }
     }
+}
+
+/// `drawn` stacked from the top, each at the left, and grey to the right
+/// of a drawing narrower than the widest, so no padding looks like a cell.
+fn stack(drawn: &[Image]) -> Result<Image, String> {
+    const PAD: [u8; 3] = [0x80, 0x80, 0x80];
+    let width = drawn.iter().map(Image::width).max().unwrap_or(0);
+    let mut rgb = Vec::new();
+    for img in drawn {
+        for y in 0..img.height() {
+            rgb.extend_from_slice(img.row(y));
+            for _ in img.width()..width {
+                rgb.extend_from_slice(&PAD);
+            }
+        }
+    }
+    let height = drawn.iter().map(Image::height).sum();
+    Image::new(width, height, rgb).ok_or_else(|| "no drawing to stack".to_owned())
 }
 
 /// Checks that `img`, `screen` drawn with `spacing`, holds in each of
@@ -566,57 +722,23 @@ fn spaced_as_plain(
 /// a cluster among them, and the clusters whole, each sorted and once,
 /// white space left out. The regular style comes first.
 pub fn shown(screen: &Screen, cell: Cell) -> Result<Vec<Shown>, String> {
-    use vtium_term::Attrs;
     let made = picture_cell(screen, cell);
     let mut term = terminal(screen, made)?;
     let mut all = vec![Shown::default()];
-    let mut read = |term: &Terminal| {
-        let frame = term.screen().frame(term.palette(), Age::NEVER);
-        for row in 0..frame.rows() {
-            for cell in frame.cells(row) {
-                let style = FontStyle {
-                    bold: cell.attrs.contains(Attrs::BOLD),
-                    italic: cell.attrs.contains(Attrs::ITALIC),
-                };
-                let at = match all.iter().position(|s| s.style == style) {
-                    Some(at) => at,
-                    None => {
-                        all.push(Shown {
-                            style,
-                            ..Shown::default()
-                        });
-                        all.len() - 1
-                    }
-                };
-                let one = &mut all[at];
-                match cell.glyph {
-                    Text::Char(c) => one.chars.push(c),
-                    Text::Cluster(text) => {
-                        one.chars.extend(text.chars());
-                        one.clusters.push(text.chars().collect());
-                    }
-                    Text::Empty => {}
-                }
-            }
-        }
+    let read = |term: &Terminal, all: &mut Vec<Shown>| {
+        vtium::deferred::read_shown(&term.screen().frame(term.palette(), Age::NEVER), all);
     };
-    read(&term);
+    read(&term, &mut all);
     if let Some(next) = screen.next {
         later(screen, &mut term, 1, made)?;
-        read(&term);
+        read(&term, &mut all);
         feed(&mut term, next)?;
         later(screen, &mut term, 2, made)?;
-        read(&term);
+        read(&term, &mut all);
         later(screen, &mut term, 3, made)?;
-        read(&term);
+        read(&term, &mut all);
     }
-    for one in &mut all {
-        one.chars.retain(|c| !c.is_whitespace());
-        one.chars.sort_unstable();
-        one.chars.dedup();
-        one.clusters.sort_unstable();
-        one.clusters.dedup();
-    }
+    vtium::deferred::settle(&mut all);
     Ok(all)
 }
 
@@ -674,11 +796,13 @@ impl Display {
 
     /// Draws the terminal's frame into the back buffer and swaps when the
     /// frame drew anything, as a display does.
-    fn frame<F: Face>(&mut self, r: &mut Renderer<F>, term: &mut Terminal, since: &mut Age) {
-        let state = DrawState {
-            background: term.palette().bg(),
-            ..DrawState::default()
-        };
+    fn frame<F: Face>(
+        &mut self,
+        r: &mut Renderer<F>,
+        (term, phase): (&mut Terminal, Phase),
+        since: &mut Age,
+    ) {
+        let state = phase.state(term.palette().bg());
         let age = self.age();
         let drew = {
             let frame = term.screen().frame(term.palette(), *since);
@@ -762,6 +886,7 @@ fn terminal(screen: &Screen, made: (u32, u32)) -> Result<Terminal, String> {
     // the cursor's blink state is not part of what is compared
     feed(&mut term, b"\x1b[?25l")?;
     feed(&mut term, screen.bytes)?;
+    feed(&mut term, screen.tail)?;
     if let Some(pictures) = screen.pictures {
         term.screen_mut().set_image_limit(1 << 26);
         term.set_image_switches(Switches {
@@ -877,22 +1002,22 @@ fn draw_config<F: Face>(
     let mut display = Display::new(w, h);
     let mut r = Renderer::new(font, w, h, config);
     let mut since = Age::NEVER;
-    display.frame(&mut r, &mut term, &mut since);
+    display.frame(&mut r, (&mut term, screen.phase), &mut since);
     if let Some(next) = screen.next {
         later(screen, &mut term, 1, made)?;
-        display.frame(&mut r, &mut term, &mut since);
+        display.frame(&mut r, (&mut term, screen.phase), &mut since);
         feed(&mut term, next)?;
         later(screen, &mut term, 2, made)?;
-        display.frame(&mut r, &mut term, &mut since);
+        display.frame(&mut r, (&mut term, screen.phase), &mut since);
         later(screen, &mut term, 3, made)?;
-        display.frame(&mut r, &mut term, &mut since);
+        display.frame(&mut r, (&mut term, screen.phase), &mut since);
         if display.buffers[0].pixels() != display.buffers[1].pixels() {
             return Err("the two buffers differ after the last frame".to_owned());
         }
         let mut fresh = Display::new(w, h);
         let mut r2 = Renderer::new(make_font(), w, h, config);
         let mut never = Age::NEVER;
-        fresh.frame(&mut r2, &mut term, &mut never);
+        fresh.frame(&mut r2, (&mut term, screen.phase), &mut never);
         if fresh.front().pixels() != display.front().pixels() {
             return Err("the frames drawn in turn differ from a fresh draw".to_owned());
         }
