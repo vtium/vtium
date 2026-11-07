@@ -110,7 +110,7 @@ fn renderer(cols: usize, rows: usize, bound: Bound) -> Renderer<Plain> {
         let pool = pool_of(false, false);
         r.compose
             .cache
-            .keep(&[c], FontWidth::Narrow, Style::default(), pool, g);
+            .keep((&[c], FontWidth::Narrow, Style::default()), pool, g, false);
     }
     r
 }

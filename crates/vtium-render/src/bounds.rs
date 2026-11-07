@@ -72,6 +72,14 @@ const FAILED: Bound = Bound {
     cite: "It bounds the table's memory however many characters a screen shows that no font holds; the table keeps no expiry, since `Renderer::glyphs_changed` and `forget_glyphs` forget the glyphs whose characters arrive",
 };
 
+const MISSING: Bound = Bound {
+    name: "MISSING_CHARS",
+    value: 1024,
+    what: "Characters the renderer keeps of the texts it drew as the font's missing glyph since the last arrival, so that the next arrival draws those cells again",
+    past: "The renderer keeps none, and the next arrival draws every cell again",
+    cite: "The maintainer's choice: past 1024 different characters, one full redraw at the next arrival costs less than keeping track of each of them, and a console rarely shows that many different characters as the missing glyph. It bounds the list's memory at 4 KiB, where a screen with no arrivals would otherwise collect characters for as long as it runs",
+};
+
 const GLYPH_TEXTURE: Bound = Bound {
     name: "GLYPH_TEXTURE_SIDE",
     value: 2048,
@@ -98,7 +106,7 @@ const IDLE: Bound = Bound {
 
 /// Every bound, in the README table's order.
 #[cfg_attr(not(test), allow(dead_code))]
-pub(crate) const BOUNDS: [Bound; 10] = [
+pub(crate) const BOUNDS: [Bound; 11] = [
     POOL_BYTES,
     ROW_SCRATCH,
     TIMER_SAMPLES,
@@ -106,6 +114,7 @@ pub(crate) const BOUNDS: [Bound; 10] = [
     PICTURE_SCREENS,
     PRESENT_FRAMES,
     FAILED,
+    MISSING,
     GLYPH_TEXTURE,
     GLYPH_CEILING,
     IDLE,
@@ -130,6 +139,13 @@ pub const PRESENT_HISTORY: usize = PRESENT_FRAMES.value;
 
 /// Glyphs the font drew nothing for that the cache remembers.
 pub(crate) const FAILED_GLYPHS: usize = FAILED.value;
+
+/// Characters of the texts drawn as the missing glyph that the renderer
+/// keeps between arrivals. Past 1024 different characters, one full redraw
+/// at the next arrival costs less than keeping track of each of them, and a
+/// console rarely shows that many different characters as the missing
+/// glyph.
+pub(crate) const MISSING_CHARS: usize = MISSING.value;
 
 /// The longer side of a GPU glyph pool's texture.
 #[cfg(feature = "gpu")]

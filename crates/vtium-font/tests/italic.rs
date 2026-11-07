@@ -7,7 +7,7 @@
 
 #![cfg(feature = "psf")]
 
-use vtium_font::{Face, Font, Psf, Style, Width};
+use vtium_font::{Drawn, Face, Font, Psf, Style, Width};
 
 const ITALIC: Style = Style {
     bold: false,
@@ -95,7 +95,11 @@ fn a_scaled_psf_glyph_leans_by_twice_the_pixels() {
     assert_eq!((rows[30], rows[31]), (Some(0), Some(0)), "moved 2 left");
     // drawn unscaled for a renderer that scales, it is the glyph at 1
     let font = Font::new(psf);
-    let (small, scale) = font
+    let Drawn {
+        glyph: small,
+        scale,
+        ..
+    } = font
         .glyph_unscaled(&['|'], Width::Narrow, ITALIC)
         .expect("the bar at 1");
     assert_eq!(
