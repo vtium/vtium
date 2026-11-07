@@ -40,7 +40,7 @@
 > send "\e[?67$p"
 < reply "\e[?67;0$y"
 > send "\e[?69$p"
-< reply "\e[?69;0$y"
+< reply "\e[?69;2$y"
 > send "\e[?95$p"
 < reply "\e[?95;0$y"
 > send "\e[?1000$p"

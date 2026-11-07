@@ -225,8 +225,8 @@ pub(crate) struct Scrollback {
     /// empties it.
     #[cfg(feature = "images")]
     anchors: BTreeMap<LineId, Vec<u32>>,
-    /// The rows read to find the oldest waiting logical line, which the
-    /// drops past `sb-memory` read.
+    /// The rows of the oldest waiting logical line read to find it and to
+    /// cut it, which the drops past `sb-size` and `sb-memory` read.
     rows_read: RowsRead,
 }
 
@@ -281,12 +281,34 @@ struct Waiting {
     /// (ADR-1003, "Images").
     #[cfg(feature = "images")]
     fresh: BTreeSet<LineId>,
+    /// What a cut by length left of the oldest logical line, while nothing
+    /// else has changed the rows since.
+    head: Head,
+}
+
+/// The rows of the oldest waiting logical line and the rows it takes at
+/// the width, kept after a cut by length so that the next cut need not
+/// read the line again. A line kept here breaks by length, its marks are
+/// cleared, and no row before it is ready. Anything else that changes the
+/// waiting rows forgets it. It is derived from the rows, so two waiting
+/// sets compare equal whether or not they keep it.
+#[derive(Clone, Copy, Debug, Default)]
+struct Head(Option<(usize, usize)>);
+
+impl PartialEq for Head {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
 }
 
 impl Waiting {
     /// The rows of the oldest logical line not yet rewrapped, and how many
-    /// it takes at `width`, with the line's rows counted in `read`.
+    /// it takes at `width`, with the line's rows counted in `read` when
+    /// they are read and not kept from a cut.
     fn oldest(&self, read: &RowsRead) -> (usize, usize) {
+        if let Some(kept) = self.head.0.filter(|_| self.ready == 0) {
+            return kept;
+        }
         let rows = self.rows.range(self.ready..);
         let len = line_len(rows.clone());
         read.add(len);
@@ -320,6 +342,7 @@ impl Waiting {
     fn count(&mut self, width: usize, next_id: &mut u64) {
         self.width = width;
         self.ready = 0;
+        self.head = Head::default();
         for row in &mut self.rows {
             if !reflow::rewraps(row) && row.len() > width {
                 row.resize(width);
@@ -369,6 +392,7 @@ impl Waiting {
         next_id: &mut u64,
         cols: impl Fn(LineId) -> Vec<u32>,
     ) -> (usize, Vec<Move>) {
+        self.head = Head::default();
         let len = line_len(self.rows.range(at..));
         let end = at.saturating_add(len);
         let (mut places, from) = anchor_places(self.rows.range(at..end), cols);
@@ -502,28 +526,31 @@ pub(crate) struct Taken {
 
 /// Splits the logical line starting at `start` of `rows` after `head`
 /// cells of its text, a row's text ending there or the row holding it cut
-/// in two. Returns the index of the first row after the split, and whether
-/// a cut row's second part was inserted, moving the rows after it on by
-/// one.
-fn split_line(rows: &mut VecDeque<Line>, start: usize, head: usize) -> (usize, bool) {
+/// in two. Returns the index of the first row after the split; whether a
+/// cut row's second part was inserted, moving the rows after it on by one;
+/// and what the rows from `start` to that index cost before the split, the
+/// cut row whole.
+fn split_line(rows: &mut VecDeque<Line>, start: usize, head: usize) -> (usize, bool, usize) {
     let mut cells = 0usize;
     let mut at = start;
+    let mut before = 0usize;
     while let Some(row) = rows.get_mut(at) {
         let len = reflow::text_len(row);
         let past = head.saturating_sub(cells);
         if past == 0 {
-            return (at, false);
+            return (at, false, before);
         }
+        before = before.saturating_add(cost(row));
         if past < len {
             let tail = row.split_text(past);
             let next = at.saturating_add(1);
             rows.insert(next, tail);
-            return (next, true);
+            return (next, true, before);
         }
         cells = cells.saturating_add(len);
         at = at.saturating_add(1);
     }
-    (at, false)
+    (at, false, before)
 }
 
 /// The rows of the logical line that `rows` starts with.
@@ -562,8 +589,8 @@ impl Scrollback {
         }
     }
 
-    /// The rows read to find the oldest waiting logical line since the
-    /// scrollback was made.
+    /// The rows of the oldest waiting logical line read to find it and to
+    /// cut it since the scrollback was made.
     pub(crate) fn rows_read(&self) -> usize {
         self.rows_read.get()
     }
@@ -606,6 +633,7 @@ impl Scrollback {
     /// Changes every row, waiting and rewrapped, oldest first, with `f`
     /// until it returns false; the byte count follows what it changed.
     pub(crate) fn rows_mut_while(&mut self, mut f: impl FnMut(&mut Line) -> bool) {
+        self.waiting.head = Head::default();
         let rows = self.waiting.rows.iter_mut().chain(self.lines.iter_mut());
         for line in rows {
             let before = cost(line);
@@ -779,14 +807,18 @@ impl Scrollback {
     }
 
     /// Drops the `n` oldest rows. A waiting logical line dropped whole is
-    /// never rewrapped; one cut is rewrapped first. A view on a later line
-    /// stays on it, and a view on a dropped line moves to the next.
+    /// never rewrapped. One cut that breaks by length loses its first `n`
+    /// widths of text as they are, and keeps what the cut left of it as its
+    /// [`Head`], so a cut a row at a time reads only the rows it cuts. Any
+    /// other line cut is rewrapped first. A view on a later line stays on
+    /// it, and a view on a dropped line moves to the next.
     fn drop_oldest(&mut self, mut n: usize) {
         let (mut gone, mut made_bytes) = (0usize, 0usize);
         let w = &mut self.waiting;
         while n > 0 && w.count > 0 {
             if w.ready == 0 {
                 let (len, rows) = w.oldest(&self.rows_read);
+                let cut_before = mem::take(&mut w.head).0.is_some();
                 let extra = u64::try_from(rows.saturating_sub(1)).unwrap_or(0);
                 if w.take_fresh(0) {
                     // Held rewrapped already: its rows are ready as they
@@ -795,8 +827,8 @@ impl Scrollback {
                     w.ids.start = w.ids.start.saturating_add(extra).min(w.ids.end);
                     continue;
                 }
-                gone = gone.saturating_add(charge(w.rows.range(..len)));
                 if rows <= n {
+                    gone = gone.saturating_add(charge(w.rows.range(..len)));
                     #[cfg(feature = "images")]
                     let dropped: Vec<LineId> = w.rows.range(..len).map(Line::id).collect();
                     w.rows.drain(..len);
@@ -810,20 +842,27 @@ impl Scrollback {
                     }
                     continue;
                 }
-                if reflow::breaks_by_length(w.rows.range(..len)) {
+                if cut_before || reflow::breaks_by_length(w.rows.range(..len)) {
                     // The line's first `n` rows hold its first `n` widths
-                    // of text: they go unrewrapped. What is left starts
-                    // with the row the n-th id was reserved for, and its
-                    // marks went with the first row.
-                    let (at, inserted) = split_line(&mut w.rows, 0, n.saturating_mul(w.width));
+                    // of text: they go unrewrapped, and the cut reads only
+                    // the rows it passes. What is left starts with the row
+                    // the n-th id was reserved for, and its marks went with
+                    // the first row, cleared once, at the line's first cut.
+                    let (at, inserted, cut) = split_line(&mut w.rows, 0, n.saturating_mul(w.width));
+                    self.rows_read.add(at);
+                    gone = gone.saturating_add(cut);
                     #[cfg(feature = "images")]
                     let dropped: Vec<LineId> = w.rows.range(..at).map(Line::id).collect();
                     w.rows.drain(..at);
-                    let kept = len.saturating_add(usize::from(inserted)).saturating_sub(at);
-                    made_bytes = made_bytes.saturating_add(charge(w.rows.range(..kept)));
-                    let left = line_len(w.rows.iter());
-                    for row in w.rows.iter_mut().take(left) {
-                        row.flags_mut().remove(LineFlags::MARKS);
+                    if inserted {
+                        made_bytes = made_bytes.saturating_add(w.rows.front().map_or(0, cost));
+                    }
+                    let left = len.saturating_add(usize::from(inserted)).saturating_sub(at);
+                    if !cut_before {
+                        self.rows_read.add(left);
+                        for row in w.rows.iter_mut().take(left) {
+                            row.flags_mut().remove(LineFlags::MARKS);
+                        }
                     }
                     let skipped = u64::try_from(n).unwrap_or(u64::MAX);
                     if let Some(first) = w.rows.front_mut() {
@@ -833,6 +872,7 @@ impl Scrollback {
                     }
                     w.ids.start = w.ids.start.saturating_add(skipped).min(w.ids.end);
                     w.count = w.count.saturating_sub(n);
+                    w.head = Head(Some((left, rows.saturating_sub(n))));
                     #[cfg(feature = "images")]
                     {
                         let next = w.rows.front().map(Line::id);
@@ -841,6 +881,7 @@ impl Scrollback {
                     n = 0;
                     continue;
                 }
+                gone = gone.saturating_add(charge(w.rows.range(..len)));
                 let mut next_id = w.ids.start;
                 let mut made = Vec::with_capacity(rows);
                 reflow::rewrap_line(
@@ -897,6 +938,7 @@ impl Scrollback {
         if w.rows.is_empty() {
             return 0;
         }
+        w.head = Head::default();
         let (len, rows) = w.newest();
         let from = w.rows.len().saturating_sub(len);
         let gone = charge(w.rows.range(from..));
@@ -1022,7 +1064,7 @@ impl Scrollback {
             let anchored = false;
             if need < rows && !anchored && reflow::breaks_by_length(w.rows.range(start..end)) {
                 let head = rows.saturating_sub(need).saturating_mul(width);
-                let (at, inserted) = split_line(&mut w.rows, start, head);
+                let (at, inserted, _) = split_line(&mut w.rows, start, head);
                 from = at;
                 base = base.saturating_add(usize::from(inserted));
                 continues = true;
@@ -1078,6 +1120,7 @@ impl Scrollback {
         if marks == LineFlags::empty() {
             return;
         }
+        self.waiting.head = Head::default();
         let (len, _) = self.waiting.newest();
         let first = self.waiting.rows.len().saturating_sub(len);
         if let Some(row) = self.waiting.rows.get_mut(first) {

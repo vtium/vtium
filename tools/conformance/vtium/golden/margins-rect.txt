@@ -1,0 +1,40 @@
+checkpoint 133
+size 10x5
+cursor 2,1
+flags AUTO_WRAP|REL_ORIGIN
+row 0 |0123456789|
+row 1 |abxxefghij|
+row 2 |ABxxEFGHIJ|
+row 3 |klmno**rst|
+row 4 |KLMNOPQRST|
+checkpoint 150
+size 10x5
+cursor 2,1
+flags AUTO_WRAP|REL_ORIGIN
+row 0 |0123456789|
+row 1 |abxxexxhij|
+row 2 |ABxxEFGHIJ|
+row 3 |klmno**rst|
+row 4 |KLMNOPQRST|
+checkpoint 163
+size 10x5
+cursor 2,1
+flags AUTO_WRAP|REL_ORIGIN
+row 0 |0123456789|
+row 1 |abxxexxhij|
+row 2 |ABxxEFGHIJ|
+attr 2 3-9 bold
+row 3 |klmno**rst|
+attr 3 0-4 bold
+row 4 |KLMNOPQRST|
+checkpoint 174
+size 10x5
+cursor 2,1
+flags AUTO_WRAP|REL_ORIGIN
+row 0 |0123456789|
+row 1 |ab     hij|
+row 2 |AB     HIJ|
+attr 2 7-9 bold
+row 3 |kl     rst|
+attr 3 0-1 bold
+row 4 |KLMNOPQRST|

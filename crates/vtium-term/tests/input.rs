@@ -11,7 +11,7 @@
 mod common;
 
 use common::term;
-use vtium_term::{Mods, MouseButton, MouseEvent, Terminal};
+use vtium_term::{Key, Mods, MouseButton, MouseEvent, Terminal};
 
 const BACKSPACE: u32 = 0xff08;
 const TAB: u32 = 0xff09;
@@ -27,7 +27,7 @@ const CYRILLIC_ES: u32 = 0x6d3;
 
 fn key(t: &mut Terminal, sym: u32, ascii: u32, mods: Mods, c: Option<char>) -> Vec<u8> {
     t.take_replies();
-    t.key(sym, ascii, mods, c);
+    t.key(&Key::press(sym, ascii, mods, c));
     t.take_replies()
 }
 
@@ -121,7 +121,7 @@ fn keys_send_xterms_legacy_encoding() {
     assert_eq!(key(&mut t, F1 + 11, 0, none, None), b"\x1b[24~");
     assert_eq!(key(&mut t, F1 + 11, 0, Mods::SHIFT, None), b"\x1b[24;2~");
     assert!(
-        !t.key(0xffe1, 0, Mods::SHIFT, None),
+        !t.key(&Key::press(0xffe1, 0, Mods::SHIFT, None)),
         "Shift alone sends nothing"
     );
 }

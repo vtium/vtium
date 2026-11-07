@@ -27,4 +27,4 @@ DISPLAYS        DISPLAY RULES       HEADS       LOOKS           INPUT RULES     
 
 
 
- Tab ←→ columns  ↑↓ move  Enter open  Space tag  c connect  f follow  d devices  ? route  q quit
+ ←→ columns  ↑↓ move  Tab next view  Enter open  Space tag  c connect  f follow  d devices  q quit

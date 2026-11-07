@@ -638,13 +638,13 @@ fn the_underline_and_strike_through_follow_the_fonts_tables() {
     assert_eq!(lines(ttf::test_mono()), (18, 1, 12, 1), "neither");
 }
 
-// A font with no `post` table takes the underline a fourteenth of the
-// cell thick, as when FreeType gives no underline thickness, whatever the
-// OS/2 strikeout's size (review finding 3; swash gives that size as the
-// stroke's when `post` is missing). Test Mono at 20 pixels, baseline 16,
-// with an OS/2 strikeout 100 units thick, 2 rows, and no `post`: the
-// underline floor(20 / 14) = 1 row thick, centred 1.5 rows above the
-// bottom, row 18; the strike-through 2 rows thick from OS/2
+// A font with no `post` table takes the underline a fourteenth of the cell
+// thick, as when FreeType gives no underline thickness, whatever the OS/2
+// strikeout's size (swash gives that size as the stroke's when `post` is
+// missing). Test Mono at 20 pixels, baseline 16, with an OS/2 strikeout 100
+// units thick, 2 rows, and no `post`: the underline floor(20 / 14) = 1 row
+// thick, centred 1.5 rows above the bottom, row 18; the strike-through 2
+// rows thick from OS/2
 #[test]
 fn a_font_with_no_post_table_takes_the_underline_from_the_cell() {
     let font = ttf::Font {
@@ -704,13 +704,12 @@ fn the_strike_through_takes_os2s_size_and_the_x_height() {
 }
 
 // The lowest ink comes from the image's box, which swash keeps to rows of
-// ink (review finding A10): a row whose coverage rounds to 0 is not in
-// it, so it raises nothing. A font
-// of 16,384 units to the em, ascent 13,107 and descent 3,277, at 20
-// pixels has its baseline on row 16 and four rows under it; its
-// underscore reaches 3,361 units, 4.0005 pixels, below the baseline: the
-// row past the cell would hold 0.0005 of a pixel's coverage, which rounds
-// to 0, and the baseline stays on row 16
+// ink: a row whose coverage rounds to 0 is not in it, so it raises nothing.
+// A font of 16,384 units to the em, ascent 13,107 and descent 3,277, at 20
+// pixels has its baseline on row 16 and four rows under it; its underscore
+// reaches 3,361 units, 4.0005 pixels, below the baseline: the row past the
+// cell would hold 0.0005 of a pixel's coverage, which rounds to 0, and the
+// baseline stays on row 16
 #[test]
 fn the_lowest_ink_is_measured_on_the_pixels() {
     let font = ttf::Font {

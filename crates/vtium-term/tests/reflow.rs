@@ -901,20 +901,56 @@ fn drop_work(rows: usize) -> (usize, usize) {
     (asked, t.screen().scrollback_rows_read() - before)
 }
 
-// vtium/vtium#131's review: dropping past `sb-memory` from a waiting line
-// that breaks by length drops as many rows at once as free the excess, so
-// the work is linear in the rows dropped. A drop a row at a time reread
-// the waiting line for each row it dropped: four times the rows took
-// sixteen times as long, and the drop asked the allocator for memory at
-// least once for each row. Dropped in batches, the drop reads each row of
-// the line a few times at most and asks the allocator fewer than once for
-// every 10 rows.
+// vtium/vtium#131: dropping past `sb-memory` from a waiting line that
+// breaks by length drops as many rows at once as free the excess, so the
+// work is linear in the rows dropped. A drop a row at a time would reread
+// the waiting line for each row it drops, so four times the rows would take
+// sixteen times as long, and it would ask the allocator for memory at least
+// once for each row. Dropped in batches, the drop reads each row of the
+// line a few times at most and asks the allocator fewer than once for every
+// 10 rows.
 #[test]
 fn dropping_past_the_byte_budget_is_linear() {
     for rows in [2000, 8000] {
         let (asked, read) = drop_work(rows);
         assert!(asked * 10 < rows, "{rows} rows asked {asked} times");
         assert!(read <= 4 * rows, "{rows} rows read {read} rows");
+    }
+}
+
+/// The rows the scrollback reads in its oldest waiting logical line while
+/// `pushes` lines each push one row out of it: the line is `rows` rows of
+/// text with no wide character, waiting after a narrowing, and `sb-size`
+/// is `rows`, so each new line cuts one row from its front.
+fn push_work(rows: usize, pushes: usize) -> usize {
+    let mut t = Terminal::new(100, 4, 100_000);
+    t.screen_mut().set_scrollback_max(100_000);
+    t.screen_mut().set_scrollback_memory(1 << 30);
+    t.input("x".repeat(100 * rows).as_bytes());
+    t.input(b"\r\n");
+    t.screen_mut().resize(99, 4);
+    t.screen_mut().set_scrollback_max(rows);
+    let before = t.screen().scrollback_rows_read();
+    for _ in 0..pushes {
+        t.input(b"y\r\n");
+    }
+    t.screen().scrollback_rows_read() - before
+}
+
+// vtium/vtium#146: a push that cuts a row from the front of a long waiting
+// line reads only the rows it cuts. The scrollback keeps the line's row
+// count once it has read it, and a cut clears the line's marks once, so
+// the pushes behind a line four times as long read no more rows. A push
+// that read the whole remaining line would read millions of rows here.
+#[test]
+fn pushing_behind_a_long_waiting_line_is_linear() {
+    let pushes = 2000;
+    for rows in [2000, 8000] {
+        let read = push_work(rows, pushes);
+        assert!(
+            read <= 4 * pushes,
+            "{pushes} pushes behind {rows} rows read {read} rows"
+        );
     }
 }
 

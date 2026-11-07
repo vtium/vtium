@@ -1889,8 +1889,8 @@ mod tests {
     }
 
     // a negative advance, which a shaped cluster's pen sum can give, is
-    // taken as 0 (review finding A9): in a 12-pixel cell the pen goes half the cell in, column 6,
-    // where an unclamped advance of -10 would put it at column 11
+    // taken as 0: in a 12-pixel cell the pen goes half the cell in, column
+    // 6, where an unclamped advance of -10 would put it at column 11
     #[test]
     fn a_negative_advance_is_taken_as_none() {
         let cell = Cell {

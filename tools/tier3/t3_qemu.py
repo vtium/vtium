@@ -13,9 +13,11 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import socket
 import struct
 import subprocess
+import tempfile
 import time
 
 import t3img
@@ -27,6 +29,20 @@ MEMORY_MB = 4096
 
 # A unix socket path, with its terminating NUL, must fit sun_path (108 bytes).
 SUN_PATH_MAX = 107
+
+# How the name of each QEMU's socket directory (socket_dir) starts.
+SOCKET_DIR_PREFIX = "vtium-t3-"
+
+
+def socket_dir():
+    """A new directory for one QEMU's unix sockets, readable by this user
+    only, with a short path of its own: under $XDG_RUNTIME_DIR when the
+    session has one, else under the system's temporary directory. A path
+    under the checkout passes sun_path's limit when the checkout's own path
+    is long, so the sockets never live there."""
+    runtime = os.environ.get("XDG_RUNTIME_DIR")
+    parent = runtime if runtime and os.path.isabs(runtime) and os.path.isdir(runtime) else None
+    return tempfile.mkdtemp(prefix=SOCKET_DIR_PREFIX, dir=parent)
 
 # Seconds a QMP command may take before QEMU counts as wedged.
 QMP_TIMEOUT = 30
@@ -50,12 +66,24 @@ class Qemu:
         self.workdir = workdir
         self.log = log
         self.capture = capture
-        self.sock_path = os.path.join(workdir, "qmp.sock")
-        self.vnc_path = os.path.join(workdir, "vnc.sock")
+        # The sockets go in a directory of their own with a short path
+        # (socket_dir), and the files QEMU writes go in `workdir`. stop()
+        # removes the socket directory, as does a start that fails.
+        self.sockets = socket_dir()
+        try:
+            self._start(disks, device, display, net, cpus, memory_mb, extra, heads, agent)
+        except BaseException:
+            shutil.rmtree(self.sockets, ignore_errors=True)
+            raise
+
+    def _start(self, disks, device, display, net, cpus, memory_mb, extra, heads, agent):
+        workdir, log, capture = self.workdir, self.log, self.capture
+        self.sock_path = os.path.join(self.sockets, "qmp.sock")
+        self.vnc_path = os.path.join(self.sockets, "vnc.sock")
         # A head after a device's first is connected only once a display
         # sets its size, so each in `heads`, (device id, head, (w, h)), gets
         # a VNC server of its own, through which the size is set.
-        heads = [(dev, head, size, os.path.join(workdir, "vnc%d.sock" % n))
+        heads = [(dev, head, size, os.path.join(self.sockets, "vnc%d.sock" % n))
                  for n, (dev, head, size) in enumerate(heads, 1)]
         # ttyS0 is the guest's console. ttyS1 carries the scenario's events
         # (guest/setup), so the driver can wait for a login or a drawn screen.
@@ -63,7 +91,7 @@ class Qemu:
         self.events = os.path.join(workdir, "events.log")
         # ttyS2, for a variant that runs the agent (guest/t3-agent), carries
         # the driver's requests and the agent's answers over a unix socket.
-        self.agent_path = os.path.join(workdir, "ttyS2") if agent else None
+        self.agent_path = os.path.join(self.sockets, "ttyS2") if agent else None
         self.agent_sock = None
         self.agent_buf = b""
         self.asked = 0
@@ -72,9 +100,9 @@ class Qemu:
         for p in sockets:
             if len(os.fsencode(p)) > SUN_PATH_MAX:
                 raise RuntimeError("socket path is %d bytes, over the %d a unix "
-                                   "socket allows; use a checkout with a shorter "
-                                   "path: %s" % (len(os.fsencode(p)), SUN_PATH_MAX, p))
-        for p in (*sockets, self.serial, self.events):
+                                   "socket allows; set XDG_RUNTIME_DIR or TMPDIR to a "
+                                   "shorter directory: %s" % (len(os.fsencode(p)), SUN_PATH_MAX, p))
+        for p in (self.serial, self.events):
             if os.path.exists(p):
                 os.unlink(p)
         args = ["qemu-system-x86_64", "-machine", "q35,accel=kvm", "-cpu", "host",
@@ -357,6 +385,7 @@ class Qemu:
         if self.agent_sock:
             self.agent_sock.close()
         self.qemu_log.close()
+        shutil.rmtree(self.sockets, ignore_errors=True)
 
 
 def _recv_exact(sock, n):

@@ -226,6 +226,19 @@ pub const SEQUENCES: &[&str] = &[
     "\x1b[1;2;4;9;1;44$r",
     "\x1b[2;2;3;3;4:3;38:2::1:2:3$r",
     "\x1b[1;1;9;9;0;7$t",
+    // Left and right margins: DECLRMM, DECSLRM, DECRQSS of them, DECIC,
+    // DECDC, DECBI and DECFI.
+    "\x1b[?69h",
+    "\x1b[?69l",
+    "\x1b[3;9s",
+    "\x1b[2;5s",
+    "\x1b[s",
+    "\x1b[u",
+    "\x1bP$qs\x1b\\",
+    "\x1b['}",
+    "\x1b[2'~",
+    "\x1b6",
+    "\x1b9",
 ];
 
 /// A byte stream from the grammar: text and sequences in random order.

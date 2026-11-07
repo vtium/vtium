@@ -1636,7 +1636,8 @@ pub fn rules(path: &std::path::Path, file: &crate::config::File) -> Start {
 /// names (ADR-1401 D3), by its index. A display a rule sends `dark`, or
 /// that no rule claims, joins none: the error is its log line, which for
 /// a display no rule claims carries the rule that would give it the first
-/// head, ready to paste.
+/// head, ready to paste, or, when vtium.conf declares no head, says to
+/// declare one first and writes the rule for it.
 pub fn place_display(
     rules: &vtium_settings::Config,
     display: &vtium_settings::Identity,
@@ -1649,14 +1650,19 @@ pub fn place_display(
             "display {name} stays off: the rule on line {line} of vtium.conf sends it to off"
         )),
         _ => {
-            let target = rules.heads.first().map_or("console", |h| h.name.as_str());
-            let rule = vtium_settings::rule_for(display, target).map_or_else(
-                || "it reports nothing a rule can match".to_owned(),
-                |rule| format!("add the rule `{rule}` to give it a head"),
-            );
-            Err(format!(
-                "display {name} stays off: no rule in vtium.conf matches it; {rule}"
-            ))
+            let unclaimed = format!("display {name} stays off: no rule in vtium.conf matches it");
+            // with no head declared, the rule is written for the head the
+            // person declares first, NAME standing for its name
+            let first = rules.heads.first().map(|h| h.name.as_str());
+            let Some(rule) = vtium_settings::rule_for(display, first.unwrap_or("NAME")) else {
+                return Err(format!("{unclaimed}; it reports nothing a rule can match"));
+            };
+            Err(match first {
+                Some(_) => format!("{unclaimed}; add the rule `{rule}` to give it a head"),
+                None => format!(
+                    "{unclaimed}, and vtium.conf declares no head to give it. Declare a head first with a `[head NAME]` section, then add the rule `{rule}`."
+                ),
+            })
         }
     }
 }
@@ -2054,9 +2060,9 @@ mod tests {
         assert!(head.refont, "every renderer is rebuilt");
     }
 
-    // ADR-1401 D5, binary-review's finding 3: the console the close chord
-    // closes is told nothing: no focus-out joins what it owed its program,
-    // and nothing it owed is sent; the console shown next gains the focus.
+    // ADR-1401 D5: the console the close chord closes is told nothing: no
+    // focus-out joins what it owed its program, and nothing it owed is
+    // sent; the console shown next gains the focus.
     #[test]
     #[expect(
         clippy::disallowed_methods,
@@ -2259,6 +2265,30 @@ mod tests {
         );
     }
 
+    // #189: a display no rule claims, under a vtium.conf that declares no
+    // head or whose every head an error dropped, is told to declare a head
+    // first, and its rule names no head the file lacks
+    #[test]
+    fn a_display_no_rule_claims_with_no_head_declared_is_told_to_declare_one() {
+        let path = std::path::Path::new("/etc/vtium/vtium.conf");
+        let off = include_str!("../../../docs/heads/off.conf");
+        let broken = "version = 1\npolicy = closed\n[head desk]\nfocs = 1\n[rules]\ndisplay connector:pci-0000:03:00.0/DP-2 -> desk\n";
+        let display = vtium_settings::Identity {
+            connector: Some("HDMI-A-1".to_owned()),
+            card: Some("pci-0000:03:00.0".to_owned()),
+            ..vtium_settings::Identity::display()
+        };
+        for text in [off, broken] {
+            let start = Start::trusted(path, text.as_bytes());
+            assert!(start.rules.heads.is_empty(), "{text}");
+            assert_eq!(
+                place_display(&start.rules, &display),
+                Err("display HDMI-A-1 stays off: no rule in vtium.conf matches it, and vtium.conf declares no head to give it. Declare a head first with a `[head NAME]` section, then add the rule `display connector:pci-0000:03:00.0/HDMI-A-1 -> NAME`.".to_owned()),
+                "{text}"
+            );
+        }
+    }
+
     // ADR-1001, "Memory": left to its default, a console's scrollback
     // budget follows its grid, what the 16 MiB minspec peak leaves after
     // its two screens, so the 170 by 48 minspec grid gets less than a
@@ -2356,9 +2386,9 @@ mod tests {
         assert_eq!(wheel(-1, true, false, true), Wheel::Zoom(Zoom::Out));
     }
 
-    // The tour's cursor page: a steady cursor (DECSCUSR 2, 4 and 6, or a
-    // blinking style that mode 12 resets) is drawn in the blink timer's
-    // off phase, and a blinking one is not.
+    // A steady cursor (DECSCUSR 2, 4 and 6, or a blinking style that mode
+    // 12 resets) is drawn in the blink timer's off phase, and a blinking
+    // one is not.
     // covers: DEC-12
     #[test]
     #[expect(clippy::disallowed_methods, reason = "a test's clock is the host's")]

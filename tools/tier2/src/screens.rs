@@ -220,6 +220,27 @@ const STRIKE: &[u8] = concat!(
 )
 .as_bytes();
 
+/// The `conceal` screen.
+const CONCEAL: &[u8] = concat!(
+    "\x1b[8msecret\x1b[0m shown after a concealed word\r\n",
+    "\x1b[8;4;9;53mlined\x1b[0m its underline, strike and overline hidden\r\n",
+    "\x1b[8;41mon red\x1b[0m \x1b[8;7mreversed\x1b[0m \x1b[8;1;3mbold italic\x1b[0m\r\n",
+    "password: \x1b[8mhunter2\x1b[28m revealed\x1b[0m\r\n",
+)
+.as_bytes();
+
+/// The `overline` screen.
+const OVERLINE: &[u8] = concat!(
+    "\x1b[53moverlined gjpqy \u{c9}\u{c5}\x1b[0m plain\r\n",
+    "\x1b[53;31mred over\x1b[0m \x1b[53;42mover on green\x1b[0m\r\n",
+    "\x1b[53;4mover and under\x1b[0m \x1b[53;9mover and strike\x1b[0m\r\n",
+    "\x1b[1;53mbold over\x1b[0m \x1b[7;53mreversed over\x1b[0m\r\n",
+    "\x1b[53m      \x1b[0m overlined spaces\r\n",
+    "\x1b[53mtwo rows\x1b[0m\r\n",
+    "\x1b[53moverlined\x1b[0m\r\n",
+)
+.as_bytes();
+
 /// The `deco-config` screen.
 /// Also the `deco-force` screen's.
 const DECO_CONFIG: &[u8] = concat!(
@@ -1633,6 +1654,28 @@ const BASE: &[Case] = &[
     },
     Case {
         screen: Screen {
+            ..Screen::new(
+                "conceal-unifont",
+                "Concealed text (SGR 8) alone, with an underline, a strike and an overline, on red, reversed, in bold italic, and revealed by SGR 28 after a password. In unifont. Correct: each concealed cell shows its background alone, red under `on red` and the light foreground under `reversed`, with no letter and no line; the text around them and `revealed` draw as usual.",
+                CONCEAL,
+                48,
+                10,
+            )
+        },
+    },
+    Case {
+        screen: Screen {
+            ..Screen::new(
+                "overline-unifont",
+                "Overline (SGR 53) alone, over descenders and accented capitals, in color, on a background, with an underline, with a strike, in bold, reversed, over spaces, and on two rows one above the other. In unifont. Correct: a line along the top row of every overlined cell, the spaces included, in the text color, drawn over the accents; the underline and strike beside it as usual.",
+                OVERLINE,
+                48,
+                10,
+            )
+        },
+    },
+    Case {
+        screen: Screen {
             decorations: DECO_CONF,
             ..Screen::new(
                 "deco-config-unifont",
@@ -2190,6 +2233,24 @@ const BASE: &[Case] = &[
             "strike",
             "Strike-through (SGR 9) alone, in color, on a background, with straight and curly underlines, in bold, in reverse, and over spaces. In DejaVu Sans Mono at 16 pixels, the strike placed where the font's own tables put it. Correct: a line through every struck cell, the spaces included, at the same height in every cell.",
             STRIKE,
+            48,
+            10,
+        ),
+    },
+    Case {
+        screen: outline(
+            "conceal",
+            "Concealed text (SGR 8) alone, with an underline, a strike and an overline, on red, reversed, in bold italic, and revealed by SGR 28 after a password. In DejaVu Sans Mono at 16 pixels. Correct: each concealed cell shows its background alone, red under `on red` and the light foreground under `reversed`, with no letter, no line and no ink from a neighbour's glyph; the text around them and `revealed` draw as usual.",
+            CONCEAL,
+            48,
+            10,
+        ),
+    },
+    Case {
+        screen: outline(
+            "overline",
+            "Overline (SGR 53) alone, over descenders and accented capitals, in color, on a background, with an underline, with a strike, in bold, reversed, over spaces, and on two rows one above the other. In DejaVu Sans Mono at 16 pixels. Correct: a line along the top row of every overlined cell, the spaces included, in the text color, drawn over the accents; the underline and strike beside it at the lines the font's tables give.",
+            OVERLINE,
             48,
             10,
         ),

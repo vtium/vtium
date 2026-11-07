@@ -150,7 +150,7 @@ Root needs no sudo. Run as root, `vtium config` keeps root's own drafts under ro
 
 ## The TUI
 
-`vtium config tui` opens vtium-config's full-screen view of the configuration, its TUI, in the terminal you run it in. It needs a terminal of at least 80 by 25 cells; below that it shows only the size it needs and the commands, which work at any size. Its views are Flow, Looks, Fonts, Settings and Help, and Tab steps through them. It opens on Flow.
+`vtium config tui` opens vtium-config's full-screen view of the configuration, its TUI, in the terminal you run it in. It needs a terminal of at least 80 by 25 cells; below that it shows only the size it needs and the commands, which work at any size. Its views are Flow, Looks, Fonts, Settings and Help, and it opens on Flow. Tab moves to the next view and Shift-Tab to the one before, wherever the selection is. The arrow keys move inside a view. While a card, a list, or a value you are typing is open, Tab does nothing. Press Esc to close it first. While a question waits for your answer, Tab answers no.
 
 The Flow view draws the draft as six columns, from left to right: the displays, the display rules, the heads, their looks, the input rules and the input devices. Each column has a color of its own, from the console's sixteen colors; displays, heads, looks and input devices are blocks of color, rules are colored text, and lines join each device to the rule that places it and each rule to its target. With `NO_COLOR` set, or in a terminal without color, the view draws the same text without color, each block's text in brackets.
 
@@ -158,8 +158,9 @@ The view places the devices plugged in now on the draft's rules, and follows the
 
 | Key | What it does |
 |---|---|
-| Tab, Left and Right | move between the columns; Tab past the last column moves to the next view |
+| Left and Right | move between the columns |
 | Up and Down | move within a column |
+| Tab and Shift-Tab | move to the next view and to the one before |
 | Enter | opens the selected item's card below the columns, to change its properties |
 | Space | tags the selected item, or untags it |
 | `c` | connects the tagged items: it turns the path they make into changes in the draft |

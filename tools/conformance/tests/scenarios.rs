@@ -149,8 +149,13 @@ fn the_parser_refuses_bad_files_and_says_what_a_good_one_has() {
         ),
         (
             "key-a",
-            "# spec: x\nsize 4 1\nkey Up mods=meta\n",
+            "# spec: x\nsize 4 1\nkey Up mods=super\n",
             "does not name modifiers",
+        ),
+        (
+            "mouse-a",
+            "# spec: x\nsize 4 1\nmouse press left at 0,0 mods=num\n",
+            "names a modifier a pointer event does not carry",
         ),
         (
             "key-a",

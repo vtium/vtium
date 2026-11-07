@@ -1,0 +1,84 @@
+checkpoint 108
+size 10x5
+cursor 4,2
+flags AUTO_WRAP
+palette legacy fg=#e5e5e5 bg=#000000
+changed 50
+frame-cursor 4,2 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 |0123456789|
+row 1 |abcd efhij|
+row 2 |ABCD EFHIJ|
+row 3 |klmn oprst|
+row 4 |KLMNOPQRST|
+checkpoint 113
+size 10x5
+cursor 4,2
+flags AUTO_WRAP
+palette legacy fg=#e5e5e5 bg=#000000
+changed 9
+frame-cursor 4,2 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 |0123456789|
+row 1 |abcdf  hij|
+row 2 |ABCDF  HIJ|
+row 3 |klmnp  rst|
+row 4 |KLMNOPQRST|
+checkpoint 133
+size 10x5
+cursor 4,0
+flags AUTO_WRAP
+palette legacy fg=#e5e5e5 bg=#000000
+changed 0
+frame-cursor 4,0 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 |0123456789|
+row 1 |abcdf  hij|
+row 2 |ABCDF  HIJ|
+row 3 |klmnp  rst|
+row 4 |KLMNOPQRST|
+checkpoint 143
+size 10x5
+cursor 4,2
+flags AUTO_WRAP
+palette legacy fg=#e5e5e5 bg=#000000
+changed 0
+frame-cursor 4,2 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 |0123456789|
+row 1 |abcdf  hij|
+row 2 |ABCDF  HIJ|
+row 3 |klmnp  rst|
+row 4 |KLMNOPQRST|
+checkpoint 151
+size 10x5
+cursor 2,2
+flags AUTO_WRAP
+palette legacy fg=#e5e5e5 bg=#000000
+changed 15
+frame-cursor 2,2 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 |0123456789|
+row 1 |ab cdf hij|
+row 2 |AB CDF HIJ|
+row 3 |kl mnp rst|
+row 4 |KLMNOPQRST|
+checkpoint 159
+size 10x5
+cursor 6,2
+flags AUTO_WRAP
+palette legacy fg=#e5e5e5 bg=#000000
+changed 15
+frame-cursor 6,2 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 |0123456789|
+row 1 |abcdf  hij|
+row 2 |ABCDF  HIJ|
+row 3 |klmnp  rst|
+row 4 |KLMNOPQRST|
+checkpoint 178
+size 10x5
+cursor 8,0
+flags AUTO_WRAP
+palette legacy fg=#e5e5e5 bg=#000000
+changed 10
+frame-cursor 8,0 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 |01234567 8|
+row 1 |abcdf  h i|
+row 2 |ABCDF  H I|
+row 3 |klmnp  r s|
+row 4 |KLMNOPQR S|

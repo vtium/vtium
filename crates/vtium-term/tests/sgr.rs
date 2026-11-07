@@ -8,7 +8,7 @@
 mod common;
 
 use common::term;
-use vtium_term::{Attrs, Color, Rgb, Style, Terminal, UnderlineStyle};
+use vtium_term::{Attrs, Color, Rgb, Script, Style, Terminal, UnderlineStyle};
 
 fn pen(t: &Terminal) -> Style {
     *t.screen().pen()
@@ -54,6 +54,58 @@ fn italic_is_set_and_cleared() {
 #[test]
 fn blink_is_set_and_cleared() {
     toggles(b"\x1b[5m", b"\x1b[25m", Attrs::BLINK);
+}
+
+// ECMA-48 8.3.117: SGR 6 rapidly blinking; SGR 25 steady, which clears
+// both blinks.
+// covers: sgr.rapid-blink
+#[test]
+fn rapid_blink_is_set_and_cleared() {
+    toggles(b"\x1b[6m", b"\x1b[25m", Attrs::RAPID_BLINK);
+    let p = pen_after(b"\x1b[5;6m");
+    assert!(p.attrs.contains(Attrs::BLINK) && p.attrs.contains(Attrs::RAPID_BLINK));
+    let p = pen_after(b"\x1b[5;6;25m");
+    assert!(!p.attrs.contains(Attrs::BLINK) && !p.attrs.contains(Attrs::RAPID_BLINK));
+}
+
+// ECMA-48 8.3.117 and ctlseqs: SGR 8 concealed, SGR 28 revealed. A
+// concealed cell keeps its text, so a selection over it copies it.
+// covers: sgr.conceal
+#[test]
+fn conceal_is_set_and_cleared() {
+    toggles(b"\x1b[8m", b"\x1b[28m", Attrs::CONCEAL);
+    let mut t = term(8, 2, b"\x1b[8mpw\x1b[28m!");
+    let line = t.screen().line(0).expect("row 0");
+    assert!(line.style(line.cell(0)).attrs.contains(Attrs::CONCEAL));
+    assert!(!line.style(line.cell(2)).attrs.contains(Attrs::CONCEAL));
+    t.screen_mut().select_start(0, 0);
+    t.screen_mut().select_to(2, 0);
+    assert_eq!(t.screen().selection_text().as_deref(), Some("pw!"));
+}
+
+// ECMA-48 8.3.117: SGR 53 overlined, SGR 55 not overlined.
+// covers: sgr.overline
+#[test]
+fn overline_is_set_and_cleared() {
+    toggles(b"\x1b[53m", b"\x1b[55m", Attrs::OVERLINE);
+}
+
+// mintty's CtrlSeqs: SGR 73 superscript, 74 subscript, 75 neither. Each
+// takes the place of the other.
+// covers: sgr.script
+#[test]
+fn superscript_and_subscript_are_set_and_cleared() {
+    assert_eq!(pen_after(b"\x1b[73m").attrs.script(), Script::Super);
+    assert_eq!(pen_after(b"\x1b[74m").attrs.script(), Script::Sub);
+    assert_eq!(pen_after(b"\x1b[73;74m").attrs.script(), Script::Sub);
+    assert_eq!(pen_after(b"\x1b[74;73m").attrs.script(), Script::Super);
+    assert_eq!(pen_after(b"\x1b[73;75m"), Style::DEFAULT);
+    assert_eq!(pen_after(b"\x1b[74;75m"), Style::DEFAULT);
+    assert_eq!(pen_after(b"\x1b[1;73;0m"), Style::DEFAULT);
+    // the script leaves the other attributes as they are
+    let p = pen_after(b"\x1b[1;4;73m\x1b[75m");
+    assert!(p.attrs.contains(Attrs::BOLD));
+    assert_eq!(p.attrs.underline(), UnderlineStyle::Single);
 }
 
 // covers: sgr.inverse

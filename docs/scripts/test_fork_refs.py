@@ -147,11 +147,11 @@ class ForkRefs(unittest.TestCase):
 
     # The skip list
 
-    def test_agents_and_claude_md_are_skipped_at_the_root_only(self):
+    def test_agents_and_claude_md_are_checked_like_every_other_file(self):
         text = "the C reference, aaronsb/kmscon, libtsm#79\n"
-        self.assertFound({"AGENTS.md": text, "CLAUDE.md": text, "docs/AGENTS.md": text, "crates/x/CLAUDE.md": text},
-                         "crates/x/CLAUDE.md:1", "crates/x/CLAUDE.md:1", "crates/x/CLAUDE.md:1",
-                         "docs/AGENTS.md:1", "docs/AGENTS.md:1", "docs/AGENTS.md:1")
+        self.assertFound({"AGENTS.md": text, "CLAUDE.md": text},
+                         "AGENTS.md:1", "AGENTS.md:1", "AGENTS.md:1",
+                         "CLAUDE.md:1", "CLAUDE.md:1", "CLAUDE.md:1")
 
     def test_the_records_keep_the_phrases_and_their_body_still_fails_on_the_forms(self):
         self.assertFound({"docs/architecture/term/a-record.md":

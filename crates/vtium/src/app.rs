@@ -106,7 +106,7 @@ use vtium_platform::udev::{DeviceEvent, DeviceKind};
 use vtium_platform::vt::{FakeVt, Switch, Vt, VtEvent};
 use vtium_render::{Config as RenderConfig, Depth, DrawState, Orientation};
 use vtium_settings::{Policy, WhenDisplayLost};
-use vtium_term::{BlankRequest, BlankTimeout, Mods};
+use vtium_term::{BlankRequest, BlankTimeout, Key, KeyEvent as TermKeyEvent, Mods};
 
 use crate::blank::Order;
 use crate::blink::Timer;
@@ -239,6 +239,10 @@ pub struct App {
     focus_due: bool,
     /// What the rules and the display guard read of each card.
     cards: BTreeMap<PathBuf, Card>,
+    /// Each video device the seat manager is not ready to give yet, with
+    /// what udev reported of it, opened once the VT names it settled
+    /// (vtium/vtium#34).
+    waiting_videos: BTreeMap<PathBuf, (DeviceKind, Card)>,
     /// Each display lit in a head, as the rules saw it.
     lit: BTreeMap<(PathBuf, DisplayId), vtium_settings::Identity>,
     /// Each display lit since the start until the focus settled, gone or
@@ -471,6 +475,7 @@ impl App {
             focus_settled: false,
             focus_due: false,
             cards: BTreeMap::new(),
+            waiting_videos: BTreeMap::new(),
             lit: BTreeMap::new(),
             start_lit: BTreeMap::new(),
             dark: BTreeMap::new(),
@@ -766,9 +771,30 @@ impl App {
         self.videos.insert(node, video);
     }
 
-    /// Removes a video device and its displays.
+    /// Lets go of each card the kernel removed, as drm2d finds at the first
+    /// ioctl that answers ENODEV, which closes its file, so a card added
+    /// next can take its number. udev's report of the removal may come
+    /// later, or early in boot never. Its displays' removals, drained or
+    /// not, go with it.
+    fn let_go_of_gone_cards(&mut self) {
+        let gone: Vec<PathBuf> = self
+            .videos
+            .iter()
+            .filter(|(_, v)| v.gone())
+            .map(|(node, _)| node.clone())
+            .collect();
+        for node in gone {
+            log::info!("{}: the kernel removed the card", node.display());
+            self.remove_video(&node);
+        }
+    }
+
+    /// Removes a video device and its displays, or its wait for the seat
+    /// manager, and lets the VT close it.
     pub fn remove_video(&mut self, node: &Path) {
+        self.waiting_videos.remove(node);
         self.videos.remove(node);
+        self.vt.close_device(node);
         self.cards.remove(node);
         self.lit.retain(|(n, _), _| n != node);
         self.dark.retain(|(n, _), _| n != node);
@@ -2435,9 +2461,7 @@ impl App {
                 }
                 kind => {
                     let card = Card::at(&dev.node, dev.id_path.as_deref(), dev.flags.primary);
-                    if let Err(e) = open_video(self, &dev.node, kind, card) {
-                        log::warn!("cannot open {}: {e}", dev.node.display());
-                    }
+                    self.add_video_device(&dev.node, kind, card);
                 }
             },
             DeviceEvent::Removed { kind, node } => match kind {
@@ -2450,6 +2474,30 @@ impl App {
                 {
                     log::warn!("{}: hotplug: {e}", node.display());
                 }
+            }
+        }
+    }
+
+    /// Opens a video device udev reported. One the seat manager is not
+    /// ready to give waits, and opens once the VT names it settled
+    /// ([`App::settled_videos`]).
+    fn add_video_device(&mut self, node: &Path, kind: DeviceKind, card: Card) {
+        match open_video(self, node, kind, card.clone()) {
+            Ok(()) => {}
+            Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+                log::debug!("{} waits for the seat manager", node.display());
+                self.waiting_videos.insert(node.to_owned(), (kind, card));
+            }
+            Err(e) => log::warn!("cannot open {}: {e}", node.display()),
+        }
+    }
+
+    /// The waiting video devices whose open the VT has settled, opened now
+    /// or reported as failed.
+    fn settled_videos(&mut self) {
+        for node in self.vt.settled() {
+            if let Some((kind, card)) = self.waiting_videos.remove(&node) {
+                self.add_video_device(&node, kind, card);
             }
         }
     }
@@ -2816,12 +2864,16 @@ impl App {
         };
         let unicode = key.codepoints.first().copied().flatten();
         let mods = Mods::from_bits(key.mods.bits());
-        if head
-            .console
-            .term
-            .terminal
-            .key(keysym, key.ascii, mods, unicode)
-        {
+        let event = if key.repeat {
+            TermKeyEvent::Repeat
+        } else {
+            TermKeyEvent::Press
+        };
+        let pressed = Key {
+            event,
+            ..Key::press(keysym, key.ascii, mods, unicode)
+        };
+        if head.console.term.terminal.key(&pressed) {
             head.send_user_bytes();
             head.console.term.terminal.screen_mut().reset_view();
             if self.hide_while_typing {
@@ -3363,6 +3415,7 @@ impl App {
         for e in devices {
             self.device_event(e);
         }
+        self.settled_videos();
         let nodes: Vec<PathBuf> = self.videos.keys().cloned().collect();
         for node in nodes {
             let events = self
@@ -3374,6 +3427,7 @@ impl App {
                 self.video_event(&node, e, now);
             }
         }
+        self.let_go_of_gone_cards();
         if std::mem::take(&mut self.keyboard_check) && !self.routes.any_keyboard() {
             let line = crate::notice::NO_KEYBOARD;
             log::warn!("{line}");
@@ -3425,6 +3479,9 @@ impl App {
         if self.awake {
             self.draw(now);
         }
+        // The draw's commits and the timers' power changes may find a card
+        // removed after its events were drained.
+        self.let_go_of_gone_cards();
         self.report(now);
         for console in self.heads.iter_mut().flat_map(Head::consoles_mut) {
             console.term.coalesce.turn_end();
@@ -3733,7 +3790,6 @@ impl App {
                 if let Some(why) = composed.failed_gpu.take() {
                     failed_gpu_frame(view, video.as_ref(), composed.key.1, &why);
                 }
-                let compose = composed.stats.cpu;
                 let shown = view.present(
                     composed,
                     &mut head.console.term,
@@ -3742,7 +3798,7 @@ impl App {
                     &**clock,
                 );
                 if shown.queued {
-                    head.figures.frame(compose, now);
+                    head.figures.frame(shown.compose, now);
                 }
             }
         }
@@ -3752,7 +3808,7 @@ impl App {
     /// line in the log under `render-timer=log` or `both`, and its line in
     /// the on-screen display's box under `osd` or `both`, and the console
     /// redraws the display so the new line shows. That frame counts in the
-    /// next second's figures, as the C reference's redraw for its line did.
+    /// next second's figures, so they include the cost of showing them.
     fn report(&mut self, now: Instant) {
         for head in &mut self.heads {
             if let Some(line) = head.figures_line(now) {
@@ -3851,7 +3907,8 @@ impl App {
         if let Some(Leaving::Until(d)) = self.leaving {
             due.push(d);
         }
-        if self.leaving == Some(Leaving::Done) {
+        // A card let go after the turn's guard leaves the guard owed.
+        if self.leaving == Some(Leaving::Done) || self.guard_due {
             return Some(Duration::ZERO);
         }
         due.into_iter()
@@ -4025,17 +4082,23 @@ fn draw_head(
         // display that lends no token never turns the loop.
         let wants =
             now_all || view.lost || owed || due || (view.pending && video.ready_for_frame(view.id));
-        if !wants {
-            if !changed {
-                continue;
+        let draws = wants
+            || (changed
+                && term
+                    .coalesce
+                    .decide(holding, &mut view.wait, term.unparsed, now, view.refresh)
+                    .is_none());
+        // A frame the display kept from a busy swap goes out once its flip
+        // ends, unless this pass composes a newer frame, which is drawn
+        // over it and carries it.
+        if !draws || (holding && !view.lost) {
+            let sent = view.send_kept(video.as_mut());
+            if sent.queued {
+                head.figures.frame(sent.compose, now);
             }
-            if term
-                .coalesce
-                .decide(holding, &mut view.wait, term.unparsed, now, view.refresh)
-                .is_some()
-            {
-                continue;
-            }
+        }
+        if !draws {
+            continue;
         }
         if holding && !view.lost {
             if !view.owed
@@ -4076,10 +4139,9 @@ fn draw_head(
             }
             None => {
                 let composed = job.compose(None);
-                let compose = composed.stats.cpu;
                 let shown = view.present(composed, term, video.as_mut(), true, clock);
                 if shown.queued {
-                    head.figures.frame(compose, now);
+                    head.figures.frame(shown.compose, now);
                 }
             }
         }
@@ -4235,11 +4297,24 @@ fn physical_memory() -> u64 {
     crate::config::budget::physical_memory().unwrap_or(0)
 }
 
-/// Opens a device and wraps it as a video device in the loop, for
-/// [`App::add_video`], keeping what the rules read of its `card`.
+/// Opens a device through the VT and wraps it as a video device in the
+/// loop, for [`App::add_video`], keeping what the rules read of its
+/// `card`. A device opened that cannot be wrapped is closed through the VT
+/// again.
 pub fn open_video(app: &mut App, node: &Path, kind: DeviceKind, card: Card) -> io::Result<()> {
-    use vtium_platform::display::{Card as Drm, Drm2d, Fb, Fbdev, ModeLookup, ModePolicy, Wanted};
     let fd = app.vt.open_device(node)?;
+    wrap_video(app, node, kind, card, fd).inspect_err(|_| app.vt.close_device(node))
+}
+
+/// The device `fd`, opened from `node`, wrapped as a video device.
+fn wrap_video(
+    app: &mut App,
+    node: &Path,
+    kind: DeviceKind,
+    card: Card,
+    fd: std::os::fd::OwnedFd,
+) -> io::Result<()> {
+    use vtium_platform::display::{Card as Drm, Drm2d, Fb, Fbdev, ModeLookup, ModePolicy, Wanted};
     let key = node.to_owned();
     let video: Box<dyn Video> = match kind {
         DeviceKind::Drm => {
@@ -4348,6 +4423,23 @@ mod tests {
         inputs: u32,
         unblanks: u32,
         powered_down: u32,
+        /// The kernel removed it, as drm2d finds a card gone at its first
+        /// ENODEV.
+        gone: bool,
+        /// Stands for the device's file, which closes when the device is
+        /// dropped.
+        file: Rc<()>,
+        /// A flip is in flight. Like a DRM display with three buffers, it
+        /// lends the third buffer meanwhile, refuses the swap of a frame
+        /// drawn into it as busy, and keeps that frame for a commit.
+        flipping: bool,
+        kept: bool,
+        /// The swaps, each a frame composed, and the frames a commit sent.
+        swaps: u32,
+        committed: u32,
+        /// The kernel removes it at the next commit, which answers as
+        /// drm2d does when that commit finds the card gone.
+        unplug_at_commit: bool,
     }
 
     impl Still {
@@ -4364,7 +4456,24 @@ mod tests {
                 inputs: 0,
                 unblanks: 0,
                 powered_down: 0,
+                gone: false,
+                file: Rc::new(()),
+                flipping: false,
+                kept: false,
+                swaps: 0,
+                committed: 0,
+                unplug_at_commit: false,
             }
+        }
+
+        /// The kernel removes the device as drm2d sees a card go: each
+        /// display reported removed, none listed after, and the device
+        /// gone.
+        pub(super) fn unplug(&mut self) {
+            self.events
+                .extend(self.ids.iter().map(|&(id, _)| Event::Removed(id)));
+            self.ids.clear();
+            self.gone = true;
         }
     }
 
@@ -4408,18 +4517,41 @@ mod tests {
             })
         }
         fn lend(&mut self, id: DisplayId) -> Option<Token> {
+            if !self.ready_for_frame(id) {
+                return None;
+            }
             let memory: Arc<Memory> = self.pixels.clone();
             Some(Token::new(id, (320, 160), 320 * 4, 0, memory))
         }
         fn give_back(&mut self, _: Token) {}
         fn swap(&mut self, _: Token, _: &[Rect]) -> Result<Swapped, SwapError> {
+            self.swaps = self.swaps.saturating_add(1);
+            if self.flipping {
+                self.kept = true;
+                return Err(SwapError::Busy);
+            }
+            self.kept = false;
+            Ok(Swapped::Frame)
+        }
+        fn commit(&mut self, _: DisplayId) -> Result<Swapped, SwapError> {
+            if self.flipping {
+                return Err(SwapError::Busy);
+            }
+            if std::mem::take(&mut self.unplug_at_commit) {
+                self.unplug();
+                return Err(SwapError::Off);
+            }
+            if !std::mem::take(&mut self.kept) {
+                return Ok(Swapped::Nothing);
+            }
+            self.committed = self.committed.saturating_add(1);
             Ok(Swapped::Frame)
         }
         fn is_flipping(&self, _: DisplayId) -> bool {
-            false
+            self.flipping
         }
         fn ready_for_frame(&self, id: DisplayId) -> bool {
-            !self.is_flipping(id)
+            !self.is_flipping(id) || !self.kept
         }
         fn set_dpms(&mut self, _: DisplayId, dpms: Dpms) -> io::Result<()> {
             if dpms == Dpms::Off {
@@ -4454,6 +4586,9 @@ mod tests {
         }
         fn as_any(&mut self) -> &mut dyn Any {
             self
+        }
+        fn gone(&self) -> bool {
+            self.gone
         }
     }
 
@@ -4941,7 +5076,6 @@ mod tests {
 
     /// Turns `app` at `t` until its head's render thread has handed back
     /// every frame it composed, so the next turn's frame can be taken.
-    #[cfg(feature = "images")]
     fn settle(lp: &mut Loop<App>, app: &mut App, t: Instant) {
         let back = |app: &App| app.heads.iter().all(|h| h.frames_out() == 0);
         for _ in 0..1000 {
@@ -5166,10 +5300,10 @@ mod tests {
         assert!(!awake(&app), "closed until the VT is taken");
     }
 
-    // vtium/vtium#229's review: while the fake VT is released, with its
-    // keyboards and pointers still open, the user's input wakes none of
-    // the displays the other session owns, a blank that fired meanwhile
-    // included, and a key or a pointer action tells no device
+    // vtium/vtium#229: while the fake VT is released, with its keyboards
+    // and pointers still open, the user's input wakes none of the displays
+    // the other session owns, a blank that fired meanwhile included, and a
+    // key or a pointer action tells no device
     #[test]
     fn input_on_a_released_fake_vt_wakes_no_display() {
         let key = |keysym: u32, mods: InputMods| {
@@ -5219,11 +5353,11 @@ mod tests {
         assert!(app.blank.blanked(), "the blank stands");
     }
 
-    // vtium/vtium#229's review, round 2: while the fake VT is released the
-    // blank's timer blanks nothing, however long it runs past its
-    // timeout, and wakes no loop for it; taken back, the countdown starts
-    // afresh from the acquire. The device lists its displays while
-    // asleep, as a real one does, so a power-down would reach it.
+    // vtium/vtium#229: while the fake VT is released the blank's timer
+    // blanks nothing, however long it runs past its timeout, and wakes no
+    // loop for it; taken back, the countdown starts afresh from the
+    // acquire. The device lists its displays while asleep, as a real one
+    // does, so a power-down would reach it.
     #[test]
     fn a_released_fake_vt_blanks_no_display_and_counts_afresh_at_the_acquire() {
         let chord = InputEvent::Key(KeyEvent {
@@ -5310,10 +5444,9 @@ mod tests {
     // views take the new cell together, so the next frame draws each cell
     // as wide as the grid lays it out. The cases are the ones the issue
     // about late cells lists: 18x40 and 42x40 at 40 pixels, and 13x32 at
-    // 32 pixels. Before the fix the grid took the new width while each
-    // view kept drawing the built-in font's width, because a view is
-    // rebuilt only when its height changes or the head is marked
-    // `refont`.
+    // 32 pixels. A view is rebuilt only when its height changes or the
+    // head is marked `refont`, so a grid that took the new width alone
+    // would leave each view drawing the built-in font's width.
     #[test]
     fn a_late_outline_cell_is_drawn_at_its_own_width() {
         for (width, height) in [(18, 40), (42, 40), (13, 32)] {
@@ -5375,17 +5508,16 @@ mod tests {
         }
     }
 
-    // ADR-1200 D17 (the maintainer, 2026-11-03), fix round 1 of the work
-    // that keeps a late answer: a late answer lays out again only the
-    // heads drawing the frit that take a cell from it. An outline cell for
-    // a height no head draws at, given to frit `u`, lays out nothing; a
-    // bitmap first source's own cell, given to frit `t`, lays out the head
-    // drawing `t` and not the head drawing `u`, which still wants its own
-    // cell. Each frit gets one kind of answer, as one frit's first source
-    // answers one kind for the whole boot. The views' cells and the
-    // heads' grids show what was laid out: the late cell is as tall as
-    // the cell drawn before it and wider, so a layout that rebuilt no view
-    // leaves the view drawing the old width.
+    // ADR-1200 D17 (the maintainer, 2026-11-03): a late answer lays out
+    // again only the heads drawing the frit that take a cell from it. An
+    // outline cell for a height no head draws at, given to frit `u`, lays
+    // out nothing; a bitmap first source's own cell, given to frit `t`,
+    // lays out the head drawing `t` and not the head drawing `u`, which
+    // still wants its own cell. Each frit gets one kind of answer, as one
+    // frit's first source answers one kind for the whole boot. The views'
+    // cells and the heads' grids show what was laid out: the late cell is
+    // as tall as the cell drawn before it and wider, so a layout that
+    // rebuilt no view leaves the view drawing the old width.
     #[test]
     fn a_late_cell_lays_out_only_the_heads_that_take_it() {
         let (_lp, mut app, dir) = late_seat("late-heads");
@@ -5475,12 +5607,12 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    // ADR-1200 D17, the fix branch's re-review: a bitmap frit's answer
-    // holds at every height, so a refusal that came in time at one height
-    // holds at all of them. A late bitmap cell is then dropped, at the
-    // start's height, whose query had no answer in time, and at a height
-    // no query was asked at, and it never becomes the cell that
-    // `answer_at`, which looks for a bitmap cell first, finds.
+    // ADR-1200 D17: a bitmap frit's answer holds at every height, so a
+    // refusal that came in time at one height holds at all of them. A late
+    // bitmap cell is then dropped, at the start's height, whose query had
+    // no answer in time, and at a height no query was asked at, and it
+    // never becomes the cell that `answer_at`, which looks for a bitmap
+    // cell first, finds.
     #[test]
     fn a_late_bitmap_cell_yields_to_a_refusal_in_time_at_any_height() {
         let (_lp, mut app, dir) = late_seat("late-refused");
@@ -5520,13 +5652,13 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    // ADR-1200 D17, the fix branch's re-review: the answers, and not the
-    // frit's text, say which kind a frit is. Frit `t`'s text guesses
-    // bitmap (`source=kbd:x`), as `font-name=/path/x.ttf` makes a frit
-    // whose first source is in fact an outline font. With an outline cell
-    // held at one height, a head at another height has no answer and asks
-    // at its own, and a head at the first height, still guessing bitmap,
-    // gets that cell, whatever failed at the other height.
+    // ADR-1200 D17: the answers, and not the frit's text, say which kind a
+    // frit is. Frit `t`'s text guesses bitmap (`source=kbd:x`), as
+    // `font-name=/path/x.ttf` makes a frit whose first source is in fact an
+    // outline font. With an outline cell held at one height, a head at
+    // another height has no answer and asks at its own, and a head at the
+    // first height, still guessing bitmap, gets that cell, whatever failed
+    // at the other height.
     #[test]
     fn an_outline_answer_holds_at_its_height_alone_whatever_the_text_guesses() {
         let (_lp, mut app, dir) = late_seat("late-kind");
@@ -5726,5 +5858,318 @@ mod tests {
         ] {
             assert_eq!(depth(&config(args), levels), want, "{args:?} {levels:?}");
         }
+    }
+
+    /// A shown VT whose seat manager is not ready for a device until the
+    /// test says so, recording what the app asks of it.
+    #[derive(Default)]
+    struct Waits {
+        ready: bool,
+        settled: Vec<PathBuf>,
+        asked: Rc<std::cell::RefCell<Vec<PathBuf>>>,
+        closed: Rc<std::cell::RefCell<Vec<PathBuf>>>,
+        events: Vec<VtEvent>,
+    }
+
+    impl Vt for Waits {
+        fn events(&mut self) -> std::vec::Drain<'_, VtEvent> {
+            self.events.drain(..)
+        }
+        fn acknowledge_release(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+        fn refuse_release(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+        fn activate(&mut self) -> io::Result<vtium_platform::vt::Switch> {
+            Ok(vtium_platform::vt::Switch::Done)
+        }
+        fn leave(&mut self) -> io::Result<vtium_platform::vt::Switch> {
+            Ok(vtium_platform::vt::Switch::Done)
+        }
+        fn wait(&mut self) -> io::Result<vtium_platform::vt::Switch> {
+            Ok(vtium_platform::vt::Switch::Done)
+        }
+        fn is_active(&self) -> bool {
+            true
+        }
+        fn key(&mut self, _: &KeyEvent) -> bool {
+            false
+        }
+        fn restore(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+        fn bell(&mut self) {}
+        fn number(&self) -> Option<u16> {
+            None
+        }
+        fn open_device(&mut self, path: &Path) -> io::Result<std::os::fd::OwnedFd> {
+            self.asked.borrow_mut().push(path.to_owned());
+            if !self.ready {
+                return Err(io::Error::from(io::ErrorKind::WouldBlock));
+            }
+            Ok(std::fs::File::open("/dev/null")?.into())
+        }
+        fn close_device(&mut self, path: &Path) {
+            self.closed.borrow_mut().push(path.to_owned());
+        }
+        fn settled(&mut self) -> Vec<PathBuf> {
+            std::mem::take(&mut self.settled)
+        }
+    }
+
+    // vtium/vtium#34: a framebuffer the seat manager is not ready to give
+    // waits, opens in the turn the VT names it settled, and is let go
+    // through the VT when udev reports it gone.
+    #[test]
+    fn a_video_device_the_seat_manager_is_not_ready_for_opens_once_settled() {
+        let loaded = crate::config::load(&[], &mut |_: &Path| Ok(None));
+        let lp: Loop<App> = Loop::new().unwrap();
+        let (asked, closed) = (Rc::default(), Rc::default());
+        let waits = Waits {
+            asked: Rc::clone(&asked),
+            closed: Rc::clone(&closed),
+            ..Waits::default()
+        };
+        let mut app = App::new(
+            loaded.config,
+            Box::new(waits),
+            lp.handle(),
+            Rc::new(Instant::now),
+            Vec::new(),
+        );
+        let fb = PathBuf::from("/dev/fb0");
+        let added = vtium_platform::udev::Device {
+            kind: DeviceKind::Fbdev,
+            node: fb.clone(),
+            flags: vtium_platform::udev::DeviceFlags::default(),
+            id_path: None,
+            input: None,
+        };
+        app.device_event(DeviceEvent::Added(added));
+        assert_eq!(*asked.borrow(), std::slice::from_ref(&fb));
+        assert!(!app.videos.contains_key(&fb), "it waits");
+        app.turn(Instant::now());
+        assert_eq!(asked.borrow().len(), 1, "not asked again before it settles");
+        {
+            let waits = app.vt.get::<Waits>().unwrap();
+            waits.ready = true;
+            waits.settled = vec![fb.clone()];
+        }
+        app.turn(Instant::now());
+        assert_eq!(*asked.borrow(), [fb.clone(), fb.clone()]);
+        assert!(app.videos.contains_key(&fb), "opened once settled");
+        app.device_event(DeviceEvent::Removed {
+            kind: DeviceKind::Fbdev,
+            node: fb.clone(),
+        });
+        assert!(!app.videos.contains_key(&fb));
+        assert_eq!(*closed.borrow(), [fb]);
+    }
+
+    /// The devices a [`Waits`] VT was asked for or told to close.
+    type Recorded = Rc<std::cell::RefCell<Vec<PathBuf>>>;
+
+    /// An app on a [`Waits`] VT, ready or not, with what it asks and closes.
+    fn waiting_app(ready: bool) -> (Loop<App>, App, Recorded, Recorded) {
+        let loaded = crate::config::load(&[], &mut |_: &Path| Ok(None));
+        let lp: Loop<App> = Loop::new().unwrap();
+        let (asked, closed) = (Rc::default(), Rc::default());
+        let waits = Waits {
+            ready,
+            asked: Rc::clone(&asked),
+            closed: Rc::clone(&closed),
+            ..Waits::default()
+        };
+        let app = App::new(
+            loaded.config,
+            Box::new(waits),
+            lp.handle(),
+            Rc::new(Instant::now),
+            Vec::new(),
+        );
+        (lp, app, asked, closed)
+    }
+
+    fn added(kind: DeviceKind, node: &Path) -> DeviceEvent {
+        DeviceEvent::Added(vtium_platform::udev::Device {
+            kind,
+            node: node.to_owned(),
+            flags: vtium_platform::udev::DeviceFlags::default(),
+            id_path: None,
+            input: None,
+        })
+    }
+
+    // vtium/vtium#34: a device the VT opened that is no DRM card, here
+    // /dev/null, fails to wrap, and the VT is told to close it.
+    #[test]
+    fn a_device_that_fails_to_wrap_is_closed_through_the_vt() {
+        let (_lp, mut app, asked, closed) = waiting_app(true);
+        let card = PathBuf::from("/dev/dri/card0");
+        app.device_event(added(DeviceKind::Drm, &card));
+        assert_eq!(*asked.borrow(), std::slice::from_ref(&card));
+        assert!(!app.videos.contains_key(&card));
+        assert_eq!(*closed.borrow(), [card]);
+    }
+
+    // vtium/vtium#246: with three buffers, a frame the render thread
+    // composed while the display's flip was in flight is refused as busy,
+    // and the display keeps it. The loop sends that frame as it is once the
+    // flip ends, and composes nothing for it.
+    #[test]
+    fn the_loop_sends_a_frame_kept_from_a_busy_swap_once_the_flip_ends() {
+        let (mut lp, mut app) = seat(None, no_fonts());
+        let node = PathBuf::from("/dev/mem0");
+        app.add_video(node.clone(), Box::new(Still::new(&[(1, "A")])));
+        shown(&mut app);
+        let t = Instant::now();
+        settle(&mut lp, &mut app, t);
+        let counts = |app: &mut App| {
+            let still = app
+                .videos
+                .get_mut(&node)
+                .and_then(|v| v.as_any().downcast_mut::<Still>())
+                .unwrap();
+            (still.swaps, still.committed)
+        };
+        let flipping = |app: &mut App, on: bool| {
+            let still = app.videos.get_mut(&node).unwrap();
+            still.as_any().downcast_mut::<Still>().unwrap().flipping = on;
+        };
+        let (swaps, _) = counts(&mut app);
+        assert!(swaps >= 1, "the first frame");
+        flipping(&mut app, true);
+        // as the pty's output does
+        app.term_mut().unwrap().changed = true;
+        app.turn(t);
+        settle(&mut lp, &mut app, t);
+        assert_eq!(counts(&mut app), (swaps + 1, 0), "the frame waits");
+        app.turn(t);
+        assert_eq!(counts(&mut app), (swaps + 1, 0), "while the flip lasts");
+        flipping(&mut app, false);
+        app.turn(t);
+        settle(&mut lp, &mut app, t);
+        assert_eq!(counts(&mut app), (swaps + 1, 1), "sent, not composed again");
+        app.turn(t);
+        settle(&mut lp, &mut app, t);
+        assert_eq!(counts(&mut app), (swaps + 1, 1), "once");
+    }
+
+    /// The seat at 16 points on a [`Waits`] VT it has acquired, and the
+    /// devices the VT is told to close.
+    fn acquired_seat() -> (Loop<App>, App, Recorded) {
+        let loaded = crate::config::load(&["--font-size=16".into()], &mut |_: &Path| Ok(None));
+        let lp: Loop<App> = Loop::new().unwrap();
+        let closed: Recorded = Rc::default();
+        let waits = Waits {
+            ready: true,
+            closed: Rc::clone(&closed),
+            events: vec![VtEvent::Acquired],
+            ..Waits::default()
+        };
+        let mut app = App::new(
+            loaded.config,
+            Box::new(waits),
+            lp.handle(),
+            Rc::new(Instant::now),
+            Vec::new(),
+        );
+        app.set_font_sources(no_fonts());
+        (lp, app, closed)
+    }
+
+    // vtium/vtium#295: a card whose removal the loop first meets at the end
+    // of a turn, here as the commit of a frame kept from a busy swap, is let
+    // go in that turn: the loop may wait for no timer, key or udev event
+    // after it, and the card's file must not stay open meanwhile. The guard
+    // owed for its displays wakes the loop at once.
+    #[test]
+    fn a_card_found_gone_after_the_drain_is_let_go_in_that_turn() {
+        let (mut lp, mut app, closed) = acquired_seat();
+        let card = PathBuf::from("/dev/dri/card0");
+        let device = Still::new(&[(1, "A")]);
+        let file = Rc::clone(&device.file);
+        app.add_video(card.clone(), Box::new(device));
+        let t = Instant::now();
+        app.turn(t);
+        settle(&mut lp, &mut app, t);
+        fn still<'a>(app: &'a mut App, card: &Path) -> &'a mut Still {
+            app.videos
+                .get_mut(card)
+                .and_then(|v| v.as_any().downcast_mut::<Still>())
+                .unwrap()
+        }
+        still(&mut app, &card).flipping = true;
+        app.term_mut().unwrap().changed = true;
+        app.turn(t);
+        settle(&mut lp, &mut app, t);
+        assert!(still(&mut app, &card).kept, "a frame waits for the flip");
+        let device = still(&mut app, &card);
+        device.flipping = false;
+        device.unplug_at_commit = true;
+        app.turn(t);
+        assert!(!app.videos.contains_key(&card), "let go in that turn");
+        assert_eq!(Rc::strong_count(&file), 1, "its file is closed");
+        assert_eq!(*closed.borrow(), std::slice::from_ref(&card));
+        assert_eq!(
+            app.next_wake(t),
+            Some(Duration::ZERO),
+            "the guard runs next"
+        );
+    }
+
+    // vtium/vtium#295: a card the kernel removed, which drm2d found gone at
+    // its first ENODEV, is let go in the turn that drains its displays'
+    // removals: its file is closed and the VT is told to close it, with no
+    // report from udev, which early in boot may never come. A new card the
+    // kernel then adds at the same node opens and draws.
+    #[test]
+    fn a_card_found_gone_is_let_go_without_udev_and_a_new_one_opens() {
+        let (_lp, mut app, closed) = acquired_seat();
+        let card = PathBuf::from("/dev/dri/card0");
+        let old = Still::new(&[(1, "A")]);
+        let file = Rc::clone(&old.file);
+        app.add_video(card.clone(), Box::new(old));
+        app.turn(Instant::now());
+        let views = |app: &App| app.heads.iter().map(|h| h.views.len()).sum::<usize>();
+        assert_eq!(views(&app), 1, "the card's display draws");
+        app.videos
+            .get_mut(&card)
+            .and_then(|v| v.as_any().downcast_mut::<Still>())
+            .unwrap()
+            .unplug();
+        app.turn(Instant::now());
+        assert!(!app.videos.contains_key(&card), "the card is let go");
+        assert_eq!(Rc::strong_count(&file), 1, "its file is closed");
+        assert_eq!(*closed.borrow(), std::slice::from_ref(&card));
+        assert_eq!(views(&app), 0);
+        app.add_video(card.clone(), Box::new(Still::new(&[(1, "A")])));
+        app.turn(Instant::now());
+        assert!(app.videos.contains_key(&card), "the new card opens");
+        assert_eq!(views(&app), 1, "the new card's display draws");
+        assert_eq!(closed.borrow().len(), 1, "the new card stays open");
+    }
+
+    // vtium/vtium#34: a device udev reports removed while it waits for the
+    // seat manager is not opened when the VT later names it settled.
+    #[test]
+    fn a_waiting_video_device_removed_is_not_opened_once_settled() {
+        let (_lp, mut app, asked, closed) = waiting_app(false);
+        let fb = PathBuf::from("/dev/fb0");
+        app.device_event(added(DeviceKind::Fbdev, &fb));
+        app.device_event(DeviceEvent::Removed {
+            kind: DeviceKind::Fbdev,
+            node: fb.clone(),
+        });
+        assert_eq!(*closed.borrow(), std::slice::from_ref(&fb));
+        {
+            let waits = app.vt.get::<Waits>().unwrap();
+            waits.ready = true;
+            waits.settled = vec![fb.clone()];
+        }
+        app.turn(Instant::now());
+        assert_eq!(asked.borrow().len(), 1, "not asked again");
+        assert!(!app.videos.contains_key(&fb));
     }
 }

@@ -7,7 +7,7 @@
 
 #![cfg(feature = "psf")]
 
-use vtium_font::{Face, Font, Psf, Style, Width};
+use vtium_font::{Drawn, Face, Font, Psf, Style, Width};
 
 const ITALIC: Style = Style {
     bold: false,
@@ -15,8 +15,8 @@ const ITALIC: Style = Style {
 };
 
 /// A 256-glyph 8x16 PSF1 font with no table, so each codepoint is its
-/// glyph: `H` inked on rows 2 to 11, as kbd's default8x16 and Terminus
-/// ter-v16n draw it, so its baseline lies under row 11; `|` a column
+/// glyph: `H` inked on rows 2 to 11, as an 8x16 console font draws it,
+/// so its baseline lies under row 11; `|` a column
 /// down every row at the cell's left edge; `\\` a column down every row
 /// at x 6, next to the cell's right edge; and `/` a column down every row
 /// at x 7, the cell's last.
@@ -95,7 +95,11 @@ fn a_scaled_psf_glyph_leans_by_twice_the_pixels() {
     assert_eq!((rows[30], rows[31]), (Some(0), Some(0)), "moved 2 left");
     // drawn unscaled for a renderer that scales, it is the glyph at 1
     let font = Font::new(psf);
-    let (small, scale) = font
+    let Drawn {
+        glyph: small,
+        scale,
+        ..
+    } = font
         .glyph_unscaled(&['|'], Width::Narrow, ITALIC)
         .expect("the bar at 1");
     assert_eq!(

@@ -3,7 +3,7 @@
 //! `Missing::Replacement` draws U+25A1, `?` or glyph 0 instead.
 
 use vtium_font::sprite::Range;
-use vtium_font::{Cell, Face, Font, Glyph, Missing, Source, SpritePolicy, Style, Width};
+use vtium_font::{Cell, Drawn, Face, Font, Glyph, Missing, Source, SpritePolicy, Style, Width};
 
 /// A face holding only `A`, solid, and U+25A1, half covered, in a `cell`.
 struct Stub {
@@ -42,6 +42,107 @@ impl Face for Stub {
     }
     fn scale(&self) -> u32 {
         self.scale
+    }
+}
+
+/// [`Stub`], which says too that it has `B` and draws nothing for it, as
+/// a face says it has a character it holds only as the first of a
+/// cluster. At a scale past 1 it draws `A` and U+25A1 at scale 1 too.
+struct Claims(Stub);
+
+impl Face for Claims {
+    fn cell(&self) -> Cell {
+        self.0.cell()
+    }
+    fn size_step(&self) -> u32 {
+        self.0.size_step()
+    }
+    fn has_glyph(&self, c: char) -> bool {
+        c == 'B' || self.0.has_glyph(c)
+    }
+    fn draw(&self, cluster: &[char], style: Style) -> Option<Glyph> {
+        self.0.draw(cluster, style)
+    }
+    fn scale(&self) -> u32 {
+        self.0.scale
+    }
+    fn draw_unscaled(&self, cluster: &[char], style: Style) -> Option<Glyph> {
+        let scale = self.0.scale;
+        let small = Stub {
+            cell: Cell {
+                width: self.0.cell.width / scale,
+                height: self.0.cell.height / scale,
+            },
+            scale: 1,
+        };
+        (scale > 1).then(|| small.draw(cluster, style)).flatten()
+    }
+}
+
+// vtium/vtium#320: the font says which of its glyphs is its missing glyph,
+// whether the face lacks the character or says it has it and draws
+// nothing for it, so a cache can drop that drawing when the face gains
+// glyphs
+#[test]
+fn the_font_says_which_glyphs_are_its_missing_glyph() {
+    let font = Font::new(Claims(Stub::new(8, 16)));
+    let drawn = |c: char| {
+        font.drawn(&[c], Width::Narrow, Style::default())
+            .expect("drawn")
+    };
+    let replacement = drawn(vtium_font::REPLACEMENT);
+    assert!(!drawn('A').missing, "the face's own A");
+    assert!(!replacement.missing, "the face's own U+25A1");
+    for c in ['B', 'C'] {
+        let d = drawn(c);
+        assert!(d.missing, "{c} is not the missing glyph");
+        assert_eq!(d.glyph, replacement.glyph, "{c} draws other than U+25A1");
+        assert_eq!(
+            font.glyph(&[c], Width::Narrow, Style::default()),
+            Some(d.glyph)
+        );
+    }
+    let hex = Font::new(Claims(Stub::new(8, 16))).with_missing(Missing::Hex);
+    let b = hex
+        .drawn(&['B'], Width::Narrow, Style::default())
+        .expect("drawn");
+    assert!(b.missing, "B in hex is not the missing glyph");
+    let sprites = Font::new(Claims(Stub::new(8, 16))).with_policy(SpritePolicy::SPRITES);
+    let line = sprites
+        .drawn(&['\u{2500}'], Width::Narrow, Style::default())
+        .expect("drawn");
+    assert!(!line.missing, "a sprite is the missing glyph");
+}
+
+// glyph_unscaled says the same as drawn at the face's scale, for a
+// character the face says it has and draws nothing for too
+#[test]
+fn the_unscaled_glyph_of_a_character_the_face_claims_is_the_missing_glyph() {
+    let font = Font::new(Claims(Stub {
+        cell: Cell {
+            width: 16,
+            height: 32,
+        },
+        scale: 2,
+    }));
+    for (c, missing) in [('A', false), ('B', true), ('C', true)] {
+        let d = font
+            .glyph_unscaled(&[c], Width::Narrow, Style::default())
+            .expect("drawn");
+        assert_eq!((d.scale, d.missing), (2, missing), "{c}");
+    }
+}
+
+// glyph_unscaled says the same as drawn, at the face's scale
+#[cfg(feature = "unifont")]
+#[test]
+fn the_unscaled_glyph_says_which_is_the_missing_glyph() {
+    let font = Font::new(vtium_font::Unifont::new(32));
+    for (c, missing) in [('A', false), ('\u{10fffd}', true)] {
+        let d = font
+            .glyph_unscaled(&[c], Width::Narrow, Style::default())
+            .expect("drawn");
+        assert_eq!((d.scale, d.missing), (2, missing), "U+{:X}", u32::from(c));
     }
 }
 
@@ -198,7 +299,9 @@ fn the_glyph_scales_by_whole_factors() {
                 u32::from(c)
             );
             // handed over at its drawn size, as a sprite is
-            let (g, scale) = big
+            let Drawn {
+                glyph: g, scale, ..
+            } = big
                 .glyph_unscaled(&[c], width, Style::default())
                 .expect("drawn");
             assert_eq!((g.pixels(), scale), (&want[..], 1));

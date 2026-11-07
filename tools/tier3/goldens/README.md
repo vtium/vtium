@@ -1,6 +1,6 @@
 # vtium's tier 3 goldens
 
-Every golden here is vtium's own: a capture of vtium that the maintainer has reviewed, or one listed in `../provisional.tsv`, which judges nothing until the maintainer reviews it. None is the C reference's any more (ADR-1503 D1). Tier 3 began with goldens copied from an earlier harness that judged the C reference (`../README.md`, The copies). Each copied golden that vtium did not draw pixel for pixel has been replaced by vtium's capture in a commit of its own, and the copied goldens that vtium draws pixel for pixel stay as vtium's goldens. The sections below say what each group of goldens shows and where it came from.
+Every golden here is vtium's own: a capture of vtium that the maintainer has reviewed, or one listed in `../provisional.tsv`, which judges nothing until the maintainer reviews it. Tier 3 began with goldens copied from an earlier harness that judged another console (`../README.md`, The copies), and ADR-1503 D1 made them vtium's. Each copied golden that vtium did not draw pixel for pixel has been replaced by vtium's capture in a commit of its own, and the copied goldens that vtium draws pixel for pixel stay as vtium's goldens. The sections below say what each group of goldens shows and where it came from.
 
 ## The small displays
 
@@ -39,7 +39,7 @@ The goldens of the frit variants (vtium/vtium#145, `../README.md`, Variants) are
 
 | Golden | What it shows |
 |---|---|
-| `2d-640x480-frit/small-console.png` | The `small-console` screen once the helper's glyphs have arrived: its letters, digits and Latin-1 in DejaVu Sans Mono, antialiased, in 9x16 cells, so its 40-column ruler ends at x 360; the box lines, blocks and shades as the sprites. |
+| `2d-640x480-frit/small-console.png` | The `small-console` screen once the helper's glyphs have arrived: its letters, digits and Latin-1 in DejaVu Sans Mono, antialiased, in 9x16 cells, so its 40-column ruler ends at x 360; the box lines, blocks and shades as the sprites. The ring of Å draws whole, its top row in the row above Å's cell (ADR-1306). |
 | `2d-640x480-frit/cjk.png` | The `cjk` screen in the same frit and cell: `Latin then CJK:`, `end`, `ASCII` and the bars in DejaVu Sans Mono, and the Chinese, Japanese and Korean characters, which the font lacks, in the built-in unifont, each centered in its two 9-pixel cells (vtium/vtium#141). |
 | `2d-640x480-frit-held/small-console.png` | The `small-console` screen with a helper that never answers: the screen before the helper's first answer, all in the built-in unifont, pixel for pixel the reviewed `2d-640x480-psf16/small-console.png`. |
 | `2d-640x480-frit-held/cjk.png` | The `cjk` screen with a helper that never answers, all in the built-in unifont, pixel for pixel `2d-640x480-psf16/cjk.png`. |
@@ -119,7 +119,7 @@ The maintainer accepted these screens' goldens in each of the four variants on 2
 
 ## Re-baselined with the font set tier3-text (vtium/vtium#275)
 
-Ten screens of each default 2D variant are vtium's captures from the full `make tier3 FEATURES='images bidi gpu'` run on the alpha.6 candidate at 0c1c8866, the first run that drew the frit `tier3-text`. The maintainer reviewed them as pictures on 2026-11-06 and accepted them. Seven of them replace goldens the C reference drew with pango; `wide-margin`, `combining` and `cjk` replace vtium's earlier captures, which drew the CJK characters and the emoji in the built-in unifont. Against the goldens they replace, the letters' anti-aliasing differs everywhere, because vtium's glyph engine is not FreeType, and in `2d-7680x2160-font32` every column after the first moves, because pango drew those seven screens in a 19x38 cell. The table says what else each shows.
+Ten screens of each default 2D variant are vtium's captures from the full `make tier3 FEATURES='images bidi gpu'` run on the alpha.6 candidate at 0c1c8866, the first run that drew the frit `tier3-text`. The maintainer reviewed them as pictures on 2026-11-06 and accepted them. Seven of them replace goldens that the earlier harness drew with pango; `wide-margin`, `combining` and `cjk` replace vtium's earlier captures, which drew the CJK characters and the emoji in the built-in unifont. Against the goldens they replace, the letters' anti-aliasing differs everywhere, because vtium's glyph engine is not FreeType, and in `2d-7680x2160-font32` every column after the first moves, because pango drew those seven screens in a 19x38 cell. The table says what else each shows.
 
 | Screen | What it shows |
 |---|---|

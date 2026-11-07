@@ -195,10 +195,10 @@ mod tests {
 
     // ADR-1302 D2 names every joining script: Arabic and its tatweel,
     // Syriac, N'Ko, Mongolian, Mandaic, Adlam and the rest, of Joining_Type
-    // D, R, L or C; a letter that does not join and a mark do not
-    // a letter keyed with U+200D is a joining form, not an emoji sequence
-    // (review finding B4); a ZWJ sequence of emoji, or a letter that does
-    // not join beside a joiner, is judged as before
+    // D, R, L or C; a letter that does not join and a mark do not. A
+    // letter keyed with U+200D is a joining form, not an emoji sequence; a
+    // ZWJ sequence of emoji, or a letter that does not join beside a
+    // joiner, stays an emoji sequence
     #[test]
     fn a_letter_with_a_joiner_is_a_joining_form() {
         assert_eq!(kind(&[0x628, ZWJ]), Kind::Joining);
@@ -210,9 +210,8 @@ mod tests {
         // lam and alef, which the console asks for as their ligature
         assert_eq!(kind(&[0x644, 0x627]), Kind::Joining);
         assert_eq!(kind(&[0x644, 0x64e, 0x627]), Kind::Joining);
-        // a mark on the letter, of Joining_Type T, leaves it a joining
-        // form in either order (review finding 2); a joiner with marks
-        // alone has no letter to join
+        // a mark on the letter, of Joining_Type T, leaves it a joining form
+        // in either order; a joiner with marks alone has no letter to join
         assert_eq!(kind(&[0x628, 0x64e, ZWJ]), Kind::Joining);
         assert_eq!(kind(&[ZWJ, 0x628, 0x64e]), Kind::Joining);
         assert_eq!(kind(&[ZWJ, 0x628, 0x651, 0x64e, ZWJ]), Kind::Joining);

@@ -11,7 +11,7 @@ mod common;
 
 use common::{rows, term};
 use vtium_term::{
-    Age, Cursor, CursorShape, CursorStyle, Mods, MouseButton, MouseEvent, Palette, Terminal,
+    Age, Cursor, CursorShape, CursorStyle, Key, Mods, MouseButton, MouseEvent, Palette, Terminal,
     WidthMethod,
 };
 
@@ -93,10 +93,10 @@ fn lnm_makes_a_line_feed_a_new_line() {
     assert_eq!(t.screen().cursor(), (2, 1));
     t.input(b"\x1b[20hcd\n");
     assert_eq!(t.screen().cursor(), (0, 2));
-    assert!(t.key(0xff0d, 0, Mods::empty(), None));
+    assert!(t.key(&Key::press(0xff0d, 0, Mods::empty(), None)));
     assert_eq!(sent(&mut t), b"\r\n");
     toggles(&mut t, false, 20);
-    t.key(0xff0d, 0, Mods::empty(), None);
+    t.key(&Key::press(0xff0d, 0, Mods::empty(), None));
     assert_eq!(sent(&mut t), b"\r");
 }
 
@@ -105,15 +105,15 @@ fn lnm_makes_a_line_feed_a_new_line() {
 #[test]
 fn decckm_switches_the_cursor_keys() {
     let mut t = term(8, 2, b"");
-    t.key(0xff52, 0, Mods::empty(), None);
+    t.key(&Key::press(0xff52, 0, Mods::empty(), None));
     assert_eq!(sent(&mut t), b"\x1b[A");
     t.input(b"\x1b[?1h");
     assert_eq!(rqm(&mut t, true, 1), 1);
-    t.key(0xff52, 0, Mods::empty(), None);
-    t.key(0xff50, 0, Mods::empty(), None);
+    t.key(&Key::press(0xff52, 0, Mods::empty(), None));
+    t.key(&Key::press(0xff50, 0, Mods::empty(), None));
     assert_eq!(sent(&mut t), b"\x1bOA\x1bOH");
     toggles(&mut t, true, 1);
-    t.key(0xff57, 0, Mods::empty(), None);
+    t.key(&Key::press(0xff57, 0, Mods::empty(), None));
     assert_eq!(sent(&mut t), b"\x1b[F");
 }
 
@@ -519,7 +519,7 @@ fn ignored_and_refused_modes_answer_their_fixed_state_and_change_nothing() {
     }
     // KAM set would lock the keyboard; it does not.
     t.input(b"\x1b[2h");
-    assert!(t.key(0x61, 0x61, Mods::empty(), Some('a')));
+    assert!(t.key(&Key::press(0x61, 0x61, Mods::empty(), Some('a'))));
     assert_eq!(sent(&mut t), b"a");
 }
 
@@ -554,7 +554,7 @@ fn decstr_returns_the_modes_to_their_defaults() {
     assert_eq!(t.cursor_style(), CursorStyle::Default);
     assert_eq!(rows(t.screen())[0], "hello");
     assert_eq!(t.screen().cursor(), (0, 1));
-    t.key(0xffb1, 0, Mods::empty(), None);
+    t.key(&Key::press(0xffb1, 0, Mods::empty(), None));
     t.input(b"\x1b[?4m");
     assert_eq!(sent(&mut t), b"1\x1b[>4;0m");
     // DECRC after DECSTR goes home with the default pen.
@@ -628,18 +628,18 @@ fn decnkm_switches_the_keypad_as_deckpam_and_deckpnm_do() {
     const KP_1: u32 = 0xffb1;
     let mut t = term(8, 2, b"");
     assert_eq!(rqm(&mut t, true, 66), 2);
-    t.key(KP_1, 0, Mods::empty(), None);
+    t.key(&Key::press(KP_1, 0, Mods::empty(), None));
     assert_eq!(sent(&mut t), b"1");
     t.input(b"\x1b[?66h");
     assert_eq!(rqm(&mut t, true, 66), 1);
-    t.key(KP_1, 0, Mods::empty(), None);
+    t.key(&Key::press(KP_1, 0, Mods::empty(), None));
     assert_eq!(sent(&mut t), b"\x1bOq");
     t.input(b"\x1b>");
     assert_eq!(rqm(&mut t, true, 66), 2, "DECKPNM resets it");
     t.input(b"\x1b=");
     assert_eq!(rqm(&mut t, true, 66), 1, "DECKPAM sets it");
     toggles(&mut t, true, 66);
-    t.key(KP_1, 0, Mods::empty(), None);
+    t.key(&Key::press(KP_1, 0, Mods::empty(), None));
     assert_eq!(sent(&mut t), b"1");
 }
 
@@ -716,7 +716,7 @@ fn urxvt_mouse_encoding_reports_in_decimal() {
 #[test]
 fn modes_1034_and_1036_choose_what_alt_sends() {
     let alt_a = |t: &mut Terminal| {
-        t.key(0x61, 0x61, Mods::ALT, Some('a'));
+        t.key(&Key::press(0x61, 0x61, Mods::ALT, Some('a')));
         sent(t)
     };
     let mut t = term(8, 2, b"");
@@ -730,9 +730,9 @@ fn modes_1034_and_1036_choose_what_alt_sends() {
         "\u{e1}".as_bytes(),
         "the eighth bit, as UTF-8"
     );
-    t.key(0xff0d, 0, Mods::ALT, None);
+    t.key(&Key::press(0xff0d, 0, Mods::ALT, None));
     assert_eq!(sent(&mut t), "\u{8d}".as_bytes(), "Alt+Return is CR's");
-    t.key(0xe9, 0xe9, Mods::ALT, Some('\u{e9}'));
+    t.key(&Key::press(0xe9, 0xe9, Mods::ALT, Some('\u{e9}')));
     assert_eq!(
         sent(&mut t),
         "\u{e9}".as_bytes(),
@@ -765,13 +765,13 @@ fn mode_1035_lets_numlock_override_the_application_keypad() {
     let num = Mods::NUM;
     let mut t = term(8, 2, b"\x1b=");
     assert_eq!(rqm(&mut t, true, 1035), 1, "set at start");
-    t.key(KP_1, 0, Mods::empty(), None);
+    t.key(&Key::press(KP_1, 0, Mods::empty(), None));
     assert_eq!(sent(&mut t), b"\x1bOq", "NumLock off");
-    t.key(KP_1, 0, num, None);
-    t.key(KP_ENTER, 0, num, None);
+    t.key(&Key::press(KP_1, 0, num, None));
+    t.key(&Key::press(KP_ENTER, 0, num, None));
     assert_eq!(sent(&mut t), b"1\r", "NumLock on");
-    t.key(KP_INSERT, 0, num, None);
-    t.key(KP_F1, 0, num, None);
+    t.key(&Key::press(KP_INSERT, 0, num, None));
+    t.key(&Key::press(KP_F1, 0, num, None));
     assert_eq!(
         sent(&mut t),
         b"\x1b[2~\x1bOP",
@@ -779,10 +779,10 @@ fn mode_1035_lets_numlock_override_the_application_keypad() {
     );
     t.input(b"\x1b[?1035l");
     assert_eq!(rqm(&mut t, true, 1035), 2);
-    t.key(KP_1, 0, num, None);
+    t.key(&Key::press(KP_1, 0, num, None));
     assert_eq!(sent(&mut t), b"\x1bOq", "reset, NumLock reads as nothing");
     toggles(&mut t, true, 1035);
-    t.key(KP_1, 0, num, None);
+    t.key(&Key::press(KP_1, 0, num, None));
     assert_eq!(sent(&mut t), b"\x1bOq");
 }
 

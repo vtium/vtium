@@ -53,6 +53,11 @@
 //! - [`power`]: the reboot, power-off and suspend requests the power keys
 //!   make of PID 1, logind and the kernel; with the `logind` feature,
 //!   [`logind`] reaches logind through sd-bus.
+//! - `seat`, with the `libseat` feature: the seat through a seat manager,
+//!   seatd or logind, by libseat: a VT backend whose display devices and
+//!   VT switching come from the seat manager, with the seat and each device
+//!   retried from the loop's timers, never by waiting on the loop
+//!   (ADR-1400's L2 layer).
 //! - `gpu`, with the `gpu` feature: the GPU path's GL context on a card's
 //!   render node through GBM and EGL, its safe GL type, and the import of a
 //!   display's buffer as a dma-buf (ADR-1303 D7).
@@ -83,6 +88,8 @@ pub mod power;
 pub mod pty;
 mod queue;
 pub mod rt_signal;
+#[cfg(feature = "libseat")]
+pub mod seat;
 pub mod udev;
 pub mod vt;
 pub mod watch;

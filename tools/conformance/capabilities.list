@@ -14,8 +14,8 @@ sgr-strike                    works   -     sgr.strike                     SGR 9
 sgr-blink                     works   -     sgr.blink                      SGR 5 and 25 set the frame's blink flag
 sgr-italic                    works   -     sgr.italic                     SGR 3 and 23
 sgr-truecolor                 works   -     sgr.extended-color             SGR 38;2 and 48;2
-sgr-overline                  missing #37   sgr.overline                   SGR 53 and 55: vtium-term keeps the attribute, and interface 1 reserves its key
-sgr-super-subscript           missing #37   sgr.script                     SGR 73 to 75: vtium-term keeps the attribute, and interface 1 reserves its keys
+sgr-overline                  works   -     sgr.overline                   SGR 53 and 55, which the views print as overline (attrs-renditions)
+sgr-super-subscript           works   -     sgr.script                     SGR 73 to 75, which the views print as superscript and subscript (attrs-renditions)
 palette-at-draw               works   -     sgr.draw-time-color            colors are resolved at draw time: a palette change recolors text
 modkeys-not-sgr               works   -     input.modify-other-keys        CSI > 4;1 m and CSI ? 4 m are not SGR 4
 cluster                       works   -     text.grapheme                  a grapheme cluster is one cell whose codepoints read back
@@ -45,7 +45,7 @@ osc-12-query                  works   -     color.dynamic.set              OSC 1
 osc-104-110-111-reset         works   -     color.palette.set              OSC 104, 110 and 111 reset what OSC 4, 10 and 11 set
 
 # input
-kitty-keyboard                missing #42   input.kitty-keyboard           the kitty keyboard protocol
+kitty-keyboard                works   -     input.kitty-keyboard           the kitty keyboard protocol: CSI ? u reports the flags in force
 modify-other-keys             works   -     input.modify-other-keys        modifyOtherKeys encodes modified keys
 mouse-1000                    works   -     DEC-1000                       normal mouse tracking
 mouse-1006                    works   -     DEC-1006                       SGR mouse reports
@@ -76,6 +76,8 @@ mode-8452                     works   -Dimages DEC-8452                     DECR
 decaln                        works   -     ctl.decaln                     ESC # 8 fills the screen with E, origin mode off, the margins the whole screen
 reverse-wrap                  works   -     DEC-45                         mode 45: BS reverse-wraps only into the row that wrapped
 xtsave                        works   -     ctl.xtsave                     XTSAVE and XTRESTORE of one mode, and the empty list, which leaves DECOM
+decslrm                       works   -     DEC-69,ctl.decslrm             mode 69 makes CSI s set left and right margins, text wraps and scrolls inside them, DECRQSS reports them
+decic                         works   -     ctl.decic                      DECIC, DECDC and DECBI move the columns between the margins
 mouse-1015                    works   -     DEC-1015                       mode 1015: the urxvt mouse encoding
 decnkm                        works   -     DEC-66                         mode 66: the keypad's application mode, which DECKPNM resets
 meta-keys                     works   -     DEC-1034,DEC-1036              modes 1036 and 1034: ESC before an Alt key, or its eighth bit

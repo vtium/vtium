@@ -29,6 +29,11 @@ gpu = ["vtium-render/gpu", "vtium-platform/gpu"]
 # the console's asks and lookup for joined forms. The minspec build leaves
 # it out.
 bidi = ["vtium-term/bidi", "vtium-render/bidi"]
+# The seat through libseat (ADR-1400's L2 layer): when a seat manager,
+# seatd or logind, answers at the start, the display devices and VT
+# switching come from it; otherwise the kernel's VT, as without the
+# feature.
+libseat = ["vtium-platform/libseat"]
 
 [dependencies]
 vtium-term.workspace = true

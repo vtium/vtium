@@ -696,8 +696,8 @@ fn the_policy_is_read_from_the_policy_lines() {
         }
     }
     // a `policy` line inside a section states nothing, and leaves the file
-    // partly broken whatever the top-level line says, so what runs is as it
-    // was when it counted as an unreadable policy
+    // partly broken whatever the top-level line says, so what runs is what
+    // runs under an unreadable policy
     for (lines, stated, runs, policy) in [
         (
             vec![PolicyLine::InSection],

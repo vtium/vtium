@@ -673,8 +673,8 @@ pub fn controls(spec: &Spec) -> Tally {
             GOOD.replace("attr 0 0-1", "attr 0 3-4"),
         ),
         (
-            "a reserved key",
-            GOOD.replace("attr 0 0-1 bold", "attr 0 0-1 strike overline"),
+            "a reserved key out of its place",
+            GOOD.replace("attr 0 0-1 bold", "attr 0 0-1 overline strike"),
         ),
         (
             "a frame line",

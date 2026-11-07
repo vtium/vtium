@@ -26,11 +26,13 @@ jobs:
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
           df -h /
       - uses: actions/checkout@v4
-      # libudev and libxkbcommon, which vtium-platform links, and libsystemd,
-      # which its logind feature links; and Mesa's EGL and llvmpipe, which
-      # the gpu feature's tests draw on (vtium-platform loads libEGL and
-      # libgbm at run time and links neither)
-      - run: sudo apt-get update && sudo apt-get install -y libudev-dev libxkbcommon-dev libsystemd-dev libegl1 libegl-mesa0 libgl1-mesa-dri libgbm1
+      # libudev and libxkbcommon, which vtium-platform links, libsystemd,
+      # which its logind feature links, and libseat, which its libseat
+      # feature links; and Mesa's EGL and llvmpipe, which the gpu feature's
+      # tests draw on (vtium-platform loads libEGL and libgbm at run time and
+      # links neither). The default build links neither libsystemd nor
+      # libseat; one install line serves both builds.
+      - run: sudo apt-get update && sudo apt-get install -y libudev-dev libxkbcommon-dev libsystemd-dev libseat-dev libegl1 libegl-mesa0 libgl1-mesa-dri libgbm1
       # The toolchain rust-toolchain.toml pins.
       - id: toolchain
         run: echo "channel=$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
@@ -64,9 +66,9 @@ jobs:
     runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
-      # As the check job's, Mesa's EGL and llvmpipe included: the gpu
-      # feature's tests draw on llvmpipe here too
-      - run: sudo apt-get update && sudo apt-get install -y libudev-dev libxkbcommon-dev libsystemd-dev libegl1 libegl-mesa0 libgl1-mesa-dri libgbm1
+      # As the check job's, libseat and Mesa's EGL and llvmpipe included:
+      # the gpu feature's tests draw on llvmpipe here too
+      - run: sudo apt-get update && sudo apt-get install -y libudev-dev libxkbcommon-dev libsystemd-dev libseat-dev libegl1 libegl-mesa0 libgl1-mesa-dri libgbm1
       # The toolchain rust-toolchain.toml pins.
       - id: toolchain
         run: echo "channel=$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
@@ -124,7 +126,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: sudo apt-get update && sudo apt-get install -y libudev-dev libxkbcommon-dev libsystemd-dev
+      # make msrv builds every feature: libsystemd for logind and libseat for
+      # libseat
+      - run: sudo apt-get update && sudo apt-get install -y libudev-dev libxkbcommon-dev libsystemd-dev libseat-dev
       # RUSTUP_TOOLCHAIN takes precedence over rust-toolchain.toml's pin, so
       # every later step, the cache's key included, runs on the rust-version.
       - id: msrv
@@ -148,8 +152,42 @@ jobs:
       - run: docs/scripts/adr lint --check
       - run: docs/scripts/adr cite --check
       - run: docs/scripts/issue-refs
+      - run: docs/scripts/fork-refs
       - name: ADR-1000 coverage ledger
         run: docs/scripts/coverage
+
+  # The license and the source of every crate that a lock file of vtium's
+  # names, against deny.toml (make deny, a gate), and the workspace's crates
+  # against the RustSec advisory database (make advisories), each with
+  # cargo-deny at the version the Makefile's DENY_VERSION names. The
+  # advisories are a job of their own because cargo-deny downloads the
+  # database, and an advisory published today can fail a change that did not
+  # touch the crate; the gate never waits on the network for it.
+  deny:
+    strategy:
+      fail-fast: false
+      matrix:
+        check: [deny, advisories]
+    name: ${{ matrix.check }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # The toolchain rust-toolchain.toml pins, which cargo-deny's cargo
+      # metadata runs on.
+      - id: toolchain
+        run: echo "channel=$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.toolchain.outputs.channel }}
+      # Cache the cargo registry and ~/.cargo/bin, which holds cargo-deny
+      # once it is installed; the key follows Cargo.lock, the toolchain, this
+      # job and its check.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.check }}
+      # cargo install skips the build when the cache restored this version.
+      - run: cargo install --locked cargo-deny --version "$(sed -n 's/^DENY_VERSION *= *//p' Makefile)"
+      - run: make ${{ matrix.check }}
 
   # Tier 1 and the capability probes, against the goldens and probes
   # tools/conformance/ holds.

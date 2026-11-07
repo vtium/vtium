@@ -60,21 +60,33 @@ pub enum SectionEdit {
     Ambiguous(String),
 }
 
-/// The file's lines, each with its ending, and the ending a new line takes:
-/// the first line's.
+/// The file's lines, each with its ending, the ending a new line takes,
+/// the first line's, and the byte-order mark before the first line, which
+/// is the file's and no part of the line, as the reader and the split read
+/// it, so a heading after it is still a heading.
 struct Lines {
     lines: Vec<String>,
     newline: &'static str,
+    bom: &'static str,
 }
 
 impl Lines {
     fn of(text: &str) -> Lines {
+        const BOM: &str = "\u{feff}";
+        let (bom, text) = match text.strip_prefix(BOM) {
+            Some(rest) => (BOM, rest),
+            None => ("", text),
+        };
         let lines: Vec<String> = text.split_inclusive('\n').map(str::to_owned).collect();
         let newline = match lines.first() {
             Some(l) if l.ends_with("\r\n") => "\r\n",
             _ => "\n",
         };
-        Lines { lines, newline }
+        Lines {
+            lines,
+            newline,
+            bom,
+        }
     }
 
     /// The line numbered `n` from 1, without its ending.
@@ -127,7 +139,9 @@ impl Lines {
     }
 
     fn text(&self) -> String {
-        self.lines.concat()
+        let mut text = self.bom.to_owned();
+        text.push_str(&self.lines.concat());
+        text
     }
 }
 
@@ -269,7 +283,7 @@ pub fn set_key(
     }
     if let Some(value) = value {
         let line = format!("{key} = {value}");
-        let reads = !value.contains(['\n', '\r'])
+        let reads = one_line(value)
             && key_value(&content(&line)) == Some((key, value))
             && !value.is_empty();
         if !reads {
@@ -314,16 +328,17 @@ pub fn set_key(
     Ok(lines.text())
 }
 
-/// Adds the line `version = 1` at the end of a file whose top level has
-/// no `version` line, as a file with no section may have, which it needs
-/// once it has a section (ADR-1403 D3).
+/// Adds the line `version = 1` at the end of the top level, before the
+/// first section heading or at the file's end, when the top level has no
+/// `version` line, as a file with no section may have, which it needs once
+/// it has a section (ADR-1403 D3).
 fn give_flow(lines: &mut Lines, text: &str) {
     let versioned = split(text.as_bytes())
         .top_lines()
         .any(|(_, l)| crate::conf::key_line(l).is_some_and(|k| k.key == VERSION_KEY.as_bytes()));
     if !versioned {
-        let end = lines.end();
-        lines.insert(end, &format!("{VERSION_KEY} = 1"));
+        let top_end = lines.heading(|_| true).unwrap_or_else(|| lines.end());
+        lines.insert(top_end, &format!("{VERSION_KEY} = 1"));
     }
 }
 
@@ -353,8 +368,8 @@ pub fn add_section(text: &str, of: Of<'_>) -> Result<String, SectionEdit> {
         Of::Look(_) => first_head.or(rules),
         Of::Head(_) => rules,
     };
-    // a heading always follows the top level, so a version line added at
-    // the file's end comes before the new section only in a file with none
+    // the version line goes before the first heading, so the new section
+    // at the file's end comes after it
     if before.is_none() {
         give_flow(&mut lines, text);
     }
@@ -543,9 +558,17 @@ fn numbered(lines: &Lines, number: usize) -> Result<usize, SectionEdit> {
         .ok_or(SectionEdit::NoRule(number))
 }
 
+/// Whether `text` can be written into one line that vtium reads: it holds
+/// no control character but a tab, since a newline or a carriage return
+/// would split the line, and the reader takes any other as an error on its
+/// line.
+fn one_line(text: &str) -> bool {
+    !text.chars().any(|c| c.is_control() && c != '\t')
+}
+
 /// `rule` as one rule vtium reads, trimmed, else why not.
 fn one_rule(rule: &str) -> Result<(Kind, Match, &str), SectionEdit> {
-    if rule.contains(['\n', '\r']) {
+    if !one_line(rule) {
         return Err(SectionEdit::BadValue {
             key: "rule".to_owned(),
             value: rule.to_owned(),
@@ -633,4 +656,64 @@ pub fn remove_rule(text: &str, number: usize) -> Result<String, SectionEdit> {
     let line = numbered(&lines, number)?;
     lines.remove(line, line);
     Ok(lines.text())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_byte_order_mark_before_the_first_heading_is_no_part_of_it() {
+        let text = "\u{feff}[rules]\ndisplay * -> a\n";
+        assert_eq!(
+            add_rule(text, "input * -> roaming", None),
+            Ok("\u{feff}[rules]\ndisplay * -> a\ninput * -> roaming\n".to_owned())
+        );
+        assert_eq!(
+            set_key("\u{feff}[head a]\n", Of::Head("a"), "look", Some("big")),
+            Ok("\u{feff}[head a]\nlook = big\n".to_owned())
+        );
+        assert_eq!(
+            rename_section("\u{feff}[head a] # desk\n", Of::Head("a"), "b"),
+            Ok("\u{feff}[head b] # desk\n".to_owned())
+        );
+        assert_eq!(
+            remove_section("\u{feff}[look a]\n[head b]\n", Of::Look("a")),
+            Ok("\u{feff}[head b]\n".to_owned())
+        );
+    }
+
+    #[test]
+    fn a_control_character_is_refused_since_vtium_cannot_read_its_line() {
+        let text = "version = 1\n[look a]\n[rules]\n";
+        assert!(matches!(
+            set_key(text, Of::Look("a"), "font-size", Some("1\u{0}2")),
+            Err(SectionEdit::BadValue { .. })
+        ));
+        assert!(matches!(
+            add_rule(text, "input name:k\u{1b}b -> a", None),
+            Err(SectionEdit::BadValue { .. })
+        ));
+        assert!(matches!(
+            set_rule("[rules]\ninput * -> a\n", 1, "input name:\u{7f} -> a"),
+            Err(SectionEdit::BadValue { .. })
+        ));
+        assert!(set_key(text, Of::Look("a"), "font-name", Some("a\tb")).is_ok());
+    }
+
+    #[test]
+    fn a_version_line_the_writer_adds_goes_to_the_top_level() {
+        assert_eq!(
+            add_rule("# mine\n[head b]\n", "display * -> b", None),
+            Ok("# mine\nversion = 1\n[head b]\n[rules]\ndisplay * -> b\n".to_owned())
+        );
+        assert_eq!(
+            add_section("[look a]\n", Of::Head("h")),
+            Ok("version = 1\n[look a]\n\n[head h]\n".to_owned())
+        );
+        assert_eq!(
+            add_section("font-size = 12", Of::Head("h")),
+            Ok("font-size = 12\nversion = 1\n\n[head h]\n".to_owned())
+        );
+    }
 }

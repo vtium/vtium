@@ -27,6 +27,7 @@ mod font;
 mod images;
 mod inband;
 mod input;
+mod kitty_keyboard;
 mod modes;
 mod rect;
 mod reply;
@@ -42,7 +43,7 @@ use crate::style::{Attrs, Style};
 use crate::termcap::Termcap;
 
 pub use blank::{BlankRequest, BlankTimeout};
-pub use input::{Mods, MouseButton, MouseEvent};
+pub use input::{Key, KeyEvent, Mods, MouseButton, MouseEvent};
 pub use modes::MouseTracking;
 pub use reply::VersionError;
 
@@ -116,6 +117,9 @@ struct Saved {
     /// The column is the screen's width while a wrap is pending.
     x: usize,
     y: usize,
+    /// A pending wrap at a right margin before the screen's last column,
+    /// where the column is the margin's.
+    margin_wrap: bool,
     pen: Style,
     auto_wrap: bool,
     origin: bool,
@@ -131,6 +135,7 @@ impl Saved {
     const HOME: Self = Self {
         x: 0,
         y: 0,
+        margin_wrap: false,
         pen: Style::DEFAULT,
         auto_wrap: true,
         origin: false,
@@ -213,6 +218,8 @@ struct State {
     charsets: Charsets,
     /// xterm's modifyOtherKeys level, 0 to 2.
     modify_other_keys: u8,
+    /// The kitty keyboard protocol's flags, a stack for each screen.
+    keyboard: kitty_keyboard::Keyboard,
     /// XTSHIFTESCAPE 1: the program asks that Shift reach its mouse
     /// reports.
     shift_escape: bool,
@@ -279,6 +286,7 @@ impl Terminal {
             conformance: 62,
             charsets: Charsets::initial(false),
             modify_other_keys: 0,
+            keyboard: kitty_keyboard::Keyboard::default(),
             shift_escape: false,
             xtsave: SavedModes::default(),
             bell: false,
@@ -636,6 +644,7 @@ impl State {
             *saved = Saved {
                 x,
                 y,
+                margin_wrap: self.screen.margin_wrap(),
                 pen: *self.screen.pen(),
                 auto_wrap: self.screen.auto_wrap(),
                 origin: self.screen.origin_mode(),
@@ -655,10 +664,14 @@ impl State {
         modes::set(self, true, 7, saved.auto_wrap);
         modes::set(self, true, 6, saved.origin);
         self.screen.restore_cursor(saved.x, saved.y);
+        if saved.margin_wrap {
+            self.screen.restore_margin_wrap();
+        }
     }
 
     /// DECSTR, and the first half of RIS: the modes, the pen, the cursor
-    /// style, the character sets, the saved cursors, the margins, the tab
+    /// style, the character sets, modifyOtherKeys and both screens' kitty
+    /// keyboard flags, the saved cursors, the margins, the tab
     /// stops, the 256 palette colors and, in a build with the bidi
     /// feature, the current paragraph properties, and those of the cursor's
     /// paragraph when the cursor stands at its first position, return to
@@ -673,6 +686,7 @@ impl State {
         self.conformance = 62;
         self.charsets = self.default_charsets();
         self.modify_other_keys = 0;
+        self.reset_keyboard_flags();
         self.dcs = Dcs::Ignored;
         modes::reset(self, false);
         #[cfg(feature = "bidi")]
@@ -810,7 +824,7 @@ impl State {
                 s.move_line_home();
             }
             b'G' | b'`' => s.move_to_column(n.saturating_sub(1)),
-            b'd' => s.move_to(s.cursor().0, n.saturating_sub(1)),
+            b'd' => s.move_to_row(n.saturating_sub(1)),
             b'e' => s.move_rows_down(n),
             b'H' | b'f' => {
                 let col = Self::count(params, 1);
@@ -834,10 +848,14 @@ impl State {
                 _ => {}
             },
             b'r' => s.set_margins(Self::param(params, 0), Self::param(params, 1)),
-            // SCOSC and SCORC, `CSI s` and `CSI u` with no parameter, save
-            // and restore the cursor as DECSC and DECRC do (ctlseqs). vtium
-            // has no left and right margins yet (#55), so DECLRMM is reset
-            // and `CSI s` is always SCOSC.
+            // `CSI s` is DECSLRM while DECLRMM is set, with no parameter
+            // the whole width; while it is reset, `CSI s` with no parameter
+            // is SCOSC, and `CSI u` with no parameter is always SCORC,
+            // saving and restoring the cursor as DECSC and DECRC do
+            // (ctlseqs).
+            b's' if s.lr_margin_mode() => {
+                s.set_lr_margins(Self::param(params, 0), Self::param(params, 1));
+            }
             b's' if params.count() == 1 && params.get(0).is_none() => self.save_cursor(),
             b'u' if params.count() == 1 && params.get(0).is_none() => self.restore_cursor(),
             b'h' => self.set_modes(params, false, true),
@@ -873,8 +891,10 @@ impl State {
             b'~' => self.charsets.lock_right(1),
             b'}' => self.charsets.lock_right(2),
             b'|' => self.charsets.lock_right(3),
+            b'6' => s.back_index(),
             b'7' => self.save_cursor(),
             b'8' => self.restore_cursor(),
+            b'9' => s.forward_index(),
             // DECKPAM and DECKPNM set and reset DECNKM's state.
             b'=' => modes::set(self, true, 66, true),
             b'>' => modes::set(self, true, 66, false),
@@ -1014,6 +1034,8 @@ impl Consumer for State {
                 self.rect_op(params, final_byte);
             }
             (None, [b'*'], b'x') => self.set_attribute_extent(params),
+            (None, [b'\''], b'}') => self.screen.insert_columns(Self::count(params, 0)),
+            (None, [b'\''], b'~') => self.screen.delete_columns(Self::count(params, 0)),
             (None, [b' '], b'q') => {
                 if let Some(style) = CursorStyle::from_param(params.get(0).unwrap_or(0)) {
                     self.set_cursor_style(style);
@@ -1037,6 +1059,11 @@ impl Consumer for State {
                 self.reply_modify_other_keys();
             }
             (Some(b'>'), [], b'n') if params.get(0) == Some(4) => self.modify_other_keys = 0,
+            // The kitty keyboard protocol's flags (ADR-1005, D3 and D5).
+            (Some(b'>'), [], b'u') => self.push_keyboard_flags(params),
+            (Some(b'<'), [], b'u') => self.pop_keyboard_flags(params),
+            (Some(b'='), [], b'u') => self.set_keyboard_flags(params),
+            (Some(b'?'), [], b'u') => self.reply_keyboard_flags(),
             (None, [b'#'], b'{' | b'p') => self.push_sgr(params),
             (None, [b'#'], b'}' | b'q') => self.pop_sgr(),
             (None, [b'#'], b'P') => self.push_colors_params(params),

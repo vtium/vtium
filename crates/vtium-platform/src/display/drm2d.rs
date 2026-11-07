@@ -57,6 +57,12 @@ fn errno(e: &io::Error) -> Option<Errno> {
     e.raw_os_error().map(Errno::from_raw_os_error)
 }
 
+/// Whether `e` says the kernel removed the card: every ioctl on a card
+/// the kernel removed fails with ENODEV (`drm_ioctl`).
+fn card_removed(e: &io::Error) -> bool {
+    errno(e) == Some(Errno::NODEV)
+}
+
 /// The physical size of connector `name`, `mm` as the connector reports
 /// it, or where it reports a side of 0, the size its EDID in sysfs states
 /// (ADR-1301 D3); `mm` where that states none either.
@@ -159,6 +165,8 @@ pub struct Drm2d<K: Kms, S: Source<K> = Dumbs> {
     /// not lit at start.
     scanned: bool,
     outputs: Vec<Output<S::Memory>>,
+    /// The card's CRTCs, in its order, as the last scan read them.
+    crtcs: Vec<u32>,
     /// The identity of each display bound.
     identities: Vec<(DisplayId, Identity)>,
     /// The connected connectors the policy leaves dark, in the card's
@@ -209,6 +217,9 @@ pub struct Drm2d<K: Kms, S: Source<K> = Dumbs> {
     /// chosen or at the mode they were set to. The wake-up retries try them
     /// again, and none is asked to redraw until a modeset sets it.
     unset: Vec<DisplayId>,
+    /// The card was let go after the kernel removed it: each display was
+    /// reported removed, and drm2d sends the card nothing again.
+    gone: bool,
     events: Vec<Event>,
     timers: Timers,
     link: Option<Box<dyn Link>>,
@@ -255,6 +266,7 @@ impl<K: Kms> Drm2d<K> {
             dark_policy: None,
             scanned: false,
             outputs: Vec::new(),
+            crtcs: Vec::new(),
             identities: Vec::new(),
             dark: Vec::new(),
             dark_refused: false,
@@ -269,6 +281,7 @@ impl<K: Kms> Drm2d<K> {
             waking: false,
             wake_failed: false,
             unset: Vec::new(),
+            gone: false,
             events: Vec::new(),
             timers: Timers::default(),
             link: None,
@@ -312,6 +325,14 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         let before = self.dark.len();
         self.dark.retain(|d| d.identity.connector != connector);
         self.dark.len() != before
+    }
+
+    /// Whether the kernel removed the card: an ioctl answered ENODEV, as
+    /// every ioctl on an unplugged card does (`drm_ioctl`). drm2d then
+    /// reported each display removed and sends the card nothing again, so
+    /// the owner can let the card go, which closes it.
+    pub fn gone(&self) -> bool {
+        self.gone
     }
 
     /// The events since the last drain, in order.
@@ -553,6 +574,8 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                 {
                     match self.card.create_blob(&clip_bytes(rects)) {
                         Ok(blob) => Some(blob),
+                        // The commit after it fails the same way.
+                        Err(e) if card_removed(&e) => None,
                         Err(e) => {
                             log::warn!("cannot create the damage blob: {e}");
                             None
@@ -581,6 +604,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             let mut nothing = false;
             if let Err(e) = &sent
                 && errno(e) != Some(Errno::BUSY)
+                && !card_removed(e)
                 && o.cursor_shown().is_some()
             {
                 if let Some(c) = o.cursor.as_mut() {
@@ -615,6 +639,12 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             sent
         };
         if let Err(e) = sent {
+            if card_removed(&e) {
+                // The card is gone with every display on it, and the owner
+                // hears each removed.
+                self.settle();
+                return Err(SwapError::Off);
+            }
             if errno(&e) == Some(Errno::BUSY) {
                 // Another commit holds the CRTC while vtium knows of no flip
                 // of its own in flight: a commit vtium does not track, or a
@@ -666,8 +696,13 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         let on = dpms == Dpms::On;
         if let Some((prop, _)) = o.dpms.filter(|&(_, now)| now != dpms) {
             log::info!("setting DPMS of {} to {dpms:?}", o.name);
-            self.card
-                .set_connector_property(o.id.0, prop, dpms_value(dpms))?;
+            if let Err(e) = self
+                .card
+                .set_connector_property(o.id.0, prop, dpms_value(dpms))
+            {
+                self.settle();
+                return Err(e);
+            }
             o.dpms = Some((prop, dpms));
             if on {
                 o.powered_on();
@@ -873,6 +908,9 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     /// again every [`crate::WAKE_RETRY_MS`], at most
     /// [`crate::WAKE_RETRIES`] times.
     pub fn wake_up(&mut self) -> io::Result<()> {
+        if self.gone {
+            return Err(Errno::NODEV.into());
+        }
         self.reap();
         self.foreground = true;
         self.retries = None;
@@ -898,7 +936,9 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     fn try_wake(&mut self, scan: Scan) -> io::Result<()> {
         if !self.master {
             self.card.set_master().inspect_err(|e| {
-                log::warn!("cannot take DRM master: {e}");
+                if !card_removed(e) {
+                    log::warn!("cannot take DRM master: {e}");
+                }
             })?;
             self.master = true;
         }
@@ -994,6 +1034,11 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     /// plane shows anything, as before vtium shows a pointer, the sleep
     /// commits nothing (vtium/vtium#280).
     pub fn sleep(&mut self) {
+        if self.gone {
+            self.foreground = false;
+            self.events.push(Event::Asleep);
+            return;
+        }
         self.reap();
         self.foreground = false;
         self.owed = false;
@@ -1023,6 +1068,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         let hide = self.planes_to_hide();
         if !hide.entries.is_empty()
             && let Err(e) = self.card.commit(&hide, DRM_MODE_ATOMIC_NONBLOCK)
+            && !card_removed(&e)
         {
             log::warn!("cannot hide the cursor and overlay planes: {e}");
         }
@@ -1048,12 +1094,17 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             return req;
         }
         let all = self.card.planes().unwrap_or_else(|e| {
-            log::warn!("cannot list the card's planes: {e}");
+            if !card_removed(&e) {
+                log::warn!("cannot list the card's planes: {e}");
+            }
             Vec::new()
         });
         for plane in all {
             let props = match self.card.properties(plane, Object::Plane) {
                 Ok(props) => props,
+                Err(e) if card_removed(&e) => {
+                    return Request::default();
+                }
                 Err(e) => {
                     log::warn!("cannot read the properties of plane {plane}: {e}");
                     continue;
@@ -1076,7 +1127,56 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         req
     }
 
+    /// Lets the card go once an ioctl said the kernel removed it, as
+    /// udev's report of its removal has the owner let it go, but at once:
+    /// udev reports the removal only after udevd has handled it, and a
+    /// card removed this early in boot may have no udevd to report it
+    /// (vtium/vtium#295). Each display is reported removed, a sleep under
+    /// way reports [`Event::Asleep`], and every wait, retry and timer ends.
+    /// The displays' buffers, cursors and mode blobs go with no ioctl, as
+    /// the kernel frees them when the card's file closes, and drm2d sends
+    /// the card nothing again ([`Drm2d::gone`]).
+    fn let_card_go(&mut self) {
+        if self.gone || !self.card.removed() {
+            return;
+        }
+        self.gone = true;
+        log::warn!(
+            "the kernel removed the card, as a new driver does when it takes the display over; vtium lets its displays go and uses the card no more"
+        );
+        for mut o in std::mem::take(&mut self.outputs) {
+            if let (Some(link), Some((t, _))) = (&self.link, o.flip_timer.take()) {
+                link.disarm(t);
+            }
+            if o.announced {
+                self.events.push(Event::Removed(o.id));
+            }
+        }
+        for (_, timer) in std::mem::take(&mut self.stale) {
+            if let (Some(link), Some(t)) = (&self.link, timer) {
+                link.disarm(t);
+            }
+        }
+        self.retired.borrow_mut().clear();
+        self.identities.clear();
+        self.dark.clear();
+        self.unset.clear();
+        if self.waiting.take() == Some(Waiting::Sleep) {
+            self.events.push(Event::Asleep);
+        }
+        self.awake = false;
+        self.master = false;
+        self.retries = None;
+        self.owed = false;
+        self.wake_failed = false;
+    }
+
     fn release_master(&mut self) {
+        // The kernel removed the card, and its master with it.
+        if self.card.removed() {
+            self.master = false;
+            return;
+        }
         if let Err(e) = self.card.drop_master() {
             log::debug!("cannot drop DRM master: {e}");
         }
@@ -1088,6 +1188,9 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     /// though a retry while blanked leaves its modeset owed to input. A
     /// wake-up that failed and ran out of retries is tried again.
     pub fn poll(&mut self) -> io::Result<()> {
+        if self.gone {
+            return Ok(());
+        }
         self.reap();
         if !self.awake {
             if !self.foreground || self.retries.is_some() {
@@ -1249,6 +1352,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     /// each flip in flight, armed when the flip starts, and the wake-up
     /// retries.
     fn settle(&mut self) {
+        self.let_card_go();
         let Some(link) = &self.link else {
             return;
         };
@@ -1287,6 +1391,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         // falls asleep, so a scan always runs under master.
         debug_assert!(self.master, "an awake card holds DRM master");
         let res = self.card.resources()?;
+        self.crtcs.clone_from(&res.crtcs);
         for o in &mut self.outputs {
             o.available = false;
         }
@@ -1307,6 +1412,10 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         let mut connected = Vec::new();
         for &id in &res.connectors {
             let Some(conn) = self.connector(id) else {
+                // A connector the removed card cannot read is not unplugged.
+                if self.card.removed() {
+                    return Err(Errno::NODEV.into());
+                }
                 continue;
             };
             if !conn.connected || conn.modes.is_empty() {
@@ -1392,6 +1501,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             // identity, and an atomic commit needs its `CRTC_ID`.
             let found = match self.find(&conn) {
                 Ok(found) => found,
+                Err(e) if card_removed(&e) => return Err(e),
                 Err(e) => {
                     log::warn!(
                         "cannot read the properties of connector {}: {e}",
@@ -1451,6 +1561,9 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         // that input too, whose scan places it.
         let defer = self.blanked && scan != Scan::WakeUp;
         let placed = self.place(&res, &seen, new, &freed, follow, defer);
+        if self.card.removed() {
+            return Err(Errno::NODEV.into());
+        }
         if placed.changed {
             needs = true;
             changed = true;
@@ -1538,7 +1651,8 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     /// [`Self::connector`] logs it.
     pub(super) fn read_logged<T>(&self, id: u32, read: io::Result<T>) -> Option<T> {
         read.inspect_err(|e| {
-            if e.kind() == io::ErrorKind::NotFound {
+            if card_removed(e) {
+            } else if e.kind() == io::ErrorKind::NotFound {
                 log::debug!("connector {id} is gone: {e}");
             } else {
                 log::warn!("cannot read connector {id}: {e}");
@@ -1563,13 +1677,18 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                 .ok()
                 .flatten()
         });
+        if self.card.removed() {
+            return Err(Errno::NODEV.into());
+        }
         let props = self.card.properties(conn.id, Object::Connector)?;
         let on = match current.map(|e| e.crtc) {
             _ if self.legacy => value(&props, "DPMS").is_none_or(|d| d == 0),
             Some(crtc) => self
                 .card
                 .properties(crtc, Object::Crtc)
-                .inspect_err(|e| log::warn!("cannot read the properties of CRTC {crtc}: {e}"))
+                .inspect_err(|e| {
+                    log::warn!("cannot read the properties of CRTC {crtc}: {e}");
+                })
                 .ok()
                 .and_then(|p| value(&p, "ACTIVE"))
                 .is_none_or(|a| a != 0),
@@ -1686,6 +1805,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             name,
             crtc,
             pipe,
+            able: index_bit(pipe),
             planes,
             color,
             mode: choice.current,
@@ -1725,9 +1845,16 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
 
     /// An encoder, or `None`, logged, when it cannot be read.
     fn encoder(&self, id: u32) -> Option<Encoder> {
+        if self.card.removed() {
+            return None;
+        }
         self.card
             .encoder(id)
-            .inspect_err(|e| log::warn!("cannot read encoder {id}: {e}"))
+            .inspect_err(|e| {
+                if !card_removed(e) {
+                    log::warn!("cannot read encoder {id}: {e}");
+                }
+            })
             .ok()
     }
 
@@ -1847,12 +1974,16 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         let mut places = Vec::with_capacity(olds.len().saturating_add(new.len()));
         // The CRTC each display wants, and whether it is lit there.
         let mut homes = Vec::with_capacity(olds.len());
+        // The CRTCs each display can take, for a modeset the card refuses
+        // ([`Self::relight`]).
+        let mut ables = Vec::with_capacity(olds.len().saturating_add(new.len()));
         for o in &olds {
             let conn = seen.iter().find(|c| c.id == o.id.0);
             let current = conn
                 .filter(|c| c.encoder != 0)
                 .and_then(|c| self.encoder(c.encoder));
             let reach = conn.map_or(0, |c| self.reach(c, current)) | bit(o.crtc);
+            ables.push(reach | o.moved_from.map_or(0, |m| bit(m.crtc)));
             if !follow {
                 let want = o.moved_from.filter(|_| o.online).map_or(o.crtc, |m| m.crtc);
                 // Lit here means online. Only the displays online before the
@@ -1888,6 +2019,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                 _ => 0,
             };
             let able = self.reach(&n.conn, n.found.current) | bit(on);
+            ables.push(able);
             let back = freed
                 .iter_mut()
                 .find(|slot| {
@@ -1936,7 +2068,9 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         let at = |slot: Option<usize>| slot.and_then(|c| Some((*res.crtcs.get(c)?, c)));
         let mut changed = false;
         let mut unplaced = false;
+        let mut ables = ables.into_iter();
         for ((mut o, slot), (want, lit)) in olds.into_iter().zip(slots.by_ref()).zip(homes) {
+            o.able = ables.next().unwrap_or(0) | bit(want);
             // A display placed off the CRTC it wants is moved off it for
             // another display, until a modeset sets it on its new CRTC.
             o.moved_from = at(index(want))
@@ -1956,7 +2090,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                 Err(why) => self.let_go(o, &why),
             }
         }
-        for (n, slot) in new.into_iter().zip(slots) {
+        for ((n, slot), able) in new.into_iter().zip(slots).zip(ables) {
             let New {
                 conn,
                 found,
@@ -1968,7 +2102,8 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                 unplaced = true;
                 continue;
             };
-            if let Some(o) = self.bind(&conn, found, choice, crtc, pipe) {
+            if let Some(mut o) = self.bind(&conn, found, choice, crtc, pipe) {
+                o.able = able | index_bit(pipe);
                 self.identities.retain(|(i, _)| *i != o.id);
                 self.identities.push((o.id, identity));
                 self.outputs.push(o);
@@ -2076,12 +2211,15 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     /// plane too when `others`.
     fn hide_planes(&self, req: &mut Request, off: &[u32], others: bool) {
         let all = self.card.planes().unwrap_or_else(|e| {
-            log::warn!("cannot list the card's planes: {e}");
+            if !card_removed(&e) {
+                log::warn!("cannot list the card's planes: {e}");
+            }
             Vec::new()
         });
         for plane in all {
             let props = match self.card.properties(plane, Object::Plane) {
                 Ok(props) => props,
+                Err(_) if self.card.removed() => return,
                 Err(e) => {
                     log::warn!("cannot read the properties of plane {plane}: {e}");
                     continue;
@@ -2143,6 +2281,9 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                 .map(|o| o.id)
                 .collect();
             let mut unset = self.legacy_modeset();
+            if self.card.removed() {
+                return Err(Errno::NODEV.into());
+            }
             // The moved displays whose set failed. One new to the modeset
             // among them never goes back, as `going_back` leaves it out.
             let failed: Vec<(DisplayId, bool)> = unset
@@ -2202,12 +2343,12 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             }
             (Ok(()), unset.into_iter().map(|(id, _)| id).collect())
         } else {
-            let mut set = self.atomic_modeset_or_default();
+            let mut set = self.atomic_modeset_or_default(true);
             // A display whose new mode the card refuses, as its default
             // too, stays at the mode it is set to, and the modeset is tried
             // again, so the others are set and nothing is retried.
             if refused(&set) && self.hold_back() {
-                set = self.atomic_modeset_or_default();
+                set = self.atomic_modeset_or_default(true);
             }
             // A display whose new mode failed for another reason, as where
             // its buffers cannot be made, stays at the mode it is set to,
@@ -2215,7 +2356,17 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             // so the card is set and stays awake while the retries try the
             // new mode.
             if set.is_err() && self.keep_set_modes() {
-                set = self.atomic_modeset_or_default();
+                set = self.atomic_modeset_or_default(true);
+            }
+            // The card refused the displays where they are placed: another
+            // placement of them all, one that moves a lit display included,
+            // may light them.
+            if placement_refused(&set) && self.relight() {
+                set = Ok(());
+            }
+            // The kernel removed the card: no fewer displays are tried.
+            if self.card.removed() {
+                return Err(Errno::NODEV.into());
             }
             // The card refused the displays where they are placed, which a
             // display new to the modeset or one the placement moved may cause.
@@ -2307,9 +2458,12 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     /// dark connectors set off, it is tried without them first, so a dark
     /// connector never costs the lit displays (ADR-1401 D9); the first
     /// such failure is logged as a warning, later ones at debug level.
-    fn atomic_modeset_or_default(&mut self) -> Result<(), Failure> {
+    ///
+    /// Where `commit` is false, each modeset is only tested
+    /// ([`Self::atomic_modeset`]).
+    fn atomic_modeset_or_default(&mut self, commit: bool) -> Result<(), Failure> {
         let mut dark = !self.dark.is_empty();
-        let mut set = self.atomic_modeset(dark);
+        let mut set = self.atomic_modeset(dark, commit);
         if dark && refused(&set) {
             let names: Vec<&str> = self
                 .dark
@@ -2326,7 +2480,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                 log::warn!("{line}");
             }
             dark = false;
-            set = self.atomic_modeset(false);
+            set = self.atomic_modeset(false, commit);
         }
         if !refused(&set) {
             return set;
@@ -2336,7 +2490,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         for o in &mut self.outputs {
             o.mode = o.choice.default;
         }
-        let retried = self.atomic_modeset(dark);
+        let retried = self.atomic_modeset(dark, commit);
         if retried.is_err() {
             for (o, mode) in self.outputs.iter_mut().zip(modes) {
                 o.mode = mode;
@@ -2442,7 +2596,12 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
 
     /// Frees `buffers`, keeping each whose memory a token holds until the
     /// token comes back, so the display never waits for the render thread.
+    /// A card the kernel removed frees them with its file, so they are
+    /// only unmapped.
     fn release(&self, buffers: Vec<Buffer<S::Memory>>) {
+        if self.card.removed() {
+            return;
+        }
         for b in buffers {
             if Arc::strong_count(&b.map) > 1 {
                 self.retired.borrow_mut().push(b);
@@ -2483,7 +2642,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         }
         self.free_buffers(&mut o);
         drop_cursor(&self.card, &mut o);
-        if o.mode_blob != 0 {
+        if o.mode_blob != 0 && !self.card.removed() {
             let _ = self.card.destroy_blob(o.mode_blob);
         }
     }
@@ -2497,9 +2656,9 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     ///
     /// The modeset after it then sets a returning display's mode, CRTC and
     /// connector anew, a full modeset, whatever mode another master or the
-    /// kernel's console left there. On this machine's amdgpu cards the
-    /// small panel showed nothing under frames committed on the mode the
-    /// console set at its return, until a VT switch set its mode again. A
+    /// kernel's console left there, because a driver can keep a returning
+    /// panel dark under frames committed on the mode the console set at
+    /// its return until its mode is set again, as amdgpu does. A
     /// CRTC that a display online also drives stays on, and only loses the
     /// returning connector. A display on no CRTC, about to take one with no
     /// mode, starts from off already and needs nothing turned off.
@@ -2510,6 +2669,31 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     /// off and stays off (`drm_atomic_crtc_check`), so this commit, which
     /// asks for none, turns the vacated CRTCs off.
     fn set_off_first(&self) -> Result<(), Failure> {
+        let req = self.off_first()?;
+        if req.entries.is_empty() {
+            return Ok(());
+        }
+        self.card
+            .commit(&req, DRM_MODE_ATOMIC_ALLOW_MODESET)
+            .map_err(|e| {
+                // EACCES while another process holds master is expected.
+                if errno(&e) == Some(Errno::ACCESS) {
+                    log::debug!(
+                        "the commit turning off what the modeset would leave lit was refused: {e}"
+                    );
+                    Failure::Test(e)
+                } else {
+                    if !card_removed(&e) {
+                        log::error!("cannot turn off what the modeset would leave lit: {e}");
+                    }
+                    Failure::Other(e)
+                }
+            })
+    }
+
+    /// What [`Self::set_off_first`] commits, empty where it turns nothing
+    /// off.
+    fn off_first(&self) -> Result<Request, Failure> {
         let mut ids = Vec::new();
         let mut off = Vec::new();
         for o in self.outputs.iter().filter(|o| o.returning) {
@@ -2534,10 +2718,10 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                 off.push(crtc);
             }
         }
-        if ids.is_empty() && off.is_empty() {
-            return Ok(());
-        }
         let mut req = Request::default();
+        if ids.is_empty() && off.is_empty() {
+            return Ok(req);
+        }
         let prepared = (|| -> io::Result<()> {
             for &id in &ids {
                 self.unbind(&mut req, id)?;
@@ -2556,24 +2740,13 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             Ok(())
         })();
         prepared.map_err(|e| {
-            log::error!("cannot turn off what the modeset would leave lit: {e}");
+            if !card_removed(&e) {
+                log::error!("cannot turn off what the modeset would leave lit: {e}");
+            }
             Failure::Other(e)
         })?;
         self.hide_planes(&mut req, &off, false);
-        self.card
-            .commit(&req, DRM_MODE_ATOMIC_ALLOW_MODESET)
-            .map_err(|e| {
-                // EACCES while another process holds master is expected.
-                if errno(&e) == Some(Errno::ACCESS) {
-                    log::debug!(
-                        "the commit turning off what the modeset would leave lit was refused: {e}"
-                    );
-                    Failure::Test(e)
-                } else {
-                    log::error!("cannot turn off what the modeset would leave lit: {e}");
-                    Failure::Other(e)
-                }
-            })
+        Ok(req)
     }
 
     /// Each vacated CRTC, with the connectors on it: a CRTC that no display
@@ -2675,6 +2848,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             }
             let props = match self.card.properties(id, Object::Connector) {
                 Ok(props) => props,
+                Err(_) if self.card.removed() => return,
                 Err(e) => {
                     match self.connector_crtc(id).filter(|&c| taken(c)) {
                         Some(crtc) => log::warn!(
@@ -2709,17 +2883,36 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     }
 
     /// One atomic modeset of every display: tried first as a test-only
-    /// commit, then committed without blocking, with a flip event.
-    fn atomic_modeset(&mut self, dark: bool) -> Result<(), Failure> {
-        self.set_off_first()?;
-        let mut req = Request::default();
+    /// commit, then committed without blocking, with a flip event. Where
+    /// `commit` is false, the modeset is only tested, in a test-only commit
+    /// that also carries what [`Self::set_off_first`] would turn off first,
+    /// and nothing changes on the card or in the displays: so a search of
+    /// placements turns no lit display off ([`Self::relight`]).
+    fn atomic_modeset(&mut self, dark: bool, commit: bool) -> Result<(), Failure> {
+        if self.card.removed() {
+            return Err(Failure::Other(Errno::NODEV.into()));
+        }
+        let mut req = if commit {
+            self.set_off_first()?;
+            Request::default()
+        } else {
+            self.off_first()?
+        };
+        if self.card.removed() {
+            return Err(Failure::Other(Errno::NODEV.into()));
+        }
         let off = if dark {
             self.prepare_dark(&mut req)
         } else {
             Vec::new()
         };
         self.take_others_off(&mut req);
-        self.clear_planes(&mut req, &off);
+        if !self.card.removed() {
+            self.clear_planes(&mut req, &off);
+        }
+        if self.card.removed() {
+            return Err(Failure::Other(Errno::NODEV.into()));
+        }
         let mut staged = Vec::with_capacity(self.outputs.len());
         let mut outputs = std::mem::take(&mut self.outputs);
         // A wake-up or a hotplug counts as user activity (the operator's
@@ -2750,12 +2943,18 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                     }
                 }
             });
-            if prepared.is_err() {
+            if prepared.is_err() || self.card.removed() {
                 break;
             }
         }
+        if self.card.removed() {
+            prepared = Err(Errno::NODEV.into());
+        }
         let outcome = prepared.map_err(Failure::Other).and_then(|()| {
             let req = self.with_color(&outputs, req)?;
+            if !commit {
+                return Ok(());
+            }
             self.card
                 .commit(
                     &req,
@@ -2764,15 +2963,18 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                         | DRM_MODE_PAGE_FLIP_EVENT,
                 )
                 .map_err(|e| {
-                    log::error!("modeset atomic commit failed: {e}");
+                    if !card_removed(&e) {
+                        log::error!("modeset atomic commit failed: {e}");
+                    }
                     Failure::Other(e)
                 })
         });
         // A display not set keeps what it had: an online one its buffers
         // and what it shows.
+        let set = commit && outcome.is_ok();
         for (o, (made, blob)) in outputs.iter_mut().zip(staged) {
-            if outcome.is_ok() {
-                if o.mode_blob != 0 {
+            if set {
+                if o.mode_blob != 0 && !self.card.removed() {
                     let _ = self.card.destroy_blob(o.mode_blob);
                 }
                 o.mode_blob = blob;
@@ -2784,12 +2986,14 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                 o.modeset_flip = true;
                 o.damage.set_whole();
             } else {
-                let _ = self.card.destroy_blob(blob);
+                if !self.card.removed() {
+                    let _ = self.card.destroy_blob(blob);
+                }
                 self.release(made.unwrap_or_default());
             }
         }
         for (o, was) in outputs.iter_mut().zip(was) {
-            if outcome.is_err() {
+            if !set {
                 // Nothing changed on the card: the state recorded stays.
                 o.dpms = was;
             } else if was.is_some_and(|(_, d)| d != Dpms::On) {
@@ -2809,7 +3013,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                 DRM_MODE_ATOMIC_TEST_ONLY | DRM_MODE_ATOMIC_ALLOW_MODESET,
             )
             .map_err(|e| {
-                if quiet {
+                if quiet || card_removed(&e) {
                 } else if errno(&e) == Some(Errno::ACCESS) {
                     // EACCES while another process holds master is expected.
                     log::debug!("test-only atomic commit refused: {e}");
@@ -2934,12 +3138,16 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             .map(|o| o.crtc)
             .collect();
         for o in &mut outputs {
+            if self.card.removed() {
+                break;
+            }
             let mut set = self.legacy_set(o, &driven);
-            let again = match &set {
-                Ok(()) => false,
-                Err(Failure::Test(_)) => o.hold_back(),
-                Err(Failure::Other(_)) => o.keep_set_mode(),
-            };
+            let again = !self.card.removed()
+                && match &set {
+                    Ok(()) => false,
+                    Err(Failure::Test(_)) => o.hold_back(),
+                    Err(Failure::Other(_)) => o.keep_set_mode(),
+                };
             if again {
                 set = self.legacy_set(o, &driven);
             }
@@ -3007,7 +3215,9 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                 Ok(())
             }
             Err(e) => {
-                log::error!("cannot set the CRTC of {}: {e}", o.name);
+                if !card_removed(&e) {
+                    log::error!("cannot set the CRTC of {}: {e}", o.name);
+                }
                 self.release(made.unwrap_or_default());
                 if errno(&e) == Some(Errno::INVAL) {
                     Err(Failure::Test(e))
@@ -3050,7 +3260,9 @@ fn same_monitor(was: &Identity, now: &Identity) -> bool {
 /// hidden, and the owner draws the pointer itself
 /// ([`Drm2d::hardware_cursor`]).
 fn drop_cursor<K: Kms, M>(card: &K, o: &mut Output<M>) {
-    if let Some(c) = o.cursor.take() {
+    if let Some(c) = o.cursor.take()
+        && !card.removed()
+    {
         let _ = card.rm_fb(c.fb);
         let _ = card.destroy_dumb(c.dumb.handle);
     }
@@ -3066,9 +3278,10 @@ enum Failure {
 }
 
 /// Whether the card refused a modeset: its test commit failed, other than
-/// as refused while another process holds DRM master.
+/// as refused while another process holds DRM master or as a card the
+/// kernel removed.
 fn refused(set: &Result<(), Failure>) -> bool {
-    matches!(set, Err(Failure::Test(e)) if errno(e) != Some(Errno::ACCESS))
+    matches!(set, Err(Failure::Test(e)) if !matches!(errno(e), Some(Errno::ACCESS | Errno::NODEV)))
 }
 
 /// Whether the card refused the displays where they are placed, as past its

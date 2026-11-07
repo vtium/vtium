@@ -1,0 +1,61 @@
+# The kitty keyboard protocol's flag 1, disambiguate escape codes, pushed
+# with CSI > 1 u and reported by CSI ? u: Escape, and text keys with Alt,
+# Ctrl, Ctrl+Alt, Shift+Alt, Ctrl+Shift, Logo, Hyper and Meta, as
+# CSI code ; modifiers u, the code the unshifted key; a text key alone or
+# with Shift sends its text, with Lock too; Enter, Tab and Backspace keep
+# their bytes alone and are CSI 13, 9 and 127 u with a modifier; the
+# cursor, editing and function keys in the forms of the functional key
+# table, DECCKM changing nothing; the modifier keys send nothing.
+# spec: kitty's Comprehensive keyboard handling in terminals: Disambiguate escape codes, Key codes, Modifiers, Functional key definitions
+# covers: input.kitty-keyboard
+size 20 2
+send "\e[>1u"
+send "\e[?u"
+key Escape
+key Escape mods=shift
+key Escape mods=lock
+key a
+key A mods=shift
+key A mods=lock
+key a mods=alt
+key a mods=ctrl
+key a mods=ctrl+alt
+key A mods=shift+alt
+key A mods=shift+ctrl
+key a mods=ctrl+lock
+key a mods=logo
+key a mods=hyper
+key a mods=meta
+key i mods=ctrl
+key m mods=ctrl
+key [ mods=ctrl
+key [ mods=alt
+key space mods=ctrl
+key 1 mods=ctrl
+key Cyrillic_es mods=ctrl ascii=c
+key Cyrillic_es
+key Return
+key Return mods=lock
+key Tab
+key BackSpace
+key Return mods=shift
+key Return mods=alt
+key ISO_Left_Tab mods=shift
+key Tab mods=ctrl
+key BackSpace mods=ctrl
+key Up
+key Up mods=ctrl
+key Home mods=shift
+send "\e[?1h"
+key Up
+key F1
+key F1 mods=shift
+key F3
+key F5 mods=shift
+key F13
+key Insert
+key Delete mods=ctrl
+key Menu
+key 0x1008ff14
+key Shift_L mods=shift
+key Caps_Lock mods=lock

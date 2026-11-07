@@ -120,7 +120,7 @@ pub(super) fn dpms_value(dpms: Dpms) -> u64 {
 }
 
 /// An object's property ids, by name.
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub(super) struct Props(Vec<(String, u32)>);
 
 impl Props {
@@ -208,7 +208,7 @@ pub(super) fn value(props: &[Property], name: &str) -> Option<u64> {
 }
 
 /// The objects an atomic commit sets for a display.
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub(super) struct Planes {
     pub(super) primary: u32,
     pub(super) primary_props: Props,
@@ -271,6 +271,10 @@ pub(super) struct Output<M> {
     pub(super) crtc: u32,
     /// The CRTC's index into the card's list of CRTCs.
     pub(super) pipe: usize,
+    /// The CRTCs the display can take, a bit per index into the card's
+    /// list of CRTCs, as the last placement read them: those its
+    /// connector's encoders drive, with its own.
+    pub(super) able: u32,
     /// `None` on a device without atomic commits.
     pub(super) planes: Option<Planes>,
     /// The connector's properties that set how the sink reads its colors,

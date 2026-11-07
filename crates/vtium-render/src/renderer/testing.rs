@@ -48,9 +48,12 @@ impl<F: Face> Renderer<F> {
     pub fn keep_glyph_for_test(&mut self, c: char, ink: TestInk<'_>) {
         let stored = self.stored_for_test(ink, self.config.orientation);
         let pool = pool_of(false, false);
-        self.compose
-            .cache
-            .keep(&[c], FontWidth::Narrow, Style::default(), pool, stored);
+        self.compose.cache.keep(
+            (&[c], FontWidth::Narrow, Style::default()),
+            pool,
+            stored,
+            false,
+        );
     }
 
     /// Puts `ink` as the glyph of `c`, narrow and in the regular style,

@@ -283,9 +283,9 @@ POWER_VARIANTS = ["power-reboot", "power-reboot-hard", "power-off", "power-suspe
 # vtium on. Its udev daemon runs unless the variant says "udev": False,
 # whose guest stops it and removes its database before vtium starts. The
 # drawing variants draw at 640x480 in the 8x16 test font, cjk last for
-# vt-restore, judged by vtium's own goldens. sysvinit-two-vts is
-# vtium/vtium#139's check: the two consoles race for DRM master at the
-# boot, so it stays out of make tier3-nosystemd's run until that lands. The power variants press one
+# vt-restore, judged by vtium's own goldens. sysvinit-two-vts starts
+# two consoles at the boot that open the card at the same time, and
+# checks that each draws its own login (vtium/vtium#139). The power variants press one
 # key each, as each ends the VM: grab-reboot, whose SIGINT runs the
 # inittab's ctrlaltdel entry; grab-reboot with kernel.ctrl-alt-del at 1,
 # the kernel's own restart; and grab-power-off, whose SIGRTMIN+4 sysvinit
@@ -312,7 +312,7 @@ VARIANTS.update({
                              sysctl="kernel.ctrl-alt-del = 1\n"),
     "sysvinit-power-off": dict(POWER, guest="sysvinit", power=["power-off-sysvinit"]),
 })
-SYSVINIT_VARIANTS = ["sysvinit-640x480", "sysvinit-no-udev", "sysvinit-reboot",
+SYSVINIT_VARIANTS = ["sysvinit-640x480", "sysvinit-two-vts", "sysvinit-no-udev", "sysvinit-reboot",
                      "sysvinit-restart", "sysvinit-power-off"]
 
 # Displays and keyboards beyond one of each (t3_devices), on the minspec

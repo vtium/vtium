@@ -137,11 +137,21 @@ fn malformed_probes_are_refused_before_anything_runs() {
         probes::check_expectations("t.replay", &probe(text), &spec, missing).is_ok()
     };
     assert!(check(BOLD, false));
+    // 1.0 reserves overline, so a working probe of 1.0 alone may not want
+    // it; vtium's attrs-renditions prints it, so under 1.4 one may
+    let spec_10 = Spec::read(&[&read("corpus/INTERFACE.md")]).unwrap_or_else(|e| panic!("{e}"));
+    let check_10 = |text: &str, missing: bool| {
+        let probe = probes::read("t.replay", text, &spec_10).unwrap_or_else(|e| panic!("{e}"));
+        probes::check_expectations("t.replay", &probe[0], &spec_10, missing).is_ok()
+    };
+    let overlined = BOLD.replace("bold\n", "bold overline\n");
+    assert!(!check_10(&overlined, false), "a reserved key");
+    assert!(check_10(&overlined, true));
+    assert!(check(&overlined, false), "a key attrs-renditions prints");
     assert!(
-        !check(&BOLD.replace("bold\n", "bold overline\n"), false),
-        "a reserved key"
+        !check(&BOLD.replace("bold\n", "overline bold\n"), false),
+        "a key out of its place"
     );
-    assert!(check(&BOLD.replace("bold\n", "bold overline\n"), true));
     assert!(!check(
         &BOLD.replace("want attr 0 0-0 bold", "want attr 0 0-0 blod"),
         false

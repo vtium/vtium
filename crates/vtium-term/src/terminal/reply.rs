@@ -18,7 +18,7 @@ use crate::bounds::VERSION_MAX;
 #[cfg(feature = "images")]
 const REGISTERS_MIN: u32 = 2;
 use crate::screen::Extent;
-use crate::style::{Attrs, Color, Rgb, UnderlineStyle};
+use crate::style::{Attrs, Color, Rgb, Script, UnderlineStyle};
 
 macro_rules! queries {
     (
@@ -82,6 +82,8 @@ queries! {
     Title,
     /// XTQMODKEYS, `CSI ? 4 m`.
     ModifyOtherKeys,
+    /// The kitty keyboard protocol's query, `CSI ? u`.
+    KeyboardFlags,
     /// Mode 2048's report of the text area, as it is set and on a resize.
     TextArea,
     /// `CSI ? 998 n`, and mode 2033's reports.
@@ -291,10 +293,9 @@ impl State {
     /// The row counts from the region's top in origin mode, and a pending
     /// wrap reports the last column, where the cursor stands.
     pub(super) fn reply_cursor(&mut self, extended: bool) {
-        let (x, y) = self.screen.cursor();
-        let col = x
-            .min(self.screen.cols().saturating_sub(1))
-            .saturating_add(1);
+        let (_, y) = self.screen.cursor();
+        // From the left margin in origin mode, as xterm's CPR counts it.
+        let col = self.screen.origin_col().saturating_add(1);
         let top = if self.screen.origin_mode() {
             self.screen.margins().0
         } else {
@@ -352,7 +353,7 @@ impl State {
     }
 
     /// DECRQSS: the setting asked for, `DCS 1 $ r Pt ST`, for SGR, DECSTBM,
-    /// DECSCUSR, DECSCL, DECSCA and DECSACE; anything else, and a request
+    /// DECSLRM, DECSCUSR, DECSCL, DECSCA and DECSACE; anything else, and a request
     /// longer than any of these, the error form `DCS 0 $ r ST`, with no
     /// echo (ADR-1000).
     pub(super) fn reply_status(&mut self, request: Option<&[u8]>) {
@@ -364,6 +365,16 @@ impl State {
                     "{};{}r",
                     top.saturating_add(1),
                     bottom.saturating_add(1)
+                ))
+            }
+            // The left and right margins, the whole width while DECLRMM
+            // is reset, as xterm reports them.
+            Some(b"s") => {
+                let (left, right) = self.screen.lr_margins();
+                Some(format!(
+                    "{};{}s",
+                    left.saturating_add(1),
+                    right.saturating_add(1)
                 ))
             }
             Some(b" q") => Some(format!("{} q", self.cursor_style.param())),
@@ -408,14 +419,22 @@ impl State {
         };
         for (attr, code) in [
             (Attrs::BLINK, "5"),
+            (Attrs::RAPID_BLINK, "6"),
             (Attrs::INVERSE, "7"),
+            (Attrs::CONCEAL, "8"),
             (Attrs::STRIKE, "9"),
+            (Attrs::OVERLINE, "53"),
         ] {
             if a.contains(attr) {
                 out += ";";
                 out += code;
             }
         }
+        out += match a.script() {
+            Script::Baseline => "",
+            Script::Super => ";73",
+            Script::Sub => ";74",
+        };
         sgr_color(&mut out, pen.fg, 30, 90, 38);
         sgr_color(&mut out, pen.bg, 40, 100, 48);
         sgr_color(&mut out, pen.underline_color, 0, 0, 58);
@@ -649,9 +668,9 @@ mod tests {
             }
             // Hostile text half the time, else a setting vtium reports.
             Query::Decrqss => {
-                let known: [&[u8]; 6] = [b"m", b"r", b" q", b"\"p", b"\"q", b"*x"];
+                let known: [&[u8]; 7] = [b"m", b"r", b"s", b" q", b"\"p", b"\"q", b"*x"];
                 let pick = rng.next();
-                match known.get(usize::try_from(pick % 12).unwrap_or(0)) {
+                match known.get(usize::try_from(pick % 14).unwrap_or(0)) {
                     Some(&setting) => (cat(&[b"\x1bP$q", setting, b"\x1b\\"]), vec![], vec![]),
                     None => (cat(&[b"\x1bP$q", &tok, b"\x1b\\"]), vec![tok], vec![]),
                 }
@@ -720,6 +739,15 @@ mod tests {
                 let request = cat(&[b"\x1b[>4;", &level, b"m\x1b[?", &n, b"m"]);
                 (request, vec![], vec![level, n])
             }
+            // A push and a set by padded numbers, then the query, which
+            // writes the flags vtium kept, never the numbers asked for.
+            Query::KeyboardFlags => {
+                let push = rng.padded(31);
+                let set = rng.padded(3);
+                let n = rng.padded(0);
+                let request = cat(&[b"\x1b[>", &push, b"u\x1b[=", &set, b";2u\x1b[?", &n, b"u"]);
+                (request, vec![], vec![push, set, n])
+            }
             Query::TextArea => {
                 let n = rng.padded(2048);
                 (cat(&[b"\x1b[?", &n, b"h"]), vec![], vec![n])
@@ -762,7 +790,7 @@ mod tests {
     // covers: query.xtgettcap, query.decrqss, color.palette.query, color.dynamic.query,
     // covers: color.dynamic.set, color.pointer, color.selection, color.kitty-protocol,
     // covers: window.size-report, window.title-report, input.modify-other-keys, color.stack,
-    // covers: query.xtsmgraphics
+    // covers: query.xtsmgraphics, input.kitty-keyboard
     #[test]
     fn no_reply_carries_the_requests_bytes() {
         for seed in 0..200 {
@@ -838,6 +866,7 @@ mod tests {
                 Query::WindowSize => (b"\x1b[14t", b"\x1b[4;80;80t"),
                 Query::Title => (b"\x1b[21t", b"\x1b]l\x1b\\"),
                 Query::ModifyOtherKeys => (b"\x1b[?4m", b"\x1b[>4;0m"),
+                Query::KeyboardFlags => (b"\x1b[>31u\x1b[?u", b"\x1b[?1u"),
                 Query::TextArea => (b"\x1b[?2048h", b"\x1b[48;5;10;80;80t"),
                 Query::Visibility => (b"\x1b[?998n", b"\x1b[?999;1n"),
                 Query::ColorScheme => (b"\x1b[?996n", b"\x1b[?997;1n"),

@@ -163,7 +163,7 @@ impl<F: Face> Renderer<F> {
             Ok(glyphs) => glyphs,
             Err(e) => return Err(self.failed_after_plan(e)),
         };
-        glyphs.forget(&sorted(&core::mem::take(&mut self.gpu.forget)), &self.font);
+        glyphs.forget(&sorted(&core::mem::take(&mut self.gpu.forget)));
         // the reaches are read as the CPU path reads them (Renderer::draw)
         let reaching = glyphs.reaching();
         if reaching && !self.reaches_kept {
@@ -200,8 +200,8 @@ impl<F: Face> Renderer<F> {
         glyphs.end_frame();
         let uploads = glyphs.take_uploads();
         let gpu_counts = glyphs.take_counts();
-        let drew_missing = glyphs.take_drew_missing();
-        let drawn = self.finish(&plan, counts, drew_missing, start);
+        let missing = glyphs.take_missing();
+        let drawn = self.finish(&plan, counts, missing, start);
         let changed: Vec<_> = drawn.damage.iter().map(|&r| turn.up(r)).collect();
         let stats = drawn.stats;
         if let Some(e) = error {

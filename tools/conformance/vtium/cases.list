@@ -33,3 +33,14 @@ bidi-10-scp-rtl 30 4
 bidi-11-autodetect-2501 30 4
 bidi-12-box-mirror-2500 30 4
 bidi-13-cursor-end 30 4
+margins-decslrm 10 5
+margins-print 10 5
+margins-scroll 10 5
+margins-edit 10 5
+margins-columns 10 5
+margins-origin 10 5
+margins-rect 10 5
+sgr-rapid-blink 10 2
+sgr-blink-reset 10 2
+sgr-conceal 10 2
+sgr-reveal 10 2

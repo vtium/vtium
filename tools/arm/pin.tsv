@@ -21,6 +21,8 @@ deb	arm64	libxkbcommon0	1.5.0-1	ec518d8a19796a399ab95e7bc4dfbb6bd2ed8e151f77b222
 deb	arm64	libxkbcommon-dev	1.5.0-1	7d39b34b202fe58e18992b439c79c149ebb1b821b58dfb863ff4898e06420699	pool/main/libx/libxkbcommon/libxkbcommon-dev_1.5.0-1_arm64.deb
 deb	arm64	libsystemd0	252.39-1~deb12u2	293ab474b90276dae9ebc03ed01e622e0c1f2578e83ed3aa926ae1eaf84dda9c	pool/main/s/systemd/libsystemd0_252.39-1~deb12u2_arm64.deb
 deb	arm64	libsystemd-dev	252.39-1~deb12u2	f8ae28bfa408bdd46e715bf1c01d7a6155b64e2beba8717634ef38adf22d2496	pool/main/s/systemd/libsystemd-dev_252.39-1~deb12u2_arm64.deb
+deb	arm64	libseat1	0.7.0-6	2e5012b457f1dccee4adfd00d0d7bc889f5b7a669465233c4da11a22414abbb8	pool/main/s/seatd/libseat1_0.7.0-6_arm64.deb
+deb	arm64	libseat-dev	0.7.0-6	c8ec14bdacd6f28eee46d3c635d8015a2cc5f0a8901acfb893a93d69d1924209	pool/main/s/seatd/libseat-dev_0.7.0-6_arm64.deb
 deb	arm64	libcap2	1:2.66-4+deb12u3+b1	b3a21ae1cef9c2f3fa340007100fb0aa934ab6a4d8aed131660de9713db2bb6e	pool/main/libc/libcap2/libcap2_2.66-4+deb12u3+b1_arm64.deb
 deb	arm64	libgcrypt20	1.10.1-3+deb12u1	140af58350c9b15bfa611000d9e0205528bbed2cba39271bf12bd36de2678f2e	pool/main/libg/libgcrypt20/libgcrypt20_1.10.1-3+deb12u1_arm64.deb
 deb	arm64	libgpg-error0	1.46-1	aff6ce011ae9abf7090e906f0cf6bc2b447bbc4cc7e03ff117f9d73528857352	pool/main/libg/libgpg-error/libgpg-error0_1.46-1_arm64.deb
@@ -80,6 +82,8 @@ deb	armhf	libxkbcommon0	1.5.0-1	2ef51eccfd22dc660b28f68db6128e162e7afccf044db0a4
 deb	armhf	libxkbcommon-dev	1.5.0-1	22f86a1c6c1b535d1c071885c41547cb4ec4beeddea8e9fc209a91ca80bc807b	pool/main/libx/libxkbcommon/libxkbcommon-dev_1.5.0-1_armhf.deb
 deb	armhf	libsystemd0	252.39-1~deb12u2	fe49d9caa76c1ebc90210936c3aa85aeb6e9bb283d4128b825519887117fdb4d	pool/main/s/systemd/libsystemd0_252.39-1~deb12u2_armhf.deb
 deb	armhf	libsystemd-dev	252.39-1~deb12u2	1b06a10f98154f855d4f4e140a7cc59d0821baf6debd6a943636fbac315f69d5	pool/main/s/systemd/libsystemd-dev_252.39-1~deb12u2_armhf.deb
+deb	armhf	libseat1	0.7.0-6	e52dd1c83061b252b93a73d626446c5a91fe3be326226643c541be1f4ec194db	pool/main/s/seatd/libseat1_0.7.0-6_armhf.deb
+deb	armhf	libseat-dev	0.7.0-6	034dafc4e2b1fa1f4f6bf4cada694d10476590a67dcb9cc358576af3fed9bbf3	pool/main/s/seatd/libseat-dev_0.7.0-6_armhf.deb
 deb	armhf	libcap2	1:2.66-4+deb12u3+b1	26c599095f5bdac228385ea99ff82344ab1395c828cb24e7e55da823f3ca2e8c	pool/main/libc/libcap2/libcap2_2.66-4+deb12u3+b1_armhf.deb
 deb	armhf	libgcrypt20	1.10.1-3+deb12u1	e217694621014cbb2849c2d9fd49e3a9ce9219c67c244286f35d277300a07b6f	pool/main/libg/libgcrypt20/libgcrypt20_1.10.1-3+deb12u1_armhf.deb
 deb	armhf	libgpg-error0	1.46-1	caa6ee2f9d1e5d7cd21a2bf712be8c836766cfa4fc76853feca7c4e69ec9b7ac	pool/main/libg/libgpg-error/libgpg-error0_1.46-1_armhf.deb
@@ -139,6 +143,8 @@ deb	amd64	libxkbcommon0	1.5.0-1	e3fe045b9a33a101de1c5a912a4a10928db055c3f68930f4
 deb	amd64	libxkbcommon-dev	1.5.0-1	48a360a789e19277814f0c86887e629c3fc787645f94abe89b4e427c7bcc3a80	pool/main/libx/libxkbcommon/libxkbcommon-dev_1.5.0-1_amd64.deb
 deb	amd64	libsystemd0	252.39-1~deb12u2	013c07514a9e4933b2d5c098018695a6aa42d085dbc483ce2c094a954c8a1b0a	pool/main/s/systemd/libsystemd0_252.39-1~deb12u2_amd64.deb
 deb	amd64	libsystemd-dev	252.39-1~deb12u2	2079f2747cc8ffe7f6b810902a71bd80ee0c53e2f01b3e919297aa6c3e75e09e	pool/main/s/systemd/libsystemd-dev_252.39-1~deb12u2_amd64.deb
+deb	amd64	libseat1	0.7.0-6	646b162f58984f0d7d9021fb668361f6ca3cc9eaa670d1ae77352d563da686e8	pool/main/s/seatd/libseat1_0.7.0-6_amd64.deb
+deb	amd64	libseat-dev	0.7.0-6	2511ca60d56c2b8a9a11b1dea8af7153bb612ea625cbfd63f56d8c28f8f86b3b	pool/main/s/seatd/libseat-dev_0.7.0-6_amd64.deb
 deb	amd64	libcap2	1:2.66-4+deb12u3+b1	8d684c673e7483802a5c447834b0df6fce006eb3a7109e1be412f5ad425bb24f	pool/main/libc/libcap2/libcap2_2.66-4+deb12u3+b1_amd64.deb
 deb	amd64	libgcrypt20	1.10.1-3+deb12u1	e7a56552139c693904a6f9712234c05fe918353273a7cbdb5e62f423ad71bb97	pool/main/libg/libgcrypt20/libgcrypt20_1.10.1-3+deb12u1_amd64.deb
 deb	amd64	libgpg-error0	1.46-1	89944ee11d7370ce6ef46fc52f094c4a6512eff8943ec4c6ebefeae6360ceada	pool/main/libg/libgpg-error/libgpg-error0_1.46-1_amd64.deb

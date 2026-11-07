@@ -281,6 +281,28 @@ impl Boxes {
     }
 }
 
+/// The sprites across the sprites' texture for a `cell`, and the
+/// texture's size: of the grids that hold every [`Kind`], the one whose
+/// larger side is the smallest, and of those the one with the fewest empty
+/// places. A row of the kinds would grow with their number until a wide
+/// cell passed the largest texture, so the grid keeps the texture near
+/// square: an 8x16 cell's eight sprites lie four across and two down,
+/// 32x32, where a row of them is 64x16.
+fn sprite_grid(cell: Size) -> (u32, Size) {
+    let kinds = u32::try_from(Kind::ALL.len()).unwrap_or(u32::MAX).max(1);
+    (1..=kinds)
+        .map(|across| {
+            let down = kinds.div_ceil(across);
+            let size = Size::new(
+                cell.width.saturating_mul(across),
+                cell.height.saturating_mul(down),
+            );
+            (across, size)
+        })
+        .min_by_key(|(_, s)| (s.width.max(s.height), s.rect().area()))
+        .unwrap_or((1, Size::new(cell.width, cell.height.saturating_mul(kinds))))
+}
+
 /// The GPU path's glyphs for one renderer.
 #[derive(Debug)]
 pub(crate) struct Glyphs {
@@ -310,8 +332,11 @@ pub(crate) struct Glyphs {
     /// The note for the log given since the notes were last taken, at
     /// most one, so a head that never takes them holds no more.
     note: Option<String>,
-    /// The sprites' texture: each [`Kind`] a cell side by side.
+    /// The sprites' texture: each [`Kind`] a cell, laid out in a grid of
+    /// `sprite_columns` cells across, the first row left to right, then
+    /// the next.
     sprites: usize,
+    sprite_columns: u32,
     /// The largest side of a texture.
     side: u32,
     cell: Size,
@@ -347,24 +372,40 @@ impl Glyphs {
             };
             Pool::new(format, if p & WIDE != 0 { wide } else { cell })
         });
-        let kinds = u32::try_from(Kind::ALL.len()).unwrap_or(u32::MAX);
-        let strip = Size::new(cell.width.saturating_mul(kinds), cell.height);
-        let texture = gl.create_texture(Format::R8, strip)?;
-        let mut pixels = vec![0u8; usize::try_from(strip.rect().area()).unwrap_or(0)];
-        let stride = usize::try_from(strip.width).unwrap_or(0);
-        let cw = usize::try_from(cell.width).unwrap_or(0);
+        let (sprite_columns, grid) = sprite_grid(cell);
+        let largest = gl.limits().texture;
+        if !gl.limits().fits_texture(grid) {
+            return Err(Error::new(
+                ErrorKind::Limit,
+                format!(
+                    "the decoration sprites of a {}x{} cell take a {}x{} texture, \
+                     which passes the largest texture, {largest}",
+                    cell.width, cell.height, grid.width, grid.height
+                ),
+            ));
+        }
+        let texture = gl.create_texture(Format::R8, grid)?;
+        let mut pixels = vec![0u8; usize::try_from(grid.rect().area()).unwrap_or(0)];
+        let stride = usize::try_from(grid.width).unwrap_or(0);
+        let (cw, ch) = (
+            usize::try_from(cell.width).unwrap_or(0),
+            usize::try_from(cell.height).unwrap_or(0),
+        );
+        let across = usize::try_from(sprite_columns).unwrap_or(1);
         for (k, kind) in Kind::ALL.iter().enumerate() {
             let Some(s) = spec.sprites.get(*kind) else {
                 continue;
             };
-            for (y, line) in (0..).zip(pixels.chunks_mut(stride.max(1))) {
-                let at = k.saturating_mul(cw);
-                if let Some(out) = line.get_mut(at..at.saturating_add(cw)) {
+            let x = k.checked_rem(across).unwrap_or(0).saturating_mul(cw);
+            let top = k.checked_div(across).unwrap_or(0).saturating_mul(ch);
+            let lines = pixels.chunks_mut(stride.max(1)).skip(top).take(ch);
+            for (y, line) in (0..).zip(lines) {
+                if let Some(out) = line.get_mut(x..x.saturating_add(cw)) {
                     s.mask_line(0, y, out);
                 }
             }
         }
-        if let Err(e) = gl.fill_texture(&texture, strip.rect(), &pixels, stride) {
+        if let Err(e) = gl.fill_texture(&texture, grid.rect(), &pixels, stride) {
             // the error that matters is the upload's
             let _ = gl.free_texture(texture);
             return Err(e);
@@ -378,12 +419,13 @@ impl Glyphs {
             reaching: false,
             ink: InkGrid::default(),
             textures: vec![Some(texture)],
-            bytes: texture_bytes(Format::R8, strip),
+            bytes: texture_bytes(Format::R8, grid),
             ceiling: GLYPH_TEXTURE_CEILING,
             frame: 0,
             noted: None,
             note: None,
             sprites: 0,
+            sprite_columns,
             side,
             cell,
             uploads: 2,
@@ -426,6 +468,12 @@ impl Glyphs {
     /// The sprites' texture, by its index.
     pub(crate) fn sprites(&self) -> usize {
         self.sprites
+    }
+
+    /// The sprites across the sprites' texture, as the cell shader's
+    /// `cell.z` takes them.
+    pub(crate) fn sprite_columns(&self) -> u32 {
+        self.sprite_columns
     }
 
     /// The boxes' texture, by its index, once a glyph has taken a box, and
@@ -556,17 +604,17 @@ impl Glyphs {
         self.cache.take_counts()
     }
 
-    /// Whether the font drew a glyph as its missing glyph since this was
-    /// last asked ([`GlyphCache::take_drew_missing`]).
-    pub(crate) fn take_drew_missing(&mut self) -> bool {
-        self.cache.take_drew_missing()
+    /// The characters of each text the font drew as its missing glyph
+    /// since this was last asked ([`GlyphCache::take_missing`]).
+    pub(crate) fn take_missing(&mut self) -> Vec<char> {
+        self.cache.take_missing()
     }
 
     /// Forgets each glyph whose text holds one of `chars`, which are
-    /// sorted, and each glyph `font` draws as its missing glyph
+    /// sorted, and each glyph the font drew as its missing glyph
     /// ([`GlyphCache::forget`]).
-    pub(crate) fn forget<F: Face>(&mut self, chars: &[char], font: &Font<F>) {
-        self.cache.forget(chars, font);
+    pub(crate) fn forget(&mut self, chars: &[char]) {
+        self.cache.forget(chars);
         self.reclaim();
     }
 
@@ -584,11 +632,11 @@ impl Glyphs {
         if let Some(&s) = self.cache.lookup(text, width, style) {
             return Ok(self.place(s));
         }
-        let Some(stored) = self.cache.draw(font, text, width, style) else {
+        let Some((stored, missing)) = self.cache.draw(font, text, width, style) else {
             return Ok(None);
         };
         let pool = pool_of(stored.is_rgba(), width == Width::Wide);
-        let stored = match self.boxed(gl, (text, width, style), pool, stored)? {
+        let stored = match self.boxed(gl, (text, width, style), pool, (stored, missing))? {
             Ok(place) => return Ok(Some(place)),
             Err(stored) => stored,
         };
@@ -617,7 +665,7 @@ impl Glyphs {
             return Err(e);
         }
         if kept {
-            self.cache.keep(text, width, style, pool, slot);
+            self.cache.keep((text, width, style), pool, slot, missing);
         } else {
             if let Some(p) = self.pools.get_mut(pool) {
                 p.held.push(index);
@@ -629,16 +677,16 @@ impl Glyphs {
 
     /// Puts `stored`, the glyph for `text` that counts against the cache's
     /// pool `pool`, in a box when its ink passes its cells, and gives its
-    /// place. Gives `stored` back when its ink stays in its cells, or when
-    /// the boxes have no room for it, which notes it for the log: it is
-    /// then drawn cut at its cells, and none of its ink reaches another
-    /// cell.
+    /// place; `missing` when the font drew it as its missing glyph. Gives
+    /// `stored` back when its ink stays in its cells, or when the boxes
+    /// have no room for it, which notes it for the log: it is then drawn
+    /// cut at its cells, and none of its ink reaches another cell.
     fn boxed<G: Gl>(
         &mut self,
         gl: &mut G,
         (text, width, style): (&[char], Width, Style),
         pool: usize,
-        stored: Stored,
+        (stored, missing): (Stored, bool),
     ) -> Result<Result<Place, Stored>, Error> {
         let reach = stored.reach();
         if reach.is_none() || stored.is_rgba() {
@@ -673,7 +721,7 @@ impl Glyphs {
             reach,
         };
         if kept {
-            self.cache.keep(text, width, style, pool, slot);
+            self.cache.keep((text, width, style), pool, slot, missing);
         } else {
             self.boxes.held.push(index);
             self.cache.count_uncached();
@@ -694,7 +742,9 @@ impl Glyphs {
         stored: Stored,
     ) -> Result<Option<Place>, Error> {
         let pool = pool_of(stored.is_rgba(), width == Width::Wide);
-        Ok(self.boxed(gl, (text, width, style), pool, stored)?.ok())
+        Ok(self
+            .boxed(gl, (text, width, style), pool, (stored, false))?
+            .ok())
     }
 
     /// Gives `text` as a note for the log, unless a note was given in the
@@ -1001,7 +1051,7 @@ mod tests {
 
     use super::*;
     use crate::cache::Profile;
-    use crate::gpu::{Call, StandIn};
+    use crate::gpu::{Call, Limits, StandIn};
 
     fn glyphs(gl: &mut StandIn, sprites: &Sprites) -> Glyphs {
         let spec = Spec {
@@ -1014,6 +1064,96 @@ mod tests {
             bound: Bound::DRAWN,
         };
         Glyphs::new(gl, &spec).unwrap()
+    }
+
+    fn sprites_of(gl: &mut StandIn, cell: Size) -> (Sprites, Result<Glyphs, Error>) {
+        let font = Font::new(Unifont::new(16));
+        let sprites = Sprites::new(
+            cell.width,
+            cell.height,
+            &font.decorations(),
+            Orientation::Normal,
+            true,
+            false,
+        );
+        let spec = Spec {
+            owner: 1,
+            budgets: Budgets::for_profile(Profile::Performance, 1000, 800, 600),
+            storage: Storage::default(),
+            fallback: None,
+            cell,
+            sprites: &sprites,
+            bound: Bound::DRAWN,
+        };
+        let g = Glyphs::new(gl, &spec);
+        (sprites, g)
+    }
+
+    // The sprites lie in a grid whose largest side is as small as the
+    // kinds allow, so a GPU whose largest texture is 60 holds the eight
+    // sprites of an 8x16 cell, four across and two down in 32x32, where a
+    // row of them would be 64 wide. Each kind lies in its place in the
+    // grid, the first row left to right, then the next.
+    #[test]
+    fn the_sprites_lie_in_a_grid_that_fits_a_largest_texture_a_row_of_them_passes() {
+        let limits = Limits {
+            texture: 60,
+            ..StandIn::LIMITS
+        };
+        let mut gl = StandIn::with_limits(limits);
+        let cell = Size::new(8, 16);
+        let (sprites, g) = sprites_of(&mut gl, cell);
+        let g = g.unwrap();
+        assert_eq!(g.sprite_columns(), 4);
+        assert_eq!(
+            gl.calls()[..2],
+            [
+                Call::CreateTexture(Format::R8, Size::new(32, 32)),
+                Call::FillTexture(Size::new(32, 32).rect()),
+            ]
+        );
+        let (_, size, texels) = gl.texture_pixels(1).unwrap();
+        assert_eq!(size, Size::new(32, 32));
+        for (k, kind) in Kind::ALL.iter().enumerate() {
+            let (col, row) = (k % 4, k / 4);
+            for y in 0..16 {
+                let mut want = [0u8; 8];
+                sprites
+                    .get(*kind)
+                    .unwrap()
+                    .mask_line(0, i64::try_from(y).unwrap(), &mut want);
+                let at = (row * 16 + y) * 32 + col * 8;
+                assert_eq!(texels[at..at + 8], want, "{kind:?} line {y}");
+            }
+        }
+        // a square cell lies three across, the last row one short
+        let mut gl = StandIn::new();
+        let (_, g) = sprites_of(&mut gl, Size::new(16, 16));
+        assert_eq!(g.unwrap().sprite_columns(), 3);
+        assert_eq!(
+            gl.calls()[0],
+            Call::CreateTexture(Format::R8, Size::new(48, 48))
+        );
+    }
+
+    // A cell whose sprites pass the largest texture even in the grid fails
+    // with an error that names the sprites, and makes no texture.
+    #[test]
+    fn sprites_past_the_largest_texture_fail_with_an_error_that_names_them() {
+        let limits = Limits {
+            texture: 60,
+            ..StandIn::LIMITS
+        };
+        let mut gl = StandIn::with_limits(limits);
+        let (_, g) = sprites_of(&mut gl, Size::new(16, 32));
+        let e = g.unwrap_err();
+        assert_eq!(e.kind, ErrorKind::Limit);
+        assert_eq!(
+            e.detail,
+            "the decoration sprites of a 16x32 cell take a 64x64 texture, \
+             which passes the largest texture, 60"
+        );
+        assert!(gl.calls().is_empty(), "{:?}", gl.calls());
     }
 
     // the issue on GPU texture garbage collection: past the ceiling a pool
@@ -1081,7 +1221,7 @@ mod tests {
         assert_eq!(g.take_notes().len(), 1);
         g.end_frame();
         // a glyph forgotten gives its slot back, which the 65th then takes
-        g.forget(&['A'], &font);
+        g.forget(&['A']);
         g.begin_frame();
         assert!(
             g.glyph(&mut gl, &font, &last, Width::Narrow, style)

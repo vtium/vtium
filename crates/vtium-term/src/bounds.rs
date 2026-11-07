@@ -185,6 +185,14 @@ const COLOR_STACK: Bound = Bound {
     cite: "ctlseqs, XTPUSHCOLORS: entries 1 through 10; `MAX_SAVED_SGR` and `xtermPushColors` in xterm 412's `ptyx.h` and `misc.c`. kitty's `color-stack` gives no depth",
 };
 
+const KEYBOARD_FLAGS: Bound = Bound {
+    name: "KEYBOARD_FLAGS_MAX",
+    value: 8,
+    what: "Sets of kitty keyboard protocol flags each screen keeps: the set in force and the sets pushed under it",
+    past: "A push with the stack full drops the oldest saved set, as the specification requires",
+    cite: "ADR-1005, D3; kitty's keyboard protocol specification, \"Progressive enhancement\": terminals limit the stack and evict the oldest entry. kitty 0.49.2, run as a program, and foot keep eight",
+};
+
 const LINKS_BYTES: Bound = Bound {
     name: "LINKS_BYTES_MAX",
     value: 256 * 1024,
@@ -227,7 +235,7 @@ const BIDI_PARAGRAPH_ROWS: Bound = Bound {
 
 /// Every bound, in the README table's order.
 #[cfg_attr(not(test), allow(dead_code))]
-pub(crate) const BOUNDS: [Bound; 26] = [
+pub(crate) const BOUNDS: [Bound; 27] = [
     COLUMNS,
     ROWS,
     CLUSTER,
@@ -250,6 +258,7 @@ pub(crate) const BOUNDS: [Bound; 26] = [
     LINKS_BYTES,
     SGR_STACK,
     COLOR_STACK,
+    KEYBOARD_FLAGS,
     INPUT_WORK,
     IMAGE_NOTE_REASONS,
     IMAGE_NOTE_BYTES,
@@ -376,6 +385,10 @@ pub const SGR_STACK_MAX: usize = SGR_STACK.value;
 
 /// The most palettes XTPUSHCOLORS and OSC 30001 keep.
 pub const COLOR_STACK_MAX: usize = COLOR_STACK.value;
+
+/// The most sets of kitty keyboard protocol flags each screen keeps, the
+/// set in force included.
+pub const KEYBOARD_FLAGS_MAX: usize = KEYBOARD_FLAGS.value;
 
 #[cfg(test)]
 #[expect(

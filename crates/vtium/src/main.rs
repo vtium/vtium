@@ -154,18 +154,24 @@ fn main() -> ExitCode {
     let survival = (keeper, kept, env);
     let status = match path {
         Some(path) => run_kernel(config, reread, start, heads, survival, &path),
-        None => {
-            log::info!(target: "vt", "no VTs: using a fake VT");
-            run(
-                config,
-                reread,
-                start,
-                heads,
-                survival,
-                None,
-                Box::new(|_| Ok(Box::new(FakeVt::new()))),
-            )
-        }
+        None => run(
+            config,
+            reread,
+            start,
+            heads,
+            survival,
+            None,
+            Box::new(|lp| {
+                #[cfg(feature = "libseat")]
+                if let Ok(vt) = seat(lp, None)? {
+                    return Ok(vt);
+                }
+                #[cfg(not(feature = "libseat"))]
+                let _ = lp;
+                log::info!(target: "vt", "no VTs: using a fake VT");
+                Ok(Box::new(FakeVt::new()))
+            }),
+        ),
     };
     let code = match status {
         Ok(code) => u8::try_from(code).unwrap_or(1),
@@ -231,12 +237,36 @@ fn run_kernel(
         // disposition would end vtium.
         Box::new(move |lp| {
             let (tty, num) = Tty::open(&path)?;
+            #[cfg(feature = "libseat")]
+            let Some((tty, num)) = (match seat(lp, Some((tty, num)))? {
+                Ok(vt) => return Ok(vt),
+                Err(tty) => tty,
+            }) else {
+                return Err(io::Error::other("the seat kept the VT it did not choose"));
+            };
             let vt = KernelVt::new(lp, tty, num, |app: &mut App| app.vt.get::<KernelVt<Tty>>())?;
             let restore = vt.restorer()?;
             vtium::hook::restore_first(move || restore.run());
             Ok(Box::new(vt))
         }),
     )
+}
+
+/// A VT and its number, or none on a system without VTs.
+#[cfg(feature = "libseat")]
+type VtTty = Option<(Tty, u16)>;
+
+/// With the `libseat` feature, the seat through its seat manager when one
+/// answers, on the VT `tty` when the seat has VTs (ADR-1400's L2 layer);
+/// otherwise `tty`, handed back for the kernel's VT or a fake one.
+#[cfg(feature = "libseat")]
+fn seat(lp: &mut Loop<App>, tty: VtTty) -> io::Result<Result<Box<dyn SeatVt>, VtTty>> {
+    use vtium_platform::seat::{Chosen, LibseatVt};
+    let chosen = LibseatVt::start(lp, tty, |app: &mut App| app.vt.get::<LibseatVt>())?;
+    Ok(match chosen {
+        Chosen::Seat(vt) => Ok(Box::new(vt)),
+        Chosen::Kernel(tty) => Err(tty),
+    })
 }
 
 /// The kernel's font on the VT at `path`, read once at start while the
@@ -375,6 +405,7 @@ mod tests {
             ("bidi", cfg!(feature = "bidi")),
             ("gpu", cfg!(feature = "gpu")),
             ("images", cfg!(feature = "images")),
+            ("libseat", cfg!(feature = "libseat")),
             ("logind", cfg!(feature = "logind")),
         ]
         .iter()

@@ -1034,11 +1034,12 @@ impl Composition {
     }
 
     /// The textures a batch of cells samples, its masks, its colors and the
-    /// sprites, and the cell's size, as the cell shader's inputs; and for
-    /// the cell shader built with [`INK`], as `ink` asks, the boxes, a box
-    /// slot's size and the ink grid. A draw before any glyph has taken a
-    /// box, or any cell has received ink, binds the sprites in place of the
-    /// boxes and the ink grid, and never samples them.
+    /// sprites, and the cell's size with the sprites across their texture,
+    /// as the cell shader's inputs; and for the cell shader built with
+    /// [`INK`], as `ink` asks, the boxes, a box slot's size and the ink
+    /// grid. A draw before any glyph has taken a box, or any cell has
+    /// received ink, binds the sprites in place of the boxes and the ink
+    /// grid, and never samples them.
     fn cell_inputs(
         &self,
         batch: &Cells,
@@ -1066,7 +1067,12 @@ impl Composition {
             ("sprites", Value::Texture(sprites, Filter::Nearest)),
             (
                 "cell",
-                Value::IVec4([side(cell.width), side(cell.height), 0, 0]),
+                Value::IVec4([
+                    side(cell.width),
+                    side(cell.height),
+                    side(glyphs.sprite_columns()),
+                    0,
+                ]),
             ),
         ];
         if ink {
@@ -1545,7 +1551,7 @@ impl<'a, G: Gl> GpuBack<'a, G> {
         let (r, g) = (self.turn.up_area(job.r), self.turn.up_area(job.g));
         let bare = Job {
             underline: None,
-            strike: None,
+            over: None,
             ..*job
         };
         let quad =
@@ -1585,10 +1591,7 @@ impl<'a, G: Gl> GpuBack<'a, G> {
                 }
             }
             Mark::Underline if job.underline.is_some() => {
-                let line = Job {
-                    strike: None,
-                    ..*job
-                };
+                let line = Job { over: None, ..*job };
                 push(&mut self.marks, None, quad(&line, None, 0));
             }
             _ => {}
@@ -1913,7 +1916,8 @@ impl<G: Gl> GpuBack<'_, G> {
 /// the glyph lying at `g`, and the column and row of the job's first cell;
 /// and its colors, each with a kind in its top byte: the glyph's (none, a
 /// mask, a color glyph), `flags` with the background, the underline's
-/// sprite and the strike's, each its place among the sprites plus one, or
+/// sprite and the sprite of the lines over the glyph (the strike, the
+/// overline or both), each its place among the sprites plus one, or
 /// 0 for none.
 pub(crate) fn cell_quad(
     job: &Job,
@@ -1954,7 +1958,7 @@ pub(crate) fn cell_quad(
             with(job.fg, kind),
             with(job.bg, flags),
             job.underline.map_or(0, |(k, c)| with(c, sprite(k))),
-            job.strike.map_or(0, |c| with(c, sprite(Kind::Strike))),
+            job.over.map_or(0, |(k, c)| with(c, sprite(k))),
         ],
     }
 }

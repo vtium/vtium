@@ -963,7 +963,7 @@ mod tests {
     // Every HLS color, by integers, equals the floating point result
     // but where the exact value of a channel lies halfway between
     // two levels: there the integers round up, where the floating point
-    // went either way by how the decimal fractions were stored. The exact
+    // goes either way by how the decimal fractions are stored. The exact
     // halves are counted from the integers' own remainder.
     // covers: image.sixel
     #[test]

@@ -69,6 +69,8 @@ pub(super) struct Inputs<'a> {
     pub(super) ink: Texels<'a>,
     /// The cell's width and height.
     pub(super) cell: (i64, i64),
+    /// The sprites across the sprites' texture.
+    pub(super) sprite_columns: i64,
     /// A box slot's width and height, and the slots across the texture.
     pub(super) box_slot: (i64, i64, i64),
     /// The shader's `REACH_SIDE` and `REACH_ROWS`.
@@ -140,8 +142,12 @@ pub(super) fn cell(q: &Quad, i: &Inputs<'_>, (x, y): (i64, i64)) -> u32 {
     let pos = (local.0.checked_rem(cw.max(1)).unwrap_or(0), local.1);
     let sprite = |k: u32| {
         let k = int(k.saturating_sub(1));
-        i.sprites
-            .byte((k.saturating_mul(cw).saturating_add(pos.0), pos.1), 0)
+        let across = i.sprite_columns.max(1);
+        let (col, row) = (k.checked_rem(across), k.checked_div(across));
+        let (col, row) = (col.unwrap_or(0), row.unwrap_or(0));
+        let x = col.saturating_mul(cw).saturating_add(pos.0);
+        let y = row.saturating_mul(ch).saturating_add(pos.1);
+        i.sprites.byte((x, y), 0)
     };
     let mut p = 0;
     if ul != 0 {

@@ -53,6 +53,9 @@ considered:
   - operator: aaronsb
     said: "vtium presents itself as a kitty-compatible terminal under its own name. For kitty's protocols it follows kitty's spec, and kitty's own behaviour, checked by black-box runs, where the spec is silent. It answers kitty's detection queries as kitty does. It keeps TERM=xterm-vtium and does not set KITTY_WINDOW_ID, because that variable tells programs this is kitty and invites kitty-only features vtium lacks, such as remote control."
     via: the maintainer, 2026-11-01, in the steering session
+  - operator: aaronsb
+    said: "agree"
+    via: the steering session, 2026-11-07, asking whether ADR-1000's row text.vitrify becomes refused, because ADR-1200 has vtium generate every glyph at run time and build no glyph set ahead of time
 status: accepted
 date: 2026-10-26
 deciders:
@@ -78,12 +81,12 @@ The C reference recognised 34 modes in one declarative table (libtsm's `tsm-mode
 
 ### The target set
 
-The tables are `ADR-1000-modes.tsv` (128 rows: 39 supported, 9 ignored, 73 refused, 1 planned, 6 weighed) and `ADR-1000-features.tsv` (181 rows: 110 supported, 3 partial, 44 ignored, 7 refused, 16 planned, 1 weighed in another issue). Both tables use the same statuses:
+The tables are `ADR-1000-modes.tsv` (131 rows: 44 supported, 10 ignored, 75 refused, 2 weighed) and `ADR-1000-features.tsv` (183 rows: 114 supported, 6 partial, 44 ignored, 8 refused, 11 planned). Both tables use the same statuses:
 
 - **supported**: set and reset, or the feature, do what the specification says.
 - **partial**: vtium does part of it; the note says what is missing, and the issue column names the work that builds the rest.
 - **planned**: vtium will build it, and its issue says how; nothing of it is built yet. Input methods and Braille displays are among them.
-- **weighed**: another issue decides whether vtium builds it, and the row takes that decision: baked glyph atlases (carried by the work on vtium-vitrify, the profile builder), weighed in the work on outline fonts.
+- **weighed**: another issue decides whether vtium builds it, and the row takes that decision: foot's input method mode, which the work on input methods decides.
 - **ignored**: vtium accepts it and does nothing with it; the reason says why.
 - **refused**: vtium deliberately does not build it, for the reason given.
 
@@ -94,6 +97,14 @@ DECRQM, the query by which a program asks whether a mode is set, answers from vt
 > Edited 2026-11-06: ADR-1004, the record on right-to-left text, decided the bidirectional modes, and the work that builds its paragraph state set their rows. BDSM, weighed before, is supported; DCSM, weighed, is ignored and answers 3; DECRLM and DECRLCM, weighed, are refused; and three new modes, 1243, 2500 and 2501, are supported. Only a build with the cargo feature `bidi` has the rows of BDSM, DCSM, 1243, 2500 and 2501, as only a build with `images` has the sixel rows, so a build without it answers DECRQM 0 for each; those rows name the new layer `bidi`. The feature table gains SCP and SPD, supported, and bidirectional text, planned before, is partial.
 
 > Edited 2026-11-06: the row for libseat seats, which said vtium runs unprivileged and was marked supported, is planned, since vtium does not build libseat yet. The maintainer decided the same day that vtium stays root under libseat, as ADR-1400 D1 says: it takes the display and input devices from the seat manager and keeps root to start /bin/login and its helpers. The row's feature, reason and note say so.
+
+> Edited 2026-11-07: `conformance issues` now holds the issue column to GitHub. It fails when a planned, partial or weighed row names no open issue, when an open issue is named only by supported rows, and when a number in the column is not an issue. Its first run found nine such cases, and this edit settles the five that the tables themselves got wrong. OSC 8 links, supported before, are partial: vtium keeps links, underlines the one under the pointer and copies it with Ctrl+click, and it does not yet draw the overlay row that shows the link's address while Ctrl is held. Multi-monitor, supported before, is partial: one grid shows on every display of a head, but a picture that the other display starves waits for input before it draws, and no test drives two displays. Glyphs baked into vtium as read-only atlases, weighed before, are refused, since ADR-1200 decided that vtium generates every glyph at run time and builds no glyph set ahead of time. The weighed modes 2034 and 737769 named the closed issue for vtium-term's modes; 737769 now names the work on input methods, and 2034 an issue of its own that decides it. The other four cases are issues whose work is done, or waits only on the maintainer's review on a real VT; they close outside the tables. Before this edit the counts above read 128 mode rows, with 39 supported, 9 ignored, 73 refused, 1 planned and 6 weighed, and 181 feature rows, with 110 supported, 3 partial, 44 ignored, 7 refused, 16 planned and 1 weighed; edits since 2026-11-06 had added rows without changing them.
+
+> Edited 2026-11-07: the work on left and right margins builds DECLRMM, DECSLRM, DECIC, DECDC, DECBI and DECFI, so mode 69 and the rows for DECSLRM and for DECIC with its kin are supported. Before this edit the counts above read 43 supported modes and 1 planned, and 110 supported, 5 partial and 16 planned feature rows.
+
+> Edited 2026-11-07: mode 1035 stays supported, since setting and resetting it work and the mode table in vtium-term has no partial status; its note names the gap the work on the kitty keyboard protocol found, that the host passes vtium-term no NumLock state with a key, and the issue that closes it.
+
+> Edited 2026-11-07: the work on SGR renditions draws conceal (SGR 8 and 28) and overline (SGR 53 and 55), so `sgr.conceal` and `sgr.overline` are supported; rapid blink and superscript and subscript stay planned until they are drawn. The work on libseat seats takes the seat, its display devices and VT switching from the seat manager, so `platform.libseat` is partial; its note names what is not built or proven yet. Before this edit the counts above read 112 supported, 4 partial and 15 planned feature rows, which no longer matched the table.
 
 Each row names the layer it lands in, from the project's plan: minspec, text, images, gpu, seat or top, or `bidi` for a row that only a build with the cargo feature `bidi` has (ADR-1004 D13).
 

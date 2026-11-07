@@ -21,7 +21,7 @@ set -u
 name=${0##*/}
 
 usage() {
-	printf 'usage: %s [-s N] [-n N] [-L] [--no-probe] [file|dir ...]\n' "$name"
+	printf 'usage: %s [-s N] [-n N] [-L] [-w N] [--no-probe] [file|dir ...]\n' "$name"
 	cat <<'EOF'
 
 Shows PNG pictures as a grid of thumbnails, each with its file name under
@@ -34,6 +34,9 @@ the tool sends PNG files as they are and skips any other file with a note.
                    is about 2N columns wide
   -n N             show the first N pictures, and say how many more there are
   -L, --no-labels  leave out the file names
+  -w, --wait N     wait up to N seconds for the terminal to answer the
+                   question (default 1); a terminal at the far end of a
+                   slow link can need longer
   --no-probe       draw without first asking the terminal whether it draws
                    kitty graphics, and take its cells to be twice as tall as
                    they are wide
@@ -59,13 +62,14 @@ whole() {
 	[[ $2 =~ ^[1-9][0-9]*$ ]] || die "$1 wants a whole number of 1 or more, not '$2'" 2
 }
 
-size=8 count='' labels=1 probe=1
+size=8 count='' labels=1 probe=1 wait=1
 while (($#)); do
 	case $1 in
 	-h | --help) usage; exit 0 ;;
 	-s | --size) (($# > 1)) || die "$1 wants a number" 2; whole "$1" "$2"; size=$2; shift ;;
 	-n) (($# > 1)) || die "$1 wants a number" 2; whole "$1" "$2"; count=$2; shift ;;
 	-L | --no-labels) labels=0 ;;
+	-w | --wait) (($# > 1)) || die "$1 wants a number" 2; whole "$1" "$2"; wait=$2; shift ;;
 	--no-probe) probe=0 ;;
 	--) shift; break ;;
 	-?*) die "unknown option $1 ($name --help lists them)" 2 ;;
@@ -122,10 +126,10 @@ fi
 
 # Asks the terminal, through /dev/tty, whether it draws kitty graphics, and
 # the size of its cell in pixels (XTWINOPS 16). Primary device attributes,
-# which every terminal answers, end the replies; the wait ends after a
-# second with no reply. The terminal's modes are restored however the
-# question ends, an interrupt included. Returns 2 when there is no terminal
-# to ask.
+# which every terminal answers, end the replies; the wait ends after
+# `wait` seconds with no reply, one second unless -w gives another. The
+# terminal's modes are restored however the question ends, an interrupt
+# included. Returns 2 when there is no terminal to ask.
 cw=1 ch=2
 ask() {
 	local saved reply='' c
@@ -137,7 +141,7 @@ ask() {
 	trap 'exit 129' HUP
 	stty raw -echo </dev/tty
 	printf '\033_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\033\\\033[16t\033[c' >/dev/tty
-	while IFS= read -rsn1 -t 1 c </dev/tty; do
+	while IFS= read -rsn1 -t "$wait" c </dev/tty; do
 		reply+=$c
 		[[ $reply == *$'\e[?'*c ]] && break
 	done

@@ -54,7 +54,7 @@ On vtium's side are the heads, with their first-match rules and the closed polic
 
 - **Fonts are read by a separate, locked-down program.** The console never opens a font file. A helper program reads the fonts in a sandbox and never runs as root, and the console only checks and draws the glyphs it sends. `kmscon` loads and draws its fonts in its own process, which runs as root.
 - **It is built so that a program's output cannot crash it.** The parts that read a program's output deny every panic that output could reach, and only the part that talks to the kernel may use Rust's `unsafe`; [architecture.md](architecture.md) lists the check behind each rule.
-- **It is measured on a small machine.** Its tests record the console's peak memory in a virtual machine with one CPU and 512 MB, fail if the console's program grows past 3.5 MiB, and draw on a 320x240 display.
+- **It is measured on a small machine.** Its tests record the console's peak memory in a virtual machine with one CPU and 512 MB, fail if the console's program grows past 4 MiB, and draw on a 320x240 display.
 - **It is tested without systemd.** vtium runs from systemd's units, and also from sysvinit's inittab, a script or by hand, and its tests boot it under systemd and on Debian 13 with sysvinit.
 
 [How vtium is judged](concepts/how-vtium-is-judged.md) describes how vtium is tested.

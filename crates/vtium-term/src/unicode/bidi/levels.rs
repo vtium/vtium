@@ -12,9 +12,9 @@
 //! with the crate's `reorder_visual`, and it never hands the crate an empty
 //! text. vtium-term takes the crate from vtium's fork of it, whose
 //! `visual_runs` still panics on an empty line at the end of the text and
-//! on an empty text, and vtium's builds abort on a panic. The level overflow
-//! input its maintainers were sent no longer makes it panic. Nothing
-//! outside this module names the crate.
+//! on an empty text, and vtium's builds abort on a panic. The fork does not
+//! panic on a paragraph that overflows the deepest embedding level.
+//! Nothing outside this module names the crate.
 
 use core::ops::Range;
 

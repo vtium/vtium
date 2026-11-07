@@ -28,6 +28,20 @@
 //! whatever is printed there next. The rectangle operations keep the same
 //! rule (`rect.rs`).
 //!
+//! The left and right margins bound the editing and scrolling functions as
+//! xterm's ctlseqs and the VT510 manual give them, and as xterm runs them
+//! (`InsertChar`, `DeleteChar`, `InsertLine`, `DeleteLine`, `xtermScroll`,
+//! `RevScroll`, `xtermColScroll`): ICH, DCH, IL and DL do nothing while the
+//! cursor is outside the margins; ICH and DCH move the cells between the
+//! cursor and the right margin; IL, DL, SU, SD and the scroll a line feed
+//! makes move only the cells between the margins, which then do not enter
+//! the scrollback; DECIC and DECDC insert and delete columns in the rows
+//! between the top and bottom margins. ED, EL and ECH erase whole rows'
+//! cells, whatever the margins, as the VT510 manual gives them. A partial
+//! row's move ends the wrap of each row it changes the last column of, and
+//! of the row above when it changes the first row's first column, the
+//! scrollback's newest line's above the screen's first row.
+//!
 //! [`Line::erase`]: crate::Line::erase
 //! [`Line::insert_cells`]: crate::Line::insert_cells
 //! [`Line::delete_cells`]: crate::Line::delete_cells
@@ -270,63 +284,162 @@ impl Screen {
         self.unwrap_rows(whole);
     }
 
-    /// ICH: `n` blank cells at the cursor, the rest of the line moving
-    /// right and the cells pushed past the margin going. A pending wrap
-    /// inserts at the last column and ends.
+    /// ICH: `n` blank cells at the cursor, the rest of the line up to the
+    /// right margin moving right and the cells pushed past the margin
+    /// going. A pending wrap inserts at the margin's column and ends.
+    /// Outside the left and right margins nothing happens.
     pub fn insert_chars(&mut self, n: usize) {
-        if n == 0 {
+        let x = self.erase_column();
+        if n == 0 || !self.in_lr_margins(x) {
             return;
         }
         self.segment = None;
-        self.cursor_x = self.erase_column();
-        let (x, y, cols) = (self.cursor_x, self.cursor_y, self.cols);
-        let n = n.min(cols.saturating_sub(x));
-        let kept = cols.saturating_sub(x).saturating_sub(n);
+        self.margin_wrap = false;
+        self.cursor_x = x;
+        self.insert_cells_at(self.cursor_y, x, n);
+    }
+
+    /// Inserts `n` blank cells at column `x` of row `y`, inside the left
+    /// and right margins: the cells from `x` to the right margin move
+    /// right, and those pushed past it go.
+    fn insert_cells_at(&mut self, y: usize, x: usize, n: usize) {
+        let end = self.right.saturating_add(1).min(self.cols);
+        let n = n.min(end.saturating_sub(x));
+        let kept = end.saturating_sub(x).saturating_sub(n);
         // a picture text cuts loses the row from the cursor on: shifting
         // part of it by whole cells would tear it
-        self.images_cut(y, x, cols.saturating_sub(1));
+        self.images_cut(y, x, end.saturating_sub(1));
         // A wide character at the insertion point, where the margin cuts
         // the moved cells, or across the margin itself goes whole.
         self.split_wide(y, x);
         self.split_wide(y, x.saturating_add(kept));
-        self.split_wide(y, cols);
+        self.split_wide(y, end);
         let blank = self.blank_style();
         if let Some(line) = self.line_mut(y) {
-            line.insert_cells(x, n, cols, &blank);
+            line.insert_cells(x, n, end, &blank);
         }
-        self.mark_cells(y, x..cols);
+        self.mark_cells(y, x..end);
     }
 
-    /// DCH: deletes `n` cells at the cursor, the rest of the line moving
-    /// left and blank cells filling in at the margin.
+    /// DCH: deletes `n` cells at the cursor, the rest of the line up to
+    /// the right margin moving left and blank cells filling in at the
+    /// margin. Outside the left and right margins nothing happens.
     pub fn delete_chars(&mut self, n: usize) {
-        if n == 0 {
+        let x = self.erase_column();
+        if n == 0 || !self.in_lr_margins(x) {
             return;
         }
         self.segment = None;
-        self.cursor_x = self.erase_column();
-        let (x, y, cols) = (self.cursor_x, self.cursor_y, self.cols);
-        let n = n.min(cols.saturating_sub(x));
-        self.images_cut(y, x, cols.saturating_sub(1));
+        self.margin_wrap = false;
+        self.cursor_x = x;
+        self.delete_cells_at(self.cursor_y, x, n);
+    }
+
+    /// Deletes `n` cells at column `x` of row `y`, inside the left and
+    /// right margins: the cells after them up to the right margin move
+    /// left, blank cells fill in at the margin, and the row's wrap ends, as
+    /// xterm's `ScrnDeleteChar` ends it.
+    fn delete_cells_at(&mut self, y: usize, x: usize, n: usize) {
+        let end = self.right.saturating_add(1).min(self.cols);
+        let n = n.min(end.saturating_sub(x));
+        self.images_cut(y, x, end.saturating_sub(1));
         // A wide character at either end of the deleted cells, or across
         // the margin, goes whole.
         self.split_wide(y, x);
         self.split_wide(y, x.saturating_add(n));
-        self.split_wide(y, cols);
+        self.split_wide(y, end);
         let blank = self.blank_style();
         if let Some(line) = self.line_mut(y) {
-            line.delete_cells(x, n, cols, &blank);
+            line.delete_cells(x, n, end, &blank);
         }
         self.unwrap_rows(y..y.saturating_add(1));
-        self.mark_cells(y, x..cols);
+        self.mark_cells(y, x..end);
+    }
+
+    /// DECIC: `n` blank columns at the cursor's column, in each row from
+    /// the top margin to the bottom, the columns up to the right margin
+    /// moving right and those pushed past it going. The cursor stays.
+    /// Nothing happens while the cursor is outside the margins (xterm's
+    /// `xtermColScroll`; VT510 manual, DECIC).
+    pub fn insert_columns(&mut self, n: usize) {
+        let x = self.erase_column();
+        if n == 0 || !self.in_region(x, self.cursor_y) {
+            return;
+        }
+        self.segment = None;
+        for y in self.top..=self.bottom {
+            self.insert_cells_at(y, x, n);
+        }
+    }
+
+    /// DECDC: deletes `n` columns at the cursor's column, in each row from
+    /// the top margin to the bottom, the columns up to the right margin
+    /// moving left and blank columns filling in at the margin. The cursor
+    /// stays. Nothing happens while the cursor is outside the margins
+    /// (xterm's `xtermColScroll`; VT510 manual, DECDC).
+    pub fn delete_columns(&mut self, n: usize) {
+        let x = self.erase_column();
+        if n == 0 || !self.in_region(x, self.cursor_y) {
+            return;
+        }
+        self.segment = None;
+        for y in self.top..=self.bottom {
+            self.delete_cells_at(y, x, n);
+        }
+    }
+
+    /// DECBI: one column left; at the left margin, with the cursor between
+    /// the top and bottom margins, the region's columns move right one
+    /// instead, a blank column coming in at the left margin and the column
+    /// at the right margin going (VT510 manual, DECBI; xterm's
+    /// `xtermColIndex`).
+    pub fn back_index(&mut self) {
+        let x = self.erase_column();
+        if x == self.left && self.in_lr_margins(x) {
+            self.insert_columns(1);
+        } else {
+            self.move_left(1);
+        }
+    }
+
+    /// DECFI: one column right; at the right margin, with the cursor
+    /// between the top and bottom margins, the region's columns move left
+    /// one instead, a blank column coming in at the right margin and the
+    /// column at the left margin going (VT510 manual, DECFI; xterm's
+    /// `xtermColIndex`).
+    pub fn forward_index(&mut self) {
+        let x = self.erase_column();
+        if x == self.right && self.in_lr_margins(x) {
+            if self.in_region(x, self.cursor_y) {
+                self.segment = None;
+                for y in self.top..=self.bottom {
+                    self.delete_cells_at(y, self.left, 1);
+                }
+            }
+        } else {
+            self.move_right(1);
+        }
+    }
+
+    /// Whether column `x` of row `y` is inside the region: between the top
+    /// and bottom margins and between the left and right margins.
+    fn in_region(&self, x: usize, y: usize) -> bool {
+        y >= self.top && y <= self.bottom && self.in_lr_margins(x)
     }
 
     /// IL: `n` blank lines at the cursor's row, the rows below it to the
-    /// bottom margin moving down and those pushed past it going. Nothing
-    /// happens outside the region. The cursor goes to the first column.
+    /// bottom margin moving down and those pushed past it going; between
+    /// the left and right margins, only the cells between them move.
+    /// Nothing happens outside the region. The cursor goes to the left
+    /// margin.
     pub fn insert_lines(&mut self, n: usize) {
         let y = self.cursor_y;
-        if n == 0 || y < self.top || y > self.bottom {
+        if n == 0 || !self.in_region(self.cursor_x, y) {
+            return;
+        }
+        if !self.full_width() {
+            self.scroll_in_margins(y, n, false);
+            self.move_cursor(self.left, y);
             return;
         }
         self.segment = None;
@@ -341,16 +454,23 @@ impl Screen {
         self.images_scrolled(took);
         self.unwrap_shifted(y);
         self.mark_rows(rows);
+        self.margin_wrap = false;
         self.cursor_x = 0;
     }
 
     /// DL: deletes `n` lines at the cursor's row, the rows below it to the
-    /// bottom margin moving up and blank lines filling in at the margin.
-    /// Nothing happens outside the region. The cursor goes to the first
-    /// column.
+    /// bottom margin moving up and blank lines filling in at the margin;
+    /// between the left and right margins, only the cells between them
+    /// move. Nothing happens outside the region. The cursor goes to the
+    /// left margin.
     pub fn delete_lines(&mut self, n: usize) {
         let y = self.cursor_y;
-        if n == 0 || y < self.top || y > self.bottom {
+        if n == 0 || !self.in_region(self.cursor_x, y) {
+            return;
+        }
+        if !self.full_width() {
+            self.scroll_in_margins(y, n, true);
+            self.move_cursor(self.left, y);
             return;
         }
         self.segment = None;
@@ -365,6 +485,7 @@ impl Screen {
         self.images_scrolled(took);
         self.unwrap_shifted(y);
         self.mark_rows(rows);
+        self.margin_wrap = false;
         self.cursor_x = 0;
     }
 
@@ -372,10 +493,14 @@ impl Screen {
     /// rows. On the main screen the lines leaving the region's top enter
     /// the scrollback, wherever the region starts, unwrapped when it
     /// starts below the first row; blank lines come in
-    /// at the bottom.
+    /// at the bottom. Between left and right margins only the cells
+    /// between them move, and nothing enters the scrollback.
     pub fn scroll_up(&mut self, n: usize) {
         if n == 0 {
             return;
+        }
+        if !self.full_width() {
+            return self.scroll_in_margins(self.top, n, true);
         }
         self.segment = None;
         let rows = self.top..self.bottom.saturating_add(1);
@@ -409,10 +534,14 @@ impl Screen {
     }
 
     /// SD: the region moves down `n` rows; the lines leaving the bottom go,
-    /// and blank lines come in at the top.
+    /// and blank lines come in at the top. Between left and right margins
+    /// only the cells between them move.
     pub fn scroll_down(&mut self, n: usize) {
         if n == 0 {
             return;
+        }
+        if !self.full_width() {
+            return self.scroll_in_margins(self.top, n, false);
         }
         let took = self.images_scroll((self.top, self.bottom), n, false, false);
         self.rotate_down(n);
@@ -431,6 +560,102 @@ impl Screen {
             region.rotate_right(n);
         }
         self.mark_rows(rows);
+    }
+
+    /// Moves the cells between the left and right margins of the rows from
+    /// `top` to the bottom margin `n` rows up, or down, as xterm's
+    /// `scrollInMargins` does: the cells leaving the rows go, and blank
+    /// cells come in at the other end. A wide character across a margin
+    /// in any of the rows goes whole first, and a picture over the cells
+    /// that move loses them, since a picture moves only with whole lines.
+    fn scroll_in_margins(&mut self, top: usize, n: usize, up: bool) {
+        self.segment = None;
+        let bottom = self.bottom;
+        let (left, right) = (self.left, self.right);
+        let height = bottom.saturating_add(1).saturating_sub(top);
+        let n = n.min(height);
+        if n == 0 {
+            return;
+        }
+        let cols = left..right.saturating_add(1);
+        for y in top..=bottom {
+            self.images_cut(y, left, right);
+            self.split_wide(y, left);
+            self.split_wide(y, cols.end);
+        }
+        let kept = height.saturating_sub(n);
+        for i in 0..kept {
+            let (from, to) = if up {
+                (
+                    top.saturating_add(i).saturating_add(n),
+                    top.saturating_add(i),
+                )
+            } else {
+                (
+                    bottom.saturating_sub(i).saturating_sub(n),
+                    bottom.saturating_sub(i),
+                )
+            };
+            self.copy_cells(from, to, cols.clone());
+        }
+        for i in 0..n {
+            let y = if up {
+                bottom.saturating_sub(i)
+            } else {
+                top.saturating_add(i)
+            };
+            self.erase_cells(y, cols.clone());
+        }
+        self.end_partial_wraps(top, bottom, left, right);
+    }
+
+    /// Ends the wraps an edit of the cells `left..=right` of the rows `top`
+    /// to `bottom` breaks: each row's when the edit reaches its last
+    /// column, and the row above's when it reaches the first row's first
+    /// column, the scrollback's newest line's above the screen's first
+    /// row.
+    fn end_partial_wraps(&mut self, top: usize, bottom: usize, left: usize, right: usize) {
+        if left == 0 {
+            match top.checked_sub(1) {
+                Some(above) => self.unwrap_rows(above..top),
+                None => self.unwrap_scrollback(),
+            }
+        }
+        if right.saturating_add(1) >= self.cols {
+            self.unwrap_rows(top..bottom.saturating_add(1));
+        }
+    }
+
+    /// Copies the cells of `cols` of row `from` over those of row `to`,
+    /// each with its style and hyperlink. A pad arrives as the empty cell
+    /// it draws as, since it belongs only at the end of a wrapped row.
+    fn copy_cells(&mut self, from: usize, to: usize, cols: Range<usize>) {
+        if from == to || from >= self.rows || to >= self.rows {
+            return;
+        }
+        let lines = self.active_mut();
+        let pair = if from < to {
+            let (a, b) = lines.split_at_mut(to);
+            a.get(from).zip(b.first_mut())
+        } else {
+            let (a, b) = lines.split_at_mut(from);
+            b.first().zip(a.get_mut(to))
+        };
+        let Some((src, dst)) = pair else {
+            return;
+        };
+        // The target's clusters go before any is written, so a cluster
+        // written early does not count against one replaced later.
+        dst.erase(cols.clone(), &Style::DEFAULT);
+        for x in cols.clone() {
+            let cell = src.cell(x);
+            let (glyph, width) = match cell.width() {
+                Width::Pad => (crate::line::Glyph::Empty, Width::Narrow),
+                w => (src.glyph(cell), w),
+            };
+            dst.write(x, glyph, width, &src.style(cell), src.link(cell));
+        }
+        self.mark_cells(to, cols);
     }
 
     /// Replaces the lines of `rows` with new blank lines of the blank
