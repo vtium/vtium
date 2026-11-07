@@ -85,10 +85,6 @@ RESTORED = {"images-640x480": PICTURE_SCREENS[-1]}
 # GPU path, which draws the CPU path's bytes, so 2d-1280x800's goldens judge
 # it exactly (ADR-1303 D1, D11).
 GOLDENS_OF = {"gl-1280x800": "2d-1280x800"}
-# The directories under goldens/ kept as a record, which no case compares
-# with: the first GL goldens, drawn by a renderer vtium does not use
-# (ADR-1303 D11).
-RECORDS = {"gl-1280x800": "what the first GL renderer drew"}
 
 
 def same_as(case, variant=None):
@@ -258,17 +254,12 @@ def check_goldens(cases_of, root, provisional=()):
     """Every reason the goldens under `root` cannot judge a run: a golden or
     sidecar no case of a variant they judge compares with (`cases_of` maps
     each such variant to its cases, and GOLDENS_OF names the directory a
-    variant compares with); a file in a record (RECORDS) that is none of
-    its variant's screens, though no case compares with the record; a
-    `provisional` row (vtium's provisional.tsv) for a golden in a record,
-    which judges nothing; and a provisional row for a golden that does not
-    exist."""
+    variant compares with), and a `provisional` row (vtium's
+    provisional.tsv) for a golden that does not exist."""
     used = {}
     for variant, cases_of_variant in cases_of.items():
         used.setdefault(GOLDENS_OF.get(variant, variant), set()).update(
             same_as(c, variant) for c in cases_of_variant)
-    for record in RECORDS:
-        used[record] = {same_as(c, record) for c in cases_of.get(record, ())}
     errors = []
     for dirpath, _, names in os.walk(root):
         for name in names:
@@ -280,10 +271,7 @@ def check_goldens(cases_of, root, provisional=()):
             if screen not in used.get(directory, ()):
                 errors.append("%s is a golden no case draws" % rel(path))
     for golden in provisional:
-        if golden.partition("/")[0] in RECORDS:
-            errors.append("provisional.tsv lists %s, which is in a record that judges nothing "
-                          "(RECORDS)" % golden)
-        elif not os.path.exists(os.path.join(root, golden + ".png")):
+        if not os.path.exists(os.path.join(root, golden + ".png")):
             errors.append("provisional.tsv lists %s, which has no golden" % golden)
     return sorted(errors)
 
