@@ -196,6 +196,8 @@ The words used below: a glyph's **reach** is the block of cells its ink may draw
 
 > Added 2026-11-06: a cluster that the console builds from its parts by ADR-1200 D22's step 3, because the font set holds no glyph for the whole cluster, takes part in the reach like any other glyph (the maintainer, 2026-11-06). Its parts are the store's glyph for as much of the cluster as the helper shaped and the marks left out of it, and its glyph's ink box is the union of their ink, cut to the reach, so its marks draw where they draw in a cluster the helper shaped whole, and the renderer keeps its reach, damages its neighbours and orders its ink as it does for every glyph.
 
+> Note 2026-11-06: the maintainer decided that a glyph from a bitmap source after the first may reach the row above or the row below, within the same one-row reach as an outline glyph (the maintainer, 2026-11-06). The helper places such a glyph so that its font's baseline meets the first source's baseline (ADR-1200 D17), and the ink that then passes the cell's top or bottom goes to the glyph's ink box, which the renderer draws into the row above or below as it draws an outline glyph's. unifont's ẳ behind Terminus is such a glyph: it rises 2 font rows onto Terminus's baseline, and the top of its hook draws in the row above. The second bullet's list of glyphs that stay inside their cells still holds for every other bitmap glyph: the first source's glyphs, and a later source's glyphs whose ink fits the cell once raised.
+
 ### D2: the baseline, the marks, and a letter's own ink
 
 This decision amends ADR-1302 D3.
