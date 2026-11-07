@@ -3393,8 +3393,8 @@ mod tests {
 
     // a strike reports its frit's first source's baseline even once that
     // source has failed as it drew, so the answers at one cell never change
-    // mid-session (review finding A6): Test Mono with an underscore that
-    // raises its baseline at 12 pixels from 10 to 9
+    // mid-session: Test Mono with an underscore that raises its baseline at
+    // 12 pixels from 10 to 9
     #[test]
     fn a_strike_keeps_its_first_sources_baseline_after_it_fails() {
         let mut font = super::ttf::test_mono();

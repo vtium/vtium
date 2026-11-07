@@ -588,8 +588,8 @@ pub(crate) mod tests {
         format!("{}ENDFONT\n", &text[..cut])
     }
 
-    // review-s5's file: 4.4 MB of BDF that placed 146 MB of glyphs, under
-    // 1 MiB gzipped. Its glyphs mostly advance 192, so its cell is past
+    // a file of 4.4 MB of BDF that places 146 MB of glyphs, under 1 MiB
+    // gzipped. Its glyphs mostly advance 192, so its cell is past
     // FRIT_CELL_MAX; half and one narrow keep the cell at 96, and place
     // over 100 MB.
     #[test]
