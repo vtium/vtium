@@ -2,7 +2,8 @@
 //! the crate's README gives where vtium chooses between readings of a
 //! specification.
 
-mod common;
+use vtium_parse_recorder as common;
+use vtium_parse_recorder::acts;
 
 use common::{
     Act, Bel, Cancelled, St, apc_bytes, csi, csi_subs, dcs_bytes, esc, hook, osc, parse,

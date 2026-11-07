@@ -951,6 +951,16 @@ dependencies = [
 [[package]]
 name = "vtium-parse"
 version = "0.1.0-alpha.6"
+dependencies = [
+ "vtium-parse-recorder",
+]
+
+[[package]]
+name = "vtium-parse-recorder"
+version = "0.1.0-alpha.6"
+dependencies = [
+ "vtium-parse",
+]
 
 [[package]]
 name = "vtium-platform"

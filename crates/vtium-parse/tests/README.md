@@ -4,7 +4,7 @@ Each top-level `.rs` file is its own test crate, run by `cargo test -p vtium-par
 
 | Path | What it is |
 |---|---|
-| `common/mod.rs` | A consumer that records every action and checks, at each call, the bounds and ranges the parser promises. |
+| `tools/parse-recorder` | Not in this directory: the recorder, a consumer that records every action and checks, at each call, the bounds and ranges the parser promises. Each test file takes it as `common`. |
 | `state_machine.rs` | Each state's transitions, from vt100.net's DEC parser, and the rules the crate's README gives where vtium chooses between readings of a specification. |
 | `bounds.rs` | Every bound at its edge, and what happens past it. |
 | `xtgettcap.rs` | XTGETTCAP collection: how the parser takes a request's payload, ends it and bounds it. |

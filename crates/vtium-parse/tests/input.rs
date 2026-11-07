@@ -1,7 +1,8 @@
 //! Input decoding: the UTF-8 decoder in front of the state machine, the
 //! 7-bit and 8-bit modes, and pausing.
 
-mod common;
+use vtium_parse_recorder as common;
+use vtium_parse_recorder::acts;
 
 use common::{Act, Recorder, St, csi, esc, parse, parse_in, prints};
 use vtium_parse::{InputMode, Parser};

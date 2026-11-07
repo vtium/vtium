@@ -8,7 +8,7 @@
 //! "Chunking invariance" rule in docs/architecture.md, "Determinism"
 //! (vtium/vtium#50). A failure names the stream it failed on.
 
-mod common;
+use vtium_parse_recorder as common;
 
 use common::{Act, Recorder};
 use std::collections::BTreeSet;
