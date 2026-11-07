@@ -23,7 +23,7 @@
 
 vtium runs on a Linux virtual terminal (VT)—one of the text screens you can switch to with Ctrl+Alt and a function key. It takes the place of getty, the program that normally displays the login prompt.
 
-vtium renders each frame using either the CPU or, on supported hardware, the GPU through OpenGL ES 3.0. The kernel’s graphics driver then displays the resulting framebuffer. Programs running in vtium get the features they would expect from a desktop terminal: full Unicode support, color emoji, 24-bit color, mouse reporting, and images. If vtium cannot start, getty and the kernel console take over.
+vtium renders each frame using either the CPU or, on supported hardware, the GPU through OpenGL ES 3.0. The kernel’s graphics driver then displays the resulting framebuffer. Programs running in vtium get the features they would expect from a desktop terminal: full Unicode support, color emoji, 24-bit color, mouse reporting, and images. That includes right-to-left scripts such as Arabic and Hebrew, with Arabic letters joined, and double-width Chinese, Japanese, and Korean text. If vtium cannot start, getty and the kernel console take over.
 
 The kernel’s built-in console has remained simple so it can work when little else does. Since Linux 6.10, the kernel has been able to display its own crash screen through modern graphics drivers. The Red Hat graphics developers behind that work describe the VT console as one of the [legacy parts of the kernel](https://fedoraproject.org/wiki/Changes/EnableDrmPanic) and propose replacing it with a console that runs as an ordinary program. vtium is one such console.
 

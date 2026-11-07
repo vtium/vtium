@@ -32,6 +32,7 @@ Programs running in vtium get many of the features available in desktop terminal
 
 - 24-bit color and the 256-color palette; bold, faint, italic, and reversed text; and five underline styles.
 - Unicode support, including double-width Chinese, Japanese, and Korean text and color emoji, using bitmap or outline fonts.
+- Right-to-left text such as Arabic and Hebrew, laid out by the Unicode bidirectional algorithm, with Arabic letters joined and the cursor and selection following the text, when built with the `bidi` feature.
 - Mouse reporting, bracketed paste, synchronized output, OSC 8 hyperlinks, and OSC 52 clipboard copying.
 - Scrollback with a configurable byte limit and text that rewraps when the screen width changes.
 - Images sent through sixel, the kitty graphics protocol, or iTerm2’s inline image protocol, when built with the `images` feature.
@@ -55,7 +56,7 @@ vtium is alpha software. The latest release is [v0.1.0-alpha.5](https://github.c
 - vtium runs as root, as getty does, so it can start the system’s login program. It currently opens the VT, graphics cards, and input devices directly. Support for obtaining those resources from a seat manager such as seatd or logind through libseat has been designed but is not yet complete.
 - CPU rendering is the default. Builds with the `gpu` feature can use GPU rendering on heads where `hwaccel` is enabled.
 - vtium is tested with systemd and sysvinit. Other init systems have not been tested. See [systemd, logind and PID 1](systemd.md).
-- Ligatures, bidirectional text, input methods, the kitty keyboard protocol, and configuration reloads without a restart are not yet implemented. See [Status](features.md#status) for the full list.
+- Ligatures, input methods, the kitty keyboard protocol, and configuration reloads without a restart are not yet implemented. See [Status](features.md#status) for the full list.
 
 ## Requirements
 
