@@ -463,7 +463,20 @@ fn the_selection_takes_the_ink_inside_it_and_a_selected_letters_ink_outside_keep
 /// An opaque blue kitty picture of one cell at the cell `col`, `row` of
 /// `s`, at `z`, as a frame of `s` shows it.
 #[cfg(feature = "images")]
-fn picture(s: &Screen, (col, row): (u32, u32), z: i32) -> Vec<vtium_image::FramePlacement> {
+fn picture(s: &Screen, at: (u32, u32), z: i32) -> Vec<vtium_image::FramePlacement> {
+    picture_of(s, at, z, 0xff20_6080)
+}
+
+/// A kitty picture of one cell whose every pixel is `px`, premultiplied
+/// `0xAARRGGBB`, at the cell `col`, `row` of `s`, at `z`, as a frame of `s`
+/// shows it.
+#[cfg(feature = "images")]
+fn picture_of(
+    s: &Screen,
+    (col, row): (u32, u32),
+    z: i32,
+    px: u32,
+) -> Vec<vtium_image::FramePlacement> {
     use vtium_image::{LineKey, NewImage, Place, Protocol, Rows, Screens, Store};
     let keys: Vec<LineKey> = (1..=s.rows as u64).map(LineKey::new).collect();
     let view = Rows {
@@ -480,7 +493,7 @@ fn picture(s: &Screen, (col, row): (u32, u32), z: i32) -> Vec<vtium_image::Frame
         protocol: Protocol::KITTY,
         width: CW,
         height: CH,
-        pixels: vec![0xff20_6080; (CW * CH) as usize],
+        pixels: vec![px; (CW * CH) as usize],
         id: 1,
         number: 0,
         transient: false,
@@ -684,12 +697,14 @@ fn a_cell_under_a_picture_drawn_twice_in_a_frame_draws_each_layer_once() {
     }
 }
 
-// ADR-1306 D9: the cell shader that draws received ink is compiled when the
-// pipeline is set up, so no frame compiles it: neither the frame in which
+// ADR-1306 D9: every program the composition draws with is compiled when
+// the pipeline is set up, so no frame compiles one: not the frame in which
 // the first glyph whose ink passes its cell takes its box, which the
-// renderer draws twice, nor any frame after it.
+// renderer draws twice, nor the first frame with the pointer, nor, in a
+// build with pictures, the first frame with an opaque picture, with a
+// picture that is not opaque, or with a text layer over a picture.
 #[test]
-fn no_frame_compiles_a_program_once_the_first_reaching_glyph_takes_its_box() {
+fn no_frame_compiles_a_program() {
     let mut s = screen(4, 2);
     s.text(0, 1, "x x", plain());
     let size = display(&s, Orientation::Normal);
@@ -698,7 +713,11 @@ fn no_frame_compiles_a_program_once_the_first_reaching_glyph_takes_its_box() {
     let ink = gl
         .calls()
         .iter()
-        .filter(|c| matches!(c, Call::Compile(text) if text.lines().any(|l| l == "#define INK")))
+        .filter(|c| {
+            matches!(c, Call::Compile(text)
+                if text.lines().any(|l| l == "#define INK")
+                    && !text.lines().any(|l| l == "#define OVER"))
+        })
         .count();
     assert_eq!(ink, 1, "set up compiles the cell shader with ink");
     let buffer = gl.import_buffer(&size).unwrap();
@@ -747,4 +766,38 @@ fn no_frame_compiles_a_program_once_the_first_reaching_glyph_takes_its_box() {
         assert_eq!(compiles(&g), 0, "a frame after it, writing {text:?}");
     }
     assert_same(&g, &whole(&s, &st), "the frames after it");
+    let pointed = DrawState {
+        pointer: Some((5, 20)),
+        ..st
+    };
+    g.frame(&mut s, &pointed);
+    assert!(
+        g.gl.calls()
+            .iter()
+            .any(|c| matches!(c, Call::Draw { inputs, .. } if inputs.contains(&"arrow"))),
+        "the pointer's arrow draws"
+    );
+    assert_eq!(compiles(&g), 0, "the first frame with the pointer");
+    // the cell above the second accent, under a picture below the text,
+    // then under one above it that is not opaque
+    #[cfg(feature = "images")]
+    for (z, px, what) in [
+        (-5, 0xff20_6080, "an opaque picture below the text"),
+        (
+            1,
+            0x8010_3040,
+            "a picture above the text that is not opaque",
+        ),
+    ] {
+        g.pictures = picture_of(&s, (3, 0), z, px);
+        g.frame(&mut s, &st);
+        let drew = |all: &[&str]| {
+            g.gl.calls().iter().any(
+                |c| matches!(c, Call::Draw { inputs, .. } if all.iter().all(|i| inputs.contains(i))),
+            )
+        };
+        assert!(drew(&["picture"]), "{what} draws");
+        assert!(drew(&["under_at", "ink"]), "{what}: a text layer draws");
+        assert_eq!(compiles(&g), 0, "the first frame with {what}");
+    }
 }

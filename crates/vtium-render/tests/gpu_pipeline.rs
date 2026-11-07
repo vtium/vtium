@@ -54,16 +54,30 @@ fn set_up_makes_the_upright_frame_and_present_and_checks_once() {
     let mut gl = StandIn::new();
     let p = Pipeline::new(&mut gl, DISPLAY, Config::default()).unwrap();
     let calls = gl.calls();
-    assert_eq!(calls.len(), 6, "{calls:?}");
+    // every program the composition draws with, so that no frame compiles
+    // one: the cell shader without ink and with it, the arrow's, the under
+    // shader, and in a build with pictures the picture shader without and
+    // with OVER and the cell shader with OVER and ink; then present's
+    let programs = if cfg!(feature = "images") { 8 } else { 5 };
+    assert_eq!(calls.len(), programs + 2, "{calls:?}");
     assert_eq!(calls[0], Call::CreateFrame(DISPLAY));
-    // the cell shader without ink and with it, the arrow's and present's
-    assert!(calls[1..5].iter().all(|c| matches!(c, Call::Compile(_))));
-    let ink = |c: &Call| matches!(c, Call::Compile(t) if t.lines().any(|l| l == "#define INK"));
+    let defines = |c: &Call| match c {
+        Call::Compile(t) => {
+            let has = |d: &str| t.lines().any(|l| l == d);
+            Some((has("#define INK"), has("#define OVER")))
+        }
+        _ => None,
+    };
+    let compiled: Vec<_> = calls[1..=programs].iter().map(defines).collect();
+    assert!(compiled.iter().all(Option::is_some), "{calls:?}");
+    let count = |d| compiled.iter().filter(|&&c| c == Some(d)).count();
+    assert_eq!(count((true, false)), 1, "the cell shader with ink");
     assert_eq!(
-        calls[1..5].iter().map(ink).collect::<Vec<_>>(),
-        [false, true, false, false]
+        count((true, true)),
+        usize::from(cfg!(feature = "images")),
+        "the cell shader with ink over pictures"
     );
-    assert_eq!(calls[5], Call::Check(Batch::Uploads));
+    assert_eq!(calls[programs + 1], Call::Check(Batch::Uploads));
     p.free(&mut gl).unwrap();
     assert_eq!(gl.live(), (0, 0, 0));
 }
@@ -77,7 +91,11 @@ fn empty_color_and_spatial_slots_join_no_source_and_make_no_call() {
     let config = Config::default();
     assert_eq!((config.color, config.spatial), (Color::None, Spatial::None));
     let mut p = Pipeline::new(&mut gl, DISPLAY, config).unwrap();
-    let Call::Compile(fragment) = &gl.calls()[4] else {
+    // present's program is the last set up compiles
+    let Some(fragment) = gl.calls().iter().rev().find_map(|c| match c {
+        Call::Compile(t) => Some(t),
+        _ => None,
+    }) else {
         panic!("{:?}", gl.calls());
     };
     let bare = [
