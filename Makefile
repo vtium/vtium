@@ -453,7 +453,7 @@ conformance-issues: ## Check ADR-1000's issue column and the capability list aga
 .PHONY: test-tools
 # shellcheck gates at warning: its info notes differ between versions, and
 # the scripts' `A && B || die` is deliberate.
-test-tools: ## Test the VT review tools, the tier 3 harness, the gallery tool, the fuzz runner, the gate runner, the fork-refs check, the sysroot fetch and the vendor archive's manifest without a VT, sudo, logind, a VM or nightly (shellcheck when installed), the set writer without its deflate, the key table's crates built as a package names HWACCEL and DISPLAY_BUFFERS, that the console leaves the deflate out, and that make gates runs AGENTS.md's gate line
+test-tools: ## Test the VT review tools, the tier 3 harness, the gallery tool, the fuzz runner, the gate runner, the fork-refs check, the sysroot fetch, the stage check and the vendor archive's manifest without a VT, sudo, logind, a VM or nightly (shellcheck when installed), the set writer without its deflate, the key table's crates built as a package names HWACCEL and DISPLAY_BUFFERS, that the console leaves the deflate out, and that make gates runs AGENTS.md's gate line
 	python3 -I tools/vt/tests/test_vt.py
 	python3 -I tools/vt/tests/test_accept.py
 	python3 -I -B tools/tier3/test_t3img.py
@@ -464,6 +464,7 @@ test-tools: ## Test the VT review tools, the tier 3 harness, the gallery tool, t
 	python3 -I -B docs/scripts/test_fork_refs.py
 	python3 -I -B docs/scripts/test_coverage.py
 	python3 -I -B tools/arm/test_sysroot.py
+	python3 -I -B tools/stage/test_check.py
 	python3 -I -B tools/vendor/test_manifest.py
 	cargo test -q -p vtium-font --test set
 	$(TEST_BUILD_SETTINGS)
@@ -794,3 +795,14 @@ GATES_DIR  = $(abspath $(or $(CARGO_TARGET_DIR),target))/gates
 .PHONY: gates
 gates: ## Run every gate of the gate line, up to JOBS=N at once (default 8), each to the end, report each exit code and fail if any failed
 	@python3 -I -B tools/gates/run --jobs $(GATES_JOBS) --dir $(GATES_DIR)
+
+# The steering session runs this before it moves stage to a commit of
+# integration (AGENTS.md, "The working loop", step 7). It fetches main from
+# origin and fails unless COMMIT descends from it, which happens when a stage
+# pull request has merged into main and main has not been merged back into
+# integration since.
+COMMIT ?= HEAD
+
+.PHONY: stage-check
+stage-check: ## Fetch main from origin and fail unless COMMIT (default HEAD) descends from it, before stage moves to COMMIT
+	@tools/stage/check '$(COMMIT)'
