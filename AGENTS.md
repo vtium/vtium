@@ -14,30 +14,18 @@ This file tells coding agents, and the people who run them, how to work on vtium
 
 The steering session runs work in waves. A wave is a batch of delegated agents working at the same time, each on its own crate, tool or document.
 
-## The repositories
+## What defines vtium's behaviour
 
-The C reference is the C terminal kmscon and its screen and parser library libtsm, which vtium is measured against. The maintainer keeps a fork of each beside the vtium checkout, and the forks hold the C reference's code. vtium copied what it needs from the forks into its own tree (#111, the issue that ported the C reference's test machinery into vtium). Many of the copies are goldens: saved expected results that vtium's output is compared against. vtium is tested in tiers: unit tests, tiers 1 to 3, and a final review by the maintainer on a real console. [How vtium is judged](#how-vtium-is-judged) lists them.
+vtium's behaviour is defined by the specifications it cites, ADR-1000's tables and vtium's own goldens. A golden is a saved expected result that vtium's output is compared against. [ADR-1503](docs/architecture/project/ADR-1503-vtium-judges-itself-by-its-own-goldens-and-its-committed-tree-names-no-c-fork.md) records this decision. vtium is tested in tiers: unit tests, tiers 1 to 3, and a final review by the maintainer on a real console. [How vtium is judged](#how-vtium-is-judged) lists them.
 
-| Repository | Path beside this checkout | Role |
-|---|---|---|
-| vtium/vtium | `.` | vtium itself |
-| aaronsb/kmscon | `../kmscon` | The C reference's terminal. vtium copied its capability probes and its tier 2 and tier 3 goldens from here (#111). |
-| aaronsb/libtsm | `../libtsm` | The C reference's screen and parser. vtium copied tier 1's replay interface and goldens from here into `tools/conformance/`. The replay interface is the command-line contract by which a program plays a byte stream into a terminal and prints the resulting screen as text. vtium also ported the tools that made and checked them into `tools/conformance/`, in Rust: the case generator, the recorder and the interface check. |
+Other terminals are external references. ADR-1000's tables compare vtium with the Linux console, xterm, foot, Ghostty, WezTerm and kitty, as each one's published documentation describes it. The released `kmscon` is an external reference too, and you read it the same way as the others.
 
-The C reference is frozen. vtium does at least everything the C reference did, and may do more. It does not copy how the C reference was built, because vtium is idiomatic Rust. Agents read the forks and never change them on their own. A fork changes only when the maintainer asks for a fix, and then as the maintainer directs. No gate, CI job, build or tool runs the C reference's code or reads the forks' checkouts. The local checkouts of the forks are often out of date, so fetch first and read from `origin/main`, for example `git -C ../kmscon show origin/main:<path>`. Plain `gh` in this checkout talks to vtium/vtium, so every `gh` command for a fork needs `-R aaronsb/kmscon` or `-R aaronsb/libtsm`.
-
-Before you design anything new, answer each question about behaviour or structure from the C reference. Read the C reference's code in the forks at `origin/main`. Take the C reference's logic flow, and never its code structure.
-
-Diagnose a problem in vtium's implementation the same way. First find out how the C reference's flow handled the same case and what it decided, and cite that. Treat it as a reference for the logic, never as C code to port. This applies to every change, whether it is a bug fix, a review finding or a failing test.
-
-Upstream means the original projects the forks came from, `kmscon/kmscon` and `kmscon/libtsm`. Nobody working on vtium writes to them: no issue, no PR, no comment, and no tag of an upstream maintainer. When vtium's text names upstream, it uses a code span and no link. When you find a defect in the C reference, a security defect included, fix it in vtium, list it as a departure (a recorded difference from the C reference), and report nothing upstream.
+Nobody working on vtium writes to `kmscon/kmscon` or `kmscon/libtsm`: no issue, no PR, no comment, and no tag of their maintainers. When vtium's text names them, it uses a code span and no link.
 
 ## Writing
 
-- Write about vtium in the present tense everywhere you write: docs, comments, commits, PR bodies and issues. Call the C code "the C reference" and write about it in the past tense ("the C reference replied 4"). History can be told in the past tense.
-- A spec describes behaviour that vtium implements. Put C function names in a section marked as C notes, not in the behaviour spec.
-- A decision record (an ADR, under `docs/architecture/`) never names a GitHub issue or PR by its number. It says in a short phrase what the issue is about: what the work builds, what was found, or what was decided, as in "the work that ports the C reference's test machinery". The record then carries its meaning on its own, the way a statically linked program carries its libraries, where a number only points somewhere else. The issue column of ADR-1000's TSVs is the one exception, because it exists to name each row's issue. Issues, PRs, commits, code and the other docs keep using numbers.
-- Never scope vtium work as "what the C reference does". vtium does that and more. Where the C reference departed from the specification, vtium follows the specification and lists each such case as a departure.
+- Write about vtium in the present tense everywhere you write: docs, comments, commits, PR bodies and issues. History can be told in the past tense.
+- A decision record (an ADR, under `docs/architecture/`) never names a GitHub issue or PR by its number. It says in a short phrase what the issue is about: what the work builds, what was found, or what was decided, as in "the work that draws right-to-left text". The record then carries its meaning on its own, the way a statically linked program carries its libraries, where a number only points somewhere else. The issue column of ADR-1000's TSVs is the one exception, because it exists to name each row's issue. Issues, PRs, commits, code and the other docs keep using numbers.
 - Say each fact once. Don't hard-wrap prose: one paragraph is one line in the file.
 - The configuration files vtium ships, `crates/vtium/install/vtium.conf.example` (generated from the key table) and the head file template `crates/vtium-settings/templates/heads.conf`, wrap the prose of their comments at 78 columns and break each description into paragraphs, because people read them in a terminal editor. vtium-config keeps those comments as they are when it edits a vtium.conf. Source, docs and records keep one paragraph per line.
 - Write the way a person explains something to a colleague out loud: in whole sentences with a subject and a verb, in plain words. Don't be clever. Write so that someone who has never seen this code understands it the first time they read it. If that takes more words, use more words.
@@ -90,7 +78,7 @@ cargo fmt --all --check \
   && make arm
 ```
 
-`make conformance` and `make conformance-probes` read the goldens and probes in `tools/conformance/`. Those files were copied from the C reference. `make tier2` reads tier 2's goldens from `tools/tier2/goldens/`. `make conformance-issues` uses `gh` to check with GitHub that every issue named in the conformance lists is still open. Without network access it cannot run, so report it as not run, with that reason. No gate needs a checkout of the C repositories.
+`make conformance` and `make conformance-probes` read the goldens and probes in `tools/conformance/`. `make tier2` reads tier 2's goldens from `tools/tier2/goldens/`. `make conformance-issues` uses `gh` to check with GitHub that every issue named in the conformance lists is still open. Without network access it cannot run, so report it as not run, with that reason.
 
 vtium's code, tests and tools are written in Rust. Where vtium must talk to a C library, such as libseat (#34), C stays at that boundary as a binding or the thinnest possible shim, and everything around it is Rust.
 
@@ -119,17 +107,13 @@ vtium is judged in tiers, from unit tests up to the maintainer's own review on a
 | Tier | What it compares | Where it runs | Command |
 |---|---|---|---|
 | Unit | each crate's behaviour | here | `cargo test --workspace --all-features` |
-| 1, conformance | the screen state and replies vtium produces after a stream of input bytes, written as text and compared against the C reference's goldens | the replay corpus in `tools/conformance/corpus/`, through the language-neutral interface that its `INTERFACE.md` describes | `make conformance` (`tools/conformance/`, #14), which also runs the interface check |
+| 1, conformance | the screen state and replies vtium produces after a stream of input bytes, written as text and compared against vtium's goldens | the replay corpus in `tools/conformance/corpus/`, through the language-neutral interface that its `INTERFACE.md` describes | `make conformance` (`tools/conformance/`, #14), which also runs the interface check |
 | Capability probes | each capability vtium claims, tested through a replay, against `tools/conformance/capabilities.list` | `tools/conformance/probes/` | `make conformance-probes` |
 | 2, pixels | what the renderer draws in memory, compared pixel for pixel | `tools/tier2/`: its goldens in `tools/tier2/goldens/` | `make tier2` |
 | 3, the VM | screenshots of vtium's install tree running on a VT in a QEMU/KVM guest with a real KMS device, compared against its goldens in `tools/tier3/goldens/`; it also records size and memory figures | `tools/tier3/` | `make tier3-minimal` (the minspec variants, 1 vCPU and 512 MB), `make tier3` (every variant) |
 | VT review | the maintainer looks at vtium on a real VT, guided step by step | this machine | `make vt-check GUIDE=start` ([docs/vt-review.md](docs/vt-review.md)); the vtium binary arrives with #21 |
 
-The goldens decide whether vtium's output is right, and there are three kinds:
-
-- **The C reference's goldens.** Tier 1's goldens and the capability probes live in `tools/conformance/`, and tier 3's in `tools/tier3/goldens/`, all copied from the C reference.
-- **vtium's own goldens.** For behaviour that only vtium has, vtium keeps its own goldens in its tree.
-- **Provisional goldens.** vtium's own goldens stay provisional until the maintainer reviews them, and a provisional golden judges nothing.
+The goldens decide whether vtium's output is right. Every golden is vtium's own (ADR-1503 D1). Some of them began as copies of another harness's results, and [tools/tier3/goldens/README.md](tools/tier3/goldens/README.md) tells that history for tier 3. A golden stays provisional until the maintainer reviews it, and a provisional golden judges nothing. The tiers list their provisional goldens in files named `provisional.tsv`.
 
 The author of a change never rewrites, widens or regenerates the golden that judges that change. A golden changes only in a commit of its own, which lists each value that moved, and the maintainer reviews it.
 
@@ -167,9 +151,9 @@ Work happens on this machine first. GitHub's runners are slow, so the steering s
 The loop runs at the five verification levels that [The verification levels](#the-verification-levels) defines. The author works at V0 and V1 (step 4), the steering session runs V2 on the merged tree (steps 5 and 6), the maintainer's look is V3, and the release candidate gets V4 (step 8).
 
 1. **The record comes first.** When a decision governs a change, the steering session writes or amends the decision's ADR before the build starts, often through a delegated agent. The maintainer reads it before it merges, as with every decision that sets direction. Then a gap-check reads the code against the ADR, statement by statement, and lists where they differ. The implementation work starts from the gaps it finds. For a brand-new feature the ADR still comes first, and the gap-check then finds everything missing.
-2. **A worktree per branch,** placed beside the repositories. From the vtium checkout, run `git worktree add -b feat/<topic> ../vtium-<topic> integration`. The forks get no worktrees, because they are read only. Each worktree has its own `target/` directory, so builds running in parallel never wait on each other's lock. No two agents edit the same file, and each crate has one owner at a time.
+2. **A worktree per branch,** placed beside the vtium checkout. From the vtium checkout, run `git worktree add -b feat/<topic> ../vtium-<topic> integration`. Each worktree has its own `target/` directory, so builds running in parallel never wait on each other's lock. No two agents edit the same file, and each crate has one owner at a time.
 3. **The branch starts from `integration`,** so later work builds on earlier work before main sees it. `integration` reaches GitHub at each merge point. In a fresh clone that has no `integration` branch, branch from main.
-4. **The author commits locally and runs the level its brief names,** V0 while it works and V1 once at the end of the card. The author does not run the full gate line; the steering session runs it once, on the merged tree. The author does not push or open a PR. The author's report gives the branch, the head commit, the gate results and the departures, the way a PR body would.
+4. **The author commits locally and runs the level its brief names,** V0 while it works and V1 once at the end of the card. The author does not run the full gate line; the steering session runs it once, on the merged tree. The author does not push or open a PR. The author's report gives the branch, the head commit, the gate results, and each place where the change chose between two readings of a specification, the way a PR body would.
 5. **A fresh reviewer reads the diff** (`git diff integration...<branch>`) when V2 calls for a review, which is only for logic that a picture cannot show. The reviewer runs the tests of what the change touched and plants the defects that the change claims to catch. Findings about behaviour or correctness go back to the author in one fix round, which the steering session checks by planting the defects again. A second round goes to the maintainer's eyes. Wording and optional findings go into a follow-up, not a fix round.
 6. **The reviewed branch merges into `integration`** with `git merge --no-ff`. The steering session runs the full gates once on the merged tree before it pushes, after one branch or after a batch of them.
 7. **At a merge point,** the steering session picks a commit of `integration` that passed the full gates on the merged tree and moves `stage` to it with `git push origin <commit>:stage`. `stage` only ever moves forward to a later commit of `integration`, and nobody commits on it. The steering session then opens one PR from `stage` to main, so the maintainer reads a diff that does not move, with the batch's ADR notes and goldens in it, while `integration` keeps taking new work. A fix that the maintainer's review asks for lands on `integration` and reaches main with the next batch, or the steering session moves `stage` forward to it, which starts the PR's CI again. The steering session waits for that PR's CI. A PR merges only once every CI job has passed, `arm-native` included. vtium has to keep working on platforms other than the x86 machines it is written on, and `arm-native` runs on ARM hardware like the hardware vtium's smallest build is most likely to run on. A PR merges with a regular merge commit, never a squash or a rebase. A release is tagged on main.
@@ -206,7 +190,7 @@ The steering session releases each delegated agent explicitly once its work has 
 | The crates, the tiers, determinism, the reply rule, tables and maps | [docs/architecture.md](docs/architecture.md) |
 | What a contribution must show, the code rules, the kitty source rule | [CONTRIBUTING.md](CONTRIBUTING.md) |
 | The target set and its coverage | `docs/architecture/term/ADR-1000-*` |
-| A crate's departures and bounds | `crates/<crate>/README.md` |
+| A crate's bounds and the choices it makes | `crates/<crate>/README.md` |
 | Where vtium touches systemd, logind or PID 1, and what it does without them | [docs/systemd.md](docs/systemd.md) |
 | The plan and its order | the tracker, vtium/vtium#47 |
 | The replay interface | `tools/conformance/corpus/INTERFACE.md` |
