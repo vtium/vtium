@@ -132,12 +132,15 @@ const NAMED: &[(&str, u32, Option<char>)] = &[
 ];
 
 /// The modifiers `mods=` names, with their bits in the interface's `mods`.
-pub const MODS: [(&str, u8); 5] = [
+pub const MODS: [(&str, u8); 8] = [
     ("shift", 1),
     ("lock", 2),
     ("ctrl", 4),
     ("alt", 8),
     ("logo", 16),
+    ("num", 32),
+    ("hyper", 64),
+    ("meta", 128),
 ];
 
 /// The keysym a key name stands for, or None.
@@ -250,8 +253,9 @@ mod tests {
         assert_eq!(mods("shift"), Some(1));
         assert_eq!(mods("ctrl+alt"), Some(12));
         assert_eq!(mods("shift+lock+ctrl+alt+logo"), Some(31));
+        assert_eq!(mods("num+hyper+meta"), Some(224));
         assert_eq!(mods("shift+shift"), None);
-        assert_eq!(mods("meta"), None);
+        assert_eq!(mods("super"), None);
         assert_eq!(mods(""), None);
     }
 }

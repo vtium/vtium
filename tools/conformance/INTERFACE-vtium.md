@@ -1,6 +1,6 @@
 # vtium's additions to the replay interface
 
-Interface 1.3 is `corpus/INTERFACE.md`, interface 1.0, with the additions below. Each is a command, a feature, a view, or a line that only a new command, feature or view prints, so it raises MINOR under 1.0's "Versioning and features", and every golden stays as it is. The runner and the probe runner read the fenced blocks here after 1.0's: this `describe` block's version line replaces 1.0's, and its view, feature and command lines follow 1.0's lines of the same kind; this `grammar` block's lines join 1.0's, using its fragments.
+Interface 1.4 is `corpus/INTERFACE.md`, interface 1.0, with the additions below. Each is a command, a feature, a view, or a line that only a new command, feature or view prints, so it raises MINOR under 1.0's "Versioning and features", and every golden stays as it is. The runner and the probe runner read the fenced blocks here after 1.0's: this `describe` block's version line replaces 1.0's, and its view, feature and command lines follow 1.0's lines of the same kind; this `grammar` block's lines join 1.0's, using its fragments.
 
 ## The fixture host checks a picture's size
 
@@ -90,6 +90,10 @@ display-cursor 16,0 left
 row 0 |abc (1) םולש def|
 ```
 
+## The key command's modifiers
+
+The `key` command's `mods` takes 0 to 255, where 1.0 stops at 31. The bits 1.0 names keep their meaning: 1 Shift, 2 Lock, 4 Ctrl, 8 Alt and 16 Logo. The new bits are 32, NumLock is on, 64 Hyper and 128 Meta, which a host reports where the keymap gives Hyper or Meta a modifier of its own. The kitty keyboard protocol reports each of them in a key's modifiers (ADR-1005, D2), and xterm's encoding reads NumLock under mode 1035. A `key` line with a `mods` of 31 or less presses the key it pressed before, so every golden stays as it is. The `mouse` command's `mods` still stops at 31.
+
 ## The worked examples' strings
 
 The worked examples, here and in 1.0, read each `send` string with the string syntax of tier 1's scenarios (ADR-1504, D2), so the examples and the scenarios have one syntax. It adds three escapes to 1.0's list: `\a` stands for the byte 07, `\b` for the byte 08, and `\u{HEX}` for the UTF-8 of the code point HEX. Every string 1.0's list accepts reads as it did, so no example's input changes.
@@ -99,7 +103,7 @@ The worked examples, here and in 1.0, read each `send` string with the string sy
 The grammar below adds the clipboard's `test` line, the two forms of the `anim` line, and the display view's `display-cursor` line and structure. An `anim` line follows its image's `image` line, so `IMAGES` and the fragments and structures built on it are given again here: a fragment takes its value where it is defined, so the views' fragments and structures must be restated to use the new `IMAGES`. They differ from 1.0's only in that `IMAGES`.
 
 ```describe
-interface 1.3
+interface 1.4
 view display
 feature clipboard
 feature kitty-animation

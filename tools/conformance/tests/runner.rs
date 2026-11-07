@@ -116,7 +116,7 @@ fn the_command_line_exits_as_the_interface_says() {
     let (code, out) = vtium_replay(&["--describe"]);
     assert_eq!(code, Some(0));
     assert!(
-        out.starts_with("interface 1.3\nview screen\nview frame\n"),
+        out.starts_with("interface 1.4\nview screen\nview frame\n"),
         "{out}"
     );
     for args in [
