@@ -16,7 +16,7 @@
 
 use std::collections::BTreeMap;
 
-use super::compose::{CELL_FRAG, OVER};
+use super::compose::{CELL_FRAG, INK, OVER};
 use super::gl::{
     Batch, Blend, Draw, DrawTarget, Error, ErrorKind, Fence, Format, Gl, Limits, Program, Quad,
     Size, Source, Texture,
@@ -274,6 +274,7 @@ impl StandIn {
             cell: (cw, ch),
             box_slot: (sw, sh, across),
             bound,
+            with_ink: text.contains(INK),
         };
         let mut drawn = Vec::new();
         let Some((size, _)) = self.pixels.get(&target) else {

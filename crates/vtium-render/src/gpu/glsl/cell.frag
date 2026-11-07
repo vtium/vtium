@@ -1,8 +1,12 @@
 // The program's source puts `#version 300 es` before this file, then for
-// a cell's text layer or vtium's mark alone `#define OVER`, and then
-// `#define REACH_SIDE` and `#define REACH_ROWS`, how many cells a glyph's
-// ink may reach past its own to each side and above and below (ADR-1306
-// D12), which bound the loops over a cell's neighbours.
+// a cell's text layer or vtium's mark alone `#define OVER`, for the cells
+// that receive ink from their neighbours' glyphs and for the text layers
+// `#define INK`, and then `#define REACH_SIDE` and `#define REACH_ROWS`,
+// how many cells a glyph's ink may reach past its own to each side and
+// above and below (ADR-1306 D12), which bound the loops over a cell's
+// neighbours. A cell that receives no ink is drawn by the program built
+// without INK, which is the cell shader as it was before any ink reached
+// another cell, so it costs what it did.
 //
 // A cell (ADR-1300 D6), with the CPU path's integer arithmetic
 // (src/blend.rs): every value a whole number held in a highp float, which
@@ -20,8 +24,8 @@
 // underline's color and its sprite, w the strike's color and its sprite,
 // a sprite being its place in sprites plus one, or 0 for none.
 //
-// A job that RECEIVES ink from its neighbours' glyphs (ADR-1306 D4, D9)
-// reads, for each neighbour its glyph's reach could come from, that
+// With INK, a job that RECEIVES ink from its neighbours' glyphs (ADR-1306
+// D4, D9) reads, for each neighbour its glyph's reach could come from, that
 // neighbour's entry in the ink grid: the reach byte the CPU path keeps for
 // the cell, its span, the slot of its glyph among the boxes, and its ink's
 // color. A neighbour whose reach covers the pixel lends the coverage of
@@ -43,6 +47,7 @@ uniform highp sampler2D colors;
 uniform highp sampler2D sprites;
 // the cell's width and height
 uniform ivec4 cell;
+#ifdef INK
 // the boxes of the glyphs whose ink passes their cells, each in a slot
 // with its first cell REACH_SIDE cells from the slot's left and
 // REACH_ROWS rows from its top
@@ -53,6 +58,7 @@ uniform ivec4 box_slot;
 // holds its reach byte, its span and its slot's number, low byte first,
 // and the texel at k, 2r + 1 its ink's color
 uniform highp sampler2D ink;
+#endif
 #ifdef OVER
 // the pixels beneath, copied, and x, y: the target's pixel the copy's
 // first texel holds
@@ -105,6 +111,7 @@ float sprite(uint k, ivec2 pos) {
     return byte(texelFetch(sprites, at, 0).r);
 }
 
+#ifdef INK
 // the job's flags, in the top byte of params.y: it receives ink from its
 // neighbours; a block cursor or the selection marks it, so received ink
 // takes its foreground (ADR-1306 D6); a display line runs down its column
@@ -217,12 +224,12 @@ bool line_inked(Job job, ivec2 at, bool down) {
     }
     return false;
 }
+#endif
 
 void main() {
     ivec2 local = ivec2(gl_FragCoord.xy) - dst.xy;
     ivec2 at = ivec2(src.xy) + local;
     uint kind = params.x >> 24u;
-    uint flags = params.y >> 24u;
     uint ul = params.z >> 24u;
     uint st = params.w >> 24u;
     vec3 fg = rgb(params.x);
@@ -232,18 +239,21 @@ void main() {
 #else
     bool layer = false;
 #endif
-    Job job = Job(int(src.z), int(src.w), dst.z / max(cell.x, 1), (flags & MARKED) != 0u, fg);
-    ivec2 pixel = ivec2(job.col * cell.x, job.row * cell.y) + local;
-    vec4 recv = vec4(0.0);
-    bool receives = (flags & RECEIVES) != 0u;
-    if (receives) {
-        recv = received(job, pixel);
-    }
     float a = kind == 1u ? byte(texelFetch(masks, at, 0).r) : 0.0;
-    bool one = !layer && ul == 0u && st == 0u && recv.a == 0.0;
-    if (one && receives && a != 0.0 && a != 255.0) {
-        one = !line_inked(job, pixel, (flags & DOWN) != 0u);
+    bool one = !layer && ul == 0u && st == 0u;
+    vec4 recv = vec4(0.0);
+#ifdef INK
+    uint flags = params.y >> 24u;
+    if ((flags & RECEIVES) != 0u) {
+        Job job = Job(int(src.z), int(src.w), dst.z / max(cell.x, 1), (flags & MARKED) != 0u, fg);
+        ivec2 pixel = ivec2(job.col * cell.x, job.row * cell.y) + local;
+        recv = received(job, pixel);
+        one = one && recv.a == 0.0;
+        if (one && a != 0.0 && a != 255.0) {
+            one = !line_inked(job, pixel, (flags & DOWN) != 0u);
+        }
     }
+#endif
     vec3 c;
     if (one) {
         if (kind == 1u) {

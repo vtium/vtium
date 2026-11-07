@@ -73,6 +73,9 @@ pub(super) struct Inputs<'a> {
     pub(super) box_slot: (i64, i64, i64),
     /// The shader's `REACH_SIDE` and `REACH_ROWS`.
     pub(super) bound: (i64, i64),
+    /// The shader is built with `INK`, so a quad flagged as receiving ink
+    /// draws it.
+    pub(super) with_ink: bool,
 }
 
 /// The job a quad draws, as the shader reads it.
@@ -120,7 +123,7 @@ pub(super) fn cell(q: &Quad, i: &Inputs<'_>, (x, y): (i64, i64)) -> u32 {
         col.saturating_mul(cw).saturating_add(local.0),
         row.saturating_mul(ch).saturating_add(local.1),
     );
-    let receives = flags & RECEIVES != 0;
+    let receives = i.with_ink && flags & RECEIVES != 0;
     let recv = if receives { received(i, &job, px) } else { 0 };
     let a = if kind == 1 { i.masks.byte(at, 0) } else { 0 };
     let mut one = ul == 0 && st == 0 && recv >> 24 == 0;

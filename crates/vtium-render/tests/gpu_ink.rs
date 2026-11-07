@@ -218,13 +218,18 @@ impl Gpu {
         self.gl.frame_pixels(name).unwrap().1.to_vec()
     }
 
-    /// The cell quads of the last frame.
+    /// The cell quads of the last frame, through the cell shader with ink
+    /// and without, in the order they were drawn.
     fn cells(&self) -> Vec<Quad> {
         self.gl
             .calls()
             .iter()
             .filter_map(|c| match c {
-                Call::Draw { quads, inputs, .. } if inputs.contains(&"ink") => Some(quads.clone()),
+                Call::Draw { quads, inputs, .. }
+                    if inputs.contains(&"cell") && !inputs.contains(&"under_at") =>
+                {
+                    Some(quads.clone())
+                }
                 _ => None,
             })
             .flatten()

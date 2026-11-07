@@ -116,16 +116,7 @@ impl<F: Face> Gpu<F> {
     }
 
     fn cells(&self) -> Vec<Quad> {
-        self.quads(&[
-            "target_size",
-            "masks",
-            "colors",
-            "sprites",
-            "cell",
-            "boxes",
-            "box_slot",
-            "ink",
-        ])
+        self.quads(&["target_size", "masks", "colors", "sprites", "cell"])
     }
 
     fn fills(&self) -> usize {
