@@ -1,0 +1,40 @@
+# cargo-deny's configuration. `make deny`, a gate, checks every crate that a Cargo.lock of vtium's names against it: the workspace's Cargo.lock, which every package build reads, and the lock files of the fuzz targets under crates/*/fuzz and the generators under crates/*/gen-*. It checks licenses, bans and sources with no network. The CI job `advisories` checks the same crates of the workspace against the RustSec advisory database, which it has to download.
+#
+# vtium never takes code from a copyleft source, and this file keeps that rule for its dependencies. A crate whose license is not in the allow list fails the gate, and so does a crate from anywhere other than crates.io or a fork that vtium pins by commit.
+
+[graph]
+# Every optional dependency is checked, as if every feature were on, and so is every target's: Cargo.lock and the vendor archive hold the crates of every feature and every target.
+all-features = true
+
+[licenses]
+# The licenses the crates of vtium's lock files use, each of them permissive. A crate whose license expression offers a choice, such as "MIT OR Apache-2.0", passes when one of the choices is here. A new license joins the list only after someone has read it and found it permissive.
+#
+# - Apache-2.0 and MIT: most crates, and vtium's own.
+# - ISC: libloading.
+# - NCSA: libfuzzer-sys, which the fuzz targets use, together with MIT or Apache-2.0.
+# - Unicode-3.0: the Unicode data that unicode-ident carries.
+# - Zlib: slotmap.
+# - bzip2-1.0.6: libbz2-rs-sys.
+allow = ["Apache-2.0", "ISC", "MIT", "NCSA", "Unicode-3.0", "Zlib", "bzip2-1.0.6"]
+# Each lock file uses only some of the licenses, so a license that one lock file does not use is not an error.
+unused-allowed-license = "allow"
+
+[licenses.private]
+# The fuzz targets and the generators are never published and name no license. vtium's published crates are checked like any other crate.
+ignore = true
+
+[bans]
+# Cargo.lock pins one version of each crate, and the workspace's crates name each other by path, which cargo-deny counts as a wildcard version. Neither is a defect, so the bans check stops neither.
+multiple-versions = "allow"
+wildcards = "allow"
+
+[sources]
+# Crates come from crates.io, or from a git repository that is listed here and pinned by commit (`rev = "..."`). A branch or a tag can move, so neither pins a git dependency.
+unknown-registry = "deny"
+unknown-git = "deny"
+required-git-spec = "rev"
+# Only the workspace uses the fork, so a lock file that does not is not an error.
+unused-allowed-source = "allow"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+# vtium's fork of unicode-bidi, which vtium-term's bidi feature uses.
+allow-git = ["https://github.com/vtium/unicode-bidi"]

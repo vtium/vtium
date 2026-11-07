@@ -381,6 +381,30 @@ arm-sysroot: ## Fetch and verify the Debian sysroots the ARM targets link agains
 # theirs.
 MSRV := $(shell sed -n 's/^rust-version = "\(.*\)"$$/\1/p' Cargo.toml)
 
+# make deny, a gate, checks the license and the source of every crate that a
+# lock file of vtium's names, and runs cargo-deny's bans check on them, against
+# deny.toml, which says which lock files and why. make advisories checks the
+# workspace's crates against the RustSec advisory database, which cargo-deny
+# downloads, so it is no gate: CI runs it as the job advisories. Both need
+# cargo-deny at DENY_VERSION, the version CI installs, so that the gate judges
+# the same way on every machine.
+DENY_VERSION   = 0.20.2
+DENY_INSTALL   = cargo install --locked cargo-deny --version $(DENY_VERSION)
+DENY_MANIFESTS = Cargo.toml $(sort $(wildcard crates/*/fuzz/Cargo.toml crates/*/gen-*/Cargo.toml))
+define deny-version
+@v=$$(cargo deny --version 2>/dev/null) || v=; [ "$$v" = "cargo-deny $(DENY_VERSION)" ] || { echo "$@ needs cargo-deny $(DENY_VERSION), and this machine has $${v:-no cargo-deny}. Install it with: $(DENY_INSTALL)" >&2; exit 1; }
+endef
+
+.PHONY: deny
+deny: ## Check the license and the source of every crate that a lock file of vtium's names against deny.toml (needs cargo-deny at DENY_VERSION)
+	$(deny-version)
+	@status=0; for m in $(DENY_MANIFESTS); do echo "deny: $$m"; cargo deny --locked --manifest-path "$$m" --workspace check bans licenses sources || status=1; done; exit $$status
+
+.PHONY: advisories
+advisories: ## Check the workspace's crates against the RustSec advisory database, which cargo-deny downloads (needs the network and cargo-deny at DENY_VERSION)
+	$(deny-version)
+	cargo deny --locked check advisories
+
 .PHONY: msrv
 msrv: ## Build the workspace, its tests and the minspec profile with the oldest Rust vtium builds on, Cargo.toml's rust-version, in target/msrv (rustup installs that Rust when it is missing)
 	@[ -n "$(MSRV)" ] || { echo "msrv: Cargo.toml declares no rust-version" >&2; exit 1; }
@@ -733,6 +757,7 @@ cargo test --workspace --all-features
 cargo test --workspace
 cargo build --profile minspec
 make msrv
+make deny
 docs/scripts/adr lint --check
 docs/scripts/adr cite --check
 docs/scripts/issue-refs
