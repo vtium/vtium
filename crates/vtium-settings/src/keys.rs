@@ -519,7 +519,7 @@ pub const FOCUS_MARK: Key = Key {
     levels: TOP,
     reader: "vtium",
     what: "The old name for `osd` and `osd-timeout`.\n\n\
-           vtium reads it only when `osd` and `osd-timeout` are not set: `auto` means `osd = minimal`, `always` means `osd = minimal` with `osd-timeout = never`, and `off` means `osd = off`. When it is set, vtium logs a line that names the new keys.",
+           vtium reads it only when `osd` and `osd-timeout` are not set: `auto` means `osd = minimal`, `always` means `osd = minimal` with `osd-timeout = never`, and `off` means `osd = off`. When it is set, vtium logs the new keys.",
     cite: "[the on-screen display issue](https://github.com/vtium/vtium/issues/169)",
 };
 
@@ -847,7 +847,8 @@ pub const PROGRAM_BLANK: Key = Key {
     levels: TOP,
     reader: "vtium",
     what: "Let a program set the blanking timeout and wake the displays, as `setterm --blank` does on the Linux console.\n\n\
-           A program sets the timeout with `CSI 9 ; n ]` (n minutes, up to 60; 0 never blanks) and wakes the displays with `CSI 13 ]`. A terminal reset (RIS) returns the timeout to `dpms-timeout`. When off, vtium ignores these sequences. A key press or mouse action wakes the displays either way.",
+           A program sets the timeout with `CSI 9 ; n ]` (n minutes, up to 60; 0 never blanks) and wakes the displays with `CSI 13 ]`. A terminal reset (RIS) returns the timeout to `dpms-timeout`. When off, vtium ignores these sequences.\n\n\
+           [docs] A key press or mouse action wakes the displays either way.",
     cite: "[the screen blanking issue](https://github.com/vtium/vtium/issues/79)",
 };
 
@@ -866,7 +867,8 @@ pub const DISPLAY_WAIT: Key = Key {
     reader: "vtium",
     what: "How long vtium waits for a display when it starts, counted from when its VT is shown.\n\n\
            If no display appears in that time, vtium exits with status 1, so the unit's `OnFailure=` can start a getty. When vtium.conf's policy is closed, vtium waits as long as it takes, as with `forever`.\n\n\
-           vtium counts only while the VT is its own. If another program takes the VT before vtium's first frame is on screen, as X does at boot when it starts on another VT, vtium waits for the VT to come back and then starts the full wait again.\n\n\
+           vtium counts only while the VT is its own. If another program takes the VT before vtium's first frame is on screen, vtium waits for the VT to come back and then starts the full wait again.\n\n\
+           [docs] X does this at boot when it starts on another VT.\n\n\
            With 0, vtium does not wait: only a display that is ready when the VT is shown counts. `forever` waits as long as it takes.\n\n\
            [docs] `forever` suits a machine whose only display is a USB adapter (DisplayLink, `udl`) that may be plugged in at any time.\n\n\
            Once a display has appeared, vtium never exits for lack of one.",
@@ -882,7 +884,7 @@ pub const DISPLAY_BUFFERS: Key = Key {
     levels: TOP,
     reader: "vtium-platform",
     what: "How many frame buffers each display keeps (DRM displays only; every display gets the same number).\n\n\
-           `3` is triple buffering: no frame waits for the previous one to reach the screen, at the cost of one more frame of memory per display (8 MB at 1080p). `2` is double buffering. `1` is single buffering, which uses the least memory, but vtium then draws into the buffer on screen, so a half-drawn frame can show.\n\n\
+           `3` is triple buffering: no frame waits for the previous one to reach the screen, and each display needs one more frame of memory. `2` is double buffering. `1` is single buffering, which uses the least memory, but vtium then draws into the buffer on screen, so a half-drawn frame can show.\n\n\
            A framebuffer device (fbdev) always keeps one buffer. When unset, the build decides: the number it was built with (`VTIUM_DISPLAY_BUFFERS`), or else 3 in a build with optional features, 2 in the smallest build (minspec), and 1 only in a build smaller than that.\n\n\
            [docs] `vtium config get display-buffers` prints the draft's value followed by `draft`, or the build's default followed by `default` (`unset` when the build sets no number, in which case the rule above decides).",
     cite: "[the displays issue](https://github.com/vtium/vtium/issues/18)",
@@ -897,7 +899,8 @@ pub const HWACCEL: Key = Key {
     levels: TOP,
     reader: "vtium",
     what: "Draw with the GPU, in a build that supports it.\n\n\
-           It is off unless vtium was built with it on (`VTIUM_HWACCEL`). `vtium config get hwaccel` prints the draft's value followed by `draft`, or the build's default followed by `default`. `vtium config set hwaccel on` turns it on in the draft.",
+           It is off unless vtium was built with it on (`VTIUM_HWACCEL`).\n\n\
+           [docs] `vtium config get hwaccel` prints the draft's value followed by `draft`, or the build's default followed by `default`. `vtium config set hwaccel on` turns it on in the draft.",
     cite: "kmscon's `hwaccel` key",
 };
 
@@ -1175,7 +1178,8 @@ pub const UNDERLINE_COLOR: Key = Key {
     levels: TOP,
     reader: "vtium-render",
     what: "The color of underlines (SGR 4 in every style, and SGR 21).\n\n\
-           `fg` uses the text's color, a palette number uses that palette color (which a program can change with OSC 4), and `#rrggbb` uses that color. A color a program sets with SGR 58 wins, unless `force-decoration-colors` is on.",
+           `fg` uses the text's color, a palette number uses that palette color, and `#rrggbb` uses that color. A color a program sets with SGR 58 wins, unless `force-decoration-colors` is on.\n\n\
+           [docs] A program can change a palette color with OSC 4.",
     cite: "[the decoration colors issue](https://github.com/vtium/vtium/issues/127)",
 };
 
@@ -1212,7 +1216,8 @@ pub const CLIPBOARD_WRITE: Key = Key {
     levels: TOP,
     reader: "vtium",
     what: "Let programs copy text to vtium's clipboard (OSC 52). When off, vtium ignores what they send.\n\n\
-           The console has no system clipboard. vtium keeps the last text copied, by a program or by you, and the middle mouse button and the `key-paste` key paste it.",
+           vtium keeps the last text copied, by a program or by you, and the middle mouse button and the `key-paste` key paste it.\n\n\
+           [docs] The console has no system clipboard.",
     cite: "[the OSC 52 copy issue](https://github.com/vtium/vtium/issues/39)",
 };
 
@@ -1343,7 +1348,8 @@ pub const NATURAL_SCROLLING: Key = Key {
     levels: TOP,
     reader: "vtium",
     what: "Reverse the mouse wheel.\n\n\
-           The wheel then scrolls the other way, both in vtium's scrollback and for programs, including the arrow keys it sends in full-screen programs (mode 1007). Ctrl with the wheel turned up still zooms in.",
+           The wheel then scrolls the other way, both in vtium's scrollback and for programs.\n\n\
+           [docs] This includes the arrow keys vtium sends in full-screen programs (mode 1007). Ctrl with the wheel turned up still zooms in.",
     cite: "kmscon's `natural-scrolling` key",
 };
 
@@ -1356,7 +1362,8 @@ pub const POINTER_CHAR: Key = Key {
     levels: TOP,
     reader: "vtium-render",
     what: "Show the mouse pointer as this character, drawn with the console's font.\n\n\
-           The character fills the character cell under the pointer, white with a dark outline, like the arrow. When unset, or when the font cannot display the character, the pointer is an arrow.",
+           When unset, or when the font cannot display the character, the pointer is an arrow.\n\n\
+           [docs] The character fills the character cell under the pointer, white with a dark outline, like the arrow.",
     cite: "[the pointer options issue](https://github.com/vtium/vtium/issues/102)",
 };
 
@@ -1450,7 +1457,8 @@ pub const FONT_PATHS: Key = Key {
     levels: TOP,
     reader: "vtium",
     what: "The folders where vtium looks, in order, for installed fonts that a font set's `font:` lines name.\n\n\
-           Separate the folders with `:`, as in `PATH`; each must be an absolute path. The list replaces the built-in list, so it can reorder or leave out the system's folders. vtium skips a folder that is not an absolute path, uses the rest, and logs why.\n\n\
+           Separate the folders with `:`, as in `PATH`; each must be an absolute path. The list replaces the built-in list. vtium skips a folder that is not an absolute path, uses the rest, and logs why.\n\n\
+           [docs] The list can reorder or leave out the system's folders.\n\n\
            When unset, vtium searches `/usr/share/fonts` and `/usr/local/share/fonts`. A user's own folder, such as `~/.local/share/fonts`, is searched only when the list names it, and the font helper cannot read it before someone logs in, because it then runs as `nobody`.",
     cite: "[the configuration flow issue](https://github.com/vtium/vtium/issues/299)",
 };
@@ -1465,7 +1473,7 @@ pub const FONT_HELPER: Key = Key {
     reader: "vtium",
     what: "The font helper: the program vtium starts to draw a font set's characters. It runs as `nobody` when vtium runs as root.\n\n\
            vtium opens the program once, when it starts, and runs every helper from that file, so a newly installed helper takes effect when vtium restarts.\n\n\
-           vtium refuses a path that is not absolute, a file that is not a regular file, a setuid or setgid file, a file owned by anyone other than root or vtium's own account, and a file that its group or other users can write. It then logs why and uses its built-in font. vtium starts the helper through `/proc/self/fd`, so `/proc` must be mounted.\n\n\
+           vtium refuses a helper whose path is not absolute, that is not a regular file, that is setuid or setgid, that anyone but root or vtium's own account owns, or that its group or other users can write. It then logs why and uses its built-in font. vtium starts the helper through `/proc/self/fd`, so `/proc` must be mounted.\n\n\
            [docs] The default is the path vtium was built with.",
     cite: "[the issue that renders glyphs in the font helper](https://github.com/vtium/vtium/issues/145); the maintainer's decision of 2026-11-01",
 };
@@ -1516,7 +1524,7 @@ pub const FONT_LINE_SPACING: Key = Key {
     levels: TOP_LOOK,
     reader: "vtium-font",
     what: "Extra space between lines of text. It overrides a font set's `line-spacing=` line.\n\n\
-           The value is a whole percentage of the text height, rounded to whole pixels and split evenly above and below each line, so the console has fewer lines. It does not change a font set's own `cell=` size, but it applies when `font-size` overrides that size: the character cell grows by the spacing. When unset, the font set's `line-spacing=` decides, and 0 where it has none.\n\n\
+           The value is a whole percentage of the text height, rounded to whole pixels and split above and below each line, so the console has fewer lines. When `font-size` overrides a font set's `cell=` size, the character cell grows by the spacing. When unset, the font set's `line-spacing=` decides, and 0 where it has none.\n\n\
            [docs] Letters keep their size in the middle of the taller line, and line and block characters stretch to fill it. A font set's `fit=` lines choose this for each set of characters.",
     cite: "[the line spacing issue](https://github.com/vtium/vtium/issues/277)",
 };
@@ -1543,7 +1551,8 @@ pub const ALLOW_FONT_OPS: Key = Key {
     levels: TOP,
     reader: "vtium",
     what: "Let programs switch the console's font, and ask which font is in use (xterm's OSC 50).\n\n\
-           A program switches with `OSC 50 ; NAME ST`, as `vtium-config use-frit NAME` does, and asks with `OSC 50 ; ? ST`. A switch lasts until that program's session ends; then vtium returns to the font and size that `font-name` and `font-size` set.\n\n\
+           A program switches with `OSC 50 ; NAME ST` and asks with `OSC 50 ; ? ST`. A switch lasts until that program's session ends; then vtium returns to the font and size that `font-name` and `font-size` set.\n\n\
+           [docs] `vtium-config use-frit NAME` switches the font with the same sequence.\n\n\
            When off, vtium ignores OSC 50, queries included.\n\n\
            [docs] It is on by default, as xterm's `allowFontOps` is, because a program can choose only the installed font sets and the built-in fonts, never another file.",
     cite: "[the issue that loads the configured font set](https://github.com/vtium/vtium/issues/126)",
@@ -1655,7 +1664,8 @@ pub const TEXT_DIRECTION: Key = Key {
     levels: TOP,
     reader: "vtium-term",
     what: "Which way a paragraph of text runs when the program writing it does not say: `ltr`, left to right, `rtl`, right to left, or `auto`, which takes each paragraph's direction from its first letter.\n\n\
-           A paragraph is the text between two line ends, however many rows it wraps across. `ltr`, the default, starts each paragraph at the left edge, as most terminals do. `rtl` starts each one at the right edge, for a console used mostly in Arabic, Hebrew or another right-to-left language. Under `auto`, a paragraph that starts with an Arabic or Hebrew letter runs right to left, and one that starts with a Latin letter, or has no letter, runs left to right.\n\n\
+           A paragraph is the text between two line ends. `ltr`, the default, starts each paragraph at the left edge, and `rtl` at the right edge. Under `auto`, a paragraph that starts with an Arabic or Hebrew letter runs right to left, and any other runs left to right.\n\n\
+           [docs] A paragraph keeps its direction however many rows it wraps across. `rtl` suits a console used mostly in Arabic, Hebrew or another right-to-left language.\n\n\
            vtium reads this key when it starts, so a change takes effect when vtium restarts, and it never changes text already on the screen.\n\n\
            [docs] A program can change the direction with escape sequences, and a terminal reset returns it to this setting.\n\n\
            A build without right-to-left support (the `bidi` feature) accepts this key and does nothing with it.",
@@ -1683,7 +1693,8 @@ pub const DISPLAY_DEPTH: Key = Key {
     levels: TOP_LOOK,
     reader: "vtium-render",
     what: "How many colors or shades each display can show.\n\n\
-           `1` is black and white: each character cell is lit or dark by its colors, never by their brightness. `gray4` and `gray16` are for gray panels of 4 or 16 shades; vtium sends color and the panel converts it. `color` is full color. `auto` uses what the display reports: 1 bit for an fbdev device that says so, or the levels of a known DRM panel driver.",
+           `1` is black and white: each character cell is lit or dark by its colors, never by their brightness. `gray4` and `gray16` are for gray panels of 4 or 16 shades; vtium sends color and the panel converts it. `color` is full color. `auto` uses what the display reports.\n\n\
+           [docs] For `auto`, an fbdev device that reports 1 bit gets `1`, and a known DRM panel driver gives its levels.",
     cite: "[the 1-bit displays issue](https://github.com/vtium/vtium/issues/135)",
 };
 
@@ -1740,7 +1751,8 @@ pub const KEY_REBOOT: Key = Key {
     levels: TOP,
     reader: "vtium",
     what: "The key that reboots the machine.\n\n\
-           When `/proc/sys/kernel/ctrl-alt-del` is 0, vtium asks init to reboot, as Ctrl+Alt+Del does, so the services stop first; otherwise the kernel restarts at once. When unset, no key reboots.",
+           When unset, no key reboots.\n\n\
+           [docs] When `/proc/sys/kernel/ctrl-alt-del` is 0, vtium asks init to reboot, as Ctrl+Alt+Del does, so the services stop first; otherwise the kernel restarts at once.",
     cite: "the `grab-reboot` key that kmscon had",
 };
 
@@ -1753,7 +1765,8 @@ pub const KEY_POWER_OFF: Key = Key {
     levels: TOP,
     reader: "vtium",
     what: "The key that powers the machine off.\n\n\
-           vtium asks init with `SIGRTMIN+4`, which systemd treats as `poweroff.target`, so the services stop and the filesystems are unmounted first. When unset, no key powers off.",
+           When unset, no key powers off.\n\n\
+           [docs] vtium asks init with `SIGRTMIN+4`, which systemd treats as `poweroff.target`, so the services stop and the filesystems are unmounted first.",
     cite: "[the configuration issue](https://github.com/vtium/vtium/issues/21)",
 };
 
@@ -1766,7 +1779,8 @@ pub const KEY_SUSPEND: Key = Key {
     levels: TOP,
     reader: "vtium",
     what: "The key that suspends the machine to RAM.\n\n\
-           vtium asks logind to suspend, so anything that holds off sleep through logind can still do so. When logind is not running, or vtium was built without `logind`, vtium writes `mem` to `/sys/power/state`. When unset, no key suspends.",
+           vtium asks logind to suspend. When logind is not running, or vtium was built without `logind`, vtium writes `mem` to `/sys/power/state`. When unset, no key suspends.\n\n\
+           [docs] Because vtium asks logind, anything that holds off sleep through logind can still do so.",
     cite: "[the configuration issue](https://github.com/vtium/vtium/issues/21)",
 };
 
@@ -1995,7 +2009,8 @@ pub const IMAGE_STORAGE_LIMIT: Key = Key {
     levels: TOP,
     reader: "vtium-image",
     what: "The most memory each console uses for images, on both its screens together.\n\n\
-           The value is in bytes, or in KiB, MiB or GiB with `K`, `M` or `G` (such as `64M`), up to 1 TiB. `auto` gives each console enough for four screenfuls of its head's displays, from 16 MiB to 192 MiB, and recalculates when a display is added, removed or resized. `0` turns sixel and kitty graphics off.\n\n\
+           The value is in bytes, or in KiB, MiB or GiB with `K`, `M` or `G` (such as `64M`), up to 1 TiB. `auto` gives each console enough for four screenfuls of its head's displays, from 16 MiB to 192 MiB. `0` turns sixel and kitty graphics off.\n\n\
+           [docs] `auto` recalculates when a display is added, removed or resized.\n\n\
            A build without image support accepts this key and shows no images.",
     cite: "[the image pipeline issue](https://github.com/vtium/vtium/issues/28); Ghostty's `image-storage-limit`",
 };
@@ -2054,7 +2069,7 @@ pub const IMAGE_HELPER: Key = Key {
     reader: "vtium",
     what: "The image helper: the program vtium starts, as the logged-in user, to read image files and shared memory for kitty graphics and to decode PNG and zlib-compressed images. vtium runs as root and does neither itself.\n\n\
            vtium opens the program once, when it starts, and runs every helper from that file, so a newly installed helper takes effect when vtium restarts.\n\n\
-           vtium refuses a path that is not absolute, a file that is not a regular file, a setuid or setgid file, a file owned by anyone other than root or vtium's own account, and a file that its group or other users can write. It then logs why, and refuses those images: a file, temporary file or shared memory with `EBADF`, and PNG or zlib with `EINVAL`. vtium starts the helper through `/proc/self/fd`, so `/proc` must be mounted.\n\n\
+           vtium refuses a helper whose path is not absolute, that is not a regular file, that is setuid or setgid, that anyone but root or vtium's own account owns, or that its group or other users can write. It then logs why and refuses images: `EBADF` for files and shared memory, `EINVAL` for PNG and zlib. vtium starts the helper through `/proc/self/fd`, so `/proc` must be mounted.\n\n\
            A build without image support accepts this key and starts no helper.\n\n\
            [docs] The default is the path vtium was built with.",
     cite: "[the image helper issue](https://github.com/vtium/vtium/issues/31); the maintainer's decision of 2026-11-01",

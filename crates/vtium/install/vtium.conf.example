@@ -34,9 +34,8 @@
 ## that a font set's `font:` lines name.
 ##
 ## Separate the folders with `:`, as in `PATH`; each must be an absolute path.
-## The list replaces the built-in list, so it can reorder or leave out the
-## system's folders. vtium skips a folder that is not an absolute path, uses
-## the rest, and logs why.
+## The list replaces the built-in list. vtium skips a folder that is not an
+## absolute path, uses the rest, and logs why.
 ##
 ## When unset, vtium searches `/usr/share/fonts` and `/usr/local/share/fonts`.
 ## A user's own folder, such as `~/.local/share/fonts`, is searched only when
@@ -72,11 +71,10 @@
 ## set's `line-spacing=` line.
 ##
 ## The value is a whole percentage of the text height, rounded to whole pixels
-## and split evenly above and below each line, so the console has fewer lines.
-## It does not change a font set's own `cell=` size, but it applies when
-## `font-size` overrides that size: the character cell grows by the spacing.
-## When unset, the font set's `line-spacing=` decides, and 0 where it has
-## none.
+## and split above and below each line, so the console has fewer lines. When
+## `font-size` overrides a font set's `cell=` size, the character cell grows
+## by the spacing. When unset, the font set's `line-spacing=` decides, and 0
+## where it has none.
 
 #font-size=0
 #font-hinting=
@@ -152,10 +150,9 @@
 ## Let programs switch the console's font, and ask which font is in use
 ## (xterm's OSC 50).
 ##
-## A program switches with `OSC 50 ; NAME ST`, as `vtium-config use-frit NAME`
-## does, and asks with `OSC 50 ; ? ST`. A switch lasts until that program's
-## session ends; then vtium returns to the font and size that `font-name` and
-## `font-size` set.
+## A program switches with `OSC 50 ; NAME ST` and asks with `OSC 50 ; ? ST`. A
+## switch lasts until that program's session ends; then vtium returns to the
+## font and size that `font-name` and `font-size` set.
 ##
 ## When off, vtium ignores OSC 50, queries included.
 
@@ -167,13 +164,10 @@
 ## say: `ltr`, left to right, `rtl`, right to left, or `auto`, which takes
 ## each paragraph's direction from its first letter.
 ##
-## A paragraph is the text between two line ends, however many rows it wraps
-## across. `ltr`, the default, starts each paragraph at the left edge, as most
-## terminals do. `rtl` starts each one at the right edge, for a console used
-## mostly in Arabic, Hebrew or another right-to-left language. Under `auto`, a
-## paragraph that starts with an Arabic or Hebrew letter runs right to left,
-## and one that starts with a Latin letter, or has no letter, runs left to
-## right.
+## A paragraph is the text between two line ends. `ltr`, the default, starts
+## each paragraph at the left edge, and `rtl` at the right edge. Under `auto`,
+## a paragraph that starts with an Arabic or Hebrew letter runs right to left,
+## and any other runs left to right.
 ##
 ## vtium reads this key when it starts, so a change takes effect when vtium
 ## restarts, and it never changes text already on the screen.
@@ -240,9 +234,9 @@
 ## underline-color: The color of underlines (SGR 4 in every style, and SGR
 ## 21).
 ##
-## `fg` uses the text's color, a palette number uses that palette color (which
-## a program can change with OSC 4), and `#rrggbb` uses that color. A color a
-## program sets with SGR 58 wins, unless `force-decoration-colors` is on.
+## `fg` uses the text's color, a palette number uses that palette color, and
+## `#rrggbb` uses that color. A color a program sets with SGR 58 wins, unless
+## `force-decoration-colors` is on.
 #
 ## strike-color: The color of strikethrough (SGR 9). It takes the same values
 ## as `underline-color`.
@@ -295,8 +289,7 @@
 ## natural-scrolling: Reverse the mouse wheel.
 ##
 ## The wheel then scrolls the other way, both in vtium's scrollback and for
-## programs, including the arrow keys it sends in full-screen programs (mode
-## 1007). Ctrl with the wheel turned up still zooms in.
+## programs.
 #
 ## soft-cursor: Draw the mouse pointer in software on every display, never
 ## with the display's hardware cursor.
@@ -304,9 +297,8 @@
 ## pointer-char: Show the mouse pointer as this character, drawn with the
 ## console's font.
 ##
-## The character fills the character cell under the pointer, white with a dark
-## outline, like the arrow. When unset, or when the font cannot display the
-## character, the pointer is an arrow.
+## When unset, or when the font cannot display the character, the pointer is
+## an arrow.
 #
 ## pointer-hide-timeout: Hide the mouse pointer after this long without mouse
 ## activity, until it moves again. 0 never hides it.
@@ -327,9 +319,8 @@
 ## clipboard-write: Let programs copy text to vtium's clipboard (OSC 52). When
 ## off, vtium ignores what they send.
 ##
-## The console has no system clipboard. vtium keeps the last text copied, by a
-## program or by you, and the middle mouse button and the `key-paste` key
-## paste it.
+## vtium keeps the last text copied, by a program or by you, and the middle
+## mouse button and the `key-paste` key paste it.
 #
 ## key-paste: The key that pastes the copied text, as the middle mouse button
 ## does; it pastes once per press.
@@ -545,8 +536,7 @@
 ##
 ## vtium reads it only when `osd` and `osd-timeout` are not set: `auto` means
 ## `osd = minimal`, `always` means `osd = minimal` with `osd-timeout = never`,
-## and `off` means `osd = off`. When it is set, vtium logs a line that names
-## the new keys.
+## and `off` means `osd = off`. When it is set, vtium logs the new keys.
 
 #osd=minimal
 #osd-timeout=3
@@ -653,8 +643,7 @@
 ## `1` is black and white: each character cell is lit or dark by its colors,
 ## never by their brightness. `gray4` and `gray16` are for gray panels of 4 or
 ## 16 shades; vtium sends color and the panel converts it. `color` is full
-## color. `auto` uses what the display reports: 1 bit for an fbdev device that
-## says so, or the levels of a known DRM panel driver.
+## color. `auto` uses what the display reports.
 #
 ## display-dpi: The pixel density (DPI) used to turn `font-size` and a font
 ## set's `size=` from points into pixels, instead of the density each display
@@ -677,9 +666,8 @@
 ## vtium waits as long as it takes, as with `forever`.
 ##
 ## vtium counts only while the VT is its own. If another program takes the VT
-## before vtium's first frame is on screen, as X does at boot when it starts
-## on another VT, vtium waits for the VT to come back and then starts the full
-## wait again.
+## before vtium's first frame is on screen, vtium waits for the VT to come
+## back and then starts the full wait again.
 ##
 ## With 0, vtium does not wait: only a display that is ready when the VT is
 ## shown counts. `forever` waits as long as it takes.
@@ -694,10 +682,9 @@
 ## gets the same number).
 ##
 ## `3` is triple buffering: no frame waits for the previous one to reach the
-## screen, at the cost of one more frame of memory per display (8 MB at
-## 1080p). `2` is double buffering. `1` is single buffering, which uses the
-## least memory, but vtium then draws into the buffer on screen, so a
-## half-drawn frame can show.
+## screen, and each display needs one more frame of memory. `2` is double
+## buffering. `1` is single buffering, which uses the least memory, but vtium
+## then draws into the buffer on screen, so a half-drawn frame can show.
 ##
 ## A framebuffer device (fbdev) always keeps one buffer. When unset, the build
 ## decides: the number it was built with (`VTIUM_DISPLAY_BUFFERS`), or else 3
@@ -711,9 +698,6 @@
 ## Draw with the GPU, in a build that supports it.
 ##
 ## It is off unless vtium was built with it on (`VTIUM_HWACCEL`).
-## `vtium config get hwaccel` prints the draft's value followed by `draft`, or
-## the build's default followed by `default`. `vtium config set hwaccel on`
-## turns it on in the draft.
 
 #no-hwaccel
 
@@ -740,7 +724,7 @@
 ## A program sets the timeout with `CSI 9 ; n ]` (n minutes, up to 60; 0 never
 ## blanks) and wakes the displays with `CSI 13 ]`. A terminal reset (RIS)
 ## returns the timeout to `dpms-timeout`. When off, vtium ignores these
-## sequences. A key press or mouse action wakes the displays either way.
+## sequences.
 
 #dpms-timeout=600
 #program-blank
@@ -749,22 +733,17 @@
 
 ## key-reboot: The key that reboots the machine.
 ##
-## When `/proc/sys/kernel/ctrl-alt-del` is 0, vtium asks init to reboot, as
-## Ctrl+Alt+Del does, so the services stop first; otherwise the kernel
-## restarts at once. When unset, no key reboots.
+## When unset, no key reboots.
 #
 ## key-power-off: The key that powers the machine off.
 ##
-## vtium asks init with `SIGRTMIN+4`, which systemd treats as
-## `poweroff.target`, so the services stop and the filesystems are unmounted
-## first. When unset, no key powers off.
+## When unset, no key powers off.
 #
 ## key-suspend: The key that suspends the machine to RAM.
 ##
-## vtium asks logind to suspend, so anything that holds off sleep through
-## logind can still do so. When logind is not running, or vtium was built
-## without `logind`, vtium writes `mem` to `/sys/power/state`. When unset, no
-## key suspends.
+## vtium asks logind to suspend. When logind is not running, or vtium was
+## built without `logind`, vtium writes `mem` to `/sys/power/state`. When
+## unset, no key suspends.
 
 #key-reboot=
 #key-power-off=
@@ -782,9 +761,8 @@
 ##
 ## The value is in bytes, or in KiB, MiB or GiB with `K`, `M` or `G` (such as
 ## `64M`), up to 1 TiB. `auto` gives each console enough for four screenfuls
-## of its head's displays, from 16 MiB to 192 MiB, and recalculates when a
-## display is added, removed or resized. `0` turns sixel and kitty graphics
-## off.
+## of its head's displays, from 16 MiB to 192 MiB. `0` turns sixel and kitty
+## graphics off.
 ##
 ## A build without image support accepts this key and shows no images.
 #
@@ -838,12 +816,12 @@
 ## vtium opens the program once, when it starts, and runs every helper from
 ## that file, so a newly installed helper takes effect when vtium restarts.
 ##
-## vtium refuses a path that is not absolute, a file that is not a regular
-## file, a setuid or setgid file, a file owned by anyone other than root or
-## vtium's own account, and a file that its group or other users can write. It
-## then logs why, and refuses those images: a file, temporary file or shared
-## memory with `EBADF`, and PNG or zlib with `EINVAL`. vtium starts the helper
-## through `/proc/self/fd`, so `/proc` must be mounted.
+## vtium refuses a helper whose path is not absolute, that is not a regular
+## file, that is setuid or setgid, that anyone but root or vtium's own account
+## owns, or that its group or other users can write. It then logs why and
+## refuses images: `EBADF` for files and shared memory, `EINVAL` for PNG and
+## zlib. vtium starts the helper through `/proc/self/fd`, so `/proc` must be
+## mounted.
 ##
 ## A build without image support accepts this key and starts no helper.
 
@@ -869,11 +847,11 @@
 ## vtium opens the program once, when it starts, and runs every helper from
 ## that file, so a newly installed helper takes effect when vtium restarts.
 ##
-## vtium refuses a path that is not absolute, a file that is not a regular
-## file, a setuid or setgid file, a file owned by anyone other than root or
-## vtium's own account, and a file that its group or other users can write. It
-## then logs why and uses its built-in font. vtium starts the helper through
-## `/proc/self/fd`, so `/proc` must be mounted.
+## vtium refuses a helper whose path is not absolute, that is not a regular
+## file, that is setuid or setgid, that anyone but root or vtium's own account
+## owns, or that its group or other users can write. It then logs why and uses
+## its built-in font. vtium starts the helper through `/proc/self/fd`, so
+## `/proc` must be mounted.
 
 #font-helper=/usr/bin/vtium-config
 
