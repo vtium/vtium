@@ -1,7 +1,3 @@
 # vtium's goldens the operator has not reviewed: NAME and why. A
 # provisional case is drawn and compared, and a difference is noted but
 # does not fail the run; the row goes when the operator accepts the golden.
-conceal-unifont	#37: concealed text (SGR 8) drawn as its background, and revealed by SGR 28, in unifont; not reviewed yet
-overline-unifont	#37: overline (SGR 53) along each cell's top row in the strike's color, in unifont; not reviewed yet
-conceal	#37: concealed text (SGR 8) drawn as its background, and revealed by SGR 28, in DejaVu Sans Mono; not reviewed yet
-overline	#37: overline (SGR 53) along each cell's top row in the strike's color, in DejaVu Sans Mono; not reviewed yet
