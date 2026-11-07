@@ -108,7 +108,11 @@ draw_step() {
 		at $((p + dy - 1)) $((c + dx + 1)); printf '%s' "$desc"
 		at $((p + dy + 1)) $((c + dx + 3)); printf '%s[44;97m%s%s' "$esc" "$caps" "$reset"
 		at $((p + dy + 2)) $((c + dx + 3)); printf '%s' "$ital"
-		at $((p + dy + 3)) $((c + dx + 3)); printf '%s' "$arab"
+		# The Arabic starts 1 cell right of the other rows and reads right to
+		# left, so each of its letters stands under a space of the italic row
+		# and beh stands over the space in the capitals row: its marks reach
+		# into empty cells.
+		at $((p + dy + 3)) $((c + dx + 4)); printf '%s' "$arab"
 		at $((p + dy + 4)) $((c + dx + 3)); printf '%s' "$caps"
 	done
 	# two sixels, a frame with a clear middle and a solid bar, with text
