@@ -84,7 +84,7 @@ cargo fmt --all --check \
 
 vtium's code, tests and tools are written in Rust. Where vtium must talk to a C library, such as libseat (#34), C stays at that boundary as a binding or the thinnest possible shim, and everything around it is Rust.
 
-When you report a gate, give its command and its result, or say why it did not run. Watch each new test fail before the change and pass after it. Watch each new check fail on a defect you planted on purpose, then pass once the defect is gone. Plant the defect on a copy of the file: `cp f f.bak`, plant, test, `mv f.bak f`, `touch f`. Never undo a planted defect with `git checkout` or `git stash`, because they discard work.
+When you report a gate, give its command and its result, or say why it did not run. Watch each new test fail before the change and pass after it. Watch each new check fail on a defect you planted on purpose, then pass once the defect is gone. Plant the defect on a copy of the file: `cp f f.bak`, plant, test, `mv f.bak f`, `touch f`. Never undo a planted defect with `git checkout`, because it discards work. A delegated agent may use `git stash` in its own worktree, for example to set its changes aside for a moment and measure the code before them, as long as it pops the stash straight after and leaves the stash list as it found it. Nobody uses `git stash` in the maintainer's checkout or in the `integration` worktree.
 
 ## The target set and its coverage
 
