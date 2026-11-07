@@ -112,7 +112,13 @@ fn vtium_config_replaces_itself_with_the_tool_and_passes_every_word() {
     let _one = one_at_a_time();
     let dir = scratch("runs");
     let out = dir.join("out");
-    let (pid, status, lines) = spawn("runs", &out, &[("TOOL", Path::new("/bin/sh"))]);
+    // A copy of /bin/sh that the test's own account owns: vtium runs a
+    // tool only when root or its own account owns it, and /bin/sh belongs
+    // to uid 65534 in the user namespace make arm-test runs the tests in
+    // (tools/arm/README.md).
+    let tool = dir.join("sh");
+    script::executable_copy(Path::new("/bin/sh"), &tool);
+    let (pid, status, lines) = spawn("runs", &out, &[("TOOL", &tool)]);
     assert_eq!(status, Some(7), "vtium ends with the tool's status");
     let lines = lines.expect("the tool ran");
     // The same process: vtium replaced itself with the tool, and started
