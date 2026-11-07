@@ -291,10 +291,9 @@ impl State {
     /// The row counts from the region's top in origin mode, and a pending
     /// wrap reports the last column, where the cursor stands.
     pub(super) fn reply_cursor(&mut self, extended: bool) {
-        let (x, y) = self.screen.cursor();
-        let col = x
-            .min(self.screen.cols().saturating_sub(1))
-            .saturating_add(1);
+        let (_, y) = self.screen.cursor();
+        // From the left margin in origin mode, as xterm's CPR counts it.
+        let col = self.screen.origin_col().saturating_add(1);
         let top = if self.screen.origin_mode() {
             self.screen.margins().0
         } else {
@@ -352,7 +351,7 @@ impl State {
     }
 
     /// DECRQSS: the setting asked for, `DCS 1 $ r Pt ST`, for SGR, DECSTBM,
-    /// DECSCUSR, DECSCL, DECSCA and DECSACE; anything else, and a request
+    /// DECSLRM, DECSCUSR, DECSCL, DECSCA and DECSACE; anything else, and a request
     /// longer than any of these, the error form `DCS 0 $ r ST`, with no
     /// echo (ADR-1000).
     pub(super) fn reply_status(&mut self, request: Option<&[u8]>) {
@@ -364,6 +363,16 @@ impl State {
                     "{};{}r",
                     top.saturating_add(1),
                     bottom.saturating_add(1)
+                ))
+            }
+            // The left and right margins, the whole width while DECLRMM
+            // is reset, as xterm reports them.
+            Some(b"s") => {
+                let (left, right) = self.screen.lr_margins();
+                Some(format!(
+                    "{};{}s",
+                    left.saturating_add(1),
+                    right.saturating_add(1)
                 ))
             }
             Some(b" q") => Some(format!("{} q", self.cursor_style.param())),
@@ -649,9 +658,9 @@ mod tests {
             }
             // Hostile text half the time, else a setting vtium reports.
             Query::Decrqss => {
-                let known: [&[u8]; 6] = [b"m", b"r", b" q", b"\"p", b"\"q", b"*x"];
+                let known: [&[u8]; 7] = [b"m", b"r", b"s", b" q", b"\"p", b"\"q", b"*x"];
                 let pick = rng.next();
-                match known.get(usize::try_from(pick % 12).unwrap_or(0)) {
+                match known.get(usize::try_from(pick % 14).unwrap_or(0)) {
                     Some(&setting) => (cat(&[b"\x1bP$q", setting, b"\x1b\\"]), vec![], vec![]),
                     None => (cat(&[b"\x1bP$q", &tok, b"\x1b\\"]), vec![tok], vec![]),
                 }

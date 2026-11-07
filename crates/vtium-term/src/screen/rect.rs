@@ -2,8 +2,10 @@
 //! attribute changes of DECCARA and DECRARA in the extent DECSACE selects.
 //!
 //! A rectangle's corners count from 1, as DEC STD 070 and xterm's ctlseqs
-//! give them, from the top margin in origin mode; an omitted corner is the
-//! screen's edge, or the margin, and a corner past it is the edge. Each
+//! give them, from the top and left margins in origin mode, where the
+//! rectangle stays inside the margins (xterm's `limitedParseRow` and
+//! `limitedParseCol`); an omitted corner is the screen's edge, or the
+//! margin, and a corner past it is the edge. Each
 //! operation is linear in the rectangle's cells, and DECCRA holds one
 //! source line at a time.
 //!
@@ -60,13 +62,12 @@ impl Screen {
         right: usize,
     ) -> Option<Rect> {
         let (first, last) = self.rect_rows();
-        let last_col = self.cols.saturating_sub(1);
-        let col = |n: usize, default: usize| n.checked_sub(1).map_or(default, |n| n.min(last_col));
+        let (first_col, last_col) = self.origin_cols();
         let rect = Rect {
             top: self.rect_row(top, first),
-            left: col(left, 0),
+            left: self.rect_col(left, first_col),
             bottom: self.rect_row(bottom, last),
-            right: col(right, last_col),
+            right: self.rect_col(right, last_col),
         };
         (rect.top <= rect.bottom && rect.left <= rect.right).then_some(rect)
     }
@@ -85,6 +86,15 @@ impl Screen {
     /// is `default`.
     fn rect_row(&self, n: usize, default: usize) -> usize {
         let (first, last) = self.rect_rows();
+        n.checked_sub(1)
+            .map_or(default, |n| first.saturating_add(n).min(last))
+    }
+
+    /// Column `n` of a rectangle, counted from 1 and 0 when omitted, which
+    /// is `default`: from the left margin, and no further right than the
+    /// right margin, in origin mode.
+    fn rect_col(&self, n: usize, default: usize) -> usize {
+        let (first, last) = self.origin_cols();
         n.checked_sub(1)
             .map_or(default, |n| first.saturating_add(n).min(last))
     }
@@ -126,7 +136,8 @@ impl Screen {
         self.end_rect_wraps(rect, true);
     }
 
-    /// DECALN's screen: the margins become the whole screen, every line of
+    /// DECALN's screen: the margins, left and right among them, become the
+    /// whole screen, DECLRMM staying as it is, every line of
     /// the screen in use single size, and every cell an `E` in the default
     /// style with no hyperlink, as xterm fills it. The cursor is the
     /// terminal's to move.
@@ -134,6 +145,7 @@ impl Screen {
         self.segment = None;
         self.top = 0;
         self.bottom = self.rows.saturating_sub(1);
+        self.reset_lr_margins();
         let right = self.cols.saturating_sub(1);
         for y in 0..self.rows {
             self.images_cut(y, 0, right);
@@ -157,15 +169,15 @@ impl Screen {
     /// DECCRA: copies `source` with each cell's style and hyperlink to the
     /// rectangle of its size whose top left is row `top`, column `left`,
     /// counted as a rectangle's corners are and clipped to the screen, or
-    /// the region in origin mode. The copy reads the source as it was
+    /// the region inside all four margins in origin mode. The copy reads the source as it was
     /// before any of it is written. Half a wide character the source's
     /// edge cuts, or the target's clips, arrives as an empty cell in its
     /// style.
     pub(crate) fn copy_rect(&mut self, source: Rect, top: usize, left: usize) {
         let (first, last) = self.rect_rows();
-        let last_col = self.cols.saturating_sub(1);
+        let (first_col, last_col) = self.origin_cols();
         let top = self.rect_row(top, first);
-        let left = left.saturating_sub(1).min(last_col);
+        let left = self.rect_col(left, first_col);
         let height = source.bottom.saturating_sub(source.top);
         let width = source.right.saturating_sub(source.left);
         let target = Rect {
