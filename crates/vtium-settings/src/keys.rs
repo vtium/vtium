@@ -848,7 +848,7 @@ pub const PROGRAM_BLANK: Key = Key {
     reader: "vtium",
     what: "Let a program set the blanking timeout and wake the displays, as `setterm --blank` does on the Linux console.\n\n\
            A program sets the timeout with `CSI 9 ; n ]` (n minutes, up to 60; 0 never blanks) and wakes the displays with `CSI 13 ]`. A terminal reset (RIS) returns the timeout to `dpms-timeout`. When off, vtium ignores these sequences.\n\n\
-           [docs] A key press or mouse action wakes the displays either way.",
+           A key press or mouse action wakes the displays either way.",
     cite: "[the screen blanking issue](https://github.com/vtium/vtium/issues/79)",
 };
 
@@ -2010,7 +2010,7 @@ pub const IMAGE_STORAGE_LIMIT: Key = Key {
     reader: "vtium-image",
     what: "The most memory each console uses for images, on both its screens together.\n\n\
            The value is in bytes, or in KiB, MiB or GiB with `K`, `M` or `G` (such as `64M`), up to 1 TiB. `auto` gives each console enough for four screenfuls of its head's displays, from 16 MiB to 192 MiB. `0` turns sixel and kitty graphics off.\n\n\
-           [docs] `auto` recalculates when a display is added, removed or resized.\n\n\
+           `auto` recalculates when a display is added, removed or resized.\n\n\
            A build without image support accepts this key and shows no images.",
     cite: "[the image pipeline issue](https://github.com/vtium/vtium/issues/28); Ghostty's `image-storage-limit`",
 };

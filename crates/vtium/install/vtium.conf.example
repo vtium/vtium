@@ -8,12 +8,12 @@
 #
 # A comment may leave out details that docs/config.md gives for each setting.
 
-# ══ Fonts and text ══════════════════════════════════════════════════════════
+# == Fonts and text ==========================================================
 #
 # The console's font and its size, who draws box-drawing and block characters,
 # how blinking text looks, and which way text runs.
 
-# ── Font ────────────────────────────────────────────────────────────────────
+# -- Font --------------------------------------------------------------------
 
 ## font-name: The console's font.
 ##
@@ -50,7 +50,7 @@
 #font-paths=
 #font-engine=
 
-# ── Font size and spacing ───────────────────────────────────────────────────
+# -- Font size and spacing ---------------------------------------------------
 
 ## font-size: The font size in points (1/72 inch).
 ##
@@ -80,7 +80,7 @@
 #font-hinting=
 #font-line-spacing=
 
-# ── Box drawing and block characters ────────────────────────────────────────
+# -- Box drawing and block characters ----------------------------------------
 
 ## glyph-source: Who draws box-drawing, block and similar characters (six
 ## ranges): the font, or vtium itself.
@@ -117,14 +117,14 @@
 #glyph-source-octants=
 #glyph-source-legacy=
 
-# ── Missing characters ──────────────────────────────────────────────────────
+# -- Missing characters ------------------------------------------------------
 
 ## What vtium shows for a character the font cannot display: `box` shows □
 ## (U+25A1), and `hex` shows the character's code in hex digits.
 
 #missing=box
 
-# ── Blinking ────────────────────────────────────────────────────────────────
+# -- Blinking ----------------------------------------------------------------
 
 ## blink: Blink blinking text (SGR 5) and the cursor, every 500 ms. When off,
 ## neither blinks.
@@ -145,7 +145,7 @@
 #blink-text=partial
 #no-blink-decorations
 
-# ── Font switching by programs ──────────────────────────────────────────────
+# -- Font switching by programs ----------------------------------------------
 
 ## Let programs switch the console's font, and ask which font is in use
 ## (xterm's OSC 50).
@@ -158,7 +158,7 @@
 
 #allow-font-ops
 
-# ── Right-to-left text ──────────────────────────────────────────────────────
+# -- Right-to-left text ------------------------------------------------------
 
 ## Which way a paragraph of text runs when the program writing it does not
 ## say: `ltr`, left to right, `rtl`, right to left, or `auto`, which takes
@@ -177,12 +177,12 @@
 
 #text-direction=ltr
 
-# ══ Colors ══════════════════════════════════════════════════════════════════
+# == Colors ==================================================================
 #
 # The sixteen basic colors, the default text and background colors, and the
 # colors of underlines and strikethrough.
 
-# ── Palette ─────────────────────────────────────────────────────────────────
+# -- Palette -----------------------------------------------------------------
 
 ## palette: The sixteen basic colors, and the default text and background
 ## colors.
@@ -229,7 +229,7 @@
 #palette-foreground=229,229,229
 #palette-background=0,0,0
 
-# ── Underline and strikethrough colors ──────────────────────────────────────
+# -- Underline and strikethrough colors --------------------------------------
 
 ## underline-color: The color of underlines (SGR 4 in every style, and SGR
 ## 21).
@@ -248,12 +248,12 @@
 #strike-color=fg
 #no-force-decoration-colors
 
-# ══ Keyboard and mouse ══════════════════════════════════════════════════════
+# == Keyboard and mouse ======================================================
 #
 # The keyboard layout and key repeat, the mouse and its pointer, and copy and
 # paste.
 
-# ── Keyboard ────────────────────────────────────────────────────────────────
+# -- Keyboard ----------------------------------------------------------------
 
 ## xkb-model: The keyboard model, as xkeyboard-config names it.
 ## xkb-layout: The keyboard layout, such as `us` or `de`.
@@ -282,7 +282,7 @@
 #xkb-repeat-delay=250
 #xkb-repeat-rate=50
 
-# ── Mouse pointer ───────────────────────────────────────────────────────────
+# -- Mouse pointer -----------------------------------------------------------
 
 ## mouse: Use mice, touchpads and touchscreens.
 #
@@ -314,7 +314,7 @@
 #pointer-hide-timeout=20
 #no-pointer-hide-while-typing
 
-# ── Clipboard and paste ─────────────────────────────────────────────────────
+# -- Clipboard and paste -----------------------------------------------------
 
 ## clipboard-write: Let programs copy text to vtium's clipboard (OSC 52). When
 ## off, vtium ignores what they send.
@@ -331,7 +331,7 @@
 #clipboard-write
 #key-paste=<Shift>Insert
 
-# ══ Key bindings ════════════════════════════════════════════════════════════
+# == Key bindings ============================================================
 #
 # The keys vtium acts on itself instead of sending them to the program. Each
 # value lists key combinations, separated by commas, and an empty value hands
@@ -339,7 +339,7 @@
 # only on the main screen: on the alternate screen, where editors run, they
 # reach the program. Ctrl+Alt+F1 to F12 always switch the VT.
 
-# ── Scrolling and prompt jumps ──────────────────────────────────────────────
+# -- Scrolling and prompt jumps ----------------------------------------------
 
 ## key-scroll-up: Scroll the view back one line.
 ## key-scroll-down: Scroll the view forward one line.
@@ -359,7 +359,7 @@
 #key-prompt-up=<Ctrl><Shift>Up
 #key-prompt-down=<Ctrl><Shift>Down
 
-# ── Zoom, rotation and reset ────────────────────────────────────────────────
+# -- Zoom, rotation and reset ------------------------------------------------
 
 ## key-zoom-in: Make the font of the console on screen larger.
 ## key-zoom-out: Make the font of the console on screen smaller.
@@ -381,7 +381,7 @@
 #key-rotate-ccw=<Logo>minus
 #key-reset=<Ctrl><Shift>Delete
 
-# ── Consoles and heads ──────────────────────────────────────────────────────
+# -- Consoles and heads ------------------------------------------------------
 
 ## key-console-next: Show the head's next console.
 ## key-console-previous: Show the head's previous console.
@@ -405,12 +405,12 @@
 #key-focus-next=<Ctrl><Logo>Up
 #key-focus-previous=<Ctrl><Logo>Down
 
-# ══ Session and terminal ════════════════════════════════════════════════════
+# == Session and terminal ====================================================
 #
 # The command each console runs, the terminal type it sees, and how much of
 # its output vtium keeps.
 
-# ── The console's command ───────────────────────────────────────────────────
+# -- The console's command ---------------------------------------------------
 
 ## login: The command each console runs, such as a login prompt or a shell.
 ##
@@ -425,7 +425,7 @@
 #login=
 #no-oneshot
 
-# ── The console's terminal type ─────────────────────────────────────────────
+# -- The console's terminal type ---------------------------------------------
 
 ## term: The value of `TERM` that programs on the console see.
 ##
@@ -443,7 +443,7 @@
 #reset-env
 #backspace-delete
 
-# ── Scrollback ──────────────────────────────────────────────────────────────
+# -- Scrollback --------------------------------------------------------------
 
 ## sb-size: How many lines of scrollback each console keeps, up to
 ## `sb-size-cap`.
@@ -468,7 +468,7 @@
 #sb-memory=5242880
 # (in a build with images: sb-memory=4653056)
 
-# ── Bell ────────────────────────────────────────────────────────────────────
+# -- Bell --------------------------------------------------------------------
 
 ## Ring the console's bell when a program sends BEL.
 ##
@@ -477,18 +477,18 @@
 
 #no-bell
 
-# ── Synchronized updates ────────────────────────────────────────────────────
+# -- Synchronized updates ----------------------------------------------------
 
 ## The longest vtium waits for a program to finish a synchronized update (mode
 ## 2026) before it shows the screen as it is. 0 turns mode 2026 off.
 
 #sync-timeout=200
 
-# ══ Consoles and the VT ═════════════════════════════════════════════════════
+# == Consoles and the VT =====================================================
 #
 # How many consoles the heads can have, and the VT vtium runs on.
 
-# ── Consoles ────────────────────────────────────────────────────────────────
+# -- Consoles ----------------------------------------------------------------
 
 ## head-consoles-max: The most consoles one head can have. A head's `consoles`
 ## cannot open more than this.
@@ -501,7 +501,7 @@
 #head-consoles-max=4
 #consoles-max=8
 
-# ── The VT ──────────────────────────────────────────────────────────────────
+# -- The VT ------------------------------------------------------------------
 
 ## vt: The VT to run on: a number N for `/dev/ttyN`, a name under `/dev`, or a
 ## path. When unset, vtium runs on the VT it was started on, or else the next
@@ -513,12 +513,12 @@
 #vt=
 #switchvt
 
-# ══ On-screen display and notices ═══════════════════════════════════════════
+# == On-screen display and notices ===========================================
 #
 # What vtium shows on top of the console to say which head and console you are
 # looking at, and to report a problem, and their colors.
 
-# ── On-screen display ───────────────────────────────────────────────────────
+# -- On-screen display -------------------------------------------------------
 
 ## osd: What the on-screen display shows at the top of each screen after a
 ## change, such as a console switch.
@@ -542,7 +542,7 @@
 #osd-timeout=3
 #focus-mark=
 
-# ── Notice colors ───────────────────────────────────────────────────────────
+# -- Notice colors -----------------------------------------------------------
 
 ## notice-foreground: The text color of a notice. A notice is a box that
 ## reports a problem, such as errors in vtium.conf. It appears whatever `osd`
@@ -558,7 +558,7 @@
 #notice-background=254,226,226
 #notice-border=185,28,28
 
-# ── On-screen display colors ────────────────────────────────────────────────
+# -- On-screen display colors ------------------------------------------------
 
 ## osd-foreground: The text color of the on-screen display: the line of
 ## `osd = full` and the dot of `osd = minimal`.
@@ -574,7 +574,7 @@
 #osd-background=31,41,51
 #osd-border=97,110,124
 
-# ── Other color schemes ─────────────────────────────────────────────────────
+# -- Other color schemes -----------------------------------------------------
 
 ## Alternatives for the six colors above. To use one, remove the # at the
 ## start of its six lines. vtium uses whatever colors you set; it does not
@@ -615,12 +615,12 @@
 #osd-background=11,42,91
 #osd-border=100,143,255
 
-# ══ Displays ════════════════════════════════════════════════════════════════
+# == Displays ================================================================
 #
 # Each display's resolution, colors and density, how long vtium waits for a
 # display when it starts, and how it draws to them.
 
-# ── Display resolution ──────────────────────────────────────────────────────
+# -- Display resolution ------------------------------------------------------
 
 ## use-original-mode: Keep each display's current resolution. When off, vtium
 ## sets each display's preferred resolution.
@@ -636,7 +636,7 @@
 #no-use-original-mode
 #mode=
 
-# ── Display colors and density ──────────────────────────────────────────────
+# -- Display colors and density ----------------------------------------------
 
 ## display-depth: How many colors or shades each display can show.
 ##
@@ -656,7 +656,7 @@
 #display-depth=auto
 #display-dpi=
 
-# ── Waiting for a display ───────────────────────────────────────────────────
+# -- Waiting for a display ---------------------------------------------------
 
 ## How long vtium waits for a display when it starts, counted from when its VT
 ## is shown.
@@ -676,7 +676,7 @@
 
 #display-wait=10
 
-# ── Display buffers ─────────────────────────────────────────────────────────
+# -- Display buffers ---------------------------------------------------------
 
 ## How many frame buffers each display keeps (DRM displays only; every display
 ## gets the same number).
@@ -693,7 +693,7 @@
 
 #display-buffers=
 
-# ── Drawing with the GPU ────────────────────────────────────────────────────
+# -- Drawing with the GPU ----------------------------------------------------
 
 ## Draw with the GPU, in a build that supports it.
 ##
@@ -701,19 +701,19 @@
 
 #no-hwaccel
 
-# ── Frame timer ─────────────────────────────────────────────────────────────
+# -- Frame timer -------------------------------------------------------------
 
 ## Measure each display's frame times once a second, and write the figures to
 ## the log, show them on screen, or both.
 
 #render-timer=none
 
-# ══ Power and blanking ══════════════════════════════════════════════════════
+# == Power and blanking ======================================================
 #
 # When the displays turn off, and the keys that reboot, power off or suspend
 # the machine.
 
-# ── Blanking the displays ───────────────────────────────────────────────────
+# -- Blanking the displays ---------------------------------------------------
 
 ## dpms-timeout: Turn the displays off after this long with no key press or
 ## mouse action (a move, a click or the wheel). 0 never turns them off.
@@ -725,11 +725,13 @@
 ## blanks) and wakes the displays with `CSI 13 ]`. A terminal reset (RIS)
 ## returns the timeout to `dpms-timeout`. When off, vtium ignores these
 ## sequences.
+##
+## A key press or mouse action wakes the displays either way.
 
 #dpms-timeout=600
 #program-blank
 
-# ── Power keys ──────────────────────────────────────────────────────────────
+# -- Power keys --------------------------------------------------------------
 
 ## key-reboot: The key that reboots the machine.
 ##
@@ -749,12 +751,12 @@
 #key-power-off=
 #key-suspend=
 
-# ══ Images ══════════════════════════════════════════════════════════════════
+# == Images ==================================================================
 #
 # Sixel and kitty graphics, how much memory images use, which protocols vtium
 # offers, and the helper that reads and decodes them.
 
-# ── Image memory and protocols ──────────────────────────────────────────────
+# -- Image memory and protocols ----------------------------------------------
 
 ## image-storage-limit: The most memory each console uses for images, on both
 ## its screens together.
@@ -763,6 +765,8 @@
 ## `64M`), up to 1 TiB. `auto` gives each console enough for four screenfuls
 ## of its head's displays, from 16 MiB to 192 MiB. `0` turns sixel and kitty
 ## graphics off.
+##
+## `auto` recalculates when a display is added, removed or resized.
 ##
 ## A build without image support accepts this key and shows no images.
 #
@@ -790,7 +794,7 @@
 #kitty-graphics
 #max-graphic-size=10000x10000
 
-# ── Sixel colors ────────────────────────────────────────────────────────────
+# -- Sixel colors ------------------------------------------------------------
 
 ## num-color-registers: How many colors a sixel image can use (its color
 ## registers), and the most a program can ask for with XTSMGRAPHICS.
@@ -807,7 +811,7 @@
 #num-color-registers=1024
 #private-color-registers
 
-# ── Image helper ────────────────────────────────────────────────────────────
+# -- Image helper ------------------------------------------------------------
 
 ## The image helper: the program vtium starts, as the logged-in user, to read
 ## image files and shared memory for kitty graphics and to decode PNG and
@@ -827,19 +831,19 @@
 
 #image-helper=/usr/bin/vtium-image
 
-# ══ Running vtium ═══════════════════════════════════════════════════════════
+# == Running vtium ===========================================================
 #
 # Where vtium finds its configuration, its log, the font helper that draws a
 # font's characters, and the character cache.
 
-# ── Debug log ───────────────────────────────────────────────────────────────
+# -- Debug log ---------------------------------------------------------------
 
 ## Log debug messages too, to help find what went wrong. When off, vtium logs
 ## information messages, warnings and errors.
 
 #no-debug
 
-# ── Font helper ─────────────────────────────────────────────────────────────
+# -- Font helper -------------------------------------------------------------
 
 ## The font helper: the program vtium starts to draw a font set's characters.
 ## It runs as `nobody` when vtium runs as root.
@@ -855,14 +859,14 @@
 
 #font-helper=/usr/bin/vtium-config
 
-# ── Character cache ─────────────────────────────────────────────────────────
+# -- Character cache ---------------------------------------------------------
 
 ## How much memory vtium uses to cache drawn characters. When unset, `minspec`
 ## (small), or `performance` in a build with the `performance-cache` feature.
 
 #glyph-cache=
 
-# ══ Looks, heads and rules ══════════════════════════════════════════════════
+# == Looks, heads and rules ==================================================
 #
 # The sections after the settings. A look is a font and its size; a head is a
 # screen with its own consoles; the rules send each display and each input

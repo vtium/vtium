@@ -258,14 +258,14 @@ fn rule(rule: char, title: &str) -> String {
     line
 }
 
-/// A group's heading: `# ── TITLE ───`.
+/// A group's heading: `# -- TITLE ---`.
 fn heading(title: &str) -> String {
-    rule('─', title)
+    rule('-', title)
 }
 
-/// A section's heading, `# ══ TITLE ═══`, then what the section covers.
+/// A section's heading, `# == TITLE ===`, then what the section covers.
 fn section_heading(title: &str, about: &str) -> String {
-    format!("{}\n#\n{}", rule('═', title), paragraphs("#", [about]))
+    format!("{}\n#\n{}", rule('=', title), paragraphs("#", [about]))
 }
 
 /// A group's description. A group of one key has the key's own
@@ -569,6 +569,54 @@ mod tests {
         assert_eq!(loaded.config, crate::config::Config::default());
     }
 
+    // a vtium.conf copied from an earlier example has box-drawing heading
+    // rules. They are comments, so vtium reads the file as it reads the
+    // example, and the line editor keeps them as they are.
+    #[test]
+    fn a_file_with_box_drawing_heading_rules_reads_and_edits_as_before() {
+        let example = example();
+        let old: String = example
+            .lines()
+            .map(|l| {
+                let mut line = l.to_owned();
+                for (plain, flat, boxed) in [("# == ", '=', '═'), ("# -- ", '-', '─')] {
+                    if let Some(rest) = l.strip_prefix(plain) {
+                        line = rule(boxed, rest.trim_end_matches(flat).trim_end());
+                    }
+                }
+                line + "\n"
+            })
+            .collect();
+        assert_ne!(old, example);
+        assert!(old.contains("# ── Font ─") && old.contains("# ══ Fonts and text ═"));
+        let flow = vtium_settings::parse_sections(&old)
+            .expect("the sections read whole")
+            .expect("the file holds a flow");
+        let want = vtium_settings::parse_sections(&example)
+            .expect("the example's sections read whole")
+            .expect("the example holds a flow");
+        assert_eq!(flow.config, want.config);
+        let loaded = crate::config::load(&[], &mut |_: &std::path::Path| {
+            Ok(Some(old.clone().into_bytes()))
+        });
+        assert_eq!(loaded.reports, []);
+        assert_eq!(loaded.config, crate::config::Config::default());
+        let edit = |text: &str| {
+            vtium_settings::edit_conf(text, &[vtium_settings::Edit::Set("font-size", "14")])
+                .expect("the edit applies")
+        };
+        let edited = edit(&old);
+        assert!(edited.contains("font-size=14") || edited.contains("font-size = 14"));
+        assert_eq!(
+            edited.matches("# ── ").count(),
+            old.matches("# ── ").count()
+        );
+        assert_eq!(
+            edited.matches("# ══ ").count(),
+            old.matches("# ══ ").count()
+        );
+    }
+
     // ADR-1401 D5: each scheme the example carries, its six lines with the
     // `#` taken off, is a vtium.conf that draws the scheme's colors.
     #[test]
@@ -657,7 +705,7 @@ mod tests {
         let headings: Vec<usize> = lines
             .iter()
             .enumerate()
-            .filter(|(_, l)| l.starts_with("# ══ "))
+            .filter(|(_, l)| l.starts_with("# == "))
             .map(|(i, _)| i)
             .collect();
         let sections = shown();
@@ -665,13 +713,13 @@ mod tests {
         assert_eq!(headings.len(), sections.len() + 1);
         let last = headings.last().map_or("", |&at| lines[at]);
         assert!(
-            last.starts_with(&format!("# ══ {SECTIONS_TITLE} ═")),
+            last.starts_with(&format!("# == {SECTIONS_TITLE} =")),
             "{last}"
         );
         for (n, (title, groups)) in sections.iter().enumerate() {
             let at = headings[n];
             assert!(
-                lines[at].starts_with(&format!("# ══ {title} ═")),
+                lines[at].starts_with(&format!("# == {title} =")),
                 "{title}: {}",
                 lines[at]
             );
@@ -685,13 +733,13 @@ mod tests {
             assert!(about > 0, "{title} says nothing of what it covers");
             assert_eq!(lines[at + 2 + about], "", "{title}");
             assert!(
-                lines[at + 3 + about].starts_with("# ── "),
+                lines[at + 3 + about].starts_with("# -- "),
                 "{title}: a group follows"
             );
             let end = headings.get(n + 1).copied().unwrap_or(lines.len());
             let inside: Vec<&str> = lines[at..end]
                 .iter()
-                .filter(|l| l.starts_with("# ── "))
+                .filter(|l| l.starts_with("# -- "))
                 .copied()
                 .collect();
             let mut want: Vec<String> = groups.iter().map(|(g, _)| heading(g)).collect();
@@ -714,10 +762,10 @@ mod tests {
         for (title, keys) in shown().into_iter().flat_map(|(_, groups)| groups) {
             let at = lines
                 .iter()
-                .position(|l| l.starts_with(&format!("# ── {title} ─")))
+                .position(|l| l.starts_with(&format!("# -- {title} -")))
                 .unwrap_or_else(|| panic!("no heading for {title}"));
             assert_eq!(lines[at].chars().count(), 78, "{title}");
-            assert!(lines[at].ends_with("──"), "{title}");
+            assert!(lines[at].ends_with("--"), "{title}");
             assert_eq!(lines[at - 1], "", "a blank line above {title}");
             assert_eq!(lines[at + 1], "", "a blank line below {title}");
             let rest = &lines[at + 2..];
@@ -797,7 +845,7 @@ mod tests {
         let example = example();
         let osd: Vec<&str> = example
             .lines()
-            .skip_while(|l| !l.starts_with("# ── On-screen display ─"))
+            .skip_while(|l| !l.starts_with("# -- On-screen display -"))
             .skip(2)
             .take_while(|l| !l.is_empty())
             .collect();
@@ -824,7 +872,7 @@ mod tests {
         }
         // descriptions that fit a line each stand on adjacent lines
         let keyboard = example
-            .split("# ── Keyboard ─")
+            .split("# -- Keyboard -")
             .nth(1)
             .expect("a keyboard section");
         assert!(keyboard.contains(
