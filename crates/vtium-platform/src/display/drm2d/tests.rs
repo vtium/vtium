@@ -546,10 +546,10 @@ fn a_busy_commit_keeps_the_cursor_waiting() {
     assert!(!v.need_commit(DisplayId(A)));
 }
 
-// Round 4, finding 3: removing the framebuffer the cursor plane shows
-// takes the plane off its CRTC in the kernel, so the plane is recorded
-// hidden. A cursor-only commit hiding it again would name no CRTC, which
-// the kernel refuses with a flip event.
+// Removing the framebuffer the cursor plane shows takes the plane off its
+// CRTC in the kernel, so the plane is recorded hidden. A cursor-only
+// commit hiding it again would name no CRTC, which the kernel refuses
+// with a flip event.
 #[test]
 fn a_new_cursor_image_leaves_the_plane_recorded_hidden() {
     let mut v = awake(one());
@@ -3120,10 +3120,9 @@ fn a_hotplug_after_the_retries_ran_out_wakes_the_card() {
     assert!(v.card().state().master);
 }
 
-// Round 4, finding 2: once the wake-up retries run out, the next input
-// tries the wake-up again, which brings every display on, blanked ones
-// included. Input while the retries run, or with nothing failed, does
-// nothing.
+// Once the wake-up retries run out, the next input tries the wake-up
+// again, which brings every display on, blanked ones included. Input
+// while the retries run, or with nothing failed, does nothing.
 #[test]
 fn input_after_the_retries_ran_out_wakes_the_card() {
     let mut v = a_then_b(ModePolicy::default());
@@ -3170,9 +3169,9 @@ fn input_after_the_retries_ran_out_wakes_the_card() {
     assert_eq!(v.card().state().commits.len(), commits, "nothing failed");
 }
 
-// Round 4, finding 2: once a failed hotplug's retries run out, master is
-// kept, and the next input tries the modeset again. Blanked, it is owed to
-// the `unblank` of the same input, so nothing is committed while blanked.
+// Once a failed hotplug's retries run out, master is kept, and the next
+// input tries the modeset again. Blanked, it is owed to the `unblank` of
+// the same input, so nothing is committed while blanked.
 #[test]
 fn input_after_a_hotplugs_retries_ran_out_sets_the_modes() {
     let mut v = a_then_b(ModePolicy::default());
@@ -3366,10 +3365,10 @@ fn a_hotplug_retry_waits_for_input_once_blanked() {
     );
 }
 
-// Round 4, finding 4: a retry of a failed hotplug that fails again keeps
-// DRM master and the displays online, so a blank in the retries' window
-// powers them down and the next retry commits nothing; the input ending
-// the blank runs the modeset with every display on.
+// A retry of a failed hotplug that fails again keeps DRM master and the
+// displays online, so a blank in the retries' window powers them down and
+// the next retry commits nothing; the input ending the blank runs the
+// modeset with every display on.
 #[test]
 fn a_failed_retry_keeps_master_through_the_blank() {
     let mut v = a_then_b(ModePolicy::default());
@@ -3540,9 +3539,9 @@ fn input_with_no_modeset_owed_powers_on_through_dpms() {
     assert_eq!(age(&mut v, A), 0);
 }
 
-// Round 4, finding 1: input with no modeset owed powers every display on
-// through its DPMS, though one refuses; the one refused is left owed a
-// modeset, which the retries run with every display on.
+// Input with no modeset owed powers every display on through its DPMS,
+// though one refuses; the one refused is left owed a modeset, which the
+// retries run with every display on.
 #[test]
 fn a_refused_dpms_unblank_is_tried_again_as_a_modeset() {
     let mut v = a_then_b(ModePolicy::default());

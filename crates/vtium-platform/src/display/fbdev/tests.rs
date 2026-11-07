@@ -346,7 +346,7 @@ fn reference(px: &[u32], width: usize, stride: usize, visual: u32, nonstd: u32) 
 
 // Each visual and order at odd widths, under random partial damage: the
 // bytes the damage touches match the reference, and the rest keep their
-// last value (the review's case).
+// last value.
 #[test]
 fn packing_at_odd_widths_under_partial_damage_matches_the_reference() {
     let cases = [
@@ -569,8 +569,8 @@ fn a_failed_unblank_is_tried_again() {
     }
 }
 
-// Round 4, finding 2: once an unblank's retries run out, the device
-// reports `WakeFailed`, and the next input tries the unblank again.
+// Once an unblank's retries run out, the device reports `WakeFailed`, and
+// the next input tries the unblank again.
 #[test]
 fn input_after_the_unblank_retries_ran_out_unblanks() {
     let mut v = awake(FakeFb::new(32));
