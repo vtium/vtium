@@ -435,7 +435,10 @@ fn each_capability_scenario_on_file_replays_its_probes_bytes_and_cuts() {
         let text = read_file(&file);
         let s = scenario::parse(&c.name, &file, &text).unwrap_or_else(|e| panic!("{e}"));
         proof(probe, &s).unwrap_or_else(|e| panic!("{e}"));
-        assert_eq!(text, c.text, "{file} differs from what the converter writes");
+        assert_eq!(
+            text, c.text,
+            "{file} differs from what the converter writes"
+        );
     }
     println!(
         "{} capability scenarios on file, each replaying its probe's bytes and cuts",

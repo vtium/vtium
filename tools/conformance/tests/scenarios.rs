@@ -1053,3 +1053,39 @@ fn write_refuses_an_existing_transcript_without_replace_and_lists_a_new_scenario
     assert_eq!(read(&list).matches("key-old").count(), 1);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// `conformance probes` on the tree: every capability of the list judged
+/// through the capability scenario that declares it, in the build this
+/// test runs in, and every verdict agreeing with the list.
+#[test]
+fn conformance_probes_judges_the_list_through_the_capability_scenarios() {
+    let caps = vtium_conformance::coverage::capabilities(&read("capabilities.list"))
+        .unwrap_or_else(|e| panic!("{e}"));
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_conformance"))
+        .arg("probes")
+        .output()
+        .unwrap_or_else(|e| panic!("conformance probes: {e}"));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        out.status.success(),
+        "conformance probes failed:\n{stdout}{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    for cap in &caps {
+        assert!(
+            stdout
+                .lines()
+                .any(|l| l.starts_with(&format!("ok   {}: ", cap.name))),
+            "no verdict for {}:\n{stdout}",
+            cap.name
+        );
+    }
+    let count = |s: &str| caps.iter().filter(|c| c.status == s).count();
+    let summary = format!(
+        "{} capabilities, each judged by its scenario under scenarios/: {} work, {} missing; 0 disagree with the list",
+        caps.len(),
+        count("works"),
+        count("missing")
+    );
+    assert_eq!(stdout.lines().last(), Some(summary.as_str()), "{stdout}");
+}
