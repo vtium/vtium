@@ -4065,7 +4065,6 @@ fn draw_head(
     let present = std::mem::take(&mut head.console.term.present);
     let now_all = std::mem::take(&mut head.draw_now) || present;
     let term = &mut head.console.term;
-    let changed = term.changed;
     let holding = term.sync.holding(&term.terminal);
     let base = head.cell;
     let mut snapshot = None;
@@ -4073,21 +4072,7 @@ fn draw_head(
         let Some(video) = videos.get_mut(&key.0) else {
             continue;
         };
-        let due = view.wait.due().is_some_and(|d| d <= now);
-        if due {
-            view.wait.end();
-        }
-        let owed = view.owed && !holding;
-        // A pending view waits for its display to take a frame, so a
-        // display that lends no token never turns the loop.
-        let wants =
-            now_all || view.lost || owed || due || (view.pending && video.ready_for_frame(view.id));
-        let draws = wants
-            || (changed
-                && term
-                    .coalesce
-                    .decide(holding, &mut view.wait, term.unparsed, now, view.refresh)
-                    .is_none());
+        let draws = view.draws(term, video.as_ref(), now_all, holding, now);
         // A frame the display kept from a busy swap goes out once its flip
         // ends, unless this pass composes a newer frame, which is drawn
         // over it and carries it.
