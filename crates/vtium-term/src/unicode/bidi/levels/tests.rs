@@ -338,3 +338,31 @@ fn a_paragraph_separator_inside_a_paragraph_does_not_split_it() {
     let got = resolve(&text, Direction::LeftToRight, false, &[], 0..usize::MAX);
     assert_eq!(got.levels, [0, 2, 0, 2, 1, 1]);
 }
+
+/// Rule X9 removes the embedding and override characters and the boundary
+/// neutrals, and vtium keeps them by UAX #9's section on retaining explicit
+/// formatting characters: each takes the level of the character before it
+/// on its row, or the paragraph's level at the row's start, and rule L1
+/// resets it as it resets whitespace. A removed character right after a
+/// tab takes the tab's level once rule L1 has reset the tab.
+#[test]
+fn removed_characters_take_the_level_before_them() {
+    // a, RLE, aleph, PDF, b: the RLE copies a, the PDF copies aleph
+    let text: Vec<char> = "a\u{202B}\u{05D0}\u{202C}b".chars().collect();
+    let got = resolve(&text, Direction::LeftToRight, false, &[], 0..usize::MAX);
+    assert_eq!(got.levels, [0, 0, 1, 1, 0]);
+    // a, RLE, aleph, a space and a PDF at the row's end: both are reset
+    let text: Vec<char> = "a\u{202B}\u{05D0} \u{202C}".chars().collect();
+    let got = resolve(&text, Direction::LeftToRight, false, &[], 0..usize::MAX);
+    assert_eq!(got.levels, [0, 0, 1, 0, 0]);
+    // aleph, a tab, a soft hyphen, bet: the tab between two right-to-left
+    // letters is reset to 0, and the soft hyphen after it copies that 0
+    let text: Vec<char> = "\u{05D0}\t\u{00AD}\u{05D1}".chars().collect();
+    let got = resolve(&text, Direction::LeftToRight, false, &[], 0..usize::MAX);
+    assert_eq!(got.levels, [1, 0, 0, 1]);
+    // in a right-to-left paragraph, a soft hyphen that starts the second
+    // row takes the paragraph's level, not the level of the a before it
+    let text: Vec<char> = "a\u{00AD}b".chars().collect();
+    let got = resolve(&text, Direction::RightToLeft, false, &[1], 0..usize::MAX);
+    assert_eq!(got.levels, [2, 1, 2]);
+}
