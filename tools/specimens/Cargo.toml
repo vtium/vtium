@@ -24,8 +24,12 @@ workspace = true
 # it, --all-features alone would turn it on and the committed drawings
 # would differ from the test's (the maintainer's decision, 2026-11-06).
 vtium-term = { workspace = true, features = ["bidi"] }
+# the console's reading of what a display shows, joined Arabic letters'
+# keys among it, and the presentation forms its lookup draws them by where
+# no font holds a joined form (ADR-1004 D6)
+vtium = { path = "../../crates/vtium", features = ["bidi"] }
 vtium-font.workspace = true
-vtium-render.workspace = true
+vtium-render = { workspace = true, features = ["bidi"] }
 # generates the desktop frit's glyphs through the engine the helper runs
 vtium-config = { path = "../../crates/vtium-config" }
 # deflates the PNGs written and inflates the ones checked; vtium-font
