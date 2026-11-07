@@ -1,36 +1,36 @@
 # VTium specimens
 
-vtium's test card, drawn by vtium's renderer in memory for each display profile, from a 1-bit 320x240 panel up to a 2560x1440 monitor (#142). Each profile's directory holds the screens and their collage, the font and configuration vtium uses there and why, and its vtium.conf.
+vtium's test card, drawn by vtium's renderer in memory for each display profile, from a 1-bit 320×240 panel up to a 2560×1440 monitor. See [the specimens issue](https://github.com/vtium/vtium/issues/142). Each profile's directory holds the screens and their collage, the font and configuration vtium uses there and why, and its vtium.conf.
 
 | Profile | Depth | Cell | Grid | Font | Screens | Status | Preview |
 |---|---|---|---|---|---|---|---|
-| [320x240-1bit](320x240-1bit/) | 1-bit | 8x8 | 40x30 | `unscii-8` | 7 | accepted | [<img src="320x240-1bit/collage.png" width="160">](320x240-1bit/collage.png) |
-| [320x240](320x240/) | 24-bit color | 8x8 | 40x30 | `unscii-8` | 7 | accepted | [<img src="320x240/collage.png" width="160">](320x240/collage.png) |
-| [320x240-tiny5](320x240-tiny5/) | 24-bit color | 6x9 | 53x26 | `tiny5` | 12 | accepted | [<img src="320x240-tiny5/collage.png" width="160">](320x240-tiny5/collage.png) |
-| [480x320](480x320/) | 24-bit color | 8x8 | 60x40 | `unscii-8` | 6 | accepted | [<img src="480x320/collage.png" width="160">](480x320/collage.png) |
-| [640x480](640x480/) | 24-bit color | 8x16 | 80x30 | `unifont` | 4 | accepted | [<img src="640x480/collage.png" width="160">](640x480/collage.png) |
-| [800x480](800x480/) | 24-bit color | 8x16 | 100x30 | `unifont` | 4 | accepted | [<img src="800x480/collage.png" width="160">](800x480/collage.png) |
-| [1366x768](1366x768/) | 24-bit color | 8x16 | 170x48 | `unifont` | 3 | accepted | [<img src="1366x768/collage.png" width="160">](1366x768/collage.png) |
-| [1920x1080](1920x1080/) | 24-bit color | 11x24 | 174x45 | `desktop` | 3 | accepted | [<img src="1920x1080/collage.png" width="160">](1920x1080/collage.png) |
-| [2560x1440](2560x1440/) | 24-bit color | 14x32 | 182x45 | `desktop` | 3 | accepted | [<img src="2560x1440/collage.png" width="160">](2560x1440/collage.png) |
+| [320x240-1bit](320x240-1bit/) | 1-bit | 8×8 | 40×30 | `unscii-8` | 7 | accepted | [<img src="320x240-1bit/collage.png" width="160">](320x240-1bit/collage.png) |
+| [320x240](320x240/) | 24-bit color | 8×8 | 40×30 | `unscii-8` | 7 | accepted | [<img src="320x240/collage.png" width="160">](320x240/collage.png) |
+| [320x240-tiny5](320x240-tiny5/) | 24-bit color | 6×9 | 53×26 | `tiny5` | 12 | accepted | [<img src="320x240-tiny5/collage.png" width="160">](320x240-tiny5/collage.png) |
+| [480x320](480x320/) | 24-bit color | 8×8 | 60×40 | `unscii-8` | 6 | accepted | [<img src="480x320/collage.png" width="160">](480x320/collage.png) |
+| [640x480](640x480/) | 24-bit color | 8×16 | 80×30 | `unifont` | 4 | accepted | [<img src="640x480/collage.png" width="160">](640x480/collage.png) |
+| [800x480](800x480/) | 24-bit color | 8×16 | 100×30 | `unifont` | 4 | accepted | [<img src="800x480/collage.png" width="160">](800x480/collage.png) |
+| [1366x768](1366x768/) | 24-bit color | 8×16 | 170×48 | `unifont` | 3 | accepted | [<img src="1366x768/collage.png" width="160">](1366x768/collage.png) |
+| [1920x1080](1920x1080/) | 24-bit color | 11×24 | 174×45 | `desktop` | 3 | accepted | [<img src="1920x1080/collage.png" width="160">](1920x1080/collage.png) |
+| [2560x1440](2560x1440/) | 24-bit color | 14×32 | 182×45 | `desktop` | 3 | accepted | [<img src="2560x1440/collage.png" width="160">](2560x1440/collage.png) |
 
-`320x240-tiny5` shows an example frit, `tiny5`, the smallest font, which vtium does not use by default; vtium's own choice at 320x240 is the profile `320x240`.
+`320x240-tiny5` shows an example font set, `tiny5`, the smallest font. vtium does not use it by default. vtium's own choice at 320×240 is the profile `320x240`.
 
 A provisional profile waits on the operator's review, and `provisional.tsv` lists it: a drawing that moves it is reported as drift and fails nothing. An accepted profile fails on a moved pixel.
 
 ## Gray panels, simulated
 
-vtium draws a gray panel exactly as a color display, and the panel's driver converts each pixel (#135). These renders take vtium's color drawing through that conversion, as Linux v7.3's drivers make it, to show what such a panel shows. They are simulations, not vtium's output, and judge nothing of vtium's drawing; a stale one is reported as its own kind of fault.
+vtium draws a gray panel exactly as it draws a color display, and the panel's driver converts each pixel. See [the issue about 1-bit and gray displays](https://github.com/vtium/vtium/issues/135). These renders take vtium's color drawing through that conversion, as Linux v7.3's drivers make it, to show what such a panel shows. They are simulations, not vtium's output, and judge nothing of vtium's drawing; a stale one is reported as its own kind of fault.
 
 | Profile | Depth | Cell | Grid | Font | Screens | Status | Preview |
 |---|---|---|---|---|---|---|---|
-| [320x240-gray4](simulated/320x240-gray4/) | gray4, simulated | 8x8 | 40x30 | `unscii-8` | 7 | simulation | [<img src="simulated/320x240-gray4/collage.png" width="160">](simulated/320x240-gray4/collage.png) |
-| [320x240-gray16](simulated/320x240-gray16/) | gray16, simulated | 8x8 | 40x30 | `unscii-8` | 7 | simulation | [<img src="simulated/320x240-gray16/collage.png" width="160">](simulated/320x240-gray16/collage.png) |
-| [640x480-gray16](simulated/640x480-gray16/) | gray16, simulated | 8x16 | 80x30 | `unifont` | 4 | simulation | [<img src="simulated/640x480-gray16/collage.png" width="160">](simulated/640x480-gray16/collage.png) |
+| [320x240-gray4](simulated/320x240-gray4/) | gray4, simulated | 8×8 | 40×30 | `unscii-8` | 7 | simulation | [<img src="simulated/320x240-gray4/collage.png" width="160">](simulated/320x240-gray4/collage.png) |
+| [320x240-gray16](simulated/320x240-gray16/) | gray16, simulated | 8×8 | 40×30 | `unscii-8` | 7 | simulation | [<img src="simulated/320x240-gray16/collage.png" width="160">](simulated/320x240-gray16/collage.png) |
+| [640x480-gray16](simulated/640x480-gray16/) | gray16, simulated | 8×16 | 80×30 | `unifont` | 4 | simulation | [<img src="simulated/640x480-gray16/collage.png" width="160">](simulated/640x480-gray16/collage.png) |
 
 ## The card
 
-The card is one byte stream of vtium's own, written by `tools/specimens`, in blocks of 40x30 cells. A block is one 320x240 screen at 8x8, and a page holds as many blocks as its grid fits, centered. A grid shorter than a block, such as the 53x26 that 6x9 cells give at 320x240, shows each block over more than one screen: the rows that fit, then the block's title again and the rows after them:
+The card is one byte stream of vtium's own, written by `tools/specimens`, in blocks of 40×30 cells. A block is one 320×240 screen at 8×8, and a page holds as many blocks as its grid fits, centered. A grid shorter than a block, such as the 53×26 that 6×9 cells give at 320×240, shows each block over more than one screen: the rows that fit, then the block's title again and the rows after them:
 
 1. Text
 2. Attributes
@@ -42,7 +42,7 @@ The card is one byte stream of vtium's own, written by `tools/specimens`, in blo
 
 ## The message bars
 
-After the card, each profile draws vtium's message bars, its notices and its on-screen display (ADR-1401 D5, D7), drawn by the console's own overlay code, on one screen, or on two on the 320x240 displays, where the four notices fill a screen of their own. A display shows one box, across its top, so the screens stack four bands, each the top of a drawing of its own with a line beneath the bar saying what it is: four notices at once, the most a head shows; the on-screen display's full line sharing the box with a notice; the full line alone; and the minimal dot in the top-right cell.
+After the card, each profile draws vtium's message bars: its notices and its on-screen display. The console's own overlay code draws them, on one screen, or on two on the 320×240 displays, where the four notices fill a screen of their own. See [the on-screen display issue](https://github.com/vtium/vtium/issues/169) and [the heads tracker](https://github.com/vtium/vtium/issues/156). A display shows one box, across its top, so the screens stack four bands, each the top of a drawing of its own with a line beneath the bar saying what it is: four notices at once, the most a head shows; the on-screen display's full line sharing the box with a notice; the full line alone; and the minimal dot in the top-right cell.
 
 ## Drawing and judging
 
