@@ -1,0 +1,45 @@
+checkpoint 105
+size 10x5
+cursor 3,3
+flags AUTO_WRAP
+row 0 |0123456789|
+row 1 |abCDEFGhij|
+row 2 |ABmnopqHIJ|
+row 3 |kl     rst|
+row 4 |KLMNOPQRST|
+checkpoint 116
+size 10x5
+cursor 2,3
+flags AUTO_WRAP
+row 0 |0123456789|
+row 1 |abCDEFGhij|
+row 2 |ABmnopqHIJ|
+row 3 |kl     rst|
+row 4 |KLMNOPQRST|
+checkpoint 124
+size 10x5
+cursor 3,1
+flags AUTO_WRAP
+row 0 |0123456789|
+row 1 |ab     hij|
+row 2 |ABCDEFGHIJ|
+row 3 |klmnopqrst|
+row 4 |KLMNOPQRST|
+checkpoint 134
+size 10x5
+cursor 9,4
+flags AUTO_WRAP
+row 0 |0123456789|
+row 1 |abCDEFGhij|
+row 2 |ABmnopqHIJ|
+row 3 |kl     rst|
+row 4 |KLMNOPQRST|
+checkpoint 138
+size 10x5
+cursor 9,4
+flags AUTO_WRAP
+row 0 |0123456789|
+row 1 |ab     hij|
+row 2 |AB     HIJ|
+row 3 |klCDEFGrst|
+row 4 |KLMNOPQRST|
