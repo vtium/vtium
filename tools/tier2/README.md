@@ -133,5 +133,5 @@ Moving a golden is a change to the judge: it lands in a commit of its own, with 
 
 - **PNG.** Tier 3's goldens are PNG, which tier 3's own `t3img.py` reads; tier 2's compare reads PPM only, and reading PNG is its next step should it judge a tier 3 golden.
 - **fbdev.** vtium draws fbdev's XRGB8888 framebuffer with the same renderer and the same pixels as drm2d; other layouts are converted by `vtium-platform`, whose tests hold the conversion (vtium/vtium#18).
-- **The GPU path's ink past a cell.** The GPU path still cuts each glyph's ink at its own cell, so the GPU cases of the screens whose ink passes its cell fail until the GPU path composes ink as the CPU path does (ADR-1306 D9): `bold`, `combining`, `emoji-spaced-12` and the ink screens.
+- **The GPU path's ink past a cell.** The GPU path still cuts each glyph's ink at its own cell, so the GPU cases of the screens whose ink passes its cell fail until the GPU path composes ink as the CPU path does (ADR-1306 D9): `bold`, `combining`, `emoji-spaced-12` and every ink screen whose ink passes its cell, which is each of them but `overhang-underscore` and the `-dejavu` versions of `overhang-wm`, `overhang-underscore` and `overhang-wide`.
 - **The GPU path's 1-bit screens.** `gpu::waits` keeps them pending until present reduces the depth (ADR-1301).

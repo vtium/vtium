@@ -605,6 +605,27 @@ fn an_accent_from_the_row_below_crosses_an_underline_cursor() {
     assert_eq!(px(&c, (2, 1), (3, 15)), pixel(WHITE));
 }
 
+// ADR-1306 D6: ink takes the colors of the cell it came from, so the
+// accent of a reverse-video capital draws in the reversed foreground, its
+// cell's background color, over the unmarked cell above
+// covers: text.overhang
+#[test]
+fn a_reversed_letters_accent_takes_its_reversed_foreground_in_the_cell_above() {
+    let mut s = screen(3, 3);
+    let st = state(&s);
+    let mut reversed = style(WHITE, BLUE);
+    reversed.attrs.insert(Attrs::INVERSE);
+    s.put(1, 2, 'A', false, reversed);
+    let mut d = Display::new(&s, 1, Config::default());
+    let (_, c) = d.draw(&mut s, &st);
+    // the capital's own cell is reversed: white behind the letter
+    assert_eq!(px(&c, (1, 2), (0, 0)), pixel(WHITE));
+    // its accent, over the unmarked cell above, is blue, the reversed
+    // foreground, on that cell's own background
+    assert_eq!(px(&c, (1, 1), (3, 14)), pixel(BLUE));
+    assert_eq!(px(&c, (1, 1), (0, 14)), pixel(rgb(BG)));
+}
+
 // covers: text.overhang
 #[test]
 fn a_mark_takes_over_the_ink_inside_it_and_ink_outside_it_keeps_its_colors() {
