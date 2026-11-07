@@ -21,7 +21,7 @@
 
 **vtium is a terminal for the Linux console.**
 
-vtium runs on a Linux virtual terminal (VT), one of the text screens that Ctrl+Alt and a function key switch to, in place of getty, the program that prints the login prompt there. It draws the screen itself, with no display server and no GPU, and gives the programs on it what a terminal on a desktop gives them: the full Unicode character set, color emoji, 24-bit color, mouse reporting and pictures. When vtium cannot start, getty and the kernel's console take the VT back.
+vtium runs on a Linux virtual terminal (VT), one of the text screens that Ctrl+Alt and a function key switch to, in place of getty, the program that prints the login prompt there. It draws the screen itself, with no display server: on the CPU, which every machine has, or through the GPU with OpenGL ES 3.0 where the machine has one. It gives the programs on it what a terminal on a desktop gives them: the full Unicode character set, color emoji, 24-bit color, mouse reporting and pictures. When vtium cannot start, getty and the kernel's console take the VT back.
 
 The kernel's own console has stayed plain so that it works when nothing else does. Since Linux 6.10 the kernel can draw its own crash screen through its modern graphics drivers, and the Red Hat graphics developers behind that work call the VT console one of the [legacy parts of the kernel](https://fedoraproject.org/wiki/Changes/EnableDrmPanic), to be replaced by a console that runs as an ordinary program. vtium is a console of that kind.
 
