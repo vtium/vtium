@@ -6,21 +6,21 @@ In the commands below, `#` marks a command you run as root, for example with sud
 
 ## Arch Linux
 
-The AUR (the Arch User Repository) holds vtium's recipes. A recipe is a `PKGBUILD`, the build script that makepkg reads to build a package. The repository `vtium/vtium-arch` keeps nine recipes, one for each package, as [ADR-1500](architecture/project/ADR-1500-vtium-is-packaged-from-a-recipe-repo-per-package-manager-under-names-of-its-own.md) D8 sets out. The console packages conflict with each other, so install one:
+The AUR (the Arch User Repository) carries vtium's packages for Arch. Each package is built from a recipe, a `PKGBUILD`, which is the build script that makepkg reads. The repository `vtium/vtium-arch` keeps nine recipes, one for each package. The AUR carries five of them. The console packages conflict with each other, so install one:
 
 | Package | What it builds | Built from | On the AUR |
 |---|---|---|---|
 | `vtium` | the console for an ordinary desktop or laptop | a release, the tag the maintainer signs, today the pre-release `v0.1.0-alpha.5` | yes |
 | `vtium-git` | the same console | the tip of vtium's `main` branch | yes |
-| `vtium-minspec` | vtium's smallest console, with no pictures and no GPU path | the same release tag | not yet |
-| `vtium-minspec-git` | the same console | the tip of `main` | not yet |
-| `vtium-minspec-gpu` | the smallest console with the GPU path | the same release tag | not yet |
-| `vtium-minspec-gpu-git` | the same console | the tip of `main` | not yet |
+| `vtium-minspec` | vtium's smallest console, with no pictures and no GPU path | the same release tag | no: build it from the `vtium` recipe ([below](#build-the-minspec-console)) |
+| `vtium-minspec-git` | the same console | the tip of `main` | no: build it from the `vtium-git` recipe |
+| `vtium-minspec-gpu` | the smallest console with the GPU path | the same release tag | no: build it from the `vtium` recipe |
+| `vtium-minspec-gpu-git` | the same console | the tip of `main` | no: build it from the `vtium-git` recipe |
 | `vtium-terminfo` | `xterm-vtium`, the terminfo entry that sessions in vtium name in `TERM` | the same release tag | yes |
 | `vtium-terminfo-git` | the same entry | the tip of `main` | yes |
-| `vtium-fonts` | no font of its own: it depends on the distribution's packages of the fonts the frits name | the recipe repository alone | not yet |
+| `vtium-fonts` | no font of its own: it depends on the distribution's packages of the fonts the frits name | the recipe repository alone | from the next publish |
 
-Each console package depends on a terminfo package: a console built from the release tag on `vtium-terminfo`, and one built from `main` on `vtium-terminfo-git`.
+Each console package depends on a terminfo package: a console built from the release tag on `vtium-terminfo`, and one built from `main` on `vtium-terminfo-git`. Today the AUR builds `vtium-terminfo` from the `vtium` recipe and `vtium-terminfo-git` from the `vtium-git` recipe. From the next publish, each terminfo package has a recipe of its own on the AUR.
 
 A recipe builds the console with the features that `VTIUM_FEATURES` names in makepkg's environment. The `images` feature draws sixel and kitty graphics pictures, the `logind` feature lets the suspend key ask logind, systemd's login manager, to suspend the machine, and the `gpu` feature builds in the path that draws through the GPU. When `VTIUM_FEATURES` is unset, the `vtium` and `vtium-git` recipes build `images logind gpu`, for an ordinary desktop or laptop. To build another set of features from a checkout, stage it with `make install` ([From a checkout](#from-a-checkout)).
 
@@ -60,14 +60,24 @@ The packages install these files:
 
 Installing the packages gives vtium no VT and starts nothing. [Giving vtium a VT](#giving-vtium-a-vt) does that.
 
-### The packages the AUR does not carry yet
+### Build the minspec console
 
-The recipes for these packages are in `vtium/vtium-arch`, and the AUR does not carry them yet:
+The minspec console is vtium's smallest build. It suits a small machine such as a single-board computer, a server's console or a kiosk. The AUR carries no minspec package, so you build the minspec console from the `vtium` recipe, or from the `vtium-git` recipe for the tip of `main`. Set `VTIUM_FEATURES` but leave it empty to build the console with no features, which means no pictures, no logind and no GPU path:
 
-- `vtium-minspec` and `vtium-minspec-git` build the minspec console with no feature, for a small machine such as a single-board computer, a server's console or a kiosk.
-- `vtium-minspec-gpu` and `vtium-minspec-gpu-git` build the minspec console with the GPU path and leave `hwaccel` off, with `libglvnd` and `mesa` as optional dependencies.
-- The minspec packages keep two buffers for each display, where `vtium` keeps three ([config.md](config.md), `display-buffers`).
-- `vtium-fonts` depends on every font the shipped frits name: on Arch `ttf-jetbrains-mono`, `ttf-nerd-fonts-symbols-mono`, `noto-fonts-emoji` and `terminus-font`.
+```
+$ cd vtium
+$ VTIUM_FEATURES= makepkg -si
+```
+
+`VTIUM_FEATURES=gpu makepkg -si` builds the minspec console with the GPU path alone. `vtium --version` names the features a console was built with, such as `features none` or `features gpu`.
+
+`VTIUM_FEATURES` changes only the features. The package you build keeps everything else the recipe sets: its dependencies on `libglvnd` and `mesa`, its frits, and its defaults for `hwaccel` and `display-buffers`. A line in `/etc/vtium/vtium.conf` changes either default, such as `display-buffers=2` for two buffers for each display. See [config.md](config.md) for the keys.
+
+The repository `vtium/vtium-arch` also keeps four minspec recipes, `vtium-minspec` and `vtium-minspec-gpu` with their `-git` twins. Its CI builds them to check that the minspec console still builds.
+
+### What the next publish adds
+
+`vtium-fonts` reaches the AUR with the next publish. It depends on every font the shipped frits name: on Arch `ttf-jetbrains-mono`, `ttf-nerd-fonts-symbols-mono`, `noto-fonts-emoji` and `terminus-font`.
 
 The `vtium` and `vtium-git` recipes in `vtium/vtium-arch` also ship a fourth frit, `terminus`, for the Terminus console font, which the packages the AUR carries today do not have yet.
 
