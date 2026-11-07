@@ -739,7 +739,7 @@ fn a_reservation_given_back_frees_its_bytes_and_its_hold() {
 fn a_reservation_given_back_twice_gives_its_bytes_and_its_hold_back_once() {
     let f = Fake::new(4);
     let mut s = store(1 << 30);
-    // a sixel of 1024 bytes, as the review of the handler contract stored
+    // a stored sixel of 1024 bytes
     let _ = add(&mut s, &f, Protocol::SIXEL, 8, 16, 0);
     assert_eq!(s.bytes(), 8 * 16 * 4 + IMAGE_OVERHEAD);
     let r = s.reserve(Protocol::SIXEL, 0, 4096, f.screens()).unwrap();
