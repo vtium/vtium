@@ -534,9 +534,8 @@ fn the_loop_fires_the_stand_in_flip() {
     );
 }
 
-// Re-review finding 1: an unblank that fails is tried again, since the
-// blank took the input that ended it and no later input comes to
-// `unblank`; so is a wake-up's.
+// An unblank that fails is tried again, since the blank took the input that
+// ended it and no later input comes to `unblank`; so is a wake-up's.
 #[test]
 fn a_failed_unblank_is_tried_again() {
     struct App(Fbdev<FakeFb>);
@@ -612,9 +611,8 @@ fn a_swap_with_no_damage_does_nothing() {
     assert!(!v.hardware_cursor(DISPLAY));
 }
 
-// Re-review finding 6 and the frame contract, rule 3: a token given back
-// unused presents nothing, and a token that is not the display's is
-// dropped.
+// The frame contract, rule 3: a token given back unused presents nothing,
+// and a token that is not the display's is dropped.
 #[test]
 fn a_token_given_back_unused_presents_nothing() {
     let mut fb = FakeFb::new(16);

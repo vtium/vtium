@@ -570,10 +570,9 @@ fn a_new_cursor_image_leaves_the_plane_recorded_hidden() {
     assert_eq!(c.get(cp, "CRTC_ID"), Some(100));
 }
 
-// Re-review finding 4: a cursor change undone before the swap leaves the
-// plane as the last commit set it, so the swap sends nothing. With the
-// plane off, a commit would name no CRTC, which the kernel refuses with a
-// flip event.
+// A cursor change undone before the swap leaves the plane as the last
+// commit set it, so the swap sends nothing. With the plane off, a commit
+// would name no CRTC, which the kernel refuses with a flip event.
 #[test]
 fn a_cursor_change_undone_before_the_swap_sends_nothing() {
     let mut v = awake(one());
@@ -3284,8 +3283,8 @@ fn a_hotplug_pulse_while_blanked_changes_nothing_visible() {
     assert_eq!(v.card().state().dpms[&A], 0);
 }
 
-// Re-review finding 5: the blank holds whether or not a display's connector
-// has a DPMS property, so a hotplug while blanked commits nothing.
+// The blank holds whether or not a display's connector has a DPMS property,
+// so a hotplug while blanked commits nothing.
 #[test]
 fn a_display_without_dpms_keeps_the_blank() {
     let card = FakeCard::new(&[
@@ -3309,9 +3308,9 @@ fn a_display_without_dpms_keeps_the_blank() {
     assert_eq!(events(&mut v), [Event::Added(DisplayId(B))]);
 }
 
-// Re-review finding 3: a hotplug's modeset deferred behind a flip in
-// flight, when the blank comes before the flip completes, commits nothing
-// and is owed to the input that ends the blank.
+// A hotplug's modeset deferred behind a flip in flight, when the blank
+// comes before the flip completes, commits nothing and is owed to the input
+// that ends the blank.
 #[test]
 fn a_deferred_modeset_waits_for_input_once_blanked() {
     let mut v = a_then_b(ModePolicy::default());
@@ -3336,8 +3335,8 @@ fn a_deferred_modeset_waits_for_input_once_blanked() {
     assert_eq!(v.card().state().dpms[&A], 0);
 }
 
-// Re-review finding 3: the retries of a hotplug that failed commit nothing
-// once blanked; the modeset is owed to the input that ends the blank.
+// The retries of a hotplug that failed commit nothing once blanked; the
+// modeset is owed to the input that ends the blank.
 #[test]
 fn a_hotplug_retry_waits_for_input_once_blanked() {
     let mut v = a_then_b(ModePolicy::default());
@@ -3480,8 +3479,8 @@ fn a_failed_wake_up_keeps_the_recorded_dpms() {
     );
 }
 
-// Re-review finding 2: the flip of the modeset the input ending the blank
-// runs is bounded, as every flip in flight is.
+// The flip of the modeset the input ending the blank runs is bounded, as
+// every flip in flight is.
 #[test]
 fn the_flip_of_the_modeset_owed_is_bounded() {
     let (mut lp, mut app) = in_loop(a_then_b(ModePolicy::default()));
@@ -3499,9 +3498,9 @@ fn the_flip_of_the_modeset_owed_is_bounded() {
     assert!(took.as_millis() >= 900, "flipped after {took:?}");
 }
 
-// Re-review finding 1: where the modeset the input ending the blank runs
-// fails, it is tried again as a failed hotplug is, and the displays come
-// on; the blank, which the input ended, stays ended.
+// Where the modeset the input ending the blank runs fails, it is tried
+// again as a failed hotplug is, and the displays come on; the blank, which
+// the input ended, stays ended.
 #[test]
 fn a_failed_modeset_owed_is_tried_again() {
     let (mut lp, mut app) = in_loop(a_then_b(ModePolicy::default()));
@@ -4590,9 +4589,9 @@ fn shared_dark_card() -> FakeCard {
     card
 }
 
-// review-h1b: turning a dark connector's CRTC off unbinds every connector
-// on it, an unplugged one vtium neither binds nor darkens included, so the
-// commit passes the kernel's check and the lit display comes up.
+// Turning a dark connector's CRTC off unbinds every connector on it, an
+// unplugged one vtium neither binds nor darkens included, so the commit
+// passes the kernel's check and the lit display comes up.
 #[test]
 fn a_dark_crtc_is_turned_off_with_every_connector_on_it() {
     let mut v = dark_on(shared_dark_card(), "HDMI-A-2");
@@ -4607,9 +4606,9 @@ fn a_dark_crtc_is_turned_off_with_every_connector_on_it() {
     assert_eq!(v.card().state().active.get(&101), Some(&false));
 }
 
-// review-h1b: a dark rule never costs the lit displays. Where the commit
-// setting a dark connector off still fails, the modeset is tried again
-// without it, logged once, and the lit displays come up.
+// A dark rule never costs the lit displays. Where the commit setting a dark
+// connector off still fails, the modeset is tried again without it, logged
+// once, and the lit displays come up.
 #[test]
 fn a_dark_connector_that_cannot_be_set_off_leaves_the_lit_displays_up() {
     logs::capture();

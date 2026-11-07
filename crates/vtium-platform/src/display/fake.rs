@@ -58,9 +58,9 @@
 //! the console set then shows nothing until a commit sets the CRTC's mode,
 //! its `ACTIVE` or its connectors anew, which is a full modeset
 //! (`drm_atomic_crtc_needs_modeset`). That is not a rule the kernel
-//! states. It is what the operator saw on this machine's amdgpu cards on
-//! 2026-10-30: the small panel stayed dark under vtium's frames committed
-//! on the console's mode, until a VT switch set its mode again.
+//! states. It is how this machine's amdgpu cards behave: the small panel
+//! stays dark under frames committed on the console's mode until a commit
+//! sets its mode again.
 
 #![expect(
     clippy::arithmetic_side_effects,
@@ -252,8 +252,8 @@ pub(crate) struct State {
     /// Each CRTC's mode, as the commits and the console set it.
     pub(crate) modes: BTreeMap<u32, Vec<u8>>,
     /// The CRTCs whose mode the console set and no full modeset has set
-    /// since. They show nothing, as the operator saw on this machine's
-    /// amdgpu cards; the kernel states no such rule.
+    /// since. They show nothing, as on this machine's amdgpu cards; the
+    /// kernel states no such rule.
     pub(crate) console_lit: Vec<u32>,
     /// The framebuffers the console put on a plane.
     pub(crate) console_fbs: Vec<u32>,
