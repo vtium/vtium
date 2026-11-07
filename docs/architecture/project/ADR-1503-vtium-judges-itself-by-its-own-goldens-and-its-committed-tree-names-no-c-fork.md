@@ -121,6 +121,12 @@ considered:
   - operator: aaronsb
     said: "Policy + live text (Recommended)"
     via: "the steering session's question tool, 2026-11-07, on what not relating to kmscon other than as an external reference changes; the maintainer chose this option, and its label and its text are the steering session's wording. The option's text read: \"kmscon becomes a reference like xterm or foot. AGENTS.md and the two ways drop the 'design from the C reference' rule. vtium's own specs and goldens judge vtium, and the copied goldens keep a provenance note. Reader pages and code comments stop calling it 'the C reference' and mention kmscon only where a user moves from it. ADR bodies stay as history, and a new ADR amendment records the change.\""
+  - operator: aaronsb
+    said: "1. yes"
+    via: "the steering session, 2026-11-07, answering whether fork-refs becomes a gate, after text written for alpha.6 named the C reference in 8 places. The question read: \"Make `fork-refs` a gate? It runs only on demand, by your choice recorded in ADR-1503 D8. Within two days, text written for alpha.6 brought \"the C reference\" back in 8 places. I lean towards adding it to `make gates` and CI.\""
+  - operator: aaronsb
+    said: "2. yes"
+    via: "the steering session, 2026-11-07, answering whether open question 1 closes. The question read: \"No private directory for fork rules: with kmscon as an external reference, no such rules remain, so the agent is closing open question 1 as unneeded.\""
 observable:
   - "`docs/scripts/fork-refs` exits 0 on the tree after the sweep, and exits 1 naming the file and line when a planted line in a crate README says `the C reference`"
   - "Every case is judged by one golden in one directory per tier: tools/conformance/expected.tsv, tools/tier2/departures.tsv, tools/tier3/departures.tsv and tools/tier3/c-goldens/ are gone, and `make conformance`, `make tier2` and `make tier3` pass"
@@ -251,9 +257,11 @@ CONTRIBUTING.md first says what judges a change: the tiers from unit tests to ti
 
 > Edited 2026-11-07: at the revisit (D6), fork-refs stopped skipping AGENTS.md and CLAUDE.md, and checks them like every other file. The earlier text skipped both until the revisit; git keeps that text.
 
+> Edited 2026-11-07: fork-refs is a gate, by the maintainer's answer in the twenty-second `considered` entry, which reverses the eleventh. Within two days of the sweep, text written for alpha.6 named the C reference in 8 places, so a check run only on demand did not hold the break. The earlier text had fork-refs run on demand and join no gate; git keeps that text.
+
 `docs/scripts/fork-refs` fails when a committed file names the fork: the phrases "C reference", "C fork", "kmscon fork" and "libtsm fork", the repositories `aaronsb/kmscon` and `aaronsb/libtsm`, and the fork issue forms `kmscon#N` and `libtsm#N`. It leaves the plain names `kmscon` and `libtsm` to review, since D3 and D4 keep them where they name the released program, a terminal name or the licence. It also fails when a crate README has a heading `## Departures`, `## Golden differences`, `## C behaviour kept`, `## Beyond the C reference` or `## C notes`, so that nobody brings the departure lists back.
 
-In docs/architecture/, which D5 governs, it skips the phrases and leaves the repository and issue forms checked, apart from the `said` and `via` fields of a record's frontmatter and D8's first paragraph, which lists the forms. It skips its own source and tests, which hold the patterns it looks for; the copyright notice line, by its path and its words, of the two ported files that carry one, vtium-font's sprite.rs and vtium-render's deco.rs; and the one line of COPYING that says the box sprites' geometry came by way of the fork's font_box.c, a file the released kmscon never had. LICENSE names no fork, so it needs no skip. A person or an agent runs it on demand as `docs/scripts/fork-refs`, and it joins no gate: CI, `make gates` and AGENTS.md's gate line do not run it. `make test-tools` runs its tests. It lands with the last branch of the sweep, seen to fail on the tree before the sweep and on a planted line, and to pass after.
+In docs/architecture/, which D5 governs, it skips the phrases and leaves the repository and issue forms checked, apart from the `said` and `via` fields of a record's frontmatter and D8's first paragraph, which lists the forms. It skips its own source and tests, which hold the patterns it looks for; the copyright notice line, by its path and its words, of the two ported files that carry one, vtium-font's sprite.rs and vtium-render's deco.rs; and the one line of COPYING that says the box sprites' geometry came by way of the fork's font_box.c, a file the released kmscon never had. LICENSE names no fork, so it needs no skip. It is a gate: AGENTS.md's gate line, `make gates` and CI's `adr` job run `docs/scripts/fork-refs` after `docs/scripts/issue-refs`. `make test-tools` runs its tests. It lands with the last branch of the sweep, seen to fail on the tree before the sweep and on a planted line, and to pass after.
 
 ### D9: the fonts tier 2 and tier 3 draw text with
 
@@ -311,7 +319,7 @@ The 34 screens tier 2 still owes land before v0.1.0-alpha.6 as vtium's goldens, 
 
 > Edited 2026-11-07: question 1 is closed. It read "Deferred to the revisit. The lean for then: a local git repository with no remote, so its history survives, and the maintainer adds a private remote if one is wanted."
 
-1. **A private directory under version control.** Closed at the revisit (D6). The maintainer chose to treat `kmscon` as an external reference and to drop the rule to design from the C reference (the twenty-first `considered` entry). That leaves no working rules about the forks to keep privately, so no private directory is needed. This follows from the maintainer's choice, and the maintainer did not answer the question itself.
+1. **A private directory under version control.** Closed at the revisit (D6). The maintainer chose to treat `kmscon` as an external reference and to drop the rule to design from the C reference (the twenty-first `considered` entry). That leaves no working rules about the forks to keep privately, so no private directory is needed. The maintainer confirmed that the question closes (the twenty-third `considered` entry).
 
 The maintainer answered the record's other questions on 2026-11-04 (the `considered` entries), and the decision above carries each answer.
 
