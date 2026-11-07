@@ -802,22 +802,60 @@ fn set_bit(bits: &mut [u8], row: usize, x: u32, y: u32) {
 }
 
 /// A 1-bit glyph `width` cells wide of a font of cell `from`, scaled by
-/// `scale` into `cell`, centred across and on its bottom row.
-fn place(glyph: &[u8], width: Width, from: Cell, cell: Cell, scale: u32) -> Vec<u8> {
+/// `scale` into `cell`, centred across, with its top row at row `top` of
+/// the cell ([`glyph_top`]). The rows that fall outside the cell are cut.
+fn place(glyph: &[u8], width: Width, from: Cell, cell: Cell, scale: u32, top: i64) -> Vec<u8> {
     let cells = width.cells();
     let (src_w, dst_w) = (from.width * cells, cell.width * cells);
     let (src_row, dst_row) = (src_w.div_ceil(8) as usize, dst_w.div_ceil(8) as usize);
     let x0 = (dst_w - src_w * scale) / 2;
-    let y0 = cell.height - from.height * scale;
     let mut out = vec![0u8; dst_row * cell.height as usize];
     for y in 0..from.height * scale {
+        let Some(row) = u32::try_from(top + i64::from(y))
+            .ok()
+            .filter(|&r| r < cell.height)
+        else {
+            continue;
+        };
         for x in 0..src_w * scale {
             if bit(glyph, src_row, x / scale, y / scale) {
-                set_bit(&mut out, dst_row, x0 + x, y0 + y);
+                set_bit(&mut out, dst_row, x0 + x, row);
             }
         }
     }
     out
+}
+
+/// The cell's row where the top row of a bitmap glyph of a font of cell
+/// `from`, scaled by `scale`, goes, so that the font's baseline `own`,
+/// counted in the font's rows, meets the cell's baseline `base` (ADR-1200
+/// D17). The first source's glyphs then fill the cell down to its bottom
+/// row, and a later source's glyphs stand on the first source's baseline.
+/// A glyph whose ink would then pass the cell's top or bottom moves toward
+/// the cell, until its ink fits, so no ink is cut. `rows` is the glyph's
+/// 1-bit rows, `width` cells wide.
+fn glyph_top(
+    rows: &[u8],
+    width: Width,
+    from: Cell,
+    (scale, own, base): (u32, u32, u32),
+    cell: Cell,
+) -> i64 {
+    let w = from.width * width.cells();
+    let row = w.div_ceil(8) as usize;
+    let inked = |y: u32| (0..w).any(|x| bit(rows, row, x, y));
+    let top = i64::from(base) - i64::from(own) * i64::from(scale);
+    let (Some(first), Some(last)) = (
+        (0..from.height).find(|&y| inked(y)),
+        (0..from.height).rev().find(|&y| inked(y)),
+    ) else {
+        return top;
+    };
+    let scale = i64::from(scale);
+    // the rows the glyph's ink takes in the cell, from its top row
+    let (ink_top, ink_end) = (i64::from(first) * scale, (i64::from(last) + 1) * scale);
+    let lowest = i64::from(cell.height) - ink_end;
+    top.min(lowest).max(-ink_top)
 }
 
 /// A glyph's 1-bit rows cut to its cells, and its ink box where its ink
@@ -826,7 +864,8 @@ type Drawn = (Vec<u8>, Option<(i32, u32, Vec<u8>)>);
 
 /// A 1-bit glyph `width` cells wide of a font of cell `from`, drawn in the
 /// style `synth` asks (ADR-1302 D4) and placed as [`place`] places one,
-/// scaled by `scale` into `cell`, centred across and on its bottom row.
+/// scaled by `scale` into `cell`, centred across, its top row at row `top`
+/// of the cell.
 /// Bold widens each row, a pixel set when it or its left neighbour is;
 /// italic then shears the rows about `baseline` at the font's own size,
 /// before the scale, by vtium-font's rule
@@ -840,7 +879,7 @@ fn place_styled(
     glyph: &[u8],
     width: Width,
     from: Cell,
-    cell: Cell,
+    (cell, top): (Cell, i64),
     scale: u32,
     synth: Style,
     baseline: u32,
@@ -858,25 +897,26 @@ fn place_styled(
                 set_bit(&mut rows, src_row, x, y);
             }
         }
-        return (place(&rows, width, from, cell, scale), None);
+        return (place(&rows, width, from, cell, scale, top), None);
     }
     let mask: Vec<u8> = (0..from.height)
         .flat_map(|y| (0..src_w).map(move |x| if lit(x, y) { 255 } else { 0 }))
         .collect();
     let Some(sheared) = vtium_font::italic::shear(&mask, src_w, from.height, baseline) else {
-        return (place(glyph, width, from, cell, scale), None);
+        return (place(glyph, width, from, cell, scale, top), None);
     };
     let dst_w = cell.width * cells;
     let x0 = i64::from((dst_w - src_w * scale) / 2);
-    let y0 = cell.height - from.height * scale;
     let stride = sheared.width as usize;
     // the sheared pixel under column `x` from the cells' left edge and row
     // `y` of the cell
     let at = |x: i64, y: u32| -> bool {
-        if y < y0 {
+        let Ok(sy) = usize::try_from((i64::from(y) - top).div_euclid(i64::from(scale))) else {
+            return false;
+        };
+        if sy >= from.height as usize {
             return false;
         }
-        let sy = ((y - y0) / scale) as usize;
         let sx = (x - x0).div_euclid(i64::from(scale)) - i64::from(sheared.left);
         usize::try_from(sx)
             .ok()
@@ -1378,6 +1418,8 @@ impl Engine {
                 .ok_or("line spacing that leaves the cell no text band")?,
         };
         let (base, lines) = self.metrics_at(cell);
+        // a bitmap source's glyphs stand on this baseline in the text band
+        let text_base = base;
         let (base, lines) = (
             base.saturating_add(band.above),
             Decorations {
@@ -1453,8 +1495,21 @@ impl Engine {
                                 let Some((width, rows)) = font.glyphs.get(g as usize) else {
                                     continue;
                                 };
+                                let top = glyph_top(
+                                    rows,
+                                    *width,
+                                    font.cell,
+                                    (scale, baseline, text_base),
+                                    cell,
+                                );
                                 let (rows, ink) = place_styled(
-                                    rows, *width, font.cell, cell, scale, synth, baseline,
+                                    rows,
+                                    *width,
+                                    font.cell,
+                                    (cell, top),
+                                    scale,
+                                    synth,
+                                    baseline,
                                 );
                                 let stride = (cell.width * width.cells()).div_ceil(8) as usize;
                                 let how = (band, fit);

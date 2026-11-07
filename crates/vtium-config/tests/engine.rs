@@ -335,16 +335,21 @@ fn a_kbd_font_in_each_compression_draws_the_same_glyphs() {
     }
 }
 
+// ADR-1200 D17: a later bitmap source's glyphs stand on the first
+// source's baseline. The test ter-v16n's H inks every row, so its baseline
+// is the cell's bottom edge, row 16; Unscii-8's is its row 7, so its 8x8
+// glyphs at factor 1 start at row 9 of the 8x16 cell, and its row 7, past
+// the cell's bottom, holds no ink of ▀ and is cut
 #[test]
-fn a_fallback_fills_what_the_first_source_lacks_on_the_bottom_rows() {
+fn a_fallback_fills_what_the_first_source_lacks_on_its_baseline() {
     let w = World::new("fallback");
     let set = w.drawn(
         "source=kbd:ter-v16n\nsource=builtin:unscii-8\ncover=U+2580-U+259F\n",
         cell(8, 16),
     );
     let face = SetFace::new(set, 16).expect("a face");
-    // U+2588 is the first source's; U+2580 comes from Unscii-8, 8x8 into
-    // 8x16 at factor 1, on the bottom rows; 'a' is outside cover=
+    // U+2588 is the first source's; U+2580 comes from Unscii-8; 'a' is
+    // outside cover=
     assert!(face.has_glyph('█') && face.has_glyph('▀') && !face.has_glyph('a'));
     let unscii = vtium_font::set::builtin("unscii-8").expect("unscii-8");
     let theirs = SetFace::new(unscii, 8)
@@ -354,10 +359,11 @@ fn a_fallback_fills_what_the_first_source_lacks_on_the_bottom_rows() {
     let ours = face.draw_unscaled(&['▀'], Style::default()).expect("drawn");
     assert_eq!((ours.width(), ours.height()), (8, 16));
     assert!(
-        ours.pixels()[..8 * 8].iter().all(|&p| p == 0),
-        "the top half is empty"
+        ours.pixels()[..9 * 8].iter().all(|&p| p == 0),
+        "the rows above the glyph are empty"
     );
-    assert_eq!(&ours.pixels()[8 * 8..], theirs.pixels());
+    assert_eq!(&ours.pixels()[9 * 8..], &theirs.pixels()[..7 * 8]);
+    assert!(theirs.pixels()[7 * 8..].iter().all(|&p| p == 0));
 }
 
 #[test]
@@ -417,6 +423,84 @@ fn a_kbd_name_does_not_follow_a_link_out_of_the_data_directory() {
     }
 }
 
+/// A PSF2 font of 8x16 glyphs with a table, each glyph its character and
+/// the rows it inks, every column of them, as Terminus draws `H` and `a`
+/// on its baseline, row 12.
+fn psf2_inked(glyphs: &[(char, std::ops::Range<u32>)]) -> Vec<u8> {
+    let mut f = Vec::new();
+    for v in [0x864a_b572u32, 0, 32, 1, glyphs.len() as u32, 16, 16, 8] {
+        f.extend_from_slice(&v.to_le_bytes());
+    }
+    for (_, rows) in glyphs {
+        f.extend((0..16).map(|y| if rows.contains(&y) { 0xffu8 } else { 0 }));
+    }
+    for (c, _) in glyphs {
+        let mut buf = [0; 4];
+        f.extend_from_slice(c.encode_utf8(&mut buf).as_bytes());
+        f.push(0xff);
+    }
+    f
+}
+
+// ADR-1200 D17: a later bitmap source's glyphs stand on the first
+// source's baseline as far as their ink stays in the cell. The tour's
+// font set draws Vietnamese letters that Terminus lacks from unifont,
+// whose baseline is its row 14, where Terminus's is its row 12. Placed on
+// the cell's bottom row, as they were, they sat 2 rows below Terminus's
+// letters. Now ư (U+01B0), whose ink starts at unifont's row 4, rises the
+// 2 rows and ends on the row of Terminus's a; ả (U+1EA3), whose mark
+// starts at row 1, rises 1 row; ẳ (U+1EB3), whose mark starts at row 0,
+// cannot rise and keeps its whole mark. At twice the size, each of those
+// rows is two rows of the cell
+#[test]
+fn a_later_bitmap_source_stands_on_the_first_sources_baseline() {
+    let w = World::new("bitmap-baseline");
+    fs::write(
+        w.path("kbd/consolefonts/tvn.psf.gz"),
+        gzip(&psf2_inked(&[('H', 4..12), ('a', 6..12)])),
+    )
+    .expect("font");
+    let frit = "source=kbd:tvn\nsource=builtin:unifont\n";
+    let engine = w.engine(frit).expect("the frit loads");
+    let ink = |g: &vtium_font::Glyph| {
+        let rows: Vec<&[u8]> = g.rows().collect();
+        let inked: Vec<usize> = (0..rows.len())
+            .filter(|&y| rows[y].iter().any(|&p| p != 0))
+            .collect();
+        (inked.first().copied(), inked.last().copied())
+    };
+    for k in [1usize, 2] {
+        let at = cell(8 * k as u32, 16 * k as u32);
+        let bytes = engine
+            .draw(at, &[0x61, 0x1b0, 0x1ea3, 0x1eb3])
+            .expect("draws")
+            .expect("the glyphs");
+        let face = SetFace::new(
+            Arc::new(Set::from_bytes(bytes).expect("the set reads")),
+            at.height,
+        )
+        .expect("a face");
+        let drawn = |c: char| ink(&face.draw(&[c], Style::default()).expect("drawn"));
+        let (rows, last) = (|r: usize| r * k, |r: usize| r * k + k - 1);
+        assert_eq!(
+            drawn('a'),
+            (Some(rows(6)), Some(last(11))),
+            "{k}: Terminus's a"
+        );
+        assert_eq!(
+            drawn('ư'),
+            (Some(rows(2)), Some(last(11))),
+            "{k}: ư on the baseline"
+        );
+        assert_eq!(
+            drawn('ả'),
+            (Some(rows(0)), Some(last(12))),
+            "{k}: ả one row up"
+        );
+        assert_eq!(drawn('ẳ'), (Some(rows(0)), Some(last(13))), "{k}: ẳ whole");
+    }
+}
+
 // covers: text.emoji
 #[test]
 fn an_outline_font_with_color_glyphs_and_a_bitmap_fallback_draws_at_the_cell() {
@@ -443,8 +527,9 @@ fn an_outline_font_with_color_glyphs_and_a_bitmap_fallback_draws_at_the_cell() {
         (smile.format(), smile.cells(), smile.width()),
         (Format::Rgba, Width::Wide, 24)
     );
-    // B from unifont's 8x16 at factor 1, on the cell's bottom row and
-    // centred across: its lowest ink, unifont's row 13, on row 17
+    // B from unifont's 8x16 at factor 1, centred across, with unifont's
+    // baseline, its row 14, on Test Mono's, row 16: its lowest ink,
+    // unifont's row 13, on row 15
     let b = face.draw(&['B'], Style::default()).expect("B");
     assert_eq!(b.format(), Format::Mask);
     let inked: Vec<usize> = b
@@ -454,7 +539,7 @@ fn an_outline_font_with_color_glyphs_and_a_bitmap_fallback_draws_at_the_cell() {
         .filter(|(_, row)| row.iter().any(|&p| p != 0))
         .map(|(y, _)| y)
         .collect();
-    assert_eq!(inked.last(), Some(&17), "{inked:?}");
+    assert_eq!(inked.last(), Some(&15), "{inked:?}");
     assert!(!face.has_glyph('C'), "unifont covers only B");
 }
 
