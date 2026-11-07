@@ -978,16 +978,20 @@ impl View {
     /// `holding`: a hold keeps the last frame.
     ///
     /// A draw that cannot wait goes ahead at once: the display lost its
-    /// picture, a hold that owed a draw ended, the display takes a frame
-    /// that waited for it, or the output was short. With three buffers it
-    /// composes into the third while a flip is in flight. A draw the
-    /// coalescing paces during a flood goes ahead at its deadline, unless
-    /// the display's flip is in flight: then it waits for the flip to end
-    /// and composes nothing (ADR-1401 D2). A frame composed during the
-    /// flip could not reach the screen before the flip ends, and during a
-    /// flood the next change would draw over it before it got there. With
-    /// two buffers the display lends no buffer while it flips, so a paced
-    /// draw waited for the flip already.
+    /// picture, a hold that owed a draw ended, the output was short, or
+    /// the display takes a frame that such a draw waited for. With three
+    /// buffers it composes into the third while a flip is in flight. A
+    /// draw the coalescing paces during a flood goes ahead at its
+    /// deadline, unless the display's flip is in flight and the display
+    /// keeps two or three buffers: then it waits for the flip to end and
+    /// composes nothing (ADR-1401 D2). A frame composed during the flip
+    /// could not reach the screen before the flip ends, and during a flood
+    /// the next change would draw over it before it got there. A paced
+    /// draw that waited for the display to take a frame, as for a frame
+    /// composing, waits for the flip in flight too. With two buffers the
+    /// display lends no buffer while it flips, so a paced draw waited for
+    /// the flip already; with one buffer, or on a framebuffer, no draw
+    /// waits for a flip.
     pub fn draws(
         &mut self,
         term: &Term,
@@ -1003,16 +1007,21 @@ impl View {
         let owed = self.owed && !holding;
         // A pending view waits for its display to take a frame, so a
         // display that lends no token never turns the loop.
-        if now_all || self.lost || owed || (self.pending && video.ready_for_frame(self.id)) {
+        let taken = self.pending && video.ready_for_frame(self.id);
+        if now_all || self.lost || owed || (taken && !self.wait.paced()) {
+            self.wait.ask(false);
             return true;
         }
-        let mut paced = due || self.wait.for_flip();
+        let mut paced = due || taken || self.wait.for_flip();
         if term.changed {
             match term
                 .coalesce
                 .decide(holding, &mut self.wait, term.unparsed, now, self.refresh)
             {
-                Draw::Now => return true,
+                Draw::Now => {
+                    self.wait.ask(false);
+                    return true;
+                }
                 Draw::Paced => paced = true,
                 Draw::Later(_) => {}
             }
@@ -1020,11 +1029,11 @@ impl View {
         if !paced {
             return false;
         }
-        if video.is_flipping(self.id) {
+        if video.is_flipping(self.id) && video.paced_draw_waits_for_flip(self.id) {
             self.wait.wait_for_flip();
             return false;
         }
-        self.wait.end();
+        self.wait.ask(true);
         true
     }
 
@@ -1797,6 +1806,9 @@ mod tests {
         fn ready_for_frame(&self, id: DisplayId) -> bool {
             !self.out && (!self.is_flipping(id) || (self.bufs.len() != 2 && !self.fresh))
         }
+        fn paced_draw_waits_for_flip(&self, _: DisplayId) -> bool {
+            self.bufs.len() > 1
+        }
         fn set_dpms(&mut self, _: DisplayId, _: Dpms) -> io::Result<()> {
             Ok(())
         }
@@ -2550,6 +2562,89 @@ mod tests {
             turn(&mut term, &mut view, &mut video, &[]);
             assert_eq!((video.composed, video.sent), (2, 2), "sent as it is");
         }
+    }
+
+    // ADR-1401 D2: a paced draw that meets a frame composing on the render
+    // thread waits for that frame to come back, and when the frame's flip
+    // is then in flight, it waits for the flip too: with three buffers the
+    // display lends the third during the flip, and a frame composed into it
+    // would be drawn over at the flip's end.
+    #[test]
+    fn a_paced_draw_that_met_a_frame_composing_waits_for_its_flip() {
+        let hand = Hand::new();
+        let (mut term, mut view) = view_at(&hand);
+        let mut video = Flip::with(3);
+        let key = (PathBuf::new(), ID);
+        let clock = hand.clock();
+        // A at 0, its flip until 16.
+        turn(&mut term, &mut view, &mut video, &[b"A"]);
+        video.flipping = true;
+        hand.at(4);
+        turn(&mut term, &mut view, &mut video, &[&flood(b'b')]);
+        hand.at(16);
+        video.flipping = false;
+        // The pass at the flip's end hands B to the render thread.
+        assert!(view.draws(&term, &video, false, false, clock()));
+        let Prepared::Job(job) = view.prepare(
+            &key,
+            &mut term,
+            &mut None,
+            &mut video,
+            &DrawState::default(),
+            None,
+            &*clock,
+        ) else {
+            panic!("B is taken")
+        };
+        term.coalesce.turn_end();
+        // A flood turn while B composes: its paced draw waits for B.
+        hand.at(18);
+        assert_eq!(term.parse(&flood(b'c'), &mut |_| {}), flood(b'c').len());
+        if view.draws(&term, &video, false, false, clock()) {
+            let later = view.prepare(
+                &key,
+                &mut term,
+                &mut None,
+                &mut video,
+                &DrawState::default(),
+                None,
+                &*clock,
+            );
+            assert!(matches!(later, Prepared::Later), "B is composing");
+        }
+        term.coalesce.turn_end();
+        term.changed = false;
+        // B comes back at 20, and its flip is in flight until 32.
+        hand.at(20);
+        view.present(job.compose(None), &mut term, &mut video, true, &*clock);
+        assert_eq!((video.composed, video.sent), (2, 2));
+        video.flipping = true;
+        turn(&mut term, &mut view, &mut video, &[]);
+        assert_eq!(
+            (video.composed, video.sent),
+            (2, 2),
+            "nothing composes during B's flip"
+        );
+        hand.at(32);
+        video.flipping = false;
+        turn(&mut term, &mut view, &mut video, &[]);
+        assert_eq!((video.composed, video.sent), (3, 3), "C at B's flip's end");
+        assert!(video.shows((video.back + 2) % 3, 0), "c");
+    }
+
+    // ADR-1401 D2: with one buffer no draw waits for a flip, a paced one
+    // included. vtium draws into the buffer shown, so the frame composed
+    // at the deadline goes out with the next commit, and the display keeps
+    // it while the flip lasts.
+    #[test]
+    fn with_one_buffer_a_paced_draw_composes_at_its_deadline() {
+        let (hand, mut term, mut view, mut video) = flood_during_a_flip(1);
+        assert_eq!((video.composed, video.sent), (2, 1), "composed at 16 ms");
+        assert!(!view.wait.for_flip());
+        hand.at(24);
+        video.flipping = false;
+        turn(&mut term, &mut view, &mut video, &[]);
+        assert_eq!((video.composed, video.sent), (2, 2), "sent as it is");
     }
 
     /// The vertical blanks from a change to the vblank whose flip puts it
