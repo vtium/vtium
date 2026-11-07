@@ -374,6 +374,8 @@ impl<'a> Replay<'a> {
         match self.view {
             View::Screen => view::screen(&self.term, &mut self.out),
             View::Frame => view::frame(&mut self.term, &mut self.frame, &mut self.out),
+            #[cfg(feature = "bidi")]
+            View::Display => view::display(&self.term, &mut self.out),
         }
     }
 }

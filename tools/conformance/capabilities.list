@@ -26,7 +26,7 @@ rep                           works   -     text.rep                       REP r
 erase-colours-only            works   -     ctl.bce                        EL, SU, SD and RI blanks take the pen background only
 frame-age-per-caller          works   -     platform.multi-monitor         each frame-since caller keeps its own changes
 reflow                        works   -     text.reflow                    a resize rewraps the lines a wrap made
-bidi                          missing #43   text.bidi                      placeholder in the probes: no bidirectional reordering
+bidi                          works   -Dbidi text.bidi                     a mixed line draws in the order the bidirectional algorithm gives
 
 # modes and replies
 mode-2026-sync                works   -     DEC-2026                       mode 2026 holds frames while the host offers it

@@ -34,6 +34,11 @@ record = ["dep:vtium-platform", "dep:rustix"]
 # it; opt-in, so a workspace build without features keeps vtium-term
 # without images
 images = ["vtium-term/images"]
+# vtium-replay with right-to-left text (ADR-1004): the display view, which
+# prints each row in the order it is drawn. make conformance builds it;
+# opt-in, so a workspace build without features keeps vtium-term without
+# bidi
+bidi = ["vtium-term/bidi"]
 
 [[bin]]
 name = "conformance-record"

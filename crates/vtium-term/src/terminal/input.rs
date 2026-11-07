@@ -554,9 +554,11 @@ impl Terminal {
     /// X11 keysym after Shift, `ascii` the keysym an ASCII layout gives
     /// the same key (0 for none), `unicode` the character it makes, and
     /// `mods` the modifiers held, with [`Mods::NUM`] while NumLock is on.
-    /// Alt acts where xterm lets it, as modes 1034 and 1036 say. Returns
+    /// Alt acts where xterm lets it, as modes 1034 and 1036 say, and Left
+    /// and Right swap as [`arrow_keysym`](Self::arrow_keysym) says. Returns
     /// whether anything was sent.
     pub fn key(&mut self, keysym: u32, ascii: u32, mods: Mods, unicode: Option<char>) -> bool {
+        let (keysym, ascii) = (self.arrow_keysym(keysym), self.arrow_keysym(ascii));
         // Ctrl reads the ASCII layout's keysym, so Ctrl+C works whatever
         // layout is active.
         let sym = if ascii == 0 { keysym } else { ascii };
@@ -599,8 +601,10 @@ impl Terminal {
 
     /// Reports a pointer event at cell `col`, `row` and pixel `px`, `py`,
     /// counted from 0 at the top left of the text area, as the program's
-    /// tracking and encoding ask. Of `mods`, Shift, Alt and Ctrl are
-    /// reported. Returns whether anything was sent.
+    /// tracking and encoding ask. In a row drawn in another order than it
+    /// was written, the report names the logical cell drawn there, as
+    /// [`pointer_cell`](Self::pointer_cell) says. Of `mods`, Shift, Alt and
+    /// Ctrl are reported. Returns whether anything was sent.
     #[allow(
         clippy::too_many_arguments,
         reason = "an event's position, button and modifiers"
@@ -615,6 +619,7 @@ impl Terminal {
         event: MouseEvent,
         mods: Mods,
     ) -> bool {
+        let (col, px) = self.pointer_cell(col, row, px);
         let Some(bytes) = self
             .state
             .mouse_bytes((col, row), (px, py), button, event, mods)

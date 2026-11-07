@@ -1,7 +1,7 @@
 #![forbid(unsafe_code)]
 //! vtium's side of tier 1.
 //!
-//! `vtium-replay` meets the replay interface, interface 1.2:
+//! `vtium-replay` meets the replay interface, interface 1.3:
 //! `corpus/INTERFACE.md` with vtium's additions in `INTERFACE-vtium.md`,
 //! over `vtium-term`: a byte stream and the test commands
 //! in it go in, and the screen or frame view comes out as text.
@@ -55,7 +55,8 @@ pub(crate) fn internal(message: impl Into<String>) -> Failure {
 /// What `--describe` prints: the interface, the views, the features and
 /// the commands vtium offers, in the order of the interface's describe
 /// blocks. vtium has no draw2 view, offers the image features and
-/// `kitty-animation` in a build with images, and declines `damage-exact`.
+/// `kitty-animation` in a build with images, the display view and `bidi`
+/// in a build with the bidi feature, and declines `damage-exact`.
 pub fn describe() -> String {
     // 1.0's image features, and vtium's kitty-animation
     let (images, animation): (&[&str], &[&str]) = if command::IMAGES {
@@ -78,8 +79,12 @@ pub fn describe() -> String {
             "query",
             "clipboard",
         ])
-        .chain(animation);
-    let mut out = String::from("interface 1.2\nview screen\nview frame\n");
+        .chain(animation)
+        .chain(if BIDI { &["bidi"][..] } else { &[] });
+    let mut out = String::from("interface 1.3\nview screen\nview frame\n");
+    if BIDI {
+        out.push_str("view display\n");
+    }
     for f in features {
         out.push_str("feature ");
         out.push_str(f);
@@ -97,8 +102,12 @@ pub fn describe() -> String {
     out
 }
 
-/// Runs the command line, `[--frame] COLS ROWS FILE [CUTS]` or
-/// `--describe`, and returns what it prints.
+/// Whether vtium-replay is built with the bidi feature, which gives it the
+/// display view.
+pub const BIDI: bool = cfg!(feature = "bidi");
+
+/// Runs the command line, `[--frame | --display] COLS ROWS FILE [CUTS]`
+/// or `--describe`, and returns what it prints.
 pub fn main(args: &[String]) -> Result<String, Failure> {
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
     if args == ["--describe"] {
@@ -106,12 +115,20 @@ pub fn main(args: &[String]) -> Result<String, Failure> {
     }
     let (view, rest) = match args.split_first() {
         Some((&"--frame", rest)) => (view::View::Frame, rest),
+        #[cfg(feature = "bidi")]
+        Some((&"--display", rest)) => (view::View::Display, rest),
+        #[cfg(not(feature = "bidi"))]
+        Some((&"--display", _)) => {
+            return Err(usage(
+                "this vtium-replay has no display view: it is built without the bidi feature",
+            ));
+        }
         Some((&"--draw2", _)) => return Err(usage("vtium has no draw2 view")),
         _ => (view::View::Screen, &args[..]),
     };
     let [cols, rows, file, cuts @ ..] = rest else {
         return Err(usage(
-            "usage: vtium-replay [--frame] COLS ROWS FILE [CUTS]\n       vtium-replay --describe",
+            "usage: vtium-replay [--frame | --display] COLS ROWS FILE [CUTS]\n       vtium-replay --describe",
         ));
     };
     let (Some(cols), Some(rows)) = (

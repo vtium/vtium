@@ -3,6 +3,10 @@
 //! what DECSTR and RIS return the paragraph properties to. The modes that
 //! set the other properties, BDSM, 2500 and 2501, are rows of the mode
 //! table (`modes.rs`).
+//!
+//! The input side of right-to-left text is here too: the arrow keys mode
+//! 1243 swaps (ADR-1004 D11), and the logical cell and pixel a pointer
+//! report names when the pointer is over a reordered row (D10).
 
 use super::{State, Terminal};
 use crate::line::LineFlags;
@@ -83,5 +87,50 @@ impl State {
     pub(super) fn reset_paragraph(&mut self) {
         let defaults = self.paragraph_defaults();
         self.screen.set_paragraph(defaults);
+    }
+}
+
+/// The X11 keysyms of the Left and Right arrow keys and their keypad twins
+/// (xkbcommon's `xkbcommon-keysyms.h`).
+const LEFT: u32 = 0xff51;
+const RIGHT: u32 = 0xff53;
+const KP_LEFT: u32 = 0xff96;
+const KP_RIGHT: u32 = 0xff98;
+
+impl State {
+    /// The arrow key `keysym` sends: Left as Right and Right as Left, the
+    /// keypad's included, while mode 1243 is set and the cursor's
+    /// paragraph resolves right to left, so an editor that moves through a
+    /// line in logical order moves the way the arrow points over
+    /// right-to-left text (ADR-1004 D11). Every other key, Home and End
+    /// among them, is itself.
+    pub(super) fn swapped_arrow(&self, keysym: u32) -> u32 {
+        let swap = self.modes.arrow_direction() && self.screen.cursor_paragraph_rtl();
+        match keysym {
+            LEFT if swap => RIGHT,
+            RIGHT if swap => LEFT,
+            KP_LEFT if swap => KP_RIGHT,
+            KP_RIGHT if swap => KP_LEFT,
+            other => other,
+        }
+    }
+
+    /// The cell and the pixel column a pointer report names for a pointer
+    /// over cell `col`, `row` of the view at pixel column `px`: the logical
+    /// cell drawn there, and that cell's left edge plus the pointer's
+    /// offset inside the cell it is over, so a program addresses the cell
+    /// it wrote (ADR-1004 D10). Without the cell's size in pixels the pixel
+    /// column is as the host gave it.
+    pub(super) fn logical_pointer(&self, col: usize, row: usize, px: u32) -> (usize, u32) {
+        let logical = self.screen.pointer_col(col, row);
+        let px = match self.host.cell {
+            Some((width, _)) if logical != col => {
+                let at = |c: usize| u32::try_from(c).unwrap_or(u32::MAX).saturating_mul(width);
+                let offset = px.saturating_sub(at(col)).min(width.saturating_sub(1));
+                at(logical).saturating_add(offset)
+            }
+            _ => px,
+        };
+        (logical, px)
     }
 }

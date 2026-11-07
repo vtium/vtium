@@ -20,3 +20,16 @@ iterm2-bound 12 4
 iterm2-loops 12 6
 iterm2-frames-max 12 4
 kit-png-frames 12 4
+bidi-01-mixed 30 4
+bidi-02-all-arabic 30 4
+bidi-03-all-hebrew 30 4
+bidi-04-prompt-arabic 30 4
+bidi-05-joining 30 4
+bidi-06-mirror 30 4
+bidi-07-numbers 30 4
+bidi-08-wrap 30 4
+bidi-09-explicit-bdsm 30 4
+bidi-10-scp-rtl 30 4
+bidi-11-autodetect-2501 30 4
+bidi-12-box-mirror-2500 30 4
+bidi-13-cursor-end 30 4

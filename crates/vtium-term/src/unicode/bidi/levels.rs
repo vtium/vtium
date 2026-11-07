@@ -2,12 +2,20 @@
 //!
 //! It builds a paragraph with `ParagraphBidiInfo::new_with_data_source`,
 //! passing the crate vtium-term's own Bidi_Class and bracket tables, so the
-//! crate's tables are never linked. It reads the result only through
-//! `reordered_levels_per_char` and `reorder_visual`, and it never hands the
-//! crate an empty text or an empty line. In 0.3.18 the crate's `visual_runs`,
+//! crate's tables are never linked. The crate runs rules X1 to I2 over
+//! the whole paragraph once. vtium-term then reads the paragraph's level
+//! and each character's level from the result's public `paragraph_level`
+//! and `levels` fields, and applies rule L1 to each row itself, so drawing
+//! a paragraph of many rows reads each character a fixed number of times:
+//! the crate's `reordered_levels_per_char` copies and walks the whole
+//! paragraph's levels for every row it is asked about. It orders a row
+//! with the crate's `reorder_visual`, and it never hands the crate an empty
+//! text. In 0.3.18 the crate's `visual_runs`,
 //! which `reorder_line` calls too, panics on an input its maintainers were
 //! sent and on any empty line, and vtium's builds abort on a panic. Nothing
 //! outside this module names the crate.
+
+use core::ops::Range;
 
 use unicode_bidi::data_source::BidiMatchedOpeningBracket;
 use unicode_bidi::{BidiClass, BidiDataSource, Level, ParagraphBidiInfo};
@@ -68,13 +76,16 @@ pub(crate) struct Resolved {
 /// character outside every isolate gives it a direction by rules P2 and P3.
 /// `rows` gives the length of each of the paragraph's rows in characters,
 /// in order; the characters past the last row form one more row. Rules X1
-/// to I2 run over the whole paragraph and rule L1 over each row, so a row's
-/// trailing spaces take the paragraph's level.
+/// to I2 run over the whole paragraph once, and rule L1 over each row of
+/// `wanted`, the indices of the rows the caller draws, so a row's trailing
+/// spaces take the paragraph's level. A row outside `wanted` keeps the
+/// levels rules X1 to I2 gave it.
 pub(crate) fn resolve(
     text: &[char],
     direction: Direction,
     detect: bool,
     rows: &[usize],
+    wanted: Range<usize>,
 ) -> Resolved {
     let direction = if detect {
         first_strong(text).unwrap_or(direction)
@@ -94,36 +105,102 @@ pub(crate) fn resolve(
     }
 
     let string: String = text.iter().collect();
-    // the byte offset where each character starts, and the text's end
-    let mut offsets = Vec::with_capacity(text.len().saturating_add(1));
+    let info = ParagraphBidiInfo::new_with_data_source(&Tables, &string, Some(level));
+    let paragraph = info.paragraph_level.number();
+    // each character's level, read at the byte it starts at
     let mut at: usize = 0;
     for c in text {
-        offsets.push(at);
+        levels.push(info.levels.get(at).map_or(paragraph, Level::number));
         at = at.saturating_add(c.len_utf8());
     }
-    offsets.push(at);
-
-    let info = ParagraphBidiInfo::new_with_data_source(&Tables, &string, Some(level));
+    count(text.len());
     let mut start = 0;
-    for len in rows.iter().copied().chain(std::iter::once(usize::MAX)) {
+    let lens = rows.iter().copied().chain(std::iter::once(usize::MAX));
+    for (index, len) in lens.enumerate() {
         if start >= text.len() {
             break;
         }
         let end = start.saturating_add(len).min(text.len());
-        // an empty row never reaches the crate
-        if end > start
-            && let (Some(&from), Some(&to)) = (offsets.get(start), offsets.get(end))
-        {
-            let per_char = info.reordered_levels_per_char(from..to);
-            let row = per_char.get(start..end).unwrap_or_default();
-            levels.extend(row.iter().map(Level::number));
+        if !wanted.contains(&index) {
+            start = end;
+            continue;
+        }
+        if let (Some(row), Some(row_levels)) = (text.get(start..end), levels.get_mut(start..end)) {
+            line_levels(row, row_levels, paragraph);
+            count(row.len());
         }
         start = end;
     }
     Resolved {
-        level: info.paragraph_level.number(),
+        level: paragraph,
         levels,
     }
+}
+
+/// Rule L1 over one row: `text` its characters and `levels` their levels
+/// after rules X1 to I2, at the paragraph's level `paragraph`. A segment or
+/// paragraph separator, the whitespace and isolate formatting characters
+/// before one, and those at the row's end take the paragraph's level. A
+/// character rule X9 removed (an embedding, an override, PDF or a boundary
+/// neutral) takes the level of the character before it and counts as
+/// whitespace here, as UAX #9's section on retaining explicit formatting
+/// characters allows. This is the rule the crate's own line functions
+/// apply, applied to the row's characters alone.
+fn line_levels(text: &[char], levels: &mut [u8], paragraph: u8) {
+    let mut reset_from: Option<usize> = Some(0);
+    let mut previous = paragraph;
+    for (i, &c) in text.iter().enumerate() {
+        let mut reset_to = None;
+        match class(c) {
+            Class::B | Class::S => {
+                reset_to = Some(i.saturating_add(1));
+                reset_from.get_or_insert(i);
+            }
+            Class::Ws | Class::Fsi | Class::Lri | Class::Rli | Class::Pdi => {
+                reset_from.get_or_insert(i);
+            }
+            Class::Rle | Class::Lre | Class::Rlo | Class::Lro | Class::Pdf | Class::Bn => {
+                reset_from.get_or_insert(i);
+                if let Some(level) = levels.get_mut(i) {
+                    *level = previous;
+                }
+            }
+            _ => reset_from = None,
+        }
+        if let (Some(from), Some(to)) = (reset_from, reset_to) {
+            for level in levels.get_mut(from..to).into_iter().flatten() {
+                *level = paragraph;
+            }
+            reset_from = None;
+        }
+        previous = levels.get(i).copied().unwrap_or(paragraph);
+    }
+    if let Some(from) = reset_from {
+        for level in levels.get_mut(from..).into_iter().flatten() {
+            *level = paragraph;
+        }
+    }
+}
+
+#[cfg(test)]
+std::thread_local! {
+    /// The characters this module has read on this thread: a paragraph's
+    /// characters once for their levels, and each row's once more for
+    /// rule L1. A test counts them to bound the work a frame does.
+    static READ: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
+/// Counts `n` characters read, in a test build.
+fn count(n: usize) {
+    #[cfg(test)]
+    READ.with(|r| r.set(r.get().saturating_add(n)));
+    let _ = n;
+}
+
+/// The characters this module has read on this thread so far.
+#[cfg(test)]
+pub(crate) fn chars_read() -> usize {
+    READ.with(core::cell::Cell::get)
 }
 
 /// The visual order of characters at `levels` by rule L2: for each place

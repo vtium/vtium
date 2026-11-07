@@ -25,10 +25,11 @@ pub use judge::{Outcome, Replay, build_feature, check_list, verdict};
 const INPUT_KEYS: [&str; 3] = ["send", "cmd", "check"];
 
 /// Each view and the feature it needs.
-const VIEW_FEATURES: [(&str, Option<&str>); 3] = [
+const VIEW_FEATURES: [(&str, Option<&str>); 4] = [
     ("screen", None),
     ("frame", Some("view-frame")),
     ("draw2", Some("view-draw2")),
+    ("display", Some("bidi")),
 ];
 
 /// One step of a probe, with the line it was read from.

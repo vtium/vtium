@@ -108,6 +108,7 @@ impl Screen {
 
     /// Starts a selection at column `x` of view row `y`.
     pub fn select_start(&mut self, x: usize, y: usize) {
+        let x = self.pointer_col(x, y);
         let Some(anchor) = self.anchor(x, y) else {
             return;
         };
@@ -124,6 +125,7 @@ impl Screen {
     /// Extends the selection from where it started to column `x` of view
     /// row `y`, whichever comes first in reading order.
     pub fn select_to(&mut self, x: usize, y: usize) {
+        let x = self.pointer_col(x, y);
         if !self.selection.active {
             return;
         }
@@ -147,6 +149,7 @@ impl Screen {
     /// word that reaches the end of a wrapped row goes on at the start of
     /// the next.
     pub fn select_word(&mut self, x: usize, y: usize) {
+        let x = self.pointer_col(x, y);
         let Some(anchor) = self.anchor(x, y) else {
             return;
         };
@@ -225,6 +228,7 @@ impl Screen {
     /// Selects the whole line at view row `y`, `x` any column of it: each
     /// row of it, when it wrapped.
     pub fn select_line(&mut self, x: usize, y: usize) {
+        let x = self.pointer_col(x, y);
         let Some(anchor) = self.anchor(x, y) else {
             return;
         };
@@ -254,6 +258,7 @@ impl Screen {
     /// output, a prompt's or its input's, selects nothing, nor does the
     /// alternate screen. Returns whether it selected.
     pub fn select_output(&mut self, x: usize, y: usize) -> bool {
+        let x = self.pointer_col(x, y);
         let Some(anchor) = self.anchor(x, y).filter(|_| !self.flags.alternate) else {
             return false;
         };
@@ -416,7 +421,7 @@ impl Screen {
     }
 
     /// The line at `place` in reading order.
-    fn line_at(&self, place: usize) -> Option<&Line> {
+    pub(super) fn line_at(&self, place: usize) -> Option<&Line> {
         match place.checked_sub(self.scrollback.len()) {
             None => self.scrollback.get(place),
             Some(row) => self.lines().get(row),
@@ -424,7 +429,7 @@ impl Screen {
     }
 
     /// The place in reading order of view row `y`.
-    fn view_place(&self, y: usize) -> usize {
+    pub(super) fn view_place(&self, y: usize) -> usize {
         self.scrollback
             .view_index()
             .unwrap_or(self.scrollback.len())
@@ -433,7 +438,7 @@ impl Screen {
 
     /// Whether the line at `place` in reading order continues on the next:
     /// it wrapped, and the next is not the alternate screen's first row.
-    fn continues(&self, place: usize) -> bool {
+    pub(super) fn continues(&self, place: usize) -> bool {
         let next = place.saturating_add(1);
         let wrapped = self
             .line_at(place)

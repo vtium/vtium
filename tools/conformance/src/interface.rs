@@ -28,7 +28,14 @@ pub use refusals::{exit_code, refusals};
 
 /// The goldens by view, in the copied corpus and in vtium's own cases;
 /// the draw2 goldens were not copied, as vtium has no draw2 view.
-const GOLDENS: [(&str, &str); 2] = [("screen", "golden"), ("frame", "golden-frame")];
+/// Each view with the directory of its goldens, and whether a corpus must
+/// have the directory: the display view's goldens are only for vtium's own
+/// cases of right-to-left text.
+const GOLDENS: [(&str, &str, bool); 3] = [
+    ("screen", "golden", true),
+    ("frame", "golden-frame", true),
+    ("display", "golden-display", false),
+];
 
 /// What one check counted, and the faults it found.
 #[derive(Clone, Debug, Default)]
@@ -125,12 +132,13 @@ fn goldens(spec: &Spec, corpus: &Corpus) -> (usize, Vec<String>) {
         .collect();
     let mut faults = Vec::new();
     let mut count = 0usize;
-    for (view, dir) in GOLDENS {
+    for (view, dir, required) in GOLDENS {
         let mut files: Vec<PathBuf> = match std::fs::read_dir(corpus.root.join(dir)) {
             Ok(entries) => entries
                 .filter_map(|e| e.ok().map(|e| e.path()))
                 .filter(|p| p.extension().is_some_and(|x| x == "txt"))
                 .collect(),
+            Err(_) if !required => continue,
             Err(e) => {
                 faults.push(format!("{set}/{dir}/: {e}"));
                 continue;
@@ -494,6 +502,8 @@ pub fn examples(texts: &[&str], spec: &Spec, declared: &BTreeSet<String>) -> Tal
         let view = match e.view.as_str() {
             "screen" => View::Screen,
             "frame" => View::Frame,
+            #[cfg(feature = "bidi")]
+            "display" => View::Display,
             _ => {
                 tally.skipped = tally.skipped.saturating_add(1);
                 continue;

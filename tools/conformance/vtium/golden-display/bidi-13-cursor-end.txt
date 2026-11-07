@@ -1,0 +1,8 @@
+size 30x4
+cursor 8,0
+flags AUTO_WRAP
+display-cursor 8,0 left
+row 0 |abc םולש|
+row 1 ||
+row 2 ||
+row 3 ||

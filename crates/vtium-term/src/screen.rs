@@ -437,16 +437,30 @@ impl Screen {
         let lines = self.view();
         let offset = self.scrollback.offset();
         let row = self.cursor_y.saturating_add(offset);
+        let col = self.cursor_x.min(self.cols.saturating_sub(1));
+        // the cursor stays on its logical cell and is drawn where that
+        // cell is (ADR-1004 D9)
+        #[cfg(feature = "bidi")]
+        let order = self.order();
+        #[cfg(feature = "bidi")]
+        let drawn = order.row(row);
         let cursor = Cursor {
             row,
-            col: self.cursor_x.min(self.cols.saturating_sub(1)),
+            #[cfg(feature = "bidi")]
+            col: drawn.map_or(col, |r| r.visual_at(col)),
+            #[cfg(not(feature = "bidi"))]
+            col,
             visible: !self.flags.cursor_hidden && row < self.rows,
             shape: self.cursor_shape,
             blink: self.cursor_blink,
             color: palette.cursor(),
+            #[cfg(feature = "bidi")]
+            rtl: drawn.is_some_and(|r| r.rtl_at(col)),
         };
         let selected = self.selected_columns(&lines);
-        #[cfg(feature = "images")]
+        #[cfg(all(feature = "images", feature = "bidi"))]
+        let placements = self.placements_in(&order);
+        #[cfg(all(feature = "images", not(feature = "bidi")))]
         let placements = self.placements();
         let frame = Frame::new(
             lines,
@@ -465,6 +479,8 @@ impl Screen {
         );
         #[cfg(feature = "images")]
         let frame = frame.with_placements(placements);
+        #[cfg(feature = "bidi")]
+        let frame = frame.with_order(order);
         frame
     }
 
@@ -1002,6 +1018,20 @@ impl Screen {
             line.erase(0..cols, style);
         }
         line
+    }
+
+    /// The logical column view row `y` shows at column `x`, where the
+    /// pointer is: the cell a selection, a mouse report or a link's hover
+    /// takes. In a build with the bidi feature a row drawn in another
+    /// order than it was written shows another column there (ADR-1004
+    /// D10); otherwise every column shows itself.
+    pub(crate) fn pointer_col(&self, x: usize, y: usize) -> usize {
+        #[cfg(feature = "bidi")]
+        if let Some(r) = self.row_order(y) {
+            return r.logical_at(x);
+        }
+        let _ = y;
+        x
     }
 
     /// Marks cells of `row` changed. While the view is scrolled back, the

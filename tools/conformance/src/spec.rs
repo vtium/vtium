@@ -8,7 +8,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use regex::Regex;
 
 /// The views a `line` form lists as `*`.
-const ALL_VIEWS: &str = "screen,draw2,frame";
+const ALL_VIEWS: &str = "screen,draw2,frame,display";
 
 /// One form of a line kind: the views it is printed in, and its pattern
 /// with the reserved keys empty and with them allowed.

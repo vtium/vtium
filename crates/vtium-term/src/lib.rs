@@ -71,6 +71,8 @@ mod damage;
 mod frame;
 mod line;
 mod links;
+#[cfg(feature = "bidi")]
+mod order;
 mod palette;
 #[cfg(feature = "images")]
 mod placeholder;
@@ -92,6 +94,8 @@ pub use cell::{Cell, ClusterOffset, Content, LinkIndex, StyleIndex, Width};
 pub use damage::{Age, Damage};
 pub use frame::{Cursor, CursorShape, Frame, FrameCell, Overlay, dim};
 pub use line::{Glyph, Line, LineFlags, LineId, LineSize, LinkId};
+#[cfg(feature = "bidi")]
+pub use order::{Joins, Order};
 pub use palette::{PALETTE_NAMES, Palette, Special};
 pub use screen::{Erase, Screen, WidthMethod};
 pub use scrollback::{
@@ -109,7 +113,7 @@ pub use terminal::{
 };
 #[cfg(feature = "images")]
 pub use terminal::{ImageNote, ImageString};
-pub use unicode::{UNICODE_VERSION, cluster_width};
+pub use unicode::{UNICODE_VERSION, cluster_width, is_rtl_class};
 /// The image pipeline's types, which a build with images reaches through
 /// vtium-term (ADR-1100).
 #[cfg(feature = "images")]

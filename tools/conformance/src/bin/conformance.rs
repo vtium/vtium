@@ -15,6 +15,7 @@ use vtium_conformance::probes::{self, Outcome, Replay};
 use vtium_conformance::runner::{self, Corpus, VIEWS, Verdict, chunking, own};
 use vtium_conformance::scenario::run::Runner;
 use vtium_conformance::spec::Spec;
+use vtium_conformance::view::View;
 
 const TOOL: &str = env!("CARGO_MANIFEST_DIR");
 /// The corpus; the probes sit in `probes/`,
@@ -30,11 +31,12 @@ const PROBES: [&str; 2] = ["probes/probes.replay", "probes/vtium.replay"];
 /// The build features the capability list names. Its `-Dimages` names the
 /// image pipeline with the sixel and kitty handlers. vtium-replay is built with images, which holds
 /// the pipeline and both handlers (#48, #49), so the probes that need them
-/// are judged as working.
-const BUILD: [(&str, bool); 1] = [("images", true)];
+/// are judged as working. Its `-Dbidi` names right-to-left text (ADR-1004),
+/// which make conformance builds vtium-replay with too.
+const BUILD: [(&str, bool); 2] = [("images", true), ("bidi", true)];
 /// Features interface 1 lets an implementation without images, or
 /// without the draw2 view, leave out.
-const OPTIONAL: [&str; 7] = [
+const OPTIONAL: [&str; 8] = [
     "view-draw2",
     "damage-exact",
     "images",
@@ -42,6 +44,7 @@ const OPTIONAL: [&str; 7] = [
     "kitty-graphics",
     "image-host",
     "kitty-animation",
+    "bidi",
 ];
 
 const USAGE: &str = "usage: conformance [run] [--seed N] [--rounds N]
@@ -205,9 +208,14 @@ fn judge_set(
     provisional: &BTreeMap<String, String>,
 ) -> Result<bool, String> {
     let mut ok = true;
-    for (view, name, golden_dir) in VIEWS {
+    for (view, name, golden_dir) in views(set) {
         let (mut pass, mut drift, mut fail) = (0, 0, 0);
-        for case in &set.cases {
+        let cases: Vec<&runner::Case> = set
+            .cases
+            .iter()
+            .filter(|c| view_has_golden(set, c, golden_dir))
+            .collect();
+        for case in cases.iter().copied() {
             let got = vtium_conformance::replay::run(&set.input(case, view)?);
             let golden = set.golden(case, golden_dir)?;
             match (runner::judge(&got, &golden), provisional.get(&case.name)) {
@@ -226,24 +234,46 @@ fn judge_set(
                 }
             }
         }
-        let listed = set
-            .cases
+        let listed = cases
             .iter()
             .filter(|c| provisional.contains_key(&c.name))
             .count();
         println!(
             "{label}{name}: {} cases, {pass} match their goldens, {fail} FAIL, {listed} provisional, {drift} differ from a provisional golden",
-            set.cases.len()
+            cases.len()
         );
     }
     Ok(ok)
 }
 
+/// The views `set`'s cases are judged in: the screen and frame views, and
+/// in a build with the bidi feature the display view, for the cases that
+/// have a golden of it.
+fn views(set: &Corpus) -> Vec<(View, &'static str, &'static str)> {
+    let _ = set;
+    #[cfg(feature = "bidi")]
+    return VIEWS.into_iter().chain([runner::DISPLAY]).collect();
+    #[cfg(not(feature = "bidi"))]
+    VIEWS.to_vec()
+}
+
+/// Whether `case` is judged in the view whose goldens are in `golden_dir`:
+/// every case is in the screen and frame views, and a case is in the
+/// display view when `golden-display/` holds its golden.
+fn view_has_golden(set: &Corpus, case: &runner::Case, golden_dir: &str) -> bool {
+    VIEWS.iter().any(|(_, _, d)| *d == golden_dir)
+        || set
+            .root
+            .join(golden_dir)
+            .join(format!("{}.txt", case.name))
+            .is_file()
+}
+
 fn run(o: &Options) -> Result<bool, String> {
-    // the goldens hold what vtium-replay built with images prints
-    if !vtium_conformance::command::IMAGES {
+    // the goldens hold what vtium-replay built with images and bidi prints
+    if !vtium_conformance::command::IMAGES || !vtium_conformance::BIDI {
         return Err(
-            "conformance run judges vtium-replay built with images: build with --features images, as make conformance does"
+            "conformance run judges vtium-replay built with images and bidi: build with --features images,bidi, as make conformance does"
                 .to_owned(),
         );
     }
@@ -260,10 +290,13 @@ fn run(o: &Options) -> Result<bool, String> {
         "chunking: seed {}, {} rounds of extra cuts",
         o.seed, o.rounds
     );
-    for (view, name, _) in VIEWS {
+    for (view, name, golden_dir) in views(&own_cases) {
         let mut chunked = 0;
         let cases = corpus.cases.iter().map(|c| (&corpus, c));
         for (set, case) in cases.chain(own_cases.cases.iter().map(|c| (&own_cases, c))) {
+            if !view_has_golden(set, case, golden_dir) {
+                continue;
+            }
             let input = set.input(case, view)?;
             match chunking::check(&input, o.seed, o.rounds) {
                 Ok(()) => chunked += 1,
