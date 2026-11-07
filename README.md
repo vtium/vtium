@@ -15,6 +15,7 @@
 [![openSUSE](https://repology.org/badge/version-for-repo/opensuse_tumbleweed/vtium.svg)](https://repology.org/project/vtium/versions)
 [![nixpkgs](https://repology.org/badge/version-for-repo/nix_unstable/vtium.svg)](https://repology.org/project/vtium/versions)
 [![Alpine](https://repology.org/badge/version-for-repo/alpine_edge/vtium.svg)](https://repology.org/project/vtium/versions)
+[![postmarketOS](https://repology.org/badge/version-for-repo/postmarketos_master/vtium.svg)](https://repology.org/project/vtium/versions)
 [![Gentoo](https://repology.org/badge/version-for-repo/gentoo/vtium.svg)](https://repology.org/project/vtium/versions)
 [![Void](https://repology.org/badge/version-for-repo/void_x86_64/vtium.svg)](https://repology.org/project/vtium/versions)
 
