@@ -6650,26 +6650,130 @@ fn two_displays_moved_off_one_crtc_do_not_both_go_back() {
     assert_eq!(refused, Vec::<u32>::new());
 }
 
-// A wake-up that moved a display to a CRTC the card refuses lights the
-// others, with no new display among them. In the card of `woken_beside_c`
-// without C, the wake-up moves A to 101, as B holds 100, and the card
-// refuses 101. A cannot go back, so the wake-up lights B on 100 without A,
-// leaves A off until the next hotplug, and starts no retries.
+// A wake-up that moved a display to a CRTC the card refuses moves a lit
+// display where that lights every display (vtium/vtium#298). In the card
+// of `woken_beside_c` without C, the wake-up moves A to 101, as B holds
+// 100, and the card refuses 101. Keeping B on 100 cannot light A, but B
+// can move to 102, which frees 100 for A: the wake-up lights both there,
+// and no display is reported removed. The placement first moves B to 100,
+// where its connector is, and A to 101; the moves of the placement that
+// lights are then logged once.
 #[test]
-fn a_display_a_wake_up_moved_to_a_crtc_the_card_refuses_is_left_off() {
+fn a_wake_up_moves_a_lit_display_where_that_lights_every_display() {
+    logs::capture();
     let (woke, outs, _, refused, events, retries) = woken_beside_c(true, false, &[101]);
     assert!(woke.is_ok(), "{woke:?}");
-    assert_eq!(outs, [(B, 100)]);
+    assert_eq!(outs, [(A, 100), (B, 102)]);
     assert_eq!(refused, Vec::<u32>::new());
     assert_eq!(
         events,
         [
-            Event::Removed(DisplayId(A)),
+            Event::Redraw(DisplayId(A)),
             Event::Redraw(DisplayId(B)),
             Event::Awake
         ]
     );
     assert!(!retries);
+    assert_eq!(
+        moves(),
+        [
+            "display HDMI-A-1 moves from CRTC 100 to CRTC 101",
+            "display HDMI-A-2 moves from CRTC 102 to CRTC 100",
+            "display HDMI-A-1 moves from CRTC 101 to CRTC 100",
+            "display HDMI-A-2 moves from CRTC 100 to CRTC 102"
+        ]
+    );
+}
+
+// A display plugged in that can light only where a lit display moves off
+// a CRTC the card does not refuse lights at the hotplug (vtium/vtium#298).
+// B is lit on 100 and drives 100 and 102; A, plugged in, drives 100 and
+// 101, and the card refuses 101. The placement puts A on 101, which leaves
+// B where it is, and the card refuses it; B then moves to 102 and A takes
+// 100, and both light at that hotplug, B showing the frame it showed
+// before. The card has a third connector, not listed, whose CRTC 102 is
+// the one B moves to.
+#[test]
+fn a_hotplug_moves_a_lit_display_where_the_card_refuses_the_free_crtc() {
+    let card = reaching(&[0b011, 0b101, 0b100], 2);
+    {
+        let mut s = card.state();
+        s.listed.retain(|&c| c == B);
+        s.bind(B, 100);
+    }
+    let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    let shown = drawn(&mut v, B, 0x55);
+    assert_eq!(v.card().state().bound.get(&B), Some(&100));
+    {
+        let mut s = v.card().state();
+        s.listed.insert(0, A);
+        s.refused.push(101);
+    }
+    v.poll().unwrap();
+    flip(&mut v);
+    assert_eq!(
+        events(&mut v),
+        [
+            Event::Added(DisplayId(A)),
+            Event::Flipped(DisplayId(A)),
+            Event::Flipped(DisplayId(B))
+        ]
+    );
+    assert!(v.card().shows(102, shown), "{:?}", v.card().state());
+    let outs: Vec<(u32, u32)> = v.outputs.iter().map(|o| (o.id.0, o.crtc)).collect();
+    assert_eq!(outs, [(A, 100), (B, 102)]);
+    assert_eq!(v.move_refused, Vec::<u32>::new());
+    let s = v.card().state();
+    assert_eq!(
+        [A, B].map(|c| s.bound.get(&c).copied()),
+        [Some(100), Some(102)]
+    );
+}
+
+// Where the card refuses every placement of the displays, the search for
+// one that lights them all ends there: the lit displays stay where they
+// were, the new display stays off, and since the card refused it on
+// another CRTC too, it is recorded, so a later hotplug searches no more
+// for it. A is lit on 100 and drives 100 and 101; B, plugged in, drives
+// 101 and 102, and the card refuses both. B's hotplug puts it on 102,
+// and the search tries B on 101 with A on 100, then with A moved, and
+// every placement is refused. The next hotplug commits no test for B.
+#[test]
+fn a_display_no_placement_lights_is_recorded_and_searched_for_no_more() {
+    let card = reaching(&[0b011, 0b110, 0b100], 2);
+    {
+        let mut s = card.state();
+        s.listed.retain(|&c| c == A);
+    }
+    let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    drawn(&mut v, A, 0x55);
+    {
+        let mut s = v.card().state();
+        s.listed.push(B);
+        s.refused.extend([101, 102]);
+    }
+    v.poll().unwrap();
+    flip(&mut v);
+    v.events().for_each(drop);
+    let outs: Vec<(u32, u32)> = v.outputs.iter().map(|o| (o.id.0, o.crtc)).collect();
+    assert_eq!(outs, [(A, 100)]);
+    assert_eq!(v.move_refused, [B]);
+    let tests = |v: &Drm2d<FakeCard>| {
+        v.card()
+            .state()
+            .commits
+            .iter()
+            .filter(|c| c.test_only())
+            .count()
+    };
+    let before = tests(&v);
+    v.poll().unwrap();
+    assert_eq!(
+        tests(&v),
+        before + 3,
+        "the placement, again at the default modes, and the set without B"
+    );
+    assert_eq!(v.move_refused, [B]);
 }
 
 // A new display the card refused beside the others, placed after them,

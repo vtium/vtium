@@ -1,15 +1,18 @@
 //! What a modeset that cannot set the displays where the placement put
-//! them does: it leaves the new displays off, sends the displays the
-//! placement moved back to the CRTC each was moved off, and records the new
-//! displays the card refused ([`super::Drm2d::place`]).
+//! them does: it tries the other placements of every display, a lit
+//! display moved included, and where the card refuses each, it leaves the
+//! new displays off, sends the displays the placement moved back to the
+//! CRTC each was moved off, and records the new displays the card refused
+//! ([`super::Drm2d::place`]).
 
 use std::io;
 
 use super::super::kms::Kms;
 use super::super::{DisplayId, Event};
 use super::buffers::Source;
+use super::matching::index_bit;
 use super::output::{Moved, Output};
-use super::{Drm2d, Failure, placement_refused};
+use super::{Drm2d, Failure, drop_cursor, placement_refused};
 
 /// Where the placement put a display it moved: the display, the CRTC and
 /// that CRTC's index into the card's list of CRTCs.
@@ -17,6 +20,161 @@ type Placed = (DisplayId, u32, usize);
 
 #[expect(private_bounds, reason = "the card is a Card outside the crate")]
 impl<K: Kms, S: Source<K>> Drm2d<K, S> {
+    /// After the card refused the atomic modeset of the displays where the
+    /// placement put them, tries every other placement of all of them, each
+    /// display on a CRTC it can take ([`Output::able`]), until the card
+    /// takes one, and keeps that one (vtium/vtium#298). Whether one lit.
+    ///
+    /// The placement keeps each lit display on the CRTC it wants wherever
+    /// some placement does, so the CRTC it gives a new display, or a display
+    /// a wake-up moved, can be one the card refuses, as past its bandwidth,
+    /// while moving a lit display would light every display. The placements
+    /// are tried in the order of [`Self::placements`], so the first that
+    /// lights moves as few lit displays as any that lights. The search is
+    /// bounded by the set of placements: each is tried once, with no retry
+    /// count and no delay. Where a placement fails for a reason that may
+    /// pass, the search stops.
+    ///
+    /// Where every placement is refused, each display goes back where the
+    /// placement put it, and each new display, one never set, that a
+    /// placement tried on another CRTC is recorded as refused: the card
+    /// refused it even with lit displays moved for it
+    /// ([`Self::record_refused`]). A new display already recorded is
+    /// searched for no more, so the lit displays do not blank at every
+    /// hotplug for a display the card cannot light beside them.
+    pub(super) fn relight(&mut self) -> bool {
+        let fresh: Vec<usize> = (0..self.outputs.len())
+            .filter(|&d| self.outputs.get(d).is_some_and(|o| !o.online))
+            .collect();
+        let refused_before = |d: &usize| {
+            self.outputs
+                .get(*d)
+                .is_some_and(|o| self.move_refused.contains(&o.id.0))
+        };
+        if !fresh.is_empty() && fresh.iter().all(refused_before) {
+            return false;
+        }
+        let placed: Vec<(u32, usize, Option<super::output::Planes>)> = self
+            .outputs
+            .iter()
+            .map(|o| (o.crtc, o.pipe, o.planes.clone()))
+            .collect();
+        let mut refused = false;
+        // The new displays some placement tried put on another CRTC.
+        let mut elsewhere: Vec<usize> = Vec::new();
+        for placement in self.placements() {
+            let mut planes = Vec::with_capacity(placement.len());
+            for (o, &pipe) in self.outputs.iter().zip(&placement) {
+                let crtc = self.crtcs.get(pipe).copied().unwrap_or(0);
+                let Some(mut p) = self.find_planes(crtc, pipe) else {
+                    break;
+                };
+                p.connector_props = o
+                    .planes
+                    .as_ref()
+                    .map(|q| q.connector_props.clone())
+                    .unwrap_or_default();
+                planes.push((crtc, pipe, p));
+            }
+            if planes.len() != placement.len() {
+                continue;
+            }
+            for &d in &fresh {
+                let moved = placement.get(d) != placed.get(d).map(|p| &p.1);
+                if moved && !elsewhere.contains(&d) {
+                    elsewhere.push(d);
+                }
+            }
+            for (o, (crtc, pipe, p)) in self.outputs.iter_mut().zip(planes) {
+                o.crtc = crtc;
+                o.pipe = pipe;
+                o.planes = Some(p);
+            }
+            let set = self.atomic_modeset_or_default();
+            if set.is_ok() {
+                self.relit(&placed);
+                return true;
+            }
+            refused = placement_refused(&set);
+            if !refused || self.removed.get() {
+                refused = false;
+                break;
+            }
+        }
+        for (o, (crtc, pipe, planes)) in self.outputs.iter_mut().zip(placed) {
+            o.crtc = crtc;
+            o.pipe = pipe;
+            o.planes = planes;
+        }
+        if refused {
+            for d in elsewhere {
+                if let Some(o) = self.outputs.get(d)
+                    && !self.move_refused.contains(&o.id.0)
+                {
+                    self.move_refused.push(o.id.0);
+                }
+            }
+        }
+        false
+    }
+
+    /// Settles the displays on the placement [`Self::relight`] lit, from
+    /// the CRTCs `placed` they were on: each display that moved says so,
+    /// its cursor plane shows nothing of vtium's yet, and one whose new CRTC
+    /// has no cursor plane gives its pointer image up, so the owner draws
+    /// the pointer itself.
+    fn relit(&mut self, placed: &[(u32, usize, Option<super::output::Planes>)]) {
+        for (o, &(was, _, _)) in self.outputs.iter_mut().zip(placed) {
+            if o.crtc == was {
+                continue;
+            }
+            log::info!(
+                "display {} moves from CRTC {was} to CRTC {}",
+                o.name,
+                o.crtc
+            );
+            if o.planes.as_ref().is_some_and(|p| p.cursor.is_none()) {
+                drop_cursor(&self.card, o);
+            }
+            o.cursor_set = None;
+        }
+        self.move_refused
+            .retain(|id| !self.outputs.iter().any(|o| o.id.0 == *id));
+    }
+
+    /// Every placement of the displays [`Self::relight`] tries, by index
+    /// into the card's list of CRTCs: each display on a CRTC it can take,
+    /// no two on one, and not the placement that failed. They are in the
+    /// order of what they cost, as the placement counts it
+    /// ([`super::matching`]): first by how many lit displays they put off
+    /// the CRTC they want, then by how many other displays, then in the
+    /// card's order of CRTCs. A display wants the CRTC the placement moved
+    /// it off, and else the one it is on; it is lit there where the
+    /// placement says so, and else where it is online.
+    fn placements(&self) -> Vec<Vec<usize>> {
+        let wants: Vec<(usize, bool)> = self
+            .outputs
+            .iter()
+            .map(|o| o.moved_from.map_or((o.pipe, o.online), |m| (m.pipe, m.lit)))
+            .collect();
+        let ables: Vec<u32> = self.outputs.iter().map(|o| o.able).collect();
+        let now: Vec<usize> = self.outputs.iter().map(|o| o.pipe).collect();
+        let mut all = Vec::new();
+        let mut chosen = Vec::with_capacity(ables.len());
+        every_placement(&ables, self.crtcs.len(), &mut chosen, 0, &mut all);
+        all.retain(|p| *p != now);
+        all.sort_by_cached_key(|p| {
+            let off = |lit: bool| {
+                p.iter()
+                    .zip(&wants)
+                    .filter(|&(&c, &(want, l))| l == lit && c != want)
+                    .count()
+            };
+            (off(true), off(false), p.clone())
+        });
+        all
+    }
+
     /// Lets go of the new displays `new`, which a modeset could not set
     /// beside the others, for `why`; each stays off, and the next scan, at
     /// a hotplug or a wake-up, places it again. Returns each one's
@@ -120,9 +278,8 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     /// the CRTC the placement moved them to ([`Self::set_without`]): they
     /// are left off, as the new displays are, so the others light, and the
     /// retries do not run. A display left off is placed again at later
-    /// scans, but the placement moves no lit display for it, so where the
-    /// only CRTC left for it is one the card refuses, it stays dark while
-    /// vtium runs (vtium/vtium#298).
+    /// scans. The modeset runs this only after [`Self::relight`] found no
+    /// other placement of every display that the card takes.
     ///
     /// Only displays the placement moved are left off. Where the card
     /// refuses even the displays that were not moved, as when it refuses
@@ -385,6 +542,30 @@ pub(super) fn needed<M>(outputs: &[&Output<M>], going: &[bool], failed: &[Displa
         }
         if !more {
             return need;
+        }
+    }
+}
+
+/// Adds to `all` every placement that puts each display after those in
+/// `chosen` on one of the `crtcs` CRTCs its mask in `ables` names, with no
+/// CRTC taken twice: `used` holds the CRTCs `chosen` took.
+fn every_placement(
+    ables: &[u32],
+    crtcs: usize,
+    chosen: &mut Vec<usize>,
+    used: u32,
+    all: &mut Vec<Vec<usize>>,
+) {
+    let Some(&able) = ables.get(chosen.len()) else {
+        all.push(chosen.clone());
+        return;
+    };
+    for c in 0..crtcs {
+        let bit = index_bit(c);
+        if able & bit != 0 && used & bit == 0 {
+            chosen.push(c);
+            every_placement(ables, crtcs, chosen, used | bit, all);
+            chosen.pop();
         }
     }
 }

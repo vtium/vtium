@@ -165,6 +165,8 @@ pub struct Drm2d<K: Kms, S: Source<K> = Dumbs> {
     /// not lit at start.
     scanned: bool,
     outputs: Vec<Output<S::Memory>>,
+    /// The card's CRTCs, in its order, as the last scan read them.
+    crtcs: Vec<u32>,
     /// The identity of each display bound.
     identities: Vec<(DisplayId, Identity)>,
     /// The connected connectors the policy leaves dark, in the card's
@@ -269,6 +271,7 @@ impl<K: Kms> Drm2d<K> {
             dark_policy: None,
             scanned: false,
             outputs: Vec::new(),
+            crtcs: Vec::new(),
             identities: Vec::new(),
             dark: Vec::new(),
             dark_refused: false,
@@ -1394,6 +1397,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         // falls asleep, so a scan always runs under master.
         debug_assert!(self.master, "an awake card holds DRM master");
         let res = self.card.resources().inspect_err(|e| self.seen(e))?;
+        self.crtcs.clone_from(&res.crtcs);
         for o in &mut self.outputs {
             o.available = false;
         }
@@ -1793,6 +1797,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             name,
             crtc,
             pipe,
+            able: index_bit(pipe),
             planes,
             color,
             mode: choice.current,
@@ -1954,12 +1959,16 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         let mut places = Vec::with_capacity(olds.len().saturating_add(new.len()));
         // The CRTC each display wants, and whether it is lit there.
         let mut homes = Vec::with_capacity(olds.len());
+        // The CRTCs each display can take, for a modeset the card refuses
+        // ([`Self::relight`]).
+        let mut ables = Vec::with_capacity(olds.len().saturating_add(new.len()));
         for o in &olds {
             let conn = seen.iter().find(|c| c.id == o.id.0);
             let current = conn
                 .filter(|c| c.encoder != 0)
                 .and_then(|c| self.encoder(c.encoder));
             let reach = conn.map_or(0, |c| self.reach(c, current)) | bit(o.crtc);
+            ables.push(reach | o.moved_from.map_or(0, |m| bit(m.crtc)));
             if !follow {
                 let want = o.moved_from.filter(|_| o.online).map_or(o.crtc, |m| m.crtc);
                 // Lit here means online. Only the displays online before the
@@ -1995,6 +2004,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                 _ => 0,
             };
             let able = self.reach(&n.conn, n.found.current) | bit(on);
+            ables.push(able);
             let back = freed
                 .iter_mut()
                 .find(|slot| {
@@ -2043,7 +2053,9 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         let at = |slot: Option<usize>| slot.and_then(|c| Some((*res.crtcs.get(c)?, c)));
         let mut changed = false;
         let mut unplaced = false;
+        let mut ables = ables.into_iter();
         for ((mut o, slot), (want, lit)) in olds.into_iter().zip(slots.by_ref()).zip(homes) {
+            o.able = ables.next().unwrap_or(0) | bit(want);
             // A display placed off the CRTC it wants is moved off it for
             // another display, until a modeset sets it on its new CRTC.
             o.moved_from = at(index(want))
@@ -2063,7 +2075,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                 Err(why) => self.let_go(o, &why),
             }
         }
-        for (n, slot) in new.into_iter().zip(slots) {
+        for ((n, slot), able) in new.into_iter().zip(slots).zip(ables) {
             let New {
                 conn,
                 found,
@@ -2075,7 +2087,8 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                 unplaced = true;
                 continue;
             };
-            if let Some(o) = self.bind(&conn, found, choice, crtc, pipe) {
+            if let Some(mut o) = self.bind(&conn, found, choice, crtc, pipe) {
+                o.able = able | index_bit(pipe);
                 self.identities.retain(|(i, _)| *i != o.id);
                 self.identities.push((o.id, identity));
                 self.outputs.push(o);
@@ -2329,6 +2342,12 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             // new mode.
             if set.is_err() && self.keep_set_modes() {
                 set = self.atomic_modeset_or_default();
+            }
+            // The card refused the displays where they are placed: another
+            // placement of them all, one that moves a lit display included,
+            // may light them.
+            if placement_refused(&set) && self.relight() {
+                set = Ok(());
             }
             // The card refused the displays where they are placed, which a
             // display new to the modeset or one the placement moved may cause.
