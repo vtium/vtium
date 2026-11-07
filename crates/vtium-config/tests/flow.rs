@@ -186,6 +186,32 @@ fn an_unfinished_draft_is_written_and_the_command_exits_0() {
     assert!(f.draft().contains("font-name=BAD"));
 }
 
+/// ADR-1005 D10: `set` writes a key vtium takes for itself as the line a
+/// person writes by hand, `key=value`, and an empty value as `key=`, which
+/// empties the key; `get` reads both back. The vtium crate's test
+/// `vtium_config_set_and_a_hand_edit_give_the_same_keys` reads this text and
+/// a hand-edited one and finds the same keys.
+#[test]
+fn set_writes_vtiums_own_keys_as_a_person_writes_them() {
+    let f = fixture("grab-keys");
+    f.desk();
+    assert_eq!(f.run(&["set", "grab-scroll-up", "<Alt>k"]).status, 0);
+    assert_eq!(f.run(&["set", "grab-reset", ""]).status, 0);
+    assert_eq!(
+        f.draft(),
+        "font-size=12\nversion = 1\ngrab-scroll-up=<Alt>k\ngrab-reset=\n[head desk]\n[rules]\ndisplay * -> desk\ninput class:keyboard -> roaming\n"
+    );
+    assert_eq!(
+        f.run(&["get", "grab-scroll-up"]).out,
+        "grab-scroll-up\t<Alt>k\tdraft\n"
+    );
+    assert_eq!(f.run(&["get", "grab-reset"]).out, "grab-reset\t\tdraft\n");
+    assert_eq!(
+        f.run(&["get", "grab-zoom-in"]).out,
+        "grab-zoom-in\t<Ctrl>plus,<Ctrl>equal\tdefault\n"
+    );
+}
+
 #[test]
 fn install_refuses_a_draft_made_before_the_installed_file_changed() {
     let f = fixture("changed-since");

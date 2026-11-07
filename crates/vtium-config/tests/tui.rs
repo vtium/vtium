@@ -806,6 +806,56 @@ fn the_settings_view_lists_every_key_vtium_conf_takes() {
     assert_eq!(&listed[..model::FONT_KEYS.len()], &model::FONT_KEYS[..]);
 }
 
+/// ADR-1005 D10: the settings view lists the seventeen keys vtium takes
+/// for itself, each with its built-in default from the console's key
+/// table, and shows a key's default on its row.
+#[test]
+fn the_settings_view_lists_vtiums_own_keys_with_their_built_in_defaults() {
+    let want = [
+        ("grab-scroll-up", "<Shift>Up"),
+        ("grab-scroll-down", "<Shift>Down"),
+        ("grab-page-up", "<Shift>Prior"),
+        ("grab-page-down", "<Shift>Next"),
+        ("grab-prompt-up", "<Ctrl><Shift>Up"),
+        ("grab-prompt-down", "<Ctrl><Shift>Down"),
+        ("grab-zoom-in", "<Ctrl>plus,<Ctrl>equal"),
+        ("grab-zoom-out", "<Ctrl>minus"),
+        ("grab-rotate-cw", "<Logo>plus,<Logo>equal"),
+        ("grab-rotate-ccw", "<Logo>minus"),
+        ("grab-reset", "<Ctrl><Shift>Delete"),
+        ("grab-console-next", "<Ctrl><Logo>Right"),
+        ("grab-console-previous", "<Ctrl><Logo>Left"),
+        ("grab-console-open", "<Ctrl><Logo>Return"),
+        ("grab-console-close", "<Ctrl><Logo>BackSpace"),
+        ("grab-focus-next", "<Ctrl><Logo>Up"),
+        ("grab-focus-previous", "<Ctrl><Logo>Down"),
+    ];
+    let listed = model::setting_keys();
+    for (name, default) in want {
+        let key = listed
+            .iter()
+            .find(|k| k.name == name)
+            .unwrap_or_else(|| panic!("{name} is not listed"));
+        assert_eq!(
+            vtium_config::commands::value_text(key, None),
+            (default.to_owned(), false),
+            "{name}"
+        );
+    }
+    let at = listed
+        .iter()
+        .position(|k| k.name == "grab-reset")
+        .expect("listed");
+    let mut keys: Vec<&[u8]> = vec![b"\t"];
+    keys.extend(std::iter::repeat_n(DOWN, at));
+    let mut c = console().keys(&keys);
+    run(&mut c);
+    let screen = c.seen.clone().expect("the screen");
+    assert!(screen.contains("grab-reset"), "{screen}");
+    assert!(screen.contains("<Ctrl><Shift>Delete (default)"), "{screen}");
+    assert!(screen.contains("Reset the console on screen"), "{screen}");
+}
+
 #[test]
 fn a_setting_shows_its_default_and_what_it_does() {
     let mut c = console().keys(&[b"\t", DOWN]);
