@@ -1665,8 +1665,11 @@ pub(crate) mod raster {
     /// to its ink box, cut at its reach (ADR-1306 D1, D2). A color image, and when `fit` a
     /// mask whose ink so placed would pass its cells, is fitted instead
     /// (ADR-1200 D17, D21): drawn again, smaller, while it is larger than
-    /// its cells, centred across them, and kept on its baseline as far as
-    /// the row allows.
+    /// its cells, and centred across them. A fitted mask is drawn smaller
+    /// until its ink above and below its baseline fits the rows above and
+    /// below the cell's baseline, so it keeps the baseline; a color image
+    /// is drawn smaller until it fits the cells' height, and kept on its
+    /// baseline as far as the row allows.
     pub(crate) fn place_drawn(
         draw: &mut dyn FnMut(f32, (u32, u32)) -> Option<Image>,
         wide: bool,
@@ -1689,16 +1692,48 @@ pub(crate) mod raster {
             iw > 0 && ih > 0 && (left < 0 || top < 0 || left + iw > bw_i || top + ih > h_i)
         };
         let fitted = color || (fit && passes(&image));
+        // How much smaller a fitted image is drawn so that it fits its
+        // cells, 1 or more when it already fits. A color image fits the
+        // cells' width and height. A mask fits their width and fits on its
+        // baseline: its ink above the baseline fits the rows above it, and
+        // its ink below fits the rows below, so it keeps the baseline of
+        // the first source's letters. Where the row has no room on a side
+        // that the ink needs, the mask fits the height instead.
+        let shrink = |image: &Image| {
+            let (iw, ih) = (image.placement.width as f32, image.placement.height as f32);
+            let whole = (bw as f32 / iw).min(h as f32 / ih);
+            if color {
+                return whole;
+            }
+            let above = image.placement.top as f32;
+            let below = ih - above;
+            let room = |ink: f32, rows: i32| {
+                if ink > 0.0 {
+                    rows as f32 / ink
+                } else {
+                    f32::INFINITY
+                }
+            };
+            let (up, down) = (room(above, base), room(below, h_i - base));
+            if up > 0.0 && down > 0.0 {
+                (bw as f32 / iw).min(up).min(down)
+            } else {
+                whole
+            }
+        };
         if fitted {
             // drawn again at the size that fits, a few times at most, since
             // hinting can leave the smaller drawing a pixel over
             let mut ppem = cell.ppem;
             for _ in 0..4 {
                 let (iw, ih) = (image.placement.width, image.placement.height);
-                if iw == 0 || ih == 0 || (iw <= bw && ih <= h) {
+                if iw == 0 || ih == 0 {
                     break;
                 }
-                let scale = (bw as f32 / iw as f32).min(h as f32 / ih as f32);
+                let scale = shrink(&image);
+                if scale >= 1.0 {
+                    break;
+                }
                 ppem *= scale;
                 image = draw(ppem, (bw, h))?;
             }
