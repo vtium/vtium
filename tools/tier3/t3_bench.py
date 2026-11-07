@@ -27,8 +27,9 @@ import statistics
 _TIMER = re.compile(r"\[\s*(\d+\.\d+)\] (?:kmscon|vtium)\[(\d+)\]: terminal: render-timer: (.*)$")
 _BENCH = re.compile(r"T3-BENCH (\S+)((?: \w+=\S+)+)\s*$")
 
-# kmscon logs this for a key it does not know, as a build without the
-# render timer (upstream's) does for render-timer.
+# A console without a render timer logs this when its configuration names
+# render-timer. vtium reads render-timer in every build, so the line comes
+# only from another console's log.
 _UNKNOWN = "unknown config option 'render-timer'"
 
 

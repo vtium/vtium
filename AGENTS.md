@@ -18,9 +18,9 @@ The steering session runs work in waves. A wave is a batch of delegated agents w
 
 vtium's behaviour is defined by the specifications it cites, ADR-1000's tables and vtium's own goldens. A golden is a saved expected result that vtium's output is compared against. [ADR-1503](docs/architecture/project/ADR-1503-vtium-judges-itself-by-its-own-goldens-and-its-committed-tree-names-no-c-fork.md) records this decision. vtium is tested in tiers: unit tests, tiers 1 to 3, and a final review by the maintainer on a real console. [How vtium is judged](#how-vtium-is-judged) lists them.
 
-Other terminals are external references. ADR-1000's tables compare vtium with the Linux console, xterm, foot, Ghostty, WezTerm and kitty, as each one's published documentation describes it. The released `kmscon` is an external reference too, and you read it the same way as the others.
+Other terminals are external references. ADR-1000's tables compare vtium with the Linux console, xterm, foot, Ghostty, WezTerm and kitty, as each one's published documentation describes it.
 
-Nobody working on vtium writes to `kmscon/kmscon` or `kmscon/libtsm`: no issue, no PR, no comment, and no tag of their maintainers. When vtium's text names them, it uses a code span and no link.
+Work on vtium happens only in vtium's own repositories, under the vtium organization on GitHub. Issues, pull requests and comments about vtium go there.
 
 ## Writing
 
