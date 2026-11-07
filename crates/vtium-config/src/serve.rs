@@ -1399,6 +1399,7 @@ impl Engine {
         );
         let mut mapped: BTreeSet<u32> = BTreeSet::new();
         let mut shaped: BTreeSet<&[u32]> = BTreeSet::new();
+        let mut parts: BTreeSet<Vec<u32>> = BTreeSet::new();
         let steps = steps(style);
         let order = steps.iter().flat_map(|step| {
             self.sources
@@ -1585,9 +1586,19 @@ impl Engine {
                         let Some(glyph) = s.glyphs.get(*g as usize) else {
                             continue;
                         };
-                        let Some(&asked) = unshaped.iter().find(|k| **k == key.as_slice()) else {
+                        // a cluster asked for, or the part of one the font
+                        // draws without the marks it has no glyph for,
+                        // which the console lays them over (ADR-1200 D22
+                        // step 3); a part goes once, and never under the
+                        // key of a cluster asked for
+                        let asked = unshaped.iter().find(|k| **k == key.as_slice()).copied();
+                        let part = asked.is_none()
+                            && !parts.contains(key)
+                            && !clusters.contains(key)
+                            && unshaped.iter().any(|k| crate::shaping::is_part(key, k));
+                        if asked.is_none() && !part {
                             continue;
-                        };
+                        }
                         if color_only && !glyph.color {
                             continue;
                         }
@@ -1602,12 +1613,19 @@ impl Engine {
                             continue;
                         };
                         target.cluster(&chars, at);
-                        shaped.insert(asked);
+                        match asked {
+                            Some(asked) => {
+                                shaped.insert(asked);
+                            }
+                            None => {
+                                parts.insert(key.clone());
+                            }
+                        }
                     }
                 }
             }
         }
-        if mapped.is_empty() && shaped.is_empty() {
+        if mapped.is_empty() && shaped.is_empty() && parts.is_empty() {
             return Ok(None);
         }
         let mut set = SetBuilder::new(&self.name);

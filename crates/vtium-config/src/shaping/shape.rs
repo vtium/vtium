@@ -55,6 +55,13 @@ pub(crate) struct Shaped {
 
 /// Each cluster of `asks` the font in `data`, face `index`, shapes as its
 /// kind requires (see [`Kind`]). A font HarfRust cannot read shapes none.
+///
+/// A letter with marks, or a joining form, that the font cannot draw whole
+/// because it has no glyph for some of its marks is shaped again without
+/// those marks, and that part is kept under its own key where the font
+/// draws it, so the console draws the part as the font shapes it and lays
+/// the missing marks over it (ADR-1200 D22 step 3). The part is left out
+/// where it is itself one of `asks`.
 pub(crate) fn shape_all(data: &[u8], index: u32, font: FontRef<'_>, asks: &[Ask]) -> Vec<Shaped> {
     if asks.is_empty() {
         return Vec::new();
@@ -68,32 +75,33 @@ pub(crate) fn shape_all(data: &[u8], index: u32, font: FontRef<'_>, asks: &[Ask]
     // the letter glyphs of each part of a joining cluster shaped on its
     // own, without U+200D, as a joining form is judged
     let mut alone: BTreeMap<Vec<u32>, Vec<u16>> = BTreeMap::new();
-    let mut out = Vec::new();
+    let mut out: Vec<Shaped> = Vec::new();
+    let mut keeps = |kind: Kind, key: &[u32], glyphs: &[At]| {
+        !glyphs.is_empty()
+            && glyphs.iter().all(|a| a.g != 0)
+            && match kind {
+                // one glyph, a ligature or a form, which none of the
+                // cluster's own scalar values draws alone
+                Kind::Emoji => only_own(glyphs, key, &charmap),
+                Kind::Joining => {
+                    let mut alone = |part: &[u32]| {
+                        alone
+                            .entry(part.to_vec())
+                            .or_insert_with(|| letters(&shape(&shaper, part).0))
+                            .clone()
+                    };
+                    joined(glyphs, key, &mut alone)
+                }
+                Kind::Marks => true,
+            }
+    };
     for ask in asks {
         let (glyphs, advance) = shape(&shaper, &ask.key);
         // a character and U+FE0F, which a color font draws with the
         // character's own glyph (ADR-1200 D21): kept when that glyph is a
         // color one, which only drawing it tells
         let own = ask.kind == Kind::Emoji && presented(&glyphs, &ask.key, &charmap);
-        let kept = own
-            || !glyphs.is_empty()
-                && glyphs.iter().all(|a| a.g != 0)
-                && match ask.kind {
-                    // one glyph, a ligature or a form, which none of the
-                    // cluster's own scalar values draws alone
-                    Kind::Emoji => only_own(&glyphs, &ask.key, &charmap),
-                    Kind::Joining => {
-                        let mut alone = |part: &[u32]| {
-                            alone
-                                .entry(part.to_vec())
-                                .or_insert_with(|| letters(&shape(&shaper, part).0))
-                                .clone()
-                        };
-                        joined(&glyphs, &ask.key, &mut alone)
-                    }
-                    Kind::Marks => true,
-                };
-        if kept {
+        if own || keeps(ask.kind, &ask.key, &glyphs) {
             out.push(Shaped {
                 key: ask.key.clone(),
                 kind: ask.kind,
@@ -101,9 +109,50 @@ pub(crate) fn shape_all(data: &[u8], index: u32, font: FontRef<'_>, asks: &[Ask]
                 advance,
                 own,
             });
+            continue;
+        }
+        let Some(part) = drawn_part(ask, &glyphs) else {
+            continue;
+        };
+        if asks.iter().any(|a| a.key == part) || out.iter().any(|s| s.key == part) {
+            continue;
+        }
+        let kind = super::kind(&part);
+        let (glyphs, advance) = shape(&shaper, &part);
+        if keeps(kind, &part, &glyphs) {
+            out.push(Shaped {
+                key: part,
+                kind,
+                glyphs,
+                advance,
+                own: false,
+            });
         }
     }
     out
+}
+
+/// The part of `ask`, shaped to `glyphs`, that leaves out each mark the
+/// font draws no glyph for: `None` unless `ask` is a letter with marks or a
+/// joining form, every glyph the font lacks comes from a mark, and the part
+/// left holds more than one scalar value.
+fn drawn_part(ask: &Ask, glyphs: &[At]) -> Option<Vec<u32>> {
+    if ask.kind == Kind::Emoji {
+        return None;
+    }
+    let missing: Vec<usize> = glyphs
+        .iter()
+        .filter(|a| a.g == 0)
+        .map(|a| usize::try_from(a.from).ok().filter(|_| a.mark.is_some()))
+        .collect::<Option<_>>()?;
+    if missing.is_empty() {
+        return None;
+    }
+    let part: Vec<u32> = (0..ask.key.len())
+        .filter(|i| !missing.contains(i))
+        .filter_map(|i| ask.key.get(i).copied())
+        .collect();
+    (part.len() > 1).then_some(part)
 }
 
 /// `key` as `shaper` shapes it: each glyph, in visual order, and the

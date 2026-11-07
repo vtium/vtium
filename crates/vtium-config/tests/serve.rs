@@ -394,6 +394,56 @@ fn an_outline_frits_cell_query_answers_the_w_rule_at_its_height() {
     assert_eq!(frames[2].1, cell(8, 8));
 }
 
+// ADR-1200 D22 step 3: lam with shadda, fatha and superscript alef, in a
+// subset of DejaVu Sans Mono that has no superscript alef, is not drawn
+// whole; the helper sends the part the font draws, lam with shadda and
+// fatha, under its own key, so the console draws it as the font shapes it
+// and lays the superscript alef over it
+// covers: text.overhang
+#[test]
+#[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
+fn the_part_of_a_cluster_the_font_draws_is_sent_under_its_own_key() {
+    let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/DejaVuSansMono-lam-shadda-fatha.ttf");
+    let whole: Vec<u32> = vec![0x644, 0x651, 0x64e, 0x670];
+    let request = ServeRequest {
+        style: Default::default(),
+        band: Default::default(),
+        kind: ASK,
+        frit: FritText {
+            name: "t".to_owned(),
+            text: format!("source=outline:{}\n", fixture.display()),
+        },
+        cell: Cell {
+            width: 9,
+            height: 16,
+        },
+        codepoints: Vec::new(),
+        clusters: vec![whole],
+        held: Vec::new(),
+        console: None,
+    };
+    let mut out = Vec::new();
+    let status = serve(
+        std::io::Cursor::new(request.encode()),
+        &mut out,
+        &Paths::default(),
+        Duration::from_secs(5),
+    );
+    assert_eq!(status, 0);
+    let frames = frames(&out);
+    let sets: Vec<Set> = frames
+        .iter()
+        .filter(|f| f.0 == FRAME_GLYPHS)
+        .map(|f| Set::from_bytes(f.1.clone()).unwrap())
+        .collect();
+    let keys: Vec<Vec<char>> = sets
+        .iter()
+        .flat_map(|s| s.clusters().map(|(_, _, k)| k).collect::<Vec<_>>())
+        .collect();
+    assert_eq!(keys, [vec!['\u{644}', '\u{651}', '\u{64e}']]);
+}
+
 // ADR-1200 D21, ADR-1301 D1: an ask's clusters are shaped with HarfRust
 // and drawn whole into the frame's cluster map, keyed by their text; one
 // the font does not shape as its kind requires is left out, and the ask
