@@ -1501,8 +1501,8 @@ fn a_pointer_move_restarts_the_blanks_countdown() {
     );
 }
 
-// The VT review's step on vtium/vtium#79, in seconds: a program's timeout,
-// the pointer's hide on the way, and the program's wake. `CSI 9 ; n ]`
+// The case of vtium/vtium#79, in seconds: a program's timeout, the
+// pointer's hide on the way, and the program's wake. `CSI 9 ; n ]`
 // counts in minutes, so RIS returns the timeout instead, a request on the
 // same path.
 // covers: ctl.linux-unblank
@@ -1542,7 +1542,7 @@ fn a_programs_timeout_blanks_past_the_pointers_hide_and_its_wake_ends_it() {
     assert_eq!(h.memory().unblanks, unblanks + 1);
 }
 
-// The VT review's step on vtium/vtium#79 as it ran: `CSI 9 ; 1 ]`, the
+// The case of vtium/vtium#79 in minutes: `CSI 9 ; 1 ]`, the
 // pointer's hide 20 s later, the blank at the minute, and the program's
 // wake. The seat's clock skips the minute.
 // covers: ctl.linux-blank
@@ -3068,11 +3068,10 @@ fn a_drag_ends_without_its_button_and_at_a_vt_release() {
     assert_eq!(selected(&h).as_deref(), Some("sec"));
 }
 
-/// vtium/vtium#229's review: with the fake VT released and its pointers
-/// still open, vtium delivers no pointer action to the console, so a
-/// program tracking the mouse gets no report of a move, a click or the
-/// wheel from a pointer device.
-/// Taken back, the VT's console gets the next key alone.
+/// vtium/vtium#229: with the fake VT released and its pointers still open,
+/// vtium delivers no pointer action to the console, so a program tracking
+/// the mouse gets no report of a move, a click or the wheel from a pointer
+/// device. Taken back, the VT's console gets the next key alone.
 #[test]
 fn a_released_fake_vt_reports_no_pointer_action_to_the_program() {
     let (mut h, released) = Harness::counting(&[
@@ -3117,11 +3116,10 @@ fn a_released_fake_vt_reports_no_pointer_action_to_the_program() {
     assert!(shows(&h.app, "got:."), "{:?}", h.app.screen_text());
 }
 
-/// The fix branch's re-review: a released fake VT keeps its pointers open,
-/// so the mouse moving in the other session keeps arming the pointer's
-/// hide, and that hide leaves vtium's selection for the user's return. On
-/// vtium's own VT, blanked, the hide still clears
-/// the selection.
+/// A released fake VT keeps its pointers open, so the mouse moving in the
+/// other session keeps arming the pointer's hide, and that hide leaves
+/// vtium's selection for the user's return. On vtium's own VT, blanked,
+/// the hide still clears the selection.
 #[test]
 fn a_pointer_hide_on_a_released_vt_keeps_the_selection() {
     let (mut h, released) = Harness::counting(&[
@@ -5695,9 +5693,9 @@ fn a_late_outline_cell_is_drawn_from_the_next_frame() {
 
 // ADR-1200 D17 and the operator's decision on #145, 2026-10-28: a bitmap
 // frit asks for its fonts' own cell, and may wait, only at the first frame
-// and at an OSC 50 switch. Once that ask failed, the failure holds at
-// every height, as an answer does, so a zoom neither asks nor waits again
-// and logs no second line (binary-review, finding 1).
+// and at an OSC 50 switch. Once that ask failed, the failure holds at every
+// height, as an answer does, so a zoom neither asks nor waits again and
+// logs no second line.
 #[test]
 fn a_bitmap_frits_failed_cell_is_not_asked_again_at_a_zoom() {
     let (_dir, fonts, _go) =
