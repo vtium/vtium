@@ -1190,10 +1190,16 @@ impl Engine {
         crate::outline::size(font, family, height).ok()
     }
 
-    /// Source `i`'s baseline in a cell `height` pixels high, at the size it
-    /// draws at ([`Engine::size`]), found once for the engine's life
-    /// (ADR-1302 D3); `None` for a bitmap source or one whose font cannot
-    /// be read, which the rasteriser then refuses.
+    /// Source `i`'s baseline in a cell `height` pixels high, found once for
+    /// the engine's life (ADR-1302 D3); `None` for a bitmap source or one
+    /// whose font cannot be read, which the rasteriser then refuses. An
+    /// outline source that draws at the first source's size
+    /// ([`Engine::size`]) draws on the first source's baseline too
+    /// (ADR-1200 D17), so a fallback font whose ascent reaches higher than
+    /// the first source's, as Noto Sans Hebrew's and Noto Sans Arabic's
+    /// reach above DejaVu Sans Mono's, stands on the same row as the first
+    /// source's letters. Any other outline source stands on its own
+    /// baseline.
     fn baseline(&self, i: usize, height: u32) -> Option<u32> {
         if let Some(&b) = self.baselines.borrow().get(&(i, height)) {
             return Some(b);
@@ -1201,8 +1207,11 @@ impl Engine {
         let Some((_, Loaded::Outline { font, family, .. })) = self.sources.get(i) else {
             return None;
         };
-        let size = self.size(i, height);
-        let b = crate::outline::baseline(font, family, height, size, self.hinting).ok()?;
+        if self.size(i, height).is_some() {
+            let first = self.sources.iter().position(|(s, _)| s.style == REGULAR)?;
+            return self.baseline(first, height);
+        }
+        let b = crate::outline::baseline(font, family, height, None, self.hinting).ok()?;
         self.baselines.borrow_mut().insert((i, height), b);
         Some(b)
     }
