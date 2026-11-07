@@ -1,5 +1,14 @@
 # VTium
 
+[![CI](https://github.com/vtium/vtium/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/vtium/vtium/actions/workflows/ci.yml)
+[![Docs](https://github.com/vtium/vtium/actions/workflows/docs.yml/badge.svg?branch=main)](https://vtium.github.io/vtium/)
+[![Release](https://img.shields.io/github/v/release/vtium/vtium?include_prereleases&label=release)](https://github.com/vtium/vtium/releases)
+[![AUR](https://img.shields.io/aur/version/vtium?label=AUR)](https://aur.archlinux.org/packages/vtium)
+[![Platform](https://img.shields.io/badge/platform-Linux%20console%20(KMS%2FDRM%2C%20fbdev)-informational)](docs/features.md#displays)
+[![Architectures](https://img.shields.io/badge/arch-x86__64%20%7C%20aarch64%20%7C%20armv7-informational)](docs/features.md#small-machines)
+[![Rust](https://img.shields.io/badge/rust-1.88%2B-orange)](Cargo.toml)
+[![License](https://img.shields.io/github/license/vtium/vtium)](LICENSE)
+
 **vtium is a terminal for the Linux console.**
 
 vtium runs on a Linux virtual terminal (VT), one of the text screens that Ctrl+Alt and a function key switch to, in place of getty, the program that prints the login prompt there. It draws the screen itself, with no display server and no GPU, and gives the programs on it what a terminal on a desktop gives them: the full Unicode character set, color emoji, 24-bit color, mouse reporting and pictures. When vtium cannot start, getty and the kernel's console take the VT back.
