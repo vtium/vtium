@@ -119,6 +119,42 @@ fn example(fonts: &Path) -> String {
     .expect("the edit")
 }
 
+/// The console the tests check with is the one cargo builds from the
+/// current sources, never a binary an earlier build left in the profile
+/// directory (vtium/vtium#357). Cargo is the judge: asked to build the
+/// console again into the tests' own directory, it reports the binary at
+/// the path the tests run, and fresh, so there is nothing newer to build.
+#[test]
+fn the_console_the_tests_run_is_built_from_the_current_sources() {
+    let run = vtium();
+    let out = std::process::Command::new(env!("CARGO"))
+        .args([
+            "build",
+            "-q",
+            "-p",
+            "vtium",
+            "--bin",
+            "vtium",
+            "--message-format=json",
+            "--target-dir",
+        ])
+        .arg(console::own_target())
+        .current_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
+        .output()
+        .expect("cargo runs");
+    assert!(out.status.success(), "the console builds");
+    let json = String::from_utf8(out.stdout).expect("cargo's messages are UTF-8");
+    let path = run.to_str().expect("a UTF-8 target directory");
+    let artifact = json
+        .lines()
+        .find(|l| l.contains(&format!("\"executable\":\"{path}\"")))
+        .unwrap_or_else(|| panic!("cargo builds no console at {path}: {json}"));
+    assert!(
+        artifact.contains("\"fresh\":true"),
+        "cargo had to rebuild the console the tests ran: {artifact}"
+    );
+}
+
 #[test]
 fn a_new_font_size_installs_with_one_line_changed_and_the_old_file_kept() {
     let f = fixture("one-line", None);
