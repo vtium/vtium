@@ -8,7 +8,7 @@
 use core::fmt::Write;
 
 use vtium_term::{
-    Age, Attrs, Color, CursorStyle, FrameCell, Glyph, Line, Palette, Rgb, Style, Terminal,
+    Age, Attrs, Color, CursorStyle, FrameCell, Glyph, Line, Palette, Rgb, Script, Style, Terminal,
     UnderlineStyle, Width,
 };
 
@@ -154,7 +154,19 @@ fn attrs(style: &Style, palette: &Palette) -> String {
     flag(&mut out, a.contains(Attrs::BLINK), "blink");
     flag(&mut out, a.contains(Attrs::DIM), "dim");
     flag(&mut out, a.contains(Attrs::STRIKE), "strike");
+    renditions(&mut out, a);
     out
+}
+
+/// The keys interface 1.0 reserves and vtium's `attrs-renditions` prints,
+/// after `strike`: the overline, and the superscript or the subscript.
+fn renditions(out: &mut String, a: Attrs) {
+    flag(out, a.contains(Attrs::OVERLINE), "overline");
+    match a.script() {
+        Script::Baseline => {}
+        Script::Super => out.push_str(" superscript"),
+        Script::Sub => out.push_str(" subscript"),
+    }
 }
 
 /// A color code: the index below 16, else `#rrggbb`; none for the default.
@@ -510,6 +522,7 @@ impl FCell {
         flag(&mut out, self.inverse, "inverse");
         flag(&mut out, a.contains(Attrs::PROTECTED), "protect");
         flag(&mut out, a.contains(Attrs::STRIKE), "strike");
+        renditions(&mut out, a);
         out
     }
 }

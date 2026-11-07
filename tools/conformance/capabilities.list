@@ -14,8 +14,8 @@ sgr-strike                    works   -     sgr.strike                     SGR 9
 sgr-blink                     works   -     sgr.blink                      SGR 5 and 25 set the frame's blink flag
 sgr-italic                    works   -     sgr.italic                     SGR 3 and 23
 sgr-truecolor                 works   -     sgr.extended-color             SGR 38;2 and 48;2
-sgr-overline                  missing #37   sgr.overline                   SGR 53 and 55: vtium-term keeps the attribute, and interface 1 reserves its key
-sgr-super-subscript           missing #37   sgr.script                     SGR 73 to 75: vtium-term keeps the attribute, and interface 1 reserves its keys
+sgr-overline                  works   -     sgr.overline                   SGR 53 and 55, which the views print as overline (attrs-renditions)
+sgr-super-subscript           works   -     sgr.script                     SGR 73 to 75, which the views print as superscript and subscript (attrs-renditions)
 palette-at-draw               works   -     sgr.draw-time-color            colors are resolved at draw time: a palette change recolors text
 modkeys-not-sgr               works   -     input.modify-other-keys        CSI > 4;1 m and CSI ? 4 m are not SGR 4
 cluster                       works   -     text.grapheme                  a grapheme cluster is one cell whose codepoints read back
