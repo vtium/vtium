@@ -259,6 +259,17 @@ In a build with the feature, vtium-term computes the levels and the order with s
 
 When a release of the crate ships the fixes now on its main branch (the guard against the level overflow, the Unicode 17 tables and the fix to bracket pairing), vtium moves to it, and the change that moves it reviews each guard against the new release: whether the call path may widen, and whether the pin moves.
 
+> Edited 2026-11-06: the maintainer decided to fork the crate and pin vtium against the fork: "let's just fork unicode-bidi now, and pin against that. that way it's at least in our sphere", and "I don't like 2 year old out of date libraries even if they're popular". vtium-term now depends on vtium's fork of unicode-bidi, https://github.com/vtium/unicode-bidi, pinned by revision to `9a8c7b03be01def5cf7014b89d5af90f7382fdad`, with `default-features = false, features = ["std"]` as before. That revision is servo's main branch as it stood on 2026-09-15. The crate still calls itself 0.3.18 and still declares Rust 1.47 as the oldest Rust it builds on.
+>
+> The fork carries the fixes servo's maintainers made after the 0.3.18 release: the guard in `visual_runs` against the level overflow at the maximum implicit level (commit 9177c40); rule BD16 returning an empty list of bracket pairs when its stack of 63 openings overflows, as UAX #9 says, where 0.3.18 kept the pairs it had found before the overflow (410b31e); the Unicode 17 tables (67c0218); a fix to `ParagraphBidiInfo::has_rtl` (0db7f33); a fix to the iterator that walks an isolating run sequence backwards, which did not walk backwards (1743dcf); and its conformance test run in all three paragraph directions (ca8cb37). The four guards, reviewed against that revision:
+>
+> - **The pin** stays, in a new form: a git revision of vtium's own fork in place of `=0.3.18` from crates.io, so the crate changes only when a vtium change moves the revision.
+> - **vtium's classes** stay. The fork's tables are at Unicode 17 and vtium-term's at 18.0.0, and the fork's bracket table still lacks U+2E62 and U+2E63, so rule N0 still needs vtium-term's bracket pairs to pair them.
+> - **The call path** stays. `visual_runs` no longer panics on the level overflow input (9177c40), but it still panics with an index out of bounds on an empty line at the end of the text and on an empty text (src/lib.rs:946 at that revision). `visual_runs`, `reorder_line`, `reordered_levels` and `reordered_levels_per_char` each copy the whole paragraph's levels for the row they are asked about. So clippy still refuses all eight of them, and the root `clippy.toml` gives those reasons.
+> - **vtium's own checks** stay. A correction to that guard: the crate's own conformance test does compare the visual order, in 0.3.18 and in the fork. It does not run vtium-term's classes at vtium's Unicode version through the path vtium-term calls, with vtium-term's own rule L1, and in 0.3.18 it ran BidiTest.txt's cases in the automatic paragraph direction only. Through the fork, vtium-term's tests pass all 770,241 cases of BidiTest.txt and all 91,707 of BidiCharacterTest.txt at 18.0.0.
+>
+> This settles the paragraph above about moving to a newer release: vtium moves the revision of its own fork, and the change that moves it reviews each guard again. It also resolves the Negative consequence about a pin to a release 23 months old.
+
 Measured in the vtium package's build, the crate fed Unicode 18 classes adds 34,704 bytes; with its own Unicode 16 tables it would add 46,832 (`basis`). The minspec build is unchanged.
 
 ### D14: tests
@@ -296,6 +307,9 @@ Each slice is a card of its own, branched from `integration`, and lands in this 
 
 - A console built with the minspec build shows Arabic and Hebrew backwards and unjoined, and the minspec packages say so; an Arabic or Hebrew reader on the smallest board needs the package with the feature, or a minspec build with `bidi` added and the size budget it then passes or fails.
 - vtium-term gains its first dependency outside the workspace, pinned to a release that is 23 months old with fixes waiting on its main branch, and called through a restricted path until a release carries them; vtium-term's README says so where it says it has no other dependency.
+
+  > Edited 2026-11-06: resolved by D13's note of this date. vtium-term now depends on vtium's fork of the crate, pinned by revision, which carries those fixes.
+
 - A change in a paragraph that holds right-to-left text redraws all of that paragraph's visible rows, where left-to-right text redraws a few cells.
 - Emacs, and Vim with `arabic` set and `termbidi` off, show right-to-left text reversed in the default mode until the program sends `CSI 8 l` or its user turns its own reordering off (`bidi-display-reordering` in Emacs) or sets `termbidi` in Vim. vtium's documentation says so.
 - In a line that mixes directions, the cursor at the end of a right-to-left word in a left-to-right paragraph sits at the right of the line while the next letter typed appears at the word's left end, and a selection can show in pieces. The recommendation accepts both, since a terminal's cursor marks a cell and not a point between characters.

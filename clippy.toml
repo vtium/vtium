@@ -7,18 +7,18 @@ disallowed-methods = [
     { path = "std::time::Instant::now", reason = "time enters only in vtium-platform and vtium-render" },
     { path = "std::time::SystemTime::now", reason = "time enters only in vtium-platform and vtium-render" },
     { path = "std::thread::sleep", reason = "time enters only in vtium-platform and vtium-render" },
-    # unicode-bidi 0.3.18's visual_runs panics on a level overflow and on an
-    # empty line, and reorder_line calls it (ADR-1004 D13). vtium-term
-    # resolves a paragraph once with new_with_data_source, reads its levels
-    # and applies rule L1 to each drawn row itself, and orders a row with
-    # reorder_visual. The crate's reordered_levels and
-    # reordered_levels_per_char copy and walk the whole paragraph for each
-    # row, so a frame that called them per row would cost the paragraph's
-    # length times its rows.
-    { path = "unicode_bidi::ParagraphBidiInfo::visual_runs", reason = "ADR-1004 D13: it panics in unicode-bidi 0.3.18; resolve the paragraph once, read its levels, and order a row with reorder_visual" },
-    { path = "unicode_bidi::ParagraphBidiInfo::reorder_line", reason = "ADR-1004 D13: it calls visual_runs, which panics in unicode-bidi 0.3.18; resolve the paragraph once, read its levels, and order a row with reorder_visual" },
-    { path = "unicode_bidi::BidiInfo::visual_runs", reason = "ADR-1004 D13: it panics in unicode-bidi 0.3.18; resolve the paragraph once, read its levels, and order a row with reorder_visual" },
-    { path = "unicode_bidi::BidiInfo::reorder_line", reason = "ADR-1004 D13: it calls visual_runs, which panics in unicode-bidi 0.3.18; resolve the paragraph once, read its levels, and order a row with reorder_visual" },
+    # vtium-term depends on vtium's fork of unicode-bidi, pinned by revision
+    # (ADR-1004 D13). Its visual_runs still panics on an empty line at the end
+    # of the text. visual_runs, reorder_line, reordered_levels and
+    # reordered_levels_per_char each copy and walk the whole paragraph's
+    # levels, so a frame that called them for each row would cost the
+    # paragraph's length times its rows. vtium-term resolves a paragraph once
+    # with new_with_data_source, reads its levels and applies rule L1 to each
+    # drawn row itself, and orders a row with reorder_visual.
+    { path = "unicode_bidi::ParagraphBidiInfo::visual_runs", reason = "ADR-1004 D13: it panics on an empty line at the end of the text and copies the whole paragraph's levels for each row; resolve the paragraph once, read its levels, and order a row with reorder_visual" },
+    { path = "unicode_bidi::ParagraphBidiInfo::reorder_line", reason = "ADR-1004 D13: it copies the whole paragraph's levels for each row and returns a string, not an order; resolve the paragraph once, read its levels, and order a row with reorder_visual" },
+    { path = "unicode_bidi::BidiInfo::visual_runs", reason = "ADR-1004 D13: it panics on an empty line at the end of the text and copies the whole paragraph's levels for each row; resolve the paragraph once, read its levels, and order a row with reorder_visual" },
+    { path = "unicode_bidi::BidiInfo::reorder_line", reason = "ADR-1004 D13: it copies the whole paragraph's levels for each row and returns a string, not an order; resolve the paragraph once, read its levels, and order a row with reorder_visual" },
     { path = "unicode_bidi::ParagraphBidiInfo::reordered_levels", reason = "ADR-1004 D13: it copies and walks the whole paragraph's levels for each row; read the levels once and apply rule L1 to each drawn row" },
     { path = "unicode_bidi::ParagraphBidiInfo::reordered_levels_per_char", reason = "ADR-1004 D13: it copies and walks the whole paragraph's levels for each row; read the levels once and apply rule L1 to each drawn row" },
     { path = "unicode_bidi::BidiInfo::reordered_levels", reason = "ADR-1004 D13: it copies and walks the whole paragraph's levels for each row; read the levels once and apply rule L1 to each drawn row" },
