@@ -342,12 +342,12 @@ VENDOR_DIR = $(or $(CARGO_TARGET_DIR),target)/vendor-archive
 
 .PHONY: vendor-archive
 vendor-archive: export VTIUM_VENDOR_VERSION = $(value VENDOR_VERSION)
-vendor-archive: ## Pack the source of every crate Cargo.lock names, for the commit HEAD names, as VENDOR_DIR/vtium-VERSION-vendor.tar.zst and its .sha256 (VENDOR_DIR=DIR, VENDOR_VERSION=VERSION)
+vendor-archive: ## Pack the source of every crate Cargo.lock names, for the commit HEAD names, as VENDOR_DIR/vtium-VERSION-vendor.tar.zst, its .sha256 and the manifest of its crates, vtium-VERSION-dependencies.tsv (VENDOR_DIR=DIR, VENDOR_VERSION=VERSION)
 	tools/vendor/archive pack '$(VENDOR_DIR)'
 
 .PHONY: vendor-archive-check
 vendor-archive-check: export VTIUM_VENDOR_VERSION = $(value VENDOR_VERSION)
-vendor-archive-check: vendor-archive ## Pack the vendor archive, then build the workspace from a clean copy of HEAD with the archive unpacked over it, offline and --locked, and fail if it does not build
+vendor-archive-check: vendor-archive ## Pack the vendor archive, then build the workspace from a clean copy of HEAD with the archive unpacked over it, offline and --locked, and fail if it does not build or if the manifest does not list the archive's crates
 	tools/vendor/archive check '$(VENDOR_DIR)'
 
 # The ARM single-board computers minspec is judged against
@@ -380,6 +380,30 @@ arm-sysroot: ## Fetch and verify the Debian sysroots the ARM targets link agains
 # build has a target directory of its own, so the gates' other builds keep
 # theirs.
 MSRV := $(shell sed -n 's/^rust-version = "\(.*\)"$$/\1/p' Cargo.toml)
+
+# make deny, a gate, checks the license and the source of every crate that a
+# lock file of vtium's names, and runs cargo-deny's bans check on them, against
+# deny.toml, which says which lock files and why. make advisories checks the
+# workspace's crates against the RustSec advisory database, which cargo-deny
+# downloads, so it is no gate: CI runs it as the job advisories. Both need
+# cargo-deny at DENY_VERSION, the version CI installs, so that the gate judges
+# the same way on every machine.
+DENY_VERSION   = 0.20.2
+DENY_INSTALL   = cargo install --locked cargo-deny --version $(DENY_VERSION)
+DENY_MANIFESTS = Cargo.toml $(sort $(wildcard crates/*/fuzz/Cargo.toml crates/*/gen-*/Cargo.toml))
+define deny-version
+@v=$$(cargo deny --version 2>/dev/null) || v=; [ "$$v" = "cargo-deny $(DENY_VERSION)" ] || { echo "$@ needs cargo-deny $(DENY_VERSION), and this machine has $${v:-no cargo-deny}. Install it with: $(DENY_INSTALL)" >&2; exit 1; }
+endef
+
+.PHONY: deny
+deny: ## Check the license and the source of every crate that a lock file of vtium's names against deny.toml (needs cargo-deny at DENY_VERSION)
+	$(deny-version)
+	@status=0; for m in $(DENY_MANIFESTS); do echo "deny: $$m"; cargo deny --locked --manifest-path "$$m" --workspace check bans licenses sources || status=1; done; exit $$status
+
+.PHONY: advisories
+advisories: ## Check the workspace's crates against the RustSec advisory database, which cargo-deny downloads (needs the network and cargo-deny at DENY_VERSION)
+	$(deny-version)
+	cargo deny --locked check advisories
 
 .PHONY: msrv
 msrv: ## Build the workspace, its tests and the minspec profile with the oldest Rust vtium builds on, Cargo.toml's rust-version, in target/msrv (rustup installs that Rust when it is missing)
@@ -429,7 +453,7 @@ conformance-issues: ## Check ADR-1000's issue column and the capability list aga
 .PHONY: test-tools
 # shellcheck gates at warning: its info notes differ between versions, and
 # the scripts' `A && B || die` is deliberate.
-test-tools: ## Test the VT review tools, the tier 3 harness, the gallery tool, the fuzz runner, the gate runner, the fork-refs check and the sysroot fetch without a VT, sudo, logind, a VM or nightly (shellcheck when installed), the set writer without its deflate, the key table's crates built as a package names HWACCEL and DISPLAY_BUFFERS, that the console leaves the deflate out, and that make gates runs AGENTS.md's gate line
+test-tools: ## Test the VT review tools, the tier 3 harness, the gallery tool, the fuzz runner, the gate runner, the fork-refs check, the sysroot fetch and the vendor archive's manifest without a VT, sudo, logind, a VM or nightly (shellcheck when installed), the set writer without its deflate, the key table's crates built as a package names HWACCEL and DISPLAY_BUFFERS, that the console leaves the deflate out, and that make gates runs AGENTS.md's gate line
 	python3 -I tools/vt/tests/test_vt.py
 	python3 -I tools/vt/tests/test_accept.py
 	python3 -I -B tools/tier3/test_t3img.py
@@ -440,6 +464,7 @@ test-tools: ## Test the VT review tools, the tier 3 harness, the gallery tool, t
 	python3 -I -B docs/scripts/test_fork_refs.py
 	python3 -I -B docs/scripts/test_coverage.py
 	python3 -I -B tools/arm/test_sysroot.py
+	python3 -I -B tools/vendor/test_manifest.py
 	cargo test -q -p vtium-font --test set
 	$(TEST_BUILD_SETTINGS)
 	@if cargo tree -p vtium --target $(X86_TARGET) -e no-dev,features -i vtium-font | grep -q 'feature "deflate"'; then echo "the console enables vtium-font's deflate feature, which only vtium-config takes (ADR-1200 D19)" >&2; exit 1; else echo "the console links no deflate"; fi
@@ -733,6 +758,7 @@ cargo test --workspace --all-features
 cargo test --workspace
 cargo build --profile minspec
 make msrv
+make deny
 docs/scripts/adr lint --check
 docs/scripts/adr cite --check
 docs/scripts/issue-refs

@@ -152,6 +152,39 @@ jobs:
       - name: ADR-1000 coverage ledger
         run: docs/scripts/coverage
 
+  # The license and the source of every crate that a lock file of vtium's
+  # names, against deny.toml (make deny, a gate), and the workspace's crates
+  # against the RustSec advisory database (make advisories), each with
+  # cargo-deny at the version the Makefile's DENY_VERSION names. The
+  # advisories are a job of their own because cargo-deny downloads the
+  # database, and an advisory published today can fail a change that did not
+  # touch the crate; the gate never waits on the network for it.
+  deny:
+    strategy:
+      fail-fast: false
+      matrix:
+        check: [deny, advisories]
+    name: ${{ matrix.check }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # The toolchain rust-toolchain.toml pins, which cargo-deny's cargo
+      # metadata runs on.
+      - id: toolchain
+        run: echo "channel=$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.toolchain.outputs.channel }}
+      # Cache the cargo registry and ~/.cargo/bin, which holds cargo-deny
+      # once it is installed; the key follows Cargo.lock, the toolchain, this
+      # job and its check.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.check }}
+      # cargo install skips the build when the cache restored this version.
+      - run: cargo install --locked cargo-deny --version "$(sed -n 's/^DENY_VERSION *= *//p' Makefile)"
+      - run: make ${{ matrix.check }}
+
   # Tier 1 and the capability probes, against the goldens and probes
   # tools/conformance/ holds.
   conformance:
