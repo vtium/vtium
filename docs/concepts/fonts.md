@@ -1,6 +1,6 @@
 # Fonts, generated at run time
 
-This page describes how vtium gets the glyphs it draws. The helper, the console's per-boot store, the built-in fonts, switching, preview and new are all built. A few choices of `vtium config new-frit` are still to come; see [the guided builder issue](https://github.com/vtium/vtium/issues/121).
+This page describes how vtium gets the glyphs it draws. The helper, the console's per-boot store, the built-in fonts, switching, preview and new are all built.
 
 The console parses no font. A **frit** names a font's sources, and the **helper**, vtium-config's serve command in a sandbox, reads them, rasterises them and sends their glyphs at the console's cell, ready-to-draw bitmaps with their map from Unicode characters to glyphs and their metrics. The console checks each answer, holds the glyphs in memory for the boot and draws them. Nothing is prerendered, and no glyph outlives the boot.
 
