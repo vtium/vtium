@@ -119,7 +119,7 @@ The maintainer accepted these screens' goldens in each of the four variants on 2
 
 ## Re-baselined with the font set tier3-text (vtium/vtium#275)
 
-Ten screens of each default 2D variant are vtium's captures from the full `make tier3 FEATURES='images bidi gpu'` run on the alpha.6 candidate at 0c1c8866, the first run that drew the frit `tier3-text`. They are listed in `../provisional.tsv` until the maintainer reviews them. Seven of them replace goldens the C reference drew with pango; `wide-margin`, `combining` and `cjk` replace vtium's earlier captures, which drew the CJK characters and the emoji in the built-in unifont. Against the goldens they replace, the letters' anti-aliasing differs everywhere, because vtium's glyph engine is not FreeType, and in `2d-7680x2160-font32` every column after the first moves, because pango drew those seven screens in a 19x38 cell. The table says what else each shows.
+Ten screens of each default 2D variant are vtium's captures from the full `make tier3 FEATURES='images bidi gpu'` run on the alpha.6 candidate at 0c1c8866, the first run that drew the frit `tier3-text`. The maintainer reviewed them as pictures on 2026-11-06 and accepted them. Seven of them replace goldens the C reference drew with pango; `wide-margin`, `combining` and `cjk` replace vtium's earlier captures, which drew the CJK characters and the emoji in the built-in unifont. Against the goldens they replace, the letters' anti-aliasing differs everywhere, because vtium's glyph engine is not FreeType, and in `2d-7680x2160-font32` every column after the first moves, because pango drew those seven screens in a 19x38 cell. The table says what else each shows.
 
 | Screen | What it shows |
 |---|---|

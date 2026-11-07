@@ -1147,23 +1147,14 @@ class VtiumGoldenTest(unittest.TestCase):
         return path
 
     def test_shipped(self):
-        # The maintainer reviewed every provisional golden on 2026-11-05, and
-        # the four notice goldens recaptured with the reworded notices on
-        # 2026-11-06. The list in the tree holds only the ten screens of each
-        # default 2D variant re-baselined on vtium's captures with the font
-        # set tier3-text (vtium/vtium#275), until the maintainer reviews them;
-        # every golden it names is one a case draws.
+        # The maintainer reviewed every provisional golden on 2026-11-05, the
+        # four notice goldens recaptured with the reworded notices on
+        # 2026-11-06, and the ten screens of each default 2D variant
+        # re-baselined on vtium's captures with the font set tier3-text
+        # (vtium/vtium#275) on 2026-11-06, so the list in the tree is empty; a
+        # golden it names later must be one a case draws.
         prov = t3_evaluate.read_provisional()
-        rebaselined = ["%s/%s" % (v, s)
-                       for v in ("2d-1280x800", "2d-1366x768-potato", "2d-7680x2160",
-                                 "2d-7680x2160-font32")
-                       for s in ("sgr", "colour-forms", "underline-styles", "underline-colour",
-                                 "strike", "wide-margin", "combining", "emoji", "sixel-article",
-                                 "cjk")]
-        self.assertEqual(sorted(prov), sorted(rebaselined))
-        self.assertEqual(set(prov.values()),
-                         {"vtium's own capture with the font set tier3-text (#275); "
-                          "not yet reviewed"})
+        self.assertEqual(sorted(prov), [])
         self.assertEqual(t3_evaluate.check_goldens(t3_scenario.golden_cases(),
                                                    t3_evaluate.GOLDEN, prov), [])
         with open(os.path.join(t3_common.HERE, "goldens", "README.md")) as f:
