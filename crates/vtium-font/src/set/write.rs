@@ -872,12 +872,12 @@ mod tests {
         out
     }
 
-    // a set whose glyphs all fit a chunk is written byte for byte as before
-    // a glyph could pass one (ADR-1302 D6), which added no version: the
-    // SHA-256 of each set below was taken from the writer before that
-    // change, and each set is taken back to format 2.0 first, so the test
-    // also shows that format 2.1 changed nothing but the version and the
-    // two fields each INKX record gained
+    // a set whose glyphs all fit a chunk is laid out as format 2.0 lays it
+    // out (ADR-1302 D6), so carrying glyphs that pass a chunk added no
+    // version: the SHA-256 of each set below is that of the format 2.0
+    // writer's bytes, and each set is taken back to format 2.0 first, so
+    // the test also shows that format 2.1 differs only in the version and
+    // the two fields each INKX record gains
     #[test]
     fn a_set_with_no_glyph_past_a_chunk_is_written_as_before() {
         let sha = |bytes: &[u8]| crate::sha256::hex(&crate::sha256::Sha256::digest(bytes));
