@@ -642,8 +642,8 @@ fn first_error(lines: &str) -> String {
     rejected.errors[0].to_string()
 }
 
-// Review round 1: an error saying what to change lists what the key takes,
-// from the parser's own tables.
+// An error saying what to change lists what the key takes, from the
+// parser's own tables.
 #[test]
 fn an_error_lists_what_its_key_takes() {
     let isolated = first_error("[head a]\nisolated = maybe\n[rules]\ndisplay * -> a\n");
