@@ -8,7 +8,7 @@ A terminal is a text-based version of this interaction. You type on a keyboard, 
 
 Terminals have been central to Unix, and later Linux, from the beginning. You enter commands into a program called a shell, which runs them and displays the results. This way of working predates computer screens: early terminals were teletypes, electric typewriters connected to a computer. Linux still uses the name TTY, short for teletype, for its terminal devices.
 
-What a terminal can display depends on its design. A teletype struck metal type against paper, so it could print only the characters built into its mechanism. Later terminals, such as DEC’s VT102, displayed text on a screen using a fixed set of character shapes stored in a chip. That set included letters, digits, and line-drawing symbols, but it was still limited.
+What a terminal can display depends on its design. A teletype struck metal type against paper, so it could print only the characters built into its mechanism. Later terminals, such as DEC’s [VT102](https://en.wikipedia.org/wiki/VT100#Variants), displayed text on a screen using a fixed set of character shapes stored in a chip. That set included letters, digits, and line-drawing symbols, but it was still limited.
 
 Modern desktop terminal emulators are much more flexible. They draw text in a window and support a wide range of fonts, millions of colors, and emoji. Underneath the desktop, Linux still provides several virtual terminals, or VTs. The desktop itself runs on one of them; others usually provide a text login prompt.
 
