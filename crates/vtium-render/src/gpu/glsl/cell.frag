@@ -180,7 +180,8 @@ vec4 take(vec4 p, int k, int r, Job job, ivec2 at, int gap) {
 // rows below, each from the column before the job's first to the column
 // after its last; then the cells beside it in its row, the farthest first
 // and, at each distance, the one before it first, so the nearer ink lies
-// on top.
+// on top. A glyph beside the job reaches it only from fewer than
+// REACH_SIDE cells away, since its reach is cut at REACH_SIDE cells.
 vec4 received(Job job, ivec2 at) {
     vec4 p = vec4(0.0);
     int end = job.col + job.cells;
@@ -192,13 +193,11 @@ vec4 received(Job job, ivec2 at) {
             }
         }
     }
-    for (int gap = REACH_SIDE; gap >= 0; gap--) {
+    for (int gap = REACH_SIDE - 1; gap >= 0; gap--) {
         for (int k = job.col - REACH_SIDE - 1; k < job.col; k++) {
             p = take(p, k, job.row, job, at, gap);
         }
-        if (gap < REACH_SIDE) {
-            p = take(p, end + gap, job.row, job, at, -1);
-        }
+        p = take(p, end + gap, job.row, job, at, -1);
     }
     return p;
 }

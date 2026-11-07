@@ -12,5 +12,5 @@
 640x480	moved 2026-11-06, the Hebrew and Arabic lines drawn right to left and the Arabic joined (ADR-1004 D3, D6); the maintainer reviews it as a picture
 800x480	moved 2026-11-06, the Hebrew and Arabic lines drawn right to left and the Arabic joined (ADR-1004 D3, D6); the maintainer reviews it as a picture
 1366x768	moved 2026-11-06, the Hebrew and Arabic lines drawn right to left and the Arabic joined (ADR-1004 D3, D6); the maintainer reviews it as a picture
-1920x1080	moved 2026-11-06, the Hebrew and Arabic lines drawn right to left and the Arabic joined (ADR-1004 D3, D6); the maintainer reviews it as a picture
-2560x1440	moved 2026-11-06, the Hebrew and Arabic lines drawn right to left and the Arabic joined (ADR-1004 D3, D6); the maintainer reviews it as a picture
+1920x1080	moved 2026-11-06, the Hebrew and Arabic lines drawn right to left and the Arabic joined (ADR-1004 D3, D6); and the desktop font set's unifont glyphs on JetBrains Mono's baseline, where they sat on the cell's bottom row (ADR-1200 D17)
+2560x1440	moved 2026-11-06, the Hebrew and Arabic lines drawn right to left and the Arabic joined (ADR-1004 D3, D6); and the desktop font set's unifont glyphs on JetBrains Mono's baseline, where they sat on the cell's bottom row (ADR-1200 D17)

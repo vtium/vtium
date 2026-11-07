@@ -455,6 +455,8 @@ cover=gb2312
 source=bdf:/usr/share/fonts/fusion-pixel/fusion-pixel-12px-monospaced-zh_hans.bdf
 ```
 
+> Note 2026-11-06: the `source=` row's "placed on the cell's bottom row" now holds only for the first source. A later bitmap source's glyphs stand on the first source's baseline, as D17's note of 2026-11-06 says.
+
 ### D4: `vtium-vitrify`, the profile builder
 
 `vtium-vitrify` is a binary of its own in the install tree, apart from `vtium`. It holds every font decoder, parser and rasterizer, and the shaper, outside the console and outside the console's size budget.
@@ -514,6 +516,10 @@ The C reference loaded its font before its first frame and took the font's cell.
 > Added 2026-11-06: fallback outline fonts draw at the first font's size, by the maintainer's decision (`considered`, 2026-11-06).
 
 > Note 2026-11-06: a fallback glyph is drawn smaller when its ink would pass its cells sideways, or pass the row's top or bottom at all. The vertical half is revisited once the decision on letting ink reach the rows above and below lands, which may let a glyph pass the row by a bounded amount instead.
+
+> Note 2026-11-06: the maintainer's review of the acceptance pages on a console found Vietnamese letters from a later source sitting below the first source's baseline, and the maintainer decided two rules for the glyphs of later sources the same day. First, a fallback outline glyph that the helper draws smaller is drawn small enough that its ink fits both above and below the cell's baseline, so it stays on the first source's baseline. Before, the helper drew it smaller only until its whole height fitted the row, then moved it down until its top was inside the row, so Noto Sans CJK's ẳ sat 3 pixels low in DejaVu Sans Mono's 28x54 cell. A color glyph keeps the rule it has: it is drawn smaller until it fits the cells' height. Second, the helper places each glyph of a bitmap source after the first so that its font's baseline meets the first source's baseline, where D1's `source=` row and this decision put every bitmap source on the cell's bottom row. The ink that then passes the cell's top or bottom goes to the glyph's ink box and draws into the row above or below, within ADR-1306's reach of one row (ADR-1306 D1's note of 2026-11-06), so no mark is cut. unifont's ẳ behind Terminus rises the 2 font rows onto Terminus's baseline, and the top of its hook draws in the row above.
+
+> Note 2026-11-06: the sentence above, "CJK ideographs at the first source's size already fit their two cells, so they do not change", does not hold for every ideograph. At the 9x16 cell, the ink of some of Noto Sans CJK's ideographs rises a pixel past the room above DejaVu Sans Mono's baseline. The helper now draws those a pixel smaller, so they keep the baseline, where before it moved them a pixel down.
 
 > Edited 2026-11-06: the revisit this note waited on is done. ADR-1306, accepted 2026-11-06, lets ink reach one row up and down and one cell to each side (ADR-1306 D1, D12), and keeps this decision's shrink for fallback glyphs, with one exception the maintainer made the same day (ADR-1306 `considered`): a fallback glyph of a joining script, one whose characters the Joining_Type property of ArabicShaping.txt marks D, R, L or C, such as Arabic and Syriac letters, uses ADR-1306's reach and is not drawn smaller, while every other fallback glyph that passes its cells still is. The bullet above said such a glyph was drawn smaller like any fallback glyph; it read: "Where the ink of a character's glyph from such a source would pass its cells at that size, across or up and down, the helper draws that glyph smaller".
 

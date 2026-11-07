@@ -21,8 +21,11 @@ use crate::target::{Orientation, Rect, Target};
 
 #[cfg(feature = "gpu")]
 mod gpu;
+mod testing;
 #[cfg(test)]
 mod wider;
+
+pub use testing::TestInk;
 
 /// The bar cursor: U+258F, LEFT ONE EIGHTH BLOCK, a sprite.
 const BAR: char = '\u{258f}';

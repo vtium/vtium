@@ -178,6 +178,9 @@ struct Gpu {
     orientation: Orientation,
     /// The columns selected in each row.
     sel: Vec<Range<usize>>,
+    /// The pictures each frame shows.
+    #[cfg(feature = "images")]
+    pictures: Vec<vtium_image::FramePlacement>,
 }
 
 impl Gpu {
@@ -198,6 +201,8 @@ impl Gpu {
             since: Age::NEVER,
             orientation: o,
             sel: Vec::new(),
+            #[cfg(feature = "images")]
+            pictures: Vec::new(),
         }
     }
 
@@ -207,6 +212,8 @@ impl Gpu {
     fn frame(&mut self, s: &mut Screen, st: &DrawState) -> Vec<Rect> {
         self.gl.clear_calls();
         let frame = s.frame(self.since).with_selection(self.sel.clone());
+        #[cfg(feature = "images")]
+        let frame = frame.with_placements(self.pictures.clone());
         let drawn = self
             .r
             .draw_gpu(
@@ -224,10 +231,22 @@ impl Gpu {
         damage
     }
 
-    /// The upright frame's pixels.
+    /// The upright frame's pixels: the last frame the stand-in made at the
+    /// upright frame's size, which a copy of the pixels beneath a text
+    /// layer, one cell in these tests, never has.
     fn upright(&self) -> Vec<u32> {
-        let name = *self.gl.frame_names().last().unwrap();
-        self.gl.frame_pixels(name).unwrap().1.to_vec()
+        let size = self.pipeline.size();
+        let up = match self.orientation {
+            Orientation::Right | Orientation::Left => Size::new(size.height, size.width),
+            Orientation::Normal | Orientation::UpsideDown => size,
+        };
+        let pixels = self
+            .gl
+            .frame_names()
+            .iter()
+            .rev()
+            .find_map(|&n| self.gl.frame_pixels(n).filter(|(s, _)| *s == up));
+        pixels.unwrap().1.to_vec()
     }
 
     /// The cell quads of the last frame, through the cell shader with ink
@@ -289,18 +308,20 @@ fn cell(col: u32, row: u32) -> Rect {
     }
 }
 
-/// The flags of the last cell quad drawn at the cell `col`, `row`, which
-/// the frame's pixels show: whether it receives ink, and whether a mark
-/// covers it. A frame can draw a cell twice, once with its row and again
-/// once the row below has sent it ink.
-fn flags(quads: &[Quad], col: u32, row: u32) -> u32 {
+/// The quads drawn at the cell `col`, `row`.
+fn at(quads: &[Quad], col: u32, row: u32) -> Vec<&Quad> {
     let r = cell(col, row);
-    let q = quads
-        .iter()
-        .rev()
-        .find(|q| q.dst == [r.x as i32, r.y as i32, r.width as i32, r.height as i32])
-        .unwrap_or_else(|| panic!("no quad at {col},{row}"));
-    q.params[1] >> 24
+    let dst = [r.x as i32, r.y as i32, r.width as i32, r.height as i32];
+    quads.iter().filter(|q| q.dst == dst).collect()
+}
+
+/// The flags of the one cell quad drawn at the cell `col`, `row`: whether
+/// it receives ink, and whether a mark covers it.
+fn flags(quads: &[Quad], col: u32, row: u32) -> u32 {
+    match at(quads, col, row)[..] {
+        [q] => q.params[1] >> 24,
+        ref drawn => panic!("{} quads at {col},{row}", drawn.len()),
+    }
 }
 
 fn covers(damage: &[Rect], r: Rect) -> bool {
@@ -439,19 +460,12 @@ fn the_selection_takes_the_ink_inside_it_and_a_selected_letters_ink_outside_keep
     }
 }
 
-// ADR-1306 D7: ink that reaches a cell is part of its text layer, which a
-// picture above the text hides and a picture below the text shows: the
-// text layer of a cell under pictures carries the ink it receives, drawn
-// between the pictures below the text and those above it.
-// covers: text.overhang
+/// An opaque blue kitty picture of one cell at the cell `col`, `row` of
+/// `s`, at `z`, as a frame of `s` shows it.
 #[cfg(feature = "images")]
-#[test]
-fn a_picture_above_the_text_draws_over_the_ink_a_cell_receives() {
-    use vtium_image::{FramePlacement, LineKey, NewImage, Place, Protocol, Rows, Screens, Store};
-
-    let mut s = screen(4, 2);
-    s.text(1, 1, "A", plain());
-    let keys: Vec<LineKey> = (1..=2).map(LineKey::new).collect();
+fn picture(s: &Screen, (col, row): (u32, u32), z: i32) -> Vec<vtium_image::FramePlacement> {
+    use vtium_image::{LineKey, NewImage, Place, Protocol, Rows, Screens, Store};
+    let keys: Vec<LineKey> = (1..=s.rows as u64).map(LineKey::new).collect();
     let view = Rows {
         screen: &keys,
         above: &[],
@@ -460,35 +474,45 @@ fn a_picture_above_the_text_draws_over_the_ink_a_cell_receives() {
         main: view,
         alt: Rows::default(),
     };
-    let placements = |z: i32| -> Vec<FramePlacement> {
-        let mut store = Store::new();
-        store.set_limit(1 << 20);
-        let new = NewImage {
-            protocol: Protocol::KITTY,
-            width: 8,
-            height: 16,
-            pixels: vec![0xff20_6080; 8 * 16],
-            id: 1,
-            number: 0,
-            transient: false,
-            opaque: None,
-        };
-        let image = store.add_image(new, None, screens).unwrap();
-        let place = Place {
-            col: 1,
-            row: 0,
-            cols: 1,
-            rows: 1,
-            z,
-            ..Place::default()
-        };
-        store.place(image, place, screens, 4).unwrap();
-        store.frame(view, 4)
+    let mut store = Store::new();
+    store.set_limit(1 << 20);
+    let new = NewImage {
+        protocol: Protocol::KITTY,
+        width: CW,
+        height: CH,
+        pixels: vec![0xff20_6080; (CW * CH) as usize],
+        id: 1,
+        number: 0,
+        transient: false,
+        opaque: None,
     };
+    let image = store.add_image(new, None, screens).unwrap();
+    let place = Place {
+        col,
+        row,
+        cols: 1,
+        rows: 1,
+        z,
+        ..Place::default()
+    };
+    store.place(image, place, screens, s.cols).unwrap();
+    store.frame(view, s.cols)
+}
+
+// ADR-1306 D7: ink that reaches a cell is part of its text layer, which a
+// picture above the text hides and a picture below the text shows: the
+// text layer of a cell under pictures carries the ink it receives, drawn
+// between the pictures below the text and those above it.
+// covers: text.overhang
+#[cfg(feature = "images")]
+#[test]
+fn a_picture_above_the_text_draws_over_the_ink_a_cell_receives() {
+    let mut s = screen(4, 2);
+    s.text(1, 1, "A", plain());
     for (z, text_first) in [(1, true), (-5, false)] {
         let mut g = Gpu::new(&s);
         g.gl.clear_calls();
-        let frame = s.frame(Age::NEVER).with_placements(placements(z));
+        let frame = s.frame(Age::NEVER).with_placements(picture(&s, (1, 0), z));
         g.r.draw_gpu(
             &mut g.gl,
             &mut g.pipeline,
@@ -576,6 +600,86 @@ fn typing(o: Orientation) {
             &g,
             &whole_turned(&s, &st, o),
             &format!("{o:?}, step {step}"),
+        );
+    }
+}
+
+/// Writes the screen a cell drawn twice in one frame needs: its first
+/// frame has `x`, `A` and `x` down the first column, and the second
+/// recolors both `x` and writes an `A` below the second, whose accent
+/// makes the renderer draw the cell above it again once its row is done.
+/// The first drawing of that cell receives no ink and the second does,
+/// and a cell above the first `A` received ink in the frame before.
+fn drawn_twice(s: &mut Screen, second: bool) {
+    if second {
+        s.text(0, 0, "x", style(rgb("e04040"), rgb(BG)));
+        s.text(0, 2, "x", style(rgb("40e040"), rgb(BG)));
+        s.text(0, 3, "A", plain());
+    } else {
+        s.text(0, 0, "x", plain());
+        s.text(0, 1, "A", plain());
+        s.text(0, 2, "x", plain());
+    }
+}
+
+// ADR-1306 D4, D5: a frame that draws a cell a second time, once the row
+// below has sent it ink, shows the second drawing, as the CPU path does,
+// and draws the cell once.
+// covers: text.overhang
+#[test]
+fn a_cell_drawn_twice_in_a_frame_shows_its_second_drawing() {
+    let mut s = screen(3, 4);
+    drawn_twice(&mut s, false);
+    let mut g = Gpu::new(&s);
+    let st = state(&s, true);
+    g.frame(&mut s, &st);
+    assert_same(&g, &whole(&s, &st), "the first frame");
+    drawn_twice(&mut s, true);
+    g.frame(&mut s, &st);
+    assert_same(&g, &whole(&s, &st), "the second frame");
+    assert_eq!(flags(&g.cells(), 0, 2), 1, "the cell drawn again receives");
+}
+
+// ADR-1306 D7: a cell under a picture that the frame draws a second time
+// draws its background, its part of the picture and its text layer once
+// each, at each of the picture's layers. The stand-in draws neither
+// pictures nor text layers, so this test counts the quads; the llvmpipe
+// tests in vtium's gpu.rs compare the pixels.
+// covers: text.overhang
+#[cfg(feature = "images")]
+#[test]
+fn a_cell_under_a_picture_drawn_twice_in_a_frame_draws_each_layer_once() {
+    for z in [-1_100_000_000, -5, 0, 3] {
+        let mut s = screen(3, 4);
+        drawn_twice(&mut s, false);
+        let mut g = Gpu::new(&s);
+        g.pictures = picture(&s, (0, 2), z);
+        let st = state(&s, true);
+        g.frame(&mut s, &st);
+        drawn_twice(&mut s, true);
+        g.frame(&mut s, &st);
+        let drawn = |what: &[&str]| -> Vec<Quad> {
+            g.gl.calls()
+                .iter()
+                .filter_map(|c| match c {
+                    Call::Draw { quads, inputs, .. } if what.iter().all(|w| inputs.contains(w)) => {
+                        Some(quads.clone())
+                    }
+                    _ => None,
+                })
+                .flatten()
+                .collect()
+        };
+        let (layers, pictures) = (drawn(&["under_at", "ink"]), drawn(&["picture"]));
+        assert_eq!(at(&g.cells(), 0, 2).len(), 1, "z {z}: one background");
+        // the cell's own background hides a picture below the backgrounds
+        let shows = usize::from(z >= -1_073_741_824);
+        assert_eq!(at(&pictures, 0, 2).len(), shows, "z {z}: the picture");
+        assert_eq!(at(&layers, 0, 2).len(), 1, "z {z}: one text layer");
+        assert_eq!(
+            flags(&layers, 0, 2) & 1,
+            1,
+            "z {z}: the text layer receives"
         );
     }
 }
