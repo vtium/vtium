@@ -281,6 +281,7 @@ fn description(keys: &[&Key]) -> String {
         for (i, k) in keys.iter().enumerate() {
             let texts: Vec<String> = k
                 .paragraphs()
+                .take(EXAMPLE_PARAGRAPHS)
                 .enumerate()
                 .map(|(n, p)| {
                     if n == 0 {
@@ -300,7 +301,7 @@ fn description(keys: &[&Key]) -> String {
         }
         return out;
     };
-    paragraphs("##", only.paragraphs())
+    paragraphs("##", only.paragraphs().take(EXAMPLE_PARAGRAPHS))
 }
 
 /// The line that shows `k` at its default, commented out: `#key=value`, or
@@ -379,8 +380,9 @@ pub(super) fn example() -> String {
     let mut out = paragraphs(
         "#",
         [
-            format!("An example of vtium's configuration file. Copy it to /etc/vtium/vtium.conf and edit it. It is generated from {SOURCE}, and docs/config.md describes each setting.").as_str(),
+            format!("An example of vtium's configuration file. Copy it to /etc/vtium/vtium.conf and edit it. It is generated from {SOURCE}.").as_str(),
             "The settings come first, one per line: key=value. For an on/off setting, write its key to turn it on and no-key to turn it off. Each setting is shown commented out, at its default. An option on vtium's command line overrides these lines, and a [look] or [head] section below overrides both.",
+            "A comment may omit details that docs/config.md gives.",
         ],
     );
     for section in &SECTIONS {
@@ -416,10 +418,28 @@ const SECTIONS_TITLE: &str = "Looks, heads and rules";
 /// What the example's sections are.
 const SECTIONS_ABOUT: &str = "The sections after the settings. A look is a font and its size; a head is a screen with its own consoles; the rules send each display and each input device to a head. These are the sections vtium uses, as shipped, when vtium.conf has none.";
 
-/// The most bytes the generated example may hold, so at least 16 KiB of
-/// vtium.conf's [`FILE_MAX`] stay for a user's own heads, looks and rules
-/// (ADR-1403 D3).
+/// How many of a key's paragraphs the example shows: the sentence that says
+/// what the key does, and the paragraph of its values. The rest of a key's
+/// description is in docs/config.md, which shows every paragraph.
+const EXAMPLE_PARAGRAPHS: usize = 2;
+
+/// The most bytes the generated example may hold, so that at least 16 KiB of
+/// vtium.conf's [`FILE_MAX`] (64 KiB) stay for a user's own heads, looks and
+/// rules (ADR-1403 D3). A user starts from a copy of the example, and
+/// vtium reads no file larger than [`FILE_MAX`], so every byte the example
+/// holds is a byte its copy cannot give to the user's own sections. This
+/// number is `FILE_MAX` minus that reserve. Raising it takes the reserve from
+/// the user, unless `FILE_MAX` rises too, and `FILE_MAX` is a bound that
+/// vtium-settings, its fuzz targets and ADR-1403 D3 fix. When the example
+/// needs more room, shorten the comments in the key table first.
 pub(super) const EXAMPLE_MAX: usize = 49_152;
+
+/// The room the example keeps below [`EXAMPLE_MAX`] for the settings that
+/// are planned: about 1.5 KiB for libseat's seat settings (three or four keys
+/// at 350 bytes, as a key in the Displays section takes), and about 2 KiB
+/// for further key bindings and kitty keyboard settings (five keys at 400
+/// bytes). The estimate is 4 KiB with a margin of about half a key.
+const EXAMPLE_ROOM: usize = 4_096;
 
 #[cfg(test)]
 #[expect(
@@ -466,6 +486,19 @@ mod tests {
             example.len()
         );
         const { assert!(EXAMPLE_MAX + 16 * 1024 <= FILE_MAX) };
+    }
+
+    // the example keeps room for the settings planned next
+    #[test]
+    fn the_example_keeps_room_for_the_planned_settings() {
+        let example = example();
+        assert!(
+            example.len() + EXAMPLE_ROOM <= EXAMPLE_MAX,
+            "the example holds {} bytes, which leaves {} of the {EXAMPLE_ROOM} bytes of room \
+             below {EXAMPLE_MAX}; shorten the comments in the key table",
+            example.len(),
+            EXAMPLE_MAX.saturating_sub(example.len())
+        );
     }
 
     // ADR-1403 D3: the example is a vtium.conf whose sections are the
@@ -738,8 +771,8 @@ mod tests {
         assert_eq!(osd[next - 1], "#", "a key break before osd-timeout");
         assert_eq!(
             osd[next - 2],
-            "## A notice about a problem appears whatever `osd` says.",
-            "osd's last paragraph ends above the break"
+            "## `● desk · console 2 of 3`. `off` shows nothing.",
+            "osd's last paragraph in the example ends above the break"
         );
         for name in ["osd-timeout: ", "focus-mark: "] {
             assert!(
