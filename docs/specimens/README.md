@@ -11,8 +11,8 @@ vtium's test card, drawn by vtium's renderer in memory for each display profile,
 | [640x480](640x480/) | 24-bit color | 8x16 | 80x30 | `unifont` | 4 | accepted | [<img src="640x480/collage.png" width="160">](640x480/collage.png) |
 | [800x480](800x480/) | 24-bit color | 8x16 | 100x30 | `unifont` | 4 | accepted | [<img src="800x480/collage.png" width="160">](800x480/collage.png) |
 | [1366x768](1366x768/) | 24-bit color | 8x16 | 170x48 | `unifont` | 3 | accepted | [<img src="1366x768/collage.png" width="160">](1366x768/collage.png) |
-| [1920x1080](1920x1080/) | 24-bit color | 11x24 | 174x45 | `desktop` | 3 | accepted | [<img src="1920x1080/collage.png" width="160">](1920x1080/collage.png) |
-| [2560x1440](2560x1440/) | 24-bit color | 14x32 | 182x45 | `desktop` | 3 | accepted | [<img src="2560x1440/collage.png" width="160">](2560x1440/collage.png) |
+| [1920x1080](1920x1080/) | 24-bit color | 11x24 | 174x45 | `desktop` | 3 | provisional | [<img src="1920x1080/collage.png" width="160">](1920x1080/collage.png) |
+| [2560x1440](2560x1440/) | 24-bit color | 14x32 | 182x45 | `desktop` | 3 | provisional | [<img src="2560x1440/collage.png" width="160">](2560x1440/collage.png) |
 
 `320x240-tiny5` shows an example frit, `tiny5`, the smallest font, which vtium does not use by default; vtium's own choice at 320x240 is the profile `320x240`.
 
