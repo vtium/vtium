@@ -197,8 +197,7 @@ VARIANTS = {
     # The log must name the gpu renderer for every display, and each case
     # is judged by 2d-1280x800's golden of it, exactly
     # (t3_evaluate.GOLDENS_OF), since the GPU path draws the CPU path's
-    # bytes (ADR-1303 D1, D11). The first GL goldens stay in
-    # goldens/gl-1280x800/ as a record (t3_evaluate.RECORDS).
+    # bytes (ADR-1303 D1, D11), so the variant has no goldens of its own.
     "gl-1280x800": {
         **TEXT_SET,
         "device": "virtio-vga-gl,xres=1280,yres=800,edid=on",
