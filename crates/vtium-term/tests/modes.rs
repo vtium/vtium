@@ -562,6 +562,25 @@ fn decstr_returns_the_modes_to_their_defaults() {
     assert_eq!(t.screen().cursor(), (0, 0));
 }
 
+// The VT510 manual's DECSTR table lists what a soft reset changes, and the
+// tab stops are not in it, so DECSTR keeps them; RIS returns them to every
+// eighth column.
+// covers: ctl.decstr
+#[test]
+fn decstr_keeps_the_tab_stops_and_ris_resets_them() {
+    let mut t = term(20, 2, b"\x1b[3g\x1b[1;4H\x1bH\x1b[1;11H\x1bH");
+    let set: Vec<usize> = (0..20).filter(|&c| t.screen().tab_stops()[c]).collect();
+    assert_eq!(set, [3, 10]);
+    t.input(b"\x1b[!p");
+    let kept: Vec<usize> = (0..20).filter(|&c| t.screen().tab_stops()[c]).collect();
+    assert_eq!(kept, [3, 10], "DECSTR keeps the tab stops");
+    t.input(b"\r\t");
+    assert_eq!(t.screen().cursor(), (3, 0));
+    t.input(b"\x1bc");
+    let reset: Vec<usize> = (0..20).filter(|&c| t.screen().tab_stops()[c]).collect();
+    assert_eq!(reset, [0, 8, 16], "RIS sets a stop every eighth column");
+}
+
 // ctlseqs, RIS: DECSTR's reset, and the screen and scrollback erased and
 // the cursor home.
 // covers: ctl.decstr

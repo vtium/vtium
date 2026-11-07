@@ -1,7 +1,9 @@
 # What DECSTR and RIS return to their start, as the state lines show it:
-# the scroll region and the left and right margins, the tab stops, the
-# modes, the pen, the cursor color and the scrollback.
-# spec: ctlseqs, DECSTR and RIS; INTERFACE-vtium.md, The state
+# the scroll region and the left and right margins, the modes, the pen, the
+# cursor color and the scrollback. DECSTR keeps the tab stops, as the VT510
+# manual's DECSTR table leaves them out, and RIS sets a stop every eighth
+# column.
+# spec: the VT510 manual, DECSTR; ctlseqs, DECSTR and RIS; INTERFACE-vtium.md, The state
 # covers: ctl.decstr
 size 12 4
 scrollback 10

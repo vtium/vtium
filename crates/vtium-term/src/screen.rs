@@ -517,10 +517,11 @@ impl Screen {
     }
 
     /// Returns the screen to its state after creation, as RIS and DECSTR
-    /// need it: the flags, DECLRMM among them, the margins, the tab stops, the main screen in
-    /// use, no selection and the view on the screen. The text, the cursor
-    /// and the pen stay; the terminal's reset clears and moves them. Mode
-    /// 2028 stays: the mode table sets it on RIS only.
+    /// need it: the flags, DECLRMM among them, the margins, the main
+    /// screen in use, no selection and the view on the screen. The text,
+    /// the cursor, the pen and the tab stops stay; the terminal's reset
+    /// clears and moves them, and RIS calls `reset_tabs`. Mode 2028 stays:
+    /// the mode table sets it on RIS only.
     pub fn reset(&mut self) {
         if self.flags.alternate {
             self.images_alternate(false);
@@ -534,10 +535,16 @@ impl Screen {
         self.top = 0;
         self.bottom = self.rows.saturating_sub(1);
         self.reset_lr_margins();
-        self.tabs = default_tabs(self.cols);
         self.selection.reset();
         self.scrollback.reset_view();
         self.damage.mark_all();
+    }
+
+    /// Sets a tab stop every eighth column and clears the others, as RIS
+    /// does. DECSTR keeps the tab stops, since the VT510 manual's table of
+    /// what DECSTR resets leaves them out.
+    pub fn reset_tabs(&mut self) {
+        self.tabs = default_tabs(self.cols);
     }
 
     /// The age a display keeps after drawing a frame: changes after it are

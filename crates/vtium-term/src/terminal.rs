@@ -691,13 +691,14 @@ impl State {
 
     /// DECSTR, and the first half of RIS: the modes, the pen, the cursor
     /// style, the character sets, modifyOtherKeys and both screens' kitty
-    /// keyboard flags, the saved cursors, the margins, the tab
-    /// stops, the 256 palette colors and, in a build with the bidi
-    /// feature, the current paragraph properties, and those of the cursor's
-    /// paragraph when the cursor stands at its first position, return to
-    /// their initial state;
-    /// the text, the cursor, the colors OSC 10 to 19 set, what XTSAVE
-    /// saved and XTSHIFTESCAPE stay, as Ghostty keeps the last two.
+    /// keyboard flags, the saved cursors, the margins, the 256 palette
+    /// colors and, in a build with the bidi feature, the current paragraph
+    /// properties, and those of the cursor's paragraph when the cursor
+    /// stands at its first position, return to their initial state;
+    /// the text, the cursor, the tab stops, the colors OSC 10 to 19 set,
+    /// what XTSAVE saved and XTSHIFTESCAPE stay, as Ghostty keeps the last
+    /// two. The VT510 manual's table of what DECSTR resets leaves out the
+    /// tab stops.
     fn soft_reset(&mut self) {
         self.screen.reset();
         self.screen.set_pen(Style::DEFAULT);
@@ -715,7 +716,8 @@ impl State {
         self.reset_colors(false);
     }
 
-    /// RIS: DECSTR's reset, the modes only RIS resets, every color the
+    /// RIS: DECSTR's reset, the modes only RIS resets, a tab stop every
+    /// eighth column, every color the
     /// program set, the SGR and color stacks emptied, what XTSAVE saved
     /// cleared and XTSHIFTESCAPE 0, the open link ended, the screen and the
     /// scrollback erased, which gives every row the initial paragraph
@@ -723,6 +725,7 @@ impl State {
     /// the blank timeout the host's again.
     fn hard_reset(&mut self) {
         self.soft_reset();
+        self.screen.reset_tabs();
         self.xtsave = SavedModes::default();
         self.shift_escape = false;
         self.screen.close_link();
