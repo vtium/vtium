@@ -1,0 +1,25 @@
+# The selection on the alternate screen: a word and a line select and copy
+# there as on the main screen, a command's output selects nothing there, a
+# selection made there goes when the program leaves it, and one made on
+# the main screen goes when the program enters it.
+# spec: ADR-1003, the selection; ctlseqs, DECSET 1049; INTERFACE-vtium.md, The selection and copy
+# covers: clipboard.selection
+size 10 3
+send "main text\r\n"
+select word at 1,0
+copy
+send "\e[?1049h"
+copy
+send "\e[Halt one\r\nalt two"
+select word at 4,0
+copy
+select line at 0,1
+copy
+dump frame
+send "\e]133;C\a"
+select output at 0,1
+copy
+select word at 4,1
+send "\e[?1049l"
+copy
+dump frame

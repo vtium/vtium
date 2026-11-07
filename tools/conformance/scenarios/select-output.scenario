@@ -1,0 +1,23 @@
+# Ctrl and the right button select a command's output as whole lines: from
+# the line OSC 133 C marked to the line before the next prompt, or to the
+# last line written. On a prompt and on the command's input it selects
+# nothing, and the host clears the selection. An empty row below the last
+# line written is still the last command's, so it selects that output.
+# spec: ADR-1002, What the marks are for; INTERFACE-vtium.md, The selection and copy
+# covers: osc.133
+size 10 6
+send "\e]133;A\a$ \e]133;B\als\r\n\e]133;C\aone\r\ntwo\r\n"
+send "\e]133;A\a$ \e]133;B\apwd\r\n\e]133;C\a/home"
+select output at 2,2
+copy
+select output at 0,4
+copy
+select word at 0,1
+select output at 1,0
+copy
+select word at 0,1
+select output at 5,3
+copy
+select output at 0,5
+copy
+dump frame

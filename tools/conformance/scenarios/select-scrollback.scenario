@@ -1,0 +1,16 @@
+# A selection made while the view is scrolled back takes the scrollback's
+# text, and a drag from the scrollback onto the screen copies across both.
+# spec: ADR-1003, the selection; INTERFACE-vtium.md, The selection and copy
+# covers: clipboard.selection
+size 6 2
+scrollback 10
+send "l1\r\nl2\r\nl3\r\nl4\r\nl5"
+scroll up 3
+dump
+select word at 0,0
+copy
+select start at 0,1
+scroll bottom
+select to at 1,1
+copy
+dump frame

@@ -1,0 +1,16 @@
+# BackSpace sends what the host's setting chooses, BS (0x08) or DEL (0x7f),
+# alone and with Shift, Alt and Ctrl, as ctlseqs' Backarrow key gives.
+# spec: ctlseqs, PC-Style Function Keys and the Backarrow key; INTERFACE-vtium.md, The BackSpace key
+# covers: input.legacy
+size 8 1
+key BackSpace
+key BackSpace mods=shift
+key BackSpace mods=alt
+key BackSpace mods=ctrl
+key BackSpace mods=ctrl+alt
+backspace del
+key BackSpace
+key BackSpace mods=shift
+key BackSpace mods=alt
+key BackSpace mods=ctrl
+key BackSpace mods=ctrl+alt

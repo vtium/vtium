@@ -1,0 +1,17 @@
+# Wide characters and clusters: a word of wide characters selects whole, a
+# drag that ends on a wide character's second cell takes the character
+# once, and a cluster copies whole.
+# spec: ADR-1003, the selection; INTERFACE-vtium.md, The selection and copy
+# covers: clipboard.selection
+size 12 2
+send "中文 e\u{301}x 😀!"
+select word at 1,0
+copy
+select word at 5,0
+copy
+select start at 0,0
+select to at 9,0
+copy
+select word at 9,0
+copy
+dump frame

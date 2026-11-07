@@ -1,0 +1,18 @@
+# The selection holds its text, not its place: when the screen scrolls,
+# the selection moves with its text into the scrollback, and a line that DL
+# discards takes the selection with it.
+# spec: ADR-1003, the selection; INTERFACE-vtium.md, The selection and copy
+# covers: clipboard.selection
+size 8 3
+scrollback 10
+send "aa bb\r\ncc dd\r\nee"
+select word at 3,1
+send "\r\nff"
+copy
+dump frame
+scroll up 1
+dump frame
+scroll bottom
+select word at 0,0
+send "\e[1;1H\e[M"
+copy

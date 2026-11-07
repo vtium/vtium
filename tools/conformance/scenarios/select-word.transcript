@@ -1,0 +1,27 @@
+> size 20 2
+> send "one two,three  four\r\nab"
+> select word at 0,0
+> copy
+< copy "one"
+> select word at 5,0
+> copy
+< copy "two,three"
+> select word at 18,0
+> copy
+< copy "four"
+> select word at 13,0
+> copy
+< copy none
+> select word at 5,1
+> copy
+< copy "ab"
+> dump frame
+size 20x2
+cursor 2,1
+flags AUTO_WRAP
+palette legacy fg=#e5e5e5 bg=#000000
+changed 0
+frame-cursor 2,1 default visible w=1 fg=#e5e5e5 bg=#000000 ul=#e5e5e5 inverse
+row 0 |one two,three  four|
+row 1 |ab|
+cells 1 0-5 w=1 fg=#000000 bg=#e5e5e5 ul=#000000 inverse

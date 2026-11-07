@@ -1,0 +1,35 @@
+> size 12 4
+> scrollback 10
+> send "x\r\ny\r\nz\r\nw\r\nv"
+> send "\e[2;3r\e[?69h\e[2;9s\e[3g\e[1;5H\eH\e[1;7;38;2;1;2;3m\e[?1h\e[4h\e[?1000;1006h\e]12;#ff0000\a"
+> dump state
+test state margins 1-2 1-8
+test state tabs 4
+test state modes ansi 4,8,12 dec 1,7,8,12,25,69,1000,1006,1007,1034,1035,1036,1042,1070,1243,2027,2028
+test state scrollback lines 1 view 0 max 10
+test state pen fg=#010203 bold inverse
+test state colors fg=#e5e5e5 bg=#000000 cursor=#ff0000
+> send "\e[!p"
+> dump state
+test state margins 0-3 0-11
+test state tabs 0,8
+test state modes ansi 8,12 dec 7,8,12,25,1007,1034,1035,1036,1042,1070,1243,2027,2028
+test state scrollback lines 1 view 0 max 10
+test state pen
+test state colors fg=#e5e5e5 bg=#000000 cursor=#ff0000
+> send "\e[2;3r\e[3g\e[1;31m\e[?1h"
+> send "\ec"
+> dump screen state
+size 12x4
+cursor 0,0
+flags AUTO_WRAP
+row 0 ||
+row 1 ||
+row 2 ||
+row 3 ||
+test state margins 0-3 0-11
+test state tabs 0,8
+test state modes ansi 8,12 dec 7,8,12,25,1007,1034,1035,1036,1042,1070,1243,2027,2028
+test state scrollback lines 0 view 0 max 10
+test state pen
+test state colors fg=#e5e5e5 bg=#000000 cursor=default
