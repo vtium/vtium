@@ -137,6 +137,7 @@ fn key(mods: Mods, sym: u32) -> KeyEvent {
 /// opens the seat. Meanwhile a timer of the test's own fires and SIGTERM is
 /// served, each while the seat is still pending, and then the seat opens
 /// and is enabled.
+// covers: platform.libseat
 #[test]
 fn a_busy_seat_is_retried_from_the_loop_which_serves_a_timer_and_sigterm_meanwhile() {
     let server = StandIn::new();
@@ -186,6 +187,7 @@ fn a_busy_seat_is_retried_from_the_loop_which_serves_a_timer_and_sigterm_meanwhi
 /// A device the seat manager answers `ENODEV` and then `EBUSY` for waits,
 /// with the loop serving a timer meanwhile, and is named settled once it
 /// opens; the owner's second ask then gets it.
+// covers: platform.libseat
 #[test]
 fn a_device_the_seat_manager_is_not_ready_for_is_retried_from_the_loop() {
     let server = StandIn::new();
@@ -308,6 +310,7 @@ fn a_held_seat_answered_epipe_is_retried() {
 }
 
 /// No seat manager answering hands the VT back for the kernel's backend.
+// covers: platform.libseat
 #[test]
 fn no_seat_manager_hands_the_vt_back() {
     let server = StandIn::new();
@@ -368,6 +371,7 @@ fn without_seatd_the_seat_opens_at_once() {
 
 /// A disable is a release the owner acknowledges once its displays sleep,
 /// and only then is the seat manager told; the next enable acquires again.
+// covers: platform.libseat
 #[test]
 fn a_disable_waits_for_the_owner_before_the_seat_manager_is_told() {
     let server = StandIn::new();
@@ -419,6 +423,7 @@ fn an_enable_while_a_release_waits_follows_the_acknowledgement() {
 
 /// Ctrl+Alt+F2 asks the seat manager for session 2; the VT's own key is
 /// taken and asks nothing; neither acts while the seat is not vtium's.
+// covers: platform.libseat
 #[test]
 fn the_switch_keys_ask_the_seat_manager() {
     let server = StandIn::new();
