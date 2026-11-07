@@ -1,0 +1,7 @@
+size 10x2
+cursor 4,0
+flags AUTO_WRAP
+reply 1b50312472303b356d1b5c1b50312472306d1b5c1b50312472303b366d1b5c1b50312472306d1b5c
+row 0 |ABCD|
+attr 0 0-0 blink
+row 1 ||

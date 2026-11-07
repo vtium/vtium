@@ -79,6 +79,7 @@ pub fn describe() -> String {
             "palette",
             "query",
             "clipboard",
+            "attrs-renditions",
         ])
         .chain(animation)
         .chain(if BIDI { &["bidi"][..] } else { &[] });

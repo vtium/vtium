@@ -21,7 +21,8 @@
 // its top byte: x the foreground and the glyph's kind (0 none, 1 a mask
 // from masks, 2 a premultiplied color glyph from colors), y the
 // background and the job's flags (RECEIVES, MARKED and DOWN below), z the
-// underline's color and its sprite, w the strike's color and its sprite,
+// underline's color and its sprite, w the color and sprite of the lines
+// over the glyph (the strike, the overline or both),
 // a sprite being its place in sprites plus one, or 0 for none.
 //
 // With INK, a job that RECEIVES ink from its neighbours' glyphs (ADR-1306

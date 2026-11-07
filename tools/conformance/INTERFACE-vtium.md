@@ -94,24 +94,38 @@ row 0 |abc (1) םולש def|
 
 The `key` command's `mods` takes 0 to 255, where 1.0 stops at 31. The bits 1.0 names keep their meaning: 1 Shift, 2 Lock, 4 Ctrl, 8 Alt and 16 Logo. The new bits are 32, NumLock is on, 64 Hyper and 128 Meta, which a host reports where the keymap gives Hyper or Meta a modifier of its own. The kitty keyboard protocol reports each of them in a key's modifiers (ADR-1005, D2), and xterm's encoding reads NumLock under mode 1035. A `key` line with a `mods` of 31 or less presses the key it pressed before, so every golden stays as it is. The `mouse` command's `mods` still stops at 31.
 
+## Overline, superscript and subscript
+
+Interface 1.0 reserves three keys for features it lacks: `overline`, `superscript` and `subscript` (1.0's "Reserved keys"). vtium-term keeps the overline that SGR 53 sets and SGR 55 clears, and the superscript and subscript that SGR 73 and 74 set and SGR 75 clears, as mintty defines them. With the feature `attrs-renditions`, the screen view's `attr` lines and the frame view's `cells` and `frame-cursor` lines print these keys where 1.0 reserves them, after `strike`: `overline` when the overline is set, then `superscript` or `subscript` when one of them is set. A cell holds at most one of the two. No case of 1.0 sets them, so no golden of 1.0 changes.
+
+| Feature | What declaring it means |
+|---|---|
+| `attrs-renditions` | The screen and frame views print `overline`, `superscript` and `subscript`. |
+
 ## The worked examples' strings
 
 The worked examples, here and in 1.0, read each `send` string with the string syntax of tier 1's scenarios (ADR-1504, D2), so the examples and the scenarios have one syntax. It adds three escapes to 1.0's list: `\a` stands for the byte 07, `\b` for the byte 08, and `\u{HEX}` for the UTF-8 of the code point HEX. Every string 1.0's list accepts reads as it did, so no example's input changes.
 
 ## The describe block and the grammar
 
-The grammar below adds the clipboard's `test` line, the two forms of the `anim` line, and the display view's `display-cursor` line and structure. An `anim` line follows its image's `image` line, so `IMAGES` and the fragments and structures built on it are given again here: a fragment takes its value where it is defined, so the views' fragments and structures must be restated to use the new `IMAGES`. They differ from 1.0's only in that `IMAGES`.
+The grammar below adds the forms of the `attr`, `cells` and `frame-cursor` lines that print the keys `attrs-renditions` prints, the clipboard's `test` line, the two forms of the `anim` line, and the display view's `display-cursor` line and structure. An `anim` line follows its image's `image` line, so `IMAGES` and the fragments and structures built on it are given again here: a fragment takes its value where it is defined, so the views' fragments and structures must be restated to use the new `IMAGES`. They differ from 1.0's only in that `IMAGES`.
 
 ```describe
 interface 1.4
 view display
 feature clipboard
+feature attrs-renditions
 feature kitty-animation
 feature bidi
 command clipboard clipboard
 ```
 
 ```grammar
+define RATTR (?: fg={CODE})?(?: bg={CODE})?(?: bold)?(?: italic)?(?: underline(?:=double|=curly|=dotted|=dashed)?)?(?: ul={CODE})?(?: inverse)?(?: protect)?(?: blink)?(?: dim)?(?: strike)?(?: overline)?(?: superscript| subscript)?
+define RFCELL w=[0-2] fg={RGB} bg={RGB} ul={RGB}(?: ulset)?(?: underline=(?:single|double|curly|dotted|dashed))?(?: bold)?(?: italic)?(?: dim)?(?: blink)?(?: inverse)?(?: protect)?(?: strike)?(?: overline)?(?: superscript| subscript)?
+line attr screen attr {N} {N}-{N}{RATTR}
+line cells frame cells {N} {N}-{N} {RFCELL}
+line frame-cursor frame frame-cursor {N},{N} (?:{STYLE}) (?:hidden|visible {RFCELL})
 line test * test clipboard (?:none|(?:[0-9a-f]{2})+)
 line host: * host: [1-9][0-9]* t=d flags=any(?:,frames)? O=0 max=0 min=0 name= len={N}
 line anim * anim {N} frames [1-9][0-9]* current [1-9][0-9]* run (?:stopped|loading|looping) loops [1-9][0-9]* stamps {N} {N}

@@ -20,7 +20,7 @@ use vtium_parse::{Params, SUBPARAMS_MAX};
 use super::State;
 use crate::bounds::SGR_STACK_MAX;
 use crate::screen::Screen;
-use crate::style::{Attrs, Color, Rgb, Style, UnderlineStyle};
+use crate::style::{Attrs, Color, Rgb, Script, Style, UnderlineStyle};
 
 /// Applies SGR's parameters, in order, to the screen's pen.
 pub(super) fn apply(screen: &mut Screen, params: &Params) {
@@ -56,7 +56,9 @@ pub(super) fn apply_from(pen: &mut Style, params: &Params, first: usize) {
                 }
             }
             5 => a.insert(Attrs::BLINK),
+            6 => a.insert(Attrs::RAPID_BLINK),
             7 => a.insert(Attrs::INVERSE),
+            8 => a.insert(Attrs::CONCEAL),
             9 => a.insert(Attrs::STRIKE),
             // ECMA-48's doubly underlined; the Linux console once read it as
             // normal intensity.
@@ -72,6 +74,7 @@ pub(super) fn apply_from(pen: &mut Style, params: &Params, first: usize) {
                 a.remove(Attrs::RAPID_BLINK);
             }
             27 => a.remove(Attrs::INVERSE),
+            28 => a.remove(Attrs::CONCEAL),
             29 => a.remove(Attrs::STRIKE),
             30..=37 => pen.fg = indexed(code, 30, 0),
             39 => pen.fg = Color::Default,
@@ -89,7 +92,13 @@ pub(super) fn apply_from(pen: &mut Style, params: &Params, first: usize) {
                     i = i.saturating_add(used);
                 }
             }
+            53 => a.insert(Attrs::OVERLINE),
+            55 => a.remove(Attrs::OVERLINE),
             59 => pen.underline_color = Color::Default,
+            // mintty's superscript and subscript, each in place of the other
+            73 => a.set_script(Script::Super),
+            74 => a.set_script(Script::Sub),
+            75 => a.set_script(Script::Baseline),
             _ => {}
         }
         i = i.saturating_add(1);
@@ -328,7 +337,6 @@ impl State {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::style::Script;
 
     fn styled() -> Style {
         let mut pen = Style::DEFAULT;

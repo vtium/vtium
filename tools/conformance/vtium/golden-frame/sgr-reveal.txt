@@ -1,0 +1,10 @@
+size 10x2
+cursor 6,0
+flags AUTO_WRAP
+reply 1b50312472303b313b343b386d1b5c1b50312472303b313b346d1b5c
+palette legacy fg=#e5e5e5 bg=#000000
+changed 20
+frame-cursor 6,0 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 |hidden|
+cells 0 0-5 w=1 fg=#e5e5e5 bg=#000000 ul=#e5e5e5 underline=single bold
+row 1 ||

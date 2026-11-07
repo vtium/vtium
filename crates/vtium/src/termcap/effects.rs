@@ -712,6 +712,7 @@ fn check(entry: &Entry, name: &str, cap: &Cap) {
         ("dim", _) => attr(&s(&[]), Attrs::DIM),
         ("sitm", _) => attr(&s(&[]), Attrs::ITALIC),
         ("blink", _) => attr(&s(&[]), Attrs::BLINK),
+        ("invis", _) => attr(&s(&[]), Attrs::CONCEAL),
         ("rev" | "smso", _) => attr(&s(&[]), Attrs::INVERSE),
         ("smxx", _) => attr(&s(&[]), Attrs::STRIKE),
         ("smul", _) => {
@@ -775,16 +776,6 @@ fn check(entry: &Entry, name: &str, cap: &Cap) {
                 let have = pen(&t).attrs;
                 assert!(!have.contains(Attrs::ITALIC), "sgr resets first");
                 match want {
-                    // KNOWN GAP: kmscon.ti's sgr asks for SGR 8,
-                    // which vtium-term does not do until the work on SGR
-                    // 8 and 28 lands (vtium/vtium#37); vtium's entry
-                    // leaves it out. This fails once it lands: then check
-                    // it as the others.
-                    Some(Attrs::CONCEAL) if entry.term == super::KMSCON => {
-                        assert!(!have.contains(Attrs::CONCEAL), "SGR 8 landed");
-                    }
-                    // vtium's entry does not ask for it (see its sgr)
-                    Some(Attrs::CONCEAL) => assert_eq!(have, Attrs::default(), "sgr p7"),
                     Some(a) => assert!(have.contains(*a), "{}: sgr p{}", entry.term, i + 1),
                     None => assert_eq!(have.underline(), UnderlineStyle::Single, "sgr p2"),
                 }
