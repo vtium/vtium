@@ -14,7 +14,7 @@ vtium is built for machines from a small board with 512 MB of memory and a 320x2
 
 [VTium in depth](vtium-in-depth.md) explains what a terminal is and how the Linux console came to be plain, then gives what vtium does, its status, what it needs, and how to try and configure it.
 
-vtium's latest release is the pre-release v0.1.0-alpha.5. This site describes vtium's `main` branch, which may be ahead of that release.
+This site describes vtium's `main` branch, which may be ahead of [the latest release](https://github.com/vtium/vtium/releases).
 
 ## Where to start
 
