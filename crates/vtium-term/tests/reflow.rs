@@ -918,6 +918,42 @@ fn dropping_past_the_byte_budget_is_linear() {
     }
 }
 
+/// The rows the scrollback reads in its oldest waiting logical line while
+/// `pushes` lines each push one row out of it: the line is `rows` rows of
+/// text with no wide character, waiting after a narrowing, and `sb-size`
+/// is `rows`, so each new line cuts one row from its front.
+fn push_work(rows: usize, pushes: usize) -> usize {
+    let mut t = Terminal::new(100, 4, 100_000);
+    t.screen_mut().set_scrollback_max(100_000);
+    t.screen_mut().set_scrollback_memory(1 << 30);
+    t.input("x".repeat(100 * rows).as_bytes());
+    t.input(b"\r\n");
+    t.screen_mut().resize(99, 4);
+    t.screen_mut().set_scrollback_max(rows);
+    let before = t.screen().scrollback_rows_read();
+    for _ in 0..pushes {
+        t.input(b"y\r\n");
+    }
+    t.screen().scrollback_rows_read() - before
+}
+
+// vtium/vtium#146: a push that cuts a row from the front of a long waiting
+// line reads only the rows it cuts. The scrollback keeps the line's row
+// count once it has read it, and a cut clears the line's marks once, so
+// the pushes behind a line four times as long read no more rows. A push
+// that read the whole remaining line would read millions of rows here.
+#[test]
+fn pushing_behind_a_long_waiting_line_is_linear() {
+    let pushes = 2000;
+    for rows in [2000, 8000] {
+        let read = push_work(rows, pushes);
+        assert!(
+            read <= 4 * pushes,
+            "{pushes} pushes behind {rows} rows read {read} rows"
+        );
+    }
+}
+
 /// The allocator of this test binary: the system's, counting on each
 /// thread the times that thread asks for memory, so a test can measure the
 /// work a call does by its allocations, whatever else runs at the same
