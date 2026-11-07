@@ -1177,6 +1177,60 @@ fn a_fallback_glyph_drawn_smaller_keeps_the_baseline() {
     }
 }
 
+// ADR-1200 D17: every outline source after an outline first source draws on
+// the first source's baseline, so Hebrew and Arabic from Noto Sans behind
+// DejaVu Sans Mono stand on the Latin letters' baseline. Test Tall has
+// Noto's proportions, an ascent of 1100 and a descent of 300, so at Test
+// Latin's size its own baseline is the cell's bottom row in both cells.
+// Its alef and its beh fit their cells, so the helper draws them at full
+// size. When each source stood on its own baseline, their lowest ink sat
+// 3 rows below đ's in the 9x16 cell and 11 rows below in the 28x54 cell
+#[test]
+fn a_fallback_source_draws_on_the_first_sources_baseline() {
+    let w = World::new("fallback-own-baseline");
+    let mut latin = ttf::test_mono();
+    latin.family = "Test Latin".to_owned();
+    latin.colr.clear();
+    latin.cmap = vec![(0x20, 1), (0x41, 2), (0x57, 3), (0x111, 2)];
+    fs::write(w.path("fonts/TestLatin-Regular.ttf"), latin.build()).expect("font");
+    let mut tall = ttf::test_mono();
+    tall.family = "Test Tall".to_owned();
+    tall.colr.clear();
+    tall.ascent = 1100;
+    tall.descent = -300;
+    tall.glyphs.push(ttf::Glyph::rect(600, 100, 0, 500, 500));
+    tall.glyphs.push(ttf::Glyph::rect(600, 0, 0, 600, 300));
+    let n = tall.glyphs.len() as u16;
+    tall.cmap = vec![(0x5d0, n - 2), (0x628, n - 1)];
+    fs::write(w.path("fonts/TestTall-Regular.ttf"), tall.build()).expect("font");
+    let engine = w
+        .engine("source=font:Test Latin\nsource=font:Test Tall\n")
+        .expect("the frit loads");
+    let lowest = |g: &vtium_font::Glyph| {
+        let rows: Vec<&[u8]> = g.rows().collect();
+        (0..rows.len())
+            .rev()
+            .find(|&y| rows[y].iter().any(|&p| p != 0))
+    };
+    for (at, baseline) in [(cell(9, 16), 12), (cell(28, 54), 42)] {
+        let bytes = engine
+            .draw(at, &[0x111, 0x5d0, 0x628])
+            .expect("draws")
+            .expect("the glyphs");
+        let face = SetFace::new(
+            Arc::new(Set::from_bytes(bytes).expect("the set reads")),
+            at.height,
+        )
+        .expect("a face");
+        let d = face.draw(&['đ'], Style::default()).expect("đ");
+        assert_eq!(lowest(&d), Some(baseline), "{at:?}: đ on the baseline");
+        for c in ['\u{5d0}', '\u{628}'] {
+            let g = face.draw(&[c], Style::default()).expect("the letter");
+            assert_eq!(lowest(&g), lowest(&d), "{at:?}: {c} on đ's baseline");
+        }
+    }
+}
+
 // ADR-1200 D17: behind a bitmap first source, each outline source is sized
 // so its own ascent and descent span the cell's height, not at the size of
 // the first outline source after the bitmap one. In the frit ter-v16n,

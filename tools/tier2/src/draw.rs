@@ -34,6 +34,12 @@ use crate::ppm::Image;
 pub enum FontKind {
     /// The built-in unifont at 16 pixels, 8x16 cells.
     Unifont,
+    /// The built-in font at 16 pixels as the console draws it for a display
+    /// with no font set, through the console's own face for it
+    /// (`vtium::font::Chosen::BUILTINS`): GNU Unifont in 8x16 cells, which
+    /// in a build with the bidi feature draws a joined Arabic letter by the
+    /// Arabic presentation form of its joined form (ADR-1004 D6).
+    Builtin,
     /// Sprites only, in the cell size of the outline font the golden was
     /// drawn with: the screen holds nothing but sprites and spaces, which draw
     /// the same in any font of that cell, so the golden judges it while
@@ -534,6 +540,15 @@ pub fn draw_on(screen: &Screen, painter: &mut impl Paint) -> Result<Image, Strin
     let p = painter;
     match screen.font {
         FontKind::Unifont => draw_with(screen, || Font::new(Unifont::new(16)), p),
+        FontKind::Builtin => {
+            let face = || vtium::font::Chosen::BUILTINS.face(16, "C");
+            face().ok_or("the console has no built-in face at 16 pixels")?;
+            draw_with(
+                screen,
+                || Font::new(face().expect("a face, as it was before")),
+                p,
+            )
+        }
         FontKind::Sprites { width, height } => {
             draw_with(screen, || Font::new(SpritesOnly(Cell { width, height })), p)
         }
@@ -707,57 +722,23 @@ fn spaced_as_plain(
 /// a cluster among them, and the clusters whole, each sorted and once,
 /// white space left out. The regular style comes first.
 pub fn shown(screen: &Screen, cell: Cell) -> Result<Vec<Shown>, String> {
-    use vtium_term::Attrs;
     let made = picture_cell(screen, cell);
     let mut term = terminal(screen, made)?;
     let mut all = vec![Shown::default()];
-    let mut read = |term: &Terminal| {
-        let frame = term.screen().frame(term.palette(), Age::NEVER);
-        for row in 0..frame.rows() {
-            for cell in frame.cells(row) {
-                let style = FontStyle {
-                    bold: cell.attrs.contains(Attrs::BOLD),
-                    italic: cell.attrs.contains(Attrs::ITALIC),
-                };
-                let at = match all.iter().position(|s| s.style == style) {
-                    Some(at) => at,
-                    None => {
-                        all.push(Shown {
-                            style,
-                            ..Shown::default()
-                        });
-                        all.len() - 1
-                    }
-                };
-                let one = &mut all[at];
-                match cell.glyph {
-                    Text::Char(c) => one.chars.push(c),
-                    Text::Cluster(text) => {
-                        one.chars.extend(text.chars());
-                        one.clusters.push(text.chars().collect());
-                    }
-                    Text::Empty => {}
-                }
-            }
-        }
+    let read = |term: &Terminal, all: &mut Vec<Shown>| {
+        vtium::deferred::read_shown(&term.screen().frame(term.palette(), Age::NEVER), all);
     };
-    read(&term);
+    read(&term, &mut all);
     if let Some(next) = screen.next {
         later(screen, &mut term, 1, made)?;
-        read(&term);
+        read(&term, &mut all);
         feed(&mut term, next)?;
         later(screen, &mut term, 2, made)?;
-        read(&term);
+        read(&term, &mut all);
         later(screen, &mut term, 3, made)?;
-        read(&term);
+        read(&term, &mut all);
     }
-    for one in &mut all {
-        one.chars.retain(|c| !c.is_whitespace());
-        one.chars.sort_unstable();
-        one.chars.dedup();
-        one.clusters.sort_unstable();
-        one.clusters.dedup();
-    }
+    vtium::deferred::settle(&mut all);
     Ok(all)
 }
 

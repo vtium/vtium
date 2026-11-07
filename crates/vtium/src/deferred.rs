@@ -42,6 +42,40 @@ use vtium_font::{
 };
 
 mod data;
+#[cfg(feature = "bidi")]
+mod joined;
+#[cfg(feature = "bidi")]
+pub use joined::{presentation, presented};
+
+/// The sides a letter of a joining script joins its neighbours on, read in
+/// its script's order (ADR-1004 D6): its glyph is keyed with U+200D on
+/// each.
+#[cfg(feature = "bidi")]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct Sides {
+    before: bool,
+    after: bool,
+}
+
+#[cfg(feature = "bidi")]
+impl Sides {
+    /// `inner`, a letter and its marks, keyed with U+200D on each side.
+    fn key(self, mut inner: Text) -> Text {
+        const ZWJ: char = '\u{200d}';
+        if self.before {
+            inner.insert(0, ZWJ);
+        }
+        if self.after {
+            inner.push(ZWJ);
+        }
+        inner
+    }
+
+    /// Whether the letter joins neither side.
+    fn none(self) -> bool {
+        !self.before && !self.after
+    }
+}
 
 /// The most marks a cluster may hold for [`DeferredFace::held_part`] to
 /// look for the parts of it the store holds: each set of marks left out is
@@ -74,6 +108,80 @@ pub struct Shown {
     pub clusters: Vec<Text>,
 }
 
+/// Adds to `all` what `frame` shows, as the console reads it to ask the
+/// helper for the glyphs a display draws, in each style a cell draws its
+/// glyph in, bold, italic, both or neither (ADR-1200 D21): each character,
+/// every character of a cluster among them, and each cluster whole, and
+/// what a right-to-left row draws ([`vtium_render::joined`]): each joined
+/// letter's key, each lam-alef ligature's, a mirrored cluster as it draws,
+/// and the presentation form each key draws where no font holds the joined
+/// form (ADR-1004 D6, D7). A style `all` lacks is added after the others.
+/// A build without the bidi feature reads the frame in `Head::visible`
+/// alone, so the minspec build carries none of this.
+#[cfg(feature = "bidi")]
+pub fn read_shown(frame: &vtium_term::Frame<'_>, all: &mut Vec<Shown>) {
+    use vtium_render::joined;
+    use vtium_term::{Attrs, Glyph};
+    let mut drawn = Vec::new();
+    for row in 0..frame.rows() {
+        for (col, cell) in frame.cells(row).enumerate() {
+            let style = Style {
+                bold: cell.attrs.contains(Attrs::BOLD),
+                italic: cell.attrs.contains(Attrs::ITALIC),
+            };
+            if !all.iter().any(|s| s.style == style) {
+                all.push(Shown {
+                    style,
+                    ..Shown::default()
+                });
+            }
+            let Some(shown) = all.iter_mut().find(|s| s.style == style) else {
+                continue;
+            };
+            match cell.glyph {
+                Glyph::Char(c) => shown.chars.push(c),
+                Glyph::Cluster(text) => {
+                    shown.chars.extend(text.chars());
+                    shown.clusters.push(text.chars().collect());
+                }
+                Glyph::Empty => {}
+            }
+            // the cell's own text, and a lam-alef ligature's too, since the
+            // cursor standing on it draws its letters apart
+            drawn.clear();
+            joined::text(&cell, &mut drawn);
+            let mut texts = vec![drawn.clone()];
+            if joined::span(frame, (col, row), &cell, None) == joined::Span::Pair
+                && let Some(lam) = frame.cell(row, col.saturating_add(1))
+            {
+                let mut pair = Vec::new();
+                joined::pair_text(&cell, &lam, &mut pair);
+                texts.push(pair);
+            }
+            for text in texts.into_iter().filter(|t| t.len() > 1) {
+                shown.chars.extend(presentation(&text));
+                shown
+                    .chars
+                    .extend(text.iter().filter(|&&c| c != joined::ZWJ));
+                shown.clusters.push(text);
+            }
+        }
+    }
+}
+
+/// Each of `all`'s characters and clusters sorted and once, white space
+/// left out, as the console asks the helper for them.
+#[cfg(feature = "bidi")]
+pub fn settle(all: &mut [Shown]) {
+    for shown in all {
+        shown.chars.retain(|c| !c.is_whitespace());
+        shown.chars.sort_unstable();
+        shown.chars.dedup();
+        shown.clusters.sort_unstable();
+        shown.clusters.dedup();
+    }
+}
+
 /// Whether `c` is a combining mark, drawn over its base.
 fn is_mark(c: char) -> bool {
     within(&data::MARKS, c)
@@ -82,6 +190,14 @@ fn is_mark(c: char) -> bool {
 /// Whether `c` is a default ignorable, drawn as nothing.
 fn is_ignorable(c: char) -> bool {
     within(&data::IGNORABLES, c)
+}
+
+#[cfg(feature = "bidi")]
+/// Whether a part of a cluster may leave `c` out: a combining mark or a
+/// default ignorable, which the helper leaves out of a cluster's part when
+/// the font draws no glyph for it (ADR-1200 D22 step 3).
+pub fn droppable(c: char) -> bool {
+    is_mark(c) || is_ignorable(c)
 }
 
 fn within(ranges: &[(u32, u32)], c: char) -> bool {
@@ -979,8 +1095,26 @@ impl DeferredFace {
     /// Indic vowel signs and Myanmar's medial ra; any
     /// other stands beside the letter ([`beside`]), after it, or before it
     /// where its body stands before its letter, as the vowel sign i does.
-    fn unshaped(&self, cluster: &[char], style: Style) -> Option<Glyph> {
+    ///
+    /// The letter is joined on `sides` (ADR-1004 D6): it takes the store's
+    /// part of its key ([`DeferredFace::held_part`]) or its joined form
+    /// ([`DeferredFace::letter`]), and no NFC form, which would draw it
+    /// unjoined. A build without the bidi feature joins nothing.
+    fn unshaped(
+        &self,
+        #[cfg(feature = "bidi")] sides: Sides,
+        cluster: &[char],
+        style: Style,
+    ) -> Option<Glyph> {
+        #[cfg(not(feature = "bidi"))]
         if let Some(c) = precomposed(cluster)
+            && let Some(g) = lock(&self.generated).draw(self.at(), &[c], style)
+        {
+            return Some(g);
+        }
+        #[cfg(feature = "bidi")]
+        if sides.none()
+            && let Some(c) = precomposed(cluster)
             && let Some(g) = lock(&self.generated).draw(self.at(), &[c], style)
         {
             return Some(g);
@@ -991,9 +1125,15 @@ impl DeferredFace {
             .copied()
             .filter(|&c| is_mark(c) && !is_ignorable(c))
             .collect();
+        #[cfg(not(feature = "bidi"))]
         let (glyph, marks) = match self.held_part(base, &marks, style) {
             Some(held) => held,
             None => (self.single(base, style)?, marks),
+        };
+        #[cfg(feature = "bidi")]
+        let (glyph, marks) = match self.held_part(sides, base, &marks, style) {
+            Some(held) => held,
+            None => (self.letter(sides, base, style)?, marks),
         };
         if glyph.format() != Format::Mask {
             return Some(glyph);
@@ -1027,15 +1167,34 @@ impl DeferredFace {
         beside(letter, &stand)
     }
 
-    /// The store's glyph for the most of a cluster it holds, `base` with
-    /// as many of `marks` as the helper shaped with it, and the marks left
-    /// out, which the caller lays over it (ADR-1200 D22 step 3): a cluster
-    /// whose mark the font set lacks, as lam with shadda, fatha and
-    /// superscript alef, draws the rest as the font shapes it, its marks
-    /// where the font puts them. `None` when the store holds no such part
+    /// `base`'s own glyph joined on `sides`: the base's glyph where it
+    /// joins nothing ([`DeferredFace::single`]), else a joined letter's
+    /// form ([`DeferredFace::form`]).
+    #[cfg(feature = "bidi")]
+    fn letter(&self, sides: Sides, base: char, style: Style) -> Option<Glyph> {
+        if sides.none() {
+            self.single(base, style)
+        } else {
+            self.form(sides, base, style)
+        }
+    }
+
+    /// The store's glyph for the most of a cluster it holds, `base` joined
+    /// on `sides` with as many of `marks` as the helper shaped with it, and
+    /// the marks left out, which the caller lays over it (ADR-1200 D22 step
+    /// 3): a cluster whose mark the font set lacks, as lam with shadda,
+    /// fatha and superscript alef, draws the rest as the font shapes it,
+    /// its marks where the font puts them. The helper sends that part under
+    /// its own key when it shapes a cluster whose mark no glyph draws. `None` when the store holds no such part
     /// with at least one mark, or the cluster has more than
     /// [`HELD_PART_MARKS`] marks.
-    fn held_part(&self, base: char, marks: &[char], style: Style) -> Option<(Glyph, Vec<char>)> {
+    fn held_part(
+        &self,
+        #[cfg(feature = "bidi")] sides: Sides,
+        base: char,
+        marks: &[char],
+        style: Style,
+    ) -> Option<(Glyph, Vec<char>)> {
         let n = marks.len();
         if !(2..=HELD_PART_MARKS).contains(&n) {
             return None;
@@ -1050,6 +1209,8 @@ impl DeferredFace {
                 let left = |i: usize| set >> i & 1 == 1;
                 let mut text = vec![base];
                 text.extend((0..n).filter(|&i| !left(i)).filter_map(|i| marks.get(i)));
+                #[cfg(feature = "bidi")]
+                let text = sides.key(text);
                 let Some(glyph) = store.draw(self.at(), &text, style) else {
                     continue;
                 };
@@ -1119,7 +1280,14 @@ impl Face for DeferredFace {
     /// Whether the store or the built-in font holds `c`, or the store a
     /// cluster `c` begins: the renderer asks by a cluster's first
     /// character before it draws the cluster.
+    /// In a build with the bidi feature U+200D counts as held too: a key
+    /// that starts with it is a joined letter's ([`joined`]), which draws
+    /// at least the letter's own glyph.
     fn has_glyph(&self, c: char) -> bool {
+        #[cfg(feature = "bidi")]
+        if c == '\u{200d}' {
+            return true;
+        }
         self.generated_has(c)
             || self.builtin.has_glyph(c)
             || lock(&self.generated).begins(self.at(), c)
@@ -1141,6 +1309,15 @@ impl Face for DeferredFace {
             &[c] => self.single(c, style),
             _ => {
                 let held = lock(&self.generated).draw(self.at(), cluster, style);
+                // a joined letter's key, or lam and alef as their ligature
+                // (ADR-1004 D6)
+                #[cfg(feature = "bidi")]
+                if let Some(key) = joined::Key::of(cluster) {
+                    return held.or_else(|| self.joined(&key, style));
+                }
+                #[cfg(feature = "bidi")]
+                return held.or_else(|| self.unshaped(Sides::default(), cluster, style));
+                #[cfg(not(feature = "bidi"))]
                 held.or_else(|| self.unshaped(cluster, style))
             }
         }

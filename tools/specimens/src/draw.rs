@@ -7,7 +7,7 @@ use vtium_font::set::{Set, SetFace, builtin};
 use vtium_font::sprite::Range;
 use vtium_font::{Cell, Decorations, Face, Font, Glyph, RangeCoverage, SpritePolicy, Style};
 use vtium_render::{Canvas, Config, DrawState, Renderer};
-use vtium_term::{Age, Attrs, Glyph as Text, Terminal, WidthMethod};
+use vtium_term::{Age, Terminal, WidthMethod};
 
 use crate::profiles::{Glyphs, Layout, Profile};
 use crate::{bars, card};
@@ -167,6 +167,27 @@ pub struct CardFace {
 }
 
 impl CardFace {
+    /// What a joined Arabic letter's key draws from the set of single
+    /// characters when the helper drew nothing whole for it, as the
+    /// console draws it (ADR-1004 D6): the presentation form of its joined
+    /// form, where the set holds that, else its letter. Any other cluster
+    /// is drawn as it is. A lam-alef ligature the set holds neither whole
+    /// nor as its presentation form draws its lam, where the console draws
+    /// lam and alef side by side.
+    fn unjoined(&self, cluster: &[char]) -> Vec<char> {
+        const ZWJ: char = '\u{200d}';
+        if let Some(form) = vtium::deferred::presentation(cluster)
+            && self.base.has_glyph(form)
+        {
+            return vec![form];
+        }
+        let keyed = cluster.first() == Some(&ZWJ) || cluster.last() == Some(&ZWJ);
+        if keyed || vtium::deferred::presentation(cluster).is_some() {
+            return cluster.iter().copied().filter(|&c| c != ZWJ).collect();
+        }
+        cluster.to_vec()
+    }
+
     /// The glyph the helper drew whole for `cluster` in `style`, if any.
     fn whole(&self, cluster: &[char], style: Style) -> Option<Glyph> {
         if cluster.len() < 2 {
@@ -202,7 +223,7 @@ impl Face for CardFace {
 
     fn draw(&self, cluster: &[char], style: Style) -> Option<Glyph> {
         self.whole(cluster, style)
-            .or_else(|| self.base.draw(cluster, style))
+            .or_else(|| self.base.draw(&self.unjoined(cluster), style))
     }
 
     fn last_resort(&self, style: Style) -> Option<Glyph> {
@@ -221,7 +242,7 @@ impl Face for CardFace {
     // so a cluster's glyph is already unscaled
     fn draw_unscaled(&self, cluster: &[char], style: Style) -> Option<Glyph> {
         self.whole(cluster, style)
-            .or_else(|| self.base.draw_unscaled(cluster, style))
+            .or_else(|| self.base.draw_unscaled(&self.unjoined(cluster), style))
     }
 
     fn last_resort_unscaled(&self, style: Style) -> Option<Glyph> {
@@ -234,40 +255,33 @@ pub type StyleClusters = (Style, Vec<Vec<u32>>);
 
 /// The clusters of more than one character that the card shows on the
 /// pages of `profiles`, in each style a cell draws its glyph in, as the
-/// console reads what a display shows to ask the helper for it: each
-/// style once, its clusters sorted and once, as scalar values.
+/// console reads what a display shows to ask the helper for it
+/// ([`vtium::deferred::read_shown`]), the keys of joined Arabic letters
+/// among them: each style once, its clusters sorted and once, as scalar
+/// values.
 pub fn clusters_shown(profiles: &[&Profile]) -> Result<Vec<StyleClusters>, String> {
-    let mut all: Vec<StyleClusters> = Vec::new();
+    let mut shown: Vec<vtium::deferred::Shown> = Vec::new();
     for profile in profiles {
         let layout = profile.layout()?;
         for page in 0..layout.pages {
             let term = terminal(&layout, &card::page(profile, &layout, page))?;
             let frame = term.screen().frame(term.palette(), Age::NEVER);
-            for row in 0..frame.rows() {
-                for cell in frame.cells(row) {
-                    let Text::Cluster(text) = cell.glyph else {
-                        continue;
-                    };
-                    let style = Style {
-                        bold: cell.attrs.contains(Attrs::BOLD),
-                        italic: cell.attrs.contains(Attrs::ITALIC),
-                    };
-                    let key: Vec<u32> = text.chars().map(u32::from).collect();
-                    if key.len() < 2 {
-                        continue;
-                    }
-                    match all.iter_mut().find(|(s, _)| *s == style) {
-                        Some((_, keys)) => keys.push(key),
-                        None => all.push((style, vec![key])),
-                    }
-                }
-            }
+            vtium::deferred::read_shown(&frame, &mut shown);
         }
     }
-    for (_, keys) in &mut all {
-        keys.sort_unstable();
-        keys.dedup();
-    }
+    vtium::deferred::settle(&mut shown);
+    let mut all: Vec<StyleClusters> = shown
+        .into_iter()
+        .filter(|one| !one.clusters.is_empty())
+        .map(|one| {
+            let keys = one
+                .clusters
+                .iter()
+                .map(|k| k.iter().map(|&c| u32::from(c)).collect())
+                .collect();
+            (one.style, keys)
+        })
+        .collect();
     all.sort_by_key(|(s, _)| (s.bold, s.italic));
     Ok(all)
 }

@@ -206,7 +206,7 @@ fn generate(
             let set = read(bytes)?;
             let mut whole = Vec::new();
             for (style, keys) in clusters {
-                if let Some(bytes) = engine.draw_style(cell, *style, &[], keys)? {
+                if let Some(bytes) = engine.draw_style(cell, *style, &[], (keys, true))? {
                     whole.push((*style, read(bytes)?));
                 }
             }

@@ -1023,6 +1023,7 @@ impl Head {
     /// every character of a cluster among them, and the clusters whole,
     /// each sorted and once. The regular style comes first, shown or not,
     /// and each other style only where a cell shows it.
+    #[cfg(not(feature = "bidi"))]
     pub(crate) fn visible(&self) -> Vec<Shown> {
         use vtium_term::{Age, Attrs, Glyph};
         let palette = self.console.term.terminal.palette();
@@ -1065,6 +1066,28 @@ impl Head {
             shown.clusters.sort_unstable();
             shown.clusters.dedup();
         }
+        all
+    }
+
+    /// What the displays show, read from the view each buffer draws,
+    /// scrolled back or not (#149), as [`crate::deferred::read_shown`]
+    /// reads it: in each style a cell draws its glyph in, the characters
+    /// and the clusters, each sorted and once. The regular style comes
+    /// first, shown or not, and each other style only where a cell shows
+    /// it.
+    #[cfg(feature = "bidi")]
+    pub(crate) fn visible(&self) -> Vec<Shown> {
+        use vtium_term::Age;
+        let palette = self.console.term.terminal.palette();
+        let frame = self
+            .console
+            .term
+            .terminal
+            .screen()
+            .frame(palette, Age::NEVER);
+        let mut all = vec![Shown::default()];
+        crate::deferred::read_shown(&frame, &mut all);
+        crate::deferred::settle(&mut all);
         all
     }
 
@@ -1846,6 +1869,53 @@ mod tests {
             "{items:?}"
         );
         assert_eq!(start.report().map(|r| r.more), Some(0));
+    }
+
+    // ADR-1004 D6: a row of Arabic asks the helper for each letter's
+    // joined form, keyed with U+200D on the sides it joins, for lam and
+    // alef as their ligature, and for the presentation form each of those
+    // draws where no font holds the joined form. Beh, lam and alef make
+    // beh's initial form, lam's medial and alef's final, and lam-alef's
+    // final ligature
+    // covers: text.bidi
+    #[cfg(feature = "bidi")]
+    #[test]
+    #[expect(
+        clippy::disallowed_methods,
+        clippy::panic,
+        reason = "a test's clock is the host's, and a test fails by panicking"
+    )]
+    fn a_row_of_arabic_asks_for_its_joined_forms() {
+        const ZWJ: char = '\u{200d}';
+        let (beh, lam, alef) = ('\u{628}', '\u{644}', '\u{627}');
+        let config = crate::config::load(&[], &mut |_: &std::path::Path| Ok(None)).config;
+        let clock: Clock = std::rc::Rc::new(Instant::now);
+        let mut head = Head::new(
+            "h",
+            &config,
+            Vec::new(),
+            terminal(&config, (0, 0), 0, clock),
+        );
+        head.console.term.terminal.input("بلا".as_bytes());
+        let shown = head.visible();
+        let Some(regular) = shown.first() else {
+            panic!("no style shown");
+        };
+        for key in [
+            vec![beh, ZWJ],
+            vec![ZWJ, lam, ZWJ],
+            vec![ZWJ, alef],
+            vec![ZWJ, lam, alef],
+        ] {
+            assert!(regular.clusters.contains(&key), "{key:?}: {regular:?}");
+        }
+        for form in ['\u{fe91}', '\u{fee0}', '\u{fe8e}', '\u{fefc}'] {
+            assert!(regular.chars.contains(&form), "{form:?}: {regular:?}");
+        }
+        assert!(
+            !regular.chars.contains(&ZWJ),
+            "U+200D is asked for in keys alone"
+        );
     }
 
     // ADR-1401 D7, D9: the screen the display guard lights for a notice

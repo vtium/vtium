@@ -74,16 +74,18 @@ const TAGS: std::ops::RangeInclusive<u32> = 0xe0020..=0xe007f;
 /// COMBINING ENCLOSING KEYCAP.
 const KEYCAP: u32 = 0x20e3;
 
-/// How the cluster `key` is judged and placed: a joining form when it
-/// holds U+200D and a letter, and every letter joins ([`joins`]), as a
-/// letter keyed with the joiner on the side it joins; the marks on a
+/// How the cluster `key` is judged and placed: a joining form when every
+/// letter joins ([`joins`]) and it holds U+200D or more than one letter,
+/// as a letter keyed with the joiner on the side it joins, or lam and
+/// alef, which the console asks for as their ligature; the marks on a
 /// letter, such as a fatha, are not letters here ([`mark_side`]). Else an
 /// emoji sequence when Unicode lists it as one or it holds U+200D, U+FE0F,
 /// a regional indicator, an emoji modifier, a tag or the keycap mark; else
 /// a letter and its marks.
 pub fn kind(key: &[u32]) -> Kind {
     let letters = key.iter().filter(|&&c| c != ZWJ && mark_side(c).is_none());
-    if key.contains(&ZWJ) && letters.clone().count() > 0 && letters.clone().all(|&c| joins(c)) {
+    let joiner = key.contains(&ZWJ) || letters.clone().count() > 1;
+    if joiner && letters.clone().count() > 0 && letters.clone().all(|&c| joins(c)) {
         return Kind::Joining;
     }
     let emoji = key.iter().any(|c| {
@@ -159,6 +161,25 @@ pub fn wide(key: &[u32]) -> bool {
     vtium_term::cluster_width(&chars) == 2
 }
 
+/// Whether `part` is `key` with one or more of its marks left out and
+/// everything else kept in order: the part of a cluster the engine shapes
+/// when the font draws no glyph for some of its marks (ADR-1200 D22 step
+/// 3).
+pub fn is_part(part: &[u32], key: &[u32]) -> bool {
+    if part.len() >= key.len() || part.is_empty() {
+        return false;
+    }
+    let mut rest = part.iter().peekable();
+    for &c in key {
+        if rest.peek() == Some(&&c) {
+            rest.next();
+        } else if mark_side(c).is_none() {
+            return false;
+        }
+    }
+    rest.next().is_none()
+}
+
 /// `key` as the engine asks a source for it.
 pub fn ask(key: &[u32]) -> Ask {
     Ask {
@@ -186,6 +207,9 @@ mod tests {
         assert_eq!(kind(&[0x1f468, ZWJ, 0x1f469]), Kind::Emoji);
         assert_eq!(kind(&[0x41, ZWJ]), Kind::Emoji);
         assert_eq!(kind(&[0x628, 0x64e]), Kind::Marks);
+        // lam and alef, which the console asks for as their ligature
+        assert_eq!(kind(&[0x644, 0x627]), Kind::Joining);
+        assert_eq!(kind(&[0x644, 0x64e, 0x627]), Kind::Joining);
         // a mark on the letter, of Joining_Type T, leaves it a joining
         // form in either order (review finding 2); a joiner with marks
         // alone has no letter to join

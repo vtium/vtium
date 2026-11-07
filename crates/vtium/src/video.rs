@@ -341,7 +341,12 @@ mod tests {
 
     // ADR-1401 D2: the minspec build, vtium's default build, keeps two
     // buffers a DRM display.
-    #[cfg(not(any(feature = "gpu", feature = "images", feature = "logind")))]
+    #[cfg(not(any(
+        feature = "gpu",
+        feature = "images",
+        feature = "logind",
+        feature = "bidi"
+    )))]
     #[test]
     fn the_minspec_build_keeps_two_buffers() {
         assert_eq!(FEATURE_BUFFERS, Buffers::Two);
