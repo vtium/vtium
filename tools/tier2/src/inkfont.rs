@@ -5,11 +5,12 @@
 //! ink past a cell draws use this font, written as vtium-config's tests
 //! write theirs (`crates/vtium-config/tests/common/ttf.rs`, which this
 //! module includes rather than copies). The font has 1000 units to the
-//! em, an ascent of 800 and a descent of 200, so the glyph helper sizes it
-//! at one pixel to the em for each pixel of the cell's height, and every
-//! distance below is a known fraction of the cell: 100 units are a tenth
-//! of the cell's height, and 150 units a quarter of its width, since every
-//! narrow glyph advances 600.
+//! em, an ascent of 800 and a descent of 200. The glyph helper fits the
+//! ascent and descent to the cell less half a pixel, so the font draws at
+//! a little under one pixel to the em for each pixel of the cell's height,
+//! and every distance below is close to the fraction of the cell it gives:
+//! 100 units are about a tenth of the cell's height, and 150 units about a
+//! quarter of its width, since every narrow glyph advances 600.
 //!
 //! Each glyph is a few straight-edged shapes. The capitals, the lower case
 //! letters with descenders and the underscore keep their ink inside the
@@ -23,8 +24,8 @@
 //! - ƒ, whose hooks reach a quarter of a cell to the left and the right;
 //! - the ideograph 一, two cells wide, whose bar reaches a quarter of a
 //!   cell past each side;
-//! - Arabic: alef, beh, noon and lam, whose stem passes the row's top by
-//!   0.08; the marks shadda (0.13 above), fatha (0.26), damma (0.32) and
+//! - Arabic: alef, beh and noon, which stay in the row, and lam, whose
+//!   stem passes the row's top by 0.08; the marks shadda (0.13 above), fatha (0.26), damma (0.32) and
 //!   sukun (0.34) above, kasra (0.12) and kasratan (0.22) below; and the
 //!   superscript alef, U+0670, which stands between 0.75 and 1.1 of the
 //!   cell above the row, so it passes the one row that ink may reach and
@@ -44,9 +45,6 @@ use std::sync::OnceLock;
 mod ttf;
 
 use ttf::{Font, Glyph};
-
-/// The name the frit gives the font's file in its directory.
-const FILE: &str = "vtium-tier2-ink.ttf";
 
 /// A contour of straight edges, clockwise, as TrueType fills.
 type Contour = Vec<(i16, i16)>;
@@ -380,15 +378,25 @@ pub fn bytes() -> Vec<u8> {
     .build()
 }
 
-/// The directory the font is written to once a run, of this process
-/// alone, which the frit's engine reads as its only font directory.
+/// The directory the font is kept in, which the frit's engine reads as
+/// its only font directory: `ink` beside the outline fonts' cache
+/// ([`crate::fonts::cache_dir`]), where each run finds the font's file
+/// or writes it once. The file's name holds the start of its SHA-256, so
+/// a run never reads a font built from other code, and the file is
+/// written under a name of the process's own and renamed into place, so
+/// two runs at once never read a half-written font.
 pub fn dir() -> Result<&'static Path, String> {
     static DIR: OnceLock<Result<PathBuf, String>> = OnceLock::new();
     DIR.get_or_init(|| {
-        let dir = std::env::temp_dir().join(format!("vtium-tier2-ink-{}", std::process::id()));
+        let dir = crate::fonts::cache_dir().with_file_name("ink");
         std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-        let path = dir.join(FILE);
-        std::fs::write(&path, bytes()).map_err(|e| format!("{}: {e}", path.display()))?;
+        let font = bytes();
+        let path = dir.join(file_name(&font));
+        if std::fs::read(&path).ok().as_deref() != Some(font.as_slice()) {
+            let part = dir.join(format!("{}.{}", file_name(&font), std::process::id()));
+            std::fs::write(&part, &font).map_err(|e| format!("{}: {e}", part.display()))?;
+            std::fs::rename(&part, &path).map_err(|e| format!("{}: {e}", path.display()))?;
+        }
         Ok(dir)
     })
     .as_ref()
@@ -396,10 +404,20 @@ pub fn dir() -> Result<&'static Path, String> {
     .map_err(Clone::clone)
 }
 
+/// The name of the file that holds `font`: the start of its SHA-256 in
+/// it.
+fn file_name(font: &[u8]) -> String {
+    let sha = vtium_font::sha256_hex(&vtium_font::Sha256::digest(font));
+    format!("vtium-tier2-ink-{}.ttf", sha.get(..16).unwrap_or(&sha))
+}
+
 /// The frit of the ink font in `dir`, its rows made taller by `spacing`
 /// per cent of line spacing when it is not 0 (ADR-1302 D13).
 pub fn frit_text(dir: &Path, spacing: u32) -> String {
-    let mut text = format!("source=outline:{}\n", dir.join(FILE).display());
+    let mut text = format!(
+        "source=outline:{}\n",
+        dir.join(file_name(&bytes())).display()
+    );
     if spacing > 0 {
         text.push_str(&format!("line-spacing={spacing}\n"));
     }
