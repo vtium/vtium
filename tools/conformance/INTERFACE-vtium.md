@@ -115,7 +115,7 @@ What each `how` selects:
 
 - `start` starts a selection at the cell, as a press of the left button does. The selection holds that one cell.
 - `to` extends the selection from the cell where it started to this cell, as moving the pointer with the button held does. Whichever of the two comes first in reading order is the selection's first cell. With no selection, `to` does nothing.
-- `word` selects the word at the cell, as a double click does: the run of cells around it up to a space or, going right, an empty cell. A word that reaches the end of a row that wrapped goes on at the start of the next row. On a space or an empty cell, `word` selects nothing.
+- `word` selects the word at the cell, as a double click does: the run of cells around it up to a space or, going right, an empty cell. A word that reaches the end of a row that wrapped goes on at the start of the next row. On a space, `word` selects nothing.
 - `line` selects the whole line at the cell, every row of it when it wrapped, as a triple click does.
 - `output` selects, as whole lines, the output of the command at the cell, as Ctrl with the right button does. OSC 133's marks set the output out (ADR-1002): it runs from the nearest line at or above the cell that `OSC 133 ; C` marked to the line before the next prompt, or to the last line written. On a prompt, on a command's input, on a row in no command's output, and on the alternate screen, `output` selects nothing, and the host clears the selection.
 - `clear` clears the selection.
