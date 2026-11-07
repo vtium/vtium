@@ -7,6 +7,12 @@
     reason = "a test fails by panicking"
 )]
 
+// The helper that writes the stand-in programs, kept with vtium-config's
+// tests and shared by every crate whose tests run a program they made.
+#[path = "../../../vtium-config/tests/common/script.rs"]
+#[expect(clippy::expect_used, reason = "a test fails by panicking")]
+mod script;
+
 use rustix::fs::{FileType, MemfdFlags, SealFlags};
 use vtium_image::decode::wire::{ReplyHeader, Status};
 use vtium_image::decode::{Medium, Reply, Request};
@@ -312,13 +318,10 @@ fn a_namespace_whose_ids_cannot_be_mapped_skips_the_root_case_and_says_why() {
         path.push(rest);
     }
     let run_saying = |said: &str, message: &str, status: u8| {
-        let text = dir.join("unshare.text");
-        std::fs::write(
-            &text,
-            format!("#!/bin/sh\necho '{said}'\necho '{message}' >&2\nexit {status}\n"),
-        )
-        .unwrap();
-        executable_copy(&text, &dir.join("unshare"));
+        script::executable(
+            &dir.join("unshare"),
+            &format!("#!/bin/sh\necho '{said}'\necho '{message}' >&2\nexit {status}\n"),
+        );
         root_case(Some(&path))
     };
     let run = |message: &str, status: u8| run_saying("", message, status);
@@ -360,24 +363,6 @@ fn a_namespace_whose_ids_cannot_be_mapped_skips_the_root_case_and_says_why() {
         skipped,
         RootCase::Skipped("the user namespace gives no capability".to_owned())
     );
-}
-
-/// A copy of `from` at `to` with mode 0755, which `cp` writes, so this
-/// process never holds `to` open to write. A child that another thread
-/// forks while this process holds a file open to write gets a copy of
-/// that descriptor and keeps it until the child's own exec, and the
-/// kernel refuses to start a file that any process holds open to write,
-/// with ETXTBSY. Closing the file before the exec does not help, nor does
-/// O_CLOEXEC, since the forked child holds the copy until it execs.
-fn executable_copy(from: &std::path::Path, to: &std::path::Path) {
-    use std::os::unix::fs::PermissionsExt;
-    let copied = std::process::Command::new("cp")
-        .arg(from)
-        .arg(to)
-        .status()
-        .unwrap();
-    assert!(copied.success(), "cp {} {}", from.display(), to.display());
-    std::fs::set_permissions(to, std::fs::Permissions::from_mode(0o755)).unwrap();
 }
 
 /// The namespace's side: as uid 0 with every capability, the inheritable
@@ -423,7 +408,7 @@ fn as_root() {
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("vtium-image");
-    executable_copy(&exe, &path);
+    script::executable_copy(&exe, &path);
     let program = Program::open_with(
         &path,
         [

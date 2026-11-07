@@ -1,6 +1,6 @@
-//! The helper that writes the tests' stand-in programs
-//! (`common/script.rs`): a program it writes runs at once, however busy
-//! the test's other threads are starting processes.
+//! The helper that writes or copies the tests' stand-in programs
+//! (`common/script.rs`): a program it writes or copies runs at once,
+//! however busy the test's other threads are starting processes.
 
 #[path = "common/script.rs"]
 mod script;
@@ -16,7 +16,34 @@ use std::sync::atomic::{AtomicBool, Ordering};
 /// refused to run it with ETXTBSY. Every program runs.
 #[test]
 fn a_program_it_writes_runs_while_other_threads_start_processes() {
-    let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("script");
+    every_program_runs("script", |program| {
+        script::executable(program, "#!/bin/sh\nexit 0\n");
+    });
+}
+
+/// The same for 300 copies of a program, each run as soon as it is
+/// copied. The program is a script of 2 MB, the size of a small test
+/// binary, so each copy holds its file open for as long as copying a real
+/// program does.
+#[test]
+fn a_program_it_copies_runs_while_other_threads_start_processes() {
+    let original = Path::new(env!("CARGO_TARGET_TMPDIR")).join("script-original");
+    let mut text = String::from("#!/bin/sh\nexit 0\n");
+    while text.len() < 2 << 20 {
+        text.push_str("# a comment the shell never reads, to give the program its size\n");
+    }
+    script::executable(&original, &text);
+    every_program_runs("script-copy", |program| {
+        script::executable_copy(&original, program);
+    });
+}
+
+/// Starts four threads that start `true` without pause, makes 300
+/// programs in the directory `name` under the build's own temporary
+/// directory with `make`, runs each as soon as it is made and then removes
+/// it, and fails unless every one ran and ended with status 0.
+fn every_program_runs(name: &str, make: impl Fn(&Path)) {
+    let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join(name);
     if dir.exists() {
         std::fs::remove_dir_all(&dir).expect("a fresh directory");
     }
@@ -37,12 +64,13 @@ fn a_program_it_writes_runs_while_other_threads_start_processes() {
         let mut failed = Vec::new();
         for n in 0..300 {
             let program = dir.join(format!("program-{n}"));
-            script::executable(&program, "#!/bin/sh\nexit 0\n");
+            make(&program);
             match Command::new(&program).status() {
                 Ok(status) if status.success() => {}
                 Ok(status) => failed.push(format!("{}: {status}", program.display())),
                 Err(e) => failed.push(format!("{}: {e}", program.display())),
             }
+            std::fs::remove_file(&program).expect("the program removed");
         }
         assert!(failed.is_empty(), "{failed:#?}");
     });

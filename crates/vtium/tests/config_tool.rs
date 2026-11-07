@@ -20,6 +20,10 @@ use std::sync::{Mutex, MutexGuard};
 #[path = "common/scratch.rs"]
 mod scratch;
 use scratch::Scratch;
+// The helper that writes the stand-in programs, kept with vtium-config's
+// tests and shared by every crate whose tests run a program they made.
+#[path = "../../vtium-config/tests/common/script.rs"]
+mod script;
 
 /// The environment variable that names the child's role.
 const ROLE: &str = "VTIUM_CONFIG_TOOL_CHILD";
@@ -127,12 +131,10 @@ fn a_tool_swapped_after_vtium_opened_it_never_runs() {
     // The tool, a copy of /bin/sh this test owns and alone writes, which
     // vtium trusts.
     let tool = dir.join("vtium-config");
-    fs::copy("/bin/sh", &tool).expect("copy /bin/sh");
-    fs::set_permissions(&tool, fs::Permissions::from_mode(0o755)).expect("chmod the tool");
+    script::executable_copy(Path::new("/bin/sh"), &tool);
     // What lands at the tool's path once vtium has checked it.
     let swap = dir.join("swap");
-    fs::write(&swap, "#!/bin/sh\necho swapped > \"$OUT\"\nexit 3\n").expect("write the swap");
-    fs::set_permissions(&swap, fs::Permissions::from_mode(0o755)).expect("chmod the swap");
+    script::executable(&swap, "#!/bin/sh\necho swapped > \"$OUT\"\nexit 3\n");
 
     let (pid, status, lines) = spawn("swapped", &out, &[("TOOL", &tool), ("SWAP", &swap)]);
     assert_eq!(
@@ -152,7 +154,7 @@ fn an_untrusted_tool_never_runs() {
     let dir = scratch("untrusted");
     let out = dir.join("out");
     let tool = dir.join("vtium-config");
-    fs::copy("/bin/sh", &tool).expect("copy /bin/sh");
+    script::executable_copy(Path::new("/bin/sh"), &tool);
     fs::set_permissions(&tool, fs::Permissions::from_mode(0o777)).expect("chmod the tool");
     let (_, status, lines) = spawn("runs", &out, &[("TOOL", &tool)]);
     assert_eq!(status, Some(1));
