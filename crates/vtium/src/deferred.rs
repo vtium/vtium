@@ -1037,7 +1037,7 @@ impl DeferredFace {
     /// [`HELD_PART_MARKS`] marks.
     fn held_part(&self, base: char, marks: &[char], style: Style) -> Option<(Glyph, Vec<char>)> {
         let n = marks.len();
-        if n < 2 || n > HELD_PART_MARKS {
+        if !(2..=HELD_PART_MARKS).contains(&n) {
             return None;
         }
         let store = lock(&self.generated);
