@@ -132,14 +132,16 @@ fn key(mods: Mods, sym: u32) -> KeyEvent {
     }
 }
 
-/// The gate of vtium/vtium#34: libseat answers `EBUSY` three times and then
+/// The gate of vtium/vtium#34: seatd listens, and the seat is held by
+/// another client for three opens, which libseat answers `ENOSYS`, and then
 /// opens the seat. Meanwhile a timer of the test's own fires and SIGTERM is
 /// served, each while the seat is still pending, and then the seat opens
 /// and is enabled.
 #[test]
 fn a_busy_seat_is_retried_from_the_loop_which_serves_a_timer_and_sigterm_meanwhile() {
     let server = StandIn::new();
-    server.0.borrow_mut().open_answers = [Errno::BUSY; 3].into();
+    server.0.borrow_mut().seatd = true;
+    server.0.borrow_mut().held = 3;
     let (mut lp, mut data) = start(&server, None, tries(50, 20));
     ok(
         lp.on_signal(Signal::SIGTERM, |d: &mut Data| {
@@ -282,12 +284,27 @@ fn a_device_refused_past_its_tries_settles_with_its_error() {
 #[test]
 fn a_seat_busy_past_its_tries_hangs_up() {
     let server = StandIn::new();
-    server.0.borrow_mut().open_answers = [Errno::BUSY; 3].into();
+    server.0.borrow_mut().seatd = true;
+    server.0.borrow_mut().held = 3;
     let (mut lp, mut data) = start(&server, None, tries(3, 20));
     let events = run_until(&mut lp, &mut data, |_, events| !events.is_empty());
     assert_eq!(events, [VtEvent::Hangup]);
     assert_eq!(opens(&server), 3);
     assert!(vt(&mut data).wait().is_err());
+}
+
+/// With `LIBSEAT_BACKEND` naming seatd, a seat held by another client is
+/// answered `EPIPE`, and is retried as well.
+#[test]
+fn a_held_seat_answered_epipe_is_retried() {
+    let server = StandIn::new();
+    server.0.borrow_mut().seatd = true;
+    server.0.borrow_mut().backend_named = true;
+    server.0.borrow_mut().held = 2;
+    let (mut lp, mut data) = start(&server, None, tries(50, 20));
+    let events = run_until(&mut lp, &mut data, |d, _| vt(d).is_active());
+    assert_eq!(events, [VtEvent::Acquired]);
+    assert_eq!(opens(&server), 3);
 }
 
 /// No seat manager answering hands the VT back for the kernel's backend.

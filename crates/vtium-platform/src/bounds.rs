@@ -151,7 +151,7 @@ const SEAT_OPENS: Bound = Bound {
     value: 50,
     what: "With `libseat`: tries to open the seat while the seat manager answers that it is busy",
     past: "vtium logs an error and ends, as a hung-up VT ends it",
-    cite: "About 5 s at `SEAT_RETRY_MS`, long enough for seatd 0.9.3 to finish disabling the seat's previous client, which it answers `EBUSY` for meanwhile (seatd/seat.c, `seat_add_client`)",
+    cite: "About 5 s at `SEAT_RETRY_MS`, for the seat manager to finish disabling the seat's previous client: seatd 0.9.3 refuses a new client meanwhile by hanging up without an error (seatd/client.c, `handle_open_seat`)",
 };
 
 const DEVICE_OPENS: Bound = Bound {

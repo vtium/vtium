@@ -33,9 +33,18 @@ use super::{Inbox, Manager, Seat, Told};
 /// The seat manager's side, which the test drives and reads.
 #[derive(Debug, Default)]
 pub(crate) struct Server {
-    /// The answers the next opens of the seat get, in order; an open past
-    /// them succeeds.
+    /// The answers the next opens of the seat get, in order, before
+    /// [`Server::held`] is looked at: `ENOSYS` where no seat manager answers.
     pub(crate) open_answers: VecDeque<Errno>,
+    /// The next opens that find the seat held by another client, which
+    /// seatd 0.9.3 refuses by hanging up without an error
+    /// (seatd/client.c, `handle_open_seat` and `client_handle_connection`).
+    /// libseat then answers `EPIPE` when `LIBSEAT_BACKEND` names seatd
+    /// ([`Server::backend_named`]), and otherwise `ENOSYS`, once its other
+    /// backends have failed too (libseat/libseat.c, `libseat_open_seat`).
+    pub(crate) held: usize,
+    /// `LIBSEAT_BACKEND` names seatd.
+    pub(crate) backend_named: bool,
     /// The opens of the seat asked so far.
     pub(crate) opens: usize,
     /// Whether seatd's socket accepts a connection.
@@ -166,6 +175,15 @@ impl Manager for StandIn {
         s.opens = s.opens.saturating_add(1);
         if let Some(e) = s.open_answers.pop_front() {
             return Err(e.into());
+        }
+        if s.held > 0 {
+            s.held = s.held.saturating_sub(1);
+            return Err(if s.backend_named {
+                Errno::PIPE
+            } else {
+                Errno::NOSYS
+            }
+            .into());
         }
         let (conn, end) = UnixStream::pair()?;
         conn.set_nonblocking(true)?;

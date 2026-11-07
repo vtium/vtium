@@ -21,10 +21,11 @@
 //! timers and the other sources are served in between:
 //!
 //! - **The seat** is tried up to [`crate::bounds::SEAT_OPENS_MAX`] times
-//!   while libseat fails with `EBUSY` or `EBADF`, the answers of a seat
-//!   still being handed over from its previous client. Past that, or on any
-//!   other failure once vtium has chosen the seat, vtium logs an error and
-//!   reports [`VtEvent::Hangup`].
+//!   while libseat's answer says the seat is still held by its previous
+//!   client: `EBUSY` or `EBADF`, and while seatd listens also `ENOSYS`,
+//!   `EPIPE` or `EIO`, since seatd refuses such a client by hanging up
+//!   ([`busy`]). Past that, or on any other failure once vtium has chosen
+//!   the seat, vtium logs an error and reports [`VtEvent::Hangup`].
 //! - **A device** is tried up to [`crate::bounds::DEVICE_OPENS_MAX`] times
 //!   while libseat fails with `ENODEV`, `EACCES` or `EBUSY`, which udev's
 //!   report of a device can bring before the seat manager is ready for it.
@@ -182,6 +183,14 @@ enum Pending<D> {
     Failed(io::Error),
 }
 
+/// What [`LibseatVt::start_with`] found of the seat.
+struct Found<S> {
+    conn: Conn<S>,
+    inbox: Inbox,
+    /// seatd listens.
+    seatd: bool,
+}
+
 /// What the VT asks of the loop it runs in, made by [`LibseatVt::start`]
 /// with the loop's data type inside.
 struct Hooks {
@@ -204,6 +213,8 @@ pub struct LibseatVt<M: Manager = Libseat, C: Console = Tty> {
     manager: M,
     conn: Conn<M::Seat>,
     inbox: Inbox,
+    /// seatd listened at the start.
+    seatd: bool,
     /// The VT the seat runs on, when it has VTs, and its number.
     tty: Option<(C, u16)>,
     /// The VT shown at the start, which [`Vt::leave`] goes back to.
@@ -279,35 +290,18 @@ impl<M: Manager + 'static, C: Console + 'static> LibseatVt<M, C> {
             Some((console, num)) => Some(console.active()? == *num),
             None => None,
         };
+        let seatd = manager.seatd_listens();
         let inbox = Inbox::default();
-        let conn = if shown == Some(false) && manager.seatd_listens() {
+        let mut manager = manager;
+        let conn = if shown == Some(false) && seatd {
             log::info!(target: "seat", "seatd listens: the seat opens once the VT is shown");
             Conn::Shown
         } else {
-            let mut manager = manager;
             match manager.open(Rc::clone(&inbox)) {
-                Ok(seat) => {
-                    return Ok(Chosen::Seat(LibseatVt::new(
-                        lp,
-                        manager,
-                        Conn::Open(seat),
-                        inbox,
-                        tty,
-                        tries,
-                        access,
-                    )?));
-                }
-                Err(e) if busy(&e) => {
+                Ok(seat) => Conn::Open(seat),
+                Err(e) if busy(&e, seatd) => {
                     log::info!(target: "seat", "the seat is busy, waiting for its previous client to let it go: {e}");
-                    return Ok(Chosen::Seat(LibseatVt::new(
-                        lp,
-                        manager,
-                        Conn::Opening(1),
-                        inbox,
-                        tty,
-                        tries,
-                        access,
-                    )?));
+                    Conn::Opening(1)
                 }
                 Err(e) => {
                     log::info!(target: "seat", "no seat manager answered, so vtium uses the kernel's VT: {e}");
@@ -315,16 +309,16 @@ impl<M: Manager + 'static, C: Console + 'static> LibseatVt<M, C> {
                 }
             }
         };
+        let found = Found { conn, inbox, seatd };
         Ok(Chosen::Seat(LibseatVt::new(
-            lp, manager, conn, inbox, tty, tries, access,
+            lp, manager, found, tty, tries, access,
         )?))
     }
 
     fn new<D, A>(
         lp: &mut Loop<D>,
         manager: M,
-        conn: Conn<M::Seat>,
-        inbox: Inbox,
+        found: Found<M::Seat>,
         tty: Option<(C, u16)>,
         tries: Tries,
         access: A,
@@ -377,10 +371,12 @@ impl<M: Manager + 'static, C: Console + 'static> LibseatVt<M, C> {
             }
             None => (None, KbMode::Unicode),
         };
+        let Found { conn, inbox, seatd } = found;
         let mut vt = LibseatVt {
             manager,
             conn,
             inbox,
+            seatd,
             tty,
             saved,
             kb_mode,
@@ -452,7 +448,7 @@ impl<M: Manager, C: Console> LibseatVt<M, C> {
                 self.conn = Conn::Open(seat);
                 self.opened();
             }
-            Err(e) if busy(&e) && tried.saturating_add(1) < self.tries.seat => {
+            Err(e) if busy(&e, self.seatd) && tried.saturating_add(1) < self.tries.seat => {
                 if tried == 0 {
                     log::info!(target: "seat", "the seat is busy, waiting for its previous client to let it go: {e}");
                 }
@@ -847,10 +843,21 @@ impl<M: Manager, C: Console> Drop for LibseatVt<M, C> {
     }
 }
 
-/// The seat manager's answers while a seat is still being handed over from
-/// its previous client.
-fn busy(e: &io::Error) -> bool {
-    errno(e).is_some_and(|n| n == Errno::BUSY || n == Errno::BADF)
+/// libseat's answers while a seat is still being handed over from its
+/// previous client. seatd 0.9.3 refuses a client while another holds the
+/// seat by hanging up without an error (seatd/client.c, `handle_open_seat`),
+/// which libseat answers `EPIPE` when `LIBSEAT_BACKEND` names seatd, and
+/// otherwise `ENOSYS`, once its other backends have failed too
+/// (libseat/libseat.c, `libseat_open_seat`); a read that finds the
+/// connection already closed answers `EIO` (libseat/backend/seatd.c,
+/// `poll_connection`). So while seatd listens those three mean
+/// busy. `EBUSY` and `EBADF` are busy whoever answers them.
+fn busy(e: &io::Error, seatd: bool) -> bool {
+    errno(e).is_some_and(|n| {
+        n == Errno::BUSY
+            || n == Errno::BADF
+            || (seatd && (n == Errno::NOSYS || n == Errno::PIPE || n == Errno::IO))
+    })
 }
 
 /// The seat manager's answers for a device it is not ready to give yet.
