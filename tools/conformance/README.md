@@ -9,7 +9,7 @@ The crate is a workspace member, so `cargo test --workspace` builds both program
 ```
 make conformance          # every case, both views and the chunking check
 make conformance-probes   # the capability probes
-make conformance-issues   # every issue the capability list names is open (gh)
+make conformance-issues   # the capability list and ADR-1000 agree with GitHub (gh)
 make conformance-record OUT=DIR [NAMES='prog-shell ...']   # records the programs' cases; not a gate
 target/release/conformance generate DIR   # writes every synthetic case and prints its cases.list lines
 target/release/conformance interface      # the interface check alone
@@ -124,7 +124,7 @@ Two of the first scenarios the gap-check named cannot be written over interface 
 
 ## The capability list
 
-`conformance issues` asks `gh` for the state of every issue a missing capability names in `capabilities.list`, and fails on a closed one: its work should have made the capability work. It needs the network, so it runs in CI and through `make conformance-issues`, never in `cargo test`.
+`conformance issues` holds `capabilities.list` and ADR-1000's issue column to GitHub. It asks `gh` once for the state of every issue on vtium/vtium, and once more for the pull requests when a number is not an issue. It fails when an issue that a missing capability names is closed, since the issue's work should have made the capability work. It also fails when an ADR-1000 row and the issues it names disagree (`src/issues.rs`): a planned, partial or weighed row names no issue, or only closed ones; an open issue is named only by supported rows, so its work is done and the issue is still open, or the work it still holds has no row; or a number in the issue column is a pull request or no issue at all. Each message names the row or the issue and says what to change. It needs the network, so it runs in CI and through `make conformance-issues`, never in `cargo test`; `src/issues.rs`'s unit tests check the rules on fixture rows.
 
 `capabilities.list` is `NAME STATUS ISSUE ROWS NOTE` a line: STATUS `works` or `missing`; ISSUE `-` for a working probe, the vtium issue (`#N`) that owes a missing one, or the build feature a working one needs (`-Dimages`); ROWS the ADR-1000 rows the probe judges. `coverage_map_matches_the_capability_list_and_adr_1000` fails when `COVERAGE.md` differs from the list and ADR-1000's `tests` columns, and `VTIUM_CONFORMANCE_BLESS=1 cargo test -p vtium-conformance coverage` rewrites it.
 

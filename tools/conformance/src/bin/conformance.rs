@@ -11,6 +11,7 @@ use std::process::ExitCode;
 
 use vtium_conformance::generate::{self, Inputs};
 use vtium_conformance::interface;
+use vtium_conformance::issues;
 use vtium_conformance::probes::{self, Outcome, Replay};
 use vtium_conformance::runner::{self, Corpus, VIEWS, Verdict, chunking, own};
 use vtium_conformance::scenario::run::Runner;
@@ -420,57 +421,140 @@ fn probes() -> Result<bool, String> {
     Ok(failures == 0)
 }
 
-/// Every issue the capability list names as owing a missing capability,
-/// checked open through `gh`: a missing capability whose issue closed is
-/// stale, since the issue's work should have made the capability work.
+/// The repository whose issues the capability list and ADR-1000 name.
+const REPO: &str = "vtium/vtium";
+
+/// Runs `gh` with these arguments and returns each line it prints.
+fn gh(args: &[&str]) -> Result<Vec<String>, String> {
+    let out = std::process::Command::new("gh")
+        .args(args)
+        .args(["--repo", REPO])
+        .output()
+        .map_err(|e| format!("cannot start gh: {e}"))?;
+    if !out.status.success() {
+        return Err(format!(
+            "gh {}: {}",
+            args.join(" "),
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
+    }
+    Ok(String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .map(str::to_owned)
+        .collect())
+}
+
+/// The state of every issue on vtium/vtium, in one `gh` call, and the
+/// numbers of its pull requests, in a second one made only when a number
+/// is not an issue.
+fn issue_states(
+    named: impl IntoIterator<Item = u32>,
+) -> Result<impl Fn(u32) -> issues::State, String> {
+    use issues::State;
+    let mut states: BTreeMap<u32, State> = BTreeMap::new();
+    let lines = gh(&[
+        "issue",
+        "list",
+        "--state",
+        "all",
+        "--limit",
+        "100000",
+        "--json",
+        "number,state",
+        "--jq",
+        r#".[] | "\(.number) \(.state)""#,
+    ])?;
+    for line in &lines {
+        let (number, state) = line
+            .split_once(' ')
+            .and_then(|(n, s)| Some((n.parse::<u32>().ok()?, s)))
+            .ok_or_else(|| format!("gh issue list printed {line:?}"))?;
+        let state = if state == "OPEN" {
+            State::Open
+        } else {
+            State::Closed
+        };
+        states.insert(number, state);
+    }
+    if states.is_empty() {
+        return Err(format!("gh issue list found no issue on {REPO}"));
+    }
+    if named.into_iter().any(|n| !states.contains_key(&n)) {
+        let lines = gh(&[
+            "pr",
+            "list",
+            "--state",
+            "all",
+            "--limit",
+            "100000",
+            "--json",
+            "number",
+            "--jq",
+            ".[].number",
+        ])?;
+        for line in &lines {
+            let n = line
+                .parse::<u32>()
+                .map_err(|_| format!("gh pr list printed {line:?}"))?;
+            states.insert(n, State::PullRequest);
+        }
+    }
+    Ok(move |n| states.get(&n).copied().unwrap_or(State::Missing))
+}
+
+/// Holds the capability list and ADR-1000's issue column to GitHub. Every
+/// issue that a missing capability names must be open, since the issue's
+/// work makes the capability work. ADR-1000's rows must agree with the
+/// issues they name, by the rules in `issues`.
 fn issues() -> Result<bool, String> {
     let caps = vtium_conformance::coverage::capabilities(&read(
         &Path::new(TOOL).join("capabilities.list"),
     )?)?;
-    let mut owed: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    let mut owed: BTreeMap<u32, Vec<String>> = BTreeMap::new();
     for cap in caps.iter().filter(|c| c.status == "missing") {
-        owed.entry(cap.issue.clone())
-            .or_default()
-            .push(cap.name.clone());
+        let n = cap
+            .issue
+            .strip_prefix('#')
+            .and_then(|n| n.parse::<u32>().ok())
+            .ok_or_else(|| {
+                format!(
+                    "capabilities.list: the missing capability {} names {:?}, which is not an issue written as #N",
+                    cap.name, cap.issue
+                )
+            })?;
+        owed.entry(n).or_default().push(cap.name.clone());
     }
-    let mut ok = true;
-    for (issue, names) in &owed {
-        let n = issue.trim_start_matches('#');
-        let out = std::process::Command::new("gh")
-            .args([
-                "issue",
-                "view",
-                n,
-                "--repo",
-                "vtium/vtium",
-                "--json",
-                "state",
-                "-q",
-                ".state",
-            ])
-            .output()
-            .map_err(|e| format!("gh: {e}"))?;
-        let state = String::from_utf8_lossy(&out.stdout).trim().to_owned();
-        if !out.status.success() {
-            return Err(format!(
-                "gh issue view {n}: {}",
-                String::from_utf8_lossy(&out.stderr).trim()
-            ));
-        }
-        if state != "OPEN" {
-            ok = false;
+    let adr = Path::new(TOOL).join("../../docs/architecture/term");
+    let mut rows = Vec::new();
+    for name in ["ADR-1000-features.tsv", "ADR-1000-modes.tsv"] {
+        rows.extend(issues::rows(name, &read(&adr.join(name))?)?);
+    }
+    let named: Vec<u32> = owed
+        .keys()
+        .copied()
+        .chain(rows.iter().flat_map(|r| r.issues.iter().copied()))
+        .collect();
+    let state = issue_states(named)?;
+    let mut failures = 0usize;
+    for (n, names) in &owed {
+        if state(*n) != issues::State::Open {
+            failures = failures.saturating_add(1);
             println!(
-                "FAIL {issue} is {state}, and still owes {}",
+                "FAIL Issue #{n} is not open, and capabilities.list still says it owes {}. Set each capability that works to works, or name the open issue that owes it.",
                 names.join(", ")
             );
         }
     }
+    for message in issues::check(&rows, &state) {
+        failures = failures.saturating_add(1);
+        println!("FAIL {message}");
+    }
     println!(
-        "issues: {} named, {}",
+        "issues: {} named by capabilities.list, {} ADR-1000 rows read, {failures} failed",
         owed.len(),
-        if ok { "all open" } else { "some closed" }
+        rows.len()
     );
-    Ok(ok)
+    Ok(failures == 0)
 }
 
 fn main() -> ExitCode {

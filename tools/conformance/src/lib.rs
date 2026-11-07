@@ -16,6 +16,7 @@ pub mod generate;
 #[cfg(feature = "images")]
 pub mod host;
 pub mod interface;
+pub mod issues;
 pub mod probes;
 #[cfg(feature = "record")]
 pub mod record;
