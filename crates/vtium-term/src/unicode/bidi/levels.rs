@@ -10,10 +10,11 @@
 //! the crate's `reordered_levels_per_char` copies and walks the whole
 //! paragraph's levels for every row it is asked about. It orders a row
 //! with the crate's `reorder_visual`, and it never hands the crate an empty
-//! text. In 0.3.18 the crate's `visual_runs`, which `reorder_line` calls
-//! too, panics on an input its maintainers were sent and on any empty line,
-//! and vtium's builds abort on a panic. Nothing outside this module names
-//! the crate.
+//! text. vtium-term takes the crate from vtium's fork of it, whose
+//! `visual_runs` still panics on an empty line at the end of the text and
+//! on an empty text, and vtium's builds abort on a panic. The level overflow
+//! input its maintainers were sent no longer makes it panic. Nothing
+//! outside this module names the crate.
 
 use core::ops::Range;
 
