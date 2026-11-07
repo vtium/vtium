@@ -10,7 +10,7 @@ use vtium_term::{
     TERMCAP_NAME_MAX, TERMCAP_VALUE_MAX, Termcap, Terminal,
 };
 
-use crate::command::{self, Button, Command, END, Event, INTRO};
+use crate::command::{self, Button, Command, END, Event, How, INTRO};
 #[cfg(feature = "images")]
 mod images;
 use crate::view::{self, FrameState, View};
@@ -116,6 +116,8 @@ struct Replay<'a> {
     view: View,
     out: String,
     replies: Vec<Reply>,
+    /// The bells that reached the host since the last block.
+    bells: u64,
     fixtures: &'a Path,
     frame: FrameState,
     callers: [Option<Age>; 8],
@@ -139,6 +141,7 @@ impl<'a> Replay<'a> {
             view: input.view,
             out: String::new(),
             replies: Vec::new(),
+            bells: 0,
             fixtures: &input.fixtures,
             frame: FrameState::new(DEFAULT_PALETTE),
             callers: [None; 8],
@@ -193,8 +196,22 @@ impl<'a> Replay<'a> {
     }
 
     /// Feeds bytes to the terminal, taking its replies as it goes, and with
-    /// images answering each request the fixture host takes.
-    fn input(&mut self, mut data: &[u8]) -> Result<(), Failure> {
+    /// images answering each request the fixture host takes. The bytes go
+    /// in pieces that each end at a BEL, so that each BEL that reaches the
+    /// host is counted: the terminal keeps one bell flag, which several
+    /// BELs in one piece would set once. A terminal reads a stream cut
+    /// anywhere as it reads it whole, so the pieces change nothing else.
+    fn input(&mut self, data: &[u8]) -> Result<(), Failure> {
+        for piece in data.split_inclusive(|&b| b == 0x07) {
+            self.feed_piece(piece)?;
+            if self.term.take_bell() {
+                self.bells = self.bells.saturating_add(1);
+            }
+        }
+        Ok(())
+    }
+
+    fn feed_piece(&mut self, mut data: &[u8]) -> Result<(), Failure> {
         while !data.is_empty() {
             let taken = self.term.input(data);
             let replies = self.term.take_replies();
@@ -308,6 +325,51 @@ impl<'a> Replay<'a> {
                     self.frame.palette = name;
                 }
             }
+            Command::Select { how, col, row } => {
+                let screen = t.screen_mut();
+                let cell = (
+                    usize::try_from(col).ok().filter(|&c| c < screen.cols()),
+                    usize::try_from(row).ok().filter(|&r| r < screen.rows()),
+                );
+                let (x, y) = match (how, cell) {
+                    (How::Clear, _) => (0, 0),
+                    (_, (Some(x), Some(y))) => (x, y),
+                    _ => {
+                        return Err(usage("test command select: col or row past the screen"));
+                    }
+                };
+                match how {
+                    How::Start => screen.select_start(x, y),
+                    How::To => screen.select_to(x, y),
+                    How::Word => screen.select_word(x, y),
+                    How::Line => screen.select_line(x, y),
+                    // the host clears the selection when no command's
+                    // output is at the cell
+                    How::Output => {
+                        if !screen.select_output(x, y) {
+                            screen.clear_selection();
+                        }
+                    }
+                    How::Clear => screen.clear_selection(),
+                }
+            }
+            Command::Copy => {
+                // the host copies nothing when nothing is selected or the
+                // selection holds no text
+                self.out.push_str("test copy ");
+                match t.screen().selection_text().filter(|s| !s.is_empty()) {
+                    Some(text) => text.bytes().for_each(|b| {
+                        let _ = write!(self.out, "{b:02x}");
+                    }),
+                    None => self.out.push_str("none"),
+                }
+                self.out.push('\n');
+            }
+            Command::Prompt { up } => {
+                t.screen_mut().jump_to_prompt(up);
+            }
+            Command::Backspace { del } => t.set_backspace_sends_delete(del),
+            Command::State => state(t, &mut self.out),
             Command::FrameSince(caller) => {
                 let slot = self.callers.get_mut(usize::from(caller));
                 if let Some(since) = slot {
@@ -371,12 +433,79 @@ impl<'a> Replay<'a> {
                 }
             }
         }
+        let bells = core::mem::take(&mut self.bells);
+        if bells > 0 {
+            let _ = writeln!(self.out, "bell {bells}");
+        }
         match self.view {
             View::Screen => view::screen(&self.term, &mut self.out),
             View::Frame => view::frame(&mut self.term, &mut self.frame, &mut self.out),
             #[cfg(feature = "bidi")]
             View::Display => view::display(&self.term, &mut self.out),
         }
+    }
+}
+
+/// The `state` command's lines (INTERFACE-vtium.md, "The state"): the
+/// scroll margins, the tab stops, the modes in force, the scrollback, the
+/// pen and the colors, each a `test state` line.
+fn state(t: &Terminal, out: &mut String) {
+    let screen = t.screen();
+    let (top, bottom) = screen.margins();
+    let (left, right) = screen.lr_margins();
+    let _ = writeln!(out, "test state margins {top}-{bottom} {left}-{right}");
+    let tabs: Vec<String> = screen
+        .tab_stops()
+        .iter()
+        .enumerate()
+        .filter(|(_, on)| **on)
+        .map(|(x, _)| x.to_string())
+        .collect();
+    let _ = writeln!(out, "test state tabs {}", list(&tabs));
+    let modes = t.modes_in_force();
+    let numbers = |dec: bool| -> Vec<String> {
+        modes
+            .iter()
+            .filter(|(d, _)| *d == dec)
+            .map(|(_, n)| n.to_string())
+            .collect()
+    };
+    let _ = writeln!(
+        out,
+        "test state modes ansi {} dec {}",
+        list(&numbers(false)),
+        list(&numbers(true))
+    );
+    let _ = writeln!(
+        out,
+        "test state scrollback lines {} view {} max {}",
+        screen.scrollback_lines(),
+        screen.scrolled_back(),
+        screen.scrollback_max()
+    );
+    let _ = writeln!(
+        out,
+        "test state pen{}",
+        view::attrs(screen.pen(), &Palette::default())
+    );
+    let palette = t.palette();
+    let cursor = palette
+        .cursor()
+        .map_or_else(|| "default".to_owned(), view::hex);
+    let _ = writeln!(
+        out,
+        "test state colors fg={} bg={} cursor={cursor}",
+        view::hex(palette.fg()),
+        view::hex(palette.bg())
+    );
+}
+
+/// Numbers joined by commas, or `none`.
+fn list(items: &[String]) -> String {
+    if items.is_empty() {
+        "none".to_owned()
+    } else {
+        items.join(",")
     }
 }
 
@@ -519,6 +648,140 @@ mod tests {
         assert!(
             out.starts_with("test clipboard 6869\ntest clipboard none\nsize "),
             "{out}"
+        );
+    }
+
+    fn cmd(text: &str) -> Vec<u8> {
+        let mut out = INTRO.to_vec();
+        out.extend_from_slice(text.as_bytes());
+        out.extend_from_slice(END);
+        out
+    }
+
+    fn sized(cols: usize, rows: usize, data: &[u8]) -> String {
+        let mut i = input(data, &[]);
+        i.cols = cols;
+        i.rows = rows;
+        run(&i).unwrap_or_else(|f| format!("exit {}: {}", f.code, f.message))
+    }
+
+    // INTERFACE-vtium.md: the host selects a word and copies it, and a copy
+    // with nothing selected copies nothing
+    #[test]
+    fn select_and_copy_print_the_selected_text() {
+        let mut data = b"ab cd".to_vec();
+        data.extend(cmd("copy"));
+        data.extend(cmd("select;how=word;col=4;row=0"));
+        data.extend(cmd("copy"));
+        data.extend(cmd("select;how=clear"));
+        data.extend(cmd("copy"));
+        let out = sized(6, 1, &data);
+        assert!(
+            out.starts_with("test copy none\ntest copy 6364\ntest copy none\nsize "),
+            "{out}"
+        );
+    }
+
+    // a line selection's copy ends with a line end; a drag selects from
+    // where it started to where it ends, whichever comes first
+    #[test]
+    fn select_line_and_a_drag_copy_their_text() {
+        let mut data = b"ab cd\r\nef".to_vec();
+        data.extend(cmd("select;how=line;col=1;row=0"));
+        data.extend(cmd("copy"));
+        data.extend(cmd("select;how=start;col=1;row=1"));
+        data.extend(cmd("select;how=to;col=3;row=0"));
+        data.extend(cmd("copy"));
+        let out = sized(6, 2, &data);
+        assert!(
+            out.starts_with("test copy 61622063640a\ntest copy 63640a6566\nsize "),
+            "{out}"
+        );
+    }
+
+    // OSC 133: the view jumps to the marked prompt above, and back down
+    #[test]
+    fn prompt_moves_the_view_to_a_marked_prompt() {
+        let mut data = cmd("sb-max;n=10");
+        data.extend_from_slice(b"\x1b]133;A\x07$ a\r\nout\r\n\x1b]133;A\x07$ b\r\n1\r\n2\r\n3");
+        data.extend(cmd("prompt;dir=up"));
+        data.extend(cmd("state"));
+        data.extend(cmd("prompt;dir=down"));
+        data.extend(cmd("state"));
+        let out = sized(4, 2, &data);
+        let views: Vec<&str> = out
+            .lines()
+            .filter(|l| l.starts_with("test state scrollback"))
+            .collect();
+        assert_eq!(
+            views,
+            [
+                "test state scrollback lines 4 view 2 max 10",
+                "test state scrollback lines 4 view 0 max 10"
+            ],
+            "{out}"
+        );
+    }
+
+    // the host's BackSpace setting: 0x08, then 0x7f
+    #[test]
+    fn backspace_chooses_what_backspace_sends() {
+        let mut data = cmd("key;sym=ff08");
+        data.extend(cmd("backspace;del=1"));
+        data.extend(cmd("key;sym=ff08"));
+        let out = sized(4, 1, &data);
+        assert!(out.contains("reply 087f\n"), "{out}");
+    }
+
+    // each BEL that reaches the host counts, however the stream is cut,
+    // and one that ends an OSC string is no bell
+    #[test]
+    fn a_bell_line_counts_each_bel_after_the_replies() {
+        let data = b"\x07\x1b]0;t\x07\x1b[c\x07";
+        let out = sized(4, 1, data);
+        let lines: Vec<&str> = out.lines().collect();
+        let bell = lines.iter().position(|l| *l == "bell 2");
+        assert!(
+            bell.is_some_and(|i| lines[i - 1].starts_with("reply ") && lines[i + 1] == "row 0 ||"),
+            "{out}"
+        );
+        let cut = run(&input(data, &[1])).unwrap_or_default();
+        assert_eq!(cut.matches("bell 1\n").count(), 2, "{cut}");
+        // with mode 1042 reset, BEL reaches no host
+        let out = sized(4, 1, b"\x1b[?1042l\x07");
+        assert!(!out.contains("bell"), "{out}");
+    }
+
+    // the state lines, in their order, at the reference host's start
+    #[test]
+    fn state_prints_the_screens_state_lines() {
+        let mut data = b"\x1b[2;3r\x1b[3g\x1bH\x1b[1;31m".to_vec();
+        data.extend(cmd("state"));
+        let out = sized(10, 4, &data);
+        let state: Vec<&str> = out
+            .lines()
+            .filter(|l| l.starts_with("test state "))
+            .collect();
+        assert_eq!(state.len(), 6, "{out}");
+        assert_eq!(state[0], "test state margins 1-2 0-9");
+        assert_eq!(state[1], "test state tabs 0");
+        // the modes the reference host starts with, by the mode table's
+        // initial states: the bidi build adds BDSM (8) and 1243, and the
+        // image build the private sixel registers (1070)
+        let bidi = cfg!(feature = "bidi");
+        let images = cfg!(feature = "images");
+        let modes = format!(
+            "test state modes ansi {}12 dec 7,8,12,25,1007,1034,1035,1036,1042,{}{}2027,2028",
+            if bidi { "8," } else { "" },
+            if images { "1070," } else { "" },
+            if bidi { "1243," } else { "" },
+        );
+        assert_eq!(state[2], modes);
+        assert_eq!(state[3], "test state scrollback lines 0 view 0 max 0");
+        assert_eq!(state[4], "test state pen fg=1 bold");
+        assert_eq!(
+            state[5],
+            "test state colors fg=#e5e5e5 bg=#000000 cursor=default"
         );
     }
 }

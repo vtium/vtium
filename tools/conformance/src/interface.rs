@@ -694,6 +694,19 @@ pub fn controls(spec: &Spec) -> Tally {
             format!("{GOOD}anim 0 frames 1 current 1 run stopped loops 1 stamps 0 0\n"),
         ),
         (
+            "a bell line that counts no bell",
+            GOOD.replace("flags none\n", "flags none\nbell 0\n"),
+        ),
+        (
+            "a bell line before the replies",
+            GOOD.replace("flags none\n", "flags none\nbell 1\nreply 41\n"),
+        ),
+        ("a copy in capital hex", format!("test copy 4A\n{GOOD}")),
+        (
+            "tab stops with an empty place",
+            format!("test state tabs 1,,8\n{GOOD}"),
+        ),
+        (
             "a block cut short",
             format!(
                 "checkpoint 0\n{}checkpoint 1\n{GOOD}",
@@ -777,10 +790,21 @@ pub fn controls(spec: &Spec) -> Tally {
             "anim 0 current 2 past its 1 frames",
         ),
     ];
+    // interface 1.5's lines (INTERFACE-vtium.md): a copy, the state and a
+    // bell after the replies
+    let good_host = format!(
+        "test copy 61620a\ntest state margins 0-1 0-3\ntest state tabs none\ntest state modes ansi 12 dec 7,25\ntest state scrollback lines 0 view 0 max 0\ntest state pen fg=1 bold\ntest state colors fg=#e5e5e5 bg=#000000 cursor=default\n{}",
+        GOOD.replace("flags none\n", "flags none\nreply 41\nbell 2\n")
+    );
     let mut tally = Tally {
-        count: bad.len().saturating_add(anim.len()).saturating_add(3),
+        count: bad.len().saturating_add(anim.len()).saturating_add(4),
         ..Tally::default()
     };
+    if let Some(fault) = check_output(spec, "screen", &good_host, 4, 2, false) {
+        tally.faults.push(format!(
+            "control: the grammar rejects good copy, state and bell lines: {fault}"
+        ));
+    }
     if let Some(fault) = check_output(spec, "screen", &good_anim, 4, 2, false) {
         tally.faults.push(format!(
             "control: the grammar rejects good anim lines: {fault}"

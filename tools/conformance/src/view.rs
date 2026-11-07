@@ -129,7 +129,7 @@ fn screen_cell(
 
 /// A style's keys as an `attr` line spells them, each only when it differs
 /// from the default.
-fn attrs(style: &Style, palette: &Palette) -> String {
+pub(crate) fn attrs(style: &Style, palette: &Palette) -> String {
     let mut out = String::new();
     let a = style.attrs;
     for (key, color) in [("fg", style.fg), ("bg", style.bg)] {
@@ -179,7 +179,7 @@ fn color_code(color: Color, palette: &Palette) -> Option<String> {
     }
 }
 
-fn hex(c: Rgb) -> String {
+pub(crate) fn hex(c: Rgb) -> String {
     format!("#{:02x}{:02x}{:02x}", c.r, c.g, c.b)
 }
 

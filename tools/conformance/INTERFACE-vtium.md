@@ -1,6 +1,6 @@
 # vtium's additions to the replay interface
 
-Interface 1.4 is `corpus/INTERFACE.md`, interface 1.0, with the additions below. Each is a command, a feature, a view, or a line that only a new command, feature or view prints, so it raises MINOR under 1.0's "Versioning and features", and every golden stays as it is. The runner and the probe runner read the fenced blocks here after 1.0's: this `describe` block's version line replaces 1.0's, and its view, feature and command lines follow 1.0's lines of the same kind; this `grammar` block's lines join 1.0's, using its fragments.
+Interface 1.5 is `corpus/INTERFACE.md`, interface 1.0, with the additions below. Each is a command, a feature, a view, or a line that only a new command, feature or view prints, so it raises MINOR under 1.0's "Versioning and features", and every golden stays as it is. The runner and the probe runner read the fenced blocks here after 1.0's: this `describe` block's version line replaces 1.0's, and its view, feature and command lines follow 1.0's lines of the same kind; this `grammar` block's lines join 1.0's, using its fragments.
 
 ## The fixture host checks a picture's size
 
@@ -102,22 +102,245 @@ Interface 1.0 reserves three keys for features it lacks: `overline`, `superscrip
 |---|---|
 | `attrs-renditions` | The screen and frame views print `overline`, `superscript` and `subscript`. |
 
+## The selection and copy
+
+A user marks text with the pointer, and the host copies the marked text. The reference host selects through vtium-term's selection calls, the calls the vtium binary makes for a press of the left button and a drag, a double click, a triple click, and Ctrl with the right button. The `select` command names each of these by what it selects. It names a cell in the view: column `col` and row `row`, counted from 0 at the top left of the rows the view shows. While the view is scrolled back, a row of the view is a row of the scrollback. In a build with right-to-left text, `col` is the column as drawn, where the pointer is, and vtium-term finds the character written there (ADR-1004, D10).
+
+| Command | Keys | Feature | What it does |
+|---|---|---|---|
+| `select` | `how`: name, `start`, `to`, `word`, `line`, `output` or `clear`; `col`: decimal, below the screen's width; `row`: decimal, below its height. Every `how` but `clear` requires `col` and `row`, and `clear` takes neither. | `selection` | Selects as the host does (below). |
+| `copy` | none | `selection` | Copies the selection as a host does, and prints `test copy HEX`, HEX being the selected text as UTF-8, two lowercase hex digits a byte, or `test copy none` when nothing is selected or the selection holds no text. |
+
+What each `how` selects:
+
+- `start` starts a selection at the cell, as a press of the left button does. The selection holds that one cell.
+- `to` extends the selection from the cell where it started to this cell, as moving the pointer with the button held does. Whichever of the two comes first in reading order is the selection's first cell. With no selection, `to` does nothing.
+- `word` selects the word at the cell, as a double click does: the run of cells around it up to a space or, going right, an empty cell. A word that reaches the end of a row that wrapped goes on at the start of the next row. On a space or an empty cell, `word` selects nothing.
+- `line` selects the whole line at the cell, every row of it when it wrapped, as a triple click does.
+- `output` selects, as whole lines, the output of the command at the cell, as Ctrl with the right button does. OSC 133's marks set the output out (ADR-1002): it runs from the nearest line at or above the cell that `OSC 133 ; C` marked to the line before the next prompt, or to the last line written. On a prompt, on a command's input, on a row in no command's output, and on the alternate screen, `output` selects nothing, and the host clears the selection.
+- `clear` clears the selection.
+
+The copied text takes each cell's whole cluster, a space for an empty cell up to the line's last cell that holds something, and nothing for the second cell of a wide character. Each line ends with a line end (0a), except a row that wrapped, which goes on into the next, and the last line of a selection made with `start`, `to` or `word`. A selection made with `line` or `output` ends with a line end.
+
+The selection holds its text, not its place on the screen. When the screen scrolls, the selection moves with its text, and a line the screen discards, such as a line that IL, DL or a scroll of the alternate screen removes, takes the selection with it. The frame view draws each selected cell with `inverse` toggled, as vtium draws the selection inverted, so a frame view's block shows where the selection lies.
+
+| Feature | What declaring it means |
+|---|---|
+| `selection` | `select` and `copy`, and the frame view draws selected cells inverted. |
+
+A worked example: a word, then a drag from `f` back to `c`, then nothing.
+
+```example selection
+size 8 2
+needs selection
+send "ab cd\r\nef"
+cmd select;how=word;col=4;row=0
+cmd copy
+cmd select;how=start;col=1;row=1
+cmd select;how=to;col=3;row=0
+cmd copy
+cmd select;how=clear
+cmd copy
+```
+
+```output selection
+test copy 6364
+test copy 63640a6566
+test copy none
+size 8x2
+cursor 2,1
+flags AUTO_WRAP
+row 0 |ab cd|
+row 1 |ef|
+```
+
+The frame view of a selected word.
+
+```example selection-frame
+size 4 1
+view frame
+needs selection view-frame
+send "ab c"
+cmd select;how=word;col=1;row=0
+```
+
+```output selection-frame
+size 4x1
+cursor 4,0
+flags AUTO_WRAP
+palette legacy fg=#e5e5e5 bg=#000000
+changed 4
+frame-cursor 3,0 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 |ab c|
+cells 0 0-1 w=1 fg=#000000 bg=#e5e5e5 ul=#000000 inverse
+```
+
+## Prompt jumps
+
+A shell marks its prompts with OSC 133 (ADR-1002), and a user moves the view from one prompt to the next with the vtium binary's prompt keys. The reference host moves the view with the `prompt` command.
+
+| Command | Keys | Feature | What it does |
+|---|---|---|---|
+| `prompt` | `dir`: name, `up` or `down` | `marks` | Moves the view to the nearest prompt that `OSC 133 ; A` or `OSC 133 ; N` marked above the view's top row (`up`) or below it (`down`). That prompt's line becomes the view's top row. Going down past the newest prompt in the scrollback returns the view to the screen. With no such prompt, and on the alternate screen, the view does not move. |
+
+| Feature | What declaring it means |
+|---|---|
+| `marks` | vtium keeps OSC 133's marks with their lines; `prompt`, and `select` with `how=output` when `selection` is declared too. |
+
+A worked example: two prompts, the view moved up to the first, the command's output selected and copied there, and the view moved back down.
+
+```example marks
+size 6 2
+needs marks selection
+cmd sb-max;n=10
+send "\e]133;A\a$ ls\r\n\e]133;C\aa\r\nb\r\n\e]133;A\a$ "
+cmd prompt;dir=up
+cmd select;how=output;col=0;row=1
+cmd copy
+check
+cmd prompt;dir=down
+```
+
+```output marks
+test copy 610a620a
+checkpoint 147
+size 6x2
+cursor 2,1
+flags AUTO_WRAP
+row 0 |$ ls|
+row 1 |a|
+checkpoint 175
+size 6x2
+cursor 2,1
+flags AUTO_WRAP
+row 0 |b|
+row 1 |$|
+```
+
+## The BackSpace key
+
+What the BackSpace key sends is the host's setting. The reference host sends 0x08 until the `backspace` command chooses otherwise.
+
+| Command | Keys | Feature | What it does |
+|---|---|---|---|
+| `backspace` | `del`: flag | `backspace` | Chooses what BackSpace sends: 0x08 with `del=0`, and 0x7f with `del=1`. |
+
+| Feature | What declaring it means |
+|---|---|
+| `backspace` | `backspace`. |
+
+```example backspace
+size 4 1
+needs input backspace
+cmd key;sym=ff08
+cmd backspace;del=1
+cmd key;sym=ff08
+```
+
+```output backspace
+size 4x1
+cursor 0,0
+flags AUTO_WRAP
+reply 087f
+row 0 ||
+```
+
+## The bell
+
+A program rings the bell with BEL (0x07). vtium passes each BEL to the host while mode 1042 is set, and it is set at start (ADR-1000's `DEC-1042`). A block prints `bell N` after its replies when N bells reached the host since the previous block, and prints no `bell` line when none did. Each BEL counts, wherever the stream is cut. A BEL that ends a string, as it ends OSC 0's, rings no bell. No case of 1.0 rings the bell, so no golden of 1.0 changes.
+
+| Feature | What declaring it means |
+|---|---|
+| `bell` | Blocks print `bell` lines. |
+
+A worked example: two bells, with a title string ended by BEL and a reply between them.
+
+```example bell
+size 4 1
+needs bell
+send "\a\e]0;title\a\e[5n\a"
+```
+
+```output bell
+size 4x1
+cursor 0,0
+flags AUTO_WRAP
+reply 1b5b306e
+bell 2
+row 0 ||
+```
+
+## The state
+
+Some of a screen's state shows in no view: the margins, the tab stops, the modes, the scrollback, the pen and the colors. A program can ask for most of it with DECRQM, DECRQSS and OSC 10 to 12, but each query writes a reply, which then shows among the replies of the case that asked. The `state` command prints that state without a query.
+
+| Command | Keys | Feature | What it does |
+|---|---|---|---|
+| `state` | none | `state` | Prints the screen's state as six `test state` lines, in the order below. |
+
+- `test state margins T-B L-R` gives the scroll region's first and last rows (DECSTBM) and the left and right margins' columns (DECSLRM), each counted from 0. While mode 69 is reset, the left and right margins are the screen's first and last columns.
+- `test state tabs LIST` gives the columns that hold a tab stop, counted from 0, in ascending order and joined by commas, or `none`.
+- `test state modes ansi LIST dec LIST` gives the ANSI modes and then the DEC private modes in force, those DECRQM reports set (1), each by its number, in ascending order and joined by commas, or `none`. The mouse tracking modes (9, 1000, 1002 and 1003) and encodings (1006, 1015 and 1016) are among the DEC private modes. Which modes a build has follows ADR-1000: a build with images has the sixel modes, and a build with right-to-left text has BDSM (8) and mode 1243, so this line differs between builds.
+- `test state scrollback lines L view V max M` gives the rows the scrollback holds, with the rows that wait to be rewrapped after a resize counted at the current width; how many rows the view is scrolled back, 0 when it shows the screen; and the most rows the scrollback keeps, as `sb-max` set it.
+- `test state pen KEYS` gives the pen, the style that printed text takes, as the keys of the screen view's `attr` line in their order. With no key, the pen is the default.
+- `test state colors fg=#rrggbb bg=#rrggbb cursor=C` gives the default foreground and background, from the palette or as OSC 10 and 11 set them, and the cursor's color as OSC 12 set it, or `default` when nothing set it.
+
+| Feature | What declaring it means |
+|---|---|
+| `state` | `state`. |
+
+A worked example. Its stream first resets the modes that only some builds have (BDSM, 1070 and 1243), so that its output is the same in every build.
+
+```example state
+size 10 4
+needs state
+send "\e[8l\e[?1070;1243l\e[2;3r\e[3g\e[5G\eH\e[1;4;38;5;196m\e]12;#00ff00\a"
+cmd sb-max;n=100
+cmd state
+```
+
+```output state
+test state margins 1-2 0-9
+test state tabs 4
+test state modes ansi 12 dec 7,8,12,25,1007,1034,1035,1036,1042,2027,2028
+test state scrollback lines 0 view 0 max 100
+test state pen fg=#ff0000 bold underline
+test state colors fg=#e5e5e5 bg=#000000 cursor=#00ff00
+size 10x4
+cursor 4,0
+flags AUTO_WRAP
+row 0 ||
+row 1 ||
+row 2 ||
+row 3 ||
+```
+
 ## The worked examples' strings
 
 The worked examples, here and in 1.0, read each `send` string with the string syntax of tier 1's scenarios (ADR-1504, D2), so the examples and the scenarios have one syntax. It adds three escapes to 1.0's list: `\a` stands for the byte 07, `\b` for the byte 08, and `\u{HEX}` for the UTF-8 of the code point HEX. Every string 1.0's list accepts reads as it did, so no example's input changes.
 
 ## The describe block and the grammar
 
-The grammar below adds the forms of the `attr`, `cells` and `frame-cursor` lines that print the keys `attrs-renditions` prints, the clipboard's `test` line, the two forms of the `anim` line, and the display view's `display-cursor` line and structure. An `anim` line follows its image's `image` line, so `IMAGES` and the fragments and structures built on it are given again here: a fragment takes its value where it is defined, so the views' fragments and structures must be restated to use the new `IMAGES`. They differ from 1.0's only in that `IMAGES`.
+The grammar below adds the forms of the `attr`, `cells` and `frame-cursor` lines that print the keys `attrs-renditions` prints, the `test` lines of the clipboard, the copy and the state, the `bell` line, the two forms of the `anim` line, and the display view's `display-cursor` line and structure. An `anim` line follows its image's `image` line, and a `bell` line follows a block's replies, so `HEAD`, `IMAGES` and the fragments and structures built on them are given again here. A fragment takes its value where it is defined, so the views' fragments and structures must be restated to use the new `HEAD` and `IMAGES`. They differ from 1.0's only in those two.
 
 ```describe
-interface 1.4
+interface 1.5
 view display
 feature clipboard
 feature attrs-renditions
 feature kitty-animation
 feature bidi
+feature selection
+feature marks
+feature backspace
+feature state
+feature bell
 command clipboard clipboard
+command select selection
+command copy selection
+command prompt marks
+command backspace backspace
+command state state
 ```
 
 ```grammar
@@ -131,6 +354,16 @@ line host: * host: [1-9][0-9]* t=d flags=any(?:,frames)? O=0 max=0 min=0 name= l
 line anim * anim {N} frames [1-9][0-9]* current [1-9][0-9]* run (?:stopped|loading|looping) loops [1-9][0-9]* stamps {N} {N}
 line anim * anim {N} frame [1-9][0-9]* gap {INT} digest [0-9a-f]{8}
 line display-cursor display display-cursor {N},{N} (?:left|right)
+line bell * bell [1-9][0-9]*
+line test * test copy (?:none|(?:[0-9a-f]{2})+)
+define NUMS none|{N}(?:,{N})*
+line test * test state margins {N}-{N} {N}-{N}
+line test * test state tabs (?:{NUMS})
+line test * test state modes ansi (?:{NUMS}) dec (?:{NUMS})
+line test * test state scrollback lines {N} view {N} max {N}
+line test * test state pen{RATTR}
+line test * test state colors fg={RGB} bg={RGB} cursor=(?:{RGB}|default)
+define HEAD (?: size)(?: cursor)(?: flags)(?: reply| host:)*(?: bell)?
 define IMAGES (?: placement)*(?: image(?: anim)*)*
 define SCREEN {HEAD}(?: row(?: attr)*)+{IMAGES}
 define DRAW2 {HEAD}(?: palette)(?: row(?: cells)*)+{IMAGES}

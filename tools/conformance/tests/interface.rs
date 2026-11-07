@@ -194,4 +194,39 @@ fn the_grammar_controls_hold_and_a_loose_grammar_fails_them() {
         "{}",
         faults(&tally)
     );
+    // interface 1.5's lines (INTERFACE-vtium.md): a bell line, a copy and
+    // the state lines, each grown loose, let a bad one through
+    for (line, loose, caught) in [
+        (
+            "line bell * bell [1-9][0-9]*",
+            "line bell * bell .*",
+            "a bell line that counts no bell",
+        ),
+        (
+            "define HEAD (?: size)(?: cursor)(?: flags)(?: reply| host:)*(?: bell)?",
+            "define HEAD (?: size)(?: cursor)(?: flags)(?: reply| host:| bell)*",
+            "a bell line before the replies",
+        ),
+        (
+            "line test * test copy (?:none|(?:[0-9a-f]{2})+)",
+            "line test * test copy [0-9A-Fa-f]+",
+            "a copy in capital hex",
+        ),
+        (
+            "line test * test state tabs (?:{NUMS})",
+            "line test * test state tabs [0-9,]*",
+            "tab stops with an empty place",
+        ),
+    ] {
+        assert!(texts[1].contains(line), "{line}");
+        let tally = interface::controls(&spec(&[texts[0].clone(), texts[1].replace(line, loose)]));
+        assert!(
+            tally
+                .faults
+                .iter()
+                .any(|f| f == &format!("control: the grammar accepts {caught}")),
+            "{loose}: {}",
+            faults(&tally)
+        );
+    }
 }
