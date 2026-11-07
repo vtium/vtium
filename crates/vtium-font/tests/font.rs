@@ -3,8 +3,8 @@
 //! gets, and the built-in unifont's scaling and missing glyph.
 
 use vtium_font::{
-    CELL_SIDE_MAX, Cell, Decorations, Face, Font, Format, Glyph, Psf, SpritePolicy, Style, Width,
-    sprite,
+    CELL_SIDE_MAX, Cell, Decorations, Drawn, Face, Font, Format, Glyph, Psf, SpritePolicy, Style,
+    Width, sprite,
 };
 
 fn plain() -> Style {
@@ -341,7 +341,15 @@ fn check_unscaled<F: Face>(font: &Font<F>, chars: impl Iterator<Item = char>) ->
                 };
                 let drawn = font.glyph(&[c], width, style);
                 let small = font.glyph_unscaled(&[c], width, style);
-                let (Some(drawn), Some((small, scale))) = (drawn, small) else {
+                let (
+                    Some(drawn),
+                    Some(Drawn {
+                        glyph: small,
+                        scale,
+                        ..
+                    }),
+                ) = (drawn, small)
+                else {
                     panic!("{c:?} {width:?} bold {bold}: one draw failed");
                 };
                 assert_eq!(
@@ -402,7 +410,9 @@ fn a_unifont_glyph_is_handed_over_at_scale_1() {
     }
     // a face that draws at its own size hands over its glyphs as drawn
     let font = Font::new(small_psf());
-    let (g, scale) = font
+    let Drawn {
+        glyph: g, scale, ..
+    } = font
         .glyph_unscaled(&['\u{1}'], Width::Narrow, plain())
         .expect("drawn");
     assert_eq!((g.width(), scale), (8, 1));

@@ -604,17 +604,17 @@ impl Glyphs {
         self.cache.take_counts()
     }
 
-    /// Whether the font drew a glyph as its missing glyph since this was
-    /// last asked ([`GlyphCache::take_drew_missing`]).
-    pub(crate) fn take_drew_missing(&mut self) -> bool {
-        self.cache.take_drew_missing()
+    /// The characters of each text the font drew as its missing glyph
+    /// since this was last asked ([`GlyphCache::take_missing`]).
+    pub(crate) fn take_missing(&mut self) -> Vec<char> {
+        self.cache.take_missing()
     }
 
     /// Forgets each glyph whose text holds one of `chars`, which are
-    /// sorted, and each glyph `font` draws as its missing glyph
+    /// sorted, and each glyph the font drew as its missing glyph
     /// ([`GlyphCache::forget`]).
-    pub(crate) fn forget<F: Face>(&mut self, chars: &[char], font: &Font<F>) {
-        self.cache.forget(chars, font);
+    pub(crate) fn forget(&mut self, chars: &[char]) {
+        self.cache.forget(chars);
         self.reclaim();
     }
 
@@ -632,11 +632,11 @@ impl Glyphs {
         if let Some(&s) = self.cache.lookup(text, width, style) {
             return Ok(self.place(s));
         }
-        let Some(stored) = self.cache.draw(font, text, width, style) else {
+        let Some((stored, missing)) = self.cache.draw(font, text, width, style) else {
             return Ok(None);
         };
         let pool = pool_of(stored.is_rgba(), width == Width::Wide);
-        let stored = match self.boxed(gl, (text, width, style), pool, stored)? {
+        let stored = match self.boxed(gl, (text, width, style), pool, (stored, missing))? {
             Ok(place) => return Ok(Some(place)),
             Err(stored) => stored,
         };
@@ -665,7 +665,7 @@ impl Glyphs {
             return Err(e);
         }
         if kept {
-            self.cache.keep(text, width, style, pool, slot);
+            self.cache.keep((text, width, style), pool, slot, missing);
         } else {
             if let Some(p) = self.pools.get_mut(pool) {
                 p.held.push(index);
@@ -677,7 +677,7 @@ impl Glyphs {
 
     /// Puts `stored`, the glyph for `text` that counts against the cache's
     /// pool `pool`, in a box when its ink passes its cells, and gives its
-    /// place. Gives `stored` back when its ink stays in its cells, or when
+    /// place; `missing` when the font drew it as its missing glyph. Gives `stored` back when its ink stays in its cells, or when
     /// the boxes have no room for it, which notes it for the log: it is
     /// then drawn cut at its cells, and none of its ink reaches another
     /// cell.
@@ -686,7 +686,7 @@ impl Glyphs {
         gl: &mut G,
         (text, width, style): (&[char], Width, Style),
         pool: usize,
-        stored: Stored,
+        (stored, missing): (Stored, bool),
     ) -> Result<Result<Place, Stored>, Error> {
         let reach = stored.reach();
         if reach.is_none() || stored.is_rgba() {
@@ -721,7 +721,7 @@ impl Glyphs {
             reach,
         };
         if kept {
-            self.cache.keep(text, width, style, pool, slot);
+            self.cache.keep((text, width, style), pool, slot, missing);
         } else {
             self.boxes.held.push(index);
             self.cache.count_uncached();
@@ -742,7 +742,9 @@ impl Glyphs {
         stored: Stored,
     ) -> Result<Option<Place>, Error> {
         let pool = pool_of(stored.is_rgba(), width == Width::Wide);
-        Ok(self.boxed(gl, (text, width, style), pool, stored)?.ok())
+        Ok(self
+            .boxed(gl, (text, width, style), pool, (stored, false))?
+            .ok())
     }
 
     /// Gives `text` as a note for the log, unless a note was given in the
@@ -1219,7 +1221,7 @@ mod tests {
         assert_eq!(g.take_notes().len(), 1);
         g.end_frame();
         // a glyph forgotten gives its slot back, which the 65th then takes
-        g.forget(&['A'], &font);
+        g.forget(&['A']);
         g.begin_frame();
         assert!(
             g.glyph(&mut gl, &font, &last, Width::Narrow, style)

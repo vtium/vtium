@@ -224,3 +224,41 @@ fn an_arrival_owes_a_frame_until_a_frame_after_one_draws_no_missing_glyph() {
         "an arrival owes a frame though no cell drew the missing glyph since the last"
     );
 }
+
+// a screen that drew more characters as the missing glyph than the
+// renderer keeps (MISSING_CHARS, 1024) draws every cell again on the frame
+// after an arrival, so none keeps the drawing from before it
+#[test]
+fn past_the_characters_kept_an_arrival_redraws_every_cell() {
+    let (cols, rows) = (64, 17);
+    let (w, h) = (CELL.width * cols, CELL.height * rows);
+    let arrived = Rc::new(Shared::new(false));
+    let mut r = Renderer::new(font(&arrived), w, h, Config::default());
+    let (fg, bg) = (rgb("c0c0c0"), rgb("101010"));
+    let mut s = Screen::new(cols as usize, rows as usize, fg, bg);
+    let mut chars = ('\u{3400}'..).take(s.cols * s.rows);
+    for row in 0..s.rows {
+        for col in 0..s.cols {
+            let c = chars.next().expect("a character");
+            s.put(col, row, c, false, style(fg, bg));
+        }
+    }
+    let mut canvas = Canvas::new(w, h, 0);
+    r.draw(&s.frame(Age::NEVER), &mut canvas, 0, &state());
+    let since = s.damage.checkpoint();
+    arrived.set(true);
+    r.glyphs_changed(&['\u{25a1}']);
+    assert!(r.redraws_missing());
+    r.draw(&s.frame(since), &mut canvas, 1, &state());
+    let mut fresh = Canvas::new(w, h, 0);
+    Renderer::new(font(&arrived), w, h, Config::default()).draw(
+        &s.frame(Age::NEVER),
+        &mut fresh,
+        0,
+        &state(),
+    );
+    assert!(
+        canvas == fresh,
+        "a cell still shows the missing glyph drawn before the set arrived"
+    );
+}

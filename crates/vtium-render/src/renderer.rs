@@ -8,7 +8,7 @@ use vtium_term::{Attrs, Cursor, CursorShape, Frame, FrameCell, Glyph, Palette, R
 
 use crate::arrow::{Arrow, Over};
 use crate::blend::pixel;
-use crate::bounds::ROW_SCRATCH_MAX;
+use crate::bounds::{MISSING_CHARS, ROW_SCRATCH_MAX};
 use crate::cache::{Budgets, GlyphCache, Profile, Storage};
 use crate::compose::{Area, Composer, Job, Source, int};
 use crate::damage::Cells;
@@ -546,18 +546,25 @@ pub struct Renderer<F> {
     /// The font's underline and strike-through lines the decoration
     /// sprites were made from.
     lines: Decorations,
-    /// Characters the font draws differently since the last frame, sorted:
-    /// the cells showing one draw again ([`Renderer::glyphs_changed`]).
+    /// Characters the font draws differently since the last frame, with
+    /// the characters of each text drawn as the font's missing glyph before
+    /// an arrival since then, sorted: the cells showing one draw again
+    /// ([`Renderer::glyphs_changed`]).
     changed: Vec<char>,
-    /// Whether the font gained glyphs since the last frame. The cells that
-    /// draw the font's missing glyph ([`vtium_font::Font::draws_missing`])
-    /// then draw again, since the set that arrived may hold U+25A1 or `?`.
-    missing: bool,
-    /// Whether a cell drawn since the last arrival's frame drew the font's
-    /// missing glyph, so the next arrival has cells to draw again
-    /// ([`Renderer::redraws_missing`]). A cell scrolled away since keeps it
-    /// true until that frame.
-    shows_missing: bool,
+    /// The characters of each text a frame drew as the font's missing
+    /// glyph ([`vtium_font::Drawn::missing`]) since the frame after the
+    /// last arrival, sorted. The next arrival moves them to `changed`, since
+    /// the set that arrived may hold U+25A1 or `?`, so each cell that shows
+    /// the missing glyph draws again. A cell scrolled away since keeps its
+    /// characters here until that frame.
+    shown_missing: Vec<char>,
+    /// Whether the frames since the last arrival drew more characters as
+    /// the missing glyph than `shown_missing` keeps ([`MISSING_CHARS`]), so
+    /// the next arrival draws every cell again.
+    shown_missing_overflowed: bool,
+    /// Whether the next frame draws again cells that showed the font's
+    /// missing glyph before an arrival ([`Renderer::redraws_missing`]).
+    owes_missing: bool,
     /// Display areas something other than the renderer drew over since the
     /// last frame ([`Renderer::redraw_area`]).
     touched: Vec<Rect>,
@@ -716,8 +723,9 @@ impl<F: Face> Renderer<F> {
             mono_line: Vec::new(),
             deco: (None, None),
             changed: Vec::new(),
-            missing: false,
-            shows_missing: false,
+            shown_missing: Vec::new(),
+            shown_missing_overflowed: false,
+            owes_missing: false,
             touched: Vec::new(),
             #[cfg(feature = "gpu")]
             gpu,
@@ -754,11 +762,11 @@ impl<F: Face> Renderer<F> {
     /// pipeline's generated glyphs arrive (ADR-1301 D2): the cache drops
     /// the glyphs whose text holds one of `chars`, alone or in a cluster,
     /// and the next frame draws again each cell that shows one (ADR-1200
-    /// D23). The cache drops too each glyph the font draws as its missing
+    /// D23). The cache drops too each glyph the font drew as its missing
     /// glyph, and the next frame draws again each cell that shows one, so a
     /// set that brings U+25A1 replaces the drawing of every character no
-    /// font holds. Every other glyph stays cached, and every other cell
-    /// keeps its pixels.
+    /// font holds ([`Renderer::redraws_missing`]). Every other glyph stays
+    /// cached, and every other cell keeps its pixels.
     ///
     /// When the font's underline and strike-through lines changed too, as
     /// an outline font's do once the glyph helper has measured them, the
@@ -766,13 +774,11 @@ impl<F: Face> Renderer<F> {
     pub fn glyphs_changed(&mut self, chars: &[char]) {
         self.lines_changed();
         let arrived = sorted(chars);
-        self.compose.cache.forget(&arrived, &self.font);
-        self.missing |= !arrived.is_empty();
+        self.compose.cache.forget(&arrived);
         #[cfg(feature = "gpu")]
         self.gpu.forget(&arrived);
         self.changed.extend_from_slice(&arrived);
-        self.changed.sort_unstable();
-        self.changed.dedup();
+        self.missing_arrival(!arrived.is_empty());
     }
 
     /// Forgets what the renderer drew into each buffer: the next frame
@@ -800,7 +806,7 @@ impl<F: Face> Renderer<F> {
     /// one: the cache drops the glyphs whose text holds one, alone or in a
     /// cluster, so a cell that shows one later draws the font's new glyph
     /// (ADR-1200 D7), and no cell draws again now. The glyphs the font
-    /// draws as its missing glyph go too, as [`Renderer::glyphs_changed`]
+    /// drew as its missing glyph go too, as [`Renderer::glyphs_changed`]
     /// drops them, and the next frame draws again each cell that shows one.
     /// Every other glyph stays cached.
     ///
@@ -808,10 +814,45 @@ impl<F: Face> Renderer<F> {
     /// [`Renderer::glyphs_changed`] does.
     pub fn forget_glyphs(&mut self, chars: &[char]) {
         self.lines_changed();
-        self.compose.cache.forget(&sorted(chars), &self.font);
-        self.missing |= !chars.is_empty();
+        self.compose.cache.forget(&sorted(chars));
         #[cfg(feature = "gpu")]
         self.gpu.forget(chars);
+        self.missing_arrival(!chars.is_empty());
+    }
+
+    /// Finishes an arrival that added characters to `changed`. When the
+    /// font `gained` glyphs, the characters of each text drawn as the
+    /// missing glyph since the last arrival's frame join `changed`, so the
+    /// next frame draws those cells again. When more of them drew than the
+    /// renderer keeps, the next frame draws every cell again. Then
+    /// `changed` is sorted.
+    fn missing_arrival(&mut self, gained: bool) {
+        if gained {
+            if self.shown_missing_overflowed {
+                self.grid = None;
+            }
+            self.owes_missing |= self.shown_missing_overflowed || !self.shown_missing.is_empty();
+            self.shown_missing_overflowed = false;
+            self.changed.append(&mut self.shown_missing);
+        }
+        self.changed.sort_unstable();
+        self.changed.dedup();
+    }
+
+    /// Keeps `drawn`, the characters of each text a frame drew as the
+    /// missing glyph, for the next arrival ([`Renderer::missing_arrival`]),
+    /// or keeps none once more drew than [`MISSING_CHARS`].
+    fn shown_missing_drew(&mut self, mut drawn: Vec<char>) {
+        if self.shown_missing_overflowed || drawn.is_empty() {
+            return;
+        }
+        self.shown_missing.append(&mut drawn);
+        self.shown_missing.sort_unstable();
+        self.shown_missing.dedup();
+        if self.shown_missing.len() > MISSING_CHARS {
+            self.shown_missing = Vec::new();
+            self.shown_missing_overflowed = true;
+        }
     }
 
     /// Whether the next frame draws again cells that showed the font's
@@ -820,7 +861,7 @@ impl<F: Face> Renderer<F> {
     /// once, since until it comes those cells show the drawing from before
     /// the arrival.
     pub fn redraws_missing(&self) -> bool {
-        self.missing && self.shows_missing
+        self.owes_missing
     }
 
     /// Takes the font's underline and strike-through lines when they are
@@ -961,8 +1002,8 @@ impl<F: Face> Renderer<F> {
         self.arrow = arrow;
         self.pointer_line = line;
         self.mono_line = mono_line;
-        let drew_missing = self.compose.cache.take_drew_missing();
-        self.finish(&plan, (cells, rows), drew_missing, start)
+        let missing = self.compose.cache.take_missing();
+        self.finish(&plan, (cells, rows), missing, start)
     }
 
     /// The first half of a frame: where the grid sits, what the pointer
@@ -1045,22 +1086,20 @@ impl<F: Face> Renderer<F> {
         self.draw_cells(g, frame, back, state)
     }
 
-    /// The frame's damage and figures, once it is drawn; `drew_missing`
-    /// when it drew a glyph as the font's missing glyph.
+    /// The frame's damage and figures, once it is drawn; `missing` holds
+    /// the characters of each text it drew as the font's missing glyph.
     fn finish(
         &mut self,
         plan: &Plan,
         (cells, rows): (u32, u32),
-        drew_missing: bool,
+        missing: Vec<char>,
         start: Instant,
     ) -> Drawn<'_> {
         #[cfg(feature = "images")]
         self.compose.pictures.end_frame();
         self.changed.clear();
-        // the frame after an arrival drew again every cell that showed the
-        // missing glyph, so only what it drew shows the missing glyph now
-        self.shows_missing = drew_missing || (self.shows_missing && !self.missing);
-        self.missing = false;
+        self.owes_missing = false;
+        self.shown_missing_drew(missing);
         let layout = self.layout;
         let grid = plan.grid;
         let whole = plan.full.then_some(Rect {
@@ -1172,7 +1211,7 @@ impl<F: Face> Renderer<F> {
     /// Whether `row` shows a glyph that changed since the last frame
     /// ([`Renderer::shows_changed`]), read from its line's glyphs alone.
     fn row_shows_changed(&self, frame: &Frame<'_>, row: usize, cols: usize) -> bool {
-        (self.missing || !self.changed.is_empty())
+        !self.changed.is_empty()
             && frame.line(row).is_some_and(|line| {
                 line.cells()
                     .iter()
@@ -1182,26 +1221,15 @@ impl<F: Face> Renderer<F> {
     }
 
     /// Whether `glyph` shows a character [`Renderer::glyphs_changed`] named,
-    /// or, after an arrival, the font's missing glyph.
+    /// or, after an arrival, a character of a text drawn as the font's
+    /// missing glyph.
     fn shows_changed(&self, glyph: &Glyph<'_>) -> bool {
         let changed = |c: char| self.changed.binary_search(&c).is_ok();
-        // the font decides from a cluster's first character and whether
-        // more follow
-        let missing = |text: &[char]| self.missing && self.font.draws_missing(text);
         match *glyph {
-            _ if self.changed.is_empty() && !self.missing => false,
+            _ if self.changed.is_empty() => false,
             Glyph::Empty => false,
-            Glyph::Char(c) => changed(c) || missing(&[c]),
-            Glyph::Cluster(text) => {
-                let mut cs = text.chars();
-                let first_two = [cs.next(), cs.next()];
-                text.chars().any(changed)
-                    || match first_two {
-                        [Some(a), Some(b)] => missing(&[a, b]),
-                        [Some(a), None] => missing(&[a]),
-                        _ => false,
-                    }
-            }
+            Glyph::Char(c) => changed(c),
+            Glyph::Cluster(text) => text.chars().any(changed),
         }
     }
 

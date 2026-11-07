@@ -2624,6 +2624,136 @@ mod tests {
         assert!(all(&drawn, 7));
     }
 
+    /// U+10FFFD, which the built-in font lacks, and a skin tone modifier
+    /// after it: a cluster a set holds while it does not hold the base
+    /// alone.
+    const TONED: [char; 2] = ['\u{10fffd}', '\u{1f3fb}'];
+
+    /// A terminal of four cells by one whose first cell shows U+10FFFD
+    /// alone, and a store whose only set holds [`TONED`]: the face says it
+    /// has U+10FFFD, through the cluster, yet draws nothing for it alone,
+    /// so the font draws the built-in font's U+25A1 for it.
+    fn lone_base_of_a_held_cluster() -> (Shared, vtium_term::Terminal) {
+        let generated = Shared::default();
+        add(
+            &mut lock(&generated),
+            CELL,
+            with_clusters(&[], &[(&TONED, 7)]),
+            vec![],
+            1,
+        );
+        let f = face(&generated);
+        assert!(f.has_glyph(TONED[0]));
+        assert!(f.draw(&TONED[..1], Style::default()).is_none());
+        let mut term = vtium_term::Terminal::new(4, 1, 0);
+        assert_eq!(term.input("\u{10fffd}".as_bytes()), 4);
+        (generated, term)
+    }
+
+    /// Adds to `generated` a set that holds a solid U+25A1, as the helper
+    /// does once a later set brings one.
+    fn bring_u25a1(generated: &Shared) {
+        add(
+            &mut lock(generated),
+            CELL,
+            solid(CELL, &['\u{25a1}']),
+            vec![(0x25a1, 1)],
+            1,
+        );
+    }
+
+    // vtium/vtium#320: the cell that shows U+10FFFD alone draws the missing
+    // glyph though the face says it has U+10FFFD. A later set that brings
+    // U+25A1 replaces that drawing on the frame after it arrives, as a
+    // renderer made after the arrival draws it.
+    #[test]
+    fn a_later_u25a1_redraws_the_lone_base_of_a_held_cluster() {
+        use vtium_render::{Canvas, Config as RenderConfig, DrawState, Renderer};
+        let (generated, mut term) = lone_base_of_a_held_cluster();
+        let (w, h) = (CELL.width * 4, CELL.height);
+        let state = DrawState::default();
+        let mut r = Renderer::new(Font::new(face(&generated)), w, h, RenderConfig::default());
+        let mut canvas = Canvas::new(w, h, 0);
+        r.draw(
+            &term.screen().frame(term.palette(), vtium_term::Age::NEVER),
+            &mut canvas,
+            0,
+            &state,
+        );
+        let before = canvas.clone();
+        let since = term.screen_mut().checkpoint();
+        bring_u25a1(&generated);
+        r.glyphs_changed(&['\u{25a1}']);
+        assert!(r.redraws_missing(), "the arrival owes no frame");
+        r.draw(
+            &term.screen().frame(term.palette(), since),
+            &mut canvas,
+            1,
+            &state,
+        );
+        let mut fresh = Canvas::new(w, h, 0);
+        Renderer::new(Font::new(face(&generated)), w, h, RenderConfig::default()).draw(
+            &term.screen().frame(term.palette(), vtium_term::Age::NEVER),
+            &mut fresh,
+            0,
+            &state,
+        );
+        assert!(before != fresh, "the set's U+25A1 moves no pixel");
+        assert!(
+            canvas == fresh,
+            "U+10FFFD still shows the built-in U+25A1 drawn before the set arrived"
+        );
+    }
+
+    // vtium/vtium#320 on the GPU path: the frame after the arrival uploads
+    // the lone U+10FFFD's new drawing
+    #[cfg(feature = "gpu")]
+    #[test]
+    fn on_the_gpu_path_a_later_u25a1_redraws_the_lone_base_of_a_held_cluster() {
+        use vtium_render::gpu::{Call, Config as GpuConfig, Gl, Pipeline, Size, StandIn};
+        use vtium_render::{Config as RenderConfig, DrawState, Renderer};
+        let (generated, mut term) = lone_base_of_a_held_cluster();
+        let display = Size::new(CELL.width * 4, CELL.height);
+        let mut gl = StandIn::new();
+        let mut pipeline = Pipeline::new(&mut gl, display, GpuConfig::default()).unwrap();
+        let buffer = gl.import_buffer(&display).unwrap();
+        let mut r = Renderer::new(
+            Font::new(face(&generated)),
+            display.width,
+            display.height,
+            RenderConfig::default(),
+        );
+        // the textures each frame fills: the glyphs it draws anew
+        let mut frame =
+            |r: &mut Renderer<DeferredFace>, term: &vtium_term::Terminal, since, age| {
+                gl.clear_calls();
+                let frame = term.screen().frame(term.palette(), since);
+                r.draw_gpu(
+                    &mut gl,
+                    &mut pipeline,
+                    &frame,
+                    &buffer,
+                    age,
+                    &DrawState::default(),
+                    &[],
+                )
+                .unwrap();
+                gl.calls()
+                    .iter()
+                    .filter(|c| matches!(c, Call::FillTexture(_)))
+                    .count()
+            };
+        frame(&mut r, &term, vtium_term::Age::NEVER, 0);
+        let since = term.screen_mut().checkpoint();
+        bring_u25a1(&generated);
+        r.glyphs_changed(&['\u{25a1}']);
+        assert_eq!(
+            frame(&mut r, &term, since, 1),
+            1,
+            "U+10FFFD drawn from the set"
+        );
+    }
+
     // ADR-1200 D19: compaction keys a cluster as the store does, drops the
     // one least recently shown and writes the one shown again
     #[test]

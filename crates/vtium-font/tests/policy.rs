@@ -7,7 +7,7 @@ use std::cell::Cell as Count;
 
 use vtium_font::sprite::{self, Range};
 use vtium_font::{Cell, Coverage, Face, Font, Glyph, Missing, RangeCoverage, Source, SpritePolicy};
-use vtium_font::{Style, Width};
+use vtium_font::{Drawn, Style, Width};
 
 const CELL: Cell = Cell {
     width: 8,
@@ -347,24 +347,32 @@ fn the_unscaled_glyph_follows_the_policy() {
         scale: 2,
     };
     let font = Font::new(stub()).with_policy(SpritePolicy::all(Source::Auto));
-    let (g, scale) = font
+    let Drawn {
+        glyph: g, scale, ..
+    } = font
         .glyph_unscaled(&['─'], Width::Narrow, plain())
         .expect("drawn");
     assert_eq!(
         (g.width(), g.height(), scale, ink(&g)),
         (4, 8, 2, Some(FACE_INK))
     );
-    let (g, scale) = font
+    let Drawn {
+        glyph: g, scale, ..
+    } = font
         .glyph_unscaled(&['━'], Width::Narrow, plain())
         .expect("drawn");
     assert_eq!((g, scale), (sprite('━'), 1));
     let font = Font::new(stub()).with_policy(SpritePolicy::SPRITES);
-    let (g, scale) = font
+    let Drawn {
+        glyph: g, scale, ..
+    } = font
         .glyph_unscaled(&['─'], Width::Narrow, plain())
         .expect("drawn");
     assert_eq!((g, scale), (sprite('─'), 1));
     let font = Font::new(stub()).with_policy(SpritePolicy::all(Source::Font));
-    let (g, scale) = font
+    let Drawn {
+        glyph: g, scale, ..
+    } = font
         .glyph_unscaled(&['━'], Width::Narrow, plain())
         .expect("drawn");
     assert_eq!((g.width(), scale, ink(&g)), (4, 2, Some(BOX_INK)));
@@ -532,7 +540,9 @@ fn a_cluster_on_a_sprite_the_face_lacks_draws_the_sprite() {
         scale: 2,
     })
     .with_policy(SpritePolicy::SPRITES);
-    let (g, scale) = font
+    let Drawn {
+        glyph: g, scale, ..
+    } = font
         .glyph_unscaled(&cluster, Width::Narrow, plain())
         .expect("drawn");
     assert_eq!((g, scale), (sprite('─'), 1));
@@ -582,7 +592,7 @@ fn sprites_never_ask_the_face() {
         for c in range.chars() {
             assert_eq!(draw(&font, c), sprite(c));
             assert!(font.has_glyph(c));
-            let (g, _) = font
+            let Drawn { glyph: g, .. } = font
                 .glyph_unscaled(&[c], Width::Narrow, plain())
                 .expect("drawn");
             assert_eq!(g, sprite(c));
