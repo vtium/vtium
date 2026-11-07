@@ -31,7 +31,8 @@
 //!   report of a device can bring before the seat manager is ready for it.
 //!   [`Vt::open_device`] answers [`io::ErrorKind::WouldBlock`] meanwhile,
 //!   and [`Vt::settled`] names the device once it has opened or failed. A
-//!   device asked for before the seat is enabled waits for the enable.
+//!   device asked for before the seat is enabled, or refused `EPERM` while
+//!   the seat manager disables vtium, waits for the next enable.
 //!
 //! seatd gives a new client the VT shown when it opens the seat. So when
 //! vtium's VT is not shown at the start and seatd listens, vtium opens the
@@ -587,6 +588,9 @@ impl<M: Manager, C: Console> LibseatVt<M, C> {
                     *p = Pending::Opened(device, fd);
                     self.settled.push(path.clone());
                 }
+                // A disable the seat manager has begun and the loop has
+                // not yet read: the device waits for the next enable.
+                Err(e) if refused_while_disabling(&e) => *p = Pending::Seat,
                 Err(e) if retryable(&e) && tried < self.tries.device => *p = Pending::Tries(tried),
                 Err(e) => {
                     log::warn!(target: "seat", "cannot open {} through the seat manager after {tried} tries: {e}", path.display());
@@ -800,6 +804,11 @@ impl<M: Manager, C: Console> Vt for LibseatVt<M, C> {
                 self.open.insert(path.to_owned(), device);
                 Ok(fd)
             }
+            Err(e) if refused_while_disabling(&e) => {
+                log::debug!(target: "seat", "{} waits for the seat: {e}", path.display());
+                self.pending.insert(path.to_owned(), Pending::Seat);
+                Err(io::Error::from(io::ErrorKind::WouldBlock))
+            }
             Err(e) if retryable(&e) => {
                 log::debug!(target: "seat", "{} is not ready, trying again: {e}", path.display());
                 self.pending.insert(path.to_owned(), Pending::Tries(1));
@@ -876,6 +885,15 @@ fn busy(e: &io::Error, seatd: bool) -> bool {
 /// The seat manager's answers for a device it is not ready to give yet.
 fn retryable(e: &io::Error) -> bool {
     errno(e).is_some_and(|n| n == Errno::NODEV || n == Errno::ACCESS || n == Errno::BUSY)
+}
+
+/// The answer for a device asked of a client the seat manager has begun
+/// to disable: seatd 0.9.3 opens devices only for an active client and
+/// answers `EPERM` otherwise (seatd/seat.c, `seat_open_device`). The
+/// disable reaches vtium at its next dispatch, and the device waits for
+/// the enable after it.
+fn refused_while_disabling(e: &io::Error) -> bool {
+    errno(e) == Some(Errno::PERM)
 }
 
 fn errno(e: &io::Error) -> Option<Errno> {

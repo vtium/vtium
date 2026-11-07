@@ -507,3 +507,37 @@ fn a_device_opened_by_a_retry_and_never_taken_is_closed_through_the_seat() {
         );
     }
 }
+
+/// A retry that meets a disable seatd has begun and vtium has not yet
+/// read is refused `EPERM`; the device waits for the next enable instead
+/// of failing.
+#[test]
+fn a_retry_refused_by_a_disable_in_flight_waits_for_the_next_enable() {
+    let server = StandIn::new();
+    server
+        .0
+        .borrow_mut()
+        .device_answers
+        .insert(PathBuf::from(CARD), [Errno::BUSY].into());
+    let (mut lp, mut data) = start(&server, None, tries(50, 20));
+    run_until(&mut lp, &mut data, |d, _| vt(d).is_active());
+    assert!(vt(&mut data).open_device(Path::new(CARD)).is_err());
+    server.disable();
+    // The retry's timer fires before the loop reads the disable.
+    vt(&mut data).tick();
+    assert_eq!(
+        device_opens(&server, CARD),
+        2,
+        "tried while the disable is in flight"
+    );
+    assert!(vt(&mut data).settled().is_empty(), "not failed");
+    let events = run_until(&mut lp, &mut data, |_, e| !e.is_empty());
+    assert_eq!(events, [VtEvent::Release]);
+    ok(vt(&mut data).acknowledge_release(), "acknowledge");
+    server.enable();
+    run_until(&mut lp, &mut data, |d, _| {
+        d.vt.as_ref().is_some_and(|v| !v.settled.is_empty())
+    });
+    assert_eq!(vt(&mut data).settled(), [PathBuf::from(CARD)]);
+    assert!(vt(&mut data).open_device(Path::new(CARD)).is_ok());
+}
