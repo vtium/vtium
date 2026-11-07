@@ -424,8 +424,8 @@ fn a_kbd_name_does_not_follow_a_link_out_of_the_data_directory() {
 }
 
 /// A PSF2 font of 8x16 glyphs with a table, each glyph its character and
-/// the rows it inks, every column of them, as Terminus draws `H` and `a`
-/// on its baseline, row 12.
+/// the rows it inks, every column of them, as a console font whose
+/// baseline is row 12 draws `H` and `a`.
 fn psf2_inked(glyphs: &[(char, std::ops::Range<u32>)]) -> Vec<u8> {
     let mut f = Vec::new();
     for v in [0x864a_b572u32, 0, 32, 1, glyphs.len() as u32, 16, 16, 8] {
@@ -445,14 +445,13 @@ fn psf2_inked(glyphs: &[(char, std::ops::Range<u32>)]) -> Vec<u8> {
 // ADR-1200 D17, ADR-1306 D1 (the maintainer, 2026-11-06): every glyph of
 // a later bitmap source stands on the first source's baseline, and the ink
 // that this raises past the cell goes to its ink box, which the renderer
-// draws into the row above. The tour's font set draws the Vietnamese
-// letters Terminus lacks from unifont, whose baseline is its row 14, where
-// Terminus's is its row 12. Placed on the cell's bottom row, as they were,
-// they sat 2 rows below Terminus's letters. Now each rises the 2 rows: ư
-// (U+01B0), whose ink starts at unifont's row 4, stays inside its cell,
-// and ẳ (U+1EB3), whose hook starts at unifont's row 0, ends on the row of
-// Terminus's a with the top 2 rows of its hook, whole, in its box above
-// the cell. At twice the size, each of those rows is two rows of the cell
+// draws into the row above. Here the first source, a PSF font, has its
+// baseline on row 12, and unifont, the later source, has its baseline on
+// its row 14, so each of unifont's glyphs rises 2 rows: ư (U+01B0), whose
+// ink starts at unifont's row 4, stays inside its cell, and ẳ (U+1EB3),
+// whose hook starts at unifont's row 0, ends on the row of the first
+// source's a with the top 2 rows of its hook, whole, in its box above the
+// cell. At twice the size, each of those rows is two rows of the cell
 #[test]
 fn a_later_bitmap_source_stands_on_the_first_sources_baseline() {
     let w = World::new("bitmap-baseline");
@@ -941,8 +940,8 @@ const LATIN_THEN_CJK: &str = "source=font:Test Latin\nsource=font:Test CJK\n";
 // ADR-1200 D21: the terminal gives U+4E00 two cells, so the helper draws
 // it across both, its advance centred in them, and its ink reaches into
 // the second cell. Sized by its own ascent and descent, the CJK font's
-// 1000-unit advance came to about 10.7 pixels in a 9x16 cell, under the
-// one and a half cells the helper once took as two
+// 1000-unit advance comes to about 10.7 pixels in a 9x16 cell, under one
+// and a half cells, and the glyph still spans both
 #[test]
 fn an_ideograph_behind_a_latin_source_spans_both_its_cells() {
     let w = World::new("cjk-behind-latin");
@@ -1122,15 +1121,13 @@ fn a_fallback_joining_letter_uses_the_reach_and_an_icon_is_drawn_smaller() {
 }
 
 // ADR-1200 D17: a fallback glyph drawn smaller keeps the first source's
-// baseline. The tour's ẳ (U+1EB3) comes from Noto Sans CJK behind DejaVu
-// Sans Mono, and its stacked marks rise past the room above the baseline.
-// Test Viet's ẳ stands on the baseline and rises 950 units, 14.7 pixels
-// at Test Latin's 15.5 pixels to the em, where the 9x16 cell has 13 rows
-// above its baseline. The helper draws it smaller until its ink fits above
-// the baseline, so its lowest ink is on the row of đ's. When it was drawn
-// smaller only until its whole height fitted the row, the helper moved it
-// down to the row's top, and its lowest ink sat 2 rows below đ's, and 8
-// rows below in the tour's 28x54 cell
+// baseline. A fallback source's ẳ (U+1EB3) has stacked marks that can
+// rise past the room above the baseline. Test Viet's ẳ stands on the
+// baseline and rises 950 units, 14.7 pixels at Test Latin's 15.5 pixels to
+// the em, where the 9x16 cell has 13 rows above its baseline. The helper
+// draws it smaller until its ink fits above the baseline, and does not
+// move it down to the row's top, so its lowest ink is on the row of đ's,
+// in the 9x16 cell and in the 28x54 cell
 #[test]
 fn a_fallback_glyph_drawn_smaller_keeps_the_baseline() {
     let w = World::new("fallback-baseline");
@@ -1183,8 +1180,8 @@ fn a_fallback_glyph_drawn_smaller_keeps_the_baseline() {
 // Noto's proportions, an ascent of 1100 and a descent of 300, so at Test
 // Latin's size its own baseline is the cell's bottom row in both cells.
 // Its alef and its beh fit their cells, so the helper draws them at full
-// size. When each source stood on its own baseline, their lowest ink sat
-// 3 rows below đ's in the 9x16 cell and 11 rows below in the 28x54 cell
+// size, with their lowest ink on the row of đ's in the 9x16 cell and in
+// the 28x54 cell
 #[test]
 fn a_fallback_source_draws_on_the_first_sources_baseline() {
     let w = World::new("fallback-own-baseline");
