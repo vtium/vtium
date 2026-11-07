@@ -163,6 +163,23 @@ const RECEIVES: u32 = 1;
 const MARKED: u32 = 2;
 const DOWN: u32 = 4;
 
+/// The job a quad of the cell shader draws, in cells of `cell`, when it
+/// receives ink: the column and row of its first cell and its cells, and
+/// whether its display lines run down the upright frame's columns, as the
+/// ink grid's line bits take them.
+pub(crate) fn receiving(q: &Quad, cell: Size) -> Option<((usize, usize, usize), bool)> {
+    let flags = q.params[1] >> 24;
+    if flags & RECEIVES == 0 {
+        return None;
+    }
+    let n = |v: u32| usize::try_from(v).unwrap_or(0);
+    let cells = u32::try_from(q.dst[2])
+        .unwrap_or(0)
+        .checked_div(cell.width)
+        .unwrap_or(0);
+    Some(((n(q.src[2]), n(q.src[3]), n(cells)), flags & DOWN != 0))
+}
+
 /// What a shader that goes over the pixels beneath it takes besides its
 /// own inputs: the copy of those pixels, and the pixel of the target its
 /// first texel holds. The arrow's shader always takes them, the cell and
