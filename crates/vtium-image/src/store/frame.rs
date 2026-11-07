@@ -86,6 +86,13 @@ pub struct FramePlacement {
 }
 
 impl FramePlacement {
+    /// Whether this entry comes from a run of kitty Unicode-placeholder
+    /// cells, which vtium-term places where the run's cells are drawn,
+    /// rather than from a placement on a line.
+    pub fn from_placeholder_run(&self) -> bool {
+        self.key.get() >= RUN_KEY_FIRST
+    }
+
     /// Shows `frame`, a frame of this entry's image from
     /// [`Store::frame_pixels`], in place of the one the entry holds: its
     /// pixels, its number and its pixel revision. Every placement of an

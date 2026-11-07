@@ -256,12 +256,9 @@ mod with {
             }
             let mut out = self.images.frame_with_runs(rows, &below, &runs, self.cols);
             out.retain_mut(|p| {
-                // vtium-image numbers the entries of placeholder runs from
-                // 1 << 63 up (its store/runs.rs, RUN_KEY_FIRST), and those
-                // are placed by the runs above. This copies a private
-                // constant, until vtium-image has an accessor that says
-                // whether an entry comes from a run.
-                if p.key.get() >= 1 << 63 {
+                // an entry made from a placeholder run is placed by the
+                // runs above
+                if p.from_placeholder_run() {
                     return true;
                 }
                 let anchored = match usize::try_from(p.row) {
