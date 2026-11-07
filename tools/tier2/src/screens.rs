@@ -17,7 +17,8 @@ use vtium_term::WidthMethod;
 use vtium::config::keys::{self, Scheme};
 
 use crate::draw::{
-    Alone, DecoSpec, Decorations, Feed, FontKind, Overlay, Screen, Spacing, Take, TestFont, Words,
+    Alone, DecoSpec, Decorations, Feed, FontKind, InkFonts, Overlay, Screen, Spacing, Take,
+    TestFont, Words,
 };
 use crate::notices;
 use crate::pictures;
@@ -1026,10 +1027,212 @@ const fn ink(
         font: FontKind::Ink {
             takes,
             spacing: None,
+            fonts: InkFonts::Test,
         },
         ..Screen::new(name, desc, bytes, cols, rows)
     }
 }
+
+/// `screen` on a 1-bit display, named `name`.
+const fn one_bit(name: &'static str, screen: Screen) -> Screen {
+    Screen {
+        name,
+        desc: ONE_BIT_DESC,
+        depth: Depth::One,
+        ..screen
+    }
+}
+
+/// The ink screen `screen` drawn in DejaVu Sans Mono and Noto Sans CJK in
+/// place of the ink test font, with the same bytes and takes, named
+/// `name`.
+const fn dejavu(name: &'static str, screen: Screen) -> Screen {
+    let FontKind::Ink { takes, spacing, .. } = screen.font else {
+        panic!("an ink screen");
+    };
+    Screen {
+        name,
+        desc: DEJAVU_DESC,
+        font: FontKind::Ink {
+            takes,
+            spacing,
+            fonts: InkFonts::DejaVu,
+        },
+        ..screen
+    }
+}
+
+const DEJAVU_DESC: &str = "The screen of the same name without `-dejavu`, with the same bytes, takes, selection and pictures, drawn in the test font set without its color emoji font: DejaVu Sans Mono's Regular, Bold, Oblique and Bold Oblique faces, then Noto Sans CJK, as the console draws a font set, and in the built-in font for what neither holds: the superscript alef U+0670 and the precomposed Ấ, which DejaVu Sans Mono lacks. Its Oblique face holds no Arabic, so italic Arabic draws as the regular face's glyphs slanted. Correct: each glyph where its font puts it, and the ink a real font sends past its cell drawn into the neighbouring cells by the rules the test-font screen's caption gives; where DejaVu Sans Mono's ink stays in its cell, as it does for most glyphs at most heights, nothing reaches the cells around it.";
+
+/// The ink screens, each drawn in the ink test font, on a 1-bit display,
+/// in DejaVu Sans Mono and in DejaVu Sans Mono on a 1-bit display.
+const fn ink_cases(names: [&'static str; 3], screen: Screen) -> [Case; 4] {
+    let real = dejavu(names[1], screen);
+    [
+        Case { screen },
+        Case {
+            screen: one_bit(names[0], screen),
+        },
+        Case { screen: real },
+        Case {
+            screen: one_bit(names[2], real),
+        },
+    ]
+}
+
+const OVERFLOW_ACCENTS_SCREEN: Screen = Screen {
+    selection: Some(((8, 1), (11, 2))),
+    ..ink(
+        "overflow-accents",
+        OVERFLOW_ACCENTS_DESC,
+        OVERFLOW_ACCENTS,
+        (18, 4),
+        &OVERFLOW_ACCENTS_TAKES,
+    )
+};
+
+const OVERFLOW_SPACED_SCREEN: Screen = Screen {
+    font: FontKind::Ink {
+        takes: &AT_16_AND_32,
+        spacing: Some(SPACED_30),
+        fonts: InkFonts::Test,
+    },
+    ..ink(
+        "overflow-spaced",
+        OVERFLOW_SPACED_DESC,
+        OVERFLOW_SPACED,
+        (16, 3),
+        &AT_16_AND_32,
+    )
+};
+
+const OVERFLOW_PICTURES_SCREEN: Screen = Screen {
+    pictures: Some(pictures::overflow),
+    ..ink(
+        "overflow-pictures",
+        OVERFLOW_PICTURES_DESC,
+        OVERFLOW_PICTURES,
+        (24, 6),
+        &AT_16,
+    )
+};
+
+const OVERHANG_ITALIC_SCREEN: Screen = Screen {
+    selection: Some(((2, 0), (4, 0))),
+    ..ink(
+        "overhang-italic",
+        OVERHANG_ITALIC_DESC,
+        OVERHANG_ITALIC,
+        (20, 3),
+        &OVERHANG_ITALIC_TAKES,
+    )
+};
+
+/// Every ink screen: four cases each, from [`ink_cases`].
+const INK_CASES: [[Case; 4]; 9] = [
+    ink_cases(
+        [
+            "overflow-accents-1bit",
+            "overflow-accents-dejavu",
+            "overflow-accents-dejavu-1bit",
+        ],
+        OVERFLOW_ACCENTS_SCREEN,
+    ),
+    ink_cases(
+        [
+            "overflow-marks-1bit",
+            "overflow-marks-dejavu",
+            "overflow-marks-dejavu-1bit",
+        ],
+        ink(
+            "overflow-marks",
+            OVERFLOW_MARKS_DESC,
+            OVERFLOW_MARKS,
+            (16, 3),
+            &SWEEP,
+        ),
+    ),
+    ink_cases(
+        [
+            "overflow-meet-1bit",
+            "overflow-meet-dejavu",
+            "overflow-meet-dejavu-1bit",
+        ],
+        ink(
+            "overflow-meet",
+            OVERFLOW_MEET_DESC,
+            OVERFLOW_MEET,
+            (14, 3),
+            &AT_16_AND_32,
+        ),
+    ),
+    ink_cases(
+        [
+            "overflow-spaced-1bit",
+            "overflow-spaced-dejavu",
+            "overflow-spaced-dejavu-1bit",
+        ],
+        OVERFLOW_SPACED_SCREEN,
+    ),
+    ink_cases(
+        [
+            "overflow-pictures-1bit",
+            "overflow-pictures-dejavu",
+            "overflow-pictures-dejavu-1bit",
+        ],
+        OVERFLOW_PICTURES_SCREEN,
+    ),
+    ink_cases(
+        [
+            "overhang-italic-1bit",
+            "overhang-italic-dejavu",
+            "overhang-italic-dejavu-1bit",
+        ],
+        OVERHANG_ITALIC_SCREEN,
+    ),
+    ink_cases(
+        [
+            "overhang-wm-1bit",
+            "overhang-wm-dejavu",
+            "overhang-wm-dejavu-1bit",
+        ],
+        ink(
+            "overhang-wm",
+            OVERHANG_WM_DESC,
+            OVERHANG_WM,
+            (14, 2),
+            &AT_16_AND_32,
+        ),
+    ),
+    ink_cases(
+        [
+            "overhang-underscore-1bit",
+            "overhang-underscore-dejavu",
+            "overhang-underscore-dejavu-1bit",
+        ],
+        ink(
+            "overhang-underscore",
+            OVERHANG_UNDERSCORE_DESC,
+            OVERHANG_UNDERSCORE,
+            (12, 2),
+            &SWEEP,
+        ),
+    ),
+    ink_cases(
+        [
+            "overhang-wide-1bit",
+            "overhang-wide-dejavu",
+            "overhang-wide-dejavu-1bit",
+        ],
+        ink(
+            "overhang-wide",
+            OVERHANG_WIDE_DESC,
+            OVERHANG_WIDE,
+            (12, 4),
+            &AT_16_AND_32,
+        ),
+    ),
+];
 
 /// One drawing at 16 pixels.
 const AT_16: [Take; 1] = [Take::at(16)];
@@ -1054,8 +1257,33 @@ const OVERHANG_UNDERSCORE_DESC: &str = "The underscore and gjpqy in the ink test
 
 const OVERHANG_WIDE_DESC: &str = "The ideograph 一, two cells wide, in the ink test font built in memory, whose bar reaches a quarter of a cell past each side, drawn at 16 and at 32 pixels. Each drawing is 12 by 4 cells: H, 一, H, then 一 twice on blue and olive cells, and H; HIE and 一 in the last two columns; HIE and 一 written at the last column of the third row, which wraps it to the start of the fourth. Correct (ADR-1302 D1, D5): the bar running into the H on each side and into the neighbouring ideograph, over the backgrounds there; in the last two columns the bar reaching left into the cell before it and cut at the grid's right edge; the wrapped ideograph at the start of the fourth row, its bar cut at the grid's left edge, and the third row's last cell empty.";
 
-/// Every case, in the order the report lists them.
-pub const CASES: &[Case] = &[
+/// Every case, in the order the report lists them: the screens below,
+/// then the ink screens.
+pub const CASES: &[Case] = &join::<{ BASE.len() + 4 * INK_CASES.len() }>(BASE, &INK_CASES);
+
+/// `base` followed by each of `ink`'s cases, `N` in all.
+const fn join<const N: usize>(base: &[Case], ink: &[[Case; 4]]) -> [Case; N] {
+    assert!(N == base.len() + 4 * ink.len(), "every case once");
+    let mut all = [base[0]; N];
+    let mut i = 0;
+    while i < base.len() {
+        all[i] = base[i];
+        i += 1;
+    }
+    let mut k = 0;
+    while k < ink.len() {
+        let mut j = 0;
+        while j < 4 {
+            all[base.len() + 4 * k + j] = ink[k][j];
+            j += 1;
+        }
+        k += 1;
+    }
+    all
+}
+
+/// The screens before the ink screens.
+const BASE: &[Case] = &[
     Case {
         screen: Screen {
             font: FontKind::Sprites {
@@ -2092,220 +2320,6 @@ pub const CASES: &[Case] = &[
             10,
         )
     }),
-    // The ink screens (ADR-1302, ADR-1306): the ink test font built in
-    // memory, whose glyphs send their ink past their cells by known
-    // amounts (`crate::inkfont`), each also on a 1-bit display
-    Case {
-        screen: Screen {
-            selection: Some(((8, 1), (11, 2))),
-            ..ink(
-                "overflow-accents",
-                OVERFLOW_ACCENTS_DESC,
-                OVERFLOW_ACCENTS,
-                (18, 4),
-                &OVERFLOW_ACCENTS_TAKES,
-            )
-        },
-    },
-    Case {
-        screen: Screen {
-            selection: Some(((8, 1), (11, 2))),
-            depth: Depth::One,
-            ..ink(
-                "overflow-accents-1bit",
-                ONE_BIT_DESC,
-                OVERFLOW_ACCENTS,
-                (18, 4),
-                &OVERFLOW_ACCENTS_TAKES,
-            )
-        },
-    },
-    Case {
-        screen: ink(
-            "overflow-marks",
-            OVERFLOW_MARKS_DESC,
-            OVERFLOW_MARKS,
-            (16, 3),
-            &SWEEP,
-        ),
-    },
-    Case {
-        screen: Screen {
-            depth: Depth::One,
-            ..ink(
-                "overflow-marks-1bit",
-                ONE_BIT_DESC,
-                OVERFLOW_MARKS,
-                (16, 3),
-                &SWEEP,
-            )
-        },
-    },
-    Case {
-        screen: ink(
-            "overflow-meet",
-            OVERFLOW_MEET_DESC,
-            OVERFLOW_MEET,
-            (14, 3),
-            &AT_16_AND_32,
-        ),
-    },
-    Case {
-        screen: Screen {
-            depth: Depth::One,
-            ..ink(
-                "overflow-meet-1bit",
-                ONE_BIT_DESC,
-                OVERFLOW_MEET,
-                (14, 3),
-                &AT_16_AND_32,
-            )
-        },
-    },
-    Case {
-        screen: Screen {
-            font: FontKind::Ink {
-                takes: &AT_16_AND_32,
-                spacing: Some(SPACED_30),
-            },
-            ..ink(
-                "overflow-spaced",
-                OVERFLOW_SPACED_DESC,
-                OVERFLOW_SPACED,
-                (16, 3),
-                &AT_16_AND_32,
-            )
-        },
-    },
-    Case {
-        screen: Screen {
-            font: FontKind::Ink {
-                takes: &AT_16_AND_32,
-                spacing: Some(SPACED_30),
-            },
-            depth: Depth::One,
-            ..ink(
-                "overflow-spaced-1bit",
-                ONE_BIT_DESC,
-                OVERFLOW_SPACED,
-                (16, 3),
-                &AT_16_AND_32,
-            )
-        },
-    },
-    Case {
-        screen: Screen {
-            pictures: Some(pictures::overflow),
-            ..ink(
-                "overflow-pictures",
-                OVERFLOW_PICTURES_DESC,
-                OVERFLOW_PICTURES,
-                (24, 6),
-                &AT_16,
-            )
-        },
-    },
-    Case {
-        screen: Screen {
-            pictures: Some(pictures::overflow),
-            depth: Depth::One,
-            ..ink(
-                "overflow-pictures-1bit",
-                ONE_BIT_DESC,
-                OVERFLOW_PICTURES,
-                (24, 6),
-                &AT_16,
-            )
-        },
-    },
-    Case {
-        screen: Screen {
-            selection: Some(((2, 0), (4, 0))),
-            ..ink(
-                "overhang-italic",
-                OVERHANG_ITALIC_DESC,
-                OVERHANG_ITALIC,
-                (20, 3),
-                &OVERHANG_ITALIC_TAKES,
-            )
-        },
-    },
-    Case {
-        screen: Screen {
-            selection: Some(((2, 0), (4, 0))),
-            depth: Depth::One,
-            ..ink(
-                "overhang-italic-1bit",
-                ONE_BIT_DESC,
-                OVERHANG_ITALIC,
-                (20, 3),
-                &OVERHANG_ITALIC_TAKES,
-            )
-        },
-    },
-    Case {
-        screen: ink(
-            "overhang-wm",
-            OVERHANG_WM_DESC,
-            OVERHANG_WM,
-            (14, 2),
-            &AT_16_AND_32,
-        ),
-    },
-    Case {
-        screen: Screen {
-            depth: Depth::One,
-            ..ink(
-                "overhang-wm-1bit",
-                ONE_BIT_DESC,
-                OVERHANG_WM,
-                (14, 2),
-                &AT_16_AND_32,
-            )
-        },
-    },
-    Case {
-        screen: ink(
-            "overhang-underscore",
-            OVERHANG_UNDERSCORE_DESC,
-            OVERHANG_UNDERSCORE,
-            (12, 2),
-            &SWEEP,
-        ),
-    },
-    Case {
-        screen: Screen {
-            depth: Depth::One,
-            ..ink(
-                "overhang-underscore-1bit",
-                ONE_BIT_DESC,
-                OVERHANG_UNDERSCORE,
-                (12, 2),
-                &SWEEP,
-            )
-        },
-    },
-    Case {
-        screen: ink(
-            "overhang-wide",
-            OVERHANG_WIDE_DESC,
-            OVERHANG_WIDE,
-            (12, 4),
-            &AT_16_AND_32,
-        ),
-    },
-    Case {
-        screen: Screen {
-            depth: Depth::One,
-            ..ink(
-                "overhang-wide-1bit",
-                ONE_BIT_DESC,
-                OVERHANG_WIDE,
-                (12, 4),
-                &AT_16_AND_32,
-            )
-        },
-    },
 ];
 
 /// Three rows of text, which the `osd` screen draws the render timer's

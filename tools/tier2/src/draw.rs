@@ -75,15 +75,27 @@ pub enum FontKind {
         color: bool,
         spacing: Option<Spacing>,
     },
-    /// The ink test font [`crate::inkfont`] builds in memory, alone in a
-    /// frit, its rows made taller by `spacing` when it is set (ADR-1302
-    /// D13), drawn as the console draws a frit, as for
+    /// A frit of `fonts`, its rows made taller by `spacing` when it is set
+    /// (ADR-1302 D13), drawn as the console draws a frit, as for
     /// [`FontKind::Outline`]. The screen is drawn once for each of
     /// `takes`, and the drawings are stacked from the top in their order.
     Ink {
         takes: &'static [Take],
         spacing: Option<Spacing>,
+        fonts: InkFonts,
     },
+}
+
+/// The fonts a [`FontKind::Ink`] screen draws with.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InkFonts {
+    /// The ink test font [`crate::inkfont`] builds in memory, alone in a
+    /// frit: glyphs whose ink passes their cells by known amounts.
+    Test,
+    /// The test frit of outline fonts [`crate::fonts`] fetches, without
+    /// its color emoji font: DejaVu Sans Mono's four faces, then Noto Sans
+    /// CJK, whose ink passes their cells as those fonts draw it.
+    DejaVu,
 }
 
 /// One drawing of a [`FontKind::Ink`] screen: at `height` pixels, with
@@ -577,9 +589,24 @@ pub fn draw_on(screen: &Screen, painter: &mut impl Paint) -> Result<Image, Strin
             }
             Ok(img)
         }
-        FontKind::Ink { takes, spacing } => {
-            let dir = crate::inkfont::dir()?;
-            let text = crate::inkfont::frit_text(dir, spacing.map_or(0, |s| s.percent));
+        FontKind::Ink {
+            takes,
+            spacing,
+            fonts,
+        } => {
+            let percent = spacing.map_or(0, |s| s.percent);
+            let fetched = crate::fonts::cache_dir();
+            let (name, text, dir) = match fonts {
+                InkFonts::Test => {
+                    let dir = crate::inkfont::dir()?;
+                    ("tier2-ink", crate::inkfont::frit_text(dir, percent), dir)
+                }
+                InkFonts::DejaVu => {
+                    crate::fonts::check(&fetched)?;
+                    let text = crate::fonts::frit_text(&fetched, false, percent);
+                    ("tier2-outline-mono", text, fetched.as_path())
+                }
+            };
             let mut drawn = Vec::new();
             for take in takes {
                 let one = Screen {
@@ -590,12 +617,10 @@ pub fn draw_on(screen: &Screen, painter: &mut impl Paint) -> Result<Image, Strin
                     },
                     ..*screen
                 };
-                let chosen = crate::fonts::chosen_frit(
-                    ("tier2-ink", text.clone()),
-                    dir,
-                    take.height,
-                    |cell| shown(&one, cell),
-                )?;
+                let chosen =
+                    crate::fonts::chosen_frit((name, text.clone()), dir, take.height, |cell| {
+                        shown(&one, cell)
+                    })?;
                 crate::fonts::face_at(&chosen, take.height)?;
                 let img = draw_with(
                     &one,
