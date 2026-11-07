@@ -10,10 +10,10 @@
 //! the crate's `reordered_levels_per_char` copies and walks the whole
 //! paragraph's levels for every row it is asked about. It orders a row
 //! with the crate's `reorder_visual`, and it never hands the crate an empty
-//! text. In 0.3.18 the crate's `visual_runs`,
-//! which `reorder_line` calls too, panics on an input its maintainers were
-//! sent and on any empty line, and vtium's builds abort on a panic. Nothing
-//! outside this module names the crate.
+//! text. In 0.3.18 the crate's `visual_runs`, which `reorder_line` calls
+//! too, panics on an input its maintainers were sent and on any empty line,
+//! and vtium's builds abort on a panic. Nothing outside this module names
+//! the crate.
 
 use core::ops::Range;
 
@@ -65,8 +65,9 @@ pub(crate) struct Resolved {
     /// The paragraph's embedding level: 0 when it runs left to right, 1
     /// when it runs right to left.
     pub(crate) level: u8,
-    /// Each character's embedding level, with rule L1 applied a row at a
-    /// time; an odd level runs right to left.
+    /// Each character's embedding level; an odd level runs right to left.
+    /// `resolve` applies rule L1 to each row the caller asks for, and the
+    /// other rows keep the levels rules X1 to I2 gave them.
     pub(crate) levels: Vec<u8>,
 }
 
@@ -137,49 +138,84 @@ pub(crate) fn resolve(
     }
 }
 
-/// Rule L1 over one row: `text` its characters and `levels` their levels
-/// after rules X1 to I2, at the paragraph's level `paragraph`. A segment or
-/// paragraph separator, the whitespace and isolate formatting characters
-/// before one, and those at the row's end take the paragraph's level. A
-/// character rule X9 removed (an embedding, an override, PDF or a boundary
-/// neutral) takes the level of the character before it and counts as
-/// whitespace here, as UAX #9's section on retaining explicit formatting
-/// characters allows. This is the rule the crate's own line functions
-/// apply, applied to the row's characters alone.
+/// Applies rule L1 of UAX #9 to one row of a paragraph.
+///
+/// `text` holds the row's characters and `levels` their embedding levels
+/// after rules X1 to I2; `paragraph` is the paragraph's embedding level.
+/// Rule L1 gives the paragraph's level back to each segment separator
+/// (class S, such as a tab), each paragraph separator (class B), and each
+/// run of whitespace and isolate formatting characters (FSI, LRI, RLI and
+/// PDI) that ends at such a separator or at the end of the row. Trailing
+/// spaces therefore sit at the end of the row in the paragraph's direction.
+///
+/// Rule X9 removes the embedding and override characters (RLE, LRE, RLO,
+/// LRO and PDF) and the boundary neutrals (class BN), but vtium keeps them
+/// in the row, which holds every character it was given. UAX #9's section
+/// on retaining explicit formatting characters says what level such a
+/// character gets under rule L1: the level of the character before it, or
+/// the paragraph's level when it starts the row. The same section has rule
+/// L1 count it as whitespace, so rule L1 resets it when it stands inside or
+/// at the edge of a run that rule L1 resets.
+///
+/// The function walks the row twice. The first walk, from the start, gives
+/// each separator the paragraph's level and each removed character the
+/// level of the character before it, so a removed character right after a
+/// separator takes the paragraph's level. The second walk, from the end,
+/// resets each run that ends at a separator or at the row's end. The second
+/// walk cannot leave a removed character with a level it copied from a
+/// character that was reset afterwards: whenever the second walk resets a
+/// whitespace or isolate formatting character, it also resets the removed
+/// characters right after that character.
 fn line_levels(text: &[char], levels: &mut [u8], paragraph: u8) {
-    let mut reset_from: Option<usize> = Some(0);
-    let mut previous = paragraph;
-    for (i, &c) in text.iter().enumerate() {
-        let mut reset_to = None;
-        match class(c) {
-            Class::B | Class::S => {
-                reset_to = Some(i.saturating_add(1));
-                reset_from.get_or_insert(i);
-            }
-            Class::Ws | Class::Fsi | Class::Lri | Class::Rli | Class::Pdi => {
-                reset_from.get_or_insert(i);
-            }
-            Class::Rle | Class::Lre | Class::Rlo | Class::Lro | Class::Pdf | Class::Bn => {
-                reset_from.get_or_insert(i);
-                if let Some(level) = levels.get_mut(i) {
-                    *level = previous;
-                }
-            }
-            _ => reset_from = None,
-        }
-        if let (Some(from), Some(to)) = (reset_from, reset_to) {
-            for level in levels.get_mut(from..to).into_iter().flatten() {
-                *level = paragraph;
-            }
-            reset_from = None;
-        }
-        previous = levels.get(i).copied().unwrap_or(paragraph);
-    }
-    if let Some(from) = reset_from {
-        for level in levels.get_mut(from..).into_iter().flatten() {
+    let mut before = paragraph;
+    for (&c, level) in text.iter().zip(levels.iter_mut()) {
+        let class = class(c);
+        if is_separator(class) {
             *level = paragraph;
+        } else if removed_by_x9(class) {
+            *level = before;
+        }
+        before = *level;
+    }
+
+    // true while every character after this one, up to the row's end or
+    // the next separator, is one that rule L1 resets
+    let mut resetting = true;
+    for (&c, level) in text.iter().zip(levels.iter_mut()).rev() {
+        let class = class(c);
+        if is_separator(class) {
+            resetting = true;
+        } else if resetting && (resets_before_separator(class) || removed_by_x9(class)) {
+            *level = paragraph;
+        } else {
+            resetting = false;
         }
     }
+}
+
+/// Whether a character of `class` is a segment separator (S) or a
+/// paragraph separator (B).
+fn is_separator(class: Class) -> bool {
+    matches!(class, Class::S | Class::B)
+}
+
+/// Whether rule X9 removes a character of `class`: the embedding and
+/// override characters and the boundary neutrals.
+fn removed_by_x9(class: Class) -> bool {
+    matches!(
+        class,
+        Class::Rle | Class::Lre | Class::Rlo | Class::Lro | Class::Pdf | Class::Bn
+    )
+}
+
+/// Whether rule L1 resets a character of `class` when it comes before a
+/// separator or the row's end: whitespace and the isolate formatting
+/// characters.
+fn resets_before_separator(class: Class) -> bool {
+    matches!(
+        class,
+        Class::Ws | Class::Fsi | Class::Lri | Class::Rli | Class::Pdi
+    )
 }
 
 #[cfg(test)]
