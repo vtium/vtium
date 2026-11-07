@@ -950,17 +950,15 @@ const OVERFLOW_SPACED: &[u8] = concat!(
 .as_bytes();
 
 /// The `overflow-pictures` screen, 24 by 6 cells in the ink test font:
-/// rows of `gjpqy_` that the pictures in the second and fifth rows cover
-/// or lie under; accented capitals in the third row, under the four
-/// pictures of the second; and Arabic letters with kasra and kasratan in
-/// the fourth, over the four pictures of the fifth
-/// ([`pictures::overflow`]).
+/// accented capitals in the third row, under the four pictures of the
+/// second row, and Arabic letters with kasra and kasratan in the fourth,
+/// over the four pictures of the fifth ([`pictures::overflow`]); the
+/// pictures' rows hold no text.
 const OVERFLOW_PICTURES: &[u8] = concat!(
     "\r\n",
-    "gjpqy_gjpqy_gjpqy_gjpqy_\r\n",
+    "\r\n",
     "ÀÉÎẤ  ÀÉÎẤ  ÀÉÎẤ  ÀÉÎẤ\r\n",
-    "\u{628}\u{64d}\u{628}\u{650}\u{628}\u{64d}\u{628}\u{650}  \u{628}\u{64d}\u{628}\u{650}\u{628}\u{64d}\u{628}\u{650}  \u{628}\u{64d}\u{628}\u{650}\u{628}\u{64d}\u{628}\u{650}  \u{628}\u{64d}\u{628}\u{650}\u{628}\u{64d}\u{628}\u{650}\r\n",
-    "gjpqy_gjpqy_gjpqy_gjpqy_",
+    "\u{628}\u{64d}\u{628}\u{650}\u{628}\u{64d}\u{628}\u{650}  \u{628}\u{64d}\u{628}\u{650}\u{628}\u{64d}\u{628}\u{650}  \u{628}\u{64d}\u{628}\u{650}\u{628}\u{64d}\u{628}\u{650}  \u{628}\u{64d}\u{628}\u{650}\u{628}\u{64d}\u{628}\u{650}",
 )
 .as_bytes();
 
@@ -1046,7 +1044,7 @@ const OVERFLOW_MEET_DESC: &str = "A descender in one row meeting an accent in th
 
 const OVERFLOW_SPACED_DESC: &str = "The accents and marks with line spacing, in the ink test font built in memory with line-spacing=30, drawn at 16 and at 32 pixels. Each drawing is 16 by 3 cells: gjpqy___ twice on cells that alternate between blue and olive; À, É, Î, Ấ and Ộ, then beh with fatha, lam with shadda and fatha, beh with kasratan, noon with damma and lam with shadda, fatha and the superscript alef, then ÉÎ; and _gjpqy___ twice on alternating cells. Correct (ADR-1306 D1, D8): the letters at the font's own size on their baselines in the text band, the rows the spacing adds blank around them; each accent and mark whole, using the added rows above and below the text band before it reaches the row beyond, and reaching that row where the added rows are too few; the backgrounds filling the whole taller cells.";
 
-const OVERFLOW_PICTURES_DESC: &str = "Accents and Arabic marks reaching into the cells of pictures, in the ink test font built in memory at 16 pixels, 24 by 6 cells: in the second row, over gjpqy_, a kitty picture 4 cells wide below the cell backgrounds, one below the text at z -1, one above the text at z 0 and a sixel; under each, ÀÉÎẤ in the third row; Arabic beh with kasratan and with kasra in the fourth row, over the same four pictures in the fifth. Correct (ADR-1306 D7): the accents and the marks drawn over the picture below the backgrounds and the picture below the text, as the text is; hidden under the picture above the text and under the sixel, as the text of those cells is.";
+const OVERFLOW_PICTURES_DESC: &str = "Accents and Arabic marks reaching into the cells of pictures, in the ink test font built in memory at 16 pixels, 24 by 6 cells: in the second row, which holds no text, a kitty picture 4 cells wide below the cell backgrounds, one below the text at z -1, one above the text at z 0 and a sixel; under each, ÀÉÎẤ in the third row; Arabic beh with kasratan and with kasra in the fourth row, over the same four pictures in the fifth. Correct (ADR-1306 D7): the accents and the marks drawn over the picture below the backgrounds and the picture below the text, as the text is; hidden under the picture above the text and under the sixel, as the text of those cells is.";
 
 const OVERHANG_ITALIC_DESC: &str = "Italic text whose letters lean into the next cell, in the ink test font built in memory, which has no italic face, so the glyph helper slants its regular glyphs by 0.2 about the baseline (ADR-1302 D4). Drawn at 16 pixels with no cursor, with a block cursor on the leaning I of the first row and on the space after the run, with blinking text in its hidden phase, and at 32 pixels. Each drawing is 20 by 3 cells: HIEWmAOƒ italic on cells that alternate between blue and olive, then HIE underlined and OWm struck; an italic run of Arabic letters, then a blinking italic HIE beside a steady one; and the same Latin letters upright. A selection covers the second to the fifth cell of the first row. Correct (ADR-1302 D1, D4, D7, D8): each italic letter's top leaning into the cell on its right and its foot into the cell on its left, unbroken across the cell edges and over the blue and olive backgrounds; the underline and strike straight; the Arabic leaning right like the Latin; the selected letters in the selection's colors and the ink they send into the unselected cells beside them in the text's colors; the cursor on the I with the I in the cursor's colors and the ink of its neighbours over it; the blinking HIE's lean cut at its own cells in every take; in the blinking take the blinking HIE dimmed, as vtium draws blinking text in its hidden phase, and the steady HIE beside it as in the first take.";
 
