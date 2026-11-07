@@ -27,6 +27,7 @@ mod font;
 mod images;
 mod inband;
 mod input;
+mod kitty_keyboard;
 mod modes;
 mod rect;
 mod reply;
@@ -42,7 +43,7 @@ use crate::style::{Attrs, Style};
 use crate::termcap::Termcap;
 
 pub use blank::{BlankRequest, BlankTimeout};
-pub use input::{Mods, MouseButton, MouseEvent};
+pub use input::{Key, KeyEvent, Mods, MouseButton, MouseEvent};
 pub use modes::MouseTracking;
 pub use reply::VersionError;
 
@@ -217,6 +218,8 @@ struct State {
     charsets: Charsets,
     /// xterm's modifyOtherKeys level, 0 to 2.
     modify_other_keys: u8,
+    /// The kitty keyboard protocol's flags, a stack for each screen.
+    keyboard: kitty_keyboard::Keyboard,
     /// XTSHIFTESCAPE 1: the program asks that Shift reach its mouse
     /// reports.
     shift_escape: bool,
@@ -283,6 +286,7 @@ impl Terminal {
             conformance: 62,
             charsets: Charsets::initial(false),
             modify_other_keys: 0,
+            keyboard: kitty_keyboard::Keyboard::default(),
             shift_escape: false,
             xtsave: SavedModes::default(),
             bell: false,
@@ -666,7 +670,8 @@ impl State {
     }
 
     /// DECSTR, and the first half of RIS: the modes, the pen, the cursor
-    /// style, the character sets, the saved cursors, the margins, the tab
+    /// style, the character sets, modifyOtherKeys and both screens' kitty
+    /// keyboard flags, the saved cursors, the margins, the tab
     /// stops, the 256 palette colors and, in a build with the bidi
     /// feature, the current paragraph properties, and those of the cursor's
     /// paragraph when the cursor stands at its first position, return to
@@ -681,6 +686,7 @@ impl State {
         self.conformance = 62;
         self.charsets = self.default_charsets();
         self.modify_other_keys = 0;
+        self.reset_keyboard_flags();
         self.dcs = Dcs::Ignored;
         modes::reset(self, false);
         #[cfg(feature = "bidi")]
@@ -1053,6 +1059,11 @@ impl Consumer for State {
                 self.reply_modify_other_keys();
             }
             (Some(b'>'), [], b'n') if params.get(0) == Some(4) => self.modify_other_keys = 0,
+            // The kitty keyboard protocol's flags (ADR-1005, D3 and D5).
+            (Some(b'>'), [], b'u') => self.push_keyboard_flags(params),
+            (Some(b'<'), [], b'u') => self.pop_keyboard_flags(params),
+            (Some(b'='), [], b'u') => self.set_keyboard_flags(params),
+            (Some(b'?'), [], b'u') => self.reply_keyboard_flags(),
             (None, [b'#'], b'{' | b'p') => self.push_sgr(params),
             (None, [b'#'], b'}' | b'q') => self.pop_sgr(),
             (None, [b'#'], b'P') => self.push_colors_params(params),

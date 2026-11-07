@@ -106,7 +106,7 @@ use vtium_platform::udev::{DeviceEvent, DeviceKind};
 use vtium_platform::vt::{FakeVt, Switch, Vt, VtEvent};
 use vtium_render::{Config as RenderConfig, Depth, DrawState, Orientation};
 use vtium_settings::{Policy, WhenDisplayLost};
-use vtium_term::{BlankRequest, BlankTimeout, Mods};
+use vtium_term::{BlankRequest, BlankTimeout, Key, KeyEvent as TermKeyEvent, Mods};
 
 use crate::blank::Order;
 use crate::blink::Timer;
@@ -2816,12 +2816,16 @@ impl App {
         };
         let unicode = key.codepoints.first().copied().flatten();
         let mods = Mods::from_bits(key.mods.bits());
-        if head
-            .console
-            .term
-            .terminal
-            .key(keysym, key.ascii, mods, unicode)
-        {
+        let event = if key.repeat {
+            TermKeyEvent::Repeat
+        } else {
+            TermKeyEvent::Press
+        };
+        let pressed = Key {
+            event,
+            ..Key::press(keysym, key.ascii, mods, unicode)
+        };
+        if head.console.term.terminal.key(&pressed) {
             head.send_user_bytes();
             head.console.term.terminal.screen_mut().reset_view();
             if self.hide_while_typing {

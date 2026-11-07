@@ -1,0 +1,50 @@
+# The kitty keyboard protocol's flags: CSI ? u reports the flags in force,
+# and only flag 1 is kept, so a push of 31 reads back 1; CSI = flags ; mode u
+# sets exactly, sets bits and clears bits, and mode 4 changes nothing; a
+# stack keeps eight sets, so a ninth push drops the oldest; CSI < 0 u pops
+# nothing and a pop past the bottom puts 0 in force; each screen keeps its
+# own stack across 1049; DECSTR and RIS empty both.
+# spec: kitty's Comprehensive keyboard handling in terminals: Progressive enhancement, Detection of support for this protocol
+# covers: input.kitty-keyboard
+size 20 2
+send "\e[?u"
+send "\e[>31u"
+send "\e[?u"
+send "\e[=0u"
+send "\e[?u"
+send "\e[=31;2u"
+send "\e[?u"
+send "\e[=1;3u"
+send "\e[?u"
+send "\e[=1;1u"
+send "\e[=0;4u"
+send "\e[?u\e[c"
+send "\e[>0u\e[>0u\e[>0u\e[>0u\e[>0u\e[>0u\e[>0u"
+send "\e[<7u"
+send "\e[?u"
+send "\e[>0u\e[>0u\e[>0u\e[>0u\e[>0u\e[>0u\e[>0u\e[>0u"
+send "\e[<7u"
+send "\e[?u"
+send "\e[=1u\e[>1u\e[<0u"
+send "\e[?u"
+send "\e[<9u"
+send "\e[?u"
+send "\e[>1u"
+send "\e[?1049h"
+send "\e[?u"
+key Escape
+send "\e[>1u"
+send "\e[?1049l"
+send "\e[?u"
+key Escape
+send "\e[?1049h"
+send "\e[?u"
+send "\e[!p"
+send "\e[?u"
+send "\e[?1049l"
+send "\e[?u"
+send "\e[>1u\e[?1049h\e[>1u"
+send "\ec"
+send "\e[?u"
+send "\e[?1049h"
+send "\e[?u"

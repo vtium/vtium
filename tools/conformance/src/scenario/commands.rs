@@ -423,7 +423,14 @@ fn position(at: &str, word: &str, args: &[&str]) -> Result<Pointer, String> {
                     format!("{at}: `px={v}` is not a pixel. A pixel is X,Y, each from 0 to 65535, counted from the text area's top left.")
                 })?);
             }
-            "mods" => mods = modifiers(at, v)?,
+            "mods" => {
+                mods = modifiers(at, v)?;
+                if mods > 31 {
+                    return Err(format!(
+                        "{at}: `mods={v}` names a modifier a pointer event does not carry. A pointer event takes shift, lock, ctrl, alt and logo; num, hyper and meta are for `key`."
+                    ));
+                }
+            }
             _ => {
                 return Err(format!(
                     "{at}: `{opt}` is not an option of `{word}`. Its options are px= and mods=."

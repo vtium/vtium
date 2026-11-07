@@ -82,6 +82,8 @@ queries! {
     Title,
     /// XTQMODKEYS, `CSI ? 4 m`.
     ModifyOtherKeys,
+    /// The kitty keyboard protocol's query, `CSI ? u`.
+    KeyboardFlags,
     /// Mode 2048's report of the text area, as it is set and on a resize.
     TextArea,
     /// `CSI ? 998 n`, and mode 2033's reports.
@@ -729,6 +731,15 @@ mod tests {
                 let request = cat(&[b"\x1b[>4;", &level, b"m\x1b[?", &n, b"m"]);
                 (request, vec![], vec![level, n])
             }
+            // A push and a set by padded numbers, then the query, which
+            // writes the flags vtium kept, never the numbers asked for.
+            Query::KeyboardFlags => {
+                let push = rng.padded(31);
+                let set = rng.padded(3);
+                let n = rng.padded(0);
+                let request = cat(&[b"\x1b[>", &push, b"u\x1b[=", &set, b";2u\x1b[?", &n, b"u"]);
+                (request, vec![], vec![push, set, n])
+            }
             Query::TextArea => {
                 let n = rng.padded(2048);
                 (cat(&[b"\x1b[?", &n, b"h"]), vec![], vec![n])
@@ -771,7 +782,7 @@ mod tests {
     // covers: query.xtgettcap, query.decrqss, color.palette.query, color.dynamic.query,
     // covers: color.dynamic.set, color.pointer, color.selection, color.kitty-protocol,
     // covers: window.size-report, window.title-report, input.modify-other-keys, color.stack,
-    // covers: query.xtsmgraphics
+    // covers: query.xtsmgraphics, input.kitty-keyboard
     #[test]
     fn no_reply_carries_the_requests_bytes() {
         for seed in 0..200 {
@@ -847,6 +858,7 @@ mod tests {
                 Query::WindowSize => (b"\x1b[14t", b"\x1b[4;80;80t"),
                 Query::Title => (b"\x1b[21t", b"\x1b]l\x1b\\"),
                 Query::ModifyOtherKeys => (b"\x1b[?4m", b"\x1b[>4;0m"),
+                Query::KeyboardFlags => (b"\x1b[>31u\x1b[?u", b"\x1b[?1u"),
                 Query::TextArea => (b"\x1b[?2048h", b"\x1b[48;5;10;80;80t"),
                 Query::Visibility => (b"\x1b[?998n", b"\x1b[?999;1n"),
                 Query::ColorScheme => (b"\x1b[?996n", b"\x1b[?997;1n"),

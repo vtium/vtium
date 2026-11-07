@@ -62,8 +62,8 @@
 //! and the replies' [`REPLIES_PENDING_MAX`], [`VERSION_MAX`], [`TERMCAP_ENTRIES_MAX`],
 //! [`TERMCAP_NAME_MAX`], [`TERMCAP_VALUE_MAX`], [`XTGETTCAP_NAMES`] and
 //! [`XTGETTCAP_REPLY_MAX`]; OSC 52's [`CLIPBOARD_MAX`]; OSC 8's link
-//! store's [`LINKS_BYTES_MAX`]; and the stacks' [`SGR_STACK_MAX`] and
-//! [`COLOR_STACK_MAX`].
+//! store's [`LINKS_BYTES_MAX`]; and the stacks' [`SGR_STACK_MAX`],
+//! [`COLOR_STACK_MAX`] and [`KEYBOARD_FLAGS_MAX`].
 
 mod bounds;
 mod cell;
@@ -85,10 +85,10 @@ mod unicode;
 
 pub use bounds::{
     CLIPBOARD_MAX, CLUSTER_BYTES_PER_CELL, CLUSTER_MAX, COLOR_STACK_MAX, COLUMNS_MAX,
-    LINKS_BYTES_MAX, REPLIES_PENDING_MAX, ROWS_MAX, SB_MEMORY_MAX, SB_MEMORY_MIN,
-    SB_SIZE_CAP_LARGE, SB_SIZE_CAP_MEDIUM, SB_SIZE_CAP_SMALL, SB_SIZE_MAX, SGR_STACK_MAX,
-    TERMCAP_ENTRIES_MAX, TERMCAP_NAME_MAX, TERMCAP_VALUE_MAX, VERSION_MAX, XTGETTCAP_NAMES,
-    XTGETTCAP_REPLY_MAX,
+    KEYBOARD_FLAGS_MAX, LINKS_BYTES_MAX, REPLIES_PENDING_MAX, ROWS_MAX, SB_MEMORY_MAX,
+    SB_MEMORY_MIN, SB_SIZE_CAP_LARGE, SB_SIZE_CAP_MEDIUM, SB_SIZE_CAP_SMALL, SB_SIZE_MAX,
+    SGR_STACK_MAX, TERMCAP_ENTRIES_MAX, TERMCAP_NAME_MAX, TERMCAP_VALUE_MAX, VERSION_MAX,
+    XTGETTCAP_NAMES, XTGETTCAP_REPLY_MAX,
 };
 pub use cell::{Cell, ClusterOffset, Content, LinkIndex, StyleIndex, Width};
 pub use damage::{Age, Damage};
@@ -108,8 +108,8 @@ pub use termcap::{Termcap, TermcapError};
 #[cfg(feature = "bidi")]
 pub use terminal::TextDirection;
 pub use terminal::{
-    BlankRequest, BlankTimeout, CursorStyle, Mods, MouseButton, MouseEvent, MouseTracking,
-    Terminal, VersionError,
+    BlankRequest, BlankTimeout, CursorStyle, Key, KeyEvent, Mods, MouseButton, MouseEvent,
+    MouseTracking, Terminal, VersionError,
 };
 #[cfg(feature = "images")]
 pub use terminal::{ImageNote, ImageString};

@@ -26,3 +26,7 @@ reply-device-attributes	a new scenario; its transcript waits for the maintainer'
 reply-status-reports	a new scenario; its transcript waits for the maintainer's review
 reset-decstr	a new scenario; its transcript waits for the maintainer's review
 reset-ris	a new scenario; its transcript waits for the maintainer's review
+key-kitty-flags	a new scenario; its transcript waits for the maintainer's review
+key-kitty-disambiguate	a new scenario; its transcript waits for the maintainer's review
+keypad-kitty	a new scenario; its transcript waits for the maintainer's review
+key-kitty-modify-other-keys	a new scenario; its transcript waits for the maintainer's review

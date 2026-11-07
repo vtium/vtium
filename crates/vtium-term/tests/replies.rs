@@ -13,7 +13,8 @@ mod common;
 
 use common::{rows, term};
 use vtium_term::{
-    Attrs, CursorStyle, Mods, Termcap, TermcapError, Terminal, XTGETTCAP_NAMES, XTGETTCAP_REPLY_MAX,
+    Attrs, CursorStyle, Key, Mods, Termcap, TermcapError, Terminal, XTGETTCAP_NAMES,
+    XTGETTCAP_REPLY_MAX,
 };
 
 fn reply(t: &mut Terminal, query: &[u8]) -> Vec<u8> {
@@ -591,12 +592,12 @@ fn deckpam_switches_the_keypad() {
         (0xffab, b"\x1bOk"),
         (0xff8d, b"\x1bOM"),
     ] {
-        t.key(sym, 0, Mods::empty(), None);
+        t.key(&Key::press(sym, 0, Mods::empty(), None));
         assert_eq!(t.take_replies(), app);
     }
     t.input(b"\x1b>");
     for (sym, plain) in [(0xffb5, &b"5"[..]), (0xffab, b"+"), (0xff8d, b"\r")] {
-        t.key(sym, 0, Mods::empty(), None);
+        t.key(&Key::press(sym, 0, Mods::empty(), None));
         assert_eq!(t.take_replies(), plain);
     }
 }
@@ -612,11 +613,11 @@ fn decscl_resets_and_sets_the_input() {
     // 7-bit input drops each byte's top bit, so UTF-8's é is "C)".
     t.input(b"\xc3\xa9");
     assert_eq!(rows(t.screen())[0], "C)");
-    t.key(0xe9, 0, Mods::empty(), Some('\u{e9}'));
+    t.key(&Key::press(0xe9, 0, Mods::empty(), Some('\u{e9}')));
     assert_eq!(t.take_replies(), b"?");
     t.input(b"\x1b[62;1\"p\r\x1b[K\xe9");
     assert_eq!(rows(t.screen())[0], "\u{e9}");
-    t.key(0xe9, 0, Mods::empty(), Some('\u{e9}'));
+    t.key(&Key::press(0xe9, 0, Mods::empty(), Some('\u{e9}')));
     assert_eq!(t.take_replies(), b"\xe9");
     t.input(b"\x9b2J\x9bH\x9b!p\xc3\xa9");
     assert_eq!(rows(t.screen())[0], "\u{e9}");
@@ -669,7 +670,7 @@ fn key_formats_user_defined_keys_and_hilite_tracking_are_not_taken() {
     ]);
     let mut t = busy();
     t.input(b"\x1bP0;1|17/6c73\x1b\\");
-    t.key(0xffc3, 0, Mods::SHIFT, None);
+    t.key(&Key::press(0xffc3, 0, Mods::SHIFT, None));
     assert_eq!(t.take_replies(), b"\x1b[17;2~");
 }
 

@@ -134,7 +134,7 @@ pub struct Spec {
     pub offered: bool,
 }
 
-/// Every command of interface 1.3, in the order of its describe blocks:
+/// Every command of interface 1.4, in the order of its describe blocks:
 /// INTERFACE.md's, then vtium's additions (INTERFACE-vtium.md). The image
 /// commands are offered in a build with images.
 pub const SPECS: &[Spec] = &[
@@ -387,7 +387,7 @@ fn command(f: &Fields<'_>) -> Result<Command, Failure> {
                 Some(_) => Some(to_u32(f.hex("unicode", 0x10_ffff, None)?)),
                 None => None,
             },
-            mods: to_u8(f.decimal("mods", 31, Some(0))?),
+            mods: to_u8(f.decimal("mods", 255, Some(0))?),
         },
         "mouse" => {
             let button = f.name_of(

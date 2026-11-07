@@ -6,7 +6,7 @@ use core::fmt::Write;
 use std::path::{Path, PathBuf};
 
 use vtium_term::{
-    Age, Mods, MouseButton, MouseEvent, Palette, SB_SIZE_MAX, TERMCAP_ENTRIES_MAX,
+    Age, Key, Mods, MouseButton, MouseEvent, Palette, SB_SIZE_MAX, TERMCAP_ENTRIES_MAX,
     TERMCAP_NAME_MAX, TERMCAP_VALUE_MAX, Termcap, Terminal,
 };
 
@@ -270,7 +270,7 @@ impl<'a> Replay<'a> {
                 mods,
             } => {
                 let unicode = unicode.and_then(char::from_u32);
-                t.key(sym, ascii, Mods::from_bits(mods), unicode);
+                t.key(&Key::press(sym, ascii, Mods::from_bits(mods), unicode));
             }
             Command::Mouse {
                 col,

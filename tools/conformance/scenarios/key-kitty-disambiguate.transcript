@@ -1,0 +1,97 @@
+> size 20 2
+> send "\e[>1u"
+> send "\e[?u"
+< reply "\e[?1u"
+> key Escape
+< reply "\e[27u"
+> key Escape mods=shift
+< reply "\e[27;2u"
+> key Escape mods=lock
+< reply "\e[27;65u"
+> key a
+< reply "a"
+> key A mods=shift
+< reply "A"
+> key A mods=lock
+< reply "A"
+> key a mods=alt
+< reply "\e[97;3u"
+> key a mods=ctrl
+< reply "\e[97;5u"
+> key a mods=ctrl+alt
+< reply "\e[97;7u"
+> key A mods=shift+alt
+< reply "\e[97;4u"
+> key A mods=shift+ctrl
+< reply "\e[97;6u"
+> key a mods=ctrl+lock
+< reply "\e[97;69u"
+> key a mods=logo
+< reply "\e[97;9u"
+> key a mods=hyper
+< reply "\e[97;17u"
+> key a mods=meta
+< reply "\e[97;33u"
+> key i mods=ctrl
+< reply "\e[105;5u"
+> key m mods=ctrl
+< reply "\e[109;5u"
+> key [ mods=ctrl
+< reply "\e[91;5u"
+> key [ mods=alt
+< reply "\e[91;3u"
+> key space mods=ctrl
+< reply "\e[32;5u"
+> key 1 mods=ctrl
+< reply "\e[49;5u"
+> key Cyrillic_es mods=ctrl ascii=c
+< reply "\e[1089;5u"
+> key Cyrillic_es
+< reply "\xd1\x81"
+> key Return
+< reply "\r"
+> key Return mods=lock
+< reply "\r"
+> key Tab
+< reply "\t"
+> key BackSpace
+< reply "\b"
+> key Return mods=shift
+< reply "\e[13;2u"
+> key Return mods=alt
+< reply "\e[13;3u"
+> key ISO_Left_Tab mods=shift
+< reply "\e[9;2u"
+> key Tab mods=ctrl
+< reply "\e[9;5u"
+> key BackSpace mods=ctrl
+< reply "\e[127;5u"
+> key Up
+< reply "\e[A"
+> key Up mods=ctrl
+< reply "\e[1;5A"
+> key Home mods=shift
+< reply "\e[1;2H"
+> send "\e[?1h"
+> key Up
+< reply "\e[A"
+> key F1
+< reply "\e[P"
+> key F1 mods=shift
+< reply "\e[1;2P"
+> key F3
+< reply "\e[13~"
+> key F5 mods=shift
+< reply "\e[15;2~"
+> key F13
+< reply "\e[57376u"
+> key Insert
+< reply "\e[2~"
+> key Delete mods=ctrl
+< reply "\e[3;5~"
+> key Menu
+< reply "\e[57363u"
+> key 0x1008ff14
+< reply "\e[57428u"
+> key Shift_L mods=shift
+> key Caps_Lock mods=lock

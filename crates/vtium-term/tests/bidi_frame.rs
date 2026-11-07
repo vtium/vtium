@@ -280,11 +280,11 @@ mod with_the_feature {
     // covers: DEC-1243
     #[test]
     fn terminal_key_swaps_the_arrows_in_a_right_to_left_paragraph() {
-        use vtium_term::Mods;
+        use vtium_term::{Key, Mods};
         const LEFT: u32 = 0xff51;
         let key = |t: &mut Terminal, sym: u32| {
             t.take_replies();
-            t.key(sym, 0, Mods::empty(), None);
+            t.key(&Key::press(sym, 0, Mods::empty(), None));
             t.take_replies()
         };
         let mut t = term(8, 1, b"ab");

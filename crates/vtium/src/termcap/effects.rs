@@ -16,8 +16,8 @@
 )]
 
 use vtium_term::{
-    Attrs, Color, CursorStyle, Glyph, Mods, MouseButton, MouseEvent, MouseTracking, Rgb, Special,
-    Terminal, UnderlineStyle,
+    Attrs, Color, CursorStyle, Glyph, Key, Mods, MouseButton, MouseEvent, MouseTracking, Rgb,
+    Special, Terminal, UnderlineStyle,
 };
 
 use super::terminfo::{Cap, ENTRY, KMSCON, parse};
@@ -623,7 +623,7 @@ fn check(entry: &Entry, name: &str, cap: &Cap) {
         assert_eq!(t.screen().cursor(), cursor, "{name}: the cursor");
     };
     if let Some((sym, mods)) = key(&entry.term, name) {
-        t.key(sym, 0, mods, None);
+        t.key(&Key::press(sym, 0, mods, None));
         assert_eq!(
             String::from_utf8_lossy(&t.take_replies()),
             String::from_utf8_lossy(&s(&[])),
@@ -647,7 +647,7 @@ fn check(entry: &Entry, name: &str, cap: &Cap) {
             assert_eq!(t.screen().cursor(), (0, 0), "no wrap taken at CR");
         }
         ("km", Cap::Bool) => {
-            t.key(u32::from(b'a'), 0, Mods::ALT, Some('a'));
+            t.key(&Key::press(u32::from(b'a'), 0, Mods::ALT, Some('a')));
             assert_eq!(t.take_replies(), b"\x1ba", "Alt sends ESC");
         }
         ("mir", Cap::Bool) => {

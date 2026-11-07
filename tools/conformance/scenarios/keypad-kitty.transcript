@@ -1,0 +1,33 @@
+> size 20 2
+> send "\e[>1u"
+> key KP_1 mods=num char="1"
+< reply "1"
+> key KP_Add
+< reply "+"
+> key KP_Decimal char="."
+< reply "."
+> key KP_End
+< reply "\e[57424u"
+> key KP_Enter
+< reply "\e[57414u"
+> key KP_Enter mods=num
+< reply "\e[57414;129u"
+> key KP_Begin
+< reply "\e[57427u"
+> key KP_Up
+< reply "\e[57419u"
+> key KP_Insert
+< reply "\e[57425u"
+> key KP_Delete
+< reply "\e[57426u"
+> key KP_1 mods=ctrl
+< reply "\e[57400;5u"
+> key KP_Add mods=alt
+< reply "\e[57413;3u"
+> send "\e="
+> key KP_1 mods=num char="1"
+< reply "1"
+> key KP_End
+< reply "\e[57424u"
+> key KP_Enter
+< reply "\e[57414u"

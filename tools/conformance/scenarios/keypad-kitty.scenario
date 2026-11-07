@@ -1,0 +1,25 @@
+# The keypad under the kitty keyboard protocol's flag 1: a keypad key that
+# makes text sends it, alone or with Shift, and is CSI number ; modifiers u
+# with its own number under any other modifier; a keypad key that makes no
+# text is always CSI number u, with NumLock among its modifiers; DECKPAM
+# changes nothing.
+# spec: kitty's Comprehensive keyboard handling in terminals: Disambiguate escape codes, Functional key definitions
+# covers: input.kitty-keyboard
+size 20 2
+send "\e[>1u"
+key KP_1 mods=num char="1"
+key KP_Add
+key KP_Decimal char="."
+key KP_End
+key KP_Enter
+key KP_Enter mods=num
+key KP_Begin
+key KP_Up
+key KP_Insert
+key KP_Delete
+key KP_1 mods=ctrl
+key KP_Add mods=alt
+send "\e="
+key KP_1 mods=num char="1"
+key KP_End
+key KP_Enter
