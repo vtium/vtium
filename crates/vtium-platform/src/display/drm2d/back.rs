@@ -21,9 +21,12 @@ type Placed = (DisplayId, u32, usize);
 #[expect(private_bounds, reason = "the card is a Card outside the crate")]
 impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     /// After the card refused the atomic modeset of the displays where the
-    /// placement put them, tries every other placement of all of them, each
+    /// placement put them, tries other placements of all of them, each
     /// display on a CRTC it can take ([`Output::able`]), until the card
     /// takes one, and keeps that one (vtium/vtium#298). Whether one lit.
+    /// Each placement is tried in one test-only commit, which carries what
+    /// the modeset would turn off first, so the search turns no lit
+    /// display off; only the placement the test takes is set.
     ///
     /// The placement keeps each lit display on the CRTC it wants wherever
     /// some placement does, so the CRTC it gives a new display, or a display
@@ -31,9 +34,10 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     /// while moving a lit display would light every display. The placements
     /// are tried in the order of [`Self::placements`], so the first that
     /// lights moves as few lit displays as any that lights. The search is
-    /// bounded by the set of placements: each is tried once, with no retry
-    /// count and no delay. Where a placement fails for a reason that may
-    /// pass, the search stops.
+    /// bounded: it tries only placements that move at most one lit display,
+    /// at most [`RELIGHT_TRIES`] of them, each once, with no retry and no
+    /// delay. Where a placement fails for a reason that may pass, the
+    /// search stops.
     ///
     /// Where every placement is refused, each display goes back where the
     /// placement put it, and each new display, one never set, that a
@@ -90,14 +94,22 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                 o.pipe = pipe;
                 o.planes = Some(p);
             }
-            let set = self.atomic_modeset_or_default();
-            if set.is_ok() {
-                self.relit(&placed);
-                return true;
-            }
-            refused = placement_refused(&set);
-            if !refused || self.removed.get() {
+            // Only a test commit tries a placement, so no lit display goes
+            // off for one the card refuses; the placement the test took is
+            // then set.
+            let tested = self.atomic_modeset_or_default(false);
+            if tested.is_ok() {
+                if self.atomic_modeset_or_default(true).is_ok() {
+                    self.relit(&placed);
+                    return true;
+                }
                 refused = false;
+                break;
+            }
+            // A failure that may pass, the card's removal included, ends
+            // the search.
+            refused = placement_refused(&tested);
+            if !refused {
                 break;
             }
         }
@@ -142,9 +154,12 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             .retain(|id| !self.outputs.iter().any(|o| o.id.0 == *id));
     }
 
-    /// Every placement of the displays [`Self::relight`] tries, by index
+    /// The placements of the displays [`Self::relight`] tries, by index
     /// into the card's list of CRTCs: each display on a CRTC it can take,
-    /// no two on one, and not the placement that failed. They are in the
+    /// no two on one, at most one lit display off the CRTC it wants, and
+    /// not the placement that failed. The search lists them in at most
+    /// [`RELIGHT_STEPS`] steps and keeps the first [`RELIGHT_TRIES`]. They
+    /// are in the
     /// order of what they cost, as the placement counts it
     /// ([`super::matching`]): first by how many lit displays they put off
     /// the CRTC they want, then by how many other displays, then in the
@@ -159,9 +174,16 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             .collect();
         let ables: Vec<u32> = self.outputs.iter().map(|o| o.able).collect();
         let now: Vec<usize> = self.outputs.iter().map(|o| o.pipe).collect();
-        let mut all = Vec::new();
-        let mut chosen = Vec::with_capacity(ables.len());
-        every_placement(&ables, self.crtcs.len(), &mut chosen, 0, &mut all);
+        let mut search = Search {
+            ables: &ables,
+            wants: &wants,
+            crtcs: self.crtcs.len(),
+            steps: RELIGHT_STEPS,
+            chosen: Vec::with_capacity(ables.len()),
+            all: Vec::new(),
+        };
+        search.walk(0, false);
+        let mut all = search.all;
         all.retain(|p| *p != now);
         all.sort_by_cached_key(|p| {
             let off = |lit: bool| {
@@ -172,6 +194,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             };
             (off(true), off(false), p.clone())
         });
+        all.truncate(RELIGHT_TRIES);
         all
     }
 
@@ -314,7 +337,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                 continue;
             }
             self.send_back(going, &placed);
-            let tried = self.atomic_modeset_or_default();
+            let tried = self.atomic_modeset_or_default(true);
             let again = placement_refused(&tried);
             last = Some((tried, going.clone()));
             if !again {
@@ -371,7 +394,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                 .into_iter()
                 .partition(|o| off.contains(&o.id));
             self.outputs = kept;
-            set = self.atomic_modeset_or_default();
+            set = self.atomic_modeset_or_default(true);
             if !placement_refused(&set) {
                 self.leave_off(
                     aside,
@@ -546,26 +569,52 @@ pub(super) fn needed<M>(outputs: &[&Output<M>], going: &[bool], failed: &[Displa
     }
 }
 
-/// Adds to `all` every placement that puts each display after those in
-/// `chosen` on one of the `crtcs` CRTCs its mask in `ables` names, with no
-/// CRTC taken twice: `used` holds the CRTCs `chosen` took.
-fn every_placement(
-    ables: &[u32],
+/// The most placements [`Drm2d::relight`] tries in one search.
+pub(super) const RELIGHT_TRIES: usize = 16;
+
+/// The most steps the search takes to list the placements it may try, a
+/// step for each display it puts on a CRTC: placements are many on a card
+/// with many CRTCs, 40320 for eight displays on eight.
+const RELIGHT_STEPS: usize = 4096;
+
+/// A search for the placements [`Drm2d::relight`] may try.
+struct Search<'a> {
+    /// The CRTCs each display can take, a bit per index.
+    ables: &'a [u32],
+    /// The CRTC each display wants, and whether it is lit there.
+    wants: &'a [(usize, bool)],
     crtcs: usize,
-    chosen: &mut Vec<usize>,
-    used: u32,
-    all: &mut Vec<Vec<usize>>,
-) {
-    let Some(&able) = ables.get(chosen.len()) else {
-        all.push(chosen.clone());
-        return;
-    };
-    for c in 0..crtcs {
-        let bit = index_bit(c);
-        if able & bit != 0 && used & bit == 0 {
-            chosen.push(c);
-            every_placement(ables, crtcs, chosen, used | bit, all);
-            chosen.pop();
+    /// The steps left.
+    steps: usize,
+    /// The CRTC of each display placed so far.
+    chosen: Vec<usize>,
+    all: Vec<Vec<usize>>,
+}
+
+impl Search<'_> {
+    /// Adds every placement that puts each display after those chosen on
+    /// a CRTC it can take that `used` does not hold, while steps are left,
+    /// with at most one lit display off the CRTC it wants: `moved` says
+    /// one already is.
+    fn walk(&mut self, used: u32, moved: bool) {
+        let d = self.chosen.len();
+        let (Some(&able), Some(&(want, lit))) = (self.ables.get(d), self.wants.get(d)) else {
+            self.all.push(self.chosen.clone());
+            return;
+        };
+        for c in 0..self.crtcs {
+            let bit = index_bit(c);
+            let off = lit && c != want;
+            if able & bit == 0 || used & bit != 0 || off && moved {
+                continue;
+            }
+            let Some(left) = self.steps.checked_sub(1) else {
+                return;
+            };
+            self.steps = left;
+            self.chosen.push(c);
+            self.walk(used | bit, moved || off);
+            self.chosen.pop();
         }
     }
 }

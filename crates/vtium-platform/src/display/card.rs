@@ -1,5 +1,6 @@
 //! A DRM card, through the kernel's ioctls as `drm-ffi` wraps them.
 
+use std::cell::Cell;
 use std::io;
 use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
 use std::path::Path;
@@ -28,6 +29,8 @@ const CONNECTED: u32 = 1;
 /// A DRM card's primary node, opened read-write and non-blocking.
 pub struct Card {
     fd: Rc<OwnedFd>,
+    /// An ioctl answered ENODEV: the kernel removed the card.
+    removed: Cell<bool>,
 }
 
 impl Card {
@@ -36,7 +39,10 @@ impl Card {
     pub fn new(fd: OwnedFd) -> io::Result<Card> {
         let flags = rustix::fs::fcntl_getfl(&fd)?;
         rustix::fs::fcntl_setfl(&fd, flags | OFlags::NONBLOCK)?;
-        Ok(Card { fd: Rc::new(fd) })
+        Ok(Card {
+            fd: Rc::new(fd),
+            removed: Cell::new(false),
+        })
     }
 
     /// Opens a card by its path.
@@ -46,11 +52,24 @@ impl Card {
             OFlags::RDWR | OFlags::CLOEXEC | OFlags::NONBLOCK | OFlags::NOCTTY,
             FileMode::empty(),
         )?;
-        Ok(Card { fd: Rc::new(fd) })
+        Ok(Card {
+            fd: Rc::new(fd),
+            removed: Cell::new(false),
+        })
     }
 
     fn raw(&self) -> BorrowedFd<'_> {
         self.fd.as_fd()
+    }
+
+    /// Runs the ioctls in `f` and notes a result that says the kernel
+    /// removed the card, for [`Kms::removed`].
+    fn noted<T>(&self, f: impl FnOnce() -> io::Result<T>) -> io::Result<T> {
+        let r = f();
+        if r.as_ref().err().and_then(io::Error::raw_os_error) == Some(Errno::NODEV.raw_os_error()) {
+            self.removed.set(true);
+        }
+        r
     }
 }
 
@@ -100,26 +119,36 @@ impl Kms for Card {
         Rc::clone(&self.fd)
     }
 
+    fn removed(&self) -> bool {
+        self.removed.get()
+    }
+
     fn set_client_cap(&self, cap: u32, on: bool) -> io::Result<()> {
-        drm_ffi::set_capability(self.raw(), u64::from(cap), on)?;
-        Ok(())
+        self.noted(|| -> io::Result<()> {
+            drm_ffi::set_capability(self.raw(), u64::from(cap), on)?;
+            Ok(())
+        })
     }
 
     fn cap(&self, cap: u32) -> io::Result<u64> {
-        Ok(drm_ffi::get_capability(self.raw(), u64::from(cap))?.value)
+        self.noted(|| -> io::Result<u64> {
+            Ok(drm_ffi::get_capability(self.raw(), u64::from(cap))?.value)
+        })
     }
 
     fn set_master(&self) -> io::Result<()> {
-        drm_ffi::auth::acquire_master(self.raw())
+        self.noted(|| -> io::Result<()> { drm_ffi::auth::acquire_master(self.raw()) })
     }
 
     fn drop_master(&self) -> io::Result<()> {
-        drm_ffi::auth::release_master(self.raw())
+        self.noted(|| -> io::Result<()> { drm_ffi::auth::release_master(self.raw()) })
     }
 
     fn resources(&self) -> io::Result<Resources> {
-        read_resources(|crtcs, connectors| {
-            crate::ioctl::drm_get_resources(self.raw(), crtcs, connectors)
+        self.noted(|| -> io::Result<Resources> {
+            read_resources(|crtcs, connectors| {
+                crate::ioctl::drm_get_resources(self.raw(), crtcs, connectors)
+            })
         })
     }
 
@@ -129,41 +158,49 @@ impl Kms for Card {
         modes: &mut [Mode],
         encoders: &mut [u32],
     ) -> io::Result<ConnectorRead> {
-        let mut infos: Vec<drm_mode_modeinfo> = modes.iter().map(|m| m.0).collect();
-        let info = crate::ioctl::drm_get_connector(self.raw(), id, &mut infos, encoders)?;
-        for (to, from) in modes.iter_mut().zip(infos) {
-            *to = Mode(from);
-        }
-        Ok(ConnectorRead {
-            kind: info.connector_type,
-            kind_id: info.connector_type_id,
-            connected: info.connection == CONNECTED,
-            mm: (info.mm_width, info.mm_height),
-            encoder: info.encoder_id,
-            modes: len(info.count_modes.into())?,
-            encoders: len(info.count_encoders.into())?,
+        self.noted(|| -> io::Result<ConnectorRead> {
+            let mut infos: Vec<drm_mode_modeinfo> = modes.iter().map(|m| m.0).collect();
+            let info = crate::ioctl::drm_get_connector(self.raw(), id, &mut infos, encoders)?;
+            for (to, from) in modes.iter_mut().zip(infos) {
+                *to = Mode(from);
+            }
+            Ok(ConnectorRead {
+                kind: info.connector_type,
+                kind_id: info.connector_type_id,
+                connected: info.connection == CONNECTED,
+                mm: (info.mm_width, info.mm_height),
+                encoder: info.encoder_id,
+                modes: len(info.count_modes.into())?,
+                encoders: len(info.count_encoders.into())?,
+            })
         })
     }
 
     fn encoder(&self, id: u32) -> io::Result<Encoder> {
-        let info = drm_ffi::mode::get_encoder(self.raw(), id)?;
-        Ok(Encoder {
-            crtc: info.crtc_id,
-            possible_crtcs: info.possible_crtcs,
+        self.noted(|| -> io::Result<Encoder> {
+            let info = drm_ffi::mode::get_encoder(self.raw(), id)?;
+            Ok(Encoder {
+                crtc: info.crtc_id,
+                possible_crtcs: info.possible_crtcs,
+            })
         })
     }
 
     fn crtc_mode(&self, id: u32) -> io::Result<Option<Mode>> {
-        let info = drm_ffi::mode::get_crtc(self.raw(), id)?;
-        Ok((info.mode_valid != 0).then_some(Mode(info.mode)))
+        self.noted(|| -> io::Result<Option<Mode>> {
+            let info = drm_ffi::mode::get_crtc(self.raw(), id)?;
+            Ok((info.mode_valid != 0).then_some(Mode(info.mode)))
+        })
     }
 
     fn read_planes(&self, ids: &mut [u32]) -> io::Result<usize> {
-        crate::ioctl::drm_get_planes(self.raw(), ids)
+        self.noted(|| -> io::Result<usize> { crate::ioctl::drm_get_planes(self.raw(), ids) })
     }
 
     fn plane_crtcs(&self, id: u32) -> io::Result<u32> {
-        Ok(drm_ffi::mode::get_plane(self.raw(), id, None)?.possible_crtcs)
+        self.noted(|| -> io::Result<u32> {
+            Ok(drm_ffi::mode::get_plane(self.raw(), id, None)?.possible_crtcs)
+        })
     }
 
     fn read_properties(
@@ -173,41 +210,53 @@ impl Kms for Card {
         ids: &mut [u32],
         values: &mut [u64],
     ) -> io::Result<usize> {
-        let kind = match kind {
-            Object::Connector => DRM_MODE_OBJECT_CONNECTOR,
-            Object::Crtc => DRM_MODE_OBJECT_CRTC,
-            Object::Plane => DRM_MODE_OBJECT_PLANE,
-        };
-        crate::ioctl::drm_get_properties(self.raw(), id, kind, ids, values)
+        self.noted(|| -> io::Result<usize> {
+            let kind = match kind {
+                Object::Connector => DRM_MODE_OBJECT_CONNECTOR,
+                Object::Crtc => DRM_MODE_OBJECT_CRTC,
+                Object::Plane => DRM_MODE_OBJECT_PLANE,
+            };
+            crate::ioctl::drm_get_properties(self.raw(), id, kind, ids, values)
+        })
     }
 
     fn property_name(&self, id: u32) -> io::Result<String> {
-        Ok(name(&crate::ioctl::drm_get_property(self.raw(), id)?.name))
+        self.noted(|| -> io::Result<String> {
+            Ok(name(&crate::ioctl::drm_get_property(self.raw(), id)?.name))
+        })
     }
 
     fn property_range(&self, id: u32) -> io::Result<Option<(u64, u64)>> {
-        let mut values = [0; 2];
-        let prop = crate::ioctl::drm_get_property_values(self.raw(), id, &mut values)?;
-        Ok(range(prop.flags, prop.count_values, values))
+        self.noted(|| -> io::Result<Option<(u64, u64)>> {
+            let mut values = [0; 2];
+            let prop = crate::ioctl::drm_get_property_values(self.raw(), id, &mut values)?;
+            Ok(range(prop.flags, prop.count_values, values))
+        })
     }
 
     fn create_dumb(&self, width: u32, height: u32) -> io::Result<Dumb> {
-        let info = dumbbuffer::create(self.raw(), width, height, 32, 0)?;
-        Ok(Dumb {
-            handle: info.handle,
-            pitch: info.pitch,
-            size: info.size,
+        self.noted(|| -> io::Result<Dumb> {
+            let info = dumbbuffer::create(self.raw(), width, height, 32, 0)?;
+            Ok(Dumb {
+                handle: info.handle,
+                pitch: info.pitch,
+                size: info.size,
+            })
         })
     }
 
     fn destroy_dumb(&self, handle: u32) -> io::Result<()> {
-        dumbbuffer::destroy(self.raw(), handle)?;
-        Ok(())
+        self.noted(|| -> io::Result<()> {
+            dumbbuffer::destroy(self.raw(), handle)?;
+            Ok(())
+        })
     }
 
     fn map_dumb(&self, dumb: &Dumb) -> io::Result<Mapping> {
-        let offset = dumbbuffer::map(self.raw(), dumb.handle, 0, 0)?.offset;
-        Mapping::new(self.raw(), len(dumb.size)?, offset)
+        self.noted(|| -> io::Result<Mapping> {
+            let offset = dumbbuffer::map(self.raw(), dumb.handle, 0, 0)?.offset;
+            Mapping::new(self.raw(), len(dumb.size)?, offset)
+        })
     }
 
     fn add_fb(
@@ -218,94 +267,112 @@ impl Kms for Card {
         height: u32,
         format: u32,
     ) -> io::Result<u32> {
-        let info = drm_ffi::mode::add_fb2(
-            self.raw(),
-            width,
-            height,
-            format,
-            &[handle, 0, 0, 0],
-            &[pitch, 0, 0, 0],
-            &[0; 4],
-            &[0; 4],
-            0,
-        )?;
-        Ok(info.fb_id)
+        self.noted(|| -> io::Result<u32> {
+            let info = drm_ffi::mode::add_fb2(
+                self.raw(),
+                width,
+                height,
+                format,
+                &[handle, 0, 0, 0],
+                &[pitch, 0, 0, 0],
+                &[0; 4],
+                &[0; 4],
+                0,
+            )?;
+            Ok(info.fb_id)
+        })
     }
 
     fn rm_fb(&self, id: u32) -> io::Result<()> {
-        drm_ffi::mode::rm_fb(self.raw(), id)
+        self.noted(|| -> io::Result<()> { drm_ffi::mode::rm_fb(self.raw(), id) })
     }
 
     fn create_blob(&self, data: &[u8]) -> io::Result<u32> {
-        let mut data = data.to_vec();
-        Ok(drm_ffi::mode::create_property_blob(self.raw(), &mut data)?.blob_id)
+        self.noted(|| -> io::Result<u32> {
+            let mut data = data.to_vec();
+            Ok(drm_ffi::mode::create_property_blob(self.raw(), &mut data)?.blob_id)
+        })
     }
 
     fn destroy_blob(&self, id: u32) -> io::Result<()> {
-        drm_ffi::mode::destroy_property_blob(self.raw(), id)?;
-        Ok(())
+        self.noted(|| -> io::Result<()> {
+            drm_ffi::mode::destroy_property_blob(self.raw(), id)?;
+            Ok(())
+        })
     }
 
     fn read_blob(&self, id: u32, data: &mut [u8]) -> io::Result<usize> {
-        crate::ioctl::drm_get_blob(self.raw(), id, data)
+        self.noted(|| -> io::Result<usize> { crate::ioctl::drm_get_blob(self.raw(), id, data) })
     }
 
     fn commit(&self, request: &Request, flags: u32) -> io::Result<()> {
-        // The kernel takes the properties grouped by object.
-        let mut objects: Vec<u32> = Vec::new();
-        for &(object, _, _) in &request.entries {
-            if !objects.contains(&object) {
-                objects.push(object);
+        self.noted(|| -> io::Result<()> {
+            // The kernel takes the properties grouped by object.
+            let mut objects: Vec<u32> = Vec::new();
+            for &(object, _, _) in &request.entries {
+                if !objects.contains(&object) {
+                    objects.push(object);
+                }
             }
-        }
-        let mut counts = Vec::with_capacity(objects.len());
-        let mut props = Vec::with_capacity(request.entries.len());
-        let mut values = Vec::with_capacity(request.entries.len());
-        for &object in &objects {
-            let before = props.len();
-            for &(_, prop, value) in request.entries.iter().filter(|e| e.0 == object) {
-                props.push(prop);
-                values.push(value);
+            let mut counts = Vec::with_capacity(objects.len());
+            let mut props = Vec::with_capacity(request.entries.len());
+            let mut values = Vec::with_capacity(request.entries.len());
+            for &object in &objects {
+                let before = props.len();
+                for &(_, prop, value) in request.entries.iter().filter(|e| e.0 == object) {
+                    props.push(prop);
+                    values.push(value);
+                }
+                counts.push(u32::try_from(props.len().saturating_sub(before)).unwrap_or(u32::MAX));
             }
-            counts.push(u32::try_from(props.len().saturating_sub(before)).unwrap_or(u32::MAX));
-        }
-        drm_ffi::mode::atomic_commit(
-            self.raw(),
-            flags,
-            &mut objects,
-            &mut counts,
-            &mut props,
-            &mut values,
-        )
+            drm_ffi::mode::atomic_commit(
+                self.raw(),
+                flags,
+                &mut objects,
+                &mut counts,
+                &mut props,
+                &mut values,
+            )
+        })
     }
 
     fn set_crtc(&self, crtc: u32, fb: u32, connector: u32, mode: &Mode) -> io::Result<()> {
-        drm_ffi::mode::set_crtc(self.raw(), crtc, fb, 0, 0, &[connector], Some(mode.0))?;
-        Ok(())
+        self.noted(|| -> io::Result<()> {
+            drm_ffi::mode::set_crtc(self.raw(), crtc, fb, 0, 0, &[connector], Some(mode.0))?;
+            Ok(())
+        })
     }
 
     fn page_flip(&self, crtc: u32, fb: u32) -> io::Result<()> {
-        drm_ffi::mode::page_flip(self.raw(), crtc, fb, DRM_MODE_PAGE_FLIP_EVENT, 0)
+        self.noted(|| -> io::Result<()> {
+            drm_ffi::mode::page_flip(self.raw(), crtc, fb, DRM_MODE_PAGE_FLIP_EVENT, 0)
+        })
     }
 
     fn hide_cursor(&self, crtc: u32) -> io::Result<()> {
-        #[expect(
-            deprecated,
-            reason = "only the legacy path, with no cursor plane, hides a cursor another program left"
-        )]
-        drm_ffi::mode::set_cursor(self.raw(), crtc, 0, 0, 0)?;
-        Ok(())
+        self.noted(|| -> io::Result<()> {
+            #[expect(
+                deprecated,
+                reason = "only the legacy path, with no cursor plane, hides a cursor another program left"
+            )]
+            drm_ffi::mode::set_cursor(self.raw(), crtc, 0, 0, 0)?;
+            Ok(())
+        })
     }
 
     fn set_connector_property(&self, connector: u32, property: u32, value: u64) -> io::Result<()> {
-        drm_ffi::mode::set_connector_property(self.raw(), connector, property, value)?;
-        Ok(())
+        self.noted(|| -> io::Result<()> {
+            drm_ffi::mode::set_connector_property(self.raw(), connector, property, value)?;
+            Ok(())
+        })
     }
 
     fn wait_vblank(&self, index: usize) -> io::Result<()> {
-        let kind = vblank_request(index).ok_or(io::ErrorKind::InvalidInput)?;
-        drm_ffi::wait_vblank(self.raw(), kind, 1, 0)?;
-        Ok(())
+        self.noted(|| -> io::Result<()> {
+            let kind = vblank_request(index).ok_or(io::ErrorKind::InvalidInput)?;
+            drm_ffi::wait_vblank(self.raw(), kind, 1, 0)?;
+            Ok(())
+        })
     }
 
     fn read_events(&self, events: &mut Vec<CrtcEvent>) -> io::Result<()> {
