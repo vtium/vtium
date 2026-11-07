@@ -712,7 +712,7 @@ mod tests {
     use crate::set::format::FORMAT_R8;
 
     // the writer holds the set's chunks over its three chunked sections to
-    // SET_CHUNKS_MAX, as the reader does (review finding A11)
+    // SET_CHUNKS_MAX, as the reader does
     #[test]
     fn the_chunks_of_all_sections_together_are_bounded() {
         let max = SET_CHUNKS_MAX as usize;

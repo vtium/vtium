@@ -173,10 +173,10 @@ fn the_reader_refuses_a_box_past_the_reach() {
     }
 }
 
-// a box whose record names a color strike is refused, as a color glyph
-// fits its cells (review finding A8): a set of an R8 strike holding A and
-// its box and an RGBA strike holding B at one cell, the box's record then
-// pointed at the RGBA strike, number 1 of the two
+// a box whose record names a color strike is refused, as a color glyph fits
+// its cells: a set of an R8 strike holding A and its box and an RGBA strike
+// holding B at one cell, the box's record then pointed at the RGBA strike,
+// number 1 of the two
 #[test]
 fn the_reader_refuses_a_box_in_a_color_strike() {
     let mut r8 = StrikeBuilder::new(PixelFormat::R8, CELL, Style::default()).compress(false);
