@@ -13,7 +13,8 @@
 //! the store; the cluster's NFC form, where it precomposes to one
 //! codepoint the store holds; the base's glyph, the store's or the
 //! built-in font's, with each nonspacing mark's glyph overstruck on it and
-//! each spacing mark's beside it (ADR-1302 D14), the default ignorables
+//! each spacing mark's beside it (ADR-1302 D14), each part keeping the ink
+//! it carries past the cell (ADR-1306), the default ignorables
 //! and the rest of an emoji sequence left out; the
 //! built-in font for the cell size; and [`vtium_font::Font`]'s replacement
 //! chain through this same face, U+25A1 from the frit, else from the
@@ -41,6 +42,45 @@ use vtium_font::{
 };
 
 mod data;
+#[cfg(feature = "bidi")]
+mod joined;
+#[cfg(feature = "bidi")]
+pub use joined::{presentation, presented};
+
+/// The sides a letter of a joining script joins its neighbours on, read in
+/// its script's order (ADR-1004 D6): its glyph is keyed with U+200D on
+/// each.
+#[cfg(feature = "bidi")]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct Sides {
+    before: bool,
+    after: bool,
+}
+
+#[cfg(feature = "bidi")]
+impl Sides {
+    /// `inner`, a letter and its marks, keyed with U+200D on each side.
+    fn key(self, mut inner: Text) -> Text {
+        const ZWJ: char = '\u{200d}';
+        if self.before {
+            inner.insert(0, ZWJ);
+        }
+        if self.after {
+            inner.push(ZWJ);
+        }
+        inner
+    }
+
+    /// Whether the letter joins neither side.
+    fn none(self) -> bool {
+        !self.before && !self.after
+    }
+}
+
+/// The most marks a cluster may hold for [`DeferredFace::held_part`] to
+/// look for the parts of it the store holds: each set of marks left out is
+/// one lookup, 2 to the power of this at most.
+const HELD_PART_MARKS: usize = 6;
 
 const GIB: u64 = 1 << 30;
 
@@ -68,6 +108,80 @@ pub struct Shown {
     pub clusters: Vec<Text>,
 }
 
+/// Adds to `all` what `frame` shows, as the console reads it to ask the
+/// helper for the glyphs a display draws, in each style a cell draws its
+/// glyph in, bold, italic, both or neither (ADR-1200 D21): each character,
+/// every character of a cluster among them, and each cluster whole, and
+/// what a right-to-left row draws ([`vtium_render::joined`]): each joined
+/// letter's key, each lam-alef ligature's, a mirrored cluster as it draws,
+/// and the presentation form each key draws where no font holds the joined
+/// form (ADR-1004 D6, D7). A style `all` lacks is added after the others.
+/// A build without the bidi feature reads the frame in `Head::visible`
+/// alone, so the minspec build carries none of this.
+#[cfg(feature = "bidi")]
+pub fn read_shown(frame: &vtium_term::Frame<'_>, all: &mut Vec<Shown>) {
+    use vtium_render::joined;
+    use vtium_term::{Attrs, Glyph};
+    let mut drawn = Vec::new();
+    for row in 0..frame.rows() {
+        for (col, cell) in frame.cells(row).enumerate() {
+            let style = Style {
+                bold: cell.attrs.contains(Attrs::BOLD),
+                italic: cell.attrs.contains(Attrs::ITALIC),
+            };
+            if !all.iter().any(|s| s.style == style) {
+                all.push(Shown {
+                    style,
+                    ..Shown::default()
+                });
+            }
+            let Some(shown) = all.iter_mut().find(|s| s.style == style) else {
+                continue;
+            };
+            match cell.glyph {
+                Glyph::Char(c) => shown.chars.push(c),
+                Glyph::Cluster(text) => {
+                    shown.chars.extend(text.chars());
+                    shown.clusters.push(text.chars().collect());
+                }
+                Glyph::Empty => {}
+            }
+            // the cell's own text, and a lam-alef ligature's too, since the
+            // cursor standing on it draws its letters apart
+            drawn.clear();
+            joined::text(&cell, &mut drawn);
+            let mut texts = vec![drawn.clone()];
+            if joined::span(frame, (col, row), &cell, None) == joined::Span::Pair
+                && let Some(lam) = frame.cell(row, col.saturating_add(1))
+            {
+                let mut pair = Vec::new();
+                joined::pair_text(&cell, &lam, &mut pair);
+                texts.push(pair);
+            }
+            for text in texts.into_iter().filter(|t| t.len() > 1) {
+                shown.chars.extend(presentation(&text));
+                shown
+                    .chars
+                    .extend(text.iter().filter(|&&c| c != joined::ZWJ));
+                shown.clusters.push(text);
+            }
+        }
+    }
+}
+
+/// Each of `all`'s characters and clusters sorted and once, white space
+/// left out, as the console asks the helper for them.
+#[cfg(feature = "bidi")]
+pub fn settle(all: &mut [Shown]) {
+    for shown in all {
+        shown.chars.retain(|c| !c.is_whitespace());
+        shown.chars.sort_unstable();
+        shown.chars.dedup();
+        shown.clusters.sort_unstable();
+        shown.clusters.dedup();
+    }
+}
+
 /// Whether `c` is a combining mark, drawn over its base.
 fn is_mark(c: char) -> bool {
     within(&data::MARKS, c)
@@ -76,6 +190,14 @@ fn is_mark(c: char) -> bool {
 /// Whether `c` is a default ignorable, drawn as nothing.
 fn is_ignorable(c: char) -> bool {
     within(&data::IGNORABLES, c)
+}
+
+#[cfg(feature = "bidi")]
+/// Whether a part of a cluster may leave `c` out: a combining mark or a
+/// default ignorable, which the helper leaves out of a cluster's part when
+/// the font draws no glyph for it (ADR-1200 D22 step 3).
+pub fn droppable(c: char) -> bool {
+    is_mark(c) || is_ignorable(c)
 }
 
 fn within(ranges: &[(u32, u32)], c: char) -> bool {
@@ -199,31 +321,130 @@ fn spacing_side(c: char) -> Option<bool> {
     }
 }
 
+/// Parts of a glyph laid together with the ink each carries past its cells
+/// (ADR-1200 D22 step 3, ADR-1306 D1): a canvas over the reach of a glyph
+/// `width` by `height` pixels that spans `cells` cells, from `x0`, `y0`
+/// relative to the glyph's top left, so that a mark the font sets above
+/// the row keeps its ink when the cluster is built from its parts.
+struct Layers {
+    width: u32,
+    height: u32,
+    cells: Width,
+    x0: i64,
+    y0: i64,
+    stride: usize,
+    pixels: Vec<u8>,
+}
+
+impl Layers {
+    fn new(width: u32, height: u32, cells: Width) -> Option<Layers> {
+        let cell = i64::from(width.checked_div(cells.cells())?);
+        let across = cell.checked_mul(i64::from(vtium_font::REACH_CELLS))?;
+        let down = i64::from(height).checked_mul(i64::from(vtium_font::REACH_ROWS))?;
+        let stride = i64::from(width).checked_add(across.checked_mul(2)?)?;
+        let rows = i64::from(height).checked_add(down.checked_mul(2)?)?;
+        Some(Layers {
+            width,
+            height,
+            cells,
+            x0: across.checked_neg()?,
+            y0: down.checked_neg()?,
+            stride: usize::try_from(stride).ok()?,
+            pixels: vec![0; usize::try_from(stride.checked_mul(rows)?).ok()?],
+        })
+    }
+
+    /// `part` laid with its cells' left edge at column `dx`: its ink box
+    /// where it has one, else its own pixels; ink past the reach is cut.
+    fn lay(&mut self, part: &Glyph, dx: i64) {
+        let (left, top, w, px) = match part.ink() {
+            Some(ink) => (ink.left(), ink.top(), ink.width(), ink.pixels()),
+            None => (0, 0, part.width(), part.pixels()),
+        };
+        let Ok(w) = usize::try_from(w) else { return };
+        let x0 = i64::from(left).saturating_add(dx).saturating_sub(self.x0);
+        let y0 = i64::from(top).saturating_sub(self.y0);
+        for (y, row) in (y0..).zip(px.chunks_exact(w.max(1))) {
+            let Ok(y) = usize::try_from(y) else { continue };
+            let Some(line) = self
+                .pixels
+                .get_mut(y.saturating_mul(self.stride)..)
+                .and_then(|l| l.get_mut(..self.stride))
+            else {
+                continue;
+            };
+            for (x, &p) in (x0..).zip(row) {
+                if let Some(at) = usize::try_from(x).ok().and_then(|x| line.get_mut(x)) {
+                    *at = (*at).max(p);
+                }
+            }
+        }
+    }
+
+    /// The glyph the parts make: its own pixels inside its cells, and an
+    /// ink box over its cells and the ink past them, where there is any.
+    fn glyph(self) -> Option<Glyph> {
+        let (w, h) = (i64::from(self.width), i64::from(self.height));
+        // the box: the cells, and every row and column that holds ink
+        let (mut l, mut t, mut r, mut b) = (0i64, 0i64, w, h);
+        for (y, line) in self.pixels.chunks_exact(self.stride.max(1)).enumerate() {
+            let inked = line.iter().position(|&p| p > 0);
+            let last = line.iter().rposition(|&p| p > 0);
+            if let (Some(first), Some(last)) = (inked, last) {
+                let y = i64::try_from(y).ok()?.checked_add(self.y0)?;
+                (t, b) = (t.min(y), b.max(y.checked_add(1)?));
+                l = l.min(i64::try_from(first).ok()?.checked_add(self.x0)?);
+                r = r.max(
+                    i64::try_from(last)
+                        .ok()?
+                        .checked_add(1)?
+                        .checked_add(self.x0)?,
+                );
+            }
+        }
+        let cut = |x0: i64, y0: i64, bw: i64, bh: i64| -> Option<Vec<u8>> {
+            let mut out = Vec::with_capacity(usize::try_from(bw.checked_mul(bh)?).ok()?);
+            for y in y0..y0.checked_add(bh)? {
+                let row = usize::try_from(y.checked_sub(self.y0)?).ok()?;
+                let from = usize::try_from(x0.checked_sub(self.x0)?).ok()?;
+                let line = self.pixels.get(row.checked_mul(self.stride)?..)?;
+                out.extend_from_slice(
+                    line.get(from..from.checked_add(usize::try_from(bw).ok()?)?)?,
+                );
+            }
+            Some(out)
+        };
+        let own = cut(0, 0, w, h)?;
+        let glyph =
+            Glyph::from_pixels(self.width, self.height, Format::Mask, own)?.with_cells(self.cells);
+        if (l, t, r, b) == (0, 0, w, h) {
+            return Some(glyph);
+        }
+        let (bw, bh) = (r.checked_sub(l)?, b.checked_sub(t)?);
+        let boxed = cut(l, t, bw, bh)?;
+        let at = (i32::try_from(l).ok()?, i32::try_from(t).ok()?);
+        let size = (u32::try_from(bw).ok()?, u32::try_from(bh).ok()?);
+        glyph.clone().with_ink(at, size, boxed).or(Some(glyph))
+    }
+}
+
 /// `base` with each of `marks` overstruck on it, the base and each mark
 /// centred across the widest of them, so a mark two cells wide, as U+20E3
-/// is in unifont, makes the glyph two cells wide.
+/// is in unifont, makes the glyph two cells wide. Each part keeps the ink
+/// it carries past its cells, cut to the reach (ADR-1200 D22 step 3).
 fn overstrike(base: &Glyph, marks: &[Glyph]) -> Option<Glyph> {
     if marks.is_empty() {
         return Some(base.clone());
     }
     let parts: Vec<&Glyph> = std::iter::once(base).chain(marks).collect();
     let w = parts.iter().map(|g| g.width()).max()?;
-    let h = base.height();
     let wide = parts.iter().any(|g| g.cells() == Width::Wide);
-    let mut pixels = vec![0u8; usize::try_from(w.checked_mul(h)?).ok()?];
-    for part in parts {
-        let dx = w.saturating_sub(part.width()) / 2;
-        for (y, row) in (0..h).zip(part.rows()) {
-            for (x, &p) in (dx..w).zip(row) {
-                let at = usize::try_from(y.checked_mul(w)?.checked_add(x)?).ok()?;
-                if let Some(px) = pixels.get_mut(at) {
-                    *px = (*px).max(p);
-                }
-            }
-        }
-    }
     let cells = if wide { Width::Wide } else { base.cells() };
-    Glyph::from_pixels(w, h, Format::Mask, pixels).map(|g| g.with_cells(cells))
+    let mut layers = Layers::new(w, base.height(), cells)?;
+    for part in parts {
+        layers.lay(part, i64::from(w.saturating_sub(part.width()) / 2));
+    }
+    layers.glyph()
 }
 
 /// Whether the font already draws `mark` where it belongs against `letter`,
@@ -290,8 +511,9 @@ fn ink_columns(g: &Glyph) -> Option<(i64, i64)> {
 /// mark after the letter has its first column of ink in the column after
 /// the last ink so far, and a mark before it, which the flag says, its
 /// last in the column before the first. The run of ink is centred in the
-/// letter's cells, or, where it is wider than they are, scaled sideways
-/// as one to fill them, so no ink is cut.
+/// letter's cells, each part keeping the ink it carries past its cells;
+/// or, where the run is wider than the cells, scaled sideways as one to
+/// fill them, so no ink is cut, and then cut at the cells.
 fn beside(letter: Glyph, marks: &[(Glyph, bool)]) -> Option<Glyph> {
     if marks.is_empty() {
         return Some(letter);
@@ -321,6 +543,13 @@ fn beside(letter: Glyph, marks: &[(Glyph, bool)]) -> Option<Glyph> {
         (span, lo.checked_neg()?)
     };
     let h = letter.height();
+    if canvas == w {
+        let mut layers = Layers::new(letter.width(), h, letter.cells())?;
+        for (part, x) in placed {
+            layers.lay(part, x.checked_add(shift)?);
+        }
+        return layers.glyph();
+    }
     let stride = usize::try_from(canvas).ok()?;
     let mut pixels = vec![0u8; stride.checked_mul(usize::try_from(h).ok()?)?];
     for (part, x) in placed {
@@ -333,9 +562,7 @@ fn beside(letter: Glyph, marks: &[(Glyph, bool)]) -> Option<Glyph> {
             }
         }
     }
-    if canvas > w {
-        pixels = scaled(&pixels, stride, usize::try_from(w).ok()?)?;
-    }
+    pixels = scaled(&pixels, stride, usize::try_from(w).ok()?)?;
     Glyph::from_pixels(letter.width(), h, Format::Mask, pixels)
         .map(|g| g.with_cells(letter.cells()))
 }
@@ -868,21 +1095,53 @@ impl DeferredFace {
     /// Indic vowel signs and Myanmar's medial ra; any
     /// other stands beside the letter ([`beside`]), after it, or before it
     /// where its body stands before its letter, as the vowel sign i does.
-    fn unshaped(&self, cluster: &[char], style: Style) -> Option<Glyph> {
+    ///
+    /// The letter is joined on `sides` (ADR-1004 D6): it takes the store's
+    /// part of its key ([`DeferredFace::held_part`]) or its joined form
+    /// ([`DeferredFace::letter`]), and no NFC form, which would draw it
+    /// unjoined. A build without the bidi feature joins nothing.
+    fn unshaped(
+        &self,
+        #[cfg(feature = "bidi")] sides: Sides,
+        cluster: &[char],
+        style: Style,
+    ) -> Option<Glyph> {
+        #[cfg(not(feature = "bidi"))]
         if let Some(c) = precomposed(cluster)
             && let Some(g) = lock(&self.generated).draw(self.at(), &[c], style)
         {
             return Some(g);
         }
+        #[cfg(feature = "bidi")]
+        if sides.none()
+            && let Some(c) = precomposed(cluster)
+            && let Some(g) = lock(&self.generated).draw(self.at(), &[c], style)
+        {
+            return Some(g);
+        }
         let (&base, rest) = cluster.split_first()?;
-        let glyph = self.single(base, style)?;
+        let marks: Vec<char> = rest
+            .iter()
+            .copied()
+            .filter(|&c| is_mark(c) && !is_ignorable(c))
+            .collect();
+        #[cfg(not(feature = "bidi"))]
+        let (glyph, marks) = match self.held_part(base, &marks, style) {
+            Some(held) => held,
+            None => (self.single(base, style)?, marks),
+        };
+        #[cfg(feature = "bidi")]
+        let (glyph, marks) = match self.held_part(sides, base, &marks, style) {
+            Some(held) => held,
+            None => (self.letter(sides, base, style)?, marks),
+        };
         if glyph.format() != Format::Mask {
             return Some(glyph);
         }
         let mask = |c| self.single(c, style).filter(|g| g.format() == Format::Mask);
         let mut over: Vec<Glyph> = Vec::new();
         let mut spacing: Vec<(Glyph, bool)> = Vec::new();
-        for &c in rest.iter().filter(|&&c| is_mark(c) && !is_ignorable(c)) {
+        for c in marks {
             if spacing_side(c).is_none() {
                 over.extend(mask(c));
                 continue;
@@ -906,6 +1165,60 @@ impl DeferredFace {
             }
         }
         beside(letter, &stand)
+    }
+
+    /// `base`'s own glyph joined on `sides`: the base's glyph where it
+    /// joins nothing ([`DeferredFace::single`]), else a joined letter's
+    /// form ([`DeferredFace::form`]).
+    #[cfg(feature = "bidi")]
+    fn letter(&self, sides: Sides, base: char, style: Style) -> Option<Glyph> {
+        if sides.none() {
+            self.single(base, style)
+        } else {
+            self.form(sides, base, style)
+        }
+    }
+
+    /// The store's glyph for the most of a cluster it holds, `base` joined
+    /// on `sides` with as many of `marks` as the helper shaped with it, and
+    /// the marks left out, which the caller lays over it (ADR-1200 D22 step
+    /// 3): a cluster whose mark the font set lacks, as lam with shadda,
+    /// fatha and superscript alef, draws the rest as the font shapes it,
+    /// its marks where the font puts them. The helper sends that part under
+    /// its own key when it shapes a cluster whose mark no glyph draws. `None` when the store holds no such part
+    /// with at least one mark, or the cluster has more than
+    /// [`HELD_PART_MARKS`] marks.
+    fn held_part(
+        &self,
+        #[cfg(feature = "bidi")] sides: Sides,
+        base: char,
+        marks: &[char],
+        style: Style,
+    ) -> Option<(Glyph, Vec<char>)> {
+        let n = marks.len();
+        if !(2..=HELD_PART_MARKS).contains(&n) {
+            return None;
+        }
+        let store = lock(&self.generated);
+        // the fewest marks left out first, at least one, at most all but one
+        for out in 1..n {
+            for set in 0u32..1 << n {
+                if set.count_ones() as usize != out {
+                    continue;
+                }
+                let left = |i: usize| set >> i & 1 == 1;
+                let mut text = vec![base];
+                text.extend((0..n).filter(|&i| !left(i)).filter_map(|i| marks.get(i)));
+                #[cfg(feature = "bidi")]
+                let text = sides.key(text);
+                let Some(glyph) = store.draw(self.at(), &text, style) else {
+                    continue;
+                };
+                let rest = (0..n).filter(|&i| left(i)).filter_map(|i| marks.get(i));
+                return Some((glyph, rest.copied().collect()));
+            }
+        }
+        None
     }
 
     /// The built-in's `glyph` at the cell's size: centred in the text
@@ -967,7 +1280,14 @@ impl Face for DeferredFace {
     /// Whether the store or the built-in font holds `c`, or the store a
     /// cluster `c` begins: the renderer asks by a cluster's first
     /// character before it draws the cluster.
+    /// In a build with the bidi feature U+200D counts as held too: a key
+    /// that starts with it is a joined letter's ([`joined`]), which draws
+    /// at least the letter's own glyph.
     fn has_glyph(&self, c: char) -> bool {
+        #[cfg(feature = "bidi")]
+        if c == '\u{200d}' {
+            return true;
+        }
         self.generated_has(c)
             || self.builtin.has_glyph(c)
             || lock(&self.generated).begins(self.at(), c)
@@ -989,6 +1309,15 @@ impl Face for DeferredFace {
             &[c] => self.single(c, style),
             _ => {
                 let held = lock(&self.generated).draw(self.at(), cluster, style);
+                // a joined letter's key, or lam and alef as their ligature
+                // (ADR-1004 D6)
+                #[cfg(feature = "bidi")]
+                if let Some(key) = joined::Key::of(cluster) {
+                    return held.or_else(|| self.joined(&key, style));
+                }
+                #[cfg(feature = "bidi")]
+                return held.or_else(|| self.unshaped(Sides::default(), cluster, style));
+                #[cfg(not(feature = "bidi"))]
                 held.or_else(|| self.unshaped(cluster, style))
             }
         }
@@ -1849,6 +2178,125 @@ mod tests {
         assert!(all(&f.draw(&['q', '\u{301}'], regular).unwrap(), 255));
         let held = f.draw(&['q', '\u{301}'], regular).unwrap();
         assert_eq!(held.cells(), Width::Narrow);
+    }
+
+    const LAM: char = '\u{644}';
+    const SHADDA: char = '\u{651}';
+    const SUPERSCRIPT_ALEF: char = '\u{670}';
+
+    // ADR-1200 D22 step 3, ADR-1306 D1: a cluster the store does not hold
+    // whole, because one of its marks, superscript alef, has no glyph in
+    // the font set, is built from its parts, and keeps each part's ink past
+    // the cell. The store holds lam, inside its cell, and shadda, which the
+    // font sets 3 rows above the row, in its ink box; superscript alef
+    // comes from the built-in font, inside the cell.
+    #[test]
+    fn a_cluster_built_from_its_parts_keeps_their_ink_above_the_row() {
+        let generated = Shared::default();
+        let mut s = StrikeBuilder::new(PixelFormat::R8, CELL, Style::default());
+        let lam = s.glyph(
+            Width::Narrow,
+            drawn(CELL, &["", "", "", "...#....", "...#....", "...#...."]),
+        );
+        s.map(LAM, lam);
+        let shadda = s.glyph(Width::Narrow, vec![0; 128]);
+        // the box: 4 rows above the cell, then the cell, 8 columns across
+        let mut boxed = vec![0u8; 8 * 20];
+        for y in 1..3 {
+            boxed[y * 8 + 2..y * 8 + 6].fill(255);
+        }
+        s.ink(shadda, (0, -4), (8, 20), boxed);
+        s.map(SHADDA, shadda);
+        let set =
+            Arc::new(Set::from_bytes(SetBuilder::new("t").strike(s).write().unwrap()).unwrap());
+        let runs = vec![(u32::from(LAM), 1), (u32::from(SHADDA), 1)];
+        add(&mut lock(&generated), CELL, set, runs, 1);
+        let f = face(&generated);
+        let regular = Style::default();
+        // shadda alone keeps its ink above the row
+        let alone = f.draw(&[LAM, SHADDA], regular).unwrap();
+        let built = f.draw(&[LAM, SHADDA, SUPERSCRIPT_ALEF], regular).unwrap();
+        // a pixel of `g`'s ink at column `x`, row `y` from its cell's top left
+        let at = |g: &Glyph, x: i32, y: i32| {
+            let ink = g.ink().unwrap();
+            let (bx, by) = (x - ink.left(), y - ink.top());
+            let width = i32::try_from(ink.width()).unwrap();
+            ink.pixels()[usize::try_from(by * width + bx).unwrap()]
+        };
+        for g in [&alone, &built] {
+            // the shadda's ink above the row
+            let ink = g.ink().unwrap();
+            // the box holds the cell and the shadda's two rows above it
+            assert_eq!(
+                (ink.left(), ink.top(), ink.width(), ink.height()),
+                (0, -3, 8, 19)
+            );
+            assert!((2..6).all(|x| at(g, x, -3) == 255 && at(g, x, -2) == 255));
+            assert_eq!(at(g, 3, 3), 255, "the lam inside the cell");
+        }
+        // the built-in font's superscript alef lies inside the cell
+        let alef = Unifont::new(16).draw(&[SUPERSCRIPT_ALEF], regular).unwrap();
+        for (y, row) in (0..).zip(alef.rows()) {
+            for (x, &p) in (0..).zip(row) {
+                if p > 0 {
+                    assert!(at(&built, x, y) > 0, "the alef at {x},{y}");
+                }
+            }
+        }
+    }
+
+    // ADR-1200 D22 step 3: where the store holds the cluster without the
+    // mark the font set lacks, as the helper shaped it whole, that glyph
+    // draws, its shadda 3 rows above the row where the font puts it, and
+    // the missing superscript alef from the built-in font lies over it
+    #[test]
+    fn a_cluster_draws_the_part_the_font_shaped_and_the_missing_mark_over_it() {
+        let generated = Shared::default();
+        let mut s = StrikeBuilder::new(PixelFormat::R8, CELL, Style::default());
+        let lam = s.glyph(
+            Width::Narrow,
+            drawn(CELL, &["", "", "", "...#....", "...#...."]),
+        );
+        s.map(LAM, lam);
+        let shaped = s.glyph(
+            Width::Narrow,
+            drawn(CELL, &["", "", "", "...#....", "...#...."]),
+        );
+        let mut boxed = vec![0u8; 8 * 19];
+        boxed[2..6].fill(255);
+        boxed[8 + 2..8 + 6].fill(255);
+        boxed[(3 + 3) * 8 + 3] = 255;
+        boxed[(3 + 4) * 8 + 3] = 255;
+        s.ink(shaped, (0, -3), (8, 19), boxed);
+        s.cluster(&[LAM, SHADDA], shaped);
+        let set =
+            Arc::new(Set::from_bytes(SetBuilder::new("t").strike(s).write().unwrap()).unwrap());
+        add(
+            &mut lock(&generated),
+            CELL,
+            set,
+            vec![(u32::from(LAM), 1)],
+            1,
+        );
+        let f = face(&generated);
+        let regular = Style::default();
+        let built = f.draw(&[LAM, SHADDA, SUPERSCRIPT_ALEF], regular).unwrap();
+        // the shaped part's shadda keeps its two rows above the row
+        let ink = built.ink().unwrap();
+        assert_eq!(
+            (ink.left(), ink.top(), ink.width(), ink.height()),
+            (0, -3, 8, 19)
+        );
+        assert!(ink.pixels()[2..6].iter().all(|&p| p == 255));
+        // and the built-in font's superscript alef lies over it in the cell
+        let alef = Unifont::new(16).draw(&[SUPERSCRIPT_ALEF], regular).unwrap();
+        for (y, row) in alef.rows().enumerate() {
+            for (x, &p) in row.iter().enumerate() {
+                if p > 0 {
+                    assert!(ink.pixels()[(y + 3) * 8 + x] > 0, "the alef at {x},{y}");
+                }
+            }
+        }
     }
 
     /// A glyph at `cell` from rows of `#` and `.`, `#` fully inked, the rows

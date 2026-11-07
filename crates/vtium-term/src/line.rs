@@ -88,7 +88,8 @@ pub enum LineSize {
 /// What a line records about itself in 16 bits: the reflow flag, the
 /// three shell-integration marks, the line size, the mark of mode 2028
 /// reset, the four properties of the paragraph the line belongs to
-/// (ADR-1004 D2), and five bits spare.
+/// (ADR-1004 D2), whether it has held a character that draws its paragraph
+/// in another order (ADR-1004 D8), and four bits spare.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct LineFlags(u16);
 
@@ -128,8 +129,17 @@ impl LineFlags {
     /// same values of them (ADR-1004 D2).
     pub const PARAGRAPH: Self =
         Self(Self::EXPLICIT.0 | Self::RTL.0 | Self::DETECT.0 | Self::BOX_MIRROR.0);
+    /// The line has held a right-to-left or joining character since it was
+    /// written, or since a rewrap made it, in a build with the bidi
+    /// feature. A frame draws its paragraph through the paragraph's order
+    /// and redraws all of the paragraph's rows when any of them changes,
+    /// so a row whose last right-to-left character was erased is redrawn
+    /// in its new order too (ADR-1004 D8). A rewrap, which redraws the
+    /// whole screen, sets it on each row it makes from the characters the
+    /// row holds.
+    pub(crate) const REORDERS: Self = Self(1 << 11);
 
-    const FLAGS: u16 = ((1 << 4) - 1) | Self::FIXED.0 | Self::PARAGRAPH.0;
+    const FLAGS: u16 = ((1 << 4) - 1) | Self::FIXED.0 | Self::PARAGRAPH.0 | Self::REORDERS.0;
     const SIZE_SHIFT: u16 = 4;
     const SIZE_MASK: u16 = 0b11 << Self::SIZE_SHIFT;
 
@@ -191,6 +201,17 @@ pub enum Glyph<'a> {
     Char(char),
     /// Two or more codepoints, at most [`CLUSTER_MAX`].
     Cluster(&'a str),
+}
+
+/// The first codepoint of `glyph`, the one the bidirectional algorithm
+/// reads for its cell (ADR-1004 D3).
+#[cfg(feature = "bidi")]
+fn first_char(glyph: Glyph<'_>) -> Option<char> {
+    match glyph {
+        Glyph::Empty => None,
+        Glyph::Char(c) => Some(c),
+        Glyph::Cluster(s) => s.chars().next(),
+    }
 }
 
 /// A line's tables, allocated on its first styled, linked or clustered
@@ -563,6 +584,10 @@ impl Line {
             *cell = Cell::new(content, width, style, link);
         }
         self.wide |= width == Width::Wide;
+        #[cfg(feature = "bidi")]
+        if first_char(glyph).is_some_and(crate::unicode::bidi::reorders) {
+            self.flags.insert(LineFlags::REORDERS);
+        }
         true
     }
 
@@ -807,6 +832,10 @@ impl Line {
         if self.cells.len() < COLUMNS_MAX {
             self.cells.push(Cell::new(content, width, style, link));
             self.wide |= width == Width::Wide;
+        }
+        #[cfg(feature = "bidi")]
+        if !empty && first_char(src.glyph(cell)).is_some_and(crate::unicode::bidi::reorders) {
+            self.flags.insert(LineFlags::REORDERS);
         }
     }
 

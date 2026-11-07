@@ -91,7 +91,7 @@ struct Want<'a> {
 /// Runs one case through `resolve` and `visual_order` as one row, and says
 /// what differs from what it expects.
 fn check(text: &[char], direction: Direction, detect: bool, want: &Want) -> Result<(), String> {
-    let got = resolve(text, direction, detect, &[]);
+    let got = resolve(text, direction, detect, &[], 0..usize::MAX);
     if let Some(level) = want.level
         && got.level != level
     {
@@ -251,7 +251,7 @@ fn the_level_overflow_input_resolves_without_a_panic() {
             (Direction::RightToLeft, false),
             (Direction::LeftToRight, true),
         ] {
-            let got = resolve(&text, direction, detect, &rows);
+            let got = resolve(&text, direction, detect, &rows, 0..usize::MAX);
             assert_eq!(got.levels.len(), text.len());
             let mut order = visual_order(&got.levels);
             order.sort_unstable();
@@ -264,12 +264,18 @@ fn the_level_overflow_input_resolves_without_a_panic() {
 /// `visual_runs` panics on an empty line.
 #[test]
 fn empty_paragraphs_and_rows_resolve_without_a_panic() {
-    let none = resolve(&[], Direction::RightToLeft, false, &[0, 0]);
+    let none = resolve(&[], Direction::RightToLeft, false, &[0, 0], 0..usize::MAX);
     assert_eq!((none.level, none.levels), (1, vec![]));
     assert_eq!(visual_order(&[]), Vec::<usize>::new());
 
     let text: Vec<char> = "\u{05D0}\u{05D1} ab".chars().collect();
-    let got = resolve(&text, Direction::LeftToRight, false, &[0, 3, 0, 0, 2, 0]);
+    let got = resolve(
+        &text,
+        Direction::LeftToRight,
+        false,
+        &[0, 3, 0, 0, 2, 0],
+        0..usize::MAX,
+    );
     assert_eq!(got.levels, [1, 1, 0, 0, 0]);
 }
 
@@ -280,9 +286,9 @@ fn empty_paragraphs_and_rows_resolve_without_a_panic() {
 fn trailing_spaces_take_the_paragraphs_level_on_each_row() {
     // aleph, bet, two spaces, gimel, dalet, in a left-to-right paragraph
     let text: Vec<char> = "\u{05D0}\u{05D1}  \u{05D2}\u{05D3}".chars().collect();
-    let one_row = resolve(&text, Direction::LeftToRight, false, &[]);
+    let one_row = resolve(&text, Direction::LeftToRight, false, &[], 0..usize::MAX);
     assert_eq!(one_row.levels, [1, 1, 1, 1, 1, 1]);
-    let two_rows = resolve(&text, Direction::LeftToRight, false, &[4, 2]);
+    let two_rows = resolve(&text, Direction::LeftToRight, false, &[4, 2], 0..usize::MAX);
     assert_eq!(two_rows.levels, [1, 1, 0, 0, 1, 1]);
     assert_eq!(visual_order(&two_rows.levels[..4]), [1, 0, 2, 3]);
 }
@@ -292,12 +298,21 @@ fn trailing_spaces_take_the_paragraphs_level_on_each_row() {
 #[test]
 fn detection_falls_back_to_the_paragraphs_direction() {
     let digits: Vec<char> = "12 !".chars().collect();
-    assert_eq!(resolve(&digits, Direction::RightToLeft, true, &[]).level, 1);
-    assert_eq!(resolve(&digits, Direction::LeftToRight, true, &[]).level, 0);
-    let hebrew: Vec<char> = "1 \u{05D0}".chars().collect();
-    assert_eq!(resolve(&hebrew, Direction::LeftToRight, true, &[]).level, 1);
     assert_eq!(
-        resolve(&hebrew, Direction::LeftToRight, false, &[]).level,
+        resolve(&digits, Direction::RightToLeft, true, &[], 0..usize::MAX).level,
+        1
+    );
+    assert_eq!(
+        resolve(&digits, Direction::LeftToRight, true, &[], 0..usize::MAX).level,
+        0
+    );
+    let hebrew: Vec<char> = "1 \u{05D0}".chars().collect();
+    assert_eq!(
+        resolve(&hebrew, Direction::LeftToRight, true, &[], 0..usize::MAX).level,
+        1
+    );
+    assert_eq!(
+        resolve(&hebrew, Direction::LeftToRight, false, &[], 0..usize::MAX).level,
         0
     );
 }
@@ -310,7 +325,7 @@ fn detection_falls_back_to_the_paragraphs_direction() {
 #[test]
 fn brackets_new_in_unicode_18_pair() {
     let text: Vec<char> = "\u{05D0} \u{2E62}\u{05D1}\u{2E63} a".chars().collect();
-    let got = resolve(&text, Direction::LeftToRight, false, &[]);
+    let got = resolve(&text, Direction::LeftToRight, false, &[], 0..usize::MAX);
     assert_eq!(got.levels, [1, 1, 1, 1, 1, 0, 0]);
 }
 
@@ -320,6 +335,34 @@ fn brackets_new_in_unicode_18_pair() {
 #[test]
 fn a_paragraph_separator_inside_a_paragraph_does_not_split_it() {
     let text: Vec<char> = "\u{202B}a\u{2029}b \u{05D0}".chars().collect();
-    let got = resolve(&text, Direction::LeftToRight, false, &[]);
+    let got = resolve(&text, Direction::LeftToRight, false, &[], 0..usize::MAX);
     assert_eq!(got.levels, [0, 2, 0, 2, 1, 1]);
+}
+
+/// Rule X9 removes the embedding and override characters and the boundary
+/// neutrals, and vtium keeps them by UAX #9's section on retaining explicit
+/// formatting characters: each takes the level of the character before it
+/// on its row, or the paragraph's level at the row's start, and rule L1
+/// resets it as it resets whitespace. A removed character right after a
+/// tab takes the tab's level once rule L1 has reset the tab.
+#[test]
+fn removed_characters_take_the_level_before_them() {
+    // a, RLE, aleph, PDF, b: the RLE copies a, the PDF copies aleph
+    let text: Vec<char> = "a\u{202B}\u{05D0}\u{202C}b".chars().collect();
+    let got = resolve(&text, Direction::LeftToRight, false, &[], 0..usize::MAX);
+    assert_eq!(got.levels, [0, 0, 1, 1, 0]);
+    // a, RLE, aleph, a space and a PDF at the row's end: both are reset
+    let text: Vec<char> = "a\u{202B}\u{05D0} \u{202C}".chars().collect();
+    let got = resolve(&text, Direction::LeftToRight, false, &[], 0..usize::MAX);
+    assert_eq!(got.levels, [0, 0, 1, 0, 0]);
+    // aleph, a tab, a soft hyphen, bet: the tab between two right-to-left
+    // letters is reset to 0, and the soft hyphen after it copies that 0
+    let text: Vec<char> = "\u{05D0}\t\u{00AD}\u{05D1}".chars().collect();
+    let got = resolve(&text, Direction::LeftToRight, false, &[], 0..usize::MAX);
+    assert_eq!(got.levels, [1, 0, 0, 1]);
+    // in a right-to-left paragraph, a soft hyphen that starts the second
+    // row takes the paragraph's level, not the level of the a before it
+    let text: Vec<char> = "a\u{00AD}b".chars().collect();
+    let got = resolve(&text, Direction::RightToLeft, false, &[1], 0..usize::MAX);
+    assert_eq!(got.levels, [2, 1, 2]);
 }

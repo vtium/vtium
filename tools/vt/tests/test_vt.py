@@ -1248,6 +1248,22 @@ class RunVt(Case):
         os.symlink(run + ".real", run)
         self.assertEqual(self.shell_env()[2:], [])
 
+    def test_the_acceptance_pass_and_the_guide_get_the_locale(self):
+        # setpriv --reset-env drops LANG, and bash's line editing at a
+        # page's prompt then deletes one byte of a character of several.
+        self.s.locale('LANG=vi_VN.UTF-8\nLC_TIME="en_GB.UTF-8"\nLANGUAGE=vi\n')
+        guide = os.path.join(VT, "checks", "start.guide")
+        for opts, script in (([], os.path.join(VT, "accept.sh")),
+                             ([f"--guide={guide}"], os.path.join(VT, "checks", "guide.sh"))):
+            with self.subTest(opts=opts):
+                p = self.run_vt(*opts, "8")
+                self.assertEqual(p.returncode, 0, p.stderr)
+                argv = read(self.s.bin_args).splitlines()
+                env = argv[argv.index("/usr/bin/env") + 1:argv.index("/bin/bash")]
+                self.assertEqual(env[:3], ["LANG=vi_VN.UTF-8", "LC_TIME=en_GB.UTF-8",
+                                           f"TERMINFO={self.s.standins}/run-vtium-vt/terminfo"])
+                self.assertEqual(argv[argv.index("/bin/bash") + 1], script)
+
     def test_a_home_directory_not_the_users_is_refused(self):
         a_file = os.path.join(self.s.tmp, "a-file")
         write(a_file, "", 0o644)

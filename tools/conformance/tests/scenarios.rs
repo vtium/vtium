@@ -670,8 +670,12 @@ fn a_scenario_that_needs_what_vtium_replay_lacks_is_not_run() {
             "cmd nonsense;x=1",
             "offers no test command nonsense",
         ),
-        ("bidi-a", "dump display", "has no display view"),
     ];
+    // a build with the bidi feature has the display view
+    let absent_display = ("bidi-a", "dump display", "has no display view");
+    let cases = cases
+        .into_iter()
+        .chain((!vtium_conformance::BIDI).then_some(absent_display));
     for (name, line, want) in cases {
         let s = parse(name, &format!("# spec: x\nsize 4 1\n{line}\n"));
         let got = r.play(&s, &[]);

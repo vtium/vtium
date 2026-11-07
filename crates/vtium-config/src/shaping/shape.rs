@@ -55,6 +55,13 @@ pub(crate) struct Shaped {
 
 /// Each cluster of `asks` the font in `data`, face `index`, shapes as its
 /// kind requires (see [`Kind`]). A font HarfRust cannot read shapes none.
+///
+/// A letter with marks, or a joining form, that the font cannot draw whole
+/// because it has no glyph for some of its marks is shaped again without
+/// those marks, and that part is kept under its own key where the font
+/// draws it, so the console draws the part as the font shapes it and lays
+/// the missing marks over it (ADR-1200 D22 step 3). The part is left out
+/// where it is itself one of `asks`.
 pub(crate) fn shape_all(data: &[u8], index: u32, font: FontRef<'_>, asks: &[Ask]) -> Vec<Shaped> {
     if asks.is_empty() {
         return Vec::new();
@@ -68,32 +75,33 @@ pub(crate) fn shape_all(data: &[u8], index: u32, font: FontRef<'_>, asks: &[Ask]
     // the letter glyphs of each part of a joining cluster shaped on its
     // own, without U+200D, as a joining form is judged
     let mut alone: BTreeMap<Vec<u32>, Vec<u16>> = BTreeMap::new();
-    let mut out = Vec::new();
+    let mut out: Vec<Shaped> = Vec::new();
+    let mut keeps = |kind: Kind, key: &[u32], glyphs: &[At]| {
+        !glyphs.is_empty()
+            && glyphs.iter().all(|a| a.g != 0)
+            && match kind {
+                // one glyph, a ligature or a form, which none of the
+                // cluster's own scalar values draws alone
+                Kind::Emoji => only_own(glyphs, key, &charmap),
+                Kind::Joining => {
+                    let mut alone = |part: &[u32]| {
+                        alone
+                            .entry(part.to_vec())
+                            .or_insert_with(|| letters(&shape(&shaper, part).0))
+                            .clone()
+                    };
+                    joined(glyphs, key, &mut alone)
+                }
+                Kind::Marks => true,
+            }
+    };
     for ask in asks {
         let (glyphs, advance) = shape(&shaper, &ask.key);
         // a character and U+FE0F, which a color font draws with the
         // character's own glyph (ADR-1200 D21): kept when that glyph is a
         // color one, which only drawing it tells
         let own = ask.kind == Kind::Emoji && presented(&glyphs, &ask.key, &charmap);
-        let kept = own
-            || !glyphs.is_empty()
-                && glyphs.iter().all(|a| a.g != 0)
-                && match ask.kind {
-                    // one glyph, a ligature or a form, which none of the
-                    // cluster's own scalar values draws alone
-                    Kind::Emoji => only_own(&glyphs, &ask.key, &charmap),
-                    Kind::Joining => {
-                        let mut alone = |part: &[u32]| {
-                            alone
-                                .entry(part.to_vec())
-                                .or_insert_with(|| letters(&shape(&shaper, part).0))
-                                .clone()
-                        };
-                        joined(&glyphs, &ask.key, &mut alone)
-                    }
-                    Kind::Marks => true,
-                };
-        if kept {
+        if own || keeps(ask.kind, &ask.key, &glyphs) {
             out.push(Shaped {
                 key: ask.key.clone(),
                 kind: ask.kind,
@@ -101,9 +109,50 @@ pub(crate) fn shape_all(data: &[u8], index: u32, font: FontRef<'_>, asks: &[Ask]
                 advance,
                 own,
             });
+            continue;
+        }
+        let Some(part) = drawn_part(ask, &glyphs) else {
+            continue;
+        };
+        if asks.iter().any(|a| a.key == part) || out.iter().any(|s| s.key == part) {
+            continue;
+        }
+        let kind = super::kind(&part);
+        let (glyphs, advance) = shape(&shaper, &part);
+        if keeps(kind, &part, &glyphs) {
+            out.push(Shaped {
+                key: part,
+                kind,
+                glyphs,
+                advance,
+                own: false,
+            });
         }
     }
     out
+}
+
+/// The part of `ask`, shaped to `glyphs`, that leaves out each mark the
+/// font draws no glyph for: `None` unless `ask` is a letter with marks or a
+/// joining form, every glyph the font lacks comes from a mark, and the part
+/// left holds more than one scalar value.
+fn drawn_part(ask: &Ask, glyphs: &[At]) -> Option<Vec<u32>> {
+    if ask.kind == Kind::Emoji {
+        return None;
+    }
+    let missing: Vec<usize> = glyphs
+        .iter()
+        .filter(|a| a.g == 0)
+        .map(|a| usize::try_from(a.from).ok().filter(|_| a.mark.is_some()))
+        .collect::<Option<_>>()?;
+    if missing.is_empty() {
+        return None;
+    }
+    let part: Vec<u32> = (0..ask.key.len())
+        .filter(|i| !missing.contains(i))
+        .filter_map(|i| ask.key.get(i).copied())
+        .collect();
+    (part.len() > 1).then_some(part)
 }
 
 /// `key` as `shaper` shapes it: each glyph, in visual order, and the
@@ -229,10 +278,13 @@ pub(crate) fn draw_all(
 ) -> Result<Vec<(Vec<u32>, u32)>, String> {
     let upem = f32::from(drawer.font.metrics(&[]).units_per_em);
     let scale = cell.ppem / upem.max(1.0);
-    // the row's top and bottom edges, in pixels up from the baseline
+    // the reach's top and bottom edges, in pixels up from the baseline: a
+    // stack of marks moves in or scales only where it would pass them
+    // (ADR-1306 D2)
+    let base = i32::try_from(cell.baseline).unwrap_or(0);
     let row = (
-        i32::try_from(cell.baseline).unwrap_or(0),
-        i32::try_from(cell.baseline).unwrap_or(0) - i32::try_from(cell.height).unwrap_or(0),
+        base + i32::try_from(cell.reach.0).unwrap_or(0),
+        base - i32::try_from(cell.height).unwrap_or(0) - i32::try_from(cell.reach.1).unwrap_or(0),
     );
     let mut seen: BTreeMap<Placed, u32> = BTreeMap::new();
     let mut out = Vec::new();
@@ -280,7 +332,8 @@ pub(crate) fn draw_all(
             },
             wide,
             advance,
-            // a cluster's marks keep the row by the mark rule (ADR-1302 D3)
+            // a cluster's marks keep to the reach by the mark rule (ADR-1302
+            // D3, ADR-1306 D2), not by being drawn smaller
             false,
             cell,
         ) else {
@@ -391,10 +444,11 @@ fn compose(
 /// Each glyph of a shaped cluster drawn at `ppem`, with its position from
 /// the cluster's origin in pixels, `scale` pixels to a font unit. The
 /// whole cluster is stretched sideways by `sx`, each outline and each
-/// offset, so a mark stays over its base. With `row`, its top and bottom
-/// edges in pixels up from the baseline, the marks of a mask cluster of
-/// more than one glyph are placed and fitted to the row ([`place_unplaced`],
-/// [`fit_marks`]). `None` when a glyph cannot be drawn.
+/// offset, so a mark stays over its base. With `row`, the top and bottom
+/// edges of the glyph's reach in pixels up from the baseline, the marks of
+/// a mask cluster of more than one glyph are placed and fitted to the
+/// reach ([`place_unplaced`], [`fit_marks`]). `None` when a glyph cannot
+/// be drawn.
 fn draw_parts(
     drawer: &mut Drawer<'_>,
     glyphs: &[At],
@@ -485,20 +539,22 @@ fn place_unplaced(parts: &mut [(Image, i32, i32)], glyphs: &[At]) {
     }
 }
 
-/// The mark rule (ADR-1302 D3, the maintainer's decisions of 2026-11-01):
-/// the marks of a cluster, `row` its top and bottom edges in pixels up
-/// from the baseline, are fitted to the row. Marks over the middle of the
-/// base letter's ink form one stack and those under it another. A stack
-/// whose ink passes the row's edge moves toward the baseline until it
-/// fits, as long as the move lands no more of its ink on the letter's ink
-/// than lies there already and leaves the stack inside the row's other
-/// edge. When the move fails either test, the whole cluster, letter and
-/// marks together, is scaled vertically just enough to fit the row,
-/// keeping the font's arrangement. The letter's own ink need not reach
-/// the row's edge for that: lam with shadda and fatha in DejaVu Sans Mono
-/// has blank rows above the lam, and is scaled because its marks, moved
-/// down, would land on the lam's stem. Otherwise base letters never move,
-/// and a mark keeps the sideways place the shaper gave it.
+/// The mark rule (ADR-1302 D3, the maintainer's decisions of 2026-11-01;
+/// ADR-1306 D2, which moved its edges from the row to the reach): the
+/// marks of a cluster, `row` the top and bottom edges of the glyph's reach
+/// in pixels up from the baseline, are fitted to the reach. Marks over the
+/// middle of the base letter's ink form one stack and those under it
+/// another. A stack whose ink passes the reach's edge moves toward the
+/// baseline until it fits, as long as the move lands no more of its ink on
+/// the letter's ink than lies there already and leaves the stack inside the
+/// reach's other edge. When the move fails either test, the whole cluster,
+/// letter and marks together, is scaled vertically just enough to fit the
+/// reach, keeping the font's arrangement. The letter's own ink need not
+/// reach the edge for that: lam with shadda and fatha in DejaVu Sans Mono,
+/// fitted to edges at its row's, has blank rows above the lam and is
+/// scaled because its marks, moved down, would land on the lam's stem.
+/// Inside the reach marks stay where the shaper placed them; base letters
+/// never move, and a mark keeps the sideways place the shaper gave it.
 fn fit_marks(parts: &mut [(Image, i32, i32)], marks: &[bool], row: (i32, i32)) {
     let (row_top, row_bottom) = row;
     let inked = |p: &(Image, i32, i32)| p.0.placement.height > 0 && p.0.placement.width > 0;
@@ -724,8 +780,10 @@ mod tests {
             .collect()
     }
 
-    // ADR-1302 D3 (the maintainer, 2026-11-01): lam with shadda and fatha
-    // in DejaVu Sans Mono at 16 pixels is scaled to fit the row, though
+    // ADR-1302 D3 (the maintainer, 2026-11-01): fitted to edges at its
+    // row's top and bottom, as a reach of no rows gives (ADR-1306 D2), lam
+    // with shadda and fatha in DejaVu Sans Mono at 16 pixels is scaled to
+    // fit the row, though
     // the lam's own ink stops three rows under the row's top. The shaper
     // puts both marks at the same offset, the fatha's ink inside the
     // bottom of the shadda's, and the pair passes the row's top. Moved

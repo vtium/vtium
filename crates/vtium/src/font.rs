@@ -917,7 +917,10 @@ impl Chosen {
             name => Box::new(SetFace::new(builtin(name)?, height)?),
         };
         let band = self.band(face.cell().height, spacing);
-        if band.is_none() {
+        // with right-to-left text the built-in font draws through the
+        // lookup that draws a joined letter's presentation form (ADR-1004
+        // D6), as it does in a look's cell
+        if band.is_none() && !cfg!(feature = "bidi") {
             return Some(face);
         }
         // D13: the built-in font in a taller cell, placed by the face that

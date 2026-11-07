@@ -1,0 +1,8 @@
+size 30x4
+cursor 0,3
+flags AUTO_WRAP
+display-cursor 0,3 left
+row 0 |תא רבועש תירבעב ךורא טפשמ והז |
+row 1 |טסקטה ךיא קודבל ידכ הרושה בחור|
+row 2 |האבה הרושל רבשנ |
+row 3 ||

@@ -1,5 +1,9 @@
 # vtium's tier 3 goldens
 
+Every golden here is vtium's own: a capture of vtium that the maintainer has reviewed, or one listed in `../provisional.tsv`, which judges nothing until the maintainer reviews it. None is the C reference's any more (ADR-1503 D1). Tier 3 began with goldens copied from an earlier harness that judged the C reference (`../README.md`, The copies). Each copied golden that vtium did not draw pixel for pixel has been replaced by vtium's capture in a commit of its own, and the copied goldens that vtium draws pixel for pixel stay as vtium's goldens. The sections below say what each group of goldens shows and where it came from.
+
+## The small displays
+
 The goldens of the small displays (vtium/vtium#75): vtium's captures from `make tier3-minimal` at 5d3bbb6. The operator reviewed and accepted them on 2026-10-28, and accepted in advance the same day the goldens vtium/vtium#119 moves or adds within its bounds, so they judge; a golden of vtium's that nobody has reviewed yet goes in `../provisional.tsv` first. Each variant draws `SMALL_SCREENS` with a test font from `tools/testfont` and a shell prompt and steady cursor after the screen; `vt-restore` is compared with `cjk.png`. The fonts hold no CJK, so every CJK character is drawn as `?` across its two cells, vtium's missing glyph in a font that lacks U+25A1. When vtium loads fonts as vitrified sets with fallbacks (vtium/vtium#126), those cells change to the fallback's glyphs and these goldens move in their own commit.
 
 | Golden | What it shows |
@@ -92,37 +96,44 @@ The goldens of the images variant (`../README.md`, Pictures) are vtium's capture
 | `images-640x480/img-placeholder.png` | Captured at 3d293dd5. The quarters at row 3, column 35, 8 cells by 3, drawn through placeholder cells, with nothing at column 5, where the cells were written before they moved; the child at row 9, column 5, 4 cells by 2, under the image id 16909060; a line of text under each, then the prompt. |
 | `images-640x480/img-png.png` | At row 3: the quarters from a PNG sent inline at column 3, the ring and disc from a PNG file at column 23 with dots at its corners, the quarters from a temporary file at column 43, with `removed` under its reply, and from zlib-compressed pixels at column 63, each over its reply `i=41;OK` to `i=44;OK`; on row 10, `a file the user cannot read: i=45;EBADF:Failed to read image file`; and on row 11, `a file on rpc_pipefs the user can read: i=46;EBADF:Failed to read image file`, the prompt under it on row 12. `vt-restore` is compared with it. Recaptured at d35826d6, when img-png added row 11. |
 
+## The minimal variants
+
+`2d-potato-min` and `2d-potato-min-psf` draw every screen on the minspec machine, without images, in unifont and in kbd's default 8x16 font (`../README.md`, Variants). Their goldens began as an earlier harness's captures of a minimal build with the same font backends vtium has. vtium draws most of them pixel for pixel, and those stay as vtium's goldens. The 27 that vtium drew differently, in 28 cases, hold vtium's capture since the work that made vtium's goldens the judge (ADR-1503): the ten screens of pictures, whose "no sixel" line quotes vtium's DA1 answer `?62;22c`; `underline-styles`, whose dashes run from each cell's left edge for five eighths of it; and in `2d-potato-min-psf`, `cjk`, `strike`, `wide-margin` and `emoji`, whose CJK characters and emoji draw in the built-in unifont, and `combining`, which draws each letter with its marks as one glyph. The same work recaptured `boxdraw` and `sixel-bound`, whose headings say vtium. `vt-restore` is compared with `cjk.png`.
+
 ## The minimal variants' sgr (vtium/vtium#152)
 
 The `sgr` goldens of `2d-potato-min` and `2d-potato-min-psf` are vtium's captures from `make tier3-minimal`. vtium shears a bitmap font's synthetic italic by 0.2 about its baseline, one pixel row at a time (ADR-1302 D4), so the word `italic` leans. In unifont it shears about the strike's baseline, row 14: rows 0 and 1 move 3 pixels right, rows 2 to 6 move 2, and rows 7 to 11 move 1. In kbd's default8x16 it shears about the row under its `H`, row 12: rows 0 to 4 move 2 pixels right, rows 5 to 9 move 1, and row 15 moves 1 left. The maintainer reviewed and approved these two goldens on 2026-11-04.
 
-## The default 2D variants (vtium/vtium#24)
+## The default 2D variants (vtium/vtium#24, vtium/vtium#275)
 
-The goldens of `2d-1280x800`, `2d-1366x768-potato`, `2d-7680x2160` and `2d-7680x2160-font32` draw DejaVu Sans Mono through vtium's own glyph engine and helper. The configurations state `display-dpi=86`, so DejaVu Sans Mono at 16 points draws in a 10x19 cell; at 32 points the cell is 20x38. `photo-scrollforward` is compared with `photo-scroll.png` and `vt-restore` with `cjk.png`.
+The goldens of `2d-1280x800`, `2d-1366x768-potato`, `2d-7680x2160` and `2d-7680x2160-font32` are vtium's captures, drawn through vtium's own glyph engine and helper. `gl-1280x800` has no goldens of its own: `2d-1280x800`'s judge it, since vtium's GPU path draws the CPU path's bytes (ADR-1303 D1, D11; `../README.md`, Variants). The configurations name tier 3's text font set, the frit (a font set file) `tier3-text`: DejaVu Sans Mono with its Bold, Oblique and Bold Oblique faces, then Noto Sans CJK SC, then Noto Color Emoji (ADR-1503 D9). They state `display-dpi=86`, so DejaVu Sans Mono at 16 points draws in a 10x19 cell; at 32 points the cell is 20x38. `photo-scrollforward` is compared with `photo-scroll.png` and `vt-restore` with `cjk.png`.
 
 Four choices of vtium show in these goldens:
 
-- **Built-in font**: crates/vtium/README.md, "A character the frit lacks draws in the built-in font." The frit vtium makes for `font-name=DejaVu Sans Mono` names that font alone, so the CJK characters and the emoji, which DejaVu Sans Mono lacks, draw in the built-in unifont. This shows in `wide-margin`, `cjk`, and the CJK on row 14 of `underline-styles` and row 7 of `strike`.
-- **Cluster**: crates/vtium/README.md, "A cluster draws its own glyph, keyed by its whole text." In `combining`, `a` with U+0303 and U+0300 shows the grave above the tilde.
+- **Font set**: tier 3 tests whether vtium draws each script, so the frit `tier3-text` names one well-known open font for each. Bold and italic text draws in DejaVu Sans Mono's own Bold and Oblique faces, the Chinese, Japanese and Korean characters in Noto Sans CJK SC, and the emoji in Noto Color Emoji, at DejaVu Sans Mono's size (ADR-1200 D17). vtium searches no system fonts, so a character none of the three holds draws in the built-in unifont.
+- **Cluster**: crates/vtium/README.md, "A cluster draws its own glyph, keyed by its whole text." In `combining`, `a` with U+0303 and U+0300 shows the grave above the tilde, reaching one pixel above its row, as ADR-1306 lets a mark do.
 - **No eviction**: crates/vtium-render/README.md, "No scaled copy evicts a stored picture." In `sixel-evict-history`, picture 1 is still drawn in the scrollback.
 - **W rule**: ADR-1200 D17. The cell is as wide as the wider of W's advance and W's ink at the cell's height: 10 pixels wide at a cell height of 19, 11 at 20, 20 at 38 and 20 at 39. In `sixel-evict-zoomed`, Ctrl+= zooms to an 11x20 cell, so the zoomed text and the picture's place move, and in the 32-point variant the grid is 20x38.
 
-## The cases whose goldens predate vtium's glyph engine
+The maintainer accepted these screens' goldens in each of the four variants on 2026-11-05: `boxdraw`, `blocks`, `mosaic`, `sync-hold`, `sixel`, `sixel-ramps`, `sixel-bound`, `sixel-evict`, `sixel-evict-rotated`, `sixel-evict-history`, `sixel-evict-zoomed`, `photos`, `photo-scroll`, `photo-scrollback`, `mpv-sixel`, `tmux-2x2`, `tmux-3x3`, `kitty`, `kitty-photo`, `kitty-files`, `kitty-layers`, `s1-scroll` and `flood`.
 
-The `sgr`, `colour-forms`, `underline-styles`, `underline-colour`, `strike`, `emoji` and `sixel-article` goldens of the four default 2D variants were drawn with pango and real bold and italic faces, and vtium's captures of them differ. They fail until the work each row names lands. They are not re-baselined, because a golden of vtium's would record a defect or a missing feature as right. In every case the letters' anti-aliasing also differs, by at most 25 levels in a channel where a letter has none of the differences below.
+## Re-baselined with the font set tier3-text (vtium/vtium#275)
 
-| Case | What differs | Owner |
-|---|---|---|
-| `sgr` | `italic` draws DejaVu Sans Mono's regular glyph slanted by 0.2, the helper's synthetic italic, where the golden shows DejaVu Sans Mono Oblique; `bold` draws the regular glyph synthetically emboldened, where the golden shows DejaVu Sans Mono Bold, since the frit vtium makes for `font-name=DejaVu Sans Mono` names no bold or italic face, so vtium synthesises both from the regular glyph (ADR-1200 D21, ADR-1302 D4). The underline and the strike sit where the font's `post` and `OS/2` tables put them, as in the golden. | none yet for the faces |
-| `colour-forms` | `bold green on blue` draws the regular glyph synthetically emboldened, where the golden shows DejaVu Sans Mono Bold, for the same reason as `sgr`'s `bold` | none yet |
-| `underline-styles` | The bold row, as in `colour-forms`. The two dashed lines draw each dash from the cell's left edge for five eighths of it (crates/vtium-render/README.md, "A dash runs from the cell's left edge for five eighths of it."), on the underline row only. The CJK characters of row 14 draw in the built-in unifont. The underlines sit on the same rows as in the golden. | the bold row as for `colour-forms` |
-| `underline-colour` | Only the letters' anti-aliasing, at most 23 levels in a channel. The underlines sit on the same rows as in the golden, and the case names no departure of its own. | none; a golden commit can re-baseline it |
-| `strike` | The bold row, as in `colour-forms`. The CJK characters of row 7 draw in the built-in unifont. The strike sits on the same row as in the golden. | the bold row as for `colour-forms` |
-| `emoji` | Every emoji in the built-in unifont's black and white, where the golden shows Noto Color Emoji | the color emoji work of vtium/vtium#24 and the glyph cache in crates/vtium-render |
-| `sixel-article` | Italic, bold and the emoji of its first paragraph, as above | as above |
+Ten screens of each default 2D variant are vtium's captures from the full `make tier3 FEATURES='images bidi gpu'` run on the alpha.6 candidate at 0c1c8866, the first run that drew the frit `tier3-text`. The maintainer reviewed them as pictures on 2026-11-06 and accepted them. Seven of them replace goldens the C reference drew with pango; `wide-margin`, `combining` and `cjk` replace vtium's earlier captures, which drew the CJK characters and the emoji in the built-in unifont. Against the goldens they replace, the letters' anti-aliasing differs everywhere, because vtium's glyph engine is not FreeType, and in `2d-7680x2160-font32` every column after the first moves, because pango drew those seven screens in a 19x38 cell. The table says what else each shows.
 
-`gl-1280x800/` holds the first GL goldens, drawn by a renderer vtium does not use. They are a record and judge no capture: `gl-1280x800`'s cases are judged by `2d-1280x800`'s goldens, since vtium's GPU path draws the CPU path's bytes (ADR-1303 D1, D11; `../README.md`, Variants).
+| Screen | What it shows |
+|---|---|
+| `sgr` | The 16 colors as `fgNN` and `bgNN` labels, `bold` in DejaVu Sans Mono Bold, `underline`, `reverse`, `bold-underline-red`, `faint` and `italic` in DejaVu Sans Mono Oblique; the 256-color cube and the 24-bit ramp; the prompt and cursor. |
+| `colour-forms` | The 256-color and 24-bit forms of SGR 38 and 48, each a row of color swatches, and `bold green on blue` in the Bold face, twice. |
+| `underline-styles` | Each underline style under its text, the curly, dotted and dashed lines in their own patterns, each dash running from its cell's left edge for five eighths of the cell; the red, bold, reversed and blue-background lines; row 14's `中文` and `日本語` in Noto Sans CJK SC under one curly line. |
+| `underline-colour` | Each row's text over a line in its SGR 58 color; a green line that turns red after SGR 59; no line for 58 alone. |
+| `strike` | A line through the middle of each struck run, in white, red and bold, over an underline and a red curly line, in reverse, across row 7's CJK characters in Noto Sans CJK SC, and stopping at SGR 29. |
+| `wide-margin` | The rulers ending in the last column and each case's wide character at the left or the right margin, the CJK characters in Noto Sans CJK SC and the emoji in Noto Color Emoji. |
+| `combining` | Each letter built from a base and marks beside its precomposed form, the two alike; the grave over the tilde of the seventh row reaches one pixel above its row. |
+| `emoji` | Each emoji in Noto Color Emoji at DejaVu Sans Mono's size, inside its two cells: the face, the family, the Norwegian flag, the keycap 1, the thumbs up with a skin tone and the red heart; the text heart alone and with VS15, the same glyph in one cell; the emoji in a line of text, underlined and reversed. |
+| `sixel-article` | The article's text with its bold, italic, faint, underlined, curly, dotted, dashed, struck, reversed, orange and truecolor words, the wide word `漢字` in Noto Sans CJK SC and the emoji in Noto Color Emoji; the sixel landscape and the sixel chart, which do not move. |
+| `cjk` | `Latin then CJK:` with four Chinese characters, the Japanese and Korean rows in Noto Sans CJK SC, and the bars of the last row aligned. `vt-restore` is compared with it. |
 
 ## The screens' heading
 
-The screens print `vtium tier 3` and no longer name another program: `boxdraw`'s box is headed `vtium tier 3`, and `sixel-bound`'s heading reads `One sixel with more work than vtium parses at once:`. Two goldens still show the old heading `kmscon tier 3`: `gl-1280x800/boxdraw` and `gl-1280x800/sixel-bound`, which are the record above and judge no capture.
+The screens print `vtium tier 3` and no longer name another program: `boxdraw`'s box is headed `vtium tier 3`, and `sixel-bound`'s heading reads `One sixel with more work than vtium parses at once:`. No golden shows the old heading.

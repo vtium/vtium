@@ -16,15 +16,27 @@
 //! range EastAsianWidth.txt's header names is W. Any other takes one.
 
 #[cfg(feature = "bidi")]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the frame, the third slice of ADR-1004, reads these; until it lands only the tests do"
-    )
-)]
 pub(crate) mod bidi;
 mod data;
+
+/// Whether `c` is a right-to-left character by its Bidi_Class: class R,
+/// as the Hebrew letters are, or AL, as the Arabic letters are (UAX #9).
+/// Arabic digits (class AN), marks and neutrals such as brackets are not.
+/// It reads the character alone; where a cell is drawn, and which way its
+/// neighbours run, is the frame's (ADR-1004 D8). A build without the bidi
+/// feature has no Bidi_Class table and draws every row as written, so it
+/// answers false for every character.
+pub fn is_rtl_class(c: char) -> bool {
+    #[cfg(feature = "bidi")]
+    {
+        matches!(bidi::class(c), bidi::Class::R | bidi::Class::Al)
+    }
+    #[cfg(not(feature = "bidi"))]
+    {
+        let _ = c;
+        false
+    }
+}
 
 /// The version of the Unicode Character Database the tables come from.
 pub const UNICODE_VERSION: &str = data::VERSION;

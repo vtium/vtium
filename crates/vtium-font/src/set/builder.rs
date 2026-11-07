@@ -22,9 +22,9 @@ impl fmt::Display for WriteError {
 
 impl std::error::Error for WriteError {}
 
-/// An ink box as [`StrikeBuilder::ink`] takes it: its left, its width
-/// and its bytes.
-type InkBox = (i32, u32, Vec<u8>);
+/// An ink box as [`StrikeBuilder::ink`] takes it: its left and top, its
+/// width and height, and its bytes.
+type InkBox = ((i32, i32), (u32, u32), Vec<u8>);
 
 /// One strike: a style at one cell size in one pixel format, its glyphs
 /// and the codepoints that draw them.
@@ -102,16 +102,25 @@ impl StrikeBuilder {
             .push((key.iter().map(|&c| u32::from(c)).collect(), glyph));
     }
 
-    /// Gives glyph `glyph` an ink box (ADR-1302 D6, `INKX`): `width`
-    /// columns from `left`, the offset of its first column from the left
-    /// edge of the glyph's first cell, 0 or negative, over the cell's
-    /// height, its bytes in the strike's format. The box spans the glyph's
-    /// cells and the ink past them, at most one cell past them on each
-    /// side; the glyph's own bytes stay its pixels cut to its cells. The
-    /// writer refuses a box in a color strike, past that reach or not past
-    /// the cells, or larger than a chunk.
-    pub fn ink(&mut self, glyph: u32, left: i32, width: u32, bytes: Vec<u8>) {
-        self.inks.push((glyph, (left, width, bytes)));
+    /// Gives glyph `glyph` an ink box (ADR-1302 D6, ADR-1306 D3, `INKX`):
+    /// `width` columns from `left`, the offset of its first column from
+    /// the left edge of the glyph's first cell, 0 or negative, and
+    /// `height` rows from `top`, the offset of its first row from the top
+    /// of the glyph's row, 0 or negative, its bytes in the strike's format.
+    /// The box spans the glyph's cells and the ink past them, inside their
+    /// reach ([`crate::REACH_CELLS`], [`crate::REACH_ROWS`]); the glyph's
+    /// own bytes stay its pixels cut to its cells. The writer refuses a box
+    /// in a color strike, past that reach or not past the cells, or larger
+    /// than a chunk.
+    pub fn ink(
+        &mut self,
+        glyph: u32,
+        (left, top): (i32, i32),
+        (width, height): (u32, u32),
+        bytes: Vec<u8>,
+    ) {
+        self.inks
+            .push((glyph, ((left, top), (width, height), bytes)));
     }
 
     /// Whether no codepoint and no cluster is mapped yet: a strike the
@@ -155,12 +164,14 @@ impl StrikeBuilder {
             inks: self
                 .inks
                 .iter()
-                .map(|(g, (left, width, bytes))| {
+                .map(|&(g, ((left, top), (width, height), ref bytes))| {
                     (
-                        *g,
+                        g,
                         RawInk {
-                            left: *left,
-                            width: *width,
+                            left,
+                            top,
+                            width,
+                            height,
                             bytes: bytes.clone(),
                         },
                     )

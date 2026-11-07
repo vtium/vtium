@@ -163,13 +163,16 @@ impl Screen {
         self.links.heap_bytes()
     }
 
-    /// The link of column `x` of view row `y`, if it has one. The id is
-    /// valid until the next [`Terminal::input`](crate::Terminal::input):
-    /// a sweep of the link store renumbers the links it keeps.
+    /// The link of the cell drawn at column `x` of view row `y`, if it has
+    /// one: in a row drawn in another order than it was written, the cell
+    /// of the logical column shown there (ADR-1004 D10). The id is valid
+    /// until the next [`Terminal::input`](crate::Terminal::input): a sweep
+    /// of the link store renumbers the links it keeps.
     pub fn link_at(&self, x: usize, y: usize) -> Option<LinkId> {
         if x >= self.cols {
             return None;
         }
+        let x = self.pointer_col(x, y);
         let line = self.view_line(y)?;
         line.link(line.cell(x))
     }

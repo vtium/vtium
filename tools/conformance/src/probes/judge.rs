@@ -129,10 +129,11 @@ impl<'a> Replay<'a> {
             }
         }
         let (cols, rows) = probe.size.unwrap_or((1, 1));
-        let view = if probe.view == "frame" {
-            View::Frame
-        } else {
-            View::Screen
+        let view = match probe.view.as_str() {
+            "frame" => View::Frame,
+            #[cfg(feature = "bidi")]
+            "display" => View::Display,
+            _ => View::Screen,
         };
         let input = Input {
             view,

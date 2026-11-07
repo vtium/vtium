@@ -1,0 +1,8 @@
+size 30x4
+cursor 0,1
+flags AUTO_WRAP
+display-cursor 0,1 left
+row 0 |ملاعلاب ابحرم|
+row 1 ||
+row 2 ||
+row 3 ||

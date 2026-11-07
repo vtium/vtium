@@ -39,6 +39,7 @@ fn request(asks: Vec<Ask>) -> OutlineRequest {
         clusters: asks,
         baselines: Vec::new(),
         sizes: Vec::new(),
+        reaches: Vec::new(),
         hinting: Hinting::Light,
     }
 }
@@ -239,16 +240,17 @@ fn a_form_the_font_does_not_join_is_left_out() {
     assert!(o.strikes[0].clusters.is_empty());
 }
 
-// ADR-1302 D3 (the maintainer, 2026-11-01): lam with shadda and fatha in
-// DejaVu Sans Mono (`tests/fixtures/`), drawn through the rasteriser at the
-// 9x16 cell the console gives the font, hinted lightly by default. The
-// subset has no printable ASCII, so the baseline is the ascent rounded up,
-// row 13. The lam alone has blank rows above it and its stem starts at row
-// 3; its marks would pass the row's top, so the whole stack is scaled to
-// fit: the marks reach the top row, the lam's stem starts lower than it
-// does alone, a blank row parts the marks from the stem, and the lam keeps
-// its bottom row. `src/shaping/shape.rs` pins the same stack's edges at
-// full hinting
+// ADR-1302 D3 (the maintainer, 2026-11-01), with ADR-1306 D2's edge at the
+// reach: lam with shadda and fatha in DejaVu Sans Mono (`tests/fixtures/`),
+// drawn through the rasteriser at the 9x16 cell the console gives the
+// font, hinted lightly by default, with a reach of no rows above or below,
+// so the reach's edges are the row's. The subset has no printable ASCII,
+// so the baseline is the ascent rounded up, row 13. The lam alone has
+// blank rows above it and its stem starts at row 3; its marks would pass
+// the reach's top, so the whole stack is scaled to fit: the marks reach
+// the top row, the lam's stem starts lower than it does alone, a blank row
+// parts the marks from the stem, and the lam keeps its bottom row.
+// `src/shaping/shape.rs` pins the same stack's edges at full hinting
 // covers: text.overhang
 #[test]
 fn lam_shadda_fatha_is_scaled_to_fit_the_row_it_is_drawn_in() {
@@ -263,6 +265,7 @@ fn lam_shadda_fatha_is_scaled_to_fit_the_row_it_is_drawn_in() {
         font: font.into(),
         cells: vec![(9, 16)],
         clusters: vec![ask(&stack, Kind::Marks)],
+        reaches: vec![(0, 0)],
         ..OutlineRequest::default()
     })
     .expect("rasterised");
@@ -292,8 +295,12 @@ fn lam_shadda_fatha_is_scaled_to_fit_the_row_it_is_drawn_in() {
 /// (U+0307) 380 units tall; `A` (0 to 700) and a dot below (U+0323)
 /// from 100 to 150 units under the baseline; an alef (U+0627) reaching 800, near the row's top, and a damma
 /// (U+064F) 200 tall; and a jeem (U+062C) from 200 below the baseline,
-/// near the row's bottom, to 400, and a kasratan (U+064D) 150 tall.
-fn marked(keys: &[&[char]], height: u32) -> OutlineRequest {
+/// near the row's bottom, to 400, and a kasratan (U+064D) 150 tall; and
+/// a mark above (U+0308) 1500 units tall, which HarfRust stacks over x so
+/// that it reaches more than a row above the row's top. The cell's glyphs'
+/// ink may reach `reach` pixels above and below it, or a row of the cell
+/// with none.
+fn marked(keys: &[&[char]], height: u32, reach: Option<u32>) -> OutlineRequest {
     let mut f = ttf::test_mono();
     let mut add = |cp: u32, g: ttf::Glyph| {
         f.glyphs.push(g);
@@ -307,6 +314,7 @@ fn marked(keys: &[&[char]], height: u32) -> OutlineRequest {
     add(0x64f, ttf::Glyph::rect(0, -400, 0, -200, 200));
     add(0x62c, ttf::Glyph::rect(600, 100, -200, 500, 400));
     add(0x64d, ttf::Glyph::rect(0, -400, 0, -200, 150));
+    add(0x308, ttf::Glyph::rect(0, -350, 0, -250, 1500));
     f.cmap.sort_unstable();
     OutlineRequest {
         fit: false,
@@ -318,6 +326,7 @@ fn marked(keys: &[&[char]], height: u32) -> OutlineRequest {
         clusters: keys.iter().map(|k| ask(k, Kind::Marks)).collect(),
         baselines: Vec::new(),
         sizes: Vec::new(),
+        reaches: reach.map(|r| vec![(r, r)]).unwrap_or_default(),
         hinting: Hinting::Light,
     }
 }
@@ -327,15 +336,16 @@ fn row(p: &Placed, y: usize) -> &[u8] {
     &p.pixels[y * 12..(y + 1) * 12]
 }
 
-// ADR-1302 D3: a mark that passes the row and can move in without its ink
-// touching its letter's moves toward the baseline until it fits, its
-// letter untouched. In the 12x20 cell, baseline 16, x's ink fills rows 8
-// to 15, and the dot above, placed from 9 to 16.4 pixels up, ends a row
-// over the top; moved in, it fills rows 0 to 7
+// ADR-1302 D3, with ADR-1306 D2's edge at the reach: a mark that passes the
+// reach and can move in without its ink touching its letter's moves toward
+// the baseline until it fits, its letter untouched. With a reach of no
+// rows, in the 12x20 cell, baseline 16, x's ink fills rows 8 to 15, and
+// the dot above, placed from 9 to 16.4 pixels up, ends a row over the top;
+// moved in, it fills rows 0 to 7
 // covers: text.overhang
 #[test]
-fn a_mark_that_passes_the_row_moves_in() {
-    let o = rasterise(&marked(&[&['x', '\u{307}']], 20)).expect("rasterised");
+fn a_mark_that_passes_the_reach_moves_in() {
+    let o = rasterise(&marked(&[&['x', '\u{307}']], 20, Some(0))).expect("rasterised");
     assert_eq!(o.strikes[0].baseline, 16);
     let x = codepoint(&o, 'x');
     let g = cluster(&o, &['x', '\u{307}']).expect("x and its dot");
@@ -348,10 +358,11 @@ fn a_mark_that_passes_the_row_moves_in() {
     }
 }
 
-// ADR-1302 D3 (the maintainer, 2026-11-01): where the marks cannot move
-// in without landing more of their ink on the letter's, or cannot fit at
-// all, the whole stack, letter and marks, is scaled vertically just
-// enough to fit the row, keeping the font's arrangement. Here the letter
+// ADR-1302 D3 (the maintainer, 2026-11-01), with ADR-1306 D2's edge at the
+// reach, here a reach of no rows: where the marks cannot move in without
+// landing more of their ink on the letter's, or cannot fit at all, the
+// whole stack, letter and marks, is scaled vertically just enough to fit
+// the reach, keeping the font's arrangement. Here the letter
 // reaches the edge its marks pass, so a move in would land the marks on
 // it (`src/shaping/shape.rs` pins a letter with blank rows above it,
 // lam with shadda and fatha, which is scaled too). The alef alone fills rows 0 to 15 of its stem's
@@ -365,6 +376,7 @@ fn a_stack_that_cannot_move_in_is_scaled_to_fit() {
     let o = rasterise(&marked(
         &[&['\u{627}', '\u{64f}'], &['\u{62c}', '\u{64d}']],
         20,
+        Some(0),
     ))
     .expect("rasterised");
     let alef = codepoint(&o, '\u{627}');
@@ -397,7 +409,7 @@ fn a_stack_that_cannot_move_in_is_scaled_to_fit() {
 // below lies well inside the 6 rows under the baseline
 #[test]
 fn a_letter_and_mark_that_fit_are_untouched() {
-    let o = rasterise(&marked(&[&['A', '\u{323}']], 32)).expect("rasterised");
+    let o = rasterise(&marked(&[&['A', '\u{323}']], 32, None)).expect("rasterised");
     assert_eq!(o.strikes[0].baseline, 26);
     let w = o.strikes[0].width as usize;
     let rows = |p: &Placed, y: usize| p.pixels[y * w..(y + 1) * w].to_vec();
@@ -452,6 +464,7 @@ fn a_cluster_with_a_negative_advance_is_placed_as_one_with_none() {
             clusters: vec![ask(&key, Kind::Marks)],
             baselines: Vec::new(),
             sizes: Vec::new(),
+            reaches: Vec::new(),
             hinting: Hinting::Light,
         })
         .expect("rasterised");
@@ -471,8 +484,10 @@ fn a_cluster_with_a_negative_advance_is_placed_as_one_with_none() {
 
 /// Test Mono with an Arabic alef (U+0627), a bar 760 units tall, and a
 /// damma (U+064F), a mark of no advance 300 units tall, which HarfRust
-/// places just above the alef, past the row's top.
-fn alef_damma() -> OutlineRequest {
+/// places just above the alef, past the row's top. The cell's glyphs' ink
+/// may reach `reach` pixels above and below it, or a row of the cell with
+/// none.
+fn alef_damma(reach: Option<u32>) -> OutlineRequest {
     let mut f = ttf::test_mono();
     f.glyphs.push(ttf::Glyph::rect(600, 250, 0, 350, 760));
     f.glyphs.push(ttf::Glyph::rect(0, -400, 0, -200, 300));
@@ -489,6 +504,7 @@ fn alef_damma() -> OutlineRequest {
         clusters: vec![ask(&['\u{627}', '\u{64f}'], Kind::Marks)],
         baselines: Vec::new(),
         sizes: Vec::new(),
+        reaches: reach.map(|r| vec![(r, r)]).unwrap_or_default(),
         hinting: Hinting::Light,
     }
 }
@@ -497,16 +513,74 @@ fn alef_damma() -> OutlineRequest {
 // visual order, the damma before its alef, and the damma is a mark by its
 // character. At 20 pixels the alef's ink reaches 14.8 pixels above the
 // baseline, row 1, and the damma lies wholly above the row's top, so the
-// row's top row is clear unless the mark rule brings the damma in
+// row's top row is clear unless the mark rule brings the damma in. With a
+// reach of no rows, the reach's edge is the row's, and the rule brings it
+// in; with the reach of a row, the damma stays where the font puts it,
+// above the row, in the glyph's ink box (ADR-1306 D2)
 // covers: text.overhang
 #[test]
-fn a_right_to_left_mark_is_fitted_to_the_row() {
-    let o = rasterise(&alef_damma()).expect("rasterised");
+fn a_right_to_left_mark_is_fitted_to_the_reach() {
+    let inked = |p: &Placed, y: usize| p.pixels[y * 12..(y + 1) * 12].iter().any(|&v| v > 0);
+    let o = rasterise(&alef_damma(Some(0))).expect("rasterised");
     let alef = codepoint(&o, '\u{627}');
     let g = cluster(&o, &['\u{627}', '\u{64f}']).expect("alef and damma");
-    let inked = |p: &Placed, y: usize| p.pixels[y * 12..(y + 1) * 12].iter().any(|&v| v > 0);
     assert!(!inked(alef, 0), "the alef alone leaves the top row clear");
     assert!(inked(g, 0), "the damma brought into the top row");
+    assert!(g.ink.is_none(), "no ink past the row");
+    let o = rasterise(&alef_damma(None)).expect("rasterised");
+    let g = cluster(&o, &['\u{627}', '\u{64f}']).expect("alef and damma");
+    assert!(!inked(g, 0), "the damma left above the row");
+    let ink = g.ink.as_ref().expect("the damma in the box");
+    assert!(ink.top < 0 && ink.top >= -20, "{}", ink.top);
+    let box_row = |y: usize| &ink.pixels[y * ink.width as usize..(y + 1) * ink.width as usize];
+    let above: Vec<usize> = (0..(-ink.top) as usize)
+        .filter(|&y| box_row(y).iter().any(|&v| v > 0))
+        .collect();
+    assert!(!above.is_empty(), "the damma's ink above the row");
+}
+
+// ADR-1306 D2: inside the reach a mark draws where HarfRust places it. In
+// the 12x20 cell, baseline 16, the dot above x, from 9 to 16.4 pixels up,
+// passes the row's top by 0.4 of a pixel, a row of the cell's reach, so it
+// is not moved: its top row lies in the box, the row above the cell, and
+// x's rows are its own
+// covers: text.overhang
+#[test]
+fn a_mark_inside_the_reach_keeps_its_place() {
+    let o = rasterise(&marked(&[&['x', '\u{307}']], 20, None)).expect("rasterised");
+    let x = codepoint(&o, 'x');
+    let g = cluster(&o, &['x', '\u{307}']).expect("x and its dot");
+    let ink = g.ink.as_ref().expect("the dot's top row past the row");
+    assert_eq!((ink.left, ink.top, ink.width, ink.height), (0, -1, 12, 21));
+    assert!(ink.pixels[5] > 0, "the dot's top row, above the cell");
+    for y in 8..20 {
+        assert_eq!(row(g, y), row(x, y), "x's row {y}");
+    }
+}
+
+// ADR-1306 D2: a stack that would pass the reach is still fitted to it,
+// to the reach's edge and not to the row's. In the 12x20 cell, baseline
+// 16, the tall mark over x reaches 40 pixels above the baseline, 4 past
+// the reach's top, 36 up, and a row over x's top; moved down it would land
+// on x, so the stack is scaled to fit the reach, anchored at x's bottom:
+// its top lies in the reach's top row, a row above the cell, and x still
+// ends on the baseline
+// covers: text.overhang
+#[test]
+fn a_stack_past_the_reach_is_fitted_to_the_reach() {
+    let o = rasterise(&marked(&[&['x', '\u{308}']], 20, None)).expect("rasterised");
+    let x = codepoint(&o, 'x');
+    let g = cluster(&o, &['x', '\u{308}']).expect("x and its mark");
+    let ink = g.ink.as_ref().expect("the mark above the row");
+    assert_eq!((ink.left, ink.width), (0, 12));
+    assert_eq!(ink.top, -20, "fitted to the reach's top, a row up");
+    let box_row = |y: usize| &ink.pixels[y * 12..(y + 1) * 12];
+    assert!(box_row(0)[5] > 0, "the mark in the reach's top row");
+    assert!(
+        row(x, 15)[2] > 0 && row(g, 15)[2] > 0,
+        "x ends on the baseline"
+    );
+    assert!(row(g, 16).iter().all(|&p| p == 0), "nothing below x");
 }
 
 // a beh keyed with U+200D after it, as the console asks for it, is judged
@@ -617,6 +691,7 @@ fn a_mark_left_at_the_pen_is_centred_over_its_base() {
         clusters: vec![ask(&key, Kind::Marks)],
         baselines: Vec::new(),
         sizes: Vec::new(),
+        reaches: Vec::new(),
         hinting: Hinting::Light,
     })
     .expect("rasterised");
@@ -662,6 +737,7 @@ fn a_stretched_cluster_keeps_its_marks_over_its_letter() {
         clusters: vec![ask(&key, Kind::Marks)],
         baselines: Vec::new(),
         sizes: Vec::new(),
+        reaches: Vec::new(),
         hinting: Hinting::Light,
     })
     .expect("rasterised");

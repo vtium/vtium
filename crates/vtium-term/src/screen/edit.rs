@@ -169,12 +169,25 @@ impl Screen {
     }
 
     /// Ends the wrap of each row of `rows`: their text no longer continues
-    /// on the next row.
+    /// on the next row. Ending a wrap splits the row's paragraph in two,
+    /// and each part is then drawn on its own. In a build with the bidi
+    /// feature, when the paragraph draws in another order than it was
+    /// written, every row of it is marked changed, since the order of each
+    /// part can differ from the order of the whole (ADR-1004 D8).
     pub(super) fn unwrap_rows(&mut self, rows: impl IntoIterator<Item = usize>) {
         for y in rows {
             let cols = self.cols;
+            #[cfg(feature = "bidi")]
+            let split = self
+                .line(y)
+                .is_some_and(|l| l.flags().contains(crate::line::LineFlags::WRAPPED))
+                .then(|| self.reordered_rows(y));
             if self.line_mut(y).is_some_and(Line::unwrap) {
                 self.mark_cells(y, cols.saturating_sub(1)..cols);
+            }
+            #[cfg(feature = "bidi")]
+            for row in split.into_iter().flatten() {
+                self.mark_cells(row, 0..cols);
             }
         }
     }

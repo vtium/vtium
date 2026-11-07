@@ -131,9 +131,10 @@ pub(crate) fn sheared(glyph: &Glyph, baseline: u32, scale: u32) -> Option<Glyph>
         Glyph::from_pixels(span, height, crate::glyph::Format::Mask, pixels)?.with_cells(cells);
     // the columns that hold ink, from the cells' left edge, cut to the
     // reach
+    let across = i64::from(cell).saturating_mul(i64::from(crate::REACH_CELLS));
     let reach = (
-        i64::from(cell).saturating_neg(),
-        i64::from(span).saturating_add(i64::from(cell)),
+        across.saturating_neg(),
+        i64::from(span).saturating_add(across),
     );
     let inked = |x: i64| (0..height).any(|y| at(x, y) != 0);
     let first = (reach.0..reach.1).find(|&x| inked(x));
@@ -154,7 +155,11 @@ pub(crate) fn sheared(glyph: &Glyph, baseline: u32, scale: u32) -> Option<Glyph>
         return Some(out);
     }
     let left = i32::try_from(from).ok()?;
-    out.clone().with_ink(left, width, box_pixels).or(Some(out))
+    // a bitmap glyph's shear moves rows sideways only, so its box is its
+    // row's height (ADR-1302 D1)
+    out.clone()
+        .with_ink((left, 0), (width, height), box_pixels)
+        .or(Some(out))
 }
 
 #[cfg(test)]

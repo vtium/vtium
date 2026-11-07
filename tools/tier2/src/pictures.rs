@@ -893,6 +893,35 @@ pub fn kitty_text(f: &mut Feed) -> Result<(), String> {
     f.bytes(&out)
 }
 
+/// `overflow-pictures`: in the second row and again in the fifth, a kitty
+/// picture of 4 by 1 cells below the cell backgrounds at the first cell,
+/// one below the text at the seventh, one above the text at the
+/// thirteenth, each sent and placed by one command, and an opaque sixel
+/// of the same size at the nineteenth; the accents of the third row reach
+/// up into the first four and the marks of the fourth row down into the
+/// others (ADR-1306 D7).
+pub fn overflow(f: &mut Feed) -> Result<(), String> {
+    let mut out = Vec::new();
+    for (band, row) in [(0u32, 1u32), (1, 4)] {
+        for (n, z) in (0u32..).zip([BELOW_BACKGROUNDS, BELOW_TEXT, ABOVE_TEXT]) {
+            let pic = Pic::new(Kind::Gradient, cells(f.cell, (4, 1), (0, 0)), 3 * band + n);
+            out.extend(at(6 * n, row));
+            out.extend(kitty_send(
+                &format!("a=T,i={},C=1,q=2,z={z}", 3 * band + n + 1),
+                Format::Rgba,
+                pic,
+            ));
+        }
+        out.extend(at(18, row));
+        out.extend(sixel_of(Pic::new(
+            Kind::Gradient,
+            cells(f.cell, (4, 1), (0, 0)),
+            7 + band,
+        )));
+    }
+    f.bytes(&out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

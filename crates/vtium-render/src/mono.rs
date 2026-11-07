@@ -63,6 +63,13 @@ fn ink(lit: bool) -> Rgb {
     if lit { LIT } else { UNLIT }
 }
 
+/// At 1 bit, the ink that lands in a cell from another cell: the opposite
+/// of the cell's background `bg`, lit or unlit, so it never vanishes into
+/// a background of its own state (ADR-1302 D8).
+pub(crate) fn opposite(bg: Rgb) -> Rgb {
+    ink(bg != LIT)
+}
+
 /// One cell's colors at `depth`: the identity in color.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Ink {

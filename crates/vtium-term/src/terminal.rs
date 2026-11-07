@@ -488,6 +488,36 @@ impl Terminal {
         self.state.host.termcap = termcap;
     }
 
+    /// The keysym an arrow key sends in place of `keysym`: in a build with
+    /// the bidi feature, Left and Right swap, the keypad's included, while
+    /// mode 1243 is set and the cursor's paragraph resolves right to left
+    /// (ADR-1004 D11). Every other key is itself, and so is every key in a
+    /// build without the feature. [`key`](Self::key) applies it before it
+    /// encodes a key.
+    pub fn arrow_keysym(&self, keysym: u32) -> u32 {
+        #[cfg(feature = "bidi")]
+        return self.state.swapped_arrow(keysym);
+        #[cfg(not(feature = "bidi"))]
+        keysym
+    }
+
+    /// The cell and pixel column a pointer report names for the pointer
+    /// over view cell `col`, `row` at pixel column `px`: in a build with
+    /// the bidi feature, in a row drawn in another order than it was
+    /// written, the logical cell drawn there and that cell's left edge plus
+    /// the pointer's offset inside its cell (ADR-1004 D10); otherwise the
+    /// cell and pixel as given. [`mouse`](Self::mouse) applies it before it
+    /// reports.
+    pub fn pointer_cell(&self, col: usize, row: usize, px: u32) -> (usize, u32) {
+        #[cfg(feature = "bidi")]
+        return self.state.logical_pointer(col, row, px);
+        #[cfg(not(feature = "bidi"))]
+        {
+            let _ = row;
+            (col, px)
+        }
+    }
+
     /// The cell's size in pixels, which XTWINOPS 14 and 16 report, and
     /// mode 2048 at the next [`resize`](Self::resize).
     pub fn set_cell_size(&mut self, width: u32, height: u32) {

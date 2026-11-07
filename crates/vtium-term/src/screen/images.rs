@@ -28,6 +28,48 @@ mod with {
         LineKey::new(line.id().get())
     }
 
+    /// Mirrors placement `p`, whose box's top row `r` draws right to left:
+    /// its box ends at the right edge of the cell its first column is drawn
+    /// in. The cells of it left of the screen are cut off, its visible part
+    /// with them. Returns false when nothing of it is left to draw.
+    #[cfg(feature = "bidi")]
+    fn mirror(p: &mut FramePlacement, r: &crate::order::RowOrder) -> bool {
+        let first = usize::try_from(p.col).unwrap_or(usize::MAX);
+        let end = i64::try_from(r.visual_at(first))
+            .unwrap_or(i64::MAX)
+            .saturating_add(1);
+        let left = end.saturating_sub(i64::from(p.cols));
+        let cut = u32::try_from(left.min(0).unsigned_abs()).unwrap_or(u32::MAX);
+        if cut >= p.cols {
+            return false;
+        }
+        p.col = u32::try_from(left.max(0)).unwrap_or(0);
+        p.cols = p.cols.saturating_sub(cut);
+        let shift = cut.saturating_mul(p.cell_width);
+        p.offset_x = p.offset_x.saturating_sub(i64::from(shift));
+        if p.x >= shift {
+            p.x = p.x.saturating_sub(shift);
+            return true;
+        }
+        let trim = shift.saturating_sub(p.x);
+        if trim >= p.width {
+            return false;
+        }
+        // the source pixels the trimmed visible pixels showed, rounded so
+        // the source still covers every visible pixel
+        let src_trim = u64::from(trim)
+            .saturating_mul(u64::from(p.src_width))
+            .checked_div(u64::from(p.width))
+            .and_then(|t| u32::try_from(t).ok())
+            .unwrap_or(0)
+            .min(p.src_width.saturating_sub(1));
+        p.x = 0;
+        p.width = p.width.saturating_sub(trim);
+        p.src_x = p.src_x.saturating_add(src_trim);
+        p.src_width = p.src_width.saturating_sub(src_trim);
+        true
+    }
+
     /// One buffer's lines as the store reads them: the screen's rows, and
     /// the scrollback's newest rows above them, as many as its tallest
     /// placement reaches.
@@ -161,6 +203,78 @@ mod with {
             let below = self.below_view(self.images.reach_below());
             let runs = self.frame_runs();
             self.images.frame_with_runs(rows, &below, &runs, self.cols)
+        }
+
+        /// [`placements`](Self::placements), drawn through `order`
+        /// (ADR-1004 D8). A run of placeholder cells is placed where its
+        /// cells are drawn: its characters are left to right, so its
+        /// cells keep their order inside the run. A picture is never
+        /// flipped, and one whose box's top row belongs to a paragraph
+        /// that runs right to left is mirrored as a whole: its box ends at
+        /// the right edge of the cell its first logical column is drawn
+        /// in and extends left, off the left edge when it is wider than
+        /// the room there, as ADR-1003 has a picture anchored to the right
+        /// overflow.
+        #[cfg(feature = "bidi")]
+        pub(crate) fn placements_in(&self, order: &crate::order::Order) -> Vec<FramePlacement> {
+            if !self.images.has_placements() {
+                return Vec::new();
+            }
+            let view = self.view();
+            let rows_of: std::collections::BTreeMap<LineKey, usize> =
+                view.iter().enumerate().map(|(y, l)| (key(l), y)).collect();
+            let screen: Vec<LineKey> = view.iter().map(|l| key(l)).collect();
+            let reach = self.images.reach();
+            let top = self
+                .scrollback
+                .view_index()
+                .unwrap_or(self.scrollback.len());
+            let above: Vec<LineKey> = if self.flags.alternate {
+                Vec::new()
+            } else {
+                (0..top)
+                    .rev()
+                    .take(reach)
+                    .filter_map(|i| self.scrollback.get(i).map(key))
+                    .collect()
+            };
+            let rows = Rows {
+                screen: &screen,
+                above: &above,
+            };
+            let below = self.below_view(self.images.reach_below());
+            let mut runs = self.frame_runs();
+            for run in &mut runs {
+                let Some(r) = rows_of.get(&run.line).and_then(|&y| order.row(y)) else {
+                    continue;
+                };
+                let first = usize::try_from(run.col).unwrap_or(usize::MAX);
+                let last = first.saturating_add(usize::try_from(run.cells).unwrap_or(0));
+                if let Some(v) = (first..last).map(|c| r.visual_at(c)).min() {
+                    run.col = u32::try_from(v).unwrap_or(run.col);
+                }
+            }
+            let mut out = self.images.frame_with_runs(rows, &below, &runs, self.cols);
+            out.retain_mut(|p| {
+                // an entry made from a placeholder run is placed by the
+                // runs above
+                if p.from_placeholder_run() {
+                    return true;
+                }
+                let anchored = match usize::try_from(p.row) {
+                    Ok(y) => order.row(y).cloned(),
+                    Err(_) => {
+                        let back = usize::try_from(p.row.unsigned_abs()).unwrap_or(usize::MAX);
+                        top.checked_sub(back)
+                            .and_then(|place| self.place_order(place))
+                    }
+                };
+                match anchored {
+                    Some(r) if r.rtl => mirror(p, &r),
+                    _ => true,
+                }
+            });
+            out
         }
 
         /// The runs a frame hands the store: those on the rows the view

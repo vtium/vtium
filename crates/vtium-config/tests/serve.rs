@@ -14,9 +14,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use vtium_config::serve::{
-    ASK, FILL, FRAME_DONE, FRAME_FAILED, FRAME_FILL, FRAME_FILLED, FRAME_GLYPHS, FRAME_NO_OWN_CELL,
-    FRAME_OUTLINE_CELL, FRAME_OWN_CELL, FRAME_STOPPED, FritText, OWN_CELL, Paths, STOP,
-    ServeRequest, serve,
+    ASK, ASK_PARTS, FILL, FRAME_DONE, FRAME_FAILED, FRAME_FILL, FRAME_FILLED, FRAME_GLYPHS,
+    FRAME_NO_OWN_CELL, FRAME_OUTLINE_CELL, FRAME_OWN_CELL, FRAME_STOPPED, FritText, OWN_CELL,
+    Paths, STOP, ServeRequest, serve,
 };
 use vtium_font::set::{Set, SetFace};
 use vtium_font::{Cell, Face};
@@ -392,6 +392,67 @@ fn an_outline_frits_cell_query_answers_the_w_rule_at_its_height() {
     // 19.5 pixels to the em: Test Mono's W advances 11.7, inked over 12
     assert_eq!(frames[1].1, cell(12, 20));
     assert_eq!(frames[2].1, cell(8, 8));
+}
+
+// ADR-1200 D22 step 3: lam with shadda, fatha and superscript alef, in a
+// subset of DejaVu Sans Mono that has no superscript alef, is not drawn
+// whole; the helper sends the part the font draws, lam with shadda and
+// fatha, under its own key, so the console draws it as the font shapes it
+// and lays the superscript alef over it
+// covers: text.overhang
+#[test]
+fn the_part_of_a_cluster_the_font_draws_is_sent_under_its_own_key() {
+    assert_eq!(
+        parts_sent(ASK_PARTS),
+        [vec!['\u{644}', '\u{651}', '\u{64e}']]
+    );
+    // a console built without right-to-left text asks with ASK, and takes
+    // no part, so none is sent
+    assert!(parts_sent(ASK).is_empty());
+}
+
+/// The clusters the helper sends for lam with shadda, fatha and the
+/// superscript alef, in a subset of DejaVu Sans Mono that has no
+/// superscript alef, asked for with `kind`.
+#[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
+fn parts_sent(kind: u32) -> Vec<Vec<char>> {
+    let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/DejaVuSansMono-lam-shadda-fatha.ttf");
+    let whole: Vec<u32> = vec![0x644, 0x651, 0x64e, 0x670];
+    let request = ServeRequest {
+        style: Default::default(),
+        band: Default::default(),
+        kind,
+        frit: FritText {
+            name: "t".to_owned(),
+            text: format!("source=outline:{}\n", fixture.display()),
+        },
+        cell: Cell {
+            width: 9,
+            height: 16,
+        },
+        codepoints: Vec::new(),
+        clusters: vec![whole],
+        held: Vec::new(),
+        console: None,
+    };
+    let mut out = Vec::new();
+    let status = serve(
+        std::io::Cursor::new(request.encode()),
+        &mut out,
+        &Paths::default(),
+        Duration::from_secs(5),
+    );
+    assert_eq!(status, 0);
+    let frames = frames(&out);
+    let sets: Vec<Set> = frames
+        .iter()
+        .filter(|f| f.0 == FRAME_GLYPHS)
+        .map(|f| Set::from_bytes(f.1.clone()).unwrap())
+        .collect();
+    sets.iter()
+        .flat_map(|s| s.clusters().map(|(_, _, k)| k).collect::<Vec<_>>())
+        .collect()
 }
 
 // ADR-1200 D21, ADR-1301 D1: an ask's clusters are shaped with HarfRust

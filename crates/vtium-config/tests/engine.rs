@@ -335,16 +335,21 @@ fn a_kbd_font_in_each_compression_draws_the_same_glyphs() {
     }
 }
 
+// ADR-1200 D17: a later bitmap source's glyphs stand on the first
+// source's baseline. The test ter-v16n's H inks every row, so its baseline
+// is the cell's bottom edge, row 16; Unscii-8's is its row 7, so its 8x8
+// glyphs at factor 1 start at row 9 of the 8x16 cell; its row 7, past the
+// cell's bottom, holds no ink of ▀, so ▀ needs no ink box
 #[test]
-fn a_fallback_fills_what_the_first_source_lacks_on_the_bottom_rows() {
+fn a_fallback_fills_what_the_first_source_lacks_on_its_baseline() {
     let w = World::new("fallback");
     let set = w.drawn(
         "source=kbd:ter-v16n\nsource=builtin:unscii-8\ncover=U+2580-U+259F\n",
         cell(8, 16),
     );
     let face = SetFace::new(set, 16).expect("a face");
-    // U+2588 is the first source's; U+2580 comes from Unscii-8, 8x8 into
-    // 8x16 at factor 1, on the bottom rows; 'a' is outside cover=
+    // U+2588 is the first source's; U+2580 comes from Unscii-8; 'a' is
+    // outside cover=
     assert!(face.has_glyph('█') && face.has_glyph('▀') && !face.has_glyph('a'));
     let unscii = vtium_font::set::builtin("unscii-8").expect("unscii-8");
     let theirs = SetFace::new(unscii, 8)
@@ -354,10 +359,11 @@ fn a_fallback_fills_what_the_first_source_lacks_on_the_bottom_rows() {
     let ours = face.draw_unscaled(&['▀'], Style::default()).expect("drawn");
     assert_eq!((ours.width(), ours.height()), (8, 16));
     assert!(
-        ours.pixels()[..8 * 8].iter().all(|&p| p == 0),
-        "the top half is empty"
+        ours.pixels()[..9 * 8].iter().all(|&p| p == 0),
+        "the rows above the glyph are empty"
     );
-    assert_eq!(&ours.pixels()[8 * 8..], theirs.pixels());
+    assert_eq!(&ours.pixels()[9 * 8..], &theirs.pixels()[..7 * 8]);
+    assert!(theirs.pixels()[7 * 8..].iter().all(|&p| p == 0));
 }
 
 #[test]
@@ -417,6 +423,110 @@ fn a_kbd_name_does_not_follow_a_link_out_of_the_data_directory() {
     }
 }
 
+/// A PSF2 font of 8x16 glyphs with a table, each glyph its character and
+/// the rows it inks, every column of them, as Terminus draws `H` and `a`
+/// on its baseline, row 12.
+fn psf2_inked(glyphs: &[(char, std::ops::Range<u32>)]) -> Vec<u8> {
+    let mut f = Vec::new();
+    for v in [0x864a_b572u32, 0, 32, 1, glyphs.len() as u32, 16, 16, 8] {
+        f.extend_from_slice(&v.to_le_bytes());
+    }
+    for (_, rows) in glyphs {
+        f.extend((0..16).map(|y| if rows.contains(&y) { 0xffu8 } else { 0 }));
+    }
+    for (c, _) in glyphs {
+        let mut buf = [0; 4];
+        f.extend_from_slice(c.encode_utf8(&mut buf).as_bytes());
+        f.push(0xff);
+    }
+    f
+}
+
+// ADR-1200 D17, ADR-1306 D1 (the maintainer, 2026-11-06): every glyph of
+// a later bitmap source stands on the first source's baseline, and the ink
+// that this raises past the cell goes to its ink box, which the renderer
+// draws into the row above. The tour's font set draws the Vietnamese
+// letters Terminus lacks from unifont, whose baseline is its row 14, where
+// Terminus's is its row 12. Placed on the cell's bottom row, as they were,
+// they sat 2 rows below Terminus's letters. Now each rises the 2 rows: ư
+// (U+01B0), whose ink starts at unifont's row 4, stays inside its cell,
+// and ẳ (U+1EB3), whose hook starts at unifont's row 0, ends on the row of
+// Terminus's a with the top 2 rows of its hook, whole, in its box above
+// the cell. At twice the size, each of those rows is two rows of the cell
+#[test]
+fn a_later_bitmap_source_stands_on_the_first_sources_baseline() {
+    let w = World::new("bitmap-baseline");
+    fs::write(
+        w.path("kbd/consolefonts/tvn.psf.gz"),
+        gzip(&psf2_inked(&[('H', 4..12), ('a', 6..12)])),
+    )
+    .expect("font");
+    let frit = "source=kbd:tvn\nsource=builtin:unifont\n";
+    let engine = w.engine(frit).expect("the frit loads");
+    let rows_of = |pixels: &[u8], width: usize| -> Vec<usize> {
+        (0..pixels.len() / width)
+            .filter(|&y| pixels[y * width..(y + 1) * width].iter().any(|&p| p != 0))
+            .collect()
+    };
+    let span = |rows: Vec<usize>| (rows.first().copied(), rows.last().copied());
+    let unifont = SetFace::new(vtium_font::set::builtin("unifont").expect("unifont"), 16)
+        .expect("a face")
+        .draw_unscaled(&['ẳ'], Style::default())
+        .expect("unifont's ẳ");
+    for k in [1usize, 2] {
+        let at = cell(8 * k as u32, 16 * k as u32);
+        let bytes = engine
+            .draw(at, &[0x61, 0x1b0, 0x1eb3])
+            .expect("draws")
+            .expect("the glyphs");
+        let face = SetFace::new(
+            Arc::new(Set::from_bytes(bytes).expect("the set reads")),
+            at.height,
+        )
+        .expect("a face");
+        let drawn = |c: char| face.draw(&[c], Style::default()).expect("drawn");
+        let (rows, last) = (|r: usize| r * k, |r: usize| r * k + k - 1);
+        let cw = 8 * k;
+        let a = drawn('a');
+        assert_eq!(
+            span(rows_of(a.pixels(), cw)),
+            (Some(rows(6)), Some(last(11))),
+            "{k}: a"
+        );
+        let u = drawn('ư');
+        assert!(u.ink().is_none(), "{k}: ư inside its cell");
+        assert_eq!(
+            span(rows_of(u.pixels(), cw)),
+            (Some(rows(2)), Some(last(11))),
+            "{k}: ư"
+        );
+        let g = drawn('ẳ');
+        assert_eq!(
+            span(rows_of(g.pixels(), cw)),
+            (Some(0), Some(last(11))),
+            "{k}: ẳ on the baseline, cut to its cell"
+        );
+        let ink = g.ink().expect("ẳ's box");
+        assert_eq!(
+            (ink.left(), ink.top(), ink.width(), ink.height()),
+            (0, -2 * k as i32, cw as u32, 18 * k as u32),
+            "{k}: ẳ's box, its cell and the 2 rows above"
+        );
+        // the box's rows above the cell are unifont's top 2 rows of ẳ, its
+        // hook's top, scaled
+        let above: Vec<u8> = ink.pixels()[..2 * k * cw].to_vec();
+        let want: Vec<u8> = (0..2 * k)
+            .flat_map(|y| (0..cw).map(move |x| (y / k, x / k)))
+            .map(|(y, x)| unifont.pixels()[y * 8 + x])
+            .collect();
+        assert!(
+            want.iter().any(|&p| p != 0),
+            "unifont's ẳ has ink in rows 0 and 1"
+        );
+        assert_eq!(above, want, "{k}: ẳ's hook whole above the cell");
+    }
+}
+
 // covers: text.emoji
 #[test]
 fn an_outline_font_with_color_glyphs_and_a_bitmap_fallback_draws_at_the_cell() {
@@ -443,8 +553,9 @@ fn an_outline_font_with_color_glyphs_and_a_bitmap_fallback_draws_at_the_cell() {
         (smile.format(), smile.cells(), smile.width()),
         (Format::Rgba, Width::Wide, 24)
     );
-    // B from unifont's 8x16 at factor 1, on the cell's bottom row and
-    // centred across: its lowest ink, unifont's row 13, on row 17
+    // B from unifont's 8x16 at factor 1, centred across, with unifont's
+    // baseline, its row 14, on Test Mono's, row 16: its lowest ink,
+    // unifont's row 13, on row 15
     let b = face.draw(&['B'], Style::default()).expect("B");
     assert_eq!(b.format(), Format::Mask);
     let inked: Vec<usize> = b
@@ -454,7 +565,7 @@ fn an_outline_font_with_color_glyphs_and_a_bitmap_fallback_draws_at_the_cell() {
         .filter(|(_, row)| row.iter().any(|&p| p != 0))
         .map(|(y, _)| y)
         .collect();
-    assert_eq!(inked.last(), Some(&17), "{inked:?}");
+    assert_eq!(inked.last(), Some(&15), "{inked:?}");
     assert!(!face.has_glyph('C'), "unifont covers only B");
 }
 
@@ -949,6 +1060,175 @@ fn a_fallback_glyph_too_big_for_its_cell_is_drawn_smaller_to_fit() {
     // the width sets the size, 9 of 18.6 pixels: the bar inks 8 or 9
     // columns as its edges fall on the pixel grid
     assert!(columns.len() >= 8, "drawn as large as fits: {columns:?}");
+}
+
+// ADR-1306 D12 and ADR-1200 D17 (the maintainer, 2026-11-06): a fallback
+// glyph of a joining script uses the reach and is not drawn smaller, where
+// any other fallback glyph that passes its cells still is. Test Arabic's
+// beh (U+0628, Joining_Type D) and its U+E0B0 are the same bar, 600 units
+// across, from 300 below the baseline to 700 above it; at Test Latin's
+// 15.5 pixels to the em in the 9x16 cell, baseline 13, it reaches 4.7
+// pixels below the baseline, past the cell's bottom, 3 below. The icon is
+// drawn smaller to fit its cell; the beh keeps its size, stretched to its
+// cell, and its ink below the cell goes to its box, in the row below
+// covers: text.overhang
+#[test]
+fn a_fallback_joining_letter_uses_the_reach_and_an_icon_is_drawn_smaller() {
+    let w = World::new("joining-fallback");
+    latin_and_cjk(&w);
+    let mut arabic = ttf::test_mono();
+    arabic.family = "Test Arabic".to_owned();
+    arabic.colr.clear();
+    arabic.glyphs.push(ttf::Glyph::rect(600, 0, -300, 600, 700));
+    let bar = (arabic.glyphs.len() - 1) as u16;
+    arabic.cmap = vec![(0x628, bar), (0xe0b0, bar)];
+    fs::write(w.path("fonts/TestArabic-Regular.ttf"), arabic.build()).expect("font");
+    let engine = w
+        .engine("source=font:Test Latin\nsource=font:Test Arabic\n")
+        .expect("the frit loads");
+    let bytes = engine
+        .draw(cell(9, 16), &[0x628, 0xe0b0])
+        .expect("draws")
+        .expect("the glyphs");
+    let face =
+        SetFace::new(Arc::new(Set::from_bytes(bytes).expect("the set reads")), 16).expect("a face");
+    let inked_rows = |g: &vtium_font::Glyph| -> Vec<usize> {
+        let rows: Vec<&[u8]> = g.rows().collect();
+        (0..rows.len())
+            .filter(|&y| rows[y].iter().any(|&p| p != 0))
+            .collect()
+    };
+    let icon = face
+        .draw(&['\u{e0b0}'], Style::default())
+        .expect("the icon");
+    assert!(
+        icon.ink().is_none(),
+        "the icon drawn smaller, inside its cell"
+    );
+    let beh = face.draw(&['\u{628}'], Style::default()).expect("the beh");
+    assert_eq!(
+        inked_rows(&beh).last(),
+        Some(&15),
+        "the beh fills its cell to the bottom row"
+    );
+    let ink = beh.ink().expect("the beh's ink below its cell");
+    assert_eq!((ink.left(), ink.top(), ink.width()), (0, 0, 9));
+    assert!(ink.height() > 16 && ink.height() <= 32, "{}", ink.height());
+    let below = &ink.pixels()[16 * 9..17 * 9];
+    assert!(
+        below.iter().any(|&p| p != 0),
+        "ink in the row below: {below:?}"
+    );
+}
+
+// ADR-1200 D17: a fallback glyph drawn smaller keeps the first source's
+// baseline. The tour's ẳ (U+1EB3) comes from Noto Sans CJK behind DejaVu
+// Sans Mono, and its stacked marks rise past the room above the baseline.
+// Test Viet's ẳ stands on the baseline and rises 950 units, 14.7 pixels
+// at Test Latin's 15.5 pixels to the em, where the 9x16 cell has 13 rows
+// above its baseline. The helper draws it smaller until its ink fits above
+// the baseline, so its lowest ink is on the row of đ's. When it was drawn
+// smaller only until its whole height fitted the row, the helper moved it
+// down to the row's top, and its lowest ink sat 2 rows below đ's, and 8
+// rows below in the tour's 28x54 cell
+#[test]
+fn a_fallback_glyph_drawn_smaller_keeps_the_baseline() {
+    let w = World::new("fallback-baseline");
+    let mut latin = ttf::test_mono();
+    latin.family = "Test Latin".to_owned();
+    latin.colr.clear();
+    latin.cmap = vec![(0x20, 1), (0x41, 2), (0x57, 3), (0x111, 2)];
+    fs::write(w.path("fonts/TestLatin-Regular.ttf"), latin.build()).expect("font");
+    let mut viet = ttf::test_mono();
+    viet.family = "Test Viet".to_owned();
+    viet.colr.clear();
+    viet.glyphs.push(ttf::Glyph::rect(600, 150, 0, 450, 950));
+    viet.cmap = vec![(0x1eb3, (viet.glyphs.len() - 1) as u16)];
+    fs::write(w.path("fonts/TestViet-Regular.ttf"), viet.build()).expect("font");
+    let engine = w
+        .engine("source=font:Test Latin\nsource=font:Test Viet\n")
+        .expect("the frit loads");
+    let lowest = |g: &vtium_font::Glyph| {
+        let rows: Vec<&[u8]> = g.rows().collect();
+        (0..rows.len())
+            .rev()
+            .find(|&y| rows[y].iter().any(|&p| p != 0))
+    };
+    for (at, baseline) in [(cell(9, 16), 12), (cell(28, 54), 42)] {
+        let bytes = engine
+            .draw(at, &[0x111, 0x1eb3])
+            .expect("draws")
+            .expect("the glyphs");
+        let face = SetFace::new(
+            Arc::new(Set::from_bytes(bytes).expect("the set reads")),
+            at.height,
+        )
+        .expect("a face");
+        let d = face.draw(&['đ'], Style::default()).expect("đ");
+        let a = face.draw(&['ẳ'], Style::default()).expect("ẳ");
+        assert!(a.ink().is_none(), "{at:?}: ẳ inside its cell");
+        assert_eq!(lowest(&d), Some(baseline), "{at:?}: đ on the baseline");
+        assert_eq!(lowest(&a), lowest(&d), "{at:?}: ẳ on đ's baseline");
+        let highest = a.rows().position(|r| r.iter().any(|&p| p != 0));
+        assert!(
+            highest <= Some(1),
+            "{at:?}: ẳ as large as fits: {highest:?}"
+        );
+    }
+}
+
+// ADR-1200 D17: every outline source after an outline first source draws on
+// the first source's baseline, so Hebrew and Arabic from Noto Sans behind
+// DejaVu Sans Mono stand on the Latin letters' baseline. Test Tall has
+// Noto's proportions, an ascent of 1100 and a descent of 300, so at Test
+// Latin's size its own baseline is the cell's bottom row in both cells.
+// Its alef and its beh fit their cells, so the helper draws them at full
+// size. When each source stood on its own baseline, their lowest ink sat
+// 3 rows below đ's in the 9x16 cell and 11 rows below in the 28x54 cell
+#[test]
+fn a_fallback_source_draws_on_the_first_sources_baseline() {
+    let w = World::new("fallback-own-baseline");
+    let mut latin = ttf::test_mono();
+    latin.family = "Test Latin".to_owned();
+    latin.colr.clear();
+    latin.cmap = vec![(0x20, 1), (0x41, 2), (0x57, 3), (0x111, 2)];
+    fs::write(w.path("fonts/TestLatin-Regular.ttf"), latin.build()).expect("font");
+    let mut tall = ttf::test_mono();
+    tall.family = "Test Tall".to_owned();
+    tall.colr.clear();
+    tall.ascent = 1100;
+    tall.descent = -300;
+    tall.glyphs.push(ttf::Glyph::rect(600, 100, 0, 500, 500));
+    tall.glyphs.push(ttf::Glyph::rect(600, 0, 0, 600, 300));
+    let n = tall.glyphs.len() as u16;
+    tall.cmap = vec![(0x5d0, n - 2), (0x628, n - 1)];
+    fs::write(w.path("fonts/TestTall-Regular.ttf"), tall.build()).expect("font");
+    let engine = w
+        .engine("source=font:Test Latin\nsource=font:Test Tall\n")
+        .expect("the frit loads");
+    let lowest = |g: &vtium_font::Glyph| {
+        let rows: Vec<&[u8]> = g.rows().collect();
+        (0..rows.len())
+            .rev()
+            .find(|&y| rows[y].iter().any(|&p| p != 0))
+    };
+    for (at, baseline) in [(cell(9, 16), 12), (cell(28, 54), 42)] {
+        let bytes = engine
+            .draw(at, &[0x111, 0x5d0, 0x628])
+            .expect("draws")
+            .expect("the glyphs");
+        let face = SetFace::new(
+            Arc::new(Set::from_bytes(bytes).expect("the set reads")),
+            at.height,
+        )
+        .expect("a face");
+        let d = face.draw(&['đ'], Style::default()).expect("đ");
+        assert_eq!(lowest(&d), Some(baseline), "{at:?}: đ on the baseline");
+        for c in ['\u{5d0}', '\u{628}'] {
+            let g = face.draw(&[c], Style::default()).expect("the letter");
+            assert_eq!(lowest(&g), lowest(&d), "{at:?}: {c} on đ's baseline");
+        }
+    }
 }
 
 // ADR-1200 D17: behind a bitmap first source, each outline source is sized
