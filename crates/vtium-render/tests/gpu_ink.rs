@@ -14,7 +14,7 @@ mod common;
 use common::{Screen, rgb, style};
 use vtium_font::{Cell, Face, Font, Format as FontFormat, Glyph, Style, Width as FontWidth};
 use vtium_render::gpu::{Call, DrawTarget, Format, Gl, Pipeline, Quad, Size, StandIn};
-use vtium_render::{Canvas, Config, DrawState, Rect, Renderer};
+use vtium_render::{Canvas, Config, DrawState, Orientation, Rect, Renderer};
 use vtium_term::{Age, CursorShape};
 
 const CW: u32 = 8;
@@ -119,10 +119,21 @@ fn plain() -> vtium_term::Style {
     style(rgb(FG), rgb(BG))
 }
 
-/// The display for `s`: its grid inside a border of 2 pixels across and
-/// 1 down.
-fn display(s: &Screen) -> Size {
-    Size::new(s.cols as u32 * CW + 4, s.rows as u32 * CH + 2)
+/// The display for `s` turned as `o` says: its grid inside a border of 2
+/// pixels across and 1 down, upright.
+fn display(s: &Screen, o: Orientation) -> Size {
+    let (w, h) = (s.cols as u32 * CW + 4, s.rows as u32 * CH + 2);
+    match o {
+        Orientation::Right | Orientation::Left => Size::new(h, w),
+        Orientation::Normal | Orientation::UpsideDown => Size::new(w, h),
+    }
+}
+
+fn config(o: Orientation) -> Config {
+    Config {
+        orientation: o,
+        ..Config::default()
+    }
 }
 
 fn state(s: &Screen, cursor_on: bool) -> DrawState {
@@ -135,13 +146,13 @@ fn state(s: &Screen, cursor_on: bool) -> DrawState {
 
 /// `s` drawn whole on the CPU path.
 fn whole(s: &Screen, st: &DrawState) -> Canvas {
-    let size = display(s);
-    let mut r = Renderer::new(
-        Font::new(Reaching),
-        size.width,
-        size.height,
-        Config::default(),
-    );
+    whole_turned(s, st, Orientation::Normal)
+}
+
+/// `s` drawn whole on the CPU path, turned as `o` says.
+fn whole_turned(s: &Screen, st: &DrawState, o: Orientation) -> Canvas {
+    let size = display(s, o);
+    let mut r = Renderer::new(Font::new(Reaching), size.width, size.height, config(o));
     let mut c = Canvas::new(size.width, size.height, 0);
     r.draw(&s.frame(Age::NEVER), &mut c, 0, st);
     c
@@ -155,11 +166,16 @@ struct Gpu {
     buffer: DrawTarget,
     r: Renderer<Reaching>,
     since: Age,
+    orientation: Orientation,
 }
 
 impl Gpu {
     fn new(s: &Screen) -> Gpu {
-        let size = display(s);
+        Gpu::turned(s, Orientation::Normal)
+    }
+
+    fn turned(s: &Screen, o: Orientation) -> Gpu {
+        let size = display(s, o);
         let mut gl = StandIn::new();
         let pipeline = Pipeline::new(&mut gl, size, vtium_render::gpu::Config::default()).unwrap();
         let buffer = gl.import_buffer(&size).unwrap();
@@ -167,13 +183,9 @@ impl Gpu {
             gl,
             pipeline,
             buffer,
-            r: Renderer::new(
-                Font::new(Reaching),
-                size.width,
-                size.height,
-                Config::default(),
-            ),
+            r: Renderer::new(Font::new(Reaching), size.width, size.height, config(o)),
             since: Age::NEVER,
+            orientation: o,
         }
     }
 
@@ -224,11 +236,21 @@ impl Gpu {
 /// pixels.
 fn assert_same(g: &Gpu, cpu: &Canvas, what: &str) {
     let gpu = g.upright();
-    let differ: Vec<(u32, u32, u32, u32)> = (0..cpu.height())
-        .flat_map(|y| (0..cpu.width()).map(move |x| (x, y)))
+    let (w, h) = (cpu.width(), cpu.height());
+    // the upright pixel the display's pixel x, y shows, and the upright
+    // frame's width (turn.rs)
+    let up = |x: u32, y: u32| match g.orientation {
+        Orientation::Normal => (x, y, w),
+        Orientation::UpsideDown => (w - 1 - x, h - 1 - y, w),
+        Orientation::Right => (y, w - 1 - x, h),
+        Orientation::Left => (h - 1 - y, x, h),
+    };
+    let differ: Vec<(u32, u32, u32, u32)> = (0..h)
+        .flat_map(|y| (0..w).map(move |x| (x, y)))
         .filter_map(|(x, y)| {
             let c = cpu.pixel(x, y)?;
-            let p = gpu[(y * cpu.width() + x) as usize];
+            let (ux, uy, stride) = up(x, y);
+            let p = gpu[(uy * stride + ux) as usize];
             (c != p).then_some((x, y, c, p))
         })
         .collect();
@@ -326,7 +348,7 @@ fn a_descender_meeting_an_accent_draws_the_row_below_on_top() {
     g.frame(&mut s, &st);
     assert_same(&g, &whole(&s, &st), "the descender and the accent");
     // in the middle row, both reach x 3 and 4 from line 10 to 13
-    let (w, at) = (display(&s).width, cell(2, 1));
+    let (w, at) = (display(&s, Orientation::Normal).width, cell(2, 1));
     let px = g.upright()[((at.y + 11) * w + at.x + 3) as usize];
     assert_eq!(px, 0x40e040, "the accent from the row below lies on top");
     assert_eq!(flags(&g.cells(), 2, 1), 1);
@@ -462,14 +484,27 @@ fn a_picture_above_the_text_draws_over_the_ink_a_cell_receives() {
 
 // ADR-1306 D5, D9: a script typing and erasing reaching letters in colors
 // of its own, the GPU path's upright frame checked after every frame
-// against the CPU path's whole draw: a cell whose ink comes or goes
-// redraws the neighbours it reached, and no cell reads a neighbour's ink
-// that has gone.
+// against the CPU path's whole draw, at each turn of the display: a cell
+// whose ink comes or goes redraws the neighbours it reached, no cell reads
+// a neighbour's ink that has gone, and a display line that ink reaches is
+// composed as the CPU path composes it, along a column of the upright
+// frame on a display turned a quarter.
 #[test]
 fn every_gpu_frame_of_typing_matches_a_whole_draw() {
+    for o in [
+        Orientation::Normal,
+        Orientation::Right,
+        Orientation::UpsideDown,
+        Orientation::Left,
+    ] {
+        typing(o);
+    }
+}
+
+fn typing(o: Orientation) {
     let (cols, rows) = (8usize, 4usize);
     let mut s = screen(cols, rows);
-    let mut g = Gpu::new(&s);
+    let mut g = Gpu::turned(&s, o);
     let mut seed = 0x2545_f491u32;
     let mut rand = move |n: u32| {
         seed ^= seed << 13;
@@ -487,6 +522,10 @@ fn every_gpu_frame_of_typing_matches_a_whole_draw() {
         }
         let st = state(&s, true);
         g.frame(&mut s, &st);
-        assert_same(&g, &whole(&s, &st), &format!("step {step}"));
+        assert_same(
+            &g,
+            &whole_turned(&s, &st, o),
+            &format!("{o:?}, step {step}"),
+        );
     }
 }
