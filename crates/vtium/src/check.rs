@@ -119,7 +119,7 @@ fn semantics_under(config: &Config, status: &Result<String, String>, signal: i32
     if config.switch(&keys::USE_ORIGINAL_MODE) && !config.modes(&keys::MODE).is_empty() {
         out.push(check_config::MODE_OVER_ORIGINAL.to_owned());
     }
-    if !config.chords(&keys::GRAB_POWER_OFF).is_empty() {
+    if !config.chords(&keys::KEY_POWER_OFF).is_empty() {
         let taken = match status {
             Ok(text) => init_takes(text, signal),
             Err(system_error) => Err(check_config::power_off_status_unreadable(
@@ -800,10 +800,10 @@ mod tests {
         semantics_under(&loaded.config, status, 38)
     }
 
-    const BOUND: &str = "grab-power-off=<Ctrl><Alt>End\n";
+    const BOUND: &str = "key-power-off=<Ctrl><Alt>End\n";
 
     #[test]
-    fn grab_power_off_is_silent_where_init_takes_the_signal() {
+    fn key_power_off_is_silent_where_init_takes_the_signal() {
         // systemd blocks SIGRTMIN+4 and reads it from a signalfd, so bit 37
         // (signal 38) is set in its SigBlk and not in its SigCgt; these are
         // the masks of systemd 262 as PID 1. sysvinit catches the signal
@@ -821,11 +821,11 @@ mod tests {
     }
 
     #[test]
-    fn grab_power_off_warns_where_init_neither_catches_nor_blocks_it() {
+    fn key_power_off_warns_where_init_neither_catches_nor_blocks_it() {
         assert_eq!(
             power_off_warnings(BOUND, &status("0000000000000000", "0000000000000000")),
             [
-                "the grab-power-off key will not work: the init system (PID 1) neither \
+                "the key-power-off key will not work: the init system (PID 1) neither \
                  handles nor blocks SIGRTMIN+4 (signal 38, from SigCgt and SigBlk in \
                  /proc/1/status). Unbind the key, or use an init system that powers off on \
                  that signal, such as systemd or sysvinit."
@@ -840,12 +840,12 @@ mod tests {
     }
 
     #[test]
-    fn grab_power_off_names_why_an_unreadable_status_does_not_answer() {
+    fn key_power_off_names_why_an_unreadable_status_does_not_answer() {
         let unreadable = Err("Permission denied (os error 13)".to_owned());
         assert_eq!(
             power_off_warnings(BOUND, &unreadable),
             [
-                "the grab-power-off key may not work: vtium cannot tell whether the init \
+                "the key-power-off key may not work: vtium cannot tell whether the init \
                  system (PID 1) handles SIGRTMIN+4 (signal 38), because /proc/1/status could \
                  not be read: Permission denied (os error 13)"
             ]
@@ -870,8 +870,8 @@ mod tests {
     }
 
     #[test]
-    fn an_unbound_grab_power_off_checks_nothing() {
-        let unbound = "grab-reboot=<Ctrl><Alt>Delete\n";
+    fn an_unbound_key_power_off_checks_nothing() {
+        let unbound = "key-reboot=<Ctrl><Alt>Delete\n";
         assert_eq!(
             power_off_warnings(unbound, &status("0", "0")),
             [] as [&str; 0]

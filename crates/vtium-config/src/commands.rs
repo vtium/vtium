@@ -185,13 +185,18 @@ fn default_text(key: &keys::Key) -> String {
 }
 
 /// The value `text`, vtium.conf, gives `key`, as `get KEY` prints it,
-/// and whether the file sets it.
+/// and whether the file sets it. A key binding the file sets only by its
+/// old name has that line's value, as vtium reads it (ADR-1005 D10).
 pub fn value_text(key: &keys::Key, text: Option<&str>) -> (String, bool) {
+    let old = keys::RENAMED
+        .iter()
+        .find(|(_, k)| k.name == key.name)
+        .map(|(old, _)| *old);
     let set = match key.kind {
         Kind::Switch => text
             .and_then(|t| switch(t, key.name))
             .map(|on| if on { "on" } else { "off" }.to_owned()),
-        _ => text.and_then(|t| setting(t, key.name)),
+        _ => text.and_then(|t| setting(t, key.name).or_else(|| setting(t, old?))),
     };
     match set {
         Some(value) => (value, true),
@@ -210,9 +215,15 @@ pub fn conf_key(name: &str) -> Result<&'static keys::Key, String> {
             crate::ops::look_option(name).unwrap_or(name)
         )),
         Some(key) => Ok(key),
-        None => Err(format!(
-            "there is no setting named {name:?}. The Settings view of vtium-config tui, and docs/config.md, list them all."
-        )),
+        None => match keys::renamed(name) {
+            Some((old, key)) => Err(format!(
+                "{old} is now called {}. Use {} instead.",
+                key.name, key.name
+            )),
+            None => Err(format!(
+                "there is no setting named {name:?}. The Settings view of vtium-config tui, and docs/config.md, list them all."
+            )),
+        },
     }
 }
 
@@ -552,6 +563,27 @@ pub fn new(words: &[String], paths: &Paths, out: &mut dyn Write, err: &mut dyn W
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ADR-1005 D10: a key binding set by its old name shows the value vtium
+    // reads from that line, the new name wins where both are set, and the
+    // old name is no setting of its own.
+    #[test]
+    fn a_key_binding_set_by_its_old_name_shows_its_value() {
+        let paste = keys::find("key-paste").unwrap_or(&keys::KEY_PASTE);
+        assert_eq!(
+            value_text(paste, Some("grab-paste=<Alt>p\n")),
+            ("<Alt>p".to_owned(), true)
+        );
+        assert_eq!(
+            value_text(paste, Some("grab-paste=<Alt>p\nkey-paste=<Alt>n\n")),
+            ("<Alt>n".to_owned(), true)
+        );
+        assert_eq!(value_text(paste, None), ("<Shift>Insert".to_owned(), false));
+        assert_eq!(
+            conf_key("grab-paste").err().as_deref(),
+            Some("grab-paste is now called key-paste. Use key-paste instead.")
+        );
+    }
 
     #[test]
     fn a_font_names_a_frit_in_lowercase_words() {

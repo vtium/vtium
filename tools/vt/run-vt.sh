@@ -203,7 +203,7 @@ act() {
 # option with a value carries it in the same word: a separate word would be
 # taken as the value, or, as a stray word, moved to the end of argv, into the
 # login command that runs as root. Left out on purpose: the VT, seat and
-# session options, --login, --configdir, --oneshot, the grabs but grab-paste
+# session options, --login, --configdir, --oneshot, the key bindings but key-paste
 # (one reboots), and options naming files (asciicast, issue-path, xkb-keymap,
 # xkb-compose-file). The on-screen display's osd, osd-timeout and focus-mark
 # are choices that name no file, and display-buffers, 1, 2 or 3, how many
@@ -216,7 +216,7 @@ valued=" font-engine font-name font-size mode multi-monitor gpus term sb-size
 	palette-background underline-color strike-color grapheme-width xkb-model
 	xkb-layout xkb-variant xkb-options xkb-repeat-delay xkb-repeat-rate
 	dpms-timeout render-timer image-storage-limit sync-timeout blink-text
-	grab-paste pointer-hide-timeout pointer-char osd osd-timeout focus-mark
+	key-paste pointer-hide-timeout pointer-char osd osd-timeout focus-mark
 	display-buffers "
 switches=" drm hwaccel use-original-mode blink bell soft-cursor mouse
 	natural-scrolling force-decoration-colors backspace-delete verbose debug silent

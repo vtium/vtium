@@ -1,5 +1,5 @@
 //! The keys vtium takes for itself, before the encoder (ADR-1005 D7,
-//! D10): the [`Chord`]s each `grab-` key of vtium.conf binds, and the key
+//! D10): the [`Chord`]s each key binding of vtium.conf binds, and the key
 //! order they are matched in. After the VT's keys, which no key binds,
 //! come the power keys ([`crate::power`]), then the heads' chords
 //! ([`crate::head::chord`]), then the paste, then the terminal's grabs. A
@@ -66,42 +66,42 @@ pub enum Action {
 /// Every key of vtium.conf that binds an action, in the key order: a
 /// combination two of them bind goes to the one that comes first here.
 pub const ORDER: [(&Key, Action); 21] = [
-    (&keys::GRAB_REBOOT, Action::Power(PowerKey::Reboot)),
-    (&keys::GRAB_POWER_OFF, Action::Power(PowerKey::PowerOff)),
-    (&keys::GRAB_SUSPEND, Action::Power(PowerKey::Suspend)),
+    (&keys::KEY_REBOOT, Action::Power(PowerKey::Reboot)),
+    (&keys::KEY_POWER_OFF, Action::Power(PowerKey::PowerOff)),
+    (&keys::KEY_SUSPEND, Action::Power(PowerKey::Suspend)),
     (
-        &keys::GRAB_CONSOLE_NEXT,
+        &keys::KEY_CONSOLE_NEXT,
         Action::Head(HeadChord::NextConsole),
     ),
     (
-        &keys::GRAB_CONSOLE_PREVIOUS,
+        &keys::KEY_CONSOLE_PREVIOUS,
         Action::Head(HeadChord::PreviousConsole),
     ),
     (
-        &keys::GRAB_CONSOLE_OPEN,
+        &keys::KEY_CONSOLE_OPEN,
         Action::Head(HeadChord::OpenConsole),
     ),
     (
-        &keys::GRAB_CONSOLE_CLOSE,
+        &keys::KEY_CONSOLE_CLOSE,
         Action::Head(HeadChord::CloseConsole),
     ),
-    (&keys::GRAB_FOCUS_NEXT, Action::Head(HeadChord::NextHead)),
+    (&keys::KEY_FOCUS_NEXT, Action::Head(HeadChord::NextHead)),
     (
-        &keys::GRAB_FOCUS_PREVIOUS,
+        &keys::KEY_FOCUS_PREVIOUS,
         Action::Head(HeadChord::PreviousHead),
     ),
-    (&keys::GRAB_PASTE, Action::Paste),
-    (&keys::GRAB_SCROLL_UP, Action::Grab(Grab::ScrollUp)),
-    (&keys::GRAB_SCROLL_DOWN, Action::Grab(Grab::ScrollDown)),
-    (&keys::GRAB_PAGE_UP, Action::Grab(Grab::PageUp)),
-    (&keys::GRAB_PAGE_DOWN, Action::Grab(Grab::PageDown)),
-    (&keys::GRAB_PROMPT_UP, Action::Grab(Grab::PromptUp)),
-    (&keys::GRAB_PROMPT_DOWN, Action::Grab(Grab::PromptDown)),
-    (&keys::GRAB_ZOOM_IN, Action::Grab(Grab::ZoomIn)),
-    (&keys::GRAB_ZOOM_OUT, Action::Grab(Grab::ZoomOut)),
-    (&keys::GRAB_ROTATE_CW, Action::Grab(Grab::RotateCw)),
-    (&keys::GRAB_ROTATE_CCW, Action::Grab(Grab::RotateCcw)),
-    (&keys::GRAB_RESET, Action::Grab(Grab::Reset)),
+    (&keys::KEY_PASTE, Action::Paste),
+    (&keys::KEY_SCROLL_UP, Action::Grab(Grab::ScrollUp)),
+    (&keys::KEY_SCROLL_DOWN, Action::Grab(Grab::ScrollDown)),
+    (&keys::KEY_PAGE_UP, Action::Grab(Grab::PageUp)),
+    (&keys::KEY_PAGE_DOWN, Action::Grab(Grab::PageDown)),
+    (&keys::KEY_PROMPT_UP, Action::Grab(Grab::PromptUp)),
+    (&keys::KEY_PROMPT_DOWN, Action::Grab(Grab::PromptDown)),
+    (&keys::KEY_ZOOM_IN, Action::Grab(Grab::ZoomIn)),
+    (&keys::KEY_ZOOM_OUT, Action::Grab(Grab::ZoomOut)),
+    (&keys::KEY_ROTATE_CW, Action::Grab(Grab::RotateCw)),
+    (&keys::KEY_ROTATE_CCW, Action::Grab(Grab::RotateCcw)),
+    (&keys::KEY_RESET, Action::Grab(Grab::Reset)),
 ];
 
 /// The combinations each action is bound to, as the configuration binds
@@ -252,7 +252,7 @@ const MODIFIERS: [(&str, u8); 6] = [
 ];
 
 /// The chords `text` binds, in the syntax `kmscon` configuration files
-/// use for grab keys: a comma-separated list, each chord
+/// use for key bindings: a comma-separated list, each chord
 /// `<Mod>...` and then keysym names joined by `+`, such as
 /// `<Ctrl><Alt>Delete`. Spaces around a name are dropped. A chord with no
 /// keysym, and so an empty list, binds nothing.
@@ -425,13 +425,13 @@ mod tests {
     #[test]
     fn the_key_order_holds_every_binding_key_once_and_the_defaults_never_collide() {
         let mut names: Vec<&str> = ORDER.iter().map(|(k, _)| k.name).collect();
-        let grab_keys: Vec<&str> = keys::KEYS
+        let binding_keys: Vec<&str> = keys::KEYS
             .iter()
-            .filter(|k| k.kind == crate::config::Kind::Grab)
+            .filter(|k| k.kind == crate::config::Kind::KeyBinding)
             .map(|k| k.name)
             .collect();
         names.sort_unstable();
-        let mut sorted = grab_keys.clone();
+        let mut sorted = binding_keys.clone();
         sorted.sort_unstable();
         assert_eq!(names, sorted);
         let mut seen: Vec<Chord> = Vec::new();
@@ -494,10 +494,10 @@ mod tests {
         assert_eq!(d.keys(Action::Power(PowerKey::Reboot)), None);
         let mut config = Config::default();
         config.set_chords(
-            &keys::GRAB_FOCUS_NEXT,
+            &keys::KEY_FOCUS_NEXT,
             parse("<Alt>n,<Logo>Tab").expect("chords"),
         );
-        config.set_chords(&keys::GRAB_FOCUS_PREVIOUS, Vec::new());
+        config.set_chords(&keys::KEY_FOCUS_PREVIOUS, Vec::new());
         let bound = Bindings::of(&config);
         assert_eq!(
             bound.keys(Action::Head(HeadChord::NextHead)).as_deref(),

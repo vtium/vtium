@@ -269,11 +269,11 @@ fn good_key(key: &str) -> bool {
 }
 
 /// Whether vtium reads `key=value` back as that key and that value. An
-/// empty value is refused, apart from a grab key's, which an empty value
+/// empty value is refused, apart from a key binding's, which an empty value
 /// leaves bound to no key (ADR-1005 D10).
 fn round_trips(key: &str, value: &str) -> bool {
     let line = format!("{key}={value}");
-    let empty_binds_none = crate::keys::find(key).is_some_and(|k| k.kind == Kind::Grab);
+    let empty_binds_none = crate::keys::find(key).is_some_and(|k| k.kind == Kind::KeyBinding);
     !value.contains(['\n', '\0'])
         && key_line(line.as_bytes()).is_some_and(|l| {
             l.key == key.as_bytes()

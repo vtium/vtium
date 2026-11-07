@@ -348,7 +348,7 @@ pub struct App {
     /// The seat's selection buffer: what the user copied last, or OSC 52
     /// set last, held for a paste.
     selection: Option<Vec<u8>>,
-    /// The keys each `grab-` key of vtium.conf binds, in the key order
+    /// The keys each key binding of vtium.conf binds, in the key order
     /// (ADR-1005 D10).
     bindings: Bindings,
     /// `pointer-hide-while-typing`.
@@ -2784,7 +2784,7 @@ impl App {
             if let Some(child) = power::press(power_key, self.power.as_mut(), self.sleeping.get()) {
                 let sleeping = Rc::clone(&self.sleeping);
                 if let Err(e) = vtium_platform::power::watch(&self.handle, child, sleeping) {
-                    log::error!("grab-suspend: cannot watch the write to /sys/power/state: {e}");
+                    log::error!("key-suspend: cannot watch the write to /sys/power/state: {e}");
                 }
             }
             return;

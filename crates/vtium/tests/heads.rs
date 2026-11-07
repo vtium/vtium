@@ -5449,7 +5449,7 @@ fn under_oneshot_a_head_whose_program_ended_shows_session_ended() {
 /// to the focus chord, not its default.
 #[test]
 fn the_ended_sessions_notice_names_the_key_vtium_conf_binds() {
-    let mut s = claimed_with(&["--oneshot", "--grab-focus-next=<Alt>n"]);
+    let mut s = claimed_with(&["--oneshot", "--key-focus-next=<Alt>n"]);
     s.type_on(KBD_SMALL, "q\r");
     assert!(s.until(BOUND, |a| notice(a, "small").as_deref()
         == Some(

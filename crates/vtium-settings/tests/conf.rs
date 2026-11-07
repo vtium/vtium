@@ -152,20 +152,20 @@ fn setting_reads_the_value_vtium_takes() {
     assert_eq!(setting(&example(), "font-size"), None);
 }
 
-// ADR-1005 D10: an empty value is a grab key's way to take no key, so
+// ADR-1005 D10: an empty value is a key binding's way to take no key, so
 // the editor writes it as `key=`, the line a person writes, and reads it
 // back as empty; any other key's empty value stays refused.
 #[test]
-fn a_grab_key_takes_an_empty_value() {
-    let out = edit_conf("", &[Edit::Set("grab-reset", "")]).expect("the edit");
-    assert_eq!(out, "grab-reset=\n");
-    assert_eq!(setting(&out, "grab-reset").as_deref(), Some(""));
+fn a_key_binding_takes_an_empty_value() {
+    let out = edit_conf("", &[Edit::Set("key-reset", "")]).expect("the edit");
+    assert_eq!(out, "key-reset=\n");
+    assert_eq!(setting(&out, "key-reset").as_deref(), Some(""));
     let out = edit_conf(
-        "#grab-scroll-up=<Shift>Up\n",
-        &[Edit::Set("grab-scroll-up", "")],
+        "#key-scroll-up=<Shift>Up\n",
+        &[Edit::Set("key-scroll-up", "")],
     )
     .expect("the edit");
-    assert_eq!(out, "#grab-scroll-up=<Shift>Up\ngrab-scroll-up=\n");
+    assert_eq!(out, "#key-scroll-up=<Shift>Up\nkey-scroll-up=\n");
     assert!(matches!(
         edit_conf("", &[Edit::Set("font-name", "")]),
         Err(ConfEdit::BadValue { .. })

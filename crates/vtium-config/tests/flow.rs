@@ -193,22 +193,22 @@ fn an_unfinished_draft_is_written_and_the_command_exits_0() {
 /// a hand-edited one and finds the same keys.
 #[test]
 fn set_writes_vtiums_own_keys_as_a_person_writes_them() {
-    let f = fixture("grab-keys");
+    let f = fixture("key-bindings");
     f.desk();
-    assert_eq!(f.run(&["set", "grab-scroll-up", "<Alt>k"]).status, 0);
-    assert_eq!(f.run(&["set", "grab-reset", ""]).status, 0);
+    assert_eq!(f.run(&["set", "key-scroll-up", "<Alt>k"]).status, 0);
+    assert_eq!(f.run(&["set", "key-reset", ""]).status, 0);
     assert_eq!(
         f.draft(),
-        "font-size=12\nversion = 1\ngrab-scroll-up=<Alt>k\ngrab-reset=\n[head desk]\n[rules]\ndisplay * -> desk\ninput class:keyboard -> roaming\n"
+        "font-size=12\nversion = 1\nkey-scroll-up=<Alt>k\nkey-reset=\n[head desk]\n[rules]\ndisplay * -> desk\ninput class:keyboard -> roaming\n"
     );
     assert_eq!(
-        f.run(&["get", "grab-scroll-up"]).out,
-        "grab-scroll-up\t<Alt>k\tdraft\n"
+        f.run(&["get", "key-scroll-up"]).out,
+        "key-scroll-up\t<Alt>k\tdraft\n"
     );
-    assert_eq!(f.run(&["get", "grab-reset"]).out, "grab-reset\t\tdraft\n");
+    assert_eq!(f.run(&["get", "key-reset"]).out, "key-reset\t\tdraft\n");
     assert_eq!(
-        f.run(&["get", "grab-zoom-in"]).out,
-        "grab-zoom-in\t<Ctrl>plus,<Ctrl>equal\tdefault\n"
+        f.run(&["get", "key-zoom-in"]).out,
+        "key-zoom-in\t<Ctrl>plus,<Ctrl>equal\tdefault\n"
     );
 }
 

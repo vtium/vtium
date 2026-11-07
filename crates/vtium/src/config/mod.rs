@@ -69,7 +69,7 @@ pub enum Value {
     Command(Vec<OsString>),
     Rgb([u8; 3]),
     Modes(Vec<ModeSpec>),
-    /// A [`Kind::Grab`] value.
+    /// A [`Kind::KeyBinding`] value.
     Chords(Vec<Chord>),
     /// A [`Kind::DecoColor`] value.
     DecoColor(DecoColor),
@@ -185,16 +185,23 @@ pub enum Problem {
         value: String,
         why: &'static str,
     },
-    /// A grab key binds a combination that switches the VT, which no key
+    /// A key binding binds a combination that switches the VT, which no key
     /// binds (ADR-1005 D10); the key keeps its other combinations.
     SwitchesVt { key: &'static str, chord: String },
-    /// Two grab keys bind one combination: the one that comes first in the
+    /// Two key bindings bind one combination: the one that comes first in the
     /// key order, `first`, takes it, and `then` keeps its others
     /// (ADR-1005 D10).
     BoundTwice {
         chord: String,
         first: &'static str,
         then: &'static str,
+    },
+    /// A key binding set by the name it had before the maintainer renamed
+    /// it (ADR-1005 D10): vtium reads it as `new`. A source that sets both
+    /// names takes the new one.
+    Renamed {
+        old: &'static str,
+        new: &'static str,
     },
     /// A line with no key before its `=`.
     NoKey,
@@ -239,7 +246,8 @@ impl Problem {
             | Problem::BadCommand { key: k, .. }
             | Problem::BadValue { key: k, .. }
             | Problem::SwitchesVt { key: k, .. }
-            | Problem::BoundTwice { then: k, .. } => Some(k),
+            | Problem::BoundTwice { then: k, .. }
+            | Problem::Renamed { new: k, .. } => Some(k),
             Problem::NoKey
             | Problem::Nul
             | Problem::NotUtf8
@@ -320,6 +328,10 @@ impl fmt::Display for Problem {
             Problem::BoundTwice { chord, first, then } => write!(
                 f,
                 "{chord} is bound by both {first} and {then}. vtium checks {first} first, so {first} takes it"
+            ),
+            Problem::Renamed { old, new } => write!(
+                f,
+                "{old} is now called {new}. vtium reads {old} as {new} for now; rename it"
             ),
             Problem::NoKey => write!(f, "a line with no key, ignored"),
             Problem::Nul => write!(f, "a line with a NUL byte, ignored"),
@@ -452,12 +464,12 @@ impl Config {
         self.values.get(key.name).and_then(|(v, _)| v.as_ref())
     }
 
-    /// Gives each key combination the grab keys bind to the key that comes
+    /// Gives each key combination the key bindings bind to the key that comes
     /// first in the key order ([`crate::grab::ORDER`]), and drops each
     /// combination that switches the VT, with a report of each (ADR-1005
     /// D10). A report of a combination bound twice goes to the line of the
     /// key a source set, the later key's when both were set.
-    fn resolve_grabs(&mut self, reports: &mut Reports) {
+    fn resolve_bindings(&mut self, reports: &mut Reports) {
         let mut taken: Vec<(Chord, &'static str, Origin)> = Vec::new();
         for (key, _) in crate::grab::ORDER {
             let Some((Some(Value::Chords(chords)), origin)) = self.values.get_mut(key.name) else {
@@ -499,7 +511,7 @@ impl Config {
         }
     }
 
-    /// Sets the grab key `key` to `chords`, as a test's source would.
+    /// Sets the key binding `key` to `chords`, as a test's source would.
     #[cfg(test)]
     pub(crate) fn set_chords(&mut self, key: &'static Key, chords: Vec<Chord>) {
         self.values.insert(
@@ -621,7 +633,7 @@ impl Config {
         }
     }
 
-    /// The chords a grab key binds, none when unset.
+    /// The chords a key binding binds, none when unset.
     pub fn chords(&self, key: &Key) -> &[Chord] {
         match self.get(key) {
             Some(Value::Chords(c)) => c,
@@ -808,7 +820,7 @@ pub fn load(
     for a in given {
         config.set(a);
     }
-    config.resolve_grabs(&mut reports);
+    config.resolve_bindings(&mut reports);
     Loaded {
         config,
         reports: reports.finish(),

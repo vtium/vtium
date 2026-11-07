@@ -27,33 +27,33 @@ SUSPENDS = ("suspend", "suspend-sysfs")
 
 # What each case shows and what correct looks like, for the report.
 CHECKS = {
-    "reboot": "grab-reboot (Ctrl+Alt+Delete) with /proc/sys/kernel/ctrl-alt-del at 0. Correct: "
+    "reboot": "key-reboot (Ctrl+Alt+Delete) with /proc/sys/kernel/ctrl-alt-del at 0. Correct: "
               "vtium asks init, systemd reaches its reboot target, stopping the services and "
               "unmounting the filesystems, and the kernel restarts.",
-    "reboot-hard": "grab-reboot (Ctrl+Alt+Delete) with /proc/sys/kernel/ctrl-alt-del at 1. "
+    "reboot-hard": "key-reboot (Ctrl+Alt+Delete) with /proc/sys/kernel/ctrl-alt-del at 1. "
                    "Correct: vtium syncs and restarts the kernel at once, with no shutdown by "
                    "systemd.",
-    "power-off": "grab-power-off (Ctrl+Alt+End) on a guest that has not slept. Correct: vtium "
+    "power-off": "key-power-off (Ctrl+Alt+End) on a guest that has not slept. Correct: vtium "
                  "gives no warning at its start, asks init with SIGRTMIN+4, systemd reaches its "
                  "power-off target, stopping the services and unmounting the filesystems, and "
                  "the machine powers off.",
-    "power-off-after-s3": "grab-power-off (Ctrl+Alt+End) after a suspend and resume. vtium's "
+    "power-off-after-s3": "key-power-off (Ctrl+Alt+End) after a suspend and resume. vtium's "
                           "part is power-off's; the known failure (KNOWN) is the guest's ACPI "
                           "power-off after S3, which does not take, so the kernel panics.",
-    "suspend": "grab-suspend (Ctrl+Alt+Home) in vtium built with logind, then QEMU's wake-up. "
+    "suspend": "key-suspend (Ctrl+Alt+Home) in vtium built with logind, then QEMU's wake-up. "
                "Correct: logind takes the request and systemd suspends the guest to RAM through "
                "its sleep target; after the wake-up vtium draws its screen again.",
-    "suspend-sysfs": "grab-suspend (Ctrl+Alt+Home) in the minspec build, without logind, then "
+    "suspend-sysfs": "key-suspend (Ctrl+Alt+Home) in the minspec build, without logind, then "
                      "QEMU's wake-up. Correct: vtium writes mem to /sys/power/state, the guest "
                      "suspends to RAM with no sleep target of systemd's, and after the wake-up "
                      "vtium draws its screen again.",
-    "power-off-sysvinit": "grab-power-off (Ctrl+Alt+End) on the guest without systemd, whose "
+    "power-off-sysvinit": "key-power-off (Ctrl+Alt+End) on the guest without systemd, whose "
                           "PID 1, sysvinit, catches SIGRTMIN+4 with a handler, where systemd "
                           "blocks it and reads it from a signalfd. Correct: vtium "
                           "gives no warning at its start, sends the signal, sysvinit switches to "
                           "runlevel 0, stopping the services and unmounting the filesystems, and "
                           "the machine powers off.",
-    "reboot-sysvinit": "grab-reboot (Ctrl+Alt+Delete) with /proc/sys/kernel/ctrl-alt-del at 0 "
+    "reboot-sysvinit": "key-reboot (Ctrl+Alt+Delete) with /proc/sys/kernel/ctrl-alt-del at 0 "
                        "on the guest without systemd. Correct: vtium sends PID 1 SIGINT, "
                        "sysvinit runs its inittab's ctrlaltdel entry, shutdown -r, which "
                        "switches to runlevel 6, stopping the services and unmounting the "
@@ -61,14 +61,14 @@ CHECKS = {
 }
 
 # The words that open each of vtium's warnings at its start that a bound
-# grab-power-off may power nothing off: PID 1 neither catches SIGRTMIN+4 nor
+# key-power-off may power nothing off: PID 1 neither catches SIGRTMIN+4 nor
 # blocks it ("will not work"), or /proc/1/status does not say ("may not
 # work"). vtium's check-config notices (crates/vtium/src/notice.rs) word them.
-POWER_OFF_WARNING = "the grab-power-off key"
+POWER_OFF_WARNING = "the key-power-off key"
 
 POWER_OFF = {
     "before": {"forbid": [POWER_OFF_WARNING]},
-    "require": ["grab-power-off: asking init to power off",
+    "require": ["key-power-off: asking init to power off",
                 "Reached target Unmount All Filesystems",
                 "Reached target System Power Off",
                 "reboot: Power down"],
@@ -86,7 +86,7 @@ POWER_OFF = {
 # panic fails every case.
 EXPECT = {
     "reboot": {
-        "require": ["grab-reboot: asking init to reboot",
+        "require": ["key-reboot: asking init to reboot",
                     "Reached target Unmount All Filesystems",
                     "Reached target System Reboot",
                     "reboot: Restarting system"],
@@ -94,14 +94,14 @@ EXPECT = {
         "shutdown": "guest-reset",
     },
     "reboot-hard": {
-        "require": ["grab-reboot: restarting the kernel at once",
+        "require": ["key-reboot: restarting the kernel at once",
                     "reboot: Restarting system"],
         "forbid": ["Reached target System Reboot", "Reached target Unmount All Filesystems",
                    "Switching to runlevel", "reboot: Power down"],
         "shutdown": "guest-reset",
     },
     "reboot-sysvinit": {
-        "require": ["grab-reboot: asking init to reboot",
+        "require": ["key-reboot: asking init to reboot",
                     "INIT: Switching to runlevel: 6",
                     "Will now restart.",
                     "reboot: Restarting system"],
@@ -110,7 +110,7 @@ EXPECT = {
     },
     "power-off-sysvinit": {
         "before": {"forbid": [POWER_OFF_WARNING]},
-        "require": ["grab-power-off: asking init to power off",
+        "require": ["key-power-off: asking init to power off",
                     "INIT: Switching to runlevel: 0",
                     "Will now halt.",
                     "reboot: Power down"],
@@ -120,18 +120,18 @@ EXPECT = {
     "power-off": POWER_OFF,
     "power-off-after-s3": POWER_OFF,
     "suspend": {
-        "require": ["grab-suspend: suspending",
+        "require": ["key-suspend: suspending",
                     "Reached target Sleep",
                     "Finished System Suspend"],
         # logind answers while systemd starts its sleep target, so the
         # console takes the two lines in either order.
-        "anywhere": ["grab-suspend: logind took the request"],
+        "anywhere": ["key-suspend: logind took the request"],
         "forbid": ["reboot: ", "writing mem to /sys/power/state"],
         "shutdown": None,
     },
     "suspend-sysfs": {
-        "require": ["grab-suspend: suspending",
-                    "grab-suspend: writing mem to /sys/power/state"],
+        "require": ["key-suspend: suspending",
+                    "key-suspend: writing mem to /sys/power/state"],
         "forbid": ["reboot: ", "Reached target Sleep"],
         "shutdown": None,
     },
@@ -144,7 +144,7 @@ PANIC = "Kernel panic"
 # way, and fails once it no longer does, so its entry goes with the fix.
 KNOWN = {
     "power-off-after-s3": {
-        "shows": ["grab-power-off: asking init to power off",
+        "shows": ["key-power-off: asking init to power off",
                   "Reached target System Power Off",
                   "reboot: Power down",
                   "Kernel panic - not syncing: Attempted to kill init!"],

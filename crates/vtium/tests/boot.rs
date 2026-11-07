@@ -2873,11 +2873,11 @@ fn ctrl_shift_up_and_down_jump_between_the_marked_prompts() {
     );
 }
 
-/// `grab-paste` binds the paste to the chords it names, in place of
+/// `key-paste` binds the paste to the chords it names, in place of
 /// Shift+Insert, and empty to none, so Shift+Insert reaches the program.
 // covers: clipboard.paste
 #[test]
-fn grab_paste_binds_the_paste() {
+fn key_paste_binds_the_paste() {
     let script = "stty raw -echo; printf '\\033]52;c;cGFzdGVk\\a\\033[?2004hready'; \
          awk 'BEGIN{RS=\"q\"}{gsub(/\\033/,\"E\");printf \"\\r\\n%s\\r\\n\",$0;exit}'; read x";
     let shift_insert = key(Mods::SHIFT, 0xff63);
@@ -2890,7 +2890,7 @@ fn grab_paste_binds_the_paste() {
         repeat: false,
     });
     let mut h = Harness::new(&[
-        "--grab-paste=<Alt>p",
+        "--key-paste=<Alt>p",
         "--login",
         "--",
         "/bin/sh",
@@ -2907,7 +2907,7 @@ fn grab_paste_binds_the_paste() {
         "{:?}",
         h.app.screen_text()
     );
-    let mut h = Harness::new(&["--grab-paste=", "--login", "--", "/bin/sh", "-c", script]);
+    let mut h = Harness::new(&["--key-paste=", "--login", "--", "/bin/sh", "-c", script]);
     assert!(h.until(BOUND, |a| shows(a, "ready")));
     h.app.input_event(shift_insert, h.at());
     h.type_str("q");
@@ -2984,7 +2984,7 @@ fn a_shift_chord_names_the_shifted_keysym() {
         repeat: false,
     });
     for (chord, pasted) in [("<Ctrl><Shift>V", true), ("<Ctrl><Shift>v", false)] {
-        let arg = format!("--grab-paste={chord}");
+        let arg = format!("--key-paste={chord}");
         let mut h = Harness::new(&[&arg, "--login", "--", "/bin/sh", "-c", script]);
         assert!(h.until(BOUND, |a| shows(a, "ready")));
         h.app.input_event(ctrl_shift_v.clone(), h.at());
@@ -3065,7 +3065,7 @@ fn the_scroll_keys_scroll_on_the_main_screen_and_reach_the_program_on_the_altern
 #[test]
 fn a_key_bound_elsewhere_acts_on_its_new_combination_and_its_old_reaches_the_program() {
     let mut h = Harness::new(&[
-        "--grab-scroll-up=<Alt>k",
+        "--key-scroll-up=<Alt>k",
         "--login",
         "--",
         "/bin/sh",
@@ -3097,8 +3097,8 @@ fn a_key_bound_elsewhere_acts_on_its_new_combination_and_its_old_reaches_the_pro
 #[test]
 fn an_emptied_key_reaches_the_program() {
     let mut h = Harness::new(&[
-        "--grab-scroll-up=",
-        "--grab-page-up=",
+        "--key-scroll-up=",
+        "--key-page-up=",
         "--login",
         "--",
         "/bin/sh",
@@ -3126,7 +3126,7 @@ fn a_combination_bound_twice_goes_to_the_first_key_in_the_key_order() {
          awk 'BEGIN{RS=\"q\"}{gsub(/\\033/,\"E\");printf \"\\r\\n[%s]\\r\\n\",$0;exit}'; read x";
     let mut h = Harness::reporting(
         &[
-            "--grab-paste=<Shift>Up",
+            "--key-paste=<Shift>Up",
             "--login",
             "--",
             "/bin/sh",
@@ -3134,7 +3134,7 @@ fn a_combination_bound_twice_goes_to_the_first_key_in_the_key_order() {
             script,
         ],
         &[
-            "argument 2: <Shift>Up is bound by both grab-paste and grab-scroll-up. vtium checks grab-paste first, so grab-paste takes it",
+            "argument 2: <Shift>Up is bound by both key-paste and key-scroll-up. vtium checks key-paste first, so key-paste takes it",
         ],
     );
     assert!(h.until(BOUND, |a| shows(a, "ready")));
@@ -3147,7 +3147,7 @@ fn a_combination_bound_twice_goes_to_the_first_key_in_the_key_order() {
     );
     let mut h = Harness::reporting(
         &[
-            "--grab-zoom-in=<Shift>Up",
+            "--key-zoom-in=<Shift>Up",
             "--login",
             "--",
             "/bin/sh",
@@ -3155,7 +3155,7 @@ fn a_combination_bound_twice_goes_to_the_first_key_in_the_key_order() {
             MAIN_THEN_ALT,
         ],
         &[
-            "argument 2: <Shift>Up is bound by both grab-scroll-up and grab-zoom-in. vtium checks grab-scroll-up first, so grab-scroll-up takes it",
+            "argument 2: <Shift>Up is bound by both key-scroll-up and key-zoom-in. vtium checks key-scroll-up first, so key-scroll-up takes it",
         ],
     );
     assert!(h.until(BOUND, |a| a.screen_text().iter().any(|l| l == "ready")));

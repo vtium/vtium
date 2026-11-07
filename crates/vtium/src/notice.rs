@@ -206,35 +206,35 @@ It opens nothing under /dev and changes nothing.\n";
 
     pub const MODE_OVER_ORIGINAL: &str = "mode is set, so use-original-mode is off";
 
-    /// `grab-power-off` is bound and PID 1 neither catches nor blocks the
+    /// `key-power-off` is bound and PID 1 neither catches nor blocks the
     /// power-off `signal`.
     pub fn power_off_not_taken(signal: i32) -> String {
         format!(
-            "the grab-power-off key will not work: the init system (PID 1) neither handles nor blocks SIGRTMIN+4 (signal {signal}, from SigCgt and SigBlk in /proc/1/status). Unbind the key, or use an init system that powers off on that signal, such as systemd or sysvinit."
+            "the key-power-off key will not work: the init system (PID 1) neither handles nor blocks SIGRTMIN+4 (signal {signal}, from SigCgt and SigBlk in /proc/1/status). Unbind the key, or use an init system that powers off on that signal, such as systemd or sysvinit."
         )
     }
 
-    /// `grab-power-off` is bound and `/proc/1/status` could not be read,
+    /// `key-power-off` is bound and `/proc/1/status` could not be read,
     /// the system saying `system_error`.
     pub fn power_off_status_unreadable(signal: i32, system_error: impl Display) -> String {
         format!(
-            "the grab-power-off key may not work: vtium cannot tell whether the init system (PID 1) handles SIGRTMIN+4 (signal {signal}), because /proc/1/status could not be read: {system_error}"
+            "the key-power-off key may not work: vtium cannot tell whether the init system (PID 1) handles SIGRTMIN+4 (signal {signal}), because /proc/1/status could not be read: {system_error}"
         )
     }
 
-    /// `grab-power-off` is bound and `/proc/1/status` has no `line` line,
+    /// `key-power-off` is bound and `/proc/1/status` has no `line` line,
     /// `SigCgt` or `SigBlk`.
     pub fn power_off_no_mask(signal: i32, line: &str) -> String {
         format!(
-            "the grab-power-off key may not work: vtium cannot tell whether the init system (PID 1) handles SIGRTMIN+4 (signal {signal}), because /proc/1/status has no {line} line"
+            "the key-power-off key may not work: vtium cannot tell whether the init system (PID 1) handles SIGRTMIN+4 (signal {signal}), because /proc/1/status has no {line} line"
         )
     }
 
-    /// `grab-power-off` is bound and the `line` line of `/proc/1/status`,
+    /// `key-power-off` is bound and the `line` line of `/proc/1/status`,
     /// `SigCgt` or `SigBlk`, holds `mask`, which is not a hex mask.
     pub fn power_off_bad_mask(signal: i32, line: &str, mask: &str) -> String {
         format!(
-            "the grab-power-off key may not work: vtium cannot tell whether the init system (PID 1) handles SIGRTMIN+4 (signal {signal}), because the {line} line of /proc/1/status is not a hex mask: {mask:?}"
+            "the key-power-off key may not work: vtium cannot tell whether the init system (PID 1) handles SIGRTMIN+4 (signal {signal}), because the {line} line of /proc/1/status is not a hex mask: {mask:?}"
         )
     }
 
@@ -467,10 +467,10 @@ mod tests {
     fn a_notice_names_the_keys_vtium_conf_binds() {
         let mut config = crate::config::Config::default();
         config.set_chords(
-            &crate::config::keys::GRAB_FOCUS_NEXT,
+            &crate::config::keys::KEY_FOCUS_NEXT,
             crate::grab::parse("<Alt>n").unwrap_or_default(),
         );
-        config.set_chords(&crate::config::keys::GRAB_CONSOLE_NEXT, Vec::new());
+        config.set_chords(&crate::config::keys::KEY_CONSOLE_NEXT, Vec::new());
         let bound = Bindings::of(&config);
         assert_eq!(
             session_ended(&bound),

@@ -23,7 +23,7 @@ fn kind(k: &Key) -> String {
         Kind::Command => "command".to_owned(),
         Kind::Rgb => "color, `r,g,b`".to_owned(),
         Kind::Mode => "resolution, one per line".to_owned(),
-        Kind::Grab => "key combinations, `<Mod>...key`, separated by commas".to_owned(),
+        Kind::KeyBinding => "key combinations, `<Mod>...key`, separated by commas".to_owned(),
         Kind::DecoColor => "color: `fg`, a palette number or `#rrggbb`".to_owned(),
         Kind::Char => "character".to_owned(),
         Kind::Size { .. } => "size, `WxH`".to_owned(),
@@ -47,7 +47,7 @@ fn bound(k: &Key) -> String {
         Kind::Command => format!("{TEXT_MAX} bytes in a file"),
         Kind::Rgb => "each 0 to 255".to_owned(),
         Kind::Mode => "names of 63 bytes, each side 1 to 65535".to_owned(),
-        Kind::Grab => format!(
+        Kind::KeyBinding => format!(
             "{TEXT_MAX} bytes; modifiers Shift, Lock, Control, Alt, Logo; keys as xkb names them"
         ),
         Kind::DecoColor => "a palette number from 0 to 255, or six hex digits".to_owned(),
@@ -100,6 +100,16 @@ fn option(k: &Key) -> String {
 
 /// `docs/config.md`.
 pub(super) fn markdown() -> String {
+    let renamed = {
+        let names: Vec<String> = vtium_settings::keys::RENAMED
+            .iter()
+            .map(|(old, key)| format!("`{old}` is `{}`", key.name))
+            .collect();
+        match names.split_last() {
+            Some((last, rest)) => format!("{}, and {last}", rest.join(", ")),
+            None => String::new(),
+        }
+    };
     let mut out = format!(
         "# Configuration\n\
          \n\
@@ -116,6 +126,8 @@ pub(super) fn markdown() -> String {
          A top-level line holds one key: `key=value`, or a switch's `key` to turn it on and `no-key` to turn it off. A section's line is `key = value`. `#` starts a comment at the start of a line or after a blank; a `#` inside a word, or one that opens a `#rrggbb` value, is part of the value, and `\\#` after a blank is a literal `#`. Spaces and tabs around the key and the value are dropped. On the command line a key is `--key=VALUE` or `--key VALUE`, and a switch `--key` or `--no-key`.\n\
          \n\
          vtium reports, once at start, a top-level key it does not know, however often it appears, and a value it cannot use: a number out of bounds, which it clamps, and a value it cannot read, which it ignores, keeping the value the sources before it gave. An error in a section never drops a top-level key. It drops the section or the rule that holds it, or every section when it leaves their structure untrustworthy, as [Invalid files](head-file.md#invalid-files) describes. It reads at most {FILE_MAX} bytes of the file and {LINE_MAX} of a line.\n\
+         \n\
+         Four key bindings had other names before the maintainer renamed them to more accepted terms: {renamed}. vtium still reads each old name as its new one and reports each line that uses it, so that you can rename it. Where a source sets both names, the new one wins.\n\
          \n\
          `install/vtium.conf.example` in `crates/vtium` lists the same keys at their defaults, under the same sections, then the compiled-in looks, heads and rules. Source names the GitHub issue, the specification or the released program each key comes from.\n"
     );

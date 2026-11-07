@@ -812,23 +812,23 @@ fn the_settings_view_lists_every_key_vtium_conf_takes() {
 #[test]
 fn the_settings_view_lists_vtiums_own_keys_with_their_built_in_defaults() {
     let want = [
-        ("grab-scroll-up", "<Shift>Up"),
-        ("grab-scroll-down", "<Shift>Down"),
-        ("grab-page-up", "<Shift>Prior"),
-        ("grab-page-down", "<Shift>Next"),
-        ("grab-prompt-up", "<Ctrl><Shift>Up"),
-        ("grab-prompt-down", "<Ctrl><Shift>Down"),
-        ("grab-zoom-in", "<Ctrl>plus,<Ctrl>equal"),
-        ("grab-zoom-out", "<Ctrl>minus"),
-        ("grab-rotate-cw", "<Logo>plus,<Logo>equal"),
-        ("grab-rotate-ccw", "<Logo>minus"),
-        ("grab-reset", "<Ctrl><Shift>Delete"),
-        ("grab-console-next", "<Ctrl><Logo>Right"),
-        ("grab-console-previous", "<Ctrl><Logo>Left"),
-        ("grab-console-open", "<Ctrl><Logo>Return"),
-        ("grab-console-close", "<Ctrl><Logo>BackSpace"),
-        ("grab-focus-next", "<Ctrl><Logo>Up"),
-        ("grab-focus-previous", "<Ctrl><Logo>Down"),
+        ("key-scroll-up", "<Shift>Up"),
+        ("key-scroll-down", "<Shift>Down"),
+        ("key-page-up", "<Shift>Prior"),
+        ("key-page-down", "<Shift>Next"),
+        ("key-prompt-up", "<Ctrl><Shift>Up"),
+        ("key-prompt-down", "<Ctrl><Shift>Down"),
+        ("key-zoom-in", "<Ctrl>plus,<Ctrl>equal"),
+        ("key-zoom-out", "<Ctrl>minus"),
+        ("key-rotate-cw", "<Logo>plus,<Logo>equal"),
+        ("key-rotate-ccw", "<Logo>minus"),
+        ("key-reset", "<Ctrl><Shift>Delete"),
+        ("key-console-next", "<Ctrl><Logo>Right"),
+        ("key-console-previous", "<Ctrl><Logo>Left"),
+        ("key-console-open", "<Ctrl><Logo>Return"),
+        ("key-console-close", "<Ctrl><Logo>BackSpace"),
+        ("key-focus-next", "<Ctrl><Logo>Up"),
+        ("key-focus-previous", "<Ctrl><Logo>Down"),
     ];
     let listed = model::setting_keys();
     for (name, default) in want {
@@ -844,14 +844,14 @@ fn the_settings_view_lists_vtiums_own_keys_with_their_built_in_defaults() {
     }
     let at = listed
         .iter()
-        .position(|k| k.name == "grab-reset")
+        .position(|k| k.name == "key-reset")
         .expect("listed");
     let mut keys: Vec<&[u8]> = vec![b"\t"];
     keys.extend(std::iter::repeat_n(DOWN, at));
     let mut c = console().keys(&keys);
     run(&mut c);
     let screen = c.seen.clone().expect("the screen");
-    assert!(screen.contains("grab-reset"), "{screen}");
+    assert!(screen.contains("key-reset"), "{screen}");
     assert!(screen.contains("<Ctrl><Shift>Delete (default)"), "{screen}");
     assert!(screen.contains("Reset the console on screen"), "{screen}");
 }

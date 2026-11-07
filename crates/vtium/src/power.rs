@@ -1,4 +1,4 @@
-//! The power keys: `grab-reboot`, `grab-power-off` and `grab-suspend`, the
+//! The power keys: `key-reboot`, `key-power-off` and `key-suspend`, the
 //! seat's keys, second in the key order after the VT's. Each is unbound
 //! until the configuration binds a [`crate::grab::Chord`] to it, and acts
 //! once a press through [`Power`]: the machine's ([`System`]), or a
@@ -12,11 +12,11 @@ use vtium_platform::power::Suspend;
 /// A power key.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PowerKey {
-    /// `grab-reboot`.
+    /// `key-reboot`.
     Reboot,
-    /// `grab-power-off`.
+    /// `key-power-off`.
     PowerOff,
-    /// `grab-suspend`.
+    /// `key-suspend`.
     Suspend,
 }
 
@@ -57,11 +57,11 @@ impl Power for System {
     fn suspend(&mut self) -> io::Result<Option<Child>> {
         Ok(match vtium_platform::power::suspend()? {
             Suspend::Logind => {
-                log::warn!("grab-suspend: logind took the request");
+                log::warn!("key-suspend: logind took the request");
                 None
             }
             Suspend::Sysfs(child) => {
-                log::warn!("grab-suspend: writing mem to /sys/power/state");
+                log::warn!("key-suspend: writing mem to /sys/power/state");
                 Some(child)
             }
         })
@@ -83,24 +83,24 @@ pub fn press(key: PowerKey, power: &mut dyn Power, sleeping: bool) -> Option<Chi
     let done = match key {
         PowerKey::Reboot => match ctrl_alt_del(power) {
             0 => {
-                log::warn!("grab-reboot: asking init to reboot");
+                log::warn!("key-reboot: asking init to reboot");
                 power.interrupt_init().map(|()| None)
             }
             _ => {
-                log::warn!("grab-reboot: restarting the kernel at once");
+                log::warn!("key-reboot: restarting the kernel at once");
                 power.restart_kernel().map(|()| None)
             }
         },
         PowerKey::PowerOff => {
-            log::warn!("grab-power-off: asking init to power off");
+            log::warn!("key-power-off: asking init to power off");
             power.power_off_init().map(|()| None)
         }
         PowerKey::Suspend if sleeping => {
-            log::warn!("grab-suspend: the last suspend has not woken yet");
+            log::warn!("key-suspend: the last suspend has not woken yet");
             Ok(None)
         }
         PowerKey::Suspend => {
-            log::warn!("grab-suspend: suspending");
+            log::warn!("key-suspend: suspending");
             power.suspend()
         }
     };
@@ -113,9 +113,9 @@ pub fn press(key: PowerKey, power: &mut dyn Power, sleeping: bool) -> Option<Chi
 /// The configuration key that binds `key`.
 pub fn name(key: PowerKey) -> &'static str {
     match key {
-        PowerKey::Reboot => "grab-reboot",
-        PowerKey::PowerOff => "grab-power-off",
-        PowerKey::Suspend => "grab-suspend",
+        PowerKey::Reboot => "key-reboot",
+        PowerKey::PowerOff => "key-power-off",
+        PowerKey::Suspend => "key-suspend",
     }
 }
 
@@ -124,11 +124,11 @@ pub fn name(key: PowerKey) -> &'static str {
 fn ctrl_alt_del(power: &mut dyn Power) -> i64 {
     match power.ctrl_alt_del() {
         Ok(text) => text.trim().parse().unwrap_or_else(|_| {
-            log::warn!("grab-reboot: cannot read /proc/sys/kernel/ctrl-alt-del; asking init");
+            log::warn!("key-reboot: cannot read /proc/sys/kernel/ctrl-alt-del; asking init");
             0
         }),
         Err(e) => {
-            log::warn!("grab-reboot: cannot open /proc/sys/kernel/ctrl-alt-del ({e}); asking init");
+            log::warn!("key-reboot: cannot open /proc/sys/kernel/ctrl-alt-del ({e}); asking init");
             0
         }
     }
