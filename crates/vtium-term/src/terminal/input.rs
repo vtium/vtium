@@ -1,5 +1,7 @@
 //! What the terminal sends the program for the keyboard, the pointer,
-//! focus and pastes, as the host reports them: xterm's encodings.
+//! focus and pastes, as the host reports them: xterm's encodings, and for
+//! a key while the kitty keyboard protocol's flags are not 0, that
+//! protocol's (`kitty_keyboard.rs`).
 
 use super::modes::{MouseEncoding, MouseTracking};
 use super::{State, Terminal};
@@ -18,14 +20,20 @@ impl Mods {
     pub const LOGO: Self = Self(16);
     /// NumLock is on: a state, as Lock is, which mode 1035 reads.
     pub const NUM: Self = Self(32);
+    /// Hyper, where the keymap gives it a modifier of its own (ADR-1005,
+    /// D8). Only the kitty keyboard protocol reports it.
+    pub const HYPER: Self = Self(64);
+    /// Meta, where the keymap gives it a modifier of its own (ADR-1005,
+    /// D8). Only the kitty keyboard protocol reports it.
+    pub const META: Self = Self(128);
 
     pub const fn empty() -> Self {
         Self(0)
     }
 
-    /// From the bits above; others are dropped.
+    /// From the bits above, which take every bit of a byte.
     pub const fn from_bits(bits: u8) -> Self {
-        Self(bits & 63)
+        Self(bits)
     }
 
     pub const fn contains(self, other: Self) -> bool {
@@ -42,6 +50,21 @@ impl Mods {
         Self(self.0 & (Self::SHIFT.0 | Self::ALT.0 | Self::CTRL.0))
     }
 
+    /// The kitty keyboard protocol's modifier bits: shift 1, alt 2, ctrl
+    /// 4, super 8, hyper 16, meta 32, caps_lock 64 and num_lock 128
+    /// (its "Modifiers").
+    pub(super) fn kitty(self) -> u8 {
+        let bit = |m: Self, k: u8| if self.0 & m.0 != 0 { k } else { 0 };
+        bit(Self::SHIFT, 1)
+            | bit(Self::ALT, 2)
+            | bit(Self::CTRL, 4)
+            | bit(Self::LOGO, 8)
+            | bit(Self::HYPER, 16)
+            | bit(Self::META, 32)
+            | bit(Self::LOCK, 64)
+            | bit(Self::NUM, 128)
+    }
+
     /// xterm's modifier parameter: 1 plus Shift 1, Alt 2, Ctrl 4; `None`
     /// with none of them.
     fn param(self) -> Option<u8> {
@@ -50,6 +73,60 @@ impl Mods {
             | u8::from(m.contains(Self::ALT)) << 1
             | u8::from(m.contains(Self::CTRL)) << 2;
         (bits != 0).then(|| bits.saturating_add(1))
+    }
+}
+
+/// What happened to a key (ADR-1005, D2).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum KeyEvent {
+    #[default]
+    Press,
+    /// The host's repeat of a key held down, sent as a press is.
+    Repeat,
+    /// The key was let go. Nothing is sent for it while the kitty keyboard
+    /// protocol's flags are 0, nor under the flags vtium implements.
+    Release,
+}
+
+/// A key, as the host reports it to [`Terminal::key`] (ADR-1005, D2).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct Key {
+    /// Pressed, repeated or released.
+    pub event: KeyEvent,
+    /// The X11 keysym the key makes with the modifiers held.
+    pub keysym: u32,
+    /// The keysym the key makes with no modifier in the active layout, the
+    /// unshifted key, or 0 when the host does not report it. The kitty
+    /// keyboard protocol sends it as the key's code.
+    pub unshifted: u32,
+    /// The character the key types on the US PC-101 layout, the base
+    /// layout key, when the host reports it.
+    pub base: Option<char>,
+    /// The keysym an ASCII layout gives the same key, which Ctrl reads in
+    /// xterm's encoding, or 0 for none.
+    pub ascii: u32,
+    /// The character the key makes, after compose.
+    pub text: Option<char>,
+    /// The modifiers held, with the effect of this event included, and
+    /// [`Mods::NUM`] while NumLock is on.
+    pub mods: Mods,
+}
+
+impl Key {
+    /// A press of the key that makes `keysym` with `mods` held, with the
+    /// ASCII layout's keysym `ascii` and the character `text`: what a host
+    /// reports that knows nothing of releases, the unshifted key or the
+    /// base layout key.
+    pub const fn press(keysym: u32, ascii: u32, mods: Mods, text: Option<char>) -> Self {
+        Self {
+            event: KeyEvent::Press,
+            keysym,
+            unshifted: 0,
+            base: None,
+            ascii,
+            text,
+            mods,
+        }
     }
 }
 
@@ -77,7 +154,7 @@ pub enum MouseEvent {
 
 /// The X11 keysyms the encoding names (xkbcommon's
 /// `xkbcommon-keysyms.h`).
-mod sym {
+pub(super) mod sym {
     pub const BACKSPACE: u32 = 0xff08;
     pub const TAB: u32 = 0xff09;
     pub const LINEFEED: u32 = 0xff0a;
@@ -96,6 +173,11 @@ mod sym {
     pub const SELECT: u32 = 0xff60;
     pub const INSERT: u32 = 0xff63;
     pub const FIND: u32 = 0xff68;
+    pub const PAUSE: u32 = 0xff13;
+    pub const SCROLL_LOCK: u32 = 0xff14;
+    pub const PRINT: u32 = 0xff61;
+    pub const MENU: u32 = 0xff67;
+    pub const NUM_LOCK: u32 = 0xff7f;
     pub const KP_SPACE: u32 = 0xff80;
     pub const KP_TAB: u32 = 0xff89;
     pub const KP_ENTER: u32 = 0xff8d;
@@ -123,6 +205,13 @@ mod sym {
     pub const KP_EQUAL: u32 = 0xffbd;
     pub const F1: u32 = 0xffbe;
     pub const F20: u32 = 0xffd1;
+    pub const F35: u32 = 0xffe0;
+    /// Shift_L to Hyper_R, the modifier keys, Caps_Lock and Shift_Lock
+    /// among them.
+    pub const SHIFT_L: u32 = 0xffe1;
+    pub const HYPER_R: u32 = 0xffee;
+    pub const ISO_LEVEL3_SHIFT: u32 = 0xfe03;
+    pub const ISO_LEVEL5_SHIFT: u32 = 0xfe11;
     pub const DELETE: u32 = 0xffff;
     pub const ISO_LEFT_TAB: u32 = 0xfe20;
 }
@@ -148,7 +237,7 @@ fn ctrl_byte(sym: u32) -> Option<u8> {
 /// The character a printable key made, after Shift: from the keysym where
 /// it is Latin-1, else the host's character; none for function, keypad and
 /// other keysyms from 0xFD00 up (ctlseqs, "Alt and Meta Keys").
-fn key_char(keysym: u32, unicode: Option<char>) -> Option<u32> {
+pub(super) fn key_char(keysym: u32, unicode: Option<char>) -> Option<u32> {
     if (0x20..=0x7e).contains(&keysym) || (0xa0..=0xff).contains(&keysym) {
         return Some(keysym);
     }
@@ -371,7 +460,7 @@ impl State {
     /// Appends a typed or pasted character in the input's encoding: one
     /// byte in 7-bit and 8-bit input, `?` for a character they cannot
     /// carry.
-    fn push_char(&self, c: char, out: &mut Vec<u8>) {
+    pub(super) fn push_char(&self, c: char, out: &mut Vec<u8>) {
         let max = match self.input_mode {
             InputMode::Utf8 => {
                 let mut buf = [0; 4];
@@ -550,19 +639,35 @@ impl State {
 }
 
 impl Terminal {
-    /// Sends what a key press makes, as the host reports it: `keysym` the
-    /// X11 keysym after Shift, `ascii` the keysym an ASCII layout gives
-    /// the same key (0 for none), `unicode` the character it makes, and
-    /// `mods` the modifiers held, with [`Mods::NUM`] while NumLock is on.
-    /// Alt acts where xterm lets it, as modes 1034 and 1036 say, and Left
-    /// and Right swap as [`arrow_keysym`](Self::arrow_keysym) says. Returns
-    /// whether anything was sent.
-    pub fn key(&mut self, keysym: u32, ascii: u32, mods: Mods, unicode: Option<char>) -> bool {
-        let (keysym, ascii) = (self.arrow_keysym(keysym), self.arrow_keysym(ascii));
+    /// Sends what a key makes, as the host reports it in `key`. While the
+    /// kitty keyboard protocol's flags in force on the screen shown are
+    /// not 0, that protocol decides the bytes (ADR-1005, D6). While they
+    /// are 0, a press or a repeat sends xterm's encoding, with
+    /// modifyOtherKeys at the level the program set, Alt acting where
+    /// xterm lets it, as modes 1034 and 1036 say, and a release sends
+    /// nothing. Left and Right swap as
+    /// [`arrow_keysym`](Self::arrow_keysym) says. Returns whether anything
+    /// was sent.
+    pub fn key(&mut self, key: &Key) -> bool {
+        let keysym = self.arrow_keysym(key.keysym);
+        let unshifted = self.arrow_keysym(key.unshifted);
+        let flags = self.state.keyboard.flags(self.state.screen.alternate());
+        if flags != 0 {
+            let Some(bytes) = self.state.kitty_key_bytes(key, keysym, unshifted) else {
+                return false;
+            };
+            self.send(&bytes);
+            return true;
+        }
+        if key.event == KeyEvent::Release {
+            return false;
+        }
+        let ascii = self.arrow_keysym(key.ascii);
+        let mods = key.mods;
         // Ctrl reads the ASCII layout's keysym, so Ctrl+C works whatever
         // layout is active.
         let sym = if ascii == 0 { keysym } else { ascii };
-        let Some((bytes, alt_acts)) = self.state.key_bytes(keysym, sym, mods, unicode) else {
+        let Some((bytes, alt_acts)) = self.state.key_bytes(keysym, sym, mods, key.text) else {
             return false;
         };
         let out = if alt_acts && mods.contains(Mods::ALT) {
