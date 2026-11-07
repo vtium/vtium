@@ -1,0 +1,17 @@
+> size 20 2
+> send "\e[>4;2m"
+> key 1 mods=ctrl
+< reply "\e[27;5;49~"
+> send "\e[>1u"
+> key 1 mods=ctrl
+< reply "\e[49;5u"
+> send "\e[?4m"
+< reply "\e[>4;2m"
+> send "\e[>4;1m"
+> key a mods=alt
+< reply "\e[97;3u"
+> send "\e[<u"
+> key a mods=alt
+< reply "\e[27;3;97~"
+> key Escape
+< reply "\e"

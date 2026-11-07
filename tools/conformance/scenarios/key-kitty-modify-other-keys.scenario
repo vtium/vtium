@@ -1,0 +1,16 @@
+# modifyOtherKeys waits while the kitty keyboard protocol's flags are not
+# 0: XTMODKEYS still sets its level and XTQMODKEYS still reports it, but
+# the protocol decides the keys' bytes until a pop puts 0 in force again.
+# spec: kitty's Comprehensive keyboard handling in terminals: Progressive enhancement; ctlseqs, XTMODKEYS and modifyOtherKeys; ADR-1005, D6
+# covers: input.kitty-keyboard
+size 20 2
+send "\e[>4;2m"
+key 1 mods=ctrl
+send "\e[>1u"
+key 1 mods=ctrl
+send "\e[?4m"
+send "\e[>4;1m"
+key a mods=alt
+send "\e[<u"
+key a mods=alt
+key Escape
