@@ -226,21 +226,21 @@ impl Layout {
     }
 }
 
-const UNSCII_WHY: &str = "ADR-1200 D7 draws the built-in Unscii-8 for cells under 16 pixels high, and #118's rule has `font-size=0` take a set's smallest height when 16-pixel cells would leave fewer than 80x25 of them, so vtium draws this display in 8x8 cells with no font keys at all. It is the most text the display holds at a cell a person can still read, and it costs no disk: D11 builds nothing beyond the built-ins for an English machine at this size. Unscii-8 holds no CJK or Hangul, nor the emoji and private-use symbols, so those draw as the missing glyph, U+25A1, until #141's per-character fallback draws them from unifont; in a zh, ja or ko locale D7 draws unifont at 16 pixels instead.";
+const UNSCII_WHY: &str = "vtium draws the built-in Unscii-8 in character cells under 16 pixels high. See [the issue that builds Unscii-8 into vtium](https://github.com/vtium/vtium/issues/107). With `font-size=0`, vtium takes the font's own smallest height where 16-pixel cells would leave fewer than 80x25 of them. See [the issue that sets the size `font-size=0` picks](https://github.com/vtium/vtium/issues/118). So vtium draws this display in 8x8 cells with no font keys at all. That is the most text the display holds at a size a person can still read. It costs no disk, because the built-in fonts are part of the vtium binary. Unscii-8 holds no CJK characters, no Hangul, no emoji and none of the private-use symbols, so those draw as the missing glyph, U+25A1. See [the issue about small-panel fonts that cover more](https://github.com/vtium/vtium/issues/307). In a zh, ja or ko locale, vtium draws the built-in unifont at 16 pixels instead.";
 
-const UNIFONT_WHY: &str = "16-pixel cells leave at least 80x25 here, so #118's rule keeps `font-size=0`'s 16 pixels, and ADR-1200 D7 draws the built-in unifont from 16 pixels: 8x16 cells for Latin, Greek and Cyrillic and 16x16 for CJK and Hangul, which it covers whole, with nothing built. The size the display wants is under 24 pixels, the smallest outline size D11 builds, so a default machine holds no outline set for it. Emoji draw as unifont's monochrome glyphs where it has one, and Nerd Font symbols as the missing glyph; the outline profiles draw both from the desktop set.";
+const UNIFONT_WHY: &str = "16-pixel cells leave at least 80x25 cells here, so `font-size=0` keeps its 16 pixels. See [the issue that sets the size `font-size=0` picks](https://github.com/vtium/vtium/issues/118). From 16 pixels, vtium draws the built-in unifont: 8x16 cells for Latin, Greek and Cyrillic, and 16x16 for CJK and Hangul, which it covers in full. See [the issue that builds unifont into vtium](https://github.com/vtium/vtium/issues/15). It costs no disk, because the built-in fonts are part of the vtium binary. Emoji draw as unifont's monochrome glyphs where it has one, and Nerd Font symbols draw as the missing glyph. The outline profiles draw both from the desktop font set.";
 
-const GRAY_WHY: &str = "vtium draws a gray panel exactly as a color display and lets the panel's driver convert each pixel (#135): the screens here are the color profile's drawing taken through the driver's arithmetic, a simulation of what the panel shows, not vtium's output. The font is the color profile's at this size, for the same reasons; a gray panel's few levels keep the bitmap glyphs crisp, and the card's gray bands show which levels survive the conversion.";
+const GRAY_WHY: &str = "vtium draws a gray panel exactly as it draws a color display, and the panel's driver converts each pixel. See [the issue about 1-bit and gray displays](https://github.com/vtium/vtium/issues/135). The screens here are the color profile's drawing taken through the driver's arithmetic: a simulation of what the panel shows, not vtium's output. The font is the color profile's at this size, for the same reasons; a gray panel's few levels keep the bitmap glyphs crisp, and the card's gray bands show which levels survive the conversion.";
 
-const ONE_BIT_WHY: &str = "A 1-bit panel lights a pixel or does not, so a bitmap font, 1-bit already, draws on it exactly: the built-in Unscii-8 at 8x8 gives the same 40x30 cells as the color profile, for the reasons that profile gives. vtium-render maps each cell's colors to lit or unlit by the cell, never by brightness, with polarity from the default background, and cuts every coverage at half (#135): colors show only where a cell's background differs from the default, dim draws as plain text, and the shades draw as ordered patterns.";
+const ONE_BIT_WHY: &str = "A 1-bit panel lights a pixel or does not, so a bitmap font, 1-bit already, draws on it exactly: the built-in Unscii-8 at 8x8 gives the same 40x30 cells as the color profile, for the reasons that profile gives. vtium-render maps each cell's colors to lit or unlit by the cell, never by brightness, with polarity from the default background, and cuts every coverage at half. See [the issue about 1-bit and gray displays](https://github.com/vtium/vtium/issues/135). Colors show only where a cell's background differs from the default, dim draws as plain text, and the shades draw as ordered patterns.";
 
-const DESKTOP_WHY: &str = "ADR-1200 D11 builds one outline size for the display the package hook sees, snapped down to 24, 32 or 48 pixels, with unifont filling the outline font's gaps. The desktop frit starts at 18 points, 24 pixels at 96 DPI, and these profiles draw it in 24- and 32-pixel cells, from JetBrains Mono for text, Symbols Nerd Font Mono for the private-use symbols and Noto Color Emoji for emoji, with the built-in unifont last; `font-size=0` picks the strike, the largest whole multiple of a strike's height under the size it asks (ADR-1200 D9). Outline glyphs draw antialiased at this size. A set maps single codepoints, so ZWJ sequences, flags and keycaps draw as their parts until #144 shapes them, and the scripts that need shaping draw unshaped.";
+const DESKTOP_WHY: &str = "vtium draws an outline font only when you name a font set that lists one. This profile's vtium.conf names the desktop font set with `font-name=desktop`. The desktop font set draws text from JetBrains Mono, the private-use symbols from Symbols Nerd Font Mono and emoji from Noto Color Emoji, with the built-in unifont last for every character the others lack. vtium's font helper generates the glyphs from these fonts while vtium runs. See [the issue that generates glyphs in the font helper](https://github.com/vtium/vtium/issues/145). The font set starts at 18 points, which is 24 pixels at 96 DPI, and these profiles draw it in 24- and 32-pixel cells. Outline glyphs draw antialiased at this size. The font helper draws an emoji sequence whole, so skin tones, ZWJ sequences, flags and keycaps each draw as one emoji. Scripts that need shaping, such as Devanagari and Tamil, draw unshaped. See [the text shaping issue](https://github.com/vtium/vtium/issues/144).";
 
-const TINY5_WHY: &str = "This profile shows an example of the smallest font, the frit `tiny5`, which is provided as an optional configuration .vtfrit profile. vtium's own choice for this display is the built-in Unscii-8 at 8x8, which the profile `320x240` shows; a person who wants `tiny5` installs the frit and its font by hand and names it in `font-name`. Tiny5 Mono, a pixel font whose capitals are 5 pixels tall, draws at its own 6x9 cell, which gives this display 53x26 cells where the built-in Unscii-8's 8x8 gives 40x30: a third more columns, for four fewer rows. It holds ASCII, Latin-1, code page 437, Greek, Armenian, box drawing, blocks and Braille, 4,882 characters in all, so most of the card's text draws in it; vtium's sprites draw the box drawing, blocks and Braille. vtium ships the frit `tiny5` (#217) and never the font, so a machine needs Tiny5 Mono's BDF file installed by hand, as the frit's comment says. Its grid is shorter than one of the card's 40x30 blocks, so each block takes two screens here: its first 26 rows, then its title again and its last 4 rows. A character Tiny5 Mono lacks draws on these screens as the font's missing glyph, as CJK, Hangul and emoji do here. The console draws such a character in the built-in Unscii-8 where Unscii-8 holds it, centered in the 6x9 cell with a column cut off each side (ADR-1200 D7), which these screens, drawn from the frit's glyphs alone, do not show.";
+const TINY5_WHY: &str = "This profile shows the smallest font vtium ships a font set for: the example font set `tiny5`. vtium's own choice for this display is the built-in Unscii-8 at 8x8, which the profile `320x240` shows. If you want `tiny5`, you install the font set and its font by hand and name it in `font-name`. Tiny5 Mono is a pixel font whose capitals are 5 pixels tall. It draws at its own 6x9 character cell, which gives this display 53x26 cells, where the built-in Unscii-8's 8x8 gives 40x30: a third more columns, for four fewer rows. It holds ASCII, Latin-1, code page 437, Greek, Armenian, box drawing, blocks and Braille, 4,882 characters in all, so most of the card's text draws in it. vtium's sprites draw the box drawing, blocks and Braille. vtium ships the font set `tiny5` but not the font, so a machine needs Tiny5 Mono's BDF file installed by hand, as the font set's comment says. See [the Tiny5 Mono issue](https://github.com/vtium/vtium/issues/217). Its grid is shorter than one of the card's 40x30 blocks, so each block takes two screens here: its first 26 rows, then its title again and its last 4 rows. A character Tiny5 Mono lacks draws on these screens as the font's missing glyph, as CJK, Hangul and emoji do here. The console draws such a character in the built-in Unscii-8 where Unscii-8 holds it, centered in the 6x9 cell with a column cut off each side. These screens draw only the font set's own glyphs, so they do not show that. See [the issue about the fallback to the built-in font](https://github.com/vtium/vtium/issues/141).";
 
-const TINY5_CONF: &str = "# The frit tiny5: crates/vtium-config/frits/tiny5.vtfrit in\n# /etc/vtium/fonts, with Tiny5 Mono's BDF file installed where its\n# source= line says. It draws at its own 6x9 cell.\nfont-name=tiny5\nfont-size=0\n";
+const TINY5_CONF: &str = "# The font set tiny5: crates/vtium-config/frits/tiny5.vtfrit in\n# /etc/vtium/fonts, with Tiny5 Mono's BDF file installed where its\n# source= line says. It draws at its own 6x9 cell.\nfont-name=tiny5\nfont-size=0\n";
 
-const DESKTOP_CONF: &str = "# The desktop frit: tools/specimens/frits/desktop.vtfrit in\n# /etc/vtium/fonts, its glyphs generated at run time (ADR-1301 D2).\nfont-name=desktop\nfont-size=0\n";
+const DESKTOP_CONF: &str = "# The desktop font set: tools/specimens/frits/desktop.vtfrit in\n# /etc/vtium/fonts, its glyphs generated while vtium runs.\nfont-name=desktop\nfont-size=0\n";
 
 /// Every profile, smallest display first.
 pub const PROFILES: &[Profile] = &[
@@ -276,7 +276,7 @@ pub const PROFILES: &[Profile] = &[
         cell: (8, 8),
         summary: "minspec's display floor, a 320x240 SPI panel",
         why: UNSCII_WHY,
-        conf: "# vtium's defaults: font-size=0 picks 8 pixels here (#118), which\n# draws the built-in Unscii-8 (ADR-1200 D7).\nfont-size=0\n",
+        conf: "# vtium's defaults: font-size=0 picks 8 pixels here, which\n# draws the built-in Unscii-8.\nfont-size=0\n",
         panel: None,
         bar_screens: 2,
     },
@@ -289,7 +289,7 @@ pub const PROFILES: &[Profile] = &[
         display: Depth::Color,
         glyphs: Glyphs::Tiny5 { height: 9 },
         cell: (6, 9),
-        summary: "minspec's display floor, a 320x240 SPI panel, in the example frit tiny5",
+        summary: "minspec's display floor, a 320x240 SPI panel, in the example font set tiny5",
         why: TINY5_WHY,
         conf: TINY5_CONF,
         panel: None,
@@ -309,7 +309,7 @@ pub const PROFILES: &[Profile] = &[
         cell: (8, 8),
         summary: "A 320x240 panel of 4 gray levels, as st7586 drives",
         why: GRAY_WHY,
-        conf: "# vtium's defaults: font-size=0 picks 8 pixels here (#118), which\n# draws the built-in Unscii-8 (ADR-1200 D7). The panel converts.\nfont-size=0\n",
+        conf: "# vtium's defaults: font-size=0 picks 8 pixels here, which\n# draws the built-in Unscii-8. The panel converts.\nfont-size=0\n",
         panel: Some(Panel::St7586),
         bar_screens: 2,
     },
@@ -327,7 +327,7 @@ pub const PROFILES: &[Profile] = &[
         cell: (8, 8),
         summary: "A 320x240 panel of 16 gray levels, as the SSD132x panels take",
         why: GRAY_WHY,
-        conf: "# vtium's defaults: font-size=0 picks 8 pixels here (#118), which\n# draws the built-in Unscii-8 (ADR-1200 D7). The panel converts.\nfont-size=0\n",
+        conf: "# vtium's defaults: font-size=0 picks 8 pixels here, which\n# draws the built-in Unscii-8. The panel converts.\nfont-size=0\n",
         panel: Some(Panel::Ssd132x),
         bar_screens: 2,
     },
@@ -345,7 +345,7 @@ pub const PROFILES: &[Profile] = &[
         cell: (8, 16),
         summary: "A 640x480 panel of 16 gray levels, as the SSD132x panels take",
         why: GRAY_WHY,
-        conf: "# vtium's defaults: font-size=0 picks 16 pixels here, which draws\n# the built-in unifont (ADR-1200 D7). The panel converts.\nfont-size=0\n",
+        conf: "# vtium's defaults: font-size=0 picks 16 pixels here, which draws\n# the built-in unifont. The panel converts.\nfont-size=0\n",
         panel: Some(Panel::Ssd132x),
         bar_screens: 1,
     },
@@ -363,7 +363,7 @@ pub const PROFILES: &[Profile] = &[
         cell: (8, 8),
         summary: "A 480x320 SPI panel, 3.5 inches",
         why: UNSCII_WHY,
-        conf: "# vtium's defaults: font-size=0 picks 8 pixels here (#118), which\n# draws the built-in Unscii-8 (ADR-1200 D7).\nfont-size=0\n",
+        conf: "# vtium's defaults: font-size=0 picks 8 pixels here, which\n# draws the built-in Unscii-8.\nfont-size=0\n",
         panel: None,
         bar_screens: 1,
     },
@@ -381,7 +381,7 @@ pub const PROFILES: &[Profile] = &[
         cell: (8, 16),
         summary: "VGA, the smallest display with 80 columns of 16-pixel text",
         why: UNIFONT_WHY,
-        conf: "# vtium's defaults: font-size=0 picks 16 pixels here, which draws\n# the built-in unifont (ADR-1200 D7).\nfont-size=0\n",
+        conf: "# vtium's defaults: font-size=0 picks 16 pixels here, which draws\n# the built-in unifont.\nfont-size=0\n",
         panel: None,
         bar_screens: 1,
     },
@@ -399,7 +399,7 @@ pub const PROFILES: &[Profile] = &[
         cell: (8, 16),
         summary: "A 7-inch panel, as on the Raspberry Pi touch display",
         why: UNIFONT_WHY,
-        conf: "# vtium's defaults: font-size=0 picks 16 pixels here, which draws\n# the built-in unifont (ADR-1200 D7).\nfont-size=0\n",
+        conf: "# vtium's defaults: font-size=0 picks 16 pixels here, which draws\n# the built-in unifont.\nfont-size=0\n",
         panel: None,
         bar_screens: 1,
     },
@@ -416,8 +416,8 @@ pub const PROFILES: &[Profile] = &[
         },
         cell: (8, 16),
         summary: "A common laptop panel",
-        why: "`font-size=0` asks 19 pixels here, and a bitmap set draws at the largest whole multiple of its cell that fits (ADR-1200 D9), so the built-in unifont (D7) draws at 16 pixels, 170x48 cells. 19 pixels is under 24, the smallest outline size D11 builds, so a default machine holds no outline set for this display. Emoji draw as unifont's monochrome glyphs where it has one, and Nerd Font symbols as the missing glyph; the outline profiles draw both from the desktop set.",
-        conf: "# vtium's defaults: font-size=0 asks 19 pixels here, and unifont\n# draws at 16, its largest whole multiple that fits (ADR-1200 D9).\nfont-size=0\n",
+        why: "With `font-size=0`, vtium asks for 19 pixels here. See [the issue that sets the size `font-size=0` picks](https://github.com/vtium/vtium/issues/118). A bitmap font draws at the largest whole multiple of its own height that fits. See [the issue that steps a font through its sizes](https://github.com/vtium/vtium/issues/126). So the built-in unifont draws at 16 pixels, which gives 170x48 cells. Emoji draw as unifont's monochrome glyphs where it has one, and Nerd Font symbols draw as the missing glyph. The outline profiles draw both from the desktop font set.",
+        conf: "# vtium's defaults: font-size=0 asks 19 pixels here, and unifont\n# draws at 16, its largest whole multiple that fits.\nfont-size=0\n",
         panel: None,
         bar_screens: 1,
     },
