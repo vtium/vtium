@@ -1062,7 +1062,7 @@ const fn dejavu(name: &'static str, screen: Screen) -> Screen {
     }
 }
 
-const DEJAVU_DESC: &str = "The screen of the same name without `-dejavu`, with the same bytes, takes, selection and pictures, drawn in the test font set without its color emoji font: DejaVu Sans Mono's Regular, Bold, Oblique and Bold Oblique faces, then Noto Sans CJK, as the console draws a font set, and in the built-in font for what neither holds: the superscript alef U+0670 and the precomposed Ấ, which DejaVu Sans Mono lacks. A cluster that holds the superscript alef draws the rest of the cluster as DejaVu Sans Mono shapes it, its marks where the font puts them, above the row where they reach past it, and the built-in font's superscript alef laid over it inside the cell: lam with shadda, fatha and superscript alef draws as lam with shadda and fatha draws, with the alef added. Its Oblique face holds no Arabic, so italic Arabic draws as the regular face's glyphs slanted. Correct: each glyph where its font puts it, and the ink a real font sends past its cell drawn into the neighbouring cells by the rules the test-font screen's caption gives; where DejaVu Sans Mono's ink stays in its cell, as it does for most glyphs at most heights, nothing reaches the cells around it.";
+const DEJAVU_DESC: &str = "The screen of the same name without `-dejavu`, with the same bytes, takes, selection and pictures, drawn in the test font set without its color emoji font: DejaVu Sans Mono's Regular, Bold, Oblique and Bold Oblique faces, then Noto Sans Hebrew and Noto Sans Arabic, which draw the Hebrew and Arabic blocks, then Noto Sans CJK, as the console draws a font set, and in the built-in font for what none holds, such as the precomposed Ấ, which DejaVu Sans Mono lacks. The Arabic comes from Noto Sans Arabic at DejaVu Sans Mono's size, each letter in the joined form its neighbours give it, the run drawn right to left (ADR-1004 D3, D6), and lam with shadda, fatha and superscript alef drawn whole as the font shapes it. Noto Sans Arabic has no italic face, so italic Arabic draws as its regular glyphs slanted. Correct: each glyph where its font puts it, and the ink a real font sends past its cell drawn into the neighbouring cells by the rules the test-font screen's caption gives; where DejaVu Sans Mono's ink stays in its cell, as it does for most glyphs at most heights, nothing reaches the cells around it.";
 
 /// The ink screens, each drawn in the ink test font, on a 1-bit display,
 /// in DejaVu Sans Mono and in DejaVu Sans Mono on a 1-bit display.
@@ -1241,15 +1241,15 @@ const ONE_BIT_DESC: &str = "The screen of the same name without `-1bit`, drawn t
 
 const OVERFLOW_ACCENTS_DESC: &str = "Accented capitals whose accents pass the top of their row, in the ink test font built in memory, drawn at every cell height from 12 to 32 pixels from the top down, then seven more times at 16 pixels: with a block, an underline and a bar cursor on the É of the third row and on the j above it, and with blinking text in its hidden phase. Each drawing is 18 by 4 cells: À, É, Î, Ấ and Ộ, then ÀÉÎ reversed and ÉÎ in red, on the grid's first row; gjpqy___ twice and ç_ on cells that alternate between blue and olive; below them À, É, Î, Ấ, Ộ, E with a combining acute, H with a combining acute and H with a combining circumflex and dot below, on the alternating cells the other way round, a blinking ÉÎ and ÀÉÎ reversed; and gjpqy___ and a reversed gjpqy in the last row. A selection runs from the ninth cell of the second row to the twelfth of the third. Correct (ADR-1306 D1, D4, D6): on the first row each accent cut at the grid's top edge; in the third row each accent whole in the cell above its letter, over that cell's blue or olive background, which never paints over it, Ấ's acute reaching half a cell up; E with the combining acute drawn as É is; Ộ's dot whole in the row below; where the second row's descenders and the third row's accents meet, each cell's own glyph over the ink it receives; the selected capitals in the first eight cells of the third row, under unselected cells, their accents there in the colors they have unselected; the reversed ÀÉÎ of the third row, unselected, under selected cells, their accents there in the selection's text color, since a selection takes over the ink inside it; the blinking ÉÎ, selected under selected cells, their accents cut at the top of their row in every take, since a blinking letter's ink stays in its own cell. In the cursor takes, at 16 pixels, where the j above the É hides most of its acute: a block cursor on the É draws its cell in the cursor's colors and leaves the acute in the j's cell in the colors it has unselected; a block cursor on the j draws the acute inside it in the cursor's text color; an underline cursor on the É underlines its cell, and on the j the acute crosses the underline; a bar cursor on the É stands in place of the É, its acute still above it, and on the j it stands in place of the j, over the acute. In the last take the blinking letters dimmed, as vtium draws blinking text in its hidden phase, and every other pixel as in the 16-pixel take of the sweep.";
 
-const OVERFLOW_MARKS_DESC: &str = "Arabic letters with marks above and below their row, in the ink test font built in memory, drawn at every cell height from 12 to 32 pixels from the top down. Each drawing is 16 by 3 cells: a row of empty cells that alternate between blue and olive; beh with fatha, beh with kasra, lam with shadda and fatha, noon with damma, alef with sukun, beh with kasratan, lam with shadda, fatha and the superscript alef, and beh with the superscript alef, on alternating cells, then lam with shadda and fatha and noon with damma again; and another row of empty alternating cells. The terminal lays the letters out left to right, one cell each. Correct (ADR-1306 D1, D2): each mark above its letter whole in the row above, where the font puts it, over that row's backgrounds; kasra and kasratan whole in the row below; lam with shadda and fatha at its full height, the lam's stem passing into the row above; the superscript alef, which stands past the one row ink may reach, moved down or scaled with its letter until it ends inside the row above, at every height.";
+const OVERFLOW_MARKS_DESC: &str = "Arabic letters with marks above and below their row, in the ink test font built in memory, drawn at every cell height from 12 to 32 pixels from the top down. Each drawing is 16 by 3 cells: a row of empty cells that alternate between blue and olive; beh with fatha, beh with kasra, lam with shadda and fatha, noon with damma, alef with sukun, beh with kasratan, lam with shadda, fatha and the superscript alef, and beh with the superscript alef, on alternating cells, then lam with shadda and fatha and noon with damma again; and another row of empty alternating cells. The program writes the letters in the order they are read, and vtium draws them right to left in the order the bidirectional algorithm gives, one cell each, each cell keeping its background (ADR-1004 D3): the two letters after the space at the left end of the row, then the space, then the first eight letters, beh with fatha rightmost. Each letter takes the joined form its neighbours give it where the font holds one; the ink test font holds none, so each draws its own glyph (ADR-1004 D6). Correct (ADR-1306 D1, D2): each mark above its letter whole in the row above, where the font puts it, over that row's backgrounds; kasra and kasratan whole in the row below; lam with shadda and fatha at its full height, the lam's stem passing into the row above; the superscript alef, which stands past the one row ink may reach, moved down or scaled with its letter until it ends inside the row above, at every height.";
 
 const OVERFLOW_MEET_DESC: &str = "A descender in one row meeting an accent in the row below, in the ink test font built in memory, drawn at 16 and at 32 pixels. Each drawing is 14 by 3 cells: red ç four times, twice on blue and twice more, over green É four times, twice on olive, and green Ấ twice. Correct (ADR-1306 D4): each cedilla reaching down into the row below and each acute reaching up into the row above, crossing where the rows meet. Each crossing lies in a cell where one of the two inks is that cell's own glyph, and a cell's own glyph draws over the ink it receives: in the upper row the red cedilla lies over the green acute, and in the lower row the green acute lies over the red cedilla. The blue and olive backgrounds lie under the ink of both rows.";
 
-const OVERFLOW_SPACED_DESC: &str = "The accents and marks with line spacing, in the ink test font built in memory with line-spacing=30, drawn at 16 and at 32 pixels. Each drawing is 16 by 3 cells: gjpqy___ twice on cells that alternate between blue and olive; À, É, Î, Ấ and Ộ, then beh with fatha, lam with shadda and fatha, beh with kasratan, noon with damma and lam with shadda, fatha and the superscript alef, then ÉÎ; and _gjpqy___ twice on alternating cells. Correct (ADR-1306 D1, D8): the letters at the font's own size on their baselines in the text band, the rows the spacing adds blank around them; each accent and mark whole, using the added rows above and below the text band before it reaches the row beyond, and reaching that row where the added rows are too few; the backgrounds filling the whole taller cells.";
+const OVERFLOW_SPACED_DESC: &str = "The accents and marks with line spacing, in the ink test font built in memory with line-spacing=30, drawn at 16 and at 32 pixels. Each drawing is 16 by 3 cells: gjpqy___ twice on cells that alternate between blue and olive; À, É, Î, Ấ and Ộ, then beh with fatha, lam with shadda and fatha, beh with kasratan, noon with damma and lam with shadda, fatha and the superscript alef, then ÉÎ, the Arabic drawn right to left as the bidirectional algorithm orders it, beh with fatha rightmost, in each letter's joined form where the font holds one (ADR-1004 D3, D6); and _gjpqy___ twice on alternating cells. Correct (ADR-1306 D1, D8): the letters at the font's own size on their baselines in the text band, the rows the spacing adds blank around them; each accent and mark whole, using the added rows above and below the text band before it reaches the row beyond, and reaching that row where the added rows are too few; the backgrounds filling the whole taller cells.";
 
-const OVERFLOW_PICTURES_DESC: &str = "Accents and Arabic marks reaching into the cells of pictures, in the ink test font built in memory at 16 pixels, 24 by 6 cells: in the second row, which holds no text, a kitty picture 4 cells wide below the cell backgrounds, one below the text at z -1, one above the text at z 0 and a sixel; under each, ÀÉÎẤ in the third row; Arabic beh with kasratan and with kasra in the fourth row, over the same four pictures in the fifth. Correct (ADR-1306 D7): the accents and the marks drawn over the picture below the backgrounds and the picture below the text, as the text is; hidden under the picture above the text and under the sixel, as the text of those cells is.";
+const OVERFLOW_PICTURES_DESC: &str = "Accents and Arabic marks reaching into the cells of pictures, in the ink test font built in memory at 16 pixels, 24 by 6 cells: in the second row, which holds no text, a kitty picture 4 cells wide below the cell backgrounds, one below the text at z -1, one above the text at z 0 and a sixel; under each, ÀÉÎẤ in the third row; Arabic beh with kasratan and with kasra in the fourth row, each run of four drawn right to left as the bidirectional algorithm orders it, and joined where the font holds the joined forms (ADR-1004 D3, D6), over the same four pictures in the fifth. Correct (ADR-1306 D7): the accents and the marks drawn over the picture below the backgrounds and the picture below the text, as the text is; hidden under the picture above the text and under the sixel, as the text of those cells is.";
 
-const OVERHANG_ITALIC_DESC: &str = "Italic text whose letters lean into the next cell, in the ink test font built in memory, which has no italic face, so the glyph helper slants its regular glyphs by 0.2 about the baseline (ADR-1302 D4). Drawn at 16 pixels with no cursor, with a block cursor on the leaning I of the first row and on the space after the run, with blinking text in its hidden phase, and at 32 pixels. Each drawing is 20 by 3 cells: HIEWmAOƒ italic on cells that alternate between blue and olive, then HIE underlined and OWm struck; an italic run of Arabic letters, then a blinking italic HIE beside a steady one; and the same Latin letters upright. A selection covers the second to the fifth cell of the first row. Correct (ADR-1302 D1, D4, D7, D8): each italic letter's top leaning into the cell on its right and its foot into the cell on its left, unbroken across the cell edges and over the blue and olive backgrounds; the underline and strike straight; the Arabic leaning right like the Latin; the selected letters in the selection's colors and the ink they send into the unselected cells beside them in the text's colors; the cursor on the I with the I in the cursor's colors and the ink of its neighbours over it; the blinking HIE's lean cut at its own cells in every take; in the blinking take the blinking HIE dimmed, as vtium draws blinking text in its hidden phase, and the steady HIE beside it as in the first take.";
+const OVERHANG_ITALIC_DESC: &str = "Italic text whose letters lean into the next cell, in the ink test font built in memory, which has no italic face, so the glyph helper slants its regular glyphs by 0.2 about the baseline (ADR-1302 D4). Drawn at 16 pixels with no cursor, with a block cursor on the leaning I of the first row and on the space after the run, with blinking text in its hidden phase, and at 32 pixels. Each drawing is 20 by 3 cells: HIEWmAOƒ italic on cells that alternate between blue and olive, then HIE underlined and OWm struck; an italic run of Arabic letters, beh, lam, noon, alef and beh, drawn right to left as the bidirectional algorithm orders it, and joined where the font holds the joined forms (ADR-1004 D3, D6), then a blinking italic HIE beside a steady one; and the same Latin letters upright. A selection covers the second to the fifth cell of the first row. Correct (ADR-1302 D1, D4, D7, D8): each italic letter's top leaning into the cell on its right and its foot into the cell on its left, unbroken across the cell edges and over the blue and olive backgrounds; the underline and strike straight; the Arabic leaning right like the Latin; the selected letters in the selection's colors and the ink they send into the unselected cells beside them in the text's colors; the cursor on the I with the I in the cursor's colors and the ink of its neighbours over it; the blinking HIE's lean cut at its own cells in every take; in the blinking take the blinking HIE dimmed, as vtium draws blinking text in its hidden phase, and the steady HIE beside it as in the first take.";
 
 const OVERHANG_WM_DESC: &str = "W and m in the ink test font built in memory, whose W fills its advance, so its ink sets the cell's width, drawn at 16 and at 32 pixels. Each drawing is 14 by 2 cells: WWWWmmmm, then W, ƒ, m, ƒ, W on cells that alternate between blue and olive; and the same in bold. Correct (ADR-1302 D1, D2, D4): each regular W and m inside its own cell, touching its cell's sides; the ƒ's hooks reaching a quarter of a cell into the cells on both sides, over the W and m there and their backgrounds; the bold letters a pixel or more wider, grown sideways by synthetic bold, and where the growth passes a cell's side it reaches into the cell beside it, as at 16 pixels, where it lands in the first, second, third and ninth cells of the bold row.";
 
@@ -1257,13 +1257,156 @@ const OVERHANG_UNDERSCORE_DESC: &str = "The underscore and gjpqy in the ink test
 
 const OVERHANG_WIDE_DESC: &str = "The ideograph 一, two cells wide, in the ink test font built in memory, whose bar reaches a quarter of a cell past each side, drawn at 16 and at 32 pixels. Each drawing is 12 by 4 cells: H, 一, H, then 一 twice on blue and olive cells, and H; HIE and 一 in the last two columns; HIE and 一 written at the last column of the third row, which wraps it to the start of the fourth. Correct (ADR-1302 D1, D5): the bar running into the H on each side and into the neighbouring ideograph, over the backgrounds there; in the last two columns the bar reaching left into the cell before it and cut at the grid's right edge; the wrapped ideograph at the start of the fourth row, its bar cut at the grid's left edge, and the third row's last cell empty.";
 
-/// Every case, in the order the report lists them: the screens below,
-/// then the ink screens.
-pub const CASES: &[Case] = &join::<{ BASE.len() + 4 * INK_CASES.len() }>(BASE, &INK_CASES);
+/// The right-to-left screens' lines (ADR-1004 D14), one paragraph to a
+/// row: Latin around the Hebrew word shalom and a bracketed 1; Arabic
+/// marhaban bil-alam, then a colon, 123 and Latin in brackets; the Hebrew
+/// word tapuz, 42 in square brackets, Latin, the Arabic burtuqal and 7 in
+/// braces; the Arabic as-salamu alaykum, whose lam and alef join into
+/// their ligature, then a date; and the Hebrew shalom olam with olam in
+/// brackets, then 3.14.
+const BIDI_MIXED: &[u8] = concat!(
+    "abc \u{5e9}\u{5dc}\u{5d5}\u{5dd} (1) def\r\n",
+    "\u{645}\u{631}\u{62d}\u{628}\u{627} \u{628}\u{627}\u{644}\u{639}\u{627}\u{644}\u{645}: 123 (abc)\r\n",
+    "\u{5ea}\u{5e4}\u{5d5}\u{5d6} [42] and \u{628}\u{631}\u{62a}\u{642}\u{627}\u{644} {7}\r\n",
+    "\u{627}\u{644}\u{633}\u{644}\u{627}\u{645} \u{639}\u{644}\u{64a}\u{643}\u{645} 2024-11-06\r\n",
+    "\u{5e9}\u{5dc}\u{5d5}\u{5dd} (\u{5e2}\u{5d5}\u{5dc}\u{5dd}) 3.14",
+)
+.as_bytes();
 
-/// `base` followed by each of `ink`'s cases, `N` in all.
-const fn join<const N: usize>(base: &[Case], ink: &[[Case; 4]]) -> [Case; N] {
-    assert!(N == base.len() + 4 * ink.len(), "every case once");
+/// [`BIDI_MIXED`] with every paragraph right to left: SCP 2 at the first
+/// position of the first paragraph, which each new paragraph takes.
+const BIDI_MIXED_RTL: &[u8] = concat!(
+    "\x1b[2 k",
+    "abc \u{5e9}\u{5dc}\u{5d5}\u{5dd} (1) def\r\n",
+    "\u{645}\u{631}\u{62d}\u{628}\u{627} \u{628}\u{627}\u{644}\u{639}\u{627}\u{644}\u{645}: 123 (abc)\r\n",
+    "\u{5ea}\u{5e4}\u{5d5}\u{5d6} [42] and \u{628}\u{631}\u{62a}\u{642}\u{627}\u{644} {7}\r\n",
+    "\u{627}\u{644}\u{633}\u{644}\u{627}\u{645} \u{639}\u{644}\u{64a}\u{643}\u{645} 2024-11-06\r\n",
+    "\u{5e9}\u{5dc}\u{5d5}\u{5dd} (\u{5e2}\u{5d5}\u{5dc}\u{5dd}) 3.14",
+)
+.as_bytes();
+
+/// Explicit mode, BDSM reset: two left-to-right paragraphs a program laid
+/// out itself in the order they are drawn, shalom and marhaban bil-alam
+/// written reversed, then two right-to-left paragraphs after SCP 2, abc
+/// and 123 written reversed.
+const BIDI_EXPLICIT: &[u8] = concat!(
+    "\x1b[8labc \u{5dd}\u{5d5}\u{5dc}\u{5e9} (1) def\r\n",
+    "123 \u{645}\u{644}\u{627}\u{639}\u{644}\u{627}\u{628} \u{627}\u{628}\u{62d}\u{631}\u{645}\r\n",
+    "\x1b[2 k\u{5e9}\u{5dc}\u{5d5}\u{5dd} cba (1)\r\n",
+    "\u{645}\u{631}\u{62d}\u{628}\u{627} 321 [\u{628}]",
+)
+.as_bytes();
+
+/// Shalom between Latin, and marhaban before Latin, the cursor, shown, on
+/// the third letter of marhaban, hah, the third cell the program wrote.
+const BIDI_CURSOR: &[u8] = concat!(
+    "abc \u{5e9}\u{5dc}\u{5d5}\u{5dd} def\r\n",
+    "\u{645}\u{631}\u{62d}\u{628}\u{627} abc",
+    "\x1b[2;3H",
+)
+.as_bytes();
+
+/// Arabic for the built-in font: marhaban bil-alam, a colon and 123;
+/// as-salamu alaykum; and lam with alef alone, after beh, and in brackets.
+const BIDI_UNIFONT: &[u8] = concat!(
+    "\u{645}\u{631}\u{62d}\u{628}\u{627} \u{628}\u{627}\u{644}\u{639}\u{627}\u{644}\u{645}: 123\r\n",
+    "\u{627}\u{644}\u{633}\u{644}\u{627}\u{645} \u{639}\u{644}\u{64a}\u{643}\u{645}\r\n",
+    "\u{644}\u{627} \u{628}\u{644}\u{627} (\u{644}\u{627})",
+)
+.as_bytes();
+
+/// The right-to-left screens (ADR-1004 D14), each followed by its twin on
+/// a 1-bit display.
+const BIDI_CASES: [Case; 14] = bidi_cases([
+    outline("bidi-mixed", BIDI_MIXED_DESC, BIDI_MIXED, 26, 5),
+    outline("bidi-mixed-rtl", BIDI_MIXED_RTL_DESC, BIDI_MIXED_RTL, 26, 5),
+    outline("bidi-explicit", BIDI_EXPLICIT_DESC, BIDI_EXPLICIT, 18, 4),
+    Screen {
+        tail: b"\x1b[2 q\x1b[?25h",
+        phase: crate::draw::Phase {
+            cursor_on: true,
+            blink_hidden: false,
+        },
+        ..outline(
+            "bidi-cursor-block",
+            BIDI_CURSOR_BLOCK_DESC,
+            BIDI_CURSOR,
+            14,
+            2,
+        )
+    },
+    Screen {
+        tail: b"\x1b[6 q\x1b[?25h",
+        phase: crate::draw::Phase {
+            cursor_on: true,
+            blink_hidden: false,
+        },
+        ..outline("bidi-cursor-bar", BIDI_CURSOR_BAR_DESC, BIDI_CURSOR, 14, 2)
+    },
+    Screen {
+        selection: Some(((2, 0), (9, 0))),
+        ..outline("bidi-selection", BIDI_SELECTION_DESC, BIDI_MIXED, 26, 5)
+    },
+    Screen {
+        font: FontKind::Builtin,
+        ..Screen::new("bidi-unifont", BIDI_UNIFONT_DESC, BIDI_UNIFONT, 20, 3)
+    },
+]);
+
+/// Each of `screens`, then the same screen on a 1-bit display, named with
+/// `-1bit` after its name.
+const fn bidi_cases(screens: [Screen; 7]) -> [Case; 14] {
+    const NAMES: [&str; 7] = [
+        "bidi-mixed-1bit",
+        "bidi-mixed-rtl-1bit",
+        "bidi-explicit-1bit",
+        "bidi-cursor-block-1bit",
+        "bidi-cursor-bar-1bit",
+        "bidi-selection-1bit",
+        "bidi-unifont-1bit",
+    ];
+    let mut all = [Case { screen: screens[0] }; 14];
+    let mut i = 0;
+    while i < 7 {
+        all[2 * i] = Case { screen: screens[i] };
+        all[2 * i + 1] = Case {
+            screen: Screen {
+                desc: BIDI_ONE_BIT_DESC,
+                ..one_bit(NAMES[i], screens[i])
+            },
+        };
+        i += 1;
+    }
+    all
+}
+
+const BIDI_ONE_BIT_DESC: &str = "The screen of the same name without `-1bit`, drawn the same way on a 1-bit display, every pixel black or white. Correct: the same letters in the same places and forms as on the color screen, lit on an unlit background, with a cursor or a selection drawn lit and its text unlit.";
+
+const BIDI_MIXED_DESC: &str = "Right-to-left text mixed with Latin, digits and brackets, in the default mode: vtium runs the Unicode bidirectional algorithm over each paragraph, and every paragraph runs left to right (ADR-1004 D3, D5). Drawn in the test font set at 16 pixels, 26 by 5 cells, with Hebrew from Noto Sans Hebrew and Arabic from Noto Sans Arabic. The program writes each row in the order it is read: abc, the Hebrew word shalom, (1) and def; the Arabic words marhaban bil-alam, a colon, 123 and (abc); the Hebrew word tapuz, [42], and, the Arabic word burtuqal and {7}; the Arabic words as-salamu alaykum and the date 2024-11-06; and the Hebrew words shalom and olam, olam in brackets, then 3.14. Correct: every row starts at the left edge. Each run of Hebrew or Arabic reads right to left, so shalom's shin is its rightmost letter, and the words of a run stand from right to left in the order they were written. The first row reads abc (1) shalom def: the number and its brackets go with the Hebrew word before them. The second row reads 123, the colon, the two Arabic words and (abc): the colon and 123 go with the Arabic before them. The third row reads [42], tapuz, and, {7}, burtuqal. In the fourth row the date's three numbers stand in right-to-left order, 06-11-2024, each number still read left to right, because numbers after Arabic letters take the Arabic text's direction. The fifth row reads 3.14, then olam in its brackets, then shalom. Digits always read left to right. A bracket inside right-to-left text draws the glyph of its mirror image, so each pair still opens toward what it holds. Each Arabic letter takes the form its neighbours give it, so each word is joined, and the lam and alef of salam draw as their single ligature across their two cells.";
+
+const BIDI_MIXED_RTL_DESC: &str = "The bidi-mixed screen with every paragraph right to left: the program sends SCP 2 (CSI 2 SP k) before its first row, and each row after it takes that direction (ADR-1004 D2, D5). Drawn in the test font set at 16 pixels, 26 by 5 cells. Correct: every row ends at the right edge, with its empty cells at the left. Each row reads from the right in the order it was written: the first row has abc at the right edge, then shalom, then (1), then def at the left. Latin words and numbers still read left to right inside their own runs. Brackets inside right-to-left text are mirrored, and the Arabic letters are joined, with the lam-alef ligature in salam.";
+
+const BIDI_EXPLICIT_DESC: &str = "Explicit mode, which a program that lays out right-to-left text itself turns on with BDSM reset (CSI 8 l): vtium runs no algorithm and draws each row's cells in the order the program wrote them (ADR-1004 D4). Drawn in the test font set at 16 pixels, 18 by 4 cells. The first two rows are left-to-right paragraphs whose text the program has already put in the order it is drawn: abc, shalom spelled backwards, (1) and def; and 123, then marhaban bil-alam with each word spelled backwards and the two words swapped. Then the program sends SCP 2, and the last two rows are right-to-left paragraphs: shalom, cba and (1); and marhaban, 321 and beh in square brackets. Correct: the first two rows start at the left edge, and their Hebrew and Arabic read right to left because the program wrote them backwards: abc shalom (1) def, and 123 then marhaban bil-alam. The Arabic letters are joined, read from right to left as they are drawn. The last two rows end at the right edge, the first character the program wrote rightmost: shalom at the right, then abc, then (1) at the left; and marhaban at the right, joined, then 123, then beh between square brackets at the left. In those two rows every bracket draws its mirror image, so each pair still opens toward what it holds.";
+
+const BIDI_CURSOR_BLOCK_DESC: &str = "A block cursor on a right-to-left letter, drawn in the test font set at 16 pixels, 14 by 2 cells: abc, shalom and def, then marhaban and abc, with the cursor shown on hah, the third letter of marhaban, its shape set by DECSCUSR 2. The cursor stays on the cell the program wrote, wherever that cell is drawn (ADR-1004 D9). Correct: marhaban reads right to left with its letters joined, and the block covers hah, the middle letter of the five, in the third cell from the left, drawn in the cursor's colors.";
+
+const BIDI_CURSOR_BAR_DESC: &str = "The bidi-cursor-block screen with a bar cursor, set by DECSCUSR 6, on hah, the third letter of marhaban. Correct: the bar stands on the right side of the cursor's cell, the third from the left, because hah reads right to left; a bar on a left-to-right letter stands on the left side of its cell (ADR-1004 D9). The bar takes the place of the letter in its cell, as a bar cursor does on any letter.";
+
+const BIDI_SELECTION_DESC: &str = "A selection across a row that mixes directions, on the bidi-mixed screen: the pointer drags from the c of abc, the third cell from the left of the first row, to the tenth cell from the left, where the first row draws the vav of shalom. The selection holds the cells between those two in the order the program wrote them (ADR-1004 D10). Correct: the first row reads abc (1) shalom def. The selected cells are c, the space after it, and shin, lamed and vav, the first three letters of shalom, which stand at the right end of the word as it is drawn. So the selection shows in two pieces: c and the space at the left, and the three letters of shalom further right, with (1) and the final mem unselected between them.";
+
+const BIDI_UNIFONT_DESC: &str = "Arabic in the built-in font, GNU Unifont, as the console draws it for a display with no font set, 20 by 3 cells at 16 pixels: marhaban bil-alam, a colon and 123; as-salamu alaykum; and lam with alef alone, after beh, and in brackets. Unifont is a bitmap font, which the glyph helper does not shape, so each joined letter draws the glyph Unifont has for the Arabic presentation form of its joined form (ADR-1004 D6). Correct: the words read right to left, each letter in its initial, medial or final form, so each word is joined. Lam with alef draws Unifont's lam-alef ligature, isolated or final, which Unifont draws one cell wide, centred across the ligature's two cells. The brackets round the last lam-alef are mirrored, since they stand in right-to-left text.";
+
+/// Every case, in the order the report lists them: the screens below,
+/// then the ink screens, then the right-to-left screens.
+pub const CASES: &[Case] =
+    &join::<{ BASE.len() + 4 * INK_CASES.len() + BIDI_CASES.len() }>(BASE, &INK_CASES, &BIDI_CASES);
+
+/// `base` followed by each of `ink`'s cases, then `rest`, `N` in all.
+const fn join<const N: usize>(base: &[Case], ink: &[[Case; 4]], rest: &[Case]) -> [Case; N] {
+    assert!(
+        N == base.len() + 4 * ink.len() + rest.len(),
+        "every case once"
+    );
     let mut all = [base[0]; N];
     let mut i = 0;
     while i < base.len() {
@@ -1278,6 +1421,11 @@ const fn join<const N: usize>(base: &[Case], ink: &[[Case; 4]]) -> [Case; N] {
             j += 1;
         }
         k += 1;
+    }
+    let mut r = 0;
+    while r < rest.len() {
+        all[base.len() + 4 * ink.len() + r] = rest[r];
+        r += 1;
     }
     all
 }

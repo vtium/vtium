@@ -19,11 +19,11 @@ workspace = true
 [dependencies]
 # the picture screens feed sixel and kitty strings through the terminal's
 # own handlers, and the renderer draws their pictures
-vtium-term = { workspace = true, features = ["images"] }
+vtium-term = { workspace = true, features = ["images", "bidi"] }
 # the small displays draw their PSF fonts through the PSF loader, which the
 # console leaves out
 vtium-font = { workspace = true, features = ["psf"] }
-vtium-render = { workspace = true, features = ["images"] }
+vtium-render = { workspace = true, features = ["images", "bidi"] }
 # generates the test PSF fonts' glyphs through the engine the helper runs,
 # for the screens drawn from sets
 vtium-config = { path = "../../crates/vtium-config" }
@@ -36,7 +36,7 @@ miniz_oxide = "0.8.9"
 vtium-settings.workspace = true
 # the console's own overlay, which draws the notices and the on-screen
 # display, and the words of its notices and of the OSD's line
-vtium = { path = "../../crates/vtium" }
+vtium = { path = "../../crates/vtium", features = ["bidi"] }
 # the GL context the GPU path's screens draw on, Mesa's llvmpipe, which the
 # binary's adapter joins to vtium-render's Gl trait
 vtium-platform = { path = "../../crates/vtium-platform", optional = true }

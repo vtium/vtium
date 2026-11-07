@@ -4,8 +4,12 @@
 //! Tier 2 draws its outline screens from a test font set (a frit, vtium's
 //! font set file) that names one open font for each script, in the frit's
 //! fallback order: DejaVu Sans Mono with its Regular, Bold, Oblique and
-//! Bold Oblique faces, then Noto Sans CJK, then Noto Color Emoji. vtium
-//! ships no third-party font bytes, so each font is pinned here by its URL
+//! Bold Oblique faces, then Noto Sans Hebrew and Noto Sans Arabic, then
+//! Noto Sans CJK, then Noto Color Emoji. DejaVu Sans Mono comes first, so
+//! its cell and its size are the font set's, and its `cover=` lines leave
+//! out the Hebrew and Arabic blocks, which the two Noto fonts' `cover=`
+//! lines take, so each of those scripts draws from its own font (ADR-1004
+//! D14). vtium ships no third-party font bytes, so each font is pinned here by its URL
 //! and SHA-256 and fetched into a cache outside the tree,
 //! `$XDG_CACHE_HOME/vtium/tier2/fonts`, as the specimens fetch theirs.
 //! DejaVu Sans Mono's four faces come from its release archive, which
@@ -70,16 +74,50 @@ impl FritStyle {
 }
 
 /// One pinned font: its file in the cache, the SHA-256 of its bytes, where
-/// it comes from, the style the frit names it for, and whether it is the
-/// color emoji font, which the `emoji-mono` screen's frit leaves out.
+/// it comes from, the style the frit names it for, the frit's `cover=`
+/// lines for it, none for the whole font, and whether it is the color
+/// emoji font, which the `emoji-mono` screen's frit leaves out.
 #[derive(Clone, Copy, Debug)]
 pub struct Pinned {
     pub file: &'static str,
     pub sha256: &'static str,
     pub origin: Origin,
     pub style: FritStyle,
+    pub cover: &'static [&'static str],
     pub color: bool,
 }
+
+/// The Hebrew blocks: Hebrew, and the Hebrew presentation forms of
+/// Alphabetic Presentation Forms.
+const HEBREW: [&str; 2] = ["U+0590-U+05FF", "U+FB1D-U+FB4F"];
+
+/// The Arabic blocks: Arabic, Arabic Supplement, Arabic Extended-B and -A,
+/// Arabic Presentation Forms-A and -B, Arabic Extended-C and the Arabic
+/// Mathematical Alphabetic Symbols.
+const ARABIC: [&str; 8] = [
+    "U+0600-U+06FF",
+    "U+0750-U+077F",
+    "U+0870-U+089F",
+    "U+08A0-U+08FF",
+    "U+FB50-U+FDFF",
+    "U+FE70-U+FEFF",
+    "U+10EC0-U+10EFF",
+    "U+1EE00-U+1EEFF",
+];
+
+/// Every codepoint but the [`HEBREW`] and [`ARABIC`] blocks: DejaVu Sans
+/// Mono's `cover=` lines, so the two Noto fonts after it draw those
+/// scripts.
+const NOT_HEBREW_OR_ARABIC: [&str; 8] = [
+    "U+0000-U+058F",
+    "U+0700-U+074F",
+    "U+0780-U+086F",
+    "U+0900-U+FB1C",
+    "U+FE00-U+FE6F",
+    "U+FF00-U+10EBF",
+    "U+10F00-U+1EDFF",
+    "U+1EF00-U+10FFFF",
+];
 
 /// DejaVu Sans Mono's release 2.37, the TrueType fonts' archive.
 pub const DEJAVU: Archive = Archive {
@@ -89,16 +127,18 @@ pub const DEJAVU: Archive = Archive {
 };
 
 /// The test frit's fonts, in its order: DejaVu Sans Mono 2.37's four faces,
-/// Noto Sans CJK SC 2.004, which holds the Chinese, Japanese and Korean
-/// characters, and Noto Color Emoji 2.051, whose glyphs are CBDT bitmaps.
-/// Noto Sans CJK SC and Noto Color Emoji are the files the showcase and the
-/// specimens pin.
-pub const FONTS: [Pinned; 6] = [
+/// Noto Sans Hebrew and Noto Sans Arabic from the Noto project's release of
+/// September 2024, Noto Sans CJK SC 2.004, which holds the Chinese,
+/// Japanese and Korean characters, and Noto Color Emoji 2.051, whose glyphs
+/// are CBDT bitmaps. Noto Sans CJK SC and Noto Color Emoji are the files
+/// the showcase and the specimens pin.
+pub const FONTS: [Pinned; 8] = [
     Pinned {
         file: "DejaVuSansMono.ttf",
         sha256: "b4a6c3e4faab8773f4ff761d56451646409f29abedd68f05d38c2df667d3c582",
         origin: Origin::Member(&DEJAVU, "dejavu-fonts-ttf-2.37/ttf/DejaVuSansMono.ttf"),
         style: FritStyle::Regular,
+        cover: &NOT_HEBREW_OR_ARABIC,
         color: false,
     },
     Pinned {
@@ -106,6 +146,7 @@ pub const FONTS: [Pinned; 6] = [
         sha256: "bce60f1b4421acd9ea51ba6623d7024ecbe6817a953e3654df62a5e6bdf8f769",
         origin: Origin::Member(&DEJAVU, "dejavu-fonts-ttf-2.37/ttf/DejaVuSansMono-Bold.ttf"),
         style: FritStyle::Bold,
+        cover: &NOT_HEBREW_OR_ARABIC,
         color: false,
     },
     Pinned {
@@ -116,6 +157,7 @@ pub const FONTS: [Pinned; 6] = [
             "dejavu-fonts-ttf-2.37/ttf/DejaVuSansMono-Oblique.ttf",
         ),
         style: FritStyle::Italic,
+        cover: &NOT_HEBREW_OR_ARABIC,
         color: false,
     },
     Pinned {
@@ -126,6 +168,27 @@ pub const FONTS: [Pinned; 6] = [
             "dejavu-fonts-ttf-2.37/ttf/DejaVuSansMono-BoldOblique.ttf",
         ),
         style: FritStyle::BoldItalic,
+        cover: &NOT_HEBREW_OR_ARABIC,
+        color: false,
+    },
+    Pinned {
+        file: "NotoSansHebrew-Regular.ttf",
+        sha256: "cdefaf8efd47045f6820928eba84db5bed7557539328952b5f828315485e02ee",
+        origin: Origin::Url(
+            "https://github.com/notofonts/notofonts.github.io/raw/noto-monthly-release-24.9.1/fonts/NotoSansHebrew/hinted/ttf/NotoSansHebrew-Regular.ttf",
+        ),
+        style: FritStyle::Regular,
+        cover: &HEBREW,
+        color: false,
+    },
+    Pinned {
+        file: "NotoSansArabic-Regular.ttf",
+        sha256: "c270782ee478c685f95509e724125729e1284c82ebfbe414cc67926f29449e1d",
+        origin: Origin::Url(
+            "https://github.com/notofonts/notofonts.github.io/raw/noto-monthly-release-24.9.1/fonts/NotoSansArabic/hinted/ttf/NotoSansArabic-Regular.ttf",
+        ),
+        style: FritStyle::Regular,
+        cover: &ARABIC,
         color: false,
     },
     Pinned {
@@ -135,6 +198,7 @@ pub const FONTS: [Pinned; 6] = [
             "https://github.com/notofonts/noto-cjk/raw/Sans2.004/Sans/OTF/SimplifiedChinese/NotoSansCJKsc-Regular.otf",
         ),
         style: FritStyle::Regular,
+        cover: &[],
         color: false,
     },
     Pinned {
@@ -144,6 +208,7 @@ pub const FONTS: [Pinned; 6] = [
             "https://github.com/googlefonts/noto-emoji/raw/v2.051/fonts/NotoColorEmoji.ttf",
         ),
         style: FritStyle::Regular,
+        cover: &[],
         color: true,
     },
 ];
@@ -278,8 +343,8 @@ pub fn fetch(dir: &Path, fonts: &[Pinned]) -> Result<(), String> {
 
 /// The test frit's text, its sources the fonts in `dir`: every pinned
 /// font, less the color emoji font unless `color`, each named by its path
-/// with its `style=` line, and `line-spacing=` with `spacing` when it is
-/// not 0 (ADR-1302 D13).
+/// with its `style=` line and its `cover=` lines, and `line-spacing=` with
+/// `spacing` when it is not 0 (ADR-1302 D13).
 pub fn frit_text(dir: &Path, color: bool, spacing: u32) -> String {
     let mut text = String::new();
     for font in FONTS.iter().filter(|f| color || !f.color) {
@@ -289,6 +354,9 @@ pub fn frit_text(dir: &Path, color: bool, spacing: u32) -> String {
         ));
         if let Some(style) = font.style.line() {
             text.push_str(&format!("style={style}\n"));
+        }
+        for cover in font.cover {
+            text.push_str(&format!("cover={cover}\n"));
         }
     }
     if spacing > 0 {
@@ -480,19 +548,23 @@ mod tests {
         sha256_hex(&Sha256::digest(bytes))
     }
 
-    // ADR-1503 D9: the frit names DejaVu Sans Mono's four faces by style,
-    // then Noto Sans CJK, then Noto Color Emoji, and the emoji-mono
+    // ADR-1503 D9, ADR-1004 D14: the frit names DejaVu Sans Mono's four
+    // faces by style, each covering all but the Hebrew and Arabic blocks,
+    // then Noto Sans Hebrew and Noto Sans Arabic, each covering its own
+    // blocks, then Noto Sans CJK, then Noto Color Emoji, and the emoji-mono
     // screen's frit is the same without the color emoji font; ADR-1302
     // D13: a spaced screen's frit ends with its line-spacing= line
     #[test]
-    fn the_frit_names_each_font_in_order_with_its_style() {
+    fn the_frit_names_each_font_in_order_with_its_style_and_cover() {
         let dir = Path::new("/c");
         assert_eq!(
             frit_text(dir, true, 0),
-            "source=outline:/c/DejaVuSansMono.ttf\n\
-             source=outline:/c/DejaVuSansMono-Bold.ttf\nstyle=bold\n\
-             source=outline:/c/DejaVuSansMono-Oblique.ttf\nstyle=italic\n\
-             source=outline:/c/DejaVuSansMono-BoldOblique.ttf\nstyle=bold-italic\n\
+            "source=outline:/c/DejaVuSansMono.ttf\ncover=U+0000-U+058F\ncover=U+0700-U+074F\ncover=U+0780-U+086F\ncover=U+0900-U+FB1C\ncover=U+FE00-U+FE6F\ncover=U+FF00-U+10EBF\ncover=U+10F00-U+1EDFF\ncover=U+1EF00-U+10FFFF\n\
+             source=outline:/c/DejaVuSansMono-Bold.ttf\nstyle=bold\ncover=U+0000-U+058F\ncover=U+0700-U+074F\ncover=U+0780-U+086F\ncover=U+0900-U+FB1C\ncover=U+FE00-U+FE6F\ncover=U+FF00-U+10EBF\ncover=U+10F00-U+1EDFF\ncover=U+1EF00-U+10FFFF\n\
+             source=outline:/c/DejaVuSansMono-Oblique.ttf\nstyle=italic\ncover=U+0000-U+058F\ncover=U+0700-U+074F\ncover=U+0780-U+086F\ncover=U+0900-U+FB1C\ncover=U+FE00-U+FE6F\ncover=U+FF00-U+10EBF\ncover=U+10F00-U+1EDFF\ncover=U+1EF00-U+10FFFF\n\
+             source=outline:/c/DejaVuSansMono-BoldOblique.ttf\nstyle=bold-italic\ncover=U+0000-U+058F\ncover=U+0700-U+074F\ncover=U+0780-U+086F\ncover=U+0900-U+FB1C\ncover=U+FE00-U+FE6F\ncover=U+FF00-U+10EBF\ncover=U+10F00-U+1EDFF\ncover=U+1EF00-U+10FFFF\n\
+             source=outline:/c/NotoSansHebrew-Regular.ttf\ncover=U+0590-U+05FF\ncover=U+FB1D-U+FB4F\n\
+             source=outline:/c/NotoSansArabic-Regular.ttf\ncover=U+0600-U+06FF\ncover=U+0750-U+077F\ncover=U+0870-U+089F\ncover=U+08A0-U+08FF\ncover=U+FB50-U+FDFF\ncover=U+FE70-U+FEFF\ncover=U+10EC0-U+10EFF\ncover=U+1EE00-U+1EEFF\n\
              source=outline:/c/NotoSansCJKsc-Regular.otf\n\
              source=outline:/c/NotoColorEmoji.ttf\n"
         );
@@ -529,6 +601,41 @@ mod tests {
         );
     }
 
+    // ADR-1004 D14: DejaVu Sans Mono's cover= lines and the two Noto fonts'
+    // share every codepoint out between them, each once, so Hebrew and
+    // Arabic draw from their own fonts and everything else from DejaVu Sans
+    // Mono, which sets the cell as the first source
+    #[test]
+    fn dejavu_and_the_noto_fonts_share_every_codepoint_out_once() {
+        let range = |r: &str| {
+            let (a, b) = r.split_once('-').unwrap();
+            let point = |p: &str| u32::from_str_radix(p.strip_prefix("U+").unwrap(), 16).unwrap();
+            (point(a), point(b))
+        };
+        let mut all: Vec<(u32, u32)> = NOT_HEBREW_OR_ARABIC
+            .iter()
+            .chain(&HEBREW)
+            .chain(&ARABIC)
+            .map(|r| range(r))
+            .collect();
+        all.sort_unstable();
+        let mut next = 0;
+        for (a, b) in all {
+            assert_eq!(a, next, "a gap or an overlap before U+{a:04X}");
+            next = b + 1;
+        }
+        assert_eq!(next, 0x11_0000);
+        let first = FONTS.first().unwrap();
+        assert_eq!(
+            first.file, "DejaVuSansMono.ttf",
+            "DejaVu Sans Mono sets the cell"
+        );
+        let text = frit_text(Path::new("/f"), true, 0);
+        assert!(
+            text.contains("source=outline:/f/NotoSansArabic-Regular.ttf\ncover=U+0600-U+06FF\n")
+        );
+    }
+
     // fetch takes a font the cache holds with its pinned bytes as it is,
     // and removes one that does not match after it is fetched; here the
     // URL cannot be reached, so the fetch fails and nothing of that name
@@ -541,6 +648,7 @@ mod tests {
             sha256: "",
             origin: Origin::Url("file:///nowhere"),
             style: FritStyle::Regular,
+            cover: &[],
             color: false,
         };
         std::fs::write(s.0.join("held.ttf"), b"held").unwrap();
@@ -592,6 +700,7 @@ mod tests {
             sha256: Box::leak(sha(b"face").into_boxed_str()),
             origin: Origin::Member(archive, "pkg/f.ttf"),
             style: FritStyle::Regular,
+            cover: &[],
             color: false,
         };
         fetch(&cache, &[font]).unwrap();
