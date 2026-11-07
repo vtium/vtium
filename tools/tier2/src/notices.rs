@@ -70,7 +70,10 @@ pub fn rescue() -> Result<String, String> {
 
 /// The rescue key's notice while no screen is active.
 pub fn rescue_no_head() -> Result<String, String> {
-    Ok(notice::rescue_no_head(KEYBOARD))
+    Ok(notice::rescue_no_head(
+        KEYBOARD,
+        &vtium::grab::Bindings::default(),
+    ))
 }
 
 /// The notice of a console the open chord opened whose login could not
@@ -80,7 +83,7 @@ pub fn no_console_opened() -> Result<String, String> {
 }
 
 pub fn oneshot() -> Result<String, String> {
-    Ok(notice::session_ended())
+    Ok(notice::session_ended(&vtium::grab::Bindings::default()))
 }
 
 pub fn head_file_one_error() -> Result<String, String> {

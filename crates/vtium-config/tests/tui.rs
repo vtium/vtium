@@ -806,6 +806,95 @@ fn the_settings_view_lists_every_key_vtium_conf_takes() {
     assert_eq!(&listed[..model::FONT_KEYS.len()], &model::FONT_KEYS[..]);
 }
 
+/// ADR-1005 D10: the settings view lists the seventeen keys vtium takes
+/// for itself, each with its built-in default from the console's key
+/// table, and shows a key's default on its row.
+#[test]
+fn the_settings_view_lists_vtiums_own_keys_with_their_built_in_defaults() {
+    let want = [
+        ("key-scroll-up", "<Shift>Up"),
+        ("key-scroll-down", "<Shift>Down"),
+        ("key-page-up", "<Shift>Prior"),
+        ("key-page-down", "<Shift>Next"),
+        ("key-prompt-up", "<Ctrl><Shift>Up"),
+        ("key-prompt-down", "<Ctrl><Shift>Down"),
+        ("key-zoom-in", "<Ctrl>plus,<Ctrl>equal"),
+        ("key-zoom-out", "<Ctrl>minus"),
+        ("key-rotate-cw", "<Logo>plus,<Logo>equal"),
+        ("key-rotate-ccw", "<Logo>minus"),
+        ("key-reset", "<Ctrl><Shift>Delete"),
+        ("key-console-next", "<Ctrl><Logo>Right"),
+        ("key-console-previous", "<Ctrl><Logo>Left"),
+        ("key-console-open", "<Ctrl><Logo>Return"),
+        ("key-console-close", "<Ctrl><Logo>BackSpace"),
+        ("key-focus-next", "<Ctrl><Logo>Up"),
+        ("key-focus-previous", "<Ctrl><Logo>Down"),
+    ];
+    let listed = model::setting_keys();
+    for (name, default) in want {
+        let key = listed
+            .iter()
+            .find(|k| k.name == name)
+            .unwrap_or_else(|| panic!("{name} is not listed"));
+        assert_eq!(
+            vtium_config::commands::value_text(key, None),
+            (default.to_owned(), false),
+            "{name}"
+        );
+    }
+    let at = listed
+        .iter()
+        .position(|k| k.name == "key-reset")
+        .expect("listed");
+    let mut keys: Vec<&[u8]> = vec![b"\t"];
+    keys.extend(std::iter::repeat_n(DOWN, at));
+    let mut c = console().keys(&keys);
+    run(&mut c);
+    let screen = c.seen.clone().expect("the screen");
+    assert!(screen.contains("key-reset"), "{screen}");
+    assert!(screen.contains("<Ctrl><Shift>Delete (default)"), "{screen}");
+    assert!(screen.contains("Reset the console on screen"), "{screen}");
+}
+
+/// ADR-1005 D10: in the settings view an empty value of a key binding is
+/// D10's empty value, no key, written `key-reset=`; the editor starts from
+/// the key's combinations, so Enter alone keeps them; and the word
+/// `default` returns the key to its default.
+#[test]
+fn the_settings_view_empties_a_key_binding_and_default_returns_it() {
+    let at = model::setting_keys()
+        .iter()
+        .position(|k| k.name == "key-reset")
+        .expect("listed");
+    let erase = [b"\x7f".as_slice(); 19];
+    let mut keys: Vec<&[u8]> = vec![b"\t"];
+    keys.extend(std::iter::repeat_n(DOWN, at));
+    keys.push(b"\r");
+    keys.extend(erase);
+    keys.push(b"\r");
+    let mut d = desk();
+    let mut c = console().keys(&[keys.as_slice(), &[b"q".as_slice()]].concat());
+    assert_eq!(run_desk(&mut c, &mut d), 0, "{:?}", c.seen);
+    assert!(d.draft.contains("\nkey-reset=\n"), "{}", d.draft);
+    // Enter again opens the empty value, and `default` returns the key to
+    // its default: its line is commented out
+    let mut c = console().keys(
+        &[
+            keys.as_slice(),
+            &[b"\r".as_slice(), b"default", b"\r", b"q"],
+        ]
+        .concat(),
+    );
+    let mut d = desk();
+    assert_eq!(run_desk(&mut c, &mut d), 0, "{:?}", c.seen);
+    assert!(d.draft.contains("\n#key-reset=\n"), "{}", d.draft);
+    // Enter alone keeps the default's combinations as they are
+    let mut c = console().keys(&[&keys[..keys.len() - 20], &[b"\r".as_slice(), b"q"]].concat());
+    let mut d = desk();
+    assert_eq!(run_desk(&mut c, &mut d), 0);
+    assert!(!d.draft.contains("key-reset="), "{}", d.draft);
+}
+
 #[test]
 fn a_setting_shows_its_default_and_what_it_does() {
     let mut c = console().keys(&[b"\t", DOWN]);

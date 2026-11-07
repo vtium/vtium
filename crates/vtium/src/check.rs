@@ -119,7 +119,7 @@ fn semantics_under(config: &Config, status: &Result<String, String>, signal: i32
     if config.switch(&keys::USE_ORIGINAL_MODE) && !config.modes(&keys::MODE).is_empty() {
         out.push(check_config::MODE_OVER_ORIGINAL.to_owned());
     }
-    if !config.chords(&keys::GRAB_POWER_OFF).is_empty() {
+    if !config.chords(&keys::KEY_POWER_OFF).is_empty() {
         let taken = match status {
             Ok(text) => init_takes(text, signal),
             Err(system_error) => Err(check_config::power_off_status_unreadable(
@@ -140,6 +140,14 @@ fn semantics_under(config: &Config, status: &Result<String, String>, signal: i32
 /// reports, then [`semantics`].
 pub fn warnings(loaded: &Loaded) -> Vec<String> {
     warnings_of(loaded, |_| true)
+}
+
+/// Whether the report `r` counts against the configuration in
+/// `check-config`. A key binding set by its old name does not: vtium reads
+/// it as its new name, and check-config notes it on standard output, so a
+/// vtium.conf from an earlier release still passes (ADR-1005 D10).
+fn counts(r: &crate::config::Report) -> bool {
+    !matches!(r.problem, crate::config::Problem::Renamed { .. })
 }
 
 /// [`warnings`], with only the reports `keep` keeps.
@@ -242,7 +250,7 @@ pub fn run(loaded: &Loaded) -> (Vec<String>, i32) {
     if loaded.config.switch(&keys::HELP) {
         return (vec![HELP.trim_end().to_owned()], 0);
     }
-    let lines = warnings(loaded);
+    let lines = warnings_of(loaded, counts);
     let status = i32::from(!lines.is_empty());
     (lines, status)
 }
@@ -315,16 +323,23 @@ pub fn outcome(loaded: &Loaded, host: &Host) -> Outcome {
     let heads = conf_file(path, candidate, &Trust::ROOT, &machine, &settings);
     // a start reads none of an installed file it does not trust, so the
     // file's own top-level reports are no start's
+    let from_file = |r: &crate::config::Report| matches!(r.origin, Origin::File { .. });
     let stderr: Vec<String> = if heads.refused {
-        warnings_of(loaded, |r| !matches!(r.origin, Origin::File { .. }))
+        warnings_of(loaded, |r| counts(r) && !from_file(r))
     } else {
         stderr
     };
+    // the old names a start reads, each noted where it does not count
+    let renamed = loaded
+        .reports
+        .iter()
+        .filter(|r| !counts(r) && !(heads.refused && from_file(r)))
+        .map(ToString::to_string);
     let status = u8::from(!stderr.is_empty() || !heads.counted.is_empty());
     Outcome {
         stderr: stderr.into_iter().chain(heads.counted).collect(),
-        stdout: notes(&loaded.config)
-            .into_iter()
+        stdout: renamed
+            .chain(notes(&loaded.config))
             .chain(heads.notes)
             .collect(),
         status,
@@ -800,10 +815,10 @@ mod tests {
         semantics_under(&loaded.config, status, 38)
     }
 
-    const BOUND: &str = "grab-power-off=<Ctrl><Alt>End\n";
+    const BOUND: &str = "key-power-off=<Ctrl><Alt>End\n";
 
     #[test]
-    fn grab_power_off_is_silent_where_init_takes_the_signal() {
+    fn key_power_off_is_silent_where_init_takes_the_signal() {
         // systemd blocks SIGRTMIN+4 and reads it from a signalfd, so bit 37
         // (signal 38) is set in its SigBlk and not in its SigCgt; these are
         // the masks of systemd 262 as PID 1. sysvinit catches the signal
@@ -821,11 +836,11 @@ mod tests {
     }
 
     #[test]
-    fn grab_power_off_warns_where_init_neither_catches_nor_blocks_it() {
+    fn key_power_off_warns_where_init_neither_catches_nor_blocks_it() {
         assert_eq!(
             power_off_warnings(BOUND, &status("0000000000000000", "0000000000000000")),
             [
-                "the grab-power-off key will not work: the init system (PID 1) neither \
+                "the key-power-off key will not work: the init system (PID 1) neither \
                  handles nor blocks SIGRTMIN+4 (signal 38, from SigCgt and SigBlk in \
                  /proc/1/status). Unbind the key, or use an init system that powers off on \
                  that signal, such as systemd or sysvinit."
@@ -840,12 +855,12 @@ mod tests {
     }
 
     #[test]
-    fn grab_power_off_names_why_an_unreadable_status_does_not_answer() {
+    fn key_power_off_names_why_an_unreadable_status_does_not_answer() {
         let unreadable = Err("Permission denied (os error 13)".to_owned());
         assert_eq!(
             power_off_warnings(BOUND, &unreadable),
             [
-                "the grab-power-off key may not work: vtium cannot tell whether the init \
+                "the key-power-off key may not work: vtium cannot tell whether the init \
                  system (PID 1) handles SIGRTMIN+4 (signal 38), because /proc/1/status could \
                  not be read: Permission denied (os error 13)"
             ]
@@ -870,8 +885,8 @@ mod tests {
     }
 
     #[test]
-    fn an_unbound_grab_power_off_checks_nothing() {
-        let unbound = "grab-reboot=<Ctrl><Alt>Delete\n";
+    fn an_unbound_key_power_off_checks_nothing() {
+        let unbound = "key-reboot=<Ctrl><Alt>Delete\n";
         assert_eq!(
             power_off_warnings(unbound, &status("0", "0")),
             [] as [&str; 0]
@@ -2128,6 +2143,43 @@ mod tests {
             .map(OsString::from)
             .collect();
         outcome(&config::load(&args, &mut |_: &Path| Ok(None)), host)
+    }
+
+    // ADR-1005 D10: a vtium.conf written for an earlier release binds its
+    // keys by their old names. check-config notes each line on standard
+    // output, where it does not count, so the file passes, and so does
+    // vtium-config's install of it.
+    #[test]
+    #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
+    fn an_old_key_binding_name_is_a_note_and_the_check_passes() {
+        let (file, _) = heads_fixture(
+            "renamed",
+            "grab-paste=<Alt>p\ngrab-reboot=<Ctrl><Alt>Delete\nversion = 1\n[head a]\n[rules]\ndisplay * -> a\ninput path:pci-0000:00:14.0-usb-0:1 -> a\n",
+            0o644,
+        );
+        let f = file.display().to_string();
+        let host = Host {
+            conf_file: file.with_file_name("installed.conf"),
+            udev_control: file.clone(),
+            roots: nowhere(),
+            frits: PathBuf::from("/nonexistent/vtium/frits"),
+        };
+        let args: Vec<OsString> = [SUBCOMMAND, "--no-devices", f.as_str()]
+            .iter()
+            .map(OsString::from)
+            .collect();
+        let out = outcome(&config::load(&args, &mut config::read_bytes), &host);
+        assert_eq!((out.status, out.stderr), (0, Vec::<String>::new()));
+        for (n, old, new) in [
+            (1, "grab-paste", "key-paste"),
+            (2, "grab-reboot", "key-reboot"),
+        ] {
+            let note = format!(
+                "{f}:{n}: {old} is now called {new}. vtium reads {old} as {new} for now; rename it"
+            );
+            assert!(out.stdout.contains(&note), "{note}: {:?}", out.stdout);
+        }
+        std::fs::remove_dir_all(file.parent().unwrap()).ok();
     }
 
     // the installed head file is the host's, read as the start reads it,

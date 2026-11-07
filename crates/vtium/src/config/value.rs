@@ -14,7 +14,7 @@ pub(super) fn default(key: &Key) -> Option<Value> {
         keys::Default::Switch(b) => Some(Value::Switch(b)),
         keys::Default::Number(n) => Some(Value::Number(n)),
         keys::Default::Text(t) => match key.kind {
-            Kind::Grab => crate::grab::parse(t).ok().map(Value::Chords),
+            Kind::KeyBinding => crate::grab::parse(t).ok().map(Value::Chords),
             Kind::DecoColor => parse_deco_color(t).ok().map(Value::DecoColor),
             Kind::Size { max } => parse_size(t, max).ok().map(|(w, h)| Value::Size(w, h)),
             _ => Some(Value::Text(t.to_owned())),
@@ -204,7 +204,7 @@ pub(super) fn parse(
                 None
             }
         },
-        Kind::Grab => {
+        Kind::KeyBinding => {
             if !text_ok(key, text, origin, reports) {
                 return None;
             }

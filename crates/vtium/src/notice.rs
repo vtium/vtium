@@ -6,11 +6,14 @@
 //!
 //! Each notice says what happened, then what the person reading it can do
 //! next, in plain words. A key it names is built from the binding vtium
-//! acts on ([`chord::keys`]), never typed in.
+//! acts on, the one vtium.conf binds ([`Bindings::keys`]), never typed in.
+//! A notice that would name a key vtium.conf leaves empty leaves the key
+//! out.
 
 use std::fmt::Display;
 
-use crate::head::chord::{self, HeadChord};
+use crate::grab::{Action, Bindings};
+use crate::head::chord::HeadChord;
 
 /// The start found no keyboard on the seat (ADR-1401 D8).
 pub const NO_KEYBOARD: &str = "No keyboard found. Connect one to type.";
@@ -33,32 +36,49 @@ pub fn rescue(device: impl Display, to: &str) -> String {
     )
 }
 
+/// `sentence` with the keys `bindings` binds to `chord` in place of its
+/// `{}`, after a space; nothing when vtium.conf leaves the chord empty.
+fn press(bindings: &Bindings, chord: HeadChord, sentence: &str) -> String {
+    bindings
+        .keys(Action::Head(chord))
+        .map(|keys| format!(" {}", sentence.replace("{}", &keys)))
+        .unwrap_or_default()
+}
+
 /// The rescue key moved the keyboard at `device` while no head is active
-/// (ADR-1401 D9).
-pub fn rescue_no_head(device: impl Display) -> String {
+/// (ADR-1401 D9), naming the focus chord's keys `bindings` binds.
+pub fn rescue_no_head(device: impl Display, bindings: &Bindings) -> String {
     format!(
-        "Keyboard {device} now types into the active screen until the next boot (the rescue key moved it), but no screen is active. Press {} to choose one.",
-        chord::keys(HeadChord::NextHead)
+        "Keyboard {device} now types into the active screen until the next boot (the rescue key moved it), but no screen is active.{}",
+        press(bindings, HeadChord::NextHead, "Press {} to choose one.")
     )
 }
 
 /// What a console whose session ended under `oneshot` shows while no
-/// other console of its head runs: the roaming chord's keys, which switch
-/// to another screen (vtium/vtium#156, ADR-1401 D1).
-pub fn session_ended() -> String {
+/// other console of its head runs: the roaming chord's keys `bindings`
+/// binds, which switch to another screen (vtium/vtium#156, ADR-1401 D1).
+pub fn session_ended(bindings: &Bindings) -> String {
     format!(
-        "Session ended. It will not start again. Press {} to switch to another screen.",
-        chord::keys(HeadChord::NextHead)
+        "Session ended. It will not start again.{}",
+        press(
+            bindings,
+            HeadChord::NextHead,
+            "Press {} to switch to another screen."
+        )
     )
 }
 
 /// What a console whose session ended under `oneshot` shows while another
-/// console of its head still runs: the console chord's keys, which show
-/// that console (ADR-1401 D1, D5).
-pub fn session_ended_console() -> String {
+/// console of its head still runs: the console chord's keys `bindings`
+/// binds, which show that console (ADR-1401 D1, D5).
+pub fn session_ended_console(bindings: &Bindings) -> String {
     format!(
-        "Session ended. It will not start again. Press {} to show another console on this screen.",
-        chord::keys(HeadChord::NextConsole)
+        "Session ended. It will not start again.{}",
+        press(
+            bindings,
+            HeadChord::NextConsole,
+            "Press {} to show another console on this screen."
+        )
     )
 }
 
@@ -186,35 +206,35 @@ It opens nothing under /dev and changes nothing.\n";
 
     pub const MODE_OVER_ORIGINAL: &str = "mode is set, so use-original-mode is off";
 
-    /// `grab-power-off` is bound and PID 1 neither catches nor blocks the
+    /// `key-power-off` is bound and PID 1 neither catches nor blocks the
     /// power-off `signal`.
     pub fn power_off_not_taken(signal: i32) -> String {
         format!(
-            "the grab-power-off key will not work: the init system (PID 1) neither handles nor blocks SIGRTMIN+4 (signal {signal}, from SigCgt and SigBlk in /proc/1/status). Unbind the key, or use an init system that powers off on that signal, such as systemd or sysvinit."
+            "the key-power-off key will not work: the init system (PID 1) neither handles nor blocks SIGRTMIN+4 (signal {signal}, from SigCgt and SigBlk in /proc/1/status). Unbind the key, or use an init system that powers off on that signal, such as systemd or sysvinit."
         )
     }
 
-    /// `grab-power-off` is bound and `/proc/1/status` could not be read,
+    /// `key-power-off` is bound and `/proc/1/status` could not be read,
     /// the system saying `system_error`.
     pub fn power_off_status_unreadable(signal: i32, system_error: impl Display) -> String {
         format!(
-            "the grab-power-off key may not work: vtium cannot tell whether the init system (PID 1) handles SIGRTMIN+4 (signal {signal}), because /proc/1/status could not be read: {system_error}"
+            "the key-power-off key may not work: vtium cannot tell whether the init system (PID 1) handles SIGRTMIN+4 (signal {signal}), because /proc/1/status could not be read: {system_error}"
         )
     }
 
-    /// `grab-power-off` is bound and `/proc/1/status` has no `line` line,
+    /// `key-power-off` is bound and `/proc/1/status` has no `line` line,
     /// `SigCgt` or `SigBlk`.
     pub fn power_off_no_mask(signal: i32, line: &str) -> String {
         format!(
-            "the grab-power-off key may not work: vtium cannot tell whether the init system (PID 1) handles SIGRTMIN+4 (signal {signal}), because /proc/1/status has no {line} line"
+            "the key-power-off key may not work: vtium cannot tell whether the init system (PID 1) handles SIGRTMIN+4 (signal {signal}), because /proc/1/status has no {line} line"
         )
     }
 
-    /// `grab-power-off` is bound and the `line` line of `/proc/1/status`,
+    /// `key-power-off` is bound and the `line` line of `/proc/1/status`,
     /// `SigCgt` or `SigBlk`, holds `mask`, which is not a hex mask.
     pub fn power_off_bad_mask(signal: i32, line: &str, mask: &str) -> String {
         format!(
-            "the grab-power-off key may not work: vtium cannot tell whether the init system (PID 1) handles SIGRTMIN+4 (signal {signal}), because the {line} line of /proc/1/status is not a hex mask: {mask:?}"
+            "the key-power-off key may not work: vtium cannot tell whether the init system (PID 1) handles SIGRTMIN+4 (signal {signal}), because the {line} line of /proc/1/status is not a hex mask: {mask:?}"
         )
     }
 
@@ -426,7 +446,7 @@ mod tests {
     #[test]
     fn the_ended_session_names_the_keys_that_switch_screens() {
         assert_eq!(
-            session_ended(),
+            session_ended(&Bindings::default()),
             "Session ended. It will not start again. Press Ctrl+Super+↑ to switch to another screen."
         );
     }
@@ -436,8 +456,33 @@ mod tests {
     #[test]
     fn the_ended_session_names_the_keys_that_show_another_console() {
         assert_eq!(
-            session_ended_console(),
+            session_ended_console(&Bindings::default()),
             "Session ended. It will not start again. Press Ctrl+Super+→ to show another console on this screen."
+        );
+    }
+
+    // ADR-1005 D10: a notice names the keys vtium.conf binds, and leaves
+    // out the sentence that would name a key vtium.conf empties.
+    #[test]
+    fn a_notice_names_the_keys_vtium_conf_binds() {
+        let mut config = crate::config::Config::default();
+        config.set_chords(
+            &crate::config::keys::KEY_FOCUS_NEXT,
+            crate::grab::parse("<Alt>n").unwrap_or_default(),
+        );
+        config.set_chords(&crate::config::keys::KEY_CONSOLE_NEXT, Vec::new());
+        let bound = Bindings::of(&config);
+        assert_eq!(
+            session_ended(&bound),
+            "Session ended. It will not start again. Press Alt+n to switch to another screen."
+        );
+        assert_eq!(
+            rescue_no_head("/dev/input/event3", &bound),
+            "Keyboard /dev/input/event3 now types into the active screen until the next boot (the rescue key moved it), but no screen is active. Press Alt+n to choose one."
+        );
+        assert_eq!(
+            session_ended_console(&bound),
+            "Session ended. It will not start again."
         );
     }
 

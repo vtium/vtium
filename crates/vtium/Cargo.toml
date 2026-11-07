@@ -18,7 +18,7 @@ default = []
 # vtium-term, the compositor's pictures in vtium-render, vtium-image, and
 # the image helper's host in vtium-platform (ADR-1101).
 images = ["dep:vtium-image", "vtium-term/images", "vtium-render/images", "vtium-platform/images"]
-# grab-suspend through logind's Suspend (ADR-1400's L2 layer).
+# key-suspend through logind's Suspend (ADR-1400's L2 layer).
 logind = ["vtium-platform/logind"]
 # The GPU path (ADR-1303): vtium-render's frame and `Gl` trait, and
 # vtium-platform's GL context, which `src/gpu.rs` joins. It loads libEGL and

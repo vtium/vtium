@@ -182,9 +182,10 @@ pub enum Kind {
     /// words; on the command line, `--login -- ARGS...`, the words after
     /// `--`.
     Command,
-    /// Keys a grab takes: chords such as `<Ctrl><Alt>Delete`, separated by
-    /// commas, as the console's grab parser reads them. Empty, it takes none.
-    Grab,
+    /// A key binding: key combinations such as `<Ctrl><Alt>Delete`,
+    /// separated by commas, as the console's key binding parser reads them.
+    /// Empty, it binds none.
+    KeyBinding,
     /// One character, no control character or space.
     Char,
     /// A size in pixels, `WxH`, each side from 1 to `max`.
@@ -1189,7 +1190,7 @@ pub const CLIPBOARD_WRITE: Key = Key {
     levels: TOP,
     reader: "vtium",
     what: "Let programs copy text to vtium's clipboard (OSC 52). When off, vtium ignores what they send.\n\n\
-           The console has no system clipboard. vtium keeps the last text copied, by a program or by you, and the middle mouse button and the `grab-paste` key paste it.",
+           The console has no system clipboard. vtium keeps the last text copied, by a program or by you, and the middle mouse button and the `key-paste` key paste it.",
     cite: "[the OSC 52 copy issue](https://github.com/vtium/vtium/issues/39)",
 };
 
@@ -1693,10 +1694,10 @@ pub const RENDER_TIMER: Key = Key {
     cite: "[the CPU compositor issue](https://github.com/vtium/vtium/issues/16)",
 };
 
-pub const GRAB_PASTE: Key = Key {
-    name: "grab-paste",
+pub const KEY_PASTE: Key = Key {
+    name: "key-paste",
     short: None,
-    kind: Kind::Grab,
+    kind: Kind::KeyBinding,
     default: Default::Text("<Shift>Insert"),
     scope: Scope::Anywhere,
     levels: TOP,
@@ -1706,23 +1707,23 @@ pub const GRAB_PASTE: Key = Key {
     cite: "xterm's `Shift <KeyPress> Insert` translation; [the selection issue](https://github.com/vtium/vtium/issues/95)",
 };
 
-pub const GRAB_REBOOT: Key = Key {
-    name: "grab-reboot",
+pub const KEY_REBOOT: Key = Key {
+    name: "key-reboot",
     short: None,
-    kind: Kind::Grab,
+    kind: Kind::KeyBinding,
     default: Default::Unset,
     scope: Scope::Anywhere,
     levels: TOP,
     reader: "vtium",
     what: "The key that reboots the machine.\n\n\
            When `/proc/sys/kernel/ctrl-alt-del` is 0, vtium asks init to reboot, as Ctrl+Alt+Del does, so the services stop first; otherwise the kernel restarts at once. When unset, no key reboots.",
-    cite: "kmscon's `grab-reboot` key",
+    cite: "the `grab-reboot` key that kmscon had",
 };
 
-pub const GRAB_POWER_OFF: Key = Key {
-    name: "grab-power-off",
+pub const KEY_POWER_OFF: Key = Key {
+    name: "key-power-off",
     short: None,
-    kind: Kind::Grab,
+    kind: Kind::KeyBinding,
     default: Default::Unset,
     scope: Scope::Anywhere,
     levels: TOP,
@@ -1732,10 +1733,10 @@ pub const GRAB_POWER_OFF: Key = Key {
     cite: "[the configuration issue](https://github.com/vtium/vtium/issues/21)",
 };
 
-pub const GRAB_SUSPEND: Key = Key {
-    name: "grab-suspend",
+pub const KEY_SUSPEND: Key = Key {
+    name: "key-suspend",
     short: None,
-    kind: Kind::Grab,
+    kind: Kind::KeyBinding,
     default: Default::Unset,
     scope: Scope::Anywhere,
     levels: TOP,
@@ -1743,6 +1744,217 @@ pub const GRAB_SUSPEND: Key = Key {
     what: "The key that suspends the machine to RAM.\n\n\
            vtium asks logind to suspend, so anything that holds off sleep through logind can still do so. When logind is not running, or vtium was built without `logind`, vtium writes `mem` to `/sys/power/state`. When unset, no key suspends.",
     cite: "[the configuration issue](https://github.com/vtium/vtium/issues/21)",
+};
+
+/// Where the keys vtium takes for itself come from (ADR-1005 D10).
+const OWN_KEYS_CITE: &str = "[the kitty keyboard issue](https://github.com/vtium/vtium/issues/42)";
+
+/// Where the console and focus keys come from (ADR-1005 D10, ADR-1401).
+const HEAD_KEYS_CITE: &str = "[the heads issue](https://github.com/vtium/vtium/issues/156); [the kitty keyboard issue](https://github.com/vtium/vtium/issues/42)";
+
+pub const KEY_SCROLL_UP: Key = Key {
+    name: "key-scroll-up",
+    short: None,
+    kind: Kind::KeyBinding,
+    default: Default::Text("<Shift>Up"),
+    scope: Scope::Anywhere,
+    levels: TOP,
+    reader: "vtium",
+    what: "Scroll the view back one line.",
+    cite: OWN_KEYS_CITE,
+};
+
+pub const KEY_SCROLL_DOWN: Key = Key {
+    name: "key-scroll-down",
+    short: None,
+    kind: Kind::KeyBinding,
+    default: Default::Text("<Shift>Down"),
+    scope: Scope::Anywhere,
+    levels: TOP,
+    reader: "vtium",
+    what: "Scroll the view forward one line.",
+    cite: OWN_KEYS_CITE,
+};
+
+pub const KEY_PAGE_UP: Key = Key {
+    name: "key-page-up",
+    short: None,
+    kind: Kind::KeyBinding,
+    default: Default::Text("<Shift>Prior"),
+    scope: Scope::Anywhere,
+    levels: TOP,
+    reader: "vtium",
+    what: "Scroll the view back one page. `Prior` is Page Up.",
+    cite: OWN_KEYS_CITE,
+};
+
+pub const KEY_PAGE_DOWN: Key = Key {
+    name: "key-page-down",
+    short: None,
+    kind: Kind::KeyBinding,
+    default: Default::Text("<Shift>Next"),
+    scope: Scope::Anywhere,
+    levels: TOP,
+    reader: "vtium",
+    what: "Scroll the view forward one page. `Next` is Page Down.",
+    cite: OWN_KEYS_CITE,
+};
+
+pub const KEY_PROMPT_UP: Key = Key {
+    name: "key-prompt-up",
+    short: None,
+    kind: Kind::KeyBinding,
+    default: Default::Text("<Ctrl><Shift>Up"),
+    scope: Scope::Anywhere,
+    levels: TOP,
+    reader: "vtium",
+    what: "Scroll the view back to the shell prompt above, which OSC 133 marks.",
+    cite: "[the OSC 133 prompt marks issue](https://github.com/vtium/vtium/issues/40); [the kitty keyboard issue](https://github.com/vtium/vtium/issues/42)",
+};
+
+pub const KEY_PROMPT_DOWN: Key = Key {
+    name: "key-prompt-down",
+    short: None,
+    kind: Kind::KeyBinding,
+    default: Default::Text("<Ctrl><Shift>Down"),
+    scope: Scope::Anywhere,
+    levels: TOP,
+    reader: "vtium",
+    what: "Scroll the view forward to the shell prompt below, or to the live screen.",
+    cite: "[the OSC 133 prompt marks issue](https://github.com/vtium/vtium/issues/40); [the kitty keyboard issue](https://github.com/vtium/vtium/issues/42)",
+};
+
+pub const KEY_ZOOM_IN: Key = Key {
+    name: "key-zoom-in",
+    short: None,
+    kind: Kind::KeyBinding,
+    default: Default::Text("<Ctrl>plus,<Ctrl>equal"),
+    scope: Scope::Anywhere,
+    levels: TOP,
+    reader: "vtium",
+    what: "Make the font of the console on screen larger.",
+    cite: OWN_KEYS_CITE,
+};
+
+pub const KEY_ZOOM_OUT: Key = Key {
+    name: "key-zoom-out",
+    short: None,
+    kind: Kind::KeyBinding,
+    default: Default::Text("<Ctrl>minus"),
+    scope: Scope::Anywhere,
+    levels: TOP,
+    reader: "vtium",
+    what: "Make the font of the console on screen smaller.",
+    cite: OWN_KEYS_CITE,
+};
+
+pub const KEY_ROTATE_CW: Key = Key {
+    name: "key-rotate-cw",
+    short: None,
+    kind: Kind::KeyBinding,
+    default: Default::Text("<Logo>plus,<Logo>equal"),
+    scope: Scope::Anywhere,
+    levels: TOP,
+    reader: "vtium",
+    what: "Turn the head's displays a quarter turn clockwise. `Logo` is Super.",
+    cite: OWN_KEYS_CITE,
+};
+
+pub const KEY_ROTATE_CCW: Key = Key {
+    name: "key-rotate-ccw",
+    short: None,
+    kind: Kind::KeyBinding,
+    default: Default::Text("<Logo>minus"),
+    scope: Scope::Anywhere,
+    levels: TOP,
+    reader: "vtium",
+    what: "Turn the head's displays a quarter turn counterclockwise.",
+    cite: OWN_KEYS_CITE,
+};
+
+pub const KEY_RESET: Key = Key {
+    name: "key-reset",
+    short: None,
+    kind: Kind::KeyBinding,
+    default: Default::Text("<Ctrl><Shift>Delete"),
+    scope: Scope::Anywhere,
+    levels: TOP,
+    reader: "vtium",
+    what: "Reset the console on screen, as the `reset` command does.\n\n\
+           It clears the screen and the scrollback, and turns off every mode a program set, the keyboard's too: use it when a program left the keyboard sending escape codes.",
+    cite: OWN_KEYS_CITE,
+};
+
+pub const KEY_CONSOLE_NEXT: Key = Key {
+    name: "key-console-next",
+    short: None,
+    kind: Kind::KeyBinding,
+    default: Default::Text("<Ctrl><Logo>Right"),
+    scope: Scope::Anywhere,
+    levels: TOP,
+    reader: "vtium",
+    what: "Show the head's next console.",
+    cite: HEAD_KEYS_CITE,
+};
+
+pub const KEY_CONSOLE_PREVIOUS: Key = Key {
+    name: "key-console-previous",
+    short: None,
+    kind: Kind::KeyBinding,
+    default: Default::Text("<Ctrl><Logo>Left"),
+    scope: Scope::Anywhere,
+    levels: TOP,
+    reader: "vtium",
+    what: "Show the head's previous console.",
+    cite: HEAD_KEYS_CITE,
+};
+
+pub const KEY_CONSOLE_OPEN: Key = Key {
+    name: "key-console-open",
+    short: None,
+    kind: Kind::KeyBinding,
+    default: Default::Text("<Ctrl><Logo>Return"),
+    scope: Scope::Anywhere,
+    levels: TOP,
+    reader: "vtium",
+    what: "Open a console after the one on screen, unless the policy is `closed`.",
+    cite: HEAD_KEYS_CITE,
+};
+
+pub const KEY_CONSOLE_CLOSE: Key = Key {
+    name: "key-console-close",
+    short: None,
+    kind: Kind::KeyBinding,
+    default: Default::Text("<Ctrl><Logo>BackSpace"),
+    scope: Scope::Anywhere,
+    levels: TOP,
+    reader: "vtium",
+    what: "Close the console on screen, unless it is the head's last or the policy is `closed`.",
+    cite: HEAD_KEYS_CITE,
+};
+
+pub const KEY_FOCUS_NEXT: Key = Key {
+    name: "key-focus-next",
+    short: None,
+    kind: Kind::KeyBinding,
+    default: Default::Text("<Ctrl><Logo>Up"),
+    scope: Scope::Anywhere,
+    levels: TOP,
+    reader: "vtium",
+    what: "Make the next head active, from a keyboard that roams among the heads.",
+    cite: HEAD_KEYS_CITE,
+};
+
+pub const KEY_FOCUS_PREVIOUS: Key = Key {
+    name: "key-focus-previous",
+    short: None,
+    kind: Kind::KeyBinding,
+    default: Default::Text("<Ctrl><Logo>Down"),
+    scope: Scope::Anywhere,
+    levels: TOP,
+    reader: "vtium",
+    what: "Make the previous head active, from a keyboard that roams among the heads.",
+    cite: HEAD_KEYS_CITE,
 };
 
 pub const IMAGE_STORAGE_LIMIT: Key = Key {
@@ -1851,7 +2063,7 @@ pub const KITTY_GRAPHICS: Key = Key {
 
 /// Every key, in the order the generated files list them. A static, so
 /// each use reads the one table instead of a copy of it.
-pub static KEYS: [Key; 108] = [
+pub static KEYS: [Key; 125] = [
     CONFIGDIR,
     HELP,
     VERSION,
@@ -1926,10 +2138,27 @@ pub static KEYS: [Key; 108] = [
     POINTER_CHAR,
     POINTER_HIDE_TIMEOUT,
     POINTER_HIDE_WHILE_TYPING,
-    GRAB_PASTE,
-    GRAB_REBOOT,
-    GRAB_POWER_OFF,
-    GRAB_SUSPEND,
+    KEY_PASTE,
+    KEY_REBOOT,
+    KEY_POWER_OFF,
+    KEY_SUSPEND,
+    KEY_SCROLL_UP,
+    KEY_SCROLL_DOWN,
+    KEY_PAGE_UP,
+    KEY_PAGE_DOWN,
+    KEY_PROMPT_UP,
+    KEY_PROMPT_DOWN,
+    KEY_ZOOM_IN,
+    KEY_ZOOM_OUT,
+    KEY_ROTATE_CW,
+    KEY_ROTATE_CCW,
+    KEY_RESET,
+    KEY_CONSOLE_NEXT,
+    KEY_CONSOLE_PREVIOUS,
+    KEY_CONSOLE_OPEN,
+    KEY_CONSOLE_CLOSE,
+    KEY_FOCUS_NEXT,
+    KEY_FOCUS_PREVIOUS,
     FONT_ENGINE,
     FONT_NAME,
     FONT_FRITS,
@@ -1986,7 +2215,7 @@ pub struct Section {
 /// change most come first, and those of vtium's own running last. Each key
 /// is in one group of one section. The example leaves out the keys only
 /// the command line takes, and a group or section left with none.
-pub const SECTIONS: [Section; 10] = [
+pub const SECTIONS: [Section; 11] = [
     Section {
         title: "Fonts and text",
         about: "The console's font and its size, who draws box-drawing and block characters, how blinking text looks, and which way text runs.",
@@ -2093,7 +2322,45 @@ pub const SECTIONS: [Section; 10] = [
             },
             Group {
                 title: "Clipboard and paste",
-                keys: &[&CLIPBOARD_WRITE, &GRAB_PASTE],
+                keys: &[&CLIPBOARD_WRITE, &KEY_PASTE],
+            },
+        ],
+    },
+    Section {
+        title: "Key bindings",
+        about: "The keys vtium acts on itself instead of sending them to the program. Each value lists key combinations, separated by commas, and an empty value hands the key to the program. The scroll keys and the prompt jumps are vtium's only on the main screen: on the alternate screen, where editors run, they reach the program. Ctrl+Alt+F1 to F12 always switch the VT.",
+        groups: &[
+            Group {
+                title: "Scrolling and prompt jumps",
+                keys: &[
+                    &KEY_SCROLL_UP,
+                    &KEY_SCROLL_DOWN,
+                    &KEY_PAGE_UP,
+                    &KEY_PAGE_DOWN,
+                    &KEY_PROMPT_UP,
+                    &KEY_PROMPT_DOWN,
+                ],
+            },
+            Group {
+                title: "Zoom, rotation and reset",
+                keys: &[
+                    &KEY_ZOOM_IN,
+                    &KEY_ZOOM_OUT,
+                    &KEY_ROTATE_CW,
+                    &KEY_ROTATE_CCW,
+                    &KEY_RESET,
+                ],
+            },
+            Group {
+                title: "Consoles and heads",
+                keys: &[
+                    &KEY_CONSOLE_NEXT,
+                    &KEY_CONSOLE_PREVIOUS,
+                    &KEY_CONSOLE_OPEN,
+                    &KEY_CONSOLE_CLOSE,
+                    &KEY_FOCUS_NEXT,
+                    &KEY_FOCUS_PREVIOUS,
+                ],
             },
         ],
     },
@@ -2195,7 +2462,7 @@ pub const SECTIONS: [Section; 10] = [
             },
             Group {
                 title: "Power keys",
-                keys: &[&GRAB_REBOOT, &GRAB_POWER_OFF, &GRAB_SUSPEND],
+                keys: &[&KEY_REBOOT, &KEY_POWER_OFF, &KEY_SUSPEND],
             },
         ],
     },
@@ -2251,6 +2518,25 @@ pub const SECTIONS: [Section; 10] = [
 /// set.
 pub const NOT_BUILT: [&Key; 1] = [&FONT_HINTING];
 
+/// The names four key bindings had before the maintainer renamed them to
+/// more accepted terms (ADR-1005 D10): vtium still reads each old name as
+/// its key binding, and reports each line or option that uses it. The
+/// keys that never shipped under a `grab-` name have none.
+pub const RENAMED: [(&str, &Key); 4] = [
+    ("grab-paste", &KEY_PASTE),
+    ("grab-reboot", &KEY_REBOOT),
+    ("grab-power-off", &KEY_POWER_OFF),
+    ("grab-suspend", &KEY_SUSPEND),
+];
+
+/// The key binding the old name `old` names now, with that old name.
+pub fn renamed(old: &str) -> Option<(&'static str, &'static Key)> {
+    RENAMED
+        .iter()
+        .find(|(o, _)| *o == old)
+        .map(|&(o, k)| (o, k))
+}
+
 /// The keys a section of `level` may set, in the table's order.
 pub fn at(level: Level) -> impl Iterator<Item = &'static Key> {
     KEYS.iter().filter(move |k| k.levels.contains(level))
@@ -2290,6 +2576,54 @@ mod tests {
             for g in s.groups {
                 assert!(!g.keys.is_empty(), "{}", g.title);
             }
+        }
+    }
+
+    // ADR-1005 D10: the seventeen keys vtium takes for itself, apart from
+    // the VT keys and the rescue key, are key bindings of vtium.conf's top
+    // level, each with the combination vtium took before the keys were
+    // configurable as its built-in default, so vtium with no vtium.conf
+    // takes the same keys.
+    #[test]
+    fn vtiums_own_keys_are_key_bindings_with_their_built_in_defaults() {
+        let want = [
+            ("key-scroll-up", "<Shift>Up"),
+            ("key-scroll-down", "<Shift>Down"),
+            ("key-page-up", "<Shift>Prior"),
+            ("key-page-down", "<Shift>Next"),
+            ("key-prompt-up", "<Ctrl><Shift>Up"),
+            ("key-prompt-down", "<Ctrl><Shift>Down"),
+            ("key-zoom-in", "<Ctrl>plus,<Ctrl>equal"),
+            ("key-zoom-out", "<Ctrl>minus"),
+            ("key-rotate-cw", "<Logo>plus,<Logo>equal"),
+            ("key-rotate-ccw", "<Logo>minus"),
+            ("key-reset", "<Ctrl><Shift>Delete"),
+            ("key-console-next", "<Ctrl><Logo>Right"),
+            ("key-console-previous", "<Ctrl><Logo>Left"),
+            ("key-console-open", "<Ctrl><Logo>Return"),
+            ("key-console-close", "<Ctrl><Logo>BackSpace"),
+            ("key-focus-next", "<Ctrl><Logo>Up"),
+            ("key-focus-previous", "<Ctrl><Logo>Down"),
+        ];
+        for (name, default) in want {
+            let key = find(name).unwrap_or(&HELP);
+            assert_eq!(key.name, name);
+            assert_eq!(key.kind, Kind::KeyBinding, "{name}");
+            assert_eq!(key.default, Default::Text(default), "{name}");
+            assert_eq!(key.scope, Scope::Anywhere, "{name}");
+            assert_eq!(key.levels, TOP, "{name}");
+            assert_eq!(key.reader, "vtium", "{name}");
+        }
+        // with key-paste and the power keys, every key binding there is
+        let bindings = KEYS.iter().filter(|k| k.kind == Kind::KeyBinding).count();
+        assert_eq!(bindings, want.len() + 4);
+        // The VT keys and the rescue key have no key to bind or empty.
+        for k in &KEYS {
+            assert!(
+                !k.name.contains("vt-") && !k.name.contains("rescue"),
+                "{}",
+                k.name
+            );
         }
     }
 

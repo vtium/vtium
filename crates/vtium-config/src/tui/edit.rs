@@ -491,12 +491,11 @@ pub fn fields(flow: &Flow, item: Item, values: &[String], frits: &[String]) -> V
                     .set
                     .iter()
                     .find(|(n, _)| n == k.name)
-                    .map(|(_, v)| {
-                        if v.is_empty() {
-                            "on".to_owned()
-                        } else {
-                            v.clone()
-                        }
+                    .map(|(_, v)| match k.kind {
+                        // a key binding set empty binds no key (ADR-1005 D10)
+                        KeyKind::KeyBinding if v.is_empty() => super::words::NO_KEY.to_owned(),
+                        _ if v.is_empty() => "on".to_owned(),
+                        _ => v.clone(),
                     })
                     .unwrap_or_default();
                 let options = match k.kind {
@@ -556,6 +555,12 @@ pub fn pick(flow: &Flow, field: &Field, value: &str) -> Option<Change> {
         What::LookName(name) => Change::LookRename {
             name: name.clone(),
             new: value.to_owned(),
+        },
+        // a key binding's empty value binds no key, and the word `default`
+        // returns it to its default (ADR-1005 D10)
+        What::Top(k) if k.kind == KeyKind::KeyBinding => Change::Top {
+            key: k.name,
+            value: Some(value.to_owned()).filter(|v| v != super::words::BINDING_DEFAULT),
         },
         What::Top(k) => Change::Top {
             key: k.name,

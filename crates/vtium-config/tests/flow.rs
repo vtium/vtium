@@ -186,6 +186,52 @@ fn an_unfinished_draft_is_written_and_the_command_exits_0() {
     assert!(f.draft().contains("font-name=BAD"));
 }
 
+/// ADR-1005 D10: `set` writes a key vtium takes for itself as the line a
+/// person writes by hand, `key=value`, and an empty value as `key=`, which
+/// empties the key; `get` reads both back. The vtium crate's test
+/// `vtium_config_set_and_a_hand_edit_give_the_same_keys` reads this text and
+/// a hand-edited one and finds the same keys.
+#[test]
+fn set_writes_vtiums_own_keys_as_a_person_writes_them() {
+    let f = fixture("key-bindings");
+    f.desk();
+    assert_eq!(f.run(&["set", "key-scroll-up", "<Alt>k"]).status, 0);
+    assert_eq!(f.run(&["set", "key-reset", ""]).status, 0);
+    assert_eq!(
+        f.draft(),
+        "font-size=12\nversion = 1\nkey-scroll-up=<Alt>k\nkey-reset=\n[head desk]\n[rules]\ndisplay * -> desk\ninput class:keyboard -> roaming\n"
+    );
+    assert_eq!(
+        f.run(&["get", "key-scroll-up"]).out,
+        "key-scroll-up\t<Alt>k\tdraft\n"
+    );
+    assert_eq!(f.run(&["get", "key-reset"]).out, "key-reset\t\tdraft\n");
+    assert_eq!(
+        f.run(&["get", "key-zoom-in"]).out,
+        "key-zoom-in\t<Ctrl>plus,<Ctrl>equal\tdefault\n"
+    );
+}
+
+/// ADR-1005 D10: on a vtium.conf from an earlier release, which binds the
+/// paste by its old name, `set key-paste` writes the new name and comments
+/// out the old one, and `get` reads the old name's value until then.
+#[test]
+fn set_moves_a_key_binding_from_its_old_name() {
+    let f = fixture("old-name");
+    let alpha6 = "grab-paste=<Alt>p\nversion = 1\n[head desk]\n[rules]\ndisplay * -> desk\n";
+    std::fs::write(f.path("etc/vtium.conf"), alpha6).expect("vtium.conf");
+    f.desk();
+    assert_eq!(
+        f.run(&["get", "key-paste"]).out,
+        "key-paste\t<Alt>p\tdraft\n"
+    );
+    assert_eq!(f.run(&["set", "key-paste", "<Alt>n"]).status, 0);
+    assert_eq!(
+        f.draft(),
+        "#grab-paste=<Alt>p\nversion = 1\nkey-paste=<Alt>n\n[head desk]\n[rules]\ndisplay * -> desk\n"
+    );
+}
+
 #[test]
 fn install_refuses_a_draft_made_before_the_installed_file_changed() {
     let f = fixture("changed-since");

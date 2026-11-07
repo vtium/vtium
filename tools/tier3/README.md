@@ -122,12 +122,12 @@ The power variants run only when named, as `make tier3 VARIANTS="power-reboot po
 
 | Case | Key | Passes when the console shows |
 |---|---|---|
-| `reboot` | `grab-reboot`, `kernel.ctrl-alt-del` at 0 | systemd's `Unmount All Filesystems` and `System Reboot` targets reached, then the kernel's `reboot: Restarting system` |
-| `reboot-hard` | `grab-reboot`, `kernel.ctrl-alt-del` at 1, which the variant's disc sets | the kernel's `reboot: Restarting system` with neither target |
-| `suspend` | `grab-suspend`, vtium built with `logind` | vtium's line that logind took the request and systemd's `Sleep` target, in either order, then `System Suspend`; QMP sees the guest suspended, wakes it, and vtium draws its screen again |
-| `suspend-sysfs` | `grab-suspend`, the minspec build | vtium's line that it writes `mem` to `/sys/power/state`, and no `Sleep` target; QMP sees the guest suspended, wakes it, and vtium draws its screen again |
-| `power-off` | `grab-power-off`, on a guest that has not slept | systemd's `Unmount All Filesystems` and `System Power Off` targets reached, then the kernel's `reboot: Power down` |
-| `power-off-after-s3` | `grab-power-off`, after `suspend` or `suspend-sysfs` | a known failure of the guest's (`t3_power.KNOWN`): the same lines, then a kernel panic with QEMU still running. It passes with a note while it fails that way, and fails once it no longer does |
+| `reboot` | `key-reboot`, `kernel.ctrl-alt-del` at 0 | systemd's `Unmount All Filesystems` and `System Reboot` targets reached, then the kernel's `reboot: Restarting system` |
+| `reboot-hard` | `key-reboot`, `kernel.ctrl-alt-del` at 1, which the variant's disc sets | the kernel's `reboot: Restarting system` with neither target |
+| `suspend` | `key-suspend`, vtium built with `logind` | vtium's line that logind took the request and systemd's `Sleep` target, in either order, then `System Suspend`; QMP sees the guest suspended, wakes it, and vtium draws its screen again |
+| `suspend-sysfs` | `key-suspend`, the minspec build | vtium's line that it writes `mem` to `/sys/power/state`, and no `Sleep` target; QMP sees the guest suspended, wakes it, and vtium draws its screen again |
+| `power-off` | `key-power-off`, on a guest that has not slept | systemd's `Unmount All Filesystems` and `System Power Off` targets reached, then the kernel's `reboot: Power down` |
+| `power-off-after-s3` | `key-power-off`, after `suspend` or `suspend-sysfs` | a known failure of the guest's (`t3_power.KNOWN`): the same lines, then a kernel panic with QEMU still running. It passes with a note while it fails that way, and fails once it no longer does |
 
 QEMU runs with `-no-reboot`, so a reboot ends the VM as a power-off does, and each has a variant of its own.
 
@@ -244,10 +244,10 @@ On every guest the login must report a pty (`T3-LOGIN /dev/pts/N`): vtium's sess
 
 | Case | Key | Passes when the console shows |
 |---|---|---|
-| `reboot-sysvinit` | `grab-reboot`, `kernel.ctrl-alt-del` at 0 | vtium's line that it asks init, sysvinit's `INIT: Switching to runlevel: 6`, its scripts' `Will now restart.`, then the kernel's `reboot: Restarting system` and QEMU's `guest-reset`, with no target of systemd's |
-| `power-off-sysvinit` | `grab-power-off` | no warning at vtium's start, vtium's line that it asks init, `INIT: Switching to runlevel: 0`, `Will now halt.`, then `reboot: Power down` and QEMU's `guest-shutdown` |
+| `reboot-sysvinit` | `key-reboot`, `kernel.ctrl-alt-del` at 0 | vtium's line that it asks init, sysvinit's `INIT: Switching to runlevel: 6`, its scripts' `Will now restart.`, then the kernel's `reboot: Restarting system` and QEMU's `guest-reset`, with no target of systemd's |
+| `power-off-sysvinit` | `key-power-off` | no warning at vtium's start, vtium's line that it asks init, `INIT: Switching to runlevel: 0`, `Will now halt.`, then `reboot: Power down` and QEMU's `guest-shutdown` |
 
-PID 1 takes `SIGRTMIN+4` on both guests. sysvinit catches it with a handler (its `init.c` sets a handler that starts the power-off), and systemd blocks it and reads it from a signalfd. vtium reads both from `/proc/1/status`, the `SigCgt` mask for a caught signal and the `SigBlk` mask for a blocked one, so it gives no warning on either guest. `power-off-sysvinit` and `power-off` each fail on a warning before the key, which is any line holding `the grab-power-off key` (`t3_power.POWER_OFF_WARNING`). An init that does not catch the signal is vtium/vtium#140's. The drawing variants' goldens are vtium's own, in `goldens/`, and provisional until the operator reviews them.
+PID 1 takes `SIGRTMIN+4` on both guests. sysvinit catches it with a handler (its `init.c` sets a handler that starts the power-off), and systemd blocks it and reads it from a signalfd. vtium reads both from `/proc/1/status`, the `SigCgt` mask for a caught signal and the `SigBlk` mask for a blocked one, so it gives no warning on either guest. `power-off-sysvinit` and `power-off` each fail on a warning before the key, which is any line holding `the key-power-off key` (`t3_power.POWER_OFF_WARNING`). An init that does not catch the signal is vtium/vtium#140's. The drawing variants' goldens are vtium's own, in `goldens/`, and provisional until the operator reviews them.
 
 `make tier3-nosystemd` runs the variants in a run beside `make tier3-minimal`'s: it needs the second base image, a qcow2 overlay of about 165 MiB on the 416 MiB pristine image it downloads, which a checkout that only runs the minspec variants need not build. `sysvinit-two-vts` starts two vtiums at the boot, on tty1 and tty2, which open the card at the same time. Each must draw its own login, so a vtium that lost DRM master to the other and gave up would leave tty2 to tty1's getty, which fails the variant (vtium/vtium#139). A run of any variant boots the base image of its guest (`t3_scenario.GUESTS`) and refuses to start without it, naming the target that builds it.
 

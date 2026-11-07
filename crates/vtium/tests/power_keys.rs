@@ -96,9 +96,9 @@ fn a_bound_chord_acts_once_a_press() {
     let host = Host::default();
     let (_lp, mut app) = seat(
         &[
-            "--grab-reboot=<Ctrl><Alt>Delete",
-            "--grab-power-off=<Ctrl><Alt>End",
-            "--grab-suspend=<Logo>s",
+            "--key-reboot=<Ctrl><Alt>Delete",
+            "--key-power-off=<Ctrl><Alt>End",
+            "--key-suspend=<Logo>s",
         ],
         &host,
     );
@@ -130,7 +130,7 @@ fn an_unbound_chord_does_nothing() {
 #[test]
 fn a_chord_while_the_vt_is_not_ours_does_nothing() {
     let host = Host::default();
-    let (_lp, mut app) = seat(&["--grab-power-off=<Ctrl><Alt>End"], &host);
+    let (_lp, mut app) = seat(&["--key-power-off=<Ctrl><Alt>End"], &host);
     // The VT is given up: with no device to wait for, the release is
     // acknowledged at once.
     app.vt.leave().expect("the fake VT");

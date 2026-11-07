@@ -497,6 +497,21 @@ mod built {
             }
         }
 
+        /// The request out, if any, ends as when its time runs out: the
+        /// host's helper stops, so its late answer is never read, and the
+        /// pty, paused while the request was out, takes output again. The
+        /// reset key calls this after `Terminal::reset` has abandoned the
+        /// terminal's side of the request (ADR-1005 D10).
+        pub(crate) fn end_request(&mut self, term: &mut Term, pty: Option<&mut Pty>) {
+            if self.out.is_none() {
+                return;
+            }
+            if let Some(host) = &mut self.host {
+                host.stop();
+            }
+            self.answer(term, pty, Reply::Failed);
+        }
+
         /// When the request out fails unanswered.
         pub(crate) fn due(&self) -> Option<Instant> {
             self.out.as_ref().map(|(_, due)| *due)

@@ -501,6 +501,35 @@ impl Harness {
         fonts: Sources,
         set: impl FnOnce(&mut App),
     ) -> Harness {
+        Harness::boot_reporting(seat, args, vt, video, fonts, set, &[])
+    }
+
+    /// [`Harness::new`] on a command line whose reading reports exactly
+    /// `reports`, each as the start logs it.
+    fn reporting(args: &[&str], reports: &[&str]) -> Harness {
+        let video = Box::new(Memory::default());
+        Harness::boot_reporting(
+            SeatClock::new(),
+            args,
+            FakeVt::new(),
+            Some(video),
+            no_fonts(),
+            |_| {},
+            reports,
+        )
+    }
+
+    /// [`Harness::boot_seat`], whose command line's reading reports
+    /// exactly `reports`.
+    fn boot_reporting<V: Vt + 'static>(
+        seat: SeatClock,
+        args: &[&str],
+        vt: V,
+        video: Option<Box<dyn Video>>,
+        fonts: Sources,
+        set: impl FnOnce(&mut App),
+        reports: &[&str],
+    ) -> Harness {
         let sized = args.iter().any(|a| a.starts_with("--font-size"));
         let args: Vec<OsString> = (!sized)
             .then_some("--font-size=16")
@@ -509,7 +538,8 @@ impl Harness {
             .map(OsString::from)
             .collect();
         let loaded = config::load(&args, &mut |_: &Path| Ok(None));
-        assert_eq!(loaded.reports, [], "the harness's command line");
+        let reported: Vec<String> = loaded.reports.iter().map(ToString::to_string).collect();
+        assert_eq!(reported, reports, "the harness's command line");
         // What `main` takes before the seat; the seat's input is the
         // test's.
         let _ = Start::new(&loaded.config, "C".to_owned());
@@ -2843,11 +2873,11 @@ fn ctrl_shift_up_and_down_jump_between_the_marked_prompts() {
     );
 }
 
-/// `grab-paste` binds the paste to the chords it names, in place of
+/// `key-paste` binds the paste to the chords it names, in place of
 /// Shift+Insert, and empty to none, so Shift+Insert reaches the program.
 // covers: clipboard.paste
 #[test]
-fn grab_paste_binds_the_paste() {
+fn key_paste_binds_the_paste() {
     let script = "stty raw -echo; printf '\\033]52;c;cGFzdGVk\\a\\033[?2004hready'; \
          awk 'BEGIN{RS=\"q\"}{gsub(/\\033/,\"E\");printf \"\\r\\n%s\\r\\n\",$0;exit}'; read x";
     let shift_insert = key(Mods::SHIFT, 0xff63);
@@ -2860,7 +2890,7 @@ fn grab_paste_binds_the_paste() {
         repeat: false,
     });
     let mut h = Harness::new(&[
-        "--grab-paste=<Alt>p",
+        "--key-paste=<Alt>p",
         "--login",
         "--",
         "/bin/sh",
@@ -2877,7 +2907,7 @@ fn grab_paste_binds_the_paste() {
         "{:?}",
         h.app.screen_text()
     );
-    let mut h = Harness::new(&["--grab-paste=", "--login", "--", "/bin/sh", "-c", script]);
+    let mut h = Harness::new(&["--key-paste=", "--login", "--", "/bin/sh", "-c", script]);
     assert!(h.until(BOUND, |a| shows(a, "ready")));
     h.app.input_event(shift_insert, h.at());
     h.type_str("q");
@@ -2954,7 +2984,7 @@ fn a_shift_chord_names_the_shifted_keysym() {
         repeat: false,
     });
     for (chord, pasted) in [("<Ctrl><Shift>V", true), ("<Ctrl><Shift>v", false)] {
-        let arg = format!("--grab-paste={chord}");
+        let arg = format!("--key-paste={chord}");
         let mut h = Harness::new(&[&arg, "--login", "--", "/bin/sh", "-c", script]);
         assert!(h.until(BOUND, |a| shows(a, "ready")));
         h.app.input_event(ctrl_shift_v.clone(), h.at());
@@ -2966,6 +2996,235 @@ fn a_shift_chord_names_the_shifted_keysym() {
             h.app.screen_text()
         );
     }
+}
+
+/// A session that fills the scrollback, reads keys on the main screen
+/// until `q` and prints them as `main:[...]`, then reads one byte, enters
+/// the alternate screen, shows `alt`, and reads keys until `q` again,
+/// printing them as `alt:[...]`. Each escape is printed as `E`.
+const MAIN_THEN_ALT: &str = "stty raw -echo; i=0; while [ $i -lt 40 ]; do printf 'line%d\\r\\n' $i; i=$((i+1)); done; \
+     printf 'ready'; \
+     awk 'BEGIN{RS=\"q\"}{gsub(/\\033/,\"E\");printf \"\\r\\nmain:[%s]\\r\\n\",$0;exit}'; \
+     head -c 1 >/dev/null; printf '\\033[?1049halt'; \
+     awk 'BEGIN{RS=\"q\"}{gsub(/\\033/,\"E\");printf \"\\r\\nalt:[%s]\\r\\n\",$0;exit}'; read y";
+
+/// How many lines the view of the shown console is scrolled back.
+fn scrolled_back(h: &Harness) -> usize {
+    h.app
+        .term()
+        .expect("a head")
+        .terminal
+        .screen()
+        .scrolled_back()
+}
+
+/// Whether a row of the shown screen starts with `prefix`.
+fn shows_prefix(app: &App, prefix: &str) -> bool {
+    app.screen_text().iter().any(|l| l.starts_with(prefix))
+}
+
+/// ADR-1005 D7: while the main screen is shown, Shift with Up, Down, Page
+/// Up and Page Down scroll vtium's view and never reach the program; while
+/// the alternate screen is shown, they reach the program and the view
+/// stays on the live screen.
+#[test]
+fn the_scroll_keys_scroll_on_the_main_screen_and_reach_the_program_on_the_alternate() {
+    let mut h = Harness::new(&["--login", "--", "/bin/sh", "-c", MAIN_THEN_ALT]);
+    assert!(h.until(BOUND, |a| a.screen_text().iter().any(|l| l == "ready")));
+    let press = |h: &mut Harness, keysym: u32| h.app.input_event(key(Mods::SHIFT, keysym), h.at());
+    press(&mut h, 0xff52);
+    assert_eq!(scrolled_back(&h), 1, "Shift+Up scrolls a line");
+    press(&mut h, 0xff55);
+    assert!(scrolled_back(&h) > 1, "Shift+Page Up scrolls a page");
+    press(&mut h, 0xff56);
+    press(&mut h, 0xff54);
+    assert_eq!(scrolled_back(&h), 0, "and back down");
+    h.type_str("q");
+    assert!(h.until(BOUND, |a| shows_prefix(a, "main:")));
+    assert!(shows(&h.app, "main:[]"), "{:?}", h.app.screen_text());
+    h.type_str("x");
+    assert!(
+        h.until(BOUND, |a| shows(a, "alt")),
+        "{:?}",
+        h.app.screen_text()
+    );
+    for keysym in [0xff52, 0xff54, 0xff55, 0xff56] {
+        press(&mut h, keysym);
+        assert_eq!(scrolled_back(&h), 0, "{keysym:#x} on the alternate screen");
+    }
+    h.type_str("q");
+    assert!(
+        h.until(BOUND, |a| shows(a, "alt:[E[1;2AE[1;2BE[5;2~E[6;2~]")),
+        "{:?}",
+        h.app.screen_text()
+    );
+}
+
+/// ADR-1005 D10: a key that vtium.conf binds to another combination acts
+/// on its new combination, and its old combination reaches the program.
+#[test]
+fn a_key_bound_elsewhere_acts_on_its_new_combination_and_its_old_reaches_the_program() {
+    let mut h = Harness::new(&[
+        "--key-scroll-up=<Alt>k",
+        "--login",
+        "--",
+        "/bin/sh",
+        "-c",
+        MAIN_THEN_ALT,
+    ]);
+    assert!(h.until(BOUND, |a| a.screen_text().iter().any(|l| l == "ready")));
+    let alt_k = InputEvent::Key(KeyEvent {
+        keycode: 0,
+        ascii: u32::from('k'),
+        mods: Mods::ALT,
+        keysyms: vec![u32::from('k')],
+        codepoints: vec![Some('k')],
+        repeat: false,
+    });
+    h.app.input_event(alt_k, h.at());
+    assert_eq!(scrolled_back(&h), 1, "Alt+k scrolls a line");
+    h.app.input_event(key(Mods::SHIFT, 0xff52), h.at());
+    h.type_str("q");
+    assert!(
+        h.until(BOUND, |a| shows(a, "main:[E[1;2A]")),
+        "{:?}",
+        h.app.screen_text()
+    );
+}
+
+/// ADR-1005 D10: an emptied key takes no combination, so its old
+/// combination reaches the program on the main screen too.
+#[test]
+fn an_emptied_key_reaches_the_program() {
+    let mut h = Harness::new(&[
+        "--key-scroll-up=",
+        "--key-page-up=",
+        "--login",
+        "--",
+        "/bin/sh",
+        "-c",
+        MAIN_THEN_ALT,
+    ]);
+    assert!(h.until(BOUND, |a| a.screen_text().iter().any(|l| l == "ready")));
+    h.app.input_event(key(Mods::SHIFT, 0xff52), h.at());
+    h.app.input_event(key(Mods::SHIFT, 0xff55), h.at());
+    assert_eq!(scrolled_back(&h), 0);
+    h.type_str("q");
+    assert!(
+        h.until(BOUND, |a| shows(a, "main:[E[1;2AE[5;2~]")),
+        "{:?}",
+        h.app.screen_text()
+    );
+}
+
+/// ADR-1005 D10: a combination two keys bind goes to the key that comes
+/// first in the key order, whichever of the two vtium.conf set: the paste
+/// comes before the scroll keys, and the scroll keys before the zoom.
+#[test]
+fn a_combination_bound_twice_goes_to_the_first_key_in_the_key_order() {
+    let script = "stty raw -echo; printf '\\033]52;c;cGFzdGVk\\a\\033[?2004hready'; \
+         awk 'BEGIN{RS=\"q\"}{gsub(/\\033/,\"E\");printf \"\\r\\n[%s]\\r\\n\",$0;exit}'; read x";
+    let mut h = Harness::reporting(
+        &[
+            "--key-paste=<Shift>Up",
+            "--login",
+            "--",
+            "/bin/sh",
+            "-c",
+            script,
+        ],
+        &[
+            "argument 2: <Shift>Up is bound by both key-paste and key-scroll-up. key-paste keeps it, because vtium checks key-paste first. To use it for key-scroll-up, remove it from key-paste, or give key-scroll-up another combination",
+        ],
+    );
+    assert!(h.until(BOUND, |a| shows(a, "ready")));
+    h.app.input_event(key(Mods::SHIFT, 0xff52), h.at());
+    h.type_str("q");
+    assert!(
+        h.until(BOUND, |a| shows(a, "[E[200~pastedE[201~]")),
+        "the paste takes Shift+Up: {:?}",
+        h.app.screen_text()
+    );
+    let mut h = Harness::reporting(
+        &[
+            "--key-zoom-in=<Shift>Up",
+            "--login",
+            "--",
+            "/bin/sh",
+            "-c",
+            MAIN_THEN_ALT,
+        ],
+        &[
+            "argument 2: <Shift>Up is bound by both key-scroll-up and key-zoom-in. key-scroll-up keeps it, because vtium checks key-scroll-up first. To use it for key-zoom-in, remove it from key-scroll-up, or give key-zoom-in another combination",
+        ],
+    );
+    assert!(h.until(BOUND, |a| a.screen_text().iter().any(|l| l == "ready")));
+    let grid = h.app.grid();
+    h.app.input_event(key(Mods::SHIFT, 0xff52), h.at());
+    assert_eq!(scrolled_back(&h), 1, "the scroll takes Shift+Up");
+    assert_eq!(h.app.grid(), grid, "and the zoom does not");
+}
+
+/// ADR-1005 D10: Ctrl+Shift+Delete resets the console shown, as RIS
+/// does: its screen and its scrollback are cleared, and the keyboard
+/// modes a program set, the kitty keyboard protocol's flags among them,
+/// return to their start, so Escape sends ESC again. The key never
+/// reaches the program.
+#[test]
+fn the_reset_key_resets_the_console_and_its_keyboard_modes() {
+    let script = "stty raw -echo; i=0; while [ $i -lt 40 ]; do printf 'line%d\\r\\n' $i; i=$((i+1)); done; \
+         printf '\\033[>1u\\033[?1hready'; \
+         awk 'BEGIN{RS=\"q\"}{gsub(/\\033/,\"E\");printf \"\\r\\n[%s]\\r\\n\",$0;exit}'; read x";
+    let mut h = Harness::new(&["--login", "--", "/bin/sh", "-c", script]);
+    assert!(h.until(BOUND, |a| shows(a, "ready")));
+    h.app.input_event(key(Mods::SHIFT, 0xff52), h.at());
+    assert_eq!(scrolled_back(&h), 1, "there is scrollback");
+    h.app
+        .input_event(key(Mods::CTRL.union(Mods::SHIFT), 0xffff), h.at());
+    assert!(!shows(&h.app, "ready"), "{:?}", h.app.screen_text());
+    assert_eq!(scrolled_back(&h), 0);
+    h.app.input_event(key(Mods::SHIFT, 0xff52), h.at());
+    assert_eq!(scrolled_back(&h), 0, "the scrollback is cleared");
+    // Escape under the kitty flags would be `CSI 27 u`, Up under DECCKM
+    // `ESC O A`.
+    h.app.input_event(key(Mods::empty(), 0xff1b), h.at());
+    h.app.input_event(key(Mods::empty(), 0xff52), h.at());
+    h.type_str("q");
+    assert!(
+        h.until(BOUND, |a| shows(a, "[EE[A]")),
+        "{:?}",
+        h.app.screen_text()
+    );
+}
+
+/// ADR-1005 D10: a held Ctrl+Shift+Delete resets the console once, at its
+/// press; its repeats reset nothing more.
+#[test]
+fn a_held_reset_key_resets_once() {
+    let script = "stty raw -echo; printf 'one'; head -c 1 >/dev/null; printf 'two'; read x";
+    let mut h = Harness::new(&["--login", "--", "/bin/sh", "-c", script]);
+    assert!(h.until(BOUND, |a| shows(a, "one")));
+    let reset = |repeat| {
+        InputEvent::Key(KeyEvent {
+            keycode: 0,
+            ascii: 0,
+            mods: Mods::CTRL.union(Mods::SHIFT),
+            keysyms: vec![0xffff],
+            codepoints: vec![None],
+            repeat,
+        })
+    };
+    h.app.input_event(reset(false), h.at());
+    assert!(!shows(&h.app, "one"), "the press resets");
+    h.type_str("x");
+    assert!(h.until(BOUND, |a| shows(a, "two")));
+    h.app.input_event(reset(true), h.at());
+    h.app.input_event(reset(true), h.at());
+    assert!(
+        shows(&h.app, "two"),
+        "a repeat resets nothing: {:?}",
+        h.app.screen_text()
+    );
 }
 
 /// A press in the strip past the grid's last cell selects from that cell,

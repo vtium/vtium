@@ -9,7 +9,7 @@
 //! it drove the seat's one session before heads: each head is one
 //! terminal with its own grid.
 
-pub(crate) mod chord;
+pub mod chord;
 pub mod console;
 pub mod images;
 pub(crate) mod route;
@@ -405,6 +405,7 @@ impl Head {
                 .map(|s| s.value.clone())
         };
         let font_name = own(&keys::FONT_NAME);
+        let bindings = crate::grab::Bindings::of(config);
         let (points, auto_size, sized) = configured_size(config);
         let fit = Fit {
             grid: GRID,
@@ -422,8 +423,8 @@ impl Head {
             configured: (points, auto_size),
             wanted: 1,
             login: None,
-            ended_notice: crate::notice::session_ended(),
-            ended_notice_console: crate::notice::session_ended_console(),
+            ended_notice: crate::notice::session_ended(&bindings),
+            ended_notice_console: crate::notice::session_ended_console(&bindings),
             notices: Vec::new(),
             shown: String::new(),
             notice_due: None,
@@ -966,6 +967,23 @@ impl Head {
     /// The shown console's replies go to its program.
     pub(crate) fn send_user_bytes(&mut self) {
         self.console.send_replies();
+    }
+
+    /// The shown console resets as RIS resets it (ADR-1005 D10), through
+    /// vtium-term's `Terminal::reset`: its screen and its scrollback are
+    /// cleared, every mode a program set, the keyboard's among them,
+    /// returns to its start, the replies queued for its program are
+    /// dropped, and an image request out is abandoned. The console's side
+    /// of that request ends too, so its pty, paused while the request was
+    /// out, takes output again. The other consoles are left as they are.
+    pub(crate) fn reset_shown(&mut self) {
+        let console = &mut self.console;
+        console.term.terminal.reset();
+        #[cfg(feature = "images")]
+        console
+            .pictures
+            .end_request(&mut console.term, console.pty.as_mut());
+        self.draw_now = true;
     }
 
     /// The shown console is potentially visible while it draws: not while
@@ -2110,7 +2128,7 @@ mod tests {
         assert_eq!(head.notice(), Some("n2\nn3\nn4\nn5"));
         head.console.ended = true;
         head.compose_notices();
-        let ended = crate::notice::session_ended();
+        let ended = crate::notice::session_ended(&crate::grab::Bindings::default());
         assert_eq!(
             head.notice(),
             Some(format!("{ended}\nn2\nn3\nn4\nn5").as_str()),
@@ -2120,7 +2138,10 @@ mod tests {
         head.end_notices();
         assert_eq!(
             (head.notice(), head.notice_due),
-            (Some(crate::notice::session_ended().as_str()), None)
+            (
+                Some(crate::notice::session_ended(&crate::grab::Bindings::default()).as_str()),
+                None
+            )
         );
         assert!(!head.has_notices());
     }

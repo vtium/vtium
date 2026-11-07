@@ -39,6 +39,7 @@
 use std::borrow::Cow;
 use std::ops::Range;
 
+use crate::keys::Kind;
 use crate::split::split;
 
 /// One change to vtium.conf.
@@ -267,14 +268,17 @@ fn good_key(key: &str) -> bool {
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
 }
 
-/// Whether vtium reads `key=value` back as that key and that value.
+/// Whether vtium reads `key=value` back as that key and that value. An
+/// empty value is refused, apart from a key binding's, which an empty value
+/// leaves bound to no key (ADR-1005 D10).
 fn round_trips(key: &str, value: &str) -> bool {
     let line = format!("{key}={value}");
+    let empty_binds_none = crate::keys::find(key).is_some_and(|k| k.kind == Kind::KeyBinding);
     !value.contains(['\n', '\0'])
         && key_line(line.as_bytes()).is_some_and(|l| {
             l.key == key.as_bytes()
                 && l.value
-                    .is_some_and(|v| *v == *value.as_bytes() && !v.is_empty())
+                    .is_some_and(|v| *v == *value.as_bytes() && (!v.is_empty() || empty_binds_none))
         })
 }
 
@@ -354,6 +358,17 @@ pub fn edit_conf(text: &str, edits: &[Edit<'_>]) -> Result<String, ConfEdit> {
             Edit::Unset(_) => None,
         };
         let top_lines = file.get_mut(..top_count).unwrap_or_default();
+        // a key binding's old name gives way to the key's own line, so the
+        // edit moves an earlier release's file to the new name (ADR-1005
+        // D10)
+        if !switch && let Some((old, _)) = crate::keys::RENAMED.iter().find(|(_, k)| k.name == key)
+        {
+            for line in top_lines.iter_mut() {
+                if sets(&line.text, old, false) {
+                    line.text.insert(0, '#');
+                }
+            }
+        }
         let Some(new) = new else {
             for line in top_lines.iter_mut() {
                 if sets(&line.text, key, false) || sets(&line.text, key, true) {

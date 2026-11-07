@@ -783,7 +783,7 @@ class RunVt(Case):
                      ["--seats=all"], ["--no-switchvt"], ["--login=/bin/sh"],
                      # Two allowed names joined by a space, as the lists hold them.
                      ["--sb-size palette=1"], ["--verbose debug"], ["--Mode=1"],
-                     ["--grab-reboot=<Ctrl>x"], ["--grab-power-off=<Ctrl>x"]):
+                     ["--key-reboot=<Ctrl>x"], ["--key-power-off=<Ctrl>x"]):
             with self.subTest(opts=opts):
                 self.refused(self.run_vt("--dry-run", "8", "--", *opts), "is refused")
         for size in ("5G", "4097M", "4194305K", "4294967297", "-1", "1T"):
@@ -810,7 +810,7 @@ class RunVt(Case):
         opts = ["--font-name=Monoid Nerd Font Mono", "--font-size=30", "--mode=7680x2160",
                 "--no-use-original-mode", "--hwaccel", "--image-storage-limit=4G",
                 "--image-storage-limit=auto", "--sync-timeout=500", "--dpms-timeout=15",
-                "--grab-paste=<Ctrl><Shift>V", "--pointer-hide-timeout=5",
+                "--key-paste=<Ctrl><Shift>V", "--pointer-hide-timeout=5",
                 "--pointer-hide-while-typing", "--no-pointer-hide-while-typing",
                 "--pointer-char=+", "--osd=full", "--osd-timeout=never", "--osd-timeout=10",
                 "--focus-mark=always", "--display-buffers=1", "--display-buffers=2", "--display-buffers=3"]
