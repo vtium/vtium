@@ -39,6 +39,8 @@ armv7-unknown-linux-gnueabihf-*)
     ;;
 *) echo "wrap: no ARM target is named $name" >&2; exit 1 ;;
 esac
+# $1 as one word of a shell command, in single quotes
+quoted() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
 sysroot=$("$here/sysroot" dir $arch)
 [ -d "$sysroot" ] || { echo "wrap: no $arch sysroot at $sysroot; make arm-sysroot fetches it" >&2; exit 1; }
 case $name in
@@ -54,6 +56,12 @@ case $name in
 *-run)
     [ -n "$qemu" ] || exec "$@"
     export QEMU_LD_PREFIX="$sysroot"
+    # qemu opens a path that also exists in the sysroot from the sysroot,
+    # so a test that reads the kernel's UAPI headers from /usr/include
+    # would read Debian 12's. qemu passes the tests' ioctls to the host's
+    # kernel, so the tests read the host's headers, through a path that
+    # does not exist in the sysroot.
+    export VTIUM_KERNEL_HEADERS="${VTIUM_KERNEL_HEADERS:-/proc/self/root/usr/include}"
     # The tests qemu-user cannot judge skip when this is set and qemu's
     # symptom shows, and say so; this names them on the test binary's run.
     export VTIUM_QEMU_USER="$qemu"
@@ -64,12 +72,65 @@ case $name in
         ids=$VTIUM_ARM_IDS
         unset VTIUM_ARM_IDS
         mount -t binfmt_misc binfmt_misc "$binfmt"
-        printf '%s' ":$qemu:M::$magic:$mask:$(command -v $qemu):" > "$binfmt/register"
-        exec unshare --user --map-user="${ids%:*}" --map-group="${ids#*:}" $qemu "$@"
+        # The entry names a script beside the sysroot that runs qemu with
+        # the sysroot as its -L. A test that starts a target binary with an
+        # empty environment, as vtium starts its helpers, passes on no
+        # QEMU_LD_PREFIX, and qemu would not find the target's loader.
+        run=$sysroot.$qemu
+        script=$(printf '#!/bin/sh\nexec %s -L %s "$@"' "$(quoted "$(command -v $qemu)")" "$(quoted "$sysroot")")
+        if [ ! -f "$run" ] || [ "$(cat "$run")" != "$script" ]; then
+            part=$(mktemp "$run.XXXXXX")
+            printf '%s\n' "$script" > "$part"
+            chmod 755 "$part"
+            mv "$part" "$run"
+        fi
+        printf '%s' ":$qemu:M::$magic:$mask:$run:" > "$binfmt/register"
+        # vtium reads a file only when root or the account it runs as owns
+        # each directory above it (ADR-1403 D3). The namespace maps no root,
+        # so root's files and directories belong to the overflow uid, 65534,
+        # there. The tests therefore run in a root of their own, a tmpfs
+        # with the host's top-level entries bound into it, except for the
+        # directories above the test binary that root owns. Those are made
+        # anew on the tmpfs, so they belong to the invoking user, as the
+        # tests need them to belong to root or to that user on any host.
+        # top is the highest directory above the binary that the invoking
+        # user owns, which is root, uid 0, in this namespace.
+        top=$(dirname "$1")
+        while [ "$top" != / ] && [ "$(stat -c %u "$(dirname "$top")")" = 0 ]; do
+            top=$(dirname "$top")
+        done
+        set -- --wd="$PWD" "$@"
+        if [ "$top" != / ]; then
+            new=$sysroot.root
+            mkdir -p "$new"
+            mount -t tmpfs -o mode=755 tmpfs "$new"
+            mkdir -p "$new$top"
+            mount --rbind "$top" "$new$top"
+            rest=${top#/}
+            first=/${rest%%/*}
+            for entry in /* /.[!.]*; do
+                if [ -L "$entry" ]; then
+                    ln -s "$(readlink "$entry")" "$new$entry"
+                elif [ "$entry" = "$first" ] || [ ! -e "$entry" ]; then
+                    continue
+                elif [ -d "$entry" ]; then
+                    # an automount point that refuses the bind stays empty
+                    mkdir "$new$entry"
+                    mount --rbind "$entry" "$new$entry" 2>/dev/null || :
+                else
+                    : > "$new$entry"
+                    mount --bind "$entry" "$new$entry" 2>/dev/null || :
+                fi
+            done
+            set -- --root="$new" "$@"
+        fi
+        exec unshare --user --map-user="${ids%:*}" --map-group="${ids#*:}" "$@"
     fi
     case ${1##*/} in
     vtium_platform-*) echo "wrap: under $qemu, display::card::tests::a_render_node_through_the_real_ioctls skips if its DRM ioctl answers ENOTTY" >&2 ;;
     check_config-*) echo "wrap: under $qemu, it_opens_nothing_but_the_configuration skips if strace traces qemu" >&2 ;;
+    vtium-*) echo "wrap: under $qemu, helper::tests::a_failed_start_names_proc_self_fd skips if a program no one may execute starts, and check::tests' assertions about root's own helper skip if root does not own /bin/sh" >&2 ;;
+    vtium_config-*) echo "wrap: under $qemu, serve::tests::the_helpers_socket_filter_refuses_every_new_socket skips if seccomp answers ENOSYS, and serve::tests::the_helpers_socket_filter_refuses_io_uring skips if python3 is the host's" >&2 ;;
     esac
     if [ ! -e "$binfmt/$qemu" ]; then
         # The probe mounts a binfmt_misc too: before Linux 6.7 a user
