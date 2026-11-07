@@ -280,8 +280,7 @@ fn description(keys: &[&Key]) -> String {
         let mut short_before = false;
         for (i, k) in keys.iter().enumerate() {
             let texts: Vec<String> = k
-                .paragraphs()
-                .take(EXAMPLE_PARAGRAPHS)
+                .example_paragraphs()
                 .enumerate()
                 .map(|(n, p)| {
                     if n == 0 {
@@ -301,7 +300,7 @@ fn description(keys: &[&Key]) -> String {
         }
         return out;
     };
-    paragraphs("##", only.paragraphs().take(EXAMPLE_PARAGRAPHS))
+    paragraphs("##", only.example_paragraphs())
 }
 
 /// The line that shows `k` at its default, commented out: `#key=value`, or
@@ -382,7 +381,7 @@ pub(super) fn example() -> String {
         [
             format!("An example of vtium's configuration file. Copy it to /etc/vtium/vtium.conf and edit it. It is generated from {SOURCE}.").as_str(),
             "The settings come first, one per line: key=value. For an on/off setting, write its key to turn it on and no-key to turn it off. Each setting is shown commented out, at its default. An option on vtium's command line overrides these lines, and a [look] or [head] section below overrides both.",
-            "A comment may omit details that docs/config.md gives.",
+            "A comment may leave out details that docs/config.md gives for each setting.",
         ],
     );
     for section in &SECTIONS {
@@ -417,11 +416,6 @@ const SECTIONS_TITLE: &str = "Looks, heads and rules";
 
 /// What the example's sections are.
 const SECTIONS_ABOUT: &str = "The sections after the settings. A look is a font and its size; a head is a screen with its own consoles; the rules send each display and each input device to a head. These are the sections vtium uses, as shipped, when vtium.conf has none.";
-
-/// How many of a key's paragraphs the example shows: the sentence that says
-/// what the key does, and the paragraph of its values. The rest of a key's
-/// description is in docs/config.md, which shows every paragraph.
-const EXAMPLE_PARAGRAPHS: usize = 2;
 
 /// The most bytes the generated example may hold, so that at least 16 KiB of
 /// vtium.conf's [`FILE_MAX`] (64 KiB) stay for a user's own heads, looks and
@@ -486,6 +480,54 @@ mod tests {
             example.len()
         );
         const { assert!(EXAMPLE_MAX + 16 * 1024 <= FILE_MAX) };
+    }
+
+    // a paragraph marked for the docs is in docs/config.md and not in the
+    // example, and every other paragraph is in both
+    #[test]
+    fn a_docs_only_paragraph_is_in_the_markdown_and_not_in_the_example() {
+        let flat = |text: &str| -> String {
+            text.lines()
+                .map(|l| l.trim_start_matches('#').trim())
+                .collect::<Vec<_>>()
+                .join(" ")
+        };
+        let example = flat(&example());
+        let markdown = markdown();
+        let mut left_out = 0;
+        for k in vtium_settings::keys::KEYS.iter() {
+            let shown: Vec<&str> = k.example_paragraphs().collect();
+            let first = k.paragraphs().next().unwrap_or_default();
+            let first = first.split_whitespace().collect::<Vec<_>>().join(" ");
+            if !example.contains(&first) {
+                // a key set on the command line alone is not in the example
+                continue;
+            }
+            for p in k.paragraphs() {
+                // the markdown holds each paragraph whole, on one line
+                assert!(
+                    markdown.contains(p),
+                    "{}: {p:?} is not in docs/config.md",
+                    k.name
+                );
+                let words = p.split_whitespace().collect::<Vec<_>>().join(" ");
+                if shown.contains(&p) {
+                    assert!(
+                        example.contains(&words),
+                        "{}: {p:?} is not in the example",
+                        k.name
+                    );
+                } else {
+                    left_out += 1;
+                    assert!(
+                        !example.contains(&words),
+                        "{}: {p:?} is in the example",
+                        k.name
+                    );
+                }
+            }
+        }
+        assert!(left_out > 0);
     }
 
     // the example keeps room for the settings planned next
@@ -771,8 +813,8 @@ mod tests {
         assert_eq!(osd[next - 1], "#", "a key break before osd-timeout");
         assert_eq!(
             osd[next - 2],
-            "## `● desk · console 2 of 3`. `off` shows nothing.",
-            "osd's last paragraph in the example ends above the break"
+            "## A notice about a problem appears whatever `osd` says.",
+            "osd's last paragraph ends above the break"
         );
         for name in ["osd-timeout: ", "focus-mark: "] {
             assert!(

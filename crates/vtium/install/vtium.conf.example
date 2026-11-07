@@ -6,7 +6,7 @@
 # commented out, at its default. An option on vtium's command line overrides
 # these lines, and a [look] or [head] section below overrides both.
 #
-# A comment may omit details that docs/config.md gives.
+# A comment may leave out details that docs/config.md gives for each setting.
 
 # ══ Fonts and text ══════════════════════════════════════════════════════════
 #
@@ -20,6 +20,9 @@
 ## The value is the name of a font set (a frit file, `NAME.vtfrit` in
 ## `/etc/vtium/fonts`). It can also be the name of a kbd console font, or with
 ## `font-engine = psf` the path of a PSF font; vtium then uses that one font.
+##
+## When unset, vtium uses the font from vconsole.conf. If there is none, or
+## vtium cannot find the font, vtium uses its built-in font and logs why.
 #
 ## font-frits: The directory that holds the font sets (the `NAME.vtfrit` files
 ## that `font-name` names).
@@ -34,6 +37,11 @@
 ## The list replaces the built-in list, so it can reorder or leave out the
 ## system's folders. vtium skips a folder that is not an absolute path, uses
 ## the rest, and logs why.
+##
+## When unset, vtium searches `/usr/share/fonts` and `/usr/local/share/fonts`.
+## A user's own folder, such as `~/.local/share/fonts`, is searched only when
+## the list names it, and the font helper cannot read it before someone logs
+## in, because it then runs as `nobody`.
 #
 ## font-engine: Which kind of font to use. When unset, vtium tries each kind
 ## the build supports, in the order listed.
@@ -56,6 +64,9 @@
 ##
 ## `light` fits each character vertically only. `full` fits a TrueType font
 ## both ways, and treats a CFF font as `light`. Bitmap fonts are not hinted.
+##
+## This key has no effect yet: each font set's `hinting=` line decides, and
+## `light` is used where it has none.
 #
 ## font-line-spacing: Extra space between lines of text. It overrides a font
 ## set's `line-spacing=` line.
@@ -145,6 +156,8 @@
 ## does, and asks with `OSC 50 ; ? ST`. A switch lasts until that program's
 ## session ends; then vtium returns to the font and size that `font-name` and
 ## `font-size` set.
+##
+## When off, vtium ignores OSC 50, queries included.
 
 #allow-font-ops
 
@@ -161,6 +174,12 @@
 ## paragraph that starts with an Arabic or Hebrew letter runs right to left,
 ## and one that starts with a Latin letter, or has no letter, runs left to
 ## right.
+##
+## vtium reads this key when it starts, so a change takes effect when vtium
+## restarts, and it never changes text already on the screen.
+##
+## A build without right-to-left support (the `bidi` feature) accepts this key
+## and does nothing with it.
 
 #text-direction=ltr
 
@@ -449,6 +468,9 @@
 ## The value is in bytes, or in KiB, MiB or GiB with `K`, `M` or `G` (such as
 ## `6M`), up to a quarter of the machine's memory (or up to the default when
 ## `/proc/meminfo` cannot be read).
+##
+## When unset, vtium sizes it to fit each console's size in characters, and
+## sizes it again when that changes.
 
 #sb-size=1000
 #sb-size-cap=
@@ -513,6 +535,8 @@
 ## `minimal` shows a dot in the top-right character cell: filled on the active
 ## head, hollow on the others. `full` shows a line across the top, such as
 ## `● desk · console 2 of 3`. `off` shows nothing.
+##
+## A notice about a problem appears whatever `osd` says.
 #
 ## osd-timeout: How long the on-screen display stays visible after a change.
 ## `never` keeps it visible all the time.
@@ -651,6 +675,16 @@
 ## If no display appears in that time, vtium exits with status 1, so the
 ## unit's `OnFailure=` can start a getty. When vtium.conf's policy is closed,
 ## vtium waits as long as it takes, as with `forever`.
+##
+## vtium counts only while the VT is its own. If another program takes the VT
+## before vtium's first frame is on screen, as X does at boot when it starts
+## on another VT, vtium waits for the VT to come back and then starts the full
+## wait again.
+##
+## With 0, vtium does not wait: only a display that is ready when the VT is
+## shown counts. `forever` waits as long as it takes.
+##
+## Once a display has appeared, vtium never exits for lack of one.
 
 #display-wait=10
 
@@ -664,6 +698,11 @@
 ## 1080p). `2` is double buffering. `1` is single buffering, which uses the
 ## least memory, but vtium then draws into the buffer on screen, so a
 ## half-drawn frame can show.
+##
+## A framebuffer device (fbdev) always keeps one buffer. When unset, the build
+## decides: the number it was built with (`VTIUM_DISPLAY_BUFFERS`), or else 3
+## in a build with optional features, 2 in the smallest build (minspec), and 1
+## only in a build smaller than that.
 
 #display-buffers=
 
@@ -746,6 +785,8 @@
 ## of its head's displays, from 16 MiB to 192 MiB, and recalculates when a
 ## display is added, removed or resized. `0` turns sixel and kitty graphics
 ## off.
+##
+## A build without image support accepts this key and shows no images.
 #
 ## sixel: Show sixel images.
 ##
@@ -796,6 +837,15 @@
 ##
 ## vtium opens the program once, when it starts, and runs every helper from
 ## that file, so a newly installed helper takes effect when vtium restarts.
+##
+## vtium refuses a path that is not absolute, a file that is not a regular
+## file, a setuid or setgid file, a file owned by anyone other than root or
+## vtium's own account, and a file that its group or other users can write. It
+## then logs why, and refuses those images: a file, temporary file or shared
+## memory with `EBADF`, and PNG or zlib with `EINVAL`. vtium starts the helper
+## through `/proc/self/fd`, so `/proc` must be mounted.
+##
+## A build without image support accepts this key and starts no helper.
 
 #image-helper=/usr/bin/vtium-image
 
@@ -818,6 +868,12 @@
 ##
 ## vtium opens the program once, when it starts, and runs every helper from
 ## that file, so a newly installed helper takes effect when vtium restarts.
+##
+## vtium refuses a path that is not absolute, a file that is not a regular
+## file, a setuid or setgid file, a file owned by anyone other than root or
+## vtium's own account, and a file that its group or other users can write. It
+## then logs why and uses its built-in font. vtium starts the helper through
+## `/proc/self/fd`, so `/proc` must be mounted.
 
 #font-helper=/usr/bin/vtium-config
 

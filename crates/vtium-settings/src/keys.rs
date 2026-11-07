@@ -311,6 +311,14 @@ pub struct Key {
     pub cite: &'static str,
 }
 
+/// The mark that opens a paragraph of [`Key::what`] meant for docs/config.md
+/// alone. The example vtium.conf leaves such a paragraph out, to keep its
+/// size. The key's author marks a paragraph that only elaborates, gives an
+/// example, or tells background. A paragraph that says when a change takes
+/// effect, what vtium requires or refuses, or what a value means stays
+/// unmarked, so that a person editing the line in a terminal sees it.
+pub const DOCS_ONLY: &str = "[docs] ";
+
 impl Key {
     /// The default the source tree gives this key, before a build setting
     /// changes it (ADR-1500 D8): `hwaccel` off and `display-buffers`
@@ -327,9 +335,20 @@ impl Key {
         }
     }
 
-    /// The paragraphs of [`Key::what`].
+    /// The paragraphs of [`Key::what`], each without its [`DOCS_ONLY`] mark.
     pub fn paragraphs(&self) -> impl Iterator<Item = &'static str> {
-        self.what.split("\n\n")
+        self.what
+            .split("\n\n")
+            .map(|p| p.strip_prefix(DOCS_ONLY).unwrap_or(p))
+    }
+
+    /// The paragraphs of [`Key::what`] that the example vtium.conf shows:
+    /// all but those marked [`DOCS_ONLY`], which only docs/config.md shows.
+    /// The first paragraph is never marked.
+    pub fn example_paragraphs(&self) -> impl Iterator<Item = &'static str> {
+        self.what
+            .split("\n\n")
+            .filter(|p| !p.starts_with(DOCS_ONLY))
     }
 
     /// [`Key::what`] on one line, its paragraphs joined by a space, for a
@@ -728,8 +747,9 @@ pub const SB_MEMORY: Key = Key {
     reader: "vtium-term",
     what: "The most memory each console's scrollback uses. When it is full, the oldest lines are dropped, as they are past `sb-size`.\n\n\
            The value is in bytes, or in KiB, MiB or GiB with `K`, `M` or `G` (such as `6M`), up to a quarter of the machine's memory (or up to the default when `/proc/meminfo` cannot be read).\n\n\
-           When unset, vtium sizes it to fit each console's size in characters, and sizes it again when that changes. A console up to 170x48 characters gets what is left of a 16 MiB budget after the console's screens and the rest of vtium, so a smaller console keeps more lines. A larger console gets the 170x48 value shown here.\n\n\
-           The default does not grow with the display or the machine's memory. On a machine with memory to spare, set `sb-memory` for a deeper scrollback; a set value stays fixed.",
+           When unset, vtium sizes it to fit each console's size in characters, and sizes it again when that changes.\n\n\
+           [docs] A console up to 170x48 characters gets what is left of a 16 MiB budget after the console's screens and the rest of vtium, so a smaller console keeps more lines. A larger console gets the 170x48 value shown here.\n\n\
+           [docs] The default does not grow with the display or the machine's memory. On a machine with memory to spare, set `sb-memory` for a deeper scrollback; a set value stays fixed.",
     cite: "[the scrollback memory issue](https://github.com/vtium/vtium/issues/131)",
 };
 
@@ -847,7 +867,8 @@ pub const DISPLAY_WAIT: Key = Key {
     what: "How long vtium waits for a display when it starts, counted from when its VT is shown.\n\n\
            If no display appears in that time, vtium exits with status 1, so the unit's `OnFailure=` can start a getty. When vtium.conf's policy is closed, vtium waits as long as it takes, as with `forever`.\n\n\
            vtium counts only while the VT is its own. If another program takes the VT before vtium's first frame is on screen, as X does at boot when it starts on another VT, vtium waits for the VT to come back and then starts the full wait again.\n\n\
-           With 0, vtium does not wait: only a display that is ready when the VT is shown counts. `forever` waits as long as it takes, for a machine whose only display is a USB adapter (DisplayLink, `udl`) that may be plugged in at any time.\n\n\
+           With 0, vtium does not wait: only a display that is ready when the VT is shown counts. `forever` waits as long as it takes.\n\n\
+           [docs] `forever` suits a machine whose only display is a USB adapter (DisplayLink, `udl`) that may be plugged in at any time.\n\n\
            Once a display has appeared, vtium never exits for lack of one.",
     cite: "[the configuration issue](https://github.com/vtium/vtium/issues/21); [the issue about X starting during vtium's first frame](https://github.com/vtium/vtium/issues/270)",
 };
@@ -862,7 +883,8 @@ pub const DISPLAY_BUFFERS: Key = Key {
     reader: "vtium-platform",
     what: "How many frame buffers each display keeps (DRM displays only; every display gets the same number).\n\n\
            `3` is triple buffering: no frame waits for the previous one to reach the screen, at the cost of one more frame of memory per display (8 MB at 1080p). `2` is double buffering. `1` is single buffering, which uses the least memory, but vtium then draws into the buffer on screen, so a half-drawn frame can show.\n\n\
-           A framebuffer device (fbdev) always keeps one buffer. When unset, the build decides: the number it was built with (`VTIUM_DISPLAY_BUFFERS`), or else 3 in a build with optional features, 2 in the smallest build (minspec), and 1 only in a build smaller than that. `vtium config get display-buffers` prints the draft's value followed by `draft`, or the build's default followed by `default` (`unset` when the build sets no number, in which case the rule above decides).",
+           A framebuffer device (fbdev) always keeps one buffer. When unset, the build decides: the number it was built with (`VTIUM_DISPLAY_BUFFERS`), or else 3 in a build with optional features, 2 in the smallest build (minspec), and 1 only in a build smaller than that.\n\n\
+           [docs] `vtium config get display-buffers` prints the draft's value followed by `draft`, or the build's default followed by `default` (`unset` when the build sets no number, in which case the rule above decides).",
     cite: "[the displays issue](https://github.com/vtium/vtium/issues/18)",
 };
 
@@ -1415,7 +1437,7 @@ pub const FONT_FRITS: Key = Key {
     reader: "vtium",
     what: "The directory that holds the font sets (the `NAME.vtfrit` files that `font-name` names).\n\n\
            It must be an absolute path; vtium ignores a relative or empty one and logs why.\n\n\
-           The default is the directory vtium was built with.",
+           [docs] The default is the directory vtium was built with.",
     cite: "[the issue that loads the configured font set](https://github.com/vtium/vtium/issues/126); the maintainer's decision of 2026-11-01",
 };
 
@@ -1444,7 +1466,7 @@ pub const FONT_HELPER: Key = Key {
     what: "The font helper: the program vtium starts to draw a font set's characters. It runs as `nobody` when vtium runs as root.\n\n\
            vtium opens the program once, when it starts, and runs every helper from that file, so a newly installed helper takes effect when vtium restarts.\n\n\
            vtium refuses a path that is not absolute, a file that is not a regular file, a setuid or setgid file, a file owned by anyone other than root or vtium's own account, and a file that its group or other users can write. It then logs why and uses its built-in font. vtium starts the helper through `/proc/self/fd`, so `/proc` must be mounted.\n\n\
-           The default is the path vtium was built with.",
+           [docs] The default is the path vtium was built with.",
     cite: "[the issue that renders glyphs in the font helper](https://github.com/vtium/vtium/issues/145); the maintainer's decision of 2026-11-01",
 };
 
@@ -1495,7 +1517,7 @@ pub const FONT_LINE_SPACING: Key = Key {
     reader: "vtium-font",
     what: "Extra space between lines of text. It overrides a font set's `line-spacing=` line.\n\n\
            The value is a whole percentage of the text height, rounded to whole pixels and split evenly above and below each line, so the console has fewer lines. It does not change a font set's own `cell=` size, but it applies when `font-size` overrides that size: the character cell grows by the spacing. When unset, the font set's `line-spacing=` decides, and 0 where it has none.\n\n\
-           Letters keep their size in the middle of the taller line, and line and block characters stretch to fill it. A font set's `fit=` lines choose this for each set of characters.",
+           [docs] Letters keep their size in the middle of the taller line, and line and block characters stretch to fill it. A font set's `fit=` lines choose this for each set of characters.",
     cite: "[the line spacing issue](https://github.com/vtium/vtium/issues/277)",
 };
 
@@ -1522,7 +1544,8 @@ pub const ALLOW_FONT_OPS: Key = Key {
     reader: "vtium",
     what: "Let programs switch the console's font, and ask which font is in use (xterm's OSC 50).\n\n\
            A program switches with `OSC 50 ; NAME ST`, as `vtium-config use-frit NAME` does, and asks with `OSC 50 ; ? ST`. A switch lasts until that program's session ends; then vtium returns to the font and size that `font-name` and `font-size` set.\n\n\
-           It is on by default, as xterm's `allowFontOps` is, because a program can choose only the installed font sets and the built-in fonts, never another file. When off, vtium ignores OSC 50, queries included.",
+           When off, vtium ignores OSC 50, queries included.\n\n\
+           [docs] It is on by default, as xterm's `allowFontOps` is, because a program can choose only the installed font sets and the built-in fonts, never another file.",
     cite: "[the issue that loads the configured font set](https://github.com/vtium/vtium/issues/126)",
 };
 
@@ -1633,7 +1656,8 @@ pub const TEXT_DIRECTION: Key = Key {
     reader: "vtium-term",
     what: "Which way a paragraph of text runs when the program writing it does not say: `ltr`, left to right, `rtl`, right to left, or `auto`, which takes each paragraph's direction from its first letter.\n\n\
            A paragraph is the text between two line ends, however many rows it wraps across. `ltr`, the default, starts each paragraph at the left edge, as most terminals do. `rtl` starts each one at the right edge, for a console used mostly in Arabic, Hebrew or another right-to-left language. Under `auto`, a paragraph that starts with an Arabic or Hebrew letter runs right to left, and one that starts with a Latin letter, or has no letter, runs left to right.\n\n\
-           A program can change the direction with escape sequences, and a terminal reset returns it to this setting. vtium reads this key when it starts, so a change takes effect when vtium restarts, and it never changes text already on the screen.\n\n\
+           vtium reads this key when it starts, so a change takes effect when vtium restarts, and it never changes text already on the screen.\n\n\
+           [docs] A program can change the direction with escape sequences, and a terminal reset returns it to this setting.\n\n\
            A build without right-to-left support (the `bidi` feature) accepts this key and does nothing with it.",
     cite: "[the right-to-left text issue](https://github.com/vtium/vtium/issues/43)",
 };
@@ -2031,7 +2055,8 @@ pub const IMAGE_HELPER: Key = Key {
     what: "The image helper: the program vtium starts, as the logged-in user, to read image files and shared memory for kitty graphics and to decode PNG and zlib-compressed images. vtium runs as root and does neither itself.\n\n\
            vtium opens the program once, when it starts, and runs every helper from that file, so a newly installed helper takes effect when vtium restarts.\n\n\
            vtium refuses a path that is not absolute, a file that is not a regular file, a setuid or setgid file, a file owned by anyone other than root or vtium's own account, and a file that its group or other users can write. It then logs why, and refuses those images: a file, temporary file or shared memory with `EBADF`, and PNG or zlib with `EINVAL`. vtium starts the helper through `/proc/self/fd`, so `/proc` must be mounted.\n\n\
-           The default is the path vtium was built with. A build without image support accepts this key and starts no helper.",
+           A build without image support accepts this key and starts no helper.\n\n\
+           [docs] The default is the path vtium was built with.",
     cite: "[the image helper issue](https://github.com/vtium/vtium/issues/31); the maintainer's decision of 2026-11-01",
 };
 
@@ -2658,6 +2683,26 @@ mod tests {
                 assert_eq!(p, p.trim(), "{}: blanks around {p:?}", k.name);
             }
         }
+    }
+
+    #[test]
+    fn a_paragraph_marked_for_the_docs_is_left_out_of_the_example_only() {
+        let mut marked = 0;
+        for k in &KEYS {
+            assert!(
+                !k.what.starts_with(DOCS_ONLY),
+                "{}: the first paragraph says what the key does and is never docs-only",
+                k.name
+            );
+            let all: Vec<&str> = k.paragraphs().collect();
+            let shown: Vec<&str> = k.example_paragraphs().collect();
+            assert!(shown.len() <= all.len());
+            marked += all.len() - shown.len();
+            for p in &all {
+                assert!(!p.starts_with(DOCS_ONLY), "{}: a doubled mark", k.name);
+            }
+        }
+        assert!(marked > 0, "no key marks a paragraph for the docs");
     }
 
     #[test]
