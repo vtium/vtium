@@ -1,0 +1,21 @@
+# A double click selects the word at the pointer: the run of cells up to a
+# space, punctuation included, at the start, the middle and the end of a
+# row. On a space it selects nothing, so the copy that follows copies
+# nothing. On the empty cells after a row's text it should select nothing
+# too; vtium selects the word before them (#364), which the last copy and
+# the frame record.
+# spec: ADR-1003, the selection; INTERFACE-vtium.md, The selection and copy
+# covers: clipboard.selection
+size 20 2
+send "one two,three  four\r\nab"
+select word at 0,0
+copy
+select word at 5,0
+copy
+select word at 18,0
+copy
+select word at 13,0
+copy
+select word at 5,1
+copy
+dump frame

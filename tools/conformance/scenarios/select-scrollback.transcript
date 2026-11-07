@@ -1,0 +1,29 @@
+> size 6 2
+> scrollback 10
+> send "l1\r\nl2\r\nl3\r\nl4\r\nl5"
+> scroll up 3
+> dump
+size 6x2
+cursor 2,1
+flags AUTO_WRAP
+row 0 |l1|
+row 1 |l2|
+> select word at 0,0
+> copy
+< copy "l1"
+> select start at 0,1
+> scroll bottom
+> select to at 1,1
+> copy
+< copy "l2\nl3\nl4\nl5"
+> dump frame
+size 6x2
+cursor 2,1
+flags AUTO_WRAP
+palette legacy fg=#e5e5e5 bg=#000000
+changed 0
+frame-cursor 2,1 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 |l4|
+cells 0 0-5 w=1 fg=#000000 bg=#e5e5e5 ul=#000000 inverse
+row 1 |l5|
+cells 1 0-1 w=1 fg=#000000 bg=#e5e5e5 ul=#000000 inverse

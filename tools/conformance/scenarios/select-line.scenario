@@ -1,0 +1,16 @@
+# A triple click selects the whole line at the pointer: every row of a
+# line that wrapped, and its copy ends with one line end; a line of one
+# row; and an empty line, which copies its line end alone.
+# spec: ADR-1003, the selection; INTERFACE-vtium.md, The selection and copy
+# covers: clipboard.selection
+size 6 4
+send "first line\r\nsecond"
+select line at 2,1
+copy
+select line at 0,0
+copy
+select line at 3,2
+copy
+select line at 0,3
+copy
+dump frame

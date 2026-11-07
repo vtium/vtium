@@ -687,6 +687,11 @@ impl Scrollback {
         padded
     }
 
+    /// The most rows it keeps.
+    pub(crate) fn max(&self) -> usize {
+        self.max
+    }
+
     /// Keeps at most `max` rows, clamped to the cap; the oldest past it go.
     pub(crate) fn set_max(&mut self, max: usize) {
         self.max = max.min(self.cap);

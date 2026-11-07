@@ -26,3 +26,16 @@ reply-device-attributes	a new scenario; its transcript waits for the maintainer'
 reply-status-reports	a new scenario; its transcript waits for the maintainer's review
 reset-decstr	a new scenario; its transcript waits for the maintainer's review
 reset-ris	a new scenario; its transcript waits for the maintainer's review
+select-word	a new scenario; its transcript waits for the maintainer's review
+select-word-across-wrap	a new scenario; its transcript waits for the maintainer's review
+select-line	a new scenario; its transcript waits for the maintainer's review
+select-drag	a new scenario; its transcript waits for the maintainer's review
+select-wide	a new scenario; its transcript waits for the maintainer's review
+select-output	a new scenario; its transcript waits for the maintainer's review
+select-alternate-screen	a new scenario; its transcript waits for the maintainer's review
+select-follows-text	a new scenario; its transcript waits for the maintainer's review
+select-scrollback	a new scenario; its transcript waits for the maintainer's review
+view-scrollback	a new scenario; its transcript waits for the maintainer's review
+view-prompt-jump	a new scenario; its transcript waits for the maintainer's review
+key-backspace	a new scenario; its transcript waits for the maintainer's review
+reset-state	a new scenario; its transcript waits for the maintainer's review

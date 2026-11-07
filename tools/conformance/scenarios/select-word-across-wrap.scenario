@@ -1,0 +1,14 @@
+# A word that reaches the end of a row that wrapped goes on at the start of
+# the next row, whichever half the pointer is on, and its copy has no line
+# end at the wrap. A row that ended with a line feed ends the word.
+# spec: ADR-1003, the selection; INTERFACE-vtium.md, The selection and copy
+# covers: clipboard.selection
+size 8 3
+send "ab wrapping\r\nword"
+select word at 5,0
+copy
+select word at 1,1
+copy
+select word at 1,2
+copy
+dump frame

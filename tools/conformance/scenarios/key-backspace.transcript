@@ -1,0 +1,22 @@
+> size 8 1
+> key BackSpace
+< reply "\b"
+> key BackSpace mods=shift
+< reply "\b"
+> key BackSpace mods=alt
+< reply "\e\b"
+> key BackSpace mods=ctrl
+< reply "\b"
+> key BackSpace mods=ctrl+alt
+< reply "\e\b"
+> backspace del
+> key BackSpace
+< reply "\x7f"
+> key BackSpace mods=shift
+< reply "\x7f"
+> key BackSpace mods=alt
+< reply "\e\x7f"
+> key BackSpace mods=ctrl
+< reply "\x7f"
+> key BackSpace mods=ctrl+alt
+< reply "\e\x7f"

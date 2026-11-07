@@ -33,17 +33,6 @@ pub const AREAS: [&str; 11] = [
     "bidi",
 ];
 
-/// The interface commands that interface 1.3 adds for scenarios, with the
-/// feature each needs; until vtium-replay declares them, a scenario that
-/// uses one is reported as not run.
-pub const LATER_COMMANDS: [(&str, &str); 5] = [
-    ("select", "selection"),
-    ("copy", "selection"),
-    ("prompt", "marks"),
-    ("backspace", "backspace"),
-    ("state", "state"),
-];
-
 /// Which sort of scenario a file is.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Sort {
@@ -421,8 +410,8 @@ impl Scenario {
     }
 
     /// Every test command's name, and the features the scenario needs
-    /// beyond them: its `needs` line, its view's and its dumps' features,
-    /// and those of the commands interface 1.3 adds.
+    /// beyond them: its `needs` line and its view's and its dumps'
+    /// features. The interface's describe blocks give each command's own.
     pub fn requires(&self) -> (BTreeSet<String>, BTreeSet<String>) {
         let mut names = BTreeSet::new();
         let mut features = self.needs.clone();
@@ -430,11 +419,7 @@ impl Scenario {
         for c in self.commands() {
             views.extend(&c.dump);
             for text in &c.tests {
-                let name = text.split(';').next().unwrap_or_default();
-                names.insert(name.to_owned());
-                if let Some((_, f)) = LATER_COMMANDS.iter().find(|(n, _)| *n == name) {
-                    features.insert((*f).to_owned());
-                }
+                names.insert(text.split(';').next().unwrap_or_default().to_owned());
             }
         }
         for v in views {

@@ -1,0 +1,28 @@
+# The prompt keys move the view to the nearest prompt OSC 133 marked above
+# the view's top row or below it. At the oldest prompt the view stays,
+# going down past the newest prompt returns it to the screen, and on the
+# alternate screen it does not move.
+# spec: ADR-1002, What the marks are for; INTERFACE-vtium.md, Prompt jumps
+# covers: osc.133
+size 8 2
+scrollback 20
+send "\e]133;A\a$ a\r\nout a\r\n\e]133;A\a$ b\r\nout b\r\n"
+send "\e]133;A\a$ c\r\nout c\r\n\e]133;A\a$ "
+scroll prompt-up
+dump screen state
+scroll prompt-up
+dump screen state
+scroll prompt-up
+dump screen state
+scroll prompt-up
+dump screen state
+scroll prompt-down
+dump screen state
+scroll prompt-down
+scroll prompt-down
+dump screen state
+scroll prompt-down
+dump state
+send "\e[?1049h"
+scroll prompt-up
+dump screen state
