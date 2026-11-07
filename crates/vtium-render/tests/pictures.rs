@@ -1139,8 +1139,8 @@ fn a_cropped_picture_never_shows_the_pixels_past_its_crop() {
             }
         }
     }
-    // the reviewer's picture: 32 wide, the left half red and the right
-    // half blue, cropped from x 16, so only blue may show
+    // a picture 32 wide, the left half red and the right half blue,
+    // cropped from x 16, so only blue may show
     let halves = |x: u32, _: u32| if x < 16 { RED } else { BLUE };
     for font in [32u32, 24] {
         let mut con = Console::new(10, 4, 0);
