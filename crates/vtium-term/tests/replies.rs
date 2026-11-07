@@ -280,7 +280,7 @@ fn decrqss_reports_settings_and_refuses_with_no_echo() {
     assert_eq!(reply(&mut t, b"\x1bP$q\"p\x1b\\"), b"\x1bP1$r62;1\"p\x1b\\");
     assert_eq!(reply(&mut t, b"\x1b[m\x1bP$qm\x1b\\"), b"\x1bP1$r0m\x1b\\");
     for unknown in [
-        &b"\x1bP$qs\x1b\\"[..],
+        &b"\x1bP$qt\x1b\\"[..],
         b"\x1bP$q31m\x1b\\",
         b"\x1bP$qmm\x1b\\",
     ] {

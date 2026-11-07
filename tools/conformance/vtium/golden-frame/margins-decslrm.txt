@@ -1,0 +1,65 @@
+checkpoint 115
+size 10x5
+cursor 3,3
+flags AUTO_WRAP
+reply 1b50312472313b3130731b5c1b5b3f36393b322479
+palette legacy fg=#e5e5e5 bg=#000000
+changed 50
+frame-cursor 3,3 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 |0123456789|
+row 1 |abcdefghij|
+row 2 |ABCDEFGHIJ|
+row 3 |klmnopqrst|
+row 4 |KLMNOPQRST|
+checkpoint 141
+size 10x5
+cursor 0,0
+flags AUTO_WRAP
+reply 1b50312472333b37731b5c1b5b3f36393b312479
+palette legacy fg=#e5e5e5 bg=#000000
+changed 0
+frame-cursor 0,0 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 |0123456789|
+row 1 |abcdefghij|
+row 2 |ABCDEFGHIJ|
+row 3 |klmnopqrst|
+row 4 |KLMNOPQRST|
+checkpoint 166
+size 10x5
+cursor 3,3
+flags AUTO_WRAP
+reply 1b50312472333b37731b5c
+palette legacy fg=#e5e5e5 bg=#000000
+changed 0
+frame-cursor 3,3 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 |0123456789|
+row 1 |abcdefghij|
+row 2 |ABCDEFGHIJ|
+row 3 |klmnopqrst|
+row 4 |KLMNOPQRST|
+checkpoint 179
+size 10x5
+cursor 2,1
+flags AUTO_WRAP
+reply 1b50312472313b3130731b5c
+palette legacy fg=#e5e5e5 bg=#000000
+changed 0
+frame-cursor 2,1 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 |0123456789|
+row 1 |abcdefghij|
+row 2 |ABCDEFGHIJ|
+row 3 |klmnopqrst|
+row 4 |KLMNOPQRST|
+checkpoint 219
+size 10x5
+cursor 4,3
+flags AUTO_WRAP
+reply 1b50312472323b3130731b5c1b50312472313b3130731b5c1b5b3f36393b322479
+palette legacy fg=#e5e5e5 bg=#000000
+changed 0
+frame-cursor 4,3 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 |0123456789|
+row 1 |abcdefghij|
+row 2 |ABCDEFGHIJ|
+row 3 |klmnopqrst|
+row 4 |KLMNOPQRST|

@@ -76,6 +76,8 @@ mode-8452                     works   -Dimages DEC-8452                     DECR
 decaln                        works   -     ctl.decaln                     ESC # 8 fills the screen with E, origin mode off, the margins the whole screen
 reverse-wrap                  works   -     DEC-45                         mode 45: BS reverse-wraps only into the row that wrapped
 xtsave                        works   -     ctl.xtsave                     XTSAVE and XTRESTORE of one mode, and the empty list, which leaves DECOM
+decslrm                       works   -     DEC-69,ctl.decslrm             mode 69 makes CSI s set left and right margins, text wraps and scrolls inside them, DECRQSS reports them
+decic                         works   -     ctl.decic                      DECIC, DECDC and DECBI move the columns between the margins
 mouse-1015                    works   -     DEC-1015                       mode 1015: the urxvt mouse encoding
 decnkm                        works   -     DEC-66                         mode 66: the keypad's application mode, which DECKPNM resets
 meta-keys                     works   -     DEC-1034,DEC-1036              modes 1036 and 1034: ESC before an Alt key, or its eighth bit

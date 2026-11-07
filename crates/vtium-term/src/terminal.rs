@@ -116,6 +116,9 @@ struct Saved {
     /// The column is the screen's width while a wrap is pending.
     x: usize,
     y: usize,
+    /// A pending wrap at a right margin before the screen's last column,
+    /// where the column is the margin's.
+    margin_wrap: bool,
     pen: Style,
     auto_wrap: bool,
     origin: bool,
@@ -131,6 +134,7 @@ impl Saved {
     const HOME: Self = Self {
         x: 0,
         y: 0,
+        margin_wrap: false,
         pen: Style::DEFAULT,
         auto_wrap: true,
         origin: false,
@@ -636,6 +640,7 @@ impl State {
             *saved = Saved {
                 x,
                 y,
+                margin_wrap: self.screen.margin_wrap(),
                 pen: *self.screen.pen(),
                 auto_wrap: self.screen.auto_wrap(),
                 origin: self.screen.origin_mode(),
@@ -655,6 +660,9 @@ impl State {
         modes::set(self, true, 7, saved.auto_wrap);
         modes::set(self, true, 6, saved.origin);
         self.screen.restore_cursor(saved.x, saved.y);
+        if saved.margin_wrap {
+            self.screen.restore_margin_wrap();
+        }
     }
 
     /// DECSTR, and the first half of RIS: the modes, the pen, the cursor
@@ -810,7 +818,7 @@ impl State {
                 s.move_line_home();
             }
             b'G' | b'`' => s.move_to_column(n.saturating_sub(1)),
-            b'd' => s.move_to(s.cursor().0, n.saturating_sub(1)),
+            b'd' => s.move_to_row(n.saturating_sub(1)),
             b'e' => s.move_rows_down(n),
             b'H' | b'f' => {
                 let col = Self::count(params, 1);
@@ -834,10 +842,14 @@ impl State {
                 _ => {}
             },
             b'r' => s.set_margins(Self::param(params, 0), Self::param(params, 1)),
-            // SCOSC and SCORC, `CSI s` and `CSI u` with no parameter, save
-            // and restore the cursor as DECSC and DECRC do (ctlseqs). vtium
-            // has no left and right margins yet (#55), so DECLRMM is reset
-            // and `CSI s` is always SCOSC.
+            // `CSI s` is DECSLRM while DECLRMM is set, with no parameter
+            // the whole width; while it is reset, `CSI s` with no parameter
+            // is SCOSC, and `CSI u` with no parameter is always SCORC,
+            // saving and restoring the cursor as DECSC and DECRC do
+            // (ctlseqs).
+            b's' if s.lr_margin_mode() => {
+                s.set_lr_margins(Self::param(params, 0), Self::param(params, 1));
+            }
             b's' if params.count() == 1 && params.get(0).is_none() => self.save_cursor(),
             b'u' if params.count() == 1 && params.get(0).is_none() => self.restore_cursor(),
             b'h' => self.set_modes(params, false, true),
@@ -873,8 +885,10 @@ impl State {
             b'~' => self.charsets.lock_right(1),
             b'}' => self.charsets.lock_right(2),
             b'|' => self.charsets.lock_right(3),
+            b'6' => s.back_index(),
             b'7' => self.save_cursor(),
             b'8' => self.restore_cursor(),
+            b'9' => s.forward_index(),
             // DECKPAM and DECKPNM set and reset DECNKM's state.
             b'=' => modes::set(self, true, 66, true),
             b'>' => modes::set(self, true, 66, false),
@@ -1014,6 +1028,8 @@ impl Consumer for State {
                 self.rect_op(params, final_byte);
             }
             (None, [b'*'], b'x') => self.set_attribute_extent(params),
+            (None, [b'\''], b'}') => self.screen.insert_columns(Self::count(params, 0)),
+            (None, [b'\''], b'~') => self.screen.delete_columns(Self::count(params, 0)),
             (None, [b' '], b'q') => {
                 if let Some(style) = CursorStyle::from_param(params.get(0).unwrap_or(0)) {
                     self.set_cursor_style(style);

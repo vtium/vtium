@@ -96,6 +96,8 @@ pub(crate) enum Mode {
     ReverseWrap,
     AltScreen,
     Decnkm,
+    /// DECLRMM: DECSLRM may set left and right margins.
+    Lrmm,
     NormalMouse,
     ButtonMouse,
     AnyMouse,
@@ -265,6 +267,7 @@ pub(crate) static MODES: &[Row] = &[
     row!(DEC, 45, "XTREVWRAP", Supported, RESET, Soft, Nothing, "", "ctlseqs, reverse wraparound: while DECAWM is set, BS and CUB go on from the first column to the last column of the row above when printing wrapped from that row, as xterm moves; a pending wrap takes one step, so CUB n from it ends n - 1 columns left of the last column, where xterm's CursorBack counts the pending wrap twice for n of 2 or more and ends n - 2 columns left", &["modes.rs::mode_45_wraps_backwards_into_the_row_that_wrapped"], Some(Mode::ReverseWrap)),
     row!(DEC, 47, "ALTBUF", Supported, RESET, Soft, Nothing, "", "ctlseqs, the alternate screen, neither cleared nor the cursor saved", &["modes.rs::mode_47_switches_screens_only"], Some(Mode::AltScreen)),
     row!(DEC, 66, "DECNKM", Supported, RESET, Soft, Nothing, "", "ctlseqs; VT510; the keypad's application mode, which DECKPAM sets and DECKPNM resets", &["modes.rs::decnkm_switches_the_keypad_as_deckpam_and_deckpnm_do"], Some(Mode::Decnkm)),
+    row!(DEC, 69, "DECLRMM", Supported, RESET, Soft, Nothing, "", "ctlseqs; VT510; set, `CSI Pl ; Pr s` is DECSLRM and sets the left and right margins, and `CSI s` with no parameter sets them to the whole width; reset, the margins are the whole width and `CSI s` is SCOSC", &["margins.rs::mode_69_makes_csi_s_set_margins_and_resetting_it_clears_them"], Some(Mode::Lrmm)),
     row!(DEC, 80, "DECSDM", Supported, RESET, Hard, Sixel, "", "ctlseqs, DECSDM in xterm's sense: set, sixel scrolling is off and a picture sits at the screen's top left, cut to the screen, with the cursor left where it is; reset, a picture's top left is the cursor's cell", SIXEL_MODES, Some(Mode::SixelDisplay)),
     row!(DEC, 1000, "VT200MOUSE", Supported, RESET, Soft, Input, "", "ctlseqs, normal tracking; DECSTR resets it, where xterm resets it on RIS only", MOUSE, Some(Mode::NormalMouse)),
     row!(DEC, 1001, "HILITEMOUSE", Refused, RESET, Never, Nothing, "", "ctlseqs; refused: the terminal waits on the program's XTHIMOUSE answer before it can show a selection", FIXED, None),
@@ -532,6 +535,7 @@ impl State {
             Mode::Dectcem => s.cursor_visible(),
             Mode::ReverseWrap => m.reverse_wrap,
             Mode::Decnkm => m.keypad,
+            Mode::Lrmm => s.lr_margin_mode(),
             Mode::AltScreen | Mode::AltScreenClear | Mode::AltScreenSaveCursor => s.alternate(),
             Mode::SaveCursor => false,
             Mode::Focus => m.focus,
@@ -593,6 +597,7 @@ impl State {
             Mode::Dectcem => self.screen.set_cursor_visible(on),
             Mode::ReverseWrap => self.modes.reverse_wrap = on,
             Mode::Decnkm => self.modes.keypad = on,
+            Mode::Lrmm => self.screen.set_lr_margin_mode(on),
             Mode::AltScreen => self.screen.set_alternate(on),
             Mode::AltScreenClear => {
                 if !on && self.screen.alternate() {
@@ -1244,7 +1249,7 @@ mod tests {
     // this check holds them to this module.
     #[test]
     fn modes_are_set_only_through_the_table() {
-        const SETTERS: [&str; 7] = [
+        const SETTERS: [&str; 8] = [
             ".set_insert_mode(",
             ".set_auto_wrap(",
             ".set_origin_mode(",
@@ -1252,6 +1257,7 @@ mod tests {
             ".set_cursor_visible(",
             ".set_alternate(",
             ".set_width_method(",
+            ".set_lr_margin_mode(",
         ];
         let sources = other_sources();
         assert!(sources.iter().any(|(n, _)| n.ends_with("src/terminal.rs")));

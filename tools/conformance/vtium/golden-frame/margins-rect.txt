@@ -1,0 +1,52 @@
+checkpoint 133
+size 10x5
+cursor 2,1
+flags AUTO_WRAP|REL_ORIGIN
+palette legacy fg=#e5e5e5 bg=#000000
+changed 50
+frame-cursor 2,1 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 |0123456789|
+row 1 |abxxefghij|
+row 2 |ABxxEFGHIJ|
+row 3 |klmno**rst|
+row 4 |KLMNOPQRST|
+checkpoint 150
+size 10x5
+cursor 2,1
+flags AUTO_WRAP|REL_ORIGIN
+palette legacy fg=#e5e5e5 bg=#000000
+changed 2
+frame-cursor 2,1 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 |0123456789|
+row 1 |abxxexxhij|
+row 2 |ABxxEFGHIJ|
+row 3 |klmno**rst|
+row 4 |KLMNOPQRST|
+checkpoint 163
+size 10x5
+cursor 2,1
+flags AUTO_WRAP|REL_ORIGIN
+palette legacy fg=#e5e5e5 bg=#000000
+changed 12
+frame-cursor 2,1 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 |0123456789|
+row 1 |abxxexxhij|
+row 2 |ABxxEFGHIJ|
+cells 2 3-9 w=1 fg=#e5e5e5 bg=#000000 ul=#e5e5e5 bold
+row 3 |klmno**rst|
+cells 3 0-4 w=1 fg=#e5e5e5 bg=#000000 ul=#e5e5e5 bold
+row 4 |KLMNOPQRST|
+checkpoint 174
+size 10x5
+cursor 2,1
+flags AUTO_WRAP|REL_ORIGIN
+palette legacy fg=#e5e5e5 bg=#000000
+changed 15
+frame-cursor 2,1 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 |0123456789|
+row 1 |ab     hij|
+row 2 |AB     HIJ|
+cells 2 7-9 w=1 fg=#e5e5e5 bg=#000000 ul=#e5e5e5 bold
+row 3 |kl     rst|
+cells 3 0-1 w=1 fg=#e5e5e5 bg=#000000 ul=#e5e5e5 bold
+row 4 |KLMNOPQRST|

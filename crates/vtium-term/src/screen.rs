@@ -14,7 +14,16 @@
 //!
 //! The cursor's column may equal the screen's width: the next printed
 //! character wraps first (the pending wrap). Every other position is
-//! inside the screen.
+//! inside the screen. A pending wrap at a right margin before the screen's
+//! last column leaves the cursor on the margin's column, and a flag holds
+//! the wrap.
+//!
+//! The left and right margins (DECSLRM) are set only while mode 69
+//! (DECLRMM) is set, and are the screen's first and last columns while it
+//! is reset. With the top and bottom margins they bound the region the
+//! scrolling and editing functions work in, as xterm's ctlseqs and the
+//! VT510 manual define them; `edit.rs` and `print.rs` say how each function
+//! honours them.
 //!
 //! A resize that changes the column count rewraps the main screen and its
 //! scrollback (`reflow.rs`, ADR-1003); no line keeps a cell past the right
@@ -72,6 +81,8 @@ struct Flags {
     alternate: bool,
     /// Mode 2028: printed rows rewrap at a resize.
     reflow: bool,
+    /// Mode 69, DECLRMM: DECSLRM may set left and right margins.
+    lr_margins: bool,
 }
 
 impl Flags {
@@ -85,6 +96,7 @@ impl Flags {
         cursor_hidden: false,
         alternate: false,
         reflow: true,
+        lr_margins: false,
     };
 }
 
@@ -115,6 +127,14 @@ pub struct Screen {
     /// The scroll region, `top..=bottom`.
     top: usize,
     bottom: usize,
+    /// The left and right margins, `left..=right`: the screen's first and
+    /// last columns while DECLRMM is reset.
+    left: usize,
+    right: usize,
+    /// A pending wrap at the right margin, which stands before the screen's
+    /// last column: the cursor is on the margin's column, and the next
+    /// printed character wraps first. Every cursor movement ends it.
+    margin_wrap: bool,
     tabs: Vec<bool>,
     scrollback: Scrollback,
     /// While `sb-memory` follows the grid, the most it may be; `None` once
@@ -166,6 +186,9 @@ impl Screen {
             cursor_y: 0,
             top: 0,
             bottom: rows.saturating_sub(1),
+            left: 0,
+            right: cols.saturating_sub(1),
+            margin_wrap: false,
             tabs: default_tabs(cols),
             scrollback: Scrollback::new(scrollback_cap),
             sb_memory_cap: Some(SB_MEMORY_MAX),
@@ -214,6 +237,91 @@ impl Screen {
     /// The scroll region's first and last rows (DECSTBM).
     pub fn margins(&self) -> (usize, usize) {
         (self.top, self.bottom)
+    }
+
+    /// The left and right margins' columns (DECSLRM): the screen's first
+    /// and last while DECLRMM is reset.
+    pub fn lr_margins(&self) -> (usize, usize) {
+        (self.left, self.right)
+    }
+
+    /// Whether a pending wrap waits at a right margin that stands before
+    /// the screen's last column, with the cursor on the margin's column.
+    pub fn margin_wrap(&self) -> bool {
+        self.margin_wrap
+    }
+
+    /// Mode 69, DECLRMM: DECSLRM may set left and right margins.
+    pub fn lr_margin_mode(&self) -> bool {
+        self.flags.lr_margins
+    }
+
+    /// Sets DECLRMM. Resetting it returns the left and right margins to
+    /// the screen's first and last columns, as xterm's
+    /// `set_left_right_margin_mode` does; the cursor stays.
+    pub fn set_lr_margin_mode(&mut self, on: bool) {
+        self.flags.lr_margins = on;
+        if !on {
+            self.reset_lr_margins();
+        }
+    }
+
+    /// The left and right margins become the screen's first and last
+    /// columns.
+    pub(super) fn reset_lr_margins(&mut self) {
+        self.left = 0;
+        self.right = self.cols.saturating_sub(1);
+        self.margin_wrap = false;
+    }
+
+    /// DECSLRM, while DECLRMM is set: the left and right margins at
+    /// columns `left` and `right`, counted from 1, 0 standing for an
+    /// omitted parameter: the first column and the last. A right margin
+    /// past the screen is its last column. Margins that leave fewer than
+    /// two columns between them, or are inverted, are ignored, as xterm
+    /// ignores them; otherwise the cursor goes home, the region's top left
+    /// corner in origin mode (ctlseqs, DECSLRM; VT510 manual, DECSLRM).
+    pub fn set_lr_margins(&mut self, left: usize, right: usize) {
+        if !self.flags.lr_margins {
+            return;
+        }
+        let left = left.max(1);
+        let right = if right == 0 || right > self.cols {
+            self.cols
+        } else {
+            right
+        };
+        if right <= left {
+            return;
+        }
+        self.left = left.saturating_sub(1);
+        self.right = right.saturating_sub(1);
+        self.move_to(0, 0);
+    }
+
+    /// Whether the left and right margins are the screen's first and last
+    /// columns, so whole lines move when the region scrolls.
+    pub(crate) fn full_width(&self) -> bool {
+        self.left == 0 && self.right.saturating_add(1) >= self.cols
+    }
+
+    /// Whether column `x` is inside the left and right margins. A pending
+    /// wrap at the screen's width stands on the last column.
+    pub(crate) fn in_lr_margins(&self, x: usize) -> bool {
+        let x = x.min(self.cols.saturating_sub(1));
+        x >= self.left && x <= self.right
+    }
+
+    /// The last column the cursor at column `x` prints to before it wraps,
+    /// and that CUF stops at: the right margin, or the screen's last
+    /// column when `x` is past the right margin (xterm's `dotext` and
+    /// `CursorForward`).
+    pub(crate) fn right_edge(&self, x: usize) -> usize {
+        if x > self.right {
+            self.cols.saturating_sub(1)
+        } else {
+            self.right
+        }
     }
 
     /// The line at `row` of the screen in use, main or alternate.
@@ -397,7 +505,7 @@ impl Screen {
     }
 
     /// Returns the screen to its state after creation, as RIS and DECSTR
-    /// need it: the flags, the margins, the tab stops, the main screen in
+    /// need it: the flags, DECLRMM among them, the margins, the tab stops, the main screen in
     /// use, no selection and the view on the screen. The text, the cursor
     /// and the pen stay; the terminal's reset clears and moves them. Mode
     /// 2028 stays: the mode table sets it on RIS only.
@@ -413,6 +521,7 @@ impl Screen {
         };
         self.top = 0;
         self.bottom = self.rows.saturating_sub(1);
+        self.reset_lr_margins();
         self.tabs = default_tabs(self.cols);
         self.selection.reset();
         self.scrollback.reset_view();
@@ -616,8 +725,8 @@ impl Screen {
     }
 
     /// Resizes the screen to `cols` by `rows`, each at least 1 and at most
-    /// [`COLUMNS_MAX`] by [`ROWS_MAX`]. The margins go and the tab stops
-    /// return to every eighth column.
+    /// [`COLUMNS_MAX`] by [`ROWS_MAX`]. The margins go, DECLRMM staying as
+    /// it is, and the tab stops return to every eighth column.
     ///
     /// A change in the column count rewraps the main screen and its
     /// scrollback, keeping the cursor at its place in the text, and cuts
@@ -659,6 +768,9 @@ impl Screen {
         self.damage.resize(cols, rows);
         self.top = 0;
         self.bottom = self.rows.saturating_sub(1);
+        self.left = 0;
+        self.right = cols.saturating_sub(1);
+        self.margin_wrap = false;
         self.tabs = default_tabs(cols);
         if rows < self.rows {
             if self.scrollback.is_empty() || self.flags.alternate {
@@ -724,22 +836,52 @@ impl Screen {
 
     // Cursor movement.
 
-    /// Moves the cursor, which ends the cluster the last print wrote.
+    /// Moves the cursor, which ends the cluster the last print wrote and a
+    /// pending wrap at the right margin.
     fn move_cursor(&mut self, x: usize, y: usize) {
         self.segment = None;
+        self.margin_wrap = false;
         self.cursor_x = x;
         self.cursor_y = y;
     }
 
-    /// CUP: to column `x`, row `y`, counted from the scroll region's top
-    /// in origin mode, and kept inside the screen, or the region.
+    /// The first and last columns the cursor may be addressed to: the
+    /// screen's, or the left and right margins' in origin mode.
+    pub(super) fn origin_cols(&self) -> (usize, usize) {
+        if self.flags.origin {
+            (self.left, self.right)
+        } else {
+            (0, self.cols.saturating_sub(1))
+        }
+    }
+
+    /// CUP: to column `x`, row `y`, counted from the region's top left
+    /// corner in origin mode, and kept inside the screen, or the region:
+    /// the rows between the top and bottom margins and the columns between
+    /// the left and right margins (xterm's `CursorSet`).
     pub fn move_to(&mut self, x: usize, y: usize) {
         let (y, last) = if self.flags.origin {
             (self.top.saturating_add(y), self.bottom)
         } else {
             (y, self.rows.saturating_sub(1))
         };
-        self.move_cursor(x.min(self.cols.saturating_sub(1)), y.min(last));
+        let (first_col, last_col) = self.origin_cols();
+        let x = first_col.saturating_add(x).min(last_col);
+        self.move_cursor(x, y.min(last));
+    }
+
+    /// The cursor's column as CUP counts it: from the left margin in
+    /// origin mode, a pending wrap counting as the last column (xterm's
+    /// `CursorCol`).
+    pub fn origin_col(&self) -> usize {
+        let x = self.cursor_x.min(self.cols.saturating_sub(1));
+        x.saturating_sub(self.origin_cols().0)
+    }
+
+    /// VPA: to row `y`, counted as CUP counts it, keeping the column as
+    /// CUP counts it.
+    pub fn move_to_row(&mut self, y: usize) {
+        self.move_to(self.origin_col(), y);
     }
 
     /// DECRC: to column `x`, row `y` of the screen, whatever the origin
@@ -754,9 +896,20 @@ impl Screen {
         self.move_cursor(x.min(last), y.min(self.rows.saturating_sub(1)));
     }
 
-    /// CHA and HPA: to column `x` of the cursor's row.
+    /// DECRC of a pending wrap at the right margin: kept while autowrap is
+    /// on and the cursor stands on a right margin before the screen's last
+    /// column, as DECSC saves the wrap (VT510 manual, DECSC).
+    pub fn restore_margin_wrap(&mut self) {
+        self.margin_wrap = self.flags.auto_wrap
+            && self.cursor_x == self.right
+            && self.right.saturating_add(1) < self.cols;
+    }
+
+    /// CHA and HPA: to column `x` of the cursor's row, counted from the
+    /// left margin and kept inside the margins in origin mode.
     pub fn move_to_column(&mut self, x: usize) {
-        self.move_cursor(x.min(self.cols.saturating_sub(1)), self.cursor_y);
+        let (first, last) = self.origin_cols();
+        self.move_cursor(first.saturating_add(x).min(last), self.cursor_y);
     }
 
     /// VPR: `n` rows down, kept inside the screen, or the region in origin
@@ -774,11 +927,14 @@ impl Screen {
     /// CUU, and RI with `scroll`: `n` rows up, stopping at the top margin
     /// when the cursor is inside the region, and scrolling the region down
     /// by what is left when `scroll` is set. Above the region the cursor
-    /// stops at the screen's first row and nothing scrolls.
+    /// stops at the screen's first row and nothing scrolls, and outside
+    /// the left and right margins nothing scrolls either (xterm's
+    /// `RevIndex`).
     pub fn move_up(&mut self, n: usize, scroll: bool) {
         if n == 0 {
             return;
         }
+        let scroll = scroll && self.in_lr_margins(self.cursor_x);
         let stop = if self.cursor_y >= self.top {
             self.top
         } else {
@@ -798,11 +954,14 @@ impl Screen {
     /// CUD, and IND and LF with `scroll`: `n` rows down, stopping at the
     /// bottom margin when the cursor is inside the region, and scrolling the
     /// region up by what is left when `scroll` is set. Below the region the
-    /// cursor stops at the screen's last row and nothing scrolls.
+    /// cursor stops at the screen's last row and nothing scrolls, and
+    /// outside the left and right margins nothing scrolls either (xterm's
+    /// `xtermIndex`).
     pub fn move_down(&mut self, n: usize, scroll: bool) {
         if n == 0 {
             return;
         }
+        let scroll = scroll && self.in_lr_margins(self.cursor_x);
         let end = if self.cursor_y <= self.bottom {
             self.bottom.saturating_add(1)
         } else {
@@ -827,22 +986,35 @@ impl Screen {
         }
     }
 
-    /// CUB and BS: `n` columns left, stopping at the first.
+    /// The column CUB, BS and CR stop at from column `x`: the left
+    /// margin, or the screen's first column when `x` is left of the margin
+    /// (xterm's `CursorBack` and `CarriageReturn`).
+    fn left_edge(&self, x: usize) -> usize {
+        if x >= self.left { self.left } else { 0 }
+    }
+
+    /// CUB and BS: `n` columns left, stopping at the left margin, or at the
+    /// first column when the cursor starts left of the margin.
     pub fn move_left(&mut self, n: usize) {
         if n == 0 {
             return;
         }
         let x = self.cursor_x.min(self.cols.saturating_sub(1));
-        self.move_cursor(x.saturating_sub(n), self.cursor_y);
+        let stop = self.left_edge(x);
+        self.move_cursor(x.saturating_sub(n).max(stop), self.cursor_y);
     }
 
     /// CUB and BS with reverse wraparound (mode 45, with autowrap on), as
     /// xterm's XTREVWRAP moves: `n` columns left, where a pending wrap
-    /// takes the first step without moving, and from the first column the
-    /// cursor goes on from the last column of the row above when printing
-    /// wrapped from that row into this one. It stops at the first column of
+    /// takes the first step without moving, and from the left margin the
+    /// cursor goes on from the right margin of the row above when printing
+    /// wrapped from that row into this one. It stops at the left margin of
     /// a row the row above did not wrap into, and of the screen's first
-    /// row.
+    /// row. A cursor left of the left margin takes the first column for
+    /// it, as xterm's `CursorBack` does. Printing marks a row wrapped only
+    /// where it wraps from the screen's last column to the next row's
+    /// first (`print.rs`), so inside narrower margins the cursor stops at
+    /// the left margin.
     pub fn move_left_reverse_wrap(&mut self, n: usize) {
         if n == 0 {
             return;
@@ -850,13 +1022,14 @@ impl Screen {
         let last = self.cols.saturating_sub(1);
         let (mut x, mut y) = (self.cursor_x, self.cursor_y);
         let mut left = n;
-        if x > last {
-            x = last;
+        if x > last || self.margin_wrap {
+            x = x.min(last);
             left = left.saturating_sub(1);
         }
+        let stop = self.left_edge(x);
         while left > 0 {
-            if x > 0 {
-                let step = left.min(x);
+            if x > stop {
+                let step = left.min(x.saturating_sub(stop));
                 x = x.saturating_sub(step);
                 left = left.saturating_sub(step);
                 continue;
@@ -869,56 +1042,69 @@ impl Screen {
                 break;
             }
             y = y.saturating_sub(1);
-            x = last;
+            x = self.right;
             left = left.saturating_sub(1);
         }
         self.move_cursor(x, y);
     }
 
-    /// CUF and HPR: `n` columns right, stopping at the last.
+    /// CUF and HPR: `n` columns right, stopping at the right margin, or at
+    /// the last column when the cursor starts right of the margin.
     pub fn move_right(&mut self, n: usize) {
         if n == 0 {
             return;
         }
-        let x = self
-            .cursor_x
-            .saturating_add(n.min(self.cols))
-            .min(self.cols.saturating_sub(1));
+        let stop = self.right_edge(self.cursor_x);
+        let x = self.cursor_x.saturating_add(n.min(self.cols)).min(stop);
         self.move_cursor(x, self.cursor_y);
     }
 
-    /// CR: to the first column.
+    /// CR: to the left margin, or to the first column when the cursor is
+    /// left of the margin outside origin mode (VT510 manual, CR; xterm's
+    /// `CarriageReturn`).
     pub fn move_line_home(&mut self) {
-        self.move_cursor(0, self.cursor_y);
+        let x = if self.flags.origin {
+            self.left
+        } else {
+            self.left_edge(self.cursor_x)
+        };
+        self.move_cursor(x, self.cursor_y);
     }
 
-    /// NEL, and LF in newline mode: the first column of the next row,
-    /// scrolling at the bottom margin.
+    /// NEL, and LF in newline mode: the next row, scrolling at the bottom
+    /// margin, then CR.
     pub fn newline(&mut self) {
         self.move_down(1, true);
         self.move_line_home();
     }
 
-    /// HT and CHT: to the `n`th tab stop right, or the last column. A tab
-    /// never leaves a pending wrap.
+    /// HT and CHT: to the `n`th tab stop right, no further than the right
+    /// margin, or to the right margin when no stop is left before it
+    /// (VT510 manual, HT). From right of the right margin, the cursor goes
+    /// back to the margin, as xterm's `TabToNextStop` moves it. A tab never
+    /// leaves a pending wrap.
     pub fn tab_right(&mut self, n: usize) {
         if n == 0 {
             return;
         }
+        let stop = self.right;
+        let end = stop.saturating_add(1);
         let mut x = self.cursor_x;
         for _ in 0..n {
             let from = x.saturating_add(1);
-            x = (from..self.cols)
+            x = (from..end)
                 .find(|&c| self.tabs.get(c).copied().unwrap_or(false))
-                .unwrap_or(self.cols);
-            if x.saturating_add(1) >= self.cols {
+                .unwrap_or(end);
+            if x.saturating_add(1) >= end {
                 break;
             }
         }
-        self.move_cursor(x.min(self.cols.saturating_sub(1)), self.cursor_y);
+        self.move_cursor(x.min(stop), self.cursor_y);
     }
 
-    /// CBT: to the `n`th tab stop left, or the first column.
+    /// CBT: to the `n`th tab stop left, or the first column, or in origin
+    /// mode no further left than the left margin (xterm's
+    /// `TabToPrevStop`).
     pub fn tab_left(&mut self, n: usize) {
         if n == 0 {
             return;
@@ -935,6 +1121,9 @@ impl Screen {
                     break;
                 }
             }
+        }
+        if self.flags.origin {
+            x = x.max(self.left);
         }
         self.move_cursor(x, self.cursor_y);
     }

@@ -19,6 +19,20 @@
 //!
 //! Each print marks the row it writes to as rewrapping at a resize or not,
 //! from mode 2028 (ADR-1003).
+//!
+//! Printed text wraps at the right margin, or at the screen's last column
+//! when the cursor is right of the margin, and goes on at the left margin
+//! of the next row, as xterm's `dotext` and `WrapLine` print. The wrap
+//! scrolls the region at the bottom margin only when the cursor is between
+//! the left and right margins, as a line feed scrolls. A row is marked as
+//! continuing on the next row, for reflow, only when it wraps from the
+//! screen's last column to the next row's first, since only then does its
+//! text go on where reflow reads it. A wide character that does not fit
+//! before a right margin inside the screen leaves the cell it skips
+//! erased, as it does where the wrap returns to the same row. In insert
+//! mode, text printed between the margins moves the cells up to the right
+//! margin, and text printed outside them moves nothing (xterm's
+//! `InsertChar`).
 
 use super::{Screen, Segment, WidthMethod};
 use crate::cell::Width;
@@ -53,16 +67,17 @@ impl Screen {
         let mut len = usize::from(width);
         let last = self.last_print_row(self.cursor_y);
 
-        if self.cursor_x >= self.cols {
+        if self.cursor_x >= self.cols || self.margin_wrap {
+            let edge = self.cursor_x.min(self.cols.saturating_sub(1));
             if self.flags.auto_wrap {
-                self.mark_wrapped(self.cursor_y, last);
-                self.move_cursor(0, self.cursor_y.saturating_add(1));
+                self.mark_wrapped(self.cursor_y, edge, last);
+                self.wrap_line(edge, last);
             } else {
-                self.move_cursor(self.cols.saturating_sub(1), self.cursor_y);
+                self.move_cursor(edge, self.cursor_y);
             }
         }
 
-        if len == 2 && self.cursor_x == self.cols.saturating_sub(1) {
+        if len == 2 && self.cursor_x == self.right_edge(self.cursor_x) {
             if self.cols < 2 {
                 glyph = Glyph::Empty;
                 len = 1;
@@ -74,14 +89,7 @@ impl Screen {
                 self.split_wide(y, x.saturating_add(1));
                 let bg = self.pen.bg;
                 self.leave_pad(x, y, last, bg);
-                self.move_cursor(0, y.saturating_add(1));
-            }
-        }
-
-        if self.cursor_y > last {
-            self.move_cursor(self.cursor_x, last);
-            if last == self.bottom {
-                self.scroll_up(1);
+                self.wrap_line(x, last);
             }
         }
         // A wrap carries the paragraph's properties to the row it starts.
@@ -93,9 +101,46 @@ impl Screen {
         let (x, y) = (self.cursor_x, self.cursor_y);
         let (pen, link) = (self.pen, self.link);
         self.write_cell(x, y, glyph, len, &pen, link);
-        self.move_cursor(x.saturating_add(len), y);
+        self.advance(x, x.saturating_add(len), y);
         let start = if glyph == Glyph::Empty { '\0' } else { c };
         self.set_segment(x, y, Segmenter::start(start));
+    }
+
+    /// Moves the cursor past text written from column `from` to `to` on
+    /// row `y`. Past a right margin inside the screen, the cursor stays on
+    /// the margin's column with a pending wrap.
+    fn advance(&mut self, from: usize, to: usize, y: usize) {
+        let edge = self.right_edge(from);
+        if to > edge && edge.saturating_add(1) < self.cols {
+            self.move_cursor(edge, y);
+            self.margin_wrap = true;
+        } else {
+            self.move_cursor(to, y);
+        }
+    }
+
+    /// Whether a wrap from column `edge` of row `y`, whose last row is
+    /// `last`, takes the cursor to another row: below `last`, or at the
+    /// bottom margin, which scrolls when `edge` is between the left and
+    /// right margins. Otherwise the wrap returns to the same row.
+    fn wrap_moves(&self, y: usize, edge: usize, last: usize) -> bool {
+        y < last || (last == self.bottom && self.in_lr_margins(edge))
+    }
+
+    /// Wraps from column `edge` of the cursor's row: the cursor goes to the
+    /// left margin of the next row, and at the bottom margin the region
+    /// scrolls when `edge` is between the left and right margins (xterm's
+    /// `WrapLine`, which indexes as `xtermIndex` does).
+    fn wrap_line(&mut self, edge: usize, last: usize) {
+        let y = self.cursor_y;
+        if y < last {
+            self.move_cursor(self.left, y.saturating_add(1));
+            return;
+        }
+        if self.wrap_moves(y, edge, last) {
+            self.scroll_up(1);
+        }
+        self.move_cursor(self.left, last);
     }
 
     /// REP: prints the codepoint that started the last printed cell `n`
@@ -127,12 +172,14 @@ impl Screen {
     }
 
     /// Marks row `y`'s text as continuing on the next row, for reflow,
-    /// when a wrap from it reaches another row: below `last`, or at the
-    /// bottom margin, which scrolls. On the screen's last row below the
-    /// region the wrap returns to the same row, whose text does not
-    /// continue. Returns whether it marked the row.
-    fn mark_wrapped(&mut self, y: usize, last: usize) -> bool {
-        if y >= last && last != self.bottom {
+    /// when a wrap from column `edge` reaches another row (`wrap_moves`)
+    /// and goes from the screen's last column to the next row's first. On
+    /// the screen's last row below the region the wrap returns to the same
+    /// row, whose text does not continue. Returns whether it marked the
+    /// row.
+    fn mark_wrapped(&mut self, y: usize, edge: usize, last: usize) -> bool {
+        let edges = self.left == 0 && edge.saturating_add(1) >= self.cols;
+        if !edges || !self.wrap_moves(y, edge, last) {
             return false;
         }
         if let Some(line) = self.line_mut(y) {
@@ -141,12 +188,12 @@ impl Screen {
         true
     }
 
-    /// A wide character leaves column `x`, the last, of row `y` for the
-    /// next row: the row wraps, and the column becomes a pad in the
-    /// background `bg`. Where the wrap returns to the same row, the column
-    /// is erased instead.
+    /// A wide character leaves column `x`, the last before the wrap, of
+    /// row `y` for the next row: the row wraps, and the column becomes a
+    /// pad in the background `bg`. Where the row is not marked as
+    /// continuing (`mark_wrapped`), the column is erased instead.
     fn leave_pad(&mut self, x: usize, y: usize, last: usize, bg: crate::Color) {
-        if self.mark_wrapped(y, last) {
+        if self.mark_wrapped(y, x, last) {
             let pad = Style {
                 bg,
                 ..Style::DEFAULT
@@ -242,25 +289,27 @@ impl Screen {
             return;
         };
         let next = x.saturating_add(1);
-        if next < self.cols {
-            let cols = self.cols;
-            let last = if self.flags.insert {
-                cols.saturating_sub(1)
+        if next <= self.right_edge(x) {
+            let insert = self.flags.insert && self.in_lr_margins(x);
+            let end = if insert {
+                self.right.saturating_add(1)
             } else {
-                next
+                self.cols
             };
+            let last = if insert { end.saturating_sub(1) } else { next };
             self.images_cut(y, next, last);
-            if self.flags.insert {
-                // The rest of the line moves right one cell, as for an
-                // inserted wide character; a wide character the margin
-                // cuts, before or after the move, goes whole.
-                self.split_wide(y, cols.saturating_sub(1));
-                self.split_wide(y, cols);
+            if insert {
+                // The rest of the line up to the right margin moves right
+                // one cell, as for an inserted wide character; a wide
+                // character the margin cuts, before or after the move,
+                // goes whole.
+                self.split_wide(y, end.saturating_sub(1));
+                self.split_wide(y, end);
                 let blank = self.blank_style();
                 if let Some(line) = self.line_mut(y) {
-                    line.insert_cells(next, 1, cols, &blank);
+                    line.insert_cells(next, 1, end, &blank);
                 }
-                self.mark_cells(y, next..cols);
+                self.mark_cells(y, next..end);
             } else {
                 // A wide character there loses its lead, so its tail goes
                 // too, past the margin as well.
@@ -271,8 +320,8 @@ impl Screen {
                 line.write(x, glyph_of(&text), Width::Wide, &style, link);
             }
             self.mark_cells(y, x..next.saturating_add(1));
-            if (self.cursor_x, self.cursor_y) == (next, y) {
-                self.move_cursor(next.saturating_add(1), y);
+            if (self.cursor_x, self.cursor_y) == (next, y) && !self.margin_wrap {
+                self.advance(x, next.saturating_add(1), y);
             }
             self.set_segment(x, y, state);
             return;
@@ -283,17 +332,12 @@ impl Screen {
         }
         let last = self.last_print_row(y);
         self.leave_pad(x, y, last, style.bg);
-        let mut y = y;
-        if y.saturating_add(1) > last {
-            if last == self.bottom {
-                self.scroll_up(1);
-            }
-        } else {
-            y = y.saturating_add(1);
-        }
-        self.write_cell(0, y, glyph_of(&text), 2, &style, link);
-        self.move_cursor(2, y);
-        self.set_segment(0, y, state);
+        self.move_cursor(x, y);
+        self.wrap_line(x, last);
+        let (x, y) = (self.cursor_x, self.cursor_y);
+        self.write_cell(x, y, glyph_of(&text), 2, &style, link);
+        self.advance(x, x.saturating_add(2), y);
+        self.set_segment(x, y, state);
     }
 
     /// A codepoint of no width after the cursor moved, or that the break
@@ -301,13 +345,17 @@ impl Screen {
     /// with no cell there it is dropped.
     fn join_before_cursor(&mut self, c: char) {
         let y = self.cursor_y;
-        if self.cursor_x == 0 || y >= self.rows {
+        if (self.cursor_x == 0 && !self.margin_wrap) || y >= self.rows {
             return;
         }
-        let mut x = self
-            .cursor_x
-            .saturating_sub(1)
-            .min(self.cols.saturating_sub(1));
+        // With a pending wrap at the right margin, the cursor stands on
+        // the cell before it.
+        let before = if self.margin_wrap {
+            self.cursor_x
+        } else {
+            self.cursor_x.saturating_sub(1)
+        };
+        let mut x = before.min(self.cols.saturating_sub(1));
         if self
             .line(y)
             .is_some_and(|l| l.cell(x).width() == Width::WideTail)
@@ -350,26 +398,34 @@ impl Screen {
             return;
         }
         let end = x.saturating_add(len);
+        // Insert mode moves the cells up to the right margin, and only
+        // from a column between the margins.
+        let insert = self.flags.insert && self.in_lr_margins(x);
+        let margin = if insert {
+            self.right.saturating_add(1).min(cols)
+        } else {
+            cols
+        };
         // text written over a picture text cuts removes the part it
         // covers; in insert mode the rest of the row shifts, as ICH does
-        let last = if self.flags.insert {
-            cols.saturating_sub(1)
+        let last = if insert {
+            margin.saturating_sub(1)
         } else {
             end.saturating_sub(1)
         };
         self.images_cut(y, x, last);
         self.split_wide(y, x);
-        if self.flags.insert {
-            if len < cols {
-                self.split_wide(y, cols.saturating_sub(len));
+        if insert {
+            if len < margin {
+                self.split_wide(y, margin.saturating_sub(len));
             }
-            self.split_wide(y, cols);
-            if len < cols && x < cols.saturating_sub(len) {
+            self.split_wide(y, margin);
+            if len < margin && x < margin.saturating_sub(len) {
                 let blank = self.blank_style();
                 if let Some(line) = self.line_mut(y) {
-                    line.insert_cells(x, len, cols, &blank);
+                    line.insert_cells(x, len, margin, &blank);
                 }
-                self.mark_cells(y, x..cols);
+                self.mark_cells(y, x..margin);
             }
         } else {
             self.split_wide(y, end);
