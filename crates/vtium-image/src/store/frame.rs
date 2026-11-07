@@ -86,9 +86,9 @@ pub struct FramePlacement {
 }
 
 impl FramePlacement {
-    /// Whether this entry comes from a run of kitty Unicode-placeholder
-    /// cells, which vtium-term places where the run's cells are drawn,
-    /// rather than from a placement on a line.
+    /// Whether this entry was made from a run of kitty Unicode-placeholder
+    /// cells, rather than being one of the store's own placements with a
+    /// key of its own.
     pub fn from_placeholder_run(&self) -> bool {
         self.key.get() >= RUN_KEY_FIRST
     }
