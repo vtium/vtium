@@ -81,7 +81,7 @@ The C reference recognised 34 modes in one declarative table (libtsm's `tsm-mode
 
 ### The target set
 
-The tables are `ADR-1000-modes.tsv` (131 rows: 44 supported, 10 ignored, 75 refused, 2 weighed) and `ADR-1000-features.tsv` (183 rows: 112 supported, 4 partial, 44 ignored, 8 refused, 15 planned). Both tables use the same statuses:
+The tables are `ADR-1000-modes.tsv` (131 rows: 43 supported, 1 partial, 10 ignored, 75 refused, 2 weighed) and `ADR-1000-features.tsv` (183 rows: 112 supported, 4 partial, 44 ignored, 8 refused, 15 planned). Both tables use the same statuses:
 
 - **supported**: set and reset, or the feature, do what the specification says.
 - **partial**: vtium does part of it; the note says what is missing, and the issue column names the work that builds the rest.
@@ -101,6 +101,8 @@ DECRQM, the query by which a program asks whether a mode is set, answers from vt
 > Edited 2026-11-07: `conformance issues` now holds the issue column to GitHub. It fails when a planned, partial or weighed row names no open issue, when an open issue is named only by supported rows, and when a number in the column is not an issue. Its first run found nine such cases, and this edit settles the five that the tables themselves got wrong. OSC 8 links, supported before, are partial: vtium keeps links, underlines the one under the pointer and copies it with Ctrl+click, and it does not yet draw the overlay row that shows the link's address while Ctrl is held. Multi-monitor, supported before, is partial: one grid shows on every display of a head, but a picture that the other display starves waits for input before it draws, and no test drives two displays. Glyphs baked into vtium as read-only atlases, weighed before, are refused, since ADR-1200 decided that vtium generates every glyph at run time and builds no glyph set ahead of time. The weighed modes 2034 and 737769 named the closed issue for vtium-term's modes; 737769 now names the work on input methods, and 2034 an issue of its own that decides it. The other four cases are issues whose work is done, or waits only on the maintainer's review on a real VT; they close outside the tables. Before this edit the counts above read 128 mode rows, with 39 supported, 9 ignored, 73 refused, 1 planned and 6 weighed, and 181 feature rows, with 110 supported, 3 partial, 44 ignored, 7 refused, 16 planned and 1 weighed; edits since 2026-11-06 had added rows without changing them.
 
 > Edited 2026-11-07: the work on left and right margins builds DECLRMM, DECSLRM, DECIC, DECDC, DECBI and DECFI, so mode 69 and the rows for DECSLRM and for DECIC with its kin are supported. Before this edit the counts above read 43 supported modes and 1 planned, and 110 supported, 5 partial and 16 planned feature rows.
+
+> Edited 2026-11-07: mode 1035 is partial. The work on the kitty keyboard protocol found that the host passes vtium-term no NumLock state with a key, so the mode sees NumLock off whatever its state. Before this edit the counts above read 44 supported modes and no partial one.
 
 Each row names the layer it lands in, from the project's plan: minspec, text, images, gpu, seat or top, or `bidi` for a row that only a build with the cargo feature `bidi` has (ADR-1004 D13).
 
