@@ -81,7 +81,7 @@ The C reference recognised 34 modes in one declarative table (libtsm's `tsm-mode
 
 ### The target set
 
-The tables are `ADR-1000-modes.tsv` (131 rows: 43 supported, 1 partial, 10 ignored, 75 refused, 2 weighed) and `ADR-1000-features.tsv` (183 rows: 112 supported, 4 partial, 44 ignored, 8 refused, 15 planned). Both tables use the same statuses:
+The tables are `ADR-1000-modes.tsv` (131 rows: 44 supported, 10 ignored, 75 refused, 2 weighed) and `ADR-1000-features.tsv` (183 rows: 112 supported, 4 partial, 44 ignored, 8 refused, 15 planned). Both tables use the same statuses:
 
 - **supported**: set and reset, or the feature, do what the specification says.
 - **partial**: vtium does part of it; the note says what is missing, and the issue column names the work that builds the rest.
@@ -102,7 +102,7 @@ DECRQM, the query by which a program asks whether a mode is set, answers from vt
 
 > Edited 2026-11-07: the work on left and right margins builds DECLRMM, DECSLRM, DECIC, DECDC, DECBI and DECFI, so mode 69 and the rows for DECSLRM and for DECIC with its kin are supported. Before this edit the counts above read 43 supported modes and 1 planned, and 110 supported, 5 partial and 16 planned feature rows.
 
-> Edited 2026-11-07: mode 1035 is partial. The work on the kitty keyboard protocol found that the host passes vtium-term no NumLock state with a key, so the mode sees NumLock off whatever its state. Before this edit the counts above read 44 supported modes and no partial one.
+> Edited 2026-11-07: mode 1035 stays supported, since setting and resetting it work and the mode table in vtium-term has no partial status; its note names the gap the work on the kitty keyboard protocol found, that the host passes vtium-term no NumLock state with a key, and the issue that closes it.
 
 Each row names the layer it lands in, from the project's plan: minspec, text, images, gpu, seat or top, or `bidi` for a row that only a build with the cargo feature `bidi` has (ADR-1004 D13).
 
