@@ -25,8 +25,10 @@ logind = ["vtium-platform/logind"]
 # libgbm at run time and links no GL library.
 gpu = ["vtium-render/gpu", "vtium-platform/gpu"]
 # Right-to-left text (ADR-1004 D13): vtium-term's bidirectional algorithm
-# and its Unicode tables. The minspec build leaves it out.
-bidi = ["vtium-term/bidi"]
+# and its Unicode tables, the renderer's joined forms and bar cursor, and
+# the console's asks and lookup for joined forms. The minspec build leaves
+# it out.
+bidi = ["vtium-term/bidi", "vtium-render/bidi"]
 
 [dependencies]
 vtium-term.workspace = true

@@ -850,6 +850,25 @@ impl Bits {
     }
 }
 
+/// Whether `part` is a part of the cluster `key` the helper shapes when a
+/// mark of `key` has no glyph: `key` with one or more of its marks or
+/// default ignorables left out, everything else kept in order (ADR-1200
+/// D22 step 3).
+fn part_of(part: &[char], key: &[char]) -> bool {
+    if part.len() >= key.len() || part.is_empty() {
+        return false;
+    }
+    let mut rest = part.iter().peekable();
+    for &c in key {
+        if rest.peek() == Some(&&c) {
+            rest.next();
+        } else if !crate::deferred::droppable(c) {
+            return false;
+        }
+    }
+    rest.next().is_none()
+}
+
 /// Each codepoint of `runs`, `None` past `u32`.
 fn codepoints(runs: &[(u32, u32)]) -> impl Iterator<Item = Option<u32>> + '_ {
     runs.iter()
@@ -1629,10 +1648,16 @@ impl Helper {
                     return Err("the helper answered a glyph the ask did not name".to_owned());
                 }
             }
+            // a cluster the ask named, or a part of one, which the helper
+            // sends when a mark of the cluster has no glyph (ADR-1200 D22
+            // step 3) and which leaves the cluster asked for
+            let named =
+                |t: &Text| ask.clusters.contains(t) || ask.clusters.iter().any(|k| part_of(t, k));
+            if !clusters.iter().all(named) {
+                return Err("the helper answered a cluster the ask did not name".to_owned());
+            }
             for t in &clusters {
-                if !ask.clusters.remove(t) {
-                    return Err("the helper answered a cluster the ask did not name".to_owned());
-                }
+                ask.clusters.remove(t);
             }
             let Some(state) = self.known(at, style) else {
                 // no display draws at the cell any more
@@ -1686,6 +1711,15 @@ impl Helper {
             .flatten()
             .flat_map(|&c| crate::deferred::decomposition(c))
             .collect();
+        // a presentation form draws the letters it presents where their
+        // joined form is missing (ADR-1004 D6), so their cells redraw too
+        #[cfg(feature = "bidi")]
+        chars.extend(
+            added
+                .iter()
+                .flatten()
+                .flat_map(|&c| crate::deferred::presented(c)),
+        );
         chars.sort_unstable();
         chars.dedup();
         if let Some(state) = self.state(at, style) {
@@ -2386,6 +2420,62 @@ mod tests {
         assert_eq!(s.helper.failed(), None);
         assert_eq!(answers.len(), 1);
         assert_eq!(answers[0].chars, ['A', 'e', '\u{e9}', '\u{301}']);
+    }
+
+    // ADR-1200 D22 step 3: where the font has no glyph for a mark of a
+    // cluster asked for, as for superscript alef on lam with shadda and
+    // fatha, the helper sends the part it draws, the cluster without that
+    // mark; the console holds the part and knows the cluster lacking. A
+    // part that leaves out a letter is what was not asked
+    // covers: text.overhang
+    #[test]
+    fn the_part_of_a_cluster_the_font_draws_is_taken() {
+        let whole = ['\u{644}', '\u{651}', '\u{64e}', '\u{670}'];
+        let part = ['\u{644}', '\u{651}', '\u{64e}'];
+        let mut fixture = frame_bytes(FRAME_GLYPHS, &cluster_set(CELL, &[&part]));
+        fixture.extend(frame_bytes(FRAME_DONE, &[]));
+        let mut s = StandIn::new("cluster-part", ANSWERS, &fixture);
+        let now = t0();
+        s.helper.ask(CELL, Band::NONE, &clustered(&[&whole]), now);
+        let answers = s.run(now);
+        assert_eq!(s.helper.failed(), None);
+        assert_eq!(answers.len(), 1);
+        let state = s.helper.cells.iter().find(|c| c.at == AT).unwrap();
+        assert!(state.clusters.held.contains(part.as_slice()));
+        assert!(state.clusters.absent.contains(whole.as_slice()));
+        let marks = ['\u{651}', '\u{64e}', '\u{670}'];
+        let mut s = StandIn::new(
+            "cluster-no-letter",
+            ANSWERS,
+            &frame_bytes(FRAME_GLYPHS, &cluster_set(CELL, &[&marks])),
+        );
+        s.helper.ask(CELL, Band::NONE, &clustered(&[&whole]), now);
+        let _ = s.run(now);
+        let why = s.helper.failed().unwrap();
+        assert!(why.contains("cluster the ask did not name"), "{why}");
+    }
+
+    // ADR-1004 D6: an arrived presentation form redraws the cells showing
+    // the letters it presents, since a joined letter the font has no
+    // joined form for draws it; beh's initial form redraws beh, and
+    // lam-alef's ligature lam and alef
+    // covers: text.bidi
+    #[cfg(feature = "bidi")]
+    #[test]
+    fn an_arrived_presentation_form_redraws_its_letters() {
+        let forms = ['\u{fe91}', '\u{fefb}'];
+        let mut fixture = frame_bytes(FRAME_GLYPHS, &set(CELL, &forms));
+        fixture.extend(frame_bytes(FRAME_DONE, &[]));
+        let mut s = StandIn::new("presented", ANSWERS, &fixture);
+        let now = t0();
+        s.helper.ask(CELL, Band::NONE, &shown(&forms), now);
+        let answers = s.run(now);
+        assert_eq!(s.helper.failed(), None);
+        assert_eq!(answers.len(), 1);
+        assert_eq!(
+            answers[0].chars,
+            ['\u{627}', '\u{628}', '\u{644}', '\u{fe91}', '\u{fefb}']
+        );
     }
 
     // ADR-1200 D15: a cluster the ask did not name, or one in a fill, is
