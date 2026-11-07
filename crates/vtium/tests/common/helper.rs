@@ -12,6 +12,30 @@ use std::time::Duration;
 /// the stand-in for the glyph helper, instead of passing as a test.
 const STAND_IN: &str = "VTIUM_TEST_HELPER";
 
+/// The shell the tests start in place of the font helper: a copy of
+/// `/bin/sh` that the test's own account owns, in the build's temporary
+/// directory. vtium starts a helper only when root or its own account owns
+/// the program, and `/bin/sh` belongs to root only where the tests see
+/// root's files as root's. In a user namespace that does not map root, such
+/// as the one `make arm-test` runs the tests in (tools/arm/README.md), every
+/// file of root's belongs to the overflow uid, 65534. Each test process
+/// makes its copy once and renames it into place, so a test process that
+/// runs at the same time never starts a copy that is still being written.
+pub fn stand_in_shell() -> &'static Path {
+    use std::os::unix::fs::PermissionsExt;
+    static SHELL: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    SHELL.get_or_init(|| {
+        let dir = Path::new(env!("CARGO_TARGET_TMPDIR"));
+        let shell = dir.join("vtium-stand-in-sh");
+        let part = dir.join(format!("vtium-stand-in-sh.{}", std::process::id()));
+        std::fs::copy("/bin/sh", &part).expect("a copy of /bin/sh");
+        std::fs::set_permissions(&part, std::fs::Permissions::from_mode(0o755))
+            .expect("the copy's mode");
+        std::fs::rename(&part, &shell).expect("the copy in place");
+        shell
+    })
+}
+
 /// The glyph helper the outline tests run: this test binary again, its
 /// [`the_helper_stand_in`] alone, which serves with vtium-config's real
 /// serve mode, so each answer is the one the real helper gives. With
@@ -29,7 +53,7 @@ pub fn real_helper(kinds: &Path, go: Option<&Path>) -> vtium::helper::Command {
     );
     let exe = std::env::current_exe().expect("the test binary");
     vtium::helper::Command {
-        program: PathBuf::from("/bin/sh"),
+        program: stand_in_shell().to_path_buf(),
         args: [
             "-c",
             "VTIUM_TEST_HELPER=\"$1\" exec \"$0\" --exact stand_in::the_helper_stand_in -q 3>&1 >/dev/null",

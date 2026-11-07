@@ -1937,6 +1937,33 @@ fn after(t: Instant, d: Duration) -> Instant {
     t.checked_add(d).unwrap_or(t)
 }
 
+/// The shell the tests start in place of the font helper: a copy of
+/// `/bin/sh` that the test's own account owns, beside the test binary.
+/// vtium starts a helper only when root or its own account owns the
+/// program, and `/bin/sh` belongs to root only where the tests see root's
+/// files as root's. In a user namespace that does not map root, such as
+/// the one `make arm-test` runs the tests in (tools/arm/README.md), every
+/// file of root's belongs to the overflow uid, 65534. Each test process
+/// makes its copy once and renames it into place, so a test process that
+/// runs at the same time never starts a copy that is still being written.
+#[cfg(test)]
+#[expect(clippy::expect_used, reason = "a test fails by panicking")]
+pub(crate) fn stand_in_shell() -> &'static Path {
+    static SHELL: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    SHELL.get_or_init(|| {
+        use std::os::unix::fs::PermissionsExt;
+        let exe = std::env::current_exe().expect("the test binary");
+        let dir = exe.parent().expect("the test binary's directory");
+        let shell = dir.join("vtium-stand-in-sh");
+        let part = dir.join(format!("vtium-stand-in-sh.{}", std::process::id()));
+        std::fs::copy("/bin/sh", &part).expect("a copy of /bin/sh");
+        std::fs::set_permissions(&part, std::fs::Permissions::from_mode(0o755))
+            .expect("the copy's mode");
+        std::fs::rename(&part, &shell).expect("the copy in place");
+        shell
+    })
+}
+
 #[cfg(test)]
 #[expect(
     clippy::unwrap_used,
@@ -2045,7 +2072,7 @@ mod tests {
             let (tx, woke) = mpsc::channel();
             let tx = std::sync::Mutex::new(tx);
             let command = Command {
-                program: PathBuf::from("/bin/sh"),
+                program: stand_in_shell().to_path_buf(),
                 args: vec![
                     "-c".into(),
                     script.into(),
@@ -2581,7 +2608,7 @@ mod tests {
         let mut helper = Helper::new(
             // never started: nothing is asked
             Launcher::open(Command {
-                program: PathBuf::from("/bin/sh"),
+                program: stand_in_shell().to_path_buf(),
                 args: Vec::new(),
                 account: None,
             })
@@ -2851,7 +2878,7 @@ mod tests {
         }
         let gid = rustix::process::getegid().as_raw();
         let command = Command {
-            program: PathBuf::from("/bin/sh"),
+            program: stand_in_shell().to_path_buf(),
             args: vec!["-c".into(), "cat >/dev/null".into()],
             account: Some((me, gid)),
         };
@@ -3944,10 +3971,11 @@ mod tests {
             crate::config::load(&args, &mut |_: &Path| Ok(None)).config
         };
         assert_eq!(program(&config(&[])), Path::new(PROGRAM));
-        let sh = config(&["--font-helper=/bin/sh"]);
-        assert_eq!(program(&sh), Path::new("/bin/sh"));
+        let shell = stand_in_shell();
+        let sh = config(&[&format!("--font-helper={}", shell.display())]);
+        assert_eq!(program(&sh), shell);
         let opened = Launcher::configured(&sh).unwrap();
-        assert_eq!(opened.command.program, Path::new("/bin/sh"));
+        assert_eq!(opened.command.program, shell);
         assert_eq!(opened.command.args, ["serve"]);
         let why = Launcher::configured(&config(&["--font-helper=sh"])).unwrap_err();
         assert!(why.contains("is not absolute"), "{why}");
@@ -3964,8 +3992,25 @@ mod tests {
         // no one may execute it
         program_copy("/bin/true", &program, 0o644);
         let launcher = Launcher::open(sh(&program, "")).unwrap();
-        // the error the kernel gives this start, for the message's text
-        let e = launcher.process().spawn().unwrap_err();
+        // the error the kernel gives this start, for the message's text.
+        // qemu-user runs glibc's posix_spawn child as a fork that shares no
+        // memory with its parent, so the child's failed exec never reaches
+        // the parent, and the start succeeds. There the test cannot judge
+        // what it claims, and it skips and says so.
+        let e = match launcher.process().spawn() {
+            Err(e) => e,
+            Ok(mut child) => {
+                let _ = child.wait();
+                let qemu = std::env::var_os("VTIUM_QEMU_USER");
+                assert!(qemu.is_some(), "a program no one may execute started");
+                eprintln!(
+                    "{} reports no failed exec to the process that starts a program: skipped",
+                    qemu.unwrap_or_default().display()
+                );
+                let _ = std::fs::remove_dir_all(&dir);
+                return;
+            }
+        };
         let mut helper = Helper::new(
             launcher,
             Arc::new(|| {}),

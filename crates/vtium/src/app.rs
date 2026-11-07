@@ -4677,7 +4677,7 @@ mod tests {
         let fonts = font::Sources {
             frits: dir.clone(),
             helper: Some(helper::Command {
-                program: PathBuf::from("/bin/sh"),
+                program: helper::stand_in_shell().to_path_buf(),
                 args: vec!["-c".into(), "exec sleep 30".into()],
                 account: None,
             }),
@@ -4727,7 +4727,7 @@ mod tests {
         let fonts = font::Sources {
             frits: dir.clone(),
             helper: Some(helper::Command {
-                program: PathBuf::from("/bin/sh"),
+                program: helper::stand_in_shell().to_path_buf(),
                 args: vec!["-c".into(), "exec sleep 30".into()],
                 account: None,
             }),
@@ -5401,7 +5401,7 @@ mod tests {
         let fonts = font::Sources {
             frits: dir.clone(),
             helper: Some(helper::Command {
-                program: PathBuf::from("/bin/sh"),
+                program: helper::stand_in_shell().to_path_buf(),
                 args: vec!["-c".into(), "exec sleep 30".into()],
                 account: None,
             }),
@@ -5436,7 +5436,7 @@ mod tests {
             let fonts = font::Sources {
                 frits: dir.clone(),
                 helper: Some(helper::Command {
-                    program: PathBuf::from("/bin/sh"),
+                    program: helper::stand_in_shell().to_path_buf(),
                     args: vec!["-c".into(), "exec sleep 30".into()],
                     account: None,
                 }),

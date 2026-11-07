@@ -5329,7 +5329,7 @@ fn frit_fonts_of(
     std::fs::write(&fixture, answer).expect("the answer");
     let go = dir.join("go");
     let helper = vtium::helper::Command {
-        program: PathBuf::from("/bin/sh"),
+        program: stand_in::stand_in_shell().to_path_buf(),
         args: ["-c", script, "helper"]
             .into_iter()
             .map(OsString::from)
@@ -6139,7 +6139,7 @@ fn recording(name: &str) -> (Scratch, Sources) {
     let scratch = Scratch::new(&format!("boot-rec-{name}"));
     let dir = scratch.to_path_buf();
     let helper = vtium::helper::Command {
-        program: PathBuf::from("/bin/sh"),
+        program: stand_in::stand_in_shell().to_path_buf(),
         args: ["-c", RECORDER, "helper"]
             .into_iter()
             .map(OsString::from)
