@@ -147,7 +147,14 @@ fn failure(why: &str) -> String {
         why => format!("the helper failed: {why}"),
     }
 }
+/// An ask. A console built with right-to-left text asks with the kind that
+/// also takes the part of a cluster the font draws only without some of
+/// its marks (ADR-1200 D22 step 3), which its lookup lays the missing marks
+/// over; the helper sends a console of the minspec build none.
+#[cfg(not(feature = "bidi"))]
 const ASK: u32 = 1;
+#[cfg(feature = "bidi")]
+const ASK: u32 = 6;
 const FILL: u32 = 2;
 const STOP: u32 = 3;
 const OWN_CELL: u32 = 4;
@@ -850,6 +857,7 @@ impl Bits {
     }
 }
 
+#[cfg(feature = "bidi")]
 /// Whether `part` is a part of the cluster `key` the helper shapes when a
 /// mark of `key` has no glyph: `key` with one or more of its marks or
 /// default ignorables left out, everything else kept in order (ADR-1200
@@ -1648,16 +1656,27 @@ impl Helper {
                     return Err("the helper answered a glyph the ask did not name".to_owned());
                 }
             }
-            // a cluster the ask named, or a part of one, which the helper
-            // sends when a mark of the cluster has no glyph (ADR-1200 D22
-            // step 3) and which leaves the cluster asked for
-            let named =
-                |t: &Text| ask.clusters.contains(t) || ask.clusters.iter().any(|k| part_of(t, k));
-            if !clusters.iter().all(named) {
-                return Err("the helper answered a cluster the ask did not name".to_owned());
+            // in a build with right-to-left text, a cluster the ask named or
+            // a part of one, which the helper sends when a mark of the
+            // cluster has no glyph (ADR-1200 D22 step 3) and which leaves the
+            // cluster asked for
+            #[cfg(feature = "bidi")]
+            {
+                let named = |t: &Text| {
+                    ask.clusters.contains(t) || ask.clusters.iter().any(|k| part_of(t, k))
+                };
+                if !clusters.iter().all(named) {
+                    return Err("the helper answered a cluster the ask did not name".to_owned());
+                }
+                for t in &clusters {
+                    ask.clusters.remove(t);
+                }
             }
+            #[cfg(not(feature = "bidi"))]
             for t in &clusters {
-                ask.clusters.remove(t);
+                if !ask.clusters.remove(t) {
+                    return Err("the helper answered a cluster the ask did not name".to_owned());
+                }
             }
             let Some(state) = self.known(at, style) else {
                 // no display draws at the cell any more
@@ -2424,10 +2443,12 @@ mod tests {
 
     // ADR-1200 D22 step 3: where the font has no glyph for a mark of a
     // cluster asked for, as for superscript alef on lam with shadda and
-    // fatha, the helper sends the part it draws, the cluster without that
+    // fatha, the helper sends a console built with right-to-left text the
+    // part it draws, the cluster without that
     // mark; the console holds the part and knows the cluster lacking. A
     // part that leaves out a letter is what was not asked
     // covers: text.overhang
+    #[cfg(feature = "bidi")]
     #[test]
     fn the_part_of_a_cluster_the_font_draws_is_taken() {
         let whole = ['\u{644}', '\u{651}', '\u{64e}', '\u{670}'];

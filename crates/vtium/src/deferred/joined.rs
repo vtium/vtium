@@ -51,6 +51,15 @@ pub(super) enum Key {
     Ligature { before: bool, lam: Part, alef: Part },
 }
 
+impl Part {
+    /// The letter and its marks, in written order.
+    fn text(&self) -> Text {
+        let mut text = vec![self.letter];
+        text.extend_from_slice(&self.marks);
+        text
+    }
+}
+
 /// Each letter of `inner` with the marks after it; `None` where it starts
 /// with a mark.
 fn parts(inner: &[char]) -> Option<Vec<Part>> {
@@ -172,7 +181,7 @@ impl DeferredFace {
     /// The glyph `key` draws when the store does not hold the key itself.
     pub(super) fn joined(&self, key: &Key, style: Style) -> Option<Glyph> {
         match key {
-            Key::Letter { sides, part } => self.laid(*sides, part.letter, &part.marks, style),
+            Key::Letter { sides, part } => self.unshaped(*sides, &part.text(), style),
             Key::Ligature { before, lam, alef } => self.ligature((*before, lam, alef), style),
         }
     }
@@ -181,7 +190,7 @@ impl DeferredFace {
     /// the store's glyph for the letter's key, else its presentation form,
     /// else its own glyph, unjoined.
     pub(super) fn form(&self, sides: Sides, letter: char, style: Style) -> Option<Glyph> {
-        let key: Text = sides.key(&[letter]);
+        let key: Text = sides.key(vec![letter]);
         let held = lock(&self.generated).draw(self.at(), &key, style);
         held.or_else(|| self.presented_as(letter_form(letter, sides)?, letter, style))
             .or_else(|| self.single(letter, style))
@@ -212,25 +221,24 @@ impl DeferredFace {
         if let Some(form) = ligature_form(alef.letter, before)
             && self.presented_as(form, lam.letter, style).is_some()
         {
-            let marks: Vec<char> = lam.marks.iter().chain(&alef.marks).copied().collect();
-            return self.laid(Sides::default(), form, &marks, style);
+            let mut text = vec![form];
+            text.extend(lam.marks.iter().chain(&alef.marks));
+            return self.unshaped(Sides::default(), &text, style);
         }
-        let right = self.laid(
+        let right = self.unshaped(
             Sides {
                 before,
                 after: true,
             },
-            lam.letter,
-            &lam.marks,
+            &lam.text(),
             style,
         )?;
-        let left = self.laid(
+        let left = self.unshaped(
             Sides {
                 before: true,
                 after: false,
             },
-            alef.letter,
-            &alef.marks,
+            &alef.text(),
             style,
         )?;
         let cell = self.cell;

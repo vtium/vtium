@@ -47,7 +47,7 @@
 //!
 //! ```text
 //! request  magic "VTVSREQ5", kind u32 (1 ask, 2 fill, 3 stop, 4 cell
-//!          query, 5 sources query), frit name length u32, the name (ADR-1200 D1's
+//!          query, 5 sources query, 6 ask that takes parts), frit name length u32, the name (ADR-1200 D1's
 //!          characters), frit text length u32, the text (UTF-8), cell width
 //!          u32 (0 for a cell or sources query), cell height u32 (for a
 //!          sources query 0, for a cell query
@@ -213,6 +213,11 @@ pub const FRAME_SOURCES: u32 = 11;
 pub const FRAME_DRAWS_NOTHING: u32 = 12;
 /// An ask: the codepoints named, answered whole.
 pub const ASK: u32 = 1;
+/// An ask from a console that also takes the part of a cluster the font
+/// draws only without some of its marks, under the part's own key
+/// (ADR-1200 D22 step 3): a console built with right-to-left text. It is
+/// answered as [`ASK`] is, the parts added.
+pub const ASK_PARTS: u32 = 6;
 /// A fill: the cell's coverage, in order, around the asks.
 pub const FILL: u32 = 2;
 /// The end of a cell's fill.
@@ -417,7 +422,7 @@ impl ServeRequest {
         }
         let mut f = Fields(r);
         let kind = f.u32()?;
-        if !matches!(kind, ASK | FILL | STOP | OWN_CELL | SOURCES) {
+        if !matches!(kind, ASK | ASK_PARTS | FILL | STOP | OWN_CELL | SOURCES) {
             return Err("an unknown request kind".to_owned());
         }
         let n = f.count(NAME_BYTES_MAX, "a frit's name")?;
@@ -463,7 +468,8 @@ impl ServeRequest {
             return Err("line spacing that leaves the cell no text band".to_owned());
         }
         let style = style_of(f.u32()?).ok_or("an unknown style")?;
-        if kind != ASK && style != Style::default() {
+        let ask = matches!(kind, ASK | ASK_PARTS);
+        if !ask && style != Style::default() {
             return Err("a style other than regular on a request that is not an ask".to_owned());
         }
         if f.u32()? != 0 {
@@ -481,10 +487,7 @@ impl ServeRequest {
             }
             codepoints.push(c);
         }
-        let n = f.count(
-            if kind == ASK { FIRST_MAX } else { 0 },
-            "the clusters asked for",
-        )?;
+        let n = f.count(if ask { FIRST_MAX } else { 0 }, "the clusters asked for")?;
         let mut clusters = Vec::with_capacity(n);
         for _ in 0..n {
             let len = f.count(CLUSTER_SCALARS_MAX as usize, "a cluster's scalar values")?;
@@ -1306,7 +1309,7 @@ impl Engine {
     /// The regular glyphs at `cell` for `want`, sorted codepoints, as
     /// [`Engine::glyphs`] draws them.
     pub fn draw(&self, cell: Cell, want: &[u32]) -> Result<Option<Vec<u8>>, String> {
-        self.glyphs(cell, Band::NONE, REGULAR, want, &[])
+        self.glyphs(cell, Band::NONE, REGULAR, want, (&[], false))
     }
 
     /// The regular glyphs at `cell` for `clusters`, sorted, as
@@ -1316,21 +1319,22 @@ impl Engine {
         cell: Cell,
         clusters: &[Vec<u32>],
     ) -> Result<Option<Vec<u8>>, String> {
-        self.glyphs(cell, Band::NONE, REGULAR, &[], clusters)
+        self.glyphs(cell, Band::NONE, REGULAR, &[], (clusters, false))
     }
 
     /// The glyphs of `style` at `at`, a cell and the rows its line spacing
     /// adds (a plain cell adds none), for `want`, sorted codepoints, and
-    /// `clusters`, sorted, as [`Engine::glyphs`] draws them.
+    /// `clusters`, sorted, as [`Engine::glyphs`] draws them, with the parts
+    /// of clusters where `parts` says, as an [`ASK_PARTS`] gets them.
     pub fn draw_style(
         &self,
         at: impl Into<SpacedCell>,
         style: Style,
         want: &[u32],
-        clusters: &[Vec<u32>],
+        (clusters, parts): (&[Vec<u32>], bool),
     ) -> Result<Option<Vec<u8>>, String> {
         let at = at.into();
-        self.glyphs(at.cell, at.band, style, want, clusters)
+        self.glyphs(at.cell, at.band, style, want, (clusters, parts))
     }
 
     /// How the glyph that source `source` gives for `c` uses a row made
@@ -1358,13 +1362,16 @@ impl Engine {
     /// order, from the first source that gives it a color glyph, and only
     /// when none does from the first that gives it any (ADR-1200 D21). A source that
     /// fails as it draws is left out, and the next one gives its glyphs.
+    /// Where `parts_asked`, as for an [`ASK_PARTS`], the set also holds the
+    /// part of a cluster asked for that a source draws only without some of
+    /// its marks, under the part's own key (ADR-1200 D22 step 3).
     fn glyphs(
         &self,
         cell: Cell,
         band: Band,
         style: Style,
         want: &[u32],
-        clusters: &[Vec<u32>],
+        (clusters, parts_asked): (&[Vec<u32>], bool),
     ) -> Result<Option<Vec<u8>>, String> {
         // the glyphs are drawn in the text band, and the strike's baseline
         // and lines move down by the rows added above it
@@ -1592,7 +1599,8 @@ impl Engine {
                         // step 3); a part goes once, and never under the
                         // key of a cluster asked for
                         let asked = unshaped.iter().find(|k| **k == key.as_slice()).copied();
-                        let part = asked.is_none()
+                        let part = parts_asked
+                            && asked.is_none()
                             && !parts.contains(key)
                             && !clusters.contains(key)
                             && unshaped.iter().any(|k| crate::shaping::is_part(key, k));
@@ -1666,7 +1674,7 @@ impl Bits {
 fn send_glyphs(
     engine: &Engine,
     (cell, band, style): (Cell, Band, Style),
-    (want, clusters): (&[u32], &[Vec<u32>]),
+    (want, clusters, parts): (&[u32], &[Vec<u32>], bool),
     kind: u32,
     out: &mut dyn Write,
     max: usize,
@@ -1688,7 +1696,7 @@ fn send_glyphs(
             continue;
         }
         let many = want.len().saturating_add(clusters.len()) > 1;
-        match engine.glyphs(cell, band, style, want, clusters) {
+        match engine.glyphs(cell, band, style, want, (clusters, parts)) {
             Ok(None) => {}
             // the codepoints apart from the clusters, then each halved
             Ok(Some(set)) if set.len() > max && many => {
@@ -1928,7 +1936,7 @@ impl Work<'_> {
         let same =
             |f: &Fill| f.frit == request.frit && f.cell == request.cell && f.band == request.band;
         match request.kind {
-            ASK => self.asks.push_back(request),
+            ASK | ASK_PARTS => self.asks.push_back(request),
             FILL => {
                 self.fills.retain(|f| !same(f));
                 let fill = match self.engine(&request.frit) {
@@ -1995,7 +2003,7 @@ impl Work<'_> {
                     if let Err(why) = send_glyphs(
                         engine,
                         (cell, request.band, request.style),
-                        (w, k),
+                        (w, k, request.kind == ASK_PARTS),
                         FRAME_GLYPHS,
                         out,
                         FRAME_SET,
@@ -2027,7 +2035,7 @@ impl Work<'_> {
             Ok(engine) => send_glyphs(
                 engine,
                 (fill.cell, fill.band, REGULAR),
-                (&batch, &[]),
+                (&batch, &[], false),
                 FRAME_FILL,
                 out,
                 FRAME_SET,
@@ -2865,14 +2873,14 @@ mod tests {
         };
         let (want, clusters) = (vec![0xe9], vec![vec![0x65, 0x301]]);
         let whole = engine
-            .glyphs(cell, Band::NONE, REGULAR, &want, &clusters)
+            .glyphs(cell, Band::NONE, REGULAR, &want, (&clusters, false))
             .unwrap()
             .unwrap();
         let mut out = Vec::new();
         let sent = send_glyphs(
             &engine,
             (cell, Band::NONE, REGULAR),
-            (&want, &clusters),
+            (&want, &clusters, false),
             FRAME_GLYPHS,
             &mut out,
             whole.len() - 1,
@@ -2969,7 +2977,7 @@ mod tests {
         let sent = send_glyphs(
             &engine,
             (huge, Band::NONE, REGULAR),
-            (&[u32::from('A'), u32::from('B')], &[]),
+            (&[u32::from('A'), u32::from('B')], &[], false),
             FRAME_GLYPHS,
             &mut out,
             66 * 528 + 4096,

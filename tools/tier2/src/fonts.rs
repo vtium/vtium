@@ -481,7 +481,7 @@ pub fn chosen_frit(
             .iter()
             .map(|t| t.iter().map(|&c| u32::from(c)).collect())
             .collect();
-        let Some(bytes) = engine.draw_style(at, one.style, &want, &clusters)? else {
+        let Some(bytes) = engine.draw_style(at, one.style, &want, (&clusters, true))? else {
             continue;
         };
         let len = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
