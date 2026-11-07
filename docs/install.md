@@ -18,7 +18,7 @@ The AUR (the Arch User Repository) carries vtium's packages for Arch. Each packa
 | `vtium-minspec-gpu-git` | the same console | the tip of `main` | no: build it from the `vtium-git` recipe |
 | `vtium-terminfo` | `xterm-vtium`, the terminfo entry that sessions in vtium name in `TERM` | the same release tag | yes |
 | `vtium-terminfo-git` | the same entry | the tip of `main` | yes |
-| `vtium-fonts` | no font of its own: it depends on the distribution's packages of the fonts the frits name | the recipe repository alone | from the next publish |
+| `vtium-fonts` | a curated set of fonts chosen to go with vtium's frits, through the distribution's own font packages | the recipe repository alone | from the next publish |
 
 Each console package depends on a terminfo package: a console built from the release tag on `vtium-terminfo`, and one built from `main` on `vtium-terminfo-git`. Today the AUR builds `vtium-terminfo` from the `vtium` recipe and `vtium-terminfo-git` from the `vtium-git` recipe. From the next publish, each terminfo package has a recipe of its own on the AUR.
 
@@ -77,7 +77,7 @@ The repository `vtium/vtium-arch` also keeps four minspec recipes, `vtium-minspe
 
 ### What the next publish adds
 
-`vtium-fonts` reaches the AUR with the next publish. It depends on every font the shipped frits name: on Arch `ttf-jetbrains-mono`, `ttf-nerd-fonts-symbols-mono`, `noto-fonts-emoji` and `terminus-font`.
+`vtium-fonts` reaches the AUR with the next publish. It is a curated set of fonts chosen to go with the frits (font set files) that vtium ships, and it grows as new frits are added. It installs no font file itself. Instead it depends on the distribution's packages for each font the frits name: on Arch `ttf-jetbrains-mono`, `ttf-nerd-fonts-symbols-mono`, `noto-fonts-emoji` and `terminus-font`. The console packages list it as an optional dependency, so you install it only if you want those fonts.
 
 The `vtium` and `vtium-git` recipes in `vtium/vtium-arch` also ship a fourth frit, `terminus`, for the Terminus console font, which the packages the AUR carries today do not have yet.
 
