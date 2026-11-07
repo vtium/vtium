@@ -1,0 +1,3 @@
+# spec: ADR-1000 osc.133
+# capability: osc-133-marks
+placeholder the replay interface has no command or line that shows OSC 133's prompt marks, so vtium-replay cannot show the marks vtium keeps (#40)

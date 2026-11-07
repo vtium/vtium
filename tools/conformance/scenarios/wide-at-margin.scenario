@@ -1,0 +1,8 @@
+# a wide character that does not fit before the margin wraps whole
+# spec: ADR-1000 text.vs-width
+# capability: wide-at-margin
+size 5 4
+send "abcd\xe4\xb8\xad"
+check
+want row 0 |abcd|
+want row 1 |中|

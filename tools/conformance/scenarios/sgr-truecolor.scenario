@@ -1,0 +1,6 @@
+# spec: ADR-1000 sgr.extended-color
+# capability: sgr-truecolor
+size 80 4
+send "\e[38;2;1;2;3;48;2;4;5;6mA"
+check
+want attr 0 0-0 fg=#010203 bg=#040506

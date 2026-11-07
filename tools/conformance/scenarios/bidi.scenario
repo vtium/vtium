@@ -1,0 +1,11 @@
+# A mixed line in the default mode, implicit and left to right, read back
+# through the display view (ADR-1004 D14): the Hebrew word reversed in
+# place, the bracketed digit beside it and its brackets mirrored
+# spec: ADR-1000 text.bidi
+# capability: bidi
+size 20 1
+view display
+send "abc \u{5E9}\u{5DC}\u{5D5}\u{5DD} (1) def"
+check
+want row 0 |abc (1) םולש def|
+want display-cursor 16,0 left

@@ -1,0 +1,6 @@
+# spec: ADR-1000 sgr.italic
+# capability: sgr-italic
+size 80 4
+send "\e[3mA\e[23mB"
+check
+want attr 0 0-0 italic

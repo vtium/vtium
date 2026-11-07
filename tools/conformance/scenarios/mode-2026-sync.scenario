@@ -1,0 +1,22 @@
+# synchronized output, offered as kmscon offers it at sync-timeout above 0:
+# DECRQM replies 2, then 1 in a hold, and the end of a hold is counted. The
+# bounded call's stop at that end is libtsm's test_vte_modes.c.
+# spec: ADR-1000 DEC-2026
+# capability: mode-2026-sync
+size 80 4
+cmd sync;on=1
+send "\e[?2026$p"
+cmd sync-frames
+check
+reply "\e[?2026;2$y"
+want test sync-frames 0
+send "\e[?2026hab\e[?2026lcd"
+cmd sync-frames
+check
+want test sync-frames 1
+send "\e[?2026h\e[?2026$p"
+check
+reply "\e[?2026;1$y"
+send "\e[?2026l\e[?2026$p"
+check
+reply "\e[?2026;2$y"

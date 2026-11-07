@@ -1,0 +1,11 @@
+# OSC 52 copy: the host takes what a program set, once (#110; the
+# interface's clipboard command, INTERFACE-vtium.md)
+# spec: ADR-1000 osc.52.write
+# capability: osc-52-clipboard
+size 8 1
+send "\e]52;c;aGVsbG8=\e\\"
+clipboard
+clipboard
+check
+want test clipboard 68656c6c6f
+want test clipboard none

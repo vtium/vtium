@@ -1,0 +1,9 @@
+# spec: ADR-1000 color.dynamic.query
+# capability: osc-10-11-query
+size 80 4
+send "\e]10;?\e\\"
+check
+reply-re "\e]10;rgb:.*\e\\\\"
+send "\e]11;?\x07"
+check
+reply-re "\e]11;rgb:.*\x07"

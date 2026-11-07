@@ -1,0 +1,18 @@
+# erased cells take the pen's background only, for EL, SU, SD and RI; Y,
+# written before RI, shows that RI scrolled
+# spec: ADR-1000 ctl.bce
+# capability: erase-colours-only
+size 80 4
+send "\e[1;4;9;44mX\e[K"
+check
+want attr 0 1-79 bg=4
+send "\e[S"
+check
+want attr 3 0-79 bg=4
+send "\e[T"
+check
+want attr 0 0-79 bg=4
+send "\e[H\e[0mY\e[1;4;9;44m\eM"
+check
+want row 1 |Y|
+want attr 0 0-79 bg=4

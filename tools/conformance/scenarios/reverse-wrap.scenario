@@ -1,0 +1,18 @@
+# mode 45, reverse wraparound: reset, BS stops at the first column; set,
+# BS goes on to the last column of the row that wrapped into this one,
+# and not into a row that did not
+# spec: ADR-1000 DEC-45
+# capability: reverse-wrap
+size 4 3
+send "abcdefg\r\x08"
+check
+want cursor 0,1
+send "\e[?45h\x08"
+check
+want cursor 3,0
+send "\e[?45$p"
+check
+reply "\e[?45;1$y"
+send "\e[3;1Hx\r\x08"
+check
+want cursor 0,2

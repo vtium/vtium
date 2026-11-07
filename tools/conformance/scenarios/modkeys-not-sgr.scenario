@@ -1,0 +1,8 @@
+# XTMODKEYS and XTQMODKEYS are not SGR 4
+# spec: ADR-1000 input.modify-other-keys
+# capability: modkeys-not-sgr
+size 80 4
+send "\e[>4;1mA\e[?4mB"
+check
+want row 0 |AB|
+reject-re attr 0 .*

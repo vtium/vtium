@@ -1,0 +1,9 @@
+# SGR-Pixels: pixels 20,30 counted from 1, as xterm counts them
+# spec: ADR-1000 DEC-1016
+# capability: mouse-1016
+size 80 4
+send "\e[?1000h\e[?1016h"
+check
+mouse press left at 2,3 px=20,30
+check
+reply "\e[<0;21;31M"

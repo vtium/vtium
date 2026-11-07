@@ -426,3 +426,19 @@ fn convert_each_probe_to_a_capability_scenario_that_replays_its_input() {
         }
     );
 }
+
+#[test]
+fn each_capability_scenario_on_file_replays_its_probes_bytes_and_cuts() {
+    let conversion = conversion();
+    for (probe, c) in &conversion {
+        let file = format!("scenarios/{}.scenario", c.name);
+        let text = read_file(&file);
+        let s = scenario::parse(&c.name, &file, &text).unwrap_or_else(|e| panic!("{e}"));
+        proof(probe, &s).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(text, c.text, "{file} differs from what the converter writes");
+    }
+    println!(
+        "{} capability scenarios on file, each replaying its probe's bytes and cuts",
+        conversion.len()
+    );
+}

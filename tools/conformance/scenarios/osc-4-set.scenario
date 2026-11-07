@@ -1,0 +1,8 @@
+# spec: ADR-1000 color.palette.set
+# capability: osc-4-set
+size 80 4
+send "\e]4;1;rgb:12/34/56\e\\"
+check
+send "\e]4;1;?\e\\"
+check
+reply "\e]4;1;rgb:1212/3434/5656\e\\"

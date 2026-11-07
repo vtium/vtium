@@ -1,0 +1,9 @@
+# REP repeats the last printed character, a wide one whole
+# spec: ADR-1000 text.rep
+# capability: rep
+size 80 4
+send "ab\e[3b\r\n\xe4\xb8\xad\e[2b"
+check
+want row 0 |abbbb|
+want row 1 |中中中|
+want cursor 6,1
