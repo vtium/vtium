@@ -222,7 +222,7 @@ pub fn saved(files: usize) -> String {
 }
 
 /// The keys, on the last line of each view.
-pub const KEYS_FLOW: &str = "Tab ←→ columns  ↑↓ move  Enter open  Space tag  c connect  f follow  d devices  ? route  v view  i install  r revert  o restore  n new  x delete  q quit";
+pub const KEYS_FLOW: &str = "←→ columns  ↑↓ move  Tab next view  Enter open  Space tag  c connect  f follow  d devices  ? route  v view  i install  r revert  o restore  n new  x delete  q quit";
 pub const KEYS_ROUTE: &str = "↑↓ route  Enter open item  q back";
 pub const KEYS_LOOKS: &str = "Enter choose  Tab next view  i install  q quit without installing";
 pub const KEYS_FONTS: &str =
@@ -658,6 +658,7 @@ pub const HELP_VIEWS: [(&str, &str, &str); 5] = [
         KEYS_HELP,
     ),
 ];
+pub const HELP_TABS: &str = "Tab moves to the next view, and Shift-Tab moves to the one before, wherever the selection is. The arrow keys move inside a view. While a card, a list, the draft's text, the form for a new font set, or a value you are typing is open, Tab does nothing until you close it with Esc. While a question waits for your answer, Tab answers no.";
 pub const HELP_ROUTE: &str = "The route card: in the Flow view, press ? to see what the selected item does and every route through it, from a display to an input device.";
 pub const HELP_COMMANDS: &str = "Commands, which work in a terminal of any size:";
 
@@ -839,6 +840,7 @@ pub fn came_went(came: &[String], went: &[String]) -> String {
 pub const KEYS_CARD: &str = "↑↓ field  ←→ pick  Enter choose  t try live  Esc close  q quit";
 pub const KEYS_TYPING: &str = "type the value  Enter keep  Esc cancel";
 pub const KEYS_CONFIRM: &str = "y yes  any other key no";
+pub const KEYS_LEAVE: &str = "i install  l quit anyway  any other key back";
 pub const KEYS_PAGER: &str =
     "j k ↑↓ lines  h l ←→ sideways  g G top bottom  ^D ^U half page  q back";
 pub const KEYS_RESTORE: &str = "↑↓ choose  Enter restore  q back";

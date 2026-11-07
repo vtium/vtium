@@ -1258,6 +1258,146 @@ fn each_view_at_80x25_and_100x30() {
     }
 }
 
+// Tab and Shift-Tab step the views wherever the selection is, and the
+// arrows move inside a view (#355). Each script goes through the TUI's
+// loop, and the key line, the screen's last row, says where it ended.
+
+const RIGHT: &[u8] = b"\x1b[C";
+const LEFT: &[u8] = b"\x1b[D";
+const TAB: &[u8] = b"\t";
+
+/// The key line the script `keys` leaves at 80x25, from `view`.
+fn key_line(view: model::View, keys: &[&[u8]]) -> String {
+    let (screen, _) = reach_from(view, 80, 25, keys);
+    screen.lines().last().unwrap_or_default().trim().to_owned()
+}
+
+/// Whether `line` is the Flow view's key line, which shows the keys that
+/// fit and starts with the first.
+fn is_flow_keys(line: &str) -> bool {
+    let first = words::KEYS_FLOW.split("  ").next().unwrap_or_default();
+    line.starts_with(first) && line.ends_with("q quit")
+}
+
+use vtium_config::tui::words;
+
+#[test]
+fn tab_and_shift_tab_step_the_views_from_every_column_of_the_flow_through_the_loop() {
+    for column in 0..6 {
+        let mut keys: Vec<&[u8]> = vec![RIGHT; column];
+        keys.push(TAB);
+        let line = key_line(model::View::Flow, &keys);
+        assert_eq!(line, words::KEYS_LOOKS, "Tab from column {column}");
+        keys.pop();
+        keys.push(BACKTAB);
+        let line = key_line(model::View::Flow, &keys);
+        assert_eq!(line, words::KEYS_HELP, "Shift-Tab from column {column}");
+    }
+}
+
+#[test]
+fn tab_and_shift_tab_step_every_other_view_and_the_arrows_stay_in_it() {
+    use model::View::{Flow, Fonts, Help, Looks, Settings};
+    let own = |view| match view {
+        Looks => words::KEYS_LOOKS,
+        Fonts => words::KEYS_FONTS,
+        Settings => words::KEYS_SETTINGS,
+        _ => words::KEYS_HELP,
+    };
+    let shown = |line: &str, view| match view {
+        Flow => is_flow_keys(line),
+        _ => line == own(view),
+    };
+    for (view, next, before) in [
+        (Looks, Fonts, Flow),
+        (Fonts, Settings, Looks),
+        (Settings, Help, Fonts),
+        (Help, Flow, Settings),
+    ] {
+        let line = key_line(view, &[TAB]);
+        assert!(shown(&line, next), "Tab from {view:?}: {line}");
+        let line = key_line(view, &[BACKTAB]);
+        assert!(shown(&line, before), "Shift-Tab from {view:?}: {line}");
+        let arrows = [LEFT, LEFT, RIGHT, RIGHT, RIGHT, UP, DOWN, DOWN];
+        let line = key_line(view, &arrows);
+        assert_eq!(line, own(view), "the arrows on {view:?}");
+    }
+}
+
+#[test]
+fn tab_answers_a_question_no_on_any_view_and_stays() {
+    // a size kept on Looks, then i asks to install it
+    let ask: [&[u8]; 4] = [BACKTAB, DOWN, b"\r", b"i"];
+    let mut c = console().keys(&ask);
+    let mut d = desk();
+    run_desk(&mut c, &mut d);
+    let screen = c.seen.clone().expect("the screen");
+    assert!(screen.contains("Install the draft?"), "{screen}");
+    let line = screen.lines().last().unwrap_or_default().trim();
+    assert_eq!(line, words::KEYS_CONFIRM, "{screen}");
+    let mut c = console().keys(&[&ask[..], &[TAB]].concat());
+    let mut d = desk();
+    run_desk(&mut c, &mut d);
+    let screen = c.seen.clone().expect("the screen");
+    assert!(screen.contains(words::NOT_DONE), "{screen}");
+    let line = screen.lines().last().unwrap_or_default().trim();
+    assert_eq!(line, words::KEYS_LOOKS, "{screen}");
+    assert!(d.plans.is_empty());
+    // the question before leaving with a frit waiting: Tab goes back
+    let mut c = console().keys(&[UP, b"r", b"q"]);
+    let mut d = desk();
+    run_desk(&mut c, &mut d);
+    let screen = c.seen.clone().expect("the screen");
+    let line = screen.lines().last().unwrap_or_default().trim();
+    assert_eq!(line, words::KEYS_LEAVE, "{screen}");
+    let mut c = console().keys(&[UP, b"r", b"q", TAB]);
+    let mut d = desk();
+    run_desk(&mut c, &mut d);
+    let screen = c.seen.clone().expect("the screen");
+    assert!(screen.contains(words::NOT_LEFT), "{screen}");
+    let line = screen.lines().last().unwrap_or_default().trim();
+    assert_eq!(line, words::KEYS_FONTS, "{screen}");
+}
+
+#[test]
+fn tab_does_nothing_while_a_value_is_typed_in_settings() {
+    // Settings, Down to font-line-spacing, Enter starts typing its value;
+    // Tab and Shift-Tab between the two digits change nothing
+    let mut c = console().keys(&[
+        TAB, DOWN, DOWN, DOWN, DOWN, b"\r", b"1", TAB, BACKTAB, b"0", b"\r", b"q",
+    ]);
+    let mut d = desk();
+    assert_eq!(run_desk(&mut c, &mut d), 0);
+    assert!(d.draft.contains("\nfont-line-spacing=10\n"), "{}", d.draft);
+}
+
+#[test]
+fn tab_does_nothing_in_the_new_frit_view_and_esc_goes_back_to_fonts() {
+    for key in [TAB, BACKTAB] {
+        let (screen, _) = reach_from(model::View::Fonts, 80, 25, &[b"n", b"abc", key]);
+        let line = screen.lines().last().unwrap_or_default().trim();
+        assert_eq!(line, words::KEYS_NEW, "{key:?}: {screen}");
+        assert!(screen.contains("abc"), "{screen}");
+    }
+    let line = key_line(model::View::Fonts, &[b"n", b"abc", TAB, b"\x1b"]);
+    assert_eq!(line, words::KEYS_FONTS);
+}
+
+#[test]
+fn tab_on_the_route_card_and_during_the_live_trial_stays_on_the_view() {
+    for key in [TAB, BACKTAB] {
+        let line = key_line(model::View::Flow, &[b"?", key]);
+        assert_eq!(line, words::KEYS_ROUTE, "{key:?}");
+    }
+    // the live trial: Tab, as any key but k, puts the font back
+    let mut c = console().keys(&[DOWN, b"t", TAB]);
+    run(&mut c);
+    let screen = c.seen.clone().expect("the screen");
+    let line = screen.lines().last().unwrap_or_default().trim();
+    assert_eq!(line, words::KEYS_FONTS, "{screen}");
+    assert!(screen.contains(&words::trial_back("unifont")), "{screen}");
+}
+
 #[test]
 fn a_console_that_never_answers_the_give_back_is_left_after_the_wait() {
     use vtium_config::tui::input::{Input, Key, Reply};
@@ -2241,25 +2381,144 @@ mod flow_view {
         assert_eq!(a.flow_at, Item::Display(0));
     }
 
+    /// Types `bytes` into `app` through the TUI's own key decoder, as the
+    /// loop does, and returns what the app asked the loop to do.
+    fn type_in(app: &mut App, bytes: &[u8]) -> Vec<Effect> {
+        let mut decoder = vtium_config::tui::input::Decoder::keys();
+        decoder
+            .feed(bytes)
+            .into_iter()
+            .flat_map(|input| app.event(Event::Input(input)))
+            .collect()
+    }
+
+    const TAB: &[u8] = b"\t";
+    const RIGHT: &[u8] = b"\x1b[C";
+
+    // Tab and Shift-Tab step the views wherever the selection is, and the
+    // arrows move inside a view (#355)
     #[test]
-    fn tab_past_the_last_column_and_shift_tab_before_the_first_go_to_the_next_views() {
-        let mut a = app(80, 25);
-        for _ in 0..5 {
-            press(&mut a, Key::Tab);
+    fn tab_and_shift_tab_step_the_views_from_every_column_of_the_flow() {
+        for column in 0..6 {
+            for (key, next) in [(TAB, View::Looks), (BACKTAB, View::Help)] {
+                let mut a = app(80, 25);
+                for _ in 0..column {
+                    type_in(&mut a, RIGHT);
+                }
+                let at = a.flow_at;
+                assert_eq!(a.inputs.flow.column_of(at), column, "{at:?}");
+                let out = type_in(&mut a, key);
+                assert_eq!(a.view, next, "{key:?} from column {column}");
+                assert!(writes(&out, MOUSE_OFF), "{out:?}");
+                // and back: the flow keeps the item that was selected
+                let back = if key == TAB { BACKTAB } else { TAB };
+                let out = type_in(&mut a, back);
+                assert_eq!((a.view, a.flow_at), (View::Flow, at), "column {column}");
+                assert!(writes(&out, MOUSE_ON), "{out:?}");
+            }
         }
-        assert_eq!((a.view, a.flow_at), (View::Flow, Item::Input(0)));
-        let out = press(&mut a, Key::Tab);
-        assert_eq!(a.view, View::Looks);
-        assert!(writes(&out, MOUSE_OFF), "{out:?}");
-        // and back: Shift-Tab from Looks enters the flow at its last column
-        let out = press(&mut a, Key::BackTab);
-        assert_eq!((a.view, a.flow_at), (View::Flow, Item::Input(0)));
-        assert!(writes(&out, MOUSE_ON), "{out:?}");
+    }
+
+    #[test]
+    fn the_arrows_and_the_keys_that_move_in_a_column_never_leave_the_flow() {
         let mut a = app(80, 25);
-        press(&mut a, Key::BackTab);
-        assert_eq!(a.view, View::Help);
-        press(&mut a, Key::Tab);
-        assert_eq!((a.view, a.flow_at), (View::Flow, Item::Display(0)));
+        let keys: [&[u8]; 8] = [
+            b"\x1b[D", b"\x1b[C", b"\x1b[A", b"\x1b[B", b"\x1b[5~", b"\x1b[6~", b"\x1b[H",
+            b"\x1b[F",
+        ];
+        for key in keys {
+            for _ in 0..8 {
+                type_in(&mut a, key);
+                assert_eq!(a.view, View::Flow, "{key:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn tab_closes_a_card_with_nothing_to_change_as_it_steps_the_view() {
+        // without a draft a card only shows its item, and the flow's keys
+        // pass through it
+        let mut a = app(80, 25);
+        type_in(&mut a, b"\r");
+        assert!(a.opened && a.fields().is_empty());
+        type_in(&mut a, TAB);
+        assert_eq!((a.view, a.opened), (View::Looks, false));
+        type_in(&mut a, BACKTAB);
+        assert_eq!((a.view, a.opened), (View::Flow, false));
+    }
+
+    /// The flow with a draft, so a card offers fields to change.
+    fn drafted(cols: usize, rows: usize) -> App {
+        let mut a = app(cols, rows);
+        a.draft = Some(vtium_config::tui::desk::Opened {
+            name: "mine".into(),
+            text: inputs().conf.expect("the fixture's vtium.conf"),
+            ..Default::default()
+        });
+        a
+    }
+
+    #[test]
+    fn tab_and_shift_tab_leave_nothing_open_behind() {
+        // a card with fields, its field being typed, and the pager: Tab
+        // and Shift-Tab do nothing while each is open
+        let mut a = drafted(80, 25);
+        a.flow_at = Item::Rule(4);
+        type_in(&mut a, b"\r");
+        assert!(a.opened && !a.fields().is_empty());
+        let card = a.card.clone();
+        for key in [TAB, BACKTAB] {
+            type_in(&mut a, key);
+            assert_eq!((a.view, a.opened, &a.card), (View::Flow, true, &card));
+        }
+        // Down to the selector, past its values to type…
+        type_in(&mut a, b"\x1b[B");
+        for _ in 0..20 {
+            type_in(&mut a, RIGHT);
+        }
+        type_in(&mut a, b"\r");
+        assert!(a.card.typed.is_some(), "{:?}", a.card);
+        type_in(&mut a, b"ab");
+        let typed = a.card.typed.clone();
+        for key in [TAB, BACKTAB] {
+            type_in(&mut a, key);
+            assert_eq!((a.view, &a.card.typed), (View::Flow, &typed));
+        }
+        let mut a = drafted(80, 25);
+        type_in(&mut a, b"v");
+        assert!(a.pager.is_some());
+        for key in [TAB, BACKTAB] {
+            type_in(&mut a, key);
+            assert_eq!((a.view, a.pager.is_some()), (View::Flow, true));
+        }
+        // the route card
+        let mut a = app(80, 25);
+        type_in(&mut a, b"?");
+        let route = a.route;
+        assert!(route.is_some());
+        for key in [TAB, BACKTAB] {
+            type_in(&mut a, key);
+            assert_eq!((a.view, a.route), (View::Flow, route));
+        }
+    }
+
+    #[test]
+    fn a_click_on_a_view_s_name_leaves_nothing_open_behind() {
+        let mut a = drafted(80, 25);
+        let looks = cell(&a, "Looks");
+        type_in(&mut a, b"v");
+        click(&mut a, looks);
+        assert_eq!((a.view, a.pager.is_some()), (View::Flow, true));
+        let mut a = drafted(80, 25);
+        a.flow_at = Item::Rule(4);
+        type_in(&mut a, b"\r");
+        click(&mut a, looks);
+        assert_eq!((a.view, a.opened), (View::Flow, true));
+        // a card with nothing to change closes as the click switches
+        let mut a = app(80, 25);
+        type_in(&mut a, b"\r");
+        click(&mut a, looks);
+        assert_eq!((a.view, a.opened), (View::Looks, false));
     }
 
     #[test]
@@ -3230,6 +3489,32 @@ mod draft_flow {
         );
         run(&b, &[b"o", b"\r", b"y"]);
         assert_eq!(b.draft(), INSTALLED);
+    }
+
+    /// Restore's list and a question stay open on Tab and Shift-Tab: the
+    /// list does nothing with them, and the question takes them as no.
+    #[test]
+    fn tab_leaves_neither_restore_s_list_nor_a_question_open_behind() {
+        let b = bench("tab-restore");
+        run(&b, &[b"\r", RIGHT, b"\r", ESC, b"i", b"y"]);
+        for key in [TAB, BACKTAB] {
+            let ran = run(&b, &[b"o", key]);
+            let line = ran.screen().lines().last().unwrap_or_default().trim();
+            assert_eq!(line, words::KEYS_RESTORE, "{key:?}: {}", ran.screen());
+        }
+        let ran = run(&b, &[b"o", TAB, BACKTAB, b"\r"]);
+        assert!(
+            ran.said()
+                .contains("Replace the draft with earlier file 1?"),
+            "{}",
+            ran.screen()
+        );
+        // revert asks, and Tab answers no on the flow
+        let ran = run(&b, &[b"\r", RIGHT, b"\r", ESC, b"r", TAB]);
+        assert!(ran.said().contains(words::NOT_DONE), "{}", ran.screen());
+        assert!(ran.status().contains("1 change"), "{}", ran.status());
+        let line = ran.screen().lines().last().unwrap_or_default().trim();
+        assert!(line.ends_with("q quit"), "{}", ran.screen());
     }
 
     #[test]

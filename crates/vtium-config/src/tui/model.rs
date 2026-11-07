@@ -578,14 +578,19 @@ impl App {
     }
 
     /// Goes to `view`, turning the mouse on or off for it, and asks for
-    /// what the view shows: a specimen, a font switch.
+    /// what the view shows: a specimen, a font switch. A card that is open
+    /// in the Flow view closes as the view changes.
     fn set_view(&mut self, view: View) -> Vec<Effect> {
         self.view = view;
         self.editing = None;
+        if view != View::Flow {
+            self.opened = false;
+        }
         self.mouse_for_view()
     }
 
-    /// Tab's step to the next view, or Shift-Tab's to the one before.
+    /// Tab's step to the next view, or Shift-Tab's to the one before. The
+    /// Flow view keeps the item it had selected.
     fn step_view(&mut self, forward: bool) -> Vec<Effect> {
         let tab = self.view.tab();
         let at = View::TABS.iter().position(|v| *v == tab).unwrap_or(0);
@@ -596,10 +601,31 @@ impl App {
             at.saturating_add(n).saturating_sub(1) % n
         };
         let view = View::TABS.get(next).copied().unwrap_or(View::Flow);
-        if view == View::Flow {
-            self.flow_at = self.entry(forward);
-        }
         self.set_view(view)
+    }
+
+    /// Whether something is open in the view that a change of view would
+    /// leave behind (#355): a question, and in the Flow view the route
+    /// card, the pager, Restore's list or a card with fields to change; in
+    /// the Settings view a value being typed; and the new-frit view, a
+    /// form of the Fonts view's. While one is, Tab, Shift-Tab and a click
+    /// on a view's name do not change the view. Esc closes each, and a
+    /// question takes any key but its yes as no.
+    fn holds_view(&self) -> bool {
+        if self.confirm.is_some() {
+            return true;
+        }
+        match self.view {
+            View::Flow => {
+                self.route.is_some()
+                    || self.pager.is_some()
+                    || self.restore.is_some()
+                    || (self.opened && !self.fields().is_empty())
+            }
+            View::Settings => self.editing.is_some(),
+            View::New => true,
+            View::Looks | View::Fonts | View::Help => false,
+        }
     }
 
     /// The highlighted font.
@@ -908,15 +934,16 @@ impl App {
         match key {
             Key::Interrupt => return self.quit(130),
             Key::Char('q') if !modal => return self.quit(0),
+            // Tab and Shift-Tab step the views wherever the selection is,
+            // and the arrows move inside a view (#355)
+            Key::Tab | Key::BackTab if self.holds_view() => return Vec::new(),
+            Key::Tab | Key::BackTab => return self.step_view(key == Key::Tab),
             _ => {}
         }
         if self.view == View::Flow {
             return self.flow_key(key);
         }
         match key {
-            Key::Tab | Key::BackTab => {
-                return self.step_view(key == Key::Tab);
-            }
             Key::Char('i') if !self.typing() => return self.action('i'),
             Key::Char('o') if self.live == Live::OpsOff => {
                 return self.top("allow-font-ops", Some("on"));
@@ -979,21 +1006,6 @@ impl App {
         }
     }
 
-    /// The item the Flow view selects when Tab enters it: the first item
-    /// of the first column going forward, of the last going back, past the
-    /// base card.
-    fn entry(&self, forward: bool) -> Item {
-        let columns = self.inputs.flow.columns();
-        let mut order: Vec<&Vec<Item>> = columns.iter().collect();
-        if !forward {
-            order.reverse();
-        }
-        order
-            .into_iter()
-            .find_map(|c| c.iter().copied().find(|i| *i != Item::Base))
-            .unwrap_or(Item::Base)
-    }
-
     /// A key in the Flow view (ADR-1403 D7).
     fn flow_key(&mut self, key: Key) -> Vec<Effect> {
         if let Some(line) = self.route {
@@ -1010,7 +1022,6 @@ impl App {
             return self.restore_key(key);
         }
         if self.opened
-            && !matches!(key, Key::Tab | Key::BackTab)
             && let Some(out) = self.card_key(key)
         {
             return out;
@@ -1019,16 +1030,11 @@ impl App {
         let flow = &self.inputs.flow;
         let column = flow.column_of(self.flow_at);
         match key {
-            Key::Tab | Key::Right => match self.next_column(column, true) {
-                Some(item) => self.select(item),
-                None if key == Key::Tab => return self.step_view(true),
-                None => {}
-            },
-            Key::BackTab | Key::Left => match self.next_column(column, false) {
-                Some(item) => self.select(item),
-                None if key == Key::BackTab => return self.step_view(false),
-                None => {}
-            },
+            Key::Right | Key::Left => {
+                if let Some(item) = self.next_column(column, key == Key::Right) {
+                    self.select(item);
+                }
+            }
             Key::Up | Key::Down | Key::PageUp | Key::PageDown | Key::Home | Key::End => {
                 let items = flow.columns().get(column).cloned().unwrap_or_default();
                 let at = items.iter().position(|i| *i == self.flow_at).unwrap_or(0);
@@ -1072,7 +1078,7 @@ impl App {
         self.flow_at = item;
     }
 
-    /// The item Tab or the arrows land on in the next column with items,
+    /// The item the arrows land on in the next column with items,
     /// right or left: the one nearest the selected item's row; `None` past
     /// the last or before the first.
     fn next_column(&self, column: usize, right: bool) -> Option<Item> {
@@ -1171,7 +1177,8 @@ impl App {
     }
 
     /// A mouse event, which only the Flow view asks for: a click on a
-    /// view's name switches to it; a click on an item selects it, and a
+    /// view's name switches to it, as Tab does, while nothing is open that
+    /// the switch would leave behind; a click on an item selects it, and a
     /// second click on the selected item opens it; the wheel moves as Up
     /// and Down do.
     fn click(&mut self, mouse: Mouse) -> Vec<Effect> {
@@ -1195,7 +1202,7 @@ impl App {
             return Vec::new();
         }
         if let Some(view) = super::view::tab_at(self, mouse.col, mouse.row) {
-            if view == View::Flow {
+            if view == View::Flow || self.holds_view() {
                 return Vec::new();
             }
             return self.set_view(view);

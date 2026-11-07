@@ -1,25 +1,25 @@
  Flow  Looks  Fonts  Settings  Help       View Install Revert Restore New Delete
  draft workstation · 1 change · no problems          text preview · t: try live
 --------------------------------------------------------------------------------
+ Tab moves to the next view, and Shift-Tab moves to the one before, wherever
+ the selection is. The arrow keys move inside a view. While a card, a list, the
+ draft's text, the form for a new font set, or a value you are typing is open,
+ Tab does nothing until you close it with Esc. While a question waits for your
+ answer, Tab answers no.
+
  Flow shows how the console is set up, from the displays to the input devices:
  each display, the rule that sends it to a head (a screen with its own
  consoles), the head and its look (its font and size), and each input device
  with the rule that sends its typing to a head.
-     Tab ←→ columns  ↑↓ move  Enter open  Space tag  c connect  f follow  d
-     devices  ? route  v view  i install  r revert  o restore  n new  x delete
-     q quit
+     ←→ columns  ↑↓ move  Tab next view  Enter open  Space tag  c connect  f
+     follow  d devices  ? route  v view  i install  r revert  o restore  n new
+     x delete  q quit
 
  Looks lists the console's font sizes, automatic first, with a preview of each.
  Later it will manage the looks, each a font set and a size.
      Enter choose  Tab next view  i install  q quit without installing
 
  Fonts lists the font sets (frits) and the built-in fonts, with any font files
- each is missing. It shows each as an image of the console, or with s as a
- preview of every character it can display. On a vtium console, t tries a font
- live. Press n to make a new font set.
-     Enter choose  t try live  s preview  n new  r remove  i install  q quit
-
- Settings lists every setting at the top of vtium.conf, with its value and what
 
 --------------------------------------------------------------------------------
  ←→ Help, About  ↑↓ scroll  Tab next view  q quit

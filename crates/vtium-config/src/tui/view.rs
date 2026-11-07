@@ -14,7 +14,7 @@
 use super::canvas::{Canvas, Row, Span, span, wrap};
 use super::color::{Style, palette};
 use super::flow::Item;
-use super::model::{App, DpiFrom, FontState, Live, NEW_FIELDS, SIZES, View, setting_keys};
+use super::model::{App, DpiFrom, FontState, Live, NEW_FIELDS, SIZES, Then, View, setting_keys};
 use super::words;
 use crate::specimen::Sources;
 
@@ -329,6 +329,8 @@ pub fn help_rows(app: &App) -> Vec<Row> {
         }
         return rows;
     }
+    rows.extend(prose(words::HELP_TABS, cols));
+    rows.push(plain(""));
     for (name, does, keys) in words::HELP_VIEWS {
         let mut first = true;
         for line in wrap(
@@ -597,12 +599,11 @@ fn status(canvas: &mut Canvas, app: &App) {
 /// The most rows the message line wraps to.
 const MESSAGE_ROWS: usize = 3;
 
-/// The view's keys in rows of at most the screen's width less its margin,
-/// each key and what it does kept whole on one row.
-fn key_rows(app: &App) -> Vec<String> {
-    let keys = match app.view {
+/// The keys of the view as it is, with no question asked: those of what
+/// is open in it, else its own.
+fn view_keys(app: &App) -> &'static str {
+    match app.view {
         View::Flow if app.route.is_some() => words::KEYS_ROUTE,
-        View::Flow if app.confirm.is_some() => words::KEYS_CONFIRM,
         View::Flow if app.pager.is_some() => words::KEYS_PAGER,
         View::Flow if app.restore.is_some() => words::KEYS_RESTORE,
         View::Flow if app.opened && app.card.typed.is_some() => words::KEYS_TYPING,
@@ -614,6 +615,17 @@ fn key_rows(app: &App) -> Vec<String> {
         View::Settings => words::KEYS_SETTINGS,
         View::Help => words::KEYS_HELP,
         View::New => words::KEYS_NEW,
+    }
+}
+
+/// The view's keys in rows of at most the screen's width less its margin,
+/// each key and what it does kept whole on one row.
+fn key_rows(app: &App) -> Vec<String> {
+    // a question's keys on every view, since it takes the next key
+    let keys = match &app.confirm {
+        Some(c) if matches!(c.then, Then::Leave(_)) => words::KEYS_LEAVE,
+        Some(_) => words::KEYS_CONFIRM,
+        None => view_keys(app),
     };
     let width = app.cols.saturating_sub(2).max(1);
     // the Flow view's key line shows the keys that fit on one row, and
