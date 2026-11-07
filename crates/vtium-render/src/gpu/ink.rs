@@ -30,6 +30,7 @@
 
 use vtium_term::Rgb;
 
+use super::box_lines::BoxLines;
 use super::gl::{Error, ErrorKind, Format, Gl, Size, Texture};
 use crate::reach::{Bound, Reach};
 use crate::target::Rect;
@@ -54,91 +55,28 @@ fn words(cell: Size) -> usize {
         .div_ceil(BITS)
 }
 
-/// Where a glyph's box holds ink, by the cells of its slot (ADR-1306 D3):
-/// for each cell of the slot, which of its rows of pixels and which of its
-/// columns hold any coverage. A cell's line bits follow from it, so they
-/// are worked out once, when the glyph takes its box.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub(crate) struct BoxLines {
-    /// The slot's cells across.
-    across: usize,
-    /// The cell's width and height.
-    cell: (usize, usize),
-    /// For each cell of the slot, a row at a time, whether each of its
-    /// rows of pixels holds ink.
-    rows: Vec<bool>,
-    /// For each cell of the slot, whether each of its columns holds ink.
-    columns: Vec<bool>,
+/// A job of the frame that receives ink from its neighbours' glyphs: the
+/// column and row of its first cell, how many cells it spans, and whether
+/// its display lines run down the upright frame's columns, on a display
+/// turned a quarter, rather than across its rows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ReceivingJob {
+    pub(crate) col: usize,
+    pub(crate) row: usize,
+    pub(crate) cells: usize,
+    pub(crate) down: bool,
 }
 
-impl BoxLines {
-    /// The lines of the box whose coverage is `pixels`, `slot` in size, a
-    /// line after the other, in cells of `cell`.
-    pub(crate) fn new(pixels: &[u8], slot: Size, cell: Size) -> BoxLines {
-        let n = |v: u32| usize::try_from(v).unwrap_or(0);
-        let (cw, ch) = (n(cell.width), n(cell.height));
-        let across = n(slot.width).checked_div(cw).unwrap_or(0);
-        let down = n(slot.height).checked_div(ch).unwrap_or(0);
-        let cells = across.saturating_mul(down);
-        let mut lines = BoxLines {
-            across,
-            cell: (cw, ch),
-            rows: vec![false; cells.saturating_mul(ch)],
-            columns: vec![false; cells.saturating_mul(cw)],
-        };
-        let stride = n(slot.width);
-        for (y, line) in pixels.chunks(stride.max(1)).enumerate() {
-            let (by, py) = (y.checked_div(ch), y.checked_rem(ch));
-            let (Some(by), Some(py)) = (by, py) else {
-                continue;
-            };
-            for (x, &a) in line.iter().enumerate() {
-                let (Some(bx), Some(px)) = (x.checked_div(cw), x.checked_rem(cw)) else {
-                    continue;
-                };
-                if a == 0 {
-                    continue;
-                }
-                let i = by.saturating_mul(across).saturating_add(bx);
-                if let Some(r) = lines.rows.get_mut(i.saturating_mul(ch).saturating_add(py)) {
-                    *r = true;
-                }
-                if let Some(c) = lines
-                    .columns
-                    .get_mut(i.saturating_mul(cw).saturating_add(px))
-                {
-                    *c = true;
-                }
-            }
-        }
-        lines
-    }
-
-    /// Whether the slot's cell at `bx`, `by` holds ink on each of its
-    /// display lines, its rows of pixels or, `down`, its columns, ORed
-    /// into `out`; nothing for a cell outside the slot.
-    fn or_into(&self, (bx, by): (i64, i64), down: bool, out: &mut [bool]) {
-        let (Ok(bx), Ok(by)) = (usize::try_from(bx), usize::try_from(by)) else {
-            return;
-        };
-        if bx >= self.across {
-            return;
-        }
-        let (lines, n) = match down {
-            true => (&self.columns, self.cell.0),
-            false => (&self.rows, self.cell.1),
-        };
-        let at = by
-            .saturating_mul(self.across)
-            .saturating_add(bx)
-            .saturating_mul(n);
-        let Some(cell) = lines.get(at..at.saturating_add(n)) else {
-            return;
-        };
-        for (o, &inked) in out.iter_mut().zip(cell) {
-            *o |= inked;
-        }
-    }
+/// A neighbour whose glyph sends ink into a job: the column and row of the
+/// glyph's first cell, the first and last column of the block of cells its
+/// reach names, and its glyph's slot among the boxes.
+#[derive(Clone, Copy, Debug)]
+struct Sender {
+    col: i64,
+    row: i64,
+    c0: i64,
+    c1: i64,
+    slot: u32,
 }
 
 /// The grid's entries and line bits, kept in memory, and its texture.
@@ -160,6 +98,12 @@ pub(crate) struct InkGrid {
     /// the texture was last filled.
     dirty: Option<(usize, usize)>,
     texture: Option<(Texture, Size)>,
+    /// The cells whose line bits this frame set, by their place among
+    /// `entries`.
+    marked: Vec<usize>,
+    /// The cells whose line bits the last frame set, which this frame
+    /// clears unless it sets them again.
+    last_marked: Vec<usize>,
     /// A job's line bits while [`InkGrid::mark`] works them out.
     scratch: Vec<bool>,
 }
@@ -169,6 +113,7 @@ impl InkGrid {
     /// of another size starts empty.
     pub(crate) fn begin(&mut self, cols: usize, rows: usize, cell: Size) {
         self.last = core::mem::take(&mut self.named);
+        self.last_marked = core::mem::take(&mut self.marked);
         let words = words(cell);
         if (cols, rows, words) != (self.cols, self.rows, self.words) {
             self.cols = cols;
@@ -180,6 +125,7 @@ impl InkGrid {
             self.lines.clear();
             self.lines.resize(cells.saturating_mul(words), 0);
             self.last.clear();
+            self.last_marked.clear();
             self.dirty = rows.checked_sub(1).map(|last| (0, last));
         }
     }
@@ -240,84 +186,113 @@ impl InkGrid {
         }
     }
 
-    /// Sets the line bits of the job whose first cell is at `col`, `row`
-    /// and which spans `cells` cells of `cell`, once the frame is settled:
-    /// a bit for each display line through the job that ink from the
-    /// entries reaches, which the cell shader's `received` would find ink
-    /// on. The neighbours are the ones the shader reads, at `bound`, and
-    /// each one's ink is its glyph's box as `boxes` gives it by its slot,
-    /// cut to the block of cells its reach names. A display line runs
-    /// across the job, the same in each of its cells, or, `down`, down one
-    /// of its cells' columns.
-    pub(crate) fn mark<'b>(
+    /// Sets the line bits of each of `jobs`, the frame's jobs that receive
+    /// ink, once the frame is settled, and clears the bits of every cell the
+    /// last frame set and this one did not. The neighbours are those the
+    /// shader reads at `bound`, and `boxes` gives the ink of each one's
+    /// glyph by its slot among the boxes ([`InkGrid::mark`]).
+    pub(crate) fn mark_jobs<'b>(
         &mut self,
-        (col, row, cells): (usize, usize, usize),
-        (down, bound, cell): (bool, Bound, Size),
+        jobs: impl Iterator<Item = ReceivingJob>,
+        (bound, cell): (Bound, Size),
         boxes: impl Fn(u32) -> Option<&'b BoxLines>,
     ) {
+        for job in jobs {
+            self.mark(job, (bound, cell), &boxes);
+        }
+        self.marked.sort_unstable();
+        self.marked.dedup();
+        for i in core::mem::take(&mut self.last_marked) {
+            if self.marked.binary_search(&i).is_err() {
+                let at = i.saturating_mul(self.words);
+                if let Some(words) = self.lines.get_mut(at..at.saturating_add(self.words))
+                    && words.iter().any(|&w| w != 0)
+                {
+                    words.fill(0);
+                    self.touch(i.checked_div(self.cols).unwrap_or(0));
+                }
+            }
+        }
+    }
+
+    /// Sets the line bits of `job`, in cells of `cell`: a bit for each
+    /// display line through the job that ink from the entries reaches,
+    /// which the cell shader's `received` would find ink on. Each
+    /// neighbour's ink is its glyph's box as `boxes` gives it, cut to the
+    /// block of cells its reach names. A display line runs across the job,
+    /// the same in each of its cells, or down one of its cells' columns.
+    fn mark<'b>(
+        &mut self,
+        job: ReceivingJob,
+        (bound, cell): (Bound, Size),
+        boxes: &impl Fn(u32) -> Option<&'b BoxLines>,
+    ) {
         let n = |v: u32| usize::try_from(v).unwrap_or(0);
-        let lines = if down { n(cell.width) } else { n(cell.height) };
-        let mut job = core::mem::take(&mut self.scratch);
-        job.clear();
-        job.resize(lines.saturating_mul(cells.max(1)), false);
+        let lines = if job.down {
+            n(cell.width)
+        } else {
+            n(cell.height)
+        };
+        let mut bits = core::mem::take(&mut self.scratch);
+        bits.clear();
+        bits.resize(lines.saturating_mul(job.cells.max(1)), false);
         let int = |v: usize| i64::try_from(v).unwrap_or(i64::MAX);
         let (side, up) = (i64::from(bound.side), i64::from(bound.rows));
-        let (c, r, end) = (int(col), int(row), int(col.saturating_add(cells)));
-        for nr in r.saturating_sub(up)..=r.saturating_add(up) {
-            for k in c.saturating_sub(side).saturating_sub(1)..end.saturating_add(side) {
-                if nr == r && k >= c && k < end {
-                    continue;
-                }
-                let Some(e) = self.entry(k, nr) else {
-                    continue;
-                };
-                let (reach, span) = (Reach::from_byte(e[0]), i64::from(e[1]));
-                if reach.is_none() || span == 0 {
-                    continue;
-                }
-                // the shader takes a glyph to the left in the job's row
-                // only from fewer than the bound's cells away
-                let gap = c.saturating_sub(k.saturating_add(span));
-                if nr == r && k < c && (gap < 0 || gap >= side) {
-                    continue;
-                }
-                let c0 = k.saturating_sub(i64::from(reach.left()));
-                let c1 = k
-                    .saturating_add(span)
-                    .saturating_sub(1)
-                    .saturating_add(i64::from(reach.right()));
-                let r0 = nr.saturating_sub(i64::from(reach.up()));
-                let r1 = nr.saturating_add(i64::from(reach.down()));
-                if r < r0 || r > r1 {
-                    continue;
-                }
-                let Some(lines_of) = boxes(u32::from(u16::from_le_bytes([e[2], e[3]]))) else {
-                    continue;
-                };
-                // the box's cell under each of the job's cells inside the
-                // block, the glyph's first cell `side` cells and `up` rows
-                // from the slot's top left; a display line across the job
-                // gathers the ink of all its cells in the first one's bits
-                let by = r.saturating_sub(nr).saturating_add(up);
-                for (j, jc) in (c..end).enumerate() {
-                    if jc < c0 || jc > c1 {
-                        continue;
-                    }
-                    let at = if down { j.saturating_mul(lines) } else { 0 };
-                    if let Some(out) = job.get_mut(at..at.saturating_add(lines)) {
-                        let bx = jc.saturating_sub(k).saturating_add(side);
-                        lines_of.or_into((bx, by), down, out);
-                    }
+        let (c, r) = (int(job.col), int(job.row));
+        let end = int(job.col.saturating_add(job.cells));
+        for row in r.saturating_sub(up)..=r.saturating_add(up) {
+            for col in c.saturating_sub(side).saturating_sub(1)..end.saturating_add(side) {
+                if let Some(s) = self.sender(job, (col, row), side)
+                    && let Some(ink) = boxes(s.slot)
+                {
+                    gather(job, s, ink, (side, up), (lines, &mut bits));
                 }
             }
         }
-        for j in 0..cells {
-            let at = if down { j.saturating_mul(lines) } else { 0 };
-            if let Some(bits) = job.get(at..at.saturating_add(lines)) {
-                self.set_lines(col.saturating_add(j), row, bits);
+        for j in 0..job.cells {
+            let at = if job.down { j.saturating_mul(lines) } else { 0 };
+            if let Some(cell_bits) = bits.get(at..at.saturating_add(lines)) {
+                self.set_lines(job.col.saturating_add(j), job.row, cell_bits);
             }
         }
-        self.scratch = job;
+        self.scratch = bits;
+    }
+
+    /// The neighbour at `col`, `row` when its glyph sends ink into `job` as
+    /// the cell shader reads it at a bound of `side` cells: its entry is
+    /// named, and its reach covers the job's row. A glyph in the job's own
+    /// row counts from beside the job only, and from the left only when it
+    /// ends fewer than `side` cells before the job, as the shader takes it.
+    fn sender(&self, job: ReceivingJob, (col, row): (i64, i64), side: i64) -> Option<Sender> {
+        let int = |v: usize| i64::try_from(v).unwrap_or(i64::MAX);
+        let (c, r) = (int(job.col), int(job.row));
+        let end = int(job.col.saturating_add(job.cells));
+        if row == r && col >= c && col < end {
+            return None;
+        }
+        let e = self.entry(col, row)?;
+        let (reach, span) = (Reach::from_byte(e[0]), i64::from(e[1]));
+        if reach.is_none() || span == 0 {
+            return None;
+        }
+        let gap = c.saturating_sub(col.saturating_add(span));
+        if row == r && col < c && (gap < 0 || gap >= side) {
+            return None;
+        }
+        let (r0, r1) = (
+            row.saturating_sub(i64::from(reach.up())),
+            row.saturating_add(i64::from(reach.down())),
+        );
+        (r >= r0 && r <= r1).then(|| Sender {
+            col,
+            row,
+            c0: col.saturating_sub(i64::from(reach.left())),
+            c1: col
+                .saturating_add(span)
+                .saturating_sub(1)
+                .saturating_add(i64::from(reach.right())),
+            slot: u32::from(u16::from_le_bytes([e[2], e[3]])),
+        })
     }
 
     /// The texture, once an entry has been named.
@@ -438,6 +413,7 @@ impl InkGrid {
         let Some(i) = self.index(col, row) else {
             return;
         };
+        self.marked.push(i);
         let at = i.saturating_mul(self.words);
         let Some(words) = self.lines.get_mut(at..at.saturating_add(self.words)) else {
             return;
@@ -464,144 +440,33 @@ impl InkGrid {
     }
 }
 
-#[cfg(test)]
-#[expect(
-    clippy::unwrap_used,
-    clippy::indexing_slicing,
-    clippy::arithmetic_side_effects,
-    reason = "a test fails by panicking"
-)]
-mod tests {
-    use super::*;
-
-    const CELL: Size = Size::new(8, 16);
-    const BOUND: Bound = Bound { side: 1, rows: 1 };
-
-    impl InkGrid {
-        /// The line bits of the cell at `col`, `row`, as the lines set.
-        fn lines_set(&self, col: usize, row: usize) -> Vec<usize> {
-            let at = self.index(col, row).unwrap() * self.words;
-            (0..self.words * BITS)
-                .filter(|&n| self.lines[at + n / BITS] >> (n % BITS) & 1 != 0)
-                .collect()
+/// ORs into `bits`, `lines` bits a cell of `job`, the ink of `sender`'s
+/// box (`ink`) in each of the job's cells inside the sender's block. The
+/// sender's first cell lies `side` cells and `up` rows from its slot's top
+/// left. A display line across the job gathers the ink of all its cells in
+/// the first cell's bits; a line down a column has bits of its own cell.
+fn gather(
+    job: ReceivingJob,
+    sender: Sender,
+    ink: &BoxLines,
+    (side, up): (i64, i64),
+    (lines, bits): (usize, &mut [bool]),
+) {
+    let int = |v: usize| i64::try_from(v).unwrap_or(i64::MAX);
+    let row = int(job.row);
+    let by = row.saturating_sub(sender.row).saturating_add(up);
+    let first = int(job.col);
+    for (j, col) in (first..first.saturating_add(int(job.cells))).enumerate() {
+        if col < sender.c0 || col > sender.c1 {
+            continue;
         }
-    }
-
-    /// The box of a glyph whose first cell is at column 2 of row 1, in a
-    /// slot of four cells by three rows, its own cell the second of the
-    /// middle row: an accent in its own column from line 13 to 15 of the
-    /// row above, and a stroke from line 10 to 11 of the cell above and to
-    /// the right of it, its columns 0 and 1.
-    fn accent() -> BoxLines {
-        let slot = Size::new(4 * 8, 3 * 16);
-        let mut px = vec![0u8; 32 * 48];
-        for y in 13..16 {
-            for x in 8 + 3..8 + 5 {
-                px[y * 32 + x] = 200;
-            }
+        let at = if job.down { j.saturating_mul(lines) } else { 0 };
+        if let Some(out) = bits.get_mut(at..at.saturating_add(lines)) {
+            let bx = col.saturating_sub(sender.col).saturating_add(side);
+            ink.or_into((bx, by), job.down, out);
         }
-        for y in 10..12 {
-            for x in 16..18 {
-                px[y * 32 + x] = 90;
-            }
-        }
-        // ink inside the glyph's own cell sets no line of another
-        px[(16 + 5) * 32 + 8 + 4] = 255;
-        BoxLines::new(&px, slot, CELL)
-    }
-
-    /// A grid of 5 by 3 cells whose glyph at column 2 of row 1 sends ink one
-    /// row up and one cell to the right, its slot 7, settled.
-    fn grid() -> InkGrid {
-        let mut g = InkGrid::default();
-        g.begin(5, 3, CELL);
-        g.name((2, 1), 7, Rgb::new(1, 2, 3));
-        g.settle(|k, r| match (k, r) {
-            (2, 1) => (Reach::new(0, 1, 1, 0), 1),
-            _ => (Reach::NONE, 0),
-        });
-        g
-    }
-
-    // ADR-1306 D9: a job's line bits name the display lines its neighbours'
-    // ink reaches, across its row, and no others.
-    #[test]
-    fn the_lines_a_neighbours_ink_reaches_are_set_and_no_others() {
-        let boxes = accent();
-        let lines = |slot: u32| (slot == 7).then_some(&boxes);
-        let mut g = grid();
-        g.mark((2, 0, 1), (false, BOUND, CELL), lines);
-        assert_eq!(g.lines_set(2, 0), [13, 14, 15], "above the glyph");
-        g.mark((3, 0, 1), (false, BOUND, CELL), lines);
-        assert_eq!(g.lines_set(3, 0), [10, 11], "above and to the right");
-        g.mark((1, 0, 1), (false, BOUND, CELL), lines);
-        assert!(g.lines_set(1, 0).is_empty(), "left of the reach");
-        g.mark((3, 1, 1), (false, BOUND, CELL), lines);
-        assert!(g.lines_set(3, 1).is_empty(), "beside it, where no ink lies");
-        // a job of two cells: a line any of its cells receives ink on, in
-        // each of its cells
-        g.mark((2, 0, 2), (false, BOUND, CELL), lines);
-        assert_eq!(g.lines_set(2, 0), [10, 11, 13, 14, 15]);
-        assert_eq!(g.lines_set(3, 0), [10, 11, 13, 14, 15]);
-    }
-
-    // ADR-1306 D9: on a display turned a quarter, a display line runs down
-    // a column of the upright frame, and each cell holds the bits of its
-    // own columns.
-    #[test]
-    fn turned_a_quarter_each_cell_names_its_own_columns() {
-        let boxes = accent();
-        let lines = |slot: u32| (slot == 7).then_some(&boxes);
-        let mut g = grid();
-        g.mark((2, 0, 2), (true, BOUND, CELL), lines);
-        assert_eq!(g.lines_set(2, 0), [3, 4]);
-        assert_eq!(g.lines_set(3, 0), [0, 1]);
-    }
-
-    // A glyph whose reach names no row above sends no ink there, whatever
-    // its box holds; nor does a neighbour the frame emptied.
-    #[test]
-    fn the_reach_and_the_named_entries_bound_the_lines() {
-        let boxes = accent();
-        let lines = |slot: u32| (slot == 7).then_some(&boxes);
-        let mut g = InkGrid::default();
-        g.begin(5, 3, CELL);
-        g.name((2, 1), 7, Rgb::new(1, 2, 3));
-        g.settle(|_, _| (Reach::new(0, 1, 0, 1), 1));
-        g.mark((2, 0, 1), (false, BOUND, CELL), lines);
-        assert!(g.lines_set(2, 0).is_empty(), "no reach up");
-        let mut g = grid();
-        g.begin(5, 3, CELL);
-        g.settle(|_, _| (Reach::new(0, 1, 1, 0), 1));
-        g.mark((2, 0, 1), (false, BOUND, CELL), lines);
-        assert!(g.lines_set(2, 0).is_empty(), "an entry the frame emptied");
-    }
-
-    // The texture holds each cell's line bits after its two texels, the
-    // first line in the lowest bit of the red channel.
-    #[test]
-    fn the_line_bits_lie_after_the_source_texels() {
-        use crate::gpu::StandIn;
-        let boxes = accent();
-        let lines = |slot: u32| (slot == 7).then_some(&boxes);
-        let mut g = grid();
-        g.mark((2, 0, 1), (false, BOUND, CELL), lines);
-        let mut gl = StandIn::new();
-        g.upload(&mut gl).unwrap();
-        assert!(g.texture().is_some());
-        // the stand-in's first object, the grid's texture
-        let (format, size, px) = gl.texture_pixels(1).unwrap();
-        assert_eq!(format, Format::Rgba8);
-        // three texels a cell: two, and one for 16 lines
-        assert_eq!(size, Size::new(5, 9));
-        let texel = |k: usize, y: usize| &px[(y * 5 + k) * 4..(y * 5 + k) * 4 + 4];
-        assert_eq!(texel(2, 2), [0, 0xe0, 0, 0], "lines 13, 14 and 15");
-        assert_eq!(
-            texel(2, 3),
-            [0x14, 1, 7, 0],
-            "the source's reach, span, slot"
-        );
-        assert_eq!(texel(2, 4), [1, 2, 3, 0], "its color");
-        assert_eq!(texel(2, 5), [0; 4], "its line bits");
     }
 }
+
+#[cfg(test)]
+mod tests;

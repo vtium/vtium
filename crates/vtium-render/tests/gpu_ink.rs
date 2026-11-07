@@ -36,7 +36,9 @@ type Ink = (i32, i32, i32, i32, u8);
 ///   from two rows up meets it;
 /// - `Q`, ink in every direction, the corners too, some of it partly
 ///   covered;
-/// - `x`, ink inside its cell, partly covered at its edges.
+/// - `x`, ink inside its cell, partly covered at its edges;
+/// - `W`, a wide glyph whose two cells hold a body, with a tail in the
+///   cell below and to the right of them, partly covered at its edge.
 fn shape(c: char) -> &'static [Ink] {
     const BODY: Ink = (1, 6, 7, 14, 255);
     match c {
@@ -56,6 +58,11 @@ fn shape(c: char) -> &'static [Ink] {
             (8, 0, 11, 16, 200),
         ],
         'x' => &[BODY, (0, 6, 1, 14, 90), (7, 6, 8, 14, 90)],
+        'W' => &[
+            (1, 6, 15, 14, 255),
+            (17, 17, 22, 21, 255),
+            (22, 17, 23, 21, 120),
+        ],
         _ => &[],
     }
 }
@@ -64,7 +71,11 @@ fn shape(c: char) -> &'static [Ink] {
 /// passes the cell.
 fn glyph(c: char) -> Option<Glyph> {
     let rects = shape(c);
-    let (gw, gh) = (CW as i32, CH as i32);
+    let (cells, width) = match c {
+        'W' => (2, FontWidth::Wide),
+        _ => (1, FontWidth::Narrow),
+    };
+    let (gw, gh) = (CW as i32 * cells, CH as i32);
     let cov = |x: i32, y: i32| {
         rects
             .iter()
@@ -75,7 +86,7 @@ fn glyph(c: char) -> Option<Glyph> {
     let own = (0..gh)
         .flat_map(|y| (0..gw).map(move |x| cov(x, y)))
         .collect();
-    let g = Glyph::from_pixels(CW, CH, FontFormat::Mask, own)?.with_cells(FontWidth::Narrow);
+    let g = Glyph::from_pixels(gw as u32, CH, FontFormat::Mask, own)?.with_cells(width);
     let (mut l, mut t, mut r, mut b) = (0, 0, gw, gh);
     for &(x0, y0, x1, y1, _) in rects {
         (l, t, r, b) = (l.min(x0), t.min(y0), r.max(x1), b.max(y1));
@@ -614,6 +625,34 @@ fn typing(o: Orientation) {
             &whole_turned(&s, &st, o),
             &format!("{o:?}, step {step}"),
         );
+    }
+}
+
+// ADR-1306 D4, D9: a wide glyph sends its ink into the cell below and to
+// the right of its two cells, which lies past the bound from the glyph's
+// first cell, from its box's last column of cells, at each turn of the
+// display.
+// covers: text.overhang
+#[test]
+fn a_wide_glyphs_ink_below_and_past_its_cells_draws_as_on_the_cpu_path() {
+    for o in [
+        Orientation::Normal,
+        Orientation::Right,
+        Orientation::UpsideDown,
+        Orientation::Left,
+    ] {
+        let mut s = screen(5, 3);
+        s.put(1, 0, 'W', true, style(rgb("e0e040"), rgb(BG)));
+        s.text(3, 1, "x", style(rgb(FG), rgb("2040a0")));
+        let mut g = Gpu::turned(&s, o);
+        let st = state(&s, true);
+        g.frame(&mut s, &st);
+        assert_same(&g, &whole_turned(&s, &st, o), &format!("{o:?}"));
+        let receives = g
+            .cells()
+            .iter()
+            .any(|q| q.src[2..] == [3, 1] && q.params[1] >> 24 & 1 != 0);
+        assert!(receives, "{o:?}: the cell below and to the right receives");
     }
 }
 

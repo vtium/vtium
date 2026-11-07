@@ -42,8 +42,9 @@ use vtium_font::{Face, Font, Style, Width};
 
 use std::collections::BTreeSet;
 
+use super::box_lines::BoxLines;
 use super::gl::{Error, ErrorKind, Format, Gl, Size, Texture};
-use super::ink::{BoxLines, InkGrid};
+use super::ink::{InkGrid, ReceivingJob};
 use crate::bounds::{GLYPH_TEXTURE_CEILING, GLYPH_TEXTURE_SIDE, GPU_IDLE_FRAMES};
 use crate::cache::{Budgets, COLOR, GlyphCache, Held, Storage, WIDE, pool_of};
 use crate::deco::{Kind, Sprites};
@@ -503,17 +504,16 @@ impl Glyphs {
         self.ink.begin(cols, rows, self.cell);
     }
 
-    /// Settles the ink grid once the frame is scanned, each source named
-    /// taking the reach and span `reach` gives its cell
-    /// ([`InkGrid::settle`]), and sets the line bits of each of `jobs`, the
-    /// frame's jobs that receive ink, from the boxes of the glyphs that
-    /// send it ([`InkGrid::mark`]). A job is the column and row of its first
-    /// cell and its cells, and whether its display lines run down the
-    /// upright frame's columns.
+    /// Settles the ink grid once the frame is scanned. Each glyph the frame
+    /// named as a source of ink takes the reach and span that `reach` gives
+    /// its cell ([`InkGrid::settle`]). Then the grid sets the line bits of
+    /// each of `jobs`, the frame's jobs that receive ink. It learns which
+    /// lines a neighbour's ink reaches from the notes kept on that
+    /// neighbour's box when its glyph took the box ([`InkGrid::mark_jobs`]).
     pub(crate) fn settle_ink(
         &mut self,
         reach: impl FnMut(usize, usize) -> (Reach, u8),
-        jobs: impl Iterator<Item = ((usize, usize, usize), bool)>,
+        jobs: impl Iterator<Item = ReceivingJob>,
     ) {
         self.ink.settle(reach);
         let kept = &self.boxes.kept;
@@ -521,10 +521,8 @@ impl Glyphs {
             let (_, lines) = kept.get(usize::try_from(slot).ok()?)?.as_ref()?;
             Some(lines)
         };
-        for (job, down) in jobs {
-            self.ink
-                .mark(job, (down, self.boxes.bound, self.cell), lines);
-        }
+        self.ink
+            .mark_jobs(jobs, (self.boxes.bound, self.cell), lines);
     }
 
     /// Whether a glyph whose ink passes its cells has taken a box: until

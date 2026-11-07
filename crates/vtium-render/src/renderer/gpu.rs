@@ -195,7 +195,7 @@ impl<F: Face> Renderer<F> {
         #[cfg(not(feature = "images"))]
         let lists = [&cells];
         #[cfg(feature = "images")]
-        let lists = [&cells, &text];
+        let lists = [&cells, &text, &marks];
         let cell = glyphs.cell();
         let jobs = lists
             .into_iter()
