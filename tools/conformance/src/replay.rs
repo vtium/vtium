@@ -766,9 +766,22 @@ mod tests {
         assert_eq!(state[0], "test state margins 1-2 0-9");
         assert_eq!(state[1], "test state tabs 0");
         // the modes the reference host starts with, by the mode table's
-        // initial states: the bidi build adds BDSM (8) and 1243, and the
-        // image build the private sixel registers (1070)
-        let bidi = cfg!(feature = "bidi");
+        // initial states: vtium-term built with bidi adds BDSM (8) and
+        // 1243, and a host that installs the image pipeline (this crate's
+        // images feature) the private sixel registers (1070). vtium-term's
+        // features can differ from this crate's when a workspace build
+        // unifies them, so DECRQM asks the terminal whether it knows 1243:
+        // it answers 0 for a mode its table lacks.
+        let knows = |mode: u32| {
+            let mut ask = format!("\x1b[?{mode}$p").into_bytes();
+            ask.extend(cmd("state"));
+            let unknown: String = format!("\x1b[?{mode};0$y")
+                .bytes()
+                .map(|b| format!("{b:02x}"))
+                .collect();
+            !sized(10, 4, &ask).contains(&format!("reply {unknown}\n"))
+        };
+        let bidi = knows(1243);
         let images = cfg!(feature = "images");
         let modes = format!(
             "test state modes ansi {}12 dec 7,8,12,25,1007,1034,1035,1036,1042,{}{}2027,2028",
