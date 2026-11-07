@@ -3408,6 +3408,14 @@ impl App {
             for e in events {
                 self.video_event(&node, e, now);
             }
+            // A card the kernel removed is let go as soon as its displays'
+            // removals are drained, which closes its file, so a card added
+            // next can take its number. udev's report of the removal may
+            // come later, or early in boot never.
+            if self.videos.get(&node).is_some_and(|v| v.gone()) {
+                log::info!("{}: the kernel removed the card", node.display());
+                self.remove_video(&node);
+            }
         }
         if std::mem::take(&mut self.keyboard_check) && !self.routes.any_keyboard() {
             let line = crate::notice::NO_KEYBOARD;
@@ -4396,6 +4404,12 @@ mod tests {
         inputs: u32,
         unblanks: u32,
         powered_down: u32,
+        /// The kernel removed it, as drm2d finds a card gone at its first
+        /// ENODEV.
+        gone: bool,
+        /// Stands for the device's file, which closes when the device is
+        /// dropped.
+        file: Rc<()>,
     }
 
     impl Still {
@@ -4412,7 +4426,19 @@ mod tests {
                 inputs: 0,
                 unblanks: 0,
                 powered_down: 0,
+                gone: false,
+                file: Rc::new(()),
             }
+        }
+
+        /// The kernel removes the device as drm2d sees a card go: each
+        /// display reported removed, none listed after, and the device
+        /// gone.
+        pub(super) fn unplug(&mut self) {
+            self.events
+                .extend(self.ids.iter().map(|&(id, _)| Event::Removed(id)));
+            self.ids.clear();
+            self.gone = true;
         }
     }
 
@@ -4502,6 +4528,9 @@ mod tests {
         }
         fn as_any(&mut self) -> &mut dyn Any {
             self
+        }
+        fn gone(&self) -> bool {
+            self.gone
         }
     }
 
@@ -5925,6 +5954,54 @@ mod tests {
         assert_eq!(*asked.borrow(), std::slice::from_ref(&card));
         assert!(!app.videos.contains_key(&card));
         assert_eq!(*closed.borrow(), [card]);
+    }
+
+    // vtium/vtium#295: a card the kernel removed, which drm2d found gone at
+    // its first ENODEV, is let go in the turn that drains its displays'
+    // removals: its file is closed and the VT is told to close it, with no
+    // report from udev, which early in boot may never come. A new card the
+    // kernel then adds at the same node opens and draws.
+    #[test]
+    fn a_card_found_gone_is_let_go_without_udev_and_a_new_one_opens() {
+        let loaded = crate::config::load(&["--font-size=16".into()], &mut |_: &Path| Ok(None));
+        let lp: Loop<App> = Loop::new().unwrap();
+        let closed: Recorded = Rc::default();
+        let waits = Waits {
+            ready: true,
+            closed: Rc::clone(&closed),
+            events: vec![VtEvent::Acquired],
+            ..Waits::default()
+        };
+        let mut app = App::new(
+            loaded.config,
+            Box::new(waits),
+            lp.handle(),
+            Rc::new(Instant::now),
+            Vec::new(),
+        );
+        app.set_font_sources(no_fonts());
+        let card = PathBuf::from("/dev/dri/card0");
+        let old = Still::new(&[(1, "A")]);
+        let file = Rc::clone(&old.file);
+        app.add_video(card.clone(), Box::new(old));
+        app.turn(Instant::now());
+        let views = |app: &App| app.heads.iter().map(|h| h.views.len()).sum::<usize>();
+        assert_eq!(views(&app), 1, "the card's display draws");
+        app.videos
+            .get_mut(&card)
+            .and_then(|v| v.as_any().downcast_mut::<Still>())
+            .unwrap()
+            .unplug();
+        app.turn(Instant::now());
+        assert!(!app.videos.contains_key(&card), "the card is let go");
+        assert_eq!(Rc::strong_count(&file), 1, "its file is closed");
+        assert_eq!(*closed.borrow(), std::slice::from_ref(&card));
+        assert_eq!(views(&app), 0);
+        app.add_video(card.clone(), Box::new(Still::new(&[(1, "A")])));
+        app.turn(Instant::now());
+        assert!(app.videos.contains_key(&card), "the new card opens");
+        assert_eq!(views(&app), 1, "the new card's display draws");
+        assert_eq!(closed.borrow().len(), 1, "the new card stays open");
     }
 
     // vtium/vtium#34: a device udev reports removed while it waits for the

@@ -156,6 +156,13 @@ pub trait Video: Any {
     fn release_dark(&mut self, _: &str) -> bool {
         false
     }
+    /// Whether the kernel removed the device, as a DRM card whose ioctl
+    /// answered ENODEV: its displays were reported removed, and the owner
+    /// lets it go, which closes its file, without waiting for udev to
+    /// report the removal.
+    fn gone(&self) -> bool {
+        false
+    }
 }
 
 /// A video device's cursor plane, as the pointer drives it.
@@ -268,6 +275,9 @@ impl Video for Drm2d<Card> {
     }
     fn need_commit(&self, id: DisplayId) -> bool {
         Drm2d::need_commit(self, id)
+    }
+    fn gone(&self) -> bool {
+        Drm2d::gone(self)
     }
 }
 
