@@ -68,7 +68,15 @@ considered:
   - operator: aaronsb
     said: "the same pattern we have for defaults, where if no file at all exists, keeps our assumptions similar to the way I answered the adr questions, but they can always be remapped"
     via: the maintainer, relayed by the steering session on 2026-11-07, on what the key mappings are with no vtium.conf
-status: proposed
+  - operator: aaronsb
+    said: "Yes, the program gets them there (Recommended)"
+    via: "the steering session's question tool, 2026-11-07: whether Shift with Up, Down, Page Up and Page Down go to the program while the alternate screen is shown, and keep scrolling on the main screen; the maintainer chose this option, whose wording is the steering session's"
+    covers: [the scroll keys on the second screen]
+  - operator: aaronsb
+    said: "Yes, keep them fixed (Recommended)"
+    via: "the steering session's question tool, 2026-11-07: whether Ctrl+Alt+F1 to F12 and the rescue key stay fixed with no vtium.conf key; the maintainer chose this option, whose wording is the steering session's"
+    covers: [two keys stay fixed]
+status: accepted
 date: 2026-11-07
 deciders:
   - aaronsb
