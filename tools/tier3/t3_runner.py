@@ -11,6 +11,7 @@ import json
 import multiprocessing
 import multiprocessing.connection
 import os
+import shutil
 import signal
 import sys
 import time
@@ -99,16 +100,35 @@ class Job:
         self.proc.join()
         self.drain()
         self.conn.close()
-        sock = os.fsencode(os.path.join(RUNDIR, self.variant, "qmp.sock"))
+        # The variant's QEMU is the one that writes its serial log; its
+        # sockets are in a directory of their own (t3_qemu.socket_dir).
+        serial = os.fsencode(os.path.join(RUNDIR, self.variant, "serial.log"))
         for pid in self.qemu:
             try:
                 with open("/proc/%d/cmdline" % pid, "rb") as f:
-                    if sock not in f.read():
-                        continue  # gone, or the PID now names another process
+                    args = f.read().split(b"\0")
+                if not any(serial in a for a in args):
+                    continue  # gone, or the PID now names another process
                 self.log("%s: killing qemu pid %d, left by its worker" % (self.variant, pid))
                 os.kill(pid, signal.SIGKILL)
             except OSError:
-                pass
+                continue
+            sockets = qmp_socket_dir(args)
+            if sockets:
+                shutil.rmtree(sockets, ignore_errors=True)
+
+
+def qmp_socket_dir(args):
+    """The socket directory (t3_qemu.socket_dir) of the QEMU started with
+    `args`, its command line's arguments as bytes, from the path of its QMP
+    socket, or None when it has no QMP socket in such a directory."""
+    for flag, value in zip(args, args[1:]):
+        if flag == b"-qmp" and value.startswith(b"unix:"):
+            path = os.fsdecode(value[len(b"unix:"):].split(b",", 1)[0])
+            sockets = os.path.dirname(path)
+            if os.path.basename(sockets).startswith(t3_qemu.SOCKET_DIR_PREFIX):
+                return sockets
+    return None
 
 
 def run_concurrently(variants, jobs, impl, deadline, results, log):

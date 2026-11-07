@@ -20,6 +20,7 @@ import csv
 import hashlib
 import io
 import json
+import multiprocessing
 import os
 import pickle
 import re
@@ -1624,6 +1625,84 @@ class VariantTest(unittest.TestCase):
         finally:
             t3_qemu.subprocess.Popen = saved
 
+    def test_qemu_keeps_its_sockets_out_of_a_deep_checkout(self):
+        # A checkout with a long path, run as a variant with a second head
+        # and the agent's port, gets every unix socket in a directory of its
+        # own with a short path, under XDG_RUNTIME_DIR when the session has
+        # one and under the system's temporary directory when it has none.
+        # The directory is this user's alone, and it is gone once a start
+        # fails. The files QEMU writes stay in the run directory.
+        class Started(Exception):
+            pass
+
+        seen = []
+
+        def popen(args, **kwargs):
+            sockets = os.path.dirname(args[args.index("-qmp") + 1][len("unix:"):].split(",")[0])
+            st = os.stat(sockets)
+            seen.append((args, sockets, st.st_mode & 0o777, st.st_uid))
+            raise Started()
+
+        with mock.patch.object(t3_qemu.subprocess, "Popen", popen), \
+                tempfile.TemporaryDirectory() as d, tempfile.TemporaryDirectory() as runtime:
+            deep = os.path.join(d, *(["a-checkout-path-far-down-a-tree"] * 6), "run", "heads")
+            self.assertGreater(len(os.fsencode(deep)), t3_qemu.SUN_PATH_MAX)
+            for env, parent in (({"XDG_RUNTIME_DIR": runtime}, runtime),
+                                ({}, tempfile.gettempdir())):
+                with self.subTest(env=env), mock.patch.dict(os.environ, env), \
+                        self.assertRaises(Started):
+                    if not env:
+                        os.environ.pop("XDG_RUNTIME_DIR", None)
+                    t3_qemu.Qemu(deep, [], "virtio-vga,id=video0,max_outputs=2",
+                                 lambda msg: None, capture="vnc", agent=True,
+                                 heads=[("video0", 1, (640, 480))])
+                args, sockets, mode, uid = seen.pop()
+                self.assertEqual(os.path.dirname(sockets), parent)
+                self.assertTrue(os.path.basename(sockets).startswith(t3_qemu.SOCKET_DIR_PREFIX))
+                self.assertEqual((mode, uid), (0o700, os.getuid()))
+                self.assertFalse(os.path.exists(sockets))
+                paths = [a[len("unix:"):].split(",")[0] for a in args if a.startswith("unix:")]
+                self.assertEqual(sorted(os.path.basename(p) for p in paths),
+                                 ["qmp.sock", "ttyS2", "vnc.sock", "vnc1.sock"])
+                for path in paths:
+                    self.assertEqual(os.path.dirname(path), sockets)
+                    self.assertLessEqual(len(os.fsencode(path)), t3_qemu.SUN_PATH_MAX)
+                self.assertIn("file:%s" % os.path.join(deep, "serial.log"), args)
+
+    def test_a_left_qemu_is_killed_and_its_sockets_removed(self):
+        # A QEMU its worker left running is the one that writes the
+        # variant's serial log: the runner kills it and removes its socket
+        # directory, and leaves alone a process that does not write that
+        # log, socket directory included.
+        def stand_in(serial, sockets):
+            return subprocess.Popen(
+                [sys.executable, "-c", "import time; time.sleep(600)",
+                 "-qmp", "unix:%s,server=on,wait=off" % os.path.join(sockets, "qmp.sock"),
+                 "-serial", "file:%s" % serial])
+
+        job = t3_runner.Job.__new__(t3_runner.Job)
+        job.variant, job.log, job.result = "deep", lambda msg: None, None
+        job.proc = mock.Mock()
+        job.conn, theirs = multiprocessing.Pipe(duplex=False)
+        theirs.close()
+        mine = os.path.join(t3_runner.RUNDIR, "deep", "serial.log")
+        other = os.path.join(t3_runner.RUNDIR, "other", "serial.log")
+        left, kept = t3_qemu.socket_dir(), t3_qemu.socket_dir()
+        procs = [stand_in(mine, left), stand_in(other, kept)]
+        try:
+            job.qemu = {p.pid for p in procs}
+            job.finish()
+            self.assertEqual(procs[0].wait(30), -9)
+            self.assertFalse(os.path.exists(left))
+            self.assertIsNone(procs[1].poll())
+            self.assertTrue(os.path.isdir(kept))
+        finally:
+            for p in procs:
+                p.kill()
+                p.wait()
+            shutil.rmtree(left, ignore_errors=True)
+            shutil.rmtree(kept, ignore_errors=True)
+
 
 # The console after grab-reboot on the guest without systemd, as sysvinit
 # and its scripts left it.
@@ -2671,8 +2750,9 @@ class DevicesTest(unittest.TestCase):
                 t3_qemu.Qemu(d, [], "virtio-vga,id=video0,max_outputs=2", lambda msg: None,
                              heads=[("video0", 1, (640, 480))])
             args = cm.exception.args[0]
+            sockets = os.path.dirname(args[args.index("-qmp") + 1][len("unix:"):].split(",")[0])
             self.assertIn("unix:%s,id=vnc-video0-1,display=video0,head=1"
-                          % os.path.join(d, "vnc1.sock"), args)
+                          % os.path.join(sockets, "vnc1.sock"), args)
             with self.assertRaises(Started) as cm:
                 t3_qemu.Qemu(d, [], "virtio-vga", lambda msg: None)
             self.assertNotIn("-vnc", cm.exception.args[0])
@@ -3296,7 +3376,9 @@ class HeadsTest(unittest.TestCase):
             self.assertEqual(args[args.index("-vga") + 1], "none")
             self.assertNotIn("-device", args)
             serials = [args[i + 1] for i, a in enumerate(args) if a == "-serial"]
-            self.assertEqual(serials[2], "unix:%s,server=on,wait=off" % os.path.join(d, "ttyS2"))
+            sockets = os.path.dirname(args[args.index("-qmp") + 1][len("unix:"):].split(",")[0])
+            self.assertEqual(serials[2],
+                             "unix:%s,server=on,wait=off" % os.path.join(sockets, "ttyS2"))
             with self.assertRaises(Started) as cm:
                 t3_qemu.Qemu(d, [], "virtio-vga", lambda msg: None)
             args = cm.exception.args[0]
