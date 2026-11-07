@@ -20,6 +20,11 @@
     reason = "a test fails by panicking"
 )]
 
+// The helper that writes the stand-in programs, kept with vtium-config's
+// tests and shared by every crate whose tests run a program they made.
+#[path = "../../vtium-config/tests/common/script.rs"]
+mod script;
+
 use std::io::{IoSlice, IoSliceMut};
 use std::mem::MaybeUninit;
 use std::os::fd::{AsFd, BorrowedFd, FromRawFd, OwnedFd};
@@ -340,9 +345,7 @@ fn scratch(name: &str) -> PathBuf {
 fn program(dir: &Path, role: &str) -> Program {
     let path = dir.join("vtium-image");
     if !path.exists() {
-        std::fs::copy(std::env::current_exe().unwrap(), &path).unwrap();
-        std::fs::set_permissions(&path, std::os::unix::fs::PermissionsExt::from_mode(0o755))
-            .unwrap();
+        script::executable_copy(&std::env::current_exe().unwrap(), &path);
     }
     Program::open_with(&path, vec!["--stand-in".into(), role.into()]).unwrap()
 }
@@ -719,8 +722,7 @@ fn with_three_free() -> ! {
     let run = RunDir;
     let dir = scratch("three");
     let path = dir.join("vtium-image");
-    std::fs::copy(std::env::current_exe().unwrap(), &path).unwrap();
-    std::fs::set_permissions(&path, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+    script::executable_copy(&std::env::current_exe().unwrap(), &path);
     let probe = std::fs::File::open("/dev/null").unwrap();
     assert_eq!(
         std::os::fd::AsRawFd::as_raw_fd(&probe),
@@ -836,7 +838,7 @@ fn a_helper_that_idles_out_as_a_request_goes_out_counts_no_crash() {
 fn a_program_others_may_change_is_refused() {
     let dir = scratch("program");
     let path = dir.join("vtium-image");
-    std::fs::copy(std::env::current_exe().unwrap(), &path).unwrap();
+    script::executable_copy(&std::env::current_exe().unwrap(), &path);
     std::fs::set_permissions(&path, std::os::unix::fs::PermissionsExt::from_mode(0o757)).unwrap();
     let why = Program::open(&path).unwrap_err();
     assert!(

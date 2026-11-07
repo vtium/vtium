@@ -13,6 +13,7 @@ import subprocess
 import sys
 import termios
 import tempfile
+import time
 import unittest
 import zlib
 
@@ -91,8 +92,9 @@ class GalleryTest(unittest.TestCase):
         for flag in ("-h", "--help"):
             status, out, err = self.gallery(flag)
             self.assertEqual((status, err), (0, b""))
-            self.assertTrue(out.startswith(b"usage: gallery [-s N] [-n N] [-L] [--no-probe]"))
-            for word in (b"kitty, WezTerm, Ghostty or", b"skips any other file", b"--no-labels"):
+            self.assertTrue(out.startswith(b"usage: gallery [-s N] [-n N] [-L] [-w N] [--no-probe]"))
+            for word in (b"kitty, WezTerm, Ghostty or", b"skips any other file", b"--no-labels",
+                         b"--wait N"):
                 self.assertIn(word, out)
 
     def test_it_names_itself_as_it_was_run(self):
@@ -208,12 +210,32 @@ class GalleryTest(unittest.TestCase):
             1, b"", b"gallery: no terminal to ask whether it draws kitty graphics "
                     b"(--no-probe draws anyway)\n"))
 
+    def test_a_late_answer_within_the_wait(self):
+        # A terminal that answers after more than the default second, as one
+        # at the far end of a slow link can, is still heard with -w, and the
+        # tool draws. The answers come 1.5 seconds late, well inside the 30
+        # seconds that -w gives.
+        self.add("a.png", png(16, 16))
+        prompt = terminal.answers()
+        def late(query):
+            if query.startswith(b"\x1b_G"):
+                time.sleep(1.5)
+            return prompt(query)
+        status, out, _ = terminal.run([GALLERY, "-w", "30", "-s", "2", self.dir], late, cols=40)
+        self.assertEqual(status, 0, out)
+        self.assertIn(b"\x1b_Ga=T,", out)
+        self.assertTrue(out.endswith(b"a.png\n"), out)
+
     def test_an_interrupted_question_restores_the_terminal(self):
         # Interrupted while it waits for the terminal's answer, the tool puts
         # back the terminal's modes, echo and line editing, before it ends.
+        # The test sends the interrupt once it reads the question, which a
+        # loaded machine can delay past the default wait of a second; then
+        # the tool would have drawn and ended before the interrupt came. So
+        # the tool waits 30 seconds here, and the interrupt ends the wait.
         self.add("a.png", png(16, 16))
-        status, out, modes = terminal.run([GALLERY, self.dir], terminal.answers(), timeout=10,
-                                          cooked=True, interrupt=signal.SIGINT)
+        status, out, modes = terminal.run([GALLERY, "-w", "30", self.dir], terminal.answers(),
+                                          timeout=60, cooked=True, interrupt=signal.SIGINT)
         self.assertEqual(status, 130)
         self.assertEqual(modes & (termios.ECHO | termios.ICANON), termios.ECHO | termios.ICANON)
 

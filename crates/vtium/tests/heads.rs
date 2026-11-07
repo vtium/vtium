@@ -28,8 +28,12 @@ use vtium_settings::Class;
 
 #[path = "common/vt.rs"]
 mod counting;
+// The helper that writes the stand-in programs, kept with vtium-config's
+// tests and shared by every crate whose tests run a program they made.
 #[path = "common/scratch.rs"]
 mod scratch;
+#[path = "../../vtium-config/tests/common/script.rs"]
+mod script;
 #[path = "common/helper.rs"]
 mod stand_in;
 use counting::CountingVt;
@@ -2676,7 +2680,7 @@ fn closing_a_console_hangs_up_its_session_alone() {
 fn a_console_the_open_chord_cannot_start_leaves_and_the_run_goes_on() {
     let dir = Scratch::new("heads-unstartable");
     let login = dir.join("login");
-    script_file(
+    script::executable(
         &login,
         "#!/bin/sh\necho ready; while read a; do echo \"got:$a\"; done\n",
     );
@@ -2708,35 +2712,11 @@ fn a_console_the_open_chord_cannot_start_leaves_and_the_run_goes_on() {
 /// focus report it was sent shows on its screen.
 fn focus_login(dir: &Path) -> PathBuf {
     let login = dir.join("login");
-    script_file(
+    script::executable(
         &login,
         "#!/bin/sh\nprintf '\\033[?1004h'; echo \"is:$VTIUM_CONSOLE\"; while read a; do echo \"got:$a\" | cat -v; done\n",
     );
     login
-}
-
-/// Writes `text` as a script at `path` that a head's login starts. This
-/// process writes the text to a file beside it, and `cp` writes the
-/// script, so this process never holds the script open to write. A child
-/// that another test forks while this process holds a file open to write
-/// holds that descriptor until its own exec, and starting the script
-/// while it does fails with ETXTBSY.
-fn script_file(path: &Path, text: &str) {
-    use std::os::unix::fs::PermissionsExt;
-    let staged = path.with_extension("text");
-    std::fs::write(&staged, text).expect("the script's text");
-    let copied = std::process::Command::new("cp")
-        .arg(&staged)
-        .arg(path)
-        .status()
-        .expect("cp");
-    assert!(
-        copied.success(),
-        "cp {} {}",
-        staged.display(),
-        path.display()
-    );
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).expect("its mode");
 }
 
 /// A scratch directory for test `name`, on disk under the build's own.
@@ -5887,7 +5867,7 @@ fn a_console_that_cannot_start_shows_a_notice_under_every_osd() {
         .copied()
         .chain([&["--osd=minimal"][..], &["--osd=full"][..]]);
     for args in modes {
-        script_file(
+        script::executable(
             &login,
             "#!/bin/sh\necho ready; while read a; do echo \"got:$a\"; done\n",
         );
