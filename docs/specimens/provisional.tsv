@@ -2,3 +2,15 @@
 # provisional profile that moves is reported as drift and fails nothing,
 # and may go undrawn where its set cannot be built; a row goes when the
 # operator accepts the profile, which then fails on a moved pixel.
+320x240-1bit	moved 2026-11-06, the Hebrew and Arabic lines drawn right to left and the Arabic joined (ADR-1004 D3, D6); the maintainer reviews it as a picture
+320x240	moved 2026-11-06, the Hebrew and Arabic lines drawn right to left and the Arabic joined (ADR-1004 D3, D6); the maintainer reviews it as a picture
+320x240-tiny5	moved 2026-11-06, the Hebrew and Arabic lines drawn right to left and the Arabic joined (ADR-1004 D3, D6); the maintainer reviews it as a picture
+320x240-gray4	moved 2026-11-06, the Hebrew and Arabic lines drawn right to left and the Arabic joined (ADR-1004 D3, D6); the maintainer reviews it as a picture
+320x240-gray16	moved 2026-11-06, the Hebrew and Arabic lines drawn right to left and the Arabic joined (ADR-1004 D3, D6); the maintainer reviews it as a picture
+640x480-gray16	moved 2026-11-06, the Hebrew and Arabic lines drawn right to left and the Arabic joined (ADR-1004 D3, D6); the maintainer reviews it as a picture
+480x320	moved 2026-11-06, the Hebrew and Arabic lines drawn right to left and the Arabic joined (ADR-1004 D3, D6); the maintainer reviews it as a picture
+640x480	moved 2026-11-06, the Hebrew and Arabic lines drawn right to left and the Arabic joined (ADR-1004 D3, D6); the maintainer reviews it as a picture
+800x480	moved 2026-11-06, the Hebrew and Arabic lines drawn right to left and the Arabic joined (ADR-1004 D3, D6); the maintainer reviews it as a picture
+1366x768	moved 2026-11-06, the Hebrew and Arabic lines drawn right to left and the Arabic joined (ADR-1004 D3, D6); the maintainer reviews it as a picture
+1920x1080	moved 2026-11-06, the Hebrew and Arabic lines drawn right to left and the Arabic joined (ADR-1004 D3, D6); the maintainer reviews it as a picture
+2560x1440	moved 2026-11-06, the Hebrew and Arabic lines drawn right to left and the Arabic joined (ADR-1004 D3, D6); the maintainer reviews it as a picture
