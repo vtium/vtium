@@ -16,7 +16,14 @@ publish = false
 workspace = true
 
 [dependencies]
-vtium-term.workspace = true
+# Always with right-to-left text (ADR-1004): the test card holds a Hebrew
+# and an Arabic line, and the specimens show them as the vtium package draws
+# them, in the order the bidirectional algorithm gives. With the feature on
+# here, make specimens, make specimens-check, cargo test --workspace and
+# cargo test --workspace --all-features all draw the same pixels; without
+# it, --all-features alone would turn it on and the committed drawings
+# would differ from the test's (the maintainer's decision, 2026-11-06).
+vtium-term = { workspace = true, features = ["bidi"] }
 vtium-font.workspace = true
 vtium-render.workspace = true
 # generates the desktop frit's glyphs through the engine the helper runs
