@@ -33,7 +33,9 @@ pub struct LibseatDevice {
 impl Manager for Libseat {
     type Seat = LibseatSeat;
 
+    /// libseat writes its own errors to stderr, where vtium's log goes too.
     fn open(&mut self, inbox: Inbox) -> io::Result<LibseatSeat> {
+        libseat::set_log_level(libseat::LogLevel::Error);
         let listener = Rc::clone(&inbox);
         let seat = libseat::Seat::open(move |_, event| {
             listener.borrow_mut().push_back(match event {

@@ -54,10 +54,11 @@ khronos-egl = { version = "=6.0.0", default-features = false, features = ["1_5",
 # makes; khronos-egl's `dynamic` feature already builds it. Only with `gpu`.
 libloading = { version = "=0.8.9", optional = true }
 # libseat, through the libseat-sys binding, which finds the library through
-# pkg-config and fails the build naming it when it is missing; its default
-# feature routes libseat's own log lines into the log crate. Only with
-# `libseat`.
-libseat = { version = "=0.2.4", optional = true }
+# pkg-config and fails the build naming it when it is missing. Its default
+# feature compiles a C file to route libseat's log into the log crate,
+# which needs a C compiler for each target; without it libseat writes its
+# errors to stderr itself. Only with `libseat`.
+libseat = { version = "=0.2.4", default-features = false, optional = true }
 
 [build-dependencies]
 # Finds libsystemd or libelogind for the `logind` feature; already in the
