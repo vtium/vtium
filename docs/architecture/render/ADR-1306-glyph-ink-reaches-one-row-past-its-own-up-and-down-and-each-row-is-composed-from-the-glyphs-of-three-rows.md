@@ -194,6 +194,8 @@ The words used below: a glyph's **reach** is the block of cells its ink may draw
 - **The grid's top and bottom edges cut ink,** as its left and right edges do (the maintainer, 2026-11-01, on the grid edge), so the border around the grid never shows ink. An accent on the grid's first row is cut at the grid's top.
 - **One row is the bound,** and the measured ink needs less than half of it: at most 0.42 of the cell above the row and 0.35 below (Context). The bound is a whole row, rather than a share of one, because what it costs is set by how many rows a pixel looks at, which is three for any bound up to a row, and one rule then names the same one cell in every direction. A script whose stacks pass a whole row, such as Tibetan with several subjoined letters, meets D2's move-and-scale rule at that edge.
 
+> Added 2026-11-06: a cluster that the console builds from its parts by ADR-1200 D22's step 3, because the font set holds no glyph for the whole cluster, takes part in the reach like any other glyph (the maintainer, 2026-11-06). Its parts are the store's glyph for as much of the cluster as the helper shaped and the marks left out of it, and its glyph's ink box is the union of their ink, cut to the reach, so its marks draw where they draw in a cluster the helper shaped whole, and the renderer keeps its reach, damages its neighbours and orders its ink as it does for every glyph.
+
 ### D2: the baseline, the marks, and a letter's own ink
 
 This decision amends ADR-1302 D3.
