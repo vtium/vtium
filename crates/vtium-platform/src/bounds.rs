@@ -143,7 +143,7 @@ const SEAT_RETRY: Bound = Bound {
     value: 100,
     what: "With `libseat`: milliseconds between tries to open the seat or one of its devices, and between looks at whether the VT is shown before the seat opens",
     past: "The next try waits for the loop's timer; signals, timers and the other sources are served in between",
-    cite: "The interval at which the C reference retried, with the loop's timer in place of `usleep` (vtium/vtium#34)",
+    cite: "Short beside a seat manager's handover of the seat from its previous client, and served by a loop timer, so no try waits on the loop (vtium/vtium#34)",
 };
 
 const SEAT_OPENS: Bound = Bound {
@@ -151,7 +151,7 @@ const SEAT_OPENS: Bound = Bound {
     value: 50,
     what: "With `libseat`: tries to open the seat while the seat manager answers that it is busy",
     past: "vtium logs an error and ends, as a hung-up VT ends it",
-    cite: "The C reference's tries for the seat: about 5 s at `SEAT_RETRY_MS`",
+    cite: "About 5 s at `SEAT_RETRY_MS`, long enough for seatd 0.9.3 to finish disabling the seat's previous client, which it answers `EBUSY` for meanwhile (seatd/seat.c, `seat_add_client`)",
 };
 
 const DEVICE_OPENS: Bound = Bound {
@@ -159,7 +159,7 @@ const DEVICE_OPENS: Bound = Bound {
     value: 20,
     what: "With `libseat`: tries to open one display device while the seat manager answers that it is missing, refused or busy",
     past: "vtium logs a warning and goes on without the device until udev reports it again",
-    cite: "The C reference's tries for a device: about 2 s at `SEAT_RETRY_MS`",
+    cite: "About 2 s at `SEAT_RETRY_MS`: udev reports a device before the seat manager is ready to give it, which then answers `ENODEV`, `EACCES` or `EBUSY` for a short while",
 };
 
 const RESOURCE_READS: Bound = Bound {
