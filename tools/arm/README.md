@@ -30,9 +30,14 @@ A fetch whose sysroot is already extracted, or whose packages are all in `debs` 
 
 A test binary under qemu starts other target binaries, as `crates/vtium/tests` start vtium, and the kernel hands those to qemu only through binfmt_misc. When the host registers no qemu for the target, `TRIPLE-run` mounts a binfmt_misc of its own in a user namespace, registers qemu there, and runs the binary in a nested namespace mapped back to the invoking user and group. Nothing on the host changes. Where the namespace or its binfmt_misc is refused, as before Linux 6.7, it runs qemu directly and says so, and the tests that start a target binary fail.
 
-The namespace's binfmt_misc entry names a script beside the sysroot, `ARCH-ID.qemu-aarch64` or `ARCH-ID.qemu-arm`, which runs qemu with the sysroot as its `-L`. vtium starts its helpers with an empty environment, so a helper started under qemu gets no `QEMU_LD_PREFIX`. Without the `-L`, qemu would not find the target's loader.
+The namespace's binfmt_misc entry names qemu itself, with the `O` flag, so the kernel opens the target binary and hands qemu the open file. vtium starts its helpers through `/proc/self/fd/N`, from a descriptor it closes at the exec, so that path no longer names the binary once qemu runs.
 
-The namespace maps no root, so every file and directory that root owns on the host belongs to the overflow uid, 65534, inside it. vtium reads a configuration file only when root or its own account owns each directory above it (ADR-1403 D3), so the tests could read none of their own files there. `TRIPLE-run` therefore runs the tests in a root of their own: a tmpfs mounted on `ARCH-ID.root` beside the sysroot, with the host's top-level directories bound into it. The directories above the test binary that root owns are the exception. They are made anew on the tmpfs, so they belong to the invoking user, and the highest directory the invoking user owns, such as the home directory, is bound below them. A file that root owns, such as `/bin/sh`, still belongs to uid 65534 there. The tests that start a stand-in for the font helper start a copy of `/bin/sh` that their own account owns, as they would need to on any host where root's files are not root's.
+The namespace maps no root, so every file and directory that root owns on the host belongs to the overflow uid, 65534, inside it. vtium reads a configuration file only when root or its own account owns each directory above it (ADR-1403 D3), so the tests could read none of their own files there. `TRIPLE-run` therefore runs the tests in a root of their own: a tmpfs mounted on `ARCH-ID.root` beside the sysroot, with the host's entries bound into it. The directories on the way to two places are made anew on the tmpfs, so they belong to the invoking user:
+
+- the highest directory above the test binary that the invoking user owns, such as the home directory, which is bound below them;
+- qemu's built-in prefix, `/usr/gnemul/qemu-aarch64` for this build of qemu, where the sysroot is bound. vtium starts its helpers with an empty environment, so a helper gets no `QEMU_LD_PREFIX`, and qemu finds the target's loader at the prefix instead.
+
+A file that root owns, such as `/bin/sh`, still belongs to uid 65534 there. The tests that start a stand-in for the font helper start a copy of `/bin/sh` that their own account owns, as they would need to on any host where root's files are not root's.
 
 qemu opens a path that also exists in the sysroot from the sysroot, and not only the libraries. A test that reads the kernel's UAPI headers from `/usr/include` would therefore read Debian 12's, which are older than the kernel the tests run on. qemu passes the tests' ioctls to the host's kernel, so `TRIPLE-run` points `VTIUM_KERNEL_HEADERS` at the host's headers through `/proc/self/root/usr/include`, a path the sysroot does not have.
 
@@ -67,7 +72,8 @@ qemu-user runs vtium's code on an emulated CPU over the host's kernel, so it jud
 - **Speed.** A test's time under emulation says nothing about a Cortex-A53.
 - **Device ioctls qemu does not translate,** such as DRM's `GET_CAP`: qemu answers `ENOTTY`, so a test on the host's render node fails under qemu while it passes natively.
 - **Tracing.** The host's `strace` on a target binary traces qemu.
-- **seccomp.** qemu answers `ENOSYS` to `seccomp()`, since a filter would bind qemu itself. The font helper refuses to run without its socket filter, so every test that starts the real font helper fails under qemu.
+- **seccomp.** qemu answers `ENOSYS` to `seccomp()`, since a filter would bind qemu itself. The font helper refuses to run without its socket filter, and the image helper without its filters.
+- **A process of one thread.** qemu runs a thread of its own in every process. The image helper checks that it runs alone before it installs its filter, and it refuses to run when it does not.
 - **Memory limits.** qemu does not pass `RLIMIT_AS` and `RLIMIT_DATA` on to the kernel, since they would limit qemu itself, so a child under qemu reports no limit.
 - **A failed start.** glibc's `posix_spawn` reports a failed `exec` through memory the child shares with its parent. qemu runs that child as a fork that shares no memory, so the start of a program no one may execute succeeds, and the child exits with status 127.
 - **Root's own files.** In the user namespace, no file belongs to root (above).
@@ -82,6 +88,10 @@ qemu-user runs vtium's code on an emulated CPU over the host's kernel, so it jud
 | vtium's `check::tests`, the assertions that root's own helper draws no note | root does not own `/bin/sh` |
 | vtium-config's `serve::tests::the_helpers_socket_filter_refuses_every_new_socket` | the socket filter's install answers ENOSYS |
 | vtium-config's `serve::tests::the_helpers_socket_filter_refuses_io_uring` | `python3`, which installs the filter, runs on another architecture than the test |
+| the tests in vtium-config's `tests/` that start the real font helper, in `commands.rs`, `preview.rs`, `serve.rs` and `specimen.rs` | `vtium_testscript::qemu_without_seccomp` finds that a filter answers ENOSYS |
+| vtium-image-helper's `tests/helper.rs`, and the four roles of `tests/filter.rs` that install a filter | the same |
+| vtium-config's `cli.rs`, the address-space check of `the_parser_runs_without_new_privileges_and_within_its_limits` | the parser shows no address-space limit |
+| vtium-settings' `file.rs`, the check of root's file in `a_vtium_that_runs_as_a_user_reads_that_user_s_file_too` | root does not own `/etc/passwd` |
 
 `TRIPLE-run` names each on its test binary's run, since a passing test's own output is hidden. CI's `arm-native` job runs the whole suite natively on an aarch64 runner. The runner has no render node, so the DRM test skips there; a real ARM machine judges it.
 
