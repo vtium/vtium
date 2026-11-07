@@ -81,6 +81,13 @@ pub(crate) struct Job {
 
 /// A neighbour's glyph whose ink a cell receives (ADR-1306 D4).
 #[derive(Clone, Copy, Debug)]
+#[cfg_attr(
+    not(feature = "gpu"),
+    expect(
+        dead_code,
+        reason = "only the GPU path's composer reads a source's cell, own color and mark"
+    )
+)]
 pub(crate) struct Source {
     /// The glyph's text in the row's text buffer, its width and style.
     pub(crate) text: (usize, usize, FontWidth, Style),
