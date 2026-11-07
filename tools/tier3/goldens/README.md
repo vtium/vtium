@@ -39,7 +39,7 @@ The goldens of the frit variants (vtium/vtium#145, `../README.md`, Variants) are
 
 | Golden | What it shows |
 |---|---|
-| `2d-640x480-frit/small-console.png` | The `small-console` screen once the helper's glyphs have arrived: its letters, digits and Latin-1 in DejaVu Sans Mono, antialiased, in 9x16 cells, so its 40-column ruler ends at x 360; the box lines, blocks and shades as the sprites. |
+| `2d-640x480-frit/small-console.png` | The `small-console` screen once the helper's glyphs have arrived: its letters, digits and Latin-1 in DejaVu Sans Mono, antialiased, in 9x16 cells, so its 40-column ruler ends at x 360; the box lines, blocks and shades as the sprites. The ring of Å draws whole, its top row in the row above Å's cell (ADR-1306). |
 | `2d-640x480-frit/cjk.png` | The `cjk` screen in the same frit and cell: `Latin then CJK:`, `end`, `ASCII` and the bars in DejaVu Sans Mono, and the Chinese, Japanese and Korean characters, which the font lacks, in the built-in unifont, each centered in its two 9-pixel cells (vtium/vtium#141). |
 | `2d-640x480-frit-held/small-console.png` | The `small-console` screen with a helper that never answers: the screen before the helper's first answer, all in the built-in unifont, pixel for pixel the reviewed `2d-640x480-psf16/small-console.png`. |
 | `2d-640x480-frit-held/cjk.png` | The `cjk` screen with a helper that never answers, all in the built-in unifont, pixel for pixel `2d-640x480-psf16/cjk.png`. |
