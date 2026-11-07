@@ -349,6 +349,80 @@
 #clipboard-write
 #grab-paste=<Shift>Insert
 
+# ══ Keys vtium takes ════════════════════════════════════════════════════════
+#
+# The keys vtium acts on itself instead of sending them to the program. Each
+# value lists key combinations, separated by commas, and an empty value hands
+# the key to the program. The scroll keys and the prompt jumps are vtium's
+# only on the main screen: on the alternate screen, where editors run, they
+# reach the program. Ctrl+Alt+F1 to F12 always switch the VT.
+
+# ── Scrolling and prompt jumps ──────────────────────────────────────────────
+
+## grab-scroll-up: Scroll the view back one line.
+## grab-scroll-down: Scroll the view forward one line.
+## grab-page-up: Scroll the view back one page. `Prior` is Page Up.
+## grab-page-down: Scroll the view forward one page. `Next` is Page Down.
+#
+## grab-prompt-up: Scroll the view back to the shell prompt above, which OSC
+## 133 marks.
+#
+## grab-prompt-down: Scroll the view forward to the shell prompt below, or to
+## the live screen.
+
+#grab-scroll-up=<Shift>Up
+#grab-scroll-down=<Shift>Down
+#grab-page-up=<Shift>Prior
+#grab-page-down=<Shift>Next
+#grab-prompt-up=<Ctrl><Shift>Up
+#grab-prompt-down=<Ctrl><Shift>Down
+
+# ── Zoom, rotation and reset ────────────────────────────────────────────────
+
+## grab-zoom-in: Make the font of the console on screen larger.
+## grab-zoom-out: Make the font of the console on screen smaller.
+#
+## grab-rotate-cw: Turn the head's displays a quarter turn clockwise. `Logo`
+## is Super.
+#
+## grab-rotate-ccw: Turn the head's displays a quarter turn counterclockwise.
+#
+## grab-reset: Reset the console on screen, as the `reset` command does.
+##
+## It clears the screen and the scrollback, and turns off every mode a program
+## set, the keyboard's too: use it when a program left the keyboard sending
+## escape codes.
+
+#grab-zoom-in=<Ctrl>plus,<Ctrl>equal
+#grab-zoom-out=<Ctrl>minus
+#grab-rotate-cw=<Logo>plus,<Logo>equal
+#grab-rotate-ccw=<Logo>minus
+#grab-reset=<Ctrl><Shift>Delete
+
+# ── Consoles and heads ──────────────────────────────────────────────────────
+
+## grab-console-next: Show the head's next console.
+## grab-console-previous: Show the head's previous console.
+#
+## grab-console-open: Open a console after the one on screen, unless the
+## policy is `closed`.
+#
+## grab-console-close: Close the console on screen, unless it is the head's
+## last or the policy is `closed`.
+#
+## grab-focus-next: Make the next head active, from a keyboard that roams
+## among the heads.
+#
+## grab-focus-previous: Make the previous head active, from a keyboard that
+## roams among the heads.
+
+#grab-console-next=<Ctrl><Logo>Right
+#grab-console-previous=<Ctrl><Logo>Left
+#grab-console-open=<Ctrl><Logo>Return
+#grab-console-close=<Ctrl><Logo>BackSpace
+#grab-focus-next=<Ctrl><Logo>Up
+#grab-focus-previous=<Ctrl><Logo>Down
+
 # ══ Session and terminal ════════════════════════════════════════════════════
 #
 # The command each console runs, the terminal type it sees, and how much of

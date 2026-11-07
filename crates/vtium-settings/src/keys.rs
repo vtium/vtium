@@ -1745,6 +1745,217 @@ pub const GRAB_SUSPEND: Key = Key {
     cite: "[the configuration issue](https://github.com/vtium/vtium/issues/21)",
 };
 
+/// Where the keys vtium takes for itself come from (ADR-1005 D10).
+const OWN_KEYS_CITE: &str = "[the kitty keyboard issue](https://github.com/vtium/vtium/issues/42)";
+
+/// Where the console and focus keys come from (ADR-1005 D10, ADR-1401).
+const HEAD_KEYS_CITE: &str = "[the heads issue](https://github.com/vtium/vtium/issues/156); [the kitty keyboard issue](https://github.com/vtium/vtium/issues/42)";
+
+pub const GRAB_SCROLL_UP: Key = Key {
+    name: "grab-scroll-up",
+    short: None,
+    kind: Kind::Grab,
+    default: Default::Text("<Shift>Up"),
+    scope: Scope::Anywhere,
+    levels: TOP,
+    reader: "vtium",
+    what: "Scroll the view back one line.",
+    cite: OWN_KEYS_CITE,
+};
+
+pub const GRAB_SCROLL_DOWN: Key = Key {
+    name: "grab-scroll-down",
+    short: None,
+    kind: Kind::Grab,
+    default: Default::Text("<Shift>Down"),
+    scope: Scope::Anywhere,
+    levels: TOP,
+    reader: "vtium",
+    what: "Scroll the view forward one line.",
+    cite: OWN_KEYS_CITE,
+};
+
+pub const GRAB_PAGE_UP: Key = Key {
+    name: "grab-page-up",
+    short: None,
+    kind: Kind::Grab,
+    default: Default::Text("<Shift>Prior"),
+    scope: Scope::Anywhere,
+    levels: TOP,
+    reader: "vtium",
+    what: "Scroll the view back one page. `Prior` is Page Up.",
+    cite: OWN_KEYS_CITE,
+};
+
+pub const GRAB_PAGE_DOWN: Key = Key {
+    name: "grab-page-down",
+    short: None,
+    kind: Kind::Grab,
+    default: Default::Text("<Shift>Next"),
+    scope: Scope::Anywhere,
+    levels: TOP,
+    reader: "vtium",
+    what: "Scroll the view forward one page. `Next` is Page Down.",
+    cite: OWN_KEYS_CITE,
+};
+
+pub const GRAB_PROMPT_UP: Key = Key {
+    name: "grab-prompt-up",
+    short: None,
+    kind: Kind::Grab,
+    default: Default::Text("<Ctrl><Shift>Up"),
+    scope: Scope::Anywhere,
+    levels: TOP,
+    reader: "vtium",
+    what: "Scroll the view back to the shell prompt above, which OSC 133 marks.",
+    cite: "[the OSC 133 prompt marks issue](https://github.com/vtium/vtium/issues/40); [the kitty keyboard issue](https://github.com/vtium/vtium/issues/42)",
+};
+
+pub const GRAB_PROMPT_DOWN: Key = Key {
+    name: "grab-prompt-down",
+    short: None,
+    kind: Kind::Grab,
+    default: Default::Text("<Ctrl><Shift>Down"),
+    scope: Scope::Anywhere,
+    levels: TOP,
+    reader: "vtium",
+    what: "Scroll the view forward to the shell prompt below, or to the live screen.",
+    cite: "[the OSC 133 prompt marks issue](https://github.com/vtium/vtium/issues/40); [the kitty keyboard issue](https://github.com/vtium/vtium/issues/42)",
+};
+
+pub const GRAB_ZOOM_IN: Key = Key {
+    name: "grab-zoom-in",
+    short: None,
+    kind: Kind::Grab,
+    default: Default::Text("<Ctrl>plus,<Ctrl>equal"),
+    scope: Scope::Anywhere,
+    levels: TOP,
+    reader: "vtium",
+    what: "Make the font of the console on screen larger.",
+    cite: OWN_KEYS_CITE,
+};
+
+pub const GRAB_ZOOM_OUT: Key = Key {
+    name: "grab-zoom-out",
+    short: None,
+    kind: Kind::Grab,
+    default: Default::Text("<Ctrl>minus"),
+    scope: Scope::Anywhere,
+    levels: TOP,
+    reader: "vtium",
+    what: "Make the font of the console on screen smaller.",
+    cite: OWN_KEYS_CITE,
+};
+
+pub const GRAB_ROTATE_CW: Key = Key {
+    name: "grab-rotate-cw",
+    short: None,
+    kind: Kind::Grab,
+    default: Default::Text("<Logo>plus,<Logo>equal"),
+    scope: Scope::Anywhere,
+    levels: TOP,
+    reader: "vtium",
+    what: "Turn the head's displays a quarter turn clockwise. `Logo` is Super.",
+    cite: OWN_KEYS_CITE,
+};
+
+pub const GRAB_ROTATE_CCW: Key = Key {
+    name: "grab-rotate-ccw",
+    short: None,
+    kind: Kind::Grab,
+    default: Default::Text("<Logo>minus"),
+    scope: Scope::Anywhere,
+    levels: TOP,
+    reader: "vtium",
+    what: "Turn the head's displays a quarter turn counterclockwise.",
+    cite: OWN_KEYS_CITE,
+};
+
+pub const GRAB_RESET: Key = Key {
+    name: "grab-reset",
+    short: None,
+    kind: Kind::Grab,
+    default: Default::Text("<Ctrl><Shift>Delete"),
+    scope: Scope::Anywhere,
+    levels: TOP,
+    reader: "vtium",
+    what: "Reset the console on screen, as the `reset` command does.\n\n\
+           It clears the screen and the scrollback, and turns off every mode a program set, the keyboard's too: use it when a program left the keyboard sending escape codes.",
+    cite: OWN_KEYS_CITE,
+};
+
+pub const GRAB_CONSOLE_NEXT: Key = Key {
+    name: "grab-console-next",
+    short: None,
+    kind: Kind::Grab,
+    default: Default::Text("<Ctrl><Logo>Right"),
+    scope: Scope::Anywhere,
+    levels: TOP,
+    reader: "vtium",
+    what: "Show the head's next console.",
+    cite: HEAD_KEYS_CITE,
+};
+
+pub const GRAB_CONSOLE_PREVIOUS: Key = Key {
+    name: "grab-console-previous",
+    short: None,
+    kind: Kind::Grab,
+    default: Default::Text("<Ctrl><Logo>Left"),
+    scope: Scope::Anywhere,
+    levels: TOP,
+    reader: "vtium",
+    what: "Show the head's previous console.",
+    cite: HEAD_KEYS_CITE,
+};
+
+pub const GRAB_CONSOLE_OPEN: Key = Key {
+    name: "grab-console-open",
+    short: None,
+    kind: Kind::Grab,
+    default: Default::Text("<Ctrl><Logo>Return"),
+    scope: Scope::Anywhere,
+    levels: TOP,
+    reader: "vtium",
+    what: "Open a console after the one on screen, unless the policy is `closed`.",
+    cite: HEAD_KEYS_CITE,
+};
+
+pub const GRAB_CONSOLE_CLOSE: Key = Key {
+    name: "grab-console-close",
+    short: None,
+    kind: Kind::Grab,
+    default: Default::Text("<Ctrl><Logo>BackSpace"),
+    scope: Scope::Anywhere,
+    levels: TOP,
+    reader: "vtium",
+    what: "Close the console on screen, unless it is the head's last or the policy is `closed`.",
+    cite: HEAD_KEYS_CITE,
+};
+
+pub const GRAB_FOCUS_NEXT: Key = Key {
+    name: "grab-focus-next",
+    short: None,
+    kind: Kind::Grab,
+    default: Default::Text("<Ctrl><Logo>Up"),
+    scope: Scope::Anywhere,
+    levels: TOP,
+    reader: "vtium",
+    what: "Make the next head active, from a keyboard that roams among the heads.",
+    cite: HEAD_KEYS_CITE,
+};
+
+pub const GRAB_FOCUS_PREVIOUS: Key = Key {
+    name: "grab-focus-previous",
+    short: None,
+    kind: Kind::Grab,
+    default: Default::Text("<Ctrl><Logo>Down"),
+    scope: Scope::Anywhere,
+    levels: TOP,
+    reader: "vtium",
+    what: "Make the previous head active, from a keyboard that roams among the heads.",
+    cite: HEAD_KEYS_CITE,
+};
+
 pub const IMAGE_STORAGE_LIMIT: Key = Key {
     name: "image-storage-limit",
     short: None,
@@ -1851,7 +2062,7 @@ pub const KITTY_GRAPHICS: Key = Key {
 
 /// Every key, in the order the generated files list them. A static, so
 /// each use reads the one table instead of a copy of it.
-pub static KEYS: [Key; 108] = [
+pub static KEYS: [Key; 125] = [
     CONFIGDIR,
     HELP,
     VERSION,
@@ -1930,6 +2141,23 @@ pub static KEYS: [Key; 108] = [
     GRAB_REBOOT,
     GRAB_POWER_OFF,
     GRAB_SUSPEND,
+    GRAB_SCROLL_UP,
+    GRAB_SCROLL_DOWN,
+    GRAB_PAGE_UP,
+    GRAB_PAGE_DOWN,
+    GRAB_PROMPT_UP,
+    GRAB_PROMPT_DOWN,
+    GRAB_ZOOM_IN,
+    GRAB_ZOOM_OUT,
+    GRAB_ROTATE_CW,
+    GRAB_ROTATE_CCW,
+    GRAB_RESET,
+    GRAB_CONSOLE_NEXT,
+    GRAB_CONSOLE_PREVIOUS,
+    GRAB_CONSOLE_OPEN,
+    GRAB_CONSOLE_CLOSE,
+    GRAB_FOCUS_NEXT,
+    GRAB_FOCUS_PREVIOUS,
     FONT_ENGINE,
     FONT_NAME,
     FONT_FRITS,
@@ -1986,7 +2214,7 @@ pub struct Section {
 /// change most come first, and those of vtium's own running last. Each key
 /// is in one group of one section. The example leaves out the keys only
 /// the command line takes, and a group or section left with none.
-pub const SECTIONS: [Section; 10] = [
+pub const SECTIONS: [Section; 11] = [
     Section {
         title: "Fonts and text",
         about: "The console's font and its size, who draws box-drawing and block characters, how blinking text looks, and which way text runs.",
@@ -2094,6 +2322,44 @@ pub const SECTIONS: [Section; 10] = [
             Group {
                 title: "Clipboard and paste",
                 keys: &[&CLIPBOARD_WRITE, &GRAB_PASTE],
+            },
+        ],
+    },
+    Section {
+        title: "Keys vtium takes",
+        about: "The keys vtium acts on itself instead of sending them to the program. Each value lists key combinations, separated by commas, and an empty value hands the key to the program. The scroll keys and the prompt jumps are vtium's only on the main screen: on the alternate screen, where editors run, they reach the program. Ctrl+Alt+F1 to F12 always switch the VT.",
+        groups: &[
+            Group {
+                title: "Scrolling and prompt jumps",
+                keys: &[
+                    &GRAB_SCROLL_UP,
+                    &GRAB_SCROLL_DOWN,
+                    &GRAB_PAGE_UP,
+                    &GRAB_PAGE_DOWN,
+                    &GRAB_PROMPT_UP,
+                    &GRAB_PROMPT_DOWN,
+                ],
+            },
+            Group {
+                title: "Zoom, rotation and reset",
+                keys: &[
+                    &GRAB_ZOOM_IN,
+                    &GRAB_ZOOM_OUT,
+                    &GRAB_ROTATE_CW,
+                    &GRAB_ROTATE_CCW,
+                    &GRAB_RESET,
+                ],
+            },
+            Group {
+                title: "Consoles and heads",
+                keys: &[
+                    &GRAB_CONSOLE_NEXT,
+                    &GRAB_CONSOLE_PREVIOUS,
+                    &GRAB_CONSOLE_OPEN,
+                    &GRAB_CONSOLE_CLOSE,
+                    &GRAB_FOCUS_NEXT,
+                    &GRAB_FOCUS_PREVIOUS,
+                ],
             },
         ],
     },
@@ -2290,6 +2556,54 @@ mod tests {
             for g in s.groups {
                 assert!(!g.keys.is_empty(), "{}", g.title);
             }
+        }
+    }
+
+    // ADR-1005 D10: the seventeen keys vtium takes for itself, apart from
+    // the VT keys and the rescue key, are grab keys of vtium.conf's top
+    // level, each with the combination vtium took before the keys were
+    // configurable as its built-in default, so vtium with no vtium.conf
+    // takes the same keys.
+    #[test]
+    fn vtiums_own_keys_are_grab_keys_with_their_built_in_defaults() {
+        let want = [
+            ("grab-scroll-up", "<Shift>Up"),
+            ("grab-scroll-down", "<Shift>Down"),
+            ("grab-page-up", "<Shift>Prior"),
+            ("grab-page-down", "<Shift>Next"),
+            ("grab-prompt-up", "<Ctrl><Shift>Up"),
+            ("grab-prompt-down", "<Ctrl><Shift>Down"),
+            ("grab-zoom-in", "<Ctrl>plus,<Ctrl>equal"),
+            ("grab-zoom-out", "<Ctrl>minus"),
+            ("grab-rotate-cw", "<Logo>plus,<Logo>equal"),
+            ("grab-rotate-ccw", "<Logo>minus"),
+            ("grab-reset", "<Ctrl><Shift>Delete"),
+            ("grab-console-next", "<Ctrl><Logo>Right"),
+            ("grab-console-previous", "<Ctrl><Logo>Left"),
+            ("grab-console-open", "<Ctrl><Logo>Return"),
+            ("grab-console-close", "<Ctrl><Logo>BackSpace"),
+            ("grab-focus-next", "<Ctrl><Logo>Up"),
+            ("grab-focus-previous", "<Ctrl><Logo>Down"),
+        ];
+        for (name, default) in want {
+            let key = find(name).unwrap_or(&HELP);
+            assert_eq!(key.name, name);
+            assert_eq!(key.kind, Kind::Grab, "{name}");
+            assert_eq!(key.default, Default::Text(default), "{name}");
+            assert_eq!(key.scope, Scope::Anywhere, "{name}");
+            assert_eq!(key.levels, TOP, "{name}");
+            assert_eq!(key.reader, "vtium", "{name}");
+        }
+        // with grab-paste and the power keys, every grab key there is
+        let grabs = KEYS.iter().filter(|k| k.kind == Kind::Grab).count();
+        assert_eq!(grabs, want.len() + 4);
+        // The VT keys and the rescue key have no key to bind or empty.
+        for k in &KEYS {
+            assert!(
+                !k.name.contains("vt-") && !k.name.contains("rescue"),
+                "{}",
+                k.name
+            );
         }
     }
 
