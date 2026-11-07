@@ -91,6 +91,15 @@ pub(crate) struct Source {
     pub(crate) clip: Area,
     /// The color its ink takes in the receiving cell (ADR-1306 D6).
     pub(crate) color: Rgb,
+    /// The glyph's first cell, its column and row, which the GPU path
+    /// names to its shader.
+    pub(crate) cell: (usize, usize),
+    /// The color its ink takes in a cell that no mark covers, which is
+    /// `color` unless `marked`.
+    pub(crate) own: Rgb,
+    /// A block cursor or the selection marks the receiving cell, so its
+    /// ink takes the mark's text color there.
+    pub(crate) marked: bool,
 }
 
 impl Job {

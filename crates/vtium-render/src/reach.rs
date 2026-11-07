@@ -84,6 +84,13 @@ impl Reach {
         self.0 >> 6 & 3
     }
 
+    /// The byte that holds the four counts: left in its lowest two bits,
+    /// then right, up and down.
+    #[cfg(feature = "gpu")]
+    pub(crate) fn byte(self) -> u8 {
+        self.0
+    }
+
     /// Whether the ink stays in its own cells.
     pub(crate) fn is_none(self) -> bool {
         self.0 == 0

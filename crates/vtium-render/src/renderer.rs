@@ -401,8 +401,30 @@ pub(crate) trait Back {
     /// an empty grid: the border is what the grid leaves.
     fn border(&mut self, compose: &mut Composer, display: (Rect, Option<Area>), bg: Rgb, r: Rect);
 
-    /// Draws the row's jobs, which `compose` holds with their text.
-    fn row<F: Face>(&mut self, compose: &mut Composer, font: &Font<F>, strip: (usize, usize));
+    /// Draws the jobs of grid row `row`, which `compose` holds with their
+    /// text and the ink each receives.
+    fn row<F: Face>(
+        &mut self,
+        compose: &mut Composer,
+        font: &Font<F>,
+        strip: (usize, usize),
+        row: usize,
+    );
+
+    /// Whether the glyphs it draws from hold one whose ink passes its
+    /// cells: until they do, no cell's ink reaches another.
+    fn reaching(&self, compose: &Composer) -> bool;
+
+    /// How far the glyph for `text` in `style`, `width` cells wide, reaches
+    /// past its cells, from the glyphs it draws from.
+    fn reach<F: Face>(
+        &mut self,
+        compose: &mut Composer,
+        font: &Font<F>,
+        text: &[char],
+        width: FontWidth,
+        style: Style,
+    ) -> Reach;
 
     /// Whether it draws the ink a cell receives from its neighbours' glyphs,
     /// which the renderer then gathers for each job.
@@ -447,8 +469,29 @@ impl<T: Target> Back for Cpu<'_, T> {
         }
     }
 
-    fn row<F: Face>(&mut self, compose: &mut Composer, font: &Font<F>, strip: (usize, usize)) {
+    fn row<F: Face>(
+        &mut self,
+        compose: &mut Composer,
+        font: &Font<F>,
+        strip: (usize, usize),
+        _: usize,
+    ) {
         compose.draw(font, strip, &mut *self.0);
+    }
+
+    fn reaching(&self, compose: &Composer) -> bool {
+        compose.cache.reaching()
+    }
+
+    fn reach<F: Face>(
+        &mut self,
+        compose: &mut Composer,
+        font: &Font<F>,
+        text: &[char],
+        width: FontWidth,
+        style: Style,
+    ) -> Reach {
+        compose.cache.reach(font, text, width, style)
     }
 
     const RECEIVES: bool = true;
@@ -1142,12 +1185,13 @@ impl<F: Face> Renderer<F> {
     /// ink changed stamps the neighbours its old or new reach covers
     /// (ADR-1306 D5). Returns whether the cell draws: not the trailing half
     /// of a wide character, which the leading half draws.
-    fn scan_cell(
+    fn scan_cell<B: Back>(
         &mut self,
         p: &Pass<'_, '_>,
         (col, row): (usize, usize),
         fc: &FrameCell<'_>,
         (ncells, reads): (usize, bool),
+        back: &mut B,
     ) -> bool {
         // a cell that joins or leaves a wide pair draws differently
         let role = u8::try_from(ncells).unwrap_or(1);
@@ -1186,7 +1230,7 @@ impl<F: Face> Renderer<F> {
             self.cells.stamp(col, row);
         }
         if reread {
-            let reach = self.cell_reach(fc, held);
+            let reach = self.cell_reach(fc, held, back);
             self.reach_to(col, row, role, (ink_changed, reach));
         }
         true
@@ -1224,7 +1268,7 @@ impl<F: Face> Renderer<F> {
     /// that blinks, one whose ink its own background hides, or a cell that
     /// draws no text; and only up and down for the letter the visible
     /// cursor stands on, `held`, whatever the cursor's blink phase.
-    fn cell_reach(&mut self, fc: &FrameCell<'_>, held: bool) -> Reach {
+    fn cell_reach<B: Back>(&mut self, fc: &FrameCell<'_>, held: bool, back: &mut B) -> Reach {
         let blinks = fc.attrs.contains(Attrs::BLINK) || fc.attrs.contains(Attrs::RAPID_BLINK);
         let steady = !blinks || self.config.blink.style == BlinkStyle::Off;
         if !steady || fc.fg == fc.bg || draws_no_text(fc.glyph) {
@@ -1239,14 +1283,14 @@ impl<F: Face> Renderer<F> {
         } else {
             FontWidth::Narrow
         };
-        let cache = &mut self.compose.cache;
+        let compose = &mut self.compose;
         let reach = match fc.glyph {
             Glyph::Empty => return Reach::NONE,
-            Glyph::Char(c) => cache.reach(&self.font, &[c], width, style),
+            Glyph::Char(c) => back.reach(compose, &self.font, &[c], width, style),
             Glyph::Cluster(t) => {
                 self.chars.clear();
                 self.chars.extend(t.chars());
-                cache.reach(&self.font, &self.chars, width, style)
+                back.reach(compose, &self.font, &self.chars, width, style)
             }
         }
         .within(self.bound);
@@ -1271,14 +1315,14 @@ impl<F: Face> Renderer<F> {
         self.reached.clear();
         // the reaches are read only where received ink is drawn, and once
         // the font has drawn a glyph whose ink passes its cells
-        let reads = B::RECEIVES && self.compose.cache.reaching();
+        let reads = B::RECEIVES && back.reaching(&self.compose);
         self.reaches_kept &= reads;
         let mut count = 0u32;
         let mut before = None;
         for (here, fc) in p.frame.cells(row).take(g.cols).enumerate() {
             let ncells = span(fc.width, before, || next_width(p.frame, row, here, g.cols));
             before = Some(fc.width);
-            if !self.scan_cell(p, (here, row), &fc, (ncells, reads)) {
+            if !self.scan_cell(p, (here, row), &fc, (ncells, reads), back) {
                 continue;
             }
             count = count.saturating_add(self.push_cell(p, (here, row), &fc, ncells));
@@ -1390,7 +1434,7 @@ impl<F: Face> Renderer<F> {
         {
             self.compose.pictures.row = row;
         }
-        back.row(&mut self.compose, &self.font, self.layout.strip());
+        back.row(&mut self.compose, &self.font, self.layout.strip(), row);
     }
 
     /// Finds, for each of the row's jobs, the neighbours whose glyphs send
@@ -1495,15 +1539,14 @@ impl<F: Face> Renderer<F> {
         (k, r, span): (usize, usize, usize),
     ) -> Option<Source> {
         let fc = p.frame.cell(r, k)?;
-        let color = if marked {
-            job.fg
-        } else if self.config.depth == Depth::One {
+        let own = if self.config.depth == Depth::One {
             mono::opposite(job.bg)
         } else if fc.selected {
             p.plain().cell(r, k).map_or(fc.fg, |c| c.fg)
         } else {
             fc.fg
         };
+        let color = if marked { job.fg } else { own };
         let text = &mut self.compose.text;
         let start = text.len();
         match fc.glyph {
@@ -1540,6 +1583,9 @@ impl<F: Face> Renderer<F> {
                     .saturating_mul(ch),
             ),
             color,
+            cell: (k, r),
+            own,
+            marked,
         })
     }
 

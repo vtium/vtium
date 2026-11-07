@@ -122,6 +122,10 @@ const WIDER: Bound = Bound {
 
 const TALLER: Bound = Bound { side: 2, rows: 2 };
 
+/// The same checks on the GPU path.
+#[cfg(feature = "gpu")]
+mod gpu;
+
 struct Screen {
     cols: usize,
     lines: Vec<Line>,
