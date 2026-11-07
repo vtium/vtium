@@ -18,7 +18,7 @@ use crate::bounds::VERSION_MAX;
 #[cfg(feature = "images")]
 const REGISTERS_MIN: u32 = 2;
 use crate::screen::Extent;
-use crate::style::{Attrs, Color, Rgb, UnderlineStyle};
+use crate::style::{Attrs, Color, Rgb, Script, UnderlineStyle};
 
 macro_rules! queries {
     (
@@ -417,14 +417,22 @@ impl State {
         };
         for (attr, code) in [
             (Attrs::BLINK, "5"),
+            (Attrs::RAPID_BLINK, "6"),
             (Attrs::INVERSE, "7"),
+            (Attrs::CONCEAL, "8"),
             (Attrs::STRIKE, "9"),
+            (Attrs::OVERLINE, "53"),
         ] {
             if a.contains(attr) {
                 out += ";";
                 out += code;
             }
         }
+        out += match a.script() {
+            Script::Baseline => "",
+            Script::Super => ";73",
+            Script::Sub => ";74",
+        };
         sgr_color(&mut out, pen.fg, 30, 90, 38);
         sgr_color(&mut out, pen.bg, 40, 100, 48);
         sgr_color(&mut out, pen.underline_color, 0, 0, 58);

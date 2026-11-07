@@ -164,8 +164,8 @@ fn a_frame_draws_each_cell_as_one_quad_through_the_cell_shader() {
     assert_eq!(
         kinds,
         [
-            &Call::CreateTexture(Format::R8, Size::new(48, 16)),
-            &Call::FillTexture(rect(0, 0, 48, 16)),
+            &Call::CreateTexture(Format::R8, Size::new(64, 16)),
+            &Call::FillTexture(rect(0, 0, 64, 16)),
             &Call::CreateTexture(Format::R8, Size::new(512, 16)),
             &Call::FillTexture(rect(0, 0, 8, 16)),
             &Call::FillTexture(rect(8, 0, 8, 16)),
@@ -254,6 +254,31 @@ fn a_cell_of_several_layers_names_its_sprites() {
     assert_eq!(q.params, params(FG, 1, BG, fg | 3 << 24, fg | 6 << 24));
 }
 
+// The overline shares the strike's slot: alone it is the seventh sprite,
+// and with the strike the eighth, which holds both lines.
+// covers: sgr.overline
+#[test]
+fn an_overline_names_its_sprite_in_the_strikes_slot() {
+    let mut g = Gpu::new(StandIn::LIMITS, Config::default());
+    let mut s = screen();
+    let mut over = plain();
+    over.attrs.insert(Attrs::OVERLINE);
+    let mut both = over;
+    both.attrs.insert(Attrs::STRIKE);
+    s.text(0, 0, "x", over);
+    s.text(1, 0, "x", both);
+    g.frame(&mut s, 0, &[]).unwrap();
+    let quad = |col| {
+        g.cells()
+            .into_iter()
+            .find(|q| q.dst == dst(cell(col, 0)))
+            .unwrap()
+    };
+    let fg = u32::from_str_radix(FG, 16).unwrap();
+    assert_eq!(quad(0).params, params(FG, 1, BG, 0, fg | 7 << 24));
+    assert_eq!(quad(1).params, params(FG, 1, BG, 0, fg | 8 << 24));
+}
+
 #[test]
 fn a_pool_its_budget_refuses_draws_from_a_held_slot_and_takes_the_glyph_once_the_budget_allows() {
     // ADR-1300 D3: a full pool draws the glyph uncached, from a slot held
@@ -326,7 +351,7 @@ fn a_pool_past_its_first_texture_takes_another_twice_its_size() {
     assert_eq!(
         textures,
         [
-            Call::CreateTexture(Format::R8, Size::new(48, 16)),
+            Call::CreateTexture(Format::R8, Size::new(64, 16)),
             Call::CreateTexture(Format::R8, Size::new(512, 16)),
             Call::CreateTexture(Format::R8, Size::new(1024, 16)),
         ]
@@ -592,41 +617,41 @@ fn a_notice_is_uploaded_whole_once_then_over_what_the_frame_redraws_beneath_it()
 #[test]
 fn a_display_past_the_largest_texture_draws_each_cell_into_each_tile_it_meets() {
     let limits = Limits {
-        texture: 48,
+        texture: 64,
         ..StandIn::LIMITS
     };
     let mut g = Gpu::new(limits, Config::default());
     let mut s = screen();
     s.text(0, 0, "AB", plain());
     g.frame(&mut s, 0, &[]).unwrap();
-    // tiles of 48x48, 36x48, 48x3 and 36x3: column 5 crosses the seam at
-    // 48, from 42 to 50
-    s.text(5, 0, "A", plain());
+    // tiles of 64x51 and 20x51, the sprites' eight cells reaching the
+    // largest texture: column 7 crosses the seam at 64, from 58 to 66
+    s.text(7, 0, "A", plain());
     g.frame(&mut s, 1, &[]).unwrap();
     let quads = g.cells();
     assert_eq!(
         quads.iter().map(|q| q.dst).collect::<Vec<_>>(),
-        [[42, 1, 8, 16], [42 - 48, 1, 8, 16]]
+        [[58, 1, 8, 16], [58 - 64, 1, 8, 16]]
     );
     // present draws each tile's own part
     let present = g.quads(&["target_size", "frame"]);
     assert_eq!(
         present.iter().map(|q| (q.dst, q.src)).collect::<Vec<_>>(),
         [
-            ([42, 1, 6, 16], [42, 1, 6, 16]),
-            ([48, 1, 2, 16], [0, 1, 2, 16])
+            ([58, 1, 6, 16], [58, 1, 6, 16]),
+            ([64, 1, 2, 16], [0, 1, 2, 16])
         ]
     );
 }
 
 // the issue on GPU texture garbage collection: the first frame after a
-// release makes the upright frame's tiles again; on a display of four
-// tiles, one whose third tile fails frees the two made before it, and the
-// next frame makes all four and draws whole
+// release makes the upright frame's tiles again; on a display of two
+// tiles, one whose second tile fails frees the one made before it, and the
+// next frame makes both and draws whole
 #[test]
 fn a_restore_that_fails_partway_frees_the_tiles_it_made_before_the_failure() {
     let limits = Limits {
-        texture: 48,
+        texture: 64,
         ..StandIn::LIMITS
     };
     let mut g = Gpu::new(limits, Config::default());
@@ -637,12 +662,12 @@ fn a_restore_that_fails_partway_frees_the_tiles_it_made_before_the_failure() {
     g.pipeline.release(&mut g.gl).unwrap();
     let (_, released, _) = g.gl.live();
     // the buffer alone
-    assert_eq!((drawing, released), (5, 1));
-    g.gl.fail_after(Op::CreateFrame, 2, ErrorKind::OutOfMemory);
+    assert_eq!((drawing, released), (3, 1));
+    g.gl.fail_after(Op::CreateFrame, 1, ErrorKind::OutOfMemory);
     let e = g.frame(&mut s, 1, &[]).unwrap_err();
     assert_eq!(e.kind, ErrorKind::OutOfMemory);
     let made = |c: &Call| matches!(c, Call::CreateFrame(_));
-    assert_eq!(g.calls().iter().filter(|c| made(c)).count(), 2);
+    assert_eq!(g.calls().iter().filter(|c| made(c)).count(), 1);
     assert_eq!(
         g.gl.live().1,
         released,
@@ -650,7 +675,7 @@ fn a_restore_that_fails_partway_frees_the_tiles_it_made_before_the_failure() {
     );
     let (damage, _) = g.frame(&mut s, 1, &[]).unwrap();
     assert_eq!(damage, [DISPLAY.rect()]);
-    assert_eq!(g.calls().iter().filter(|c| made(c)).count(), 4);
+    assert_eq!(g.calls().iter().filter(|c| made(c)).count(), 2);
     assert_eq!(g.gl.live().1, drawing);
 }
 

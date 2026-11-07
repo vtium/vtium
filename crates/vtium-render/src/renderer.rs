@@ -370,7 +370,8 @@ struct Paint {
     fg: Rgb,
     bg: Rgb,
     underline: Option<(Kind, Rgb)>,
-    strike: Option<Rgb>,
+    /// The strike-through and the overline, drawn over the glyph.
+    over: Option<(Kind, Rgb)>,
     text: Option<(usize, usize, FontWidth, Style)>,
     /// At 1 bit, whether the background is lit, where vtium marks the cell
     /// (`mono::marked`).
@@ -1292,8 +1293,8 @@ impl<F: Face> Renderer<F> {
 
     /// How far the ink of `fc`'s glyph reaches past its cells as drawn
     /// (ADR-1302 D8, ADR-1306 D6): cut to the bound; nowhere for a letter
-    /// that blinks, one whose ink its own background hides, or a cell that
-    /// draws no text; and only up and down for the letter the visible
+    /// that blinks, one whose ink its own background hides, a concealed
+    /// one, or a cell that draws no text; and only up and down for the letter the visible
     /// cursor stands on, `held`, whatever the cursor's blink phase.
     fn cell_reach<B: Back>(
         &mut self,
@@ -1304,7 +1305,8 @@ impl<F: Face> Renderer<F> {
     ) -> Reach {
         let blinks = fc.attrs.contains(Attrs::BLINK) || fc.attrs.contains(Attrs::RAPID_BLINK);
         let steady = !blinks || self.config.blink.style == BlinkStyle::Off;
-        if !steady || fc.fg == fc.bg || draws_no_text(fc.glyph) {
+        let concealed = fc.attrs.contains(Attrs::CONCEAL);
+        if !steady || fc.fg == fc.bg || concealed || draws_no_text(fc.glyph) {
             return Reach::NONE;
         }
         let style = Style {
@@ -1713,7 +1715,9 @@ impl<F: Face> Renderer<F> {
         let (deco_ul, deco_strike) = self.deco;
         // the frame has dimmed the foreground; the cursor draws over it
         let (mut fg, mut bg) = (fc.fg, fc.bg);
-        let placeholder = draws_no_text(fc.glyph);
+        // a placeholder cell and a concealed one (SGR 8) draw their
+        // background alone: no glyph and no line, the cursor aside
+        let placeholder = draws_no_text(fc.glyph) || fc.attrs.contains(Attrs::CONCEAL);
         // A cell of the link under the pointer draws a dashed underline in
         // place of its own style, in its own underline color (ADR-1002,
         // "Drawing").
@@ -1769,10 +1773,16 @@ impl<F: Face> Renderer<F> {
                 (_, _, None) => fg,
             }
         };
-        let strike =
-            (fc.attrs.contains(Attrs::STRIKE) && !placeholder).then_some(deco_strike.unwrap_or(fg));
+        // the strike and the overline draw over the glyph as one sprite, in
+        // the strike's color
+        let over = Kind::over(
+            fc.attrs.contains(Attrs::STRIKE),
+            fc.attrs.contains(Attrs::OVERLINE),
+        )
+        .filter(|_| !placeholder)
+        .map(|k| (k, deco_strike.unwrap_or(fg)));
         let mut underline = Kind::underline(underline).map(|k| (k, ul_color));
-        let mut strike = strike;
+        let mut over = over;
         let blink = self.config.blink;
         let (hidden, dimmed) = match blink.style {
             BlinkStyle::Full => (off, false),
@@ -1781,10 +1791,10 @@ impl<F: Face> Renderer<F> {
         };
         if off && blink.decorations {
             if hidden {
-                (underline, strike) = (None, None);
+                (underline, over) = (None, None);
             } else if dimmed {
                 underline = underline.map(|(k, c)| (k, dim(c, bg)));
-                strike = strike.map(|c| dim(c, bg));
+                over = over.map(|(k, c)| (k, dim(c, bg)));
             }
         }
         if dimmed {
@@ -1860,7 +1870,7 @@ impl<F: Face> Renderer<F> {
                 fg: fc.fg,
                 bg: fc.bg,
                 underline,
-                strike,
+                over,
                 text: None,
                 lit,
             };
@@ -1883,7 +1893,7 @@ impl<F: Face> Renderer<F> {
             fg,
             bg,
             underline,
-            strike,
+            over,
             text,
             lit: cell_lit,
         };
@@ -1920,7 +1930,7 @@ impl<F: Face> Renderer<F> {
             fg: ink.fg(paint.fg),
             bg: ink.bg(),
             underline: paint.underline.map(|(k, c)| (k, ink.fg(c))),
-            strike: paint.strike.map(|c| ink.fg(c)),
+            over: paint.over.map(|(k, c)| (k, ink.fg(c))),
             text: paint.text,
             silhouette: depth == Depth::One,
             #[cfg(feature = "images")]

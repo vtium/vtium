@@ -1,4 +1,4 @@
-//! Underlines and strike-through as one-cell coverage sprites, tinted when
+//! Underlines, strike-through and overline as one-cell coverage sprites, tinted when
 //! drawn and tiled across a wide cell, never part of a glyph (ADR-1300,
 //! "Carried forward"). The shapes were first ported from `kmscon`'s
 //! `deco.c`, whose notice, under the MIT licence whose text is in COPYING,
@@ -13,7 +13,12 @@
 //! - dotted: square dots a thickness wide, as many a cell as fit with a gap
 //!   of the same size, centred in their slots;
 //! - dashed: one dash a cell, from its left edge for five eighths of it;
-//! - strike: the font's strike-through, full width.
+//! - strike: the font's strike-through, full width;
+//! - overline: the cell's top rows, as thick as the underline, full width;
+//! - strike and overline: both lines in one sprite, which the GPU path's
+//!   cell shader draws from the one slot it keeps for the lines over the
+//!   glyph. Both lines are whole pixels, so the sprite draws what the two
+//!   drawn one after the other draw.
 //!
 //! A line that would leave the cell is moved up into it. An underline takes
 //! at most a quarter of the cell's rows, so that it never covers the lower
@@ -202,6 +207,8 @@ pub(crate) enum Kind {
     Dotted,
     Dashed,
     Strike,
+    Overline,
+    StrikeOverline,
 }
 
 impl Kind {
@@ -216,13 +223,26 @@ impl Kind {
         }
     }
 
-    pub(crate) const ALL: [Kind; 6] = [
+    /// The lines a cell draws over its glyph: the strike-through, the
+    /// overline, both, or neither.
+    pub(crate) fn over(strike: bool, overline: bool) -> Option<Kind> {
+        match (strike, overline) {
+            (true, true) => Some(Kind::StrikeOverline),
+            (true, false) => Some(Kind::Strike),
+            (false, true) => Some(Kind::Overline),
+            (false, false) => None,
+        }
+    }
+
+    pub(crate) const ALL: [Kind; 8] = [
         Kind::Single,
         Kind::Double,
         Kind::Curly,
         Kind::Dotted,
         Kind::Dashed,
         Kind::Strike,
+        Kind::Overline,
+        Kind::StrikeOverline,
     ];
 }
 
@@ -251,6 +271,11 @@ fn draw_at(kind: Kind, w: u32, h: u32, m: &Decorations, one_bit: bool) -> Vec<u8
         (Kind::Dotted, _) => dotted(&mut s, m),
         (Kind::Dashed, _) => s.fill_rows(0, dash(w), m.underline, t),
         (Kind::Strike, _) => s.fill_rows(0, w, m.strike, m.strike_thickness),
+        (Kind::Overline, _) => s.fill_rows(0, w, 0, t),
+        (Kind::StrikeOverline, _) => {
+            s.fill_rows(0, w, m.strike, m.strike_thickness);
+            s.fill_rows(0, w, 0, t);
+        }
     }
     s.px
 }

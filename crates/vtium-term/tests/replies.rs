@@ -322,6 +322,20 @@ fn decrqss_reports_every_underline_color_index_in_the_colon_form() {
     }
 }
 
+// ctlseqs, DECRQSS: rapid blink, conceal, overline and the script read
+// back as the SGR codes that set them, in the order the pen keeps them.
+// covers: query.decrqss
+#[test]
+fn decrqss_reports_rapid_blink_conceal_overline_and_the_script() {
+    let mut t = term(8, 2, b"\x1b[6;8;53;73m");
+    assert_eq!(
+        reply(&mut t, b"\x1bP$qm\x1b\\"),
+        b"\x1bP1$r0;6;8;53;73m\x1b\\"
+    );
+    t.input(b"\x1b[m\x1b[5;9;74m");
+    assert_eq!(reply(&mut t, b"\x1bP$qm\x1b\\"), b"\x1bP1$r0;5;9;74m\x1b\\");
+}
+
 // ctlseqs, DECRQSS: a direct underline color reads back in the colon form.
 #[test]
 fn decrqss_reports_a_direct_underline_color_in_the_colon_form() {

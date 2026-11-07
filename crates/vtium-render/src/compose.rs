@@ -5,7 +5,7 @@
 //! A cell that receives ink from the glyphs around it (ADR-1306 D4) is
 //! composed in this order, each pixel: its background, its underline, the
 //! ink of the row above, the ink of the row below, the ink of the cells
-//! beside it, its own glyph and its strike-through. The received ink is
+//! beside it, its own glyph and the lines over it. The received ink is
 //! blended into one premultiplied layer first, read from the neighbours'
 //! glyphs in the cache, so the display's buffer is never read and no
 //! background is ever drawn over another cell's ink.
@@ -68,7 +68,9 @@ pub(crate) struct Job {
     pub(crate) fg: Rgb,
     pub(crate) bg: Rgb,
     pub(crate) underline: Option<(Kind, Rgb)>,
-    pub(crate) strike: Option<Rgb>,
+    /// The lines drawn over the glyph, the strike-through and the
+    /// overline, as one sprite in one color.
+    pub(crate) over: Option<(Kind, Rgb)>,
     /// The glyph's text in the row's text buffer, its width and style.
     pub(crate) text: Option<(usize, usize, FontWidth, Style)>,
     /// A color glyph draws as its silhouette, for a 1-bit display.
@@ -111,11 +113,11 @@ pub(crate) struct Source {
 
 impl Job {
     pub(crate) fn layered(&self) -> bool {
-        self.underline.is_some() || self.strike.is_some()
+        self.underline.is_some() || self.over.is_some()
     }
 
     /// Whether the cell's text layer draws anything: a glyph, which the
-    /// cache has when `glyph` is set, an underline or a strike.
+    /// cache has when `glyph` is set, an underline, a strike or an overline.
     #[cfg(feature = "images")]
     fn draws_text(&self, glyph: bool) -> bool {
         glyph || self.layered()
@@ -524,8 +526,8 @@ fn cell_line(
         }
         None => {}
     }
-    if let Some(c) = job.strike {
-        deco(Kind::Strike, c, prem, cov);
+    if let Some((kind, c)) = job.over {
+        deco(kind, c, prem, cov);
     }
     for (o, &p) in out.iter_mut().zip(prem.iter()) {
         *o = over_bg(job.bg, p);
@@ -732,7 +734,7 @@ fn glyph_over(job: &Job, g: &Stored, y: i64, lines: (&mut [u32], &mut [u8], &mut
 /// The job's text layer at display line `y`, premultiplied as a cell of
 /// several layers composes it, over the pictures and the background in
 /// `out`: its underline, the ink it receives from its neighbours, its
-/// glyph and its strike, less what vtium's mark draws above the pictures
+/// glyph and the lines over it, less what vtium's mark draws above the pictures
 /// (ADR-1306 D7).
 #[cfg(feature = "images")]
 #[deny(clippy::float_arithmetic)]
@@ -763,8 +765,8 @@ fn text_over(
     if let Some(g) = glyph.filter(|_| mark != Mark::Bar) {
         glyph_over(job, g, y, (&mut *prem, &mut *cov, src));
     }
-    if let Some(c) = job.strike {
-        deco_over(job, sprites, (Kind::Strike, c), y, prem, cov);
+    if let Some(o) = job.over {
+        deco_over(job, sprites, o, y, prem, cov);
     }
     for (o, &p) in out.iter_mut().zip(prem.iter()) {
         *o = over_px(*o, p);
