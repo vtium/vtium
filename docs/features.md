@@ -11,7 +11,7 @@ vtium's latest release is the pre-release v0.1.0-alpha.5. It brings the GPU path
 - **Handing the display back without a VT switch,** through the `setBackground` sequence ([the hand-back issue](https://github.com/vtium/vtium/issues/36)).
 - **Showing a link's address in the console:** Ctrl+click copies an OSC 8 link's address, Ctrl+Shift+Up and Ctrl+Shift+Down move the view between the prompts OSC 133 marks, and the link under the pointer draws a dashed underline. The renderer does not yet draw the overlay row that shows the link's address while Ctrl is held ([ADR-1002](architecture/term/ADR-1002-links-are-copied-never-opened-and-prompt-marks-are-line-flags-the-view-jumps-between.md)).
 
-Also not built yet: glyph ink reaching into the next cell ([ADR-1302](architecture/render/ADR-1302-glyph-ink-reaches-one-cell-past-its-own-side-to-side.md), decided), ligatures and shaping across cells, the kitty keyboard protocol, bidirectional text, input methods, `vtiumctl`, `vtium-clipboard`, and reading a changed vtium.conf without a restart. The plan and its order are in [the tracker issue](https://github.com/vtium/vtium/issues/47).
+Also not built yet: ligatures and shaping across cells, the kitty keyboard protocol, input methods, `vtiumctl`, `vtium-clipboard`, and reading a changed vtium.conf without a restart. The plan and its order are in [the tracker issue](https://github.com/vtium/vtium/issues/47).
 
 ## Displays
 
@@ -73,6 +73,7 @@ The console never opens a file a program names and never decodes PNG, JPEG, GIF 
 
 - vtium draws 24-bit color, the 256-color palette and named palettes. It draws bold, faint, strike, blink and reverse, and underline in five styles (single, double, curly, dotted, dashed), each in a color of its own.
 - It cuts Unicode text into extended grapheme clusters, draws wide characters and emoji presentation, and uses the codepoint-width method when a program resets mode 2027.
+- In a console built with the `bidi` feature, it lays out right-to-left text such as Arabic and Hebrew in the order the Unicode bidirectional algorithm gives, draws mirrored characters as their counterparts, joins Arabic letters, and moves the cursor, the selection, mouse reports and the arrow keys in that order.
 - It reports the mouse (modes 9, 1000, 1002 and 1003, in the SGR, urxvt and pixel encodings), focus, bracketed pastes and in-band resizes (mode 2048), and holds frames for synchronized output (mode 2026).
 - It keeps OSC 8 links and OSC 133 prompt marks. Ctrl+click copies a link's address, never opening it, and Ctrl+Shift+Up and Ctrl+Shift+Down move the view from prompt to prompt.
 - Programs set, query and reset colors with OSC 4, 10, 11 and 12, and with xterm's and kitty's color stacks. vtium carries out DEC's rectangular area operations, character protection, XTSAVE and XTRESTORE, and answers XTGETTCAP, XTVERSION and DECRQM.

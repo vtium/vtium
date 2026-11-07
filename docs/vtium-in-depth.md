@@ -1,86 +1,105 @@
 # VTium in depth
 
-To use a computer, you need a way to tell it what you want and a way to see its answer. Something goes in, the computer works on it, and something comes back out: **input**, **processing** and **output**.
+Using a computer means giving it instructions and seeing the results. You provide **input**, the computer **processes** it, and it produces **output**.
 
-On an Apple II or a Commodore 64, two of the early home computers, you typed on the keyboard and your words appeared on the screen. On an IBM PC you typed a command after the `C:\>` prompt, and on a Macintosh you moved the mouse and clicked a picture of a folder to open it. On an iPhone you touch the glass, and in VR goggles you turn your head and the world you see turns with you. The parts change shape, but the three steps never do.
+The way we interact with computers has changed over time. On early home computers such as the Apple II and Commodore 64, you typed on a keyboard and saw your words appear on the screen. On an IBM PC, you entered commands at the `C:\>` prompt. On a Macintosh, you could open a folder by clicking its icon. An iPhone responds to touch, while a VR headset changes your view as you turn your head. Each interface looks and feels different, but all follow the same pattern.
 
-A terminal is the plainest form of that idea. The keyboard is the input, a screen of text is the output, and in between sits a program that reads what you type and writes back.
+A terminal is a text-based version of this interaction. You type on a keyboard, a program reads what you enter, and its response appears as text on a screen.
 
-Unix, and Linux after it, has always worked this way: you type text to a program called a shell, and it prints text back. The idea is older than screens. The first terminals were teletypes, electric typewriters wired to a computer, which is why Linux still calls its consoles TTYs.
+Terminals have been central to Unix, and later Linux, from the beginning. You enter commands into a program called a shell, which runs them and displays the results. This way of working predates computer screens: early terminals were teletypes, electric typewriters connected to a computer. Linux still uses the name TTY, short for teletype, for its terminal devices.
 
-Every terminal can show only what it was built to show. A teletype printed by striking metal type against paper on a roller, the platen, so it could print only the characters cast in its type, and a smiley face was never one of them. Later terminals such as DEC's VT102 drew text on a screen, but only from a fixed set of shapes stored in a chip, with room for only a small alphabet of letters, digits and line-drawing symbols.
+What a terminal can display depends on its design. A teletype struck metal type against paper, so it could print only the characters built into its mechanism. Later terminals, such as DEC’s [VT102](https://en.wikipedia.org/wiki/VT100#Variants), displayed text on a screen using a fixed set of character shapes stored in a chip. That set included letters, digits, and line-drawing symbols, but it was still limited.
 
-Today's computers step around those limits once they have started. A desktop runs terminal emulators, programs that draw a terminal in a window with any font, millions of colors and emoji. Underneath the desktop, Linux still keeps several plain text terminals ready, called virtual terminals or VTs, and the desktop itself runs on one of them. Ctrl+Alt and a function key switch between them: Ctrl+Alt+F3 usually shows a text login prompt, and another function key brings the desktop back. Which key that is depends on the distribution; F1, F2 and F7 are common.
+Modern desktop terminal emulators are much more flexible. They draw text in a window and support a wide range of fonts, millions of colors, and emoji. Underneath the desktop, Linux still provides several virtual terminals, or VTs. The desktop itself runs on one of them; others usually provide a text login prompt.
 
-The text console on those VTs has stayed plain on purpose. It is the fallback that has to work when nothing else does, so it is kept simple, and below it a serial port can still carry a plain text terminal.
+You can switch between VTs with Ctrl+Alt and a function key. Ctrl+Alt+F3 usually takes you to a text login prompt. The key that returns you to the desktop depends on your distribution; F1, F2, and F7 are common choices.
 
-That is changing. Since Linux 6.10 the kernel can draw its own crash screen through its modern graphics drivers, and the Red Hat graphics developers behind that work call the VT console one of the [legacy parts of the kernel](https://fedoraproject.org/wiki/Changes/EnableDrmPanic), to be replaced by a console that runs as an ordinary program. vtium is a console of that kind. It takes over a VT in place of getty, the program that normally prints the login prompt, and gives it the full Unicode character set, color emoji and 24-bit color, while still answering to the escape sequences programs have sent terminals since the VT100. When vtium cannot start, getty and the kernel's console take the VT back.
+The kernel’s built-in text console has remained simple by design. It serves as a fallback when other parts of the system fail. A terminal connected through a serial port provides an even more basic way to access the machine.
 
-vtium is written in Rust. It began as a port of `kmscon` and its library `libtsm`, which are written in C ([Provenance](#provenance)).
+That role is changing. Since Linux 6.10, the kernel has been able to display its own crash screen through modern graphics drivers. The Red Hat graphics developers behind that work describe the VT console as one of the [legacy parts of the kernel](https://fedoraproject.org/wiki/Changes/EnableDrmPanic) and propose replacing it with a console that runs as an ordinary program.
+
+vtium is one such console. It takes the place of getty, the program that normally displays the login prompt on a VT, and adds full Unicode support, color emoji, and 24-bit color. It also supports the escape sequences that programs use to control terminal output, a convention dating back to terminals such as the VT100. If vtium cannot start, getty and the kernel console take over.
+
+vtium is written in Rust and began as a port of `kmscon` and its library, `libtsm`, both written in C. See [Provenance](#provenance) for details.
 
 ## What it does
 
-vtium draws the console's screen itself, through [KMS/DRM](https://en.wikipedia.org/wiki/Direct_Rendering_Manager), the kernel's way of letting a program draw straight to the display, or through the older [fbdev framebuffer](https://en.wikipedia.org/wiki/Linux_framebuffer), a simpler way of doing the same that older or smaller machines offer when they have nothing newer. vtium does all of the drawing itself, so it needs no display server (the software a desktop such as GNOME or KDE runs on) and no GPU.
+vtium renders directly to the display using one of two Linux interfaces: [KMS/DRM](https://en.wikipedia.org/wiki/Direct_Rendering_Manager), the modern graphics interface, or the older [fbdev framebuffer](https://en.wikipedia.org/wiki/Linux_framebuffer), which remains useful on some older or smaller machines.
 
-vtium gives the programs on the console what a terminal on a desktop gives them:
+Because vtium handles rendering itself, it does not need a display server—the software that manages graphical output for a desktop such as GNOME or KDE. It can render entirely on the CPU, so a GPU is optional.
 
-- 24-bit color and the 256-color palette, bold, faint, italic and reversed text, and five underline styles.
-- Unicode, with double-width Chinese, Japanese and Korean text and color emoji, from bitmap or outline fonts.
-- Mouse reporting, bracketed paste, synchronized output, OSC 8 links and OSC 52 copy.
-- Scrollback with a limit in bytes, which rewraps when the screen's width changes.
-- Pictures sent with sixel, the kitty graphics protocol or iTerm2's inline images, in a build with the `images` feature.
+Programs running in vtium get many of the features available in desktop terminals:
 
-One vtium process drives every display it finds. With no configuration it shows one terminal on all of them. `/etc/vtium/vtium.conf` can split the displays and keyboards into separate terminals, which vtium calls heads, for example to run a kiosk on one monitor and an operator's shell on another ([Set up heads](heads.md)).
+- 24-bit color and the 256-color palette; bold, faint, italic, and reversed text; and five underline styles.
+- Unicode support, including double-width Chinese, Japanese, and Korean text and color emoji, using bitmap or outline fonts.
+- Right-to-left text such as Arabic and Hebrew, laid out by the Unicode bidirectional algorithm, with Arabic letters joined and the cursor and selection following the text, when built with the `bidi` feature.
+- Mouse reporting, bracketed paste, synchronized output, OSC 8 hyperlinks, and OSC 52 clipboard copying.
+- Scrollback with a configurable byte limit and text that rewraps when the screen width changes.
+- Images sent through sixel, the kitty graphics protocol, or iTerm2’s inline image protocol, when built with the `images` feature.
 
-The console process never opens a font file or a picture file. Two helper programs do that: `vtium-config serve` reads and rasterizes fonts, and `vtium-image` decodes pictures. Each runs in a sandbox and never as root, and the console checks what they send before it draws it.
+A single vtium process manages every display it finds. By default, it shows the same terminal on all of them. You can use `/etc/vtium/vtium.conf` to assign displays and keyboards to separate terminals, called *heads*. For example, one monitor could run a kiosk while another provides an operator’s shell. See [Set up heads](heads.md) for details.
 
-The default build, called minspec, is meant for small machines. It draws on the CPU, uses bitmap fonts, and is tested on a virtual machine with one CPU, 512 MB of memory and a display as small as 320x240.
+The console process never opens font or image files directly. Instead, two helper programs handle them: `vtium-config serve` reads and rasterizes fonts, and `vtium-image` decodes images. Both run in sandboxes without root privileges. The console validates their output before rendering it.
 
-![vtium on a 320x240 display at 40 by 30 cells: a colored directory listing, the 16 background colors, bold, faint, underlined, reversed and struck words, a box of CPU and memory figures, a progress bar and a prompt.](showcase/small/small-console.png)
+The default build, called *minspec*, is intended for small machines. It renders on the CPU, uses bitmap fonts, and is tested in a virtual machine with one CPU, 512 MB of memory, and a display as small as 320×240.
 
-*The minspec build on a 320x240 display, in an 8x8 bitmap font.*
+![vtium on a 320×240 display with 40 columns and 30 rows, showing a colored directory listing, 16 background colors, text styles, CPU and memory figures, a progress bar, and a prompt.](showcase/small/small-console.png)
 
-[What vtium does](features.md) is the full list, with measured sizes and memory use. [Why vtium](why-vtium.md#vtium-beside-the-alternatives) compares vtium with the kernel's own console, `kmscon`, fbterm, yaft and fbpad, including what each of them does that vtium does not.
+*The minspec build on a 320×240 display, using an 8×8 bitmap font.*
+
+[What vtium does](features.md) provides the full feature list, along with measured sizes and memory usage. [Why vtium](why-vtium.md#vtium-beside-the-alternatives) compares it with the kernel console, `kmscon`, fbterm, yaft, and fbpad, including features those alternatives offer that vtium does not.
 
 ## Status
 
-vtium is alpha software. Its latest release is the pre-release [v0.1.0-alpha.5](https://github.com/vtium/vtium/releases).
+vtium is alpha software. The latest release is [v0.1.0-alpha.5](https://github.com/vtium/vtium/releases).
 
-- vtium runs as root, as a getty does, so that it can start the system's login program. Today it also opens the VT, the graphics cards and the input devices itself. Taking them from a seat manager (seatd or logind) through libseat is designed and not finished.
-- The CPU renderer is the default and draws on every machine. A build with the `gpu` feature can draw through the GPU instead, on each head where the `hwaccel` setting is on.
-- vtium is tested under systemd and under sysvinit. Other init systems are untested ([systemd, logind and PID 1](systemd.md)).
-- Not built yet: ligatures, bidirectional text, input methods, the kitty keyboard protocol, and reading a changed vtium.conf without a restart. [Status](features.md#status) lists these and the rest.
+- vtium runs as root, as getty does, so it can start the system’s login program. It currently opens the VT, graphics cards, and input devices directly. Support for obtaining those resources from a seat manager such as seatd or logind through libseat has been designed but is not yet complete.
+- CPU rendering is the default. Builds with the `gpu` feature can use GPU rendering on heads where `hwaccel` is enabled.
+- vtium is tested with systemd and sysvinit. Other init systems have not been tested. See [systemd, logind and PID 1](systemd.md).
+- Ligatures, input methods, the kitty keyboard protocol, and configuration reloads without a restart are not yet implemented. See [Status](features.md#status) for the full list.
 
 ## Requirements
 
-To run vtium you need Linux with VTs enabled, a display that the kernel drives through KMS/DRM or fbdev, and libxkbcommon and libudev. A build with the `gpu` feature also needs `libEGL` and `libgbm`, which Mesa provides.
+To run vtium, you need Linux with VTs enabled, a display supported through KMS/DRM or fbdev, and the `libxkbcommon` and `libudev` libraries. Builds with the `gpu` feature also require `libEGL` and `libgbm`, both provided by Mesa.
 
-To build vtium you need Rust 1.88 or later, clang, and `tic` from ncurses. The first build downloads a Debian sysroot to link against, so the binaries run on any distribution with glibc 2.36 or newer.
+To build vtium, you need Rust 1.88 or later, clang, and `tic` from ncurses. The first build downloads a Debian sysroot for linking, allowing the resulting binaries to run on distributions with glibc 2.36 or newer.
 
 ## Try it
 
-[Try vtium on one VT](tutorial-try-vtium.md) walks through a first run and back again, while your desktop keeps running.
+[Try vtium on one VT](tutorial-try-vtium.md) walks you through running vtium on a spare VT and restoring it afterward, while your desktop keeps running.
 
-On Arch Linux, the AUR's `vtium` package installs vtium. Installing it starts nothing. To run vtium on VT 3 in place of its getty, and to give VT 3 back:
+On Arch Linux, install the `vtium` package from the AUR. Installing the package does not start vtium automatically. To run it on VT 3 in place of getty, use:
 
-```
+```sh
 # vtium console enable 3
+```
+
+To restore getty on VT 3, use:
+
+```sh
 # vtium console disable 3
 ```
 
-On another distribution, `make vt-shell` in a checkout of this repository builds vtium, picks a free VT, and runs your shell there until you exit it. It needs systemd and logind, asks for sudo, and installs nothing ([Without a package](tutorial-try-vtium.md#without-a-package)).
+On another distribution, you can run `make vt-shell` from a checkout of this repository. It builds vtium, selects a free VT, and runs your shell there until you exit. This method requires systemd and logind, prompts for sudo, and does not install anything. See [Without a package](tutorial-try-vtium.md#without-a-package) for details.
 
-[Install vtium and give it VTs](install.md) covers the other packages, the build features, and installing from a checkout.
+[Install vtium and give it VTs](install.md) covers other packages, build features, and installation from a repository checkout.
 
 ## Configuration
 
-vtium reads `/etc/vtium/vtium.conf`, and runs with its defaults when the file is missing. The packages install `/etc/vtium/vtium.conf.example`, which lists every setting at its default. `vtium config tui` opens a full-screen tool that shows the configuration, tries each font on the live console, and keeps your changes in a draft until you install them. `vtium check-config FILE` checks a file before you install it. [Configure vtium](configure.md) explains both.
+vtium reads its configuration from `/etc/vtium/vtium.conf`. If the file does not exist, it uses the defaults. Packages include `/etc/vtium/vtium.conf.example`, which lists every setting and its default value.
+
+Run `vtium config tui` to open the full-screen configuration tool. It lets you inspect settings and preview fonts on the running console. Changes stay in a draft until you install them.
+
+You can also validate a configuration file before installing it with `vtium check-config FILE`. [Configure vtium](configure.md) explains both tools.
 
 ## Testing
 
-vtium's tests compare its screens and its replies to programs with saved expected results, as text and pixel for pixel. They run in tiers, from unit tests up to a virtual machine that boots vtium on a real VT and captures the screen. [How vtium is judged](concepts/how-vtium-is-judged.md) explains the tiers.
+vtium’s tests compare screen output and responses to terminal queries against saved expected results, using both text comparisons and pixel-by-pixel image checks.
+
+The tests run in tiers, from unit tests to virtual machine tests that boot vtium on a real VT and capture its screen. [How vtium is judged](concepts/how-vtium-is-judged.md) explains each tier.
 
 ## Provenance
 
-vtium began as a Rust program derived from `kmscon`, a C terminal for the Linux console written by David Herrmann and its contributors, and `libtsm`, its terminal library, by Aetf, David Herrmann and Ran Benita. vtium's console and libraries are now Rust written for vtium. [COPYING](https://github.com/vtium/vtium/blob/main/COPYING) keeps their authors and notices.
+vtium began as a Rust port of two C projects: `kmscon`, a Linux console terminal written by David Herrmann and contributors, and `libtsm`, its terminal library, by Aetf, David Herrmann, and Ran Benita.
 
+The console and libraries now consist of Rust code written for vtium. [COPYING](https://github.com/vtium/vtium/blob/main/COPYING) preserves the original author credits and notices.
