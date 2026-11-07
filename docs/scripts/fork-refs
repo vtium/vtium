@@ -97,8 +97,6 @@ class Skip:
 
 
 SKIPS = [
-    Skip("AGENTS.md", ALL, "AGENTS.md keeps its rules for working with the C reference until the revisit (ADR-1503 D6)"),
-    Skip("CLAUDE.md", ALL, "CLAUDE.md stays as it is until the revisit (ADR-1503 D6)"),
     Skip("docs/scripts/fork-refs", ALL, "this script names the patterns it looks for"),
     Skip("docs/scripts/test_fork_refs.py", ALL, "the script's tests plant each pattern"),
     Skip("docs/architecture/*", frozenset({PHRASE, HEADING}), "the decision records keep their history, which names the C reference (ADR-1503 D1 and D5)"),
