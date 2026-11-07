@@ -43,6 +43,11 @@ use vtium_font::{
 
 mod data;
 
+/// The most marks a cluster may hold for [`DeferredFace::held_part`] to
+/// look for the parts of it the store holds: each set of marks left out is
+/// one lookup, 2 to the power of this at most.
+const HELD_PART_MARKS: usize = 6;
+
 const GIB: u64 = 1 << 30;
 
 /// The store's bytes on a machine with `ram` bytes, as the scrollback takes
@@ -981,14 +986,22 @@ impl DeferredFace {
             return Some(g);
         }
         let (&base, rest) = cluster.split_first()?;
-        let glyph = self.single(base, style)?;
+        let marks: Vec<char> = rest
+            .iter()
+            .copied()
+            .filter(|&c| is_mark(c) && !is_ignorable(c))
+            .collect();
+        let (glyph, marks) = match self.held_part(base, &marks, style) {
+            Some(held) => held,
+            None => (self.single(base, style)?, marks),
+        };
         if glyph.format() != Format::Mask {
             return Some(glyph);
         }
         let mask = |c| self.single(c, style).filter(|g| g.format() == Format::Mask);
         let mut over: Vec<Glyph> = Vec::new();
         let mut spacing: Vec<(Glyph, bool)> = Vec::new();
-        for &c in rest.iter().filter(|&&c| is_mark(c) && !is_ignorable(c)) {
+        for c in marks {
             if spacing_side(c).is_none() {
                 over.extend(mask(c));
                 continue;
@@ -1012,6 +1025,39 @@ impl DeferredFace {
             }
         }
         beside(letter, &stand)
+    }
+
+    /// The store's glyph for the most of a cluster it holds, `base` with
+    /// as many of `marks` as the helper shaped with it, and the marks left
+    /// out, which the caller lays over it (ADR-1200 D22 step 3): a cluster
+    /// whose mark the font set lacks, as lam with shadda, fatha and
+    /// superscript alef, draws the rest as the font shapes it, its marks
+    /// where the font puts them. `None` when the store holds no such part
+    /// with at least one mark, or the cluster has more than
+    /// [`HELD_PART_MARKS`] marks.
+    fn held_part(&self, base: char, marks: &[char], style: Style) -> Option<(Glyph, Vec<char>)> {
+        let n = marks.len();
+        if n < 2 || n > HELD_PART_MARKS {
+            return None;
+        }
+        let store = lock(&self.generated);
+        // the fewest marks left out first, at least one, at most all but one
+        for out in 1..n {
+            for set in 0u32..1 << n {
+                if set.count_ones() as usize != out {
+                    continue;
+                }
+                let left = |i: usize| set >> i & 1 == 1;
+                let mut text = vec![base];
+                text.extend((0..n).filter(|&i| !left(i)).filter_map(|i| marks.get(i)));
+                let Some(glyph) = store.draw(self.at(), &text, style) else {
+                    continue;
+                };
+                let rest = (0..n).filter(|&i| left(i)).filter_map(|i| marks.get(i));
+                return Some((glyph, rest.copied().collect()));
+            }
+        }
+        None
     }
 
     /// The built-in's `glyph` at the cell's size: centred in the text
@@ -2017,6 +2063,60 @@ mod tests {
             for (x, &p) in (0..).zip(row) {
                 if p > 0 {
                     assert!(at(&built, x, y) > 0, "the alef at {x},{y}");
+                }
+            }
+        }
+    }
+
+    // ADR-1200 D22 step 3: where the store holds the cluster without the
+    // mark the font set lacks, as the helper shaped it whole, that glyph
+    // draws, its shadda 3 rows above the row where the font puts it, and
+    // the missing superscript alef from the built-in font lies over it
+    #[test]
+    fn a_cluster_draws_the_part_the_font_shaped_and_the_missing_mark_over_it() {
+        let generated = Shared::default();
+        let mut s = StrikeBuilder::new(PixelFormat::R8, CELL, Style::default());
+        let lam = s.glyph(
+            Width::Narrow,
+            drawn(CELL, &["", "", "", "...#....", "...#...."]),
+        );
+        s.map(LAM, lam);
+        let shaped = s.glyph(
+            Width::Narrow,
+            drawn(CELL, &["", "", "", "...#....", "...#...."]),
+        );
+        let mut boxed = vec![0u8; 8 * 19];
+        boxed[2..6].fill(255);
+        boxed[8 + 2..8 + 6].fill(255);
+        boxed[(3 + 3) * 8 + 3] = 255;
+        boxed[(3 + 4) * 8 + 3] = 255;
+        s.ink(shaped, (0, -3), (8, 19), boxed);
+        s.cluster(&[LAM, SHADDA], shaped);
+        let set =
+            Arc::new(Set::from_bytes(SetBuilder::new("t").strike(s).write().unwrap()).unwrap());
+        add(
+            &mut lock(&generated),
+            CELL,
+            set,
+            vec![(u32::from(LAM), 1)],
+            1,
+        );
+        let f = face(&generated);
+        let regular = Style::default();
+        let built = f.draw(&[LAM, SHADDA, SUPERSCRIPT_ALEF], regular).unwrap();
+        // the shaped part's shadda keeps its two rows above the row
+        let ink = built.ink().unwrap();
+        assert_eq!(
+            (ink.left(), ink.top(), ink.width(), ink.height()),
+            (0, -3, 8, 19)
+        );
+        assert!(ink.pixels()[2..6].iter().all(|&p| p == 255));
+        // and the built-in font's superscript alef lies over it in the cell
+        let alef = Unifont::new(16).draw(&[SUPERSCRIPT_ALEF], regular).unwrap();
+        for (y, row) in alef.rows().enumerate() {
+            for (x, &p) in row.iter().enumerate() {
+                if p > 0 {
+                    assert!(ink.pixels()[(y + 3) * 8 + x] > 0, "the alef at {x},{y}");
                 }
             }
         }
