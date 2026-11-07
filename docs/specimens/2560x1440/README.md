@@ -6,21 +6,21 @@ A QHD monitor: 2560x1440, 24-bit color, drawn in `desktop` at 14x32, 182x45 cell
 
 | Display | Class | Cell | Grid | Font | Screens |
 |---|---|---|---|---|---|
-| 2560x1440, 24-bit color | order unknown | 14x32 | 182x45 | `desktop`, the frit [`desktop.vtfrit`](https://github.com/vtium/vtium/blob/main/tools/specimens/frits/desktop.vtfrit) | [screen-1.png](screen-1.png), [screen-2.png](screen-2.png), [screen-3.png](screen-3.png) |
+| 2560x1440, 24-bit color | order unknown | 14x32 | 182x45 | `desktop`, the font set [`desktop.vtfrit`](https://github.com/vtium/vtium/blob/main/tools/specimens/frits/desktop.vtfrit) | [screen-1.png](screen-1.png), [screen-2.png](screen-2.png), [screen-3.png](screen-3.png) |
 
 ## Why this font
 
-ADR-1200 D11 builds one outline size for the display the package hook sees, snapped down to 24, 32 or 48 pixels, with unifont filling the outline font's gaps. The desktop frit starts at 18 points, 24 pixels at 96 DPI, and these profiles draw it in 24- and 32-pixel cells, from JetBrains Mono for text, Symbols Nerd Font Mono for the private-use symbols and Noto Color Emoji for emoji, with the built-in unifont last; `font-size=0` picks the strike, the largest whole multiple of a strike's height under the size it asks (ADR-1200 D9). Outline glyphs draw antialiased at this size. A set maps single codepoints, so ZWJ sequences, flags and keycaps draw as their parts until #144 shapes them, and the scripts that need shaping draw unshaped.
+vtium draws an outline font only when you name a font set that lists one. This profile's vtium.conf names the desktop font set with `font-name=desktop`. The desktop font set draws text from JetBrains Mono, the private-use symbols from Symbols Nerd Font Mono and emoji from Noto Color Emoji, with the built-in unifont last for every character the others lack. vtium's font helper generates the glyphs from these fonts while vtium runs. See [the issue that generates glyphs in the font helper](https://github.com/vtium/vtium/issues/145). The font set starts at 18 points, which is 24 pixels at 96 DPI, and these profiles draw it in 24- and 32-pixel cells. Outline glyphs draw antialiased at this size. The font helper draws an emoji sequence whole, so skin tones, ZWJ sequences, flags and keycaps each draw as one emoji. Scripts that need shaping, such as Devanagari and Tamil, draw unshaped. See [the text shaping issue](https://github.com/vtium/vtium/issues/144).
 
 ## Configuration
 
 [vtium.conf](vtium.conf):
 
 ```ini
-# The desktop frit: tools/specimens/frits/desktop.vtfrit in
-# /etc/vtium/fonts, its glyphs generated at run time (ADR-1301 D2).
+# The desktop font set: tools/specimens/frits/desktop.vtfrit in
+# /etc/vtium/fonts, its glyphs generated while vtium runs.
 font-name=desktop
 font-size=0
 ```
 
-The console loads a set by name from #126. The screens here draw the glyphs vtium-config's engine, the one the helper runs (ADR-1301 D2), generates from the frit and the pinned fonts `make specimens-fonts` fetches, in the profile's cell (`tools/specimens/README.md`); where those fonts are absent the check skips this profile while it is provisional, and fails it once accepted.
+The console loads the font set that `font-name` names from `/etc/vtium/fonts`. See [the issue that loads the configured font set](https://github.com/vtium/vtium/issues/126). The screens here draw the glyphs that the font helper, vtium-config, generates in the profile's character cell. It generates them from the font set and from the fonts that `make specimens-fonts` fetches, each pinned by its SHA-256. `tools/specimens/README.md` describes how. Where those fonts are missing, the check skips this profile while it is provisional, and fails it once it is accepted.

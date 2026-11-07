@@ -1,6 +1,6 @@
 # VTium specimens
 
-vtium's test card, drawn by vtium's renderer in memory for each display profile, from a 1-bit 320x240 panel up to a 2560x1440 monitor (#142). Each profile's directory holds the screens and their collage, the font and configuration vtium uses there and why, and its vtium.conf.
+vtium's test card, drawn by vtium's renderer in memory for each display profile, from a 1-bit 320x240 panel up to a 2560x1440 monitor. See [the specimens issue](https://github.com/vtium/vtium/issues/142). Each profile's directory holds the screens and their collage, the font and configuration vtium uses there and why, and its vtium.conf.
 
 | Profile | Depth | Cell | Grid | Font | Screens | Status | Preview |
 |---|---|---|---|---|---|---|---|
@@ -14,13 +14,13 @@ vtium's test card, drawn by vtium's renderer in memory for each display profile,
 | [1920x1080](1920x1080/) | 24-bit color | 11x24 | 174x45 | `desktop` | 3 | accepted | [<img src="1920x1080/collage.png" width="160">](1920x1080/collage.png) |
 | [2560x1440](2560x1440/) | 24-bit color | 14x32 | 182x45 | `desktop` | 3 | accepted | [<img src="2560x1440/collage.png" width="160">](2560x1440/collage.png) |
 
-`320x240-tiny5` shows an example frit, `tiny5`, the smallest font, which vtium does not use by default; vtium's own choice at 320x240 is the profile `320x240`.
+`320x240-tiny5` shows an example font set, `tiny5`, the smallest font. vtium does not use it by default. vtium's own choice at 320x240 is the profile `320x240`.
 
 A provisional profile waits on the operator's review, and `provisional.tsv` lists it: a drawing that moves it is reported as drift and fails nothing. An accepted profile fails on a moved pixel.
 
 ## Gray panels, simulated
 
-vtium draws a gray panel exactly as a color display, and the panel's driver converts each pixel (#135). These renders take vtium's color drawing through that conversion, as Linux v7.3's drivers make it, to show what such a panel shows. They are simulations, not vtium's output, and judge nothing of vtium's drawing; a stale one is reported as its own kind of fault.
+vtium draws a gray panel exactly as it draws a color display, and the panel's driver converts each pixel. See [the issue about 1-bit and gray displays](https://github.com/vtium/vtium/issues/135). These renders take vtium's color drawing through that conversion, as Linux v7.3's drivers make it, to show what such a panel shows. They are simulations, not vtium's output, and judge nothing of vtium's drawing; a stale one is reported as its own kind of fault.
 
 | Profile | Depth | Cell | Grid | Font | Screens | Status | Preview |
 |---|---|---|---|---|---|---|---|
@@ -42,7 +42,7 @@ The card is one byte stream of vtium's own, written by `tools/specimens`, in blo
 
 ## The message bars
 
-After the card, each profile draws vtium's message bars, its notices and its on-screen display (ADR-1401 D5, D7), drawn by the console's own overlay code, on one screen, or on two on the 320x240 displays, where the four notices fill a screen of their own. A display shows one box, across its top, so the screens stack four bands, each the top of a drawing of its own with a line beneath the bar saying what it is: four notices at once, the most a head shows; the on-screen display's full line sharing the box with a notice; the full line alone; and the minimal dot in the top-right cell.
+After the card, each profile draws vtium's message bars: its notices and its on-screen display. The console's own overlay code draws them, on one screen, or on two on the 320x240 displays, where the four notices fill a screen of their own. See [the on-screen display issue](https://github.com/vtium/vtium/issues/169) and [the heads tracker](https://github.com/vtium/vtium/issues/156). A display shows one box, across its top, so the screens stack four bands, each the top of a drawing of its own with a line beneath the bar saying what it is: four notices at once, the most a head shows; the on-screen display's full line sharing the box with a notice; the full line alone; and the minimal dot in the top-right cell.
 
 ## Drawing and judging
 

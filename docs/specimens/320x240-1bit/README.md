@@ -10,7 +10,7 @@ A 1-bit 320x240 panel, such as an SSD130x OLED or a memory LCD: 320x240, 1-bit, 
 
 ## Why this font
 
-A 1-bit panel lights a pixel or does not, so a bitmap font, 1-bit already, draws on it exactly: the built-in Unscii-8 at 8x8 gives the same 40x30 cells as the color profile, for the reasons that profile gives. vtium-render maps each cell's colors to lit or unlit by the cell, never by brightness, with polarity from the default background, and cuts every coverage at half (#135): colors show only where a cell's background differs from the default, dim draws as plain text, and the shades draw as ordered patterns.
+A 1-bit panel lights a pixel or does not, so a bitmap font, 1-bit already, draws on it exactly: the built-in Unscii-8 at 8x8 gives the same 40x30 cells as the color profile, for the reasons that profile gives. vtium-render maps each cell's colors to lit or unlit by the cell, never by brightness, with polarity from the default background, and cuts every coverage at half. See [the issue about 1-bit and gray displays](https://github.com/vtium/vtium/issues/135). Colors show only where a cell's background differs from the default, dim draws as plain text, and the shades draw as ordered patterns.
 
 ## Configuration
 
@@ -22,4 +22,4 @@ display-depth=1
 font-size=0
 ```
 
-The console chooses this set by itself once #126 and #118's rule land; the screens here draw vtium-font's built-in set directly.
+The console chooses this font by itself. The screens here draw vtium-font's built-in font directly.

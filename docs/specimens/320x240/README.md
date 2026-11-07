@@ -10,16 +10,16 @@ minspec's display floor, a 320x240 SPI panel: 320x240, 24-bit color, drawn in `u
 
 ## Why this font
 
-ADR-1200 D7 draws the built-in Unscii-8 for cells under 16 pixels high, and #118's rule has `font-size=0` take a set's smallest height when 16-pixel cells would leave fewer than 80x25 of them, so vtium draws this display in 8x8 cells with no font keys at all. It is the most text the display holds at a cell a person can still read, and it costs no disk: D11 builds nothing beyond the built-ins for an English machine at this size. Unscii-8 holds no CJK or Hangul, nor the emoji and private-use symbols, so those draw as the missing glyph, U+25A1, until #141's per-character fallback draws them from unifont; in a zh, ja or ko locale D7 draws unifont at 16 pixels instead.
+vtium draws the built-in Unscii-8 in character cells under 16 pixels high. See [the issue that builds Unscii-8 into vtium](https://github.com/vtium/vtium/issues/107). With `font-size=0`, vtium takes the font's own smallest height where 16-pixel cells would leave fewer than 80x25 of them. See [the issue that sets the size `font-size=0` picks](https://github.com/vtium/vtium/issues/118). So vtium draws this display in 8x8 cells with no font keys at all. That is the most text the display holds at a size a person can still read. It costs no disk, because the built-in fonts are part of the vtium binary. Unscii-8 holds no CJK characters, no Hangul, no emoji and none of the private-use symbols, so those draw as the missing glyph, U+25A1. See [the issue about small-panel fonts that cover more](https://github.com/vtium/vtium/issues/307). In a zh, ja or ko locale, vtium draws the built-in unifont at 16 pixels instead.
 
 ## Configuration
 
 [vtium.conf](vtium.conf):
 
 ```ini
-# vtium's defaults: font-size=0 picks 8 pixels here (#118), which
-# draws the built-in Unscii-8 (ADR-1200 D7).
+# vtium's defaults: font-size=0 picks 8 pixels here, which
+# draws the built-in Unscii-8.
 font-size=0
 ```
 
-The console chooses this set by itself once #126 and #118's rule land; the screens here draw vtium-font's built-in set directly.
+The console chooses this font by itself. The screens here draw vtium-font's built-in font directly.

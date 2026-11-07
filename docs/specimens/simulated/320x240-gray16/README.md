@@ -12,16 +12,16 @@ A 320x240 panel of 16 gray levels, as the SSD132x panels take: 320x240, gray16, 
 
 ## Why this font
 
-vtium draws a gray panel exactly as a color display and lets the panel's driver convert each pixel (#135): the screens here are the color profile's drawing taken through the driver's arithmetic, a simulation of what the panel shows, not vtium's output. The font is the color profile's at this size, for the same reasons; a gray panel's few levels keep the bitmap glyphs crisp, and the card's gray bands show which levels survive the conversion.
+vtium draws a gray panel exactly as it draws a color display, and the panel's driver converts each pixel. See [the issue about 1-bit and gray displays](https://github.com/vtium/vtium/issues/135). The screens here are the color profile's drawing taken through the driver's arithmetic: a simulation of what the panel shows, not vtium's output. The font is the color profile's at this size, for the same reasons; a gray panel's few levels keep the bitmap glyphs crisp, and the card's gray bands show which levels survive the conversion.
 
 ## Configuration
 
 [vtium.conf](vtium.conf):
 
 ```ini
-# vtium's defaults: font-size=0 picks 8 pixels here (#118), which
-# draws the built-in Unscii-8 (ADR-1200 D7). The panel converts.
+# vtium's defaults: font-size=0 picks 8 pixels here, which
+# draws the built-in Unscii-8. The panel converts.
 font-size=0
 ```
 
-The console chooses this set by itself once #126 and #118's rule land; the screens here draw vtium-font's built-in set directly.
+The console chooses this font by itself. The screens here draw vtium-font's built-in font directly.
