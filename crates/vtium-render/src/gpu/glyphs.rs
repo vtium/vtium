@@ -685,8 +685,8 @@ impl Glyphs {
 
     /// Takes `stored` as the glyph for `text`, as a cache miss takes the
     /// font's: a test puts glyphs whose ink reaches further than the font
-    /// crate's bound lets a font draw.
-    #[cfg(test)]
+    /// crate's bound lets a font draw, here and through
+    /// `Renderer::put_glyph_for_test`.
     pub(crate) fn put<G: Gl>(
         &mut self,
         gl: &mut G,
