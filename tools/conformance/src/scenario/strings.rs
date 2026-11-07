@@ -1,5 +1,5 @@
-//! The string syntax that scenarios, the probe files and the interface's
-//! worked examples share, the escaping a transcript writes bytes with, and
+//! The string syntax that scenarios and the interface's worked examples
+//! share, the escaping a transcript writes bytes with, and
 //! the splitting of a scenario line into words.
 
 /// The bytes of a `"..."` string, or None when it is not one. Inside the

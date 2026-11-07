@@ -338,7 +338,7 @@ pub(crate) fn judge_blocks(probe: &Probe, blocks: &[Vec<&str>], exact: bool) -> 
     Outcome::Pass
 }
 
-/// A pattern as its probe file wrote it, without the anchors `whole` adds.
+/// A pattern as its scenario wrote it, without the anchors `whole` adds.
 fn pattern(re: &Regex) -> &str {
     re.as_str()
         .strip_prefix(r"\A(?:")

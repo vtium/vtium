@@ -1,4 +1,4 @@
-//! The xtgettcap probe's fixture, `fixtures/kmscon.termcap`, against the
+//! The xtgettcap capability scenario's fixture, `fixtures/kmscon.termcap`, against the
 //! XTGETTCAP table vtium answers from. The fixture holds vtium's table,
 //! generated from vtium's entry, `crates/vtium/install/kmscon.ti`.
 

@@ -1,29 +1,28 @@
-//! The capability probes: each stanza of the probe files replayed through
-//! vtium-replay and judged against `capabilities.list`.
+//! The probe: a scenario's input and assertions as the judge reads them,
+//! played through vtium-replay's code and judged block by block, and each
+//! capability's verdict against `capabilities.list` (ADR-1504 D4).
 //!
-//! A probe listed `works` must pass and one listed `missing` must fail, so
-//! the change that adds a feature also sets its line to `works`. A probe
-//! listed with a build feature, `-Dimages`, must pass in a build with it
-//! and fail in one without. A probe the list does not name, or a name in
-//! the list no probe defines, fails the run. The README's "The probes"
-//! gives the stanza format and the checks made before anything runs.
+//! A capability listed `works` must pass and one listed `missing` must
+//! fail, so the change that adds a feature also sets its line to `works`.
+//! A capability listed with a build feature, `-Dimages`, must pass in a
+//! build with it and fail in one without. [`crate::scenario::capability`]
+//! applies these rules to the capability scenarios, and the README's "The
+//! capability scenarios" gives the checks made before anything runs.
 
 use std::collections::{BTreeMap, BTreeSet};
 
-#[cfg(test)]
-mod convert;
 mod judge;
 
 use regex::Regex;
 use regex::bytes::Regex as BytesRegex;
 
-use crate::spec::{Spec, whole};
+use crate::spec::Spec;
 
 pub(crate) use judge::judge_blocks;
 pub use judge::{Outcome, Replay, build_feature, check_list, verdict};
 
-/// The keys that build a probe's input; every other key judges the block
-/// of the last `check`.
+/// The steps that build a probe's input; every other step judges the
+/// block of the last `check`.
 const INPUT_KEYS: [&str; 3] = ["send", "cmd", "check"];
 
 /// Each view and the feature it needs.
@@ -45,7 +44,7 @@ pub(crate) enum Step {
     Reject(String),
     RejectRe(Regex),
     Reply(Vec<u8>),
-    /// The pattern, and its source as the probe file wrote it.
+    /// The pattern, and its source as the scenario wrote it.
     ReplyRe(BytesRegex, String),
 }
 
@@ -65,12 +64,11 @@ impl Step {
     }
 }
 
-/// A stanza of a probe file.
+/// A scenario's input steps, checks and assertions, as the judge reads
+/// them ([`crate::scenario::Scenario::probe`]).
 #[derive(Clone, Debug)]
 pub struct Probe {
     pub name: String,
-    /// The file and line the stanza opens on.
-    pub at: String,
     pub(crate) size: Option<(usize, usize)>,
     pub(crate) view: String,
     pub(crate) placeholder: Option<String>,
@@ -80,19 +78,6 @@ pub struct Probe {
     /// The example after a `want-re` or `reply-re`, by the step's index.
     pub(crate) examples: BTreeMap<usize, (Vec<u8>, usize)>,
 }
-
-impl Probe {
-    pub fn is_placeholder(&self) -> bool {
-        self.placeholder.is_some()
-    }
-
-    /// The file the probe was read from.
-    pub fn file(&self) -> &str {
-        self.at.rsplit_once(':').map_or(&self.at, |(file, _)| file)
-    }
-}
-
-pub use crate::scenario::unquote;
 
 /// `data` printable: ESC as `\e` and the other controls as `\xNN`.
 pub(crate) fn shown(data: &[u8]) -> String {
@@ -106,7 +91,7 @@ pub(crate) fn shown(data: &[u8]) -> String {
         .collect()
 }
 
-/// A byte pattern, as a probe file writes it after unquoting, matched
+/// A byte pattern, as a scenario writes it after unquoting, matched
 /// whole against the replies: any byte for `.`, a newline included, and
 /// each byte that is not printable ASCII, or that a backslash escapes,
 /// written as `\xHH`.
@@ -139,184 +124,6 @@ pub(crate) fn bytes_regex(pattern: &[u8]) -> Result<BytesRegex, String> {
     BytesRegex::new(&format!(r"(?s-u)\A(?:{text})\z")).map_err(|e| e.to_string())
 }
 
-/// Reads the probes of `text`, the file `file`, each checked for form.
-pub fn read(file: &str, text: &str, spec: &Spec) -> Result<Vec<Probe>, String> {
-    let mut probes: Vec<Probe> = Vec::new();
-    for (i, line) in text.lines().enumerate() {
-        let n = i.saturating_add(1);
-        let trimmed = line.trim();
-        if trimmed.is_empty() || line.trim_start().starts_with('#') {
-            continue;
-        }
-        let (key, arg) = line.split_once(' ').unwrap_or((line, ""));
-        let at = format!("{file}:{n}");
-        if key == "probe" {
-            if let Some(p) = probes.iter().find(|p| p.name == arg) {
-                return Err(format!("{at}: {arg} is already a probe, at {}", p.at));
-            }
-            probes.push(Probe {
-                name: arg.to_owned(),
-                at: at.clone(),
-                size: None,
-                view: "screen".to_owned(),
-                placeholder: None,
-                needs: BTreeSet::new(),
-                fixtures: Vec::new(),
-                steps: Vec::new(),
-                examples: BTreeMap::new(),
-            });
-            continue;
-        }
-        let Some(probe) = probes.last_mut() else {
-            return Err(format!("{at}: {key} before the first probe line"));
-        };
-        let quoted = || {
-            unquote(arg).ok_or_else(|| {
-                format!(r#"{at}: want {key} "..." with \e, \r, \n, \t, \\, \" or \xHH escapes"#)
-            })
-        };
-        let step = match key {
-            "size" => {
-                let size = arg.split_once(' ').and_then(|(c, r)| {
-                    let n = |s: &str| {
-                        (s.starts_with(|c: char| ('1'..='9').contains(&c))
-                            && s.bytes().all(|b| b.is_ascii_digit()))
-                        .then(|| s.parse().ok())
-                        .flatten()
-                    };
-                    Some((n(c)?, n(r)?))
-                });
-                probe.size = Some(size.ok_or_else(|| format!("{at}: want size COLS ROWS"))?);
-                None
-            }
-            "view" => {
-                if !VIEW_FEATURES.iter().any(|(v, _)| *v == arg) {
-                    return Err(format!(
-                        "{at}: view {arg:?} is not one of screen, frame, draw2"
-                    ));
-                }
-                probe.view = arg.to_owned();
-                None
-            }
-            "needs" => {
-                for feature in arg.split_whitespace() {
-                    if !spec.features.contains(feature) {
-                        return Err(format!("{at}: {feature} is not a feature of the spec"));
-                    }
-                    probe.needs.insert(feature.to_owned());
-                }
-                None
-            }
-            "fixture" => {
-                probe.fixtures.push(arg.to_owned());
-                None
-            }
-            "placeholder" => {
-                probe.placeholder = Some(arg.to_owned());
-                None
-            }
-            "cmd" => {
-                let name = arg.split(';').next().unwrap_or_default();
-                if !spec.commands.contains_key(name) {
-                    return Err(format!("{at}: {name} is not a command of the spec"));
-                }
-                Some(Step::Cmd(arg.to_owned()))
-            }
-            "send" => Some(Step::Send(quoted()?)),
-            "reply" => Some(Step::Reply(quoted()?)),
-            "reply-re" => {
-                let source = quoted()?;
-                let re = bytes_regex(&source).map_err(|e| format!("{at}: {e}"))?;
-                Some(Step::ReplyRe(re, shown(&source)))
-            }
-            "want-re" => Some(Step::WantRe(whole(arg).map_err(|e| format!("{at}: {e}"))?)),
-            "reject-re" => Some(Step::RejectRe(
-                whole(arg).map_err(|e| format!("{at}: {e}"))?,
-            )),
-            "check" => Some(Step::Check),
-            "want" => Some(Step::Want(arg.to_owned())),
-            "reject" => Some(Step::Reject(arg.to_owned())),
-            "example" => {
-                let last = probe.steps.len().checked_sub(1);
-                let after = last.and_then(|k| probe.steps.get(k)).map(|(s, _)| s.key());
-                match (unquote(arg), last) {
-                    (Some(data), Some(k))
-                        if matches!(after, Some("want-re" | "reply-re"))
-                            && !probe.examples.contains_key(&k) =>
-                    {
-                        probe.examples.insert(k, (data, n));
-                    }
-                    _ => {
-                        return Err(format!(
-                            r#"{at}: want example "..." once, after a want-re or reply-re"#
-                        ));
-                    }
-                }
-                None
-            }
-            _ => return Err(format!("{at}: {key:?} is not a key of a probe file")),
-        };
-        if let Some(step) = step {
-            probe.steps.push((step, n));
-        }
-    }
-    for probe in &probes {
-        let at = format!("{}: {}", probe.at, probe.name);
-        if probe.placeholder.is_some() {
-            if !probe.steps.is_empty() {
-                return Err(format!("{at}: a placeholder has nothing to run"));
-            }
-            continue;
-        }
-        if probe.size.is_none() {
-            return Err(format!("{at}: no size"));
-        }
-        if !probe.steps.iter().any(|(s, _)| {
-            matches!(
-                s,
-                Step::Want(_) | Step::WantRe(_) | Step::Reply(_) | Step::ReplyRe(..)
-            )
-        }) {
-            return Err(format!(
-                "{at}: no want or reply, so nothing it prints could fail it"
-            ));
-        }
-        let mut checked = false;
-        for (step, n) in &probe.steps {
-            if INPUT_KEYS.contains(&step.key()) {
-                checked = matches!(step, Step::Check);
-            } else if !checked {
-                return Err(format!(
-                    "{file}:{n}: {} after input with no check between",
-                    step.key()
-                ));
-            }
-        }
-    }
-    Ok(probes)
-}
-
-/// The probes of the copied file, with vtium's own: a probe of vtium's
-/// takes the place of a placeholder of the same name, and one that has
-/// the name of a copied probe that is not a placeholder is refused, so
-/// each capability has one probe.
-pub fn merge(copied: Vec<Probe>, ours: Vec<Probe>) -> Result<Vec<Probe>, String> {
-    let mut out = copied;
-    for probe in ours {
-        match out.iter_mut().find(|p| p.name == probe.name) {
-            Some(p) if p.is_placeholder() => *p = probe,
-            Some(p) => {
-                return Err(format!(
-                    "{}: {}: is already a probe at {}",
-                    probe.at, probe.name, p.at
-                ));
-            }
-            None => out.push(probe),
-        }
-    }
-    Ok(out)
-}
-
 /// A nonzero count, which is masked unless the probe and the
 /// implementation are both damage-exact, and the placement's changed flag.
 fn damage_count(line: &str) -> Option<&str> {
@@ -334,6 +141,29 @@ fn damage_count(line: &str) -> Option<&str> {
 
 fn placement_changed(line: &str) -> bool {
     line.starts_with("placement ") && line.ends_with(" changed")
+}
+
+/// Checks that each test command a capability scenario sends is a command
+/// of the replay interface, and each feature its `needs` line names a
+/// feature of it, so a misspelt name fails the run before anything runs
+/// instead of reading as a capability vtium lacks.
+pub fn check_names(file: &str, probe: &Probe, spec: &Spec) -> Result<(), String> {
+    for (step, n) in &probe.steps {
+        if let Step::Cmd(text) = step {
+            let name = text.split(';').next().unwrap_or_default();
+            if !spec.commands.contains_key(name) {
+                return Err(format!(
+                    "{file}:{n}: {name} is not a command of the replay interface"
+                ));
+            }
+        }
+    }
+    match probe.needs.iter().find(|f| !spec.features.contains(*f)) {
+        Some(f) => Err(format!(
+            "{file}: {f} is not a feature of the replay interface"
+        )),
+        None => Ok(()),
+    }
 }
 
 /// Checks a probe's expectations against the spec before anything runs:
@@ -424,6 +254,7 @@ pub fn check_expectations(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::scenario::unquote;
 
     #[test]
     fn byte_patterns_match_whole_with_escaped_bytes_and_dot_matching_any_byte() {

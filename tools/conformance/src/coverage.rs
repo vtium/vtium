@@ -1,12 +1,12 @@
 //! The COVERAGE map: each capability of `capabilities.list`, the ADR-1000
-//! rows its probe judges, the tests that guard those rows, and the gap.
+//! rows its scenario judges, the tests that guard those rows, and the gap.
 //! It is generated from the list and ADR-1000's tables, and a test fails
 //! when the committed `COVERAGE.md` differs.
 
 use core::fmt::Write;
 use std::collections::BTreeMap;
 
-/// A capability: its probe, its status, the issue or build feature, its
+/// A capability: its name, which its scenario declares, its status, the issue or build feature, its
 /// ADR-1000 rows and its note.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Capability {
@@ -90,7 +90,7 @@ pub fn render(
     tests: &BTreeMap<String, Vec<String>>,
 ) -> Result<String, String> {
     let mut out = String::from(
-        "# Coverage\n\n<!-- generated from capabilities.list and ADR-1000's tables; VTIUM_CONFORMANCE_BLESS=1 cargo test -p vtium-conformance coverage rewrites it -->\n\nEach capability the capability probes judge, the ADR-1000 rows its probe covers, the tests that guard those rows, and the gap: the issue that owes a missing capability, or a row no test guards yet. The probes themselves run through `conformance probes` (README.md).\n\n| Capability | Status | ADR-1000 rows | Tests | Gap |\n|---|---|---|---|---|\n",
+        "# Coverage\n\n<!-- generated from capabilities.list and ADR-1000's tables; VTIUM_CONFORMANCE_BLESS=1 cargo test -p vtium-conformance coverage rewrites it -->\n\nEach capability the capability scenarios judge, the ADR-1000 rows its scenario covers, the tests that guard those rows, and the gap: the issue that owes a missing capability, or a row no test guards yet. The capability scenarios themselves run through `conformance probes` (README.md).\n\n| Capability | Status | ADR-1000 rows | Tests | Gap |\n|---|---|---|---|---|\n",
     );
     for c in caps {
         let mut guards: Vec<&str> = Vec::new();

@@ -484,7 +484,6 @@ impl Scenario {
         }
         Probe {
             name: self.name.clone(),
-            at: format!("{}:1", self.file),
             size: (self.cols != 0).then_some((self.cols, self.rows)),
             view: self.view.name().to_owned(),
             placeholder: self.placeholder.clone(),

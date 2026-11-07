@@ -881,6 +881,16 @@ fn the_capability_rules_refuse_a_scenario_before_anything_runs() {
             "works",
             "does not match",
         ),
+        (
+            "size 4 1\ncmd no-such\ncheck\nwant row 0 ||\n",
+            "missing",
+            "no-such is not a command of the replay interface",
+        ),
+        (
+            "size 4 1\nneeds no-such\nsend \"x\"\ncheck\nwant row 0 |x|\n",
+            "missing",
+            "no-such is not a feature of the replay interface",
+        ),
     ];
     for (body, status, want) in cases {
         let s = [capability_scenario("dsr", body)];
@@ -893,18 +903,10 @@ fn the_capability_rules_refuse_a_scenario_before_anything_runs() {
 }
 
 #[test]
-fn a_capability_scenario_replays_the_bytes_and_cuts_its_probe_had() {
-    // the probe `bracketed-paste` as the probe file writes it
-    let probe = "probe bracketed-paste\nsize 80 4\nsend \"\\e[?2004h\"\ncheck\ncmd paste;hex=78\ncheck\nreply \"\\e[200~x\\e[201~\"\n";
+fn d2s_capability_scenario_passes_through_vtium_replay() {
     let spec = spec();
-    let probes =
-        vtium_conformance::probes::read("t.replay", probe, &spec).unwrap_or_else(|e| panic!("{e}"));
-    let r = runner(&spec);
     let s = parse("bracketed-paste", BRACKETED);
-    let replay = vtium_conformance::probes::Replay::new(&spec, &vtium_conformance::describe())
-        .unwrap_or_else(|e| panic!("{e}"));
-    assert_eq!(r.capability(&s), replay.run(&probes[0]));
-    assert_eq!(r.capability(&s), Outcome::Pass);
+    assert_eq!(runner(&spec).capability(&s), Outcome::Pass);
 }
 
 #[test]

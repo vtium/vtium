@@ -166,12 +166,6 @@ pub fn keysym(name: &str) -> Option<u32> {
     NAMED.iter().find(|(n, ..)| *n == name).map(|&(_, s, _)| s)
 }
 
-/// The first name the key table gives `sym`, for the probes' converter.
-#[cfg(test)]
-pub(crate) fn name_of(sym: u32) -> Option<&'static str> {
-    NAMED.iter().find(|&&(_, s, _)| s == sym).map(|&(n, ..)| n)
-}
-
 /// The keysym an ASCII layout gives the same key: the keysym itself for a
 /// printable ASCII one, and 0, none, for every other.
 pub fn ascii_of(sym: u32) -> u32 {
