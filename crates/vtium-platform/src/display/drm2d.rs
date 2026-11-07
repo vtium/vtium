@@ -379,6 +379,11 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                 .is_some_and(|p| p.damage)
     }
 
+    /// The buffers each display keeps.
+    pub fn buffers(&self) -> Buffers {
+        self.buffers
+    }
+
     /// Whether a frame swapped is still waiting to reach the screen, or a
     /// frame the card refused as busy waits for the display's next vblank.
     pub fn is_flipping(&self, id: DisplayId) -> bool {

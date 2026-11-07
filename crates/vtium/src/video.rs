@@ -101,6 +101,15 @@ pub trait Video: Any {
     /// Whether the display takes a frame now: it would lend a token. A
     /// frame the display does not take waits until the display is ready.
     fn ready_for_frame(&self, id: DisplayId) -> bool;
+    /// Whether a draw the coalescing paces during a flood waits for the
+    /// display's flip in flight to end (ADR-1401 D2). A DRM display with
+    /// two or three buffers says yes: a frame composed during its flip
+    /// cannot reach the screen before the flip ends. With one buffer
+    /// vtium draws into the buffer shown, and no draw waits for a flip; a
+    /// framebuffer says no too.
+    fn paced_draw_waits_for_flip(&self, _: DisplayId) -> bool {
+        false
+    }
     fn set_dpms(&mut self, id: DisplayId, dpms: Dpms) -> io::Result<()>;
     fn sleep(&mut self);
     fn wake_up(&mut self) -> io::Result<()>;
@@ -245,6 +254,9 @@ macro_rules! drm2d_video {
             fn ready_for_frame(&self, id: DisplayId) -> bool {
                 <$device>::ready_for_frame(self, id)
             }
+            fn paced_draw_waits_for_flip(&self, _: DisplayId) -> bool {
+                <$device>::buffers(self) != Buffers::One
+            }
             fn set_dpms(&mut self, id: DisplayId, dpms: Dpms) -> io::Result<()> {
                 <$device>::set_dpms(self, id, dpms)
             }
@@ -384,10 +396,14 @@ mod tests {
     struct Probe {
         gone: bool,
         commits: Vec<DisplayId>,
+        buffers: Buffers,
     }
 
     #[expect(clippy::unused_self, reason = "drm2d's signatures")]
     impl Probe {
+        fn buffers(&self) -> Buffers {
+            self.buffers
+        }
         fn events(&mut self) -> std::vec::IntoIter<Event> {
             Vec::new().into_iter()
         }
@@ -490,6 +506,25 @@ mod tests {
         assert!(video.gone());
         assert_eq!(video.commit(DisplayId(7)).ok(), Some(Swapped::Frame));
         assert_eq!(probe.commits, [DisplayId(7)]);
+    }
+
+    // ADR-1401 D2: a drm2d display with two or three buffers holds a paced
+    // draw for its flip in flight; with one, vtium draws into the buffer
+    // shown and no draw waits for a flip. A framebuffer has the trait's
+    // default, which never waits.
+    #[test]
+    fn a_paced_draw_waits_for_the_flip_with_two_or_three_drm_buffers() {
+        let waits: Vec<bool> = [Buffers::One, Buffers::Two, Buffers::Three]
+            .into_iter()
+            .map(|buffers| {
+                let probe = Probe {
+                    buffers,
+                    ..Probe::default()
+                };
+                Video::paced_draw_waits_for_flip(&probe, DisplayId(1))
+            })
+            .collect();
+        assert_eq!(waits, [false, true, true]);
     }
 
     // ADR-1401 D2: the minspec build, vtium's default build, keeps two

@@ -16,8 +16,12 @@
 //! unparsed. It draws at the first turn that finds neither, or once a
 //! refresh has passed since the display's last present, whichever comes
 //! first; output that began after an idle refresh counts the refresh from
-//! its beginning. Keys, the blink timers, the pointer, a frame's end and a
-//! lost picture draw at once.
+//! its beginning. A draw at that deadline while the flip of a display with
+//! two or three buffers is in flight waits for the flip to end instead, so
+//! with three buffers it composes nothing into the third
+//! ([`Wait::wait_for_flip`], ADR-1401 D2).
+//! Keys, the blink timers, the pointer, a frame's end and a lost picture
+//! draw at once.
 //!
 //! The time is an argument: the loop reads the clock.
 
@@ -210,6 +214,25 @@ pub struct Coalesce {
 pub struct Wait {
     presented: Option<Instant>,
     due: Option<Instant>,
+    /// A paced draw waits for the display's flip in flight to end.
+    flip: bool,
+    /// The draw asked last is paced, so while it waits for the display
+    /// to take a frame, it waits for the flip in flight too.
+    paced: bool,
+}
+
+/// What the coalescing asks of a display at the end of a turn that changed
+/// the screen.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Draw {
+    /// Draw at once: the output was short, or a hold decides.
+    Now,
+    /// Draw now, at the pacing deadline: a refresh has passed since the
+    /// display's last present, or since output that began after an idle
+    /// refresh.
+    Paced,
+    /// Draw by this time if no turn has by then.
+    Later(Instant),
 }
 
 impl Wait {
@@ -223,6 +246,39 @@ impl Wait {
     /// not on this time.
     pub fn end(&mut self) {
         self.due = None;
+    }
+
+    /// Whether a paced draw waits for the display's flip in flight to end.
+    pub fn for_flip(&self) -> bool {
+        self.flip
+    }
+
+    /// A paced draw waits for the display's flip in flight to end, and
+    /// not for a time (ADR-1401 D2).
+    pub fn wait_for_flip(&mut self) {
+        self.due = None;
+        self.flip = true;
+    }
+
+    /// Whether the draw asked last is paced.
+    pub fn paced(&self) -> bool {
+        self.paced
+    }
+
+    /// A draw is asked for now: at once, or `paced` at the pacing
+    /// deadline, which no longer waits for its time.
+    pub fn ask(&mut self, paced: bool) {
+        if paced {
+            self.due = None;
+        }
+        self.paced = paced;
+    }
+
+    /// The display was asked for a frame: nothing waits any more.
+    pub fn taken(&mut self) {
+        self.due = None;
+        self.flip = false;
+        self.paced = false;
     }
 }
 
@@ -247,8 +303,8 @@ impl Coalesce {
         self.busy = self.busy.max(Some(end));
     }
 
-    /// The turn ended with the screen changed at `now`. Returns `None` to
-    /// draw now, or the time by which to draw if no turn has by then.
+    /// The turn ended with the screen changed at `now`: whether the display
+    /// draws at once, at the pacing deadline, which has come, or later.
     /// `refresh` is the display's, if it reports one.
     pub fn decide(
         &self,
@@ -257,10 +313,10 @@ impl Coalesce {
         unparsed: bool,
         now: Instant,
         refresh: Option<Duration>,
-    ) -> Option<Instant> {
+    ) -> Draw {
         if (self.bytes < COALESCE_BYTES && !unparsed) || holding {
             wait.due = None;
-            return None;
+            return Draw::Now;
         }
         let refresh = refresh
             .filter(|r| (REFRESH_MIN..=REFRESH_MAX).contains(r))
@@ -277,7 +333,7 @@ impl Coalesce {
             }
         });
         wait.due = due.filter(|&d| now < d);
-        wait.due
+        wait.due.map_or(Draw::Paced, Draw::Later)
     }
 
     /// The turn ended: the next input call begins another.
@@ -407,7 +463,7 @@ mod tests {
         let mut c = Coalesce::default();
         let mut w = Wait::default();
         c.input(t0, ms(t0, 1), 100);
-        assert_eq!(c.decide(false, &mut w, false, ms(t0, 1), None), None);
+        assert_eq!(c.decide(false, &mut w, false, ms(t0, 1), None), Draw::Now);
     }
 
     #[test]
@@ -421,7 +477,7 @@ mod tests {
         c.input(ms(t0, 3), ms(t0, 5), COALESCE_BYTES);
         assert_eq!(
             c.decide(false, &mut w, false, ms(t0, 5), refresh),
-            Some(ms(t0, 16))
+            Draw::Later(ms(t0, 16))
         );
         assert_eq!(w.due(), Some(ms(t0, 16)));
         c.turn_end();
@@ -429,12 +485,36 @@ mod tests {
         c.input(ms(t0, 6), ms(t0, 8), 10);
         assert_eq!(
             c.decide(false, &mut w, true, ms(t0, 8), refresh),
-            Some(ms(t0, 16))
+            Draw::Later(ms(t0, 16))
         );
         c.turn_end();
         // Past the deadline it draws.
         c.input(ms(t0, 17), ms(t0, 18), COALESCE_BYTES);
-        assert_eq!(c.decide(false, &mut w, false, ms(t0, 18), refresh), None);
+        assert_eq!(
+            c.decide(false, &mut w, false, ms(t0, 18), refresh),
+            Draw::Paced
+        );
+    }
+
+    // ADR-1401 D2: a paced draw that waits for the flip in flight waits
+    // for nothing else, so the loop's timer does not wake it.
+    #[test]
+    fn a_wait_for_the_flip_drops_the_deadline() {
+        let t0 = Instant::now();
+        let mut c = Coalesce::default();
+        let mut w = Wait::default();
+        c.drawn(&mut w, t0, ms(t0, 1), true);
+        c.input(ms(t0, 2), ms(t0, 3), COALESCE_BYTES);
+        let refresh = Some(Duration::from_millis(16));
+        assert_eq!(
+            c.decide(false, &mut w, false, ms(t0, 3), refresh),
+            Draw::Later(ms(t0, 16))
+        );
+        w.wait_for_flip();
+        assert_eq!(w.due(), None);
+        assert!(w.for_flip());
+        w.taken();
+        assert!(!w.for_flip());
     }
 
     #[test]
@@ -447,7 +527,7 @@ mod tests {
         c.input(ms(t0, 500), ms(t0, 502), COALESCE_BYTES);
         assert_eq!(
             c.decide(false, &mut w, false, ms(t0, 502), refresh),
-            Some(ms(t0, 516))
+            Draw::Later(ms(t0, 516))
         );
     }
 
@@ -458,7 +538,7 @@ mod tests {
         let mut w = Wait::default();
         c.drawn(&mut w, t0, ms(t0, 1), true);
         c.input(ms(t0, 2), ms(t0, 3), COALESCE_BYTES);
-        assert_eq!(c.decide(true, &mut w, false, ms(t0, 3), None), None);
+        assert_eq!(c.decide(true, &mut w, false, ms(t0, 3), None), Draw::Now);
         assert_eq!(
             c.decide(
                 false,
@@ -467,7 +547,7 @@ mod tests {
                 ms(t0, 3),
                 Some(Duration::from_secs(1))
             ),
-            Some(t0 + REFRESH)
+            Draw::Later(t0 + REFRESH)
         );
     }
 }
