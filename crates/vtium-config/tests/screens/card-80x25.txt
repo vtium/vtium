@@ -22,4 +22,4 @@ DISPLAYS     DISPLAY RULES  HEADS       LOOKS        INPUT RULES    DEVICES
  rule 5, line 23   input class:keyboard -> roaming
  sends to   desk  panel  roaming  ignore
  matches    class:keyboard  path:pci-0000:15:00.0-usb-0:3.3  id:046d:c31c  or ty
- Tab ←→ columns  ↑↓ move  Enter open  Space tag  c connect  f follow  q quit
+ ←→ columns  ↑↓ move  Tab next view  Enter open  Space tag  c connect  q quit
