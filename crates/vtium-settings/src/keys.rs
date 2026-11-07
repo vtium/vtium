@@ -354,7 +354,7 @@ pub const CONFIGDIR: Key = Key {
     levels: NONE,
     reader: "vtium",
     what: "The directory that holds `vtium.conf`, vtium's configuration file.",
-    cite: "kmscon's `configdir` key; ADR-1500 D4",
+    cite: "kmscon's `configdir` key",
 };
 
 pub const HELP: Key = Key {
@@ -456,7 +456,7 @@ pub const HEAD_CONSOLES_MAX: Key = Key {
     levels: TOP,
     reader: "vtium",
     what: "The most consoles one head can have. A head's `consoles` cannot open more than this.",
-    cite: "ADR-1401 D10",
+    cite: "[the heads issue](https://github.com/vtium/vtium/issues/156)",
 };
 
 pub const OSD: Key = Key {
@@ -470,7 +470,7 @@ pub const OSD: Key = Key {
     what: "What the on-screen display shows at the top of each screen after a change, such as a console switch.\n\n\
            `minimal` shows a dot in the top-right character cell: filled on the active head, hollow on the others. `full` shows a line across the top, such as `● desk · console 2 of 3`. `off` shows nothing.\n\n\
            A notice about a problem appears whatever `osd` says.",
-    cite: "ADR-1401 D5; the operator on vtium/vtium#169",
+    cite: "[the on-screen display issue](https://github.com/vtium/vtium/issues/169)",
 };
 
 pub const OSD_TIMEOUT: Key = Key {
@@ -487,7 +487,7 @@ pub const OSD_TIMEOUT: Key = Key {
     levels: TOP,
     reader: "vtium",
     what: "How long the on-screen display stays visible after a change. `never` keeps it visible all the time.",
-    cite: "ADR-1401 D5; the operator on vtium/vtium#169",
+    cite: "[the on-screen display issue](https://github.com/vtium/vtium/issues/169)",
 };
 
 pub const FOCUS_MARK: Key = Key {
@@ -500,7 +500,7 @@ pub const FOCUS_MARK: Key = Key {
     reader: "vtium",
     what: "The old name for `osd` and `osd-timeout`.\n\n\
            vtium reads it only when `osd` and `osd-timeout` are not set: `auto` means `osd = minimal`, `always` means `osd = minimal` with `osd-timeout = never`, and `off` means `osd = off`. When it is set, vtium logs a line that names the new keys.",
-    cite: "ADR-1401 D5; the operator on vtium/vtium#156, renamed on vtium/vtium#169",
+    cite: "[the on-screen display issue](https://github.com/vtium/vtium/issues/169)",
 };
 
 pub const NOTICE_FOREGROUND: Key = Key {
@@ -512,7 +512,7 @@ pub const NOTICE_FOREGROUND: Key = Key {
     levels: TOP,
     reader: "vtium",
     what: "The text color of a notice. A notice is a box that reports a problem, such as errors in vtium.conf. It appears whatever `osd` says.",
-    cite: "ADR-1401 D5",
+    cite: "[the on-screen display issue](https://github.com/vtium/vtium/issues/169)",
 };
 
 pub const NOTICE_BACKGROUND: Key = Key {
@@ -524,7 +524,7 @@ pub const NOTICE_BACKGROUND: Key = Key {
     levels: TOP,
     reader: "vtium",
     what: "The background color of a notice. While a notice is showing, the on-screen display's line appears in the same box, in the notice's colors.",
-    cite: "ADR-1401 D5",
+    cite: "[the on-screen display issue](https://github.com/vtium/vtium/issues/169)",
 };
 
 pub const NOTICE_BORDER: Key = Key {
@@ -536,7 +536,7 @@ pub const NOTICE_BORDER: Key = Key {
     levels: TOP,
     reader: "vtium",
     what: "The border color of a notice.",
-    cite: "ADR-1401 D5",
+    cite: "[the on-screen display issue](https://github.com/vtium/vtium/issues/169)",
 };
 
 pub const OSD_FOREGROUND: Key = Key {
@@ -548,7 +548,7 @@ pub const OSD_FOREGROUND: Key = Key {
     levels: TOP,
     reader: "vtium",
     what: "The text color of the on-screen display: the line of `osd = full` and the dot of `osd = minimal`.",
-    cite: "ADR-1401 D5",
+    cite: "[the on-screen display issue](https://github.com/vtium/vtium/issues/169)",
 };
 
 pub const OSD_BACKGROUND: Key = Key {
@@ -560,7 +560,7 @@ pub const OSD_BACKGROUND: Key = Key {
     levels: TOP,
     reader: "vtium",
     what: "The background color of the on-screen display: behind the line of `osd = full`, and in the character cell behind the dot of `osd = minimal`.",
-    cite: "ADR-1401 D5",
+    cite: "[the on-screen display issue](https://github.com/vtium/vtium/issues/169)",
 };
 
 pub const OSD_BORDER: Key = Key {
@@ -572,7 +572,7 @@ pub const OSD_BORDER: Key = Key {
     levels: TOP,
     reader: "vtium",
     what: "The border color of the on-screen display with `osd = full`. The dot of `osd = minimal` has no border.",
-    cite: "ADR-1401 D5",
+    cite: "[the on-screen display issue](https://github.com/vtium/vtium/issues/169)",
 };
 
 /// The six keys of the notices' and the on-screen display's colors, each
@@ -637,7 +637,7 @@ pub const CONSOLES_MAX: Key = Key {
     reader: "vtium",
     what: "The most consoles all heads can have together.\n\n\
            Every head keeps its first console. More consoles open, in the order the heads appear in vtium.conf, until the total reaches this number.",
-    cite: "ADR-1401 D10",
+    cite: "[the heads issue](https://github.com/vtium/vtium/issues/156)",
 };
 
 pub const TERM: Key = Key {
@@ -650,7 +650,7 @@ pub const TERM: Key = Key {
     reader: "vtium",
     what: "The value of `TERM` that programs on the console see.\n\n\
            The default is vtium's own terminfo entry, `xterm-vtium`, which is also named `vtium`. With either name, vtium answers capability queries (XTGETTCAP) from that entry. With `kmscon`, vtium answers from kmscon's entry. With any other value, vtium answers every query as unknown.",
-    cite: "kmscon's `term` key; ADR-1000, \"The terminfo entry and TERM\"",
+    cite: "kmscon's `term` key",
 };
 
 pub const RESET_ENV: Key = Key {
@@ -691,7 +691,7 @@ pub const SB_SIZE: Key = Key {
     levels: TOP,
     reader: "vtium-term",
     what: "How many lines of scrollback each console keeps, up to `sb-size-cap`.",
-    cite: "kmscon's `sb-size` key; ADR-1001, \"Scrollback size\"",
+    cite: "kmscon's `sb-size` key",
 };
 
 pub const SB_SIZE_CAP: Key = Key {
@@ -709,7 +709,7 @@ pub const SB_SIZE_CAP: Key = Key {
     reader: "vtium-term",
     what: "The most lines `sb-size` can ask for.\n\n\
            When unset, it depends on the machine's memory: 10,000 lines below 2 GiB, 30,000 from 2 GiB and 100,000 from 4 GiB.",
-    cite: "ADR-1001, \"Scrollback size\"; the operator on vtium/vtium#21",
+    cite: "[the configuration issue](https://github.com/vtium/vtium/issues/21)",
 };
 
 pub const SB_MEMORY: Key = Key {
@@ -729,7 +729,7 @@ pub const SB_MEMORY: Key = Key {
            The value is in bytes, or in KiB, MiB or GiB with `K`, `M` or `G` (such as `6M`), up to a quarter of the machine's memory (or up to the default when `/proc/meminfo` cannot be read).\n\n\
            When unset, vtium sizes it to fit each console's size in characters, and sizes it again when that changes. A console up to 170x48 characters gets what is left of a 16 MiB budget after the console's screens and the rest of vtium, so a smaller console keeps more lines. A larger console gets the 170x48 value shown here.\n\n\
            The default does not grow with the display or the machine's memory. On a machine with memory to spare, set `sb-memory` for a deeper scrollback; a set value stays fixed.",
-    cite: "vtium/vtium#131; ADR-1001, \"Memory\"",
+    cite: "[the scrollback memory issue](https://github.com/vtium/vtium/issues/131)",
 };
 
 pub const BELL: Key = Key {
@@ -767,7 +767,7 @@ pub const BLINK_TEXT: Key = Key {
     reader: "vtium-render",
     what: "How blinking text (SGR 5 or 6) looks while a blink is off.\n\n\
            `full` hides it, `partial` dims it halfway to its background, as faint text (SGR 2) is, and `off` keeps it steady. The cursor follows `blink` either way.",
-    cite: "the operator on vtium/vtium#81; the maintainer's decision of 2026-11-03",
+    cite: "[the blink options issue](https://github.com/vtium/vtium/issues/81); the maintainer's decision of 2026-11-03",
 };
 
 pub const BLINK_DECORATIONS: Key = Key {
@@ -780,7 +780,7 @@ pub const BLINK_DECORATIONS: Key = Key {
     reader: "vtium-render",
     what: "Blink the underline and strikethrough of blinking text with it.\n\n\
            They hide while a blink is off with `blink-text = full`, and dim with `partial`. When off, they stay visible while the text blinks.",
-    cite: "the operator on vtium/vtium#81",
+    cite: "[the blink options issue](https://github.com/vtium/vtium/issues/81)",
 };
 
 pub const SYNC_TIMEOUT: Key = Key {
@@ -797,7 +797,7 @@ pub const SYNC_TIMEOUT: Key = Key {
     levels: TOP,
     reader: "vtium",
     what: "The longest vtium waits for a program to finish a synchronized update (mode 2026) before it shows the screen as it is. 0 turns mode 2026 off.",
-    cite: "ADR-1000 (`DEC-2026`)",
+    cite: "[the modes issue](https://github.com/vtium/vtium/issues/12)",
 };
 
 pub const DPMS_TIMEOUT: Key = Key {
@@ -827,7 +827,7 @@ pub const PROGRAM_BLANK: Key = Key {
     reader: "vtium",
     what: "Let a program set the blanking timeout and wake the displays, as `setterm --blank` does on the Linux console.\n\n\
            A program sets the timeout with `CSI 9 ; n ]` (n minutes, up to 60; 0 never blanks) and wakes the displays with `CSI 13 ]`. A terminal reset (RIS) returns the timeout to `dpms-timeout`. When off, vtium ignores these sequences. A key press or mouse action wakes the displays either way.",
-    cite: "ADR-1000 (`ctl.linux-blank`, `ctl.linux-unblank`); vtium/vtium#79",
+    cite: "[the screen blanking issue](https://github.com/vtium/vtium/issues/79)",
 };
 
 pub const DISPLAY_WAIT: Key = Key {
@@ -848,7 +848,7 @@ pub const DISPLAY_WAIT: Key = Key {
            vtium counts only while the VT is its own. If another program takes the VT before vtium's first frame is on screen, as X does at boot when it starts on another VT, vtium waits for the VT to come back and then starts the full wait again.\n\n\
            With 0, vtium does not wait: only a display that is ready when the VT is shown counts. `forever` waits as long as it takes, for a machine whose only display is a USB adapter (DisplayLink, `udl`) that may be plugged in at any time.\n\n\
            Once a display has appeared, vtium never exits for lack of one.",
-    cite: "the operator on vtium/vtium#21 and #270",
+    cite: "[the configuration issue](https://github.com/vtium/vtium/issues/21); [the issue about X starting during vtium's first frame](https://github.com/vtium/vtium/issues/270)",
 };
 
 pub const DISPLAY_BUFFERS: Key = Key {
@@ -862,7 +862,7 @@ pub const DISPLAY_BUFFERS: Key = Key {
     what: "How many frame buffers each display keeps (DRM displays only; every display gets the same number).\n\n\
            `3` is triple buffering: no frame waits for the previous one to reach the screen, at the cost of one more frame of memory per display (8 MB at 1080p). `2` is double buffering. `1` is single buffering, which uses the least memory, but vtium then draws into the buffer on screen, so a half-drawn frame can show.\n\n\
            A framebuffer device (fbdev) always keeps one buffer. When unset, the build decides: the number it was built with (`VTIUM_DISPLAY_BUFFERS`), or else 3 in a build with optional features, 2 in the smallest build (minspec), and 1 only in a build smaller than that. `vtium config get display-buffers` prints the draft's value followed by `draft`, or the build's default followed by `default` (`unset` when the build sets no number, in which case the rule above decides).",
-    cite: "ADR-1401 D2",
+    cite: "[the displays issue](https://github.com/vtium/vtium/issues/18)",
 };
 
 pub const HWACCEL: Key = Key {
@@ -887,7 +887,7 @@ pub const USE_ORIGINAL_MODE: Key = Key {
     levels: TOP,
     reader: "vtium-platform",
     what: "Keep each display's current resolution. When off, vtium sets each display's preferred resolution.",
-    cite: "kmscon's `use-original-mode` key; vtium/vtium#5",
+    cite: "kmscon's `use-original-mode` key; [the native mode issue](https://github.com/vtium/vtium/issues/5)",
 };
 
 pub const MODE: Key = Key {
@@ -1153,7 +1153,7 @@ pub const UNDERLINE_COLOR: Key = Key {
     reader: "vtium-render",
     what: "The color of underlines (SGR 4 in every style, and SGR 21).\n\n\
            `fg` uses the text's color, a palette number uses that palette color (which a program can change with OSC 4), and `#rrggbb` uses that color. A color a program sets with SGR 58 wins, unless `force-decoration-colors` is on.",
-    cite: "ADR-1000 (`sgr.underline-color`)",
+    cite: "[the decoration colors issue](https://github.com/vtium/vtium/issues/127)",
 };
 
 pub const STRIKE_COLOR: Key = Key {
@@ -1165,7 +1165,7 @@ pub const STRIKE_COLOR: Key = Key {
     levels: TOP,
     reader: "vtium-render",
     what: "The color of strikethrough (SGR 9). It takes the same values as `underline-color`.",
-    cite: "ADR-1000 (`sgr.strike`)",
+    cite: "[the decoration colors issue](https://github.com/vtium/vtium/issues/127)",
 };
 
 pub const FORCE_DECORATION_COLORS: Key = Key {
@@ -1177,7 +1177,7 @@ pub const FORCE_DECORATION_COLORS: Key = Key {
     levels: TOP,
     reader: "vtium-render",
     what: "Use `underline-color` even when a program sets its own underline color (SGR 58).",
-    cite: "ADR-1000 (`sgr.underline-color`, `sgr.strike`)",
+    cite: "[the decoration colors issue](https://github.com/vtium/vtium/issues/127)",
 };
 
 pub const CLIPBOARD_WRITE: Key = Key {
@@ -1190,7 +1190,7 @@ pub const CLIPBOARD_WRITE: Key = Key {
     reader: "vtium",
     what: "Let programs copy text to vtium's clipboard (OSC 52). When off, vtium ignores what they send.\n\n\
            The console has no system clipboard. vtium keeps the last text copied, by a program or by you, and the middle mouse button and the `grab-paste` key paste it.",
-    cite: "ADR-1000 (`osc.52.write`); vtium/vtium#39",
+    cite: "[the OSC 52 copy issue](https://github.com/vtium/vtium/issues/39)",
 };
 
 pub const XKB_MODEL: Key = Key {
@@ -1334,7 +1334,7 @@ pub const POINTER_CHAR: Key = Key {
     reader: "vtium-render",
     what: "Show the mouse pointer as this character, drawn with the console's font.\n\n\
            The character fills the character cell under the pointer, white with a dark outline, like the arrow. When unset, or when the font cannot display the character, the pointer is an arrow.",
-    cite: "the operator on vtium/vtium#102",
+    cite: "[the pointer options issue](https://github.com/vtium/vtium/issues/102)",
 };
 
 pub const SOFT_CURSOR: Key = Key {
@@ -1363,7 +1363,7 @@ pub const POINTER_HIDE_TIMEOUT: Key = Key {
     levels: TOP,
     reader: "vtium-platform",
     what: "Hide the mouse pointer after this long without mouse activity, until it moves again. 0 never hides it.",
-    cite: "the operator on vtium/vtium#102",
+    cite: "[the pointer options issue](https://github.com/vtium/vtium/issues/102)",
 };
 
 pub const POINTER_HIDE_WHILE_TYPING: Key = Key {
@@ -1375,7 +1375,7 @@ pub const POINTER_HIDE_WHILE_TYPING: Key = Key {
     levels: TOP,
     reader: "vtium",
     what: "Hide the mouse pointer while you type, until it moves again. A key vtium handles itself, such as a shortcut, does not hide it.",
-    cite: "the operator on vtium/vtium#102",
+    cite: "[the pointer options issue](https://github.com/vtium/vtium/issues/102)",
 };
 
 pub const FONT_ENGINE: Key = Key {
@@ -1401,7 +1401,7 @@ pub const FONT_NAME: Key = Key {
     what: "The console's font.\n\n\
            The value is the name of a font set (a frit file, `NAME.vtfrit` in `/etc/vtium/fonts`). It can also be the name of a kbd console font, or with `font-engine = psf` the path of a PSF font; vtium then uses that one font.\n\n\
            When unset, vtium uses the font from vconsole.conf. If there is none, or vtium cannot find the font, vtium uses its built-in font and logs why.",
-    cite: "kmscon's `font-name` key; ADR-1200 (D9); vtium/vtium#126",
+    cite: "kmscon's `font-name` key; [the issue that loads the configured font set](https://github.com/vtium/vtium/issues/126)",
 };
 
 pub const FONT_FRITS: Key = Key {
@@ -1415,7 +1415,7 @@ pub const FONT_FRITS: Key = Key {
     what: "The directory that holds the font sets (the `NAME.vtfrit` files that `font-name` names).\n\n\
            It must be an absolute path; vtium ignores a relative or empty one and logs why.\n\n\
            The default is the directory vtium was built with.",
-    cite: "ADR-1200 (D1, D15); the maintainer's decision of 2026-11-01",
+    cite: "[the issue that loads the configured font set](https://github.com/vtium/vtium/issues/126); the maintainer's decision of 2026-11-01",
 };
 
 pub const FONT_PATHS: Key = Key {
@@ -1429,7 +1429,7 @@ pub const FONT_PATHS: Key = Key {
     what: "The folders where vtium looks, in order, for installed fonts that a font set's `font:` lines name.\n\n\
            Separate the folders with `:`, as in `PATH`; each must be an absolute path. The list replaces the built-in list, so it can reorder or leave out the system's folders. vtium skips a folder that is not an absolute path, uses the rest, and logs why.\n\n\
            When unset, vtium searches `/usr/share/fonts` and `/usr/local/share/fonts`. A user's own folder, such as `~/.local/share/fonts`, is searched only when the list names it, and the font helper cannot read it before someone logs in, because it then runs as `nobody`.",
-    cite: "ADR-1200 (D25)",
+    cite: "[the configuration flow issue](https://github.com/vtium/vtium/issues/299)",
 };
 
 pub const FONT_HELPER: Key = Key {
@@ -1444,7 +1444,7 @@ pub const FONT_HELPER: Key = Key {
            vtium opens the program once, when it starts, and runs every helper from that file, so a newly installed helper takes effect when vtium restarts.\n\n\
            vtium refuses a path that is not absolute, a file that is not a regular file, a setuid or setgid file, a file owned by anyone other than root or vtium's own account, and a file that its group or other users can write. It then logs why and uses its built-in font. vtium starts the helper through `/proc/self/fd`, so `/proc` must be mounted.\n\n\
            The default is the path vtium was built with.",
-    cite: "ADR-1200 (D15); the maintainer's decision of 2026-11-01",
+    cite: "[the issue that renders glyphs in the font helper](https://github.com/vtium/vtium/issues/145); the maintainer's decision of 2026-11-01",
 };
 
 pub const FONT_SIZE: Key = Key {
@@ -1462,7 +1462,7 @@ pub const FONT_SIZE: Key = Key {
     reader: "vtium-font",
     what: "The font size in points (1/72 inch).\n\n\
            The size in pixels is points × DPI ÷ 72, at the display's density (`display-dpi`). It overrides a font set's `cell=` line. 0 picks a size to suit each display.",
-    cite: "kmscon's `font-size` key; vtium-font's `CELL_SIDE_MAX`; the operator on vtium/vtium#145",
+    cite: "kmscon's `font-size` key; vtium-font's `CELL_SIDE_MAX`; [the issue that renders glyphs in the font helper](https://github.com/vtium/vtium/issues/145)",
 };
 
 pub const FONT_HINTING: Key = Key {
@@ -1476,7 +1476,7 @@ pub const FONT_HINTING: Key = Key {
     what: "How outline fonts are fitted to the pixel grid (hinting). It overrides a font set's `hinting=` line.\n\n\
            `light` fits each character vertically only. `full` fits a TrueType font both ways, and treats a CFF font as `light`. Bitmap fonts are not hinted.\n\n\
            This key has no effect yet: each font set's `hinting=` line decides, and `light` is used where it has none.",
-    cite: "ADR-1200 D1",
+    cite: "[the configuration flow issue](https://github.com/vtium/vtium/issues/299)",
 };
 
 pub const FONT_LINE_SPACING: Key = Key {
@@ -1495,7 +1495,7 @@ pub const FONT_LINE_SPACING: Key = Key {
     what: "Extra space between lines of text. It overrides a font set's `line-spacing=` line.\n\n\
            The value is a whole percentage of the text height, rounded to whole pixels and split evenly above and below each line, so the console has fewer lines. It does not change a font set's own `cell=` size, but it applies when `font-size` overrides that size: the character cell grows by the spacing. When unset, the font set's `line-spacing=` decides, and 0 where it has none.\n\n\
            Letters keep their size in the middle of the taller line, and line and block characters stretch to fill it. A font set's `fit=` lines choose this for each set of characters.",
-    cite: "ADR-1302 D13; ADR-1200 D1",
+    cite: "[the line spacing issue](https://github.com/vtium/vtium/issues/277)",
 };
 
 pub const CELL: Key = Key {
@@ -1508,7 +1508,7 @@ pub const CELL: Key = Key {
     reader: "vtium",
     what: "The size of a look's character cell, written as in a font set's `cell=` line (WIDTHxHEIGHT).\n\n\
            It overrides the `cell=` and `size=` lines of the look's font set, and the top-level `font-size`. A `font-size` other than 0 in the same look overrides `cell`. When unset, the font set's `cell=` decides.",
-    cite: "ADR-1403 D5; ADR-1200 D1, D16",
+    cite: "[the configuration flow issue](https://github.com/vtium/vtium/issues/299)",
 };
 
 pub const ALLOW_FONT_OPS: Key = Key {
@@ -1522,7 +1522,7 @@ pub const ALLOW_FONT_OPS: Key = Key {
     what: "Let programs switch the console's font, and ask which font is in use (xterm's OSC 50).\n\n\
            A program switches with `OSC 50 ; NAME ST`, as `vtium-config use-frit NAME` does, and asks with `OSC 50 ; ? ST`. A switch lasts until that program's session ends; then vtium returns to the font and size that `font-name` and `font-size` set.\n\n\
            It is on by default, as xterm's `allowFontOps` is, because a program can choose only the installed font sets and the built-in fonts, never another file. When off, vtium ignores OSC 50, queries included.",
-    cite: "ADR-1200 (D5); vtium/vtium#126",
+    cite: "[the issue that loads the configured font set](https://github.com/vtium/vtium/issues/126)",
 };
 
 pub const GLYPH_SOURCE: Key = Key {
@@ -1535,7 +1535,7 @@ pub const GLYPH_SOURCE: Key = Key {
     reader: "vtium-font",
     what: "Who draws box-drawing, block and similar characters (six ranges): the font, or vtium itself.\n\n\
            `font` uses the font's characters, `sprites` uses vtium's own drawings, and `auto` uses the font's where the font has the character. When unset, vtium uses the font for each range the font covers completely and its own drawings for the rest; with the built-in unifont, vtium always draws them itself.",
-    cite: "vtium/vtium#85",
+    cite: "[the glyph source issue](https://github.com/vtium/vtium/issues/85)",
 };
 
 pub const GLYPH_SOURCE_BOX: Key = Key {
@@ -1547,7 +1547,7 @@ pub const GLYPH_SOURCE_BOX: Key = Key {
     levels: TOP,
     reader: "vtium-font",
     what: "Overrides `glyph-source` for box drawing (U+2500 to U+257F).",
-    cite: "vtium/vtium#85",
+    cite: "[the glyph source issue](https://github.com/vtium/vtium/issues/85)",
 };
 
 pub const GLYPH_SOURCE_BLOCK: Key = Key {
@@ -1559,7 +1559,7 @@ pub const GLYPH_SOURCE_BLOCK: Key = Key {
     levels: TOP,
     reader: "vtium-font",
     what: "Overrides `glyph-source` for block elements (U+2580 to U+259F).",
-    cite: "vtium/vtium#85",
+    cite: "[the glyph source issue](https://github.com/vtium/vtium/issues/85)",
 };
 
 pub const GLYPH_SOURCE_BRAILLE: Key = Key {
@@ -1571,7 +1571,7 @@ pub const GLYPH_SOURCE_BRAILLE: Key = Key {
     levels: TOP,
     reader: "vtium-font",
     what: "Overrides `glyph-source` for Braille (U+2800 to U+28FF).",
-    cite: "vtium/vtium#85",
+    cite: "[the glyph source issue](https://github.com/vtium/vtium/issues/85)",
 };
 
 pub const GLYPH_SOURCE_SEXTANTS: Key = Key {
@@ -1583,7 +1583,7 @@ pub const GLYPH_SOURCE_SEXTANTS: Key = Key {
     levels: TOP,
     reader: "vtium-font",
     what: "Overrides `glyph-source` for sextants (U+1FB00 to U+1FB3B).",
-    cite: "vtium/vtium#85",
+    cite: "[the glyph source issue](https://github.com/vtium/vtium/issues/85)",
 };
 
 pub const GLYPH_SOURCE_OCTANTS: Key = Key {
@@ -1595,7 +1595,7 @@ pub const GLYPH_SOURCE_OCTANTS: Key = Key {
     levels: TOP,
     reader: "vtium-font",
     what: "Overrides `glyph-source` for octants (U+1CD00 to U+1CDE5).",
-    cite: "vtium/vtium#85",
+    cite: "[the glyph source issue](https://github.com/vtium/vtium/issues/85)",
 };
 
 pub const GLYPH_SOURCE_LEGACY: Key = Key {
@@ -1607,7 +1607,7 @@ pub const GLYPH_SOURCE_LEGACY: Key = Key {
     levels: TOP,
     reader: "vtium-font",
     what: "Overrides `glyph-source` for the other block shapes of Symbols for Legacy Computing.",
-    cite: "vtium/vtium#85",
+    cite: "[the glyph source issue](https://github.com/vtium/vtium/issues/85)",
 };
 
 pub const MISSING: Key = Key {
@@ -1619,7 +1619,7 @@ pub const MISSING: Key = Key {
     levels: TOP,
     reader: "vtium-font",
     what: "What vtium shows for a character the font cannot display: `box` shows □ (U+25A1), and `hex` shows the character's code in hex digits.",
-    cite: "vtium/vtium#85",
+    cite: "[the glyph source issue](https://github.com/vtium/vtium/issues/85)",
 };
 
 pub const TEXT_DIRECTION: Key = Key {
@@ -1634,7 +1634,7 @@ pub const TEXT_DIRECTION: Key = Key {
            A paragraph is the text between two line ends, however many rows it wraps across. `ltr`, the default, starts each paragraph at the left edge, as most terminals do. `rtl` starts each one at the right edge, for a console used mostly in Arabic, Hebrew or another right-to-left language. Under `auto`, a paragraph that starts with an Arabic or Hebrew letter runs right to left, and one that starts with a Latin letter, or has no letter, runs left to right.\n\n\
            A program can change the direction with escape sequences, and a terminal reset returns it to this setting. vtium reads this key when it starts, so a change takes effect when vtium restarts, and it never changes text already on the screen.\n\n\
            A build without right-to-left support (the `bidi` feature) accepts this key and does nothing with it.",
-    cite: "ADR-1004 D5",
+    cite: "[the right-to-left text issue](https://github.com/vtium/vtium/issues/43)",
 };
 
 pub const GLYPH_CACHE: Key = Key {
@@ -1646,7 +1646,7 @@ pub const GLYPH_CACHE: Key = Key {
     levels: TOP,
     reader: "vtium-render",
     what: "How much memory vtium uses to cache drawn characters. When unset, `minspec` (small), or `performance` in a build with the `performance-cache` feature.",
-    cite: "ADR-1300; vtium/vtium#16",
+    cite: "[the CPU compositor issue](https://github.com/vtium/vtium/issues/16)",
 };
 
 pub const DISPLAY_DEPTH: Key = Key {
@@ -1659,7 +1659,7 @@ pub const DISPLAY_DEPTH: Key = Key {
     reader: "vtium-render",
     what: "How many colors or shades each display can show.\n\n\
            `1` is black and white: each character cell is lit or dark by its colors, never by their brightness. `gray4` and `gray16` are for gray panels of 4 or 16 shades; vtium sends color and the panel converts it. `color` is full color. `auto` uses what the display reports: 1 bit for an fbdev device that says so, or the levels of a known DRM panel driver.",
-    cite: "the operator on vtium/vtium#135",
+    cite: "[the 1-bit displays issue](https://github.com/vtium/vtium/issues/135)",
 };
 
 pub const DISPLAY_DPI: Key = Key {
@@ -1678,7 +1678,7 @@ pub const DISPLAY_DPI: Key = Key {
     reader: "vtium",
     what: "The pixel density (DPI) used to turn `font-size` and a font set's `size=` from points into pixels, instead of the density each display reports.\n\n\
            When unset, vtium measures each display's density from the physical size it reports. If a display reports none, vtium assumes 96 DPI and logs a warning once for that display.",
-    cite: "the operator on vtium/vtium#145",
+    cite: "[the issue that renders glyphs in the font helper](https://github.com/vtium/vtium/issues/145)",
 };
 
 pub const RENDER_TIMER: Key = Key {
@@ -1690,7 +1690,7 @@ pub const RENDER_TIMER: Key = Key {
     levels: TOP,
     reader: "vtium-render",
     what: "Measure each display's frame times once a second, and write the figures to the log, show them on screen, or both.",
-    cite: "ADR-1000 (`platform.compositor`)",
+    cite: "[the CPU compositor issue](https://github.com/vtium/vtium/issues/16)",
 };
 
 pub const GRAB_PASTE: Key = Key {
@@ -1703,7 +1703,7 @@ pub const GRAB_PASTE: Key = Key {
     reader: "vtium",
     what: "The key that pastes the copied text, as the middle mouse button does; it pastes once per press.\n\n\
            With Shift, write the character Shift makes: `<Ctrl><Shift>V`, not `<Ctrl><Shift>v`. When empty, no key pastes.",
-    cite: "xterm's `Shift <KeyPress> Insert` translation; vtium/vtium#95",
+    cite: "xterm's `Shift <KeyPress> Insert` translation; [the selection issue](https://github.com/vtium/vtium/issues/95)",
 };
 
 pub const GRAB_REBOOT: Key = Key {
@@ -1729,7 +1729,7 @@ pub const GRAB_POWER_OFF: Key = Key {
     reader: "vtium",
     what: "The key that powers the machine off.\n\n\
            vtium asks init with `SIGRTMIN+4`, which systemd treats as `poweroff.target`, so the services stop and the filesystems are unmounted first. When unset, no key powers off.",
-    cite: "vtium/vtium#21",
+    cite: "[the configuration issue](https://github.com/vtium/vtium/issues/21)",
 };
 
 pub const GRAB_SUSPEND: Key = Key {
@@ -1742,7 +1742,7 @@ pub const GRAB_SUSPEND: Key = Key {
     reader: "vtium",
     what: "The key that suspends the machine to RAM.\n\n\
            vtium asks logind to suspend, so anything that holds off sleep through logind can still do so. When logind is not running, or vtium was built without `logind`, vtium writes `mem` to `/sys/power/state`. When unset, no key suspends.",
-    cite: "vtium/vtium#21",
+    cite: "[the configuration issue](https://github.com/vtium/vtium/issues/21)",
 };
 
 pub const IMAGE_STORAGE_LIMIT: Key = Key {
@@ -1761,7 +1761,7 @@ pub const IMAGE_STORAGE_LIMIT: Key = Key {
     what: "The most memory each console uses for images, on both its screens together.\n\n\
            The value is in bytes, or in KiB, MiB or GiB with `K`, `M` or `G` (such as `64M`), up to 1 TiB. `auto` gives each console enough for four screenfuls of its head's displays, from 16 MiB to 192 MiB, and recalculates when a display is added, removed or resized. `0` turns sixel and kitty graphics off.\n\n\
            A build without image support accepts this key and shows no images.",
-    cite: "ADR-1100 D5, D11; Ghostty's `image-storage-limit`",
+    cite: "[the image pipeline issue](https://github.com/vtium/vtium/issues/28); Ghostty's `image-storage-limit`",
 };
 
 pub const MAX_GRAPHIC_SIZE: Key = Key {
@@ -1774,7 +1774,7 @@ pub const MAX_GRAPHIC_SIZE: Key = Key {
     reader: "vtium-image",
     what: "The largest image a program can send, in pixels (`WxH`), for sixel and kitty graphics alike. vtium refuses a larger one.\n\n\
            A build without image support accepts this key and shows no images.",
-    cite: "ADR-1100 D11; xterm's `maxGraphicSize`",
+    cite: "[the image pipeline issue](https://github.com/vtium/vtium/issues/28); xterm's `maxGraphicSize`",
 };
 
 pub const NUM_COLOR_REGISTERS: Key = Key {
@@ -1792,7 +1792,7 @@ pub const NUM_COLOR_REGISTERS: Key = Key {
     reader: "vtium-term",
     what: "How many colors a sixel image can use (its color registers), and the most a program can ask for with XTSMGRAPHICS.\n\n\
            A build without image support accepts this key and shows no images.",
-    cite: "ADR-1100 D11; xterm's `numColorRegisters`",
+    cite: "[the image pipeline issue](https://github.com/vtium/vtium/issues/28); xterm's `numColorRegisters`",
 };
 
 pub const PRIVATE_COLOR_REGISTERS: Key = Key {
@@ -1805,7 +1805,7 @@ pub const PRIVATE_COLOR_REGISTERS: Key = Key {
     reader: "vtium-term",
     what: "Give each sixel image its own colors (mode 1070, after a reset).\n\n\
            When on, each sixel image starts from the default colors. When off, images share their colors. A build without image support accepts this key and shows no images.",
-    cite: "ADR-1100 D11; xterm's `privateColorRegisters`",
+    cite: "[the image pipeline issue](https://github.com/vtium/vtium/issues/28); xterm's `privateColorRegisters`",
 };
 
 pub const IMAGE_HELPER: Key = Key {
@@ -1820,7 +1820,7 @@ pub const IMAGE_HELPER: Key = Key {
            vtium opens the program once, when it starts, and runs every helper from that file, so a newly installed helper takes effect when vtium restarts.\n\n\
            vtium refuses a path that is not absolute, a file that is not a regular file, a setuid or setgid file, a file owned by anyone other than root or vtium's own account, and a file that its group or other users can write. It then logs why, and refuses those images: a file, temporary file or shared memory with `EBADF`, and PNG or zlib with `EINVAL`. vtium starts the helper through `/proc/self/fd`, so `/proc` must be mounted.\n\n\
            The default is the path vtium was built with. A build without image support accepts this key and starts no helper.",
-    cite: "ADR-1101 (D1); the maintainer's decision of 2026-11-01",
+    cite: "[the image helper issue](https://github.com/vtium/vtium/issues/31); the maintainer's decision of 2026-11-01",
 };
 
 pub const SIXEL: Key = Key {
@@ -1833,7 +1833,7 @@ pub const SIXEL: Key = Key {
     reader: "vtium-term",
     what: "Show sixel images.\n\n\
            When off, vtium neither offers nor shows sixel: its device attributes (DA1) leave out attribute 4, and it ignores sixel data. vtium offers sixel only while `image-storage-limit` is above 0 and every display of the console's head can show images. A build without image support never offers it.",
-    cite: "ADR-1100 D10, D11",
+    cite: "[the sixel issue](https://github.com/vtium/vtium/issues/48)",
 };
 
 pub const KITTY_GRAPHICS: Key = Key {
@@ -1846,7 +1846,7 @@ pub const KITTY_GRAPHICS: Key = Key {
     reader: "vtium-term",
     what: "Show images sent with the kitty graphics protocol.\n\n\
            When off, vtium neither offers nor shows them: it ignores graphics commands and does not answer queries. vtium offers it only while `image-storage-limit` is above 0 and every display of the console's head can show images. A build without image support never offers it.",
-    cite: "ADR-1100 D10, D11",
+    cite: "[the kitty graphics issue](https://github.com/vtium/vtium/issues/49)",
 };
 
 /// Every key, in the order the generated files list them. A static, so
