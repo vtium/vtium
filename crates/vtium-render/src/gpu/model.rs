@@ -241,13 +241,11 @@ fn received(i: &Inputs<'_>, job: &Job, at: (i64, i64)) -> u32 {
             }
         }
     }
-    for gap in (0..=side).rev() {
+    for gap in (0..side).rev() {
         for k in job.col.saturating_sub(side).saturating_sub(1)..job.col {
             p = take(p, i, (k, job.row), job, at, gap);
         }
-        if gap < side {
-            p = take(p, i, (end.saturating_add(gap), job.row), job, at, -1);
-        }
+        p = take(p, i, (end.saturating_add(gap), job.row), job, at, -1);
     }
     p
 }

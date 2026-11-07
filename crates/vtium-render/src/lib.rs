@@ -93,6 +93,8 @@ pub use mono::Depth;
 pub use notice::{Colors, Mark, Notice, NoticeReport, Picture, Placed, Surface, quote};
 #[cfg(feature = "images")]
 pub use picture::{PictureCounts, SELECTION_TINT};
+#[doc(hidden)]
+pub use renderer::TestInk;
 pub use renderer::{
     BlinkStyle, Config, DecoColor, DecorationColors, DrawState, Drawn, PointerShape, Renderer,
     Stats, TextBlink,
