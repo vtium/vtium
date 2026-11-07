@@ -53,6 +53,9 @@ considered:
   - operator: aaronsb
     said: "vtium presents itself as a kitty-compatible terminal under its own name. For kitty's protocols it follows kitty's spec, and kitty's own behaviour, checked by black-box runs, where the spec is silent. It answers kitty's detection queries as kitty does. It keeps TERM=xterm-vtium and does not set KITTY_WINDOW_ID, because that variable tells programs this is kitty and invites kitty-only features vtium lacks, such as remote control."
     via: the maintainer, 2026-11-01, in the steering session
+  - operator: aaronsb
+    said: "agree"
+    via: the steering session, 2026-11-07, asking whether ADR-1000's row text.vitrify becomes refused, because ADR-1200 has vtium generate every glyph at run time and build no glyph set ahead of time
 status: accepted
 date: 2026-10-26
 deciders:

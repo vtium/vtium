@@ -422,7 +422,7 @@ conformance-record: ## Record the corpus's programs into OUT=DIR, each <name>.bi
 	$(or $(CARGO_TARGET_DIR),target)/release/conformance-record $(OUT) $(NAMES)
 
 .PHONY: conformance-issues
-conformance-issues: ## Check that every issue the capability list says owes a capability is open (needs gh)
+conformance-issues: ## Check ADR-1000's issue column and the capability list against GitHub's issue states (needs gh)
 	cargo build --release -p vtium-conformance --bins
 	$(or $(CARGO_TARGET_DIR),target)/release/conformance issues
 
