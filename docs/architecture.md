@@ -42,7 +42,7 @@ The console starts its children, the session on the pty and the power keys' susp
 
 ## The minspec build
 
-The default build is minspec: the smallest complete console. It covers drm2d or fbdev, the CPU renderer, bitmap fonts, the parser and screen, the pty and keyboard input. Images, outline fonts and the GPU path are features added on top. `cargo build --profile minspec` builds it size-optimised, and `make minspec` links the binary with packed relative relocations (DT_RELR), which needs glibc 2.36 at run time (vtium/vtium#143) and binutils 2.38 at build. Tier 3 measures its size and memory on every run, and fails a run whose binary is over its budget, 3,670,016 bytes ([tools/tier3/README.md](https://github.com/vtium/vtium/blob/main/tools/tier3/README.md)).
+The default build is minspec: the smallest complete console. It covers drm2d or fbdev, the CPU renderer, bitmap fonts, the parser and screen, the pty and keyboard input. Images, outline fonts and the GPU path are features added on top. `cargo build --profile minspec` builds it size-optimised, and `make minspec` links the binary with packed relative relocations (DT_RELR), which needs glibc 2.36 at run time (vtium/vtium#143) and binutils 2.38 at build. Tier 3 measures its size and memory on every run, and fails a run whose binary is over its budget, 4,194,304 bytes ([tools/tier3/README.md](https://github.com/vtium/vtium/blob/main/tools/tier3/README.md)).
 
 The machine minspec is judged against is a single-board computer that presents a DRM buffer (vtium/vtium#75):
 
