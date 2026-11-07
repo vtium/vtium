@@ -212,6 +212,26 @@ fn set_writes_vtiums_own_keys_as_a_person_writes_them() {
     );
 }
 
+/// ADR-1005 D10: on a vtium.conf from an earlier release, which binds the
+/// paste by its old name, `set key-paste` writes the new name and comments
+/// out the old one, and `get` reads the old name's value until then.
+#[test]
+fn set_moves_a_key_binding_from_its_old_name() {
+    let f = fixture("old-name");
+    let alpha6 = "grab-paste=<Alt>p\nversion = 1\n[head desk]\n[rules]\ndisplay * -> desk\n";
+    std::fs::write(f.path("etc/vtium.conf"), alpha6).expect("vtium.conf");
+    f.desk();
+    assert_eq!(
+        f.run(&["get", "key-paste"]).out,
+        "key-paste\t<Alt>p\tdraft\n"
+    );
+    assert_eq!(f.run(&["set", "key-paste", "<Alt>n"]).status, 0);
+    assert_eq!(
+        f.draft(),
+        "#grab-paste=<Alt>p\nversion = 1\nkey-paste=<Alt>n\n[head desk]\n[rules]\ndisplay * -> desk\n"
+    );
+}
+
 #[test]
 fn install_refuses_a_draft_made_before_the_installed_file_changed() {
     let f = fixture("changed-since");

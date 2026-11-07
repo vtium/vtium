@@ -142,6 +142,14 @@ pub fn warnings(loaded: &Loaded) -> Vec<String> {
     warnings_of(loaded, |_| true)
 }
 
+/// Whether the report `r` counts against the configuration in
+/// `check-config`. A key binding set by its old name does not: vtium reads
+/// it as its new name, and check-config notes it on standard output, so a
+/// vtium.conf from an earlier release still passes (ADR-1005 D10).
+fn counts(r: &crate::config::Report) -> bool {
+    !matches!(r.problem, crate::config::Problem::Renamed { .. })
+}
+
 /// [`warnings`], with only the reports `keep` keeps.
 fn warnings_of(loaded: &Loaded, keep: impl Fn(&crate::config::Report) -> bool) -> Vec<String> {
     let mut out: Vec<String> = loaded
@@ -242,7 +250,7 @@ pub fn run(loaded: &Loaded) -> (Vec<String>, i32) {
     if loaded.config.switch(&keys::HELP) {
         return (vec![HELP.trim_end().to_owned()], 0);
     }
-    let lines = warnings(loaded);
+    let lines = warnings_of(loaded, counts);
     let status = i32::from(!lines.is_empty());
     (lines, status)
 }
@@ -315,16 +323,23 @@ pub fn outcome(loaded: &Loaded, host: &Host) -> Outcome {
     let heads = conf_file(path, candidate, &Trust::ROOT, &machine, &settings);
     // a start reads none of an installed file it does not trust, so the
     // file's own top-level reports are no start's
+    let from_file = |r: &crate::config::Report| matches!(r.origin, Origin::File { .. });
     let stderr: Vec<String> = if heads.refused {
-        warnings_of(loaded, |r| !matches!(r.origin, Origin::File { .. }))
+        warnings_of(loaded, |r| counts(r) && !from_file(r))
     } else {
         stderr
     };
+    // the old names a start reads, each noted where it does not count
+    let renamed = loaded
+        .reports
+        .iter()
+        .filter(|r| !counts(r) && !(heads.refused && from_file(r)))
+        .map(ToString::to_string);
     let status = u8::from(!stderr.is_empty() || !heads.counted.is_empty());
     Outcome {
         stderr: stderr.into_iter().chain(heads.counted).collect(),
-        stdout: notes(&loaded.config)
-            .into_iter()
+        stdout: renamed
+            .chain(notes(&loaded.config))
             .chain(heads.notes)
             .collect(),
         status,
@@ -2128,6 +2143,43 @@ mod tests {
             .map(OsString::from)
             .collect();
         outcome(&config::load(&args, &mut |_: &Path| Ok(None)), host)
+    }
+
+    // ADR-1005 D10: a vtium.conf written for an earlier release binds its
+    // keys by their old names. check-config notes each line on standard
+    // output, where it does not count, so the file passes, and so does
+    // vtium-config's install of it.
+    #[test]
+    #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
+    fn an_old_key_binding_name_is_a_note_and_the_check_passes() {
+        let (file, _) = heads_fixture(
+            "renamed",
+            "grab-paste=<Alt>p\ngrab-reboot=<Ctrl><Alt>Delete\nversion = 1\n[head a]\n[rules]\ndisplay * -> a\ninput path:pci-0000:00:14.0-usb-0:1 -> a\n",
+            0o644,
+        );
+        let f = file.display().to_string();
+        let host = Host {
+            conf_file: file.with_file_name("installed.conf"),
+            udev_control: file.clone(),
+            roots: nowhere(),
+            frits: PathBuf::from("/nonexistent/vtium/frits"),
+        };
+        let args: Vec<OsString> = [SUBCOMMAND, "--no-devices", f.as_str()]
+            .iter()
+            .map(OsString::from)
+            .collect();
+        let out = outcome(&config::load(&args, &mut config::read_bytes), &host);
+        assert_eq!((out.status, out.stderr), (0, Vec::<String>::new()));
+        for (n, old, new) in [
+            (1, "grab-paste", "key-paste"),
+            (2, "grab-reboot", "key-reboot"),
+        ] {
+            let note = format!(
+                "{f}:{n}: {old} is now called {new}. vtium reads {old} as {new} for now; rename it"
+            );
+            assert!(out.stdout.contains(&note), "{note}: {:?}", out.stdout);
+        }
+        std::fs::remove_dir_all(file.parent().unwrap()).ok();
     }
 
     // the installed head file is the host's, read as the start reads it,

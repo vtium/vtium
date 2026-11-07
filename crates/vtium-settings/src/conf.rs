@@ -358,6 +358,17 @@ pub fn edit_conf(text: &str, edits: &[Edit<'_>]) -> Result<String, ConfEdit> {
             Edit::Unset(_) => None,
         };
         let top_lines = file.get_mut(..top_count).unwrap_or_default();
+        // a key binding's old name gives way to the key's own line, so the
+        // edit moves an earlier release's file to the new name (ADR-1005
+        // D10)
+        if !switch && let Some((old, _)) = crate::keys::RENAMED.iter().find(|(_, k)| k.name == key)
+        {
+            for line in top_lines.iter_mut() {
+                if sets(&line.text, old, false) {
+                    line.text.insert(0, '#');
+                }
+            }
+        }
         let Some(new) = new else {
             for line in top_lines.iter_mut() {
                 if sets(&line.text, key, false) || sets(&line.text, key, true) {

@@ -30,7 +30,7 @@ No key reboots, powers off or suspends the machine until you bind one with `key-
 
 ## Changing the key bindings
 
-You change vtium's keys in vtium.conf, the one place where they are set. Each key binding in the last column above is an ordinary line of the file, which you can edit by hand in any text editor. With no vtium.conf, or with a vtium.conf that sets none of these keys, vtium uses the keys in the table. vtium-config's Settings view and its `set` command edit the same lines, and vtium reads the file the same way whichever wrote it.
+You change vtium's keys in vtium.conf, the one place where they are set. Each key binding in the last column above is an ordinary line of the file, which you can edit by hand in any text editor. With no vtium.conf, or with a vtium.conf that sets none of these keys, vtium uses the keys in the table. vtium-config's Settings view and its `set` command edit the same lines, and vtium reads the file the same way whichever wrote it. In vtium-config, an empty value binds no key, and the word `default` returns a key binding to its default.
 
 A line names one or more key combinations, separated by commas. Each combination is its modifiers in angle brackets, `<Shift>`, `<Ctrl>`, `<Alt>` or `<Logo>` for Super, then the key's name as xkb writes it, such as `Delete`, `Prior` for Page Up or `equal`. For example, these lines move the reset key to Ctrl+Alt+R, scroll by a line with Alt+K and Alt+J as well as with Shift and the arrows, and hand Ctrl+= to every program:
 
@@ -43,7 +43,7 @@ key-zoom-in =
 
 When you bind a key to a new combination, its old combination reaches the program. An empty value, as `key-zoom-in =` above, takes no combination, so the key always reaches the program. With Shift, write the character Shift makes: `<Ctrl><Shift>V`, not `<Ctrl><Shift>v`.
 
-Ctrl+Alt+F1 to F12 always switch the VT, and no line of vtium.conf can bind or empty them, so you always have a way to another VT. `vtium check-config` reports a line that tries to bind one, a combination that two settings bind, and a combination it cannot read, each with its file and line. Four of these settings had other names before they were called key bindings: `grab-paste`, `grab-reboot`, `grab-power-off` and `grab-suspend`. vtium still reads each old name as `key-paste`, `key-reboot`, `key-power-off` or `key-suspend`, and `vtium check-config` reports the line so that you can rename it. When a file sets both names, vtium uses the new one.
+Ctrl+Alt+F1 to F12 always switch the VT, and no line of vtium.conf can bind or empty them, so you always have a way to another VT. `vtium check-config` reports a line that tries to bind one, a combination that two settings bind, and a combination it cannot read, each with its file and line. Four of these settings had other names before they were called key bindings: `grab-paste`, `grab-reboot`, `grab-power-off` and `grab-suspend`. vtium still reads each old name as `key-paste`, `key-reboot`, `key-power-off` or `key-suspend`. `vtium check-config` notes the line so that you can rename it, and the file still passes the check. When vtium-config sets one of these key bindings, it comments out the line with the old name. When a file sets both names, vtium uses the new one.
 
 When two settings bind one combination, vtium gives it to the setting it checks first: the power keys, then the console and head keys, then paste, then the others in the order of the table above. See [config.md](config.md#key-bindings) for every setting and its default.
 
