@@ -1188,7 +1188,11 @@ impl View {
     /// Sends the frame the display kept from a busy swap, once the flip it
     /// waited for has ended, so a draw that composes no newer frame shows
     /// it without composing it again. A frame that is still waiting stays
-    /// kept. The cursor plane follows the commit as it follows a swap.
+    /// kept, and so does one while a newer frame is composing, which is
+    /// drawn over it and carries it. A commit that sends nothing leaves a
+    /// draw pending, so the swap of that draw sends whatever the display
+    /// still holds and no frame is lost. The cursor plane follows the
+    /// commit as it follows a swap.
     pub fn send_kept(&mut self, video: &mut dyn Video) -> Presented {
         if self.lost {
             self.drop_kept();
@@ -1196,15 +1200,14 @@ impl View {
         let Some(cost) = self.kept else {
             return Presented::default();
         };
-        if video.is_flipping(self.id) {
+        if self.away() || video.is_flipping(self.id) {
             return Presented::default();
         }
         let queued = match video.commit(self.id) {
             Ok(Swapped::Frame | Swapped::Cursor) => true,
-            // The display still waits, as for a modeset.
+            // The display still waits, as for the vblank after a commit the
+            // card refused as busy.
             Err(SwapError::Busy) => return Presented::default(),
-            // The display let the frame go, as at a modeset or a sleep,
-            // and asks for a redraw when it is ready again.
             Ok(Swapped::Nothing) | Err(SwapError::Off | SwapError::Dropped) => false,
             Err(SwapError::Failed(e)) => {
                 log::warn!("cannot swap display {}: {e}", video.name(self.id));
@@ -1212,6 +1215,7 @@ impl View {
             }
         };
         self.kept = None;
+        self.pending |= !queued;
         self.pending |= self.pointer.after_swap(video, self.id);
         if let Some(timer) = &mut self.timer {
             timer.frame(cost.cpu, queued, cost.damage_px, cost.misses);
@@ -1618,6 +1622,11 @@ mod tests {
         composed: u32,
         /// The frames sent to the screen, by a swap or by a commit.
         sent: u32,
+        /// The next commit is refused as busy with no flip in flight, as a
+        /// commit the card refuses with EBUSY waits for the next vblank.
+        busy_once: bool,
+        /// Commits send nothing, as a device without its own commit does.
+        no_commit: bool,
     }
 
     impl Flip {
@@ -1651,6 +1660,8 @@ mod tests {
                 fresh: false,
                 composed: 0,
                 sent: 0,
+                busy_once: false,
+                no_commit: false,
             }
         }
 
@@ -1715,8 +1726,11 @@ mod tests {
         }
         fn commit(&mut self, _: DisplayId) -> Result<Swapped, SwapError> {
             // While a token is out, its swap carries the frame kept.
-            if self.out {
+            if self.out || self.no_commit {
                 return Ok(Swapped::Nothing);
+            }
+            if std::mem::take(&mut self.busy_once) {
+                return Err(SwapError::Busy);
             }
             self.send()
         }
@@ -2576,6 +2590,87 @@ mod tests {
         turn(&mut term, &mut view, &mut video, &[]);
         assert_eq!((video.composed, video.sent), (5, 3));
         assert_eq!(counted(&mut view), (1, 1));
+    }
+
+    // A display whose commit sends nothing while it still holds the kept
+    // frame does not lose that frame: the view draws again, and the swap
+    // of that draw sends what the display holds.
+    #[test]
+    fn a_kept_frame_the_commit_does_not_send_is_drawn_again() {
+        let (mut term, mut view) = view();
+        let mut video = Flip::with(3);
+        video.no_commit = true;
+        turn(&mut term, &mut view, &mut video, &[b"A\x1b[2;1H"]);
+        video.flipping = true;
+        turn(&mut term, &mut view, &mut video, &[b"\x1b[1;2HB\x1b[2;1H"]);
+        video.flipping = false;
+        turn(&mut term, &mut view, &mut video, &[]);
+        assert!(view.pending, "a draw waits");
+        turn(&mut term, &mut view, &mut video, &[]);
+        assert_eq!(video.sent, 2, "B reaches the screen");
+        assert!(video.shows(1, 1), "B");
+    }
+
+    // A commit refused as busy after the flip ended, as one that waits for
+    // the next vblank, keeps the frame: it goes out at the next try, and
+    // nothing composes it again.
+    #[test]
+    fn a_kept_frame_whose_commit_is_refused_as_busy_goes_out_at_the_next_try() {
+        let (mut term, mut view) = view();
+        view.timer = Some(RenderTimer::new());
+        let mut video = Flip::with(3);
+        turn(&mut term, &mut view, &mut video, &[b"A\x1b[2;1H"]);
+        video.flipping = true;
+        turn(&mut term, &mut view, &mut video, &[b"\x1b[1;2HB\x1b[2;1H"]);
+        video.flipping = false;
+        video.busy_once = true;
+        turn(&mut term, &mut view, &mut video, &[]);
+        assert_eq!((video.composed, video.sent), (2, 1), "refused as busy");
+        turn(&mut term, &mut view, &mut video, &[]);
+        assert_eq!((video.composed, video.sent), (2, 2), "sent at the next try");
+        assert_eq!(counted(&mut view), (2, 0));
+    }
+
+    // On the render thread's path, a pass that composes nothing while a
+    // newer frame is composing leaves the kept frame alone: the newer frame
+    // is drawn over it and carries it, and the timer counts one frame.
+    #[test]
+    fn a_kept_frame_waits_while_a_newer_frame_is_composing() {
+        let (mut term, mut view) = view();
+        view.timer = Some(RenderTimer::new());
+        let mut video = Flip::with(3);
+        turn(&mut term, &mut view, &mut video, &[b"A\x1b[2;1H"]);
+        video.flipping = true;
+        turn(&mut term, &mut view, &mut video, &[b"\x1b[1;2HB\x1b[2;1H"]);
+        video.flipping = false;
+        let c = b"\x1b[1;3HC\x1b[2;1H";
+        assert_eq!(term.parse(c, &mut |_| {}), c.len());
+        let key = (PathBuf::new(), ID);
+        let mut snapshot = None;
+        let state = DrawState::default();
+        let clock = &Instant::now;
+        let Prepared::Job(job) = view.prepare(
+            &key,
+            &mut term,
+            &mut snapshot,
+            &mut video,
+            &state,
+            None,
+            clock,
+        ) else {
+            panic!("a job for the render thread");
+        };
+        assert!(view.away());
+        let sent = view.send_kept(&mut video);
+        assert_eq!((sent.queued, video.sent), (false, 1), "nothing sent");
+        let shown = view.present(job.compose(None), &mut term, &mut video, true, clock);
+        assert!(shown.queued);
+        assert_eq!((video.composed, video.sent), (3, 2));
+        assert_eq!(
+            counted(&mut view),
+            (2, 0),
+            "B with the frame that carries it"
+        );
     }
 
     // With sixel offered, the parts of a picture before its end compose

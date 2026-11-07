@@ -191,105 +191,122 @@ impl Plane for dyn Video {
     }
 }
 
-impl Video for Drm2d<Card> {
-    fn backend(&self) -> &'static str {
-        "drm2d"
-    }
-    fn events(&mut self) -> Vec<Event> {
-        Drm2d::events(self).collect()
-    }
-    fn displays(&self) -> Vec<DisplayId> {
-        Drm2d::displays(self).collect()
-    }
-    fn name(&self, id: DisplayId) -> String {
-        Drm2d::name(self, id).unwrap_or("?").to_owned()
-    }
-    fn size(&self, id: DisplayId) -> Option<(u32, u32)> {
-        Drm2d::size(self, id)
-    }
-    fn refresh_mhz(&self, id: DisplayId) -> Option<u32> {
-        Drm2d::refresh_mhz(self, id)
-    }
-    fn levels(&self, id: DisplayId) -> Option<u8> {
-        Drm2d::levels(self, id)
-    }
-    fn dpi(&self, id: DisplayId) -> Option<(f64, f64)> {
-        Drm2d::density(self, id)
-            .filter(Density::measured)
-            .map(|d| d.dpi())
-    }
-    fn identity(&self, id: DisplayId) -> Option<Identity> {
-        Drm2d::identity(self, id).cloned()
-    }
-    fn lend(&mut self, id: DisplayId) -> Option<Token> {
-        Drm2d::lend(self, id)
-    }
-    fn swap(&mut self, token: Token, damage: &[Rect]) -> Result<Swapped, SwapError> {
-        Drm2d::swap(self, token, damage)
-    }
-    fn give_back(&mut self, token: Token) {
-        Drm2d::give_back(self, token);
-    }
-    fn commit(&mut self, id: DisplayId) -> Result<Swapped, SwapError> {
-        Drm2d::commit(self, id)
-    }
-    fn is_flipping(&self, id: DisplayId) -> bool {
-        Drm2d::is_flipping(self, id)
-    }
-    fn ready_for_frame(&self, id: DisplayId) -> bool {
-        Drm2d::ready_for_frame(self, id)
-    }
-    fn set_dpms(&mut self, id: DisplayId, dpms: Dpms) -> io::Result<()> {
-        Drm2d::set_dpms(self, id, dpms)
-    }
-    fn sleep(&mut self) {
-        Drm2d::sleep(self);
-    }
-    fn wake_up(&mut self) -> io::Result<()> {
-        Drm2d::wake_up(self)
-    }
-    fn unblank(&mut self) -> io::Result<()> {
-        Drm2d::unblank(self)
-    }
-    fn input(&mut self) -> io::Result<()> {
-        Drm2d::input(self)
-    }
-    fn hotplug(&mut self) -> io::Result<()> {
-        Drm2d::poll(self)
-    }
-    fn dark(&self) -> Vec<Identity> {
-        Drm2d::dark(self).cloned().collect()
-    }
-    fn release_dark(&mut self, connector: &str) -> bool {
-        Drm2d::release_dark(self, connector)
-    }
-    fn as_any(&mut self) -> &mut dyn Any {
-        self
-    }
-    fn setup_cursor(&mut self, id: DisplayId, arrow: &Arrow) -> io::Result<()> {
-        let (hx, hy) = arrow.hot();
-        let hot = (
-            i32::try_from(hx).unwrap_or(0),
-            i32::try_from(hy).unwrap_or(0),
-        );
-        Drm2d::setup_cursor(self, id, arrow.pixels(), arrow.width(), arrow.height(), hot)
-    }
-    fn show_cursor(&mut self, id: DisplayId, (x, y): (i32, i32)) -> io::Result<()> {
-        Drm2d::show_cursor(self, id, x, y)
-    }
-    fn hide_cursor(&mut self, id: DisplayId) {
-        Drm2d::hide_cursor(self, id);
-    }
-    fn hardware_cursor(&self, id: DisplayId) -> bool {
-        Drm2d::hardware_cursor(self, id)
-    }
-    fn need_commit(&self, id: DisplayId) -> bool {
-        Drm2d::need_commit(self, id)
-    }
-    fn gone(&self) -> bool {
-        Drm2d::gone(self)
-    }
+/// The video device a drm2d display is, forwarding each call to the
+/// display's own method of the same name. A macro, so the tests can wrap a
+/// stand-in with the same forwarding: vtium-platform keeps its stand-in
+/// card to itself, so `Drm2d<Card>` cannot be built without a real card.
+macro_rules! drm2d_video {
+    ($device:ty) => {
+        impl Video for $device {
+            fn backend(&self) -> &'static str {
+                "drm2d"
+            }
+            fn events(&mut self) -> Vec<Event> {
+                <$device>::events(self).collect()
+            }
+            fn displays(&self) -> Vec<DisplayId> {
+                <$device>::displays(self).collect()
+            }
+            fn name(&self, id: DisplayId) -> String {
+                <$device>::name(self, id).unwrap_or("?").to_owned()
+            }
+            fn size(&self, id: DisplayId) -> Option<(u32, u32)> {
+                <$device>::size(self, id)
+            }
+            fn refresh_mhz(&self, id: DisplayId) -> Option<u32> {
+                <$device>::refresh_mhz(self, id)
+            }
+            fn levels(&self, id: DisplayId) -> Option<u8> {
+                <$device>::levels(self, id)
+            }
+            fn dpi(&self, id: DisplayId) -> Option<(f64, f64)> {
+                <$device>::density(self, id)
+                    .filter(Density::measured)
+                    .map(|d| d.dpi())
+            }
+            fn identity(&self, id: DisplayId) -> Option<Identity> {
+                <$device>::identity(self, id).cloned()
+            }
+            fn lend(&mut self, id: DisplayId) -> Option<Token> {
+                <$device>::lend(self, id)
+            }
+            fn swap(&mut self, token: Token, damage: &[Rect]) -> Result<Swapped, SwapError> {
+                <$device>::swap(self, token, damage)
+            }
+            fn give_back(&mut self, token: Token) {
+                <$device>::give_back(self, token);
+            }
+            fn commit(&mut self, id: DisplayId) -> Result<Swapped, SwapError> {
+                <$device>::commit(self, id)
+            }
+            fn is_flipping(&self, id: DisplayId) -> bool {
+                <$device>::is_flipping(self, id)
+            }
+            fn ready_for_frame(&self, id: DisplayId) -> bool {
+                <$device>::ready_for_frame(self, id)
+            }
+            fn set_dpms(&mut self, id: DisplayId, dpms: Dpms) -> io::Result<()> {
+                <$device>::set_dpms(self, id, dpms)
+            }
+            fn sleep(&mut self) {
+                <$device>::sleep(self);
+            }
+            fn wake_up(&mut self) -> io::Result<()> {
+                <$device>::wake_up(self)
+            }
+            fn unblank(&mut self) -> io::Result<()> {
+                <$device>::unblank(self)
+            }
+            fn input(&mut self) -> io::Result<()> {
+                <$device>::input(self)
+            }
+            fn hotplug(&mut self) -> io::Result<()> {
+                <$device>::poll(self)
+            }
+            fn dark(&self) -> Vec<Identity> {
+                <$device>::dark(self).cloned().collect()
+            }
+            fn release_dark(&mut self, connector: &str) -> bool {
+                <$device>::release_dark(self, connector)
+            }
+            fn as_any(&mut self) -> &mut dyn Any {
+                self
+            }
+            fn setup_cursor(&mut self, id: DisplayId, arrow: &Arrow) -> io::Result<()> {
+                let (hx, hy) = arrow.hot();
+                let hot = (
+                    i32::try_from(hx).unwrap_or(0),
+                    i32::try_from(hy).unwrap_or(0),
+                );
+                <$device>::setup_cursor(
+                    self,
+                    id,
+                    arrow.pixels(),
+                    arrow.width(),
+                    arrow.height(),
+                    hot,
+                )
+            }
+            fn show_cursor(&mut self, id: DisplayId, (x, y): (i32, i32)) -> io::Result<()> {
+                <$device>::show_cursor(self, id, x, y)
+            }
+            fn hide_cursor(&mut self, id: DisplayId) {
+                <$device>::hide_cursor(self, id);
+            }
+            fn hardware_cursor(&self, id: DisplayId) -> bool {
+                <$device>::hardware_cursor(self, id)
+            }
+            fn need_commit(&self, id: DisplayId) -> bool {
+                <$device>::need_commit(self, id)
+            }
+            fn gone(&self) -> bool {
+                <$device>::gone(self)
+            }
+        }
+    };
 }
+
+drm2d_video!(Drm2d<Card>);
 
 impl Video for Fbdev<Fb> {
     fn backend(&self) -> &'static str {
@@ -359,6 +376,121 @@ impl Video for Fbdev<Fb> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A stand-in with drm2d's methods, which records the commits asked of
+    /// it and says whether its card is gone. It is wrapped by the same
+    /// forwarding as `Drm2d<Card>`.
+    #[derive(Default)]
+    struct Probe {
+        gone: bool,
+        commits: Vec<DisplayId>,
+    }
+
+    #[expect(clippy::unused_self, reason = "drm2d's signatures")]
+    impl Probe {
+        fn events(&mut self) -> std::vec::IntoIter<Event> {
+            Vec::new().into_iter()
+        }
+        fn displays(&self) -> std::vec::IntoIter<DisplayId> {
+            Vec::new().into_iter()
+        }
+        fn name(&self, _: DisplayId) -> Option<&str> {
+            None
+        }
+        fn size(&self, _: DisplayId) -> Option<(u32, u32)> {
+            None
+        }
+        fn refresh_mhz(&self, _: DisplayId) -> Option<u32> {
+            None
+        }
+        fn levels(&self, _: DisplayId) -> Option<u8> {
+            None
+        }
+        fn density(&self, _: DisplayId) -> Option<Density> {
+            None
+        }
+        fn identity(&self, _: DisplayId) -> Option<&Identity> {
+            None
+        }
+        fn lend(&mut self, _: DisplayId) -> Option<Token> {
+            None
+        }
+        fn swap(&mut self, _: Token, _: &[Rect]) -> Result<Swapped, SwapError> {
+            Err(SwapError::Off)
+        }
+        fn give_back(&mut self, _: Token) {}
+        fn commit(&mut self, id: DisplayId) -> Result<Swapped, SwapError> {
+            self.commits.push(id);
+            Ok(Swapped::Frame)
+        }
+        fn is_flipping(&self, _: DisplayId) -> bool {
+            false
+        }
+        fn ready_for_frame(&self, _: DisplayId) -> bool {
+            false
+        }
+        fn set_dpms(&mut self, _: DisplayId, _: Dpms) -> io::Result<()> {
+            Ok(())
+        }
+        fn sleep(&mut self) {}
+        fn wake_up(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+        fn unblank(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+        fn input(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+        fn poll(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+        fn dark(&self) -> std::vec::IntoIter<&Identity> {
+            Vec::new().into_iter()
+        }
+        fn release_dark(&mut self, _: &str) -> bool {
+            false
+        }
+        fn setup_cursor(
+            &mut self,
+            _: DisplayId,
+            _: &[u32],
+            _: u32,
+            _: u32,
+            _: (i32, i32),
+        ) -> io::Result<()> {
+            Ok(())
+        }
+        fn show_cursor(&mut self, _: DisplayId, _: i32, _: i32) -> io::Result<()> {
+            Ok(())
+        }
+        fn hide_cursor(&mut self, _: DisplayId) {}
+        fn hardware_cursor(&self, _: DisplayId) -> bool {
+            false
+        }
+        fn need_commit(&self, _: DisplayId) -> bool {
+            false
+        }
+        fn gone(&self) -> bool {
+            self.gone
+        }
+    }
+
+    drm2d_video!(Probe);
+
+    // vtium/vtium#246 and #295: a drm2d display's commit, which sends a
+    // frame kept from a busy swap, and its gone, which lets a removed card
+    // go, reach the display rather than the trait's defaults.
+    #[test]
+    fn a_drm2d_device_forwards_commit_and_gone() {
+        let mut probe = Probe::default();
+        assert!(!Video::gone(&probe));
+        probe.gone = true;
+        let video: &mut dyn Video = &mut probe;
+        assert!(video.gone());
+        assert_eq!(video.commit(DisplayId(7)).ok(), Some(Swapped::Frame));
+        assert_eq!(probe.commits, [DisplayId(7)]);
+    }
 
     // ADR-1401 D2: the minspec build, vtium's default build, keeps two
     // buffers a DRM display.
