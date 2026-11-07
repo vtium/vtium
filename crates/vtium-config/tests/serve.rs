@@ -81,6 +81,10 @@ fn frames(mut bytes: &[u8]) -> Vec<(u32, Vec<u8>)> {
     reason = "a test fails by panicking"
 )]
 fn the_helper_answers_under_its_sandbox_and_exits_when_the_console_closes() {
+    if let Some(why) = vtium_testscript::qemu_without_seccomp() {
+        eprintln!("skipped: {why}");
+        return;
+    }
     let request = ServeRequest {
         style: Default::default(),
         band: Default::default(),
@@ -213,6 +217,10 @@ fn frames_until(r: &mut impl Read, last: &[u32]) -> Vec<(u32, Vec<u8>)> {
 #[test]
 #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
 fn a_cell_stopped_and_filled_again_is_filled_again() {
+    if let Some(why) = vtium_testscript::qemu_without_seccomp() {
+        eprintln!("skipped: {why}");
+        return;
+    }
     let request = |kind| ServeRequest {
         style: Default::default(),
         band: Default::default(),
@@ -292,6 +300,10 @@ fn filled(frames: &[(u32, Vec<u8>)]) -> std::collections::BTreeMap<char, usize> 
 #[test]
 #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
 fn each_fill_sends_the_cells_coverage_in_full_once() {
+    if let Some(why) = vtium_testscript::qemu_without_seccomp() {
+        eprintln!("skipped: {why}");
+        return;
+    }
     let fill = ServeRequest {
         style: Default::default(),
         band: Default::default(),
@@ -539,6 +551,10 @@ fn an_asks_clusters_are_shaped_and_drawn_whole() {
 #[test]
 #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
 fn the_helper_sheds_a_descriptor_it_inherits() {
+    if let Some(why) = vtium_testscript::qemu_without_seccomp() {
+        eprintln!("skipped: {why}");
+        return;
+    }
     use vtium_config::serve::{FRAME_SOURCES, SOURCES};
     let scratch = Scratch::new("shed");
     let file = std::fs::File::create(scratch.join("held")).unwrap();
@@ -613,6 +629,10 @@ fn the_helper_sheds_a_descriptor_it_inherits() {
 #[test]
 #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
 fn every_thread_of_the_helper_runs_under_its_socket_filter() {
+    if let Some(why) = vtium_testscript::qemu_without_seccomp() {
+        eprintln!("skipped: {why}");
+        return;
+    }
     use vtium_config::serve::{FRAME_SOURCES, SOURCES};
     let mut child = home::command(env!("CARGO_BIN_EXE_vtium-config"))
         .arg("serve")

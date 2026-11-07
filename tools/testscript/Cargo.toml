@@ -15,3 +15,9 @@ publish = false
 
 [lints]
 workspace = true
+
+# qemu_without_seccomp asks the kernel, through qemu, for a seccomp filter
+# that allows every call: the version the helpers already build, on the
+# architectures it builds filters for.
+[target.'cfg(any(target_arch = "x86_64", target_arch = "aarch64", target_arch = "riscv64"))'.dependencies]
+seccompiler = "=0.5.0"
