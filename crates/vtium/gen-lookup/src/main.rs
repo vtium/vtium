@@ -46,6 +46,24 @@ const LICENSE: &str = include_str!("unicode-license.txt");
 
 const CODEPOINTS: usize = 0x11_0000;
 
+/// The Arabic Presentation Forms-A and -B blocks, whose joined forms of a
+/// letter, and of lam and alef, the console draws where no font holds the
+/// joined form (ADR-1004 D6).
+const PRESENTATION_FORMS: [std::ops::RangeInclusive<usize>; 2] = [0xFB50..=0xFDFF, 0xFE70..=0xFEFF];
+
+/// ARABIC LETTER LAM, the first letter of every two-letter presentation
+/// form the console draws: the lam-alef ligatures.
+const LAM: u32 = 0x644;
+
+/// The joined forms a presentation form's decomposition tag names, by the
+/// number the tables give each: 1 initial, 2 medial, 3 final, 4 isolated.
+const FORMS: [(&str, u8); 4] = [
+    ("<initial>", 1),
+    ("<medial>", 2),
+    ("<final>", 3),
+    ("<isolated>", 4),
+];
+
 /// The CJK Compatibility Ideographs blocks, whose singleton
 /// decompositions the tables leave out.
 const CJK_COMPATIBILITY: [std::ops::RangeInclusive<usize>; 2] =
@@ -100,6 +118,11 @@ fn run(ucd: &Path) -> Result<(), String> {
     let mut ccc = vec![0u8; CODEPOINTS];
     let mut compose: Vec<(u32, u32, u32)> = Vec::new();
     let mut decompose: Vec<(u32, u32, u32)> = Vec::new();
+    // each letter's form and the presentation form that draws it, the
+    // last in codepoint order kept, so Forms-B's wins over Forms-A's
+    let mut forms: std::collections::BTreeMap<(u32, u8), u32> = std::collections::BTreeMap::new();
+    let mut ligatures: std::collections::BTreeMap<(u32, u32, u8), u32> =
+        std::collections::BTreeMap::new();
     for line in unicode_data.lines() {
         let f: Vec<&str> = line.split(';').collect();
         let (Some(cp), Some(gc), Some(class), Some(decomposition)) =
@@ -116,6 +139,24 @@ fn run(ucd: &Path) -> Result<(), String> {
         ccc[cp] = class
             .parse()
             .map_err(|_| format!("bad combining class in {line:?}"))?;
+        if PRESENTATION_FORMS.iter().any(|r| r.contains(&cp))
+            && let Some((tag, rest)) = decomposition.split_once(' ')
+            && let Some(&(_, form)) = FORMS.iter().find(|(t, _)| *t == tag)
+        {
+            let letters = rest
+                .split_whitespace()
+                .map(|c| codepoint(c).map(|c| c as u32))
+                .collect::<Result<Vec<u32>, String>>()?;
+            match letters.as_slice() {
+                [letter] => {
+                    forms.insert((*letter, form), cp as u32);
+                }
+                [LAM, alef] => {
+                    ligatures.insert((LAM, *alef, form), cp as u32);
+                }
+                _ => {}
+            }
+        }
         if decomposition.is_empty() || decomposition.starts_with('<') {
             continue;
         }
@@ -143,6 +184,11 @@ fn run(ucd: &Path) -> Result<(), String> {
     let spacing = ranges(&spacing, |&s| s);
     let classes = ranges(&ccc, |&c| (c != 0).then_some(c));
     let ignorables = ranges(&ignorable, |&i| i.then_some(()));
+    let forms: Vec<(u32, u8, u32)> = forms.into_iter().map(|((l, f), p)| (l, f, p)).collect();
+    let ligatures: Vec<(u32, u32, u8, u32)> = ligatures
+        .into_iter()
+        .map(|((l, a, f), p)| (l, a, f, p))
+        .collect();
     let out = root.join("src/deferred/data.rs");
     let tables = Tables {
         marks: &marks,
@@ -151,16 +197,20 @@ fn run(ucd: &Path) -> Result<(), String> {
         ignorables: &ignorables,
         compose: &compose,
         decompose: &decompose,
+        forms: &forms,
+        ligatures: &ligatures,
     };
     std::fs::write(&out, data_rs(&tables)).map_err(|e| format!("{}: {e}", out.display()))?;
     println!(
-        "src/deferred/data.rs: Unicode {VERSION}, {} mark ranges, {} spacing mark ranges, {} class ranges, {} ignorable ranges, {} compositions, {} decompositions",
+        "src/deferred/data.rs: Unicode {VERSION}, {} mark ranges, {} spacing mark ranges, {} class ranges, {} ignorable ranges, {} compositions, {} decompositions, {} presentation forms, {} lam-alef ligatures",
         marks.len(),
         spacing.len(),
         classes.len(),
         ignorables.len(),
         compose.len(),
-        decompose.len()
+        decompose.len(),
+        forms.len(),
+        ligatures.len()
     );
     Ok(())
 }
@@ -270,6 +320,8 @@ struct Tables<'a> {
     ignorables: &'a [(u32, u32, ())],
     compose: &'a [(u32, u32, u32)],
     decompose: &'a [(u32, u32, u32)],
+    forms: &'a [(u32, u8, u32)],
+    ligatures: &'a [(u32, u32, u8, u32)],
 }
 
 fn data_rs(t: &Tables<'_>) -> String {
@@ -286,7 +338,9 @@ fn data_rs(t: &Tables<'_>) -> String {
         //! combining marks drawn with a base, the spacing marks among them\n\
         //! and the side of the base each stands on, the default ignorables\n\
         //! left out, and the canonical classes and compositions a cluster's\n\
-        //! NFC form is found by.\n\n";
+        //! NFC form is found by; and, for right-to-left text, the Arabic\n\
+        //! presentation forms a joined letter draws where no font holds its\n\
+        //! joined form (ADR-1004 D6).\n\n";
     let pair = |&(a, b, ()): &(u32, u32, ())| format!("({a:#x}, {b:#x})");
     let marks: Vec<String> = t.marks.iter().map(pair).collect();
     let spacing: Vec<String> = t
@@ -303,6 +357,16 @@ fn data_rs(t: &Tables<'_>) -> String {
     let triple = |&(a, b, c): &(u32, u32, u32)| format!("({a:#x}, {b:#x}, {c:#x})");
     let compose: Vec<String> = t.compose.iter().map(triple).collect();
     let decompose: Vec<String> = t.decompose.iter().map(triple).collect();
+    let forms: Vec<String> = t
+        .forms
+        .iter()
+        .map(|&(l, f, p)| format!("({l:#x}, {f}, {p:#x})"))
+        .collect();
+    let ligatures: Vec<String> = t
+        .ligatures
+        .iter()
+        .map(|&(l, a, f, p)| format!("({l:#x}, {a:#x}, {f}, {p:#x})"))
+        .collect();
     let _ = write!(
         out,
         "/// The combining marks, General_Category Mn, Mc and Me less the default\n\
@@ -327,7 +391,19 @@ fn data_rs(t: &Tables<'_>) -> String {
          /// the one or two it decomposes to, 0 for none, sorted by the\n\
          /// codepoint; the CJK compatibility ideographs' left out. Hangul\n\
          /// syllables decompose by rule and are not listed.\n\
-         pub(super) const DECOMPOSE: [(u32, u32, u32); {}] = [\n{}];\n",
+         pub(super) const DECOMPOSE: [(u32, u32, u32); {}] = [\n{}];\n\n\
+         /// Each joined form of one letter that Unicode's Arabic\n\
+         /// Presentation Forms-A and -B hold: the letter, the form (1\n\
+         /// initial, 2 medial, 3 final, 4 isolated), and the presentation\n\
+         /// form's codepoint, sorted by letter and form. Where both blocks\n\
+         /// hold a form, Forms-B's is listed.\n\
+         #[cfg(feature = \"bidi\")]\n\
+         pub(super) const FORMS: [(u32, u8, u32); {}] = [\n{}];\n\n\
+         /// Each lam-alef ligature that Arabic Presentation Forms-B holds:\n\
+         /// lam, the alef, the form (3 final, 4 isolated), and the\n\
+         /// presentation form's codepoint, sorted by the alef and form.\n\
+         #[cfg(feature = \"bidi\")]\n\
+         pub(super) const LIGATURES: [(u32, u32, u8, u32); {}] = [\n{}];\n",
         marks.len(),
         array_body(&marks),
         spacing.len(),
@@ -340,6 +416,10 @@ fn data_rs(t: &Tables<'_>) -> String {
         array_body(&compose),
         decompose.len(),
         array_body(&decompose),
+        forms.len(),
+        array_body(&forms),
+        ligatures.len(),
+        array_body(&ligatures),
     );
     out
 }
