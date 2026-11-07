@@ -387,7 +387,7 @@ fn a_selection_copies_its_text() {
     // Backwards from where it started.
     s.select_to(1, 0);
     assert_eq!(s.selection_text().as_deref(), Some("ne t"));
-    s.select_word(5, 1);
+    s.select_word(4, 1);
     assert_eq!(s.selection_text().as_deref(), Some("e\u{301}"));
     s.select_word(3, 1);
     assert_eq!(s.selection_text(), None);
@@ -430,6 +430,63 @@ fn a_line_selection_copies_the_row_and_its_end() {
     s.clear_selection();
     assert!(!s.has_selection());
     assert_eq!(s.selection_text(), None);
+}
+
+// An empty cell, one no character was written to, is a space to a word
+// selection, as NUL is in the class of the space in xterm's default
+// character classes (xterm(1), CHARACTER CLASSES): a double click on one
+// selects nothing, as a double click on a space does, and an empty cell
+// ends a word going left as well as going right.
+// covers: clipboard.selection
+#[test]
+fn a_word_selection_on_an_empty_cell_selects_nothing() {
+    let selected = |s: &Screen| {
+        let palette =
+            vtium_term::Palette::new([Rgb::default(); 256], Rgb::default(), Rgb::default());
+        let frame = s.frame(&palette, vtium_term::Age::NEVER);
+        (0..s.rows())
+            .flat_map(|r| (0..s.cols()).map(move |c| (r, c)))
+            .filter(|&(r, c)| frame.cell(r, c).unwrap().selected)
+            .collect::<Vec<_>>()
+    };
+    // Past the end of a row's text, and on an empty row.
+    let mut t = term(10, 2, b"ab cd");
+    let s = t.screen_mut();
+    s.select_word(3, 0);
+    assert_eq!(s.selection_text().as_deref(), Some("cd"));
+    s.select_word(7, 0);
+    assert!(!s.has_selection());
+    assert_eq!(s.selection_text(), None);
+    assert_eq!(selected(s), []);
+    s.select_word(2, 1);
+    assert!(!s.has_selection());
+    assert_eq!(selected(s), []);
+    // Between two words that the cursor moved over.
+    let mut t = term(10, 1, b"ab\x1b[7Gcd");
+    let s = t.screen_mut();
+    s.select_word(6, 0);
+    assert_eq!(s.selection_text().as_deref(), Some("cd"));
+    assert_eq!(selected(s), [(0, 6), (0, 7)]);
+    s.select_word(1, 0);
+    assert_eq!(s.selection_text().as_deref(), Some("ab"));
+    s.select_word(4, 0);
+    assert!(!s.has_selection());
+    // And on a row a word wrapped from.
+    let mut t = term(6, 2, b"ab\x1b[5Gcdgh");
+    let s = t.screen_mut();
+    s.select_word(1, 1);
+    assert_eq!(s.selection_text().as_deref(), Some("cdgh"));
+    // The empty cell a wide character that wrapped whole leaves at the end
+    // of a row.
+    let mut t = term(4, 2, "ab \u{4E2D}".as_bytes());
+    let s = t.screen_mut();
+    s.select_word(3, 0);
+    assert!(!s.has_selection());
+    // A wide character's second column is part of it, not an empty cell.
+    let mut t = term(4, 1, "a\u{4E2D}b".as_bytes());
+    let s = t.screen_mut();
+    s.select_word(2, 0);
+    assert_eq!(s.selection_text().as_deref(), Some("a\u{4E2D}b"));
 }
 
 // A wrapped line is one line to the selection, as in xterm: a word goes on

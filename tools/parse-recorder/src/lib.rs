@@ -1,6 +1,9 @@
 //! A consumer that records every action and checks, at each call, the
 //! bounds and ranges the parser promises.
-#![allow(dead_code)]
+//!
+//! vtium-parse's integration tests and its fuzz target share it. Each names
+//! this crate as a dependency, so neither includes the other's file by
+//! path (vtium/vtium#339).
 
 pub use vtium_parse::StringEnd::{self, Bel, Cancelled, St};
 use vtium_parse::{
@@ -392,8 +395,8 @@ pub fn tcap(payload: &[u8]) -> Act {
 #[macro_export]
 macro_rules! acts {
     ($($part:expr),* $(,)?) => {{
-        let mut v: Vec<common::Act> = Vec::new();
-        $(common::Extend::extend_into($part, &mut v);)*
+        let mut v: Vec<$crate::Act> = Vec::new();
+        $($crate::Extend::extend_into($part, &mut v);)*
         v
     }};
 }

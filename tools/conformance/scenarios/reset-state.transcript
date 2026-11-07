@@ -11,9 +11,9 @@ test state pen fg=#010203 bold inverse
 test state colors fg=#e5e5e5 bg=#000000 cursor=#ff0000
 > send "\e[!p"
 > dump state
-test state margins 0-3 0-11
-test state tabs 0,8
-test state modes ansi 8,12 dec 7,8,12,25,1007,1034,1035,1036,1042,1070,1243,2027,2028
+test state margins 0-3 1-8
+test state tabs 4
+test state modes ansi 8,12 dec 7,8,12,25,69,1007,1034,1035,1036,1042,1070,1243,2027,2028
 test state scrollback lines 1 view 0 max 10
 test state pen
 test state colors fg=#e5e5e5 bg=#000000 cursor=#ff0000

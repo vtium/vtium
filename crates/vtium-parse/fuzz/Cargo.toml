@@ -13,6 +13,9 @@ cargo-fuzz = true
 [dependencies]
 libfuzzer-sys = "0.4"
 vtium-parse = { path = ".." }
+# The recorder that checks every bound at every call, shared with
+# vtium-parse's integration tests.
+vtium-parse-recorder = { path = "../../../tools/parse-recorder" }
 
 [[bin]]
 name = "parse"

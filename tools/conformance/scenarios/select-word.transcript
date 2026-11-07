@@ -14,14 +14,13 @@
 < copy none
 > select word at 5,1
 > copy
-< copy "ab"
+< copy none
 > dump frame
 size 20x2
 cursor 2,1
 flags AUTO_WRAP
 palette legacy fg=#e5e5e5 bg=#000000
 changed 0
-frame-cursor 2,1 default visible w=1 fg=#e5e5e5 bg=#000000 ul=#e5e5e5 inverse
+frame-cursor 2,1 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
 row 0 |one two,three  four|
 row 1 |ab|
-cells 1 0-5 w=1 fg=#000000 bg=#e5e5e5 ul=#000000 inverse

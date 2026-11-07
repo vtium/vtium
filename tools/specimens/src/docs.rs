@@ -140,11 +140,11 @@ fn font_cell(p: &Profile) -> String {
     match p.glyphs {
         Glyphs::Builtin { set, .. } => format!("`{set}`, built in"),
         Glyphs::Desktop { .. } => {
-            "`desktop`, the frit [`desktop.vtfrit`](https://github.com/vtium/vtium/blob/main/tools/specimens/frits/desktop.vtfrit)"
+            "`desktop`, the font set [`desktop.vtfrit`](https://github.com/vtium/vtium/blob/main/tools/specimens/frits/desktop.vtfrit)"
                 .to_owned()
         }
         Glyphs::Tiny5 { .. } => {
-            "`tiny5`, the frit [`tiny5.vtfrit`](https://github.com/vtium/vtium/blob/main/crates/vtium-config/frits/tiny5.vtfrit)"
+            "`tiny5`, the font set [`tiny5.vtfrit`](https://github.com/vtium/vtium/blob/main/crates/vtium-config/frits/tiny5.vtfrit)"
                 .to_owned()
         }
     }
@@ -161,7 +161,7 @@ fn row(p: &Profile, provisional: bool) -> Result<String, String> {
     let screens = screen_count(p, &l);
     let shot = preview(screens);
     Ok(format!(
-        "| [{name}]({d}/) | {} | {}x{} | {}x{} | `{}` | {} | {status} | [<img src=\"{d}/{shot}\" width=\"160\">]({d}/{shot}) |",
+        "| [{name}]({d}/) | {} | {}×{} | {}×{} | `{}` | {} | {status} | [<img src=\"{d}/{shot}\" width=\"160\">]({d}/{shot}) |",
         p.depth,
         p.cell.0,
         p.cell.1,
@@ -188,13 +188,13 @@ fn profile_readme(p: &Profile, names: &[String]) -> Result<String, String> {
     let arrayed = format!("{card} and {bars}, shown together in the collage");
     let source = match p.glyphs {
         Glyphs::Builtin { .. } => {
-            "The console chooses this set by itself once #126 and #118's rule land; the screens here draw vtium-font's built-in set directly."
+            "The console chooses this font by itself. The screens here draw vtium-font's built-in font directly."
         }
         Glyphs::Desktop { .. } => {
-            "The console loads a set by name from #126. The screens here draw the glyphs vtium-config's engine, the one the helper runs (ADR-1301 D2), generates from the frit and the pinned fonts `make specimens-fonts` fetches, in the profile's cell (`tools/specimens/README.md`); where those fonts are absent the check skips this profile while it is provisional, and fails it once accepted."
+            "The console loads the font set that `font-name` names from `/etc/vtium/fonts`. See [the issue that loads the configured font set](https://github.com/vtium/vtium/issues/126). The screens here draw the glyphs that the font helper, vtium-config, generates in the profile's character cell. It generates them from the font set and from the fonts that `make specimens-fonts` fetches, each pinned by its SHA-256. `tools/specimens/README.md` describes how. Where those fonts are missing, the check skips this profile while it is provisional, and fails it once it is accepted."
         }
         Glyphs::Tiny5 { .. } => {
-            "The screens here draw the glyphs vtium-config's engine, the one the helper runs (ADR-1301 D2), generates from the shipped frit and Tiny5 Mono's BDF file, pinned by commit and SHA-256, which `make specimens-fonts` fetches, with the frit's `source=` line pointed at the fetched copy (`tools/specimens/README.md`); where that file is absent the check skips this profile while it is provisional, and fails it once accepted."
+            "The screens here draw the glyphs that the font helper, vtium-config, generates from the shipped font set and Tiny5 Mono's BDF file. `make specimens-fonts` fetches that file, pinned by commit and SHA-256, and the font set's `source=` line points at the fetched copy. `tools/specimens/README.md` describes how. Where that file is missing, the check skips this profile while it is provisional, and fails it once it is accepted."
         }
     };
     let images = names
@@ -215,11 +215,11 @@ fn profile_readme(p: &Profile, names: &[String]) -> Result<String, String> {
     Ok(format!(
         "# {title}\n\n\
          {simulation}\
-         {summary}: {width}x{height}, {depth}, drawn in `{set}` at {cell}, {grid} cells, {arrayed}.\n\n\
+         {summary}: {width}×{height}, {depth}, drawn in `{set}` at {cell}, {grid} cells, {arrayed}.\n\n\
          ![{name}]({preview})\n\n\
          | Display | Class | Cell | Grid | Font | Screens |\n\
          |---|---|---|---|---|---|\n\
-         | {width}x{height}, {depth} | {class} | {cell} | {grid} | {font} | {images} |\n\n\
+         | {width}×{height}, {depth} | {class} | {cell} | {grid} | {font} | {images} |\n\n\
          ## Why this font\n\n\
          {why}\n\n\
          ## Configuration\n\n\
@@ -233,8 +233,8 @@ fn profile_readme(p: &Profile, names: &[String]) -> Result<String, String> {
         depth = p.depth,
         class = p.class,
         set = p.glyphs.set(),
-        cell = format!("{}x{}", p.cell.0, p.cell.1),
-        grid = format!("{}x{}", l.cols, l.rows),
+        cell = format!("{}×{}", p.cell.0, p.cell.1),
+        grid = format!("{}×{}", l.cols, l.rows),
         font = font_cell(p),
         preview = preview(screen_count(p, &l)),
         why = p.why,
@@ -251,26 +251,68 @@ fn index(rows: &[String], simulated: &[String]) -> String {
         .join("\n");
     format!(
         "# VTium specimens\n\n\
-         vtium's test card, drawn by vtium's renderer in memory for each display profile, from a 1-bit 320x240 panel up to a 2560x1440 monitor (#142). Each profile's directory holds the screens and their collage, the font and configuration vtium uses there and why, and its vtium.conf.\n\n\
+         vtium's test card, drawn by vtium's renderer in memory for each display profile, from a 1-bit 320×240 panel up to a 2560×1440 monitor. See [the specimens issue](https://github.com/vtium/vtium/issues/142). Each profile's directory holds the screens and their collage, the font and configuration vtium uses there and why, and its vtium.conf.\n\n\
          | Profile | Depth | Cell | Grid | Font | Screens | Status | Preview |\n\
          |---|---|---|---|---|---|---|---|\n\
          {rows}\n\n\
-         `320x240-tiny5` shows an example frit, `tiny5`, the smallest font, which vtium does not use by default; vtium's own choice at 320x240 is the profile `320x240`.\n\n\
+         `320x240-tiny5` shows an example font set, `tiny5`, the smallest font. vtium does not use it by default. vtium's own choice at 320×240 is the profile `320x240`.\n\n\
          A provisional profile waits on the operator's review, and `provisional.tsv` lists it: a drawing that moves it is reported as drift and fails nothing. An accepted profile fails on a moved pixel.\n\n\
          ## Gray panels, simulated\n\n\
-         vtium draws a gray panel exactly as a color display, and the panel's driver converts each pixel (#135). These renders take vtium's color drawing through that conversion, as Linux v7.3's drivers make it, to show what such a panel shows. They are simulations, not vtium's output, and judge nothing of vtium's drawing; a stale one is reported as its own kind of fault.\n\n\
+         vtium draws a gray panel exactly as it draws a color display, and the panel's driver converts each pixel. See [the issue about 1-bit and gray displays](https://github.com/vtium/vtium/issues/135). These renders take vtium's color drawing through that conversion, as Linux v7.3's drivers make it, to show what such a panel shows. They are simulations, not vtium's output, and judge nothing of vtium's drawing; a stale one is reported as its own kind of fault.\n\n\
          | Profile | Depth | Cell | Grid | Font | Screens | Status | Preview |\n\
          |---|---|---|---|---|---|---|---|\n\
          {simulated}\n\n\
          ## The card\n\n\
-         The card is one byte stream of vtium's own, written by `tools/specimens`, in blocks of 40x30 cells. A block is one 320x240 screen at 8x8, and a page holds as many blocks as its grid fits, centered. A grid shorter than a block, such as the 53x26 that 6x9 cells give at 320x240, shows each block over more than one screen: the rows that fit, then the block's title again and the rows after them:\n\n\
+         The card is one byte stream of vtium's own, written by `tools/specimens`, in blocks of 40×30 cells. A block is one 320×240 screen at 8×8, and a page holds as many blocks as its grid fits, centered. A grid shorter than a block, such as the 53×26 that 6×9 cells give at 320×240, shows each block over more than one screen: the rows that fit, then the block's title again and the rows after them:\n\n\
          {titles}\n\n\
          `tools/specimens/README.md` lists what the card leaves out and why.\n\n\
          ## The message bars\n\n\
-         After the card, each profile draws vtium's message bars, its notices and its on-screen display (ADR-1401 D5, D7), drawn by the console's own overlay code, on one screen, or on two on the 320x240 displays, where the four notices fill a screen of their own. A display shows one box, across its top, so the screens stack four bands, each the top of a drawing of its own with a line beneath the bar saying what it is: four notices at once, the most a head shows; the on-screen display's full line sharing the box with a notice; the full line alone; and the minimal dot in the top-right cell.\n\n\
+         After the card, each profile draws vtium's message bars: its notices and its on-screen display. The console's own overlay code draws them, on one screen, or on two on the 320×240 displays, where the four notices fill a screen of their own. See [the on-screen display issue](https://github.com/vtium/vtium/issues/169) and [the heads tracker](https://github.com/vtium/vtium/issues/156). A display shows one box, across its top, so the screens stack four bands, each the top of a drawing of its own with a line beneath the bar saying what it is: four notices at once, the most a head shows; the on-screen display's full line sharing the box with a notice; the full line alone; and the minimal dot in the top-right cell.\n\n\
          ## Drawing and judging\n\n\
          `make specimens` draws every file here from the profile table. `make specimens-check` draws them again and compares them with what is committed: an image by its pixels, a text by its bytes, and a file here that the table does not draw. A difference in an accepted profile fails; one in a provisional profile is drift, reported and not failed; a stale simulation is reported as its own kind of fault. Three profiles draw from fonts that `make specimens-fonts` fetches: the outline profiles `1920x1080` and `2560x1440`, and `320x240-tiny5`. CI's specimens job runs `make specimens-fonts` and then `make specimens-check`, so it judges every profile. `cargo test` runs the same check through `tools/specimens/tests/` but fetches no fonts: it judges every other profile and the text of all of them, and skips the images of those three, naming CI's specimens job as their judge. When `make specimens-check` cannot draw a profile because a pinned font is missing, it skips a provisional one with why and fails an accepted one. A branch that moves specimens regenerates them in their own commit, listing what moved; `provisional.tsv` is the only file here written by hand, and a conflict in the rest resolves by `make specimens-fonts && make specimens`.\n",
         rows = rows.join("\n"),
         simulated = simulated.join("\n"),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Whether `text` names a decision record or a bare issue number: a
+    /// page for people who use vtium links the issue instead (AGENTS.md,
+    /// "Writing").
+    fn cites_a_record_or_a_bare_issue(text: &str) -> bool {
+        text.contains("ADR-")
+            || text.char_indices().any(|(i, c)| {
+                c == '#'
+                    && text[i + 1..].starts_with(|d: char| d.is_ascii_digit())
+                    && !text[..i].ends_with("vtium/vtium")
+            })
+    }
+
+    // Every README `make specimens` writes is a page for people who use
+    // vtium, so it links GitHub issues and cites no decision record, in its
+    // prose and in the vtium.conf it quotes.
+    #[test]
+    fn the_readmes_link_issues_not_decision_records() {
+        let mut rows = Vec::new();
+        for p in PROFILES {
+            let pages = screen_count(p, &p.layout().unwrap());
+            let readme = profile_readme(p, &screen_names(pages)).unwrap();
+            assert!(
+                !cites_a_record_or_a_bare_issue(&readme),
+                "{}: {readme}",
+                p.name
+            );
+            rows.push(row(p, false).unwrap());
+        }
+        let index = index(&rows, &[]);
+        assert!(!cites_a_record_or_a_bare_issue(&index), "{index}");
+        assert!(cites_a_record_or_a_bare_issue("(ADR-1200 D7)"));
+        assert!(cites_a_record_or_a_bare_issue("a monitor (#142)."));
+        assert!(!cites_a_record_or_a_bare_issue(
+            "[it](https://github.com/vtium/vtium/issues/142)"
+        ));
+    }
 }

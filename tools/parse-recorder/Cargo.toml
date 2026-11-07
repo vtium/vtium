@@ -1,0 +1,19 @@
+# The recording consumer that vtium-parse's integration tests and its fuzz
+# target check the parser with. A path dependency of vtium-parse's tests
+# inside the workspace, so a workspace member.
+[package]
+name = "vtium-parse-recorder"
+description = "Records vtium-parse's actions and checks every bound the parser promises at each call"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+vtium-parse.workspace = true

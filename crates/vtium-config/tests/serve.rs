@@ -5,8 +5,7 @@
 #[path = "common/home.rs"]
 mod home;
 
-#[path = "common/ttf.rs"]
-mod ttf;
+use vtium_testfont::ttf;
 
 use std::io::{Read, Write};
 use std::process::Stdio;

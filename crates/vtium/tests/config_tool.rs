@@ -20,10 +20,9 @@ use std::sync::{Mutex, MutexGuard};
 #[path = "common/scratch.rs"]
 mod scratch;
 use scratch::Scratch;
-// The helper that writes the stand-in programs, kept with vtium-config's
-// tests and shared by every crate whose tests run a program they made.
-#[path = "../../vtium-config/tests/common/script.rs"]
-mod script;
+// The helper that writes the stand-in programs, shared by every crate
+// whose tests run a program they made.
+use vtium_testscript as script;
 
 /// The environment variable that names the child's role.
 const ROLE: &str = "VTIUM_CONFIG_TOOL_CHILD";

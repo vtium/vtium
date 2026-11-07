@@ -6,8 +6,7 @@
 
 #[path = "common/home.rs"]
 mod home;
-#[path = "common/script.rs"]
-mod script;
+use vtium_testscript as script;
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};

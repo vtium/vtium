@@ -30,8 +30,7 @@ use vtium_term::{Glyph, Terminal};
 #[path = "common/console.rs"]
 mod console_bin;
 
-#[path = "common/script.rs"]
-mod script;
+use vtium_testscript as script;
 
 /// A pty's master and its slave, neither the test's controlling terminal.
 fn pair(cols: u16, rows: u16) -> (File, File) {

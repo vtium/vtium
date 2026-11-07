@@ -1,6 +1,8 @@
 //! The test fonts tier 2 and tier 3 draw the small displays with (vtium/vtium#75):
 //! PC Screen Fonts in both versions, written here so no test depends on a
-//! console font a system happens to ship.
+//! console font a system happens to ship. The [`ttf`] module writes the
+//! TrueType test fonts that vtium-config's tests and tier 2's ink test font
+//! use (vtium/vtium#339).
 //!
 //! | Font | Format | Cell | Draws |
 //! |---|---|---|---|
@@ -20,6 +22,8 @@
 //! u16 and 0xFFFF; PSF2: UTF-8 and the byte 0xFF).
 
 use vtium_font::{Face, Style, Unifont};
+
+pub mod ttf;
 
 /// The characters both fonts draw, in glyph order: printable ASCII, the
 /// Latin-1 supplement from U+00A0 but the soft hyphen, which a terminal
