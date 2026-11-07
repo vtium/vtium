@@ -1,0 +1,18 @@
+# each display keeps its own frame age: one caller's frame does not hide a
+# change from another. The counts are informative unless damage-exact, so
+# the probe tells zero from nonzero only; the calls after the change share
+# a block, since printing one counts as a change.
+# spec: ADR-1000 platform.multi-monitor
+# capability: frame-age-per-caller
+size 80 4
+cmd frame-since;caller=0
+cmd frame-since;caller=1
+check
+send "A"
+cmd frame-since;caller=0
+cmd frame-since;caller=0
+cmd frame-since;caller=1
+check
+want test frame-since 0 changed N
+want test frame-since 0 changed 0
+want test frame-since 1 changed N

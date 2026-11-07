@@ -1,0 +1,8 @@
+# DA3 (DECRPTUI): DCS ! | unit id ST
+# spec: ADR-1000 query.da3
+# capability: da3
+size 80 4
+send "\e[=c"
+check
+reply-re "\eP!\\|.*\e\\\\"
+example "\eP!|00000000\e\\"

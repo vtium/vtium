@@ -1,0 +1,11 @@
+# colon sub-parameters (ADR-102): SGR reads them, any other sequence with them
+# is ignored whole, so C prints where the cursor was
+# spec: ADR-1000 sgr.extended-color
+# capability: sgr-colon-subparams
+size 80 4
+needs attrs-extended
+send "\e[4:3mA\e[24m\e[38:2::1:2:3mB\e[m\e[3:1CC"
+check
+want attr 0 0-0 underline=curly
+want attr 0 1-1 fg=#010203
+want row 0 |ABC|

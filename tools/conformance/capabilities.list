@@ -1,9 +1,10 @@
 # vtium's capability list: NAME STATUS ISSUE ROWS NOTE, which
-# `conformance probes` judges each probe against (README.md, The probes).
-# works: the probe must pass. missing: it must fail, and ISSUE is the
-# vtium/vtium issue that owes the capability. A missing probe that starts
-# passing fails the run until it is set to works.
-# ROWS: the ADR-1000 rows the probe judges, comma-separated, from which
+# `conformance probes` judges through the capability scenario that declares
+# each NAME (README.md, The capability scenarios).
+# works: the scenario must pass. missing: it must fail, and ISSUE is the
+# vtium/vtium issue that owes the capability. A missing capability whose
+# scenario starts passing fails the run until it is set to works.
+# ROWS: the ADR-1000 rows the scenario judges, comma-separated, from which
 # COVERAGE.md takes the tests that guard it (tools/conformance/README.md).
 
 # text and attributes
@@ -57,11 +58,11 @@ bracketed-paste               works   -     DEC-2004                       a pas
 focus-1004                    works   -     DEC-1004                       focus in and out reported in mode 1004
 
 # strings vtium does not take yet
-osc-8-hyperlink               missing #40   osc.8                          placeholder in the probes: OSC 8 hyperlinks
-osc-52-clipboard              works   -     osc.52.write                   OSC 52 sets the clipboard, which the host takes once: vtium's probe
-osc-133-marks                 missing #40   osc.133                        placeholder in the probes: OSC 133 prompt marks
+osc-8-hyperlink               missing #40   osc.8                          a placeholder scenario: OSC 8 hyperlinks
+osc-52-clipboard              works   -     osc.52.write                   OSC 52 sets the clipboard, which the host takes once
+osc-133-marks                 missing #40   osc.133                        a placeholder scenario: OSC 133 prompt marks
 
-# images: working in a build with images and failing, as a missing probe
+# images: working in a build with images and failing, as a missing capability
 # must, in one without. The list names the build feature -Dimages; vtium's
 # is vtium-image (sixel #48, kitty graphics #49), which vtium-replay is
 # built with.
@@ -71,8 +72,9 @@ mode-80                       works   -Dimages DEC-80                       DECR
 mode-1070                     works   -Dimages DEC-1070                     DECRQM 1070 (private sixel registers) replies 1 or 2 (#48)
 mode-8452                     works   -Dimages DEC-8452                     DECRQM 8452 (sixel cursor right) replies 1 or 2 (#48)
 
-# the modes and controls the copied probes do not cover (#54); 1007, 1035, 1042
-# and XTSHIFTESCAPE need host calls the interface has no command for
+# the modes and controls the copied capability scenarios do not cover (#54);
+# 1007, 1035, 1042 and XTSHIFTESCAPE need host calls the interface has no
+# command for
 decaln                        works   -     ctl.decaln                     ESC # 8 fills the screen with E, origin mode off, the margins the whole screen
 reverse-wrap                  works   -     DEC-45                         mode 45: BS reverse-wraps only into the row that wrapped
 xtsave                        works   -     ctl.xtsave                     XTSAVE and XTRESTORE of one mode, and the empty list, which leaves DECOM

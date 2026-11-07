@@ -1,0 +1,7 @@
+# spec: ADR-1000 sgr.strike
+# capability: sgr-strike
+size 80 4
+needs attrs-extended
+send "\e[9mA\e[29mB"
+check
+want attr 0 0-0 strike

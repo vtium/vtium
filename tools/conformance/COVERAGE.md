@@ -2,7 +2,7 @@
 
 <!-- generated from capabilities.list and ADR-1000's tables; VTIUM_CONFORMANCE_BLESS=1 cargo test -p vtium-conformance coverage rewrites it -->
 
-Each capability the capability probes judge, the ADR-1000 rows its probe covers, the tests that guard those rows, and the gap: the issue that owes a missing capability, or a row no test guards yet. The probes themselves run through `conformance probes` (README.md).
+Each capability the capability scenarios judge, the ADR-1000 rows its scenario covers, the tests that guard those rows, and the gap: the issue that owes a missing capability, or a row no test guards yet. The capability scenarios themselves run through `conformance probes` (README.md).
 
 | Capability | Status | ADR-1000 rows | Tests | Gap |
 |---|---|---|---|---|

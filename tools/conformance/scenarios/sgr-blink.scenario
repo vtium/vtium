@@ -1,0 +1,6 @@
+# spec: ADR-1000 sgr.blink
+# capability: sgr-blink
+size 80 4
+send "\e[5mA\e[25mB"
+check
+want attr 0 0-0 blink

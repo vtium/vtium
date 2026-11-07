@@ -1,0 +1,12 @@
+# XTSAVE and XTRESTORE: one mode saved and restored; the empty list saves
+# and restores 1000's tracking, and leaves DECOM, which moves the cursor
+# spec: ADR-1000 ctl.xtsave
+# capability: xtsave
+size 80 4
+send "\e[?25l\e[?25s\e[?25h\e[?25r\e[?25$p"
+check
+reply "\e[?25;2$y"
+send "\e[?1000h\e[?s\e[?1003h\e[?6h\e[3;4H\e[?r\e[?1000$p"
+check
+reply "\e[?1000;1$y"
+want cursor 3,2

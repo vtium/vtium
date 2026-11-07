@@ -1,0 +1,6 @@
+# spec: ADR-1000 color.palette.query
+# capability: osc-4-query
+size 80 4
+send "\e]4;1;?\e\\"
+check
+reply-re "\e]4;1;rgb:.*\e\\\\"

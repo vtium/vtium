@@ -1,0 +1,17 @@
+# DECALN (ESC # 8): every cell an E, origin mode off and the cursor home,
+# and the margins the whole screen: the region before it leaves out the
+# last row, where a line feed scrolls only once the margins are reset
+# spec: ADR-1000 ctl.decaln
+# capability: decaln
+size 4 3
+send "ab\e[1;2r\e[?6h\e[2;2H\e#8"
+check
+want row 0 |EEEE|
+want row 1 |EEEE|
+want row 2 |EEEE|
+want cursor 0,0
+reject-re flags .*REL_ORIGIN.*
+send "\e[3;1H\n"
+check
+want row 1 |EEEE|
+want row 2 ||

@@ -1,0 +1,13 @@
+# xterm modifyOtherKeys level 2: Ctrl+1 is sent as CSI 27 ; 5 ; 49 ~, and
+# XTQMODKEYS replies with the XTMODKEYS that sets the level
+# spec: ADR-1000 input.modify-other-keys
+# capability: modify-other-keys
+size 80 4
+send "\e[>4;2m"
+check
+key 1 mods=ctrl
+check
+reply "\e[27;5;49~"
+send "\e[?4m"
+check
+reply "\e[>4;2m"

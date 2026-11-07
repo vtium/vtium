@@ -1,0 +1,16 @@
+# OSC 104 and 110 put back what OSC 4 and 10 changed, here to the reference
+# host's legacy palette; the sets must take first, so the probe never passes
+# on a terminal that cannot set
+# spec: ADR-1000 color.palette.set
+# capability: osc-104-110-111-reset
+size 80 4
+send "\e]4;1;rgb:12/34/56\e\\\e]10;rgb:12/34/56\e\\\e]11;rgb:12/34/56\e\\"
+check
+send "\e]4;1;?\e\\\e]10;?\e\\\e]11;?\e\\"
+check
+reply "\e]4;1;rgb:1212/3434/5656\e\\\e]10;rgb:1212/3434/5656\e\\\e]11;rgb:1212/3434/5656\e\\"
+send "\e]104;1\e\\\e]110\e\\\e]111\e\\"
+check
+send "\e]4;1;?\e\\\e]10;?\e\\\e]11;?\e\\"
+check
+reply "\e]4;1;rgb:cdcd/0000/0000\e\\\e]10;rgb:e5e5/e5e5/e5e5\e\\\e]11;rgb:0000/0000/0000\e\\"

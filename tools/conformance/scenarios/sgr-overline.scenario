@@ -1,0 +1,7 @@
+# ECMA-48 SGR 53 overline, 55 not overlined
+# spec: ADR-1000 sgr.overline
+# capability: sgr-overline
+size 80 4
+send "\e[53mA\e[55mB"
+check
+want attr 0 0-0 overline

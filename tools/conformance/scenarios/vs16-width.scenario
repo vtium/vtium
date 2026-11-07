@@ -1,0 +1,8 @@
+# VS16 widens a text-default emoji to two cells under mode 2027
+# spec: ADR-1000 text.vs-width
+# capability: vs16-width
+size 80 4
+send "\e[?2027h\xe2\x9d\xa4\xef\xb8\x8fx"
+check
+want row 0 |❤️x|
+want cursor 3,0

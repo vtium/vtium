@@ -1,0 +1,12 @@
+# mode 66, DECNKM: the keypad's application mode, which DECKPNM resets
+# spec: ADR-1000 DEC-66
+# capability: decnkm
+size 80 4
+send "\e[?66h"
+check
+key KP_1
+check
+reply "\eOq"
+send "\e>\e[?66$p"
+check
+reply "\e[?66;2$y"

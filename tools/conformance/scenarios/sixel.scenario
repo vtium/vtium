@@ -1,0 +1,11 @@
+# DA1 carries attribute 4, and XTSMGRAPHICS reads the register count
+# spec: ADR-1000 image.sixel, query.xtsmgraphics
+# capability: sixel
+size 80 24
+needs sixel
+send "\e[c"
+check
+reply-re "\e\\[\\?([0-9]+;)*4(;[0-9]+)*c"
+send "\e[?1;1S"
+check
+reply-re "\e\\[\\?1;0;.*"

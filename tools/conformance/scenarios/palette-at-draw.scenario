@@ -1,0 +1,16 @@
+# colours are kept as written and resolved at draw time: text written under
+# one palette is drawn in the next. The text waits on the main screen while
+# the palette changes on the alternate one.
+# spec: ADR-1000 sgr.draw-time-color
+# capability: palette-at-draw
+size 4 1
+view frame
+send "\e[31mA"
+check
+want cells 0 0-0 w=1 fg=#cd0000 bg=#000000 ul=#cd0000
+send "\e[?1049h"
+palette solarized
+send "\e[?1049l"
+check
+want palette solarized fg=#eee8d5 bg=#073642
+want cells 0 0-0 w=1 fg=#dc322f bg=#073642 ul=#dc322f

@@ -1,0 +1,24 @@
+# mode 69 and DECSLRM: CSI s is SCOSC while mode 69 is reset; once it is
+# set, CSI Pl ; Pr s sets the margins and homes the cursor, text wraps at
+# the right margin to the left margin, a line feed at the bottom margin
+# scrolls only the cells between them, and DECRQSS reports them
+# spec: ADR-1000 DEC-69, ctl.decslrm
+# capability: decslrm
+size 10 3
+send "\e[2;3H\e[s\e[3;7s\e[?69$p"
+check
+want cursor 2,1
+reply "\e[?69;2$y"
+send "\e[?69h\e[3;7s"
+check
+want cursor 0,0
+send "\eP$qs\e\\"
+check
+reply "\eP1$r3;7s\e\\"
+send "\e[3;3Habcdefg"
+check
+want row 1 |  abcde|
+want row 2 |  fg|
+send "\e[?69l\eP$qs\e\\"
+check
+reply "\eP1$r1;10s\e\\"

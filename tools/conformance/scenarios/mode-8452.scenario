@@ -1,0 +1,7 @@
+# spec: ADR-1000 DEC-8452
+# capability: mode-8452
+size 80 24
+needs sixel
+send "\e[?8452$p"
+check
+reply-re "\e\\[\\?8452;[12]\\$y"

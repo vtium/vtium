@@ -1,0 +1,13 @@
+# modes 1036 and 1034: Alt puts ESC before a key; with 1036 reset, it sets
+# the key's eighth bit, sent as UTF-8
+# spec: ADR-1000 DEC-1034, DEC-1036
+# capability: meta-keys
+size 80 4
+key a mods=alt
+check
+reply "\ea"
+send "\e[?1036l"
+check
+key a mods=alt
+check
+reply "\xc3\xa1"

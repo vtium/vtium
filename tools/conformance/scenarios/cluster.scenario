@@ -1,0 +1,8 @@
+# grapheme clusters: one cell holds e and U+0301, so x is the second cell
+# spec: ADR-1000 text.grapheme
+# capability: cluster
+size 80 4
+send "e\xcc\x81x"
+check
+want row 0 |éx|
+want cursor 2,0

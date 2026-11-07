@@ -1,0 +1,7 @@
+# spec: ADR-1000 color.dynamic.set
+# capability: osc-12-query
+size 80 4
+send "\e]12;?\e\\"
+check
+reply-re "\e]12;rgb:.*\e\\\\"
+example "\e]12;rgb:e5e5/e5e5/e5e5\e\\"

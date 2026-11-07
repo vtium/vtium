@@ -13,7 +13,7 @@
 use super::run::Runner;
 use super::{Scenario, Sort};
 use crate::coverage::Capability;
-use crate::probes::{check_expectations, check_list, verdict};
+use crate::probes::{check_expectations, check_list, check_names, verdict};
 
 /// What judging the list printed, a line for each capability and each
 /// fault, and how many disagree with the list.
@@ -32,14 +32,17 @@ fn declared(s: &Scenario) -> Option<&str> {
 }
 
 /// Checks each capability scenario before anything runs: the list's own
-/// rules, and each assertion against the grammar for the scenario's view,
-/// with the reserved keys allowed only for a `missing` capability.
+/// rules, each test command and needed feature against the interface, and
+/// each assertion against the grammar for the scenario's view, with the
+/// reserved keys allowed only for a `missing` capability.
 pub fn check(caps: &[Capability], scenarios: &[Scenario], runner: &Runner) -> Result<(), String> {
     check_list(caps)?;
     for s in scenarios {
         let Some(name) = declared(s) else { continue };
         let missing = caps.iter().any(|c| c.name == name && c.status == "missing");
-        check_expectations(&s.file, &s.probe(), runner.spec(), missing)?;
+        let probe = s.probe();
+        check_names(&s.file, &probe, runner.spec())?;
+        check_expectations(&s.file, &probe, runner.spec(), missing)?;
     }
     Ok(())
 }

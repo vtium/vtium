@@ -1,0 +1,9 @@
+# spec: ADR-1000 DEC-2027
+# capability: mode-2027
+size 80 4
+send "\e[?2027h\e[?2027$p"
+check
+reply "\e[?2027;1$y"
+send "\e[?2027l\e[?2027$p"
+check
+reply "\e[?2027;2$y"

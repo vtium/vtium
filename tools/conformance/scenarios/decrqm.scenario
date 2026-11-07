@@ -1,0 +1,10 @@
+# DECRQM for a DEC private mode (DECTCEM, set) and an ANSI mode (IRM, reset)
+# spec: ADR-1000 query.decrqm
+# capability: decrqm
+size 80 4
+send "\e[?25$p"
+check
+reply "\e[?25;1$y"
+send "\e[4$p"
+check
+reply "\e[4;2$y"
