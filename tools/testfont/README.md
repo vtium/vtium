@@ -14,3 +14,7 @@ cargo run -p vtium-testfont -- DIR   # write both fonts into DIR, the same bytes
 ```
 
 Tier 2 builds the fonts in memory through the library; `make tier3` writes them into `target/tier3/fonts` for the guest. Nothing commits them: they follow from unifont and this crate. `cargo test -p vtium-testfont` reads each back through vtium-font's PSF loader, glyph for glyph.
+
+## The TrueType test font writer
+
+`src/ttf.rs` writes TrueType fonts in memory from a description of their glyphs: polygon outlines, a character map, color glyphs in COLR and CPAL or in CBDT, GSUB and GPOS lookups, and the `post` and `OS/2` tables' underline and strikeout. vtium-config's tests and its shaping fuzz target build their outline fonts with it, and tier 2 builds its ink test font with it (`tools/tier2/src/inkfont.rs`). Each of them depends on this crate, so none of them includes another crate's test file. A change to the writer changes the fonts that vtium-config's tests and tier 2's ink screens draw, so both judge it (vtium/vtium#339).

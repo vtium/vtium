@@ -1,9 +1,11 @@
 # The test fonts tier 2 and tier 3 draw the small displays with: PSF1 and
-# PSF2 fonts, 8x16 and 8x8, built from vtium's unifont. A path dependency of
-# tools/tier2 inside the workspace, so a workspace member.
+# PSF2 fonts, 8x16 and 8x8, built from vtium's unifont. Also the TrueType
+# test font writer of vtium-config's tests and tier 2's ink test font. A
+# path dependency of tools/tier2 and of vtium-config's tests inside the
+# workspace, so a workspace member.
 [package]
 name = "vtium-testfont"
-description = "Writes the PSF1 and PSF2 test fonts of tier 2 and tier 3"
+description = "Writes the PSF1 and PSF2 test fonts of tier 2 and tier 3, and the TrueType test fonts of vtium-config's tests and tier 2"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -17,6 +19,9 @@ workspace = true
 
 [dependencies]
 vtium-font.workspace = true
+# the PNG strikes of the TrueType writer's color bitmaps; vtium-font and
+# vtium-config already build this version
+miniz_oxide = "0.8.9"
 
 [dev-dependencies]
 # the tests read the fonts back with the PSF loader, which the console

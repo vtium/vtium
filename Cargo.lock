@@ -862,6 +862,7 @@ dependencies = [
  "vtium-render",
  "vtium-settings",
  "vtium-term",
+ "vtium-testscript",
  "xkbcommon",
 ]
 
@@ -886,6 +887,8 @@ dependencies = [
  "vtium-platform",
  "vtium-settings",
  "vtium-term",
+ "vtium-testfont",
+ "vtium-testscript",
 ]
 
 [[package]]
@@ -965,6 +968,7 @@ dependencies = [
  "rustix",
  "udev",
  "vtium-image",
+ "vtium-testscript",
  "xkbcommon",
 ]
 
@@ -1019,14 +1023,18 @@ dependencies = [
 name = "vtium-testfont"
 version = "0.1.0-alpha.6"
 dependencies = [
+ "miniz_oxide",
  "vtium-font",
 ]
+
+[[package]]
+name = "vtium-testscript"
+version = "0.1.0-alpha.6"
 
 [[package]]
 name = "vtium-tier2"
 version = "0.1.0-alpha.6"
 dependencies = [
- "miniz_oxide",
  "vtium",
  "vtium-config",
  "vtium-font",

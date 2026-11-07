@@ -7,11 +7,9 @@
     reason = "a test fails by panicking"
 )]
 
-// The helper that writes the stand-in programs, kept with vtium-config's
-// tests and shared by every crate whose tests run a program they made.
-#[path = "../../../vtium-config/tests/common/script.rs"]
-#[expect(clippy::expect_used, reason = "a test fails by panicking")]
-mod script;
+// The helper that writes the stand-in programs, shared by every crate
+// whose tests run a program they made.
+use vtium_testscript as script;
 
 use rustix::fs::{FileType, MemfdFlags, SealFlags};
 use vtium_image::decode::wire::{ReplyHeader, Status};

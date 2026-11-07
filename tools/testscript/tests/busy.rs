@@ -1,9 +1,8 @@
-//! The helper that writes or copies the tests' stand-in programs
-//! (`common/script.rs`): a program it writes or copies runs at once,
-//! however busy the test's other threads are starting processes.
+//! The helper that writes or copies the tests' stand-in programs: a
+//! program it writes or copies runs at once, however busy the test's other
+//! threads are starting processes.
 
-#[path = "common/script.rs"]
-mod script;
+use vtium_testscript as script;
 
 use std::path::Path;
 use std::process::Command;

@@ -93,3 +93,9 @@ rustix = { version = "=1.1.5", default-features = false, features = ["std", "fs"
 vtium-font = { workspace = true, features = ["psf", "gzip"] }
 # The xz encoder, for the tests' fixtures only.
 lzma-rust2 = { version = "=0.24.0", default-features = false, features = ["std", "xz", "encoder"] }
+# The TrueType test font writer the tests build their outline fonts with,
+# which tier 2's ink test font shares (vtium/vtium#339).
+vtium-testfont = { path = "../../tools/testfont" }
+# The stand-in programs the tests write and copy, put in place so that
+# the kernel never refuses to run one as busy.
+vtium-testscript = { path = "../../tools/testscript" }

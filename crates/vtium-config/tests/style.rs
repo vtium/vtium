@@ -6,8 +6,7 @@
 //! time at its font's own size, as vtium-font's own bitmap faces shear it.
 //! Every glyph of an answer comes in a strike of the style asked for.
 
-#[path = "common/ttf.rs"]
-mod ttf;
+use vtium_testfont::ttf;
 
 use std::path::PathBuf;
 use std::sync::Arc;

@@ -50,7 +50,7 @@ vtium's configuration tool of ADR-1201 and ADR-1403, which users reach as `vtium
 | `tests/specimen.rs` | Specimens drawn by the real helper, their clip to the preview area and their cap, and the painter on the built-in fonts and a shipped frit. |
 | `tests/preview.rs` | `preview` run as the binary: a line of text to a pipe, its size from `--size` or vtium.conf, a font this machine lacks, and, under `kitty-check`, a picture for each font on a pty whose console is vtium-term built with `images`. |
 | `tests/kitty_bytes.rs` | The size pictures read by vtium-term built with `images`, under the `kitty-check` feature that the workspace's `--all-features` run turns on: the graphics query answered before DA1, one placement after a picture in one command or in chunks, none after the delete. |
-| `tests/outline.rs`, `tests/common/ttf.rs` | Outline rasterising on a TrueType font with COLR color glyphs written in the test. |
+| `tests/outline.rs` | Outline rasterising on a TrueType font with COLR color glyphs, written by the TrueType test font writer in `tools/testfont/src/ttf.rs`. |
 | `tests/shaping.rs` | Clusters shaped on a TrueType font with `ccmp`, joining forms and a precomposed letter written in the test. |
 | `gen-shaping/` | The generator of `src/shaping/data.rs` from the Unicode Character Database, its own workspace, run by hand. |
 | `fuzz/` | The fuzz targets, its own workspace (`fuzz/README.md`): `shape` drives clusters through the shaper and the rasteriser, `bdf` drives any bytes through the BDF reader, and `serve` drives any bytes through the glyph helper's request parser. |

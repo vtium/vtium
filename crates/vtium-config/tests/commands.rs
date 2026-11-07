@@ -12,8 +12,7 @@ use std::path::{Path, PathBuf};
 mod console;
 use console::vtium;
 
-#[path = "common/script.rs"]
-mod script;
+use vtium_testscript as script;
 
 const BIN: &str = env!("CARGO_BIN_EXE_vtium-config");
 

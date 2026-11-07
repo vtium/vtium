@@ -10,8 +10,7 @@
 
 #[path = "common/home.rs"]
 mod home;
-#[path = "common/script.rs"]
-mod script;
+use vtium_testscript as script;
 
 use std::collections::{BTreeMap, VecDeque};
 use std::io;

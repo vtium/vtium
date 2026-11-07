@@ -20,10 +20,9 @@
     reason = "a test fails by panicking"
 )]
 
-// The helper that writes the stand-in programs, kept with vtium-config's
-// tests and shared by every crate whose tests run a program they made.
-#[path = "../../vtium-config/tests/common/script.rs"]
-mod script;
+// The helper that writes the stand-in programs, shared by every crate
+// whose tests run a program they made.
+use vtium_testscript as script;
 
 use std::io::{IoSlice, IoSliceMut};
 use std::mem::MaybeUninit;
