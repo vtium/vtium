@@ -1,0 +1,21 @@
+# The selection and copy: a word, a line, whose copy ends with a line end,
+# a drag back across two lines, and a copy with nothing selected
+# (INTERFACE-vtium.md, The selection and copy).
+# spec: ADR-1000 clipboard.selection
+# capability: select-copy
+size 10 2
+send "ab cd\r\nef"
+select word at 4,0
+copy
+select line at 1,1
+copy
+select start at 1,1
+select to at 3,0
+copy
+select clear
+copy
+check
+want test copy 6364
+want test copy 65660a
+want test copy 63640a6566
+want test copy none
