@@ -75,9 +75,9 @@ const FAILED: Bound = Bound {
 const MISSING: Bound = Bound {
     name: "MISSING_CHARS",
     value: 1024,
-    what: "Characters the renderer keeps of the texts it drew as the font's missing glyph since the frame after the last arrival, so that the next arrival draws those cells again",
+    what: "Characters the renderer keeps of the texts it drew as the font's missing glyph since the last arrival, so that the next arrival draws those cells again",
     past: "The renderer keeps none, and the next arrival draws every cell again",
-    cite: "It bounds the list's memory at 4 KiB however many characters a screen shows that no font holds, where a screen with no arrivals would otherwise collect them for as long as it runs",
+    cite: "The maintainer's choice: past 1024 different characters, one full redraw at the next arrival costs less than keeping track of each of them, and a console rarely shows that many different characters as the missing glyph. It bounds the list's memory at 4 KiB, where a screen with no arrivals would otherwise collect characters for as long as it runs",
 };
 
 const GLYPH_TEXTURE: Bound = Bound {
@@ -140,8 +140,11 @@ pub const PRESENT_HISTORY: usize = PRESENT_FRAMES.value;
 /// Glyphs the font drew nothing for that the cache remembers.
 pub(crate) const FAILED_GLYPHS: usize = FAILED.value;
 
-/// Characters of the texts drawn as the missing glyph the renderer keeps
-/// between arrivals.
+/// Characters of the texts drawn as the missing glyph that the renderer
+/// keeps between arrivals. Past 1024 different characters, one full redraw
+/// at the next arrival costs less than keeping track of each of them, and a
+/// console rarely shows that many different characters as the missing
+/// glyph.
 pub(crate) const MISSING_CHARS: usize = MISSING.value;
 
 /// The longer side of a GPU glyph pool's texture.

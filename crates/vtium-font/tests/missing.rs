@@ -47,7 +47,7 @@ impl Face for Stub {
 
 /// [`Stub`], which says too that it has `B` and draws nothing for it, as
 /// a face says it has a character it holds only as the first of a
-/// cluster.
+/// cluster. At a scale past 1 it draws `A` and U+25A1 at scale 1 too.
 struct Claims(Stub);
 
 impl Face for Claims {
@@ -62,6 +62,20 @@ impl Face for Claims {
     }
     fn draw(&self, cluster: &[char], style: Style) -> Option<Glyph> {
         self.0.draw(cluster, style)
+    }
+    fn scale(&self) -> u32 {
+        self.0.scale
+    }
+    fn draw_unscaled(&self, cluster: &[char], style: Style) -> Option<Glyph> {
+        let scale = self.0.scale;
+        let small = Stub {
+            cell: Cell {
+                width: self.0.cell.width / scale,
+                height: self.0.cell.height / scale,
+            },
+            scale: 1,
+        };
+        (scale > 1).then(|| small.draw(cluster, style)).flatten()
     }
 }
 
@@ -98,6 +112,25 @@ fn the_font_says_which_glyphs_are_its_missing_glyph() {
         .drawn(&['\u{2500}'], Width::Narrow, Style::default())
         .expect("drawn");
     assert!(!line.missing, "a sprite is the missing glyph");
+}
+
+// glyph_unscaled says the same as drawn at the face's scale, for a
+// character the face says it has and draws nothing for too
+#[test]
+fn the_unscaled_glyph_of_a_character_the_face_claims_is_the_missing_glyph() {
+    let font = Font::new(Claims(Stub {
+        cell: Cell {
+            width: 16,
+            height: 32,
+        },
+        scale: 2,
+    }));
+    for (c, missing) in [('A', false), ('B', true), ('C', true)] {
+        let d = font
+            .glyph_unscaled(&[c], Width::Narrow, Style::default())
+            .expect("drawn");
+        assert_eq!((d.scale, d.missing), (2, missing), "{c}");
+    }
 }
 
 // glyph_unscaled says the same as drawn, at the face's scale

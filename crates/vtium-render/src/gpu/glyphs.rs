@@ -677,10 +677,10 @@ impl Glyphs {
 
     /// Puts `stored`, the glyph for `text` that counts against the cache's
     /// pool `pool`, in a box when its ink passes its cells, and gives its
-    /// place; `missing` when the font drew it as its missing glyph. Gives `stored` back when its ink stays in its cells, or when
-    /// the boxes have no room for it, which notes it for the log: it is
-    /// then drawn cut at its cells, and none of its ink reaches another
-    /// cell.
+    /// place; `missing` when the font drew it as its missing glyph. Gives
+    /// `stored` back when its ink stays in its cells, or when the boxes
+    /// have no room for it, which notes it for the log: it is then drawn
+    /// cut at its cells, and none of its ink reaches another cell.
     fn boxed<G: Gl>(
         &mut self,
         gl: &mut G,

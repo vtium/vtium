@@ -279,8 +279,8 @@ pub(crate) struct GlyphCache<T = Stored> {
     failed: Vec<Option<Failed>>,
     frame: u64,
     counts: CacheCounts,
-    /// The characters of each text the font drew as its missing glyph
-    /// since [`GlyphCache::take_missing`] was last asked.
+    /// The characters of each text the font drew as its missing glyph, or
+    /// drew nothing for, since [`GlyphCache::take_missing`] was last asked.
     missing: Vec<char>,
     /// A color glyph's bitmap stand-in on a 1-bit or gray display.
     fallback: Option<Fallback>,
@@ -374,8 +374,9 @@ impl<T: Held> GlyphCache<T> {
         core::mem::take(&mut self.counts)
     }
 
-    /// The characters of each text the font drew as its missing glyph
-    /// since this was last asked, in the order drawn, and forgets them.
+    /// The characters of each text the font drew as its missing glyph, or
+    /// drew nothing for, since this was last asked, in the order drawn, and
+    /// forgets them.
     pub(crate) fn take_missing(&mut self) -> Vec<char> {
         core::mem::take(&mut self.missing)
     }
@@ -400,7 +401,8 @@ impl<T: Held> GlyphCache<T> {
     /// glyph's stand-in where the display needs one, and whether it is the
     /// font's missing glyph. `None` when the font draws nothing, which is
     /// remembered, so the font is not asked again until
-    /// [`GlyphCache::forget`] runs.
+    /// [`GlyphCache::forget`] runs, and counted with the missing glyphs
+    /// ([`GlyphCache::take_missing`]).
     pub(crate) fn draw<F: Face>(
         &mut self,
         font: &Font<F>,
@@ -444,6 +446,11 @@ impl<T: Held> GlyphCache<T> {
                     wide,
                 });
             }
+            // the whole fallback chain drew nothing, and an arrival may give
+            // it a glyph, so the cell draws again then, as a cell that drew
+            // the missing glyph does. The cache asks the font for a failed
+            // text once after each arrival, so each arrival records it once.
+            self.missing.extend_from_slice(text);
             return None;
         };
         if missing {

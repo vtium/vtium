@@ -19,10 +19,24 @@ const CELL: Cell = Cell {
 };
 
 /// A face whose set has not arrived until a test says so. Before, it holds
-/// only the space, and its last resort lights the cell's top half. Once
-/// the set has arrived, it holds U+25A1 too, which lights the whole cell.
+/// only the space, and its last resort is as `resort` says. Once the set
+/// has arrived, it holds U+25A1 too, which lights the whole cell.
 struct Arriving {
     arrived: Rc<Shared<bool>>,
+    resort: Resort,
+}
+
+/// The last resort of an [`Arriving`] face.
+#[derive(Clone, Copy)]
+enum Resort {
+    /// It lights the cell's top half.
+    Half,
+    /// It lights the cell's top half and the four rows above the cell, so
+    /// its ink passes its cell.
+    Reaching,
+    /// The face has none, so a character it lacks draws nothing until the
+    /// set arrives.
+    Nothing,
 }
 
 fn mask(rows: u32) -> Option<Glyph> {
@@ -54,13 +68,29 @@ impl Face for Arriving {
         }
     }
     fn last_resort(&self, _: Style) -> Option<Glyph> {
-        mask(CELL.height / 2)
+        let half = CELL.height / 2;
+        match self.resort {
+            Resort::Half => mask(half),
+            Resort::Reaching => {
+                let lit = usize::try_from(CELL.width * (4 + half)).ok()?;
+                let all = usize::try_from(CELL.width * (4 + CELL.height)).ok()?;
+                let mut px = vec![0xff; lit];
+                px.resize(all, 0);
+                mask(half)?.with_ink((0, -4), (CELL.width, 4 + CELL.height), px)
+            }
+            Resort::Nothing => None,
+        }
     }
 }
 
 fn font(arrived: &Rc<Shared<bool>>) -> Font<Arriving> {
+    font_with(arrived, Resort::Half)
+}
+
+fn font_with(arrived: &Rc<Shared<bool>>, resort: Resort) -> Font<Arriving> {
     Font::new(Arriving {
         arrived: Rc::clone(arrived),
+        resort,
     })
 }
 
@@ -75,9 +105,15 @@ fn state() -> DrawState {
 /// as `deliver` does, and draws the next frame: it must match a renderer
 /// made after the arrival, and differ from the frame before.
 fn arrival_redraws_the_missing_glyph(deliver: impl Fn(&mut Renderer<Arriving>, &[char])) {
+    arrival_redraws(Resort::Half, deliver);
+}
+
+/// [`arrival_redraws_the_missing_glyph`] with the face's last resort as
+/// `resort` says.
+fn arrival_redraws(resort: Resort, deliver: impl Fn(&mut Renderer<Arriving>, &[char])) {
     let (w, h) = (CELL.width * 4, CELL.height);
     let arrived = Rc::new(Shared::new(false));
-    let mut r = Renderer::new(font(&arrived), w, h, Config::default());
+    let mut r = Renderer::new(font_with(&arrived, resort), w, h, Config::default());
     let (fg, bg) = (rgb("c0c0c0"), rgb("101010"));
     let mut s = Screen::new(4, 1, fg, bg);
     s.text(0, 0, "X", style(fg, bg));
@@ -89,7 +125,7 @@ fn arrival_redraws_the_missing_glyph(deliver: impl Fn(&mut Renderer<Arriving>, &
     deliver(&mut r, &['\u{25a1}']);
     r.draw(&s.frame(since), &mut canvas, 1, &state());
     let mut fresh = Canvas::new(w, h, 0);
-    Renderer::new(font(&arrived), w, h, Config::default()).draw(
+    Renderer::new(font_with(&arrived, resort), w, h, Config::default()).draw(
         &s.frame(Age::NEVER),
         &mut fresh,
         0,
@@ -110,6 +146,13 @@ fn a_set_that_brings_u25a1_redraws_the_cells_that_drew_the_missing_glyph() {
 #[test]
 fn an_arrival_no_cell_shows_still_redraws_the_missing_glyph_on_the_next_frame() {
     arrival_redraws_the_missing_glyph(|r, chars| r.forget_glyphs(chars));
+}
+
+// a character the font draws nothing for, since the face has no U+25A1,
+// no `?` and no last resort, draws again once a set brings U+25A1
+#[test]
+fn a_set_that_brings_u25a1_redraws_a_cell_the_font_drew_nothing_for() {
+    arrival_redraws(Resort::Nothing, |r, chars| r.glyphs_changed(chars));
 }
 
 // the GPU path's glyphs drop the missing glyph's drawing too, on the frame
@@ -154,6 +197,58 @@ fn on_the_gpu_path_an_arrival_fills_the_missing_glyph_again() {
     let since = s.damage.checkpoint();
     arrived.set(true);
     r.forget_glyphs(&['\u{25a1}']);
+    assert_eq!(
+        frame(&mut r, &mut gl, &s, since, 1),
+        1,
+        "X drawn from the set"
+    );
+}
+
+// a missing glyph whose ink passes its cell lies in the GPU path's boxes,
+// which drop it on an arrival as the other pools do
+#[cfg(feature = "gpu")]
+#[test]
+fn on_the_gpu_path_an_arrival_fills_a_reaching_missing_glyph_again() {
+    use vtium_render::gpu::{Call, Config as GpuConfig, Gl, Pipeline, Size, StandIn};
+    let display = Size::new(CELL.width * 4, CELL.height * 2);
+    let mut gl = StandIn::new();
+    let mut pipeline = Pipeline::new(&mut gl, display, GpuConfig::default()).unwrap();
+    let buffer = gl.import_buffer(&display).unwrap();
+    let arrived = Rc::new(Shared::new(false));
+    let mut r = Renderer::new(
+        font_with(&arrived, Resort::Reaching),
+        display.width,
+        display.height,
+        Config::default(),
+    );
+    let (fg, bg) = (rgb("c0c0c0"), rgb("101010"));
+    let mut s = Screen::new(4, 2, fg, bg);
+    s.text(0, 1, "X", style(fg, bg));
+    let mut frame = |r: &mut Renderer<Arriving>, gl: &mut StandIn, s: &Screen, since, age| {
+        gl.clear_calls();
+        r.draw_gpu(
+            gl,
+            &mut pipeline,
+            &s.frame(since),
+            &buffer,
+            age,
+            &state(),
+            &[],
+        )
+        .unwrap();
+        // the glyphs filled at a cell's size, apart from the ink each
+        // cell sends its neighbours
+        gl.calls()
+            .iter()
+            .filter(|c| {
+                matches!(c, Call::FillTexture(r) if (r.width, r.height) == (CELL.width, CELL.height))
+            })
+            .count()
+    };
+    frame(&mut r, &mut gl, &s, Age::NEVER, 0);
+    let since = s.damage.checkpoint();
+    arrived.set(true);
+    r.glyphs_changed(&['\u{25a1}']);
     assert_eq!(
         frame(&mut r, &mut gl, &s, since, 1),
         1,

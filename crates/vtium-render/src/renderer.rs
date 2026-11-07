@@ -552,11 +552,11 @@ pub struct Renderer<F> {
     /// ([`Renderer::glyphs_changed`]).
     changed: Vec<char>,
     /// The characters of each text a frame drew as the font's missing
-    /// glyph ([`vtium_font::Drawn::missing`]) since the frame after the
-    /// last arrival, sorted. The next arrival moves them to `changed`, since
-    /// the set that arrived may hold U+25A1 or `?`, so each cell that shows
-    /// the missing glyph draws again. A cell scrolled away since keeps its
-    /// characters here until that frame.
+    /// glyph ([`vtium_font::Drawn::missing`]), or drew nothing for, since
+    /// the last arrival, sorted. The next arrival moves them to `changed`,
+    /// since the set that arrived may hold U+25A1 or `?`, so each cell that
+    /// shows the missing glyph draws again. A cell scrolled away since keeps
+    /// its characters here until that arrival.
     shown_missing: Vec<char>,
     /// Whether the frames since the last arrival drew more characters as
     /// the missing glyph than `shown_missing` keeps ([`MISSING_CHARS`]), so
@@ -820,12 +820,12 @@ impl<F: Face> Renderer<F> {
         self.missing_arrival(!chars.is_empty());
     }
 
-    /// Finishes an arrival that added characters to `changed`. When the
-    /// font `gained` glyphs, the characters of each text drawn as the
-    /// missing glyph since the last arrival's frame join `changed`, so the
-    /// next frame draws those cells again. When more of them drew than the
-    /// renderer keeps, the next frame draws every cell again. Then
-    /// `changed` is sorted.
+    /// Finishes an arrival through [`Renderer::glyphs_changed`] or
+    /// [`Renderer::forget_glyphs`]. When the font `gained` glyphs, the
+    /// characters of each text drawn as the missing glyph since the last
+    /// arrival join `changed`, so the next frame draws those cells again.
+    /// When more of them drew than the renderer keeps, the next frame draws
+    /// every cell again. Then `changed` is sorted.
     fn missing_arrival(&mut self, gained: bool) {
         if gained {
             if self.shown_missing_overflowed {
