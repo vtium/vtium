@@ -747,7 +747,7 @@ tier3-image-nosystemd: ## Fetch, verify and provision tier 3's guest without sys
 tier3-nosystemd: tier3-image-nosystemd ## Tier 3 on the guest without systemd: vtium under sysvinit, without udev, and its power keys
 	T3_VTIUM_REV=$(T3_REV) T3_IMAGE=$(T3SV_IMAGE) T3_IMAGE_SHA256=$(T3SV_IMAGE_SHA256) \
 		T3_ARCHIVE=$(T3SV_SNAPSHOT) $(T3_PY) $(T3_DIR)/t3.py run --jobs $(JOBS) \
-		--deadline $(T3_DEADLINE) $(T3_FEATURES) --tree-target install-tree $(or $(VARIANTS),sysvinit-640x480 sysvinit-no-udev sysvinit-reboot sysvinit-restart sysvinit-power-off)
+		--deadline $(T3_DEADLINE) $(T3_FEATURES) --tree-target install-tree $(or $(VARIANTS),sysvinit-640x480 sysvinit-two-vts sysvinit-no-udev sysvinit-reboot sysvinit-restart sysvinit-power-off)
 
 # AGENTS.md's gate line, one gate per line, in its order; make test-tools
 # fails when the two differ (check-gate-line).

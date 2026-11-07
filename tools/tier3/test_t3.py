@@ -1981,10 +1981,7 @@ class SysvinitTest(unittest.TestCase):
         self.assertEqual(nosystemd, "$(or $(VARIANTS),%s)" % " ".join(
             t3_scenario.SYSVINIT_VARIANTS))
         sysvinit = [n for n, v in t3_scenario.VARIANTS.items() if v.get("guest") == "sysvinit"]
-        # The two-console boot is vtium/vtium#139's check, out of the run
-        # until that lands.
-        self.assertEqual(sorted(sysvinit),
-                         sorted(t3_scenario.SYSVINIT_VARIANTS + ["sysvinit-two-vts"]))
+        self.assertEqual(sorted(sysvinit), sorted(t3_scenario.SYSVINIT_VARIANTS))
         for name in sysvinit:
             with self.subTest(name):
                 v = t3_scenario.VARIANTS[name]
