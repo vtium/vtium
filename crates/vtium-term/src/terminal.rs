@@ -691,14 +691,15 @@ impl State {
 
     /// DECSTR, and the first half of RIS: the modes, the pen, the cursor
     /// style, the character sets, modifyOtherKeys and both screens' kitty
-    /// keyboard flags, the saved cursors, the margins, the 256 palette
-    /// colors and, in a build with the bidi feature, the current paragraph
-    /// properties, and those of the cursor's paragraph when the cursor
-    /// stands at its first position, return to their initial state;
-    /// the text, the cursor, the tab stops, the colors OSC 10 to 19 set,
-    /// what XTSAVE saved and XTSHIFTESCAPE stay, as Ghostty keeps the last
-    /// two. The VT510 manual's table of what DECSTR resets leaves out the
-    /// tab stops.
+    /// keyboard flags, the saved cursors, the top and bottom margins, the
+    /// 256 palette colors and, in a build with the bidi feature, the
+    /// current paragraph properties, and those of the cursor's paragraph
+    /// when the cursor stands at its first position, return to their
+    /// initial state; the text, the cursor, the tab stops, mode 69 and the
+    /// left and right margins, the colors OSC 10 to 19 set, what XTSAVE
+    /// saved and XTSHIFTESCAPE stay, as Ghostty keeps the last two. The
+    /// VT510 manual's table of what DECSTR resets leaves out the tab
+    /// stops, DECLRMM and DECSLRM.
     fn soft_reset(&mut self) {
         self.screen.reset();
         self.screen.set_pen(Style::DEFAULT);
@@ -716,8 +717,9 @@ impl State {
         self.reset_colors(false);
     }
 
-    /// RIS: DECSTR's reset, the modes only RIS resets, a tab stop every
-    /// eighth column, every color the
+    /// RIS: DECSTR's reset, the modes only RIS resets (mode 69 among them,
+    /// which returns the left and right margins to the whole width), a tab
+    /// stop every eighth column, every color the
     /// program set, the SGR and color stacks emptied, what XTSAVE saved
     /// cleared and XTSHIFTESCAPE 0, the open link ended, the screen and the
     /// scrollback erased, which gives every row the initial paragraph

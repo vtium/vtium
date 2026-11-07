@@ -517,11 +517,14 @@ impl Screen {
     }
 
     /// Returns the screen to its state after creation, as RIS and DECSTR
-    /// need it: the flags, DECLRMM among them, the margins, the main
-    /// screen in use, no selection and the view on the screen. The text,
-    /// the cursor, the pen and the tab stops stay; the terminal's reset
-    /// clears and moves them, and RIS calls `reset_tabs`. Mode 2028 stays:
-    /// the mode table sets it on RIS only.
+    /// need it: the flags, the top and bottom margins, the main screen in
+    /// use, no selection and the view on the screen. The text, the cursor,
+    /// the pen, the tab stops, mode 69 (DECLRMM) and the left and right
+    /// margins stay, since the VT510 manual's DECSTR table leaves out the
+    /// last three; the terminal's reset clears and moves the text and the
+    /// cursor, RIS calls `reset_tabs`, and the mode table resets mode 69,
+    /// and with it the margins, on RIS only. Mode 2028 stays as well: the
+    /// mode table sets it on RIS only.
     pub fn reset(&mut self) {
         if self.flags.alternate {
             self.images_alternate(false);
@@ -530,11 +533,11 @@ impl Screen {
         self.last_printed = None;
         self.flags = Flags {
             reflow: self.flags.reflow,
+            lr_margins: self.flags.lr_margins,
             ..Flags::RESET
         };
         self.top = 0;
         self.bottom = self.rows.saturating_sub(1);
-        self.reset_lr_margins();
         self.selection.reset();
         self.scrollback.reset_view();
         self.damage.mark_all();
