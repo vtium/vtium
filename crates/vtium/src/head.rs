@@ -969,26 +969,20 @@ impl Head {
         self.console.send_replies();
     }
 
-    /// The shown console resets as RIS resets it (ADR-1005 D10): its
-    /// screen and its scrollback are cleared, and every mode a program set,
-    /// the keyboard's among them, returns to its start. Its replies go to
-    /// its program first, and an image request out fails, so the terminal
-    /// takes the reset at once. The other consoles are left as they are.
+    /// The shown console resets as RIS resets it (ADR-1005 D10), through
+    /// vtium-term's `Terminal::reset`: its screen and its scrollback are
+    /// cleared, every mode a program set, the keyboard's among them,
+    /// returns to its start, the replies queued for its program are
+    /// dropped, and an image request out is abandoned. The console's side
+    /// of that request ends too, so its pty, paused while the request was
+    /// out, takes output again. The other consoles are left as they are.
     pub(crate) fn reset_shown(&mut self) {
         let console = &mut self.console;
-        console.send_replies();
+        console.term.terminal.reset();
         #[cfg(feature = "images")]
         console
             .pictures
-            .fail_out(&mut console.term, console.pty.as_mut());
-        if console.term.terminal.input(b"\x1bc") < 2 {
-            log::warn!(
-                "head {}: console {}: the terminal did not take the reset",
-                self.name,
-                console.id
-            );
-        }
-        console.send_replies();
+            .end_request(&mut console.term, console.pty.as_mut());
         self.draw_now = true;
     }
 
