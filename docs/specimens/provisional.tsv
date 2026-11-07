@@ -2,3 +2,5 @@
 # provisional profile that moves is reported as drift and fails nothing,
 # and may go undrawn where its set cannot be built; a row goes when the
 # operator accepts the profile, which then fails on a moved pixel.
+1920x1080	moved 2026-11-06, the desktop font set's unifont glyphs on JetBrains Mono's baseline, where they sat on the cell's bottom row (ADR-1200 D17)
+2560x1440	moved 2026-11-06, the desktop font set's unifont glyphs on JetBrains Mono's baseline, where they sat on the cell's bottom row (ADR-1200 D17)

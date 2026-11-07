@@ -1,3 +1,13 @@
 # vtium's goldens the operator has not reviewed: NAME and why. A
 # provisional case is drawn and compared, and a difference is noted but
 # does not fail the run; the row goes when the operator accepts the golden.
+cjk	moved 2026-11-06, the Noto Sans CJK glyphs whose ink rose a pixel past the row drawn a pixel smaller on the baseline, where they were moved a pixel down (ADR-1200 D17); the maintainer reviews it as a picture
+wide-deco	moved 2026-11-06, the Noto Sans CJK glyphs whose ink rose a pixel past the row drawn a pixel smaller on the baseline, where they were moved a pixel down (ADR-1200 D17); the maintainer reviews it as a picture
+overflow-accents-dejavu	moved 2026-11-06, Noto Sans CJK's Ấ and the other fallback glyphs too tall for the row drawn smaller on the baseline, where they were moved down (ADR-1200 D17); the maintainer reviews it as a picture
+overflow-accents-dejavu-1bit	moved 2026-11-06, Noto Sans CJK's Ấ and the other fallback glyphs too tall for the row drawn smaller on the baseline, where they were moved down (ADR-1200 D17); the maintainer reviews it as a picture
+overflow-meet-dejavu	moved 2026-11-06, Noto Sans CJK's Ấ and the other fallback glyphs too tall for the row drawn smaller on the baseline, where they were moved down (ADR-1200 D17); the maintainer reviews it as a picture
+overflow-meet-dejavu-1bit	moved 2026-11-06, Noto Sans CJK's Ấ and the other fallback glyphs too tall for the row drawn smaller on the baseline, where they were moved down (ADR-1200 D17); the maintainer reviews it as a picture
+overflow-spaced-dejavu	moved 2026-11-06, Noto Sans CJK's Ấ and the other fallback glyphs too tall for the row drawn smaller on the baseline, where they were moved down (ADR-1200 D17); the maintainer reviews it as a picture
+overflow-spaced-dejavu-1bit	moved 2026-11-06, Noto Sans CJK's Ấ and the other fallback glyphs too tall for the row drawn smaller on the baseline, where they were moved down (ADR-1200 D17); the maintainer reviews it as a picture
+overflow-pictures-dejavu	moved 2026-11-06, Noto Sans CJK's Ấ and the other fallback glyphs too tall for the row drawn smaller on the baseline, where they were moved down (ADR-1200 D17); the maintainer reviews it as a picture
+overflow-pictures-dejavu-1bit	moved 2026-11-06, Noto Sans CJK's Ấ and the other fallback glyphs too tall for the row drawn smaller on the baseline, where they were moved down (ADR-1200 D17); the maintainer reviews it as a picture

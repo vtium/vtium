@@ -28,7 +28,7 @@ use vtium_platform::pty::{Pty, Size};
 use vtium_render::{
     Config as RenderConfig, DecorationColors, DrawState, Orientation, PointerShape, Profile,
 };
-use vtium_term::{Content, Mods, MouseButton, MouseEvent, MouseTracking, Terminal};
+use vtium_term::{Content, CursorStyle, Mods, MouseButton, MouseEvent, MouseTracking, Terminal};
 
 use crate::blink::Blink;
 use crate::config::{Config, keys};
@@ -1068,10 +1068,26 @@ impl Head {
         all
     }
 
+    /// What the next frame draws beyond the terminal's state. A cursor
+    /// whose style blinks follows the blink timer's phase, and a steady
+    /// one (DECSCUSR 2, 4 and 6, or mode 12 reset) is drawn in every
+    /// phase. The default style blinks, since vtium leaves the host's
+    /// cursor blink on and lets the `blink` key decide whether the timer
+    /// runs.
     pub(crate) fn draw_state(&self) -> DrawState {
-        let palette = self.console.term.terminal.palette();
+        let terminal = &self.console.term.terminal;
+        let palette = terminal.palette();
+        let blinks = match terminal.cursor_style() {
+            CursorStyle::Default
+            | CursorStyle::BlockBlink
+            | CursorStyle::UnderlineBlink
+            | CursorStyle::BarBlink => true,
+            CursorStyle::BlockSteady | CursorStyle::UnderlineSteady | CursorStyle::BarSteady => {
+                false
+            }
+        };
         DrawState {
-            cursor_on: self.console.term.blink.cursor_shown(),
+            cursor_on: !blinks || self.console.term.blink.cursor_shown(),
             blink_hidden: !self.console.term.blink.text_shown(),
             background: palette.bg(),
             pointer: self
@@ -2268,5 +2284,48 @@ mod tests {
         assert_eq!(wheel(-1, true, false, false), Wheel::Scroll { up: true });
         assert_eq!(wheel(1, true, false, true), Wheel::Zoom(Zoom::In));
         assert_eq!(wheel(-1, true, false, true), Wheel::Zoom(Zoom::Out));
+    }
+
+    // The tour's cursor page: a steady cursor (DECSCUSR 2, 4 and 6, or a
+    // blinking style that mode 12 resets) is drawn in the blink timer's
+    // off phase, and a blinking one is not.
+    // covers: DEC-12
+    #[test]
+    #[expect(clippy::disallowed_methods, reason = "a test's clock is the host's")]
+    fn a_steady_cursor_is_drawn_in_the_blink_timers_off_phase() {
+        use crate::blink::Timer;
+        let config = crate::config::load(&[], &mut |_: &std::path::Path| Ok(None)).config;
+        let clock: Clock = std::rc::Rc::new(Instant::now);
+        let term = terminal(&config, (0, 0), 0, std::rc::Rc::clone(&clock));
+        let mut head = Head::new("h", &config, Vec::new(), term);
+        head.console.term.blink = Blink::new(true);
+        assert!(head.console.term.blink.fired(Timer::Cursor, true));
+        assert!(!head.console.term.blink.cursor_shown(), "the off phase");
+        let cases: [(&[u8], bool); 11] = [
+            (b"\x1b[0 q", false),
+            (b"\x1b[1 q", false),
+            (b"\x1b[2 q", true),
+            (b"\x1b[3 q", false),
+            (b"\x1b[4 q", true),
+            (b"\x1b[5 q", false),
+            (b"\x1b[6 q", true),
+            (b"\x1b[3 q\x1b[?12l", true),
+            (b"\x1b[4 q\x1b[?12h", false),
+            (b"\x1b[5 q\x1b[?12l", true),
+            (b"\x1b[0 q\x1b[?12l", false),
+        ];
+        for (bytes, on) in cases {
+            head.console.term.terminal.input(bytes);
+            assert_eq!(
+                head.draw_state().cursor_on,
+                on,
+                "{}",
+                String::from_utf8_lossy(bytes).escape_debug()
+            );
+        }
+        // the on phase draws every style
+        assert!(head.console.term.blink.fired(Timer::Cursor, true));
+        head.console.term.terminal.input(b"\x1b[1 q");
+        assert!(head.draw_state().cursor_on);
     }
 }
