@@ -237,6 +237,14 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: vtium
+      # The outline fonts the outline screens draw with, which
+      # tools/tier2/src/fonts.rs names by URL and SHA-256. `make tier2` runs
+      # `make tier2-fonts`, which checks each cached font against its SHA-256
+      # and fetches only those the cache lacks.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/vtium/tier2/fonts
+          key: tier2-fonts-${{ hashFiles('vtium/tools/tier2/src/fonts.rs') }}
       - run: make tier2
         working-directory: vtium
       - uses: actions/upload-artifact@v4

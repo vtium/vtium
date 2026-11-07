@@ -16,6 +16,8 @@
 //! its intermediates exactly, as `vtium-parse`'s README asks: `CSI ? 5 A`
 //! is not CUU.
 
+#[cfg(feature = "bidi")]
+mod bidi;
 mod blank;
 mod charset;
 mod clipboard;
@@ -49,6 +51,8 @@ use inband::Inband;
 use modes::{Modes, SavedModes};
 use reply::Query;
 
+#[cfg(feature = "bidi")]
+pub use bidi::TextDirection;
 #[cfg(feature = "images")]
 pub use images::{ImageNote, ImageString};
 
@@ -160,6 +164,10 @@ struct HostSettings {
     font_ops: bool,
     /// The font set in use, as OSC 50's query reports it.
     font_name: Option<String>,
+    /// vtium.conf's `text-direction`: the paragraph properties DECSTR and
+    /// RIS return to, and mode 2501's initial state.
+    #[cfg(feature = "bidi")]
+    text_direction: TextDirection,
 }
 
 /// A DCS string being collected.
@@ -261,6 +269,8 @@ impl Terminal {
                 palette: Palette::default(),
                 font_ops: false,
                 font_name: None,
+                #[cfg(feature = "bidi")]
+                text_direction: TextDirection::Ltr,
             },
             colors: Palette::default(),
             cursor_style: CursorStyle::Default,
@@ -619,7 +629,10 @@ impl State {
 
     /// DECSTR, and the first half of RIS: the modes, the pen, the cursor
     /// style, the character sets, the saved cursors, the margins, the tab
-    /// stops and the 256 palette colors return to their initial state;
+    /// stops, the 256 palette colors and, in a build with the bidi
+    /// feature, the current paragraph properties, and those of the cursor's
+    /// paragraph when the cursor stands at its first position, return to
+    /// their initial state;
     /// the text, the cursor, the colors OSC 10 to 19 set, what XTSAVE
     /// saved and XTSHIFTESCAPE stay, as Ghostty keeps the last two.
     fn soft_reset(&mut self) {
@@ -632,6 +645,8 @@ impl State {
         self.modify_other_keys = 0;
         self.dcs = Dcs::Ignored;
         modes::reset(self, false);
+        #[cfg(feature = "bidi")]
+        self.reset_paragraph();
         self.saved = [Saved::HOME; 2];
         self.reset_colors(false);
     }
@@ -639,8 +654,9 @@ impl State {
     /// RIS: DECSTR's reset, the modes only RIS resets, every color the
     /// program set, the SGR and color stacks emptied, what XTSAVE saved
     /// cleared and XTSHIFTESCAPE 0, the open link ended, the screen and the
-    /// scrollback erased, the cursor home, and the blank timeout the host's
-    /// again.
+    /// scrollback erased, which gives every row the initial paragraph
+    /// properties in a build with the bidi feature, the cursor home, and
+    /// the blank timeout the host's again.
     fn hard_reset(&mut self) {
         self.soft_reset();
         self.xtsave = SavedModes::default();
@@ -973,6 +989,10 @@ impl Consumer for State {
                     self.set_cursor_style(style);
                 }
             }
+            #[cfg(feature = "bidi")]
+            (None, [b' '], b'k') => self.select_path(params),
+            #[cfg(feature = "bidi")]
+            (None, [b' '], b'S') => self.select_presentation_direction(params),
             (Some(b'>'), [], b'q') if params.get(0).unwrap_or(0) == 0 => self.reply_version(),
             (Some(b'>'), [], b'c') if params.get(0).unwrap_or(0) == 0 => self.reply_da2(),
             (Some(b'='), [], b'c') if params.get(0).unwrap_or(0) == 0 => self.reply_da3(),

@@ -1,0 +1,18 @@
+# Button-event tracking, mode 1002, in SGR encoding: presses, releases,
+# the wheel, and moves while a button is held, which report the held button
+# plus 32; a move with no button held is not reported.
+# spec: ctlseqs, Mouse Tracking, Button-event tracking
+# covers: DEC-1002
+size 20 5
+send "\e[?1002h\e[?1006h"
+send "\e[?1002$p"
+mouse move at 1,1
+mouse press left at 1,1
+mouse move left at 2,1
+mouse move left at 3,2
+mouse release left at 3,2
+mouse press right at 4,2
+mouse move right at 5,2 mods=ctrl
+mouse release right at 5,2
+mouse move at 6,3
+wheel down at 6,3

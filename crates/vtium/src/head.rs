@@ -203,6 +203,10 @@ pub struct Head {
     /// The cell the head's look states, `cell`, which the frit the head
     /// draws takes over its own `cell=` (ADR-1403 D5).
     look_cell: Option<vtium_font::Cell>,
+    /// `font-line-spacing`, vtium.conf's or the head's look's, which
+    /// overrides the frit's `line-spacing=` (ADR-1302 D13); `None` when
+    /// neither sets it.
+    pub(crate) line_spacing: Option<u32>,
     /// The base font was found once: a later failure keeps it.
     pub(crate) has_font: bool,
     /// The base font's size step, which a zoom takes.
@@ -264,6 +268,17 @@ pub(crate) fn terminal(
     terminal.set_backspace_sends_delete(config.switch(&keys::BACKSPACE_DELETE));
     terminal.set_palette(config.palette());
     terminal.set_font_ops(config.switch(&keys::ALLOW_FONT_OPS));
+    // Every build reads `text-direction`; a build without the bidi
+    // feature does nothing with it (ADR-1004 D13).
+    let direction = config.text(&keys::TEXT_DIRECTION);
+    #[cfg(feature = "bidi")]
+    terminal.set_text_direction(match direction {
+        Some("rtl") => vtium_term::TextDirection::Rtl,
+        Some("auto") => vtium_term::TextDirection::Auto,
+        _ => vtium_term::TextDirection::Ltr,
+    });
+    #[cfg(not(feature = "bidi"))]
+    let _ = direction;
     if let Some(Ok(table)) = crate::termcap::for_term(config.text(&keys::TERM).unwrap_or_default())
     {
         terminal.set_termcap(table);
@@ -437,6 +452,7 @@ impl Head {
             auto_size,
             sized,
             look_cell: look_cell(config),
+            line_spacing: config.font_line_spacing().map(u32::from),
             has_font: false,
             step: 16,
             cell: CELL,
@@ -701,12 +717,13 @@ impl Head {
         self.compose_notices();
     }
 
-    /// What vtium draws over the head's frames: one box at the top holding
-    /// the on-screen display's line and the notices beneath it, a problem
+    /// What vtium draws over a display of the head: one box at the top
+    /// holding the on-screen display's line, the display's render timer
+    /// line `timer` under it, and the notices beneath them, a problem
     /// while a notice is in it, and the on-screen display's dot, in the
     /// colors vtium.conf sets. The notice screen draws its notice alone,
     /// its report as a report.
-    pub(crate) fn overlay(&self) -> crate::term::Overlay {
+    pub(crate) fn overlay(&self, timer: Option<&str>) -> crate::term::Overlay {
         if let Some(text) = self.notice().filter(|_| self.notice_only) {
             let notice = match &self.report {
                 Some(report) => vtium_render::Notice::report(report.clone()),
@@ -715,12 +732,9 @@ impl Head {
             return crate::term::Overlay::alone(notice, self.overlay_colors);
         }
         let notices: Vec<&str> = self.notice().into_iter().collect();
-        crate::term::Overlay::new(
-            self.status.as_deref(),
-            &notices,
-            self.mark,
-            self.overlay_colors,
-        )
+        let lines: Vec<&str> = self.status.as_deref().into_iter().chain(timer).collect();
+        let status = (!lines.is_empty()).then(|| lines.join("\n"));
+        crate::term::Overlay::new(status.as_deref(), &notices, self.mark, self.overlay_colors)
     }
 
     /// How the shown console fits the displays.
@@ -883,15 +897,18 @@ impl Head {
         self.font.as_ref().unwrap_or(&Chosen::BUILTINS)
     }
 
-    /// The font set's face at `height`.
+    /// The font set's face at `height`, its cell taller by the head's
+    /// line spacing where that applies (ADR-1302 D13).
     pub(crate) fn face(&self, height: u32, locale: &str) -> Result<DisplayFace, String> {
         let chosen = self.chosen();
-        chosen.face(height, locale).ok_or_else(|| {
-            format!(
-                "font set {} has no characters at {height} pixels high",
-                chosen.name(height, locale)
-            )
-        })
+        chosen
+            .face_spaced(height, locale, self.line_spacing)
+            .ok_or_else(|| {
+                format!(
+                    "font set {} has no characters at {height} pixels high",
+                    chosen.name(height, locale)
+                )
+            })
     }
 
     /// The font at `height`, with the frit's sprite policy and the
@@ -1387,7 +1404,7 @@ pub(crate) struct Frit {
     pub(crate) refused: bool,
     /// The cells whose glyphs the helper was asked for, over every head
     /// drawing the frit.
-    pub(crate) asked: Vec<vtium_font::Cell>,
+    pub(crate) asked: Vec<vtium_font::spacing::SpacedCell>,
     /// The helper's answer to each cell query, or why there was none, by
     /// the height asked at.
     pub(crate) own: BTreeMap<u32, Result<crate::helper::OwnCell, crate::helper::NoCell>>,
@@ -1831,10 +1848,10 @@ mod tests {
             0,
         );
         let mut screen = Head::notice_screen(&config, term());
-        assert_eq!(screen.overlay().notice, None, "nothing yet");
+        assert_eq!(screen.overlay(None).notice, None, "nothing yet");
         screen.set_report(report.clone());
         assert_eq!(screen.notice(), Some(report.text().as_str()));
-        let overlay = screen.overlay();
+        let overlay = screen.overlay(None);
         assert_eq!(
             overlay.notice,
             Some(vtium_render::Notice::report(report.clone()))
@@ -1843,7 +1860,7 @@ mod tests {
         // a notice that is no report draws as it is, and replaces the report
         screen.set_notice("No head has a connected display.");
         assert_eq!(
-            screen.overlay().notice,
+            screen.overlay(None).notice,
             Some(vtium_render::Notice::new(
                 "No head has a connected display."
             ))
@@ -1851,7 +1868,7 @@ mod tests {
         let mut head = Head::new("h", &config, Vec::new(), term());
         head.add_notice(&report.text());
         assert_eq!(
-            head.overlay().notice,
+            head.overlay(None).notice,
             Some(vtium_render::Notice::new(report.text()))
         );
     }
@@ -2033,7 +2050,7 @@ mod tests {
             let renderer =
                 vtium_render::Renderer::new(Font::new(face), 320, 96, RenderConfig::default());
             let mut canvas = vtium_render::Canvas::new(320, 96, 0);
-            head.overlay()
+            head.overlay(None)
                 .draw(&renderer, (40, 6), Orientation::Normal, &mut canvas);
             canvas
         };

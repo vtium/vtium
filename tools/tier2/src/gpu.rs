@@ -182,6 +182,7 @@ impl<G: Gl> Gpu<'_, G> {
     ) -> Result<Image, String> {
         let gl = &mut *self.gl;
         let font = make_font();
+        let made = draw::picture_cell(screen, font.cell());
         let (mut term, w, h) = draw::prepare(screen, &font)?;
         let mut r = Renderer::new(font, w, h, draw::screen_config(screen, config));
         let mut since = Age::NEVER;
@@ -190,9 +191,12 @@ impl<G: Gl> Gpu<'_, G> {
         };
         step(gl, &mut r, &mut term, &[])?;
         if let Some(next) = screen.next {
+            draw::later(screen, &mut term, 1, made)?;
             step(gl, &mut r, &mut term, &[])?;
             draw::feed_next(&mut term, next)?;
+            draw::later(screen, &mut term, 2, made)?;
             step(gl, &mut r, &mut term, &[])?;
+            draw::later(screen, &mut term, 3, made)?;
             step(gl, &mut r, &mut term, &[])?;
         }
         // the console's drawing over the last frame, in a frame of its own

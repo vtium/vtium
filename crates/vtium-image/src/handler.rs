@@ -97,6 +97,59 @@ pub struct SixelState {
     pub registers: u32,
 }
 
+/// The terminal's colors, which a palette-index picture (kitty's `f=8` and
+/// `f=16`) takes when it arrives (ADR-1100, D15). Each color is R, G, B.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Colors {
+    /// The 256-color table that SGR 38;5 reads.
+    pub table: [[u8; 3]; 256],
+    /// The default foreground.
+    pub fg: [u8; 3],
+    /// The default background.
+    pub bg: [u8; 3],
+    /// The selection's background, which OSC 17 sets, or `None` while
+    /// none is set and vtium draws the selection inverted.
+    pub selection_bg: Option<[u8; 3]>,
+    /// The selection's foreground, which OSC 19 sets, or `None` while none
+    /// is set and the selection takes its text color from the cell.
+    pub selection_fg: Option<[u8; 3]>,
+    /// The cursor's color, which OSC 12 sets, or `None` while none is set
+    /// and vtium draws the cursor inverted.
+    pub cursor: Option<[u8; 3]>,
+}
+
+impl Colors {
+    /// The color palette index `index` names, as kitty's specification
+    /// gives it: 0 to 247 the table, 248 the default background, 249 the
+    /// default foreground, 250 and 251 the selection's background and
+    /// foreground, 252 the cursor's color, 253 the color of the text under
+    /// the cursor, 254 the color of a link under the pointer, and 255 the
+    /// default foreground. A color vtium takes from the cell, because it
+    /// is not set or because vtium has none of its own, is the default
+    /// foreground for 250 and 252 and the default background for 251 and
+    /// 253, as the specification asks. vtium has no link color, so 254 is
+    /// the default foreground.
+    pub fn index(&self, index: u8) -> [u8; 3] {
+        match index {
+            0..=247 => self
+                .table
+                .get(usize::from(index))
+                .copied()
+                .unwrap_or(self.fg),
+            248 | 253 => self.bg,
+            250 => self.selection_bg.unwrap_or(self.fg),
+            251 => self.selection_fg.unwrap_or(self.bg),
+            252 => self.cursor.unwrap_or(self.fg),
+            249 | 254 | 255 => self.fg,
+        }
+    }
+
+    /// The color of every index, in index order.
+    pub fn resolved(&self) -> [[u8; 3]; 256] {
+        core::array::from_fn(|i| self.index(u8::try_from(i).unwrap_or(u8::MAX)))
+    }
+}
+
 /// Who can act on a note's reason, which sets how loudly vtium logs it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Cause {
@@ -158,6 +211,13 @@ pub trait Context {
     fn limits(&self) -> Limits;
     /// Adds what the handler did to the input call's work (D5).
     fn add_work(&mut self, work: u64);
+    /// The terminal's colors as they are now, which a palette-index
+    /// picture takes when it arrives (ADR-1100, D15): the palette the
+    /// frames draw through, with the colors a program has set. The default
+    /// gives none, and a handler then refuses palette-index pictures.
+    fn colors(&self) -> Option<Colors> {
+        None
+    }
     /// Says why a handler dropped or ignored what a program sent, for
     /// vtium's log, at the level its [`Cause`] gives (ADR-1103, D1). `why`
     /// is a fixed phrase, so that each repeat of a reason reads the same:

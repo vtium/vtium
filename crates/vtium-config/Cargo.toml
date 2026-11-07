@@ -30,7 +30,9 @@ vtium-platform.workspace = true
 # (ADR-1201 D5, D6), the crate the console already links.
 vtium-settings.workspace = true
 # The console's named palettes, in whose colors the TUI draws its pictures
-# of the console (ADR-1201 D4); the crate the console already links.
+# of the console (ADR-1201 D4), and the terminal's width rule, by which the
+# helper gives each glyph its cells (ADR-1200 D21); the crate the console
+# already links.
 vtium-term.workspace = true
 # The devices present as the head file's rules see them, mapped by the
 # functions the console places them with, for the flow view (ADR-1403 D9).

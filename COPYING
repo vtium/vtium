@@ -103,11 +103,15 @@ the Unicode Character Database 18.0.0 and Unicode's emoji data files of the
 same version, Copyright © 1991-2026 Unicode, Inc., under the Unicode License
 v3, whose text is at the end of this file and in
 crates/vtium-term/gen-unicode/src/unicode-license.txt. Each table carries the
-notice. There are three tables, and each is written by the generator beside
+notice. There are four tables, and each is written by the generator beside
 its crate:
 	crates/vtium-term/src/unicode/data.rs, by vtium-term's gen-unicode: each
 	codepoint's grapheme cluster break property, cell width and emoji
 	properties.
+	crates/vtium-term/src/unicode/bidi/data.rs, by vtium-term's gen-unicode,
+	built in only with the bidi feature: each codepoint's bidirectional class
+	and joining type, the mirroring pairs, the bracket pairs and the
+	box-drawing pairs.
 	crates/vtium/src/deferred/data.rs, by vtium's gen-lookup: the combining
 	marks, canonical combining classes, compositions and decompositions that
 	the console reads when it looks up a cluster's glyph.
@@ -116,10 +120,19 @@ its crate:
 	script ranges that vtium-config's shaping reads.
 
 The tests' Unicode data, crates/vtium-term/src/unicode/grapheme_break_test.txt
-and crates/vtium-term/src/unicode/above_marks.txt beside it: lists that
-vtium-term's gen-unicode makes from GraphemeBreakTest.txt and UnicodeData.txt
-of the Unicode Character Database 18.0.0, under the Unicode License v3. Each
-list carries the notice. The tests read them; vtium installs none of them.
+and crates/vtium-term/src/unicode/above_marks.txt beside it, and
+crates/vtium-term/src/unicode/bidi/bidi_test.txt and
+crates/vtium-term/src/unicode/bidi/bidi_character_test.txt: lists that
+vtium-term's gen-unicode makes from GraphemeBreakTest.txt, UnicodeData.txt,
+BidiTest.txt and BidiCharacterTest.txt of the Unicode Character Database
+18.0.0, under the Unicode License v3. Each list carries the notice. The tests
+read them; vtium installs none of them.
+
+The test input crates/vtium-term/src/unicode/bidi/level_overflow.txt: a
+3,637-byte text file attached by its reporter to
+https://github.com/servo/unicode-bidi/issues/145, the unicode-bidi crate's
+report of a panic on a level overflow, copied byte for byte. It carries no
+notice of its own. A test reads it; vtium installs none of it.
 
 vtium-config's named cover= sets (crates/vtium-config/src/cover.rs), built
 into vtium-config: for each of GB2312, GBK, Big5, JIS X 0208 and KS X 1001,

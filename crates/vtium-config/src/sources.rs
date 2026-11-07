@@ -647,8 +647,10 @@ fn outline(font: Vec<u8>, family: &str) -> Input {
         cover: Vec::new(),
         clusters: Vec::new(),
         baselines: Vec::new(),
+        sizes: Vec::new(),
         hinting: Hinting::default(),
         synth: vtium_font::Style::default(),
+        fit: false,
     })
 }
 
@@ -836,6 +838,7 @@ mod tests {
             cover: Vec::new(),
             cp_size: None,
             style: vtium_font::Style::default(),
+            fits: Vec::new(),
             line: 1,
         }
     }

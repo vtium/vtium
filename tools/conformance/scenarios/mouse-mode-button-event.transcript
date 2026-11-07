@@ -1,0 +1,22 @@
+> size 20 5
+> send "\e[?1002h\e[?1006h"
+> send "\e[?1002$p"
+< reply "\e[?1002;1$y"
+> mouse move at 1,1
+> mouse press left at 1,1
+< reply "\e[<0;2;2M"
+> mouse move left at 2,1
+< reply "\e[<32;3;2M"
+> mouse move left at 3,2
+< reply "\e[<32;4;3M"
+> mouse release left at 3,2
+< reply "\e[<0;4;3m"
+> mouse press right at 4,2
+< reply "\e[<2;5;3M"
+> mouse move right at 5,2 mods=ctrl
+< reply "\e[<50;6;3M"
+> mouse release right at 5,2
+< reply "\e[<2;6;3m"
+> mouse move at 6,3
+> wheel down at 6,3
+< reply "\e[<65;7;4M"

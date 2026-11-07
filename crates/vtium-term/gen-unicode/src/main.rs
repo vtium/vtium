@@ -5,11 +5,13 @@ use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+mod bidi;
+
 const VERSION: &str = "18.0.0";
 
 /// The UCD files read, by base name, with their SHA-256 and the path under
 /// `https://www.unicode.org/Public/18.0.0/ucd/` they come from.
-const FILES: [(&str, &str, &str); 8] = [
+const FILES: [(&str, &str, &str); 14] = [
     (
         "GraphemeBreakProperty.txt",
         "auxiliary/",
@@ -49,6 +51,36 @@ const FILES: [(&str, &str, &str); 8] = [
         "UnicodeData.txt",
         "",
         "0736451de439ae7baf1425136617da495e09ee5afbe6e394374db7009ea08950",
+    ),
+    (
+        "DerivedBidiClass.txt",
+        "extracted/",
+        "d9e23222522551348ea1ccfbb4f62efbf98982afb95840f8959c08ed992c5607",
+    ),
+    (
+        "DerivedJoiningType.txt",
+        "extracted/",
+        "e2408ff2c92b175b0f7bf62c989bbb54c7b077528fe31f8d69b96fa09e7d61ed",
+    ),
+    (
+        "BidiMirroring.txt",
+        "",
+        "cd54810ebf52f0e61a730c8b9cb25975de6c85f6d788a559b416afd548923fd6",
+    ),
+    (
+        "BidiBrackets.txt",
+        "",
+        "4b3b62e4a14b84ee752808c810c602534921c09a4a1bf78cfbee566d66c125b3",
+    ),
+    (
+        "BidiTest.txt",
+        "",
+        "9af2f882a4ab50912e388f069a673b94eacd82fa6d07d20a3ff7f3c759e905aa",
+    ),
+    (
+        "BidiCharacterTest.txt",
+        "",
+        "045b24d2c8ab066951bd32fe8c6b4de34647f72b5b1c7df0265f24ab53573e01",
     ),
 ];
 
@@ -142,6 +174,43 @@ fn run(ucd: &Path) -> Result<(), String> {
     let path = root.join("src/unicode/above_marks.txt");
     write(&path, &above_marks_txt(&marks))?;
     println!("src/unicode/above_marks.txt: {} codepoints", marks.len());
+
+    let runs = bidi::runs(
+        &read("DerivedBidiClass.txt")?,
+        &read("DerivedJoiningType.txt")?,
+    )?;
+    let mirrors = bidi::mirrors(&read("BidiMirroring.txt")?)?;
+    let brackets = bidi::brackets(&read("BidiBrackets.txt")?, &read("UnicodeData.txt")?)?;
+    let box_mirrors = bidi::box_mirrors(&read("UnicodeData.txt")?)?;
+    let path = root.join("src/unicode/bidi/data.rs");
+    write(
+        &path,
+        &bidi::data_rs(&runs, &mirrors, &brackets, &box_mirrors),
+    )?;
+    println!(
+        "src/unicode/bidi/data.rs: {} runs, {} mirroring pairs, {} brackets, {} box-drawing pairs",
+        runs.len(),
+        mirrors.len(),
+        brackets.len(),
+        box_mirrors.len()
+    );
+
+    for (source, out, make) in [
+        (
+            "BidiTest.txt",
+            "src/unicode/bidi/bidi_test.txt",
+            bidi::bidi_test_txt as fn(&str) -> Result<(String, usize), String>,
+        ),
+        (
+            "BidiCharacterTest.txt",
+            "src/unicode/bidi/bidi_character_test.txt",
+            bidi::bidi_character_test_txt,
+        ),
+    ] {
+        let (text, cases) = make(&read(source)?)?;
+        write(&root.join(out), &text)?;
+        println!("{out}: {cases} cases");
+    }
     Ok(())
 }
 

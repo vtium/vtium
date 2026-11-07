@@ -1,0 +1,26 @@
+> size 10 6
+> send "\e[5n"
+< reply "\e[0n"
+> send "\e[6n"
+< reply "\e[1;1R"
+> send "\e[3;4H\e[6n"
+< reply "\e[3;4R"
+> send "\e[?6n"
+< reply "\e[?3;4;1R"
+> send "\e[2;5r\e[?6h\e[6n"
+< reply "\e[1;1R"
+> send "\e[2;3H\e[6n\e[?6n"
+< reply "\e[2;3R\e[?2;3;1R"
+> send "\e[?6l\e[r\e[1;1H0123456789"
+> send "\e[6n\e[?6n"
+< reply "\e[1;10R\e[?1;10;1R"
+> dump
+size 10x6
+cursor 10,0
+flags AUTO_WRAP
+row 0 |0123456789|
+row 1 ||
+row 2 ||
+row 3 ||
+row 4 ||
+row 5 ||

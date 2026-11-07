@@ -59,6 +59,10 @@ anim 0 frame 1 gap 0 digest bc648309
 anim 0 frame 2 gap 80 digest f052c40d
 ```
 
+## The worked examples' strings
+
+The worked examples, here and in 1.0, read each `send` string with the string syntax of tier 1's scenarios (ADR-1504, D2), so the examples and the scenarios have one syntax. It adds three escapes to 1.0's list: `\a` stands for the byte 07, `\b` for the byte 08, and `\u{HEX}` for the UTF-8 of the code point HEX. Every string 1.0's list accepts reads as it did, so no example's input changes.
+
 ## The describe block and the grammar
 
 The grammar below adds the clipboard's `test` line and the two forms of the `anim` line. An `anim` line follows its image's `image` line, so `IMAGES` and the fragments and structures built on it are given again here: a fragment takes its value where it is defined, so the views' fragments and structures must be restated to use the new `IMAGES`. They differ from 1.0's only in that `IMAGES`.

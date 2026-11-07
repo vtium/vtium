@@ -1,0 +1,13 @@
+> size 20 2
+> paste "hello"
+< reply "hello"
+> paste "one\ntwo\r\nthree\rfour"
+< reply "one\rtwo\r\rthree\rfour"
+> paste "a\tb"
+< reply "a\tb"
+> paste "bell\a esc\e del\x7f nul-free\x01\x1f"
+< reply "bell  esc  del  nul-free  "
+> paste "c1 \u{85} \u{9b}2J"
+< reply "c1    2J"
+> paste "caf\u{e9} \u{20ac}"
+< reply "caf\xc3\xa9 \xe2\x82\xac"

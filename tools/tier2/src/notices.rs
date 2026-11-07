@@ -4,8 +4,10 @@
 //! active and showing console 2 of 3, the head `side` beside it, and the
 //! keyboard at `/dev/input/event3`.
 
+use std::time::Duration;
+
 use vtium::notice;
-use vtium_render::Notice;
+use vtium_render::{Notice, Report};
 
 /// The keyboard the rescue key moves.
 const KEYBOARD: &str = "/dev/input/event3";
@@ -34,6 +36,23 @@ pub fn osd_active() -> Result<String, String> {
 /// `osd = full`'s line on a head that is not the active one.
 pub fn osd_other() -> Result<String, String> {
     Ok(notice::osd_line(false, "side", 1, 1))
+}
+
+/// The render timer's line (`render-timer = osd`, `Report::osd`) for an
+/// interval of ten seconds in which 599 frames were presented, the median
+/// frame took 12.345 ms, and each frame's damage covered the whole
+/// display: `59.9 fps 12.345 ms 100.0%`.
+pub fn render_timer() -> Result<String, String> {
+    let report = Report {
+        interval: Duration::from_secs(10),
+        flips: 599,
+        frames: 599,
+        cpu_median: Duration::from_micros(12_345),
+        damage_px_mean: 1,
+        screen_px: 1,
+        ..Report::default()
+    };
+    Ok(report.osd())
 }
 
 pub fn no_keyboard() -> Result<String, String> {

@@ -24,6 +24,9 @@ logind = ["vtium-platform/logind"]
 # vtium-platform's GL context, which `src/gpu.rs` joins. It loads libEGL and
 # libgbm at run time and links no GL library.
 gpu = ["vtium-render/gpu", "vtium-platform/gpu"]
+# Right-to-left text (ADR-1004 D13): vtium-term's bidirectional algorithm
+# and its Unicode tables. The minspec build leaves it out.
+bidi = ["vtium-term/bidi"]
 
 [dependencies]
 vtium-term.workspace = true
@@ -42,15 +45,20 @@ vtium-devices.workspace = true
 # The messages vtium-platform writes through it, and the binary's own,
 # which the binary routes to stderr.
 log = "0.4"
-# Opening the configuration with O_NOCTTY and O_NONBLOCK, and the glyph
-# helper's pidfd; vtium-platform already builds the same version with these
-# features.
-rustix = { version = "=1.1.5", default-features = false, features = ["std", "fs", "process"] }
+# Opening the configuration with O_NOCTTY and O_NONBLOCK, the glyph
+# helper's pidfd, and the sockets that keep the sessions' pty masters
+# through a restart (ADR-1401 D13); vtium-platform already builds the same
+# version with these features.
+rustix = { version = "=1.1.5", default-features = false, features = ["std", "fs", "net", "process"] }
 # Key names in the power keys' chords, as xkb names them; vtium-platform
 # already builds the same version for its keyboards.
 xkbcommon = { version = "=0.9.0", default-features = false }
 
 [dev-dependencies]
+# The window size and the name of a kept pty, which the tests of the
+# sessions that survive a restart read (ADR-1401 D13); vtium-platform
+# already builds the same version with these features.
+rustix = { version = "=1.1.5", default-features = false, features = ["std", "fs", "net", "process", "pty", "termios"] }
 # A timer source in the loop that bounds a wait in `tests/images.rs`;
 # vtium-platform builds the same version.
 calloop = { version = "=0.14.4", default-features = false }

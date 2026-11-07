@@ -1,0 +1,105 @@
+# The vendor archive each GitHub release carries: the source of every outside
+# crate vtium builds with, so that a package manager that builds with no
+# network has it (ADR-1500 D9). tools/vendor/archive describes the archive.
+#
+# When a release is published, the archive job checks out the release's tag,
+# packs the archive with make vendor-archive-check, which also builds the
+# workspace offline from it, and keeps both files as a workflow artifact. The
+# attach job then attaches them to the release. Run by hand on a tag, a
+# branch or a commit, the workflow packs and checks the archive and keeps it
+# as a workflow artifact alone, so it can be checked before a release depends
+# on it. A run by hand checks out the whole history, so the archive's name
+# carries the ref's tag, or git describe's name for it.
+#
+# A release published with the workflow token starts no workflow, so this
+# runs for a release that a person publishes.
+name: Release vendor archive
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: The tag, branch or commit to pack the archive for, such as v0.1.0-alpha.6 or main
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  # Empty in a run by hand.
+  RELEASE_TAG: ${{ github.event.release.tag_name }}
+
+jobs:
+  archive:
+    runs-on: ubuntu-latest
+    steps:
+      # The offline build fills much of the runner's disk. The runner's
+      # preinstalled .NET, Android, Haskell and CodeQL toolchains, which
+      # vtium never uses, are removed to make room.
+      - name: free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          df -h /
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'release' && format('refs/tags/{0}', github.event.release.tag_name) || inputs.ref }}
+          fetch-depth: ${{ github.event_name == 'release' && 1 || 0 }}
+          persist-credentials: false
+      # libudev and libxkbcommon, which vtium-platform links, libsystemd,
+      # which its logind feature links, and zstd, which packs the archive.
+      - run: sudo apt-get update && sudo apt-get install -y libudev-dev libxkbcommon-dev libsystemd-dev zstd
+      # The toolchain rust-toolchain.toml pins, with the ARM targets it
+      # names, so the offline build finds them installed.
+      - id: toolchain
+        run: echo "channel=$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.toolchain.outputs.channel }}
+          targets: aarch64-unknown-linux-gnu, armv7-unknown-linux-gnueabihf
+      # Ubuntu's AppArmor stops an unprivileged user from making a user
+      # namespace, so tools/vendor/archive could not build in a network
+      # namespace of its own and would fall back to CARGO_NET_OFFLINE and an
+      # empty CARGO_HOME. Lifting the restriction for this runner lets the
+      # check build with no network at all. A runner without the setting
+      # skips the step.
+      - name: allow unprivileged user namespaces
+        run: |
+          if sysctl -n kernel.apparmor_restrict_unprivileged_userns >/dev/null 2>&1; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          else
+            echo "this runner has no kernel.apparmor_restrict_unprivileged_userns"
+          fi
+      # For a release, the file names carry its tag without the leading v.
+      - run: make vendor-archive-check VENDOR_DIR="$RUNNER_TEMP/vendor" ${RELEASE_TAG:+VENDOR_VERSION="${RELEASE_TAG#v}"}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vtium-vendor
+          path: |
+            ${{ runner.temp }}/vendor/vtium-*-vendor.tar.zst
+            ${{ runner.temp }}/vendor/vtium-*-vendor.tar.zst.sha256
+          if-no-files-found: error
+
+  attach:
+    if: github.event_name == 'release'
+    needs: archive
+    runs-on: ubuntu-latest
+    # Only this job may write to the release, and it runs no code of the
+    # tag's.
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: vtium-vendor
+          path: vendor
+      # --clobber replaces the files a run that was started again had
+      # already attached.
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=${RELEASE_TAG#v}
+          gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --clobber \
+            "vendor/vtium-$version-vendor.tar.zst" \
+            "vendor/vtium-$version-vendor.tar.zst.sha256"

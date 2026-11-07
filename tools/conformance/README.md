@@ -1,6 +1,6 @@
 # conformance
 
-Tier 1 for vtium. `vtium-replay` meets the replay interface, interface 1.2: `corpus/INTERFACE.md`, interface 1.0, with vtium's additions in `INTERFACE-vtium.md`, over `vtium-parse` and `vtium-term`. `conformance` replays every case of the corpus through it and judges each against its golden, and runs the capability probes through it, each judged by vtium's capability list. The goldens are the judge: every difference from a golden fails, unless the provisional list names the case.
+Tier 1 for vtium. `vtium-replay` meets the replay interface, interface 1.2: `corpus/INTERFACE.md`, interface 1.0, with vtium's additions in `INTERFACE-vtium.md`, over `vtium-parse` and `vtium-term`. `conformance` replays every case of the corpus through it and judges each against its golden, plays every behaviour scenario through it and judges each against its transcript, and runs the capability probes through it, each judged by vtium's capability list. The goldens are the judge: every difference from a golden fails, unless the provisional list names the case.
 
 The corpus, its goldens, the interface and the probe file are kept here (The copies). The tools that make and check them are written here in Rust: the generator of the synthetic cases, the recorder of the programs' cases, and the interface check. Nothing here reads another repository or runs code from outside the tree.
 
@@ -13,6 +13,10 @@ make conformance-issues   # every issue the capability list names is open (gh)
 make conformance-record OUT=DIR [NAMES='prog-shell ...']   # records the programs' cases; not a gate
 target/release/conformance generate DIR   # writes every synthetic case and prints its cases.list lines
 target/release/conformance interface      # the interface check alone
+target/release/conformance scenarios [NAME...]               # the behaviour scenarios alone
+target/release/conformance scenarios --write NAME...         # writes a new scenario's transcript
+target/release/conformance scenarios --play NAME...          # plays a scenario in this terminal for review
+target/release/conformance scenarios --bin NAME DIR          # writes a scenario's replay input for vtium-replay
 ```
 
 `conformance` exits 0 when every verdict holds, 1 on a failure, and 2 when it refuses to run.
@@ -29,6 +33,9 @@ target/release/conformance interface      # the interface check alone
 | `src/spec.rs` | The interface's `describe` and `grammar` blocks, over 1.0 and vtium's additions, and the check of a line against the grammar. |
 | `src/runner.rs` | The corpus, the masking and the verdict on each case. |
 | `src/runner/chunking.rs` | The chunking check: each case with extra cuts at random offsets. |
+| `src/scenario.rs`, `src/scenario/` | The scenarios: the reader and its commands (`commands.rs`), the key names (`keys.rs`), the string syntax that the scenarios, the probes and the worked examples share (`strings.rs`), the transcript printer and its check (`transcript.rs`), the play through vtium-replay's code (`run.rs`), the capability rules (`capability.rs`) and the player for review (`play.rs`). |
+| `src/bin/conformance/scenarios.rs` | `conformance scenarios`, and the scenarios' part of `conformance run` and `conformance interface`. |
+| `scenarios/` | The scenarios, each `NAME.scenario` with a behaviour scenario's transcript `NAME.transcript` beside it, and `provisional.tsv`, the behaviour scenarios whose transcripts wait for the maintainer's review. |
 | `src/probes.rs` | Reading the probe files, and the checks made before a probe runs. |
 | `src/probes/judge.rs` | A probe replayed and judged, and each capability's verdict against the list. |
 | `src/coverage.rs` | `COVERAGE.md`, generated from `capabilities.list` and ADR-1000's tables, and its test. |
@@ -92,6 +99,29 @@ Each case also replays in each view with 1 to 8 extra cuts at random offsets out
 
 Before any case runs, the runner checks `--describe` against INTERFACE.md's `describe` block (the same major version, the block's order, and every mandatory feature), and each case of the provisional list against the two `cases.list` files.
 
+## Scenarios
+
+A scenario is a short text file under `scenarios/` that sets up one case, sends the program's bytes and the user's keys, mouse, paste and focus, and asks for dumps of the screen or makes assertions about it. ADR-1504 decides the language (D2), the transcript (D3) and how the runner plays a scenario (D4); this section says what the tool does beyond the record. A behaviour scenario checks one behaviour, and its golden is its transcript, `NAME.transcript` beside it: each command echoed after `> `, what vtium wrote back, copied or refused for that command after `< `, and each dump in the views' own lines. A capability scenario names a capability of `capabilities.list` in a `# capability: NAME` header line and is judged by its assertions alone. Until the probes are converted into capability scenarios, `conformance probes` keeps judging the list through the probe files, and `conformance run` reads a capability scenario and leaves it to the probes.
+
+`conformance run`, which `make conformance` runs, plays every behaviour scenario after the corpus, in each view its dumps name, and fails on a scenario whose transcript differs, whose assertions fail, or that cannot be played, such as one that needs a feature vtium-replay does not declare. A difference from a transcript that `scenarios/provisional.tsv` lists is printed as `provisional` and fails nothing, while the scenario's assertions still judge. A failure names the scenario and the command after which the transcript first differs, with each line it expected beside the line it got. Each scenario is then played again with extra cuts, as the corpus's chunking check plays a case, and its transcript must not change. The interface check reads each behaviour scenario's assertions and each transcript's dumps against the grammar.
+
+`conformance scenarios --write NAME` plays a new behaviour scenario, writes its transcript and adds the scenario to `scenarios/provisional.tsv`; it refuses when the transcript exists, and `--write --replace NAME` rewrites one in a golden commit without touching the list. `conformance scenarios --play NAME` plays a scenario in this terminal for the maintainer's review: it shows each command and its side effects, draws each dumped screen in its colors and attributes from the frame view, says whether the transcript on file matches, and waits for a key after each command (q stops). `conformance scenarios --bin NAME DIR` writes the scenario's replay input as `NAME.bin` and `NAME.cuts`, with its fixtures in `NAME.files/`, and prints the `vtium-replay` command line that plays it. No scenario's `.bin` is committed.
+
+The reader holds these rules beyond the record:
+
+- A behaviour scenario's name starts with its area and a hyphen, one of `key`, `keypad`, `mouse`, `paste`, `focus`, `select`, `view`, `palette`, `reset`, `reply` and `bidi`; a capability scenario's file is named for its capability.
+- The `# spec:`, `# covers:` and `# capability:` lines belong to the header, before `size`, and `size` is the first command.
+- `key` fills `ascii` with the key's own keysym for a printable ASCII key and leaves it out for any other, and fills the character from the keysym: printable ASCII and Latin-1 keysyms and the keysyms of `scenario/keys.rs`'s table make their character, and the function, keypad and modifier keys make none. `type` presses one key for each character with no modifier held, and refuses a control character, which `key` presses by name.
+- `mouse` and `wheel` leave out `px` and `py`, which the interface then takes as 0, unless the line gives `px=X,Y`.
+- A command that adds nothing to the stream, such as `size` or `dump`, still has a cut of its own, at the same offset as the cut before it.
+- The commands interface 1.3 adds (`select`, `copy`, `scroll prompt-up` and `prompt-down`, `backspace` and `dump state`) are read and compiled now; until vtium-replay declares their features, a scenario that uses one is reported as not run, and the run fails on it.
+
+Interface 1.3 (ADR-1504 D9, slice 4) owes two things the runner leaves open. The transcript masks the frame view's counts whatever a scenario's `needs` line says, which holds while vtium-replay declares no `damage-exact`; a scenario that needs exact counts will need them unmasked once an implementation declares it. A `dump state` prints its `test state` lines after the views it names, and where they fall against the command's other `test` lines is settled with the state lines' grammar.
+
+Two of the first scenarios the gap-check named cannot be written over interface 1.2: the keypad under NumLock (mode 1035) needs NumLock among the `key` command's modifiers, whose `mods` stops at 31, and alternate scroll (mode 1007) is the host's call, which no test command makes.
+
+`docs/scripts/coverage` reads a scenario's `# covers:` line and names the scenario's file in each row's `tests` column, but not while `scenarios/provisional.tsv` lists the scenario, since a provisional transcript judges nothing. It refuses the line in a capability scenario, whose rows `capabilities.list` names.
+
 ## The capability list
 
 `conformance issues` asks `gh` for the state of every issue a missing capability names in `capabilities.list`, and fails on a closed one: its work should have made the capability work. It needs the network, so it runs in CI and through `make conformance-issues`, never in `cargo test`.
@@ -117,7 +147,7 @@ A stanza opens with `probe NAME`, builds a byte stream and the cuts of the inter
 | `view NAME` | `screen` (when not given), `frame` or `draw2`: the view the replay prints. |
 | `needs FEATURE...` | Features the probe needs beyond those its view and commands imply. |
 | `fixture NAME` | A file the probe's fixture directory holds. |
-| `send "..."` | Appends bytes. `\e`, `\r`, `\n`, `\t`, `\\`, `\"` and `\xHH` stand for one byte each, as in the interface's worked examples, and every other character for its UTF-8. |
+| `send "..."` | Appends bytes, written in the string syntax the scenarios and the interface's worked examples share (Scenarios). |
 | `cmd TEXT` | Appends the test command TEXT, `ESC _ tsm-test;TEXT ESC \`. |
 | `check` | Puts a cut after the bytes so far. The assertions that follow judge the block printed there. |
 | `want LINE` | The block holds LINE. |

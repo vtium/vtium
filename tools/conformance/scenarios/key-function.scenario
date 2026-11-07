@@ -1,0 +1,114 @@
+# The function keys F1 to F12, each alone and with each combination of
+# Shift, Alt and Ctrl, then each alone again while DECCKM is set.
+# spec: ctlseqs, PC-Style Function Keys
+# covers: input.legacy
+size 20 2
+key F1
+key F1 mods=shift
+key F1 mods=alt
+key F1 mods=shift+alt
+key F1 mods=ctrl
+key F1 mods=shift+ctrl
+key F1 mods=alt+ctrl
+key F1 mods=shift+alt+ctrl
+key F2
+key F2 mods=shift
+key F2 mods=alt
+key F2 mods=shift+alt
+key F2 mods=ctrl
+key F2 mods=shift+ctrl
+key F2 mods=alt+ctrl
+key F2 mods=shift+alt+ctrl
+key F3
+key F3 mods=shift
+key F3 mods=alt
+key F3 mods=shift+alt
+key F3 mods=ctrl
+key F3 mods=shift+ctrl
+key F3 mods=alt+ctrl
+key F3 mods=shift+alt+ctrl
+key F4
+key F4 mods=shift
+key F4 mods=alt
+key F4 mods=shift+alt
+key F4 mods=ctrl
+key F4 mods=shift+ctrl
+key F4 mods=alt+ctrl
+key F4 mods=shift+alt+ctrl
+key F5
+key F5 mods=shift
+key F5 mods=alt
+key F5 mods=shift+alt
+key F5 mods=ctrl
+key F5 mods=shift+ctrl
+key F5 mods=alt+ctrl
+key F5 mods=shift+alt+ctrl
+key F6
+key F6 mods=shift
+key F6 mods=alt
+key F6 mods=shift+alt
+key F6 mods=ctrl
+key F6 mods=shift+ctrl
+key F6 mods=alt+ctrl
+key F6 mods=shift+alt+ctrl
+key F7
+key F7 mods=shift
+key F7 mods=alt
+key F7 mods=shift+alt
+key F7 mods=ctrl
+key F7 mods=shift+ctrl
+key F7 mods=alt+ctrl
+key F7 mods=shift+alt+ctrl
+key F8
+key F8 mods=shift
+key F8 mods=alt
+key F8 mods=shift+alt
+key F8 mods=ctrl
+key F8 mods=shift+ctrl
+key F8 mods=alt+ctrl
+key F8 mods=shift+alt+ctrl
+key F9
+key F9 mods=shift
+key F9 mods=alt
+key F9 mods=shift+alt
+key F9 mods=ctrl
+key F9 mods=shift+ctrl
+key F9 mods=alt+ctrl
+key F9 mods=shift+alt+ctrl
+key F10
+key F10 mods=shift
+key F10 mods=alt
+key F10 mods=shift+alt
+key F10 mods=ctrl
+key F10 mods=shift+ctrl
+key F10 mods=alt+ctrl
+key F10 mods=shift+alt+ctrl
+key F11
+key F11 mods=shift
+key F11 mods=alt
+key F11 mods=shift+alt
+key F11 mods=ctrl
+key F11 mods=shift+ctrl
+key F11 mods=alt+ctrl
+key F11 mods=shift+alt+ctrl
+key F12
+key F12 mods=shift
+key F12 mods=alt
+key F12 mods=shift+alt
+key F12 mods=ctrl
+key F12 mods=shift+ctrl
+key F12 mods=alt+ctrl
+key F12 mods=shift+alt+ctrl
+send "\e[?1h"
+key F1
+key F2
+key F3
+key F4
+key F5
+key F6
+key F7
+key F8
+key F9
+key F10
+key F11
+key F12

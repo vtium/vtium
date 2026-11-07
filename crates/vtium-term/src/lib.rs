@@ -101,13 +101,15 @@ pub use scrollback::{
 };
 pub use style::{Attrs, Color, Rgb, Script, Style, UnderlineStyle};
 pub use termcap::{Termcap, TermcapError};
+#[cfg(feature = "bidi")]
+pub use terminal::TextDirection;
 pub use terminal::{
     BlankRequest, BlankTimeout, CursorStyle, Mods, MouseButton, MouseEvent, MouseTracking,
     Terminal, VersionError,
 };
 #[cfg(feature = "images")]
 pub use terminal::{ImageNote, ImageString};
-pub use unicode::UNICODE_VERSION;
+pub use unicode::{UNICODE_VERSION, cluster_width};
 /// The image pipeline's types, which a build with images reaches through
 /// vtium-term (ADR-1100).
 #[cfg(feature = "images")]

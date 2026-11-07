@@ -51,6 +51,7 @@ import t3_evaluate  # noqa: E402
 import t3_impl  # noqa: E402
 import t3_runner  # noqa: E402
 import t3_scenario  # noqa: E402
+import t3_showcase  # noqa: E402
 from t3_common import (BASE, BASE_SYSVINIT, GUEST, GUEST_SYSVINIT, IMAGES, OUT,  # noqa: E402
                        REPORT, ROOT, TREE, VM, Logger, base_image, rel)
 from t3_qemu import Qemu, make_iso  # noqa: E402
@@ -214,6 +215,7 @@ def run(args, log):
             raise SystemExit("\n".join(errors))
         impl["features"] = build_features(variants, log)
         impl["fonts"] = build_fonts(variants, log)
+        impl["text_fonts"] = text_fonts(variants, log)
         log("tree: %s, binary %d B, %s installed"
             % (rel(impl["path"]), impl["binary_bytes"], t3_impl.mib(impl["installed_bytes"])))
         results, interrupted = t3_runner.run_variants(variants, args.jobs, impl,
@@ -339,6 +341,24 @@ def build_fonts(variants, log):
     if lacking:
         raise SystemExit("tools/testfont wrote no %s" % ", ".join(lacking))
     return fonts
+
+
+def text_fonts(variants, log, fetch=None):
+    """The cache holding the fonts of tier 3's text font set that the guest
+    image lacks (t3_scenario.TEXT_FONTS), when a variant in `variants` draws
+    from that set; None otherwise. t3_showcase pins those fonts, and the
+    fetch (default t3_showcase.fetch) downloads only what the cache lacks
+    and checks each file's SHA-256, so a run with a full cache needs no
+    network."""
+    if not any(t3_scenario.VARIANTS[v].get("text_fonts") for v in variants):
+        return None
+    fetch = fetch or t3_showcase.fetch
+    log("the text font set's %s: from the showcase's font cache, which fetches what it lacks"
+        % ", ".join(f.file for f in t3_scenario.TEXT_FONTS))
+    try:
+        return fetch(fonts=t3_scenario.TEXT_FONTS)
+    except (OSError, RuntimeError, subprocess.CalledProcessError) as e:
+        raise SystemExit("fetching the text font set's fonts failed: %s" % e)
 
 
 def summary(impl, metas):

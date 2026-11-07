@@ -387,21 +387,49 @@ impl Overlay {
     }
 
     /// Draws the overlay into `target`, a display buffer of `size` that is
-    /// only written, as [`Overlay::draw`] does.
+    /// only written, as [`Overlay::draw`] does. Every character of a notice
+    /// and the mark comes from the built-in fonts in the renderer's cell
+    /// (ADR-1401 D5, D7): from the face's [`Face::builtins`] where it draws
+    /// a font set's glyphs over them, as a frit's face does, and otherwise
+    /// from the renderer's face, a built-in font itself. The renderer's
+    /// sprite policy and missing glyph hold for either.
     pub fn draw_into<F: Face>(
         &self,
         renderer: &Renderer<F>,
         grid: (usize, usize),
         orientation: Orientation,
+        size: (u32, u32),
+        target: &mut impl Target,
+    ) -> Vec<DisplayRect> {
+        let own = renderer.font();
+        let depth = renderer.depth();
+        match own.face().builtins() {
+            Some(face) => {
+                let font = Font::new(face)
+                    .with_policy(own.policy())
+                    .with_missing(own.missing());
+                self.draw_with(&font, depth, grid, orientation, size, target)
+            }
+            None => self.draw_with(own, depth, grid, orientation, size, target),
+        }
+    }
+
+    /// Draws the overlay into `target` with `font`, as
+    /// [`Overlay::draw_into`] does.
+    fn draw_with<F: Face>(
+        &self,
+        font: &Font<F>,
+        depth: Depth,
+        grid: (usize, usize),
+        orientation: Orientation,
         (width, height): (u32, u32),
         target: &mut impl Target,
     ) -> Vec<DisplayRect> {
-        let font = renderer.font();
         let surface = Surface {
             width,
             height,
             orientation,
-            depth: renderer.depth(),
+            depth,
         };
         let cell = self
             .mark
@@ -703,6 +731,10 @@ pub struct View {
     /// frames.
     pub gpu_failure_logged: bool,
     pub timer: Option<RenderTimer>,
+    /// The render timer's line for the display, which the console draws
+    /// in the on-screen display's box under `render-timer=osd` or `both`:
+    /// the figures of the last second the timer reported.
+    pub timer_line: Option<String>,
     pub size: (u32, u32),
     pub refresh: Option<std::time::Duration>,
     /// The height the display's font was asked for.
@@ -710,9 +742,10 @@ pub struct View {
     pub orientation: vtium_render::Orientation,
     /// Who draws the pointer: the display's cursor plane or the renderer.
     pub pointer: Pointer,
-    /// The drawing's font cell, arrow, depth and font policy, read while
-    /// the render thread holds it.
+    /// The drawing's font cell, the rows line spacing adds to it, arrow,
+    /// depth and font policy, read while the render thread holds it.
     cell: vtium_font::Cell,
+    band: vtium_font::spacing::Band,
     arrow: Arrow,
     depth: Depth,
     policy: (SpritePolicy, Missing),
@@ -745,6 +778,7 @@ impl View {
             height: 0,
             orientation: config.orientation,
             cell: renderer.font().cell(),
+            band: renderer.font().face().band(),
             arrow: renderer.arrow().clone(),
             depth: renderer.depth(),
             policy: (renderer.font().policy(), renderer.font().missing()),
@@ -757,6 +791,7 @@ impl View {
             lost: true,
             gpu_failure_logged: false,
             timer: measure.then(RenderTimer::new),
+            timer_line: None,
             size,
             refresh: refresh(refresh_mhz),
             pointer: Pointer::default(),
@@ -774,6 +809,7 @@ impl View {
     /// The drawing's renderer, the one frames are drawn with from now on.
     fn install(&mut self, renderer: Renderer<DisplayFace>) {
         self.cell = renderer.font().cell();
+        self.band = renderer.font().face().band();
         self.arrow = renderer.arrow().clone();
         self.depth = renderer.depth();
         self.policy = (renderer.font().policy(), renderer.font().missing());
@@ -836,6 +872,21 @@ impl View {
     /// The font's cell.
     pub fn cell(&self) -> vtium_font::Cell {
         self.cell
+    }
+
+    /// The rows line spacing adds to the font's cell above and below its
+    /// text band (ADR-1302 D13).
+    pub fn band(&self) -> vtium_font::spacing::Band {
+        self.band
+    }
+
+    /// The font's cell with the rows line spacing adds to it: what a
+    /// frit's glyphs for this view are asked for and held by.
+    pub fn spaced(&self) -> vtium_font::spacing::SpacedCell {
+        vtium_font::spacing::SpacedCell {
+            cell: self.cell,
+            band: self.band,
+        }
     }
 
     /// The pointer's arrow, as the renderer draws it.

@@ -22,6 +22,7 @@ _Escape protocols and the screen model - parser, modes, cells, scrollback_
 | [ADR-1001](./term/ADR-1001-cells-are-8-bytes-with-styles-links-and-clusters-in-line-tables.md) | Cells are 8 bytes, with styles, links and clusters in line tables | accepted |
 | [ADR-1002](./term/ADR-1002-links-are-copied-never-opened-and-prompt-marks-are-line-flags-the-view-jumps-between.md) | Links are copied, never opened, and prompt marks are line flags the view jumps between | accepted |
 | [ADR-1003](./term/ADR-1003-reflow-on-a-width-change-and-no-cell-past-the-margin.md) | Reflow on a width change, and no cell past the margin | accepted |
+| [ADR-1004](./term/ADR-1004-right-to-left-text-the-screen-keeps-logical-order-and-each-paragraph-is-drawn-in-the-order-the-bidirectional-algorithm-gives.md) | Right-to-left text: the screen keeps logical order and each paragraph is drawn in the order the bidirectional algorithm gives | accepted |
 
 ## Image
 _Inline images - sixel and the kitty graphics protocol, storage and placement_
@@ -48,10 +49,11 @@ _Cells and images to pixels - the renderer and its display interface_
 |-----|-------|--------|
 | [ADR-1300](./render/ADR-1300-the-drawn-glyph-cache-and-frame-composition.md) | The drawn-glyph cache and frame composition | accepted |
 | [ADR-1301](./render/ADR-1301-one-glyph-engine-draws-at-run-time-for-the-display-s-capabilities.md) | One glyph engine draws at run time for the display's capabilities | accepted |
-| [ADR-1302](./render/ADR-1302-glyph-ink-reaches-one-cell-past-its-own-side-to-side-and-is-cut-at-its-row.md) | Glyph ink reaches one cell past its own, side to side, and is cut at its row | accepted |
+| [ADR-1302](./render/ADR-1302-glyph-ink-reaches-one-cell-past-its-own-side-to-side.md) | Glyph ink reaches one cell past its own, side to side | accepted |
 | [ADR-1303](./render/ADR-1303-the-gpu-path-draws-each-frame-through-a-fixed-pipeline-of-slots-and-turns-it-at-present.md) | The GPU path draws each frame through a fixed pipeline of slots and turns it at present | accepted |
 | [ADR-1304](./render/ADR-1304-vtium-s-frame-filters-are-built-in-and-a-vtlook-file-chooses-them-and-sets-their-parameters.md) | vtium's frame filters are built in, and a vtlook file chooses them and sets their parameters | accepted |
 | [ADR-1305](./render/ADR-1305-a-frame-clock-gives-the-time-to-spatial-shaders-that-declare-they-read-it.md) | A frame clock gives the time to spatial shaders that declare they read it | accepted |
+| [ADR-1306](./render/ADR-1306-glyph-ink-reaches-one-row-past-its-own-up-and-down-and-each-row-is-composed-from-the-glyphs-of-three-rows.md) | Glyph ink reaches one row past its own, up and down, and each row is composed from the glyphs of three rows | accepted |
 
 ## Platform
 _The Linux VT - DRM/KMS, input, ptys, seats and the unsafe boundary_
@@ -60,7 +62,7 @@ _The Linux VT - DRM/KMS, input, ptys, seats and the unsafe boundary_
 |-----|-------|--------|
 | [ADR-1400](./platform/ADR-1400-the-privilege-and-sandbox-model.md) | The privilege and sandbox model | accepted |
 | [ADR-1401](./platform/ADR-1401-heads-a-terminal-per-physical-display-placed-by-a-first-match-ruleset.md) | Heads: a terminal per physical display, placed by a first-match ruleset | accepted |
-| [ADR-1402](./platform/ADR-1402-vtium-s-own-text-is-translated-through-gettext-catalogs-in-the-system-s-language.md) | vtium's own text is translated through gettext catalogs in the system's language | proposed |
+| [ADR-1402](./platform/ADR-1402-vtium-s-own-text-is-translated-through-gettext-catalogs-in-the-system-s-language.md) | vtium's own text is translated through gettext catalogs in the system's language | accepted |
 | [ADR-1403](./platform/ADR-1403-vtium-conf-holds-the-configuration-as-one-flow-from-the-displays-to-the-input-devices-and-vtium-config-draws-it.md) | vtium.conf holds the configuration as one flow from the displays to the input devices, and vtium-config draws it | accepted |
 
 ## Project
@@ -72,3 +74,4 @@ _Process, harness and contributions - how vtium is built, tested and judged_
 | [ADR-1501](./project/ADR-1501-the-acceptance-pass-walks-every-visual-page-and-keeps-a-record-of-each-pass.md) | The acceptance pass walks every visual page and keeps a record of each pass | proposed |
 | [ADR-1502](./project/ADR-1502-the-documentation-is-a-zensical-site-sorted-by-what-the-reader-is-doing-with-showcase-screens-from-tier-3.md) | The documentation is a Zensical site sorted by what the reader is doing, with showcase screens from tier 3 | accepted |
 | [ADR-1503](./project/ADR-1503-vtium-judges-itself-by-its-own-goldens-and-its-committed-tree-names-no-c-fork.md) | vtium judges itself by its own goldens and its committed tree names no C fork | accepted |
+| [ADR-1504](./project/ADR-1504-tier-1-scenarios-readable-files-that-each-check-one-behaviour-or-one-capability-played-through-the-replay-interface.md) | Tier 1 scenarios: readable files that each check one behaviour or one capability, played through the replay interface | accepted |

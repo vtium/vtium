@@ -24,6 +24,8 @@ mod edit;
 mod images;
 mod links;
 mod marks;
+#[cfg(feature = "bidi")]
+pub(crate) mod paragraph;
 mod print;
 mod rect;
 pub(crate) mod reflow;
@@ -139,6 +141,10 @@ pub struct Screen {
     /// The images and placements of both screens (ADR-1100).
     #[cfg(feature = "images")]
     images: vtium_image::Store,
+    /// The current values of the paragraph properties, which each new row
+    /// takes (ADR-1004 D2; `paragraph.rs`).
+    #[cfg(feature = "bidi")]
+    paragraph: LineFlags,
 }
 
 impl Screen {
@@ -178,6 +184,8 @@ impl Screen {
             extent: Extent::Stream,
             #[cfg(feature = "images")]
             images: vtium_image::Store::new(),
+            #[cfg(feature = "bidi")]
+            paragraph: LineFlags::empty(),
         };
         for _ in 0..rows {
             let line = screen.new_line(cols, &Style::DEFAULT);
@@ -785,6 +793,10 @@ impl Screen {
             self.rows
         };
         let room = end.saturating_sub(self.cursor_y).saturating_sub(1);
+        // A line feed (LF, IND, NEL) that moves the cursor or scrolls takes
+        // it into the next row's paragraph (ADR-1004 D2).
+        #[cfg(feature = "bidi")]
+        let moves = scroll && n == 1 && (room > 0 || self.cursor_y <= self.bottom);
         if n > room {
             if scroll && self.cursor_y <= self.bottom {
                 self.scroll_up(n.saturating_sub(room));
@@ -792,6 +804,10 @@ impl Screen {
             self.move_cursor(self.cursor_x, end.saturating_sub(1));
         } else {
             self.move_cursor(self.cursor_x, self.cursor_y.saturating_add(n));
+        }
+        #[cfg(feature = "bidi")]
+        if moves {
+            self.line_fed(self.cursor_y);
         }
     }
 
@@ -975,10 +991,13 @@ impl Screen {
     }
 
     /// A new line of `cols` cells of `style`, with an identity no other
-    /// line of this screen has had.
+    /// line of this screen has had, holding the current paragraph
+    /// properties.
     fn new_line(&mut self, cols: usize, style: &Style) -> Line {
         let mut line = Line::new(LineId::new(self.next_id), cols);
         self.next_id = self.next_id.wrapping_add(1);
+        #[cfg(feature = "bidi")]
+        line.flags_mut().insert(self.paragraph);
         if *style != Style::DEFAULT {
             line.erase(0..cols, style);
         }

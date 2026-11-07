@@ -772,7 +772,11 @@ fn mode_1035_lets_numlock_override_the_application_keypad() {
     assert_eq!(sent(&mut t), b"1\r", "NumLock on");
     t.key(KP_INSERT, 0, num, None);
     t.key(KP_F1, 0, num, None);
-    assert_eq!(sent(&mut t), b"\x1bOp\x1bOP", "keys that make no character");
+    assert_eq!(
+        sent(&mut t),
+        b"\x1b[2~\x1bOP",
+        "keys that make no character"
+    );
     t.input(b"\x1b[?1035l");
     assert_eq!(rqm(&mut t, true, 1035), 2);
     t.key(KP_1, 0, num, None);
@@ -805,9 +809,14 @@ fn mode_1042_lets_bel_reach_the_host() {
     assert!(!t.take_bell());
 }
 
+/// The bidi modes, which only a build with the bidi feature has (ADR-1004
+/// D13): BDSM, 1243, 2500 and 2501.
+const BIDI_MODES: [(bool, u32); 4] = [(false, 8), (true, 1243), (true, 2500), (true, 2501)];
+
 /// The supported rows of `docs/modes.tsv`, which the mode table generates:
 /// whether each is a DEC private mode, and its number. A build without
-/// images has no rows for sixel's modes, so it leaves them out.
+/// images has no rows for sixel's modes, and a build without the bidi
+/// feature none for the bidi modes, so it leaves them out.
 fn supported_modes() -> Vec<(bool, u32)> {
     let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/modes.tsv");
     let tsv = std::fs::read_to_string(path).unwrap();
@@ -820,6 +829,7 @@ fn supported_modes() -> Vec<(bool, u32)> {
         .filter(|r| r[status] == "supported")
         .filter(|r| cfg!(feature = "images") || r[host] != "offers sixel")
         .map(|r| (r[kind] == "DEC", r[number].parse().unwrap()))
+        .filter(|m| cfg!(feature = "bidi") || !BIDI_MODES.contains(m))
         .collect();
     assert!(modes.len() > 30, "the table's supported rows");
     modes
@@ -939,8 +949,9 @@ fn decstr_keeps_what_xtsave_saved_and_ris_clears_it() {
 // covers: ctl.xtsave
 #[test]
 fn the_empty_list_saves_and_restores_every_mode() {
-    const LEFT_OUT: [(bool, u32); 9] = [
+    const LEFT_OUT: [(bool, u32); 10] = [
         (false, 4),
+        (false, 8),
         (false, 12),
         (false, 20),
         (true, 6),

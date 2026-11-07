@@ -44,7 +44,7 @@ pub(in crate::generate) const CASES: &[Case] = &[
         .concat()
         .into()
     }),
-    // a=q loads and checks without storing or replacing: OK, then EINVAL
+    // a=q loads and checks without storing or replacing: OK, then ENODATA
     // for data short of s x v, and a=p of its id finds nothing; an a=q with
     // the id of a stored image leaves that image
     sized("kit-query", 12, 4, |_| {
@@ -256,14 +256,15 @@ fn query_number(_: &Inputs) -> Made {
     out.into()
 }
 
-/// EINVAL: animation, Unicode placeholders, relative placements, a raw
-/// format without s and v, data short of s x v x bytes per pixel, a byte
-/// outside base64, a key it cannot read, an unknown action; PNG and zlib
-/// with no host hook; EBADF: files, temporary files and shared memory with
-/// no host hook, and an empty name. Data past s x v x bytes per pixel
-/// (i=4) is ignored, as kitty ignores it, an unknown key is ignored, and a
-/// key section past 1 KiB ignores the whole APC. The fixture host is
-/// removed first, so no command reaches a hook.
+/// ENODATA: data short of s x v x bytes per pixel. EINVAL:Zero width/height
+/// not allowed: a raw format without s and v. EINVAL: animation, Unicode
+/// placeholders, relative placements, a byte outside base64, a key it
+/// cannot read, an unknown action; PNG and zlib with no host hook; EBADF:
+/// files, temporary files and shared memory with no host hook, and an empty
+/// name. Data past s x v x bytes per pixel (i=4) is ignored, as kitty
+/// ignores it, an unknown key is ignored, and a key section past 1 KiB
+/// ignores the whole APC. The fixture host is removed first, so no command
+/// reaches a hook.
 fn refused(_: &Inputs) -> Made {
     let px = rgb(1, 1, BLUE3);
     [

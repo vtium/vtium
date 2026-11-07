@@ -1,0 +1,38 @@
+> size 20 5
+> send "\e[?1000h"
+> send "\e[?1015h"
+> send "\e[?1015$p"
+< reply "\e[?1015;1$y"
+> mouse press left at 1,0
+< reply "\e[32;2;1M"
+> mouse release left at 1,0
+< reply "\e[35;2;1M"
+> mouse press middle at 2,1
+< reply "\e[33;3;2M"
+> mouse release middle at 2,1
+< reply "\e[35;3;2M"
+> mouse press right at 3,2
+< reply "\e[34;4;3M"
+> mouse release right at 3,2
+< reply "\e[35;4;3M"
+> wheel up at 4,3
+< reply "\e[96;5;4M"
+> wheel down at 4,3
+< reply "\e[97;5;4M"
+> mouse press left at 5,4 mods=shift
+< reply "\e[36;6;5M"
+> mouse release left at 5,4 mods=shift
+< reply "\e[39;6;5M"
+> mouse press left at 6,4 mods=alt
+< reply "\e[40;7;5M"
+> mouse release left at 6,4 mods=alt
+< reply "\e[43;7;5M"
+> mouse press left at 7,4 mods=ctrl
+< reply "\e[48;8;5M"
+> mouse release left at 7,4 mods=ctrl
+< reply "\e[51;8;5M"
+> wheel down at 8,4 mods=ctrl
+< reply "\e[113;9;5M"
+> mouse move at 9,4
+> send "\e[?1000l"
+> mouse press left at 1,0

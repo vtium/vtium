@@ -185,6 +185,42 @@ impl Head {
         }
     }
 
+    /// Opens exactly the consoles of `ids`, in order, on terminals `term`
+    /// makes, until the head has `room` consoles; returns the ids left
+    /// without one. These are the consoles whose sessions an earlier vtium
+    /// left running (ADR-1401 D13), which keep their ids: the console
+    /// shown, which has no session yet, takes the lowest id where `ids`
+    /// lacks its own, and the head's next new console takes an id after the
+    /// last of them.
+    pub(crate) fn open_kept(
+        &mut self,
+        ids: &[u64],
+        room: usize,
+        mut term: impl FnMut() -> Term,
+    ) -> Vec<u64> {
+        if let Some(&lowest) = ids.first()
+            && !ids.contains(&self.console.id)
+            && !self.console.started()
+        {
+            self.console.id = lowest;
+            self.next_id = self.next_id.max(lowest.saturating_add(1));
+        }
+        let mut left = Vec::new();
+        for &id in ids {
+            if self.consoles().any(|c| c.id == id) {
+                continue;
+            }
+            if self.console_count() >= room {
+                left.push(id);
+                continue;
+            }
+            let console = Console::new(id, term(), self.fresh_fit());
+            self.hidden.push(console);
+            self.next_id = self.next_id.max(id.saturating_add(1));
+        }
+        left
+    }
+
     /// Starts the count of each console not started yet at `since`, and
     /// returns their ids, whose sessions start.
     pub(crate) fn start_consoles(&mut self, since: Duration) -> Vec<u64> {
@@ -356,15 +392,22 @@ impl Head {
         self.refont = true;
     }
 
-    /// Takes the font size the head's configuration `config` configures,
-    /// read again at a session's end (ADR-1201 D11), for the consoles that
-    /// open and the sessions that end from now on. `config` is the one
-    /// [`Config::for_head`] gives, so the head's look's `font-size` still
-    /// wins over the top level's.
+    /// Takes the font size and the line spacing the head's configuration
+    /// `config` configures, read again at a session's end (ADR-1201 D11),
+    /// for the consoles that open and the sessions that end from now on. A
+    /// change of the line spacing changes the cell, so the font is drawn
+    /// again (ADR-1302 D13). `config` is the one [`Config::for_head`]
+    /// gives, so the head's look's `font-size` and `font-line-spacing`
+    /// still win over the top level's.
     pub(crate) fn reconfigure(&mut self, config: &Config) {
         let (points, auto_size, sized) = crate::head::configured_size(config);
         self.configured = (points, auto_size);
         self.sized = sized;
+        let spacing = config.font_line_spacing().map(u32::from);
+        if spacing != self.line_spacing {
+            self.line_spacing = spacing;
+            self.refont = true;
+        }
     }
 
     /// Console `id` draws at the configured size from now on: the shown
@@ -394,6 +437,26 @@ impl Head {
             .respawn
             .as_mut()
             .map_or(Next::Restart, |r| r.exited(since, oneshot));
+        Some(self.session_ended(id, next))
+    }
+
+    /// The program of console `id` ended while no vtium ran (ADR-1401
+    /// D13), which vtium learns at `since`, as it takes the console's kept
+    /// pty back: as an exit at that moment, with no quick exit counted,
+    /// since vtium never saw it start. `None` when the head has no such
+    /// console.
+    pub(crate) fn ended_away(
+        &mut self,
+        id: u64,
+        since: Duration,
+        oneshot: bool,
+    ) -> Option<AfterExit> {
+        let console = self.console_mut(id)?;
+        console.pty = None;
+        let next = console
+            .respawn
+            .as_mut()
+            .map_or(Next::Restart, |r| r.hung_up(since, oneshot));
         Some(self.session_ended(id, next))
     }
 

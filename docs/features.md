@@ -11,7 +11,7 @@ vtium's latest release is the pre-release v0.1.0-alpha.5. It brings the GPU path
 - **Handing the display back without a VT switch,** through the `setBackground` sequence ([the hand-back issue](https://github.com/vtium/vtium/issues/36)).
 - **Showing a link's address in the console:** Ctrl+click copies an OSC 8 link's address, Ctrl+Shift+Up and Ctrl+Shift+Down move the view between the prompts OSC 133 marks, and the link under the pointer draws a dashed underline. The renderer does not yet draw the overlay row that shows the link's address while Ctrl is held ([ADR-1002](architecture/term/ADR-1002-links-are-copied-never-opened-and-prompt-marks-are-line-flags-the-view-jumps-between.md)).
 
-Also not built yet: glyph ink reaching into the next cell ([ADR-1302](architecture/render/ADR-1302-glyph-ink-reaches-one-cell-past-its-own-side-to-side-and-is-cut-at-its-row.md), decided), ligatures and shaping across cells, the kitty keyboard protocol, bidirectional text, input methods, `vtiumctl`, `vtium-clipboard`, and reading a changed vtium.conf without a restart. The plan and its order are in [the tracker issue](https://github.com/vtium/vtium/issues/47).
+Also not built yet: glyph ink reaching into the next cell ([ADR-1302](architecture/render/ADR-1302-glyph-ink-reaches-one-cell-past-its-own-side-to-side.md), decided), ligatures and shaping across cells, the kitty keyboard protocol, bidirectional text, input methods, `vtiumctl`, `vtium-clipboard`, and reading a changed vtium.conf without a restart. The plan and its order are in [the tracker issue](https://github.com/vtium/vtium/issues/47).
 
 ## Displays
 

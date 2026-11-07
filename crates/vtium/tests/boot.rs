@@ -1655,6 +1655,32 @@ fn a_larger_display_draws_a_larger_font_on_the_same_grid() {
     assert_eq!(h.app.cells(), [(8, 16), (16, 32)]);
 }
 
+// ADR-1302 D13: `font-line-spacing` makes each row taller by a whole
+// percentage of the text's height, so the grid has fewer rows, and a zoom
+// keeps the spacing at the new height
+#[test]
+fn line_spacing_makes_rows_taller_and_the_grid_shorter() {
+    let mut h = Harness::new(&[
+        "--font-size=16",
+        "--font-line-spacing=25",
+        "--login",
+        "--",
+        "/bin/sh",
+        "-c",
+        "read x",
+    ]);
+    // 320x160 holds 40x8 cells of 8x20: 16 rows of text and 4 added
+    assert_eq!(h.app.cells(), [(8, 20)]);
+    assert_eq!(h.app.grid(), (40, 8));
+    h.app.input_event(key(Mods::CTRL, 0x3d), h.at());
+    assert_eq!(
+        h.app.cells(),
+        [(16, 40)],
+        "zoomed in to 32 rows of text and 8 added"
+    );
+    assert_eq!(h.app.grid(), (20, 4));
+}
+
 #[test]
 fn zoom_and_rotate_change_the_grid() {
     let mut h = Harness::new(&["--font-size=16", "--login", "--", "/bin/sh", "-c", "read x"]);
@@ -2847,7 +2873,7 @@ fn grab_paste_binds_the_paste() {
     h.app.input_event(shift_insert.clone(), h.at());
     h.type_str("q");
     assert!(
-        h.until(BOUND, |a| shows(a, "E[200~pastedE[201~E[2~")),
+        h.until(BOUND, |a| shows(a, "E[200~pastedE[201~E[2;2~")),
         "{:?}",
         h.app.screen_text()
     );
@@ -2856,7 +2882,7 @@ fn grab_paste_binds_the_paste() {
     h.app.input_event(shift_insert, h.at());
     h.type_str("q");
     assert!(
-        h.until(BOUND, |a| shows(a, "E[2~")),
+        h.until(BOUND, |a| shows(a, "E[2;2~")),
         "{:?}",
         h.app.screen_text()
     );
@@ -5075,14 +5101,22 @@ fn solid_ascii(cell: vtium_font::Cell) -> Vec<u8> {
         s.map(c, g);
     }
     let set = SetBuilder::new("t").strike(s).write().expect("a set");
-    // a fill's frame, then the fill's end
+    fill_of(&set, cell)
+}
+
+/// The helper's answer of `set` as a fill at `cell`, with no line spacing:
+/// the fill's frame, its band of none before the set, then the fill's end,
+/// naming the cell and its band.
+fn fill_of(set: &[u8], cell: vtium_font::Cell) -> Vec<u8> {
     let mut out = 4u32.to_le_bytes().to_vec();
-    out.extend((set.len() as u32).to_le_bytes());
+    out.extend((set.len() as u32 + 8).to_le_bytes());
+    out.extend([0u8; 8]);
     out.extend(set);
     out.extend(5u32.to_le_bytes());
-    out.extend(8u32.to_le_bytes());
+    out.extend(16u32.to_le_bytes());
     out.extend(cell.width.to_le_bytes());
     out.extend(cell.height.to_le_bytes());
+    out.extend([0u8; 8]);
     out
 }
 
@@ -5231,14 +5265,7 @@ fn solid_white_square(cell: vtium_font::Cell) -> Vec<u8> {
     );
     s.map('\u{25a1}', g);
     let set = SetBuilder::new("t").strike(s).write().expect("a set");
-    let mut out = 4u32.to_le_bytes().to_vec();
-    out.extend((set.len() as u32).to_le_bytes());
-    out.extend(set);
-    out.extend(5u32.to_le_bytes());
-    out.extend(8u32.to_le_bytes());
-    out.extend(cell.width.to_le_bytes());
-    out.extend(cell.height.to_le_bytes());
-    out
+    fill_of(&set, cell)
 }
 
 // vtium/vtium#314: a character no font holds draws the font's missing
@@ -5610,11 +5637,15 @@ fn an_outline_frit_draws_in_the_helpers_cell_at_each_height() {
     );
 }
 
-// overhang part 1: an outline cell that comes after the console's wait
-// is dropped, the built-in font's width draws, and the next zoom asks
-// again, its answer taken, a height that failed before included
+// overhang part 1 and ADR-1200 D17 (the maintainer, 2026-11-03): until
+// an outline frit's cell comes, the built-in font's width draws. An
+// answer that comes after the console's wait is taken, and the display
+// draws in it from the next frame: its grid and its view's cell take the
+// new width together. A zoom asks at its new height, and back at the
+// height the late answer was for, the answer held there draws with no
+// new ask.
 #[test]
-fn a_late_outline_cell_is_dropped_and_the_next_zoom_asks_again() {
+fn a_late_outline_cell_is_drawn_from_the_next_frame() {
     let (equal, minus) = (0x3d, 0x2d);
     let (_dir, fonts, kinds, go) = outline_frit("late", true);
     logged();
@@ -5631,23 +5662,28 @@ fn a_late_outline_cell_is_dropped_and_the_next_zoom_asks_again() {
         .write(true)
         .open(&go)
         .expect("the go FIFO");
-    // the late answer arrives, and is dropped with no failure
-    assert!(h.until(BOUND, |_| cell_answers(&kinds) == 1));
-    assert_eq!(
-        h.app.cells(),
-        vec![(8, 22)],
-        "the late answer changes nothing"
+    // the late answer arrives, and the display draws in it
+    assert!(
+        h.until(BOUND, |app| app.cells() == vec![(12, 22)]),
+        "the late cell is drawn: {:?}",
+        h.app.cells()
     );
-    // The zoom's ask at 21 finds the late answer at 22 first, whichever
-    // turn reads it, and takes the answer at 21 behind it.
+    assert_eq!(cell_answers(&kinds), 1, "one answer, the late one");
+    assert_eq!(
+        (h.app.grid().0, h.app.grid().1),
+        (W as usize / 12, H as usize / 22),
+        "the grid takes the late cell with the view"
+    );
     h.app.input_event(key(Mods::CTRL, minus), h.at());
     let at21 = h.app.cells();
     assert!(
         at21.first().is_some_and(|c| c.1 == 21 && c.0 != 8),
         "the helper's cell at 21, not the built-in font's: {at21:?}"
     );
+    assert_eq!(cell_answers(&kinds), 2, "the zoom asked at 21");
     h.app.input_event(key(Mods::CTRL, equal), h.at());
-    assert_eq!(h.app.cells(), vec![(12, 22)], "asked again at 22");
+    assert_eq!(h.app.cells(), vec![(12, 22)], "the late answer held at 22");
+    assert_eq!(cell_answers(&kinds), 2, "22 is not asked again");
     let lines = logged();
     assert!(
         lines
@@ -5866,7 +5902,7 @@ fn recording(name: &str) -> (Scratch, Sources) {
 /// rest of the request.
 fn first_request(bytes: &[u8]) -> Option<(String, String, &[u8])> {
     let u32_at = |b: &[u8]| Some(u32::from_le_bytes(b.get(..4)?.try_into().ok()?) as usize);
-    let rest = bytes.strip_prefix(b"VTVSREQ4")?.get(4..)?;
+    let rest = bytes.strip_prefix(b"VTVSREQ5")?.get(4..)?;
     let n = u32_at(rest)?;
     let name = String::from_utf8(rest.get(4..4 + n)?.to_vec()).ok()?;
     let rest = rest.get(4 + n..)?;
@@ -5919,6 +5955,42 @@ fn a_kbd_name_no_frit_bears_is_generated_as_a_one_source_frit() {
     assert_eq!(
         recorded(&mut h, &fonts, 1),
         [pair("ter-v16n", "source=kbd:ter-v16n\n")]
+    );
+}
+
+// ADR-1302 D13: a frit drawn with line spacing is asked for its glyphs at
+// the taller cell, with the rows the spacing adds above and below the text
+// band, so the helper draws them in the text band and places them
+#[test]
+fn a_spaced_cell_is_asked_for_with_its_band() {
+    let (_dir, fonts) = recording("spaced");
+    let mut h = Harness::fonts(
+        &[
+            "--font-name=ter-v16n",
+            "--font-size=16",
+            "--font-line-spacing=25",
+            "--login",
+            "--",
+            "/bin/sh",
+            "-c",
+            "printf A; read x",
+        ],
+        Memory::default(),
+        fonts.clone(),
+    );
+    // the cell, 8x20, then 2 rows above and 2 below the text band
+    let cell: Vec<u8> = [8u32, 20, 2, 2]
+        .iter()
+        .flat_map(|w| w.to_le_bytes())
+        .collect();
+    let asked = |h: &mut Harness| {
+        requests(h, &fonts, 1)
+            .iter()
+            .any(|b| first_request(b).is_some_and(|(_, _, rest)| rest.starts_with(&cell)))
+    };
+    assert!(
+        h.eventually(BOUND, asked),
+        "the glyphs are asked for at 8x20 with its band"
     );
 }
 
@@ -6530,11 +6602,17 @@ fn the_kernels_font_is_handed_to_the_helper() {
             .map(|w| u32::from_le_bytes(w.try_into().expect("a word")))
             .collect()
     };
-    // the cell, the style, regular, the reserved capabilities, then the
-    // codepoints, the clusters and the held ranges, each counted
-    assert_eq!(words(&rest[8..], 2), [0, 0], "regular, and no capabilities");
-    let codepoints = words(&rest[16..], 1)[0] as usize;
-    let mut rest = &rest[20 + 4 * codepoints..];
+    // the cell, the rows line spacing adds, the style, regular, the
+    // reserved capabilities, then the codepoints, the clusters and the
+    // held ranges, each counted
+    assert_eq!(words(&rest[8..], 2), [0, 0], "no line spacing");
+    assert_eq!(
+        words(&rest[16..], 2),
+        [0, 0],
+        "regular, and no capabilities"
+    );
+    let codepoints = words(&rest[24..], 1)[0] as usize;
+    let mut rest = &rest[28 + 4 * codepoints..];
     let clusters = words(rest, 1)[0] as usize;
     rest = &rest[4..];
     for _ in 0..clusters {

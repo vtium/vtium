@@ -46,12 +46,15 @@
 //! process. It is answered at once, like a cell query.
 //!
 //! ```text
-//! request  magic "VTVSREQ4", kind u32 (1 ask, 2 fill, 3 stop, 4 cell
+//! request  magic "VTVSREQ5", kind u32 (1 ask, 2 fill, 3 stop, 4 cell
 //!          query, 5 sources query), frit name length u32, the name (ADR-1200 D1's
 //!          characters), frit text length u32, the text (UTF-8), cell width
 //!          u32 (0 for a cell or sources query), cell height u32 (for a
 //!          sources query 0, for a cell query
-//!          the height an outline font is drawn at, or 0), style u32 (0
+//!          the height an outline font is drawn at, or 0), the rows line
+//!          spacing adds above and below the cell's text band u32 and u32
+//!          (both 0 for a query, and together less than the cell's
+//!          height), style u32 (0
 //!          regular, 1 bold, 2 italic, 3 bold italic; an ask's alone may
 //!          name one other than regular), capabilities
 //!          length u32, the capabilities (reserved for the
@@ -66,14 +69,18 @@
 //!          width u32, height u32, glyph count u32, data length u32, the
 //!          data, map count u32, each (codepoint u16, glyph u16)
 //! answer   frames: kind u32, length u32, then the payload; kind 1 an
-//!          ask's glyphs and 4 a fill's, each a vitrified set of one cell's
+//!          ask's glyphs and 4 a fill's, each the rows line spacing adds
+//!          above and below the cell u32 and u32, as the request named
+//!          them, then a vitrified set of one cell's
 //!          glyphs, its strikes in the style the request named, an ask's
 //!          clusters in its cluster map; kind 2 the oldest ask answered (no payload); kind 5 a
-//!          cell's fill done (its width u32 and height u32); kind 6 a
+//!          cell's fill done (its width u32, height u32, and rows added
+//!          above u32 and below u32); kind 6 a
 //!          bitmap frit's own cell (its width u32 and height u32); kind 10
 //!          an outline frit's cell at the height asked (its width u32 and
 //!          height u32); kind 7 no own cell (UTF-8 reason); kind 8 a stop
-//!          taken (its cell's width u32 and height u32), one for each
+//!          taken (its cell's width u32, height u32, and rows added above
+//!          u32 and below u32), one for each
 //!          stop; kind 9 a warning the frit's text gave as it was read,
 //!          once for each frit read (UTF-8); kind 11 a sources query's
 //!          answer, one line for each source left out, `missing` or
@@ -113,6 +120,16 @@
 //! across and on the cell's bottom row, as `create` places one; a bitmap
 //! font whose cell does not fit gives nothing, and the console draws those
 //! characters in the built-in font.
+//!
+//! Where the request names rows that line spacing adds (ADR-1302 D13),
+//! the helper draws each glyph in the cell's text band, the cell less
+//! those rows, as above, and then places it in the whole cell as the
+//! `fit=` of the frit's set that gives it says, or its default
+//! ([`Fit::default_for`]): a `fill` glyph stretches to the whole cell, a
+//! bitmap glyph by repeating its top and bottom rows and an outline glyph
+//! by scaling vertically, and a `natural` or `room` glyph keeps its size
+//! with blank rows above and below. A color glyph always keeps its size.
+//! The strike's baseline and lines move down by the rows added above.
 
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -128,7 +145,10 @@ use landlock::{
 };
 use rustix::process::{Resource, Rlimit, setrlimit};
 use vtium_font::set::{PixelFormat, SetBuilder, StrikeBuilder};
-use vtium_font::{CELL_SIDE_MAX, CLUSTER_SCALARS_MAX, Cell, Decorations, Style, Width};
+use vtium_font::spacing::{self, Band, Fit, SpacedCell};
+use vtium_font::{
+    CELL_SIDE_MAX, CLUSTER_SCALARS_MAX, Cell, Decorations, SET_CHUNK_BYTES, Style, Width,
+};
 use vtium_platform::vt::font::{ConsoleFont, FONT_GLYPHS_MAX, FONT_PITCH_TALL, UniPair};
 
 use crate::child::PARSER_MEMORY;
@@ -148,7 +168,11 @@ pub const HELPER_IDLE_MS: u64 = 60_000;
 /// number of times a boot (the console's `RESTARTS_MAX`).
 pub const HELPER_SECONDS: u64 = 300;
 
-pub const REQUEST_MAGIC: &[u8; 8] = b"VTVSREQ4";
+pub const REQUEST_MAGIC: &[u8; 8] = b"VTVSREQ5";
+/// Why the helper refuses a request of another layout of its format: the
+/// console that sent it comes from another build, and the console logs
+/// this as the reason the font helper failed.
+pub const OTHER_BUILD: &str = "the console and the font helper come from different builds of vtium, so the font helper cannot read the console's request; reinstall vtium so that both come from one build";
 /// A frame of an ask's glyphs: a vitrified set.
 pub const FRAME_GLYPHS: u32 = 1;
 /// The oldest ask is answered whole.
@@ -206,6 +230,9 @@ pub const HELD_RANGES_MAX: usize = 65_536;
 pub const FRAME_BYTES_MAX: u32 = 16 << 20;
 /// [`FRAME_BYTES_MAX`] as a length.
 const FRAME: usize = FRAME_BYTES_MAX as usize;
+/// The most bytes a set in a glyph frame holds: the frame's, less the
+/// band in front of it.
+const FRAME_SET: usize = FRAME - 8;
 /// The most bytes a failure's reason holds.
 pub const REASON_BYTES_MAX: usize = 4096;
 /// The most bytes a frit's name holds, a frit name's own bound
@@ -233,6 +260,11 @@ pub struct ServeRequest {
     pub kind: u32,
     pub frit: FritText,
     pub cell: Cell,
+    /// The rows line spacing adds to the cell above and below its text
+    /// band (ADR-1302 D13): the glyphs are drawn in the cell less these
+    /// rows and placed in the whole cell by their sets' `fit=`. None for a
+    /// query, and for a cell that takes no spacing.
+    pub band: Band,
     /// The style an ask's glyphs are drawn in; regular for every other
     /// request.
     pub style: Style,
@@ -307,6 +339,8 @@ impl ServeRequest {
         }
         put32(&mut out, self.cell.width);
         put32(&mut out, self.cell.height);
+        put32(&mut out, self.band.above);
+        put32(&mut out, self.band.below);
         put32(&mut out, style_code(self.style));
         // the display's capabilities, reserved
         put32(&mut out, 0);
@@ -350,6 +384,8 @@ impl ServeRequest {
     /// its text UTF-8, each inside its bound, the cell inside
     /// [`CELL_SIDE_MAX`], a cell query's at a width of 0, a height inside
     /// [`CELL_SIDE_MAX`] or 0, and naming no codepoint and no range, the
+    /// rows line spacing adds none for a query and leaving any other
+    /// request's cell a text band at least a row high, the
     /// style one of four and regular but for an ask, the reserved capabilities empty, each codepoint a
     /// scalar value, clusters in an ask alone, each 1 to
     /// [`CLUSTER_SCALARS_MAX`] scalar values, each held range in order and inside Unicode, the
@@ -366,7 +402,13 @@ impl ServeRequest {
         r.read_exact(rest)
             .map_err(|_| "a request cut short".to_owned())?;
         if &magic != REQUEST_MAGIC {
-            return Err("not a serve request".to_owned());
+            // a request of another layout of this format comes from a
+            // console of another build
+            return Err(if magic.starts_with(b"VTVSREQ") {
+                OTHER_BUILD.to_owned()
+            } else {
+                "not a serve request".to_owned()
+            });
         }
         let mut f = Fields(r);
         let kind = f.u32()?;
@@ -404,6 +446,16 @@ impl ServeRequest {
             return Err(format!(
                 "a cell side of 0 or of more than {CELL_SIDE_MAX} pixels"
             ));
+        }
+        let band = Band {
+            above: f.u32()?,
+            below: f.u32()?,
+        };
+        if query && !band.is_none() {
+            return Err("line spacing on a cell or sources query".to_owned());
+        }
+        if !band.is_none() && band.added() >= cell.height {
+            return Err("line spacing that leaves the cell no text band".to_owned());
         }
         let style = style_of(f.u32()?).ok_or("an unknown style")?;
         if kind != ASK && style != Style::default() {
@@ -491,6 +543,7 @@ impl ServeRequest {
             kind,
             frit: FritText { name, text },
             cell,
+            band,
             style,
             codepoints,
             clusters,
@@ -881,6 +934,41 @@ fn bitmap_baseline(font: &Font) -> u32 {
     vtium_font::italic::bitmap_baseline(h.as_deref(), font.cell.height)
 }
 
+/// What a glyph is drawn from, which says how `fill` stretches it
+/// (ADR-1302 D13).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Kind {
+    /// A bitmap font's 1-bit rows, stretched by repeating the top and
+    /// bottom rows.
+    Bitmap,
+    /// An outline font's coverage, scaled vertically.
+    Outline,
+    /// A color glyph, never stretched.
+    Color,
+}
+
+/// A glyph drawn in the text band, `rows` of `stride` bytes, placed in the
+/// cell that `band` makes taller as its `fit` and its [`Kind`] say
+/// ([`vtium_font::spacing`]); the rows as they are with no band. `None`
+/// for rows that are not whole.
+fn spaced(rows: Vec<u8>, stride: usize, (band, fit, kind): (Band, Fit, Kind)) -> Option<Vec<u8>> {
+    if band.is_none() {
+        return Some(rows);
+    }
+    match (fit, kind) {
+        (Fit::Fill, Kind::Bitmap) => spacing::repeat_rows(&rows, stride, band),
+        (Fit::Fill, Kind::Outline) => spacing::scale_rows(&rows, stride, band),
+        _ => spacing::pad_rows(&rows, stride, band),
+    }
+}
+
+/// An ink box's rows placed as [`spaced`] places its glyph's; `None` where
+/// the box placed would pass a set's chunk, which the set's writer
+/// refuses, so the glyph is sent cut to its cells (ADR-1302 D6).
+fn spaced_ink(rows: Vec<u8>, stride: usize, how: (Band, Fit, Kind)) -> Option<Vec<u8>> {
+    spaced(rows, stride, how).filter(|r| r.len() <= SET_CHUNK_BYTES as usize)
+}
+
 impl Engine {
     /// Parses `frit` and reads each source it names, as this process's
     /// account; a source missing or unreadable is left out, and the frit
@@ -1101,9 +1189,29 @@ impl Engine {
             })
     }
 
-    /// Source `i`'s baseline in a cell `height` pixels high, found once
-    /// for the engine's life (ADR-1302 D3); `None` for a bitmap source or
-    /// one whose font cannot be read, which the rasteriser then refuses.
+    /// The size, in pixels to the em, source `i` draws at in a cell
+    /// `height` pixels high when it is an outline source after an outline
+    /// first source: the first source's size (ADR-1200 D17). The first
+    /// source is the frit's first regular one, the one whose metrics every
+    /// strike reports ([`Engine::metrics_at`]). `None` draws the source at
+    /// its own size, so its ascent and descent span the height, as the
+    /// first source itself and every source behind a bitmap first source
+    /// do.
+    fn size(&self, i: usize, height: u32) -> Option<f32> {
+        let first = self.sources.iter().position(|(s, _)| s.style == REGULAR)?;
+        if i == first {
+            return None;
+        }
+        let Some((_, Loaded::Outline { font, family, .. })) = self.sources.get(first) else {
+            return None;
+        };
+        crate::outline::size(font, family, height).ok()
+    }
+
+    /// Source `i`'s baseline in a cell `height` pixels high, at the size it
+    /// draws at ([`Engine::size`]), found once for the engine's life
+    /// (ADR-1302 D3); `None` for a bitmap source or one whose font cannot
+    /// be read, which the rasteriser then refuses.
     fn baseline(&self, i: usize, height: u32) -> Option<u32> {
         if let Some(&b) = self.baselines.borrow().get(&(i, height)) {
             return Some(b);
@@ -1111,7 +1219,8 @@ impl Engine {
         let Some((_, Loaded::Outline { font, family, .. })) = self.sources.get(i) else {
             return None;
         };
-        let b = crate::outline::baseline(font, family, height, self.hinting).ok()?;
+        let size = self.size(i, height);
+        let b = crate::outline::baseline(font, family, height, size, self.hinting).ok()?;
         self.baselines.borrow_mut().insert((i, height), b);
         Some(b)
     }
@@ -1201,7 +1310,7 @@ impl Engine {
     /// The regular glyphs at `cell` for `want`, sorted codepoints, as
     /// [`Engine::glyphs`] draws them.
     pub fn draw(&self, cell: Cell, want: &[u32]) -> Result<Option<Vec<u8>>, String> {
-        self.glyphs(cell, REGULAR, want, &[])
+        self.glyphs(cell, Band::NONE, REGULAR, want, &[])
     }
 
     /// The regular glyphs at `cell` for `clusters`, sorted, as
@@ -1211,41 +1320,78 @@ impl Engine {
         cell: Cell,
         clusters: &[Vec<u32>],
     ) -> Result<Option<Vec<u8>>, String> {
-        self.glyphs(cell, REGULAR, &[], clusters)
+        self.glyphs(cell, Band::NONE, REGULAR, &[], clusters)
     }
 
-    /// The glyphs of `style` at `cell` for `want`, sorted codepoints, and
+    /// The glyphs of `style` at `at`, a cell and the rows its line spacing
+    /// adds (a plain cell adds none), for `want`, sorted codepoints, and
     /// `clusters`, sorted, as [`Engine::glyphs`] draws them.
     pub fn draw_style(
         &self,
-        cell: Cell,
+        at: impl Into<SpacedCell>,
         style: Style,
         want: &[u32],
         clusters: &[Vec<u32>],
     ) -> Result<Option<Vec<u8>>, String> {
-        self.glyphs(cell, style, want, clusters)
+        let at = at.into();
+        self.glyphs(at.cell, at.band, style, want, clusters)
+    }
+
+    /// How the glyph that source `source` gives for `c` uses a row made
+    /// taller by line spacing (ADR-1302 D13): the `fit=` of the source's
+    /// set that holds `c`, else `c`'s default.
+    fn fit(source: &Source, c: u32) -> Fit {
+        source
+            .fit(c)
+            .unwrap_or_else(|| Fit::default_for(c, crate::shaping::mark_side(c).is_some()))
     }
 
     /// The glyphs of `style` at `cell` for `want`, sorted codepoints, and
     /// `clusters`, sorted, as a vitrified set of that one cell whose
-    /// strikes are of `style`; `None` when no source gives any. Each
+    /// strikes are of `style`; `None` when no source gives any. Where line
+    /// spacing adds `band` to the cell, each glyph is drawn in the cell's
+    /// text band and placed in the whole cell ([`spaced`]). Each
     /// [`Step`] of the style ([`steps`]) draws in turn what the steps
     /// before it left: each codepoint from the first source in the frit's
     /// order that the step's face is and that gives it, and each cluster
     /// from the first such outline source that covers its first scalar
     /// value other than U+200D and shapes it (ADR-1200 D21), with the
-    /// step's synthesis drawn over the glyph (ADR-1302 D4). A source that
+    /// step's synthesis drawn over the glyph (ADR-1302 D4). A codepoint or
+    /// cluster that asks for emoji presentation
+    /// ([`crate::shaping::asks_for_emoji`]) is first drawn, by the same
+    /// order, from the first source that gives it a color glyph, and only
+    /// when none does from the first that gives it any (ADR-1200 D21). A source that
     /// fails as it draws is left out, and the next one gives its glyphs.
     fn glyphs(
         &self,
         cell: Cell,
+        band: Band,
         style: Style,
         want: &[u32],
         clusters: &[Vec<u32>],
     ) -> Result<Option<Vec<u8>>, String> {
+        // the glyphs are drawn in the text band, and the strike's baseline
+        // and lines move down by the rows added above it
+        let whole = cell;
+        let cell = Cell {
+            width: whole.width,
+            height: whole
+                .height
+                .checked_sub(band.added())
+                .filter(|&h| h > 0)
+                .ok_or("line spacing that leaves the cell no text band")?,
+        };
         let (base, lines) = self.metrics_at(cell);
+        let (base, lines) = (
+            base.saturating_add(band.above),
+            Decorations {
+                underline: lines.underline.saturating_add(band.above),
+                strike: lines.strike.saturating_add(band.above),
+                ..lines
+            },
+        );
         let strike = |format| {
-            StrikeBuilder::new(format, cell, style)
+            StrikeBuilder::new(format, whole, style)
                 .baseline(base)
                 .decorations(lines)
                 .compress(false)
@@ -1265,23 +1411,33 @@ impl Engine {
                 .filter(move |(_, (source, _))| source.style == step.face)
                 .map(move |(i, source)| (i, source, step.synth))
         });
-        for (i, (source, loaded), synth) in order {
+        // what asks for emoji presentation goes first to the sources in
+        // order that give it a color glyph, then everything left to the
+        // sources in order (ADR-1200 D21)
+        let passes = [true, false]
+            .into_iter()
+            .flat_map(|color| order.clone().map(move |source| (color, source)));
+        for (color_only, (i, (source, loaded), synth)) in passes {
             if self.failed.borrow().contains_key(&i) {
                 continue;
             }
+            let asked = |k: &[u32]| !color_only || crate::shaping::asks_for_emoji(k);
             let left: Vec<u32> = want
                 .iter()
                 .copied()
-                .filter(|&c| !mapped.contains(&c) && source.covers(c))
+                .filter(|&c| !mapped.contains(&c) && source.covers(c) && asked(&[c]))
                 .collect();
             let lead = |k: &[u32]| k.iter().copied().find(|&c| c != ZWJ);
             let unshaped: Vec<&[u32]> = clusters
                 .iter()
                 .map(Vec::as_slice)
-                .filter(|k| !shaped.contains(k) && lead(k).is_some_and(|c| source.covers(c)))
+                .filter(|k| {
+                    !shaped.contains(k) && lead(k).is_some_and(|c| source.covers(c)) && asked(k)
+                })
                 .collect();
             match loaded {
-                Loaded::Bitmap(_) if left.is_empty() => {}
+                // a bitmap font has no color glyph
+                Loaded::Bitmap(_) if left.is_empty() || color_only => {}
                 Loaded::Bitmap(font) => {
                     let scale = (cell.width / font.cell.width.max(1))
                         .min(cell.height / font.cell.height.max(1));
@@ -1289,12 +1445,13 @@ impl Engine {
                         continue;
                     }
                     let baseline = bitmap_baseline(font);
-                    let mut placed: BTreeMap<u32, u32> = BTreeMap::new();
+                    let mut placed: BTreeMap<(u32, Fit), u32> = BTreeMap::new();
                     for c in left {
                         let (Some(&g), Some(ch)) = (font.map.get(&c), char::from_u32(c)) else {
                             continue;
                         };
-                        let index = match placed.get(&g) {
+                        let fit = Engine::fit(source, c);
+                        let index = match placed.get(&(g, fit)) {
                             Some(&i) => i,
                             None => {
                                 let Some((width, rows)) = font.glyphs.get(g as usize) else {
@@ -1303,11 +1460,19 @@ impl Engine {
                                 let (rows, ink) = place_styled(
                                     rows, *width, font.cell, cell, scale, synth, baseline,
                                 );
+                                let stride = (cell.width * width.cells()).div_ceil(8) as usize;
+                                let how = (band, fit, Kind::Bitmap);
+                                let Some(rows) = spaced(rows, stride, how) else {
+                                    continue;
+                                };
                                 let i = bits.glyph(*width, rows);
+                                let ink = ink.and_then(|(left, w, ink)| {
+                                    Some((left, w, spaced_ink(ink, w.div_ceil(8) as usize, how)?))
+                                });
                                 if let Some((left, w, ink)) = ink {
                                     bits.ink(i, left, w, ink);
                                 }
-                                placed.insert(g, i);
+                                placed.insert((g, fit), i);
                                 i
                             }
                         };
@@ -1334,8 +1499,21 @@ impl Engine {
                         cover: ranges(&cover),
                         clusters: unshaped.iter().map(|k| crate::shaping::ask(k)).collect(),
                         baselines: self.baseline(i, cell.height).into_iter().collect(),
+                        sizes: self
+                            .size(i, cell.height)
+                            .map(f32::to_bits)
+                            .into_iter()
+                            .collect(),
                         hinting: self.hinting,
                         synth,
+                        // a fallback source: any source but the first of its
+                        // style, the frit's own face for that style, draws
+                        // a glyph too big for its cells smaller (ADR-1200 D17)
+                        fit: self
+                            .sources
+                            .iter()
+                            .position(|(s, _)| s.style == source.style)
+                            != Some(i),
                     };
                     let outline = match rasterise(&request) {
                         Ok(outline) => outline,
@@ -1347,31 +1525,52 @@ impl Engine {
                     let Some(s) = outline.strikes.first() else {
                         continue;
                     };
-                    let mut placed: BTreeMap<u32, u32> = BTreeMap::new();
-                    let mut index = |g: u32, target: &mut StrikeBuilder, glyph: &Placed| {
-                        *placed.entry(g).or_insert_with(|| {
-                            let width = if glyph.wide {
-                                Width::Wide
-                            } else {
-                                Width::Narrow
-                            };
-                            let at = target.glyph(width, glyph.pixels.clone());
-                            if let Some(ink) = &glyph.ink {
-                                target.ink(at, ink.left, ink.width, ink.pixels.clone());
-                            }
-                            at
-                        })
-                    };
+                    let mut placed: BTreeMap<(u32, Fit), Option<u32>> = BTreeMap::new();
+                    let mut index =
+                        |(g, fit): (u32, Fit), target: &mut StrikeBuilder, glyph: &Placed| {
+                            *placed.entry((g, fit)).or_insert_with(|| {
+                                let width = if glyph.wide {
+                                    Width::Wide
+                                } else {
+                                    Width::Narrow
+                                };
+                                let (kind, bpp) = if glyph.color {
+                                    (Kind::Color, 4)
+                                } else {
+                                    (Kind::Outline, 1)
+                                };
+                                let how = (band, fit, kind);
+                                let stride = (cell.width * width.cells()) as usize * bpp;
+                                let pixels = spaced(glyph.pixels.clone(), stride, how)?;
+                                let at = target.glyph(width, pixels);
+                                let ink = glyph.ink.as_ref().and_then(|ink| {
+                                    Some((
+                                        ink.left,
+                                        ink.width,
+                                        spaced_ink(ink.pixels.clone(), ink.width as usize, how)?,
+                                    ))
+                                });
+                                if let Some((left, w, pixels)) = ink {
+                                    target.ink(at, left, w, pixels);
+                                }
+                                Some(at)
+                            })
+                        };
                     for &(c, g) in &s.map {
                         let (Some(glyph), Some(ch)) = (s.glyphs.get(g as usize), char::from_u32(c))
                         else {
                             continue;
                         };
-                        if mapped.contains(&c) || left.binary_search(&c).is_err() {
+                        if mapped.contains(&c)
+                            || left.binary_search(&c).is_err()
+                            || (color_only && !glyph.color)
+                        {
                             continue;
                         }
                         let target = if glyph.color { &mut rgba } else { &mut r8 };
-                        let at = index(g, target, glyph);
+                        let Some(at) = index((g, Engine::fit(source, c)), target, glyph) else {
+                            continue;
+                        };
                         target.map(ch, at);
                         mapped.insert(c);
                     }
@@ -1382,13 +1581,19 @@ impl Engine {
                         let Some(&asked) = unshaped.iter().find(|k| **k == key.as_slice()) else {
                             continue;
                         };
+                        if color_only && !glyph.color {
+                            continue;
+                        }
                         let chars: Option<Vec<char>> =
                             key.iter().map(|&c| char::from_u32(c)).collect();
                         let Some(chars) = chars else {
                             continue;
                         };
                         let target = if glyph.color { &mut rgba } else { &mut r8 };
-                        let at = index(*g, target, glyph);
+                        let fit = Engine::fit(source, lead(key).unwrap_or_default());
+                        let Some(at) = index((*g, fit), target, glyph) else {
+                            continue;
+                        };
                         target.cluster(&chars, at);
                         shaped.insert(asked);
                     }
@@ -1435,7 +1640,7 @@ impl Bits {
 /// failure; only a write that fails is the outer error.
 fn send_glyphs(
     engine: &Engine,
-    (cell, style): (Cell, Style),
+    (cell, band, style): (Cell, Band, Style),
     (want, clusters): (&[u32], &[Vec<u32>]),
     kind: u32,
     out: &mut dyn Write,
@@ -1458,7 +1663,7 @@ fn send_glyphs(
             continue;
         }
         let many = want.len().saturating_add(clusters.len()) > 1;
-        match engine.glyphs(cell, style, want, clusters) {
+        match engine.glyphs(cell, band, style, want, clusters) {
             Ok(None) => {}
             // the codepoints apart from the clusters, then each halved
             Ok(Some(set)) if set.len() > max && many => {
@@ -1477,7 +1682,7 @@ fn send_glyphs(
             }
             Ok(Some(set)) if set.len() > max => {}
             Ok(Some(set)) => {
-                write_frame(out, kind, &set)?;
+                write_frame(out, kind, &glyph_payload(band, &set))?;
                 any = true;
             }
             Err(why) => return Ok(Err(why)),
@@ -1491,6 +1696,7 @@ fn send_glyphs(
 struct Fill {
     frit: FritText,
     cell: Cell,
+    band: Band,
     order: Vec<u32>,
     next: usize,
     /// It began with glyphs held, or has sent some.
@@ -1523,6 +1729,7 @@ impl Fill {
         Fill {
             frit: request.frit.clone(),
             cell: request.cell,
+            band: request.band,
             order,
             next: 0,
             any: !request.held.is_empty(),
@@ -1535,6 +1742,27 @@ fn cell_payload(cell: Cell) -> Vec<u8> {
     let mut payload = Vec::with_capacity(8);
     put32(&mut payload, cell.width);
     put32(&mut payload, cell.height);
+    payload
+}
+
+/// A frame's payload of `cell` whose line spacing adds `band`: its width,
+/// its height, and the rows added above and below (ADR-1302 D13). Two
+/// heads can draw one cell size with different bands, so a fill's end and
+/// a stop name both.
+fn spaced_payload(cell: Cell, band: Band) -> Vec<u8> {
+    let mut payload = cell_payload(cell);
+    put32(&mut payload, band.above);
+    put32(&mut payload, band.below);
+    payload
+}
+
+/// A frame of glyphs: the rows line spacing adds to their cell, then
+/// `set`, so the console holds them by the cell and its band.
+fn glyph_payload(band: Band, set: &[u8]) -> Vec<u8> {
+    let mut payload = Vec::with_capacity(set.len().saturating_add(8));
+    put32(&mut payload, band.above);
+    put32(&mut payload, band.below);
+    payload.extend_from_slice(set);
     payload
 }
 
@@ -1672,7 +1900,8 @@ impl Work<'_> {
         if request.kind != STOP {
             self.load(&request.frit, out)?;
         }
-        let same = |f: &Fill| f.frit == request.frit && f.cell == request.cell;
+        let same =
+            |f: &Fill| f.frit == request.frit && f.cell == request.cell && f.band == request.band;
         match request.kind {
             ASK => self.asks.push_back(request),
             FILL => {
@@ -1710,7 +1939,11 @@ impl Work<'_> {
             }
             _ => {
                 self.fills.retain(|f| !same(f));
-                return write_frame(out, FRAME_STOPPED, &cell_payload(request.cell));
+                return write_frame(
+                    out,
+                    FRAME_STOPPED,
+                    &spaced_payload(request.cell, request.band),
+                );
             }
         }
         Ok(())
@@ -1736,11 +1969,11 @@ impl Work<'_> {
                 for (w, k) in batches {
                     if let Err(why) = send_glyphs(
                         engine,
-                        (cell, request.style),
+                        (cell, request.band, request.style),
                         (w, k),
                         FRAME_GLYPHS,
                         out,
-                        FRAME,
+                        FRAME_SET,
                     )? {
                         result = Err(why);
                         break;
@@ -1768,11 +2001,11 @@ impl Work<'_> {
         let drawn = match self.engine(&fill.frit) {
             Ok(engine) => send_glyphs(
                 engine,
-                (fill.cell, REGULAR),
+                (fill.cell, fill.band, REGULAR),
                 (&batch, &[]),
                 FRAME_FILL,
                 out,
-                FRAME,
+                FRAME_SET,
             )?,
             Err(why) => Err(why.clone()),
         };
@@ -1791,7 +2024,7 @@ impl Work<'_> {
             };
             return failed(out, &why);
         }
-        write_frame(out, FRAME_FILLED, &cell_payload(fill.cell))
+        write_frame(out, FRAME_FILLED, &spaced_payload(fill.cell, fill.band))
     }
 }
 
@@ -2084,8 +2317,20 @@ mod tests {
         }
     }
 
-    /// The frames in `bytes`, kind and payload.
-    fn frames(mut bytes: &[u8]) -> Vec<(u32, Vec<u8>)> {
+    /// Each frame in `bytes`, a glyph frame's payload without the band in
+    /// front of its set, which [`bands`] gives.
+    fn frames(bytes: &[u8]) -> Vec<(u32, Vec<u8>)> {
+        raw_frames(bytes)
+            .into_iter()
+            .map(|(kind, payload)| match kind {
+                FRAME_GLYPHS | FRAME_FILL => (kind, payload[8..].to_vec()),
+                _ => (kind, payload),
+            })
+            .collect()
+    }
+
+    /// Each frame in `bytes`, as the helper wrote it.
+    fn raw_frames(mut bytes: &[u8]) -> Vec<(u32, Vec<u8>)> {
         let mut out = Vec::new();
         while !bytes.is_empty() {
             let kind = u32::from_le_bytes(bytes[..4].try_into().unwrap());
@@ -2094,6 +2339,18 @@ mod tests {
             bytes = &bytes[8 + len..];
         }
         out
+    }
+
+    /// The band each glyph frame in `bytes` names, in order.
+    fn bands(bytes: &[u8]) -> Vec<Band> {
+        raw_frames(bytes)
+            .into_iter()
+            .filter(|f| matches!(f.0, FRAME_GLYPHS | FRAME_FILL))
+            .map(|(_, p)| Band {
+                above: u32::from_le_bytes(p[..4].try_into().unwrap()),
+                below: u32::from_le_bytes(p[4..8].try_into().unwrap()),
+            })
+            .collect()
     }
 
     /// The frit `t` of `text`, handed over with no file.
@@ -2114,6 +2371,7 @@ mod tests {
             kind,
             frit,
             cell: CELL,
+            band: Band::NONE,
             style: Style::default(),
             codepoints: codepoints.iter().map(|&c| u32::from(c)).collect(),
             clusters: Vec::new(),
@@ -2123,6 +2381,11 @@ mod tests {
     }
 
     fn run(input: &[ServeRequest]) -> Vec<(u32, Vec<u8>)> {
+        frames(&run_bytes(input))
+    }
+
+    /// What the helper writes for `input`, as it writes it.
+    fn run_bytes(input: &[ServeRequest]) -> Vec<u8> {
         let bytes: Vec<u8> = input.iter().flat_map(ServeRequest::encode).collect();
         let mut out = Vec::new();
         assert_eq!(
@@ -2134,7 +2397,7 @@ mod tests {
             ),
             0
         );
-        frames(&out)
+        out
     }
 
     /// Each glyph frame's set as a face at the 8x16 cell, with its kind.
@@ -2180,9 +2443,11 @@ mod tests {
         italic: true,
     };
 
-    // the style changed the request's layout, so its magic moved from
-    // VTVSREQ3 to VTVSREQ4 and a request of the old layout is refused
-    // whole; an ask alone names a style (ADR-1200 D21)
+    // ADR-1302 D13's band moved the magic from VTVSREQ4 to VTVSREQ5, as the
+    // style moved it from VTVSREQ3 to VTVSREQ4: a request of an older layout
+    // is refused whole, with the reason a person can act on, and one of no
+    // layout of this format as not a request; an ask alone names a style
+    // (ADR-1200 D21)
     #[test]
     fn the_old_magic_and_a_style_off_an_ask_are_refused() {
         let ask = ServeRequest {
@@ -2191,10 +2456,18 @@ mod tests {
         };
         let bytes = ask.encode();
         assert_eq!(ServeRequest::read(&mut &bytes[..]), Ok(Some(ask)));
-        let mut old = bytes.clone();
-        old[..8].copy_from_slice(b"VTVSREQ3");
+        for magic in [b"VTVSREQ3", b"VTVSREQ4"] {
+            let mut old = bytes.clone();
+            old[..8].copy_from_slice(magic);
+            assert_eq!(
+                ServeRequest::read(&mut &old[..]),
+                Err(OTHER_BUILD.to_owned())
+            );
+        }
+        let mut other = bytes.clone();
+        other[..8].copy_from_slice(b"GARBAGE!");
         assert_eq!(
-            ServeRequest::read(&mut &old[..]),
+            ServeRequest::read(&mut &other[..]),
             Err("not a serve request".to_owned())
         );
         for kind in [FILL, STOP, OWN_CELL, SOURCES] {
@@ -2209,6 +2482,7 @@ mod tests {
                 } else {
                     CELL
                 },
+                band: Band::NONE,
                 ..request(kind, frit("source=builtin:unifont\n"), &[])
             };
             let e = ServeRequest::read(&mut &r.encode()[..]).unwrap_err();
@@ -2256,21 +2530,24 @@ mod tests {
         }
         let mut many = head(&[1]);
         many.push(b'a');
-        for v in [0u32, 8, 16, 0, 0, u32::MAX] {
+        for v in [0u32, 8, 16, 0, 0, 0, 0, u32::MAX] {
             many.extend_from_slice(&v.to_le_bytes());
         }
         let e = ServeRequest::read(&mut &many[..]).unwrap_err();
         assert!(e.contains("past its bound"), "{e}");
-        // the kind, the cell's width and height, a style past bold
-        // italic, capabilities not yet read, the codepoint, the held count
+        // the kind, the cell's width and height, line spacing above and
+        // below that leaves no text band, a style past bold italic,
+        // capabilities not yet read, the codepoint, the held count
         for (at, value) in [
             (8, 9u32),
             (21, 0),
             (25, CELL_SIDE_MAX + 1),
-            (29, 4),
-            (33, 1),
-            (41, 0xd800),
-            (45, u32::MAX),
+            (29, 16),
+            (33, 16),
+            (37, 4),
+            (41, 1),
+            (49, 0xd800),
+            (53, u32::MAX),
         ] {
             let mut bad = good.clone();
             bad[at..at + 4].copy_from_slice(&value.to_le_bytes());
@@ -2312,6 +2589,7 @@ mod tests {
                 width: 0,
                 height: 0,
             },
+            band: Band::NONE,
             ..request(SOURCES, frit(text), &[])
         };
         let kinds: Vec<u32> = run(&[
@@ -2340,6 +2618,7 @@ mod tests {
         };
         let query = ServeRequest {
             cell: empty,
+            band: Band::NONE,
             ..request(SOURCES, frit("source=builtin:unifont\n"), &[])
         };
         assert_eq!(
@@ -2354,6 +2633,7 @@ mod tests {
                         width: 1,
                         height: 0,
                     },
+                    band: Band::NONE,
                     ..query.clone()
                 },
             ),
@@ -2364,6 +2644,7 @@ mod tests {
                         width: 0,
                         height: 16,
                     },
+                    band: Band::NONE,
                     ..query.clone()
                 },
             ),
@@ -2559,13 +2840,13 @@ mod tests {
         };
         let (want, clusters) = (vec![0xe9], vec![vec![0x65, 0x301]]);
         let whole = engine
-            .glyphs(cell, REGULAR, &want, &clusters)
+            .glyphs(cell, Band::NONE, REGULAR, &want, &clusters)
             .unwrap()
             .unwrap();
         let mut out = Vec::new();
         let sent = send_glyphs(
             &engine,
-            (cell, REGULAR),
+            (cell, Band::NONE, REGULAR),
             (&want, &clusters),
             FRAME_GLYPHS,
             &mut out,
@@ -2605,6 +2886,7 @@ mod tests {
         };
         let asked = run(&[ServeRequest {
             cell: huge,
+            band: Band::NONE,
             ..request(ASK, frit.clone(), &['A', 'B'])
         }]);
         let kinds: Vec<u32> = asked.iter().map(|f| f.0).collect();
@@ -2627,6 +2909,7 @@ mod tests {
         // a fill at that cell is answered too
         let filled = run(&[ServeRequest {
             cell: huge,
+            band: Band::NONE,
             ..request(FILL, frit, &[])
         }]);
         assert!(
@@ -2660,7 +2943,7 @@ mod tests {
         let mut out = Vec::new();
         let sent = send_glyphs(
             &engine,
-            (huge, REGULAR),
+            (huge, Band::NONE, REGULAR),
             (&[u32::from('A'), u32::from('B')], &[]),
             FRAME_GLYPHS,
             &mut out,
@@ -2682,6 +2965,7 @@ mod tests {
                 width: 0,
                 height: 0,
             },
+            band: Band::NONE,
             ..request(OWN_CELL, frit, &[])
         }
     }
@@ -2755,6 +3039,7 @@ mod tests {
     fn query_at(frit: FritText, height: u32) -> ServeRequest {
         ServeRequest {
             cell: Cell { width: 0, height },
+            band: Band::NONE,
             ..query(frit)
         }
     }
@@ -2919,6 +3204,7 @@ mod tests {
         };
         let frames = run(&[ServeRequest {
             cell,
+            band: Band::NONE,
             ..request(ASK, frit, &['L', 'A'])
         }]);
         assert_eq!(frames[0].0, FRAME_GLYPHS);
@@ -2952,6 +3238,7 @@ mod tests {
         };
         let ask = |c: char| ServeRequest {
             cell,
+            band: Band::NONE,
             ..request(ASK, frit.clone(), &[c])
         };
         // each in a helper of its own, so no earlier request found it
@@ -2998,6 +3285,7 @@ mod tests {
             let text = format!("{key}source=outline:{font}\n");
             let frames = run(&[ServeRequest {
                 cell,
+                band: Band::NONE,
                 ..request(ASK, frit(&text), &['H'])
             }]);
             assert_eq!(frames[0].0, FRAME_GLYPHS, "{key:?}");
@@ -3035,6 +3323,7 @@ mod tests {
                 width: 7,
                 height: h,
             },
+            band: Band::NONE,
             ..request(ASK, frit.clone(), &['A'])
         };
         let frames = run(&[at(10), at(12), at(10)]);
@@ -3079,6 +3368,251 @@ mod tests {
     }
 
     // ADR-1200 D17: a frit that states its cell is drawn at it, the W
+    /// The glyphs an ask for `chars` draws from `frit` at `cell`, whose
+    /// line spacing adds `band`, as rows, each glyph's in order, with the
+    /// first strike's lines and baseline.
+    fn spaced_rows(
+        frit: &FritText,
+        cell: Cell,
+        band: Band,
+        chars: &[char],
+    ) -> (Vec<Vec<Vec<u8>>>, (Decorations, u32)) {
+        let bytes = run_bytes(&[ServeRequest {
+            cell,
+            band,
+            ..request(ASK, frit.clone(), chars)
+        }]);
+        // every glyph frame names the band its request named
+        assert!(
+            bands(&bytes).iter().all(|&b| b == band),
+            "{:?}",
+            bands(&bytes)
+        );
+        let frames = frames(&bytes);
+        let faces: Vec<SetFace> = frames
+            .iter()
+            .filter(|f| f.0 == FRAME_GLYPHS)
+            .map(|f| {
+                SetFace::new(Arc::new(Set::from_bytes(f.1.clone()).unwrap()), cell.height).unwrap()
+            })
+            .collect();
+        let glyph = |c: char| {
+            faces
+                .iter()
+                .find_map(|face| face.draw(&[c], Style::default()))
+                .unwrap()
+        };
+        let rows = chars
+            .iter()
+            .map(|&c| {
+                let g = glyph(c);
+                assert_eq!(g.height(), cell.height, "{c:?}");
+                g.rows().map(<[u8]>::to_vec).collect()
+            })
+            .collect();
+        let baseline = faces[0].set().strikes().next().unwrap().baseline;
+        (rows, (faces[0].decorations(), baseline))
+    }
+
+    /// `rows` with `above` blank rows over them and `below` under them.
+    fn padded(rows: &[Vec<u8>], above: usize, below: usize) -> Vec<Vec<u8>> {
+        let blank = vec![0u8; rows[0].len()];
+        let mut out = vec![blank.clone(); above];
+        out.extend(rows.iter().cloned());
+        out.extend(vec![blank; below]);
+        out
+    }
+
+    // ADR-1302 D13: where line spacing adds rows to the cell, the helper
+    // draws each glyph in the text band and places it in the whole cell.
+    // A bitmap letter keeps its rows with blank rows above and below, a
+    // box-drawing line stretches by repeating its top and bottom rows, and
+    // the strike's lines move down by the rows added above. A frit's
+    // `fit=natural` keeps the line at its size too.
+    #[test]
+    fn a_spaced_bitmap_glyph_is_padded_or_stretched_by_its_fit() {
+        let unscii = frit("source=builtin:unscii-8\n");
+        let text = Cell {
+            width: 8,
+            height: 8,
+        };
+        let cell = Cell {
+            width: 8,
+            height: 11,
+        };
+        let band = Band { above: 2, below: 1 };
+        let chars = ['A', '\u{2502}', '\u{2588}'];
+        let (plain, (plain_lines, plain_base)) = spaced_rows(&unscii, text, Band::NONE, &chars);
+        let (rows, (lines, base)) = spaced_rows(&unscii, cell, band, &chars);
+        assert_eq!(rows[0], padded(&plain[0], 2, 1), "A keeps its size");
+        for (i, c) in [(1, "a box line"), (2, "a full block")] {
+            let p = &plain[i];
+            let mut want = vec![p[0].clone(), p[0].clone()];
+            want.extend(p.iter().cloned());
+            want.push(p[7].clone());
+            assert_eq!(rows[i], want, "{c} fills the cell");
+        }
+        assert_eq!(lines.underline, plain_lines.underline + 2);
+        assert_eq!(lines.strike, plain_lines.strike + 2);
+        // the baseline moves down with the text band, so a bitmap glyph
+        // sheared for italic about it leans as it does with no spacing
+        assert_eq!(base, plain_base + 2);
+        let lean = |cell: Cell, band: Band| -> Vec<Vec<u8>> {
+            let frames = run(&[ServeRequest {
+                cell,
+                band,
+                ..request(ASK, unscii.clone(), &['A'])
+            }]);
+            let set = Arc::new(Set::from_bytes(frames[0].1.clone()).unwrap());
+            let face = SetFace::new(set, cell.height).unwrap();
+            let italic = Style {
+                bold: false,
+                italic: true,
+            };
+            let g = face.draw(&['A'], italic).unwrap();
+            g.rows().map(<[u8]>::to_vec).collect()
+        };
+        let (plain_italic, spaced_italic) = (lean(text, Band::NONE), lean(cell, band));
+        assert_eq!(
+            spaced_italic,
+            padded(&plain_italic, 2, 1),
+            "the italic A leans alike"
+        );
+        let natural = frit("source=builtin:unscii-8\nfit=natural\n");
+        let (rows, _) = spaced_rows(&natural, cell, band, &chars);
+        assert_eq!(
+            rows[1],
+            padded(&plain[1], 2, 1),
+            "fit=natural keeps the line's size"
+        );
+    }
+
+    // ADR-1302 D13: an outline letter keeps its size in the text band; the
+    // same glyph mapped from a Powerline codepoint, which is `fill`, scales
+    // vertically to the whole cell; a color glyph keeps its size whatever
+    // `fit=` says
+    #[test]
+    fn a_spaced_outline_glyph_is_padded_scaled_or_kept_by_its_fit() {
+        let (mono, _dir) = outline_frit("spaced", "", &[Ok(super::ttf::test_mono())]);
+        let text = Cell {
+            width: 12,
+            height: 20,
+        };
+        let cell = Cell {
+            width: 12,
+            height: 26,
+        };
+        let band = Band { above: 3, below: 3 };
+        let chars = ['A', '\u{e0a0}', '\u{1f600}'];
+        let (plain, (_, plain_base)) = spaced_rows(&mono, text, Band::NONE, &chars);
+        let (rows, (_, base)) = spaced_rows(&mono, cell, band, &chars);
+        assert_eq!(
+            base,
+            plain_base + 3,
+            "the baseline moves down with the text band"
+        );
+        assert_eq!(rows[0], padded(&plain[0], 3, 3), "A keeps its size");
+        assert_ne!(
+            rows[1],
+            padded(&plain[1], 3, 3),
+            "the Powerline glyph is stretched"
+        );
+        assert_eq!(
+            spacing::scale_rows(&plain[1].concat(), 12, band).unwrap(),
+            rows[1].concat(),
+            "the Powerline glyph is scaled vertically"
+        );
+        assert_eq!(rows[2], padded(&plain[2], 3, 3), "the emoji keeps its size");
+        let (fill, _dir) = outline_frit("spaced-fill", "", &[Ok(super::ttf::test_mono())]);
+        let fill = frit(&format!("{}fit=fill\n", fill.text));
+        let (rows, _) = spaced_rows(&fill, cell, band, &chars);
+        assert_eq!(
+            rows[2],
+            padded(&plain[2], 3, 3),
+            "fit=fill does not stretch a color glyph"
+        );
+        assert_eq!(rows[0], rows[1], "fit=fill stretches the letter");
+    }
+
+    // ADR-1302 D13: two fills at one cell size with two bands are two
+    // fills, each drawn at its band, each ending with a frame that names
+    // its band; neither replaces the other
+    #[test]
+    fn one_cell_size_with_two_bands_fills_twice() {
+        let unscii = frit("source=builtin:unscii-8\n");
+        let band = Band { above: 2, below: 2 };
+        let fill = |band| ServeRequest {
+            band,
+            ..request(FILL, unscii.clone(), &['A'])
+        };
+        let bytes = run_bytes(&[fill(Band::NONE), fill(band)]);
+        let ends: Vec<Vec<u8>> = raw_frames(&bytes)
+            .into_iter()
+            .filter(|f| f.0 == FRAME_FILLED)
+            .map(|f| f.1)
+            .collect();
+        assert_eq!(
+            ends,
+            [spaced_payload(CELL, Band::NONE), spaced_payload(CELL, band)]
+        );
+        let bands = bands(&bytes);
+        assert!(
+            bands.contains(&Band::NONE) && bands.contains(&band),
+            "{bands:?}"
+        );
+    }
+
+    // ADR-1302 D13: a stop at a cell with a band ends that band's fill
+    // alone, and the helper's word that it took it names the band
+    #[test]
+    fn a_stop_at_a_band_is_taken_naming_the_band() {
+        let unscii = frit("source=builtin:unscii-8\n");
+        let band = Band { above: 2, below: 1 };
+        let at = |kind| ServeRequest {
+            band,
+            ..request(kind, unscii.clone(), &['A'])
+        };
+        let frames = run(&[at(FILL), at(STOP)]);
+        let stops: Vec<&Vec<u8>> = frames
+            .iter()
+            .filter(|f| f.0 == FRAME_STOPPED)
+            .map(|f| &f.1)
+            .collect();
+        assert_eq!(stops, [&spaced_payload(CELL, band)]);
+    }
+
+    // ADR-1302 D13: a request whose line spacing leaves its cell no text
+    // band, or a query that names any, is refused
+    #[test]
+    fn line_spacing_that_leaves_no_text_band_is_refused() {
+        let (unscii, base) = (
+            frit("source=builtin:unscii-8\n"),
+            request(ASK, frit("source=builtin:unscii-8\n"), &['A']),
+        );
+        for (cell_h, above, below, ok) in [
+            (11, 2, 1, true),
+            (11, 6, 5, false),
+            (11, 11, 0, false),
+            (11, 0, 11, false),
+        ] {
+            let r = ServeRequest {
+                cell: Cell {
+                    width: 8,
+                    height: cell_h,
+                },
+                band: Band { above, below },
+                ..base.clone()
+            };
+            let read = ServeRequest::read(&mut std::io::Cursor::new(r.encode()));
+            assert_eq!(read.is_ok(), ok, "{above}+{below} of {cell_h}");
+        }
+        let query = ServeRequest {
+            band: Band { above: 1, below: 0 },
+            ..super::tests::query(unscii)
+        };
+        assert!(ServeRequest::read(&mut std::io::Cursor::new(query.encode())).is_err());
+    }
+
     // rule never widening it; the console reads cell= itself and asks the
     // helper only where D17 has it ask, so a cell query answers the fonts'
     // own cell whatever cell= says
@@ -3092,6 +3626,7 @@ mod tests {
         };
         let asked = run(&[ServeRequest {
             cell: stated,
+            band: Band::NONE,
             ..request(ASK, frit.clone(), &['W'])
         }]);
         let queried = run(&[query_at(frit, 20)]);
@@ -3115,6 +3650,7 @@ mod tests {
         for bad in [
             ServeRequest {
                 cell: CELL,
+                band: Band::NONE,
                 ..query(frit(""))
             },
             ServeRequest {
@@ -3122,6 +3658,7 @@ mod tests {
                     width: 8,
                     height: 0,
                 },
+                band: Band::NONE,
                 ..query(frit(""))
             },
             query_at(frit(""), CELL_SIDE_MAX + 1),
@@ -3191,7 +3728,10 @@ mod tests {
         };
         let frames = run(&[fill]);
         assert_eq!(frames.last().map(|f| f.0), Some(FRAME_FILLED));
-        assert_eq!(frames.last().unwrap().1, [8, 0, 0, 0, 16, 0, 0, 0]);
+        assert_eq!(
+            frames.last().unwrap().1,
+            [8, 0, 0, 0, 16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+        );
         let faces = faces(&frames);
         assert!(faces.len() > 1, "{}", faces.len());
         assert!(faces.iter().all(|f| f.0 == FRAME_FILL));
@@ -3257,7 +3797,10 @@ mod tests {
         assert!(out.is_empty());
         work.take(request(STOP, frit, &[]), &mut out).unwrap();
         assert!(work.fills.is_empty());
-        assert_eq!(frames(&out), [(FRAME_STOPPED, cell_payload(CELL))]);
+        assert_eq!(
+            frames(&out),
+            [(FRAME_STOPPED, spaced_payload(CELL, Band::NONE))]
+        );
     }
 
     // a stop is answered as it is taken, between the stopped fill's last
@@ -3276,7 +3819,11 @@ mod tests {
             .filter(|&i| kinds[i] == FRAME_STOPPED)
             .collect();
         assert_eq!(stops.len(), 2, "{kinds:?}");
-        assert!(stops.iter().all(|&i| frames[i].1 == cell_payload(CELL)));
+        assert!(
+            stops
+                .iter()
+                .all(|&i| frames[i].1 == spaced_payload(CELL, Band::NONE))
+        );
         // the first stop, with no fill, comes first; the first fill's
         // frames, and its end if it reached it, come before the second,
         // and the second fill runs whole after it
@@ -3331,10 +3878,12 @@ mod tests {
         let frames = run(&[
             ServeRequest {
                 cell: small,
+                band: Band::NONE,
                 ..request(ASK, frit.clone(), &['A'])
             },
             ServeRequest {
                 cell: small,
+                band: Band::NONE,
                 ..request(FILL, frit, &['A'])
             },
         ]);

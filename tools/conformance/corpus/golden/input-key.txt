@@ -23,7 +23,7 @@ checkpoint 624
 size 20x2
 cursor 0,0
 flags AUTO_WRAP
-reply 0d08091b5b5a1b1b5b337e1b4f501b5b31357e1b5b32387e
+reply 0d08091b5b5a1b1b5b337e1b4f501b5b31357e1b5b31353b327e
 row 0 ||
 row 1 ||
 checkpoint 805

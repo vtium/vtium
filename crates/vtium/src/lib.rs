@@ -52,6 +52,7 @@ pub mod pointer;
 pub mod power;
 pub mod respawn;
 pub mod start;
+pub mod survive;
 pub mod sync;
 pub mod term;
 pub mod termcap;

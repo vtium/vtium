@@ -43,6 +43,9 @@ pub enum Next {
 pub struct Respawn {
     started: Duration,
     quick: u32,
+    /// The program was started by an earlier vtium (ADR-1401 D13), so its
+    /// start is not known and its first exit is never quick.
+    recovered: bool,
 }
 
 impl Respawn {
@@ -51,6 +54,17 @@ impl Respawn {
         Respawn {
             started: now,
             quick: 0,
+            recovered: false,
+        }
+    }
+
+    /// A program an earlier vtium started, whose session this vtium took
+    /// back at `now` (ADR-1401 D13). Its first exit counts as no quick
+    /// exit, however soon it comes, since the program started before.
+    pub fn recovered(now: Duration) -> Respawn {
+        Respawn {
+            recovered: true,
+            ..Respawn::new(now)
         }
     }
 
@@ -61,7 +75,7 @@ impl Respawn {
             return Next::Oneshot;
         }
         // A clock that reads earlier than the start gives zero: quick.
-        if now.saturating_sub(self.started) < QUICK {
+        if !std::mem::take(&mut self.recovered) && now.saturating_sub(self.started) < QUICK {
             self.quick = self.quick.saturating_add(1);
         } else {
             self.quick = 0;
@@ -79,6 +93,7 @@ impl Respawn {
         if oneshot {
             return Next::Oneshot;
         }
+        self.recovered = false;
         self.started = now;
         Next::Restart
     }
@@ -108,6 +123,17 @@ mod tests {
                 "shown {shown}, display {display}"
             );
         }
+    }
+
+    // ADR-1401 D13: a recovered program's first exit is no quick exit, and
+    // its next start is timed as any other.
+    #[test]
+    fn a_recovered_programs_first_exit_is_not_quick() {
+        let mut r = Respawn::recovered(ms(0));
+        assert_eq!(r.exited(ms(10), false), Next::Restart);
+        assert_eq!(r.quick, 0, "the recovered program's exit");
+        assert_eq!(r.exited(ms(20), false), Next::Restart);
+        assert_eq!(r.quick, 1, "the restarted program's quick exit");
     }
 
     #[test]
@@ -195,7 +221,8 @@ mod tests {
             r,
             Respawn {
                 started: ms(4_000),
-                quick: 1
+                quick: 1,
+                recovered: false,
             }
         );
     }

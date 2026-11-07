@@ -6,8 +6,9 @@
 //! over `vtium-term`: a byte stream and the test commands
 //! in it go in, and the screen or frame view comes out as text.
 //! `conformance` replays every case of the corpus and judges each against
-//! its golden, and judges the capability probes against
-//! `capabilities.list`. The crate's README describes both.
+//! its golden, plays every behaviour scenario and judges each against its
+//! transcript, and judges the capability probes against
+//! `capabilities.list`. The crate's README describes each.
 
 pub mod command;
 pub mod coverage;
@@ -20,6 +21,7 @@ pub mod probes;
 pub mod record;
 pub mod replay;
 pub mod runner;
+pub mod scenario;
 pub mod spec;
 pub mod view;
 

@@ -37,8 +37,24 @@ from t3_qemu import Qemu, char_qcodes, make_iso, not_blank, wait_stable
 # last, as vt-restore compares with it.
 FRIT_SCREENS = ["small-console", "cjk"]
 
+# tier 3's text font set (ADR-1503 D9), the frit tier3-text
+# (guest/frits/tier3-text.vtfrit): DejaVu Sans Mono with its bold and oblique
+# faces, Noto Sans CJK SC, then Noto Color Emoji. The default 2D variants and
+# the GPU variants draw from it (TEXT_SET). guest/setup installs the frit
+# with no set built ("deferred_frits"), so the helper generates its glyphs at
+# run time. The guest image holds DejaVu Sans Mono and Noto Color Emoji; the
+# run's disc carries the set's other font, Noto Sans CJK SC, pinned by
+# t3_showcase (TEXT_FONTS, "text_fonts"), which t3.py fetches into the
+# showcase's cache and guest/setup installs into TEXT_FONTS_DIR, where the
+# frit names it.
+TEXT_FRIT = "tier3-text.vtfrit"
+TEXT_FONTS = [t3_showcase.pinned("NotoSansCJKsc-Regular.otf")]
+TEXT_FONTS_DIR = "/usr/local/share/fonts/vtium-tier3"
+TEXT_SET = {"deferred_frits": [TEXT_FRIT], "text_fonts": True}
+
 VARIANTS = {
     "2d-1280x800": {
+        **TEXT_SET,
         "device": "virtio-vga,xres=1280,yres=800,edid=on",
         "display": "none",
         "conf": "vtium.conf",
@@ -51,6 +67,7 @@ VARIANTS = {
     # The vCPU is a core of the host, so it bounds parallelism and memory
     # rather than reproducing slow hardware.
     "2d-1366x768-potato": {
+        **TEXT_SET,
         "device": "virtio-vga,xres=1366,yres=768,edid=on",
         "display": "none",
         "conf": "vtium.conf",
@@ -150,6 +167,7 @@ VARIANTS = {
         "screens": FRIT_SCREENS,
     },
     "2d-7680x2160": {
+        **TEXT_SET,
         # Each 7680x2160 XRGB buffer is 63 MiB; the console, two terminal
         # instances and their double buffers exceed the 256 MiB default.
         "device": "virtio-vga,xres=7680,yres=2160,edid=on,max_hostmem=1G",
@@ -165,6 +183,7 @@ VARIANTS = {
     # operator runs: pictures sized from the cell (sixel) are checked at a
     # cell other than the 10x19 of the rest.
     "2d-7680x2160-font32": {
+        **TEXT_SET,
         "device": "virtio-vga,xres=7680,yres=2160,edid=on,max_hostmem=1G",
         "display": "none",
         "conf": "vtium-font32.conf",
@@ -181,6 +200,7 @@ VARIANTS = {
     # bytes (ADR-1303 D1, D11). The first GL goldens stay in
     # goldens/gl-1280x800/ as a record (t3_evaluate.RECORDS).
     "gl-1280x800": {
+        **TEXT_SET,
         "device": "virtio-vga-gl,xres=1280,yres=800,edid=on",
         "display": "egl-headless,rendernode=%s"
                    % os.environ.get("T3_RENDERNODE", "/dev/dri/renderD128"),
@@ -199,6 +219,7 @@ VARIANTS = {
     # byte (SAME_AS_CAPTURE), since the GPU path draws the CPU path's bytes
     # (ADR-1303 D1), as tier 2 judges it; no golden judges it.
     "gpu-1280x800": {
+        **TEXT_SET,
         "device": "virtio-vga-gl,xres=1280,yres=800,edid=on",
         "display": "egl-headless,rendernode=%s"
                    % os.environ.get("T3_RENDERNODE", "/dev/dri/renderD128"),
@@ -398,7 +419,8 @@ VARIANTS["showcase-1920x1080"] = {
 # its session, and the kiosk check presses them itself. heads-policy-typo's
 # file holds a policy line vtium cannot read ("policy_line"), which makes
 # it closed and broken (ADR-1401 D7), so its checks expect the closed
-# policy.
+# policy. heads-survive logs in and draws no screen, then restarts vtium and
+# kills it, and its shell must answer after each (ADR-1401 D13).
 HEAD_VARIANT = dict(DEVICES, agent=True, screens=[])
 NO_DISPLAY = dict({k: v for k, v in HEAD_VARIANT.items() if k not in ("fonts", "frits")},
                   device=None, conf="vtium-nodisplay.conf", renderer=None, login=False)
@@ -439,10 +461,12 @@ VARIANTS.update({
                                    failures=["kill"]),
     "heads-open-nodisplay": dict(NO_DISPLAY, heads="docs/heads/default.conf", policy="open",
                                  checks=["display-exit"]),
+    "heads-survive": dict(HEAD_VARIANT, heads="tools/tier3/guest/heads/survive.conf",
+                          policy="closed", vt_switch=False, checks=["session-survives"]),
 })
 HEAD_VARIANTS = ["heads-two-heads", "heads-partly-open", "heads-closed-broken",
                  "heads-policy-typo", "heads-closed-unmatched", "heads-off", "heads-kiosk",
-                 "heads-closed-nodisplay", "heads-open-nodisplay"]
+                 "heads-closed-nodisplay", "heads-open-nodisplay", "heads-survive"]
 
 # Each guest's base image, the make target that provisions it, the console
 # lines its boot ends with before the driver presses Ctrl+Alt+F2, and the
@@ -681,7 +705,9 @@ def build_disc(variant, work, impl):
     the screens, its guest's setup, and t3-console on the guest without
     systemd, the variant's sysctl settings if it has any, vtium built with
     its features if it names any, the test fonts if it draws with them, the
-    frits it builds, the frits it installs to be generated at run time, a
+    frits it builds, the frits it installs to be generated at run time, the
+    fonts of tier 3's text font set that the guest image lacks in text-fonts
+    if it draws from that set (TEXT_FONTS), a
     `helper-held` file if its helper never answers, a `pointer` file if it
     reads the cursor plane, the showcase's fonts in showcase-fonts and its
     pictures and palettes in screens/showcase (t3_showcase) if it draws the
@@ -727,6 +753,11 @@ def build_disc(variant, work, impl):
         os.makedirs(os.path.join(disc, "frits"))
         for frit in VARIANTS[variant]["frits"]:
             shutil.copy(os.path.join(GUEST, "frits", frit), os.path.join(disc, "frits"))
+    if VARIANTS[variant].get("text_fonts"):
+        os.makedirs(os.path.join(disc, "text-fonts"))
+        for font in TEXT_FONTS:
+            shutil.copy(os.path.join(impl["text_fonts"], font.file),
+                        os.path.join(disc, "text-fonts"))
     if VARIANTS[variant].get("deferred_frits"):
         os.makedirs(os.path.join(disc, "deferred-frits"))
         for frit in VARIANTS[variant]["deferred_frits"]:

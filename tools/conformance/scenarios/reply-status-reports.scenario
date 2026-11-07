@@ -1,0 +1,16 @@
+# DSR 5 reports the terminal's status, and DSR 6 and DECXCPR
+# (CSI ? 6 n) the cursor's position: counted from 1, relative to the
+# scrolling region's top in origin mode, and at the last column while a
+# wrap is pending.
+# spec: ctlseqs, Device Status Report; DEC STD 070, DSR, DECXCPR
+# covers: query.dsr
+size 10 6
+send "\e[5n"
+send "\e[6n"
+send "\e[3;4H\e[6n"
+send "\e[?6n"
+send "\e[2;5r\e[?6h\e[6n"
+send "\e[2;3H\e[6n\e[?6n"
+send "\e[?6l\e[r\e[1;1H0123456789"
+send "\e[6n\e[?6n"
+dump

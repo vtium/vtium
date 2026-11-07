@@ -332,6 +332,24 @@ install-terminfo: ## Stage vtium's terminfo entry, compiled as xterm-vtium and i
 	@[ -f '$(DESTDIR)$(PREFIX)/share/terminfo/x/xterm-vtium' ] && [ -f '$(DESTDIR)$(PREFIX)/share/terminfo/v/vtium' ] && [ -z "$$(find '$(DESTDIR)$(PREFIX)/share/terminfo' -type f ! -path '*/x/xterm-vtium' ! -path '*/v/vtium')" ] || { echo "install-terminfo: tic did not compile xterm-vtium and its alias vtium alone" >&2; exit 1; }
 	install -Dm644 -t $(DESTDIR)$(PREFIX)/share/licenses/$(if $(filter command line,$(origin PKGNAME)),$(PKGNAME),vtium-terminfo) LICENSE COPYING
 
+# The vendor archive each GitHub release carries: the source of the outside
+# crates Cargo.lock names, for a package manager that builds with no network
+# (ADR-1500 D9). tools/vendor/archive's header describes the archive, how it
+# stays byte-identical for a commit and how the check builds offline.
+# VENDOR_VERSION names the version in the file name; without it the script
+# takes HEAD's tag, or git describe.
+VENDOR_DIR = $(or $(CARGO_TARGET_DIR),target)/vendor-archive
+
+.PHONY: vendor-archive
+vendor-archive: export VTIUM_VENDOR_VERSION = $(value VENDOR_VERSION)
+vendor-archive: ## Pack the source of every crate Cargo.lock names, for the commit HEAD names, as VENDOR_DIR/vtium-VERSION-vendor.tar.zst and its .sha256 (VENDOR_DIR=DIR, VENDOR_VERSION=VERSION)
+	tools/vendor/archive pack '$(VENDOR_DIR)'
+
+.PHONY: vendor-archive-check
+vendor-archive-check: export VTIUM_VENDOR_VERSION = $(value VENDOR_VERSION)
+vendor-archive-check: vendor-archive ## Pack the vendor archive, then build the workspace from a clean copy of HEAD with the archive unpacked over it, offline and --locked, and fail if it does not build
+	tools/vendor/archive check '$(VENDOR_DIR)'
+
 # The ARM single-board computers minspec is judged against
 # (docs/architecture.md): each target links against a pinned Debian sysroot
 # and runs its tests under qemu-user, through tools/arm's wrappers
@@ -420,12 +438,13 @@ test-tools: ## Test the VT review tools, the tier 3 harness, the gallery tool, t
 	python3 -I -B tools/fuzz/test_run.py
 	python3 -I -B tools/gates/test_run.py
 	python3 -I -B docs/scripts/test_fork_refs.py
+	python3 -I -B docs/scripts/test_coverage.py
 	python3 -I -B tools/arm/test_sysroot.py
 	cargo test -q -p vtium-font --test set
 	$(TEST_BUILD_SETTINGS)
 	@if cargo tree -p vtium --target $(X86_TARGET) -e no-dev,features -i vtium-font | grep -q 'feature "deflate"'; then echo "the console enables vtium-font's deflate feature, which only vtium-config takes (ADR-1200 D19)" >&2; exit 1; else echo "the console links no deflate"; fi
 	@$(check-gate-line)
-	@if command -v shellcheck >/dev/null; then shellcheck -S warning -x tools/vt/*.sh tools/vt/checks/*.sh tools/vt/sections/*.sh tools/tier3/fetch-image.sh tools/tier3/fetch-debian.sh tools/tier3/showcase.sh tools/gallery/gallery tools/tier3/guest/setup tools/tier3/guest/t3 tools/tier3/guest/t3-agent tools/tier3/guest/tier3-install tools/tier3/guest-sysvinit/setup tools/tier3/guest-sysvinit/tier3-install tools/tier3/guest-sysvinit/t3-console tools/arm/sysroot tools/arm/wrap && echo "shellcheck: clean at warning"; else echo "shellcheck: not installed, skipped"; fi
+	@if command -v shellcheck >/dev/null; then shellcheck -S warning -x tools/vt/*.sh tools/vt/checks/*.sh tools/vt/sections/*.sh tools/tier3/fetch-image.sh tools/tier3/fetch-debian.sh tools/tier3/showcase.sh tools/gallery/gallery tools/tier3/guest/setup tools/tier3/guest/t3 tools/tier3/guest/t3-agent tools/tier3/guest/tier3-install tools/tier3/guest-sysvinit/setup tools/tier3/guest-sysvinit/tier3-install tools/tier3/guest-sysvinit/t3-console tools/arm/sysroot tools/arm/wrap tools/vendor/archive && echo "shellcheck: clean at warning"; else echo "shellcheck: not installed, skipped"; fi
 
 # The key table's crates' unit tests, built as the vtium package builds
 # them, with VTIUM_HWACCEL=on, VTIUM_DISPLAY_BUFFERS=3 (ADR-1500 D8) and
@@ -546,11 +565,17 @@ vt-uninstall: ## Undo make vt-install on VT N: vtium-dev off, its getty back, th
 	@case "$$VTIUM_VT_DRY_RUN" in '') tools/vt/vt-install.sh uninstall "$$VTIUM_VT_NR" ;; 1) tools/vt/vt-install.sh uninstall --dry-run "$$VTIUM_VT_NR" ;; *) echo "DRY_RUN=$$VTIUM_VT_DRY_RUN: 1 or nothing" >&2; exit 1 ;; esac
 
 # Tier 2 against its goldens in tools/tier2/goldens. The report names this checkout's commit, as tier 3's
-# does (T3_REV).
-.PHONY: tier2
-tier2: ## Draw tier 2's screens and judge them against their goldens
+# does (T3_REV). tier2 runs tier2-fonts first, which fetches the outline fonts the outline screens draw
+# with into $XDG_CACHE_HOME/vtium/tier2/fonts and checks each against its SHA-256; once they are cached,
+# it fetches nothing.
+.PHONY: tier2 tier2-fonts
+tier2: tier2-fonts ## Draw tier 2's screens and judge them against their goldens
 	cargo build --release -p vtium-tier2 --features gpu --bins
 	T2_VTIUM_REV=$(T3_REV) $(or $(CARGO_TARGET_DIR),target)/release/tier2 run
+
+tier2-fonts: ## Fetch tier 2's pinned outline fonts into the cache, checking each SHA-256
+	cargo build --release -p vtium-tier2 --features gpu --bins
+	$(or $(CARGO_TARGET_DIR),target)/release/tier2 fetch-fonts
 
 # The demonstration set (vtium/vtium#142): the test card drawn for each
 # display profile into docs/specimens/, and judged against what is committed.

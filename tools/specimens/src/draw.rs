@@ -4,9 +4,10 @@
 use std::sync::Arc;
 
 use vtium_font::set::{Set, SetFace, builtin};
-use vtium_font::{Cell, Font};
+use vtium_font::sprite::Range;
+use vtium_font::{Cell, Decorations, Face, Font, Glyph, RangeCoverage, SpritePolicy, Style};
 use vtium_render::{Canvas, Config, DrawState, Renderer};
-use vtium_term::{Age, Terminal, WidthMethod};
+use vtium_term::{Age, Attrs, Glyph as Text, Terminal, WidthMethod};
 
 use crate::profiles::{Glyphs, Layout, Profile};
 use crate::{bars, card};
@@ -54,9 +55,20 @@ pub struct Sources {
     pub tiny5: Generated,
 }
 
-/// A frit's glyphs, one set at each cell, or why the caller does not have
-/// them.
-pub type Generated = Result<Vec<(Cell, Arc<Set>)>, Absent>;
+/// A frit's glyphs at each cell, or why the caller does not have them.
+pub type Generated = Result<Vec<CellGlyphs>, Absent>;
+
+/// A frit's glyphs at one cell, as the console's store holds them once the
+/// helper has answered: the set of every character the frit gives, as its
+/// fill draws them, and, for each style a cluster shows in on the card,
+/// the set of those clusters drawn whole, as the helper answers the
+/// console's asks for them (ADR-1200 D21).
+#[derive(Clone, Debug)]
+pub struct CellGlyphs {
+    pub cell: Cell,
+    pub set: Arc<Set>,
+    pub clusters: Vec<(Style, Arc<Set>)>,
+}
 
 /// Why a caller does not have a frit's glyphs.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -100,7 +112,7 @@ pub fn skipped<'a>(profile: &Profile, sources: &'a Sources) -> Option<&'a Absent
 }
 
 /// The font `profile` draws with.
-pub fn font(profile: &Profile, sources: &Sources) -> Result<Font<SetFace>, String> {
+pub fn font(profile: &Profile, sources: &Sources) -> Result<Font<CardFace>, String> {
     let set = match profile.glyphs {
         Glyphs::Builtin { set, .. } => {
             builtin(set).ok_or_else(|| format!("no built-in set {set} in this build"))?
@@ -112,20 +124,152 @@ pub fn font(profile: &Profile, sources: &Sources) -> Result<Font<SetFace>, Strin
                 .ok_or("no generated glyphs")?
                 .as_ref()
                 .map_err(Absent::to_string)?;
-            sets.iter()
-                .find(|(c, _)| *c == Cell { width, height })
-                .map(|(_, set)| Arc::clone(set))
+            let at = sets
+                .iter()
+                .find(|g| g.cell == Cell { width, height })
                 .ok_or_else(|| {
                     format!(
                         "the {} frit has no glyphs at {width}x{height}",
                         glyphs.set()
                     )
-                })?
+                })?;
+            let height = profile.glyphs.height();
+            let mut clusters = Vec::new();
+            for (style, set) in &at.clusters {
+                let face = SetFace::new(Arc::clone(set), height).ok_or_else(|| {
+                    format!("the {} frit's clusters have no strikes", glyphs.set())
+                })?;
+                clusters.push((*style, face));
+            }
+            let base = SetFace::new(Arc::clone(&at.set), height)
+                .ok_or_else(|| format!("the set {} has no strikes", glyphs.set()))?;
+            return Ok(Font::new(CardFace { base, clusters }));
         }
     };
-    let face = SetFace::new(set, profile.glyphs.height())
+    let base = SetFace::new(set, profile.glyphs.height())
         .ok_or_else(|| format!("the set {} has no strikes", profile.glyphs.set()))?;
-    Ok(Font::new(face))
+    Ok(Font::new(CardFace {
+        base,
+        clusters: Vec::new(),
+    }))
+}
+
+/// The face a profile draws through, as the console's store answers for
+/// a frit (ADR-1200 D22): a cluster of more than one character from the
+/// glyph the helper drew for it whole, where it drew one in the cell's
+/// style, and everything else from the set of single characters, a
+/// cluster the helper drew nothing for as its first character. A built-in
+/// set has no clusters.
+#[derive(Clone, Debug)]
+pub struct CardFace {
+    base: SetFace,
+    clusters: Vec<(Style, SetFace)>,
+}
+
+impl CardFace {
+    /// The glyph the helper drew whole for `cluster` in `style`, if any.
+    fn whole(&self, cluster: &[char], style: Style) -> Option<Glyph> {
+        if cluster.len() < 2 {
+            return None;
+        }
+        self.clusters
+            .iter()
+            .filter(|(s, _)| *s == style)
+            .find_map(|(_, face)| face.cluster(cluster, style))
+    }
+}
+
+impl Face for CardFace {
+    fn cell(&self) -> Cell {
+        self.base.cell()
+    }
+
+    fn size_step(&self) -> u32 {
+        self.base.size_step()
+    }
+
+    fn has_glyph(&self, c: char) -> bool {
+        self.base.has_glyph(c)
+    }
+
+    fn coverage(&self, range: Range) -> RangeCoverage {
+        self.base.coverage(range)
+    }
+
+    fn sprite_policy(&self) -> SpritePolicy {
+        self.base.sprite_policy()
+    }
+
+    fn draw(&self, cluster: &[char], style: Style) -> Option<Glyph> {
+        self.whole(cluster, style)
+            .or_else(|| self.base.draw(cluster, style))
+    }
+
+    fn last_resort(&self, style: Style) -> Option<Glyph> {
+        self.base.last_resort(style)
+    }
+
+    fn decorations(&self) -> Decorations {
+        self.base.decorations()
+    }
+
+    fn scale(&self) -> u32 {
+        self.base.scale()
+    }
+
+    // the helper draws a frit's glyphs at the profile's cell, at scale 1,
+    // so a cluster's glyph is already unscaled
+    fn draw_unscaled(&self, cluster: &[char], style: Style) -> Option<Glyph> {
+        self.whole(cluster, style)
+            .or_else(|| self.base.draw_unscaled(cluster, style))
+    }
+
+    fn last_resort_unscaled(&self, style: Style) -> Option<Glyph> {
+        self.base.last_resort_unscaled(style)
+    }
+}
+
+/// A style and the clusters, as scalar values, the card shows in it.
+pub type StyleClusters = (Style, Vec<Vec<u32>>);
+
+/// The clusters of more than one character that the card shows on the
+/// pages of `profiles`, in each style a cell draws its glyph in, as the
+/// console reads what a display shows to ask the helper for it: each
+/// style once, its clusters sorted and once, as scalar values.
+pub fn clusters_shown(profiles: &[&Profile]) -> Result<Vec<StyleClusters>, String> {
+    let mut all: Vec<StyleClusters> = Vec::new();
+    for profile in profiles {
+        let layout = profile.layout()?;
+        for page in 0..layout.pages {
+            let term = terminal(&layout, &card::page(profile, &layout, page))?;
+            let frame = term.screen().frame(term.palette(), Age::NEVER);
+            for row in 0..frame.rows() {
+                for cell in frame.cells(row) {
+                    let Text::Cluster(text) = cell.glyph else {
+                        continue;
+                    };
+                    let style = Style {
+                        bold: cell.attrs.contains(Attrs::BOLD),
+                        italic: cell.attrs.contains(Attrs::ITALIC),
+                    };
+                    let key: Vec<u32> = text.chars().map(u32::from).collect();
+                    if key.len() < 2 {
+                        continue;
+                    }
+                    match all.iter_mut().find(|(s, _)| *s == style) {
+                        Some((_, keys)) => keys.push(key),
+                        None => all.push((style, vec![key])),
+                    }
+                }
+            }
+        }
+    }
+    for (_, keys) in &mut all {
+        keys.sort_unstable();
+        keys.dedup();
+    }
+    all.sort_by_key(|(s, _)| (s.bold, s.italic));
+    Ok(all)
 }
 
 /// A terminal of `layout`'s grid that has taken `bytes`, as a host starts
@@ -259,6 +403,81 @@ mod tests {
                     .collect()
             })
             .collect()
+    }
+
+    /// A set at an 8x16 cell in `style`: each of `chars` mapped to an R8
+    /// glyph one cell wide of `shade`, and each of `clusters` to a glyph
+    /// two cells wide of `shade` plus 1.
+    fn set(style: Style, shade: u8, chars: &[char], clusters: &[&[char]]) -> SetFace {
+        use vtium_font::Width;
+        use vtium_font::set::{PixelFormat, SetBuilder, StrikeBuilder};
+        let cell = Cell {
+            width: 8,
+            height: 16,
+        };
+        let mut strike = StrikeBuilder::new(PixelFormat::R8, cell, style);
+        let one = strike.glyph(Width::Narrow, vec![shade; 8 * 16]);
+        for &c in chars {
+            strike.map(c, one);
+        }
+        let two = strike.glyph(Width::Wide, vec![shade + 1; 16 * 16]);
+        for key in clusters {
+            strike.cluster(key, two);
+        }
+        let bytes = SetBuilder::new("t").strike(strike).write().unwrap();
+        SetFace::new(Arc::new(Set::from_bytes(bytes).unwrap()), 16).unwrap()
+    }
+
+    // ADR-1200 D22: a profile's face draws a cluster from the glyph the
+    // helper drew for it whole in the cell's style, as the console's store
+    // does, and a cluster the helper drew nothing for, or one in a style it
+    // was not asked in, as its first character
+    #[test]
+    fn a_cluster_draws_whole_where_the_helper_drew_it() {
+        let regular = Style::default();
+        let bold = Style {
+            bold: true,
+            italic: false,
+        };
+        let vs16 = ['\u{2764}', '\u{fe0f}'];
+        let vs15 = ['\u{2764}', '\u{fe0e}'];
+        let face = CardFace {
+            base: set(regular, 10, &['\u{2764}'], &[]),
+            clusters: vec![(regular, set(regular, 20, &[], &[&vs16]))],
+        };
+        let shade = |g: vtium_font::Glyph| (g.width(), g.pixels()[0]);
+        assert_eq!(face.draw(&vs16, regular).map(shade), Some((16, 21)));
+        assert_eq!(face.draw(&vs15, regular).map(shade), Some((8, 10)));
+        assert_eq!(face.draw(&['\u{2764}'], regular).map(shade), Some((8, 10)));
+        assert_eq!(face.draw(&vs16, bold).map(|g| g.width()), Some(8));
+        assert_eq!(
+            face.draw_unscaled(&vs16, regular).map(shade),
+            Some((16, 21))
+        );
+    }
+
+    // The desktop profiles' card shows the heart suit with VS16 and a flag, which
+    // the helper is asked for whole, and no cluster of one character
+    #[test]
+    fn the_card_asks_for_its_clusters_whole() {
+        let profiles: Vec<&Profile> = PROFILES
+            .iter()
+            .filter(|p| matches!(p.glyphs, crate::profiles::Glyphs::Desktop { .. }))
+            .collect();
+        assert!(!profiles.is_empty());
+        let shown = clusters_shown(&profiles).unwrap();
+        let regular = &shown
+            .iter()
+            .find(|(s, _)| *s == Style::default())
+            .unwrap()
+            .1;
+        assert!(regular.contains(&vec![0x2665, 0xfe0f]), "{regular:x?}");
+        assert!(regular.contains(&vec![0x1f1fa, 0x1f1f8]), "{regular:x?}");
+        assert!(
+            shown
+                .iter()
+                .all(|(_, keys)| keys.iter().all(|k| k.len() > 1))
+        );
     }
 
     // Each block draws the same cells wherever a page puts it: on a grid of

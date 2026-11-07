@@ -4,6 +4,7 @@
 use crate::glyph::Glyph;
 use crate::hex;
 use crate::policy::{Coverage, Missing, RangeCoverage, Source, SpritePolicy};
+use crate::spacing::Band;
 use crate::sprite::{self, Range};
 
 /// How a glyph is drawn. Bitmap faces draw bold by widening each row by a
@@ -128,6 +129,22 @@ pub trait Face {
     fn last_resort_unscaled(&self, _style: Style) -> Option<Glyph> {
         None
     }
+
+    /// The rows the cell adds above and below its text band for line
+    /// spacing (ADR-1302 D13): none for a face whose cell is the text's
+    /// own height.
+    fn band(&self) -> Band {
+        Band::NONE
+    }
+
+    /// The built-in fonts fitted to this face's cell, which the console
+    /// draws its own notices and focus mark with (ADR-1401 D5, D7), for a
+    /// face that draws a font set's glyphs over the built-in fonts. `None`
+    /// for any other face, which draws the notices itself: the built-in
+    /// fonts' own faces, and every face that is not the console's.
+    fn builtins(&self) -> Option<Box<dyn Face + '_>> {
+        None
+    }
 }
 
 impl<F: Face + ?Sized> Face for Box<F> {
@@ -163,6 +180,12 @@ impl<F: Face + ?Sized> Face for Box<F> {
     }
     fn last_resort_unscaled(&self, style: Style) -> Option<Glyph> {
         (**self).last_resort_unscaled(style)
+    }
+    fn band(&self) -> Band {
+        (**self).band()
+    }
+    fn builtins(&self) -> Option<Box<dyn Face + '_>> {
+        (**self).builtins()
     }
 }
 

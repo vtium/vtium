@@ -1494,7 +1494,7 @@ pub const FONT_LINE_SPACING: Key = Key {
     reader: "vtium-font",
     what: "Extra space between lines of text. It overrides a font set's `line-spacing=` line.\n\n\
            The value is a whole percentage of the text height, rounded to whole pixels and split evenly above and below each line, so the console has fewer lines. It does not change a font set's own `cell=` size, but it applies when `font-size` overrides that size: the character cell grows by the spacing. When unset, the font set's `line-spacing=` decides, and 0 where it has none.\n\n\
-           This key has no effect yet.",
+           Letters keep their size in the middle of the taller line, and line and block characters stretch to fill it. A font set's `fit=` lines choose this for each set of characters.",
     cite: "ADR-1302 D13; ADR-1200 D1",
 };
 
@@ -1620,6 +1620,21 @@ pub const MISSING: Key = Key {
     reader: "vtium-font",
     what: "What vtium shows for a character the font cannot display: `box` shows □ (U+25A1), and `hex` shows the character's code in hex digits.",
     cite: "vtium/vtium#85",
+};
+
+pub const TEXT_DIRECTION: Key = Key {
+    name: "text-direction",
+    short: None,
+    kind: Kind::Choice(&["ltr", "rtl", "auto"]),
+    default: Default::Text("ltr"),
+    scope: Scope::Anywhere,
+    levels: TOP,
+    reader: "vtium-term",
+    what: "Which way a paragraph of text runs when the program writing it does not say: `ltr`, left to right, `rtl`, right to left, or `auto`, which takes each paragraph's direction from its first letter.\n\n\
+           A paragraph is the text between two line ends, however many rows it wraps across. `ltr`, the default, starts each paragraph at the left edge, as most terminals do. `rtl` starts each one at the right edge, for a console used mostly in Arabic, Hebrew or another right-to-left language. Under `auto`, a paragraph that starts with an Arabic or Hebrew letter runs right to left, and one that starts with a Latin letter, or has no letter, runs left to right.\n\n\
+           A program can change the direction with escape sequences, and a terminal reset returns it to this setting. vtium reads this key when it starts, so a change takes effect when vtium restarts, and it never changes text already on the screen.\n\n\
+           A build without right-to-left support (the `bidi` feature) accepts this key and does nothing with it.",
+    cite: "ADR-1004 D5",
 };
 
 pub const GLYPH_CACHE: Key = Key {
@@ -1834,8 +1849,9 @@ pub const KITTY_GRAPHICS: Key = Key {
     cite: "ADR-1100 D10, D11",
 };
 
-/// Every key, in the order the generated files list them.
-pub const KEYS: [Key; 107] = [
+/// Every key, in the order the generated files list them. A static, so
+/// each use reads the one table instead of a copy of it.
+pub static KEYS: [Key; 108] = [
     CONFIGDIR,
     HELP,
     VERSION,
@@ -1932,6 +1948,7 @@ pub const KEYS: [Key; 107] = [
     GLYPH_SOURCE_OCTANTS,
     GLYPH_SOURCE_LEGACY,
     MISSING,
+    TEXT_DIRECTION,
     GLYPH_CACHE,
     DISPLAY_DEPTH,
     DISPLAY_DPI,
@@ -1972,7 +1989,7 @@ pub struct Section {
 pub const SECTIONS: [Section; 10] = [
     Section {
         title: "Fonts and text",
-        about: "The console's font and its size, who draws box-drawing and block characters, and how blinking text looks.",
+        about: "The console's font and its size, who draws box-drawing and block characters, how blinking text looks, and which way text runs.",
         groups: &[
             Group {
                 title: "Font",
@@ -2005,6 +2022,10 @@ pub const SECTIONS: [Section; 10] = [
             Group {
                 title: "Font switching by programs",
                 keys: &[&ALLOW_FONT_OPS],
+            },
+            Group {
+                title: "Right-to-left text",
+                keys: &[&TEXT_DIRECTION],
             },
         ],
     },
@@ -2228,7 +2249,7 @@ pub const SECTIONS: [Section; 10] = [
 /// The keys vtium takes and does not act on yet, which the crate
 /// README's "Not yet built" lists; `check::semantics` warns when one is
 /// set.
-pub const NOT_BUILT: [&Key; 2] = [&FONT_HINTING, &FONT_LINE_SPACING];
+pub const NOT_BUILT: [&Key; 1] = [&FONT_HINTING];
 
 /// The keys a section of `level` may set, in the table's order.
 pub fn at(level: Level) -> impl Iterator<Item = &'static Key> {
@@ -2270,6 +2291,28 @@ mod tests {
                 assert!(!g.keys.is_empty(), "{}", g.title);
             }
         }
+    }
+
+    // ADR-1004 D5, D13: `text-direction` takes `ltr`, the default, `rtl`
+    // and `auto`, at vtium.conf's top level and on the command line, and
+    // says that a build without the bidi feature accepts it and does
+    // nothing with it.
+    #[test]
+    fn text_direction_takes_ltr_rtl_or_auto_and_defaults_to_ltr() {
+        let key = find("text-direction").unwrap_or(&HELP);
+        assert_eq!(key.name, "text-direction");
+        assert_eq!(key.kind, Kind::Choice(&["ltr", "rtl", "auto"]));
+        assert_eq!(key.default, Default::Text("ltr"));
+        assert_eq!(key.tree_default(), Default::Text("ltr"));
+        assert_eq!(key.scope, Scope::Anywhere);
+        assert_eq!(key.levels, Levels::TOP);
+        assert_eq!(key.reader, "vtium-term");
+        assert!(
+            key.what
+                .contains("A build without right-to-left support (the `bidi` feature) accepts this key and does nothing with it."),
+            "{}",
+            key.what
+        );
     }
 
     #[test]

@@ -36,6 +36,8 @@ basis:
   - evidence: "the glyph storage research for the CPU compositor (2026-10-26): draw kernels, dumb-buffer reads and writes, GL memory, miss cost, lookup cost and LRU hit rates, measured on a Ryzen 9 9950X3D on one pinned core, with radeonsi (integrated and discrete) and llvmpipe; the scripts and outputs sit in the steering session's scratchpad, uncommitted"
   - standard: "OpenGL ES 3.0.6 §2.1.6.2: converting a float to an unsigned normalized value returns one of the two nearest integers, rounding to nearest preferred"
   - precedent: ADR-1001
+  - evidence: "kitty 0.50.0, run as a black box on 2026-11-06 under a private Xvfb display (ADR-1100 D15's `basis`): an `f=32` and an `f=16` picture of red 204 at alphas 0, 17, 34, ... 255 drawn over its black background showed 0, 56 or 57, 80, 97, 112, 124, 135, 145, 154, 162, 170, 177, 184, 191, 198, 204, which is red blended in linear light; vtium-render blends the same pixels in sRGB as 0, 14, 27, 41, 54, 68, 82, 95, 109, 122, 136, 150, 163, 177, 190, 204"
+  - evidence: "a computation by this record's agent, 2026-11-06, of the blend D7 leans on, against an exact blend in linear light in floating point, over every color and alpha on backgrounds 0, 64, 128 and 255: the tables alone are off by at most 1 level; un-premultiplying the store's 8-bit premultiplied pixels adds error at low alpha, at most 10 levels below alpha 16, 3 at 16 and above, and 2 at 64 and above; red 204 at alpha 17 over black gives 58, where kitty gives 57"
 agent:
   name: Claude
   model: claude-opus-5-5
@@ -61,6 +63,12 @@ considered:
     said: "The GPU path's cell shader keeps D6's exact blend arithmetic: values held as whole numbers in highp floats, div255 with its shifts written as floors of divisions by 256, nearest sampling, no dithering, and each channel written as (c + 0.25) / 255, even though ADR-1303 now judges the GPU path within a tolerance."
     via: the maintainer in the steering session, 2026-11-03; the team lead's summary in the brief for the GPU path's composition, not the maintainer's words
     paraphrase: true
+  - operator: Aaron Bockelie
+    said: "[Low-alpha precision: keep premultiplied sRGB, straight alpha, or 16-bit linear?] Keep premultiplied sRGB (Rec.)"
+    via: AskUserQuestion, 2026-11-06; the option label is the steering session's wording
+  - operator: aaronsb
+    said: "[The selection's tint over a picture and scaled-copy filtering: keep in sRGB or move to linear?] Keep both in sRGB (Rec.)"
+    via: AskUserQuestion, 2026-11-06; the option label is the steering session's wording
 observable:
   - "Tier 2 draws each screen with a cache of 0 glyphs and with the performance budgets, on the CPU path and on the GPU path under llvmpipe, and the two agree byte for byte"
   - "`cargo test -p vtium-render --test memory -- --nocapture` prints each profile's figures and fails when they change"
@@ -112,6 +120,8 @@ gltex, the GPU renderer, kept four pools: masks and color glyphs, each 1 or 2 ce
 - Each cache is an LRU whose recency is the drawn frame.
 - A cell draws its background, underline, glyph and strike, in that order, with the C reference's per-pixel arithmetic: `div255(t) = (t + 128 + ((t + 128) >> 8)) >> 8`; a mask cell is `div255(fg * a + bg * (255 - a))`; a cell of several layers composes its text layer premultiplied, then goes over its background as `src + div255(bg * (255 - a))`. These are the arithmetic tier 2's goldens were drawn with.
 - Device memory is never read.
+
+> Edited 2026-11-06: D7 changes the arithmetic above for partly transparent picture pixels, which blend in linear light; every cell's own layers keep it. The bullet is unchanged.
 
 > Edited 2026-11-03: ADR-1303, proposed the same day from the maintainer's decision on the GPU path's pipeline, changes one of these for the GPU path once it is accepted: the orientation half of "A glyph is rotated once, when cached. A change of font, cell size or orientation empties the cache." The GPU path composes into an upright frame and turns it only when it presents it, so its glyphs are stored upright, never rotated, and a turn of the display keeps them; a change of font or cell size still empties its cache. The CPU path keeps the bullet as written. The text above is unchanged.
 
@@ -170,7 +180,10 @@ A third format is reserved (added 2026-10-26, the operator's agreement): a per-c
 ### D5: cells are composed a row at a time
 
 - **The C reference:** every cell went to the dumb buffer as one write-only blend; a cell of several layers was composed in a two-cell scratch first.
-- **vtium:** each run of adjacent damaged cells is composed in a row scratch in cached memory and copied out, one copy per pixel line of the run, whether its cells hold one layer or several (a decoration, a picture, a cursor drawn over text, or a neighbour's overhang, whose reach and order ADR-1302 decides). The dumb buffer is only written, never read. The scratch holds one row of cells at the display's width, 87,424 bytes at 1366 pixels and 16-pixel rows, and at most 1 MiB; a taller row is composed in bands of pixel lines. On a rotated display the row is the strip of pixels its cells cover.
+- **vtium:** each run of adjacent damaged cells is composed in a row scratch in cached memory and copied out, one copy per pixel line of the run, whether its cells hold one layer or several (a decoration, a picture, a cursor drawn over text, or a neighbour's overhang, from the cells beside it or the rows above and below, whose reach and order ADR-1302 and ADR-1306 decide). The dumb buffer is only written, never read. The scratch holds one row of cells at the display's width, 87,424 bytes at 1366 pixels and 16-pixel rows, and at most 1 MiB; a taller row is composed in bands of pixel lines. On a rotated display the row is the strip of pixels its cells cover.
+
+> Edited 2026-11-06: ADR-1306, accepted 2026-11-06 (the maintainer, 2026-11-06) D4 composes each row from the glyphs of the three rows around it, in this row scratch, which does not grow. It read: "or a neighbour's overhang, whose reach and order ADR-1302 decides)"
+
 - **Why:** an overhanging glyph and a picture not aligned to cells draw across cell borders, and per-cell requests cannot give one cell's layers the pixels of its neighbour without reading the dumb buffer. Reading it is the slow path: 0.16 GB/s on an integrated GPU and 0.02 GB/s on a discrete one, against 87 GB/s from cache (measured).
 - **Cost or saving:** five changed rows composed in the scratch and copied out take 0.039-0.044 ms, against 0.029-0.030 ms written straight (measured). A full frame blended by reading the dumb buffer took 8.5 ms on the integrated GPU and 36.6 ms on the discrete one, against 0.32-0.33 ms in cached memory (measured). A full frame written straight takes 0.26-0.27 ms (measured).
 - **Pixels:** none change. The scratch runs the per-pixel arithmetic carried forward, cell by cell, and copies the result.
@@ -185,6 +198,20 @@ A third format is reserved (added 2026-10-26, the operator's agreement): a per-c
 - **Why:** OpenGL ES lets the conversion to an 8-bit channel return either of the two nearest integers; at `c + 0.25` both rounding to nearest and truncating give `c`. A grid uses a texture's height, where a one-cell strip left texture unused at its end and, at large cells, most of its height (`kmscon/src/render/gltex.c:885-896`).
 - **Cost or saving:** the GPU path is a feature for larger machines: its driver, context and a 1366x768 render target took about 72 MiB on a GPU sharing system memory, and four atlases of 10 MiB added about 34 MiB more (measured, radeonsi); a slot upload took 0.4-2.7 µs (measured). The integer shader's cost against gltex's is not measured.
 - **Pixels:** the GPU path's pixels move from gltex's to the CPU path's. Parity is derived from the specification and not yet seen on hardware. A picture scaled with filtering cannot match and is outside it.
+
+### D7: pictures blend in linear light
+
+> Edited 2026-11-06: D7 is new. The maintainer answered kitty 0.50.0's four differences from vtium with "1-3 like kitty, 4 now" (`considered` in ADR-1100); the fourth is this one. It is decided and not built: the build is a slice of its own for vtium-render's picture path, after the rewrite of picture composition that another piece of work is doing now has merged.
+
+- **What changes.** A picture pixel that is partly transparent, with an alpha above 0 and below 255, goes over whatever lies below it, the background, the text layer or another picture, in linear light, as kitty draws it, where the C reference's arithmetic in "Carried forward" blends in sRGB. Red 204 at alpha 17 over black shows as 57 in kitty and as 14 in vtium today (`basis`). Opaque and fully clear picture pixels draw as they do now. This covers every protocol's pictures: kitty's, iTerm2's, and sixel's, though a sixel pixel is only ever opaque or clear.
+- **What stays.** Glyph masks, color glyphs, decorations and every cell's own layers keep the sRGB arithmetic of "Carried forward", as the maintainer asked only about pictures. The selection's tint over a picture (ADR-1100 D4) and a scaled copy's filtering also stay in sRGB (the maintainer, 2026-11-06, `considered`). Composing a kitty animation's frames (ADR-1102 D2) stays in sRGB too, since kitty 0.50.0 composes frames in sRGB (ADR-1102's `basis`, measured after the maintainer asked for the measurement first).
+- **Storage.** The image store keeps one format, premultiplied sRGB at 4 bytes a pixel (ADR-1100 D2), and the blend converts as it draws; the maintainer kept it over straight alpha and 16-bit linear light, accepting the precision below (2026-11-06, `considered`). For each channel of a partly transparent pixel, the compositor un-premultiplies the stored value through a table of reciprocals of the alpha, turns it and the pixel below into linear light through a table of 256 16-bit values, blends them in 16-bit fixed point, and turns the result back through a table of 4096 8-bit values. Every step is an integer, so every machine draws the same bytes (`docs/architecture.md`, Determinism). The cost is the precision of the stored pixel: un-premultiplying an 8-bit premultiplied value at a low alpha is off by up to 255 / (2 × alpha) levels before the blend scales it, so the result is off by at most 10 levels below alpha 16, 3 at 16 and above, and 2 at 64 and above, against an exact linear blend; red 204 at alpha 17 over black gives 58 where kitty gives 57 (`basis`). Storing pictures as premultiplied linear light at 16 bits a channel would be exact, but it doubles every picture's bytes against the image budget and changes the store's one format.
+- **Cost (estimate, to be measured in the build).** About a dozen integer operations and three table loads per channel for each partly transparent picture pixel, and nothing more for an opaque or a clear one. The tables take about 5 KiB for each renderer.
+- **The GPU path (lean).** The picture shader does the same integer arithmetic, with the three tables as small textures sampled nearest, so the GPU path keeps drawing the CPU path's bytes (D6). An sRGB texture and an sRGB framebuffer would do the conversion in hardware, in floating point, which breaks that parity, and an sRGB framebuffer would also change how text blends.
+- **Goldens.** Every golden that draws a partly transparent picture moves, and none other. Tier 1's goldens print the store's pixels, which do not change. Tier 2's half-transparent picture screens move, `pictures-kitty`, `img-bands`, `kitty-bands` and `img-rotated` among them, and tier 3's kitty screens move where a picture holds partial alpha. The build lists each golden that moved, and the maintainer reviews them as pictures.
+- **Verification.** A unit test blends red 204 at alpha 17 over black and gets 58, and a sweep of every color and alpha over four backgrounds stays within the bounds above; with the blend planted back in sRGB, both fail. Tier 2 draws the half-transparent screens on the CPU path and the GPU path under llvmpipe and compares them byte for byte.
+
+  > Edited 2026-11-06, later: the maintainer answered the two leans. The Storage bullet was headed "Storage (lean)" and its last sentence ended "so it is not the lean"; What stays called the selection's tint and a scaled copy's filtering "leans the maintainer may overrule".
 
 ### Memory
 

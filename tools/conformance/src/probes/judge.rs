@@ -16,12 +16,12 @@ use crate::view::View;
 /// The implementation the probes run through: vtium-replay, judged by
 /// the spec, its `--describe` read for what it offers.
 pub struct Replay<'a> {
-    spec: &'a Spec,
-    views: BTreeSet<String>,
-    features: BTreeSet<String>,
-    commands: BTreeSet<String>,
+    pub(crate) spec: &'a Spec,
+    pub(crate) views: BTreeSet<String>,
+    pub(crate) features: BTreeSet<String>,
+    pub(crate) commands: BTreeSet<String>,
     /// Where a probe's fixtures are, when the runner serves them.
-    fixtures: Option<PathBuf>,
+    pub(crate) fixtures: Option<PathBuf>,
 }
 
 /// A probe's result: passed, failed with why, or not judged, with why.
@@ -167,7 +167,8 @@ impl<'a> Replay<'a> {
     }
 }
 
-/// Judges the lines a probe's replay printed.
+/// Judges the lines a probe's replay printed, one block at each cut and
+/// one at the end.
 fn judge(probe: &Probe, lines: &[String], cuts: &[usize], exact: bool) -> Outcome {
     // a test line belongs to the block whose checkpoint follows it
     let mut blocks: Vec<Vec<&str>> = Vec::new();
@@ -200,6 +201,13 @@ fn judge(probe: &Probe, lines: &[String], cuts: &[usize], exact: bool) -> Outcom
             ));
         }
     }
+    judge_blocks(probe, &blocks, exact)
+}
+
+/// Judges the assertions of `probe` against `blocks`, the k-th `check`
+/// judging the k-th block, whose `test` lines are the ones since the block
+/// before it.
+pub(crate) fn judge_blocks(probe: &Probe, blocks: &[Vec<&str>], exact: bool) -> Outcome {
     // assertions on test lines take them in order: the next one each
     // matches is after the last one matched in its block
     let mut k: Option<usize> = None;
@@ -208,7 +216,10 @@ fn judge(probe: &Probe, lines: &[String], cuts: &[usize], exact: bool) -> Outcom
         if matches!(step, Step::Check) {
             let next = k.map_or(0, |k| k.saturating_add(1));
             k = Some(next);
-            tests = blocks[next]
+            let Some(block) = blocks.get(next) else {
+                return Outcome::Fail(format!("check {} has no block", next.saturating_add(1)));
+            };
+            tests = block
                 .iter()
                 .copied()
                 .filter(|l| l.starts_with("test "))
@@ -219,7 +230,7 @@ fn judge(probe: &Probe, lines: &[String], cuts: &[usize], exact: bool) -> Outcom
         if INPUT_KEYS.contains(&step.key()) {
             continue;
         }
-        let block = &blocks[k];
+        let Some(block) = blocks.get(k) else { break };
         let what = format!("line {n}, block {}", k.saturating_add(1));
         let masked = |line: &str| {
             if exact {

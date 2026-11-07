@@ -250,3 +250,31 @@ fn the_lists_load_from_the_tool_tree() {
     let e = runner::load(&root).err().unwrap();
     assert!(e.contains("pending.tsv: "), "{e}");
 }
+
+// A screen that waits on a defect's fix is listed in pending.tsv, so the
+// run reports it pending, and is not among the screens the run draws, so
+// no golden records the defect.
+#[test]
+fn each_waiting_screen_is_pending_and_not_drawn() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let lists = runner::load(&root).unwrap();
+    for case in vtium_tier2::screens::WAITING {
+        let name = case.screen.name;
+        assert!(
+            lists.pending.iter().any(|p| p.golden == name),
+            "{name} waits on a fix and pending.tsv does not list it"
+        );
+        assert!(
+            !vtium_tier2::screens::CASES
+                .iter()
+                .any(|c| c.screen.name == name),
+            "{name} waits on a fix and the run draws it"
+        );
+    }
+    let mut names: Vec<&str> = vtium_tier2::screens::WAITING
+        .iter()
+        .map(|c| c.screen.name)
+        .collect();
+    names.sort_unstable();
+    assert_eq!(names, ["cjk", "emoji", "osd", "vs16", "wide-deco"]);
+}

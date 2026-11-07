@@ -1,0 +1,43 @@
+# The editing pad, Insert, Delete, Page Up and Page Down, each alone and
+# with each combination of Shift, Alt and Ctrl, then each alone again while
+# DECCKM is set.
+# spec: ctlseqs, PC-Style Function Keys
+# covers: input.legacy
+size 20 2
+key Insert
+key Insert mods=shift
+key Insert mods=alt
+key Insert mods=shift+alt
+key Insert mods=ctrl
+key Insert mods=shift+ctrl
+key Insert mods=alt+ctrl
+key Insert mods=shift+alt+ctrl
+key Delete
+key Delete mods=shift
+key Delete mods=alt
+key Delete mods=shift+alt
+key Delete mods=ctrl
+key Delete mods=shift+ctrl
+key Delete mods=alt+ctrl
+key Delete mods=shift+alt+ctrl
+key Prior
+key Prior mods=shift
+key Prior mods=alt
+key Prior mods=shift+alt
+key Prior mods=ctrl
+key Prior mods=shift+ctrl
+key Prior mods=alt+ctrl
+key Prior mods=shift+alt+ctrl
+key Next
+key Next mods=shift
+key Next mods=alt
+key Next mods=shift+alt
+key Next mods=ctrl
+key Next mods=shift+ctrl
+key Next mods=alt+ctrl
+key Next mods=shift+alt+ctrl
+send "\e[?1h"
+key Insert
+key Delete
+key Prior
+key Next

@@ -50,13 +50,25 @@ impl Drop for Scratch {
 }
 
 /// The frames in `bytes`, kind and payload.
+/// A frame's payload, a glyph frame's without the rows line spacing adds,
+/// which every request here names as none.
+fn unbanded(kind: u32, payload: Vec<u8>) -> Vec<u8> {
+    match kind {
+        FRAME_GLYPHS | FRAME_FILL => {
+            assert_eq!(payload[..8], [0; 8], "no line spacing");
+            payload[8..].to_vec()
+        }
+        _ => payload,
+    }
+}
+
 fn frames(mut bytes: &[u8]) -> Vec<(u32, Vec<u8>)> {
     let mut out = Vec::new();
     while bytes.len() >= 8 {
         let (head, rest) = bytes.split_at(8);
         let kind = u32::from_le_bytes(head[..4].try_into().unwrap());
         let len = u32::from_le_bytes(head[4..].try_into().unwrap()) as usize;
-        out.push((kind, rest[..len].to_vec()));
+        out.push((kind, unbanded(kind, rest[..len].to_vec())));
         bytes = &rest[len..];
     }
     assert!(bytes.is_empty());
@@ -72,6 +84,7 @@ fn frames(mut bytes: &[u8]) -> Vec<(u32, Vec<u8>)> {
 fn the_helper_answers_under_its_sandbox_and_exits_when_the_console_closes() {
     let request = ServeRequest {
         style: Default::default(),
+        band: Default::default(),
         kind: ASK,
         frit: FritText {
             name: "t".to_owned(),
@@ -143,6 +156,7 @@ fn a_source_that_fails_as_it_draws_is_left_out_and_the_rest_answer() {
     std::fs::write(&font, flat.build()).unwrap();
     let request = ServeRequest {
         style: Default::default(),
+        band: Default::default(),
         kind: ASK,
         frit: FritText {
             name: "t".to_owned(),
@@ -186,7 +200,7 @@ fn frames_until(r: &mut impl Read, last: &[u32]) -> Vec<(u32, Vec<u8>)> {
         let kind = u32::from_le_bytes([k0, k1, k2, k3]);
         let mut payload = vec![0u8; u32::from_le_bytes([n0, n1, n2, n3]) as usize];
         r.read_exact(&mut payload).unwrap();
-        out.push((kind, payload));
+        out.push((kind, unbanded(kind, payload)));
         if last.contains(&kind) {
             return out;
         }
@@ -202,6 +216,7 @@ fn frames_until(r: &mut impl Read, last: &[u32]) -> Vec<(u32, Vec<u8>)> {
 fn a_cell_stopped_and_filled_again_is_filled_again() {
     let request = |kind| ServeRequest {
         style: Default::default(),
+        band: Default::default(),
         kind,
         frit: FritText {
             name: "t".to_owned(),
@@ -237,8 +252,11 @@ fn a_cell_stopped_and_filled_again_is_filled_again() {
     let again = frames_until(&mut stdout, &ends);
     drop(stdin);
     assert!(child.wait().unwrap().success());
-    let mut cell = 8u32.to_le_bytes().to_vec();
-    cell.extend_from_slice(&16u32.to_le_bytes());
+    // the cell, 8x16, and the rows line spacing adds, none
+    let cell: Vec<u8> = [8u32, 16, 0, 0]
+        .iter()
+        .flat_map(|w| w.to_le_bytes())
+        .collect();
     let (stopped, again) = again.split_first().unwrap();
     assert_eq!(*stopped, (FRAME_STOPPED, cell));
     let kinds = |f: &[(u32, Vec<u8>)]| f.iter().map(|f| f.0).collect::<Vec<_>>();
@@ -277,6 +295,7 @@ fn filled(frames: &[(u32, Vec<u8>)]) -> std::collections::BTreeMap<char, usize> 
 fn each_fill_sends_the_cells_coverage_in_full_once() {
     let fill = ServeRequest {
         style: Default::default(),
+        band: Default::default(),
         kind: FILL,
         frit: FritText {
             name: "t".to_owned(),
@@ -331,6 +350,7 @@ fn an_outline_frits_cell_query_answers_the_w_rule_at_its_height() {
     std::fs::write(&font, ttf::test_mono().build()).unwrap();
     let query = |text: String, height: u32| ServeRequest {
         style: Default::default(),
+        band: Default::default(),
         kind: OWN_CELL,
         frit: FritText {
             name: "t".to_owned(),
@@ -395,6 +415,7 @@ fn an_asks_clusters_are_shaped_and_drawn_whole() {
     let man_girl = ['\u{1f468}', '\u{200d}', '\u{1f467}'];
     let request = ServeRequest {
         style: Default::default(),
+        band: Default::default(),
         kind: ASK,
         frit: FritText {
             name: "t".to_owned(),
@@ -474,6 +495,7 @@ fn the_helper_sheds_a_descriptor_it_inherits() {
     drop(leaked);
     let query = ServeRequest {
         style: Default::default(),
+        band: Default::default(),
         kind: SOURCES,
         frit: FritText {
             name: "t".to_owned(),
@@ -543,6 +565,7 @@ fn every_thread_of_the_helper_runs_under_its_socket_filter() {
         .unwrap();
     let query = ServeRequest {
         style: Default::default(),
+        band: Default::default(),
         kind: SOURCES,
         frit: FritText {
             name: "t".to_owned(),

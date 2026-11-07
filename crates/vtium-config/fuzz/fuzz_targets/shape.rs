@@ -61,12 +61,14 @@ fuzz_target!(|data: &[u8]| {
     };
     let cover: Vec<(u32, u32)> = keys.iter().flatten().map(|&c| (c, c)).collect();
     let request = OutlineRequest {
+        fit: false,
         font,
         family: String::new(),
         cells: vec![(0, 16), (8, 16), (12, 24)],
         cover,
         clusters: keys.iter().map(|k| ask(k)).collect(),
         baselines: Vec::new(),
+        sizes: Vec::new(),
         hinting: Hinting::Light,
         synth: vtium_font::Style {
             bold: pick & 2 != 0,

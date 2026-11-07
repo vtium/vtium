@@ -131,6 +131,9 @@ considered:
     via: the steering session, relaying the maintainer's addition of 2026-11-05 to this amendment
     paraphrase: true
     covers: [live preview]
+  - operator: aaronsb
+    said: "Read it at session end"
+    via: the steering session's question tool, 2026-11-06, on whether a session's end reads font-line-spacing again with the other font keys; the option wording is the steering session's
 observable:
   - "In a vtium console, moving the TUI's highlight from one frit to the next leaves the console's font as it was and, where the console draws kitty graphics, shows a picture of the TUI's screen in that frit at the grid it gives on the display; `t` switches the console to the frit, and the console goes back to its font after 10 s unless `k` keeps it"
   - "Leaving the TUI without saving, by its quit key, by Ctrl-C, or by SIGTERM sent from another terminal, puts the console back in the font it had when the TUI started, checked by the OSC 50 query"
@@ -368,8 +371,10 @@ The tagline under the tool's banner says what the tool is for now: the console's
 ### D11: a session's end returns its console to the configured font
 
 - **A switch lasts for the session.** An OSC 50 switch, from the TUI, `set` or any program, takes effect at once (the maintainer, 2026-11-02). When the session in a console ends, the program vtium started there exiting (`child_exited` in `crates/vtium/src/app.rs`), vtium returns that console to its configured font before the next login starts there, so the next login starts with the permanent choices.
-- **The configured font is read again.** vtium reads vtium.conf's font keys again, `font-name`, `font-size` and `font-engine`, which ranks with `font-name` (ADR-1200 D16), with the reader it starts with, and takes the font that ADR-1200 D9's chain gives the head, at the size `font-size` gives. A font the TUI saved is therefore the font the next login draws. A key that does not read is reported and dropped as it is at start. Every other key still applies at the next start, as docs/config.md says.
+- **The configured font is read again.** vtium reads vtium.conf's font keys again, `font-name`, `font-size`, `font-engine`, which ranks with `font-name` (ADR-1200 D16), and `font-line-spacing` (ADR-1302 D13), with the reader it starts with, and takes the font that ADR-1200 D9's chain gives the head, at the size `font-size` gives. A font the TUI saved is therefore the font the next login draws. A key that does not read is reported and dropped as it is at start. Every other key still applies at the next start, as docs/config.md says.
 - **The size comes back with it,** so a zoom made since is undone at the same moment.
+
+> Edited 2026-11-06: the maintainer decided that a session's end reads `font-line-spacing` again with the other font keys, so a change of line spacing applies at the next login as a change of font does. The list of keys read again had been `font-name`, `font-size` and `font-engine`.
 - **One font for a head.** vtium holds the font for a whole head, and every console of the head draws in it (`Head::font` in `crates/vtium/src/head.rs`). A switch records the console it came from, and vtium returns the head's font when the session ends in that console, or in a head's only console. A session ending in another console of the same head leaves the font, so it never changes under another person's session.
 - The C reference had no OSC 50 and kept its font for the life of its process, changed only by its zoom keys (`src/terminal.c` at kmscon `b1f7a7c5`, `zoom_in`, `zoom_out`), and a session's end left the size where the zoom put it. vtium returns the size at a session's end, a listed departure in the vtium crate's README.
 

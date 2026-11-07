@@ -175,6 +175,12 @@ considered:
     said: "Release v0.1.0-alpha.6 carries the whole clean break and turns hwaccel on by default in the vtium package, since the GPU path's guard against flapping shipped in v0.1.0-alpha.5."
     via: the steering session, 2026-11-05, the maintainer's confirmation of what v0.1.0-alpha.6 carries, relayed by the team lead
     paraphrase: true
+  - operator: aaronsb
+    said: "I think it's worthwhile to run a cargo vendor and it's output becomes a release artifact"
+    via: the maintainer's message to the steering session, 2026-11-06, after comparing vendoring crates in a repository with referencing them
+  - operator: Aaron Bockelie
+    said: "we can add that to ci, as a publish step"
+    via: the maintainer's message to the steering session, 2026-11-06, on where the vendored archive is made
 observable:
   - "Installing vtium-git on this machine beside kmscon and kmscon-terminfo reports no conflicting file, and `pacman -Qo` on each file the package lists names vtium-git alone"
   - "Following vtium-arch's README for every VT on a machine with no C reference console gives vtium on VT 1 and on each VT logind spawns, and its way back leaves autovt@.service linked to getty@.service and getty@tty1 enabled, as the preset made them"
@@ -465,6 +471,12 @@ The record asked the maintainer three questions, and each answer is written into
 1. **The terminfo entry.** This machine keeps `kmscon-terminfo` for the name `kmscon`, and vtium ships its own entry only as `xterm-vtium`, in the terminfo packages of D3.
 2. **The head file.** The development vtium and the packaged one share one head file, now the sections of `/etc/vtium/vtium.conf` (D4).
 3. **The helper after an upgrade.** A running console keeps the helper it started with (D5, ADR-1200 D15).
+
+### D9: each release carries its dependencies' source
+
+> Added 2026-11-06 by the maintainer's decision (the `considered` entry of that date).
+
+vtium's repository references its outside crates through `Cargo.lock`, which pins each one and its checksum, and keeps no copy of their source. The Arch recipes fetch the crates with `cargo fetch --locked` and then build offline (D2). A package manager that builds with no network at all, as Debian's does, needs the crates' source beside vtium's. So each GitHub release carries it: when a release is published, a CI workflow checks out its tag, runs `cargo vendor --locked`, packs the vendored crates as `vtium-VERSION-vendor.tar.zst` with the `.cargo/config.toml` lines that point Cargo at them, and attaches the archive and its SHA-256 to the release. The repository itself stays free of vendored code, so a crate update stays a change to `Cargo.lock` alone. The workflow can also run by hand on any tag, branch or commit that has it, which builds the archive as a workflow artifact and attaches nothing, so it can be checked before a real release depends on it. A release runs the workflow from its own tagged commit, so the first release that carries the archive is the first whose tag contains the workflow.
 
 ## C notes: the C reference's packaging
 

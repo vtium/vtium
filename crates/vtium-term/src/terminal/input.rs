@@ -109,6 +109,7 @@ mod sym {
     pub const KP_PAGE_UP: u32 = 0xff9a;
     pub const KP_PAGE_DOWN: u32 = 0xff9b;
     pub const KP_END: u32 = 0xff9c;
+    pub const KP_BEGIN: u32 = 0xff9d;
     pub const KP_INSERT: u32 = 0xff9e;
     pub const KP_DELETE: u32 = 0xff9f;
     pub const KP_MULTIPLY: u32 = 0xffaa;
@@ -168,29 +169,45 @@ fn keypad_char_key(keysym: u32) -> bool {
     ) || (sym::KP_MULTIPLY..=sym::KP_9).contains(&keysym)
 }
 
-/// The function keys' codes, `CSI code ~`, and Shift's code for F1 to
-/// F10: the code of F11 to F20 with no modifier, as the Linux console's
-/// default keymap sends Shift with F1 to F10.
-fn function_key(n: u32, shift: bool) -> Vec<u8> {
-    const CODES: [u8; 20] = [
-        11, 12, 13, 14, 15, 17, 18, 19, 20, 21, 23, 24, 25, 26, 28, 29, 31, 32, 33, 34,
+/// The code of F5 to F20 in `CSI code ~` (ctlseqs, "PC-Style Function
+/// Keys"); F1 to F4 send `SS3 P` to `SS3 S` instead. `n` counts from 0
+/// for F1.
+fn function_code(n: u32) -> Option<u8> {
+    const CODES: [u8; 16] = [
+        15, 17, 18, 19, 20, 21, 23, 24, 25, 26, 28, 29, 31, 32, 33, 34,
     ];
-    let code = |i: u32| {
-        usize::try_from(i)
-            .ok()
-            .and_then(|i| CODES.get(i))
-            .copied()
-            .unwrap_or(0)
-    };
-    match (n, shift) {
-        (0..=3, false) => vec![
-            0x1b,
-            b'O',
-            b'P'.saturating_add(u8::try_from(n).unwrap_or(0)),
-        ],
-        (0..=9, true) => format!("\x1b[{}~", code(n.saturating_add(10))).into_bytes(),
-        (_, true) => format!("\x1b[{};2~", code(n)).into_bytes(),
-        (_, false) => format!("\x1b[{}~", code(n)).into_bytes(),
+    let i = usize::try_from(n.checked_sub(4)?).ok()?;
+    CODES.get(i).copied()
+}
+
+/// A key xterm sends as `CSI final`, or `SS3 final` where `ss3` says so,
+/// and with a modifier as `CSI 1 ; m final` (ctlseqs, "PC-Style Function
+/// Keys", with modifyCursorKeys and modifyFunctionKeys at xterm's default,
+/// 2).
+fn lettered(final_byte: u8, ss3: bool, mods: Mods) -> Vec<u8> {
+    match (mods.param(), ss3) {
+        (Some(m), _) => format!("\x1b[1;{m}{}", char::from(final_byte)).into_bytes(),
+        (None, true) => vec![0x1b, b'O', final_byte],
+        (None, false) => vec![0x1b, b'[', final_byte],
+    }
+}
+
+/// A key xterm sends as `CSI code ~`, and with a modifier as
+/// `CSI code ; m ~`.
+fn numbered(code: u8, mods: Mods) -> Vec<u8> {
+    match mods.param() {
+        Some(m) => format!("\x1b[{code};{m}~").into_bytes(),
+        None => format!("\x1b[{code}~").into_bytes(),
+    }
+}
+
+/// A keypad key in application mode: `SS3 final`, and with a modifier
+/// `SS3 m final`, as xterm sends it with modifyKeypadKeys at its default,
+/// 0.
+fn keypad_application(final_byte: u8, mods: Mods) -> Vec<u8> {
+    match mods.param() {
+        Some(m) => vec![0x1b, b'O', b'0'.saturating_add(m), final_byte],
+        None => vec![0x1b, b'O', final_byte],
     }
 }
 
@@ -269,95 +286,86 @@ impl State {
         }
         let app = self.modes.keypad_application()
             && !(self.modes.num_lock() && mods.contains(Mods::NUM) && keypad_char_key(keysym));
+        // Alt never puts ESC before the keypad's keys or the editing,
+        // cursor and function keys. xterm carries Alt in their modifier
+        // parameter, and drops it on a keypad key in numeric mode.
         let keypad = |app_final: u8, plain: u8| {
             if app {
-                vec![0x1b, b'O', app_final]
+                keypad_application(app_final, mods)
             } else {
                 vec![plain]
             }
         };
-        let cursor = |final_byte: u8| match (mods.param(), self.modes.cursor_keys()) {
-            (Some(m), _) => (format!("\x1b[1;{m}").into_bytes(), false, final_byte),
-            (None, true) => (b"\x1bO".to_vec(), true, final_byte),
-            (None, false) => (b"\x1b[".to_vec(), true, final_byte),
-        };
-        let page = |code: u8| {
-            let ctrl = mods.contains(Mods::CTRL);
-            let shift = mods.contains(Mods::SHIFT);
-            let m = match (ctrl, shift) {
-                (true, true) => ";6",
-                (true, false) => ";5",
-                (false, true) => ";2",
-                (false, false) => "",
-            };
-            format!("\x1b[{code}{m}~").into_bytes()
-        };
+        let ckm = self.modes.cursor_keys();
         let bytes = match keysym {
-            sym::BACKSPACE if self.host.backspace_delete => vec![0x7f],
-            sym::BACKSPACE => vec![0x08],
-            sym::TAB | sym::KP_TAB => vec![0x09],
+            sym::KP_ENTER if app => keypad_application(b'M', mods),
+            sym::KP_ENTER if self.modes.newline() => b"\r\n".to_vec(),
+            sym::KP_ENTER => vec![0x0d],
+            sym::KP_TAB => keypad(b'I', b'\t'),
+            sym::KP_SPACE => keypad(b' ', b' '),
             sym::ISO_LEFT_TAB => b"\x1b[Z".to_vec(),
-            sym::LINEFEED => vec![0x0a],
-            sym::CLEAR => vec![0x0b],
-            sym::SYS_REQ => vec![0x15],
-            sym::ESCAPE => vec![0x1b],
-            sym::KP_ENTER if app => b"\x1bOM".to_vec(),
-            sym::KP_ENTER | sym::RETURN if self.modes.newline() => b"\r\n".to_vec(),
-            sym::KP_ENTER | sym::RETURN => vec![0x0d],
-            sym::FIND => b"\x1b[1~".to_vec(),
-            sym::INSERT => b"\x1b[2~".to_vec(),
-            sym::DELETE => b"\x1b[3~".to_vec(),
-            sym::SELECT => b"\x1b[4~".to_vec(),
-            sym::PAGE_UP | sym::KP_PAGE_UP => page(5),
-            sym::PAGE_DOWN | sym::KP_PAGE_DOWN => page(6),
-            sym::UP
-            | sym::KP_UP
-            | sym::DOWN
-            | sym::KP_DOWN
-            | sym::RIGHT
-            | sym::KP_RIGHT
-            | sym::LEFT
-            | sym::KP_LEFT => {
-                let final_byte = match keysym {
-                    sym::UP | sym::KP_UP => b'A',
-                    sym::DOWN | sym::KP_DOWN => b'B',
-                    sym::RIGHT | sym::KP_RIGHT => b'C',
-                    _ => b'D',
-                };
-                let (mut bytes, alt_acts, final_byte) = cursor(final_byte);
-                bytes.push(final_byte);
-                return Some((bytes, alt_acts));
-            }
-            sym::KP_INSERT => keypad(b'p', b'0'),
+            sym::FIND => numbered(1, mods),
+            // With NumLock off the keypad's Insert and Delete are the
+            // editing keys, as xterm sends them.
+            sym::INSERT | sym::KP_INSERT => numbered(2, mods),
+            sym::DELETE | sym::KP_DELETE => numbered(3, mods),
+            sym::SELECT => numbered(4, mods),
+            sym::PAGE_UP | sym::KP_PAGE_UP => numbered(5, mods),
+            sym::PAGE_DOWN | sym::KP_PAGE_DOWN => numbered(6, mods),
+            sym::UP | sym::KP_UP => lettered(b'A', ckm, mods),
+            sym::DOWN | sym::KP_DOWN => lettered(b'B', ckm, mods),
+            sym::RIGHT | sym::KP_RIGHT => lettered(b'C', ckm, mods),
+            sym::LEFT | sym::KP_LEFT => lettered(b'D', ckm, mods),
+            sym::HOME | sym::KP_HOME => lettered(b'H', ckm, mods),
+            sym::END | sym::KP_END => lettered(b'F', ckm, mods),
+            sym::KP_BEGIN => lettered(b'E', ckm, mods),
             sym::KP_0..=sym::KP_9 => {
                 let digit = u8::try_from(keysym.saturating_sub(sym::KP_0)).unwrap_or(0);
                 keypad(b'p'.saturating_add(digit), b'0'.saturating_add(digit))
             }
-            sym::KP_SUBTRACT => keypad(b'm', b'-'),
-            sym::KP_SEPARATOR => keypad(b'l', b','),
-            sym::KP_DELETE | sym::KP_DECIMAL => keypad(b'n', b'.'),
-            sym::KP_EQUAL | sym::KP_DIVIDE => keypad(b'j', b'/'),
-            sym::KP_MULTIPLY => keypad(b'o', b'*'),
+            sym::KP_MULTIPLY => keypad(b'j', b'*'),
             sym::KP_ADD => keypad(b'k', b'+'),
-            sym::HOME | sym::KP_HOME if self.modes.cursor_keys() => b"\x1bOH".to_vec(),
-            sym::HOME | sym::KP_HOME => b"\x1b[H".to_vec(),
-            sym::END | sym::KP_END if self.modes.cursor_keys() => b"\x1bOF".to_vec(),
-            sym::END | sym::KP_END => b"\x1b[F".to_vec(),
-            sym::KP_SPACE => vec![b' '],
-            sym::KP_F1..=sym::KP_F4 => function_key(
-                keysym.saturating_sub(sym::KP_F1),
-                mods.contains(Mods::SHIFT),
-            ),
+            sym::KP_SEPARATOR => keypad(b'l', b','),
+            sym::KP_SUBTRACT => keypad(b'm', b'-'),
+            sym::KP_DECIMAL => keypad(b'n', b'.'),
+            sym::KP_DIVIDE => keypad(b'o', b'/'),
+            sym::KP_EQUAL => keypad(b'X', b'='),
+            // PF1 to PF4 are SS3 keys in either keypad mode.
+            sym::KP_F1..=sym::KP_F4 => {
+                let n = u8::try_from(keysym.saturating_sub(sym::KP_F1)).unwrap_or(0);
+                keypad_application(b'P'.saturating_add(n), mods)
+            }
             sym::F1..=sym::F20 => {
-                function_key(keysym.saturating_sub(sym::F1), mods.contains(Mods::SHIFT))
+                let n = keysym.saturating_sub(sym::F1);
+                match function_code(n) {
+                    Some(code) => numbered(code, mods),
+                    None => {
+                        let letter = b'P'.saturating_add(u8::try_from(n).unwrap_or(0));
+                        lettered(letter, true, mods)
+                    }
+                }
             }
             _ => {
-                let mut text = Vec::with_capacity(4);
-                self.push_char(unicode?, &mut text);
-                text
+                let bytes = match keysym {
+                    sym::BACKSPACE if self.host.backspace_delete => vec![0x7f],
+                    sym::BACKSPACE => vec![0x08],
+                    sym::TAB => vec![0x09],
+                    sym::LINEFEED => vec![0x0a],
+                    sym::CLEAR => vec![0x0b],
+                    sym::SYS_REQ => vec![0x15],
+                    sym::ESCAPE => vec![0x1b],
+                    sym::RETURN if self.modes.newline() => b"\r\n".to_vec(),
+                    sym::RETURN => vec![0x0d],
+                    _ => {
+                        let mut text = Vec::with_capacity(4);
+                        self.push_char(unicode?, &mut text);
+                        text
+                    }
+                };
+                return Some((bytes, true));
             }
         };
-        Some((bytes, true))
+        Some((bytes, false))
     }
 
     /// Appends a typed or pasted character in the input's encoding: one

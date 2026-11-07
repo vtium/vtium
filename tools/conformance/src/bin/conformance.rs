@@ -1,6 +1,9 @@
-//! Tier 1 for vtium: the corpus replayed
-//! through vtium and judged against its goldens; and the capability
+//! Tier 1 for vtium: the corpus and the behaviour scenarios replayed
+//! through vtium and judged against their goldens; and the capability
 //! probes run through vtium-replay. The crate's README gives the commands.
+
+#[path = "conformance/scenarios.rs"]
+mod scenarios;
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -10,6 +13,7 @@ use vtium_conformance::generate::{self, Inputs};
 use vtium_conformance::interface;
 use vtium_conformance::probes::{self, Outcome, Replay};
 use vtium_conformance::runner::{self, Corpus, VIEWS, Verdict, chunking, own};
+use vtium_conformance::scenario::run::Runner;
 use vtium_conformance::spec::Spec;
 
 const TOOL: &str = env!("CARGO_MANIFEST_DIR");
@@ -44,7 +48,11 @@ const USAGE: &str = "usage: conformance [run] [--seed N] [--rounds N]
        conformance generate DIR
        conformance interface
        conformance probes
-       conformance issues";
+       conformance issues
+       conformance scenarios [NAME...]
+       conformance scenarios --write [--replace] NAME...
+       conformance scenarios --play NAME...
+       conformance scenarios --bin NAME DIR";
 
 struct Options {
     seed: u64,
@@ -148,12 +156,18 @@ fn check_interface(spec: &Spec, corpus: &Corpus) -> Result<bool, String> {
         &[corpus, &own],
         &vtium_conformance::describe(),
     );
-    let faults = check.faults();
+    let mut faults = check.faults();
+    let all = scenarios::all()?;
+    faults.extend(scenarios::faults(spec, &all));
     for fault in &faults {
         println!("FAIL replay-interface: {fault}");
     }
     if faults.is_empty() {
-        println!("{}", check.summary());
+        println!(
+            "{}; {} scenarios' assertions and transcripts parse",
+            check.summary(),
+            all.len()
+        );
     }
     Ok(faults.is_empty())
 }
@@ -264,7 +278,35 @@ fn run(o: &Options) -> Result<bool, String> {
         }
         println!("chunking {name}: {chunked} cases unchanged");
     }
+    let all = scenarios::all()?;
+    let listed = scenarios::provisional(&all)?;
+    let runner = runner(&spec)?;
+    ok &= scenarios::judge(&runner, &all, &listed, o.seed, o.rounds);
     Ok(ok)
+}
+
+/// vtium-replay's code as the scenarios meet it, with the fixtures in
+/// `fixtures/`.
+fn runner(spec: &Spec) -> Result<Runner<'_>, String> {
+    Runner::new(
+        spec,
+        &vtium_conformance::describe(),
+        Path::new(TOOL).join("fixtures"),
+    )
+}
+
+/// `conformance scenarios ...`, which plays the scenarios through
+/// vtium-replay built with images, the build their transcripts hold.
+fn scenario_command(args: &[String]) -> Result<bool, String> {
+    if !vtium_conformance::command::IMAGES {
+        return Err(
+            "conformance scenarios plays vtium-replay built with images: build with --features images, as make conformance does"
+                .to_owned(),
+        );
+    }
+    let spec = spec()?;
+    let o = options(&[])?;
+    scenarios::command(&runner(&spec)?, args, o.seed, o.rounds)
 }
 
 /// Writes every synthetic case under the directory named, from the
@@ -400,21 +442,25 @@ fn issues() -> Result<bool, String> {
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let result = options(&args).and_then(|mut o| {
-        let command = if o.rest.is_empty() {
-            "run".to_owned()
-        } else {
-            o.rest.remove(0)
-        };
-        match command.as_str() {
-            "run" if o.rest.is_empty() => run(&o),
-            "generate" => write_cases(&o),
-            "interface" if o.rest.is_empty() => interface(),
-            "probes" if o.rest.is_empty() => probes(),
-            "issues" if o.rest.is_empty() => issues(),
-            _ => Err(USAGE.to_owned()),
-        }
-    });
+    let result = if args.first().is_some_and(|a| a == "scenarios") {
+        scenario_command(args.get(1..).unwrap_or_default())
+    } else {
+        options(&args).and_then(|mut o| {
+            let command = if o.rest.is_empty() {
+                "run".to_owned()
+            } else {
+                o.rest.remove(0)
+            };
+            match command.as_str() {
+                "run" if o.rest.is_empty() => run(&o),
+                "generate" => write_cases(&o),
+                "interface" if o.rest.is_empty() => interface(),
+                "probes" if o.rest.is_empty() => probes(),
+                "issues" if o.rest.is_empty() => issues(),
+                _ => Err(USAGE.to_owned()),
+            }
+        })
+    };
     match result {
         Ok(true) => ExitCode::SUCCESS,
         Ok(false) => ExitCode::from(1),
