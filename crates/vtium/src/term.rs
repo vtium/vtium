@@ -34,7 +34,7 @@ use crate::config::keys::{OVERLAY_COLORS, Scheme};
 use crate::font::DisplayFace;
 use crate::head::DrawHook;
 use crate::pointer::Pointer;
-use crate::sync::{Action, Coalesce, Sync, Wait};
+use crate::sync::{Action, Coalesce, Draw, Sync, Wait};
 use crate::video::Video;
 
 /// The clock the terminal reads while it parses: the loop's, or a test's.
@@ -972,6 +972,62 @@ impl View {
         }
     }
 
+    /// Whether the loop's pass at `now` draws this view of `term` on
+    /// `video`. `now_all`: something asks every display of the head to
+    /// draw at once, as a key, the pointer or a frame's end does;
+    /// `holding`: a hold keeps the last frame.
+    ///
+    /// A draw that cannot wait goes ahead at once: the display lost its
+    /// picture, a hold that owed a draw ended, the display takes a frame
+    /// that waited for it, or the output was short. With three buffers it
+    /// composes into the third while a flip is in flight. A draw the
+    /// coalescing paces during a flood goes ahead at its deadline, unless
+    /// the display's flip is in flight: then it waits for the flip to end
+    /// and composes nothing (ADR-1401 D2). A frame composed during the
+    /// flip could not reach the screen before the flip ends, and during a
+    /// flood the next change would draw over it before it got there. With
+    /// two buffers the display lends no buffer while it flips, so a paced
+    /// draw waited for the flip already.
+    pub fn draws(
+        &mut self,
+        term: &Term,
+        video: &dyn Video,
+        now_all: bool,
+        holding: bool,
+        now: Instant,
+    ) -> bool {
+        let due = self.wait.due().is_some_and(|d| d <= now);
+        if due {
+            self.wait.end();
+        }
+        let owed = self.owed && !holding;
+        // A pending view waits for its display to take a frame, so a
+        // display that lends no token never turns the loop.
+        if now_all || self.lost || owed || (self.pending && video.ready_for_frame(self.id)) {
+            return true;
+        }
+        let mut paced = due || self.wait.for_flip();
+        if term.changed {
+            match term
+                .coalesce
+                .decide(holding, &mut self.wait, term.unparsed, now, self.refresh)
+            {
+                Draw::Now => return true,
+                Draw::Paced => paced = true,
+                Draw::Later(_) => {}
+            }
+        }
+        if !paced {
+            return false;
+        }
+        if video.is_flipping(self.id) {
+            self.wait.wait_for_flip();
+            return false;
+        }
+        self.wait.end();
+        true
+    }
+
     /// The prepare step: takes a frame of `term` for the render thread,
     /// with the token of the display's buffer it is drawn into, unless a
     /// hold keeps the last frame, the display takes no frame now or a frame
@@ -1033,6 +1089,7 @@ impl View {
             self.drop_kept();
         }
         self.pending = false;
+        self.wait.taken();
         self.owed = false;
         self.lost = false;
         self.sent = Some(clock());
@@ -2332,24 +2389,228 @@ mod tests {
     }
 
     /// One turn of the loop after the child's output in `parts`: each part
-    /// is parsed as the pty reads it, then the display draws when the
-    /// loop's draw rule asks it to (`draw_head` in app.rs, with output too
-    /// short for coalescing to wait on): when the output changed the
-    /// screen, or when a draw waits for the display and the display takes a
-    /// frame. The turn then ends as the loop's does.
+    /// is parsed as the pty reads it, then the display draws when
+    /// [`View::draws`] asks it to, as `draw_head` in app.rs does, at the
+    /// time `term`'s clock reads. The turn then ends as the loop's does.
     fn turn(term: &mut Term, view: &mut View, video: &mut dyn Video, parts: &[&[u8]]) {
+        pass(term, view, video, parts, false);
+    }
+
+    /// [`turn`], with `now_all` as a key or the pointer asks every display
+    /// to draw at once.
+    fn pass(
+        term: &mut Term,
+        view: &mut View,
+        video: &mut dyn Video,
+        parts: &[&[u8]],
+        now_all: bool,
+    ) {
         for part in parts {
             assert_eq!(term.parse(part, &mut |_| {}), part.len());
         }
+        let clock = Rc::clone(&term.clock);
         // As the loop draws a display: a frame the display kept goes out
         // when no newer frame composes.
-        if term.changed || view.lost || (view.pending && video.ready_for_frame(view.id)) {
-            draw(term, view, video, None);
+        if view.draws(term, &*video, now_all, false, clock()) {
+            view.draw(term, video, &DrawState::default(), &*clock);
         } else {
             view.send_kept(video);
         }
         term.coalesce.turn_end();
         term.changed = false;
+    }
+
+    /// A clock the test moves by hand, in milliseconds from its origin.
+    struct Hand(Rc<std::cell::Cell<Instant>>, Instant);
+
+    impl Hand {
+        fn new() -> Hand {
+            let t0 = Instant::now();
+            Hand(Rc::new(std::cell::Cell::new(t0)), t0)
+        }
+
+        fn clock(&self) -> Clock {
+            let at = Rc::clone(&self.0);
+            Rc::new(move || at.get())
+        }
+
+        /// Sets the clock to `ms` milliseconds from its origin.
+        fn at(&self, ms: u64) {
+            self.0.set(self.1 + Duration::from_millis(ms));
+        }
+    }
+
+    /// [`view`], with `term` reading `hand`'s clock and the display
+    /// refreshing every 16 ms.
+    fn view_at(hand: &Hand) -> (Term, View) {
+        let (mut term, mut view) = view();
+        term.clock = hand.clock();
+        view.refresh = Some(Duration::from_millis(16));
+        (term, view)
+    }
+
+    /// A flood's worth of output, [`COALESCE_BYTES`] of `c`, which fills
+    /// the grid with it.
+    fn flood(c: u8) -> Vec<u8> {
+        vec![c; crate::sync::COALESCE_BYTES]
+    }
+
+    /// A flood that begins while frame A's flip is in flight, with `n`
+    /// buffers: A goes out at 0 ms, and the flood writes a screenful every
+    /// 4 ms from 4 ms, so its pacing deadline comes at 16 ms, a refresh
+    /// after A's present began, and the turn then draws as the loop's
+    /// timer asks it to.
+    fn flood_during_a_flip(n: usize) -> (Hand, Term, View, Flip) {
+        let hand = Hand::new();
+        let (mut term, mut view) = view_at(&hand);
+        let mut video = Flip::with(n);
+        turn(&mut term, &mut view, &mut video, &[b"A"]);
+        assert_eq!((video.composed, video.sent), (1, 1), "{n} buffers");
+        video.flipping = true;
+        for (ms, c) in [(4, b'b'), (8, b'c'), (12, b'd')] {
+            hand.at(ms);
+            turn(&mut term, &mut view, &mut video, &[&flood(c)]);
+        }
+        assert_eq!(
+            view.wait.due(),
+            Some(hand.1 + Duration::from_millis(16)),
+            "{n} buffers: the deadline"
+        );
+        hand.at(16);
+        turn(&mut term, &mut view, &mut video, &[]);
+        (hand, term, view, video)
+    }
+
+    // ADR-1401 D2: a draw the coalescing paces during a flood waits for the
+    // flip in flight to end, and composes then: none while the flip is
+    // pending, at the deadline or at the flood's turns after it, and one
+    // when the flip ends, which is sent at once. With two buffers the
+    // display lends no buffer while it flips, so the counts are the same;
+    // with three the third buffer is free, and the draw waits all the same.
+    #[test]
+    fn a_paced_draw_waits_for_the_flip_in_flight() {
+        for n in [2, 3] {
+            let (hand, mut term, mut view, mut video) = flood_during_a_flip(n);
+            for (ms, c) in [(16, None), (18, Some(b'e')), (20, Some(b'f'))] {
+                if let Some(c) = c {
+                    hand.at(ms);
+                    turn(&mut term, &mut view, &mut video, &[&flood(c)]);
+                }
+                assert_eq!(
+                    (video.composed, video.sent),
+                    (1, 1),
+                    "{n} buffers at {ms} ms: nothing composes while the flip is pending"
+                );
+                assert!(
+                    view.wait.for_flip(),
+                    "{n} buffers at {ms} ms: the draw waits"
+                );
+                assert_eq!(
+                    view.wait.due(),
+                    None,
+                    "{n} buffers at {ms} ms: not for a time"
+                );
+            }
+            hand.at(24);
+            video.flipping = false;
+            turn(&mut term, &mut view, &mut video, &[]);
+            assert_eq!(
+                (video.composed, video.sent),
+                (2, 2),
+                "{n} buffers: one frame when the flip ends, sent once"
+            );
+            assert!(!view.wait.for_flip(), "{n} buffers");
+            assert!(video.shows((video.back + n - 1) % n, 0), "{n} buffers: f");
+            turn(&mut term, &mut view, &mut video, &[]);
+            assert_eq!((video.composed, video.sent), (2, 2), "{n} buffers");
+        }
+    }
+
+    // ADR-1401 D2: with three buffers a draw that cannot wait composes into
+    // the third buffer while a flip is in flight, though a paced draw waits
+    // for that flip: a key's echo, as a short write, and a key itself.
+    // Either frame carries the flood too, and goes out when the flip ends.
+    #[test]
+    fn a_draw_at_once_composes_ahead_while_a_paced_draw_waits() {
+        for now_all in [false, true] {
+            let (hand, mut term, mut view, mut video) = flood_during_a_flip(3);
+            assert_eq!((video.composed, video.sent), (1, 1));
+            assert!(view.wait.for_flip());
+            hand.at(18);
+            let echo: &[&[u8]] = if now_all { &[] } else { &[b"\x1b[1;1Hk"] };
+            pass(&mut term, &mut view, &mut video, echo, now_all);
+            assert_eq!(
+                (video.composed, video.sent),
+                (2, 1),
+                "composed at once (key {now_all}), kept for the flip"
+            );
+            assert!(!view.wait.for_flip(), "the frame carries the flood");
+            hand.at(24);
+            video.flipping = false;
+            turn(&mut term, &mut view, &mut video, &[]);
+            assert_eq!((video.composed, video.sent), (2, 2), "sent as it is");
+        }
+    }
+
+    /// The vertical blanks from a change to the vblank whose flip puts it
+    /// on screen, with three buffers and a refresh of 16 ms. Frame A goes
+    /// out at 10 ms, and its flip is in flight until the vblank at 32 ms,
+    /// as a flip that just missed the vblank at 16 ms is; the flip of each
+    /// frame sent later ends at the next vblank. A flood of spaces runs
+    /// every 2 ms from 12 ms, so its pacing deadline, a refresh after A's
+    /// present began, comes at 26 ms, while A's flip is in flight. At
+    /// `change` ms, `parts` writes `X` in the grid's second cell.
+    fn flips_to_screen(change: u64, parts: &[&[u8]]) -> u32 {
+        let hand = Hand::new();
+        let (mut term, mut view) = view_at(&hand);
+        let mut video = Flip::with(3);
+        hand.at(10);
+        turn(&mut term, &mut view, &mut video, &[b"A"]);
+        video.flipping = true;
+        let mut vblank = 32;
+        let mut flips = 0;
+        for ms in 11..200 {
+            hand.at(ms);
+            let sent = video.sent;
+            if ms == vblank {
+                vblank += 16;
+                if video.flipping {
+                    video.flipping = false;
+                    if ms > change {
+                        flips += 1;
+                        if video.shows((video.back + 2) % 3, 1) {
+                            return flips;
+                        }
+                    }
+                }
+                // The loop's turn at the flip's event.
+                turn(&mut term, &mut view, &mut video, &[]);
+            } else if ms == change {
+                turn(&mut term, &mut view, &mut video, parts);
+            } else if ms < change && ms % 2 == 0 {
+                turn(&mut term, &mut view, &mut video, &[&flood(b' ')]);
+            } else if view.wait.due().is_some_and(|d| d <= hand.0.get()) {
+                // The turn at the pacing deadline.
+                turn(&mut term, &mut view, &mut video, &[]);
+            }
+            if video.sent > sent {
+                video.flipping = true;
+            }
+        }
+        panic!("the change never reached the screen")
+    }
+
+    // ADR-1401 D2: waiting for the flip costs no latency. A change made
+    // at 30 ms, while A's flip is in flight, reaches the screen at the
+    // second vblank after it: the first ends A's flip, and the second ends
+    // the flip of the frame that carries the change. That holds for a
+    // paced draw, the flood's, and for a draw at once, a key's echo.
+    #[test]
+    fn a_paced_draw_reaches_the_screen_as_soon_as_one_at_once() {
+        let mut flood = flood(b' ');
+        flood.extend(b"\x1b[1;2HX");
+        assert_eq!(flips_to_screen(30, &[&flood]), 2, "paced");
+        assert_eq!(flips_to_screen(30, &[b"\x1b[1;2HX"]), 2, "at once");
     }
 
     /// A sixel picture of 32 by 12 pixels, its two bands each drawn over
