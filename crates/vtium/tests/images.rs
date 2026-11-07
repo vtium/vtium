@@ -905,6 +905,42 @@ fn a_request_pauses_the_console_until_its_helper_replies() {
     assert_eq!((asked.borrow().started, asked.borrow().stopped), (1, 0));
 }
 
+/// ADR-1005 D10: the reset key resets the console while its request to the
+/// helper is out. The helper stops at once and the pty, paused for the
+/// request, takes the program's output again in the next turns, well
+/// inside the 2,000 ms the request's timer would take.
+#[test]
+fn the_reset_key_ends_the_request_out_and_the_console_reads_on() {
+    let hosts = Hosts::default();
+    let script = "stty -echo; printf '\\033[?25l\\033_Ga=t,t=f,f=100,i=7,q=2;L3gucG5n\\033\\\\after\\n'; read x";
+    let mut s = Seat::boot(
+        &[],
+        None,
+        Memory::new(320, 160, "mem"),
+        script,
+        Some(&hosts),
+    );
+    let asked = s.host(&hosts, 0);
+    assert!(
+        s.until(|_| asked.borrow().sent.len() == 1),
+        "a request was sent"
+    );
+    for _ in 0..5 {
+        s.turn();
+    }
+    assert!(!s.shows("after"), "{:?}", s.app.screen_text());
+    s.app
+        .input_event(chord(Mods::CTRL.union(Mods::SHIFT), 0xffff), s.at());
+    assert_eq!(asked.borrow().stops, 1, "the helper stops with the reset");
+    let mut turns = 0;
+    while !s.shows("after") && turns < 20 {
+        s.turn();
+        turns += 1;
+    }
+    assert!(s.shows("after"), "{:?}", s.app.screen_text());
+    assert_eq!(s.placements(), 0);
+}
+
 /// The child sends a kitty file, prints the terminal's answer, sends a
 /// second one, prints its answer, then `after`.
 fn two_kitty_files() -> String {

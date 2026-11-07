@@ -1343,7 +1343,7 @@ fn a_combination_bound_twice_is_reported_and_goes_to_the_first_key() {
             .map(ToString::to_string)
             .collect::<Vec<_>>(),
         [
-            "/etc/vtium/vtium.conf:1: <Alt>r is bound by both key-paste and key-reset. vtium checks key-paste first, so key-paste takes it"
+            "/etc/vtium/vtium.conf:1: <Alt>r is bound by both key-paste and key-reset. key-paste keeps it, because vtium checks key-paste first. To use it for key-reset, remove it from key-paste, or give key-reset another combination"
         ]
     );
     assert_eq!(written(&l, &KEY_PASTE), ["<Alt>r"]);
@@ -1364,8 +1364,8 @@ fn a_binding_of_a_key_that_switches_the_vt_is_reported_and_dropped() {
             .map(ToString::to_string)
             .collect::<Vec<_>>(),
         [
-            "/etc/vtium/vtium.conf:2: key-reset: <Ctrl><Alt>F2 switches the VT, and no setting can bind it, ignored",
-            "/etc/vtium/vtium.conf:2: key-reset: XF86Switch_VT_3 switches the VT, and no setting can bind it, ignored",
+            "/etc/vtium/vtium.conf:2: key-reset: <Ctrl><Alt>F2 switches the VT, so vtium ignores this combination. No setting can bind Ctrl+Alt+F1 to F12 or the XF86Switch_VT keys",
+            "/etc/vtium/vtium.conf:2: key-reset: XF86Switch_VT_3 switches the VT, so vtium ignores this combination. No setting can bind Ctrl+Alt+F1 to F12 or the XF86Switch_VT keys",
         ]
     );
     assert_eq!(written(&l, &KEY_RESET), ["<Alt>r"]);

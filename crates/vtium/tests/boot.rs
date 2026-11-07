@@ -3134,7 +3134,7 @@ fn a_combination_bound_twice_goes_to_the_first_key_in_the_key_order() {
             script,
         ],
         &[
-            "argument 2: <Shift>Up is bound by both key-paste and key-scroll-up. vtium checks key-paste first, so key-paste takes it",
+            "argument 2: <Shift>Up is bound by both key-paste and key-scroll-up. key-paste keeps it, because vtium checks key-paste first. To use it for key-scroll-up, remove it from key-paste, or give key-scroll-up another combination",
         ],
     );
     assert!(h.until(BOUND, |a| shows(a, "ready")));
@@ -3155,7 +3155,7 @@ fn a_combination_bound_twice_goes_to_the_first_key_in_the_key_order() {
             MAIN_THEN_ALT,
         ],
         &[
-            "argument 2: <Shift>Up is bound by both key-scroll-up and key-zoom-in. vtium checks key-scroll-up first, so key-scroll-up takes it",
+            "argument 2: <Shift>Up is bound by both key-scroll-up and key-zoom-in. key-scroll-up keeps it, because vtium checks key-scroll-up first. To use it for key-zoom-in, remove it from key-scroll-up, or give key-zoom-in another combination",
         ],
     );
     assert!(h.until(BOUND, |a| a.screen_text().iter().any(|l| l == "ready")));
@@ -3193,6 +3193,36 @@ fn the_reset_key_resets_the_console_and_its_keyboard_modes() {
     assert!(
         h.until(BOUND, |a| shows(a, "[EE[A]")),
         "{:?}",
+        h.app.screen_text()
+    );
+}
+
+/// ADR-1005 D10: a held Ctrl+Shift+Delete resets the console once, at its
+/// press; its repeats reset nothing more.
+#[test]
+fn a_held_reset_key_resets_once() {
+    let script = "stty raw -echo; printf 'one'; head -c 1 >/dev/null; printf 'two'; read x";
+    let mut h = Harness::new(&["--login", "--", "/bin/sh", "-c", script]);
+    assert!(h.until(BOUND, |a| shows(a, "one")));
+    let reset = |repeat| {
+        InputEvent::Key(KeyEvent {
+            keycode: 0,
+            ascii: 0,
+            mods: Mods::CTRL.union(Mods::SHIFT),
+            keysyms: vec![0xffff],
+            codepoints: vec![None],
+            repeat,
+        })
+    };
+    h.app.input_event(reset(false), h.at());
+    assert!(!shows(&h.app, "one"), "the press resets");
+    h.type_str("x");
+    assert!(h.until(BOUND, |a| shows(a, "two")));
+    h.app.input_event(reset(true), h.at());
+    h.app.input_event(reset(true), h.at());
+    assert!(
+        shows(&h.app, "two"),
+        "a repeat resets nothing: {:?}",
         h.app.screen_text()
     );
 }

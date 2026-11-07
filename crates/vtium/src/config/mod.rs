@@ -323,11 +323,11 @@ impl fmt::Display for Problem {
             }
             Problem::SwitchesVt { key, chord } => write!(
                 f,
-                "{key}: {chord} switches the VT, and no setting can bind it, ignored"
+                "{key}: {chord} switches the VT, so vtium ignores this combination. No setting can bind Ctrl+Alt+F1 to F12 or the XF86Switch_VT keys"
             ),
             Problem::BoundTwice { chord, first, then } => write!(
                 f,
-                "{chord} is bound by both {first} and {then}. vtium checks {first} first, so {first} takes it"
+                "{chord} is bound by both {first} and {then}. {first} keeps it, because vtium checks {first} first. To use it for {then}, remove it from {first}, or give {then} another combination"
             ),
             Problem::Renamed { old, new } => write!(
                 f,

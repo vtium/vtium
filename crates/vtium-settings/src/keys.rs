@@ -1717,7 +1717,7 @@ pub const KEY_REBOOT: Key = Key {
     reader: "vtium",
     what: "The key that reboots the machine.\n\n\
            When `/proc/sys/kernel/ctrl-alt-del` is 0, vtium asks init to reboot, as Ctrl+Alt+Del does, so the services stop first; otherwise the kernel restarts at once. When unset, no key reboots.",
-    cite: "kmscon's `key-reboot` key",
+    cite: "the `grab-reboot` key that kmscon had",
 };
 
 pub const KEY_POWER_OFF: Key = Key {
