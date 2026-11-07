@@ -49,8 +49,10 @@ fn screen(t: &Terminal) -> Vec<String> {
 // parameter is SCOSC; while it is set, `CSI Pl ; Pr s` sets the margins and
 // homes the cursor, `CSI s` sets them to the whole width, and margins with
 // fewer than two columns are ignored, as xterm ignores them. Resetting mode
-// 69 returns the margins to the whole width and leaves the cursor; DECSTR
-// resets the mode (VT510 manual, DECSTR) and DECRQM reports it.
+// 69 returns the margins to the whole width and leaves the cursor, and
+// DECRQM reports the mode. DECSTR keeps the mode and the margins, since
+// the VT510 manual's DECSTR table leaves out DECLRMM and DECSLRM; RIS
+// resets the mode and returns the margins to the whole width.
 // covers: DEC-69, ctl.decslrm
 #[test]
 fn mode_69_makes_csi_s_set_margins_and_resetting_it_clears_them() {
@@ -86,10 +88,14 @@ fn mode_69_makes_csi_s_set_margins_and_resetting_it_clears_them() {
     t.input(b"\x1b[3;7s");
     assert_eq!(t.screen().lr_margins(), (0, 9));
     assert_eq!(t.screen().cursor(), (4, 3));
-    // DECSTR resets mode 69 and the margins.
+    // DECSTR keeps mode 69 and the margins, and RIS resets them.
     t.input(b"\x1b[?69h\x1b[3;7s\x1b[!p");
-    assert!(!t.screen().lr_margin_mode());
-    assert_eq!(t.screen().lr_margins(), (0, 9));
+    assert!(t.screen().lr_margin_mode(), "DECSTR keeps mode 69");
+    assert_eq!(t.screen().lr_margins(), (2, 6), "DECSTR keeps the margins");
+    assert_eq!(reply(&mut t, b"\x1b[?69$p"), b"\x1b[?69;1$y");
+    t.input(b"\x1bc");
+    assert!(!t.screen().lr_margin_mode(), "RIS resets mode 69");
+    assert_eq!(t.screen().lr_margins(), (0, 9), "RIS clears the margins");
 }
 
 // ctlseqs, DECRQSS: `s` reports DECSLRM's margins, the whole width while
