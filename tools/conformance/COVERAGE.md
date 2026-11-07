@@ -7,7 +7,7 @@ Each capability the capability probes judge, the ADR-1000 rows its probe covers,
 | Capability | Status | ADR-1000 rows | Tests | Gap |
 |---|---|---|---|---|
 | `sgr-colon-subparams` | works | `sgr.extended-color` | `crates/vtium-term/tests/sgr.rs::extended_colors_take_both_forms` |  |
-| `sgr-underline-styles` | works | `sgr.underline-style` | `crates/vtium-term/tests/sgr.rs::underline_styles_take_a_sub_parameter` |  |
+| `sgr-underline-styles` | works | `sgr.underline-style` | `crates/vtium-render/tests/gpu_decorations.rs::every_decoration_draws_on_the_gpu_path_as_on_the_cpu_path`<br>`crates/vtium-term/tests/sgr.rs::underline_styles_take_a_sub_parameter` |  |
 | `sgr-underline-colour` | works | `sgr.underline-color` | `crates/vtium-term/tests/sgr.rs::sgr_58_and_59_set_the_underline_color` |  |
 | `sgr-strike` | works | `sgr.strike` | `crates/vtium-term/tests/sgr.rs::strike_is_set_and_cleared` |  |
 | `sgr-blink` | works | `sgr.blink` | `crates/vtium-render/tests/blink.rs::blinking_text_hides_as_blank_cells_but_under_the_cursor`<br>`crates/vtium-term/tests/sgr.rs::blink_is_set_and_cleared` |  |
