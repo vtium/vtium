@@ -338,6 +338,26 @@ impl Terminal {
         taken
     }
 
+    /// The host resets the terminal as RIS does: the screen and the
+    /// scrollback cleared, every mode, the pen and the character sets at
+    /// their start, and the kitty keyboard protocol's flag stacks of both
+    /// screens emptied (ADR-1005 D10, the reset key). The replies already
+    /// queued for the host are dropped, since the program that asked for
+    /// them is being reset. A request out to the image helper is
+    /// abandoned, as [`abandon_image_request`](Self::abandon_image_request)
+    /// abandons it, so the terminal takes the program's output again at
+    /// once; the host drops the helper's answer. The parser returns to its
+    /// ground state, so a sequence the program had half written is
+    /// dropped, as the ESC that starts RIS would drop it.
+    pub fn reset(&mut self) {
+        #[cfg(feature = "images")]
+        self.abandon_image_request();
+        self.parser = Parser::new();
+        self.state.hard_reset();
+        self.state.out.clear();
+        self.state.screen.refresh_hover();
+    }
+
     pub fn screen(&self) -> &Screen {
         &self.state.screen
     }

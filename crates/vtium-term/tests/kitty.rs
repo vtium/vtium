@@ -264,6 +264,21 @@ fn a_failing_helper_is_noted_and_an_abandoned_request_is_not() {
     );
 }
 
+// ADR-1005, D10: the host's reset abandons a request out to the image
+// helper, as the host's abandon does, so the terminal takes the program's
+// output again at once; nothing is answered or noted.
+#[test]
+fn a_host_reset_abandons_the_request_out() {
+    let mut t = requested();
+    assert_eq!(t.input(b"x"), 0, "the request holds the input");
+    t.reset();
+    assert!(!t.image_request_pending());
+    assert_eq!(t.take_replies(), b"");
+    assert_eq!(kitty_notes(&mut t), []);
+    assert_eq!(t.screen().images().bytes(), 0);
+    assert_eq!(t.input(b"x"), 1, "the terminal takes input again");
+}
+
 // A picture past `max-graphic-size`, or a box past `BOX_CELLS_MAX`, is
 // refused with EINVAL, which a program with `q=2` never hears, so the
 // handler notes the bound the operator can raise.

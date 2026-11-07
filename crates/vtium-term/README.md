@@ -223,6 +223,7 @@ The kitty keyboard protocol lets a program ask the terminal to send every key in
 
 - **DECSTR resets the mouse modes and mode 1004, as RIS does;** xterm resets them on RIS only. The maintainer's decision, recorded in each row's spec column. Test: `decstr_returns_the_modes_to_their_defaults`.
 - **RIS clears what XTSAVE saved and returns XTSHIFTESCAPE to 0, and DECSTR keeps both.** xterm keeps both through RIS and DECSTR (`ReallyReset` in xterm's `charproc.c` touches neither); vtium splits them as Ghostty does, the maintainer's ruling recorded in ADR-1000. The reason: RIS returns the terminal to its initial state, which holds no saved modes. Tests: `decstr_keeps_what_xtsave_saved_and_ris_clears_it`, `xtshiftescape_says_whether_shift_reaches_the_mouse_reports`.
+- **`Terminal::reset`, the host's reset, leaves the terminal as RIS does, and drops what the program left in flight.** vtium's reset key calls it (ADR-1005 D10). It also drops the replies queued for the host, since the program that asked for them is being reset, abandons a request out to the image helper as `Terminal::abandon_image_request` does, so the terminal takes output again at once, and returns the parser to its ground state, so a sequence the program had half written is dropped as the ESC of RIS would drop it. Tests: `a_host_reset_leaves_the_terminal_as_ris_does`, `a_host_reset_abandons_the_request_out`.
 
 ### The scrollback
 
