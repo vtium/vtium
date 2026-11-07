@@ -89,6 +89,13 @@ pub trait Video: Any {
     fn swap(&mut self, token: Token, damage: &[Rect]) -> Result<Swapped, SwapError>;
     /// Takes a token back with nothing drawn into it.
     fn give_back(&mut self, token: Token);
+    /// Presents what the display keeps with no new frame: a frame a swap
+    /// refused as busy, or else a cursor change, or else nothing. While
+    /// the flip in flight lasts it is refused as busy again. A device
+    /// that never refuses a swap as busy keeps nothing to send.
+    fn commit(&mut self, _: DisplayId) -> Result<Swapped, SwapError> {
+        Ok(Swapped::Nothing)
+    }
     /// Whether a frame swapped is still on its way to the screen.
     fn is_flipping(&self, id: DisplayId) -> bool;
     /// Whether the display takes a frame now: it would lend a token. A
@@ -223,6 +230,9 @@ impl Video for Drm2d<Card> {
     fn give_back(&mut self, token: Token) {
         Drm2d::give_back(self, token);
     }
+    fn commit(&mut self, id: DisplayId) -> Result<Swapped, SwapError> {
+        Drm2d::commit(self, id)
+    }
     fn is_flipping(&self, id: DisplayId) -> bool {
         Drm2d::is_flipping(self, id)
     }
@@ -353,10 +363,11 @@ mod tests {
     // ADR-1401 D2: the minspec build, vtium's default build, keeps two
     // buffers a DRM display.
     #[cfg(not(any(
+        feature = "bidi",
         feature = "gpu",
         feature = "images",
-        feature = "logind",
-        feature = "bidi"
+        feature = "libseat",
+        feature = "logind"
     )))]
     #[test]
     fn the_minspec_build_keeps_two_buffers() {

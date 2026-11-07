@@ -3776,7 +3776,6 @@ impl App {
                 if let Some(why) = composed.failed_gpu.take() {
                     failed_gpu_frame(view, video.as_ref(), composed.key.1, &why);
                 }
-                let compose = composed.stats.cpu;
                 let shown = view.present(
                     composed,
                     &mut head.console.term,
@@ -3785,7 +3784,7 @@ impl App {
                     &**clock,
                 );
                 if shown.queued {
-                    head.figures.frame(compose, now);
+                    head.figures.frame(shown.compose, now);
                 }
             }
         }
@@ -4068,17 +4067,23 @@ fn draw_head(
         // display that lends no token never turns the loop.
         let wants =
             now_all || view.lost || owed || due || (view.pending && video.ready_for_frame(view.id));
-        if !wants {
-            if !changed {
-                continue;
+        let draws = wants
+            || (changed
+                && term
+                    .coalesce
+                    .decide(holding, &mut view.wait, term.unparsed, now, view.refresh)
+                    .is_none());
+        // A frame the display kept from a busy swap goes out once its flip
+        // ends, unless this pass composes a newer frame, which is drawn
+        // over it and carries it.
+        if !draws || (holding && !view.lost) {
+            let sent = view.send_kept(video.as_mut());
+            if sent.queued {
+                head.figures.frame(sent.compose, now);
             }
-            if term
-                .coalesce
-                .decide(holding, &mut view.wait, term.unparsed, now, view.refresh)
-                .is_some()
-            {
-                continue;
-            }
+        }
+        if !draws {
+            continue;
         }
         if holding && !view.lost {
             if !view.owed
@@ -4119,10 +4124,9 @@ fn draw_head(
             }
             None => {
                 let composed = job.compose(None);
-                let compose = composed.stats.cpu;
                 let shown = view.present(composed, term, video.as_mut(), true, clock);
                 if shown.queued {
-                    head.figures.frame(compose, now);
+                    head.figures.frame(shown.compose, now);
                 }
             }
         }
@@ -4410,6 +4414,14 @@ mod tests {
         /// Stands for the device's file, which closes when the device is
         /// dropped.
         file: Rc<()>,
+        /// A flip is in flight. Like a DRM display with three buffers, it
+        /// lends the third buffer meanwhile, refuses the swap of a frame
+        /// drawn into it as busy, and keeps that frame for a commit.
+        flipping: bool,
+        kept: bool,
+        /// The swaps, each a frame composed, and the frames a commit sent.
+        swaps: u32,
+        committed: u32,
     }
 
     impl Still {
@@ -4428,6 +4440,10 @@ mod tests {
                 powered_down: 0,
                 gone: false,
                 file: Rc::new(()),
+                flipping: false,
+                kept: false,
+                swaps: 0,
+                committed: 0,
             }
         }
 
@@ -4482,18 +4498,37 @@ mod tests {
             })
         }
         fn lend(&mut self, id: DisplayId) -> Option<Token> {
+            if !self.ready_for_frame(id) {
+                return None;
+            }
             let memory: Arc<Memory> = self.pixels.clone();
             Some(Token::new(id, (320, 160), 320 * 4, 0, memory))
         }
         fn give_back(&mut self, _: Token) {}
         fn swap(&mut self, _: Token, _: &[Rect]) -> Result<Swapped, SwapError> {
+            self.swaps = self.swaps.saturating_add(1);
+            if self.flipping {
+                self.kept = true;
+                return Err(SwapError::Busy);
+            }
+            self.kept = false;
+            Ok(Swapped::Frame)
+        }
+        fn commit(&mut self, _: DisplayId) -> Result<Swapped, SwapError> {
+            if self.flipping {
+                return Err(SwapError::Busy);
+            }
+            if !std::mem::take(&mut self.kept) {
+                return Ok(Swapped::Nothing);
+            }
+            self.committed = self.committed.saturating_add(1);
             Ok(Swapped::Frame)
         }
         fn is_flipping(&self, _: DisplayId) -> bool {
-            false
+            self.flipping
         }
         fn ready_for_frame(&self, id: DisplayId) -> bool {
-            !self.is_flipping(id)
+            !self.is_flipping(id) || !self.kept
         }
         fn set_dpms(&mut self, _: DisplayId, dpms: Dpms) -> io::Result<()> {
             if dpms == Dpms::Off {
@@ -5018,7 +5053,6 @@ mod tests {
 
     /// Turns `app` at `t` until its head's render thread has handed back
     /// every frame it composed, so the next turn's frame can be taken.
-    #[cfg(feature = "images")]
     fn settle(lp: &mut Loop<App>, app: &mut App, t: Instant) {
         let back = |app: &App| app.heads.iter().all(|h| h.frames_out() == 0);
         for _ in 0..1000 {
@@ -5954,6 +5988,49 @@ mod tests {
         assert_eq!(*asked.borrow(), std::slice::from_ref(&card));
         assert!(!app.videos.contains_key(&card));
         assert_eq!(*closed.borrow(), [card]);
+    }
+
+    // vtium/vtium#246: with three buffers, a frame the render thread
+    // composed while the display's flip was in flight is refused as busy,
+    // and the display keeps it. The loop sends that frame as it is once the
+    // flip ends, and composes nothing for it.
+    #[test]
+    fn the_loop_sends_a_frame_kept_from_a_busy_swap_once_the_flip_ends() {
+        let (mut lp, mut app) = seat(None, no_fonts());
+        let node = PathBuf::from("/dev/mem0");
+        app.add_video(node.clone(), Box::new(Still::new(&[(1, "A")])));
+        shown(&mut app);
+        let t = Instant::now();
+        settle(&mut lp, &mut app, t);
+        let counts = |app: &mut App| {
+            let still = app
+                .videos
+                .get_mut(&node)
+                .and_then(|v| v.as_any().downcast_mut::<Still>())
+                .unwrap();
+            (still.swaps, still.committed)
+        };
+        let flipping = |app: &mut App, on: bool| {
+            let still = app.videos.get_mut(&node).unwrap();
+            still.as_any().downcast_mut::<Still>().unwrap().flipping = on;
+        };
+        let (swaps, _) = counts(&mut app);
+        assert!(swaps >= 1, "the first frame");
+        flipping(&mut app, true);
+        // as the pty's output does
+        app.term_mut().unwrap().changed = true;
+        app.turn(t);
+        settle(&mut lp, &mut app, t);
+        assert_eq!(counts(&mut app), (swaps + 1, 0), "the frame waits");
+        app.turn(t);
+        assert_eq!(counts(&mut app), (swaps + 1, 0), "while the flip lasts");
+        flipping(&mut app, false);
+        app.turn(t);
+        settle(&mut lp, &mut app, t);
+        assert_eq!(counts(&mut app), (swaps + 1, 1), "sent, not composed again");
+        app.turn(t);
+        settle(&mut lp, &mut app, t);
+        assert_eq!(counts(&mut app), (swaps + 1, 1), "once");
     }
 
     // vtium/vtium#295: a card the kernel removed, which drm2d found gone at

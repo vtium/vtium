@@ -5073,6 +5073,58 @@ fn one_and_three_buffers_lend_while_a_flip_is_pending() {
     }
 }
 
+// vtium/vtium#246: with three buffers, a frame refused as busy keeps its
+// damage for the commit that sends it once the flip ends, and the frame
+// after carries only its own. A frame drawn over the kept one before it is
+// sent carries both damages in one commit, and again the frame after
+// carries only its own.
+#[test]
+fn a_kept_frames_damage_goes_out_once() {
+    let kept_damage = rect(100, 100, 8, 16);
+    let next = rect(5, 5, 1, 1);
+    let later = rect(0, 0, 8, 16);
+    let mut v = kept(Buffers::Three);
+    let plane = primary(&v, A);
+    frame(&mut v, &[DOT]).unwrap();
+    assert!(matches!(
+        frame(&mut v, &[kept_damage]),
+        Err(SwapError::Busy)
+    ));
+    flip(&mut v);
+    assert_eq!(v.commit(DisplayId(A)).unwrap(), Swapped::Frame);
+    let c = v.card().last_commit().unwrap();
+    assert_eq!(
+        clips(&c, plane),
+        Some(vec![kept_damage]),
+        "sent by the commit"
+    );
+    flip(&mut v);
+    frame(&mut v, &[next]).unwrap();
+    let c = v.card().last_commit().unwrap();
+    assert_eq!(clips(&c, plane), Some(vec![next]), "and by no frame after");
+
+    let mut v = kept(Buffers::Three);
+    frame(&mut v, &[DOT]).unwrap();
+    assert!(matches!(
+        frame(&mut v, &[kept_damage]),
+        Err(SwapError::Busy)
+    ));
+    flip(&mut v);
+    assert_eq!(age(&mut v, A), 1, "the buffer lent holds the kept frame");
+    assert_eq!(frame(&mut v, &[next]).unwrap(), Swapped::Frame);
+    let c = v.card().last_commit().unwrap();
+    assert_eq!(
+        clips(&c, plane),
+        Some(vec![kept_damage, next]),
+        "drawn over"
+    );
+    flip(&mut v);
+    assert_eq!(v.commit(DisplayId(A)).unwrap(), Swapped::Nothing);
+    frame(&mut v, &[later]).unwrap();
+    let c = v.card().last_commit().unwrap();
+    assert_eq!(clips(&c, plane), Some(vec![later]));
+}
+
 // A cursor commit while a token is out sends the cursor plane alone: the
 // frame kept from a failed swap goes with the token's own swap, so the
 // buffer the render thread draws into is never put on screen under it.

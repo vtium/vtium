@@ -686,11 +686,38 @@ pub enum Prepared {
     Job(Box<Job>),
 }
 
-/// What [`View::present`] did with a frame composed.
+/// What [`View::present`] did with a frame composed, or
+/// [`View::send_kept`] with a frame the display kept.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Presented {
     /// A frame or a cursor change was queued.
     pub queued: bool,
+    /// The time the frames queued took to compose: the frame, with the
+    /// frame kept from a busy swap that it was drawn over.
+    pub compose: std::time::Duration,
+}
+
+/// What a frame cost to compose, as the render timer counts it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct Cost {
+    cpu: std::time::Duration,
+    damage_px: u64,
+    misses: u32,
+}
+
+impl Cost {
+    /// This cost with `kept`'s, the cost of a frame the display kept from
+    /// a busy swap, which the frame now swapped was drawn over and carries.
+    fn with(self, kept: Option<Cost>) -> Cost {
+        let Some(kept) = kept else {
+            return self;
+        };
+        Cost {
+            cpu: self.cpu.saturating_add(kept.cpu),
+            damage_px: self.damage_px.saturating_add(kept.damage_px),
+            misses: self.misses.saturating_add(kept.misses),
+        }
+    }
 }
 
 /// The interval between a display's refreshes at `refresh_mhz`, `None`
@@ -723,6 +750,11 @@ pub struct View {
     /// A draw waits for the display to take a frame, as after its flip in
     /// flight, or for the frame composing.
     pub pending: bool,
+    /// The cost of the frame the display refused as busy while a flip was
+    /// in flight. The display keeps that frame, and the view sends it once
+    /// the flip ends ([`View::send_kept`]), unless a newer frame is drawn
+    /// over it first and carries it.
+    kept: Option<Cost>,
     /// A draw waits for the hold's end.
     pub owed: bool,
     /// The display lost its picture and draws whole, through a hold.
@@ -787,6 +819,7 @@ impl View {
             since: Age::NEVER,
             wait: Wait::default(),
             pending: false,
+            kept: None,
             owed: false,
             lost: true,
             gpu_failure_logged: false,
@@ -819,6 +852,7 @@ impl View {
         self.arrived.clear();
         self.overlaid.clear();
         self.overlay_sent = None;
+        self.drop_kept();
     }
 
     /// Draws with `font`, asked for at `height`, turned as `config` says,
@@ -860,6 +894,7 @@ impl View {
     pub fn show_another(&mut self) {
         self.since = Age::NEVER;
         self.lost = true;
+        self.drop_kept();
     }
 
     /// Whether the view's renderer draws pictures, which a head needs of
@@ -994,6 +1029,9 @@ impl View {
         });
         let since = std::mem::replace(&mut self.since, *upto);
         let whole = self.lost;
+        if whole {
+            self.drop_kept();
+        }
         self.pending = false;
         self.owed = false;
         self.lost = false;
@@ -1083,16 +1121,30 @@ impl View {
         self.overlaid = overlaid;
         if !awake {
             self.lost = true;
+            self.drop_kept();
             let _ = video.swap(token, &damage);
             return Presented::default();
         }
         self.pointer.after_draw(video, self.id, tip, at);
+        // The frame is drawn over any frame the display kept, and goes out
+        // in its place.
+        let cost = Cost {
+            cpu: stats.cpu,
+            damage_px: stats.damage_px,
+            misses: stats.misses,
+        }
+        .with(self.kept.take());
         let queued = match video.swap(token, &damage) {
             Ok(Swapped::Frame | Swapped::Cursor) => true,
             Ok(Swapped::Nothing) => false,
-            // The display draws the frame after the flip, or whole once it
-            // is ready again.
-            Err(SwapError::Busy | SwapError::Dropped) => {
+            // The display keeps the frame and sends it when the flip ends:
+            // nothing composes it again.
+            Err(SwapError::Busy) => {
+                self.kept = Some(cost);
+                false
+            }
+            // The display draws the frame whole once it is ready again.
+            Err(SwapError::Dropped) => {
                 self.pending = true;
                 false
             }
@@ -1104,13 +1156,70 @@ impl View {
         };
         // the display gave the plane up: the renderer draws the pointer
         self.pending |= self.pointer.after_swap(video, self.id);
-        if let Some(timer) = &mut self.timer {
-            timer.frame(stats.cpu, queued, stats.damage_px, stats.misses);
+        // A frame kept is counted when it goes out.
+        if self.kept.is_none()
+            && let Some(timer) = &mut self.timer
+        {
+            timer.frame(cost.cpu, queued, cost.damage_px, cost.misses);
         }
         let end = clock();
         let start = self.sent.take().unwrap_or(end);
         term.coalesce.drawn(&mut self.wait, start, end, queued);
-        Presented { queued }
+        Presented {
+            queued,
+            compose: if queued { cost.cpu } else { Default::default() },
+        }
+    }
+
+    /// Lets go of the frame the display kept from a busy swap, which no
+    /// longer shows what the view shows: the view lost its picture, as at
+    /// a resize, a mode change, a wake-up after the VT came back or a
+    /// switch to another screen, or the VT was let go. The frame is counted
+    /// as a pass that presented nothing, and the next frame is drawn whole
+    /// over it, so the display sends none of its damage on its own.
+    fn drop_kept(&mut self) {
+        if let Some(cost) = self.kept.take()
+            && let Some(timer) = &mut self.timer
+        {
+            timer.frame(cost.cpu, false, cost.damage_px, cost.misses);
+        }
+    }
+
+    /// Sends the frame the display kept from a busy swap, once the flip it
+    /// waited for has ended, so a draw that composes no newer frame shows
+    /// it without composing it again. A frame that is still waiting stays
+    /// kept. The cursor plane follows the commit as it follows a swap.
+    pub fn send_kept(&mut self, video: &mut dyn Video) -> Presented {
+        if self.lost {
+            self.drop_kept();
+        }
+        let Some(cost) = self.kept else {
+            return Presented::default();
+        };
+        if video.is_flipping(self.id) {
+            return Presented::default();
+        }
+        let queued = match video.commit(self.id) {
+            Ok(Swapped::Frame | Swapped::Cursor) => true,
+            // The display still waits, as for a modeset.
+            Err(SwapError::Busy) => return Presented::default(),
+            // The display let the frame go, as at a modeset or a sleep,
+            // and asks for a redraw when it is ready again.
+            Ok(Swapped::Nothing) | Err(SwapError::Off | SwapError::Dropped) => false,
+            Err(SwapError::Failed(e)) => {
+                log::warn!("cannot swap display {}: {e}", video.name(self.id));
+                false
+            }
+        };
+        self.kept = None;
+        self.pending |= self.pointer.after_swap(video, self.id);
+        if let Some(timer) = &mut self.timer {
+            timer.frame(cost.cpu, queued, cost.damage_px, cost.misses);
+        }
+        Presented {
+            queued,
+            compose: if queued { cost.cpu } else { Default::default() },
+        }
     }
 
     /// Draws `term` into the buffer `video` lends and presents it at once,
@@ -1507,11 +1616,27 @@ mod tests {
         /// The frames composed and handed back, each swap, whatever it
         /// drew.
         composed: u32,
+        /// The frames sent to the screen, by a swap or by a commit.
+        sent: u32,
     }
 
     impl Flip {
         fn new() -> Flip {
             Flip::with(2)
+        }
+
+        /// Sends the frame in the back buffer, refused as busy while a
+        /// flip is in flight.
+        fn send(&mut self) -> Result<Swapped, SwapError> {
+            if self.flipping {
+                return Err(SwapError::Busy);
+            }
+            if !std::mem::take(&mut self.fresh) {
+                return Ok(Swapped::Nothing);
+            }
+            self.back = (self.back + 1) % self.bufs.len();
+            self.sent += 1;
+            Ok(Swapped::Frame)
         }
 
         fn with(n: usize) -> Flip {
@@ -1525,6 +1650,7 @@ mod tests {
                 flipping: false,
                 fresh: false,
                 composed: 0,
+                sent: 0,
             }
         }
 
@@ -1585,14 +1711,14 @@ mod tests {
                 self.drawn[self.back] = Some(self.count);
                 self.fresh = true;
             }
-            if self.flipping {
-                return Err(SwapError::Busy);
-            }
-            if !std::mem::take(&mut self.fresh) {
+            self.send()
+        }
+        fn commit(&mut self, _: DisplayId) -> Result<Swapped, SwapError> {
+            // While a token is out, its swap carries the frame kept.
+            if self.out {
                 return Ok(Swapped::Nothing);
             }
-            self.back = (self.back + 1) % self.bufs.len();
-            Ok(Swapped::Frame)
+            self.send()
         }
         fn is_flipping(&self, _: DisplayId) -> bool {
             self.flipping
@@ -2201,8 +2327,12 @@ mod tests {
         for part in parts {
             assert_eq!(term.parse(part, &mut |_| {}), part.len());
         }
-        if term.changed || (view.pending && video.ready_for_frame(view.id)) {
+        // As the loop draws a display: a frame the display kept goes out
+        // when no newer frame composes.
+        if term.changed || view.lost || (view.pending && video.ready_for_frame(view.id)) {
             draw(term, view, video, None);
+        } else {
+            view.send_kept(video);
         }
         term.coalesce.turn_end();
         term.changed = false;
@@ -2345,6 +2475,107 @@ mod tests {
         turn(&mut term, &mut view, &mut video, &[]);
         assert_eq!(video.composed, 1, "nothing changed during the flip");
         assert_eq!(counted(&mut view), (1, 0));
+    }
+
+    // vtium/vtium#246: with three buffers a frame drawn while a flip is in
+    // flight is refused as busy, and the display keeps it. When the flip
+    // ends that frame goes out as it is, composed once and sent once, and
+    // counted as a frame, not as a pass that drew nothing.
+    #[test]
+    fn a_frame_refused_as_busy_goes_out_after_the_flip_without_composing_again() {
+        let (mut term, mut view) = view();
+        view.timer = Some(RenderTimer::new());
+        let mut video = Flip::with(3);
+        turn(&mut term, &mut view, &mut video, &[b"A\x1b[2;1H"]);
+        assert_eq!((video.composed, video.sent), (1, 1));
+        video.flipping = true;
+        turn(&mut term, &mut view, &mut video, &[b"\x1b[1;2HB\x1b[2;1H"]);
+        assert_eq!((video.composed, video.sent), (2, 1), "B waits for the flip");
+        for _ in 0..3 {
+            turn(&mut term, &mut view, &mut video, &[UNSEEN]);
+        }
+        assert_eq!(
+            (video.composed, video.sent),
+            (2, 1),
+            "nothing new to compose"
+        );
+        video.flipping = false;
+        turn(&mut term, &mut view, &mut video, &[]);
+        assert_eq!((video.composed, video.sent), (2, 2), "B goes out as it is");
+        assert!(video.shows(1, 1), "B in the buffer sent");
+        turn(&mut term, &mut view, &mut video, &[]);
+        assert_eq!((video.composed, video.sent), (2, 2), "and only once");
+        assert_eq!(counted(&mut view), (2, 0));
+    }
+
+    // vtium/vtium#246: a screen that changes while a kept frame waits for
+    // the flip composes one newer frame once the flip ends, drawn over the
+    // kept one in the same buffer, and that frame goes out in its place:
+    // three changes during the wait compose once more, not once each, and
+    // the kept frame is not sent on its own as well.
+    #[test]
+    fn changes_while_a_kept_frame_waits_compose_one_frame_that_carries_it() {
+        let (mut term, mut view) = view();
+        view.timer = Some(RenderTimer::new());
+        let mut video = Flip::with(3);
+        turn(&mut term, &mut view, &mut video, &[b"A\x1b[2;1H"]);
+        video.flipping = true;
+        turn(&mut term, &mut view, &mut video, &[b"\x1b[1;2HB"]);
+        assert_eq!((video.composed, video.sent), (2, 1));
+        turn(&mut term, &mut view, &mut video, &[b"\x1b[1;3HC"]);
+        turn(&mut term, &mut view, &mut video, &[b"\x1b[1;4HD"]);
+        turn(&mut term, &mut view, &mut video, &[b"\x1b[2;1HE"]);
+        assert_eq!((video.composed, video.sent), (2, 1), "the kept frame waits");
+        assert!(view.pending, "a newer frame waits for the flip");
+        video.flipping = false;
+        turn(&mut term, &mut view, &mut video, &[]);
+        assert_eq!((video.composed, video.sent), (3, 2), "one frame, sent once");
+        assert!((1..4).all(|col| video.shows(1, col)), "B, C and D");
+        turn(&mut term, &mut view, &mut video, &[]);
+        assert_eq!((video.composed, video.sent), (3, 2));
+        // B's cost is counted with the frame drawn over it.
+        assert_eq!(counted(&mut view), (2, 0));
+    }
+
+    // vtium/vtium#246: a frame kept from a busy swap shows the screen the
+    // view showed. When the view loses its picture before the flip ends, as
+    // at a switch to another screen, the kept frame is not sent: the next
+    // frame is drawn whole over it, and the kept frame counts as a pass that
+    // presented nothing.
+    #[test]
+    fn a_view_that_loses_its_picture_drops_the_kept_frame() {
+        let (mut term, mut view) = view();
+        view.timer = Some(RenderTimer::new());
+        let mut video = Flip::with(3);
+        turn(&mut term, &mut view, &mut video, &[b"A\x1b[2;1H"]);
+        video.flipping = true;
+        turn(&mut term, &mut view, &mut video, &[b"\x1b[1;2HB\x1b[2;1H"]);
+        assert_eq!((video.composed, video.sent), (2, 1));
+        view.show_another();
+        assert!(view.send_kept(&mut video) == Presented::default());
+        video.flipping = false;
+        assert!(
+            view.send_kept(&mut video) == Presented::default(),
+            "not sent"
+        );
+        assert_eq!(video.sent, 1);
+        turn(&mut term, &mut view, &mut video, &[]);
+        assert_eq!(
+            (video.composed, video.sent),
+            (3, 2),
+            "drawn whole, sent once"
+        );
+        assert_eq!(counted(&mut view), (2, 1));
+        // The loop marks the view lost itself after a mode change, a
+        // wake-up or the VT's return: the whole frame drops the kept one.
+        video.flipping = true;
+        turn(&mut term, &mut view, &mut video, &[b"\x1b[1;3HC\x1b[2;1H"]);
+        assert_eq!((video.composed, video.sent), (4, 2));
+        view.lost = true;
+        video.flipping = false;
+        turn(&mut term, &mut view, &mut video, &[]);
+        assert_eq!((video.composed, video.sent), (5, 3));
+        assert_eq!(counted(&mut view), (1, 1));
     }
 
     // With sixel offered, the parts of a picture before its end compose
