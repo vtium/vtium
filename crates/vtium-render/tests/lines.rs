@@ -192,12 +192,12 @@ fn new_lines_on_the_gpu_path_make_the_glyphs_and_sprites_anew_and_draw_whole() {
         .damage
         .to_vec();
     assert_eq!(damage, [display.rect()]);
-    // the old sprites and pool freed, the sprites' strip made and filled
+    // the old sprites and pool freed, the sprites. texture made and filled
     // again
     assert!(gl.calls().contains(&Call::FreeTexture));
     assert!(
         gl.calls()
-            .contains(&Call::CreateTexture(Format::R8, Size::new(48, 16)))
+            .contains(&Call::CreateTexture(Format::R8, Size::new(32, 32)))
     );
 }
 
@@ -242,7 +242,7 @@ fn new_lines_and_a_turn_together_reach_the_gpu_paths_sprites() {
     .unwrap();
     assert!(
         gl.calls()
-            .contains(&Call::CreateTexture(Format::R8, Size::new(48, 16))),
+            .contains(&Call::CreateTexture(Format::R8, Size::new(32, 32))),
         "the sprites' texture is not made anew: {:?}",
         gl.calls()
     );

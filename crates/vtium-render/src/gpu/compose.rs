@@ -1034,11 +1034,12 @@ impl Composition {
     }
 
     /// The textures a batch of cells samples, its masks, its colors and the
-    /// sprites, and the cell's size, as the cell shader's inputs; and for
-    /// the cell shader built with [`INK`], as `ink` asks, the boxes, a box
-    /// slot's size and the ink grid. A draw before any glyph has taken a
-    /// box, or any cell has received ink, binds the sprites in place of the
-    /// boxes and the ink grid, and never samples them.
+    /// sprites, and the cell's size with the sprites across their texture,
+    /// as the cell shader's inputs; and for the cell shader built with
+    /// [`INK`], as `ink` asks, the boxes, a box slot's size and the ink
+    /// grid. A draw before any glyph has taken a box, or any cell has
+    /// received ink, binds the sprites in place of the boxes and the ink
+    /// grid, and never samples them.
     fn cell_inputs(
         &self,
         batch: &Cells,
@@ -1066,7 +1067,12 @@ impl Composition {
             ("sprites", Value::Texture(sprites, Filter::Nearest)),
             (
                 "cell",
-                Value::IVec4([side(cell.width), side(cell.height), 0, 0]),
+                Value::IVec4([
+                    side(cell.width),
+                    side(cell.height),
+                    side(glyphs.sprite_columns()),
+                    0,
+                ]),
             ),
         ];
         if ink {

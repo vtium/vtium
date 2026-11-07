@@ -46,7 +46,9 @@ precision highp int;
 uniform highp sampler2D masks;
 uniform highp sampler2D colors;
 uniform highp sampler2D sprites;
-// the cell's width and height
+// x, y: the cell's width and height; z: the sprites across the sprites'
+// texture, which holds a cell for each in a grid, the first row left to
+// right, then the next
 uniform ivec4 cell;
 #ifdef INK
 // the boxes of the glyphs whose ink passes their cells, each in a slot
@@ -106,9 +108,10 @@ vec4 tint_over(vec4 p, float a, vec3 c) {
     return over(p, vec4(div255(c * a), a));
 }
 
-// a sprite's coverage at pos within the cell
+// a sprite's coverage at pos within the cell, k its place plus one
 float sprite(uint k, ivec2 pos) {
-    ivec2 at = ivec2(int(k - 1u) * cell.x + pos.x, pos.y);
+    int i = int(k - 1u);
+    ivec2 at = ivec2(i % cell.z, i / cell.z) * cell.xy + pos;
     return byte(texelFetch(sprites, at, 0).r);
 }
 
