@@ -785,6 +785,29 @@ pub(super) fn report(state: &State, dec: bool, number: u32) -> u8 {
     }
 }
 
+/// The modes DECRQM reports set (1), each as whether it is a DEC private
+/// mode and its number: the ANSI modes, then the DEC private modes, each
+/// in ascending order.
+pub(super) fn in_force(state: &State) -> Vec<(bool, u32)> {
+    let mut set: Vec<(bool, u32)> = rows()
+        .filter(|r| r.built() && report(state, r.dec, r.number) == 1)
+        .map(|r| (r.dec, r.number))
+        .collect();
+    set.sort_unstable();
+    set.dedup();
+    set
+}
+
+impl super::Terminal {
+    /// The ANSI and DEC private modes in force: those DECRQM reports set,
+    /// each as whether it is a DEC private mode and its number, the ANSI
+    /// modes first and each kind in ascending order. A host that shows the
+    /// terminal's state reads them here without writing a query.
+    pub fn modes_in_force(&self) -> Vec<(bool, u32)> {
+        in_force(&self.state)
+    }
+}
+
 /// Returns each row a reset covers to its initial state, through its
 /// setter, where its state differs: DECSTR the soft rows, RIS the hard
 /// rows too.

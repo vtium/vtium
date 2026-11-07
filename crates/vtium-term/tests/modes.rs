@@ -1124,3 +1124,31 @@ fn modes_vtium_always_or_never_has_answer_their_fixed_state_and_change_nothing()
         assert_eq!(format!("{t:?}"), before, "?{n} changed the state");
     }
 }
+
+// ctlseqs, DECRQM: the modes in force are those DECRQM reports set (1),
+// ANSI then DEC private, each in ascending order. A host that shows a
+// terminal's state, as the replay's `state` command does, reads them
+// without writing a query into the stream.
+#[test]
+fn modes_in_force_are_those_decrqm_reports_set() {
+    let mut t = term(6, 3, b"");
+    let start = t.modes_in_force();
+    for (dec, n) in &start {
+        assert_eq!(rqm(&mut t, *dec, *n), 1, "{dec} {n} listed but not set");
+    }
+    assert!(
+        start.contains(&(true, 7)),
+        "DECAWM is set at start: {start:?}"
+    );
+    assert!(!start.contains(&(false, 4)), "IRM is reset at start");
+    t.input(b"\x1b[4h\x1b[?1h\x1b[?7l");
+    let now = t.modes_in_force();
+    assert!(
+        now.contains(&(false, 4)) && now.contains(&(true, 1)),
+        "{now:?}"
+    );
+    assert!(!now.contains(&(true, 7)), "{now:?}");
+    let mut sorted = now.clone();
+    sorted.sort_by_key(|&(dec, n)| (dec, n));
+    assert_eq!(now, sorted, "ANSI first, then DEC, each ascending");
+}

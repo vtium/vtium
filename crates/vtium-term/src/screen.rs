@@ -350,6 +350,18 @@ impl Screen {
         self.images_dropped();
     }
 
+    /// The rows the scrollback holds, the rows still waiting to be
+    /// rewrapped since the width changed counted at the current width.
+    pub fn scrollback_lines(&self) -> usize {
+        self.scrollback.total()
+    }
+
+    /// The most lines the scrollback keeps: as the host last set it, at
+    /// most the cap the screen was made with.
+    pub fn scrollback_max(&self) -> usize {
+        self.scrollback.max()
+    }
+
     /// How many lines the view is scrolled back: 0 shows the screen.
     pub fn scrolled_back(&self) -> usize {
         self.scrollback.offset()

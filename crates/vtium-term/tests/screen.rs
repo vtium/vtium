@@ -849,3 +849,28 @@ fn an_edit_that_clears_the_last_column_ends_the_wrap() {
     let line = t.screen().scrollback().next().unwrap();
     assert!(line.flags().contains(vtium_term::LineFlags::WRAPPED));
 }
+
+// The scrollback's size: the lines it holds, the waiting rows a narrower
+// screen has yet to rewrap counted at the current width, and the most it
+// keeps, as the host set it and clamped to the cap the screen was made
+// with.
+#[test]
+fn the_scrollback_reports_the_lines_it_holds_and_the_most_it_keeps() {
+    let mut t = Terminal::new(4, 2, 5);
+    assert_eq!(t.screen().scrollback_max(), 0);
+    t.screen_mut().set_scrollback_max(10);
+    assert_eq!(t.screen().scrollback_max(), 5, "clamped to the cap");
+    t.screen_mut().set_scrollback_max(3);
+    t.input(b"a\r\nb\r\nc\r\nd\r\ne\r\nf");
+    assert_eq!(t.screen().scrollback_max(), 3);
+    assert_eq!(t.screen().scrollback_lines(), 3, "the oldest past 3 go");
+    let mut t = Terminal::new(4, 1, 10);
+    t.screen_mut().set_scrollback_max(10);
+    t.input(b"abcd\r\nefgh\r\n");
+    t.resize(2, 1);
+    assert_eq!(
+        t.screen().scrollback_lines(),
+        4,
+        "each held line rewraps to two rows"
+    );
+}
