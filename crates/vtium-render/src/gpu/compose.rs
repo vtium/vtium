@@ -1442,10 +1442,20 @@ pub(crate) fn arrow_quads(a: ArrowAt<'_>, drawn: &[Rect], size: Size) -> Vec<Qua
 /// parts of each picture over it, its text layer, the selection's tint and
 /// vtium's mark. The front end gives each in the display's pixels, and
 /// `turn` maps it into the upright frame's.
+///
+/// The renderer can draw a cell twice in one frame: once with its row, and
+/// again once the row below has sent it ink (ADR-1306 D5). The CPU path
+/// draws in order, so the second drawing covers the first. The GPU path
+/// draws its quads in batches, each batch whole, so the cell's second
+/// drawing replaces its first here, in every list, and each cell is drawn
+/// once.
 pub(crate) struct GpuBack<'a, G: Gl> {
     gl: &'a mut G,
     glyphs: &'a mut Glyphs,
     turn: Turn,
+    /// The first grid row the frame has not drawn yet. The renderer draws
+    /// rows from the top, so a row above it is a row drawn again.
+    next_row: usize,
     pub(crate) clear: Vec<Rect>,
     pub(crate) cells: Vec<Cells>,
     pub(crate) error: Option<Error>,
@@ -1471,6 +1481,7 @@ impl<'a, G: Gl> GpuBack<'a, G> {
             gl,
             glyphs,
             turn,
+            next_row: 0,
             clear: Vec::new(),
             cells: Vec::new(),
             error: None,
@@ -1490,6 +1501,7 @@ impl<'a, G: Gl> GpuBack<'a, G> {
     /// Forgets the quads and pictures the frame has drawn so far, for a
     /// frame drawn again whole.
     pub(crate) fn restart(&mut self) {
+        self.next_row = 0;
         self.cells.clear();
         #[cfg(feature = "images")]
         {
@@ -1602,6 +1614,115 @@ fn push(cells: &mut Vec<Cells>, glyphs: Option<(usize, bool)>, quad: Quad) {
     }
 }
 
+/// How many quads each batch of each of a frame's lists held, and how many
+/// parts of each picture and tints, before the frame drew a row again: what
+/// it holds past these counts the row's second drawing pushed.
+struct Held {
+    cells: Vec<usize>,
+    #[cfg(feature = "images")]
+    text: Vec<usize>,
+    #[cfg(feature = "images")]
+    marks: Vec<usize>,
+    #[cfg(feature = "images")]
+    parts: Vec<usize>,
+    #[cfg(feature = "images")]
+    tints: usize,
+}
+
+impl Held {
+    fn of<G: Gl>(back: &GpuBack<'_, G>) -> Held {
+        let lens = |lists: &[Cells]| lists.iter().map(|c| c.quads.len()).collect();
+        Held {
+            cells: lens(&back.cells),
+            #[cfg(feature = "images")]
+            text: lens(&back.text),
+            #[cfg(feature = "images")]
+            marks: lens(&back.marks),
+            #[cfg(feature = "images")]
+            parts: back.picture_rects.iter().map(Vec::len).collect(),
+            #[cfg(feature = "images")]
+            tints: back.tints.len(),
+        }
+    }
+}
+
+impl<G: Gl> GpuBack<'_, G> {
+    /// Removes what the frame drew in the cells of a row before it drew
+    /// them again, `held` saying where the second drawing begins in each
+    /// list: each quad of the first drawing, from whichever list, a part
+    /// of a picture or a tint inside those cells. Each cell is then drawn
+    /// once, with its second drawing, as the CPU path's drawing in order
+    /// leaves it.
+    fn replace_earlier(&mut self, held: &Held) {
+        let mut again: Vec<[i32; 4]> = Vec::new();
+        let lists = [(&self.cells, &held.cells)];
+        #[cfg(feature = "images")]
+        let lists = [
+            lists[0],
+            (&self.text, &held.text),
+            (&self.marks, &held.marks),
+        ];
+        for (list, held) in lists {
+            for (c, &from) in list.iter().zip(held.iter().chain(core::iter::repeat(&0))) {
+                again.extend(
+                    c.quads
+                        .get(from..)
+                        .unwrap_or_default()
+                        .iter()
+                        .map(|q| q.dst),
+                );
+            }
+        }
+        if again.is_empty() {
+            return;
+        }
+        again.sort_unstable();
+        again.dedup();
+        let drawn_again = |dst: &[i32; 4]| again.binary_search(dst).is_ok();
+        drop_earlier(&mut self.cells, &held.cells, drawn_again);
+        #[cfg(feature = "images")]
+        {
+            drop_earlier(&mut self.text, &held.text, drawn_again);
+            drop_earlier(&mut self.marks, &held.marks, drawn_again);
+            let inside = |r: &Rect| again.iter().any(|&dst| contains(dst, r));
+            for (parts, &from) in self.picture_rects.iter_mut().zip(&held.parts) {
+                keep_unless_earlier(parts, from, |r| inside(r));
+            }
+            keep_unless_earlier(&mut self.tints, held.tints, |(r, _)| inside(r));
+        }
+    }
+}
+
+/// Removes from each batch of `lists` the quads it held before `held`
+/// counts that `drawn_again` names, and the batches left empty.
+fn drop_earlier(lists: &mut Vec<Cells>, held: &[usize], drawn_again: impl Fn(&[i32; 4]) -> bool) {
+    for (c, &from) in lists.iter_mut().zip(held) {
+        keep_unless_earlier(&mut c.quads, from, |q| drawn_again(&q.dst));
+    }
+    lists.retain(|c| !c.quads.is_empty());
+}
+
+/// Removes from the first `from` of `items` those `earlier` names.
+fn keep_unless_earlier<T>(items: &mut Vec<T>, from: usize, earlier: impl Fn(&T) -> bool) {
+    let mut n = 0usize;
+    items.retain(|t| {
+        let before = n < from;
+        n = n.saturating_add(1);
+        !(before && earlier(t))
+    });
+}
+
+/// Whether the quad's `dst` holds all of `r`.
+#[cfg(feature = "images")]
+fn contains(dst: [i32; 4], r: &Rect) -> bool {
+    let [x, y, w, h] = dst.map(i64::from);
+    let (rx, ry) = (i64::from(r.x), i64::from(r.y));
+    rx >= x
+        && ry >= y
+        && rx.saturating_add(i64::from(r.width)) <= x.saturating_add(w)
+        && ry.saturating_add(i64::from(r.height)) <= y.saturating_add(h)
+}
+
 /// Where `a` and `b` meet, empty when they do not.
 #[cfg(feature = "images")]
 fn meet_area(a: Area, b: Area) -> Area {
@@ -1665,6 +1786,46 @@ impl<G: Gl> Back for GpuBack<'_, G> {
         if self.error.is_some() {
             return;
         }
+        if row < self.next_row {
+            let held = Held::of(self);
+            self.push_row(compose, font, row);
+            self.replace_earlier(&held);
+        } else {
+            self.next_row = row.saturating_add(1);
+            self.push_row(compose, font, row);
+        }
+    }
+
+    fn reaching(&self, _: &Composer) -> bool {
+        self.glyphs.reaching()
+    }
+
+    fn reach<F: Face>(
+        &mut self,
+        _: &mut Composer,
+        font: &Font<F>,
+        text: &[char],
+        width: vtium_font::Width,
+        style: vtium_font::Style,
+    ) -> Reach {
+        if self.error.is_some() {
+            return Reach::NONE;
+        }
+        match self.glyphs.reach(self.gl, font, text, width, style) {
+            Ok(r) => r,
+            Err(e) => {
+                self.error = Some(e);
+                Reach::NONE
+            }
+        }
+    }
+
+    const RECEIVES: bool = true;
+}
+
+impl<G: Gl> GpuBack<'_, G> {
+    /// Pushes the quads of the jobs of grid row `row`.
+    fn push_row<F: Face>(&mut self, compose: &Composer, font: &Font<F>, row: usize) {
         for (j, job) in compose.jobs.iter().enumerate() {
             let place = match job.text {
                 Some((start, len, width, style)) => {
@@ -1709,34 +1870,6 @@ impl<G: Gl> Back for GpuBack<'_, G> {
         }
     }
 
-    fn reaching(&self, _: &Composer) -> bool {
-        self.glyphs.reaching()
-    }
-
-    fn reach<F: Face>(
-        &mut self,
-        _: &mut Composer,
-        font: &Font<F>,
-        text: &[char],
-        width: vtium_font::Width,
-        style: vtium_font::Style,
-    ) -> Reach {
-        if self.error.is_some() {
-            return Reach::NONE;
-        }
-        match self.glyphs.reach(self.gl, font, text, width, style) {
-            Ok(r) => r,
-            Err(e) => {
-                self.error = Some(e);
-                Reach::NONE
-            }
-        }
-    }
-
-    const RECEIVES: bool = true;
-}
-
-impl<G: Gl> GpuBack<'_, G> {
     /// Names each of `sources`, the glyphs whose ink a job receives, in the
     /// ink grid, so the cell shader finds its glyph's box and its color,
     /// and gives the job's flags: none when no glyph sends it ink, else
