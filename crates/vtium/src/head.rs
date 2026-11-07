@@ -2281,13 +2281,11 @@ mod tests {
         for text in [off, broken] {
             let start = Start::trusted(path, text.as_bytes());
             assert!(start.rules.heads.is_empty(), "{text}");
-            let told = place_display(&start.rules, &display);
             assert_eq!(
-                told,
+                place_display(&start.rules, &display),
                 Err("display HDMI-A-1 stays off: no rule in vtium.conf matches it, and vtium.conf declares no head to give it. Declare a head first with a `[head NAME]` section, then add the rule `display connector:pci-0000:03:00.0/HDMI-A-1 -> NAME`.".to_owned()),
                 "{text}"
             );
-            assert!(!told.unwrap_err().contains("console"), "{text}");
         }
     }
 
