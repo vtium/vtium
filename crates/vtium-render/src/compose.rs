@@ -94,8 +94,8 @@ pub(crate) struct Source {
     /// The glyph's first cell, its column and row, which the GPU path
     /// names to its shader.
     pub(crate) cell: (usize, usize),
-    /// The color its ink takes in a cell no mark covers: `color`, unless
-    /// `marked`.
+    /// The color its ink takes in a cell that no mark covers, which is
+    /// `color` unless `marked`.
     pub(crate) own: Rgb,
     /// A block cursor or the selection marks the receiving cell, so its
     /// ink takes the mark's text color there.

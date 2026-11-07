@@ -304,6 +304,7 @@ fn covers(damage: &[Rect], r: Rect) -> bool {
 // row's background, and a cell the ink reaches is the only one that
 // receives; a keystroke that writes an accented letter redraws the cell
 // above it (D5).
+// covers: text.overhang
 #[test]
 fn an_accent_over_the_row_above_draws_as_on_the_cpu_path() {
     let mut s = screen(6, 3);
@@ -343,6 +344,7 @@ fn an_accent_over_the_row_above_draws_as_on_the_cpu_path() {
 
 // ADR-1306 D4: where a descender from the row above meets an accent from
 // the row below, the row below's ink lies on top.
+// covers: text.overhang
 #[test]
 fn a_descender_meeting_an_accent_draws_the_row_below_on_top() {
     let mut s = screen(5, 3);
@@ -363,6 +365,7 @@ fn a_descender_meeting_an_accent_draws_the_row_below_on_top() {
 // below its row, in its colors without the cursor, in both phases of the
 // blink, and its ink beside it stays in its cell; inside the block
 // cursor's cell, ink from a neighbour takes the cursor's text color.
+// covers: text.overhang
 #[test]
 fn the_letter_under_the_cursor_keeps_its_ink_above_and_below_in_both_phases() {
     let mut s = screen(5, 3);
@@ -400,6 +403,7 @@ fn the_letter_under_the_cursor_keeps_its_ink_above_and_below_in_both_phases() {
 // picture above the text hides and a picture below the text shows: the
 // text layer of a cell under pictures carries the ink it receives, drawn
 // between the pictures below the text and those above it.
+// covers: text.overhang
 #[cfg(feature = "images")]
 #[test]
 fn a_picture_above_the_text_draws_over_the_ink_a_cell_receives() {
@@ -494,6 +498,7 @@ fn a_picture_above_the_text_draws_over_the_ink_a_cell_receives() {
 // a neighbour's ink that has gone, and a display line that ink reaches is
 // composed as the CPU path composes it, along a column of the upright
 // frame on a display turned a quarter.
+// covers: text.overhang
 #[test]
 fn every_gpu_frame_of_typing_matches_a_whole_draw() {
     for o in [
