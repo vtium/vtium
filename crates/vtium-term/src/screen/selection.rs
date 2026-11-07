@@ -144,10 +144,12 @@ impl Screen {
     }
 
     /// Selects the word at column `x` of view row `y`: the run of cells
-    /// around it up to a space, or nothing on a space. Going right, an
-    /// empty cell ends it too, and a wide character is one cell of it. A
-    /// word that reaches the end of a wrapped row goes on at the start of
-    /// the next.
+    /// around it up to a space or an empty cell, or nothing on a space or
+    /// an empty cell. An empty cell is one no character was written to;
+    /// a wide character's second column is not one, so a wide character
+    /// is one cell of a word. A word that reaches the end of a wrapped row
+    /// goes on at the start of the next, past the empty cells a wide
+    /// character that wrapped whole leaves there.
     pub fn select_word(&mut self, x: usize, y: usize) {
         let x = self.pointer_col(x, y);
         let Some(anchor) = self.anchor(x, y) else {
@@ -158,7 +160,7 @@ impl Screen {
         let Some(line) = self.line_at(at) else {
             return;
         };
-        if x >= line.len() || is_space(line, x) {
+        if x >= line.len() || ends_word(line, x) {
             self.selection.reset();
             return;
         }
@@ -174,15 +176,15 @@ impl Screen {
     }
 
     /// Where the word holding column `x` of the line at `at` starts: after
-    /// the space before it, on this row or a row it wrapped from. A wrapped
-    /// row's empty cells at its end are passed over, as `word_end` passes
-    /// them, and a wrapped row with no text ends the word, as it does
-    /// going forward.
+    /// the space or empty cell before it, on this row or a row it wrapped
+    /// from. A wrapped row's empty cells at its end are passed over, as
+    /// `word_end` passes them, and a wrapped row with no text ends the
+    /// word, as it does going forward.
     fn word_start(&self, mut at: usize, x: usize) -> (usize, usize) {
         let Some(line) = self.line_at(at) else {
             return (at, x);
         };
-        if let Some(c) = (0..=x).rev().find(|&c| is_space(line, c)) {
+        if let Some(c) = (0..=x).rev().find(|&c| ends_word(line, c)) {
             return (at, c.saturating_add(1));
         }
         while let Some(prev) = at.checked_sub(1).filter(|&p| self.continues(p)) {
@@ -190,7 +192,7 @@ impl Screen {
                 break;
             };
             let len = text_len(line).min(self.cols);
-            match (0..len).rev().find(|&c| is_space(line, c)) {
+            match (0..len).rev().find(|&c| ends_word(line, c)) {
                 _ if len == 0 => break,
                 Some(c) if c.saturating_add(1) == len => break,
                 Some(c) => return (prev, c.saturating_add(1)),
@@ -493,8 +495,8 @@ fn is_space(line: &Line, x: usize) -> bool {
     line.glyph(line.cell(x)) == Glyph::Char(' ')
 }
 
-/// Whether column `x` of `line` ends a word going right: a space, or an
-/// empty cell that is not a wide character's tail.
+/// Whether column `x` of `line` ends a word: a space, or an empty cell
+/// that is not a wide character's second column.
 fn ends_word(line: &Line, x: usize) -> bool {
     let cell = line.cell(x);
     is_space(line, x) || (line.glyph(cell) == Glyph::Empty && cell.width() != Width::WideTail)
