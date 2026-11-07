@@ -1,12 +1,12 @@
 # What VTium is
 
-vtium is a terminal for the Linux virtual console, the full-screen text terminals the kernel provides, each called a VT. It draws the terminal itself, straight to the display through the kernel's display interface (KMS/DRM, or the older fbdev framebuffer where that is all a machine has), with no display server. A program run in vtium sees a modern terminal: colors, text styles, Unicode and mouse reporting, with images to come. The features vtium supports, ignores or refuses are listed in [ADR-1000](../architecture/term/ADR-1000-the-modes-and-features-vtium-supports.md).
+vtium is a terminal for the Linux virtual console, the full-screen text terminals the kernel provides, each called a VT. It draws the terminal itself, straight to the display through the kernel's display interface (KMS/DRM, or the older fbdev framebuffer where that is all a machine has), with no display server. A program run in vtium sees a modern terminal: colors, text styles, Unicode and mouse reporting, with images to come. [What vtium does](../features.md) lists its features, and [modes.md](../modes.md) lists the modes it recognizes.
 
 These three screens are vtium's own drawing, made in memory by its renderer: the color palette, double-width Japanese, Chinese and Korean text, and the underline styles in their own colors.
 
 ![vtium's drawing of the palette: the 16 background colors, the 16 foreground colors on letter pairs, a ramp through the 256-color palette, and a 24-bit gradient from red to green.](../figures/concepts-screen-palette.png) ![vtium's drawing of double-width text: Japanese, Chinese and Korean, full-width Latin, narrow letters between wide characters, and wide text in bold and in reverse.](../figures/concepts-screen-cjk.png) ![vtium's drawing of underlines: single, double, curly, dotted and dashed, each in the text color and in a color of its own, then underlines on a background, in reverse and in bold.](../figures/concepts-screen-underline.png)
 
-vtium is written in Rust. What it does is set by the specifications it cites and by the tables of ADR-1000, and its own tests judge it, against goldens: saved expected results that vtium's output is compared with ([How vtium is judged](how-vtium-is-judged.md)).
+vtium is written in Rust. What it does is set by the specifications it cites and by the project's table of the modes and features it supports, and its own tests judge it, against goldens: saved expected results that vtium's output is compared with ([How vtium is judged](how-vtium-is-judged.md)).
 
 ## Small machines first
 

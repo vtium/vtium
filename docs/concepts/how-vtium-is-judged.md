@@ -11,6 +11,6 @@ vtium is judged in tiers, each with its harness in vtium's tree; [AGENTS.md](htt
 
 The goldens are the judge, and each tier keeps its own in vtium's tree. A difference from one is a failure, unless the tier's list of expected differences names the case, with vtium's expected output and the reason, or lists the case as pending. A new golden stays provisional, and judges nothing, until the maintainer reviews it, and a golden changes only in a commit of its own that the maintainer reviews. vtium builds tier 3's guest images from its own scripts.
 
-[ADR-1000](../architecture/term/ADR-1000-the-modes-and-features-vtium-supports.md)'s tables list each mode and feature vtium supports, ignores or refuses. A test that drives a row's behaviour carries the row's id in a tag, and a script checks that the tags and the tables agree, so each row shows the tests that judge it, and a row with none shows that nothing does yet.
+A table in the decision records lists each mode and feature vtium supports, ignores or refuses, and [modes.md](../modes.md) lists the modes with their tests. A test that drives a row's behaviour carries the row's id in a tag, and a script checks that the tags and the tables agree, so each row shows the tests that judge it, and a row with none shows that nothing does yet.
 
 [How vtium is built](how-vtium-is-built.md) explains why the judge comes before the code.

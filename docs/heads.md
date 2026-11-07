@@ -1,6 +1,6 @@
 # Heads, by scenario
 
-This page shows the sections of vtium's configuration file, `/etc/vtium/vtium.conf`, in the setups they are made for: each scenario's purpose, the sections it needs, and what to expect, on an unplug and of what stays shared. The sections are the heads, their looks and the rules, which come below vtium's settings in vtium.conf. Each scenario's text is also a whole vtium.conf on its own, which leaves every setting at its default, so you can check it with `vtium check-config FILE`, or add your settings above its `version` line. [Configure vtium](configure.md) explains how to put it in place, and [head-file.md](head-file.md) is the reference for the sections, with its [terms](head-file.md#terms) such as the active head and the rescue key, its syntax and its match keys, and [Heads](concepts/heads.md#two-policies-open-and-closed) explains the two policies the scenarios are sorted by. [ADR-1401](architecture/platform/ADR-1401-heads-a-terminal-per-physical-display-placed-by-a-first-match-ruleset.md) holds every rule; this page applies them. Each scenario's file is also a file of its own under [heads/](heads/), and the `edid:` and `path:` values in them are illustrative.
+This page shows the sections of vtium's configuration file, `/etc/vtium/vtium.conf`, in the setups they are made for: each scenario's purpose, the sections it needs, and what to expect, on an unplug and of what stays shared. The sections are the heads, their looks and the rules, which come below vtium's settings in vtium.conf. Each scenario's text is also a whole vtium.conf on its own, which leaves every setting at its default, so you can check it with `vtium check-config FILE`, or add your settings above its `version` line. [Configure vtium](configure.md) explains how to put it in place, and [head-file.md](head-file.md) is the reference for the sections, with its [terms](head-file.md#terms) such as the active head and the rescue key, its syntax and its match keys, and [Heads](concepts/heads.md#two-policies-open-and-closed) explains the two policies the scenarios are sorted by. Each scenario's file is also a file of its own under [heads/](heads/), and the `edid:` and `path:` values in them are illustrative.
 
 ## Under the open policy
 
@@ -202,7 +202,7 @@ input path:pci-0000:15:00.0-usb-0:3.3 -> station-3  # station's keyboard and mou
 - One vtium process, running as root, serves every station, so a crash ends every station's sessions at once. Under the closed policy no getty takes the VT then, so every station's display shows no login until vtium starts again: when the operator starts its unit, `vtium@ttyN`, or, where logind starts vtium as `autovt@ttyN`, when someone switches away from its VT and back. Sessions that survive a vtium restart are planned next after heads.
 - One kernel VT is shown on every station's display, so anything that switches the VT switches every station.
 - A station's login runs on a pty and gets a logind session with no seat, so no seat-bound device, such as audio, reaches it.
-- A fully independent station, a logind seat with its own cards and inputs, is the seat extension of ADR-1401 D2, which is not built.
+- A fully independent station, a logind seat with its own cards and inputs, would need vtium to run on a seat other than the first, which it does not do yet.
 
 ### Everything off
 
