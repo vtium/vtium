@@ -10,8 +10,9 @@
 //! sets no plane up. A display that takes the arrow shows the pointer
 //! there, moved and hidden by the next commit with no cell drawn; one
 //! without a cursor plane, fbdev's or a card's on the legacy calls, or
-//! whose plane refused the arrow or failed a commit, has the renderer draw
-//! the same arrow over the cells. The arrow goes to the plane at a draw,
+//! whose plane refused the arrow, failed a commit or went with a move to a
+//! CRTC that has none, has the renderer draw the same arrow over the
+//! cells. The arrow goes to the plane at a draw,
 //! when the display is lent for one and so awake and online: a display that
 //! is not yet tries again at the next draw, and draws the pointer in
 //! software until then. Each decision is logged with the display's
@@ -103,7 +104,9 @@ impl Pointer {
     /// changed since and the pointer shows, and gives back the pointer's
     /// tip, in the grid's pixels, for the renderer to draw, which is `tip`
     /// unless the plane shows it. A pointer that never shows, as with
-    /// `mouse` off, sets no plane up.
+    /// `mouse` off, sets no plane up. A plane the display gave up since
+    /// the last draw, as when it moved to a CRTC with no cursor plane,
+    /// sends the pointer to the renderer in this draw.
     pub fn before_draw(
         &mut self,
         plane: &mut (impl Plane + ?Sized),
@@ -111,6 +114,14 @@ impl Pointer {
         arrow: &Arrow,
         tip: Option<(u32, u32)>,
     ) -> Option<(u32, u32)> {
+        if self.route == Route::Hardware && !plane.holds(id) {
+            self.take(
+                &*plane,
+                id,
+                Route::Software,
+                format_args!("draws it in software from now on"),
+            );
+        }
         if self.route == Route::Unset && tip.is_some() && self.soft {
             self.take(
                 &*plane,
@@ -144,8 +155,9 @@ impl Pointer {
         tip.filter(|_| self.route != Route::Hardware)
     }
 
-    /// After a swap: whether the display gave the plane up, so that the
-    /// pointer, drawn by the renderer from now on, is to be drawn again.
+    /// After a swap: whether the display gave the plane up in it, as when
+    /// a commit with the arrow failed, so that the pointer, drawn by the
+    /// renderer from now on, is to be drawn again.
     pub fn after_swap(&mut self, plane: &(impl Plane + ?Sized), id: DisplayId) -> bool {
         if self.route != Route::Hardware || plane.holds(id) {
             return false;
@@ -251,6 +263,9 @@ mod tests {
         shown: Option<(i32, i32)>,
         /// Arrows offered.
         set_ups: usize,
+        /// Shows refused, as drm2d refuses one on a display that holds no
+        /// arrow: each would be a warning in the log.
+        refused_shows: usize,
     }
 
     impl Plane for Fake {
@@ -266,6 +281,10 @@ mod tests {
             self.arrow.is_some()
         }
         fn show(&mut self, _: DisplayId, at: (i32, i32)) -> io::Result<()> {
+            if self.arrow.is_none() {
+                self.refused_shows = self.refused_shows.saturating_add(1);
+                return Err(io::Error::other("the display has no cursor set up"));
+            }
             self.shown = Some(at);
             Ok(())
         }
@@ -475,6 +494,37 @@ mod tests {
         assert_eq!(
             p.before_draw(&mut plane, ID, r.arrow(), Some((5, 6))),
             Some((5, 6))
+        );
+    }
+
+    // #256: a display that moves to a CRTC with no cursor plane gives its
+    // arrow up between draws. The first draw after the move has the
+    // renderer draw the arrow, and shows nothing on the plane, so the log
+    // gets no warning.
+    #[test]
+    fn a_display_moved_off_its_cursor_plane_draws_the_arrow_at_the_next_draw() {
+        let r = renderer(Orientation::Normal);
+        let (mut p, mut plane) = (Pointer::default(), Fake::default());
+        p.before_draw(&mut plane, ID, r.arrow(), Some((5, 6)));
+        after(&mut p, &mut plane, &r, Some((5, 6)));
+        assert!(!p.after_swap(&plane, ID));
+        said();
+        // the move: drm2d drops the display's cursor
+        plane.arrow = None;
+        assert_eq!(
+            p.before_draw(&mut plane, ID, r.arrow(), Some((5, 6))),
+            Some((5, 6))
+        );
+        assert_eq!(p.route(), Route::Software);
+        after(&mut p, &mut plane, &r, Some((5, 6)));
+        assert_eq!(plane.refused_shows, 0);
+        assert!(!p.after_swap(&plane, ID));
+        assert_eq!(
+            said(),
+            [(
+                log::Level::Info,
+                "display DP-8 draws it in software from now on".to_owned()
+            )]
         );
     }
 
