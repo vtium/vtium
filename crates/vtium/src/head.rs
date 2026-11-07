@@ -2054,9 +2054,9 @@ mod tests {
         assert!(head.refont, "every renderer is rebuilt");
     }
 
-    // ADR-1401 D5, binary-review's finding 3: the console the close chord
-    // closes is told nothing: no focus-out joins what it owed its program,
-    // and nothing it owed is sent; the console shown next gains the focus.
+    // ADR-1401 D5: the console the close chord closes is told nothing: no
+    // focus-out joins what it owed its program, and nothing it owed is
+    // sent; the console shown next gains the focus.
     #[test]
     #[expect(
         clippy::disallowed_methods,
@@ -2356,9 +2356,9 @@ mod tests {
         assert_eq!(wheel(-1, true, false, true), Wheel::Zoom(Zoom::Out));
     }
 
-    // The tour's cursor page: a steady cursor (DECSCUSR 2, 4 and 6, or a
-    // blinking style that mode 12 resets) is drawn in the blink timer's
-    // off phase, and a blinking one is not.
+    // A steady cursor (DECSCUSR 2, 4 and 6, or a blinking style that mode
+    // 12 resets) is drawn in the blink timer's off phase, and a blinking
+    // one is not.
     // covers: DEC-12
     #[test]
     #[expect(clippy::disallowed_methods, reason = "a test's clock is the host's")]

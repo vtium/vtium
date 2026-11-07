@@ -1338,8 +1338,8 @@ mod tests {
         }
     }
 
-    // the review's widths, where the notice's text ran under the mark, and
-    // a height whose centred grid puts the mark across the second line
+    // widths at which the notice's text could run under the mark, and a
+    // height whose centred grid puts the mark across the second line
     #[test]
     fn the_notice_keeps_its_text_clear_of_the_mark() {
         let filler = "m".repeat(400);

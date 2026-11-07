@@ -409,10 +409,9 @@ impl Frit {
                     })?;
                 }
                 "compress" => {
-                    // ADR-1200 D1: it chose how a stored set was
-                    // compressed, and refusing it would leave the console
-                    // on the built-in font for a key that never changed
-                    // what was drawn
+                    // ADR-1200 D1: the key changes nothing that is drawn,
+                    // and refusing it would leave the console on the
+                    // built-in font, so it is accepted with a warning
                     once(compress)?;
                     compress = true;
                     warnings.push(err(n, "compress= has no effect here, and is ignored"));

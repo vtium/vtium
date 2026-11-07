@@ -47,9 +47,9 @@ const FILES: [(&str, &str, &str); 6] = [
 const LICENSE: &str = include_str!("unicode-license.txt");
 
 /// The scripts HarfRust 0.12 shapes with its Arabic shaper, whose joining
-/// letters `JOINING` lists. No code reads `JOINING` today: the fill that
-/// built their joined forms ahead of time was dropped, and a letter's
-/// joined form waits on shaping across cells.
+/// letters `JOINING` lists. No code reads `JOINING`: nothing builds the
+/// joined forms ahead of time, and a letter's joined form waits on
+/// shaping across cells.
 const JOINING_SCRIPTS: [&str; 2] = ["Arabic", "Syriac"];
 
 /// The scripts shaped on demand: those HarfRust 0.12 shapes with its Indic,

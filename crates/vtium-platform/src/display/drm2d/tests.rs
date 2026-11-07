@@ -340,8 +340,8 @@ fn activity(v: &mut Drm2d<FakeCard>, blank: &mut Blank, now: std::time::Instant)
     assert_eq!(blank.due(now + DPMS_TIMEOUT / 2), Due::In(DPMS_TIMEOUT / 2));
 }
 
-// Finding 3, the operator's decision: a wake-up, the VT acquired, counts as
-// user activity.
+// The operator's decision: a wake-up, the VT acquired, counts as user
+// activity.
 // Its modeset's ACTIVE=1 brings every display on, DPMS included, though
 // the display was blanked and the monitor's power cycle turned its
 // connector on; the recorded DPMS is On, and the blank restarts. Only tier
@@ -546,10 +546,10 @@ fn a_busy_commit_keeps_the_cursor_waiting() {
     assert!(!v.need_commit(DisplayId(A)));
 }
 
-// Round 4, finding 3: removing the framebuffer the cursor plane shows
-// takes the plane off its CRTC in the kernel, so the plane is recorded
-// hidden. A cursor-only commit hiding it again would name no CRTC, which
-// the kernel refuses with a flip event.
+// Removing the framebuffer the cursor plane shows takes the plane off its
+// CRTC in the kernel, so the plane is recorded hidden. A cursor-only
+// commit hiding it again would name no CRTC, which the kernel refuses
+// with a flip event.
 #[test]
 fn a_new_cursor_image_leaves_the_plane_recorded_hidden() {
     let mut v = awake(one());
@@ -570,10 +570,9 @@ fn a_new_cursor_image_leaves_the_plane_recorded_hidden() {
     assert_eq!(c.get(cp, "CRTC_ID"), Some(100));
 }
 
-// Re-review finding 4: a cursor change undone before the swap leaves the
-// plane as the last commit set it, so the swap sends nothing. With the
-// plane off, a commit would name no CRTC, which the kernel refuses with a
-// flip event.
+// A cursor change undone before the swap leaves the plane as the last
+// commit set it, so the swap sends nothing. With the plane off, a commit
+// would name no CRTC, which the kernel refuses with a flip event.
 #[test]
 fn a_cursor_change_undone_before_the_swap_sends_nothing() {
     let mut v = awake(one());
@@ -3120,10 +3119,9 @@ fn a_hotplug_after_the_retries_ran_out_wakes_the_card() {
     assert!(v.card().state().master);
 }
 
-// Round 4, finding 2: once the wake-up retries run out, the next input
-// tries the wake-up again, which brings every display on, blanked ones
-// included. Input while the retries run, or with nothing failed, does
-// nothing.
+// Once the wake-up retries run out, the next input tries the wake-up
+// again, which brings every display on, blanked ones included. Input
+// while the retries run, or with nothing failed, does nothing.
 #[test]
 fn input_after_the_retries_ran_out_wakes_the_card() {
     let mut v = a_then_b(ModePolicy::default());
@@ -3170,9 +3168,9 @@ fn input_after_the_retries_ran_out_wakes_the_card() {
     assert_eq!(v.card().state().commits.len(), commits, "nothing failed");
 }
 
-// Round 4, finding 2: once a failed hotplug's retries run out, master is
-// kept, and the next input tries the modeset again. Blanked, it is owed to
-// the `unblank` of the same input, so nothing is committed while blanked.
+// Once a failed hotplug's retries run out, master is kept, and the next
+// input tries the modeset again. Blanked, it is owed to the `unblank` of
+// the same input, so nothing is committed while blanked.
 #[test]
 fn input_after_a_hotplugs_retries_ran_out_sets_the_modes() {
     let mut v = a_then_b(ModePolicy::default());
@@ -3224,9 +3222,9 @@ fn a_powered_down_display_lends_no_canvas() {
     assert_eq!(clips(&c, primary(&v, A)), None, "the whole frame");
 }
 
-// Finding 3, the operator's decision: a hotplug while blanked records the
-// change and commits nothing; the display plugged in stays dark, and the
-// next input runs the modeset owed, with every display on.
+// The operator's decision: a hotplug while blanked records the change and
+// commits nothing; the display plugged in stays dark, and the next input
+// runs the modeset owed, with every display on.
 #[test]
 fn a_hotplug_while_blanked_commits_nothing_until_input() {
     let mut v = a_then_b(ModePolicy::default());
@@ -3285,8 +3283,8 @@ fn a_hotplug_pulse_while_blanked_changes_nothing_visible() {
     assert_eq!(v.card().state().dpms[&A], 0);
 }
 
-// Re-review finding 5: the blank holds whether or not a display's connector
-// has a DPMS property, so a hotplug while blanked commits nothing.
+// The blank holds whether or not a display's connector has a DPMS property,
+// so a hotplug while blanked commits nothing.
 #[test]
 fn a_display_without_dpms_keeps_the_blank() {
     let card = FakeCard::new(&[
@@ -3310,9 +3308,9 @@ fn a_display_without_dpms_keeps_the_blank() {
     assert_eq!(events(&mut v), [Event::Added(DisplayId(B))]);
 }
 
-// Re-review finding 3: a hotplug's modeset deferred behind a flip in
-// flight, when the blank comes before the flip completes, commits nothing
-// and is owed to the input that ends the blank.
+// A hotplug's modeset deferred behind a flip in flight, when the blank
+// comes before the flip completes, commits nothing and is owed to the input
+// that ends the blank.
 #[test]
 fn a_deferred_modeset_waits_for_input_once_blanked() {
     let mut v = a_then_b(ModePolicy::default());
@@ -3337,8 +3335,8 @@ fn a_deferred_modeset_waits_for_input_once_blanked() {
     assert_eq!(v.card().state().dpms[&A], 0);
 }
 
-// Re-review finding 3: the retries of a hotplug that failed commit nothing
-// once blanked; the modeset is owed to the input that ends the blank.
+// The retries of a hotplug that failed commit nothing once blanked; the
+// modeset is owed to the input that ends the blank.
 #[test]
 fn a_hotplug_retry_waits_for_input_once_blanked() {
     let mut v = a_then_b(ModePolicy::default());
@@ -3366,10 +3364,10 @@ fn a_hotplug_retry_waits_for_input_once_blanked() {
     );
 }
 
-// Round 4, finding 4: a retry of a failed hotplug that fails again keeps
-// DRM master and the displays online, so a blank in the retries' window
-// powers them down and the next retry commits nothing; the input ending
-// the blank runs the modeset with every display on.
+// A retry of a failed hotplug that fails again keeps DRM master and the
+// displays online, so a blank in the retries' window powers them down and
+// the next retry commits nothing; the input ending the blank runs the
+// modeset with every display on.
 #[test]
 fn a_failed_retry_keeps_master_through_the_blank() {
     let mut v = a_then_b(ModePolicy::default());
@@ -3481,8 +3479,8 @@ fn a_failed_wake_up_keeps_the_recorded_dpms() {
     );
 }
 
-// Re-review finding 2: the flip of the modeset the input ending the blank
-// runs is bounded, as every flip in flight is.
+// The flip of the modeset the input ending the blank runs is bounded, as
+// every flip in flight is.
 #[test]
 fn the_flip_of_the_modeset_owed_is_bounded() {
     let (mut lp, mut app) = in_loop(a_then_b(ModePolicy::default()));
@@ -3500,9 +3498,9 @@ fn the_flip_of_the_modeset_owed_is_bounded() {
     assert!(took.as_millis() >= 900, "flipped after {took:?}");
 }
 
-// Re-review finding 1: where the modeset the input ending the blank runs
-// fails, it is tried again as a failed hotplug is, and the displays come
-// on; the blank, which the input ended, stays ended.
+// Where the modeset the input ending the blank runs fails, it is tried
+// again as a failed hotplug is, and the displays come on; the blank, which
+// the input ended, stays ended.
 #[test]
 fn a_failed_modeset_owed_is_tried_again() {
     let (mut lp, mut app) = in_loop(a_then_b(ModePolicy::default()));
@@ -3540,9 +3538,9 @@ fn input_with_no_modeset_owed_powers_on_through_dpms() {
     assert_eq!(age(&mut v, A), 0);
 }
 
-// Round 4, finding 1: input with no modeset owed powers every display on
-// through its DPMS, though one refuses; the one refused is left owed a
-// modeset, which the retries run with every display on.
+// Input with no modeset owed powers every display on through its DPMS,
+// though one refuses; the one refused is left owed a modeset, which the
+// retries run with every display on.
 #[test]
 fn a_refused_dpms_unblank_is_tried_again_as_a_modeset() {
     let mut v = a_then_b(ModePolicy::default());
@@ -4591,9 +4589,9 @@ fn shared_dark_card() -> FakeCard {
     card
 }
 
-// review-h1b: turning a dark connector's CRTC off unbinds every connector
-// on it, an unplugged one vtium neither binds nor darkens included, so the
-// commit passes the kernel's check and the lit display comes up.
+// Turning a dark connector's CRTC off unbinds every connector on it, an
+// unplugged one vtium neither binds nor darkens included, so the commit
+// passes the kernel's check and the lit display comes up.
 #[test]
 fn a_dark_crtc_is_turned_off_with_every_connector_on_it() {
     let mut v = dark_on(shared_dark_card(), "HDMI-A-2");
@@ -4608,9 +4606,9 @@ fn a_dark_crtc_is_turned_off_with_every_connector_on_it() {
     assert_eq!(v.card().state().active.get(&101), Some(&false));
 }
 
-// review-h1b: a dark rule never costs the lit displays. Where the commit
-// setting a dark connector off still fails, the modeset is tried again
-// without it, logged once, and the lit displays come up.
+// A dark rule never costs the lit displays. Where the commit setting a dark
+// connector off still fails, the modeset is tried again without it, logged
+// once, and the lit displays come up.
 #[test]
 fn a_dark_connector_that_cannot_be_set_off_leaves_the_lit_displays_up() {
     logs::capture();
@@ -4674,13 +4672,13 @@ fn drawn(v: &mut Drm2d<FakeCard>, id: u32, byte: u8) -> u32 {
     fb
 }
 
-// The small panel on the test seat (vtium/vtium#18's seat, the operator's
-// VT pass of 2026-10-30): unplugged, its CRTC went off with vtium's
-// framebuffers; plugged back while vtium held no master, the kernel's
-// console lit it first, and vtium's frames on the console's mode left it
-// dark until a VT switch. While its VT is shown vtium keeps master with no
-// display, so the console never takes the panel, and the panel's return
-// sets its CRTC from off: its first frame shows.
+// A small panel unplugged has its CRTC turned off with vtium's
+// framebuffers; plugged back while vtium holds no master, the kernel's
+// console lights it first, and frames committed on the console's mode leave
+// it dark until its mode is set again (vtium/vtium#18). While its VT is
+// shown vtium keeps master with no display, so the console never takes the
+// panel, and the panel's return sets its CRTC from off: its first frame
+// shows.
 #[test]
 fn a_display_plugged_back_in_shows_its_first_frame() {
     let mut v = awake(one());

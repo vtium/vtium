@@ -5166,10 +5166,10 @@ mod tests {
         assert!(!awake(&app), "closed until the VT is taken");
     }
 
-    // vtium/vtium#229's review: while the fake VT is released, with its
-    // keyboards and pointers still open, the user's input wakes none of
-    // the displays the other session owns, a blank that fired meanwhile
-    // included, and a key or a pointer action tells no device
+    // vtium/vtium#229: while the fake VT is released, with its keyboards
+    // and pointers still open, the user's input wakes none of the displays
+    // the other session owns, a blank that fired meanwhile included, and a
+    // key or a pointer action tells no device
     #[test]
     fn input_on_a_released_fake_vt_wakes_no_display() {
         let key = |keysym: u32, mods: InputMods| {
@@ -5219,11 +5219,11 @@ mod tests {
         assert!(app.blank.blanked(), "the blank stands");
     }
 
-    // vtium/vtium#229's review, round 2: while the fake VT is released the
-    // blank's timer blanks nothing, however long it runs past its
-    // timeout, and wakes no loop for it; taken back, the countdown starts
-    // afresh from the acquire. The device lists its displays while
-    // asleep, as a real one does, so a power-down would reach it.
+    // vtium/vtium#229: while the fake VT is released the blank's timer
+    // blanks nothing, however long it runs past its timeout, and wakes no
+    // loop for it; taken back, the countdown starts afresh from the
+    // acquire. The device lists its displays while asleep, as a real one
+    // does, so a power-down would reach it.
     #[test]
     fn a_released_fake_vt_blanks_no_display_and_counts_afresh_at_the_acquire() {
         let chord = InputEvent::Key(KeyEvent {
@@ -5310,10 +5310,9 @@ mod tests {
     // views take the new cell together, so the next frame draws each cell
     // as wide as the grid lays it out. The cases are the ones the issue
     // about late cells lists: 18x40 and 42x40 at 40 pixels, and 13x32 at
-    // 32 pixels. Before the fix the grid took the new width while each
-    // view kept drawing the built-in font's width, because a view is
-    // rebuilt only when its height changes or the head is marked
-    // `refont`.
+    // 32 pixels. A view is rebuilt only when its height changes or the
+    // head is marked `refont`, so a grid that took the new width alone
+    // would leave each view drawing the built-in font's width.
     #[test]
     fn a_late_outline_cell_is_drawn_at_its_own_width() {
         for (width, height) in [(18, 40), (42, 40), (13, 32)] {
@@ -5375,17 +5374,16 @@ mod tests {
         }
     }
 
-    // ADR-1200 D17 (the maintainer, 2026-11-03), fix round 1 of the work
-    // that keeps a late answer: a late answer lays out again only the
-    // heads drawing the frit that take a cell from it. An outline cell for
-    // a height no head draws at, given to frit `u`, lays out nothing; a
-    // bitmap first source's own cell, given to frit `t`, lays out the head
-    // drawing `t` and not the head drawing `u`, which still wants its own
-    // cell. Each frit gets one kind of answer, as one frit's first source
-    // answers one kind for the whole boot. The views' cells and the
-    // heads' grids show what was laid out: the late cell is as tall as
-    // the cell drawn before it and wider, so a layout that rebuilt no view
-    // leaves the view drawing the old width.
+    // ADR-1200 D17 (the maintainer, 2026-11-03): a late answer lays out
+    // again only the heads drawing the frit that take a cell from it. An
+    // outline cell for a height no head draws at, given to frit `u`, lays
+    // out nothing; a bitmap first source's own cell, given to frit `t`,
+    // lays out the head drawing `t` and not the head drawing `u`, which
+    // still wants its own cell. Each frit gets one kind of answer, as one
+    // frit's first source answers one kind for the whole boot. The views'
+    // cells and the heads' grids show what was laid out: the late cell is
+    // as tall as the cell drawn before it and wider, so a layout that
+    // rebuilt no view leaves the view drawing the old width.
     #[test]
     fn a_late_cell_lays_out_only_the_heads_that_take_it() {
         let (_lp, mut app, dir) = late_seat("late-heads");
@@ -5475,12 +5473,12 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    // ADR-1200 D17, the fix branch's re-review: a bitmap frit's answer
-    // holds at every height, so a refusal that came in time at one height
-    // holds at all of them. A late bitmap cell is then dropped, at the
-    // start's height, whose query had no answer in time, and at a height
-    // no query was asked at, and it never becomes the cell that
-    // `answer_at`, which looks for a bitmap cell first, finds.
+    // ADR-1200 D17: a bitmap frit's answer holds at every height, so a
+    // refusal that came in time at one height holds at all of them. A late
+    // bitmap cell is then dropped, at the start's height, whose query had
+    // no answer in time, and at a height no query was asked at, and it
+    // never becomes the cell that `answer_at`, which looks for a bitmap
+    // cell first, finds.
     #[test]
     fn a_late_bitmap_cell_yields_to_a_refusal_in_time_at_any_height() {
         let (_lp, mut app, dir) = late_seat("late-refused");
@@ -5520,13 +5518,13 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    // ADR-1200 D17, the fix branch's re-review: the answers, and not the
-    // frit's text, say which kind a frit is. Frit `t`'s text guesses
-    // bitmap (`source=kbd:x`), as `font-name=/path/x.ttf` makes a frit
-    // whose first source is in fact an outline font. With an outline cell
-    // held at one height, a head at another height has no answer and asks
-    // at its own, and a head at the first height, still guessing bitmap,
-    // gets that cell, whatever failed at the other height.
+    // ADR-1200 D17: the answers, and not the frit's text, say which kind a
+    // frit is. Frit `t`'s text guesses bitmap (`source=kbd:x`), as
+    // `font-name=/path/x.ttf` makes a frit whose first source is in fact an
+    // outline font. With an outline cell held at one height, a head at
+    // another height has no answer and asks at its own, and a head at the
+    // first height, still guessing bitmap, gets that cell, whatever failed
+    // at the other height.
     #[test]
     fn an_outline_answer_holds_at_its_height_alone_whatever_the_text_guesses() {
         let (_lp, mut app, dir) = late_seat("late-kind");

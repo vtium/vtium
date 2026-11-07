@@ -346,7 +346,7 @@ fn reference(px: &[u32], width: usize, stride: usize, visual: u32, nonstd: u32) 
 
 // Each visual and order at odd widths, under random partial damage: the
 // bytes the damage touches match the reference, and the rest keep their
-// last value (the review's case).
+// last value.
 #[test]
 fn packing_at_odd_widths_under_partial_damage_matches_the_reference() {
     let cases = [
@@ -534,9 +534,8 @@ fn the_loop_fires_the_stand_in_flip() {
     );
 }
 
-// Re-review finding 1: an unblank that fails is tried again, since the
-// blank took the input that ended it and no later input comes to
-// `unblank`; so is a wake-up's.
+// An unblank that fails is tried again, since the blank took the input that
+// ended it and no later input comes to `unblank`; so is a wake-up's.
 #[test]
 fn a_failed_unblank_is_tried_again() {
     struct App(Fbdev<FakeFb>);
@@ -569,8 +568,8 @@ fn a_failed_unblank_is_tried_again() {
     }
 }
 
-// Round 4, finding 2: once an unblank's retries run out, the device
-// reports `WakeFailed`, and the next input tries the unblank again.
+// Once an unblank's retries run out, the device reports `WakeFailed`, and
+// the next input tries the unblank again.
 #[test]
 fn input_after_the_unblank_retries_ran_out_unblanks() {
     let mut v = awake(FakeFb::new(32));
@@ -612,9 +611,8 @@ fn a_swap_with_no_damage_does_nothing() {
     assert!(!v.hardware_cursor(DISPLAY));
 }
 
-// Re-review finding 6 and the frame contract, rule 3: a token given back
-// unused presents nothing, and a token that is not the display's is
-// dropped.
+// The frame contract, rule 3: a token given back unused presents nothing,
+// and a token that is not the display's is dropped.
 #[test]
 fn a_token_given_back_unused_presents_nothing() {
     let mut fb = FakeFb::new(16);

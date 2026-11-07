@@ -428,15 +428,14 @@ fn a_letter_and_mark_that_fit_are_untouched() {
 }
 
 // A cluster whose pen sum is negative is placed as one with no advance
-// (review finding A9, through rasterise): its pen goes half the cell in,
-// since a negative advance counts as none. Test Mono with
-// an x, a bar from 100 to 500 units across and 400 tall, and a dot above,
-// at 20 pixels: as the font gives it,
-// x advances 600 units, 11.7 pixels, which rounds to the 12-pixel cell,
-// so its pen is on the cell's left edge. With a GPOS adjustment of -1600
-// units to x's advance the cluster's pen sum is -1000 units, and its pen
-// is 6 columns in, where an unclamped advance of -19.5 pixels would put
-// it 16 columns in, past the cell
+// (through rasterise): its pen goes half the cell in, since a negative
+// advance counts as none. Test Mono with an x, a bar from 100 to 500 units
+// across and 400 tall, and a dot above, at 20 pixels: as the font gives it,
+// x advances 600 units, 11.7 pixels, which rounds to the 12-pixel cell, so
+// its pen is on the cell's left edge. With a GPOS adjustment of -1600 units
+// to x's advance the cluster's pen sum is -1000 units, and its pen is 6
+// columns in, where an unclamped advance of -19.5 pixels would put it 16
+// columns in, past the cell
 #[test]
 fn a_cluster_with_a_negative_advance_is_placed_as_one_with_none() {
     let font = |by: Option<i16>| {
@@ -583,10 +582,9 @@ fn a_stack_past_the_reach_is_fitted_to_the_reach() {
     assert!(row(g, 16).iter().all(|&p| p == 0), "nothing below x");
 }
 
-// a beh keyed with U+200D after it, as the console asks for it, is judged
-// a joining form (review finding B4): drawn one cell wide in its initial
-// form, a bar from 300 to 600 units, stretched to its 12-pixel cell from
-// column 6 to its right edge
+// a beh keyed with U+200D after it, as the console asks for it, is judged a
+// joining form: drawn one cell wide in its initial form, a bar from 300 to
+// 600 units, stretched to its 12-pixel cell from column 6 to its right edge
 #[test]
 fn a_letter_with_a_joiner_draws_one_cell_wide_and_stretched() {
     let key = [BEH, ZWJ];
@@ -617,12 +615,12 @@ fn a_letter_with_vs16_and_a_joiner_is_a_joining_form_one_cell_wide() {
 }
 
 // A beh with a fatha (U+064E), keyed with U+200D on either side, is a
-// joining form (review finding 2): the fatha, whose Joining_Type is T,
-// does not make the cluster an emoji sequence, whose one-glyph rule would
-// drop it. Each order draws one cell wide, the beh in its joined form
-// with the fatha above it: the bar from 0 to 500 units fills rows 6 to 15
-// of the 20-pixel cell, and the fatha, a bar from 600 to 700 units, ink
-// in rows 2 to 4, where the beh alone has none
+// joining form: the fatha, whose Joining_Type is T, does not make the
+// cluster an emoji sequence, whose one-glyph rule would drop it. Each order
+// draws one cell wide, the beh in its joined form with the fatha above it:
+// the bar from 0 to 500 units fills rows 6 to 15 of the 20-pixel cell, and
+// the fatha, a bar from 600 to 700 units, ink in rows 2 to 4, where the beh
+// alone has none
 #[test]
 fn a_vocalised_letter_with_a_joiner_draws_as_a_joining_form() {
     const FATHA: char = '\u{64e}';
@@ -663,9 +661,9 @@ fn a_vocalised_letter_with_a_joiner_draws_as_a_joining_form() {
 }
 
 // A mark the shaper leaves at the pen, with no advance and no offset, as
-// HarfRust leaves an acute after a circumflex in DejaVu Sans Mono (review
-// finding B5), is placed by the helper itself: centred over its base's
-// ink, a row above all the ink since the base.
+// HarfRust leaves an acute after a circumflex in DejaVu Sans Mono, is
+// placed by the helper itself: centred over its base's ink, a row above
+// all the ink since the base.
 // Here x's ink fills rows 8 to 15 of columns 1 to 9; the font's empty
 // GPOS leaves the circumflex and the acute, zero-width bars drawn right of
 // the pen, where HarfRust put them, which is in the next cell
@@ -709,15 +707,15 @@ fn a_mark_left_at_the_pen_is_centred_over_its_base() {
     }
 }
 
-// ADR-1302 D2: a stretched cluster is stretched as one, its marks'
-// offsets included, so a mark stays over its letter (review finding B8).
-// At 20 pixels, a 12-pixel cell, a beh advancing 400 units, 7.8 pixels,
-// stretches by 12 / 7.8; HarfRust centres its fatha, 200 units wide, over
-// it with an offset. Stretched with its offset, the fatha covers columns 3
-// to 9 of row 7, centred over the stretched beh; with its offset left
-// unstretched, columns 2 to 8. A seen advancing 1,000 units, 19.5 pixels,
-// takes the one cell the terminal gives it (ADR-1200 D21) and is squeezed
-// to fill it, as ADR-1302 D2 squeezes a letter wider than its cell
+// ADR-1302 D2: a stretched cluster is stretched as one, its marks' offsets
+// included, so a mark stays over its letter. At 20 pixels, a 12-pixel cell,
+// a beh advancing 400 units, 7.8 pixels, stretches by 12 / 7.8; HarfRust
+// centres its fatha, 200 units wide, over it with an offset. Stretched with
+// its offset, the fatha covers columns 3 to 9 of row 7, centred over the
+// stretched beh; with its offset left unstretched, columns 2 to 8. A seen
+// advancing 1,000 units, 19.5 pixels, takes the one cell the terminal gives
+// it (ADR-1200 D21) and is squeezed to fill it, as ADR-1302 D2 squeezes a
+// letter wider than its cell
 #[test]
 fn a_stretched_cluster_keeps_its_marks_over_its_letter() {
     let mut f = ttf::test_mono();

@@ -171,9 +171,9 @@ pub(crate) fn sheared(glyph: &Glyph, baseline: u32, scale: u32) -> Option<Glyph>
 mod tests {
     use super::*;
 
-    // an 8x16 console font's baseline lies under row 11 (kbd's
-    // default8x16, Terminus ter-v16n): rows 0 to 4 move 2, 5 to 9 move 1,
-    // 10 to 14 stay, and row 15 moves 1 left (ADR-1302 D4)
+    // an 8x16 console font whose baseline lies under row 11: rows 0 to 4
+    // move 2, 5 to 9 move 1, 10 to 14 stay, and row 15 moves 1 left
+    // (ADR-1302 D4)
     #[test]
     fn an_8x16_fonts_rows_move_2_1_0_and_back_1() {
         let shifts: Vec<i32> = (0..16).map(|y| shear_shift(y, 12)).collect();

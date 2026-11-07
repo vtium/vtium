@@ -2497,9 +2497,9 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     ///
     /// The modeset after it then sets a returning display's mode, CRTC and
     /// connector anew, a full modeset, whatever mode another master or the
-    /// kernel's console left there. On this machine's amdgpu cards the
-    /// small panel showed nothing under frames committed on the mode the
-    /// console set at its return, until a VT switch set its mode again. A
+    /// kernel's console left there, because a driver can keep a returning
+    /// panel dark under frames committed on the mode the console set at
+    /// its return until its mode is set again, as amdgpu does. A
     /// CRTC that a display online also drives stays on, and only loses the
     /// returning connector. A display on no CRTC, about to take one with no
     /// mode, starts from off already and needs nothing turned off.

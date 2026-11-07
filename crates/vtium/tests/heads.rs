@@ -1392,19 +1392,18 @@ display card:mem-small -> small
     drop(s);
 }
 
-/// ADR-1200 D17, binary-recheck's finding 4: a bitmap frit asks for its
-/// fonts' own cell at an OSC 50 switch. Switched away and back while
-/// another head still draws it, a frit whose last ask has had no answer
-/// asks again; one the helper refused keeps the refusal and asks nothing,
-/// a refusal that came after the wait included (the maintainer,
-/// 2026-11-03). The helper is the real one, so each query gets one
-/// answer: its frit names a kbd font no machine has, which it refuses.
-/// Held, it answers nothing until the test opens its go FIFO, so the
-/// start's ask has no answer in time whatever the machine's speed. In the
-/// `refused` case the test then lets the helper answer, and waits until
-/// vtium has kept its late refusal of the start's ask; neither switch
-/// back asks again. In the `timeout` case the helper stays held, and each
-/// switch back asks again.
+/// ADR-1200 D17: a bitmap frit asks for its fonts' own cell at an OSC 50
+/// switch. Switched away and back while another head still draws it, a frit
+/// whose last ask has had no answer asks again; one the helper refused
+/// keeps the refusal and asks nothing, a refusal that came after the wait
+/// included (the maintainer, 2026-11-03). The helper is the real one, so
+/// each query gets one answer: its frit names a kbd font no machine has,
+/// which it refuses. Held, it answers nothing until the test opens its go
+/// FIFO, so the start's ask has no answer in time whatever the machine's
+/// speed. In the `refused` case the test then lets the helper answer, and
+/// waits until vtium has kept its late refusal of the start's ask; neither
+/// switch back asks again. In the `timeout` case the helper stays held, and
+/// each switch back asks again.
 // covers: text.font-change
 #[test]
 fn an_osc_50_switch_back_asks_again_after_a_timeout_but_not_a_refusal() {
@@ -2667,12 +2666,11 @@ fn closing_a_console_hangs_up_its_session_alone() {
     assert!(s.until(BOUND, |a| head_shows(a, "small", "got:on")));
 }
 
-/// D5 and binary-review's finding 2: a session the open chord cannot start
-/// leaves the run alive. The console that could not start leaves the head,
-/// which shows the console it showed before, and the top of the head says
-/// so; the other sessions run on. The head's login here is a script removed
-/// once the first console's session has started, so the second cannot
-/// start.
+/// D5: a session the open chord cannot start leaves the run alive. The
+/// console that could not start leaves the head, which shows the console it
+/// showed before, and the top of the head says so; the other sessions run
+/// on. The head's login here is a script removed once the first console's
+/// session has started, so the second cannot start.
 // covers: platform.heads
 #[test]
 fn a_console_the_open_chord_cannot_start_leaves_and_the_run_goes_on() {
@@ -2769,11 +2767,11 @@ fn three_focus_consoles(dir: &Path) -> (Seat, PathBuf) {
     (s, login)
 }
 
-/// D5, binary-recheck's finding 2: a failed open never shows its console,
-/// so the console shown before is told nothing: no focus-out and focus-in
-/// reach its program before the line typed next. The focus-in the head's
-/// keyboard gave it at the start may come before, whichever came first of
-/// the keyboard and the program's mode 1004.
+/// D5: a failed open never shows its console, so the console shown before
+/// is told nothing: no focus-out and focus-in reach its program before the
+/// line typed next. The focus-in the head's keyboard gave it at the start
+/// may come before, whichever came first of the keyboard and the program's
+/// mode 1004.
 // covers: platform.heads
 #[test]
 fn a_failed_open_tells_the_console_shown_nothing() {
@@ -3156,10 +3154,9 @@ fn releasing_ctrl_over_a_link_hides_its_overlay() {
     );
 }
 
-/// ADR-1002, "What a link does", binary-review's finding 4: after a VT
-/// switch away and back, the keyboards start afresh holding no Ctrl, so
-/// the overlay Ctrl showed before the switch ends at the return, with no
-/// key pressed after it.
+/// ADR-1002, "What a link does": after a VT switch away and back, the
+/// keyboards start afresh holding no Ctrl, so the overlay Ctrl showed
+/// before the switch ends at the return, with no key pressed after it.
 // covers: osc.8
 #[test]
 fn a_vt_switch_away_and_back_ends_the_overlay() {
@@ -3297,13 +3294,12 @@ display card:mem-small -> console
 display card:mem-large -> console
 ";
 
-/// The maintainer's VT review (2026-10-30): one head of two consoles on
-/// two mirrored displays. Ctrl-Super-Right and Ctrl-Super-Left, pressed
-/// as a keyboard sends them, switch the shown console at once, and the
-/// frame of the turn that took the keys draws the console now shown on
-/// both displays, pixel for pixel as a seat of one console that never
-/// switched draws that screen. The only wait after a chord is for that
-/// frame to come back from the head's render thread.
+/// One head of two consoles on two mirrored displays. Ctrl-Super-Right and
+/// Ctrl-Super-Left, pressed as a keyboard sends them, switch the shown
+/// console at once, and the frame of the turn that took the keys draws the
+/// console now shown on both displays, pixel for pixel as a seat of one
+/// console that never switched draws that screen. The only wait after a
+/// chord is for that frame to come back from the head's render thread.
 #[test]
 fn the_console_chords_draw_the_console_they_show() {
     const KBD: &str = "/dev/input/event0";
@@ -4364,8 +4360,7 @@ fn a_head_whose_display_never_lit_receives_no_key() {
 
 /// D5 and D8: before the first key the focus starts over every display
 /// lit since the start, one that left included, so the boot display
-/// lighting late takes it even after the focus's head lost its display
-/// (found by the review of H3c).
+/// lighting late takes it even after the focus's head lost its display.
 #[test]
 fn a_late_boot_display_takes_the_focus_after_the_focus_heads_display_left() {
     let displays = [("/dev/mem0", Memory::new(320, 160, "MEM-1", "mem-small"))];

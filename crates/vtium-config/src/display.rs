@@ -139,8 +139,8 @@ mod tests {
     /// The tool's density and the console's are one for the same EDID
     /// bytes: the size read by vtium-platform's reader, the density by its
     /// `Density::of`, rounded down the screen. A 41 cm high panel of 5125
-    /// rows is 317.5 dpi down, which a reader of its own once took as
-    /// 317.49999 and rounded to 317.
+    /// rows is 317.5 dpi down, which a reader computing it another way can
+    /// take as 317.49999 and round to 317.
     #[test]
     fn the_tool_s_density_is_the_console_s_for_the_same_edid() {
         use vtium_platform::display::{Density, Edid};
