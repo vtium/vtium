@@ -26,6 +26,10 @@ mod wider;
 
 /// The bar cursor: U+258F, LEFT ONE EIGHTH BLOCK, a sprite.
 const BAR: char = '\u{258f}';
+/// The bar cursor on a character that resolves right to left: U+2595,
+/// RIGHT ONE EIGHTH BLOCK, a sprite (ADR-1004 D9).
+#[cfg(feature = "bidi")]
+const BAR_RIGHT: char = '\u{2595}';
 
 /// The color a decoration draws in.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -518,6 +522,9 @@ pub struct Renderer<F> {
     bound: Bound,
     /// A cell's text, read for its glyph's reach.
     chars: Vec<char>,
+    /// The text of the cell being pushed, as it draws (ADR-1004 D6).
+    #[cfg(feature = "bidi")]
+    drawn: Vec<char>,
     /// The blocks of cells the reach of the row being scanned stamped.
     reached: Vec<crate::reach::Block>,
     arrow: Arrow,
@@ -603,6 +610,18 @@ fn span(width: Width, before: Option<Width>, next: impl FnOnce() -> Option<Width
     }
 }
 
+/// The cells `fc` at `col`, `row` draws over when it takes part in a
+/// lam-alef ligature (ADR-1004 D6): 2 for the alef, which draws the
+/// ligature, and 0 for the lam beside it; `None` for any other cell.
+#[cfg(feature = "bidi")]
+fn paired(p: &Pass<'_, '_>, at: (usize, usize), fc: &FrameCell<'_>) -> Option<usize> {
+    match crate::joined::span(p.frame, at, fc, p.held) {
+        crate::joined::Span::Pair => Some(2),
+        crate::joined::Span::Tail => Some(0),
+        crate::joined::Span::One => None,
+    }
+}
+
 /// `chars` sorted, each once.
 fn sorted(chars: &[char]) -> Vec<char> {
     let mut out = chars.to_vec();
@@ -683,6 +702,8 @@ impl<F: Face> Renderer<F> {
             reaches_kept: true,
             bound: Bound::DRAWN,
             chars: Vec::new(),
+            #[cfg(feature = "bidi")]
+            drawn: Vec::new(),
             reached: Vec::new(),
             arrow,
             upright_arrow,
@@ -1230,7 +1251,10 @@ impl<F: Face> Renderer<F> {
             self.cells.stamp(col, row);
         }
         if reread {
+            #[cfg(not(feature = "bidi"))]
             let reach = self.cell_reach(fc, held, back);
+            #[cfg(feature = "bidi")]
+            let reach = self.cell_reach(fc, (p, (col, row), ncells), held, back);
             self.reach_to(col, row, role, (ink_changed, reach));
         }
         true
@@ -1268,7 +1292,13 @@ impl<F: Face> Renderer<F> {
     /// that blinks, one whose ink its own background hides, or a cell that
     /// draws no text; and only up and down for the letter the visible
     /// cursor stands on, `held`, whatever the cursor's blink phase.
-    fn cell_reach<B: Back>(&mut self, fc: &FrameCell<'_>, held: bool, back: &mut B) -> Reach {
+    fn cell_reach<B: Back>(
+        &mut self,
+        fc: &FrameCell<'_>,
+        #[cfg(feature = "bidi")] (p, at, ncells): (&Pass<'_, '_>, (usize, usize), usize),
+        held: bool,
+        back: &mut B,
+    ) -> Reach {
         let blinks = fc.attrs.contains(Attrs::BLINK) || fc.attrs.contains(Attrs::RAPID_BLINK);
         let steady = !blinks || self.config.blink.style == BlinkStyle::Off;
         if !steady || fc.fg == fc.bg || draws_no_text(fc.glyph) {
@@ -1284,6 +1314,20 @@ impl<F: Face> Renderer<F> {
             FontWidth::Narrow
         };
         let compose = &mut self.compose;
+        // the text the cell draws, its joining sides and mirroring, and a
+        // lam-alef ligature's two cells (ADR-1004 D6, D7)
+        #[cfg(feature = "bidi")]
+        let reach = {
+            self.chars.clear();
+            crate::joined::drawn(p.frame, at, fc, p.held, &mut self.chars);
+            if self.chars.is_empty() {
+                return Reach::NONE;
+            }
+            let width = if ncells == 2 { FontWidth::Wide } else { width };
+            back.reach(compose, &self.font, &self.chars, width, style)
+                .within(self.bound)
+        };
+        #[cfg(not(feature = "bidi"))]
         let reach = match fc.glyph {
             Glyph::Empty => return Reach::NONE,
             Glyph::Char(c) => back.reach(compose, &self.font, &[c], width, style),
@@ -1321,6 +1365,8 @@ impl<F: Face> Renderer<F> {
         let mut before = None;
         for (here, fc) in p.frame.cells(row).take(g.cols).enumerate() {
             let ncells = span(fc.width, before, || next_width(p.frame, row, here, g.cols));
+            #[cfg(feature = "bidi")]
+            let ncells = paired(p, (here, row), &fc).unwrap_or(ncells);
             before = Some(fc.width);
             if !self.scan_cell(p, (here, row), &fc, (ncells, reads), back) {
                 continue;
@@ -1371,6 +1417,13 @@ impl<F: Face> Renderer<F> {
         let is_cursor = p.at == Some((col, row));
         let off = blink_off(fc, is_cursor, p.state, self.config.blink);
         let new = self.cells.mark_drawn(col, row, ncells);
+        #[cfg(feature = "bidi")]
+        let mut drawn = core::mem::take(&mut self.drawn);
+        #[cfg(feature = "bidi")]
+        {
+            drawn.clear();
+            crate::joined::drawn(p.frame, (col, row), fc, p.held, &mut drawn);
+        }
         self.push_jobs(
             &p.g,
             fc,
@@ -1378,7 +1431,13 @@ impl<F: Face> Renderer<F> {
             is_cursor.then_some(&p.cursor),
             off,
             self.one_bit_lit(p, fc, row, col),
+            #[cfg(feature = "bidi")]
+            &drawn,
         );
+        #[cfg(feature = "bidi")]
+        {
+            self.drawn = drawn;
+        }
         u32::from(new)
     }
 
@@ -1401,6 +1460,17 @@ impl<F: Face> Renderer<F> {
             let (lead, n) = match span(w, before, || width(col.saturating_add(1))) {
                 0 => (col.saturating_sub(1), 2),
                 n => (col, n),
+            };
+            // a lam-alef ligature is drawn whole by its alef, on the left
+            #[cfg(feature = "bidi")]
+            let (lead, n) = match p
+                .frame
+                .cell(row, col)
+                .and_then(|fc| paired(p, (col, row), &fc))
+            {
+                Some(0) => (col.saturating_sub(1), 2),
+                Some(n) => (col, n),
+                None => (lead, n),
             };
             let end = lead.saturating_add(n);
             let held = self
@@ -1615,7 +1685,17 @@ impl<F: Face> Renderer<F> {
     }
 
     /// The jobs for one cell: its own, and for a bar cursor on a wide cell,
-    /// its second half's. `off` draws it in the text blink's off phase.
+    /// its other half's. `off` draws it in the text blink's off phase. In a
+    /// build with the bidi feature, `drawn` is the text the cell draws
+    /// ([`crate::joined::drawn`]), and a bar cursor stands on the right
+    /// side of a cell that resolves right to left (ADR-1004 D9).
+    #[cfg_attr(
+        feature = "bidi",
+        expect(
+            clippy::too_many_arguments,
+            reason = "the drawn text joins the cell's own in a build with the bidi feature"
+        )
+    )]
     fn push_jobs(
         &mut self,
         g: &Grid,
@@ -1624,6 +1704,7 @@ impl<F: Face> Renderer<F> {
         cursor: Option<&Cursor>,
         off: bool,
         lit: Option<bool>,
+        #[cfg(feature = "bidi")] drawn: &[char],
     ) {
         let force = self.config.decorations.force;
         let (deco_ul, deco_strike) = self.deco;
@@ -1712,10 +1793,20 @@ impl<F: Face> Renderer<F> {
         };
         let text = &mut self.compose.text;
         let start = text.len();
+        #[cfg(feature = "bidi")]
+        let bar_right = bar && cursor.is_some_and(|c| c.rtl);
         let width = if bar {
+            #[cfg(feature = "bidi")]
+            text.push(if bar_right { BAR_RIGHT } else { BAR });
+            #[cfg(not(feature = "bidi"))]
             text.push(BAR);
             FontWidth::Narrow
         } else {
+            #[cfg(feature = "bidi")]
+            if !hidden && !placeholder {
+                text.extend_from_slice(drawn);
+            }
+            #[cfg(not(feature = "bidi"))]
             if !hidden && !placeholder {
                 match fc.glyph {
                     Glyph::Empty => {}
@@ -1723,7 +1814,12 @@ impl<F: Face> Renderer<F> {
                     Glyph::Cluster(s) => text.extend(s.chars()),
                 }
             }
-            if fc.width == Width::Wide {
+            // a lam-alef ligature spans its two narrow cells
+            #[cfg(feature = "bidi")]
+            let wide = fc.width == Width::Wide || at.ncells == 2;
+            #[cfg(not(feature = "bidi"))]
+            let wide = fc.width == Width::Wide;
+            if wide {
                 FontWidth::Wide
             } else {
                 FontWidth::Narrow
@@ -1740,11 +1836,22 @@ impl<F: Face> Renderer<F> {
         };
         let mut at = at;
         if bar && at.ncells == 2 {
-            // the bar takes the left half; the right is the cell without it
+            // the bar takes the left half, or the right half where the
+            // character resolves right to left; the other half is the cell
+            // without it
             let tail = Place {
                 col: at.col.saturating_add(1),
                 ncells: 1,
                 ..at
+            };
+            #[cfg(feature = "bidi")]
+            let tail = if bar_right {
+                Place {
+                    col: at.col,
+                    ..tail
+                }
+            } else {
+                tail
             };
             let paint = Paint {
                 fg: fc.fg,
@@ -1762,6 +1869,10 @@ impl<F: Face> Renderer<F> {
             };
             self.compose.jobs.push(job);
             at.ncells = 1;
+            #[cfg(feature = "bidi")]
+            if bar_right {
+                at.col = at.col.saturating_add(1);
+            }
         }
         let fg = if bar { cursor_color.unwrap_or(fg) } else { fg };
         let glyph_cells = if width == FontWidth::Wide { 2 } else { 1 };
@@ -1829,6 +1940,8 @@ impl<F: Face> Renderer<F> {
         let run = p.frame.cells(row).take(end.min(g.cols)).enumerate();
         for (here, fc) in run.skip(first) {
             let ncells = span(fc.width, before, || next_width(p.frame, row, here, g.cols));
+            #[cfg(feature = "bidi")]
+            let ncells = paired(p, (here, row), &fc).unwrap_or(ncells);
             before = Some(fc.width);
             if ncells == 0 {
                 continue;
@@ -1844,6 +1957,13 @@ impl<F: Face> Renderer<F> {
             let is_cursor = p.at == Some((here, row));
             let off = blink_off(&fc, is_cursor, p.state, self.config.blink);
             self.cells.mark_drawn(here, row, ncells);
+            #[cfg(feature = "bidi")]
+            let mut drawn = core::mem::take(&mut self.drawn);
+            #[cfg(feature = "bidi")]
+            {
+                drawn.clear();
+                crate::joined::drawn(p.frame, (here, row), &fc, p.held, &mut drawn);
+            }
             self.push_jobs(
                 g,
                 &fc,
@@ -1855,7 +1975,13 @@ impl<F: Face> Renderer<F> {
                 is_cursor.then_some(&p.cursor),
                 off,
                 self.one_bit_lit(p, &fc, row, here),
+                #[cfg(feature = "bidi")]
+                &drawn,
             );
+            #[cfg(feature = "bidi")]
+            {
+                self.drawn = drawn;
+            }
         }
         self.compose.jobs.sort_by_key(|j| j.posx);
     }

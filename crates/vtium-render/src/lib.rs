@@ -71,6 +71,8 @@ mod damage;
 mod deco;
 #[cfg(feature = "gpu")]
 pub mod gpu;
+#[cfg(feature = "bidi")]
+pub mod joined;
 mod mono;
 mod notice;
 #[cfg(feature = "images")]
