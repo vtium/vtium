@@ -7052,3 +7052,91 @@ fn going_back_never_puts_two_displays_on_one_crtc() {
         "{stayed} displays that wanted to go back stayed"
     );
 }
+
+/// Two displays, A and B, lit and showing a frame each, with the atomic
+/// calls or the legacy ones.
+fn two_lit(atomic: bool) -> Drm2d<FakeCard> {
+    let card = FakeCard::new(&[
+        (A, vec![mode(640, 480, 60, true)]),
+        (B, vec![mode(640, 480, 60, true)]),
+    ]);
+    card.state().atomic = atomic;
+    let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    drawn(&mut v, A, 0x11);
+    drawn(&mut v, B, 0x22);
+    v
+}
+
+/// Whether `v` sends the card nothing more: no display lends a token, and
+/// a hotplug, an input, an unblank, a wake-up, a sleep and a read of the
+/// card's events try no ioctl. The sleep still reports
+/// [`Event::Asleep`], so the owner can let the VT go.
+fn sends_nothing(v: &mut Drm2d<FakeCard>) {
+    let tried = v.card().state().calls_removed;
+    assert!(!lends(v, A) && !lends(v, B));
+    assert!(matches!(v.commit(DisplayId(A)), Err(SwapError::Off)));
+    v.poll().unwrap();
+    v.input().unwrap();
+    v.unblank().unwrap();
+    assert!(v.wake_up().is_err(), "a removed card does not wake");
+    v.flip_expired(100);
+    v.retry_wake();
+    v.dispatch().unwrap();
+    assert_eq!(v.waits(), (false, false), "no wait and no retry runs");
+    assert!(v.set_dpms(DisplayId(A), Dpms::Off).is_err());
+    v.sleep();
+    assert_eq!(events(v), [Event::Asleep]);
+    assert_eq!(v.card().state().calls_removed, tried, "no ioctl after");
+}
+
+// A card the kernel removed, as when i915 takes the display from
+// simpledrm, refuses the next flip with ENODEV (vtium/vtium#295). drm2d
+// takes the card as gone at once: the owner hears each display removed,
+// as when udev reports the card removed, and drm2d sends the card nothing
+// again.
+#[test]
+fn a_flip_the_removed_card_refuses_lets_the_card_go() {
+    for atomic in [true, false] {
+        let mut v = two_lit(atomic);
+        v.card().state().removed = true;
+        logs::capture();
+        let failed = fill(&mut v, A, 0x33, &[DOT]);
+        assert!(matches!(failed, Err(SwapError::Off)), "atomic {atomic}");
+        assert_eq!(
+            events(&mut v),
+            [Event::Removed(DisplayId(A)), Event::Removed(DisplayId(B))],
+            "atomic {atomic}"
+        );
+        assert!(v.gone(), "atomic {atomic}");
+        assert_eq!(v.displays().count(), 0);
+        let warned = logs::at_least(Level::Warn);
+        assert_eq!(warned.len(), 1, "atomic {atomic}: {warned:?}");
+        assert!(warned[0].contains("removed the card"), "{warned:?}");
+        sends_nothing(&mut v);
+    }
+}
+
+// A card removed while its VT is another's refuses DRM master at the
+// wake-up with ENODEV, and one removed while nothing draws refuses the
+// next hotplug's scan: either way drm2d lets the card go as at a flip.
+#[test]
+fn a_wake_up_or_a_hotplug_the_removed_card_refuses_lets_the_card_go() {
+    for asleep in [true, false] {
+        let mut v = two_lit(true);
+        if asleep {
+            v.sleep();
+            flip(&mut v);
+            v.events().for_each(drop);
+        }
+        v.card().state().removed = true;
+        let tried = if asleep { v.wake_up() } else { v.poll() };
+        assert!(tried.is_err(), "asleep {asleep}");
+        assert_eq!(
+            events(&mut v),
+            [Event::Removed(DisplayId(A)), Event::Removed(DisplayId(B))],
+            "asleep {asleep}"
+        );
+        assert!(v.gone());
+        sends_nothing(&mut v);
+    }
+}

@@ -28,6 +28,9 @@
 //! vblank passed, or at once when the CRTC stops being active, as
 //! `drm_crtc_vblank_off` sends the events still waiting.
 //!
+//! A card the kernel removed refuses every ioctl with ENODEV, as
+//! `drm_ioctl` does for an unplugged device, and still reads its events.
+//!
 //! A framebuffer smaller than what it is asked to show is refused with
 //! ENOSPC, as the kernel refuses it: a commit whose plane reads past its
 //! framebuffer's edge (`drm_atomic_plane_check`), and a legacy CRTC set or
@@ -201,6 +204,13 @@ pub(crate) struct State {
     pub(crate) master_elsewhere: bool,
     /// The times master was let go while held.
     pub(crate) master_drops: usize,
+    /// The kernel removed the card, as when a native driver takes the
+    /// display over from simpledrm: every ioctl fails with ENODEV
+    /// (`drm_ioctl` checks `drm_dev_is_unplugged`), and a read of the
+    /// card's events still reads.
+    pub(crate) removed: bool,
+    /// The ioctls tried since the card was removed.
+    pub(crate) calls_removed: usize,
     pub(crate) commits: Vec<Commit>,
     /// Errors the next commits return, one each.
     pub(crate) commit_errors: VecDeque<Errno>,
@@ -1061,6 +1071,19 @@ const PLANE_PROPS: [&str; 10] = [
     "FB_ID", "CRTC_ID", "SRC_X", "SRC_Y", "SRC_W", "SRC_H", "CRTC_X", "CRTC_Y", "CRTC_W", "CRTC_H",
 ];
 
+impl FakeCard {
+    /// Refuses an ioctl with ENODEV once the kernel removed the card, and
+    /// counts it.
+    fn unplugged(&self) -> io::Result<()> {
+        let mut s = self.state.borrow_mut();
+        if s.removed {
+            s.calls_removed += 1;
+            return Err(err(Errno::NODEV));
+        }
+        Ok(())
+    }
+}
+
 impl Kms for FakeCard {
     type Map = Mapping;
 
@@ -1069,6 +1092,7 @@ impl Kms for FakeCard {
     }
 
     fn set_client_cap(&self, cap: u32, _on: bool) -> io::Result<()> {
+        self.unplugged()?;
         let s = self.state.borrow();
         let ok = match cap {
             DRM_CLIENT_CAP_UNIVERSAL_PLANES => s.universal,
@@ -1080,6 +1104,7 @@ impl Kms for FakeCard {
     }
 
     fn cap(&self, cap: u32) -> io::Result<u64> {
+        self.unplugged()?;
         if self.state.borrow().failing.contains(&"cap") {
             return Err(err(Errno::IO));
         }
@@ -1096,6 +1121,7 @@ impl Kms for FakeCard {
     }
 
     fn set_master(&self) -> io::Result<()> {
+        self.unplugged()?;
         let mut s = self.state.borrow_mut();
         if s.master_elsewhere {
             return Err(err(Errno::BUSY));
@@ -1105,6 +1131,7 @@ impl Kms for FakeCard {
     }
 
     fn drop_master(&self) -> io::Result<()> {
+        self.unplugged()?;
         let mut s = self.state.borrow_mut();
         if !s.master {
             return Err(err(Errno::INVAL));
@@ -1115,6 +1142,7 @@ impl Kms for FakeCard {
     }
 
     fn resources(&self) -> io::Result<Resources> {
+        self.unplugged()?;
         let s = self.state.borrow();
         Ok(Resources {
             crtcs: s.crtcs.clone(),
@@ -1128,6 +1156,7 @@ impl Kms for FakeCard {
         modes: &mut [Mode],
         encoders: &mut [u32],
     ) -> io::Result<ConnectorRead> {
+        self.unplugged()?;
         let mut s = self.state.borrow_mut();
         let c = s
             .connectors
@@ -1161,6 +1190,7 @@ impl Kms for FakeCard {
     }
 
     fn encoder(&self, id: u32) -> io::Result<Encoder> {
+        self.unplugged()?;
         let s = self.state.borrow();
         if s.failing.contains(&"encoder") {
             return Err(err(Errno::IO));
@@ -1172,6 +1202,7 @@ impl Kms for FakeCard {
     }
 
     fn crtc_mode(&self, id: u32) -> io::Result<Option<Mode>> {
+        self.unplugged()?;
         if self.state.borrow().failing.contains(&"crtc_mode") {
             return Err(err(Errno::IO));
         }
@@ -1179,6 +1210,7 @@ impl Kms for FakeCard {
     }
 
     fn read_planes(&self, ids: &mut [u32]) -> io::Result<usize> {
+        self.unplugged()?;
         let s = self.state.borrow();
         if s.failing.contains(&"planes") {
             return Err(err(Errno::IO));
@@ -1193,6 +1225,7 @@ impl Kms for FakeCard {
     }
 
     fn plane_crtcs(&self, id: u32) -> io::Result<u32> {
+        self.unplugged()?;
         let s = self.state.borrow();
         if s.crtcs_unreadable.contains(&id) {
             return Err(err(Errno::IO));
@@ -1210,6 +1243,7 @@ impl Kms for FakeCard {
         ids: &mut [u32],
         values: &mut [u64],
     ) -> io::Result<usize> {
+        self.unplugged()?;
         let props = self.object_props(id, kind)?;
         for ((to, value), p) in ids.iter_mut().zip(values.iter_mut()).zip(&props) {
             *to = p.id;
@@ -1220,6 +1254,7 @@ impl Kms for FakeCard {
     }
 
     fn property_name(&self, id: u32) -> io::Result<String> {
+        self.unplugged()?;
         let at = id.checked_sub(10_000).ok_or_else(|| err(Errno::NOENT))?;
         let at = usize::try_from(at).map_err(|_| err(Errno::NOENT))?;
         let key = self.names.borrow().get(at).cloned();
@@ -1231,6 +1266,7 @@ impl Kms for FakeCard {
     /// `None` for any other property, and ENOENT for an id the card never
     /// gave.
     fn property_range(&self, id: u32) -> io::Result<Option<(u64, u64)>> {
+        self.unplugged()?;
         self.property_name(id)?;
         let Some(conn) = self.prop_owner(id) else {
             return Ok(None);
@@ -1239,6 +1275,7 @@ impl Kms for FakeCard {
     }
 
     fn create_dumb(&self, width: u32, height: u32) -> io::Result<Dumb> {
+        self.unplugged()?;
         if let Some(e) = self.state.borrow_mut().dumb_errors.pop_front() {
             return Err(err(e));
         }
@@ -1258,6 +1295,7 @@ impl Kms for FakeCard {
     }
 
     fn destroy_dumb(&self, handle: u32) -> io::Result<()> {
+        self.unplugged()?;
         lock(&self.memory).remove(&handle);
         let mut s = self.state.borrow_mut();
         s.buffer_calls.push(BufferCall::DestroyDumb(handle));
@@ -1268,6 +1306,7 @@ impl Kms for FakeCard {
     }
 
     fn map_dumb(&self, dumb: &Dumb) -> io::Result<Mapping> {
+        self.unplugged()?;
         let mut s = self.state.borrow_mut();
         s.buffer_calls.push(BufferCall::MapDumb(dumb.handle));
         if let Some(e) = s.map_errors.pop_front() {
@@ -1287,6 +1326,7 @@ impl Kms for FakeCard {
     /// names no buffer with `ENOENT`, and a buffer too small for `height`
     /// lines of `pitch` bytes with `EINVAL` (`drm_gem_fb_init_with_funcs`).
     fn add_fb(&self, handle: u32, pitch: u32, width: u32, height: u32, _: u32) -> io::Result<u32> {
+        self.unplugged()?;
         let mut s = self.state.borrow_mut();
         s.buffer_calls.push(BufferCall::AddFb(handle));
         if let Some(e) = s.fb_errors.pop_front() {
@@ -1314,6 +1354,7 @@ impl Kms for FakeCard {
     /// once amdgpu refuses a CRTC without its primary plane
     /// (`disable_crtcs`).
     fn rm_fb(&self, id: u32) -> io::Result<()> {
+        self.unplugged()?;
         let mut s = self.state.borrow_mut();
         s.buffer_calls.push(BufferCall::RmFb(id));
         s.fbs.remove(&id).ok_or_else(|| err(Errno::NOENT))?;
@@ -1350,12 +1391,14 @@ impl Kms for FakeCard {
     }
 
     fn create_blob(&self, data: &[u8]) -> io::Result<u32> {
+        self.unplugged()?;
         let id = self.id();
         self.state.borrow_mut().blobs.insert(id, data.to_vec());
         Ok(id)
     }
 
     fn destroy_blob(&self, id: u32) -> io::Result<()> {
+        self.unplugged()?;
         let mut s = self.state.borrow_mut();
         s.blobs
             .remove(&id)
@@ -1364,6 +1407,7 @@ impl Kms for FakeCard {
     }
 
     fn read_blob(&self, id: u32, data: &mut [u8]) -> io::Result<usize> {
+        self.unplugged()?;
         let mut s = self.state.borrow_mut();
         let blob = s.blobs.get(&id).ok_or_else(|| err(Errno::NOENT))?;
         let len = blob.len();
@@ -1377,6 +1421,7 @@ impl Kms for FakeCard {
     }
 
     fn commit(&self, request: &Request, flags: u32) -> io::Result<()> {
+        self.unplugged()?;
         let props: Vec<(u32, String, u64)> = request
             .entries
             .iter()
@@ -1547,6 +1592,7 @@ impl Kms for FakeCard {
     }
 
     fn set_crtc(&self, crtc: u32, fb: u32, connector: u32, mode: &Mode) -> io::Result<()> {
+        self.unplugged()?;
         let mut s = self.state.borrow_mut();
         if !s.master {
             return Err(err(Errno::ACCESS));
@@ -1595,6 +1641,7 @@ impl Kms for FakeCard {
     }
 
     fn disable_crtc(&self, crtc: u32) -> io::Result<()> {
+        self.unplugged()?;
         let mut s = self.state.borrow_mut();
         if !s.master {
             return Err(err(Errno::ACCESS));
@@ -1618,6 +1665,7 @@ impl Kms for FakeCard {
     }
 
     fn page_flip(&self, crtc: u32, fb: u32) -> io::Result<()> {
+        self.unplugged()?;
         let mut s = self.state.borrow_mut();
         if let Some(e) = s.commit_errors.pop_front() {
             return Err(err(e));
@@ -1637,6 +1685,7 @@ impl Kms for FakeCard {
     }
 
     fn hide_cursor(&self, _: u32) -> io::Result<()> {
+        self.unplugged()?;
         Ok(())
     }
 
@@ -1646,6 +1695,7 @@ impl Kms for FakeCard {
     /// EACCES, as the kernel lets only the master call
     /// `DRM_IOCTL_MODE_OBJ_SETPROPERTY`.
     fn set_connector_property(&self, connector: u32, property: u32, value: u64) -> io::Result<()> {
+        self.unplugged()?;
         let name = self.prop_name(property);
         let mut s = self.state.borrow_mut();
         if !s.master {
@@ -1673,6 +1723,7 @@ impl Kms for FakeCard {
     /// (`drm_wait_vblank_ioctl`), and with EINVAL for a CRTC that is not
     /// active, whose vblank interrupt is off (`drm_queue_vblank_event`).
     fn wait_vblank(&self, index: usize) -> io::Result<()> {
+        self.unplugged()?;
         let mut s = self.state.borrow_mut();
         if s.no_vblank {
             return Err(err(Errno::OPNOTSUPP));
