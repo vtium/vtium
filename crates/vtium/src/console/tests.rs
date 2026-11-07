@@ -1915,9 +1915,9 @@ const SDDM_DEFAULT: (&str, &str) = (
 
 #[test]
 fn sddm_whose_greeter_runs_on_vt_2_still_keeps_vt_1() {
-    // padnoir: SDDM's X11 greeter took VT 2, the first VT no program had
-    // open. By convention VT 1 stays the display manager's and its getty's,
-    // and the greeter's VT is held now as well.
+    // SDDM's X11 greeter can take VT 2, the first VT no program has open.
+    // By convention VT 1 stays the display manager's and its getty's, and
+    // the greeter's VT is held as well.
     let mut m = Machine::gettys("sddm-vt2");
     enable_dm(&m, "sddm.service", SDDM, &[SDDM_DEFAULT]);
     m.fake.sessions = vec![["sddm", "2", "sddm-greeter", "x11", "greeter"]];

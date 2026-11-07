@@ -340,8 +340,8 @@ fn activity(v: &mut Drm2d<FakeCard>, blank: &mut Blank, now: std::time::Instant)
     assert_eq!(blank.due(now + DPMS_TIMEOUT / 2), Due::In(DPMS_TIMEOUT / 2));
 }
 
-// Finding 3, the operator's decision: a wake-up, the VT acquired, counts as
-// user activity.
+// The operator's decision: a wake-up, the VT acquired, counts as user
+// activity.
 // Its modeset's ACTIVE=1 brings every display on, DPMS included, though
 // the display was blanked and the monitor's power cycle turned its
 // connector on; the recorded DPMS is On, and the blank restarts. Only tier
@@ -3222,9 +3222,9 @@ fn a_powered_down_display_lends_no_canvas() {
     assert_eq!(clips(&c, primary(&v, A)), None, "the whole frame");
 }
 
-// Finding 3, the operator's decision: a hotplug while blanked records the
-// change and commits nothing; the display plugged in stays dark, and the
-// next input runs the modeset owed, with every display on.
+// The operator's decision: a hotplug while blanked records the change and
+// commits nothing; the display plugged in stays dark, and the next input
+// runs the modeset owed, with every display on.
 #[test]
 fn a_hotplug_while_blanked_commits_nothing_until_input() {
     let mut v = a_then_b(ModePolicy::default());
@@ -4672,13 +4672,13 @@ fn drawn(v: &mut Drm2d<FakeCard>, id: u32, byte: u8) -> u32 {
     fb
 }
 
-// The small panel on the test seat (vtium/vtium#18's seat, the operator's
-// VT pass of 2026-10-30): unplugged, its CRTC went off with vtium's
-// framebuffers; plugged back while vtium held no master, the kernel's
-// console lit it first, and vtium's frames on the console's mode left it
-// dark until a VT switch. While its VT is shown vtium keeps master with no
-// display, so the console never takes the panel, and the panel's return
-// sets its CRTC from off: its first frame shows.
+// A small panel unplugged has its CRTC turned off with vtium's
+// framebuffers; plugged back while vtium holds no master, the kernel's
+// console lights it first, and frames committed on the console's mode leave
+// it dark until its mode is set again (vtium/vtium#18). While its VT is
+// shown vtium keeps master with no display, so the console never takes the
+// panel, and the panel's return sets its CRTC from off: its first frame
+// shows.
 #[test]
 fn a_display_plugged_back_in_shows_its_first_frame() {
     let mut v = awake(one());
