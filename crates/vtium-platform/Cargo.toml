@@ -26,6 +26,11 @@ images = ["dep:vtium-image"]
 # is made, never linked, so a build with it starts on a machine without
 # them. Off in the minspec and default builds, which compile none of it.
 gpu = ["dep:glow", "dep:khronos-egl", "dep:libloading"]
+# The seat through libseat (ADR-1400's L2 layer): the display devices and
+# VT switching from the seat manager, seatd or logind, with the seat and
+# each device retried from the loop's timers. Off in the minspec and
+# default builds, which link no libseat.
+libseat = ["dep:libseat"]
 
 [dependencies]
 calloop = { version = "0.14.4", features = ["signals"] }
@@ -48,6 +53,12 @@ khronos-egl = { version = "=6.0.0", default-features = false, features = ["1_5",
 # Opens libgbm.so.1 at run time for the few GBM calls `src/gpu/gbm.rs`
 # makes; khronos-egl's `dynamic` feature already builds it. Only with `gpu`.
 libloading = { version = "=0.8.9", optional = true }
+# libseat, through the libseat-sys binding, which finds the library through
+# pkg-config and fails the build naming it when it is missing. Its default
+# feature compiles a C file to route libseat's log into the log crate,
+# which needs a C compiler for each target; without it libseat writes its
+# errors to stderr itself. Only with `libseat`.
+libseat = { version = "=0.2.4", default-features = false, optional = true }
 
 [build-dependencies]
 # Finds libsystemd or libelogind for the `logind` feature; already in the

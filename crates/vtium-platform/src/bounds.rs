@@ -138,6 +138,30 @@ const RETAKE_QUIET: Bound = Bound {
     cite: "vtium/vtium#19: a steady stream of input on the tty cannot fill the log",
 };
 
+const SEAT_RETRY: Bound = Bound {
+    name: "SEAT_RETRY_MS",
+    value: 100,
+    what: "With `libseat`: milliseconds between tries to open the seat or one of its devices, and between looks at whether the VT is shown before the seat opens",
+    past: "The next try waits for the loop's timer; signals, timers and the other sources are served in between",
+    cite: "Short beside a seat manager's handover of the seat from its previous client, and served by a loop timer, so no try waits on the loop (vtium/vtium#34)",
+};
+
+const SEAT_OPENS: Bound = Bound {
+    name: "SEAT_OPENS_MAX",
+    value: 50,
+    what: "With `libseat`: tries to open the seat while the seat manager answers that it is busy",
+    past: "vtium logs an error and ends, as a hung-up VT ends it",
+    cite: "About 5 s at `SEAT_RETRY_MS`, for the seat manager to finish disabling the seat's previous client: seatd 0.9.3 refuses a new client meanwhile by hanging up without an error (seatd/client.c, `handle_open_seat`)",
+};
+
+const DEVICE_OPENS: Bound = Bound {
+    name: "DEVICE_OPENS_MAX",
+    value: 20,
+    what: "With `libseat`: tries to open one display device while the seat manager answers that it is missing, refused or busy",
+    past: "vtium logs a warning and goes on without the device until udev reports it again",
+    cite: "About 2 s at `SEAT_RETRY_MS`: udev reports a device before the seat manager is ready to give it, which then answers `ENODEV`, `EACCES` or `EBUSY` for a short while",
+};
+
 const RESOURCE_READS: Bound = Bound {
     name: "RESOURCE_READS",
     value: 8,
@@ -220,7 +244,7 @@ const IMAGE_BASE: Bound = Bound {
 
 /// Every bound, in the README table's order.
 #[cfg_attr(not(test), allow(dead_code))]
-pub(crate) const BOUNDS: [Bound; 25] = [
+pub(crate) const BOUNDS: [Bound; 28] = [
     READ,
     READS,
     BUDGET,
@@ -236,6 +260,9 @@ pub(crate) const BOUNDS: [Bound; 25] = [
     DAMAGE_CLIPS,
     INPUT_READS,
     RETAKE_QUIET,
+    SEAT_RETRY,
+    SEAT_OPENS,
+    DEVICE_OPENS,
     RESOURCE_READS,
     BLOB,
     MODES,
@@ -311,6 +338,19 @@ pub const INPUT_READS_PER_TURN: usize = INPUT_READS.value;
 /// Milliseconds with no re-take of the VT after which the next is logged
 /// as a warning again.
 pub const RETAKE_QUIET_MS: usize = RETAKE_QUIET.value;
+
+/// Milliseconds between tries to open the seat or a device through
+/// libseat.
+#[cfg(feature = "libseat")]
+pub(crate) const SEAT_RETRY_MS: usize = SEAT_RETRY.value;
+
+/// Tries to open the seat while the seat manager is busy.
+#[cfg(feature = "libseat")]
+pub(crate) const SEAT_OPENS_MAX: usize = SEAT_OPENS.value;
+
+/// Tries to open one device through the seat manager.
+#[cfg(feature = "libseat")]
+pub(crate) const DEVICE_OPENS_MAX: usize = DEVICE_OPENS.value;
 
 /// Reads of a DRM card's CRTC and connector lists before one fails.
 pub const RESOURCE_READS_MAX: usize = RESOURCE_READS.value;

@@ -48,8 +48,10 @@ jobs:
           fetch-depth: ${{ github.event_name == 'release' && 1 || 0 }}
           persist-credentials: false
       # libudev and libxkbcommon, which vtium-platform links, libsystemd,
-      # which its logind feature links, and zstd, which packs the archive.
-      - run: sudo apt-get update && sudo apt-get install -y libudev-dev libxkbcommon-dev libsystemd-dev zstd
+      # which its logind feature links, libseat, which its libseat feature
+      # links, and zstd, which packs the archive. The check builds every
+      # feature.
+      - run: sudo apt-get update && sudo apt-get install -y libudev-dev libxkbcommon-dev libsystemd-dev libseat-dev zstd
       # The toolchain rust-toolchain.toml pins, with the ARM targets it
       # names, so the offline build finds them installed.
       - id: toolchain

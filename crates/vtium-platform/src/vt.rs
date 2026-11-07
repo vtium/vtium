@@ -1,9 +1,9 @@
 //! The virtual terminal: who holds the screen and the keyboard.
 //!
-//! A seat has one [`Vt`] backend, chosen at start: libseat when configured
-//! and connected (vtium/vtium#34),
-//! otherwise the kernel's VT ([`KernelVt`]), otherwise a fake VT that is
-//! the seat's only session ([`FakeVt`]). The backend reports through
+//! A seat has one [`Vt`] backend, chosen at start: with the `libseat`
+//! feature, the seat manager's when one answers
+//! ([`crate::seat::LibseatVt`]), otherwise the kernel's VT ([`KernelVt`]),
+//! otherwise a fake VT that is the seat's only session ([`FakeVt`]). The backend reports through
 //! [`VtEvent`]s the owner drains once a turn, as the displays do:
 //!
 //! - [`VtEvent::Acquired`]: the VT is ours. The owner wakes the input
@@ -36,17 +36,19 @@ mod shown;
 mod tty;
 
 #[cfg(test)]
-mod fake;
+pub(crate) mod fake;
 #[cfg(test)]
 mod tests;
 
 pub use fake_vt::FakeVt;
+#[cfg(feature = "libseat")]
+pub(crate) use kernel::switch_target;
 pub use kernel::{KernelVt, Restore};
 pub use tty::Tty;
 
 use std::io;
 use std::os::fd::{BorrowedFd, OwnedFd};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use rustix::fs::{Mode, OFlags};
 
@@ -76,8 +78,8 @@ pub enum Switch {
     Pending,
 }
 
-/// A seat's VT backend: the kernel's VT, a fake VT, or libseat
-/// (vtium/vtium#34).
+/// A seat's VT backend: the kernel's VT, a fake VT, or, with the `libseat`
+/// feature, the seat manager's.
 pub trait Vt {
     /// What happened since the last call.
     fn events(&mut self) -> std::vec::Drain<'_, VtEvent>;
@@ -133,7 +135,10 @@ pub trait Vt {
     }
 
     /// Opens a device of the seat: read-write and non-blocking, directly,
-    /// or through the seat manager.
+    /// or through the seat manager. A device the seat manager cannot give
+    /// yet fails with [`io::ErrorKind::WouldBlock`]: the backend keeps
+    /// trying from the loop's timers and names the device in
+    /// [`Vt::settled`] once it has an answer, and the owner then asks again.
     fn open_device(&mut self, path: &Path) -> io::Result<OwnedFd> {
         let fd = rustix::fs::open(
             path,
@@ -143,9 +148,19 @@ pub trait Vt {
         Ok(fd)
     }
 
-    /// Closes a device [`Vt::open_device`] opened.
-    fn close_device(&mut self, fd: OwnedFd) {
-        drop(fd);
+    /// The owner no longer uses the device it opened, or asked for, at
+    /// `path`: the seat manager lets it go, and a pending open is
+    /// dropped. A device opened directly needs nothing more than its
+    /// descriptor closed.
+    fn close_device(&mut self, path: &Path) {
+        let _ = path;
+    }
+
+    /// The devices whose pending open has its answer since the last call:
+    /// [`Vt::open_device`] now gives each one's descriptor, or its error.
+    /// A backend that opens directly has none.
+    fn settled(&mut self) -> Vec<PathBuf> {
+        Vec::new()
     }
 }
 
