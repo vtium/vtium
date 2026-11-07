@@ -1,14 +1,14 @@
 # conformance
 
-Tier 1 for vtium. `vtium-replay` meets the replay interface, interface 1.4: `corpus/INTERFACE.md`, interface 1.0, with vtium's additions in `INTERFACE-vtium.md`, over `vtium-parse` and `vtium-term`. `conformance` replays every case of the corpus through it and judges each against its golden, plays every behaviour scenario through it and judges each against its transcript, and runs the capability probes through it, each judged by vtium's capability list. The goldens are the judge: every difference from a golden fails, unless the provisional list names the case.
+Tier 1 for vtium. `vtium-replay` meets the replay interface, interface 1.4: `corpus/INTERFACE.md`, interface 1.0, with vtium's additions in `INTERFACE-vtium.md`, over `vtium-parse` and `vtium-term`. `conformance` replays every case of the corpus through it and judges each against its golden, plays every behaviour scenario through it and judges each against its transcript, and plays every capability scenario through it, each judged by vtium's capability list. The goldens are the judge: every difference from a golden fails, unless the provisional list names the case.
 
-The corpus, its goldens, the interface and the probe file are kept here (The copies). The tools that make and check them are written here in Rust: the generator of the synthetic cases, the recorder of the programs' cases, and the interface check. Nothing here reads another repository or runs code from outside the tree.
+The corpus, its goldens, the interface and the scenarios are kept here (The copies). The tools that make and check them are written here in Rust: the generator of the synthetic cases, the recorder of the programs' cases, and the interface check. Nothing here reads another repository or runs code from outside the tree.
 
-The crate is a workspace member, so `cargo test --workspace` builds both programs and runs the tests below. The whole corpus and the probes run in two Makefile targets, which CI's `conformance` job runs on every pull request:
+The crate is a workspace member, so `cargo test --workspace` builds both programs and runs the tests below. The whole corpus and the capability scenarios run in two Makefile targets, which CI's `conformance` job runs on every pull request:
 
 ```
 make conformance          # every case, both views and the chunking check
-make conformance-probes   # the capability probes
+make conformance-probes   # the capability list, through the capability scenarios
 make conformance-issues   # the capability list and ADR-1000 agree with GitHub (gh)
 make conformance-record OUT=DIR [NAMES='prog-shell ...']   # records the programs' cases; not a gate
 target/release/conformance generate DIR   # writes every synthetic case and prints its cases.list lines
@@ -33,27 +33,25 @@ target/release/conformance scenarios --bin NAME DIR          # writes a scenario
 | `src/spec.rs` | The interface's `describe` and `grammar` blocks, over 1.0 and vtium's additions, and the check of a line against the grammar. |
 | `src/runner.rs` | The corpus, the masking and the verdict on each case. |
 | `src/runner/chunking.rs` | The chunking check: each case with extra cuts at random offsets. |
-| `src/scenario.rs`, `src/scenario/` | The scenarios: the reader and its commands (`commands.rs`), the key names (`keys.rs`), the string syntax that the scenarios, the probes and the worked examples share (`strings.rs`), the transcript printer and its check (`transcript.rs`), the play through vtium-replay's code (`run.rs`), the capability rules (`capability.rs`) and the player for review (`play.rs`). |
+| `src/scenario.rs`, `src/scenario/` | The scenarios: the reader and its commands (`commands.rs`), the key names (`keys.rs`), the string syntax that the scenarios and the worked examples share (`strings.rs`), the transcript printer and its check (`transcript.rs`), the play through vtium-replay's code (`run.rs`), the capability rules (`capability.rs`) and the player for review (`play.rs`). |
 | `src/bin/conformance/scenarios.rs` | `conformance scenarios`, and the scenarios' part of `conformance run` and `conformance interface`. |
 | `scenarios/` | The scenarios, each `NAME.scenario` with a behaviour scenario's transcript `NAME.transcript` beside it, and `provisional.tsv`, the behaviour scenarios whose transcripts wait for the maintainer's review. |
-| `src/probes.rs` | Reading the probe files, and the checks made before a probe runs. |
-| `src/probes/judge.rs` | A probe replayed and judged, and each capability's verdict against the list. |
+| `src/probes.rs` | A scenario's input and assertions as the judge reads them, and the checks made before a capability scenario runs. |
+| `src/probes/judge.rs` | A capability scenario replayed and judged, and each capability's verdict against the list. |
 | `src/coverage.rs` | `COVERAGE.md`, generated from `capabilities.list` and ADR-1000's tables, and its test. |
 | `src/interface.rs`, `src/interface/` | The interface check: the goldens under the grammar, the worked examples, the palettes, the refusals and the grammar's controls. |
 | `src/generate.rs`, `src/generate/` | The synthetic cases' recipes, and their writer. |
 | `generator/` | The generator's copied inputs: `recorded/`, streams a client wrote, and `sixel/`, libsixel's `img2sixel` output. |
 | `src/record.rs`, `src/bin/conformance-record.rs` | The recorder of the programs' cases, built with the `record` feature. |
-| `fixtures/kmscon.termcap` | The xtgettcap probe's termcap fixture: vtium's XTGETTCAP table. |
+| `fixtures/kmscon.termcap` | The xtgettcap capability scenario's termcap fixture: vtium's XTGETTCAP table. |
 | `src/bin/conformance.rs` | The runner's commands and its report. |
 | `corpus/` | The copied corpus: `INTERFACE.md`, `cases.list`, `cases/` with each case's stream, cuts and fixtures, and the goldens, `golden/` for the screen view and `golden-frame/` for the frame view. |
 | `vtium/` | vtium's own cases, laid out as `corpus/` is: `cases.list`, `cases/`, `golden/` and `golden-frame/`, `golden-display/` for the display view of the cases of right-to-left text, and `provisional.tsv`, the provisional list: the cases, of the corpus or of vtium's own, whose goldens wait for the maintainer's review. |
 | `src/runner/own.rs` | Reading `vtium/provisional.tsv`, the provisional list. |
 | `INTERFACE-vtium.md` | vtium's additions to the interface: the `clipboard` command and feature and the line it prints, the `attrs-renditions` feature, which prints the keys 1.0 reserves for the overline, superscript and subscript, and the `kitty-animation` feature and its `anim` lines. |
-| `probes/probes.replay` | The copied capability probes. |
-| `probes/vtium.replay` | vtium's own probes. |
-| `capabilities.list` | vtium's capability list: each probe `works` or `missing`, with the issue for each gap and the ADR-1000 rows it judges. |
+| `capabilities.list` | vtium's capability list: each capability `works` or `missing`, with the issue for each gap and the ADR-1000 rows it judges. |
 | `COVERAGE.md` | Each capability, the tests that guard its rows, and its gap. |
-| `tests/` | The verdicts, the command line and the probe runner on inputs written in the tests: see its README. |
+| `tests/` | The verdicts, the command line, the scenarios and the capability judge on inputs written in the tests: see its README. |
 
 ## The copies
 
@@ -101,7 +99,7 @@ Before any case runs, the runner checks `--describe` against INTERFACE.md's `des
 
 ## Scenarios
 
-A scenario is a short text file under `scenarios/` that sets up one case, sends the program's bytes and the user's keys, mouse, paste and focus, and asks for dumps of the screen or makes assertions about it. ADR-1504 decides the language (D2), the transcript (D3) and how the runner plays a scenario (D4); this section says what the tool does beyond the record. A behaviour scenario checks one behaviour, and its golden is its transcript, `NAME.transcript` beside it: each command echoed after `> `, what vtium wrote back, copied or refused for that command after `< `, and each dump in the views' own lines. A capability scenario names a capability of `capabilities.list` in a `# capability: NAME` header line and is judged by its assertions alone. Until the probes are converted into capability scenarios, `conformance probes` keeps judging the list through the probe files, and `conformance run` reads a capability scenario and leaves it to the probes.
+A scenario is a short text file under `scenarios/` that sets up one case, sends the program's bytes and the user's keys, mouse, paste and focus, and asks for dumps of the screen or makes assertions about it. ADR-1504 decides the language (D2), the transcript (D3) and how the runner plays a scenario (D4); this section says what the tool does beyond the record. A behaviour scenario checks one behaviour, and its golden is its transcript, `NAME.transcript` beside it: each command echoed after `> `, what vtium wrote back, copied or refused for that command after `< `, and each dump in the views' own lines. A capability scenario names a capability of `capabilities.list` in a `# capability: NAME` header line and is judged by its assertions alone, which `conformance probes` does (The capability scenarios); `conformance run` reads a capability scenario and leaves it to `conformance probes`.
 
 `conformance run`, which `make conformance` runs, plays every behaviour scenario after the corpus, in each view its dumps name, and fails on a scenario whose transcript differs, whose assertions fail, or that cannot be played, such as one that needs a feature vtium-replay does not declare. A difference from a transcript that `scenarios/provisional.tsv` lists is printed as `provisional` and fails nothing, while the scenario's assertions still judge. A failure names the scenario and the command after which the transcript first differs, with each line it expected beside the line it got. Each scenario is then played again with extra cuts, as the corpus's chunking check plays a case, and its transcript must not change. The interface check reads each behaviour scenario's assertions and each transcript's dumps against the grammar.
 
@@ -126,41 +124,19 @@ Alternate scroll (mode 1007), one of the first scenarios the gap-check named, ca
 
 `conformance issues` holds `capabilities.list` and ADR-1000's issue column to GitHub. It asks `gh` once for the state of every issue on vtium/vtium, and once more for the pull requests when a number is not an issue. It fails when an issue that a missing capability names is closed, since the issue's work should have made the capability work. It also fails when an ADR-1000 row and the issues it names disagree (`src/issues.rs`): a planned, partial or weighed row names no issue, or only closed ones; an open issue is named only by supported rows, so its work is done and the issue is still open, or the work it still holds has no row; or a number in the issue column is a pull request or no issue at all. Each message names the row or the issue and says what to change. It needs the network, so it runs in CI and through `make conformance-issues`, never in `cargo test`; `src/issues.rs`'s unit tests check the rules on fixture rows.
 
-`capabilities.list` is `NAME STATUS ISSUE ROWS NOTE` a line: STATUS `works` or `missing`; ISSUE `-` for a working probe, the vtium issue (`#N`) that owes a missing one, or the build feature a working one needs (`-Dimages`); ROWS the ADR-1000 rows the probe judges. `coverage_map_matches_the_capability_list_and_adr_1000` fails when `COVERAGE.md` differs from the list and ADR-1000's `tests` columns, and `VTIUM_CONFORMANCE_BLESS=1 cargo test -p vtium-conformance coverage` rewrites it.
+`capabilities.list` is `NAME STATUS ISSUE ROWS NOTE` a line: STATUS `works` or `missing`; ISSUE `-` for a working capability, the vtium issue (`#N`) that owes a missing one, or the build feature a working one needs (`-Dimages`); ROWS the ADR-1000 rows its scenario judges. `coverage_map_matches_the_capability_list_and_adr_1000` fails when `COVERAGE.md` differs from the list and ADR-1000's `tests` columns, and `VTIUM_CONFORMANCE_BLESS=1 cargo test -p vtium-conformance coverage` rewrites it.
 
-## The probes
+## The capability scenarios
 
-`conformance probes` reads `probes/probes.replay` and vtium's own `probes/vtium.replay`, replays each probe through vtium-replay's code and judges it against the list:
+`conformance probes` reads every scenario under `scenarios/`, plays each capability scenario through vtium-replay's code with a cut at each `check`, and judges `capabilities.list` through them (ADR-1504 D4):
 
-- a probe listed `works` fails the run when it fails, and one listed `missing` when it passes, so the change that adds a feature also sets its line to `works` and closes its issue;
-- a probe listed with a build feature passes in a build with it and fails, as absent, in one without; the list's `-Dimages` names the image pipeline with the sixel and kitty handlers, and `-Dbidi` right-to-left text (ADR-1004); the runner reports vtium-replay's build with both, since `make conformance-probes` builds it with both and that build holds the two image handlers (#48, #49), so the image probes and `bidi` must pass, and a feature the build does not name fails the run;
-- a probe the list does not name, or a name in the list no probe defines, fails the run;
-- a probe that names a fixture reads it from `fixtures/`, and one whose fixture is missing is not judged, which fails the run: `xtgettcap` names `kmscon.termcap`, vtium's XTGETTCAP table (`tests/termcap.rs`).
+- a capability listed `works` fails the run when its scenario fails, and one listed `missing` when it passes, so the change that adds a feature also sets its line to `works` and closes its issue;
+- a capability listed with a build feature passes in a build with it and fails, as absent, in one without; the list's `-Dimages` names the image pipeline with the sixel and kitty handlers, and `-Dbidi` right-to-left text (ADR-1004); the runner takes both from the build of vtium-replay it runs with, and `make conformance-probes` builds it with both, which holds the two image handlers (#48, #49), so the image capabilities and `bidi` must pass there; a feature the build does not name fails the run;
+- a scenario whose capability the list does not name, a name in the list no scenario declares, and two scenarios that declare one capability each fail the run;
+- a scenario that names a fixture reads it from `fixtures/`, and one whose fixture is missing is not judged, which fails the run: `xtgettcap` names `kmscon.termcap`, vtium's XTGETTCAP table (`tests/termcap.rs`).
 
-A probe of `vtium.replay` takes the place of a placeholder of the same name in the copied file: `osc-52-clipboard` replaces a placeholder that failed whatever the terminal did, since interface 1.0 had no way to see a clipboard (#110). The run refuses a probe of `vtium.replay` that has the name of a copied probe that is not a placeholder, so each capability has one probe.
+A capability scenario uses the assertions of ADR-1504 D2: `check`, `want`, `want-re`, `reject`, `reject-re`, `reply`, `reply-re`, `example` and `placeholder`. A `test` line belongs to the block whose `checkpoint` follows it, and the `want` and `want-re` assertions on `test` lines take them in order: each matches a line after the one the assertion before it matched. A regular expression uses no backreference or lookaround.
 
-A stanza opens with `probe NAME`, builds a byte stream and the cuts of the interface's command line, and judges the blocks the replay prints at the cuts. A line starting with `#` is a comment.
+Every line the replay prints must parse under the interface's grammar for the view, or the scenario fails. Unless the scenario needs `damage-exact` and the replay declares it, which vtium-replay does not, the output and the `want` and `reject` lines are masked as the interface's "Comparing with the goldens" says, and an expectation writes such a count as `N`.
 
-| Line | Meaning |
-|---|---|
-| `size COLS ROWS` | The screen the replay starts with. Required. |
-| `view NAME` | `screen` (when not given), `frame`, `draw2` or `display`: the view the replay prints. |
-| `needs FEATURE...` | Features the probe needs beyond those its view and commands imply. |
-| `fixture NAME` | A file the probe's fixture directory holds. |
-| `send "..."` | Appends bytes, written in the string syntax the scenarios and the interface's worked examples share (Scenarios). |
-| `cmd TEXT` | Appends the test command TEXT, `ESC _ tsm-test;TEXT ESC \`. |
-| `check` | Puts a cut after the bytes so far. The assertions that follow judge the block printed there. |
-| `want LINE` | The block holds LINE. |
-| `want-re REGEX` | A line of the block matches REGEX whole. |
-| `reject LINE` | The block does not hold LINE. |
-| `reject-re REGEX` | No line of the block matches REGEX whole. |
-| `reply "..."` | The block's replies, its `reply` lines decoded and joined, are these bytes. |
-| `reply-re "..."` | The replies match these bytes, read as a regular expression over bytes, whole. A metacharacter meant literally takes a backslash, written `\\`. |
-| `example "..."` | Follows a `want-re` or `reply-re`: a line or reply, written as for `send`, that the expression must match. Required in a missing probe. |
-| `placeholder REASON` | The probe has nothing to run, and fails with REASON. |
-
-A `test` line belongs to the block whose `checkpoint` follows it, and the `want` and `want-re` assertions on `test` lines take them in order: each matches a line after the one the assertion before it matched. A regular expression uses no backreference or lookaround.
-
-Every line the replay prints must parse under the interface's grammar for the view, or the probe fails. Unless the probe needs `damage-exact` and the replay declares it, which vtium-replay does not, the output and the `want` and `reject` lines are masked as the interface's "Comparing with the goldens" says, and an expectation writes such a count as `N`.
-
-Before anything runs, each stanza is checked: each `want` and `reject` line, and each `want-re` example, parses under the grammar for the probe's view, with the reserved keys allowed only in a missing probe, and each `want-re` and `reply-re` matches its example, so a missing probe's expectations are lines and replies the feature could print and a typo reads as malformed instead of as still missing. A nonzero count or a placement's `changed` flag in a probe that does not need `damage-exact` is refused with the advice to write `N`. Each assertion follows a `check` with no input between, and each probe has a `want`, `want-re`, `reply` or `reply-re`.
+Before anything runs, each capability scenario is checked: each test command it sends is a command of the interface and each feature its `needs` line names is a feature of it; each `want` and `reject` line, and each `want-re` example, parses under the grammar for the scenario's view, with the reserved keys allowed only for a missing capability; and each `want-re` and `reply-re` matches its example, so a missing capability's expectations are lines and replies the feature could print and a typo reads as malformed instead of as still missing. A nonzero count or a placement's `changed` flag in a scenario that does not need `damage-exact` is refused with the advice to write `N`. Each assertion follows a `check` with no command between, and each capability scenario has a `want`, `want-re`, `reply` or `reply-re`, or is a placeholder.

@@ -60,7 +60,7 @@ considered:
     paraphrase: true
     covers: [long lines, zooming in on a full scrollback]
 observable:
-  - "The probe `reflow` (kmscon tests/capabilities/probes.replay) passes: `abcdefghijklmno` printed on 10 columns reads as one row after a resize to 20"
+  - "The probe `reflow` (tools/conformance/scenarios/reflow.scenario) passes: `abcdefghijklmno` printed on 10 columns reads as one row after a resize to 20"
   - "A replay case for each rule of this record, under the decision it pins"
   - "A property test: rewrapping to another width and back restores the text of the scrollback and the screen"
   - "A property test: the screen after a stream with resizes is the same fed whole or cut at random points, and the same with the scrollback reflowed lazily or all at once"
