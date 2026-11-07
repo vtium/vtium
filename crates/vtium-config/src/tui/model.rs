@@ -1320,12 +1320,23 @@ impl App {
     /// A key in the settings view: Enter turns a switch on or off, steps a
     /// key of a fixed set of words to its next word, and starts typing any
     /// other key's value, which a second Enter writes into the draft; an
-    /// empty value goes back to the default. Moving away drops what is
-    /// typed.
+    /// empty value goes back to the default, but a key binding's binds no
+    /// key and the word `default` returns it to its default. Moving away
+    /// drops what is typed.
     fn settings_key(&mut self, key: Key) -> Vec<Effect> {
         let all = setting_keys();
         if let Some(typed) = self.editing.take() {
             return match all.get(self.setting_at) {
+                // a key binding's empty value binds no key, and the word
+                // `default`, or its default's own combinations, leave it
+                // at its default (ADR-1005 D10)
+                Some(k) if key == Key::Enter && k.kind == Kind::KeyBinding => {
+                    let typed = typed.trim().to_owned();
+                    let default = crate::commands::value_text(k, None).0;
+                    let value = (typed != super::words::BINDING_DEFAULT && typed != default)
+                        .then_some(typed);
+                    self.top(k.name, value.as_deref())
+                }
                 Some(k) if key == Key::Enter => {
                     let typed = typed.trim().to_owned();
                     self.top(
@@ -1354,8 +1365,11 @@ impl App {
                     None => Vec::new(),
                 }
             }
+            // a key binding's editor starts from its combinations, its
+            // default's included, so Enter alone never empties it
             _ => {
-                self.editing = Some(if default { String::new() } else { now });
+                let start = default && k.kind != Kind::KeyBinding;
+                self.editing = Some(if start { String::new() } else { now });
                 Vec::new()
             }
         }

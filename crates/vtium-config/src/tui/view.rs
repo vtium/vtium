@@ -17,6 +17,7 @@ use super::flow::Item;
 use super::model::{App, DpiFrom, FontState, Live, NEW_FIELDS, SIZES, Then, View, setting_keys};
 use super::words;
 use crate::specimen::Sources;
+use vtium_settings::keys::Kind as KeyKind;
 
 /// The smallest grid a view is drawn in (ADR-1201 D3): below it, the one
 /// screen that says so.
@@ -230,6 +231,9 @@ fn body(app: &App) -> Body {
                         Some(typed) if i == app.setting_at => format!("{typed}_"),
                         _ => match app.value(key) {
                             (v, true) => words::default_value(v),
+                            (v, false) if v.is_empty() && key.kind == KeyKind::KeyBinding => {
+                                words::NO_KEY.to_owned()
+                            }
                             (v, false) => v,
                         },
                     };
@@ -250,7 +254,12 @@ fn body(app: &App) -> Body {
                 .min(24)
                 .min((cols / 2).saturating_sub(4));
             let (list, keep) = list(&items, app.setting_at, width, cols);
-            let hint = if app.editing.is_some() {
+            let binding = all
+                .get(app.setting_at)
+                .is_some_and(|k| k.kind == KeyKind::KeyBinding);
+            let hint = if app.editing.is_some() && binding {
+                words::EDITING_BINDING
+            } else if app.editing.is_some() {
                 words::EDITING
             } else {
                 words::SETTINGS_HINT

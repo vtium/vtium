@@ -856,6 +856,45 @@ fn the_settings_view_lists_vtiums_own_keys_with_their_built_in_defaults() {
     assert!(screen.contains("Reset the console on screen"), "{screen}");
 }
 
+/// ADR-1005 D10: in the settings view an empty value of a key binding is
+/// D10's empty value, no key, written `key-reset=`; the editor starts from
+/// the key's combinations, so Enter alone keeps them; and the word
+/// `default` returns the key to its default.
+#[test]
+fn the_settings_view_empties_a_key_binding_and_default_returns_it() {
+    let at = model::setting_keys()
+        .iter()
+        .position(|k| k.name == "key-reset")
+        .expect("listed");
+    let erase = [b"\x7f".as_slice(); 19];
+    let mut keys: Vec<&[u8]> = vec![b"\t"];
+    keys.extend(std::iter::repeat_n(DOWN, at));
+    keys.push(b"\r");
+    keys.extend(erase);
+    keys.push(b"\r");
+    let mut d = desk();
+    let mut c = console().keys(&[keys.as_slice(), &[b"q".as_slice()]].concat());
+    assert_eq!(run_desk(&mut c, &mut d), 0, "{:?}", c.seen);
+    assert!(d.draft.contains("\nkey-reset=\n"), "{}", d.draft);
+    // Enter again opens the empty value, and `default` returns the key to
+    // its default: its line is commented out
+    let mut c = console().keys(
+        &[
+            keys.as_slice(),
+            &[b"\r".as_slice(), b"default", b"\r", b"q"],
+        ]
+        .concat(),
+    );
+    let mut d = desk();
+    assert_eq!(run_desk(&mut c, &mut d), 0, "{:?}", c.seen);
+    assert!(d.draft.contains("\n#key-reset=\n"), "{}", d.draft);
+    // Enter alone keeps the default's combinations as they are
+    let mut c = console().keys(&[&keys[..keys.len() - 20], &[b"\r".as_slice(), b"q"]].concat());
+    let mut d = desk();
+    assert_eq!(run_desk(&mut c, &mut d), 0);
+    assert!(!d.draft.contains("key-reset="), "{}", d.draft);
+}
+
 #[test]
 fn a_setting_shows_its_default_and_what_it_does() {
     let mut c = console().keys(&[b"\t", DOWN]);

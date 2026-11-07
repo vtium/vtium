@@ -155,6 +155,8 @@ fn detail(id: &Identity) -> String {
 /// their defaults.
 fn base(text: &str) -> Base {
     let mut set: Vec<(String, String)> = Vec::new();
+    // the keys a line sets by name, which an old name never replaces
+    let mut renamed_over: Vec<String> = Vec::new();
     for (_, line) in split(text.as_bytes()).top_lines() {
         let Some(read) = vtium_settings::key_line(line) else {
             continue;
@@ -163,10 +165,22 @@ fn base(text: &str) -> Base {
         if key == "version" {
             continue;
         }
+        // a key binding set by its old name shows under its new name, and
+        // its own line wins (ADR-1005 D10)
+        let (key, old) = match vtium_settings::keys::renamed(&key) {
+            Some((_, k)) => (k.name.to_owned(), true),
+            None => (key, false),
+        };
+        if old && renamed_over.contains(&key) {
+            continue;
+        }
         let value = read
             .value
             .map(|v| String::from_utf8_lossy(&v).into_owned())
             .unwrap_or_default();
+        if !old {
+            renamed_over.push(key.clone());
+        }
         set.retain(|(k, _)| *k != key);
         set.push((key, value));
     }
@@ -840,6 +854,58 @@ mod tests {
     }
 
     const DESK: &str = "font-size=12\nmouse\nversion = 1\n[look big]\nfont-name = monoid\nfont-size = 14\n[look spare]\n[head desk]\nlook = big\n[rules]\ndisplay edid:AAA:0x0001:LARGE -> desk\ndisplay * -> desk\ninput serial:046d:c31c:X -> desk\ninput class:keyboard -> roaming\n";
+
+    // ADR-1005 D10: the base card shows a key binding set empty as no key,
+    // shows a key binding set by its old name under its new name, and a
+    // key binding typed empty there is D10's empty value, while the word
+    // `default` returns it to its default.
+    #[test]
+    #[expect(clippy::expect_used, reason = "a test fails by panicking")]
+    fn the_base_card_shows_and_edits_key_bindings() {
+        use crate::tui::edit::{Change, fields, pick};
+        use crate::tui::flow::Item;
+        let text =
+            "grab-paste=<Alt>p\nkey-reset=\nversion = 1\n[head desk]\n[rules]\ndisplay * -> desk\n";
+        let flow = build(
+            text,
+            &Present {
+                devices: Vec::new(),
+                udev: true,
+            },
+            None,
+        );
+        let all = fields(&flow, Item::Base, &[], &[]);
+        let field = |name: &str| all.iter().find(|f| f.label == name).cloned();
+        let reset = field("key-reset").expect("listed");
+        assert_eq!(reset.current, "none");
+        assert_eq!(
+            field("key-paste").map(|f| f.current).as_deref(),
+            Some("<Alt>p")
+        );
+        assert!(field("grab-paste").is_none());
+        assert_eq!(
+            pick(&flow, &reset, ""),
+            Some(Change::Top {
+                key: "key-reset",
+                value: Some(String::new())
+            })
+        );
+        assert_eq!(
+            pick(&flow, &reset, "default"),
+            Some(Change::Top {
+                key: "key-reset",
+                value: None
+            })
+        );
+        let size = field("font-size").expect("listed");
+        assert_eq!(
+            pick(&flow, &size, ""),
+            Some(Change::Top {
+                key: "font-size",
+                value: None
+            })
+        );
+    }
 
     #[test]
     fn devices_are_placed_by_their_first_rule_and_a_missing_one_stays() {
