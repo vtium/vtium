@@ -1005,6 +1005,7 @@ dependencies = [
 name = "vtium-tier2"
 version = "0.1.0-alpha.5"
 dependencies = [
+ "miniz_oxide",
  "vtium",
  "vtium-config",
  "vtium-font",

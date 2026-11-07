@@ -3,6 +3,8 @@
 
 use crate::bounds::CELL_SIDE_MAX;
 use crate::face::Width;
+#[cfg(doc)]
+use crate::reach::{REACH_CELLS, REACH_ROWS};
 
 /// How a glyph's pixels are stored.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -41,18 +43,22 @@ pub struct Glyph {
     ink: Option<Box<Ink>>,
 }
 
-/// The ink box of a glyph whose ink passes its cells (ADR-1302 D1, D6):
-/// the columns from [`Ink::left`], the offset of its first column from
-/// the left edge of the glyph's first cell, 0 or negative, [`Ink::width`]
-/// columns across, over the glyph's full height, in the glyph's format.
-/// It spans the glyph's cells and the ink past them, and reaches at most
-/// one cell past them on each side. The glyph's own pixels stay its ink
-/// cut to its cells, so a renderer that draws no box draws them as
-/// before.
+/// The ink box of a glyph whose ink passes its cells (ADR-1302 D1, D6;
+/// ADR-1306 D3): [`Ink::width`] columns from [`Ink::left`], the offset of
+/// its first column from the left edge of the glyph's first cell, 0 or
+/// negative, and [`Ink::height`] rows from [`Ink::top`], the offset of its
+/// first row from the top of the glyph's row, 0 or negative, in the
+/// glyph's format. It spans the glyph's cells and the ink past them, and
+/// reaches at most [`REACH_CELLS`] cells past them on each side and
+/// [`REACH_ROWS`] rows above and below them. The glyph's own pixels stay
+/// its ink cut to its cells, so a renderer that draws no box draws them
+/// as before.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Ink {
     left: i32,
+    top: i32,
     width: u32,
+    height: u32,
     pixels: Vec<u8>,
 }
 
@@ -63,9 +69,21 @@ impl Ink {
         self.left
     }
 
+    /// The offset of the box's first row from the top of the glyph's
+    /// row: 0 or negative.
+    pub fn top(&self) -> i32 {
+        self.top
+    }
+
     /// Its width in pixels.
     pub fn width(&self) -> u32 {
         self.width
+    }
+
+    /// Its height in pixels: the glyph's height when its ink stays inside
+    /// its row.
+    pub fn height(&self) -> u32 {
+        self.height
     }
 
     /// Every pixel's bytes, row by row, in the glyph's format.
@@ -164,27 +182,40 @@ impl Glyph {
         self.ink.as_deref()
     }
 
-    /// The same glyph with the ink box `width` columns from `left`,
-    /// holding `pixels` in the glyph's format over its height; `None` when
-    /// the box is not past the glyph's cells, passes its reach, one cell
-    /// past them on each side, or `pixels` is not the box's length. A
+    /// The same glyph with the ink box `width` columns from `left` and
+    /// `height` rows from `top` ([`Ink`]), holding `pixels` in the glyph's
+    /// format; `None` when the box is not past the glyph's cells on any
+    /// side, passes its reach, or `pixels` is not the box's length. A
     /// color glyph carries no box: it fits its cells (ADR-1302 D5).
-    pub fn with_ink(mut self, left: i32, width: u32, pixels: Vec<u8>) -> Option<Glyph> {
+    pub fn with_ink(
+        mut self,
+        (left, top): (i32, i32),
+        (width, height): (u32, u32),
+        pixels: Vec<u8>,
+    ) -> Option<Glyph> {
         if self.format != Format::Mask {
             return None;
         }
-        let cell = i64::from(self.width.checked_div(self.cells.cells())?);
-        let span = i64::from(self.width);
-        if !crate::set::format::in_reach(i64::from(left), i64::from(width), cell, span) {
+        let cell = self.width.checked_div(self.cells.cells())?;
+        let boxed = crate::set::format::InkRect {
+            left: i64::from(left),
+            top: i64::from(top),
+            width: i64::from(width),
+            height: i64::from(height),
+        };
+        let span = (i64::from(self.width), i64::from(self.height));
+        if !boxed.in_reach((i64::from(cell), i64::from(self.height)), span) {
             return None;
         }
-        let n = usize::try_from(width.checked_mul(self.height)?).ok()?;
+        let n = usize::try_from(width.checked_mul(height)?).ok()?;
         if pixels.len() != n {
             return None;
         }
         self.ink = Some(Box::new(Ink {
             left,
+            top,
             width,
+            height,
             pixels,
         }));
         Some(self)

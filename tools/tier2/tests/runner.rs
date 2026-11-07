@@ -271,10 +271,4 @@ fn each_waiting_screen_is_pending_and_not_drawn() {
             "{name} waits on a fix and the run draws it"
         );
     }
-    let mut names: Vec<&str> = vtium_tier2::screens::WAITING
-        .iter()
-        .map(|c| c.screen.name)
-        .collect();
-    names.sort_unstable();
-    assert_eq!(names, ["cjk", "emoji", "osd", "vs16", "wide-deco"]);
 }

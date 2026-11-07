@@ -76,6 +76,7 @@ pub mod italic;
 mod policy;
 #[cfg(feature = "psf")]
 mod psf;
+mod reach;
 pub mod set;
 mod sha256;
 pub mod spacing;
@@ -94,6 +95,7 @@ pub use glyph::{Format, Glyph, Ink};
 pub use policy::{Coverage, Missing, RangeCoverage, Source, SpritePolicy};
 #[cfg(feature = "psf")]
 pub use psf::{Psf, PsfError};
+pub use reach::{REACH_CELLS, REACH_ROWS};
 pub use sha256::{Sha256, hex as sha256_hex};
 #[cfg(feature = "unifont")]
 pub use unifont::Unifont;

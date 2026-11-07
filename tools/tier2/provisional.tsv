@@ -3,5 +3,48 @@
 # does not fail the run; the row goes when the operator accepts the golden.
 mosaic-spaced-12	new, the test font set of outline fonts (ADR-1503 D9) with line spacing (ADR-1302 D13), 2026-11-06; the maintainer reviews it as a picture
 mosaic-spaced-30	new, the test font set of outline fonts (ADR-1503 D9) with line spacing (ADR-1302 D13), 2026-11-06; the maintainer reviews it as a picture
-emoji-spaced-12	new, the test font set of outline fonts (ADR-1503 D9) with line spacing (ADR-1302 D13), 2026-11-06; the maintainer reviews it as a picture
-emoji-spaced-30	new, the test font set of outline fonts (ADR-1503 D9) with line spacing (ADR-1302 D13), 2026-11-06; the maintainer reviews it as a picture
+emoji-spaced-12	new, the test font set of outline fonts (ADR-1503 D9) with line spacing (ADR-1302 D13), 2026-11-06; the maintainer reviews it as a picture; moved 2026-11-06, the accents above ÀÉÎ drawn whole above the text band (ADR-1306 D1, D8)
+emoji-spaced-30	new, the test font set of outline fonts (ADR-1503 D9) with line spacing (ADR-1302 D13), 2026-11-06; the maintainer reviews it as a picture; moved 2026-11-06, the accents above ÀÉÎ drawn whole above the text band (ADR-1306 D1, D8)
+bold	moved 2026-11-06, the slanted letters' ink reaching into the cells beside them (ADR-1306 D12); the maintainer reviews it as a picture
+combining	moved 2026-11-06, the grave over the tilde on each a drawn whole into the row above (ADR-1306 D1, D2); the maintainer reviews it as a picture
+cjk	new 2026-11-06, waited for wide characters across both cells; the maintainer reviews it as a picture
+wide-deco	new 2026-11-06, waited for wide characters across both cells; the maintainer reviews it as a picture
+emoji	new 2026-11-06, waited for the VS16 heart from the color emoji font; the maintainer reviews it as a picture
+vs16	new 2026-11-06, waited for the VS16 heart from the color emoji font; the maintainer reviews it as a picture
+osd	new 2026-11-06, waited for the on-screen display's line in the built-in font; the maintainer reviews it as a picture
+overflow-accents	new 2026-11-06, the ink test font built in memory, its ink past its cells (ADR-1302, ADR-1306); the maintainer reviews it as a picture
+overflow-accents-1bit	new 2026-11-06, the ink test font built in memory, its ink past its cells (ADR-1302, ADR-1306); the maintainer reviews it as a picture
+overflow-marks	new 2026-11-06, the ink test font built in memory, its ink past its cells (ADR-1302, ADR-1306); the maintainer reviews it as a picture
+overflow-marks-1bit	new 2026-11-06, the ink test font built in memory, its ink past its cells (ADR-1302, ADR-1306); the maintainer reviews it as a picture
+overflow-meet	new 2026-11-06, the ink test font built in memory, its ink past its cells (ADR-1302, ADR-1306); the maintainer reviews it as a picture
+overflow-meet-1bit	new 2026-11-06, the ink test font built in memory, its ink past its cells (ADR-1302, ADR-1306); the maintainer reviews it as a picture
+overflow-spaced	new 2026-11-06, the ink test font built in memory, its ink past its cells (ADR-1302, ADR-1306); the maintainer reviews it as a picture
+overflow-spaced-1bit	new 2026-11-06, the ink test font built in memory, its ink past its cells (ADR-1302, ADR-1306); the maintainer reviews it as a picture
+overflow-pictures	new 2026-11-06, the ink test font built in memory, its ink past its cells (ADR-1302, ADR-1306); the maintainer reviews it as a picture
+overflow-pictures-1bit	new 2026-11-06, the ink test font built in memory, its ink past its cells (ADR-1302, ADR-1306); the maintainer reviews it as a picture
+overhang-italic	new 2026-11-06, the ink test font built in memory, its ink past its cells (ADR-1302, ADR-1306); the maintainer reviews it as a picture
+overhang-italic-1bit	new 2026-11-06, the ink test font built in memory, its ink past its cells (ADR-1302, ADR-1306); the maintainer reviews it as a picture
+overhang-wm	new 2026-11-06, the ink test font built in memory, its ink past its cells (ADR-1302, ADR-1306); the maintainer reviews it as a picture
+overhang-wm-1bit	new 2026-11-06, the ink test font built in memory, its ink past its cells (ADR-1302, ADR-1306); the maintainer reviews it as a picture
+overhang-underscore	new 2026-11-06, the ink test font built in memory, its ink past its cells (ADR-1302, ADR-1306); the maintainer reviews it as a picture
+overhang-underscore-1bit	new 2026-11-06, the ink test font built in memory, its ink past its cells (ADR-1302, ADR-1306); the maintainer reviews it as a picture
+overhang-wide	new 2026-11-06, the ink test font built in memory, its ink past its cells (ADR-1302, ADR-1306); the maintainer reviews it as a picture
+overhang-wide-1bit	new 2026-11-06, the ink test font built in memory, its ink past its cells (ADR-1302, ADR-1306); the maintainer reviews it as a picture
+overflow-accents-dejavu	new 2026-11-06, the ink screen drawn in DejaVu Sans Mono and Noto Sans CJK (ADR-1302, ADR-1306); the maintainer reviews it as a picture
+overflow-accents-dejavu-1bit	new 2026-11-06, the ink screen drawn in DejaVu Sans Mono and Noto Sans CJK (ADR-1302, ADR-1306); the maintainer reviews it as a picture
+overflow-marks-dejavu	new 2026-11-06, the ink screen drawn in DejaVu Sans Mono and Noto Sans CJK (ADR-1302, ADR-1306); the maintainer reviews it as a picture
+overflow-marks-dejavu-1bit	new 2026-11-06, the ink screen drawn in DejaVu Sans Mono and Noto Sans CJK (ADR-1302, ADR-1306); the maintainer reviews it as a picture
+overflow-meet-dejavu	new 2026-11-06, the ink screen drawn in DejaVu Sans Mono and Noto Sans CJK (ADR-1302, ADR-1306); the maintainer reviews it as a picture
+overflow-meet-dejavu-1bit	new 2026-11-06, the ink screen drawn in DejaVu Sans Mono and Noto Sans CJK (ADR-1302, ADR-1306); the maintainer reviews it as a picture
+overflow-spaced-dejavu	new 2026-11-06, the ink screen drawn in DejaVu Sans Mono and Noto Sans CJK (ADR-1302, ADR-1306); the maintainer reviews it as a picture
+overflow-spaced-dejavu-1bit	new 2026-11-06, the ink screen drawn in DejaVu Sans Mono and Noto Sans CJK (ADR-1302, ADR-1306); the maintainer reviews it as a picture
+overflow-pictures-dejavu	new 2026-11-06, the ink screen drawn in DejaVu Sans Mono and Noto Sans CJK (ADR-1302, ADR-1306); the maintainer reviews it as a picture
+overflow-pictures-dejavu-1bit	new 2026-11-06, the ink screen drawn in DejaVu Sans Mono and Noto Sans CJK (ADR-1302, ADR-1306); the maintainer reviews it as a picture
+overhang-italic-dejavu	new 2026-11-06, the ink screen drawn in DejaVu Sans Mono and Noto Sans CJK (ADR-1302, ADR-1306); the maintainer reviews it as a picture
+overhang-italic-dejavu-1bit	new 2026-11-06, the ink screen drawn in DejaVu Sans Mono and Noto Sans CJK (ADR-1302, ADR-1306); the maintainer reviews it as a picture
+overhang-wm-dejavu	new 2026-11-06, the ink screen drawn in DejaVu Sans Mono and Noto Sans CJK (ADR-1302, ADR-1306); the maintainer reviews it as a picture
+overhang-wm-dejavu-1bit	new 2026-11-06, the ink screen drawn in DejaVu Sans Mono and Noto Sans CJK (ADR-1302, ADR-1306); the maintainer reviews it as a picture
+overhang-underscore-dejavu	new 2026-11-06, the ink screen drawn in DejaVu Sans Mono and Noto Sans CJK (ADR-1302, ADR-1306); the maintainer reviews it as a picture
+overhang-underscore-dejavu-1bit	new 2026-11-06, the ink screen drawn in DejaVu Sans Mono and Noto Sans CJK (ADR-1302, ADR-1306); the maintainer reviews it as a picture
+overhang-wide-dejavu	new 2026-11-06, the ink screen drawn in DejaVu Sans Mono and Noto Sans CJK (ADR-1302, ADR-1306); the maintainer reviews it as a picture
+overhang-wide-dejavu-1bit	new 2026-11-06, the ink screen drawn in DejaVu Sans Mono and Noto Sans CJK (ADR-1302, ADR-1306); the maintainer reviews it as a picture

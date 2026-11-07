@@ -12,6 +12,9 @@
 #[path = "src/bounds.rs"]
 mod bounds;
 #[allow(dead_code)]
+#[path = "src/reach.rs"]
+mod reach;
+#[allow(dead_code)]
 #[path = "src/sha256.rs"]
 mod sha256;
 #[allow(dead_code)]

@@ -10,16 +10,19 @@ use crate::arrow::{Arrow, Over};
 use crate::blend::pixel;
 use crate::bounds::ROW_SCRATCH_MAX;
 use crate::cache::{Budgets, GlyphCache, Profile, Storage};
-use crate::compose::{Area, Composer, Job, int};
+use crate::compose::{Area, Composer, Job, Source, int};
 use crate::damage::Cells;
 use crate::deco::{Kind, Sprites};
 use crate::mono::{self, Depth, Fallback, Ink, Threshold};
 #[cfg(feature = "images")]
 use crate::picture::{Mark, PictureCounts, Under};
+use crate::reach::{Bound, Reach};
 use crate::target::{Orientation, Rect, Target};
 
 #[cfg(feature = "gpu")]
 mod gpu;
+#[cfg(test)]
+mod wider;
 
 /// The bar cursor: U+258F, LEFT ONE EIGHTH BLOCK, a sprite.
 const BAR: char = '\u{258f}';
@@ -328,9 +331,22 @@ struct Pass<'p, 'f> {
     cursor: Cursor,
     /// Where the cursor draws, when it shows.
     at: Option<(usize, usize)>,
-    /// At 1 bit, the frame without its selection, whose cells say what a
-    /// selected cell draws unselected.
-    plain: Option<Frame<'f>>,
+    /// Where the visible cursor stands, in either phase of its blink: the
+    /// letter there keeps its ink beside it inside its cells (ADR-1302 D8).
+    held: Option<(usize, usize)>,
+    /// The frame without its selection, whose cells say what a selected
+    /// cell draws unselected: read at 1 bit, and for a selected glyph whose
+    /// ink lands outside the selection (ADR-1306 D6). Made the first time
+    /// it is read.
+    plain: core::cell::OnceCell<Frame<'f>>,
+}
+
+impl<'f> Pass<'_, 'f> {
+    /// The frame without its selection.
+    fn plain(&self) -> &Frame<'f> {
+        self.plain
+            .get_or_init(|| self.frame.clone().with_selection(Vec::new()))
+    }
 }
 
 /// A cell's place: its column, row and the cells it draws over.
@@ -387,6 +403,10 @@ pub(crate) trait Back {
 
     /// Draws the row's jobs, which `compose` holds with their text.
     fn row<F: Face>(&mut self, compose: &mut Composer, font: &Font<F>, strip: (usize, usize));
+
+    /// Whether it draws the ink a cell receives from its neighbours' glyphs,
+    /// which the renderer then gathers for each job.
+    const RECEIVES: bool;
 }
 
 /// The CPU path's [`Back`]: the row scratch, written into a target.
@@ -430,6 +450,8 @@ impl<T: Target> Back for Cpu<'_, T> {
     fn row<F: Face>(&mut self, compose: &mut Composer, font: &Font<F>, strip: (usize, usize)) {
         compose.draw(font, strip, &mut *self.0);
     }
+
+    const RECEIVES: bool = true;
 }
 
 /// Draws terminal frames with a font into a display buffer.
@@ -443,6 +465,18 @@ pub struct Renderer<F> {
     background: Option<Rgb>,
     blink_hidden: bool,
     cursor_at: Option<(usize, usize)>,
+    /// Where the visible cursor stood last frame, in either blink phase.
+    held_at: Option<(usize, usize)>,
+    /// Whether every cell's reach is current: false once a row is scanned
+    /// without reading reaches, as the GPU path scans and as every path
+    /// scans while the font has drawn no glyph whose ink passes its cells.
+    reaches_kept: bool,
+    /// How far a glyph's ink may reach past its cells.
+    bound: Bound,
+    /// A cell's text, read for its glyph's reach.
+    chars: Vec<char>,
+    /// The blocks of cells the reach of the row being scanned stamped.
+    reached: Vec<crate::reach::Block>,
     arrow: Arrow,
     /// The pointer's image upright, which the GPU path draws.
     upright_arrow: Arrow,
@@ -602,6 +636,11 @@ impl<F: Face> Renderer<F> {
             background: None,
             blink_hidden: false,
             cursor_at: None,
+            held_at: None,
+            reaches_kept: true,
+            bound: Bound::DRAWN,
+            chars: Vec::new(),
+            reached: Vec::new(),
             arrow,
             upright_arrow,
             pointer: None,
@@ -838,7 +877,19 @@ impl<F: Face> Renderer<F> {
         let mut mono_line = core::mem::take(&mut self.mono_line);
         let mut target = Threshold::new(target, self.config.depth, &mut mono_line);
         let mut out = Over::new(&mut target, plan.pointer.map(|p| (&arrow, p.at)), &mut line);
-        let (cells, rows) = self.paint(&plan, frame, state, &mut Cpu(&mut out));
+        let reaching = self.compose.cache.reaching();
+        if reaching && !self.reaches_kept {
+            self.relearn_reaches();
+        }
+        let mut drawn = self.paint(&plan, frame, state, &mut Cpu(&mut out));
+        if !reaching && self.compose.cache.reaching() {
+            // the font drew its first glyph whose ink passes its cells, and
+            // the cells scanned before it read no reach: the frame is drawn
+            // again, whole, with every reach read
+            self.relearn_reaches();
+            drawn = self.paint(&plan, frame, state, &mut Cpu(&mut out));
+        }
+        let (cells, rows) = drawn;
         self.arrow = arrow;
         self.pointer_line = line;
         self.mono_line = mono_line;
@@ -860,6 +911,7 @@ impl<F: Face> Renderer<F> {
             self.grid = Some(grid);
             self.background = Some(state.background);
             self.cursor_at = None;
+            self.held_at = None;
             self.pointer = None;
         }
         let pointer = state.pointer.and_then(|p| self.place_pointer(&grid, p));
@@ -1016,27 +1068,31 @@ impl<F: Face> Renderer<F> {
         state: &DrawState,
     ) -> (u32, u32) {
         let cursor = frame.cursor();
-        let at = (cursor.visible && state.cursor_on).then(|| Self::cursor_cell(frame, &cursor));
+        let held = cursor.visible.then(|| Self::cursor_cell(frame, &cursor));
+        let at = held.filter(|_| state.cursor_on);
         let blink_toggled = state.blink_hidden != self.blink_hidden;
         self.blink_hidden = state.blink_hidden;
         let last_cursor = core::mem::replace(&mut self.cursor_at, at);
+        let last_held = core::mem::replace(&mut self.held_at, held);
         let pass = Pass {
             g: *g,
             frame,
             state,
             cursor,
             at,
-            plain: (self.config.depth == Depth::One)
-                .then(|| frame.clone().with_selection(Vec::new())),
+            held,
+            plain: core::cell::OnceCell::new(),
         };
+        let on = |c: Option<(usize, usize)>, row: usize| c.is_some_and(|(_, r)| r == row);
         let (mut drawn, mut scanned) = (0u32, 0u32);
         for row in 0..g.rows {
             let scan = self.cells.row_stale(row)
                 || self.row_shows_changed(frame, row, g.cols)
                 || blink_toggled
                 || frame.row_changed(row)
-                || at.is_some_and(|(_, r)| r == row)
-                || last_cursor.is_some_and(|(_, r)| r == row);
+                || [at, last_cursor, held, last_held]
+                    .into_iter()
+                    .any(|c| on(c, row));
             if scan {
                 scanned = scanned.saturating_add(1);
                 drawn = drawn.saturating_add(self.draw_row(&pass, row, back));
@@ -1081,77 +1137,426 @@ impl<F: Face> Renderer<F> {
         }
     }
 
+    /// Updates what the cell `fc` at `col`, `row`, drawing over `ncells`
+    /// cells, last drew: a cell that changed is stamped, and a cell whose
+    /// ink changed stamps the neighbours its old or new reach covers
+    /// (ADR-1306 D5). Returns whether the cell draws: not the trailing half
+    /// of a wide character, which the leading half draws.
+    fn scan_cell(
+        &mut self,
+        p: &Pass<'_, '_>,
+        (col, row): (usize, usize),
+        fc: &FrameCell<'_>,
+        (ncells, reads): (usize, bool),
+    ) -> bool {
+        // a cell that joins or leaves a wide pair draws differently
+        let role = u8::try_from(ncells).unwrap_or(1);
+        let mut changed = fc.changed || self.shows_changed(&fc.glyph);
+        if let Some(s) = self.cells.get_mut(col, row) {
+            changed |= s.replace_span(role) != role;
+        }
+        if ncells == 0 {
+            // a trailing half sends no ink of its own
+            if reads {
+                self.reach_to(col, row, role, (changed, Reach::NONE));
+            }
+            return false;
+        }
+        let is_cursor = p.at == Some((col, row));
+        let off = blink_off(fc, is_cursor, p.state, self.config.blink);
+        if ncells == 2 {
+            let tail = col.saturating_add(1);
+            changed |= p.frame.cell(row, tail).is_some_and(|t| t.changed);
+            if let Some(t) = self.cells.get_mut(tail, row) {
+                changed |= t.replace_span(0) != 0;
+            }
+        }
+        // the cursor's look and the blink phase change this cell alone
+        let ink_changed = changed;
+        let Some(s) = self.cells.get_mut(col, row) else {
+            return false;
+        };
+        let look = is_cursor.then_some((p.cursor.shape, p.cursor.color));
+        changed |= s.cursor != look;
+        changed |= s.replace_blink_off(off) != off;
+        s.cursor = look;
+        let held = p.held == Some((col, row));
+        let reread = reads && (s.reach_stale(held) || ink_changed);
+        if changed {
+            self.cells.stamp(col, row);
+        }
+        if reread {
+            let reach = self.cell_reach(fc, held);
+            self.reach_to(col, row, role, (ink_changed, reach));
+        }
+        true
+    }
+
+    /// Forgets every cell's reach and marks every cell changed, so the
+    /// frame drawn next reads each cell's reach and draws the whole grid
+    /// with it.
+    fn relearn_reaches(&mut self) {
+        self.cells.forget_reaches();
+        self.reaches_kept = true;
+    }
+
+    /// The cell at `col`, `row`, whose glyph spans `span` cells, now sends
+    /// ink as far as `reach`: when its ink changed, as `changed` says, or
+    /// its reach did, the neighbours the old reach covered and the ones the
+    /// new reach covers are stamped. Damage never chains: a neighbour
+    /// stamped here has not changed its own ink.
+    fn reach_to(&mut self, col: usize, row: usize, span: u8, (changed, reach): (bool, Reach)) {
+        let (old, old_span) = self.cells.set_reach(col, row, (reach, span));
+        if (old.is_none() && reach.is_none()) || (!changed && (old, old_span) == (reach, span)) {
+            return;
+        }
+        for (r, n) in [(old, old_span), (reach, span)] {
+            if !r.is_none() {
+                let b = r.block(col, row, usize::from(n));
+                self.cells.stamp_block((b.c0, b.r0), (b.c1, b.r1));
+                self.reached.push(b);
+            }
+        }
+    }
+
+    /// How far the ink of `fc`'s glyph reaches past its cells as drawn
+    /// (ADR-1302 D8, ADR-1306 D6): cut to the bound; nowhere for a letter
+    /// that blinks, one whose ink its own background hides, or a cell that
+    /// draws no text; and only up and down for the letter the visible
+    /// cursor stands on, `held`, whatever the cursor's blink phase.
+    fn cell_reach(&mut self, fc: &FrameCell<'_>, held: bool) -> Reach {
+        let blinks = fc.attrs.contains(Attrs::BLINK) || fc.attrs.contains(Attrs::RAPID_BLINK);
+        let steady = !blinks || self.config.blink.style == BlinkStyle::Off;
+        if !steady || fc.fg == fc.bg || draws_no_text(fc.glyph) {
+            return Reach::NONE;
+        }
+        let style = Style {
+            bold: fc.attrs.contains(Attrs::BOLD),
+            italic: fc.attrs.contains(Attrs::ITALIC),
+        };
+        let width = if fc.width == Width::Wide {
+            FontWidth::Wide
+        } else {
+            FontWidth::Narrow
+        };
+        let cache = &mut self.compose.cache;
+        let reach = match fc.glyph {
+            Glyph::Empty => return Reach::NONE,
+            Glyph::Char(c) => cache.reach(&self.font, &[c], width, style),
+            Glyph::Cluster(t) => {
+                self.chars.clear();
+                self.chars.extend(t.chars());
+                cache.reach(&self.font, &self.chars, width, style)
+            }
+        }
+        .within(self.bound);
+        if held { reach.upright() } else { reach }
+    }
+
     /// Scans one row, updates what each cell last drew, and draws the cells
     /// some buffer lacks; returns how many.
-    fn draw_row(&mut self, p: &Pass<'_, '_>, row: usize, back: &mut impl Back) -> u32 {
+    ///
+    /// A cell's ink can damage cells the scan has passed: the cells before
+    /// it in its row, and the cells of the rows above, which are already
+    /// drawn (ADR-1306 D5). Those cells are drawn once the row's scan is
+    /// done: the ones in this row with the row, and the ones above in a
+    /// second pass over each of those rows, so a screen whose ink stays in
+    /// its cells is scanned and drawn in one pass, as before.
+    fn draw_row<B: Back>(&mut self, p: &Pass<'_, '_>, row: usize, back: &mut B) -> u32 {
         let g = &p.g;
         self.compose.jobs.clear();
         self.compose.text.clear();
+        self.compose.sources.clear();
+        self.compose.received.clear();
+        self.reached.clear();
+        // the reaches are read only where received ink is drawn, and once
+        // the font has drawn a glyph whose ink passes its cells
+        let reads = B::RECEIVES && self.compose.cache.reaching();
+        self.reaches_kept &= reads;
         let mut count = 0u32;
         let mut before = None;
         for (here, fc) in p.frame.cells(row).take(g.cols).enumerate() {
             let ncells = span(fc.width, before, || next_width(p.frame, row, here, g.cols));
             before = Some(fc.width);
-            // a cell that joins or leaves a wide pair draws differently
-            let role = u8::try_from(ncells).unwrap_or(1);
-            let mut changed = fc.changed || self.shows_changed(&fc.glyph);
-            if let Some(s) = self.cells.get_mut(here, row) {
-                changed |= core::mem::replace(&mut s.span, role) != role;
-            }
-            if ncells == 0 {
+            if !self.scan_cell(p, (here, row), &fc, (ncells, reads)) {
                 continue;
             }
-            let is_cursor = p.at == Some((here, row));
-            let off = blink_off(&fc, is_cursor, p.state, self.config.blink);
-            if ncells == 2 {
-                let tail = here.saturating_add(1);
-                changed |= p.frame.cell(row, tail).is_some_and(|t| t.changed);
-                if let Some(t) = self.cells.get_mut(tail, row) {
-                    changed |= core::mem::replace(&mut t.span, 0) != 0;
-                }
-            }
-            let Some(s) = self.cells.get_mut(here, row) else {
-                continue;
-            };
-            let look = is_cursor.then_some((p.cursor.shape, p.cursor.color));
-            changed |= s.cursor != look || s.blink_off != off;
-            s.cursor = look;
-            s.blink_off = off;
-            if changed {
-                self.cells.stamp(here, row);
-            }
-            if !self.cells.stale_cells(here, row, ncells) {
-                continue;
-            }
-            self.cells.mark_drawn(here, row, ncells);
-            count = count.saturating_add(1);
-            self.push_jobs(
-                g,
-                &fc,
-                Place {
-                    col: here,
-                    row,
-                    ncells,
-                },
-                is_cursor.then_some(&p.cursor),
-                off,
-                Self::one_bit_lit(p, &fc, row, here),
-            );
+            count = count.saturating_add(self.push_cell(p, (here, row), &fc, ncells));
         }
+        // the cells this row's ink reached once the scan had passed them
+        let reached = core::mem::take(&mut self.reached);
+        let meets = |b: &crate::reach::Block, r: usize| b.r0 <= int(r) && b.r1 >= int(r);
+        for b in reached.iter().filter(|b| meets(b, row)) {
+            count = count.saturating_add(self.push_block(p, row, (b.c0, b.c1)));
+        }
+        self.finish_row(p, row, back);
+        // and the rows above it, already drawn, top to bottom
+        for above in row.saturating_sub(usize::from(self.bound.rows))..row {
+            let mut first = true;
+            for b in reached.iter().filter(|b| meets(b, above)) {
+                if core::mem::take(&mut first) {
+                    self.compose.jobs.clear();
+                    self.compose.text.clear();
+                    self.compose.sources.clear();
+                    self.compose.received.clear();
+                }
+                count = count.saturating_add(self.push_block(p, above, (b.c0, b.c1)));
+            }
+            if !first {
+                self.finish_row(p, above, back);
+            }
+        }
+        self.reached = reached;
+        count
+    }
+
+    /// Pushes the jobs of the cell `fc` at `col`, `row`, drawing over
+    /// `ncells` cells, when this buffer lacks it; returns whether it pushed
+    /// a cell not drawn before on this frame.
+    #[inline]
+    fn push_cell(
+        &mut self,
+        p: &Pass<'_, '_>,
+        (col, row): (usize, usize),
+        fc: &FrameCell<'_>,
+        ncells: usize,
+    ) -> u32 {
+        if !self.cells.stale_cells(col, row, ncells) {
+            return 0;
+        }
+        let is_cursor = p.at == Some((col, row));
+        let off = blink_off(fc, is_cursor, p.state, self.config.blink);
+        let new = self.cells.mark_drawn(col, row, ncells);
+        self.push_jobs(
+            &p.g,
+            fc,
+            Place { col, row, ncells },
+            is_cursor.then_some(&p.cursor),
+            off,
+            self.one_bit_lit(p, fc, row, col),
+        );
+        u32::from(new)
+    }
+
+    /// Pushes the jobs of the cells of `row` from column `c0` to `c1` that
+    /// this buffer lacks and that no job holds yet; returns how many it
+    /// pushed that were not drawn before on this frame.
+    fn push_block(&mut self, p: &Pass<'_, '_>, row: usize, (c0, c1): (i64, i64)) -> u32 {
+        let cols = p.g.cols;
+        let first = usize::try_from(c0.max(0)).unwrap_or(0);
+        let last = usize::try_from(c1.max(0))
+            .unwrap_or(0)
+            .min(cols.saturating_sub(1));
+        let line = p.frame.line(row);
+        let width = |c: usize| line.filter(|_| c < cols).map(|l| l.cell(c).width());
+        let mut count = 0u32;
+        let mut col = first;
+        while col <= last && col < cols {
+            let before = col.checked_sub(1).and_then(width);
+            let Some(w) = width(col) else { break };
+            let (lead, n) = match span(w, before, || width(col.saturating_add(1))) {
+                0 => (col.saturating_sub(1), 2),
+                n => (col, n),
+            };
+            let end = lead.saturating_add(n);
+            let held = self
+                .compose
+                .jobs
+                .iter()
+                .any(|j| lead < j.posx.saturating_add(j.ncells) && j.posx < end);
+            if let Some(fc) = p.frame.cell(row, lead).filter(|_| !held) {
+                count = count.saturating_add(self.push_cell(p, (lead, row), &fc, n));
+            }
+            col = lead.saturating_add(n);
+        }
+        count
+    }
+
+    /// Draws the row's jobs: the cells between its layered jobs join them,
+    /// each job gathers the ink its neighbours send it, and `back` draws
+    /// them.
+    fn finish_row<B: Back>(&mut self, p: &Pass<'_, '_>, row: usize, back: &mut B) {
         self.widen_to_span(p, row);
+        // the ranges of received ink follow the jobs' places, so the jobs
+        // take their order before they are gathered
+        let jobs = &mut self.compose.jobs;
+        if !jobs.is_sorted_by_key(|j| j.posx) {
+            jobs.sort_unstable_by_key(|j| j.posx);
+        }
+        if B::RECEIVES {
+            self.gather(p, row);
+        }
         #[cfg(feature = "images")]
         {
             self.compose.pictures.row = row;
         }
         back.row(&mut self.compose, &self.font, self.layout.strip());
-        count
+    }
+
+    /// Finds, for each of the row's jobs, the neighbours whose glyphs send
+    /// ink into its cells, from their reach, and lists them in the order
+    /// ADR-1306 D4 draws them: the row above, the row below, then the cells
+    /// beside it, farthest first.
+    fn gather(&mut self, p: &Pass<'_, '_>, row: usize) {
+        let rows = usize::from(self.bound.rows);
+        let side = usize::from(self.bound.side);
+        let (first, last) = (row.saturating_sub(rows), row.saturating_add(rows));
+        if !self.cells.rows_reach(first, last) {
+            return;
+        }
+        let (cols, grid_rows) = self.cells.size();
+        let last = last.min(grid_rows.saturating_sub(1));
+        let mut found: Vec<(u8, i64, usize, usize, usize)> = Vec::new();
+        for j in 0..self.compose.jobs.len() {
+            let Some(job) = self.compose.jobs.get(j).copied() else {
+                continue;
+            };
+            let (a, n) = (job.posx, job.ncells.max(1));
+            let end = a.saturating_add(n);
+            found.clear();
+            for r in first..=last {
+                // a wide glyph's first cell may lie one further left
+                let k0 = a.saturating_sub(side.saturating_add(1));
+                let k1 = end.saturating_add(side).min(cols);
+                for k in k0..k1 {
+                    let Some(s) = self.cells.get(k, r) else {
+                        continue;
+                    };
+                    let (reach, span) = (s.reach(), usize::from(s.span()));
+                    if reach.is_none() || span == 0 {
+                        continue;
+                    }
+                    // a glyph's own cells take its ink as its own glyph
+                    if r == row && k < end && k.saturating_add(span) > a {
+                        continue;
+                    }
+                    if !reach.block(k, r, span).meets(a, row, n) {
+                        continue;
+                    }
+                    // ADR-1306 D4: the row above, the row below, then beside
+                    // the cell, farthest first and the cell before it first
+                    let key = match r.cmp(&row) {
+                        core::cmp::Ordering::Less => (0, int(k)),
+                        core::cmp::Ordering::Greater => (1, int(k)),
+                        core::cmp::Ordering::Equal => {
+                            let before = k < a;
+                            let gap = if before {
+                                a.saturating_sub(k.saturating_add(span))
+                            } else {
+                                k.saturating_sub(end)
+                            };
+                            (
+                                2,
+                                int(gap)
+                                    .saturating_neg()
+                                    .saturating_mul(2)
+                                    .saturating_add(i64::from(!before)),
+                            )
+                        }
+                    };
+                    found.push((key.0, key.1, k, r, span));
+                }
+            }
+            if found.is_empty() {
+                continue;
+            }
+            found.sort_unstable();
+            // a block cursor or the selection marks the job's cell
+            let block = matches!(p.cursor.shape, CursorShape::Block);
+            let marked = (block && p.at == Some((a, row)))
+                || p.frame.cell(row, a).is_some_and(|c| c.selected);
+            let from = self.compose.sources.len();
+            for &(_, _, k, r, span) in &found {
+                if let Some(src) = self.source(p, (&job, marked), (k, r, span)) {
+                    self.compose.sources.push(src);
+                }
+            }
+            let to = self.compose.sources.len();
+            let jobs = self.compose.jobs.len();
+            let received = &mut self.compose.received;
+            if received.len() < jobs {
+                received.resize(jobs, (0, 0));
+            }
+            if let Some(range) = received.get_mut(j) {
+                *range = (from, to);
+            }
+        }
+    }
+
+    /// The glyph of the cell at `k`, `r`, spanning `span` cells, as a source
+    /// of ink for `job` (ADR-1306 D6): in `job`'s mark color when a block
+    /// cursor or the selection marks `job`'s cell, as `marked` says; else, at 1 bit, the
+    /// opposite of `job`'s background; else in its own foreground, as it
+    /// draws unselected.
+    fn source(
+        &mut self,
+        p: &Pass<'_, '_>,
+        (job, marked): (&Job, bool),
+        (k, r, span): (usize, usize, usize),
+    ) -> Option<Source> {
+        let fc = p.frame.cell(r, k)?;
+        let color = if marked {
+            job.fg
+        } else if self.config.depth == Depth::One {
+            mono::opposite(job.bg)
+        } else if fc.selected {
+            p.plain().cell(r, k).map_or(fc.fg, |c| c.fg)
+        } else {
+            fc.fg
+        };
+        let text = &mut self.compose.text;
+        let start = text.len();
+        match fc.glyph {
+            Glyph::Empty => return None,
+            Glyph::Char(c) => text.push(c),
+            Glyph::Cluster(t) => text.extend(t.chars()),
+        }
+        let style = Style {
+            bold: fc.attrs.contains(Attrs::BOLD),
+            italic: fc.attrs.contains(Attrs::ITALIC),
+        };
+        let (width, cells) = if fc.width == Width::Wide {
+            (FontWidth::Wide, 2)
+        } else {
+            (FontWidth::Narrow, 1)
+        };
+        let reach = self.cells.get(k, r)?.reach();
+        let b = reach.block(k, r, span);
+        let l = &self.layout;
+        let (cw, ch) = (l.cw, l.ch);
+        let g = &p.g;
+        Some(Source {
+            text: (start, text.len().saturating_sub(start), width, style),
+            g: l.cells_area(g, k, r, cells),
+            clip: l.area(
+                g,
+                b.c0.saturating_mul(cw),
+                b.r0.saturating_mul(ch),
+                b.c1.saturating_add(1)
+                    .saturating_sub(b.c0)
+                    .saturating_mul(cw),
+                b.r1.saturating_add(1)
+                    .saturating_sub(b.r0)
+                    .saturating_mul(ch),
+            ),
+            color,
+        })
     }
 
     /// At 1 bit, whether `fc`, at `col` in `row`, draws its background lit
     /// (`mono::marked`): the selection inverts what the cell draws
     /// unselected. `None` at any other depth.
-    fn one_bit_lit(p: &Pass<'_, '_>, fc: &FrameCell<'_>, row: usize, col: usize) -> Option<bool> {
-        let plain = p.plain.as_ref()?;
+    fn one_bit_lit(
+        &self,
+        p: &Pass<'_, '_>,
+        fc: &FrameCell<'_>,
+        row: usize,
+        col: usize,
+    ) -> Option<bool> {
+        if self.config.depth != Depth::One {
+            return None;
+        }
+        let plain = p.plain();
         let natural =
             |c: &FrameCell<'_>| mono::marked(c.bg, c.fg, c.attrs.contains(Attrs::INVERSE));
         Some(if fc.selected {
@@ -1403,7 +1808,7 @@ impl<F: Face> Renderer<F> {
                 },
                 is_cursor.then_some(&p.cursor),
                 off,
-                Self::one_bit_lit(p, &fc, row, here),
+                self.one_bit_lit(p, &fc, row, here),
             );
         }
         self.compose.jobs.sort_by_key(|j| j.posx);

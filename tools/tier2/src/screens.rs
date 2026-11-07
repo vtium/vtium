@@ -17,7 +17,8 @@ use vtium_term::WidthMethod;
 use vtium::config::keys::{self, Scheme};
 
 use crate::draw::{
-    Alone, DecoSpec, Decorations, Feed, FontKind, Overlay, Screen, Spacing, TestFont, Words,
+    Alone, DecoSpec, Decorations, Feed, FontKind, InkFonts, Overlay, Screen, Spacing, Take,
+    TestFont, Words,
 };
 use crate::notices;
 use crate::pictures;
@@ -843,12 +844,446 @@ macro_rules! mosaic_spaced {
 /// after the sentence that gives each one's spacing.
 macro_rules! emoji_spaced {
     () => {
-        "A box of light lines around Latin letters with ascenders, descenders and accents; three wide emoji; a ZWJ family, a skin tone and a flag; an emoji between letters and a narrow text smiley; emoji under underline, strike, reverse and a red curl; text on a blue background; then blocks, double lines and rounded corners, and Latin underlined, struck, and both in red. The emoji come from Noto Color Emoji 2.051, the text from DejaVu Sans Mono. No Arabic is drawn: its marks would reach into the added rows under fit=room, which draws as natural until the right-to-left work builds it. Correct: the box's sides and the blocks and lines stretch to the whole taller cell and join from row to row; each Latin letter at DejaVu Sans Mono's own size on its baseline in the 16-row text band, with the added rows blank above and below it, the accents above À, É and Î cut at the top of the text band as they are cut at the top of a 9x16 row; each emoji whole, the size it is with no spacing, inside the text band and never stretched; each underline and strike moved down with the text band; the blue background filling the whole cell, the added rows included. Every cell but the sprites' holds in its text band the pixels it has with no spacing."
+        "A box of light lines around Latin letters with ascenders, descenders and accents; three wide emoji; a ZWJ family, a skin tone and a flag; an emoji between letters and a narrow text smiley; emoji under underline, strike, reverse and a red curl; text on a blue background; then blocks, double lines and rounded corners, and Latin underlined, struck, and both in red. The emoji come from Noto Color Emoji 2.051, the text from DejaVu Sans Mono. No Arabic is drawn: its marks would reach into the added rows under fit=room, which draws as natural until the right-to-left work builds it. Correct: the box's sides and the blocks and lines stretch to the whole taller cell and join from row to row; each Latin letter at DejaVu Sans Mono's own size on its baseline in the 16-row text band, with the added rows blank above and below it, the accents above À, É and Î whole, reaching above the text band into the added rows (ADR-1306 D1, D8); each emoji whole, the size it is with no spacing, inside the text band and never stretched; each underline and strike moved down with the text band; the blue background filling the whole cell, the added rows included. Every cell but the sprites' holds in its text band the pixels it has with no spacing."
     };
 }
 
-/// Every case, in the order the report lists them.
-pub const CASES: &[Case] = &[
+/// The ink screens' takes: every cell height from 12 to 32 pixels, each
+/// with nothing fed after the bytes, then `more`. `N` is 21 more than `M`.
+const fn sweep<const M: usize, const N: usize>(more: [Take; M]) -> [Take; N] {
+    assert!(N == 21 + M, "21 heights and the takes after them");
+    let mut all = [Take::at(12); N];
+    let mut i = 0;
+    while i < N {
+        all[i] = if i < 21 {
+            Take::at(12 + i as u32)
+        } else {
+            more[i - 21]
+        };
+        i += 1;
+    }
+    all
+}
+
+/// A take at 16 pixels with `tail` fed after the bytes.
+const fn at_16(tail: &'static [u8]) -> Take {
+    Take {
+        height: 16,
+        tail,
+        blink_hidden: false,
+    }
+}
+
+/// A take at 16 pixels in blinking text's hidden phase.
+const BLINK_HIDDEN_16: Take = Take {
+    height: 16,
+    tail: b"",
+    blink_hidden: true,
+};
+
+/// The `overflow-accents` screen, 18 by 4 cells in the ink test font:
+/// accented capitals on the grid's first row, plain, reversed and red;
+/// `gjpqy___` and ç on backgrounds that alternate from cell to cell; under
+/// them the capitals À, É, Î, Ấ and Ộ, É as E with a combining acute, and
+/// H with combining marks, on alternating backgrounds the other way round,
+/// then a blinking ÉÎ and a reversed ÀÉÎ; and a last row of `gjpqy___`,
+/// plain and reversed.
+const OVERFLOW_ACCENTS: &[u8] = concat!(
+    "ÀÉÎẤỘ \x1b[7mÀÉÎ\x1b[27m \x1b[31mÉÎ\x1b[39m\r\n",
+    "\x1b[48;5;24mg\x1b[48;5;58mj\x1b[48;5;24mp\x1b[48;5;58mq\x1b[48;5;24my\x1b[48;5;58m_\x1b[48;5;24m_\x1b[48;5;58m_\x1b[48;5;24mg\x1b[48;5;58mj\x1b[48;5;24mp\x1b[48;5;58mq\x1b[48;5;24my\x1b[48;5;58m_\x1b[48;5;24m_\x1b[48;5;58m_\x1b[48;5;24mç\x1b[48;5;58m_\x1b[49m\r\n",
+    "\x1b[48;5;58mÀ\x1b[48;5;24mÉ\x1b[48;5;58mÎ\x1b[48;5;24mẤ\x1b[48;5;58mỘ\x1b[48;5;24mE\u{301}\x1b[48;5;58mH\u{301}\x1b[48;5;24mH\u{302}\u{323}\x1b[49m \x1b[5mÉÎ\x1b[25m \x1b[7mÀÉÎ\x1b[27m\r\n",
+    "gjpqy___ \x1b[7mgjpqy\x1b[27m",
+)
+.as_bytes();
+
+/// `overflow-accents`' takes: every height from 12 to 32 pixels; then at
+/// 16 pixels a block, an underline and a bar cursor on the É of the third
+/// row and on the j above it; then the blinking letters in their hidden
+/// phase.
+const OVERFLOW_ACCENTS_TAKES: [Take; 28] = sweep([
+    at_16(b"\x1b[?25h\x1b[2 q\x1b[3;2H"),
+    at_16(b"\x1b[?25h\x1b[2 q\x1b[2;2H"),
+    at_16(b"\x1b[?25h\x1b[4 q\x1b[3;2H"),
+    at_16(b"\x1b[?25h\x1b[4 q\x1b[2;2H"),
+    at_16(b"\x1b[?25h\x1b[6 q\x1b[3;2H"),
+    at_16(b"\x1b[?25h\x1b[6 q\x1b[2;2H"),
+    BLINK_HIDDEN_16,
+]);
+
+/// The `overflow-marks` screen, 16 by 3 cells in the ink test font: a
+/// row of empty cells on alternating backgrounds; Arabic letters with marks
+/// above and below, beh with fatha, beh with kasra, lam with shadda and
+/// fatha, noon with damma, alef with sukun, beh with kasratan, lam with
+/// shadda, fatha and the superscript alef, and beh with the superscript
+/// alef, then lam with shadda and fatha and noon with damma again; and
+/// another row of empty cells on alternating backgrounds.
+const OVERFLOW_MARKS: &[u8] = concat!(
+    "\x1b[48;5;24m \x1b[48;5;58m \x1b[48;5;24m \x1b[48;5;58m \x1b[48;5;24m \x1b[48;5;58m \x1b[48;5;24m \x1b[48;5;58m \x1b[48;5;24m \x1b[48;5;58m \x1b[48;5;24m \x1b[48;5;58m \x1b[48;5;24m \x1b[48;5;58m \x1b[48;5;24m \x1b[48;5;58m \x1b[49m\r\n",
+    "\x1b[48;5;58m\u{628}\u{64e}\x1b[48;5;24m\u{628}\u{650}\x1b[48;5;58m\u{644}\u{651}\u{64e}\x1b[48;5;24m\u{646}\u{64f}\x1b[48;5;58m\u{627}\u{652}\x1b[48;5;24m\u{628}\u{64d}\x1b[48;5;58m\u{644}\u{651}\u{64e}\u{670}\x1b[48;5;24m\u{628}\u{670}\x1b[49m \x1b[48;5;24m\u{644}\u{651}\u{64e}\x1b[48;5;58m\u{646}\u{64f}\x1b[49m\r\n",
+    "\x1b[48;5;58m \x1b[48;5;24m \x1b[48;5;58m \x1b[48;5;24m \x1b[48;5;58m \x1b[48;5;24m \x1b[48;5;58m \x1b[48;5;24m \x1b[48;5;58m \x1b[48;5;24m \x1b[48;5;58m \x1b[48;5;24m \x1b[48;5;58m \x1b[48;5;24m \x1b[48;5;58m \x1b[48;5;24m \x1b[49m",
+)
+.as_bytes();
+
+/// Every height from 12 to 32 pixels.
+const SWEEP: [Take; 21] = sweep([]);
+
+/// The `overflow-meet` screen, 14 by 3 cells in the ink test font: red
+/// ç over green É, the cedilla and the acute meeting where the rows meet;
+/// the same on blue and olive cells; and red ç over green Ấ.
+const OVERFLOW_MEET: &[u8] = concat!(
+    "\x1b[31mçççç \x1b[48;5;24mçç\x1b[49m çç\x1b[39m\r\n",
+    "\x1b[32mÉÉÉÉ \x1b[48;5;58mÉÉ\x1b[49m ẤẤ\x1b[39m\r\n",
+)
+.as_bytes();
+
+/// The ink screens drawn at 16 and 32 pixels.
+const AT_16_AND_32: [Take; 2] = [Take::at(16), Take::at(32)];
+
+/// The `overflow-spaced` screen, 16 by 3 cells in the ink test font with
+/// line spacing: `gjpqy___` twice on alternating backgrounds; the
+/// accented capitals and Arabic letters with marks; and `gjpqy___` on
+/// alternating backgrounds.
+const OVERFLOW_SPACED: &[u8] = concat!(
+    "\x1b[48;5;24mg\x1b[48;5;58mj\x1b[48;5;24mp\x1b[48;5;58mq\x1b[48;5;24my\x1b[48;5;58m_\x1b[48;5;24m_\x1b[48;5;58m_\x1b[48;5;24mg\x1b[48;5;58mj\x1b[48;5;24mp\x1b[48;5;58mq\x1b[48;5;24my\x1b[48;5;58m_\x1b[48;5;24m_\x1b[48;5;58m_\x1b[49m\r\n",
+    "ÀÉÎẤỘ \u{628}\u{64e}\u{644}\u{651}\u{64e}\u{628}\u{64d}\u{646}\u{64f}\u{644}\u{651}\u{64e}\u{670} ÉÎ\r\n",
+    "\x1b[48;5;58m_\x1b[48;5;24mg\x1b[48;5;58mj\x1b[48;5;24mp\x1b[48;5;58mq\x1b[48;5;24my\x1b[48;5;58m_\x1b[48;5;24m_\x1b[48;5;58m_\x1b[48;5;24mg\x1b[48;5;58mj\x1b[48;5;24mp\x1b[48;5;58mq\x1b[48;5;24my\x1b[48;5;58m_\x1b[48;5;24m_\x1b[49m",
+)
+.as_bytes();
+
+/// The `overflow-pictures` screen, 24 by 6 cells in the ink test font:
+/// accented capitals in the third row, under the four pictures of the
+/// second row, and Arabic letters with kasra and kasratan in the fourth,
+/// over the four pictures of the fifth ([`pictures::overflow`]); the
+/// pictures' rows hold no text.
+const OVERFLOW_PICTURES: &[u8] = concat!(
+    "\r\n",
+    "\r\n",
+    "ÀÉÎẤ  ÀÉÎẤ  ÀÉÎẤ  ÀÉÎẤ\r\n",
+    "\u{628}\u{64d}\u{628}\u{650}\u{628}\u{64d}\u{628}\u{650}  \u{628}\u{64d}\u{628}\u{650}\u{628}\u{64d}\u{628}\u{650}  \u{628}\u{64d}\u{628}\u{650}\u{628}\u{64d}\u{628}\u{650}  \u{628}\u{64d}\u{628}\u{650}\u{628}\u{64d}\u{628}\u{650}",
+)
+.as_bytes();
+
+/// The `overhang-italic` screen, 20 by 3 cells in the ink test font: an
+/// italic run on backgrounds that alternate from cell to cell, then
+/// italic words underlined and struck; an italic Arabic run, then a
+/// blinking italic word beside a steady one; and the same letters upright.
+const OVERHANG_ITALIC: &[u8] = concat!(
+    "\x1b[3m\x1b[48;5;24mH\x1b[48;5;58mI\x1b[48;5;24mE\x1b[48;5;58mW\x1b[48;5;24mm\x1b[48;5;58mA\x1b[48;5;24mO\x1b[48;5;58mƒ\x1b[49m \x1b[4mHIE\x1b[24m \x1b[9mOWm\x1b[29m\x1b[23m\r\n",
+    "\x1b[3m\u{628}\u{644}\u{646}\u{627}\u{628} \x1b[5mHIE\x1b[25m HIE\x1b[23m\r\n",
+    "HIEWmAOƒ HIE OWm",
+)
+.as_bytes();
+
+/// `overhang-italic`'s takes: at 16 pixels, with no cursor, with a block
+/// cursor on the leaning I of the first row and on the space just after
+/// the run, and with the blinking word hidden; then at 32 pixels.
+const OVERHANG_ITALIC_TAKES: [Take; 5] = [
+    Take::at(16),
+    at_16(b"\x1b[?25h\x1b[2 q\x1b[1;2H"),
+    at_16(b"\x1b[?25h\x1b[2 q\x1b[1;9H"),
+    BLINK_HIDDEN_16,
+    Take::at(32),
+];
+
+/// The `overhang-wm` screen, 14 by 2 cells in the ink test font: W and m,
+/// then ƒ, whose hooks reach both sides, between them, on alternating
+/// backgrounds; then the same in bold.
+const OVERHANG_WM: &[u8] = concat!(
+    "WWWWmmmm \x1b[48;5;24mW\x1b[48;5;58mƒ\x1b[48;5;24mm\x1b[48;5;58mƒ\x1b[48;5;24mW\x1b[49m\r\n",
+    "\x1b[1mWWWWmmmm \x1b[48;5;24mW\x1b[48;5;58mƒ\x1b[48;5;24mm\x1b[48;5;58mƒ\x1b[48;5;24mW\x1b[0m",
+)
+.as_bytes();
+
+/// The `overhang-underscore` screen, 12 by 2 cells in the ink test font:
+/// underscores and `gjpqy` on alternating backgrounds, twice, so a row's
+/// bottom meets the next row's top.
+const OVERHANG_UNDERSCORE: &[u8] = concat!(
+    "\x1b[48;5;24m_\x1b[48;5;58m_\x1b[48;5;24m_\x1b[48;5;58mg\x1b[48;5;24mj\x1b[48;5;58mp\x1b[48;5;24mq\x1b[48;5;58my\x1b[48;5;24m_\x1b[48;5;58m_\x1b[48;5;24m_\x1b[49m\r\n",
+    "\x1b[48;5;58m_\x1b[48;5;24m_\x1b[48;5;58m_\x1b[48;5;24mg\x1b[48;5;58mj\x1b[48;5;24mp\x1b[48;5;58mq\x1b[48;5;24my\x1b[48;5;58m_\x1b[48;5;24m_\x1b[48;5;58m_\x1b[49m",
+)
+.as_bytes();
+
+/// The `overhang-wide` screen, 12 by 4 cells in the ink test font: the
+/// ideograph 一 between narrow letters and beside another on alternating
+/// backgrounds; at the grid's last two columns; and written at the last
+/// column of the third row, which wraps it to the start of the fourth.
+const OVERHANG_WIDE: &[u8] = concat!(
+    "H一H \x1b[48;5;24m一\x1b[48;5;58m一\x1b[49m H\r\n",
+    "HIE\x1b[2;11H一",
+    "\x1b[3;1HHIE\x1b[3;12H一",
+)
+.as_bytes();
+
+/// A screen of `cols` by `rows` in the ink test font (`crate::inkfont`),
+/// drawn once for each of `takes`, stacked from the top.
+const fn ink(
+    name: &'static str,
+    desc: &'static str,
+    bytes: &'static [u8],
+    (cols, rows): (usize, usize),
+    takes: &'static [Take],
+) -> Screen {
+    Screen {
+        font: FontKind::Ink {
+            takes,
+            spacing: None,
+            fonts: InkFonts::Test,
+        },
+        ..Screen::new(name, desc, bytes, cols, rows)
+    }
+}
+
+/// `screen` on a 1-bit display, named `name`.
+const fn one_bit(name: &'static str, screen: Screen) -> Screen {
+    Screen {
+        name,
+        desc: ONE_BIT_DESC,
+        depth: Depth::One,
+        ..screen
+    }
+}
+
+/// The ink screen `screen` drawn in DejaVu Sans Mono and Noto Sans CJK in
+/// place of the ink test font, with the same bytes and takes, named
+/// `name`.
+const fn dejavu(name: &'static str, screen: Screen) -> Screen {
+    let FontKind::Ink { takes, spacing, .. } = screen.font else {
+        panic!("an ink screen");
+    };
+    Screen {
+        name,
+        desc: DEJAVU_DESC,
+        font: FontKind::Ink {
+            takes,
+            spacing,
+            fonts: InkFonts::DejaVu,
+        },
+        ..screen
+    }
+}
+
+const DEJAVU_DESC: &str = "The screen of the same name without `-dejavu`, with the same bytes, takes, selection and pictures, drawn in the test font set without its color emoji font: DejaVu Sans Mono's Regular, Bold, Oblique and Bold Oblique faces, then Noto Sans CJK, as the console draws a font set, and in the built-in font for what neither holds: the superscript alef U+0670 and the precomposed Ấ, which DejaVu Sans Mono lacks. Its Oblique face holds no Arabic, so italic Arabic draws as the regular face's glyphs slanted. Correct: each glyph where its font puts it, and the ink a real font sends past its cell drawn into the neighbouring cells by the rules the test-font screen's caption gives; where DejaVu Sans Mono's ink stays in its cell, as it does for most glyphs at most heights, nothing reaches the cells around it.";
+
+/// The ink screens, each drawn in the ink test font, on a 1-bit display,
+/// in DejaVu Sans Mono and in DejaVu Sans Mono on a 1-bit display.
+const fn ink_cases(names: [&'static str; 3], screen: Screen) -> [Case; 4] {
+    let real = dejavu(names[1], screen);
+    [
+        Case { screen },
+        Case {
+            screen: one_bit(names[0], screen),
+        },
+        Case { screen: real },
+        Case {
+            screen: one_bit(names[2], real),
+        },
+    ]
+}
+
+const OVERFLOW_ACCENTS_SCREEN: Screen = Screen {
+    selection: Some(((8, 1), (11, 2))),
+    ..ink(
+        "overflow-accents",
+        OVERFLOW_ACCENTS_DESC,
+        OVERFLOW_ACCENTS,
+        (18, 4),
+        &OVERFLOW_ACCENTS_TAKES,
+    )
+};
+
+const OVERFLOW_SPACED_SCREEN: Screen = Screen {
+    font: FontKind::Ink {
+        takes: &AT_16_AND_32,
+        spacing: Some(SPACED_30),
+        fonts: InkFonts::Test,
+    },
+    ..ink(
+        "overflow-spaced",
+        OVERFLOW_SPACED_DESC,
+        OVERFLOW_SPACED,
+        (16, 3),
+        &AT_16_AND_32,
+    )
+};
+
+const OVERFLOW_PICTURES_SCREEN: Screen = Screen {
+    pictures: Some(pictures::overflow),
+    ..ink(
+        "overflow-pictures",
+        OVERFLOW_PICTURES_DESC,
+        OVERFLOW_PICTURES,
+        (24, 6),
+        &AT_16,
+    )
+};
+
+const OVERHANG_ITALIC_SCREEN: Screen = Screen {
+    selection: Some(((2, 0), (4, 0))),
+    ..ink(
+        "overhang-italic",
+        OVERHANG_ITALIC_DESC,
+        OVERHANG_ITALIC,
+        (20, 3),
+        &OVERHANG_ITALIC_TAKES,
+    )
+};
+
+/// Every ink screen: four cases each, from [`ink_cases`].
+const INK_CASES: [[Case; 4]; 9] = [
+    ink_cases(
+        [
+            "overflow-accents-1bit",
+            "overflow-accents-dejavu",
+            "overflow-accents-dejavu-1bit",
+        ],
+        OVERFLOW_ACCENTS_SCREEN,
+    ),
+    ink_cases(
+        [
+            "overflow-marks-1bit",
+            "overflow-marks-dejavu",
+            "overflow-marks-dejavu-1bit",
+        ],
+        ink(
+            "overflow-marks",
+            OVERFLOW_MARKS_DESC,
+            OVERFLOW_MARKS,
+            (16, 3),
+            &SWEEP,
+        ),
+    ),
+    ink_cases(
+        [
+            "overflow-meet-1bit",
+            "overflow-meet-dejavu",
+            "overflow-meet-dejavu-1bit",
+        ],
+        ink(
+            "overflow-meet",
+            OVERFLOW_MEET_DESC,
+            OVERFLOW_MEET,
+            (14, 3),
+            &AT_16_AND_32,
+        ),
+    ),
+    ink_cases(
+        [
+            "overflow-spaced-1bit",
+            "overflow-spaced-dejavu",
+            "overflow-spaced-dejavu-1bit",
+        ],
+        OVERFLOW_SPACED_SCREEN,
+    ),
+    ink_cases(
+        [
+            "overflow-pictures-1bit",
+            "overflow-pictures-dejavu",
+            "overflow-pictures-dejavu-1bit",
+        ],
+        OVERFLOW_PICTURES_SCREEN,
+    ),
+    ink_cases(
+        [
+            "overhang-italic-1bit",
+            "overhang-italic-dejavu",
+            "overhang-italic-dejavu-1bit",
+        ],
+        OVERHANG_ITALIC_SCREEN,
+    ),
+    ink_cases(
+        [
+            "overhang-wm-1bit",
+            "overhang-wm-dejavu",
+            "overhang-wm-dejavu-1bit",
+        ],
+        ink(
+            "overhang-wm",
+            OVERHANG_WM_DESC,
+            OVERHANG_WM,
+            (14, 2),
+            &AT_16_AND_32,
+        ),
+    ),
+    ink_cases(
+        [
+            "overhang-underscore-1bit",
+            "overhang-underscore-dejavu",
+            "overhang-underscore-dejavu-1bit",
+        ],
+        ink(
+            "overhang-underscore",
+            OVERHANG_UNDERSCORE_DESC,
+            OVERHANG_UNDERSCORE,
+            (12, 2),
+            &SWEEP,
+        ),
+    ),
+    ink_cases(
+        [
+            "overhang-wide-1bit",
+            "overhang-wide-dejavu",
+            "overhang-wide-dejavu-1bit",
+        ],
+        ink(
+            "overhang-wide",
+            OVERHANG_WIDE_DESC,
+            OVERHANG_WIDE,
+            (12, 4),
+            &AT_16_AND_32,
+        ),
+    ),
+];
+
+/// One drawing at 16 pixels.
+const AT_16: [Take; 1] = [Take::at(16)];
+
+const ONE_BIT_DESC: &str = "The screen of the same name without `-1bit`, drawn the same way on a 1-bit display, every pixel black or white. Correct: the same shapes as on the color screen; ink that reaches into a neighbouring cell lit or unlit like the text it belongs to, over that cell's own lit or unlit background; the blue and olive cells both unlit, being under luma 128, so the text on them is lit.";
+
+const OVERFLOW_ACCENTS_DESC: &str = "Accented capitals whose accents pass the top of their row, in the ink test font built in memory, drawn at every cell height from 12 to 32 pixels from the top down, then seven more times at 16 pixels: with a block, an underline and a bar cursor on the É of the third row and on the j above it, and with blinking text in its hidden phase. Each drawing is 18 by 4 cells: À, É, Î, Ấ and Ộ, then ÀÉÎ reversed and ÉÎ in red, on the grid's first row; gjpqy___ twice and ç_ on cells that alternate between blue and olive; below them À, É, Î, Ấ, Ộ, E with a combining acute, H with a combining acute and H with a combining circumflex and dot below, on the alternating cells the other way round, a blinking ÉÎ and ÀÉÎ reversed; and gjpqy___ and a reversed gjpqy in the last row. A selection runs from the ninth cell of the second row to the twelfth of the third. Correct (ADR-1306 D1, D4, D6): on the first row each accent cut at the grid's top edge; in the third row each accent whole in the cell above its letter, over that cell's blue or olive background, which never paints over it, Ấ's acute reaching half a cell up; E with the combining acute drawn as É is; Ộ's dot whole in the row below; the descenders of the second row and the accents of the third meeting with the accent on top; the reversed accents in the reversed text's color over the cell above; the selected capitals' accents drawn in the selection's colors where the cell above is selected and in their own colors over the unselected cells above; the cursors drawn on their cell with the accent above the É in the text's colors, and the j's cell under the cursor keeping the É's accent; the blinking ÉÎ's accents cut at the top of their row in every take, since a blinking letter's ink stays in its own cell; in the last take the blinking letters dimmed, as vtium draws blinking text in its hidden phase, and every other pixel as in the 16-pixel take of the sweep.";
+
+const OVERFLOW_MARKS_DESC: &str = "Arabic letters with marks above and below their row, in the ink test font built in memory, drawn at every cell height from 12 to 32 pixels from the top down. Each drawing is 16 by 3 cells: a row of empty cells that alternate between blue and olive; beh with fatha, beh with kasra, lam with shadda and fatha, noon with damma, alef with sukun, beh with kasratan, lam with shadda, fatha and the superscript alef, and beh with the superscript alef, on alternating cells, then lam with shadda and fatha and noon with damma again; and another row of empty alternating cells. The terminal lays the letters out left to right, one cell each. Correct (ADR-1306 D1, D2): each mark above its letter whole in the row above, where the font puts it, over that row's backgrounds; kasra and kasratan whole in the row below; lam with shadda and fatha at its full height, the lam's stem passing into the row above; the superscript alef, which stands past the one row ink may reach, moved down or scaled with its letter until it ends inside the row above, at every height.";
+
+const OVERFLOW_MEET_DESC: &str = "A descender in one row meeting an accent in the row below, in the ink test font built in memory, drawn at 16 and at 32 pixels. Each drawing is 14 by 3 cells: red ç four times, twice on blue and twice more, over green É four times, twice on olive, and green Ấ twice. Correct (ADR-1306 D4): each cedilla reaching down into the row below and each acute reaching up into the row above, crossing where the rows meet; where they cross, the green accent of the lower row on top of the red cedilla; the blue and olive backgrounds under the ink of both rows.";
+
+const OVERFLOW_SPACED_DESC: &str = "The accents and marks with line spacing, in the ink test font built in memory with line-spacing=30, drawn at 16 and at 32 pixels. Each drawing is 16 by 3 cells: gjpqy___ twice on cells that alternate between blue and olive; À, É, Î, Ấ and Ộ, then beh with fatha, lam with shadda and fatha, beh with kasratan, noon with damma and lam with shadda, fatha and the superscript alef, then ÉÎ; and _gjpqy___ twice on alternating cells. Correct (ADR-1306 D1, D8): the letters at the font's own size on their baselines in the text band, the rows the spacing adds blank around them; each accent and mark whole, using the added rows above and below the text band before it reaches the row beyond, and reaching that row where the added rows are too few; the backgrounds filling the whole taller cells.";
+
+const OVERFLOW_PICTURES_DESC: &str = "Accents and Arabic marks reaching into the cells of pictures, in the ink test font built in memory at 16 pixels, 24 by 6 cells: in the second row, which holds no text, a kitty picture 4 cells wide below the cell backgrounds, one below the text at z -1, one above the text at z 0 and a sixel; under each, ÀÉÎẤ in the third row; Arabic beh with kasratan and with kasra in the fourth row, over the same four pictures in the fifth. Correct (ADR-1306 D7): the accents and the marks drawn over the picture below the backgrounds and the picture below the text, as the text is; hidden under the picture above the text and under the sixel, as the text of those cells is.";
+
+const OVERHANG_ITALIC_DESC: &str = "Italic text whose letters lean into the next cell, in the ink test font built in memory, which has no italic face, so the glyph helper slants its regular glyphs by 0.2 about the baseline (ADR-1302 D4). Drawn at 16 pixels with no cursor, with a block cursor on the leaning I of the first row and on the space after the run, with blinking text in its hidden phase, and at 32 pixels. Each drawing is 20 by 3 cells: HIEWmAOƒ italic on cells that alternate between blue and olive, then HIE underlined and OWm struck; an italic run of Arabic letters, then a blinking italic HIE beside a steady one; and the same Latin letters upright. A selection covers the second to the fifth cell of the first row. Correct (ADR-1302 D1, D4, D7, D8): each italic letter's top leaning into the cell on its right and its foot into the cell on its left, unbroken across the cell edges and over the blue and olive backgrounds; the underline and strike straight; the Arabic leaning right like the Latin; the selected letters in the selection's colors and the ink they send into the unselected cells beside them in the text's colors; the cursor on the I with the I in the cursor's colors and the ink of its neighbours over it; the blinking HIE's lean cut at its own cells in every take; in the blinking take the blinking HIE dimmed, as vtium draws blinking text in its hidden phase, and the steady HIE beside it as in the first take.";
+
+const OVERHANG_WM_DESC: &str = "W and m in the ink test font built in memory, whose W fills its advance, so its ink sets the cell's width, drawn at 16 and at 32 pixels. Each drawing is 14 by 2 cells: WWWWmmmm, then W, ƒ, m, ƒ, W on cells that alternate between blue and olive; and the same in bold. Correct (ADR-1302 D1, D2, D4): each W and m inside its own cell, touching its cell's sides and never its neighbour's; the ƒ's hooks reaching a quarter of a cell into the cells on both sides, over the W and m there and their backgrounds; the bold letters a pixel or more wider, grown sideways inside their cells as far as their ink allows.";
+
+const OVERHANG_UNDERSCORE_DESC: &str = "The underscore and gjpqy in the ink test font built in memory, drawn at every cell height from 12 to 32 pixels from the top down. Each drawing is 12 by 2 cells: ___gjpqy___ on cells that alternate between blue and olive, twice, the second row's colors the other way round. Correct (ADR-1302 D3): each underscore whole at the bottom of its cell, running unbroken from cell to cell, and every descender ending inside its own row, so no ink of the first row reaches the second at any height.";
+
+const OVERHANG_WIDE_DESC: &str = "The ideograph 一, two cells wide, in the ink test font built in memory, whose bar reaches a quarter of a cell past each side, drawn at 16 and at 32 pixels. Each drawing is 12 by 4 cells: H, 一, H, then 一 twice on blue and olive cells, and H; HIE and 一 in the last two columns; HIE and 一 written at the last column of the third row, which wraps it to the start of the fourth. Correct (ADR-1302 D1, D5): the bar running into the H on each side and into the neighbouring ideograph, over the backgrounds there; in the last two columns the bar reaching left into the cell before it and cut at the grid's right edge; the wrapped ideograph at the start of the fourth row, its bar cut at the grid's left edge, and the third row's last cell empty.";
+
+/// Every case, in the order the report lists them: the screens below,
+/// then the ink screens.
+pub const CASES: &[Case] = &join::<{ BASE.len() + 4 * INK_CASES.len() }>(BASE, &INK_CASES);
+
+/// `base` followed by each of `ink`'s cases, `N` in all.
+const fn join<const N: usize>(base: &[Case], ink: &[[Case; 4]]) -> [Case; N] {
+    assert!(N == base.len() + 4 * ink.len(), "every case once");
+    let mut all = [base[0]; N];
+    let mut i = 0;
+    while i < base.len() {
+        all[i] = base[i];
+        i += 1;
+    }
+    let mut k = 0;
+    while k < ink.len() {
+        let mut j = 0;
+        while j < 4 {
+            all[base.len() + 4 * k + j] = ink[k][j];
+            j += 1;
+        }
+        k += 1;
+    }
+    all
+}
+
+/// The screens before the ink screens.
+const BASE: &[Case] = &[
     Case {
         screen: Screen {
             font: FontKind::Sprites {
@@ -1560,7 +1995,7 @@ pub const CASES: &[Case] = &[
     Case {
         screen: outline(
             "bold",
-            "Bold beside regular, a bold pangram over two lines, bold in red, green and blue, then italic beside regular and bold italic. In DejaVu Sans Mono at 16 pixels, with its Bold, Oblique and Bold Oblique faces. Correct: the bold text drawn from DejaVu Sans Mono Bold, heavier than the regular text and at the same cell width; the colored words in their colors; the italic text slanted, drawn from DejaVu Sans Mono Oblique, and the bold italic from DejaVu Sans Mono Bold Oblique.",
+            "Bold beside regular, a bold pangram over two lines, bold in red, green and blue, then italic beside regular and bold italic. In DejaVu Sans Mono at 16 pixels, with its Bold, Oblique and Bold Oblique faces. Correct: the bold text drawn from DejaVu Sans Mono Bold, heavier than the regular text and at the same cell width; the colored words in their colors; the italic text slanted, drawn from DejaVu Sans Mono Oblique, and the bold italic from DejaVu Sans Mono Bold Oblique, a letter's ink leaning into the cell beside it where the face draws it there (ADR-1306 D12).",
             FACES,
             48,
             10,
@@ -1641,7 +2076,7 @@ pub const CASES: &[Case] = &[
     Case {
         screen: outline(
             "combining",
-            "Accented letters precomposed and as a base letter with combining marks, in words, underlined, struck and in bold. In DejaVu Sans Mono at 16 pixels, whose glyphs vtium-config's engine shapes for each cluster. Correct: each mark sits on its base letter in one cell, matching the precomposed form where there is one.",
+            "Accented letters precomposed and as a base letter with combining marks, in words, underlined, struck and in bold. In DejaVu Sans Mono at 16 pixels, whose glyphs vtium-config's engine shapes for each cluster. Correct: each mark sits on its base letter, matching the precomposed form where there is one; the grave over the tilde on each a passes the top of its row and draws whole in the row above, where the font puts it (ADR-1306 D1, D2).",
             COMBINING,
             48,
             10,
@@ -1680,6 +2115,62 @@ pub const CASES: &[Case] = &[
                 "redraw",
                 "Four frames into a double-buffered display: the second part rewrites line 2 and adds a struck line 4, and both buffers must then hold it and equal a fresh draw. In DejaVu Sans Mono at 16 pixels. Correct: line 2 reads 'line 2 CHANGED curly' with nothing left of the first part's text.",
                 b"unchanged line\r\nline two, before\r\nline three stays\r\n",
+                48,
+                10,
+            )
+        },
+    },
+    // The outline screens that waited for fixes to wide characters,
+    // emoji presentation and the console's notices (vtium/vtium#323,
+    // #324, #325, #326)
+    Case {
+        screen: outline(
+            "cjk",
+            "Double-width Japanese, Chinese and Korean, full-width Latin, narrow letters between wide characters, and wide text in bold and in reverse. The wide characters come from Noto Sans CJK, the narrow ones from DejaVu Sans Mono, at 16 pixels in the 9x16 cell. Correct: each wide character drawn by Noto Sans CJK across two cells, the bold ones emboldened, since the font set names no bold CJK face, and the narrow letters between them in their own columns.",
+            CJK,
+            48,
+            10,
+        ),
+    },
+    Case {
+        screen: outline(
+            "emoji",
+            "Emoji: two wide emoji and a narrow text smiley; a ZWJ family, a skin tone, a flag and a keycap; a heart with VS16, VS15 and no selector; an emoji between letters; emoji under underline, strike, reverse and a red curl; the shaking face of Unicode 15; and an emoji written at the last column, which wraps. The emoji come from Noto Color Emoji 2.051, the text from DejaVu Sans Mono, at 16 pixels. Correct: each emoji in color, whole and fitted to its two cells whatever the foreground and reverse; the family, the tone, the flag and the keycap one picture each where the font holds one; the VS16 heart in color across two cells, the other hearts and the smiley one cell each in the text color.",
+            EMOJI,
+            48,
+            10,
+        ),
+    },
+    Case {
+        screen: outline(
+            "vs16",
+            "A heart with VS16, with no selector and with VS15, and the VS16 heart underlined, by the Unicode width method (mode 2027 set). At 16 pixels in the test font set. Correct: the VS16 hearts take two cells and draw as Noto Color Emoji's red heart, the b after each a column further right; the other hearts one cell each, DejaVu Sans Mono's text heart in the text color.",
+            VS16,
+            32,
+            5,
+        ),
+    },
+    Case {
+        screen: outline(
+            "wide-deco",
+            "Wide characters under each underline style and under strike, a decorated run mixing narrow and wide, and a decorated wide character written at the last column, which wraps to the start of the next row. Noto Sans CJK and DejaVu Sans Mono at 16 pixels. Correct: every decoration spans both cells of its wide character, the dashed line one dash in each cell.",
+            WIDE_DECO,
+            48,
+            10,
+        ),
+    },
+    Case {
+        screen: Screen {
+            overlay: Some(Overlay {
+                line: Some(notices::render_timer),
+                notices: &[],
+                mark: None,
+                scheme: None,
+            }),
+            ..outline(
+                "osd",
+                "The render timer's line, `59.9 fps 12.345 ms 100.0%`, drawn by the console's overlay as the on-screen display's line over three rows of text in DejaVu Sans Mono at 16 pixels. Correct: the line in the on-screen display's colors in a box across the top of the display, over the text there; its characters drawn by the built-in font in the 9x16 cell, since the console draws its notices and the on-screen display from the built-in font whatever the head's font set is; the row just below the box partly covered, on purpose, since the box is painted over the terminal's text and is not a whole number of rows tall; and the rows below it as the terminal drew them.",
+                OSD_TEXT,
                 48,
                 10,
             )
@@ -1846,58 +2337,4 @@ const OSD_TEXT: &[u8] = concat!(
 /// with the others, so the defect can be seen. When its fix lands, a
 /// screen moves to [`CASES`], its golden is added and its pending row
 /// goes.
-pub const WAITING: &[Case] = &[
-    Case {
-        screen: outline(
-            "cjk",
-            "Double-width Japanese, Chinese and Korean, full-width Latin, narrow letters between wide characters, and wide text in bold and in reverse. The wide characters come from Noto Sans CJK, the narrow ones from DejaVu Sans Mono, at 16 pixels in the 9x16 cell. Correct: each wide character drawn by Noto Sans CJK across two cells, the bold ones emboldened, since the font set names no bold CJK face, and the narrow letters between them in their own columns.",
-            CJK,
-            48,
-            10,
-        ),
-    },
-    Case {
-        screen: outline(
-            "emoji",
-            "Emoji: two wide emoji and a narrow text smiley; a ZWJ family, a skin tone, a flag and a keycap; a heart with VS16, VS15 and no selector; an emoji between letters; emoji under underline, strike, reverse and a red curl; the shaking face of Unicode 15; and an emoji written at the last column, which wraps. The emoji come from Noto Color Emoji 2.051, the text from DejaVu Sans Mono, at 16 pixels. Correct: each emoji in color, whole and fitted to its two cells whatever the foreground and reverse; the family, the tone, the flag and the keycap one picture each where the font holds one; the VS16 heart in color across two cells, the other hearts and the smiley one cell each in the text color.",
-            EMOJI,
-            48,
-            10,
-        ),
-    },
-    Case {
-        screen: outline(
-            "vs16",
-            "A heart with VS16, with no selector and with VS15, and the VS16 heart underlined, by the Unicode width method (mode 2027 set). At 16 pixels in the test font set. Correct: the VS16 hearts take two cells and draw as Noto Color Emoji's red heart, the b after each a column further right; the other hearts one cell each, DejaVu Sans Mono's text heart in the text color.",
-            VS16,
-            32,
-            5,
-        ),
-    },
-    Case {
-        screen: outline(
-            "wide-deco",
-            "Wide characters under each underline style and under strike, a decorated run mixing narrow and wide, and a decorated wide character written at the last column, which wraps to the start of the next row. Noto Sans CJK and DejaVu Sans Mono at 16 pixels. Correct: every decoration spans both cells of its wide character, the dashed line one dash in each cell.",
-            WIDE_DECO,
-            48,
-            10,
-        ),
-    },
-    Case {
-        screen: Screen {
-            overlay: Some(Overlay {
-                line: Some(notices::render_timer),
-                notices: &[],
-                mark: None,
-                scheme: None,
-            }),
-            ..outline(
-                "osd",
-                "The render timer's line, `59.9 fps 12.345 ms 100.0%`, drawn by the console's overlay as the on-screen display's line over three rows of text in DejaVu Sans Mono at 16 pixels. Correct: the line in the on-screen display's colors in a box across the top of the display, over the text there; its characters drawn by the built-in font in the 9x16 cell, since the console asks the helper only for what the terminal shows; the rows below it as the terminal drew them.",
-                OSD_TEXT,
-                48,
-                10,
-            )
-        },
-    },
-];
+pub const WAITING: &[Case] = &[];

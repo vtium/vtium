@@ -26,6 +26,7 @@ use vtium_font::{Face, Font, Style, Width};
 
 use crate::bounds::{FAILED_GLYPHS, POOL_BYTES_PERFORMANCE};
 use crate::mono::Fallback;
+use crate::reach::Reach;
 use crate::stored::Stored;
 use crate::target::Orientation;
 
@@ -141,6 +142,11 @@ pub(crate) trait Held {
     /// Bytes it counts against its pool's ceiling.
     fn bytes(&self) -> usize;
 
+    /// Whether its glyph's ink passes its cells.
+    fn reaches(&self) -> bool {
+        false
+    }
+
     /// Whether the cache hands back what it evicts ([`GlyphCache::take_evicted`]),
     /// for a slot its owner reuses. Pixels are dropped.
     const RECLAIM: bool = false;
@@ -149,6 +155,10 @@ pub(crate) trait Held {
 impl Held for Stored {
     fn bytes(&self) -> usize {
         Stored::bytes(self)
+    }
+
+    fn reaches(&self) -> bool {
+        !self.reach().is_none()
     }
 }
 
@@ -271,6 +281,24 @@ pub(crate) struct GlyphCache<T = Stored> {
     drew_missing: bool,
     /// A color glyph's bitmap stand-in on a 1-bit or gray display.
     fallback: Option<Fallback>,
+    /// The font has drawn a glyph whose ink passes its cells.
+    reaching: bool,
+    /// How far the glyph of each ASCII character in each style reaches,
+    /// once read: the renderer asks for every cell that changes, and the
+    /// answer changes only when the font's glyphs do.
+    reaches: Vec<Option<Reach>>,
+}
+
+/// Where the reach of `text` in `style`, `width` cells wide, is remembered:
+/// a narrow ASCII character's place among [`GlyphCache::reaches`].
+fn reach_slot(text: &[char], width: Width, style: Style) -> Option<usize> {
+    match (text, width) {
+        ([c], Width::Narrow) if c.is_ascii() => {
+            let styles = usize::from(style.bold) | usize::from(style.italic) << 1;
+            Some(usize::from(*c as u8) << 2 | styles)
+        }
+        _ => None,
+    }
 }
 
 impl<T: Held> GlyphCache<T> {
@@ -295,6 +323,8 @@ impl<T: Held> GlyphCache<T> {
             counts: CacheCounts::default(),
             drew_missing: false,
             fallback: None,
+            reaching: false,
+            reaches: Vec::new(),
         }
     }
 
@@ -315,6 +345,7 @@ impl<T: Held> GlyphCache<T> {
             return;
         }
         self.failed.clear();
+        self.reaches.clear();
         // eviction frees an entry in place, so the indices ahead stand
         for i in 0..self.entries.len() {
             let Ok(i) = u32::try_from(i) else { break };
@@ -420,6 +451,12 @@ impl<T: Held> GlyphCache<T> {
         ))
     }
 
+    /// Whether the font has drawn a glyph whose ink passes its cells: until
+    /// it has, no cell's ink reaches another.
+    pub(crate) fn reaching(&self) -> bool {
+        self.reaching
+    }
+
     /// Keeps `glyph` for `text` in pool `pool` when the pool has room
     /// without evicting a glyph this frame draws, evicting older glyphs to
     /// make it. Otherwise it is drawn uncached: the cache keeps it as its
@@ -432,6 +469,7 @@ impl<T: Held> GlyphCache<T> {
         pool: usize,
         glyph: T,
     ) -> Option<&T> {
+        self.reaching |= glyph.reaches();
         if !self.make_room(pool, glyph.bytes()) {
             self.counts.uncached = self.counts.uncached.saturating_add(1);
             return Some(self.spare.insert(glyph));
@@ -706,6 +744,33 @@ impl GlyphCache<Stored> {
         let glyph = self.draw(font, text, width, style)?;
         let pool = pool_of(glyph.is_rgba(), wide);
         self.keep(text, width, style, pool, glyph)
+    }
+
+    /// How far the glyph for `text` in `style`, `width` cells wide, reaches
+    /// past its cells: none for a glyph the font draws nothing for.
+    pub(crate) fn reach<F: Face>(
+        &mut self,
+        font: &Font<F>,
+        text: &[char],
+        width: Width,
+        style: Style,
+    ) -> Reach {
+        let slot = reach_slot(text, width, style);
+        if let Some(r) = slot.and_then(|i| self.reaches.get(i).copied().flatten()) {
+            return r;
+        }
+        let reach = self
+            .get(font, text, width, style)
+            .map_or(Reach::NONE, Stored::reach);
+        if let Some(i) = slot {
+            if self.reaches.is_empty() {
+                self.reaches.resize(128 << 2, None);
+            }
+            if let Some(r) = self.reaches.get_mut(i) {
+                *r = Some(reach);
+            }
+        }
+        reach
     }
 }
 

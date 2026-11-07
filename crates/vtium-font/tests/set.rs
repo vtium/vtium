@@ -153,13 +153,13 @@ fn expanded(w: u32, rows: &[u8]) -> Vec<u8> {
 fn a_set_reads_back_every_field() {
     let set = read(small_set(true));
     assert_eq!(set.name(), "small-1.0");
-    assert_eq!(set.version(), (2, 0));
+    assert_eq!(set.version(), (2, 1));
     let meta: Vec<_> = set.meta().collect();
     assert_eq!(
         meta,
         [
             ("name", "small-1.0"),
-            ("format", "2.0"),
+            ("format", "2.1"),
             (
                 "build-key",
                 "0000000000000000000000000000000000000000000000000000000000000000"
@@ -299,6 +299,20 @@ fn the_same_inputs_give_the_same_bytes() {
     // the format's bytes, pinned: a change to the layout moves this digest
     assert_eq!(
         sha256_hex(&Sha256::digest(&one)),
+        "1bd921064be1a03527d54d1476e3fe2b5bfbb76bbc2119a9d516d3638de1f0ab"
+    );
+    // format 2.1 changed only the version in a set with no ink box: with
+    // the header's minor version and META's set back to 0, the bytes are
+    // format 2.0's, whose digest this test pinned before
+    let mut old = one.clone();
+    old[10..12].copy_from_slice(&0u16.to_le_bytes());
+    let meta = old
+        .windows(10)
+        .position(|w| w == b"format=2.1")
+        .expect("META");
+    old[meta..meta + 10].copy_from_slice(b"format=2.0");
+    assert_eq!(
+        sha256_hex(&Sha256::digest(&old)),
         "c411e7cea8698299320c055d444440f1b6f4f547485219a06ad4cfd969315eb7"
     );
 }

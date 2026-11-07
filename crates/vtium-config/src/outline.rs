@@ -9,23 +9,25 @@
 //! which the parent checks field by field before it trusts any:
 //!
 //! ```text
-//! request  magic "VTVOUT6\0", font length u32, the font, family length u32,
+//! request  magic "VTVOUT7\0", font length u32, the font, family length u32,
 //!          the family, cell count u32, each cell's width u32 (0: the font
 //!          sets it) and height u32, range count u32, each range's first
 //!          and last codepoint u32, cluster count u32, each cluster's kind
 //!          u8, length u8 and scalar values u32, baseline count u32 (0, or
 //!          the cell count), each baseline u32, size count u32 (0, or the
-//!          cell count), each size in pixels to the em as f32 bits u32, fit
-//!          u8 (1 for a fallback source, whose glyphs too big for their
-//!          cells are drawn smaller, else 0), hinting u8 (0 light, 1
-//!          full), synthesis u8 (bit 1 bold, bit 2 italic)
-//! answer   magic "VTVOUTL3", family length u32, the family, format length
+//!          cell count), each size in pixels to the em as f32 bits u32,
+//!          reach count u32 (0, or the cell count), each reach above and
+//!          below the cell u32 and u32, fit u8 (1 for a fallback source,
+//!          whose glyphs too big for their cells are drawn smaller, else
+//!          0), hinting u8 (0 light, 1 full), synthesis u8 (bit 1 bold, bit
+//!          2 italic)
+//! answer   magic "VTVOUTL4", family length u32, the family, format length
 //!          u32, the format, licence length u32, the licence, strike count
 //!          u32, then each strike: cell width u32, cell height u32, baseline
 //!          u32, glyph count u32, map length u32, cluster count u32, each
 //!          glyph's flags u8 (1 two cells wide, 2 RGBA, 4 an ink box) and
 //!          its rows, cut to its cells, then for an ink box its left i32,
-//!          width u32 and R8 rows, then
+//!          top i32, width u32, height u32 and R8 rows, then
 //!          the map: each (codepoint u32, glyph u32), sorted, then the
 //!          clusters: each length u8, scalar values u32 and glyph u32,
 //!          sorted
@@ -44,16 +46,18 @@
 //! font (ADR-1302 D2): its pen at the cell's left edge, moved by half of
 //! what its cells exceed its advance rounded, rounded down, and its ink at
 //! its bearing from the pen on the baseline; its pixels are cut at its
-//! cells' edges, and the ink past them goes to its ink box, cut one cell
-//! past its cells. A glyph takes the cells the terminal gives its
-//! character, whatever its advance ([`crate::shaping::wide`], ADR-1200
-//! D21). A color glyph larger than
-//! its cells is drawn again at the size that fits them, centred across
-//! them and kept inside the cell's height. Outlines are hinted as the
-//! request says ([`Hinting`], ADR-1200 D1): lightly by default, which
-//! moves a glyph's rows only, as FreeType's light hinting does, or fully. Color glyphs are not hinted, and a COLR glyph's layers
-//! are laid over each other here, premultiplied with the renderer's
-//! rounding.
+//! cells' edges, and the ink past them goes to its ink box, cut at its
+//! reach: [`REACH_CELLS`] cells past its cells on each side, and the rows
+//! the request gives above and below its cell, by default [`REACH_ROWS`]
+//! rows of the cell (ADR-1306 D1). A glyph takes the cells the terminal
+//! gives its character, whatever its advance ([`crate::shaping::wide`],
+//! ADR-1200 D21). A color glyph larger than its cells is drawn again at
+//! the size that fits them, centred across them and kept inside the
+//! cell's height. Outlines are hinted as the request says ([`Hinting`],
+//! ADR-1200 D1): lightly by default, which moves a glyph's rows only, as
+//! FreeType's light hinting does, or fully. Color glyphs are not hinted,
+//! and a COLR glyph's layers are laid over each other here, premultiplied
+//! with the renderer's rounding.
 //!
 //! The clusters asked for ([`crate::shaping`]) are shaped once with
 //! HarfRust and drawn at each cell: each glyph the shaper gives at its
@@ -76,7 +80,9 @@ use std::sync::Arc;
 
 use crate::frit::{Cover, Hinting};
 use crate::shaping::{Ask, Kind};
-use vtium_font::{CELL_SIDE_MAX, CLUSTER_SCALARS_MAX, SET_CHUNK_BYTES, Style};
+use vtium_font::{
+    CELL_SIDE_MAX, CLUSTER_SCALARS_MAX, REACH_CELLS, REACH_ROWS, SET_CHUNK_BYTES, Style,
+};
 
 /// The most bytes an outline font file holds; Noto Sans CJK's collection
 /// is about 20 MB.
@@ -100,13 +106,13 @@ const GLYPHS_MAX: usize = 65536;
 /// [`crate::shaping::asks`] lists is under half of it.
 pub const CLUSTERS_MAX: usize = 1 << 14;
 
-pub(crate) const REQUEST_MAGIC: &[u8; 8] = b"VTVOUT6\0";
-const ANSWER_MAGIC: &[u8; 8] = b"VTVOUTL3";
+pub(crate) const REQUEST_MAGIC: &[u8; 8] = b"VTVOUT7\0";
+const ANSWER_MAGIC: &[u8; 8] = b"VTVOUTL4";
 
 const GLYPH_WIDE: u8 = 1;
 const GLYPH_COLOR: u8 = 2;
-/// The glyph's ink box follows its pixels: its left i32, its width u32
-/// and its R8 pixels.
+/// The glyph's ink box follows its pixels: its left i32, its top i32, its
+/// width u32, its height u32 and its R8 pixels.
 const GLYPH_INK: u8 = 4;
 
 /// What the parser is given to rasterise an outline font.
@@ -136,6 +142,12 @@ pub struct OutlineRequest {
     /// the rasteriser sizes the font so its own ascent and descent span
     /// each cell's height ([`size`]).
     pub sizes: Vec<u32>,
+    /// How far each cell's glyphs' ink may reach above and below the cell,
+    /// in pixels, one for each cell: where line spacing adds rows to a
+    /// cell, the cell here is its text band, and its glyphs' ink may use
+    /// the added rows and then a row of the whole cell (ADR-1306 D8);
+    /// empty, [`REACH_ROWS`] rows of each cell each way (ADR-1306 D1).
+    pub reaches: Vec<(u32, u32)>,
     /// How the outline glyphs are fitted to the pixel grid, the frit's
     /// `hinting=` (ADR-1200 D1).
     pub hinting: Hinting,
@@ -160,30 +172,35 @@ pub struct Placed {
     pub ink: Option<InkBox>,
 }
 
-/// The columns an R8 glyph's ink covers past its cells (ADR-1302 D1,
-/// D6): `width` columns from `left`, the offset of the box's first column
-/// from the left edge of the glyph's first cell, 0 or negative, over the
-/// cell's height, R8. The box spans the glyph's cells and its ink, cut to
-/// its reach, one cell past its cells on each side.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub struct InkBox {
-    pub left: i32,
-    pub width: u32,
-    pub pixels: Vec<u8>,
-}
+/// The pixels an R8 glyph's ink covers past its cells (ADR-1302 D1, D6,
+/// ADR-1306 D3): `width` columns from `left`, the offset of the box's
+/// first column from the left edge of the glyph's first cell, and
+/// `height` rows from `top`, the offset of its first row from the cell's
+/// top, each 0 or negative, R8. The box spans the glyph's cells and its
+/// ink, cut to its reach.
+pub use vtium_font::spacing::InkRows as InkBox;
 
-/// Whether a box `width` columns from `left` spans a glyph `span` pixels
-/// wide in cells `cell` pixels wide, passes it on one side at least, and
-/// reaches no further than one cell past it on either side: the rule
-/// vtium-font's reader holds a set's boxes to.
-pub fn in_reach(left: i32, width: u32, cell: u32, span: u32) -> bool {
-    let (left, cell, span) = (i64::from(left), i64::from(cell), i64::from(span));
-    let right = left.saturating_add(i64::from(width));
+/// Whether `ink` spans a glyph `span` pixels wide in cells `cell` pixels
+/// wide and `height` high, passes them on one side at least, and reaches
+/// no further than [`REACH_CELLS`] cells past them on either side,
+/// `reach.0` rows above them and `reach.1` below them: the rule
+/// vtium-font's reader holds a set's boxes to, with the rows a request's
+/// reach gives in place of a row of the cell.
+pub fn in_reach(ink: &InkBox, (cell, span, height): (u32, u32, u32), reach: (u32, u32)) -> bool {
+    let across = i64::from(cell).saturating_mul(i64::from(REACH_CELLS));
+    let (span, height) = (i64::from(span), i64::from(height));
+    let (left, top) = (i64::from(ink.left), i64::from(ink.top));
+    let right = left.saturating_add(i64::from(ink.width));
+    let bottom = top.saturating_add(i64::from(ink.height));
     left <= 0
-        && left.saturating_add(cell) >= 0
+        && left.saturating_add(across) >= 0
         && right >= span
-        && right <= span.saturating_add(cell)
-        && (left, right) != (0, span)
+        && right <= span.saturating_add(across)
+        && top <= 0
+        && top.saturating_add(i64::from(reach.0)) >= 0
+        && bottom >= height
+        && bottom <= height.saturating_add(i64::from(reach.1))
+        && (left, right, top, bottom) != (0, span, 0, height)
 }
 
 /// An outline font's glyphs at one cell.
@@ -330,6 +347,11 @@ impl OutlineRequest {
         for &size in &self.sizes {
             put32(&mut out, size);
         }
+        put32(&mut out, len32(self.reaches.len()));
+        for &(up, down) in &self.reaches {
+            put32(&mut out, up);
+            put32(&mut out, down);
+        }
         out.push(u8::from(self.fit));
         out.push(match self.hinting {
             Hinting::Light => 0,
@@ -396,6 +418,21 @@ impl OutlineRequest {
         {
             return Err("a size for no cell, or not a size");
         }
+        let mut reaches = Vec::new();
+        for _ in 0..r.count(OUTLINE_CELLS_MAX)? {
+            reaches.push((r.u32()?, r.u32()?));
+        }
+        // a reach is the rows line spacing adds and a row of the whole
+        // cell, which is at most CELL_SIDE_MAX high
+        let reach_max = CELL_SIDE_MAX.saturating_mul(REACH_ROWS.saturating_add(1));
+        if !reaches.is_empty()
+            && (reaches.len() != cells.len()
+                || reaches
+                    .iter()
+                    .any(|&(up, down)| up > reach_max || down > reach_max))
+        {
+            return Err("a reach for no cell, or past a cell");
+        }
         let fit = match r.u8()? {
             0 => false,
             1 => true,
@@ -424,6 +461,7 @@ impl OutlineRequest {
             clusters,
             baselines,
             sizes,
+            reaches,
             hinting,
             synth,
             fit,
@@ -432,6 +470,16 @@ impl OutlineRequest {
 
     fn covers(&self, c: u32) -> bool {
         self.cover.is_empty() || self.cover.iter().any(|&(a, b)| (a..=b).contains(&c))
+    }
+
+    /// How far cell `i`'s glyphs' ink may reach above and below it, in
+    /// pixels: the request's reach, else [`REACH_ROWS`] rows of the cell.
+    pub(crate) fn reach(&self, i: usize) -> (u32, u32) {
+        self.reaches.get(i).copied().unwrap_or_else(|| {
+            let h = self.cells.get(i).map_or(0, |c| c.1);
+            let rows = h.saturating_mul(REACH_ROWS);
+            (rows, rows)
+        })
     }
 }
 
@@ -473,7 +521,9 @@ impl Outline {
                 out.extend_from_slice(&g.pixels);
                 if let Some(ink) = &g.ink {
                     out.extend_from_slice(&ink.left.to_le_bytes());
+                    out.extend_from_slice(&ink.top.to_le_bytes());
                     put32(&mut out, ink.width);
+                    put32(&mut out, ink.height);
                     out.extend_from_slice(&ink.pixels);
                 }
             }
@@ -517,7 +567,8 @@ impl Outline {
         let mut asked: Vec<&[u32]> = request.clusters.iter().map(|a| a.key.as_slice()).collect();
         asked.sort_unstable();
         let mut strikes = Vec::with_capacity(count);
-        for &(want_w, want_h) in &request.cells {
+        for (i, &(want_w, want_h)) in request.cells.iter().enumerate() {
+            let reach = request.reach(i);
             let (width, height, baseline) = (r.u32()?, r.u32()?, r.u32()?);
             if height != want_h || (want_w != 0 && width != want_w) {
                 return Err("a strike at a cell not asked for");
@@ -564,22 +615,31 @@ impl Outline {
                     if color {
                         return Err("an ink box on a color glyph");
                     }
-                    let left = i32::from_le_bytes(r.take(4)?.try_into().map_err(|_| "cut short")?);
-                    let box_width = r.u32()?;
+                    let i32_at = |r: &mut Reader<'_>| -> Result<i32, &'static str> {
+                        Ok(i32::from_le_bytes(
+                            r.take(4)?.try_into().map_err(|_| "cut short")?,
+                        ))
+                    };
+                    let (left, top) = (i32_at(&mut r)?, i32_at(&mut r)?);
+                    let (box_width, box_height) = (r.u32()?, r.u32()?);
+                    let mut ink = InkBox {
+                        left,
+                        top,
+                        width: box_width,
+                        height: box_height,
+                        pixels: Vec::new(),
+                    };
                     let span = if wide { width.saturating_mul(2) } else { width };
-                    if !in_reach(left, box_width, width, span) {
+                    if !in_reach(&ink, (width, span, height), reach) {
                         return Err("an ink box past its glyph's reach, or not past its cells");
                     }
-                    let n = Placed::bytes(false, false, box_width, height)
+                    let n = Placed::bytes(false, false, box_width, box_height)
                         .ok_or("an ink box past usize")?;
                     if n > usize::try_from(SET_CHUNK_BYTES).unwrap_or(0) {
                         return Err("an ink box larger than a set's chunk");
                     }
-                    Some(InkBox {
-                        left,
-                        width: box_width,
-                        pixels: r.take(n)?.to_vec(),
-                    })
+                    ink.pixels = r.take(n)?.to_vec();
+                    Some(ink)
                 };
                 glyphs.push(Placed {
                     wide,
@@ -663,8 +723,8 @@ pub use raster::{baseline, cell_width, decorations, rasterise, size};
 /// the child, which fails the source and nothing else (ADR-1200 D14).
 pub(crate) mod raster {
     use super::{
-        Hinting, InkBox, LICENSE_MAX, Outline, OutlineRequest, Placed, SET_CHUNK_BYTES, Strike,
-        Style,
+        Hinting, InkBox, LICENSE_MAX, Outline, OutlineRequest, Placed, REACH_CELLS,
+        SET_CHUNK_BYTES, Strike, Style,
     };
     use skrifa::instance::{LocationRef, Size};
     use skrifa::outline::{
@@ -1480,6 +1540,7 @@ pub(crate) mod raster {
                 height: h,
                 baseline,
                 ppem,
+                reach: request.reach(i),
             };
             let mut glyphs: Vec<Placed> = Vec::new();
             let mut index: Vec<(u16, u32)> = Vec::new();
@@ -1494,8 +1555,11 @@ pub(crate) mod raster {
                         let joins = crate::shaping::joins(c);
                         let wide = crate::shaping::wide(&[c]);
                         // a fallback source's glyph too big for its cells is
-                        // drawn smaller to fit them (ADR-1200 D17)
-                        let fit = request.fit;
+                        // drawn smaller to fit them (ADR-1200 D17), unless it
+                        // is a letter of a joining script, which uses the
+                        // reach as the first source's letters do (ADR-1306
+                        // D12)
+                        let fit = request.fit && !joins;
                         let Some(placed) = place(&mut drawer, g, advance, joins, wide, fit, &cell)
                         else {
                             continue;
@@ -1541,12 +1605,15 @@ pub(crate) mod raster {
         })
     }
 
-    /// The cell glyphs are placed in, and the size they are drawn at.
+    /// The cell glyphs are placed in, the size they are drawn at, and how
+    /// far their ink may reach above and below the cell, in pixels
+    /// ([`OutlineRequest::reaches`]).
     pub(crate) struct Cell {
         pub(crate) width: u32,
         pub(crate) height: u32,
         pub(crate) baseline: u32,
         pub(crate) ppem: f32,
+        pub(crate) reach: (u32, u32),
     }
 
     /// Glyph `g`, advancing `advance` pixels, placed in `cell`, two cells
@@ -1555,9 +1622,9 @@ pub(crate) mod raster {
     /// of a character that joins (ADR-1302 D2, `joins`) is stretched
     /// sideways before it is rasterised, by its cells' width over its
     /// advance, unrounded, its pen on its cell's left edge, so its advance
-    /// fills its cells and its joining strokes meet the next letter's. Any
-    /// other glyph whose ink would pass its cells is drawn smaller to fit
-    /// them when `fit`, as a later source's glyph is (ADR-1200 D17).
+    /// fills its cells and its joining strokes meet the next letter's. A
+    /// glyph whose ink would pass its cells is drawn smaller to fit them
+    /// when `fit`, as a later source's glyph is (ADR-1200 D17).
     fn place(
         drawer: &mut Drawer<'_>,
         g: u16,
@@ -1574,7 +1641,7 @@ pub(crate) mod raster {
                 &mut |ppem, bounds| drawer.draw_stretched(g, ppem, bounds, sx),
                 wide,
                 None,
-                false,
+                fit,
                 cell,
             );
         }
@@ -1595,7 +1662,7 @@ pub(crate) mod raster {
     /// its ink lies at its bearing from the pen; with no advance, as for a
     /// ligature shaping places, the pen stays on the left edge. Nothing
     /// moves it to keep its ink inside its cells: the ink past them goes
-    /// to its ink box, cut at its reach. A color image, and when `fit` a
+    /// to its ink box, cut at its reach (ADR-1306 D1, D2). A color image, and when `fit` a
     /// mask whose ink so placed would pass its cells, is fitted instead
     /// (ADR-1200 D17, D21): drawn again, smaller, while it is larger than
     /// its cells, centred across them, and kept on its baseline as far as
@@ -1646,7 +1713,7 @@ pub(crate) mod raster {
         let ink = if fitted {
             None
         } else {
-            ink_box(&image, cell.width, bw, h, left, top)
+            ink_box(&image, cell, bw, (left, top))
         };
         Some(Placed {
             wide,
@@ -1657,37 +1724,44 @@ pub(crate) mod raster {
     }
 
     /// The ink box of a mask placed at `left`, `top` of a glyph `bw`
-    /// pixels wide in cells `cell` pixels wide and `h` high (ADR-1302 D1,
-    /// D6): its ink copied into its reach, one cell past its cells on each
-    /// side, and cut to the columns that span its cells and its ink;
-    /// `None` when its ink lies inside its cells, or when the box would
-    /// pass a set's chunk, where the glyph is cut to its cells.
-    fn ink_box(image: &Image, cell: u32, bw: u32, h: u32, left: i32, top: i32) -> Option<InkBox> {
-        let reach = bw.checked_add(cell.checked_mul(2)?)?;
+    /// pixels wide in `cell` (ADR-1302 D1, D6, ADR-1306 D1, D3): its ink
+    /// copied into its reach, [`REACH_CELLS`] cells past its cells on each
+    /// side and the cell's reach above and below, and cut to the rows and
+    /// columns that span its cells and its ink; `None` when its ink lies
+    /// inside its cells, or when the box would pass a set's chunk, where
+    /// the glyph is cut to its cells.
+    fn ink_box(image: &Image, cell: &Cell, bw: u32, (left, top): (i32, i32)) -> Option<InkBox> {
+        let side = cell.width.checked_mul(REACH_CELLS)?;
+        let (up, h) = (cell.reach.0, cell.height);
+        let reach_w = bw.checked_add(side.checked_mul(2)?)?;
+        let reach_h = h.checked_add(up)?.checked_add(cell.reach.1)?;
         let all = copy(
             image,
             false,
-            reach,
-            h,
-            left.checked_add(i32::try_from(cell).ok()?)?,
-            top,
+            reach_w,
+            reach_h,
+            left.checked_add(i32::try_from(side).ok()?)?,
+            top.checked_add(i32::try_from(up).ok()?)?,
         );
-        let inked =
-            |x: u32| (0..h).any(|y| all.get((y * reach + x) as usize).is_some_and(|&p| p != 0));
-        let first = (0..reach).find(|&x| inked(x))?;
-        let last = (0..reach).rev().find(|&x| inked(x))?;
-        let from = first.min(cell);
-        let to = (last + 1).max(cell + bw);
-        if from == cell && to == cell + bw {
+        let at = |x: u32, y: u32| all.get((y * reach_w + x) as usize).is_some_and(|&p| p != 0);
+        let column = |x: u32| (0..reach_h).any(|y| at(x, y));
+        let row = |y: u32| (0..reach_w).any(|x| at(x, y));
+        let first = (0..reach_w).find(|&x| column(x))?;
+        let last = (0..reach_w).rev().find(|&x| column(x))?;
+        let highest = (0..reach_h).find(|&y| row(y))?;
+        let lowest = (0..reach_h).rev().find(|&y| row(y))?;
+        let (from, to) = (first.min(side), (last + 1).max(side + bw));
+        let (over, under) = (highest.min(up), (lowest + 1).max(up + h));
+        if (from, to, over, under) == (side, side + bw, up, up + h) {
             return None;
         }
-        let width = to - from;
-        if u64::from(width) * u64::from(h) > u64::from(SET_CHUNK_BYTES) {
+        let (width, height) = (to - from, under - over);
+        if u64::from(width) * u64::from(height) > u64::from(SET_CHUNK_BYTES) {
             return None;
         }
-        let pixels = (0..h)
+        let pixels = (over..under)
             .flat_map(|y| {
-                let row = (y * reach) as usize;
+                let row = (y * reach_w) as usize;
                 all.get(row + from as usize..row + to as usize)
                     .unwrap_or_default()
                     .iter()
@@ -1695,8 +1769,10 @@ pub(crate) mod raster {
             })
             .collect();
         Some(InkBox {
-            left: i32::try_from(from).ok()? - i32::try_from(cell).ok()?,
+            left: i32::try_from(from).ok()? - i32::try_from(side).ok()?,
+            top: i32::try_from(over).ok()? - i32::try_from(up).ok()?,
             width,
+            height,
             pixels,
         })
     }
@@ -1787,6 +1863,7 @@ mod tests {
             height: 10,
             baseline: 10,
             ppem: 10.0,
+            reach: (10, 10),
         };
         let placed = place_drawn(&mut |_, _| Some(bar(10)), false, Some(-10.0), false, &cell)
             .expect("placed");

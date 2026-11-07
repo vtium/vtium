@@ -1,6 +1,14 @@
 //! Composing a row's cells into display lines: each run of cells that
 //! follow one another through the row scratch, a band of lines at a time,
 //! each line written to the target once.
+//!
+//! A cell that receives ink from the glyphs around it (ADR-1306 D4) is
+//! composed in this order, each pixel: its background, its underline, the
+//! ink of the row above, the ink of the row below, the ink of the cells
+//! beside it, its own glyph and its strike-through. The received ink is
+//! blended into one premultiplied layer first, read from the neighbours'
+//! glyphs in the cache, so the display's buffer is never read and no
+//! background is ever drawn over another cell's ink.
 
 use vtium_font::{Face, Font, Style, Width as FontWidth};
 use vtium_term::Rgb;
@@ -71,6 +79,20 @@ pub(crate) struct Job {
     pub(crate) under: Under,
 }
 
+/// A neighbour's glyph whose ink a cell receives (ADR-1306 D4).
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Source {
+    /// The glyph's text in the row's text buffer, its width and style.
+    pub(crate) text: (usize, usize, FontWidth, Style),
+    /// Where the glyph's cells lie on the display.
+    pub(crate) g: Area,
+    /// The block of cells its ink may draw in, on the display: ink outside
+    /// it is cut.
+    pub(crate) clip: Area,
+    /// The color its ink takes in the receiving cell (ADR-1306 D6).
+    pub(crate) color: Rgb,
+}
+
 impl Job {
     pub(crate) fn layered(&self) -> bool {
         self.underline.is_some() || self.strike.is_some()
@@ -102,6 +124,15 @@ pub(crate) struct Composer {
     lines: Lines,
     pub(crate) jobs: Vec<Job>,
     pub(crate) text: Vec<char>,
+    /// The neighbours' glyphs the row's jobs receive ink from.
+    pub(crate) sources: Vec<Source>,
+    /// For each job, by its place among the jobs, the range of `sources`
+    /// it receives ink from, in the order they are drawn; empty when no
+    /// job receives any.
+    pub(crate) received: Vec<(usize, usize)>,
+    /// The ink a job receives from its neighbours, premultiplied, over the
+    /// job's lines in the band.
+    recv: Vec<u32>,
     scratch: Vec<u32>,
     pens: Pens,
     /// The frame's pictures, and the ones that draw on a job.
@@ -119,6 +150,9 @@ impl Composer {
             lines: Lines::default(),
             jobs: Vec::new(),
             text: Vec::new(),
+            sources: Vec::new(),
+            received: Vec::new(),
+            recv: Vec::new(),
             scratch: Vec::new(),
             pens: Pens::new((0, 0)),
             #[cfg(feature = "images")]
@@ -197,6 +231,9 @@ impl Composer {
             lines,
             jobs,
             text,
+            sources,
+            received,
+            recv,
             scratch,
             pens,
             #[cfg(feature = "images")]
@@ -212,8 +249,7 @@ impl Composer {
             // the run of cells under one opaque picture being gathered
             #[cfg(feature = "images")]
             let mut covered: Option<Cover> = None;
-            for job in run {
-                let glyph = glyph(cache, font, text, job);
+            for (k, job) in (start..).zip(run) {
                 let dx = usize::try_from(job.r.x.saturating_sub(area.x)).unwrap_or(0);
                 let jw = usize::try_from(job.r.w).unwrap_or(0);
                 let y0 = job.r.y.max(top);
@@ -223,6 +259,16 @@ impl Composer {
                     .saturating_add(dx);
                 // the job's lines in the band: the last ends at its width
                 let n = usize::try_from(job.r.bottom().min(bottom).saturating_sub(y0)).unwrap_or(0);
+                let (from, to) = received.get(k).copied().unwrap_or_default();
+                let received = to > from
+                    && receive(
+                        (cache, font, text),
+                        sources.get(from..to).unwrap_or_default(),
+                        job,
+                        (y0, n, jw),
+                        (recv, &mut lines.cov),
+                    );
+                let glyph = glyph(cache, font, text, job);
                 let len = n
                     .checked_sub(1)
                     .map_or(0, |n| w.saturating_mul(n).saturating_add(jw));
@@ -233,7 +279,7 @@ impl Composer {
                 match pictured(
                     (pictures, meeting),
                     job,
-                    glyph,
+                    (glyph, received.then_some(recv.as_slice())),
                     (sprites, lines),
                     (y0, w, jw),
                     out,
@@ -263,7 +309,7 @@ impl Composer {
                 }
                 match glyph {
                     // the common cell, a bitmap glyph on its background
-                    Some(g) if !job.layered() && g.is_bits() => {
+                    Some(g) if !job.layered() && !received && g.is_bits() => {
                         let gx = job.r.x.saturating_sub(job.g.x);
                         let rows = Rows {
                             out,
@@ -275,9 +321,10 @@ impl Composer {
                     }
                     _ => {
                         let lines_out = out.chunks_mut(w.max(1));
-                        for (y, line) in (y0..).zip(lines_out) {
+                        for (i, (y, line)) in (y0..).zip(lines_out).enumerate() {
                             if let Some(line) = line.get_mut(..jw) {
-                                cell_line(job, glyph, sprites, lines, y, line);
+                                let ink = received.then(|| recv_line(recv, i, jw)).flatten();
+                                cell_line(job, glyph, sprites, lines, y, ink, line);
                             }
                         }
                     }
@@ -314,6 +361,69 @@ fn glyph<'c, F: Face>(
     cache.get(font, chars, width, style)
 }
 
+/// The ink `job` receives from the glyphs of `sources`, in their order,
+/// over its `n` lines from `y0`, `jw` pixels wide, blended premultiplied
+/// into `recv`. Each glyph's ink is cut to its block of cells and to the
+/// job's cells. Returns whether any ink landed.
+fn receive<F: Face>(
+    (cache, font, text): (&mut GlyphCache, &Font<F>, &[char]),
+    sources: &[Source],
+    job: &Job,
+    (y0, n, jw): (i64, usize, usize),
+    (recv, cov): (&mut Vec<u32>, &mut Vec<u8>),
+) -> bool {
+    if sources.is_empty() {
+        return false;
+    }
+    recv.clear();
+    recv.resize(n.saturating_mul(jw), 0);
+    let mut any = false;
+    for s in sources {
+        let (start, len, width, style) = s.text;
+        let Some(chars) = text.get(start..start.saturating_add(len)) else {
+            continue;
+        };
+        let Some(g) = cache.get(font, chars, width, style) else {
+            continue;
+        };
+        let x0 = job.r.x.max(s.clip.x);
+        let x1 = job.r.right().min(s.clip.right());
+        let (Ok(from), Ok(to)) = (
+            usize::try_from(x0.saturating_sub(job.r.x)),
+            usize::try_from(x1.saturating_sub(job.r.x)),
+        ) else {
+            continue;
+        };
+        if from >= to.min(jw) {
+            continue;
+        }
+        cov.resize(to.saturating_sub(from), 0);
+        for (i, line) in recv.chunks_mut(jw.max(1)).enumerate() {
+            let y = y0.saturating_add(int(i));
+            if y < s.clip.y || y >= s.clip.bottom() {
+                continue;
+            }
+            let Some(seg) = line.get_mut(from..to) else {
+                continue;
+            };
+            g.mask_line(x0.saturating_sub(s.g.x), y.saturating_sub(s.g.y), cov);
+            for (p, &a) in seg.iter_mut().zip(cov.iter()) {
+                any |= a != 0;
+                *p = tint_over(*p, a, s.color);
+            }
+        }
+    }
+    any
+}
+
+/// Line `i` of the received ink `recv`, whose lines are `jw` long, when
+/// any ink lies on it.
+fn recv_line(recv: &[u32], i: usize, jw: usize) -> Option<&[u32]> {
+    let at = i.saturating_mul(jw);
+    recv.get(at..at.saturating_add(jw))
+        .filter(|l| l.iter().any(|&p| p != 0))
+}
+
 /// A color glyph's line as its silhouette in the job's foreground, where
 /// the job asks for it.
 fn silhouette(job: &Job, src: &mut [u32]) {
@@ -324,13 +434,16 @@ fn silhouette(job: &Job, src: &mut [u32]) {
     }
 }
 
-/// One display line `y` of `job`, across its area, into `out`.
+/// One display line `y` of `job`, across its area, into `out`, with
+/// `ink`, the line of ink it receives from its neighbours, when any lands
+/// on it.
 fn cell_line(
     job: &Job,
     glyph: Option<&Stored>,
     sprites: &Sprites,
     lines: &mut Lines,
     y: i64,
+    ink: Option<&[u32]>,
     out: &mut [u32],
 ) {
     let w = out.len();
@@ -342,7 +455,7 @@ fn cell_line(
     let prem = lines.prem.get_mut(..w).unwrap_or_default();
     let src = lines.src.get_mut(..w).unwrap_or_default();
     let (gx, gy) = (x0.saturating_sub(job.g.x), y.saturating_sub(job.g.y));
-    if !job.layered() {
+    if !job.layered() && ink.is_none() {
         match glyph {
             None => out.fill(pixel(job.bg)),
             Some(g) if g.is_bits() => {
@@ -378,6 +491,7 @@ fn cell_line(
     if let Some((kind, c)) = job.underline {
         deco(kind, c, prem, cov);
     }
+    received_over(prem, ink);
     match glyph {
         Some(g) if g.is_rgba() => {
             g.argb_line(gx, gy, src);
@@ -399,6 +513,14 @@ fn cell_line(
     }
     for (o, &p) in out.iter_mut().zip(prem.iter()) {
         *o = over_bg(job.bg, p);
+    }
+}
+
+/// The received ink `ink` over the premultiplied line `prem`, where it
+/// lies over the cell's underline and under its own glyph.
+fn received_over(prem: &mut [u32], ink: Option<&[u32]>) {
+    for (p, &s) in prem.iter_mut().zip(ink.unwrap_or_default()) {
+        *p = argb_over(*p, s);
     }
 }
 
@@ -460,7 +582,7 @@ impl Cover {
 fn pictured(
     (pictures, meeting): (&mut Pictures, &mut Vec<usize>),
     job: &Job,
-    glyph: Option<&Stored>,
+    (glyph, received): (Option<&Stored>, Option<&[u32]>),
     (sprites, lines): (&Sprites, &mut Lines),
     (y0, w, jw): (i64, usize, usize),
     out: &mut [u32],
@@ -496,14 +618,16 @@ fn pictured(
             .pic(i)
             .is_some_and(|p| p.layer() == Layer::AboveText);
         let plain = job.under.mark == Mark::None && !job.under.selected;
-        if plain && (hides_text || !job.draws_text(glyph.is_some())) {
+        let receives = received.is_some();
+        if plain && (hides_text || !(job.draws_text(glyph.is_some()) || receives)) {
             return Pictured::Covered(i);
         }
     }
-    for (y, line) in (y0..).zip(out.chunks_mut(w.max(1))) {
+    for (i, (y, line)) in (y0..).zip(out.chunks_mut(w.max(1))).enumerate() {
         let Some(line) = line.get_mut(..jw) else {
             continue;
         };
+        let ink = received.and_then(|r| recv_line(r, i, jw));
         line.fill(pixel(job.bg));
         let mut text = false;
         let rest = match top {
@@ -528,13 +652,13 @@ fn pictured(
                 continue;
             }
             if !text && layer == Layer::AboveText {
-                text_over(job, glyph, sprites, lines, y, line);
+                text_over(job, (glyph, ink), sprites, lines, y, line);
                 text = true;
             }
             pictures.over(i, y, x0, line);
         }
         if !text {
-            text_over(job, glyph, sprites, lines, y, line);
+            text_over(job, (glyph, ink), sprites, lines, y, line);
         }
         // the selection tints the cell and its pictures, and the cursor
         // lies above the selection
@@ -591,19 +715,20 @@ fn glyph_over(job: &Job, g: &Stored, y: i64, lines: (&mut [u32], &mut [u8], &mut
 
 /// The job's text layer at display line `y`, premultiplied as a cell of
 /// several layers composes it, over the pictures and the background in
-/// `out`: its underline, glyph and strike, less what vtium's mark draws
-/// above the pictures.
+/// `out`: its underline, the ink it receives from its neighbours, its
+/// glyph and its strike, less what vtium's mark draws above the pictures
+/// (ADR-1306 D7).
 #[cfg(feature = "images")]
 #[deny(clippy::float_arithmetic)]
 fn text_over(
     job: &Job,
-    glyph: Option<&Stored>,
+    (glyph, ink): (Option<&Stored>, Option<&[u32]>),
     sprites: &Sprites,
     lines: &mut Lines,
     y: i64,
     out: &mut [u32],
 ) {
-    if !job.draws_text(glyph.is_some()) {
+    if !job.draws_text(glyph.is_some()) && ink.is_none() {
         return;
     }
     let w = out.len();
@@ -618,6 +743,7 @@ fn text_over(
     if let Some(u) = job.underline.filter(|_| mark != Mark::Underline) {
         deco_over(job, sprites, u, y, prem, cov);
     }
+    received_over(prem, ink);
     if let Some(g) = glyph.filter(|_| mark != Mark::Bar) {
         glyph_over(job, g, y, (&mut *prem, &mut *cov, src));
     }
