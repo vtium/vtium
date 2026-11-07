@@ -100,3 +100,47 @@ check
 cmd key;sym=61;ascii=61;unicode=61;mods=8
 check
 reply "\xc3\xa1"
+
+# --- left and right margins (#55) ---
+
+# mode 69 and DECSLRM: CSI s is SCOSC while mode 69 is reset; once it is
+# set, CSI Pl ; Pr s sets the margins and homes the cursor, text wraps at
+# the right margin to the left margin, a line feed at the bottom margin
+# scrolls only the cells between them, and DECRQSS reports them
+probe decslrm
+size 10 3
+send "\e[2;3H\e[s\e[3;7s\e[?69$p"
+check
+want cursor 2,1
+reply "\e[?69;2$y"
+send "\e[?69h\e[3;7s"
+check
+want cursor 0,0
+send "\eP$qs\e\\"
+check
+reply "\eP1$r3;7s\e\\"
+send "\e[3;3Habcdefg"
+check
+want row 1 |  abcde|
+want row 2 |  fg|
+send "\e[?69l\eP$qs\e\\"
+check
+reply "\eP1$r1;10s\e\\"
+
+# DECIC, DECDC, DECBI and DECFI: columns go in and out at the cursor's
+# column, up to the right margin, and DECBI at the left margin moves the
+# columns right
+probe decic
+size 10 2
+send "0123456789\r\nabcdefghij\e[?69h\e[3;7s\e[1;5H\e['}"
+check
+want row 0 |0123 45789|
+want row 1 |abcd efhij|
+send "\e[2'~"
+check
+want row 0 |01235  789|
+want row 1 |abcdf  hij|
+send "\e[1;3H\e6"
+check
+want row 0 |01 235 789|
+want row 1 |ab cdf hij|
