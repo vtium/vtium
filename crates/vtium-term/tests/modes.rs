@@ -562,6 +562,22 @@ fn decstr_returns_the_modes_to_their_defaults() {
     assert_eq!(t.screen().cursor(), (0, 0));
 }
 
+// A departure from the VT510 manual's DECSTR table, which gives "No
+// autowrap" after a soft reset: vtium's DECSTR sets DECAWM. xterm's
+// terminfo entries send DECSTR in is2 and rs2 and declare `am`, so
+// following the table would leave the terminal without autowrap after
+// `tput init` or `tput reset` while its terminfo entry says it wraps.
+// covers: ctl.decstr
+#[test]
+fn decstr_leaves_autowrap_on() {
+    let mut t = term(4, 2, b"\x1b[?7l");
+    assert_eq!(rqm(&mut t, true, 7), 2);
+    t.input(b"\x1b[!p");
+    assert_eq!(rqm(&mut t, true, 7), 1, "DECSTR sets autowrap");
+    t.input(b"\x1b[Habcdef");
+    assert_eq!(rows(t.screen()), ["abcd", "ef"]);
+}
+
 // The VT510 manual's DECSTR table lists what a soft reset changes, and the
 // tab stops are not in it, so DECSTR keeps them; RIS returns them to every
 // eighth column.
