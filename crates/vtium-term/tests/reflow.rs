@@ -901,14 +901,14 @@ fn drop_work(rows: usize) -> (usize, usize) {
     (asked, t.screen().scrollback_rows_read() - before)
 }
 
-// vtium/vtium#131's review: dropping past `sb-memory` from a waiting line
-// that breaks by length drops as many rows at once as free the excess, so
-// the work is linear in the rows dropped. A drop a row at a time reread
-// the waiting line for each row it dropped: four times the rows took
-// sixteen times as long, and the drop asked the allocator for memory at
-// least once for each row. Dropped in batches, the drop reads each row of
-// the line a few times at most and asks the allocator fewer than once for
-// every 10 rows.
+// vtium/vtium#131: dropping past `sb-memory` from a waiting line that
+// breaks by length drops as many rows at once as free the excess, so the
+// work is linear in the rows dropped. A drop a row at a time would reread
+// the waiting line for each row it drops, so four times the rows would take
+// sixteen times as long, and it would ask the allocator for memory at least
+// once for each row. Dropped in batches, the drop reads each row of the
+// line a few times at most and asks the allocator fewer than once for every
+// 10 rows.
 #[test]
 fn dropping_past_the_byte_budget_is_linear() {
     for rows in [2000, 8000] {
