@@ -2,7 +2,7 @@
 
 Tier 3 for vtium: vtium's install tree, installed in a pinned Arch Linux guest under QEMU/KVM and started by systemd on a VT, as a system would run it, with a real kernel VT and a virtio-gpu KMS device. A script logs in over the emulated keyboard, draws fixed screens, captures each one and compares it with its golden. The exit status is the verdict. The harness is also the way to put any test content on a real VT: a screen is a shell script in `guest/screens/`.
 
-Every golden is in `goldens/`, one directory a variant (Goldens, tolerances and masks). The goldens of seven variants began as copies of an earlier harness's captures (The copies). Every golden is now vtium's own, and none is the C reference's (`goldens/README.md`). The harness lives and changes here. No run or self-test of tier 3 reads a checkout outside this tree or runs code from one.
+Every golden is in `goldens/`, one directory a variant (Goldens, tolerances and masks). The goldens of seven variants began as copies of an earlier harness's captures (The copies). Every golden is now vtium's own (`goldens/README.md`). The harness lives and changes here. No run or self-test of tier 3 reads a checkout outside this tree or runs code from one.
 
 ## Running it
 

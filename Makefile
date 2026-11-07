@@ -736,6 +736,7 @@ make msrv
 docs/scripts/adr lint --check
 docs/scripts/adr cite --check
 docs/scripts/issue-refs
+docs/scripts/fork-refs
 docs/scripts/coverage
 make test-tools
 make conformance

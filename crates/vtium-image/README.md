@@ -119,7 +119,7 @@ Kitty's `f=8` and `f=16` send each pixel as an index into the terminal's palette
 
 A raw upload or frame that leaves out `s` or `v` is answered `EINVAL:Zero width/height not allowed`, as kitty answers it (`a_raw_upload_without_s_or_v_is_refused_as_kitty_refuses_it`). Raw data sent directly and uncompressed that holds fewer bytes than its picture's width and height need is answered `ENODATA:Insufficient image data: GOT < WANT` in every raw format, with the bytes that came and the bytes needed, as kitty 0.49.2 answers it (`raw_data_short_of_its_picture_is_enodata_in_every_raw_format`). A frame's data short of its rectangle is answered the same way (ADR-1102, D2). Raw data the image helper inflates short answers EINVAL, as kitty answers it.
 
-## Departures from the kitty spec
+## Where vtium reads kitty's specification its own way
 
 - **A raw frame without `s` or `v` is refused** with `EINVAL:Zero width/height not allowed`, as kitty 0.49.2 and 0.50.0 refuse it, though the spec says a frame's rectangle is the whole image where `x`, `y`, `s` and `v` are left out (ADR-1102, D2). A PNG frame takes its size from the picture.
 - **A palette-index picture keeps the colors it arrived with.** Kitty's specification redraws an `f=8` or `f=16` picture whenever the terminal's colors change. vtium turns the indices into colors once, as the picture arrives, so a later palette change leaves it as it was (the maintainer, 2026-11-06).
