@@ -339,9 +339,11 @@ pub(crate) struct Composition {
     overlap: u32,
     tiles: Vec<(Tile, DrawTarget)>,
     cell: Program,
-    /// The cell shader built with [`INK`], compiled the first time a frame
-    /// draws a cell that receives ink.
-    ink: Option<Program>,
+    /// The cell shader built with [`INK`], for the cells that receive ink.
+    /// It is compiled with the cell shader when the frame is set up, so no
+    /// frame waits for it, not even the frame in which the first glyph
+    /// whose ink passes its cells takes its box.
+    ink: Program,
     /// The bound on a glyph's reach the cell shaders were built with.
     bound: Bound,
     arrow: Program,
@@ -515,17 +517,34 @@ fn free_tiles<G: Gl>(gl: &mut G, tiles: Vec<(Tile, DrawTarget)>) {
     }
 }
 
+/// The cell shader at `bound`, built without [`INK`] and with it. A call
+/// that fails frees what it made.
+fn cell_programs<G: Gl>(gl: &mut G, bound: Bound) -> Result<(Program, Program), Error> {
+    let cell = gl.compile(&Source {
+        vertex: &[CELL_VERT],
+        fragment: &cell_frag(false, false, bound),
+        inputs: &CELL_INPUTS,
+    })?;
+    match gl.compile(&Source {
+        vertex: &[CELL_VERT],
+        fragment: &cell_frag(false, true, bound),
+        inputs: &INK_INPUTS,
+    }) {
+        Ok(ink) => Ok((cell, ink)),
+        Err(e) => {
+            let _ = gl.free_program(cell);
+            Err(e)
+        }
+    }
+}
+
 impl Composition {
     /// The upright frame of `size`, in tiles overlapping by `overlap`, and
     /// the composition's programs. A call that fails frees what it made.
     pub(crate) fn new<G: Gl>(gl: &mut G, size: Size, overlap: u32) -> Result<Composition, Error> {
         let made = make_tiles(gl, size, overlap)?;
         let bound = Bound::DRAWN;
-        let cell = match gl.compile(&Source {
-            vertex: &[CELL_VERT],
-            fragment: &cell_frag(false, false, bound),
-            inputs: &CELL_INPUTS,
-        }) {
+        let (cell, ink) = match cell_programs(gl, bound) {
             Ok(p) => p,
             Err(e) => {
                 free_tiles(gl, made);
@@ -540,6 +559,7 @@ impl Composition {
             Ok(p) => p,
             Err(e) => {
                 let _ = gl.free_program(cell);
+                let _ = gl.free_program(ink);
                 free_tiles(gl, made);
                 return Err(e);
             }
@@ -549,7 +569,7 @@ impl Composition {
             overlap,
             tiles: made,
             cell,
-            ink: None,
+            ink,
             bound,
             arrow,
             arrow_image: None,
@@ -633,15 +653,9 @@ impl Composition {
         if spec.bound != self.bound {
             // a renderer at another bound, as a test makes: the cell
             // shaders' loops follow it
-            let cell = gl.compile(&Source {
-                vertex: &[CELL_VERT],
-                fragment: &cell_frag(false, false, spec.bound),
-                inputs: &CELL_INPUTS,
-            })?;
+            let (cell, ink) = cell_programs(gl, spec.bound)?;
             gl.free_program(core::mem::replace(&mut self.cell, cell))?;
-            if let Some(ink) = self.ink.take() {
-                gl.free_program(ink)?;
-            }
+            gl.free_program(core::mem::replace(&mut self.ink, ink))?;
             #[cfg(feature = "images")]
             if let Some(layer) = self.layer.take() {
                 gl.free_program(layer)?;
@@ -716,15 +730,7 @@ impl Composition {
     /// pixels already drawn the under shader and a copy large enough.
     /// Gives how many uploads it made.
     pub(crate) fn prepare<G: Gl>(&mut self, gl: &mut G, work: &Work<'_>) -> Result<usize, Error> {
-        let mut calls = self.prepare_arrow(gl, work.arrow)?;
-        if self.ink.is_none() && work.cells.iter().any(|c| c.ink) {
-            self.ink = Some(gl.compile(&Source {
-                vertex: &[CELL_VERT],
-                fragment: &cell_frag(false, true, self.bound),
-                inputs: &INK_INPUTS,
-            })?);
-            calls = calls.saturating_add(1);
-        }
+        let calls = self.prepare_arrow(gl, work.arrow)?;
         #[cfg(feature = "images")]
         let calls = calls.saturating_add(self.prepare_pictured(gl, work)?);
         // every pixel the frame draws over: the arrow's, and those of the
@@ -1115,12 +1121,7 @@ impl Composition {
     /// cells receive ink, and tile.
     fn draw_cells<G: Gl>(&self, gl: &mut G, cells: &[Cells]) -> Result<(), Error> {
         for batch in cells {
-            let program = match batch.ink {
-                true => self.ink.as_ref().ok_or_else(|| {
-                    Error::new(ErrorKind::Misuse, "the cell shader with ink is not made")
-                })?,
-                false => &self.cell,
-            };
+            let program = if batch.ink { &self.ink } else { &self.cell };
             let inputs = self.cell_inputs(batch, batch.ink)?;
             for (tile, target) in &self.tiles {
                 let quads = in_tile(&batch.quads, tile);
@@ -1261,9 +1262,7 @@ impl Composition {
     /// Frees what it holds in GL.
     pub(crate) fn free<G: Gl>(self, gl: &mut G) -> Result<(), Error> {
         let mut out = gl.free_program(self.cell);
-        if let Some(p) = self.ink {
-            out = out.and(gl.free_program(p));
-        }
+        out = out.and(gl.free_program(self.ink));
         out = out.and(gl.free_program(self.arrow));
         if let Some((_, t)) = self.arrow_image {
             out = out.and(gl.free_texture(t));

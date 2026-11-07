@@ -54,11 +54,16 @@ fn set_up_makes_the_upright_frame_and_present_and_checks_once() {
     let mut gl = StandIn::new();
     let p = Pipeline::new(&mut gl, DISPLAY, Config::default()).unwrap();
     let calls = gl.calls();
-    assert_eq!(calls.len(), 5, "{calls:?}");
+    assert_eq!(calls.len(), 6, "{calls:?}");
     assert_eq!(calls[0], Call::CreateFrame(DISPLAY));
-    // the cell shader, the arrow's and present's
-    assert!(calls[1..4].iter().all(|c| matches!(c, Call::Compile(_))));
-    assert_eq!(calls[4], Call::Check(Batch::Uploads));
+    // the cell shader without ink and with it, the arrow's and present's
+    assert!(calls[1..5].iter().all(|c| matches!(c, Call::Compile(_))));
+    let ink = |c: &Call| matches!(c, Call::Compile(t) if t.lines().any(|l| l == "#define INK"));
+    assert_eq!(
+        calls[1..5].iter().map(ink).collect::<Vec<_>>(),
+        [false, true, false, false]
+    );
+    assert_eq!(calls[5], Call::Check(Batch::Uploads));
     p.free(&mut gl).unwrap();
     assert_eq!(gl.live(), (0, 0, 0));
 }
@@ -72,7 +77,7 @@ fn empty_color_and_spatial_slots_join_no_source_and_make_no_call() {
     let config = Config::default();
     assert_eq!((config.color, config.spatial), (Color::None, Spatial::None));
     let mut p = Pipeline::new(&mut gl, DISPLAY, config).unwrap();
-    let Call::Compile(fragment) = &gl.calls()[3] else {
+    let Call::Compile(fragment) = &gl.calls()[4] else {
         panic!("{:?}", gl.calls());
     };
     let bare = [

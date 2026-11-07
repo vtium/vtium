@@ -683,3 +683,68 @@ fn a_cell_under_a_picture_drawn_twice_in_a_frame_draws_each_layer_once() {
         );
     }
 }
+
+// ADR-1306 D9: the cell shader that draws received ink is compiled when the
+// pipeline is set up, so no frame compiles it: neither the frame in which
+// the first glyph whose ink passes its cell takes its box, which the
+// renderer draws twice, nor any frame after it.
+#[test]
+fn no_frame_compiles_a_program_once_the_first_reaching_glyph_takes_its_box() {
+    let mut s = screen(4, 2);
+    s.text(0, 1, "x x", plain());
+    let size = display(&s, Orientation::Normal);
+    let mut gl = StandIn::new();
+    let pipeline = Pipeline::new(&mut gl, size, vtium_render::gpu::Config::default()).unwrap();
+    let ink = gl
+        .calls()
+        .iter()
+        .filter(|c| matches!(c, Call::Compile(text) if text.lines().any(|l| l == "#define INK")))
+        .count();
+    assert_eq!(ink, 1, "set up compiles the cell shader with ink");
+    let buffer = gl.import_buffer(&size).unwrap();
+    let mut g = Gpu {
+        gl,
+        pipeline,
+        buffer,
+        r: Renderer::new(
+            Font::new(Reaching),
+            size.width,
+            size.height,
+            config(Orientation::Normal),
+        ),
+        since: Age::NEVER,
+        orientation: Orientation::Normal,
+        sel: Vec::new(),
+        #[cfg(feature = "images")]
+        pictures: Vec::new(),
+    };
+    let st = state(&s, true);
+    let compiles = |g: &Gpu| {
+        g.gl.calls()
+            .iter()
+            .filter(|c| matches!(c, Call::Compile(_)))
+            .count()
+    };
+    g.frame(&mut s, &st);
+    assert_eq!(compiles(&g), 0, "a frame of glyphs inside their cells");
+    // the first glyph whose ink passes its cell takes its box
+    s.text(1, 1, "A", plain());
+    g.frame(&mut s, &st);
+    assert_eq!(
+        flags(&g.cells(), 1, 0),
+        1,
+        "the cell above the accent receives"
+    );
+    assert_eq!(
+        compiles(&g),
+        0,
+        "the frame the first reaching glyph takes its box in"
+    );
+    assert_same(&g, &whole(&s, &st), "the first reaching glyph");
+    for (col, text) in [(3, "A"), (0, "V"), (2, " ")] {
+        s.text(col, 1, text, plain());
+        g.frame(&mut s, &st);
+        assert_eq!(compiles(&g), 0, "a frame after it, writing {text:?}");
+    }
+    assert_same(&g, &whole(&s, &st), "the frames after it");
+}
