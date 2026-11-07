@@ -10,6 +10,8 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+#[cfg(test)]
+mod convert;
 mod judge;
 
 use regex::Regex;
