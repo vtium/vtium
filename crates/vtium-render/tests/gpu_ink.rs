@@ -12,9 +12,11 @@
 mod common;
 
 use common::{Screen, rgb, style};
+use std::ops::Range;
 use vtium_font::{Cell, Face, Font, Format as FontFormat, Glyph, Style, Width as FontWidth};
 use vtium_render::gpu::{Call, DrawTarget, Format, Gl, Pipeline, Quad, Size, StandIn};
 use vtium_render::{Canvas, Config, DrawState, Orientation, Rect, Renderer};
+
 use vtium_term::{Age, CursorShape};
 
 const CW: u32 = 8;
@@ -151,10 +153,17 @@ fn whole(s: &Screen, st: &DrawState) -> Canvas {
 
 /// `s` drawn whole on the CPU path, turned as `o` says.
 fn whole_turned(s: &Screen, st: &DrawState, o: Orientation) -> Canvas {
+    whole_selected(s, st, o, &[])
+}
+
+/// `s` drawn whole on the CPU path, turned as `o` says, with the selection
+/// `sel`: the columns selected in each row.
+fn whole_selected(s: &Screen, st: &DrawState, o: Orientation, sel: &[Range<usize>]) -> Canvas {
     let size = display(s, o);
     let mut r = Renderer::new(Font::new(Reaching), size.width, size.height, config(o));
     let mut c = Canvas::new(size.width, size.height, 0);
-    r.draw(&s.frame(Age::NEVER), &mut c, 0, st);
+    let frame = s.frame(Age::NEVER).with_selection(sel.to_vec());
+    r.draw(&frame, &mut c, 0, st);
     c
 }
 
@@ -167,6 +176,8 @@ struct Gpu {
     r: Renderer<Reaching>,
     since: Age,
     orientation: Orientation,
+    /// The columns selected in each row.
+    sel: Vec<Range<usize>>,
 }
 
 impl Gpu {
@@ -186,6 +197,7 @@ impl Gpu {
             r: Renderer::new(Font::new(Reaching), size.width, size.height, config(o)),
             since: Age::NEVER,
             orientation: o,
+            sel: Vec::new(),
         }
     }
 
@@ -194,7 +206,7 @@ impl Gpu {
     /// are left in the stand-in.
     fn frame(&mut self, s: &mut Screen, st: &DrawState) -> Vec<Rect> {
         self.gl.clear_calls();
-        let frame = s.frame(self.since);
+        let frame = s.frame(self.since).with_selection(self.sel.clone());
         let drawn = self
             .r
             .draw_gpu(
@@ -397,6 +409,34 @@ fn the_letter_under_the_cursor_keeps_its_ink_above_and_below_in_both_phases() {
             .any(|q| q.dst[0] == cell(0, 1).x as i32 && q.dst[1] == cell(0, 1).y as i32),
         "the cell before the cursor is not drawn again"
     );
+}
+
+// ADR-1306 D6: inside a selected cell, ink from a neighbour takes the
+// selection's text color; a selected letter's ink outside the selection
+// keeps the colors it has unselected; and one letter's ink takes the
+// selection's color in a selected cell and its own in the cells beside it.
+// covers: text.overhang
+#[test]
+fn the_selection_takes_the_ink_inside_it_and_a_selected_letters_ink_outside_keeps_its_colors() {
+    let mut s = screen(5, 3);
+    s.text(0, 1, "xxxxx", style(rgb("40c040"), rgb("2040c0")));
+    s.text(1, 2, "AxA", style(rgb("f0f0f0"), rgb(BG)));
+    s.text(2, 0, "Q", style(rgb("e0a020"), rgb(BG)));
+    let mut g = Gpu::new(&s);
+    let st = state(&s, true);
+    g.frame(&mut s, &st);
+    for sel in [
+        vec![0..0, 0..0, 0..5],
+        vec![0..0, 0..5],
+        vec![0..0, 1..2, 3..4],
+        vec![0..0, 3..4],
+    ] {
+        g.sel = sel.clone();
+        s.damage.mark_rows(0..3);
+        g.frame(&mut s, &st);
+        let cpu = whole_selected(&s, &st, Orientation::Normal, &sel);
+        assert_same(&g, &cpu, &format!("selected {sel:?}"));
+    }
 }
 
 // ADR-1306 D7: ink that reaches a cell is part of its text layer, which a
