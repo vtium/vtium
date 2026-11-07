@@ -51,7 +51,7 @@ The default build, called *minspec*, is intended for small machines. It renders 
 
 ## Status
 
-vtium is alpha software. The latest release is [v0.1.0-alpha.5](https://github.com/vtium/vtium/releases).
+See [the releases](https://github.com/vtium/vtium/releases) for the latest version and what changed in it.
 
 - vtium runs as root, as getty does, so it can start the system’s login program. It currently opens the VT, graphics cards, and input devices directly. Support for obtaining those resources from a seat manager such as seatd or logind through libseat has been designed but is not yet complete.
 - CPU rendering is the default. Builds with the `gpu` feature can use GPU rendering on heads where `hwaccel` is enabled.

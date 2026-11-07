@@ -39,7 +39,7 @@ vtium is built for hardware ranging from small boards with 512 MB of memory and 
 
 ## Status
 
-vtium is alpha software. The latest release is [v0.1.0-alpha.5](https://github.com/vtium/vtium/releases).
+See [the releases](https://github.com/vtium/vtium/releases) for the latest version and what changed in it.
 
 To try it while keeping your desktop running, follow [Try vtium on one VT](docs/tutorial-try-vtium.md). The tutorial walks you through running vtium on a spare VT and returning that VT to its previous state afterward.
 
