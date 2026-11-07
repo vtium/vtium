@@ -476,3 +476,34 @@ fn a_failed_connection_hangs_up() {
     assert_eq!(events, [VtEvent::Hangup]);
     assert_eq!(vt(&mut data).settled(), [PathBuf::from(CARD)]);
 }
+
+/// A device opened by a retry and not yet taken by the owner is closed
+/// through the seat manager when the owner lets it go, and when the VT
+/// drops.
+#[test]
+fn a_device_opened_by_a_retry_and_never_taken_is_closed_through_the_seat() {
+    for drop_vt in [false, true] {
+        let server = StandIn::new();
+        server
+            .0
+            .borrow_mut()
+            .device_answers
+            .insert(PathBuf::from(CARD), [Errno::BUSY].into());
+        let (mut lp, mut data) = start(&server, None, tries(50, 20));
+        run_until(&mut lp, &mut data, |d, _| vt(d).is_active());
+        assert!(vt(&mut data).open_device(Path::new(CARD)).is_err());
+        run_until(&mut lp, &mut data, |d, _| {
+            d.vt.as_ref().is_some_and(|v| !v.settled.is_empty())
+        });
+        assert_eq!(server.0.borrow().devices.len(), 1, "opened by the retry");
+        if drop_vt {
+            data.vt = None;
+        } else {
+            vt(&mut data).close_device(Path::new(CARD));
+        }
+        assert!(
+            server.0.borrow().devices.is_empty(),
+            "closed through the seat manager (drop: {drop_vt})"
+        );
+    }
+}

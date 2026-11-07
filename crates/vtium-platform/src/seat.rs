@@ -810,10 +810,17 @@ impl<M: Manager, C: Console> Vt for LibseatVt<M, C> {
         }
     }
 
+    /// A device given to the owner, or opened by a retry and not yet
+    /// taken, is closed through the seat manager; a pending open is
+    /// dropped. With the seat gone, the device's own descriptor closes as it
+    /// drops.
     fn close_device(&mut self, path: &Path) {
-        self.pending.remove(path);
         self.settled.retain(|p| p != path);
-        let Some(device) = self.open.remove(path) else {
+        let device = match self.pending.remove(path) {
+            Some(Pending::Opened(device, _)) => Some(device),
+            _ => self.open.remove(path),
+        };
+        let Some(device) = device else {
             return;
         };
         if let Err(e) = self.seat_mut().and_then(|seat| seat.close_device(device)) {
@@ -827,10 +834,16 @@ impl<M: Manager, C: Console> Vt for LibseatVt<M, C> {
 }
 
 impl<M: Manager, C: Console> Drop for LibseatVt<M, C> {
-    /// The devices closed, the seat's descriptor out of the loop, the VT in
+    /// The devices closed, those opened by a retry and never taken
+    /// included, the seat's descriptor out of the loop, the VT in
     /// text mode and the seat closed.
     fn drop(&mut self) {
-        let paths: Vec<PathBuf> = self.open.keys().cloned().collect();
+        let paths: Vec<PathBuf> = self
+            .open
+            .keys()
+            .chain(self.pending.keys())
+            .cloned()
+            .collect();
         for path in paths {
             self.close_device(&path);
         }

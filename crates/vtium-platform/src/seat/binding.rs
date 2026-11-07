@@ -22,6 +22,14 @@ pub struct LibseatSeat {
     seat: libseat::Seat,
 }
 
+/// A device libseat opened, holding libseat's descriptor of it, which
+/// libseat leaves to its caller: closed through the seat, or, when the
+/// seat is gone, by its own drop.
+pub struct LibseatDevice {
+    device: libseat::Device,
+    fd: OwnedFd,
+}
+
 impl Manager for Libseat {
     type Seat = LibseatSeat;
 
@@ -48,7 +56,7 @@ impl Manager for Libseat {
 }
 
 impl Seat for LibseatSeat {
-    type Device = libseat::Device;
+    type Device = LibseatDevice;
 
     /// A second descriptor for libseat's connection, which the loop owns.
     fn fd(&mut self) -> io::Result<OwnedFd> {
@@ -68,14 +76,25 @@ impl Seat for LibseatSeat {
     /// its open file: the seat manager's revoke and its DRM master reach
     /// both. A path that is not UTF-8 or holds a NUL is refused here, as
     /// the crate would panic on it.
-    fn open_device(&mut self, path: &Path) -> io::Result<(libseat::Device, OwnedFd)> {
+    fn open_device(&mut self, path: &Path) -> io::Result<(LibseatDevice, OwnedFd)> {
         let text = path.to_str().filter(|t| !t.contains('\0'));
         if text.is_none() {
             return Err(io::Error::from(io::ErrorKind::InvalidInput));
         }
         let device = self.seat.open_device(&path).map_err(os_error)?;
-        match device.as_fd().try_clone_to_owned() {
-            Ok(fd) => Ok((device, fd)),
+        let raw = device.as_fd().as_raw_fd();
+        #[expect(
+            unsafe_code,
+            reason = "libseat hands its caller the device's descriptor to close"
+        )]
+        // SAFETY: `raw` is the descriptor libseat_open_device placed in its
+        // out parameter, which libseat.h gives to the caller and which
+        // libseat_close_device does not close. The `Device` holds only its
+        // number and closes nothing, so this `OwnedFd` is its one owner.
+        let fd = unsafe { OwnedFd::from_raw_fd(raw) };
+        let device = LibseatDevice { device, fd };
+        match device.fd.try_clone() {
+            Ok(owner) => Ok((device, owner)),
             Err(e) => {
                 // The device is closed again; the dup's error is the one
                 // reported.
@@ -85,21 +104,11 @@ impl Seat for LibseatSeat {
         }
     }
 
-    /// The device closed through libseat, then libseat's descriptor of it,
-    /// which libseat leaves to its caller.
-    fn close_device(&mut self, device: libseat::Device) -> io::Result<()> {
-        let raw = device.as_fd().as_raw_fd();
+    /// The device closed through libseat, then libseat's descriptor of it.
+    fn close_device(&mut self, device: LibseatDevice) -> io::Result<()> {
+        let LibseatDevice { device, fd } = device;
         let closed = self.seat.close_device(device).map_err(os_error);
-        #[expect(
-            unsafe_code,
-            reason = "libseat hands its caller the device's descriptor to close"
-        )]
-        // SAFETY: `raw` is the descriptor libseat_open_device placed in its
-        // out parameter, which libseat.h gives to the caller and which
-        // libseat_close_device does not close. The `Device` it came from
-        // was consumed above, and nothing else holds this number: the
-        // owner holds a duplicate of its own.
-        drop(unsafe { OwnedFd::from_raw_fd(raw) });
+        drop(fd);
         closed
     }
 
