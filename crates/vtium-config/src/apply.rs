@@ -950,16 +950,32 @@ mod tests {
     use super::*;
     use std::os::unix::fs::DirBuilderExt;
 
-    /// A fresh directory of the test's own under the system's temporary
-    /// directory, standing in for `/tmp`.
-    fn base(test: &str) -> PathBuf {
+    /// A fresh directory of a test's own under the system's temporary
+    /// directory, standing in for `/tmp`. The test removes it when it drops
+    /// the guard, whether the test passes or fails.
+    struct Base(PathBuf);
+
+    impl std::ops::Deref for Base {
+        type Target = Path;
+        fn deref(&self) -> &Path {
+            &self.0
+        }
+    }
+
+    impl Drop for Base {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn base(test: &str) -> Base {
         let base = std::env::temp_dir().join(format!(
             "vtium-config-scratch-{test}-{}",
             std::process::id()
         ));
         let _ = std::fs::remove_dir_all(&base);
         std::fs::create_dir(&base).unwrap();
-        base
+        Base(base)
     }
 
     /// The names a test's name source gives, in turn, and then `last`.
@@ -1009,7 +1025,6 @@ mod tests {
             .expect("no free name");
         assert!(why.contains("no free directory"), "{why}");
         assert_eq!(entries_of(&base), ["vtium-config-apply-taken"]);
-        std::fs::remove_dir_all(&base).unwrap();
     }
 
     /// A directory made but not held, here one whose owner is not the uid
@@ -1026,7 +1041,6 @@ mod tests {
             "{why}"
         );
         assert!(entries_of(&base).is_empty(), "{:?}", entries_of(&base));
-        std::fs::remove_dir_all(&base).unwrap();
     }
 
     /// Root's change, installed at once: the draft goes into a directory of
@@ -1104,7 +1118,6 @@ mod tests {
             "font-size=13\n"
         );
         assert!(entries_of(&drafts).is_empty(), "{:?}", entries_of(&drafts));
-        std::fs::remove_dir_all(&base).unwrap();
     }
 
     /// The system's names cannot be told in advance from the process's id
