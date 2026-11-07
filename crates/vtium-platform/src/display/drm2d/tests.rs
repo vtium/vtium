@@ -6650,26 +6650,130 @@ fn two_displays_moved_off_one_crtc_do_not_both_go_back() {
     assert_eq!(refused, Vec::<u32>::new());
 }
 
-// A wake-up that moved a display to a CRTC the card refuses lights the
-// others, with no new display among them. In the card of `woken_beside_c`
-// without C, the wake-up moves A to 101, as B holds 100, and the card
-// refuses 101. A cannot go back, so the wake-up lights B on 100 without A,
-// leaves A off until the next hotplug, and starts no retries.
+// A wake-up that moved a display to a CRTC the card refuses moves a lit
+// display where that lights every display (vtium/vtium#298). In the card
+// of `woken_beside_c` without C, the wake-up moves A to 101, as B holds
+// 100, and the card refuses 101. Keeping B on 100 cannot light A, but B
+// can move to 102, which frees 100 for A: the wake-up lights both there,
+// and no display is reported removed. The placement first moves B to 100,
+// where its connector is, and A to 101; the moves of the placement that
+// lights are then logged once.
 #[test]
-fn a_display_a_wake_up_moved_to_a_crtc_the_card_refuses_is_left_off() {
+fn a_wake_up_moves_a_lit_display_where_that_lights_every_display() {
+    logs::capture();
     let (woke, outs, _, refused, events, retries) = woken_beside_c(true, false, &[101]);
     assert!(woke.is_ok(), "{woke:?}");
-    assert_eq!(outs, [(B, 100)]);
+    assert_eq!(outs, [(A, 100), (B, 102)]);
     assert_eq!(refused, Vec::<u32>::new());
     assert_eq!(
         events,
         [
-            Event::Removed(DisplayId(A)),
+            Event::Redraw(DisplayId(A)),
             Event::Redraw(DisplayId(B)),
             Event::Awake
         ]
     );
     assert!(!retries);
+    assert_eq!(
+        moves(),
+        [
+            "display HDMI-A-1 moves from CRTC 100 to CRTC 101",
+            "display HDMI-A-2 moves from CRTC 102 to CRTC 100",
+            "display HDMI-A-1 moves from CRTC 101 to CRTC 100",
+            "display HDMI-A-2 moves from CRTC 100 to CRTC 102"
+        ]
+    );
+}
+
+// A display plugged in that can light only where a lit display moves off
+// a CRTC the card does not refuse lights at the hotplug (vtium/vtium#298).
+// B is lit on 100 and drives 100 and 102; A, plugged in, drives 100 and
+// 101, and the card refuses 101. The placement puts A on 101, which leaves
+// B where it is, and the card refuses it; B then moves to 102 and A takes
+// 100, and both light at that hotplug, B showing the frame it showed
+// before. The card has a third connector, not listed, whose CRTC 102 is
+// the one B moves to.
+#[test]
+fn a_hotplug_moves_a_lit_display_where_the_card_refuses_the_free_crtc() {
+    let card = reaching(&[0b011, 0b101, 0b100], 2);
+    {
+        let mut s = card.state();
+        s.listed.retain(|&c| c == B);
+        s.bind(B, 100);
+    }
+    let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    let shown = drawn(&mut v, B, 0x55);
+    assert_eq!(v.card().state().bound.get(&B), Some(&100));
+    {
+        let mut s = v.card().state();
+        s.listed.insert(0, A);
+        s.refused.push(101);
+    }
+    v.poll().unwrap();
+    flip(&mut v);
+    assert_eq!(
+        events(&mut v),
+        [
+            Event::Added(DisplayId(A)),
+            Event::Flipped(DisplayId(A)),
+            Event::Flipped(DisplayId(B))
+        ]
+    );
+    assert!(v.card().shows(102, shown), "{:?}", v.card().state());
+    let outs: Vec<(u32, u32)> = v.outputs.iter().map(|o| (o.id.0, o.crtc)).collect();
+    assert_eq!(outs, [(A, 100), (B, 102)]);
+    assert_eq!(v.move_refused, Vec::<u32>::new());
+    let s = v.card().state();
+    assert_eq!(
+        [A, B].map(|c| s.bound.get(&c).copied()),
+        [Some(100), Some(102)]
+    );
+}
+
+// Where the card refuses every placement of the displays, the search for
+// one that lights them all ends there: the lit displays stay where they
+// were, the new display stays off, and since the card refused it on
+// another CRTC too, it is recorded, so a later hotplug searches no more
+// for it. A is lit on 100 and drives 100 and 101; B, plugged in, drives
+// 101 and 102, and the card refuses both. B's hotplug puts it on 102,
+// and the search tries B on 101 with A on 100, then with A moved, and
+// every placement is refused. The next hotplug commits no test for B.
+#[test]
+fn a_display_no_placement_lights_is_recorded_and_searched_for_no_more() {
+    let card = reaching(&[0b011, 0b110, 0b100], 2);
+    {
+        let mut s = card.state();
+        s.listed.retain(|&c| c == A);
+    }
+    let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    drawn(&mut v, A, 0x55);
+    {
+        let mut s = v.card().state();
+        s.listed.push(B);
+        s.refused.extend([101, 102]);
+    }
+    v.poll().unwrap();
+    flip(&mut v);
+    v.events().for_each(drop);
+    let outs: Vec<(u32, u32)> = v.outputs.iter().map(|o| (o.id.0, o.crtc)).collect();
+    assert_eq!(outs, [(A, 100)]);
+    assert_eq!(v.move_refused, [B]);
+    let tests = |v: &Drm2d<FakeCard>| {
+        v.card()
+            .state()
+            .commits
+            .iter()
+            .filter(|c| c.test_only())
+            .count()
+    };
+    let before = tests(&v);
+    v.poll().unwrap();
+    assert_eq!(
+        tests(&v),
+        before + 3,
+        "the placement, again at the default modes, and the set without B"
+    );
+    assert_eq!(v.move_refused, [B]);
 }
 
 // A new display the card refused beside the others, placed after them,
@@ -7050,5 +7154,335 @@ fn going_back_never_puts_two_displays_on_one_crtc() {
     assert!(
         stayed > 10_000,
         "{stayed} displays that wanted to go back stayed"
+    );
+}
+
+/// Two displays, A and B, lit and showing a frame each, with the atomic
+/// calls or the legacy ones.
+fn two_lit(atomic: bool) -> Drm2d<FakeCard> {
+    let card = FakeCard::new(&[
+        (A, vec![mode(640, 480, 60, true)]),
+        (B, vec![mode(640, 480, 60, true)]),
+    ]);
+    card.state().atomic = atomic;
+    let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    drawn(&mut v, A, 0x11);
+    drawn(&mut v, B, 0x22);
+    v
+}
+
+/// Whether `v` sends the card nothing more: no display lends a token, and
+/// a hotplug, an input, an unblank, a wake-up, a sleep and a read of the
+/// card's events try no ioctl. The sleep still reports
+/// [`Event::Asleep`], so the owner can let the VT go.
+fn sends_nothing(v: &mut Drm2d<FakeCard>) {
+    let tried = v.card().state().calls_removed.len();
+    assert!(!lends(v, A) && !lends(v, B));
+    assert!(matches!(v.commit(DisplayId(A)), Err(SwapError::Off)));
+    v.poll().unwrap();
+    v.input().unwrap();
+    v.unblank().unwrap();
+    assert!(v.wake_up().is_err(), "a removed card does not wake");
+    v.flip_expired(100);
+    v.retry_wake();
+    v.dispatch().unwrap();
+    assert_eq!(v.waits(), (false, false), "no wait and no retry runs");
+    assert!(v.set_dpms(DisplayId(A), Dpms::Off).is_err());
+    v.sleep();
+    assert_eq!(events(v), [Event::Asleep]);
+    assert_eq!(
+        v.card().state().calls_removed.len(),
+        tried,
+        "no ioctl after"
+    );
+}
+
+// A card the kernel removed, as when i915 takes the display from
+// simpledrm, refuses the next flip with ENODEV (vtium/vtium#295). drm2d
+// takes the card as gone at once: the owner hears each display removed,
+// as when udev reports the card removed, and drm2d sends the card nothing
+// again.
+#[test]
+fn a_flip_the_removed_card_refuses_lets_the_card_go() {
+    for atomic in [true, false] {
+        let mut v = two_lit(atomic);
+        v.card().state().kernel_removed = true;
+        logs::capture();
+        let failed = fill(&mut v, A, 0x33, &[DOT]);
+        assert!(matches!(failed, Err(SwapError::Off)), "atomic {atomic}");
+        assert_eq!(
+            events(&mut v),
+            [Event::Removed(DisplayId(A)), Event::Removed(DisplayId(B))],
+            "atomic {atomic}"
+        );
+        assert!(v.gone(), "atomic {atomic}");
+        assert_eq!(v.displays().count(), 0);
+        let warned = logs::at_least(Level::Warn);
+        assert_eq!(warned.len(), 1, "atomic {atomic}: {warned:?}");
+        assert!(warned[0].contains("removed the card"), "{warned:?}");
+        sends_nothing(&mut v);
+    }
+}
+
+// A card removed while its VT is another's refuses DRM master at the
+// wake-up with ENODEV, and one removed while nothing draws refuses the
+// next hotplug's scan: either way drm2d lets the card go as at a flip.
+#[test]
+fn a_wake_up_or_a_hotplug_the_removed_card_refuses_lets_the_card_go() {
+    for asleep in [true, false] {
+        let mut v = two_lit(true);
+        if asleep {
+            v.sleep();
+            flip(&mut v);
+            v.events().for_each(drop);
+        }
+        v.card().state().kernel_removed = true;
+        let tried = if asleep { v.wake_up() } else { v.poll() };
+        assert!(tried.is_err(), "asleep {asleep}");
+        assert_eq!(
+            events(&mut v),
+            [Event::Removed(DisplayId(A)), Event::Removed(DisplayId(B))],
+            "asleep {asleep}"
+        );
+        assert!(v.gone());
+        sends_nothing(&mut v);
+    }
+}
+
+// A card the kernel removes partway through a hotplug's scan, a wake-up or
+// a sleep is let go at the first ioctl that answers ENODEV: drm2d tries no
+// ioctl after it, so it neither reads the rest of the connectors as
+// unplugged nor frees the displays' buffers or drops DRM master on the
+// removed card. Each display is reported removed, and the sleep still
+// reports Asleep. The removal comes after each number of ioctls in turn,
+// until the operation ends before it.
+#[test]
+fn a_card_removed_partway_through_an_operation_is_let_go_at_its_first_enodev() {
+    for op in ["hotplug", "wake-up", "sleep"] {
+        let mut removals = 0;
+        for after in 0.. {
+            let mut v = two_lit(true);
+            if op == "wake-up" {
+                v.sleep();
+                flip(&mut v);
+                v.events().for_each(drop);
+            }
+            v.card().state().remove_after = Some(after);
+            match op {
+                "hotplug" => drop(v.poll()),
+                "wake-up" => drop(v.wake_up()),
+                _ => v.sleep(),
+            }
+            if !v.card().state().kernel_removed {
+                break;
+            }
+            removals += 1;
+            let why = format!("{op}, removed after {after} ioctls");
+            assert!(v.gone(), "{why}");
+            let calls = v.card().state().calls_removed.clone();
+            assert_eq!(calls.len(), 1, "{why}: {calls:?}");
+            let mut want = vec![Event::Removed(DisplayId(A)), Event::Removed(DisplayId(B))];
+            if op == "sleep" {
+                want.insert(0, Event::Asleep);
+            }
+            let got: Vec<Event> = events(&mut v)
+                .into_iter()
+                .filter(|e| !matches!(e, Event::Awake | Event::Redraw(_)))
+                .collect();
+            assert_eq!(got, want, "{why}");
+        }
+        assert!(removals > 2, "{op}: {removals} removals partway");
+    }
+}
+
+// A modeset whose own commit answers ENODEV stops there: drm2d tries no
+// default modes, no fewer displays and no other display's CRTC set on the
+// removed card, and lets it go, with one warning that says so. A is lit, and B, plugged in, takes the
+// free CRTC; the modeset's first commit, or with the legacy calls its
+// first CRTC set, finds the card removed.
+#[test]
+fn a_modeset_the_removed_card_refuses_stops_at_once() {
+    for atomic in [true, false] {
+        let card = reaching(&[0b01, 0b10], 1);
+        card.state().atomic = atomic;
+        let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+        drawn(&mut v, A, 0x55);
+        {
+            let mut s = v.card().state();
+            s.listed.push(B);
+            if atomic {
+                s.commit_errors.push_back(Errno::NODEV);
+            } else {
+                s.set_crtc_errors.push_back(Errno::NODEV);
+            }
+        }
+        logs::capture();
+        assert!(v.poll().is_err(), "atomic {atomic}");
+        assert!(v.gone(), "atomic {atomic}");
+        let warned = logs::at_least(Level::Warn);
+        assert_eq!(warned.len(), 1, "atomic {atomic}: {warned:?}");
+        assert!(warned[0].contains("removed the card"), "{warned:?}");
+        assert_eq!(
+            events(&mut v),
+            [Event::Removed(DisplayId(A))],
+            "atomic {atomic}"
+        );
+        let calls = v.card().state().calls_removed.clone();
+        assert_eq!(calls, Vec::<&str>::new(), "atomic {atomic}");
+    }
+}
+
+// A search for a placement that lights every display stops at a test
+// commit that finds the card removed. In the card of the hotplug test
+// above, the placement and its retry at the default modes are refused,
+// and the search's first test commit answers ENODEV: drm2d tries no other
+// placement and lets the card go.
+#[test]
+fn a_search_the_removed_card_refuses_stops_at_once() {
+    let card = reaching(&[0b011, 0b101, 0b100], 2);
+    {
+        let mut s = card.state();
+        s.listed.retain(|&c| c == B);
+        s.bind(B, 100);
+    }
+    let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    drawn(&mut v, B, 0x55);
+    {
+        let mut s = v.card().state();
+        s.listed.insert(0, A);
+        s.commit_errors
+            .extend([Errno::INVAL, Errno::INVAL, Errno::NODEV]);
+    }
+    assert!(v.poll().is_err());
+    assert!(v.gone());
+    assert_eq!(events(&mut v), [Event::Removed(DisplayId(B))]);
+    let calls = v.card().state().calls_removed.clone();
+    assert_eq!(calls, Vec::<&str>::new());
+}
+
+// The buffers a display let go of while a token for them was out are not
+// freed through the removed card when the token comes back: the kernel
+// frees them with the card's file. A's connector is unplugged while A
+// lends a token, so A's buffers wait for it; then the card is removed.
+#[test]
+fn buffers_waiting_for_a_token_are_not_freed_on_the_removed_card() {
+    let mut v = two_lit(true);
+    let token = v.lend(DisplayId(A)).unwrap();
+    v.card().state().connectors.get_mut(&A).unwrap().connected = false;
+    v.poll().unwrap();
+    v.events().for_each(drop);
+    v.card().state().kernel_removed = true;
+    assert!(fill(&mut v, B, 0x33, &[DOT]).is_err());
+    assert!(v.gone());
+    assert_eq!(events(&mut v), [Event::Removed(DisplayId(B))]);
+    let tried = v.card().state().calls_removed.len();
+    drop(token);
+    sends_nothing(&mut v);
+    assert_eq!(v.card().state().calls_removed.len(), tried);
+}
+
+/// The test-only commits and the other commits since commit `from`.
+fn commits_since(v: &Drm2d<FakeCard>, from: usize) -> Vec<Commit> {
+    v.card().state().commits[from..].to_vec()
+}
+
+// The search for a placement turns no lit display off for a placement the
+// card refuses: it tries each in a test-only commit that carries what the
+// modeset would turn off first. Where a placement lights, the only commits
+// that change the card come after the test commit that took it. A is lit
+// on 100 and drives 100 and 101; B, plugged in, drives 101 and 102, which
+// the card refuses, so every placement is refused and A stays lit on 100
+// throughout. Then, in the card of the hotplug test above, B lit on 100
+// moves to 102 for A, and nothing is committed before the test commit
+// that puts A on 100.
+#[test]
+fn the_search_turns_no_lit_display_off_for_a_placement_it_tries() {
+    let card = reaching(&[0b011, 0b110, 0b100], 2);
+    card.state().listed.retain(|&c| c == A);
+    let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    drawn(&mut v, A, 0x55);
+    {
+        let mut s = v.card().state();
+        s.listed.push(B);
+        s.refused.extend([101, 102]);
+    }
+    let from = v.card().state().commits.len();
+    v.poll().unwrap();
+    let off: Vec<Commit> = commits_since(&v, from)
+        .into_iter()
+        .filter(|c| !c.test_only() && c.get(100, "ACTIVE") == Some(0))
+        .collect();
+    assert_eq!(off.len(), 0, "{off:?}");
+
+    let card = reaching(&[0b011, 0b101, 0b100], 2);
+    {
+        let mut s = card.state();
+        s.listed.retain(|&c| c == B);
+        s.bind(B, 100);
+    }
+    let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    drawn(&mut v, B, 0x55);
+    {
+        let mut s = v.card().state();
+        s.listed.insert(0, A);
+        s.refused.push(101);
+    }
+    let from = v.card().state().commits.len();
+    v.poll().unwrap();
+    let commits = commits_since(&v, from);
+    let taken = commits
+        .iter()
+        .position(|c| c.test_only() && c.get(A, "CRTC_ID") == Some(100))
+        .expect("a test commit puts A on 100");
+    let first_set = commits.iter().position(|c| !c.test_only());
+    assert!(first_set > Some(taken), "{commits:?}");
+}
+
+// The search tries the placements in the order of what they cost: first
+// those that move no lit display, then those that move one. In the card
+// of `woken_beside_c` with a fourth CRTC, 103, that A can also drive, the
+// wake-up puts A on 101, which the card refuses. A on 103 with B left on
+// 100 moves no lit display, and A on 100 with B moved to 102 moves one;
+// both light, and the wake-up takes the first.
+#[test]
+fn the_search_takes_the_placement_that_moves_the_fewest_lit_displays() {
+    let card = reaching(&[0b1011, 0b0101, 0b0001, 0b1000], 2);
+    {
+        let mut s = card.state();
+        s.bind(A, 100);
+        s.bind(B, 102);
+    }
+    let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    v.sleep();
+    v.events().for_each(drop);
+    desktop_leaves(v.card(), B, 100);
+    v.card().state().bind(A, 0);
+    v.card().state().refused.push(101);
+    v.wake_up().unwrap();
+    let outs: Vec<(u32, u32)> = v.outputs.iter().map(|o| (o.id.0, o.crtc)).collect();
+    assert_eq!(outs, [(A, 103), (B, 100)]);
+}
+
+// The search is bounded: on a card with eight displays that drive all
+// eight CRTCs, where each of the 40320 placements uses the CRTC the card
+// refuses, a wake-up tries at most `RELIGHT_TRIES` other placements, each
+// in a test commit and again at the default modes.
+#[test]
+fn the_search_tries_a_bounded_number_of_placements() {
+    let card = reaching(&[0xff; 8], 8);
+    card.state().refused.push(107);
+    let mut v = Drm2d::with(card, ModePolicy::default()).unwrap();
+    assert!(v.wake_up().is_err());
+    let tests = v
+        .card()
+        .state()
+        .commits
+        .iter()
+        .filter(|c| c.test_only())
+        .count();
+    let most = 2 * (back::RELIGHT_TRIES + 1);
+    assert!(
+        tests > back::RELIGHT_TRIES && tests <= most,
+        "{tests} test commits"
     );
 }

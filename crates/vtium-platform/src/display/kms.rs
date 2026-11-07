@@ -110,6 +110,11 @@ pub(crate) trait Kms {
     /// The descriptor the loop watches: readable when events wait.
     fn fd(&self) -> Rc<OwnedFd>;
 
+    /// Whether an ioctl on the card answered ENODEV: the kernel removed
+    /// the card, as when a native driver takes the display over from
+    /// simpledrm, and fails every ioctl on it so (`drm_ioctl`).
+    fn removed(&self) -> bool;
+
     fn set_client_cap(&self, cap: u32, on: bool) -> io::Result<()>;
     fn cap(&self, cap: u32) -> io::Result<u64>;
     fn set_master(&self) -> io::Result<()>;
