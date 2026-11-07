@@ -14,7 +14,7 @@ tools/gallery/gallery ~/Pictures
 
 A directory stands for the files in it, in name order, and no arguments means the current directory. The same pictures give the same output every time. `gallery` sends PNG files only. It skips any other file, such as a JPEG, and names the files it skipped on one line. To show a JPEG, convert it to PNG first with a program such as ImageMagick.
 
-Before it draws, `gallery` asks the terminal whether it draws kitty graphics, with a kitty graphics query (`a=q`), and how large its cells are in pixels, with XTWINOPS 16 (`CSI 16 t`). A terminal that does not answer the first question within a second gets one line saying it does not draw kitty graphics, and `gallery` exits with status 1.
+Before it draws, `gallery` asks the terminal whether it draws kitty graphics, with a kitty graphics query (`a=q`), and how large its cells are in pixels, with XTWINOPS 16 (`CSI 16 t`). A terminal that does not answer the first question within a second gets one line saying it does not draw kitty graphics, and `gallery` exits with status 1. A terminal at the far end of a slow link, such as an SSH connection across the world, can take longer than a second to answer. You can give it more time with `-w`.
 
 ## How big each thumbnail is
 
@@ -35,6 +35,7 @@ The grid's columns are all as wide as the widest thumbnail and two more, and the
 | `-s N`, `--size N` | Makes each thumbnail N rows tall (8 by default), as [How big each thumbnail is](#how-big-each-thumbnail-is) describes. |
 | `-n N` | Shows the first N pictures, and says how many more there are. |
 | `-L`, `--no-labels` | Leaves out the file names. |
+| `-w N`, `--wait N` | Waits up to N seconds for the terminal to answer its question, in place of one second. |
 | `--no-probe` | Draws without asking the terminal first, and takes its cells to be twice as tall as they are wide. Use it when you know the terminal draws kitty graphics and want the same bytes on every run. |
 | `-h`, `--help` | Shows the options. |
 
@@ -52,4 +53,4 @@ Then `gallery ~/Pictures` works from anywhere. The script carries its license, M
 
 ## Tests
 
-`make test-tools` runs `tests/test_gallery.py`. It runs `gallery` on small pictures it writes itself and compares the bytes `gallery` writes with the bytes expected. It also runs `gallery` on a stand-in terminal (`tests/terminal.py`), which answers the questions `gallery` asks, to check what `gallery` does when a terminal draws kitty graphics and when it does not.
+`make test-tools` runs `tests/test_gallery.py`. It runs `gallery` on small pictures it writes itself and compares the bytes `gallery` writes with the bytes expected. It also runs `gallery` on a stand-in terminal (`tests/terminal.py`), which answers the questions `gallery` asks, to check what `gallery` does when a terminal draws kitty graphics and when it does not. The test that interrupts `gallery` while it waits for the answer runs it with `-w 30`. The test sends the interrupt only once it has read the question, and on a loaded machine that can take longer than the default second, by which time `gallery` would already have stopped waiting.
