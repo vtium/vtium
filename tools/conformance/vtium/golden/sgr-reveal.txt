@@ -1,0 +1,7 @@
+size 10x2
+cursor 6,0
+flags AUTO_WRAP
+reply 1b50312472303b313b343b386d1b5c1b50312472303b313b346d1b5c
+row 0 |hidden|
+attr 0 0-5 bold underline
+row 1 ||

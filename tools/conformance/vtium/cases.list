@@ -40,3 +40,7 @@ margins-edit 10 5
 margins-columns 10 5
 margins-origin 10 5
 margins-rect 10 5
+sgr-rapid-blink 10 2
+sgr-blink-reset 10 2
+sgr-conceal 10 2
+sgr-reveal 10 2
