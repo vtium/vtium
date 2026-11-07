@@ -497,6 +497,20 @@ mod built {
             }
         }
 
+        /// The request out, if any, fails at once, as when its time runs
+        /// out: the host's helper stops and `term` takes the failure, so
+        /// it takes the program's output again. The reset key needs the
+        /// terminal taking input (ADR-1005 D10).
+        pub(crate) fn fail_out(&mut self, term: &mut Term, pty: Option<&mut Pty>) {
+            if self.out.is_none() {
+                return;
+            }
+            if let Some(host) = &mut self.host {
+                host.stop();
+            }
+            self.answer(term, pty, Reply::Failed);
+        }
+
         /// When the request out fails unanswered.
         pub(crate) fn due(&self) -> Option<Instant> {
             self.out.as_ref().map(|(_, due)| *due)

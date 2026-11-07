@@ -6,11 +6,14 @@
 //!
 //! Each notice says what happened, then what the person reading it can do
 //! next, in plain words. A key it names is built from the binding vtium
-//! acts on ([`chord::keys`]), never typed in.
+//! acts on, the one vtium.conf binds ([`Bindings::keys`]), never typed in.
+//! A notice that would name a key vtium.conf leaves empty leaves the key
+//! out.
 
 use std::fmt::Display;
 
-use crate::head::chord::{self, HeadChord};
+use crate::grab::{Action, Bindings};
+use crate::head::chord::HeadChord;
 
 /// The start found no keyboard on the seat (ADR-1401 D8).
 pub const NO_KEYBOARD: &str = "No keyboard found. Connect one to type.";
@@ -33,32 +36,49 @@ pub fn rescue(device: impl Display, to: &str) -> String {
     )
 }
 
+/// `sentence` with the keys `bindings` binds to `chord` in place of its
+/// `{}`, after a space; nothing when vtium.conf leaves the chord empty.
+fn press(bindings: &Bindings, chord: HeadChord, sentence: &str) -> String {
+    bindings
+        .keys(Action::Head(chord))
+        .map(|keys| format!(" {}", sentence.replace("{}", &keys)))
+        .unwrap_or_default()
+}
+
 /// The rescue key moved the keyboard at `device` while no head is active
-/// (ADR-1401 D9).
-pub fn rescue_no_head(device: impl Display) -> String {
+/// (ADR-1401 D9), naming the focus chord's keys `bindings` binds.
+pub fn rescue_no_head(device: impl Display, bindings: &Bindings) -> String {
     format!(
-        "Keyboard {device} now types into the active screen until the next boot (the rescue key moved it), but no screen is active. Press {} to choose one.",
-        chord::keys(HeadChord::NextHead)
+        "Keyboard {device} now types into the active screen until the next boot (the rescue key moved it), but no screen is active.{}",
+        press(bindings, HeadChord::NextHead, "Press {} to choose one.")
     )
 }
 
 /// What a console whose session ended under `oneshot` shows while no
-/// other console of its head runs: the roaming chord's keys, which switch
-/// to another screen (vtium/vtium#156, ADR-1401 D1).
-pub fn session_ended() -> String {
+/// other console of its head runs: the roaming chord's keys `bindings`
+/// binds, which switch to another screen (vtium/vtium#156, ADR-1401 D1).
+pub fn session_ended(bindings: &Bindings) -> String {
     format!(
-        "Session ended. It will not start again. Press {} to switch to another screen.",
-        chord::keys(HeadChord::NextHead)
+        "Session ended. It will not start again.{}",
+        press(
+            bindings,
+            HeadChord::NextHead,
+            "Press {} to switch to another screen."
+        )
     )
 }
 
 /// What a console whose session ended under `oneshot` shows while another
-/// console of its head still runs: the console chord's keys, which show
-/// that console (ADR-1401 D1, D5).
-pub fn session_ended_console() -> String {
+/// console of its head still runs: the console chord's keys `bindings`
+/// binds, which show that console (ADR-1401 D1, D5).
+pub fn session_ended_console(bindings: &Bindings) -> String {
     format!(
-        "Session ended. It will not start again. Press {} to show another console on this screen.",
-        chord::keys(HeadChord::NextConsole)
+        "Session ended. It will not start again.{}",
+        press(
+            bindings,
+            HeadChord::NextConsole,
+            "Press {} to show another console on this screen."
+        )
     )
 }
 
@@ -426,7 +446,7 @@ mod tests {
     #[test]
     fn the_ended_session_names_the_keys_that_switch_screens() {
         assert_eq!(
-            session_ended(),
+            session_ended(&Bindings::default()),
             "Session ended. It will not start again. Press Ctrl+Super+↑ to switch to another screen."
         );
     }
@@ -436,8 +456,33 @@ mod tests {
     #[test]
     fn the_ended_session_names_the_keys_that_show_another_console() {
         assert_eq!(
-            session_ended_console(),
+            session_ended_console(&Bindings::default()),
             "Session ended. It will not start again. Press Ctrl+Super+→ to show another console on this screen."
+        );
+    }
+
+    // ADR-1005 D10: a notice names the keys vtium.conf binds, and leaves
+    // out the sentence that would name a key vtium.conf empties.
+    #[test]
+    fn a_notice_names_the_keys_vtium_conf_binds() {
+        let mut config = crate::config::Config::default();
+        config.set_chords(
+            &crate::config::keys::GRAB_FOCUS_NEXT,
+            crate::grab::parse("<Alt>n").unwrap_or_default(),
+        );
+        config.set_chords(&crate::config::keys::GRAB_CONSOLE_NEXT, Vec::new());
+        let bound = Bindings::of(&config);
+        assert_eq!(
+            session_ended(&bound),
+            "Session ended. It will not start again. Press Alt+n to switch to another screen."
+        );
+        assert_eq!(
+            rescue_no_head("/dev/input/event3", &bound),
+            "Keyboard /dev/input/event3 now types into the active screen until the next boot (the rescue key moved it), but no screen is active. Press Alt+n to choose one."
+        );
+        assert_eq!(
+            session_ended_console(&bound),
+            "Session ended. It will not start again."
         );
     }
 

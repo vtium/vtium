@@ -114,7 +114,7 @@ use crate::child::{self, Display as SessionDisplay, Place};
 use crate::config::keys;
 use crate::config::{Config, ModeSpec};
 use crate::font::{self, Chosen};
-use crate::grab::{self, Chord, Grab};
+use crate::grab::{self, Bindings, Grab};
 use crate::head::chord::{self, HeadChord};
 use crate::head::console::Console;
 use crate::head::route::{self, Routes};
@@ -124,7 +124,7 @@ use crate::helper::{self, Answer, Helper};
 use crate::layout::{self, Zoom};
 use crate::osd::{self, Osd};
 use crate::painter::Painter;
-use crate::power::{self, Power, PowerKey};
+use crate::power::{self, Power};
 use crate::respawn;
 use crate::sync::Action;
 use crate::term::{Clock, Prepared, Term, View};
@@ -348,14 +348,14 @@ pub struct App {
     /// The seat's selection buffer: what the user copied last, or OSC 52
     /// set last, held for a paste.
     selection: Option<Vec<u8>>,
-    /// The keys `grab-paste` binds.
-    paste_keys: Vec<Chord>,
+    /// The keys each `grab-` key of vtium.conf binds, in the key order
+    /// (ADR-1005 D10).
+    bindings: Bindings,
     /// `pointer-hide-while-typing`.
     hide_while_typing: bool,
     /// The wheel scrolls and reports the other way (vtium/vtium#203).
     natural_scrolling: bool,
-    /// The power keys the configuration binds, and what they act through.
-    power_keys: Vec<(PowerKey, Vec<Chord>)>,
+    /// What the power keys act through.
     power: Box<dyn Power>,
     /// The child writing `/sys/power/state` has not exited: the machine
     /// sleeps, or is going to.
@@ -417,15 +417,6 @@ impl App {
             .filter(|d| !d.is_zero());
         let modes = config.modes(&keys::MODE).to_vec();
         let use_original = config.switch(&keys::USE_ORIGINAL_MODE) && modes.is_empty();
-        let power_keys = [
-            (PowerKey::Reboot, &keys::GRAB_REBOOT),
-            (PowerKey::PowerOff, &keys::GRAB_POWER_OFF),
-            (PowerKey::Suspend, &keys::GRAB_SUSPEND),
-        ]
-        .into_iter()
-        .map(|(k, key)| (k, config.chords(key).to_vec()))
-        .filter(|(_, chords)| !chords.is_empty())
-        .collect();
         // The key holds text only for `forever`.
         let forever = config.text(&keys::DISPLAY_WAIT).is_some();
         let wait = Wait::new(
@@ -448,10 +439,9 @@ impl App {
             dpms_timeout: dpms,
             order: None,
             selection: None,
-            paste_keys: config.chords(&keys::GRAB_PASTE).to_vec(),
+            bindings: Bindings::of(&config),
             hide_while_typing: config.switch(&keys::POINTER_HIDE_WHILE_TYPING),
             natural_scrolling: config.switch(&keys::NATURAL_SCROLLING),
-            power_keys,
             power: Box::new(power::System),
             sleeping: Rc::default(),
             modes,
@@ -2676,7 +2666,7 @@ impl App {
         self.guard();
         let line = match self.focus.and_then(|h| self.heads.get(h)) {
             Some(head) => crate::notice::rescue(node.display(), head.name()),
-            None => crate::notice::rescue_no_head(node.display()),
+            None => crate::notice::rescue_no_head(node.display(), &self.bindings),
         };
         log::warn!("{line}");
         match self.focus {
@@ -2783,11 +2773,8 @@ impl App {
             return;
         }
         let bits = key.mods.bits();
-        if let Some(&(power_key, _)) = self
-            .power_keys
-            .iter()
-            .find(|(_, chords)| grab::matches(chords, bits, &key.keysyms))
-        {
+        let action = self.bindings.action(bits, &key.keysyms);
+        if let Some(grab::Action::Power(power_key)) = action {
             // One action a press: a held chord's repeats would ask again,
             // and systemd takes seven Ctrl+Alt+Del in two seconds as an
             // immediate reboot.
@@ -2802,9 +2789,9 @@ impl App {
             }
             return;
         }
-        let chord =
-            chord::chord(bits, &key.keysyms).filter(|&chord| from.roaming || chord.is_console());
-        if let Some(chord) = chord {
+        if let Some(grab::Action::Head(chord)) = action
+            && (from.roaming || chord.is_console())
+        {
             // One action a press, as the power keys.
             if !key.repeat {
                 self.chord(h, chord, key.mods.contains(InputMods::CTRL), now);
@@ -2821,7 +2808,7 @@ impl App {
         // without Ctrl hides it; letting go of Ctrl sends no key.
         head.hover(key.mods.contains(InputMods::CTRL));
         head.console.term.terminal.screen_mut().clear_selection();
-        if grab::matches(&self.paste_keys, bits, &key.keysyms) {
+        if action == Some(grab::Action::Paste) {
             // One paste a press, however long the key repeats.
             if !key.repeat {
                 head.paste(self.selection.as_deref());
@@ -2830,12 +2817,15 @@ impl App {
             head.draw_now = true;
             return;
         }
-        // The prompt jumps are the main screen's: on the alternate screen
-        // the keys go to the program (ADR-1002, "What the marks are for").
+        // The scroll keys and the prompt jumps are the main screen's: on
+        // the alternate screen they reach the program (ADR-1005 D7,
+        // ADR-1002, "What the marks are for").
         let alternate = head.console.term.terminal.screen().alternate();
-        if let Some(g) =
-            grab::grab(bits, &key.keysyms).filter(|g| !(g.is_prompt_jump() && alternate))
-        {
+        let grab = match action {
+            Some(grab::Action::Grab(g)) if !(g.main_screen_only() && alternate) => Some(g),
+            _ => None,
+        };
+        if let Some(g) = grab {
             let screen = head.console.term.terminal.screen_mut();
             let page = head.grid.1.saturating_sub(1).max(1);
             head.draw_now = true;
@@ -2853,6 +2843,9 @@ impl App {
                     head.orientation = layout::rotate(head.orientation, g == Grab::RotateCw);
                     self.relayout(h);
                 }
+                // One reset a press, of the console shown alone.
+                Grab::Reset if !key.repeat => head.reset_shown(),
+                Grab::Reset => {}
             }
             return;
         }

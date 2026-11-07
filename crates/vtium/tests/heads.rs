@@ -2530,6 +2530,42 @@ fn the_console_chords_switch_a_heads_consoles() {
     assert_eq!(consoles(&s.app, "large"), Some((1, 0)));
 }
 
+/// ADR-1005 D10: Ctrl+Shift+Delete resets the console a head shows, and
+/// no other: the hidden console of the same head and the other head's
+/// console keep their screens.
+#[test]
+fn the_reset_key_resets_the_shown_console_and_no_other() {
+    let mut s = claimed_on(&[], &claimed_consoles(2));
+    s.type_on(KBD_SMALL, "one\r");
+    s.type_on(KBD_LARGE, "large\r");
+    assert!(s.until(BOUND, |a| head_shows(a, "small", "got:one")
+        && head_shows(a, "large", "got:large")));
+    press_chord(&mut s, KBD_SMALL, RIGHT);
+    s.type_on(KBD_SMALL, "two\r");
+    assert!(s.until(BOUND, |a| head_shows(a, "small", "got:two")));
+    let reset = InputEvent::Key(KeyEvent {
+        keycode: 0,
+        ascii: 0,
+        mods: Mods::CTRL.union(Mods::SHIFT),
+        keysyms: vec![0xffff],
+        codepoints: vec![None],
+        repeat: false,
+    });
+    s.app.device_input(Path::new(KBD_SMALL), reset, now());
+    assert_eq!(
+        console_lines(&s.app, "small", "got:"),
+        [Some("got:one".to_owned()), None],
+        "the shown console alone is cleared"
+    );
+    assert!(
+        head_shows(&s.app, "large", "got:large"),
+        "the other head keeps its screen"
+    );
+    // The console runs on after its reset.
+    s.type_on(KBD_SMALL, "three\r");
+    assert!(s.until(BOUND, |a| head_shows(a, "small", "got:three")));
+}
+
 /// A session that prints its console's id, then echoes each line it
 /// reads.
 const TOLD: &str = "echo \"is:$VTIUM_CONSOLE\"; while read a; do echo \"got:$a\"; done";
@@ -5407,6 +5443,18 @@ fn under_oneshot_a_head_whose_program_ended_shows_session_ended() {
         "drawn"
     );
     assert!(!s.memory("/dev/mem1").has(PAPER), "large runs on");
+}
+
+/// ADR-1005 D10: the ended session's notice names the key vtium.conf binds
+/// to the focus chord, not its default.
+#[test]
+fn the_ended_sessions_notice_names_the_key_vtium_conf_binds() {
+    let mut s = claimed_with(&["--oneshot", "--grab-focus-next=<Alt>n"]);
+    s.type_on(KBD_SMALL, "q\r");
+    assert!(s.until(BOUND, |a| notice(a, "small").as_deref()
+        == Some(
+            "Session ended. It will not start again. Press Alt+n to switch to another screen."
+        )));
 }
 
 /// The on-screen display's dots of the heads, in the head file's order.

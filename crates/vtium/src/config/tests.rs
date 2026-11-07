@@ -1276,6 +1276,146 @@ fn grab_paste_binds_shift_insert_until_set() {
     assert_eq!(l.config.chords(&GRAB_PASTE), []);
 }
 
+/// The combinations of a grab key, as vtium.conf writes them.
+fn written(l: &Loaded, key: &Key) -> Vec<String> {
+    l.config
+        .chords(key)
+        .iter()
+        .map(crate::grab::written)
+        .collect()
+}
+
+// ADR-1005 D10: a key vtium.conf binds to another combination takes that
+// combination alone, and an empty value takes none; with no vtium.conf
+// each key keeps its built-in default.
+#[test]
+fn the_grab_keys_take_what_vtium_conf_binds_and_nothing_when_empty() {
+    let l = main_file("grab-scroll-up = <Alt>k\ngrab-reset =\n");
+    assert_eq!(l.reports, []);
+    assert_eq!(written(&l, &GRAB_SCROLL_UP), ["<Alt>k"]);
+    assert_eq!(written(&l, &GRAB_RESET), Vec::<String>::new());
+    assert_eq!(written(&l, &GRAB_SCROLL_DOWN), ["<Shift>Down"]);
+    let none = load_with(&[], &[]);
+    assert_eq!(none.reports, []);
+    assert_eq!(written(&none, &GRAB_RESET), ["<Ctrl><Shift>Delete"]);
+    assert_eq!(written(&none, &GRAB_ZOOM_IN), ["<Ctrl>plus", "<Ctrl>equal"]);
+}
+
+// ADR-1005 D10: a combination two keys bind goes to the key that comes
+// first in the key order, and the report names both keys, at the line of
+// the key the file set: the later key's line when the file set both.
+#[test]
+fn a_combination_bound_twice_is_reported_and_goes_to_the_first_key() {
+    let l = main_file("grab-zoom-in = <Shift>Up,<Alt>z\n");
+    assert_eq!(
+        l.reports,
+        [Report {
+            origin: line(1),
+            problem: Problem::BoundTwice {
+                chord: "<Shift>Up".into(),
+                first: "grab-scroll-up",
+                then: "grab-zoom-in",
+            },
+        }]
+    );
+    assert_eq!(written(&l, &GRAB_SCROLL_UP), ["<Shift>Up"]);
+    assert_eq!(written(&l, &GRAB_ZOOM_IN), ["<Alt>z"]);
+    // The earlier key set in the file takes a later key's default.
+    let l = main_file("\ngrab-console-next = <Ctrl>minus\n");
+    assert_eq!(
+        l.reports,
+        [Report {
+            origin: line(2),
+            problem: Problem::BoundTwice {
+                chord: "<Ctrl>minus".into(),
+                first: "grab-console-next",
+                then: "grab-zoom-out",
+            },
+        }]
+    );
+    assert_eq!(written(&l, &GRAB_CONSOLE_NEXT), ["<Ctrl>minus"]);
+    assert_eq!(written(&l, &GRAB_ZOOM_OUT), Vec::<String>::new());
+    // Both set: the report is at the later key's line.
+    let l = main_file("grab-reset = <Alt>r\ngrab-paste = <Alt>r\n");
+    assert_eq!(
+        l.reports
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>(),
+        [
+            "/etc/vtium/vtium.conf:1: <Alt>r is bound by both grab-paste and grab-reset. vtium checks grab-paste first, so grab-paste takes it"
+        ]
+    );
+    assert_eq!(written(&l, &GRAB_PASTE), ["<Alt>r"]);
+    assert_eq!(written(&l, &GRAB_RESET), Vec::<String>::new());
+}
+
+// ADR-1005 D10: Ctrl+Alt+F1 to F12 and the XF86Switch_VT keys switch the
+// VT, the rescue key among them, and no key binds them: a binding of one
+// is reported with its file and line and dropped, and the key keeps the
+// rest of its value.
+#[test]
+fn a_binding_of_a_key_that_switches_the_vt_is_reported_and_dropped() {
+    let l =
+        main_file("grab-zoom-in = <Ctrl>plus\ngrab-reset = <Ctrl><Alt>F2,<Alt>r,XF86Switch_VT_3\n");
+    assert_eq!(
+        l.reports
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>(),
+        [
+            "/etc/vtium/vtium.conf:2: grab-reset: <Ctrl><Alt>F2 switches the VT, and no setting can bind it, ignored",
+            "/etc/vtium/vtium.conf:2: grab-reset: XF86Switch_VT_3 switches the VT, and no setting can bind it, ignored",
+        ]
+    );
+    assert_eq!(written(&l, &GRAB_RESET), ["<Alt>r"]);
+}
+
+// ADR-1005 D10: a mapping that does not read is reported with its file and
+// line, and the key keeps its built-in default.
+#[test]
+fn a_bad_mapping_is_reported_with_its_file_and_line() {
+    let l = main_file("\n\ngrab-page-up = <Hyper>Prior\ngrab-focus-next = <Ctrl><Logo>NoSuchKey\n");
+    assert_eq!(
+        l.reports
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>(),
+        [
+            "/etc/vtium/vtium.conf:3: grab-page-up=\"<Hyper>Prior\": a modifier other than Shift, Lock, Control, Ctrl, Alt or Logo, ignored",
+            "/etc/vtium/vtium.conf:4: grab-focus-next=\"<Ctrl><Logo>NoSuchKey\": a key name xkb does not know, ignored",
+        ]
+    );
+    assert_eq!(written(&l, &GRAB_PAGE_UP), ["<Shift>Prior"]);
+    assert_eq!(written(&l, &GRAB_FOCUS_NEXT), ["<Ctrl><Logo>Up"]);
+}
+
+// ADR-1005 D10: vtium reads the same keys from a vtium.conf a person
+// edited by hand, with spaces and a comment, and from the same file as
+// `vtium-config set` writes it (vtium-config's test
+// `set_writes_vtiums_own_keys_as_a_person_writes_them` holds that text).
+#[test]
+fn vtium_config_set_and_a_hand_edit_give_the_same_keys() {
+    let by_set = "font-size=12\nversion = 1\ngrab-scroll-up=<Alt>k\ngrab-reset=\n[head desk]\n[rules]\ndisplay * -> desk\ninput class:keyboard -> roaming\n";
+    let by_hand = "font-size=12\n# my keys\ngrab-scroll-up = <Alt>k\ngrab-reset =\nversion = 1\n[head desk]\n[rules]\ndisplay * -> desk\ninput class:keyboard -> roaming\n";
+    let set = main_file(by_set);
+    let hand = main_file(by_hand);
+    assert_eq!(
+        (set.reports.as_slice(), hand.reports.as_slice()),
+        (&[][..], &[][..])
+    );
+    for (key, _) in crate::grab::ORDER {
+        assert_eq!(
+            set.config.chords(key),
+            hand.config.chords(key),
+            "{}",
+            key.name
+        );
+    }
+    assert_eq!(written(&hand, &GRAB_SCROLL_UP), ["<Alt>k"]);
+    assert_eq!(written(&hand, &GRAB_RESET), Vec::<String>::new());
+}
+
 #[test]
 fn decoration_colors_read_fg_an_index_or_rgb() {
     use vtium_render::DecoColor;
