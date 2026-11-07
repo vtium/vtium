@@ -169,10 +169,11 @@ impl Screen {
     }
 
     /// Ends the wrap of each row of `rows`: their text no longer continues
-    /// on the next row. In a build with the bidi feature, a paragraph the
-    /// end splits that draws in another order than it was written is marked
-    /// changed whole, since each part now resolves on its own (ADR-1004
-    /// D8).
+    /// on the next row. Ending a wrap splits the row's paragraph in two,
+    /// and each part is then drawn on its own. In a build with the bidi
+    /// feature, when the paragraph draws in another order than it was
+    /// written, every row of it is marked changed, since the order of each
+    /// part can differ from the order of the whole (ADR-1004 D8).
     pub(super) fn unwrap_rows(&mut self, rows: impl IntoIterator<Item = usize>) {
         for y in rows {
             let cols = self.cols;
