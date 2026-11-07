@@ -771,6 +771,24 @@ impl App {
         self.videos.insert(node, video);
     }
 
+    /// Lets go of each card the kernel removed, as drm2d finds at the first
+    /// ioctl that answers ENODEV, which closes its file, so a card added
+    /// next can take its number. udev's report of the removal may come
+    /// later, or early in boot never. Its displays' removals, drained or
+    /// not, go with it.
+    fn let_go_of_gone_cards(&mut self) {
+        let gone: Vec<PathBuf> = self
+            .videos
+            .iter()
+            .filter(|(_, v)| v.gone())
+            .map(|(node, _)| node.clone())
+            .collect();
+        for node in gone {
+            log::info!("{}: the kernel removed the card", node.display());
+            self.remove_video(&node);
+        }
+    }
+
     /// Removes a video device and its displays, or its wait for the seat
     /// manager, and lets the VT close it.
     pub fn remove_video(&mut self, node: &Path) {
@@ -3408,15 +3426,8 @@ impl App {
             for e in events {
                 self.video_event(&node, e, now);
             }
-            // A card the kernel removed is let go as soon as its displays'
-            // removals are drained, which closes its file, so a card added
-            // next can take its number. udev's report of the removal may
-            // come later, or early in boot never.
-            if self.videos.get(&node).is_some_and(|v| v.gone()) {
-                log::info!("{}: the kernel removed the card", node.display());
-                self.remove_video(&node);
-            }
         }
+        self.let_go_of_gone_cards();
         if std::mem::take(&mut self.keyboard_check) && !self.routes.any_keyboard() {
             let line = crate::notice::NO_KEYBOARD;
             log::warn!("{line}");
@@ -3468,6 +3479,9 @@ impl App {
         if self.awake {
             self.draw(now);
         }
+        // The draw's commits and the timers' power changes may find a card
+        // removed after its events were drained.
+        self.let_go_of_gone_cards();
         self.report(now);
         for console in self.heads.iter_mut().flat_map(Head::consoles_mut) {
             console.term.coalesce.turn_end();
@@ -3893,7 +3907,8 @@ impl App {
         if let Some(Leaving::Until(d)) = self.leaving {
             due.push(d);
         }
-        if self.leaving == Some(Leaving::Done) {
+        // A card let go after the turn's guard leaves the guard owed.
+        if self.leaving == Some(Leaving::Done) || self.guard_due {
             return Some(Duration::ZERO);
         }
         due.into_iter()
@@ -4422,6 +4437,9 @@ mod tests {
         /// The swaps, each a frame composed, and the frames a commit sent.
         swaps: u32,
         committed: u32,
+        /// The kernel removes it at the next commit, which answers as
+        /// drm2d does when that commit finds the card gone.
+        unplug_at_commit: bool,
     }
 
     impl Still {
@@ -4444,6 +4462,7 @@ mod tests {
                 kept: false,
                 swaps: 0,
                 committed: 0,
+                unplug_at_commit: false,
             }
         }
 
@@ -4517,6 +4536,10 @@ mod tests {
         fn commit(&mut self, _: DisplayId) -> Result<Swapped, SwapError> {
             if self.flipping {
                 return Err(SwapError::Busy);
+            }
+            if std::mem::take(&mut self.unplug_at_commit) {
+                self.unplug();
+                return Err(SwapError::Off);
             }
             if !std::mem::take(&mut self.kept) {
                 return Ok(Swapped::Nothing);
@@ -6033,13 +6056,9 @@ mod tests {
         assert_eq!(counts(&mut app), (swaps + 1, 1), "once");
     }
 
-    // vtium/vtium#295: a card the kernel removed, which drm2d found gone at
-    // its first ENODEV, is let go in the turn that drains its displays'
-    // removals: its file is closed and the VT is told to close it, with no
-    // report from udev, which early in boot may never come. A new card the
-    // kernel then adds at the same node opens and draws.
-    #[test]
-    fn a_card_found_gone_is_let_go_without_udev_and_a_new_one_opens() {
+    /// The seat at 16 points on a [`Waits`] VT it has acquired, and the
+    /// devices the VT is told to close.
+    fn acquired_seat() -> (Loop<App>, App, Recorded) {
         let loaded = crate::config::load(&["--font-size=16".into()], &mut |_: &Path| Ok(None));
         let lp: Loop<App> = Loop::new().unwrap();
         let closed: Recorded = Rc::default();
@@ -6057,6 +6076,57 @@ mod tests {
             Vec::new(),
         );
         app.set_font_sources(no_fonts());
+        (lp, app, closed)
+    }
+
+    // vtium/vtium#295: a card whose removal the loop first meets at the end
+    // of a turn, here as the commit of a frame kept from a busy swap, is let
+    // go in that turn: the loop may wait for no timer, key or udev event
+    // after it, and the card's file must not stay open meanwhile. The guard
+    // owed for its displays wakes the loop at once.
+    #[test]
+    fn a_card_found_gone_after_the_drain_is_let_go_in_that_turn() {
+        let (mut lp, mut app, closed) = acquired_seat();
+        let card = PathBuf::from("/dev/dri/card0");
+        let device = Still::new(&[(1, "A")]);
+        let file = Rc::clone(&device.file);
+        app.add_video(card.clone(), Box::new(device));
+        let t = Instant::now();
+        app.turn(t);
+        settle(&mut lp, &mut app, t);
+        fn still<'a>(app: &'a mut App, card: &Path) -> &'a mut Still {
+            app.videos
+                .get_mut(card)
+                .and_then(|v| v.as_any().downcast_mut::<Still>())
+                .unwrap()
+        }
+        still(&mut app, &card).flipping = true;
+        app.term_mut().unwrap().changed = true;
+        app.turn(t);
+        settle(&mut lp, &mut app, t);
+        assert!(still(&mut app, &card).kept, "a frame waits for the flip");
+        let device = still(&mut app, &card);
+        device.flipping = false;
+        device.unplug_at_commit = true;
+        app.turn(t);
+        assert!(!app.videos.contains_key(&card), "let go in that turn");
+        assert_eq!(Rc::strong_count(&file), 1, "its file is closed");
+        assert_eq!(*closed.borrow(), std::slice::from_ref(&card));
+        assert_eq!(
+            app.next_wake(t),
+            Some(Duration::ZERO),
+            "the guard runs next"
+        );
+    }
+
+    // vtium/vtium#295: a card the kernel removed, which drm2d found gone at
+    // its first ENODEV, is let go in the turn that drains its displays'
+    // removals: its file is closed and the VT is told to close it, with no
+    // report from udev, which early in boot may never come. A new card the
+    // kernel then adds at the same node opens and draws.
+    #[test]
+    fn a_card_found_gone_is_let_go_without_udev_and_a_new_one_opens() {
+        let (_lp, mut app, closed) = acquired_seat();
         let card = PathBuf::from("/dev/dri/card0");
         let old = Still::new(&[(1, "A")]);
         let file = Rc::clone(&old.file);
