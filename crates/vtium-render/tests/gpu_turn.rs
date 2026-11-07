@@ -473,7 +473,7 @@ fn the_damage_is_turned_into_the_displays_pixels() {
 
 #[test]
 fn a_frame_past_the_largest_texture_presents_each_pixel_once_at_every_turn() {
-    // tiles of at most 48 pixels a side, the sprites' texture the widest
+    // tiles of at most 48 pixels a side
     let limits = Limits {
         texture: 48,
         ..StandIn::LIMITS

@@ -149,7 +149,7 @@ fn on_the_gpu_path_an_arrival_fills_the_missing_glyph_again() {
             .filter(|c| matches!(c, Call::FillTexture(_)))
             .count()
     };
-    // X's first drawing, and the sprites' strip
+    // X's first drawing, and the sprites' texture
     assert_eq!(frame(&mut r, &mut gl, &s, Age::NEVER, 0), 2);
     let since = s.damage.checkpoint();
     arrived.set(true);
