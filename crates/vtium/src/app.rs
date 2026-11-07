@@ -5876,4 +5876,76 @@ mod tests {
         assert!(!app.videos.contains_key(&fb));
         assert_eq!(*closed.borrow(), [fb]);
     }
+
+    /// An app on a [`Waits`] VT, ready or not, with what it asks and closes.
+    fn waiting_app(
+        ready: bool,
+    ) -> (
+        Loop<App>,
+        App,
+        Rc<std::cell::RefCell<Vec<PathBuf>>>,
+        Rc<std::cell::RefCell<Vec<PathBuf>>>,
+    ) {
+        let loaded = crate::config::load(&[], &mut |_: &Path| Ok(None));
+        let lp: Loop<App> = Loop::new().unwrap();
+        let (asked, closed) = (Rc::default(), Rc::default());
+        let waits = Waits {
+            ready,
+            asked: Rc::clone(&asked),
+            closed: Rc::clone(&closed),
+            ..Waits::default()
+        };
+        let app = App::new(
+            loaded.config,
+            Box::new(waits),
+            lp.handle(),
+            Rc::new(Instant::now),
+            Vec::new(),
+        );
+        (lp, app, asked, closed)
+    }
+
+    fn added(kind: DeviceKind, node: &Path) -> DeviceEvent {
+        DeviceEvent::Added(vtium_platform::udev::Device {
+            kind,
+            node: node.to_owned(),
+            flags: vtium_platform::udev::DeviceFlags::default(),
+            id_path: None,
+            input: None,
+        })
+    }
+
+    // vtium/vtium#34: a device the VT opened that is no DRM card, here
+    // /dev/null, fails to wrap, and the VT is told to close it.
+    #[test]
+    fn a_device_that_fails_to_wrap_is_closed_through_the_vt() {
+        let (_lp, mut app, asked, closed) = waiting_app(true);
+        let card = PathBuf::from("/dev/dri/card0");
+        app.device_event(added(DeviceKind::Drm, &card));
+        assert_eq!(*asked.borrow(), std::slice::from_ref(&card));
+        assert!(!app.videos.contains_key(&card));
+        assert_eq!(*closed.borrow(), [card]);
+    }
+
+    // vtium/vtium#34: a device udev reports removed while it waits for the
+    // seat manager is not opened when the VT later names it settled.
+    #[test]
+    fn a_waiting_video_device_removed_is_not_opened_once_settled() {
+        let (_lp, mut app, asked, closed) = waiting_app(false);
+        let fb = PathBuf::from("/dev/fb0");
+        app.device_event(added(DeviceKind::Fbdev, &fb));
+        app.device_event(DeviceEvent::Removed {
+            kind: DeviceKind::Fbdev,
+            node: fb.clone(),
+        });
+        assert_eq!(*closed.borrow(), std::slice::from_ref(&fb));
+        {
+            let waits = app.vt.get::<Waits>().unwrap();
+            waits.ready = true;
+            waits.settled = vec![fb.clone()];
+        }
+        app.turn(Instant::now());
+        assert_eq!(asked.borrow().len(), 1, "not asked again");
+        assert!(!app.videos.contains_key(&fb));
+    }
 }

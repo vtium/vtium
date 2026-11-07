@@ -189,9 +189,14 @@ impl Manager for StandIn {
         conn.set_nonblocking(true)?;
         s.end = Some(end);
         s.client = Client::New;
+        // seatd's backend reads the enable that answers the open while it
+        // waits for the open's reply, and calls the listener inside
+        // libseat_open_seat (libseat/backend/seatd.c, `open_seat`), so the
+        // enable is in the inbox before the open returns, and nothing makes
+        // the descriptor readable for it.
         if s.enables_at_open {
             s.client = Client::Active;
-            s.send(Told::Enable);
+            inbox.borrow_mut().push_back(Told::Enable);
         }
         Ok(StandInSeat {
             server: self.clone(),

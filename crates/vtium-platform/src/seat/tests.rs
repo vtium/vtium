@@ -541,3 +541,119 @@ fn a_retry_refused_by_a_disable_in_flight_waits_for_the_next_enable() {
     assert_eq!(vt(&mut data).settled(), [PathBuf::from(CARD)]);
     assert!(vt(&mut data).open_device(Path::new(CARD)).is_ok());
 }
+
+/// One device the seat manager answers `EBUSY` for once, asked on a seat
+/// vtium holds: it waits for a retry.
+fn retried_device(server: &StandIn) -> (Loop<Data>, Data) {
+    server
+        .0
+        .borrow_mut()
+        .device_answers
+        .insert(PathBuf::from(CARD), [Errno::BUSY].into());
+    let (mut lp, mut data) = start(server, None, tries(50, 20));
+    run_until(&mut lp, &mut data, |d, _| vt(d).is_active());
+    assert!(vt(&mut data).open_device(Path::new(CARD)).is_err());
+    (lp, data)
+}
+
+/// Dispatches the loop for 30 ms, six of the tests' retry intervals.
+fn idle(lp: &mut Loop<Data>, data: &mut Data) {
+    for _ in 0..3 {
+        ok(
+            lp.dispatch(Some(Duration::from_millis(10)), data),
+            "dispatch",
+        );
+    }
+}
+
+/// A device the owner lets go while its open is pending is tried no more.
+#[test]
+fn a_device_let_go_while_pending_is_tried_no_more() {
+    let server = StandIn::new();
+    let (mut lp, mut data) = retried_device(&server);
+    vt(&mut data).close_device(Path::new(CARD));
+    idle(&mut lp, &mut data);
+    assert_eq!(device_opens(&server, CARD), 1);
+    assert!(vt(&mut data).settled().is_empty());
+    assert!(server.0.borrow().devices.is_empty());
+}
+
+/// A disable puts a device being retried back to wait for the enable, so
+/// no retry timer runs while the seat is another's.
+#[test]
+fn a_disable_stops_the_retries_until_the_enable() {
+    let server = StandIn::new();
+    let (mut lp, mut data) = retried_device(&server);
+    server.disable();
+    let events = run_until(&mut lp, &mut data, |_, e| !e.is_empty());
+    assert_eq!(events, [VtEvent::Release]);
+    ok(vt(&mut data).acknowledge_release(), "acknowledge");
+    idle(&mut lp, &mut data);
+    assert!(!vt(&mut data).armed, "no timer while the seat is another's");
+    assert_eq!(device_opens(&server, CARD), 1);
+}
+
+/// A second disable while a release waits cancels the enable owed, as the
+/// session is gone again: the acknowledgement acquires nothing.
+#[test]
+fn a_second_disable_cancels_the_enable_owed() {
+    let server = StandIn::new();
+    server.0.borrow_mut().logind = true;
+    let (mut lp, mut data) = start(&server, None, tries(50, 20));
+    run_until(&mut lp, &mut data, |d, _| vt(d).is_active());
+    server.tell(Told::Disable);
+    server.tell(Told::Enable);
+    server.tell(Told::Disable);
+    let events = run_until(&mut lp, &mut data, |_, e| !e.is_empty());
+    assert_eq!(events, [VtEvent::Release]);
+    ok(vt(&mut data).acknowledge_release(), "acknowledge");
+    let events: Vec<VtEvent> = vt(&mut data).events().collect();
+    assert!(events.is_empty(), "{events:?}");
+    assert!(!vt(&mut data).is_active());
+}
+
+/// Nothing asks the seat manager for a device while the seat is not
+/// vtium's, whatever runs: the timer's tick or the descriptor's dispatch.
+#[test]
+fn no_device_is_asked_while_the_seat_is_not_vtiums() {
+    let server = StandIn::new();
+    server.0.borrow_mut().enables_at_open = false;
+    let (_lp, mut data) = start(&server, None, tries(50, 20));
+    assert!(vt(&mut data).open_device(Path::new(CARD)).is_err());
+    vt(&mut data).tick();
+    assert!(vt(&mut data).readable());
+    assert_eq!(device_opens(&server, CARD), 0);
+}
+
+/// An enable libseat delivers inside the open is acted on at once, with
+/// no readable descriptor to wait for.
+#[test]
+fn an_enable_delivered_inside_the_open_acquires_at_once() {
+    let server = StandIn::new();
+    let (_lp, mut data) = start(&server, None, tries(50, 20));
+    assert!(vt(&mut data).is_active());
+    let events: Vec<VtEvent> = vt(&mut data).events().collect();
+    assert_eq!(events, [VtEvent::Acquired]);
+}
+
+/// The acknowledgement that reports an enable owed also asks for the
+/// devices that waited for it.
+#[test]
+fn the_acknowledgement_that_acquires_asks_for_the_waiting_devices() {
+    let server = StandIn::new();
+    server.0.borrow_mut().logind = true;
+    let (mut lp, mut data) = start(&server, None, tries(50, 20));
+    run_until(&mut lp, &mut data, |d, _| vt(d).is_active());
+    server.tell(Told::Disable);
+    run_until(&mut lp, &mut data, |_, e| !e.is_empty());
+    assert!(vt(&mut data).open_device(Path::new(CARD)).is_err());
+    server.tell(Told::Enable);
+    ok(
+        lp.dispatch(Some(Duration::from_millis(10)), &mut data),
+        "dispatch",
+    );
+    ok(vt(&mut data).acknowledge_release(), "acknowledge");
+    let events: Vec<VtEvent> = vt(&mut data).events().collect();
+    assert_eq!(events, [VtEvent::Acquired]);
+    assert_eq!(vt(&mut data).settled(), [PathBuf::from(CARD)]);
+}
