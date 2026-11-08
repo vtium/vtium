@@ -23,7 +23,7 @@ from t3_common import GOLDEN, GUEST, HERE, ROOT, RUNDIR, rel
 SCREENS = ["sgr", "colour-forms", "underline-styles", "underline-colour", "strike",
            "boxdraw", "blocks", "mosaic", "wide-margin", "combining", "emoji", "sync-hold", "sixel",
            "sixel-ramps", "sixel-article", "sixel-bound", "sixel-evict", "photos",
-           "photo-scroll", "mpv-sixel", "tmux-2x2", "tmux-3x3", "kitty", "kitty-photo", "kitty-files", "kitty-layers", "s1-scroll", "flood", "cjk"]
+           "photo-scroll", "mpv-sixel", "tmux-2x2", "tmux-3x3", "kitty", "kitty-photo", "kitty-files", "kitty-layers", "s1-scroll", "flood", "sync-clock", "cjk"]
 # The screens of the small displays (vtium/vtium#75): small-console, written
 # for 40 columns, then screens of the list above that draw at any width,
 # with the colored underlines and strikes at small cells (vtium/vtium#119),
@@ -62,7 +62,8 @@ KEYED = [
 KEYS_AFTER = {"sixel-evict": [("ctrl", "minus")]}
 # The screens that are also benchmark scenarios: each reports its
 # window on the event port, and the report carries its figures (t3_bench.py).
-BENCHMARKS = ["mpv-sixel", "tmux-2x2", "tmux-3x3", "s1-scroll", "flood", "img-tmux-pane"]
+BENCHMARKS = ["mpv-sixel", "tmux-2x2", "tmux-3x3", "s1-scroll", "flood", "sync-clock",
+              "img-tmux-pane"]
 # The benchmark screens judged by A2's criterion, that the console is
 # not the bottleneck (t3_bench.bottleneck); the tmux grids report their
 # figures only, since tmux redraws every pane's pictures itself.
@@ -220,8 +221,10 @@ CHECKS = {
 }
 # The checks without a golden: each passes when its capture was taken, or,
 # on a guest with no display to capture, when the scenario reports it
-# passed (the variant's metadata, "passed").
-NO_GOLDEN = {"vt-switch", *t3_power.CHECKS, *t3_pointer.CHECKS, *t3_devices.CHECKS,
+# passed (the variant's metadata, "passed"). sync-clock is a benchmark
+# whose figures are reported, not judged, and whose picture judges only
+# that the screen finished.
+NO_GOLDEN = {"vt-switch", "sync-clock", *t3_power.CHECKS, *t3_pointer.CHECKS, *t3_devices.CHECKS,
              *t3_images.CHECKS,
              *t3_heads.CHECKS}
 
