@@ -456,6 +456,8 @@ The figure shows the route card that `?` opens on the selected keyboard: its two
 
 > Edited 2026-11-04 and 2026-11-05: the maintainer gave vtium-config the views Flow, Looks, Fonts, Settings and Help, opening on Flow; a head's look card picks from the looks the Looks view defines; and the view deletes heads, looks and rules, each delete confirmed (`considered`, 2026-11-04 and 2026-11-05). The figure's tab bar read "Fonts, Sizes, Settings, Heads and Flow", "How to reach it" read "A tab named Flow in the TUI, after Heads", the look's bullet named no sizes, and D8 had the Heads view set a head's profile. The earlier text and figure are in git at 9f4fd304.
 
+> Edited 2026-11-07: the maintainer decided that vtium-config takes over the job ADR-1401 D12 planned for `vtiumctl`, a separate binary, and vtium does not build `vtiumctl` (ADR-1401 D12). The opening-and-editing bullet's selectors come from the match keys that `vtium config flow` lists, the strongest first (ADR-1401 D12), where it names `vtiumctl detect`.
+
 ### D8: what vtium-config writes
 
 > Edited 2026-11-05: the term was unified under the maintainer's six words (D7): this record says draft wherever it said working copy, the user's copy of vtium.conf that every edit changes. The considered entries keep the words that were said.
@@ -655,6 +657,8 @@ Once the maintainer accepts this record, each passage below is edited in place w
 - ADR-1304 D4 and D5, accepted: a vtlook uses vtium.conf's section syntax, and a head's `look` is set in its section of vtium.conf; its author changes them before acceptance.
 - docs/config.md, docs/configure.md, docs/head-file.md, docs/heads.md and the files under docs/heads/, the READMEs of the vtium, vtium-config and vtium-settings crates, and the configuration example and template.
 
+> Edited 2026-11-07: the maintainer decided that vtium-config takes over the job ADR-1401 D12 planned for `vtiumctl`, a separate binary, and vtium does not build `vtiumctl` (ADR-1401 D12). The ADR-1401 D12 passage above names `vtiumctl template` and `install`; ADR-1401 D12 now gives those jobs to the example vtium.conf a package installs and to `vtium config install`.
+
 ## C notes: the C reference's flow
 
 - `kmscon_conf_load_main` parsed the command line, then `<configdir>/kmscon.conf`, then set the log level again so that the file's `debug` and `verbose` took effect (`kmscon/src/config.c:1500-1552`).
@@ -704,6 +708,8 @@ Once the maintainer accepts this record, each passage below is edited in place w
 - Frits, vtlooks, shaders and fonts stay files of their own, which the flow names and the view draws.
 - `vtiumctl`, not built yet, writes vtium.conf where ADR-1401 D12 has it write heads.conf.
 - The flow view edits rules, heads and looks, which overlaps what ADR-1401 D12 plans for `vtiumctl setup`; both write through the same section writer and the same check, and a change applies at vtium's next reading of its configuration until the trial of ADR-1401 D12 is built.
+
+> Edited 2026-11-07: the maintainer decided that vtium-config takes over the job ADR-1401 D12 planned for `vtiumctl`, a separate binary, and vtium does not build `vtiumctl` (ADR-1401 D12). vtium-config writes vtium.conf for every job of ADR-1401 D12, and the flow view and ADR-1401 D12's setup are one tool, so the overlap the second bullet names is gone. The trial of ADR-1401 D12 is staged by `vtium config install` once it is built.
 
 ## Alternatives Considered
 
