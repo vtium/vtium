@@ -15,11 +15,12 @@ workspace = true
 vtium-parse.workspace = true
 vtium-image = { workspace = true, optional = true }
 # The bidirectional algorithm for the `bidi` feature (ADR-1004 D13): vtium's
-# fork of servo's unicode-bidi, pinned by revision. vtium-term reaches it only
+# fork of servo's unicode-bidi, pinned to a commit of the fork's branch
+# vtium/fixes, at Unicode 18.0.0. vtium-term reaches it only
 # through `src/unicode/bidi/levels.rs`, which passes it vtium-term's own
 # Unicode tables. Its default features would link its own tables, so they are
 # off.
-unicode-bidi = { git = "https://github.com/vtium/unicode-bidi", rev = "9a8c7b03be01def5cf7014b89d5af90f7382fdad", default-features = false, features = ["std"], optional = true }
+unicode-bidi = { git = "https://github.com/vtium/unicode-bidi", rev = "5927633397bc767eb23e0d0c80541272cb88b4ab", default-features = false, features = ["std"], optional = true }
 
 [features]
 # The image pipeline (ADR-1100): the store on every screen event, the

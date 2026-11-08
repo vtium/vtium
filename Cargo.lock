@@ -833,7 +833,7 @@ dependencies = [
 [[package]]
 name = "unicode-bidi"
 version = "0.3.18"
-source = "git+https://github.com/vtium/unicode-bidi?rev=9a8c7b03be01def5cf7014b89d5af90f7382fdad#9a8c7b03be01def5cf7014b89d5af90f7382fdad"
+source = "git+https://github.com/vtium/unicode-bidi?rev=5927633397bc767eb23e0d0c80541272cb88b4ab#5927633397bc767eb23e0d0c80541272cb88b4ab"
 
 [[package]]
 name = "unicode-ident"
