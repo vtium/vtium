@@ -5677,6 +5677,14 @@ fn a_frit_with_no_stated_cell_takes_the_displays() {
     assert_eq!((h.app.cells(), h.app.grid()), (vec![(8, 19)], (40, 8)));
 }
 
+/// How long a test whose helper answers in time waits for each cell
+/// answer, through [`vtium::helper::CellWait`], in place of the console's
+/// 100 ms. Such a test judges the answer, not how fast the host starts the
+/// helper: under qemu-user, or on a busy runner, a helper's first answer
+/// can take longer than 100 ms. The bound only makes a helper that never
+/// answers fail the test instead of hanging it.
+const IN_TIME: Duration = Duration::from_secs(30);
+
 /// The helper's answer to a cell query: the frit's own cell.
 fn own_cell(width: u32, height: u32) -> Vec<u8> {
     let mut out = 6u32.to_le_bytes().to_vec();
@@ -5692,6 +5700,7 @@ fn own_cell(width: u32, height: u32) -> Vec<u8> {
 // font-size keeps winning
 #[test]
 fn a_bitmap_frit_with_no_cell_takes_its_fonts_own_cell() {
+    let _wait = vtium::helper::CellWait::new(IN_TIME);
     let (_dir, fonts, _go) = frit_fonts_of(
         "own",
         "source=kbd:x\n",
@@ -5717,6 +5726,7 @@ fn a_bitmap_frit_with_no_cell_takes_its_fonts_own_cell() {
 // cell too, on the switch's new grid
 #[test]
 fn osc_50_to_a_bitmap_frit_with_no_cell_takes_its_fonts_own_cell() {
+    let _wait = vtium::helper::CellWait::new(IN_TIME);
     let (_dir, fonts, _go) = frit_fonts_of(
         "own-osc50",
         "source=kbd:x\n",
@@ -5861,14 +5871,12 @@ fn cell_answers(kinds: &Path) -> usize {
 // height asked before is not asked again.
 #[test]
 fn an_outline_frit_draws_in_the_helpers_cell_at_each_height() {
+    let _wait = vtium::helper::CellWait::new(IN_TIME);
     let (equal, minus) = (0x3d, 0x2d);
     let (_dir, fonts, kinds, _go) = outline_frit("each", false);
     logged();
     let mut h = with_fonts(&["--font-name=t", "--font-size=16"], fonts);
     let lines = logged();
-    if missed_the_wait_under_qemu(&lines) {
-        return;
-    }
     assert_eq!(h.app.cells(), vec![(9, 16)]);
     assert_eq!(
         (h.app.grid().0, h.app.grid().1),
@@ -5884,9 +5892,6 @@ fn an_outline_frit_draws_in_the_helpers_cell_at_each_height() {
     for _ in 16..22 {
         h.app.input_event(key(Mods::CTRL, equal), h.at());
     }
-    if missed_the_wait_under_qemu(&logged()) {
-        return;
-    }
     assert_eq!(h.app.cells(), vec![(12, 22)]);
     assert_eq!(cell_answers(&kinds), 7, "each zoom asked at its height");
     for _ in 16..22 {
@@ -5900,25 +5905,6 @@ fn an_outline_frit_draws_in_the_helpers_cell_at_each_height() {
         "every answer was an outline cell: {:?}",
         kinds_sent(&kinds)
     );
-}
-
-/// Whether the log shows that the helper's answer came after the
-/// console's wait of helper::OWN_CELL_MS, under qemu-user. There the
-/// helper is this test binary, emulated, and on a busy host an answer can
-/// take longer than the wait. The test then judges nothing, because its
-/// subject is the answer in time, and it says so. qemu's speed says
-/// nothing about an ARM CPU's (tools/arm/README.md), and the answer that
-/// comes after the wait has a test of its own,
-/// a_late_outline_cell_is_drawn_from_the_next_frame.
-fn missed_the_wait_under_qemu(lines: &[String]) -> bool {
-    let missed = std::env::var_os("VTIUM_QEMU_USER").is_some()
-        && lines
-            .iter()
-            .any(|l| l.contains("is not known (the helper gave no answer in "));
-    if missed {
-        eprintln!("skipped: under qemu the helper's answer came after the wait: {lines:?}");
-    }
-    missed
 }
 
 // overhang part 1 and ADR-1200 D17 (the maintainer, 2026-11-03): until
@@ -5958,6 +5944,8 @@ fn a_late_outline_cell_is_drawn_from_the_next_frame() {
         (W as usize / 12, H as usize / 22),
         "the grid takes the late cell with the view"
     );
+    // the late answer is in; the ask at 21 is answered in time
+    let _wait = vtium::helper::CellWait::new(IN_TIME);
     h.app.input_event(key(Mods::CTRL, minus), h.at());
     let at21 = h.app.cells();
     assert!(

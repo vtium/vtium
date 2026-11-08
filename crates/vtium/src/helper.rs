@@ -131,6 +131,36 @@ pub const WARNINGS_MAX: usize = 16;
 // The helper starts and reads a PSF well inside it on minspec, and a start that waits longer stalls visibly (the operator, 2026-10-28).
 pub const OWN_CELL_MS: u64 = 100;
 
+thread_local! {
+    /// The wait a [`CellWait`] sets for the cell queries asked on this
+    /// thread, in place of the console's.
+    static CELL_WAIT: std::cell::Cell<Option<Duration>> = const { std::cell::Cell::new(None) };
+}
+
+/// While it lives, each cell query asked on the thread that made it waits
+/// up to its bound for the answer, in place of the wait the console asks
+/// for ([`OWN_CELL_MS`]). A test whose helper answers in time holds one, so
+/// that the test judges the answer and not how fast the host starts and
+/// runs the helper; the bound only makes a helper that never answers fail
+/// the test instead of hanging it. The console never makes one. A test of
+/// the wait itself, or of an answer that comes after it, holds none.
+#[must_use = "the wait goes back to the console's when the guard drops"]
+pub struct CellWait(Option<Duration>);
+
+impl CellWait {
+    /// Waits up to `bound` for each cell answer on this thread until the
+    /// guard drops.
+    pub fn new(bound: Duration) -> CellWait {
+        CellWait(CELL_WAIT.with(|w| w.replace(Some(bound))))
+    }
+}
+
+impl Drop for CellWait {
+    fn drop(&mut self) {
+        CELL_WAIT.with(|w| w.set(self.0));
+    }
+}
+
 const REQUEST_MAGIC: &[u8; 8] = b"VTVSREQ5";
 /// Why the console gives the helper up when the two read different layouts
 /// of their format: a helper of an older build refuses this console's
@@ -1186,13 +1216,15 @@ impl Helper {
     /// the helper's refusal, a helper that cannot start or ends first, no
     /// answer in time, whose late answer is kept when it comes, or an
     /// outline cell of another height, which is refused as malformed.
-    /// `clock` tells the time as the wait goes on.
+    /// `clock` tells the time as the wait goes on. A [`CellWait`] on this
+    /// thread sets the wait in place of `wait`.
     pub fn own_cell(
         &mut self,
         height: u32,
         wait: Duration,
         clock: &dyn Fn() -> Instant,
     ) -> Result<OwnCell, NoCell> {
+        let wait = CELL_WAIT.with(std::cell::Cell::get).unwrap_or(wait);
         let now = clock();
         let query = Cell { width: 0, height };
         if self.failed.is_none() {
@@ -2158,6 +2190,27 @@ mod tests {
             name: "t".to_owned(),
             text: text.to_owned(),
         }
+    }
+
+    // A test that holds a CellWait sets the wait of the cell queries on
+    // its thread for as long as it holds it, and no longer, so a later test
+    // on the same thread, which may judge the console's own wait, gets
+    // that wait back.
+    #[test]
+    fn a_cell_wait_holds_only_while_its_guard_lives() {
+        let wait = || CELL_WAIT.with(std::cell::Cell::get);
+        let (long, short) = (Duration::from_secs(30), Duration::from_secs(5));
+        assert_eq!(wait(), None, "the console's wait");
+        {
+            let _outer = CellWait::new(long);
+            assert_eq!(wait(), Some(long));
+            {
+                let _inner = CellWait::new(short);
+                assert_eq!(wait(), Some(short));
+            }
+            assert_eq!(wait(), Some(long), "the outer guard's wait is back");
+        }
+        assert_eq!(wait(), None, "the console's wait is back");
     }
 
     #[test]
