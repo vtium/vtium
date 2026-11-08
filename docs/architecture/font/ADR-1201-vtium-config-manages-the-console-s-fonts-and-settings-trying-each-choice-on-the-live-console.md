@@ -169,6 +169,8 @@ related: []
   - *Confident (choosing a profile):* vtium-config is where a user builds a profile (its frit, its cell and its options), checks it against a display and picks it. Which profile a head uses stays a line in `heads.conf`, which vtiumctl writes. Is that the split you meant? (Answered 2026-11-02: vtium-config also assigns the profile, through vtiumctl's head-file writer; see `considered`.)
 - **Inversion:** Between "vtium supplies only non-interactive commands, and any interactive front end is someone else's", ADR-1200's earlier stance, and "an interactive program is the way to configure the console", as a desktop's settings panel is. vtium keeps every action scriptable and ships one interactive front end on top. The one thing the TUI adds, switching the live console, rests on OSC 50, which any program may send.
 
+> Edited 2026-11-07: the maintainer decided that vtium-config takes over the job ADR-1401 D12 planned for `vtiumctl`, a separate binary, and vtium does not build `vtiumctl` (ADR-1401 D12). Where the Summary names `vtiumctl`, vtium-config does that work: the section writer is the one vtium-config and `vtium check-config` link, and the running console's controls, `status`, the trial and the overlay, are vtium-config's.
+
 ## Context
 
 vtium-config is vtium's font tool, a binary of its own outside the console (ADR-1200 D4, D6). It serves the console as its glyph helper (`serve`, ADR-1200 D15) and switches the running console's frit (`set`, ADR-1200 D5). ADR-1200 plans two more commands, `preview` and the guided builder `new`, and states that each command is non-interactive where it writes. ADR-1401 D12 makes `vtiumctl` the configuration tool for the head file, and has it write and install frits too. The tool was named vtium-vitrify until this record renamed it (D12); the records before this one, and this record's dated notes, use that name.
@@ -176,6 +178,8 @@ vtium-config is vtium's font tool, a binary of its own outside the console (ADR-
 The maintainer tried `vtium-vitrify set monoid`, the tool's name then, on a VT, and the console changed font at once, as `setfont` changes a Linux console's font. The maintainer decided that vtium-config grows from that into an interactive tool for the console's fonts and its configuration file, whose TUI switches the live console as the user browses.
 
 The C reference had no such tool. It read its font from kmscon.conf at start, and while it ran only the zoom keys changed the font, by its size; it had no OSC 50 (`src/terminal.c` at kmscon `b1f7a7c5`, `font_set`, `zoom_in`, `osc_event`). vtium's OSC 50 and its query already exist, behind `allow-font-ops`, which is on by default.
+
+> Edited 2026-11-07: the maintainer decided that vtium-config takes over the job ADR-1401 D12 planned for `vtiumctl`, a separate binary, and vtium does not build `vtiumctl` (ADR-1401 D12). The context above tells what ADR-1401 D12 said when this record was written. ADR-1401 D12 now makes vtium-config the configuration tool for the whole of vtium.conf and the frits.
 
 ## Decision
 
@@ -198,6 +202,8 @@ Terms used below: a *frit* is a font set file, `NAME.vtfrit`, in the frits' dire
 > Edited 2026-11-04: the Heads view went into the Flow view's head cards (D3; `considered`, 2026-11-04). The bullet on assigning a profile read: "The TUI lists the heads `heads.conf` declares, read with vtium-settings's parser,".
 
 > Edited 2026-11-05: ADR-1403 moved the head file into vtium.conf, where vtium-config writes its rules, heads and looks, and renamed the profile the look (ADR-1403 D1, D3, D8). The bullets read: "**One line of the head file,** `/etc/vtium/heads.conf`: a head's `look =` line, which assigns the head its profile, written through the head-file writer vtiumctl uses (D6). The rest of the head file stays vtiumctl's."; "**Profiles** are a frit, a cell and font options [...]. Until profiles have a file of their own, a frit's `cell=` line carries the cell [...]. vtiumctl keeps controlling a running console (`status`, the trial and the overlay) and the head file (ADR-1401 D12)." The bullets also read "**Assigning a profile to a head** [...] and the user picks the look each head draws with, a profile among them [...] and it is written as D6 says, in the apply step under sudo. A head names a profile only once profiles have a file of their own, so the assignment is built with them." The earlier text is in git at e53919ea.
+
+> Edited 2026-11-07: the maintainer decided that vtium-config takes over the job ADR-1401 D12 planned for `vtiumctl`, a separate binary, and vtium does not build `vtiumctl` (ADR-1401 D12). Detecting devices and controlling a running console, `status`, the trial and the overlay, are vtium-config's, where the looks bullet names `vtiumctl`.
 
 ### D2: one tool, and its commands
 
@@ -226,6 +232,8 @@ vtium-config stays one binary, apart from vtiumctl. Each command is typed as `vt
 > Edited 2026-11-05: ADR-1403 added the flow's commands and made every write go into the draft (ADR-1403 D8). The table had no row for them, `apply DIR` checked "a draft", and the bullet read: "**Run as a user,** a command that writes makes an install bundle under `$XDG_STATE_HOME/vtium/drafts/<time>/`, [...] and prints the install bundle's path and the command that installs it, `sudo vtium-config apply DIR`. **Run as root,** it installs at once through the same steps `apply DIR` takes."
 
 > Edited 2026-11-05: the maintainer renamed the command that reads a key `get`, the pair of `set` (`considered`). The row read: "| `config KEY`, `config KEY VALUE`, `config --unset KEY` | the user; root to install | Prints a key's value; with a value or `--unset`, makes that one change (D5). |"
+
+> Edited 2026-11-07: the maintainer decided that vtium-config takes over the job ADR-1401 D12 planned for `vtiumctl`, a separate binary, and vtium does not build `vtiumctl` (ADR-1401 D12). vtium-config is the one configuration binary, and no `vtiumctl` stands beside it.
 
 ### D3: the TUI
 
@@ -319,6 +327,8 @@ An example of the Fonts view's content, narrower than the view draws it; its lay
 
 > Edited 2026-11-05: ADR-1403 made the draft the one place every change goes, moved the head file into vtium.conf, and kept the line editor to the top level (ADR-1403 D3, D8). The steps were headed "What `install` does" and read "the draft" for the install bundle; an install bundle held "for vtium.conf and `heads.conf` the whole edited file"; step 3 checked "the edited `heads.conf` with `vtium check-config FILE`, which checks a head file before it is installed (ADR-1401 D7); and the edited vtium.conf with `vtium check-config --configdir` naming the install bundle's directory"; step 4 wrote "the frits first, then `heads.conf`, and vtium.conf last"; the first bullet read "When the user saves, it writes the install bundle"; and the line editor's bullet was headed "Editing vtium.conf line by line" and added "Any other new key [...] at the end of the file". D5 had no bullet on the check every change goes through. The earlier text is in git at e53919ea.
 
+> Edited 2026-11-07: the maintainer decided that vtium-config takes over the job ADR-1401 D12 planned for `vtiumctl`, a separate binary, and vtium does not build `vtiumctl` (ADR-1401 D12). The install bundles live under `$XDG_STATE_HOME/vtium/drafts/`, which ADR-1401 D12 now gives vtium-config's install bundles, and `apply` keeps the file it replaces as `NAME.bak` on its own account, with no `vtiumctl` `install` to match.
+
 ### D6: the head file has one writer
 
 - **The head file is the sections of vtium.conf** (ADR-1403 D3), and vtium-config writes its rules, heads and looks: the Flow and Looks views and the commands of ADR-1403 D8. vtiumctl keeps detecting devices, `setup` and the trial (ADR-1401 D12), and its writes go through the same writer and the same check (ADR-1403 D8).
@@ -334,6 +344,8 @@ An example of the Fonts view's content, narrower than the view draws it; its lay
 > Edited 2026-11-05: ADR-1403 moved the head file into vtium.conf, where vtium-config writes its rules, heads and looks through the section writer (ADR-1403 D3, D8). D6 began: "**vtiumctl keeps the head file and the devices:** detecting them, setting up heads, rules, policy, the trial, and installing the head file (ADR-1401 D12). vtium-config changes one thing in it, a head's `look =` line (D1)." The writer's bullet read "vtium-config never writes `heads.conf` text of its own. The head file's writer [...]" and ended "setting a head's `look =` line in its section and keeping every other byte.", and the last bullet had the TUI write "the edited head file into the install bundle" and waited on profiles having a file. The heading keeps its words, since ADR-1403 names it. The earlier text is in git at e53919ea.
 
 > Edited 2026-11-02: the maintainer had vtium-vitrify assign a head's profile through the head-file writer vtiumctl uses (`considered`). D6 was headed "the head file stays out" and began: "The TUI does not read or edit `heads.conf`. vtiumctl keeps the head file and the devices: detecting them, setting up heads, the trial, and installing the head file (ADR-1401 D12)."
+
+> Edited 2026-11-07: the maintainer decided that vtium-config takes over the job ADR-1401 D12 planned for `vtiumctl`, a separate binary, and vtium does not build `vtiumctl` (ADR-1401 D12). Detecting devices, setup and the trial are vtium-config's, so the section writer is linked by vtium-config and `vtium check-config`, and the reasons for one library hold between those two.
 
 ### D7: what the TUI is built with
 
@@ -403,6 +415,8 @@ These change when this record is accepted, in their owners' changes; this record
 - **docs/config.md's `font-helper` row,** `crates/vtium/README.md`, `crates/vtium-vitrify/README.md` and the install tree change with the rename (D12).
 - **The tracker issue for the tool** lists this work.
 
+> Edited 2026-11-07: the maintainer decided that vtium-config takes over the job ADR-1401 D12 planned for `vtiumctl`, a separate binary, and vtium does not build `vtiumctl` (ADR-1401 D12). The passages above that concern `vtiumctl` describe ADR-1401 D12 as it stood before; ADR-1401 D12 now gives vtium-config every job it gave `vtiumctl`.
+
 ### For the maintainer's check
 
 The maintainer decided on 2026-11-02 the three calls this section listed (`considered`): the command names stay as D2 has them; profiles move to vtium-config (D1); and a session's end returns its console to the configured font (D11).
@@ -461,3 +475,5 @@ The maintainer decided on 2026-11-02 the three calls this section listed (`consi
 
 - **A head-file writer of vtium-config's own.** Not taken, by the maintainer: two writers of one file would drift, so vtium-config uses vtiumctl's (D6).
 - **Running `vtiumctl` to edit the head file.** Not taken, by the maintainer: it would parse text across a process boundary, let a development build and a packaged one disagree, and need vtiumctl built; the tools link one module instead (D6).
+
+> Edited 2026-11-07: the maintainer decided that vtium-config takes over the job ADR-1401 D12 planned for `vtiumctl`, a separate binary, and vtium does not build `vtiumctl` (ADR-1401 D12). The alternatives that name `vtiumctl` record what was weighed then, and vtium-config now does the work they gave `vtiumctl`.
