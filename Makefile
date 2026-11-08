@@ -593,11 +593,18 @@ vt-uninstall: ## Undo make vt-install on VT N: vtium-dev off, its getty back, th
 # Mesa keeps its shader cache in files that every GL program of the user
 # shares, in ~/.cache by default, and maps those files into memory. When
 # another program rewrites a file that a run has mapped, the run dies with
-# SIGBUS, as make tier2 did while other GL runs drew. The targets that start
-# GL therefore run without Mesa's shader cache, so no other program's writes
-# can reach them. Mesa then compiles each shader as a run first uses it,
-# which costs a run time and changes nothing it draws.
-tier2 arm-test test-tools gates: export MESA_SHADER_CACHE_DISABLE = true
+# SIGBUS, as make tier2 did while other GL runs drew. Each target that
+# starts GL therefore keeps a cache of its own in the cargo target
+# directory, which only its own runs use; a gate of make gates has a target
+# directory of its own, so it has its own cache too. The cache stays between
+# runs, so a run compiles only the shaders the last one did not, and cargo
+# clean removes it. arm-test runs the sysroot's older Mesa, so its cache
+# stays apart from the host Mesa's as well.
+MESA_CACHES = $(abspath $(or $(CARGO_TARGET_DIR),target))/mesa-shader-cache
+tier2: export MESA_SHADER_CACHE_DIR = $(MESA_CACHES)/tier2
+arm-test: export MESA_SHADER_CACHE_DIR = $(MESA_CACHES)/arm-test
+test-tools: export MESA_SHADER_CACHE_DIR = $(MESA_CACHES)/test-tools
+gates: export MESA_SHADER_CACHE_DIR = $(MESA_CACHES)/gates
 
 # Tier 2 against its goldens in tools/tier2/goldens. The report names this checkout's commit, as tier 3's
 # does (T3_REV). tier2 runs tier2-fonts first, which fetches the outline fonts the outline screens draw
