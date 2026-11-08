@@ -19,7 +19,7 @@ use vtium_font::{Cell, Face, Font, Format, Glyph as FontGlyph, Style, Width as F
 use vtium_term::{Age, Cursor, Damage, Frame, Glyph, Line, LineId, Palette, Rgb, Width};
 
 use super::{Config, DrawState, Renderer};
-use crate::cache::pool_of;
+use crate::cache::{Budgets, pool_of};
 use crate::reach::{Bound, InkBox};
 use crate::stored::Stored;
 use crate::target::{Canvas, Orientation, Rect, Target};
@@ -103,7 +103,16 @@ impl Face for Plain {
 /// the reaching glyphs.
 fn renderer(cols: usize, rows: usize, bound: Bound) -> Renderer<Plain> {
     let (w, h) = (cols as u32 * CW, rows as u32 * CH);
-    let mut r = Renderer::new(Font::new(Plain), w, h, Config::default());
+    let config = Config {
+        budgets: Some(Budgets {
+            narrow: 256,
+            wide: 64,
+            mask_bytes: 1 << 20,
+            color_bytes: 1 << 20,
+        }),
+        ..Config::default()
+    };
+    let mut r = Renderer::new(Font::new(Plain), w, h, config);
     r.bound = bound;
     for c in REACHING {
         let g = stored(c);

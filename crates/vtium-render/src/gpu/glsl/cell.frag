@@ -26,12 +26,17 @@
 // a sprite being its place in sprites plus one, or 0 for none.
 //
 // With INK, a job that RECEIVES ink from its neighbours' glyphs (ADR-1306
-// D4, D9) reads, for each neighbour its glyph's reach could come from, that
-// neighbour's entry in the ink grid: the reach byte the CPU path keeps for
-// the cell, its span, the slot of its glyph among the boxes, and its ink's
-// color. A neighbour whose reach covers the pixel lends the coverage of
-// its glyph's box there, tinted, and the received ink is blended, in
-// D4's order, into one premultiplied layer, as compose.rs's receive does.
+// D4, D9) first reads the bit the ink grid holds for the display line
+// through the pixel, which the renderer sets when ink reaches that line
+// anywhere in the job. On a line whose bit is clear no pixel receives ink,
+// and the pixel draws as in a job that receives none. On a line whose bit
+// is set, the pixel reads, for each neighbour its glyph's reach could come
+// from, that neighbour's entry in the ink grid: the reach byte the CPU
+// path keeps for the cell, its span, the slot of its glyph among the
+// boxes, and its ink's color. A neighbour whose reach covers the pixel
+// lends the coverage of its glyph's box there, tinted, and the received
+// ink is blended, in D4's order, into one premultiplied layer, as
+// compose.rs's receive does.
 //
 // Without OVER the quad writes the cell, its text layer over its
 // background. With OVER it writes the cell's text layer over the pixels
@@ -57,9 +62,12 @@ uniform ivec4 cell;
 uniform highp sampler2D boxes;
 // x, y: a slot's width and height; z: the slots across the boxes' texture
 uniform ivec4 box_slot;
-// the ink grid: for the cell at column k and row r, the texel at k, 2r
+// the ink grid: each cell takes texels() texels, one above the other; for
+// the cell at column k and row r, with t texels a cell, the texel at k, tr
 // holds its reach byte, its span and its slot's number, low byte first,
-// and the texel at k, 2r + 1 its ink's color
+// the texel at k, tr + 1 its ink's color, and the texels from k, tr + 2 on
+// a bit for each display line through it, 32 to a texel, the first line
+// in the lowest bit of the red channel
 uniform highp sampler2D ink;
 #endif
 #ifdef OVER
@@ -134,6 +142,14 @@ struct Job {
     vec3 fg;
 };
 
+// The texels of a cell's entry in the ink grid: two for the glyph it sends
+// ink from, and a texel for each 32 of its line bits, as many as the
+// larger of the cell's width and height, since a display line runs across
+// the cell or, on a display turned a quarter, down it.
+int texels() {
+    return 2 + (max(cell.x, cell.y) + 31) / 32;
+}
+
 // The ink of the glyph whose first cell is at column k in row r, tinted
 // over p at `at`, a pixel of the job's cells counted from the grid's top
 // left. Nothing when no glyph's ink reaches from there, when its block of
@@ -142,10 +158,11 @@ struct Job {
 // before the job's first.
 vec4 take(vec4 p, int k, int r, Job job, ivec2 at, int gap) {
     ivec2 grid = textureSize(ink, 0);
-    if (k < 0 || r < 0 || k >= grid.x || r * 2 + 1 >= grid.y) {
+    int stride = texels();
+    if (k < 0 || r < 0 || k >= grid.x || r * stride + 1 >= grid.y) {
         return p;
     }
-    vec4 e = floor(texelFetch(ink, ivec2(k, r * 2), 0) * 255.0 + 0.5);
+    vec4 e = floor(texelFetch(ink, ivec2(k, r * stride), 0) * 255.0 + 0.5);
     int reach = int(e.r);
     int span = int(e.g);
     if (reach == 0 || span == 0) {
@@ -175,7 +192,7 @@ vec4 take(vec4 p, int k, int r, Job job, ivec2 at, int gap) {
     }
     ivec2 from = ivec2(slot % box_slot.z * box_slot.x, slot / box_slot.z * box_slot.y);
     float a = byte(texelFetch(boxes, from + t, 0).r);
-    vec3 c = job.marked ? job.fg : floor(texelFetch(ink, ivec2(k, r * 2 + 1), 0).rgb * 255.0 + 0.5);
+    vec3 c = job.marked ? job.fg : floor(texelFetch(ink, ivec2(k, r * stride + 1), 0).rgb * 255.0 + 0.5);
     return tint_over(p, a, c);
 }
 
@@ -206,26 +223,16 @@ vec4 received(Job job, ivec2 at) {
     return p;
 }
 
-// Whether any ink reaches the display line through the job's pixel `at`:
-// the CPU path composes such a line whole as a cell of several layers
-// (compose.rs's cell_line), whose rounding differs from a cell of one
-// mask's where the mask's coverage is partial.
+// Whether any ink reaches the display line through the job's pixel `at`,
+// a line across the job or, `down`, down its column: the bit the ink grid
+// holds for that line in the entry of the cell `at` lies in.
 bool line_inked(Job job, ivec2 at, bool down) {
-    ivec2 first = ivec2(job.col * cell.x, job.row * cell.y);
-    if (down) {
-        for (int y = 0; y < cell.y; y++) {
-            if (received(job, ivec2(at.x, first.y + y)).a != 0.0) {
-                return true;
-            }
-        }
-    } else {
-        for (int x = 0; x < job.cells * cell.x; x++) {
-            if (received(job, ivec2(first.x + x, at.y)).a != 0.0) {
-                return true;
-            }
-        }
-    }
-    return false;
+    int k = at.x / cell.x;
+    int n = down ? at.x - k * cell.x : at.y - job.row * cell.y;
+    vec4 t = texelFetch(ink, ivec2(k, job.row * texels() + 2 + n / 32), 0);
+    int bit = n % 32;
+    float v = bit < 8 ? t.r : bit < 16 ? t.g : bit < 24 ? t.b : t.a;
+    return ((int(byte(v)) >> (bit % 8)) & 1) != 0;
 }
 #endif
 
@@ -250,10 +257,13 @@ void main() {
     if ((flags & RECEIVES) != 0u) {
         Job job = Job(int(src.z), int(src.w), dst.z / max(cell.x, 1), (flags & MARKED) != 0u, fg);
         ivec2 pixel = ivec2(job.col * cell.x, job.row * cell.y) + local;
-        recv = received(job, pixel);
-        one = one && recv.a == 0.0;
-        if (one && a != 0.0 && a != 255.0) {
-            one = !line_inked(job, pixel, (flags & DOWN) != 0u);
+        if (line_inked(job, pixel, (flags & DOWN) != 0u)) {
+            recv = received(job, pixel);
+            // the CPU path composes a line that receives ink whole, as a
+            // cell of several layers (compose.rs's cell_line), whose
+            // rounding differs from a cell of one mask's where the mask's
+            // coverage is partial
+            one = one && recv.a == 0.0 && (a == 0.0 || a == 255.0);
         }
     }
 #endif

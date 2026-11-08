@@ -40,6 +40,7 @@ use super::gl::{
     Program, Quad, Size, Source, Texture, Value,
 };
 use super::glyphs::{Glyphs, Place, Spec, rgba};
+use super::ink::ReceivingJob;
 #[cfg(feature = "images")]
 use super::pictures::Shown;
 use super::tile::{Tile, meet, tiles};
@@ -162,6 +163,28 @@ const INK_INPUTS: [Input; 8] = [
 const RECEIVES: u32 = 1;
 const MARKED: u32 = 2;
 const DOWN: u32 = 4;
+
+/// The job a quad of the cell shader draws, in cells of `cell`, when it
+/// receives ink. A quad that covers part of a cell counts that cell whole,
+/// since the shader reads the line bits of the cell each pixel lies in.
+pub(crate) fn receiving(q: &Quad, cell: Size) -> Option<ReceivingJob> {
+    let flags = q.params[1] >> 24;
+    if flags & RECEIVES == 0 {
+        return None;
+    }
+    let n = |v: u32| usize::try_from(v).unwrap_or(0);
+    let width = u32::try_from(q.dst[2]).unwrap_or(0);
+    Some(ReceivingJob {
+        col: n(q.src[2]),
+        row: n(q.src[3]),
+        cells: n(if cell.width > 0 {
+            width.div_ceil(cell.width)
+        } else {
+            0
+        }),
+        down: flags & DOWN != 0,
+    })
+}
 
 /// What a shader that goes over the pixels beneath it takes besides its
 /// own inputs: the copy of those pixels, and the pixel of the target its
@@ -321,13 +344,9 @@ pub(crate) struct Composition {
     /// How many pixels neighbouring tiles share.
     overlap: u32,
     tiles: Vec<(Tile, DrawTarget)>,
-    cell: Program,
-    /// The cell shader built with [`INK`], compiled the first time a frame
-    /// draws a cell that receives ink.
-    ink: Option<Program>,
+    programs: Programs,
     /// The bound on a glyph's reach the cell shaders were built with.
     bound: Bound,
-    arrow: Program,
     /// The arrow last uploaded and its texture.
     arrow_image: Option<(Arrow, Texture)>,
     glyphs: Option<Glyphs>,
@@ -337,20 +356,6 @@ pub(crate) struct Composition {
     whole: bool,
     /// The notices the last frame drew.
     overlays: Vec<Placed>,
-    /// The programs of the cells that pictures reach, each compiled the
-    /// first time a frame needs it: the picture shader for an opaque
-    /// picture and, built with [`OVER`], for one that is not; and the cell
-    /// shader built with [`OVER`], for the text layers and marks.
-    #[cfg(feature = "images")]
-    picture: Option<Program>,
-    #[cfg(feature = "images")]
-    picture_over: Option<Program>,
-    #[cfg(feature = "images")]
-    layer: Option<Program>,
-    /// The under shader, compiled the first time a frame needs it, which
-    /// copies the pixels beneath a draw out of a tile into the copy, and
-    /// tints the selection.
-    under: Option<Program>,
     /// Where a draw over the pixels beneath it copies them: a target kept
     /// from frame to frame, as large in each side as the most pixels a
     /// frame has drawn over in one tile since it was made.
@@ -498,31 +503,124 @@ fn free_tiles<G: Gl>(gl: &mut G, tiles: Vec<(Tile, DrawTarget)>) {
     }
 }
 
+/// Every program the composition draws with, compiled when the frame is
+/// set up, so that no frame waits for a compile: not the frame in which the
+/// first glyph whose ink passes its cells takes its box, nor the first
+/// frame with the pointer or with a picture.
+#[derive(Debug)]
+struct Programs {
+    /// The cell shader, for the cells that receive no ink.
+    cell: Program,
+    /// The cell shader built with [`INK`], for the cells that receive ink.
+    ink: Program,
+    arrow: Program,
+    /// The under shader, which copies the pixels beneath a draw out of a
+    /// tile into the copy, and tints the selection.
+    under: Program,
+    /// The programs of the cells that pictures reach: the picture shader
+    /// for an opaque picture and, built with [`OVER`], for one that is
+    /// not; and the cell shader built with [`OVER`] and [`INK`], for the
+    /// text layers and marks.
+    #[cfg(feature = "images")]
+    picture: Program,
+    #[cfg(feature = "images")]
+    picture_over: Program,
+    #[cfg(feature = "images")]
+    layer: Program,
+}
+
+impl Programs {
+    /// The programs, the cell shaders' loops bounded by `bound`. A call
+    /// that fails frees what it made.
+    fn new<G: Gl>(gl: &mut G, bound: Bound) -> Result<Programs, Error> {
+        let (cell, ink) = (
+            cell_frag(false, false, bound),
+            cell_frag(false, true, bound),
+        );
+        #[cfg(feature = "images")]
+        let layer = cell_frag(true, true, bound);
+        let sources = [
+            (&[CELL_VERT], &cell[..], &CELL_INPUTS[..]),
+            (&[CELL_VERT], &ink[..], &INK_INPUTS[..]),
+            (&[QUAD_VERT], &[ARROW_FRAG][..], &ARROW_INPUTS[..]),
+            (&[CELL_VERT], &[UNDER_FRAG][..], &UNDER_INPUTS[..]),
+            #[cfg(feature = "images")]
+            (&[CELL_VERT], &[ES3, PICTURE_FRAG][..], &PICTURE_INPUTS[..]),
+            #[cfg(feature = "images")]
+            (
+                &[CELL_VERT],
+                &[ES3, OVER, PICTURE_FRAG][..],
+                &PICTURE_OVER_INPUTS[..],
+            ),
+            #[cfg(feature = "images")]
+            (&[CELL_VERT], &layer[..], &LAYER_INPUTS[..]),
+        ];
+        let mut made = Vec::with_capacity(sources.len());
+        for (vertex, fragment, inputs) in sources {
+            match gl.compile(&Source {
+                vertex,
+                fragment,
+                inputs,
+            }) {
+                Ok(p) => made.push(p),
+                Err(e) => {
+                    for p in made {
+                        let _ = gl.free_program(p);
+                    }
+                    return Err(e);
+                }
+            }
+        }
+        let mut made = made.into_iter();
+        let mut next = || {
+            made.next()
+                .ok_or_else(|| Error::new(ErrorKind::Misuse, "a program was not made"))
+        };
+        Ok(Programs {
+            cell: next()?,
+            ink: next()?,
+            arrow: next()?,
+            under: next()?,
+            #[cfg(feature = "images")]
+            picture: next()?,
+            #[cfg(feature = "images")]
+            picture_over: next()?,
+            #[cfg(feature = "images")]
+            layer: next()?,
+        })
+    }
+
+    /// Frees the programs, giving the first error.
+    fn free<G: Gl>(self, gl: &mut G) -> Result<(), Error> {
+        let all = [
+            self.cell,
+            self.ink,
+            self.arrow,
+            self.under,
+            #[cfg(feature = "images")]
+            self.picture,
+            #[cfg(feature = "images")]
+            self.picture_over,
+            #[cfg(feature = "images")]
+            self.layer,
+        ];
+        let mut out = Ok(());
+        for p in all {
+            out = out.and(gl.free_program(p));
+        }
+        out
+    }
+}
+
 impl Composition {
     /// The upright frame of `size`, in tiles overlapping by `overlap`, and
     /// the composition's programs. A call that fails frees what it made.
     pub(crate) fn new<G: Gl>(gl: &mut G, size: Size, overlap: u32) -> Result<Composition, Error> {
         let made = make_tiles(gl, size, overlap)?;
         let bound = Bound::DRAWN;
-        let cell = match gl.compile(&Source {
-            vertex: &[CELL_VERT],
-            fragment: &cell_frag(false, false, bound),
-            inputs: &CELL_INPUTS,
-        }) {
+        let programs = match Programs::new(gl, bound) {
             Ok(p) => p,
             Err(e) => {
-                free_tiles(gl, made);
-                return Err(e);
-            }
-        };
-        let arrow = match gl.compile(&Source {
-            vertex: &[QUAD_VERT],
-            fragment: &[ARROW_FRAG],
-            inputs: &ARROW_INPUTS,
-        }) {
-            Ok(p) => p,
-            Err(e) => {
-                let _ = gl.free_program(cell);
                 free_tiles(gl, made);
                 return Err(e);
             }
@@ -531,22 +629,13 @@ impl Composition {
             size,
             overlap,
             tiles: made,
-            cell,
-            ink: None,
+            programs,
             bound,
-            arrow,
             arrow_image: None,
             glyphs: None,
             border: None,
             whole: true,
             overlays: Vec::new(),
-            #[cfg(feature = "images")]
-            picture: None,
-            #[cfg(feature = "images")]
-            picture_over: None,
-            #[cfg(feature = "images")]
-            layer: None,
-            under: None,
             copy: None,
             copy_at: Vec::new(),
             copy_idle: 0,
@@ -616,19 +705,8 @@ impl Composition {
         if spec.bound != self.bound {
             // a renderer at another bound, as a test makes: the cell
             // shaders' loops follow it
-            let cell = gl.compile(&Source {
-                vertex: &[CELL_VERT],
-                fragment: &cell_frag(false, false, spec.bound),
-                inputs: &CELL_INPUTS,
-            })?;
-            gl.free_program(core::mem::replace(&mut self.cell, cell))?;
-            if let Some(ink) = self.ink.take() {
-                gl.free_program(ink)?;
-            }
-            #[cfg(feature = "images")]
-            if let Some(layer) = self.layer.take() {
-                gl.free_program(layer)?;
-            }
+            let programs = Programs::new(gl, spec.bound)?;
+            core::mem::replace(&mut self.programs, programs).free(gl)?;
             self.bound = spec.bound;
         }
         if self.glyphs.as_ref().map(Glyphs::owner) != Some(spec.owner) {
@@ -694,22 +772,11 @@ impl Composition {
         Ok(3)
     }
 
-    /// Makes what the frame reads ready: the arrow's texture, for a frame
-    /// that draws pictures their programs, and for a frame that draws over
-    /// pixels already drawn the under shader and a copy large enough.
+    /// Makes what the frame reads ready: the arrow's texture, and for a
+    /// frame that draws over pixels already drawn a copy large enough.
     /// Gives how many uploads it made.
     pub(crate) fn prepare<G: Gl>(&mut self, gl: &mut G, work: &Work<'_>) -> Result<usize, Error> {
-        let mut calls = self.prepare_arrow(gl, work.arrow)?;
-        if self.ink.is_none() && work.cells.iter().any(|c| c.ink) {
-            self.ink = Some(gl.compile(&Source {
-                vertex: &[CELL_VERT],
-                fragment: &cell_frag(false, true, self.bound),
-                inputs: &INK_INPUTS,
-            })?);
-            calls = calls.saturating_add(1);
-        }
-        #[cfg(feature = "images")]
-        let calls = calls.saturating_add(self.prepare_pictured(gl, work)?);
+        let calls = self.prepare_arrow(gl, work.arrow)?;
         // every pixel the frame draws over: the arrow's, and those of the
         // cells pictures reach
         let arrow = match work.arrow {
@@ -724,38 +791,8 @@ impl Composition {
         Ok(calls.saturating_add(self.prepare_copy(gl, &over)?))
     }
 
-    /// The programs of the cells pictures reach that the frame needs.
-    #[cfg(feature = "images")]
-    fn prepare_pictured<G: Gl>(&mut self, gl: &mut G, work: &Work<'_>) -> Result<usize, Error> {
-        let mut calls = 0usize;
-        let drawn = |s: &&Shown| !s.rects.is_empty();
-        let opaque = work.pictures.iter().filter(drawn).any(|s| s.opaque);
-        let clear = work.pictures.iter().filter(drawn).any(|s| !s.opaque);
-        let layers = !work.text.is_empty() || !work.marks.is_empty();
-        let needs = [opaque, clear, layers];
-        let programs = [&mut self.picture, &mut self.picture_over, &mut self.layer];
-        let layer = cell_frag(true, true, self.bound);
-        let sources: [(&[&'static str], &[Input]); 3] = [
-            (&[ES3, PICTURE_FRAG], &PICTURE_INPUTS),
-            (&[ES3, OVER, PICTURE_FRAG], &PICTURE_OVER_INPUTS),
-            (&layer, &LAYER_INPUTS),
-        ];
-        for ((needed, program), (fragment, inputs)) in needs.into_iter().zip(programs).zip(sources)
-        {
-            if needed && program.is_none() {
-                *program = Some(gl.compile(&Source {
-                    vertex: &[CELL_VERT],
-                    fragment,
-                    inputs,
-                })?);
-                calls = calls.saturating_add(1);
-            }
-        }
-        Ok(calls)
-    }
-
-    /// Makes the under shader and the copy ready for a frame that draws
-    /// over the pixels of `over`. The copy holds, for each tile, the
+    /// Makes the copy ready for a frame that draws over the pixels of
+    /// `over`. The copy holds, for each tile, the
     /// smallest rectangle holding every pixel of `over` there, so it is as
     /// large as the largest of those; a copy that is smaller in either side
     /// is made anew at the larger of each. Gives how many uploads it made.
@@ -777,14 +814,6 @@ impl Composition {
         if need.width == 0 || need.height == 0 {
             return Ok(calls);
         }
-        if self.under.is_none() {
-            self.under = Some(gl.compile(&Source {
-                vertex: &[CELL_VERT],
-                fragment: &[UNDER_FRAG],
-                inputs: &UNDER_INPUTS,
-            })?);
-            calls = calls.saturating_add(1);
-        }
         let held = self.copy.as_ref().map_or(Size::new(0, 0), DrawTarget::size);
         if need.width > held.width || need.height > held.height {
             let size = Size::new(need.width.max(held.width), need.height.max(held.height));
@@ -799,13 +828,13 @@ impl Composition {
 
     /// What a draw over the pixels beneath it needs this frame.
     fn beneath(&self) -> Result<Beneath<'_>, Error> {
-        match (&self.under, &self.copy) {
-            (Some(program), Some(copy)) => Ok(Beneath {
-                program,
+        match &self.copy {
+            Some(copy) => Ok(Beneath {
+                program: &self.programs.under,
                 copy,
                 at: &self.copy_at,
             }),
-            _ => Err(Error::new(
+            None => Err(Error::new(
                 ErrorKind::Misuse,
                 "the copy of the pixels beneath is not made ready",
             )),
@@ -901,14 +930,12 @@ impl Composition {
                 self.draw_layers(gl, work.text)?;
                 text = true;
             }
-            let missing = || Error::new(ErrorKind::Misuse, "the picture shader is not made");
+            let p = &self.programs;
             if s.opaque {
-                let program = self.picture.as_ref().ok_or_else(missing)?;
-                pictures.draw(gl, i, s, &self.tiles, program, None)?;
+                pictures.draw(gl, i, s, &self.tiles, &p.picture, None)?;
             } else {
-                let program = self.picture_over.as_ref().ok_or_else(missing)?;
                 let beneath = self.beneath()?;
-                pictures.draw(gl, i, s, &self.tiles, program, Some(&beneath))?;
+                pictures.draw(gl, i, s, &self.tiles, &p.picture_over, Some(&beneath))?;
             }
         }
         if !text {
@@ -1098,12 +1125,8 @@ impl Composition {
     /// cells receive ink, and tile.
     fn draw_cells<G: Gl>(&self, gl: &mut G, cells: &[Cells]) -> Result<(), Error> {
         for batch in cells {
-            let program = match batch.ink {
-                true => self.ink.as_ref().ok_or_else(|| {
-                    Error::new(ErrorKind::Misuse, "the cell shader with ink is not made")
-                })?,
-                false => &self.cell,
-            };
+            let p = &self.programs;
+            let program = if batch.ink { &p.ink } else { &p.cell };
             let inputs = self.cell_inputs(batch, batch.ink)?;
             for (tile, target) in &self.tiles {
                 let quads = in_tile(&batch.quads, tile);
@@ -1133,10 +1156,7 @@ impl Composition {
         if cells.is_empty() {
             return Ok(());
         }
-        let program = self
-            .layer
-            .as_ref()
-            .ok_or_else(|| Error::new(ErrorKind::Misuse, "the layer shader is not made"))?;
+        let program = &self.programs.layer;
         let beneath = self.beneath()?;
         for batch in cells {
             let inputs = self.cell_inputs(batch, true)?;
@@ -1185,7 +1205,7 @@ impl Composition {
             let [under, under_at] = copied.inputs();
             gl.draw(&Draw {
                 target,
-                program: &self.arrow,
+                program: &self.programs.arrow,
                 inputs: &[
                     ("target_size", target_size(target)),
                     ("arrow", Value::Texture(texture, Filter::Nearest)),
@@ -1243,26 +1263,12 @@ impl Composition {
 
     /// Frees what it holds in GL.
     pub(crate) fn free<G: Gl>(self, gl: &mut G) -> Result<(), Error> {
-        let mut out = gl.free_program(self.cell);
-        if let Some(p) = self.ink {
-            out = out.and(gl.free_program(p));
-        }
-        out = out.and(gl.free_program(self.arrow));
+        let mut out = self.programs.free(gl);
         if let Some((_, t)) = self.arrow_image {
             out = out.and(gl.free_texture(t));
         }
         if let Some(g) = self.glyphs {
             out = out.and(g.free(gl));
-        }
-        #[cfg(feature = "images")]
-        for p in [self.picture, self.picture_over, self.layer]
-            .into_iter()
-            .flatten()
-        {
-            out = out.and(gl.free_program(p));
-        }
-        if let Some(p) = self.under {
-            out = out.and(gl.free_program(p));
         }
         if let Some(t) = self.copy {
             out = out.and(gl.free_target(t));
@@ -1973,6 +1979,31 @@ pub(crate) fn cell_quad(
 )]
 mod tests {
     use super::*;
+
+    // A quad that covers part of a cell receives ink as a job of that whole
+    // cell, since the shader reads the line bits of the cell each of its
+    // pixels lies in; a quad of no ink is no receiving job.
+    #[test]
+    fn a_quad_narrower_than_a_cell_receives_as_a_job_of_the_whole_cell() {
+        let cell = Size::new(8, 16);
+        let quad = |w: i32, flags: u32| Quad {
+            dst: [12, 0, w, 16],
+            src: [0, 0, 4, 2],
+            params: [0, flags << 24, 0, 0],
+        };
+        let job = |cells, down| {
+            Some(ReceivingJob {
+                col: 4,
+                row: 2,
+                cells,
+                down,
+            })
+        };
+        assert_eq!(receiving(&quad(5, RECEIVES), cell), job(1, false));
+        assert_eq!(receiving(&quad(16, RECEIVES), cell), job(2, false));
+        assert_eq!(receiving(&quad(9, RECEIVES | DOWN), cell), job(2, true));
+        assert_eq!(receiving(&quad(8, MARKED), cell), None);
+    }
 
     fn rect(x: u32, y: u32, width: u32, height: u32) -> Rect {
         Rect {
