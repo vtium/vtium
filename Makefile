@@ -590,6 +590,15 @@ vt-install: $(vt_build) $(vt_dev_build) ## Install a development build as vtium-
 vt-uninstall: ## Undo make vt-install on VT N: vtium-dev off, its getty back, the files it wrote removed (VT=N, DRY_RUN=1)
 	@case "$$VTIUM_VT_DRY_RUN" in '') tools/vt/vt-install.sh uninstall "$$VTIUM_VT_NR" ;; 1) tools/vt/vt-install.sh uninstall --dry-run "$$VTIUM_VT_NR" ;; *) echo "DRY_RUN=$$VTIUM_VT_DRY_RUN: 1 or nothing" >&2; exit 1 ;; esac
 
+# Mesa keeps its shader cache in files that every GL program of the user
+# shares, in ~/.cache by default, and maps those files into memory. When
+# another program rewrites a file that a run has mapped, the run dies with
+# SIGBUS, as make tier2 did while other GL runs drew. The targets that start
+# GL therefore run without Mesa's shader cache, so no other program's writes
+# can reach them. Mesa then compiles each shader as a run first uses it,
+# which costs a run time and changes nothing it draws.
+tier2 arm-test test-tools gates: export MESA_SHADER_CACHE_DISABLE = true
+
 # Tier 2 against its goldens in tools/tier2/goldens. The report names this checkout's commit, as tier 3's
 # does (T3_REV). tier2 runs tier2-fonts first, which fetches the outline fonts the outline screens draw
 # with into $XDG_CACHE_HOME/vtium/tier2/fonts and checks each against its SHA-256; once they are cached,
