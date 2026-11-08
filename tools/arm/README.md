@@ -94,6 +94,7 @@ qemu-user runs vtium's code on an emulated CPU over the host's kernel, so it jud
 | vtium-config's `cli.rs`, the address-space check of `the_parser_runs_without_new_privileges_and_within_its_limits` | the parser shows no address-space limit |
 | vtium-platform's `tests/image_helper.rs`, the memory-cap check of `the_child_starts_alone_as_the_account_with_its_cap_and_nothing_else` | the child shows no address-space limit |
 | vtium-platform's `tests/image_helper.rs`, `every_helper_starts_from_the_program_opened_at_start`, which then reads the child's `/proc/self/exe` link, not its inode: the program it opened, which the upgrade unlinked, reads as deleted | the child's `/proc/self/exe` has qemu's inode |
+| vtium's `boot.rs`, `an_outline_frit_draws_in_the_helpers_cell_at_each_height`, whose subject is the helper's answer within the console's wait | the log says the emulated helper answered after the wait, as it can on a busy host; `a_late_outline_cell_is_drawn_from_the_next_frame` tests a late answer |
 | vtium-settings' `file.rs`, the check of root's file in `a_vtium_that_runs_as_a_user_reads_that_user_s_file_too` | root does not own `/etc/passwd` |
 
 `TRIPLE-run` names each on its test binary's run, since a passing test's own output is hidden. CI's `arm-native` job runs the whole suite natively on an aarch64 runner. The runner has no render node, so the DRM test skips there; a real ARM machine judges it.

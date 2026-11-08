@@ -146,6 +146,7 @@ case $name in
     commands-* | preview-* | serve-* | specimen-* | helper-* | filter-*) echo "wrap: under $qemu, the tests that start a real font or image helper, or install its filter, skip if seccomp answers ENOSYS" >&2 ;;
     cli-*) echo "wrap: under $qemu, the_parser_runs_without_new_privileges_and_within_its_limits skips its address-space check if the parser shows no limit there" >&2 ;;
     image_helper-*) echo "wrap: under $qemu, the_child_starts_alone_as_the_account_with_its_cap_and_nothing_else skips its memory-cap check if the child shows no address-space limit there, and every_helper_starts_from_the_program_opened_at_start reads the child's /proc/self/exe link instead of its inode if a stat of it names qemu" >&2 ;;
+    boot-*) echo "wrap: under $qemu, an_outline_frit_draws_in_the_helpers_cell_at_each_height skips if the emulated helper answers after the console's wait" >&2 ;;
     file-*) echo "wrap: under $qemu, a_vtium_that_runs_as_a_user_reads_that_user_s_file_too skips its check of root's file if root does not own /etc/passwd" >&2 ;;
     vtium_config-*) echo "wrap: under $qemu, serve::tests::the_helpers_socket_filter_refuses_every_new_socket skips if seccomp answers ENOSYS, and serve::tests::the_helpers_socket_filter_refuses_io_uring skips if python3 is the host's" >&2 ;;
     esac
