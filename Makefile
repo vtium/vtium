@@ -601,10 +601,7 @@ vt-uninstall: ## Undo make vt-install on VT N: vtium-dev off, its getty back, th
 # clean removes it. arm-test runs the sysroot's older Mesa, so its cache
 # stays apart from the host Mesa's as well.
 MESA_CACHES = $(abspath $(or $(CARGO_TARGET_DIR),target))/mesa-shader-cache
-tier2: export MESA_SHADER_CACHE_DIR = $(MESA_CACHES)/tier2
-arm-test: export MESA_SHADER_CACHE_DIR = $(MESA_CACHES)/arm-test
-test-tools: export MESA_SHADER_CACHE_DIR = $(MESA_CACHES)/test-tools
-gates: export MESA_SHADER_CACHE_DIR = $(MESA_CACHES)/gates
+tier2 arm-test test-tools gates: export MESA_SHADER_CACHE_DIR = $(MESA_CACHES)/$@
 
 # Tier 2 against its goldens in tools/tier2/goldens. The report names this checkout's commit, as tier 3's
 # does (T3_REV). tier2 runs tier2-fonts first, which fetches the outline fonts the outline screens draw
