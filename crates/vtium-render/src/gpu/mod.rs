@@ -12,6 +12,7 @@
 //! what each frame draws, as on the CPU path, and draws it through the
 //! pipeline with `Renderer::draw_gpu`.
 
+mod box_lines;
 pub(crate) mod compose;
 mod gl;
 pub(crate) mod glyphs;

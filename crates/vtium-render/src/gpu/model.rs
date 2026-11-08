@@ -125,12 +125,12 @@ pub(super) fn cell(q: &Quad, i: &Inputs<'_>, (x, y): (i64, i64)) -> u32 {
         col.saturating_mul(cw).saturating_add(local.0),
         row.saturating_mul(ch).saturating_add(local.1),
     );
-    let receives = i.with_ink && flags & RECEIVES != 0;
-    let recv = if receives { received(i, &job, px) } else { 0 };
     let a = if kind == 1 { i.masks.byte(at, 0) } else { 0 };
-    let mut one = ul == 0 && st == 0 && recv >> 24 == 0;
-    if one && receives && a != 0 && a != 255 {
-        one = !line_inked(i, &job, px, flags & DOWN != 0);
+    let mut one = ul == 0 && st == 0;
+    let mut recv = 0;
+    if i.with_ink && flags & RECEIVES != 0 && line_inked(i, &job, px, flags & DOWN != 0) {
+        recv = received(i, &job, px);
+        one = one && recv >> 24 == 0 && (a == 0 || a == 255);
     }
     if one {
         return match kind {
@@ -165,11 +165,19 @@ pub(super) fn cell(q: &Quad, i: &Inputs<'_>, (x, y): (i64, i64)) -> u32 {
     over_bg(bg, p)
 }
 
+/// The shader's `texels`: the texels of a cell's entry in the ink grid,
+/// two for the glyph it sends ink from and a texel for each 32 of its
+/// line bits, as many as the larger of the cell's width and height.
+fn texels(i: &Inputs<'_>) -> i64 {
+    let (cw, ch) = i.cell;
+    2i64.saturating_add(cw.max(ch).saturating_add(31) / 32)
+}
+
 /// The shader's `take`: the ink of the glyph whose first cell is at
 /// column `k` in row `r` over `p` at the pixel `at`.
 fn take(p: u32, i: &Inputs<'_>, (k, r): (i64, i64), job: &Job, at: (i64, i64), gap: i64) -> u32 {
     let (cols, lines) = (int(i.ink.size.width), int(i.ink.size.height));
-    let entry = r.saturating_mul(2);
+    let entry = r.saturating_mul(texels(i));
     if k < 0 || r < 0 || k >= cols || entry.saturating_add(1) >= lines {
         return p;
     }
@@ -256,14 +264,23 @@ fn received(i: &Inputs<'_>, job: &Job, at: (i64, i64)) -> u32 {
     p
 }
 
-/// The shader's `line_inked`.
+/// The shader's `line_inked`: the bit the ink grid holds for the display
+/// line through the pixel `at`, in the entry of the cell `at` lies in.
 fn line_inked(i: &Inputs<'_>, job: &Job, at: (i64, i64), down: bool) -> bool {
     let (cw, ch) = i.cell;
-    let first = (job.col.saturating_mul(cw), job.row.saturating_mul(ch));
-    if down {
-        (0..ch).any(|y| received(i, job, (at.0, first.1.saturating_add(y))) >> 24 != 0)
-    } else {
-        (0..job.cells.saturating_mul(cw))
-            .any(|x| received(i, job, (first.0.saturating_add(x), at.1)) >> 24 != 0)
-    }
+    let k = at.0.checked_div(cw).unwrap_or(0);
+    let n = match down {
+        true => at.0.checked_rem(cw).unwrap_or(0),
+        false => at.1.saturating_sub(job.row.saturating_mul(ch)),
+    };
+    let texel = job
+        .row
+        .saturating_mul(texels(i))
+        .saturating_add(2)
+        .saturating_add(n / 32);
+    let bit = n % 32;
+    let byte = i
+        .ink
+        .byte((k, texel), usize::try_from(bit / 8).unwrap_or(0));
+    byte >> (bit % 8) & 1 != 0
 }

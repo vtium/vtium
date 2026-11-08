@@ -42,8 +42,9 @@ use vtium_font::{Face, Font, Style, Width};
 
 use std::collections::BTreeSet;
 
+use super::box_lines::BoxLines;
 use super::gl::{Error, ErrorKind, Format, Gl, Size, Texture};
-use super::ink::InkGrid;
+use super::ink::{InkGrid, ReceivingJob};
 use crate::bounds::{GLYPH_TEXTURE_CEILING, GLYPH_TEXTURE_SIDE, GPU_IDLE_FRAMES};
 use crate::cache::{Budgets, COLOR, GlyphCache, Held, Storage, WIDE, pool_of};
 use crate::deco::{Kind, Sprites};
@@ -185,6 +186,8 @@ impl Pool {
 /// whose rows grow, so a slot keeps its place when the texture grows.
 #[derive(Debug)]
 struct Boxes {
+    /// How far a glyph's ink may reach, which sets the slot's size.
+    bound: Bound,
     slot: Size,
     margin: (u32, u32),
     cols: u32,
@@ -198,8 +201,10 @@ struct Boxes {
     free: BTreeSet<u32>,
     /// Slots held for this frame's uncached glyphs.
     held: Vec<u32>,
-    /// Each slot's glyph, which fills a larger texture when the boxes grow.
-    kept: Vec<Option<Stored>>,
+    /// Each slot's glyph, which fills a larger texture when the boxes grow,
+    /// and where its box holds ink, which sets the line bits of the cells
+    /// its ink reaches.
+    kept: Vec<Option<(Stored, BoxLines)>>,
     /// The frame since which no glyph holds a slot.
     empty_since: Option<u64>,
 }
@@ -216,6 +221,7 @@ impl Boxes {
                 .saturating_mul(rows.saturating_mul(2).saturating_add(1)),
         );
         Boxes {
+            bound,
             slot,
             margin: (
                 cell.width.saturating_mul(side_cells),
@@ -492,6 +498,33 @@ impl Glyphs {
         Ok(())
     }
 
+    /// Starts the ink grid's frame on a grid of `cols` by `rows` cells
+    /// ([`InkGrid::begin`]).
+    pub(crate) fn begin_ink(&mut self, cols: usize, rows: usize) {
+        self.ink.begin(cols, rows, self.cell);
+    }
+
+    /// Settles the ink grid once the frame is scanned. Each glyph the frame
+    /// named as a source of ink takes the reach and span that `reach` gives
+    /// its cell ([`InkGrid::settle`]). Then the grid sets the line bits of
+    /// each of `jobs`, the frame's jobs that receive ink. It learns which
+    /// lines a neighbour's ink reaches from the notes kept on that
+    /// neighbour's box when its glyph took the box ([`InkGrid::mark_jobs`]).
+    pub(crate) fn settle_ink(
+        &mut self,
+        reach: impl FnMut(usize, usize) -> (Reach, u8),
+        jobs: impl Iterator<Item = ReceivingJob>,
+    ) {
+        self.ink.settle(reach);
+        let kept = &self.boxes.kept;
+        let lines = |slot: u32| {
+            let (_, lines) = kept.get(usize::try_from(slot).ok()?)?.as_ref()?;
+            Some(lines)
+        };
+        self.ink
+            .mark_jobs(jobs, (self.boxes.bound, self.cell), lines);
+    }
+
     /// Whether a glyph whose ink passes its cells has taken a box: until
     /// one has, no cell's ink reaches another.
     pub(crate) fn reaching(&self) -> bool {
@@ -703,15 +736,18 @@ impl Glyphs {
             ));
             return Ok(Err(stored));
         };
-        if let Err(e) = self.fill_box(gl, index, &stored) {
-            self.boxes.free.insert(index);
-            return Err(e);
-        }
+        let lines = match self.fill_box(gl, index, &stored) {
+            Ok(lines) => lines,
+            Err(e) => {
+                self.boxes.free.insert(index);
+                return Err(e);
+            }
+        };
         if let Some(k) = usize::try_from(index)
             .ok()
             .and_then(|i| self.boxes.kept.get_mut(i))
         {
-            *k = Some(stored);
+            *k = Some((stored, lines));
         }
         self.reaching = true;
         let slot = Slot {
@@ -849,8 +885,8 @@ impl Glyphs {
         if b.kept.iter().any(Option::is_some) {
             let stride = usize::try_from(new.width).unwrap_or(0);
             let mut pixels = vec![0u8; usize::try_from(new.rect().area()).unwrap_or(0)];
-            for (i, stored) in (0u32..).zip(&b.kept) {
-                if let Some(stored) = stored {
+            for (i, kept) in (0u32..).zip(&b.kept) {
+                if let Some((stored, _)) = kept {
                     b.draw(stored, &mut pixels, b.at(i), stride);
                 }
             }
@@ -892,8 +928,14 @@ impl Glyphs {
         Ok(Some(i))
     }
 
-    /// Fills box `index` from `stored`'s coverage across the whole slot.
-    fn fill_box<G: Gl>(&mut self, gl: &mut G, index: u32, stored: &Stored) -> Result<(), Error> {
+    /// Fills box `index` from `stored`'s coverage across the whole slot,
+    /// and gives where the box holds ink.
+    fn fill_box<G: Gl>(
+        &mut self,
+        gl: &mut G,
+        index: u32,
+        stored: &Stored,
+    ) -> Result<BoxLines, Error> {
         self.uploads = self.uploads.saturating_add(1);
         let b = &self.boxes;
         let texture = b
@@ -911,7 +953,8 @@ impl Glyphs {
             width: b.slot.width,
             height: b.slot.height,
         };
-        gl.fill_texture(texture, rect, &pixels, stride)
+        gl.fill_texture(texture, rect, &pixels, stride)?;
+        Ok(BoxLines::new(&pixels, b.slot, self.cell))
     }
 
     /// A slot of pool `pool` no glyph holds: the lowest free one, the next

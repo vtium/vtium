@@ -36,7 +36,9 @@ type Ink = (i32, i32, i32, i32, u8);
 ///   from two rows up meets it;
 /// - `Q`, ink in every direction, the corners too, some of it partly
 ///   covered;
-/// - `x`, ink inside its cell, partly covered at its edges.
+/// - `x`, ink inside its cell, partly covered at its edges;
+/// - `W`, a wide glyph whose two cells hold a body, with a tail in the
+///   cell below and to the right of them, partly covered at its edge.
 fn shape(c: char) -> &'static [Ink] {
     const BODY: Ink = (1, 6, 7, 14, 255);
     match c {
@@ -56,6 +58,11 @@ fn shape(c: char) -> &'static [Ink] {
             (8, 0, 11, 16, 200),
         ],
         'x' => &[BODY, (0, 6, 1, 14, 90), (7, 6, 8, 14, 90)],
+        'W' => &[
+            (1, 6, 15, 14, 255),
+            (17, 17, 22, 21, 255),
+            (22, 17, 23, 21, 120),
+        ],
         _ => &[],
     }
 }
@@ -64,7 +71,11 @@ fn shape(c: char) -> &'static [Ink] {
 /// passes the cell.
 fn glyph(c: char) -> Option<Glyph> {
     let rects = shape(c);
-    let (gw, gh) = (CW as i32, CH as i32);
+    let (cells, width) = match c {
+        'W' => (2, FontWidth::Wide),
+        _ => (1, FontWidth::Narrow),
+    };
+    let (gw, gh) = (CW as i32 * cells, CH as i32);
     let cov = |x: i32, y: i32| {
         rects
             .iter()
@@ -75,7 +86,7 @@ fn glyph(c: char) -> Option<Glyph> {
     let own = (0..gh)
         .flat_map(|y| (0..gw).map(move |x| cov(x, y)))
         .collect();
-    let g = Glyph::from_pixels(CW, CH, FontFormat::Mask, own)?.with_cells(FontWidth::Narrow);
+    let g = Glyph::from_pixels(gw as u32, CH, FontFormat::Mask, own)?.with_cells(width);
     let (mut l, mut t, mut r, mut b) = (0, 0, gw, gh);
     for &(x0, y0, x1, y1, _) in rects {
         (l, t, r, b) = (l.min(x0), t.min(y0), r.max(x1), b.max(y1));
@@ -463,7 +474,20 @@ fn the_selection_takes_the_ink_inside_it_and_a_selected_letters_ink_outside_keep
 /// An opaque blue kitty picture of one cell at the cell `col`, `row` of
 /// `s`, at `z`, as a frame of `s` shows it.
 #[cfg(feature = "images")]
-fn picture(s: &Screen, (col, row): (u32, u32), z: i32) -> Vec<vtium_image::FramePlacement> {
+fn picture(s: &Screen, at: (u32, u32), z: i32) -> Vec<vtium_image::FramePlacement> {
+    picture_of(s, at, z, 0xff20_6080)
+}
+
+/// A kitty picture of one cell whose every pixel is `px`, premultiplied
+/// `0xAARRGGBB`, at the cell `col`, `row` of `s`, at `z`, as a frame of `s`
+/// shows it.
+#[cfg(feature = "images")]
+fn picture_of(
+    s: &Screen,
+    (col, row): (u32, u32),
+    z: i32,
+    px: u32,
+) -> Vec<vtium_image::FramePlacement> {
     use vtium_image::{LineKey, NewImage, Place, Protocol, Rows, Screens, Store};
     let keys: Vec<LineKey> = (1..=s.rows as u64).map(LineKey::new).collect();
     let view = Rows {
@@ -480,7 +504,7 @@ fn picture(s: &Screen, (col, row): (u32, u32), z: i32) -> Vec<vtium_image::Frame
         protocol: Protocol::KITTY,
         width: CW,
         height: CH,
-        pixels: vec![0xff20_6080; (CW * CH) as usize],
+        pixels: vec![px; (CW * CH) as usize],
         id: 1,
         number: 0,
         transient: false,
@@ -604,6 +628,34 @@ fn typing(o: Orientation) {
     }
 }
 
+// ADR-1306 D4, D9: a wide glyph sends its ink into the cell below and to
+// the right of its two cells, which lies past the bound from the glyph's
+// first cell, from its box's last column of cells, at each turn of the
+// display.
+// covers: text.overhang
+#[test]
+fn a_wide_glyphs_ink_below_and_past_its_cells_draws_as_on_the_cpu_path() {
+    for o in [
+        Orientation::Normal,
+        Orientation::Right,
+        Orientation::UpsideDown,
+        Orientation::Left,
+    ] {
+        let mut s = screen(5, 3);
+        s.put(1, 0, 'W', true, style(rgb("e0e040"), rgb(BG)));
+        s.text(3, 1, "x", style(rgb(FG), rgb("2040a0")));
+        let mut g = Gpu::turned(&s, o);
+        let st = state(&s, true);
+        g.frame(&mut s, &st);
+        assert_same(&g, &whole_turned(&s, &st, o), &format!("{o:?}"));
+        let receives = g
+            .cells()
+            .iter()
+            .any(|q| q.src[2..] == [3, 1] && q.params[1] >> 24 & 1 != 0);
+        assert!(receives, "{o:?}: the cell below and to the right receives");
+    }
+}
+
 /// Writes the screen a cell drawn twice in one frame needs: its first
 /// frame has `x`, `A` and `x` down the first column, and the second
 /// recolors both `x` and writes an `A` below the second, whose accent
@@ -681,5 +733,110 @@ fn a_cell_under_a_picture_drawn_twice_in_a_frame_draws_each_layer_once() {
             1,
             "z {z}: the text layer receives"
         );
+    }
+}
+
+// ADR-1306 D9: every program the composition draws with is compiled when
+// the pipeline is set up, so no frame compiles one: not the frame in which
+// the first glyph whose ink passes its cell takes its box, which the
+// renderer draws twice, nor the first frame with the pointer, nor, in a
+// build with pictures, the first frame with an opaque picture, with a
+// picture that is not opaque, or with a text layer over a picture.
+#[test]
+fn no_frame_compiles_a_program() {
+    let mut s = screen(4, 2);
+    s.text(0, 1, "x x", plain());
+    let size = display(&s, Orientation::Normal);
+    let mut gl = StandIn::new();
+    let pipeline = Pipeline::new(&mut gl, size, vtium_render::gpu::Config::default()).unwrap();
+    let ink = gl
+        .calls()
+        .iter()
+        .filter(|c| {
+            matches!(c, Call::Compile(text)
+                if text.lines().any(|l| l == "#define INK")
+                    && !text.lines().any(|l| l == "#define OVER"))
+        })
+        .count();
+    assert_eq!(ink, 1, "set up compiles the cell shader with ink");
+    let buffer = gl.import_buffer(&size).unwrap();
+    let mut g = Gpu {
+        gl,
+        pipeline,
+        buffer,
+        r: Renderer::new(
+            Font::new(Reaching),
+            size.width,
+            size.height,
+            config(Orientation::Normal),
+        ),
+        since: Age::NEVER,
+        orientation: Orientation::Normal,
+        sel: Vec::new(),
+        #[cfg(feature = "images")]
+        pictures: Vec::new(),
+    };
+    let st = state(&s, true);
+    let compiles = |g: &Gpu| {
+        g.gl.calls()
+            .iter()
+            .filter(|c| matches!(c, Call::Compile(_)))
+            .count()
+    };
+    g.frame(&mut s, &st);
+    assert_eq!(compiles(&g), 0, "a frame of glyphs inside their cells");
+    // the first glyph whose ink passes its cell takes its box
+    s.text(1, 1, "A", plain());
+    g.frame(&mut s, &st);
+    assert_eq!(
+        flags(&g.cells(), 1, 0),
+        1,
+        "the cell above the accent receives"
+    );
+    assert_eq!(
+        compiles(&g),
+        0,
+        "the frame the first reaching glyph takes its box in"
+    );
+    assert_same(&g, &whole(&s, &st), "the first reaching glyph");
+    for (col, text) in [(3, "A"), (0, "V"), (2, " ")] {
+        s.text(col, 1, text, plain());
+        g.frame(&mut s, &st);
+        assert_eq!(compiles(&g), 0, "a frame after it, writing {text:?}");
+    }
+    assert_same(&g, &whole(&s, &st), "the frames after it");
+    let pointed = DrawState {
+        pointer: Some((5, 20)),
+        ..st
+    };
+    g.frame(&mut s, &pointed);
+    assert!(
+        g.gl.calls()
+            .iter()
+            .any(|c| matches!(c, Call::Draw { inputs, .. } if inputs.contains(&"arrow"))),
+        "the pointer's arrow draws"
+    );
+    assert_eq!(compiles(&g), 0, "the first frame with the pointer");
+    // the cell above the second accent, under a picture below the text,
+    // then under one above it that is not opaque
+    #[cfg(feature = "images")]
+    for (z, px, what) in [
+        (-5, 0xff20_6080, "an opaque picture below the text"),
+        (
+            1,
+            0x8010_3040,
+            "a picture above the text that is not opaque",
+        ),
+    ] {
+        g.pictures = picture_of(&s, (3, 0), z, px);
+        g.frame(&mut s, &st);
+        let drew = |all: &[&str]| {
+            g.gl.calls().iter().any(
+                |c| matches!(c, Call::Draw { inputs, .. } if all.iter().all(|i| inputs.contains(i))),
+            )
+        };
+        assert!(drew(&["picture"]), "{what} draws");
+        assert!(drew(&["under_at", "ink"]), "{what}: a text layer draws");
+        assert_eq!(compiles(&g), 0, "the first frame with {what}");
     }
 }
