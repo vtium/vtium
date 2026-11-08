@@ -9,12 +9,10 @@
 //! a paragraph of many rows reads each character a fixed number of times:
 //! the crate's `reordered_levels_per_char` copies and walks the whole
 //! paragraph's levels for every row it is asked about. It orders a row
-//! with the crate's `reorder_visual`, and it never hands the crate an empty
-//! text. vtium-term takes the crate from vtium's fork of it, whose
-//! `visual_runs` still panics on an empty line at the end of the text and
-//! on an empty text, and vtium's builds abort on a panic. The fork does not
-//! panic on a paragraph that overflows the deepest embedding level.
-//! Nothing outside this module names the crate.
+//! with the crate's `reorder_visual`. vtium-term takes the crate from
+//! vtium's fork of it, pinned by revision, whose `visual_runs` panics
+//! neither on an empty line nor on a paragraph that overflows the deepest
+//! embedding level. Nothing outside this module names the crate.
 
 use core::ops::Range;
 
@@ -99,13 +97,6 @@ pub(crate) fn resolve(
         Direction::RightToLeft => Level::rtl(),
     };
     let mut levels = Vec::with_capacity(text.len());
-    if text.is_empty() {
-        return Resolved {
-            level: level.number(),
-            levels,
-        };
-    }
-
     let string: String = text.iter().collect();
     let info = ParagraphBidiInfo::new_with_data_source(&Tables, &string, Some(level));
     let paragraph = info.paragraph_level.number();
@@ -243,9 +234,6 @@ pub(crate) fn chars_read() -> usize {
 /// The visual order of characters at `levels` by rule L2: for each place
 /// from left to right, the index in `levels` of the character drawn there.
 pub(crate) fn visual_order(levels: &[u8]) -> Vec<usize> {
-    if levels.is_empty() {
-        return Vec::new();
-    }
     // every level `resolve` gives is one the crate made, so none is refused
     let levels: Vec<Level> = levels
         .iter()
