@@ -74,6 +74,7 @@ qemu-user runs vtium's code on an emulated CPU over the host's kernel, so it jud
 - **Tracing.** The host's `strace` on a target binary traces qemu.
 - **seccomp.** qemu answers `ENOSYS` to `seccomp()`, since a filter would bind qemu itself. The font helper refuses to run without its socket filter, and the image helper without its filters.
 - **A process of one thread.** qemu runs a thread of its own in every process. The image helper checks that it runs alone before it installs its filter, and it refuses to run when it does not.
+- **The inode of `/proc/self/exe`.** qemu answers a `readlink` of `/proc/self/exe` with the program it runs, but a `stat` of it reaches the kernel, which names qemu itself.
 - **Memory limits.** qemu does not pass `RLIMIT_AS` and `RLIMIT_DATA` on to the kernel, since they would limit qemu itself, so a child under qemu reports no limit.
 - **A failed start.** glibc's `posix_spawn` reports a failed `exec` through memory the child shares with its parent. qemu runs that child as a fork that shares no memory, so the start of a program no one may execute succeeds, and the child exits with status 127.
 - **Root's own files.** In the user namespace, no file belongs to root (above).
@@ -92,6 +93,7 @@ qemu-user runs vtium's code on an emulated CPU over the host's kernel, so it jud
 | vtium-image-helper's `tests/helper.rs`, and the four roles of `tests/filter.rs` that install a filter | the same |
 | vtium-config's `cli.rs`, the address-space check of `the_parser_runs_without_new_privileges_and_within_its_limits` | the parser shows no address-space limit |
 | vtium-platform's `tests/image_helper.rs`, the memory-cap check of `the_child_starts_alone_as_the_account_with_its_cap_and_nothing_else` | the child shows no address-space limit |
+| vtium-platform's `tests/image_helper.rs`, `every_helper_starts_from_the_program_opened_at_start`, which then reads the child's `/proc/self/exe` link, not its inode: the program it opened, which the upgrade unlinked, reads as deleted | the child's `/proc/self/exe` has qemu's inode |
 | vtium-settings' `file.rs`, the check of root's file in `a_vtium_that_runs_as_a_user_reads_that_user_s_file_too` | root does not own `/etc/passwd` |
 
 `TRIPLE-run` names each on its test binary's run, since a passing test's own output is hidden. CI's `arm-native` job runs the whole suite natively on an aarch64 runner. The runner has no render node, so the DRM test skips there; a real ARM machine judges it.
