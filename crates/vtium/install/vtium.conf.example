@@ -956,8 +956,8 @@ version = 1
 # with the open policy it watches a keyboard for the rescue key); for a
 # display, off (vtium turns it off). A display no rule matches stays off, and
 # vtium logs a rule line to paste for it; an input device no rule matches
-# roams with the open policy and is ignored with the closed one. vtiumctl
-# detect lists every device with its keys filled in.
+# roams with the open policy and is ignored with the closed one. Run
+# `vtium config flow --json` to list every device with its keys filled in.
 #
 # Keys for an input device:
 #   path:ID_PATH                  the USB port, and every interface below it

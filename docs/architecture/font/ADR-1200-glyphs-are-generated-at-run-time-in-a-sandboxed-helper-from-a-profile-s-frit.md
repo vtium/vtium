@@ -400,6 +400,8 @@ The figure follows a glyph from the profile to the frame: the profile's cell and
 
 > Edited 2026-11-05: ADR-1403 gave the look its home, a `[look NAME]` section of vtium.conf, and the maintainer gave a look the key `cell`, which wins over its frit's `cell=` (ADR-1403 D1, D4, D5, and its `considered`). The bullets read: "The console reads a profile's settings as text before its first frame, as it reads its configuration." and "Profile files live where ADR-1401 places them, and `vtiumctl` writes them when asked (ADR-1401 D12). Until profiles have a file of their own, the cell is the frit's `cell=` line (D1), and the profile's file takes it over when it lands (the operator, 2026-10-28)."
 
+> Edited 2026-11-07: the maintainer decided that vtium-config takes over the job ADR-1401 D12 planned for `vtiumctl`, a separate binary, and vtium does not build `vtiumctl` (ADR-1401 D12). Profile files, now `[look NAME]` sections of vtium.conf, are written by vtium-config, where the bullet read "`vtiumctl` writes them when asked".
+
 ### D1: the frit
 
 A frit (a font set file) is a file named `<name>.vtfrit` in the frits' directory, which is `/etc/vtium/fonts` unless the `font-frits` key names another. It is the definition that the helper draws from, written in vtium.conf's line syntax: one `key=value` a line, `#` comments, and a bound on the length of every line and of the file. vtium refuses the whole frit at an unknown key or a malformed line, and names the file and the line. A frit written by hand, a frit that `new` writes (D4) and a frit written from a `new --template` file have the same format.
@@ -478,6 +480,8 @@ Each command is non-interactive where it writes, prints one line for each result
 > Edited 2026-10-29: the team lead's correction from the heads gap-check (C9): ADR-1401 D12's `check FILE` and the rule checker are one command. The row read: "| The rule checker | the user | Lints a profile and its frit against a display (ADR-1301 D8, [the rule checker's issue]). |"
 
 > Edited 2026-10-29: the operator accepted an independent advisor's review of ADR-1401 (ADR-1401's `considered`): the configuration tool is `vtiumctl`, a binary of its own, and `vtium-vitrify` keeps the fonts. The row read: "| `check FILE`, with the rule checker | the user | Checks any configuration file by its kind, a head file, a profile or a frit, as ADR-1401 D12 has it, and lints a profile and its frit against a display (ADR-1301 D8, [the rule checker's issue]). |"
+
+> Edited 2026-11-07: the maintainer decided that vtium-config takes over the job ADR-1401 D12 planned for `vtiumctl`, a separate binary, and vtium does not build `vtiumctl` (ADR-1401 D12). The rule checker's row, whose `check FILE` command `vtiumctl` was to run, is `vtium config check FILE`, which checks a frit with this crate's frit reader and any other file as a vtium.conf.
 
 ### D11: the frit drawn when nothing names one
 

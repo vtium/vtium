@@ -84,8 +84,8 @@ fn input_name(id: &Identity) -> String {
     id.name.clone().unwrap_or_else(|| "input".to_owned())
 }
 
-/// Every match key `id` offers, the strongest first, as `vtiumctl detect`
-/// lists them (ADR-1401 D12).
+/// Every match key `id` offers, the strongest first, as `vtium config flow
+/// --json` gives them (ADR-1401 D12).
 pub fn keys(id: &Identity) -> Vec<String> {
     let mut out = Vec::new();
     match id.kind {
