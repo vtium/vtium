@@ -73,8 +73,11 @@ case $name in
         # With the O flag the kernel opens the target binary and hands qemu
         # the descriptor. vtium starts its helpers through /proc/self/fd/N,
         # from a descriptor it closes at the exec, so that path no longer
-        # names the binary once qemu runs.
-        printf '%s' ":$qemu:M::$magic:$mask:$(command -v $qemu):O" > "$binfmt/register"
+        # names the binary once qemu runs. With the P flag the kernel keeps
+        # the argv[0] the caller passed, which vtium sets to the helper's
+        # path, and tells qemu so in the auxiliary vector (AT_FLAGS), so
+        # the target binary sees that argv[0] and not /proc/self/fd/N.
+        printf '%s' ":$qemu:M::$magic:$mask:$(command -v $qemu):OP" > "$binfmt/register"
         # vtium reads a file only when root or the account it runs as owns
         # each directory above it (ADR-1403 D3). The namespace maps no root,
         # so root's files and directories belong to the overflow uid, 65534,
