@@ -480,11 +480,20 @@ fn the_child_starts_alone_as_the_account_with_its_cap_and_nothing_else() {
     assert_eq!(line("cwd"), "/");
     assert_eq!(line("env"), "0", "an empty environment");
     assert_eq!(line("fds"), "[0, 1, 2, 3]", "stdio and its socket only");
-    assert_eq!(
-        line("as"),
-        memory_cap(1 << 20).to_string(),
-        "its memory cap"
-    );
+    // qemu-user keeps RLIMIT_AS to itself, because the limit would bind
+    // qemu's own mappings, so under qemu the helper shows no limit. The
+    // check still runs on x86 and on real ARM (tools/arm/README.md).
+    match std::env::var_os("VTIUM_QEMU_USER") {
+        Some(qemu) if line("as") == "unlimited" => eprintln!(
+            "skipped: {} does not pass RLIMIT_AS on to the kernel",
+            qemu.to_string_lossy()
+        ),
+        _ => assert_eq!(
+            line("as"),
+            memory_cap(1 << 20).to_string(),
+            "its memory cap"
+        ),
+    }
     assert_eq!(line("core"), "0");
     assert_eq!(
         line("fsize"),

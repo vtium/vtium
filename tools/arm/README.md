@@ -91,6 +91,7 @@ qemu-user runs vtium's code on an emulated CPU over the host's kernel, so it jud
 | the tests in vtium-config's `tests/` that start the real font helper, in `commands.rs`, `preview.rs`, `serve.rs` and `specimen.rs` | `vtium_testscript::qemu_without_seccomp` finds that a filter answers ENOSYS |
 | vtium-image-helper's `tests/helper.rs`, and the four roles of `tests/filter.rs` that install a filter | the same |
 | vtium-config's `cli.rs`, the address-space check of `the_parser_runs_without_new_privileges_and_within_its_limits` | the parser shows no address-space limit |
+| vtium-platform's `tests/image_helper.rs`, the memory-cap check of `the_child_starts_alone_as_the_account_with_its_cap_and_nothing_else` | the child shows no address-space limit |
 | vtium-settings' `file.rs`, the check of root's file in `a_vtium_that_runs_as_a_user_reads_that_user_s_file_too` | root does not own `/etc/passwd` |
 
 `TRIPLE-run` names each on its test binary's run, since a passing test's own output is hidden. CI's `arm-native` job runs the whole suite natively on an aarch64 runner. The runner has no render node, so the DRM test skips there; a real ARM machine judges it.
