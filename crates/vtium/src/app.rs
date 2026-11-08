@@ -2867,6 +2867,8 @@ impl App {
             ..Key::press(keysym, key.ascii, mods, unicode)
         };
         if head.console.term.terminal.key(&pressed) {
+            // The output that follows is the key's echo (ADR-1401 D2).
+            head.console.term.key_sent();
             head.send_user_bytes();
             head.console.term.terminal.screen_mut().reset_view();
             if self.hide_while_typing {
@@ -5276,6 +5278,42 @@ mod tests {
         app.vt = Box::new(Bells::default());
         app.set_input(input());
         assert!(!awake(&app), "closed until the VT is taken");
+    }
+
+    // ADR-1401 D2: a key the terminal sends to the program makes the output
+    // that follows it the key's echo; output before any key, and a key that
+    // sends the program nothing, as a scroll key on the main screen, make
+    // none.
+    #[test]
+    fn a_key_sent_to_the_program_makes_its_output_an_echo() {
+        let key = |keysym: u32, mods: InputMods| {
+            InputEvent::Key(KeyEvent {
+                keycode: 0,
+                ascii: 0,
+                mods,
+                keysyms: vec![keysym],
+                codepoints: vec![char::from_u32(keysym)],
+                repeat: false,
+            })
+        };
+        let output = |app: &mut App, bytes: &[u8]| {
+            let term = app.term_mut().unwrap();
+            assert_eq!(term.parse(bytes, &mut |_| {}), bytes.len());
+            term.answered()
+        };
+        let (_lp, mut app) = seat(None, no_fonts());
+        app.add_video(
+            PathBuf::from("/dev/mem0"),
+            Box::new(Still::new(&[(1, "A")])),
+        );
+        shown(&mut app);
+        app.focus = Some(0);
+        assert_eq!(output(&mut app, b"a"), 0, "no key before it");
+        // Shift+Page Up scrolls the main screen and sends nothing.
+        app.input_event(key(0xff55, InputMods::SHIFT), Instant::now());
+        assert_eq!(output(&mut app, b"b"), 0, "the scroll key sent nothing");
+        app.input_event(key(u32::from('c'), InputMods::empty()), Instant::now());
+        assert_eq!(output(&mut app, b"c"), 1, "the echo of c");
     }
 
     // vtium/vtium#229: while the fake VT is released, with its keyboards

@@ -63,6 +63,13 @@ pub struct Term {
     pub exited: Option<ExitStatus>,
     /// Bytes of the child's output parsed since the start.
     pub parsed: u64,
+    /// The keys sent to the program since the start ([`Term::key_sent`]).
+    keys: u64,
+    /// How many keys had been sent when the program's output last changed
+    /// the screen. Output that changes the screen after a key answers it,
+    /// and a frame that carries that output shows the key's echo
+    /// ([`Term::answered`], ADR-1401 D2).
+    answered: u64,
 }
 
 impl Term {
@@ -80,7 +87,24 @@ impl Term {
             present: false,
             exited: None,
             parsed: 0,
+            keys: 0,
+            answered: 0,
         }
+    }
+
+    /// A key went to the program. The output that changes the screen after
+    /// it is the key's echo until a display composes a frame of it
+    /// (ADR-1401 D2).
+    pub fn key_sent(&mut self) {
+        self.keys = self.keys.saturating_add(1);
+    }
+
+    /// How many keys had been sent when the program's output last changed
+    /// the screen. A view keeps the value its last frame carried: while the
+    /// two differ, a key's echo has changed the screen and no frame of the
+    /// view shows it yet.
+    pub fn answered(&self) -> u64 {
+        self.answered
     }
 
     /// What a hold's rules asked for.
@@ -110,7 +134,10 @@ impl Term {
         let end = (self.clock)();
         self.coalesce.input(start, end, taken);
         self.unparsed = taken < output.len();
-        self.changed |= before.changed(&self.terminal);
+        if before.changed(&self.terminal) {
+            self.changed = true;
+            self.answered = self.keys;
+        }
         self.parsed = self
             .parsed
             .saturating_add(u64::try_from(taken).unwrap_or(u64::MAX));
@@ -747,6 +774,10 @@ pub struct View {
     /// The terminal's checkpoint after this view's last frame was taken.
     since: Age,
     pub wait: Wait,
+    /// The term's [`Term::answered`] when this view's last frame was taken.
+    /// A short write while it differs follows a key that no frame of this
+    /// display has shown the answer to, so it is that key's echo.
+    echoed: u64,
     /// A draw waits for the display to take a frame, as after its flip in
     /// flight, or for the frame composing.
     pub pending: bool,
@@ -818,6 +849,7 @@ impl View {
             generation: 0,
             since: Age::NEVER,
             wait: Wait::default(),
+            echoed: 0,
             pending: false,
             kept: None,
             owed: false,
@@ -978,13 +1010,17 @@ impl View {
     /// `holding`: a hold keeps the last frame.
     ///
     /// A draw that cannot wait goes ahead at once: the display lost its
-    /// picture, a hold that owed a draw ended, the output was short, or
-    /// the display takes a frame that such a draw waited for. With three
-    /// buffers it composes into the third while a flip is in flight. A
-    /// draw the coalescing paces during a flood goes ahead at its
-    /// deadline, unless the display's flip is in flight and the display
-    /// keeps two or three buffers: then it waits for the flip to end and
-    /// composes nothing (ADR-1401 D2). A frame composed during the flip
+    /// picture, a hold that owed a draw ended, the output was a key's
+    /// echo, or the display takes a frame that such a draw waited for.
+    /// With three buffers it composes into the third while a flip is in
+    /// flight. A short write is a key's echo when a key went to the
+    /// program since the display's last frame of the program's output was
+    /// taken; the frame a key draws for itself, before the program has
+    /// answered, leaves the key remembered. A draw the coalescing paces
+    /// during a flood goes ahead at its deadline, and any other short
+    /// write at once, unless the display's flip is in flight and the
+    /// display keeps two or three buffers: then it waits for the flip to
+    /// end and composes nothing (ADR-1401 D2). A frame composed during the flip
     /// could not reach the screen before the flip ends, and during a flood
     /// the next change would draw over it before it got there. A paced
     /// draw that waited for the display to take a frame, as for a frame
@@ -1014,10 +1050,15 @@ impl View {
         }
         let mut paced = due || taken || self.wait.for_flip();
         if term.changed {
-            match term
-                .coalesce
-                .decide(holding, &mut self.wait, term.unparsed, now, self.refresh)
-            {
+            let echo = term.answered() != self.echoed;
+            match term.coalesce.decide(
+                holding,
+                &mut self.wait,
+                term.unparsed,
+                echo,
+                now,
+                self.refresh,
+            ) {
                 Draw::Now => {
                     self.wait.ask(false);
                     return true;
@@ -1099,6 +1140,8 @@ impl View {
         }
         self.pending = false;
         self.wait.taken();
+        // The frame carries every echo the program's output has drawn.
+        self.echoed = term.answered();
         self.owed = false;
         self.lost = false;
         self.sent = Some(clock());
@@ -1693,6 +1736,9 @@ mod tests {
         busy_once: bool,
         /// Commits send nothing, as a device without its own commit does.
         no_commit: bool,
+        /// The display says no draw waits for its flip, as a framebuffer
+        /// says.
+        framebuffer: bool,
     }
 
     impl Flip {
@@ -1728,6 +1774,7 @@ mod tests {
                 sent: 0,
                 busy_once: false,
                 no_commit: false,
+                framebuffer: false,
             }
         }
 
@@ -1807,7 +1854,7 @@ mod tests {
             !self.out && (!self.is_flipping(id) || (self.bufs.len() != 2 && !self.fresh))
         }
         fn paced_draw_waits_for_flip(&self, _: DisplayId) -> bool {
-            self.bufs.len() > 1
+            !self.framebuffer && self.bufs.len() > 1
         }
         fn set_dpms(&mut self, _: DisplayId, _: Dpms) -> io::Result<()> {
             Ok(())
@@ -2549,7 +2596,12 @@ mod tests {
             assert_eq!((video.composed, video.sent), (1, 1));
             assert!(view.wait.for_flip());
             hand.at(18);
-            let echo: &[&[u8]] = if now_all { &[] } else { &[b"\x1b[1;1Hk"] };
+            let echo: &[&[u8]] = if now_all {
+                &[]
+            } else {
+                term.key_sent();
+                &[b"\x1b[1;1Hk"]
+            };
             pass(&mut term, &mut view, &mut video, echo, now_all);
             assert_eq!(
                 (video.composed, video.sent),
@@ -2645,6 +2697,161 @@ mod tests {
         video.flipping = false;
         turn(&mut term, &mut view, &mut video, &[]);
         assert_eq!((video.composed, video.sent), (2, 2), "sent as it is");
+    }
+
+    /// Frame A, `A`, goes out at 0 ms with `n` buffers, and its flip is
+    /// then in flight.
+    fn a_in_flight(n: usize) -> (Hand, Term, View, Flip) {
+        let hand = Hand::new();
+        let (mut term, mut view) = view_at(&hand);
+        let mut video = Flip::with(n);
+        turn(&mut term, &mut view, &mut video, &[b"A"]);
+        assert_eq!((video.composed, video.sent), (1, 1), "{n} buffers: A");
+        video.flipping = true;
+        (hand, term, view, video)
+    }
+
+    // ADR-1401 D2: with two or three buffers, a short write that follows a
+    // key sent to the program is the key's echo, and it composes ahead at
+    // once: with three into the free third buffer while the flip is in
+    // flight, and with two as soon as the display lends a buffer, at the
+    // flip's end. It does not wait for the flip as a paced draw does.
+    #[test]
+    fn a_short_write_after_a_key_composes_ahead_during_a_flip() {
+        for n in [2, 3] {
+            let (hand, mut term, mut view, mut video) = a_in_flight(n);
+            term.key_sent();
+            hand.at(4);
+            turn(&mut term, &mut view, &mut video, &[b"\x1b[1;2Hk"]);
+            assert!(
+                !view.wait.for_flip(),
+                "{n} buffers: the echo waits for no flip"
+            );
+            let composed = if n == 3 { 2 } else { 1 };
+            assert_eq!(
+                (video.composed, video.sent),
+                (composed, 1),
+                "{n} buffers: the echo composed at once where a buffer is free"
+            );
+            hand.at(16);
+            video.flipping = false;
+            turn(&mut term, &mut view, &mut video, &[]);
+            assert_eq!((video.composed, video.sent), (2, 2), "{n} buffers");
+            assert!(video.shows((video.back + n - 1) % n, 1), "{n} buffers: k");
+        }
+    }
+
+    // ADR-1401 D2: a short write that follows no key since the display's
+    // last composed frame waits for the flip in flight, as a paced draw
+    // does, and composes once when the flip ends.
+    #[test]
+    fn a_short_write_no_key_caused_waits_for_the_flip() {
+        for n in [2, 3] {
+            let (hand, mut term, mut view, mut video) = a_in_flight(n);
+            hand.at(4);
+            turn(&mut term, &mut view, &mut video, &[b"\x1b[1;2Hx"]);
+            hand.at(8);
+            turn(&mut term, &mut view, &mut video, &[]);
+            assert_eq!(
+                (video.composed, video.sent),
+                (1, 1),
+                "{n} buffers: nothing composes while the flip is pending"
+            );
+            assert!(view.wait.for_flip(), "{n} buffers: the write waits");
+            assert_eq!(view.wait.due(), None, "{n} buffers: not for a time");
+            hand.at(16);
+            video.flipping = false;
+            turn(&mut term, &mut view, &mut video, &[]);
+            assert_eq!(
+                (video.composed, video.sent),
+                (2, 2),
+                "{n} buffers: one frame when the flip ends"
+            );
+            assert!(video.shows((video.back + n - 1) % n, 1), "{n} buffers: x");
+        }
+    }
+
+    // ADR-1401 D2: the view forgets the key once a frame that carries the
+    // key's echo is taken, so the writes before that frame go ahead with
+    // it, and a write after it waits for the next flip.
+    #[test]
+    fn a_key_lets_only_the_writes_before_its_echo_frame_go_ahead() {
+        let (hand, mut term, mut view, mut video) = a_in_flight(3);
+        term.key_sent();
+        hand.at(4);
+        turn(
+            &mut term,
+            &mut view,
+            &mut video,
+            &[b"\x1b[1;2Hk", b"\x1b[1;3Hl"],
+        );
+        assert_eq!(
+            (video.composed, video.sent),
+            (2, 1),
+            "both writes in one frame"
+        );
+        hand.at(16);
+        video.flipping = false;
+        turn(&mut term, &mut view, &mut video, &[]);
+        assert_eq!((video.composed, video.sent), (2, 2), "the echo went out");
+        video.flipping = true;
+        hand.at(20);
+        turn(&mut term, &mut view, &mut video, &[b"\x1b[1;4Hm"]);
+        assert_eq!(
+            (video.composed, video.sent),
+            (2, 2),
+            "the write after the echo's frame waits"
+        );
+        assert!(view.wait.for_flip());
+        hand.at(32);
+        video.flipping = false;
+        turn(&mut term, &mut view, &mut video, &[]);
+        assert_eq!((video.composed, video.sent), (3, 3));
+    }
+
+    // ADR-1401 D2: the frame a key draws for itself, before the program has
+    // answered, carries no echo, so the view still remembers the key and
+    // the echo that follows composes ahead at once.
+    #[test]
+    fn the_frame_a_key_draws_itself_keeps_the_key_for_its_echo() {
+        let hand = Hand::new();
+        let (mut term, mut view) = view_at(&hand);
+        let mut video = Flip::with(3);
+        turn(&mut term, &mut view, &mut video, &[b"A"]);
+        // The key's own pass composes a frame at once.
+        hand.at(2);
+        term.key_sent();
+        pass(&mut term, &mut view, &mut video, &[], true);
+        let after_key = video.composed;
+        assert_eq!(after_key, 2, "the key's own frame");
+        video.flipping = true;
+        hand.at(4);
+        turn(&mut term, &mut view, &mut video, &[b"\x1b[1;2Hk"]);
+        assert!(!view.wait.for_flip(), "the echo waits for no flip");
+        assert_eq!(video.composed, after_key + 1, "the echo composed at once");
+    }
+
+    // ADR-1401 D2: with one buffer, or on a display that says so, as a
+    // framebuffer does, no short write waits for a flip, whether a key
+    // caused it or not.
+    #[test]
+    fn with_one_buffer_or_a_framebuffer_no_short_write_waits() {
+        for framebuffer in [false, true] {
+            let n = if framebuffer { 3 } else { 1 };
+            let hand = Hand::new();
+            let (mut term, mut view) = view_at(&hand);
+            let mut video = Flip::with(n);
+            video.framebuffer = framebuffer;
+            turn(&mut term, &mut view, &mut video, &[b"A"]);
+            video.flipping = true;
+            hand.at(4);
+            turn(&mut term, &mut view, &mut video, &[b"\x1b[1;2Hx"]);
+            assert!(!view.wait.for_flip(), "framebuffer {framebuffer}");
+            assert_eq!(
+                video.composed, 2,
+                "framebuffer {framebuffer}: composed at once"
+            );
+        }
     }
 
     /// The vertical blanks from a change to the vblank whose flip puts it
@@ -2818,7 +3025,7 @@ mod tests {
         assert_eq!(video.composed, 1, "nothing changed during the flip");
         video.flipping = true;
         turn(&mut term, &mut view, &mut video, &[b"\x1b[1;2HB"]);
-        assert!(view.pending, "the draw waits for the flip");
+        assert!(view.wait.for_flip(), "the draw waits for the flip");
         video.flipping = false;
         turn(&mut term, &mut view, &mut video, &[]);
         assert_eq!(video.composed, 2, "B is drawn once the flip ends");
@@ -2859,6 +3066,8 @@ mod tests {
         turn(&mut term, &mut view, &mut video, &[b"A\x1b[2;1H"]);
         assert_eq!((video.composed, video.sent), (1, 1));
         video.flipping = true;
+        // B is a key's echo, which composes ahead during the flip.
+        term.key_sent();
         turn(&mut term, &mut view, &mut video, &[b"\x1b[1;2HB\x1b[2;1H"]);
         assert_eq!((video.composed, video.sent), (2, 1), "B waits for the flip");
         for _ in 0..3 {
@@ -2890,13 +3099,15 @@ mod tests {
         let mut video = Flip::with(3);
         turn(&mut term, &mut view, &mut video, &[b"A\x1b[2;1H"]);
         video.flipping = true;
+        // B is a key's echo, which composes ahead during the flip.
+        term.key_sent();
         turn(&mut term, &mut view, &mut video, &[b"\x1b[1;2HB"]);
         assert_eq!((video.composed, video.sent), (2, 1));
         turn(&mut term, &mut view, &mut video, &[b"\x1b[1;3HC"]);
         turn(&mut term, &mut view, &mut video, &[b"\x1b[1;4HD"]);
         turn(&mut term, &mut view, &mut video, &[b"\x1b[2;1HE"]);
         assert_eq!((video.composed, video.sent), (2, 1), "the kept frame waits");
-        assert!(view.pending, "a newer frame waits for the flip");
+        assert!(view.wait.for_flip(), "a newer frame waits for the flip");
         video.flipping = false;
         turn(&mut term, &mut view, &mut video, &[]);
         assert_eq!((video.composed, video.sent), (3, 2), "one frame, sent once");
@@ -2919,6 +3130,8 @@ mod tests {
         let mut video = Flip::with(3);
         turn(&mut term, &mut view, &mut video, &[b"A\x1b[2;1H"]);
         video.flipping = true;
+        // B is a key's echo, which composes ahead during the flip.
+        term.key_sent();
         turn(&mut term, &mut view, &mut video, &[b"\x1b[1;2HB\x1b[2;1H"]);
         assert_eq!((video.composed, video.sent), (2, 1));
         view.show_another();
@@ -2939,6 +3152,7 @@ mod tests {
         // The loop marks the view lost itself after a mode change, a
         // wake-up or the VT's return: the whole frame drops the kept one.
         video.flipping = true;
+        term.key_sent();
         turn(&mut term, &mut view, &mut video, &[b"\x1b[1;3HC\x1b[2;1H"]);
         assert_eq!((video.composed, video.sent), (4, 2));
         view.lost = true;
@@ -2958,6 +3172,8 @@ mod tests {
         video.no_commit = true;
         turn(&mut term, &mut view, &mut video, &[b"A\x1b[2;1H"]);
         video.flipping = true;
+        // B is a key's echo, which composes ahead during the flip.
+        term.key_sent();
         turn(&mut term, &mut view, &mut video, &[b"\x1b[1;2HB\x1b[2;1H"]);
         video.flipping = false;
         turn(&mut term, &mut view, &mut video, &[]);
@@ -2977,6 +3193,8 @@ mod tests {
         let mut video = Flip::with(3);
         turn(&mut term, &mut view, &mut video, &[b"A\x1b[2;1H"]);
         video.flipping = true;
+        // B is a key's echo, which composes ahead during the flip.
+        term.key_sent();
         turn(&mut term, &mut view, &mut video, &[b"\x1b[1;2HB\x1b[2;1H"]);
         video.flipping = false;
         video.busy_once = true;
@@ -2997,6 +3215,8 @@ mod tests {
         let mut video = Flip::with(3);
         turn(&mut term, &mut view, &mut video, &[b"A\x1b[2;1H"]);
         video.flipping = true;
+        // B is a key's echo, which composes ahead during the flip.
+        term.key_sent();
         turn(&mut term, &mut view, &mut video, &[b"\x1b[1;2HB\x1b[2;1H"]);
         video.flipping = false;
         let c = b"\x1b[1;3HC\x1b[2;1H";

@@ -20,6 +20,12 @@
 //! two or three buffers is in flight waits for the flip to end instead, so
 //! with three buffers it composes nothing into the third
 //! ([`Wait::wait_for_flip`], ADR-1401 D2).
+//!
+//! **A short write.** Output that a turn parsed in full, less than
+//! [`COALESCE_BYTES`] of it, draws at once when it is a key's echo: it
+//! follows a key sent to the program since the display's last composed
+//! frame. Any other short write waits for the flip in flight, as a paced
+//! draw does, and draws at once when no flip is in flight (ADR-1401 D2).
 //! Keys, the blink timers, the pointer, a frame's end and a lost picture
 //! draw at once.
 //!
@@ -217,7 +223,8 @@ pub struct Wait {
     /// A paced draw waits for the display's flip in flight to end.
     flip: bool,
     /// The draw asked last is paced, so while it waits for the display
-    /// to take a frame, it waits for the flip in flight too.
+    /// to take a frame, it waits for the flip in flight too. A short write
+    /// that is not a key's echo is paced.
     paced: bool,
 }
 
@@ -225,11 +232,12 @@ pub struct Wait {
 /// the screen.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Draw {
-    /// Draw at once: the output was short, or a hold decides.
+    /// Draw at once: the output was a key's echo, or a hold decides.
     Now,
-    /// Draw now, at the pacing deadline: a refresh has passed since the
-    /// display's last present, or since output that began after an idle
-    /// refresh.
+    /// Draw now, unless the display's flip in flight holds it: a refresh
+    /// has passed since the display's last present, or since output that
+    /// began after an idle refresh, or the output was short and no key
+    /// caused it (ADR-1401 D2).
     Paced,
     /// Draw by this time if no turn has by then.
     Later(Instant),
@@ -304,19 +312,26 @@ impl Coalesce {
     }
 
     /// The turn ended with the screen changed at `now`: whether the display
-    /// draws at once, at the pacing deadline, which has come, or later.
-    /// `refresh` is the display's, if it reports one.
+    /// draws at once, as soon as no flip holds it, or later. `echo`: a key
+    /// went to the program since the display's last composed frame, so a
+    /// short write is that key's echo. `refresh` is the display's, if it
+    /// reports one.
     pub fn decide(
         &self,
         holding: bool,
         wait: &mut Wait,
         unparsed: bool,
+        echo: bool,
         now: Instant,
         refresh: Option<Duration>,
     ) -> Draw {
-        if (self.bytes < COALESCE_BYTES && !unparsed) || holding {
+        if holding {
             wait.due = None;
             return Draw::Now;
+        }
+        if self.bytes < COALESCE_BYTES && !unparsed {
+            wait.due = None;
+            return if echo { Draw::Now } else { Draw::Paced };
         }
         let refresh = refresh
             .filter(|r| (REFRESH_MIN..=REFRESH_MAX).contains(r))
@@ -457,13 +472,28 @@ mod tests {
         assert!(!s.holding(&term));
     }
 
+    // ADR-1401 D2: a short write is drawn at once when it is a key's echo;
+    // any other is drawn as a paced draw is, which waits for a flip in
+    // flight and draws at once without one. A hold decides for itself.
     #[test]
-    fn a_short_write_draws_at_once() {
+    fn a_short_write_is_at_once_only_as_a_keys_echo() {
         let t0 = Instant::now();
         let mut c = Coalesce::default();
         let mut w = Wait::default();
         c.input(t0, ms(t0, 1), 100);
-        assert_eq!(c.decide(false, &mut w, false, ms(t0, 1), None), Draw::Now);
+        assert_eq!(
+            c.decide(false, &mut w, false, true, ms(t0, 1), None),
+            Draw::Now
+        );
+        assert_eq!(
+            c.decide(false, &mut w, false, false, ms(t0, 1), None),
+            Draw::Paced
+        );
+        assert_eq!(w.due(), None, "it waits for no time");
+        assert_eq!(
+            c.decide(true, &mut w, false, false, ms(t0, 1), None),
+            Draw::Now
+        );
     }
 
     #[test]
@@ -476,7 +506,7 @@ mod tests {
         c.drawn(&mut w, t0, ms(t0, 2), true);
         c.input(ms(t0, 3), ms(t0, 5), COALESCE_BYTES);
         assert_eq!(
-            c.decide(false, &mut w, false, ms(t0, 5), refresh),
+            c.decide(false, &mut w, false, false, ms(t0, 5), refresh),
             Draw::Later(ms(t0, 16))
         );
         assert_eq!(w.due(), Some(ms(t0, 16)));
@@ -484,14 +514,14 @@ mod tests {
         // Unparsed output waits too, and keeps its deadline.
         c.input(ms(t0, 6), ms(t0, 8), 10);
         assert_eq!(
-            c.decide(false, &mut w, true, ms(t0, 8), refresh),
+            c.decide(false, &mut w, true, false, ms(t0, 8), refresh),
             Draw::Later(ms(t0, 16))
         );
         c.turn_end();
         // Past the deadline it draws.
         c.input(ms(t0, 17), ms(t0, 18), COALESCE_BYTES);
         assert_eq!(
-            c.decide(false, &mut w, false, ms(t0, 18), refresh),
+            c.decide(false, &mut w, false, false, ms(t0, 18), refresh),
             Draw::Paced
         );
     }
@@ -507,7 +537,7 @@ mod tests {
         c.input(ms(t0, 2), ms(t0, 3), COALESCE_BYTES);
         let refresh = Some(Duration::from_millis(16));
         assert_eq!(
-            c.decide(false, &mut w, false, ms(t0, 3), refresh),
+            c.decide(false, &mut w, false, false, ms(t0, 3), refresh),
             Draw::Later(ms(t0, 16))
         );
         w.wait_for_flip();
@@ -526,7 +556,7 @@ mod tests {
         c.drawn(&mut w, t0, ms(t0, 1), true);
         c.input(ms(t0, 500), ms(t0, 502), COALESCE_BYTES);
         assert_eq!(
-            c.decide(false, &mut w, false, ms(t0, 502), refresh),
+            c.decide(false, &mut w, false, false, ms(t0, 502), refresh),
             Draw::Later(ms(t0, 516))
         );
     }
@@ -538,11 +568,15 @@ mod tests {
         let mut w = Wait::default();
         c.drawn(&mut w, t0, ms(t0, 1), true);
         c.input(ms(t0, 2), ms(t0, 3), COALESCE_BYTES);
-        assert_eq!(c.decide(true, &mut w, false, ms(t0, 3), None), Draw::Now);
+        assert_eq!(
+            c.decide(true, &mut w, false, false, ms(t0, 3), None),
+            Draw::Now
+        );
         assert_eq!(
             c.decide(
                 false,
                 &mut w,
+                false,
                 false,
                 ms(t0, 3),
                 Some(Duration::from_secs(1))
