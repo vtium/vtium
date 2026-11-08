@@ -554,7 +554,7 @@ impl fmt::Display for Shown<'_> {
 
 /// A finding located in a file: `PATH:LINE: WHAT`, or `PATH: WHAT` for the
 /// file as a whole, as vtium.conf's reports read and as `vtium
-/// check-config`, the start's log, the notice and `vtiumctl` show the head
+/// check-config`, the start's log, the notice and vtium-config show the head
 /// file's. The path is shown with every control and format character
 /// escaped, so a newline in it never splits the line.
 #[derive(Clone, Copy, Debug)]

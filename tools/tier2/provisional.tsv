@@ -1,3 +1,6 @@
 # vtium's goldens the operator has not reviewed: NAME and why. A
 # provisional case is drawn and compared, and a difference is noted but
 # does not fail the run; the row goes when the operator accepts the golden.
+small-640x480	#273: the italic word `ital` in the 8x16 PSF1 test font redrawn with ADR-1302 D4's bands of 2026-11-07, its last five rows standing together; not reviewed yet
+small-640x480-1bit	#273: the italic word `ital` in the 8x16 PSF1 test font redrawn with ADR-1302 D4's bands of 2026-11-07, its last five rows standing together; not reviewed yet
+vitrified-640x480	#273: the italic word `ital` in the 8x16 PSF1 test font, drawn by vtium-config's engine, redrawn with ADR-1302 D4's bands of 2026-11-07, its last five rows standing together; not reviewed yet

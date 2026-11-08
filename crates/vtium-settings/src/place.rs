@@ -106,7 +106,7 @@ pub enum Disposition {
     Closed,
 }
 
-/// A layer 1 warning of D9, which `vtium check-config` and `vtiumctl
+/// A layer 1 warning of D9, which `vtium check-config` and `vtium config
 /// check` give for the devices present; each names a head by its index or
 /// a device by its place in the set given.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

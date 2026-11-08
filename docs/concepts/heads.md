@@ -35,7 +35,7 @@ stateDiagram-v2
     class GaveUp,Ended inert
 ```
 
-vtiumctl writes the file for whoever prefers not to, from the console or a desktop terminal, with or without privilege: it lists every device with a rule ready to paste, asks which keyboard belongs to which display, reports what the running console did, and checks a candidate before it is installed.
+vtium-config writes the file for whoever prefers not to, from the console or a desktop terminal, with or without privilege. `vtium config flow` lists every connected display and input device and the rule that places each one. The Flow view and `vtium config rule`, `head` and `look` change your draft of the file, and `vtium config install` checks the draft and installs it. See [Configure vtium](../configure.md). Asking which keyboard belongs to which display by a keypress, and reporting what the running console did with each device, are not built yet. See [the issue that tracks them](https://github.com/vtium/vtium/issues/367).
 
 ## Two policies: open and closed
 

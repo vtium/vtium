@@ -8,8 +8,8 @@ use crate::outcome::Policy;
 use crate::parse::{parse, sections};
 
 /// The head file's commented template. The compiled-in configuration is
-/// its parse, so the built-in configuration, the file `vtiumctl template`
-/// writes and the files a package installs are the same by construction
+/// its parse, so the built-in configuration and the example vtium.conf that a
+/// package installs are the same by construction
 /// (ADR-1401 D6).
 pub const TEMPLATE: &str = include_str!("../templates/heads.conf");
 
