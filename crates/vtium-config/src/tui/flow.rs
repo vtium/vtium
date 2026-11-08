@@ -71,8 +71,8 @@ pub struct Device {
     pub name: String,
     /// What tells it apart, under its name: an EDID serial, a port, a class.
     pub detail: String,
-    /// Every match key it offers, the strongest first, as `vtiumctl detect`
-    /// lists them.
+    /// Every match key it offers, the strongest first, as `vtium config flow
+    /// --json` gives them.
     pub keys: Vec<String>,
     /// `false` for a device a rule names that is not plugged in: drawn as a
     /// grey block marked `configured, not found`.
