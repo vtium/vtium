@@ -487,6 +487,18 @@ fn main() -> ExitCode {
     }
     let me = std::env::current_exe().expect("the test's own path");
     let mut failed = false;
+    // Under qemu-user the filters cannot be installed, and qemu runs a
+    // thread of its own in every process, so the child is never alone
+    // (tools/arm/README.md). The roles that install a filter skip there and
+    // say why; the landlock roles still run.
+    let no_seccomp = vtium_testscript::qemu_without_seccomp();
+    let skipped = |role: &str, name: &str| match (&no_seccomp, role) {
+        (Some(why), "--child" | "--worker" | "--last" | "--attack") => {
+            println!("test {name} ... skipped: {why}");
+            true
+        }
+        _ => false,
+    };
     for (role, name) in [
         ("--child", "a_call_outside_the_list_answers_enosys"),
         (
@@ -499,6 +511,9 @@ fn main() -> ExitCode {
             "a_locked_in_worker_reads_what_it_holds_and_opens_nothing",
         ),
     ] {
+        if skipped(role, name) {
+            continue;
+        }
         let status = Command::new(&me)
             .arg(role)
             .status()
@@ -522,6 +537,9 @@ fn main() -> ExitCode {
             "the_workers_landlock_scope_keeps_its_signals_from_another_process",
         ),
     ] {
+        if skipped(role, name) {
+            continue;
+        }
         let result = against_a_victim(&me, role);
         let text = match &result {
             Ok(()) => "ok".to_owned(),

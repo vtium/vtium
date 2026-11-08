@@ -101,7 +101,16 @@ fn the_parser_runs_without_new_privileges_and_within_its_limits() {
             })
             .unwrap_or_default()
     };
-    assert_eq!(limit("Max address space"), "536870912 536870912");
+    // qemu-user does not pass RLIMIT_AS on to the kernel, since it would
+    // limit qemu itself, so under make arm-test the parser shows no limit
+    // there (tools/arm/README.md), and this one check skips and says so.
+    match std::env::var_os("VTIUM_QEMU_USER") {
+        Some(qemu) if limit("Max address space") == "unlimited unlimited" => eprintln!(
+            "skipped: {} does not pass RLIMIT_AS on to the kernel",
+            qemu.to_string_lossy()
+        ),
+        _ => assert_eq!(limit("Max address space"), "536870912 536870912"),
+    }
     assert_eq!(limit("Max cpu time"), "30 30");
     assert_eq!(limit("Max processes"), "0 0");
     assert_eq!(limit("Max file size"), "0 0");

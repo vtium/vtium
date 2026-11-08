@@ -131,6 +131,36 @@ pub const WARNINGS_MAX: usize = 16;
 // The helper starts and reads a PSF well inside it on minspec, and a start that waits longer stalls visibly (the operator, 2026-10-28).
 pub const OWN_CELL_MS: u64 = 100;
 
+thread_local! {
+    /// The wait a [`CellWait`] sets for the cell queries asked on this
+    /// thread, in place of the console's.
+    static CELL_WAIT: std::cell::Cell<Option<Duration>> = const { std::cell::Cell::new(None) };
+}
+
+/// While it lives, each cell query asked on the thread that made it waits
+/// up to its bound for the answer, in place of the wait the console asks
+/// for ([`OWN_CELL_MS`]). A test whose helper answers in time holds one, so
+/// that the test judges the answer and not how fast the host starts and
+/// runs the helper; the bound only makes a helper that never answers fail
+/// the test instead of hanging it. The console never makes one. A test of
+/// the wait itself, or of an answer that comes after it, holds none.
+#[must_use = "the wait goes back to the console's when the guard drops"]
+pub struct CellWait(Option<Duration>);
+
+impl CellWait {
+    /// Waits up to `bound` for each cell answer on this thread until the
+    /// guard drops.
+    pub fn new(bound: Duration) -> CellWait {
+        CellWait(CELL_WAIT.with(|w| w.replace(Some(bound))))
+    }
+}
+
+impl Drop for CellWait {
+    fn drop(&mut self) {
+        CELL_WAIT.with(|w| w.set(self.0));
+    }
+}
+
 const REQUEST_MAGIC: &[u8; 8] = b"VTVSREQ5";
 /// Why the console gives the helper up when the two read different layouts
 /// of their format: a helper of an older build refuses this console's
@@ -1186,13 +1216,15 @@ impl Helper {
     /// the helper's refusal, a helper that cannot start or ends first, no
     /// answer in time, whose late answer is kept when it comes, or an
     /// outline cell of another height, which is refused as malformed.
-    /// `clock` tells the time as the wait goes on.
+    /// `clock` tells the time as the wait goes on. A [`CellWait`] on this
+    /// thread sets the wait in place of `wait`.
     pub fn own_cell(
         &mut self,
         height: u32,
         wait: Duration,
         clock: &dyn Fn() -> Instant,
     ) -> Result<OwnCell, NoCell> {
+        let wait = CELL_WAIT.with(std::cell::Cell::get).unwrap_or(wait);
         let now = clock();
         let query = Cell { width: 0, height };
         if self.failed.is_none() {
@@ -1937,6 +1969,33 @@ fn after(t: Instant, d: Duration) -> Instant {
     t.checked_add(d).unwrap_or(t)
 }
 
+/// The shell the tests start in place of the font helper: a copy of
+/// `/bin/sh` that the test's own account owns, beside the test binary.
+/// vtium starts a helper only when root or its own account owns the
+/// program, and `/bin/sh` belongs to root only where the tests see root's
+/// files as root's. In a user namespace that does not map root, such as
+/// the one `make arm-test` runs the tests in (tools/arm/README.md), every
+/// file of root's belongs to the overflow uid, 65534. Each test process
+/// makes its copy once and renames it into place, so a test process that
+/// runs at the same time never starts a copy that is still being written.
+#[cfg(test)]
+#[expect(clippy::expect_used, reason = "a test fails by panicking")]
+pub(crate) fn stand_in_shell() -> &'static Path {
+    static SHELL: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    SHELL.get_or_init(|| {
+        use std::os::unix::fs::PermissionsExt;
+        let exe = std::env::current_exe().expect("the test binary");
+        let dir = exe.parent().expect("the test binary's directory");
+        let shell = dir.join("vtium-stand-in-sh");
+        let part = dir.join(format!("vtium-stand-in-sh.{}", std::process::id()));
+        std::fs::copy("/bin/sh", &part).expect("a copy of /bin/sh");
+        std::fs::set_permissions(&part, std::fs::Permissions::from_mode(0o755))
+            .expect("the copy's mode");
+        std::fs::rename(&part, &shell).expect("the copy in place");
+        shell
+    })
+}
+
 #[cfg(test)]
 #[expect(
     clippy::unwrap_used,
@@ -2045,7 +2104,7 @@ mod tests {
             let (tx, woke) = mpsc::channel();
             let tx = std::sync::Mutex::new(tx);
             let command = Command {
-                program: PathBuf::from("/bin/sh"),
+                program: stand_in_shell().to_path_buf(),
                 args: vec![
                     "-c".into(),
                     script.into(),
@@ -2131,6 +2190,27 @@ mod tests {
             name: "t".to_owned(),
             text: text.to_owned(),
         }
+    }
+
+    // A test that holds a CellWait sets the wait of the cell queries on
+    // its thread for as long as it holds it, and no longer, so a later test
+    // on the same thread, which may judge the console's own wait, gets
+    // that wait back.
+    #[test]
+    fn a_cell_wait_holds_only_while_its_guard_lives() {
+        let wait = || CELL_WAIT.with(std::cell::Cell::get);
+        let (long, short) = (Duration::from_secs(30), Duration::from_secs(5));
+        assert_eq!(wait(), None, "the console's wait");
+        {
+            let _outer = CellWait::new(long);
+            assert_eq!(wait(), Some(long));
+            {
+                let _inner = CellWait::new(short);
+                assert_eq!(wait(), Some(short));
+            }
+            assert_eq!(wait(), Some(long), "the outer guard's wait is back");
+        }
+        assert_eq!(wait(), None, "the console's wait is back");
     }
 
     #[test]
@@ -2581,7 +2661,7 @@ mod tests {
         let mut helper = Helper::new(
             // never started: nothing is asked
             Launcher::open(Command {
-                program: PathBuf::from("/bin/sh"),
+                program: stand_in_shell().to_path_buf(),
                 args: Vec::new(),
                 account: None,
             })
@@ -2851,7 +2931,7 @@ mod tests {
         }
         let gid = rustix::process::getegid().as_raw();
         let command = Command {
-            program: PathBuf::from("/bin/sh"),
+            program: stand_in_shell().to_path_buf(),
             args: vec!["-c".into(), "cat >/dev/null".into()],
             account: Some((me, gid)),
         };
@@ -3944,10 +4024,11 @@ mod tests {
             crate::config::load(&args, &mut |_: &Path| Ok(None)).config
         };
         assert_eq!(program(&config(&[])), Path::new(PROGRAM));
-        let sh = config(&["--font-helper=/bin/sh"]);
-        assert_eq!(program(&sh), Path::new("/bin/sh"));
+        let shell = stand_in_shell();
+        let sh = config(&[&format!("--font-helper={}", shell.display())]);
+        assert_eq!(program(&sh), shell);
         let opened = Launcher::configured(&sh).unwrap();
-        assert_eq!(opened.command.program, Path::new("/bin/sh"));
+        assert_eq!(opened.command.program, shell);
         assert_eq!(opened.command.args, ["serve"]);
         let why = Launcher::configured(&config(&["--font-helper=sh"])).unwrap_err();
         assert!(why.contains("is not absolute"), "{why}");
@@ -3964,8 +4045,25 @@ mod tests {
         // no one may execute it
         program_copy("/bin/true", &program, 0o644);
         let launcher = Launcher::open(sh(&program, "")).unwrap();
-        // the error the kernel gives this start, for the message's text
-        let e = launcher.process().spawn().unwrap_err();
+        // the error the kernel gives this start, for the message's text.
+        // qemu-user runs glibc's posix_spawn child as a fork that shares no
+        // memory with its parent, so the child's failed exec never reaches
+        // the parent, and the start succeeds. There the test cannot judge
+        // what it claims, and it skips and says so.
+        let e = match launcher.process().spawn() {
+            Err(e) => e,
+            Ok(mut child) => {
+                let _ = child.wait();
+                let qemu = std::env::var_os("VTIUM_QEMU_USER");
+                assert!(qemu.is_some(), "a program no one may execute started");
+                eprintln!(
+                    "{} reports no failed exec to the process that starts a program: skipped",
+                    qemu.unwrap_or_default().display()
+                );
+                let _ = std::fs::remove_dir_all(&dir);
+                return;
+            }
+        };
         let mut helper = Helper::new(
             launcher,
             Arc::new(|| {}),

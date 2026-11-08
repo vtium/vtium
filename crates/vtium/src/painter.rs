@@ -984,7 +984,12 @@ mod tests {
         }
         painter.forget((PathBuf::from("/dev/test"), DisplayId(1)));
         drop(release);
-        let end = Instant::now().checked_add(Duration::from_secs(10)).unwrap();
+        // The bound only turns a hang into a failure (AGENTS.md, testing rules).
+        // It is generous because a cold shader cache under qemu-user can
+        // take many seconds to compose the queued frames.
+        let end = Instant::now()
+            .checked_add(Duration::from_secs(120))
+            .unwrap();
         let mut done = 0;
         while (done < QUEUE + 1 || gpu.kept.load(Ordering::SeqCst) > QUEUE) && Instant::now() < end
         {

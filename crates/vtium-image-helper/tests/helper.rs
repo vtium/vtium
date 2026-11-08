@@ -164,6 +164,10 @@ const PREMULTIPLIED: [u8; 8] = [0xff, 0x80, 0, 0xff, 0x80, 0x80, 0x80, 0x80];
 // covers: image.helper
 #[test]
 fn the_real_helper_answers_every_kind_of_request_under_its_filter() {
+    if let Some(why) = vtium_testscript::qemu_without_seccomp() {
+        eprintln!("skipped: {why}");
+        return;
+    }
     every_kind_of_request(&mut ImageHost::new(Some(program()), None));
 }
 
@@ -369,6 +373,10 @@ fn workers(host: &ImageHost) -> Vec<u32> {
 // covers: image.helper
 #[test]
 fn a_stream_of_inline_frames_has_one_worker_and_a_new_size_ends_it() {
+    if let Some(why) = vtium_testscript::qemu_without_seccomp() {
+        eprintln!("skipped: {why}");
+        return;
+    }
     a_stream(&mut ImageHost::new(Some(program()), None));
 }
 
@@ -465,6 +473,10 @@ fn a_stream(host: &mut ImageHost) {
 
 #[test]
 fn a_helper_started_for_a_larger_budget_replaces_the_smaller_one() {
+    if let Some(why) = vtium_testscript::qemu_without_seccomp() {
+        eprintln!("skipped: {why}");
+        return;
+    }
     let mut host = ImageHost::new(Some(program()), None);
     let z = miniz_oxide::deflate::compress_to_vec_zlib(&STRAIGHT, 6);
     let small = raw(Medium::Direct(z.clone()), Layout::Rgba, 2, 1, true);
@@ -505,6 +517,10 @@ fn until_gone(pid: u32) {
 
 #[test]
 fn a_picture_past_the_budget_is_refused_before_it_is_decoded() {
+    if let Some(why) = vtium_testscript::qemu_without_seccomp() {
+        eprintln!("skipped: {why}");
+        return;
+    }
     let mut host = ImageHost::new(Some(program()), None);
     let big = png(1000, 1000, &vec![0; 4_000_000]);
     let r = Request {
@@ -541,6 +557,10 @@ const NO_LANDLOCK: &str = "VTIUM_TEST_IMAGE_HELPER_NO_LANDLOCK";
 // covers: image.helper
 #[test]
 fn the_real_helper_serves_every_request_on_a_kernel_without_landlock() {
+    if let Some(why) = vtium_testscript::qemu_without_seccomp() {
+        eprintln!("skipped: {why}");
+        return;
+    }
     const NAME: &str = "the_real_helper_serves_every_request_on_a_kernel_without_landlock";
     if std::env::var_os(NO_LANDLOCK).is_some() {
         hide_landlock();
@@ -609,6 +629,10 @@ fn gif_file(frames: u8) -> Vec<u8> {
 // covers: image.iterm2
 #[test]
 fn the_real_helper_returns_an_animated_gifs_frames_past_its_budget_of_one_picture() {
+    if let Some(why) = vtium_testscript::qemu_without_seccomp() {
+        eprintln!("skipped: {why}");
+        return;
+    }
     let mut host = ImageHost::new(Some(program()), None);
     let file = gif_file(3);
     // one 16 by 16 frame is 1,024 bytes, the most a picture may take, so
@@ -667,6 +691,10 @@ fn the_real_helper_returns_an_animated_gifs_frames_past_its_budget_of_one_pictur
 
 #[test]
 fn requests_that_alternate_a_larger_budget_and_more_frame_room_restart_the_helper_once() {
+    if let Some(why) = vtium_testscript::qemu_without_seccomp() {
+        eprintln!("skipped: {why}");
+        return;
+    }
     let mut host = ImageHost::new(Some(program()), None);
     let z = miniz_oxide::deflate::compress_to_vec_zlib(&STRAIGHT, 6);
     let budget = Request {

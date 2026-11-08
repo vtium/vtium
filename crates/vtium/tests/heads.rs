@@ -982,7 +982,7 @@ fn frits(test: &str, names: &[&str]) -> (Scratch, Sources, PathBuf) {
     }
     let starts = dir.join("starts");
     let helper = vtium::helper::Command {
-        program: PathBuf::from("/bin/sh"),
+        program: stand_in::stand_in_shell().to_path_buf(),
         args: ["-c", "echo $$ >> \"$1\"; exec sleep 30", "helper"]
             .into_iter()
             .map(OsString::from)
@@ -1964,8 +1964,12 @@ input path:kbd-panel -> panel
 fn a_flood_leaves_the_other_head_its_turn(flood: &str, quiet: &str, kbd: &str, node: &str) {
     let mut s = flooding(flood);
     let parsed = |a: &App| a.head(flood).map_or(0, |h| h.term().parsed);
+    // The first MiB of the flood takes as long as the machine needs to
+    // parse a MiB, not one event's wait, so this wait has a longer bound.
+    // Under qemu-user, where make arm-test runs this test, the MiB alone
+    // takes about BOUND, and longer beside the other tests.
     assert!(
-        s.until(BOUND, |a| head_shows(a, quiet, "ready")
+        s.until(6 * BOUND, |a| head_shows(a, quiet, "ready")
             && parsed(a) > 1 << 20),
         "{quiet}'s session runs and {flood} floods"
     );
