@@ -21,13 +21,16 @@
 //! with three buffers it composes nothing into the third
 //! ([`Wait::wait_for_flip`], ADR-1401 D2).
 //!
-//! **A short write.** Output that a turn parsed in full, less than
-//! [`COALESCE_BYTES`] of it, draws at once when it is a key's echo: it
-//! follows a key sent to the program since the display's last composed
-//! frame. Any other short write waits for the flip in flight, as a paced
-//! draw does, and draws at once when no flip is in flight (ADR-1401 D2).
-//! Keys, the blink timers, the pointer, a frame's end and a lost picture
-//! draw at once.
+//! **Output no key caused.** vtium draws output that no key caused at
+//! most once a refresh, and anything a key caused as soon as it can
+//! (ADR-1401 D2). A short write, output that a turn parsed in full and
+//! less than [`COALESCE_BYTES`] of it, draws at once when it is a key's
+//! echo: it follows a key sent to the program since the display's last
+//! frame of the program's output. Any other short write waits for the
+//! flip in flight, as a paced draw does, and draws at once when no flip is
+//! in flight. The end of a synchronized update and the draw a hold owed
+//! follow the same rule, in `View::draws`. Keys, the blink timers, the
+//! pointer and a lost picture draw at once.
 //!
 //! The time is an argument: the loop reads the clock.
 

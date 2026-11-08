@@ -1006,33 +1006,39 @@ impl View {
 
     /// Whether the loop's pass at `now` draws this view of `term` on
     /// `video`. `now_all`: something asks every display of the head to
-    /// draw at once, as a key, the pointer or a frame's end does;
+    /// draw at once, as a key or the pointer does; `frame_end`: a
+    /// synchronized update ended, or its timeout ended the hold;
     /// `holding`: a hold keeps the last frame.
     ///
-    /// A draw that cannot wait goes ahead at once: the display lost its
-    /// picture, a hold that owed a draw ended, the output was a key's
-    /// echo, or the display takes a frame that such a draw waited for.
-    /// With three buffers it composes into the third while a flip is in
-    /// flight. A short write is a key's echo when a key went to the
-    /// program since the display's last frame of the program's output was
-    /// taken; the frame a key draws for itself, before the program has
-    /// answered, leaves the key remembered. A draw the coalescing paces
-    /// during a flood goes ahead at its deadline, and any other short
-    /// write at once, unless the display's flip is in flight and the
-    /// display keeps two or three buffers: then it waits for the flip to
-    /// end and composes nothing (ADR-1401 D2). A frame composed during the flip
-    /// could not reach the screen before the flip ends, and during a flood
-    /// the next change would draw over it before it got there. A paced
-    /// draw that waited for the display to take a frame, as for a frame
-    /// composing, waits for the flip in flight too. With two buffers the
-    /// display lends no buffer while it flips, so a paced draw waited for
-    /// the flip already; with one buffer, or on a framebuffer, no draw
-    /// waits for a flip.
+    /// vtium draws output that no key caused at most once a refresh, and
+    /// anything a key caused as soon as it can (ADR-1401 D2). A draw that
+    /// cannot wait goes ahead at once: the display lost its picture, a key
+    /// or the pointer asked, the output was a key's answer, or the display
+    /// takes a frame that such a draw waited for. With three buffers it
+    /// composes into the third while a flip is in flight. Output is a
+    /// key's answer when a key went to the program since the display's
+    /// last frame of the program's output was taken; the frame a key draws
+    /// for itself, before the program has answered, leaves the key
+    /// remembered. A short write, the end of a synchronized update and the
+    /// draw a hold owed are drawn at once when they are a key's answer.
+    /// Otherwise they go ahead as a draw the coalescing paces during a
+    /// flood does at its deadline: at once, unless the display's flip is
+    /// in flight and the display keeps two or three buffers, and then the
+    /// draw waits for the flip to end and composes nothing. A frame
+    /// composed during the flip could not reach the screen before the flip
+    /// ends, and the next change could draw over it before it got there. A
+    /// paced draw that waited for the display to take a frame, as for a
+    /// frame composing, waits for the flip in flight too. With two buffers
+    /// the display lends no buffer while it flips, so a paced draw waited
+    /// for the flip already; with one buffer, or on a framebuffer, no draw
+    /// waits for a flip. A synchronized update that waits stays whole: a
+    /// hold in force when the flip ends keeps the frame for its own end.
     pub fn draws(
         &mut self,
         term: &Term,
         video: &dyn Video,
         now_all: bool,
+        frame_end: bool,
         holding: bool,
         now: Instant,
     ) -> bool {
@@ -1040,17 +1046,20 @@ impl View {
         if due {
             self.wait.end();
         }
-        let owed = self.owed && !holding;
         // A pending view waits for its display to take a frame, so a
         // display that lends no token never turns the loop.
         let taken = self.pending && video.ready_for_frame(self.id);
-        if now_all || self.lost || owed || (taken && !self.wait.paced()) {
+        // The program's output since a key went to it, which no frame of
+        // this display shows yet, is that key's answer.
+        let echo = term.answered() != self.echoed;
+        // A synchronized update ended, or a hold that owed a draw is over.
+        let ended = frame_end || (self.owed && !holding);
+        if now_all || self.lost || (ended && echo) || (taken && !self.wait.paced()) {
             self.wait.ask(false);
             return true;
         }
-        let mut paced = due || taken || self.wait.for_flip();
+        let mut paced = due || taken || ended || self.wait.for_flip();
         if term.changed {
-            let echo = term.answered() != self.echoed;
             match term.coalesce.decide(
                 holding,
                 &mut self.wait,
@@ -2468,12 +2477,17 @@ mod tests {
             assert_eq!(term.parse(part, &mut |_| {}), part.len());
         }
         let clock = Rc::clone(&term.clock);
-        // As the loop draws a display: a frame the display kept goes out
-        // when no newer frame composes.
-        if view.draws(term, &*video, now_all, false, clock()) {
-            view.draw(term, video, &DrawState::default(), &*clock);
-        } else {
+        // As the loop draws a display: the end of a synchronized update
+        // asks once, a frame the display kept goes out when no newer frame
+        // composes, and a hold keeps the last frame.
+        let frame_end = std::mem::take(&mut term.present);
+        let holding = term.sync.holding(&term.terminal);
+        let draws = view.draws(term, &*video, now_all, frame_end, holding, clock());
+        if !draws || (holding && !view.lost) {
             view.send_kept(video);
+        }
+        if draws {
+            view.draw(term, video, &DrawState::default(), &*clock);
         }
         term.coalesce.turn_end();
         term.changed = false;
@@ -2636,7 +2650,7 @@ mod tests {
         hand.at(16);
         video.flipping = false;
         // The pass at the flip's end hands B to the render thread.
-        assert!(view.draws(&term, &video, false, false, clock()));
+        assert!(view.draws(&term, &video, false, false, false, clock()));
         let Prepared::Job(job) = view.prepare(
             &key,
             &mut term,
@@ -2652,7 +2666,7 @@ mod tests {
         // A flood turn while B composes: its paced draw waits for B.
         hand.at(18);
         assert_eq!(term.parse(&flood(b'c'), &mut |_| {}), flood(b'c').len());
-        if view.draws(&term, &video, false, false, clock()) {
+        if view.draws(&term, &video, false, false, false, clock()) {
             let later = view.prepare(
                 &key,
                 &mut term,
@@ -2852,6 +2866,193 @@ mod tests {
                 "framebuffer {framebuffer}: composed at once"
             );
         }
+    }
+
+    /// Offers mode 2026 to `term`'s program, with a hold's timeout of
+    /// 200 ms, as a head does.
+    fn offer_sync(term: &mut Term) {
+        term.terminal.set_sync_enabled(true);
+        term.sync = Sync::new(Duration::from_millis(200), term.terminal.sync_frames());
+    }
+
+    /// [`a_in_flight`], with mode 2026 offered.
+    fn synced_in_flight(n: usize) -> (Hand, Term, View, Flip) {
+        let hand = Hand::new();
+        let (mut term, mut view) = view_at(&hand);
+        offer_sync(&mut term);
+        let mut video = Flip::with(n);
+        turn(&mut term, &mut view, &mut video, &[b"A"]);
+        assert_eq!((video.composed, video.sent), (1, 1), "{n} buffers: A");
+        video.flipping = true;
+        (hand, term, view, video)
+    }
+
+    /// A synchronized update of `body`: mode 2026 set, `body`, mode 2026
+    /// reset.
+    fn update(body: &[u8]) -> Vec<u8> {
+        [b"\x1b[?2026h", body, b"\x1b[?2026l"].concat()
+    }
+
+    /// A synchronized update of a flood's worth of `c`, so that its end is
+    /// not also a short write.
+    fn big_update(c: u8) -> Vec<u8> {
+        update(&flood(c))
+    }
+
+    // ADR-1401 D2: with two or three buffers, the end of a synchronized
+    // update that follows a key sent to the program composes at once: with
+    // three into the free third buffer while the flip is in flight, and
+    // with two as soon as the display lends a buffer, at the flip's end.
+    #[test]
+    fn a_synchronized_update_after_a_key_composes_at_once_during_a_flip() {
+        for n in [2, 3] {
+            let (hand, mut term, mut view, mut video) = synced_in_flight(n);
+            term.key_sent();
+            hand.at(4);
+            turn(&mut term, &mut view, &mut video, &[&big_update(b'k')]);
+            assert!(!view.wait.for_flip(), "{n} buffers: it waits for no flip");
+            let composed = if n == 3 { 2 } else { 1 };
+            assert_eq!(
+                (video.composed, video.sent),
+                (composed, 1),
+                "{n} buffers: composed at once where a buffer is free"
+            );
+            hand.at(16);
+            video.flipping = false;
+            turn(&mut term, &mut view, &mut video, &[]);
+            assert_eq!((video.composed, video.sent), (2, 2), "{n} buffers");
+            assert!(video.shows((video.back + n - 1) % n, 0), "{n} buffers: k");
+        }
+    }
+
+    // ADR-1401 D2: the end of a synchronized update that no key caused
+    // waits for the flip in flight, as a paced draw does, and composes once
+    // when the flip ends.
+    #[test]
+    fn a_synchronized_update_no_key_caused_waits_for_the_flip() {
+        for n in [2, 3] {
+            let (hand, mut term, mut view, mut video) = synced_in_flight(n);
+            hand.at(4);
+            turn(&mut term, &mut view, &mut video, &[&big_update(b'x')]);
+            hand.at(8);
+            turn(&mut term, &mut view, &mut video, &[]);
+            assert_eq!(
+                (video.composed, video.sent),
+                (1, 1),
+                "{n} buffers: nothing composes while the flip is pending"
+            );
+            assert!(view.wait.for_flip(), "{n} buffers: the update waits");
+            hand.at(16);
+            video.flipping = false;
+            turn(&mut term, &mut view, &mut video, &[]);
+            assert_eq!(
+                (video.composed, video.sent),
+                (2, 2),
+                "{n} buffers: one frame when the flip ends"
+            );
+            assert!(video.shows((video.back + n - 1) % n, 0), "{n} buffers: x");
+        }
+    }
+
+    // ADR-1401 D2: the draw a hold owed follows the same rule when the hold
+    // ends without a frame's end, as when mode 2026 is turned off: after a
+    // key it composes at once during the flip, and otherwise it waits for
+    // the flip to end.
+    #[test]
+    fn an_owed_draw_composes_at_once_only_after_a_key() {
+        for key in [true, false] {
+            let (hand, mut term, mut view, mut video) = synced_in_flight(3);
+            if key {
+                term.key_sent();
+            }
+            hand.at(4);
+            turn(
+                &mut term,
+                &mut view,
+                &mut video,
+                &[b"\x1b[?2026h\x1b[1;2Hk"],
+            );
+            assert!(view.owed, "key {key}: the hold owes a draw");
+            assert_eq!(video.composed, 1, "key {key}: nothing composed in the hold");
+            term.terminal.set_sync_enabled(false);
+            hand.at(8);
+            turn(&mut term, &mut view, &mut video, &[]);
+            if key {
+                assert!(!view.wait.for_flip(), "the owed draw waits for no flip");
+                assert_eq!((video.composed, video.sent), (2, 1), "composed at once");
+            } else {
+                assert!(view.wait.for_flip(), "the owed draw waits for the flip");
+                assert_eq!((video.composed, video.sent), (1, 1), "nothing composed");
+            }
+            hand.at(16);
+            video.flipping = false;
+            turn(&mut term, &mut view, &mut video, &[]);
+            assert_eq!((video.composed, video.sent), (2, 2), "key {key}");
+            assert!(video.shows((video.back + 2) % 3, 1), "key {key}: k");
+        }
+    }
+
+    // ADR-1401 D2: with one buffer, or on a display that says no draw waits
+    // for its flip, as a framebuffer does, the end of a synchronized update
+    // no key caused composes at once.
+    #[test]
+    fn with_one_buffer_or_a_framebuffer_no_synchronized_update_waits() {
+        for framebuffer in [false, true] {
+            let n = if framebuffer { 3 } else { 1 };
+            let hand = Hand::new();
+            let (mut term, mut view) = view_at(&hand);
+            offer_sync(&mut term);
+            let mut video = Flip::with(n);
+            video.framebuffer = framebuffer;
+            turn(&mut term, &mut view, &mut video, &[b"A"]);
+            video.flipping = true;
+            hand.at(4);
+            turn(&mut term, &mut view, &mut video, &[&big_update(b'x')]);
+            assert!(!view.wait.for_flip(), "framebuffer {framebuffer}");
+            assert_eq!(
+                video.composed, 2,
+                "framebuffer {framebuffer}: composed at once"
+            );
+        }
+    }
+
+    // ADR-1401 D2: an update that waits for the flip is never drawn in part.
+    // When the program has begun another update by the time the flip ends,
+    // the waiting one goes out with the next one's end, in one frame.
+    #[test]
+    fn a_synchronized_update_that_waits_is_never_drawn_in_part() {
+        let (hand, mut term, mut view, mut video) = synced_in_flight(3);
+        hand.at(4);
+        turn(&mut term, &mut view, &mut video, &[&update(b"\x1b[1;1Hp")]);
+        assert!(view.wait.for_flip(), "p waits for the flip");
+        hand.at(8);
+        turn(
+            &mut term,
+            &mut view,
+            &mut video,
+            &[b"\x1b[?2026h\x1b[1;2Hq"],
+        );
+        hand.at(16);
+        video.flipping = false;
+        turn(&mut term, &mut view, &mut video, &[]);
+        assert_eq!(
+            (video.composed, video.sent),
+            (1, 1),
+            "nothing composes while the next update is open"
+        );
+        hand.at(20);
+        turn(
+            &mut term,
+            &mut view,
+            &mut video,
+            &[b"\x1b[1;3Hr\x1b[?2026l"],
+        );
+        assert_eq!((video.composed, video.sent), (2, 2), "one frame at its end");
+        let b = (video.back + 2) % 3;
+        assert!(
+            (0..3).all(|col| video.shows(b, col)),
+            "p, q and r in the frame sent"
+        );
     }
 
     /// The vertical blanks from a change to the vblank whose flip puts it

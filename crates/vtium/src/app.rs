@@ -4057,8 +4057,8 @@ fn draw_head(
     {
         head.notice_due = Some(after(now, crate::head::NOTICE_SHOWN));
     }
-    let present = std::mem::take(&mut head.console.term.present);
-    let now_all = std::mem::take(&mut head.draw_now) || present;
+    let frame_end = std::mem::take(&mut head.console.term.present);
+    let now_all = std::mem::take(&mut head.draw_now);
     let term = &mut head.console.term;
     let holding = term.sync.holding(&term.terminal);
     let base = head.cell;
@@ -4067,7 +4067,7 @@ fn draw_head(
         let Some(video) = videos.get_mut(&key.0) else {
             continue;
         };
-        let draws = view.draws(term, video.as_ref(), now_all, holding, now);
+        let draws = view.draws(term, video.as_ref(), now_all, frame_end, holding, now);
         // A frame the display kept from a busy swap goes out once its flip
         // ends, unless this pass composes a newer frame, which is drawn
         // over it and carries it.
@@ -4420,6 +4420,9 @@ mod tests {
         /// The kernel removes it at the next commit, which answers as
         /// drm2d does when that commit finds the card gone.
         unplug_at_commit: bool,
+        /// A draw no key caused waits for its flip in flight, as on a DRM
+        /// display with two or three buffers (ADR-1401 D2).
+        waits_for_flip: bool,
     }
 
     impl Still {
@@ -4443,6 +4446,7 @@ mod tests {
                 swaps: 0,
                 committed: 0,
                 unplug_at_commit: false,
+                waits_for_flip: false,
             }
         }
 
@@ -4532,6 +4536,9 @@ mod tests {
         }
         fn ready_for_frame(&self, id: DisplayId) -> bool {
             !self.is_flipping(id) || !self.kept
+        }
+        fn paced_draw_waits_for_flip(&self, _: DisplayId) -> bool {
+            self.waits_for_flip
         }
         fn set_dpms(&mut self, _: DisplayId, dpms: Dpms) -> io::Result<()> {
             if dpms == Dpms::Off {
@@ -6070,6 +6077,48 @@ mod tests {
         app.turn(t);
         settle(&mut lp, &mut app, t);
         assert_eq!(counts(&mut app), (swaps + 1, 1), "once");
+    }
+
+    // ADR-1401 D2: the loop hands a synchronized update's end to each
+    // display as the end of an update, not as a draw asked at once, so on a
+    // display whose draws wait for the flip, an end no key caused composes
+    // nothing while the flip is in flight, and one frame once it ends.
+    #[test]
+    fn the_loop_holds_an_update_no_key_caused_for_the_flip() {
+        let (mut lp, mut app) = seat(None, no_fonts());
+        let node = PathBuf::from("/dev/mem0");
+        let mut device = Still::new(&[(1, "A")]);
+        device.waits_for_flip = true;
+        app.add_video(node.clone(), Box::new(device));
+        shown(&mut app);
+        let t = Instant::now();
+        settle(&mut lp, &mut app, t);
+        fn still<'a>(app: &'a mut App, node: &Path) -> &'a mut Still {
+            app.videos
+                .get_mut(node)
+                .and_then(|v| v.as_any().downcast_mut::<Still>())
+                .unwrap()
+        }
+        let swaps = still(&mut app, &node).swaps;
+        assert!(swaps >= 1, "the first frame");
+        still(&mut app, &node).flipping = true;
+        // as the end of an update in the pty's output does
+        app.term_mut().unwrap().present = true;
+        app.turn(t);
+        settle(&mut lp, &mut app, t);
+        assert_eq!(
+            still(&mut app, &node).swaps,
+            swaps,
+            "nothing composed in the flip"
+        );
+        still(&mut app, &node).flipping = false;
+        app.turn(t);
+        settle(&mut lp, &mut app, t);
+        assert_eq!(
+            still(&mut app, &node).swaps,
+            swaps + 1,
+            "one frame at its end"
+        );
     }
 
     /// The seat at 16 points on a [`Waits`] VT it has acquired, and the
