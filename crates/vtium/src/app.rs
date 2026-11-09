@@ -2080,6 +2080,9 @@ impl App {
                 for head in &mut self.heads {
                     if let Some(v) = head.views.get_mut(&key) {
                         self.presented = true;
+                        // A key's window on the display closes (ADR-1401
+                        // D2).
+                        v.flipped(&head.console.term);
                         if let Some(t) = v.timer.as_mut() {
                             t.flip();
                         }
@@ -2867,7 +2870,9 @@ impl App {
             ..Key::press(keysym, key.ascii, mods, unicode)
         };
         if head.console.term.terminal.key(&pressed) {
-            // The output that follows is the key's echo (ADR-1401 D2).
+            // The key opens a window on each display: the program's
+            // output draws at once until the display's next flip
+            // completes (ADR-1401 D2).
             head.console.term.key_sent();
             head.send_user_bytes();
             head.console.term.terminal.screen_mut().reset_view();
@@ -5287,26 +5292,30 @@ mod tests {
         assert!(!awake(&app), "closed until the VT is taken");
     }
 
-    // ADR-1401 D2: a key the terminal sends to the program makes the output
-    // that follows it the key's echo; output before any key, and a key that
-    // sends the program nothing, as a scroll key on the main screen, make
-    // none.
+    // ADR-1401 D2: a key the terminal sends to the program opens a key's
+    // window on each display of the head, and the display's next flip that
+    // completes closes it. A key that sends the program nothing opens
+    // none: a scroll key on the main screen, or a modifier pressed alone.
     #[test]
-    fn a_key_sent_to_the_program_makes_its_output_an_echo() {
+    fn a_key_sent_to_the_program_opens_a_window_its_next_flip_closes() {
         let key = |keysym: u32, mods: InputMods| {
             InputEvent::Key(KeyEvent {
                 keycode: 0,
                 ascii: 0,
                 mods,
                 keysyms: vec![keysym],
-                codepoints: vec![char::from_u32(keysym)],
+                codepoints: char::from_u32(keysym)
+                    .filter(|c| !c.is_control() && keysym < 0xff00)
+                    .into_iter()
+                    .map(Some)
+                    .collect(),
                 repeat: false,
             })
         };
-        let output = |app: &mut App, bytes: &[u8]| {
-            let term = app.term_mut().unwrap();
-            assert_eq!(term.parse(bytes, &mut |_| {}), bytes.len());
-            term.answered()
+        let open = |app: &App| {
+            let head = app.heads.first().unwrap();
+            assert!(!head.views.is_empty(), "the head has a display");
+            head.views.values().all(|v| v.after_key(&head.console.term))
         };
         let (_lp, mut app) = seat(None, no_fonts());
         app.add_video(
@@ -5315,12 +5324,21 @@ mod tests {
         );
         shown(&mut app);
         app.focus = Some(0);
-        assert_eq!(output(&mut app, b"a"), 0, "no key before it");
+        let t = Instant::now();
+        assert!(!open(&app), "no key yet");
         // Shift+Page Up scrolls the main screen and sends nothing.
-        app.input_event(key(0xff55, InputMods::SHIFT), Instant::now());
-        assert_eq!(output(&mut app, b"b"), 0, "the scroll key sent nothing");
-        app.input_event(key(u32::from('c'), InputMods::empty()), Instant::now());
-        assert_eq!(output(&mut app, b"c"), 1, "the echo of c");
+        app.input_event(key(0xff55, InputMods::SHIFT), t);
+        assert!(!open(&app), "the scroll key sent nothing");
+        // Shift pressed alone sends nothing either.
+        app.input_event(key(0xffe1, InputMods::empty()), t);
+        assert!(!open(&app), "Shift_L sent nothing");
+        app.input_event(key(u32::from('c'), InputMods::empty()), t);
+        assert!(open(&app), "c opens a window");
+        let still = app.videos.get_mut(Path::new("/dev/mem0")).unwrap();
+        let still = still.as_any().downcast_mut::<Still>().unwrap();
+        still.events.push(Event::Flipped(DisplayId(1)));
+        app.turn(t);
+        assert!(!open(&app), "the flip closed it");
     }
 
     // vtium/vtium#229: while the fake VT is released, with its keyboards

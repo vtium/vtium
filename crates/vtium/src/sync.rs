@@ -23,14 +23,16 @@
 //!
 //! **Output no key caused.** vtium draws output that no key caused at
 //! most once a refresh, and anything a key caused as soon as it can
-//! (ADR-1401 D2). A short write, output that a turn parsed in full and
-//! less than [`COALESCE_BYTES`] of it, draws at once when it is a key's
-//! echo: it follows a key sent to the program since the display's last
-//! frame of the program's output. Any other short write waits for the
-//! flip in flight, as a paced draw does, and draws at once when no flip is
-//! in flight. The end of a synchronized update and the draw a hold owed
-//! follow the same rule, in `View::draws`. Keys, the blink timers, the
-//! pointer and a lost picture draw at once.
+//! (ADR-1401 D2). A key sent to the program opens a window on each
+//! display, which closes at the first flip of that display that completes
+//! after the key was sent. Inside the window, every change the program's
+//! output makes to the screen draws at once. A short write, output that a
+//! turn parsed in full and less than [`COALESCE_BYTES`] of it, that comes
+//! outside a key's window waits for the flip in flight, as a paced draw
+//! does, and draws at once when no flip is in flight. The end of a
+//! synchronized update and the draw a hold owed follow the same rule, in
+//! `View::draws`. Keys, the blink timers, the pointer and a lost picture
+//! draw at once.
 //!
 //! The time is an argument: the loop reads the clock.
 
@@ -227,7 +229,7 @@ pub struct Wait {
     flip: bool,
     /// The draw asked last is paced, so while it waits for the display
     /// to take a frame, it waits for the flip in flight too. A short write
-    /// that is not a key's echo is paced.
+    /// outside a key's window is paced.
     paced: bool,
 }
 
@@ -235,12 +237,13 @@ pub struct Wait {
 /// the screen.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Draw {
-    /// Draw at once: the output was a key's echo, or a hold decides.
+    /// Draw at once: the output came inside a key's window, or a hold
+    /// decides.
     Now,
     /// Draw now, unless the display's flip in flight holds it: a refresh
     /// has passed since the display's last present, or since output that
-    /// began after an idle refresh, or the output was short and no key
-    /// caused it (ADR-1401 D2).
+    /// began after an idle refresh, or the output was short and came
+    /// outside a key's window (ADR-1401 D2).
     Paced,
     /// Draw by this time if no turn has by then.
     Later(Instant),
@@ -315,16 +318,16 @@ impl Coalesce {
     }
 
     /// The turn ended with the screen changed at `now`: whether the display
-    /// draws at once, as soon as no flip holds it, or later. `echo`: a key
-    /// went to the program since the display's last composed frame, so a
-    /// short write is that key's echo. `refresh` is the display's, if it
-    /// reports one.
+    /// draws at once, as soon as no flip holds it, or later. `after_key`: a
+    /// key's window is open on the display, because a key went to the
+    /// program since the display's last flip completed, so a short write
+    /// draws at once. `refresh` is the display's, if it reports one.
     pub fn decide(
         &self,
         holding: bool,
         wait: &mut Wait,
         unparsed: bool,
-        echo: bool,
+        after_key: bool,
         now: Instant,
         refresh: Option<Duration>,
     ) -> Draw {
@@ -334,7 +337,7 @@ impl Coalesce {
         }
         if self.bytes < COALESCE_BYTES && !unparsed {
             wait.due = None;
-            return if echo { Draw::Now } else { Draw::Paced };
+            return if after_key { Draw::Now } else { Draw::Paced };
         }
         let refresh = refresh
             .filter(|r| (REFRESH_MIN..=REFRESH_MAX).contains(r))
@@ -475,11 +478,11 @@ mod tests {
         assert!(!s.holding(&term));
     }
 
-    // ADR-1401 D2: a short write is drawn at once when it is a key's echo;
+    // ADR-1401 D2: a short write is drawn at once inside a key's window;
     // any other is drawn as a paced draw is, which waits for a flip in
     // flight and draws at once without one. A hold decides for itself.
     #[test]
-    fn a_short_write_is_at_once_only_as_a_keys_echo() {
+    fn a_short_write_is_at_once_only_in_a_keys_window() {
         let t0 = Instant::now();
         let mut c = Coalesce::default();
         let mut w = Wait::default();
