@@ -1031,8 +1031,10 @@ impl View {
     /// frame composing, waits for the flip in flight too. With two buffers
     /// the display lends no buffer while it flips, so a paced draw waited
     /// for the flip already; with one buffer, or on a framebuffer, no draw
-    /// waits for a flip. A synchronized update that waits stays whole: a
-    /// hold in force when the flip ends keeps the frame for its own end.
+    /// waits for a flip. Inside a hold, no draw asked at once makes a
+    /// waiting draw go ahead at once, since the hold's end decides how its
+    /// owed draw goes. A synchronized update that waits stays whole: a hold
+    /// in force when the flip ends keeps the frame for its own end.
     pub fn draws(
         &mut self,
         term: &Term,
@@ -1054,8 +1056,13 @@ impl View {
         let echo = term.answered() != self.echoed;
         // A synchronized update ended, or a hold that owed a draw is over.
         let ended = frame_end || (self.owed && !holding);
+        // A hold's draw is owed and decided at the hold's end, so a draw
+        // asked inside the hold leaves a waiting draw paced.
+        let held = holding && !self.lost;
         if now_all || self.lost || (ended && echo) || (taken && !self.wait.paced()) {
-            self.wait.ask(false);
+            if !held {
+                self.wait.ask(false);
+            }
             return true;
         }
         let mut paced = due || taken || ended || self.wait.for_flip();
@@ -1069,9 +1076,7 @@ impl View {
                 self.refresh,
             ) {
                 Draw::Now => {
-                    // A hold's draw is owed and decided at the hold's end,
-                    // so it leaves a waiting draw paced.
-                    if !holding {
+                    if !held {
                         self.wait.ask(false);
                     }
                     return true;
@@ -2997,71 +3002,83 @@ mod tests {
     }
 
     // ADR-1401 D2: output inside a hold asks for no draw at once, since
-    // the hold's end decides. A draw no key caused that met a frame
-    // composing keeps waiting as a paced draw through a hold that begins
-    // meanwhile, so when the hold ends during that frame's flip, it waits
-    // for the flip, and composes the update with it when the flip ends.
+    // the hold's end decides, and neither does a draw that every display
+    // is asked for at once inside the hold, as when a blink timer fires. A
+    // draw no key caused that met a frame composing keeps waiting as a
+    // paced draw through a hold that begins meanwhile, so when the hold
+    // ends during that frame's flip, it waits for the flip, and composes
+    // the update with it when the flip ends.
     #[test]
     fn a_hold_does_not_make_a_waiting_draw_compose_at_once() {
-        let hand = Hand::new();
-        let (mut term, mut view) = view_at(&hand);
-        offer_sync(&mut term);
-        let mut video = Flip::with(3);
-        let key = (PathBuf::new(), ID);
-        let clock = hand.clock();
-        turn(&mut term, &mut view, &mut video, &[b"A"]);
-        // B goes to the render thread.
-        hand.at(2);
-        assert_eq!(term.parse(b"B", &mut |_| {}), 1);
-        assert!(view.draws(&term, &video, false, false, false, clock()));
-        let Prepared::Job(job) = view.prepare(
-            &key,
-            &mut term,
-            &mut None,
-            &mut video,
-            &DrawState::default(),
-            None,
-            &*clock,
-        ) else {
-            panic!("B is taken")
-        };
-        term.coalesce.turn_end();
-        term.changed = false;
-        // C, no key's answer, meets B composing.
-        hand.at(4);
-        turn(&mut term, &mut view, &mut video, &[b"\x1b[1;3HC"]);
-        assert!(view.pending, "C waits for B");
-        // An update begins, and its content changes the screen.
-        hand.at(6);
-        turn(
-            &mut term,
-            &mut view,
-            &mut video,
-            &[b"\x1b[?2026h\x1b[1;4HD"],
-        );
-        // B comes back, and its flip is in flight.
-        hand.at(8);
-        view.present(job.compose(None), &mut term, &mut video, true, &*clock);
-        assert_eq!((video.composed, video.sent), (2, 2));
-        video.flipping = true;
-        hand.at(10);
-        turn(&mut term, &mut view, &mut video, &[b"\x1b[?2026l"]);
-        assert_eq!(
-            (video.composed, video.sent),
-            (2, 2),
-            "the update's end waits for B's flip"
-        );
-        assert!(view.wait.for_flip());
-        hand.at(16);
-        video.flipping = false;
-        turn(&mut term, &mut view, &mut video, &[]);
-        assert_eq!(
-            (video.composed, video.sent),
-            (3, 3),
-            "C and D at the flip's end"
-        );
-        let b = (video.back + 2) % 3;
-        assert!(video.shows(b, 2) && video.shows(b, 3), "C and D");
+        for blink in [false, true] {
+            let hand = Hand::new();
+            let (mut term, mut view) = view_at(&hand);
+            offer_sync(&mut term);
+            let mut video = Flip::with(3);
+            let key = (PathBuf::new(), ID);
+            let clock = hand.clock();
+            turn(&mut term, &mut view, &mut video, &[b"A"]);
+            // B goes to the render thread.
+            hand.at(2);
+            assert_eq!(term.parse(b"B", &mut |_| {}), 1);
+            assert!(view.draws(&term, &video, false, false, false, clock()));
+            let Prepared::Job(job) = view.prepare(
+                &key,
+                &mut term,
+                &mut None,
+                &mut video,
+                &DrawState::default(),
+                None,
+                &*clock,
+            ) else {
+                panic!("B is taken")
+            };
+            term.coalesce.turn_end();
+            term.changed = false;
+            // C, no key's answer, meets B composing.
+            hand.at(4);
+            turn(&mut term, &mut view, &mut video, &[b"\x1b[1;3HC"]);
+            assert!(view.pending, "blink {blink}: C waits for B");
+            // An update begins, and its content changes the screen.
+            hand.at(6);
+            turn(
+                &mut term,
+                &mut view,
+                &mut video,
+                &[b"\x1b[?2026h\x1b[1;4HD"],
+            );
+            if blink {
+                // The cursor's blink timer fires inside the hold.
+                hand.at(7);
+                pass(&mut term, &mut view, &mut video, &[], true);
+            }
+            // B comes back, and its flip is in flight.
+            hand.at(8);
+            view.present(job.compose(None), &mut term, &mut video, true, &*clock);
+            assert_eq!((video.composed, video.sent), (2, 2), "blink {blink}");
+            video.flipping = true;
+            hand.at(10);
+            turn(&mut term, &mut view, &mut video, &[b"\x1b[?2026l"]);
+            assert_eq!(
+                (video.composed, video.sent),
+                (2, 2),
+                "blink {blink}: the update's end waits for B's flip"
+            );
+            assert!(view.wait.for_flip(), "blink {blink}");
+            hand.at(16);
+            video.flipping = false;
+            turn(&mut term, &mut view, &mut video, &[]);
+            assert_eq!(
+                (video.composed, video.sent),
+                (3, 3),
+                "blink {blink}: C and D at the flip's end"
+            );
+            let b = (video.back + 2) % 3;
+            assert!(
+                video.shows(b, 2) && video.shows(b, 3),
+                "blink {blink}: C and D"
+            );
+        }
     }
 
     // ADR-1401 D2: with one buffer, or on a display that says no draw waits
