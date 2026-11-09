@@ -1152,13 +1152,12 @@ class VtiumGoldenTest(unittest.TestCase):
         # four notice goldens recaptured with the reworded notices on
         # 2026-11-06, and the ten screens of each default 2D variant
         # re-baselined on vtium's captures with the font set tier3-text
-        # (vtium/vtium#275) on 2026-11-06. The list in the tree holds the
-        # three sgr goldens of the minimal variants recaptured with ADR-1302
-        # D4's italic bands of 2026-11-07 (vtium/vtium#273), which wait on
-        # the maintainer's review; a golden it names must be one a case draws.
+        # (vtium/vtium#275) on 2026-11-06, and the three sgr goldens of the
+        # minimal variants recaptured with ADR-1302 D4's italic bands of
+        # 2026-11-07 (vtium/vtium#273) on 2026-11-08, so the list in the tree
+        # is empty; a golden it names must be one a case draws.
         prov = t3_evaluate.read_provisional()
-        self.assertEqual(sorted(prov), ["2d-640x480-psf16/sgr", "2d-potato-min-psf/sgr",
-                                        "2d-potato-min/sgr"])
+        self.assertEqual(sorted(prov), [])
         self.assertEqual(t3_evaluate.check_goldens(t3_scenario.golden_cases(),
                                                    t3_evaluate.GOLDEN, prov), [])
         with open(os.path.join(t3_common.HERE, "goldens", "README.md")) as f:
