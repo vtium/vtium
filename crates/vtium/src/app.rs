@@ -2080,6 +2080,9 @@ impl App {
                 for head in &mut self.heads {
                     if let Some(v) = head.views.get_mut(&key) {
                         self.presented = true;
+                        // A key's window on the display closes (ADR-1401
+                        // D2).
+                        v.flipped(&head.console.term);
                         if let Some(t) = v.timer.as_mut() {
                             t.flip();
                         }
@@ -2867,6 +2870,10 @@ impl App {
             ..Key::press(keysym, key.ascii, mods, unicode)
         };
         if head.console.term.terminal.key(&pressed) {
+            // The key opens a window on each display: the program's
+            // output draws at once until the display's next flip
+            // completes (ADR-1401 D2).
+            head.console.term.key_sent();
             head.send_user_bytes();
             head.console.term.terminal.screen_mut().reset_view();
             if self.hide_while_typing {
@@ -4055,8 +4062,8 @@ fn draw_head(
     {
         head.notice_due = Some(after(now, crate::head::NOTICE_SHOWN));
     }
-    let present = std::mem::take(&mut head.console.term.present);
-    let now_all = std::mem::take(&mut head.draw_now) || present;
+    let frame_end = std::mem::take(&mut head.console.term.present);
+    let now_all = std::mem::take(&mut head.draw_now);
     let term = &mut head.console.term;
     let holding = term.sync.holding(&term.terminal);
     let base = head.cell;
@@ -4065,7 +4072,7 @@ fn draw_head(
         let Some(video) = videos.get_mut(&key.0) else {
             continue;
         };
-        let draws = view.draws(term, video.as_ref(), now_all, holding, now);
+        let draws = view.draws(term, video.as_ref(), now_all, frame_end, holding, now);
         // A frame the display kept from a busy swap goes out once its flip
         // ends, unless this pass composes a newer frame, which is drawn
         // over it and carries it.
@@ -4418,6 +4425,9 @@ mod tests {
         /// The kernel removes it at the next commit, which answers as
         /// drm2d does when that commit finds the card gone.
         unplug_at_commit: bool,
+        /// A draw no key caused waits for its flip in flight, as on a DRM
+        /// display with two or three buffers (ADR-1401 D2).
+        waits_for_flip: bool,
     }
 
     impl Still {
@@ -4441,6 +4451,7 @@ mod tests {
                 swaps: 0,
                 committed: 0,
                 unplug_at_commit: false,
+                waits_for_flip: false,
             }
         }
 
@@ -4530,6 +4541,9 @@ mod tests {
         }
         fn ready_for_frame(&self, id: DisplayId) -> bool {
             !self.is_flipping(id) || !self.kept
+        }
+        fn paced_draw_waits_for_flip(&self, _: DisplayId) -> bool {
+            self.waits_for_flip
         }
         fn set_dpms(&mut self, _: DisplayId, dpms: Dpms) -> io::Result<()> {
             if dpms == Dpms::Off {
@@ -5276,6 +5290,55 @@ mod tests {
         app.vt = Box::new(Bells::default());
         app.set_input(input());
         assert!(!awake(&app), "closed until the VT is taken");
+    }
+
+    // ADR-1401 D2: a key the terminal sends to the program opens a key's
+    // window on each display of the head, and the display's next flip that
+    // completes closes it. A key that sends the program nothing opens
+    // none: a scroll key on the main screen, or a modifier pressed alone.
+    #[test]
+    fn a_key_sent_to_the_program_opens_a_window_its_next_flip_closes() {
+        let key = |keysym: u32, mods: InputMods| {
+            InputEvent::Key(KeyEvent {
+                keycode: 0,
+                ascii: 0,
+                mods,
+                keysyms: vec![keysym],
+                codepoints: char::from_u32(keysym)
+                    .filter(|c| !c.is_control() && keysym < 0xff00)
+                    .into_iter()
+                    .map(Some)
+                    .collect(),
+                repeat: false,
+            })
+        };
+        let open = |app: &App| {
+            let head = app.heads.first().unwrap();
+            assert!(!head.views.is_empty(), "the head has a display");
+            head.views.values().all(|v| v.after_key(&head.console.term))
+        };
+        let (_lp, mut app) = seat(None, no_fonts());
+        app.add_video(
+            PathBuf::from("/dev/mem0"),
+            Box::new(Still::new(&[(1, "A")])),
+        );
+        shown(&mut app);
+        app.focus = Some(0);
+        let t = Instant::now();
+        assert!(!open(&app), "no key yet");
+        // Shift+Page Up scrolls the main screen and sends nothing.
+        app.input_event(key(0xff55, InputMods::SHIFT), t);
+        assert!(!open(&app), "the scroll key sent nothing");
+        // Shift pressed alone sends nothing either.
+        app.input_event(key(0xffe1, InputMods::empty()), t);
+        assert!(!open(&app), "Shift_L sent nothing");
+        app.input_event(key(u32::from('c'), InputMods::empty()), t);
+        assert!(open(&app), "c opens a window");
+        let still = app.videos.get_mut(Path::new("/dev/mem0")).unwrap();
+        let still = still.as_any().downcast_mut::<Still>().unwrap();
+        still.events.push(Event::Flipped(DisplayId(1)));
+        app.turn(t);
+        assert!(!open(&app), "the flip closed it");
     }
 
     // vtium/vtium#229: while the fake VT is released, with its keyboards
@@ -6032,6 +6095,48 @@ mod tests {
         app.turn(t);
         settle(&mut lp, &mut app, t);
         assert_eq!(counts(&mut app), (swaps + 1, 1), "once");
+    }
+
+    // ADR-1401 D2: the loop hands a synchronized update's end to each
+    // display as the end of an update, not as a draw asked at once, so on a
+    // display whose draws wait for the flip, an end no key caused composes
+    // nothing while the flip is in flight, and one frame once it ends.
+    #[test]
+    fn the_loop_holds_an_update_no_key_caused_for_the_flip() {
+        let (mut lp, mut app) = seat(None, no_fonts());
+        let node = PathBuf::from("/dev/mem0");
+        let mut device = Still::new(&[(1, "A")]);
+        device.waits_for_flip = true;
+        app.add_video(node.clone(), Box::new(device));
+        shown(&mut app);
+        let t = Instant::now();
+        settle(&mut lp, &mut app, t);
+        fn still<'a>(app: &'a mut App, node: &Path) -> &'a mut Still {
+            app.videos
+                .get_mut(node)
+                .and_then(|v| v.as_any().downcast_mut::<Still>())
+                .unwrap()
+        }
+        let swaps = still(&mut app, &node).swaps;
+        assert!(swaps >= 1, "the first frame");
+        still(&mut app, &node).flipping = true;
+        // as the end of an update in the pty's output does
+        app.term_mut().unwrap().present = true;
+        app.turn(t);
+        settle(&mut lp, &mut app, t);
+        assert_eq!(
+            still(&mut app, &node).swaps,
+            swaps,
+            "nothing composed in the flip"
+        );
+        still(&mut app, &node).flipping = false;
+        app.turn(t);
+        settle(&mut lp, &mut app, t);
+        assert_eq!(
+            still(&mut app, &node).swaps,
+            swaps + 1,
+            "one frame at its end"
+        );
     }
 
     /// The seat at 16 points on a [`Waits`] VT it has acquired, and the

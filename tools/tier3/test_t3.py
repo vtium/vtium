@@ -103,7 +103,7 @@ class ScreenTextTest(unittest.TestCase):
         textless = ("wide-margin", "s1-scroll", "sixel", "sixel-ramps", "sixel-article",
                     "sixel-bound", "sixel-evict", "photos", "photo-scroll", "mpv-sixel",
                     "tmux-2x2", "tmux-3x3", "kitty", "kitty-photo", "kitty-files", "kitty-layers",
-                    "flood", "sync-hold")
+                    "flood", "sync-hold", "sync-clock")
         with contextlib.redirect_stderr(io.StringIO()):
             for name in textless:
                 self.assertIsNone(t3_evaluate.screen_text(name, LOG))
