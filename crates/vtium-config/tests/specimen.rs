@@ -31,6 +31,10 @@ fn widest() -> u32 {
 
 #[test]
 fn a_bitmap_frit_draws_at_whole_multiples_of_its_cell() {
+    if let Some(why) = vtium_testscript::qemu_without_seccomp() {
+        eprintln!("skipped: {why}");
+        return;
+    }
     // unscii-8's cell is 8x8; 16 pixels draws it twice as large
     let p = draw(
         helper(),
@@ -54,6 +58,10 @@ fn a_bitmap_frit_draws_at_whole_multiples_of_its_cell() {
 
 #[test]
 fn a_larger_size_draws_a_larger_picture() {
+    if let Some(why) = vtium_testscript::qemu_without_seccomp() {
+        eprintln!("skipped: {why}");
+        return;
+    }
     let small =
         draw(helper(), &frit("source=builtin:unscii-8\n"), 8, PICTURE_MAX).expect("a picture");
     let large = draw(
@@ -88,6 +96,10 @@ fn points_become_pixels_at_the_density() {
 /// down to the room, its shape kept (ADR-1201 D4).
 #[test]
 fn the_painter_draws_a_picture_of_the_console_in_the_built_in_fonts_and_a_frit() {
+    if let Some(why) = vtium_testscript::qemu_without_seccomp() {
+        eprintln!("skipped: {why}");
+        return;
+    }
     use vtium_config::specimen::Shot;
     use vtium_config::tui::canvas::Span;
     use vtium_config::tui::color::Style;
@@ -129,6 +141,10 @@ fn the_painter_draws_a_picture_of_the_console_in_the_built_in_fonts_and_a_frit()
 /// character it lacks does not (ADR-1201 D4, D9).
 #[test]
 fn the_detailed_specimen_marks_what_the_frit_draws_itself() {
+    if let Some(why) = vtium_testscript::qemu_without_seccomp() {
+        eprintln!("skipped: {why}");
+        return;
+    }
     use vtium_config::specimen::{DETAIL, Origin, detail};
     let sample =
         detail(&helper(), &frit("source=builtin:unscii-8\n"), 16, "C").expect("a specimen");
@@ -146,6 +162,10 @@ fn the_detailed_specimen_marks_what_the_frit_draws_itself() {
 
 #[test]
 fn a_picture_is_clipped_to_its_area_in_whole_cells() {
+    if let Some(why) = vtium_testscript::qemu_without_seccomp() {
+        eprintln!("skipped: {why}");
+        return;
+    }
     // unscii-8 at 16 pixels: 16x16 cells; 100x40 pixels hold 6 by 2
     let p = draw(helper(), &frit("source=builtin:unscii-8\n"), 16, (100, 40)).expect("a picture");
     assert_eq!((p.width, p.height), (96, 32));
@@ -161,6 +181,10 @@ fn a_size_taller_than_its_area_has_no_picture() {
 
 #[test]
 fn no_picture_is_larger_than_the_cap() {
+    if let Some(why) = vtium_testscript::qemu_without_seccomp() {
+        eprintln!("skipped: {why}");
+        return;
+    }
     let (w, h) = PICTURE_MAX;
     assert!(
         u64::from(w) * u64::from(h) * 4 <= 4 << 20,

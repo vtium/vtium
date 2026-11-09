@@ -49,6 +49,9 @@ seccompiler = "=0.5.0"
 # The real host, which starts the real helper as installed in the gate
 # tests (ADR-1101 D9).
 vtium-platform = { workspace = true, features = ["images"] }
+# qemu_without_seccomp, which the real helper's tests skip on under
+# qemu-user (tools/arm/README.md).
+vtium-testscript = { path = "../../tools/testscript" }
 
 # One process, one thread: the child the filter test runs is this binary.
 [[test]]

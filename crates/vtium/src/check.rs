@@ -694,6 +694,47 @@ mod tests {
     use super::*;
     use crate::config;
 
+    /// What [`notes`] says for `args`, less the notes that begin with
+    /// `left_out`, which other tests judge.
+    fn notes_but(left_out: &[&str], args: &[&str]) -> Vec<String> {
+        let args: Vec<OsString> = [SUBCOMMAND]
+            .iter()
+            .chain(args)
+            .map(OsString::from)
+            .collect();
+        notes(&config::load(&args, &mut |_: &Path| Ok(None)).config)
+            .into_iter()
+            .filter(|n| !left_out.iter().any(|l| n.starts_with(l)))
+            .collect()
+    }
+
+    /// `/bin/sh`, a program root owns, for the assertions that root's own
+    /// helper draws no note. `make arm-test` runs the tests in a user
+    /// namespace that does not map root (tools/arm/README.md), where every
+    /// file of root's belongs to the overflow uid, 65534. No file there is
+    /// root's, so those assertions cannot mean anything, and they skip and
+    /// say so. Anywhere else, a `/bin/sh` that root does not own fails.
+    #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
+    fn roots_program() -> Option<&'static Path> {
+        let sh = Path::new("/bin/sh");
+        let owner = std::fs::metadata(sh)
+            .map(|m| std::os::unix::fs::MetadataExt::uid(&m))
+            .unwrap();
+        if owner == 0 {
+            return Some(sh);
+        }
+        let qemu = std::env::var_os("VTIUM_QEMU_USER");
+        assert!(
+            qemu.is_some(),
+            "/bin/sh belongs to uid {owner}, and these tests need a program root owns"
+        );
+        eprintln!(
+            "under {}, /bin/sh belongs to uid {owner}, so no file is root's: the assertions about root's own helper are skipped",
+            qemu.unwrap_or_default().display()
+        );
+        None
+    }
+
     fn run_with(args: &[&str], conf: &str) -> (Vec<String>, i32) {
         let args: Vec<OsString> = [SUBCOMMAND]
             .iter()
@@ -937,25 +978,15 @@ mod tests {
     // the start can read, since check-config opens no display
     #[test]
     fn the_density_source_is_noted_outside_the_status() {
-        let note = |args: &[&str]| {
-            let args: Vec<OsString> = [SUBCOMMAND]
-                .iter()
-                .chain(args)
-                .map(OsString::from)
-                .collect();
-            notes(&config::load(&args, &mut |_: &Path| Ok(None)).config)
-        };
-        // root's /bin/sh, a helper vtium takes
-        let helper = "--font-helper=/bin/sh";
-        let image = "--image-helper=/bin/sh";
+        let note = |args: &[&str]| notes_but(&["font-helper:", "image-helper:"], args);
         assert_eq!(
-            note(&["--display-dpi=109", helper, image]),
+            note(&["--display-dpi=109"]),
             [
                 "display-dpi=109: every display uses 109 DPI for font sizes, whatever density it reports"
             ]
         );
         assert_eq!(
-            note(&[helper, image]),
+            note(&[]),
             [
                 "each display uses the density it reports from its physical size for font sizes, or 96 DPI with a warning if it reports none; vtium logs which at start"
             ]
@@ -967,16 +998,12 @@ mod tests {
     // start may run as another account and checks it again
     #[test]
     fn a_helper_vtium_would_refuse_is_noted() {
-        let note = |args: &[&str]| {
-            let args: Vec<OsString> = [SUBCOMMAND, "--image-helper=/bin/sh"]
-                .iter()
-                .chain(args)
-                .map(OsString::from)
-                .collect();
-            notes(&config::load(&args, &mut |_: &Path| Ok(None)).config)
-        };
+        let note = |args: &[&str]| notes_but(&["image-helper:"], args);
         let density = check_config::MEASURED_DENSITY;
-        assert_eq!(note(&["--font-helper=/bin/sh"]), [density]);
+        if let Some(sh) = roots_program() {
+            let helper = format!("--font-helper={}", sh.display());
+            assert_eq!(note(&[&helper]), [density]);
+        }
         assert_eq!(
             note(&["--font-helper=bin/vtium-config"]),
             [
@@ -1030,16 +1057,12 @@ mod tests {
     // covers: image.helper
     #[test]
     fn an_image_helper_vtium_would_refuse_is_noted() {
-        let note = |args: &[&str]| {
-            let args: Vec<OsString> = [SUBCOMMAND, "--font-helper=/bin/sh"]
-                .iter()
-                .chain(args)
-                .map(OsString::from)
-                .collect();
-            notes(&config::load(&args, &mut |_: &Path| Ok(None)).config)
-        };
+        let note = |args: &[&str]| notes_but(&["font-helper:"], args);
         let density = check_config::MEASURED_DENSITY;
-        assert_eq!(note(&["--image-helper=/bin/sh"]), [density]);
+        if let Some(sh) = roots_program() {
+            let helper = format!("--image-helper={}", sh.display());
+            assert_eq!(note(&[&helper]), [density]);
+        }
         assert_eq!(
             note(&["--image-helper=bin/vtium-image"]),
             [
@@ -1075,7 +1098,9 @@ mod tests {
         let owner = std::fs::metadata(&program)
             .map(|m| std::os::unix::fs::MetadataExt::uid(&m))
             .unwrap();
-        assert_eq!(image_helper_note(Path::new("/bin/sh"), 1000), None);
+        if let Some(sh) = roots_program() {
+            assert_eq!(image_helper_note(sh, 1000), None);
+        }
         let note = image_helper_note(&program, owner);
         if owner == 0 {
             assert_eq!(note, None, "root's file");
@@ -1105,8 +1130,10 @@ mod tests {
         let owner = std::fs::metadata(&program)
             .map(|m| std::os::unix::fs::MetadataExt::uid(&m))
             .unwrap();
-        assert_eq!(helper_note(Path::new("/bin/sh"), 1000), None);
-        assert_eq!(helper_note(Path::new("/bin/sh"), 0), None);
+        if let Some(sh) = roots_program() {
+            assert_eq!(helper_note(sh, 1000), None);
+            assert_eq!(helper_note(sh, 0), None);
+        }
         let note = helper_note(&program, owner);
         if owner == 0 {
             assert_eq!(note, None, "root's file");

@@ -63,3 +63,57 @@ pub fn executable_copy(from: &Path, to: &Path) {
     std::fs::set_permissions(to, std::fs::Permissions::from_mode(0o755))
         .expect("the program's mode");
 }
+
+/// Why the helpers cannot run here, when the tests run under qemu-user:
+/// `Some` with the reason when `VTIUM_QEMU_USER` names the qemu that
+/// `make arm-test` runs them under (tools/arm/README.md) and a seccomp
+/// filter cannot be installed, else `None`. qemu-user implements no
+/// seccomp, since a filter would bind qemu itself, and the font helper
+/// and the image helper each refuse to run without their filters. A test
+/// that starts a real helper cannot mean anything there, and it skips and
+/// says why. The probe installs a filter that allows every call, on a
+/// thread of its own that ends straight after, and it runs only under
+/// qemu, so the tests run in full everywhere else, CI's arm-native job
+/// included.
+pub fn qemu_without_seccomp() -> Option<String> {
+    let qemu = std::env::var_os("VTIUM_QEMU_USER")?;
+    let refused = seccomp_refused()?;
+    Some(format!(
+        "{} implements no seccomp ({refused}), so the helpers refuse to run",
+        qemu.to_string_lossy()
+    ))
+}
+
+/// The error a filter that allows every call meets, if any.
+#[cfg(any(
+    target_arch = "x86_64",
+    target_arch = "aarch64",
+    target_arch = "riscv64"
+))]
+fn seccomp_refused() -> Option<String> {
+    // BPF_RET | BPF_K, SECCOMP_RET_ALLOW
+    let allow = vec![seccompiler::sock_filter {
+        code: 0x06,
+        jt: 0,
+        jf: 0,
+        k: 0x7fff_0000,
+    }];
+    std::thread::spawn(move || {
+        seccompiler::apply_filter(&allow)
+            .err()
+            .map(|e| e.to_string())
+    })
+    .join()
+    .unwrap_or_else(|_| Some("the probe's thread panicked".to_owned()))
+}
+
+/// On an architecture seccompiler builds no filter for, the helpers run
+/// without one, so nothing stops them.
+#[cfg(not(any(
+    target_arch = "x86_64",
+    target_arch = "aarch64",
+    target_arch = "riscv64"
+)))]
+fn seccomp_refused() -> Option<String> {
+    None
+}

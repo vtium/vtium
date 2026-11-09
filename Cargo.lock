@@ -945,6 +945,7 @@ dependencies = [
  "seccompiler",
  "vtium-image",
  "vtium-platform",
+ "vtium-testscript",
  "zune-jpeg",
 ]
 
@@ -1040,6 +1041,9 @@ dependencies = [
 [[package]]
 name = "vtium-testscript"
 version = "0.1.0-alpha.6"
+dependencies = [
+ "seccompiler",
+]
 
 [[package]]
 name = "vtium-tier2"

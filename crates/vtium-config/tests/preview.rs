@@ -60,6 +60,10 @@ fn preview(root: &Path, args: &[&str]) -> (i32, String, String) {
 
 #[test]
 fn away_from_a_terminal_each_font_is_a_line_of_text() {
+    if let Some(why) = vtium_testscript::qemu_without_seccomp() {
+        eprintln!("skipped: {why}");
+        return;
+    }
     let root = fixture("text", None);
     let (status, out, err) = preview(&root, &["unifont", "unscii-8", "--size", "12"]);
     assert_eq!(status, 0, "{err}");
@@ -78,6 +82,10 @@ fn away_from_a_terminal_each_font_is_a_line_of_text() {
 
 #[test]
 fn the_size_is_vtium_conf_s_font_size_else_twelve_points() {
+    if let Some(why) = vtium_testscript::qemu_without_seccomp() {
+        eprintln!("skipped: {why}");
+        return;
+    }
     let (_, out, _) = preview(&fixture("conf-size", Some("font-size=20\n")), &["unifont"]);
     assert!(out.starts_with("unifont\t20 pt\t"), "{out}");
     let (_, out, _) = preview(&fixture("auto-size", Some("font-size=0\n")), &["unifont"]);
@@ -86,6 +94,10 @@ fn the_size_is_vtium_conf_s_font_size_else_twelve_points() {
 
 #[test]
 fn a_font_this_machine_lacks_fails_and_the_others_still_draw() {
+    if let Some(why) = vtium_testscript::qemu_without_seccomp() {
+        eprintln!("skipped: {why}");
+        return;
+    }
     let root = fixture("missing", None);
     let (status, out, _) = preview(&root, &["No Such Family Anywhere", "unifont"]);
     assert_eq!(status, 1, "{out}");
@@ -123,6 +135,10 @@ fn sysfs(root: &Path, pixels: &str, cm: (u8, u8)) -> PathBuf {
 /// first mode the grid a cell gives.
 #[test]
 fn the_display_s_edid_sets_the_density_and_its_mode_the_grid() {
+    if let Some(why) = vtium_testscript::qemu_without_seccomp() {
+        eprintln!("skipped: {why}");
+        return;
+    }
     let root = fixture("edid", None);
     let sys = sysfs(&root, "1920x1080", (30, 17));
     let sys = sys.to_str().expect("a path");
@@ -141,6 +157,10 @@ fn the_display_s_edid_sets_the_density_and_its_mode_the_grid() {
 /// with no glyph for it draws less of.
 #[test]
 fn the_locale_adds_a_line_in_its_script() {
+    if let Some(why) = vtium_testscript::qemu_without_seccomp() {
+        eprintln!("skipped: {why}");
+        return;
+    }
     let root = fixture("locale", None);
     let o = home::command(BIN)
         .arg("--configdir")
@@ -238,6 +258,10 @@ fn on_a_terminal(answers_da1: bool) -> (i32, String) {
 /// alone.
 #[test]
 fn a_terminal_that_answers_nothing_or_da1_alone_gets_no_picture() {
+    if let Some(why) = vtium_testscript::qemu_without_seccomp() {
+        eprintln!("skipped: {why}");
+        return;
+    }
     for answers_da1 in [false, true] {
         let (status, written) = on_a_terminal(answers_da1);
         assert_eq!(status, 0, "{written:?}");
@@ -283,6 +307,10 @@ mod pictures {
     /// each its own image, which the console places.
     #[test]
     fn at_a_terminal_that_draws_kitty_graphics_each_font_is_also_a_picture() {
+        if let Some(why) = vtium_testscript::qemu_without_seccomp() {
+            eprintln!("skipped: {why}");
+            return;
+        }
         let root = fixture("pictures", None);
         let (mut master, slave) = pair();
         let io = || Stdio::from(slave.as_fd().try_clone_to_owned().expect("dup"));
