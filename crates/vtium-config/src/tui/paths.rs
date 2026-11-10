@@ -1247,7 +1247,7 @@ pub fn title(flow: &Flow, kind: Kind, selector: &str) -> (String, String) {
         ),
         (Kind::Input, "*") => (
             words::ANY_INPUT_TITLE.to_owned(),
-            "what no other rule names".to_owned(),
+            words::EVERY_INPUT.to_owned(),
         ),
         (Kind::Display, "connector") => {
             let c = value.rsplit('/').next().unwrap_or(value);

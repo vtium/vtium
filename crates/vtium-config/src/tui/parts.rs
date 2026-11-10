@@ -246,41 +246,79 @@ pub enum Make {
     NewTerminal,
 }
 
-/// The ways to make a part of `stage`, each its words, what it covers, and
-/// what choosing it does. `fonts` are the font sets the draft can draw
-/// with.
+/// The choices that match by one key, each its key, its label and what it
+/// covers: a display's, then an input's.
+const FILTERS: [(&str, &str, &str); 11] = [
+    (
+        "edid",
+        "This monitor",
+        "One monitor by its EDID, on any port",
+    ),
+    (
+        "connector",
+        "Connector",
+        "Display on one connector, such as HDMI-A-1",
+    ),
+    (
+        "connector-path",
+        "Hub port",
+        "Display on one port of a DisplayPort hub",
+    ),
+    (
+        "card",
+        "Graphics card",
+        "Every display on one graphics card",
+    ),
+    ("path", "USB port", "Devices plugged into one USB port"),
+    (
+        "serial",
+        "This one device",
+        "One device by its serial number, in any port",
+    ),
+    ("id", "Model", "Every device of one make and model"),
+    (
+        "bluetooth",
+        "Bluetooth device",
+        "One paired Bluetooth device",
+    ),
+    ("name", "Device name", "Devices that report a given name"),
+    (
+        "class",
+        "Device type",
+        "Touchscreens, tablets, joysticks and other kinds",
+    ),
+    (
+        "udev",
+        "udev property",
+        "Devices with a given udev property (advanced)",
+    ),
+];
+
+/// The keys a display's choices match by; every other key is an input's.
+const DISPLAY_KEYS: [&str; 4] = ["edid", "connector", "connector-path", "card"];
+
+/// The ways to make a part of `stage`, each its label, what it covers, and
+/// what choosing it does: the whole-kind and special parts first, then the
+/// choices that match by one key. `fonts` are the font sets the draft can
+/// draw with.
 pub fn makes(stage: Stage, fonts: &[String]) -> Vec<(String, String, Make)> {
     let one = |w: &str, d: &str, m: Make| (w.to_owned(), d.to_owned(), m);
     let input = |s: &str| Make::Part(Piece::Input(s.to_owned()));
+    let filters = |display: bool| {
+        FILTERS
+            .iter()
+            .filter(move |(key, _, _)| DISPLAY_KEYS.contains(key) == display)
+            .map(|(key, label, about)| one(label, about, Make::Filter(key)))
+    };
     match stage {
-        Stage::Display => vec![
-            one(
-                words::ANY_DISPLAY,
-                "connected now or later",
-                Make::Part(Piece::Display("*".to_owned())),
-            ),
-            one(
-                "This monitor",
-                "its EDID; follows it to any port",
-                Make::Filter("edid"),
-            ),
-            one(
-                "Connector",
-                "whatever is plugged into HDMI-A-1, DP-2, \u{2026}",
-                Make::Filter("connector"),
-            ),
-            one(
-                "Hub port",
-                "one port of a DisplayPort hub",
-                Make::Filter("connector-path"),
-            ),
-            one(
-                "Graphics card",
-                "every output of one card",
-                Make::Filter("card"),
-            ),
-        ],
-        Stage::Input => vec![
+        Stage::Display => std::iter::once(one(
+            words::ANY_DISPLAY,
+            words::EVERY_DISPLAY,
+            Make::Part(Piece::Display("*".to_owned())),
+        ))
+        .chain(filters(true))
+        .collect(),
+        Stage::Input => [
             one(
                 words::NO_INPUT,
                 words::NO_INPUT_DETAIL,
@@ -288,7 +326,7 @@ pub fn makes(stage: Stage, fonts: &[String]) -> Vec<(String, String, Make)> {
             ),
             one(
                 words::ANY_KEYBOARD_TITLE,
-                "class keyboard",
+                words::EVERY_KEYBOARD,
                 input(ANY_KEYBOARD),
             ),
             one(
@@ -296,48 +334,20 @@ pub fn makes(stage: Stage, fonts: &[String]) -> Vec<(String, String, Make)> {
                 words::EVERY_POINTER,
                 input(ANY_POINTER),
             ),
-            one(words::ANY_INPUT_TITLE, "everything", input("*")),
-            one(
-                "USB port",
-                "anything plugged into that port",
-                Make::Filter("path"),
-            ),
-            one(
-                "This one device",
-                "its serial number; follows it to any port",
-                Make::Filter("serial"),
-            ),
-            one(
-                "Model",
-                "every unit of that make and model",
-                Make::Filter("id"),
-            ),
-            one(
-                "Bluetooth device",
-                "by its address",
-                Make::Filter("bluetooth"),
-            ),
-            one(
-                "Device name",
-                "the name the device reports",
-                Make::Filter("name"),
-            ),
-            one(
-                "Device type",
-                "touchscreen, tablet, joystick, \u{2026}",
-                Make::Filter("class"),
-            ),
-            one("udev property (advanced)", "", Make::Filter("udev")),
-        ],
+            one(words::ANY_INPUT_TITLE, words::EVERY_INPUT, input("*")),
+        ]
+        .into_iter()
+        .chain(filters(false))
+        .collect(),
         Stage::Terminal => vec![
             one(
-                "New terminal\u{2026}",
+                words::NEW_TERMINAL_LABEL,
                 words::NEW_TERMINAL_DETAIL,
                 Make::NewTerminal,
             ),
             one(
                 words::ACTIVE_TERMINAL,
-                words::ACTIVE_PART_DETAIL,
+                words::ACTIVE_DETAIL,
                 Make::Part(Piece::Active),
             ),
             one(
@@ -360,21 +370,13 @@ pub fn makes(stage: Stage, fonts: &[String]) -> Vec<(String, String, Make)> {
     }
 }
 
-/// The words a filter's picker opens with: what the match key matches.
+/// The label of the choice that matches by `key`, which its picker opens
+/// with.
 pub fn filter_words(key: &str) -> &'static str {
-    match key {
-        "edid" => "This monitor",
-        "connector" => "Connector",
-        "connector-path" => "Hub port",
-        "card" => "Graphics card",
-        "path" => "USB port",
-        "serial" => "This one device",
-        "id" => "Model",
-        "bluetooth" => "Bluetooth device",
-        "name" => "Device name",
-        "class" => "Device type",
-        _ => "udev property (advanced)",
-    }
+    FILTERS
+        .iter()
+        .find(|(k, _, _)| *k == key)
+        .map_or("udev property", |(_, label, _)| label)
 }
 
 /// One line of a filter's picker: a value with the devices it matches, or
@@ -656,7 +658,7 @@ mod tests {
         assert_eq!(
             words(Stage::Input),
             [
-                "Nothing (display only)",
+                "No input",
                 "All keyboards",
                 "All mice and touchpads",
                 "All input devices",
@@ -666,13 +668,55 @@ mod tests {
                 "Bluetooth device",
                 "Device name",
                 "Device type",
-                "udev property (advanced)",
+                "udev property",
             ]
         );
         assert_eq!(
             words(Stage::Terminal),
-            ["New terminal…", "Whichever terminal is active", "Nowhere"]
+            ["New terminal…", "Active terminal", "Nowhere"]
         );
         assert_eq!(words(Stage::Font), ["default font set", "monoid"]);
+    }
+
+    // The maintainer's try-out accepted a table of labels and
+    // descriptions: a noun phrase for each, with no leading article
+    #[test]
+    fn each_choice_is_described_by_the_accepted_table() {
+        let about =
+            |s: Stage| -> Vec<String> { makes(s, &[]).into_iter().map(|(_, d, _)| d).collect() };
+        assert_eq!(
+            about(Stage::Display),
+            [
+                "Every display, connected now or later",
+                "One monitor by its EDID, on any port",
+                "Display on one connector, such as HDMI-A-1",
+                "Display on one port of a DisplayPort hub",
+                "Every display on one graphics card",
+            ]
+        );
+        assert_eq!(
+            about(Stage::Input),
+            [
+                "Display only, with no keyboard or mouse",
+                "Every keyboard, connected now or later",
+                "Mice, touchpads and trackballs",
+                "Keyboards, pointers and every other kind of input",
+                "Devices plugged into one USB port",
+                "One device by its serial number, in any port",
+                "Every device of one make and model",
+                "One paired Bluetooth device",
+                "Devices that report a given name",
+                "Touchscreens, tablets, joysticks and other kinds",
+                "Devices with a given udev property (advanced)",
+            ]
+        );
+        assert_eq!(
+            about(Stage::Terminal),
+            [
+                "Separate terminal with its own consoles and look",
+                "Terminal on screen, following you as you switch",
+                "Displays off, inputs ignored",
+            ]
+        );
     }
 }

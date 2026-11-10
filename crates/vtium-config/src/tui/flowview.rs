@@ -293,16 +293,19 @@ pub struct Geometry {
 /// The columns at a screen `cols` wide: the boxes and the gaps between
 /// them share the width as the mock-up at 120 columns does, 25, 11, 28,
 /// 14 and 40 of its 118, with a margin of one column at each side.
+/// The fewest cells a terminal's box in a path takes.
+const TERM_MIN_W: usize = 32;
+
 pub fn geometry(cols: usize) -> Geometry {
     let room = cols.saturating_sub(2);
     let part = |n: usize| room.saturating_mul(n) / 118;
     // a box in a path shows its whole title: the displays' column holds
-    // All displays, and the terminals' column holds Whichever terminal is
-    // active, the longest title a terminal's box takes
+    // All displays; the terminals' column holds Active terminal, and is at
+    // least TERM_MIN_W wide so that the start of its description shows
     let title = |t: &str| super::canvas::width(t).saturating_add(4);
     let screen_w = part(25).max(title(words::ANY_DISPLAY));
     let gap1 = part(11).max(5);
-    let term_w = part(28).max(title(words::ACTIVE_TERMINAL));
+    let term_w = part(28).max(title(words::ACTIVE_TERMINAL)).max(TERM_MIN_W);
     let gap2 = part(14).max(7);
     let screen_x = 1;
     let term_x = screen_x + screen_w + gap1;
@@ -938,7 +941,7 @@ fn part_state(ctx: &Ctx<'_>, part: &Part, waiting: &mut Vec<Sort>) -> (String, M
             (detail, Mood::Placed)
         }
         Piece::NoInput => (words::NO_INPUT_DETAIL.to_owned(), Mood::Placed),
-        Piece::Active => (words::ACTIVE_PART_DETAIL.to_owned(), Mood::Placed),
+        Piece::Active => (words::ACTIVE_DETAIL.to_owned(), Mood::Placed),
         Piece::NoTerminal => (words::NO_TERMINAL_DETAIL.to_owned(), Mood::Placed),
         Piece::Terminal(_) => (words::NEW_TERMINAL_DETAIL.to_owned(), Mood::Placed),
     }
