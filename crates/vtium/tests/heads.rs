@@ -93,6 +93,9 @@ struct Memory {
     /// Each unblank of the device, and each power state set, in order.
     unblanks: u32,
     dpms_sets: Vec<Dpms>,
+    /// How many times vtium parked the display: set it off and freed its
+    /// buffer, which [`Memory::pixels`] then no longer holds.
+    parks: u32,
 }
 
 impl Memory {
@@ -123,6 +126,7 @@ impl Memory {
             frames: 0,
             unblanks: 0,
             dpms_sets: Vec::new(),
+            parks: 0,
         }
     }
 
@@ -327,6 +331,11 @@ impl Video for Memory {
     }
     fn hotplug(&mut self) -> io::Result<()> {
         if std::mem::take(&mut self.released) {
+            // a display parked before comes back with a new buffer, lit
+            if self.pixels.is_empty() {
+                self.pixels = vec![0; (self.w * self.h * 4) as usize];
+                self.dpms = Some(Dpms::On);
+            }
             self.events.push(Event::Added(ID));
         }
         Ok(())
@@ -340,6 +349,19 @@ impl Video for Memory {
             .flatten()
             .into_iter()
             .collect()
+    }
+    fn park(&mut self, _: DisplayId) -> io::Result<()> {
+        if !self.awake || self.held {
+            return Err(io::Error::other("the display is not online"));
+        }
+        // as a DRM card parks it: off, its buffer freed, reported removed,
+        // and left dark until let go
+        self.held = true;
+        self.dpms = Some(Dpms::Off);
+        self.pixels = Vec::new();
+        self.parks += 1;
+        self.events.push(Event::Removed(ID));
+        Ok(())
     }
     fn release_dark(&mut self, connector: &str) -> bool {
         let let_go = self.held && connector == self.connector;
@@ -7308,11 +7330,22 @@ fn on_vt(
     displays: impl IntoIterator<Item = (&'static str, Memory)>,
     keyboards: &[(&str, &str)],
 ) -> Seat {
+    on_vt_with(&[], vt, text, displays, keyboards)
+}
+
+/// [`on_vt`], with the command line `args`.
+fn on_vt_with(
+    args: &[&str],
+    vt: u16,
+    text: &str,
+    displays: impl IntoIterator<Item = (&'static str, Memory)>,
+    keyboards: &[(&str, &str)],
+) -> Seat {
     let rules = start(text);
     assert_eq!(rules.line(), None, "a valid vtium.conf");
     let script = "echo ready; while read a; do echo \"got:$a\"; done";
     let mut s = Seat::with_rules(
-        &[],
+        args,
         Some(rules.on_vt(Some(vt))),
         displays,
         script,
@@ -7486,12 +7519,13 @@ fn a_keyboard_tied_to_another_vt_types_nowhere_until_the_rescue_key() {
     );
 }
 
-/// ADR-1403 D7, path test 6 (ADR-1401 D3 step 4, D9): on VT 4, a display
-/// whose only head runs on VT 3 stays dark, though it is the boot display
-/// and no display of VT 4 is lit, so the display guard does not light it.
+/// ADR-1403 D7, path test 6, under the maintainer's policy table
+/// (ADR-1401 D3): on VT 4, under open, a display whose only head runs on
+/// VT 3 shows a notice of its own that names that head, and no login
+/// shows on it. The head of VT 4 has no display.
 // covers: platform.heads.guards
 #[test]
-fn a_display_tied_to_another_vt_stays_dark_and_the_display_guard_leaves_it() {
+fn a_display_tied_to_another_vt_shows_its_notice_and_no_login() {
     let text = "version = 1
 [head desk]
 vt = 3
@@ -7503,14 +7537,20 @@ display card:mem-one -> desk
     let displays = [("/dev/mem0", Memory::new(320, 160, "MEM-1", "mem-one").lit())];
     let mut s = on_vt(4, text, displays, &[]);
     assert_eq!(head_names(&s.app), ["here"]);
-    s.until(Duration::from_millis(200), |_| false);
-    let m = s.memory("/dev/mem0");
+    assert!(s.until_memory("/dev/mem0", BOUND, |m| m.frames > 0 && m.has(PAPER)));
     assert_eq!(
-        (m.dpms, m.frames),
-        (Some(Dpms::Off), 0),
-        "the display is dark"
+        s.app.display_notice("MEM-1"),
+        Some((
+            "MEM-1 is not configured for VT 4. It is configured for terminal desk, on VT 3.",
+            true
+        ))
     );
-    assert_eq!(s.app.cells(), [], "no head of VT 4 has a display");
+    assert!(
+        s.app
+            .head("here")
+            .is_some_and(|h| h.cells().is_empty() && !h.started()),
+        "the head of VT 4 has no display and starts no login"
+    );
 }
 
 /// Two heads that both run on VT 3 alone, under the policy `policy`.
@@ -7530,57 +7570,181 @@ input path:kbd-desk -> desk
     )
 }
 
-/// The maintainer's decision of 2026-11-10 (ADR-1401 D2): on a VT where
-/// no head of vtium.conf runs, an open file shows the compiled-in
-/// configuration, as if vtium.conf declared no head. One console mirrors
-/// every display, and every keyboard types into it, a keyboard a rule
-/// ties to a head on VT 3 among them. A VT is never dark and silent.
+/// The maintainer's policy table (ADR-1401 D3): under open, a file that
+/// defines nothing runs the built-in default terminal on every display,
+/// and every keyboard types into it.
 // covers: platform.heads
 #[test]
-fn under_open_a_vt_where_no_head_runs_shows_the_compiled_in_console() {
-    let text = every_head_on_vt3("open");
-    let mut s = on_vt(4, &text, two_displays(), &[(KBD_A, "kbd-desk")]);
+fn under_open_with_nothing_defined_every_display_shows_the_default_terminal() {
+    let mut s = on_vt(4, "version = 1\n", two_displays(), &[(KBD_A, "kbd-any")]);
     assert_eq!(head_names(&s.app), ["console"]);
-    assert!(
-        s.until(BOUND, |a| a.cells().len() == 2),
-        "the console on both displays"
-    );
+    assert!(s.until(BOUND, |a| a.cells().len() == 2), "both displays");
     assert!(s.until(BOUND, |a| head_shows(a, "console", "ready")));
     s.type_on(KBD_A, "k\r");
-    assert!(
-        s.until(BOUND, |a| head_shows(a, "console", "got:k")),
-        "the keyboard types into the console"
-    );
+    assert!(s.until(BOUND, |a| head_shows(a, "console", "got:k")));
 }
 
-/// The maintainer's decision of 2026-11-10 (ADR-1401 D2, D9): on a VT
-/// where no head of vtium.conf runs, a closed file shows the closed
-/// policy's notice on the boot display, and builds no head. A VT is never
-/// dark and silent.
+/// The maintainer's policy table (ADR-1401 D3): under open, with paths
+/// defined, a VT where no head runs builds none, and each display shows
+/// its own notice that names the head it is configured for.
+// covers: platform.heads
+#[test]
+fn under_open_with_paths_on_other_vts_each_display_shows_its_own_notice() {
+    let mut s = on_vt(4, &every_head_on_vt3("open"), two_displays(), &[]);
+    assert_eq!(head_names(&s.app), Vec::<&str>::new());
+    assert!(s.until(
+        BOUND,
+        |a| a.display_notice("MEM-1").is_some_and(|(_, on)| on)
+            && a.display_notice("MEM-2").is_some_and(|(_, on)| on)
+    ));
+    assert_eq!(
+        s.app.display_notice("MEM-1").map(|(t, _)| t),
+        Some("MEM-1 is not configured for VT 4. It is configured for terminal panel, on VT 3.")
+    );
+    assert_eq!(
+        s.app.display_notice("MEM-2").map(|(t, _)| t),
+        Some("MEM-2 is not configured for VT 4. It is configured for terminal desk, on VT 3.")
+    );
+    for node in ["/dev/mem0", "/dev/mem1"] {
+        assert!(
+            s.until_memory(node, BOUND, |m| m.frames > 0),
+            "{node} draws"
+        );
+    }
+}
+
+/// The maintainer's policy table (ADR-1401 D3): under open, a display no
+/// rule matches shows that it is configured for no terminal, and one a
+/// rule sends to `off` stays blank.
+// covers: platform.heads.rules
+#[test]
+fn under_open_a_display_no_rule_matches_says_so_and_one_sent_off_stays_blank() {
+    let text = "version = 1
+[head desk]
+[rules]
+display card:mem-small -> off
+input * -> ignore
+";
+    let mut s = on_vt(4, text, two_displays(), &[]);
+    assert!(s.until(BOUND, |a| {
+        a.display_notice("MEM-2").is_some_and(|(_, on)| on)
+    }));
+    assert_eq!(
+        s.app.display_notice("MEM-2").map(|(t, _)| t),
+        Some("MEM-2 is not configured for any terminal.")
+    );
+    s.until(Duration::from_millis(200), |_| false);
+    assert_eq!(s.app.display_notice("MEM-1"), None);
+    let m = s.memory("/dev/mem0");
+    assert_eq!((m.dpms, m.frames), (Some(Dpms::Off), 0), "off stays blank");
+}
+
+/// The maintainer's policy table (ADR-1401 D3): under closed, a display
+/// no path names stays blank, with paths defined or none, and no notice
+/// shows on any display.
 // covers: platform.heads.policy
 #[test]
-fn under_closed_a_vt_where_no_head_runs_shows_the_notice_on_the_boot_display() {
-    let text = every_head_on_vt3("closed");
-    let displays = [
-        ("/dev/mem0", Memory::new(320, 160, "MEM-1", "mem-small")),
-        (
-            "/dev/mem1",
-            Memory::new(640, 320, "MEM-2", "mem-large").lit(),
-        ),
-    ];
-    let mut s = on_vt(4, &text, displays, &[(KBD_A, "kbd-desk")]);
-    assert_eq!(head_names(&s.app), Vec::<&str>::new());
+fn under_closed_a_display_no_path_names_stays_blank_and_no_notice_shows() {
+    for text in [
+        every_head_on_vt3("closed"),
+        "version = 1\npolicy = closed\n".to_owned(),
+    ] {
+        let displays = [
+            ("/dev/mem0", Memory::new(320, 160, "MEM-1", "mem-small")),
+            (
+                "/dev/mem1",
+                Memory::new(640, 320, "MEM-2", "mem-large").lit(),
+            ),
+        ];
+        let mut s = on_vt(4, &text, displays, &[(KBD_A, "kbd-desk")]);
+        assert_eq!(head_names(&s.app), Vec::<&str>::new(), "{text}");
+        s.until(Duration::from_millis(200), |_| false);
+        assert_eq!(s.app.display_notice("MEM-1"), None);
+        assert_eq!(s.app.display_notice("MEM-2"), None);
+        assert!(
+            s.app.notice_screen().is_none_or(|n| n.cells().is_empty()),
+            "the closed notice screen lights no display"
+        );
+        for node in ["/dev/mem0", "/dev/mem1"] {
+            let m = s.memory(node);
+            assert_eq!(
+                (m.dpms, m.frames),
+                (Some(Dpms::Off), 0),
+                "{node} stays blank"
+            );
+        }
+    }
+}
+
+/// The maintainer's decision of 2026-11-10 (ADR-1401 D3): a notice shows
+/// for `osd-timeout` from its first frame. Then vtium parks its display,
+/// which sets it off and frees its buffer. A key on this VT shows the
+/// notice again. The clock the turn reads stands in for the time.
+#[test]
+fn a_notice_shows_for_osd_timeout_then_its_display_is_parked_until_a_key() {
+    let displays = [(
+        "/dev/mem0",
+        Memory::new(320, 160, "MEM-1", "mem-small").lit(),
+    )];
+    let mut s = on_vt(
+        4,
+        &every_head_on_vt3("open"),
+        displays,
+        &[(KBD_A, "kbd-any")],
+    );
+    assert!(s.until_memory("/dev/mem0", BOUND, |m| m.frames > 0));
+    assert_eq!(s.memory("/dev/mem0").parks, 0);
+    // osd-timeout is 3 s when unset
+    s.app.turn(now() + Duration::from_secs(4));
+    s.until(Duration::from_millis(50), |_| false);
+    let m = s.memory("/dev/mem0");
+    assert_eq!(m.parks, 1, "parked once its time is up");
+    assert!(m.pixels.is_empty(), "its buffer is freed");
+    assert_eq!(m.dpms, Some(Dpms::Off));
+    let frames = m.frames;
+    assert_eq!(s.app.display_notice("MEM-1").map(|(_, on)| on), Some(false));
+    s.type_on(KBD_A, "x");
     assert!(
-        s.until_memory("/dev/mem1", BOUND, |m| m.has(PAPER)),
-        "the boot display shows the notice"
+        s.until_memory("/dev/mem0", BOUND, |m| m.frames > frames),
+        "a key shows the notice again"
     );
-    assert_eq!(
-        s.app.notice_screen().and_then(Head::notice),
-        Some(NO_DISPLAY)
+    assert_eq!(s.app.display_notice("MEM-1").map(|(_, on)| on), Some(true));
+    assert_eq!(s.memory("/dev/mem0").parks, 1, "parked once");
+}
+
+/// A seat whose only display shows a notice, then is parked, does not
+/// end for want of a display: the notice's frame ended the start's
+/// `display-wait`.
+#[test]
+fn a_parked_notice_display_does_not_end_vtium_at_display_wait() {
+    let displays = [(
+        "/dev/mem0",
+        Memory::new(320, 160, "MEM-1", "mem-small").lit(),
+    )];
+    let mut s = on_vt_with(
+        &["--display-wait=1"],
+        4,
+        &every_head_on_vt3("open"),
+        displays,
+        &[],
     );
-    assert_eq!(
-        s.memory("/dev/mem0").dpms,
-        Some(Dpms::Off),
-        "the other stays off"
-    );
+    assert!(s.until_memory("/dev/mem0", BOUND, |m| m.frames > 0));
+    s.app.turn(now() + Duration::from_secs(4));
+    s.until(Duration::from_millis(50), |_| false);
+    assert_eq!(s.memory("/dev/mem0").parks, 1);
+    s.app.turn(now() + Duration::from_secs(30));
+    assert_eq!(s.app.finished(), None, "vtium runs on");
+}
+
+/// The maintainer's decision of 2026-11-10: `osd = off` does not hide a
+/// display's notice, as it hides no notice of a problem.
+#[test]
+fn osd_off_still_shows_an_unused_displays_notice() {
+    let displays = [(
+        "/dev/mem0",
+        Memory::new(320, 160, "MEM-1", "mem-small").lit(),
+    )];
+    let mut s = on_vt_with(&["--osd=off"], 4, &every_head_on_vt3("open"), displays, &[]);
+    assert!(s.until_memory("/dev/mem0", BOUND, |m| m.frames > 0 && m.has(PAPER)));
+    assert_eq!(s.app.display_notice("MEM-1").map(|(_, on)| on), Some(true));
 }
