@@ -1,0 +1,4 @@
+# SGR 73 and 74, superscript and subscript, drawn as a smaller glyph raised or lowered in its cell.
+# spec: mintty's SGR 73, 74 and 75; ADR-1000 sgr.script
+# capability: sgr-script-glyph
+placeholder vtium draws a superscript or subscript cell with the full-size glyph, because vtium-font has no scaled glyph and the glyph cache's key does not carry one, and the replay interface prints a cell's attributes, not its glyph (#37)

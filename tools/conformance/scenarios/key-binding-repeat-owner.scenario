@@ -1,0 +1,4 @@
+# A key that vtium takes for a key binding stays vtium's for the key's whole life: its repeats and its release never reach the program, even after the program switches to the alternate screen while the key is held.
+# spec: ADR-1005 D7
+# capability: key-binding-repeat-owner
+placeholder the vtium binary chooses a key binding's action from each key event alone, so a repeat of a scroll key it took on the main screen reaches the program once mode 1049 shows the alternate screen, and the replay interface plays vtium-term without the binary's key bindings (#42)

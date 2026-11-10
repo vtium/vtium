@@ -1,0 +1,4 @@
+# When the seat manager revokes an input device, vtium closes it, and when the seat is enabled again vtium opens it again through the seat manager, so the keyboard types again.
+# spec: ADR-1400 D1
+# capability: seat-device-revoked
+placeholder vtium does not open an input device again after the seat manager revokes it and enables the seat, and the replay interface has no seat and no devices (#34)

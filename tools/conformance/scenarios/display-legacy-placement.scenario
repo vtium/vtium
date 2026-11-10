@@ -1,0 +1,4 @@
+# On a card without atomic modesetting, a refused set of the displays tries other placements, a lit display moved among them, before vtium leaves a display off.
+# spec: ADR-1401 D8
+# capability: display-legacy-placement
+placeholder on a card without atomic modesetting, vtium's legacy calls try no other placement before leaving a display off, so a display stays dark that moving a lit display would light, and the replay interface has no displays (#298)
