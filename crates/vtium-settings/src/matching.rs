@@ -247,6 +247,32 @@ impl Match {
             Match::All(tokens) => tokens,
         }
     }
+
+    /// How specific the match is, by ADR-1403 D8's ranks, from 1 for the
+    /// most specific to [`Match::RANK_ANY`] for the catch-all: 1 for one
+    /// device wherever it is plugged in (`serial`, `edid`, `bluetooth`), 2
+    /// for a port (`path`, `connector`, `connector-path`), 3 for a
+    /// graphics card (`card`), 4 for a model (`id`), 5 for a device name
+    /// (`name`), and 6 for a device type or a udev property (`class`,
+    /// `udev`). A match of several keys takes the rank of its most
+    /// specific key. vtium-config keeps the rules in this order (D8).
+    pub fn rank(&self) -> u8 {
+        self.tokens()
+            .iter()
+            .map(|t| match t {
+                Token::Serial(_) | Token::Edid(_) | Token::Bluetooth(_) => 1,
+                Token::Path(_) | Token::Connector { .. } | Token::ConnectorPath(_) => 2,
+                Token::Card(_) => 3,
+                Token::Id(..) => 4,
+                Token::Name(_) => 5,
+                Token::Class(_) | Token::Udev { .. } => 6,
+            })
+            .min()
+            .unwrap_or(Self::RANK_ANY)
+    }
+
+    /// The rank of the catch-all, `*`, the least specific match.
+    pub const RANK_ANY: u8 = 7;
 }
 
 /// Whether `text` matches the glob `pattern`: `*` takes any run of
