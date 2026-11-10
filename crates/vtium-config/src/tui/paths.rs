@@ -1,16 +1,18 @@
 //! The configuration as paths, for the Flow view as rows ([`super::rows`]).
-//! A path joins input pieces and display pieces through one terminal (a
-//! head), with an optional font set. The person composes a new path from
-//! pieces in the editor, adds it to the document, and revises a path to
-//! change which pieces it joins: revising moves the path out of the
-//! document and back into the editor.
+//! A path joins input parts and display parts through one terminal (a
+//! head), with a font set, its size, and the terminal's settings. The
+//! person composes a new path from parts in the editor, adds it to the
+//! configuration, and revises a path to change which parts it joins:
+//! revising moves the path out of the configuration and back into the
+//! editor. What allocates nothing, its name, font set, size and terminal
+//! settings, can change in place.
 //!
-//! A piece is a selector, as a rule writes it: `edid:…` or `*` for a
+//! A part is a selector, as a rule writes it: `edid:…` or `*` for a
 //! display, `path:…`, `id:…`, `serial:…` or `class:keyboard` for an input.
 //! [`read`] reads the paths out of a draft's flow, and [`plan`] writes a
-//! document of paths back as the draft's changes: a head per path, a rule
-//! per piece, an input in two paths written as roaming, and the rules
-//! ordered most specific first. Every change goes through
+//! list of paths back as the draft's changes: a head per path, a rule per
+//! part, an input in two paths or in every path written as roaming, and
+//! the rules placed most specific first. Every change goes through
 //! [`super::edit::Change`], so through `src/ops.rs`.
 
 use super::edit::Change;
@@ -18,19 +20,38 @@ use super::flow::{Device, Flow, Kind, Rule, Special, Target};
 use super::rows::{Sort, port_words, sort};
 use super::words;
 
-/// The piece `any pointer`, which the draft writes as one rule for each
-/// class of pointer.
-pub const ANY_POINTER: &str = "class:pointer";
+/// The part `any keyboard`: every input with keys, written as a rule for
+/// full keyboards and one for the inputs with some keys, as vtium's
+/// shipped default writes them.
+pub const ANY_KEYBOARD: &str = "class:keyboard";
+const KEYBOARD_CLASSES: [&str; 2] = ["class:keyboard", "class:key"];
 
-/// The classes `any pointer` stands for.
-pub const POINTER_CLASSES: [&str; 4] = [
+/// The part `any pointer`, written as one rule for each class of pointer
+/// the shipped default lists.
+pub const ANY_POINTER: &str = "class:pointer";
+pub const POINTER_CLASSES: [&str; 5] = [
     "class:mouse",
     "class:touchpad",
+    "class:touchscreen",
     "class:trackball",
     "class:pointingstick",
 ];
 
-/// One piece of a path.
+/// The rules one part writes.
+fn expand(part: &str) -> Vec<&str> {
+    match part {
+        ANY_KEYBOARD => KEYBOARD_CLASSES.to_vec(),
+        ANY_POINTER => POINTER_CLASSES.to_vec(),
+        p => vec![p],
+    }
+}
+
+/// The terminal settings a path carries that allocate nothing: how many
+/// consoles, the login, and what happens when its screen is unplugged.
+/// `isolated` is kept as the draft has it.
+pub const SETTINGS: [&str; 4] = ["consoles", "login", "when-display-lost", "isolated"];
+
+/// One part of a path.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Piece {
     Display(String),
@@ -39,20 +60,25 @@ pub enum Piece {
     Font(Option<String>),
 }
 
-/// A path: its terminal's name once it has one, its pieces, and its font
-/// set.
+/// A path: its terminal's name once it has one, its parts, its font set
+/// and size, and its terminal's settings.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Path {
     /// The head's name: the draft's for a path read from it, kept when the
-    /// path is taken out; `None` for a path never added.
+    /// path is revised, or typed in the editor; `None` for a path that has
+    /// none yet.
     pub name: Option<String>,
     pub displays: Vec<String>,
     pub inputs: Vec<String>,
     /// The frit the path's look draws with; `None` for the default.
     pub font: Option<String>,
+    /// The size in points; `None` for the automatic size.
+    pub size: Option<u32>,
+    /// The terminal's settings, each a key of [`SETTINGS`] and its value.
+    pub settings: Vec<(String, String)>,
 }
 
-/// What picking a piece did.
+/// What picking a part did.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Picked {
     Added,
@@ -67,9 +93,9 @@ impl Path {
         !self.displays.is_empty() && !self.inputs.is_empty()
     }
 
-    /// Whether the path has no piece at all.
+    /// Whether the path has nothing in it at all.
     pub fn is_empty(&self) -> bool {
-        self.displays.is_empty() && self.inputs.is_empty() && self.font.is_none()
+        *self == Path::default()
     }
 
     /// Whether `piece` is in the path.
@@ -78,6 +104,25 @@ impl Path {
             Piece::Display(s) => self.displays.contains(s),
             Piece::Input(s) => self.inputs.contains(s),
             Piece::Font(f) => self.font == *f && f.is_some(),
+        }
+    }
+
+    /// The value of the setting `key`, empty when the path leaves it at its
+    /// default.
+    pub fn setting(&self, key: &str) -> String {
+        self.settings
+            .iter()
+            .find(|(k, _)| k == key)
+            .map(|(_, v)| v.clone())
+            .unwrap_or_default()
+    }
+
+    /// Sets the setting `key`, or leaves it at its default when `value` is
+    /// empty.
+    pub fn set(&mut self, key: &str, value: &str) {
+        self.settings.retain(|(k, _)| k != key);
+        if !value.is_empty() {
+            self.settings.push((key.to_owned(), value.to_owned()));
         }
     }
 
@@ -107,7 +152,7 @@ impl Path {
         }
     }
 
-    /// Puts `new` in the place of the piece `old`, keeping its place.
+    /// Puts `new` in the place of the part `old`, keeping its place.
     pub fn replace(&mut self, old: &Piece, new: Piece) {
         let swap = |list: &mut Vec<String>, o: &str, n: String| {
             if list.contains(&n) {
@@ -126,15 +171,17 @@ impl Path {
         }
     }
 
-    /// Whether `other` has the same displays and inputs, in any order.
-    fn same_pieces(&self, other: &Path) -> bool {
+    /// Whether `other` holds every part of this path: the same displays,
+    /// and every input of this one.
+    fn within(&self, other: &Path) -> bool {
         let set = |v: &[String]| {
             let mut v = v.to_vec();
             v.sort();
             v.dedup();
             v
         };
-        set(&self.displays) == set(&other.displays) && set(&self.inputs) == set(&other.inputs)
+        set(&self.displays) == set(&other.displays)
+            && self.inputs.iter().all(|i| other.inputs.contains(i))
     }
 
     /// What the new path still needs, or that it is ready, in words.
@@ -158,13 +205,18 @@ fn fits(flow: &Flow, rule: &Rule) -> bool {
     }
 }
 
-/// The font set the head `h` draws with: its look's frit, `None` for the
-/// default.
-fn font_of(flow: &Flow, h: usize) -> Option<String> {
-    flow.look_of(h)
-        .and_then(|l| flow.looks.get(l))
-        .map(|l| l.frit.clone())
-        .filter(|f| !f.is_empty())
+/// Collapses the rules a part writes back into the part: the keyboard
+/// classes into `any keyboard`, the pointer classes into `any pointer`.
+fn collapse(inputs: &mut Vec<String>, part: &str, classes: &[&str]) {
+    if !classes.iter().all(|c| inputs.iter().any(|s| s == c)) {
+        return;
+    }
+    let at = inputs
+        .iter()
+        .position(|s| classes.contains(&s.as_str()))
+        .unwrap_or(0);
+    inputs.retain(|s| !classes.contains(&s.as_str()));
+    inputs.insert(at.min(inputs.len()), part.to_owned());
 }
 
 /// The paths of a draft's flow, one per head in the file's order, and how
@@ -191,35 +243,52 @@ pub fn read(flow: &Flow) -> (Vec<Path>, usize) {
             seen.push(s.clone());
             fresh
         });
-        // the four pointer classes read as `any pointer`
-        if POINTER_CLASSES
+        collapse(&mut inputs, ANY_POINTER, &POINTER_CLASSES);
+        collapse(&mut inputs, ANY_KEYBOARD, &KEYBOARD_CLASSES);
+        let look = flow.look_of(h).and_then(|l| flow.looks.get(l));
+        let mut settings: Vec<(String, String)> = head
+            .keys
             .iter()
-            .all(|c| inputs.iter().any(|s| s == c))
-        {
-            let at = inputs
-                .iter()
-                .position(|s| POINTER_CLASSES.contains(&s.as_str()))
-                .unwrap_or(0);
-            inputs.retain(|s| !POINTER_CLASSES.contains(&s.as_str()));
-            inputs.insert(at.min(inputs.len()), ANY_POINTER.to_owned());
+            .filter(|(k, _)| SETTINGS.contains(&k.as_str()))
+            .cloned()
+            .collect();
+        if head.consoles != 1 {
+            settings.insert(0, ("consoles".to_owned(), head.consoles.to_string()));
         }
         out.push(Path {
             name: Some(head.name.clone()),
             displays: of(Kind::Display),
             inputs,
-            font: font_of(flow, h),
+            font: look.map(|l| l.frit.clone()).filter(|f| !f.is_empty()),
+            size: look.map(|l| l.points).filter(|p| *p > 0),
+            settings,
         });
     }
     let unfit = flow.rules.iter().filter(|r| !fits(flow, r)).count();
     (out, unfit)
 }
 
-/// The name a new terminal takes: `terminal-N`, the smallest N no head
-/// and no path has. A head's name holds no space.
+/// Whether `flow` is vtium's built-in default: its paths are the shipped
+/// example's.
+pub fn is_default(flow: &Flow) -> bool {
+    let shipped = crate::flowmodel::build(
+        crate::drafts::EXAMPLE,
+        &crate::flowmodel::Present::default(),
+        None,
+    );
+    read(flow).0 == read(&shipped).0
+}
+
+/// The name a new terminal takes: `console`, the shipped default's, while
+/// the configuration has no terminal; else `terminal-N`, the smallest N no
+/// head and no path has. A head's name holds no space.
 pub fn new_name(flow: &Flow, doc: &[Path]) -> String {
     let taken = |n: &str| {
         flow.heads.iter().any(|h| h.name == n) || doc.iter().any(|p| p.name.as_deref() == Some(n))
     };
+    if flow.heads.is_empty() && doc.is_empty() {
+        return "console".to_owned();
+    }
     (1usize..)
         .map(|n| format!("terminal-{n}"))
         .find(|n| !taken(n))
@@ -247,12 +316,15 @@ pub fn rank(selector: &str) -> u8 {
 pub enum Adding {
     /// It is a new path.
     New,
-    /// The document already has this path, in the terminal named: nothing
-    /// changes.
+    /// The configuration already holds this path, in the terminal named:
+    /// nothing changes.
     Same(String),
 }
 
-/// Whether `new` may be added to the document `doc`, or why not.
+/// Whether `new` may be added to the configuration `doc`, or why not. A
+/// path whose displays, font set and size a path of `doc` has, and whose
+/// inputs that path all has, is already held, and adding it changes
+/// nothing.
 pub fn check_add(flow: &Flow, doc: &[Path], new: &Path) -> Result<Adding, String> {
     if !new.complete() {
         return Err(new.status().to_owned());
@@ -263,11 +335,11 @@ pub fn check_add(flow: &Flow, doc: &[Path], new: &Path) -> Result<Adding, String
     {
         return Err(words::name_invalid(n));
     }
-    if let Some(same) = doc.iter().find(|p| p.same_pieces(new)) {
-        return if same.font == new.font {
-            Ok(Adding::Same(name(same)))
+    if let Some(held) = doc.iter().find(|p| new.within(p)) {
+        return if held.font == new.font && held.size == new.size {
+            Ok(Adding::Same(name(held)))
         } else {
-            Err(words::path_other_font(&name(same)))
+            Err(words::path_other_font(&name(held)))
         };
     }
     if let Some(n) = &new.name
@@ -294,8 +366,9 @@ pub fn valid_name(name: &str) -> bool {
         && !Special::ALL.iter().any(|s| s.name() == name)
 }
 
-/// The document without the path of the terminal `name`, and that path,
-/// which goes into the editor with its name kept: "Revise this path".
+/// The configuration without the path of the terminal `name`, and that
+/// path, which goes into the editor with its name kept: "Revise this
+/// path".
 pub fn revise(doc: &[Path], name: &str) -> Option<(Vec<Path>, Path)> {
     let at = doc.iter().position(|p| p.name.as_deref() == Some(name))?;
     let mut rest = doc.to_vec();
@@ -303,66 +376,111 @@ pub fn revise(doc: &[Path], name: &str) -> Option<(Vec<Path>, Path)> {
     Some((rest, taken))
 }
 
-/// The draft's changes that make its heads, looks and path rules the
-/// document `doc`: the old path rules go, the heads no path has go, each
-/// path's head is added or has its look set, and each piece's rule is
-/// added, most specific first. An input in two paths is written once, as
-/// roaming. Rules that belong to no path stay as they are.
-pub fn plan(flow: &Flow, doc: &[Path]) -> Vec<Change> {
-    let mut out = Vec::new();
-    // the old path rules, from the last, so the numbers stay right
-    for (i, r) in flow.rules.iter().enumerate().rev() {
-        if fits(flow, r) {
-            out.push(Change::RuleRm(i.saturating_add(1)));
-        }
+/// The look a path's font set and size draw with: one of the draft's that
+/// names that frit at that size, else a new look of the frit's name, with
+/// the size after it when it has one; `None` for the default font set at
+/// the automatic size.
+fn look_for(
+    flow: &Flow,
+    font: Option<&str>,
+    size: Option<u32>,
+    added: &mut Vec<Change>,
+) -> Option<String> {
+    if font.is_none() && size.is_none() {
+        return None;
     }
-    for head in &flow.heads {
-        if !doc
-            .iter()
-            .any(|p| p.name.as_deref() == Some(head.name.as_str()))
-        {
-            out.push(Change::HeadRm(head.name.clone()));
-        }
+    let frit = font.unwrap_or_default();
+    let points = size.unwrap_or(0);
+    if let Some(l) = flow
+        .looks
+        .iter()
+        .find(|l| l.frit == frit && l.points == points)
+    {
+        return Some(l.name.clone());
     }
-    // a look for each font set picked: one that names its frit, else a new
-    // look of the frit's name
-    let mut new_looks: Vec<String> = Vec::new();
-    let mut look_for = |frit: &str, out: &mut Vec<Change>| -> String {
-        if let Some(l) = flow.looks.iter().find(|l| l.frit == frit) {
-            return l.name.clone();
-        }
-        if !new_looks.iter().any(|n| n == frit) {
-            new_looks.push(frit.to_owned());
-            out.push(Change::LookAdd {
-                name: frit.to_owned(),
-                frit: Some(frit.to_owned()),
-                size: None,
-            });
-        }
-        frit.to_owned()
+    let name = match (font, size) {
+        (Some(f), None) => f.to_owned(),
+        (Some(f), Some(s)) => format!("{f}-{s}"),
+        (None, Some(s)) => format!("size-{s}"),
+        (None, None) => String::new(),
     };
+    let fresh = added
+        .iter()
+        .all(|c| !matches!(c, Change::LookAdd { name: n, .. } if *n == name));
+    if fresh && !flow.looks.iter().any(|l| l.name == name) {
+        added.push(Change::LookAdd {
+            name: name.clone(),
+            frit: font.map(str::to_owned),
+            size: size.map(|s| s.to_string()),
+        });
+    }
+    Some(name)
+}
+
+/// The draft's changes that make its heads, looks and path rules the
+/// configuration `doc`: the old path rules go, the heads no path has go,
+/// each path's head is added or has its look set, and each part's rule
+/// is added, most specific first. An input in two paths, or in every path,
+/// is written once, as roaming. Rules that belong to no path stay as they
+/// are, and a draft that already says all this is left as it is.
+pub fn plan(flow: &Flow, doc: &[Path]) -> Vec<Change> {
+    let mut looks = Vec::new();
     let mut heads = Vec::new();
     for p in doc {
         let Some(name) = p.name.clone() else {
             continue;
         };
-        let look = p.font.as_deref().map(|f| look_for(f, &mut out));
+        let look = look_for(flow, p.font.as_deref(), p.size, &mut looks);
         match flow.heads.iter().find(|h| h.name == name) {
-            None => heads.push(Change::HeadAdd { name, look }),
+            None => {
+                heads.push(Change::HeadAdd {
+                    name: name.clone(),
+                    look,
+                });
+                for (key, value) in &p.settings {
+                    if let Some(key) = SETTINGS.iter().find(|k| **k == key.as_str()) {
+                        heads.push(Change::HeadKey {
+                            name: name.clone(),
+                            key,
+                            value: Some(value.clone()),
+                        });
+                    }
+                }
+            }
             Some(h) => {
                 let now = (h.look != "default").then(|| h.look.clone());
                 if now != look {
                     heads.push(Change::HeadKey {
-                        name,
+                        name: name.clone(),
                         key: "look",
                         value: look,
                     });
                 }
+                // the settings the path changed in place
+                for key in SETTINGS {
+                    let have = match key {
+                        "consoles" if h.consoles != 1 => h.consoles.to_string(),
+                        "consoles" => String::new(),
+                        _ => h
+                            .keys
+                            .iter()
+                            .find(|(k, _)| k == key)
+                            .map(|(_, v)| v.clone())
+                            .unwrap_or_default(),
+                    };
+                    let want = p.setting(key);
+                    if have != want {
+                        heads.push(Change::HeadKey {
+                            name: name.clone(),
+                            key,
+                            value: Some(want).filter(|v| !v.is_empty()),
+                        });
+                    }
+                }
             }
         }
     }
-    out.extend(heads);
-    // the rules: each piece once, an input in two paths roaming
+    // the rules: each part once, an input in two paths or every path roaming
     let mut rules: Vec<(u8, String)> = Vec::new();
     let mut push = |line: String, sel: &str| {
         if !rules.iter().any(|(_, l)| *l == line) {
@@ -378,19 +496,54 @@ pub fn plan(flow: &Flow, doc: &[Path]) -> Vec<Change> {
         }
         for i in &p.inputs {
             let paths = doc.iter().filter(|q| q.inputs.contains(i)).count();
-            let target = if paths > 1 { "roaming" } else { name.as_str() };
-            let sels: Vec<&str> = if i == ANY_POINTER {
-                POINTER_CLASSES.to_vec()
+            let target = if paths > 1 || paths == doc.len() {
+                "roaming"
             } else {
-                vec![i.as_str()]
+                name.as_str()
             };
-            for s in sels {
+            for s in expand(i) {
                 push(format!("input {s} -> {target}"), s);
             }
         }
     }
     rules.sort_by_key(|(r, _)| *r);
-    out.extend(rules.into_iter().map(|(_, l)| Change::RuleAdd(l)));
+    // the draft's own path rules, as lines
+    let now: Vec<String> = flow
+        .rules
+        .iter()
+        .filter(|r| fits(flow, r))
+        .map(|r| {
+            let kind = match r.kind {
+                Kind::Display => "display",
+                Kind::Input => "input",
+            };
+            format!("{kind} {} -> {}", r.selector, r.target)
+        })
+        .collect();
+    let gone: Vec<&str> = flow
+        .heads
+        .iter()
+        .map(|h| h.name.as_str())
+        .filter(|h| !doc.iter().any(|p| p.name.as_deref() == Some(*h)))
+        .collect();
+    // rules that already say all this stay where they are, so a change of
+    // name, font set, size or setting moves no rule
+    let same = now.len() == rules.len() && rules.iter().all(|(_, l)| now.contains(l));
+    let mut out = Vec::new();
+    if !same {
+        // the old path rules, from the last, so the numbers stay right
+        for (i, r) in flow.rules.iter().enumerate().rev() {
+            if fits(flow, r) {
+                out.push(Change::RuleRm(i.saturating_add(1)));
+            }
+        }
+    }
+    out.extend(gone.into_iter().map(|h| Change::HeadRm(h.to_owned())));
+    out.extend(looks);
+    out.extend(heads);
+    if !same {
+        out.extend(rules.into_iter().map(|(_, l)| Change::RuleAdd(l)));
+    }
     out
 }
 
@@ -730,7 +883,13 @@ pub(crate) mod tests {
             displays: displays.iter().map(|s| (*s).to_owned()).collect(),
             inputs: inputs.iter().map(|s| (*s).to_owned()).collect(),
             font: font.map(str::to_owned),
+            ..Path::default()
         }
+    }
+
+    fn sized(mut p: Path, size: u32) -> Path {
+        p.size = Some(size);
+        p
     }
 
     #[test]
@@ -739,11 +898,14 @@ pub(crate) mod tests {
         assert_eq!(
             doc,
             [
-                path(
-                    Some("desk"),
-                    &[EDID_A],
-                    &["serial:046d:c52b:0", "id:046d:c31c"],
-                    Some("monoid")
+                sized(
+                    path(
+                        Some("desk"),
+                        &[EDID_A],
+                        &["serial:046d:c52b:0", "id:046d:c31c"],
+                        Some("monoid")
+                    ),
+                    14
                 ),
                 path(Some("panel"), &[EDID_B], &["id:046d:c31c"], None),
             ]
@@ -784,13 +946,19 @@ pub(crate) mod tests {
         let f = flow();
         let (doc, _) = read(&f);
         // the same pieces in another order
-        let same = path(
-            None,
-            &[EDID_A],
-            &["id:046d:c31c", "serial:046d:c52b:0"],
-            Some("monoid"),
+        let same = sized(
+            path(
+                None,
+                &[EDID_A],
+                &["id:046d:c31c", "serial:046d:c52b:0"],
+                Some("monoid"),
+            ),
+            14,
         );
         assert_eq!(check_add(&f, &doc, &same), Ok(Adding::Same("desk".into())));
+        // fewer inputs through the same display are held too
+        let fewer = sized(path(None, &[EDID_A], &["id:046d:c31c"], Some("monoid")), 14);
+        assert_eq!(check_add(&f, &doc, &fewer), Ok(Adding::Same("desk".into())));
         // the same pieces with another font set conflict
         let other = path(
             None,
@@ -911,8 +1079,10 @@ pub(crate) mod tests {
                 format!("input {PORT_33} -> terminal-1").as_str(),
                 "input id:046d:c31c -> roaming",
                 "input class:keyboard -> terminal-1",
+                "input class:key -> terminal-1",
                 "input class:mouse -> terminal-1",
                 "input class:touchpad -> terminal-1",
+                "input class:touchscreen -> terminal-1",
                 "input class:trackball -> terminal-1",
                 "input class:pointingstick -> terminal-1",
                 "input * -> ignore",
@@ -967,11 +1137,11 @@ pub(crate) mod tests {
         assert_eq!(taken, doc[0]);
         let text = apply(TEXT, &plan(&f, &rest));
         assert!(!text.contains("[head desk]"), "{text}");
-        // the receiver is in one path now, so it no longer roams
+        // the receiver is in the one path left, every path, so it roams
         assert_eq!(
             rule_lines(&text),
             [
-                "input id:046d:c31c -> panel",
+                "input id:046d:c31c -> roaming",
                 "input * -> ignore",
                 "display edid:BBB:0x0002:SMALL00001 -> panel",
             ]
@@ -984,6 +1154,93 @@ pub(crate) mod tests {
         let again = apply(&text, &plan(&back, &doc2));
         assert!(again.contains("input id:046d:c31c -> roaming"), "{again}");
         assert!(again.contains("[head desk]\nlook = big\n"), "{again}");
+    }
+
+    fn shipped() -> Flow {
+        crate::flowmodel::build(
+            crate::drafts::EXAMPLE,
+            &crate::flowmodel::Present::default(),
+            None,
+        )
+    }
+
+    fn default_path() -> Path {
+        path(Some("console"), &["*"], &[ANY_KEYBOARD, ANY_POINTER], None)
+    }
+
+    #[test]
+    fn the_shipped_default_is_one_path() {
+        let f = shipped();
+        let (doc, unfit) = read(&f);
+        assert_eq!(doc, [default_path()]);
+        assert_eq!(unfit, 1, "the catch-all to ignore belongs to no path");
+        assert!(is_default(&f));
+        // writing it back changes nothing
+        assert_eq!(plan(&f, &doc), []);
+        // composing any keyboard and any display, with nothing else, is held
+        let new = path(None, &["*"], &[ANY_KEYBOARD], None);
+        assert_eq!(
+            check_add(&f, &doc, &new),
+            Ok(Adding::Same("console".into()))
+        );
+        assert!(!is_default(&flow()));
+    }
+
+    #[test]
+    fn composing_the_default_from_parts_writes_the_shipped_default() {
+        // n starts a configuration with no terminal and no rule
+        let empty = crate::ops::new_text(crate::drafts::EXAMPLE);
+        let f = crate::flowmodel::build(&empty, &crate::flowmodel::Present::default(), None);
+        let (mut doc, _) = read(&f);
+        assert!(doc.is_empty());
+        let mut new = path(None, &["*"], &[ANY_KEYBOARD, ANY_POINTER], None);
+        new.name = Some(new_name(&f, &doc));
+        assert_eq!(new.name.as_deref(), Some("console"));
+        assert_eq!(check_add(&f, &doc, &new), Ok(Adding::New));
+        doc.push(new);
+        let text = apply(&empty, &plan(&f, &doc));
+        let back = crate::flowmodel::build(&text, &crate::flowmodel::Present::default(), None);
+        assert_eq!(read(&back).0, [default_path()]);
+        assert!(is_default(&back));
+        // adding it once more changes nothing
+        let again = path(None, &["*"], &[ANY_KEYBOARD, ANY_POINTER], None);
+        assert_eq!(
+            check_add(&back, &read(&back).0, &again),
+            Ok(Adding::Same("console".into()))
+        );
+    }
+
+    #[test]
+    fn an_added_path_s_name_size_and_settings_change_in_place() {
+        let f = crate::flowmodel::build(TEXT, &crate::flowmodel::Present::default(), None);
+        let (mut doc, _) = read(&f);
+        doc[0].size = Some(16);
+        doc[0].set("consoles", "3");
+        doc[1].name = Some("small".into());
+        let text = apply(TEXT, &plan(&f, &doc));
+        let back = crate::flowmodel::build(&text, &crate::flowmodel::Present::default(), None);
+        let read_back = read(&back).0;
+        assert_eq!(read_back[0].size, Some(16));
+        assert_eq!(read_back[0].font.as_deref(), Some("monoid"));
+        assert_eq!(read_back[0].setting("consoles"), "3");
+        assert!(
+            text.contains("[look monoid-16]\nfont-name = monoid\nfont-size = 16\n"),
+            "{text}"
+        );
+        // a size alone moves no rule
+        let mut sized_only = read(&f).0;
+        sized_only[1].size = Some(10);
+        let changes = plan(&f, &sized_only);
+        assert!(
+            changes
+                .iter()
+                .all(|c| !matches!(c, Change::RuleRm(_) | Change::RuleAdd(_))),
+            "{changes:?}"
+        );
+        // the renamed terminal keeps its display and its roaming receiver
+        assert_eq!(read_back[1].name.as_deref(), Some("small"));
+        assert_eq!(read_back[1].displays, [EDID_B]);
+        assert!(!text.contains("[head panel]"), "{text}");
     }
 
     #[test]

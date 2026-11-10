@@ -889,15 +889,15 @@ pub fn frits_waiting(n: usize) -> String {
 }
 
 /// The Flow view as paths, the try-out `VTIUM_CONFIG_FLOW=rows`.
-pub const ROWS_PATHS: &str = "PATHS";
+pub const ROWS_PATHS: &str = "CONFIGURATION";
 pub const ROWS_NEW_PATH: &str = "NEW PATH";
-pub const ROWS_PIECES: &str = "PIECES";
+pub const ROWS_PIECES: &str = "PARTS";
 pub const ROWS_DISPLAYS: &str = "DISPLAYS";
 pub const ROWS_TERMINALS: &str = "TERMINALS";
 pub const ROWS_INPUTS: &str = "INPUTS";
 pub const ROWS_FONT_SETS: &str = "FONT SETS";
 pub const NO_PATHS: &str =
-    "No paths yet. Pick an input and a display below, then press a to add the path.";
+    "No paths yet. Pick an input and a display in PARTS, then press a to add the path.";
 pub fn unfit_rules(n: usize) -> String {
     match n {
         1 => "1 rule belongs to no path. Press v to see it.".to_owned(),
@@ -944,16 +944,27 @@ pub fn roams_among(n: usize) -> String {
 }
 pub const ROAMS_SENTENCE: &str =
     "It is in more than one path, so it roams: it types into whichever terminal is active.";
-pub const REVISE_NOTE: &str = "Which displays, inputs and font set this path joins cannot change here. Press e to revise this path.";
+pub const REVISE_NOTE: &str =
+    "Which displays and inputs this path joins change only when you revise it: press e.";
 pub const NO_FONT_SET_KEYS: &str =
     "This path uses the default font set, which has no settings of its own here.";
-pub const CHOOSE_DISPLAY: &str = "CHOOSE WHICH DISPLAYS THIS PIECE MATCHES";
-pub const CHOOSE_INPUT: &str = "CHOOSE WHICH INPUTS THIS PIECE MATCHES";
+pub const CHOOSE_DISPLAY: &str = "CHOOSE WHICH DISPLAYS THIS PART MATCHES";
+pub const CHOOSE_INPUT: &str = "CHOOSE WHICH INPUTS THIS PART MATCHES";
 pub const CHOOSE_ABOUT: &str =
     "The choices go from the widest to the narrowest. Enter picks one into the new path.";
 pub const NEW_TERMINAL: &str = "THE NEW PATH'S TERMINAL";
+pub const AUTOMATIC_SIZE: &str = "automatic";
+pub const KEEP_SESSIONS: &str = "keep the sessions running";
+pub const END_SESSIONS: &str = "end the sessions";
+pub const SYSTEM_LOGIN: &str = "the system's login";
+pub const DISCONNECT: &str = "disconnect it";
+pub const CONNECTED: &str = "connected";
+pub const EDITOR_NOTE: &str =
+    "Space on a part in PARTS connects it to this path. Enter on a part here disconnects it.";
+pub const BUILT_IN_DEFAULT: &str = "This is vtium's built-in default: every display shows the terminal console, and every keyboard and pointer types into it.";
 pub const ENTER_TO_TYPE: &str = "Enter types a new name";
 pub const ROWS_KEYS: &str = "↑↓←→ move  Space pick  Enter open  a add path  e revise  Esc clear  v rules  i install  o restore  n new  p preview  t trial  PgUp PgDn scroll  q quit";
+pub const ROWS_KEYS_EDITOR_CARD: &str = "↑↓ move  ←→ choose  Enter set  Esc back  q quit";
 pub const ROWS_KEYS_CARD: &str =
     "↑↓ move  ←→ choose  Enter set  e revise this path  Esc back  q quit";
 pub const ROWS_KEYS_INFO: &str = "e revise this path  Esc back  q quit";
@@ -961,10 +972,11 @@ pub const ROWS_KEYS_CHOOSE: &str = "↑↓ move  Enter choose  Esc back  q quit"
 pub const ROWS_SAVE: &str = "The draft keeps each change as you make it, so there is nothing to save. Press i to install it.";
 pub const ROWS_RULES_BACK: &str =
     "This is the rules view. Press Esc with nothing open to go back to the paths.";
-pub const REVISE_WHERE: &str = "Highlight a path in PATHS, then press e to revise it.";
+pub const REVISE_WHERE: &str = "Highlight a path in CONFIGURATION, then press e to revise it.";
 pub const EDITOR_CLEARED: &str = "Cleared the new path.";
-pub const EDITOR_BUSY: &str = "The new path already holds pieces. Add it with a, or clear it with Esc, before you revise another path.";
-pub const IN_DOCUMENT: &str = "This piece is in a path that is added. Press e to revise the path.";
+pub const EDITOR_BUSY: &str = "The new path already holds parts. Add it with a, or clear it with Esc, before you revise another path.";
+pub const IN_DOCUMENT: &str =
+    "This part is in a path in the configuration. Press e to revise the path.";
 pub const OTHERS_CANNOT: &str =
     "These inputs are neither keyboards nor pointers, so they cannot be part of a path.";
 pub const DEFAULT_FONT_PREVIEW: &str = "The default font set is the font vtium.conf sets. The Fonts view shows each font set's preview.";
@@ -993,7 +1005,7 @@ pub fn rows_other_inputs(n: usize) -> String {
 }
 pub fn path_other_font(head: &str) -> String {
     format!(
-        "{} already has these pieces with another font set. Press e on it to revise its path.",
+        "{} already has these parts with another font set. Press e on it to revise its path.",
         capitalized(&terminal(head))
     )
 }
@@ -1022,9 +1034,12 @@ pub fn path_added(head: &str) -> String {
 }
 pub fn path_revised(head: &str) -> String {
     format!(
-        "The path of {} is in NEW PATH now. Change its pieces, then press a to add it back.",
+        "The path of {} is in NEW PATH now. Change its parts, then press a to add it back.",
         terminal(head)
     )
+}
+pub fn changed_in_draft(head: &str) -> String {
+    format!("Changed {} in the draft.", terminal(head))
 }
 pub fn piece_out(title: &str) -> String {
     format!("Took {title} out of the new path.")
@@ -1046,7 +1061,7 @@ pub fn picked(
     new: &crate::tui::paths::Path,
     also: &[String],
 ) -> String {
-    let what = if display {
+    let what = if display && !title.starts_with("any ") {
         format!("Picked the display {}.", title.trim_start_matches("the "))
     } else {
         format!("Picked {title}.")
@@ -1054,7 +1069,7 @@ pub fn picked(
     let next = match (new.inputs.is_empty(), new.displays.is_empty()) {
         (false, true) => "Now pick a display, or more inputs.",
         (true, false) => "Now pick an input, or more displays.",
-        _ => "This path is complete: press a to add it, or pick more pieces.",
+        _ => "This path is complete: press a to add it, or pick more parts.",
     };
     let heads: Vec<String> = also.iter().map(|h| terminal(h)).collect();
     match heads.as_slice() {

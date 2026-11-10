@@ -11,7 +11,6 @@
 //! Every change to the draft goes through [`super::paths::plan`] and
 //! [`App::make`], so through `src/ops.rs`.
 
-use super::edit::{self, Field, What};
 use super::flow::Item;
 use super::input::Key;
 use super::model::{App, Effect, Live, View, step};
@@ -38,19 +37,14 @@ impl App {
             self.rows_with(|s| s.classic = true);
         }
         let layout = rowsdraw::layout_of(self);
-        let opened = self.opened;
-        let mut gone = false;
-        self.rows_with(|s| match &s.layer {
-            Some(Obj::Doc(_, Slot::Terminal)) if !opened => s.layer = None,
-            Some(o @ Obj::Doc(..)) if layout.find(o).is_none() => {
-                gone = true;
+        self.rows_with(|s| {
+            if let Some(o @ Obj::Doc(..)) = &s.layer
+                && layout.find(o).is_none()
+            {
                 s.layer = None;
+                s.typing = None;
             }
-            _ => {}
         });
-        if gone {
-            self.opened = false;
-        }
         let (_, height) = rowsdraw::window(self);
         self.rows_with(|s| s.settle(&layout, height));
     }
@@ -59,31 +53,6 @@ impl App {
     /// goes to it.
     pub(crate) fn rows_typing(&self) -> bool {
         self.view == View::Flow && self.rows_flow.as_ref().is_some_and(|s| s.typing.is_some())
-    }
-
-    /// The fields of an added terminal's card: the settings that do not
-    /// change which pieces its path joins, its own keys and its font set's
-    /// size and options; `None` when no such card is open.
-    pub(crate) fn rows_fields(&self) -> Option<Vec<Field>> {
-        let Some(Obj::Doc(name, Slot::Terminal)) =
-            self.rows_flow.as_ref().and_then(|s| s.layer.as_ref())
-        else {
-            return None;
-        };
-        let flow = &self.inputs.flow;
-        let h = flow.heads.iter().position(|x| x.name == *name)?;
-        let mut out: Vec<Field> = edit::fields(flow, Item::Head(h), &[], &[])
-            .into_iter()
-            .filter(|f| matches!(f.what, What::HeadKey(..)))
-            .collect();
-        if flow.look_of(h).is_some() {
-            out.extend(
-                edit::fields(flow, Item::HeadLook(h), &[], &[])
-                    .into_iter()
-                    .filter(|f| matches!(f.what, What::LookKey(_, k) if k != "font-name")),
-            );
-        }
-        Some(out)
     }
 
     /// A key in the Flow view as paths.
@@ -107,16 +76,9 @@ impl App {
         if self.route.is_some() || self.pager.is_some() || self.restore.is_some() {
             return self.flow_key(key);
         }
-        if let Some(typed) = &state.typing {
-            return self.name_key(typed.clone(), key);
-        }
         match &state.layer {
-            Some(Obj::Doc(name, Slot::Terminal)) => {
-                if key == Key::Char('e') && self.card.typed.is_none() {
-                    self.opened = false;
-                    return self.revise(name);
-                }
-                self.card_key(key).unwrap_or_default()
+            Some(obj @ (Obj::Doc(_, Slot::Terminal) | Obj::New(Slot::Terminal))) => {
+                self.terminal_card_key(&state, obj, key)
             }
             Some(Obj::Doc(name, _)) => match key {
                 Key::Char('e') => self.revise(name),
@@ -132,7 +94,6 @@ impl App {
                 }
                 Vec::new()
             }
-            Some(Obj::New(Slot::Terminal)) => self.terminal_key(&state, key),
             Some(obj) => self.choice_key(&state, obj, key),
             None => self.overview_key(&state, key),
         }
@@ -239,13 +200,13 @@ impl App {
         };
         self.message = None;
         match &obj {
-            Obj::Doc(name, Slot::Terminal) => {
-                let Some(h) = self.inputs.flow.heads.iter().position(|x| x.name == *name) else {
-                    return Vec::new();
-                };
-                self.flow_at = Item::Head(h);
-                self.rows_with(|s| s.layer = Some(obj.clone()));
-                self.open_card();
+            Obj::Doc(_, Slot::Terminal) | Obj::New(Slot::Terminal) => {
+                let pick = self.card_pick(&obj, 0);
+                self.rows_with(|s| {
+                    s.layer = Some(obj.clone());
+                    s.line = 0;
+                    s.pick = pick;
+                });
                 Vec::new()
             }
             Obj::Pal(Slot::Font(f)) => {
@@ -484,76 +445,199 @@ impl App {
         }
     }
 
-    /// A key on the editor terminal's layer: line 0 is its name, which
-    /// Enter starts typing, and the lines after it its font sets, which
-    /// Enter picks.
-    fn terminal_key(&mut self, state: &State, key: Key) -> Vec<Effect> {
-        let fonts = rowsdraw::choices_for(self, &Obj::New(Slot::Terminal));
-        let lines = fonts.len().saturating_add(1);
+    /// The choice a terminal card's line `line` starts on: the one the
+    /// path holds now.
+    fn card_pick(&self, obj: &Obj, line: usize) -> usize {
+        let Some(path) = rowsdraw::card_path(self, obj) else {
+            return 0;
+        };
+        let lines = rowsdraw::card_lines(&path, matches!(obj, Obj::New(_)));
+        let Some(l) = lines.get(line) else {
+            return 0;
+        };
+        let value = rowsdraw::card_value(&path, l);
+        rowsdraw::card_choices(self, l)
+            .iter()
+            .position(|(_, v)| *v == value)
+            .unwrap_or(0)
+    }
+
+    /// A key on a terminal's card, an added path's or the editor's: Up and
+    /// Down move between its lines, Left and Right between a line's
+    /// choices, Enter sets the choice or starts typing the name or the
+    /// login, and Esc goes back. `e` on an added path's card revises it.
+    fn terminal_card_key(&mut self, state: &State, obj: &Obj, key: Key) -> Vec<Effect> {
+        let Some(path) = rowsdraw::card_path(self, obj) else {
+            self.rows_with(|s| s.layer = None);
+            return Vec::new();
+        };
+        let lines = rowsdraw::card_lines(&path, matches!(obj, Obj::New(_)));
+        let Some(line) = lines.get(state.line).cloned() else {
+            self.rows_with(|s| s.line = 0);
+            return Vec::new();
+        };
+        if let Some(typed) = state.typing.clone() {
+            return self.card_type_key(obj, &path, &line, typed, key);
+        }
+        let choices = rowsdraw::card_choices(self, &line);
         match key {
             Key::Up | Key::Down | Key::Home | Key::End | Key::PageUp | Key::PageDown => {
-                let line = step(state.line, lines, key);
-                self.rows_with(|s| s.line = line);
+                let at = step(state.line, lines.len(), key);
+                let pick = self.card_pick(obj, at);
+                self.rows_with(|s| {
+                    s.line = at;
+                    s.pick = pick;
+                });
                 Vec::new()
             }
-            Key::Escape => {
-                self.rows_with(|s| s.layer = None);
+            Key::Left => {
+                self.rows_with(|s| s.pick = s.pick.saturating_sub(1));
                 Vec::new()
             }
-            Key::Enter if state.line == 0 => {
-                let flow = &self.inputs.flow;
-                let (doc, _) = paths::read(flow);
-                let name = state
-                    .new
-                    .name
-                    .clone()
-                    .unwrap_or_else(|| paths::new_name(flow, &doc));
-                self.rows_with(|s| s.typing = Some(name));
+            Key::Right => {
+                let last = choices.len().saturating_sub(1);
+                self.rows_with(|s| s.pick = s.pick.saturating_add(1).min(last));
+                Vec::new()
+            }
+            Key::Enter if choices.is_empty() => {
+                let now = rowsdraw::card_value(&path, &line);
+                self.rows_with(|s| s.typing = Some(now));
                 Vec::new()
             }
             Key::Enter => {
-                let Some((_, _, f)) = fonts.get(state.line.saturating_sub(1)).cloned() else {
-                    return Vec::new();
-                };
-                self.pick(Piece::Font(f.clone()));
-                if f.is_some() {
-                    self.rows_with(|s| s.new.font = f);
+                let value = choices
+                    .get(state.pick)
+                    .map(|(_, v)| v.clone())
+                    .unwrap_or_default();
+                self.card_apply(obj, &path, &line, value)
+            }
+            Key::Char('e') => match obj {
+                Obj::Doc(name, _) => {
+                    let name = name.clone();
+                    self.revise(&name)
                 }
+                _ => Vec::new(),
+            },
+            Key::Escape => {
+                self.rows_with(|s| s.layer = None);
                 Vec::new()
             }
             _ => Vec::new(),
         }
     }
 
-    /// A key while the editor terminal's name is typed: characters go into
+    /// A key while a card's name or login is typed: characters go into
     /// it, Enter keeps it and Esc drops it.
-    fn name_key(&mut self, mut typed: String, key: Key) -> Vec<Effect> {
+    fn card_type_key(
+        &mut self,
+        obj: &Obj,
+        path: &Path,
+        line: &rowsdraw::CardLine,
+        mut typed: String,
+        key: Key,
+    ) -> Vec<Effect> {
         match key {
             Key::Char(c) if typed.chars().count() < 64 => {
                 typed.push(c);
                 self.rows_with(|s| s.typing = Some(typed));
+                Vec::new()
             }
             Key::Backspace => {
                 typed.pop();
                 self.rows_with(|s| s.typing = Some(typed));
+                Vec::new()
             }
-            Key::Enter if paths::valid_name(&typed) => {
-                self.rows_with(|s| {
-                    s.new.name = Some(typed);
-                    s.typing = None;
-                });
-                self.message = None;
-            }
-            Key::Enter => {
-                self.message = Some(words::name_invalid(&typed));
-            }
+            Key::Enter => self.card_apply(obj, path, line, typed),
             Key::Escape => {
                 self.rows_with(|s| s.typing = None);
                 self.message = None;
+                Vec::new()
             }
-            _ => {}
+            _ => Vec::new(),
         }
-        Vec::new()
+    }
+
+    /// Sets the card's line `line` to `value`: in the editor, on the path
+    /// it holds; on an added path, through the draft's changes, which
+    /// `paths::plan` makes from the configuration with the path changed.
+    /// A name another terminal has, or one a terminal cannot take, is
+    /// refused in one sentence.
+    fn card_apply(
+        &mut self,
+        obj: &Obj,
+        path: &Path,
+        line: &rowsdraw::CardLine,
+        value: String,
+    ) -> Vec<Effect> {
+        use rowsdraw::CardLine;
+        let flow = &self.inputs.flow;
+        let (mut doc, _) = paths::read(flow);
+        let own = path.name.clone().unwrap_or_default();
+        if *line == CardLine::Name && value != own {
+            let taken = doc
+                .iter()
+                .any(|p| p.name.as_deref() == Some(value.as_str()))
+                || flow.heads.iter().any(|h| h.name == value);
+            let why = if !paths::valid_name(&value) {
+                Some(words::name_invalid(&value))
+            } else if taken {
+                Some(words::name_taken(&value))
+            } else {
+                None
+            };
+            if let Some(why) = why {
+                return self.tell(why);
+            }
+        }
+        let mut changed = path.clone();
+        match line {
+            CardLine::Name => changed.name = Some(value.clone()),
+            CardLine::Font => changed.font = Some(value.clone()).filter(|v| !v.is_empty()),
+            CardLine::Size => changed.size = value.parse().ok(),
+            CardLine::Setting(key) => changed.set(key, &value),
+            CardLine::Part(piece) => {
+                changed.pick(piece.clone());
+            }
+        }
+        self.rows_with(|s| s.typing = None);
+        self.message = None;
+        match obj {
+            Obj::New(_) => {
+                if matches!(line, CardLine::Part(_)) {
+                    self.rows_with(|s| s.line = s.line.saturating_sub(1));
+                }
+                self.rows_with(|s| s.new = changed);
+                Vec::new()
+            }
+            _ => {
+                let Some(at) = doc
+                    .iter()
+                    .position(|p| p.name.as_deref() == Some(own.as_str()))
+                else {
+                    return Vec::new();
+                };
+                if let Some(slot) = doc.get_mut(at) {
+                    *slot = changed.clone();
+                }
+                let changes = paths::plan(&self.inputs.flow, &doc);
+                if changes.is_empty() {
+                    return Vec::new();
+                }
+                let out = self.make(changes, None);
+                if !out.is_empty() {
+                    let name = changed.name.clone().unwrap_or_else(|| own.clone());
+                    self.message = Some(words::changed_in_draft(&name));
+                }
+                if !out.is_empty() && *line == CardLine::Name {
+                    let renamed = Obj::Doc(value, Slot::Terminal);
+                    self.rows_with(|s| {
+                        s.layer = Some(renamed.clone());
+                        s.want = Some(renamed);
+                    });
+                }
+                out
+            }
+        }
     }
 
     /// A click on the document: on a box, highlights it, and on the

@@ -13,10 +13,9 @@
 
 use super::canvas::{Canvas, fit, width, wrap};
 use super::color::{Color, Style};
-use super::edit::{Field, What};
 use super::flow::{Flow, Kind};
 use super::model::App;
-use super::paths;
+use super::paths::{self, Path, Piece};
 use super::rows::{self, BOX_ROWS, Boxed, Ctx, Layout, Mood, NoteKind, Obj, Slot, Wire};
 use super::words;
 
@@ -88,6 +87,7 @@ pub fn layout_of(app: &App) -> Layout {
         new: &new,
         fonts: &fonts,
         cols: app.cols,
+        default: paths::is_default(flow),
     })
 }
 
@@ -509,18 +509,19 @@ pub fn screen(canvas: &mut Canvas, app: &App) {
         Some(obj) => {
             status(canvas, app, &layout, Some(&obj_name(flow, obj)));
             let keys = match obj {
-                Obj::Doc(_, Slot::Terminal) if app.card.typed.is_some() => words::KEYS_TYPING,
-                Obj::New(Slot::Terminal) if state.typing.is_some() => words::KEYS_TYPING,
+                _ if state.typing.is_some() => words::KEYS_TYPING,
                 Obj::Doc(_, Slot::Terminal) => words::ROWS_KEYS_CARD,
+                Obj::New(Slot::Terminal) => words::ROWS_KEYS_EDITOR_CARD,
                 Obj::Doc(..) | Obj::Others => words::ROWS_KEYS_INFO,
                 _ => words::ROWS_KEYS_CHOOSE,
             };
             key_line(canvas, app, keys);
             match obj {
-                Obj::Doc(name, Slot::Terminal) => card_layer(canvas, app, name),
+                Obj::Doc(_, Slot::Terminal) | Obj::New(Slot::Terminal) => {
+                    card_layer(canvas, app, state, obj);
+                }
                 Obj::Doc(name, slot) => info_layer(canvas, app, name, slot),
                 Obj::Others => others_layer(canvas, app),
-                Obj::New(Slot::Terminal) => terminal_choices(canvas, app, state),
                 _ => choices_layer(canvas, app, state, obj),
             }
         }
@@ -573,145 +574,6 @@ fn overview(canvas: &mut Canvas, app: &App, state: &rows::State, layout: &Layout
     for (x, y, text) in edge_labels(&app.inputs.flow, layout, state.top, wh) {
         let row = wtop.saturating_add(y.saturating_sub(state.top));
         canvas.put(x, row, &text, Style::text(Color::BrightWhite));
-    }
-}
-
-/// A field's label on a terminal's card, in a reader's words.
-fn field_label(f: &Field) -> String {
-    match &f.what {
-        What::HeadKey(_, "consoles") => "Consoles".to_owned(),
-        What::HeadKey(_, "login") => "Login".to_owned(),
-        What::HeadKey(_, "when-display-lost") => "When its screen is unplugged".to_owned(),
-        What::HeadKey(_, "isolated") => "Isolated".to_owned(),
-        What::LookKey(_, "font-size") => "Font size".to_owned(),
-        What::LookKey(_, key) => format!("Font set's {key}"),
-        _ => f.label.clone(),
-    }
-}
-
-/// A field's value in a reader's words, and a note after it.
-fn field_value(flow: &Flow, name: &str, f: &Field) -> (String, String) {
-    match &f.what {
-        What::HeadKey(_, "consoles") => (
-            f.current.clone(),
-            "Ctrl+Super+Return opens another while it runs".to_owned(),
-        ),
-        What::HeadKey(_, "login") if f.current.is_empty() => {
-            ("the system's login".to_owned(), String::new())
-        }
-        What::HeadKey(_, "when-display-lost") => {
-            let v = if f.current.is_empty() || f.current == "keep" {
-                "keep the sessions running".to_owned()
-            } else {
-                format!("end the sessions ({})", f.current)
-            };
-            (v, String::new())
-        }
-        What::HeadKey(_, "isolated") => {
-            let yes = match f.current.as_str() {
-                "yes" => true,
-                "no" => false,
-                _ => flow.policy == "closed",
-            };
-            if yes {
-                ("yes".to_owned(), "no keyboard roams here".to_owned())
-            } else {
-                (
-                    "no".to_owned(),
-                    format!("roaming keyboards type here while the terminal {name} is active"),
-                )
-            }
-        }
-        What::LookKey(_, "font-size") if f.current == "0" || f.current.is_empty() => {
-            ("automatic".to_owned(), String::new())
-        }
-        _ if f.current.is_empty() => ("as the font set sets it".to_owned(), String::new()),
-        _ => (f.current.clone(), String::new()),
-    }
-}
-
-/// An added path's terminal card: the settings that do not change which
-/// pieces the path joins, each a field of the six-column view's cards,
-/// and the line that says how to change the pieces.
-fn card_layer(canvas: &mut Canvas, app: &App, name: &str) {
-    let flow = &app.inputs.flow;
-    let (doc, _) = paths::read(flow);
-    let font = doc
-        .iter()
-        .find(|p| p.name.as_deref() == Some(name))
-        .and_then(|p| p.font.clone());
-    let x = canvas.put(1, 3, &format!("TERMINAL {name}"), bold(Color::BrightWhite));
-    canvas.put(
-        x.saturating_add(2),
-        3,
-        &rows::font_words(font.as_deref()),
-        Style::text(Color::Grey),
-    );
-    let fields = app.fields();
-    let mut y = 5usize;
-    for (i, f) in fields.iter().enumerate() {
-        let here = i == app.card.field;
-        canvas.put(3, y, &field_label(f), Style::text(Color::Grey));
-        if here {
-            field_choices(canvas, app, f, VALUE_X, y);
-        } else {
-            let (value, note) = field_value(flow, name, f);
-            let x = canvas.put(VALUE_X, y, &value, Style::text(Color::BrightWhite));
-            if !note.is_empty() {
-                let room = app.cols.saturating_sub(x.saturating_add(3));
-                canvas.put(
-                    x.saturating_add(3),
-                    y,
-                    &fit(&note, room),
-                    Style::text(Color::Grey),
-                );
-            }
-        }
-        y = y.saturating_add(1);
-    }
-    if font.is_none() {
-        y = y.saturating_add(1);
-        for line in wrap(words::NO_FONT_SET_KEYS, app.cols.saturating_sub(4), 2) {
-            canvas.put(3, y, &line, Style::text(Color::Grey));
-            y = y.saturating_add(1);
-        }
-    }
-    // the note stays above the message and the keys
-    let note = wrap(words::REVISE_NOTE, app.cols.saturating_sub(4), 2);
-    let (wtop, wh) = window(app);
-    let last = wtop.saturating_add(wh).saturating_sub(note.len());
-    y = y.saturating_add(1).min(last);
-    for line in note {
-        canvas.put(3, y, &line, Style::text(Color::Yellow));
-        y = y.saturating_add(1);
-    }
-}
-
-/// The highlighted field's choices across its row: each offered value,
-/// the one the draft has now marked ● and the cursor's in reverse video,
-/// then `type…` where a value may be typed.
-fn field_choices(canvas: &mut Canvas, app: &App, f: &Field, vx: usize, y: usize) {
-    if let Some(typed) = &app.card.typed {
-        canvas.put(vx, y, &format!(" {typed}_ "), Style::PLAIN.reversed());
-        return;
-    }
-    let mut x = vx;
-    for (k, o) in f.options.iter().enumerate() {
-        let on = *o == f.current;
-        x = choice(canvas, x, y, o, on, k == app.card.pick);
-    }
-    if f.typed {
-        let text = if f.options.is_empty() && !f.current.is_empty() {
-            format!("{} · {}", f.current, words::OR_TYPE_VALUE)
-        } else {
-            words::OR_TYPE_VALUE.to_owned()
-        };
-        let style = if app.card.pick == f.options.len() {
-            Style::PLAIN.reversed()
-        } else {
-            Style::text(Color::Grey)
-        };
-        canvas.put(x, y, &text, style);
     }
 }
 
@@ -793,42 +655,259 @@ fn info_layer(canvas: &mut Canvas, app: &App, name: &str, slot: &Slot) {
     }
 }
 
-/// The choices a layer offers for `obj`, each its title, what it covers,
-/// and its value: what a display or input piece can match, broad to
-/// narrow, as a selector; or the font sets, `None` for the default.
+/// The choices a part's layer offers, each its title, what it covers, and
+/// its selector: what a display or an input part can match, from the
+/// widest to the narrowest.
 pub fn choices_for(app: &App, obj: &Obj) -> Vec<(String, String, Option<String>)> {
     let flow = &app.inputs.flow;
+    let (Obj::Pal(slot) | Obj::New(slot)) = obj else {
+        return Vec::new();
+    };
+    let kind = match slot {
+        Slot::Display(_) => Kind::Display,
+        Slot::Input(_) => Kind::Input,
+        _ => return Vec::new(),
+    };
+    let Some(piece) = slot.piece() else {
+        return Vec::new();
+    };
+    paths::narrow(flow, paths::sort_of(flow, &piece))
+        .into_iter()
+        .map(|(t, sel)| {
+            let detail = paths::title(flow, kind, &sel).1;
+            (t, detail, Some(sel))
+        })
+        .collect()
+}
+
+/// One line of a terminal's card: what a path sets that allocates no
+/// display, input or font, and in the editor, each part it joins.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CardLine {
+    Name,
+    Font,
+    Size,
+    Setting(&'static str),
+    Part(Piece),
+}
+
+/// The settings a card offers, without `isolated`, which decides where
+/// roaming keyboards go.
+const CARD_SETTINGS: [&str; 3] = ["consoles", "login", "when-display-lost"];
+
+/// The path a terminal's card shows: an added path's, or the editor's
+/// with the name it will take.
+pub fn card_path(app: &App, obj: &Obj) -> Option<Path> {
+    let flow = &app.inputs.flow;
+    let (doc, _) = paths::read(flow);
     match obj {
-        Obj::Pal(Slot::Font(_)) | Obj::New(Slot::Font(_)) | Obj::New(Slot::Terminal) => {
-            std::iter::once((words::DEFAULT_FONT_SET.to_owned(), String::new(), None))
-                .chain(
-                    font_names(app)
-                        .into_iter()
-                        .map(|f| (f.clone(), String::new(), Some(f))),
-                )
-                .collect()
+        Obj::Doc(name, Slot::Terminal) => doc
+            .into_iter()
+            .find(|p| p.name.as_deref() == Some(name.as_str())),
+        Obj::New(Slot::Terminal) => {
+            let mut p = app.rows_flow.as_ref()?.new.clone();
+            if p.name.is_none() {
+                p.name = Some(paths::new_name(flow, &doc));
+            }
+            Some(p)
         }
-        Obj::Pal(slot) | Obj::New(slot) => {
-            let Some(piece) = slot.piece() else {
-                return Vec::new();
-            };
-            let kind = match slot {
-                Slot::Display(_) => Kind::Display,
-                _ => Kind::Input,
-            };
-            paths::narrow(flow, paths::sort_of(flow, &piece))
-                .into_iter()
-                .map(|(t, sel)| {
-                    let detail = paths::title(flow, kind, &sel).1;
-                    (t, detail, Some(sel))
-                })
-                .collect()
-        }
-        _ => Vec::new(),
+        _ => None,
     }
 }
 
-/// A piece's choices, one a row, broad to narrow, each with what it
+/// The card's lines for `path`; the editor's also list its parts.
+pub fn card_lines(path: &Path, editor: bool) -> Vec<CardLine> {
+    let mut out = vec![CardLine::Name, CardLine::Font, CardLine::Size];
+    out.extend(CARD_SETTINGS.iter().map(|k| CardLine::Setting(k)));
+    if editor {
+        out.extend(
+            path.displays
+                .iter()
+                .map(|d| CardLine::Part(Piece::Display(d.clone()))),
+        );
+        out.extend(
+            path.inputs
+                .iter()
+                .map(|i| CardLine::Part(Piece::Input(i.clone()))),
+        );
+    }
+    out
+}
+
+/// A line's choices, each its words and its value; none for a value the
+/// person types, the name and the login.
+pub fn card_choices(app: &App, line: &CardLine) -> Vec<(String, String)> {
+    let own = |v: &str| (v.to_owned(), v.to_owned());
+    match line {
+        CardLine::Name | CardLine::Setting("login") => Vec::new(),
+        CardLine::Font => std::iter::once((words::DEFAULT_FONT_SET.to_owned(), String::new()))
+            .chain(font_names(app).iter().map(|f| own(f)))
+            .collect(),
+        CardLine::Size => std::iter::once((words::AUTOMATIC_SIZE.to_owned(), String::new()))
+            .chain(super::model::SIZES.iter().map(|s| own(&s.to_string())))
+            .collect(),
+        CardLine::Setting("consoles") => (1..=6).map(|n| own(&n.to_string())).collect(),
+        CardLine::Setting("when-display-lost") => vec![
+            (words::KEEP_SESSIONS.to_owned(), String::new()),
+            (words::END_SESSIONS.to_owned(), "hangup".to_owned()),
+        ],
+        CardLine::Setting(_) => Vec::new(),
+        CardLine::Part(_) => vec![(words::DISCONNECT.to_owned(), String::new())],
+    }
+}
+
+/// A line's value as the path holds it, empty for the default.
+pub fn card_value(path: &Path, line: &CardLine) -> String {
+    match line {
+        CardLine::Name => path.name.clone().unwrap_or_default(),
+        CardLine::Font => path.font.clone().unwrap_or_default(),
+        CardLine::Size => path.size.map(|s| s.to_string()).unwrap_or_default(),
+        CardLine::Setting("consoles") => Some(path.setting("consoles"))
+            .filter(|v| !v.is_empty())
+            .unwrap_or_else(|| "1".to_owned()),
+        CardLine::Setting(k) => path.setting(k),
+        CardLine::Part(_) => String::new(),
+    }
+}
+
+/// A line's label, in a reader's words.
+fn card_label(flow: &Flow, line: &CardLine) -> String {
+    match line {
+        CardLine::Name => "Name".to_owned(),
+        CardLine::Font => "Font set".to_owned(),
+        CardLine::Size => "Size".to_owned(),
+        CardLine::Setting("consoles") => "Consoles".to_owned(),
+        CardLine::Setting("login") => "Login".to_owned(),
+        CardLine::Setting("when-display-lost") => "When its screen is unplugged".to_owned(),
+        CardLine::Setting(k) => (*k).to_owned(),
+        CardLine::Part(Piece::Display(d)) => {
+            format!("Display {}", paths::title(flow, Kind::Display, d).0)
+        }
+        CardLine::Part(Piece::Input(i)) => {
+            format!("Input {}", paths::title(flow, Kind::Input, i).0)
+        }
+        CardLine::Part(Piece::Font(_)) => String::new(),
+    }
+}
+
+/// A line's value in a reader's words, as it shows off the cursor.
+fn card_words(app: &App, path: &Path, line: &CardLine) -> String {
+    let value = card_value(path, line);
+    match line {
+        CardLine::Setting("login") if value.is_empty() => words::SYSTEM_LOGIN.to_owned(),
+        CardLine::Part(_) => words::CONNECTED.to_owned(),
+        _ => card_choices(app, line)
+            .into_iter()
+            .find(|(_, v)| *v == value)
+            .map_or(value, |(w, _)| w),
+    }
+}
+
+/// A terminal's card: its name, font set, size and the settings that
+/// allocate nothing, each changeable here; in the editor, also the parts
+/// it joins, which Enter disconnects. An added path's card says how to
+/// change its parts.
+fn card_layer(canvas: &mut Canvas, app: &App, state: &rows::State, obj: &Obj) {
+    let flow = &app.inputs.flow;
+    let Some(path) = card_path(app, obj) else {
+        return;
+    };
+    let editor = matches!(obj, Obj::New(_));
+    let heading = if editor {
+        words::NEW_TERMINAL.to_owned()
+    } else {
+        format!("TERMINAL {}", path.name.clone().unwrap_or_default())
+    };
+    canvas.put(1, 3, &heading, bold(Color::BrightWhite));
+    let (wtop, wh) = window(app);
+    let bottom = wtop.saturating_add(wh);
+    let lines = card_lines(&path, editor);
+    let note = wrap(
+        if editor {
+            words::EDITOR_NOTE
+        } else {
+            words::REVISE_NOTE
+        },
+        app.cols.saturating_sub(4),
+        2,
+    );
+    let room = bottom
+        .saturating_sub(5)
+        .saturating_sub(note.len().saturating_add(1))
+        .max(1);
+    let first = state.line.saturating_add(1).saturating_sub(room);
+    let mut y = 5usize;
+    for (i, line) in lines.iter().enumerate().skip(first).take(room) {
+        canvas.put(3, y, &card_label(flow, line), Style::text(Color::Grey));
+        let here = i == state.line;
+        match (&state.typing, here) {
+            (Some(t), true) => {
+                canvas.put(VALUE_X, y, &format!(" {t}_ "), Style::PLAIN.reversed());
+            }
+            (None, true) => {
+                let choices = card_choices(app, line);
+                if choices.is_empty() {
+                    let x = canvas.put(
+                        VALUE_X,
+                        y,
+                        &format!(" {} ", card_words(app, &path, line)),
+                        Style::PLAIN.reversed(),
+                    );
+                    canvas.put(
+                        x.saturating_add(2),
+                        y,
+                        words::ENTER_TO_TYPE,
+                        Style::text(Color::Grey),
+                    );
+                } else {
+                    let value = card_value(&path, line);
+                    // the row starts late enough that the cursor's choice
+                    // shows, each choice taking its mark, its words and a gap
+                    let room = app.cols.saturating_sub(VALUE_X);
+                    let span = |a: usize, b: usize| -> usize {
+                        choices
+                            .iter()
+                            .take(b.saturating_add(1))
+                            .skip(a)
+                            .map(|(w, _)| width(w).saturating_add(5))
+                            .sum()
+                    };
+                    let mut first = 0usize;
+                    while first < state.pick && span(first, state.pick) > room {
+                        first = first.saturating_add(1);
+                    }
+                    let mut x = VALUE_X;
+                    for (k, (w, v)) in choices.iter().enumerate().skip(first) {
+                        if x.saturating_add(width(w)).saturating_add(3) >= app.cols {
+                            break;
+                        }
+                        let on = *v == value && !matches!(line, CardLine::Part(_));
+                        x = choice(canvas, x, y, w, on, k == state.pick);
+                    }
+                }
+            }
+            _ => {
+                canvas.put(
+                    VALUE_X,
+                    y,
+                    &fit(
+                        &card_words(app, &path, line),
+                        app.cols.saturating_sub(VALUE_X).saturating_sub(1),
+                    ),
+                    Style::text(Color::BrightWhite),
+                );
+            }
+        }
+        y = y.saturating_add(1);
+    }
+    y = y.saturating_add(1).min(bottom.saturating_sub(note.len()));
+    for line in note {
+        canvas.put(3, y, &line, Style::text(Color::Yellow));
+        y = y.saturating_add(1);
+    }
+}
+
+/// A part's choices, one a row, broad to narrow, each with what it
 /// covers; the cursor's in reverse video and the piece's own marked ●.
 fn choices_layer(canvas: &mut Canvas, app: &App, state: &rows::State, obj: &Obj) {
     let heading = match obj {
@@ -858,61 +937,6 @@ fn choices_layer(canvas: &mut Canvas, app: &App, state: &rows::State, obj: &Obj)
         let x = choice(canvas, 3, y, title, on, i == state.line);
         let room = app.cols.saturating_sub(x);
         canvas.put(x, y, &fit(detail, room), Style::text(Color::Grey));
-        y = y.saturating_add(1);
-    }
-}
-
-/// The editor's terminal: its name, which the person may type, on the
-/// first line, and its font set, chosen from the list below it.
-fn terminal_choices(canvas: &mut Canvas, app: &App, state: &rows::State) {
-    let flow = &app.inputs.flow;
-    let (doc, _) = paths::read(flow);
-    let name = state
-        .new
-        .name
-        .clone()
-        .unwrap_or_else(|| paths::new_name(flow, &doc));
-    canvas.put(1, 3, words::NEW_TERMINAL, bold(Color::BrightWhite));
-    canvas.put(3, 5, "Name", Style::text(Color::Grey));
-    match &state.typing {
-        Some(t) => {
-            canvas.put(VALUE_X, 5, &format!(" {t}_ "), Style::PLAIN.reversed());
-        }
-        None => {
-            let style = if state.line == 0 {
-                Style::PLAIN.reversed()
-            } else {
-                Style::text(Color::BrightWhite)
-            };
-            let x = canvas.put(VALUE_X, 5, &format!(" {name} "), style);
-            canvas.put(
-                x.saturating_add(2),
-                5,
-                words::ENTER_TO_TYPE,
-                Style::text(Color::Grey),
-            );
-        }
-    }
-    canvas.put(3, 7, "Font set", Style::text(Color::Grey));
-    let (wtop, wh) = window(app);
-    let bottom = wtop.saturating_add(wh);
-    let room = bottom.saturating_sub(7).max(1);
-    let first = state.line.saturating_sub(room);
-    let mut y = 7usize;
-    let list = choices_for(app, &Obj::New(Slot::Terminal));
-    for (i, (title, _, value)) in list.iter().enumerate().skip(first) {
-        if y >= bottom {
-            break;
-        }
-        let on = *value == state.new.font;
-        choice(
-            canvas,
-            VALUE_X,
-            y,
-            title,
-            on,
-            state.line == i.saturating_add(1),
-        );
         y = y.saturating_add(1);
     }
 }

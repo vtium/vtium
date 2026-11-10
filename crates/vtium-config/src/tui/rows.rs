@@ -1,12 +1,12 @@
 //! A try-out of the Flow view as paths (`VTIUM_CONFIG_FLOW=rows`). The
 //! screen is one scrolling document in three parts:
 //!
-//! - PATHS: each path of the configuration as a row of bordered boxes,
+//! - CONFIGURATION: each path of the configuration as a row of bordered boxes,
 //!   the displays that show a terminal, the terminal with its font set, and
 //!   the inputs that type into it, joined by lines from border to border.
 //! - NEW PATH: the editor, a row of the same shape drawn dashed, where the
 //!   person composes a path from pieces before adding it.
-//! - PIECES: the palette of displays, inputs and font sets to pick from.
+//! - PARTS: the palette of displays, inputs and font sets to pick from.
 //!
 //! [`layout`] lays the three parts out on a canvas as tall as they need,
 //! as plain data: boxes, lines and notes. [`State`] is where the highlight
@@ -296,13 +296,13 @@ fn names(dev: &Device, sel: &str) -> bool {
         || (sel == ANY_POINTER && sort(dev) == Sort::Pointer)
 }
 
-/// The terminals of the document whose paths hold the device `dev`: for
-/// a display, those that name it by one of its keys; for an input, those
-/// whose pieces match it.
+/// The terminals of the configuration whose paths hold the device `dev`:
+/// for a display, those that name it by one of its keys or take any
+/// display; for an input, those whose parts match it.
 pub fn holders(doc: &[Path], kind: Kind, dev: &Device) -> Vec<String> {
     doc.iter()
         .filter(|p| match kind {
-            Kind::Display => p.displays.iter().any(|s| dev.keys.contains(s)),
+            Kind::Display => p.displays.iter().any(|s| s == "*" || dev.keys.contains(s)),
             Kind::Input => p.inputs.iter().any(|s| names(dev, s)),
         })
         .filter_map(|p| p.name.clone())
@@ -327,6 +327,8 @@ pub struct Ctx<'a> {
     pub new: &'a Path,
     pub fonts: &'a [String],
     pub cols: usize,
+    /// The configuration is vtium's built-in default.
+    pub default: bool,
 }
 
 /// The flow laid out on its canvas.
@@ -633,6 +635,13 @@ pub fn layout(ctx: &Ctx<'_>) -> Layout {
         note(&mut out, 1, y, words::NO_PATHS.to_owned(), NoteKind::Grey);
         y = y.saturating_add(1);
     }
+    if ctx.default {
+        let room = ctx.cols.saturating_sub(2).max(1);
+        for line in super::canvas::wrap(words::BUILT_IN_DEFAULT, room, 2) {
+            note(&mut out, 1, y, line, NoteKind::Grey);
+            y = y.saturating_add(1);
+        }
+    }
     if ctx.unfit > 0 {
         note(
             &mut out,
@@ -806,11 +815,14 @@ pub struct State {
     pub classic: bool,
     /// The object whose second layer is open.
     pub layer: Option<Obj>,
-    /// On a layer of choices: the line under the cursor.
+    /// On a layer: the line under the cursor, and on a card, the choice
+    /// under it on that line.
     pub line: usize,
+    pub pick: usize,
     /// The path in the editor.
     pub new: Path,
-    /// The new terminal's name being typed, while it is.
+    /// A value being typed on a card's line, the name or the login,
+    /// while it is.
     pub typing: Option<String>,
     /// The box to highlight once a change in flight is written and the
     /// box exists: an added path's terminal.
@@ -945,6 +957,7 @@ pub(crate) mod tests {
             new,
             fonts: &fonts(),
             cols,
+            default: paths::is_default(f),
         })
     }
 
@@ -1014,7 +1027,7 @@ pub(crate) mod tests {
                 .filter(|n| n.kind == NoteKind::Heading)
                 .map(|n| n.text.as_str())
                 .collect();
-            assert_eq!(headings, ["PATHS", "NEW PATH", "PIECES"]);
+            assert_eq!(headings, ["CONFIGURATION", "NEW PATH", "PARTS"]);
         }
     }
 
