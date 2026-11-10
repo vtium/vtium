@@ -341,6 +341,11 @@ pub fn build(text: &str, present: &Present, draft: Option<Draft>) -> Flow {
                     if isolated { "yes" } else { "no" }.to_owned(),
                 ));
             }
+            // the VTs the head runs on, none for every VT (ADR-1403 D4)
+            if !h.vts.is_empty() {
+                let vts: Vec<String> = h.vts.iter().map(u16::to_string).collect();
+                keys.push(("vt".to_owned(), vts.join(" ")));
+            }
             Head {
                 name: h.name.clone(),
                 consoles: h.consoles,

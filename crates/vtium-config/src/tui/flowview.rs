@@ -557,7 +557,14 @@ fn path_row(
     } else if p.active {
         (name.to_owned(), words::ACTIVE_DETAIL.to_owned())
     } else {
-        (name.to_owned(), font_words(p.font.as_deref()))
+        (
+            name.to_owned(),
+            format!(
+                "{} · {}",
+                font_words(p.font.as_deref()),
+                words::vt_words(&p.vts())
+            ),
+        )
     };
     let mood = if p.none { Mood::Aside } else { Mood::Placed };
     let term_box = part_box(term.clone(), g.term_x, y, g.term_w, words, mood);
@@ -1449,8 +1456,8 @@ pub(crate) mod tests {
             let desk = at(&l, &doc("desk", Slot::Terminal));
             let panel = at(&l, &doc("panel", Slot::Terminal));
             assert_eq!((desk.x, panel.x), (g.term_x, g.term_x));
-            assert_eq!(desk.detail, "font set monoid");
-            assert_eq!(panel.detail, "default font set");
+            assert_eq!(desk.detail, "font set monoid · every VT");
+            assert_eq!(panel.detail, "default font set · every VT");
             let dp = at(&l, &doc("desk", Slot::Display(EDID_A.into())));
             assert_eq!(
                 (dp.x, dp.y, dp.title.as_str()),

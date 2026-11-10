@@ -756,6 +756,21 @@ pub const BY_CONNECTOR: &str = "by its connector";
 pub const NOT_PLUGGED: &str = "Not connected";
 pub const EVERY_INPUT_ON_PORT: &str = "every input on that port";
 pub const DEFAULT_FONT_SET: &str = "default font set";
+/// The VTs a terminal runs on, as its box and its card say them (ADR-1403
+/// D4, D7): `every VT` for a terminal with no `vt`, else `VT 3` or
+/// `VTs 3 and 4`.
+pub fn vt_words(vts: &[u16]) -> String {
+    match vts {
+        [] => EVERY_VT.to_owned(),
+        [one] => format!("VT {one}"),
+        [rest @ .., last] => {
+            let rest: Vec<String> = rest.iter().map(u16::to_string).collect();
+            format!("VTs {} and {last}", rest.join(", "))
+        }
+    }
+}
+pub const EVERY_VT: &str = "every VT";
+pub const VTS_LABEL: &str = "VTs";
 pub const DEFAULT_FONT_SET_DETAIL: &str = "the font vtium.conf sets";
 pub const FONT_SET: &str = "font set";
 pub const IN_NO_PATH: &str = "in no path";
@@ -856,9 +871,16 @@ pub fn display_off(display: &str) -> String {
     )
 }
 
-pub fn display_taken(display: &str, head: &str) -> String {
+/// A display that a path on the same VT holds (ADR-1403 D7): the topic,
+/// the display, first, then the terminal that holds it and the VT where
+/// the two clash, `None` when both run on every VT.
+pub fn display_taken(display: &str, head: &str, vt: Option<u16>) -> String {
+    let on = match vt {
+        Some(vt) => format!("VT {vt}"),
+        None => "every VT".to_owned(),
+    };
     format!(
-        "The display {display} is already {}. A display can be in one path only.",
+        "The display {display} is already {} on {on}. A display can be in one path for each VT.",
         in_terminal(head)
     )
 }
