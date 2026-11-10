@@ -280,13 +280,18 @@ impl App {
             Obj::Pal(Slot::Display(sel)) => {
                 // a display is in one path for each VT: picking it is
                 // refused only when a path that holds it shares a VT with
-                // the new path's terminal (ADR-1403 D7)
-                let held = flow
-                    .displays
-                    .iter()
-                    .find(|d| d.keys.contains(sel))
-                    .map(|d| flowview::holders(&doc.paths, super::flow::Kind::Display, d))
-                    .unwrap_or_default();
+                // the new path's terminal (ADR-1403 D7). A part that
+                // matches no one device, as All displays, is held by the
+                // paths that name its match
+                let held = match flow.displays.iter().find(|d| d.keys.contains(sel)) {
+                    Some(d) => flowview::holders(&doc.paths, super::flow::Kind::Display, d),
+                    None => doc
+                        .paths
+                        .iter()
+                        .filter(|p| p.displays.iter().any(|s| s == sel))
+                        .filter_map(|p| p.name.clone())
+                        .collect(),
+                };
                 let clash = held.iter().find_map(|h| {
                     let vt = doc.path(h).and_then(|p| state.new.shared_vt(p))?;
                     Some((h, vt))
@@ -1289,6 +1294,24 @@ mod tests {
             });
         assert!(text.contains("[head desk2]"), "{text}");
         assert!(!text.contains("login"), "{text}");
+    }
+
+    // ADR-1403 D7: All displays matches no one device, and picking it is
+    // still refused when a path on a VT the new path shares holds it
+    #[test]
+    fn picking_a_display_part_held_on_a_shared_vt_is_refused() {
+        let mut app = app();
+        let text = "version = 1\n[head desk]\nvt = 3\n[head panel]\nvt = 4\n[rules]\ndisplay * -> desk\ndisplay * -> panel\n";
+        app.inputs.flow =
+            crate::flowmodel::build(text, &crate::flowmodel::Present::default(), None);
+        app.flow_settle();
+        highlight(&mut app, Obj::Pal(Slot::Display("*".into())));
+        keys(&mut app, &[Key::Char(' ')]);
+        assert_eq!(
+            app.message.as_deref(),
+            Some(words::display_taken("All displays", "desk", Some(3)).as_str())
+        );
+        assert!(state(&app).new.displays.is_empty());
     }
 
     #[test]
