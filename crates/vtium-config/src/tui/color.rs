@@ -70,6 +70,8 @@ pub struct Style {
     /// Reverse video, the TUI's selection mark.
     pub reverse: bool,
     pub bold: bool,
+    pub underline: bool,
+    pub italic: bool,
 }
 
 impl Style {
@@ -79,6 +81,8 @@ impl Style {
         bg: None,
         reverse: false,
         bold: false,
+        underline: false,
+        italic: false,
     };
 
     /// Text in `color`.
@@ -113,6 +117,12 @@ impl Style {
         let mut params: Vec<String> = Vec::new();
         if self.bold {
             params.push("1".into());
+        }
+        if self.italic {
+            params.push("3".into());
+        }
+        if self.underline {
+            params.push("4".into());
         }
         if self.reverse {
             params.push("7".into());
