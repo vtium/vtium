@@ -1132,7 +1132,7 @@ mod tests {
         assert_eq!(
             app.message.as_deref(),
             Some(
-                "Input is a template, which never goes into a path. Press Enter to make a part from it."
+                "The Input template never goes into a path. Press Enter to make a new part from it."
             )
         );
         assert!(

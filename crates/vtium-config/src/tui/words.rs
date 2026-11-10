@@ -935,17 +935,15 @@ pub const EMPTY_SPACE: &str =
 pub const NO_INPUT_NEEDS_TERMINAL: &str = "No input belongs to a path with a terminal of its own. Take the active terminal or no terminal out of this path first.";
 /// Space on a template.
 pub fn template_space(stage: &str) -> String {
-    format!(
-        "{stage} is a template, which never goes into a path. Press Enter to make a part from it."
-    )
+    format!("The {stage} template never goes into a path. Press Enter to make a new part from it.")
 }
 /// Enter on a special part.
 pub fn special_about(title: &str) -> String {
     match title {
-        NO_INPUT => "No input means nothing types into the terminal. Its section gets isolated = yes, so roaming inputs stay out too.".to_owned(),
+        NO_INPUT => "No input means nothing types into the terminal, not even a roaming input. In vtium.conf, the terminal's section gets isolated = yes.".to_owned(),
         NO_TERMINAL => NO_TERMINAL_ABOUT.to_owned(),
         ACTIVE_TERMINAL => ACTIVE_ABOUT.to_owned(),
-        name => format!("{name} is a new terminal. Pick it into the new path with Space; Enter on its box there sets its name, font set and size."),
+        name => format!("{name} is a new terminal. Press Space to put it in the new path. There, press Enter on it to set its name, font set and size."),
     }
 }
 /// A part made from a template in PARTS.
@@ -954,36 +952,49 @@ pub fn part_made(title: &str) -> String {
 }
 /// A template's layer and a filter's picker.
 pub fn template_heading(stage: &str) -> String {
-    format!("MAKE A PART FROM THE {} TEMPLATE", stage.to_uppercase())
+    format!("NEW {} PART", stage.to_uppercase())
 }
-pub const TEMPLATE_ABOUT: &str = "Choose what the new part matches. A choice that starts with by lists the values the connected devices give.";
+/// The line under a part maker's heading, by the template's name.
+pub fn template_about(stage: &str) -> &'static str {
+    match stage {
+        "Terminal" => "Choose which terminal the new part stands for.",
+        "Font set" => "Choose the font set the new part draws with.",
+        _ => "Choose what the new part matches.",
+    }
+}
+/// The small heading above the choices that match by one key.
+pub const MATCH_BY: &str = "MATCH BY";
+pub const MATCH_BY_ABOUT: &str = "Each of these lists the values of the connected devices, and you can type a value of your own.";
 pub fn picker_heading(what: &str) -> String {
     format!("MATCH BY {}", what.to_uppercase())
 }
-pub const PICKER_ABOUT: &str = "Each value shows the devices it matches now. The last line takes a value you type, checked as vtium.conf checks a rule.";
+pub const PICKER_ABOUT: &str =
+    "Each value shows the devices it matches now. The last line lets you type a value instead.";
 pub const PICKER_TYPE: &str = "type a value…";
-pub const PICKER_TYPE_DETAIL: &str = "Enter starts typing; a value without its key takes this one";
-pub const ENTER_TO_CHECK: &str = "Enter checks it and makes the part";
+/// The detail of a picker's last line, by the key it lists.
+pub fn picker_type_detail(key: &str) -> String {
+    format!("a value of your own; you can leave out {key}:")
+}
+pub const ENTER_TO_CHECK: &str = "Press Enter to check the value and make the part.";
 pub const NO_INPUT_DETAIL: &str = "nothing types into it";
 pub const NO_TERMINAL_DETAIL: &str = "off and set aside";
 pub const NEW_TERMINAL_DETAIL: &str = "a terminal of its own";
 pub const TURNED_OFF: &str = "turned off";
 pub const SET_ASIDE: &str = "set aside";
 /// A template's words under its title.
-pub const TEMPLATE_DETAIL: &str = "Enter makes a part";
+pub const TEMPLATE_DETAIL: &str = "New part [Enter]";
 /// An empty place in NEW PATH.
-pub const EMPTY_PLACE: &str = "Enter chooses a part";
+pub const EMPTY_PLACE: &str = "Choose a part [Enter]";
 /// The empty terminal place in NEW PATH, with the name a new terminal takes.
 pub fn new_terminal_named(name: &str) -> String {
     format!("new: {name}")
 }
 /// A typed match that is empty.
-pub const TYPED_EMPTY: &str = "Type a match, such as id:046d:c31c, then press Enter.";
+pub const TYPED_EMPTY: &str =
+    "The value is empty. Type one, such as id:046d:c31c, then press Enter.";
 /// A typed match that holds a mark a rule's match cannot.
 pub fn typed_bad_mark(typed: &str) -> String {
-    format!(
-        "The match {typed} holds # or ->, which a rule's match cannot hold. Type the match alone."
-    )
+    format!("The value {typed} holds # or ->, which a match cannot hold. Type the value alone.")
 }
 pub const NO_TERMINAL: &str = "no terminal";
 pub const SAME_NONE: &str =

@@ -1145,18 +1145,27 @@ fn choices_layer(canvas: &mut Canvas, app: &App, state: &rows::State, obj: &Obj)
 /// each with what it covers.
 fn make_layer(canvas: &mut Canvas, app: &App, state: &rows::State, stage: Stage) {
     let fonts = font_names(app);
-    let list: Vec<(String, String)> = parts::makes(stage, &fonts)
+    let makes = parts::makes(stage, &fonts);
+    // the whole-kind choices first, then under MATCH BY the choices that
+    // match by one key, and a sentence about them
+    let filters = makes
+        .iter()
+        .position(|(_, _, m)| matches!(m, parts::Make::Filter(_)));
+    let list: Vec<(String, String)> = makes.into_iter().map(|(w, d, _)| (w, d)).collect();
+    let marks: Vec<(usize, &str)> = filters
+        .map(|at| (at, words::MATCH_BY))
         .into_iter()
-        .map(|(w, d, _)| (w, d))
         .collect();
     list_layer(
         canvas,
         app,
         state.line,
         &words::template_heading(stage.name()),
-        words::TEMPLATE_ABOUT,
+        words::template_about(stage.name()),
         &list,
         None,
+        &marks,
+        filters.map(|_| words::MATCH_BY_ABOUT),
     );
 }
 
@@ -1169,7 +1178,7 @@ fn picker_layer(canvas: &mut Canvas, app: &App, state: &rows::State, p: &rows::P
             parts::Pick::Value { sel, devices } => (sel, devices.join(", ")),
             parts::Pick::Typed => (
                 words::PICKER_TYPE.to_owned(),
-                words::PICKER_TYPE_DETAIL.to_owned(),
+                words::picker_type_detail(p.key),
             ),
         })
         .collect();
@@ -1182,12 +1191,17 @@ fn picker_layer(canvas: &mut Canvas, app: &App, state: &rows::State, p: &rows::P
         words::PICKER_ABOUT,
         &list,
         typing,
+        &[],
+        None,
     );
 }
 
 /// A layer's list: its heading, a grey sentence about it, and one choice
 /// a row with its detail in grey; the cursor's in reverse video. While a
-/// value is typed, the last row shows it.
+/// value is typed, the last row shows it. Each of `marks` puts a small
+/// heading, after a blank row, before the choice at its index, and `note`
+/// is a grey sentence under the list.
+#[expect(clippy::too_many_arguments, reason = "a layer's parts, each its own")]
 fn list_layer(
     canvas: &mut Canvas,
     app: &App,
@@ -1196,6 +1210,8 @@ fn list_layer(
     about: &str,
     list: &[(String, String)],
     typing: Option<&str>,
+    marks: &[(usize, &str)],
+    note: Option<&str>,
 ) {
     canvas.put(1, 3, heading, bold(Color::BrightWhite));
     let about = wrap(about, app.cols.saturating_sub(4), 2);
@@ -1219,6 +1235,13 @@ fn list_layer(
         .saturating_add(9)
         .min(app.cols / 2);
     for (i, (title, detail)) in list.iter().enumerate().skip(first) {
+        if let Some((_, mark)) = marks.iter().find(|(at, _)| *at == i) {
+            y = y.saturating_add(1);
+            if y < bottom {
+                canvas.put(3, y, mark, bold(Color::BrightWhite));
+            }
+            y = y.saturating_add(1);
+        }
         if y >= bottom {
             break;
         }
@@ -1245,6 +1268,15 @@ fn list_layer(
         let room = app.cols.saturating_sub(x).saturating_sub(1);
         canvas.put(x, y, &fit(detail, room), Style::text(Color::Grey));
         y = y.saturating_add(1);
+    }
+    if let Some(note) = note {
+        for l in wrap(note, app.cols.saturating_sub(6), 2) {
+            if y >= bottom {
+                break;
+            }
+            canvas.put(5, y, &l, Style::text(Color::Grey));
+            y = y.saturating_add(1);
+        }
     }
 }
 

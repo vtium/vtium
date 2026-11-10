@@ -260,22 +260,22 @@ pub fn makes(stage: Stage, fonts: &[String]) -> Vec<(String, String, Make)> {
                 Make::Part(Piece::Display("*".to_owned())),
             ),
             one(
-                "by monitor (EDID)",
+                "monitor (EDID)",
                 "one monitor, by the maker, model and serial it reports",
                 Make::Filter("edid"),
             ),
             one(
-                "by connector",
+                "connector",
                 "a socket on the graphics card, such as DP-1 or HDMI-A-2",
                 Make::Filter("connector"),
             ),
             one(
-                "by hub port (connector path)",
+                "hub port",
                 "a display behind a hub, by its place on the hub",
                 Make::Filter("connector-path"),
             ),
             one(
-                "by graphics card",
+                "graphics card",
                 "every display on one graphics card",
                 Make::Filter("card"),
             ),
@@ -298,37 +298,37 @@ pub fn makes(stage: Stage, fonts: &[String]) -> Vec<(String, String, Make)> {
                 input("*"),
             ),
             one(
-                "by USB port",
+                "USB port",
                 "every input plugged into one port",
                 Make::Filter("path"),
             ),
             one(
-                "by serial number",
+                "serial number",
                 "one device, by the serial number it reports",
                 Make::Filter("serial"),
             ),
             one(
-                "by model (vendor and product)",
+                "model (vendor and product)",
                 "every device of one model",
                 Make::Filter("id"),
             ),
             one(
-                "by Bluetooth address",
+                "Bluetooth address",
                 "one Bluetooth device",
                 Make::Filter("bluetooth"),
             ),
             one(
-                "by name",
+                "name",
                 "every device that reports this name",
                 Make::Filter("name"),
             ),
             one(
-                "by class",
+                "class",
                 "touchscreen, tablet, joystick and the rest",
                 Make::Filter("class"),
             ),
             one(
-                "by udev property",
+                "udev property",
                 "every device whose udev property has this value",
                 Make::Filter("udev"),
             ),
@@ -369,7 +369,7 @@ pub fn filter_words(key: &str) -> &'static str {
     match key {
         "edid" => "monitor (EDID)",
         "connector" => "connector",
-        "connector-path" => "hub port (connector path)",
+        "connector-path" => "hub port",
         "card" => "graphics card",
         "path" => "USB port",
         "serial" => "serial number",
@@ -448,8 +448,14 @@ pub fn check_typed(stage: Stage, typed: &str) -> Result<String, String> {
     };
     let text = format!("version = 1\n[head t]\n[rules]\n{kind} {sel} -> t\n");
     let read = vtium_settings::reading(text.as_bytes());
+    // the parser's first sentence says what is wrong; a typed value
+    // makes a part, so the sentence names the part
     match read.errors.errors.first() {
-        Some(e) => Err(e.problem.to_string()),
+        Some(e) => {
+            let why = e.problem.to_string();
+            let first = why.split_inclusive(". ").next().unwrap_or(&why).trim_end();
+            Err(first.replacen("A rule cannot", "A part cannot", 1))
+        }
         None => Ok(sel),
     }
 }
@@ -550,7 +556,7 @@ mod tests {
         );
         assert_eq!(check_typed(Stage::Input, "*"), Ok("*".to_owned()));
         let why = check_typed(Stage::Input, "colour:red").expect_err("an unknown key");
-        assert!(why.starts_with("A rule cannot match on"), "{why}");
+        assert_eq!(why, "A part cannot match on \"colour:red\".");
         let why = check_typed(Stage::Input, "id:zz").expect_err("a bad value");
         assert!(why.contains("id:zz"), "{why}");
         let why = check_typed(Stage::Display, "edid:aaa:1:2").expect_err("a bad EDID");
@@ -645,10 +651,10 @@ mod tests {
             words(Stage::Display),
             [
                 "every display",
-                "by monitor (EDID)",
-                "by connector",
-                "by hub port (connector path)",
-                "by graphics card"
+                "monitor (EDID)",
+                "connector",
+                "hub port",
+                "graphics card"
             ]
         );
         assert_eq!(
@@ -658,13 +664,13 @@ mod tests {
                 "every keyboard",
                 "every pointer",
                 "every input",
-                "by USB port",
-                "by serial number",
-                "by model (vendor and product)",
-                "by Bluetooth address",
-                "by name",
-                "by class",
-                "by udev property",
+                "USB port",
+                "serial number",
+                "model (vendor and product)",
+                "Bluetooth address",
+                "name",
+                "class",
+                "udev property",
             ]
         );
         assert_eq!(
