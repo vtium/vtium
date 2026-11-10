@@ -12,7 +12,10 @@
 //! sets magenta, inputs green, as the column titles are. The editor's boxes
 //! and lines are dashed, and so is the line that says the roaming inputs
 //! reach a terminal. The highlighted box has a heavy border in bold, and
-//! its own lines are drawn heavy and bright.
+//! its own lines are drawn heavy and bright. Where the color file fills a
+//! kind's boxes, the fill covers each box's inside and never its border,
+//! and the text inside takes the color the fill picks
+//! ([`super::rowscolor::text_for`]).
 
 use super::canvas::{Canvas, fit, width, wrap};
 use super::color::{Color, Style};
@@ -167,7 +170,6 @@ const fn emph(style: Style) -> Style {
 /// Draws the box `b` on `doc`, heavy when it is highlighted.
 fn draw_box(doc: &mut Canvas, b: &Boxed, highlighted: bool, pal: &Palette) {
     let border = pal.style(mood_role(b.mood));
-    let title = pal.style(kind_role(&b.obj));
     // the highlight is not a role: a placed box's is bright white in bold
     let border = match (highlighted, b.mood) {
         (true, Mood::Placed) if border != Style::PLAIN => bold(Color::BrightWhite),
@@ -198,6 +200,29 @@ fn draw_box(doc: &mut Canvas, b: &Boxed, highlighted: bool, pal: &Palette) {
         &format!("{bl}{across}{br}"),
         border,
     );
+    // inside a filled box, the text takes the color the fill picks, and
+    // the title is bold because the fill shows the kind; a set-aside
+    // box's title stays light, so its italic reads as set aside
+    let (title, detail) = match pal.fill(kind_role(&b.obj)) {
+        Some(back) => {
+            let text = pal.text_on(back, b.mood == Mood::Aside);
+            for i in 1..BOX_ROWS.saturating_sub(1) {
+                doc.put(
+                    b.x.saturating_add(1),
+                    b.y.saturating_add(i),
+                    &" ".repeat(inner),
+                    text,
+                );
+            }
+            let title = if b.mood == Mood::Aside {
+                text
+            } else {
+                emph(text)
+            };
+            (title, text)
+        }
+        None => (pal.style(kind_role(&b.obj)), Style::text(Color::Grey)),
+    };
     let room = b.w.saturating_sub(4);
     let title_style = match (highlighted, b.mood) {
         (true, _) => Style {
@@ -217,7 +242,7 @@ fn draw_box(doc: &mut Canvas, b: &Boxed, highlighted: bool, pal: &Palette) {
         b.x.saturating_add(2),
         b.title_row().saturating_add(1),
         &fit(&b.detail, room),
-        Style::text(Color::Grey),
+        detail,
     );
 }
 
@@ -1207,6 +1232,76 @@ mod tests {
         assert_eq!(
             doc.style_at(x, y).and_then(|s| s.fg),
             Some(Color::BrightRed)
+        );
+    }
+
+    #[test]
+    fn a_fill_covers_the_inside_of_a_box_and_never_its_border() {
+        use crate::tui::color::{Back, Normal};
+        use crate::tui::rowscolor::LIGHT_TEXT;
+        let f = flow();
+        let l = lay(&f, &editor(), 100);
+        let (mut pal, skipped) = crate::tui::rowscolor::parse(
+            "[colors]\nset-aside = #969696 / bright-black\ndisplay-fill = #0f4c57 / cyan\nterminal-fill = #5a4012 / yellow\nfont-set-fill = #4a2a60 / magenta\ninput-fill = #1b4a24 / green\n",
+        );
+        assert!(skipped.is_empty(), "{skipped:?}");
+        pal.truecolor = true;
+        let desk = Obj::Doc("desk".into(), Slot::Terminal);
+        let doc = document(&l, 100, Some(&desk), &pal);
+        let plain = document(&l, 100, Some(&desk), &Palette::console());
+        // a fill moves nothing: every character is where it was
+        for y in 0..doc.rows {
+            for x in 0..doc.cols {
+                assert_eq!(doc.at(x, y), plain.at(x, y), "at {x},{y}");
+            }
+        }
+        let back = |x: usize, y: usize| doc.style_at(x, y).and_then(|s| s.back);
+        for b in &l.boxes {
+            let fill = pal.fill(kind_role(&b.obj)).expect("every kind is filled");
+            for y in b.y..b.bottom() {
+                for x in b.x..b.right() {
+                    let inside = y > b.y && y + 1 < b.bottom() && x > b.x && x + 1 < b.right();
+                    let want = inside.then_some(fill);
+                    assert_eq!(back(x, y), want, "{:?} at {x},{y}", b.obj);
+                }
+            }
+            // nothing around the box is filled
+            if b.x > 0 {
+                assert_eq!(back(b.x - 1, b.title_row()), None, "{:?}", b.obj);
+            }
+            assert_eq!(back(b.right(), b.title_row()), None, "{:?}", b.obj);
+        }
+        // the title is bold in the fill's text color; the highlight keeps
+        // its heavy border and underlined title
+        let d = l.find(&desk).expect("desk");
+        let title = doc.style_at(d.x + 2, d.title_row()).expect("a style");
+        assert_eq!(
+            (title.rgb, title.bold, title.underline),
+            (Some(LIGHT_TEXT), true, true)
+        );
+        assert_eq!(doc.at(d.x, d.y), Some('┏'));
+        // a set-aside box keeps its fill, its text italic in grey
+        let taken = l
+            .find(&Obj::Pal(Slot::Display(EDID_A.into())))
+            .expect("DP-8");
+        let t = doc
+            .style_at(taken.x + 2, taken.title_row())
+            .expect("a style");
+        assert_eq!(
+            (t.rgb, t.italic, t.back),
+            (
+                Some([0x96; 3]),
+                true,
+                Some(Back {
+                    basic: Normal::Cyan,
+                    rgb: Some([0x0f, 0x4c, 0x57])
+                })
+            )
+        );
+        // the border keeps its state's color
+        assert_eq!(
+            doc.style_at(taken.x, taken.y).and_then(|s| s.fg),
+            Some(Color::Grey)
         );
     }
 

@@ -1,7 +1,8 @@
 //! The TUI's colors (ADR-1403 D7): the console's sixteen colors, named by
 //! SGR, so the user's palette applies. The palette's blue is hard to read
-//! on black, so [`Color`] has no blue and no bright blue, and no screen the
-//! TUI draws can ask for either. With `NO_COLOR` set, or on a terminal
+//! on black, so [`Color`] has no blue and no bright blue, and no text the
+//! TUI draws can ask for either. A box's fill in the Flow view as paths is
+//! a background behind light text, so [`Normal`] has blue. With `NO_COLOR` set, or on a terminal
 //! without color, the TUI draws no color at all ([`enabled`]).
 
 /// A color of the console's palette, by its SGR number. Blue (4) and
@@ -62,6 +63,46 @@ impl Color {
     }
 }
 
+/// One of the eight normal colors, as the background of the inside of a
+/// box. The Linux console has no bright background colors, so a fill is
+/// always one of these. Blue is among them, because light text on blue
+/// reads well, though blue text on black does not.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Normal {
+    Black,
+    Red,
+    Green,
+    Yellow,
+    Blue,
+    Magenta,
+    Cyan,
+    White,
+}
+
+impl Normal {
+    /// The SGR parameter that sets the color as the background, 40 to 47.
+    pub const fn bg(self) -> u8 {
+        match self {
+            Normal::Black => 40,
+            Normal::Red => 41,
+            Normal::Green => 42,
+            Normal::Yellow => 43,
+            Normal::Blue => 44,
+            Normal::Magenta => 45,
+            Normal::Cyan => 46,
+            Normal::White => 47,
+        }
+    }
+}
+
+/// The background of the inside of a box: a normal color, and a 24-bit
+/// color drawn in its place where the terminal takes it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Back {
+    pub basic: Normal,
+    pub rgb: Option<[u8; 3]>,
+}
+
 /// How a run of text is drawn.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Style {
@@ -69,6 +110,8 @@ pub struct Style {
     /// A 24-bit color drawn in `fg`'s place, where the terminal takes it.
     pub rgb: Option<[u8; 3]>,
     pub bg: Option<Color>,
+    /// The fill of a box's inside, drawn in `bg`'s place.
+    pub back: Option<Back>,
     /// Reverse video, the TUI's selection mark.
     pub reverse: bool,
     pub bold: bool,
@@ -82,6 +125,7 @@ impl Style {
         fg: None,
         rgb: None,
         bg: None,
+        back: None,
         reverse: false,
         bold: false,
         underline: false,
@@ -135,7 +179,14 @@ impl Style {
                 Some([r, g, b]) => params.push(format!("38;2;{r};{g};{b}")),
                 None => params.extend(self.fg.map(|c| c.fg().to_string())),
             }
-            params.extend(self.bg.map(|c| c.bg().to_string()));
+            match self.back {
+                Some(Back {
+                    rgb: Some([r, g, b]),
+                    ..
+                }) => params.push(format!("48;2;{r};{g};{b}")),
+                Some(Back { basic, .. }) => params.push(basic.bg().to_string()),
+                None => params.extend(self.bg.map(|c| c.bg().to_string())),
+            }
         }
         if params.is_empty() {
             String::new()

@@ -10,16 +10,21 @@
 //! the 24-bit color where the terminal takes 24-bit color and as the basic
 //! color elsewhere; or a basic color alone; or `none`. A role the file
 //! leaves out, or sets on a line vtium-config cannot read, takes the
-//! `console` set's value. The same file holds vtium-config's own settings
+//! `console` set's value. Four more roles, `display-fill`, `terminal-fill`,
+//! `font-set-fill` and `input-fill`, fill the inside of each kind's boxes;
+//! a fill names only one of the eight normal colors, because the Linux
+//! console has no bright backgrounds, and a fill the file leaves out fills
+//! nothing. vtium-config picks the text color inside a filled box itself
+//! ([`text_for`]). The same file holds vtium-config's own settings
 //! above its sections, `draft` and `history` ([`crate::store`]). When the
 //! file is missing, or has no `[colors]` section, vtium-config writes the
-//! section once with three sets, `console` live and `muted` and `mono`
-//! commented out, keeping every line the file had. `NO_COLOR` turns every
+//! section once with four sets, `console` live and `muted`, `mono` and
+//! `filled` commented out, keeping every line the file had. `NO_COLOR` turns every
 //! color off, whatever the file says.
 
 use std::path::{Path, PathBuf};
 
-use super::color::{Color, Style};
+use super::color::{Back, Color, Normal, Style};
 
 /// What a color in the file colors.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -36,6 +41,9 @@ pub enum Role {
 }
 
 impl Role {
+    /// The roles of the four kinds of box, which a fill role names.
+    pub const KINDS: [Role; 4] = [Role::Display, Role::Terminal, Role::FontSet, Role::Input];
+
     pub const ALL: [Role; 9] = [
         Role::Display,
         Role::Terminal,
@@ -106,6 +114,9 @@ impl Paint {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Palette {
     paints: [Paint; 9],
+    /// The fill of each kind's boxes, in the order of [`Role::KINDS`];
+    /// `None` for no fill.
+    fills: [Option<Back>; 4],
     pub truecolor: bool,
 }
 
@@ -146,6 +157,7 @@ impl Palette {
     pub const fn console() -> Palette {
         Palette {
             paints: CONSOLE,
+            fills: [None; 4],
             truecolor: false,
         }
     }
@@ -204,6 +216,53 @@ fn basic(name: &str) -> Result<Color, String> {
     }
 }
 
+/// The normal colors by name, the only colors a fill may name.
+const NORMAL: [(&str, Normal); 8] = [
+    ("black", Normal::Black),
+    ("red", Normal::Red),
+    ("green", Normal::Green),
+    ("yellow", Normal::Yellow),
+    ("blue", Normal::Blue),
+    ("magenta", Normal::Magenta),
+    ("cyan", Normal::Cyan),
+    ("white", Normal::White),
+];
+
+/// The normal color `name`, as a fill, or why it cannot be one.
+fn normal(name: &str) -> Result<Normal, String> {
+    if let Some((_, c)) = NORMAL.iter().find(|(n, _)| *n == name) {
+        return Ok(*c);
+    }
+    if BASIC.iter().any(|(n, _)| *n == name) {
+        return Err(format!(
+            "{name} cannot fill a box, because the Linux console has no bright background colors"
+        ));
+    }
+    Err(format!("{name} is not one of the basic colors"))
+}
+
+/// A fill role's value: `#rrggbb / NORMAL`, a normal color alone, or
+/// `none`.
+fn fill_value(text: &str) -> Result<Option<Back>, String> {
+    if text == "none" {
+        return Ok(None);
+    }
+    match text.split_once('/') {
+        Some((rgb, name)) => {
+            let rgb = hex(rgb.trim())
+                .ok_or_else(|| format!("{} is not a color written as #rrggbb", rgb.trim()))?;
+            Ok(Some(Back {
+                basic: normal(name.trim())?,
+                rgb: Some(rgb),
+            }))
+        }
+        None => Ok(Some(Back {
+            basic: normal(text)?,
+            rgb: None,
+        })),
+    }
+}
+
 /// `#rrggbb` as its three bytes.
 fn hex(text: &str) -> Option<[u8; 3]> {
     let digits = text.strip_prefix('#')?;
@@ -226,6 +285,140 @@ fn value(text: &str) -> Result<Paint, String> {
             Ok(Paint::both(rgb, basic(name.trim())?))
         }
         None => Ok(Paint::basic(basic(text)?)),
+    }
+}
+
+/// Near-black text, for a light fill.
+pub const DARK_TEXT: [u8; 3] = [0x1c, 0x1c, 0x1c];
+/// Near-white text, for a dark fill.
+pub const LIGHT_TEXT: [u8; 3] = [0xf2, 0xf2, 0xf2];
+
+/// The `filled` set: the borders and titles on black, and each kind's
+/// boxes filled with a deep tone of its hue ([`FILLED_FILLS`]). The
+/// set-aside grey contrasts with every fill at 3:1 or more, so a set-aside
+/// box's text takes it.
+const FILLED: [Paint; 9] = [
+    Paint::both([0x6f, 0xc6, 0xd6], Color::Cyan),
+    Paint::both([0xe3, 0xc0, 0x62], Color::Yellow),
+    Paint::both([0xc3, 0x9b, 0xe0], Color::Magenta),
+    Paint::both([0x86, 0xc9, 0x8a], Color::Green),
+    Paint::both([0xe6, 0xe6, 0xe6], Color::White),
+    Paint::both([0xf0, 0xa0, 0x30], Color::Yellow),
+    Paint::both([0x96, 0x96, 0x96], Color::Grey),
+    Paint::both([0xff, 0x7a, 0xb8], Color::BrightMagenta),
+    Paint::both([0xa8, 0xa8, 0xa8], Color::White),
+];
+
+/// The `filled` set's fills, in the order of [`Role::KINDS`]: teal,
+/// amber, violet and green, each deep enough that near-white text on it
+/// contrasts at 7:1 or more, with the nearest normal color for a terminal
+/// that takes no 24-bit color.
+const FILLED_FILLS: [Back; 4] = [
+    Back {
+        basic: Normal::Cyan,
+        rgb: Some([0x0f, 0x4c, 0x57]),
+    },
+    Back {
+        basic: Normal::Yellow,
+        rgb: Some([0x5a, 0x40, 0x12]),
+    },
+    Back {
+        basic: Normal::Magenta,
+        rgb: Some([0x4a, 0x2a, 0x60]),
+    },
+    Back {
+        basic: Normal::Green,
+        rgb: Some([0x1b, 0x4a, 0x24]),
+    },
+];
+
+/// The relative luminance of a color (WCAG 2.x), from 0 for black to 1
+/// for white.
+fn luminance(rgb: [u8; 3]) -> f64 {
+    let linear = |v: u8| {
+        let c = f64::from(v) / 255.0;
+        if c <= 0.040_45 {
+            c / 12.92
+        } else {
+            ((c + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    let [r, g, b] = rgb;
+    0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b)
+}
+
+/// The contrast ratio of two colors (WCAG 2.x), from 1 to 21.
+fn contrast(a: [u8; 3], b: [u8; 3]) -> f64 {
+    let (la, lb) = (luminance(a), luminance(b));
+    (la.max(lb) + 0.05) / (la.min(lb) + 0.05)
+}
+
+impl Palette {
+    /// The fill of the boxes of the kind `role`, as the terminal draws it:
+    /// its 24-bit color only where the terminal takes 24-bit color. `None`
+    /// for no fill, and for a role that is not a kind.
+    pub fn fill(&self, role: Role) -> Option<Back> {
+        let at = Role::KINDS.iter().position(|r| *r == role)?;
+        let back = self.fills.get(at).copied().flatten()?;
+        Some(Back {
+            rgb: if self.truecolor { back.rgb } else { None },
+            ..back
+        })
+    }
+
+    /// The text inside a box filled with `back` ([`Palette::fill`]), in
+    /// the color [`text_for`] picks. The text of a box that is set aside
+    /// (`aside`) keeps the fill and is drawn in italic. It also takes the
+    /// set-aside color where both it and the fill are 24-bit colors that
+    /// contrast at 3:1 or more; elsewhere it keeps the fill's own text
+    /// color, and the italic and the grey border say it is set aside.
+    pub fn text_on(&self, back: Back, aside: bool) -> Style {
+        let (fg, rgb) = text_for(back);
+        let text = Style {
+            fg: Some(fg),
+            rgb,
+            back: Some(back),
+            ..Style::PLAIN
+        };
+        if !aside {
+            return text;
+        }
+        let grey = self.paint(Role::SetAside);
+        match (back.rgb, grey.rgb) {
+            (Some(f), Some(g)) if self.truecolor && contrast(f, g) >= 3.0 => Style {
+                fg: grey.basic.or(text.fg),
+                rgb: Some(g),
+                italic: true,
+                ..text
+            },
+            _ => Style {
+                italic: true,
+                ..text
+            },
+        }
+    }
+}
+
+/// The text color on the fill `back`: the basic color, and the 24-bit
+/// color drawn in its place when the fill has one.
+///
+/// On a 24-bit fill, the text is near-black ([`DARK_TEXT`]) or near-white
+/// ([`LIGHT_TEXT`]), whichever contrasts more with the fill by its
+/// relative luminance (WCAG 2.x). On a basic fill, the text color comes
+/// from a fixed table: black text on green, yellow, cyan and white, and
+/// bright white text on black, red, blue and magenta.
+pub fn text_for(back: Back) -> (Color, Option<[u8; 3]>) {
+    let basic = match back.basic {
+        Normal::Green | Normal::Yellow | Normal::Cyan | Normal::White => Color::Black,
+        Normal::Black | Normal::Red | Normal::Blue | Normal::Magenta => Color::BrightWhite,
+    };
+    let Some(f) = back.rgb else {
+        return (basic, None);
+    };
+    if contrast(DARK_TEXT, f) > contrast(LIGHT_TEXT, f) {
+        (Color::Black, Some(DARK_TEXT))
+    } else {
+        (Color::BrightWhite, Some(LIGHT_TEXT))
     }
 }
 
@@ -266,8 +459,22 @@ pub fn parse(text: &str) -> (Palette, Vec<(usize, String)>) {
             skipped.push((n, "it is not written as ROLE = COLOR".to_owned()));
             continue;
         };
-        let Some(role) = Role::ALL.iter().find(|r| r.key() == key.trim()) else {
-            skipped.push((n, format!("{} is not a role", key.trim())));
+        let key = key.trim();
+        if let Some(kind) = key.strip_suffix("-fill")
+            && let Some(at) = Role::KINDS.iter().position(|r| r.key() == kind)
+        {
+            match fill_value(val.trim()) {
+                Ok(back) => {
+                    if let Some(slot) = palette.fills.get_mut(at) {
+                        *slot = back;
+                    }
+                }
+                Err(why) => skipped.push((n, why)),
+            }
+            continue;
+        }
+        let Some(role) = Role::ALL.iter().find(|r| r.key() == key) else {
+            skipped.push((n, format!("{key} is not a role")));
             continue;
         };
         match value(val.trim()) {
@@ -314,9 +521,21 @@ fn line(role: Role, paint: Paint) -> String {
     format!("{} = {value}", role.key())
 }
 
+/// The line `KIND-fill = value` of the fill `back` of the kind `role`.
+fn fill_line(role: Role, back: Back) -> String {
+    let name = NORMAL
+        .iter()
+        .find(|(_, c)| *c == back.basic)
+        .map_or("black", |(n, _)| n);
+    match back.rgb {
+        Some([r, g, b]) => format!("{}-fill = #{r:02x}{g:02x}{b:02x} / {name}", role.key()),
+        None => format!("{}-fill = {name}", role.key()),
+    }
+}
+
 /// The file vtium-config writes when there is none: what it is for, the
-/// roles, and three sets, `console` live and `muted` and `mono` commented
-/// out.
+/// roles, and four sets, `console` live and `muted`, `mono` and `filled`
+/// commented out.
 pub fn template() -> String {
     let mut out = String::from(TEMPLATE_HEAD);
     out.push_str("[colors]\n# console: the console's own basic colors.\n");
@@ -332,6 +551,13 @@ pub fn template() -> String {
     for r in Role::ALL {
         out.push_str(&format!("# {}\n", line(r, Paint::default())));
     }
+    out.push_str("\n# filled: each kind of box filled with a deep tone of its color, with\n# light text inside.\n");
+    for r in Role::ALL {
+        out.push_str(&format!("# {}\n", line(r, of(&FILLED, r))));
+    }
+    for (r, back) in Role::KINDS.iter().zip(FILLED_FILLS) {
+        out.push_str(&format!("# {}\n", fill_line(*r, back)));
+    }
     out
 }
 
@@ -339,31 +565,44 @@ const TEMPLATE_HEAD: &str = "\
 # vtium-config.conf: the colors of vtium-config's Flow view. vtium-config
 # reads this file when it starts. vtium itself never reads it.
 #
-# Each line sets the color of one role. A title takes the color of the
-# kind of box it names: display, terminal, font-set or input. A border
-# takes the color of the state of what its box holds: placed (in a path,
-# or free to pick), waiting (connected but in no path), set-aside (cannot
-# be picked) or picked (picked into the new path). line colors the lines
-# between the boxes.
+# Each line sets the color of one role. A title takes the color of the kind of
+# box it names: display, terminal, font-set or input. A border takes the color
+# of the state of what its box holds: placed (in a path, or free to pick),
+# waiting (connected but in no path), set-aside (cannot be picked) or picked
+# (picked into the new path). line colors the lines between the boxes.
 #
 # A color is written #rrggbb / BASIC. vtium-config draws the 24-bit color
 # #rrggbb where the terminal takes 24-bit color, that is where COLORTERM is
-# truecolor or 24bit, and the basic color BASIC elsewhere. A color may also
-# be a basic color alone, or none for no color at all. The basic colors are
+# truecolor or 24bit, and the basic color BASIC elsewhere. A color may also be
+# a basic color alone, or none for no color at all. The basic colors are
 # black, red, green, yellow, magenta, cyan, white, bright-black, bright-red,
-# bright-green, bright-yellow, bright-magenta, bright-cyan and
-# bright-white. Blue and bright-blue are hard to read on black, so
-# vtium-config does not draw them.
+# bright-green, bright-yellow, bright-magenta, bright-cyan and bright-white.
+# Blue and bright-blue are hard to read on black, so vtium-config does not
+# draw them as text.
+#
+# Four more roles fill the inside of a box with a background color:
+# display-fill, terminal-fill, font-set-fill and input-fill, one for each kind
+# of box. The fill covers everything inside the border. The border itself
+# stays on the terminal's own background and keeps the color of its state. A
+# fill is written like any other color, but its basic color must be one of the
+# eight normal colors: black, red, green, yellow, blue, magenta, cyan or
+# white. The Linux console has no bright background colors. Blue is allowed
+# here, because light text on blue reads well. A fill this file leaves out, or
+# sets to none, means the box is not filled.
+#
+# You don't choose the color of the text inside a filled box. vtium-config
+# picks near-black text on a light fill and near-white text on a dark one, and
+# the title inside the box is bold. The text of a box that is set aside is in
+# italic, and in the set-aside color where that color reads well on the fill.
 #
 # A role this file leaves out takes the console set's color. A # starts a
-# comment only at the start of a line. With NO_COLOR set, vtium-config
-# draws no color, whatever this file says. The lines above this comment,
-# draft and history, are vtium-config's own settings, which it keeps up to
-# date itself.
+# comment only at the start of a line. With NO_COLOR set, vtium-config draws
+# no color, whatever this file says. The lines above this comment, draft and
+# history, are vtium-config's own settings, which it keeps up to date itself.
 #
-# The file holds three sets of colors. The console set is the one in use.
-# To use another, put a # before each line of the console set and take the
-# # away from each line of the other set.
+# The file holds four sets of colors. The console set is the one in use. To
+# use another, put a # before each line of the console set and take the # away
+# from each line of the other set.
 
 ";
 
@@ -518,40 +757,201 @@ mod tests {
         assert_eq!(p.style(Role::Display).sgr(false), "");
     }
 
-    #[test]
-    fn the_written_file_holds_three_sets_with_console_live() {
-        let text = template();
-        let (p, skipped) = parse(&text);
-        assert!(skipped.is_empty(), "{skipped:?}");
-        assert_eq!(p, Palette::console());
-        for set in ["# console:", "# muted:", "# mono:"] {
-            assert!(text.contains(set), "{set}");
-        }
-        // uncommenting muted, and commenting console, reads the muted set
-        let muted: String = text
-            .lines()
+    /// `text` with the console set commented out and the set `name`
+    /// uncommented, as a person switches sets by hand.
+    fn switched(text: &str, name: &str) -> String {
+        let mut set = "";
+        text.lines()
             .map(|l| {
-                if Role::ALL
-                    .iter()
-                    .any(|r| l.starts_with(&format!("{} = ", r.key())))
+                if let Some(rest) = l.strip_prefix("# ")
+                    && let Some((n, _)) = rest.split_once(':')
+                    && !n.contains(' ')
                 {
+                    set = if ["console", "muted", "mono", "filled"].contains(&n) {
+                        n
+                    } else {
+                        set
+                    };
+                    return l.to_owned();
+                }
+                let setting = |l: &str| {
+                    l.split_once(" = ")
+                        .is_some_and(|(k, _)| !k.contains(' ') && !k.is_empty())
+                };
+                if set == "console" && setting(l) {
                     format!("# {l}")
-                } else if l.starts_with("# ")
-                    && Role::ALL
-                        .iter()
-                        .any(|r| l.starts_with(&format!("# {} = #", r.key())))
+                } else if set == name
+                    && let Some(rest) = l.strip_prefix("# ")
+                    && setting(rest)
                 {
-                    l.trim_start_matches("# ").to_owned()
+                    rest.to_owned()
                 } else {
                     l.to_owned()
                 }
             })
             .collect::<Vec<_>>()
-            .join("\n");
-        let (p, skipped) = parse(&muted);
+            .join("\n")
+    }
+
+    #[test]
+    fn the_written_file_holds_four_sets_with_console_live() {
+        let text = template();
+        let (p, skipped) = parse(&text);
+        assert!(skipped.is_empty(), "{skipped:?}");
+        assert_eq!(p, Palette::console());
+        for set in ["# console:", "# muted:", "# mono:", "# filled:"] {
+            assert!(text.contains(set), "{set}");
+        }
+        // uncommenting muted, and commenting console, reads the muted set,
+        // which fills no box
+        let (p, skipped) = parse(&switched(&text, "muted"));
         assert!(skipped.is_empty(), "{skipped:?}");
         assert_eq!(p.paints, MUTED);
+        assert_eq!(p.fills, [None; 4]);
+        let (p, skipped) = parse(&switched(&text, "mono"));
+        assert!(skipped.is_empty(), "{skipped:?}");
+        assert_eq!((p.paints, p.fills), ([Paint::default(); 9], [None; 4]));
+        // the filled set sets every role, the four fills included
+        let (p, skipped) = parse(&switched(&text, "filled"));
+        assert!(skipped.is_empty(), "{skipped:?}");
+        assert_eq!(p.paints, FILLED);
+        assert_eq!(p.fills, FILLED_FILLS.map(Some));
+        for k in Role::KINDS {
+            let key = format!("# {}-fill = #", k.key());
+            assert!(text.contains(&key), "{key}");
+        }
         assert!(text.lines().all(|l| l.chars().count() <= 78), "{text}");
+    }
+
+    #[test]
+    fn a_fill_line_fills_the_inside_of_its_kind_s_boxes() {
+        let (mut p, skipped) = parse(
+            "[colors]\ndisplay-fill = #0f4c57 / cyan\nterminal-fill = blue\ninput-fill = none\n",
+        );
+        assert!(skipped.is_empty(), "{skipped:?}");
+        let teal = Back {
+            basic: Normal::Cyan,
+            rgb: Some([0x0f, 0x4c, 0x57]),
+        };
+        let blue = Back {
+            basic: Normal::Blue,
+            rgb: None,
+        };
+        // where the terminal takes no 24-bit color, the basic fill
+        assert_eq!(p.fill(Role::Display), Some(Back { rgb: None, ..teal }));
+        p.truecolor = true;
+        assert_eq!(p.fill(Role::Display), Some(teal));
+        assert_eq!(p.fill(Role::Terminal), Some(blue));
+        // none, a fill left out, and a role that is not a kind fill nothing
+        assert_eq!(p.fill(Role::Input), None);
+        assert_eq!(p.fill(Role::FontSet), None);
+        assert_eq!(p.fill(Role::Placed), None);
+        // the console set fills nothing
+        assert!(
+            Role::ALL
+                .iter()
+                .all(|r| Palette::console().fill(*r).is_none())
+        );
+    }
+
+    #[test]
+    fn a_fill_that_names_a_bright_color_is_skipped_and_named() {
+        let (p, skipped) = parse(
+            "[colors]\ndisplay-fill = bright-cyan\nterminal-fill = #5a4012 / bright-yellow\nfont-set-fill = #4a2a60 / magenta\ninput-fill = brown\n",
+        );
+        let lines: Vec<usize> = skipped.iter().map(|(n, _)| *n).collect();
+        assert_eq!(lines, [2, 3, 5]);
+        assert!(
+            skipped[0].1.contains("no bright background colors"),
+            "{skipped:?}"
+        );
+        assert_eq!(p.fill(Role::Display), None);
+        assert_eq!(p.fill(Role::Terminal), None);
+        assert_eq!(
+            p.fill(Role::FontSet).map(|b| b.basic),
+            Some(Normal::Magenta)
+        );
+    }
+
+    #[test]
+    fn the_text_on_a_24_bit_fill_is_near_black_on_light_and_near_white_on_dark() {
+        let on = |rgb: [u8; 3]| {
+            text_for(Back {
+                basic: Normal::Black,
+                rgb: Some(rgb),
+            })
+            .1
+        };
+        // a light amber, a pale grey and white take near-black text
+        assert_eq!(on([0xf0, 0xd0, 0x60]), Some(DARK_TEXT));
+        assert_eq!(on([0x80, 0x80, 0x80]), Some(DARK_TEXT));
+        assert_eq!(on([0xff, 0xff, 0xff]), Some(DARK_TEXT));
+        // a deep teal, a mid grey and black take near-white text
+        assert_eq!(on([0x0f, 0x4c, 0x57]), Some(LIGHT_TEXT));
+        assert_eq!(on([0x77, 0x77, 0x77]), Some(LIGHT_TEXT));
+        assert_eq!(on([0, 0, 0]), Some(LIGHT_TEXT));
+        // every fill of the filled set is deep enough for near-white text
+        for f in FILLED_FILLS {
+            assert_eq!(text_for(f).1, Some(LIGHT_TEXT), "{f:?}");
+            let rgb = f.rgb.expect("a 24-bit fill");
+            assert!(contrast(LIGHT_TEXT, rgb) >= 7.0, "{f:?}");
+        }
+    }
+
+    #[test]
+    fn the_text_on_a_basic_fill_follows_the_table() {
+        let table = [
+            (Normal::Black, Color::BrightWhite),
+            (Normal::Red, Color::BrightWhite),
+            (Normal::Green, Color::Black),
+            (Normal::Yellow, Color::Black),
+            (Normal::Blue, Color::BrightWhite),
+            (Normal::Magenta, Color::BrightWhite),
+            (Normal::Cyan, Color::Black),
+            (Normal::White, Color::Black),
+        ];
+        for (basic, text) in table {
+            assert_eq!(
+                text_for(Back { basic, rgb: None }),
+                (text, None),
+                "{basic:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_set_aside_box_s_text_is_italic_in_the_set_aside_color_where_that_reads() {
+        let (mut p, _) = parse("[colors]\nset-aside = #969696 / bright-black\n");
+        p.truecolor = true;
+        let deep = Back {
+            basic: Normal::Cyan,
+            rgb: Some([0x0f, 0x4c, 0x57]),
+        };
+        let s = p.text_on(deep, true);
+        assert_eq!(
+            (s.rgb, s.italic, s.back),
+            (Some([0x96; 3]), true, Some(deep))
+        );
+        // a placed box's text on the same fill is near-white, upright
+        let s = p.text_on(deep, false);
+        assert_eq!((s.rgb, s.italic), (Some(LIGHT_TEXT), false));
+        // on a fill the set-aside color reads on at under 3:1, the fill's
+        // own text color, still italic
+        let pale = Back {
+            basic: Normal::Cyan,
+            rgb: Some([0x3a, 0x7a, 0x8a]),
+        };
+        assert!(contrast([0x96; 3], [0x3a, 0x7a, 0x8a]) < 3.0);
+        let s = p.text_on(pale, true);
+        assert_eq!((s.rgb, s.italic), (text_for(pale).1, true));
+        // a basic fill: the table's text color, italic
+        let s = p.text_on(Back { rgb: None, ..deep }, true);
+        assert_eq!((s.fg, s.rgb, s.italic), (Some(Color::Black), None, true));
+        // the filled set's set-aside color reads on each of its fills
+        for f in FILLED_FILLS {
+            let aside = of(&FILLED, Role::SetAside).rgb.expect("24-bit");
+            assert!(contrast(aside, f.rgb.expect("24-bit")) >= 3.0, "{f:?}");
+        }
     }
 
     #[test]
