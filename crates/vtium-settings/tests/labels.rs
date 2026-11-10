@@ -4,7 +4,9 @@
 //! label's match as it checks a rule's, and a bad line is named by its
 //! number and ignored alone.
 
-use vtium_settings::{Drops, Kind, LABEL_MAX, Problem, Syntax, escape_label, reading};
+use vtium_settings::{
+    Class, Drops, Identity, Kind, LABEL_MAX, Problem, Syntax, escape_label, reading,
+};
 
 const GOOD: &str = "\
 version = 1
@@ -122,4 +124,44 @@ fn a_label_written_with_its_hashes_escaped_reads_back_whole() {
         assert!(r.errors.is_empty(), "{label}: {:?}", r.errors);
         assert_eq!(r.parsed.config.labels[0].text, label);
     }
+}
+
+#[test]
+fn when_two_label_lines_match_one_device_the_first_wins() {
+    let text = "\
+version = 1
+[head desk]
+[rules]
+display * -> desk
+input * -> desk
+[labels]
+input class:mouse = Desk mouse
+input path:usb-0:3 = Left keyboard
+input class:keyboard = Any keyboard
+display * = Every screen
+";
+    let r = reading(text.as_bytes());
+    assert!(r.errors.is_empty(), "{:?}", r.errors);
+    let config = &r.parsed.config;
+    let label = |id: &Identity| config.label(id).map(|l| (l.line, l.text.as_str()));
+    let mut left = Identity::input().with_class(Class::Keyboard);
+    left.path = Some("usb-0:3".to_owned());
+    let mut right = Identity::input().with_class(Class::Keyboard);
+    right.path = Some("usb-0:4".to_owned());
+    // the left keyboard matches lines 8 and 9, and line 8 comes first
+    assert_eq!(label(&left), Some((8, "Left keyboard")));
+    assert_eq!(label(&right), Some((9, "Any keyboard")));
+    // a label line of the other kind never labels the device
+    assert_eq!(label(&Identity::display()), Some((10, "Every screen")));
+    assert_eq!(label(&Identity::input()), None);
+}
+
+#[test]
+fn a_second_labels_section_is_named_in_its_message() {
+    let text = "version = 1\n[labels]\n[labels]\n";
+    let r = reading(text.as_bytes());
+    assert_eq!(
+        r.errors.errors[0].to_string(),
+        "The file has a second `[labels]` section, and only one is allowed. Move this section's lines into the first one."
+    );
 }
