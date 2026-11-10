@@ -72,15 +72,15 @@ A signed commit is a commit that carries a cryptographic signature made with the
 
 ### D1: The maintainer conceived vtium's shape, and the records hold it
 
-The maintainer conceived the parts below. Each one is held in a decision record that carries the maintainer's direction, dated, with the channel it came through.
+The maintainer conceived the ideas below, and named them in the account this record keeps in its `considered` entries. Each line names the record that holds the idea, and quotes the maintainer's words from that record where the record has them.
 
-- **vtium itself.** vtium is a Rust terminal for the Linux console. It runs on a Linux virtual terminal (VT) in place of getty, the program that normally displays the login prompt. ADR-1000 records the target set the maintainer chose for it: which capabilities vtium supports, ignores or refuses.
-- **Frits.** A frit is a font set file. It lists the fonts a console draws its glyphs from, in order. ADR-1200 D1 defines it.
-- **The configuration as one flow.** vtium.conf describes one flow from the displays to the input devices: the displays, the rules that send each display to a head, the heads and their looks, the rules that send each input device to a head, and the input devices. A head is a terminal and the displays that show it. ADR-1403 holds the flow, and vtium-config draws it.
-- **How character sets compose.** In a frit, each later font fills only the characters that the earlier fonts lack. A `cover=` line limits a font to a named character set, such as GB2312 or Big5, or to a range of codepoints. ADR-1200 D1 holds the rule.
-- **The image pipeline.** One pipeline serves every image protocol: each protocol's handler feeds one store of placements, and the placements travel with the lines they sit on. ADR-1100 holds it. ADR-1101 puts the decoding of images in a sandboxed helper program of its own.
+- **vtium itself**, a Rust terminal that runs on a Linux virtual terminal in place of getty: ADR-1000 records its target set, from the maintainer's comment of 2026-10-26, "in general, vtium should cover what other terminals support".
+- **Frits**, the font set files that list the fonts a console draws from, in order: ADR-1200 D1 defines them, and ADR-1200 quotes the maintainer's direction, posted from the maintainer's GitHub account in an agent's wording: "frits, the definition the engine draws from (`NAME.vtfrit`)".
+- **The configuration as one flow**, from the displays to the input devices: ADR-1403 holds it, and quotes the maintainer's model, posted from the maintainer's GitHub account: "vtium's configuration describes one flow, from the displays to the input devices".
+- **The way character sets compose**, where each later font in a frit fills only the characters the earlier fonts lack, and a `cover=` line limits a font to a named character set such as GB2312 or Big5: ADR-1200 D1 holds the rule, and no record quotes the maintainer's own words on it.
+- **The choice of image pipeline, and the single unified image pipeline**, where every image protocol feeds one store of placements: ADR-1100 holds it, and quotes the issue posted from the maintainer's GitHub account: "One image pipeline, shared by both protocols". ADR-1101 puts the decoding of images in a sandboxed helper program of its own.
 
-The maintainer contrasts this shape with what an agent would build from the request "Make a KMSCON replacement in rust make no mistakes" alone. That request names a goal and none of the parts above. The maintainer's account is recorded in this record's `considered` entries, in the maintainer's words. The records listed above show the design's turns, choices, rejections and redirections, each in the maintainer's direction and each dated.
+An agent given only the request "Make a KMSCON replacement in rust make no mistakes" would have had none of these ideas to build from.
 
 ### D2: The decision records are vtium's provenance record
 
@@ -104,7 +104,7 @@ A steering session researched the law on 2026-11-10. Its report, `authorship/res
 
 - Copyright in the United States needs a human author, and work made with an AI's help can still be protected. No court has said how much human direction is enough, and the Copyright Office has no guidance specific to code. Confidence: high. The sources are Thaler v. Perlmutter (D.C. Circuit, 18 March 2025) and the Office's report Copyright and Artificial Intelligence, Part 2: Copyrightability (29 January 2025).
 - Code that agents wrote and the maintainer only chose or approved is probably not protected in the United States. Confidence: medium-high, from the same report.
-- Copyright protects expression, not ideas or systems (17 U.S.C. § 102(b)). The conception in D1 is evidence of the maintainer's direction and of the selection and arrangement of the whole, more than protected expression in itself. Confidence: medium.
+- Copyright protects expression, not ideas or systems (17 U.S.C. § 102(b)). Confidence: high.
 - The MIT license works either way. Where a part of vtium has no copyright, the license has nothing to grant for that part, and users lose nothing. Confidence: high.
 - The research counted the entries attributed to the maintainer in vtium's 29 decision records. 395 of the 648 entries, 61%, are agents' paraphrases, not the maintainer's words. The maintainer chose to keep the practice as it is.
 - Two questions need a lawyer: the wording of the copyright notice in LICENSE and COPYING, and whether to register vtium, with the registration's duty to disclose AI-generated material.
