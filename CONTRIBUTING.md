@@ -74,6 +74,8 @@ Decisions are recorded as ADRs in `docs/architecture/`, created and checked with
 
 Contributions are made under the MIT licence in [LICENSE](LICENSE). A file ported from kmscon or libtsm keeps the copyright notice it carried, beside vtium's; [COPYING](COPYING) describes the notices.
 
+Every commit to vtium is signed with an SSH key, from 2026-11-10 on. Set `gpg.format = ssh`, `user.signingkey` and `commit.gpgsign = true` in your git config, and add the key to GitHub as a signing key. The pre-push hook in `tools/git-hooks/` refuses a push that carries an unsigned commit made after that date. Turn it on with `git config core.hooksPath tools/git-hooks`.
+
 ## Conduct
 
 Participation is covered by the [Code of Conduct](CODE_OF_CONDUCT.md).
