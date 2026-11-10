@@ -296,9 +296,13 @@ pub struct Geometry {
 pub fn geometry(cols: usize) -> Geometry {
     let room = cols.saturating_sub(2);
     let part = |n: usize| room.saturating_mul(n) / 118;
-    let screen_w = part(25);
+    // a box in a path shows its whole title: the displays' column holds
+    // All displays, and the terminals' column holds Whichever terminal is
+    // active, the longest title a terminal's box takes
+    let title = |t: &str| super::canvas::width(t).saturating_add(4);
+    let screen_w = part(25).max(title(words::ANY_DISPLAY));
     let gap1 = part(11).max(5);
-    let term_w = part(28);
+    let term_w = part(28).max(title(words::ACTIVE_TERMINAL));
     let gap2 = part(14).max(7);
     let screen_x = 1;
     let term_x = screen_x + screen_w + gap1;
@@ -1403,6 +1407,29 @@ pub(crate) mod tests {
             cols,
             default: paths::is_default(f),
         })
+    }
+
+    // the round-6 renders cut "Whichever terminal is a…": a box in a path
+    // shows its whole title at the minimum width and at 120 columns
+    #[test]
+    fn a_path_s_terminal_box_never_cuts_its_title() {
+        let f = flow();
+        for cols in [80, 120] {
+            let layout = lay(&f, &Path::default(), cols);
+            let roam = layout
+                .boxes
+                .iter()
+                .find(|b| matches!(b.obj, Obj::Roam(Slot::Terminal)))
+                .expect("the roaming path's terminal");
+            assert_eq!(roam.title, words::ACTIVE_TERMINAL);
+            let text = roam.w.saturating_sub(4);
+            assert!(
+                super::super::canvas::width(&roam.title) <= text,
+                "{cols}: {} in {}",
+                roam.title,
+                roam.w
+            );
+        }
     }
 
     fn at<'a>(l: &'a Layout, o: &Obj) -> &'a Boxed {

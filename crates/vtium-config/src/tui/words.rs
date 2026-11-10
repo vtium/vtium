@@ -696,7 +696,7 @@ pub const NONE_EMPTY: &str = "Pick the displays to turn off or the inputs to set
 pub const NONE_COMPLETE: &str =
     "This path is complete. Its displays stay off and its inputs are set aside. Press a to add it.";
 pub const ACTIVE_TERMINAL: &str = "Whichever terminal is active";
-pub const ACTIVE_DETAIL: &str = "whichever is in use";
+pub const ACTIVE_DETAIL: &str = "follows the VT you switch to";
 pub const ACTIVE_PART_DETAIL: &str = "the inputs follow you between terminals";
 pub const ACTIVE_COMPLETE: &str =
     "This path is complete: its inputs type into whichever terminal is active. Press a to add it.";
@@ -716,6 +716,10 @@ pub const ANY_POINTER_TITLE: &str = "All mice and touchpads";
 pub const ANY_KEYBOARD_TITLE: &str = "All keyboards";
 pub const ANY_INPUT_TITLE: &str = "All input devices";
 pub const EVERY_POINTER: &str = "mouse, touchpad, trackball";
+/// A whole-kind part's second line in a box says what the part does, in
+/// plain words; the vtium.conf key shows only in the maker.
+pub const EVERY_KEYBOARD: &str = "every keyboard";
+pub const EVERY_OF_TYPE: &str = "every input of that type";
 pub const BY_CONNECTOR: &str = "by its connector";
 pub const NOT_PLUGGED: &str = "Not connected";
 pub const EVERY_INPUT_ON_PORT: &str = "every input on that port";
@@ -781,7 +785,7 @@ pub const PREVIEW_PATH_NOT_HERE: &str =
     "Previewing a path needs a vtium console, and this terminal is not one.";
 pub const PREVIEW_PATH_LATER: &str = "Previewing a whole path needs the console's control socket, which vtium does not have yet. Enter on a font set shows its preview.";
 pub const LIVE_ON: &str = "Live trial is on: in the Fonts view, t tries a font on this console.";
-pub const FLOW_COMPLETE: &str = "every device is in a path";
+pub const FLOW_COMPLETE: &str = "All devices are in a path";
 pub const FLOW_OTHERS_TITLE: &str = "OTHER INPUTS";
 pub const FLOW_OTHERS_ABOUT: &str = "These inputs are neither keyboards nor pointers, so none of them types into a terminal. Each line says which rule catches it.";
 pub const FLOW_NO_RULE: &str = "no rule names it";

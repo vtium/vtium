@@ -1157,9 +1157,9 @@ pub fn title(flow: &Flow, kind: Kind, selector: &str) -> (String, String) {
         ),
         (Kind::Input, "class") if selector == ANY_KEYBOARD => (
             words::ANY_KEYBOARD_TITLE.to_owned(),
-            "class keyboard".to_owned(),
+            words::EVERY_KEYBOARD.to_owned(),
         ),
-        (Kind::Input, "class") => (format!("every {value}"), format!("class {value}")),
+        (Kind::Input, "class") => (format!("every {value}"), words::EVERY_OF_TYPE.to_owned()),
         (Kind::Input, "path") => match dev {
             Some(d) => (d.name.clone(), port_words(&d.detail)),
             None => {
