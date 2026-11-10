@@ -1,4 +1,0 @@
-# SGR 6, rapid blink, drawn at a phase of its own, faster than SGR 5's.
-# spec: ECMA-48 8.3.117, SGR 6; ADR-1000 sgr.rapid-blink
-# capability: sgr-rapid-blink-phase
-placeholder vtium draws SGR 6 at SGR 5's blink phase, because the vtium binary runs one text blink timer and vtium-render's draw state holds one blink phase, and the replay interface has no clock to show a phase (#37)

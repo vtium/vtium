@@ -17,8 +17,6 @@ sgr-italic                    works   -     sgr.italic                     SGR 3
 sgr-truecolor                 works   -     sgr.extended-color             SGR 38;2 and 48;2
 sgr-overline                  works   -     sgr.overline                   SGR 53 and 55, which the views print as overline (attrs-renditions)
 sgr-super-subscript           works   -     sgr.script                     SGR 73 to 75, which the views print as superscript and subscript (attrs-renditions)
-sgr-rapid-blink-phase         missing #37   sgr.rapid-blink                a placeholder scenario: SGR 6 blinks at a phase of its own, faster than SGR 5
-sgr-script-glyph              missing #37   sgr.script                     a placeholder scenario: SGR 73 and 74 draw a smaller glyph, raised or lowered
 palette-at-draw               works   -     sgr.draw-time-color            colors are resolved at draw time: a palette change recolors text
 modkeys-not-sgr               works   -     input.modify-other-keys        CSI > 4;1 m and CSI ? 4 m are not SGR 4
 cluster                       works   -     text.grapheme                  a grapheme cluster is one cell whose codepoints read back
@@ -69,8 +67,6 @@ key-kitty-base-layout-key     missing #42   input.kitty-keyboard           flag 
 key-kitty-all-keys            missing #42   input.kitty-keyboard           flag 8: text keys, Enter, Tab, BackSpace and a modifier key send escape codes, and RIS ends it
 key-kitty-all-keys-events     missing #42   input.kitty-keyboard           flags 2 and 8: a text key, Enter and Shift report their releases (needs key-events)
 key-kitty-associated-text     missing #42   input.kitty-keyboard           flag 16: a key sends its text in the escape code, and never a control character
-key-binding-repeat-owner      missing #42   input.kitty-keyboard           a placeholder scenario: a key vtium took keeps its repeats and release across a switch to 1049
-key-binding-lock-modifiers    missing #42   input.kitty-keyboard           a placeholder scenario: NumLock and Caps Lock never stop a key binding from matching
 
 # strings vtium does not take yet
 osc-8-hyperlink               missing #40   osc.8                          a placeholder scenario: OSC 8 hyperlinks
@@ -99,10 +95,3 @@ decic                         works   -     ctl.decic                      DECIC
 mouse-1015                    works   -     DEC-1015                       mode 1015: the urxvt mouse encoding
 decnkm                        works   -     DEC-66                         mode 66: the keypad's application mode, which DECKPNM resets
 meta-keys                     works   -     DEC-1034,DEC-1036              modes 1036 and 1034: ESC before an Alt key, or its eighth bit
-
-# the seat and the displays, which the replay interface does not reach: vtium-replay
-# plays vtium-term without vtium-platform's devices
-seat-input-devices            missing #34   platform.libseat               a placeholder scenario: keyboards and pointers open through the seat manager
-seat-device-revoked           missing #34   platform.libseat               a placeholder scenario: an input device the seat revoked opens again when the seat is enabled
-display-left-off-present      missing #298  platform.multi-monitor         a placeholder scenario: a display left off after a refused wake-up stays present and dark
-display-legacy-placement      missing #298  platform.multi-monitor         a placeholder scenario: the legacy calls try placements that move a lit display

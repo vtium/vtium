@@ -1,4 +1,0 @@
-# NumLock and Caps Lock never stop a key binding from matching, so a binding such as Shift+Page Up acts with either lock on.
-# spec: ADR-1005 D8 and D10
-# capability: key-binding-lock-modifiers
-placeholder the vtium binary matches a key binding only when exactly its modifiers are held, so Caps Lock, and NumLock once vtium-platform reports it, stops every binding from matching, and the replay interface plays vtium-term without the binary's key bindings (#42)

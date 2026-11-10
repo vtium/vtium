@@ -1,4 +1,0 @@
-# A display that vtium leaves off after a refused wake-up stays present and dark: the head's owner hears no Removed while its monitor is plugged in, and a later scan still places it, lighting it once a CRTC can drive it.
-# spec: ADR-1401 D8
-# capability: display-left-off-present
-placeholder vtium tells the head's owner Removed for a display it leaves off after a refused wake-up, though its monitor is still plugged in, because drm2d has no state for a present display with no CRTC, and the replay interface has no displays (#298)

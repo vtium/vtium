@@ -1,4 +1,0 @@
-# Under libseat, vtium opens its keyboards and pointers through the seat manager, as it opens its displays, and retries a busy device from a timer of the loop.
-# spec: ADR-1400 D1, the evdev row of its table
-# capability: seat-input-devices
-placeholder vtium opens its keyboards and pointers itself, and only its displays through the seat manager, and the replay interface plays vtium-term without vtium-platform's devices (#34)
