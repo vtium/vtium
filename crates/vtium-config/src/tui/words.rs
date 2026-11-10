@@ -416,6 +416,29 @@ pub fn install_question(added: usize, removed: usize, frits: usize) -> String {
         ),
     }
 }
+/// The first half of Install's question for a draft that wires no
+/// complete route, and of the refusal without a terminal (ADR-1403 D7,
+/// D8).
+pub const NO_ROUTE: &str = "This draft has no complete path: no connected display is sent to a head that a connected keyboard reaches.";
+/// What `vtium config install` says, with no terminal to ask and no
+/// `--force`, of a draft that wires no complete route (ADR-1403 D8).
+pub fn no_route_force() -> String {
+    format!("{NO_ROUTE} To install it anyway, run vtium config install --force.")
+}
+/// What `vtium config install` says when the person answers no.
+pub const NO_ROUTE_NOT_INSTALLED: &str =
+    "Nothing installed: you answered no. The draft keeps your changes.";
+/// Install's question for a draft whose only problem is that it wires no
+/// complete route (ADR-1403 D7).
+pub fn no_route_question(added: usize, removed: usize, frits: usize) -> String {
+    let install = install_question(added, removed, frits);
+    let counted = install
+        .strip_prefix("Install the draft? ")
+        .unwrap_or(&install);
+    format!(
+        "{NO_ROUTE} After the install, nobody at this machine may be able to type into vtium. Install it anyway? {counted}"
+    )
+}
 pub const NOT_PREPARED: &str = "The install is not ready yet. Press i again.";
 pub fn install_failed(why: &str) -> String {
     format!("Not installed: {why}")
@@ -959,6 +982,20 @@ mod tests {
         assert_eq!(
             super::NEW_QUESTION,
             "Start a new configuration? The draft's heads, rules and looks will be lost."
+        );
+    }
+
+    // ADR-1403 D7 and D8 word Install's question and the refusal for a
+    // draft that wires no complete route
+    #[test]
+    fn install_asks_before_it_installs_a_draft_with_no_complete_path() {
+        assert_eq!(
+            super::no_route_question(3, 1, 0),
+            "This draft has no complete path: no connected display is sent to a head that a connected keyboard reaches. After the install, nobody at this machine may be able to type into vtium. Install it anyway? 3 lines added, 1 removed."
+        );
+        assert_eq!(
+            super::no_route_force(),
+            "This draft has no complete path: no connected display is sent to a head that a connected keyboard reaches. To install it anyway, run vtium config install --force."
         );
     }
 }

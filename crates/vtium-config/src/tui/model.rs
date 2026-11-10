@@ -1324,7 +1324,11 @@ impl App {
                 old,
             });
         }
-        Ok(Plan { files, removals })
+        Ok(Plan {
+            files,
+            removals,
+            no_route: false,
+        })
     }
 
     /// After an install: the frits it removed leave the list, nothing is

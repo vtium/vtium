@@ -126,15 +126,102 @@ impl Checked {
     /// the lines that say what an error drops. Those end with one of
     /// vtium's own words for what an error drops.
     pub fn count(&self) -> usize {
-        self.problems
-            .iter()
-            .filter(|l| {
-                !vtium_settings::Drops::ALL
-                    .iter()
-                    .any(|d| l.ends_with(&d.to_string()))
-            })
-            .count()
+        counted(&self.problems).count()
     }
+
+    /// Whether the check failed only because the draft at `shown` wires no
+    /// complete route (ADR-1403 D3). That is the one problem Install lets
+    /// the person accept (D8).
+    pub fn no_route_only(&self, shown: &str) -> bool {
+        !self.passed && only_no_route(&self.problems, shown)
+    }
+}
+
+/// The problem lines the status line counts: every line but those that say
+/// what an error drops.
+fn counted<S: AsRef<str>>(lines: &[S]) -> impl Iterator<Item = &str> {
+    lines.iter().map(AsRef::as_ref).filter(|l| {
+        !vtium_settings::Drops::ALL
+            .iter()
+            .any(|d| l.ends_with(&d.to_string()))
+    })
+}
+
+/// Whether the one problem among `lines`, which `vtium check-config` wrote
+/// of the file at `shown`, is that the file wires no complete route. That
+/// line names the file and no line of it (ADR-1403 D3). Any other problem,
+/// or a second one, makes this false.
+pub fn only_no_route<S: AsRef<str>>(lines: &[S], shown: &str) -> bool {
+    let mut problems = counted(lines);
+    let (Some(line), None) = (problems.next(), problems.next()) else {
+        return false;
+    };
+    line.strip_prefix(shown)
+        .and_then(|rest| rest.strip_prefix(": "))
+        .is_some_and(says_no_route)
+}
+
+/// Whether `message` is one of vtium's own messages for a configuration
+/// that wires no complete route, whatever display, head or rule number it
+/// names. Each message's shape is read from vtium-settings, so the two
+/// never drift apart.
+pub fn says_no_route(message: &str) -> bool {
+    use vtium_settings::{Missing, Quoted};
+    const NUMBER: usize = 918_273_645;
+    let hole = Quoted::path(Path::new("\u{1}"));
+    let shown_hole = hole.to_string();
+    let shapes = [
+        Missing::NoDisplay {
+            display: hole.clone(),
+            rule: Some(NUMBER),
+        },
+        Missing::NoDisplay {
+            display: hole.clone(),
+            rule: None,
+        },
+        Missing::NoKeyboard {
+            head: hole.clone(),
+            display: hole.clone(),
+        },
+        Missing::Isolated { head: hole.clone() },
+        Missing::NoDisplayRule,
+        Missing::NoKeyboardRule {
+            head: hole,
+            rule: NUMBER,
+        },
+    ];
+    shapes.iter().any(|shape| {
+        let shape = shape.to_string().replace(&NUMBER.to_string(), &shown_hole);
+        fits(
+            message,
+            &shape.split(shown_hole.as_str()).collect::<Vec<_>>(),
+        )
+    })
+}
+
+/// Whether `message` is `words` with some text, at least one character,
+/// in each gap between them.
+fn fits(message: &str, words: &[&str]) -> bool {
+    if let [whole] = words {
+        return message == *whole;
+    }
+    let [first, middle @ .., last] = words else {
+        return false;
+    };
+    let Some(mut rest) = message.strip_prefix(first) else {
+        return false;
+    };
+    for word in middle {
+        let found = rest
+            .char_indices()
+            .skip(1)
+            .find_map(|(i, _)| rest.get(i..)?.strip_prefix(word));
+        let Some(after) = found else {
+            return false;
+        };
+        rest = after;
+    }
+    rest.len() > last.len() && rest.ends_with(last)
 }
 
 impl Session<'_> {
@@ -258,7 +345,10 @@ impl Session<'_> {
 
     /// Readies the draft `name`, `text`, for an install: refuses it when
     /// the installed file changed since its base (exit 3) or the check
-    /// fails (exit 1), printing what the check found. `None` when the
+    /// fails (exit 1), printing what the check found. A draft whose only
+    /// problem is that it wires no complete route is readied with the
+    /// plan's `no_route` set, and the caller asks the person, or takes
+    /// `--force`, before it installs it (ADR-1403 D8). `None` when the
     /// draft is the installed file already, which then becomes its base.
     pub fn prepare(
         &self,
@@ -273,11 +363,13 @@ impl Session<'_> {
                 self.installed_path().display()
             )));
         }
-        let checked = self.check(text, &self.store.draft_path(name)?)?;
+        let shown = self.store.draft_path(name)?;
+        let checked = self.check(text, &shown)?;
         for line in checked.problems.iter().chain(&checked.notes) {
             let _ = writeln!(out, "{line}");
         }
-        if !checked.passed {
+        let no_route = checked.no_route_only(&shown.to_string_lossy());
+        if !checked.passed && !no_route {
             return Err(Fail::Check(format!(
                 "nothing installed: the check found problems in draft {name}. The draft keeps your changes."
             )));
@@ -298,6 +390,7 @@ impl Session<'_> {
                     new: text.to_owned(),
                 }],
                 removals: Vec::new(),
+                no_route,
             },
             replaced: installed,
         }))
@@ -365,19 +458,58 @@ impl Session<'_> {
     }
 
     /// Installs the draft `name`, `text`, as `vtium config install` does:
-    /// [`Session::prepare`], [`Session::put`] with sudo run as a plain
+    /// [`Session::prepare`], then for a draft that wires no complete route
+    /// what `unrouted` says, then [`Session::put`] with sudo run as a plain
     /// child, then [`Session::finish`].
-    pub fn install(&self, name: &str, text: &str, out: &mut dyn Write) -> Result<(), Fail> {
+    pub fn install(
+        &self,
+        name: &str,
+        text: &str,
+        unrouted: Unrouted<'_>,
+        out: &mut dyn Write,
+    ) -> Result<(), Fail> {
         let Some(ready) = self.prepare(name, text, out)? else {
             return Ok(());
         };
+        if ready.plan.no_route {
+            match unrouted {
+                Unrouted::Install => {}
+                Unrouted::Refuse => {
+                    return Err(Fail::Check(crate::tui::words::no_route_force()));
+                }
+                Unrouted::Ask(ask) => {
+                    let (added, removed) =
+                        counts(ready.replaced.as_deref().unwrap_or_default(), text);
+                    if !ask(&crate::tui::words::no_route_question(added, removed, 0)) {
+                        return Err(Fail::Check(
+                            crate::tui::words::NO_ROUTE_NOT_INSTALLED.to_owned(),
+                        ));
+                    }
+                }
+            }
+        }
         self.put(&ready.plan, &mut run_child, out)?;
         self.finish(name, text, ready.replaced.as_deref(), out)
     }
 }
 
-/// A draft the check passed, ready for the privileged step: the plan it
-/// installs and the installed file it replaces.
+/// What an install does with a draft whose only problem is that it wires
+/// no complete route (ADR-1403 D8).
+pub enum Unrouted<'a> {
+    /// Installs it: `vtium config install --force`.
+    Install,
+    /// Asks the question, and installs it only when the answer is yes:
+    /// `vtium config install` at a terminal.
+    Ask(&'a mut dyn FnMut(&str) -> bool),
+    /// Refuses it, exit 1, and says how to install it anyway: `install`
+    /// with no terminal, and every command's `--install`, which installs
+    /// only a draft the check passes.
+    Refuse,
+}
+
+/// A draft the check passed, or whose only problem is that it wires no
+/// complete route, ready for the privileged step: the plan it installs and
+/// the installed file it replaces.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Ready {
     pub plan: Plan,
@@ -446,6 +578,48 @@ pub fn classify(said: &str, sudo: bool) -> Fail {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ADR-1403 D8: Install lets the person accept one problem, a missing
+    // complete route, and only when it is the check's one problem
+    #[test]
+    fn only_a_missing_complete_route_is_the_problem_install_may_accept() {
+        use vtium_settings::{Missing, Quoted};
+        let q = |s: &str| Quoted::path(Path::new(s));
+        let each = [
+            Missing::NoDisplay {
+                display: q("DP-8"),
+                rule: Some(12),
+            },
+            Missing::NoDisplay {
+                display: q("HDMI-A-1"),
+                rule: None,
+            },
+            Missing::NoKeyboard {
+                head: q("desk"),
+                display: q("DP-8"),
+            },
+            Missing::Isolated { head: q("kiosk") },
+            Missing::NoDisplayRule,
+            Missing::NoKeyboardRule {
+                head: q("desk"),
+                rule: 3,
+            },
+        ];
+        for missing in &each {
+            let line = format!("/d/desk.conf: {missing}");
+            assert!(only_no_route(&[&line], "/d/desk.conf"), "{line}");
+            // a second problem, a line of the file, or another file
+            let bad = "/d/desk.conf:4: BAD is not a key vtium reads".to_owned();
+            assert!(!only_no_route(&[&line, &bad], "/d/desk.conf"), "{line}");
+            let numbered = format!("/d/desk.conf:4: {missing}");
+            assert!(!only_no_route(&[&numbered], "/d/desk.conf"), "{line}");
+            assert!(!only_no_route(&[&line], "/d/other.conf"), "{line}");
+        }
+        assert!(!only_no_route::<&str>(&[], "/d/desk.conf"));
+        assert!(!says_no_route("No display rule sends a display to a head."));
+        assert!(!says_no_route("Head is isolated"));
+        assert!(!says_no_route("BAD is not a key vtium reads"));
+    }
 
     #[test]
     fn the_state_says_lines_added_and_removed() {

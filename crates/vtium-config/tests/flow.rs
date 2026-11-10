@@ -648,3 +648,92 @@ fn the_history_keeps_the_newest_files_its_setting_allows() {
             .starts_with("font-size=14\n")
     );
 }
+
+/// The stand-in console of [`CHECKER`], which also refuses a file that
+/// holds `NOROUTE` with vtium's own message for a file whose rules wire no
+/// complete route (ADR-1403 D3), on the file and no line of it.
+fn no_route_checker(f: &Fixture) {
+    let message = vtium_settings::Missing::NoDisplayRule
+        .to_string()
+        .replace('\'', r"'\''");
+    let script = CHECKER.replace(
+        "if [ -n \"$bad\" ]; then",
+        &format!(
+            "if grep -q NOROUTE \"$file\"; then\n  printf '%s\\n' \"$file: \"'{message}' >&2\n  [ -n \"$bad\" ] || exit 1\nfi\nif [ -n \"$bad\" ]; then"
+        ),
+    );
+    script::executable(&f.path("vtium"), &script);
+}
+
+// ADR-1403 D8: a draft whose only problem is a missing complete route is
+// refused without a terminal, names --force, and installs with --force;
+// --force skips no other refusal
+#[test]
+fn install_force_installs_a_draft_with_no_complete_path_and_nothing_else() {
+    let f = fixture("no-route");
+    no_route_checker(&f);
+    f.desk();
+    assert_eq!(f.run(&["set", "font-name", "NOROUTE"]).status, 0);
+    // no terminal and no --force: exit 1, and the way on
+    let refused = f.run(&["install"]);
+    assert_eq!(
+        (refused.status, refused.err.as_str()),
+        (
+            1,
+            "vtium-config: This draft has no complete path: no connected display is sent to a head that a connected keyboard reaches. To install it anyway, run vtium config install --force.\n"
+        ),
+        "{}",
+        refused.out
+    );
+    assert_eq!(f.installed(), INSTALLED);
+    // a command's --install installs only a draft the check passes
+    let set = f.run(&["set", "font-size", "13", "--install"]);
+    assert_eq!(set.status, 1, "{}{}", set.out, set.err);
+    assert_eq!(f.installed(), INSTALLED);
+    // --force installs it, and apply accepts that one problem because the
+    // bundle records the --force
+    let forced = f.run(&["install", "--force"]);
+    assert_eq!(forced.status, 0, "{}{}", forced.out, forced.err);
+    assert!(
+        forced.out.contains(vtium_config::apply::ACCEPTED_NO_ROUTE),
+        "{}",
+        forced.out
+    );
+    assert_eq!(f.installed(), f.draft());
+    assert!(f.installed().contains("font-name=NOROUTE"));
+}
+
+#[test]
+fn install_force_skips_no_other_problem() {
+    let f = fixture("no-route-and-bad");
+    no_route_checker(&f);
+    f.desk();
+    assert_eq!(f.run(&["set", "font-name", "NOROUTE"]).status, 0);
+    assert_eq!(f.run(&["set", "login", "BAD"]).status, 0);
+    let ran = f.run(&["install", "--force"]);
+    assert_eq!(
+        (ran.status, ran.err.as_str()),
+        (
+            1,
+            "vtium-config: nothing installed: the check found problems in draft desk. The draft keeps your changes.\n"
+        ),
+        "{}",
+        ran.out
+    );
+    assert_eq!(f.installed(), INSTALLED);
+}
+
+// ADR-1403 D8: --force never skips the refusal of a draft made before the
+// installed file changed
+#[test]
+fn install_force_still_refuses_a_draft_made_before_the_installed_file_changed() {
+    let f = fixture("no-route-stale");
+    no_route_checker(&f);
+    f.desk();
+    assert_eq!(f.run(&["set", "font-name", "NOROUTE"]).status, 0);
+    let by_hand = format!("{INSTALLED}# root edited this by hand\n");
+    std::fs::write(f.path("etc/vtium.conf"), &by_hand).expect("an edit by hand");
+    let ran = f.run(&["install", "--force"]);
+    assert_eq!(ran.status, 3, "{}{}", ran.out, ran.err);
+    assert_eq!(f.installed(), by_hand);
+}

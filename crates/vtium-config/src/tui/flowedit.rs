@@ -247,10 +247,14 @@ impl App {
                         .unwrap_or_default(),
                     _ => (0, 0),
                 };
-                self.ask(
-                    words::install_question(added, removed, n),
-                    Then::Install(plan),
-                );
+                // a draft whose only problem is that it wires no complete
+                // route installs only after this question (ADR-1403 D7)
+                let question = if plan.no_route {
+                    words::no_route_question(added, removed, n)
+                } else {
+                    words::install_question(added, removed, n)
+                };
+                self.ask(question, Then::Install(plan));
             }
             Done::Refused(why, problems) => {
                 let mut lines = vec![why];

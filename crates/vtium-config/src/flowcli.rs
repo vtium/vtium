@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 use vtium_platform::listing::Roots;
 use vtium_settings::Of;
 
-use crate::drafts::{Checked, From, Session, State, diff};
+use crate::drafts::{Checked, From, Session, State, Unrouted, diff};
 use crate::flowmodel::{self, Present};
 use crate::ops::{self, RuleChange, To};
 use crate::outcome::Fail;
@@ -286,12 +286,40 @@ impl Command<'_, '_> {
         Ok(())
     }
 
+    /// `install [--force]`: installs the draft. A draft whose only problem
+    /// is that it wires no complete route installs with `--force`, or
+    /// after a yes at a terminal; with neither it is refused, exit 1
+    /// (ADR-1403 D8).
     fn install(&mut self, words: &[String]) -> Result<(), Fail> {
-        if !words.is_empty() {
-            return Err(Fail::Usage("install takes no argument".to_owned()));
+        let args = Args::parse(words, &["--force"], &[])?;
+        if !args.words.is_empty() {
+            return Err(Fail::Usage("install takes only --force".to_owned()));
         }
         let (name, text) = self.session.current()?;
-        self.session.install(&name, &text, self.out)
+        if args.has("--force") {
+            return self
+                .session
+                .install(&name, &text, Unrouted::Install, self.out);
+        }
+        if !std::io::IsTerminal::is_terminal(&std::io::stdin()) {
+            return self
+                .session
+                .install(&name, &text, Unrouted::Refuse, self.out);
+        }
+        let out = &mut *self.out;
+        let mut ask = |question: &str| -> bool {
+            let _ = write!(out, "{question} [y/N] ");
+            let _ = out.flush();
+            let mut answer = String::new();
+            let _ = std::io::stdin().lock().read_line(&mut answer);
+            matches!(answer.trim(), "y" | "Y" | "yes")
+        };
+        let mut said = Vec::new();
+        let done = self
+            .session
+            .install(&name, &text, Unrouted::Ask(&mut ask), &mut said);
+        let _ = self.out.write_all(&said);
+        done
     }
 
     /// `get KEY`: the key, its value in the draft's top level and where it
@@ -387,7 +415,8 @@ impl Command<'_, '_> {
         self.print_check(&checked);
         self.say(&flowmodel::state_line(name, &state, checked.count()));
         if install {
-            self.session.install(name, new, self.out)?;
+            self.session
+                .install(name, new, Unrouted::Refuse, self.out)?;
         }
         Ok(())
     }
@@ -862,7 +891,8 @@ impl Command<'_, '_> {
             }
         }
         if install {
-            self.session.install(name, &draft, self.out)?;
+            self.session
+                .install(name, &draft, Unrouted::Refuse, self.out)?;
         }
         Ok(())
     }

@@ -304,6 +304,7 @@ pub fn remove_frit(
     let plan = Plan {
         files: Vec::new(),
         removals: vec![Removal { path, old }],
+        no_route: false,
     };
     crate::apply::make(&plan, paths, out, err)
 }
@@ -500,6 +501,7 @@ pub fn frit_plan(paths: &Paths, name: &str, text: &str) -> Result<Plan, String> 
             new: text.to_owned(),
         }],
         removals: Vec::new(),
+        no_route: false,
     })
 }
 

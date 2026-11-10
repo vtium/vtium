@@ -185,10 +185,10 @@ const TOPICS: &[Topic] = &[
     Topic {
         command: Command::Install,
         forms: &[form(
-            "install",
+            "install [--force]",
             "check the draft and install it as /etc/vtium/vtium.conf",
         )],
-        detail: "Checks the current draft with vtium check-config, then installs it with sudo vtium-config apply DIR, which asks for your password (as root, it installs without sudo). It does not install a draft that fails the check (exit 1), or a draft made before the installed file last changed (exit 3). It exits 4 when sudo refuses. vtium-config keeps the file it replaces, so restore can bring it back.",
+        detail: "Checks the current draft with vtium check-config, then installs it with sudo vtium-config apply DIR, which asks for your password (as root, it installs without sudo). It does not install a draft that fails the check (exit 1), or a draft made before the installed file last changed (exit 3). It exits 4 when sudo refuses. A draft whose only problem is that it has no complete path, so that no connected keyboard can type into a terminal on a connected display, is the one exception. At a terminal, install asks before it installs that draft. --force installs it without asking. Without a terminal and without --force, install refuses it (exit 1). vtium-config keeps the file it replaces, so restore can bring it back.",
         example: "vtium-config install",
     },
     Topic {
