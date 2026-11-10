@@ -997,7 +997,7 @@ fn card_layer(canvas: &mut Canvas, app: &App, state: &flowview::State, obj: &Obj
     let room = bottom
         .saturating_sub(5)
         .saturating_sub(note.len().saturating_add(1))
-        .saturating_sub(usize::from(about.is_some()))
+        .saturating_sub(if about.is_some() { 2 } else { 0 })
         .max(1);
     let first = state.line.saturating_add(1).saturating_sub(room);
     let mut y = 5usize;
@@ -1065,6 +1065,7 @@ fn card_layer(canvas: &mut Canvas, app: &App, state: &flowview::State, obj: &Obj
         y = y.saturating_add(1);
     }
     if let Some(about) = about {
+        y = y.saturating_add(1);
         canvas.put(3, y, about, Style::text(Color::Grey));
         y = y.saturating_add(1);
     }
