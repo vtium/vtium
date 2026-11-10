@@ -43,6 +43,9 @@ considered:
   - operator: aaronsb
     said: "I think we shouldn't read too much into the case law fo this. I guarantee that the idea of vtium, frits, the flow in config, the way that character sets compose, the selection of image pipeline, of unified image pipeline etc, would not have come out of this from just claude code working with \"Make a KMSCON replacement in rust make no mistakes\""
     via: chat, 2026-11-10
+  - operator: aaronsb
+    said: "\"Parts, templates, paths\", Terminals tied to VTs, Effects inside the terminal, Records as provenance, \" generally, the records as provenance doesn't need any changes to behavior. I just wanted to make sure we've recorded it.\""
+    via: AskUserQuestion, 2026-11-10, asked which of the day's ideas D1 should also name; the four option labels are the steering session's wording, the last sentence is the maintainer's own
 status: proposed
 date: 2026-11-10
 deciders:
@@ -57,7 +60,7 @@ related: []
 - **Decided:** The maintainer conceived vtium's shape: vtium itself, frits, the configuration as one flow, the way character sets compose in a frit, and the unified image pipeline. The decision records hold each of these in the maintainer's direction, and this record names where. vtium keeps the provenance of its work in places it already has. The decision records keep the maintainer's direction in the maintainer's own words, dated, with the channel each answer came through, as they do now. The maintainer stays the git author of every commit and, from 2026-11-10 on, signs every commit with an SSH key. COPYING says plainly that agents write vtium's code under the maintainer's direction and review. vtium adds no transcript archive, no commit trailer and no separate mark for text the maintainer writes by hand.
 - **Trades away:** The stronger evidence that the research names: quotes kept only verbatim, hashed archives of the session transcripts, a mark on the maintainer's hand-written text, and a git identity for agents. 61% of the maintainer's entries in the records are agents' paraphrases, and the practice that produces them stays.
 - **One-way?** No. Each practice the record leaves out can be added later. A signature on a pushed commit stays in the history, and the commits made before 2026-11-10 stay unsigned.
-- **Probes:** *Confident:* the maintainer wants the records kept as they are now, with no new marking or archive. *Not confident:* the five parts of vtium's shape named in D1 are the ones the maintainer wants named; the maintainer's list ends in "etc", and it may cover more.
+- **Probes:** *Confident:* the maintainer wants the records kept as they are now, with no new marking or archive. *Settled 2026-11-10:* the maintainer added four parts to the five D1 first named.
 - **Inversion:** Between "the law decides who conceived vtium" (the record would rest on case law that has not settled the question) and "the conception speaks for itself" (nothing dated would show where it came from). The answer names what the maintainer conceived, points to the dated records that hold it, and keeps the law to a short note of its limits.
 
 ## Context
@@ -79,6 +82,10 @@ The maintainer conceived the ideas below, and named them in the account this rec
 - **The configuration as one flow**, from the displays to the input devices: ADR-1403 holds it, and quotes the maintainer's model, posted from the maintainer's GitHub account: "vtium's configuration describes one flow, from the displays to the input devices".
 - **The way character sets compose**, where each later font in a frit fills only the characters the earlier fonts lack, and a `cover=` line limits a font to a named character set such as GB2312 or Big5: ADR-1200 D1 holds the rule, and no record quotes the maintainer's own words on it.
 - **The choice of image pipeline, and the single unified image pipeline**, where every image protocol feeds one store of placements: ADR-1100 holds it, and quotes the issue posted from the maintainer's GitHub account: "One image pipeline, shared by both protocols". ADR-1101 puts the decoding of images in a sandboxed helper program of its own.
+- **Parts, templates and paths**, the way vtium-config builds a configuration: the parts the system finds, made from templates, composed into paths, then added to the configuration. ADR-1403 D7 holds it, with the maintainer's words: "parts, from the system -> composed into a flow, configurable -> added to the config, to be integrated with other flows" and "I think this pattern resolves some of the hard coding we have, and gives the parts purpose."
+- **Terminals tied to VTs**, so one display and keyboard can carry several terminals, placed by one state machine under the maintainer's policy table: ADR-1401 D2 and D3 hold it, with the maintainer's words: "the terminals in the middle, are variants - they're not bound to each VT, but VT3, VT4, and VT5 - that's what allows all three flows to exist in CONFIGURATION (so they're unique)" and "we are, slowly through description, building the policy state machine basically".
+- **Effects inside the terminal**, where filters and shaders are a subflow of the terminal and a display is only an output: ADR-1403 D7 holds it, with the maintainer's words: "So, this means that the terminal itself defines the effects, and the display is just a display output."
+- **The records as provenance**, where the Agent Decision Records keep the maintainer's words, dated, beside signed commits: D2 to D5 of this record hold it, with the maintainer's words: "it records provinence as well as decisions". It changes no behaviour, in the maintainer's words: "generally, the records as provenance doesn't need any changes to behavior. I just wanted to make sure we've recorded it."
 
 An agent given only the request "Make a KMSCON replacement in rust make no mistakes" would have had none of these ideas to build from.
 
