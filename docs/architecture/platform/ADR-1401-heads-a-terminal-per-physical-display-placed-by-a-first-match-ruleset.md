@@ -280,6 +280,9 @@ considered:
   - operator: aaronsb
     said: "[What starts vtium again after it restarts itself on purpose? ... vtium's systemd unit has Restart=on-failure, which restarts vtium only after a crash. Without systemd, the helper keeps your programs alive, but nothing starts vtium again at all. How should the next vtium start? A restart exit code: vtium exits with one exit code that means start me again; the unit lists that code in RestartForceExitStatus=, so systemd starts vtium again at once; without systemd, the service manager in use (runit, s6, OpenRC's supervisor, an inittab respawn line) restarts it, and vtium's docs name the line each needs; a system with no supervising service manager can't go back from a locked-down trial, so vtium-config refuses to start that kind of trial there and says why. Or vtium starts its successor.] A restart exit code"
     via: the steering session's question to the maintainer on 2026-11-09, after the gap-check of the configuration tool's remaining jobs
+  - operator: aaronsb
+    said: "I reviewed the record artifact and I'm happy with the figures and your calls."
+    via: chat, 2026-11-10, after reading the record page https://claude.ai/artifact/9umLz4TBBFaZ77eQQC7pW1 (the changed sections of ADR-1403, ADR-1401 and ADR-1201 at f9160eb0, figures included)
 observable:
   - "With no head file, every display lights and mirrors one grid, and every keyboard types into it, as before this record"
   - "With a head file naming two heads, each display shows its own grid at its own density, each head's claimed keyboard types only into it, and a roaming keyboard types into whichever head the roaming chord makes active"

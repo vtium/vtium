@@ -397,6 +397,9 @@ considered:
   - operator: aaronsb
     said: "[Where a label lives: `input MATCH = Left keyboard` / `display MATCH = Big monitor`, one line per labelled part. Rules are unchanged; vtium reads the section for the on-screen display.] A [labels] section (Recommended)"
     via: AskUserQuestion, 2026-11-10; the option's wording is the steering session's
+  - operator: aaronsb
+    said: "I reviewed the record artifact and I'm happy with the figures and your calls."
+    via: chat, 2026-11-10, after reading the record page https://claude.ai/artifact/9umLz4TBBFaZ77eQQC7pW1 (the changed sections of ADR-1403, ADR-1401 and ADR-1201 at f9160eb0, figures included)
 status: accepted
 date: 2026-11-04
 deciders:

@@ -143,6 +143,9 @@ considered:
   - operator: aaronsb
     said: "I think the actual display of colors etc is resolved for now. we can add more color schemes as we mature more (such as a colorblind or accessibility high contracst color) in later passes"
     via: chat, 2026-11-10
+  - operator: aaronsb
+    said: "I reviewed the record artifact and I'm happy with the figures and your calls."
+    via: chat, 2026-11-10, after reading the record page https://claude.ai/artifact/9umLz4TBBFaZ77eQQC7pW1 (the changed sections of ADR-1403, ADR-1401 and ADR-1201 at f9160eb0, figures included)
 observable:
   - "In a vtium console, moving the TUI's highlight from one frit to the next leaves the console's font as it was and, where the console draws kitty graphics, shows a picture of the TUI's screen in that frit at the grid it gives on the display; `t` switches the console to the frit, and the console goes back to its font after 10 s unless `k` keeps it"
   - "Leaving the TUI without saving, by its quit key, by Ctrl-C, or by SIGTERM sent from another terminal, puts the console back in the font it had when the TUI started, checked by the OSC 50 query"
