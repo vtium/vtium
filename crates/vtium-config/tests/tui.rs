@@ -3379,13 +3379,16 @@ mod draft_flow {
         let shipped = "font-size=12\n";
         let space: &[u8] = b" ";
         let clash: Vec<&[u8]> = [&[HOME][..], &[DOWN; 4][..], &[space][..]].concat();
-        let scripts: [(&str, Option<&str>, &[&[u8]]); 9] = [
+        // the terminal desk's card with the cursor on its Login line
+        let login: Vec<&[u8]> = [&[HOME, RIGHT, enter][..], &[DOWN; 4][..]].concat();
+        let scripts: [(&str, Option<&str>, &[&[u8]]); 10] = [
             ("flow-default", Some(shipped), &[]),
             ("flow-paths", None, &[]),
             ("flow-new-path", None, &[HOME, RIGHT, RIGHT, b" "]),
             ("flow-input-maker", None, &maker),
             ("flow-picker", None, &picker),
             ("flow-terminal-card", None, &[HOME, RIGHT, b"\r"]),
+            ("flow-login", None, &login),
             ("flow-label", None, &label),
             ("flow-shared-vts", Some(vts), &[]),
             ("flow-vt-clash", Some(vts), &clash),

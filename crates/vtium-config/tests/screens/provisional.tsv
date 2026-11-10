@@ -15,3 +15,5 @@ flow-shared-vts-80x25	All displays shared by the terminal desk on VT 3 and the t
 flow-shared-vts-120x32	All displays shared by the terminal desk on VT 3 and the terminal panel on VT 4, each in its own path.
 flow-vt-clash-80x25	All displays picked from PARTS into a new path on every VT, refused because the terminal desk holds it on VT 3.
 flow-vt-clash-120x32	All displays picked from PARTS into a new path on every VT, refused because the terminal desk holds it on VT 3.
+flow-login-80x25	The terminal desk's card with the cursor on Login: the choices Default: /bin/login -p and Other…, and the line's description under the card's lines.
+flow-login-120x32	The terminal desk's card with the cursor on Login: the choices Default: /bin/login -p and Other…, and the line's description under the card's lines.
