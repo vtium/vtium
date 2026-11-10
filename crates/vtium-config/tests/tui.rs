@@ -1856,6 +1856,50 @@ fn the_picture_shows_the_display_at_the_grid_the_font_gives() {
     assert!(first.starts_with("This terminal is too small"), "{first}");
 }
 
+/// The Looks view's preview draws a fixed screen of sample content,
+/// whatever the display's size, at the cell the look gets on that display;
+/// the line beside it still counts the real display's grid.
+#[test]
+fn the_looks_preview_draws_a_fixed_screen_of_sample_content() {
+    let mut c = console().keys(&[BACKTAB, DOWN]);
+    c.graphics = true;
+    let mut wide = inputs();
+    wide.display = Some((7680, 2160));
+    drive(&mut c, wide).expect("the loop");
+    let shot = c.shots.last().expect("a picture");
+    assert_eq!(shot.display, vtium_config::tui::shot::PREVIEW_SCREEN);
+    let (cw, ch) = (shot.cell.width as usize, shot.cell.height as usize);
+    assert_eq!(shot.grid, (1024 / cw, 768 / ch));
+    let first = vtium_config::tui::view::text(&shot.screen[0]);
+    assert!(first.starts_with("user@desk:~/notes$ ls -l"), "{first}");
+    // the line beside it counts the real display's characters and lines
+    let screen = c.seen.clone().expect("the screen");
+    let text = screen.split_whitespace().collect::<Vec<_>>().join(" ");
+    let wide_grid = format!(
+        "the console will be {} characters wide and {} lines high",
+        7680 / cw,
+        2160 / ch
+    );
+    assert!(text.contains(&wide_grid), "{wide_grid}: {screen}");
+    // with VTIUM_CONFIG_PREVIEW_PPM=FILE, the picture as the glyph helper
+    // draws it, for the maintainer's review
+    if let Some(out) = std::env::var_os("VTIUM_CONFIG_PREVIEW_PPM") {
+        let helper = vtium_config::specimen::Helper::at(env!("CARGO_BIN_EXE_vtium-config"));
+        let frit = vtium_config::tui::frit_text(Path::new("/nonexistent"), &shot.font)
+            .expect("a built-in font's frit");
+        // at full size, where the TUI shrinks it to the room it has
+        let mut full = shot.clone();
+        full.max = vtium_config::tui::shot::PREVIEW_SCREEN;
+        let picture =
+            vtium_config::specimen::screen(&helper, &frit, &full, "C").expect("the picture");
+        let mut ppm = format!("P6\n{} {}\n255\n", picture.width, picture.height).into_bytes();
+        for px in picture.rgba.chunks(4) {
+            ppm.extend_from_slice(px.get(..3).unwrap_or_default());
+        }
+        std::fs::write(out, ppm).expect("the picture's file");
+    }
+}
+
 #[test]
 fn a_terminal_that_answers_nothing_is_settled_by_the_wait() {
     use vtium_config::tui::model::{App, Event, Live};
