@@ -81,8 +81,6 @@ pub struct Head {
     /// The VTs its `vt` names, each once, in the file's order (ADR-1403
     /// D4). Empty when the head has no `vt`, so it runs on every VT.
     pub vts: Vec<u16>,
-    /// The line of its `vt`, 0 for none.
-    pub vt_line: usize,
     /// The keys of the key table a head's section of vtium.conf sets, such
     /// as `login`, in the file's order; the head file's reading leaves it
     /// empty.
@@ -102,7 +100,6 @@ impl Head {
             when_display_lost: WhenDisplayLost::Keep,
             isolated: None,
             vts: Vec::new(),
-            vt_line: 0,
             settings: Vec::new(),
         }
     }

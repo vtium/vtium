@@ -68,18 +68,18 @@ fn a_heads_vt_names_one_vt_or_several_and_none_means_every_vt() {
     let c = config(
         "version = 1\n[head one]\nvt = 3\n[head two]\nvt = 4\t 6\n[head every]\n[head ends]\nvt = 1 63\n",
     );
-    let names: Vec<(&str, &[u16], usize)> = c
+    let names: Vec<(&str, &[u16])> = c
         .heads
         .iter()
-        .map(|h| (h.name.as_str(), h.vts.as_slice(), h.vt_line))
+        .map(|h| (h.name.as_str(), h.vts.as_slice()))
         .collect();
     assert_eq!(
         names,
         [
-            ("one", &[3][..], 3),
-            ("two", &[4, 6][..], 5),
-            ("every", &[][..], 0),
-            ("ends", &[1, 63][..], 8),
+            ("one", &[3][..]),
+            ("two", &[4, 6][..]),
+            ("every", &[][..]),
+            ("ends", &[1, 63][..]),
         ]
     );
     let every = &c.heads[2];
@@ -470,11 +470,10 @@ fn path_test_7_a_broad_rule_after_a_tied_keyboard_leaves_it_alone() {
     assert_eq!(on(&named, &tied, 4), head(&named, "four"));
 }
 
-// covers: platform.heads.rules
-#[test]
-fn path_test_8_two_terminals_share_a_display_and_a_keyboard() {
-    let c = config(
-        "\
+/// Test 8 of ADR-1403 D7: terminals on VT 3 and VT 4 that share DP-8 and
+/// a keyboard.
+fn shared_terminals() -> String {
+    "\
 version = 1
 [head three]
 vt = 3
@@ -485,8 +484,14 @@ display connector:card0/DP-8 -> three
 input path:usb-0:1 -> three
 display connector:card0/DP-8 -> four
 input path:usb-0:1 -> four
-",
-    );
+"
+    .to_owned()
+}
+
+// covers: platform.heads.rules
+#[test]
+fn path_test_8_two_terminals_share_a_display_and_a_keyboard() {
+    let c = config(&shared_terminals());
     let dp = monitor("DP-8", "S");
     let kb = keyboard("usb-0:1");
     for (vt, name) in [(3, "three"), (4, "four")] {
@@ -495,9 +500,13 @@ input path:usb-0:1 -> four
         assert_eq!(places, [head(&c, name), head(&c, name)], "VT {vt}");
         assert_eq!(placement.focus, Some(head(&c, name)), "VT {vt}");
     }
-    // on a VT where neither runs, both stay with the first terminal noted
-    assert_eq!(on(&c, &dp, 5), elsewhere(&c, "three"));
-    assert_eq!(on(&c, &kb, 5), elsewhere(&c, "three"));
+    // on a VT where neither runs, the built-in default takes both under
+    // open, and under closed both stay with the first terminal noted
+    assert_eq!(on(&c, &dp, 5), Place::DefaultHead);
+    assert_eq!(on(&c, &kb, 5), Place::Roaming);
+    let shut = config(&closed(&shared_terminals()));
+    assert_eq!(on(&shut, &dp, 5), elsewhere(&shut, "three"));
+    assert_eq!(on(&shut, &kb, 5), elsewhere(&shut, "three"));
 }
 
 /// The display guard and the active head take only a head that runs on
@@ -519,4 +528,80 @@ fn the_guards_and_the_active_head_take_only_a_head_of_this_vt() {
     // default head
     let none = c.place_on(&[dp, kb], None, 5);
     assert_eq!(none.placed[0].place, Place::DefaultHead);
+}
+
+/// Every head of the file runs on VT 3 alone, and two displays and a
+/// keyboard are connected: one display tied to VT 3, one no rule claims.
+const ONLY_VT3: &str = "\
+version = 1
+[head three]
+vt = 3
+[rules]
+display connector:card0/DP-1 -> three
+input path:usb-0:1 -> three
+";
+
+/// On a VT where no head of the file runs, under open, vtium runs the
+/// built-in default there: one console on every display, which every
+/// keyboard types into (the maintainer, 2026-11-10: never a silent dark
+/// VT).
+#[test]
+fn under_open_a_vt_where_no_head_runs_takes_the_built_in_default() {
+    let c = config(ONLY_VT3);
+    assert!(c.uses_builtin_on(4));
+    assert!(!c.uses_builtin_on(3));
+    assert_eq!(c.heads_on_vt(4), Vec::<usize>::new());
+    assert_eq!(c.heads_on_vt(3), [0]);
+    let tied = monitor("DP-1", "L");
+    let free = monitor("DP-2", "R");
+    let kb = keyboard("usb-0:1");
+    let mut pointer = Identity::input().with_class(Class::Mouse);
+    pointer.path = Some("usb-0:9".to_owned());
+    let placement = c.place_on(&[tied.clone(), free.clone(), kb.clone(), pointer], None, 4);
+    let places: Vec<(Place, By)> = placement.placed.iter().map(|p| (p.place, p.by)).collect();
+    assert_eq!(
+        places,
+        [
+            (Place::DefaultHead, By::Builtin),
+            (Place::DefaultHead, By::Builtin),
+            (Place::Roaming, By::Builtin),
+            (Place::Roaming, By::Builtin),
+        ]
+    );
+    assert_eq!(placement.focus, Some(Place::DefaultHead));
+    assert!(!placement.never_dark && !placement.anti_lockout);
+    // never head 0, the VT 3 head, and never a focus on it
+    let moved = c.place_on(&[tied, kb.clone()], Some(Place::Head(0)), 4);
+    assert_eq!(moved.focus, Some(Place::DefaultHead));
+    assert_eq!(c.walk_on(&kb, 4).place, Place::Roaming);
+    // a file that declares no head keeps the display guard's default head
+    let none = config("version = 1\n[rules]\ninput * -> roaming\n");
+    assert!(!none.uses_builtin_on(4));
+}
+
+/// On a VT where no head of the file runs, under closed, the boot display
+/// shows the closed policy's notice, as when a file with heads lights none.
+#[test]
+fn under_closed_a_vt_where_no_head_runs_shows_the_notice() {
+    let c = config(&closed(ONLY_VT3));
+    assert!(!c.uses_builtin_on(4));
+    let tied = monitor("DP-1", "L");
+    let free = monitor("DP-2", "R");
+    let kb = keyboard("usb-0:1");
+    // the boot display is the first connected one, the display tied to VT 3
+    let placement = c.place_on(&[tied.clone(), free.clone(), kb.clone()], None, 4);
+    assert_eq!(placement.placed[0].place, Place::Notice);
+    assert_eq!(placement.placed[0].by, By::NeverDark);
+    assert_eq!(placement.placed[1].place, Place::Off);
+    assert_eq!(placement.placed[2].place, elsewhere(&c, "three"));
+    assert!(placement.never_dark);
+    assert_eq!(placement.focus, None);
+    // with only the free display connected, the notice goes there
+    let alone = c.place_on(&[free, kb], None, 4);
+    assert_eq!(alone.placed[0].place, Place::Notice);
+    // a valid closed file that declares no head stays dark and silent
+    let none = config(&closed("version = 1\n[rules]\ninput * -> ignore\n"));
+    let dark = none.place_on(&[tied], None, 4);
+    assert_eq!(dark.placed[0].place, Place::Off);
+    assert!(!dark.never_dark);
 }

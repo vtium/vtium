@@ -40,8 +40,10 @@ pub enum Place {
     /// The head at this index of [`Config::heads`].
     Head(usize),
     /// The default head, `[head console]` of the compiled-in
-    /// configuration, which the display guard lights under open when the
-    /// file declares no head.
+    /// configuration, which vtium builds as its only head: under open, the
+    /// display guard lights it when the file declares no head, and on a VT
+    /// where no head of the file runs every display goes to it
+    /// ([`Config::uses_builtin_on`]). It is never a head of the file.
     DefaultHead,
     /// An input that roams, typing into the active head.
     Roaming,
@@ -83,6 +85,10 @@ pub enum By {
     NeverDark,
     /// The anti-lockout guard made a keyboard roam.
     AntiLockout,
+    /// No head of the file runs on the VT placed for, so under open the
+    /// built-in default placed the device: a display in the default head,
+    /// and an input by the shipped rules' input rules (ADR-1401 D3).
+    Builtin,
 }
 
 /// A device's place and what put it there.
@@ -148,16 +154,19 @@ fn boot_order(a: &Identity, b: &Identity) -> Ordering {
 /// connected display always lights, the first connected one on the other
 /// cards in the kernel's order.
 ///
-/// A display that `placed` ties to a head on another VT is never the boot
-/// display, since it stays dark on this one (ADR-1401 D3, step 4).
-fn boot_display(devices: &[Identity], placed: &[Placed]) -> Option<usize> {
+/// With `tied_dark`, a display that `placed` ties to a head on another VT
+/// is never the boot display, since it stays dark on this one (ADR-1401
+/// D3, step 4).
+fn boot_display(devices: &[Identity], placed: &[Placed], tied_dark: bool) -> Option<usize> {
     let pick = |keep: fn(&Identity) -> bool| {
         devices
             .iter()
             .zip(placed)
             .enumerate()
             .filter(|(_, (d, p))| {
-                d.kind == Kind::Display && !matches!(p.place, Place::Elsewhere(_)) && keep(d)
+                d.kind == Kind::Display
+                    && !(tied_dark && matches!(p.place, Place::Elsewhere(_)))
+                    && keep(d)
             })
             .min_by(|(_, (a, _)), (_, (b, _))| boot_order(a, b))
             .map(|(i, _)| i)
@@ -210,6 +219,39 @@ impl Config {
         (0..self.heads.len()).filter(move |&i| self.runs(i, vt))
     }
 
+    /// The heads the vtium on VT `vt` builds, by their index in
+    /// [`Config::heads`], in the file's order: each head whose `vt` names
+    /// `vt`, and each head with no `vt` (ADR-1401 D2). When it is empty and
+    /// [`Config::uses_builtin_on`] holds, vtium builds the default head
+    /// alone.
+    pub fn heads_on_vt(&self, vt: u16) -> Vec<usize> {
+        self.heads_on(Some(vt)).collect()
+    }
+
+    /// Whether the vtium on VT `vt` runs the built-in default: under open,
+    /// when the file declares heads and none of them runs on `vt`. vtium
+    /// then builds the default head alone, [`Place::DefaultHead`], and
+    /// [`Config::walk_on`] places every display in it and every input by
+    /// the shipped rules' input rules, so the VT is never dark and silent.
+    /// Under closed such a VT shows the closed policy's notice on its boot
+    /// display instead ([`Config::place_on`]). A file that declares no head
+    /// keeps the display guard's default head (the maintainer, 2026-11-10;
+    /// ADR-1401 D3).
+    pub fn uses_builtin_on(&self, vt: u16) -> bool {
+        self.builtin_at(Some(vt))
+    }
+
+    /// [`Config::uses_builtin_on`] for `vt`, where `None` names no VT and
+    /// every head runs.
+    fn builtin_at(&self, vt: Option<u16>) -> bool {
+        self.policy == Policy::Open && !self.heads.is_empty() && self.heads_on(vt).next().is_none()
+    }
+
+    /// Whether the file declares heads and none of them runs on `vt`.
+    fn empty_vt(&self, vt: Option<u16>) -> bool {
+        !self.heads.is_empty() && self.heads_on(vt).next().is_none()
+    }
+
     /// Whether a head placed at `place` can be the active head on `vt`: a
     /// head the file declares that runs on `vt` and is not isolated, or the
     /// default head where no declared head runs on `vt`, which is never
@@ -217,11 +259,26 @@ impl Config {
     fn can_be_active(&self, place: Place, vt: Option<u16>) -> bool {
         match place {
             Place::Head(i) => i < self.heads.len() && self.runs(i, vt) && !self.isolated(i),
-            // the display guard lights the default head under open alone
+            // the default head runs under open alone, where no head of the file
+            // runs
             Place::DefaultHead => self.heads_on(vt).next().is_none() && self.policy == Policy::Open,
             Place::Roaming | Place::Ignore | Place::Off | Place::Notice | Place::Elsewhere(_) => {
                 false
             }
+        }
+    }
+
+    /// Where the shipped rules' input rules place the input `id`, with the
+    /// file's `mouse` shorthand applied: roaming or ignored. The rules name
+    /// no head, and what they would not place stays closed.
+    fn shipped_input(&self, id: &Identity) -> Place {
+        let tail = self.tail.as_deref().unwrap_or(&SHIPPED.rules);
+        let shipped = tail
+            .iter()
+            .find(|r| r.kind == Kind::Input && r.matcher.matches(id));
+        match shipped.map(|r| r.target) {
+            Some(Target::Roaming) => Place::Roaming,
+            Some(Target::Head(_) | Target::Ignore | Target::Off) | None => Place::Ignore,
         }
     }
 
@@ -250,6 +307,9 @@ impl Config {
     ///    a noted head stays with the first head noted,
     ///    [`Place::Elsewhere`], by the rule that noted it. One with none
     ///    falls to the policy, as [`Config::walk`] says.
+    ///
+    /// On a VT where [`Config::uses_builtin_on`] holds, the built-in
+    /// default places the device instead, by [`By::Builtin`].
     pub fn walk_on(&self, id: &Identity, vt: u16) -> Placed {
         self.walk_at(id, Some(vt))
     }
@@ -257,6 +317,15 @@ impl Config {
     /// [`Config::walk_on`] for `vt`, where `None` names no VT and every
     /// head runs.
     fn walk_at(&self, id: &Identity, vt: Option<u16>) -> Placed {
+        if self.builtin_at(vt) {
+            return Placed {
+                place: match id.kind {
+                    Kind::Display => Place::DefaultHead,
+                    Kind::Input => self.shipped_input(id),
+                },
+                by: By::Builtin,
+            };
+        }
         // the first head step 3 noted, with the line of its rule
         let mut noted: Option<(usize, usize)> = None;
         for rule in self
@@ -297,23 +366,10 @@ impl Config {
                 place: Place::Off,
                 by: By::NoMatch,
             },
-            Kind::Input if self.tail() => {
-                let tail = self.tail.as_deref().unwrap_or(&SHIPPED.rules);
-                let shipped = tail
-                    .iter()
-                    .find(|r| r.kind == Kind::Input && r.matcher.matches(id));
-                Placed {
-                    // the tail names no head, and what it would not place
-                    // stays closed
-                    place: match shipped.map(|r| r.target) {
-                        Some(Target::Roaming) => Place::Roaming,
-                        Some(Target::Head(_) | Target::Ignore | Target::Off) | None => {
-                            Place::Ignore
-                        }
-                    },
-                    by: By::Tail,
-                }
-            }
+            Kind::Input if self.tail() => Placed {
+                place: self.shipped_input(id),
+                by: By::Tail,
+            },
             Kind::Input => Placed {
                 place: match self.policy {
                     Policy::Open => Place::Roaming,
@@ -406,16 +462,20 @@ impl Config {
         };
         let mut never_dark = false;
         if lit_heads(&placed).is_empty() {
-            // under open the first head, else the default head; under
-            // closed a notice alone, for a file with heads or one that
-            // failed, and nothing for a valid closed file with no head
+            // under open the first head of this VT, else the default head;
+            // under closed a notice alone, for a file with heads, on this VT
+            // or not, or one that failed, and nothing for a valid closed
+            // file with no head
             let first = self.heads_on(vt).next();
             let place = match self.policy {
                 Policy::Open => Some(first.map_or(Place::DefaultHead, Place::Head)),
-                Policy::Closed if first.is_none() && !self.survivors => None,
+                Policy::Closed if self.heads.is_empty() && !self.survivors => None,
                 Policy::Closed => Some(Place::Notice),
             };
-            let boot = boot_display(devices, &placed).and_then(|i| placed.get_mut(i));
+            // on a VT where no head runs, a display tied to another VT's
+            // head can show the notice too, so the VT is never silent
+            let tied_dark = !self.empty_vt(vt);
+            let boot = boot_display(devices, &placed, tied_dark).and_then(|i| placed.get_mut(i));
             if let (Some(place), Some(p)) = (place, boot) {
                 *p = Placed {
                     place,
@@ -427,7 +487,7 @@ impl Config {
         let lit = lit_heads(&placed);
         // the boot display's head, else the first lit head in the file, of
         // the heads that can be the active head
-        let start = boot_display(devices, &placed)
+        let start = boot_display(devices, &placed, true)
             .and_then(|i| placed.get(i))
             .map(|p| p.place)
             .filter(|&place| lit.contains(&place) && self.can_be_active(place, vt))
