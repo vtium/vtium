@@ -272,10 +272,11 @@ impl App {
             Obj::New(Slot::Display(s)) | Obj::New(Slot::Input(s)) => Some(s.clone()),
             _ => return 0,
         };
+        // the label is the detail's first line, then the choices
         rowsdraw::choices_for(self, obj)
             .iter()
             .position(|(_, _, v)| *v == now)
-            .unwrap_or(0)
+            .map_or(0, |at| at.saturating_add(1))
     }
 
     /// Space: picks a palette piece into the editor or takes it out, takes
@@ -519,14 +520,22 @@ impl App {
         self.tell(said)
     }
 
-    /// A key on a piece's choices: Up and Down move, Enter picks the choice
-    /// into the editor, or puts it in the editor piece's place, and Esc goes
-    /// back.
+    /// A key on a part's detail, whose first line is the part's label and
+    /// whose other lines are its choices: Up and Down move; Enter on the
+    /// label starts typing it, and Enter on a choice picks it into the
+    /// editor, or puts it in the editor piece's place; Esc goes back.
     fn choice_key(&mut self, state: &State, obj: &Obj, key: Key) -> Vec<Effect> {
         let list = rowsdraw::choices_for(self, obj);
+        let Some((kind, sel)) = rowsdraw::label_target(obj) else {
+            self.rows_with(|s| s.layer = None);
+            return Vec::new();
+        };
+        if let Some(typed) = state.typing.clone() {
+            return self.label_key(kind, &sel, typed, key);
+        }
         match key {
             Key::Up | Key::Down | Key::Home | Key::End | Key::PageUp | Key::PageDown => {
-                let line = step(state.line, list.len(), key);
+                let line = step(state.line, list.len().saturating_add(1), key);
                 self.rows_with(|s| s.line = line);
                 Vec::new()
             }
@@ -534,8 +543,15 @@ impl App {
                 self.rows_with(|s| s.layer = None);
                 Vec::new()
             }
+            Key::Enter if state.line == 0 => {
+                let doc = paths::read(&self.inputs.flow);
+                let now = doc.label(kind, &sel).unwrap_or_default().to_owned();
+                self.rows_with(|s| s.typing = Some(now));
+                Vec::new()
+            }
             Key::Enter => {
-                let Some((_, _, Some(sel))) = list.get(state.line).cloned() else {
+                let at = state.line.saturating_sub(1);
+                let Some((_, _, Some(sel))) = list.get(at).cloned() else {
                     return Vec::new();
                 };
                 self.rows_with(|s| s.layer = None);
@@ -575,6 +591,66 @@ impl App {
             }
             _ => Vec::new(),
         }
+    }
+
+    /// A key while a part's label is typed: characters go into it, up to
+    /// the most a label holds; Enter writes it to the draft, and Esc leaves
+    /// the label as it was.
+    fn label_key(
+        &mut self,
+        kind: super::flow::Kind,
+        sel: &str,
+        mut typed: String,
+        key: Key,
+    ) -> Vec<Effect> {
+        match key {
+            Key::Char(c) if typed.chars().count() < vtium_settings::LABEL_MAX => {
+                typed.push(c);
+                self.rows_with(|s| s.typing = Some(typed));
+                Vec::new()
+            }
+            Key::Backspace => {
+                typed.pop();
+                self.rows_with(|s| s.typing = Some(typed));
+                Vec::new()
+            }
+            Key::Enter => self.set_label(kind, sel, &typed),
+            Key::Escape => {
+                self.rows_with(|s| s.typing = None);
+                self.message = None;
+                Vec::new()
+            }
+            _ => Vec::new(),
+        }
+    }
+
+    /// Gives the part of `kind` that matches by `sel` the label `typed`, or
+    /// takes its label away when `typed` is blank, through the draft's
+    /// changes, which write the `[labels]` section. A label that starts
+    /// with `#` is refused in one sentence, since vtium.conf reads it as a
+    /// comment.
+    fn set_label(&mut self, kind: super::flow::Kind, sel: &str, typed: &str) -> Vec<Effect> {
+        let label = typed.trim();
+        if label.starts_with('#') {
+            return self.tell(words::LABEL_HASH);
+        }
+        let flow = &self.inputs.flow;
+        let mut doc = paths::read(flow);
+        doc.set_label(kind, sel, label);
+        let changes = paths::plan(flow, &doc);
+        self.rows_with(|s| s.typing = None);
+        if changes.is_empty() {
+            return Vec::new();
+        }
+        let out = self.make(changes, None);
+        if !out.is_empty() {
+            self.message = Some(if label.is_empty() {
+                words::LABEL_REMOVED.to_owned()
+            } else {
+                words::label_set(label)
+            });
+        }
+        out
     }
 
     /// The choice a terminal card's line `line` starts on: the one the
@@ -1123,5 +1199,45 @@ mod tests {
         let edid = "edid:AAA:0x0001:LARGE00001".to_owned();
         assert_eq!(state(&app).new.displays, std::slice::from_ref(&edid));
         assert_eq!(state(&app).at, Some(Obj::New(Slot::Display(edid))));
+    }
+    #[test]
+    fn a_part_made_from_a_template_choice_carries_a_label() {
+        let mut app = app();
+        app.draft = Some(super::super::desk::Opened {
+            name: "north".into(),
+            text: super::super::paths::tests::TEXT.into(),
+            ..Default::default()
+        });
+        // every keyboard, the Input template's second choice
+        highlight(&mut app, Obj::Pal(Slot::Template(Stage::Input)));
+        keys(&mut app, &[Key::Enter, Key::Down, Key::Enter]);
+        let every = Obj::Pal(Slot::Input(paths::ANY_KEYBOARD.into()));
+        assert_eq!(state(&app).at, Some(every.clone()));
+        // Enter opens its detail, whose first line is the label
+        keys(&mut app, &[Key::Enter]);
+        assert_eq!(state(&app).layer, Some(every.clone()));
+        assert_eq!(state(&app).line, 0);
+        keys(&mut app, &[Key::Enter]);
+        assert_eq!(state(&app).typing.as_deref(), Some(""));
+        type_text(&mut app, "Any board #1");
+        let effects = app.event(Event::Input(Input::Key(Key::Enter)));
+        let written = effects
+            .iter()
+            .find_map(|e| match e {
+                Effect::Desk(super::super::desk::Op::Write(t)) => Some(t.clone()),
+                _ => None,
+            })
+            .expect("the draft written");
+        assert!(
+            written.ends_with("[labels]\ninput class:keyboard = Any board \\#1\n"),
+            "{written}"
+        );
+        assert!(state(&app).typing.is_none());
+        // a label that starts with # is refused in one sentence
+        keys(&mut app, &[Key::Enter]);
+        type_text(&mut app, "#2");
+        keys(&mut app, &[Key::Enter]);
+        assert_eq!(app.message.as_deref(), Some(words::LABEL_HASH));
+        assert!(state(&app).typing.is_some(), "the label stays to fix");
     }
 }

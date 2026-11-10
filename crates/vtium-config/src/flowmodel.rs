@@ -401,6 +401,17 @@ pub fn build(text: &str, present: &Present, draft: Option<Draft>) -> Flow {
         },
         draft,
         read: true,
+        labels: config
+            .labels
+            .iter()
+            .map(|l| {
+                let kind = match l.kind {
+                    vtium_settings::Kind::Display => Kind::Display,
+                    vtium_settings::Kind::Input => Kind::Input,
+                };
+                (kind, l.selector.clone(), l.text.clone())
+            })
+            .collect(),
     }
 }
 

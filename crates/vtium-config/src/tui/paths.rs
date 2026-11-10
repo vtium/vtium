@@ -334,9 +334,38 @@ pub struct Doc {
     /// The draft has no rule and no terminal yet, so its first path takes
     /// the shipped default's shape: its inputs roam.
     pub empty: bool,
+    /// The labels the person gave parts: each part's kind, its match as the
+    /// part holds it, and its label. A label belongs to the part, not to a
+    /// path, so revising a path leaves it as it is.
+    pub labels: Vec<(Kind, String, String)>,
 }
 
 impl Doc {
+    /// The label of the part of `kind` that matches by `sel`.
+    pub fn label(&self, kind: Kind, sel: &str) -> Option<&str> {
+        self.labels
+            .iter()
+            .find(|(k, s, _)| *k == kind && s == sel)
+            .map(|(_, _, l)| l.as_str())
+    }
+
+    /// Gives the part of `kind` that matches by `sel` the label `label`, or
+    /// takes its label away when `label` is empty.
+    pub fn set_label(&mut self, kind: Kind, sel: &str, label: &str) {
+        match self
+            .labels
+            .iter_mut()
+            .find(|(k, s, _)| *k == kind && s == sel)
+        {
+            Some(entry) if !label.is_empty() => label.clone_into(&mut entry.2),
+            Some(_) => self.labels.retain(|(k, s, _)| !(*k == kind && s == sel)),
+            None if !label.is_empty() => {
+                self.labels.push((kind, sel.to_owned(), label.to_owned()));
+            }
+            None => {}
+        }
+    }
+
     /// The path of the terminal `name`.
     pub fn path(&self, name: &str) -> Option<&Path> {
         self.paths.iter().find(|p| p.name.as_deref() == Some(name))
@@ -548,6 +577,28 @@ pub fn read(flow: &Flow) -> Doc {
         });
     }
     let unfit = flow.rules.iter().filter(|r| !fits(flow, r)).count();
+    // a label's line writes the first rule's match of the part, so the
+    // pointers' first class reads back as "every pointer" where the
+    // configuration has that part
+    let pointers = paths
+        .iter()
+        .flat_map(|p| &p.inputs)
+        .chain(&roaming)
+        .chain(&ignored)
+        .any(|s| s == ANY_POINTER);
+    let labels = flow
+        .labels
+        .iter()
+        .map(|(kind, sel, label)| {
+            let sel = match POINTER_CLASSES.first() {
+                Some(first) if pointers && *kind == Kind::Input && sel == first => {
+                    ANY_POINTER.to_owned()
+                }
+                _ => sel.clone(),
+            };
+            (*kind, sel, label.clone())
+        })
+        .collect();
     Doc {
         paths,
         roaming,
@@ -555,7 +606,51 @@ pub fn read(flow: &Flow) -> Doc {
         ignored,
         unfit,
         empty: flow.rules.is_empty() && flow.heads.is_empty(),
+        labels,
     }
+}
+
+/// The match a label's line writes for the part of `kind` that matches by
+/// `sel`: exactly the match of the part's first rule, as "every keyboard"
+/// writes `class:keyboard`.
+pub fn label_match(kind: Kind, sel: &str) -> String {
+    match kind {
+        Kind::Display => sel.to_owned(),
+        Kind::Input => expand(sel).first().copied().unwrap_or(sel).to_owned(),
+    }
+}
+
+/// One line of `[labels]`: `display MATCH = LABEL` or
+/// `input MATCH = LABEL`, with each `#` the comment rule would read
+/// escaped.
+fn label_line(kind: Kind, sel: &str, label: &str) -> String {
+    let word = match kind {
+        Kind::Display => "display",
+        Kind::Input => "input",
+    };
+    format!("{word} {sel} = {}", vtium_settings::escape_label(label))
+}
+
+/// The `[labels]` lines `doc` says, given the rules in the order the draft
+/// will hold them: a label whose part a rule uses goes where that rule
+/// is, and the labels of parts no rule uses come after, in the order the
+/// person gave them.
+fn labels_plan(doc: &Doc, rules: &[(Line, bool)]) -> Vec<String> {
+    let mut placed: Vec<(usize, usize, String)> = doc
+        .labels
+        .iter()
+        .enumerate()
+        .map(|(i, (kind, sel, label))| {
+            let written = label_match(*kind, sel);
+            let at = rules
+                .iter()
+                .position(|(l, _)| l.kind == *kind && l.selector == written)
+                .unwrap_or(usize::MAX);
+            (at, i, label_line(*kind, &written, label))
+        })
+        .collect();
+    placed.sort_by_key(|(at, i, _)| (*at, *i));
+    placed.into_iter().map(|(_, _, line)| line).collect()
 }
 
 /// Whether `flow` is vtium's built-in default: its paths and roaming
@@ -958,6 +1053,16 @@ pub fn plan(flow: &Flow, doc: &Doc) -> Vec<Change> {
                 before: i.saturating_add(1),
             });
         }
+    }
+    // the labels last, so their section stays after `[rules]`
+    let labels = labels_plan(doc, &rules);
+    let now: Vec<String> = flow
+        .labels
+        .iter()
+        .map(|(kind, sel, label)| label_line(*kind, sel, label))
+        .collect();
+    if labels != now {
+        out.push(Change::Labels(labels));
     }
     out
 }
@@ -1508,7 +1613,7 @@ pub(crate) mod tests {
     }
 
     /// The draft whose flow [`flow`]'s heads, looks and rules stand for.
-    const TEXT: &str = "version = 1\npolicy = open\n[look big]\nfont-name = monoid\nfont-size = 14\n[head desk]\nlook = big\n[head panel]\n[rules]\ndisplay edid:AAA:0x0001:LARGE00001 -> desk\ndisplay edid:BBB:0x0002:SMALL00001 -> panel\ninput serial:046d:c52b:0 -> desk\ninput id:046d:c31c -> roaming\ninput * -> ignore\n";
+    pub(crate) const TEXT: &str = "version = 1\npolicy = open\n[look big]\nfont-name = monoid\nfont-size = 14\n[head desk]\nlook = big\n[head panel]\n[rules]\ndisplay edid:AAA:0x0001:LARGE00001 -> desk\ndisplay edid:BBB:0x0002:SMALL00001 -> panel\ninput serial:046d:c52b:0 -> desk\ninput id:046d:c31c -> roaming\ninput * -> ignore\n";
 
     fn apply(text: &str, changes: &[Change]) -> String {
         changes.iter().fold(text.to_owned(), |t, c| {
@@ -1941,5 +2046,72 @@ pub(crate) mod tests {
         assert_eq!(rank(PORT_33), 2);
         assert_eq!(rank("class:keyboard"), 3);
         assert_eq!(rank("*"), 4);
+    }
+    #[test]
+    fn labels_round_trip_through_the_labels_section_in_the_rules_order() {
+        let f = build(TEXT);
+        let mut doc = read(&f);
+        assert!(doc.labels.is_empty());
+        doc.set_label(Kind::Input, "serial:046d:c52b:0", "Desk keyboard #1");
+        doc.set_label(Kind::Display, "edid:BBB:0x0002:SMALL00001", "Panel screen");
+        // a part made from a template choice, in no rule
+        doc.set_label(Kind::Input, ANY_KEYBOARD, "Every board");
+        doc.set_label(Kind::Input, "id:046d:c31c", "Receiver");
+        let text = apply(TEXT, &plan(&f, &doc));
+        // the rules stay as they are, and the section comes after them
+        assert_eq!(rules_of(&text), rules_of(TEXT));
+        let tail = text.strip_prefix(TEXT).expect("the rules stay as they are");
+        assert_eq!(
+            tail,
+            format!(
+                "\n{}[labels]\ndisplay edid:BBB:0x0002:SMALL00001 = Panel screen\ninput serial:046d:c52b:0 = Desk keyboard \\#1\ninput id:046d:c31c = Receiver\ninput class:keyboard = Every board\n",
+                crate::ops::LABELS_COMMENT
+            )
+        );
+        // the comment above the section wraps at 78 columns
+        assert!(
+            crate::ops::LABELS_COMMENT
+                .lines()
+                .all(|l| l.chars().count() <= 78)
+        );
+        // reading the draft back gives each part its label
+        let back = read(&build(&text));
+        assert_eq!(
+            back.label(Kind::Input, "serial:046d:c52b:0"),
+            Some("Desk keyboard #1")
+        );
+        assert_eq!(back.label(Kind::Input, ANY_KEYBOARD), Some("Every board"));
+        assert_eq!(
+            back.label(Kind::Display, "edid:BBB:0x0002:SMALL00001"),
+            Some("Panel screen")
+        );
+        assert_eq!(
+            back.label(Kind::Display, "edid:AAA:0x0001:LARGE00001"),
+            None
+        );
+        assert!(
+            plan(&build(&text), &back).is_empty(),
+            "nothing more to write"
+        );
+        // revise and add back keep the labels byte for byte
+        let mut seen = 0;
+        for (name, b) in round_trips(&text) {
+            assert_eq!(b.as_deref(), Ok(text.as_str()), "{name}");
+            seen += 1;
+        }
+        assert!(seen >= 3);
+        // clearing a label removes its line; clearing every label, the section
+        let mut fewer = back.clone();
+        fewer.set_label(Kind::Input, "id:046d:c31c", "");
+        let less = apply(&text, &plan(&build(&text), &fewer));
+        assert!(!less.contains("Receiver") && less.contains("Every board"));
+        for (k, s) in [
+            (Kind::Input, "serial:046d:c52b:0"),
+            (Kind::Display, "edid:BBB:0x0002:SMALL00001"),
+            (Kind::Input, ANY_KEYBOARD),
+        ] {
+            fewer.set_label(k, s, "");
+        }
+        assert_eq!(apply(&less, &plan(&build(&less), &fewer)), TEXT);
     }
 }

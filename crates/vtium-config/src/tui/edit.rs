@@ -71,6 +71,9 @@ pub enum Change {
         key: &'static str,
         value: Option<String>,
     },
+    /// Writes the `[labels]` section with these lines, after `[rules]`, or
+    /// removes it when there are none.
+    Labels(Vec<String>),
 }
 
 /// The head keys the head card edits, after its look.
@@ -142,6 +145,7 @@ impl Change {
                 value: Some(v),
             } => ops::set_top(text, key, v),
             Change::Top { key, value: None } => ops::unset_top(text, key),
+            Change::Labels(lines) => Ok(ops::labels(text, lines)),
         }
     }
 
@@ -212,6 +216,8 @@ impl Change {
                 value: Some(v),
             } => format!("{c} set {key} {}", shell(v)),
             Change::Top { key, value: None } => format!("{c} set --unset {key}"),
+            // no command of `vtium config` writes labels yet
+            Change::Labels(_) => "vtium-config wrote the [labels] section".to_owned(),
         }
     }
 }

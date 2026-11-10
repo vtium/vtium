@@ -44,6 +44,9 @@ pub struct Flow {
     /// read one, so the view says so instead of drawing an empty flow as if
     /// it were the file.
     pub read: bool,
+    /// The `[labels]` section's lines in the file's order: each one's kind,
+    /// its match as the line writes it, and its label.
+    pub labels: Vec<(Kind, String, String)>,
 }
 
 /// The top-level keys of vtium.conf, which every head inherits.

@@ -144,6 +144,7 @@ pub fn flow() -> Flow {
             problems: 0,
         }),
         read: true,
+        labels: Vec::new(),
     }
 }
 

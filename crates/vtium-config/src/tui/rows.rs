@@ -351,6 +351,16 @@ pub fn holders(doc: &[Path], kind: Kind, dev: &Device) -> Vec<String> {
         .collect()
 }
 
+/// A box's two lines for the part of `kind` that matches by `sel`: when
+/// the person gave the part a label, the label as the title and the name
+/// the system gives it under it; else `words` as they are.
+fn labelled(ctx: &Ctx<'_>, kind: Kind, sel: &str, words: (String, String)) -> (String, String) {
+    match ctx.doc.label(kind, sel) {
+        Some(l) => (l.to_owned(), words.0),
+        None => words,
+    }
+}
+
 /// A font set's words on a terminal's second line.
 pub fn font_words(font: Option<&str>) -> String {
     match font {
@@ -500,7 +510,12 @@ fn path_row(
     }
     for (k, slot) in displays.into_iter().enumerate() {
         let words = match &slot {
-            Slot::Display(sel) => paths::title(ctx.flow, Kind::Display, sel),
+            Slot::Display(sel) => labelled(
+                ctx,
+                Kind::Display,
+                sel,
+                paths::title(ctx.flow, Kind::Display, sel),
+            ),
             _ => (
                 Stage::Display.name().to_owned(),
                 words::EMPTY_PLACE.to_owned(),
@@ -557,7 +572,16 @@ fn path_row(
     let k = inputs.len();
     for (k, slot) in inputs.into_iter().enumerate() {
         let (words, wired, mood) = match &slot {
-            Slot::Input(sel) => (paths::title(ctx.flow, Kind::Input, sel), true, mood),
+            Slot::Input(sel) => (
+                labelled(
+                    ctx,
+                    Kind::Input,
+                    sel,
+                    paths::title(ctx.flow, Kind::Input, sel),
+                ),
+                true,
+                mood,
+            ),
             Slot::Special(_) => (
                 (
                     words::NO_INPUT.to_owned(),
@@ -674,7 +698,12 @@ fn roaming_row(ctx: &Ctx<'_>, out: &mut Layout, y: usize) -> usize {
     let join_row = term_box.title_row();
     out.boxes.push(term_box);
     for (k, sel) in ctx.doc.roaming.iter().enumerate() {
-        let (title, detail) = paths::title(ctx.flow, Kind::Input, sel);
+        let (title, detail) = labelled(
+            ctx,
+            Kind::Input,
+            sel,
+            paths::title(ctx.flow, Kind::Input, sel),
+        );
         let b = Boxed {
             obj: Obj::Roam(Slot::Input(sel.clone())),
             x: g.dev_x,
@@ -844,14 +873,18 @@ fn palette(ctx: &Ctx<'_>, waiting: &mut Vec<Sort>) -> Vec<(NoteKind, &'static st
             }];
             for part in ctx.parts.iter().filter(|p| Stage::of(&p.piece) == stage) {
                 let (detail, mood) = part_state(ctx, part, waiting);
+                // a labelled part shows its label, and its own name under it
+                let (title, detail) = match &part.piece {
+                    Piece::Display(s) => {
+                        labelled(ctx, Kind::Display, s, (part.title.clone(), detail))
+                    }
+                    Piece::Input(s) => labelled(ctx, Kind::Input, s, (part.title.clone(), detail)),
+                    _ => (part.title.clone(), detail),
+                };
                 let on = picked(&part.piece);
                 pieces.push(PalPiece {
                     slot: Slot::of(&part.piece),
-                    title: if on {
-                        format!("✓ {}", part.title)
-                    } else {
-                        part.title.clone()
-                    },
+                    title: if on { format!("✓ {title}") } else { title },
                     detail,
                     mood: if on { Mood::Picked } else { mood },
                     template: false,

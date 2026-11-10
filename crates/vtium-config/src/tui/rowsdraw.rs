@@ -1072,15 +1072,86 @@ fn card_layer(canvas: &mut Canvas, app: &App, state: &rows::State, obj: &Obj) {
 
 /// A part's choices, one a row, broad to narrow, each with what it
 /// covers; the cursor's in reverse video and the piece's own marked ●.
+/// The part a part's detail labels: its kind and its match. Only a
+/// display or an input part, in PARTS or in NEW PATH, takes a label.
+pub fn label_target(obj: &Obj) -> Option<(Kind, String)> {
+    match obj {
+        Obj::Pal(Slot::Display(s)) | Obj::New(Slot::Display(s)) => Some((Kind::Display, s.clone())),
+        Obj::Pal(Slot::Input(s)) | Obj::New(Slot::Input(s)) => Some((Kind::Input, s.clone())),
+        _ => None,
+    }
+}
+
+/// A part's detail: its name, its label, which the person can type, and
+/// the choices of what the part matches, from the widest to the
+/// narrowest. The label is the detail's first line.
 fn choices_layer(canvas: &mut Canvas, app: &App, state: &rows::State, obj: &Obj) {
-    let heading = match obj {
-        Obj::Pal(Slot::Display(_)) | Obj::New(Slot::Display(_)) => words::CHOOSE_DISPLAY,
-        _ => words::CHOOSE_INPUT,
+    let flow = &app.inputs.flow;
+    let Some((kind, sel)) = label_target(obj) else {
+        return;
     };
-    canvas.put(1, 3, heading, bold(Color::BrightWhite));
+    let (part, heading) = match kind {
+        Kind::Display => (words::DISPLAY_PART, words::CHOOSE_DISPLAY),
+        Kind::Input => (words::INPUT_PART, words::CHOOSE_INPUT),
+    };
+    let name = paths::title(flow, kind, &sel).0;
+    let x = canvas.put(1, 3, part, bold(Color::BrightWhite));
+    let role = match kind {
+        Kind::Display => Role::Display,
+        Kind::Input => Role::Input,
+    };
+    canvas.put(
+        x.saturating_add(2),
+        3,
+        &fit(&name, app.cols.saturating_sub(x).saturating_sub(3)),
+        emph(app.inputs.rows_colors.style(role)),
+    );
+    // the label's line
+    let doc = paths::read(flow);
+    let label = doc.label(kind, &sel).unwrap_or_default().to_owned();
+    canvas.put(3, 5, words::LABEL_FIELD, Style::text(Color::Grey));
+    let vx = 12usize;
+    match &state.typing {
+        Some(t) => {
+            let x = canvas.put(vx, 5, &format!(" {t}_ "), Style::PLAIN.reversed());
+            canvas.put(
+                x.saturating_add(2),
+                5,
+                &fit(
+                    words::LABEL_TYPING,
+                    app.cols.saturating_sub(x).saturating_sub(3),
+                ),
+                Style::text(Color::Grey),
+            );
+        }
+        None => {
+            let shown = if label.is_empty() {
+                words::NO_LABEL.to_owned()
+            } else {
+                label
+            };
+            let style = if state.line == 0 {
+                Style::PLAIN.reversed()
+            } else {
+                Style::text(Color::BrightWhite)
+            };
+            canvas.put(vx, 5, &format!(" {shown} "), style);
+        }
+    }
+    let about = wrap(words::LABEL_ABOUT, app.cols.saturating_sub(4), 2);
+    for (k, line) in about.iter().enumerate() {
+        canvas.put(3, 6usize.saturating_add(k), line, Style::text(Color::Grey));
+    }
+    let y0 = 7usize.saturating_add(about.len());
+    canvas.put(1, y0, heading, bold(Color::BrightWhite));
     let about = wrap(words::CHOOSE_ABOUT, app.cols.saturating_sub(4), 2);
     for (k, line) in about.iter().enumerate() {
-        canvas.put(3, 4usize.saturating_add(k), line, Style::text(Color::Grey));
+        canvas.put(
+            3,
+            y0.saturating_add(1).saturating_add(k),
+            line,
+            Style::text(Color::Grey),
+        );
     }
     let now = match obj {
         Obj::New(Slot::Display(s)) | Obj::New(Slot::Input(s)) => Some(s.clone()),
@@ -1088,16 +1159,18 @@ fn choices_layer(canvas: &mut Canvas, app: &App, state: &rows::State, obj: &Obj)
     };
     let (wtop, wh) = window(app);
     let bottom = wtop.saturating_add(wh);
-    let top = 5usize.saturating_add(about.len());
+    let top = y0.saturating_add(2).saturating_add(about.len());
     let room = bottom.saturating_sub(top).max(1);
-    let first = state.line.saturating_add(1).saturating_sub(room);
+    // the choices' lines come after the label's
+    let line = state.line.saturating_sub(1);
+    let first = line.saturating_add(1).saturating_sub(room);
     let mut y = top;
     for (i, (title, detail, value)) in choices_for(app, obj).iter().enumerate().skip(first) {
         if y >= bottom {
             break;
         }
         let on = now.is_some() && *value == now;
-        let x = choice(canvas, 3, y, title, on, i == state.line);
+        let x = choice(canvas, 3, y, title, on, state.line > 0 && i == line);
         let room = app.cols.saturating_sub(x);
         canvas.put(x, y, &fit(detail, room), Style::text(Color::Grey));
         y = y.saturating_add(1);

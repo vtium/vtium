@@ -1222,6 +1222,23 @@ pub fn rows_policy(policy: &str) -> String {
         _ => "policy open: a keyboard that no rule names types into the active terminal".to_owned(),
     }
 }
+/// A part's detail: its heading, and its label's line.
+pub const DISPLAY_PART: &str = "DISPLAY PART";
+pub const INPUT_PART: &str = "INPUT PART";
+pub const LABEL_FIELD: &str = "Label";
+pub const NO_LABEL: &str = "none, press Enter to add one";
+pub const LABEL_ABOUT: &str = "A label is a name of your own for this part. It shows as the part's title, and vtium shows it on the on-screen display.";
+pub const LABEL_TYPING: &str =
+    "Enter keeps it. Clear it to remove the label. Esc leaves it as it was.";
+pub const LABEL_HASH: &str = "This label starts with #, which vtium.conf reads as the start of a comment. Start the label with another character.";
+pub const LABEL_REMOVED: &str =
+    "This part has no label now. vtium-config took it out of the draft.";
+
+/// What the status line says once a part's label is written.
+pub fn label_set(label: &str) -> String {
+    format!("This part's label is now \u{201c}{label}\u{201d}. vtium-config wrote it to the draft.")
+}
+
 #[cfg(test)]
 mod tests {
     // ADR-1403 D7's fixed word: Install, Revert and New each call the

@@ -146,8 +146,8 @@ pub fn connected(flow: &Flow, piece: &Piece) -> bool {
 
 /// The parts of the draft's flow `flow`, whose configuration is `doc`:
 /// each connected display, keyboard and pointer, by the match it is picked
-/// by; each display and input the configuration's paths name; and the
-/// special parts and font sets the paths use.
+/// by; each display and input the configuration's paths name or labels;
+/// and the special parts and font sets the paths use.
 pub fn enumerate(flow: &Flow, doc: &Doc) -> Vec<Part> {
     let mut pieces: Vec<Piece> = Vec::new();
     let mut add = |p: Piece| {
@@ -171,6 +171,13 @@ pub fn enumerate(flow: &Flow, doc: &Doc) -> Vec<Part> {
     let named = doc.paths.iter().flat_map(|p| &p.inputs);
     for i in named.chain(&doc.roaming).chain(&doc.ignored) {
         add(Piece::Input(i.clone()));
+    }
+    // a labelled part comes back whether or not a rule uses it
+    for (kind, sel, _) in &doc.labels {
+        add(match kind {
+            Kind::Display => Piece::Display(sel.clone()),
+            Kind::Input => Piece::Input(sel.clone()),
+        });
     }
     if doc.paths.iter().any(|p| p.no_input) {
         add(Piece::NoInput);
