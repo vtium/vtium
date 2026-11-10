@@ -7,7 +7,8 @@
 //! settings that do not change its pieces, a piece's narrowing choices,
 //! the editor terminal's name and font set, or a font set's preview in the
 //! Fonts view. `v` shows the draft's vtium.conf as text, read-only, in the
-//! pager, and Esc there comes back with the same box highlighted.
+//! pager, where `s` and `i` save and install as they do on the paths,
+//! and Esc there comes back with the same box highlighted.
 //!
 //! Every change to the draft goes through [`super::paths::plan`] and
 //! [`App::make`], so through `src/ops.rs`.
@@ -64,6 +65,14 @@ impl App {
                 return Vec::new();
             }
             return self.flow_key(key);
+        }
+        // the file view saves and installs as the paths do, and stays open
+        if self.pager.is_some() {
+            match key {
+                Key::Char('s') => return self.tell(words::ROWS_SAVE),
+                Key::Char('i') => return self.action('i'),
+                _ => {}
+            }
         }
         if self.route.is_some() || self.pager.is_some() || self.restore.is_some() {
             return self.flow_key(key);

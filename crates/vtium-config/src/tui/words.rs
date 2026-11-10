@@ -852,6 +852,10 @@ pub const KEYS_CONFIRM: &str = "y yes  any other key no";
 pub const KEYS_LEAVE: &str = "i install  l quit anyway  any other key back";
 pub const KEYS_PAGER: &str =
     "j k ↑↓ lines  h l ←→ sideways  g G top bottom  ^D ^U half page  q back";
+/// The file view's keys in the Flow view as paths, which also saves and
+/// installs.
+pub const ROWS_KEYS_PAGER: &str =
+    "s save  i install  j k ↑↓ lines  h l ←→ sideways  g G top bottom  ^D ^U half page  q back";
 pub const KEYS_RESTORE: &str = "↑↓ choose  Enter restore  q back";
 pub const fn new_card(new: super::flow::New) -> &'static str {
     match new {

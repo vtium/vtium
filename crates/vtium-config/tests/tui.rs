@@ -3680,6 +3680,42 @@ mod draft_flow {
         assert!(!ran.screen().contains(words::PAGER_TITLE));
     }
 
+    /// Runs the Flow view as rows on `b`'s desk at 100x30, typing `keys`.
+    fn run_rows(b: &Bench, keys: &[&[u8]]) -> Ran {
+        let mut console = Console::vtium(100, 30, true, "unifont")
+            .takes("proof", (100, 30))
+            .takes("unifont", (100, 30))
+            .keys(keys);
+        console.installs = true;
+        let mut desk = b.desk(vec![present(vec![keyboard()], true)]);
+        let mut i = inputs();
+        i.view = model::View::Flow;
+        i.hotplug = true;
+        i.flow_rows = true;
+        i.flow = vtium_config::tui::flow::Flow::default();
+        drive_with(&mut console, i, Some(&mut desk)).expect("the loop");
+        Ran { console }
+    }
+
+    #[test]
+    fn the_rows_file_view_saves_and_installs_and_stays_open() {
+        let b = bench("rows-file");
+        let ran = run_rows(&b, &[b"v"]);
+        let screen = ran.screen();
+        assert!(screen.contains(words::PAGER_TITLE), "{screen}");
+        assert!(screen.contains("s save  i install"), "{screen}");
+        // s says what Save says, and the file stays open
+        let ran = run_rows(&b, &[b"v", b"s"]);
+        let screen = ran.screen();
+        assert!(screen.contains(words::PAGER_TITLE), "{screen}");
+        assert!(screen.contains("nothing to save"), "{screen}");
+        // i runs the install flow: here the draft is what is installed
+        let ran = run_rows(&b, &[b"v", b"i"]);
+        let screen = ran.screen();
+        assert!(screen.contains(words::PAGER_TITLE), "{screen}");
+        assert!(screen.contains(words::NOTHING_TO_INSTALL), "{screen}");
+    }
+
     #[test]
     fn the_pager_reaches_the_draft_s_last_line() {
         let b = bench("pager-end");

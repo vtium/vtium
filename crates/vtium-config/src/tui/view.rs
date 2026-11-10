@@ -617,6 +617,7 @@ const MESSAGE_ROWS: usize = 3;
 fn view_keys(app: &App) -> &'static str {
     match app.view {
         View::Flow if app.route.is_some() => words::KEYS_ROUTE,
+        View::Flow if app.pager.is_some() && app.rows_flow.is_some() => words::ROWS_KEYS_PAGER,
         View::Flow if app.pager.is_some() => words::KEYS_PAGER,
         View::Flow if app.restore.is_some() => words::KEYS_RESTORE,
         View::Flow if app.opened && app.card.typed.is_some() => words::KEYS_TYPING,
