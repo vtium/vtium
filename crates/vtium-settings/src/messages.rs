@@ -228,10 +228,9 @@ impl fmt::Display for Problem {
                 version = VERSION_LINE,
             ),
             Problem::Syntax(syntax) => write!(f, "{syntax}"),
-            Problem::DuplicateSection(_) => write!(
+            Problem::DuplicateSection(section) => write!(
                 f,
-                "The file has a second `{rules}` section, and only one is allowed. Move this section's lines into the first one.",
-                rules = RULES_HEADING,
+                "The file has a second `[{section}]` section, and only one is allowed. Move this section's lines into the first one."
             ),
             Problem::UnknownKey(k) => write!(
                 f,
@@ -305,6 +304,20 @@ impl fmt::Display for Problem {
                     write!(f, "`{key}` cannot be {value}: it is out of range.")
                 }
             },
+            Problem::BadVt(v) if v.raw().is_empty() => write!(
+                f,
+                "This head's `vt` names no VT. Give it a VT number from 1 to {max}, or remove the line so that the head runs on every VT.",
+                max = crate::VT_MAX,
+            ),
+            Problem::BadVt(v) => write!(
+                f,
+                "This head's `vt` names {v}, which is not a VT. A VT is a number from 1 to {max}, and `vt = 3 4` names two of them.",
+                max = crate::VT_MAX,
+            ),
+            Problem::RepeatedVt(vt) => write!(
+                f,
+                "This head's `vt` names VT {vt} twice. Remove one of the two."
+            ),
             Problem::UnknownMatchKey(t) => write!(
                 f,
                 "A rule cannot match on {t}. Use one of {keys}.",

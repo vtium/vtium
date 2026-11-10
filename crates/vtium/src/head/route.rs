@@ -229,7 +229,9 @@ fn head_of(place: Place, focus: Option<usize>) -> Option<usize> {
         Place::Head(h) => Some(h),
         Place::DefaultHead => Some(0),
         Place::Roaming => focus,
-        Place::Ignore | Place::Off | Place::Notice => None,
+        // A device that stays with a terminal of another VT delivers to no
+        // head on this one (ADR-1401 D3, step 4).
+        Place::Ignore | Place::Off | Place::Notice | Place::Elsewhere(_) => None,
     }
 }
 

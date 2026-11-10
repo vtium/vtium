@@ -1,7 +1,7 @@
 //! A parsed head file, or the sections of vtium.conf: the policy, the
 //! looks, the heads and the rules (ADR-1401 D3, D9; ADR-1403 D1, D5).
 
-use crate::identity::Kind;
+use crate::identity::{Identity, Kind};
 use crate::keys::{Key, Level};
 use crate::matching::Match;
 use crate::outcome::Policy;
@@ -78,6 +78,11 @@ pub struct Head {
     /// `isolated` as the file writes it, `None` for unset, which the
     /// policy decides (D5); [`Config::isolated`] reads it.
     pub isolated: Option<bool>,
+    /// The VTs its `vt` names, each once, in the file's order (ADR-1403
+    /// D4). Empty when the head has no `vt`, so it runs on every VT.
+    pub vts: Vec<u16>,
+    /// The line of its `vt`, 0 for none.
+    pub vt_line: usize,
     /// The keys of the key table a head's section of vtium.conf sets, such
     /// as `login`, in the file's order; the head file's reading leaves it
     /// empty.
@@ -96,8 +101,22 @@ impl Head {
             login: None,
             when_display_lost: WhenDisplayLost::Keep,
             isolated: None,
+            vts: Vec::new(),
+            vt_line: 0,
             settings: Vec::new(),
         }
+    }
+
+    /// Whether the head runs on VT `vt`: its `vt` names `vt`, or it has no
+    /// `vt` (ADR-1401 D2).
+    pub fn runs_on(&self, vt: u16) -> bool {
+        self.vts.is_empty() || self.names_vt(vt)
+    }
+
+    /// Whether the head's `vt` names VT `vt`. A head with no `vt` names
+    /// none, though it runs on every VT.
+    pub fn names_vt(&self, vt: u16) -> bool {
+        self.vts.contains(&vt)
     }
 }
 
@@ -156,8 +175,9 @@ pub const LABEL_MAX: usize = 40;
 /// or `input MATCH = LABEL`: a name the person gives the displays or the
 /// inputs that a match matches. The match is written as a rule's match, so
 /// a label belongs to the part whose rule uses that same match. vtium
-/// reads labels for its on-screen display; showing them there is later
-/// work, and today only vtium-config reads and writes them.
+/// reads a display's label for its identify overlay (ADR-1401 D12), and
+/// vtium-config reads and writes every label (ADR-1403 D8).
+/// [`Config::label`] finds a device's label.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Label {
     pub line: usize,
@@ -213,6 +233,15 @@ impl Config {
             }
         }
         out
+    }
+
+    /// The label of the device `id`: the first line of `[labels]` whose
+    /// kind is the device's and whose match matches it, as the first
+    /// matching rule places a device (ADR-1403 D4).
+    pub fn label(&self, id: &Identity) -> Option<&Label> {
+        self.labels
+            .iter()
+            .find(|l| l.kind == id.kind && l.matcher.matches(id))
     }
 
     /// The rules using a key that needs a udev daemon, each with its line

@@ -34,7 +34,7 @@
 
 use crate::bounds::{
     CONSOLES_MAX, ERRORS_MAX, FILE_MAX, HEADS_MAX, LINE_MAX, LOOKS_MAX, NAME_MAX, RULES_MAX,
-    TOKENS_MAX,
+    TOKENS_MAX, VT_MAX,
 };
 use crate::conf::comment;
 use crate::config::{Config, Head, LABEL_MAX, Label, Look, Rule, Setting, Target, WhenDisplayLost};
@@ -400,8 +400,11 @@ pub(crate) const YES_NO: [&str; 2] = ["yes", "no"];
 pub(crate) const WHEN_DISPLAY_LOST: [&str; 3] = ["keep", "hangup", "hangup DURATION"];
 
 /// The keys a head takes in vtium.conf beside the key table's head keys
-/// (ADR-1403 D5).
-pub(crate) const CONF_HEAD_KEYS: [&str; 4] = ["look", "consoles", "when-display-lost", "isolated"];
+/// (ADR-1403 D5). Each is the head's own, even where the key table has a
+/// top-level key of the same name: the top level's `vt` is the VT vtium
+/// opens, and a head's `vt` the VTs the head runs on (ADR-1403 D4).
+pub(crate) const CONF_HEAD_KEYS: [&str; 5] =
+    ["look", "consoles", "when-display-lost", "isolated", "vt"];
 
 /// The key a look names its vtlook with (ADR-1403 D1, ADR-1304 D4).
 pub(crate) const VTLOOK: &str = "vtlook";
@@ -533,6 +536,27 @@ pub(crate) fn range(key: &str) -> Takes {
 /// `Some(None)` for digits past `u32`.
 fn decimal(value: &str) -> Option<Option<u32>> {
     (!value.is_empty() && value.bytes().all(|b| b.is_ascii_digit())).then(|| value.parse().ok())
+}
+
+/// A head's `vt` (ADR-1403 D4): one VT number from 1 to [`VT_MAX`], or
+/// several separated by blanks, each named once.
+fn vts(value: &str) -> Result<Vec<u16>, Problem> {
+    let mut out: Vec<u16> = Vec::new();
+    for word in blanks(value) {
+        let vt = decimal(word)
+            .flatten()
+            .and_then(|n| u16::try_from(n).ok())
+            .filter(|n| (1..=VT_MAX).contains(n))
+            .ok_or_else(|| Problem::BadVt(Quoted::new(word)))?;
+        if out.contains(&vt) {
+            return Err(Problem::RepeatedVt(vt));
+        }
+        out.push(vt);
+    }
+    if out.is_empty() {
+        return Err(Problem::BadVt(Quoted::new("")));
+    }
+    Ok(out)
 }
 
 /// `when-display-lost`'s value (D8): `keep`, `hangup`, or
@@ -1031,7 +1055,10 @@ impl Parser {
         if !self.once(n, Seen::Head(index), key) {
             return;
         }
-        if let Some(table) = keys::find(key) {
+        // a head's own key goes before the key table's key of its name: a
+        // head's `vt` names the VTs it runs on, not the VT the top level's
+        // `vt` opens (ADR-1403 D4)
+        if let Some(table) = keys::find(key).filter(|_| !CONF_HEAD_KEYS.contains(&key)) {
             match table_value(table, value) {
                 Ok(()) => {
                     if let Some(head) = self.heads.get_mut(index).map(|d| &mut d.head) {
@@ -1083,6 +1110,13 @@ impl Parser {
                 "login" if !value.is_empty() => head.login = Some(value.to_owned()),
                 "when-display-lost" => match when_display_lost(value) {
                     Ok(v) => head.when_display_lost = v,
+                    Err(e) => problem = Some(e),
+                },
+                "vt" => match vts(value) {
+                    Ok(v) => {
+                        head.vts = v;
+                        head.vt_line = n;
+                    }
                     Err(e) => problem = Some(e),
                 },
                 "isolated" => {

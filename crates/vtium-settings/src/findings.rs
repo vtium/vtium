@@ -127,7 +127,8 @@ pub fn remarks(config: &Config, devices: Option<&[Identity]>) -> Vec<(Option<usi
         let reaches = |p: &Place| match p {
             Place::Head(_) | Place::DefaultHead => true,
             Place::Roaming => placement.focus.is_some(),
-            Place::Ignore | Place::Off | Place::Notice => false,
+            // `place` names no VT, so it never ties a device elsewhere
+            Place::Ignore | Place::Off | Place::Notice | Place::Elsewhere(_) => false,
         };
         if config.policy == Policy::Closed
             && !keyboards.is_empty()
