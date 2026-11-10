@@ -37,7 +37,7 @@ use crate::bounds::{
     TOKENS_MAX,
 };
 use crate::conf::comment;
-use crate::config::{Config, Head, Look, Rule, Setting, Target, WhenDisplayLost};
+use crate::config::{Config, Head, LABEL_MAX, Label, Look, Rule, Setting, Target, WhenDisplayLost};
 use crate::error::{
     Drops, Error, Note, PolicyFault, Problem, Quoted, Rejected, Renamed, Syntax, Warning,
 };
@@ -220,6 +220,8 @@ enum Section {
     /// The look at this index of `looks`.
     Look(usize),
     Rules,
+    /// `[labels]`, one label a line.
+    Labels,
     /// A section an error dropped; its lines are skipped.
     Broken,
 }
@@ -289,6 +291,8 @@ struct Parser {
     looks_over: bool,
     rules: Vec<Read>,
     seen_rules: bool,
+    labels: Vec<Label>,
+    seen_labels: bool,
     heads_over: bool,
     rules_over: bool,
     /// An error dropped the whole file but its `policy` lines.
@@ -350,6 +354,22 @@ fn blanks(s: &str) -> impl Iterator<Item = &str> {
 /// `key = value`, each trimmed, where the line has an `=`.
 pub(crate) fn key_value(line: &str) -> Option<(&str, &str)> {
     line.split_once('=').map(|(k, v)| (trim(k), trim(v)))
+}
+
+/// A label as a `[labels]` line writes it: each `#` that follows a blank,
+/// or that starts the label, written `\#`, so the comment rule reads it as
+/// the label's own `#`.
+pub fn escape_label(label: &str) -> String {
+    let mut out = String::with_capacity(label.len());
+    let mut after_blank = true;
+    for c in label.chars() {
+        if c == '#' && after_blank {
+            out.push('\\');
+        }
+        out.push(c);
+        after_blank = c == ' ' || c == '\t';
+    }
+    out
 }
 
 /// Whether `name` keeps the name rule: 1 to [`NAME_MAX`] of
@@ -615,10 +635,12 @@ impl Parser {
         );
     }
 
-    /// Where a line sits, from the section it is read in.
+    /// Where a line sits, from the section it is read in. A line of
+    /// `[labels]` counts as a top-level line, since an error there drops
+    /// that line alone, as a top-level line's does.
     fn within(&self) -> Within {
         match self.section {
-            None | Some(Section::Top) => Within::Top,
+            None | Some(Section::Top | Section::Labels) => Within::Top,
             Some(Section::Head(_)) => Within::Head,
             Some(Section::Look(_)) => Within::Look,
             Some(Section::Rules | Section::Broken) => Within::Rules,
@@ -740,6 +762,7 @@ impl Parser {
             Section::Head(index) => self.head_key(n, index, &line),
             Section::Look(index) => self.look_key(n, index, &line),
             Section::Rules => self.rule(n, &line),
+            Section::Labels => self.label(n, &line),
             Section::Broken => {}
         }
     }
@@ -812,6 +835,13 @@ impl Parser {
                     self.error(Some(n), Problem::DuplicateSection("rules"), Within::Header);
                 } else {
                     self.section = Some(Section::Rules);
+                }
+            }
+            ["labels"] => {
+                if std::mem::replace(&mut self.seen_labels, true) {
+                    self.error(Some(n), Problem::DuplicateSection("labels"), Within::Header);
+                } else {
+                    self.section = Some(Section::Labels);
                 }
             }
             ["guards"] => self.error(Some(n), Problem::Renamed(Renamed::Guards), Within::Header),
@@ -1137,6 +1167,78 @@ impl Parser {
         });
     }
 
+    /// One line of `[labels]`: `display MATCH = LABEL` or
+    /// `input MATCH = LABEL`. The match is checked as a rule's match is,
+    /// and the label runs from after the `=` that stands alone to the
+    /// line's end. An error drops this line alone.
+    fn label(&mut self, n: usize, line: &str) {
+        let within = Within::Top;
+        let mut words = blanks(line);
+        let kind = match words.next() {
+            Some("display") => Kind::Display,
+            Some("input") => Kind::Input,
+            _ => {
+                self.error(Some(n), Problem::Syntax(Syntax::LabelKind), within);
+                return;
+            }
+        };
+        let tokens: Vec<&str> = words.take_while(|w| *w != "=").collect();
+        // the byte after the first `=` that stands alone as a word
+        let blank = |c: Option<char>| c.is_none_or(|c| c == ' ' || c == '\t');
+        let equals = line
+            .match_indices('=')
+            .map(|(i, _)| i)
+            .find(|&i| {
+                let before = line.get(..i).and_then(|b| b.chars().next_back());
+                let after = line
+                    .get(i.saturating_add(1)..)
+                    .and_then(|a| a.chars().next());
+                blank(before) && blank(after)
+            })
+            .map(|i| i.saturating_add(1));
+        let Some(after) = equals else {
+            self.error(Some(n), Problem::Syntax(Syntax::LabelEquals), within);
+            return;
+        };
+        let text = trim(line.get(after..).unwrap_or_default());
+        let problem = if text.is_empty() {
+            Some(Syntax::LabelEmpty)
+        } else if text.chars().count() > LABEL_MAX {
+            Some(Syntax::LabelLong)
+        } else {
+            None
+        };
+        // a match a rule cannot hold is named before the label's own fault
+        let Some(matcher) = self.label_matcher(n, &tokens) else {
+            return;
+        };
+        if let Some(problem) = problem {
+            self.error(Some(n), Problem::Syntax(problem), within);
+            return;
+        }
+        self.labels.push(Label {
+            line: n,
+            kind,
+            matcher,
+            selector: tokens.join(" "),
+            text: text.to_owned(),
+        });
+    }
+
+    /// A label's match, checked as [`Parser::matcher`] checks a rule's,
+    /// with each error dropping the label's line alone.
+    fn label_matcher(&mut self, n: usize, tokens: &[&str]) -> Option<Match> {
+        let mut quiet = Parser {
+            section: Some(Section::Rules),
+            ..Parser::default()
+        };
+        let matcher = quiet.matcher(n, tokens);
+        for e in quiet.errors.errors {
+            self.error(e.line, e.problem, Within::Top);
+        }
+        matcher
+    }
+
     fn matcher(&mut self, n: usize, tokens: &[&str]) -> Option<Match> {
         let problem = match tokens {
             [] => Problem::Syntax(Syntax::RuleMatch),
@@ -1275,6 +1377,7 @@ impl Parser {
                 rules,
                 survivors: !self.errors.is_empty(),
                 tail: None,
+                labels: std::mem::take(&mut self.labels),
             };
             findings(config, self.warnings)
         };

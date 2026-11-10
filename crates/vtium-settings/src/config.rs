@@ -145,6 +145,28 @@ pub struct Config {
     /// rule of [`Config::rules`] places it (D7): `None` for the shipped
     /// rules' own, which vtium.conf's `mouse` shorthand may change.
     pub tail: Option<Vec<Rule>>,
+    /// The `[labels]` section's lines, in the file's order.
+    pub labels: Vec<Label>,
+}
+
+/// The most characters a label holds.
+pub const LABEL_MAX: usize = 40;
+
+/// One line of vtium.conf's `[labels]` section, `display MATCH = LABEL`
+/// or `input MATCH = LABEL`: a name the person gives the displays or the
+/// inputs that a match matches. The match is written as a rule's match, so
+/// a label belongs to the part whose rule uses that same match. vtium
+/// reads labels for its on-screen display; showing them there is later
+/// work, and today only vtium-config reads and writes them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Label {
+    pub line: usize,
+    pub kind: Kind,
+    pub matcher: Match,
+    /// The match as the line writes it, its tokens one blank apart.
+    pub selector: String,
+    /// The label, with each `\#` read as `#`.
+    pub text: String,
 }
 
 impl Config {

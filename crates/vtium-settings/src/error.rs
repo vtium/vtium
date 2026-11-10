@@ -113,6 +113,14 @@ pub enum Syntax {
     RuleMatch,
     /// `*` beside other tokens.
     StarAlone,
+    /// A label line that starts with neither kind.
+    LabelKind,
+    /// A label line with no `=` standing alone after its match.
+    LabelEquals,
+    /// A label line with nothing after its `=`.
+    LabelEmpty,
+    /// A label longer than [`LABEL_MAX`](crate::LABEL_MAX) characters.
+    LabelLong,
 }
 
 /// A name of the head file's first cut, which a later word replaced
