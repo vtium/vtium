@@ -912,12 +912,27 @@ pub const ROWS_ROAMING: &str = "ROAMING";
 pub const ROWS_ROAMING_ABOUT: &str = "These inputs type into whichever terminal is active.";
 pub const ROWS_ROAMING_STUB: &str = "roaming inputs";
 pub const ROAMING_WORD: &str = "roaming";
-pub const REVISE_ROAMING_NOTE: &str = "To change this input, press e. It leaves ROAMING and goes into NEW PATH, where you can give it a path of its own.";
-pub const IN_ROAMING: &str = "This input is in ROAMING. Press e to revise it.";
+pub const REVISE_ROAMING_NOTE: &str = "To change the roaming inputs, press e. They go into NEW PATH with the active terminal, and a adds them back.";
+pub const IN_ROAMING: &str = "This input roams. Press e to revise the roaming inputs.";
 pub const PATH_EMPTY: &str = "Pick an input and a display to make a path.";
 pub const PATH_NEEDS_DISPLAY: &str = "Add a display to finish this path.";
 pub const PATH_NEEDS_INPUT: &str = "Add an input to finish this path.";
 pub const PATH_COMPLETE: &str = "This path is complete. Press a to add it.";
+pub const ACTIVE_TERMINAL: &str = "the active terminal";
+pub const ACTIVE_DETAIL: &str = "whichever is in use";
+pub const ACTIVE_PART_DETAIL: &str = "makes a path's inputs roam";
+pub const ACTIVE_COMPLETE: &str =
+    "This path is complete: its inputs type into whichever terminal is active. Press a to add it.";
+pub const ACTIVE_NEEDS_INPUT: &str = "Pick an input to type into whichever terminal is active.";
+pub const ACTIVE_NO_DISPLAY: &str = "The active terminal has no display of its own, since it is one of the other terminals at a time. Take the displays out of this path.";
+pub const ACTIVE_ABOUT: &str = "The active terminal is whichever terminal is in use. An input in its path roams: it types into the terminal you switch to.";
+pub const ACTIVE_PICKED: &str = "This path's inputs will type into whichever terminal is active.";
+pub const ACTIVE_UNPICKED: &str = "This path's inputs will type into a terminal of their own.";
+pub const SAME_ACTIVE: &str = "These inputs roam already, so nothing changed.";
+pub const ACTIVE_BACK: &str = "The roaming inputs are back in CONFIGURATION.";
+pub const ACTIVE_REVISED: &str =
+    "The roaming inputs are in NEW PATH now. Change them, then press a to add them back.";
+pub const REVISED_DROPPED: &str = "Took the path you were revising out of the configuration.";
 pub const ANY_DISPLAY: &str = "any display";
 pub const EVERY_DISPLAY: &str = "every display";
 pub const ANY_POINTER_TITLE: &str = "any pointer";
@@ -1043,12 +1058,6 @@ pub fn path_revised(head: &str) -> String {
     format!(
         "The path of {} is in NEW PATH now. Change its parts, then press a to add it back.",
         terminal(head)
-    )
-}
-pub fn roaming_revised(title: &str) -> String {
-    format!(
-        "{} is in NEW PATH now. Pick a display for it, then press a to add the path.",
-        capitalized(title)
     )
 }
 pub fn changed_in_draft(head: &str) -> String {

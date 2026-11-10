@@ -36,8 +36,9 @@ pub enum Obj {
     Doc(String, Slot),
     New(Slot),
     Pal(Slot),
-    /// A roaming input in the ROAMING strip, by its selector.
-    Roam(String),
+    /// The path of the active terminal, the roaming inputs': its terminal
+    /// or one of its inputs.
+    Roam(Slot),
     /// The box that folds every input that is neither a keyboard nor a
     /// pointer, which cannot be picked.
     Others,
@@ -172,6 +173,7 @@ pub enum NoteKind {
     Displays,
     Inputs,
     Fonts,
+    Terminals,
     /// The words at the start of a roaming stub, grey and italic.
     Stub,
 }
@@ -413,7 +415,11 @@ fn path_row(
         y,
         w: g.term_w,
         title: name.to_owned(),
-        detail: font_words(p.font.as_deref()),
+        detail: if p.active {
+            words::ACTIVE_DETAIL.to_owned()
+        } else {
+            font_words(p.font.as_deref())
+        },
         mood: Mood::Placed,
         dashed,
     };
@@ -513,10 +519,14 @@ fn path_row(
     bottom.max(displays).max(y.saturating_add(BOX_ROWS))
 }
 
-/// Lays out the ROAMING strip from canvas row `y`: its heading and the
-/// sentence that says what roaming means on the left, and each roaming
-/// input's box in the inputs' column. Returns the row after it.
-fn roaming_strip(ctx: &Ctx<'_>, out: &mut Layout, y: usize) -> usize {
+/// Lays out the path of the active terminal from canvas row `y`: the
+/// heading ROAMING and the sentence that says what roaming means where a
+/// path's displays are, since the active terminal is one of the other
+/// terminals at a time and has none of its own; the active terminal's
+/// box, dashed because it changes as the person switches terminals; and
+/// each roaming input's box, with a dashed line to it. Returns the row
+/// after it.
+fn roaming_row(ctx: &Ctx<'_>, out: &mut Layout, y: usize) -> usize {
     let g = geometry(ctx.cols);
     out.notes.push(Note {
         x: 1,
@@ -524,8 +534,8 @@ fn roaming_strip(ctx: &Ctx<'_>, out: &mut Layout, y: usize) -> usize {
         text: words::ROWS_ROAMING.to_owned(),
         kind: NoteKind::Inputs,
     });
-    let room = g.term_x.saturating_add(g.term_w).saturating_sub(1).max(1);
-    let mut bottom = y.saturating_add(2);
+    let room = g.term_x.saturating_sub(3).max(1);
+    let mut bottom = y.saturating_add(BOX_ROWS);
     for (i, line) in super::canvas::wrap(words::ROWS_ROAMING_ABOUT, room, 3)
         .into_iter()
         .enumerate()
@@ -539,10 +549,23 @@ fn roaming_strip(ctx: &Ctx<'_>, out: &mut Layout, y: usize) -> usize {
         });
         bottom = bottom.max(row.saturating_add(1));
     }
+    let term = Obj::Roam(Slot::Terminal);
+    let term_box = Boxed {
+        obj: term.clone(),
+        x: g.term_x,
+        y,
+        w: g.term_w,
+        title: words::ACTIVE_TERMINAL.to_owned(),
+        detail: words::ACTIVE_DETAIL.to_owned(),
+        mood: Mood::Placed,
+        dashed: true,
+    };
+    let join_row = term_box.title_row();
+    out.boxes.push(term_box);
     for (k, sel) in ctx.doc.roaming.iter().enumerate() {
         let (title, detail) = paths::title(ctx.flow, Kind::Input, sel);
         let b = Boxed {
-            obj: Obj::Roam(sel.clone()),
+            obj: Obj::Roam(Slot::Input(sel.clone())),
             x: g.dev_x,
             y: y.saturating_add(k.saturating_mul(BOX_ROWS)),
             w: g.dev_w,
@@ -551,6 +574,25 @@ fn roaming_strip(ctx: &Ctx<'_>, out: &mut Layout, y: usize) -> usize {
             mood: Mood::Placed,
             dashed: false,
         };
+        let start = (g.dev_x.saturating_sub(1), b.title_row());
+        let end = (g.term_x.saturating_add(g.term_w), join_row);
+        let points = if k == 0 {
+            vec![start, end]
+        } else {
+            vec![
+                start,
+                (g.dev_join, b.title_row()),
+                (g.dev_join, join_row),
+                end,
+            ]
+        };
+        out.wires.push(Wire {
+            from: b.obj.clone(),
+            to: term.clone(),
+            points,
+            dashed: true,
+            stub: false,
+        });
         bottom = bottom.max(b.bottom());
         out.boxes.push(b);
     }
@@ -659,6 +701,22 @@ fn palette(ctx: &Ctx<'_>, waiting: &mut Vec<Sort>) -> Vec<(NoteKind, &'static st
             slot,
         });
     }
+    // the active terminal, which a path's inputs roam to
+    let active = Slot::Terminal;
+    let terminals = vec![PalPiece {
+        title: if ctx.new.active {
+            format!("✓ {}", words::ACTIVE_TERMINAL)
+        } else {
+            words::ACTIVE_TERMINAL.to_owned()
+        },
+        mood: if ctx.new.active {
+            Mood::Picked
+        } else {
+            Mood::Placed
+        },
+        detail: words::ACTIVE_PART_DETAIL.to_owned(),
+        slot: active,
+    }];
     let mut fonts = Vec::new();
     let default_on = ctx.new.font.is_none() && !ctx.new.is_empty();
     fonts.push(PalPiece {
@@ -701,6 +759,7 @@ fn palette(ctx: &Ctx<'_>, waiting: &mut Vec<Sort>) -> Vec<(NoteKind, &'static st
     }
     vec![
         (NoteKind::Displays, words::ROWS_DISPLAYS, displays),
+        (NoteKind::Terminals, words::ROWS_TERMINALS, terminals),
         (NoteKind::Inputs, words::ROWS_INPUTS, inputs),
         (NoteKind::Fonts, words::ROWS_FONT_SETS, fonts),
     ]
@@ -745,7 +804,7 @@ pub fn layout(ctx: &Ctx<'_>) -> Layout {
         y = path_row(ctx, &mut out, p, &name, y.saturating_add(1), false);
     }
     if !ctx.doc.roaming.is_empty() {
-        y = roaming_strip(ctx, &mut out, y.saturating_add(1));
+        y = roaming_row(ctx, &mut out, y.saturating_add(1));
     }
     // NEW PATH
     y = y.saturating_add(1);
@@ -759,7 +818,7 @@ pub fn layout(ctx: &Ctx<'_>) -> Layout {
         words::ROWS_NEW_PATH.to_owned(),
         NoteKind::Heading,
     );
-    let kind = if ctx.new.complete() {
+    let kind = if ctx.new.complete(ctx.doc) {
         NoteKind::Ready
     } else {
         NoteKind::Needs
@@ -769,14 +828,14 @@ pub fn layout(ctx: &Ctx<'_>) -> Layout {
         &mut out,
         14,
         y,
-        super::canvas::fit(ctx.new.status(), room),
+        super::canvas::fit(ctx.new.status(ctx.doc), room),
         kind,
     );
-    let name = ctx
-        .new
-        .name
-        .clone()
-        .unwrap_or_else(|| paths::new_name(ctx.flow, ctx.doc));
+    let name = match &ctx.new.name {
+        _ if ctx.new.active => words::ACTIVE_TERMINAL.to_owned(),
+        Some(n) => n.clone(),
+        None => paths::new_name(ctx.flow, ctx.doc),
+    };
     y = path_row(ctx, &mut out, ctx.new, &name, y.saturating_add(1), true);
     // PARTS
     y = y.saturating_add(1);
@@ -923,6 +982,18 @@ pub struct State {
     /// What the status line says until the first key: where the color
     /// file was written, or a line of it that was skipped.
     pub note: Option<String>,
+    /// What NEW PATH holds for revising, which CONFIGURATION leaves out
+    /// while the draft still has it.
+    pub revising: Option<Revising>,
+}
+
+/// What is being revised in NEW PATH.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Revising {
+    /// The path of the terminal of this name.
+    Path(String),
+    /// The path of the active terminal: the roaming inputs.
+    Active,
 }
 
 impl State {
@@ -1082,7 +1153,7 @@ pub(crate) mod tests {
             );
             // the roaming receiver once, in ROAMING below the paths, in the
             // inputs' column, and on no path's row
-            let roams = at(&l, &Obj::Roam("id:046d:c31c".into()));
+            let roams = at(&l, &Obj::Roam(Slot::Input("id:046d:c31c".into())));
             assert_eq!(roams.title, "Logitech USB Receiver (by id)");
             assert_eq!((roams.x, roams.w), (g.dev_x, g.dev_w));
             assert!(roams.y > panel.bottom(), "{roams:?}");
@@ -1249,10 +1320,10 @@ pub(crate) mod tests {
         new.pick(Piece::Display("*".into()));
         for cols in [80, 100, 120] {
             let l = lay(&f, &new, cols);
-            // desk 1+1, panel 1+0, the editor 2+2, and a roaming stub on
-            // each of the two paths of the configuration
-            assert_eq!(l.wires.len(), 9, "{cols}");
-            assert_eq!(l.wires.iter().filter(|w| w.dashed).count(), 6);
+            // desk 1+1, panel 1+0, the active terminal 0+1, the editor
+            // 2+2, and a roaming stub on each path of the configuration
+            assert_eq!(l.wires.len(), 10, "{cols}");
+            assert_eq!(l.wires.iter().filter(|w| w.dashed).count(), 7);
             assert_eq!(l.wires.iter().filter(|w| w.stub).count(), 2);
             for w in l.wires.iter().filter(|w| !w.stub) {
                 let from = at(&l, &w.from);
@@ -1292,8 +1363,13 @@ pub(crate) mod tests {
             step(&l, &desk, Key::Down),
             Some(doc("panel", Slot::Terminal))
         );
+        // below the paths, the active terminal's path, then NEW PATH
         assert_eq!(
             step(&l, &doc("panel", Slot::Terminal), Key::Down),
+            Some(Obj::Roam(Slot::Terminal))
+        );
+        assert_eq!(
+            step(&l, &Obj::Roam(Slot::Terminal), Key::Down),
             Some(Obj::New(Slot::Terminal))
         );
         assert_eq!(

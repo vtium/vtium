@@ -84,6 +84,7 @@ pub fn layout_of(app: &App) -> Layout {
         .as_ref()
         .map(|s| s.new.clone())
         .unwrap_or_default();
+    let doc = shown_doc(app, doc);
     let fonts = font_names(app);
     rows::layout(&Ctx {
         flow,
@@ -93,6 +94,17 @@ pub fn layout_of(app: &App) -> Layout {
         cols: app.cols,
         default: paths::is_default(flow),
     })
+}
+
+/// The configuration as CONFIGURATION shows it: `doc` without what is
+/// being revised in NEW PATH. The draft keeps it until the new path is
+/// added or cleared, so adding it back unchanged changes nothing.
+pub fn shown_doc(app: &App, doc: paths::Doc) -> paths::Doc {
+    match app.rows_flow.as_ref().and_then(|s| s.revising.as_ref()) {
+        Some(rows::Revising::Path(name)) => doc.revise(name).map_or(doc, |(rest, _)| rest),
+        Some(rows::Revising::Active) => doc.revise_active().map_or(doc, |(rest, _)| rest),
+        None => doc,
+    }
 }
 
 /// The message under the window, wrapped.
@@ -134,13 +146,13 @@ pub const fn mood_role(mood: Mood) -> Role {
 /// its kind.
 pub const fn kind_role(obj: &Obj) -> Role {
     match obj {
-        Obj::Doc(_, s) | Obj::New(s) | Obj::Pal(s) => match s {
+        Obj::Doc(_, s) | Obj::New(s) | Obj::Pal(s) | Obj::Roam(s) => match s {
             Slot::Display(_) => Role::Display,
             Slot::Terminal => Role::Terminal,
             Slot::Font(_) => Role::FontSet,
             Slot::Input(_) => Role::Input,
         },
-        Obj::Roam(_) | Obj::Others => Role::Input,
+        Obj::Others => Role::Input,
     }
 }
 
@@ -344,6 +356,7 @@ pub fn document(layout: &Layout, cols: usize, at: Option<&Obj>, pal: &Palette) -
             NoteKind::Displays => emph(pal.style(Role::Display)),
             NoteKind::Inputs => emph(pal.style(Role::Input)),
             NoteKind::Fonts => emph(pal.style(Role::FontSet)),
+            NoteKind::Terminals => emph(pal.style(Role::Terminal)),
             NoteKind::Stub => Style {
                 italic: true,
                 ..Style::text(Color::Grey)
@@ -398,7 +411,8 @@ fn obj_name(flow: &Flow, o: &Obj) -> String {
             Slot::Font(f) => rows::font_words(f.as_deref()),
             Slot::Terminal => String::new(),
         },
-        Obj::Roam(sel) => paths::title(flow, Kind::Input, sel).0,
+        Obj::Roam(Slot::Input(sel)) => paths::title(flow, Kind::Input, sel).0,
+        Obj::Roam(_) => words::ACTIVE_TERMINAL.to_owned(),
         Obj::Others => words::ROWS_OTHERS_TITLE.to_lowercase(),
     }
 }
@@ -611,7 +625,8 @@ fn overview(canvas: &mut Canvas, app: &App, state: &rows::State, layout: &Layout
     );
     if area == words::ROWS_NEW_PATH {
         let new = &state.new;
-        let color = if new.complete() {
+        let doc = shown_doc(app, paths::read(&app.inputs.flow));
+        let color = if new.complete(&doc) {
             bold(Color::Green)
         } else {
             app.inputs.rows_colors.style(Role::Waiting)
@@ -620,7 +635,7 @@ fn overview(canvas: &mut Canvas, app: &App, state: &rows::State, layout: &Layout
         canvas.put(
             x.max(14),
             HEAD_ROWS.saturating_sub(2),
-            &fit(new.status(), room),
+            &fit(new.status(&doc), room),
             color,
         );
     }
@@ -691,7 +706,7 @@ fn info_layer(canvas: &mut Canvas, app: &App, obj: &Obj) {
     let flow = &app.inputs.flow;
     let (kind, sel, heading) = match obj {
         Obj::Doc(_, Slot::Display(s)) => (Kind::Display, s, "DISPLAY"),
-        Obj::Doc(_, Slot::Input(s)) | Obj::Roam(s) => (Kind::Input, s, "INPUT"),
+        Obj::Doc(_, Slot::Input(s)) | Obj::Roam(Slot::Input(s)) => (Kind::Input, s, "INPUT"),
         _ => return,
     };
     let (title, detail) = paths::title(flow, kind, sel);
@@ -857,7 +872,7 @@ fn card_label(flow: &Flow, line: &CardLine) -> String {
         CardLine::Part(Piece::Input(i)) => {
             format!("Input {}", paths::title(flow, Kind::Input, i).0)
         }
-        CardLine::Part(Piece::Font(_)) => String::new(),
+        CardLine::Part(Piece::Font(_) | Piece::Active) => String::new(),
     }
 }
 
@@ -1160,7 +1175,7 @@ mod tests {
             .expect("a font set");
         assert_eq!(title(font), Some(Color::Magenta));
         let roams = l
-            .find(&Obj::Roam("id:046d:c31c".into()))
+            .find(&Obj::Roam(Slot::Input("id:046d:c31c".into())))
             .expect("the roaming receiver");
         assert_eq!(title(roams), Some(Color::Green));
         let taken = l

@@ -139,10 +139,7 @@ impl App {
                 Some(obj @ (Obj::Doc(..) | Obj::Roam(_))) => self.revise(obj),
                 _ => self.tell(words::REVISE_WHERE),
             },
-            Key::Escape if !state.new.is_empty() => {
-                self.rows_with(|s| s.new = Path::default());
-                self.tell(words::EDITOR_CLEARED)
-            }
+            Key::Escape if !state.new.is_empty() => self.clear(state),
             Key::Char('p') => self.tell(match self.live {
                 Live::On => words::PREVIEW_PATH_LATER,
                 _ => words::PREVIEW_PATH_NOT_HERE,
@@ -169,12 +166,17 @@ impl App {
     /// The flow's item an added path's box stands for, for the route card.
     fn doc_item(&self, obj: &Obj) -> Option<Item> {
         let flow = &self.inputs.flow;
-        if let Obj::Roam(sel) = obj {
-            return flow
-                .rules
-                .iter()
-                .position(|r| paths::expand(sel).contains(&r.selector.as_str()))
-                .map(Item::Rule);
+        if let Obj::Roam(slot) = obj {
+            let roams = |sel: &str| {
+                flow.rules.iter().position(|r| {
+                    r.target == "roaming" && paths::expand(sel).contains(&r.selector.as_str())
+                })
+            };
+            return match slot {
+                Slot::Input(sel) => roams(sel),
+                _ => flow.rules.iter().position(|r| r.target == "roaming"),
+            }
+            .map(Item::Rule);
         }
         let Obj::Doc(name, slot) = obj else {
             return None;
@@ -202,7 +204,10 @@ impl App {
             return Vec::new();
         };
         self.message = None;
+        let active = self.rows_flow.as_ref().is_some_and(|s| s.new.active);
         match &obj {
+            Obj::Roam(Slot::Terminal) | Obj::Pal(Slot::Terminal) => self.tell(words::ACTIVE_ABOUT),
+            Obj::New(Slot::Terminal) if active => self.tell(words::ACTIVE_ABOUT),
             Obj::Doc(_, Slot::Terminal) | Obj::New(Slot::Terminal) => {
                 let pick = self.card_pick(&obj, 0);
                 self.rows_with(|s| {
@@ -249,11 +254,16 @@ impl App {
     /// an editor piece out, and says why anything else cannot be picked.
     fn space(&mut self, state: &State, at: Option<Obj>) -> Vec<Effect> {
         let flow = &self.inputs.flow;
-        let doc = paths::read(flow);
+        let doc = rowsdraw::shown_doc(self, paths::read(flow));
         let Some(obj) = at else {
             return Vec::new();
         };
         match &obj {
+            Obj::Pal(Slot::Display(_)) if state.new.active => self.tell(words::ACTIVE_NO_DISPLAY),
+            Obj::Pal(Slot::Terminal) if !state.new.active && !state.new.displays.is_empty() => {
+                self.tell(words::ACTIVE_NO_DISPLAY)
+            }
+            Obj::Pal(Slot::Terminal) => self.pick(Piece::Active),
             Obj::Pal(Slot::Display(sel)) => {
                 let held = flow
                     .displays
@@ -275,7 +285,8 @@ impl App {
             Obj::Pal(Slot::Font(f)) => self.pick(Piece::Font(f.clone())),
             Obj::Others => self.tell(words::OTHERS_CANNOT),
             Obj::Doc(..) => self.tell(words::IN_DOCUMENT),
-            Obj::Roam(_) => self.tell(words::IN_ROAMING),
+            Obj::Roam(Slot::Input(_)) => self.tell(words::IN_ROAMING),
+            Obj::Roam(_) => self.tell(words::IN_DOCUMENT),
             _ => Vec::new(),
         }
     }
@@ -283,8 +294,8 @@ impl App {
     /// Picks `piece` into the editor, or takes it out, and says what that
     /// did, whether the input will roam, and what the path needs next.
     fn pick(&mut self, piece: Piece) -> Vec<Effect> {
+        let doc = rowsdraw::shown_doc(self, paths::read(&self.inputs.flow));
         let flow = &self.inputs.flow;
-        let doc = paths::read(flow);
         let Some(state) = self.rows_flow.as_mut() else {
             return Vec::new();
         };
@@ -302,6 +313,12 @@ impl App {
         let (kind, sel) = match &piece {
             Piece::Display(s) => (super::flow::Kind::Display, s.as_str()),
             Piece::Input(s) => (super::flow::Kind::Input, s.as_str()),
+            Piece::Active => {
+                return self.tell(match done {
+                    Picked::Removed => words::ACTIVE_UNPICKED,
+                    _ => words::ACTIVE_PICKED,
+                });
+            }
             Piece::Font(f) => {
                 let now = f
                     .clone()
@@ -328,78 +345,126 @@ impl App {
             return self.tell(words::piece_out(&title));
         }
         let display = kind == super::flow::Kind::Display;
-        let roams = !display && doc.would_roam(sel);
+        let roams = !display && (new.active || doc.would_roam(sel));
         let pointers = done == Picked::AddedWithPointers;
         self.tell(words::picked(&title, display, &new, pointers, roams))
     }
 
     /// `a`: adds the editor's path to the configuration, or says why it
-    /// stays.
+    /// stays. A path being revised is still in the draft, so adding it
+    /// back unchanged changes nothing.
     fn add(&mut self, state: &State) -> Vec<Effect> {
         let flow = &self.inputs.flow;
-        let doc = paths::read(flow);
+        let doc = rowsdraw::shown_doc(self, paths::read(flow));
         let mut new = state.new.clone();
-        if new.name.is_none() {
+        if new.name.is_none() && !new.active {
             new.name = Some(paths::new_name(flow, &doc));
         }
         let name = new.name.clone().unwrap_or_default();
-        match paths::check_add(flow, &doc, &new) {
-            Err(why) => self.tell(why),
-            Ok(Adding::Same(there)) => {
-                self.rows_with(|s| s.new = Path::default());
-                self.tell(words::same_path(&there))
+        let (changes, said, want) = match paths::check_add(flow, &doc, &new) {
+            Err(why) => return self.tell(why),
+            // what is held already: a path being revised that is held
+            // twice leaves the configuration
+            Ok(Adding::Same(there)) => (paths::plan(flow, &doc), words::same_path(&there), None),
+            Ok(Adding::SameActive) => {
+                (paths::plan(flow, &doc), words::SAME_ACTIVE.to_owned(), None)
             }
             Ok(Adding::New) => {
-                let changes = paths::plan(flow, &doc.with(new));
-                let out = self.make(changes, None);
-                if !out.is_empty() {
-                    self.rows_with(|s| {
-                        s.new = Path::default();
-                        s.want = Some(Obj::Doc(name.clone(), Slot::Terminal));
-                    });
-                    self.message = Some(words::path_added(&name));
-                }
-                out
+                let want = if new.active {
+                    Obj::Roam(Slot::Terminal)
+                } else {
+                    Obj::Doc(name.clone(), Slot::Terminal)
+                };
+                let said = if new.active {
+                    words::ACTIVE_BACK.to_owned()
+                } else {
+                    words::path_added(&name)
+                };
+                (paths::plan(flow, &doc.with(new)), said, Some(want))
             }
-        }
+        };
+        let out = if changes.is_empty() {
+            Vec::new()
+        } else {
+            let out = self.make(changes, None);
+            if out.is_empty() {
+                return out;
+            }
+            out
+        };
+        self.rows_with(|s| {
+            s.new = Path::default();
+            s.revising = None;
+            s.want.clone_from(&want);
+            if let Some(w) = want {
+                s.at = Some(w);
+            }
+        });
+        self.message = Some(said);
+        out
     }
 
-    /// `e`: revises the path of a terminal, which leaves the configuration
-    /// and goes into the editor with its parts picked, or a roaming input,
-    /// which leaves ROAMING and goes into the editor alone.
+    /// Esc on NEW PATH: clears it. A path being revised leaves the
+    /// configuration then, as revising it said it would.
+    fn clear(&mut self, state: &State) -> Vec<Effect> {
+        let out = match &state.revising {
+            Some(_) => {
+                let doc = rowsdraw::shown_doc(self, paths::read(&self.inputs.flow));
+                let changes = paths::plan(&self.inputs.flow, &doc);
+                let out = self.make(changes, None);
+                if out.is_empty() {
+                    return out;
+                }
+                self.message = Some(words::REVISED_DROPPED.to_owned());
+                out
+            }
+            None => {
+                self.message = Some(words::EDITOR_CLEARED.to_owned());
+                Vec::new()
+            }
+        };
+        self.rows_with(|s| {
+            s.new = Path::default();
+            s.revising = None;
+        });
+        out
+    }
+
+    /// `e`: revises the path of a terminal, or the path of the active
+    /// terminal, the roaming inputs: it goes into NEW PATH with its parts
+    /// picked, and CONFIGURATION leaves it out. The draft keeps it until
+    /// NEW PATH is added, which puts it back as it was when nothing in it
+    /// changed, or cleared, which takes it out.
     fn revise(&mut self, obj: &Obj) -> Vec<Effect> {
-        let flow = &self.inputs.flow;
-        let doc: Doc = paths::read(flow);
+        let doc: Doc = paths::read(&self.inputs.flow);
         if self.rows_flow.as_ref().is_some_and(|s| !s.new.is_empty()) {
             return self.tell(words::EDITOR_BUSY);
         }
-        let (taken, said, at) = match obj {
+        let (taken, said, revising, at) = match obj {
             Obj::Doc(name, _) => (
                 doc.revise(name),
                 words::path_revised(name),
+                rows::Revising::Path(name.clone()),
                 Obj::New(Slot::Terminal),
             ),
-            Obj::Roam(sel) => (
-                doc.revise_roaming(sel),
-                words::roaming_revised(&paths::title(flow, super::flow::Kind::Input, sel).0),
-                Obj::New(Slot::Input(sel.clone())),
+            Obj::Roam(_) => (
+                doc.revise_active(),
+                words::ACTIVE_REVISED.to_owned(),
+                rows::Revising::Active,
+                Obj::New(Slot::Terminal),
             ),
             _ => return Vec::new(),
         };
-        let Some((rest, path)) = taken else {
+        let Some((_, path)) = taken else {
             return Vec::new();
         };
-        let changes = paths::plan(flow, &rest);
-        let out = self.make(changes, None);
-        if !out.is_empty() {
-            self.rows_with(|s| {
-                s.new = path;
-                s.layer = None;
-                s.at = Some(at);
-            });
-            self.message = Some(said);
-        }
-        out
+        self.rows_with(|s| {
+            s.new = path;
+            s.revising = Some(revising);
+            s.layer = None;
+            s.at = Some(at);
+        });
+        self.tell(said)
     }
 
     /// A key on a piece's choices: Up and Down move, Enter picks the choice
