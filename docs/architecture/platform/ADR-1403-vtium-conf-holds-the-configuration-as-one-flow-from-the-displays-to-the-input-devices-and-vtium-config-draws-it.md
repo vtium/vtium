@@ -370,6 +370,27 @@ considered:
   - operator: aaronsb
     said: "[A device whose rule sends it to a terminal that does not run on the VT now shown: On a VT where none of its terminals run, the device does nothing: a keyboard types nowhere (rescue key still watched under the open policy), a display stays dark.] Stays with its terminals (Recommended)"
     via: AskUserQuestion, 2026-11-10; the option's wording is the steering session's
+  - operator: aaronsb
+    said: "we are, slowly through description, building the policy state machine basically"
+    via: chat, 2026-11-10
+  - operator: aaronsb
+    said: "[Placement: on the VT shown, vtium reads the rules top to bottom for each device. (1) A rule that doesn't match: read on. (2) A rule that matches, whose target runs on this VT: it places the device; stop. (3) A rule that matches, whose terminal runs on another VT: note it, read on. (4) No rule placed it: if step 3 noted a terminal, the device stays with it; otherwise the policy places it. Rules for other VTs are read past; a device claimed by any rule never falls to the policy; the record writes this as one table, and the path tests check each step.] Yes, this procedure (Recommended)"
+    via: AskUserQuestion, 2026-11-10; the option's wording is the steering session's
+  - operator: aaronsb
+    said: "[Rule order: one device (serial), USB port, model, device name, device type, then the catch-alls.] Port before model (Recommended)"
+    via: AskUserQuestion, 2026-11-10; the option's wording is the steering session's
+  - operator: aaronsb
+    said: "[The base card and the route card: paths show routes; Settings shows top-level keys; a part's detail lists the rules that name it, per VT.] Drop both (Recommended)"
+    via: AskUserQuestion, 2026-11-10; the option's wording is the steering session's
+  - operator: aaronsb
+    said: "[The words part, template, path, pick, add, revise and label] Accept all seven (Recommended)"
+    via: AskUserQuestion, 2026-11-10; the option's wording is the steering session's
+  - operator: aaronsb
+    said: "[Once a rule has tied a device to a terminal on another VT, can a later broad rule take it on this VT? After a rule ties it to another VT's terminal, only rules naming a terminal of this VT can place it; broad rules and the policy leave it alone.] Stays with its terminal (Recommended)"
+    via: AskUserQuestion, 2026-11-10; the option's wording is the steering session's
+  - operator: Aaron Bockelie
+    said: "I think it's 'stays with it's terminal'. another way I was thinking about this is if we say 'all devices' and then also specifically say a device, the broad rules are applied after specific rules (thinking like firewall policy order)"
+    via: chat, 2026-11-10
 status: accepted
 date: 2026-11-04
 deciders:
