@@ -697,34 +697,39 @@ pub fn new_name_besides(flow: &Flow, doc: &Doc, made: &[String]) -> String {
         .unwrap_or_else(|| "terminal".to_owned())
 }
 
-/// How specific a selector is, most specific first: one device by its
-/// serial, EDID or Bluetooth address; then a model by its id, or a device
-/// by the name it gives itself; then a port or a connector; then a class,
-/// a card or a udev property; then the catch-alls.
-pub fn rank(selector: &str) -> u8 {
-    let key = selector.split(':').next().unwrap_or_default();
-    match key {
-        "serial" | "edid" | "bluetooth" => 0,
-        "id" | "name" => 1,
-        "path" | "connector" | "connector-path" => 2,
-        "class" | "card" | "udev" => 3,
-        _ => 4,
-    }
+/// How specific the selector of a rule of `kind` is, by ADR-1403 D8's
+/// ranks, from 1 for one device to 7 for the catch-all. vtium-settings
+/// gives the rank ([`vtium_settings::Match::rank`]), so vtium-config and
+/// the section writer keep one order. The parts' own words, All keyboards
+/// and All mice and touchpads, rank as the classes they stand for, and a
+/// selector vtium cannot read ranks with the catch-all.
+pub fn rank(kind: Kind, selector: &str) -> u8 {
+    let selector = expand(selector).first().copied().unwrap_or(selector);
+    let word = match kind {
+        Kind::Display => "display",
+        Kind::Input => "input",
+    };
+    let text = format!("version = 1\n[head h]\n[rules]\n{word} {selector} -> h\n");
+    vtium_settings::parse_sections(&text)
+        .ok()
+        .flatten()
+        .and_then(|p| p.config.rules.first().map(|r| r.matcher.rank()))
+        .unwrap_or(vtium_settings::Match::RANK_ANY)
 }
 
 /// Where a rule goes among the rules [`plan`] writes: the display rules
 /// before the input rules, each kind most specific first, and the classes
 /// in the order the shipped default lists them.
 fn order(kind: Kind, selector: &str) -> (u8, u8, usize) {
-    let kind = match kind {
-        Kind::Display => 0,
-        Kind::Input => 1,
-    };
     let class = CLASS_ORDER
         .iter()
         .position(|c| *c == selector)
         .unwrap_or(CLASS_ORDER.len());
-    (kind, rank(selector), class)
+    let at = match kind {
+        Kind::Display => 0,
+        Kind::Input => 1,
+    };
+    (at, rank(kind, selector), class)
 }
 
 /// What adding the new path does.
@@ -1670,8 +1675,9 @@ pub(crate) mod tests {
                 "display * -> terminal-1",
                 "input serial:046d:c52b:0 -> desk",
                 "input serial:2dc8:5200:9 -> terminal-1",
-                "input id:046d:c31c -> roaming",
+                // a port before a model (ADR-1403 D8)
                 format!("input {PORT_33} -> terminal-1").as_str(),
+                "input id:046d:c31c -> roaming",
                 "input class:keyboard -> terminal-1",
                 "input class:mouse -> terminal-1",
                 "input class:touchpad -> terminal-1",
@@ -1687,7 +1693,14 @@ pub(crate) mod tests {
             let ranks: Vec<u8> = lines
                 .iter()
                 .filter_map(|l| l.strip_prefix(kind))
-                .map(|l| rank(l.split_whitespace().next().unwrap_or_default()))
+                .map(|l| {
+                    let k = if kind == "display " {
+                        Kind::Display
+                    } else {
+                        Kind::Input
+                    };
+                    rank(k, l.split_whitespace().next().unwrap_or_default())
+                })
                 .collect();
             assert!(ranks.windows(2).all(|w| w[0] <= w[1]), "{kind}{ranks:?}");
         }
@@ -2051,11 +2064,18 @@ pub(crate) mod tests {
     fn a_port_drops_its_usb_interface() {
         assert_eq!(port_of(KBD_PATH), PORT_33);
         assert_eq!(port_of("path:acpi-LNXPWRBN:00"), "path:acpi-LNXPWRBN:00");
-        assert_eq!(rank("serial:1"), 0);
-        assert_eq!(rank("id:046d:c31c"), 1);
-        assert_eq!(rank(PORT_33), 2);
-        assert_eq!(rank("class:keyboard"), 3);
-        assert_eq!(rank("*"), 4);
+        // ADR-1403 D8's ranks, as vtium-settings gives them
+        assert_eq!(rank(Kind::Input, "serial:046d:c52b:1"), 1);
+        assert_eq!(rank(Kind::Display, "edid:AAA:0x0001:LARGE00001"), 1);
+        assert_eq!(rank(Kind::Input, PORT_33), 2);
+        assert_eq!(rank(Kind::Display, "connector:pci-0000:03:00.0/DP-8"), 2);
+        assert_eq!(rank(Kind::Display, "card:pci-0000:03:00.0"), 3);
+        assert_eq!(rank(Kind::Input, "id:046d:c31c"), 4);
+        assert_eq!(rank(Kind::Input, "name:Power*"), 5);
+        assert_eq!(rank(Kind::Input, "class:keyboard"), 6);
+        assert_eq!(rank(Kind::Input, ANY_KEYBOARD), 6);
+        assert_eq!(rank(Kind::Input, ANY_POINTER), 6);
+        assert_eq!(rank(Kind::Input, "*"), 7);
     }
     // ADR-1403 D4, D8: labelling one part writes the `[labels]` section,
     // with its comment, and that part's line, and changes nothing else; a
