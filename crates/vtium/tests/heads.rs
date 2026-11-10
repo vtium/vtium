@@ -7351,6 +7351,7 @@ input path:kbd-one -> c
 /// heads on VTs 3, 4 and 5 hold one display and one keyboard. The vtium
 /// on each VT builds that VT's head alone, which takes the display, and
 /// the keyboard types into it.
+// covers: platform.heads
 #[test]
 fn the_vtium_on_each_vt_builds_its_own_head_on_a_shared_display_and_keyboard() {
     for (vt, here) in [(3, "a"), (4, "b"), (5, "c")] {
@@ -7395,6 +7396,7 @@ input path:kbd-large -> large4
 /// display and each keyboard has a head on VT 3 and another on VT 4. On
 /// each VT both displays show that VT's heads, and each keyboard types
 /// into its own head of that VT.
+// covers: platform.heads
 #[test]
 fn on_each_vt_each_display_and_keyboard_reaches_its_own_head_of_that_vt() {
     for vt in [3, 4] {
@@ -7426,6 +7428,7 @@ fn on_each_vt_each_display_and_keyboard_reaches_its_own_head_of_that_vt() {
 /// ADR-1403 D7, path test 3 (ADR-1401 D2, D3 step 2): a head with no `vt`
 /// runs on every VT, so the vtium on any VT builds it and both displays
 /// show it, as before heads had a `vt`.
+// covers: platform.heads
 #[test]
 fn a_head_with_no_vt_is_built_on_every_vt() {
     let text = "version = 1\n[head every]\n[rules]\ndisplay * -> every\n";
@@ -7459,6 +7462,7 @@ input class:keyboard -> roaming
 /// nowhere, and the broad rule after it leaves it alone. Under the open
 /// policy, vtium still watches it for the rescue key, which makes it type
 /// into the active head.
+// covers: platform.heads.rules
 #[test]
 fn a_keyboard_tied_to_another_vt_types_nowhere_until_the_rescue_key() {
     let displays = [("/dev/mem0", Memory::new(320, 160, "MEM-1", "mem-one").lit())];
@@ -7485,6 +7489,7 @@ fn a_keyboard_tied_to_another_vt_types_nowhere_until_the_rescue_key() {
 /// ADR-1403 D7, path test 6 (ADR-1401 D3 step 4, D9): on VT 4, a display
 /// whose only head runs on VT 3 stays dark, though it is the boot display
 /// and no display of VT 4 is lit, so the display guard does not light it.
+// covers: platform.heads.guards
 #[test]
 fn a_display_tied_to_another_vt_stays_dark_and_the_display_guard_leaves_it() {
     let text = "version = 1
