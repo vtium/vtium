@@ -726,13 +726,15 @@ Each of these worked examples is a scenario the build tests, from vtium.conf thr
 3. **A terminal with no `vt` on both displays.** Every VT shows it, as before `vt` existed. It checks step 2 for a terminal with no `vt`, which runs on every VT.
 4. **Two keyboards, each tied to its own terminals.** After a switch, each keyboard types into its own terminal on the new VT. It checks steps 1, 3 and 2, as test 2 does for displays.
 5. **A keyboard whose only terminal runs on VT 3.** On VT 4 it types nowhere, and under the open policy its rescue key still works. It checks step 4 after step 3: the keyboard stays with its terminal, and the policy does not place it.
-6. **A display whose terminals run on VT 3 only.** On VT 4 it stays dark. It checks step 4 after step 3, for a display.
+6. **A display whose terminals run on VT 3 only.** On VT 4 no terminal shows on it. Under the open policy it shows its notice, "DP-8 is not configured for VT 4. It is configured for terminal desk, on VT 3.", and under the closed policy it stays blank (ADR-1401 D3). It checks step 4 after step 3, for a display.
 7. **A keyboard tied to VT 3, and a broad rule after it.** The keyboard is in a path whose terminal runs on VT 3, and the file's last input rule is All keyboards → Whichever terminal is active. On VT 4 the keyboard types nowhere. It checks the exception in step 2: once step 3 has tied the keyboard to the VT 3 terminal, the broad rule leaves it alone (the maintainer, 2026-11-10: "Stays with its terminal (Recommended)").
 8. **Two terminals that share a display and a keyboard.** Terminals on VT 3 and VT 4 each hold DP-8 and the same keyboard in their paths. Each VT shows its own terminal on DP-8, and the keyboard types into the terminal of the VT shown. It checks steps 3 and 2 for two terminals that share both devices, as the first figure's two paths do.
 
 > Edited 2026-11-10: the maintainer decided that a device stays with its terminals on a VT where none of them runs, and that the display decides what a terminal's look can draw on it (`considered`, 2026-11-10); the path tests were added with it.
 
 > Edited 2026-11-10: each path test now names the steps of ADR-1401 D3's table that it checks, and tests 7 and 8 were added, after the maintainer accepted the placement procedure and settled the exception in its step 2 (`considered`, 2026-11-10). The first sentence said the maintainer imagined "the last of them" as a path test.
+
+> Edited 2026-11-10: the maintainer's table in ADR-1401 D3 decided what a display with no path shows (`considered`, 2026-11-10). Test 6 read: "On VT 4 it stays dark."
 
 #### Labels
 
