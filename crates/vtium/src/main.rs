@@ -135,7 +135,10 @@ fn main() -> ExitCode {
     };
     // Before the loop and the VT, so a failure opening either under a
     // closed policy still leaves the marker that keeps the getty off.
-    let heads = vtium::head::rules(&loaded.path, &loaded.file);
+    // Each vtium builds the heads of its own VT (ADR-1401 D2). Without a
+    // kernel VT every head runs.
+    let vt = path.as_deref().and_then(vtium::getty::vt_number);
+    let heads = vtium::head::rules(&loaded.path, &loaded.file).on_vt(vt);
     vtium::getty::mark(
         Path::new(vtium::getty::DIR),
         path.as_deref(),

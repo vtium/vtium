@@ -119,6 +119,7 @@ use crate::head::chord::{self, HeadChord};
 use crate::head::console::Console;
 use crate::head::route::{self, Routes};
 use crate::head::session::{self, AfterExit, Caps};
+use crate::head::vt::VtHeads;
 use crate::head::{Attached, Frit, Head, Start, place_display};
 use crate::helper::{self, Answer, Helper};
 use crate::layout::{self, Zoom};
@@ -212,6 +213,9 @@ pub struct App {
     /// The head file in force: the file's, or the compiled-in
     /// configuration.
     rules: vtium_settings::Config,
+    /// Which heads of [`App::rules`] vtium built, the heads of its VT
+    /// (ADR-1401 D2), and the VT it places devices for.
+    vt_heads: VtHeads,
     /// What the start's head file resolved to (ADR-1401 D7).
     outcome: vtium_settings::Outcome,
     /// The panic screen's report, for a broken closed head file (D7).
@@ -453,6 +457,7 @@ impl App {
             udev: None,
             blank: Blank::new(dpms, now),
             heads,
+            vt_heads: VtHeads::new(&rules, None),
             rules,
             outcome: vtium_settings::resolve(&vtium_settings::Read::Missing),
             report: None,
@@ -519,14 +524,16 @@ impl App {
             outcome,
             rules,
             report,
+            vt,
         } = start;
         let rules = route::in_force(rules, &self.config);
-        // The display guard's default head, where the file declares none,
-        // which it lights under open alone (D9).
-        let mut declared = rules.clone();
-        if declared.heads.is_empty() && rules.policy == Policy::Open {
-            declared.heads = vtium_settings::Config::builtin().heads;
-        }
+        // The heads of this VT (D2), or the display guard's default head
+        // where none runs here, which it lights under open alone (D9).
+        let vt_heads = VtHeads::new(&rules, vt);
+        let declared = vtium_settings::Config {
+            heads: vt_heads.heads(&rules),
+            ..rules.clone()
+        };
         let caps = self.caps;
         self.scrollback_bytes = session::scrollback_bytes(&self.config, caps, declared.heads.len());
         let scrollback = (self.scrollback, self.scrollback_bytes);
@@ -541,6 +548,7 @@ impl App {
             self.wait = Wait::new(None);
         }
         self.rules = rules;
+        self.vt_heads = vt_heads;
         self.outcome = outcome;
         self.report = report;
         self.focus = None;
@@ -1201,7 +1209,7 @@ impl App {
         if let Some((_, h)) = self.guard_lit.as_ref().filter(|(k, _)| *k == key) {
             return Some((*h, display));
         }
-        match place_display(&self.rules, &display) {
+        match place_display(&self.rules, &self.vt_heads, &display) {
             Ok(h) => Some((h, display)),
             Err(line) => {
                 log::info!("{line}");
@@ -1403,7 +1411,9 @@ impl App {
             input.is_none_or(|i| id.is_some_and(|id| i.disposition(id).is_some()))
         };
         for (h, head) in self.heads.iter_mut().enumerate() {
-            let focused = self.routes.keyboard_reaches(h, self.focus, open);
+            let focused = self
+                .routes
+                .keyboard_reaches(&self.vt_heads, h, self.focus, open);
             if focused != head.focused {
                 head.focused = focused;
                 if head.console.term.terminal.focus(focused) {
@@ -1424,7 +1434,11 @@ impl App {
             if self.focus == Some(h) {
                 input.set_pointer_max(w, ht);
             }
-            input.set_pointer_max_of(&self.routes.devices_of(h, self.focus), w, ht);
+            input.set_pointer_max_of(
+                &self.routes.devices_of(&self.vt_heads, h, self.focus),
+                w,
+                ht,
+            );
         }
     }
 
@@ -2132,7 +2146,8 @@ impl App {
         // The display guard's display counts as lit; given no keyboard, the
         // anti-lockout guard moves nothing ([`App::guard`] runs it).
         let lit: Vec<vtium_settings::Identity> = self.start_lit.values().cloned().collect();
-        self.focus = head_index(self.rules.place(&lit, None).focus);
+        let placement = self.vt_heads.placement(&self.rules, &lit, &[], None);
+        self.focus = placement.focus.and_then(|p| self.vt_heads.head(p));
         self.bound_pointers();
         self.rehover();
     }
@@ -2180,15 +2195,9 @@ impl App {
         // A keyboard the rescue key moved roams, and reaches the focus's
         // head while it is lit.
         let rescued: Vec<vtium_settings::Identity> = self.routes.rescued().cloned().collect();
-        // The default head is the head of a file that declares none.
-        let focus = self.focus.map(|h| {
-            if self.rules.heads.is_empty() {
-                vtium_settings::Place::DefaultHead
-            } else {
-                vtium_settings::Place::Head(h)
-            }
-        });
-        let placement = self.rules.place_rescued(&devices, &rescued, focus);
+        let placement = self
+            .vt_heads
+            .placement(&self.rules, &devices, &rescued, self.focus);
         let (shown, rest) = placement
             .placed
             .split_at(displays.len().min(placement.placed.len()));
@@ -2203,7 +2212,7 @@ impl App {
             .and_then(|(key, p)| {
                 let h = match p.place {
                     vtium_settings::Place::Notice => screen,
-                    place => head_index(Some(place)),
+                    place => self.vt_heads.head(place),
                 };
                 Some((key.clone(), h?))
             });
@@ -2280,7 +2289,8 @@ impl App {
             }
         }
         if placement.anti_lockout {
-            if let Some(to) = head_index(placement.focus).filter(|&h| Some(h) != self.focus) {
+            let to = placement.focus.and_then(|p| self.vt_heads.head(p));
+            if let Some(to) = to.filter(|&h| Some(h) != self.focus) {
                 self.move_focus(to);
             }
             if !self.locked_out {
@@ -2500,7 +2510,9 @@ impl App {
     /// key alone, or never opened.
     pub fn add_input(&mut self, node: &Path, identity: vtium_settings::Identity) {
         self.guard_due = true;
-        let disposition = self.routes.add(&self.rules, node, &identity);
+        let disposition = self
+            .routes
+            .add(&self.rules, &self.vt_heads, node, &identity);
         if let Some(id) = self
             .input
             .as_mut()
@@ -2536,7 +2548,7 @@ impl App {
         for h in 0..self.heads.len() {
             let ctrl = self.input.as_ref().is_some_and(|input| {
                 input
-                    .mods_of(&self.routes.devices_of(h, self.focus))
+                    .mods_of(&self.routes.devices_of(&self.vt_heads, h, self.focus))
                     .contains(InputMods::CTRL)
             });
             if let Some(head) = self.heads.get_mut(h) {
@@ -2615,9 +2627,9 @@ impl App {
         }
         // The head the device asks: its rule's, or the active head's for a
         // roaming device, which is never isolated (D5).
-        let asked = self.routes.head(node, self.focus);
+        let asked = self.routes.head(&self.vt_heads, node, self.focus);
         let from = KeyFrom {
-            vt_keys: asked.is_some_and(|h| !self.rules.isolated(h)),
+            vt_keys: asked.is_some_and(|h| !self.vt_heads.isolated(&self.rules, h)),
             roaming: self.routes.roams(node),
         };
         // A head whose display never lit receives nothing (D8).
@@ -2639,7 +2651,9 @@ impl App {
             }
             InputEvent::Pointer(p) => {
                 let mods = match (&self.input, h) {
-                    (Some(input), Some(h)) => input.mods_of(&self.routes.devices_of(h, self.focus)),
+                    (Some(input), Some(h)) => {
+                        input.mods_of(&self.routes.devices_of(&self.vt_heads, h, self.focus))
+                    }
                     _ => InputMods::empty(),
                 };
                 self.pointer_to(h, p, mods, now);
@@ -2950,9 +2964,9 @@ impl App {
         };
         self.focus_settled = true;
         // only to a lit head that can be the active head (D5)
-        let (heads, rules) = (self.heads(), &self.rules);
+        let (heads, rules, vt_heads) = (self.heads(), &self.rules, &self.vt_heads);
         let lit = |h: usize| {
-            heads.get(h).is_some_and(|head| !head.views.is_empty()) && !rules.isolated(h)
+            heads.get(h).is_some_and(|head| !head.views.is_empty()) && !vt_heads.isolated(rules, h)
         };
         if let Some(to) = chord::step(self.focus, heads.len(), back, lit) {
             self.move_focus(to);
@@ -3967,15 +3981,6 @@ struct KeyFrom {
     roaming: bool,
 }
 
-/// The index of the head at `place`: the default head is the first.
-fn head_index(place: Option<vtium_settings::Place>) -> Option<usize> {
-    match place? {
-        vtium_settings::Place::Head(h) => Some(h),
-        vtium_settings::Place::DefaultHead => Some(0),
-        _ => None,
-    }
-}
-
 /// What the screens of `heads` show, merged style by style: each character
 /// and cluster any of them shows in that style, sorted and once, the
 /// regular style first.
@@ -4322,6 +4327,7 @@ fn wrap_video(
             // A display the rules leave dark is set off before it is
             // announced, a frame another master left included (D3).
             let (rules, at, lit) = (app.rules.clone(), card.clone(), Rc::clone(&app.any_lit));
+            let vt_heads = app.vt_heads.clone();
             drm.set_dark(Box::new(move |named| {
                 // While none is lit, it is announced for the display guard
                 // to light (D9), which leaves dark again the ones it lights
@@ -4330,7 +4336,7 @@ fn wrap_video(
                     return false;
                 }
                 let display = vtium_devices::display(named, &at, 0);
-                place_display(&rules, &display)
+                place_display(&rules, &vt_heads, &display)
                     .map_err(|line| log::info!("{line}"))
                     .is_err()
             }));
@@ -4794,8 +4800,16 @@ mod tests {
             Path::new("/k"),
             input().with_class(vtium_settings::Class::Keyboard),
         );
-        assert_eq!(app.routes.head(Some(Path::new("/m")), Some(0)), None);
-        assert_eq!(app.routes.head(Some(Path::new("/k")), Some(0)), Some(0));
+        assert_eq!(
+            app.routes
+                .head(&app.vt_heads, Some(Path::new("/m")), Some(0)),
+            None
+        );
+        assert_eq!(
+            app.routes
+                .head(&app.vt_heads, Some(Path::new("/k")), Some(0)),
+            Some(0)
+        );
         // A mouse whose node also has udev's key class, its consumer keys,
         // is still a pointer the shipped rules leave closed.
         let keyed = input()
@@ -4803,7 +4817,8 @@ mod tests {
             .with_class(vtium_settings::Class::Key);
         let rules = app.rules.clone();
         assert_eq!(
-            app.routes.add(&rules, Path::new("/mk"), &keyed),
+            app.routes
+                .add(&rules, &app.vt_heads.clone(), Path::new("/mk"), &keyed),
             vtium_platform::input::Disposition::Closed
         );
     }
@@ -4830,18 +4845,28 @@ mod tests {
         let input = vtium_settings::Identity::input;
         let mouse = app.routes.add(
             &app.rules.clone(),
+            &app.vt_heads.clone(),
             Path::new("/m"),
             &input().with_class(vtium_settings::Class::Mouse),
         );
         let keyboard = app.routes.add(
             &app.rules.clone(),
+            &app.vt_heads.clone(),
             Path::new("/k"),
             &input().with_class(vtium_settings::Class::Keyboard),
         );
         assert_eq!(mouse, vtium_platform::input::Disposition::Closed);
         assert_eq!(keyboard, vtium_platform::input::Disposition::Deliver);
-        assert_eq!(app.routes.head(Some(Path::new("/m")), Some(0)), None);
-        assert_eq!(app.routes.head(Some(Path::new("/k")), Some(0)), Some(0));
+        assert_eq!(
+            app.routes
+                .head(&app.vt_heads, Some(Path::new("/m")), Some(0)),
+            None
+        );
+        assert_eq!(
+            app.routes
+                .head(&app.vt_heads, Some(Path::new("/k")), Some(0)),
+            Some(0)
+        );
     }
 
     // ADR-1401 D10: a head file's heads past `consoles-max` each keep a
