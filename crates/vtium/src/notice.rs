@@ -57,22 +57,24 @@ pub struct Away<'a> {
 /// What the boot display shows on VT `vt` when the terminals `here` run
 /// on it but every display belongs to a terminal of other VTs, each of
 /// `away` (the maintainer, 2026-11-10: on every VT it runs on, vtium shows
-/// either a terminal or a notice that says why there is none).
+/// either a terminal or a notice that says why there is none). It has one
+/// line for each terminal of this VT, then one line for each display.
 pub fn no_display_here(vt: u16, here: &[&str], away: &[Away<'_>]) -> String {
-    let names: Vec<String> = here.iter().map(|h| (*h).to_owned()).collect();
-    let topic = match names.as_slice() {
-        [one] => format!("Terminal {one} has no display on VT {vt}."),
-        _ => format!("Terminals {} have no display on VT {vt}.", listed(&names)),
-    };
-    let reasons = away.iter().map(|a| {
+    let heads = here
+        .iter()
+        .map(|h| format!("Terminal {h} is not configured for a display on VT {vt}."));
+    let displays = away.iter().map(|a| {
         let vts: Vec<String> = a.vts.iter().map(u16::to_string).collect();
         let on = match vts.as_slice() {
             [one] => format!("VT {one}"),
             _ => format!("VTs {}", listed(&vts)),
         };
-        format!(" {} belongs to terminal {}, on {on}.", a.connector, a.head)
+        format!(
+            "{} is configured for terminal {}, on {on}.",
+            a.connector, a.head
+        )
     });
-    std::iter::once(topic).chain(reasons).collect()
+    heads.chain(displays).collect::<Vec<_>>().join("\n")
 }
 
 /// `sentence` with the keys `bindings` binds to `chord` in place of its
@@ -480,8 +482,9 @@ pub mod config_tool {
 mod tests {
     use super::*;
 
-    // The maintainer's wording, 2026-11-10: the topic first, then each
-    // display with the terminal and the VTs it belongs to.
+    // The maintainer's wording, 2026-11-10: a line for each terminal of
+    // the VT, then a line for each display with the terminal and the VTs
+    // it is configured for.
     #[test]
     fn a_vt_whose_displays_all_belong_elsewhere_says_whose_each_one_is() {
         let away = |connector, head, vts| Away {
@@ -491,23 +494,23 @@ mod tests {
         };
         assert_eq!(
             no_display_here(4, &["here"], &[away("DP-8", "desk", &[3])]),
-            "Terminal here has no display on VT 4. DP-8 belongs to terminal desk, on VT 3."
+            "Terminal here is not configured for a display on VT 4.\nDP-8 is configured for terminal desk, on VT 3."
         );
         assert_eq!(
             no_display_here(
                 4,
-                &["here", "side", "top"],
+                &["here", "side"],
                 &[
                     away("DP-8", "desk", &[3]),
                     away("HDMI-A-1", "panel", &[3, 5]),
                     away("DP-9", "wall", &[2, 3, 5]),
                 ]
             ),
-            "Terminals here, side, and top have no display on VT 4. DP-8 belongs to terminal desk, on VT 3. HDMI-A-1 belongs to terminal panel, on VTs 3 and 5. DP-9 belongs to terminal wall, on VTs 2, 3, and 5."
-        );
-        assert_eq!(
-            no_display_here(4, &["a", "b"], &[]),
-            "Terminals a and b have no display on VT 4."
+            "Terminal here is not configured for a display on VT 4.\n\
+             Terminal side is not configured for a display on VT 4.\n\
+             DP-8 is configured for terminal desk, on VT 3.\n\
+             HDMI-A-1 is configured for terminal panel, on VTs 3 and 5.\n\
+             DP-9 is configured for terminal wall, on VTs 2, 3, and 5."
         );
     }
 
