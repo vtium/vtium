@@ -327,6 +327,46 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         self.dark.len() != before
     }
 
+    /// Parks the display `id`: drm2d sets its connector off and turns off
+    /// the CRTC it leaves, frees its buffers, its cursor and its mode, and
+    /// reports it removed. The display then stays dark, as one the policy
+    /// left dark at a scan: [`Self::dark`] lists it, a scan keeps it dark,
+    /// and [`Self::release_dark`] lets the next scan ask the policy of it
+    /// again, which lights it with new buffers. vtium parks a display that
+    /// shows only a notice once the notice's time is up, so the display
+    /// sends no signal and holds no memory. The card must be awake.
+    pub fn park(&mut self, id: DisplayId) -> io::Result<()> {
+        if !self.awake {
+            return Err(invalid("the card is asleep"));
+        }
+        let Some(at) = self.outputs.iter().position(|o| o.id == id && o.announced) else {
+            return Err(invalid("the display is not online"));
+        };
+        let Some(identity) = self
+            .identities
+            .iter()
+            .find_map(|(i, identity)| (*i == id).then(|| identity.clone()))
+        else {
+            return Err(invalid("the display has no identity"));
+        };
+        let o = self.outputs.remove(at);
+        log::info!("display {} is parked: set off, its buffers freed", o.name);
+        self.identities.retain(|(i, _)| *i != id);
+        self.events.push(Event::Removed(id));
+        self.free(o);
+        self.dark.push(Dark {
+            id: id.0,
+            identity,
+            available: true,
+        });
+        if self.outputs.is_empty() {
+            self.darken();
+            Ok(())
+        } else {
+            self.request_modeset(false)
+        }
+    }
+
     /// Whether the kernel removed the card: an ioctl answered ENODEV, as
     /// every ioctl on an unplugged card does (`drm_ioctl`). drm2d then
     /// reported each display removed and sends the card nothing again, so
