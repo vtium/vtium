@@ -89,9 +89,10 @@
 <rect x="1050" y="337" width="116" height="40" fill="#00ff00"/>
 <text x="1056" y="353" fill="#000000">keyboard</text>
 <text x="1056" y="370" fill="#000000" font-size="12">usb-0:3.3</text>
-<rect x="1050" y="381" width="116" height="40" fill="#00ff00"/>
-<text x="1056" y="397" fill="#000000">Power Button</text>
-<text x="1056" y="414" fill="#000000" font-size="12">class key</text>
+<!-- the inputs that cannot be part of a path, folded into one grey block -->
+<rect x="1050" y="381" width="116" height="40" fill="#7f7f7f"/>
+<text x="1056" y="397" fill="#000000">1 other input</text>
+<text x="1056" y="414" fill="#000000" font-size="12">Enter lists it</text>
 <!-- input side lines, right to left -->
 <line x1="1048" y1="353" x2="1023" y2="353" stroke="#00cd00" stroke-width="1.5" marker-end="url(#a-green)"/>
 <line x1="1048" y1="391" x2="916" y2="391" stroke="#00cd00" stroke-width="1.5" marker-end="url(#a-green)"/>
@@ -116,6 +117,6 @@
 <rect x="114" y="565" width="126" height="18" fill="#e5e5e5"/>
 <text x="118" y="578" fill="#000000">class:keyboard</text>
 <text x="252" y="578" fill="#e5e5e5">path:pci-0000:15:00.0-usb-0:3.3   id:046d:c31c   or type a selector</text>
-<text x="36" y="616" fill="#7f7f7f">←→ columns  ↑↓ move  Tab next view  Enter open  Space tag  c connect  f follow  d devices  ? route  v view  i install  r revert  q quit</text>
+<text x="36" y="616" fill="#7f7f7f">↑↓ field  ←→ pick  Enter choose  Esc close  q quit</text>
 </g>
 </svg>
