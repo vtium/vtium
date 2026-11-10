@@ -112,6 +112,33 @@ pub struct Placement {
     /// not isolated or [`Place::DefaultHead`], or `None` with no head that
     /// can be the active head (D5).
     pub focus: Option<Place>,
+    /// Why the VT placed for shows a notice in place of a terminal, when
+    /// the display guard lit the boot display for a notice because of the
+    /// heads' VTs. Only [`Config::place_on`] gives it.
+    pub vt_notice: Option<VtNotice>,
+}
+
+/// Why a VT shows a notice on its boot display in place of a terminal
+/// (ADR-1401 D3). On every VT it runs on, vtium shows either a terminal or
+/// a notice that says why there is none.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VtNotice {
+    /// The heads that run on this VT and have no display, by their index
+    /// in [`Config::heads`]. Empty when no head of the file runs on this VT.
+    pub heads: Vec<usize>,
+    /// Each connected display that stays with a head on another VT.
+    pub tied: Vec<Tied>,
+}
+
+/// A display that stays with a head on another VT.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Tied {
+    /// The display, by its place in the devices given.
+    pub device: usize,
+    /// The head it belongs to, by its index in [`Config::heads`].
+    pub head: usize,
+    /// The VTs that head runs on, its `vt`.
+    pub vts: Vec<u16>,
 }
 
 /// Whether vtium opens an input (D9).
@@ -232,7 +259,7 @@ impl Config {
     /// when the file declares heads and none of them runs on `vt`. vtium
     /// then builds the default head alone, [`Place::DefaultHead`], and
     /// [`Config::walk_on`] places every display in it and every input by
-    /// the shipped rules' input rules, so the VT is never dark and silent.
+    /// the shipped rules' input rules, so the VT shows a terminal.
     /// Under closed such a VT shows the closed policy's notice on its boot
     /// display instead ([`Config::place_on`]). A file that declares no head
     /// keeps the display guard's default head (the maintainer, 2026-11-10;
@@ -461,20 +488,46 @@ impl Config {
                 .collect()
         };
         let mut never_dark = false;
+        let mut vt_notice = None;
         if lit_heads(&placed).is_empty() {
+            // each display that stays with a head on another VT
+            let tied: Vec<Tied> = devices
+                .iter()
+                .zip(&placed)
+                .enumerate()
+                .filter_map(|(device, (d, p))| match p.place {
+                    Place::Elsewhere(head) if d.kind == Kind::Display => Some(Tied {
+                        device,
+                        head,
+                        vts: self
+                            .heads
+                            .get(head)
+                            .map(|h| h.vts.clone())
+                            .unwrap_or_default(),
+                    }),
+                    _ => None,
+                })
+                .collect();
+            let displays = devices.iter().filter(|d| d.kind == Kind::Display).count();
+            // this VT's heads have no display because every display belongs
+            // to a head on another VT
+            let all_tied = !tied.is_empty() && tied.len() == displays;
             // under open the first head of this VT, else the default head;
             // under closed a notice alone, for a file with heads, on this VT
             // or not, or one that failed, and nothing for a valid closed
-            // file with no head
+            // file with no head; and a notice alone, under either policy,
+            // where every display is tied to another VT
             let first = self.heads_on(vt).next();
             let place = match self.policy {
+                Policy::Open if all_tied => Some(Place::Notice),
                 Policy::Open => Some(first.map_or(Place::DefaultHead, Place::Head)),
                 Policy::Closed if self.heads.is_empty() && !self.survivors => None,
                 Policy::Closed => Some(Place::Notice),
             };
-            // on a VT where no head runs, a display tied to another VT's
-            // head can show the notice too, so the VT is never silent
-            let tied_dark = !self.empty_vt(vt);
+            // the notice is the one exception to step 4 for a display: a
+            // display tied to another VT's head can show it, when this VT
+            // has no head or every display is tied
+            let tied_dark = !(self.empty_vt(vt) || all_tied);
             let boot = boot_display(devices, &placed, tied_dark).and_then(|i| placed.get_mut(i));
             if let (Some(place), Some(p)) = (place, boot) {
                 *p = Placed {
@@ -482,6 +535,14 @@ impl Config {
                     by: By::NeverDark,
                 };
                 never_dark = true;
+                // the notice says why when the heads' VTs are the reason:
+                // no head runs here, or a display belongs to another VT
+                if place == Place::Notice && (self.empty_vt(vt) || !tied.is_empty()) {
+                    vt_notice = Some(VtNotice {
+                        heads: self.heads_on(vt).collect(),
+                        tied,
+                    });
+                }
             }
         }
         let lit = lit_heads(&placed);
@@ -535,6 +596,7 @@ impl Config {
             never_dark,
             anti_lockout,
             focus,
+            vt_notice,
         }
     }
 

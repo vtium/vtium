@@ -5,8 +5,8 @@
 //! device on each VT.
 
 use vtium_settings::{
-    By, Class, Config, Disposition, Edid, Identity, Kind, Place, Placed, Problem, Scope, VT_MAX,
-    parse, reading, set_key,
+    By, Class, Config, Disposition, Edid, Identity, Kind, Place, Placed, Problem, Scope, Tied,
+    VT_MAX, VtNotice, parse, reading, set_key,
 };
 
 fn config(text: &str) -> Config {
@@ -421,12 +421,87 @@ input * -> roaming
         assert_eq!(placement.placed[0].place, elsewhere(&c, "three"));
         assert_eq!(placement.placed[1].place, head(&c, "four"));
         assert!(!placement.never_dark);
-        // with no display of VT 4 connected, the display guard still leaves
-        // the display of VT 3's terminal dark
+        assert_eq!(placement.vt_notice, None);
+        // with no display of VT 4 connected, VT 4's head has no display, and
+        // the display of VT 3's terminal shows the notice that says why
         let alone = c.place_on(&[left.clone(), kb.clone()], None, 4);
-        assert_eq!(alone.placed[0].place, elsewhere(&c, "three"));
-        assert!(!alone.never_dark);
+        assert_eq!(alone.placed[0].place, Place::Notice);
+        assert!(alone.never_dark);
     }
+}
+
+/// desk runs on VT 3 and holds the only display, DP-8; here runs on VT 4
+/// with no display rule, and holds a keyboard.
+const NO_DISPLAY_HERE: &str = "\
+version = 1
+[head desk]
+vt = 3
+[head here]
+vt = 4
+[rules]
+display connector:card0/DP-8 -> desk
+input path:usb-0:1 -> here
+";
+
+/// On every VT it runs on, vtium shows either a terminal or a notice that
+/// says why there is none (the maintainer, 2026-11-10). When a VT has heads
+/// but every display is tied to a head on another VT, the boot display
+/// shows a notice alone under either policy, and no head's console shows.
+#[test]
+fn a_vt_whose_heads_have_no_display_shows_a_notice_on_the_boot_display() {
+    let dp8 = monitor("DP-8", "S");
+    let kb = keyboard("usb-0:1");
+    for c in [config(NO_DISPLAY_HERE), config(&closed(NO_DISPLAY_HERE))] {
+        let placement = c.place_on(&[kb.clone(), dp8.clone()], None, 4);
+        assert_eq!(
+            placement.placed[1],
+            Placed {
+                place: Place::Notice,
+                by: By::NeverDark,
+            }
+        );
+        assert!(placement.never_dark);
+        assert_eq!(placement.focus, None);
+        assert_eq!(
+            placement.vt_notice,
+            Some(VtNotice {
+                heads: vec![1],
+                tied: vec![Tied {
+                    device: 1,
+                    head: 0,
+                    vts: vec![3],
+                }],
+            })
+        );
+        // the keyboard keeps its head, which no display shows
+        assert_eq!(placement.placed[0].place, head(&c, "here"));
+        // on VT 3, desk shows on DP-8, and no notice is needed
+        let three = c.place_on(&[kb.clone(), dp8.clone()], None, 3);
+        assert_eq!(three.placed[1].place, head(&c, "desk"));
+        assert_eq!(three.vt_notice, None);
+    }
+    // a display no rule claims is free, so under open the display guard
+    // gives it to VT 4's head, as with no VT
+    let open = config(NO_DISPLAY_HERE);
+    let free = monitor("DP-9", "F");
+    let placement = open.place_on(&[dp8.clone(), free.clone()], None, 4);
+    assert_eq!(placement.placed[0].place, elsewhere(&open, "desk"));
+    assert_eq!(placement.placed[1].place, head(&open, "here"));
+    assert_eq!(placement.vt_notice, None);
+    // under closed the free display shows the notice, DP-8 stays dark, and
+    // the notice still says which display is tied where
+    let shut = config(&closed(NO_DISPLAY_HERE));
+    let placement = shut.place_on(&[dp8, free], None, 4);
+    let places: Vec<Place> = placement.placed.iter().map(|p| p.place).collect();
+    assert_eq!(places, [elsewhere(&shut, "desk"), Place::Notice]);
+    assert_eq!(
+        placement.vt_notice.map(|n| n.tied),
+        Some(vec![Tied {
+            device: 0,
+            head: 0,
+            vts: vec![3],
+        }])
+    );
 }
 
 /// Test 7 of ADR-1403 D7: a keyboard tied to VT 3, and a broad rule after
@@ -596,10 +671,22 @@ fn under_closed_a_vt_where_no_head_runs_shows_the_notice() {
     assert_eq!(placement.placed[2].place, elsewhere(&c, "three"));
     assert!(placement.never_dark);
     assert_eq!(placement.focus, None);
+    // no head runs on VT 4, and DP-1 belongs to head three on VT 3
+    assert_eq!(
+        placement.vt_notice,
+        Some(VtNotice {
+            heads: Vec::new(),
+            tied: vec![Tied {
+                device: 0,
+                head: 0,
+                vts: vec![3],
+            }],
+        })
+    );
     // with only the free display connected, the notice goes there
     let alone = c.place_on(&[free, kb], None, 4);
     assert_eq!(alone.placed[0].place, Place::Notice);
-    // a valid closed file that declares no head stays dark and silent
+    // a valid closed file that declares no head lights nothing, as D9 has it
     let none = config(&closed("version = 1\n[rules]\ninput * -> ignore\n"));
     let dark = none.place_on(&[tied], None, 4);
     assert_eq!(dark.placed[0].place, Place::Off);
