@@ -232,17 +232,26 @@ fn draw_wires(doc: &mut Canvas, layout: &Layout, at: Option<&Obj>) {
             if grid.get(at).is_some_and(|c| c.iter().any(|w| *w > 0)) {
                 continue;
             }
-            let across = [path.get(k.wrapping_sub(1)), path.get(k.saturating_add(1))]
-                .into_iter()
-                .flatten()
-                .all(|n| n.1 == *y);
-            let glyph = match (across, k == 0 || k + 1 == path.len()) {
-                (true, _) => "┄",
-                (false, true) => "┆",
-                (false, false) => {
-                    // the turn: from the line across to the line up
-                    "┘"
-                }
+            let near = [
+                k.checked_sub(1).and_then(|i| path.get(i)),
+                path.get(k.saturating_add(1)),
+            ];
+            let (mut up, mut down, mut left, mut right) = (false, false, false, false);
+            for n in near.into_iter().flatten() {
+                up |= n.1 < *y;
+                down |= n.1 > *y;
+                left |= n.0 < *x;
+                right |= n.0 > *x;
+            }
+            let glyph = match (up || down, left || right) {
+                (true, true) => match (up, right) {
+                    (true, true) => "└",
+                    (true, false) => "┘",
+                    (false, true) => "┌",
+                    (false, false) => "┐",
+                },
+                (true, false) => "┆",
+                _ => "┄",
             };
             doc.put(*x, *y, glyph, Style::text(Color::Grey));
         }
@@ -311,6 +320,29 @@ pub fn document(layout: &Layout, cols: usize, at: Option<&Obj>) -> Canvas {
         &"─".repeat(cols.saturating_sub(2)),
         Style::text(Color::Grey),
     );
+    doc
+}
+
+/// The canvas as a window `height` rows tall from row `top` shows it: a
+/// box whose title is out of sight is left out, so no stray piece of a
+/// border shows at the window's edges.
+pub fn window_of(
+    layout: &Layout,
+    cols: usize,
+    at: Option<&Obj>,
+    top: usize,
+    height: usize,
+) -> Canvas {
+    let mut doc = document(layout, cols, at);
+    let end = top.saturating_add(height);
+    for b in &layout.boxes {
+        if b.title_row() >= top && b.title_row() < end {
+            continue;
+        }
+        for y in b.y..b.bottom() {
+            doc.put(b.x, y, &" ".repeat(b.w), Style::PLAIN);
+        }
+    }
     doc
 }
 
@@ -515,8 +547,8 @@ fn overview(canvas: &mut Canvas, app: &App, state: &rows::State, layout: &Layout
     ] {
         canvas.put(x, HEAD_ROWS.saturating_sub(1), &fit(title, w), bold(color));
     }
-    let doc = document(layout, app.cols, state.at.as_ref());
     let (wtop, wh) = window(app);
+    let doc = window_of(layout, app.cols, state.at.as_ref(), state.top, wh);
     for i in 0..wh {
         let y = state.top.saturating_add(i);
         for x in 0..app.cols {
@@ -602,11 +634,6 @@ fn field_value(flow: &Flow, h: usize, f: &Field) -> (String, String) {
     }
 }
 
-/// The value column of a layer at this width.
-fn value_x(cols: usize) -> usize {
-    VALUE_X.min(cols / 3)
-}
-
 /// A terminal's second layer: its look, consoles, login, what happens when
 /// its screen is unplugged and whether it is isolated, each a field of
 /// the card Enter opens in the six-column view; then what reaches it.
@@ -618,7 +645,7 @@ fn terminal_layer(canvas: &mut Canvas, app: &App) {
     let Some(head) = flow.heads.get(h) else {
         return;
     };
-    let vx = value_x(app.cols);
+    let vx = VALUE_X;
     let active = rows::active(flow) == Some(h);
     let x = canvas.put(
         1,
@@ -874,7 +901,7 @@ fn device_layer(canvas: &mut Canvas, app: &App, obj: &Obj) {
         &fit(&about.join(" · "), room),
         Style::text(Color::Grey),
     );
-    let vx = value_x(app.cols).min(16);
+    let vx = 16;
     let lines: Vec<Line> = device_lines(flow, item);
     let mut y = 5usize;
     for (i, line) in lines.iter().enumerate() {
@@ -888,8 +915,14 @@ fn device_layer(canvas: &mut Canvas, app: &App, obj: &Obj) {
             }
             x = choice(canvas, x, y, &c.text, c.on, cursor);
             if !c.note.is_empty() {
+                let room = app.cols.saturating_sub(x);
                 x = canvas
-                    .put(x.saturating_sub(1), y, &c.note, Style::text(Color::Grey))
+                    .put(
+                        x.saturating_sub(1),
+                        y,
+                        &fit(&c.note, room),
+                        Style::text(Color::Grey),
+                    )
                     .saturating_add(3);
             }
             // a row of choices too wide for the screen goes on below
@@ -941,7 +974,7 @@ fn others_layer(canvas: &mut Canvas, app: &App) {
     for (k, l) in about.iter().enumerate() {
         canvas.put(3, 4usize.saturating_add(k), l, Style::text(Color::Grey));
     }
-    let vx = value_x(app.cols);
+    let vx = (app.cols / 2).min(42);
     let (wtop, wh) = window(app);
     let bottom = wtop.saturating_add(wh);
     let mut y = 5usize.saturating_add(about.len()).saturating_add(1);
@@ -1053,6 +1086,49 @@ mod tests {
             doc.style_at(others.x, others.y).and_then(|s| s.fg),
             Some(Color::Grey)
         );
+    }
+
+    #[test]
+    fn a_dotted_branch_runs_down_from_the_row_s_line_and_turns_to_its_words() {
+        let mut f = flow();
+        f.rules.push(super::super::flow::Rule {
+            kind: super::super::flow::Kind::Input,
+            line: 9,
+            selector: "path:x".into(),
+            target: "panel".into(),
+            state: super::super::flow::RuleState::Matches,
+        });
+        f.inputs[5].rule = Some(f.rules.len() - 1);
+        let l = rows::layout(&f, 100);
+        let doc = document(&l, 100, None);
+        let dotted = l.wires.iter().find(|w| w.dashed).expect("a dotted line");
+        let path = cells(dotted);
+        let (sx, sy) = path[0];
+        let (tx, ty) = *path.last().expect("a cell");
+        // across from the device column, then up to the line above it
+        assert_eq!(doc.at(sx, sy), Some('┄'));
+        assert_eq!(doc.at(tx, sy), Some('└'));
+        for y in ty..sy {
+            assert_eq!(doc.at(tx, y), Some('┆'), "at {tx},{y}");
+        }
+        // the solid line above it gains a line down
+        assert_eq!(doc.at(tx, ty - 1), Some('┬'));
+    }
+
+    #[test]
+    fn a_box_whose_title_is_out_of_sight_leaves_no_piece_of_its_border() {
+        let f = flow();
+        let l = rows::layout(&f, 100);
+        let desk = l.find(&Obj::Terminal("desk".into())).expect("desk");
+        // the window starts at desk's bottom border: desk's title is above it
+        let top = desk.bottom() - 1;
+        let doc = window_of(&l, 100, None, top, 12);
+        for x in desk.x..desk.right() {
+            assert_eq!(doc.at(x, top), Some(' '), "at {x},{top}");
+        }
+        // a box whose title is in sight keeps its border
+        let panel = l.find(&Obj::Terminal("panel".into())).expect("panel");
+        assert_eq!(doc.at(panel.x, panel.y), Some('┌'));
     }
 
     #[test]

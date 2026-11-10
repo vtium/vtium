@@ -1006,7 +1006,7 @@ pub fn match_words(selector: &str, sort: Sort) -> String {
         ),
         "class" => format!("any {value}"),
         "path" => format!("only this {one}, by its USB port"),
-        "id" => format!("only this {one}, by its id, in any port"),
+        "id" => format!("any device with the id {value}, in any port"),
         "serial" => format!("only this {one}, by its serial number"),
         "name" => format!("only this {one}, by its name"),
         "bluetooth" => format!("only this {one}, by its Bluetooth address"),
@@ -1111,7 +1111,7 @@ pub fn device_lines(flow: &Flow, item: Item) -> Vec<Line> {
         matched.push(Choice {
             text: match_words(&x.selector, s),
             note: if shared {
-                super::words::rows_shared(r.saturating_add(1), s.word())
+                super::words::rows_shared(r.saturating_add(1), &x.selector)
             } else {
                 super::words::rows_rule_note(r.saturating_add(1))
             },
@@ -1650,6 +1650,14 @@ pub(crate) mod tests {
         let kbd = device_lines(&f, Item::Input(1));
         assert!(kbd[0].choices[2].on, "the keyboard roams");
         assert_eq!(kbd[1].choices[0].text, "any keyboard");
+        assert_eq!(
+            kbd[1].choices[0].note,
+            "(rule 4, shared with every keyboard)"
+        );
+        assert_eq!(
+            kbd[1].choices[2].text,
+            "any device with the id 046d:c31c, in any port"
+        );
         assert_eq!(
             kbd[1].choices[1].text,
             "only this keyboard, by its USB port"

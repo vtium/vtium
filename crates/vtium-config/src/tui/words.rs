@@ -910,7 +910,7 @@ pub const ROWS_ACTIONS: [(&str, &str); 5] = [
     ("n New", "New"),
 ];
 pub const ROWS_KEYS: &str =
-    "↑↓←→ move  Enter open  Space start a path  ? route  PgUp PgDn scroll  v rules  s save  q quit";
+    "↑↓←→ move  Enter open  Space start a path  v rules  ? route  s save  PgUp PgDn scroll  q quit";
 pub const ROWS_KEYS_TERMINAL: &str =
     "↑↓ move  ←→ choose  Enter set  Esc back to the overview  q quit";
 pub const ROWS_KEYS_DEVICE: &str =
@@ -958,8 +958,14 @@ pub fn rows_other_inputs(n: usize) -> String {
 pub fn rows_rule_note(rule: usize) -> String {
     format!("(rule {rule})")
 }
-pub fn rows_shared(rule: usize, one: &str) -> String {
-    format!("(rule {rule}, shared with every {one})")
+/// A shared rule's note: which other devices it catches too.
+pub fn rows_shared(rule: usize, selector: &str) -> String {
+    let (key, value) = selector.split_once(':').unwrap_or((selector, ""));
+    match key {
+        "class" => format!("(rule {rule}, shared with every {value})"),
+        "id" => format!("(rule {rule}, shared with every device of that id)"),
+        _ => format!("(rule {rule}, shared with every device it matches)"),
+    }
 }
 pub fn rows_forget(rule: usize) -> String {
     format!("forget it: delete rule {rule}")
