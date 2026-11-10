@@ -645,17 +645,13 @@ impl App {
         let Some(l) = lines.get(line) else {
             return 0;
         };
-        let value = flowdraw::card_value(&path, l);
-        flowdraw::card_choices(self, l)
-            .iter()
-            .position(|(_, v)| *v == value)
-            .unwrap_or(0)
+        flowdraw::card_chosen(self, &path, l).unwrap_or(0)
     }
 
     /// A key on a terminal's card, an added path's or the editor's: Up and
     /// Down move between its lines, Left and Right between a line's
-    /// choices, Enter sets the choice or starts typing the name or the
-    /// login, and Esc goes back. `e` on an added path's card revises it.
+    /// choices, Enter sets the choice or starts typing the name or, on the
+    /// login's Other…, a command, and Esc goes back. `e` on an added path's card revises it.
     fn terminal_card_key(&mut self, state: &State, obj: &Obj, key: Key) -> Vec<Effect> {
         let Some(path) = flowdraw::card_path(self, obj) else {
             self.flow_with(|s| s.layer = None);
@@ -689,7 +685,7 @@ impl App {
                 self.flow_with(|s| s.pick = s.pick.saturating_add(1).min(last));
                 Vec::new()
             }
-            Key::Enter if choices.is_empty() => {
+            Key::Enter if flowdraw::card_types(self, &line, state.pick) => {
                 let now = flowdraw::card_value(&path, &line);
                 self.flow_with(|s| s.typing = Some(now));
                 Vec::new()
@@ -714,7 +710,8 @@ impl App {
     }
 
     /// A key while a card's name or login is typed: characters go into
-    /// it, Enter keeps it and Esc drops it.
+    /// it, Enter keeps it and Esc drops it. A login command that cannot
+    /// run is refused in one sentence, and stays to be fixed.
     fn card_type_key(
         &mut self,
         obj: &Obj,
@@ -733,6 +730,12 @@ impl App {
                 typed.pop();
                 self.flow_with(|s| s.typing = Some(typed));
                 Vec::new()
+            }
+            Key::Enter if *line == flowdraw::CardLine::Setting("login") => {
+                match paths::check_login(&typed) {
+                    Ok(command) => self.card_apply(obj, path, line, command),
+                    Err(why) => self.tell(why),
+                }
             }
             Key::Enter => self.card_apply(obj, path, line, typed),
             Key::Escape => {
@@ -1214,5 +1217,89 @@ mod tests {
         keys(&mut app, &[Key::Enter]);
         assert_eq!(app.message.as_deref(), Some(words::LABEL_HASH));
         assert!(state(&app).typing.is_some(), "the label stays to fix");
+    }
+
+    // The maintainer's try-out: a terminal's Login is a pick list of the
+    // command in effect, which leaves the head's key unset, and Other…,
+    // a typed command that is checked before it is kept
+    #[test]
+    fn the_login_line_picks_the_default_or_a_checked_command() {
+        let mut app = app();
+        app.inputs
+            .flow
+            .base
+            .set
+            .push(("login".into(), "/bin/sh -l".into()));
+        let new = Path {
+            name: Some("desk2".into()),
+            displays: vec!["*".into()],
+            ..Default::default()
+        };
+        app.flow_with(|s| s.new = new);
+        highlight(&mut app, Obj::New(Slot::Terminal));
+        keys(&mut app, &[Key::Enter]);
+        let login = flowdraw::CardLine::Setting("login");
+        let at = flowdraw::card_lines(&state(&app).new, true)
+            .iter()
+            .position(|l| *l == login)
+            .expect("the Login line");
+        keys(&mut app, &vec![Key::Down; at]);
+        let words: Vec<String> = flowdraw::card_choices(&app, &login)
+            .into_iter()
+            .map(|(w, _)| w)
+            .collect();
+        assert_eq!(words, ["Default: /bin/sh -l", "Other\u{2026}"]);
+        assert_eq!(state(&app).pick, 0, "Default is chosen");
+        // Other… types a command, which must name a program that runs
+        keys(&mut app, &[Key::Right, Key::Enter]);
+        assert_eq!(state(&app).typing.as_deref(), Some(""));
+        let refused = [
+            ("login -p", words::login_not_absolute("login")),
+            (
+                "/nonexistent/vtium/login",
+                words::login_missing("/nonexistent/vtium/login"),
+            ),
+            ("/etc/passwd", words::login_not_runnable("/etc/passwd")),
+            ("/bin/sh -c 'a #b'", words::LOGIN_HASH.to_owned()),
+            ("   ", words::LOGIN_EMPTY.to_owned()),
+        ];
+        for (typed, why) in refused {
+            keys(&mut app, &[Key::Escape, Key::Enter]);
+            type_text(&mut app, typed);
+            keys(&mut app, &[Key::Enter]);
+            assert_eq!(app.message.as_deref(), Some(why.as_str()), "{typed}");
+            assert!(state(&app).typing.is_some(), "{typed} stays to fix");
+            assert_eq!(state(&app).new.setting("login"), "", "{typed}");
+        }
+        keys(&mut app, &[Key::Escape, Key::Enter]);
+        type_text(&mut app, " /bin/sh -l ");
+        keys(&mut app, &[Key::Enter]);
+        assert!(state(&app).typing.is_none());
+        assert_eq!(state(&app).new.setting("login"), "/bin/sh -l");
+        assert_eq!(state(&app).pick, 1, "Other… holds the command");
+        // Default takes the command out: the path writes no login key
+        keys(&mut app, &[Key::Left, Key::Enter]);
+        assert!(state(&app).typing.is_none());
+        assert_eq!(state(&app).new.setting("login"), "");
+        let doc = paths::read(&app.inputs.flow).with(state(&app).new.clone());
+        let text = paths::plan(&app.inputs.flow, &doc)
+            .iter()
+            .fold(paths::tests::TEXT.to_owned(), |t, c| {
+                c.apply(&t).expect("the change applies")
+            });
+        assert!(text.contains("[head desk2]"), "{text}");
+        assert!(!text.contains("login"), "{text}");
+    }
+
+    #[test]
+    fn the_login_in_effect_follows_the_top_level() {
+        let mut f = flow();
+        assert_eq!(paths::login_in_effect(&f), "/bin/login -p");
+        f.base.set.push(("no-reset-env".into(), String::new()));
+        assert_eq!(paths::login_in_effect(&f), "/bin/login");
+        f.base.set.push(("reset-env".into(), String::new()));
+        assert_eq!(paths::login_in_effect(&f), "/bin/login -p");
+        f.base.set.push(("login".into(), "/usr/bin/fish".into()));
+        assert_eq!(paths::login_in_effect(&f), "/usr/bin/fish");
     }
 }

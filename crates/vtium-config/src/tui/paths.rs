@@ -71,6 +71,51 @@ pub fn expand(part: &str) -> Vec<&str> {
 /// checks each VT for a clash when the path is added (ADR-1403 D7).
 pub const SETTINGS: [&str; 5] = ["consoles", "login", "when-display-lost", "isolated", "vt"];
 
+/// The command a console of a head with no `login` of its own runs: the
+/// top level's `login`, or else vtium's default, `/bin/login -p` with
+/// `reset-env` on and `/bin/login` with it off.
+pub fn login_in_effect(flow: &Flow) -> String {
+    let last = |key: &str| flow.base.set.iter().rposition(|(k, _)| k == key);
+    if let Some(at) = last("login")
+        && let Some((_, command)) = flow.base.set.get(at)
+        && !command.is_empty()
+    {
+        return command.clone();
+    }
+    // a switch is set by `reset-env` or `no-reset-env`, the last one winning
+    let off = match (last("reset-env"), last("no-reset-env")) {
+        (Some(on), Some(off)) => off > on,
+        (None, Some(_)) => true,
+        _ => false,
+    };
+    if off { "/bin/login" } else { "/bin/login -p" }.to_owned()
+}
+
+/// Checks a login command the person typed and gives it back trimmed, or
+/// says in a sentence what is wrong with it. Its first word, the program,
+/// is an absolute path to a file that exists and that its mode lets run.
+/// A `#` is refused, as vtium.conf reads it as the start of a comment.
+pub fn check_login(typed: &str) -> Result<String, String> {
+    use std::os::unix::fs::PermissionsExt;
+    let command = typed.trim();
+    let Some(program) = command.split([' ', '\t']).next().filter(|p| !p.is_empty()) else {
+        return Err(words::LOGIN_EMPTY.to_owned());
+    };
+    if command.contains('#') {
+        return Err(words::LOGIN_HASH.to_owned());
+    }
+    if !program.starts_with('/') {
+        return Err(words::login_not_absolute(program));
+    }
+    match std::fs::metadata(program) {
+        Err(_) => Err(words::login_missing(program)),
+        Ok(m) if !m.is_file() || m.permissions().mode() & 0o111 == 0 => {
+            Err(words::login_not_runnable(program))
+        }
+        Ok(_) => Ok(command.to_owned()),
+    }
+}
+
 /// One part of a path.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Piece {

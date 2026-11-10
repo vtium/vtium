@@ -807,7 +807,32 @@ pub const NEW_TERMINAL: &str = "THE NEW PATH'S TERMINAL";
 pub const AUTOMATIC_SIZE: &str = "automatic";
 pub const KEEP_SESSIONS: &str = "keep the sessions running";
 pub const END_SESSIONS: &str = "end the sessions";
-pub const SYSTEM_LOGIN: &str = "the system's login";
+/// The Login line of a terminal's card: what it sets, its two choices,
+/// and what is wrong with a command the person types.
+pub const LOGIN_ABOUT: &str = "The program each console of this terminal starts.";
+/// The first choice, which leaves the head's `login` unset and names the
+/// command vtium runs then.
+pub fn login_default(command: &str) -> String {
+    format!("Default: {command}")
+}
+pub const LOGIN_OTHER: &str = "Other\u{2026}";
+pub const LOGIN_EMPTY: &str = "The login command is empty. Type the full path of a program, such as /bin/login -p, or choose Default.";
+pub const LOGIN_HASH: &str = "The login command holds #, which vtium.conf reads as the start of a comment. Type the command without #.";
+pub fn login_not_absolute(program: &str) -> String {
+    format!(
+        "The login program {program} is not a full path. Type a path that starts with /, such as /bin/login."
+    )
+}
+pub fn login_missing(program: &str) -> String {
+    format!(
+        "The login program {program} does not exist. Type the full path of a program that is installed."
+    )
+}
+pub fn login_not_runnable(program: &str) -> String {
+    format!(
+        "The login program {program} cannot run, because it is not an executable file. Type the full path of a program."
+    )
+}
 pub const DISCONNECT: &str = "disconnect it";
 pub const CONNECTED: &str = "connected";
 pub const EDITOR_NOTE: &str =

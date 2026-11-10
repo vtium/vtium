@@ -842,12 +842,20 @@ pub fn card_lines(path: &Path, editor: bool) -> Vec<CardLine> {
     out
 }
 
-/// A line's choices, each its words and its value; none for a value the
-/// person types, the name and the login.
+/// A line's choices, each its words and its value; none for the name,
+/// which the person types. The login's second choice, Other…, starts
+/// typing a command ([`card_types`]).
 pub fn card_choices(app: &App, line: &CardLine) -> Vec<(String, String)> {
     let own = |v: &str| (v.to_owned(), v.to_owned());
     match line {
-        CardLine::Name | CardLine::Setting("login") => Vec::new(),
+        CardLine::Name => Vec::new(),
+        CardLine::Setting("login") => vec![
+            (
+                words::login_default(&paths::login_in_effect(&app.inputs.flow)),
+                String::new(),
+            ),
+            (words::LOGIN_OTHER.to_owned(), String::new()),
+        ],
         CardLine::Font => std::iter::once((words::DEFAULT_FONT_SET.to_owned(), String::new()))
             .chain(font_names(app).iter().map(|f| own(f)))
             .collect(),
@@ -866,6 +874,36 @@ pub fn card_choices(app: &App, line: &CardLine) -> Vec<(String, String)> {
         ],
         CardLine::Setting(_) => Vec::new(),
         CardLine::Part(_) => vec![(words::DISCONNECT.to_owned(), String::new())],
+    }
+}
+
+/// The choice of `line` that the path holds, if any: for the login,
+/// Default while the head sets none and Other… while it sets a command.
+pub fn card_chosen(app: &App, path: &Path, line: &CardLine) -> Option<usize> {
+    let value = card_value(path, line);
+    match line {
+        CardLine::Setting("login") => Some(usize::from(!value.is_empty())),
+        _ => card_choices(app, line)
+            .iter()
+            .position(|(_, v)| *v == value),
+    }
+}
+
+/// Whether Enter on the choice `pick` of `line` starts typing a value: on
+/// the name, which has no choices, and on the login's Other….
+pub fn card_types(app: &App, line: &CardLine, pick: usize) -> bool {
+    match line {
+        CardLine::Setting("login") => pick == 1,
+        _ => card_choices(app, line).is_empty(),
+    }
+}
+
+/// What a line sets, which the card shows under its lines while the
+/// cursor is on it.
+fn card_about(line: &CardLine) -> Option<&'static str> {
+    match line {
+        CardLine::Setting("login") => Some(words::LOGIN_ABOUT),
+        _ => None,
     }
 }
 
@@ -911,7 +949,10 @@ fn card_label(flow: &Flow, line: &CardLine) -> String {
 fn card_words(app: &App, path: &Path, line: &CardLine) -> String {
     let value = card_value(path, line);
     match line {
-        CardLine::Setting("login") if value.is_empty() => words::SYSTEM_LOGIN.to_owned(),
+        CardLine::Setting("login") if value.is_empty() => {
+            words::login_default(&paths::login_in_effect(&app.inputs.flow))
+        }
+        CardLine::Setting("login") => value,
         CardLine::Part(_) => words::CONNECTED.to_owned(),
         _ => card_choices(app, line)
             .into_iter()
@@ -952,9 +993,11 @@ fn card_layer(canvas: &mut Canvas, app: &App, state: &flowview::State, obj: &Obj
         app.cols.saturating_sub(4),
         2,
     );
+    let about = lines.get(state.line).and_then(card_about);
     let room = bottom
         .saturating_sub(5)
         .saturating_sub(note.len().saturating_add(1))
+        .saturating_sub(usize::from(about.is_some()))
         .max(1);
     let first = state.line.saturating_add(1).saturating_sub(room);
     let mut y = 5usize;
@@ -981,7 +1024,7 @@ fn card_layer(canvas: &mut Canvas, app: &App, state: &flowview::State, obj: &Obj
                         Style::text(Color::Grey),
                     );
                 } else {
-                    let value = card_value(&path, line);
+                    let chosen = card_chosen(app, &path, line);
                     // the row starts late enough that the cursor's choice
                     // shows, each choice taking its mark, its words and a gap
                     let room = app.cols.saturating_sub(VALUE_X);
@@ -998,11 +1041,11 @@ fn card_layer(canvas: &mut Canvas, app: &App, state: &flowview::State, obj: &Obj
                         first = first.saturating_add(1);
                     }
                     let mut x = VALUE_X;
-                    for (k, (w, v)) in choices.iter().enumerate().skip(first) {
+                    for (k, (w, _)) in choices.iter().enumerate().skip(first) {
                         if x.saturating_add(width(w)).saturating_add(3) >= app.cols {
                             break;
                         }
-                        let on = *v == value && !matches!(line, CardLine::Part(_));
+                        let on = chosen == Some(k) && !matches!(line, CardLine::Part(_));
                         x = choice(canvas, x, y, w, on, k == state.pick);
                     }
                 }
@@ -1019,6 +1062,10 @@ fn card_layer(canvas: &mut Canvas, app: &App, state: &flowview::State, obj: &Obj
                 );
             }
         }
+        y = y.saturating_add(1);
+    }
+    if let Some(about) = about {
+        canvas.put(3, y, about, Style::text(Color::Grey));
         y = y.saturating_add(1);
     }
     y = y.saturating_add(1).min(bottom.saturating_sub(note.len()));
