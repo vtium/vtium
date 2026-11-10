@@ -1,0 +1,25 @@
+ Flow  Looks  Fonts  Settings  Help       View file  Save  Install  Revert  New
+ draft bench   All devices are in a path · no changes · no problems
+ policy open: a keyboard that no rule names types into the active terminal
+ CONFIGURATION
+ DISPLAYS               TERMINALS                                INPUTS
+ ┌──────────────┐       ┌──────────────────────────────┐
+ │ All displays │──────►│ desk                         │◄┄┄┄┄┄┄┄┄roaming inputs
+ │ Every displ… │       │ font set proof · VT 3        │
+ └──────────────┘       └──────────────────────────────┘
+
+ ┏━━━━━━━━━━━━━━┓       ┌──────────────────────────────┐         ┌────────────┐
+ ┃ All displays ┃━━━━━━▶│ panel                        │◄─┬──────│ kbd        │
+ ┃ Every displ… ┃       │ default font set · VT 4      │  ┆      │ pci-0:3.3  │
+ ┗━━━━━━━━━━━━━━┛       └──────────────────────────────┘  ┆      └────────────┘
+                                                          └┄┄┄┄┄┄roaming inputs
+
+                        ┌┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┐         ┌────────────┐
+ ROAMING                ┆ Active terminal              ┆◄┄┄┄┄┄┄┄┄│ every key… │
+ These inputs type      ┆ Terminal on screen, followi… ┆         │ every inp… │
+ into the active        └┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┘         └────────────┘
+ terminal.
+
+ ──────────────────────────────────────────────────────────────────────────────
+ NEW PATH     Pick an input and a display to make a path.
+ ↑↓←→ move  Space pick  Enter open  a add path  e revise  v view file  q quit

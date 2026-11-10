@@ -3372,22 +3372,29 @@ mod draft_flow {
         let picker: Vec<&[u8]> = [&maker[..], &[DOWN; 4][..], &[enter][..]].concat();
         let typed: [&[u8]; 4] = [enter, enter, b"Left desk", enter];
         let label: Vec<&[u8]> = [&to_inputs[..], &typed[..]].concat();
-        let scripts: [(&str, bool, &[&[u8]]); 7] = [
-            ("flow-default", true, &[]),
-            ("flow-paths", false, &[]),
-            ("flow-new-path", false, &[HOME, RIGHT, RIGHT, b" "]),
-            ("flow-input-maker", false, &maker),
-            ("flow-picker", false, &picker),
-            ("flow-terminal-card", false, &[HOME, RIGHT, b"\r"]),
-            ("flow-label", false, &label),
+        // the draft with desk on VT 3 and panel on VT 4, each showing
+        // every display (ADR-1403 D7)
+        let vts = "font-size=12\nversion = 1\n[look big]\nfont-name = proof\n[head desk]\nlook = big\nvt = 3\n[head panel]\nvt = 4\n[rules]\ndisplay * -> desk\ndisplay * -> panel\ninput path:pci-0:3.3 -> panel\ninput class:keyboard -> roaming\n";
+        // no sections: the draft runs vtium's built-in default
+        let shipped = "font-size=12\n";
+        let space: &[u8] = b" ";
+        let clash: Vec<&[u8]> = [&[HOME][..], &[DOWN; 4][..], &[space][..]].concat();
+        let scripts: [(&str, Option<&str>, &[&[u8]]); 9] = [
+            ("flow-default", Some(shipped), &[]),
+            ("flow-paths", None, &[]),
+            ("flow-new-path", None, &[HOME, RIGHT, RIGHT, b" "]),
+            ("flow-input-maker", None, &maker),
+            ("flow-picker", None, &picker),
+            ("flow-terminal-card", None, &[HOME, RIGHT, b"\r"]),
+            ("flow-label", None, &label),
+            ("flow-shared-vts", Some(vts), &[]),
+            ("flow-vt-clash", Some(vts), &clash),
         ];
         for (cols, rows) in [(80, 25), (120, 32)] {
-            for (name, shipped, keys) in scripts {
+            for (name, conf, keys) in scripts {
                 let b = bench(&format!("{name}-{cols}"));
-                if shipped {
-                    // no sections: the draft runs vtium's built-in default
-                    std::fs::write(b.root.join("etc/vtium.conf"), "font-size=12\n")
-                        .expect("vtium.conf");
+                if let Some(conf) = conf {
+                    std::fs::write(b.root.join("etc/vtium.conf"), conf).expect("vtium.conf");
                 }
                 let ran = run_at(
                     &b,

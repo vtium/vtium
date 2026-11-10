@@ -11,3 +11,7 @@ flow-label-80x25	An input part's detail, whose maker line shows All keyboards' a
 flow-label-120x32	An input part's detail, whose maker line shows All keyboards' accepted description.
 flow-terminal-card-80x25	A terminal's card, whose Login line shows Default: /bin/login -p.
 flow-terminal-card-120x32	A terminal's card, whose Login line shows Default: /bin/login -p.
+flow-shared-vts-80x25	All displays shared by the terminal desk on VT 3 and the terminal panel on VT 4, each in its own path.
+flow-shared-vts-120x32	All displays shared by the terminal desk on VT 3 and the terminal panel on VT 4, each in its own path.
+flow-vt-clash-80x25	All displays picked from PARTS into a new path on every VT, refused because the terminal desk holds it on VT 3.
+flow-vt-clash-120x32	All displays picked from PARTS into a new path on every VT, refused because the terminal desk holds it on VT 3.
