@@ -214,7 +214,7 @@ Enter on a terminal's box opens its card. The card lists the terminal's settings
 The `Login` line sets the program each console of the terminal starts. It has two choices:
 
 - `Default: /bin/login -p` leaves the terminal's own `login` key unset. The choice shows the command that runs then: the `login` key at the top of vtium.conf, or vtium's default, `/bin/login -p`.
-- `Other…` lets you type a command. vtium-config keeps it only when its first word is the full path of a program that exists and can run. Otherwise it says in one sentence what is wrong, such as `The login program login is not a full path. Type a path that starts with /, such as /bin/login.`
+- `Other…` lets you type a command. vtium-config keeps it only when its first word is the full path of a program that exists and can run, or a variable such as `$SHELL`, which vtium replaces with its value when the console starts. Otherwise it says in one sentence what is wrong, such as `The login program login is not a full path. Type a path that starts with /, such as /bin/login.`
 
 Under its settings, the card shows WHAT THIS TERMINAL DRAWS: the terminal's font set, then its look, then its displays, joined left to right.
 

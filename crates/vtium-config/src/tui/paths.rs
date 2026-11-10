@@ -93,8 +93,9 @@ pub fn login_in_effect(flow: &Flow) -> String {
 
 /// Checks a login command the person typed and gives it back trimmed, or
 /// says in a sentence what is wrong with it. Its first word, the program,
-/// is an absolute path to a file that exists and that its mode lets run.
-/// A `#` is refused, as vtium.conf reads it as the start of a comment.
+/// is an absolute path to a file that exists and that its mode lets run,
+/// or a variable, `$NAME`, which vtium expands when the console starts. A
+/// `#` is refused, as vtium.conf reads it as the start of a comment.
 pub fn check_login(typed: &str) -> Result<String, String> {
     use std::os::unix::fs::PermissionsExt;
     let command = typed.trim();
@@ -103,6 +104,12 @@ pub fn check_login(typed: &str) -> Result<String, String> {
     };
     if command.contains('#') {
         return Err(words::LOGIN_HASH.to_owned());
+    }
+    // vtium replaces a word written `$NAME` with that variable of the
+    // console's environment, which vtium-config cannot see, and `$$`
+    // writes a literal `$`
+    if program.starts_with('$') && !program.starts_with("$$") {
+        return Ok(command.to_owned());
     }
     if !program.starts_with('/') {
         return Err(words::login_not_absolute(program));

@@ -1314,6 +1314,17 @@ mod tests {
         assert!(state(&app).new.displays.is_empty());
     }
 
+    // vtium replaces a first word written `$NAME` with that variable, so
+    // the check takes it as vtium does; `$$` is a literal `$`
+    #[test]
+    fn a_login_command_may_start_with_a_variable() {
+        assert_eq!(paths::check_login("$SHELL -l"), Ok("$SHELL -l".to_owned()));
+        assert_eq!(
+            paths::check_login("$$SHELL"),
+            Err(words::login_not_absolute("$$SHELL"))
+        );
+    }
+
     #[test]
     fn the_login_in_effect_follows_the_top_level() {
         let mut f = flow();
