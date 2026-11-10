@@ -50,6 +50,7 @@ impl App {
 
     /// A key in the Flow view as paths.
     pub(crate) fn rows_key(&mut self, key: Key) -> Vec<Effect> {
+        self.rows_with(|s| s.note = None);
         let Some(state) = self.rows_flow.clone() else {
             return self.flow_key(key);
         };

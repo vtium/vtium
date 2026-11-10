@@ -109,6 +109,10 @@ pub struct Inputs {
     /// The Flow view is drawn as rows of bordered objects, the try-out
     /// `VTIUM_CONFIG_FLOW=rows` selects ([`super::rows`]).
     pub flow_rows: bool,
+    /// The rows' colors, from `vtium-config.conf` ([`super::rowscolor`]).
+    pub rows_colors: super::rowscolor::Palette,
+    /// What the status line says once about that file.
+    pub rows_note: Option<String>,
 }
 
 /// One thing that happened.
@@ -564,7 +568,10 @@ impl App {
             rows_flow: None,
         };
         if app.inputs.flow_rows {
-            app.rows_flow = Some(super::rows::State::default());
+            app.rows_flow = Some(super::rows::State {
+                note: app.inputs.rows_note.clone(),
+                ..super::rows::State::default()
+            });
         }
         let mut first = vec![Effect::Write(probe()), Effect::Wait(WAIT)];
         if app.inputs.desk {

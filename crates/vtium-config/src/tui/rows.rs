@@ -920,6 +920,9 @@ pub struct State {
     /// The box to highlight once a change in flight is written and the
     /// box exists: an added path's terminal.
     pub want: Option<Obj>,
+    /// What the status line says until the first key: where the color
+    /// file was written, or a line of it that was skipped.
+    pub note: Option<String>,
 }
 
 impl State {

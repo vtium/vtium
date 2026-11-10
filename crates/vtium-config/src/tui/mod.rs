@@ -29,6 +29,7 @@ pub mod model;
 pub mod paths;
 pub mod port;
 pub mod rows;
+pub mod rowscolor;
 pub mod rowsdraw;
 mod rowskeys;
 pub mod shot;
@@ -212,6 +213,13 @@ pub fn gather(paths: &Paths, view: model::View) -> Result<Inputs, String> {
     let frits = paths.frits.clone()?;
     let displays = crate::display::displays(&paths.sys);
     let dpi = density(conf.as_deref(), &displays);
+    let flow_rows = std::env::var("VTIUM_CONFIG_FLOW").is_ok_and(|v| v == "rows");
+    // the rows' colors, from the person's own file, written the first time
+    let (rows_colors, rows_note) = if flow_rows {
+        rowscolor::load(&|name| std::env::var(name).ok())
+    } else {
+        (rowscolor::Palette::console(), None)
+    };
     Ok(Inputs {
         fonts: fonts(&frits),
         conf_path,
@@ -227,7 +235,9 @@ pub fn gather(paths: &Paths, view: model::View) -> Result<Inputs, String> {
         desk: false,
         hotplug: false,
         // the try-out of the Flow view as rows, read once at start
-        flow_rows: std::env::var("VTIUM_CONFIG_FLOW").is_ok_and(|v| v == "rows"),
+        flow_rows,
+        rows_colors,
+        rows_note,
     })
 }
 

@@ -20,6 +20,7 @@ use super::flow::{Flow, Kind};
 use super::model::App;
 use super::paths::{self, Path, Piece};
 use super::rows::{self, BOX_ROWS, Boxed, Ctx, Layout, Mood, NoteKind, Obj, Slot, Wire};
+use super::rowscolor::{Palette, Role};
 use super::words;
 
 /// The rows fixed at the top: the tab bar, the status line, the policy
@@ -119,37 +120,47 @@ fn bold(color: Color) -> Style {
     }
 }
 
-/// The color of a box's border, by its state.
-pub fn mood_color(mood: Mood) -> Color {
+/// The role whose color a box's border takes, by its state.
+pub const fn mood_role(mood: Mood) -> Role {
     match mood {
-        Mood::Placed => Color::White,
-        Mood::Waiting => Color::Yellow,
-        Mood::Aside => Color::Grey,
-        Mood::Picked => Color::BrightMagenta,
+        Mood::Placed => Role::Placed,
+        Mood::Waiting => Role::Waiting,
+        Mood::Aside => Role::SetAside,
+        Mood::Picked => Role::Picked,
     }
 }
 
-/// The color of a box's title and of its column's title, by its kind.
-pub fn kind_color(obj: &Obj) -> Color {
+/// The role whose color a box's title and its column's title take, by
+/// its kind.
+pub const fn kind_role(obj: &Obj) -> Role {
     match obj {
         Obj::Doc(_, s) | Obj::New(s) | Obj::Pal(s) => match s {
-            Slot::Display(_) => Color::Cyan,
-            Slot::Terminal => Color::Yellow,
-            Slot::Font(_) => Color::Magenta,
-            Slot::Input(_) => Color::Green,
+            Slot::Display(_) => Role::Display,
+            Slot::Terminal => Role::Terminal,
+            Slot::Font(_) => Role::FontSet,
+            Slot::Input(_) => Role::Input,
         },
-        Obj::Roam(_) | Obj::Others => Color::Green,
+        Obj::Roam(_) | Obj::Others => Role::Input,
+    }
+}
+
+/// `style` in bold.
+const fn emph(style: Style) -> Style {
+    Style {
+        bold: true,
+        ..style
     }
 }
 
 /// Draws the box `b` on `doc`, heavy when it is highlighted.
-fn draw_box(doc: &mut Canvas, b: &Boxed, highlighted: bool) {
-    let border = mood_color(b.mood);
-    let title = kind_color(&b.obj);
+fn draw_box(doc: &mut Canvas, b: &Boxed, highlighted: bool, pal: &Palette) {
+    let border = pal.style(mood_role(b.mood));
+    let title = pal.style(kind_role(&b.obj));
+    // the highlight is not a role: a placed box's is bright white in bold
     let border = match (highlighted, b.mood) {
-        (true, Mood::Placed) => bold(Color::BrightWhite),
-        (true, _) | (false, Mood::Picked) => bold(border),
-        (false, _) => Style::text(border),
+        (true, Mood::Placed) if border != Style::PLAIN => bold(Color::BrightWhite),
+        (true, _) | (false, Mood::Picked) => emph(border),
+        (false, _) => border,
     };
     let [h, v, tl, tr, bl, br] = match (highlighted, b.dashed) {
         (false, false) => LIGHT,
@@ -179,10 +190,10 @@ fn draw_box(doc: &mut Canvas, b: &Boxed, highlighted: bool) {
     let title_style = match (highlighted, b.mood) {
         (true, _) => Style {
             underline: true,
-            ..bold(title)
+            ..emph(title)
         },
-        (false, Mood::Picked) => bold(title),
-        (false, _) => Style::text(title),
+        (false, Mood::Picked) => emph(title),
+        (false, _) => title,
     };
     doc.put(
         b.x.saturating_add(2),
@@ -230,7 +241,8 @@ fn cells(w: &Wire) -> Vec<(usize, usize)> {
 /// where they belong to the highlighted object, each ending in an arrow
 /// at its terminal. A cell that only dashed lines cross is drawn dashed,
 /// and one that only a roaming stub crosses is grey.
-fn draw_wires(doc: &mut Canvas, wires: &[Wire], at: Option<&Obj>) {
+fn draw_wires(doc: &mut Canvas, wires: &[Wire], at: Option<&Obj>, pal: &Palette) {
+    let line = pal.style(Role::Line);
     let (cols, rows) = (doc.cols, doc.rows);
     // each cell's weight up, down, left and right, whether a whole line
     // crosses it, and whether a line other than a stub does
@@ -289,7 +301,7 @@ fn draw_wires(doc: &mut Canvas, wires: &[Wire], at: Option<&Obj>) {
             } else if !*other {
                 Style::text(Color::Grey)
             } else {
-                Style::text(Color::White)
+                line
             };
             doc.put(x, y, &glyph.to_string(), style);
         }
@@ -307,8 +319,8 @@ fn draw_wires(doc: &mut Canvas, wires: &[Wire], at: Option<&Obj>) {
         let (glyph, style) = match (heavy(w), right, w.stub) {
             (true, true, _) => ("▶", bold(Color::BrightWhite)),
             (true, false, _) => ("◀", bold(Color::BrightWhite)),
-            (false, true, _) => ("►", Style::text(Color::White)),
-            (false, false, false) => ("◄", Style::text(Color::White)),
+            (false, true, _) => ("►", line),
+            (false, false, false) => ("◄", line),
             (false, false, true) => ("◄", Style::text(Color::Grey)),
         };
         doc.put(last.0, last.1, glyph, style);
@@ -317,21 +329,21 @@ fn draw_wires(doc: &mut Canvas, wires: &[Wire], at: Option<&Obj>) {
 
 /// The whole canvas: the paths, the editor and the pieces, with `at`
 /// highlighted.
-pub fn document(layout: &Layout, cols: usize, at: Option<&Obj>) -> Canvas {
+pub fn document(layout: &Layout, cols: usize, at: Option<&Obj>, pal: &Palette) -> Canvas {
     let mut doc = Canvas::new(cols, layout.height.max(1));
-    draw_wires(&mut doc, &layout.wires, at);
+    draw_wires(&mut doc, &layout.wires, at, pal);
     for b in &layout.boxes {
-        draw_box(&mut doc, b, Some(&b.obj) == at);
+        draw_box(&mut doc, b, Some(&b.obj) == at, pal);
     }
     for n in &layout.notes {
         let style = match n.kind {
             NoteKind::Heading => bold(Color::BrightWhite),
-            NoteKind::Needs => Style::text(Color::Yellow),
+            NoteKind::Needs => pal.style(Role::Waiting),
             NoteKind::Ready => bold(Color::Green),
             NoteKind::Grey => Style::text(Color::Grey),
-            NoteKind::Displays => bold(Color::Cyan),
-            NoteKind::Inputs => bold(Color::Green),
-            NoteKind::Fonts => bold(Color::Magenta),
+            NoteKind::Displays => emph(pal.style(Role::Display)),
+            NoteKind::Inputs => emph(pal.style(Role::Input)),
+            NoteKind::Fonts => emph(pal.style(Role::FontSet)),
             NoteKind::Stub => Style {
                 italic: true,
                 ..Style::text(Color::Grey)
@@ -359,8 +371,9 @@ pub fn window_of(
     at: Option<&Obj>,
     top: usize,
     height: usize,
+    pal: &Palette,
 ) -> Canvas {
-    let mut doc = document(layout, cols, at);
+    let mut doc = document(layout, cols, at, pal);
     let end = top.saturating_add(height);
     for b in &layout.boxes {
         if b.title_row() >= top && b.title_row() < end {
@@ -453,13 +466,17 @@ fn status(canvas: &mut Canvas, app: &App, layout: &Layout, crumb: Option<&str>) 
         count(rows::Sort::Pointer),
         count(rows::Sort::Screen),
     );
-    let color = if layout.waiting.is_empty() {
-        Color::Green
+    let style = if layout.waiting.is_empty() {
+        Style::text(Color::Green)
     } else {
-        Color::Yellow
+        app.inputs.rows_colors.style(Role::Waiting)
     };
-    x = canvas.put(x.saturating_add(3), 1, &waiting, Style::text(color));
+    x = canvas.put(x.saturating_add(3), 1, &waiting, style);
     let mut rest: Vec<String> = Vec::new();
+    // what the color file's first reading says, until the first key
+    if let Some(note) = app.rows_flow.as_ref().and_then(|s| s.note.clone()) {
+        rest.push(note);
+    }
     if let Some(d) = &flow.draft {
         let state = words::draft_state(&d.name, d.changes, d.problems);
         let prefix = format!("draft {} · ", d.name);
@@ -589,7 +606,7 @@ fn overview(canvas: &mut Canvas, app: &App, state: &rows::State, layout: &Layout
         let color = if new.complete() {
             bold(Color::Green)
         } else {
-            Style::text(Color::Yellow)
+            app.inputs.rows_colors.style(Role::Waiting)
         };
         let room = app.cols.saturating_sub(16);
         canvas.put(
@@ -601,15 +618,23 @@ fn overview(canvas: &mut Canvas, app: &App, state: &rows::State, layout: &Layout
     }
     if area != words::ROWS_PIECES {
         for (x, w, title, color) in [
-            (g.screen_x, g.screen_w, words::ROWS_DISPLAYS, Color::Cyan),
-            (g.term_x, g.term_w, words::ROWS_TERMINALS, Color::Yellow),
-            (g.dev_x, g.dev_w, words::ROWS_INPUTS, Color::Green),
+            (g.screen_x, g.screen_w, words::ROWS_DISPLAYS, Role::Display),
+            (g.term_x, g.term_w, words::ROWS_TERMINALS, Role::Terminal),
+            (g.dev_x, g.dev_w, words::ROWS_INPUTS, Role::Input),
         ] {
-            canvas.put(x, HEAD_ROWS.saturating_sub(1), &fit(title, w), bold(color));
+            let style = emph(app.inputs.rows_colors.style(color));
+            canvas.put(x, HEAD_ROWS.saturating_sub(1), &fit(title, w), style);
         }
     }
     let (wtop, wh) = window(app);
-    let doc = window_of(layout, app.cols, state.at.as_ref(), state.top, wh);
+    let doc = window_of(
+        layout,
+        app.cols,
+        state.at.as_ref(),
+        state.top,
+        wh,
+        &app.inputs.rows_colors,
+    );
     for i in 0..wh {
         let y = state.top.saturating_add(i);
         for x in 0..app.cols {
@@ -1055,7 +1080,7 @@ mod tests {
         for cols in [80, 100, 120] {
             let l = lay(&f, &editor(), cols);
             let at = Obj::Doc("desk".into(), Slot::Terminal);
-            let doc = document(&l, cols, Some(&at));
+            let doc = document(&l, cols, Some(&at), &Palette::console());
             for w in &l.wires {
                 let path = cells(w);
                 for (x, y) in &path {
@@ -1095,7 +1120,7 @@ mod tests {
     fn the_editor_is_dashed_a_picked_piece_magenta_and_each_title_its_kind_s_color() {
         let f = flow();
         let l = lay(&f, &editor(), 100);
-        let doc = document(&l, 100, None);
+        let doc = document(&l, 100, None, &Palette::console());
         let new = l.find(&Obj::New(Slot::Terminal)).expect("the editor");
         assert_eq!(doc.at(new.x, new.y), Some('┌'));
         assert_eq!(doc.at(new.x + 1, new.y), Some('┄'));
@@ -1140,6 +1165,29 @@ mod tests {
     }
 
     #[test]
+    fn the_color_file_s_roles_reach_the_titles_borders_and_lines() {
+        let f = flow();
+        let l = lay(&f, &editor(), 100);
+        let (mut pal, _) = crate::tui::rowscolor::parse(
+            "[colors]\ndisplay = #7fb3c8 / cyan\nplaced = none\nline = bright-red\n",
+        );
+        pal.truecolor = true;
+        let doc = document(&l, 100, None, &pal);
+        let dp = l
+            .find(&Obj::Doc("desk".into(), Slot::Display(EDID_A.into())))
+            .expect("DP-8");
+        let title = doc.style_at(dp.x + 2, dp.title_row()).expect("a style");
+        assert_eq!(title.rgb, Some([0x7f, 0xb3, 0xc8]));
+        assert_eq!(doc.style_at(dp.x, dp.y), Some(Style::PLAIN));
+        let w = l.wires.iter().find(|w| !w.dashed).expect("a whole line");
+        let (x, y) = cells(w)[1];
+        assert_eq!(
+            doc.style_at(x, y).and_then(|s| s.fg),
+            Some(Color::BrightRed)
+        );
+    }
+
+    #[test]
     fn a_box_whose_title_is_out_of_sight_leaves_no_piece_of_its_border() {
         let f = flow();
         let l = lay(&f, &Path::default(), 100);
@@ -1148,7 +1196,7 @@ mod tests {
             .expect("desk");
         // the window starts at desk's bottom border: desk's title is above it
         let top = desk.bottom() - 1;
-        let doc = window_of(&l, 100, None, top, 12);
+        let doc = window_of(&l, 100, None, top, 12, &Palette::console());
         for x in desk.x..desk.right() {
             assert_eq!(doc.at(x, top), Some(' '), "at {x},{top}");
         }

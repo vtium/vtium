@@ -66,6 +66,8 @@ impl Color {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Style {
     pub fg: Option<Color>,
+    /// A 24-bit color drawn in `fg`'s place, where the terminal takes it.
+    pub rgb: Option<[u8; 3]>,
     pub bg: Option<Color>,
     /// Reverse video, the TUI's selection mark.
     pub reverse: bool,
@@ -78,6 +80,7 @@ impl Style {
     /// Plain text: the terminal's own colors.
     pub const PLAIN: Style = Style {
         fg: None,
+        rgb: None,
         bg: None,
         reverse: false,
         bold: false,
@@ -128,7 +131,10 @@ impl Style {
             params.push("7".into());
         }
         if color {
-            params.extend(self.fg.map(|c| c.fg().to_string()));
+            match self.rgb {
+                Some([r, g, b]) => params.push(format!("38;2;{r};{g};{b}")),
+                None => params.extend(self.fg.map(|c| c.fg().to_string())),
+            }
             params.extend(self.bg.map(|c| c.bg().to_string()));
         }
         if params.is_empty() {
