@@ -20,7 +20,7 @@
 use super::flow::{Device, Flow, Kind};
 use super::input::Key;
 use super::parts::{Part, Stage};
-use super::paths::{self, ANY_POINTER, Doc, Path, Piece};
+use super::paths::{self, ANY_KEYBOARD, ANY_POINTER, Doc, Path, Piece};
 use super::words;
 
 /// The rows a box takes: its top border, its title, its detail and its
@@ -400,6 +400,11 @@ fn names(dev: &Device, sel: &str) -> bool {
         || dev.keys.iter().any(|k| k == sel)
         || (sel.starts_with("path:") && dev.keys.iter().any(|k| k.starts_with(sel)))
         || (sel == ANY_POINTER && sort(dev) == Sort::Pointer)
+        || (sel == ANY_KEYBOARD
+            && dev
+                .keys
+                .iter()
+                .any(|k| paths::expand(ANY_KEYBOARD).contains(&k.as_str())))
 }
 
 /// The terminals of the configuration whose paths hold the device `dev`:
