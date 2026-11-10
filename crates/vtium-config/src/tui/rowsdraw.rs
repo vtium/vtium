@@ -27,10 +27,10 @@ use super::rows::{self, BOX_ROWS, Boxed, Ctx, Layout, Mood, NoteKind, Obj, Slot,
 use super::rowscolor::{Palette, Role};
 use super::words;
 
-/// The rows fixed at the top: the tab bar, the status line, the policy
-/// line, the heading of the area at the window's top, and the column
-/// titles.
-pub const HEAD_ROWS: usize = 5;
+/// The rows fixed at the top: the tab bar, the status line and the policy
+/// line. Each section's title, and CONFIGURATION's column titles, scroll
+/// with the document.
+pub const HEAD_ROWS: usize = 3;
 
 /// The most rows the message line wraps to.
 const MESSAGE_ROWS: usize = 3;
@@ -671,45 +671,9 @@ pub fn screen(canvas: &mut Canvas, app: &App) {
     }
 }
 
-/// The heading of the area at the window's top above the column titles,
-/// which CONFIGURATION and NEW PATH have, and the window on the canvas.
+/// The window on the document, between the policy line and the message
+/// and key lines, with a label where a wire leaves it.
 fn overview(canvas: &mut Canvas, app: &App, state: &rows::State, layout: &Layout) {
-    let Some(g) = layout.geometry else {
-        return;
-    };
-    let area = layout.area_at(state.top);
-    let x = canvas.put(
-        1,
-        HEAD_ROWS.saturating_sub(2),
-        area,
-        bold(Color::BrightWhite),
-    );
-    if area == words::ROWS_NEW_PATH {
-        let new = &state.new;
-        let doc = shown_doc(app, paths::read(&app.inputs.flow));
-        let color = if new.complete(&doc) {
-            bold(Color::Green)
-        } else {
-            app.inputs.rows_colors.style(Role::Waiting)
-        };
-        let room = app.cols.saturating_sub(16);
-        canvas.put(
-            x.max(14),
-            HEAD_ROWS.saturating_sub(2),
-            &fit(new.status(&doc), room),
-            color,
-        );
-    }
-    if area != words::ROWS_PIECES {
-        for (x, w, title, color) in [
-            (g.screen_x, g.screen_w, words::ROWS_DISPLAYS, Role::Display),
-            (g.term_x, g.term_w, words::ROWS_TERMINALS, Role::Terminal),
-            (g.dev_x, g.dev_w, words::ROWS_INPUTS, Role::Input),
-        ] {
-            let style = emph(app.inputs.rows_colors.style(color));
-            canvas.put(x, HEAD_ROWS.saturating_sub(1), &fit(title, w), style);
-        }
-    }
     let (wtop, wh) = window(app);
     let doc = window_of(
         layout,

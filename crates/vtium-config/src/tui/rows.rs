@@ -30,6 +30,66 @@ pub const BOX_ROWS: usize = 4;
 /// The blank columns between two boxes of a group of pieces.
 const GAP: usize = 2;
 
+/// The widest a box grows to fit its text, borders and margins included,
+/// before a line stretches it: 30 characters of text.
+pub const BOX_MAX: usize = 34;
+
+/// The width a box takes for its text: the longer of its two lines, with
+/// a border and a blank on each side, up to [`BOX_MAX`].
+pub fn natural(title: &str, detail: &str) -> usize {
+    let text = super::canvas::width(title).max(super::canvas::width(detail));
+    text.saturating_add(4).min(BOX_MAX)
+}
+
+/// Lays boxes `widths` wide out like words, from column `left` up to the
+/// column `right`, which no box reaches: each box whole on a line, [`GAP`]
+/// columns apart, and a box that does not fit on a line starting the next
+/// one. A box wider than a line takes the line. Where no line holds more
+/// than two boxes and the boxes take more than one line, the terminal is
+/// narrow, so the boxes of each line stretch to share its width. Returns
+/// each line's boxes, as their columns and widths.
+pub fn flow_boxes(widths: &[usize], left: usize, right: usize) -> Vec<Vec<(usize, usize)>> {
+    let room = right.saturating_sub(left).max(1);
+    let mut lines: Vec<Vec<(usize, usize)>> = Vec::new();
+    let mut x = left;
+    for w in widths {
+        let w = (*w).min(room);
+        let starts = lines
+            .last()
+            .is_none_or(|line| !line.is_empty() && x.saturating_add(GAP).saturating_add(w) > right);
+        if starts {
+            lines.push(Vec::new());
+            x = left;
+        } else {
+            x = x.saturating_add(GAP);
+        }
+        if let Some(line) = lines.last_mut() {
+            line.push((x, w));
+        }
+        x = x.saturating_add(w);
+    }
+    let narrow = lines.len() > 1 && lines.iter().all(|l| l.len() <= 2);
+    if narrow {
+        for line in &mut lines {
+            let n = line.len();
+            let gaps = GAP.saturating_mul(n.saturating_sub(1));
+            let each = room.saturating_sub(gaps) / n.max(1);
+            let mut x = left;
+            for (k, b) in line.iter_mut().enumerate() {
+                // the last box takes what division leaves over
+                let w = if k.saturating_add(1) == n {
+                    right.saturating_sub(x)
+                } else {
+                    each
+                };
+                *b = (x, w);
+                x = x.saturating_add(w).saturating_add(GAP);
+            }
+        }
+    }
+    lines
+}
+
 /// Where a box is: in a path of the document, by the path's terminal; in
 /// the editor; or in the palette.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -500,123 +560,145 @@ fn path_row(
     let term_box = part_box(term.clone(), g.term_x, y, g.term_w, words, mood);
     let join_row = term_box.title_row();
     out.boxes.push(term_box);
-    let mut displays: Vec<Slot> = p
+    // each side's boxes, line by line: in the editor they flow like words
+    // across the side's column, and elsewhere each box takes a line of its
+    // own across the whole column
+    let side = |boxes: Vec<((String, String), Slot, Mood, bool)>, x: usize, w: usize| {
+        let widths: Vec<usize> = boxes.iter().map(|((t, d), ..)| natural(t, d)).collect();
+        let lines = if editor {
+            flow_boxes(&widths, x, x.saturating_add(w))
+        } else {
+            widths.iter().map(|_| vec![(x, w)]).collect()
+        };
+        let mut boxes = boxes.into_iter();
+        let mut out: Vec<Vec<(Boxed, bool)>> = Vec::new();
+        for (n, line) in lines.into_iter().enumerate() {
+            let row = y.saturating_add(n.saturating_mul(BOX_ROWS));
+            let mut placed = Vec::new();
+            for (bx, bw) in line {
+                let Some((words, slot, mood, wired)) = boxes.next() else {
+                    break;
+                };
+                placed.push((part_box(obj(slot), bx, row, bw, words, mood), wired));
+            }
+            out.push(placed);
+        }
+        out
+    };
+    let mut displays: Vec<((String, String), Slot, Mood, bool)> = p
         .displays
         .iter()
-        .map(|s| Slot::Display(s.clone()))
-        .collect();
-    if editor && displays.is_empty() && !p.active {
-        displays.push(Slot::Empty(Stage::Display));
-    }
-    for (k, slot) in displays.into_iter().enumerate() {
-        let words = match &slot {
-            Slot::Display(sel) => labelled(
+        .map(|s| {
+            let words = labelled(
                 ctx,
                 Kind::Display,
-                sel,
-                paths::title(ctx.flow, Kind::Display, sel),
-            ),
-            _ => (
-                Stage::Display.name().to_owned(),
-                words::EMPTY_PLACE.to_owned(),
-            ),
-        };
-        let b = part_box(
-            obj(slot),
-            g.screen_x,
-            y.saturating_add(k.saturating_mul(BOX_ROWS)),
-            g.screen_w,
-            words,
-            mood,
+                s,
+                paths::title(ctx.flow, Kind::Display, s),
+            );
+            (words, Slot::Display(s.clone()), mood, true)
+        })
+        .collect();
+    if editor && displays.is_empty() && !p.active {
+        let words = (
+            Stage::Display.name().to_owned(),
+            words::EMPTY_PLACE.to_owned(),
         );
-        if !b.template {
+        displays.push((words, Slot::Empty(Stage::Display), mood, false));
+    }
+    let display_lines = side(displays, g.screen_x, g.screen_w);
+    for (n, line) in display_lines.iter().enumerate() {
+        // the box nearest the terminal, the line's last, takes the line to
+        // it, and each box before it joins the box after it
+        for (k, (b, wired)) in line.iter().enumerate() {
+            if !wired {
+                continue;
+            }
             let start = (b.right(), b.title_row());
-            let end = (g.term_x.saturating_sub(1), join_row);
-            let points = if k == 0 {
-                vec![start, end]
-            } else {
-                vec![
+            let points = match line.get(k.saturating_add(1)) {
+                Some((next, _)) => vec![start, (next.x.saturating_sub(1), b.title_row())],
+                None if n == 0 => vec![start, (g.term_x.saturating_sub(1), join_row)],
+                None => vec![
                     start,
                     (g.screen_join, b.title_row()),
                     (g.screen_join, join_row),
-                    end,
-                ]
+                    (g.term_x.saturating_sub(1), join_row),
+                ],
             };
+            let to = line
+                .get(k.saturating_add(1))
+                .map_or_else(|| term.clone(), |(next, _)| next.obj.clone());
             out.wires.push(Wire {
                 from: b.obj.clone(),
-                to: term.clone(),
+                to,
                 points,
                 dashed: b.dashed,
                 stub: false,
             });
         }
-        out.boxes.push(b);
     }
-    // the line from an input to the terminal: straight from the first,
-    // and merging into the first's from the others
-    let line_from = |row: usize, k: usize| {
+    let mut inputs: Vec<((String, String), Slot, Mood, bool)> = p
+        .inputs
+        .iter()
+        .map(|s| {
+            let words = labelled(ctx, Kind::Input, s, paths::title(ctx.flow, Kind::Input, s));
+            (words, Slot::Input(s.clone()), mood, true)
+        })
+        .collect();
+    if p.no_input {
+        let words = (
+            words::NO_INPUT.to_owned(),
+            words::NO_INPUT_DETAIL.to_owned(),
+        );
+        inputs.push((words, Slot::Special(Piece::NoInput), Mood::Aside, false));
+    } else if editor && inputs.is_empty() {
+        let words = (
+            Stage::Input.name().to_owned(),
+            words::EMPTY_PLACE.to_owned(),
+        );
+        inputs.push((words, Slot::Empty(Stage::Input), mood, false));
+    }
+    let input_lines = side(inputs, g.dev_x, g.dev_w);
+    // the line from an input to the terminal: straight from the first
+    // line's first box, and merging into it from the other lines'
+    let line_from = |row: usize, n: usize| {
         let start = (g.dev_x.saturating_sub(1), row);
         let end = (g.term_x.saturating_add(g.term_w), join_row);
-        if k == 0 {
+        if n == 0 {
             vec![start, end]
         } else {
             vec![start, (g.dev_join, row), (g.dev_join, join_row), end]
         }
     };
-    let mut inputs: Vec<Slot> = p.inputs.iter().map(|s| Slot::Input(s.clone())).collect();
-    if p.no_input {
-        inputs.push(Slot::Special(Piece::NoInput));
-    } else if editor && inputs.is_empty() {
-        inputs.push(Slot::Empty(Stage::Input));
-    }
-    let k = inputs.len();
-    for (k, slot) in inputs.into_iter().enumerate() {
-        let (words, wired, mood) = match &slot {
-            Slot::Input(sel) => (
-                labelled(
-                    ctx,
-                    Kind::Input,
-                    sel,
-                    paths::title(ctx.flow, Kind::Input, sel),
+    for (n, line) in input_lines.iter().enumerate() {
+        // the line's first box takes the line to the terminal, and each box
+        // after it joins the box before it
+        for (k, (b, wired)) in line.iter().enumerate() {
+            if !wired {
+                continue;
+            }
+            let (points, to) = match k.checked_sub(1).and_then(|i| line.get(i)) {
+                Some((before, _)) => (
+                    vec![
+                        (b.x.saturating_sub(1), b.title_row()),
+                        (before.right(), b.title_row()),
+                    ],
+                    before.obj.clone(),
                 ),
-                true,
-                mood,
-            ),
-            Slot::Special(_) => (
-                (
-                    words::NO_INPUT.to_owned(),
-                    words::NO_INPUT_DETAIL.to_owned(),
-                ),
-                false,
-                Mood::Aside,
-            ),
-            _ => (
-                (
-                    Stage::Input.name().to_owned(),
-                    words::EMPTY_PLACE.to_owned(),
-                ),
-                false,
-                mood,
-            ),
-        };
-        let b = part_box(
-            obj(slot),
-            g.dev_x,
-            y.saturating_add(k.saturating_mul(BOX_ROWS)),
-            g.dev_w,
-            words,
-            mood,
-        );
-        if wired {
+                None => (line_from(b.title_row(), n), term.clone()),
+            };
             out.wires.push(Wire {
                 from: b.obj.clone(),
-                to: term.clone(),
-                points: line_from(b.title_row(), k),
+                to,
+                points,
                 dashed: b.dashed,
                 stub: false,
             });
         }
-        out.boxes.push(b);
+    }
+    let k = input_lines.len();
+    let d = display_lines.len();
+    for line in display_lines.into_iter().chain(input_lines) {
+        out.boxes.extend(line.into_iter().map(|(b, _)| b));
     }
     let mut bottom = y.saturating_add(k.saturating_mul(BOX_ROWS));
     // roaming inputs reach a terminal of the configuration that has no
@@ -644,12 +726,7 @@ fn path_row(
         });
         bottom = bottom.max(row.saturating_add(1));
     }
-    let displays = y.saturating_add(
-        p.displays
-            .len()
-            .max(usize::from(editor))
-            .saturating_mul(BOX_ROWS),
-    );
+    let displays = y.saturating_add(d.saturating_mul(BOX_ROWS));
     bottom.max(displays).max(y.saturating_add(BOX_ROWS))
 }
 
@@ -912,28 +989,54 @@ pub fn layout(ctx: &Ctx<'_>) -> Layout {
     let note = |out: &mut Layout, x: usize, y: usize, text: String, kind: NoteKind| {
         out.notes.push(Note { x, y, text, kind });
     };
-    // CONFIGURATION, whose heading stays at the top of the screen
-    let mut y = 0usize;
+    // CONFIGURATION: its heading and its column titles scroll with it
+    note(
+        &mut out,
+        1,
+        0,
+        words::ROWS_PATHS.to_owned(),
+        NoteKind::Heading,
+    );
+    for (x, w, title, kind) in [
+        (
+            g.screen_x,
+            g.screen_w,
+            words::ROWS_DISPLAYS,
+            NoteKind::Displays,
+        ),
+        (
+            g.term_x,
+            g.term_w,
+            words::ROWS_TERMINALS,
+            NoteKind::Terminals,
+        ),
+        (g.dev_x, g.dev_w, words::ROWS_INPUTS, NoteKind::Inputs),
+    ] {
+        note(&mut out, x, 1, super::canvas::fit(title, w), kind);
+    }
+    let mut y = 1usize;
+    let grey = |out: &mut Layout, y: &mut usize, text: String| {
+        *y = y.saturating_add(1);
+        note(out, 1, *y, text, NoteKind::Grey);
+    };
     if ctx.doc.paths.is_empty() {
-        note(&mut out, 1, y, words::NO_PATHS.to_owned(), NoteKind::Grey);
-        y = y.saturating_add(1);
+        grey(&mut out, &mut y, words::NO_PATHS.to_owned());
     }
     if ctx.default {
         let room = ctx.cols.saturating_sub(2).max(1);
         for line in super::canvas::wrap(words::BUILT_IN_DEFAULT, room, 2) {
-            note(&mut out, 1, y, line, NoteKind::Grey);
-            y = y.saturating_add(1);
+            grey(&mut out, &mut y, line);
         }
     }
     if ctx.doc.unfit > 0 {
-        note(
-            &mut out,
-            1,
-            y,
-            words::unfit_rules(ctx.doc.unfit),
-            NoteKind::Grey,
-        );
-        y = y.saturating_add(1);
+        grey(&mut out, &mut y, words::unfit_rules(ctx.doc.unfit));
+    }
+    // the first path's row right under the column titles, a blank row
+    // between the others
+    let mut gap = 1usize;
+    if y == 1 {
+        gap = 0;
+        y = 2;
     }
     for p in &ctx.doc.paths {
         let name = p.name.clone().unwrap_or_default();
@@ -942,9 +1045,10 @@ pub fn layout(ctx: &Ctx<'_>) -> Layout {
             &mut out,
             p,
             &name,
-            y.saturating_add(1),
+            y.saturating_add(gap),
             Row::Doc(&name),
         );
+        gap = 1;
     }
     if !ctx.doc.roaming.is_empty() {
         y = roaming_row(ctx, &mut out, y.saturating_add(1));
@@ -1015,39 +1119,33 @@ pub fn layout(ctx: &Ctx<'_>) -> Layout {
         .into_iter()
         .filter_map(|d| ctx.flow.inputs.get(d).map(|x| x.name.clone()))
         .collect();
-    let right_edge = ctx.cols.saturating_sub(1);
     let mut height = y.saturating_add(1);
     for (kind, title, pieces) in groups.drain(..) {
         y = y.saturating_add(1);
         note(&mut out, 1, y, title.to_owned(), kind);
         y = y.saturating_add(1);
-        let mut x = 1usize;
         let mut boxes: Vec<Boxed> = pieces
             .into_iter()
-            .map(|p| {
-                let content = super::canvas::width(&p.title).max(super::canvas::width(&p.detail));
-                Boxed {
-                    obj: Obj::Pal(p.slot),
-                    x: 0,
-                    y: 0,
-                    w: content.saturating_add(4).min(ctx.cols.saturating_sub(2)),
-                    title: p.title,
-                    detail: p.detail,
-                    mood: p.mood,
-                    dashed: false,
-                    template: p.template,
-                }
+            .map(|p| Boxed {
+                obj: Obj::Pal(p.slot),
+                x: 0,
+                y: 0,
+                w: natural(&p.title, &p.detail),
+                title: p.title,
+                detail: p.detail,
+                mood: p.mood,
+                dashed: false,
+                template: p.template,
             })
             .collect();
         if kind == NoteKind::Inputs && !others.is_empty() {
             let title = words::rows_other_inputs(others.len());
             let detail = others_detail(&others);
-            let content = super::canvas::width(&title).max(super::canvas::width(&detail));
             boxes.push(Boxed {
                 obj: Obj::Others,
                 x: 0,
                 y: 0,
-                w: content.saturating_add(4).min(ctx.cols.saturating_sub(2)),
+                w: natural(&title, &detail),
                 title,
                 detail,
                 mood: Mood::Aside,
@@ -1055,20 +1153,21 @@ pub fn layout(ctx: &Ctx<'_>) -> Layout {
                 template: false,
             });
         }
-        for mut b in boxes {
-            if x > 1 && x.saturating_add(GAP).saturating_add(b.w) > right_edge {
-                y = y.saturating_add(BOX_ROWS);
-                x = 1;
-            } else if x > 1 {
-                x = x.saturating_add(GAP);
+        // the boxes flow like words, the template first
+        let widths: Vec<usize> = boxes.iter().map(|b| b.w).collect();
+        let lines = flow_boxes(&widths, 1, ctx.cols.saturating_sub(1));
+        let mut boxes = boxes.into_iter();
+        for line in lines {
+            for (x, w) in line {
+                let Some(mut b) = boxes.next() else { break };
+                b.x = x;
+                b.y = y;
+                b.w = w;
+                height = height.max(b.bottom());
+                out.boxes.push(b);
             }
-            b.x = x;
-            b.y = y;
-            x = x.saturating_add(b.w);
-            height = height.max(b.bottom());
-            out.boxes.push(b);
+            y = y.saturating_add(BOX_ROWS);
         }
-        y = y.saturating_add(BOX_ROWS);
     }
     out.waiting = waiting;
     out.height = height;
@@ -1076,10 +1175,12 @@ pub fn layout(ctx: &Ctx<'_>) -> Layout {
 }
 
 /// The box an arrow key moves to from `at`: Right and Left to the box
-/// after or before it in reading order, across and then down, so Right
-/// from the first box reaches every box; Up and Down to the nearest box
-/// above or below, those under the same columns first; Home and End to
-/// the first and the last box.
+/// after or before it in reading order, along a line and then on to the
+/// next, so Right from the first box reaches every box; Home and End to
+/// the first and the last box. Up and Down go to the line above or below,
+/// to its box nearest in column. In CONFIGURATION, whose boxes stand in
+/// three columns, they keep to the column first, so Down from a terminal
+/// reaches the next terminal.
 pub fn step(layout: &Layout, at: &Obj, key: Key) -> Option<Obj> {
     let order = layout.reading();
     let here = layout.find(at)?;
@@ -1096,14 +1197,22 @@ pub fn step(layout: &Layout, at: &Obj, key: Key) -> Option<Obj> {
                 .iter()
                 .filter(|b| if down { b.y > here.y } else { b.y < here.y })
                 .collect();
-            let near = |b: &&&Boxed| {
-                (
-                    !overlaps(b),
-                    b.y.abs_diff(here.y),
-                    centre(b).abs_diff(centre(here)),
-                )
-            };
-            pick(candidates.into_iter().min_by_key(near))
+            let config = |b: &Boxed| matches!(b.obj, Obj::Doc(..) | Obj::Roam(_) | Obj::Nothing(_));
+            if config(here)
+                && let Some(b) = candidates
+                    .iter()
+                    .filter(|b| config(b) && overlaps(b))
+                    .min_by_key(|b| (b.y.abs_diff(here.y), centre(b).abs_diff(centre(here))))
+            {
+                return Some(b.obj.clone());
+            }
+            let line = candidates.iter().map(|b| b.y.abs_diff(here.y)).min();
+            pick(
+                candidates
+                    .into_iter()
+                    .filter(|b| Some(b.y.abs_diff(here.y)) == line)
+                    .min_by_key(|b| centre(b).abs_diff(centre(here))),
+            )
         }
         Key::Home => pick(order.first()),
         Key::End => pick(order.last()),
@@ -1456,9 +1565,8 @@ pub(crate) mod tests {
                 .filter(|n| n.kind == NoteKind::Heading)
                 .map(|n| n.text.as_str())
                 .collect();
-            assert_eq!(headings, ["NEW PATH", "PARTS"]);
-            // each area's heading above its area: CONFIGURATION's at the
-            // top of the screen until NEW PATH's has scrolled past
+            assert_eq!(headings, ["CONFIGURATION", "NEW PATH", "PARTS"]);
+            // each area's heading above its area, on the canvas
             assert_eq!(l.area_at(0), "CONFIGURATION");
             let (new_at, _) = l.areas[0];
             let (parts_at, _) = l.areas[1];
@@ -1689,5 +1797,163 @@ pub(crate) mod tests {
         assert_eq!(port_words("pci-0000:15:00.0-usb-0:3.3:1.0"), "USB 3.3");
         assert_eq!(port_words("usb-0:3.3"), "USB 3.3");
         assert_eq!(port_words("platform-i8042-serio-0"), "built in");
+    }
+    #[test]
+    fn boxes_flow_like_words_whole_and_stretch_when_a_line_holds_two() {
+        // a line breaks before the box that does not fit, and keeps the
+        // boxes' own widths while one line holds three
+        assert_eq!(
+            flow_boxes(&[10, 10, 10, 30], 1, 40),
+            [vec![(1, 10), (13, 10), (25, 10)], vec![(1, 30)]]
+        );
+        assert_eq!(
+            flow_boxes(&[10, 10, 10, 10], 1, 50),
+            [vec![(1, 10), (13, 10), (25, 10), (37, 10)]]
+        );
+        // where no line holds more than two, the boxes share each line
+        assert_eq!(
+            flow_boxes(&[10, 10, 10], 1, 25),
+            [vec![(1, 11), (14, 11)], vec![(1, 24)]]
+        );
+        // a box wider than the line takes the line, whole
+        assert_eq!(flow_boxes(&[50, 8], 1, 25), [vec![(1, 24)], vec![(1, 24)]]);
+        assert_eq!(flow_boxes(&[], 1, 25), Vec::<Vec<(usize, usize)>>::new());
+    }
+
+    /// The flow with six spare keyboards, so PARTS' inputs wrap.
+    fn spares() -> Flow {
+        let mut f = flow();
+        for i in 0..6 {
+            f.inputs.push(Device {
+                name: format!("Spare keyboard {i}"),
+                detail: format!("pci-0-usb-0:{i}"),
+                keys: vec![format!("path:pci-0-usb-0:{i}"), "class:keyboard".into()],
+                found: true,
+                rule: None,
+            });
+        }
+        f
+    }
+
+    /// PARTS' boxes of `stage`'s group, line by line, each line left to
+    /// right.
+    fn group_lines(l: &Layout, stage: Stage) -> Vec<Vec<Boxed>> {
+        let mut lines: Vec<Vec<Boxed>> = Vec::new();
+        for b in l.reading() {
+            let of = match &b.obj {
+                Obj::Pal(Slot::Display(_)) => Stage::Display,
+                Obj::Pal(Slot::Input(_)) | Obj::Others => Stage::Input,
+                Obj::Pal(Slot::Font(_)) => Stage::Font,
+                Obj::Pal(Slot::Template(s)) => *s,
+                Obj::Pal(Slot::Special(p)) => Stage::of(p),
+                _ => continue,
+            };
+            if of != stage {
+                continue;
+            }
+            match lines.last_mut() {
+                Some(line) if line[0].y == b.y => line.push(b.clone()),
+                _ => lines.push(vec![b.clone()]),
+            }
+        }
+        lines
+    }
+
+    #[test]
+    fn parts_reflow_to_every_width_with_each_box_whole() {
+        let f = spares();
+        for cols in [60, 80, 100, 120, 160] {
+            let l = lay(&f, &Path::default(), cols);
+            let right = cols - 1;
+            let mut stretched = 0;
+            for stage in Stage::ALL {
+                let lines = group_lines(&l, stage);
+                assert!(!lines.is_empty(), "{cols}: {stage:?}");
+                // the template comes first
+                assert_eq!(lines[0][0].obj, Obj::Pal(Slot::Template(stage)));
+                let narrow = lines.iter().all(|line| line.len() <= 2);
+                for (n, line) in lines.iter().enumerate() {
+                    for pair in line.windows(2) {
+                        assert_eq!(pair[0].right() + GAP, pair[1].x, "{cols}: {line:?}");
+                    }
+                    let first = &line[0];
+                    let last = line.last().expect("a box");
+                    assert_eq!(first.x, 1, "{cols}: a line starts at the margin");
+                    assert!(last.right() <= right, "{cols}: {last:?} runs off");
+                    if narrow && lines.len() > 1 {
+                        assert_eq!(last.right(), right, "{cols}: {line:?} does not stretch");
+                        stretched += 1;
+                    } else {
+                        for b in line {
+                            assert_eq!(b.w, natural(&b.title, &b.detail).min(right - 1));
+                        }
+                    }
+                    // the next line starts with the box that did not fit here
+                    if let Some(next) = lines.get(n + 1) {
+                        assert_eq!(next[0].y, first.y + BOX_ROWS);
+                        let wanted = natural(&next[0].title, &next[0].detail);
+                        assert!(last.right() + GAP + wanted > right, "{cols}: {next:?} fits");
+                    }
+                }
+            }
+            if cols == 60 {
+                assert!(stretched > 0, "at 60 columns some lines stretch");
+            }
+        }
+    }
+
+    #[test]
+    fn the_arrows_follow_wrapped_lines_in_reading_order_and_by_column() {
+        let f = spares();
+        for cols in [60, 80] {
+            let l = lay(&f, &Path::default(), cols);
+            let lines = group_lines(&l, Stage::Input);
+            assert!(lines.len() >= 3, "{cols}: {lines:?}");
+            for pair in lines.windows(2) {
+                let (this, next) = (&pair[0], &pair[1]);
+                let last = this.last().expect("a box");
+                assert_eq!(step(&l, &last.obj, Key::Right), Some(next[0].obj.clone()));
+                assert_eq!(step(&l, &next[0].obj, Key::Left), Some(last.obj.clone()));
+                let centre = |b: &Boxed| b.x + b.w / 2;
+                for b in this {
+                    let want = next
+                        .iter()
+                        .min_by_key(|c| centre(c).abs_diff(centre(b)))
+                        .expect("a box below");
+                    assert_eq!(
+                        step(&l, &b.obj, Key::Down),
+                        Some(want.obj.clone()),
+                        "{cols}"
+                    );
+                }
+                for b in next {
+                    let want = this
+                        .iter()
+                        .min_by_key(|c| centre(c).abs_diff(centre(b)))
+                        .expect("a box above");
+                    assert_eq!(step(&l, &b.obj, Key::Up), Some(want.obj.clone()), "{cols}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn each_section_s_title_scrolls_with_its_section() {
+        let f = flow();
+        let l = lay(&f, &Path::default(), 80);
+        let note = |text: &str| {
+            l.notes
+                .iter()
+                .find(|n| n.text == text)
+                .expect("the title")
+                .y
+        };
+        // CONFIGURATION and its column titles sit at the canvas's top
+        assert_eq!(note("CONFIGURATION"), 0);
+        assert_eq!(note(words::ROWS_DISPLAYS), 1);
+        assert_eq!(note(words::ROWS_TERMINALS), 1);
+        let first = l.reading()[0].y;
+        assert!(first > 1, "the first box is under the titles");
+        assert!(note("NEW PATH") > first && note("PARTS") > note("NEW PATH"));
     }
 }
