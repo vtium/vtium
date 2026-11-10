@@ -249,6 +249,34 @@ input * -> ignore
         want.insert(before - 1, rule.to_owned());
         assert_eq!(rules(&out), want, "{rule}");
     }
+    // a graphics card ranks above a model: each goes before the other's
+    // rule only when the other ranks lower
+    let both =
+        "version = 1\n[head desk]\n[rules]\ninput card:card0 -> desk\ninput id:046d:c31c -> desk\n";
+    let out = add_rule(both, "input card:card1 -> desk", None).expect("card");
+    assert_eq!(
+        rules(&out),
+        [
+            "input card:card0 -> desk",
+            "input card:card1 -> desk",
+            "input id:046d:c31c -> desk"
+        ]
+    );
+    let out = add_rule(both, "input id:1234:5678 -> desk", None).expect("id");
+    assert_eq!(
+        rules(&out),
+        [
+            "input card:card0 -> desk",
+            "input id:046d:c31c -> desk",
+            "input id:1234:5678 -> desk"
+        ]
+    );
+    let swapped = "version = 1\n[head desk]\n[rules]\ninput id:046d:c31c -> desk\n";
+    let out = add_rule(swapped, "input card:card1 -> desk", None).expect("card first");
+    assert_eq!(
+        rules(&out),
+        ["input card:card1 -> desk", "input id:046d:c31c -> desk"]
+    );
     // a match of several keys takes the rank of its most specific key
     let out = add_rule(file, "input path:usb-0:3 class:keyboard -> desk", None).expect("two keys");
     assert_eq!(rules(&out)[7], "input path:usb-0:3 class:keyboard -> desk");
