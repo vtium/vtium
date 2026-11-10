@@ -5,18 +5,18 @@
  DISPLAYS               TERMINALS                                INPUTS
  ┌──────────────┐       ┌──────────────────────────────┐
  │ All displays │──────►│ desk                         │◄┄┄┄┄┄┄┄┄roaming inputs
- │ connected n… │       │ font set proof               │
+ │ connected n… │       │ font set proof · every VT    │
  └──────────────┘       └──────────────────────────────┘
 
                         ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓         ┌────────────┐
                         ┃ panel                        ┃◀━┳━━━━━━│ kbd        │
-                        ┃ default font set             ┃  ┇      │ pci-0:3.3  │
+                        ┃ default font set · every VT  ┃  ┇      │ pci-0:3.3  │
                         ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛  ┇      └────────────┘
                                                           ┗┅┅┅┅┅┅roaming inputs
 
                         ┌┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┐         ┌────────────┐
- ROAMING                ┆ Whichever terminal is active ┆◄┄┄┄┄┄┄┄┄│ All keybo… │
- These inputs type      ┆ follows the VT you switch to ┆         │ every key… │
+ ROAMING                ┆ Whichever terminal is active ┆◄┄┄┄┄┄┄┄┄│ every key… │
+ These inputs type      ┆ follows the VT you switch to ┆         │ every inp… │
  into whichever         └┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┘         └────────────┘
  terminal is active.
 

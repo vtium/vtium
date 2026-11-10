@@ -1,5 +1,5 @@
  Flow  Looks  Fonts  Settings  Help                                     v View file  s Save  i Install  r Revert  n New
- draft bench  ›  kbd   All devices are in a path · 12 changes · 1 not saved · no problems
+ draft bench  ›  kbd   All devices are in a path · 5 changes · 1 not saved · no problems
 
  INPUT PART  kbd
 

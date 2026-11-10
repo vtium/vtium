@@ -5,18 +5,18 @@
  DISPLAYS                            TERMINALS                                     INPUTS
  ┌───────────────────────┐           ┌──────────────────────────────┐
  │ All displays          │──────────►│ desk                         │◄┄┄┄┄┄┄┄┄┄┄┄┄┄roaming inputs
- │ connected now or lat… │           │ font set proof               │
+ │ connected now or lat… │           │ font set proof · every VT    │
  └───────────────────────┘           └──────────────────────────────┘
 
                                      ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓              ┌──────────────────────────────────┐
                                      ┃ panel                        ┃◀━┳━━━━━━━━━━━│ kbd                              │
-                                     ┃ default font set             ┃  ┇           │ pci-0:3.3                        │
+                                     ┃ default font set · every VT  ┃  ┇           │ pci-0:3.3                        │
                                      ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛  ┇           └──────────────────────────────────┘
                                                                        ┗┅┅┅┅┅┅┅┅┅┅┅roaming inputs
 
                                      ┌┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┐              ┌──────────────────────────────────┐
- ROAMING                             ┆ Whichever terminal is active ┆◄┄┄┄┄┄┄┄┄┄┄┄┄┄│ All keyboards                    │
- These inputs type into whichever    ┆ follows the VT you switch to ┆              │ every keyboard                   │
+ ROAMING                             ┆ Whichever terminal is active ┆◄┄┄┄┄┄┄┄┄┄┄┄┄┄│ every keyboard                   │
+ These inputs type into whichever    ┆ follows the VT you switch to ┆              │ every input of that type         │
  terminal is active.                 └┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┘              └──────────────────────────────────┘
 
  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────

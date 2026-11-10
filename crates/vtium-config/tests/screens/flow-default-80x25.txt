@@ -7,7 +7,7 @@
  all keyboards, mice and touchpads type into it.
  ┏━━━━━━━━━━━━━━┓       ┌──────────────────────────────┐
  ┃ All displays ┃━━━━━━▶│ console                      │◄┄┄┄┄┄┄┄┄roaming inputs
- ┃ connected n… ┃       │ default font set             │
+ ┃ connected n… ┃       │ default font set · every VT  │
  ┗━━━━━━━━━━━━━━┛       └──────────────────────────────┘
 
                         ┌┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┐         ┌────────────┐
