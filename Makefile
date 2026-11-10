@@ -642,7 +642,7 @@ TUI_SHOTS := $(or $(OUT),$(or $(CARGO_TARGET_DIR),target)/tui-shots)
 .PHONY: tui-shots tui-demo
 tui-shots: ## Draw every TUI screen golden as a PNG through vtium's renderer in unifont, into OUT=DIR (default target/tui-shots)
 	rm -rf $(TUI_SHOTS)/bytes
-	VTIUM_CONFIG_SHOTS=$(abspath $(TUI_SHOTS))/bytes cargo test -p vtium-config --test tui -- each_view_at_80x25_and_100x30 a_draft_s_card_question_and_pager_at_80x25_and_100x30
+	VTIUM_CONFIG_SHOTS=$(abspath $(TUI_SHOTS))/bytes cargo test -p vtium-config --test tui -- each_view_at_80x25_and_100x30 the_flow_view_s_states_at_80x25_and_120x32
 	cargo build --release -p vtium-tui-review --bin tui-shots
 	$(or $(CARGO_TARGET_DIR),target)/release/tui-shots crates/vtium-config/tests/screens $(TUI_SHOTS)/bytes $(TUI_SHOTS)
 
