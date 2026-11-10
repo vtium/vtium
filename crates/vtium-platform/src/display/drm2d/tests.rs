@@ -7538,3 +7538,97 @@ fn the_search_tries_a_bounded_number_of_placements() {
         "{tests} test commits"
     );
 }
+
+// The maintainer's decision of 2026-11-10: a display that shows only a
+// notice is parked once the notice's time is up. drm2d sets it off,
+// turns off its CRTC, frees its buffers and reports it removed, keeps it
+// dark at every scan, and lights it with new buffers once let go.
+#[test]
+fn a_parked_display_is_set_off_freed_and_kept_dark_until_let_go() {
+    for atomic in [true, false] {
+        parked_and_let_go(atomic);
+    }
+}
+
+/// [`a_parked_display_is_set_off_freed_and_kept_dark_until_let_go`] with
+/// the atomic calls or the legacy ones.
+fn parked_and_let_go(atomic: bool) {
+    let mut v = two_lit(atomic);
+    let crtc = v
+        .outputs
+        .iter()
+        .find(|o| o.id == DisplayId(B))
+        .unwrap()
+        .crtc;
+    let (dumbs, fbs) = {
+        let s = v.card().state();
+        (s.dumbs.len(), s.fbs.len())
+    };
+    v.park(DisplayId(B)).unwrap();
+    flip(&mut v);
+    assert!(events(&mut v).contains(&Event::Removed(DisplayId(B))));
+    assert_eq!(v.displays().collect::<Vec<_>>(), [DisplayId(A)]);
+    let dark: Vec<&str> = v.dark().map(|d| d.connector.as_str()).collect();
+    assert_eq!(dark, ["HDMI-A-2"], "atomic: {atomic}");
+    {
+        let s = v.card().state();
+        // the atomic calls take the connector off its CRTC, and the legacy
+        // ones disable the CRTC
+        if atomic {
+            assert_eq!(s.bound.get(&B), Some(&0), "the connector is off");
+        } else {
+            assert!(s.disabled_crtcs.contains(&crtc), "the CRTC is disabled");
+        }
+        assert_eq!(
+            s.active.get(&crtc),
+            Some(&false),
+            "its CRTC is off, atomic: {atomic}"
+        );
+        assert!(
+            s.dumbs.len() < dumbs,
+            "{} of {dumbs} dumb buffers",
+            s.dumbs.len()
+        );
+        assert!(s.fbs.len() < fbs, "{} of {fbs} framebuffers", s.fbs.len());
+    }
+    v.poll().unwrap();
+    assert_eq!(
+        v.displays().collect::<Vec<_>>(),
+        [DisplayId(A)],
+        "a scan keeps it dark"
+    );
+    assert!(v.release_dark("HDMI-A-2"));
+    v.poll().unwrap();
+    flip(&mut v);
+    assert!(events(&mut v).contains(&Event::Added(DisplayId(B))));
+    assert_eq!(
+        v.displays().collect::<Vec<_>>(),
+        [DisplayId(A), DisplayId(B)]
+    );
+    assert_eq!(v.card().state().dumbs.len(), dumbs, "new buffers");
+}
+
+// Parking the only display lit sets it off, frees everything it held and
+// keeps master, as with every display dark.
+#[test]
+fn parking_the_only_display_frees_what_it_held_and_keeps_master() {
+    let mut v = awake(one());
+    v.park(DisplayId(A)).unwrap();
+    assert_eq!(events(&mut v), [Event::Removed(DisplayId(A))]);
+    assert_eq!(v.displays().count(), 0);
+    let s = v.card().state();
+    assert!(s.dumbs.is_empty() && s.fbs.is_empty() && s.blobs.is_empty());
+    assert_eq!(s.bound.get(&A), Some(&0));
+    assert!(s.master && s.master_drops == 0, "master kept");
+}
+
+// A display that is not online, and any display while the card sleeps,
+// cannot be parked.
+#[test]
+fn only_a_display_online_on_an_awake_card_is_parked() {
+    let mut v = awake(one());
+    assert!(v.park(DisplayId(B)).is_err());
+    v.sleep();
+    flip(&mut v);
+    assert!(v.park(DisplayId(A)).is_err());
+}

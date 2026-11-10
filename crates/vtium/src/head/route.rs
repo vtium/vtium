@@ -9,6 +9,8 @@ use std::path::{Path, PathBuf};
 use vtium_platform::input::{DeviceId, Disposition};
 use vtium_settings::{Class, Identity, Place};
 
+use crate::head::vt::VtHeads;
+
 /// One input device and where the rules placed it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Route {
@@ -52,12 +54,14 @@ pub(crate) struct Routes {
 }
 
 impl Routes {
-    /// Places the device at `node` by the first rule matching `identity`,
-    /// or at the focus where the rescue key moved it earlier in the boot,
-    /// and returns whether vtium opens it.
+    /// Places the device at `node` for the VT of `heads` by the first rule
+    /// that places `identity` there (ADR-1401 D3), or at the focus where
+    /// the rescue key moved it earlier in the boot, and returns whether
+    /// vtium opens it.
     pub(crate) fn add(
         &mut self,
         rules: &vtium_settings::Config,
+        heads: &VtHeads,
         node: &Path,
         identity: &Identity,
     ) -> Disposition {
@@ -65,7 +69,7 @@ impl Routes {
             id: None,
             identity: identity.clone(),
             keyboard: identity.classes.has(Class::Keyboard),
-            place: rules.walk(identity).place,
+            place: heads.walk(rules, identity).place,
             rescued: self.rescued.contains(identity),
             guarded: false,
         };
@@ -167,13 +171,19 @@ impl Routes {
             .map(|(node, _)| node.as_path())
     }
 
-    /// The head the events of the device at `node` go to, with `focus` the
-    /// head holding the focus: its rule's head, else the focus's. A device
-    /// no rule placed, as one a test types on, follows the focus; an
-    /// ignored one reaches none.
-    pub(crate) fn head(&self, node: Option<&Path>, focus: Option<usize>) -> Option<usize> {
+    /// The head of `heads` the events of the device at `node` go to, with
+    /// `focus` the head holding the focus: its rule's head, else the
+    /// focus's. A device no rule placed, as one a test types on, follows
+    /// the focus; an ignored one reaches none, and so does one that stays
+    /// with a head on another VT.
+    pub(crate) fn head(
+        &self,
+        heads: &VtHeads,
+        node: Option<&Path>,
+        focus: Option<usize>,
+    ) -> Option<usize> {
         let place = node.and_then(|n| self.devices.get(n)).map(Route::place);
-        head_of(place.unwrap_or(Place::Roaming), focus)
+        head_of(heads, place.unwrap_or(Place::Roaming), focus)
     }
 
     /// Whether a device at `node` was placed and has not gone.
@@ -188,25 +198,32 @@ impl Routes {
             .is_none_or(|r| r.place() == Place::Roaming)
     }
 
-    /// The handles of the devices whose events go to head `h`.
-    pub(crate) fn devices_of(&self, h: usize, focus: Option<usize>) -> Vec<DeviceId> {
+    /// The handles of the devices whose events go to head `h` of `heads`.
+    pub(crate) fn devices_of(
+        &self,
+        heads: &VtHeads,
+        h: usize,
+        focus: Option<usize>,
+    ) -> Vec<DeviceId> {
         self.devices
             .values()
-            .filter(|r| head_of(r.place(), focus) == Some(h))
+            .filter(|r| head_of(heads, r.place(), focus) == Some(h))
             .filter_map(|r| r.id)
             .collect()
     }
 
-    /// Whether the events of a keyboard `open` holds open go to head `h`.
+    /// Whether the events of a keyboard `open` holds open go to head `h` of
+    /// `heads`.
     pub(crate) fn keyboard_reaches(
         &self,
+        heads: &VtHeads,
         h: usize,
         focus: Option<usize>,
         open: impl Fn(Option<DeviceId>) -> bool,
     ) -> bool {
         self.devices
             .values()
-            .any(|r| r.keyboard && head_of(r.place(), focus) == Some(h) && open(r.id))
+            .any(|r| r.keyboard && head_of(heads, r.place(), focus) == Some(h) && open(r.id))
     }
 }
 
@@ -223,15 +240,14 @@ fn disposition(rules: &vtium_settings::Config, place: Place, identity: &Identity
     }
 }
 
-/// The head a device placed at `place` delivers to.
-fn head_of(place: Place, focus: Option<usize>) -> Option<usize> {
+/// The head of `heads` a device placed at `place` delivers to: a roaming
+/// one to `focus`, and any other to the head its place names. A device
+/// that stays with a head on another VT delivers to no head on this one
+/// (ADR-1401 D3, step 4).
+fn head_of(heads: &VtHeads, place: Place, focus: Option<usize>) -> Option<usize> {
     match place {
-        Place::Head(h) => Some(h),
-        Place::DefaultHead => Some(0),
         Place::Roaming => focus,
-        // A device that stays with a terminal of another VT delivers to no
-        // head on this one (ADR-1401 D3, step 4).
-        Place::Ignore | Place::Off | Place::Notice | Place::Elsewhere(_) => None,
+        place => heads.head(place),
     }
 }
 
@@ -292,28 +308,32 @@ mod tests {
         )
         .map(|p| p.config)
         .unwrap_or_default();
+        let heads = VtHeads::new(&rules, None);
         let mut routes = Routes::default();
         let open = |routes: &mut Routes, node: &str, path: &str| {
-            routes.add(&rules, Path::new(node), &keyboard(path))
+            routes.add(&rules, &heads, Path::new(node), &keyboard(path))
         };
         assert_eq!(open(&mut routes, "/a", "p-a"), Disposition::Deliver);
         assert_eq!(open(&mut routes, "/f", "p-f"), Disposition::Deliver);
         assert_eq!(open(&mut routes, "/x", "p-x"), Disposition::Rescue);
         for focus in [Some(0), Some(1), None] {
-            assert_eq!(routes.head(Some(Path::new("/a")), focus), Some(0));
-            assert_eq!(routes.head(Some(Path::new("/f")), focus), focus);
-            assert_eq!(routes.head(Some(Path::new("/x")), focus), None);
-            assert_eq!(routes.head(None, focus), focus, "no device named");
+            assert_eq!(routes.head(&heads, Some(Path::new("/a")), focus), Some(0));
+            assert_eq!(routes.head(&heads, Some(Path::new("/f")), focus), focus);
+            assert_eq!(routes.head(&heads, Some(Path::new("/x")), focus), None);
+            assert_eq!(routes.head(&heads, None, focus), focus, "no device named");
         }
-        assert!(routes.keyboard_reaches(1, Some(1), |_| true));
+        assert!(routes.keyboard_reaches(&heads, 1, Some(1), |_| true));
         assert_eq!(
             routes.rescue(&rules, Path::new("/f")),
             None,
             "a keyboard following the focus stays"
         );
         assert_eq!(routes.rescued().count(), 0);
-        assert!(!routes.keyboard_reaches(1, Some(0), |_| true));
-        assert!(!routes.keyboard_reaches(1, Some(1), |_| false), "none open");
+        assert!(!routes.keyboard_reaches(&heads, 1, Some(0), |_| true));
+        assert!(
+            !routes.keyboard_reaches(&heads, 1, Some(1), |_| false),
+            "none open"
+        );
     }
 
     // ADR-1401 D9: the anti-lockout guard opens an ignored keyboard to
@@ -327,6 +347,7 @@ mod tests {
         )
         .map(|p| p.config)
         .unwrap_or_default();
+        let heads = VtHeads::new(&rules, None);
         use vtium_platform::input::{Direct, Input, InputConfig, Keymap};
         // the seat's input, asleep, hands out the handles
         let Some(keymap) = Keymap::fallback() else {
@@ -336,26 +357,26 @@ mod tests {
         let mut id = |node: &str| input.add_with(Path::new(node), Disposition::Closed);
         let (a, x) = (id("/a").unwrap(), id("/x").unwrap());
         let mut routes = Routes::default();
-        routes.add(&rules, Path::new("/a"), &keyboard("p-a"));
-        routes.add(&rules, Path::new("/x"), &keyboard("p-x"));
+        routes.add(&rules, &heads, Path::new("/a"), &keyboard("p-a"));
+        routes.add(&rules, &heads, Path::new("/x"), &keyboard("p-x"));
         routes.opened(Path::new("/a"), a);
         routes.opened(Path::new("/x"), x);
         let held = routes.guard(&rules, [true, true]);
         assert_eq!(held, [(a, Disposition::Deliver), (x, Disposition::Deliver)]);
-        assert_eq!(routes.head(Some(Path::new("/x")), Some(0)), Some(0));
+        assert_eq!(routes.head(&heads, Some(Path::new("/x")), Some(0)), Some(0));
         let back = routes.guard(&rules, [false, false]);
         assert_eq!(back, [(a, Disposition::Deliver), (x, Disposition::Rescue)]);
-        assert_eq!(routes.head(Some(Path::new("/x")), Some(0)), None);
+        assert_eq!(routes.head(&heads, Some(Path::new("/x")), Some(0)), None);
         assert_eq!(routes.rescue(&rules, Path::new("/x")), Some(Some(x)));
         assert_eq!(routes.rescued().count(), 1);
         assert_eq!(routes.unrescued().count(), 1);
         assert_eq!(routes.guard(&rules, [false]), []);
         assert_eq!(
-            routes.head(Some(Path::new("/x")), None),
+            routes.head(&heads, Some(Path::new("/x")), None),
             None,
             "the focus's, none"
         );
-        assert_eq!(routes.head(Some(Path::new("/x")), Some(0)), Some(0));
+        assert_eq!(routes.head(&heads, Some(Path::new("/x")), Some(0)), Some(0));
     }
 
     // ADR-1401 D9: the rescue holds for the boot through an unplug, for the
@@ -365,23 +386,40 @@ mod tests {
         let rules = vtium_settings::parse("version = 1\n[rules]\ninput * -> ignore\n")
             .map(|p| p.config)
             .unwrap_or_default();
+        let heads = VtHeads::new(&rules, None);
         let mut routes = Routes::default();
         for n in 0..=RESCUED_MAX {
             let node = format!("/k{n}");
-            routes.add(&rules, Path::new(&node), &keyboard(&format!("p-{n}")));
+            routes.add(
+                &rules,
+                &heads,
+                Path::new(&node),
+                &keyboard(&format!("p-{n}")),
+            );
             assert_eq!(routes.rescue(&rules, Path::new(&node)), Some(None));
             routes.remove(Path::new(&node));
         }
         let back = |routes: &mut Routes, n: usize| {
-            routes.add(&rules, Path::new("/again"), &keyboard(&format!("p-{n}")))
+            routes.add(
+                &rules,
+                &heads,
+                Path::new("/again"),
+                &keyboard(&format!("p-{n}")),
+            )
         };
         assert_eq!(back(&mut routes, RESCUED_MAX), Disposition::Deliver);
-        assert_eq!(routes.head(Some(Path::new("/again")), Some(0)), Some(0));
+        assert_eq!(
+            routes.head(&heads, Some(Path::new("/again")), Some(0)),
+            Some(0)
+        );
         assert_eq!(
             back(&mut routes, 0),
             Disposition::Rescue,
             "the oldest forgotten"
         );
-        assert_eq!(routes.head(Some(Path::new("/again")), Some(0)), None);
+        assert_eq!(
+            routes.head(&heads, Some(Path::new("/again")), Some(0)),
+            None
+        );
     }
 }

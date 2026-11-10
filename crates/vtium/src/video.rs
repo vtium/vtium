@@ -172,6 +172,16 @@ pub trait Video: Any {
     fn release_dark(&mut self, _: &str) -> bool {
         false
     }
+    /// Parks the display `id`: the device sets it off, frees its buffers
+    /// and reports it removed, and keeps it dark, listed by
+    /// [`Video::dark`], until [`Video::release_dark`] lets it go (the
+    /// maintainer, 2026-11-10: a display that shows only a notice sends no
+    /// signal and holds no memory once the notice's time is up). A device
+    /// that cannot park a display answers `Unsupported`, and the caller
+    /// sets it off with [`Video::set_dpms`] instead.
+    fn park(&mut self, _: DisplayId) -> io::Result<()> {
+        Err(io::ErrorKind::Unsupported.into())
+    }
     /// Whether the kernel removed the device, as a DRM card whose ioctl
     /// answered ENODEV: its displays were reported removed, and the owner
     /// lets it go, which closes its file, without waiting for udev to
@@ -280,6 +290,9 @@ macro_rules! drm2d_video {
             }
             fn release_dark(&mut self, connector: &str) -> bool {
                 <$device>::release_dark(self, connector)
+            }
+            fn park(&mut self, id: DisplayId) -> io::Result<()> {
+                <$device>::park(self, id)
             }
             fn as_any(&mut self) -> &mut dyn Any {
                 self
@@ -466,6 +479,9 @@ mod tests {
         }
         fn release_dark(&mut self, _: &str) -> bool {
             false
+        }
+        fn park(&mut self, _: DisplayId) -> io::Result<()> {
+            Ok(())
         }
         fn setup_cursor(
             &mut self,

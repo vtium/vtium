@@ -86,7 +86,7 @@
 //!   [`LEAVE_WAIT`] while the switch is pending.
 
 use std::any::Any;
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
 use std::io;
@@ -119,6 +119,7 @@ use crate::head::chord::{self, HeadChord};
 use crate::head::console::Console;
 use crate::head::route::{self, Routes};
 use crate::head::session::{self, AfterExit, Caps};
+use crate::head::vt::VtHeads;
 use crate::head::{Attached, Frit, Head, Start, place_display};
 use crate::helper::{self, Answer, Helper};
 use crate::layout::{self, Zoom};
@@ -200,6 +201,21 @@ impl dyn SeatVt {
     }
 }
 
+/// A display that shows a notice of its own, under open, while no path
+/// catches it on this VT (ADR-1401 D3).
+#[derive(Debug)]
+struct Unused {
+    /// The head of [`App::heads`] that draws the notice, after the heads
+    /// of this VT and the notice screen, kept for the rest of the run.
+    head: usize,
+    /// When the notice's time is up: `osd-timeout` from the first turn it
+    /// is on the display.
+    due: Option<Instant>,
+    /// Set off and its buffers freed once the time was up, until a key on
+    /// this VT or a switch back to it.
+    parked: bool,
+}
+
 /// The seat, its devices and its heads.
 pub struct App {
     pub vt: Box<dyn SeatVt>,
@@ -212,14 +228,27 @@ pub struct App {
     /// The head file in force: the file's, or the compiled-in
     /// configuration.
     rules: vtium_settings::Config,
+    /// Which heads of [`App::rules`] vtium built, the heads of its VT
+    /// (ADR-1401 D2), and the VT it places devices for.
+    vt_heads: VtHeads,
     /// What the start's head file resolved to (ADR-1401 D7).
     outcome: vtium_settings::Outcome,
     /// The panic screen's report, for a broken closed head file (D7).
     report: Option<vtium_render::NoticeReport>,
+    /// How many heads of [`App::heads`] are this VT's own heads, which come
+    /// first (ADR-1401 D2).
+    built: usize,
     /// The index in [`App::heads`] of the screen the display guard lights
-    /// for a notice alone, which a closed policy has, after every head the
-    /// file declares (D9).
+    /// for a notice alone, which a closed policy has, after every head of
+    /// this VT (D9).
     screen: Option<usize>,
+    /// Under open, the notice of each display that no path catches on this
+    /// VT (ADR-1401 D3), by its device and its connector.
+    notices: BTreeMap<(PathBuf, String), Unused>,
+    /// The displays a DRM card announces for their notices though the rules
+    /// leave them dark, by device and connector, which each card's dark
+    /// policy reads.
+    wanted: Rc<RefCell<BTreeSet<(PathBuf, String)>>>,
     /// A crash loop ended every head's sessions under the closed policy:
     /// no session starts again, no input is delivered, and the boot
     /// display shows why for as long as vtium runs (D1).
@@ -411,6 +440,7 @@ impl App {
         };
         let bytes = session::scrollback_bytes(&config, caps, rules.heads.len());
         let heads = session::heads(&rules, &config, ((cap, lines), bytes), caps, &clock);
+        let built = heads.len();
         let dpms = config
             .number(&keys::DPMS_TIMEOUT)
             .map(Duration::from_secs)
@@ -453,10 +483,14 @@ impl App {
             udev: None,
             blank: Blank::new(dpms, now),
             heads,
+            vt_heads: VtHeads::new(&rules, None),
             rules,
             outcome: vtium_settings::resolve(&vtium_settings::Read::Missing),
             report: None,
+            built,
             screen: None,
+            notices: BTreeMap::new(),
+            wanted: Rc::default(),
             stopped: false,
             focus: None,
             routes: Routes::default(),
@@ -519,19 +553,25 @@ impl App {
             outcome,
             rules,
             report,
+            vt,
         } = start;
         let rules = route::in_force(rules, &self.config);
-        // The display guard's default head, where the file declares none,
-        // which it lights under open alone (D9).
-        let mut declared = rules.clone();
-        if declared.heads.is_empty() && rules.policy == Policy::Open {
-            declared.heads = vtium_settings::Config::builtin().heads;
-        }
+        // The heads of this VT (D2), or the default head alone where the
+        // policy table gives the built-in default (D3), or with no VT the
+        // display guard's default head, which it lights under open (D9).
+        let vt_heads = VtHeads::new(&rules, vt);
+        let declared = vtium_settings::Config {
+            heads: vt_heads.heads(&rules),
+            ..rules.clone()
+        };
         let caps = self.caps;
         self.scrollback_bytes = session::scrollback_bytes(&self.config, caps, declared.heads.len());
         let scrollback = (self.scrollback, self.scrollback_bytes);
         self.let_go_of_painters();
         self.heads = session::heads(&declared, &self.config, scrollback, caps, &self.clock);
+        self.built = self.heads.len();
+        self.notices.clear();
+        self.wanted.borrow_mut().clear();
         self.screen = (rules.policy == Policy::Closed).then(|| {
             let term = crate::head::terminal(&self.config, (0, 0), 0, Rc::clone(&self.clock));
             self.heads.push(Head::notice_screen(&self.config, term));
@@ -541,6 +581,7 @@ impl App {
             self.wait = Wait::new(None);
         }
         self.rules = rules;
+        self.vt_heads = vt_heads;
         self.outcome = outcome;
         self.report = report;
         self.focus = None;
@@ -656,8 +697,7 @@ impl App {
 
     /// The heads, in the head file's order.
     pub fn heads(&self) -> &[Head] {
-        let declared = self.screen.unwrap_or(self.heads.len());
-        self.heads.get(..declared).unwrap_or_default()
+        self.heads.get(..self.built).unwrap_or_default()
     }
 
     /// The head named `name`.
@@ -669,6 +709,15 @@ impl App {
     /// closed policy (ADR-1401 D9), which a closed file has.
     pub fn notice_screen(&self) -> Option<&Head> {
         self.heads.get(self.screen?)
+    }
+
+    /// The notice the display named `connector` shows of its own, under
+    /// open, while no path catches it on this VT (ADR-1401 D3): its words,
+    /// and whether it is on the display now.
+    pub fn display_notice(&self, connector: &str) -> Option<(&str, bool)> {
+        let (_, n) = self.notices.iter().find(|((_, c), _)| c == connector)?;
+        let head = self.heads.get(n.head)?;
+        Some((head.notice()?, !head.views.is_empty()))
     }
 
     /// The head the keys type into, else the first: the one whose session
@@ -1201,7 +1250,15 @@ impl App {
         if let Some((_, h)) = self.guard_lit.as_ref().filter(|(k, _)| *k == key) {
             return Some((*h, display));
         }
-        match place_display(&self.rules, &display) {
+        let notice = display
+            .connector
+            .clone()
+            .and_then(|c| self.notices.get(&(node.to_owned(), c)))
+            .filter(|n| !n.parked);
+        if let Some(n) = notice {
+            return Some((n.head, display));
+        }
+        match place_display(&self.rules, &self.vt_heads, &display) {
             Ok(h) => Some((h, display)),
             Err(line) => {
                 log::info!("{line}");
@@ -1403,7 +1460,9 @@ impl App {
             input.is_none_or(|i| id.is_some_and(|id| i.disposition(id).is_some()))
         };
         for (h, head) in self.heads.iter_mut().enumerate() {
-            let focused = self.routes.keyboard_reaches(h, self.focus, open);
+            let focused = self
+                .routes
+                .keyboard_reaches(&self.vt_heads, h, self.focus, open);
             if focused != head.focused {
                 head.focused = focused;
                 if head.console.term.terminal.focus(focused) {
@@ -1424,7 +1483,11 @@ impl App {
             if self.focus == Some(h) {
                 input.set_pointer_max(w, ht);
             }
-            input.set_pointer_max_of(&self.routes.devices_of(h, self.focus), w, ht);
+            input.set_pointer_max_of(
+                &self.routes.devices_of(&self.vt_heads, h, self.focus),
+                w,
+                ht,
+            );
         }
     }
 
@@ -1816,6 +1879,171 @@ impl App {
     /// lock (vtium/vtium#87) will count the user's input alone.
     fn user_input(&mut self, now: Instant) {
         self.restart_blank(now);
+        self.wake_notices();
+    }
+
+    /// A key on this VT, or a switch back to it, shows each parked notice
+    /// again (ADR-1401 D3): the guards light its display at their next run.
+    fn wake_notices(&mut self) {
+        for n in self.notices.values_mut().filter(|n| n.parked) {
+            n.parked = false;
+            n.due = None;
+            self.guard_due = true;
+        }
+    }
+
+    /// Lights the notice of each display of `unused`, each with the head of
+    /// other VTs it is configured for, if any, and lets go of each notice
+    /// whose display has gone or now has a path (ADR-1401 D3). A parked
+    /// notice stays parked. An announced display joins its notice's head; a
+    /// display its card left dark is let go and asked for again, and joins
+    /// it when it comes.
+    fn show_notices(&mut self, unused: &[((PathBuf, String), Option<usize>)]) {
+        let gone: Vec<(PathBuf, String)> = self
+            .notices
+            .keys()
+            .filter(|k| !unused.iter().any(|(u, _)| u == *k))
+            .cloned()
+            .collect();
+        for key in gone {
+            self.wanted.borrow_mut().remove(&key);
+            if let Some(n) = self.notices.remove(&key) {
+                let views: Vec<(PathBuf, DisplayId)> = self
+                    .heads
+                    .get(n.head)
+                    .map(|h| h.views.keys().cloned().collect())
+                    .unwrap_or_default();
+                for view in views {
+                    self.unlight(view.clone());
+                    self.dark.remove(&view);
+                    self.add_display(&view.0, view.1);
+                }
+            }
+        }
+        let Some(vt) = self.vt_heads.vt() else {
+            return;
+        };
+        for (key, owner) in unused {
+            let owner =
+                owner
+                    .and_then(|h| self.rules.heads.get(h))
+                    .map(|head| crate::notice::Owner {
+                        head: &head.name,
+                        vts: &head.vts,
+                    });
+            let text = crate::notice::unused_display(vt, &key.1, owner.as_ref());
+            let head = match self.notices.get(key) {
+                Some(n) if n.parked => continue,
+                Some(n) => n.head,
+                None => {
+                    let term =
+                        crate::head::terminal(&self.config, (0, 0), 0, Rc::clone(&self.clock));
+                    let mut head = Head::notice_screen(&self.config, term);
+                    head.set_notice(&text);
+                    self.heads.push(head);
+                    let head = self.heads.len().saturating_sub(1);
+                    log::info!("display {}: {text}", key.1);
+                    self.notices.insert(
+                        key.clone(),
+                        Unused {
+                            head,
+                            due: None,
+                            parked: false,
+                        },
+                    );
+                    head
+                }
+            };
+            if self.heads.get(head).is_some_and(|h| !h.views.is_empty()) {
+                continue;
+            }
+            // an announced display the rules left dark joins its notice
+            let announced = self
+                .dark
+                .iter()
+                .find(|((node, _), d)| *node == key.0 && d.connector.as_ref() == Some(&key.1))
+                .map(|(k, _)| k.clone());
+            if let Some(k) = announced {
+                self.dark.remove(&k);
+                if let Some(video) = self.videos.get_mut(&k.0)
+                    && let Err(e) = video.set_dpms(k.1, Dpms::On)
+                {
+                    log::warn!("cannot set display {} on: {e}", video.name(k.1));
+                }
+                self.add_display(&k.0, k.1);
+                continue;
+            }
+            // a display its card left dark is asked for again
+            self.wanted.borrow_mut().insert(key.clone());
+            if let Some(video) = self.videos.get_mut(&key.0)
+                && video.release_dark(&key.1)
+                && let Err(e) = video.hotplug()
+            {
+                log::warn!("{}: hotplug: {e}", key.0.display());
+            }
+        }
+    }
+
+    /// Each notice on its display for `osd-timeout` since the first turn it
+    /// was there is put away: vtium parks its display, so it sends no signal
+    /// and holds no memory, or sets it off where the device cannot park it
+    /// (ADR-1401 D3). Under `osd-timeout = never` a notice stays.
+    fn notice_cycle(&mut self, now: Instant) {
+        let Some(timeout) = self.osd.timeout else {
+            return;
+        };
+        let mut due = Vec::new();
+        for (key, n) in self.notices.iter_mut().filter(|(_, n)| !n.parked) {
+            let Some(head) = self.heads.get(n.head) else {
+                continue;
+            };
+            let Some(view) = head.views.keys().next() else {
+                continue;
+            };
+            let at = *n.due.get_or_insert_with(|| after(now, timeout));
+            if now >= at {
+                due.push((key.clone(), view.clone()));
+            }
+        }
+        for (key, view) in due {
+            self.park_notice(&key, view);
+        }
+    }
+
+    /// Puts away the notice of the display at `view`, named `key`: parked
+    /// by its device, which reports it removed and keeps it dark until let
+    /// go, or set off where the device cannot park a display.
+    fn park_notice(&mut self, key: &(PathBuf, String), view: (PathBuf, DisplayId)) {
+        let Some(n) = self.notices.get_mut(key) else {
+            return;
+        };
+        n.parked = true;
+        n.due = None;
+        self.wanted.borrow_mut().remove(key);
+        let Some(video) = self.videos.get_mut(&view.0) else {
+            return;
+        };
+        match video.park(view.1) {
+            Ok(()) => log::info!(
+                "display {}: the notice's time is up, so the display is off and its buffers freed until a key on this VT",
+                key.1
+            ),
+            Err(e) => {
+                if e.kind() != io::ErrorKind::Unsupported {
+                    log::warn!("cannot park display {}: {e}", key.1);
+                }
+                if let Err(e) = video.set_dpms(view.1, Dpms::Off) {
+                    log::warn!("cannot set display {} off: {e}", key.1);
+                }
+                let h = self.notices.get(key).map(|n| n.head);
+                if let Some(head) = h.and_then(|h| self.heads.get_mut(h)) {
+                    head.drop_views(|k| *k == view);
+                }
+                if let Some(display) = self.lit.remove(&view) {
+                    self.dark.insert(view, display);
+                }
+            }
+        }
     }
 
     /// What a program asked of the blank with the Linux console's
@@ -2132,7 +2360,8 @@ impl App {
         // The display guard's display counts as lit; given no keyboard, the
         // anti-lockout guard moves nothing ([`App::guard`] runs it).
         let lit: Vec<vtium_settings::Identity> = self.start_lit.values().cloned().collect();
-        self.focus = head_index(self.rules.place(&lit, None).focus);
+        let placement = self.vt_heads.placement(&self.rules, &lit, &[], None);
+        self.focus = placement.focus.and_then(|p| self.vt_heads.head(p));
         self.bound_pointers();
         self.rehover();
     }
@@ -2180,15 +2409,26 @@ impl App {
         // A keyboard the rescue key moved roams, and reaches the focus's
         // head while it is lit.
         let rescued: Vec<vtium_settings::Identity> = self.routes.rescued().cloned().collect();
-        // The default head is the head of a file that declares none.
-        let focus = self.focus.map(|h| {
-            if self.rules.heads.is_empty() {
-                vtium_settings::Place::DefaultHead
-            } else {
-                vtium_settings::Place::Head(h)
-            }
-        });
-        let placement = self.rules.place_rescued(&devices, &rescued, focus);
+        let placement = self
+            .vt_heads
+            .placement(&self.rules, &devices, &rescued, self.focus);
+        // Under open, each display no path catches shows its own notice
+        // (ADR-1401 D3).
+        let on_screens = displays.len().saturating_add(held.len());
+        let unused: Vec<((PathBuf, String), Option<usize>)> = displays
+            .iter()
+            .map(|(node, _)| node)
+            .chain(held.iter().map(|(node, _, _)| node))
+            .zip(devices.iter().zip(&placement.placed))
+            .take(on_screens)
+            .filter_map(|(node, (d, p))| match p.place {
+                vtium_settings::Place::Unused(owner) => {
+                    Some(((node.clone(), d.connector.clone()?), owner))
+                }
+                _ => None,
+            })
+            .collect();
+        self.show_notices(&unused);
         let (shown, rest) = placement
             .placed
             .split_at(displays.len().min(placement.placed.len()));
@@ -2203,7 +2443,7 @@ impl App {
             .and_then(|(key, p)| {
                 let h = match p.place {
                     vtium_settings::Place::Notice => screen,
-                    place => head_index(Some(place)),
+                    place => self.vt_heads.head(place),
                 };
                 Some((key.clone(), h?))
             });
@@ -2280,7 +2520,8 @@ impl App {
             }
         }
         if placement.anti_lockout {
-            if let Some(to) = head_index(placement.focus).filter(|&h| Some(h) != self.focus) {
+            let to = placement.focus.and_then(|p| self.vt_heads.head(p));
+            if let Some(to) = to.filter(|&h| Some(h) != self.focus) {
                 self.move_focus(to);
             }
             if !self.locked_out {
@@ -2500,7 +2741,9 @@ impl App {
     /// key alone, or never opened.
     pub fn add_input(&mut self, node: &Path, identity: vtium_settings::Identity) {
         self.guard_due = true;
-        let disposition = self.routes.add(&self.rules, node, &identity);
+        let disposition = self
+            .routes
+            .add(&self.rules, &self.vt_heads, node, &identity);
         if let Some(id) = self
             .input
             .as_mut()
@@ -2536,7 +2779,7 @@ impl App {
         for h in 0..self.heads.len() {
             let ctrl = self.input.as_ref().is_some_and(|input| {
                 input
-                    .mods_of(&self.routes.devices_of(h, self.focus))
+                    .mods_of(&self.routes.devices_of(&self.vt_heads, h, self.focus))
                     .contains(InputMods::CTRL)
             });
             if let Some(head) = self.heads.get_mut(h) {
@@ -2615,9 +2858,9 @@ impl App {
         }
         // The head the device asks: its rule's, or the active head's for a
         // roaming device, which is never isolated (D5).
-        let asked = self.routes.head(node, self.focus);
+        let asked = self.routes.head(&self.vt_heads, node, self.focus);
         let from = KeyFrom {
-            vt_keys: asked.is_some_and(|h| !self.rules.isolated(h)),
+            vt_keys: asked.is_some_and(|h| !self.vt_heads.isolated(&self.rules, h)),
             roaming: self.routes.roams(node),
         };
         // A head whose display never lit receives nothing (D8).
@@ -2639,7 +2882,9 @@ impl App {
             }
             InputEvent::Pointer(p) => {
                 let mods = match (&self.input, h) {
-                    (Some(input), Some(h)) => input.mods_of(&self.routes.devices_of(h, self.focus)),
+                    (Some(input), Some(h)) => {
+                        input.mods_of(&self.routes.devices_of(&self.vt_heads, h, self.focus))
+                    }
                     _ => InputMods::empty(),
                 };
                 self.pointer_to(h, p, mods, now);
@@ -2950,9 +3195,9 @@ impl App {
         };
         self.focus_settled = true;
         // only to a lit head that can be the active head (D5)
-        let (heads, rules) = (self.heads(), &self.rules);
+        let (heads, rules, vt_heads) = (self.heads(), &self.rules, &self.vt_heads);
         let lit = |h: usize| {
-            heads.get(h).is_some_and(|head| !head.views.is_empty()) && !rules.isolated(h)
+            heads.get(h).is_some_and(|head| !head.views.is_empty()) && !vt_heads.isolated(rules, h)
         };
         if let Some(to) = chord::step(self.focus, heads.len(), back, lit) {
             self.move_focus(to);
@@ -3607,6 +3852,7 @@ impl App {
 
     fn draw(&mut self, now: Instant) {
         self.osd(now);
+        self.notice_cycle(now);
         for h in 0..self.heads.len() {
             self.painter(h);
         }
@@ -3967,15 +4213,6 @@ struct KeyFrom {
     roaming: bool,
 }
 
-/// The index of the head at `place`: the default head is the first.
-fn head_index(place: Option<vtium_settings::Place>) -> Option<usize> {
-    match place? {
-        vtium_settings::Place::Head(h) => Some(h),
-        vtium_settings::Place::DefaultHead => Some(0),
-        _ => None,
-    }
-}
-
 /// What the screens of `heads` show, merged style by style: each character
 /// and cluster any of them shows in that style, sorted and once, the
 /// regular style first.
@@ -4322,15 +4559,21 @@ fn wrap_video(
             // A display the rules leave dark is set off before it is
             // announced, a frame another master left included (D3).
             let (rules, at, lit) = (app.rules.clone(), card.clone(), Rc::clone(&app.any_lit));
+            let vt_heads = app.vt_heads.clone();
+            let (wanted, node) = (Rc::clone(&app.wanted), key.clone());
             drm.set_dark(Box::new(move |named| {
                 // While none is lit, it is announced for the display guard
                 // to light (D9), which leaves dark again the ones it lights
-                // not.
-                if !lit.get() {
+                // not. One asked for its notice is announced (D3).
+                if !lit.get()
+                    || wanted
+                        .borrow()
+                        .contains(&(node.clone(), named.connector.clone()))
+                {
                     return false;
                 }
                 let display = vtium_devices::display(named, &at, 0);
-                place_display(&rules, &display)
+                place_display(&rules, &vt_heads, &display)
                     .map_err(|line| log::info!("{line}"))
                     .is_err()
             }));
@@ -4794,8 +5037,16 @@ mod tests {
             Path::new("/k"),
             input().with_class(vtium_settings::Class::Keyboard),
         );
-        assert_eq!(app.routes.head(Some(Path::new("/m")), Some(0)), None);
-        assert_eq!(app.routes.head(Some(Path::new("/k")), Some(0)), Some(0));
+        assert_eq!(
+            app.routes
+                .head(&app.vt_heads, Some(Path::new("/m")), Some(0)),
+            None
+        );
+        assert_eq!(
+            app.routes
+                .head(&app.vt_heads, Some(Path::new("/k")), Some(0)),
+            Some(0)
+        );
         // A mouse whose node also has udev's key class, its consumer keys,
         // is still a pointer the shipped rules leave closed.
         let keyed = input()
@@ -4803,7 +5054,8 @@ mod tests {
             .with_class(vtium_settings::Class::Key);
         let rules = app.rules.clone();
         assert_eq!(
-            app.routes.add(&rules, Path::new("/mk"), &keyed),
+            app.routes
+                .add(&rules, &app.vt_heads.clone(), Path::new("/mk"), &keyed),
             vtium_platform::input::Disposition::Closed
         );
     }
@@ -4830,18 +5082,28 @@ mod tests {
         let input = vtium_settings::Identity::input;
         let mouse = app.routes.add(
             &app.rules.clone(),
+            &app.vt_heads.clone(),
             Path::new("/m"),
             &input().with_class(vtium_settings::Class::Mouse),
         );
         let keyboard = app.routes.add(
             &app.rules.clone(),
+            &app.vt_heads.clone(),
             Path::new("/k"),
             &input().with_class(vtium_settings::Class::Keyboard),
         );
         assert_eq!(mouse, vtium_platform::input::Disposition::Closed);
         assert_eq!(keyboard, vtium_platform::input::Disposition::Deliver);
-        assert_eq!(app.routes.head(Some(Path::new("/m")), Some(0)), None);
-        assert_eq!(app.routes.head(Some(Path::new("/k")), Some(0)), Some(0));
+        assert_eq!(
+            app.routes
+                .head(&app.vt_heads, Some(Path::new("/m")), Some(0)),
+            None
+        );
+        assert_eq!(
+            app.routes
+                .head(&app.vt_heads, Some(Path::new("/k")), Some(0)),
+            Some(0)
+        );
     }
 
     // ADR-1401 D10: a head file's heads past `consoles-max` each keep a

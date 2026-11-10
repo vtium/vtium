@@ -1113,10 +1113,7 @@ impl Parser {
                     Err(e) => problem = Some(e),
                 },
                 "vt" => match vts(value) {
-                    Ok(v) => {
-                        head.vts = v;
-                        head.vt_line = n;
-                    }
+                    Ok(v) => head.vts = v,
                     Err(e) => problem = Some(e),
                 },
                 "isolated" => {

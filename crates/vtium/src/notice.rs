@@ -36,6 +36,43 @@ pub fn rescue(device: impl Display, to: &str) -> String {
     )
 }
 
+/// The words of `items` as a list: `a`, `a and b`, or `a, b, and c`.
+fn listed(items: &[String]) -> String {
+    match items {
+        [] => String::new(),
+        [one] => one.clone(),
+        [a, b] => format!("{a} and {b}"),
+        [rest @ .., last] => format!("{}, and {last}", rest.join(", ")),
+    }
+}
+
+/// The terminal a display is configured for, on other VTs: its name and
+/// the VTs it runs on.
+pub struct Owner<'a> {
+    pub head: &'a str,
+    pub vts: &'a [u16],
+}
+
+/// What the display at `connector` shows on VT `vt` when no terminal of
+/// this VT uses it and no rule sends it to `off` (the maintainer,
+/// 2026-11-10: on every VT it runs on, vtium shows either a terminal or a
+/// notice that says why there is none). `owner` is the terminal of other
+/// VTs it is configured for, or `None` when no terminal is.
+pub fn unused_display(vt: u16, connector: &str, owner: Option<&Owner<'_>>) -> String {
+    let Some(owner) = owner else {
+        return format!("{connector} is not configured for any terminal.");
+    };
+    let vts: Vec<String> = owner.vts.iter().map(u16::to_string).collect();
+    let on = match vts.as_slice() {
+        [one] => format!("VT {one}"),
+        _ => format!("VTs {}", listed(&vts)),
+    };
+    format!(
+        "{connector} is not configured for VT {vt}. It is configured for terminal {}, on {on}.",
+        owner.head
+    )
+}
+
 /// `sentence` with the keys `bindings` binds to `chord` in place of its
 /// `{}`, after a space; nothing when vtium.conf leaves the chord empty.
 fn press(bindings: &Bindings, chord: HeadChord, sentence: &str) -> String {
@@ -440,6 +477,32 @@ pub mod config_tool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // The maintainer's wording, 2026-11-10: each unused display names
+    // itself and the terminal it is configured for, or says it has none.
+    #[test]
+    fn an_unused_display_says_which_terminal_it_is_configured_for() {
+        let desk = Owner {
+            head: "desk",
+            vts: &[3],
+        };
+        assert_eq!(
+            unused_display(4, "DP-8", Some(&desk)),
+            "DP-8 is not configured for VT 4. It is configured for terminal desk, on VT 3."
+        );
+        let panel = Owner {
+            head: "panel",
+            vts: &[2, 3, 5],
+        };
+        assert_eq!(
+            unused_display(4, "HDMI-A-1", Some(&panel)),
+            "HDMI-A-1 is not configured for VT 4. It is configured for terminal panel, on VTs 2, 3, and 5."
+        );
+        assert_eq!(
+            unused_display(4, "DP-9", None),
+            "DP-9 is not configured for any terminal."
+        );
+    }
 
     // The maintainer's wording: the ended session's notice names the focus
     // chord's keys as vtium binds them.

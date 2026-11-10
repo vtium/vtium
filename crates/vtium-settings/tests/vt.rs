@@ -68,18 +68,18 @@ fn a_heads_vt_names_one_vt_or_several_and_none_means_every_vt() {
     let c = config(
         "version = 1\n[head one]\nvt = 3\n[head two]\nvt = 4\t 6\n[head every]\n[head ends]\nvt = 1 63\n",
     );
-    let names: Vec<(&str, &[u16], usize)> = c
+    let names: Vec<(&str, &[u16])> = c
         .heads
         .iter()
-        .map(|h| (h.name.as_str(), h.vts.as_slice(), h.vt_line))
+        .map(|h| (h.name.as_str(), h.vts.as_slice()))
         .collect();
     assert_eq!(
         names,
         [
-            ("one", &[3][..], 3),
-            ("two", &[4, 6][..], 5),
-            ("every", &[][..], 0),
-            ("ends", &[1, 63][..], 8),
+            ("one", &[3][..]),
+            ("two", &[4, 6][..]),
+            ("every", &[][..]),
+            ("ends", &[1, 63][..]),
         ]
     );
     let every = &c.heads[2];
@@ -401,7 +401,7 @@ fn path_test_5_a_keyboard_whose_only_terminal_is_on_another_vt_types_nowhere() {
 
 // covers: platform.heads.rules
 #[test]
-fn path_test_6_a_display_whose_terminals_are_on_another_vt_stays_dark() {
+fn path_test_6_a_display_whose_terminals_are_on_another_vt_shows_no_terminal() {
     let text = "\
 version = 1
 [head three]
@@ -416,15 +416,18 @@ input * -> roaming
     let left = monitor("DP-1", "L");
     let right = monitor("DP-2", "R");
     let kb = keyboard("usb-0:1");
-    for c in [config(text), config(&closed(text))] {
+    // on VT 4 the display of VT 3's terminal shows the notice that names
+    // head three under open, and stays blank under closed
+    for (c, left_on_4) in [
+        (config(text), Place::Unused(Some(0))),
+        (config(&closed(text)), Place::Elsewhere(0)),
+    ] {
         let placement = c.place_on(&[left.clone(), right.clone(), kb.clone()], None, 4);
-        assert_eq!(placement.placed[0].place, elsewhere(&c, "three"));
+        assert_eq!(placement.placed[0].place, left_on_4);
         assert_eq!(placement.placed[1].place, head(&c, "four"));
         assert!(!placement.never_dark);
-        // with no display of VT 4 connected, the display guard still leaves
-        // the display of VT 3's terminal dark
         let alone = c.place_on(&[left.clone(), kb.clone()], None, 4);
-        assert_eq!(alone.placed[0].place, elsewhere(&c, "three"));
+        assert_eq!(alone.placed[0].place, left_on_4);
         assert!(!alone.never_dark);
     }
 }
@@ -470,11 +473,10 @@ fn path_test_7_a_broad_rule_after_a_tied_keyboard_leaves_it_alone() {
     assert_eq!(on(&named, &tied, 4), head(&named, "four"));
 }
 
-// covers: platform.heads.rules
-#[test]
-fn path_test_8_two_terminals_share_a_display_and_a_keyboard() {
-    let c = config(
-        "\
+/// Test 8 of ADR-1403 D7: terminals on VT 3 and VT 4 that share DP-8 and
+/// a keyboard.
+fn shared_terminals() -> String {
+    "\
 version = 1
 [head three]
 vt = 3
@@ -485,8 +487,14 @@ display connector:card0/DP-8 -> three
 input path:usb-0:1 -> three
 display connector:card0/DP-8 -> four
 input path:usb-0:1 -> four
-",
-    );
+"
+    .to_owned()
+}
+
+// covers: platform.heads.rules
+#[test]
+fn path_test_8_two_terminals_share_a_display_and_a_keyboard() {
+    let c = config(&shared_terminals());
     let dp = monitor("DP-8", "S");
     let kb = keyboard("usb-0:1");
     for (vt, name) in [(3, "three"), (4, "four")] {
@@ -500,23 +508,172 @@ input path:usb-0:1 -> four
     assert_eq!(on(&c, &kb, 5), elsewhere(&c, "three"));
 }
 
-/// The display guard and the active head take only a head that runs on
-/// the VT placed for.
+/// Only a head that runs on the VT placed for can be the active head.
 #[test]
-fn the_guards_and_the_active_head_take_only_a_head_of_this_vt() {
+fn the_active_head_is_only_a_head_of_this_vt() {
     let c = config(
-        "version = 1\n[head three]\nvt = 3\n[head four]\nvt = 4\n[rules]\ninput * -> roaming\n",
+        "version = 1\n[head three]\nvt = 3\n[head four]\nvt = 4\n[rules]\ndisplay * -> four\ninput * -> roaming\n",
     );
     let dp = monitor("DP-1", "L");
     let kb = keyboard("usb-0:1");
-    // no rule lights the display, so the display guard gives it the first
-    // head that runs on VT 4, never head three
-    let placement = c.place_on(&[dp.clone(), kb.clone()], Some(head(&c, "three")), 4);
+    let placement = c.place_on(&[dp, kb], Some(head(&c, "three")), 4);
     assert_eq!(placement.placed[0].place, head(&c, "four"));
-    assert_eq!(placement.placed[0].by, By::NeverDark);
     assert_eq!(placement.focus, Some(head(&c, "four")));
-    // on a VT where no head runs, the open file's display guard lights the
-    // default head
-    let none = c.place_on(&[dp, kb], None, 5);
-    assert_eq!(none.placed[0].place, Place::DefaultHead);
+}
+
+// The maintainer's table (2026-11-10) decides what a connected display that
+// no path catches on a VT shows. The tests below check each row.
+
+/// desk runs on VT 3 and holds DP-8; here runs on VT 4 with no display
+/// rule, and holds a keyboard.
+const NO_DISPLAY_HERE: &str = "\
+version = 1
+[head desk]
+vt = 3
+[head here]
+vt = 4
+[rules]
+display connector:card0/DP-8 -> desk
+input path:usb-0:1 -> here
+";
+
+/// The places of `placement`'s devices, in order.
+fn places(placement: &vtium_settings::Placement) -> Vec<Place> {
+    placement.placed.iter().map(|p| p.place).collect()
+}
+
+/// Closed, with nothing defined: nothing shows on any display.
+#[test]
+fn table_closed_with_nothing_defined_leaves_every_display_blank() {
+    let c = config(&closed("version = 1\n"));
+    assert!(!c.uses_builtin_on(4));
+    let placement = c.place_on(&[monitor("DP-1", "L"), keyboard("usb-0:1")], None, 4);
+    assert_eq!(places(&placement), [Place::Off, Place::Ignore]);
+    assert!(!placement.never_dark);
+}
+
+/// Closed, with some paths: a display no path catches on this VT stays
+/// blank, whether it belongs to another VT or to no terminal.
+#[test]
+fn table_closed_with_some_paths_leaves_the_other_displays_blank() {
+    let c = config(&closed(NO_DISPLAY_HERE));
+    let dp8 = monitor("DP-8", "S");
+    let dp9 = monitor("DP-9", "F");
+    let placement = c.place_on(&[dp8.clone(), dp9.clone(), keyboard("usb-0:1")], None, 4);
+    assert_eq!(
+        places(&placement),
+        [elsewhere(&c, "desk"), Place::Off, head(&c, "here")]
+    );
+    assert!(!placement.never_dark);
+    // on VT 3, desk shows on DP-8, and DP-9 stays blank
+    let three = c.place_on(&[dp8, dp9], None, 3);
+    assert_eq!(places(&three), [head(&c, "desk"), Place::Off]);
+}
+
+/// Open, with nothing defined: the built-in default terminal on every
+/// display, which every keyboard types into.
+#[test]
+fn table_open_with_nothing_defined_runs_the_built_in_default() {
+    let c = config("version = 1\n");
+    assert!(c.uses_builtin_on(4));
+    assert_eq!(c.heads_on_vt(4), Vec::<usize>::new());
+    let mut pointer = Identity::input().with_class(Class::Mouse);
+    pointer.path = Some("usb-0:9".to_owned());
+    let devices = [
+        monitor("DP-1", "L"),
+        monitor("DP-2", "R"),
+        keyboard("usb-0:1"),
+        pointer,
+    ];
+    let placement = c.place_on(&devices, None, 4);
+    let got: Vec<(Place, By)> = placement.placed.iter().map(|p| (p.place, p.by)).collect();
+    assert_eq!(
+        got,
+        [
+            (Place::DefaultHead, By::Builtin),
+            (Place::DefaultHead, By::Builtin),
+            (Place::Roaming, By::Builtin),
+            (Place::Roaming, By::Builtin),
+        ]
+    );
+    assert_eq!(placement.focus, Some(Place::DefaultHead));
+    assert!(!placement.never_dark && !placement.anti_lockout);
+    // a file with a rule defines a path, so the built-in default does not run
+    assert!(!config("version = 1\n[rules]\ninput * -> roaming\n").uses_builtin_on(4));
+    assert!(!config(NO_DISPLAY_HERE).uses_builtin_on(5));
+}
+
+/// Open, with some paths: each display that no path catches on this VT
+/// shows its own notice, naming the terminal and VT it is configured for,
+/// or no terminal. No head's console shows on it.
+#[test]
+fn table_open_with_some_paths_gives_each_other_display_its_notice() {
+    let c = config(NO_DISPLAY_HERE);
+    let dp8 = monitor("DP-8", "S");
+    let dp9 = monitor("DP-9", "F");
+    let kb = keyboard("usb-0:1");
+    let placement = c.place_on(&[dp8.clone(), dp9.clone(), kb.clone()], None, 4);
+    assert_eq!(
+        places(&placement),
+        [
+            Place::Unused(Some(0)),
+            Place::Unused(None),
+            head(&c, "here")
+        ]
+    );
+    assert!(matches!(placement.placed[0].by, By::Rule(_)));
+    assert_eq!(placement.placed[1].by, By::NoMatch);
+    assert_eq!(placement.focus, None);
+    assert!(!placement.never_dark);
+    // a VT where no head runs shows the notices too
+    let five = c.place_on(&[dp8.clone(), dp9.clone(), kb.clone()], None, 5);
+    assert_eq!(
+        places(&five),
+        [
+            Place::Unused(Some(0)),
+            Place::Unused(None),
+            elsewhere(&c, "here")
+        ]
+    );
+    // a wildcard path to a head whose `vt` names VT 4 catches both
+    // displays, DP-8 too by the exception in step 2
+    let wild = config(&format!("{NO_DISPLAY_HERE}display * -> here\n"));
+    let placement = wild.place_on(&[dp8, dp9, kb], None, 4);
+    let here = head(&wild, "here");
+    assert_eq!(places(&placement), [here, here, here]);
+}
+
+/// Either policy: a display a rule sends to `off` stays blank on every VT,
+/// even where no head of the VT uses it; a path to Nowhere blanks a display
+/// this way (the maintainer, 2026-11-10: "Off for every VT
+/// (Recommended)").
+#[test]
+fn table_a_display_a_rule_turns_off_stays_blank_on_every_vt() {
+    let text = "\
+version = 1
+[head here]
+vt = 4
+[rules]
+display connector:card0/DP-1 -> off
+display connector:card0/DP-2 -> here
+input * -> here
+";
+    let off = monitor("DP-1", "L");
+    let used = monitor("DP-2", "R");
+    for c in [config(text), config(&closed(text))] {
+        for vt in [3, 4] {
+            let placement = c.place_on(&[off.clone(), used.clone()], None, vt);
+            assert_eq!(placement.placed[0].place, Place::Off, "VT {vt}");
+            assert!(matches!(placement.placed[0].by, By::Rule(_)), "VT {vt}");
+        }
+    }
+    // a walk that names no VT never gives a notice
+    let c = config(text);
+    let placement = c.place(&[off, monitor("DP-3", "N")], None);
+    assert!(
+        placement
+            .placed
+            .iter()
+            .all(|p| !matches!(p.place, Place::Unused(_)))
+    );
 }
