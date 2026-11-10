@@ -26,7 +26,6 @@ struct Topic {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Command {
     Flow,
-    Route,
     Diff,
     Install,
     Get,
@@ -55,9 +54,8 @@ pub enum Command {
 
 impl Command {
     /// Every command, in the order the usage lists them.
-    pub const ALL: [Command; 26] = [
+    pub const ALL: [Command; 25] = [
         Command::Flow,
-        Command::Route,
         Command::Diff,
         Command::Install,
         Command::Get,
@@ -88,7 +86,6 @@ impl Command {
     pub const fn name(self) -> &'static str {
         match self {
             Command::Flow => "flow",
-            Command::Route => "route",
             Command::Diff => "diff",
             Command::Install => "install",
             Command::Get => "get",
@@ -122,7 +119,6 @@ impl Command {
         matches!(
             self,
             Command::Flow
-                | Command::Route
                 | Command::Diff
                 | Command::Install
                 | Command::Get
@@ -163,15 +159,6 @@ const TOPICS: &[Topic] = &[
         )],
         detail: "Shows how the current draft connects the connected displays and input devices: the displays, the display rules, the heads, the looks, the input rules and the input devices. Each device appears under the first rule that matches it. The first line names the draft, says how it differs from the installed vtium.conf, and counts the problems vtium check-config finds. With --json it prints one JSON object whose version field is 1. It exits 0 whenever it prints, whatever problems it lists.",
         example: "vtium-config flow --json",
-    },
-    Topic {
-        command: Command::Route,
-        forms: &[form(
-            "route ITEM [--json]",
-            "show every route through an item",
-        )],
-        detail: "Shows each route from a display to a keyboard that passes through ITEM, with ITEM marked, or why no route does. ITEM is display NAME, rule N, head NAME, look NAME or input NAME. With --json it prints one JSON object whose version field is 1.",
-        example: "vtium-config route rule 5",
     },
     Topic {
         command: Command::Diff,

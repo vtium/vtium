@@ -445,26 +445,6 @@ fn dry_run_prints_the_change_and_writes_nothing() {
 }
 
 #[test]
-fn route_says_why_no_route_passes_through_an_item() {
-    let f = fixture("route");
-    f.desk();
-    let ran = f.run(&["route", "rule", "1"]);
-    assert_eq!(
-        (ran.status, ran.out.as_str()),
-        (
-            0,
-            "route card: rule 1\nnot used: matches no connected display\n"
-        )
-    );
-    let json = f.run(&["route", "head", "desk", "--json"]);
-    assert_eq!(
-        json.out,
-        "{\"version\":1,\"item\":\"head desk\",\"says\":\"not used: no complete route goes through it\",\"routes\":[]}\n"
-    );
-    assert_eq!(f.run(&["route", "head", "nobody"]).status, 2);
-}
-
-#[test]
 fn a_removed_head_keeps_its_rules_and_a_rename_takes_them_along() {
     let f = fixture("head-rm");
     f.desk();

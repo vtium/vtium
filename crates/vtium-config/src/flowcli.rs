@@ -1,4 +1,4 @@
-//! The flow's commands (ADR-1403 D8): `flow`, `route`, `diff`, `install`,
+//! The flow's commands (ADR-1403 D8): `flow`, `diff`, `install`,
 //! `set`, `get`, `revert`, `new`, `rule`, `head`, `look`, `draft`,
 //! `history`, `restore`, `library` and `edit`. Each that changes the
 //! configuration reads the draft and the devices afresh, makes its change
@@ -135,7 +135,6 @@ impl Command<'_, '_> {
     fn dispatch(mut self, command: &str, words: &[String]) -> Result<(), Fail> {
         match command {
             "flow" => self.flow(words),
-            "route" => self.route(words),
             "diff" => self.diff(words),
             "install" => self.install(words),
             "get" => self.get(words),
@@ -200,72 +199,6 @@ impl Command<'_, '_> {
             )
         };
         let _ = write!(self.out, "{printed}");
-        Ok(())
-    }
-
-    /// `route ITEM [--json]`.
-    fn route(&mut self, words: &[String]) -> Result<(), Fail> {
-        let args = Args::parse(words, &["--json"], &[])?;
-        let (name, text) = self.session.current()?;
-        let (flow, _, _) = self.judged(&name, &text)?;
-        let item = flowmodel::item(&flow, &args.words).ok_or_else(|| {
-            Fail::Usage(format!(
-                "the draft has no {}. route takes display NAME, rule N, head NAME, look NAME or input NAME.",
-                args.words.join(" ")
-            ))
-        })?;
-        let title = args.words.join(" ");
-        let routes: Vec<_> = flowmodel::routes(&flow)
-            .into_iter()
-            .filter(|r| r.has(&flow, item))
-            .collect();
-        if args.has("--json") {
-            let lines = routes.iter().map(|r| {
-                let parts: Vec<String> = flowmodel::route_lines(&flow, r, item)
-                    .into_iter()
-                    .map(|(section, words, selected)| {
-                        format!(
-                            "{{\"section\":{},\"item\":{},\"selected\":{selected}}}",
-                            flowmodel::quoted(section),
-                            flowmodel::quoted(&words)
-                        )
-                    })
-                    .collect();
-                format!("[{}]", parts.join(","))
-            });
-            let says = if routes.is_empty() {
-                flowmodel::unrouted(&flow, item)
-            } else {
-                format!(
-                    "part of {} complete route{}",
-                    routes.len(),
-                    if routes.len() == 1 { "" } else { "s" }
-                )
-            };
-            let _ = writeln!(
-                self.out,
-                "{{\"version\":1,\"item\":{},\"says\":{},\"routes\":[{}]}}",
-                flowmodel::quoted(&title),
-                flowmodel::quoted(&says),
-                lines.collect::<Vec<_>>().join(",")
-            );
-            return Ok(());
-        }
-        self.say(&format!("route card: {title}"));
-        if routes.is_empty() {
-            self.say(&flowmodel::unrouted(&flow, item));
-        }
-        for (i, r) in routes.iter().enumerate() {
-            self.say(&format!(
-                "route {} of {}",
-                i.saturating_add(1),
-                routes.len()
-            ));
-            for (section, words, selected) in flowmodel::route_lines(&flow, r, item) {
-                let mark = if selected { '>' } else { ' ' };
-                self.say(&format!("{mark} {section}: {words}"));
-            }
-        }
         Ok(())
     }
 
