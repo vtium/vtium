@@ -10,9 +10,12 @@
 //! the 24-bit color where the terminal takes 24-bit color and as the basic
 //! color elsewhere; or a basic color alone; or `none`. A role the file
 //! leaves out, or sets on a line vtium-config cannot read, takes the
-//! `console` set's value. When the file is missing, vtium-config writes it
-//! once with three sets, `console` live and `muted` and `mono` commented
-//! out. `NO_COLOR` turns every color off, whatever the file says.
+//! `console` set's value. The same file holds vtium-config's own settings
+//! above its sections, `draft` and `history` ([`crate::store`]). When the
+//! file is missing, or has no `[colors]` section, vtium-config writes the
+//! section once with three sets, `console` live and `muted` and `mono`
+//! commented out, keeping every line the file had. `NO_COLOR` turns every
+//! color off, whatever the file says.
 
 use std::path::{Path, PathBuf};
 
@@ -250,7 +253,13 @@ pub fn parse(text: &str) -> (Palette, Vec<(usize, String)>) {
             continue;
         }
         if !in_colors {
-            skipped.push((n, "it is outside the [colors] section".to_owned()));
+            // vtium-config's own settings, which the store reads
+            let own = line
+                .split_once('=')
+                .is_some_and(|(k, _)| matches!(k.trim(), "draft" | "history"));
+            if !own {
+                skipped.push((n, "it is outside the [colors] section".to_owned()));
+            }
             continue;
         }
         let Some((key, val)) = line.split_once('=') else {
@@ -348,7 +357,9 @@ const TEMPLATE_HEAD: &str = "\
 #
 # A role this file leaves out takes the console set's color. A # starts a
 # comment only at the start of a line. With NO_COLOR set, vtium-config
-# draws no color, whatever this file says.
+# draws no color, whatever this file says. The lines above this comment,
+# draft and history, are vtium-config's own settings, which it keeps up to
+# date itself.
 #
 # The file holds three sets of colors. The console set is the one in use.
 # To use another, put a # before each line of the console set and take the
@@ -370,20 +381,31 @@ fn may_write(file: &Path) -> bool {
         .is_some_and(|m| m.uid() == 0)
 }
 
-/// Writes the file at `file` with the three sets, its folders made as
-/// needed, readable by everyone and writable by its owner.
-fn write(file: &Path) -> std::io::Result<()> {
+/// Writes the three sets at the end of `file`, after the lines `had` it
+/// has; a file that is not there yet is made, with its folders, readable
+/// by everyone and writable by its owner.
+fn write(file: &Path, had: &str) -> std::io::Result<()> {
     use std::io::Write;
     use std::os::unix::fs::OpenOptionsExt;
     if let Some(dir) = file.parent() {
         std::fs::create_dir_all(dir)?;
     }
     let mut f = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
+        .append(true)
+        .create(true)
         .mode(0o644)
         .open(file)?;
-    f.write_all(template().as_bytes())
+    let gap = match had {
+        "" => "",
+        t if t.ends_with('\n') => "\n",
+        _ => "\n\n",
+    };
+    f.write_all(format!("{gap}{}", template()).as_bytes())
+}
+
+/// Whether `text` has a `[colors]` section.
+fn has_colors(text: &str) -> bool {
+    text.lines().any(|l| l.trim() == "[colors]")
 }
 
 /// The palette from the file `env` locates, and what the status line says
@@ -395,44 +417,43 @@ pub fn load(env: &dyn Fn(&str) -> Option<String>) -> (Palette, Option<String>) {
         return (Palette::console(), None);
     };
     let shown = file.display();
-    match std::fs::read_to_string(&file) {
-        Ok(text) => {
-            let (mut palette, skipped) = parse(&text);
-            palette.truecolor = tc;
-            let note = skipped.first().map(|(n, why)| {
-                let more = skipped.len().saturating_sub(1);
-                let also = match more {
-                    0 => String::new(),
-                    1 => " and 1 more line".to_owned(),
-                    m => format!(" and {m} more lines"),
-                };
-                format!("The color file {shown} skips line {n}{also}: on line {n}, {why}.")
-            });
-            (palette, note)
+    let console = Palette {
+        truecolor: tc,
+        ..Palette::console()
+    };
+    let text = match std::fs::read_to_string(&file) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(e) => {
+            return (
+                console,
+                Some(format!("Could not read the color file {shown}: {e}.")),
+            );
         }
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            let note = if !may_write(&file) {
-                None
-            } else {
-                match write(&file) {
-                    Ok(()) => Some(format!("Wrote the color file {shown}.")),
-                    Err(e) => Some(format!("Could not write the color file {shown}: {e}.")),
-                }
-            };
-            let palette = Palette {
-                truecolor: tc,
-                ..Palette::console()
-            };
-            (palette, note)
-        }
-        Err(e) => (
-            Palette {
-                truecolor: tc,
-                ..Palette::console()
-            },
-            Some(format!("Could not read the color file {shown}: {e}.")),
-        ),
+    };
+    if !has_colors(&text) {
+        // the first time: the three sets, the console set in use
+        let note = if !may_write(&file) {
+            None
+        } else {
+            match write(&file, &text) {
+                Ok(()) => Some(format!("Wrote the color sets into {shown}.")),
+                Err(e) => Some(format!("Could not write the color file {shown}: {e}.")),
+            }
+        };
+        return (console, note);
     }
+    let (mut palette, skipped) = parse(&text);
+    palette.truecolor = tc;
+    let note = skipped.first().map(|(n, why)| {
+        let also = match skipped.len().saturating_sub(1) {
+            0 => String::new(),
+            1 => " and 1 more line".to_owned(),
+            m => format!(" and {m} more lines"),
+        };
+        format!("The color file {shown} skips line {n}{also}: on line {n}, {why}.")
+    });
+    (palette, note)
 }
 
 #[cfg(test)]
@@ -548,7 +569,7 @@ mod tests {
         assert_eq!(p, Palette::console());
         assert_eq!(
             note,
-            Some(format!("Wrote the color file {}.", file.display()))
+            Some(format!("Wrote the color sets into {}.", file.display()))
         );
         assert_eq!(
             std::fs::read_to_string(&file).expect("the file"),
@@ -560,8 +581,13 @@ mod tests {
             .permissions()
             .mode();
         assert_eq!(mode & 0o777, 0o644);
-        // the next start reads it, and says nothing
-        std::fs::write(&file, "[colors]\nline = bright-red\n").expect("an edit");
+        // the next start reads it, and says nothing; vtium-config's own
+        // settings above the section are no colors and no trouble
+        std::fs::write(
+            &file,
+            "draft = north\nhistory = 5\n[colors]\nline = bright-red\n",
+        )
+        .expect("an edit");
         let (p, note) = load(&env);
         assert_eq!(
             (p.paint(Role::Line), note),
@@ -572,6 +598,14 @@ mod tests {
         let (_, note) = load(&env);
         let note = note.expect("a message");
         assert!(note.contains("skips line 2"), "{note}");
+        // a file the store made, with no colors yet, keeps its lines and
+        // gains the sets after them
+        std::fs::write(&file, "draft = north\n").expect("the store's file");
+        let (p, note) = load(&env);
+        assert_eq!(p, Palette::console());
+        assert!(note.is_some_and(|n| n.starts_with("Wrote the color sets")));
+        let text = std::fs::read_to_string(&file).expect("the file");
+        assert_eq!(text, format!("draft = north\n\n{}", template()));
         let _ = std::fs::remove_dir_all(&root);
         // with no HOME and no XDG_CONFIG_HOME there is no file to read
         assert_eq!(load(&|_: &str| None), (Palette::console(), None));

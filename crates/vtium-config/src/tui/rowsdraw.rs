@@ -460,6 +460,18 @@ fn status(canvas: &mut Canvas, app: &App, layout: &Layout, crumb: Option<&str>) 
         None => name,
     };
     let mut x = canvas.put(1, 1, &left, bold(Color::BrightWhite));
+    // what the color file's first reading says takes the rest of the
+    // line until the first key
+    if let Some(note) = app.rows_flow.as_ref().and_then(|s| s.note.as_ref()) {
+        let room = app.cols.saturating_sub(x).saturating_sub(4);
+        canvas.put(
+            x.saturating_add(3),
+            1,
+            &fit(note, room),
+            Style::text(Color::Grey),
+        );
+        return;
+    }
     let count = |s: rows::Sort| layout.waiting.iter().filter(|w| **w == s).count();
     let waiting = words::rows_waiting(
         count(rows::Sort::Keyboard),
@@ -473,10 +485,6 @@ fn status(canvas: &mut Canvas, app: &App, layout: &Layout, crumb: Option<&str>) 
     };
     x = canvas.put(x.saturating_add(3), 1, &waiting, style);
     let mut rest: Vec<String> = Vec::new();
-    // what the color file's first reading says, until the first key
-    if let Some(note) = app.rows_flow.as_ref().and_then(|s| s.note.clone()) {
-        rest.push(note);
-    }
     if let Some(d) = &flow.draft {
         let state = words::draft_state(&d.name, d.changes, d.problems);
         let prefix = format!("draft {} · ", d.name);
