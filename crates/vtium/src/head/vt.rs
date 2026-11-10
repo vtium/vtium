@@ -7,6 +7,9 @@
 //! vtium places each device for its own VT by the four steps of ADR-1401
 //! D3. A device whose rules tie it to a head on another VT stays with that
 //! head: on this VT a display stays dark and a keyboard types nowhere.
+//!
+//! A VT where no head of the file runs is never dark and silent (the
+//! maintainer, 2026-11-10). [`rules_on`] gives what such a VT runs.
 
 use vtium_settings::{Config, Identity, Place, Placed, Placement, Policy};
 
@@ -21,15 +24,16 @@ pub(crate) struct VtHeads {
     /// or no head at all.
     file: Vec<usize>,
     /// vtium builds the default head, `[head console]` of the compiled-in
-    /// configuration, because no head of the file runs on this VT and the
-    /// policy is open (ADR-1401 D9).
+    /// configuration, because the file declares no head and the policy is
+    /// open, so the display guard lights the default head (ADR-1401 D9).
     default: bool,
 }
 
 impl VtHeads {
-    /// The heads of `rules` that the vtium on VT `vt` builds. Under the
-    /// open policy, where no head of the file runs on `vt`, vtium builds
-    /// the default head in their place, which the display guard lights.
+    /// The heads of `rules` that the vtium on VT `vt` builds, `rules` being
+    /// what [`rules_on`] gives for `vt`. Under the open policy, where
+    /// `rules` declares no head, vtium builds the default head in their
+    /// place, which the display guard lights.
     pub(crate) fn new(rules: &Config, vt: Option<u16>) -> VtHeads {
         let file: Vec<usize> = rules
             .heads
@@ -115,6 +119,38 @@ impl VtHeads {
     }
 }
 
+/// What the vtium on VT `vt` runs of `rules` (ADR-1401 D2, the maintainer's
+/// decision of 2026-11-10). Where `rules` declares heads and none of them
+/// runs on `vt`, the VT is never dark and silent:
+///
+/// - under the open policy it runs the compiled-in configuration, as if
+///   vtium.conf declared no head: one console on every display, which
+///   every keyboard types into;
+/// - under the closed policy it runs no rule and no head, so the display
+///   guard lights the boot display for the closed policy's notice alone,
+///   as it does for a closed file that failed (D9).
+///
+/// Every other file runs as it is. Without a kernel VT every head runs.
+pub(crate) fn rules_on(rules: Config, vt: Option<u16>) -> Config {
+    let Some(vt) = vt else {
+        return rules;
+    };
+    if rules.heads.is_empty() || rules.heads.iter().any(|h| h.runs_on(vt)) {
+        return rules;
+    }
+    match rules.policy {
+        Policy::Open => Config::builtin(),
+        // `survivors` makes the display guard light the boot display for
+        // a notice where no head is declared, as for a closed run of
+        // nothing; under closed it changes nothing else
+        Policy::Closed => Config {
+            policy: Policy::Closed,
+            survivors: true,
+            ..Config::default()
+        },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -166,20 +202,37 @@ display * -> a
     }
 
     #[test]
-    fn with_no_head_on_its_vt_an_open_file_builds_the_default_head_and_a_closed_one_none() {
+    fn a_vt_where_no_head_runs_runs_the_compiled_in_file_under_open_and_no_rule_under_closed() {
         let open = rules("version = 1\n[head a]\nvt = 3\n");
-        let on4 = VtHeads::new(&open, Some(4));
-        let names: Vec<String> = on4.heads(&open).into_iter().map(|h| h.name).collect();
+        assert_eq!(rules_on(open.clone(), Some(3)), open, "a runs on VT 3");
+        assert_eq!(rules_on(open.clone(), None), open, "no VT: every head runs");
+        let on4 = rules_on(open, Some(4));
+        assert_eq!(on4, Config::builtin());
+        let heads = VtHeads::new(&on4, Some(4));
+        let names: Vec<String> = heads.heads(&on4).into_iter().map(|h| h.name).collect();
         assert_eq!(names, ["console"]);
-        assert_eq!(on4.head(Place::DefaultHead), Some(0));
-        assert_eq!(on4.place(0), Some(Place::DefaultHead));
+        let closed = rules("version = 1\npolicy = closed\n[head a]\nvt = 3\n");
+        let on4 = rules_on(closed, Some(4));
+        assert_eq!(
+            (on4.policy, on4.heads.len(), on4.rules.len()),
+            (Policy::Closed, 0, 0)
+        );
+        assert!(on4.survivors, "the display guard lights a notice");
+        assert_eq!(VtHeads::new(&on4, Some(4)).heads(&on4), []);
+    }
+
+    #[test]
+    fn an_open_file_with_no_head_builds_the_default_head() {
+        let open = rules("version = 1\n[rules]\ninput * -> ignore\n");
+        assert_eq!(rules_on(open.clone(), Some(4)), open, "it runs as it is");
+        let heads = VtHeads::new(&open, Some(4));
+        let names: Vec<String> = heads.heads(&open).into_iter().map(|h| h.name).collect();
+        assert_eq!(names, ["console"]);
+        assert_eq!(heads.head(Place::DefaultHead), Some(0));
+        assert_eq!(heads.place(0), Some(Place::DefaultHead));
         assert!(
-            !on4.isolated(&open, 0),
+            !heads.isolated(&open, 0),
             "the default head is never isolated"
         );
-        let closed = rules("version = 1\npolicy = closed\n[head a]\nvt = 3\n");
-        let on4 = VtHeads::new(&closed, Some(4));
-        assert_eq!(on4.heads(&closed), []);
-        assert_eq!(on4.head(Place::DefaultHead), None);
     }
 }

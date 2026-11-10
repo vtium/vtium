@@ -7512,3 +7512,75 @@ display card:mem-one -> desk
     );
     assert_eq!(s.app.cells(), [], "no head of VT 4 has a display");
 }
+
+/// Two heads that both run on VT 3 alone, under the policy `policy`.
+fn every_head_on_vt3(policy: &str) -> String {
+    format!(
+        "version = 1
+policy = {policy}
+[head desk]
+vt = 3
+[head panel]
+vt = 3
+[rules]
+display card:mem-large -> desk
+display card:mem-small -> panel
+input path:kbd-desk -> desk
+"
+    )
+}
+
+/// The maintainer's decision of 2026-11-10 (ADR-1401 D2): on a VT where
+/// no head of vtium.conf runs, an open file shows the compiled-in
+/// configuration, as if vtium.conf declared no head. One console mirrors
+/// every display, and every keyboard types into it, a keyboard a rule
+/// ties to a head on VT 3 among them. A VT is never dark and silent.
+// covers: platform.heads
+#[test]
+fn under_open_a_vt_where_no_head_runs_shows_the_compiled_in_console() {
+    let text = every_head_on_vt3("open");
+    let mut s = on_vt(4, &text, two_displays(), &[(KBD_A, "kbd-desk")]);
+    assert_eq!(head_names(&s.app), ["console"]);
+    assert!(
+        s.until(BOUND, |a| a.cells().len() == 2),
+        "the console on both displays"
+    );
+    assert!(s.until(BOUND, |a| head_shows(a, "console", "ready")));
+    s.type_on(KBD_A, "k\r");
+    assert!(
+        s.until(BOUND, |a| head_shows(a, "console", "got:k")),
+        "the keyboard types into the console"
+    );
+}
+
+/// The maintainer's decision of 2026-11-10 (ADR-1401 D2, D9): on a VT
+/// where no head of vtium.conf runs, a closed file shows the closed
+/// policy's notice on the boot display, and builds no head. A VT is never
+/// dark and silent.
+// covers: platform.heads.policy
+#[test]
+fn under_closed_a_vt_where_no_head_runs_shows_the_notice_on_the_boot_display() {
+    let text = every_head_on_vt3("closed");
+    let displays = [
+        ("/dev/mem0", Memory::new(320, 160, "MEM-1", "mem-small")),
+        (
+            "/dev/mem1",
+            Memory::new(640, 320, "MEM-2", "mem-large").lit(),
+        ),
+    ];
+    let mut s = on_vt(4, &text, displays, &[(KBD_A, "kbd-desk")]);
+    assert_eq!(head_names(&s.app), Vec::<&str>::new());
+    assert!(
+        s.until_memory("/dev/mem1", BOUND, |m| m.has(PAPER)),
+        "the boot display shows the notice"
+    );
+    assert_eq!(
+        s.app.notice_screen().and_then(Head::notice),
+        Some(NO_DISPLAY)
+    );
+    assert_eq!(
+        s.memory("/dev/mem0").dpms,
+        Some(Dpms::Off),
+        "the other stays off"
+    );
+}

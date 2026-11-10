@@ -526,9 +526,11 @@ impl App {
             report,
             vt,
         } = start;
-        let rules = route::in_force(rules, &self.config);
-        // The heads of this VT (D2), or the display guard's default head
-        // where none runs here, which it lights under open alone (D9).
+        // What this VT runs (D2): a VT where no head of the file runs is
+        // never dark and silent.
+        let rules = route::in_force(crate::head::vt::rules_on(rules, vt), &self.config);
+        // The heads of this VT, or the display guard's default head where
+        // the file declares none, which it lights under open alone (D9).
         let vt_heads = VtHeads::new(&rules, vt);
         let declared = vtium_settings::Config {
             heads: vt_heads.heads(&rules),
