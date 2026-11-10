@@ -246,8 +246,8 @@ pub enum Make {
     NewTerminal,
 }
 
-/// The choices that match by one key, each its key, its label and what it
-/// covers: a display's, then an input's.
+/// The choices that match by one key, each with its key, its label and
+/// its description: a display's first, then an input's.
 const FILTERS: [(&str, &str, &str); 11] = [
     (
         "edid",
