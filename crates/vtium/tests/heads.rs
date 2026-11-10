@@ -555,7 +555,8 @@ impl Seat {
     }
 
     /// [`Seat::with_fonts`], running what the start's head file resolved
-    /// to, as [`vtium::head::rules`] gives it, on VT 1.
+    /// to, as [`vtium::head::rules`] gives it, on the VT it names, else on
+    /// VT 1.
     fn with_rules(
         args: &[&str],
         rules: Option<Start>,
@@ -585,7 +586,9 @@ impl Seat {
         assert_eq!(loaded.reports, [], "the seat's command line");
         let lp: Loop<App> = Loop::new().expect("a loop");
         let env = vec![(OsString::from("PATH"), OsString::from("/usr/bin:/bin"))];
-        let (vt, released) = CountingVt::new(FakeVt::with_number(1));
+        // the VT the start builds the heads of, VT 1 where it names none
+        let number = rules.as_ref().and_then(Start::vt).unwrap_or(1);
+        let (vt, released) = CountingVt::new(FakeVt::with_number(number));
         let mut app = App::new(loaded.config, Box::new(vt), lp.handle(), Rc::new(now), env);
         app.set_font_sources(fonts);
         if let Some(start) = rules {
@@ -7294,4 +7297,213 @@ mod gpu_path {
             "the head on the GPU path"
         );
     }
+}
+
+/// The seat of the vtium on VT `vt`, booted on vtium.conf `text` with
+/// `displays`, each head's session echoing each line it reads, with a
+/// keyboard at each `(node, path)` of `keyboards`.
+fn on_vt(
+    vt: u16,
+    text: &str,
+    displays: impl IntoIterator<Item = (&'static str, Memory)>,
+    keyboards: &[(&str, &str)],
+) -> Seat {
+    let rules = start(text);
+    assert_eq!(rules.line(), None, "a valid vtium.conf");
+    let script = "echo ready; while read a; do echo \"got:$a\"; done";
+    let mut s = Seat::with_rules(
+        &[],
+        Some(rules.on_vt(Some(vt))),
+        displays,
+        script,
+        no_fonts(),
+    );
+    for (node, path) in keyboards {
+        s.app.add_input(Path::new(node), keyboard(path));
+    }
+    s
+}
+
+/// The names of the heads the seat built, in the file's order.
+fn head_names(app: &App) -> Vec<&str> {
+    app.heads().iter().map(Head::name).collect()
+}
+
+/// Three heads, each on a VT of its own, that hold the same display and
+/// the same keyboard.
+const THREE_VTS: &str = "version = 1
+[head a]
+vt = 3
+[head b]
+vt = 4
+[head c]
+vt = 5
+[rules]
+display card:mem-one -> a
+display card:mem-one -> b
+display card:mem-one -> c
+input path:kbd-one -> a
+input path:kbd-one -> b
+input path:kbd-one -> c
+";
+
+/// ADR-1403 D7, path tests 1 and 8 (ADR-1401 D2, D3 steps 3 and 2): three
+/// heads on VTs 3, 4 and 5 hold one display and one keyboard. The vtium
+/// on each VT builds that VT's head alone, which takes the display, and
+/// the keyboard types into it.
+#[test]
+fn the_vtium_on_each_vt_builds_its_own_head_on_a_shared_display_and_keyboard() {
+    for (vt, here) in [(3, "a"), (4, "b"), (5, "c")] {
+        let displays = [("/dev/mem0", Memory::new(320, 160, "MEM-1", "mem-one").lit())];
+        let mut s = on_vt(vt, THREE_VTS, displays, &[(KBD_A, "kbd-one")]);
+        assert_eq!(head_names(&s.app), [here], "the heads built on VT {vt}");
+        assert!(
+            s.until(BOUND, |a| head_shows(a, here, "ready")),
+            "head {here} takes the display on VT {vt}"
+        );
+        s.type_on(KBD_A, "k\r");
+        assert!(
+            s.until(BOUND, |a| head_shows(a, here, "got:k")),
+            "the keyboard types into head {here} on VT {vt}"
+        );
+    }
+}
+
+/// Two displays and two keyboards, each with a head of its own on VT 3
+/// and another on VT 4.
+const TWO_BY_TWO: &str = "version = 1
+[head small3]
+vt = 3
+[head large3]
+vt = 3
+[head small4]
+vt = 4
+[head large4]
+vt = 4
+[rules]
+display card:mem-small -> small3
+display card:mem-large -> large3
+display card:mem-small -> small4
+display card:mem-large -> large4
+input path:kbd-small -> small3
+input path:kbd-large -> large3
+input path:kbd-small -> small4
+input path:kbd-large -> large4
+";
+
+/// ADR-1403 D7, path tests 2 and 4 (ADR-1401 D3 steps 1, 3 and 2): each
+/// display and each keyboard has a head on VT 3 and another on VT 4. On
+/// each VT both displays show that VT's heads, and each keyboard types
+/// into its own head of that VT.
+#[test]
+fn on_each_vt_each_display_and_keyboard_reaches_its_own_head_of_that_vt() {
+    for vt in [3, 4] {
+        let (small, large) = (format!("small{vt}"), format!("large{vt}"));
+        let displays = [
+            ("/dev/mem0", Memory::new(320, 160, "MEM-1", "mem-small")),
+            (
+                "/dev/mem1",
+                Memory::new(640, 320, "MEM-2", "mem-large").lit(),
+            ),
+        ];
+        let keyboards = [(KBD_SMALL, "kbd-small"), (KBD_LARGE, "kbd-large")];
+        let mut s = on_vt(vt, TWO_BY_TWO, displays, &keyboards);
+        assert_eq!(head_names(&s.app), [small.as_str(), large.as_str()]);
+        assert!(s.until(BOUND, |a| head_shows(a, &small, "ready")
+            && head_shows(a, &large, "ready")));
+        s.type_on(KBD_SMALL, "s\r");
+        s.type_on(KBD_LARGE, "l\r");
+        assert!(
+            s.until(BOUND, |a| head_shows(a, &small, "got:s")
+                && head_shows(a, &large, "got:l")),
+            "each keyboard types into its own head on VT {vt}"
+        );
+        assert!(!head_shows(&s.app, &small, "got:l"));
+        assert!(!head_shows(&s.app, &large, "got:s"));
+    }
+}
+
+/// ADR-1403 D7, path test 3 (ADR-1401 D2, D3 step 2): a head with no `vt`
+/// runs on every VT, so the vtium on any VT builds it and both displays
+/// show it, as before heads had a `vt`.
+#[test]
+fn a_head_with_no_vt_is_built_on_every_vt() {
+    let text = "version = 1\n[head every]\n[rules]\ndisplay * -> every\n";
+    for vt in [2, 7] {
+        let mut s = on_vt(vt, text, two_displays(), &[]);
+        assert_eq!(head_names(&s.app), ["every"]);
+        assert!(
+            s.until(BOUND, |a| a.cells().len() == 2),
+            "both displays on VT {vt}"
+        );
+        assert!(s.until(BOUND, |a| head_shows(a, "every", "ready")));
+    }
+}
+
+/// A keyboard whose only head runs on VT 3, a keyboard of a head on VT 4,
+/// and a broad rule after both.
+const TIED_TO_VT3: &str = "version = 1
+[head desk]
+vt = 3
+[head here]
+vt = 4
+[rules]
+display * -> here
+input path:kbd-desk -> desk
+input path:kbd-here -> here
+input class:keyboard -> roaming
+";
+
+/// ADR-1403 D7, path tests 5 and 7 (ADR-1401 D3, the exception in step 2
+/// and step 4): on VT 4, a keyboard whose only head runs on VT 3 types
+/// nowhere, and the broad rule after it leaves it alone. Under the open
+/// policy, vtium still watches it for the rescue key, which makes it type
+/// into the active head.
+#[test]
+fn a_keyboard_tied_to_another_vt_types_nowhere_until_the_rescue_key() {
+    let displays = [("/dev/mem0", Memory::new(320, 160, "MEM-1", "mem-one").lit())];
+    let keyboards = [(KBD_A, "kbd-desk"), (KBD_B, "kbd-here")];
+    let mut s = on_vt(4, TIED_TO_VT3, displays, &keyboards);
+    assert_eq!(head_names(&s.app), ["here"]);
+    assert!(s.until(BOUND, |a| head_shows(a, "here", "ready")));
+    s.type_on(KBD_A, "d\r");
+    s.type_on(KBD_B, "h\r");
+    assert!(s.until(BOUND, |a| head_shows(a, "here", "got:h")));
+    s.until(Duration::from_millis(100), |_| false);
+    assert!(
+        !head_shows(&s.app, "here", "got:d"),
+        "the keyboard of VT 3's head types nowhere on VT 4"
+    );
+    s.app.device_input(Path::new(KBD_A), ctrl_alt_f(4), now());
+    s.type_on(KBD_A, "r\r");
+    assert!(
+        s.until(BOUND, |a| head_shows(a, "here", "got:r")),
+        "the rescue key makes it type into the active head"
+    );
+}
+
+/// ADR-1403 D7, path test 6 (ADR-1401 D3 step 4, D9): on VT 4, a display
+/// whose only head runs on VT 3 stays dark, though it is the boot display
+/// and no display of VT 4 is lit, so the display guard does not light it.
+#[test]
+fn a_display_tied_to_another_vt_stays_dark_and_the_display_guard_leaves_it() {
+    let text = "version = 1
+[head desk]
+vt = 3
+[head here]
+vt = 4
+[rules]
+display card:mem-one -> desk
+";
+    let displays = [("/dev/mem0", Memory::new(320, 160, "MEM-1", "mem-one").lit())];
+    let mut s = on_vt(4, text, displays, &[]);
+    assert_eq!(head_names(&s.app), ["here"]);
+    s.until(Duration::from_millis(200), |_| false);
+    let m = s.memory("/dev/mem0");
+    assert_eq!(
+        (m.dpms, m.frames),
+        (Some(Dpms::Off), 0),
+        "the display is dark"
+    );
+    assert_eq!(s.app.cells(), [], "no head of VT 4 has a display");
 }
