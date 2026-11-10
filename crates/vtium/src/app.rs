@@ -2367,20 +2367,20 @@ impl App {
         if self.elsewhere.is_empty() {
             return None;
         }
-        let here: Vec<&str> = self.heads().iter().map(Head::name).collect();
-        let away: Vec<crate::notice::Away<'_>> = self
+        // one line for each display, until each unused display shows its
+        // own notice
+        let lines: Vec<String> = self
             .elsewhere
             .iter()
-            .filter_map(|(connector, h)| {
-                let head = self.rules.heads.get(*h)?;
-                Some(crate::notice::Away {
-                    connector,
+            .map(|(connector, h)| {
+                let owner = self.rules.heads.get(*h).map(|head| crate::notice::Owner {
                     head: &head.name,
                     vts: &head.vts,
-                })
+                });
+                crate::notice::unused_display(vt, connector, owner.as_ref())
             })
             .collect();
-        Some(crate::notice::no_display_here(vt, &here, &away))
+        Some(lines.join("\n"))
     }
 
     /// The display the display guard lit goes dark again: the rules light

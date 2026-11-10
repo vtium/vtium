@@ -46,35 +46,31 @@ fn listed(items: &[String]) -> String {
     }
 }
 
-/// One display that belongs to a terminal of other VTs: its connector,
-/// the terminal's name, and the VTs the terminal runs on.
-pub struct Away<'a> {
-    pub connector: &'a str,
+/// The terminal a display is configured for, on other VTs: its name and
+/// the VTs it runs on.
+pub struct Owner<'a> {
     pub head: &'a str,
     pub vts: &'a [u16],
 }
 
-/// What the boot display shows on VT `vt` when the terminals `here` run
-/// on it but every display belongs to a terminal of other VTs, each of
-/// `away` (the maintainer, 2026-11-10: on every VT it runs on, vtium shows
-/// either a terminal or a notice that says why there is none). It has one
-/// line for each terminal of this VT, then one line for each display.
-pub fn no_display_here(vt: u16, here: &[&str], away: &[Away<'_>]) -> String {
-    let heads = here
-        .iter()
-        .map(|h| format!("Terminal {h} is not configured for a display on VT {vt}."));
-    let displays = away.iter().map(|a| {
-        let vts: Vec<String> = a.vts.iter().map(u16::to_string).collect();
-        let on = match vts.as_slice() {
-            [one] => format!("VT {one}"),
-            _ => format!("VTs {}", listed(&vts)),
-        };
-        format!(
-            "{} is configured for terminal {}, on {on}.",
-            a.connector, a.head
-        )
-    });
-    heads.chain(displays).collect::<Vec<_>>().join("\n")
+/// What the display at `connector` shows on VT `vt` when no terminal of
+/// this VT uses it and no rule sends it to `off` (the maintainer,
+/// 2026-11-10: on every VT it runs on, vtium shows either a terminal or a
+/// notice that says why there is none). `owner` is the terminal of other
+/// VTs it is configured for, or `None` when no terminal is.
+pub fn unused_display(vt: u16, connector: &str, owner: Option<&Owner<'_>>) -> String {
+    let Some(owner) = owner else {
+        return format!("{connector} is not configured for any terminal.");
+    };
+    let vts: Vec<String> = owner.vts.iter().map(u16::to_string).collect();
+    let on = match vts.as_slice() {
+        [one] => format!("VT {one}"),
+        _ => format!("VTs {}", listed(&vts)),
+    };
+    format!(
+        "{connector} is not configured for VT {vt}. It is configured for terminal {}, on {on}.",
+        owner.head
+    )
 }
 
 /// `sentence` with the keys `bindings` binds to `chord` in place of its
@@ -482,35 +478,29 @@ pub mod config_tool {
 mod tests {
     use super::*;
 
-    // The maintainer's wording, 2026-11-10: a line for each terminal of
-    // the VT, then a line for each display with the terminal and the VTs
-    // it is configured for.
+    // The maintainer's wording, 2026-11-10: each unused display names
+    // itself and the terminal it is configured for, or says it has none.
     #[test]
-    fn a_vt_whose_displays_all_belong_elsewhere_says_whose_each_one_is() {
-        let away = |connector, head, vts| Away {
-            connector,
-            head,
-            vts,
+    fn an_unused_display_says_which_terminal_it_is_configured_for() {
+        let desk = Owner {
+            head: "desk",
+            vts: &[3],
         };
         assert_eq!(
-            no_display_here(4, &["here"], &[away("DP-8", "desk", &[3])]),
-            "Terminal here is not configured for a display on VT 4.\nDP-8 is configured for terminal desk, on VT 3."
+            unused_display(4, "DP-8", Some(&desk)),
+            "DP-8 is not configured for VT 4. It is configured for terminal desk, on VT 3."
+        );
+        let panel = Owner {
+            head: "panel",
+            vts: &[2, 3, 5],
+        };
+        assert_eq!(
+            unused_display(4, "HDMI-A-1", Some(&panel)),
+            "HDMI-A-1 is not configured for VT 4. It is configured for terminal panel, on VTs 2, 3, and 5."
         );
         assert_eq!(
-            no_display_here(
-                4,
-                &["here", "side"],
-                &[
-                    away("DP-8", "desk", &[3]),
-                    away("HDMI-A-1", "panel", &[3, 5]),
-                    away("DP-9", "wall", &[2, 3, 5]),
-                ]
-            ),
-            "Terminal here is not configured for a display on VT 4.\n\
-             Terminal side is not configured for a display on VT 4.\n\
-             DP-8 is configured for terminal desk, on VT 3.\n\
-             HDMI-A-1 is configured for terminal panel, on VTs 3 and 5.\n\
-             DP-9 is configured for terminal wall, on VTs 2, 3, and 5."
+            unused_display(4, "DP-9", None),
+            "DP-9 is not configured for any terminal."
         );
     }
 
