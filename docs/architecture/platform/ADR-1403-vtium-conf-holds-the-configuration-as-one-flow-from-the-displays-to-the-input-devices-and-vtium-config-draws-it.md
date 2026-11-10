@@ -572,9 +572,10 @@ vtium-config draws every line between the boxes itself, and the person never dra
 | What reaches the session | the inputs |
 | The console session and its grid | the terminal |
 | Glyph generation, in the font helper | the font set |
+| The effects: the color filters and the spatial filters | the terminal's look, drawn as the terminal's subflow |
 | Output, with its depth and color handling | the display |
 
-A stage gets a kind of part of its own only once vtium builds that stage. The display effects, such as ADR-1304's frame filters or the GPU path's optional shader, are an example: they would arrive as a kind of part of their own, through their own record. So a path always reads displays → terminal ← inputs, with the font set inside the terminal, and vtium-config draws the lines from that shape.
+The effects sit inside the terminal, as its subflow (below), and the display is an output only (the maintainer, 2026-11-10: "So, this means that the terminal itself defines the effects, and the display is just a display output."). A stage gets a kind of part of its own only once vtium builds that stage, through its own record. So a path always reads displays → terminal ← inputs, with the font set inside the terminal, and vtium-config draws the lines from that shape.
 
 #### One document with three sections
 
@@ -664,6 +665,21 @@ Unplugging a device never removes it from the configuration (the maintainer, 202
 #### Boxes that reflow
 
 Boxes flow like words, at every size (the maintainer, 2026-11-10: "I guess by 'on a small terminal let's make it...' I actualy mean, we always make it reflowable - regardless of size"). In each group of PARTS, the template comes first and the parts follow. A box is the unit that wraps (the maintainer: "if we can only fit a few boxes before running out of columns, it's a 'newline' (but an entire box in a newline) (so we just treat the box as the composable element). if I shrink it down very narrow, then we only get one or two boxes and it stretches out."). Each box takes the width its text needs, up to a limit. A box that does not fit on the line starts the next line, whole. When a line holds one or two boxes because the terminal is narrow, those boxes stretch to share the line's width. Several boxes on one side of the path in NEW PATH flow the same way. The rows of CONFIGURATION keep their three columns, because the lines between the boxes depend on them. On a narrow terminal their boxes narrow and their second lines shorten.
+
+#### The terminal's subflow: font set and effects
+
+The maintainer placed the effects inside the terminal (2026-11-10: "in our configuration, where do we represent post filters (color filters, effects shaders) - I think they're 'inside' the terminal", then "maybe as their own subflow"), and asked for the subflow to be drawn now ("Draw it now"). The maintainer: "This means that the TERMINALS part is where we keep our subflow."
+
+The figure shows the card of the terminal desk, with its subflow: the font set monoid, two color filters, one spatial filter, and the display DP-8. A second line shows what the CPU path draws.
+
+![A terminal's card on a black console background. The heading reads TERMINAL desk, and under it, in grey, look amber, size 14 pt, 1 console, VT 3. Below, under the title WHAT THIS TERMINAL DRAWS, a row of boxes joined left to right by solid arrows: a magenta-titled box Font set, monoid; a box Color filters, tint, contrast; a box Spatial filters, scanlines; and a cyan-titled box DP-8, LARGE00001. Under the row, a grey line reads Requires: gpu any. On the CPU path, vtium draws the color filters and skips the spatial filters. A key line reads arrows move, Enter open, e revise this path, Esc back.](figures/ADR-1403-terminal-subflow.svg)
+
+- **What the subflow shows.** Enter on a terminal's box, in CONFIGURATION or in NEW PATH, opens the terminal's card, and the card draws the terminal's subflow as a small path, left to right: the font set → the color filters → the spatial filters → the terminal's displays. The subflow draws what ADR-1304 decides. The terminal's look names a vtlook (ADR-1304 D5). The vtlook's color layer is one table built from its color filters (ADR-1304 D2), and its spatial layer is a chain of shaders that run as the frame is presented (ADR-1304 D3, D15). Each filter box names its filters in their order. A look with no vtlook draws one box, `default look (built in)`, between the font set and the displays.
+- **The display is an output only.** A display part carries no effects. Two terminals on different VTs that share a display (D4) each draw it with their own look.
+- **Requirements.** Under the subflow, one grey line gives the vtlook's `[requires]` section (ADR-1304 D7) and what follows from it. With `gpu = any`, a terminal drawn on the CPU path draws the color filters and skips the spatial filters (ADR-1304 D3, D7), and the line says so. A display that does not meet the look's requirements draws the default look alone, while the terminal's other displays keep the look, and vtium's log names the display and the requirement it misses (ADR-1304 D7). The subflow draws that display's box in grey with the same words. A look that fails puts the terminal on the default look (ADR-1304 D6), and the card shows the error's report.
+- **Editing the effects is the Looks view's job** (ADR-1201 D3, ADR-1304 D11). Enter on a filter box opens the Looks view on the terminal's look.
+
+> Edited 2026-11-10: the maintainer placed the effects inside the terminal, as its subflow, and asked for it to be drawn now (`considered`, 2026-11-10). D7's first version of this rewrite said that the display effects would arrive as a kind of part of their own, through their own record.
 
 #### Labels
 
