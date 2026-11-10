@@ -988,7 +988,7 @@ pub fn typed_bad_mark(typed: &str) -> String {
 pub const NO_TERMINAL: &str = "no terminal";
 pub const SAME_NONE: &str =
     "These displays are off and these inputs set aside already, so nothing changed.";
-pub const NONE_BACK: &str = "The path to no terminal is back in CONFIGURATION.";
+pub const NONE_BACK: &str = "The path to no terminal is in CONFIGURATION.";
 pub fn special_picked(title: &str) -> String {
     format!("Picked {title} into the new path.")
 }
