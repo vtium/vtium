@@ -1,0 +1,29 @@
+#!/bin/sh
+# Refuses a push that carries an unsigned commit.
+#
+# vtium signs every commit with an SSH key (git config gpg.format ssh and
+# commit.gpgsign true; see CONTRIBUTING.md). This hook checks each commit that
+# the push sends and no remote has yet. A commit made before signing began,
+# at SIGNED_SINCE, passes unchecked, because its history stays as it was.
+# Enable the hook with: git config core.hooksPath tools/git-hooks
+SIGNED_SINCE=1794338377
+
+zero=0000000000000000000000000000000000000000
+status=0
+while read -r local_ref local_sha remote_ref remote_sha; do
+  [ "$local_sha" = "$zero" ] && continue
+  for commit in $(git rev-list "$local_sha" --not --remotes); do
+    [ "$(git log -1 --format=%ct "$commit")" -lt "$SIGNED_SINCE" ] && continue
+    case "$(git log -1 --format=%G? "$commit")" in
+      G|U) ;;
+      *)
+        echo "pre-push: commit $commit on $local_ref has no good signature: $(git log -1 --format=%s "$commit")" >&2
+        status=1
+        ;;
+    esac
+  done
+done
+if [ "$status" -ne 0 ]; then
+  echo "pre-push: vtium signs every commit. Load your signing key with ssh-add, sign the commits again, and push once more." >&2
+fi
+exit "$status"
