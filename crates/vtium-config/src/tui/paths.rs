@@ -27,8 +27,10 @@ use super::words;
 
 /// The part `any keyboard`: every input with keys, written as a rule for
 /// full keyboards and one for the inputs with some keys, as vtium's
-/// shipped default writes them.
-pub const ANY_KEYBOARD: &str = "class:keyboard";
+/// shipped default writes them (ADR-1403 D8). Its own word is no class of
+/// vtium's, so a lone `class:keyboard` rule reads back as a part of its own
+/// and a change elsewhere never adds `class:key` to it.
+pub const ANY_KEYBOARD: &str = "class:keyboard+key";
 const KEYBOARD_CLASSES: [&str; 2] = ["class:keyboard", "class:key"];
 
 /// The part `any pointer`, written as one rule for each class of pointer
@@ -578,22 +580,28 @@ pub fn read(flow: &Flow) -> Doc {
     }
     let unfit = flow.rules.iter().filter(|r| !fits(flow, r)).count();
     // a label's line writes the first rule's match of the part, so the
-    // pointers' first class reads back as "every pointer" where the
-    // configuration has that part
-    let pointers = paths
-        .iter()
-        .flat_map(|p| &p.inputs)
-        .chain(&roaming)
-        .chain(&ignored)
-        .any(|s| s == ANY_POINTER);
+    // first class of the pointers, or of the keyboards, reads back as
+    // "every pointer" or "every keyboard", unless a rule of the
+    // configuration names that one class alone
+    let has = |part: &str| {
+        paths
+            .iter()
+            .flat_map(|p| &p.inputs)
+            .chain(&roaming)
+            .chain(&ignored)
+            .any(|s| s == part)
+    };
+    let wholes: Vec<(&str, &str)> = [ANY_POINTER, ANY_KEYBOARD]
+        .into_iter()
+        .filter_map(|part| expand(part).first().map(|first| (*first, part)))
+        .filter(|(first, _)| !has(first))
+        .collect();
     let labels = flow
         .labels
         .iter()
         .map(|(kind, sel, label)| {
-            let sel = match POINTER_CLASSES.first() {
-                Some(first) if pointers && *kind == Kind::Input && sel == first => {
-                    ANY_POINTER.to_owned()
-                }
+            let sel = match wholes.iter().find(|(first, _)| first == sel) {
+                Some((_, part)) if *kind == Kind::Input => (*part).to_owned(),
                 _ => sel.clone(),
             };
             (*kind, sel, label.clone())
@@ -1238,7 +1246,7 @@ pub fn narrow(flow: &Flow, s: Sort) -> Vec<(String, String)> {
                 .map(|s| (title(flow, Kind::Display, &s).0, s))
                 .collect();
         }
-        Sort::Keyboard => add("class:keyboard".to_owned()),
+        Sort::Keyboard => add(ANY_KEYBOARD.to_owned()),
         Sort::Pointer => add(ANY_POINTER.to_owned()),
         Sort::Other => {}
     }
@@ -1271,7 +1279,9 @@ pub fn sort_of(flow: &Flow, piece: &Piece) -> Sort {
         | Piece::NoInput
         | Piece::NoTerminal
         | Piece::Terminal(_) => Sort::Other,
-        Piece::Input(s) if s == "class:keyboard" => Sort::Keyboard,
+        Piece::Input(s) if s == ANY_KEYBOARD || KEYBOARD_CLASSES.contains(&s.as_str()) => {
+            Sort::Keyboard
+        }
         Piece::Input(s) if s == ANY_POINTER || POINTER_CLASSES.contains(&s.as_str()) => {
             Sort::Pointer
         }
@@ -1645,7 +1655,7 @@ pub(crate) mod tests {
         let new = path(
             Some(&name),
             &["*"],
-            &["class:keyboard", PORT_33, "serial:2dc8:5200:9", ANY_POINTER],
+            &[ANY_KEYBOARD, PORT_33, "serial:2dc8:5200:9", ANY_POINTER],
             Some("dejavu"),
         );
         let doc = doc.with(new.clone());
@@ -2047,6 +2057,69 @@ pub(crate) mod tests {
         assert_eq!(rank("class:keyboard"), 3);
         assert_eq!(rank("*"), 4);
     }
+    // ADR-1403 D4, D8: labelling one part writes the `[labels]` section,
+    // with its comment, and that part's line, and changes nothing else; a
+    // second label adds its one line
+    #[test]
+    fn labelling_one_part_changes_only_its_label_line() {
+        for text in [TEXT, crate::drafts::EXAMPLE, crate::tui::fixture::DRAFT] {
+            let f = build(text);
+            let mut doc = read(&f);
+            doc.set_label(Kind::Input, "serial:046d:c52b:0", "Desk keyboard");
+            let one = super::super::edit::apply_all(text, &plan(&f, &doc)).expect("the label");
+            let added = one
+                .strip_prefix(text)
+                .expect("nothing before the section changes");
+            assert_eq!(
+                added,
+                "\n# The person's own names for displays and inputs. vtium shows a\n# display's label when vtium-config identifies the displays.\n[labels]\ninput serial:046d:c52b:0 = Desk keyboard\n"
+            );
+            let back = build(&one);
+            let mut doc = read(&back);
+            doc.set_label(Kind::Display, "edid:BBB:0x0002:SMALL00001", "Panel");
+            let two = apply(&one, &plan(&back, &doc));
+            assert_eq!(
+                crate::drafts::counts(&one, &two),
+                (1, 0),
+                "{}",
+                crate::drafts::diff("a", &one, "b", &two)
+            );
+        }
+        // a draft with no section runs the compiled-in flow, which a label
+        // writes out first, so the draft keeps its meaning and the label
+        // reads back; a second label then adds one line
+        let plain = "# a comment\nfont-name=monoid\n";
+        let f = build(plain);
+        let mut doc = read(&f);
+        doc.set_label(Kind::Input, "serial:046d:c52b:0", "Desk keyboard");
+        let one = super::super::edit::apply_all(plain, &plan(&f, &doc)).expect("the label");
+        assert!(one.starts_with(plain), "{one}");
+        assert_eq!(rules_of(&one), rules_of(crate::drafts::EXAMPLE));
+        let back = build(&one);
+        assert_eq!(
+            read(&back).label(Kind::Input, "serial:046d:c52b:0"),
+            Some("Desk keyboard")
+        );
+        let mut doc = read(&back);
+        doc.set_label(Kind::Display, "edid:BBB:0x0002:SMALL00001", "Panel");
+        let two = super::super::edit::apply_all(&one, &plan(&back, &doc)).expect("the label");
+        assert_eq!(crate::drafts::counts(&one, &two), (1, 0));
+        // a draft that holds the try-out's longer comment gets the short one
+        let tried = format!(
+            "{TEXT}\n{}[labels]\ninput serial:046d:c52b:0 = Desk keyboard\n",
+            crate::ops::LABELS_COMMENT_TRIED
+        );
+        let f = build(&tried);
+        let mut doc = read(&f);
+        doc.set_label(Kind::Input, "serial:046d:c52b:0", "Desk board");
+        assert_eq!(
+            apply(&tried, &plan(&f, &doc)).strip_prefix(TEXT),
+            Some(
+                "\n# The person's own names for displays and inputs. vtium shows a\n# display's label when vtium-config identifies the displays.\n[labels]\ninput serial:046d:c52b:0 = Desk board\n"
+            )
+        );
+    }
+
     #[test]
     fn labels_round_trip_through_the_labels_section_in_the_rules_order() {
         let f = build(TEXT);

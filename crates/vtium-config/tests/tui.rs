@@ -2950,7 +2950,7 @@ mod draft_flow {
         // Install saves first, then asks (ADR-1403 D7)
         assert!(b.draft().contains("[head deskx]"), "{}", b.draft());
         assert!(
-            flat(asked.screen()).contains("Install the draft? 5 lines added, 3 removed."),
+            flat(asked.screen()).contains("Install the draft? 4 lines added, 3 removed."),
             "{}",
             asked.screen()
         );
@@ -3077,7 +3077,7 @@ mod draft_flow {
         let b = bench("tab-revert");
         let ran = run(&b, &[&CHANGE[..], &[b"s", b"r", TAB]].concat());
         assert!(ran.said().contains(words::NOT_DONE), "{}", ran.screen());
-        assert!(ran.status().contains("5 changes"), "{}", ran.status());
+        assert!(ran.status().contains("4 changes"), "{}", ran.status());
         let line = ran.screen().lines().last().unwrap_or_default().trim();
         assert!(line.ends_with("q quit"), "{}", ran.screen());
     }
@@ -3119,7 +3119,7 @@ mod draft_flow {
         std::fs::write(path, &unrouted).expect("the draft");
         let asked = run(&b, &[b"i"]);
         assert!(
-            flat(asked.screen()).contains(&flat(&words::no_route_question(6, 3, 0))),
+            flat(asked.screen()).contains(&flat(&words::no_route_question(5, 3, 0))),
             "{}",
             asked.screen()
         );

@@ -119,13 +119,10 @@ impl App {
         let Some(draft) = &self.draft else {
             return self.say(words::NO_DESK);
         };
-        let mut text = draft.text.clone();
-        for change in &changes {
-            match change.apply(&text) {
-                Ok(next) => text = next,
-                Err(fail) => return self.say(fail.text()),
-            }
-        }
+        let text = match super::edit::apply_all(&draft.text, &changes) {
+            Ok(text) => text,
+            Err(fail) => return self.say(fail.text()),
+        };
         let commands: Vec<String> = changes.iter().map(Change::command).collect();
         self.message = Some(commands.join("\n"));
         self.select_after = select;
