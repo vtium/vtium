@@ -77,6 +77,16 @@ pub enum Piece {
     /// The active terminal: a path with it in its terminal's place sends
     /// its inputs roaming, to whichever terminal is active.
     Active,
+    /// No input: nothing types into the path's terminal. vtium-config
+    /// writes no input rule for the terminal and `isolated = yes` in its
+    /// section, so roaming inputs stay out of it too.
+    NoInput,
+    /// No terminal: a path to it turns its displays off and sets its
+    /// inputs aside, as the rules `display MATCH -> off` and
+    /// `input MATCH -> ignore` do.
+    NoTerminal,
+    /// A new terminal the person made, by its name.
+    Terminal(String),
 }
 
 /// A path: its terminal's name once it has one, its parts, its font set
@@ -100,6 +110,12 @@ pub struct Path {
     /// The path's terminal is the active terminal: its inputs roam, and it
     /// has no display, no name and no font set of its own.
     pub active: bool,
+    /// The path has "no input" in its inputs' place: nothing types into
+    /// its terminal.
+    pub no_input: bool,
+    /// The path's terminal is "no terminal": its displays are off and its
+    /// inputs are set aside.
+    pub none: bool,
 }
 
 /// What picking a part did.
@@ -118,7 +134,14 @@ impl Path {
     /// active terminal with inputs and no display; or a terminal with a
     /// display, and an input of its own or roaming inputs to reach it.
     pub fn complete(&self, doc: &Doc) -> bool {
-        self.status(doc) == words::PATH_COMPLETE || self.status(doc) == words::ACTIVE_COMPLETE
+        [
+            words::PATH_COMPLETE,
+            words::PATH_COMPLETE_DISPLAYS,
+            words::KIOSK_COMPLETE,
+            words::ACTIVE_COMPLETE,
+            words::NONE_COMPLETE,
+        ]
+        .contains(&self.status(doc))
     }
 
     /// Whether the path has nothing in it at all.
@@ -133,6 +156,9 @@ impl Path {
             Piece::Input(s) => self.inputs.contains(s),
             Piece::Font(f) => self.font == *f && f.is_some(),
             Piece::Active => self.active,
+            Piece::NoInput => self.no_input,
+            Piece::NoTerminal => self.none,
+            Piece::Terminal(n) => self.name.as_deref() == Some(n.as_str()),
         }
     }
 
@@ -144,6 +170,15 @@ impl Path {
             .find(|(k, _)| k == key)
             .map(|(_, v)| v.clone())
             .unwrap_or_default()
+    }
+
+    /// The value the path writes for the setting `key`: `isolated = yes`
+    /// for a path with "no input", else the setting as the path has it.
+    fn wanted(&self, key: &str) -> String {
+        if key == "isolated" && self.no_input {
+            return "yes".to_owned();
+        }
+        self.setting(key)
     }
 
     /// Sets the setting `key`, or leaves it at its default when `value` is
@@ -167,9 +202,40 @@ impl Path {
                 Picked::Added
             }
         };
+        let flag = |on: &mut bool| {
+            *on = !*on;
+            if *on { Picked::Added } else { Picked::Removed }
+        };
         match piece {
             Piece::Display(s) => toggle(&mut self.displays, s),
-            Piece::Input(s) => toggle(&mut self.inputs, s),
+            // an input takes the place of "no input", and the other way round
+            Piece::Input(s) => {
+                self.no_input = false;
+                toggle(&mut self.inputs, s)
+            }
+            Piece::NoInput => {
+                self.inputs.clear();
+                flag(&mut self.no_input)
+            }
+            // the terminal's place holds one terminal part at a time
+            Piece::NoTerminal => {
+                self.active = false;
+                self.no_input = false;
+                self.name = None;
+                flag(&mut self.none)
+            }
+            Piece::Terminal(n) if self.name.as_deref() == Some(n.as_str()) => {
+                self.name = None;
+                Picked::Removed
+            }
+            Piece::Terminal(n) => {
+                self.active = false;
+                self.none = false;
+                match self.name.replace(n) {
+                    None => Picked::Added,
+                    Some(_) => Picked::Replaced(None),
+                }
+            }
             Piece::Font(f) if self.font == f => {
                 self.font = None;
                 Picked::Removed
@@ -179,12 +245,9 @@ impl Path {
                 old => Picked::Replaced(old),
             },
             Piece::Active => {
-                self.active = !self.active;
-                if self.active {
-                    Picked::Added
-                } else {
-                    Picked::Removed
-                }
+                self.none = false;
+                self.name = None;
+                flag(&mut self.active)
             }
         }
     }
@@ -237,10 +300,20 @@ impl Path {
                 (false, true) => words::ACTIVE_COMPLETE,
             };
         }
-        match (no_input, no_display) {
+        if self.none {
+            return if no_input && no_display {
+                words::NONE_EMPTY
+            } else {
+                words::NONE_COMPLETE
+            };
+        }
+        match (no_input && !self.no_input, no_display) {
             (true, true) => words::PATH_EMPTY,
             (false, true) => words::PATH_NEEDS_DISPLAY,
-            (true, false) if doc.roaming.is_empty() => words::PATH_NEEDS_INPUT,
+            _ if self.no_input => words::KIOSK_COMPLETE,
+            // a terminal with displays alone: roaming inputs, or the
+            // policy, reach it when it is active
+            (true, false) if doc.roaming.is_empty() => words::PATH_COMPLETE_DISPLAYS,
             _ => words::PATH_COMPLETE,
         }
     }
@@ -253,6 +326,10 @@ impl Path {
 pub struct Doc {
     pub paths: Vec<Path>,
     pub roaming: Vec<String>,
+    /// The path to "no terminal": the displays that stay off, and the
+    /// inputs that are set aside.
+    pub off: Vec<String>,
+    pub ignored: Vec<String>,
     pub unfit: usize,
     /// The draft has no rule and no terminal yet, so its first path takes
     /// the shipped default's shape: its inputs roam.
@@ -279,6 +356,9 @@ impl Doc {
     /// terminal, goes to the roaming inputs, out of the path that had it,
     /// and the rest stay with `new`.
     pub fn with(&self, mut new: Path) -> Doc {
+        if new.none {
+            return self.with_none(new);
+        }
         let mut doc = self.clone();
         let first = (doc.empty && doc.paths.is_empty()) || new.active;
         let mut own = Vec::new();
@@ -304,6 +384,40 @@ impl Doc {
             doc.paths.push(new);
         }
         doc
+    }
+
+    /// The configuration with the path to no terminal `new` added: its
+    /// displays join the displays that stay off, and its inputs the inputs
+    /// set aside.
+    fn with_none(&self, new: Path) -> Doc {
+        let mut doc = self.clone();
+        for d in new.displays {
+            if !doc.off.contains(&d) {
+                doc.off.push(d);
+            }
+        }
+        for i in new.inputs {
+            if !doc.ignored.contains(&i) {
+                doc.ignored.push(i);
+            }
+        }
+        doc
+    }
+
+    /// The configuration without its path to no terminal, and that path,
+    /// for the editor.
+    pub fn revise_none(&self) -> Option<(Doc, Path)> {
+        if self.off.is_empty() && self.ignored.is_empty() {
+            return None;
+        }
+        let mut rest = self.clone();
+        let taken = Path {
+            displays: std::mem::take(&mut rest.off),
+            inputs: std::mem::take(&mut rest.ignored),
+            none: true,
+            ..Path::default()
+        };
+        Some((rest, taken))
     }
 
     /// The configuration without the path of the terminal `name`, and that
@@ -339,12 +453,10 @@ impl Doc {
 }
 
 /// Whether the rule `rule` belongs to the configuration as paths: it
-/// sends to a head, or it is an input rule that roams.
+/// sends to a head, roams, turns a display off or sets an input aside.
+/// Only a rule whose target the draft does not define fits no path.
 fn fits(flow: &Flow, rule: &Rule) -> bool {
-    matches!(
-        flow.target(rule),
-        Target::Head(_) | Target::Special(Special::Roaming)
-    )
+    matches!(flow.target(rule), Target::Head(_) | Target::Special(_))
 }
 
 /// Collapses the rules a part writes back into the part: the keyboard
@@ -381,6 +493,21 @@ pub fn read(flow: &Flow) -> Doc {
     once(&mut roaming);
     collapse(&mut roaming, ANY_POINTER, &POINTER_CLASSES);
     collapse(&mut roaming, ANY_KEYBOARD, &KEYBOARD_CLASSES);
+    let to = |kind: Kind, special: Special| -> Vec<String> {
+        let mut out: Vec<String> = flow
+            .rules_of(kind)
+            .filter(|(_, r)| flow.target(r) == Target::Special(special))
+            .map(|(_, r)| r.selector.clone())
+            .collect();
+        once(&mut out);
+        collapse(&mut out, ANY_POINTER, &POINTER_CLASSES);
+        collapse(&mut out, ANY_KEYBOARD, &KEYBOARD_CLASSES);
+        out
+    };
+    let (off, ignored) = (
+        to(Kind::Display, Special::Off),
+        to(Kind::Input, Special::Ignore),
+    );
     let mut paths = Vec::new();
     for (h, head) in flow.heads.iter().enumerate() {
         let of = |kind: Kind| -> Vec<String> {
@@ -403,6 +530,12 @@ pub fn read(flow: &Flow) -> Doc {
         if head.consoles != 1 {
             settings.insert(0, ("consoles".to_owned(), head.consoles.to_string()));
         }
+        // a terminal no input rule names that is isolated has "no input"
+        let no_input =
+            inputs.is_empty() && settings.iter().any(|(k, v)| k == "isolated" && v == "yes");
+        if no_input {
+            settings.retain(|(k, _)| k != "isolated");
+        }
         paths.push(Path {
             name: Some(head.name.clone()),
             displays: of(Kind::Display),
@@ -410,13 +543,16 @@ pub fn read(flow: &Flow) -> Doc {
             font: look.map(|l| l.frit.clone()).filter(|f| !f.is_empty()),
             size: look.map(|l| l.points).filter(|p| *p > 0),
             settings,
-            active: false,
+            no_input,
+            ..Path::default()
         });
     }
     let unfit = flow.rules.iter().filter(|r| !fits(flow, r)).count();
     Doc {
         paths,
         roaming,
+        off,
+        ignored,
         unfit,
         empty: flow.rules.is_empty() && flow.heads.is_empty(),
     }
@@ -438,8 +574,18 @@ pub fn is_default(flow: &Flow) -> bool {
 /// the configuration has no terminal; else `terminal-N`, the smallest N no
 /// head and no path has. A head's name holds no space.
 pub fn new_name(flow: &Flow, doc: &Doc) -> String {
-    let taken = |n: &str| flow.heads.iter().any(|h| h.name == n) || doc.path(n).is_some();
-    if flow.heads.is_empty() && doc.paths.is_empty() {
+    new_name_besides(flow, doc, &[])
+}
+
+/// The name a new terminal takes, as [`new_name`] gives it, besides the
+/// names in `made`, the new terminals the person made in PARTS.
+pub fn new_name_besides(flow: &Flow, doc: &Doc, made: &[String]) -> String {
+    let taken = |n: &str| {
+        flow.heads.iter().any(|h| h.name == n)
+            || doc.path(n).is_some()
+            || made.iter().any(|m| m == n)
+    };
+    if flow.heads.is_empty() && doc.paths.is_empty() && !taken("console") {
         return "console".to_owned();
     }
     (1usize..)
@@ -488,6 +634,9 @@ pub enum Adding {
     Same(String),
     /// Every input of the path to the active terminal roams already.
     SameActive,
+    /// Every display of the path to no terminal is off already, and every
+    /// input set aside.
+    SameNone,
 }
 
 /// Whether `new` may be added to the configuration `doc`, or why not. A
@@ -506,6 +655,21 @@ pub fn check_add(flow: &Flow, doc: &Doc, new: &Path) -> Result<Adding, String> {
         });
     }
     let name = |p: &Path| p.name.clone().unwrap_or_default();
+    let taken = |d: &str| {
+        let (title, _) = title(flow, Kind::Display, d);
+        if let Some(p) = doc.paths.iter().find(|p| p.displays.iter().any(|x| x == d)) {
+            return Some(words::display_taken(&title, &name(p)));
+        }
+        (!new.none && doc.off.iter().any(|x| x == d)).then(|| words::display_off(&title))
+    };
+    if new.none {
+        if let Some(why) = new.displays.iter().find_map(|d| taken(d)) {
+            return Err(why);
+        }
+        let held = new.displays.iter().all(|d| doc.off.contains(d))
+            && new.inputs.iter().all(|i| doc.ignored.contains(i));
+        return Ok(if held { Adding::SameNone } else { Adding::New });
+    }
     if let Some(n) = &new.name
         && !valid_name(n)
     {
@@ -519,6 +683,7 @@ pub fn check_add(flow: &Flow, doc: &Doc, new: &Path) -> Result<Adding, String> {
     };
     let held = doc.paths.iter().find(|p| {
         set(&p.displays) == set(&new.displays)
+            && p.no_input == new.no_input
             && new
                 .inputs
                 .iter()
@@ -536,11 +701,8 @@ pub fn check_add(flow: &Flow, doc: &Doc, new: &Path) -> Result<Adding, String> {
     {
         return Err(words::name_taken(n));
     }
-    for d in &new.displays {
-        if let Some(p) = doc.paths.iter().find(|p| p.displays.contains(d)) {
-            let (title, _) = title(flow, Kind::Display, d);
-            return Err(words::display_taken(&title, &name(p)));
-        }
+    if let Some(why) = new.displays.iter().find_map(|d| taken(d)) {
+        return Err(why);
     }
     Ok(Adding::New)
 }
@@ -647,12 +809,13 @@ fn heads_plan(flow: &Flow, doc: &Doc) -> Vec<Change> {
                     name: name.clone(),
                     look,
                 });
-                for (key, value) in &p.settings {
-                    if let Some(key) = SETTINGS.iter().find(|k| **k == key.as_str()) {
+                for key in SETTINGS {
+                    let value = p.wanted(key);
+                    if !value.is_empty() {
                         heads.push(Change::HeadKey {
                             name: name.clone(),
                             key,
-                            value: Some(value.clone()),
+                            value: Some(value),
                         });
                     }
                 }
@@ -678,7 +841,7 @@ fn heads_plan(flow: &Flow, doc: &Doc) -> Vec<Change> {
                             .map(|(_, v)| v.clone())
                             .unwrap_or_default(),
                     };
-                    let want = p.setting(key);
+                    let want = p.wanted(key);
                     if have != want {
                         heads.push(Change::HeadKey {
                             name: name.clone(),
@@ -732,6 +895,14 @@ fn rules_plan(flow: &Flow, doc: &Doc) -> Vec<(Line, bool)> {
     for r in &doc.roaming {
         for s in expand(r) {
             push(Line::new(Kind::Input, s, "roaming"));
+        }
+    }
+    for d in &doc.off {
+        push(Line::new(Kind::Display, d, "off"));
+    }
+    for i in &doc.ignored {
+        for s in expand(i) {
+            push(Line::new(Kind::Input, s, "ignore"));
         }
     }
     if flow.rules.is_empty() && !doc.paths.is_empty() {
@@ -860,7 +1031,7 @@ pub fn title(flow: &Flow, kind: Kind, selector: &str) -> (String, String) {
             words::ANY_DISPLAY.to_owned(),
             words::EVERY_DISPLAY.to_owned(),
         ),
-        (Kind::Input, "*") => ("any input".to_owned(), "every input".to_owned()),
+        (Kind::Input, "*") => ("every input".to_owned(), "every input there is".to_owned()),
         (Kind::Display, "connector") => {
             let c = value.rsplit('/').next().unwrap_or(value);
             (c.to_owned(), words::BY_CONNECTOR.to_owned())
@@ -876,7 +1047,11 @@ pub fn title(flow: &Flow, kind: Kind, selector: &str) -> (String, String) {
             words::ANY_POINTER_TITLE.to_owned(),
             words::EVERY_POINTER.to_owned(),
         ),
-        (Kind::Input, "class") => (format!("any {value}"), format!("every {value}")),
+        (Kind::Input, "class") if selector == ANY_KEYBOARD => (
+            "every keyboard".to_owned(),
+            "every input with keys".to_owned(),
+        ),
+        (Kind::Input, "class") => (format!("every {value}"), format!("class {value}")),
         (Kind::Input, "path") => match dev {
             Some(d) => (d.name.clone(), port_words(&d.detail)),
             None => {
@@ -912,10 +1087,18 @@ pub fn title(flow: &Flow, kind: Kind, selector: &str) -> (String, String) {
             Some(d) => (format!("{} (by serial)", d.name), port_words(&d.detail)),
             None => (gone(), words::NOT_PLUGGED.to_owned()),
         },
-        _ => match dev {
-            Some(d) => (d.name.clone(), selector.to_owned()),
-            None => (selector.to_owned(), String::new()),
-        },
+        // a name, a card, a hub port, a typed match: the one device it
+        // matches by its name, else the match as it is written
+        _ => {
+            let mut on = flow
+                .devices(kind)
+                .iter()
+                .filter(|d| d.found && super::parts::matches(d, selector));
+            match (dev.or_else(|| on.next()), on.next()) {
+                (Some(d), None) => (d.name.clone(), selector.to_owned()),
+                _ => (selector.to_owned(), String::new()),
+            }
+        }
     }
 }
 
@@ -975,7 +1158,11 @@ pub fn narrow(flow: &Flow, s: Sort) -> Vec<(String, String)> {
 pub fn sort_of(flow: &Flow, piece: &Piece) -> Sort {
     match piece {
         Piece::Display(_) => Sort::Screen,
-        Piece::Font(_) | Piece::Active => Sort::Other,
+        Piece::Font(_)
+        | Piece::Active
+        | Piece::NoInput
+        | Piece::NoTerminal
+        | Piece::Terminal(_) => Sort::Other,
         Piece::Input(s) if s == "class:keyboard" => Sort::Keyboard,
         Piece::Input(s) if s == ANY_POINTER || POINTER_CLASSES.contains(&s.as_str()) => {
             Sort::Pointer
@@ -1156,7 +1343,9 @@ pub(crate) mod tests {
         );
         // the receiver roams, so it is drawn once, not on each path
         assert_eq!(doc.roaming, ["id:046d:c31c"]);
-        assert_eq!(doc.unfit, 1, "the catch-all to ignore belongs to no path");
+        // the catch-all to ignore reads as the path to no terminal
+        assert_eq!(doc.ignored, ["*"]);
+        assert_eq!(doc.unfit, 0);
     }
 
     #[test]
@@ -1169,9 +1358,11 @@ pub(crate) mod tests {
         p.pick(Piece::Display(EDID_A.into()));
         assert!(p.complete(&Doc::default()));
         assert_eq!(p.status(&Doc::default()), words::PATH_COMPLETE);
-        // a second pick takes the piece out again
+        // a second pick takes the piece out again, and a terminal with a
+        // display alone is a path roaming inputs reach
         assert_eq!(p.pick(Piece::Input(KBD_PATH.into())), Picked::Removed);
-        assert_eq!(p.status(&Doc::default()), words::PATH_NEEDS_INPUT);
+        assert!(p.complete(&Doc::default()));
+        assert_eq!(p.status(&Doc::default()), words::PATH_COMPLETE_DISPLAYS);
     }
 
     #[test]
@@ -1287,7 +1478,7 @@ pub(crate) mod tests {
         assert_eq!(
             titles,
             [
-                "any keyboard",
+                "every keyboard",
                 "inputs on USB 3.3",
                 "keyboards on USB 3.4",
                 "Logitech USB Receiver",
@@ -1309,7 +1500,7 @@ pub(crate) mod tests {
             .collect();
         assert_eq!(
             screens,
-            ["any display", "DP-8", "HDMI-A-2", "DP-8", "HDMI-A-2"]
+            ["every display", "DP-8", "HDMI-A-2", "DP-8", "HDMI-A-2"]
         );
     }
 
@@ -1488,7 +1679,8 @@ pub(crate) mod tests {
         let f = build(crate::drafts::EXAMPLE);
         let doc = read(&f);
         assert_eq!((doc.paths.clone(), doc.roaming.clone()), default_doc());
-        assert_eq!(doc.unfit, 1, "the catch-all to ignore belongs to no path");
+        assert_eq!(doc.ignored, ["*"], "the catch-all reads as a path");
+        assert_eq!(doc.unfit, 0);
         assert!(is_default(&f));
         // writing it back changes nothing
         assert_eq!(plan(&f, &doc), []);
@@ -1588,6 +1780,9 @@ pub(crate) mod tests {
         if !doc.roaming.is_empty() {
             taken.push(("the active terminal".to_owned(), doc.revise_active()));
         }
+        if !doc.off.is_empty() || !doc.ignored.is_empty() {
+            taken.push(("no terminal".to_owned(), doc.revise_none()));
+        }
         for (name, t) in taken {
             let (rest, path) = t.expect("revised");
             let back =
@@ -1617,9 +1812,121 @@ pub(crate) mod tests {
                 seen.push(name);
             }
         }
-        for want in ["desk", "panel", "console", "the active terminal"] {
+        for want in [
+            "desk",
+            "panel",
+            "console",
+            "the active terminal",
+            "no terminal",
+        ] {
             assert!(seen.iter().any(|s| s == want), "{want}: {seen:?}");
         }
+    }
+
+    /// A kiosk: desk shows a display and nothing types into it; panel
+    /// shows a display, and no input rule names it and no roaming input
+    /// reaches it; a display stays off; a keyboard and every input no rule
+    /// names are set aside.
+    const NOTHING: &str = "version = 1\npolicy = open\n[head desk]\nisolated = yes\n[head panel]\n[rules]\ndisplay edid:AAA:0x0001:LARGE00001 -> desk\ndisplay edid:BBB:0x0002:SMALL00001 -> panel\ndisplay connector:card1/DP-9 -> off\ninput serial:046d:c52b:0 -> ignore\ninput * -> ignore\n";
+
+    #[test]
+    fn every_rule_reads_as_a_path_and_the_nothing_parts_round_trip() {
+        let doc = read(&build(NOTHING));
+        assert_eq!(doc.unfit, 0, "every rule reads as a path");
+        let desk = doc.path("desk").expect("desk");
+        assert!(desk.no_input && desk.inputs.is_empty());
+        assert_eq!(desk.setting("isolated"), "", "no input is the isolated key");
+        let panel = doc.path("panel").expect("panel");
+        assert!(!panel.no_input && panel.inputs.is_empty());
+        assert_eq!(doc.off, ["connector:card1/DP-9"]);
+        assert_eq!(doc.ignored, ["serial:046d:c52b:0", "*"]);
+        let mut seen = Vec::new();
+        for (name, back) in round_trips(NOTHING) {
+            assert_eq!(back.as_deref(), Ok(NOTHING), "{name}");
+            seen.push(name);
+        }
+        assert_eq!(seen, ["desk", "panel", "no terminal"]);
+        // the display-only head of round 3 adds back without roaming inputs
+        let (rest, panel) = doc.revise("panel").expect("panel");
+        assert!(rest.roaming.is_empty() && panel.complete(&rest));
+        assert_eq!(panel.status(&rest), words::PATH_COMPLETE_DISPLAYS);
+    }
+
+    #[test]
+    fn no_input_writes_isolated_and_no_terminal_writes_off_and_ignore() {
+        let empty = crate::ops::new_text(crate::drafts::EXAMPLE);
+        let f = build(&empty);
+        let doc = read(&f);
+        // a kiosk: a display, a terminal, and no input
+        let mut kiosk = path(Some("kiosk"), &[EDID_A], &[KBD_PATH], None);
+        assert_eq!(kiosk.pick(Piece::NoInput), Picked::Added);
+        assert!(kiosk.inputs.is_empty(), "no input takes the inputs' place");
+        assert_eq!(kiosk.status(&doc), words::KIOSK_COMPLETE);
+        let doc = doc.with(kiosk);
+        // a display turned off and a keyboard set aside
+        let mut none = path(
+            None,
+            &["connector:card1/DP-9"],
+            &["serial:046d:c52b:0"],
+            None,
+        );
+        none.pick(Piece::NoTerminal);
+        assert_eq!(none.status(&doc), words::NONE_COMPLETE);
+        let f2 = build(&apply(&empty, &plan(&f, &doc)));
+        let doc2 = read(&f2);
+        assert_eq!(check_add(&f2, &doc2, &none), Ok(Adding::New));
+        let text = apply(&empty, &plan(&f, &doc.with(none.clone())));
+        assert!(text.contains("[head kiosk]\nisolated = yes\n"), "{text}");
+        assert_eq!(
+            rules_of(&text),
+            [
+                "display edid:AAA:0x0001:LARGE00001 -> kiosk",
+                "display connector:card1/DP-9 -> off",
+                "input serial:046d:c52b:0 -> ignore",
+                "input * -> ignore",
+            ]
+        );
+        let back = read(&build(&text));
+        assert!(back.path("kiosk").expect("kiosk").no_input);
+        assert_eq!(back.off, ["connector:card1/DP-9"]);
+        assert_eq!(back.ignored, ["serial:046d:c52b:0", "*"]);
+        assert_eq!(check_add(&build(&text), &back, &none), Ok(Adding::SameNone));
+        // a display that is off cannot join a terminal's path
+        let p = path(Some("t"), &["connector:card1/DP-9"], &[], None);
+        assert!(check_add(&build(&text), &back, &p).is_err_and(|e| e.contains("turned off")));
+    }
+
+    #[test]
+    fn a_keyboard_placed_in_its_own_path_leaves_the_every_keyboard_terminal() {
+        use vtium_settings::{Class, Identity};
+        let text = "version = 1\n[head desk]\n[head panel]\n[rules]\ndisplay edid:AAA:0x0001:LARGE00001 -> desk\ndisplay edid:BBB:0x0002:SMALL00001 -> panel\ninput class:keyboard -> desk\ninput class:key -> desk\n";
+        let mut kbd = Identity::input().with_class(Class::Keyboard);
+        kbd.name = Some("8BitDo Keyboard".to_owned());
+        kbd.id = Some((0x2dc8, 0x5200));
+        let present = crate::flowmodel::Present {
+            devices: vec![kbd],
+            udev: true,
+        };
+        let goes = |text: &str| -> String {
+            let f = crate::flowmodel::build(text, &present, None);
+            let r = f.inputs[0].rule.expect("a rule catches it");
+            f.rules[r].target.clone()
+        };
+        assert_eq!(goes(text), "desk", "every keyboard types into desk");
+        // revise panel and place the keyboard in it
+        let f = build(text);
+        let (rest, mut panel) = read(&f).revise("panel").expect("panel");
+        panel.pick(Piece::Input("id:2dc8:5200".into()));
+        let after = apply(text, &plan(&f, &rest.with(panel)));
+        assert_eq!(
+            rules_of(&after)[2..],
+            [
+                "input id:2dc8:5200 -> panel",
+                "input class:keyboard -> desk",
+                "input class:key -> desk",
+            ]
+        );
+        assert_eq!(goes(&after), "panel");
     }
 
     #[test]

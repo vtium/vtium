@@ -16,6 +16,7 @@
 use super::flow::Item;
 use super::input::Key;
 use super::model::{App, Effect, Live, View, step};
+use super::parts::{self, Make, Pick, Stage};
 use super::paths::{self, Adding, Doc, Path, Picked, Piece};
 use super::rows::{self, Obj, Slot, State};
 use super::rowsdraw;
@@ -28,6 +29,13 @@ impl App {
     pub(crate) fn rows_settle(&mut self) {
         if self.rows_flow.is_none() {
             return;
+        }
+        // the parts, enumerated again and merged by their matches, so a
+        // device that comes or goes after any event shows at once
+        let flow = &self.inputs.flow;
+        let now = parts::enumerate(flow, &paths::read(flow));
+        if let Some(s) = self.rows_flow.as_mut() {
+            parts::merge(&mut s.parts, flow, now);
         }
         let layout = rowsdraw::layout_of(self);
         self.rows_with(|s| {
@@ -82,7 +90,11 @@ impl App {
             Some(obj @ (Obj::Doc(_, Slot::Terminal) | Obj::New(Slot::Terminal))) => {
                 self.terminal_card_key(&state, obj, key)
             }
-            Some(obj @ (Obj::Doc(..) | Obj::Roam(_))) => match key {
+            Some(Obj::Pal(Slot::Template(st)) | Obj::New(Slot::Empty(st))) => {
+                let from_new = matches!(state.layer, Some(Obj::New(_)));
+                self.make_key(&state, *st, from_new, key)
+            }
+            Some(obj @ (Obj::Doc(..) | Obj::Roam(_) | Obj::Nothing(_))) => match key {
                 Key::Char('e') => self.revise(obj),
                 Key::Escape => {
                     self.rows_with(|s| s.layer = None);
@@ -136,7 +148,7 @@ impl App {
             Key::Char(' ') => self.space(state, at),
             Key::Char('a') => self.add(state),
             Key::Char('e') => match &at {
-                Some(obj @ (Obj::Doc(..) | Obj::Roam(_))) => self.revise(obj),
+                Some(obj @ (Obj::Doc(..) | Obj::Roam(_) | Obj::Nothing(_))) => self.revise(obj),
                 _ => self.tell(words::REVISE_WHERE),
             },
             Key::Escape if !state.new.is_empty() => self.clear(state),
@@ -205,9 +217,25 @@ impl App {
         };
         self.message = None;
         let active = self.rows_flow.as_ref().is_some_and(|s| s.new.active);
+        let none = self.rows_flow.as_ref().is_some_and(|s| s.new.none);
         match &obj {
-            Obj::Roam(Slot::Terminal) | Obj::Pal(Slot::Terminal) => self.tell(words::ACTIVE_ABOUT),
+            Obj::Roam(Slot::Terminal) => self.tell(words::ACTIVE_ABOUT),
             Obj::New(Slot::Terminal) if active => self.tell(words::ACTIVE_ABOUT),
+            Obj::Pal(Slot::Special(p))
+            | Obj::Doc(_, Slot::Special(p))
+            | Obj::New(Slot::Special(p)) => {
+                self.tell(words::special_about(&parts::special_title(p)))
+            }
+            Obj::Nothing(Slot::Terminal) => self.tell(words::NO_TERMINAL_ABOUT),
+            Obj::New(Slot::Terminal) if none => self.tell(words::NO_TERMINAL_ABOUT),
+            Obj::Pal(Slot::Template(_)) | Obj::New(Slot::Empty(_)) => {
+                self.rows_with(|s| {
+                    s.layer = Some(obj.clone());
+                    s.line = 0;
+                    s.picker = None;
+                });
+                Vec::new()
+            }
             Obj::Doc(_, Slot::Terminal) | Obj::New(Slot::Terminal) => {
                 let pick = self.card_pick(&obj, 0);
                 self.rows_with(|s| {
@@ -259,11 +287,18 @@ impl App {
             return Vec::new();
         };
         match &obj {
+            Obj::Pal(Slot::Template(st)) => self.tell(words::template_space(st.name())),
+            Obj::New(Slot::Empty(_)) => self.tell(words::EMPTY_SPACE),
             Obj::Pal(Slot::Display(_)) if state.new.active => self.tell(words::ACTIVE_NO_DISPLAY),
-            Obj::Pal(Slot::Terminal) if !state.new.active && !state.new.displays.is_empty() => {
+            Obj::Pal(Slot::Special(Piece::Active))
+                if !state.new.active && !state.new.displays.is_empty() =>
+            {
                 self.tell(words::ACTIVE_NO_DISPLAY)
             }
-            Obj::Pal(Slot::Terminal) => self.pick(Piece::Active),
+            Obj::Pal(Slot::Special(Piece::NoInput)) if state.new.active || state.new.none => {
+                self.tell(words::NO_INPUT_NEEDS_TERMINAL)
+            }
+            Obj::Pal(Slot::Special(p)) | Obj::New(Slot::Special(p)) => self.pick(p.clone()),
             Obj::Pal(Slot::Display(sel)) => {
                 let held = flow
                     .displays
@@ -286,7 +321,7 @@ impl App {
             Obj::Others => self.tell(words::OTHERS_CANNOT),
             Obj::Doc(..) => self.tell(words::IN_DOCUMENT),
             Obj::Roam(Slot::Input(_)) => self.tell(words::IN_ROAMING),
-            Obj::Roam(_) => self.tell(words::IN_DOCUMENT),
+            Obj::Roam(_) | Obj::Nothing(_) => self.tell(words::IN_DOCUMENT),
             _ => Vec::new(),
         }
     }
@@ -317,6 +352,13 @@ impl App {
                 return self.tell(match done {
                     Picked::Removed => words::ACTIVE_UNPICKED,
                     _ => words::ACTIVE_PICKED,
+                });
+            }
+            Piece::NoInput | Piece::NoTerminal | Piece::Terminal(_) => {
+                let title = super::parts::special_title(&piece);
+                return self.tell(match done {
+                    Picked::Removed => words::piece_out(&title),
+                    _ => words::special_picked(&title),
                 });
             }
             Piece::Font(f) => {
@@ -357,7 +399,7 @@ impl App {
         let flow = &self.inputs.flow;
         let doc = rowsdraw::shown_doc(self, paths::read(flow));
         let mut new = state.new.clone();
-        if new.name.is_none() && !new.active {
+        if new.name.is_none() && !new.active && !new.none {
             new.name = Some(paths::new_name(flow, &doc));
         }
         let name = new.name.clone().unwrap_or_default();
@@ -369,16 +411,17 @@ impl App {
             Ok(Adding::SameActive) => {
                 (paths::plan(flow, &doc), words::SAME_ACTIVE.to_owned(), None)
             }
+            Ok(Adding::SameNone) => (paths::plan(flow, &doc), words::SAME_NONE.to_owned(), None),
             Ok(Adding::New) => {
-                let want = if new.active {
-                    Obj::Roam(Slot::Terminal)
+                let (want, said) = if new.active {
+                    (Obj::Roam(Slot::Terminal), words::ACTIVE_BACK.to_owned())
+                } else if new.none {
+                    (Obj::Nothing(Slot::Terminal), words::NONE_BACK.to_owned())
                 } else {
-                    Obj::Doc(name.clone(), Slot::Terminal)
-                };
-                let said = if new.active {
-                    words::ACTIVE_BACK.to_owned()
-                } else {
-                    words::path_added(&name)
+                    (
+                        Obj::Doc(name.clone(), Slot::Terminal),
+                        words::path_added(&name),
+                    )
                 };
                 (paths::plan(flow, &doc.with(new)), said, Some(want))
             }
@@ -451,6 +494,12 @@ impl App {
                 doc.revise_active(),
                 words::ACTIVE_REVISED.to_owned(),
                 rows::Revising::Active,
+                Obj::New(Slot::Terminal),
+            ),
+            Obj::Nothing(_) => (
+                doc.revise_none(),
+                words::NONE_REVISED.to_owned(),
+                rows::Revising::Nothing,
                 Obj::New(Slot::Terminal),
             ),
             _ => return Vec::new(),
@@ -715,6 +764,216 @@ impl App {
         }
     }
 
+    /// A key on a template's layer, the ways to make a part of `stage`,
+    /// or on a filter's picker over it: Up and Down move, Enter makes the
+    /// part, opens the picker or starts typing a value, and Esc goes back.
+    fn make_key(&mut self, state: &State, stage: Stage, from_new: bool, key: Key) -> Vec<Effect> {
+        if let Some(typed) = state.typing.clone() {
+            return self.typed_key(stage, from_new, typed, key);
+        }
+        let fonts = rowsdraw::font_names(self);
+        let length = match &state.picker {
+            Some(p) => parts::picker(&self.inputs.flow, p.stage, p.key).len(),
+            None => parts::makes(stage, &fonts).len(),
+        };
+        match key {
+            Key::Up | Key::Down | Key::Home | Key::End | Key::PageUp | Key::PageDown => {
+                let line = step(state.line, length, key);
+                self.rows_with(|s| s.line = line);
+                Vec::new()
+            }
+            Key::Escape if state.picker.is_some() => {
+                let back = parts::makes(stage, &fonts)
+                    .iter()
+                    .position(|(_, _, m)| {
+                        state
+                            .picker
+                            .as_ref()
+                            .is_some_and(|p| *m == Make::Filter(p.key))
+                    })
+                    .unwrap_or(0);
+                self.rows_with(|s| {
+                    s.picker = None;
+                    s.line = back;
+                });
+                Vec::new()
+            }
+            Key::Escape => {
+                self.rows_with(|s| s.layer = None);
+                Vec::new()
+            }
+            Key::Enter => match &state.picker {
+                Some(p) => match parts::picker(&self.inputs.flow, p.stage, p.key).get(state.line) {
+                    Some(Pick::Value { sel, .. }) => {
+                        let piece = match stage {
+                            Stage::Display => Piece::Display(sel.clone()),
+                            _ => Piece::Input(sel.clone()),
+                        };
+                        let title = parts::title_of(&self.inputs.flow, &piece);
+                        self.make_part(piece, title, from_new)
+                    }
+                    Some(Pick::Typed) => {
+                        self.rows_with(|s| s.typing = Some(String::new()));
+                        Vec::new()
+                    }
+                    None => Vec::new(),
+                },
+                None => match parts::makes(stage, &fonts)
+                    .get(state.line)
+                    .map(|(_, _, m)| m.clone())
+                {
+                    Some(Make::Part(piece)) => {
+                        let title = parts::title_of(&self.inputs.flow, &piece);
+                        self.make_part(piece, title, from_new)
+                    }
+                    Some(Make::Filter(key)) => {
+                        self.rows_with(|s| {
+                            s.picker = Some(rows::Picker {
+                                stage,
+                                key,
+                                from_new,
+                            });
+                            s.line = 0;
+                        });
+                        Vec::new()
+                    }
+                    Some(Make::NewTerminal) => self.new_terminal(from_new),
+                    None => Vec::new(),
+                },
+            },
+            _ => Vec::new(),
+        }
+    }
+
+    /// A key while a value is typed on a filter's picker: characters go
+    /// into it, Enter checks it as vtium.conf checks a rule's match and
+    /// makes the part, or says what is wrong, and Esc drops it.
+    fn typed_key(
+        &mut self,
+        stage: Stage,
+        from_new: bool,
+        mut typed: String,
+        key: Key,
+    ) -> Vec<Effect> {
+        match key {
+            Key::Char(c) if typed.chars().count() < 200 => {
+                typed.push(c);
+                self.rows_with(|s| s.typing = Some(typed));
+                Vec::new()
+            }
+            Key::Backspace => {
+                typed.pop();
+                self.rows_with(|s| s.typing = Some(typed));
+                Vec::new()
+            }
+            Key::Enter => {
+                let key = self
+                    .rows_flow
+                    .as_ref()
+                    .and_then(|s| s.picker.as_ref())
+                    .map(|p| p.key);
+                // a value typed without a match key takes the picker's key
+                let bare = typed.trim();
+                let keyed = vtium_settings::Token::KEYS
+                    .iter()
+                    .any(|k| bare.strip_prefix(k).is_some_and(|r| r.starts_with(':')));
+                let typed = match key {
+                    Some(k) if !keyed && !bare.is_empty() && bare != "*" => format!("{k}:{bare}"),
+                    _ => typed,
+                };
+                match parts::check_typed(stage, &typed) {
+                    Ok(sel) => {
+                        let piece = match stage {
+                            Stage::Display => Piece::Display(sel.clone()),
+                            _ => Piece::Input(sel.clone()),
+                        };
+                        self.make_part(piece, sel, from_new)
+                    }
+                    Err(why) => self.tell(why),
+                }
+            }
+            Key::Escape => {
+                self.rows_with(|s| s.typing = None);
+                self.message = None;
+                Vec::new()
+            }
+            _ => Vec::new(),
+        }
+    }
+
+    /// "new terminal": makes a terminal part with the next free name. From
+    /// NEW PATH it also goes into the new path, and the new path's
+    /// terminal card opens, where its name, font set and size are set.
+    fn new_terminal(&mut self, from_new: bool) -> Vec<Effect> {
+        let flow = &self.inputs.flow;
+        let doc = rowsdraw::shown_doc(self, paths::read(flow));
+        let made: Vec<String> = self
+            .rows_flow
+            .as_ref()
+            .map(|s| {
+                s.parts
+                    .iter()
+                    .filter_map(|p| match &p.piece {
+                        Piece::Terminal(n) => Some(n.clone()),
+                        _ => None,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let name = paths::new_name_besides(flow, &doc, &made);
+        let out = self.make_part(Piece::Terminal(name.clone()), name, from_new);
+        if from_new {
+            let obj = Obj::New(Slot::Terminal);
+            let pick = self.card_pick(&obj, 0);
+            self.rows_with(|s| {
+                s.layer = Some(obj);
+                s.line = 0;
+                s.pick = pick;
+            });
+        }
+        out
+    }
+
+    /// Makes the part `piece`, named `title`, and adds it to PARTS, or
+    /// finds the part PARTS holds with the same match. From NEW PATH the
+    /// part also goes into the new path, and the highlight moves to it
+    /// there; else the highlight moves to it in PARTS.
+    fn make_part(&mut self, piece: Piece, title: String, from_new: bool) -> Vec<Effect> {
+        let flow = &self.inputs.flow;
+        let mut name = title.clone();
+        let mut there = false;
+        if let Some(s) = self.rows_flow.as_mut() {
+            there = s.new.has(&piece);
+            let at = parts::make(&mut s.parts, flow, piece.clone(), title);
+            if let Some(p) = s.parts.get(at) {
+                name.clone_from(&p.title);
+            }
+            s.layer = None;
+            s.picker = None;
+            s.typing = None;
+        }
+        if !from_new {
+            let at = Obj::Pal(Slot::of(&piece));
+            self.rows_with(|s| {
+                s.want = Some(at.clone());
+                s.at = Some(at);
+            });
+            return self.tell(words::part_made(&name));
+        }
+        let at = match &piece {
+            Piece::Display(s) => Obj::New(Slot::Display(s.clone())),
+            Piece::Input(s) => Obj::New(Slot::Input(s.clone())),
+            Piece::NoInput => Obj::New(Slot::Special(Piece::NoInput)),
+            _ => Obj::New(Slot::Terminal),
+        };
+        let out = if there { Vec::new() } else { self.pick(piece) };
+        self.rows_with(|s| {
+            s.want = Some(at.clone());
+            s.at = Some(at);
+        });
+        out
+    }
+
     /// A click on the document: on a box, highlights it, and on the
     /// highlighted box, opens it.
     pub(crate) fn rows_click(&mut self, col: usize, row: usize) -> Vec<Effect> {
@@ -743,5 +1002,123 @@ impl App {
             }
             None => Vec::new(),
         }
+    }
+}
+
+#[cfg(test)]
+#[expect(clippy::expect_used, reason = "a test fails by panicking")]
+mod tests {
+    use super::super::input::Input;
+    use super::super::model::Event;
+    use super::super::paths::tests::{PORT_33, flow};
+    use super::*;
+
+    /// The Flow view as paths on the test flow, at 120×32.
+    fn app() -> App {
+        let mut i = super::super::fixture::inputs();
+        i.view = View::Flow;
+        i.flow_rows = true;
+        i.flow = flow();
+        let (mut app, _) = App::new(i, 120, 32);
+        app.rows_settle();
+        app
+    }
+
+    fn keys(app: &mut App, keys: &[Key]) {
+        for k in keys {
+            app.event(Event::Input(Input::Key(*k)));
+        }
+    }
+
+    fn type_text(app: &mut App, text: &str) {
+        for c in text.chars() {
+            keys(app, &[Key::Char(c)]);
+        }
+    }
+
+    fn state(app: &App) -> &State {
+        app.rows_flow.as_ref().expect("the rows")
+    }
+
+    fn highlight(app: &mut App, obj: Obj) {
+        app.rows_with(|s| s.at = Some(obj));
+    }
+
+    #[test]
+    fn a_template_refuses_to_be_placed_and_enter_makes_a_part_from_it() {
+        let mut app = app();
+        let template = Obj::Pal(Slot::Template(Stage::Input));
+        highlight(&mut app, template.clone());
+        keys(&mut app, &[Key::Char(' ')]);
+        assert_eq!(
+            app.message.as_deref(),
+            Some(
+                "Input is a template, which never goes into a path. Press Enter to make a part from it."
+            )
+        );
+        assert!(
+            state(&app).new.is_empty(),
+            "the template stays out of the new path"
+        );
+        // Enter opens the ways to make an input part; "by USB port" opens
+        // its picker, whose first value is the receiver's port
+        keys(&mut app, &[Key::Enter]);
+        assert_eq!(state(&app).layer, Some(template.clone()));
+        keys(
+            &mut app,
+            &[Key::Down, Key::Down, Key::Down, Key::Down, Key::Enter],
+        );
+        let picker = state(&app).picker.clone().expect("the picker");
+        assert_eq!(
+            (picker.stage, picker.key, picker.from_new),
+            (Stage::Input, "path", false)
+        );
+        keys(&mut app, &[Key::Enter]);
+        // the part joins PARTS, highlighted, and stays out of the new path
+        let made = Piece::Input(PORT_33.into());
+        let part = state(&app)
+            .parts
+            .iter()
+            .find(|p| p.piece == made)
+            .expect("the new part");
+        assert!(part.made && part.connected);
+        assert_eq!(part.title, "inputs on USB 3.3");
+        assert_eq!(state(&app).at, Some(Obj::Pal(Slot::Input(PORT_33.into()))));
+        assert!(state(&app).new.is_empty() && state(&app).layer.is_none());
+    }
+
+    #[test]
+    fn a_part_made_from_an_empty_place_in_new_path_is_picked_into_it() {
+        let mut app = app();
+        highlight(&mut app, Obj::New(Slot::Empty(Stage::Input)));
+        keys(&mut app, &[Key::Char(' ')]);
+        assert_eq!(app.message.as_deref(), Some(words::EMPTY_SPACE));
+        // no input, the first choice
+        keys(&mut app, &[Key::Enter, Key::Enter]);
+        assert!(state(&app).new.no_input);
+        assert!(state(&app).parts.iter().any(|p| p.piece == Piece::NoInput));
+        assert_eq!(
+            state(&app).at,
+            Some(Obj::New(Slot::Special(Piece::NoInput)))
+        );
+        // a value typed on the picker: refused with the parser's words,
+        // then made from the value alone, which takes the picker's key
+        highlight(&mut app, Obj::New(Slot::Empty(Stage::Display)));
+        keys(
+            &mut app,
+            &[Key::Enter, Key::Down, Key::Enter, Key::End, Key::Enter],
+        );
+        assert_eq!(state(&app).typing.as_deref(), Some(""));
+        type_text(&mut app, "aaa:1:2");
+        keys(&mut app, &[Key::Enter]);
+        let why = app.message.clone().unwrap_or_default();
+        assert!(why.contains("edid:aaa:1:2"), "{why}");
+        assert!(state(&app).typing.is_some(), "the value stays to fix");
+        keys(&mut app, &[Key::Escape, Key::Enter]);
+        type_text(&mut app, "AAA:0x0001:LARGE00001");
+        keys(&mut app, &[Key::Enter]);
+        let edid = "edid:AAA:0x0001:LARGE00001".to_owned();
+        assert_eq!(state(&app).new.displays, std::slice::from_ref(&edid));
+        assert_eq!(state(&app).at, Some(Obj::New(Slot::Display(edid))));
     }
 }

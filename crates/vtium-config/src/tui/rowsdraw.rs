@@ -21,6 +21,7 @@ use super::canvas::{Canvas, fit, width, wrap};
 use super::color::{Color, Style};
 use super::flow::{Flow, Kind};
 use super::model::App;
+use super::parts::{self, Stage};
 use super::paths::{self, Path, Piece};
 use super::rows::{self, BOX_ROWS, Boxed, Ctx, Layout, Mood, NoteKind, Obj, Slot, Wire};
 use super::rowscolor::{Palette, Role};
@@ -56,6 +57,9 @@ const LIGHT: [char; 6] = ['─', '│', '┌', '┐', '└', '┘'];
 const HEAVY: [char; 6] = ['━', '┃', '┏', '┓', '┗', '┛'];
 const LIGHT_DASHED: [char; 6] = ['┄', '┆', '┌', '┐', '└', '┘'];
 const HEAVY_DASHED: [char; 6] = ['┅', '┇', '┏', '┓', '┗', '┛'];
+/// A template's border: double lines, so a template reads as the mould a
+/// part is made from, not as a part.
+const DOUBLE: [char; 6] = ['═', '║', '╔', '╗', '╚', '╝'];
 
 /// Whether the rows are on the screen: the Flow view as rows, with no
 /// route card, pager or Restore list open over it, which the six-column
@@ -89,11 +93,17 @@ pub fn layout_of(app: &App) -> Layout {
         .unwrap_or_default();
     let doc = shown_doc(app, doc);
     let fonts = font_names(app);
+    let parts = app
+        .rows_flow
+        .as_ref()
+        .map(|s| s.parts.clone())
+        .unwrap_or_default();
     rows::layout(&Ctx {
         flow,
         doc: &doc,
         new: &new,
         fonts: &fonts,
+        parts: &parts,
         cols: app.cols,
         default: paths::is_default(flow),
     })
@@ -106,6 +116,7 @@ pub fn shown_doc(app: &App, doc: paths::Doc) -> paths::Doc {
     match app.rows_flow.as_ref().and_then(|s| s.revising.as_ref()) {
         Some(rows::Revising::Path(name)) => doc.revise(name).map_or(doc, |(rest, _)| rest),
         Some(rows::Revising::Active) => doc.revise_active().map_or(doc, |(rest, _)| rest),
+        Some(rows::Revising::Nothing) => doc.revise_none().map_or(doc, |(rest, _)| rest),
         None => doc,
     }
 }
@@ -149,12 +160,22 @@ pub const fn mood_role(mood: Mood) -> Role {
 /// its kind.
 pub const fn kind_role(obj: &Obj) -> Role {
     match obj {
-        Obj::Doc(_, s) | Obj::New(s) | Obj::Pal(s) | Obj::Roam(s) => match s {
-            Slot::Display(_) => Role::Display,
-            Slot::Terminal => Role::Terminal,
-            Slot::Font(_) => Role::FontSet,
-            Slot::Input(_) => Role::Input,
-        },
+        Obj::Doc(_, s) | Obj::New(s) | Obj::Pal(s) | Obj::Roam(s) | Obj::Nothing(s) => {
+            let stage = match s {
+                Slot::Display(_) => Stage::Display,
+                Slot::Terminal => Stage::Terminal,
+                Slot::Font(_) => Stage::Font,
+                Slot::Input(_) => Stage::Input,
+                Slot::Special(p) => Stage::of(p),
+                Slot::Template(st) | Slot::Empty(st) => *st,
+            };
+            match stage {
+                Stage::Display => Role::Display,
+                Stage::Terminal => Role::Terminal,
+                Stage::Font => Role::FontSet,
+                Stage::Input => Role::Input,
+            }
+        }
         Obj::Others => Role::Input,
     }
 }
@@ -177,6 +198,7 @@ fn draw_box(doc: &mut Canvas, b: &Boxed, highlighted: bool, pal: &Palette) {
         (false, _) => border,
     };
     let [h, v, tl, tr, bl, br] = match (highlighted, b.dashed) {
+        (false, _) if b.template => DOUBLE,
         (false, false) => LIGHT,
         (true, false) => HEAVY,
         (false, true) => LIGHT_DASHED,
@@ -205,7 +227,9 @@ fn draw_box(doc: &mut Canvas, b: &Boxed, highlighted: bool, pal: &Palette) {
     // box's title stays light, so its italic reads as set aside. Black
     // text in a basic color is never bold: the console shows bold black
     // as dark grey, which reads poorly on a light fill.
-    let (title, detail, bolds) = match pal.fill(kind_role(&b.obj)) {
+    // a template is never filled: it is the mould of a part, not a part
+    let fill = pal.fill(kind_role(&b.obj)).filter(|_| !b.template);
+    let (title, detail, bolds) = match fill {
         Some(back) => {
             let text = pal.text_on(back, b.mood == Mood::Aside);
             for i in 1..BOX_ROWS.saturating_sub(1) {
@@ -434,10 +458,13 @@ fn obj_name(flow: &Flow, o: &Obj) -> String {
     match o {
         Obj::Doc(n, Slot::Terminal) => n.clone(),
         Obj::New(Slot::Terminal) => words::ROWS_NEW_PATH.to_lowercase(),
-        Obj::Doc(_, s) | Obj::New(s) | Obj::Pal(s) => match s {
+        Obj::Nothing(Slot::Terminal) => words::NO_TERMINAL.to_owned(),
+        Obj::Doc(_, s) | Obj::New(s) | Obj::Pal(s) | Obj::Nothing(s) => match s {
             Slot::Display(sel) => paths::title(flow, Kind::Display, sel).0,
             Slot::Input(sel) => paths::title(flow, Kind::Input, sel).0,
             Slot::Font(f) => rows::font_words(f.as_deref()),
+            Slot::Special(p) => parts::special_title(p),
+            Slot::Template(st) | Slot::Empty(st) => st.name().to_owned(),
             Slot::Terminal => String::new(),
         },
         Obj::Roam(Slot::Input(sel)) => paths::title(flow, Kind::Input, sel).0,
@@ -607,6 +634,7 @@ pub fn screen(canvas: &mut Canvas, app: &App) {
             status(canvas, app, &layout, Some(&obj_name(flow, obj)));
             let keys = match obj {
                 _ if state.typing.is_some() => words::KEYS_TYPING,
+                Obj::Nothing(_) => words::ROWS_KEYS_INFO,
                 Obj::Doc(_, Slot::Terminal) => words::ROWS_KEYS_CARD,
                 Obj::New(Slot::Terminal) => words::ROWS_KEYS_EDITOR_CARD,
                 Obj::Doc(..) | Obj::Roam(_) | Obj::Others => words::ROWS_KEYS_INFO,
@@ -617,8 +645,12 @@ pub fn screen(canvas: &mut Canvas, app: &App) {
                 Obj::Doc(_, Slot::Terminal) | Obj::New(Slot::Terminal) => {
                     card_layer(canvas, app, state, obj);
                 }
-                Obj::Doc(..) | Obj::Roam(_) => info_layer(canvas, app, obj),
+                Obj::Doc(..) | Obj::Roam(_) | Obj::Nothing(_) => info_layer(canvas, app, obj),
                 Obj::Others => others_layer(canvas, app),
+                Obj::Pal(Slot::Template(st)) | Obj::New(Slot::Empty(st)) => match &state.picker {
+                    Some(p) => picker_layer(canvas, app, state, p),
+                    None => make_layer(canvas, app, state, *st),
+                },
                 _ => choices_layer(canvas, app, state, obj),
             }
         }
@@ -741,8 +773,12 @@ fn choice(canvas: &mut Canvas, x: usize, y: usize, text: &str, on: bool, cursor:
 fn info_layer(canvas: &mut Canvas, app: &App, obj: &Obj) {
     let flow = &app.inputs.flow;
     let (kind, sel, heading) = match obj {
-        Obj::Doc(_, Slot::Display(s)) => (Kind::Display, s, "DISPLAY"),
-        Obj::Doc(_, Slot::Input(s)) | Obj::Roam(Slot::Input(s)) => (Kind::Input, s, "INPUT"),
+        Obj::Doc(_, Slot::Display(s)) | Obj::Nothing(Slot::Display(s)) => {
+            (Kind::Display, s, "DISPLAY")
+        }
+        Obj::Doc(_, Slot::Input(s)) | Obj::Roam(Slot::Input(s)) | Obj::Nothing(Slot::Input(s)) => {
+            (Kind::Input, s, "INPUT")
+        }
         _ => return,
     };
     let (title, detail) = paths::title(flow, kind, sel);
@@ -755,6 +791,8 @@ fn info_layer(canvas: &mut Canvas, app: &App, obj: &Obj) {
     canvas.put(x.saturating_add(2), 3, &detail, Style::text(Color::Grey));
     let goes = match obj {
         Obj::Doc(name, _) => words::in_terminal(name),
+        Obj::Nothing(Slot::Display(_)) => words::TURNED_OFF.to_owned(),
+        Obj::Nothing(_) => words::SET_ASIDE.to_owned(),
         _ => words::ROAMS_SENTENCE.to_owned(),
     };
     let vx = VALUE_X.min(app.cols / 3);
@@ -908,7 +946,10 @@ fn card_label(flow: &Flow, line: &CardLine) -> String {
         CardLine::Part(Piece::Input(i)) => {
             format!("Input {}", paths::title(flow, Kind::Input, i).0)
         }
-        CardLine::Part(Piece::Font(_) | Piece::Active) => String::new(),
+        CardLine::Part(Piece::NoInput) => format!("Input {}", words::NO_INPUT),
+        CardLine::Part(Piece::Font(_) | Piece::Active | Piece::NoTerminal | Piece::Terminal(_)) => {
+            String::new()
+        }
     }
 }
 
@@ -1063,6 +1104,103 @@ fn choices_layer(canvas: &mut Canvas, app: &App, state: &rows::State, obj: &Obj)
     }
 }
 
+/// A template's layer: the ways to make a part of `stage`, one a row,
+/// each with what it covers.
+fn make_layer(canvas: &mut Canvas, app: &App, state: &rows::State, stage: Stage) {
+    let fonts = font_names(app);
+    let list: Vec<(String, String)> = parts::makes(stage, &fonts)
+        .into_iter()
+        .map(|(w, d, _)| (w, d))
+        .collect();
+    list_layer(
+        canvas,
+        app,
+        state.line,
+        &words::template_heading(stage.name()),
+        words::TEMPLATE_ABOUT,
+        &list,
+        None,
+    );
+}
+
+/// A filter's picker: each value the connected devices give for its key,
+/// with the devices it matches, and last the entry to type a value.
+fn picker_layer(canvas: &mut Canvas, app: &App, state: &rows::State, p: &rows::Picker) {
+    let list: Vec<(String, String)> = parts::picker(&app.inputs.flow, p.stage, p.key)
+        .into_iter()
+        .map(|pick| match pick {
+            parts::Pick::Value { sel, devices } => (sel, devices.join(", ")),
+            parts::Pick::Typed => (
+                words::PICKER_TYPE.to_owned(),
+                words::PICKER_TYPE_DETAIL.to_owned(),
+            ),
+        })
+        .collect();
+    let typing = state.typing.as_deref();
+    list_layer(
+        canvas,
+        app,
+        state.line,
+        &words::picker_heading(parts::filter_words(p.key)),
+        words::PICKER_ABOUT,
+        &list,
+        typing,
+    );
+}
+
+/// A layer's list: its heading, a grey sentence about it, and one choice
+/// a row with its detail in grey; the cursor's in reverse video. While a
+/// value is typed, the last row shows it.
+fn list_layer(
+    canvas: &mut Canvas,
+    app: &App,
+    line: usize,
+    heading: &str,
+    about: &str,
+    list: &[(String, String)],
+    typing: Option<&str>,
+) {
+    canvas.put(1, 3, heading, bold(Color::BrightWhite));
+    let about = wrap(about, app.cols.saturating_sub(4), 2);
+    for (k, l) in about.iter().enumerate() {
+        canvas.put(3, 4usize.saturating_add(k), l, Style::text(Color::Grey));
+    }
+    let (wtop, wh) = window(app);
+    let bottom = wtop.saturating_add(wh);
+    let top = 5usize.saturating_add(about.len());
+    let room = bottom.saturating_sub(top).max(1);
+    let first = line.saturating_add(1).saturating_sub(room);
+    let mut y = top;
+    let last = list.len().saturating_sub(1);
+    for (i, (title, detail)) in list.iter().enumerate().skip(first) {
+        if y >= bottom {
+            break;
+        }
+        if let (Some(t), true) = (typing, i == last) {
+            let x = canvas.put(3, y, &format!(" {t}_ "), Style::PLAIN.reversed());
+            canvas.put(
+                x.saturating_add(2),
+                y,
+                words::ENTER_TO_CHECK,
+                Style::text(Color::Grey),
+            );
+            y = y.saturating_add(1);
+            continue;
+        }
+        let x = choice(
+            canvas,
+            3,
+            y,
+            &fit(title, app.cols.saturating_sub(10)),
+            false,
+            i == line,
+        );
+        let room = app.cols.saturating_sub(x);
+        canvas.put(x, y, &fit(detail, room), Style::text(Color::Grey));
+        y = y.saturating_add(1);
+    }
+}
+
 /// The second layer of the box of other inputs: each input it folds, with
 /// the rule that catches it.
 fn others_layer(canvas: &mut Canvas, app: &App) {
@@ -1166,7 +1304,7 @@ mod tests {
                 let beside_to = if to.x > tx { to.x } else { tx - 1 };
                 for (x, y) in [(beside_from, fy), (beside_to, ty)] {
                     let c = doc.at(x, y).unwrap_or(' ');
-                    assert!("│┃┆┇".contains(c), "{cols}: {w:?} meets {c:?} at {x},{y}");
+                    assert!("│┃┆┇║".contains(c), "{cols}: {w:?} meets {c:?} at {x},{y}");
                 }
                 let arrow = doc.at(tx, ty).unwrap_or(' ');
                 let arrows = if w.to == at { "▶◀" } else { "►◄" };
@@ -1178,7 +1316,9 @@ mod tests {
     #[test]
     fn the_editor_is_dashed_a_picked_piece_magenta_and_each_title_its_kind_s_color() {
         let f = flow();
-        let l = lay(&f, &editor(), 100);
+        let mut named = editor();
+        named.name = Some("kiosk".into());
+        let l = lay(&f, &named, 100);
         let doc = document(&l, 100, None, &Palette::console());
         let new = l.find(&Obj::New(Slot::Terminal)).expect("the editor");
         assert_eq!(doc.at(new.x, new.y), Some('┌'));
@@ -1271,8 +1411,9 @@ mod tests {
             let fill = pal.fill(kind_role(&b.obj)).expect("every kind is filled");
             for y in b.y..b.bottom() {
                 for x in b.x..b.right() {
+                    // a template, or an empty place, is never filled
                     let inside = y > b.y && y + 1 < b.bottom() && x > b.x && x + 1 < b.right();
-                    let want = inside.then_some(fill);
+                    let want = (inside && !b.template).then_some(fill);
                     assert_eq!(back(x, y), want, "{:?} at {x},{y}", b.obj);
                 }
             }

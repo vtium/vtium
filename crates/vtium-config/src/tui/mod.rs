@@ -26,6 +26,7 @@ pub mod flowdraw;
 mod flowedit;
 pub mod input;
 pub mod model;
+pub mod parts;
 pub mod paths;
 pub mod port;
 pub mod rows;

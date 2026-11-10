@@ -19,6 +19,7 @@
 
 use super::flow::{Device, Flow, Kind};
 use super::input::Key;
+use super::parts::{Part, Stage};
 use super::paths::{self, ANY_POINTER, Doc, Path, Piece};
 use super::words;
 
@@ -39,6 +40,9 @@ pub enum Obj {
     /// The path of the active terminal, the roaming inputs': its terminal
     /// or one of its inputs.
     Roam(Slot),
+    /// The path to no terminal: the displays that stay off and the inputs
+    /// set aside, and its terminal's box.
+    Nothing(Slot),
     /// The box that folds every input that is neither a keyboard nor a
     /// pointer, which cannot be picked.
     Others,
@@ -49,18 +53,38 @@ pub enum Obj {
 pub enum Slot {
     Display(String),
     Input(String),
+    /// A path's terminal box.
     Terminal,
     Font(Option<String>),
+    /// A part that matches no device: "no input", "the active terminal",
+    /// "no terminal", or a new terminal by its name.
+    Special(Piece),
+    /// A stage's template in PARTS, which is never placed in a path.
+    Template(Stage),
+    /// A stage's empty place in NEW PATH.
+    Empty(Stage),
 }
 
 impl Slot {
-    /// The piece the slot holds; `None` for a terminal.
+    /// The slot that holds `piece` in PARTS.
+    pub fn of(piece: &Piece) -> Slot {
+        match piece {
+            Piece::Display(s) => Slot::Display(s.clone()),
+            Piece::Input(s) => Slot::Input(s.clone()),
+            Piece::Font(f) => Slot::Font(f.clone()),
+            p => Slot::Special(p.clone()),
+        }
+    }
+
+    /// The piece the slot holds; `None` for a terminal's box, a template
+    /// and an empty place.
     pub fn piece(&self) -> Option<Piece> {
         match self {
             Slot::Display(s) => Some(Piece::Display(s.clone())),
             Slot::Input(s) => Some(Piece::Input(s.clone())),
             Slot::Font(f) => Some(Piece::Font(f.clone())),
-            Slot::Terminal => None,
+            Slot::Special(p) => Some(p.clone()),
+            Slot::Terminal | Slot::Template(_) | Slot::Empty(_) => None,
         }
     }
 }
@@ -122,6 +146,9 @@ pub struct Boxed {
     pub mood: Mood,
     /// Drawn with a dashed border: a box in the editor, not yet added.
     pub dashed: bool,
+    /// Drawn as a template, with a double border: a stage's template in
+    /// PARTS, or an empty place in NEW PATH.
+    pub template: bool,
 }
 
 impl Boxed {
@@ -340,6 +367,8 @@ pub struct Ctx<'a> {
     pub doc: &'a Doc,
     pub new: &'a Path,
     pub fonts: &'a [String],
+    /// The parts PARTS shows, as the view holds them.
+    pub parts: &'a [Part],
     pub cols: usize,
     /// The configuration is vtium's built-in default.
     pub default: bool,
@@ -387,75 +416,125 @@ impl Layout {
     }
 }
 
+/// Which row [`path_row`] lays out: a path of the configuration, by its
+/// terminal's name; the editor's; or the path to no terminal.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Row<'a> {
+    Doc(&'a str),
+    New,
+    Nothing,
+}
+
+/// A box of a path's row: in the editor dashed, and a template's look on
+/// an empty place.
+fn part_box(obj: Obj, x: usize, y: usize, w: usize, words: (String, String), mood: Mood) -> Boxed {
+    let dashed = matches!(obj, Obj::New(_));
+    let template = matches!(obj, Obj::New(Slot::Empty(_)));
+    Boxed {
+        obj,
+        x,
+        y,
+        w,
+        title: words.0,
+        detail: words.1,
+        mood,
+        dashed: dashed && !template,
+        template,
+    }
+}
+
 /// Lays out the row of the path `p`, its terminal named `name`, from
-/// canvas row `y`: a path of the configuration, or the editor's when
-/// `dashed`. A path of the configuration that roaming inputs reach ends
-/// in a dotted line from the words `roaming inputs` to its terminal.
-/// Returns the row after it.
+/// canvas row `y`. A path of the configuration that roaming inputs reach
+/// ends in a dotted line from the words `roaming inputs` to its terminal.
+/// In the editor, each stage the path has no part for yet shows its empty
+/// place, which Enter fills from that stage's template. A path with "no
+/// input" shows it in its inputs' place, with no line, since nothing types
+/// into its terminal. Returns the row after it.
 fn path_row(
     ctx: &Ctx<'_>,
     out: &mut Layout,
     p: &Path,
     name: &str,
     y: usize,
-    dashed: bool,
+    row: Row<'_>,
 ) -> usize {
     let g = geometry(ctx.cols);
-    let obj = |slot: Slot| {
-        if dashed {
-            Obj::New(slot)
-        } else {
-            Obj::Doc(name.to_owned(), slot)
-        }
+    let obj = |slot: Slot| match row {
+        Row::New => Obj::New(slot),
+        Row::Nothing => Obj::Nothing(slot),
+        Row::Doc(n) => Obj::Doc(n.to_owned(), slot),
     };
-    let term = obj(Slot::Terminal);
-    let term_box = Boxed {
-        obj: term.clone(),
-        x: g.term_x,
-        y,
-        w: g.term_w,
-        title: name.to_owned(),
-        detail: if p.active {
-            words::ACTIVE_DETAIL.to_owned()
-        } else {
-            font_words(p.font.as_deref())
-        },
-        mood: Mood::Placed,
-        dashed,
+    let editor = row == Row::New;
+    let empty_terminal = editor && p.name.is_none() && !p.active && !p.none;
+    let term = obj(if empty_terminal {
+        Slot::Empty(Stage::Terminal)
+    } else {
+        Slot::Terminal
+    });
+    let words = if empty_terminal {
+        (
+            Stage::Terminal.name().to_owned(),
+            words::new_terminal_named(name),
+        )
+    } else if p.none {
+        (
+            words::NO_TERMINAL.to_owned(),
+            words::NO_TERMINAL_DETAIL.to_owned(),
+        )
+    } else if p.active {
+        (name.to_owned(), words::ACTIVE_DETAIL.to_owned())
+    } else {
+        (name.to_owned(), font_words(p.font.as_deref()))
     };
+    let mood = if p.none { Mood::Aside } else { Mood::Placed };
+    let term_box = part_box(term.clone(), g.term_x, y, g.term_w, words, mood);
     let join_row = term_box.title_row();
     out.boxes.push(term_box);
-    for (k, sel) in p.displays.iter().enumerate() {
-        let (title, detail) = paths::title(ctx.flow, Kind::Display, sel);
-        let b = Boxed {
-            obj: obj(Slot::Display(sel.clone())),
-            x: g.screen_x,
-            y: y.saturating_add(k.saturating_mul(BOX_ROWS)),
-            w: g.screen_w,
-            title,
-            detail,
-            mood: Mood::Placed,
-            dashed,
+    let mut displays: Vec<Slot> = p
+        .displays
+        .iter()
+        .map(|s| Slot::Display(s.clone()))
+        .collect();
+    if editor && displays.is_empty() && !p.active {
+        displays.push(Slot::Empty(Stage::Display));
+    }
+    for (k, slot) in displays.into_iter().enumerate() {
+        let words = match &slot {
+            Slot::Display(sel) => paths::title(ctx.flow, Kind::Display, sel),
+            _ => (
+                Stage::Display.name().to_owned(),
+                words::EMPTY_PLACE.to_owned(),
+            ),
         };
-        let start = (b.right(), b.title_row());
-        let end = (g.term_x.saturating_sub(1), join_row);
-        let points = if k == 0 {
-            vec![start, end]
-        } else {
-            vec![
-                start,
-                (g.screen_join, b.title_row()),
-                (g.screen_join, join_row),
-                end,
-            ]
-        };
-        out.wires.push(Wire {
-            from: b.obj.clone(),
-            to: term.clone(),
-            points,
-            dashed,
-            stub: false,
-        });
+        let b = part_box(
+            obj(slot),
+            g.screen_x,
+            y.saturating_add(k.saturating_mul(BOX_ROWS)),
+            g.screen_w,
+            words,
+            mood,
+        );
+        if !b.template {
+            let start = (b.right(), b.title_row());
+            let end = (g.term_x.saturating_sub(1), join_row);
+            let points = if k == 0 {
+                vec![start, end]
+            } else {
+                vec![
+                    start,
+                    (g.screen_join, b.title_row()),
+                    (g.screen_join, join_row),
+                    end,
+                ]
+            };
+            out.wires.push(Wire {
+                from: b.obj.clone(),
+                to: term.clone(),
+                points,
+                dashed: b.dashed,
+                stub: false,
+            });
+        }
         out.boxes.push(b);
     }
     // the line from an input to the terminal: straight from the first,
@@ -469,30 +548,56 @@ fn path_row(
             vec![start, (g.dev_join, row), (g.dev_join, join_row), end]
         }
     };
-    for (k, sel) in p.inputs.iter().enumerate() {
-        let (title, detail) = paths::title(ctx.flow, Kind::Input, sel);
-        let b = Boxed {
-            obj: obj(Slot::Input(sel.clone())),
-            x: g.dev_x,
-            y: y.saturating_add(k.saturating_mul(BOX_ROWS)),
-            w: g.dev_w,
-            title,
-            detail,
-            mood: Mood::Placed,
-            dashed,
+    let mut inputs: Vec<Slot> = p.inputs.iter().map(|s| Slot::Input(s.clone())).collect();
+    if p.no_input {
+        inputs.push(Slot::Special(Piece::NoInput));
+    } else if editor && inputs.is_empty() {
+        inputs.push(Slot::Empty(Stage::Input));
+    }
+    let k = inputs.len();
+    for (k, slot) in inputs.into_iter().enumerate() {
+        let (words, wired, mood) = match &slot {
+            Slot::Input(sel) => (paths::title(ctx.flow, Kind::Input, sel), true, mood),
+            Slot::Special(_) => (
+                (
+                    words::NO_INPUT.to_owned(),
+                    words::NO_INPUT_DETAIL.to_owned(),
+                ),
+                false,
+                Mood::Aside,
+            ),
+            _ => (
+                (
+                    Stage::Input.name().to_owned(),
+                    words::EMPTY_PLACE.to_owned(),
+                ),
+                false,
+                mood,
+            ),
         };
-        out.wires.push(Wire {
-            from: b.obj.clone(),
-            to: term.clone(),
-            points: line_from(b.title_row(), k),
-            dashed,
-            stub: false,
-        });
+        let b = part_box(
+            obj(slot),
+            g.dev_x,
+            y.saturating_add(k.saturating_mul(BOX_ROWS)),
+            g.dev_w,
+            words,
+            mood,
+        );
+        if wired {
+            out.wires.push(Wire {
+                from: b.obj.clone(),
+                to: term.clone(),
+                points: line_from(b.title_row(), k),
+                dashed: b.dashed,
+                stub: false,
+            });
+        }
         out.boxes.push(b);
     }
-    let k = p.inputs.len();
     let mut bottom = y.saturating_add(k.saturating_mul(BOX_ROWS));
-    if !dashed && !ctx.doc.roaming.is_empty() {
+    // roaming inputs reach a terminal of the configuration that has no
+    // "no input"
+    if matches!(row, Row::Doc(_)) && !p.no_input && !ctx.doc.roaming.is_empty() {
         // on the terminal's title row when the path has no input of its
         // own, else just under its last input
         let row = if k == 0 {
@@ -515,7 +620,12 @@ fn path_row(
         });
         bottom = bottom.max(row.saturating_add(1));
     }
-    let displays = y.saturating_add(p.displays.len().saturating_mul(BOX_ROWS));
+    let displays = y.saturating_add(
+        p.displays
+            .len()
+            .max(usize::from(editor))
+            .saturating_mul(BOX_ROWS),
+    );
     bottom.max(displays).max(y.saturating_add(BOX_ROWS))
 }
 
@@ -559,6 +669,7 @@ fn roaming_row(ctx: &Ctx<'_>, out: &mut Layout, y: usize) -> usize {
         detail: words::ACTIVE_DETAIL.to_owned(),
         mood: Mood::Placed,
         dashed: true,
+        template: false,
     };
     let join_row = term_box.title_row();
     out.boxes.push(term_box);
@@ -573,6 +684,7 @@ fn roaming_row(ctx: &Ctx<'_>, out: &mut Layout, y: usize) -> usize {
             detail,
             mood: Mood::Placed,
             dashed: false,
+            template: false,
         };
         let start = (g.dev_x.saturating_sub(1), b.title_row());
         let end = (g.term_x.saturating_add(g.term_w), join_row);
@@ -605,164 +717,155 @@ struct PalPiece {
     title: String,
     detail: String,
     mood: Mood,
+    template: bool,
 }
 
-/// The palette's three groups: the displays, the inputs and the font sets,
-/// each piece with its words and its state.
-fn palette(ctx: &Ctx<'_>, waiting: &mut Vec<Sort>) -> Vec<(NoteKind, &'static str, Vec<PalPiece>)> {
-    let flow = ctx.flow;
-    let picked = |slot: &Slot| slot.piece().is_some_and(|p| ctx.new.has(&p));
-    let mark = |slot: &Slot, title: String| {
-        if picked(slot) {
-            format!("✓ {title}")
-        } else {
-            title
-        }
-    };
-    let mut displays = Vec::new();
-    for d in flow.displays.iter().filter(|d| d.found) {
-        let slot = Slot::Display(paths::own_key(flow, Kind::Display, d));
-        let held = holders(&ctx.doc.paths, Kind::Display, d);
-        let (detail, mood) = match held.first() {
-            Some(h) => (words::in_terminal(h), Mood::Aside),
-            None => {
-                waiting.push(Sort::Screen);
-                (
-                    format!("{} · {}", d.detail, words::IN_NO_PATH),
-                    Mood::Waiting,
-                )
-            }
-        };
-        let mood = if picked(&slot) { Mood::Picked } else { mood };
-        displays.push(PalPiece {
-            title: mark(&slot, d.name.clone()),
-            slot,
-            detail,
-            mood,
-        });
+/// What a part's box says under its title, and the state its border
+/// shows: grey when its device is not connected or a path holds it as a
+/// display can be held once, amber for a connected device no path holds,
+/// white for the rest. A connected device no path holds is counted in
+/// `waiting`.
+fn part_state(ctx: &Ctx<'_>, part: &Part, waiting: &mut Vec<Sort>) -> (String, Mood) {
+    let (flow, doc) = (ctx.flow, ctx.doc);
+    if !part.connected {
+        return (words::NOT_PLUGGED.to_owned(), Mood::Aside);
     }
-    let any = Slot::Display("*".to_owned());
-    displays.push(PalPiece {
-        title: mark(&any, words::ANY_DISPLAY.to_owned()),
-        mood: if picked(&any) {
-            Mood::Picked
-        } else {
-            Mood::Placed
-        },
-        detail: words::EVERY_DISPLAY.to_owned(),
-        slot: any,
-    });
-    let mut inputs = Vec::new();
-    for d in flow
-        .inputs
-        .iter()
-        .filter(|d| d.found && sort(d) != Sort::Other)
-    {
-        let slot = Slot::Input(paths::own_key(flow, Kind::Input, d));
-        let held = holders(&ctx.doc.paths, Kind::Input, d);
-        let port = port_words(&d.detail);
-        let roams = ctx.doc.roaming.iter().any(|r| names(d, r));
-        let (detail, mood) = match held.as_slice() {
-            [] if roams => (format!("{port} · {}", words::ROAMING_WORD), Mood::Placed),
-            [] => {
-                waiting.push(sort(d));
-                (format!("{port} · {}", words::IN_NO_PATH), Mood::Waiting)
-            }
-            [one] => (
-                format!("{port} · {}", words::in_terminal(one)),
-                Mood::Placed,
-            ),
-            many => (
-                format!("{port} · {}", words::roams_among(many.len())),
-                Mood::Placed,
-            ),
-        };
-        let mood = if picked(&slot) { Mood::Picked } else { mood };
-        inputs.push(PalPiece {
-            title: mark(&slot, d.name.clone()),
-            slot,
-            detail,
-            mood,
-        });
-    }
-    for (sel, title, detail) in [
-        ("class:keyboard", "any keyboard", "every keyboard"),
-        (ANY_POINTER, words::ANY_POINTER_TITLE, words::EVERY_POINTER),
-    ] {
-        let slot = Slot::Input(sel.to_owned());
-        inputs.push(PalPiece {
-            title: mark(&slot, title.to_owned()),
-            mood: if picked(&slot) {
-                Mood::Picked
-            } else {
-                Mood::Placed
-            },
-            detail: detail.to_owned(),
-            slot,
-        });
-    }
-    // the active terminal, which a path's inputs roam to
-    let active = Slot::Terminal;
-    let terminals = vec![PalPiece {
-        title: if ctx.new.active {
-            format!("✓ {}", words::ACTIVE_TERMINAL)
-        } else {
-            words::ACTIVE_TERMINAL.to_owned()
-        },
-        mood: if ctx.new.active {
-            Mood::Picked
-        } else {
-            Mood::Placed
-        },
-        detail: words::ACTIVE_PART_DETAIL.to_owned(),
-        slot: active,
-    }];
-    let mut fonts = Vec::new();
-    let default_on = ctx.new.font.is_none() && !ctx.new.is_empty();
-    fonts.push(PalPiece {
-        title: if default_on {
-            format!("✓ {}", words::DEFAULT_FONT_SET)
-        } else {
-            words::DEFAULT_FONT_SET.to_owned()
-        },
-        mood: if default_on {
-            Mood::Picked
-        } else {
-            Mood::Placed
-        },
-        detail: words::DEFAULT_FONT_SET_DETAIL.to_owned(),
-        slot: Slot::Font(None),
-    });
-    for f in ctx.fonts {
-        let slot = Slot::Font(Some(f.clone()));
-        let users: Vec<String> = ctx
-            .doc
-            .paths
+    let holding = |sel: &str, kind: Kind| -> Vec<String> {
+        doc.paths
             .iter()
-            .filter(|p| p.font.as_deref() == Some(f.as_str()))
+            .filter(|p| match kind {
+                Kind::Display => p.displays.iter().any(|s| s == sel),
+                Kind::Input => p.inputs.iter().any(|s| s == sel),
+            })
             .filter_map(|p| p.name.clone())
-            .collect();
-        let detail = match users.first() {
-            Some(u) => words::in_terminal(u),
-            None => words::FONT_SET.to_owned(),
-        };
-        fonts.push(PalPiece {
-            title: mark(&slot, f.clone()),
-            mood: if picked(&slot) {
-                Mood::Picked
-            } else {
-                Mood::Placed
-            },
-            detail,
-            slot,
-        });
+            .collect()
+    };
+    let device = |kind: Kind, sel: &str| {
+        flow.devices(kind)
+            .iter()
+            .find(|d| d.found && paths::own_key(flow, kind, d) == sel)
+    };
+    match &part.piece {
+        Piece::Display(sel) => {
+            let dev = device(Kind::Display, sel);
+            let held = dev.map_or_else(
+                || holding(sel, Kind::Display),
+                |d| holders(&doc.paths, Kind::Display, d),
+            );
+            let off = doc
+                .off
+                .iter()
+                .any(|o| o == sel || dev.is_some_and(|d| d.keys.contains(o)));
+            match (held.first(), dev) {
+                (Some(h), _) => (words::in_terminal(h), Mood::Aside),
+                _ if off => (words::TURNED_OFF.to_owned(), Mood::Aside),
+                (None, Some(d)) => {
+                    waiting.push(Sort::Screen);
+                    (
+                        format!("{} · {}", d.detail, words::IN_NO_PATH),
+                        Mood::Waiting,
+                    )
+                }
+                (None, None) => (paths::title(flow, Kind::Display, sel).1, Mood::Placed),
+            }
+        }
+        Piece::Input(sel) => {
+            let Some(d) = device(Kind::Input, sel) else {
+                let held = holding(sel, Kind::Input);
+                let detail = match held.as_slice() {
+                    [one] => words::in_terminal(one),
+                    [] if doc.roaming.contains(sel) => words::ROAMING_WORD.to_owned(),
+                    [] if doc.ignored.contains(sel) => words::SET_ASIDE.to_owned(),
+                    [] => paths::title(flow, Kind::Input, sel).1,
+                    many => words::roams_among(many.len()),
+                };
+                return (detail, Mood::Placed);
+            };
+            let held = holders(&doc.paths, Kind::Input, d);
+            let port = port_words(&d.detail);
+            let roams = doc.roaming.iter().any(|r| names(d, r));
+            let aside = doc.ignored.iter().any(|r| r != "*" && names(d, r));
+            match held.as_slice() {
+                [] if roams => (format!("{port} · {}", words::ROAMING_WORD), Mood::Placed),
+                [] if aside => (format!("{port} · {}", words::SET_ASIDE), Mood::Aside),
+                [] => {
+                    waiting.push(sort(d));
+                    (format!("{port} · {}", words::IN_NO_PATH), Mood::Waiting)
+                }
+                [one] => (
+                    format!("{port} · {}", words::in_terminal(one)),
+                    Mood::Placed,
+                ),
+                many => (
+                    format!("{port} · {}", words::roams_among(many.len())),
+                    Mood::Placed,
+                ),
+            }
+        }
+        Piece::Font(f) => {
+            let users: Vec<String> = doc
+                .paths
+                .iter()
+                .filter(|p| p.font == *f)
+                .filter_map(|p| p.name.clone())
+                .collect();
+            let detail = match (users.first(), f) {
+                (Some(u), _) => words::in_terminal(u),
+                (None, None) => words::DEFAULT_FONT_SET_DETAIL.to_owned(),
+                (None, Some(_)) => words::FONT_SET.to_owned(),
+            };
+            (detail, Mood::Placed)
+        }
+        Piece::NoInput => (words::NO_INPUT_DETAIL.to_owned(), Mood::Placed),
+        Piece::Active => (words::ACTIVE_PART_DETAIL.to_owned(), Mood::Placed),
+        Piece::NoTerminal => (words::NO_TERMINAL_DETAIL.to_owned(), Mood::Placed),
+        Piece::Terminal(_) => (words::NEW_TERMINAL_DETAIL.to_owned(), Mood::Placed),
     }
-    vec![
-        (NoteKind::Displays, words::ROWS_DISPLAYS, displays),
-        (NoteKind::Terminals, words::ROWS_TERMINALS, terminals),
-        (NoteKind::Inputs, words::ROWS_INPUTS, inputs),
-        (NoteKind::Fonts, words::ROWS_FONT_SETS, fonts),
-    ]
+}
+
+/// The palette's four groups, one per stage: its template first, then
+/// each part of that stage, with its words and its state.
+fn palette(ctx: &Ctx<'_>, waiting: &mut Vec<Sort>) -> Vec<(NoteKind, &'static str, Vec<PalPiece>)> {
+    // the default font set is the absence of one, so it shows picked in a
+    // path that has parts and no font set
+    let picked = |piece: &Piece| match piece {
+        Piece::Font(None) => ctx.new.font.is_none() && !ctx.new.is_empty(),
+        p => ctx.new.has(p),
+    };
+    Stage::ALL
+        .into_iter()
+        .map(|stage| {
+            let mut pieces = vec![PalPiece {
+                slot: Slot::Template(stage),
+                title: stage.name().to_owned(),
+                detail: words::TEMPLATE_DETAIL.to_owned(),
+                mood: Mood::Placed,
+                template: true,
+            }];
+            for part in ctx.parts.iter().filter(|p| Stage::of(&p.piece) == stage) {
+                let (detail, mood) = part_state(ctx, part, waiting);
+                let on = picked(&part.piece);
+                pieces.push(PalPiece {
+                    slot: Slot::of(&part.piece),
+                    title: if on {
+                        format!("✓ {}", part.title)
+                    } else {
+                        part.title.clone()
+                    },
+                    detail,
+                    mood: if on { Mood::Picked } else { mood },
+                    template: false,
+                });
+            }
+            let (kind, heading) = match stage {
+                Stage::Display => (NoteKind::Displays, words::ROWS_DISPLAYS),
+                Stage::Terminal => (NoteKind::Terminals, words::ROWS_TERMINALS),
+                Stage::Input => (NoteKind::Inputs, words::ROWS_INPUTS),
+                Stage::Font => (NoteKind::Fonts, words::ROWS_FONT_SETS),
+            };
+            (kind, heading, pieces)
+        })
+        .collect()
 }
 
 /// The document laid out at the context's width: the paths, the editor,
@@ -801,10 +904,33 @@ pub fn layout(ctx: &Ctx<'_>) -> Layout {
     }
     for p in &ctx.doc.paths {
         let name = p.name.clone().unwrap_or_default();
-        y = path_row(ctx, &mut out, p, &name, y.saturating_add(1), false);
+        y = path_row(
+            ctx,
+            &mut out,
+            p,
+            &name,
+            y.saturating_add(1),
+            Row::Doc(&name),
+        );
     }
     if !ctx.doc.roaming.is_empty() {
         y = roaming_row(ctx, &mut out, y.saturating_add(1));
+    }
+    if !ctx.doc.off.is_empty() || !ctx.doc.ignored.is_empty() {
+        let none = Path {
+            displays: ctx.doc.off.clone(),
+            inputs: ctx.doc.ignored.clone(),
+            none: true,
+            ..Path::default()
+        };
+        y = path_row(
+            ctx,
+            &mut out,
+            &none,
+            words::NO_TERMINAL,
+            y.saturating_add(1),
+            Row::Nothing,
+        );
     }
     // NEW PATH
     y = y.saturating_add(1);
@@ -833,10 +959,11 @@ pub fn layout(ctx: &Ctx<'_>) -> Layout {
     );
     let name = match &ctx.new.name {
         _ if ctx.new.active => words::ACTIVE_TERMINAL.to_owned(),
+        _ if ctx.new.none => words::NO_TERMINAL.to_owned(),
         Some(n) => n.clone(),
         None => paths::new_name(ctx.flow, ctx.doc),
     };
-    y = path_row(ctx, &mut out, ctx.new, &name, y.saturating_add(1), true);
+    y = path_row(ctx, &mut out, ctx.new, &name, y.saturating_add(1), Row::New);
     // PARTS
     y = y.saturating_add(1);
     out.rules.push(y);
@@ -875,6 +1002,7 @@ pub fn layout(ctx: &Ctx<'_>) -> Layout {
                     detail: p.detail,
                     mood: p.mood,
                     dashed: false,
+                    template: p.template,
                 }
             })
             .collect();
@@ -891,6 +1019,7 @@ pub fn layout(ctx: &Ctx<'_>) -> Layout {
                 detail,
                 mood: Mood::Aside,
                 dashed: false,
+                template: false,
             });
         }
         for mut b in boxes {
@@ -985,6 +1114,21 @@ pub struct State {
     /// What NEW PATH holds for revising, which CONFIGURATION leaves out
     /// while the draft still has it.
     pub revising: Option<Revising>,
+    /// The parts PARTS shows, kept while the view is open: a part whose
+    /// device left stays, grey, until the view closes.
+    pub parts: Vec<Part>,
+    /// A filter's picker, open over a template's layer.
+    pub picker: Option<Picker>,
+}
+
+/// A filter's picker: the stage and the match key it lists the values of,
+/// and whether the template's layer was opened from NEW PATH, so the new
+/// part also goes into the new path.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Picker {
+    pub stage: Stage,
+    pub key: &'static str,
+    pub from_new: bool,
 }
 
 /// What is being revised in NEW PATH.
@@ -994,6 +1138,8 @@ pub enum Revising {
     Path(String),
     /// The path of the active terminal: the roaming inputs.
     Active,
+    /// The path to no terminal.
+    Nothing,
 }
 
 impl State {
@@ -1122,6 +1268,7 @@ pub(crate) mod tests {
             doc: &doc,
             new,
             fonts: &fonts(),
+            parts: &super::super::parts::enumerate(f, &doc),
             cols,
             default: paths::is_default(f),
         })
@@ -1190,12 +1337,39 @@ pub(crate) mod tests {
                 );
             }
             let gone = at(&l, &doc("desk", Slot::Input("serial:046d:c52b:0".into())));
-            assert_eq!(gone.detail, "not plugged in");
-            // the editor, dashed, below the paths, named for its terminal
-            let new = at(&l, &Obj::New(Slot::Terminal));
-            assert!(new.dashed && !desk.dashed);
-            assert_eq!(new.title, "terminal-1");
-            assert!(new.y > roams.bottom() && new.y > l.rules[0]);
+            assert_eq!(gone.detail, "not connected");
+            // the catch-all to ignore, as the path to no terminal, below
+            // the roaming inputs, grey, with no roaming stub
+            let none = at(&l, &Obj::Nothing(Slot::Terminal));
+            assert_eq!(
+                (none.title.as_str(), none.mood),
+                ("no terminal", Mood::Aside)
+            );
+            assert!(none.y > roams.y);
+            let every = at(&l, &Obj::Nothing(Slot::Input("*".into())));
+            assert_eq!(every.title, "every input");
+            assert!(
+                l.wires
+                    .iter()
+                    .any(|w| w.from == every.obj && w.to == none.obj && !w.dashed)
+            );
+            assert!(!l.wires.iter().any(|w| w.stub && w.to == none.obj));
+            // the editor below the paths: each stage an empty place drawn as
+            // its template, the terminal's saying the name it will take
+            let new = at(&l, &Obj::New(Slot::Empty(Stage::Terminal)));
+            assert!(new.template && !new.dashed && !desk.template);
+            assert_eq!(
+                (new.title.as_str(), new.detail.as_str()),
+                ("Terminal", "new: terminal-1")
+            );
+            for st in [Stage::Display, Stage::Input] {
+                let e = at(&l, &Obj::New(Slot::Empty(st)));
+                assert_eq!(
+                    (e.y, e.template, e.title.as_str()),
+                    (new.y, true, st.name())
+                );
+            }
+            assert!(new.y > none.bottom() && new.y > l.rules[0]);
             // the pieces below the editor, a display in a path grey and one
             // nobody has amber
             assert!(l.rules[1] > new.bottom());
@@ -1210,16 +1384,37 @@ pub(crate) mod tests {
             let bitdo = at(&l, &Obj::Pal(Slot::Input("id:2dc8:5200".into())));
             assert_eq!(bitdo.mood, Mood::Waiting);
             assert!(dp.y > l.rules[1]);
+            // each group opens with its template, drawn double
+            for st in Stage::ALL {
+                let t = at(&l, &Obj::Pal(Slot::Template(st)));
+                assert!(t.template && t.x == 1, "{t:?}");
+                assert_eq!(t.title, st.name());
+            }
+            // the parts the draft uses, and no standing "every" part
             for o in [
-                Obj::Pal(Slot::Display("*".into())),
-                Obj::Pal(Slot::Input("class:keyboard".into())),
-                Obj::Pal(Slot::Input(ANY_POINTER.into())),
+                Obj::Pal(Slot::Input("id:046d:c31c".into())),
+                Obj::Pal(Slot::Input("serial:046d:c52b:0".into())),
+                Obj::Pal(Slot::Input("*".into())),
+                Obj::Pal(Slot::Special(Piece::Active)),
+                Obj::Pal(Slot::Special(Piece::NoTerminal)),
                 Obj::Pal(Slot::Font(None)),
                 Obj::Pal(Slot::Font(Some("monoid".into()))),
                 Obj::Others,
             ] {
                 at(&l, &o);
             }
+            for o in [
+                Obj::Pal(Slot::Display("*".into())),
+                Obj::Pal(Slot::Input("class:keyboard".into())),
+                Obj::Pal(Slot::Input(ANY_POINTER.into())),
+            ] {
+                assert!(l.find(&o).is_none(), "{o:?}");
+            }
+            let unplugged = at(&l, &Obj::Pal(Slot::Input("serial:046d:c52b:0".into())));
+            assert_eq!(
+                (unplugged.mood, unplugged.detail.as_str()),
+                (Mood::Aside, "not connected")
+            );
             assert_eq!(at(&l, &Obj::Others).title, "1 other input");
             assert_eq!(l.waiting, [Sort::Keyboard]);
             let headings: Vec<&str> = l
@@ -1255,10 +1450,9 @@ pub(crate) mod tests {
         let e = at(&l, &Obj::New(Slot::Input("id:2dc8:5200".into())));
         assert!(e.dashed);
         assert_eq!(e.title, "8BitDo Keyboard (by id)");
-        assert_eq!(at(&l, &Obj::New(Slot::Terminal)).detail, "font set dejavu");
         assert_eq!(
-            at(&l, &Obj::Pal(Slot::Font(Some("dejavu".into())))).mood,
-            Mood::Picked
+            at(&l, &Obj::New(Slot::Empty(Stage::Terminal))).detail,
+            "new: terminal-1"
         );
         assert_eq!(at(&l, &Obj::Pal(Slot::Font(None))).mood, Mood::Placed);
         let status = l
@@ -1320,9 +1514,10 @@ pub(crate) mod tests {
         new.pick(Piece::Display("*".into()));
         for cols in [80, 100, 120] {
             let l = lay(&f, &new, cols);
-            // desk 1+1, panel 1+0, the active terminal 0+1, the editor
-            // 2+2, and a roaming stub on each path of the configuration
-            assert_eq!(l.wires.len(), 10, "{cols}");
+            // desk 1+1, panel 1+0, the active terminal 0+1, no terminal
+            // 0+1, the editor 2+2, and a roaming stub on each path of the
+            // configuration
+            assert_eq!(l.wires.len(), 11, "{cols}");
             assert_eq!(l.wires.iter().filter(|w| w.dashed).count(), 7);
             assert_eq!(l.wires.iter().filter(|w| w.stub).count(), 2);
             for w in l.wires.iter().filter(|w| !w.stub) {
@@ -1363,14 +1558,19 @@ pub(crate) mod tests {
             step(&l, &desk, Key::Down),
             Some(doc("panel", Slot::Terminal))
         );
-        // below the paths, the active terminal's path, then NEW PATH
+        // below the paths, the active terminal's path, the path to no
+        // terminal, then NEW PATH's empty terminal place
         assert_eq!(
             step(&l, &doc("panel", Slot::Terminal), Key::Down),
             Some(Obj::Roam(Slot::Terminal))
         );
         assert_eq!(
             step(&l, &Obj::Roam(Slot::Terminal), Key::Down),
-            Some(Obj::New(Slot::Terminal))
+            Some(Obj::Nothing(Slot::Terminal))
+        );
+        assert_eq!(
+            step(&l, &Obj::Nothing(Slot::Terminal), Key::Down),
+            Some(Obj::New(Slot::Empty(Stage::Terminal)))
         );
         assert_eq!(
             step(&l, &desk, Key::Home),

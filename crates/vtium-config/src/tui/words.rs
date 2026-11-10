@@ -916,8 +916,84 @@ pub const REVISE_ROAMING_NOTE: &str = "To change the roaming inputs, press e. Th
 pub const IN_ROAMING: &str = "This input roams. Press e to revise the roaming inputs.";
 pub const PATH_EMPTY: &str = "Pick an input and a display to make a path.";
 pub const PATH_NEEDS_DISPLAY: &str = "Add a display to finish this path.";
-pub const PATH_NEEDS_INPUT: &str = "Add an input to finish this path.";
 pub const PATH_COMPLETE: &str = "This path is complete. Press a to add it.";
+/// The special parts' names.
+pub const NO_INPUT: &str = "no input";
+pub const NO_TERMINAL_ABOUT: &str = "No terminal is where a path sends what vtium leaves alone: its displays stay off and its inputs are set aside.";
+pub const NONE_REVISED: &str =
+    "The path to no terminal is in NEW PATH. Change its parts, then press a to add it back.";
+pub const EMPTY_SPACE: &str =
+    "This place in the new path is empty. Press Enter to choose a part for it.";
+pub const NO_INPUT_NEEDS_TERMINAL: &str = "No input belongs to a path with a terminal of its own. Take the active terminal or no terminal out of this path first.";
+/// Space on a template.
+pub fn template_space(stage: &str) -> String {
+    format!(
+        "{stage} is a template, which never goes into a path. Press Enter to make a part from it."
+    )
+}
+/// Enter on a special part.
+pub fn special_about(title: &str) -> String {
+    match title {
+        NO_INPUT => "No input means nothing types into the terminal. Its section gets isolated = yes, so roaming inputs stay out too.".to_owned(),
+        NO_TERMINAL => NO_TERMINAL_ABOUT.to_owned(),
+        ACTIVE_TERMINAL => ACTIVE_ABOUT.to_owned(),
+        name => format!("{name} is a new terminal. Pick it into the new path with Space; Enter on its box there sets its name, font set and size."),
+    }
+}
+/// A part made from a template in PARTS.
+pub fn part_made(title: &str) -> String {
+    format!("Made the part {title}. Press Space to pick it into the new path.")
+}
+/// A template's layer and a filter's picker.
+pub fn template_heading(stage: &str) -> String {
+    format!("MAKE A PART FROM THE {} TEMPLATE", stage.to_uppercase())
+}
+pub const TEMPLATE_ABOUT: &str = "Choose what the new part matches. A choice that starts with by lists the values the connected devices give.";
+pub fn picker_heading(what: &str) -> String {
+    format!("MATCH BY {}", what.to_uppercase())
+}
+pub const PICKER_ABOUT: &str = "Each value shows the devices it matches now. The last line takes a value you type, checked as vtium.conf checks a rule.";
+pub const PICKER_TYPE: &str = "type a value…";
+pub const PICKER_TYPE_DETAIL: &str = "Enter starts typing; a value without its key takes this one";
+pub const ENTER_TO_CHECK: &str = "Enter checks it and makes the part";
+pub const NO_INPUT_DETAIL: &str = "nothing types into it";
+pub const NO_TERMINAL_DETAIL: &str = "displays off, inputs set aside";
+pub const NEW_TERMINAL_DETAIL: &str = "a terminal of its own";
+pub const TURNED_OFF: &str = "turned off";
+pub const SET_ASIDE: &str = "set aside";
+/// A template's words under its title.
+pub const TEMPLATE_DETAIL: &str = "template · Enter makes a part";
+/// An empty place in NEW PATH.
+pub const EMPTY_PLACE: &str = "Enter chooses a part";
+/// The empty terminal place in NEW PATH, with the name a new terminal takes.
+pub fn new_terminal_named(name: &str) -> String {
+    format!("new: {name}")
+}
+/// A typed match that is empty.
+pub const TYPED_EMPTY: &str = "Type a match, such as id:046d:c31c, then press Enter.";
+/// A typed match that holds a mark a rule's match cannot.
+pub fn typed_bad_mark(typed: &str) -> String {
+    format!(
+        "The match {typed} holds # or ->, which a rule's match cannot hold. Type the match alone."
+    )
+}
+pub const NO_TERMINAL: &str = "no terminal";
+pub const SAME_NONE: &str =
+    "These displays are off and these inputs set aside already, so nothing changed.";
+pub const NONE_BACK: &str = "The path to no terminal is back in CONFIGURATION.";
+pub fn special_picked(title: &str) -> String {
+    format!("Picked {title} into the new path.")
+}
+/// A path with displays and a terminal and no input of its own.
+pub const PATH_COMPLETE_DISPLAYS: &str = "This path is complete. Only roaming inputs type into its terminal, while it is active. Press a to add it.";
+/// A path with "no input".
+pub const KIOSK_COMPLETE: &str =
+    "This path is complete. Nothing types into its terminal. Press a to add it.";
+/// A path to "no terminal" with nothing in it yet.
+pub const NONE_EMPTY: &str = "Pick the displays to turn off or the inputs to set aside.";
+/// A path to "no terminal" that can be added.
+pub const NONE_COMPLETE: &str =
+    "This path is complete. Its displays stay off and its inputs are set aside. Press a to add it.";
 pub const ACTIVE_TERMINAL: &str = "the active terminal";
 pub const ACTIVE_DETAIL: &str = "whichever is in use";
 pub const ACTIVE_PART_DETAIL: &str = "makes a path's inputs roam";
@@ -933,12 +1009,12 @@ pub const ACTIVE_BACK: &str = "The roaming inputs are back in CONFIGURATION.";
 pub const ACTIVE_REVISED: &str =
     "The roaming inputs are in NEW PATH now. Change them, then press a to add them back.";
 pub const REVISED_DROPPED: &str = "Took the path you were revising out of the configuration.";
-pub const ANY_DISPLAY: &str = "any display";
-pub const EVERY_DISPLAY: &str = "every display";
-pub const ANY_POINTER_TITLE: &str = "any pointer";
+pub const ANY_DISPLAY: &str = "every display";
+pub const EVERY_DISPLAY: &str = "every display, connected now or later";
+pub const ANY_POINTER_TITLE: &str = "every pointer";
 pub const EVERY_POINTER: &str = "every mouse, touchpad and trackball";
 pub const BY_CONNECTOR: &str = "by its connector";
-pub const NOT_PLUGGED: &str = "not plugged in";
+pub const NOT_PLUGGED: &str = "not connected";
 pub const EVERY_INPUT_ON_PORT: &str = "every input on that port";
 pub const DEFAULT_FONT_SET: &str = "default font set";
 pub const DEFAULT_FONT_SET_DETAIL: &str = "the font vtium.conf sets";
@@ -1039,6 +1115,13 @@ pub fn name_invalid(name: &str) -> String {
         "A terminal's name is 1 to 64 letters, digits, dots, dashes, underscores or plus signs, so {name:?} cannot be one. Choose another name."
     )
 }
+/// A display already turned off, picked into a path with a terminal.
+pub fn display_off(display: &str) -> String {
+    format!(
+        "The display {display} is turned off by the path to no terminal. Revise that path to use the display here."
+    )
+}
+
 pub fn display_taken(display: &str, head: &str) -> String {
     format!(
         "The display {display} is already {}. A display can be in one path only.",
