@@ -821,6 +821,11 @@ pub fn card_path(app: &App, obj: &Obj) -> Option<Path> {
 /// The card's lines for `path`; the editor's also list its parts.
 pub fn card_lines(path: &Path, editor: bool) -> Vec<CardLine> {
     let mut out = vec![CardLine::Name, CardLine::Font, CardLine::Size];
+    // the VTs change only in NEW PATH, where adding the path checks each
+    // VT for a clash (ADR-1403 D7)
+    if editor {
+        out.push(CardLine::Setting("vt"));
+    }
     out.extend(CARD_SETTINGS.iter().map(|k| CardLine::Setting(k)));
     if editor {
         out.extend(
@@ -850,6 +855,11 @@ pub fn card_choices(app: &App, line: &CardLine) -> Vec<(String, String)> {
             .chain(super::model::SIZES.iter().map(|s| own(&s.to_string())))
             .collect(),
         CardLine::Setting("consoles") => (1..=6).map(|n| own(&n.to_string())).collect(),
+        CardLine::Setting("vt") => {
+            let mut out = vec![(words::EVERY_VT.to_owned(), String::new())];
+            out.extend((1u16..=12).map(|n| (words::vt_words(&[n]), n.to_string())));
+            out
+        }
         CardLine::Setting("when-display-lost") => vec![
             (words::KEEP_SESSIONS.to_owned(), String::new()),
             (words::END_SESSIONS.to_owned(), "hangup".to_owned()),
@@ -880,6 +890,7 @@ fn card_label(flow: &Flow, line: &CardLine) -> String {
         CardLine::Font => "Font set".to_owned(),
         CardLine::Size => "Size".to_owned(),
         CardLine::Setting("consoles") => "Consoles".to_owned(),
+        CardLine::Setting("vt") => words::VTS_LABEL.to_owned(),
         CardLine::Setting("login") => "Login".to_owned(),
         CardLine::Setting("when-display-lost") => "When its screen is unplugged".to_owned(),
         CardLine::Setting(k) => (*k).to_owned(),
@@ -920,9 +931,13 @@ fn card_layer(canvas: &mut Canvas, app: &App, state: &flowview::State, obj: &Obj
     };
     let editor = matches!(obj, Obj::New(_));
     let heading = if editor {
-        words::NEW_TERMINAL.to_owned()
+        format!("{} · {}", words::NEW_TERMINAL, words::vt_words(&path.vts()))
     } else {
-        format!("TERMINAL {}", path.name.clone().unwrap_or_default())
+        format!(
+            "TERMINAL {} · {}",
+            path.name.clone().unwrap_or_default(),
+            words::vt_words(&path.vts())
+        )
     };
     canvas.put(1, 3, &heading, bold(Color::BrightWhite));
     let (wtop, wh) = window(app);

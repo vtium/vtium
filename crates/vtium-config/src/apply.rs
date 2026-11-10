@@ -5,7 +5,10 @@
 //! the whole edited `vtium.conf`, each frit to write under
 //! `fonts/`, and `MANIFEST`, one line a file, tab-separated: `write` or
 //! `remove`, the file's name in the draft, and the SHA-256 of the installed
-//! file it replaces as it was when the draft was made, or `new`.
+//! file it replaces as it was when the draft was made, or `new`. A last
+//! line, `accept` and `no-complete-route`, records that the person
+//! confirmed a vtium.conf that wires no complete route, or ran `install
+//! --force` (ADR-1403 D8).
 //!
 //! `apply`, run as root through `sudo vtium-config apply DIR`, takes no
 //! option that names a path or a program ([`crate::cli::root_refusal`]),
@@ -64,6 +67,15 @@ pub const MANIFEST: &str = "MANIFEST";
 /// removes a frit is refused, by the TUI's save and by `apply`.
 pub const FRITS_MOVE_FIRST: &str = "this install changes font-frits and also adds or removes font sets, which would go to the old directory. Install the font-frits change first, then change the font sets.";
 
+/// The manifest line's words that accept a vtium.conf that wires no
+/// complete route (ADR-1403 D8).
+const ACCEPT_NO_ROUTE: &str = "accept\tno-complete-route";
+
+/// What `apply` prints when it installs a vtium.conf that wires no
+/// complete route, because the person confirmed it.
+pub const ACCEPTED_NO_ROUTE: &str =
+    "The draft's vtium.conf has no complete path. It is installed because you confirmed it.";
+
 /// The most bytes of the manifest.
 const MANIFEST_MAX: u64 = 64 * 1024;
 
@@ -106,6 +118,8 @@ enum Entry {
     Write { name: String, was: Option<String> },
     /// A frit to remove, by its name in the draft, and its hash.
     Remove { name: String, was: String },
+    /// The person accepts a vtium.conf that wires no complete route.
+    AcceptNoRoute,
 }
 
 fn hash(bytes: &[u8]) -> String {
@@ -188,6 +202,10 @@ pub fn write_draft(root: &Path, plan: &Plan, targets: &Targets) -> io::Result<Pa
             })?;
         let was = hash(&removal.old);
         manifest.push_str(&format!("remove\t{name}\t{was}\n"));
+    }
+    if plan.no_route {
+        manifest.push_str(ACCEPT_NO_ROUTE);
+        manifest.push('\n');
     }
     std::fs::write(dir.join(MANIFEST), manifest)?;
     Ok(dir)
@@ -401,6 +419,7 @@ fn entries(text: &str) -> Result<Vec<Entry>, String> {
         let n = n.saturating_add(1);
         let fields: Vec<&str> = line.split('\t').collect();
         let entry = match fields.as_slice() {
+            ["accept", "no-complete-route"] => Entry::AcceptNoRoute,
             ["write", name, was] if known(name) => Entry::Write {
                 name: (*name).to_owned(),
                 was: (*was != "new").then(|| (*was).to_owned()),
@@ -484,14 +503,9 @@ fn summarize(stderr: &str, copies: &[(PathBuf, &str)]) -> String {
 /// Runs the console's `vtium check-config` on the draft's vtium.conf,
 /// `file`, both its parts in one run, against the installed configuration
 /// directory `configdir`, or on the installed vtium.conf where the draft
-/// holds none; what it refused, as [`summarize`] says it, when the check
-/// fails.
-fn check_config(
-    vtium: &OsString,
-    configdir: &Path,
-    file: Option<&Path>,
-    copies: &[(PathBuf, &str)],
-) -> Result<(), String> {
+/// holds none; what it wrote to standard error when the check fails,
+/// which [`summarize`] says as root may say it.
+fn check_config(vtium: &OsString, configdir: &Path, file: Option<&Path>) -> Result<(), String> {
     let mut command = std::process::Command::new(vtium);
     command
         .arg("check-config")
@@ -507,7 +521,7 @@ fn check_config(
     if out.status.success() {
         Ok(())
     } else {
-        Err(summarize(&String::from_utf8_lossy(&out.stderr), copies))
+        Err(String::from_utf8_lossy(&out.stderr).into_owned())
     }
 }
 
@@ -690,10 +704,12 @@ fn apply(dir: &Path, targets: &Targets, out: &mut dyn Write) -> Result<bool, Str
     let mut frits = Vec::new();
     let mut conf = None;
     let mut removals = Vec::new();
+    let accept_no_route = entries.contains(&Entry::AcceptNoRoute);
     for entry in &entries {
         let (name, was) = match entry {
             Entry::Write { name, was } => (name, was.clone()),
             Entry::Remove { name, was } => (name, Some(was.clone())),
+            Entry::AcceptNoRoute => continue,
         };
         let path = target(targets, name)?;
         // step 2: a file changed since the draft was made is never lost
@@ -771,14 +787,29 @@ fn apply(dir: &Path, targets: &Targets, out: &mut dyn Write) -> Result<bool, Str
                 "the installed vtium.conf",
             ),
         ];
-        let checked = check_config(&targets.vtium, &targets.configdir, Some(&file), &copies);
+        let checked = check_config(&targets.vtium, &targets.configdir, Some(&file));
         drop(scratch);
-        checked.map_err(|why| {
-            format!(
-                "vtium check-config refused the draft:\n{why}\nTo see the full report, run vtium check-config --configdir {} as yourself.",
-                dir.display()
-            )
-        })?;
+        match checked {
+            Ok(()) => {}
+            // the one problem the person may accept, and only that one
+            // (ADR-1403 D8)
+            Err(said)
+                if accept_no_route
+                    && crate::drafts::only_no_route(
+                        &said.lines().collect::<Vec<_>>(),
+                        &file.to_string_lossy(),
+                    ) =>
+            {
+                let _ = writeln!(out, "{ACCEPTED_NO_ROUTE}");
+            }
+            Err(said) => {
+                return Err(format!(
+                    "vtium check-config refused the draft:\n{}\nTo see the full report, run vtium check-config --configdir {} as yourself.",
+                    summarize(&said, &copies),
+                    dir.display()
+                ));
+            }
+        }
     }
     // a frit vtium.conf names after the save is never removed
     let conf_text = match &conf {
@@ -1077,6 +1108,7 @@ mod tests {
                 },
             ],
             removals: Vec::new(),
+            no_route: false,
         };
         // a check that fails, the console's or the frit reader's, writes
         // nothing

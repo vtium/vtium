@@ -1,7 +1,7 @@
  Flow  Looks  Fonts  Settings  Help       View file  Save  Install  Revert  New
  draft bench  ›  desk   All devices are in a path · no changes · no problems
 
- TERMINAL desk
+ TERMINAL desk · every VT
 
    Name                            desk   Enter types a new name
    Font set                       proof

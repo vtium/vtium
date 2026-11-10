@@ -505,6 +505,7 @@ impl vtium_config::tui::desk::Desk for Desk {
                     new: self.draft.clone(),
                 }],
                 removals: Vec::new(),
+                no_route: false,
             })),
             Op::Devices => Ok(Done::Present(Default::default())),
             other => Err(format!("{other:?} is not in these tests")),
@@ -2949,7 +2950,7 @@ mod draft_flow {
         // Install saves first, then asks (ADR-1403 D7)
         assert!(b.draft().contains("[head deskx]"), "{}", b.draft());
         assert!(
-            flat(asked.screen()).contains("Install the draft? 5 lines added, 3 removed."),
+            flat(asked.screen()).contains("Install the draft? 4 lines added, 3 removed."),
             "{}",
             asked.screen()
         );
@@ -3076,7 +3077,7 @@ mod draft_flow {
         let b = bench("tab-revert");
         let ran = run(&b, &[&CHANGE[..], &[b"s", b"r", TAB]].concat());
         assert!(ran.said().contains(words::NOT_DONE), "{}", ran.screen());
-        assert!(ran.status().contains("5 changes"), "{}", ran.status());
+        assert!(ran.status().contains("4 changes"), "{}", ran.status());
         let line = ran.screen().lines().last().unwrap_or_default().trim();
         assert!(line.ends_with("q quit"), "{}", ran.screen());
     }
@@ -3095,6 +3096,39 @@ mod draft_flow {
         assert!(ran.console.saves.is_empty());
         assert_eq!(b.installed(), edited);
         assert!(b.draft().contains("display * -> deskx"), "{}", b.draft());
+    }
+
+    // ADR-1403 D7: a draft whose only problem is a missing complete route
+    // installs only after Install's own question, and a no installs nothing
+    #[test]
+    fn install_asks_before_it_installs_a_draft_with_no_complete_path() {
+        let b = bench("install-no-route");
+        let message = vtium_settings::Missing::NoDisplayRule
+            .to_string()
+            .replace('\'', r"'\''");
+        let checker = CHECKER.replace(
+            "if [ -n \"$bad\" ]; then",
+            &format!(
+                "if grep -q NOROUTE \"$file\"; then\n  printf '%s\\n' \"$file: \"'{message}' >&2\n  [ -n \"$bad\" ] || exit 1\nfi\nif [ -n \"$bad\" ]; then"
+            ),
+        );
+        script::executable(&b.root.join("vtium"), &checker);
+        run(&b, &[&CHANGE[..], &[b"s"]].concat());
+        let unrouted = format!("# NOROUTE\n{}", b.draft());
+        let path = b.store().draft_path("bench").expect("the draft's path");
+        std::fs::write(path, &unrouted).expect("the draft");
+        let asked = run(&b, &[b"i"]);
+        assert!(
+            flat(asked.screen()).contains(&flat(&words::no_route_question(5, 3, 0))),
+            "{}",
+            asked.screen()
+        );
+        let no = run(&b, &[b"i", b"n"]);
+        assert!(no.console.saves.is_empty());
+        assert_eq!(b.installed(), INSTALLED);
+        let ran = run(&b, &[b"i", b"y"]);
+        assert_eq!(ran.console.saves.len(), 1);
+        assert_eq!(b.installed(), unrouted);
     }
 
     #[test]

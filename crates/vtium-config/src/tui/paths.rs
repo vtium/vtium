@@ -27,8 +27,10 @@ use super::words;
 
 /// The part `any keyboard`: every input with keys, written as a rule for
 /// full keyboards and one for the inputs with some keys, as vtium's
-/// shipped default writes them.
-pub const ANY_KEYBOARD: &str = "class:keyboard";
+/// shipped default writes them (ADR-1403 D8). Its own word is no class of
+/// vtium's, so a lone `class:keyboard` rule reads back as a part of its own
+/// and a change elsewhere never adds `class:key` to it.
+pub const ANY_KEYBOARD: &str = "class:keyboard+key";
 const KEYBOARD_CLASSES: [&str; 2] = ["class:keyboard", "class:key"];
 
 /// The part `any pointer`, written as one rule for each class of pointer
@@ -62,10 +64,12 @@ pub fn expand(part: &str) -> Vec<&str> {
     }
 }
 
-/// The terminal settings a path carries that allocate nothing: how many
-/// consoles, the login, and what happens when its screen is unplugged.
-/// `isolated` is kept as the draft has it.
-pub const SETTINGS: [&str; 4] = ["consoles", "login", "when-display-lost", "isolated"];
+/// The terminal settings a path carries: how many consoles, the login,
+/// what happens when its screen is unplugged, and the VTs it runs on.
+/// `isolated` is kept as the draft has it. The card changes the first
+/// three in place; the VTs change only in NEW PATH, so that vtium-config
+/// checks each VT for a clash when the path is added (ADR-1403 D7).
+pub const SETTINGS: [&str; 5] = ["consoles", "login", "when-display-lost", "isolated", "vt"];
 
 /// One part of a path.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -164,6 +168,34 @@ impl Path {
 
     /// The value of the setting `key`, empty when the path leaves it at its
     /// default.
+    /// The VTs the path's terminal runs on, none for every VT (ADR-1403
+    /// D4).
+    pub fn vts(&self) -> Vec<u16> {
+        self.setting("vt")
+            .split_whitespace()
+            .filter_map(|v| v.parse().ok())
+            .collect()
+    }
+
+    /// The VT on which this path's terminal and `other`'s both run, the
+    /// smallest, or `Some(None)` when both run on every VT; `None` when
+    /// they share no VT, so the two may hold the same display and inputs
+    /// (ADR-1403 D4, D7).
+    pub fn shared_vt(&self, other: &Path) -> Option<Option<u16>> {
+        let (mine, theirs) = (self.vts(), other.vts());
+        match (mine.is_empty(), theirs.is_empty()) {
+            (true, true) => Some(None),
+            (true, false) => theirs.iter().min().copied().map(Some),
+            (false, true) => mine.iter().min().copied().map(Some),
+            (false, false) => mine
+                .iter()
+                .filter(|v| theirs.contains(v))
+                .min()
+                .copied()
+                .map(Some),
+        }
+    }
+
     pub fn setting(&self, key: &str) -> String {
         self.settings
             .iter()
@@ -371,13 +403,17 @@ impl Doc {
         self.paths.iter().find(|p| p.name.as_deref() == Some(name))
     }
 
-    /// Whether the input part `sel`, picked into a new path, roams once the
-    /// path is added: it roams already, another path has it, or the new
-    /// path is the configuration's first.
-    pub fn would_roam(&self, sel: &str) -> bool {
+    /// Whether the input part `sel`, picked into the new path `new`, roams
+    /// once the path is added: it roams already, another path whose
+    /// terminal shares a VT with `new`'s has it, or the new path is the
+    /// configuration's first. A path on another VT keeps it (ADR-1403 D7).
+    pub fn would_roam(&self, sel: &str, new: &Path) -> bool {
         (self.empty && self.paths.is_empty())
             || self.roaming.iter().any(|r| r == sel)
-            || self.paths.iter().any(|p| p.inputs.iter().any(|i| i == sel))
+            || self
+                .paths
+                .iter()
+                .any(|p| p.inputs.iter().any(|i| i == sel) && new.shared_vt(p).is_some())
     }
 
     /// The configuration with `new` added: each input of `new` that roams
@@ -397,6 +433,10 @@ impl Doc {
             }
             let mut held = false;
             for p in &mut doc.paths {
+                // a path on another VT keeps the input (ADR-1403 D7)
+                if new.shared_vt(p).is_none() {
+                    continue;
+                }
                 if let Some(at) = p.inputs.iter().position(|x| *x == i) {
                     p.inputs.remove(at);
                     held = true;
@@ -578,22 +618,28 @@ pub fn read(flow: &Flow) -> Doc {
     }
     let unfit = flow.rules.iter().filter(|r| !fits(flow, r)).count();
     // a label's line writes the first rule's match of the part, so the
-    // pointers' first class reads back as "every pointer" where the
-    // configuration has that part
-    let pointers = paths
-        .iter()
-        .flat_map(|p| &p.inputs)
-        .chain(&roaming)
-        .chain(&ignored)
-        .any(|s| s == ANY_POINTER);
+    // first class of the pointers, or of the keyboards, reads back as
+    // "every pointer" or "every keyboard", unless a rule of the
+    // configuration names that one class alone
+    let has = |part: &str| {
+        paths
+            .iter()
+            .flat_map(|p| &p.inputs)
+            .chain(&roaming)
+            .chain(&ignored)
+            .any(|s| s == part)
+    };
+    let wholes: Vec<(&str, &str)> = [ANY_POINTER, ANY_KEYBOARD]
+        .into_iter()
+        .filter_map(|part| expand(part).first().map(|first| (*first, part)))
+        .filter(|(first, _)| !has(first))
+        .collect();
     let labels = flow
         .labels
         .iter()
         .map(|(kind, sel, label)| {
-            let sel = match POINTER_CLASSES.first() {
-                Some(first) if pointers && *kind == Kind::Input && sel == first => {
-                    ANY_POINTER.to_owned()
-                }
+            let sel = match wholes.iter().find(|(first, _)| first == sel) {
+                Some((_, part)) if *kind == Kind::Input => (*part).to_owned(),
                 _ => sel.clone(),
             };
             (*kind, sel, label.clone())
@@ -689,34 +735,39 @@ pub fn new_name_besides(flow: &Flow, doc: &Doc, made: &[String]) -> String {
         .unwrap_or_else(|| "terminal".to_owned())
 }
 
-/// How specific a selector is, most specific first: one device by its
-/// serial, EDID or Bluetooth address; then a model by its id, or a device
-/// by the name it gives itself; then a port or a connector; then a class,
-/// a card or a udev property; then the catch-alls.
-pub fn rank(selector: &str) -> u8 {
-    let key = selector.split(':').next().unwrap_or_default();
-    match key {
-        "serial" | "edid" | "bluetooth" => 0,
-        "id" | "name" => 1,
-        "path" | "connector" | "connector-path" => 2,
-        "class" | "card" | "udev" => 3,
-        _ => 4,
-    }
+/// How specific the selector of a rule of `kind` is, by ADR-1403 D8's
+/// ranks, from 1 for one device to 7 for the catch-all. vtium-settings
+/// gives the rank ([`vtium_settings::Match::rank`]), so vtium-config and
+/// the section writer keep one order. The parts' own words, All keyboards
+/// and All mice and touchpads, rank as the classes they stand for, and a
+/// selector vtium cannot read ranks with the catch-all.
+pub fn rank(kind: Kind, selector: &str) -> u8 {
+    let selector = expand(selector).first().copied().unwrap_or(selector);
+    let word = match kind {
+        Kind::Display => "display",
+        Kind::Input => "input",
+    };
+    let text = format!("version = 1\n[head h]\n[rules]\n{word} {selector} -> h\n");
+    vtium_settings::parse_sections(&text)
+        .ok()
+        .flatten()
+        .and_then(|p| p.config.rules.first().map(|r| r.matcher.rank()))
+        .unwrap_or(vtium_settings::Match::RANK_ANY)
 }
 
 /// Where a rule goes among the rules [`plan`] writes: the display rules
 /// before the input rules, each kind most specific first, and the classes
 /// in the order the shipped default lists them.
 fn order(kind: Kind, selector: &str) -> (u8, u8, usize) {
-    let kind = match kind {
-        Kind::Display => 0,
-        Kind::Input => 1,
-    };
     let class = CLASS_ORDER
         .iter()
         .position(|c| *c == selector)
         .unwrap_or(CLASS_ORDER.len());
-    (kind, rank(selector), class)
+    let at = match kind {
+        Kind::Display => 0,
+        Kind::Input => 1,
+    };
+    (at, rank(kind, selector), class)
 }
 
 /// What adding the new path does.
@@ -750,10 +801,17 @@ pub fn check_add(flow: &Flow, doc: &Doc, new: &Path) -> Result<Adding, String> {
         });
     }
     let name = |p: &Path| p.name.clone().unwrap_or_default();
+    // a display is in one path for each VT: only a path whose terminal
+    // shares a VT with the new one's clashes (ADR-1403 D4, D7)
     let taken = |d: &str| {
         let (title, _) = title(flow, Kind::Display, d);
-        if let Some(p) = doc.paths.iter().find(|p| p.displays.iter().any(|x| x == d)) {
-            return Some(words::display_taken(&title, &name(p)));
+        let clash = doc
+            .paths
+            .iter()
+            .filter(|p| p.displays.iter().any(|x| x == d))
+            .find_map(|p| new.shared_vt(p).map(|vt| (p, vt)));
+        if let Some((p, vt)) = clash {
+            return Some(words::display_taken(&title, &name(p), vt));
         }
         (!new.none && doc.off.iter().any(|x| x == d)).then(|| words::display_off(&title))
     };
@@ -778,6 +836,7 @@ pub fn check_add(flow: &Flow, doc: &Doc, new: &Path) -> Result<Adding, String> {
     };
     let held = doc.paths.iter().find(|p| {
         set(&p.displays) == set(&new.displays)
+            && p.vts() == new.vts()
             && p.no_input == new.no_input
             && new
                 .inputs
@@ -979,8 +1038,13 @@ fn rules_plan(flow: &Flow, doc: &Doc) -> Vec<(Line, bool)> {
             push(Line::new(Kind::Display, d, name));
         }
         for i in &p.inputs {
-            // an input two paths name roams, should a path name it twice
-            let paths = doc.paths.iter().filter(|q| q.inputs.contains(i)).count();
+            // an input two paths on one VT name roams, should a path name
+            // it twice; paths on different VTs each keep it (ADR-1403 D7)
+            let paths = doc
+                .paths
+                .iter()
+                .filter(|q| q.inputs.contains(i) && p.shared_vt(q).is_some())
+                .count();
             let target = if paths > 1 { "roaming" } else { name.as_str() };
             for s in expand(i) {
                 push(Line::new(Kind::Input, s, target));
@@ -1238,7 +1302,7 @@ pub fn narrow(flow: &Flow, s: Sort) -> Vec<(String, String)> {
                 .map(|s| (title(flow, Kind::Display, &s).0, s))
                 .collect();
         }
-        Sort::Keyboard => add("class:keyboard".to_owned()),
+        Sort::Keyboard => add(ANY_KEYBOARD.to_owned()),
         Sort::Pointer => add(ANY_POINTER.to_owned()),
         Sort::Other => {}
     }
@@ -1271,7 +1335,9 @@ pub fn sort_of(flow: &Flow, piece: &Piece) -> Sort {
         | Piece::NoInput
         | Piece::NoTerminal
         | Piece::Terminal(_) => Sort::Other,
-        Piece::Input(s) if s == "class:keyboard" => Sort::Keyboard,
+        Piece::Input(s) if s == ANY_KEYBOARD || KEYBOARD_CLASSES.contains(&s.as_str()) => {
+            Sort::Keyboard
+        }
         Piece::Input(s) if s == ANY_POINTER || POINTER_CLASSES.contains(&s.as_str()) => {
             Sort::Pointer
         }
@@ -1549,7 +1615,7 @@ pub(crate) mod tests {
         let why = check_add(&f, &doc, &p).expect_err("a conflict");
         assert_eq!(
             why,
-            "The display HDMI-A-2 is already in the terminal panel. A display can be in one path only."
+            "The display HDMI-A-2 is already in the terminal panel on every VT. A display can be in one path for each VT."
         );
         // an input already in a path may join another, and will roam
         let p = path(None, &["connector:card1/DP-9"], &["id:046d:c31c"], None);
@@ -1645,7 +1711,7 @@ pub(crate) mod tests {
         let new = path(
             Some(&name),
             &["*"],
-            &["class:keyboard", PORT_33, "serial:2dc8:5200:9", ANY_POINTER],
+            &[ANY_KEYBOARD, PORT_33, "serial:2dc8:5200:9", ANY_POINTER],
             Some("dejavu"),
         );
         let doc = doc.with(new.clone());
@@ -1660,8 +1726,9 @@ pub(crate) mod tests {
                 "display * -> terminal-1",
                 "input serial:046d:c52b:0 -> desk",
                 "input serial:2dc8:5200:9 -> terminal-1",
-                "input id:046d:c31c -> roaming",
+                // a port before a model (ADR-1403 D8)
                 format!("input {PORT_33} -> terminal-1").as_str(),
+                "input id:046d:c31c -> roaming",
                 "input class:keyboard -> terminal-1",
                 "input class:mouse -> terminal-1",
                 "input class:touchpad -> terminal-1",
@@ -1677,7 +1744,14 @@ pub(crate) mod tests {
             let ranks: Vec<u8> = lines
                 .iter()
                 .filter_map(|l| l.strip_prefix(kind))
-                .map(|l| rank(l.split_whitespace().next().unwrap_or_default()))
+                .map(|l| {
+                    let k = if kind == "display " {
+                        Kind::Display
+                    } else {
+                        Kind::Input
+                    };
+                    rank(k, l.split_whitespace().next().unwrap_or_default())
+                })
                 .collect();
             assert!(ranks.windows(2).all(|w| w[0] <= w[1]), "{kind}{ranks:?}");
         }
@@ -1709,9 +1783,9 @@ pub(crate) mod tests {
         let doc = read(&f);
         // desk's own keyboard, picked into a new path too
         let own = "serial:046d:c52b:0";
-        assert!(doc.would_roam(own));
-        assert!(doc.would_roam("id:046d:c31c"));
-        assert!(!doc.would_roam(KBD_PATH));
+        assert!(doc.would_roam(own, &Path::default()));
+        assert!(doc.would_roam("id:046d:c31c", &Path::default()));
+        assert!(!doc.would_roam(KBD_PATH, &Path::default()));
         let new = path(
             Some("terminal-1"),
             &["connector:card1/DP-9"],
@@ -1733,7 +1807,7 @@ pub(crate) mod tests {
                 empty: true,
                 ..Doc::default()
             }
-            .would_roam(KBD_PATH)
+            .would_roam(KBD_PATH, &Path::default())
         );
     }
 
@@ -2041,12 +2115,201 @@ pub(crate) mod tests {
     fn a_port_drops_its_usb_interface() {
         assert_eq!(port_of(KBD_PATH), PORT_33);
         assert_eq!(port_of("path:acpi-LNXPWRBN:00"), "path:acpi-LNXPWRBN:00");
-        assert_eq!(rank("serial:1"), 0);
-        assert_eq!(rank("id:046d:c31c"), 1);
-        assert_eq!(rank(PORT_33), 2);
-        assert_eq!(rank("class:keyboard"), 3);
-        assert_eq!(rank("*"), 4);
+        // ADR-1403 D8's ranks, as vtium-settings gives them
+        assert_eq!(rank(Kind::Input, "serial:046d:c52b:1"), 1);
+        assert_eq!(rank(Kind::Display, "edid:AAA:0x0001:LARGE00001"), 1);
+        assert_eq!(rank(Kind::Input, PORT_33), 2);
+        assert_eq!(rank(Kind::Display, "connector:pci-0000:03:00.0/DP-8"), 2);
+        assert_eq!(rank(Kind::Display, "card:pci-0000:03:00.0"), 3);
+        assert_eq!(rank(Kind::Input, "id:046d:c31c"), 4);
+        assert_eq!(rank(Kind::Input, "name:Power*"), 5);
+        assert_eq!(rank(Kind::Input, "class:keyboard"), 6);
+        assert_eq!(rank(Kind::Input, ANY_KEYBOARD), 6);
+        assert_eq!(rank(Kind::Input, ANY_POINTER), 6);
+        assert_eq!(rank(Kind::Input, "*"), 7);
     }
+    /// A draft with no terminal yet: DP-8 by its connector and the keyboard
+    /// by its serial, both connected, and the catch-all ignore.
+    const VTS_TEXT: &str = "version = 1\n[rules]\ninput * -> ignore\n";
+    const DP8: &str = "connector:pci-0000:03:00.0/DP-8";
+    const KBD: &str = "serial:2dc8:5200:9";
+
+    /// The path of the terminal `name` on the VTs `vt`, with DP-8 and the
+    /// keyboard.
+    fn on_vt(name: &str, vt: &str) -> Path {
+        let mut p = path(Some(name), &[DP8], &[KBD], None);
+        p.set("vt", vt);
+        p
+    }
+
+    /// Where vtium places DP-8 and the keyboard of `text` on `vt`, by
+    /// vtium-settings' own walk (ADR-1401 D3): each one's head's name, or
+    /// its place's words.
+    fn placed_on(text: &str, vt: u16) -> (String, String) {
+        use vtium_settings::{Class, Identity, Place, UsbSerial};
+        let config = vtium_settings::parse_sections(text)
+            .expect("the draft reads")
+            .expect("it has sections")
+            .config;
+        let mut dp8 = Identity::display();
+        dp8.connector = Some("DP-8".into());
+        dp8.card = Some("pci-0000:03:00.0".into());
+        let mut kbd = Identity::input().with_class(Class::Keyboard);
+        kbd.serial = Some(UsbSerial {
+            vendor: 0x2dc8,
+            product: 0x5200,
+            serial: "9".into(),
+        });
+        let words = |id: &Identity| match config.walk_on(id, vt).place {
+            Place::Head(h) => config.heads[h].name.clone(),
+            other => format!("{other:?}"),
+        };
+        (words(&dp8), words(&kbd))
+    }
+
+    // ADR-1403 D7, path test 8: terminals on VT 3 and VT 4 each hold DP-8
+    // and the same keyboard; each VT shows its own terminal on DP-8, and
+    // the keyboard types into the terminal of the VT shown
+    #[test]
+    fn path_test_8_two_terminals_on_two_vts_share_a_display_and_a_keyboard() {
+        let f = build(VTS_TEXT);
+        let doc = read(&f).with(on_vt("vt3", "3"));
+        let text = apply(VTS_TEXT, &plan(&f, &doc));
+        let f = build(&text);
+        let doc = read(&f);
+        let b = on_vt("vt4", "4");
+        assert_eq!(check_add(&f, &doc, &b), Ok(Adding::New));
+        let doc = doc.with(b);
+        assert_eq!(
+            doc.path("vt3").map(|p| p.inputs.clone()),
+            Some(vec![KBD.to_owned()])
+        );
+        assert_eq!(
+            doc.path("vt4").map(|p| p.inputs.clone()),
+            Some(vec![KBD.to_owned()])
+        );
+        assert!(doc.roaming.is_empty(), "{:?}", doc.roaming);
+        let text = apply(&text, &plan(&f, &doc));
+        assert!(text.contains("[head vt3]\nvt = 3\n"), "{text}");
+        assert!(text.contains("[head vt4]\nvt = 4\n"), "{text}");
+        assert_eq!(placed_on(&text, 3), ("vt3".to_owned(), "vt3".to_owned()));
+        assert_eq!(placed_on(&text, 4), ("vt4".to_owned(), "vt4".to_owned()));
+        // the boxes say each terminal's VT
+        let back = read(&build(&text));
+        assert_eq!(back.path("vt3").map(Path::vts), Some(vec![3]));
+        assert_eq!(words::vt_words(&[3]), "VT 3");
+        assert_eq!(words::vt_words(&[]), "every VT");
+        assert_eq!(words::vt_words(&[3, 4, 5]), "VTs 3, 4 and 5");
+    }
+
+    // ADR-1403 D7: a display in a path on VT 3 clashes with a new path on
+    // VT 3, and with one on every VT, and the refusal names the VT
+    #[test]
+    fn a_clash_on_one_vt_is_refused_and_names_the_vt() {
+        let f = build(VTS_TEXT);
+        let doc = read(&f).with(on_vt("vt3", "3"));
+        let text = apply(VTS_TEXT, &plan(&f, &doc));
+        let f = build(&text);
+        let doc = read(&f);
+        let dp8 = title(&f, Kind::Display, DP8).0;
+        assert_eq!(
+            check_add(&f, &doc, &on_vt("again", "3 5")),
+            Err(format!(
+                "The display {dp8} is already in the terminal vt3 on VT 3. A display can be in one path for each VT."
+            ))
+        );
+        assert_eq!(
+            check_add(&f, &doc, &on_vt("every", "")),
+            Err(format!(
+                "The display {dp8} is already in the terminal vt3 on VT 3. A display can be in one path for each VT."
+            ))
+        );
+        // on one VT the keyboard two paths name roams, as before `vt`
+        let mut same = on_vt("again", "3");
+        same.displays = vec![EDID_A.to_owned()];
+        let doc = doc.with(same);
+        assert_eq!(doc.roaming, [KBD]);
+    }
+
+    // ADR-1403 D7: Revise takes a path with its VTs into NEW PATH, and
+    // adding it back leaves the draft byte for byte as it was
+    #[test]
+    fn revise_round_trips_a_terminal_s_vts() {
+        let f = build(VTS_TEXT);
+        let doc = read(&f).with(on_vt("vt3", "3 5")).with(on_vt("vt4", "4"));
+        let text = apply(VTS_TEXT, &plan(&f, &doc));
+        assert!(text.contains("vt = 3 5\n"), "{text}");
+        let mut seen = 0;
+        for (name, b) in round_trips(&text) {
+            assert_eq!(b.as_deref(), Ok(text.as_str()), "{name}");
+            seen += 1;
+        }
+        assert!(seen >= 2);
+    }
+
+    // ADR-1403 D4, D8: labelling one part writes the `[labels]` section,
+    // with its comment, and that part's line, and changes nothing else; a
+    // second label adds its one line
+    #[test]
+    fn labelling_one_part_changes_only_its_label_line() {
+        for text in [TEXT, crate::drafts::EXAMPLE, crate::tui::fixture::DRAFT] {
+            let f = build(text);
+            let mut doc = read(&f);
+            doc.set_label(Kind::Input, "serial:046d:c52b:0", "Desk keyboard");
+            let one = super::super::edit::apply_all(text, &plan(&f, &doc)).expect("the label");
+            let added = one
+                .strip_prefix(text)
+                .expect("nothing before the section changes");
+            assert_eq!(
+                added,
+                "\n# The person's own names for displays and inputs. vtium shows a\n# display's label when vtium-config identifies the displays.\n[labels]\ninput serial:046d:c52b:0 = Desk keyboard\n"
+            );
+            let back = build(&one);
+            let mut doc = read(&back);
+            doc.set_label(Kind::Display, "edid:BBB:0x0002:SMALL00001", "Panel");
+            let two = apply(&one, &plan(&back, &doc));
+            assert_eq!(
+                crate::drafts::counts(&one, &two),
+                (1, 0),
+                "{}",
+                crate::drafts::diff("a", &one, "b", &two)
+            );
+        }
+        // a draft with no section runs the compiled-in flow, which a label
+        // writes out first, so the draft keeps its meaning and the label
+        // reads back; a second label then adds one line
+        let plain = "# a comment\nfont-name=monoid\n";
+        let f = build(plain);
+        let mut doc = read(&f);
+        doc.set_label(Kind::Input, "serial:046d:c52b:0", "Desk keyboard");
+        let one = super::super::edit::apply_all(plain, &plan(&f, &doc)).expect("the label");
+        assert!(one.starts_with(plain), "{one}");
+        assert_eq!(rules_of(&one), rules_of(crate::drafts::EXAMPLE));
+        let back = build(&one);
+        assert_eq!(
+            read(&back).label(Kind::Input, "serial:046d:c52b:0"),
+            Some("Desk keyboard")
+        );
+        let mut doc = read(&back);
+        doc.set_label(Kind::Display, "edid:BBB:0x0002:SMALL00001", "Panel");
+        let two = super::super::edit::apply_all(&one, &plan(&back, &doc)).expect("the label");
+        assert_eq!(crate::drafts::counts(&one, &two), (1, 0));
+        // a draft that holds the try-out's longer comment gets the short one
+        let tried = format!(
+            "{TEXT}\n{}[labels]\ninput serial:046d:c52b:0 = Desk keyboard\n",
+            crate::ops::LABELS_COMMENT_TRIED
+        );
+        let f = build(&tried);
+        let mut doc = read(&f);
+        doc.set_label(Kind::Input, "serial:046d:c52b:0", "Desk board");
+        assert_eq!(
+            apply(&tried, &plan(&f, &doc)).strip_prefix(TEXT),
+            Some(
+                "\n# The person's own names for displays and inputs. vtium shows a\n# display's label when vtium-config identifies the displays.\n[labels]\ninput serial:046d:c52b:0 = Desk board\n"
+            )
+        );
+    }
+
     #[test]
     fn labels_round_trip_through_the_labels_section_in_the_rules_order() {
         let f = build(TEXT);

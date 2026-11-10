@@ -119,13 +119,10 @@ impl App {
         let Some(draft) = &self.draft else {
             return self.say(words::NO_DESK);
         };
-        let mut text = draft.text.clone();
-        for change in &changes {
-            match change.apply(&text) {
-                Ok(next) => text = next,
-                Err(fail) => return self.say(fail.text()),
-            }
-        }
+        let text = match super::edit::apply_all(&draft.text, &changes) {
+            Ok(text) => text,
+            Err(fail) => return self.say(fail.text()),
+        };
         let commands: Vec<String> = changes.iter().map(Change::command).collect();
         self.message = Some(commands.join("\n"));
         self.select_after = select;
@@ -247,10 +244,14 @@ impl App {
                         .unwrap_or_default(),
                     _ => (0, 0),
                 };
-                self.ask(
-                    words::install_question(added, removed, n),
-                    Then::Install(plan),
-                );
+                // a draft whose only problem is that it wires no complete
+                // route installs only after this question (ADR-1403 D7)
+                let question = if plan.no_route {
+                    words::no_route_question(added, removed, n)
+                } else {
+                    words::install_question(added, removed, n)
+                };
+                self.ask(question, Then::Install(plan));
             }
             Done::Refused(why, problems) => {
                 let mut lines = vec![why];

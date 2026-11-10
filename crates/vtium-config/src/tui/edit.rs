@@ -86,6 +86,20 @@ fn shell(word: &str) -> String {
     }
 }
 
+/// The draft `text` with `changes` made in order. When a change edits the
+/// sections and the draft has none, the compiled-in flow is written out
+/// first, since the changes were worked out from the flow the view shows
+/// ([`ops::with_flow`]).
+pub fn apply_all(text: &str, changes: &[Change]) -> Result<String, Fail> {
+    let sections = changes.iter().any(|c| !matches!(c, Change::Top { .. }));
+    let start = if sections {
+        ops::with_flow(text)
+    } else {
+        text.to_owned()
+    };
+    changes.iter().try_fold(start, |t, c| c.apply(&t))
+}
+
 impl Change {
     /// The draft `text` with the change made, through the operations the
     /// commands call.

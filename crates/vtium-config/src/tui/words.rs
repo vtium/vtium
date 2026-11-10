@@ -416,6 +416,29 @@ pub fn install_question(added: usize, removed: usize, frits: usize) -> String {
         ),
     }
 }
+/// The first half of Install's question for a draft that wires no
+/// complete route, and of the refusal without a terminal (ADR-1403 D7,
+/// D8).
+pub const NO_ROUTE: &str = "This draft has no complete path: no connected display is sent to a head that a connected keyboard reaches.";
+/// What `vtium config install` says, with no terminal to ask and no
+/// `--force`, of a draft that wires no complete route (ADR-1403 D8).
+pub fn no_route_force() -> String {
+    format!("{NO_ROUTE} To install it anyway, run vtium config install --force.")
+}
+/// What `vtium config install` says when the person answers no.
+pub const NO_ROUTE_NOT_INSTALLED: &str =
+    "Nothing installed: you answered no. The draft keeps your changes.";
+/// Install's question for a draft whose only problem is that it wires no
+/// complete route (ADR-1403 D7).
+pub fn no_route_question(added: usize, removed: usize, frits: usize) -> String {
+    let install = install_question(added, removed, frits);
+    let counted = install
+        .strip_prefix("Install the draft? ")
+        .unwrap_or(&install);
+    format!(
+        "{NO_ROUTE} After the install, nobody at this machine may be able to type into vtium. Install it anyway? {counted}"
+    )
+}
 pub const NOT_PREPARED: &str = "The install is not ready yet. Press i again.";
 pub fn install_failed(why: &str) -> String {
     format!("Not installed: {why}")
@@ -733,6 +756,21 @@ pub const BY_CONNECTOR: &str = "by its connector";
 pub const NOT_PLUGGED: &str = "Not connected";
 pub const EVERY_INPUT_ON_PORT: &str = "every input on that port";
 pub const DEFAULT_FONT_SET: &str = "default font set";
+/// The VTs a terminal runs on, as its box and its card say them (ADR-1403
+/// D4, D7): `every VT` for a terminal with no `vt`, else `VT 3` or
+/// `VTs 3 and 4`.
+pub fn vt_words(vts: &[u16]) -> String {
+    match vts {
+        [] => EVERY_VT.to_owned(),
+        [one] => format!("VT {one}"),
+        [rest @ .., last] => {
+            let rest: Vec<String> = rest.iter().map(u16::to_string).collect();
+            format!("VTs {} and {last}", rest.join(", "))
+        }
+    }
+}
+pub const EVERY_VT: &str = "every VT";
+pub const VTS_LABEL: &str = "VTs";
 pub const DEFAULT_FONT_SET_DETAIL: &str = "the font vtium.conf sets";
 pub const FONT_SET: &str = "font set";
 pub const IN_NO_PATH: &str = "in no path";
@@ -833,9 +871,16 @@ pub fn display_off(display: &str) -> String {
     )
 }
 
-pub fn display_taken(display: &str, head: &str) -> String {
+/// A display that a path on the same VT holds (ADR-1403 D7): the topic,
+/// the display, first, then the terminal that holds it and the VT where
+/// the two clash, `None` when both run on every VT.
+pub fn display_taken(display: &str, head: &str, vt: Option<u16>) -> String {
+    let on = match vt {
+        Some(vt) => format!("VT {vt}"),
+        None => "every VT".to_owned(),
+    };
     format!(
-        "The display {display} is already {}. A display can be in one path only.",
+        "The display {display} is already {} on {on}. A display can be in one path for each VT.",
         in_terminal(head)
     )
 }
@@ -959,6 +1004,20 @@ mod tests {
         assert_eq!(
             super::NEW_QUESTION,
             "Start a new configuration? The draft's heads, rules and looks will be lost."
+        );
+    }
+
+    // ADR-1403 D7 and D8 word Install's question and the refusal for a
+    // draft that wires no complete route
+    #[test]
+    fn install_asks_before_it_installs_a_draft_with_no_complete_path() {
+        assert_eq!(
+            super::no_route_question(3, 1, 0),
+            "This draft has no complete path: no connected display is sent to a head that a connected keyboard reaches. After the install, nobody at this machine may be able to type into vtium. Install it anyway? 3 lines added, 1 removed."
+        );
+        assert_eq!(
+            super::no_route_force(),
+            "This draft has no complete path: no connected display is sent to a head that a connected keyboard reaches. To install it anyway, run vtium config install --force."
         );
     }
 }

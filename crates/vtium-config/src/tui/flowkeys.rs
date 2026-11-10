@@ -278,16 +278,23 @@ impl App {
             }
             Obj::Pal(Slot::Special(p)) | Obj::New(Slot::Special(p)) => self.pick(p.clone()),
             Obj::Pal(Slot::Display(sel)) => {
+                // a display is in one path for each VT: picking it is
+                // refused only when a path that holds it shares a VT with
+                // the new path's terminal (ADR-1403 D7)
                 let held = flow
                     .displays
                     .iter()
                     .find(|d| d.keys.contains(sel))
                     .map(|d| flowview::holders(&doc.paths, super::flow::Kind::Display, d))
                     .unwrap_or_default();
+                let clash = held.iter().find_map(|h| {
+                    let vt = doc.path(h).and_then(|p| state.new.shared_vt(p))?;
+                    Some((h, vt))
+                });
                 let picked = state.new.has(&Piece::Display(sel.clone()));
-                if let (Some(h), false) = (held.first(), picked) {
+                if let (Some((h, vt)), false) = (clash, picked) {
                     let (title, _) = paths::title(flow, super::flow::Kind::Display, sel);
-                    return self.tell(words::display_taken(&title, h));
+                    return self.tell(words::display_taken(&title, h, vt));
                 }
                 self.pick(Piece::Display(sel.clone()))
             }
@@ -366,7 +373,7 @@ impl App {
         if new.none {
             return self.tell(words::picked_aside(&title, display));
         }
-        let roams = !display && (new.active || doc.would_roam(sel));
+        let roams = !display && (new.active || doc.would_roam(sel, &new));
         let pointers = done == Picked::AddedWithPointers;
         self.tell(words::picked(&title, display, &new, pointers, roams))
     }

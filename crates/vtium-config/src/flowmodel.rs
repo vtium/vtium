@@ -1,9 +1,7 @@
 //! The flow of a draft with the devices present placed on it (ADR-1403
 //! D7, D8): [`build`] makes the Flow view's model, [`tui::flow::Flow`],
 //! from a draft's text and the devices [`present`] reads, and [`text`]
-//! and [`json`] print it for `vtium config flow`. [`routes`] lists the
-//! complete routes an item is part of, which the route card and `vtium
-//! config route` show.
+//! and [`json`] print it for `vtium config flow`.
 //!
 //! Each device is placed by the first rule that matches it, through
 //! vtium-settings's own walk over the rules, and the devices are mapped
@@ -19,7 +17,7 @@ use vtium_settings::{By, Identity, Kind as IdKind, Policy, Warning, WhenDisplayL
 
 use crate::ops::RuleText;
 use crate::tui::flow::{
-    Base, Device, Draft, Flow, Head, Item, Kind, Look, Rule, RuleState, Special, Target, general,
+    Base, Device, Draft, Flow, Head, Kind, Look, Rule, RuleState, Target, general,
 };
 
 /// The devices present, and whether a udev daemon runs, which the keys
@@ -343,6 +341,11 @@ pub fn build(text: &str, present: &Present, draft: Option<Draft>) -> Flow {
                     if isolated { "yes" } else { "no" }.to_owned(),
                 ));
             }
+            // the VTs the head runs on, none for every VT (ADR-1403 D4)
+            if !h.vts.is_empty() {
+                let vts: Vec<String> = h.vts.iter().map(u16::to_string).collect();
+                keys.push(("vt".to_owned(), vts.join(" ")));
+            }
             Head {
                 name: h.name.clone(),
                 consoles: h.consoles,
@@ -663,185 +666,6 @@ pub fn json(
     )
 }
 
-/// One complete route of the flow: a display, its rule, the head that
-/// rule sends it to, an input rule that reaches the head and an input
-/// device it places, each by its index.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Route {
-    pub display: usize,
-    pub display_rule: usize,
-    pub head: usize,
-    pub input_rule: usize,
-    pub input: usize,
-}
-
-impl Route {
-    /// Whether `item` is on the route.
-    pub fn has(&self, flow: &Flow, item: Item) -> bool {
-        match item {
-            Item::Display(d) => d == self.display,
-            Item::Input(d) => d == self.input,
-            Item::Rule(r) => r == self.display_rule || r == self.input_rule,
-            Item::Head(h) | Item::HeadLook(h) => h == self.head,
-            Item::Look(l) => flow.look_of(self.head) == Some(l),
-            Item::Special(Special::Roaming) => flow
-                .rules
-                .get(self.input_rule)
-                .is_some_and(|r| flow.target(r) == Target::Special(Special::Roaming)),
-            Item::Base => true,
-            Item::Special(_) | Item::Policy | Item::New(_) => false,
-        }
-    }
-}
-
-/// Every complete route of `flow`: each display a rule sends to a head,
-/// with each input device whose rule sends it to that head, or to
-/// `roaming`, which reaches every head (ADR-1401 D5).
-pub fn routes(flow: &Flow) -> Vec<Route> {
-    let mut out = Vec::new();
-    for (display, d) in flow.displays.iter().enumerate().filter(|(_, d)| d.found) {
-        let Some(display_rule) = d.rule else { continue };
-        let Some(Target::Head(head)) = flow.rules.get(display_rule).map(|r| flow.target(r)) else {
-            continue;
-        };
-        for (input, i) in flow.inputs.iter().enumerate().filter(|(_, i)| i.found) {
-            let Some(input_rule) = i.rule else { continue };
-            let reaches = match flow.rules.get(input_rule).map(|r| flow.target(r)) {
-                Some(Target::Head(h)) => h == head,
-                Some(Target::Special(Special::Roaming)) => true,
-                _ => false,
-            };
-            if reaches {
-                out.push(Route {
-                    display,
-                    display_rule,
-                    head,
-                    input_rule,
-                    input,
-                });
-            }
-        }
-    }
-    out
-}
-
-/// The item `words` names, as `vtium config route` takes it: `display
-/// NAME`, `rule N`, `head NAME`, `look NAME` or `input NAME`.
-pub fn item(flow: &Flow, words: &[String]) -> Option<Item> {
-    let [kind, name] = words else { return None };
-    match kind.as_str() {
-        "display" => flow
-            .displays
-            .iter()
-            .position(|d| d.name == *name)
-            .map(Item::Display),
-        "input" => flow
-            .inputs
-            .iter()
-            .position(|d| d.name == *name)
-            .map(Item::Input),
-        "rule" => name
-            .parse::<usize>()
-            .ok()
-            .and_then(|n| n.checked_sub(1))
-            .filter(|i| *i < flow.rules.len())
-            .map(Item::Rule),
-        "head" => flow
-            .heads
-            .iter()
-            .position(|h| h.name == *name)
-            .map(Item::Head),
-        "look" => flow.looks.iter().position(|l| l.name == *name).map(|l| {
-            flow.heads
-                .iter()
-                .position(|h| h.look == *name)
-                .map_or(Item::Look(l), Item::HeadLook)
-        }),
-        _ => None,
-    }
-}
-
-/// One line of a route: its section, its words, and whether it is the
-/// item the card is for.
-pub fn route_lines(
-    flow: &Flow,
-    route: &Route,
-    selected: Item,
-) -> Vec<(&'static str, String, bool)> {
-    let rule = |i: usize| {
-        flow.rules.get(i).map_or_else(String::new, |r| {
-            format!(
-                "rule {}, {} -> {}",
-                i.saturating_add(1),
-                r.selector,
-                r.target
-            )
-        })
-    };
-    let head = flow.heads.get(route.head);
-    let look = flow.look_of(route.head).and_then(|l| flow.looks.get(l));
-    vec![
-        (
-            "display",
-            flow.displays
-                .get(route.display)
-                .map_or_else(String::new, |d| d.name.clone()),
-            selected == Item::Display(route.display),
-        ),
-        (
-            "display rule",
-            rule(route.display_rule),
-            selected == Item::Rule(route.display_rule),
-        ),
-        (
-            "head",
-            head.map_or_else(String::new, |h| h.name.clone()),
-            selected == Item::Head(route.head),
-        ),
-        (
-            "look",
-            look.map_or_else(
-                || head.map_or_else(String::new, |h| h.look.clone()),
-                |l| l.name.clone(),
-            ),
-            matches!(selected, Item::HeadLook(h) if h == route.head)
-                || matches!(selected, Item::Look(l) if flow.look_of(route.head) == Some(l)),
-        ),
-        (
-            "input rule",
-            rule(route.input_rule),
-            selected == Item::Rule(route.input_rule),
-        ),
-        (
-            "input device",
-            flow.inputs
-                .get(route.input)
-                .map_or_else(String::new, |d| d.name.clone()),
-            selected == Item::Input(route.input),
-        ),
-    ]
-}
-
-/// What the route card says of `item` when no route passes through it:
-/// that it is broken, as a rule vtium drops or one that sends to a head
-/// that does not exist, or that it is not used, and why.
-pub fn unrouted(flow: &Flow, item: Item) -> String {
-    if let Item::Rule(r) = item
-        && let Some(rule) = flow.rules.get(r)
-    {
-        let words = state_words(flow, rule);
-        let broken =
-            matches!(rule.state, RuleState::Error(_)) || flow.target(rule) == Target::Missing;
-        if broken {
-            return format!("broken: {words}");
-        }
-        if !words.is_empty() {
-            return format!("not used: {words}");
-        }
-    }
-    "not used: no complete route goes through it".to_owned()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -919,25 +743,5 @@ mod tests {
                 ("mouse".to_owned(), String::new())
             ]
         );
-        let r = routes(&flow);
-        assert_eq!(
-            r,
-            [Route {
-                display: 0,
-                display_rule: 0,
-                head: 0,
-                input_rule: 3,
-                input: 0
-            }]
-        );
-        assert_eq!(
-            item(&flow, &["look".to_owned(), "spare".to_owned()]),
-            Some(Item::Look(1))
-        );
-        assert_eq!(
-            unrouted(&flow, Item::Rule(1)),
-            "not used: matches no connected display"
-        );
-        assert_eq!(item(&flow, &["rule".to_owned(), "0".to_owned()]), None);
     }
 }

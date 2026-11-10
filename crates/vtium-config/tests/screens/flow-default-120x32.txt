@@ -7,7 +7,7 @@
  into it.
  ┏━━━━━━━━━━━━━━━━━━━━━━━┓           ┌──────────────────────────────┐
  ┃ All displays          ┃━━━━━━━━━━▶│ console                      │◄┄┄┄┄┄┄┄┄┄┄┄┄┄roaming inputs
- ┃ connected now or lat… ┃           │ default font set             │
+ ┃ connected now or lat… ┃           │ default font set · every VT  │
  ┗━━━━━━━━━━━━━━━━━━━━━━━┛           └──────────────────────────────┘
 
                                      ┌┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┐              ┌──────────────────────────────────┐

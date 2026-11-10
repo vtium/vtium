@@ -20,7 +20,7 @@
 use super::flow::{Device, Flow, Kind};
 use super::input::Key;
 use super::parts::{Part, Stage};
-use super::paths::{self, ANY_POINTER, Doc, Path, Piece};
+use super::paths::{self, ANY_KEYBOARD, ANY_POINTER, Doc, Path, Piece};
 use super::words;
 
 /// The rows a box takes: its top border, its title, its detail and its
@@ -400,6 +400,11 @@ fn names(dev: &Device, sel: &str) -> bool {
         || dev.keys.iter().any(|k| k == sel)
         || (sel.starts_with("path:") && dev.keys.iter().any(|k| k.starts_with(sel)))
         || (sel == ANY_POINTER && sort(dev) == Sort::Pointer)
+        || (sel == ANY_KEYBOARD
+            && dev
+                .keys
+                .iter()
+                .any(|k| paths::expand(ANY_KEYBOARD).contains(&k.as_str())))
 }
 
 /// The terminals of the configuration whose paths hold the device `dev`:
@@ -557,7 +562,14 @@ fn path_row(
     } else if p.active {
         (name.to_owned(), words::ACTIVE_DETAIL.to_owned())
     } else {
-        (name.to_owned(), font_words(p.font.as_deref()))
+        (
+            name.to_owned(),
+            format!(
+                "{} · {}",
+                font_words(p.font.as_deref()),
+                words::vt_words(&p.vts())
+            ),
+        )
     };
     let mood = if p.none { Mood::Aside } else { Mood::Placed };
     let term_box = part_box(term.clone(), g.term_x, y, g.term_w, words, mood);
@@ -1449,8 +1461,8 @@ pub(crate) mod tests {
             let desk = at(&l, &doc("desk", Slot::Terminal));
             let panel = at(&l, &doc("panel", Slot::Terminal));
             assert_eq!((desk.x, panel.x), (g.term_x, g.term_x));
-            assert_eq!(desk.detail, "font set monoid");
-            assert_eq!(panel.detail, "default font set");
+            assert_eq!(desk.detail, "font set monoid · every VT");
+            assert_eq!(panel.detail, "default font set · every VT");
             let dp = at(&l, &doc("desk", Slot::Display(EDID_A.into())));
             assert_eq!(
                 (dp.x, dp.y, dp.title.as_str()),
