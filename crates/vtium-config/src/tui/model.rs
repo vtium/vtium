@@ -6,10 +6,9 @@
 //! [`super::view`]'s screen after each event.
 //!
 //! The views are Flow, Looks, Fonts, Settings and Help (ADR-1201 D3), and
-//! the TUI opens on the one its caller names. The Flow view moves over a
-//! [`Flow`], selects, tags, follows lines and opens cards and the route
-//! card (ADR-1403 D7); the operations that change the flow come with the
-//! draft.
+//! the TUI opens on the one its caller names. The Flow view draws the
+//! configuration as paths of parts (ADR-1403 D7, [`super::flowview`]), and
+//! its keys are in `flowkeys`.
 
 use std::collections::BTreeSet;
 use std::path::PathBuf;
@@ -20,7 +19,7 @@ use vtium_settings::{setting, switch as conf_switch};
 
 use super::desk::{Done, Kept, Op, Opened};
 use super::edit::Change as DraftChange;
-use super::flow::{COLUMNS, Flow, Item};
+use super::flow::{Flow, Item};
 use super::input::{Button, Input, Key, Mouse, Reply};
 use crate::draft::{FileEdit, Plan, Removal};
 
@@ -106,13 +105,12 @@ pub struct Inputs {
     /// The loop watches udev's device events, so the view follows hotplug
     /// (ADR-1403 D7).
     pub hotplug: bool,
-    /// The Flow view is drawn as rows of bordered objects, the try-out
-    /// `VTIUM_CONFIG_FLOW=rows` selects ([`super::rows`]).
-    pub flow_rows: bool,
-    /// The rows' colors, from `vtium-config.conf` ([`super::rowscolor`]).
-    pub rows_colors: super::rowscolor::Palette,
-    /// What the status line says once about that file.
-    pub rows_note: Option<String>,
+    /// The Flow view's colors, from `vtium-config.conf`
+    /// ([`super::flowcolor`]).
+    pub flow_colors: super::flowcolor::Palette,
+    /// What the message line says once about that file: where vtium-config
+    /// wrote it, or a line of it that it skipped.
+    pub colors_note: Option<String>,
 }
 
 /// One thing that happened.
@@ -405,15 +403,6 @@ pub struct App {
     pub setting_at: usize,
     /// The Flow view's selected item.
     pub flow_at: Item,
-    /// The tagged items, in the order they were tagged.
-    pub tags: Vec<Item>,
-    /// The selected item's card is open below the columns.
-    pub opened: bool,
-    /// The route card is open, with its cursor on this line.
-    pub route: Option<usize>,
-    /// The last `f`: the item it started from, which of that item's lines
-    /// it took, and where it went, so the next `f` steps to the next line.
-    followed: Option<(Item, usize, Item)>,
     /// The Help view shows About.
     pub about: bool,
     /// The Help view's first row in sight.
@@ -443,8 +432,6 @@ pub struct App {
     pub draft: Option<Opened>,
     /// The devices present, which the flow places on the draft.
     pub present: crate::flowmodel::Present,
-    /// Where the cursor is on the opened card.
-    pub card: Card,
     /// The question the view asks before it acts, and what it does on yes.
     pub confirm: Option<Confirm>,
     /// The read-only pager over the draft, when it is open.
@@ -458,23 +445,15 @@ pub struct App {
     pub came: Option<String>,
     /// The item to select once the desk answers the change in flight.
     pub(crate) select_after: Option<Item>,
-    /// The Flow view as rows: where its highlight is and what is open
-    /// over it; `None` for the six-column view.
-    pub rows_flow: Option<super::rows::State>,
-}
-
-/// Where the cursor is on an opened card (ADR-1403 D7).
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Card {
-    /// The field, by its place on the card.
-    pub field: usize,
-    /// The value picked: one of the field's options, or one past the last
-    /// for a value to type.
-    pub pick: usize,
-    /// The value being typed, while it is.
-    pub typed: Option<String>,
-    /// A `new…` form's values, by field.
-    pub values: Vec<String>,
+    /// The Flow view's state: where its highlight is and what is open
+    /// over it.
+    pub flow_view: super::flowview::State,
+    /// The notice that the live trial is off has been shown.
+    live_said: bool,
+    /// The changes made since the draft was last read or saved, which
+    /// [`App::draft`]'s text holds and the store does not yet (ADR-1403 D7,
+    /// "Changes wait for Save").
+    pub unsaved: usize,
 }
 
 /// A question the Flow view asks before it acts.
@@ -493,6 +472,9 @@ pub enum Then {
     /// Leaves with this status, the pending frits lost; `i` installs
     /// them instead.
     Leave(u8),
+    /// Leaves with this status: `y` saves the unsaved changes first, `n`
+    /// leaves without them.
+    Quit(u8),
 }
 
 /// The pager's place in the draft: its first line in sight and how far it
@@ -539,10 +521,6 @@ impl App {
             size_at: 0,
             setting_at: 0,
             flow_at,
-            tags: Vec::new(),
-            opened: false,
-            route: None,
-            followed: None,
             about: false,
             help_at: 0,
             mouse: false,
@@ -558,21 +536,23 @@ impl App {
             replies_due: 0,
             draft: None,
             present: crate::flowmodel::Present::default(),
-            card: Card::default(),
             confirm: None,
             pager: None,
             restore: None,
             installing: false,
             came: None,
             select_after: None,
-            rows_flow: None,
+            flow_view: super::flowview::State::default(),
+            live_said: false,
+            unsaved: 0,
         };
-        if app.inputs.flow_rows {
-            app.rows_flow = Some(super::rows::State {
-                note: app.inputs.rows_note.clone(),
-                ..super::rows::State::default()
-            });
-        }
+        // the Flow view's highlight on its first box from the first frame,
+        // and what reading the color file found on the message line
+        app.flow_settle();
+        app.message = app
+            .message
+            .take()
+            .or_else(|| app.inputs.colors_note.clone());
         let mut first = vec![Effect::Write(probe()), Effect::Wait(WAIT)];
         if app.inputs.desk {
             first.push(Effect::Desk(Op::Open));
@@ -595,15 +575,28 @@ impl App {
     }
 
     /// Goes to `view`, turning the mouse on or off for it, and asks for
-    /// what the view shows: a specimen, a font switch. A card that is open
-    /// in the Flow view closes as the view changes.
+    /// what the view shows: a specimen, a font switch.
     pub(crate) fn set_view(&mut self, view: View) -> Vec<Effect> {
         self.view = view;
         self.editing = None;
-        if view != View::Flow {
-            self.opened = false;
-        }
+        self.say_live_off();
         self.mouse_for_view()
+    }
+
+    /// Says once, on the first view other than Flow, that the live trial
+    /// is off and why. The Flow view says it only when `t` is pressed
+    /// (ADR-1403 D7).
+    fn say_live_off(&mut self) {
+        if self.view == View::Flow || self.live_said {
+            return;
+        }
+        let notice = match self.live {
+            Live::OpsOff => super::words::OPS_OFF,
+            Live::NotVtium => super::words::NOT_VTIUM,
+            _ => return,
+        };
+        self.live_said = true;
+        self.message = Some(notice.to_owned());
     }
 
     /// Tab's step to the next view, or Shift-Tab's to the one before. The
@@ -622,8 +615,8 @@ impl App {
     }
 
     /// Whether something is open in the view that a change of view would
-    /// leave behind (#355): a question, and in the Flow view the route
-    /// card, the pager, Restore's list or a card with fields to change; in
+    /// leave behind (#355): a question, and in the Flow view the file
+    /// view, Restore's list, or a detail, a part maker or a picker; in
     /// the Settings view a value being typed; and the new-frit view, a
     /// form of the Fonts view's. While one is, Tab, Shift-Tab and a click
     /// on a view's name do not change the view. Esc closes each, and a
@@ -634,10 +627,7 @@ impl App {
         }
         match self.view {
             View::Flow => {
-                self.route.is_some()
-                    || self.pager.is_some()
-                    || self.restore.is_some()
-                    || (self.opened && !self.fields().is_empty())
+                self.pager.is_some() || self.restore.is_some() || self.flow_view.layer.is_some()
             }
             View::Settings => self.editing.is_some(),
             View::New => true,
@@ -693,7 +683,7 @@ impl App {
     pub fn event(&mut self, event: Event) -> Vec<Effect> {
         let mut out = self.handle(event);
         out.extend(self.ask_picture());
-        self.rows_settle();
+        self.flow_settle();
         out
     }
 
@@ -707,9 +697,11 @@ impl App {
                 self.rows = rows;
                 Vec::new()
             }
+            // a signal saves the unsaved changes before the TUI leaves
+            // (ADR-1403 D7, What carries over)
             Event::Signal(n) => {
                 let status = u8::try_from(n.saturating_add(128)).unwrap_or(1);
-                self.leave(status)
+                self.save_and_leave(status)
             }
             Event::Timeout => self.timeout(),
             Event::Installed(result) => self.installed(result),
@@ -822,20 +814,10 @@ impl App {
                 }
                 Live::On
             }
-            // the Flow view as rows says so only when `t` is pressed
-            (true, None) => {
-                if self.rows_flow.is_none() {
-                    self.message = Some(super::words::OPS_OFF.to_owned());
-                }
-                Live::OpsOff
-            }
-            (false, _) => {
-                if self.rows_flow.is_none() {
-                    self.message = Some(super::words::NOT_VTIUM.to_owned());
-                }
-                Live::NotVtium
-            }
+            (true, None) => Live::OpsOff,
+            (false, _) => Live::NotVtium,
         };
+        self.say_live_off();
     }
 
     fn timeout(&mut self) -> Vec<Effect> {
@@ -929,7 +911,6 @@ impl App {
         match self.view {
             View::New => self.new_frit.at < NEW_FIELDS,
             View::Settings => self.editing.is_some(),
-            View::Flow => self.opened && self.card.typed.is_some() && self.confirm.is_none(),
             _ => false,
         }
     }
@@ -945,8 +926,8 @@ impl App {
             return self.small_key(key);
         }
         // the name of a new terminal takes every key while it is typed
-        if self.rows_typing() {
-            return self.rows_key(key);
+        if self.flow_typing() {
+            return self.flow_key(key);
         }
         if self.typing()
             && let Key::Char(_) | Key::Backspace = key
@@ -956,10 +937,9 @@ impl App {
         if self.confirm.is_some() {
             return self.confirm_key(key);
         }
-        let modal = self.view == View::Flow
-            && (self.route.is_some() || self.pager.is_some() || self.restore.is_some());
+        let modal = self.view == View::Flow && (self.pager.is_some() || self.restore.is_some());
         match key {
-            Key::Interrupt => return self.quit(130),
+            Key::Interrupt => return self.save_and_leave(130),
             Key::Char('q') if !modal => return self.quit(0),
             // Tab and Shift-Tab step the views wherever the selection is,
             // and the arrows move inside a view (#355)
@@ -968,13 +948,16 @@ impl App {
             _ => {}
         }
         if self.view == View::Flow {
-            if self.rows_flow.is_some() {
-                return self.rows_key(key);
-            }
             return self.flow_key(key);
         }
         match key {
             Key::Char('i') if !self.typing() => return self.action('i'),
+            // Save in the views whose own keys leave `s` free (ADR-1403 D7)
+            Key::Char('s')
+                if matches!(self.view, View::Looks | View::Settings) && !self.typing() =>
+            {
+                return self.save();
+            }
             Key::Char('o') if self.live == Live::OpsOff => {
                 return self.top("allow-font-ops", Some("on"));
             }
@@ -1036,11 +1019,9 @@ impl App {
         }
     }
 
-    /// A key in the Flow view (ADR-1403 D7).
-    pub(crate) fn flow_key(&mut self, key: Key) -> Vec<Effect> {
-        if let Some(line) = self.route {
-            return self.route_key(key, line);
-        }
+    /// A key in the Flow view (ADR-1403 D7) while a question, the file
+    /// view or Restore's list is open over it.
+    pub(crate) fn flow_open_key(&mut self, key: Key) -> Vec<Effect> {
         if self.confirm.is_some() {
             return self.confirm_key(key);
         }
@@ -1050,158 +1031,6 @@ impl App {
         }
         if self.restore.is_some() {
             return self.restore_key(key);
-        }
-        if self.opened
-            && let Some(out) = self.card_key(key)
-        {
-            return out;
-        }
-        self.message = None;
-        let flow = &self.inputs.flow;
-        let column = flow.column_of(self.flow_at);
-        match key {
-            Key::Right | Key::Left => {
-                if let Some(item) = self.next_column(column, key == Key::Right) {
-                    self.select(item);
-                }
-            }
-            Key::Up | Key::Down | Key::PageUp | Key::PageDown | Key::Home | Key::End => {
-                let items = flow.columns().get(column).cloned().unwrap_or_default();
-                let at = items.iter().position(|i| *i == self.flow_at).unwrap_or(0);
-                if let Some(item) = items.get(step(at, items.len(), key)) {
-                    self.select(*item);
-                }
-            }
-            Key::Enter => self.open_card(),
-            Key::Char(' ') => {
-                if !matches!(self.flow_at, Item::Base | Item::Policy | Item::New(_)) {
-                    if let Some(at) = self.tags.iter().position(|t| *t == self.flow_at) {
-                        self.tags.remove(at);
-                    } else {
-                        self.tags.push(self.flow_at);
-                    }
-                }
-            }
-            Key::Escape => {
-                self.tags.clear();
-                self.opened = false;
-            }
-            Key::Char('c') => return self.connect(),
-            Key::Char('f') => self.follow_line(),
-            Key::Char('?') => {
-                let lines = super::flowdraw::route_card(&self.inputs.flow, self.flow_at).2;
-                let at = lines
-                    .iter()
-                    .position(|l| l.item == Some(self.flow_at))
-                    .or_else(|| lines.iter().position(|l| l.item.is_some()))
-                    .unwrap_or(0);
-                self.route = Some(at);
-            }
-            Key::Char(c @ ('i' | 'd' | 'v' | 'r' | 'o' | 'n' | 'x')) => return self.action(c),
-            _ => {}
-        }
-        Vec::new()
-    }
-
-    /// Selects `item`; a `f` that follows starts again from it.
-    fn select(&mut self, item: Item) {
-        self.flow_at = item;
-    }
-
-    /// The item the arrows land on in the next column with items,
-    /// right or left: the one nearest the selected item's row; `None` past
-    /// the last or before the first.
-    fn next_column(&self, column: usize, right: bool) -> Option<Item> {
-        let flow = &self.inputs.flow;
-        let columns = flow.columns();
-        let ctx = super::flowdraw::Ctx {
-            flow,
-            tags: &self.tags,
-            color: self.inputs.color,
-        };
-        let placed = super::flowdraw::stack(&ctx, &super::flowdraw::geometry(self.cols));
-        let row_of = |item: Item| placed.iter().find(|p| p.item == item).map_or(0, |p| p.row);
-        let here = row_of(self.flow_at);
-        let mut c = column;
-        loop {
-            c = if right {
-                c.checked_add(1).filter(|c| *c < COLUMNS)?
-            } else {
-                c.checked_sub(1)?
-            };
-            let items: Vec<Item> = columns
-                .get(c)
-                .map(|items| items.iter().copied().filter(|i| *i != Item::Base).collect())
-                .unwrap_or_default();
-            if let Some(best) = items
-                .iter()
-                .min_by_key(|i| row_of(**i).abs_diff(here))
-                .copied()
-            {
-                return Some(best);
-            }
-            // a column 0 with no display holds only the base card
-            if c == 0 && columns.first().is_some_and(|c| c.contains(&Item::Base)) {
-                return Some(Item::Base);
-            }
-        }
-    }
-
-    /// `f`: moves to the item the selected one's line reaches, toward the
-    /// heads; pressed again where it landed, it steps through the other
-    /// lines of the item it started from.
-    fn follow_line(&mut self) {
-        let flow = &self.inputs.flow;
-        if let Some((origin, k, landed)) = self.followed
-            && landed == self.flow_at
-        {
-            let all = flow.follows(origin);
-            if all.len() > 1 {
-                let next = k.saturating_add(1) % all.len();
-                if let Some(item) = all.get(next) {
-                    self.followed = Some((origin, next, *item));
-                    self.flow_at = *item;
-                    return;
-                }
-            }
-        }
-        match flow.follows(self.flow_at).first() {
-            Some(item) => {
-                self.followed = Some((self.flow_at, 0, *item));
-                self.flow_at = *item;
-            }
-            None => self.message = Some(super::words::NOTHING_TO_FOLLOW.to_owned()),
-        }
-    }
-
-    /// A key while the route card is open: Up and Down move along its
-    /// items, Enter opens the item under the cursor, `q` and Esc go back to
-    /// the flow.
-    fn route_key(&mut self, key: Key, line: usize) -> Vec<Effect> {
-        let lines = super::flowdraw::route_card(&self.inputs.flow, self.flow_at).2;
-        let items: Vec<usize> = lines
-            .iter()
-            .enumerate()
-            .filter(|(_, l)| l.item.is_some())
-            .map(|(i, _)| i)
-            .collect();
-        let at = items.iter().position(|i| *i == line).unwrap_or(0);
-        match key {
-            Key::Char('q') | Key::Escape => self.route = None,
-            Key::Up | Key::Down | Key::PageUp | Key::PageDown | Key::Home | Key::End => {
-                self.route = items
-                    .get(step(at, items.len(), key))
-                    .copied()
-                    .or(Some(line));
-            }
-            Key::Enter => {
-                if let Some(item) = lines.get(line).and_then(|l| l.item) {
-                    self.flow_at = item;
-                    self.open_card();
-                }
-                self.route = None;
-            }
-            _ => {}
         }
         Vec::new()
     }
@@ -1228,25 +1057,14 @@ impl App {
             Button::Press(0) => {}
             _ => return Vec::new(),
         }
-        if self.route.is_some() {
-            return Vec::new();
-        }
         if let Some(view) = super::view::tab_at(self, mouse.col, mouse.row) {
             if view == View::Flow || self.holds_view() {
                 return Vec::new();
             }
             return self.set_view(view);
         }
-        if super::rowsdraw::shown(self) {
-            return self.rows_click(mouse.col, mouse.row);
-        }
-        match super::view::item_at(self, mouse.col, mouse.row) {
-            Some(item) if item == self.flow_at => self.open_card(),
-            Some(item) => {
-                self.message = None;
-                self.select(item);
-            }
-            None => {}
+        if super::flowdraw::shown(self) {
+            return self.flow_click(mouse.col, mouse.row);
         }
         Vec::new()
     }
@@ -1335,7 +1153,6 @@ impl App {
     fn type_key(&mut self, key: Key) -> Vec<Effect> {
         let text = match self.view {
             View::New => self.new_frit.fields.get_mut(self.new_frit.at),
-            View::Flow => self.card.typed.as_mut(),
             _ => self.editing.as_mut(),
         };
         if let Some(text) = text {
@@ -1409,7 +1226,7 @@ impl App {
     }
 
     /// Sets the top-level key `key` to `value` in the draft, or leaves it
-    /// at its default with `None`, through ops, as the base card does.
+    /// at its default with `None`, through ops.
     fn top(&mut self, key: &str, value: Option<&str>) -> Vec<Effect> {
         let Some(k) = keys::find(key) else {
             return Vec::new();

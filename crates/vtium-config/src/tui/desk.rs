@@ -21,8 +21,11 @@ pub enum Op {
     /// there is none, and reads the devices present.
     Open,
     /// Writes `text` as the current draft, whatever the check says, and
-    /// checks it.
+    /// checks it: Save (ADR-1403 D7).
     Write(String),
+    /// Checks `text`, the current draft with the TUI's unsaved changes,
+    /// and counts it against the installed file, and writes nothing.
+    Check(String),
     /// Readies an install: refuses a draft made before the installed file
     /// changed, or one the check fails; otherwise gives the plan the
     /// privileged step installs, which [`Desk::install`] runs.
@@ -178,6 +181,10 @@ impl Store {
         let session = self.session();
         match op {
             Op::Write(text) => self.write(text),
+            Op::Check(text) => {
+                let (name, _) = session.current()?;
+                Ok(Done::Draft(self.opened(&name, text)?, None))
+            }
             Op::Prepare => {
                 let (name, text) = session.current()?;
                 let mut said = Vec::new();

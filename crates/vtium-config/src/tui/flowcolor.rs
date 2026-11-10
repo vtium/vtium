@@ -1,4 +1,4 @@
-//! The colors of the Flow view as paths ([`super::rows`]), which a person
+//! The colors of the Flow view ([`super::flowview`]), which a person
 //! sets in a file of their own, `$XDG_CONFIG_HOME/vtium/vtium-config.conf`,
 //! else `~/.config/vtium/vtium-config.conf`. vtium-config reads it once at
 //! start, and vtium itself never reads it.

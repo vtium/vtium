@@ -1,4 +1,4 @@
-//! The parts the Flow view as paths ([`super::rows`]) offers in PARTS. A
+//! The parts the Flow view ([`super::flowview`]) offers in PARTS. A
 //! part is what a person puts into a path: a display or an input, matched
 //! the way a rule matches it; a font set; or a terminal. Each of the four
 //! stages of a path has a template, which is never placed in a path.
@@ -16,8 +16,8 @@
 //! not connected, and becomes normal again when the device comes back.
 
 use super::flow::{Device, Flow, Kind};
+use super::flowview::{Sort, sort};
 use super::paths::{self, ANY_KEYBOARD, ANY_POINTER, Doc, Piece};
-use super::rows::{Sort, sort};
 use super::words;
 
 /// The four stages of a path, each with its template, in the order PARTS

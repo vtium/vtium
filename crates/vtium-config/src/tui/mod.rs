@@ -1,19 +1,22 @@
 //! The TUI that `vtium config` opens at a terminal (ADR-1201 D3, D4, D7):
 //! a full-screen program drawn in the terminal's text cells. Its views are
-//! Flow, which draws the configuration from the displays to the input
-//! devices (ADR-1403 D7), Looks, Fonts, which lists the frits (font set
-//! files) and the built-in fonts, Settings and Help. A change the user
+//! Flow, which draws the configuration as paths from the displays to the
+//! input devices (ADR-1403 D7), Looks, Fonts, which lists the frits (font
+//! set files) and the built-in fonts, Settings and Help. A change the user
 //! highlights is previewed as a picture of the console with it applied,
-//! and `t` tries a font on the live console through OSC 50 ([`shot`]). It installs what
-//! the user keeps through `apply`.
+//! and `t` tries a font on the live console through OSC 50 ([`shot`]). It
+//! installs what the user keeps through `apply`.
 //!
 //! [`model`] is the state machine, [`view`] its screen, [`flow`] the flow
-//! the Flow view draws and [`flowdraw`] how it draws it, [`canvas`] the
-//! cells a screen is drawn into, [`color`] its colors, [`input`] the
-//! decoder of what the terminal sends, [`words`] the catalog of what the
-//! TUI says, and [`port`] the loop and the terminal it runs on. [`gather`]
-//! reads what the TUI starts from: the frits as text, never a font file
-//! (D3), and vtium.conf, which holds the heads, looks and rules too.
+//! read from the draft and the devices present, [`paths`] that flow as
+//! paths, [`parts`] the parts a path is made from, [`flowview`] how the
+//! Flow view lays the paths and parts out, [`flowdraw`] how it draws them
+//! and [`flowcolor`] their colors, [`canvas`] the cells a screen is drawn
+//! into, [`color`] its colors, [`input`] the decoder of what the terminal
+//! sends, [`words`] the catalog of what the TUI says, and [`port`] the
+//! loop and the terminal it runs on. [`gather`] reads what the TUI starts
+//! from: the frits as text, never a font file (D3), and vtium.conf, which
+//! holds the heads, looks and rules too.
 
 pub mod canvas;
 pub mod color;
@@ -22,17 +25,16 @@ pub mod edit;
 #[doc(hidden)]
 pub mod fixture;
 pub mod flow;
+pub mod flowcolor;
 pub mod flowdraw;
 mod flowedit;
+mod flowkeys;
+pub mod flowview;
 pub mod input;
 pub mod model;
 pub mod parts;
 pub mod paths;
 pub mod port;
-pub mod rows;
-pub mod rowscolor;
-pub mod rowsdraw;
-mod rowskeys;
 pub mod shot;
 pub mod view;
 pub mod words;
@@ -214,13 +216,9 @@ pub fn gather(paths: &Paths, view: model::View) -> Result<Inputs, String> {
     let frits = paths.frits.clone()?;
     let displays = crate::display::displays(&paths.sys);
     let dpi = density(conf.as_deref(), &displays);
-    let flow_rows = std::env::var("VTIUM_CONFIG_FLOW").is_ok_and(|v| v == "rows");
-    // the rows' colors, from the person's own file, written the first time
-    let (rows_colors, rows_note) = if flow_rows {
-        rowscolor::load(&|name| std::env::var(name).ok())
-    } else {
-        (rowscolor::Palette::console(), None)
-    };
+    // the Flow view's colors, from the person's own file, which
+    // vtium-config writes the first time
+    let (flow_colors, colors_note) = flowcolor::load(&|name| std::env::var(name).ok());
     Ok(Inputs {
         fonts: fonts(&frits),
         conf_path,
@@ -235,10 +233,8 @@ pub fn gather(paths: &Paths, view: model::View) -> Result<Inputs, String> {
         color: color::enabled(&|name| std::env::var(name).ok()),
         desk: false,
         hotplug: false,
-        // the try-out of the Flow view as rows, read once at start
-        flow_rows,
-        rows_colors,
-        rows_note,
+        flow_colors,
+        colors_note,
     })
 }
 

@@ -1,1553 +1,1305 @@
-//! The Flow view drawn (ADR-1403 D7): six columns, each in its own color,
-//! displays, heads, looks and input devices as blocks of color, rules as
-//! colored text, and lines between them; the card Enter opens below the
-//! columns, and the route card `?` opens in their place.
+//! How the Flow view draws ([`super::flowview`]): the status line,
+//! the policy line and the column titles fixed at the top, the key line
+//! fixed at the bottom, and between them a window on the canvas of paths,
+//! the editor and the pieces, scrolled to the row [`super::flowview::State`]
+//! keeps at its top. Enter on a box draws its second layer in the
+//! window's place.
 //!
-//! Each column stacks its items in rows of its own. The heads and their
-//! looks share their rows, so each head sits beside its look. A column
-//! taller than the room scrolls so the selected item shows. The lines run
-//! in the gaps between the columns: across from the line's source, down or
-//! up one cell of the gap, its lane, then across into an arrow at its
-//! target, or into an arrow on the columns' edge when the target is out of
-//! sight. At 80 columns a gap's lines share one lane; from 100 each takes
-//! one of its own (ADR-1403 D7).
+//! A box's border says its state: white when it is in a path or free to
+//! pick, amber for a device no path holds, grey for what cannot be picked,
+//! and bright magenta, a color no state uses, for a part picked into the
+//! editor. Its title says its kind: displays cyan, terminals yellow, font
+//! sets magenta, inputs green, as the column titles are. The editor's boxes
+//! and lines are dashed, and so is the line that says the roaming inputs
+//! reach a terminal. The highlighted box has a heavy border in bold, and
+//! its own lines are drawn heavy and bright. Where the color file fills a
+//! kind's boxes, the fill covers each box's inside and never its border,
+//! and the text inside takes the color the fill picks
+//! ([`super::flowcolor::text_for`]).
 
-use std::collections::BTreeMap;
-
-use super::canvas::{Canvas, mid, pick, wrap};
-use super::color::{Style, palette};
-use super::flow::{Flow, Item, Kind, New, Route, RuleState, Special, Target, general};
+use super::canvas::{Canvas, fit, width, wrap};
+use super::color::{Color, Style};
+use super::flow::{Flow, Kind};
+use super::flowcolor::{Palette, Role};
+use super::flowview::{self, BOX_ROWS, Boxed, Ctx, Layout, Mood, NoteKind, Obj, Slot, Wire};
+use super::model::App;
+use super::parts::{self, Stage};
+use super::paths::{self, Path, Piece};
 use super::words;
 
-/// Where each column starts and how wide it is.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Geometry {
-    pub x: [usize; 6],
-    pub w: [usize; 6],
-}
+/// The rows fixed at the top: the tab bar, the status line and the policy
+/// line. Each section's title, and CONFIGURATION's column titles, scroll
+/// with the document.
+pub const HEAD_ROWS: usize = 3;
 
-/// Each column's least and wanted width, as the mockup shares the room.
-const LEAST: [usize; 6] = [11, 13, 11, 11, 13, 12];
-const WANTED: [usize; 6] = [20, 28, 13, 20, 28, 30];
-/// The order the columns take the cells left after the sharing.
-const SPARE: [usize; 6] = [4, 1, 5, 0, 3, 2];
+/// The most rows the message line wraps to.
+const MESSAGE_ROWS: usize = 3;
 
-/// The width from which the gaps are 3 cells wide and each line in a gap
-/// takes a lane of its own (ADR-1403 D7).
-pub const LANES_FROM: usize = 100;
+/// The column where a layer's values start.
+const VALUE_X: usize = 34;
 
-/// The columns at a screen `cols` wide: gaps of 2 cells, 3 from
-/// [`LANES_FROM`], with 1 between a head and its look; each column takes
-/// its least width and a share of the rest by how much more it wants.
-pub fn geometry(cols: usize) -> Geometry {
-    let g = if cols >= LANES_FROM { 3 } else { 2 };
-    let gaps = [g, g, 1, g, g];
-    let room = cols.saturating_sub(gaps.iter().sum());
-    let least: usize = LEAST.iter().sum();
-    let wanted: usize = WANTED.iter().sum();
-    let extra = room.saturating_sub(least).min(wanted.saturating_sub(least));
-    let span = wanted.saturating_sub(least).max(1);
-    let mut w = [0usize; 6];
-    for (i, slot) in w.iter_mut().enumerate() {
-        let (l, p) = (
-            LEAST.get(i).copied().unwrap_or(0),
-            WANTED.get(i).copied().unwrap_or(0),
-        );
-        *slot = l.saturating_add(p.saturating_sub(l).saturating_mul(extra) / span);
-    }
-    let mut left = room.saturating_sub(w.iter().sum());
-    let mut i = 0usize;
-    while left > 0 {
-        if let Some(slot) = SPARE.get(i % 6).and_then(|c| w.get_mut(*c)) {
-            *slot = slot.saturating_add(1);
-        }
-        left -= 1;
-        i = i.saturating_add(1);
-    }
-    let mut x = [0usize; 6];
-    let mut at = 0usize;
-    for i in 0..6 {
-        if let Some(slot) = x.get_mut(i) {
-            *slot = at;
-        }
-        at = at
-            .saturating_add(w.get(i).copied().unwrap_or(0))
-            .saturating_add(gaps.get(i).copied().unwrap_or(0));
-    }
-    Geometry { x, w }
-}
-
-/// One row of an item: its text and style, and whether its style fills the
-/// column's width, as a block's does.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Line {
-    pub text: String,
-    pub style: Style,
-    pub block: bool,
-}
-
-fn text_line(text: impl Into<String>, style: Style) -> Line {
-    Line {
-        text: text.into(),
-        style,
-        block: false,
-    }
-}
-
-fn block_line(text: impl Into<String>, style: Style) -> Line {
-    Line {
-        text: text.into(),
-        style,
-        block: true,
-    }
-}
-
-/// What drawing an item needs beyond the flow.
-pub struct Ctx<'a> {
-    pub flow: &'a Flow,
-    pub tags: &'a [Item],
-    pub color: bool,
-}
-
-/// The mark a tagged item shows before its name.
-pub const TAG: &str = "◆ ";
-
-/// The color a rule of `kind` is drawn in when it is in play.
-fn rule_color(kind: Kind) -> super::color::Color {
-    match kind {
-        Kind::Display => palette::DISPLAY_RULES,
-        Kind::Input => palette::INPUT_RULES,
-    }
-}
-
-/// An item's rows in a column `w` wide.
-pub fn lines(ctx: &Ctx<'_>, item: Item, w: usize) -> Vec<Line> {
-    let flow = ctx.flow;
-    let tag = if ctx.tags.contains(&item) { TAG } else { "" };
-    // a block's text sits one cell in from its left edge; without color
-    // its rows are bracketed, and the brackets take a cell on each side
-    let inner = w.saturating_sub(if ctx.color { 1 } else { 2 });
-    let named = |name: &str| {
-        format!(
-            "{tag}{}",
-            mid(name, inner.saturating_sub(tag.chars().count()))
-        )
-    };
-    let caption = |options: &[&str]| pick(inner, options);
-    match item {
-        Item::Base => Vec::new(),
-        Item::Display(d) | Item::Input(d) => {
-            let (devices, color) = match item {
-                Item::Display(_) => (&flow.displays, palette::DISPLAYS),
-                _ => (&flow.inputs, palette::INPUTS),
-            };
-            let Some(dev) = devices.get(d) else {
-                return Vec::new();
-            };
-            if !dev.found {
-                let style = Style::block(palette::GREY);
-                let mut out = vec![block_line(named(&format!("* {}", dev.name)), style)];
-                let lines = long_or_short(words::NOT_FOUND, words::NOT_FOUND_SHORT, inner);
-                out.extend(lines.into_iter().map(|l| block_line(l, style)));
-                return out;
-            }
-            let style = Style::block(color);
-            let mut out = vec![block_line(named(&dev.name), style)];
-            if !dev.detail.is_empty() {
-                out.push(block_line(mid(&dev.detail, inner), style));
-            }
-            if dev.rule.is_none() {
-                out.push(block_line(
-                    caption(&[words::BY_POLICY, words::BY_POLICY_SHORT]),
-                    style,
-                ));
-            }
-            out
-        }
-        Item::Rule(r) => rule_lines(ctx, r, w, tag),
-        Item::Head(h) => {
-            let Some(head) = flow.heads.get(h) else {
-                return Vec::new();
-            };
-            let style = Style {
-                bold: true,
-                ..Style::block(palette::HEADS)
-            };
-            let plain = Style::block(palette::HEADS);
-            let mut out = vec![
-                block_line(named(&head.name), style),
-                block_line(caption(&[&words::consoles(head.consoles)]), plain),
-            ];
-            if flow.active.as_deref() == Some(head.name.as_str()) {
-                out.push(block_line(
-                    caption(&[words::ACTIVE_HEAD, words::ACTIVE]),
-                    plain,
-                ));
-            }
-            out
-        }
-        Item::HeadLook(h) => {
-            let Some(head) = flow.heads.get(h) else {
-                return Vec::new();
-            };
-            match flow.look_of(h) {
-                Some(l) => look_lines(ctx, l, inner, tag, false),
-                None => {
-                    let style = Style::block(palette::LOOKS);
-                    let mut out = vec![block_line(
-                        named(&format!("{} {}", words::LOOK, head.look)),
-                        style,
-                    )];
-                    if head.look != words::DEFAULT {
-                        out.push(block_line(
-                            caption(&[words::NO_SUCH_LOOK, words::NO_SUCH_LOOK_SHORT]),
-                            Style::block(palette::ERROR),
-                        ));
-                    }
-                    out
-                }
-            }
-        }
-        Item::Look(l) => look_lines(ctx, l, inner, tag, true),
-        Item::Special(s) => {
-            let what = match s {
-                Special::Roaming => words::roaming(flow.active.as_deref()),
-                Special::Ignore => words::IGNORE_DOES.to_owned(),
-                Special::Off => words::OFF_DOES.to_owned(),
-            };
-            vec![block_line(
-                format!("{tag}{:<9} {what}", s.name()),
-                Style::block(palette::GREY),
-            )]
-        }
-        Item::Policy => vec![block_line(
-            format!(
-                "{tag}{:<9} {}",
-                words::policy(&flow.policy),
-                words::POLICY_DOES
-            ),
-            Style::block(palette::GREY),
-        )],
-        Item::New(n) => {
-            let (what, color) = match n {
-                New::DisplayRule => (words::NEW_RULE, palette::DISPLAY_RULES),
-                New::InputRule => (words::NEW_RULE, palette::INPUT_RULES),
-                New::Head => (words::NEW_HEAD, palette::HEADS),
-                New::Look => (words::NEW_LOOK, palette::LOOKS),
-            };
-            vec![text_line(
-                pick(w, &[what, words::NEW_SHORT]),
-                Style::text(color),
-            )]
-        }
-    }
-}
-
-/// A look's rows: its name and size, its frit, and each font the frit
-/// draws with, as a small tree; a font this machine lacks, and what the
-/// check finds wrong with the look, in the error's color.
-fn look_lines(ctx: &Ctx<'_>, l: usize, inner: usize, tag: &str, unused: bool) -> Vec<Line> {
-    let Some(look) = ctx.flow.looks.get(l) else {
-        return Vec::new();
-    };
-    let style = Style::block(palette::LOOKS);
-    let error = Style::block(palette::ERROR);
-    let size = words::look_size(look.points);
-    let long = format!("{tag}{} {}, {size}", words::LOOK, look.name);
-    let short = format!("{tag}{}, {size}", look.name);
-    let mut out = vec![block_line(pick(inner, &[&long, &short]), style)];
-    if !look.frit.is_empty() {
-        out.push(block_line(
-            pick(
-                inner,
-                &[
-                    &format!("└ font set {}", look.frit),
-                    &format!("└ {}", look.frit),
-                ],
-            ),
-            style,
-        ));
-    }
-    for (font, here) in &look.fonts {
-        if *here {
-            out.push(block_line(mid(&format!("  └ {font}"), inner), style));
-        } else {
-            out.push(block_line(
-                mid(&format!("! {font} {}", words::MISSING), inner),
-                error,
-            ));
-        }
-    }
-    if let Some(problem) = &look.problem {
-        out.extend(
-            wrap(&format!("! {problem}"), inner, 2)
-                .into_iter()
-                .map(|l| block_line(l, error)),
-        );
-    }
-    if unused {
-        out.extend(
-            wrap(words::NO_HEAD_USES, inner, 2)
-                .into_iter()
-                .map(|l| block_line(l, style)),
-        );
-    }
-    out
-}
-
-/// A rule's rows: its number, selector and target, on two rows where one
-/// is too narrow, then what it does wrong in words.
-fn rule_lines(ctx: &Ctx<'_>, r: usize, w: usize, tag: &str) -> Vec<Line> {
-    let flow = ctx.flow;
-    let Some(rule) = flow.rules.get(r) else {
-        return Vec::new();
-    };
-    let n = r.saturating_add(1).to_string();
-    let broken = flow.target(rule) == Target::Missing;
-    let style = match (&rule.state, broken) {
-        (RuleState::Error(_), _) | (_, true) => Style::text(palette::ERROR),
-        (RuleState::Matches, false) => Style::text(rule_color(rule.kind)),
-        _ => Style::text(palette::GREY),
-    };
-    let mark = if broken || matches!(rule.state, RuleState::Error(_)) {
-        "! "
-    } else {
-        ""
-    };
-    let lead = format!("{tag}{mark}{n} ");
-    let whole = format!("{lead}{} -> {}", rule.selector, rule.target);
-    let mut out = if whole.chars().count() <= w {
-        vec![text_line(whole, style)]
-    } else {
-        let room = w.saturating_sub(lead.chars().count());
-        let indent = " ".repeat(lead.chars().count().min(w.saturating_sub(4)));
-        vec![
-            text_line(format!("{lead}{}", mid(&rule.selector, room)), style),
-            text_line(
-                pick(
-                    w,
-                    &[
-                        &format!("{indent}-> {}", rule.target),
-                        &format!("-> {}", rule.target),
-                    ],
-                ),
-                style,
-            ),
-        ]
-    };
-    let note = if broken {
-        Some((words::NO_SUCH_HEAD.to_owned(), Style::text(palette::ERROR)))
-    } else {
-        match &rule.state {
-            RuleState::Matches => None,
-            RuleState::MatchesNothing if general(&rule.selector) => Some((
-                match rule.kind {
-                    Kind::Display => words::MATCHES_NO_DISPLAY,
-                    Kind::Input => words::MATCHES_NO_DEVICE,
-                }
-                .to_owned(),
-                Style::text(palette::GREY),
-            )),
-            RuleState::MatchesNothing => None,
-            RuleState::Shadowed(by) => Some((
-                words::shadowed(by.saturating_add(1)),
-                Style::text(palette::GREY),
-            )),
-            RuleState::NeedsUdev => {
-                Some((words::NEEDS_UDEV.to_owned(), Style::text(palette::GREY)))
-            }
-            RuleState::Error(e) => Some((e.clone(), Style::text(palette::ERROR))),
-        }
-    };
-    if let Some((note, style)) = note {
-        let width = w.saturating_sub(2);
-        let rows = if matches!(rule.state, RuleState::MatchesNothing) && !broken {
-            long_or_short(&note, words::MATCHES_NONE_SHORT, width)
-        } else {
-            wrap(&note, width, 2)
-        };
-        out.extend(rows.into_iter().map(|l| text_line(format!("  {l}"), style)));
-    }
-    out
-}
-
-/// `long` on up to two rows of `width` where it fits whole, else `short`
-/// on up to two rows where it fits whole, else `short` cut on two rows. A
-/// text fits whole when its rows, joined again, give it back with nothing
-/// cut and no word broken.
-fn long_or_short(long: &str, short: &str, width: usize) -> Vec<String> {
-    let whole = |text: &str| {
-        let lines = wrap(text, width, 2);
-        (lines.join(" ") == text).then_some(lines)
-    };
-    whole(long)
-        .or_else(|| whole(short))
-        .unwrap_or_else(|| wrap(short, width, 2))
-}
-
-/// An item placed in its column: its rows, from the top of its unit.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Placed {
-    pub item: Item,
-    pub column: usize,
-    /// The first column it covers and how many cells wide it is: the
-    /// targets that are not heads span the heads and the look.
-    pub x: usize,
-    pub w: usize,
-    /// Its first row in its unit, and its rows.
-    pub row: usize,
-    pub lines: Vec<Line>,
-}
-
-/// The five units that scroll: the displays, the display rules, the heads
-/// with their looks, the input rules, and the input devices.
-pub const UNITS: usize = 5;
-
-/// The unit a column scrolls with.
-pub fn unit_of(column: usize) -> usize {
-    match column {
-        0 | 1 => column,
-        2 | 3 => 2,
-        4 => 3,
-        _ => 4,
-    }
-}
-
-/// Every item of the flow but the base card, placed in its unit.
-pub fn stack(ctx: &Ctx<'_>, g: &Geometry) -> Vec<Placed> {
-    let flow = ctx.flow;
-    let [_, drules, heads, looks, irules, inputs] = flow.columns();
-    let width = |c: usize| g.w.get(c).copied().unwrap_or(0);
-    let left = |c: usize| g.x.get(c).copied().unwrap_or(0);
-    let mut out = Vec::new();
-    // a column of blocks keeps a blank row between them, so each reads as
-    // one shape; a column of rules stacks them
-    let column = |items: &[Item], c: usize, gap: usize, out: &mut Vec<Placed>| {
-        let mut row = 0usize;
-        for item in items {
-            let lines = lines(ctx, *item, width(c));
-            let h = lines.len();
-            out.push(Placed {
-                item: *item,
-                column: c,
-                x: left(c),
-                w: width(c),
-                row,
-                lines,
-            });
-            row = row.saturating_add(h).saturating_add(gap);
-        }
-    };
-    let displays: Vec<Item> = (0..flow.displays.len()).map(Item::Display).collect();
-    column(&displays, 0, 1, &mut out);
-    column(&drules, 1, 0, &mut out);
-    column(&irules, 4, 0, &mut out);
-    column(&inputs, 5, 1, &mut out);
-    // the heads beside their looks, then the looks no head uses, the new
-    // items, and the targets that are not heads across both columns
-    let mut row = 0usize;
-    let place = |item: Item, c: usize, x: usize, w: usize, row: usize, out: &mut Vec<Placed>| {
-        let lines = lines(ctx, item, w);
-        let h = lines.len();
-        out.push(Placed {
-            item,
-            column: c,
-            x,
-            w,
-            row,
-            lines,
-        });
-        h
-    };
-    let head_items: Vec<Item> = heads
-        .iter()
-        .copied()
-        .filter(|i| matches!(i, Item::Head(_)))
-        .collect();
-    for item in &head_items {
-        let Item::Head(h) = item else { continue };
-        let a = place(*item, 2, left(2), width(2), row, &mut out);
-        let b = place(Item::HeadLook(*h), 3, left(3), width(3), row, &mut out);
-        row = row.saturating_add(a.max(b)).saturating_add(1);
-    }
-    for item in looks.iter().filter(|i| matches!(i, Item::Look(_))) {
-        let h = place(*item, 3, left(3), width(3), row, &mut out);
-        row = row.saturating_add(h).saturating_add(1);
-    }
-    let a = place(Item::New(New::Head), 2, left(2), width(2), row, &mut out);
-    let b = place(Item::New(New::Look), 3, left(3), width(3), row, &mut out);
-    row = row.saturating_add(a.max(b)).saturating_add(1);
-    let across = left(3).saturating_add(width(3)).saturating_sub(left(2));
-    for item in heads
-        .iter()
-        .filter(|i| matches!(i, Item::Special(_) | Item::Policy))
-    {
-        let h = place(*item, 2, left(2), across, row, &mut out);
-        row = row.saturating_add(h);
-    }
-    out
-}
-
-/// Each unit's rows for items in `height` rows, and how far it scrolls: a
-/// unit taller than the room gives its last row to the count of what is out
-/// of sight, and scrolls only as far as showing `selected` needs.
-fn scroll(placed: &[Placed], selected: Item, height: usize) -> [(usize, usize); UNITS] {
-    let mut out = [(height, 0usize); UNITS];
-    for (unit, slot) in out.iter_mut().enumerate() {
-        let total = placed
-            .iter()
-            .filter(|p| unit_of(p.column) == unit)
-            .map(|p| p.row.saturating_add(p.lines.len()))
-            .max()
-            .unwrap_or(0);
-        if total <= height {
-            continue;
-        }
-        let room = height.saturating_sub(1).max(1);
-        let off = placed
-            .iter()
-            .find(|p| p.item == selected && unit_of(p.column) == unit)
-            .map_or(0, |sel| {
-                let end = sel.row.saturating_add(sel.lines.len());
-                end.saturating_sub(room).min(sel.row)
-            });
-        *slot = (room, off);
-    }
-    out
-}
-
-/// The flow's columns as drawn on the screen.
-pub struct Drawn {
-    /// Each item shown, with its first screen row.
-    pub shown: Vec<(Placed, usize)>,
-    /// Each item out of sight, and whether it is above or below the rows
-    /// shown.
-    pub hidden: Vec<(Item, End)>,
-    /// The screen's width, and the columns' first and last rows.
-    pub cols: usize,
-    pub top: usize,
-    pub bottom: usize,
-}
-
-/// Draws the column headings on `heading` and the columns from `top` for
-/// `height` rows, with `selected` in reverse video; returns where each item
-/// went.
-pub fn draw_columns(
-    canvas: &mut Canvas,
-    ctx: &Ctx<'_>,
-    selected: Item,
-    heading: usize,
-    top: usize,
-    height: usize,
-) -> Drawn {
-    let g = geometry(canvas.cols);
-    for (c, (names, color)) in HEADINGS.iter().enumerate() {
-        let w = g.w.get(c).copied().unwrap_or(0);
-        let style = Style {
-            bold: true,
-            ..Style::text(*color)
-        };
-        canvas.put(
-            g.x.get(c).copied().unwrap_or(0),
-            heading,
-            &pick(w, names),
-            style,
-        );
-    }
-    let placed = stack(ctx, &g);
-    let units = scroll(&placed, selected, height);
-    let mut shown = Vec::new();
-    let mut out_of_sight = Vec::new();
-    let mut hidden = [(0usize, 0usize); UNITS];
-    for p in placed {
-        let unit = unit_of(p.column);
-        let (room, off) = units.get(unit).copied().unwrap_or((height, 0));
-        let start = p.row;
-        let end = p.row.saturating_add(p.lines.len());
-        if start < off || end.saturating_sub(off) > room {
-            if let Some(h) = hidden.get_mut(unit) {
-                if start < off {
-                    h.0 = h.0.saturating_add(1);
-                } else {
-                    h.1 = h.1.saturating_add(1);
-                }
-            }
-            out_of_sight.push((p.item, if start < off { End::Above } else { End::Below }));
-            continue;
-        }
-        let y = top.saturating_add(start).saturating_sub(off);
-        for (i, line) in p.lines.iter().enumerate() {
-            let style = if p.item == selected {
-                line.style.reversed()
-            } else {
-                line.style
-            };
-            let text = if line.block && !ctx.color {
-                format!("[{:<width$}]", line.text, width = p.w.saturating_sub(2))
-            } else if line.block {
-                format!(" {}", line.text)
-            } else {
-                line.text.clone()
-            };
-            let row = y.saturating_add(i);
-            if line.block {
-                canvas.fill(p.x, row, p.w, &text, style);
-            } else {
-                canvas.put(p.x, row, &text, style);
-            }
-        }
-        shown.push((p, y));
-    }
-    // a unit with items out of sight says how many, on its last row
-    for (unit, (above, below)) in hidden.iter().enumerate() {
-        if *above == 0 && *below == 0 {
-            continue;
-        }
-        let cols: Vec<usize> = (0..6).filter(|c| unit_of(*c) == unit).collect();
-        let (Some(first), Some(last)) = (cols.first(), cols.last()) else {
-            continue;
-        };
-        let x = g.x.get(*first).copied().unwrap_or(0);
-        let w =
-            g.x.get(*last)
-                .copied()
-                .unwrap_or(0)
-                .saturating_add(g.w.get(*last).copied().unwrap_or(0))
-                .saturating_sub(x);
-        let row = top.saturating_add(height.saturating_sub(1));
-        canvas.fill(
-            x,
-            row,
-            w,
-            &words::out_of_sight(*above, *below),
-            Style::text(palette::GREY),
-        );
-    }
-    let drawn = Drawn {
-        shown,
-        hidden: out_of_sight,
-        cols: canvas.cols,
-        top,
-        bottom: top.saturating_add(height.saturating_sub(1)),
-    };
-    paint(canvas, &paths(ctx, &g, &drawn), canvas.cols >= LANES_FROM);
-    drawn
-}
-
-/// The column headings, the long form first.
-const HEADINGS: [(&[&str], super::color::Color); 6] = [
-    (&["DISPLAYS"], palette::DISPLAYS),
-    (&["DISPLAY RULES", "DISP. RULES"], palette::DISPLAY_RULES),
-    (&["HEADS"], palette::HEADS),
-    (&["LOOKS"], palette::LOOKS),
-    (&["INPUT RULES"], palette::INPUT_RULES),
-    (&["INPUT DEVICES", "DEVICES"], palette::INPUTS),
+/// The box-drawing character for each mix of lines: the weight of the
+/// line up, down, left and right of the cell, each 0 for none, 1 light
+/// and 2 heavy, indexed as up × 27 + down × 9 + left × 3 + right. A cell
+/// with one line has a whole line through it, so a line's end meets the
+/// border beside it.
+const JOINTS: [char; 81] = [
+    ' ', '─', '━', '─', '─', '╼', '━', '╾', '━', '│', '┌', '┍', '┐', '┬', '┮', '┑', '┭', '┯', '┃',
+    '┎', '┏', '┒', '┰', '┲', '┓', '┱', '┳', '│', '└', '┕', '┘', '┴', '┶', '┙', '┵', '┷', '│', '├',
+    '┝', '┤', '┼', '┾', '┥', '┽', '┿', '╽', '┟', '┢', '┧', '╁', '╆', '┪', '╅', '╈', '┃', '┖', '┗',
+    '┚', '┸', '┺', '┛', '┹', '┻', '╿', '┞', '┡', '┦', '╀', '╄', '┩', '╃', '╇', '┃', '┠', '┣', '┨',
+    '╂', '╊', '┫', '╉', '╋',
 ];
 
-/// Where a line ends: in an arrow beside its target, or, when its target
-/// is out of sight, in an arrow on the columns' edge that points toward it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum End {
-    Target,
-    Above,
-    Below,
+/// A box's border: across, down, and the four corners, light and heavy,
+/// whole and dashed.
+const LIGHT: [char; 6] = ['─', '│', '┌', '┐', '└', '┘'];
+const HEAVY: [char; 6] = ['━', '┃', '┏', '┓', '┗', '┛'];
+const LIGHT_DASHED: [char; 6] = ['┄', '┆', '┌', '┐', '└', '┘'];
+const HEAVY_DASHED: [char; 6] = ['┅', '┇', '┏', '┓', '┗', '┛'];
+/// A template's border: double lines, so a template reads as the mould a
+/// part is made from, not as a part.
+const DOUBLE: [char; 6] = ['═', '║', '╔', '╗', '╚', '╝'];
+
+/// Whether the document of paths is on the screen: the Flow view with
+/// neither the file view nor Restore's list open over it.
+pub fn shown(app: &App) -> bool {
+    app.view == super::model::View::Flow && app.pager.is_none() && app.restore.is_none()
 }
 
-/// A line between two items as it is drawn: it leaves its source on
-/// `from`, runs up or down its lane to `to`, and ends there.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Path {
-    pub source: Item,
-    pub target: Item,
-    /// The gap's first cell and the cell after its last.
-    pub gap: (usize, usize),
-    /// The target is on the left: an input's line runs toward the heads.
-    pub leftward: bool,
-    pub dashed: bool,
-    pub style: Style,
-    /// The row the line leaves its source on.
-    pub from: usize,
-    /// The row it ends on: one of its target's rows, or the columns' first
-    /// or last row when the target is out of sight.
-    pub to: usize,
-    pub end: End,
-    /// The gap's column the line runs up or down in.
-    pub lane: usize,
+/// The font sets the palette offers: every font the TUI lists that reads.
+pub fn font_names(app: &App) -> Vec<String> {
+    app.inputs
+        .fonts
+        .iter()
+        .filter(|f| !matches!(f.state, super::model::FontState::Refused(_)))
+        .map(|f| f.name.clone())
+        .collect()
 }
 
-const UP: u8 = 1;
-const DOWN: u8 = 2;
-const LEFT: u8 = 4;
-const RIGHT: u8 = 8;
+/// The document as `app` holds it, laid out at its width.
+pub fn layout_of(app: &App) -> Layout {
+    let flow = &app.inputs.flow;
+    let doc = paths::read(flow);
+    let new = app.flow_view.new.clone();
+    let doc = shown_doc(app, doc);
+    let parts = app.flow_view.parts.clone();
+    flowview::layout(&Ctx {
+        flow,
+        doc: &doc,
+        new: &new,
+        parts: &parts,
+        cols: app.cols,
+        default: paths::is_default(flow),
+    })
+}
 
-/// The box-drawing character for the directions in `bits`.
-fn joint(bits: u8, dashed: bool) -> char {
-    match bits {
-        b if b == UP | DOWN => {
-            if dashed {
-                '╎'
-            } else {
-                '│'
-            }
-        }
-        b if b == LEFT | RIGHT => {
-            if dashed {
-                '╌'
-            } else {
-                '─'
-            }
-        }
-        b if b == DOWN | RIGHT => '┌',
-        b if b == DOWN | LEFT => '┐',
-        b if b == UP | RIGHT => '└',
-        b if b == UP | LEFT => '┘',
-        b if b == UP | DOWN | RIGHT => '├',
-        b if b == UP | DOWN | LEFT => '┤',
-        b if b == LEFT | RIGHT | DOWN => '┬',
-        b if b == LEFT | RIGHT | UP => '┴',
-        b if b == UP | DOWN | LEFT | RIGHT => '┼',
-        b if b & (UP | DOWN) != 0 => '│',
-        _ => '─',
+/// The configuration as CONFIGURATION shows it: `doc` without what is
+/// being revised in NEW PATH. The draft keeps it until the new path is
+/// added or cleared, so adding it back unchanged changes nothing.
+pub fn shown_doc(app: &App, doc: paths::Doc) -> paths::Doc {
+    match app.flow_view.revising.as_ref() {
+        Some(flowview::Revising::Path(name)) => doc.revise(name).map_or(doc, |(rest, _)| rest),
+        Some(flowview::Revising::Active) => doc.revise_active().map_or(doc, |(rest, _)| rest),
+        Some(flowview::Revising::Nothing) => doc.revise_none().map_or(doc, |(rest, _)| rest),
+        None => doc,
     }
 }
 
-/// A line before its rows and its lane are settled.
-struct Wire {
-    source: Item,
-    target: Item,
-    gap: (usize, usize),
-    leftward: bool,
-    dashed: bool,
-    style: Style,
-    /// The source's rows, any of which its line may leave from.
-    from: Vec<usize>,
-    /// The target's rows, or the one edge row when it is out of sight.
-    to: Vec<usize>,
-    end: End,
+/// The message under the window, wrapped.
+fn message_rows(app: &App) -> Vec<String> {
+    app.message
+        .as_ref()
+        .map(|m| wrap(m, app.cols.saturating_sub(2).max(1), MESSAGE_ROWS))
+        .unwrap_or_default()
 }
 
-/// The column of lane `k` in `gap`, counted from the sources' side.
-fn lane_x(gap: (usize, usize), leftward: bool, k: usize) -> usize {
-    if leftward {
-        gap.1.saturating_sub(1).saturating_sub(k)
-    } else {
-        gap.0.saturating_add(k)
+/// The window on the canvas: its first screen row, and how many rows it
+/// has between the column titles and the message and key lines.
+pub fn window(app: &App) -> (usize, usize) {
+    let bottom = app
+        .rows
+        .saturating_sub(1)
+        .saturating_sub(message_rows(app).len());
+    (HEAD_ROWS, bottom.saturating_sub(HEAD_ROWS))
+}
+
+fn bold(color: Color) -> Style {
+    Style {
+        bold: true,
+        ..Style::text(color)
     }
 }
 
-/// A line in a gap's lanes: the row it leaves on, the row it ends on, and
-/// whether it ends beside a target, so that it crosses lanes on that row.
-#[derive(Clone, Copy)]
-struct Run {
-    from: usize,
-    to: usize,
-    enters: bool,
-}
-
-impl Run {
-    fn span(self) -> (usize, usize) {
-        (self.from.min(self.to), self.from.max(self.to))
+/// The role whose color a box's border takes, by its state.
+pub const fn mood_role(mood: Mood) -> Role {
+    match mood {
+        Mood::Placed => Role::Placed,
+        Mood::Waiting => Role::Waiting,
+        Mood::Aside => Role::SetAside,
+        Mood::Picked => Role::Picked,
     }
 }
 
-/// How badly the runs cross in `lanes`, one lane each, counted from the
-/// sources' side: a run that crosses another's lane costs 1, and one that
-/// crosses it where that line turns costs 3.
-fn crossings(runs: &[Run], lanes: &[usize]) -> usize {
-    let mut cost = 0usize;
-    for (i, (a, ka)) in runs.iter().zip(lanes).enumerate() {
-        for (j, (b, kb)) in runs.iter().zip(lanes).enumerate() {
-            if i == j {
-                continue;
-            }
-            let (lo, hi) = b.span();
-            let hit = |row: usize| {
-                if row == lo || row == hi {
-                    3
-                } else if (lo..=hi).contains(&row) {
-                    1
-                } else {
-                    0
-                }
+/// The role whose color a box's title and its column's title take, by
+/// its kind.
+pub const fn kind_role(obj: &Obj) -> Role {
+    match obj {
+        Obj::Doc(_, s) | Obj::New(s) | Obj::Pal(s) | Obj::Roam(s) | Obj::Nothing(s) => {
+            let stage = match s {
+                Slot::Display(_) => Stage::Display,
+                Slot::Terminal => Stage::Terminal,
+                Slot::Font(_) => Stage::Font,
+                Slot::Input(_) => Stage::Input,
+                Slot::Special(p) => Stage::of(p),
+                Slot::Template(st) | Slot::Empty(st) => *st,
             };
-            // a run leaves across the lanes nearer the sources than its
-            // own, and enters its target across those beyond it
-            if kb < ka {
-                cost = cost.saturating_add(hit(a.from));
-            }
-            if kb > ka && a.enters {
-                cost = cost.saturating_add(hit(a.to));
+            match stage {
+                Stage::Display => Role::Display,
+                Stage::Terminal => Role::Terminal,
+                Stage::Font => Role::FontSet,
+                Stage::Input => Role::Input,
             }
         }
+        Obj::Others => Role::Input,
     }
-    cost
 }
 
-/// Every way to give `n` runs a lane each of `lanes`, no two the same, in
-/// order: the runs' lanes from the sources' side first.
-fn assignments(n: usize, lanes: usize) -> Vec<Vec<usize>> {
-    fn grow(n: usize, lanes: usize, at: &mut Vec<usize>, out: &mut Vec<Vec<usize>>) {
-        if at.len() == n {
-            out.push(at.clone());
-            return;
-        }
-        for k in 0..lanes {
-            if !at.contains(&k) {
-                at.push(k);
-                grow(n, lanes, at, out);
-                at.pop();
-            }
-        }
+/// `style` in bold.
+const fn emph(style: Style) -> Style {
+    Style {
+        bold: true,
+        ..style
     }
-    let mut out = Vec::new();
-    // more runs than this are given their lanes in order rather than
-    // searched; a 3-cell gap holds two
-    if n <= 6 {
-        grow(n, lanes, &mut Vec::new(), &mut out);
-    }
-    if out.is_empty() {
-        out.push((0..n).collect());
-    }
-    out
 }
 
-/// The lane, counted from the sources' side, of each of `runs`, which are
-/// in order of the rows they leave on: as many as there are lanes take one
-/// each, ordered so that the fewest cross; each run after them takes a
-/// lane whose runs it shares no row with, or else the lane nearest the
-/// sources.
-fn lanes_of(runs: &[Run], lanes: usize) -> Vec<usize> {
-    let lanes = lanes.max(1);
-    let own = runs.len().min(lanes);
-    let first = runs.get(..own).unwrap_or_default();
-    let mut best: Option<(usize, Vec<usize>)> = None;
-    for a in assignments(own, lanes) {
-        let cost = crossings(first, &a);
-        if best.as_ref().is_none_or(|(c, _)| cost < *c) {
-            best = Some((cost, a));
-        }
-    }
-    let mut out = best.map(|(_, a)| a).unwrap_or_default();
-    for run in runs.iter().skip(own) {
-        let (lo, hi) = run.span();
-        let apart = |k: usize| {
-            runs.iter()
-                .zip(&out)
-                .filter(|(_, l)| **l == k)
-                .all(|(r, _)| {
-                    let (a, b) = r.span();
-                    hi < a || b < lo
-                })
-        };
-        let k = (0..lanes).find(|k| apart(*k)).unwrap_or(0);
-        out.push(k);
-    }
-    out
-}
-
-/// The lines between the items shown: a device to its rule, a rule to its
-/// target. A line from a device that is not found, or from a rule that
-/// matches nothing present, is grey and dashed. ADR-1403 D7 says where the
-/// lines run: from 100 columns each line of a gap takes a lane of its own
-/// and the lines into one target end on its rows in turn; at 80 columns
-/// a gap's lines share one lane and the lines into one target end on its
-/// first row. At either width a line leaves its source from the source's
-/// first row on which no other line of the gap enters another target.
-pub fn paths(ctx: &Ctx<'_>, g: &Geometry, drawn: &Drawn) -> Vec<Path> {
-    let flow = ctx.flow;
-    let own_lanes = drawn.cols >= LANES_FROM;
-    let rows_of = |item: Item| -> Option<Vec<usize>> {
-        drawn
-            .shown
-            .iter()
-            .find(|(p, _)| p.item == item)
-            .map(|(p, y)| (*y..y.saturating_add(p.lines.len().max(1))).collect())
+/// Draws the box `b` on `doc`, heavy when it is highlighted.
+fn draw_box(doc: &mut Canvas, b: &Boxed, highlighted: bool, pal: &Palette) {
+    let border = pal.style(mood_role(b.mood));
+    // the highlight is not a role: a placed box's is bright white in bold
+    let border = match (highlighted, b.mood) {
+        (true, Mood::Placed) if border != Style::PLAIN => bold(Color::BrightWhite),
+        (true, _) | (false, Mood::Picked) => emph(border),
+        (false, _) => border,
     };
-    let gap = |left: usize| {
-        let x =
-            g.x.get(left)
-                .copied()
-                .unwrap_or(0)
-                .saturating_add(g.w.get(left).copied().unwrap_or(0));
-        (x, g.x.get(left.saturating_add(1)).copied().unwrap_or(x))
+    let [h, v, tl, tr, bl, br] = match (highlighted, b.dashed) {
+        (false, _) if b.template => DOUBLE,
+        (false, false) => LIGHT,
+        (true, false) => HEAVY,
+        (false, true) => LIGHT_DASHED,
+        (true, true) => HEAVY_DASHED,
     };
-    let mut wires = Vec::new();
-    let mut wire = |source: Item, target: Item, gap, leftward, dashed, style| {
-        let Some(from) = rows_of(source) else {
-            return;
-        };
-        let (to, end) = match rows_of(target) {
-            Some(rows) => (rows, End::Target),
-            None => match drawn.hidden.iter().find(|(i, _)| *i == target) {
-                Some((_, End::Above)) => (vec![drawn.top], End::Above),
-                Some((_, _)) => (vec![drawn.bottom], End::Below),
-                None => return,
-            },
-        };
-        wires.push(Wire {
-            source,
-            target,
-            gap,
-            leftward,
-            dashed,
-            style,
-            from,
-            to,
-            end,
-        });
-    };
-    for kind in [Kind::Display, Kind::Input] {
-        for (d, dev) in flow.devices(kind).iter().enumerate() {
-            let Some(r) = dev.rule else { continue };
-            let (item, g_at, color) = match kind {
-                Kind::Display => (Item::Display(d), 0, palette::DISPLAYS),
-                Kind::Input => (Item::Input(d), 4, palette::INPUTS),
-            };
-            wire(
-                item,
-                Item::Rule(r),
-                gap(g_at),
-                kind == Kind::Input,
-                !dev.found,
-                Style::text(if dev.found { color } else { palette::GREY }),
-            );
-        }
-    }
-    for (r, rule) in flow.rules.iter().enumerate() {
-        let target = match (flow.target(rule), rule.kind) {
-            (Target::Head(h), Kind::Display) => Item::Head(h),
-            (Target::Head(h), Kind::Input) => Item::HeadLook(h),
-            (Target::Special(s), _) => Item::Special(s),
-            (Target::Missing, _) => continue,
-        };
-        let live = rule.state == RuleState::Matches;
-        wire(
-            Item::Rule(r),
-            target,
-            gap(if rule.kind == Kind::Display { 1 } else { 3 }),
-            rule.kind == Kind::Input,
-            !live,
-            Style::text(if live {
-                rule_color(rule.kind)
-            } else {
-                palette::GREY
-            }),
+    let inner = b.w.saturating_sub(2);
+    let across = h.to_string().repeat(inner);
+    doc.put(b.x, b.y, &format!("{tl}{across}{tr}"), border);
+    for i in 1..BOX_ROWS.saturating_sub(1) {
+        doc.put(b.x, b.y.saturating_add(i), &v.to_string(), border);
+        doc.put(
+            b.right().saturating_sub(1),
+            b.y.saturating_add(i),
+            &v.to_string(),
+            border,
         );
     }
-    // the row each line ends on: with lanes of their own, the lines into
-    // one target take its rows in turn, from the line whose source is
-    // highest
-    let ends: Vec<usize> = wires
-        .iter()
-        .enumerate()
-        .map(|(i, w)| {
-            let first = w.to.first().copied().unwrap_or(0);
-            if !own_lanes || w.end != End::Target {
-                return first;
+    doc.put(
+        b.x,
+        b.bottom().saturating_sub(1),
+        &format!("{bl}{across}{br}"),
+        border,
+    );
+    // inside a filled box, the text takes the color the fill picks, and
+    // the title is bold because the fill shows the kind; a set-aside
+    // box's title stays light, so its italic reads as set aside. Black
+    // text in a basic color is never bold: the console shows bold black
+    // as dark grey, which reads poorly on a light fill.
+    // a template is never filled: it is the mould of a part, not a part
+    let fill = pal.fill(kind_role(&b.obj)).filter(|_| !b.template);
+    let (title, detail, bolds) = match fill {
+        Some(back) => {
+            let text = pal.text_on(back, b.mood == Mood::Aside);
+            for i in 1..BOX_ROWS.saturating_sub(1) {
+                doc.put(
+                    b.x.saturating_add(1),
+                    b.y.saturating_add(i),
+                    &" ".repeat(inner),
+                    text,
+                );
             }
-            let key = |j: usize, v: &Wire| (v.from.first().copied().unwrap_or(0), j);
-            let before = wires
-                .iter()
-                .enumerate()
-                .filter(|(j, v)| {
-                    v.end == End::Target
-                        && v.gap == w.gap
-                        && v.target == w.target
-                        && key(*j, v) < key(i, w)
-                })
-                .count();
-            w.to.get(before).or(w.to.last()).copied().unwrap_or(first)
-        })
-        .collect();
-    // each line leaves from the first of its source's rows that no other
-    // line of its gap ends on beside another target
-    let starts: Vec<usize> = wires
-        .iter()
-        .zip(&ends)
-        .enumerate()
-        .map(|(i, (w, to))| {
-            let taken = |row: &usize| {
-                row != to
-                    && wires.iter().zip(&ends).enumerate().any(|(j, (v, e))| {
-                        j != i && v.end == End::Target && v.gap == w.gap && e == row
-                    })
+            let bolds = text.rgb.is_some() || text.fg != Some(Color::Black);
+            let title = if b.mood == Mood::Aside || !bolds {
+                text
+            } else {
+                emph(text)
             };
-            w.from
-                .iter()
-                .find(|r| !taken(r))
-                .or_else(|| w.from.first())
-                .copied()
-                .unwrap_or(*to)
-        })
-        .collect();
-    // each line's lane, counted from the sources' side: all in the first
-    // at 80 columns, and one each from 100
-    let mut lane = vec![0usize; wires.len()];
-    if own_lanes {
-        let mut gaps: Vec<(usize, usize)> = wires.iter().map(|w| w.gap).collect();
-        gaps.sort_unstable();
-        gaps.dedup();
-        for gp in gaps {
-            // a line level with its target runs straight across, in no lane
-            let mut members: Vec<usize> = (0..wires.len())
-                .filter(|i| {
-                    wires.get(*i).is_some_and(|w| {
-                        w.gap == gp && (w.end != End::Target || starts.get(*i) != ends.get(*i))
-                    })
-                })
-                .collect();
-            members.sort_by_key(|i| (starts.get(*i).copied().unwrap_or(0), *i));
-            let runs: Vec<Run> = members
-                .iter()
-                .map(|i| Run {
-                    from: starts.get(*i).copied().unwrap_or(0),
-                    to: ends.get(*i).copied().unwrap_or(0),
-                    enters: wires.get(*i).is_some_and(|w| w.end == End::Target),
-                })
-                .collect();
-            let cells = gp.1.saturating_sub(gp.0);
-            for (i, k) in members.iter().zip(lanes_of(&runs, cells.saturating_sub(1))) {
-                if let Some(slot) = lane.get_mut(*i) {
-                    *slot = k;
+            (title, text, bolds)
+        }
+        None => (pal.style(kind_role(&b.obj)), Style::text(Color::Grey), true),
+    };
+    let strong = |s: Style| if bolds { emph(s) } else { s };
+    let room = b.w.saturating_sub(4);
+    let title_style = match (highlighted, b.mood) {
+        (true, _) => Style {
+            underline: true,
+            ..strong(title)
+        },
+        (false, Mood::Picked) => strong(title),
+        (false, _) => title,
+    };
+    doc.put(
+        b.x.saturating_add(2),
+        b.title_row(),
+        &fit(&b.title, room),
+        title_style,
+    );
+    doc.put(
+        b.x.saturating_add(2),
+        b.title_row().saturating_add(1),
+        &fit(&b.detail, room),
+        detail,
+    );
+}
+
+/// The cells of a wire's path, in order from its first point to its
+/// last.
+fn cells(w: &Wire) -> Vec<(usize, usize)> {
+    let mut out: Vec<(usize, usize)> = Vec::new();
+    for pair in w.points.windows(2) {
+        let (Some(a), Some(b)) = (pair.first(), pair.get(1)) else {
+            continue;
+        };
+        let steps = a.0.abs_diff(b.0).max(a.1.abs_diff(b.1));
+        for k in 0..=steps {
+            let x = if b.0 >= a.0 {
+                a.0.saturating_add(k.min(b.0 - a.0))
+            } else {
+                a.0.saturating_sub(k.min(a.0 - b.0))
+            };
+            let y = if b.1 >= a.1 {
+                a.1.saturating_add(k.min(b.1 - a.1))
+            } else {
+                a.1.saturating_sub(k.min(a.1 - b.1))
+            };
+            if out.last() != Some(&(x, y)) {
+                out.push((x, y));
+            }
+        }
+    }
+    out
+}
+
+/// Draws the wires as box-drawing lines that join where they meet, heavy
+/// where they belong to the highlighted object, each ending in an arrow
+/// at its terminal. A cell that only dashed lines cross is drawn dashed,
+/// and one that only a roaming stub crosses is grey.
+fn draw_wires(doc: &mut Canvas, wires: &[Wire], at: Option<&Obj>, pal: &Palette) {
+    let line = pal.style(Role::Line);
+    let (cols, rows) = (doc.cols, doc.rows);
+    // each cell's weight up, down, left and right, whether a whole line
+    // crosses it, and whether a line other than a stub does
+    let mut grid = vec![([0u8; 4], false, false); cols.saturating_mul(rows)];
+    let heavy = |w: &Wire| at.is_some_and(|o| w.from == *o || w.to == *o);
+    for w in wires {
+        let weight = if heavy(w) { 2 } else { 1 };
+        let path = cells(w);
+        for pair in path.windows(2) {
+            let (Some(a), Some(b)) = (pair.first(), pair.get(1)) else {
+                continue;
+            };
+            // the side of a that b is on, and the side of b that a is on
+            let (from_a, from_b) = if b.1 < a.1 {
+                (0, 1)
+            } else if b.1 > a.1 {
+                (1, 0)
+            } else if b.0 < a.0 {
+                (2, 3)
+            } else {
+                (3, 2)
+            };
+            for ((x, y), side) in [(*a, from_a), (*b, from_b)] {
+                if let Some(cell) = grid.get_mut(y.saturating_mul(cols).saturating_add(x)) {
+                    if let Some(s) = cell.0.get_mut(side) {
+                        *s = (*s).max(weight);
+                    }
+                    cell.1 |= !w.dashed;
+                    cell.2 |= !w.stub;
                 }
             }
         }
     }
-    wires
+    for y in 0..rows {
+        for x in 0..cols {
+            let Some((c, whole, other)) = grid.get(y.saturating_mul(cols).saturating_add(x)) else {
+                continue;
+            };
+            if c.iter().all(|w| *w == 0) {
+                continue;
+            }
+            let [u, d, l, r] = c.map(usize::from);
+            let strong = c.contains(&2);
+            let glyph = match (*whole, u + d == 0, l + r == 0, strong) {
+                (false, true, false, false) => '┄',
+                (false, true, false, true) => '┅',
+                (false, false, true, false) => '┆',
+                (false, false, true, true) => '┇',
+                _ => JOINTS
+                    .get(u * 27 + d * 9 + l * 3 + r)
+                    .copied()
+                    .unwrap_or(' '),
+            };
+            let style = if strong {
+                bold(Color::BrightWhite)
+            } else if !*other {
+                Style::text(Color::Grey)
+            } else {
+                line
+            };
+            doc.put(x, y, &glyph.to_string(), style);
+        }
+    }
+    // a stub's arrow first, so the arrow of an input whose line it joins
+    // is the one that shows
+    let mut ordered: Vec<&Wire> = wires.iter().collect();
+    ordered.sort_by_key(|w| !w.stub);
+    for w in ordered {
+        let path = cells(w);
+        let (Some(last), Some(before)) = (path.last(), path.iter().rev().nth(1)) else {
+            continue;
+        };
+        let right = last.0 > before.0;
+        let (glyph, style) = match (heavy(w), right, w.stub) {
+            (true, true, _) => ("▶", bold(Color::BrightWhite)),
+            (true, false, _) => ("◀", bold(Color::BrightWhite)),
+            (false, true, _) => ("►", line),
+            (false, false, false) => ("◄", line),
+            (false, false, true) => ("◄", Style::text(Color::Grey)),
+        };
+        doc.put(last.0, last.1, glyph, style);
+    }
+}
+
+/// The whole canvas: the paths, the editor and the pieces, with `at`
+/// highlighted.
+pub fn document(layout: &Layout, cols: usize, at: Option<&Obj>, pal: &Palette) -> Canvas {
+    let mut doc = Canvas::new(cols, layout.height.max(1));
+    draw_wires(&mut doc, &layout.wires, at, pal);
+    for b in &layout.boxes {
+        draw_box(&mut doc, b, Some(&b.obj) == at, pal);
+    }
+    for n in &layout.notes {
+        let style = match n.kind {
+            NoteKind::Heading => bold(Color::BrightWhite),
+            NoteKind::Needs => pal.style(Role::Waiting),
+            NoteKind::Ready => bold(Color::Green),
+            NoteKind::Grey => Style::text(Color::Grey),
+            NoteKind::Displays => emph(pal.style(Role::Display)),
+            NoteKind::Inputs => emph(pal.style(Role::Input)),
+            NoteKind::Fonts => emph(pal.style(Role::FontSet)),
+            NoteKind::Terminals => emph(pal.style(Role::Terminal)),
+            NoteKind::Stub => Style {
+                italic: true,
+                ..Style::text(Color::Grey)
+            },
+        };
+        doc.put(n.x, n.y, &n.text, style);
+    }
+    for y in &layout.rules {
+        doc.put(
+            1,
+            *y,
+            &"─".repeat(cols.saturating_sub(2)),
+            Style::text(Color::Grey),
+        );
+    }
+    doc
+}
+
+/// The canvas as a window `height` rows tall from row `top` shows it: a
+/// box whose title is out of sight is left out, so no stray piece of a
+/// border shows at the window's edges.
+pub fn window_of(
+    layout: &Layout,
+    cols: usize,
+    at: Option<&Obj>,
+    top: usize,
+    height: usize,
+    pal: &Palette,
+) -> Canvas {
+    let mut doc = document(layout, cols, at, pal);
+    let end = top.saturating_add(height);
+    for b in &layout.boxes {
+        if b.title_row() >= top && b.title_row() < end {
+            continue;
+        }
+        for y in b.y..b.bottom() {
+            doc.put(b.x, y, &" ".repeat(b.w), Style::PLAIN);
+        }
+    }
+    doc
+}
+
+/// The words a box's object goes by on a wire's label or a layer's
+/// breadcrumb.
+fn obj_name(flow: &Flow, o: &Obj) -> String {
+    match o {
+        Obj::Doc(n, Slot::Terminal) => n.clone(),
+        Obj::New(Slot::Terminal) => words::FLOW_NEW_PATH.to_lowercase(),
+        Obj::Nothing(Slot::Terminal) => words::NO_TERMINAL.to_owned(),
+        Obj::Doc(_, s) | Obj::New(s) | Obj::Pal(s) | Obj::Nothing(s) => match s {
+            Slot::Display(sel) => paths::title(flow, Kind::Display, sel).0,
+            Slot::Input(sel) => paths::title(flow, Kind::Input, sel).0,
+            Slot::Font(f) => flowview::font_words(f.as_deref()),
+            Slot::Special(p) => parts::special_title(p),
+            Slot::Template(st) | Slot::Empty(st) => st.name().to_owned(),
+            Slot::Terminal => String::new(),
+        },
+        Obj::Roam(Slot::Input(sel)) => paths::title(flow, Kind::Input, sel).0,
+        Obj::Roam(_) => words::ACTIVE_TERMINAL.to_owned(),
+        Obj::Others => words::FLOW_OTHERS_TITLE.to_lowercase(),
+    }
+}
+
+/// Where a wire whose other end is out of sight meets the window's edge,
+/// and what the label there says: `↑ desk`, `↓ Logitech mouse`.
+fn edge_labels(
+    flow: &Flow,
+    layout: &Layout,
+    top: usize,
+    height: usize,
+) -> Vec<(usize, usize, String)> {
+    let Some(g) = layout.geometry else {
+        return Vec::new();
+    };
+    let end = top.saturating_add(height);
+    let seen = |y: usize| y >= top && y < end;
+    let mut out = Vec::new();
+    for w in &layout.wires {
+        let (Some(first), Some(last)) = (w.points.first(), w.points.last()) else {
+            continue;
+        };
+        let (Some(trunk), true) = (w.points.get(1), w.points.len() > 2) else {
+            continue;
+        };
+        let (hidden, name) = match (seen(first.1), seen(last.1)) {
+            (true, false) => (last.1, obj_name(flow, &w.to)),
+            (false, true) => (first.1, obj_name(flow, &w.from)),
+            _ => continue,
+        };
+        let (row, arrow) = if hidden < top {
+            (top, "↑")
+        } else {
+            (end.saturating_sub(1), "↓")
+        };
+        // the label runs from the trunk to the column after it
+        let limit = if trunk.0 < g.term_x {
+            g.term_x
+        } else {
+            g.dev_x
+        };
+        let room = limit.saturating_sub(1).saturating_sub(trunk.0);
+        out.push((trunk.0, row, fit(&format!("{arrow} {name}"), room)));
+    }
+    out
+}
+
+/// The status line: the configuration open, or the breadcrumb to the box
+/// whose layer is open; then whether every device is in a path; then how
+/// the draft stands.
+fn status(canvas: &mut Canvas, app: &App, layout: &Layout, crumb: Option<&str>) {
+    let flow = &app.inputs.flow;
+    let name = flow.draft.as_ref().map_or_else(
+        || words::NO_DRAFT.to_owned(),
+        |d| format!("draft {}", d.name),
+    );
+    let left = match crumb {
+        Some(c) => format!("{name}  ›  {c}"),
+        None => name,
+    };
+    let mut x = canvas.put(1, 1, &left, bold(Color::BrightWhite));
+    let count = |s: flowview::Sort| layout.waiting.iter().filter(|w| **w == s).count();
+    let waiting = words::flow_waiting(
+        count(flowview::Sort::Keyboard),
+        count(flowview::Sort::Pointer),
+        count(flowview::Sort::Screen),
+    );
+    let style = if layout.waiting.is_empty() {
+        Style::text(Color::Green)
+    } else {
+        app.inputs.flow_colors.style(Role::Waiting)
+    };
+    x = canvas.put(x.saturating_add(3), 1, &waiting, style);
+    let mut rest: Vec<String> = Vec::new();
+    if let Some(d) = &flow.draft {
+        let state = words::draft_state(&d.name, d.changes, app.unsaved, d.problems);
+        let prefix = format!("draft {} · ", d.name);
+        rest.push(state.strip_prefix(&prefix).unwrap_or(&state).to_owned());
+    }
+    if app.draft.is_some() {
+        if let Some(came) = &app.came {
+            rest.push(came.clone());
+        }
+        if !(app.inputs.hotplug && app.present.udev) {
+            rest.push(words::NO_HOTPLUG.to_owned());
+        }
+    }
+    if !rest.is_empty() {
+        let room = app.cols.saturating_sub(x).saturating_sub(1);
+        canvas.put(
+            x,
+            1,
+            &fit(&format!(" · {}", rest.join(" · ")), room),
+            Style::text(Color::Grey),
+        );
+    }
+}
+
+/// The key line on the last row: the keys that fit, and always the last,
+/// the key that leaves.
+fn key_line(canvas: &mut Canvas, app: &App, keys: &str) {
+    // a question takes the next key, so its keys show in place of the view's
+    let keys = match app.confirm.as_ref().map(|c| &c.then) {
+        Some(super::model::Then::Quit(_)) => words::KEYS_QUIT,
+        Some(super::model::Then::Leave(_)) => words::KEYS_LEAVE,
+        Some(_) => words::KEYS_CONFIRM,
+        None => keys,
+    };
+    let room = app.cols.saturating_sub(2);
+    let items: Vec<&str> = keys.split("  ").collect();
+    let (last, rest) = items.split_last().unwrap_or((&"", &[]));
+    let mut row = String::new();
+    for item in rest {
+        let len = width(&row)
+            .saturating_add(2)
+            .saturating_add(width(item))
+            .saturating_add(2)
+            .saturating_add(width(last));
+        if len > room {
+            break;
+        }
+        if !row.is_empty() {
+            row.push_str("  ");
+        }
+        row.push_str(item);
+    }
+    if !row.is_empty() {
+        row.push_str("  ");
+    }
+    row.push_str(last);
+    canvas.put(
+        1,
+        app.rows.saturating_sub(1),
+        &row,
+        Style::text(Color::Grey),
+    );
+}
+
+/// The message above the key line.
+fn message(canvas: &mut Canvas, app: &App) {
+    let lines = message_rows(app);
+    let y = app.rows.saturating_sub(1).saturating_sub(lines.len());
+    for (i, line) in lines.iter().enumerate() {
+        canvas.put(1, y.saturating_add(i), line, Style::PLAIN);
+    }
+}
+
+/// Draws the Flow view on `canvas`, below the tab bar.
+pub fn screen(canvas: &mut Canvas, app: &App) {
+    let state = &app.flow_view;
+    let flow = &app.inputs.flow;
+    let layout = layout_of(app);
+    message(canvas, app);
+    match &state.layer {
+        Some(obj) => {
+            status(canvas, app, &layout, Some(&obj_name(flow, obj)));
+            let keys = match obj {
+                _ if state.typing.is_some() && state.picker.is_some() => words::KEYS_TYPING_VALUE,
+                _ if state.typing.is_some() => words::KEYS_TYPING,
+                Obj::Nothing(_) => words::KEYS_FLOW_INFO,
+                Obj::Doc(_, Slot::Terminal) => words::KEYS_FLOW_CARD,
+                Obj::New(Slot::Terminal) => words::KEYS_FLOW_EDITOR_CARD,
+                Obj::Doc(..) | Obj::Roam(_) | Obj::Others => words::KEYS_FLOW_INFO,
+                _ => words::KEYS_FLOW_CHOOSE,
+            };
+            key_line(canvas, app, keys);
+            match obj {
+                Obj::Doc(_, Slot::Terminal) | Obj::New(Slot::Terminal) => {
+                    card_layer(canvas, app, state, obj);
+                }
+                Obj::Doc(..) | Obj::Roam(_) | Obj::Nothing(_) => info_layer(canvas, app, obj),
+                Obj::Others => others_layer(canvas, app),
+                Obj::Pal(Slot::Template(st)) | Obj::New(Slot::Empty(st)) => match &state.picker {
+                    Some(p) => picker_layer(canvas, app, state, p),
+                    None => make_layer(canvas, app, state, *st),
+                },
+                _ => choices_layer(canvas, app, state, obj),
+            }
+        }
+        None => {
+            status(canvas, app, &layout, None);
+            key_line(canvas, app, words::KEYS_FLOW);
+            canvas.put(
+                1,
+                2,
+                &fit(
+                    &words::flow_policy(&flow.policy),
+                    app.cols.saturating_sub(2),
+                ),
+                Style::text(Color::Grey),
+            );
+            overview(canvas, app, state, &layout);
+        }
+    }
+}
+
+/// The window on the document, between the policy line and the message
+/// and key lines, with a label where a wire leaves it.
+fn overview(canvas: &mut Canvas, app: &App, state: &flowview::State, layout: &Layout) {
+    let (wtop, wh) = window(app);
+    let doc = window_of(
+        layout,
+        app.cols,
+        state.at.as_ref(),
+        state.top,
+        wh,
+        &app.inputs.flow_colors,
+    );
+    put_window(canvas, &doc, state.top, wtop, wh);
+    for (x, y, text) in edge_labels(&app.inputs.flow, layout, state.top, wh) {
+        let row = wtop.saturating_add(y.saturating_sub(state.top));
+        canvas.put(x, row, &text, Style::text(Color::BrightWhite));
+    }
+}
+
+/// Copies `height` rows of the canvas `doc` from row `top` onto `canvas`
+/// from its row `at`: every cell that holds a character, and every blank
+/// cell inside a filled box, so the fill reaches the screen whole.
+fn put_window(canvas: &mut Canvas, doc: &Canvas, top: usize, at: usize, height: usize) {
+    for i in 0..height {
+        let y = top.saturating_add(i);
+        for x in 0..doc.cols {
+            if let (Some(c), Some(s)) = (doc.at(x, y), doc.style_at(x, y))
+                && (c != ' ' || s.back.is_some())
+            {
+                canvas.put(x, at.saturating_add(i), &c.to_string(), s);
+            }
+        }
+    }
+}
+
+/// One choice: `○ text`, or `● text` for what is chosen now, the text in
+/// reverse video under the cursor; returns the column after it and its
+/// gap.
+fn choice(canvas: &mut Canvas, x: usize, y: usize, text: &str, on: bool, cursor: bool) -> usize {
+    let (mark, mark_style) = if on {
+        ("●", Style::text(Color::Green))
+    } else {
+        ("○", Style::text(Color::Grey))
+    };
+    canvas.put(x, y, mark, mark_style);
+    let style = match (cursor, on) {
+        (true, _) => Style {
+            bold: on,
+            ..Style::PLAIN.reversed()
+        },
+        (false, true) => Style {
+            underline: true,
+            ..bold(Color::BrightWhite)
+        },
+        (false, false) => Style::text(Color::White),
+    };
+    let end = canvas.put(x.saturating_add(2), y, text, style);
+    end.saturating_add(3)
+}
+
+/// An added path's display or input, or a roaming input: what it
+/// matches and where it goes, read-only, and the line that says how to
+/// change it.
+fn info_layer(canvas: &mut Canvas, app: &App, obj: &Obj) {
+    let flow = &app.inputs.flow;
+    let (kind, sel, heading) = match obj {
+        Obj::Doc(_, Slot::Display(s)) | Obj::Nothing(Slot::Display(s)) => {
+            (Kind::Display, s, "DISPLAY")
+        }
+        Obj::Doc(_, Slot::Input(s)) | Obj::Roam(Slot::Input(s)) | Obj::Nothing(Slot::Input(s)) => {
+            (Kind::Input, s, "INPUT")
+        }
+        _ => return,
+    };
+    let (title, detail) = paths::title(flow, kind, sel);
+    let x = canvas.put(
+        1,
+        3,
+        &format!("{heading} {title}"),
+        bold(Color::BrightWhite),
+    );
+    canvas.put(x.saturating_add(2), 3, &detail, Style::text(Color::Grey));
+    let goes = match obj {
+        Obj::Doc(name, _) => words::in_terminal(name),
+        Obj::Nothing(Slot::Display(_)) => words::TURNED_OFF.to_owned(),
+        Obj::Nothing(_) => words::SET_ASIDE.to_owned(),
+        _ => words::ROAMS_SENTENCE.to_owned(),
+    };
+    let vx = VALUE_X.min(app.cols / 3);
+    let mut y = 5usize;
+    for (label, value) in [("Matched by", sel.clone()), ("Where it goes", goes)] {
+        canvas.put(3, y, label, Style::text(Color::Grey));
+        canvas.put(
+            vx,
+            y,
+            &fit(&value, app.cols.saturating_sub(vx).saturating_sub(1)),
+            Style::text(Color::BrightWhite),
+        );
+        y = y.saturating_add(2);
+    }
+    let note = match obj {
+        Obj::Roam(_) => words::REVISE_ROAMING_NOTE,
+        _ => words::REVISE_NOTE,
+    };
+    for line in wrap(note, app.cols.saturating_sub(4), 2) {
+        canvas.put(3, y, &line, Style::text(Color::Yellow));
+        y = y.saturating_add(1);
+    }
+}
+
+/// The choices a part's layer offers, each its title, what it covers, and
+/// its selector: what a display or an input part can match, from the
+/// widest to the narrowest.
+pub fn choices_for(app: &App, obj: &Obj) -> Vec<(String, String, Option<String>)> {
+    let flow = &app.inputs.flow;
+    let (Obj::Pal(slot) | Obj::New(slot)) = obj else {
+        return Vec::new();
+    };
+    let kind = match slot {
+        Slot::Display(_) => Kind::Display,
+        Slot::Input(_) => Kind::Input,
+        _ => return Vec::new(),
+    };
+    let Some(piece) = slot.piece() else {
+        return Vec::new();
+    };
+    paths::narrow(flow, paths::sort_of(flow, &piece))
         .into_iter()
-        .zip(starts)
-        .zip(ends)
-        .zip(lane)
-        .map(|(((w, from), to), k)| Path {
-            source: w.source,
-            target: w.target,
-            gap: w.gap,
-            leftward: w.leftward,
-            dashed: w.dashed,
-            style: w.style,
-            from,
-            to,
-            end: w.end,
-            lane: lane_x(w.gap, w.leftward, k),
+        .map(|(t, sel)| {
+            let detail = paths::title(flow, kind, &sel).1;
+            (t, detail, Some(sel))
         })
         .collect()
 }
 
-/// One line's part of a cell: the line, by its place in the paths, and
-/// the directions it leaves the cell in.
-struct Mark {
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the tests read which line marked a cell")
-    )]
-    line: usize,
-    bits: u8,
-    dashed: bool,
-    style: Style,
-}
-
-/// An arrow a line ends in: its cell, its glyph, the line and its style.
-struct Arrow {
-    at: (usize, usize),
-    glyph: &'static str,
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the tests read which line ends in an arrow")
-    )]
-    line: usize,
-    style: Style,
-}
-
-/// Each cell a line passes through, with every line's mark in it.
-type Cells = BTreeMap<(usize, usize), Vec<Mark>>;
-
-/// What each of `paths` puts in each cell, the solid lines' marks after
-/// the dashed ones', and the arrows they end in.
-fn marks(paths: &[Path]) -> (Cells, Vec<Arrow>) {
-    let mut cells = Cells::new();
-    let mut arrows: Vec<Arrow> = Vec::new();
-    let mut order: Vec<(usize, &Path)> = paths.iter().enumerate().collect();
-    order.sort_by_key(|(_, p)| !p.dashed);
-    for (line, p) in order {
-        let (start, end) = p.gap;
-        if end <= start {
-            continue;
-        }
-        let mut add = |x: usize, y: usize, bits: u8| {
-            cells.entry((x, y)).or_default().push(Mark {
-                line,
-                bits,
-                dashed: p.dashed,
-                style: p.style,
-            });
-        };
-        let (near, head) = if p.leftward {
-            (end.saturating_sub(1), start)
-        } else {
-            (start, end.saturating_sub(1))
-        };
-        let (into_lane, out_of_lane) = if p.leftward {
-            (RIGHT, LEFT)
-        } else {
-            (LEFT, RIGHT)
-        };
-        // across from the source's side of the gap to the lane
-        for x in near.min(p.lane)..=near.max(p.lane) {
-            if x != p.lane {
-                add(x, p.from, LEFT | RIGHT);
-            }
-        }
-        let toward = if p.to > p.from { DOWN } else { UP };
-        let back = if p.to > p.from { UP } else { DOWN };
-        let (lo, hi) = (p.from.min(p.to), p.from.max(p.to));
-        if p.end != End::Target {
-            if p.from != p.to {
-                add(p.lane, p.from, into_lane | toward);
-                for y in lo.saturating_add(1)..hi {
-                    add(p.lane, y, UP | DOWN);
-                }
-            }
-            arrows.push(Arrow {
-                at: (p.lane, p.to),
-                glyph: if p.end == End::Above { "↑" } else { "↓" },
-                line,
-                style: p.style,
-            });
-            continue;
-        }
-        if p.from == p.to {
-            add(p.lane, p.from, into_lane | out_of_lane);
-        } else {
-            add(p.lane, p.from, into_lane | toward);
-            for y in lo.saturating_add(1)..hi {
-                add(p.lane, y, UP | DOWN);
-            }
-            add(p.lane, p.to, back | out_of_lane);
-        }
-        for x in p.lane.min(head).saturating_add(1)..p.lane.max(head) {
-            add(x, p.to, LEFT | RIGHT);
-        }
-        if head != p.lane {
-            arrows.push(Arrow {
-                at: (head, p.to),
-                glyph: if p.leftward { "◄" } else { "►" },
-                line,
-                style: p.style,
-            });
-        }
-    }
-    (cells, arrows)
-}
-
-/// Draws `paths`. Where lines share a cell they join: the cell shows
-/// every direction any of them leaves it in, in the style of the line
-/// drawn last, and the solid lines are drawn after the dashed ones, so a
-/// line in play shows its color. With lanes of their own, where one line
-/// crosses another's lane, the lane's line is drawn through the cell and
-/// the crossing line breaks there, so a crossing never reads as a joint.
-fn paint(canvas: &mut Canvas, paths: &[Path], own_lanes: bool) {
-    let (cells, arrows) = marks(paths);
-    for ((x, y), marks) in &cells {
-        let lane = |m: &&Mark| m.bits == UP | DOWN;
-        let across = |m: &&Mark| m.bits == LEFT | RIGHT;
-        let crossing = own_lanes
-            && marks.len() > 1
-            && marks.iter().filter(lane).count() == 1
-            && marks.iter().all(|m| lane(&m) || across(&m));
-        let (bits, mark) = if crossing {
-            (UP | DOWN, marks.iter().find(lane))
-        } else {
-            (marks.iter().fold(0, |b, m| b | m.bits), marks.last())
-        };
-        if let Some(m) = mark {
-            canvas.put(*x, *y, &joint(bits, m.dashed).to_string(), m.style);
-        }
-    }
-    for a in arrows {
-        canvas.put(a.at.0, a.at.1, a.glyph, a.style);
-    }
-}
-
-/// The item at cell (`col`, `row`), as a click finds it.
-pub fn hit(drawn: &Drawn, col: usize, row: usize) -> Option<Item> {
-    drawn.shown.iter().find_map(|(p, y)| {
-        let rows = *y..y.saturating_add(p.lines.len());
-        let cols = p.x..p.x.saturating_add(p.w);
-        (rows.contains(&row) && cols.contains(&col)).then_some(p.item)
-    })
-}
-
-/// One line of the route card: its text, the section color it is drawn in,
-/// and the item it names, which Enter opens.
+/// One line of a terminal's card: what a path sets that allocates no
+/// display, input or font, and in the editor, each part it joins.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct RouteLine {
-    pub text: String,
-    pub style: Style,
-    pub item: Option<Item>,
+pub enum CardLine {
+    Name,
+    Font,
+    Size,
+    Setting(&'static str),
+    Part(Piece),
 }
 
-/// The route card of `item`: a sentence of what it does, then each route
-/// it is part of, top to bottom.
-pub fn route_card(flow: &Flow, item: Item) -> (String, String, Vec<RouteLine>) {
-    let title = words::route_title(describe_name(flow, item));
-    let sentence = words::route_sentence(flow, item);
-    let routes = flow.routes(item);
-    let mut lines = Vec::new();
-    let n = routes.len();
-    for (k, route) in routes.iter().enumerate() {
-        let when = (Some(
-            flow.heads
-                .get(route.head)
-                .map(|h| h.name.as_str())
-                .unwrap_or_default(),
-        ) != flow.active.as_deref())
-        .then(|| {
-            flow.heads
-                .get(route.head)
-                .map(|h| h.name.clone())
-                .unwrap_or_default()
-        });
-        lines.push(RouteLine {
-            text: words::route_of(k.saturating_add(1), n, when.as_deref()),
-            style: Style::text(palette::GREY),
-            item: None,
-        });
-        for it in route.items(flow) {
-            lines.push(route_line(flow, it, route));
-        }
-    }
-    (title, sentence, lines)
-}
+/// The settings a card offers, without `isolated`, which decides where
+/// roaming keyboards go.
+const CARD_SETTINGS: [&str; 3] = ["consoles", "login", "when-display-lost"];
 
-/// An item's name with what tells it apart, for the route card's title.
-fn describe_name(flow: &Flow, item: Item) -> String {
-    match item {
-        Item::Display(d) | Item::Input(d) => {
-            let devices = if matches!(item, Item::Display(_)) {
-                &flow.displays
-            } else {
-                &flow.inputs
-            };
-            devices.get(d).map_or_else(String::new, |d| {
-                if d.detail.is_empty() {
-                    d.name.clone()
-                } else {
-                    format!("{}, {}", d.name, d.detail)
-                }
-            })
-        }
-        _ => flow.name(item),
-    }
-}
-
-/// One item's line on the route card, in its section's color.
-fn route_line(flow: &Flow, item: Item, _route: &Route) -> RouteLine {
-    let (section, text, color) = match item {
-        Item::Display(d) => (
-            words::SECTION_DISPLAY,
-            describe_name(flow, item)
-                + if flow.displays.get(d).is_some_and(|d| !d.found) {
-                    ", not connected"
-                } else {
-                    ""
-                },
-            palette::DISPLAYS,
-        ),
-        Item::Input(d) => (
-            words::SECTION_INPUT,
-            describe_name(flow, item)
-                + if flow.inputs.get(d).is_some_and(|d| !d.found) {
-                    ", not connected"
-                } else {
-                    ""
-                },
-            palette::INPUTS,
-        ),
-        Item::Rule(r) => {
-            let rule = flow.rules.get(r);
-            let kind = rule.map_or(Kind::Display, |r| r.kind);
-            (
-                match kind {
-                    Kind::Display => words::SECTION_DISPLAY_RULE,
-                    Kind::Input => words::SECTION_INPUT_RULE,
-                },
-                rule.map_or_else(String::new, |rule| {
-                    format!(
-                        "{}, {} -> {}",
-                        r.saturating_add(1),
-                        rule.selector,
-                        rule.target
-                    )
-                }),
-                rule_color(kind),
-            )
-        }
-        Item::Head(h) => (
-            words::SECTION_HEAD,
-            flow.heads.get(h).map_or_else(String::new, |head| {
-                if flow.active.as_deref() == Some(head.name.as_str()) {
-                    format!("{}, {}", head.name, words::ACTIVE_HEAD)
-                } else {
-                    head.name.clone()
-                }
-            }),
-            palette::HEADS,
-        ),
-        Item::HeadLook(_) | Item::Look(_) => {
-            let look = match item {
-                Item::HeadLook(h) => flow.look_of(h),
-                Item::Look(l) => Some(l),
-                _ => None,
-            };
-            (
-                words::SECTION_LOOK,
-                look.and_then(|l| flow.looks.get(l)).map_or_else(
-                    || flow.name(item),
-                    |l| {
-                        format!(
-                            "{}, font set {}, {}",
-                            l.name,
-                            l.frit,
-                            words::look_size(l.points)
-                        )
-                    },
-                ),
-                palette::LOOKS,
-            )
-        }
-        _ => ("", flow.name(item), palette::GREY),
-    };
-    RouteLine {
-        text: format!("{section:<14} {text}"),
-        style: Style::text(color),
-        item: Some(item),
-    }
-}
-
-/// The card Enter opens below the columns: rows of spans, each a text and
-/// its style.
-pub fn card(flow: &Flow, item: Item) -> Vec<Vec<(String, Style)>> {
-    let grey = Style::text(palette::GREY);
-    let chosen = |s: &str, color| (format!(" {s} "), Style::block(color));
-    let choice = |s: &str| (format!(" {s} "), Style::PLAIN);
-    let choices = |label: &str, all: &[String], current: &str, color, typed: bool| {
-        let mut row = vec![(format!("{label:<10}"), grey)];
-        for c in all {
-            row.push(if c == current {
-                chosen(c, color)
-            } else {
-                choice(c)
-            });
-        }
-        if typed {
-            row.push((words::OR_TYPE.to_owned(), grey));
-        }
-        row
-    };
-    let line = |text: String, style: Style| vec![(text, style)];
-    match item {
-        Item::Rule(r) => {
-            let Some(rule) = flow.rules.get(r) else {
-                return Vec::new();
-            };
-            let color = rule_color(rule.kind);
-            let kind = match rule.kind {
-                Kind::Display => "display",
-                Kind::Input => "input",
-            };
-            let mut targets: Vec<String> = flow.heads.iter().map(|h| h.name.clone()).collect();
-            targets.extend(
-                Special::ALL
-                    .iter()
-                    .filter(|s| s.kind() == rule.kind)
-                    .map(|s| s.name().to_owned()),
-            );
-            if !targets.contains(&rule.target) {
-                targets.push(rule.target.clone());
+/// The path a terminal's card shows: an added path's, or the editor's
+/// with the name it will take.
+pub fn card_path(app: &App, obj: &Obj) -> Option<Path> {
+    let flow = &app.inputs.flow;
+    let doc = paths::read(flow);
+    match obj {
+        Obj::Doc(name, Slot::Terminal) => doc.path(name).cloned(),
+        Obj::New(Slot::Terminal) => {
+            let mut p = app.flow_view.new.clone();
+            if p.name.is_none() {
+                p.name = Some(paths::new_name(flow, &doc));
             }
-            let mut selectors = vec![rule.selector.clone()];
-            for dev in flow
-                .devices(rule.kind)
+            Some(p)
+        }
+        _ => None,
+    }
+}
+
+/// The card's lines for `path`; the editor's also list its parts.
+pub fn card_lines(path: &Path, editor: bool) -> Vec<CardLine> {
+    let mut out = vec![CardLine::Name, CardLine::Font, CardLine::Size];
+    out.extend(CARD_SETTINGS.iter().map(|k| CardLine::Setting(k)));
+    if editor {
+        out.extend(
+            path.displays
                 .iter()
-                .filter(|d| d.found && d.rule == Some(r))
-            {
-                selectors.extend(dev.keys.iter().filter(|k| **k != rule.selector).cloned());
+                .map(|d| CardLine::Part(Piece::Display(d.clone()))),
+        );
+        out.extend(
+            path.inputs
+                .iter()
+                .map(|i| CardLine::Part(Piece::Input(i.clone()))),
+        );
+    }
+    out
+}
+
+/// A line's choices, each its words and its value; none for a value the
+/// person types, the name and the login.
+pub fn card_choices(app: &App, line: &CardLine) -> Vec<(String, String)> {
+    let own = |v: &str| (v.to_owned(), v.to_owned());
+    match line {
+        CardLine::Name | CardLine::Setting("login") => Vec::new(),
+        CardLine::Font => std::iter::once((words::DEFAULT_FONT_SET.to_owned(), String::new()))
+            .chain(font_names(app).iter().map(|f| own(f)))
+            .collect(),
+        CardLine::Size => std::iter::once((words::AUTOMATIC_SIZE.to_owned(), String::new()))
+            .chain(super::model::SIZES.iter().map(|s| own(&s.to_string())))
+            .collect(),
+        CardLine::Setting("consoles") => (1..=6).map(|n| own(&n.to_string())).collect(),
+        CardLine::Setting("when-display-lost") => vec![
+            (words::KEEP_SESSIONS.to_owned(), String::new()),
+            (words::END_SESSIONS.to_owned(), "hangup".to_owned()),
+        ],
+        CardLine::Setting(_) => Vec::new(),
+        CardLine::Part(_) => vec![(words::DISCONNECT.to_owned(), String::new())],
+    }
+}
+
+/// A line's value as the path holds it, empty for the default.
+pub fn card_value(path: &Path, line: &CardLine) -> String {
+    match line {
+        CardLine::Name => path.name.clone().unwrap_or_default(),
+        CardLine::Font => path.font.clone().unwrap_or_default(),
+        CardLine::Size => path.size.map(|s| s.to_string()).unwrap_or_default(),
+        CardLine::Setting("consoles") => Some(path.setting("consoles"))
+            .filter(|v| !v.is_empty())
+            .unwrap_or_else(|| "1".to_owned()),
+        CardLine::Setting(k) => path.setting(k),
+        CardLine::Part(_) => String::new(),
+    }
+}
+
+/// A line's label, in a reader's words.
+fn card_label(flow: &Flow, line: &CardLine) -> String {
+    match line {
+        CardLine::Name => "Name".to_owned(),
+        CardLine::Font => "Font set".to_owned(),
+        CardLine::Size => "Size".to_owned(),
+        CardLine::Setting("consoles") => "Consoles".to_owned(),
+        CardLine::Setting("login") => "Login".to_owned(),
+        CardLine::Setting("when-display-lost") => "When its screen is unplugged".to_owned(),
+        CardLine::Setting(k) => (*k).to_owned(),
+        CardLine::Part(Piece::Display(d)) => {
+            format!("Display {}", paths::title(flow, Kind::Display, d).0)
+        }
+        CardLine::Part(Piece::Input(i)) => {
+            format!("Input {}", paths::title(flow, Kind::Input, i).0)
+        }
+        CardLine::Part(Piece::NoInput) => format!("Input {}", words::NO_INPUT),
+        CardLine::Part(Piece::Font(_) | Piece::Active | Piece::NoTerminal | Piece::Terminal(_)) => {
+            String::new()
+        }
+    }
+}
+
+/// A line's value in a reader's words, as it shows off the cursor.
+fn card_words(app: &App, path: &Path, line: &CardLine) -> String {
+    let value = card_value(path, line);
+    match line {
+        CardLine::Setting("login") if value.is_empty() => words::SYSTEM_LOGIN.to_owned(),
+        CardLine::Part(_) => words::CONNECTED.to_owned(),
+        _ => card_choices(app, line)
+            .into_iter()
+            .find(|(_, v)| *v == value)
+            .map_or(value, |(w, _)| w),
+    }
+}
+
+/// A terminal's card: its name, font set, size and the settings that
+/// allocate nothing, each changeable here; in the editor, also the parts
+/// it joins, which Enter disconnects. An added path's card says how to
+/// change its parts.
+fn card_layer(canvas: &mut Canvas, app: &App, state: &flowview::State, obj: &Obj) {
+    let flow = &app.inputs.flow;
+    let Some(path) = card_path(app, obj) else {
+        return;
+    };
+    let editor = matches!(obj, Obj::New(_));
+    let heading = if editor {
+        words::NEW_TERMINAL.to_owned()
+    } else {
+        format!("TERMINAL {}", path.name.clone().unwrap_or_default())
+    };
+    canvas.put(1, 3, &heading, bold(Color::BrightWhite));
+    let (wtop, wh) = window(app);
+    let bottom = wtop.saturating_add(wh);
+    let lines = card_lines(&path, editor);
+    let note = wrap(
+        if editor {
+            words::EDITOR_NOTE
+        } else {
+            words::REVISE_NOTE
+        },
+        app.cols.saturating_sub(4),
+        2,
+    );
+    let room = bottom
+        .saturating_sub(5)
+        .saturating_sub(note.len().saturating_add(1))
+        .max(1);
+    let first = state.line.saturating_add(1).saturating_sub(room);
+    let mut y = 5usize;
+    for (i, line) in lines.iter().enumerate().skip(first).take(room) {
+        canvas.put(3, y, &card_label(flow, line), Style::text(Color::Grey));
+        let here = i == state.line;
+        match (&state.typing, here) {
+            (Some(t), true) => {
+                canvas.put(VALUE_X, y, &format!(" {t}_ "), Style::PLAIN.reversed());
             }
-            selectors.dedup();
-            vec![
-                line(
-                    words::rule_card(
-                        r.saturating_add(1),
-                        rule.line,
-                        kind,
-                        &rule.selector,
-                        &rule.target,
-                    ),
-                    Style {
-                        bold: true,
-                        ..Style::text(color)
-                    },
-                ),
-                choices(words::SENDS_TO, &targets, &rule.target, color, false),
-                choices(words::MATCHES, &selectors, &rule.selector, color, true),
-            ]
-        }
-        Item::Display(d) | Item::Input(d) => {
-            let (devices, color) = if matches!(item, Item::Display(_)) {
-                (&flow.displays, palette::DISPLAYS)
-            } else {
-                (&flow.inputs, palette::INPUTS)
-            };
-            let Some(dev) = devices.get(d) else {
-                return Vec::new();
-            };
-            let placed = match dev
-                .rule
-                .and_then(|r| flow.rules.get(r).map(|rule| (r, rule)))
-            {
-                Some((r, rule)) if dev.found => {
-                    words::placed_by(r.saturating_add(1), &rule.selector, &rule.target)
-                }
-                Some((r, _)) => words::named_by(r.saturating_add(1)),
-                None => words::placed_by_policy(&flow.policy),
-            };
-            vec![
-                line(
-                    describe_name(flow, item),
-                    Style {
-                        bold: true,
-                        ..Style::text(color)
-                    },
-                ),
-                line(words::match_keys(&dev.keys), Style::PLAIN),
-                line(placed, grey),
-            ]
-        }
-        Item::Head(h) => {
-            let Some(head) = flow.heads.get(h) else {
-                return Vec::new();
-            };
-            let mut looks: Vec<String> = flow.looks.iter().map(|l| l.name.clone()).collect();
-            looks.push(words::DEFAULT.to_owned());
-            let keys = ["consoles", "login", "when-display-lost", "isolated"]
-                .iter()
-                .map(|k| {
-                    let v = if *k == "consoles" {
-                        Some(head.consoles.to_string())
-                    } else {
-                        head.keys
+            (None, true) => {
+                let choices = card_choices(app, line);
+                if choices.is_empty() {
+                    let x = canvas.put(
+                        VALUE_X,
+                        y,
+                        &format!(" {} ", card_words(app, &path, line)),
+                        Style::PLAIN.reversed(),
+                    );
+                    canvas.put(
+                        x.saturating_add(2),
+                        y,
+                        words::ENTER_TO_TYPE,
+                        Style::text(Color::Grey),
+                    );
+                } else {
+                    let value = card_value(&path, line);
+                    // the row starts late enough that the cursor's choice
+                    // shows, each choice taking its mark, its words and a gap
+                    let room = app.cols.saturating_sub(VALUE_X);
+                    let span = |a: usize, b: usize| -> usize {
+                        choices
                             .iter()
-                            .find(|(n, _)| n == k)
-                            .map(|(_, v)| v.clone())
+                            .take(b.saturating_add(1))
+                            .skip(a)
+                            .map(|(w, _)| width(w).saturating_add(5))
+                            .sum()
                     };
-                    format!("{k} {}", v.unwrap_or_else(|| words::AT_DEFAULT.to_owned()))
-                })
-                .collect::<Vec<_>>()
-                .join("  ");
-            vec![
-                line(
-                    words::head_card(
-                        &head.name,
-                        head.consoles,
-                        flow.active.as_deref() == Some(head.name.as_str()),
-                    ),
-                    Style {
-                        bold: true,
-                        ..Style::text(palette::HEADS)
-                    },
-                ),
-                choices(words::LOOK, &looks, &head.look, palette::LOOKS, false),
-                line(keys, grey),
-            ]
-        }
-        Item::HeadLook(_) | Item::Look(_) => {
-            let l = match item {
-                Item::HeadLook(h) => flow.look_of(h),
-                Item::Look(l) => Some(l),
-                _ => None,
-            };
-            let Some(look) = l.and_then(|l| flow.looks.get(l)) else {
-                return vec![line(flow.name(item), Style::text(palette::LOOKS))];
-            };
-            let users: Vec<&str> = flow
-                .heads
-                .iter()
-                .filter(|h| h.look == look.name)
-                .map(|h| h.name.as_str())
-                .collect();
-            let fonts: Vec<&str> = look.fonts.iter().map(|(f, _)| f.as_str()).collect();
-            vec![
-                line(
-                    words::look_card(&look.name, &look.frit, look.points),
-                    Style {
-                        bold: true,
-                        ..Style::text(palette::LOOKS)
-                    },
-                ),
-                line(words::look_fonts(&fonts), Style::PLAIN),
-                line(words::look_users(&users), grey),
-            ]
-        }
-        Item::Special(s) => vec![
-            line(
-                s.name().to_owned(),
-                Style {
-                    bold: true,
-                    ..Style::PLAIN
-                },
-            ),
-            line(
-                match s {
-                    Special::Roaming => words::roaming(flow.active.as_deref()),
-                    Special::Ignore => words::IGNORE_DOES.to_owned(),
-                    Special::Off => words::OFF_DOES.to_owned(),
-                },
-                Style::PLAIN,
-            ),
-        ],
-        Item::Policy => vec![
-            line(
-                words::policy(&flow.policy),
-                Style {
-                    bold: true,
-                    ..Style::PLAIN
-                },
-            ),
-            line(words::POLICY_DOES.to_owned(), Style::PLAIN),
-        ],
-        Item::Base => {
-            let set = flow
-                .base
-                .set
-                .iter()
-                .map(|(k, v)| {
-                    if v.is_empty() {
-                        k.clone()
-                    } else {
-                        format!("{k} {v}")
+                    let mut first = 0usize;
+                    while first < state.pick && span(first, state.pick) > room {
+                        first = first.saturating_add(1);
                     }
-                })
-                .collect::<Vec<_>>()
-                .join("  ");
-            vec![
-                line(
-                    words::BASE_CARD.to_owned(),
-                    Style {
-                        bold: true,
-                        ..Style::PLAIN
-                    },
-                ),
-                line(set, Style::PLAIN),
-                line(words::at_defaults(flow.base.defaults), grey),
-            ]
+                    let mut x = VALUE_X;
+                    for (k, (w, v)) in choices.iter().enumerate().skip(first) {
+                        if x.saturating_add(width(w)).saturating_add(3) >= app.cols {
+                            break;
+                        }
+                        let on = *v == value && !matches!(line, CardLine::Part(_));
+                        x = choice(canvas, x, y, w, on, k == state.pick);
+                    }
+                }
+            }
+            _ => {
+                canvas.put(
+                    VALUE_X,
+                    y,
+                    &fit(
+                        &card_words(app, &path, line),
+                        app.cols.saturating_sub(VALUE_X).saturating_sub(1),
+                    ),
+                    Style::text(Color::BrightWhite),
+                );
+            }
         }
-        Item::New(new) => vec![line(
-            words::new_card(new).to_owned(),
-            Style {
-                bold: true,
-                ..Style::PLAIN
-            },
-        )],
+        y = y.saturating_add(1);
+    }
+    y = y.saturating_add(1).min(bottom.saturating_sub(note.len()));
+    for line in note {
+        canvas.put(3, y, &line, Style::text(Color::Yellow));
+        y = y.saturating_add(1);
+    }
+}
+
+/// A part's choices, one a row, broad to narrow, each with what it
+/// covers; the cursor's in reverse video and the piece's own marked ●.
+/// The part a part's detail labels: its kind and its match. Only a
+/// display or an input part, in PARTS or in NEW PATH, takes a label.
+pub fn label_target(obj: &Obj) -> Option<(Kind, String)> {
+    match obj {
+        Obj::Pal(Slot::Display(s)) | Obj::New(Slot::Display(s)) => Some((Kind::Display, s.clone())),
+        Obj::Pal(Slot::Input(s)) | Obj::New(Slot::Input(s)) => Some((Kind::Input, s.clone())),
+        _ => None,
+    }
+}
+
+/// A part's detail: its name, its label, which the person can type, and
+/// the choices of what the part matches, from the widest to the
+/// narrowest. The label is the detail's first line.
+fn choices_layer(canvas: &mut Canvas, app: &App, state: &flowview::State, obj: &Obj) {
+    let flow = &app.inputs.flow;
+    let Some((kind, sel)) = label_target(obj) else {
+        return;
+    };
+    let (part, heading) = match kind {
+        Kind::Display => (words::DISPLAY_PART, words::CHOOSE_DISPLAY),
+        Kind::Input => (words::INPUT_PART, words::CHOOSE_INPUT),
+    };
+    let name = paths::title(flow, kind, &sel).0;
+    let x = canvas.put(1, 3, part, bold(Color::BrightWhite));
+    let role = match kind {
+        Kind::Display => Role::Display,
+        Kind::Input => Role::Input,
+    };
+    canvas.put(
+        x.saturating_add(2),
+        3,
+        &fit(&name, app.cols.saturating_sub(x).saturating_sub(3)),
+        emph(app.inputs.flow_colors.style(role)),
+    );
+    // the label's line
+    let doc = paths::read(flow);
+    let label = doc.label(kind, &sel).unwrap_or_default().to_owned();
+    canvas.put(3, 5, words::LABEL_FIELD, Style::text(Color::Grey));
+    let vx = 12usize;
+    match &state.typing {
+        Some(t) => {
+            let x = canvas.put(vx, 5, &format!(" {t}_ "), Style::PLAIN.reversed());
+            canvas.put(
+                x.saturating_add(2),
+                5,
+                &fit(
+                    words::LABEL_TYPING,
+                    app.cols.saturating_sub(x).saturating_sub(3),
+                ),
+                Style::text(Color::Grey),
+            );
+        }
+        None => {
+            let shown = if label.is_empty() {
+                words::NO_LABEL.to_owned()
+            } else {
+                label
+            };
+            let style = if state.line == 0 {
+                Style::PLAIN.reversed()
+            } else {
+                Style::text(Color::BrightWhite)
+            };
+            let x = canvas.put(vx, 5, &format!(" {shown} "), style);
+            canvas.put(
+                x.saturating_add(3),
+                5,
+                &fit(
+                    words::LABEL_ABOUT,
+                    app.cols.saturating_sub(x).saturating_sub(4),
+                ),
+                Style::text(Color::Grey),
+            );
+        }
+    }
+    let y0 = 7usize;
+    canvas.put(1, y0, heading, bold(Color::BrightWhite));
+    let about = wrap(words::CHOOSE_ABOUT, app.cols.saturating_sub(4), 2);
+    for (k, line) in about.iter().enumerate() {
+        canvas.put(
+            3,
+            y0.saturating_add(1).saturating_add(k),
+            line,
+            Style::text(Color::Grey),
+        );
+    }
+    let now = match obj {
+        Obj::New(Slot::Display(s)) | Obj::New(Slot::Input(s)) => Some(s.clone()),
+        _ => None,
+    };
+    let (wtop, wh) = window(app);
+    let bottom = wtop.saturating_add(wh);
+    let top = y0.saturating_add(2).saturating_add(about.len());
+    let room = bottom.saturating_sub(top).max(1);
+    // the choices' lines come after the label's
+    let line = state.line.saturating_sub(1);
+    let first = line.saturating_add(1).saturating_sub(room);
+    let mut y = top;
+    for (i, (title, detail, value)) in choices_for(app, obj).iter().enumerate().skip(first) {
+        if y >= bottom {
+            break;
+        }
+        let on = now.is_some() && *value == now;
+        let x = choice(canvas, 3, y, title, on, state.line > 0 && i == line);
+        let room = app.cols.saturating_sub(x);
+        canvas.put(x, y, &fit(detail, room), Style::text(Color::Grey));
+        y = y.saturating_add(1);
+    }
+}
+
+/// A template's layer: the ways to make a part of `stage`, one a row,
+/// each with what it covers.
+fn make_layer(canvas: &mut Canvas, app: &App, state: &flowview::State, stage: Stage) {
+    let fonts = font_names(app);
+    let makes = parts::makes(stage, &fonts);
+    // the whole-kind choices first, then under MATCH BY the choices that
+    // match by one key, and a sentence about them
+    let filters = makes
+        .iter()
+        .position(|(_, _, m)| matches!(m, parts::Make::Filter(_)));
+    let list: Vec<(String, String)> = makes.into_iter().map(|(w, d, _)| (w, d)).collect();
+    let marks: Vec<(usize, &str)> = filters
+        .map(|at| (at, words::MATCH_BY))
+        .into_iter()
+        .collect();
+    list_layer(
+        canvas,
+        app,
+        state.line,
+        &words::template_heading(stage.name()),
+        words::template_about(stage.name()),
+        &list,
+        None,
+        &marks,
+        None,
+    );
+}
+
+/// A filter's picker: each value the connected devices give for its key,
+/// with the devices it matches, and last the entry to type a value.
+fn picker_layer(canvas: &mut Canvas, app: &App, state: &flowview::State, p: &flowview::Picker) {
+    let list: Vec<(String, String)> = parts::picker(&app.inputs.flow, p.stage, p.key)
+        .into_iter()
+        .map(|pick| match pick {
+            parts::Pick::Value { sel, devices } => (sel, devices.join(", ")),
+            parts::Pick::Typed => (
+                words::PICKER_TYPE.to_owned(),
+                words::PICKER_TYPE_DETAIL.to_owned(),
+            ),
+        })
+        .collect();
+    let typing = state.typing.as_deref();
+    list_layer(
+        canvas,
+        app,
+        state.line,
+        &words::picker_heading(parts::filter_words(p.key)),
+        &words::picker_about(p.key),
+        &list,
+        typing,
+        &[],
+        None,
+    );
+}
+
+/// A layer's list: its heading, a grey sentence about it, and one choice
+/// a row with its detail in grey; the cursor's in reverse video. While a
+/// value is typed, the last row shows it. Each of `marks` puts a small
+/// heading, after a blank row, before the choice at its index, and `note`
+/// is a grey sentence under the list.
+#[expect(clippy::too_many_arguments, reason = "a layer's parts, each its own")]
+fn list_layer(
+    canvas: &mut Canvas,
+    app: &App,
+    line: usize,
+    heading: &str,
+    about: &str,
+    list: &[(String, String)],
+    typing: Option<&str>,
+    marks: &[(usize, &str)],
+    note: Option<&str>,
+) {
+    canvas.put(1, 3, heading, bold(Color::BrightWhite));
+    let about = wrap(about, app.cols.saturating_sub(4), 2);
+    for (k, l) in about.iter().enumerate() {
+        canvas.put(3, 4usize.saturating_add(k), l, Style::text(Color::Grey));
+    }
+    let (wtop, wh) = window(app);
+    let bottom = wtop.saturating_add(wh);
+    let top = 5usize.saturating_add(about.len());
+    let room = bottom.saturating_sub(top).max(1);
+    let first = line.saturating_add(1).saturating_sub(room);
+    let mut y = top;
+    let last = list.len().saturating_sub(1);
+    // the details line up in a column after the longest choice, as far as
+    // half the screen
+    let column = list
+        .iter()
+        .map(|(t, _)| width(t))
+        .max()
+        .unwrap_or(0)
+        .saturating_add(9)
+        .min(app.cols / 2);
+    for (i, (title, detail)) in list.iter().enumerate().skip(first) {
+        if let Some((_, mark)) = marks.iter().find(|(at, _)| *at == i) {
+            y = y.saturating_add(1);
+            if y < bottom {
+                canvas.put(3, y, mark, bold(Color::BrightWhite));
+            }
+            y = y.saturating_add(1);
+        }
+        if y >= bottom {
+            break;
+        }
+        if let (Some(t), true) = (typing, i == last) {
+            canvas.put(3, y, &format!(" {t}_ "), Style::PLAIN.reversed());
+            y = y.saturating_add(1);
+            continue;
+        }
+        let x = choice(
+            canvas,
+            3,
+            y,
+            &fit(title, app.cols.saturating_sub(10)),
+            false,
+            i == line,
+        );
+        let x = x.max(column);
+        let room = app.cols.saturating_sub(x).saturating_sub(1);
+        canvas.put(x, y, &fit(detail, room), Style::text(Color::Grey));
+        y = y.saturating_add(1);
+    }
+    if let Some(note) = note {
+        for l in wrap(note, app.cols.saturating_sub(6), 2) {
+            if y >= bottom {
+                break;
+            }
+            canvas.put(5, y, &l, Style::text(Color::Grey));
+            y = y.saturating_add(1);
+        }
+    }
+}
+
+/// The second layer of the box of other inputs: each input it folds, with
+/// the rule that catches it.
+fn others_layer(canvas: &mut Canvas, app: &App) {
+    let flow = &app.inputs.flow;
+    canvas.put(1, 3, words::FLOW_OTHERS_TITLE, bold(Color::BrightWhite));
+    let about = wrap(words::FLOW_OTHERS_ABOUT, app.cols.saturating_sub(4), 2);
+    for (k, l) in about.iter().enumerate() {
+        canvas.put(3, 4usize.saturating_add(k), l, Style::text(Color::Grey));
+    }
+    let vx = (app.cols / 2).min(42);
+    let (wtop, wh) = window(app);
+    let bottom = wtop.saturating_add(wh);
+    let mut y = 5usize.saturating_add(about.len()).saturating_add(1);
+    for d in flowview::folded(flow) {
+        if y >= bottom {
+            break;
+        }
+        let Some(dev) = flow.inputs.get(d) else {
+            continue;
+        };
+        canvas.put(
+            3,
+            y,
+            &fit(&dev.name, vx.saturating_sub(4)),
+            Style::text(Color::White),
+        );
+        let caught = match dev.rule.and_then(|r| flow.rules.get(r).map(|x| (r, x))) {
+            Some((r, x)) => format!(
+                "rule {}: {} -> {}",
+                r.saturating_add(1),
+                x.selector,
+                x.target
+            ),
+            None => words::FLOW_NO_RULE.to_owned(),
+        };
+        canvas.put(
+            vx,
+            y,
+            &fit(&caught, app.cols.saturating_sub(vx).saturating_sub(1)),
+            Style::text(Color::Grey),
+        );
+        y = y.saturating_add(1);
     }
 }
 
@@ -1558,554 +1310,292 @@ pub fn card(flow: &Flow, item: Item) -> Vec<Vec<(String, Style)>> {
     reason = "a test fails by panicking"
 )]
 mod tests {
-    use super::super::fixture;
+    use super::super::flowview::tests::lay;
+    use super::super::paths::tests::{EDID_A, KBD_PATH, flow};
+    use super::super::paths::{Path, Piece};
     use super::*;
 
-    #[test]
-    fn the_columns_share_the_width_as_the_mockup_does() {
-        let g = geometry(80);
-        assert_eq!(g.w, [11, 13, 11, 11, 13, 12]);
-        assert_eq!(g.x, [0, 13, 28, 40, 53, 68]);
-        let g = geometry(100);
-        assert_eq!(g.w, [13, 17, 11, 13, 17, 16]);
-        assert_eq!(g.x[5].saturating_add(g.w[5]), 100);
+    /// Whether `c` is a line's glyph, an arrow's or a junction's.
+    fn line_glyph(c: char) -> bool {
+        JOINTS.contains(&c) && c != ' ' || "►◄▶◀┄┆┅┇".contains(c)
     }
 
-    fn ctx(flow: &Flow) -> Ctx<'_> {
-        Ctx {
-            flow,
-            tags: &[],
-            color: true,
+    fn editor() -> Path {
+        let mut p = Path::default();
+        p.pick(Piece::Input(KBD_PATH.into()));
+        p.pick(Piece::Input("id:2dc8:5200".into()));
+        p.pick(Piece::Display("*".into()));
+        p
+    }
+
+    #[test]
+    fn every_wire_is_drawn_whole_from_border_to_border() {
+        let f = flow();
+        for cols in [80, 100, 120] {
+            let l = lay(&f, &editor(), cols);
+            let at = Obj::Doc("desk".into(), Slot::Terminal);
+            let doc = document(&l, cols, Some(&at), &Palette::console());
+            for w in &l.wires {
+                let path = cells(w);
+                for (x, y) in &path {
+                    let c = doc.at(*x, *y).unwrap_or(' ');
+                    assert!(line_glyph(c), "{cols}: {w:?} has {c:?} at {x},{y}");
+                }
+                if w.stub {
+                    // a stub starts beside its words and ends in an arrow
+                    let (fx, fy) = path[0];
+                    assert_eq!(doc.at(fx + 1, fy), Some('r'), "{cols}: {w:?}");
+                    let (tx, ty) = *path.last().expect("a cell");
+                    assert!(
+                        "◄◀".contains(doc.at(tx, ty).unwrap_or(' ')),
+                        "{cols}: {w:?}"
+                    );
+                    continue;
+                }
+                // beside each end, the border of the box it joins
+                let from = l.find(&w.from).expect("its box");
+                let to = l.find(&w.to).expect("its box");
+                let (fx, fy) = path[0];
+                let (tx, ty) = *path.last().expect("a cell");
+                let beside_from = if from.x > fx { from.x } else { fx - 1 };
+                let beside_to = if to.x > tx { to.x } else { tx - 1 };
+                for (x, y) in [(beside_from, fy), (beside_to, ty)] {
+                    let c = doc.at(x, y).unwrap_or(' ');
+                    assert!("│┃┆┇║".contains(c), "{cols}: {w:?} meets {c:?} at {x},{y}");
+                }
+                let arrow = doc.at(tx, ty).unwrap_or(' ');
+                let arrows = if w.to == at { "▶◀" } else { "►◄" };
+                assert!(arrows.contains(arrow), "{cols}: {w:?} ends in {arrow:?}");
+            }
         }
     }
 
     #[test]
-    fn a_rule_too_long_for_its_column_takes_two_rows() {
-        let f = fixture::flow();
-        let l = lines(&ctx(&f), Item::Rule(0), 13);
-        let texts: Vec<&str> = l.iter().map(|l| l.text.as_str()).collect();
-        assert_eq!(texts, ["1 edid:…00001", "  -> desk"]);
-        let l = lines(&ctx(&f), Item::Rule(0), 40);
-        assert_eq!(l[0].text, "1 edid:AAA:0x0001:LARGE00001 -> desk");
-    }
-
-    #[test]
-    fn each_state_has_its_words_and_its_color() {
-        let mut f = fixture::flow();
-        let grey = Style::text(palette::GREY);
-        let l = lines(&ctx(&f), Item::Rule(2), 28);
-        assert_eq!(l[0].style, grey);
-        // the words, whole on two rows of the column's 28 cells
-        let texts: Vec<&str> = l[1..].iter().map(|l| l.text.as_str()).collect();
-        assert_eq!(texts, ["  matches no connected", "  display"]);
-        // in a column too narrow for them whole, the short words, whole
-        let l = lines(&ctx(&f), Item::Rule(2), 14);
-        let texts: Vec<&str> = l[1..].iter().map(|l| l.text.as_str()).collect();
-        assert_eq!(texts, ["  none", "  connected"]);
-        // a rule naming one device that is not found carries no words; its
-        // device's block says it
-        let l = lines(&ctx(&f), Item::Rule(3), 40);
-        assert_eq!(l.len(), 1);
-        assert_eq!(l[0].style, grey);
-        let l = lines(&ctx(&f), Item::Input(0), 12);
-        assert_eq!(l[0].text, "* 046…31c:0");
-        assert!(l.iter().all(|l| l.style == Style::block(palette::GREY)));
+    fn the_editor_is_dashed_a_picked_piece_magenta_and_each_title_its_kind_s_color() {
+        let f = flow();
+        let mut named = editor();
+        named.name = Some("kiosk".into());
+        let l = lay(&f, &named, 100);
+        let doc = document(&l, 100, None, &Palette::console());
+        let new = l.find(&Obj::New(Slot::Terminal)).expect("the editor");
+        assert_eq!(doc.at(new.x, new.y), Some('┌'));
+        assert_eq!(doc.at(new.x + 1, new.y), Some('┄'));
+        assert_eq!(doc.at(new.x, new.y + 1), Some('┆'));
+        let w = l.wires.iter().find(|w| w.dashed).expect("a dashed line");
+        let (x, y) = cells(w)[1];
+        assert_eq!(doc.at(x, y), Some('┄'));
+        let added = l
+            .find(&Obj::Doc("desk".into(), Slot::Terminal))
+            .expect("desk");
+        assert_eq!(doc.at(added.x + 1, added.y), Some('─'));
+        let picked = l
+            .find(&Obj::Pal(Slot::Input(KBD_PATH.into())))
+            .expect("the receiver");
+        let s = doc.style_at(picked.x, picked.y).expect("a style");
+        assert_eq!((s.fg, s.bold), (Some(Color::BrightMagenta), true));
+        // the title says the kind, and the border the state
+        let title = |b: &Boxed| doc.style_at(b.x + 2, b.title_row()).and_then(|s| s.fg);
+        let border = |b: &Boxed| doc.style_at(b.x, b.y).and_then(|s| s.fg);
+        assert_eq!(title(picked), Some(Color::Green));
+        assert_eq!(title(added), Some(Color::Yellow));
+        assert_eq!(border(added), Some(Color::White));
+        let dp = l
+            .find(&Obj::Doc("desk".into(), Slot::Display(EDID_A.into())))
+            .expect("DP-8");
+        assert_eq!(title(dp), Some(Color::Cyan));
+        let font = l
+            .find(&Obj::Pal(Slot::Font(Some("monoid".into()))))
+            .expect("a font set");
+        assert_eq!(title(font), Some(Color::Magenta));
+        let roams = l
+            .find(&Obj::Roam(Slot::Input("id:046d:c31c".into())))
+            .expect("the roaming receiver");
+        assert_eq!(title(roams), Some(Color::Green));
+        let taken = l
+            .find(&Obj::Pal(Slot::Display(EDID_A.into())))
+            .expect("DP-8");
         assert_eq!(
-            l[1..]
-                .iter()
-                .map(|l| l.text.as_str())
-                .collect::<Vec<_>>()
-                .join(" "),
-            "not connected"
+            doc.style_at(taken.x, taken.y).and_then(|s| s.fg),
+            Some(Color::Grey)
         );
-        // a rule that sends to a head that does not exist, in the error's
-        // color, marked and said
-        f.rules[0].target = "tv".into();
-        let l = lines(&ctx(&f), Item::Rule(0), 40);
-        assert_eq!(l[0].text, "! 1 edid:AAA:0x0001:LARGE00001 -> tv");
-        assert_eq!(l[0].style, Style::text(palette::ERROR));
-        assert_eq!(l[1].text, format!("  {}", words::NO_SUCH_HEAD));
-        assert_eq!(l[1].style, Style::text(palette::ERROR));
     }
 
     #[test]
-    fn a_tagged_item_shows_the_mark_before_its_name() {
-        let f = fixture::flow();
-        let tags = [Item::Input(1), Item::Rule(4)];
-        let c = Ctx {
-            flow: &f,
-            tags: &tags,
-            color: true,
-        };
-        assert_eq!(lines(&c, Item::Input(1), 12)[0].text, "◆ keyboard");
-        assert!(
-            lines(&c, Item::Rule(4), 40)[0]
-                .text
-                .starts_with("◆ 5 class:keyboard")
+    fn the_color_file_s_roles_reach_the_titles_borders_and_lines() {
+        let f = flow();
+        let l = lay(&f, &editor(), 100);
+        let (mut pal, _) = crate::tui::flowcolor::parse(
+            "[colors]\ndisplay = #7fb3c8 / cyan\nplaced = none\nline = bright-red\n",
         );
-        assert_eq!(lines(&c, Item::Input(2), 12)[0].text, "Power…utton");
-    }
-
-    fn drawn(f: &Flow, cols: usize, rows: usize, sel: Item) -> (Canvas, Drawn) {
-        let mut canvas = Canvas::new(cols, rows);
-        let d = draw_columns(&mut canvas, &ctx(f), sel, 0, 1, rows.saturating_sub(1));
-        (canvas, d)
-    }
-
-    #[test]
-    fn a_display_s_line_runs_to_its_rule_and_the_rule_s_to_its_head() {
-        let f = fixture::flow();
-        let (canvas, d) = drawn(&f, 80, 24, Item::Display(0));
-        let g = geometry(80);
-        let row = |i| {
-            d.shown
-                .iter()
-                .find(|(p, _)| p.item == i)
-                .map(|(_, y)| *y)
-                .expect("shown")
-        };
-        // DP-8 and rule 1 share a row: a straight line into an arrow
-        let y = row(Item::Display(0));
-        assert_eq!(row(Item::Rule(0)), y);
-        assert_eq!(canvas.at(g.x[0] + g.w[0], y), Some('─'));
-        assert_eq!(canvas.at(g.x[1] - 1, y), Some('►'));
-        // rule 3 matches nothing: its line up to desk is dashed where no
-        // line in play shares its cells. Rule 2's line turns into panel on
-        // rule 3's first row, so rule 3's line leaves from its next row,
-        // and nothing joins rule 3's first row to panel's arrow
-        let y3 = row(Item::Rule(2));
-        let bus = g.x[1] + g.w[1];
-        assert_eq!(row(Item::Head(1)), y3, "panel sits level with rule 3");
-        assert_eq!(canvas.at(bus, y3), Some('├'), "no line from the left");
-        assert_eq!(canvas.at(bus, y3 + 1), Some('┘'), "rule 3's own line");
-        assert_eq!(canvas.at(bus, row(Item::Head(0)) + 1), Some('╎'));
-        // rules 1 and 3 both go to desk, so rule 1 leaves from its first row
-        assert_eq!(canvas.at(bus, row(Item::Head(0))), Some('┬'));
-        // the keyboard's line runs left, into its rule
-        let yk = row(Item::Input(1));
-        let yr = row(Item::Rule(4));
-        assert_eq!(canvas.at(g.x[4] + g.w[4], yr), Some('◄'));
-        assert!(yk != yr || canvas.at(g.x[5] - 1, yk) == Some('─'));
-    }
-
-    /// The fixture's columns drawn at `cols`, `height` rows of them from
-    /// row 1, with `sel` selected, and the lines as they were drawn.
-    fn lines_at(f: &Flow, cols: usize, height: usize, sel: Item) -> (Canvas, Drawn, Vec<Path>) {
-        let mut canvas = Canvas::new(cols, height.saturating_add(1));
-        let d = draw_columns(&mut canvas, &ctx(f), sel, 0, 1, height);
-        let p = paths(&ctx(f), &geometry(cols), &d);
-        (canvas, d, p)
-    }
-
-    fn path(paths: &[Path], source: Item) -> &Path {
-        paths.iter().find(|p| p.source == source).expect("the line")
-    }
-
-    fn row_in(d: &Drawn, item: Item) -> usize {
-        d.shown
-            .iter()
-            .find(|(p, _)| p.item == item)
-            .map(|(_, y)| *y)
-            .expect("shown")
-    }
-
-    #[test]
-    fn at_100_columns_each_line_of_a_gap_takes_a_lane_of_its_own() {
-        let f = fixture::flow();
-        let (_, _, p) = lines_at(&f, 100, 29, Item::Display(0));
-        let lane = |s| path(&p, s).lane;
-        // the gaps are 13..16, 33..36, 61..64 and 81..84; the arrow takes
-        // the cell beside the target, and the lane nearest the sources is
-        // the first
-        assert_eq!(lane(Item::Display(1)), 13, "HDMI-A-2 to rule 2");
-        assert_eq!(lane(Item::Rule(1)), 33, "rule 2 to panel");
-        assert_eq!(lane(Item::Rule(2)), 34, "rule 3 to desk, its own");
-        assert_eq!(lane(Item::Rule(4)), 62, "rule 5 to roaming");
-        assert_eq!(lane(Item::Rule(5)), 63, "rule 6 to ignore, its own");
-        assert_eq!(lane(Item::Input(1)), 83, "the keyboard to rule 5");
+        pal.truecolor = true;
+        let doc = document(&l, 100, None, &pal);
+        let dp = l
+            .find(&Obj::Doc("desk".into(), Slot::Display(EDID_A.into())))
+            .expect("DP-8");
+        let title = doc.style_at(dp.x + 2, dp.title_row()).expect("a style");
+        assert_eq!(title.rgb, Some([0x7f, 0xb3, 0xc8]));
+        assert_eq!(doc.style_at(dp.x, dp.y), Some(Style::PLAIN));
+        let w = l.wires.iter().find(|w| !w.dashed).expect("a whole line");
+        let (x, y) = cells(w)[1];
         assert_eq!(
-            lane(Item::Input(2)),
-            82,
-            "the Power Button to rule 6, its own"
+            doc.style_at(x, y).and_then(|s| s.fg),
+            Some(Color::BrightRed)
         );
-        // rule 3 ends on desk's second row, rule 1 on its first
-        let to = |s| path(&p, s).to;
-        assert_eq!(to(Item::Rule(2)), to(Item::Rule(0)) + 1);
-        // at 80 columns every line of a gap shares the gap's one lane
-        let (_, _, p) = lines_at(&f, 80, 24, Item::Display(0));
-        for line in &p {
-            let shared = if line.leftward {
-                line.gap.1 - 1
-            } else {
-                line.gap.0
-            };
-            assert_eq!(line.lane, shared, "{:?}", line.source);
-        }
-        assert_eq!(path(&p, Item::Rule(2)).to, path(&p, Item::Rule(0)).to);
     }
 
     #[test]
-    fn at_100_columns_a_dashed_line_keeps_its_dashes_over_its_whole_run() {
-        let f = fixture::flow();
-        let (canvas, d, p) = lines_at(&f, 100, 29, Item::Display(0));
-        let grey = Style::text(palette::GREY);
-        let cell = |x, y| (canvas.at(x, y), canvas.style_at(x, y));
-        // rule 3 leaves its second row across the gap's first cell, runs up
-        // its lane past rule 2's line into panel, and turns into desk's
-        // second row
-        let r3 = path(&p, Item::Rule(2));
-        let y3 = row_in(&d, Item::Rule(2));
-        assert_eq!(r3.from, y3 + 1);
-        assert_eq!(cell(33, y3 + 1), (Some('╌'), Some(grey)));
-        assert_eq!(cell(34, y3 + 1), (Some('┘'), Some(grey)));
-        for y in r3.to + 1..r3.from {
-            assert_eq!(cell(34, y), (Some('╎'), Some(grey)), "row {y}");
+    fn a_fill_covers_the_inside_of_a_box_and_never_its_border() {
+        use crate::tui::color::{Back, Normal};
+        use crate::tui::flowcolor::LIGHT_TEXT;
+        let f = flow();
+        let l = lay(&f, &editor(), 100);
+        let (mut pal, skipped) = crate::tui::flowcolor::parse(
+            "[colors]\nset-aside = #969696 / bright-black\ndisplay-fill = #0f4c57 / cyan\nterminal-fill = #5a4012 / yellow\nfont-set-fill = #4a2a60 / magenta\ninput-fill = #1b4a24 / green\n",
+        );
+        assert!(skipped.is_empty(), "{skipped:?}");
+        pal.truecolor = true;
+        let desk = Obj::Doc("desk".into(), Slot::Terminal);
+        let doc = document(&l, 100, Some(&desk), &pal);
+        let plain = document(&l, 100, Some(&desk), &Palette::console());
+        // a fill moves nothing: every character is where it was
+        for y in 0..doc.rows {
+            for x in 0..doc.cols {
+                assert_eq!(doc.at(x, y), plain.at(x, y), "at {x},{y}");
+            }
         }
-        assert_eq!(cell(34, r3.to), (Some('┌'), Some(grey)));
-        assert_eq!(cell(35, r3.to), (Some('►'), Some(grey)));
-        // rule 4 and the keyboard that is not found run straight across
-        let y4 = row_in(&d, Item::Rule(3));
-        let straight: String = (61..64)
-            .chain(81..84)
-            .filter_map(|x| canvas.at(x, y4))
-            .collect();
-        assert_eq!(straight, "◄╌╌◄╌╌");
+        let back = |x: usize, y: usize| doc.style_at(x, y).and_then(|s| s.back);
+        for b in &l.boxes {
+            let fill = pal.fill(kind_role(&b.obj)).expect("every kind is filled");
+            for y in b.y..b.bottom() {
+                for x in b.x..b.right() {
+                    // a template, or an empty place, is never filled
+                    let inside = y > b.y && y + 1 < b.bottom() && x > b.x && x + 1 < b.right();
+                    let want = (inside && !b.template).then_some(fill);
+                    assert_eq!(back(x, y), want, "{:?} at {x},{y}", b.obj);
+                }
+            }
+            // nothing around the box is filled
+            if b.x > 0 {
+                assert_eq!(back(b.x - 1, b.title_row()), None, "{:?}", b.obj);
+            }
+            assert_eq!(back(b.right(), b.title_row()), None, "{:?}", b.obj);
+        }
+        // the title is bold in the fill's text color; the highlight keeps
+        // its heavy border and underlined title
+        let d = l.find(&desk).expect("desk");
+        let title = doc.style_at(d.x + 2, d.title_row()).expect("a style");
+        assert_eq!(
+            (title.rgb, title.bold, title.underline),
+            (Some(LIGHT_TEXT), true, true)
+        );
+        assert_eq!(doc.at(d.x, d.y), Some('┏'));
+        // a set-aside box keeps its fill, its text italic in grey
+        let taken = l
+            .find(&Obj::Pal(Slot::Display(EDID_A.into())))
+            .expect("DP-8");
+        let t = doc
+            .style_at(taken.x + 2, taken.title_row())
+            .expect("a style");
+        assert_eq!(
+            (t.rgb, t.italic, t.back),
+            (
+                Some([0x96; 3]),
+                true,
+                Some(Back {
+                    basic: Normal::Cyan,
+                    rgb: Some([0x0f, 0x4c, 0x57])
+                })
+            )
+        );
+        // the border keeps its state's color
+        assert_eq!(
+            doc.style_at(taken.x, taken.y).and_then(|s| s.fg),
+            Some(Color::Grey)
+        );
     }
 
     #[test]
-    fn at_100_columns_no_line_draws_over_another_line_s_turn_or_arrow() {
-        let f = fixture::flow();
-        let (canvas, d, _) = lines_at(&f, 100, 29, Item::Display(0));
-        let row = |i| row_in(&d, i);
-        let cyan = Style::text(palette::DISPLAY_RULES);
-        let green = Style::text(palette::INPUT_RULES);
-        let bright = Style::text(palette::INPUTS);
-        let grey = Style::text(palette::GREY);
-        // each turn and arrow, with the line's own glyph and color
-        let want = [
-            ((33, row(Item::Rule(1))), '┐', cyan),
-            ((33, row(Item::Head(1))), '└', cyan),
-            ((35, row(Item::Head(1))), '►', cyan),
-            ((34, row(Item::Head(0)) + 1), '┌', grey),
-            ((62, row(Item::Rule(4))), '┌', green),
-            ((62, row(Item::Special(Special::Roaming))), '┘', green),
-            ((61, row(Item::Special(Special::Roaming))), '◄', green),
-            ((63, row(Item::Rule(5))), '┌', green),
-            ((63, row(Item::Special(Special::Ignore))), '┘', green),
-            ((83, row(Item::Input(1)) + 1), '└', bright),
-            ((83, row(Item::Rule(4))), '┐', bright),
-            ((81, row(Item::Rule(4))), '◄', bright),
-            ((82, row(Item::Input(2))), '└', bright),
-            ((82, row(Item::Rule(5))), '┐', bright),
-            ((81, row(Item::Rule(5))), '◄', bright),
-        ];
-        for ((x, y), c, style) in want {
+    fn black_text_on_a_basic_fill_is_never_bold() {
+        // bold black shows as dark grey on the console, which reads
+        // poorly on a light fill
+        let f = flow();
+        let l = lay(&f, &editor(), 100);
+        let (pal, _) =
+            crate::tui::flowcolor::parse("[colors]\ndisplay-fill = cyan\nterminal-fill = blue\n");
+        let desk = Obj::Doc("desk".into(), Slot::Terminal);
+        let dp8 = Obj::Doc("desk".into(), Slot::Display(EDID_A.into()));
+        for at in [None, Some(&desk), Some(&dp8)] {
+            let doc = document(&l, 100, at, &pal);
+            let d = l.find(&dp8).expect("DP-8");
+            let s = doc.style_at(d.x + 2, d.title_row()).expect("a style");
             assert_eq!(
-                (canvas.at(x, y), canvas.style_at(x, y)),
-                (Some(c), Some(style)),
-                "cell {x},{y}"
+                (s.fg, s.bold, s.underline),
+                (Some(Color::Black), false, at == Some(&dp8)),
+                "{at:?}"
             );
+            let t = l.find(&desk).expect("desk");
+            let s = doc.style_at(t.x + 2, t.title_row()).expect("a style");
+            assert_eq!((s.fg, s.bold), (Some(Color::BrightWhite), true), "{at:?}");
         }
-        // where rule 2's line crosses rule 3's lane, rule 3's lane goes on
-        assert_eq!(canvas.at(34, row(Item::Head(1))), Some('╎'));
     }
 
     #[test]
-    fn a_line_to_a_target_out_of_sight_ends_in_an_arrow_at_the_columns_edge() {
-        let f = fixture::flow();
-        // 16 rows: the heads scroll, and roaming and ignore are below them
-        for (cols, lanes) in [(80, [52, 52]), (100, [62, 63])] {
-            let (canvas, d, p) = lines_at(&f, cols, 16, Item::Rule(4));
-            assert!(
-                d.hidden
-                    .contains(&(Item::Special(Special::Roaming), End::Below))
-            );
-            for (rule, x) in [Item::Rule(4), Item::Rule(5)].into_iter().zip(lanes) {
-                let line = path(&p, rule);
-                assert_eq!(
-                    (line.end, line.to, line.lane),
-                    (End::Below, 16, x),
-                    "{cols}"
-                );
-                assert_eq!(canvas.at(x, 16), Some('↓'), "{cols}: {rule:?}");
-                assert_eq!(canvas.at(x, 15), Some('│'), "{cols}: {rule:?}");
-            }
-            let g = geometry(cols);
-            let count: String = (g.x[2]..g.x[2] + 8)
-                .filter_map(|x| canvas.at(x, 16))
-                .collect();
-            assert_eq!(count, "↓ 4 more", "{cols}");
-        }
-        // scrolled to the policy, the heads are above: rule 1's line,
-        // level with the columns' first row, ends there in an arrow up
-        let (canvas, d, p) = lines_at(&f, 80, 8, Item::Policy);
-        assert!(d.hidden.contains(&(Item::Head(0), End::Above)));
-        let line = path(&p, Item::Rule(0));
-        assert_eq!((line.end, line.from, line.to), (End::Above, 1, 1));
-        assert_eq!(canvas.at(26, 1), Some('↑'));
-        // a line whose source is out of sight is not drawn
-        let (_, d, p) = lines_at(&f, 80, 4, Item::Display(0));
-        assert!(d.hidden.iter().any(|(i, _)| *i == Item::Rule(5)));
-        assert!(!p.iter().any(|l| l.source == Item::Rule(5)));
-    }
-
-    /// A flow drawn from `seed`: the figure's heads and looks, with rules
-    /// of either kind sending to a head, a target that is not a head or a
-    /// head that does not exist, each matching or matching nothing, and
-    /// devices each placed by a rule of its kind.
-    fn random_flow(seed: u64) -> Flow {
-        use super::super::flow::{Device, Rule};
-        let mut state = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
-        let mut next = |n: usize| {
-            state = state
-                .wrapping_mul(6_364_136_223_846_793_005)
-                .wrapping_add(1_442_695_040_888_963_407);
-            usize::try_from(state >> 33).unwrap_or(0) % n.max(1)
-        };
-        let mut f = fixture::flow();
-        f.rules.clear();
-        f.displays.clear();
-        f.inputs.clear();
-        for i in 0..next(9) + 1 {
-            let kind = if next(2) == 0 {
-                Kind::Display
-            } else {
-                Kind::Input
-            };
-            let targets: &[&str] = match kind {
-                Kind::Display => &["desk", "panel", "off", "tv"],
-                Kind::Input => &["desk", "panel", "roaming", "ignore"],
-            };
-            f.rules.push(Rule {
-                kind,
-                line: 10 + i,
-                selector: format!("name:r{i}"),
-                target: targets[next(targets.len())].into(),
-                state: if next(3) == 0 {
-                    RuleState::MatchesNothing
-                } else {
-                    RuleState::Matches
-                },
-            });
-        }
-        for kind in [Kind::Display, Kind::Input] {
-            let of: Vec<usize> = (0..f.rules.len())
-                .filter(|r| f.rules[*r].kind == kind)
-                .collect();
-            for d in 0..next(5) {
-                if of.is_empty() {
-                    break;
-                }
-                let dev = Device {
-                    name: format!("dev{d}"),
-                    detail: if next(2) == 0 {
-                        String::new()
-                    } else {
-                        "x".into()
-                    },
-                    keys: Vec::new(),
-                    found: next(4) != 0,
-                    rule: Some(of[next(of.len())]),
-                };
-                match kind {
-                    Kind::Display => f.displays.push(dev),
-                    Kind::Input => f.inputs.push(dev),
-                }
+    fn the_whole_inside_of_a_filled_box_reaches_the_screen() {
+        let f = flow();
+        let l = lay(&f, &editor(), 100);
+        let (pal, _) = crate::tui::flowcolor::parse("[colors]\nterminal-fill = blue\n");
+        let doc = window_of(&l, 100, None, 0, l.height, &pal);
+        let mut screen = Canvas::new(100, l.height + HEAD_ROWS);
+        put_window(&mut screen, &doc, 0, HEAD_ROWS, l.height);
+        let desk = l
+            .find(&Obj::Doc("desk".into(), Slot::Terminal))
+            .expect("desk");
+        let fill = pal.fill(Role::Terminal);
+        assert!(fill.is_some());
+        for y in desk.y + 1..desk.bottom() - 1 {
+            for x in desk.x + 1..desk.right() - 1 {
+                let s = screen.style_at(x, y + HEAD_ROWS).expect("a cell");
+                assert_eq!(s.back, fill, "at {x},{y}");
             }
         }
-        f
-    }
-
-    /// Each cell where one line draws over the turn or the arrow of
-    /// another, with the two lines.
-    fn over_a_turn(paths: &[Path]) -> Vec<((usize, usize), usize, usize)> {
-        let (cells, arrows) = marks(paths);
-        let mut out = Vec::new();
-        for (at, marks) in &cells {
-            for turn in marks
-                .iter()
-                .filter(|m| m.bits != UP | DOWN && m.bits != LEFT | RIGHT)
-            {
-                for other in marks.iter().filter(|m| m.line != turn.line) {
-                    out.push((*at, turn.line, other.line));
-                }
-            }
-        }
-        for a in &arrows {
-            for m in cells.get(&a.at).into_iter().flatten() {
-                if m.line != a.line {
-                    out.push((a.at, a.line, m.line));
-                }
-            }
-            for b in arrows.iter().filter(|b| b.at == a.at && b.line != a.line) {
-                out.push((a.at, a.line, b.line));
-            }
-        }
-        out
+        // a blank cell outside every box stays the terminal's own
+        assert_eq!(screen.style_at(0, HEAD_ROWS), Some(Style::PLAIN));
     }
 
     #[test]
-    fn at_100_columns_a_line_crosses_another_s_turn_only_where_the_rows_or_lanes_run_out() {
-        let mut found = 0usize;
-        for seed in 0..3000u64 {
-            let f = random_flow(seed);
-            let height = 8 + usize::try_from(seed % 19).unwrap_or(0);
-            let (_, d, p) = lines_at(&f, 100, height, Item::Base);
-            let rows = |item: Item| -> Vec<usize> {
-                d.shown
-                    .iter()
-                    .find(|(s, _)| s.item == item)
-                    .map(|(s, y)| (*y..y + s.lines.len().max(1)).collect())
-                    .unwrap_or_default()
-            };
-            for (at, turn, other) in over_a_turn(&p) {
-                let (a, b) = (&p[turn], &p[other]);
-                // a target with fewer rows than the lines into it, which
-                // end on its last row together
-                let full = |l: &Path| {
-                    l.end == End::Target
-                        && p.iter()
-                            .filter(|o| {
-                                o.end == End::Target && o.gap == l.gap && o.target == l.target
-                            })
-                            .count()
-                            > rows(l.target).len()
-                };
-                // a source each of whose rows another line ends on
-                let no_free_row = |l: &Path| {
-                    rows(l.source).iter().all(|r| {
-                        p.iter()
-                            .any(|o| o.gap == l.gap && o.end == End::Target && o.to == *r && o != l)
-                    })
-                };
-                // more lines in the gap than it has lanes
-                let crowded = p
-                    .iter()
-                    .filter(|o| o.gap == a.gap && (o.end != End::Target || o.from != o.to))
-                    .count()
-                    > a.gap.1.saturating_sub(a.gap.0).saturating_sub(1);
-                found += 1;
-                assert!(
-                    full(a) || full(b) || no_free_row(a) || no_free_row(b) || crowded,
-                    "seed {seed}, cell {at:?}: {:?} over {:?}\n{a:?}\n{b:?}",
-                    b.source,
-                    a.source
-                );
-            }
+    fn a_box_whose_title_is_out_of_sight_leaves_no_piece_of_its_border() {
+        let f = flow();
+        let l = lay(&f, &Path::default(), 100);
+        let desk = l
+            .find(&Obj::Doc("desk".into(), Slot::Terminal))
+            .expect("desk");
+        // the window starts at desk's bottom border: desk's title is above it
+        let top = desk.bottom() - 1;
+        let doc = window_of(&l, 100, None, top, 12, &Palette::console());
+        for x in desk.x..desk.right() {
+            assert_eq!(doc.at(x, top), Some(' '), "at {x},{top}");
         }
-        // the search reaches each of the cases it allows
-        assert!(found > 0, "no layout crossed a turn at all");
-    }
-
-    #[test]
-    fn a_click_finds_the_item_under_it() {
-        let f = fixture::flow();
-        let (_, d) = drawn(&f, 80, 24, Item::Display(0));
-        let (p, y) = d
-            .shown
-            .iter()
-            .find(|(p, _)| p.item == Item::Head(1))
+        let panel = l
+            .find(&Obj::Doc("panel".into(), Slot::Terminal))
             .expect("panel");
-        assert_eq!(hit(&d, p.x + 1, y + 1), Some(Item::Head(1)));
-        assert_eq!(hit(&d, 0, 0), None);
+        assert_eq!(doc.at(panel.x, panel.y), Some('┌'));
     }
 
     #[test]
-    fn a_column_taller_than_the_room_scrolls_to_the_selection_and_counts_the_rest() {
-        let mut f = fixture::flow();
-        for i in 0..20 {
-            f.rules.push(super::super::flow::Rule {
-                kind: Kind::Input,
-                line: 30 + i,
-                selector: format!("name:extra{i}"),
-                target: "desk".into(),
-                state: RuleState::MatchesNothing,
-            });
-        }
-        let last = f.rules.len() - 1;
-        let (canvas, d) = drawn(&f, 80, 12, Item::Rule(last));
-        assert!(d.shown.iter().any(|(p, _)| p.item == Item::Rule(last)));
-        assert!(!d.shown.iter().any(|(p, _)| p.item == Item::Rule(3)));
-        let g = geometry(80);
-        let count: String = (g.x[4]..g.x[4] + g.w[4])
-            .filter_map(|x| canvas.at(x, 11))
-            .collect();
-        assert!(count.starts_with('↑'), "{count}");
-    }
-
-    #[test]
-    fn a_look_no_head_uses_says_so_in_d7_s_words() {
-        let f = fixture::flow();
-        let l = lines(&ctx(&f), Item::Look(2), 13);
-        let said: Vec<&str> = l.iter().skip(2).map(|l| l.text.as_str()).collect();
-        assert_eq!(said.join(" "), words::NO_HEAD_USES);
-        assert!(said.iter().all(|s| s.chars().count() <= 12), "{said:?}");
-    }
-
-    #[test]
-    fn the_route_card_says_what_is_wrong_with_a_rule_or_a_look() {
-        use super::super::flow::RuleState;
-        let sentence = |f: &Flow, item| route_card(f, item).1;
-        let mut f = fixture::flow();
-        f.rules[2].state = RuleState::Shadowed(0);
-        assert_eq!(
-            sentence(&f, Item::Rule(2)),
-            "Rule 3 never matches: rule 1 comes first and matches everything rule 3 would."
-        );
-        f.rules[2].state = RuleState::NeedsUdev;
-        assert!(
-            sentence(&f, Item::Rule(2))
-                .contains("its match needs udev, and this machine does not run udev")
-        );
-        f.rules[2].state = RuleState::Error("a selector key it does not know".into());
-        assert!(
-            sentence(&f, Item::Rule(2))
-                .ends_with("but it has an error: a selector key it does not know.")
-        );
-        f.looks[0].fonts[0].1 = false;
-        assert_eq!(
-            sentence(&f, Item::HeadLook(0)),
-            "Head desk uses look big, but Monoid is not installed on this machine. Font set monoid needs it."
-        );
-        f.looks[0].problem = Some("frit monoid does not exist".into());
-        assert!(
-            sentence(&f, Item::HeadLook(0))
-                .ends_with("but the look has a problem: frit monoid does not exist.")
-        );
-        f.heads[1].look = "huge".into();
-        assert_eq!(
-            sentence(&f, Item::HeadLook(1)),
-            "Head panel uses the default look, because vtium.conf has no look named huge."
-        );
-        f.looks[2].problem = Some("frit minspec-16 does not read".into());
-        assert!(sentence(&f, Item::Look(2)).starts_with("Look tiny is not used by any head, but"));
-    }
-
-    #[test]
-    fn the_route_card_lists_each_route_with_its_items_top_to_bottom() {
-        let f = fixture::flow();
-        let (title, sentence, lines) = route_card(&f, Item::Input(1));
-        assert_eq!(title, "Route card: keyboard, usb-0:3.3");
-        assert_eq!(
-            sentence,
-            "This device roams: it types into the active head, which is desk now; into panel when panel is the active head."
-        );
-        let items: Vec<Option<Item>> = lines.iter().map(|l| l.item).collect();
-        assert_eq!(items[0], None);
-        assert_eq!(
-            &items[1..7],
-            [
-                Some(Item::Display(0)),
-                Some(Item::Rule(0)),
-                Some(Item::Head(0)),
-                Some(Item::HeadLook(0)),
-                Some(Item::Rule(4)),
-                Some(Item::Input(1)),
-            ]
-        );
-        assert_eq!(lines[7].text, "route 2 of 2, when panel is the active head");
-        let (_, sentence, lines) = route_card(&f, Item::Look(2));
-        assert_eq!(sentence, words::LOOK_NOT_USED);
-        assert!(lines.is_empty());
+    fn a_wire_to_a_terminal_out_of_sight_ends_at_the_edge_with_its_name() {
+        // the receiver sent to desk alone, so desk has two inputs
+        let mut f = flow();
+        f.rules[3].target = "desk".into();
+        let l = lay(&f, &Path::default(), 120);
+        let second = l
+            .find(&Obj::Doc("desk".into(), Slot::Input("id:046d:c31c".into())))
+            .expect("desk's second input");
+        // the window starts at the second input's top row: desk is above it
+        let labels = edge_labels(&f, &l, second.y, 6);
+        assert_eq!(labels.len(), 1, "{labels:?}");
+        let (x, y, text) = &labels[0];
+        assert_eq!(*y, second.y);
+        assert_eq!(*x, l.geometry.expect("columns").dev_join);
+        assert_eq!(text, "↑ desk");
     }
 }

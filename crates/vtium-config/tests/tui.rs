@@ -485,6 +485,18 @@ impl vtium_config::tui::desk::Desk for Desk {
                 self.draft.clone_from(text);
                 Ok(Done::Draft(self.opened(), None))
             }
+            // the store's check reads the text it is given and writes nothing
+            Op::Check(text) => {
+                let (added, removed) = vtium_config::drafts::counts(&self.installed, text);
+                let opened = vtium_config::tui::desk::Opened {
+                    name: "mine".into(),
+                    text: text.clone(),
+                    added,
+                    removed,
+                    ..Default::default()
+                };
+                Ok(Done::Draft(opened, None))
+            }
             Op::Prepare if self.draft == self.installed => Ok(Done::Plan(Default::default())),
             Op::Prepare => Ok(Done::Plan(vtium_config::draft::Plan {
                 files: vec![vtium_config::draft::FileEdit {
@@ -872,7 +884,7 @@ fn the_settings_view_empties_a_key_binding_and_default_returns_it() {
     keys.extend(erase);
     keys.push(b"\r");
     let mut d = desk();
-    let mut c = console().keys(&[keys.as_slice(), &[b"q".as_slice()]].concat());
+    let mut c = console().keys(&[keys.as_slice(), &[b"q".as_slice(), b"y"]].concat());
     assert_eq!(run_desk(&mut c, &mut d), 0, "{:?}", c.seen);
     assert!(d.draft.contains("\nkey-reset=\n"), "{}", d.draft);
     // Enter again opens the empty value, and `default` returns the key to
@@ -880,7 +892,7 @@ fn the_settings_view_empties_a_key_binding_and_default_returns_it() {
     let mut c = console().keys(
         &[
             keys.as_slice(),
-            &[b"\r".as_slice(), b"default", b"\r", b"q"],
+            &[b"\r".as_slice(), b"default", b"\r", b"q", b"y"],
         ]
         .concat(),
     );
@@ -888,7 +900,8 @@ fn the_settings_view_empties_a_key_binding_and_default_returns_it() {
     assert_eq!(run_desk(&mut c, &mut d), 0, "{:?}", c.seen);
     assert!(d.draft.contains("\n#key-reset=\n"), "{}", d.draft);
     // Enter alone keeps the default's combinations as they are
-    let mut c = console().keys(&[&keys[..keys.len() - 20], &[b"\r".as_slice(), b"q"]].concat());
+    let mut c =
+        console().keys(&[&keys[..keys.len() - 20], &[b"\r".as_slice(), b"q", b"y"]].concat());
     let mut d = desk();
     assert_eq!(run_desk(&mut c, &mut d), 0);
     assert!(!d.draft.contains("key-reset="), "{}", d.draft);
@@ -915,7 +928,7 @@ fn a_typed_value_a_switch_and_a_choice_go_into_the_draft() {
     let mut d = desk();
     let mut c = console().keys(&[
         b"\t", DOWN, DOWN, DOWN, b"\r", DOWN, b"\r", b"10", b"\r", DOWN, b"\r", DOWN, b"\r", b"qi",
-        b"\r", b"q",
+        b"\r", b"q", b"y",
     ]);
     assert_eq!(run_desk(&mut c, &mut d), 0);
     assert_eq!(
@@ -1307,20 +1320,10 @@ fn reach_from(view: model::View, cols: usize, rows: usize, keys: &[&[u8]]) -> (S
     (screen, bytes)
 }
 
-/// Down from the first display to the keyboard: the Flow view's input
-/// devices are its sixth column.
-const TO_KEYBOARD: [&[u8]; 6] = [b"\x1b[C", b"\x1b[C", b"\x1b[C", b"\x1b[C", b"\x1b[C", DOWN];
-
 #[test]
 fn each_view_at_80x25_and_100x30() {
-    use model::View::{Flow, Fonts};
-    // f follows the keyboard's line to rule 5, and Enter opens it
-    let card: Vec<&[u8]> = [&TO_KEYBOARD[..], &[b"f", b"\r"]].concat();
-    let route: Vec<&[u8]> = [&TO_KEYBOARD[..], &[b"?"]].concat();
-    let scripts: [(&str, model::View, &[&[u8]]); 8] = [
-        ("flow", Flow, &[]),
-        ("card", Flow, &card),
-        ("route", Flow, &route),
+    use model::View::Fonts;
+    let scripts: [(&str, model::View, &[&[u8]]); 5] = [
         ("looks", Fonts, &[BACKTAB]),
         ("fonts", Fonts, &[]),
         ("settings", Fonts, &[b"\t"]),
@@ -1334,13 +1337,9 @@ fn each_view_at_80x25_and_100x30() {
             assert_eq!(lines.len(), rows, "{name} at {cols}x{rows}");
             assert!(lines.iter().all(|l| l.chars().count() <= cols), "{name}");
             assert!(lines[0].contains(" Flow "), "{name}: {screen}");
-            // the last row holds the key that quits, or the route card's
-            // that goes back
+            // the last row holds the key that quits
             let last = lines[rows - 1];
-            assert!(
-                last.contains(" quit") || last.contains("q back"),
-                "{name}: {screen}"
-            );
+            assert!(last.contains(" quit"), "{name}: {screen}");
             golden(&format!("{name}-{cols}x{rows}"), &screen, &bytes);
         }
     }
@@ -1452,7 +1451,7 @@ fn tab_does_nothing_while_a_value_is_typed_in_settings() {
     // Settings, Down to font-line-spacing, Enter starts typing its value;
     // Tab and Shift-Tab between the two digits change nothing
     let mut c = console().keys(&[
-        TAB, DOWN, DOWN, DOWN, DOWN, b"\r", b"1", TAB, BACKTAB, b"0", b"\r", b"q",
+        TAB, DOWN, DOWN, DOWN, DOWN, b"\r", b"1", TAB, BACKTAB, b"0", b"\r", b"q", b"y",
     ]);
     let mut d = desk();
     assert_eq!(run_desk(&mut c, &mut d), 0);
@@ -1469,21 +1468,6 @@ fn tab_does_nothing_in_the_new_frit_view_and_esc_goes_back_to_fonts() {
     }
     let line = key_line(model::View::Fonts, &[b"n", b"abc", TAB, b"\x1b"]);
     assert_eq!(line, words::KEYS_FONTS);
-}
-
-#[test]
-fn tab_on_the_route_card_and_during_the_live_trial_stays_on_the_view() {
-    for key in [TAB, BACKTAB] {
-        let line = key_line(model::View::Flow, &[b"?", key]);
-        assert_eq!(line, words::KEYS_ROUTE, "{key:?}");
-    }
-    // the live trial: Tab, as any key but k, puts the font back
-    let mut c = console().keys(&[DOWN, b"t", TAB]);
-    run(&mut c);
-    let screen = c.seen.clone().expect("the screen");
-    let line = screen.lines().last().unwrap_or_default().trim();
-    assert_eq!(line, words::KEYS_FONTS, "{screen}");
-    assert!(screen.contains(&words::trial_back("unifont")), "{screen}");
 }
 
 #[test]
@@ -2290,8 +2274,11 @@ fn at_80x25_no_key_or_sentence_is_cut() {
         for name in ["Flow", "Looks", "Fonts", "Settings", "Help"] {
             assert!(rows[0].contains(name), "{name}: {:?}", rows[0]);
         }
-        for (_, short) in words::ACTIONS {
-            assert!(rows[0].contains(short), "{short}: {:?}", rows[0]);
+        // the Help view shows no actions (ADR-1403 D7)
+        if key_line != words::KEYS_HELP {
+            for (_, short) in words::ACTIONS {
+                assert!(rows[0].contains(short), "{short}: {:?}", rows[0]);
+            }
         }
     }
 }
@@ -2359,7 +2346,7 @@ fn a_refused_frit_s_long_reason_wraps_by_words() {
 
 mod flow_view {
     use super::*;
-    use vtium_config::tui::flow::{Item, New, Special};
+    use vtium_config::tui::flow::Item;
     use vtium_config::tui::input::{Button, Input, Key, Mouse};
     use vtium_config::tui::model::{App, Effect, Event, MOUSE_OFF, MOUSE_ON, View};
     use vtium_config::tui::view;
@@ -2383,24 +2370,6 @@ mod flow_view {
         effects.iter().any(|e| *e == Effect::Write(bytes.to_vec()))
     }
 
-    // The Flow view starts from a flow nothing has read, and says so, until
-    // the desk opens the draft; a desk that cannot open it leaves the view
-    // so, which is when a person sees the words
-    #[test]
-    fn a_flow_nothing_has_read_says_so() {
-        let mut i = inputs();
-        i.view = View::Flow;
-        i.flow = vtium_config::tui::flow::Flow::default();
-        let a = App::new(i, 80, 25).0;
-        let shown = text(&a).replace('\n', " ");
-        let first = words::FLOW_NOT_READ
-            .split(' ')
-            .take(4)
-            .collect::<Vec<_>>()
-            .join(" ");
-        assert!(shown.contains(&first), "{shown}");
-    }
-
     #[test]
     fn mouse_reporting_is_on_in_the_flow_view_alone() {
         let mut i = inputs();
@@ -2421,54 +2390,6 @@ mod flow_view {
         assert_eq!(out.last(), Some(&Effect::Exit(0)));
     }
 
-    #[test]
-    fn the_arrows_move_by_column_to_the_nearest_row_and_within_a_column() {
-        let mut a = app(80, 25);
-        assert_eq!(a.flow_at, Item::Display(0));
-        let mut path = Vec::new();
-        for _ in 0..6 {
-            press(&mut a, Key::Right);
-            path.push(a.flow_at);
-        }
-        assert_eq!(
-            path,
-            [
-                Item::Rule(0),
-                Item::Head(0),
-                Item::HeadLook(0),
-                Item::Rule(3),
-                Item::Input(0),
-                // the arrows stop at the last column
-                Item::Input(0),
-            ]
-        );
-        assert_eq!(a.view, View::Flow);
-        press(&mut a, Key::Down);
-        assert_eq!(a.flow_at, Item::Input(1));
-        // the keyboard's row is level with rule 6, below rules 4 and 5 that
-        // each take two rows
-        press(&mut a, Key::Left);
-        assert_eq!(a.flow_at, Item::Rule(5));
-        press(&mut a, Key::Up);
-        assert_eq!(a.flow_at, Item::Rule(4));
-        press(&mut a, Key::End);
-        assert_eq!(a.flow_at, Item::New(New::InputRule));
-        // the heads' column ends in the targets that are not heads
-        let mut a = app(80, 25);
-        press(&mut a, Key::Right);
-        press(&mut a, Key::Right);
-        press(&mut a, Key::End);
-        assert_eq!(a.flow_at, Item::Policy);
-        press(&mut a, Key::Up);
-        assert_eq!(a.flow_at, Item::Special(Special::Off));
-        // up from the first display is the base card
-        let mut a = app(80, 25);
-        press(&mut a, Key::Up);
-        assert_eq!(a.flow_at, Item::Base);
-        press(&mut a, Key::Down);
-        assert_eq!(a.flow_at, Item::Display(0));
-    }
-
     /// Types `bytes` into `app` through the TUI's own key decoder, as the
     /// loop does, and returns what the app asked the loop to do.
     fn type_in(app: &mut App, bytes: &[u8]) -> Vec<Effect> {
@@ -2486,22 +2407,22 @@ mod flow_view {
     // Tab and Shift-Tab step the views wherever the selection is, and the
     // arrows move inside a view (#355)
     #[test]
-    fn tab_and_shift_tab_step_the_views_from_every_column_of_the_flow() {
-        for column in 0..6 {
+    fn tab_and_shift_tab_step_the_views_from_every_box_of_the_flow() {
+        for boxes in 0..6 {
             for (key, next) in [(TAB, View::Looks), (BACKTAB, View::Help)] {
                 let mut a = app(80, 25);
-                for _ in 0..column {
+                for _ in 0..boxes {
                     type_in(&mut a, RIGHT);
                 }
-                let at = a.flow_at;
-                assert_eq!(a.inputs.flow.column_of(at), column, "{at:?}");
+                let at = a.flow_view.at.clone();
+                assert!(at.is_some());
                 let out = type_in(&mut a, key);
-                assert_eq!(a.view, next, "{key:?} from column {column}");
+                assert_eq!(a.view, next, "{key:?} from box {boxes}");
                 assert!(writes(&out, MOUSE_OFF), "{out:?}");
-                // and back: the flow keeps the item that was selected
+                // and back: the flow keeps the box that was highlighted
                 let back = if key == TAB { BACKTAB } else { TAB };
                 let out = type_in(&mut a, back);
-                assert_eq!((a.view, a.flow_at), (View::Flow, at), "column {column}");
+                assert_eq!((a.view, &a.flow_view.at), (View::Flow, &at), "box {boxes}");
                 assert!(writes(&out, MOUSE_ON), "{out:?}");
             }
         }
@@ -2522,19 +2443,6 @@ mod flow_view {
         }
     }
 
-    #[test]
-    fn tab_closes_a_card_with_nothing_to_change_as_it_steps_the_view() {
-        // without a draft a card only shows its item, and the flow's keys
-        // pass through it
-        let mut a = app(80, 25);
-        type_in(&mut a, b"\r");
-        assert!(a.opened && a.fields().is_empty());
-        type_in(&mut a, TAB);
-        assert_eq!((a.view, a.opened), (View::Looks, false));
-        type_in(&mut a, BACKTAB);
-        assert_eq!((a.view, a.opened), (View::Flow, false));
-    }
-
     /// The flow with a draft, so a card offers fields to change.
     fn drafted(cols: usize, rows: usize) -> App {
         let mut a = app(cols, rows);
@@ -2548,45 +2456,23 @@ mod flow_view {
 
     #[test]
     fn tab_and_shift_tab_leave_nothing_open_behind() {
-        // a card with fields, its field being typed, and the pager: Tab
-        // and Shift-Tab do nothing while each is open
+        // a box's detail, then the file view: Tab and Shift-Tab do nothing
+        // while each is open (ADR-1403 D7, The keys)
         let mut a = drafted(80, 25);
-        a.flow_at = Item::Rule(4);
         type_in(&mut a, b"\r");
-        assert!(a.opened && !a.fields().is_empty());
-        let card = a.card.clone();
+        let layer = a.flow_view.layer.clone();
+        assert!(layer.is_some(), "{}", text(&a));
         for key in [TAB, BACKTAB] {
             type_in(&mut a, key);
-            assert_eq!((a.view, a.opened, &a.card), (View::Flow, true, &card));
+            assert_eq!((a.view, &a.flow_view.layer), (View::Flow, &layer));
         }
-        // Down to the selector, past its values to type…
-        type_in(&mut a, b"\x1b[B");
-        for _ in 0..20 {
-            type_in(&mut a, RIGHT);
-        }
-        type_in(&mut a, b"\r");
-        assert!(a.card.typed.is_some(), "{:?}", a.card);
-        type_in(&mut a, b"ab");
-        let typed = a.card.typed.clone();
-        for key in [TAB, BACKTAB] {
-            type_in(&mut a, key);
-            assert_eq!((a.view, &a.card.typed), (View::Flow, &typed));
-        }
-        let mut a = drafted(80, 25);
+        type_in(&mut a, b"\x1b");
+        assert!(a.flow_view.layer.is_none());
         type_in(&mut a, b"v");
         assert!(a.pager.is_some());
         for key in [TAB, BACKTAB] {
             type_in(&mut a, key);
             assert_eq!((a.view, a.pager.is_some()), (View::Flow, true));
-        }
-        // the route card
-        let mut a = app(80, 25);
-        type_in(&mut a, b"?");
-        let route = a.route;
-        assert!(route.is_some());
-        for key in [TAB, BACKTAB] {
-            type_in(&mut a, key);
-            assert_eq!((a.view, a.route), (View::Flow, route));
         }
     }
 
@@ -2598,154 +2484,14 @@ mod flow_view {
         click(&mut a, looks);
         assert_eq!((a.view, a.pager.is_some()), (View::Flow, true));
         let mut a = drafted(80, 25);
-        a.flow_at = Item::Rule(4);
         type_in(&mut a, b"\r");
+        assert!(a.flow_view.layer.is_some());
         click(&mut a, looks);
-        assert_eq!((a.view, a.opened), (View::Flow, true));
-        // a card with nothing to change closes as the click switches
-        let mut a = app(80, 25);
-        type_in(&mut a, b"\r");
+        assert_eq!((a.view, a.flow_view.layer.is_some()), (View::Flow, true));
+        // with nothing open, the click switches
+        let mut a = drafted(80, 25);
         click(&mut a, looks);
-        assert_eq!((a.view, a.opened), (View::Looks, false));
-    }
-
-    #[test]
-    fn enter_opens_the_selected_item_s_card_and_esc_closes_it() {
-        let mut a = app(80, 25);
-        a.flow_at = Item::Rule(4);
-        assert!(!text(&a).contains("rule 5, line 23"));
-        press(&mut a, Key::Enter);
-        assert!(a.opened);
-        let screen = text(&a);
-        assert!(
-            screen.contains("rule 5, line 23   input class:keyboard -> roaming"),
-            "{screen}"
-        );
-        assert!(
-            screen.contains("sends to   desk  panel  roaming  ignore"),
-            "{screen}"
-        );
-        // the card follows the selection
-        press(&mut a, Key::Down);
-        assert!(text(&a).contains("rule 6, line 24"), "{}", text(&a));
-        press(&mut a, Key::Escape);
-        assert!(!a.opened);
-        assert!(!text(&a).contains("rule 6, line 24"));
-    }
-
-    #[test]
-    fn space_tags_any_item_the_status_line_lists_the_tags_and_esc_clears_them() {
-        let mut a = app(100, 30);
-        a.flow_at = Item::Input(1);
-        press(&mut a, Key::Char(' '));
-        a.flow_at = Item::Head(0);
-        press(&mut a, Key::Char(' '));
-        a.flow_at = Item::HeadLook(0);
-        press(&mut a, Key::Char(' '));
-        assert_eq!(a.tags, [Item::Input(1), Item::Head(0), Item::HeadLook(0)]);
-        let screen = text(&a);
-        let status = screen.lines().nth(1).unwrap_or_default();
-        assert!(status.contains("tagged: keyboard, desk, big"), "{status}");
-        assert!(screen.contains("◆ keyboard"), "{screen}");
-        // Space again untags; the base card and the new items take no tag
-        press(&mut a, Key::Char(' '));
-        assert_eq!(a.tags, [Item::Input(1), Item::Head(0)]);
-        a.flow_at = Item::Base;
-        press(&mut a, Key::Char(' '));
-        a.flow_at = Item::New(New::Head);
-        press(&mut a, Key::Char(' '));
-        assert_eq!(a.tags.len(), 2);
-        press(&mut a, Key::Escape);
-        assert!(a.tags.is_empty());
-        assert!(!text(&a).contains("tagged:"));
-    }
-
-    #[test]
-    fn f_follows_a_line_toward_the_heads_and_steps_through_several() {
-        let mut a = app(80, 25);
-        a.flow_at = Item::Input(1);
-        press(&mut a, Key::Char('f'));
-        assert_eq!(a.flow_at, Item::Rule(4));
-        press(&mut a, Key::Char('f'));
-        assert_eq!(a.flow_at, Item::Special(Special::Roaming));
-        // desk has two display rules' lines: f steps through them
-        a.flow_at = Item::Head(0);
-        let mut seen = Vec::new();
-        for _ in 0..3 {
-            press(&mut a, Key::Char('f'));
-            seen.push(a.flow_at);
-        }
-        assert_eq!(seen, [Item::Rule(0), Item::Rule(2), Item::Rule(0)]);
-        a.flow_at = Item::Base;
-        press(&mut a, Key::Char('f'));
-        assert_eq!(a.flow_at, Item::Base);
-        assert_eq!(a.message.as_deref(), Some(words::NOTHING_TO_FOLLOW));
-    }
-
-    #[test]
-    fn the_route_card_shows_every_route_and_enter_opens_an_item_on_it() {
-        let mut a = app(80, 25);
-        a.flow_at = Item::Input(1);
-        press(&mut a, Key::Char('?'));
-        // the cursor starts on the selected item's line in the first route
-        assert_eq!(a.route, Some(6));
-        let screen = text(&a);
-        assert!(
-            screen.contains("Route card: keyboard, usb-0:3.3"),
-            "{screen}"
-        );
-        assert!(
-            screen.contains("route 2 of 2, when panel is the active head"),
-            "{screen}"
-        );
-        assert!(
-            !screen.contains("DISPLAYS"),
-            "the card takes the columns' place"
-        );
-        // q goes back to the flow and does not leave
-        let out = press(&mut a, Key::Char('q'));
-        assert!(out.is_empty(), "{out:?}");
-        assert_eq!((a.route, a.leaving), (None, None));
-        // Up to the input rule, and Enter opens it
-        press(&mut a, Key::Char('?'));
-        press(&mut a, Key::Up);
-        assert_eq!(a.route, Some(5));
-        press(&mut a, Key::Enter);
-        assert_eq!((a.route, a.flow_at, a.opened), (None, Item::Rule(4), true));
-        // a look no head uses is part of no route, and says so
-        a.flow_at = Item::Look(2);
-        press(&mut a, Key::Char('?'));
-        assert!(text(&a).contains(words::LOOK_NOT_USED), "{}", text(&a));
-        press(&mut a, Key::Escape);
-        assert_eq!(a.route, None);
-    }
-
-    #[test]
-    fn the_route_card_marks_the_selected_item_in_words_too() {
-        let mut i = inputs();
-        i.view = View::Flow;
-        i.color = false;
-        let (mut a, _) = App::new(i, 80, 25);
-        a.flow_at = Item::Input(1);
-        press(&mut a, Key::Char('?'));
-        // the cursor leaves the selected item's line, and the mark stays
-        press(&mut a, Key::Up);
-        let marked: Vec<String> = text(&a)
-            .lines()
-            .filter(|l| l.starts_with(view::SELECTED))
-            .map(str::to_owned)
-            .collect();
-        assert_eq!(marked.len(), 2, "one in each route: {}", text(&a));
-        assert!(
-            marked.iter().all(|l| l.contains("keyboard, usb-0:3.3")),
-            "{marked:?}"
-        );
-        let bytes = view::draw(&a);
-        assert!(
-            sgr(&bytes)
-                .iter()
-                .all(|p| p.iter().all(|n| [0, 1, 7].contains(n)))
-        );
+        assert_eq!(a.view, View::Looks);
     }
 
     /// The cell where `needle` starts on the screen of `app`.
@@ -2772,42 +2518,9 @@ mod flow_view {
     }
 
     #[test]
-    fn a_click_selects_a_second_click_opens_and_a_view_s_name_switches_to_it() {
-        let mut a = app(80, 25);
-        // the head's block, right of the arrow that reaches it
-        let (col, row) = cell(&a, "► panel");
-        let panel = (col + 2, row);
-        click(&mut a, panel);
-        assert_eq!((a.flow_at, a.opened), (Item::Head(1), false));
-        click(&mut a, panel);
-        assert!(a.opened);
-        assert!(text(&a).contains("head panel · 2 consoles"), "{}", text(&a));
-        // the base card's row selects the base card
-        click(&mut a, (5, 2));
-        assert_eq!(a.flow_at, Item::Base);
-        // the wheel moves as Down does
-        press(
-            &mut a,
-            Key::Mouse(Mouse {
-                button: Button::WheelDown,
-                col: 0,
-                row: 0,
-            }),
-        );
-        assert_eq!(a.flow_at, Item::Display(0));
-        let looks = cell(&a, "Looks");
-        let out = click(&mut a, looks);
-        assert_eq!(a.view, View::Looks);
-        assert!(writes(&out, MOUSE_OFF), "{out:?}");
-        // the other views asked for no mouse, and a click there does nothing
-        click(&mut a, (2, 0));
-        assert_eq!(a.view, View::Looks);
-    }
-
-    #[test]
     fn a_click_reaches_the_tui_through_its_decoder() {
-        // SGR mouse, mode 1006: a press on the last cell of desk's block,
-        // row 5 column 39 counted from 1, the cell before the look's
+        // SGR mouse, mode 1006: a press on DP-8's box, row 5 column 39
+        // counted from 1, then Enter opens it
         let mut c = console().keys(&[b"\x1b[<0;39;5M", b"\x1b[<0;39;5m", b"\r"]);
         let mut i = inputs();
         i.view = View::Flow;
@@ -2815,10 +2528,8 @@ mod flow_view {
         let written = String::from_utf8_lossy(&c.written).into_owned();
         assert!(written.contains("\x1b[?1000h\x1b[?1006h"), "turned on");
         let screen = c.seen.clone().expect("the screen");
-        assert!(
-            screen.contains("head desk · 1 console · the active head"),
-            "{screen}"
-        );
+        // the second press on the highlighted box opens its detail
+        assert!(screen.contains("DISPLAY DP-8"), "{screen}");
     }
 
     #[test]
@@ -2854,10 +2565,7 @@ mod flow_view {
     fn the_views_draw_in_the_sixteen_colors_with_no_blue() {
         let mut a = app(100, 30);
         let mut screens = vec![view::draw(&a)];
-        a.flow_at = Item::Input(1);
         press(&mut a, Key::Enter);
-        screens.push(view::draw(&a));
-        press(&mut a, Key::Char('?'));
         screens.push(view::draw(&a));
         press(&mut a, Key::Escape);
         for _ in 0..4 {
@@ -2873,76 +2581,49 @@ mod flow_view {
                 assert!(!params.contains(&38) && !params.contains(&48), "{params:?}");
             }
         }
-        // a display is black on bright cyan, an input device black on
-        // bright green, a head black on bright yellow, a look black on
-        // bright magenta, the targets that are not heads black on grey
+        // each kind's title in its color: displays cyan, terminals yellow,
+        // inputs green (ADR-1403 D7, Colors, borders and lines)
         let flow = sgr(&screens[0]);
-        for block in [[30, 106], [30, 102], [30, 105], [30, 100]] {
+        for color in [36, 33, 32] {
             assert!(
-                flow.iter().any(|p| p.ends_with(&block)),
-                "{block:?}: {flow:?}"
+                flow.iter().any(|p| p.last() == Some(&color)),
+                "{color}: {flow:?}"
             );
         }
-        assert!(flow.iter().any(|p| p == &[1, 30, 103]), "a head's name");
-        // the rules in their columns' colors: cyan and green
-        assert!(flow.iter().any(|p| p == &[36]) && flow.iter().any(|p| p == &[32]));
     }
 
     #[test]
-    fn without_color_the_view_draws_no_color_and_brackets_each_block() {
+    fn without_color_the_view_draws_no_color_and_keeps_its_words() {
         let mut i = inputs();
         i.view = View::Flow;
         i.color = false;
-        let (mut a, _) = App::new(i, 80, 25);
+        let (a, _) = App::new(i, 80, 25);
         let bytes = view::draw(&a);
         for params in sgr(&bytes) {
-            assert!(params.iter().all(|p| [0, 1, 7].contains(p)), "{params:?}");
+            assert!(
+                params
+                    .iter()
+                    .all(|p| !(30..=49).contains(p) && !(90..=107).contains(p)),
+                "{params:?}"
+            );
         }
         let screen = text(&a);
-        assert!(screen.contains("[DP-8     ]"), "{screen}");
-        assert!(screen.contains("[not       ]"), "{screen}");
-        assert!(screen.contains("[connected ]"), "{screen}");
-        assert!(screen.contains("[shared settings"), "{screen}");
-        // the selection is still reverse video
-        assert!(sgr(&bytes).iter().any(|p| p.contains(&7)));
-        // and every state still has its words
-        a.flow_at = Item::Rule(2);
-        // the rule's short words, "none" above "connected" in its column
-        let t = text(&a);
-        let rows: Vec<Vec<char>> = t.lines().map(|r| r.chars().collect()).collect();
-        let below = |i: usize, at: usize| -> String {
-            rows.get(i + 1)
-                .map(|r| r.iter().skip(at).take(9).collect())
-                .unwrap_or_default()
-        };
-        let said = rows.iter().enumerate().any(|(i, r)| {
-            (0..r.len()).any(|at| {
-                r[at..].starts_with(&['n', 'o', 'n', 'e', ' ']) && below(i, at) == "connected"
-            })
-        });
-        assert!(said, "{t}");
+        // the boxes keep their borders and their words
+        for want in ["CONFIGURATION", "DP-8", "┌", "┘"] {
+            assert!(screen.contains(want), "{want}: {screen}");
+        }
     }
 
     #[test]
-    fn a_rule_to_a_head_that_does_not_exist_is_red_and_says_so() {
+    fn a_rule_to_a_head_that_does_not_exist_belongs_to_no_path_and_says_so() {
         let mut i = inputs();
         i.view = View::Flow;
         i.flow.rules[0].target = "tv".into();
-        let (mut a, _) = App::new(i, 100, 30);
+        let (a, _) = App::new(i, 100, 30);
         let screen = text(&a);
-        assert!(screen.contains("! 1 edid:"), "{screen}");
-        assert!(screen.contains("! head not"), "{screen}");
-        let bytes = String::from_utf8_lossy(&view::draw(&a)).into_owned();
-        assert!(bytes.contains("\x1b[91m! 1 edid:"), "bright red");
-        // no line runs from it, and its route card says what is broken
-        a.flow_at = Item::Rule(0);
-        press(&mut a, Key::Char('?'));
         assert!(
-            text(&a).contains(
-                "Rule 1 sends edid:AAA:0x0001:LARGE00001 to tv, but there is no head named tv."
-            ),
-            "{}",
-            text(&a)
+            screen.contains("1 rule belongs to no path. v shows it in the file."),
+            "{screen}"
         );
     }
 
@@ -2958,24 +2639,6 @@ mod flow_view {
             let out = press(&mut a, Key::Char('q'));
             assert_eq!(out.last(), Some(&Effect::Exit(0)));
         }
-    }
-
-    #[test]
-    fn a_flow_not_read_says_so_in_place_of_an_empty_flow() {
-        let mut i = inputs();
-        i.view = View::Flow;
-        i.flow = vtium_config::tui::flow::Flow::default();
-        let (a, _) = App::new(i, 80, 25);
-        let screen = text(&a);
-        let joined = screen.lines().map(str::trim).collect::<Vec<_>>().join(" ");
-        assert!(joined.contains(words::FLOW_NOT_READ), "{screen}");
-        assert!(
-            joined.contains(
-                "The Flow view is empty: no draft of vtium.conf is open. Quit and start vtium config to open one."
-            ),
-            "{screen}"
-        );
-        assert!(screen.contains("no draft"), "{screen}");
     }
 
     #[test]
@@ -3032,10 +2695,19 @@ mod draft_flow {
 
     const RIGHT: &[u8] = b"\x1b[C";
     const LEFT: &[u8] = b"\x1b[D";
-    const END: &[u8] = b"\x1b[F";
     const ESC: &[u8] = b"\x1b";
 
     /// A fixture under the tests' own home.
+    /// The screen's words with each run of spaces and line ends as one
+    /// space, so a sentence the message line wraps reads whole.
+    fn flat(screen: &str) -> String {
+        screen.split_whitespace().collect::<Vec<_>>().join(" ")
+    }
+
+    /// A change on the Flow view: the first path's terminal, desk, renamed
+    /// deskx on its card.
+    const CHANGE: [&[u8]; 7] = [b"\x1b[H", RIGHT, b"\r", b"\r", b"x", b"\r", ESC];
+
     struct Bench {
         root: PathBuf,
     }
@@ -3073,18 +2745,6 @@ mod draft_flow {
         k.name = Some("spare".into());
         k.path = Some("pci-0:9.9".into());
         k
-    }
-
-    /// The display `DP-1`.
-    fn display() -> Identity {
-        let mut d = Identity::display();
-        d.connector = Some("DP-1".into());
-        d.edid = Some(vtium_settings::Edid {
-            maker: "AAA".into(),
-            product: 1,
-            serial: "S1".into(),
-        });
-        d
     }
 
     fn present(devices: Vec<Identity>, udev: bool) -> Present {
@@ -3233,324 +2893,19 @@ mod draft_flow {
         assert!(status.contains("· no changes · no problems"), "{status}");
         assert!(!status.contains(words::NO_HOTPLUG), "{status}");
         let screen = ran.screen();
-        for want in ["desk", "panel", "big", "kbd"] {
+        for want in ["desk", "panel", "proof", "kbd"] {
             assert!(screen.contains(want), "{want}: {screen}");
         }
     }
 
     #[test]
-    fn a_rule_s_card_picks_its_target_and_types_its_selector() {
-        let b = bench("rule-card");
-        // with no display present the view opens on rule 1: open it,
-        // pick the next target, keep it
-        let ran = run(&b, &[b"\r", RIGHT, b"\r"]);
-        assert_eq!(
-            b.draft(),
-            INSTALLED.replace("display * -> desk", "display * -> panel")
-        );
-        assert!(
-            ran.screen()
-                .contains("vtium config rule set 1 --target panel"),
-            "{}",
-            ran.screen()
-        );
-        let status = ran.status();
-        assert!(status.contains("1 change"), "{status}");
-        // its selector, typed: Down to the selector, past its values to
-        // type…, a value that replaces the current one
-        let b = bench("rule-selector");
-        run(
-            &b,
-            &[b"\r", DOWN, RIGHT, b"\r", b"\x7f", b"card:pci-0", b"\r"],
-        );
-        assert_eq!(
-            b.draft(),
-            INSTALLED.replace("display * -> desk", "display card:pci-0 -> desk")
-        );
-    }
-
-    #[test]
-    fn a_rule_moves_up_within_its_column() {
-        let b = bench("rule-move");
-        // the input rules column, its second rule, the actions, move up
-        let keys: Vec<&[u8]> = vec![RIGHT, RIGHT, RIGHT, DOWN, b"\r", END, b"\r"];
-        run(&b, &keys);
-        assert_eq!(
-            b.draft(),
-            INSTALLED.replace(
-                "input path:pci-0:3.3 -> panel\ninput class:keyboard -> roaming",
-                "input class:keyboard -> roaming\ninput path:pci-0:3.3 -> panel"
-            )
-        );
-    }
-
-    #[test]
-    fn a_head_s_card_picks_its_look_from_the_defined_looks() {
-        let b = bench("head-look");
-        // the heads column, desk, open: its look field offers big and
-        // default; Right picks default
-        run(&b, &[RIGHT, b"\r", RIGHT, b"\r"]);
-        assert_eq!(
-            b.draft(),
-            INSTALLED.replace("[head desk]\nlook = big", "[head desk]\nlook = default")
-        );
-    }
-
-    #[test]
-    fn a_look_s_card_sets_its_size_and_tries_its_frit_on_t() {
-        let b = bench("look-size");
-        // desk's look, open, Down past its name and frit to its size,
-        // Right twice from automatic to 7 points
-        let ran = run(&b, &[RIGHT, RIGHT, b"\r", DOWN, DOWN, RIGHT, RIGHT, b"\r"]);
-        assert_eq!(
-            b.draft(),
-            INSTALLED.replace("[look big]\n", "[look big]\nfont-size = 7\n")
-        );
-        assert!(ran.screen().contains("vtium config look set big --size 7"));
-        // on the frit, moving the cursor sends the live console nothing,
-        // and t tries the cursor's frit on it (ADR-1201 D4)
-        let b = bench("look-frit");
-        let ran = run(&b, &[RIGHT, RIGHT, b"\r", DOWN, LEFT]);
-        assert!(
-            !ran.console
-                .log
-                .iter()
-                .any(|l| l.starts_with("set ") || l.starts_with("refuse ")),
-            "{:?}",
-            ran.console.log
-        );
-        let ran = run(&b, &[RIGHT, RIGHT, b"\r", DOWN, LEFT, b"t"]);
-        assert!(
-            ran.console
-                .log
-                .iter()
-                .any(|l| l.starts_with("set ") || l.starts_with("refuse ")),
-            "{:?}",
-            ran.console.log
-        );
-        assert_eq!(b.draft(), INSTALLED);
-    }
-
-    /// On a look's card, the frit, the size and the cell under the cursor
-    /// are each previewed as a picture of the console, in the columns'
-    /// place, and the live console is sent nothing (ADR-1201 D4).
-    #[test]
-    fn a_look_s_card_previews_its_frit_size_and_cell_as_pictures() {
-        let b = bench("look-picture");
-        let mut console = Console::vtium(100, 30, true, "unifont")
-            .takes("proof", (100, 30))
-            .takes("unifont", (100, 30))
-            .keys(&[
-                RIGHT, RIGHT, b"\r", DOWN, RIGHT, DOWN, RIGHT, RIGHT, DOWN, b"\r", b"12x24",
-            ]);
-        console.graphics = true;
-        let mut desk = b.desk(vec![present(vec![keyboard()], true)]);
-        let mut i = inputs();
-        i.view = model::View::Flow;
-        i.flow = vtium_config::tui::flow::Flow::default();
-        drive_with(&mut console, i, Some(&mut desk)).expect("the loop");
-        assert!(
-            !console.log.iter().any(|l| l.starts_with("set ")),
-            "{:?}",
-            console.log
-        );
-        let seen: Vec<(&str, u32)> = console
-            .shots
-            .iter()
-            .map(|s| (s.font.as_str(), s.height))
-            .collect();
-        // the frit at the look's automatic size, drawn at 12 points, and
-        // the next frit under the cursor; on the size, the look's frit at
-        // automatic, 6 and 7 points; then automatic again on the cell field
-        assert_eq!(
-            &seen[..6],
-            [
-                ("proof", 16),
-                ("tiny5", 16),
-                ("proof", 16),
-                ("proof", 8),
-                ("proof", 9),
-                ("proof", 16)
-            ]
-        );
-        // the cell as typed sets the cell, with no question to the helper
-        let last = console.shots.last().expect("a picture");
-        assert_eq!(
-            (last.cell.width, last.cell.height, last.grid, last.display),
-            (12, 24, (53, 20), (640, 480))
-        );
-        assert!(!console.cells.contains(&("proof".to_owned(), 24)));
-        // the picture takes the columns' place, below the base card
-        let at = String::from_utf8_lossy(&console.written).into_owned();
-        assert!(
-            at.contains("\x1b[5;2H\x1b_Ga=T"),
-            "placed below the base card"
-        );
-        // and the columns, the input device's among them, are not drawn
-        // under it
-        let screen = console.seen.clone().expect("the screen");
-        assert!(!screen.contains("kbd"), "{screen}");
-    }
-
-    // ADR-1403 D5: the look card offers the look's cell, after its size,
-    // and sets it through `look set --cell`
-    #[test]
-    fn a_look_s_card_sets_its_cell() {
-        let b = bench("look-cell");
-        // desk's look, open, Down past its name, frit and size to its
-        // cell, typed
-        let ran = run(
-            &b,
-            &[
-                RIGHT, RIGHT, b"\r", DOWN, DOWN, DOWN, b"\r", b"12x24", b"\r",
-            ],
-        );
-        assert_eq!(
-            b.draft(),
-            INSTALLED.replace("[look big]\n", "[look big]\ncell = 12x24\n"),
-            "{}",
-            ran.screen()
-        );
-        assert!(
-            ran.screen()
-                .contains("vtium config look set big --cell 12x24"),
-            "{}",
-            ran.screen()
-        );
-    }
-
-    // the look card shows each key's value from the draft, the keys past
-    // the frit and the size included
-    #[test]
-    fn a_look_s_card_shows_each_key_the_draft_sets() {
-        let b = bench("look-values");
-        b.desk(Vec::new());
-        let text = INSTALLED.replace(
-            "[look big]\n",
-            "[look big]\ncell = 12x24\ndisplay-depth = gray16\ndisplay-dpi = 144\n",
-        );
-        b.store().write_draft("bench", &text).expect("the draft");
-        let row = |ran: &Ran, key: &str| {
-            ran.screen()
-                .lines()
-                .find(|l| l.contains(&format!(" {key} ")))
-                .unwrap_or_default()
-                .to_owned()
-        };
-        // desk's look, open on its name, shows its cell
-        let ran = run(&b, &[RIGHT, RIGHT, b"\r"]);
-        assert!(row(&ran, "cell").contains("12x24"), "{}", ran.screen());
-        assert!(
-            !row(&ran, "font-engine").contains("12x24"),
-            "{}",
-            ran.screen()
-        );
-        // Down to its last field, the card scrolled to its display keys
-        let mut keys: Vec<&[u8]> = vec![RIGHT, RIGHT, b"\r"];
-        keys.extend([DOWN; 8]);
-        let ran = run(&b, &keys);
-        for (key, value) in [("display-depth", "gray16"), ("display-dpi", "144")] {
-            assert!(row(&ran, key).contains(value), "{key}: {}", ran.screen());
-        }
-    }
-
-    #[test]
-    fn new_head_asks_its_name_and_look_and_adds_it() {
-        let b = bench("new-head");
-        // new head… follows the heads: its name typed, its look picked,
-        // then add
-        let keys: Vec<&[u8]> = vec![
-            RIGHT, DOWN, DOWN, b"\r", b"\r", b"side", b"\r", b"\r", b"\r",
-        ];
-        let ran = run(&b, &keys);
-        assert!(
-            b.draft().contains("[head side]\nlook = big\n"),
-            "{}\n{}",
-            b.draft(),
-            ran.screen()
-        );
-    }
-
-    #[test]
-    fn deleting_a_head_names_its_rules_and_keeps_them_broken() {
-        let b = bench("head-rm");
-        let ran = run(&b, &[RIGHT, b"\r", END, b"\r"]);
-        assert!(
-            ran.screen()
-                .contains("Rule 1 sends to it and will not work"),
-            "{}",
-            ran.screen()
-        );
-        // without a yes nothing changes
-        assert_eq!(b.draft(), INSTALLED);
-        run(&b, &[RIGHT, b"\r", END, b"\r", b"y"]);
-        let draft = b.draft();
-        assert!(!draft.contains("[head desk]"), "{draft}");
-        assert!(draft.contains("display * -> desk"), "{draft}");
-    }
-
-    #[test]
-    fn deleting_a_look_sets_its_heads_to_the_default_look() {
-        let b = bench("look-rm");
-        let ran = run(&b, &[RIGHT, RIGHT, b"\r", END, b"\r"]);
-        assert!(
-            ran.screen()
-                .contains("Head desk uses it and will switch to the default look."),
-            "{}",
-            ran.screen()
-        );
-        run(&b, &[RIGHT, RIGHT, b"\r", END, b"\r", b"y"]);
-        let draft = b.draft();
-        assert!(!draft.contains("[look big]"), "{draft}");
-        assert!(draft.contains("[head desk]\n#look = big\n"), "{draft}");
-    }
-
-    #[test]
-    fn connecting_a_display_and_a_head_adds_its_rule_and_clears_the_tags() {
-        let b = bench("connect");
-        // the display, tagged; panel, tagged; c
-        let seen = vec![present(vec![display(), keyboard()], true)];
-        let ran = run_on(&b, seen, true, &[b" ", RIGHT, RIGHT, DOWN, b" ", b"c"]);
-        assert_eq!(
-            b.draft(),
-            INSTALLED.replace(
-                "display * -> desk",
-                "display edid:AAA:0x0001:S1 -> panel\ndisplay * -> desk"
-            )
-        );
-        assert!(
-            ran.screen()
-                .contains("vtium config rule add 'display edid:AAA:0x0001:S1 -> panel'"),
-            "{}",
-            ran.screen()
-        );
-        assert!(!ran.status().contains("tagged"), "{}", ran.status());
-        // a display tagged with roaming describes no change and says why
-        let b = bench("connect-refused");
-        let seen = vec![present(vec![display(), keyboard()], true)];
-        let ran = run_on(
-            &b,
-            seen,
-            true,
-            &[b" ", RIGHT, RIGHT, DOWN, DOWN, DOWN, b" ", b"c"],
-        );
-        assert_eq!(b.draft(), INSTALLED);
-        assert!(
-            ran.screen().contains("A display cannot be sent to roaming"),
-            "{}",
-            ran.screen()
-        );
-    }
-
-    #[test]
-    fn install_asks_with_its_counts_then_installs_and_keeps_the_old_file() {
+    fn install_saves_first_then_asks_with_its_counts_and_installs() {
         let b = bench("install");
-        let change: Vec<&[u8]> = vec![b"\r", RIGHT, b"\r", ESC];
-        let asked = run(&b, &[&change[..], &[b"i"]].concat());
+        let asked = run(&b, &[&CHANGE[..], &[b"i"]].concat());
+        // Install saves first, then asks (ADR-1403 D7)
+        assert!(b.draft().contains("[head deskx]"), "{}", b.draft());
         assert!(
-            asked
-                .screen()
-                .contains("Install the draft? 1 line added, 1 removed."),
+            flat(asked.screen()).contains("Install the draft? 5 lines added, 3 removed."),
             "{}",
             asked.screen()
         );
@@ -3559,7 +2914,7 @@ mod draft_flow {
         let ran = run(&b, &[b"i", b"y"]);
         assert_eq!(ran.console.saves.len(), 1);
         assert_eq!(b.installed(), b.draft());
-        assert!(b.installed().contains("display * -> panel"));
+        assert!(b.installed().contains("display * -> deskx"));
         assert!(ran.status().contains("no changes"), "{}", ran.status());
         let kept = b.store().history().expect("the history");
         assert_eq!(kept.len(), 1);
@@ -3579,12 +2934,67 @@ mod draft_flow {
         assert_eq!(b.draft(), INSTALLED);
     }
 
+    #[test]
+    fn a_change_waits_for_save_and_s_saves_it() {
+        let b = bench("save");
+        let ran = run(&b, &CHANGE);
+        assert!(ran.status().contains("1 not saved"), "{}", ran.status());
+        // q, then n: the TUI leaves without the change it never saved
+        let b = bench("save-n");
+        run(&b, &[&CHANGE[..], &[b"q", b"n"]].concat());
+        assert_eq!(b.draft(), INSTALLED, "the change waits for Save");
+        // the file view shows the change before it is saved
+        let ran = run(&b, &[&CHANGE[..], &[b"v"]].concat());
+        assert!(ran.screen().contains("[head deskx]"), "{}", ran.screen());
+        let b = bench("save-s");
+        let ran = run(&b, &[&CHANGE[..], &[b"s"]].concat());
+        assert!(b.draft().contains("[head deskx]"), "{}", b.draft());
+        assert!(
+            ran.said().contains("Saved 1 change into draft bench."),
+            "{}",
+            ran.screen()
+        );
+        assert!(!ran.status().contains("not saved"), "{}", ran.status());
+    }
+
+    #[test]
+    fn q_with_unsaved_changes_asks_and_ctrl_c_saves_them() {
+        let b = bench("quit");
+        let ran = run(&b, &[&CHANGE[..], &[b"q"]].concat());
+        assert!(
+            flat(ran.screen()).contains(
+                "1 change is not saved. Save them before you quit? y saves them and quits, n quits without them, and Esc goes back."
+            ),
+            "{}",
+            ran.screen()
+        );
+        assert!(ran.screen().contains(words::KEYS_QUIT), "{}", ran.screen());
+        // n quits without the change, and y saves it and quits
+        let b = bench("quit-n");
+        run(&b, &[&CHANGE[..], &[b"q", b"n"]].concat());
+        assert_eq!(b.draft(), INSTALLED);
+        let b = bench("quit-y");
+        run(&b, &[&CHANGE[..], &[b"q", b"y"]].concat());
+        assert!(b.draft().contains("[head deskx]"), "{}", b.draft());
+        // Esc goes back, and the TUI stays
+        let b = bench("quit-esc");
+        let ran = run(&b, &[&CHANGE[..], &[b"q", ESC]].concat());
+        assert!(ran.status().contains("1 not saved"), "{}", ran.status());
+        // Ctrl-C saves before it leaves, and so does SIGTERM
+        let b = bench("quit-ctrl-c");
+        run(&b, &[&CHANGE[..], &[b"\x03"]].concat());
+        assert!(b.draft().contains("[head deskx]"), "{}", b.draft());
+        let b = bench("quit-sigterm");
+        run(&b, &CHANGE);
+        assert!(b.draft().contains("[head deskx]"), "{}", b.draft());
+    }
+
     /// Restore's list and a question stay open on Tab and Shift-Tab: the
     /// list does nothing with them, and the question takes them as no.
     #[test]
     fn tab_leaves_neither_restore_s_list_nor_a_question_open_behind() {
         let b = bench("tab-restore");
-        run(&b, &[b"\r", RIGHT, b"\r", ESC, b"i", b"y"]);
+        run(&b, &[&CHANGE[..], &[b"i", b"y"]].concat());
         for key in [TAB, BACKTAB] {
             let ran = run(&b, &[b"o", key]);
             let line = ran.screen().lines().last().unwrap_or_default().trim();
@@ -3598,9 +3008,10 @@ mod draft_flow {
             ran.screen()
         );
         // revert asks, and Tab answers no on the flow
-        let ran = run(&b, &[b"\r", RIGHT, b"\r", ESC, b"r", TAB]);
+        let b = bench("tab-revert");
+        let ran = run(&b, &[&CHANGE[..], &[b"s", b"r", TAB]].concat());
         assert!(ran.said().contains(words::NOT_DONE), "{}", ran.screen());
-        assert!(ran.status().contains("1 change"), "{}", ran.status());
+        assert!(ran.status().contains("5 changes"), "{}", ran.status());
         let line = ran.screen().lines().last().unwrap_or_default().trim();
         assert!(line.ends_with("q quit"), "{}", ran.screen());
     }
@@ -3609,8 +3020,7 @@ mod draft_flow {
     fn install_refuses_a_draft_made_before_the_installed_file_changed() {
         let b = bench("install-stale");
         // the draft made, then root edits the installed file by hand
-        let change: Vec<&[u8]> = vec![b"\r", RIGHT, b"\r", ESC];
-        run(&b, &change);
+        run(&b, &[&CHANGE[..], &[b"s"]].concat());
         let edited = INSTALLED.replace("font-size=12", "font-size=14");
         std::fs::write(b.root.join("etc/vtium.conf"), &edited).expect("the hand edit");
         let ran = run(&b, &[b"i"]);
@@ -3619,16 +3029,18 @@ mod draft_flow {
         let ran = run(&b, &[b"i", b"y"]);
         assert!(ran.console.saves.is_empty());
         assert_eq!(b.installed(), edited);
-        assert!(b.draft().contains("display * -> panel"), "{}", b.draft());
+        assert!(b.draft().contains("display * -> deskx"), "{}", b.draft());
     }
 
     #[test]
     fn install_refuses_a_draft_the_check_fails() {
         let b = bench("install-refused");
-        // a base key typed as BAD: the base card's first key, font-name
-        let keys: Vec<&[u8]> = vec![LEFT, b"\r", b"\r", b"BAD", b"\r", ESC, b"i"];
-        let ran = run(&b, &keys);
-        assert!(b.draft().contains("font-name=BAD"), "{}", b.draft());
+        // a draft the stand-in check refuses: it names BAD
+        run(&b, &[&CHANGE[..], &[b"s"]].concat());
+        let bad = b.draft().replace("font-size=12", "font-name=BAD");
+        let path = b.store().draft_path("bench").expect("the draft's path");
+        std::fs::write(path, &bad).expect("the draft");
+        let ran = run(&b, &[b"i"]);
         assert!(ran.status().contains("1 problem"), "{}", ran.status());
         assert!(
             ran.screen().contains("the check found problems"),
@@ -3640,14 +3052,21 @@ mod draft_flow {
     }
 
     #[test]
-    fn revert_new_and_delete_draft_each_ask_first() {
+    fn revert_and_new_each_ask_first() {
         let b = bench("revert");
-        let change: Vec<&[u8]> = vec![b"\r", RIGHT, b"\r", ESC];
-        run(&b, &change);
+        run(&b, &[&CHANGE[..], &[b"s"]].concat());
         assert_ne!(b.draft(), INSTALLED);
         let ran = run(&b, &[b"r", b"n"]);
         assert!(ran.screen().contains(words::NOT_DONE), "{}", ran.screen());
         assert_ne!(b.draft(), INSTALLED);
+        // the question counts an unsaved change among what is lost
+        let unsaved = bench("revert-unsaved");
+        let ran = run(&unsaved, &[&CHANGE[..], &[b"r"]].concat());
+        assert!(
+            flat(ran.screen()).contains("This includes 1 change that is not saved."),
+            "{}",
+            ran.screen()
+        );
         run(&b, &[b"r", b"y"]);
         assert_eq!(b.draft(), INSTALLED);
         run(&b, &[b"n", b"y"]);
@@ -3655,32 +3074,23 @@ mod draft_flow {
             b.draft(),
             vtium_config::ops::new_text(vtium_config::drafts::EXAMPLE)
         );
-        // the draft deleted, the next one starts from the installed file
-        run(&b, &change);
-        assert_ne!(b.draft(), INSTALLED);
-        let ran = run(&b, &[b"x", b"y"]);
-        assert!(ran.screen().contains("Draft deleted."), "{}", ran.screen());
-        assert_eq!(b.draft(), INSTALLED);
     }
 
     #[test]
-    fn the_pager_shows_the_draft_at_the_selected_card_s_line() {
+    fn the_file_view_opens_at_the_highlighted_box_s_line() {
         let b = bench("pager");
-        // rule 2, the input path rule, on line 10
-        let ran = run(&b, &[RIGHT, RIGHT, RIGHT, b"v"]);
+        // the first path's display, All displays: its rule on line 9
+        let ran = run(&b, &[b"\x1b[H", b"v"]);
         let screen = ran.screen();
         assert!(screen.contains(words::PAGER_TITLE), "{screen}");
-        assert!(
-            screen.contains("▸  10 input path:pci-0:3.3 -> panel"),
-            "{screen}"
-        );
+        assert!(screen.contains("▸   9 display * -> desk"), "{screen}");
         assert!(screen.contains("q back"), "{screen}");
         // q goes back to the flow, and leaving still works
         let ran = run(&b, &[b"v", b"j", b"G", b"\x04", b"q"]);
         assert!(!ran.screen().contains(words::PAGER_TITLE));
     }
 
-    /// Runs the Flow view as rows on `b`'s desk at 100x30, typing `keys`.
+    /// Runs the Flow view on `b`'s desk at 100x30, typing `keys`.
     fn run_rows(b: &Bench, keys: &[&[u8]]) -> Ran {
         let mut console = Console::vtium(100, 30, true, "unifont")
             .takes("proof", (100, 30))
@@ -3691,15 +3101,14 @@ mod draft_flow {
         let mut i = inputs();
         i.view = model::View::Flow;
         i.hotplug = true;
-        i.flow_rows = true;
         i.flow = vtium_config::tui::flow::Flow::default();
         drive_with(&mut console, i, Some(&mut desk)).expect("the loop");
         Ran { console }
     }
 
     #[test]
-    fn the_rows_file_view_saves_and_installs_and_stays_open() {
-        let b = bench("rows-file");
+    fn the_file_view_saves_and_installs_and_stays_open() {
+        let b = bench("file-view");
         let ran = run_rows(&b, &[b"v"]);
         let screen = ran.screen();
         assert!(screen.contains(words::PAGER_TITLE), "{screen}");
@@ -3708,7 +3117,7 @@ mod draft_flow {
         let ran = run_rows(&b, &[b"v", b"s"]);
         let screen = ran.screen();
         assert!(screen.contains(words::PAGER_TITLE), "{screen}");
-        assert!(screen.contains("nothing to save"), "{screen}");
+        assert!(screen.contains(words::NOTHING_TO_SAVE), "{screen}");
         // i runs the install flow: here the draft is what is installed
         let ran = run_rows(&b, &[b"v", b"i"]);
         let screen = ran.screen();
@@ -3737,24 +3146,16 @@ mod draft_flow {
             present(vec![keyboard(), other_keyboard()], true),
             present(vec![other_keyboard()], true),
         ];
-        // select the keyboard, then udev reports it went: rule 2 names
-        // it, so it stays as its placeholder, after the spare, and the
-        // selection moves to the placeholder, whose card deletes rule 2
-        let keys: Vec<&[u8]> = vec![RIGHT, RIGHT, RIGHT, RIGHT, b"@"];
-        let ran = run_on(&b, seen.clone(), true, &keys);
+        // udev reports the keyboard went: rule 2 names it, so its part
+        // stays, grey, and says so (ADR-1403 D7)
+        let ran = run_on(&b, seen, true, &[b"@"]);
         assert!(
             ran.status().contains("disconnected: kbd"),
             "{}",
             ran.status()
         );
-        assert!(ran.screen().contains("* pci-0:3.3"), "{}", ran.screen());
+        assert!(ran.screen().contains("Not connected"), "{}", ran.screen());
         assert_eq!(b.draft(), INSTALLED);
-        let keys: Vec<&[u8]> = vec![RIGHT, RIGHT, RIGHT, RIGHT, b"@", b"\r", b"\r", b"y"];
-        run_on(&b, seen, true, &keys);
-        assert_eq!(
-            b.draft(),
-            INSTALLED.replace("input path:pci-0:3.3 -> panel\n", "")
-        );
         // a keyboard that comes is placed by the rules, roaming here
         let b = bench("hotplug-came");
         let seen = vec![
@@ -3770,50 +3171,6 @@ mod draft_flow {
         );
         assert!(ran.screen().contains("spare"), "{}", ran.screen());
         assert_eq!(b.draft(), INSTALLED);
-    }
-
-    #[test]
-    fn two_devices_of_one_name_keep_the_selection_on_the_one_selected() {
-        let b = bench("same-name");
-        // a second keyboard named kbd, on another port, which rule 3 places
-        let mut twin = keyboard();
-        twin.path = Some("pci-0:7.7".into());
-        let seen = vec![
-            present(vec![keyboard(), twin.clone()], true),
-            present(vec![twin, keyboard()], true),
-        ];
-        // the first kbd, rule 2's, selected; udev reorders them; the pager
-        // opens at the selected device's rule, still rule 2 on line 10
-        let ran = run_on(&b, seen.clone(), true, &[RIGHT, RIGHT, RIGHT, RIGHT, b"v"]);
-        assert!(
-            ran.screen().contains("▸  10 input path:pci-0:3.3 -> panel"),
-            "the first kbd selected: {}",
-            ran.screen()
-        );
-        let ran = run_on(&b, seen, true, &[RIGHT, RIGHT, RIGHT, RIGHT, b"@", b"v"]);
-        assert!(
-            ran.screen().contains("▸  10 input path:pci-0:3.3 -> panel"),
-            "{}",
-            ran.screen()
-        );
-    }
-
-    #[test]
-    fn deleting_a_placeholder_deletes_its_rule() {
-        let b = bench("placeholder");
-        // no keyboard present: rule 2's keyboard is a placeholder, the
-        // first item of the input devices column
-        let seen = vec![present(vec![], true)];
-        run_on(
-            &b,
-            seen,
-            true,
-            &[RIGHT, RIGHT, RIGHT, RIGHT, b"\r", b"\r", b"y"],
-        );
-        assert_eq!(
-            b.draft(),
-            INSTALLED.replace("input path:pci-0:3.3 -> panel\n", "")
-        );
     }
 
     #[test]
@@ -3901,20 +3258,38 @@ mod draft_flow {
         }
     }
 
-    /// The screens of a draft's card, a question and the pager, at 80x25
-    /// and 100x30: vtium's own goldens, provisional until the maintainer
-    /// reviews the layout.
+    /// The Flow view's states on a draft at 80x25 and 120x32 (ADR-1403
+    /// D7), each reached by its keys: the shipped default, a configuration
+    /// of three paths (desk, panel and the roaming inputs), a new path half
+    /// built, the Input maker, the USB port picker, a terminal's card and
+    /// a labelled part.
     #[test]
-    fn a_draft_s_card_question_and_pager_at_80x25_and_100x30() {
-        let scripts: [(&str, &[&[u8]]); 4] = [
-            ("draft-rule-card", &[b"\r"]),
-            ("draft-head-card", &[RIGHT, b"\r"]),
-            ("draft-delete-head", &[RIGHT, b"\r", END, b"\r"]),
-            ("draft-pager", &[RIGHT, RIGHT, RIGHT, b"v"]),
+    fn the_flow_view_s_states_at_80x25_and_120x32() {
+        const HOME: &[u8] = b"\x1b[H";
+        // Down from the first box reaches PARTS' inputs at the sixth step
+        let to_inputs: Vec<&[u8]> = [&[HOME][..], &[DOWN; 6][..]].concat();
+        let maker: Vec<&[u8]> = [&to_inputs[..], &[LEFT, b"\r"][..]].concat();
+        let enter: &[u8] = b"\r";
+        let picker: Vec<&[u8]> = [&maker[..], &[DOWN; 4][..], &[enter][..]].concat();
+        let typed: [&[u8]; 4] = [enter, enter, b"Left desk", enter];
+        let label: Vec<&[u8]> = [&to_inputs[..], &typed[..]].concat();
+        let scripts: [(&str, bool, &[&[u8]]); 7] = [
+            ("flow-default", true, &[]),
+            ("flow-paths", false, &[]),
+            ("flow-new-path", false, &[HOME, RIGHT, RIGHT, b" "]),
+            ("flow-input-maker", false, &maker),
+            ("flow-picker", false, &picker),
+            ("flow-terminal-card", false, &[HOME, RIGHT, b"\r"]),
+            ("flow-label", false, &label),
         ];
-        for (cols, rows) in [(80, 25), (100, 30)] {
-            for (name, keys) in scripts {
+        for (cols, rows) in [(80, 25), (120, 32)] {
+            for (name, shipped, keys) in scripts {
                 let b = bench(&format!("{name}-{cols}"));
+                if shipped {
+                    // no sections: the draft runs vtium's built-in default
+                    std::fs::write(b.root.join("etc/vtium.conf"), "font-size=12\n")
+                        .expect("vtium.conf");
+                }
                 let ran = run_at(
                     &b,
                     (cols, rows),

@@ -315,7 +315,9 @@ const FONTS_TAB: &[u8] = b"\x1b[<0;16;1M\x1b[<0;16;1m";
 /// Clicks the Fonts tab of the Flow view, which the TUI opens on, and
 /// waits for the Fonts view's keys.
 fn to_fonts(c: &mut Console) {
-    c.until("opened on the flow", |s| s.screen.contains("DISPLAYS"));
+    c.until("opened on the flow", |s| {
+        s.screen.contains("CONFIGURATION") || s.screen.contains("NEW PATH")
+    });
     c.key(FONTS_TAB);
     c.until("showed the fonts", |s| s.screen.contains("r remove"));
 }
@@ -571,8 +573,8 @@ fn saving_into_directories_not_the_system_s_installs_as_the_user() {
             vtium.as_os_str(),
         ],
     );
-    c.until("decided", |s| s.screen.contains("t: try live"));
     to_fonts(&mut c);
+    c.until("decided", |s| s.screen.contains("t: try live"));
     c.key(UP);
     c.key(UP);
     c.key(b"t");
@@ -642,8 +644,8 @@ fn saving_the_system_s_files_runs_exactly_sudo_vtium_config_apply_dir() {
             vtium.as_os_str(),
         ],
     );
-    c.until("decided", |s| s.screen.contains("t: try live"));
     to_fonts(&mut c);
+    c.until("decided", |s| s.screen.contains("t: try live"));
     // a size, so the draft differs from the system's vtium.conf whatever it
     // holds
     c.key(b"\x1b[Z");
@@ -840,8 +842,8 @@ fn the_helper_holds_none_of_the_terminal_and_a_silent_one_marks_no_frit_broken()
         ],
     );
     drop(leaked);
-    c.until("decided", |s| s.screen.contains("t: try live"));
     to_fonts(&mut c);
+    c.until("decided", |s| s.screen.contains("t: try live"));
     // the stand-in lists what the TUI gave it
     let fds_file = root.join("helper.fds");
     let deadline = now() + Duration::from_secs(10);

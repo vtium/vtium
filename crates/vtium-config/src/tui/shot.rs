@@ -15,7 +15,6 @@ use std::time::Duration;
 
 use vtium_font::Cell;
 
-use super::edit::What;
 use super::input::Key;
 use super::model::{App, Effect, FontState, Live, View};
 use super::words;
@@ -116,7 +115,6 @@ impl App {
                     detail: false,
                 })
             }
-            View::Flow => self.look_wanted().filter(|w| readable(&w.font)),
             _ => None,
         }
     }
@@ -175,59 +173,6 @@ impl App {
             .and_then(|s| s.parse::<u32>().ok())
             .filter(|s| *s > 0)
             .unwrap_or(crate::preview::POINTS)
-    }
-
-    /// The look the opened card shows, with the value under its cursor,
-    /// while the cursor is on the look's frit, size or cell.
-    fn look_wanted(&self) -> Option<Wanted> {
-        if !self.opened
-            || self.confirm.is_some()
-            || self.route.is_some()
-            || self.pager.is_some()
-            || self.restore.is_some()
-        {
-            return None;
-        }
-        let fields = self.fields();
-        let field = fields.get(self.card.field)?;
-        let What::LookKey(name, key @ ("font-name" | "font-size" | "cell")) = &field.what else {
-            return None;
-        };
-        let look = self.inputs.flow.looks.iter().find(|l| l.name == *name)?;
-        let under = self
-            .card
-            .typed
-            .clone()
-            .or_else(|| field.options.get(self.card.pick).cloned())
-            .unwrap_or_else(|| field.current.clone());
-        let mut font = look.frit.clone();
-        let mut points = look.points;
-        let mut cell = look
-            .keys
-            .iter()
-            .find(|(k, _)| k == "cell")
-            .and_then(|(_, v)| crate::frit::parse_cell(v));
-        match *key {
-            "font-name" => font = under,
-            "font-size" => points = under.trim().parse().unwrap_or(0),
-            _ => cell = crate::frit::parse_cell(&under),
-        }
-        if font.is_empty() {
-            return None;
-        }
-        // the look's own size wins over its cell; an automatic size with
-        // no cell is drawn as `preview` draws it
-        if points > 0 {
-            cell = None;
-        } else if cell.is_none() {
-            points = crate::preview::POINTS;
-        }
-        Some(Wanted {
-            font,
-            points,
-            cell,
-            detail: false,
-        })
     }
 
     /// The display the picture shows, and whether it is assumed.
