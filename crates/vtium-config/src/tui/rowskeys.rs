@@ -968,7 +968,9 @@ impl App {
                         };
                         self.make_part(piece, sel, from_new)
                     }
-                    Err(why) => self.tell(why),
+                    // the parser's sentence names a rule; the reader typed a
+                    // value of the picker's kind, so the refusal names that
+                    Err(_) => self.tell(words::typed_refused(key.unwrap_or("path"))),
                 }
             }
             Key::Escape => {
@@ -1131,9 +1133,7 @@ mod tests {
         keys(&mut app, &[Key::Char(' ')]);
         assert_eq!(
             app.message.as_deref(),
-            Some(
-                "The Input template never goes into a path. Press Enter to make a new part from it."
-            )
+            Some("The Input template adds inputs. Press Enter to add one.")
         );
         assert!(
             state(&app).new.is_empty(),
@@ -1191,7 +1191,10 @@ mod tests {
         type_text(&mut app, "aaa:1:2");
         keys(&mut app, &[Key::Enter]);
         let why = app.message.clone().unwrap_or_default();
-        assert!(why.contains("edid:aaa:1:2"), "{why}");
+        assert_eq!(
+            why,
+            "This monitor is not a valid EDID. An EDID looks like AAA:0x0001:LARGE00001."
+        );
         assert!(state(&app).typing.is_some(), "the value stays to fix");
         keys(&mut app, &[Key::Escape, Key::Enter]);
         type_text(&mut app, "AAA:0x0001:LARGE00001");

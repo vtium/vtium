@@ -255,98 +255,94 @@ pub fn makes(stage: Stage, fonts: &[String]) -> Vec<(String, String, Make)> {
     match stage {
         Stage::Display => vec![
             one(
-                "every display",
-                "every display, connected now or later",
+                words::ANY_DISPLAY,
+                "connected now or later",
                 Make::Part(Piece::Display("*".to_owned())),
             ),
             one(
-                "monitor (EDID)",
-                "one monitor, by the maker, model and serial it reports",
+                "This monitor",
+                "its EDID; follows it to any port",
                 Make::Filter("edid"),
             ),
             one(
-                "connector",
-                "a socket on the graphics card, such as DP-1 or HDMI-A-2",
+                "Connector",
+                "whatever is plugged into HDMI-A-1, DP-2, \u{2026}",
                 Make::Filter("connector"),
             ),
             one(
-                "hub port",
-                "a display behind a hub, by its place on the hub",
+                "Hub port",
+                "one port of a DisplayPort hub",
                 Make::Filter("connector-path"),
             ),
             one(
-                "graphics card",
-                "every display on one graphics card",
+                "Graphics card",
+                "every output of one card",
                 Make::Filter("card"),
             ),
         ],
         Stage::Input => vec![
             one(
-                "no input",
-                "nothing types into the terminal",
+                words::NO_INPUT,
+                words::NO_INPUT_DETAIL,
                 Make::Part(Piece::NoInput),
             ),
             one(
-                "every keyboard",
-                "every input with keys",
+                words::ANY_KEYBOARD_TITLE,
+                "class keyboard",
                 input(ANY_KEYBOARD),
             ),
-            one("every pointer", words::EVERY_POINTER, input(ANY_POINTER)),
             one(
-                "every input",
-                "every keyboard, pointer and other input",
-                input("*"),
+                words::ANY_POINTER_TITLE,
+                words::EVERY_POINTER,
+                input(ANY_POINTER),
             ),
+            one(words::ANY_INPUT_TITLE, "everything", input("*")),
             one(
                 "USB port",
-                "every input plugged into one port",
+                "anything plugged into that port",
                 Make::Filter("path"),
             ),
             one(
-                "serial number",
-                "one device, by the serial number it reports",
+                "This one device",
+                "its serial number; follows it to any port",
                 Make::Filter("serial"),
             ),
             one(
-                "model (vendor and product)",
-                "every device of one model",
+                "Model",
+                "every unit of that make and model",
                 Make::Filter("id"),
             ),
             one(
-                "Bluetooth address",
-                "one Bluetooth device",
+                "Bluetooth device",
+                "by its address",
                 Make::Filter("bluetooth"),
             ),
             one(
-                "name",
-                "every device that reports this name",
+                "Device name",
+                "the name the device reports",
                 Make::Filter("name"),
             ),
             one(
-                "class",
-                "touchscreen, tablet, joystick and the rest",
+                "Device type",
+                "touchscreen, tablet, joystick, \u{2026}",
                 Make::Filter("class"),
             ),
-            one(
-                "udev property",
-                "every device whose udev property has this value",
-                Make::Filter("udev"),
-            ),
+            one("udev property (advanced)", "", Make::Filter("udev")),
         ],
         Stage::Terminal => vec![
             one(
-                "new terminal",
-                "a terminal of its own, with a name, font set and size",
+                "New terminal\u{2026}",
+                words::NEW_TERMINAL_DETAIL,
                 Make::NewTerminal,
             ),
             one(
                 words::ACTIVE_TERMINAL,
-                "inputs in this path type into whichever terminal is active",
+                words::ACTIVE_PART_DETAIL,
                 Make::Part(Piece::Active),
             ),
             one(
                 words::NO_TERMINAL,
-                "turns the path's displays off and sets its inputs aside",
+                words::NO_TERMINAL_DETAIL,
                 Make::Part(Piece::NoTerminal),
             ),
         ],
@@ -367,17 +363,17 @@ pub fn makes(stage: Stage, fonts: &[String]) -> Vec<(String, String, Make)> {
 /// The words a filter's picker opens with: what the match key matches.
 pub fn filter_words(key: &str) -> &'static str {
     match key {
-        "edid" => "monitor (EDID)",
-        "connector" => "connector",
-        "connector-path" => "hub port",
-        "card" => "graphics card",
+        "edid" => "This monitor",
+        "connector" => "Connector",
+        "connector-path" => "Hub port",
+        "card" => "Graphics card",
         "path" => "USB port",
-        "serial" => "serial number",
-        "id" => "model (vendor and product)",
-        "bluetooth" => "Bluetooth address",
-        "name" => "name",
-        "class" => "class",
-        _ => "udev property",
+        "serial" => "This one device",
+        "id" => "Model",
+        "bluetooth" => "Bluetooth device",
+        "name" => "Device name",
+        "class" => "Device type",
+        _ => "udev property (advanced)",
     }
 }
 
@@ -650,32 +646,32 @@ mod tests {
         assert_eq!(
             words(Stage::Display),
             [
-                "every display",
-                "monitor (EDID)",
-                "connector",
-                "hub port",
-                "graphics card"
+                "All displays",
+                "This monitor",
+                "Connector",
+                "Hub port",
+                "Graphics card"
             ]
         );
         assert_eq!(
             words(Stage::Input),
             [
-                "no input",
-                "every keyboard",
-                "every pointer",
-                "every input",
+                "Nothing (display only)",
+                "All keyboards",
+                "All mice and touchpads",
+                "All input devices",
                 "USB port",
-                "serial number",
-                "model (vendor and product)",
-                "Bluetooth address",
-                "name",
-                "class",
-                "udev property",
+                "This one device",
+                "Model",
+                "Bluetooth device",
+                "Device name",
+                "Device type",
+                "udev property (advanced)",
             ]
         );
         assert_eq!(
             words(Stage::Terminal),
-            ["new terminal", "the active terminal", "no terminal"]
+            ["New terminal…", "Whichever terminal is active", "Nowhere"]
         );
         assert_eq!(words(Stage::Font), ["default font set", "monoid"]);
     }

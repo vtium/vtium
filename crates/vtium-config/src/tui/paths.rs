@@ -1137,7 +1137,7 @@ pub fn title(flow: &Flow, kind: Kind, selector: &str) -> (String, String) {
             words::EVERY_DISPLAY.to_owned(),
         ),
         (Kind::Input, "*") => (
-            "every input".to_owned(),
+            words::ANY_INPUT_TITLE.to_owned(),
             "what no other rule names".to_owned(),
         ),
         (Kind::Display, "connector") => {
@@ -1156,8 +1156,8 @@ pub fn title(flow: &Flow, kind: Kind, selector: &str) -> (String, String) {
             words::EVERY_POINTER.to_owned(),
         ),
         (Kind::Input, "class") if selector == ANY_KEYBOARD => (
-            "every keyboard".to_owned(),
-            "every input with keys".to_owned(),
+            words::ANY_KEYBOARD_TITLE.to_owned(),
+            "class keyboard".to_owned(),
         ),
         (Kind::Input, "class") => (format!("every {value}"), format!("class {value}")),
         (Kind::Input, "path") => match dev {
@@ -1586,7 +1586,7 @@ pub(crate) mod tests {
         assert_eq!(
             titles,
             [
-                "every keyboard",
+                "All keyboards",
                 "inputs on USB 3.3",
                 "keyboards on USB 3.4",
                 "Logitech USB Receiver",
@@ -1608,7 +1608,7 @@ pub(crate) mod tests {
             .collect();
         assert_eq!(
             screens,
-            ["every display", "DP-8", "HDMI-A-2", "DP-8", "HDMI-A-2"]
+            ["All displays", "DP-8", "HDMI-A-2", "DP-8", "HDMI-A-2"]
         );
     }
 

@@ -944,7 +944,7 @@ fn palette(ctx: &Ctx<'_>, waiting: &mut Vec<Sort>) -> Vec<(NoteKind, &'static st
             let mut pieces = vec![PalPiece {
                 slot: Slot::Template(stage),
                 title: stage.name().to_owned(),
-                detail: words::TEMPLATE_DETAIL.to_owned(),
+                detail: words::template_add(stage.name()),
                 mood: Mood::Placed,
                 template: true,
             }];
@@ -1479,17 +1479,14 @@ pub(crate) mod tests {
                 );
             }
             let gone = at(&l, &doc("desk", Slot::Input("serial:046d:c52b:0".into())));
-            assert_eq!(gone.detail, "not connected");
+            assert_eq!(gone.detail, "Not connected");
             // the catch-all to ignore, as the path to no terminal, below
             // the roaming inputs, grey, with no roaming stub
             let none = at(&l, &Obj::Nothing(Slot::Terminal));
-            assert_eq!(
-                (none.title.as_str(), none.mood),
-                ("no terminal", Mood::Aside)
-            );
+            assert_eq!((none.title.as_str(), none.mood), ("Nowhere", Mood::Aside));
             assert!(none.y > roams.y);
             let every = at(&l, &Obj::Nothing(Slot::Input("*".into())));
-            assert_eq!(every.title, "every input");
+            assert_eq!(every.title, "All input devices");
             assert!(
                 l.wires
                     .iter()
@@ -1555,7 +1552,7 @@ pub(crate) mod tests {
             let unplugged = at(&l, &Obj::Pal(Slot::Input("serial:046d:c52b:0".into())));
             assert_eq!(
                 (unplugged.mood, unplugged.detail.as_str()),
-                (Mood::Aside, "not connected")
+                (Mood::Aside, "Not connected")
             );
             assert_eq!(at(&l, &Obj::Others).title, "1 other input");
             assert_eq!(l.waiting, [Sort::Keyboard]);

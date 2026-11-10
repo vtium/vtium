@@ -633,6 +633,7 @@ pub fn screen(canvas: &mut Canvas, app: &App) {
         Some(obj) => {
             status(canvas, app, &layout, Some(&obj_name(flow, obj)));
             let keys = match obj {
+                _ if state.typing.is_some() && state.picker.is_some() => words::KEYS_TYPING_VALUE,
                 _ if state.typing.is_some() => words::KEYS_TYPING,
                 Obj::Nothing(_) => words::ROWS_KEYS_INFO,
                 Obj::Doc(_, Slot::Terminal) => words::ROWS_KEYS_CARD,
@@ -1099,14 +1100,19 @@ fn choices_layer(canvas: &mut Canvas, app: &App, state: &rows::State, obj: &Obj)
             } else {
                 Style::text(Color::BrightWhite)
             };
-            canvas.put(vx, 5, &format!(" {shown} "), style);
+            let x = canvas.put(vx, 5, &format!(" {shown} "), style);
+            canvas.put(
+                x.saturating_add(3),
+                5,
+                &fit(
+                    words::LABEL_ABOUT,
+                    app.cols.saturating_sub(x).saturating_sub(4),
+                ),
+                Style::text(Color::Grey),
+            );
         }
     }
-    let about = wrap(words::LABEL_ABOUT, app.cols.saturating_sub(4), 2);
-    for (k, line) in about.iter().enumerate() {
-        canvas.put(3, 6usize.saturating_add(k), line, Style::text(Color::Grey));
-    }
-    let y0 = 7usize.saturating_add(about.len());
+    let y0 = 7usize;
     canvas.put(1, y0, heading, bold(Color::BrightWhite));
     let about = wrap(words::CHOOSE_ABOUT, app.cols.saturating_sub(4), 2);
     for (k, line) in about.iter().enumerate() {
@@ -1165,7 +1171,7 @@ fn make_layer(canvas: &mut Canvas, app: &App, state: &rows::State, stage: Stage)
         &list,
         None,
         &marks,
-        filters.map(|_| words::MATCH_BY_ABOUT),
+        None,
     );
 }
 
@@ -1178,7 +1184,7 @@ fn picker_layer(canvas: &mut Canvas, app: &App, state: &rows::State, p: &rows::P
             parts::Pick::Value { sel, devices } => (sel, devices.join(", ")),
             parts::Pick::Typed => (
                 words::PICKER_TYPE.to_owned(),
-                words::picker_type_detail(p.key),
+                words::PICKER_TYPE_DETAIL.to_owned(),
             ),
         })
         .collect();
@@ -1188,7 +1194,7 @@ fn picker_layer(canvas: &mut Canvas, app: &App, state: &rows::State, p: &rows::P
         app,
         state.line,
         &words::picker_heading(parts::filter_words(p.key)),
-        words::PICKER_ABOUT,
+        &words::picker_about(p.key),
         &list,
         typing,
         &[],
@@ -1246,13 +1252,7 @@ fn list_layer(
             break;
         }
         if let (Some(t), true) = (typing, i == last) {
-            let x = canvas.put(3, y, &format!(" {t}_ "), Style::PLAIN.reversed());
-            canvas.put(
-                x.saturating_add(2),
-                y,
-                words::ENTER_TO_CHECK,
-                Style::text(Color::Grey),
-            );
+            canvas.put(3, y, &format!(" {t}_ "), Style::PLAIN.reversed());
             y = y.saturating_add(1);
             continue;
         }
