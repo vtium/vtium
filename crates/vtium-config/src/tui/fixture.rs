@@ -182,6 +182,7 @@ pub fn inputs() -> Inputs {
         color: true,
         desk: false,
         hotplug: false,
+        flow_rows: false,
         installed: [
             ("broken", &b"source=builtin:unifont\ncolour=red\n"[..]),
             ("minspec-16", b"source=builtin:unifont\n"),

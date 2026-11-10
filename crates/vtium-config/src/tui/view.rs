@@ -458,8 +458,12 @@ fn tab_places(app: &App) -> Vec<(Tab, usize, String)> {
     }
     let tabs_end = x;
     let actions = |long: bool, gap: usize| -> Vec<String> {
-        words::ACTIONS
-            .iter()
+        let list: &[(&str, &str)] = if super::rowsdraw::shown(app) {
+            &words::ROWS_ACTIONS
+        } else {
+            &words::ACTIONS
+        };
+        list.iter()
             .map(|(l, s)| {
                 let name = if long { l } else { s };
                 format!("{}{name}{}", " ".repeat(gap), " ".repeat(gap))
@@ -1075,6 +1079,10 @@ pub fn screen(app: &App) -> Vec<Row> {
         return canvas.into_rows();
     }
     tab_bar(&mut canvas, app);
+    if super::rowsdraw::shown(app) {
+        super::rowsdraw::screen(&mut canvas, app);
+        return canvas.into_rows();
+    }
     status(&mut canvas, app);
     if app.view == View::Flow {
         flow_screen(&mut canvas, app);

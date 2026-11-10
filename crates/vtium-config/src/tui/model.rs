@@ -106,6 +106,9 @@ pub struct Inputs {
     /// The loop watches udev's device events, so the view follows hotplug
     /// (ADR-1403 D7).
     pub hotplug: bool,
+    /// The Flow view is drawn as rows of bordered objects, the try-out
+    /// `VTIUM_CONFIG_FLOW=rows` selects ([`super::rows`]).
+    pub flow_rows: bool,
 }
 
 /// One thing that happened.
@@ -451,6 +454,9 @@ pub struct App {
     pub came: Option<String>,
     /// The item to select once the desk answers the change in flight.
     pub(crate) select_after: Option<Item>,
+    /// The Flow view as rows: where its highlight is and what is open
+    /// over it; `None` for the six-column view.
+    pub rows_flow: Option<super::rows::State>,
 }
 
 /// Where the cursor is on an opened card (ADR-1403 D7).
@@ -555,7 +561,11 @@ impl App {
             installing: false,
             came: None,
             select_after: None,
+            rows_flow: None,
         };
+        if app.inputs.flow_rows {
+            app.rows_flow = Some(super::rows::State::default());
+        }
         let mut first = vec![Effect::Write(probe()), Effect::Wait(WAIT)];
         if app.inputs.desk {
             first.push(Effect::Desk(Op::Open));
@@ -676,6 +686,7 @@ impl App {
     pub fn event(&mut self, event: Event) -> Vec<Effect> {
         let mut out = self.handle(event);
         out.extend(self.ask_picture());
+        self.rows_settle();
         out
     }
 
@@ -941,6 +952,9 @@ impl App {
             _ => {}
         }
         if self.view == View::Flow {
+            if self.rows_flow.is_some() {
+                return self.rows_key(key);
+            }
             return self.flow_key(key);
         }
         match key {
@@ -1007,7 +1021,7 @@ impl App {
     }
 
     /// A key in the Flow view (ADR-1403 D7).
-    fn flow_key(&mut self, key: Key) -> Vec<Effect> {
+    pub(crate) fn flow_key(&mut self, key: Key) -> Vec<Effect> {
         if let Some(line) = self.route {
             return self.route_key(key, line);
         }
@@ -1206,6 +1220,9 @@ impl App {
                 return Vec::new();
             }
             return self.set_view(view);
+        }
+        if super::rowsdraw::shown(self) {
+            return self.rows_click(mouse.col, mouse.row);
         }
         match super::view::item_at(self, mouse.col, mouse.row) {
             Some(item) if item == self.flow_at => self.open_card(),

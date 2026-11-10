@@ -888,6 +888,142 @@ pub fn frits_waiting(n: usize) -> String {
     }
 }
 
+/// The Flow view as rows, the try-out `VTIUM_CONFIG_FLOW=rows` selects.
+pub const ROWS_SCREENS: &str = "SCREENS";
+pub const ROWS_TERMINALS: &str = "TERMINALS";
+pub const ROWS_KEYBOARDS: &str = "KEYBOARDS AND POINTERS";
+pub const ROWS_WAITING: &str = "NOT IN A PATH YET";
+pub const ROWS_ASIDE: &str = "SET ASIDE";
+pub const ROWS_ACTIVE: &str = "active";
+pub const ROWS_ROAMS: &str = "roams";
+pub const ROWS_ADD_TERMINAL: &str = "+ add a terminal";
+pub const ROWS_UNPLUGGED: &str = "a rule names it · unplugged";
+pub const ROWS_SPACE_IT: &str = "Space it, then a terminal";
+pub const ROWS_NO_ACTIVE: &str = "roams, but no terminal can be active";
+pub const ROWS_COMPLETE: &str = "complete";
+/// The Flow view's actions in the tab bar, long and short.
+pub const ROWS_ACTIONS: [(&str, &str); 5] = [
+    ("v Rules", "Rules"),
+    ("s Save", "Save"),
+    ("i Install", "Install"),
+    ("r Revert", "Revert"),
+    ("n New", "New"),
+];
+pub const ROWS_KEYS: &str =
+    "↑↓←→ move  Enter open  Space start a path  ? route  PgUp PgDn scroll  v rules  s save  q quit";
+pub const ROWS_KEYS_TERMINAL: &str =
+    "↑↓ move  ←→ choose  Enter set  Esc back to the overview  q quit";
+pub const ROWS_KEYS_DEVICE: &str =
+    "↑↓ move  ←→ choose  Enter set  Esc back to the overview  q quit";
+pub const ROWS_KEYS_OTHERS: &str = "Esc back to the overview  q quit";
+pub const ROWS_SAVE: &str = "The draft keeps each change as you make it, so there is nothing to save. Press i to install it.";
+pub const ROWS_RULES_BACK: &str =
+    "This is the rules view. Press Esc with nothing open to go back to the overview.";
+pub const ROWS_PATH_TERMINAL: &str =
+    "A path starts from a screen, a keyboard or a pointer. Press Space on one of them first.";
+pub const ROWS_PATH_OTHERS: &str =
+    "These inputs are neither keyboards nor pointers, so they cannot type into a terminal.";
+pub const ROWS_TYPES_INTO: &str = "Types into";
+pub const ROWS_SHOWS: &str = "Shown on";
+pub const ROWS_MATCHED_AS: &str = "Matched as";
+pub const ROWS_RULE: &str = "Rule";
+pub const ROWS_THE_ACTIVE: &str = "the active terminal (roams)";
+pub const ROWS_SET_ASIDE: &str = "set aside";
+pub const ROWS_TURNED_OFF: &str = "turned off";
+pub const ROWS_NO_RULE: &str = "no rule names it yet";
+pub const ROWS_WHAT_CHANGES: &str = "WHAT THIS CHANGES";
+pub const ROWS_CONNECTED: &str = "CONNECTED";
+pub const ROWS_NOTHING: &str = "nothing";
+pub const ROWS_OFF_SENTENCE: &str = "vtium turns this screen off, so it shows no terminal.";
+pub const ROWS_OTHERS_TITLE: &str = "OTHER INPUTS";
+pub const ROWS_OTHERS_ABOUT: &str = "These inputs are neither keyboards nor pointers, so none of them types into a terminal. Each line says which rule catches it.";
+pub fn rows_set_aside_by(rule: usize) -> String {
+    format!("set aside by rule {rule}")
+}
+pub fn rows_turned_off_by(rule: usize) -> String {
+    format!("turned off by rule {rule}")
+}
+pub fn rows_no_terminal(rule: usize, target: &str) -> String {
+    format!("rule {rule} sends it to {target}, which is not a terminal")
+}
+pub fn rows_roaming_hint(head: &str) -> String {
+    format!("roaming keyboards, when {head} is active")
+}
+pub fn rows_other_inputs(n: usize) -> String {
+    match n {
+        1 => "1 other input".to_owned(),
+        n => format!("{n} other inputs"),
+    }
+}
+pub fn rows_rule_note(rule: usize) -> String {
+    format!("(rule {rule})")
+}
+pub fn rows_shared(rule: usize, one: &str) -> String {
+    format!("(rule {rule}, shared with every {one})")
+}
+pub fn rows_forget(rule: usize) -> String {
+    format!("forget it: delete rule {rule}")
+}
+/// What waits, as the status line counts it: `1 keyboard and 1 screen
+/// not in a path yet`.
+pub fn rows_waiting(keyboards: usize, pointers: usize, screens: usize) -> String {
+    let count = |n: usize, one: &str| match n {
+        0 => None,
+        1 => Some(format!("1 {one}")),
+        n => Some(format!("{n} {one}s")),
+    };
+    let parts: Vec<String> = [
+        count(keyboards, "keyboard"),
+        count(pointers, "pointer"),
+        count(screens, "screen"),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    let list = match parts.as_slice() {
+        [] => return ROWS_COMPLETE.to_owned(),
+        [one] => one.clone(),
+        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
+    };
+    format!("{list} not in a path yet")
+}
+/// The policy in a few words, under the status line.
+pub fn rows_policy(policy: &str) -> String {
+    match policy {
+        "closed" => "policy closed: vtium ignores a keyboard that no rule names".to_owned(),
+        _ => "policy open: a keyboard that no rule names types into the active terminal".to_owned(),
+    }
+}
+pub fn rows_roams_sentence(this: &str, verb: &str, now: Option<&str>, others: &[String]) -> String {
+    match (now, others) {
+        (None, _) => format!(
+            "{this} {verb} whichever terminal is active, and no terminal can be active now."
+        ),
+        (Some(now), []) => format!("{this} {verb} whichever terminal is active: {now} now."),
+        (Some(now), others) => format!(
+            "{this} {verb} whichever terminal is active: {now} now, and {} after Ctrl+Super+Up or Ctrl+Super+Down.",
+            others.join(" or ")
+        ),
+    }
+}
+pub fn rows_ignored_sentence(one: &str) -> String {
+    format!("vtium ignores this {one}, so it types into no terminal.")
+}
+pub fn rows_terminal_about(active: bool, consoles: u32) -> String {
+    let consoles = match consoles {
+        1 => "1 console".to_owned(),
+        n => format!("{n} consoles"),
+    };
+    if active {
+        format!("the active terminal · {consoles}")
+    } else {
+        consoles
+    }
+}
+pub fn rows_path_from(name: &str) -> String {
+    format!("A path from {name}: press Space on a terminal to end it there, or Esc to drop it.")
+}
+
 #[cfg(test)]
 mod tests {
     // ADR-1403 D7's fixed word: Install, Revert and New each call the

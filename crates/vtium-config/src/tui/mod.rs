@@ -27,6 +27,9 @@ mod flowedit;
 pub mod input;
 pub mod model;
 pub mod port;
+pub mod rows;
+pub mod rowsdraw;
+mod rowskeys;
 pub mod shot;
 pub mod view;
 pub mod words;
@@ -222,6 +225,8 @@ pub fn gather(paths: &Paths, view: model::View) -> Result<Inputs, String> {
         color: color::enabled(&|name| std::env::var(name).ok()),
         desk: false,
         hotplug: false,
+        // the try-out of the Flow view as rows, read once at start
+        flow_rows: std::env::var("VTIUM_CONFIG_FLOW").is_ok_and(|v| v == "rows"),
     })
 }
 
