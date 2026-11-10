@@ -719,6 +719,15 @@ pub const EVERY_POINTER: &str = "mouse, touchpad, trackball";
 /// A whole-kind part's second line in a box says what the part does, in
 /// plain words; the vtium.conf key shows only in the maker.
 pub const EVERY_KEYBOARD: &str = "every keyboard";
+/// The terminal's subflow on its card (ADR-1403 D7).
+pub const SUBFLOW_TITLE: &str = "WHAT THIS TERMINAL DRAWS";
+pub const FONT_SET_WORD: &str = "Font set";
+pub const DEFAULT_LOOK_BOX: &str = "default look (built in)";
+pub const NO_DISPLAY_BOX: &str = "no display";
+pub fn look_box(name: &str) -> String {
+    format!("look {name}")
+}
+pub const SUBFLOW_REQUIRES: &str = "Filters and requirements: vtium-config does not read a look's vtlook file yet, so this card names the look and shows no filters.";
 pub const EVERY_OF_TYPE: &str = "every input of that type";
 pub const BY_CONNECTOR: &str = "by its connector";
 pub const NOT_PLUGGED: &str = "Not connected";

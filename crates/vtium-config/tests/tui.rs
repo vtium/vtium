@@ -2934,6 +2934,27 @@ mod draft_flow {
         assert_eq!(b.draft(), INSTALLED);
     }
 
+    // ADR-1403 D7: Enter on a terminal shows its subflow, font set, then
+    // what its look draws, then its displays
+    #[test]
+    fn a_terminal_s_card_shows_its_subflow() {
+        let b = bench("subflow");
+        let ran = run_at(
+            &b,
+            (120, 32),
+            vec![present(vec![keyboard()], true)],
+            true,
+            &[b"\x1b[H", RIGHT, b"\r"],
+        );
+        let screen = ran.screen();
+        assert!(screen.contains(words::SUBFLOW_TITLE), "{screen}");
+        assert!(
+            screen.contains("Font set proof  →  look big  →  All displays"),
+            "{screen}"
+        );
+        assert!(flat(screen).contains(words::SUBFLOW_REQUIRES), "{screen}");
+    }
+
     #[test]
     fn a_change_waits_for_save_and_s_saves_it() {
         let b = bench("save");

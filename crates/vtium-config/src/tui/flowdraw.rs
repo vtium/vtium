@@ -1011,6 +1011,70 @@ fn card_layer(canvas: &mut Canvas, app: &App, state: &flowview::State, obj: &Obj
         canvas.put(3, y, &line, Style::text(Color::Yellow));
         y = y.saturating_add(1);
     }
+    subflow(canvas, app, &path, y.saturating_add(1), bottom);
+}
+
+/// The terminal's subflow on its card (ADR-1403 D7): its font set, then
+/// what its look draws, then its displays, left to right, and a grey line
+/// under them about the look's filters and requirements. vtium-config
+/// reads no vtlook file yet (ADR-1304), so the look shows by its name, or
+/// as the built-in look, and the grey line says so.
+fn subflow(canvas: &mut Canvas, app: &App, path: &Path, y: usize, bottom: usize) {
+    if y.saturating_add(3) > bottom || path.active || path.none {
+        return;
+    }
+    let flow = &app.inputs.flow;
+    canvas.put(1, y, words::SUBFLOW_TITLE, bold(Color::BrightWhite));
+    let font = path
+        .font
+        .clone()
+        .unwrap_or_else(|| words::DEFAULT_FONT_SET.to_owned());
+    let look = flow
+        .heads
+        .iter()
+        .find(|h| path.name.as_deref() == Some(h.name.as_str()))
+        .map(|h| h.look.clone())
+        .filter(|l| l != "default");
+    let look = look.map_or_else(
+        || words::DEFAULT_LOOK_BOX.to_owned(),
+        |l| words::look_box(&l),
+    );
+    let displays: Vec<String> = path
+        .displays
+        .iter()
+        .map(|d| paths::title(flow, Kind::Display, d).0)
+        .collect();
+    let displays = if displays.is_empty() {
+        words::NO_DISPLAY_BOX.to_owned()
+    } else {
+        displays.join(", ")
+    };
+    let mut x = 3usize;
+    let room = app.cols.saturating_sub(2);
+    let arrow = "  \u{2192}  ";
+    for (i, (text, color)) in [
+        (format!("{} {font}", words::FONT_SET_WORD), Color::Magenta),
+        (look, Color::BrightWhite),
+        (displays, Color::Cyan),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        if i > 0 {
+            x = canvas.put(x, y.saturating_add(1), arrow, Style::text(Color::Grey));
+        }
+        let shown = fit(&text, room.saturating_sub(x));
+        x = canvas.put(x, y.saturating_add(1), &shown, Style::text(color));
+    }
+    for (i, line) in wrap(words::SUBFLOW_REQUIRES, app.cols.saturating_sub(4), 2)
+        .iter()
+        .enumerate()
+    {
+        let row = y.saturating_add(2).saturating_add(i);
+        if row < bottom {
+            canvas.put(3, row, line, Style::text(Color::Grey));
+        }
+    }
 }
 
 /// A part's choices, one a row, broad to narrow, each with what it
