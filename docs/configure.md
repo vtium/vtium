@@ -151,41 +151,120 @@ Root needs no sudo. Run as root, `vtium config` keeps root's own drafts under ro
 
 `vtium config tui` opens vtium-config's full-screen view of the configuration, its TUI, in the terminal you run it in. It needs a terminal of at least 80 by 25 cells; below that it shows only the size it needs and the commands, which work at any size. Its views are Flow, Looks, Fonts, Settings and Help, and it opens on Flow. Tab moves to the next view and Shift-Tab to the one before, wherever the selection is. The arrow keys move inside a view. While a card, a list, or a value you are typing is open, Tab does nothing. Press Esc to close it first. While a question waits for your answer, Tab answers no.
 
-The Flow view draws the draft as six columns, from left to right: the displays, the display rules, the heads, their looks, the input rules and the input devices. Each column has a color of its own, from the console's sixteen colors; displays, heads, looks and input devices are blocks of color, rules are colored text, and lines join each device to the rule that places it and each rule to its target. With `NO_COLOR` set, or in a terminal without color, the view draws the same text without color, each block's text in brackets.
+### The Flow view
 
-The view places the devices plugged in now on the draft's rules, and follows them while it is open: a device you plug in appears at once, placed by the first rule that matches it. A rule that names one device, such as a monitor by its EDID or a keyboard by its USB port, keeps that device on the flow when it is unplugged, as a gray block marked `*` and `configured, not found`. The device leaves the configuration only when you delete its rule.
+The Flow view shows the draft as paths. A path is how vtium joins things when it runs: one or more displays show a terminal, the terminal draws with a font set, and inputs such as keyboards and mice type into it. In vtium.conf, a path is one head with its rules.
+
+The view is one document with three sections. From the top, they are CONFIGURATION, NEW PATH and PARTS. You build a path from the bottom up: you pick parts in PARTS into NEW PATH, and then you add the finished path to CONFIGURATION. The document scrolls as a whole under the tab bar, the status line and the key line, and it always keeps the highlighted box in sight.
+
+- **CONFIGURATION** shows the paths the draft holds, one row each, under the column titles DISPLAYS, TERMINALS and INPUTS. Each row reads displays → terminal ← inputs. A terminal's box shows the terminal's name. Under the name, it shows the font set and the VTs the terminal runs on, such as `font set proof · VT 3` or `default font set · every VT`.
+- **NEW PATH** shows the path you are building, with dashed borders. An empty place in it reads `Choose… [Enter]`, and the line beside the section's title says what the path still needs.
+- **PARTS** holds the parts you can pick, in four groups: DISPLAYS, TERMINALS, INPUTS and FONT SETS. vtium-config makes a part for each display, keyboard and pointer that is connected, for each device that the draft's rules name, and for each special part the draft uses.
+
+Two special terminals stand for something other than a head. Inputs that roam type into whichever terminal is on screen. CONFIGURATION draws them once, in the row ROAMING, whose terminal is the dotted box `Active terminal`, next to the sentence `These inputs type into the active terminal.` A path to `Nowhere` holds the displays that vtium leaves off and the inputs that it ignores.
+
+The view follows the devices while it is open. A device you plug in adds a part. When you unplug a device, its part turns grey and reads `Not connected`. The device stays in the configuration until you take its part out of its path. Press `d` to read every device again.
+
+The box's title color shows the kind of part: displays are cyan, terminals yellow, inputs green and font sets magenta. The border shows the part's state. An amber border marks a connected device that is in no path yet, a grey border marks a part you cannot pick, and a check mark `✓` marks a part you picked into NEW PATH. With `NO_COLOR` set, or in a terminal without color, the view draws the same text and borders without color. You can choose the colors in `$XDG_CONFIG_HOME/vtium/vtium-config.conf`.
+
+#### Making a part
+
+Each group in PARTS starts with its template. A template is a box with a double border that reads `Add display… [Enter]`, `Add terminal… [Enter]`, `Add input… [Enter]` or `Add font set… [Enter]`. You never put a template in a path. Instead, press Enter on a template, or on an empty place in NEW PATH, to open its part maker. A part maker asks one question and lists the choices that answer it, each with a description.
+
+| Part maker and its question | Choice | Description |
+|---|---|---|
+| `ADD A DISPLAY`: `Which displays should this include?` | `All displays` | Every display, connected now or later |
+| | `This monitor` | One monitor by its EDID, on any port |
+| | `Connector` | Display on one connector, such as HDMI-A-1 |
+| | `Hub port` | Display on one port of a DisplayPort hub |
+| | `Graphics card` | Every display on one graphics card |
+| `ADD A TERMINAL`: `Where should this path go?` | `New terminal…` | Separate terminal with its own consoles and look |
+| | `Active terminal` | Terminal on screen, following you as you switch |
+| | `Nowhere` | Displays off, inputs ignored |
+| `ADD AN INPUT`: `Which inputs should this include?` | `No input` | Display only, with no keyboard or mouse |
+| | `All keyboards` | Every keyboard, connected now or later |
+| | `All mice and touchpads` | Mice, touchpads and trackballs |
+| | `All input devices` | Keyboards, pointers and every other kind of input |
+| | `USB port` | Devices plugged into one USB port |
+| | `This one device` | One device by its serial number, in any port |
+| | `Model` | Every device of one make and model |
+| | `Bluetooth device` | One paired Bluetooth device |
+| | `Device name` | Devices that report a given name |
+| | `Device type` | Touchscreens, tablets, joysticks and other kinds |
+| | `udev property` | Devices with a given udev property (advanced) |
+| `ADD A FONT SET`: `Which font set should the terminal use?` | `default font set` | Font that vtium.conf sets |
+| | each font set the draft defines | font set |
+
+The input maker lists the choices from `USB port` on under the heading `OR CHOOSE BY`. Each of these choices, and each display choice after `All displays`, opens a picker. The picker lists each value that the connected devices give, with the devices that each value matches now. Its last line is `Other…`, where you type a value yourself. vtium-config checks a typed value the way vtium reads a rule, and when it cannot use the value, it says so in one sentence, such as `This USB port is not a valid port path. A port path looks like pci-0000:00:14.0-usb-0:3.4.`
+
+A choice makes a part, which joins its group in PARTS, and the status line says, for example, `Added DP-9. Press Space to put it in the new path.` When you opened the part maker from NEW PATH, the new part also goes into the new path.
+
+#### Building and adding a path
+
+Space on a part picks it into NEW PATH, and Space on it again takes it out. While you pick, the line beside NEW PATH says what the path still needs, such as `Pick an input and a display to make a path.` or `Add a display to finish this path.` A path to a terminal of its own is complete once it has its terminal and at least one display. A path to `Active terminal` needs at least one input and no display, and a path to `Nowhere` needs at least one display or input. A complete path reads `This path is complete. Press a to add it.`
+
+Press `a` to add the path to CONFIGURATION. vtium-config checks the path first. When something conflicts, the path stays in NEW PATH and one sentence says what conflicts. For example, a name that another terminal has is refused.
+
+A display or an input can be in one path for each VT. Two paths can share a display when their terminals run on different VTs. For example, the terminal desk on VT 3 and the terminal panel on VT 4 can both show `All displays`, and each VT then shows its own terminal. When you pick a display that a path on the same VT already holds, vtium-config refuses it and names that VT: `The display All displays is already in the terminal desk on VT 3. A display can be in one path for each VT.` An input in two paths on the same VT roams instead. Adding the path moves that input to the ROAMING row, and the status line says so when you pick it.
+
+#### A terminal's card
+
+Enter on a terminal's box opens its card. The card lists the terminal's settings: `Name`, `Font set`, `Size`, `Consoles`, `Login` and `When its screen is unplugged`. Up and Down move between the lines, Left and Right move between a line's choices, and Enter sets the choice. On `Name`, Enter lets you type a new name.
+
+The `Login` line sets the program each console of the terminal starts. It has two choices:
+
+- `Default: /bin/login -p` leaves the terminal's own `login` key unset. The choice shows the command that runs then: the `login` key at the top of vtium.conf, or vtium's default, `/bin/login -p`.
+- `Other…` lets you type a command. vtium-config keeps it only when its first word is the full path of a program that exists and can run, or a variable such as `$SHELL`, which vtium replaces with its value when the console starts. Otherwise it says in one sentence what is wrong, such as `The login program login is not a full path. Type a path that starts with /, such as /bin/login.`
+
+Under its settings, the card shows WHAT THIS TERMINAL DRAWS: the terminal's font set, then its look, then its displays, joined left to right.
+
+A path's card in CONFIGURATION changes only the settings above. The card says how to change the rest: `Which displays and inputs this path joins change only when you revise it: press e.` In NEW PATH, the terminal's card also has the line `VTs`, where you choose `every VT` or one VT from `VT 1` to `VT 12`, and a line for each part of the path, where Enter disconnects that part.
+
+#### Revising a path
+
+Press `e` on a path in CONFIGURATION to revise it. Revise takes the path out of CONFIGURATION and puts it into NEW PATH with its parts picked, so that you can change it and add it back with `a`. A path you add back unchanged leaves the draft exactly as it was. To remove a path, revise it and press Esc. The status line then says `Took the path you were revising out of the configuration.`
+
+#### Labels
+
+Enter on a display or an input in PARTS opens its detail, whose first line is `Label`. A label is a name of your own for the part. A labelled part shows the label as its box's title, and the name the system gives the device under it. Clear the field to remove the label. vtium-config writes each label into the `[labels]` section of the draft.
+
+#### Saving and installing
+
+Each change you make goes into a set of unsaved changes, and the status line counts them, such as `draft north · 3 changes · 1 not saved · no problems`. The line under it says what the policy does with a keyboard that no rule names, such as `policy open: a keyboard that no rule names types into the active terminal`.
+
+The tab bar shows the Flow view's actions beside the views' names: `v View file`, `s Save`, `i Install`, `r Revert` and `n New`. Each one acts on the whole draft.
+
+- **View file**, on `v`, shows the draft's vtium.conf with the unsaved changes applied, which is what Install would write. It opens at the line of the highlighted box and marks each line the check complains about. Its keys are `s save  i install  j k ↑↓ lines  h l ←→ sideways  g G top bottom  ^D ^U half page  q back`.
+- **Save**, on `s`, writes the unsaved changes into the draft. It asks nothing, because a draft can be unfinished.
+- **Install**, on `i`, saves first and runs the check. When the check fails, Install refuses and lists what fails. Otherwise it asks `Install the draft? 3 lines added, 1 removed.` and installs as [above](#when-vtium-config-asks-for-sudo). When the only problem is that no complete route exists, it asks before it installs anyway. The TUI leaves its screen while sudo asks for your password.
+- **Revert**, on `r`, asks `Throw away the draft's changes? 3 lines added and 1 removed will be lost.` and then copies the installed file back over the draft.
+- **Restore**, on `o`, lists the installed history. It copies the file you choose into the draft after asking, for example, `Replace the draft with earlier file 1? 2 lines added and 5 removed will be lost.`
+- **New**, on `n`, asks `Start a new configuration? The draft's heads, rules and looks will be lost.` and then empties the draft to the settings at their defaults and one look, `[look default]`.
+
+When you press `q` with changes that are not saved, the view asks whether to save them first, for example `2 changes are not saved. Save them before you quit? y saves them and quits, n quits without them, and Esc goes back.`
+
+#### The keys
+
+The key line shows the keys that fit what you are doing. With nothing open, it reads `↑↓←→ move  Space pick  Enter open  a add path  e revise  v view file  Esc clear  i install  o restore  n new  q quit`, with `p preview`, `t trial` and `PgUp PgDn scroll` where there is room.
 
 | Key | What it does |
 |---|---|
-| Left and Right | move between the columns |
-| Up and Down | move within a column |
+| the arrow keys | move the highlight from box to box |
+| Home and End | go to the first and the last box |
+| PgUp and PgDn | scroll by a window |
 | Tab and Shift-Tab | move to the next view and to the one before |
-| Enter | opens the selected item's card below the columns, to change its properties |
-| Space | tags the selected item, or untags it |
-| `c` | connects the tagged items: it turns the path they make into changes in the draft |
-| Esc | clears every tag |
-| `f` | follows the selected item's line toward the heads |
-| `?` | opens the route card of the selected item |
-| `d` | reads the devices plugged in again |
-| `v`, `i`, `r`, `o`, `n`, `x` | View, Install, Revert, Restore, New and Delete draft |
+| Space | picks the highlighted part into NEW PATH, or takes it out |
+| Enter | opens the highlighted box: a template's part maker, a part's detail, or a terminal's card |
+| `a` | adds the path in NEW PATH to CONFIGURATION |
+| `e` | revises the highlighted path |
+| Esc | clears NEW PATH, or closes what is open |
+| `v`, `s`, `i`, `r`, `o`, `n` | View file, Save, Install, Revert, Restore and New |
+| `d` | reads every device again |
+| `p` | previews a complete path on the console. vtium does not have the console's control socket for this yet, so `p` says in one sentence why it cannot. |
+| `t` | says whether you can try a font on this console. The Fonts view tries one with `t`. |
 | `q` | leaves |
 
-The mouse selects an item with a click and opens it with a second click.
-
-Each change you make in the view goes into the draft at once, and the top row counts the draft against the installed file, such as `draft north · 3 changes · 1 problem`. A `new rule…`, `new head…` or `new look…` item at the foot of the rules, heads and looks columns adds one. A card lets you pick each value from the values it can take, or type one, and a delete asks first and names what still uses the item. The row above the columns, `base`, is a card of its own for the settings at the top of the file.
-
-Tagging connects items without typing. Tag a keyboard, then a head, and press `c`: the keyboard's own rule now sends it to that head, or, when it has no rule of its own, a new rule naming it goes in. Tag a head and a look, and `c` sets the head's look. `c` shows the commands it runs, such as `vtium config head set panel --look small`, writes them into the draft and clears the tags. When the tags make no complete path, it says what is missing.
-
-The route card, on `?`, says in words what the selected item does and lists every route it is part of, from the display through its rule, head, look and input rule to the input device. An item nothing uses says so, such as `not used: no rule sends anything here`, and a broken item says what is broken.
-
-The actions in the top row work on the whole draft. Each but View asks before it acts:
-
-- **View** shows the draft as text in a pager, with each line the check complains about marked; `j`, `k`, `g`, `G`, Ctrl-d and Ctrl-u move, and `q` or Esc goes back.
-- **Install** runs the check, refuses when it fails, and otherwise asks `Install the draft? 3 lines added, 1 removed.`, then installs as [above](#when-vtium-config-asks-for-sudo). The TUI leaves its screen while sudo asks for your password.
-- **Revert** throws away the draft's changes and copies the installed file back over it.
-- **Restore** lists the installed history and copies the file you choose into the draft.
-- **New** empties the draft to the settings at their defaults and one look, `[look default]`.
-- **Delete draft** deletes the draft. The next change starts a new one from the installed file.
+The mouse selects a box with a click and opens it with a second click.
 
 The Looks view lists the console's sizes until vtium-config edits looks of their own. The Fonts view lists the frits and the built-in fonts, shows each as a picture of the console drawn in it, tries one on the live console with `t`, and makes and removes frits ([Choose a font](fonts.md#choosing-a-font-with-vtium-config)); a frit you make or remove there waits and goes in with the next Install. The Settings view lists every setting with its value, and Enter changes the highlighted one in the draft. The Help view lists the keys of each view and the commands.
 

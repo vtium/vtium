@@ -9,7 +9,7 @@
    The choices go from the widest to the narrowest. Enter picks one into the
    new path.
 
-   ○ All keyboards   every keyboard
+   ○ All keyboards   Every keyboard, connected now or later
    ○ kbd   pci-0:3.3
 
 

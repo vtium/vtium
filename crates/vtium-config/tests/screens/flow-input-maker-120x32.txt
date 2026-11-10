@@ -4,19 +4,19 @@
  ADD AN INPUT
    Which inputs should this include?
 
-   ○ Nothing (display only)      no keyboard or mouse reaches this terminal
-   ○ All keyboards               class keyboard
-   ○ All mice and touchpads      mouse, touchpad, trackball
-   ○ All input devices           everything
+   ○ No input                  Display only, with no keyboard or mouse
+   ○ All keyboards             Every keyboard, connected now or later
+   ○ All mice and touchpads    Mice, touchpads and trackballs
+   ○ All input devices         Keyboards, pointers and every other kind of input
 
    OR CHOOSE BY
-   ○ USB port                    anything plugged into that port
-   ○ This one device             its serial number; follows it to any port
-   ○ Model                       every unit of that make and model
-   ○ Bluetooth device            by its address
-   ○ Device name                 the name the device reports
-   ○ Device type                 touchscreen, tablet, joystick, …
-   ○ udev property (advanced)
+   ○ USB port                  Devices plugged into one USB port
+   ○ This one device           One device by its serial number, in any port
+   ○ Model                     Every device of one make and model
+   ○ Bluetooth device          One paired Bluetooth device
+   ○ Device name               Devices that report a given name
+   ○ Device type               Touchscreens, tablets, joysticks and other kinds
+   ○ udev property             Devices with a given udev property (advanced)
 
 
 

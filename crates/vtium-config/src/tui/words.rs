@@ -547,16 +547,16 @@ pub fn unfit_rules(n: usize) -> String {
     }
 }
 pub const FLOW_ROAMING: &str = "ROAMING";
-pub const FLOW_ROAMING_ABOUT: &str = "These inputs type into whichever terminal is active.";
+pub const FLOW_ROAMING_ABOUT: &str = "These inputs type into the active terminal.";
 pub const FLOW_ROAMING_STUB: &str = "roaming inputs";
 pub const ROAMING_WORD: &str = "roaming";
-pub const REVISE_ROAMING_NOTE: &str = "To change the roaming inputs, press e. They go into NEW PATH with \u{201c}Whichever terminal is active\u{201d}, and a adds them back.";
+pub const REVISE_ROAMING_NOTE: &str = "To change the roaming inputs, press e. They go into NEW PATH with \u{201c}Active terminal\u{201d}, and a adds them back.";
 pub const IN_ROAMING: &str = "This input roams. Press e to revise the roaming inputs.";
 pub const PATH_EMPTY: &str = "Pick an input and a display to make a path.";
 pub const PATH_NEEDS_DISPLAY: &str = "Add a display to finish this path.";
 pub const PATH_COMPLETE: &str = "This path is complete. Press a to add it.";
 /// The special parts' names.
-pub const NO_INPUT: &str = "Nothing (display only)";
+pub const NO_INPUT: &str = "No input";
 /// A part picked into the path to no terminal.
 pub fn picked_aside(title: &str, display: bool) -> String {
     if display {
@@ -570,7 +570,7 @@ pub const NONE_REVISED: &str =
     "The path to Nowhere is in NEW PATH. Change its parts, then press a to add it back.";
 pub const EMPTY_SPACE: &str =
     "This place in the new path is empty. Press Enter to choose a part for it.";
-pub const NO_INPUT_NEEDS_TERMINAL: &str = "\u{201c}Nothing (display only)\u{201d} belongs to a path with a terminal of its own. Take \u{201c}Whichever terminal is active\u{201d} or \u{201c}Nowhere\u{201d} out of this path first.";
+pub const NO_INPUT_NEEDS_TERMINAL: &str = "\u{201c}No input\u{201d} belongs to a path with a terminal of its own. Take \u{201c}Active terminal\u{201d} or \u{201c}Nowhere\u{201d} out of this path first.";
 /// Space on a template.
 pub fn template_space(stage: &str) -> String {
     format!(
@@ -581,7 +581,7 @@ pub fn template_space(stage: &str) -> String {
 /// Enter on a special part.
 pub fn special_about(title: &str) -> String {
     match title {
-        NO_INPUT => "\u{201c}Nothing (display only)\u{201d} means no keyboard or mouse reaches the terminal, not even a roaming one. In vtium.conf, the terminal's section gets isolated = yes.".to_owned(),
+        NO_INPUT => "\u{201c}No input\u{201d} means no keyboard or mouse reaches the terminal, not even a roaming one. In vtium.conf, the terminal's section gets isolated = yes.".to_owned(),
         NO_TERMINAL => NO_TERMINAL_ABOUT.to_owned(),
         ACTIVE_TERMINAL => ACTIVE_ABOUT.to_owned(),
         name => format!("{name} is a new terminal. Press Space to put it in the new path. There, press Enter on it to set its name, font set and size."),
@@ -683,9 +683,12 @@ pub fn typed_refused(key: &str) -> String {
     };
     format!("This {what} looks like {example}.")
 }
-pub const NO_INPUT_DETAIL: &str = "no keyboard or mouse reaches this terminal";
-pub const NO_TERMINAL_DETAIL: &str = "displays stay off; inputs are ignored";
-pub const NEW_TERMINAL_DETAIL: &str = "a terminal of its own";
+/// The special parts' descriptions, each on the part's box and in its
+/// maker.
+pub const NO_INPUT_DETAIL: &str = "Display only, with no keyboard or mouse";
+pub const NO_TERMINAL_DETAIL: &str = "Displays off, inputs ignored";
+pub const NEW_TERMINAL_LABEL: &str = "New terminal\u{2026}";
+pub const NEW_TERMINAL_DETAIL: &str = "Separate terminal with its own consoles and look";
 pub const TURNED_OFF: &str = "turned off";
 pub const SET_ASIDE: &str = "set aside";
 /// An empty place in NEW PATH.
@@ -718,30 +721,30 @@ pub const NONE_EMPTY: &str = "Pick the displays to turn off or the inputs to set
 /// A path to "no terminal" that can be added.
 pub const NONE_COMPLETE: &str =
     "This path is complete. Its displays stay off and its inputs are set aside. Press a to add it.";
-pub const ACTIVE_TERMINAL: &str = "Whichever terminal is active";
-pub const ACTIVE_DETAIL: &str = "follows the VT you switch to";
-pub const ACTIVE_PART_DETAIL: &str = "the inputs follow you between terminals";
+pub const ACTIVE_TERMINAL: &str = "Active terminal";
+pub const ACTIVE_DETAIL: &str = "Terminal on screen, following you as you switch";
 pub const ACTIVE_COMPLETE: &str =
-    "This path is complete: its inputs type into whichever terminal is active. Press a to add it.";
-pub const ACTIVE_NEEDS_INPUT: &str = "Pick an input to type into whichever terminal is active.";
-pub const ACTIVE_NO_DISPLAY: &str = "\u{201c}Whichever terminal is active\u{201d} has no display of its own, since it is one of the other terminals at a time. Take the displays out of this path.";
-pub const ACTIVE_ABOUT: &str = "\u{201c}Whichever terminal is active\u{201d} is the terminal in use. An input in its path roams: it types into the terminal you switch to.";
-pub const ACTIVE_PICKED: &str = "This path's inputs will type into whichever terminal is active.";
+    "This path is complete: its inputs type into the active terminal. Press a to add it.";
+pub const ACTIVE_NEEDS_INPUT: &str = "Pick an input to type into the active terminal.";
+pub const ACTIVE_NO_DISPLAY: &str = "\u{201c}Active terminal\u{201d} has no display of its own, since it is one of the other terminals at a time. Take the displays out of this path.";
+pub const ACTIVE_ABOUT: &str = "\u{201c}Active terminal\u{201d} is the terminal in use. An input in its path roams: it types into the terminal you switch to.";
+pub const ACTIVE_PICKED: &str = "This path's inputs will type into the active terminal.";
 pub const ACTIVE_UNPICKED: &str = "This path's inputs will type into a terminal of their own.";
 pub const SAME_ACTIVE: &str = "These inputs roam already, so nothing changed.";
 pub const ACTIVE_BACK: &str = "The roaming inputs are back in CONFIGURATION.";
 pub const ACTIVE_REVISED: &str =
     "The roaming inputs are in NEW PATH now. Change them, then press a to add them back.";
 pub const REVISED_DROPPED: &str = "Took the path you were revising out of the configuration.";
+/// The whole-kind parts' labels and descriptions, each on the part's box
+/// and in its maker.
 pub const ANY_DISPLAY: &str = "All displays";
-pub const EVERY_DISPLAY: &str = "connected now or later";
+pub const EVERY_DISPLAY: &str = "Every display, connected now or later";
 pub const ANY_POINTER_TITLE: &str = "All mice and touchpads";
 pub const ANY_KEYBOARD_TITLE: &str = "All keyboards";
 pub const ANY_INPUT_TITLE: &str = "All input devices";
-pub const EVERY_POINTER: &str = "mouse, touchpad, trackball";
-/// A whole-kind part's second line in a box says what the part does, in
-/// plain words; the vtium.conf key shows only in the maker.
-pub const EVERY_KEYBOARD: &str = "every keyboard";
+pub const EVERY_POINTER: &str = "Mice, touchpads and trackballs";
+pub const EVERY_KEYBOARD: &str = "Every keyboard, connected now or later";
+pub const EVERY_INPUT: &str = "Keyboards, pointers and every other kind of input";
 /// The terminal's subflow on its card (ADR-1403 D7).
 pub const SUBFLOW_TITLE: &str = "WHAT THIS TERMINAL DRAWS";
 pub const FONT_SET_WORD: &str = "Font set";
@@ -771,7 +774,7 @@ pub fn vt_words(vts: &[u16]) -> String {
 }
 pub const EVERY_VT: &str = "every VT";
 pub const VTS_LABEL: &str = "VTs";
-pub const DEFAULT_FONT_SET_DETAIL: &str = "the font vtium.conf sets";
+pub const DEFAULT_FONT_SET_DETAIL: &str = "Font that vtium.conf sets";
 pub const FONT_SET: &str = "font set";
 pub const IN_NO_PATH: &str = "in no path";
 /// `text` with its first letter capital, to start a sentence.
@@ -796,7 +799,7 @@ pub fn in_terminal(head: &str) -> String {
 pub fn roams_among(n: usize) -> String {
     format!("roams between {n} terminals")
 }
-pub const ROAMS_SENTENCE: &str = "It roams: it types into whichever terminal is active.";
+pub const ROAMS_SENTENCE: &str = "It roams: it types into the active terminal.";
 pub const REVISE_NOTE: &str =
     "Which displays and inputs this path joins change only when you revise it: press e.";
 pub const CHOOSE_DISPLAY: &str = "CHOOSE WHICH DISPLAYS THIS PART MATCHES";
@@ -807,7 +810,32 @@ pub const NEW_TERMINAL: &str = "THE NEW PATH'S TERMINAL";
 pub const AUTOMATIC_SIZE: &str = "automatic";
 pub const KEEP_SESSIONS: &str = "keep the sessions running";
 pub const END_SESSIONS: &str = "end the sessions";
-pub const SYSTEM_LOGIN: &str = "the system's login";
+/// The Login line of a terminal's card: what it sets, its two choices,
+/// and what is wrong with a command the person types.
+pub const LOGIN_ABOUT: &str = "The program each console of this terminal starts.";
+/// The first choice, which leaves the head's `login` unset and names the
+/// command vtium runs then.
+pub fn login_default(command: &str) -> String {
+    format!("Default: {command}")
+}
+pub const LOGIN_OTHER: &str = "Other\u{2026}";
+pub const LOGIN_EMPTY: &str = "The login command is empty. Type the full path of a program, such as /bin/login -p, or choose Default.";
+pub const LOGIN_HASH: &str = "The login command holds #, which vtium.conf reads as the start of a comment. Type the command without #.";
+pub fn login_not_absolute(program: &str) -> String {
+    format!(
+        "The login program {program} is not a full path. Type a path that starts with /, such as /bin/login."
+    )
+}
+pub fn login_missing(program: &str) -> String {
+    format!(
+        "The login program {program} does not exist. Type the full path of a program that is installed."
+    )
+}
+pub fn login_not_runnable(program: &str) -> String {
+    format!(
+        "The login program {program} cannot run, because it is not an executable file. Type the full path of a program."
+    )
+}
 pub const DISCONNECT: &str = "disconnect it";
 pub const CONNECTED: &str = "connected";
 pub const EDITOR_NOTE: &str =
@@ -935,8 +963,8 @@ pub fn picked(
         _ => "This path is complete: press a to add it, or pick more parts.",
     };
     match (roams, pointers) {
-        (true, true) => format!("{what} They will type into whichever terminal is active. {next}"),
-        (true, false) => format!("{what} It will type into whichever terminal is active. {next}"),
+        (true, true) => format!("{what} They will type into the active terminal. {next}"),
+        (true, false) => format!("{what} It will type into the active terminal. {next}"),
         _ => format!("{what} {next}"),
     }
 }
