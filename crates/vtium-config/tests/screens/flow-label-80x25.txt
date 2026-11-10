@@ -1,0 +1,25 @@
+ Flow  Looks  Fonts  Settings  Help       View file  Save  Install  Revert  New
+ draft bench  ›  kbd   All devices are in a path · 12 changes · 1 not saved · …
+
+ INPUT PART  kbd
+
+   Label     Left desk    shown on the console's on-screen display
+
+ CHOOSE WHICH INPUTS THIS PART MATCHES
+   The choices go from the widest to the narrowest. Enter picks one into the
+   new path.
+
+   ○ All keyboards   every keyboard
+   ○ kbd   pci-0:3.3
+
+
+
+
+
+
+
+
+
+
+ This part's label is now “Left desk”. vtium-config wrote it to the draft.
+ ↑↓ move  Enter choose  Esc back  q quit

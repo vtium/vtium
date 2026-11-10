@@ -1,0 +1,25 @@
+ Flow  Looks  Fonts  Settings  Help       View file  Save  Install  Revert  New
+ draft bench   All devices are in a path · no changes · no problems
+ policy open: a keyboard that no rule names types into the active terminal
+ CONFIGURATION
+ DISPLAYS               TERMINALS                                INPUTS
+ ┌──────────────┐       ┌──────────────────────────────┐
+ │ All displays │──────►│ desk                         │◄┄┄┄┄┄┄┄┄roaming inputs
+ │ connected n… │       │ font set proof               │
+ └──────────────┘       └──────────────────────────────┘
+
+                        ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓         ┌────────────┐
+                        ┃ panel                        ┃◀━┳━━━━━━│ kbd        │
+                        ┃ default font set             ┃  ┇      │ pci-0:3.3  │
+                        ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛  ┇      └────────────┘
+                                                          ┗┅┅┅┅┅┅roaming inputs
+
+                        ┌┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┐         ┌────────────┐
+ ROAMING                ┆ Whichever terminal is active ┆◄┄┄┄┄┄┄┄┄│ All keybo… │
+ These inputs type      ┆ follows the VT you switch to ┆         │ every key… │
+ into whichever         └┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┘         └────────────┘
+ terminal is active.
+
+ ──────────────────────────────────────────────────────────────────────────────
+ This part is in a path in the configuration. Press e to revise the path.
+ ↑↓←→ move  Space pick  Enter open  a add path  e revise  v view file  q quit

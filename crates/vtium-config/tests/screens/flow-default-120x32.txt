@@ -1,0 +1,32 @@
+ Flow  Looks  Fonts  Settings  Help                                     v View file  s Save  i Install  r Revert  n New
+ draft bench   All devices are in a path · no changes · no problems
+ policy open: a keyboard that no rule names types into the active terminal
+ CONFIGURATION
+ DISPLAYS                            TERMINALS                                     INPUTS
+ This is vtium's built-in default: all displays show the terminal console, and all keyboards, mice and touchpads type
+ into it.
+ ┏━━━━━━━━━━━━━━━━━━━━━━━┓           ┌──────────────────────────────┐
+ ┃ All displays          ┃━━━━━━━━━━▶│ console                      │◄┄┄┄┄┄┄┄┄┄┄┄┄┄roaming inputs
+ ┃ connected now or lat… ┃           │ default font set             │
+ ┗━━━━━━━━━━━━━━━━━━━━━━━┛           └──────────────────────────────┘
+
+                                     ┌┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┐              ┌──────────────────────────────────┐
+ ROAMING                             ┆ Whichever terminal is active ┆◄┄┬┄┄┄┄┄┄┄┄┄┄┄│ All keyboards                    │
+ These inputs type into whichever    ┆ follows the VT you switch to ┆  ┆           │ every keyboard                   │
+ terminal is active.                 └┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┘  ┆           └──────────────────────────────────┘
+                                                                       ┆           ┌──────────────────────────────────┐
+                                                                       └┄┄┄┄┄┄┄┄┄┄┄│ All mice and touchpads           │
+                                                                                   │ mouse, touchpad, trackball       │
+                                                                                   └──────────────────────────────────┘
+
+                                     ┌──────────────────────────────┐              ┌──────────────────────────────────┐
+                                     │ Nowhere                      │◄─────────────│ All input devices                │
+                                     │ displays stay off; inputs a… │              │ what no other rule names         │
+                                     └──────────────────────────────┘              └──────────────────────────────────┘
+
+ ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ NEW PATH     Pick an input and a display to make a path.
+ ╔═════════════════╗                 ╔══════════════════════════════╗              ╔═════════════════╗
+ ║ Display         ║                 ║ Terminal                     ║              ║ Input           ║
+ ║ Choose… [Enter] ║                 ║ new: terminal-1              ║              ║ Choose… [Enter] ║
+ ↑↓←→ move  Space pick  Enter open  a add path  e revise  v view file  Esc clear  i install  o restore  n new  q quit
