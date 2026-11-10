@@ -50,6 +50,12 @@ const OPTIONAL: [&str; 8] = [
     "kitty-animation",
     "bidi",
 ];
+/// Features vtium's additions describe and vtium-replay does not offer
+/// yet: the issue INTERFACE-vtium.md names adds each one. `--describe` need
+/// not declare them, and a scenario that needs one fails as absent. A
+/// `--describe` that declares one is refused, so the change that adds the
+/// feature also takes it off this list.
+const OWED: [&str; 2] = ["key-events", "key-forms"];
 
 const USAGE: &str = "usage: conformance [run] [--seed N] [--rounds N]
        conformance generate DIR
@@ -117,8 +123,8 @@ fn spec() -> Result<Spec, String> {
 }
 
 /// vtium-replay's `--describe` against the interface's `describe` blocks:
-/// the same major version, its lines in the blocks' order, and every
-/// feature the interface makes mandatory.
+/// the same major version, its lines in the blocks' order, every feature
+/// the interface makes mandatory, and none of the owed features.
 fn check_describe(spec: &Spec) -> Result<(), String> {
     let ours = vtium_conformance::describe();
     let major = ours
@@ -140,8 +146,16 @@ fn check_describe(spec: &Spec) -> Result<(), String> {
             ));
         }
     }
+    for feature in OWED {
+        if ours.lines().any(|l| l == format!("feature {feature}")) {
+            return Err(format!(
+                "--describe declares the feature {feature}, which the runner lists as owed. Take it off OWED in src/bin/conformance.rs, and raise the interface's version."
+            ));
+        }
+    }
     for feature in &spec.features {
         if !OPTIONAL.contains(&feature.as_str())
+            && !OWED.contains(&feature.as_str())
             && !ours.lines().any(|l| l == format!("feature {feature}"))
         {
             return Err(format!("--describe lacks the mandatory feature {feature}"));

@@ -1,0 +1,15 @@
+# The kitty keyboard protocol's flag 4, report alternate keys: the shifted
+# key. Under flags 5 (1 and 4), a key held with Shift sends the key it makes
+# with Shift after its code and a colon. A key held without Shift sends no
+# shifted key.
+# spec: kitty's Comprehensive keyboard handling in terminals: Report alternate keys, Key codes; ADR-1005 D9 and D13 slice 3
+# capability: key-kitty-shifted-key
+size 20 2
+send "\e[>5u\e[?u"
+check
+reply "\e[?5u"
+key A mods=shift+ctrl
+key a mods=ctrl
+key A mods=shift+alt
+check
+reply "\e[97:65;6u\e[97;5u\e[97:65;4u"

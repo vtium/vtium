@@ -1,0 +1,14 @@
+# The kitty keyboard protocol's key code is the unshifted key, which the host
+# reports. Ctrl+Shift+1 on the US layout makes the keysym exclam, and its
+# unshifted key is 1, so under flag 1 it is sent with the code 49. Where the
+# host reports no unshifted key, because AltGr chose the symbol, as AltGr+Q
+# makes @ on a German layout, vtium sends the symbol the key made.
+# spec: kitty's Comprehensive keyboard handling in terminals: Key codes, Disambiguate escape codes; ADR-1005 D2, D9 and D13 slice 3
+# capability: key-kitty-unshifted-key
+size 20 2
+needs key-forms
+send "\e[>1u"
+cmd key;sym=21;ascii=21;unicode=21;unshifted=31;mods=5
+cmd key;sym=40;ascii=40;unicode=40;mods=8
+check
+reply "\e[49;6u\e[64;3u"

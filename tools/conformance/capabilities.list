@@ -59,6 +59,14 @@ bracketed-paste               works   -     DEC-2004                       a pas
 focus-1004                    works   -     DEC-1004                       focus in and out reported in mode 1004
 select-copy                   works   -     clipboard.selection            a word, a line and a drag selected and copied, and a copy with nothing selected
 key-backspace-del             works   -     input.legacy                   BackSpace sends BS, then DEL once the host chooses it
+key-kitty-events              missing #42   input.kitty-keyboard           flag 2: a press, a repeat and a release, and no release once the flags are 0 (needs key-events)
+key-kitty-events-legacy-keys  missing #42   input.kitty-keyboard           flag 2: Enter, Tab and BackSpace keep their bytes and send no release, nor does a text key (needs key-events)
+key-kitty-shifted-key         missing #42   input.kitty-keyboard           flag 4: a key held with Shift sends its shifted key
+key-kitty-unshifted-key       missing #42   input.kitty-keyboard           the key code is the unshifted key the host reports, or the symbol when it reports none (needs key-forms)
+key-kitty-base-layout-key     missing #42   input.kitty-keyboard           flag 4: Ctrl+С on a Russian layout sends the base layout key c (needs key-forms)
+key-kitty-all-keys            missing #42   input.kitty-keyboard           flag 8: text keys, Enter, Tab, BackSpace and a modifier key send escape codes, and RIS ends it
+key-kitty-all-keys-events     missing #42   input.kitty-keyboard           flags 2 and 8: a text key, Enter and Shift report their releases (needs key-events)
+key-kitty-associated-text     missing #42   input.kitty-keyboard           flag 16: a key sends its text in the escape code, and never a control character
 
 # strings vtium does not take yet
 osc-8-hyperlink               missing #40   osc.8                          a placeholder scenario: OSC 8 hyperlinks
