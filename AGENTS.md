@@ -185,6 +185,14 @@ Create and change ADRs with `docs/scripts/adr`. It follows contract adr/v1 and n
 
 The steering session releases each delegated agent explicitly once its work has merged. A message still queued for an agent can revive it after its context resets, and two revived agents in one worktree collide.
 
+### Signed commits
+
+Every commit to vtium is signed with the maintainer's SSH key, from 2026-11-10 on. The signature shows that the commit was made on the maintainer's machine, under the maintainer's control. It is part of the project's provenance, beside the decision records that quote the maintainer's words. The maintainer's global git config signs each commit and tag by itself, so an agent commits as usual and does nothing extra.
+
+- When a commit fails because the signing key is not loaded, the agent stops and reports it. The maintainer loads the key with `ssh-add`.
+- An agent never turns signing off with `-c commit.gpgsign=false` or `--no-gpg-sign`, and never skips the hooks with `--no-verify`.
+- The pre-push hook in `tools/git-hooks/` refuses a push that carries an unsigned commit made after signing began. `git config core.hooksPath tools/git-hooks` turns it on. A commit made before that date passes unchecked, and its history stays as it was.
+
 ## Where to look
 
 | For | Read |
