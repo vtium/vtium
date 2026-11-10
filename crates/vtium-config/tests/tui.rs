@@ -3381,7 +3381,10 @@ mod draft_flow {
         let clash: Vec<&[u8]> = [&[HOME][..], &[DOWN; 4][..], &[space][..]].concat();
         // the terminal desk's card with the cursor on its Login line
         let login: Vec<&[u8]> = [&[HOME, RIGHT, enter][..], &[DOWN; 4][..]].concat();
-        let scripts: [(&str, Option<&str>, &[&[u8]]); 10] = [
+        // each golden's name, the vtium.conf it starts from when not the
+        // fixture's, and the keys that reach it
+        type Script<'a> = (&'a str, Option<&'a str>, &'a [&'a [u8]]);
+        let scripts: [Script<'_>; 10] = [
             ("flow-default", Some(shipped), &[]),
             ("flow-paths", None, &[]),
             ("flow-new-path", None, &[HOME, RIGHT, RIGHT, b" "]),
