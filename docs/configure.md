@@ -86,7 +86,6 @@ These commands change the draft. `vtium config --help` lists every command, and 
 | Command | What it does |
 |---|---|
 | `vtium config flow [--json]` | prints the draft's flow, from the displays to the input devices, with the devices plugged in now placed on it and each rule numbered; `--json` prints it for scripts |
-| `vtium config route ITEM [--json]` | prints the routes an item is part of, as the TUI's route card shows them; ITEM is `display NAME`, `rule N`, `head NAME`, `look NAME` or `input NAME` |
 | `vtium config diff` | prints the difference between the installed file and the draft |
 | `vtium config get KEY` | prints a setting's value in the draft, or its default |
 | `vtium config set KEY VALUE`, `set --unset KEY` | sets a setting at the top of the draft, or leaves it at its default |
