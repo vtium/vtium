@@ -305,10 +305,11 @@ impl App {
         };
         // a device is named as a reader names it, `the 8BitDo Keyboard`;
         // a wider piece by its title, `any keyboard`
+        let wide = sel == "*" || sel.starts_with("class:");
         let title = flow
             .devices(kind)
             .iter()
-            .find(|d| d.found && d.keys.iter().any(|k| k == sel))
+            .find(|d| !wide && d.found && d.keys.iter().any(|k| k == sel))
             .map_or_else(
                 || paths::title(flow, kind, sel).0,
                 |d| format!("the {}", d.name),

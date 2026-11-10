@@ -487,9 +487,13 @@ fn path_row(
     let k = p.inputs.len();
     let mut bottom = y.saturating_add(k.saturating_mul(BOX_ROWS));
     if !dashed && !ctx.doc.roaming.is_empty() {
-        let row = y
-            .saturating_add(k.saturating_mul(BOX_ROWS))
-            .saturating_add(1);
+        // on the terminal's title row when the path has no input of its
+        // own, else just under its last input
+        let row = if k == 0 {
+            join_row
+        } else {
+            y.saturating_add(k.saturating_mul(BOX_ROWS))
+        };
         out.notes.push(Note {
             x: g.dev_x,
             y: row,

@@ -3681,6 +3681,19 @@ mod draft_flow {
     }
 
     #[test]
+    fn the_pager_reaches_the_draft_s_last_line() {
+        let b = bench("pager-end");
+        let long = format!(
+            "{INSTALLED}{}# the last line\n",
+            "# a line of comment\n".repeat(40)
+        );
+        std::fs::write(b.root.join("etc/vtium.conf"), long).expect("vtium.conf");
+        let ran = run(&b, &[b"v", b"G"]);
+        let screen = ran.screen();
+        assert!(screen.contains("# the last line"), "{screen}");
+    }
+
+    #[test]
     fn a_device_that_leaves_becomes_its_placeholder_and_one_that_comes_is_placed() {
         let b = bench("hotplug");
         // the keyboard rule 2 names, and a spare one, then the spare alone

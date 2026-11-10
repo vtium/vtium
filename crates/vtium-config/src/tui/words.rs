@@ -968,7 +968,7 @@ pub const EDITOR_NOTE: &str =
     "Space on a part in PARTS connects it to this path. Enter on a part here disconnects it.";
 pub const BUILT_IN_DEFAULT: &str = "This is vtium's built-in default: every display shows the terminal console, and every keyboard and pointer types into it.";
 pub const ENTER_TO_TYPE: &str = "Enter types a new name";
-pub const ROWS_KEYS: &str = "↑↓←→ move  Space pick  Enter open  a add path  e revise  Esc clear  v view file  i install  o restore  n new  p preview  t trial  PgUp PgDn scroll  q quit";
+pub const ROWS_KEYS: &str = "↑↓←→ move  Space pick  Enter open  a add path  e revise  v view file  Esc clear  i install  o restore  n new  p preview  t trial  PgUp PgDn scroll  q quit";
 pub const ROWS_KEYS_EDITOR_CARD: &str = "↑↓ move  ←→ choose  Enter set  Esc back  q quit";
 pub const ROWS_KEYS_CARD: &str =
     "↑↓ move  ←→ choose  Enter set  e revise this path  Esc back  q quit";

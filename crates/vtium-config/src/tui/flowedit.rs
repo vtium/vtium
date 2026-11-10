@@ -536,7 +536,8 @@ impl App {
     /// page, `q` and Esc back to the flow.
     pub(crate) fn pager_key(&mut self, key: Key) {
         let lines = self.draft.as_ref().map_or(0, |d| d.text.lines().count());
-        let room = self.rows.saturating_sub(4).max(1);
+        // the draft's lines run from row 4 to the row above the key line
+        let room = self.rows.saturating_sub(5).max(1);
         let last = lines.saturating_sub(room);
         let half = (room / 2).max(1);
         let Some(p) = self.pager.as_mut() else {
