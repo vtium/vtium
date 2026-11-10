@@ -7,19 +7,19 @@
  all keyboards, mice and touchpads type into it.
  ┏━━━━━━━━━━━━━━┓       ┌──────────────────────────────┐
  ┃ All displays ┃━━━━━━▶│ console                      │◄┄┄┄┄┄┄┄┄roaming inputs
- ┃ connected n… ┃       │ default font set · every VT  │
+ ┃ Every displ… ┃       │ default font set · every VT  │
  ┗━━━━━━━━━━━━━━┛       └──────────────────────────────┘
 
                         ┌┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┐         ┌────────────┐
- ROAMING                ┆ Whichever terminal is active ┆◄┄┬┄┄┄┄┄┄│ All keybo… │
- These inputs type      ┆ follows the VT you switch to ┆  ┆      │ every key… │
- into whichever         └┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┘  ┆      └────────────┘
- terminal is active.                                      ┆      ┌────────────┐
+ ROAMING                ┆ Active terminal              ┆◄┄┬┄┄┄┄┄┄│ All keybo… │
+ These inputs type      ┆ Terminal on screen, followi… ┆  ┆      │ Every key… │
+ into the active        └┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┘  ┆      └────────────┘
+ terminal.                                                ┆      ┌────────────┐
                                                           └┄┄┄┄┄┄│ All mice … │
-                                                                 │ mouse, to… │
+                                                                 │ Mice, tou… │
                                                                  └────────────┘
 
                         ┌──────────────────────────────┐         ┌────────────┐
                         │ Nowhere                      │◄────────│ All input… │
-                        │ displays stay off; inputs a… │         │ what no o… │
+                        │ Displays off, inputs ignored │         │ Keyboards… │
  ↑↓←→ move  Space pick  Enter open  a add path  e revise  v view file  q quit

@@ -7,7 +7,7 @@
    Font set                       proof
    Size                           automatic
    Consoles                       1
-   Login                          the system's login
+   Login                          Default: /bin/login -p
    When its screen is unplugged   keep the sessions running
 
    Which displays and inputs this path joins change only when you revise it: press e.

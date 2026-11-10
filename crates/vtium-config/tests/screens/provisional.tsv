@@ -1,1 +1,13 @@
 # The TUI's screen goldens that judge nothing until the maintainer reviews the layout (ADR-1201 D8). One name a line, a tab, and what the screen shows.
+flow-default-80x25	The built-in default's Flow view, with the accepted descriptions on its boxes and Active terminal in the roaming row.
+flow-default-120x32	The built-in default's Flow view, with the accepted descriptions on its boxes and Active terminal in the roaming row.
+flow-paths-80x25	The draft's paths, with Active terminal and its description in the roaming row.
+flow-paths-120x32	The draft's paths, with Active terminal and its description in the roaming row.
+flow-new-path-80x25	A display picked into NEW PATH, with Active terminal and its description in the roaming row.
+flow-new-path-120x32	A display picked into NEW PATH, with Active terminal and its description in the roaming row.
+flow-input-maker-80x25	ADD AN INPUT with the accepted labels and descriptions.
+flow-input-maker-120x32	ADD AN INPUT with the accepted labels and descriptions.
+flow-label-80x25	An input part's detail, whose maker line shows All keyboards' accepted description.
+flow-label-120x32	An input part's detail, whose maker line shows All keyboards' accepted description.
+flow-terminal-card-80x25	A terminal's card, whose Login line shows Default: /bin/login -p.
+flow-terminal-card-120x32	A terminal's card, whose Login line shows Default: /bin/login -p.

@@ -5,7 +5,7 @@
  DISPLAYS               TERMINALS                                INPUTS
  ┌──────────────┐       ┌──────────────────────────────┐
  │ All displays │──────►│ desk                         │◄┄┄┄┄┄┄┄┄roaming inputs
- │ connected n… │       │ font set proof · every VT    │
+ │ Every displ… │       │ font set proof · every VT    │
  └──────────────┘       └──────────────────────────────┘
 
                         ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓         ┌────────────┐
@@ -15,10 +15,10 @@
                                                           ┗┅┅┅┅┅┅roaming inputs
 
                         ┌┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┐         ┌────────────┐
- ROAMING                ┆ Whichever terminal is active ┆◄┄┄┄┄┄┄┄┄│ every key… │
- These inputs type      ┆ follows the VT you switch to ┆         │ every inp… │
- into whichever         └┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┘         └────────────┘
- terminal is active.
+ ROAMING                ┆ Active terminal              ┆◄┄┄┄┄┄┄┄┄│ every key… │
+ These inputs type      ┆ Terminal on screen, followi… ┆         │ every inp… │
+ into the active        └┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┘         └────────────┘
+ terminal.
 
  ──────────────────────────────────────────────────────────────────────────────
  NEW PATH     Pick an input and a display to make a path.

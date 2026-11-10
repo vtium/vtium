@@ -7,21 +7,21 @@
  into it.
  ┏━━━━━━━━━━━━━━━━━━━━━━━┓           ┌──────────────────────────────┐
  ┃ All displays          ┃━━━━━━━━━━▶│ console                      │◄┄┄┄┄┄┄┄┄┄┄┄┄┄roaming inputs
- ┃ connected now or lat… ┃           │ default font set · every VT  │
+ ┃ Every display, conne… ┃           │ default font set · every VT  │
  ┗━━━━━━━━━━━━━━━━━━━━━━━┛           └──────────────────────────────┘
 
                                      ┌┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┐              ┌──────────────────────────────────┐
- ROAMING                             ┆ Whichever terminal is active ┆◄┄┬┄┄┄┄┄┄┄┄┄┄┄│ All keyboards                    │
- These inputs type into whichever    ┆ follows the VT you switch to ┆  ┆           │ every keyboard                   │
- terminal is active.                 └┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┘  ┆           └──────────────────────────────────┘
+ ROAMING                             ┆ Active terminal              ┆◄┄┬┄┄┄┄┄┄┄┄┄┄┄│ All keyboards                    │
+ These inputs type into the active   ┆ Terminal on screen, followi… ┆  ┆           │ Every keyboard, connected now o… │
+ terminal.                           └┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┘  ┆           └──────────────────────────────────┘
                                                                        ┆           ┌──────────────────────────────────┐
                                                                        └┄┄┄┄┄┄┄┄┄┄┄│ All mice and touchpads           │
-                                                                                   │ mouse, touchpad, trackball       │
+                                                                                   │ Mice, touchpads and trackballs   │
                                                                                    └──────────────────────────────────┘
 
                                      ┌──────────────────────────────┐              ┌──────────────────────────────────┐
                                      │ Nowhere                      │◄─────────────│ All input devices                │
-                                     │ displays stay off; inputs a… │              │ what no other rule names         │
+                                     │ Displays off, inputs ignored │              │ Keyboards, pointers and every o… │
                                      └──────────────────────────────┘              └──────────────────────────────────┘
 
  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
