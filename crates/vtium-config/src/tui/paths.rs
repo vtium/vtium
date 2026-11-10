@@ -1,4 +1,4 @@
-//! The configuration as paths, for the Flow view as rows ([`super::rows`]).
+//! The configuration as paths, for the Flow view ([`super::flowview`]).
 //! A path joins input parts and display parts through one terminal (a
 //! head), with a font set, its size, and the terminal's settings. The
 //! person composes a new path from parts in the editor, adds it to the
@@ -22,7 +22,7 @@
 
 use super::edit::Change;
 use super::flow::{Device, Flow, Kind, Rule, Special, Target};
-use super::rows::{Sort, port_words, sort};
+use super::flowview::{Sort, port_words, sort};
 use super::words;
 
 /// The part `any keyboard`: every input with keys, written as a rule for
@@ -1157,9 +1157,9 @@ pub fn title(flow: &Flow, kind: Kind, selector: &str) -> (String, String) {
         ),
         (Kind::Input, "class") if selector == ANY_KEYBOARD => (
             words::ANY_KEYBOARD_TITLE.to_owned(),
-            "class keyboard".to_owned(),
+            words::EVERY_KEYBOARD.to_owned(),
         ),
-        (Kind::Input, "class") => (format!("every {value}"), format!("class {value}")),
+        (Kind::Input, "class") => (format!("every {value}"), words::EVERY_OF_TYPE.to_owned()),
         (Kind::Input, "path") => match dev {
             Some(d) => (d.name.clone(), port_words(&d.detail)),
             None => {

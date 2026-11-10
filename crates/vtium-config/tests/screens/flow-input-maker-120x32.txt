@@ -1,0 +1,32 @@
+ Flow  Looks  Fonts  Settings  Help                                     v View file  s Save  i Install  r Revert  n New
+ draft bench  ›  Input   All devices are in a path · no changes · no problems
+
+ ADD AN INPUT
+   Which inputs should this include?
+
+   ○ Nothing (display only)      no keyboard or mouse reaches this terminal
+   ○ All keyboards               class keyboard
+   ○ All mice and touchpads      mouse, touchpad, trackball
+   ○ All input devices           everything
+
+   OR CHOOSE BY
+   ○ USB port                    anything plugged into that port
+   ○ This one device             its serial number; follows it to any port
+   ○ Model                       every unit of that make and model
+   ○ Bluetooth device            by its address
+   ○ Device name                 the name the device reports
+   ○ Device type                 touchscreen, tablet, joystick, …
+   ○ udev property (advanced)
+
+
+
+
+
+
+
+
+
+
+
+
+ ↑↓ move  Enter choose  Esc back  q quit

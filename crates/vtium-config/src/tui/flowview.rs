@@ -1,5 +1,5 @@
-//! A try-out of the Flow view as paths (`VTIUM_CONFIG_FLOW=rows`). The
-//! screen is one scrolling document in three parts:
+//! The Flow view's layout (ADR-1403 D7). The screen is one scrolling
+//! document in three parts:
 //!
 //! - CONFIGURATION: each path of the configuration as a row of bordered boxes,
 //!   the displays that show a terminal, the terminal with its font set, and
@@ -14,8 +14,8 @@
 //! [`layout`] lays the three parts out on a canvas as tall as they need,
 //! as plain data: boxes, lines and notes. [`State`] is where the highlight
 //! is, which canvas row is at the window's top, and the path in the
-//! editor. [`super::rowsdraw`] draws the layout, [`super::paths`] holds the
-//! path model, and the keys are in `rowskeys`.
+//! editor. [`super::flowdraw`] draws the layout, [`super::paths`] holds the
+//! path model, and the keys are in `flowkeys`.
 
 use super::flow::{Device, Flow, Kind};
 use super::input::Key;
@@ -296,9 +296,13 @@ pub struct Geometry {
 pub fn geometry(cols: usize) -> Geometry {
     let room = cols.saturating_sub(2);
     let part = |n: usize| room.saturating_mul(n) / 118;
-    let screen_w = part(25);
+    // a box in a path shows its whole title: the displays' column holds
+    // All displays, and the terminals' column holds Whichever terminal is
+    // active, the longest title a terminal's box takes
+    let title = |t: &str| super::canvas::width(t).saturating_add(4);
+    let screen_w = part(25).max(title(words::ANY_DISPLAY));
     let gap1 = part(11).max(5);
-    let term_w = part(28);
+    let term_w = part(28).max(title(words::ACTIVE_TERMINAL));
     let gap2 = part(14).max(7);
     let screen_x = 1;
     let term_x = screen_x + screen_w + gap1;
@@ -436,7 +440,6 @@ pub struct Ctx<'a> {
     pub flow: &'a Flow,
     pub doc: &'a Doc,
     pub new: &'a Path,
-    pub fonts: &'a [String],
     /// The parts PARTS shows, as the view holds them.
     pub parts: &'a [Part],
     pub cols: usize,
@@ -475,7 +478,7 @@ impl Layout {
             .iter()
             .rev()
             .find(|(y, _)| *y < top)
-            .map_or(words::ROWS_PATHS, |(_, a)| *a)
+            .map_or(words::FLOW_PATHS, |(_, a)| *a)
     }
 
     /// The boxes in reading order, across and then down.
@@ -714,7 +717,7 @@ fn path_row(
         out.notes.push(Note {
             x: g.dev_x,
             y: row,
-            text: super::canvas::fit(words::ROWS_ROAMING_STUB, g.dev_w),
+            text: super::canvas::fit(words::FLOW_ROAMING_STUB, g.dev_w),
             kind: NoteKind::Stub,
         });
         out.wires.push(Wire {
@@ -742,12 +745,12 @@ fn roaming_row(ctx: &Ctx<'_>, out: &mut Layout, y: usize) -> usize {
     out.notes.push(Note {
         x: 1,
         y: y.saturating_add(1),
-        text: words::ROWS_ROAMING.to_owned(),
+        text: words::FLOW_ROAMING.to_owned(),
         kind: NoteKind::Inputs,
     });
     let room = g.term_x.saturating_sub(3).max(1);
     let mut bottom = y.saturating_add(BOX_ROWS);
-    for (i, line) in super::canvas::wrap(words::ROWS_ROAMING_ABOUT, room, 3)
+    for (i, line) in super::canvas::wrap(words::FLOW_ROAMING_ABOUT, room, 3)
         .into_iter()
         .enumerate()
     {
@@ -968,10 +971,10 @@ fn palette(ctx: &Ctx<'_>, waiting: &mut Vec<Sort>) -> Vec<(NoteKind, &'static st
                 });
             }
             let (kind, heading) = match stage {
-                Stage::Display => (NoteKind::Displays, words::ROWS_DISPLAYS),
-                Stage::Terminal => (NoteKind::Terminals, words::ROWS_TERMINALS),
-                Stage::Input => (NoteKind::Inputs, words::ROWS_INPUTS),
-                Stage::Font => (NoteKind::Fonts, words::ROWS_FONT_SETS),
+                Stage::Display => (NoteKind::Displays, words::FLOW_DISPLAYS),
+                Stage::Terminal => (NoteKind::Terminals, words::FLOW_TERMINALS),
+                Stage::Input => (NoteKind::Inputs, words::FLOW_INPUTS),
+                Stage::Font => (NoteKind::Fonts, words::FLOW_FONT_SETS),
             };
             (kind, heading, pieces)
         })
@@ -994,23 +997,23 @@ pub fn layout(ctx: &Ctx<'_>) -> Layout {
         &mut out,
         1,
         0,
-        words::ROWS_PATHS.to_owned(),
+        words::FLOW_PATHS.to_owned(),
         NoteKind::Heading,
     );
     for (x, w, title, kind) in [
         (
             g.screen_x,
             g.screen_w,
-            words::ROWS_DISPLAYS,
+            words::FLOW_DISPLAYS,
             NoteKind::Displays,
         ),
         (
             g.term_x,
             g.term_w,
-            words::ROWS_TERMINALS,
+            words::FLOW_TERMINALS,
             NoteKind::Terminals,
         ),
-        (g.dev_x, g.dev_w, words::ROWS_INPUTS, NoteKind::Inputs),
+        (g.dev_x, g.dev_w, words::FLOW_INPUTS, NoteKind::Inputs),
     ] {
         note(&mut out, x, 1, super::canvas::fit(title, w), kind);
     }
@@ -1073,12 +1076,12 @@ pub fn layout(ctx: &Ctx<'_>) -> Layout {
     y = y.saturating_add(1);
     out.rules.push(y);
     y = y.saturating_add(1);
-    out.areas.push((y, words::ROWS_NEW_PATH));
+    out.areas.push((y, words::FLOW_NEW_PATH));
     note(
         &mut out,
         1,
         y,
-        words::ROWS_NEW_PATH.to_owned(),
+        words::FLOW_NEW_PATH.to_owned(),
         NoteKind::Heading,
     );
     let kind = if ctx.new.complete(ctx.doc) {
@@ -1105,12 +1108,12 @@ pub fn layout(ctx: &Ctx<'_>) -> Layout {
     y = y.saturating_add(1);
     out.rules.push(y);
     y = y.saturating_add(1);
-    out.areas.push((y, words::ROWS_PIECES));
+    out.areas.push((y, words::FLOW_PIECES));
     note(
         &mut out,
         1,
         y,
-        words::ROWS_PIECES.to_owned(),
+        words::FLOW_PIECES.to_owned(),
         NoteKind::Heading,
     );
     let mut waiting = Vec::new();
@@ -1139,7 +1142,7 @@ pub fn layout(ctx: &Ctx<'_>) -> Layout {
             })
             .collect();
         if kind == NoteKind::Inputs && !others.is_empty() {
-            let title = words::rows_other_inputs(others.len());
+            let title = words::flow_other_inputs(others.len());
             let detail = others_detail(&others);
             boxes.push(Boxed {
                 obj: Obj::Others,
@@ -1234,8 +1237,6 @@ pub struct State {
     /// The canvas row the highlighted box was last on, to find its
     /// neighbour when it goes.
     pub last_y: usize,
-    /// The six-column view is shown in the rows' place: `v Rules`.
-    pub classic: bool,
     /// The object whose second layer is open.
     pub layer: Option<Obj>,
     /// On a layer: the line under the cursor, and on a card, the choice
@@ -1250,9 +1251,6 @@ pub struct State {
     /// The box to highlight once a change in flight is written and the
     /// box exists: an added path's terminal.
     pub want: Option<Obj>,
-    /// What the status line says until the first key: where the color
-    /// file was written, or a line of it that was skipped.
-    pub note: Option<String>,
     /// What NEW PATH holds for revising, which CONFIGURATION leaves out
     /// while the draft still has it.
     pub revising: Option<Revising>,
@@ -1399,21 +1397,39 @@ pub(crate) mod tests {
     use super::super::paths::tests::{EDID_A, EDID_B, KBD_PATH, flow};
     use super::*;
 
-    pub(crate) fn fonts() -> Vec<String> {
-        vec!["dejavu".to_owned(), "monoid".to_owned()]
-    }
-
     pub(crate) fn lay(f: &Flow, new: &Path, cols: usize) -> Layout {
         let doc = paths::read(f);
         layout(&Ctx {
             flow: f,
             doc: &doc,
             new,
-            fonts: &fonts(),
             parts: &super::super::parts::enumerate(f, &doc),
             cols,
             default: paths::is_default(f),
         })
+    }
+
+    // the round-6 renders cut "Whichever terminal is a…": a box in a path
+    // shows its whole title at the minimum width and at 120 columns
+    #[test]
+    fn a_path_s_terminal_box_never_cuts_its_title() {
+        let f = flow();
+        for cols in [80, 120] {
+            let layout = lay(&f, &Path::default(), cols);
+            let roam = layout
+                .boxes
+                .iter()
+                .find(|b| matches!(b.obj, Obj::Roam(Slot::Terminal)))
+                .expect("the roaming path's terminal");
+            assert_eq!(roam.title, words::ACTIVE_TERMINAL);
+            let text = roam.w.saturating_sub(4);
+            assert!(
+                super::super::canvas::width(&roam.title) <= text,
+                "{cols}: {} in {}",
+                roam.title,
+                roam.w
+            );
+        }
     }
 
     fn at<'a>(l: &'a Layout, o: &Obj) -> &'a Boxed {
@@ -1947,8 +1963,8 @@ pub(crate) mod tests {
         };
         // CONFIGURATION and its column titles sit at the canvas's top
         assert_eq!(note("CONFIGURATION"), 0);
-        assert_eq!(note(words::ROWS_DISPLAYS), 1);
-        assert_eq!(note(words::ROWS_TERMINALS), 1);
+        assert_eq!(note(words::FLOW_DISPLAYS), 1);
+        assert_eq!(note(words::FLOW_TERMINALS), 1);
         let first = l.reading()[0].y;
         assert!(first > 1, "the first box is under the titles");
         assert!(note("NEW PATH") > first && note("PARTS") > note("NEW PATH"));

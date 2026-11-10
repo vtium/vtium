@@ -1,0 +1,32 @@
+ Flow  Looks  Fonts  Settings  Help                                     v View file  s Save  i Install  r Revert  n New
+ draft bench   All devices are in a path · no changes · no problems
+ policy open: a keyboard that no rule names types into the active terminal
+ CONFIGURATION
+ DISPLAYS                            TERMINALS                                     INPUTS
+ ┌───────────────────────┐           ┌──────────────────────────────┐
+ │ All displays          │──────────►│ desk                         │◄┄┄┄┄┄┄┄┄┄┄┄┄┄roaming inputs
+ │ connected now or lat… │           │ font set proof               │
+ └───────────────────────┘           └──────────────────────────────┘
+
+                                     ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓              ┌──────────────────────────────────┐
+                                     ┃ panel                        ┃◀━┳━━━━━━━━━━━│ kbd                              │
+                                     ┃ default font set             ┃  ┇           │ pci-0:3.3                        │
+                                     ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛  ┇           └──────────────────────────────────┘
+                                                                       ┗┅┅┅┅┅┅┅┅┅┅┅roaming inputs
+
+                                     ┌┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┐              ┌──────────────────────────────────┐
+ ROAMING                             ┆ Whichever terminal is active ┆◄┄┄┄┄┄┄┄┄┄┄┄┄┄│ All keyboards                    │
+ These inputs type into whichever    ┆ follows the VT you switch to ┆              │ every keyboard                   │
+ terminal is active.                 └┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┘              └──────────────────────────────────┘
+
+ ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ NEW PATH     Pick an input and a display to make a path.
+ ╔═════════════════╗                 ╔══════════════════════════════╗              ╔═════════════════╗
+ ║ Display         ║                 ║ Terminal                     ║              ║ Input           ║
+ ║ Choose… [Enter] ║                 ║ new: terminal-1              ║              ║ Choose… [Enter] ║
+ ╚═════════════════╝                 ╚══════════════════════════════╝              ╚═════════════════╝
+
+ ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ PARTS
+ DISPLAYS
+ ↑↓←→ move  Space pick  Enter open  a add path  e revise  v view file  Esc clear  i install  o restore  n new  q quit

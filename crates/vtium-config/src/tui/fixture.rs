@@ -183,9 +183,8 @@ pub fn inputs() -> Inputs {
         color: true,
         desk: false,
         hotplug: false,
-        flow_rows: false,
-        rows_colors: super::rowscolor::Palette::console(),
-        rows_note: None,
+        flow_colors: super::flowcolor::Palette::console(),
+        colors_note: None,
         installed: [
             ("broken", &b"source=builtin:unifont\ncolour=red\n"[..]),
             ("minspec-16", b"source=builtin:unifont\n"),

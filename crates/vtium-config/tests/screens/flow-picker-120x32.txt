@@ -1,0 +1,32 @@
+ Flow  Looks  Fonts  Settings  Help                                     v View file  s Save  i Install  r Revert  n New
+ draft bench  ›  Input   All devices are in a path · no changes · no problems
+
+ USB PORT
+   Each port lists what is plugged into it now.
+
+   ○ path:pci-0:3.3    kbd
+   ○ Other…            type a value
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ ↑↓ move  Enter choose  Esc back  q quit

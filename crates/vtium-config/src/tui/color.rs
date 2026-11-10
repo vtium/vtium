@@ -1,9 +1,9 @@
 //! The TUI's colors (ADR-1403 D7): the console's sixteen colors, named by
 //! SGR, so the user's palette applies. The palette's blue is hard to read
 //! on black, so [`Color`] has no blue and no bright blue, and no text the
-//! TUI draws can ask for either. A box's fill in the Flow view as paths is
-//! a background behind light text, so [`Normal`] has blue. With `NO_COLOR` set, or on a terminal
-//! without color, the TUI draws no color at all ([`enabled`]).
+//! TUI draws can ask for either. A box's fill in the Flow view is a
+//! background behind light text, so [`Normal`] has blue. With `NO_COLOR`
+//! set, or on a terminal without color, the TUI draws no color at all ([`enabled`]).
 
 /// A color of the console's palette, by its SGR number. Blue (4) and
 /// bright blue (12) are left out on purpose.
