@@ -1,0 +1,19 @@
+# The kitty keyboard protocol's flags 2 and 8 together. Under flags 11 (1, 2
+# and 8), a text key, Enter and a modifier key each report their release as
+# event type 3. The release of Shift is reported with Shift already clear, so
+# its modifiers field is 1.
+# spec: kitty's Comprehensive keyboard handling in terminals: Event types, Report all keys as escape codes, Modifiers; ADR-1005 D2, D8 and D13 slice 3
+# capability: key-kitty-all-keys-events
+size 20 2
+needs key-events
+send "\e[>11u\e[?u"
+check
+reply "\e[?11u"
+cmd key;sym=61;ascii=61;unicode=61
+cmd key;sym=61;ascii=61;unicode=61;event=release
+cmd key;sym=ff0d
+cmd key;sym=ff0d;event=release
+cmd key;sym=ffe1;mods=1
+cmd key;sym=ffe1;event=release
+check
+reply "\e[97u\e[97;1:3u\e[13u\e[13;1:3u\e[57441;2u\e[57441;1:3u"
