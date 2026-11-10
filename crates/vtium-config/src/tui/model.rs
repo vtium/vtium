@@ -590,7 +590,7 @@ impl App {
     /// Goes to `view`, turning the mouse on or off for it, and asks for
     /// what the view shows: a specimen, a font switch. A card that is open
     /// in the Flow view closes as the view changes.
-    fn set_view(&mut self, view: View) -> Vec<Effect> {
+    pub(crate) fn set_view(&mut self, view: View) -> Vec<Effect> {
         self.view = view;
         self.editing = None;
         if view != View::Flow {
@@ -815,12 +815,17 @@ impl App {
                 }
                 Live::On
             }
+            // the Flow view as rows says so only when `t` is pressed
             (true, None) => {
-                self.message = Some(super::words::OPS_OFF.to_owned());
+                if self.rows_flow.is_none() {
+                    self.message = Some(super::words::OPS_OFF.to_owned());
+                }
                 Live::OpsOff
             }
             (false, _) => {
-                self.message = Some(super::words::NOT_VTIUM.to_owned());
+                if self.rows_flow.is_none() {
+                    self.message = Some(super::words::NOT_VTIUM.to_owned());
+                }
                 Live::NotVtium
             }
         };
@@ -931,6 +936,10 @@ impl App {
         }
         if super::view::too_small(self) {
             return self.small_key(key);
+        }
+        // the name of a new terminal takes every key while it is typed
+        if self.rows_typing() {
+            return self.rows_key(key);
         }
         if self.typing()
             && let Key::Char(_) | Key::Backspace = key

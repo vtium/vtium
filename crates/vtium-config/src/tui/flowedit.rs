@@ -31,6 +31,10 @@ impl App {
         if self.draft.is_none() {
             return Vec::new();
         }
+        // an added path's terminal card, in the Flow view as paths
+        if let Some(fields) = self.rows_fields() {
+            return fields;
+        }
         edit::fields(
             &self.inputs.flow,
             self.flow_at,

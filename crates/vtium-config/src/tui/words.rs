@@ -888,19 +888,95 @@ pub fn frits_waiting(n: usize) -> String {
     }
 }
 
-/// The Flow view as rows, the try-out `VTIUM_CONFIG_FLOW=rows` selects.
-pub const ROWS_SCREENS: &str = "SCREENS";
+/// The Flow view as paths, the try-out `VTIUM_CONFIG_FLOW=rows`.
+pub const ROWS_PATHS: &str = "PATHS";
+pub const ROWS_NEW_PATH: &str = "NEW PATH";
+pub const ROWS_PIECES: &str = "PIECES";
+pub const ROWS_DISPLAYS: &str = "DISPLAYS";
 pub const ROWS_TERMINALS: &str = "TERMINALS";
-pub const ROWS_KEYBOARDS: &str = "KEYBOARDS AND POINTERS";
-pub const ROWS_WAITING: &str = "NOT IN A PATH YET";
-pub const ROWS_ASIDE: &str = "SET ASIDE";
-pub const ROWS_ACTIVE: &str = "active";
+pub const ROWS_INPUTS: &str = "INPUTS";
+pub const ROWS_FONT_SETS: &str = "FONT SETS";
+pub const NO_PATHS: &str =
+    "No paths yet. Pick an input and a display below, then press a to add the path.";
+pub fn unfit_rules(n: usize) -> String {
+    match n {
+        1 => "1 rule belongs to no path. Press v to see it.".to_owned(),
+        n => format!("{n} rules belong to no path. Press v to see them."),
+    }
+}
+pub const PATH_EMPTY: &str = "Pick an input and a display to make a path.";
+pub const PATH_NEEDS_DISPLAY: &str = "Add a display to finish this path.";
+pub const PATH_NEEDS_INPUT: &str = "Add an input to finish this path.";
+pub const PATH_COMPLETE: &str = "This path is complete. Press a to add it.";
+pub const ANY_DISPLAY: &str = "any display";
+pub const EVERY_DISPLAY: &str = "every display";
+pub const ANY_POINTER_TITLE: &str = "any pointer";
+pub const EVERY_POINTER: &str = "every mouse, touchpad and trackball";
+pub const BY_CONNECTOR: &str = "by its connector";
+pub const NOT_PLUGGED: &str = "not plugged in";
+pub const EVERY_INPUT_ON_PORT: &str = "every input on that port";
+pub const DEFAULT_FONT_SET: &str = "default font set";
+pub const DEFAULT_FONT_SET_DETAIL: &str = "the font vtium.conf sets";
+pub const FONT_SET: &str = "font set";
+pub const IN_NO_PATH: &str = "in no path";
 pub const ROWS_ROAMS: &str = "roams";
-pub const ROWS_ADD_TERMINAL: &str = "+ add a terminal";
-pub const ROWS_UNPLUGGED: &str = "a rule names it · unplugged";
-pub const ROWS_SPACE_IT: &str = "Space it, then a terminal";
-pub const ROWS_NO_ACTIVE: &str = "roams, but no terminal can be active";
-pub const ROWS_COMPLETE: &str = "complete";
+/// `text` with its first letter capital, to start a sentence.
+fn capitalized(text: &str) -> String {
+    let mut c = text.chars();
+    c.next()
+        .map(|f| f.to_uppercase().chain(c).collect())
+        .unwrap_or_default()
+}
+/// A terminal named in a sentence: `the terminal desk`, or for a name
+/// vtium-config gave it, `terminal-1` alone.
+pub fn terminal(head: &str) -> String {
+    if head.starts_with("terminal-") {
+        head.to_owned()
+    } else {
+        format!("the terminal {head}")
+    }
+}
+pub fn in_terminal(head: &str) -> String {
+    format!("in {}", terminal(head))
+}
+pub fn roams_among(n: usize) -> String {
+    format!("roams between {n} terminals")
+}
+pub const ROAMS_SENTENCE: &str =
+    "It is in more than one path, so it roams: it types into whichever terminal is active.";
+pub const REVISE_NOTE: &str = "Which displays, inputs and font set this path joins cannot change here. Press e to revise this path.";
+pub const NO_FONT_SET_KEYS: &str =
+    "This path uses the default font set, which has no settings of its own here.";
+pub const CHOOSE_DISPLAY: &str = "CHOOSE WHICH DISPLAYS THIS PIECE MATCHES";
+pub const CHOOSE_INPUT: &str = "CHOOSE WHICH INPUTS THIS PIECE MATCHES";
+pub const CHOOSE_ABOUT: &str =
+    "The choices go from the widest to the narrowest. Enter picks one into the new path.";
+pub const NEW_TERMINAL: &str = "THE NEW PATH'S TERMINAL";
+pub const ENTER_TO_TYPE: &str = "Enter types a new name";
+pub const ROWS_KEYS: &str = "↑↓←→ move  Space pick  Enter open  a add path  e revise  Esc clear  v rules  i install  o restore  n new  p preview  t trial  PgUp PgDn scroll  q quit";
+pub const ROWS_KEYS_CARD: &str =
+    "↑↓ move  ←→ choose  Enter set  e revise this path  Esc back  q quit";
+pub const ROWS_KEYS_INFO: &str = "e revise this path  Esc back  q quit";
+pub const ROWS_KEYS_CHOOSE: &str = "↑↓ move  Enter choose  Esc back  q quit";
+pub const ROWS_SAVE: &str = "The draft keeps each change as you make it, so there is nothing to save. Press i to install it.";
+pub const ROWS_RULES_BACK: &str =
+    "This is the rules view. Press Esc with nothing open to go back to the paths.";
+pub const REVISE_WHERE: &str = "Highlight a path in PATHS, then press e to revise it.";
+pub const EDITOR_CLEARED: &str = "Cleared the new path.";
+pub const EDITOR_BUSY: &str = "The new path already holds pieces. Add it with a, or clear it with Esc, before you revise another path.";
+pub const IN_DOCUMENT: &str = "This piece is in a path that is added. Press e to revise the path.";
+pub const OTHERS_CANNOT: &str =
+    "These inputs are neither keyboards nor pointers, so they cannot be part of a path.";
+pub const DEFAULT_FONT_PREVIEW: &str = "The default font set is the font vtium.conf sets. The Fonts view shows each font set's preview.";
+pub const PREVIEW_PATH_NOT_HERE: &str =
+    "Previewing a path needs a vtium console, and this terminal is not one.";
+pub const PREVIEW_PATH_LATER: &str =
+    "Previewing a whole path is not built in this try-out. Enter on a font set shows its preview.";
+pub const LIVE_ON: &str = "Live trial is on: in the Fonts view, t tries a font on this console.";
+pub const ROWS_COMPLETE: &str = "every device is in a path";
+pub const ROWS_OTHERS_TITLE: &str = "OTHER INPUTS";
+pub const ROWS_OTHERS_ABOUT: &str = "These inputs are neither keyboards nor pointers, so none of them types into a terminal. Each line says which rule catches it.";
+pub const ROWS_NO_RULE: &str = "no rule names it";
 /// The Flow view's actions in the tab bar, long and short.
 pub const ROWS_ACTIONS: [(&str, &str); 5] = [
     ("v Rules", "Rules"),
@@ -909,70 +985,90 @@ pub const ROWS_ACTIONS: [(&str, &str); 5] = [
     ("r Revert", "Revert"),
     ("n New", "New"),
 ];
-pub const ROWS_KEYS: &str =
-    "↑↓←→ move  Enter open  Space start a path  v rules  ? route  s save  PgUp PgDn scroll  q quit";
-pub const ROWS_KEYS_TERMINAL: &str =
-    "↑↓ move  ←→ choose  Enter set  Esc back to the overview  q quit";
-pub const ROWS_KEYS_DEVICE: &str =
-    "↑↓ move  ←→ choose  Enter set  Esc back to the overview  q quit";
-pub const ROWS_KEYS_OTHERS: &str = "Esc back to the overview  q quit";
-pub const ROWS_SAVE: &str = "The draft keeps each change as you make it, so there is nothing to save. Press i to install it.";
-pub const ROWS_RULES_BACK: &str =
-    "This is the rules view. Press Esc with nothing open to go back to the overview.";
-pub const ROWS_PATH_TERMINAL: &str =
-    "A path starts from a screen, a keyboard or a pointer. Press Space on one of them first.";
-pub const ROWS_PATH_OTHERS: &str =
-    "These inputs are neither keyboards nor pointers, so they cannot type into a terminal.";
-pub const ROWS_TYPES_INTO: &str = "Types into";
-pub const ROWS_SHOWS: &str = "Shown on";
-pub const ROWS_MATCHED_AS: &str = "Matched as";
-pub const ROWS_RULE: &str = "Rule";
-pub const ROWS_THE_ACTIVE: &str = "the active terminal (roams)";
-pub const ROWS_SET_ASIDE: &str = "set aside";
-pub const ROWS_TURNED_OFF: &str = "turned off";
-pub const ROWS_NO_RULE: &str = "no rule names it yet";
-pub const ROWS_WHAT_CHANGES: &str = "WHAT THIS CHANGES";
-pub const ROWS_CONNECTED: &str = "CONNECTED";
-pub const ROWS_NOTHING: &str = "nothing";
-pub const ROWS_OFF_SENTENCE: &str = "vtium turns this screen off, so it shows no terminal.";
-pub const ROWS_OTHERS_TITLE: &str = "OTHER INPUTS";
-pub const ROWS_OTHERS_ABOUT: &str = "These inputs are neither keyboards nor pointers, so none of them types into a terminal. Each line says which rule catches it.";
-pub fn rows_set_aside_by(rule: usize) -> String {
-    format!("set aside by rule {rule}")
-}
-pub fn rows_turned_off_by(rule: usize) -> String {
-    format!("turned off by rule {rule}")
-}
-pub fn rows_no_terminal(rule: usize, target: &str) -> String {
-    format!("rule {rule} sends it to {target}, which is not a terminal")
-}
-pub fn rows_roaming_hint(head: &str) -> String {
-    format!("roaming keyboards, when {head} is active")
-}
 pub fn rows_other_inputs(n: usize) -> String {
     match n {
         1 => "1 other input".to_owned(),
         n => format!("{n} other inputs"),
     }
 }
-pub fn rows_rule_note(rule: usize) -> String {
-    format!("(rule {rule})")
+pub fn path_other_font(head: &str) -> String {
+    format!(
+        "{} already has these pieces with another font set. Press e on it to revise its path.",
+        capitalized(&terminal(head))
+    )
 }
-/// A shared rule's note: which other devices it catches too.
-pub fn rows_shared(rule: usize, selector: &str) -> String {
-    let (key, value) = selector.split_once(':').unwrap_or((selector, ""));
-    match key {
-        "class" => format!("(rule {rule}, shared with every {value})"),
-        "id" => format!("(rule {rule}, shared with every device of that id)"),
-        _ => format!("(rule {rule}, shared with every device it matches)"),
+pub fn name_taken(name: &str) -> String {
+    format!("The name {name} is already the name of another terminal. Choose another name.")
+}
+pub fn name_invalid(name: &str) -> String {
+    format!(
+        "A terminal's name is 1 to 64 letters, digits, dots, dashes, underscores or plus signs, so {name:?} cannot be one. Choose another name."
+    )
+}
+pub fn display_taken(display: &str, head: &str) -> String {
+    format!(
+        "The display {display} is already {}. A display can be in one path only.",
+        in_terminal(head)
+    )
+}
+pub fn same_path(head: &str) -> String {
+    format!(
+        "This path is already {}, so nothing changed.",
+        in_terminal(head)
+    )
+}
+pub fn path_added(head: &str) -> String {
+    format!("Added the path of {}.", terminal(head))
+}
+pub fn path_revised(head: &str) -> String {
+    format!(
+        "The path of {} is in NEW PATH now. Change its pieces, then press a to add it back.",
+        terminal(head)
+    )
+}
+pub fn piece_out(title: &str) -> String {
+    format!("Took {title} out of the new path.")
+}
+pub fn font_picked(font: &str) -> String {
+    format!("The new path uses the font set {font}.")
+}
+pub fn font_instead(font: &str, old: &str) -> String {
+    format!("The new path uses the font set {font} in place of {old}.")
+}
+pub fn font_default() -> String {
+    "The new path uses the default font set.".to_owned()
+}
+/// What picking a display or an input says: what was picked, and what the
+/// new path needs next.
+pub fn picked(
+    title: &str,
+    display: bool,
+    new: &crate::tui::paths::Path,
+    also: &[String],
+) -> String {
+    let what = if display {
+        format!("Picked the display {}.", title.trim_start_matches("the "))
+    } else {
+        format!("Picked {title}.")
+    };
+    let next = match (new.inputs.is_empty(), new.displays.is_empty()) {
+        (false, true) => "Now pick a display, or more inputs.",
+        (true, false) => "Now pick an input, or more displays.",
+        _ => "This path is complete: press a to add it, or pick more pieces.",
+    };
+    let heads: Vec<String> = also.iter().map(|h| terminal(h)).collect();
+    match heads.as_slice() {
+        [] => format!("{what} {next}"),
+        [one] => format!("{what} It is also in {one}, so it will roam between the two. {next}"),
+        [rest @ .., last] => format!(
+            "{what} It is also in {} and {last}, so it will roam between them all. {next}",
+            rest.join(", ")
+        ),
     }
 }
-pub fn rows_forget(rule: usize) -> String {
-    format!("forget it: delete rule {rule}")
-}
-/// What waits, as the status line counts it: `1 keyboard and 1 screen
-/// not in a path yet`.
-pub fn rows_waiting(keyboards: usize, pointers: usize, screens: usize) -> String {
+/// What waits, as the status line counts it: `1 keyboard and 1 display
+/// in no path yet`.
+pub fn rows_waiting(keyboards: usize, pointers: usize, displays: usize) -> String {
     let count = |n: usize, one: &str| match n {
         0 => None,
         1 => Some(format!("1 {one}")),
@@ -981,7 +1077,7 @@ pub fn rows_waiting(keyboards: usize, pointers: usize, screens: usize) -> String
     let parts: Vec<String> = [
         count(keyboards, "keyboard"),
         count(pointers, "pointer"),
-        count(screens, "screen"),
+        count(displays, "display"),
     ]
     .into_iter()
     .flatten()
@@ -991,7 +1087,7 @@ pub fn rows_waiting(keyboards: usize, pointers: usize, screens: usize) -> String
         [one] => one.clone(),
         [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
     };
-    format!("{list} not in a path yet")
+    format!("{list} in no path yet")
 }
 /// The policy in a few words, under the status line.
 pub fn rows_policy(policy: &str) -> String {
@@ -1000,36 +1096,6 @@ pub fn rows_policy(policy: &str) -> String {
         _ => "policy open: a keyboard that no rule names types into the active terminal".to_owned(),
     }
 }
-pub fn rows_roams_sentence(this: &str, verb: &str, now: Option<&str>, others: &[String]) -> String {
-    match (now, others) {
-        (None, _) => format!(
-            "{this} {verb} whichever terminal is active, and no terminal can be active now."
-        ),
-        (Some(now), []) => format!("{this} {verb} whichever terminal is active: {now} now."),
-        (Some(now), others) => format!(
-            "{this} {verb} whichever terminal is active: {now} now, and {} after Ctrl+Super+Up or Ctrl+Super+Down.",
-            others.join(" or ")
-        ),
-    }
-}
-pub fn rows_ignored_sentence(one: &str) -> String {
-    format!("vtium ignores this {one}, so it types into no terminal.")
-}
-pub fn rows_terminal_about(active: bool, consoles: u32) -> String {
-    let consoles = match consoles {
-        1 => "1 console".to_owned(),
-        n => format!("{n} consoles"),
-    };
-    if active {
-        format!("the active terminal · {consoles}")
-    } else {
-        consoles
-    }
-}
-pub fn rows_path_from(name: &str) -> String {
-    format!("A path from {name}: press Space on a terminal to end it there, or Esc to drop it.")
-}
-
 #[cfg(test)]
 mod tests {
     // ADR-1403 D7's fixed word: Install, Revert and New each call the

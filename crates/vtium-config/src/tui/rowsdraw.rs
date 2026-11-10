@@ -1,23 +1,23 @@
-//! How the Flow view as rows draws ([`super::rows`]): the status line,
+//! How the Flow view as paths draws ([`super::rows`]): the status line,
 //! the policy line and the column titles fixed at the top, the key line
-//! fixed at the bottom, and between them a window on the canvas of rows
-//! and trays, scrolled to the row [`super::rows::State`] keeps at its top.
-//! Enter on an object draws its second layer in the window's place.
+//! fixed at the bottom, and between them a window on the canvas of paths,
+//! the editor and the pieces, scrolled to the row [`super::rows::State`]
+//! keeps at its top. Enter on a box draws its second layer in the
+//! window's place.
 //!
 //! Color says state and position says kind: a box's border is white when
-//! its object is in a row, amber when it waits, and grey when it is set
-//! aside. The highlighted box has a heavy border in bold, and its own
-//! lines are drawn heavy and bright.
+//! it is in a path or free to pick, amber for a device no path holds, grey
+//! for what cannot be picked, and cyan for a piece picked into the editor.
+//! The editor's boxes and lines are dashed. The highlighted box has a
+//! heavy border in bold, and its own lines are drawn heavy and bright.
 
 use super::canvas::{Canvas, fit, width, wrap};
 use super::color::{Color, Style};
 use super::edit::{Field, What};
-use super::flow::{Flow, Item};
+use super::flow::{Flow, Kind};
 use super::model::App;
-use super::rows::{
-    self, BOX_ROWS, Boxed, Layout, Line, Mood, NoteKind, Obj, Sort, Wire, device_lines,
-    match_words, reaching,
-};
+use super::paths;
+use super::rows::{self, BOX_ROWS, Boxed, Ctx, Layout, Mood, NoteKind, Obj, Slot, Wire};
 use super::words;
 
 /// The rows fixed at the top: the tab bar, the status line, the policy
@@ -27,7 +27,7 @@ pub const HEAD_ROWS: usize = 5;
 /// The most rows the message line wraps to.
 const MESSAGE_ROWS: usize = 3;
 
-/// The column where a layer's values start, at most.
+/// The column where a layer's values start.
 const VALUE_X: usize = 34;
 
 /// The box-drawing character for each mix of lines: the weight of the
@@ -43,8 +43,12 @@ const JOINTS: [char; 81] = [
     '╂', '╊', '┫', '╉', '╋',
 ];
 
+/// A box's border: across, down, and the four corners, light and heavy,
+/// whole and dashed.
 const LIGHT: [char; 6] = ['─', '│', '┌', '┐', '└', '┘'];
 const HEAVY: [char; 6] = ['━', '┃', '┏', '┓', '┗', '┛'];
+const LIGHT_DASHED: [char; 6] = ['┄', '┆', '┌', '┐', '└', '┘'];
+const HEAVY_DASHED: [char; 6] = ['┅', '┇', '┏', '┓', '┗', '┛'];
 
 /// Whether the rows are on the screen: the Flow view as rows, with no
 /// route card, pager or Restore list open over it, which the six-column
@@ -55,6 +59,36 @@ pub fn shown(app: &App) -> bool {
         && app.route.is_none()
         && app.pager.is_none()
         && app.restore.is_none()
+}
+
+/// The font sets the palette offers: every font the TUI lists that reads.
+pub fn font_names(app: &App) -> Vec<String> {
+    app.inputs
+        .fonts
+        .iter()
+        .filter(|f| !matches!(f.state, super::model::FontState::Refused(_)))
+        .map(|f| f.name.clone())
+        .collect()
+}
+
+/// The document as `app` holds it, laid out at its width.
+pub fn layout_of(app: &App) -> Layout {
+    let flow = &app.inputs.flow;
+    let (doc, unfit) = paths::read(flow);
+    let new = app
+        .rows_flow
+        .as_ref()
+        .map(|s| s.new.clone())
+        .unwrap_or_default();
+    let fonts = font_names(app);
+    rows::layout(&Ctx {
+        flow,
+        doc: &doc,
+        unfit,
+        new: &new,
+        fonts: &fonts,
+        cols: app.cols,
+    })
 }
 
 /// The message under the window, wrapped.
@@ -88,6 +122,7 @@ fn mood_color(mood: Mood) -> (Color, Color) {
         Mood::Placed => (Color::White, Color::BrightWhite),
         Mood::Waiting => (Color::Yellow, Color::Yellow),
         Mood::Aside => (Color::Grey, Color::Grey),
+        Mood::Picked => (Color::BrightCyan, Color::BrightCyan),
     }
 }
 
@@ -96,10 +131,15 @@ fn draw_box(doc: &mut Canvas, b: &Boxed, highlighted: bool) {
     let (border, title) = mood_color(b.mood);
     let border = match (highlighted, b.mood) {
         (true, Mood::Placed) => bold(Color::BrightWhite),
-        (true, _) => bold(border),
+        (true, _) | (false, Mood::Picked) => bold(border),
         (false, _) => Style::text(border),
     };
-    let [h, v, tl, tr, bl, br] = if highlighted { HEAVY } else { LIGHT };
+    let [h, v, tl, tr, bl, br] = match (highlighted, b.dashed) {
+        (false, false) => LIGHT,
+        (true, false) => HEAVY,
+        (false, true) => LIGHT_DASHED,
+        (true, true) => HEAVY_DASHED,
+    };
     let inner = b.w.saturating_sub(2);
     let across = h.to_string().repeat(inner);
     doc.put(b.x, b.y, &format!("{tl}{across}{tr}"), border);
@@ -119,13 +159,13 @@ fn draw_box(doc: &mut Canvas, b: &Boxed, highlighted: bool) {
         border,
     );
     let room = b.w.saturating_sub(4);
-    let title_style = if highlighted {
-        Style {
+    let title_style = match (highlighted, b.mood) {
+        (true, _) => Style {
             underline: true,
             ..bold(title)
-        }
-    } else {
-        Style::text(title)
+        },
+        (false, Mood::Picked) => bold(title),
+        (false, _) => Style::text(title),
     };
     doc.put(
         b.x.saturating_add(2),
@@ -169,15 +209,15 @@ fn cells(w: &Wire) -> Vec<(usize, usize)> {
     out
 }
 
-/// Draws the wires on `doc`: the solid ones as box-drawing lines that join
-/// where they meet, heavy where they belong to the highlighted object, and
-/// the dotted ones in grey.
-fn draw_wires(doc: &mut Canvas, layout: &Layout, at: Option<&Obj>) {
+/// Draws one set of wires, the whole ones or the dashed ones, as
+/// box-drawing lines that join where they meet, heavy where they belong
+/// to the highlighted object, each ending in an arrow at its terminal.
+fn draw_set(doc: &mut Canvas, wires: &[&Wire], at: Option<&Obj>, dashed: bool) {
     let (cols, rows) = (doc.cols, doc.rows);
     // each cell's weight up, down, left and right
     let mut grid = vec![[0u8; 4]; cols.saturating_mul(rows)];
     let heavy = |w: &Wire| at.is_some_and(|o| w.from == *o || w.to == *o);
-    for w in layout.wires.iter().filter(|w| !w.dashed) {
+    for w in wires {
         let weight = if heavy(w) { 2 } else { 1 };
         let path = cells(w);
         for pair in path.windows(2) {
@@ -213,9 +253,18 @@ fn draw_wires(doc: &mut Canvas, layout: &Layout, at: Option<&Obj>) {
                 continue;
             }
             let [u, d, l, r] = c.map(usize::from);
-            let i = u * 27 + d * 9 + l * 3 + r;
-            let glyph = JOINTS.get(i).copied().unwrap_or(' ');
-            let style = if c.contains(&2) {
+            let strong = c.contains(&2);
+            let glyph = match (dashed, u + d == 0, l + r == 0, strong) {
+                (true, true, false, false) => '┄',
+                (true, true, false, true) => '┅',
+                (true, false, true, false) => '┆',
+                (true, false, true, true) => '┇',
+                _ => JOINTS
+                    .get(u * 27 + d * 9 + l * 3 + r)
+                    .copied()
+                    .unwrap_or(' '),
+            };
+            let style = if strong {
                 bold(Color::BrightWhite)
             } else {
                 Style::text(Color::White)
@@ -223,62 +272,7 @@ fn draw_wires(doc: &mut Canvas, layout: &Layout, at: Option<&Obj>) {
             doc.put(x, y, &glyph.to_string(), style);
         }
     }
-    // the dotted lines, on the cells no solid line holds; one that ends
-    // under a solid line branches off it
-    for w in layout.wires.iter().filter(|w| w.dashed) {
-        let path = cells(w);
-        for (k, (x, y)) in path.iter().enumerate() {
-            let at = y.saturating_mul(cols).saturating_add(*x);
-            if grid.get(at).is_some_and(|c| c.iter().any(|w| *w > 0)) {
-                continue;
-            }
-            let near = [
-                k.checked_sub(1).and_then(|i| path.get(i)),
-                path.get(k.saturating_add(1)),
-            ];
-            let (mut up, mut down, mut left, mut right) = (false, false, false, false);
-            for n in near.into_iter().flatten() {
-                up |= n.1 < *y;
-                down |= n.1 > *y;
-                left |= n.0 < *x;
-                right |= n.0 > *x;
-            }
-            let glyph = match (up || down, left || right) {
-                (true, true) => match (up, right) {
-                    (true, true) => "└",
-                    (true, false) => "┘",
-                    (false, true) => "┌",
-                    (false, false) => "┐",
-                },
-                (true, false) => "┆",
-                _ => "┄",
-            };
-            doc.put(*x, *y, glyph, Style::text(Color::Grey));
-        }
-        let (Some(last), Some(before)) = (path.last(), path.iter().rev().nth(1)) else {
-            continue;
-        };
-        let above = last.1.checked_sub(1).and_then(|up| {
-            let i = up.saturating_mul(cols).saturating_add(last.0);
-            grid.get(i)
-                .filter(|c| c.iter().any(|w| *w > 0))
-                .map(|c| (up, *c))
-        });
-        match above {
-            // the branch: the solid line's cell above it gains a line down
-            Some((up, [u, _, l, r])) if before.0 == last.0 => {
-                let i = usize::from(u) * 27 + 9 + usize::from(l) * 3 + usize::from(r);
-                let glyph = JOINTS.get(i).copied().unwrap_or(' ');
-                let style = doc.style_at(last.0, up).unwrap_or(Style::PLAIN);
-                doc.put(last.0, up, &glyph.to_string(), style);
-            }
-            _ => {
-                doc.put(last.0, last.1, "◄", Style::text(Color::Grey));
-            }
-        }
-    }
-    // the arrows of the solid lines, at the end beside the terminal
-    for w in layout.wires.iter().filter(|w| !w.dashed) {
+    for w in wires {
         let path = cells(w);
         let (Some(last), Some(before)) = (path.last(), path.iter().rev().nth(1)) else {
             continue;
@@ -294,32 +288,37 @@ fn draw_wires(doc: &mut Canvas, layout: &Layout, at: Option<&Obj>) {
     }
 }
 
-/// The whole canvas: the rows, the wires, the notes and the trays, with
-/// `at` highlighted.
+/// The whole canvas: the paths, the editor and the pieces, with `at`
+/// highlighted.
 pub fn document(layout: &Layout, cols: usize, at: Option<&Obj>) -> Canvas {
     let mut doc = Canvas::new(cols, layout.height.max(1));
-    draw_wires(&mut doc, layout, at);
+    for dashed in [false, true] {
+        let set: Vec<&Wire> = layout.wires.iter().filter(|w| w.dashed == dashed).collect();
+        draw_set(&mut doc, &set, at, dashed);
+    }
     for b in &layout.boxes {
         draw_box(&mut doc, b, Some(&b.obj) == at);
     }
     for n in &layout.notes {
         let style = match n.kind {
-            NoteKind::Waiting => bold(Color::Yellow),
-            NoteKind::Aside => bold(Color::Grey),
-            NoteKind::Hint => Style {
-                italic: true,
-                ..Style::text(Color::Grey)
-            },
-            NoteKind::Add => Style::text(Color::Grey),
+            NoteKind::Heading => bold(Color::BrightWhite),
+            NoteKind::Needs => Style::text(Color::Yellow),
+            NoteKind::Ready => bold(Color::Green),
+            NoteKind::Grey => Style::text(Color::Grey),
+            NoteKind::Displays => bold(Color::Cyan),
+            NoteKind::Inputs => bold(Color::Green),
+            NoteKind::Fonts => bold(Color::Magenta),
         };
         doc.put(n.x, n.y, &n.text, style);
     }
-    doc.put(
-        1,
-        layout.rule,
-        &"─".repeat(cols.saturating_sub(2)),
-        Style::text(Color::Grey),
-    );
+    for y in &layout.rules {
+        doc.put(
+            1,
+            *y,
+            &"─".repeat(cols.saturating_sub(2)),
+            Style::text(Color::Grey),
+        );
+    }
     doc
 }
 
@@ -346,24 +345,37 @@ pub fn window_of(
     doc
 }
 
-/// The name an object goes by on a wire's label.
-fn obj_name(o: &Obj) -> String {
+/// The words a box's object goes by on a wire's label or a layer's
+/// breadcrumb.
+fn obj_name(flow: &Flow, o: &Obj) -> String {
     match o {
-        Obj::Screen(n, _) | Obj::Terminal(n) | Obj::Input(n, _) => n.clone(),
-        Obj::Others => String::new(),
+        Obj::Doc(n, Slot::Terminal) => n.clone(),
+        Obj::New(Slot::Terminal) => words::ROWS_NEW_PATH.to_lowercase(),
+        Obj::Doc(_, s) | Obj::New(s) | Obj::Pal(s) => match s {
+            Slot::Display(sel) => paths::title(flow, Kind::Display, sel).0,
+            Slot::Input(sel) => paths::title(flow, Kind::Input, sel).0,
+            Slot::Font(f) => rows::font_words(f.as_deref()),
+            Slot::Terminal => String::new(),
+        },
+        Obj::Others => words::ROWS_OTHERS_TITLE.to_lowercase(),
     }
 }
 
 /// Where a wire whose other end is out of sight meets the window's edge,
 /// and what the label there says: `↑ desk`, `↓ Logitech mouse`.
-fn edge_labels(layout: &Layout, top: usize, height: usize) -> Vec<(usize, usize, String)> {
+fn edge_labels(
+    flow: &Flow,
+    layout: &Layout,
+    top: usize,
+    height: usize,
+) -> Vec<(usize, usize, String)> {
     let Some(g) = layout.geometry else {
         return Vec::new();
     };
     let end = top.saturating_add(height);
     let seen = |y: usize| y >= top && y < end;
     let mut out = Vec::new();
-    for w in layout.wires.iter().filter(|w| !w.dashed) {
+    for w in &layout.wires {
         let (Some(first), Some(last)) = (w.points.first(), w.points.last()) else {
             continue;
         };
@@ -371,8 +383,8 @@ fn edge_labels(layout: &Layout, top: usize, height: usize) -> Vec<(usize, usize,
             continue;
         };
         let (hidden, name) = match (seen(first.1), seen(last.1)) {
-            (true, false) => (last.1, obj_name(&w.to)),
-            (false, true) => (first.1, obj_name(&w.from)),
+            (true, false) => (last.1, obj_name(flow, &w.to)),
+            (false, true) => (first.1, obj_name(flow, &w.from)),
             _ => continue,
         };
         let (row, arrow) = if hidden < top {
@@ -392,8 +404,8 @@ fn edge_labels(layout: &Layout, top: usize, height: usize) -> Vec<(usize, usize,
     out
 }
 
-/// The status line: the draft's name, or the breadcrumb to the object
-/// whose layer is open, then whether every device is in a path, then how
+/// The status line: the configuration open, or the breadcrumb to the box
+/// whose layer is open; then whether every device is in a path; then how
 /// the draft stands.
 fn status(canvas: &mut Canvas, app: &App, layout: &Layout, crumb: Option<&str>) {
     let flow = &app.inputs.flow;
@@ -406,11 +418,11 @@ fn status(canvas: &mut Canvas, app: &App, layout: &Layout, crumb: Option<&str>) 
         None => name,
     };
     let mut x = canvas.put(1, 1, &left, bold(Color::BrightWhite));
-    let count = |s: Sort| layout.waiting.iter().filter(|w| **w == s).count();
+    let count = |s: rows::Sort| layout.waiting.iter().filter(|w| **w == s).count();
     let waiting = words::rows_waiting(
-        count(Sort::Keyboard),
-        count(Sort::Pointer),
-        count(Sort::Screen),
+        count(rows::Sort::Keyboard),
+        count(rows::Sort::Pointer),
+        count(rows::Sort::Screen),
     );
     let color = if layout.waiting.is_empty() {
         Color::Green
@@ -485,32 +497,31 @@ fn message(canvas: &mut Canvas, app: &App) {
     }
 }
 
-/// Draws the Flow view as rows on `canvas`, below the tab bar.
+/// Draws the Flow view as paths on `canvas`, below the tab bar.
 pub fn screen(canvas: &mut Canvas, app: &App) {
     let Some(state) = &app.rows_flow else {
         return;
     };
     let flow = &app.inputs.flow;
-    let layout = rows::layout(flow, app.cols);
+    let layout = layout_of(app);
     message(canvas, app);
     match &state.layer {
         Some(obj) => {
-            let crumb = match obj {
-                Obj::Others => words::ROWS_OTHERS_TITLE.to_lowercase(),
-                o => obj_name(o),
-            };
-            status(canvas, app, &layout, Some(&crumb));
+            status(canvas, app, &layout, Some(&obj_name(flow, obj)));
             let keys = match obj {
-                Obj::Terminal(_) if app.card.typed.is_some() => words::KEYS_TYPING,
-                Obj::Terminal(_) => words::ROWS_KEYS_TERMINAL,
-                Obj::Others => words::ROWS_KEYS_OTHERS,
-                _ => words::ROWS_KEYS_DEVICE,
+                Obj::Doc(_, Slot::Terminal) if app.card.typed.is_some() => words::KEYS_TYPING,
+                Obj::New(Slot::Terminal) if state.typing.is_some() => words::KEYS_TYPING,
+                Obj::Doc(_, Slot::Terminal) => words::ROWS_KEYS_CARD,
+                Obj::Doc(..) | Obj::Others => words::ROWS_KEYS_INFO,
+                _ => words::ROWS_KEYS_CHOOSE,
             };
             key_line(canvas, app, keys);
             match obj {
-                Obj::Terminal(_) => terminal_layer(canvas, app),
+                Obj::Doc(name, Slot::Terminal) => card_layer(canvas, app, name),
+                Obj::Doc(name, slot) => info_layer(canvas, app, name, slot),
                 Obj::Others => others_layer(canvas, app),
-                o => device_layer(canvas, app, o),
+                Obj::New(Slot::Terminal) => terminal_choices(canvas, app, state),
+                _ => choices_layer(canvas, app, state, obj),
             }
         }
         None => {
@@ -536,14 +547,14 @@ fn overview(canvas: &mut Canvas, app: &App, state: &rows::State, layout: &Layout
         return;
     };
     for (x, w, title, color) in [
-        (g.screen_x, g.screen_w, words::ROWS_SCREENS, Color::Cyan),
+        (g.screen_x, g.screen_w, words::ROWS_DISPLAYS, Color::Cyan),
         (
             g.term_x,
             g.term_w,
             words::ROWS_TERMINALS,
             Color::BrightWhite,
         ),
-        (g.dev_x, g.dev_w, words::ROWS_KEYBOARDS, Color::Green),
+        (g.dev_x, g.dev_w, words::ROWS_INPUTS, Color::Green),
     ] {
         canvas.put(x, HEAD_ROWS.saturating_sub(1), &fit(title, w), bold(color));
     }
@@ -559,46 +570,28 @@ fn overview(canvas: &mut Canvas, app: &App, state: &rows::State, layout: &Layout
             }
         }
     }
-    for (x, y, text) in edge_labels(layout, state.top, wh) {
+    for (x, y, text) in edge_labels(&app.inputs.flow, layout, state.top, wh) {
         let row = wtop.saturating_add(y.saturating_sub(state.top));
         canvas.put(x, row, &text, Style::text(Color::BrightWhite));
     }
 }
 
-/// A field's label on a terminal's layer, in a reader's words.
+/// A field's label on a terminal's card, in a reader's words.
 fn field_label(f: &Field) -> String {
     match &f.what {
-        What::HeadLook(_) => "Look".to_owned(),
-        What::HeadName(_) => "Name".to_owned(),
         What::HeadKey(_, "consoles") => "Consoles".to_owned(),
         What::HeadKey(_, "login") => "Login".to_owned(),
         What::HeadKey(_, "when-display-lost") => "When its screen is unplugged".to_owned(),
         What::HeadKey(_, "isolated") => "Isolated".to_owned(),
-        What::Actions => "Remove".to_owned(),
+        What::LookKey(_, "font-size") => "Font size".to_owned(),
+        What::LookKey(_, key) => format!("Font set's {key}"),
         _ => f.label.clone(),
     }
 }
 
-/// A head key's value in a reader's words, and a note after it.
-fn field_value(flow: &Flow, h: usize, f: &Field) -> (String, String) {
-    let name = flow
-        .heads
-        .get(h)
-        .map(|x| x.name.clone())
-        .unwrap_or_default();
+/// A field's value in a reader's words, and a note after it.
+fn field_value(flow: &Flow, name: &str, f: &Field) -> (String, String) {
     match &f.what {
-        What::HeadLook(_) => {
-            let note = flow
-                .look_of(h)
-                .and_then(|l| flow.looks.get(l))
-                .map(|l| match (l.frit.is_empty(), l.points) {
-                    (true, _) => String::new(),
-                    (false, 0) => format!("{} at the automatic size", l.frit),
-                    (false, p) => format!("{} at {p} pt", l.frit),
-                })
-                .unwrap_or_default();
-            (f.current.clone(), note)
-        }
         What::HeadKey(_, "consoles") => (
             f.current.clone(),
             "Ctrl+Super+Return opens another while it runs".to_owned(),
@@ -625,51 +618,45 @@ fn field_value(flow: &Flow, h: usize, f: &Field) -> (String, String) {
             } else {
                 (
                     "no".to_owned(),
-                    format!("roaming keyboards type here while {name} is active"),
+                    format!("roaming keyboards type here while the terminal {name} is active"),
                 )
             }
         }
-        What::Actions => (String::new(), String::new()),
+        What::LookKey(_, "font-size") if f.current == "0" || f.current.is_empty() => {
+            ("automatic".to_owned(), String::new())
+        }
+        _ if f.current.is_empty() => ("as the font set sets it".to_owned(), String::new()),
         _ => (f.current.clone(), String::new()),
     }
 }
 
-/// A terminal's second layer: its look, consoles, login, what happens when
-/// its screen is unplugged and whether it is isolated, each a field of
-/// the card Enter opens in the six-column view; then what reaches it.
-fn terminal_layer(canvas: &mut Canvas, app: &App) {
+/// An added path's terminal card: the settings that do not change which
+/// pieces the path joins, each a field of the six-column view's cards,
+/// and the line that says how to change the pieces.
+fn card_layer(canvas: &mut Canvas, app: &App, name: &str) {
     let flow = &app.inputs.flow;
-    let Item::Head(h) = app.flow_at else {
-        return;
-    };
-    let Some(head) = flow.heads.get(h) else {
-        return;
-    };
-    let vx = VALUE_X;
-    let active = rows::active(flow) == Some(h);
-    let x = canvas.put(
-        1,
-        3,
-        &format!("TERMINAL {}", head.name),
-        bold(Color::BrightWhite),
-    );
+    let (doc, _) = paths::read(flow);
+    let font = doc
+        .iter()
+        .find(|p| p.name.as_deref() == Some(name))
+        .and_then(|p| p.font.clone());
+    let x = canvas.put(1, 3, &format!("TERMINAL {name}"), bold(Color::BrightWhite));
     canvas.put(
         x.saturating_add(2),
         3,
-        &words::rows_terminal_about(active, head.consoles),
+        &rows::font_words(font.as_deref()),
         Style::text(Color::Grey),
     );
     let fields = app.fields();
-    let spacing = if app.rows >= 30 { 2 } else { 1 };
     let mut y = 5usize;
     for (i, f) in fields.iter().enumerate() {
         let here = i == app.card.field;
         canvas.put(3, y, &field_label(f), Style::text(Color::Grey));
         if here {
-            field_choices(canvas, app, f, vx, y);
+            field_choices(canvas, app, f, VALUE_X, y);
         } else {
-            let (value, note) = field_value(flow, h, f);
-            let x = canvas.put(vx, y, &value, Style::text(Color::BrightWhite));
+            let (value, note) = field_value(flow, name, f);
+            let x = canvas.put(VALUE_X, y, &value, Style::text(Color::BrightWhite));
             if !note.is_empty() {
                 let room = app.cols.saturating_sub(x.saturating_add(3));
                 canvas.put(
@@ -680,113 +667,24 @@ fn terminal_layer(canvas: &mut Canvas, app: &App) {
                 );
             }
         }
-        y = y.saturating_add(spacing);
-    }
-    y = y.saturating_add(1);
-    canvas.put(1, y, words::ROWS_CONNECTED, bold(Color::BrightWhite));
-    let (screens, inputs) = reaching(flow, h);
-    let screen_lines: Vec<(Vec<String>, String)> = group(
-        screens
-            .iter()
-            .filter_map(|d| flow.displays.get(*d))
-            .map(|d| {
-                let how = d
-                    .rule
-                    .and_then(|r| flow.rules.get(r).map(|x| (r, x)))
-                    .map(|(r, x)| (match_words(&x.selector, Sort::Screen), r))
-                    .unwrap_or_default();
-                (d.name.clone(), how)
-            })
-            .collect(),
-    );
-    let input_lines: Vec<(Vec<String>, String)> = group(
-        inputs
-            .iter()
-            .filter_map(|(d, roams)| flow.inputs.get(*d).map(|x| (x, *roams)))
-            .map(|(d, roams)| {
-                let how = d
-                    .rule
-                    .and_then(|r| flow.rules.get(r).map(|x| (r, x)))
-                    .map(|(r, x)| {
-                        let w = if roams {
-                            words::ROWS_ROAMS.to_owned()
-                        } else {
-                            match_words(&x.selector, rows::sort(d))
-                        };
-                        (w, r)
-                    })
-                    .unwrap_or_default();
-                (d.name.clone(), how)
-            })
-            .collect(),
-    );
-    let bottom = window(app).0.saturating_add(window(app).1);
-    for (label, lines, color) in [
-        ("Screens", screen_lines, Color::Cyan),
-        ("Keyboards and pointers", input_lines, Color::Green),
-    ] {
         y = y.saturating_add(1);
-        if y >= bottom {
-            break;
-        }
-        canvas.put(3, y, label, Style::text(Color::Grey));
-        if lines.is_empty() {
-            canvas.put(vx, y, words::ROWS_NOTHING, Style::text(Color::Grey));
-        }
-        for (k, (names, how)) in lines.iter().enumerate() {
-            if k > 0 {
-                y = y.saturating_add(1);
-            }
-            if y >= bottom {
-                break;
-            }
-            let room = app.cols.saturating_sub(vx).saturating_sub(1);
-            let x = canvas.put(vx, y, &fit(&names.join(", "), room), Style::text(color));
-            let room = app.cols.saturating_sub(x.saturating_add(3));
-            canvas.put(
-                x.saturating_add(2),
-                y,
-                &fit(how, room),
-                Style::text(Color::Grey),
-            );
+    }
+    if font.is_none() {
+        y = y.saturating_add(1);
+        for line in wrap(words::NO_FONT_SET_KEYS, app.cols.saturating_sub(4), 2) {
+            canvas.put(3, y, &line, Style::text(Color::Grey));
+            y = y.saturating_add(1);
         }
     }
-}
-
-/// Devices that reach a terminal the same way, on one line: their names,
-/// and how a rule matches them, with the rules' numbers.
-fn group(devices: Vec<(String, (String, usize))>) -> Vec<(Vec<String>, String)> {
-    let mut out: Vec<(Vec<String>, String, Vec<usize>)> = Vec::new();
-    for (name, (how, rule)) in devices {
-        match out.iter_mut().find(|(_, h, _)| *h == how) {
-            Some((names, _, rules)) => {
-                names.push(name);
-                if !rules.contains(&rule) {
-                    rules.push(rule);
-                }
-            }
-            None => out.push((vec![name], how, vec![rule])),
-        }
+    // the note stays above the message and the keys
+    let note = wrap(words::REVISE_NOTE, app.cols.saturating_sub(4), 2);
+    let (wtop, wh) = window(app);
+    let last = wtop.saturating_add(wh).saturating_sub(note.len());
+    y = y.saturating_add(1).min(last);
+    for line in note {
+        canvas.put(3, y, &line, Style::text(Color::Yellow));
+        y = y.saturating_add(1);
     }
-    out.into_iter()
-        .map(|(names, how, rules)| {
-            let numbers: Vec<String> = rules
-                .iter()
-                .map(|r| r.saturating_add(1).to_string())
-                .collect();
-            let rules = match numbers.as_slice() {
-                [one] => format!("rule {one}"),
-                [rest @ .., last] => format!("rules {} and {last}", rest.join(", ")),
-                [] => String::new(),
-            };
-            let how = match (how.as_str(), names.len()) {
-                (words::ROWS_ROAMS, 1) => "it roams".to_owned(),
-                (words::ROWS_ROAMS, _) => "they roam".to_owned(),
-                _ => how,
-            };
-            (names, format!("{how} ({rules})"))
-        })
-        .collect()
 }
 
 /// The highlighted field's choices across its row: each offered value,
@@ -817,9 +715,9 @@ fn field_choices(canvas: &mut Canvas, app: &App, f: &Field, vx: usize, y: usize)
     }
 }
 
-/// One choice: `○ text`, or `● text` for what the draft has now, the
-/// text in reverse video under the cursor; returns the column after it
-/// and its gap.
+/// One choice: `○ text`, or `● text` for what is chosen now, the text in
+/// reverse video under the cursor; returns the column after it and its
+/// gap.
 fn choice(canvas: &mut Canvas, x: usize, y: usize, text: &str, on: bool, cursor: bool) -> usize {
     let (mark, mark_style) = if on {
         ("●", Style::text(Color::Green))
@@ -842,126 +740,180 @@ fn choice(canvas: &mut Canvas, x: usize, y: usize, text: &str, on: bool, cursor:
     end.saturating_add(3)
 }
 
-/// A device's or a screen's second layer: where it goes, how its rule
-/// matches it, and what the choice under the cursor changes.
-fn device_layer(canvas: &mut Canvas, app: &App, obj: &Obj) {
+/// An added path's display or input: what it matches, read-only, and the
+/// line that says how to change it.
+fn info_layer(canvas: &mut Canvas, app: &App, name: &str, slot: &Slot) {
     let flow = &app.inputs.flow;
-    let Some(state) = &app.rows_flow else {
-        return;
-    };
-    let Some(item) = rows::item_of(flow, obj) else {
-        return;
-    };
-    let (kind_word, dev) = match item {
-        Item::Display(d) => ("SCREEN", flow.displays.get(d)),
-        Item::Input(d) => {
-            let dev = flow.inputs.get(d);
-            let word = match dev.map(rows::sort) {
-                Some(Sort::Keyboard) => "KEYBOARD",
-                Some(Sort::Pointer) => "POINTER",
-                _ => "INPUT",
-            };
-            (word, dev)
-        }
+    let (kind, sel, heading) = match slot {
+        Slot::Display(s) => (Kind::Display, s, "DISPLAY"),
+        Slot::Input(s) => (Kind::Input, s, "INPUT"),
         _ => return,
     };
-    let Some(dev) = dev else {
-        return;
-    };
-    let s = match item {
-        Item::Display(_) => Sort::Screen,
-        _ => rows::sort(dev),
-    };
+    let (title, detail) = paths::title(flow, kind, sel);
     let x = canvas.put(
         1,
         3,
-        &format!("{kind_word} {}", dev.name),
+        &format!("{heading} {title}"),
         bold(Color::BrightWhite),
     );
-    let mut about: Vec<String> = Vec::new();
-    let port = rows::port_words(&dev.detail);
-    if !port.is_empty() {
-        about.push(port);
-    }
-    if let Some(id) = dev.keys.iter().find_map(|k| k.strip_prefix("id:")) {
-        about.push(format!("id {id}"));
-    }
-    about.push(
-        if dev.found {
-            "connected"
-        } else {
-            "not plugged in"
-        }
-        .to_owned(),
-    );
-    let room = app.cols.saturating_sub(x.saturating_add(3));
-    canvas.put(
-        x.saturating_add(2),
-        3,
-        &fit(&about.join(" · "), room),
-        Style::text(Color::Grey),
-    );
-    let vx = 16;
-    let lines: Vec<Line> = device_lines(flow, item);
+    canvas.put(x.saturating_add(2), 3, &detail, Style::text(Color::Grey));
+    let (doc, _) = paths::read(flow);
+    let users: Vec<String> = doc
+        .iter()
+        .filter(|p| match kind {
+            Kind::Display => p.displays.contains(sel),
+            Kind::Input => p.inputs.contains(sel),
+        })
+        .filter_map(|p| p.name.clone())
+        .collect();
+    let path = if users.len() > 1 {
+        words::ROAMS_SENTENCE.to_owned()
+    } else {
+        words::in_terminal(name)
+    };
+    let vx = VALUE_X.min(app.cols / 3);
     let mut y = 5usize;
-    for (i, line) in lines.iter().enumerate() {
-        canvas.put(3, y, &line.label, Style::text(Color::Grey));
-        let mut x = vx;
-        for (k, c) in line.choices.iter().enumerate() {
-            let cursor = i == state.line && k == state.pick;
-            if line.down && k > 0 {
-                y = y.saturating_add(1);
-                x = vx;
-            }
-            x = choice(canvas, x, y, &c.text, c.on, cursor);
-            if !c.note.is_empty() {
-                let room = app.cols.saturating_sub(x);
-                x = canvas
-                    .put(
-                        x.saturating_sub(1),
-                        y,
-                        &fit(&c.note, room),
-                        Style::text(Color::Grey),
-                    )
-                    .saturating_add(3);
-            }
-            // a row of choices too wide for the screen goes on below
-            if !line.down
-                && let Some(next) = line.choices.get(k.saturating_add(1))
-                && x.saturating_add(width(&next.text)).saturating_add(2) >= app.cols
-            {
-                y = y.saturating_add(1);
-                x = vx;
-            }
-        }
+    for (label, value) in [
+        ("Matched by", sel.clone()),
+        ("In the terminals", users.join(", ")),
+        ("Where it goes", path),
+    ] {
+        canvas.put(3, y, label, Style::text(Color::Grey));
+        canvas.put(
+            vx,
+            y,
+            &fit(&value, app.cols.saturating_sub(vx).saturating_sub(1)),
+            Style::text(Color::BrightWhite),
+        );
         y = y.saturating_add(2);
     }
-    // what the choice under the cursor changes, else the choice made now
-    let goes = lines.first();
-    let picked = goes.and_then(|l| {
-        if state.line == 0 {
-            l.choices.get(state.pick)
-        } else {
-            l.choices.iter().find(|c| c.on)
-        }
-    });
-    if let Some(c) = picked
-        && dev.found
-    {
+    for line in wrap(words::REVISE_NOTE, app.cols.saturating_sub(4), 2) {
+        canvas.put(3, y, &line, Style::text(Color::Yellow));
         y = y.saturating_add(1);
-        canvas.put(1, y, words::ROWS_WHAT_CHANGES, bold(Color::BrightWhite));
-        let sentence = rows::what_changes(flow, s, &c.text);
-        for (k, l) in wrap(&sentence, app.cols.saturating_sub(4), 3)
-            .iter()
-            .enumerate()
-        {
+    }
+}
+
+/// The choices a layer offers for `obj`, each its title, what it covers,
+/// and its value: what a display or input piece can match, broad to
+/// narrow, as a selector; or the font sets, `None` for the default.
+pub fn choices_for(app: &App, obj: &Obj) -> Vec<(String, String, Option<String>)> {
+    let flow = &app.inputs.flow;
+    match obj {
+        Obj::Pal(Slot::Font(_)) | Obj::New(Slot::Font(_)) | Obj::New(Slot::Terminal) => {
+            std::iter::once((words::DEFAULT_FONT_SET.to_owned(), String::new(), None))
+                .chain(
+                    font_names(app)
+                        .into_iter()
+                        .map(|f| (f.clone(), String::new(), Some(f))),
+                )
+                .collect()
+        }
+        Obj::Pal(slot) | Obj::New(slot) => {
+            let Some(piece) = slot.piece() else {
+                return Vec::new();
+            };
+            let kind = match slot {
+                Slot::Display(_) => Kind::Display,
+                _ => Kind::Input,
+            };
+            paths::narrow(flow, paths::sort_of(flow, &piece))
+                .into_iter()
+                .map(|(t, sel)| {
+                    let detail = paths::title(flow, kind, &sel).1;
+                    (t, detail, Some(sel))
+                })
+                .collect()
+        }
+        _ => Vec::new(),
+    }
+}
+
+/// A piece's choices, one a row, broad to narrow, each with what it
+/// covers; the cursor's in reverse video and the piece's own marked ●.
+fn choices_layer(canvas: &mut Canvas, app: &App, state: &rows::State, obj: &Obj) {
+    let heading = match obj {
+        Obj::Pal(Slot::Display(_)) | Obj::New(Slot::Display(_)) => words::CHOOSE_DISPLAY,
+        _ => words::CHOOSE_INPUT,
+    };
+    canvas.put(1, 3, heading, bold(Color::BrightWhite));
+    let about = wrap(words::CHOOSE_ABOUT, app.cols.saturating_sub(4), 2);
+    for (k, line) in about.iter().enumerate() {
+        canvas.put(3, 4usize.saturating_add(k), line, Style::text(Color::Grey));
+    }
+    let now = match obj {
+        Obj::New(Slot::Display(s)) | Obj::New(Slot::Input(s)) => Some(s.clone()),
+        _ => None,
+    };
+    let (wtop, wh) = window(app);
+    let bottom = wtop.saturating_add(wh);
+    let top = 5usize.saturating_add(about.len());
+    let room = bottom.saturating_sub(top).max(1);
+    let first = state.line.saturating_add(1).saturating_sub(room);
+    let mut y = top;
+    for (i, (title, detail, value)) in choices_for(app, obj).iter().enumerate().skip(first) {
+        if y >= bottom {
+            break;
+        }
+        let on = now.is_some() && *value == now;
+        let x = choice(canvas, 3, y, title, on, i == state.line);
+        let room = app.cols.saturating_sub(x);
+        canvas.put(x, y, &fit(detail, room), Style::text(Color::Grey));
+        y = y.saturating_add(1);
+    }
+}
+
+/// The editor's terminal: its name, which the person may type, on the
+/// first line, and its font set, chosen from the list below it.
+fn terminal_choices(canvas: &mut Canvas, app: &App, state: &rows::State) {
+    let flow = &app.inputs.flow;
+    let (doc, _) = paths::read(flow);
+    let name = state
+        .new
+        .name
+        .clone()
+        .unwrap_or_else(|| paths::new_name(flow, &doc));
+    canvas.put(1, 3, words::NEW_TERMINAL, bold(Color::BrightWhite));
+    canvas.put(3, 5, "Name", Style::text(Color::Grey));
+    match &state.typing {
+        Some(t) => {
+            canvas.put(VALUE_X, 5, &format!(" {t}_ "), Style::PLAIN.reversed());
+        }
+        None => {
+            let style = if state.line == 0 {
+                Style::PLAIN.reversed()
+            } else {
+                Style::text(Color::BrightWhite)
+            };
+            let x = canvas.put(VALUE_X, 5, &format!(" {name} "), style);
             canvas.put(
-                3,
-                y.saturating_add(1).saturating_add(k),
-                l,
+                x.saturating_add(2),
+                5,
+                words::ENTER_TO_TYPE,
                 Style::text(Color::Grey),
             );
         }
+    }
+    canvas.put(3, 7, "Font set", Style::text(Color::Grey));
+    let (wtop, wh) = window(app);
+    let bottom = wtop.saturating_add(wh);
+    let room = bottom.saturating_sub(7).max(1);
+    let first = state.line.saturating_sub(room);
+    let mut y = 7usize;
+    let list = choices_for(app, &Obj::New(Slot::Terminal));
+    for (i, (title, _, value)) in list.iter().enumerate().skip(first) {
+        if y >= bottom {
+            break;
+        }
+        let on = *value == state.new.font;
+        choice(
+            canvas,
+            VALUE_X,
+            y,
+            title,
+            on,
+            state.line == i.saturating_add(1),
+        );
+        y = y.saturating_add(1);
     }
 }
 
@@ -1017,23 +969,32 @@ fn others_layer(canvas: &mut Canvas, app: &App) {
     reason = "a test fails by panicking"
 )]
 mod tests {
-    use super::super::rows::tests::flow;
+    use super::super::paths::tests::{EDID_A, KBD_PATH, flow};
+    use super::super::paths::{Path, Piece};
+    use super::super::rows::tests::lay;
     use super::*;
 
     /// Whether `c` is a line's glyph, an arrow's or a junction's.
     fn line_glyph(c: char) -> bool {
-        JOINTS.contains(&c) && c != ' ' || "►◄▶◀┄".contains(c)
+        JOINTS.contains(&c) && c != ' ' || "►◄▶◀┄┆┅┇".contains(c)
+    }
+
+    fn editor() -> Path {
+        let mut p = Path::default();
+        p.pick(Piece::Input(KBD_PATH.into()));
+        p.pick(Piece::Input("id:2dc8:5200".into()));
+        p.pick(Piece::Display("*".into()));
+        p
     }
 
     #[test]
     fn every_wire_is_drawn_whole_from_border_to_border() {
-        let mut f = flow();
-        f.inputs[5].rule = Some(3);
+        let f = flow();
         for cols in [80, 100, 120] {
-            let l = rows::layout(&f, cols);
-            let at = Obj::Terminal("desk".into());
+            let l = lay(&f, &editor(), cols);
+            let at = Obj::Doc("desk".into(), Slot::Terminal);
             let doc = document(&l, cols, Some(&at));
-            for w in l.wires.iter().filter(|w| !w.dashed) {
+            for w in &l.wires {
                 let path = cells(w);
                 for (x, y) in &path {
                     let c = doc.at(*x, *y).unwrap_or(' ');
@@ -1048,10 +1009,8 @@ mod tests {
                 let beside_to = if to.x > tx { to.x } else { tx - 1 };
                 for (x, y) in [(beside_from, fy), (beside_to, ty)] {
                     let c = doc.at(x, y).unwrap_or(' ');
-                    assert!("│┃".contains(c), "{cols}: {w:?} meets {c:?} at {x},{y}");
+                    assert!("│┃┆┇".contains(c), "{cols}: {w:?} meets {c:?} at {x},{y}");
                 }
-                // the highlighted terminal's wires are heavy, ending in a
-                // heavy arrow, and the others light
                 let arrow = doc.at(tx, ty).unwrap_or(' ');
                 let arrows = if w.to == at { "▶◀" } else { "►◄" };
                 assert!(arrows.contains(arrow), "{cols}: {w:?} ends in {arrow:?}");
@@ -1060,92 +1019,66 @@ mod tests {
     }
 
     #[test]
-    fn the_highlighted_box_is_heavy_and_the_others_light() {
+    fn the_editor_is_dashed_and_a_picked_piece_is_cyan() {
         let f = flow();
-        let l = rows::layout(&f, 100);
-        let at = Obj::Terminal("desk".into());
-        let doc = document(&l, 100, Some(&at));
-        let desk = l.find(&at).expect("desk");
-        assert_eq!(doc.at(desk.x, desk.y), Some('┏'));
-        assert!(doc.style_at(desk.x, desk.y).expect("a style").bold);
-        let title = doc.style_at(desk.x + 2, desk.title_row()).expect("a style");
-        assert!(title.bold && title.underline);
-        let panel = l.find(&Obj::Terminal("panel".into())).expect("panel");
-        assert_eq!(doc.at(panel.x, panel.y), Some('┌'));
-        let wait = l
-            .boxes
-            .iter()
-            .find(|b| b.mood == Mood::Waiting)
-            .expect("one waits");
+        let l = lay(&f, &editor(), 100);
+        let doc = document(&l, 100, None);
+        let new = l.find(&Obj::New(Slot::Terminal)).expect("the editor");
+        assert_eq!(doc.at(new.x, new.y), Some('┌'));
+        assert_eq!(doc.at(new.x + 1, new.y), Some('┄'));
+        assert_eq!(doc.at(new.x, new.y + 1), Some('┆'));
+        let w = l.wires.iter().find(|w| w.dashed).expect("a dashed line");
+        let (x, y) = cells(w)[1];
+        assert_eq!(doc.at(x, y), Some('┄'));
+        let added = l
+            .find(&Obj::Doc("desk".into(), Slot::Terminal))
+            .expect("desk");
+        assert_eq!(doc.at(added.x + 1, added.y), Some('─'));
+        let picked = l
+            .find(&Obj::Pal(Slot::Input(KBD_PATH.into())))
+            .expect("the receiver");
+        let s = doc.style_at(picked.x, picked.y).expect("a style");
+        assert_eq!((s.fg, s.bold), (Some(Color::BrightCyan), true));
+        let taken = l
+            .find(&Obj::Pal(Slot::Display(EDID_A.into())))
+            .expect("DP-8");
         assert_eq!(
-            doc.style_at(wait.x, wait.y).and_then(|s| s.fg),
-            Some(Color::Yellow)
-        );
-        let others = l.find(&Obj::Others).expect("the other inputs");
-        assert_eq!(
-            doc.style_at(others.x, others.y).and_then(|s| s.fg),
+            doc.style_at(taken.x, taken.y).and_then(|s| s.fg),
             Some(Color::Grey)
         );
     }
 
     #[test]
-    fn a_dotted_branch_runs_down_from_the_row_s_line_and_turns_to_its_words() {
-        let mut f = flow();
-        f.rules.push(super::super::flow::Rule {
-            kind: super::super::flow::Kind::Input,
-            line: 9,
-            selector: "path:x".into(),
-            target: "panel".into(),
-            state: super::super::flow::RuleState::Matches,
-        });
-        f.inputs[5].rule = Some(f.rules.len() - 1);
-        let l = rows::layout(&f, 100);
-        let doc = document(&l, 100, None);
-        let dotted = l.wires.iter().find(|w| w.dashed).expect("a dotted line");
-        let path = cells(dotted);
-        let (sx, sy) = path[0];
-        let (tx, ty) = *path.last().expect("a cell");
-        // across from the device column, then up to the line above it
-        assert_eq!(doc.at(sx, sy), Some('┄'));
-        assert_eq!(doc.at(tx, sy), Some('└'));
-        for y in ty..sy {
-            assert_eq!(doc.at(tx, y), Some('┆'), "at {tx},{y}");
-        }
-        // the solid line above it gains a line down
-        assert_eq!(doc.at(tx, ty - 1), Some('┬'));
-    }
-
-    #[test]
     fn a_box_whose_title_is_out_of_sight_leaves_no_piece_of_its_border() {
         let f = flow();
-        let l = rows::layout(&f, 100);
-        let desk = l.find(&Obj::Terminal("desk".into())).expect("desk");
+        let l = lay(&f, &Path::default(), 100);
+        let desk = l
+            .find(&Obj::Doc("desk".into(), Slot::Terminal))
+            .expect("desk");
         // the window starts at desk's bottom border: desk's title is above it
         let top = desk.bottom() - 1;
         let doc = window_of(&l, 100, None, top, 12);
         for x in desk.x..desk.right() {
             assert_eq!(doc.at(x, top), Some(' '), "at {x},{top}");
         }
-        // a box whose title is in sight keeps its border
-        let panel = l.find(&Obj::Terminal("panel".into())).expect("panel");
+        let panel = l
+            .find(&Obj::Doc("panel".into(), Slot::Terminal))
+            .expect("panel");
         assert_eq!(doc.at(panel.x, panel.y), Some('┌'));
     }
 
     #[test]
     fn a_wire_to_a_terminal_out_of_sight_ends_at_the_edge_with_its_name() {
         let f = flow();
-        let l = rows::layout(&f, 120);
-        let mouse = l
-            .find(&Obj::Input(
-                f.inputs[2].name.clone(),
-                f.inputs[2].detail.clone(),
-            ))
-            .expect("the mouse");
-        // the window starts at the mouse's top row: desk is above it
-        let labels = edge_labels(&l, mouse.y, 6);
+        let l = lay(&f, &Path::default(), 120);
+        let second = l
+            .find(&Obj::Doc("desk".into(), Slot::Input("id:046d:c31c".into())))
+            .expect("desk's second input");
+        // the window starts at the second input's top row: desk is above it
+        let labels = edge_labels(&f, &l, second.y, 6);
         assert_eq!(labels.len(), 1, "{labels:?}");
         let (x, y, text) = &labels[0];
-        assert_eq!(*y, mouse.y);
+        assert_eq!(*y, second.y);
         assert_eq!(*x, l.geometry.expect("columns").dev_join);
         assert_eq!(text, "↑ desk");
     }
