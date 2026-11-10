@@ -24,8 +24,17 @@ use vtium_settings::keys::Kind as KeyKind;
 pub const MIN_COLS: usize = 80;
 pub const MIN_ROWS: usize = 25;
 
-/// Whether `app`'s grid is below the minimum.
+/// The smallest grid the Flow view as paths is drawn in: its document
+/// reflows and scrolls, so it reads on a smaller grid than the other views.
+pub const ROWS_MIN_COLS: usize = 60;
+pub const ROWS_MIN_ROWS: usize = 20;
+
+/// Whether `app`'s grid is below the minimum of the view it shows.
 pub fn too_small(app: &App) -> bool {
+    let rows = app.view == View::Flow && app.rows_flow.as_ref().is_some_and(|s| !s.classic);
+    if rows {
+        return app.cols < ROWS_MIN_COLS || app.rows < ROWS_MIN_ROWS;
+    }
     app.cols < MIN_COLS || app.rows < MIN_ROWS
 }
 
