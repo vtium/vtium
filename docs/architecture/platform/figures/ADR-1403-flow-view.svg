@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1071" height="1136" viewBox="0 0 1071 1136" font-family="DejaVu Sans Mono, monospace" font-size="14" xml:space="preserve">
-<title>vtium-config's Flow view as paths: CONFIGURATION with three paths, NEW PATH with a path being built, and PARTS with its four templates, the whole document 120 cells wide in the console color set</title>
+<title>vtium-config's Flow view as paths: CONFIGURATION with three paths, the terminal desk on VT 3 among them, NEW PATH with a path on VT 4 that shares the display DP-8, and PARTS with its four templates, the whole document 120 cells wide in the console color set</title>
 <rect width="1071" height="1136" fill="#ffffff"/>
 <text x="20" y="22" font-size="12" fill="#1f2933">vtium-config's Flow view, the whole document as it scrolls, 120 cells wide, in the console color set on a black console</text>
 <rect x="20" y="32" width="1031" height="1090" fill="#000000" stroke="#9aa5b1"/>
@@ -7,8 +7,8 @@
 <text x="38.43" y="50" fill="#000000" textLength="33.72" lengthAdjust="spacingAndGlyphs">Flow</text>
 <text x="89.01" y="50" fill="#e5e5e5" textLength="935.73" lengthAdjust="spacingAndGlyphs">Looks  Fonts  Settings  Help                                    v View file  s Save  i Install  r Revert  n New</text>
 <text x="30.00" y="68" fill="#ffffff" font-weight="bold" textLength="143.31" lengthAdjust="spacingAndGlyphs">draft workstation</text>
-<text x="190.17" y="68" fill="#cdcd00" textLength="210.75" lengthAdjust="spacingAndGlyphs">1 keyboard in no path yet</text>
-<text x="409.35" y="68" fill="#7f7f7f" textLength="210.75" lengthAdjust="spacingAndGlyphs">· 2 changes · no problems</text>
+<text x="190.17" y="68" fill="#cdcd00" textLength="328.77" lengthAdjust="spacingAndGlyphs">1 keyboard and 1 display in no path yet</text>
+<text x="527.37" y="68" fill="#7f7f7f" textLength="210.75" lengthAdjust="spacingAndGlyphs">· 2 changes · no problems</text>
 <text x="30.00" y="86" fill="#7f7f7f" textLength="615.39" lengthAdjust="spacingAndGlyphs">policy open: a keyboard that no rule names types into the active terminal</text>
 <text x="30.00" y="104" fill="#ffffff" font-weight="bold" textLength="109.59" lengthAdjust="spacingAndGlyphs">CONFIGURATION</text>
 <text x="38.43" y="122" fill="#00cdcd" font-weight="bold" textLength="67.44" lengthAdjust="spacingAndGlyphs">DISPLAYS</text>
@@ -22,7 +22,7 @@
 <text x="603.24" y="158" fill="#e5e5e5" textLength="101.16" lengthAdjust="spacingAndGlyphs">│◄──┬──────│</text>
 <text x="712.83" y="158" fill="#00cd00" font-weight="bold" textLength="109.59" lengthAdjust="spacingAndGlyphs">Left keyboard</text>
 <text x="948.87" y="158" fill="#e5e5e5" textLength="8.43" lengthAdjust="spacingAndGlyphs">│</text>
-<text x="38.43" y="176" fill="#e5e5e5" textLength="573.24" lengthAdjust="spacingAndGlyphs">│ LARGE00001 · by EDID │            │ font set monoid              │</text>
+<text x="38.43" y="176" fill="#e5e5e5" textLength="573.24" lengthAdjust="spacingAndGlyphs">│ LARGE00001 · by EDID │            │ font set monoid · VT 3       │</text>
 <text x="636.96" y="176" fill="#7f7f7f" textLength="8.43" lengthAdjust="spacingAndGlyphs">┊</text>
 <text x="695.97" y="176" fill="#e5e5e5" textLength="261.33" lengthAdjust="spacingAndGlyphs">│ Logitech USB Receiver       │</text>
 <text x="38.43" y="194" fill="#e5e5e5" textLength="573.24" lengthAdjust="spacingAndGlyphs">└──────────────────────┘            └──────────────────────────────┘</text>
@@ -62,39 +62,39 @@
 <text x="139.59" y="446" fill="#cdcd00" textLength="345.63" lengthAdjust="spacingAndGlyphs">This path is complete. Press a to add it.</text>
 <text x="38.43" y="464" fill="#e5e5e5" textLength="918.87" lengthAdjust="spacingAndGlyphs">┌┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┐            ┌┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┐          ┌┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┐</text>
 <text x="38.43" y="482" fill="#e5e5e5" textLength="8.43" lengthAdjust="spacingAndGlyphs">┆</text>
-<text x="55.29" y="482" fill="#00cdcd" font-weight="bold" textLength="67.44" lengthAdjust="spacingAndGlyphs">HDMI-A-2</text>
+<text x="55.29" y="482" fill="#00cdcd" font-weight="bold" textLength="33.72" lengthAdjust="spacingAndGlyphs">DP-8</text>
 <text x="232.32" y="482" fill="#e5e5e5" textLength="118.02" lengthAdjust="spacingAndGlyphs">┆┈┈┈┈┈┈┈┈┈┈┈►┆</text>
 <text x="358.77" y="482" fill="#cdcd00" font-weight="bold" textLength="84.30" lengthAdjust="spacingAndGlyphs">terminal-1</text>
 <text x="603.24" y="482" fill="#e5e5e5" textLength="101.16" lengthAdjust="spacingAndGlyphs">┆◄┈┈┈┈┈┈┈┈┈┆</text>
 <text x="712.83" y="482" fill="#00cd00" font-weight="bold" textLength="126.45" lengthAdjust="spacingAndGlyphs">8BitDo Keyboard</text>
 <text x="948.87" y="482" fill="#e5e5e5" textLength="8.43" lengthAdjust="spacingAndGlyphs">┆</text>
-<text x="38.43" y="500" fill="#e5e5e5" textLength="918.87" lengthAdjust="spacingAndGlyphs">┆ SMALL00001 · by EDID ┆            ┆ default font set             ┆          ┆ USB 3.4                     ┆</text>
+<text x="38.43" y="500" fill="#e5e5e5" textLength="918.87" lengthAdjust="spacingAndGlyphs">┆ LARGE00001 · by EDID ┆            ┆ default font set · VT 4      ┆          ┆ USB 3.4                     ┆</text>
 <text x="38.43" y="518" fill="#e5e5e5" textLength="918.87" lengthAdjust="spacingAndGlyphs">└┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┘            └┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┘          └┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┘</text>
 <text x="30.00" y="554" fill="#7f7f7f" textLength="1011.60" lengthAdjust="spacingAndGlyphs">────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────</text>
 <text x="30.00" y="572" fill="#ffffff" font-weight="bold" textLength="42.15" lengthAdjust="spacingAndGlyphs">PARTS</text>
 <text x="38.43" y="590" fill="#00cdcd" font-weight="bold" textLength="67.44" lengthAdjust="spacingAndGlyphs">DISPLAYS</text>
 <text x="38.43" y="608" fill="#e5e5e5" textLength="202.32" lengthAdjust="spacingAndGlyphs">╔══════════════════════╗</text>
-<text x="257.61" y="608" fill="#7f7f7f" textLength="202.32" lengthAdjust="spacingAndGlyphs">┌──────────────────────┐</text>
-<text x="476.79" y="608" fill="#ff00ff" textLength="202.32" lengthAdjust="spacingAndGlyphs">┌──────────────────────┐</text>
+<text x="257.61" y="608" fill="#ff00ff" textLength="252.90" lengthAdjust="spacingAndGlyphs">┌────────────────────────────┐</text>
+<text x="527.37" y="608" fill="#cdcd00" textLength="202.32" lengthAdjust="spacingAndGlyphs">┌──────────────────────┐</text>
 <text x="38.43" y="626" fill="#e5e5e5" textLength="8.43" lengthAdjust="spacingAndGlyphs">║</text>
 <text x="55.29" y="626" fill="#00cdcd" font-weight="bold" textLength="59.01" lengthAdjust="spacingAndGlyphs">Display</text>
 <text x="232.32" y="626" fill="#e5e5e5" textLength="8.43" lengthAdjust="spacingAndGlyphs">║</text>
-<text x="257.61" y="626" fill="#7f7f7f" textLength="8.43" lengthAdjust="spacingAndGlyphs">│</text>
-<text x="274.47" y="626" fill="#7f7f7f" font-style="italic" textLength="33.72" lengthAdjust="spacingAndGlyphs">DP-8</text>
-<text x="451.50" y="626" fill="#7f7f7f" textLength="8.43" lengthAdjust="spacingAndGlyphs">│</text>
-<text x="476.79" y="626" fill="#ff00ff" textLength="8.43" lengthAdjust="spacingAndGlyphs">│</text>
-<text x="493.65" y="626" fill="#00cdcd" font-weight="bold" textLength="84.30" lengthAdjust="spacingAndGlyphs">✓ HDMI-A-2</text>
-<text x="670.68" y="626" fill="#ff00ff" textLength="8.43" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="257.61" y="626" fill="#ff00ff" textLength="8.43" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="274.47" y="626" fill="#00cdcd" font-weight="bold" textLength="50.58" lengthAdjust="spacingAndGlyphs">✓ DP-8</text>
+<text x="502.08" y="626" fill="#ff00ff" textLength="8.43" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="527.37" y="626" fill="#cdcd00" textLength="8.43" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="544.23" y="626" fill="#00cdcd" font-weight="bold" textLength="67.44" lengthAdjust="spacingAndGlyphs">HDMI-A-2</text>
+<text x="721.26" y="626" fill="#cdcd00" textLength="8.43" lengthAdjust="spacingAndGlyphs">│</text>
 <text x="38.43" y="644" fill="#e5e5e5" textLength="202.32" lengthAdjust="spacingAndGlyphs">║ Add display… [Enter] ║</text>
-<text x="257.61" y="644" fill="#7f7f7f" textLength="8.43" lengthAdjust="spacingAndGlyphs">│</text>
-<text x="274.47" y="644" fill="#7f7f7f" font-style="italic" textLength="168.60" lengthAdjust="spacingAndGlyphs">in the terminal desk</text>
-<text x="451.50" y="644" fill="#7f7f7f" textLength="8.43" lengthAdjust="spacingAndGlyphs">│</text>
-<text x="476.79" y="644" fill="#ff00ff" textLength="8.43" lengthAdjust="spacingAndGlyphs">│</text>
-<text x="493.65" y="644" fill="#e5e5e5" textLength="126.45" lengthAdjust="spacingAndGlyphs">in the new path</text>
-<text x="670.68" y="644" fill="#ff00ff" textLength="8.43" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="257.61" y="644" fill="#ff00ff" textLength="8.43" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="274.47" y="644" fill="#e5e5e5" textLength="210.75" lengthAdjust="spacingAndGlyphs">in desk, and the new path</text>
+<text x="502.08" y="644" fill="#ff00ff" textLength="8.43" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="527.37" y="644" fill="#cdcd00" textLength="8.43" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="544.23" y="644" fill="#e5e5e5" textLength="84.30" lengthAdjust="spacingAndGlyphs">in no path</text>
+<text x="721.26" y="644" fill="#cdcd00" textLength="8.43" lengthAdjust="spacingAndGlyphs">│</text>
 <text x="38.43" y="662" fill="#e5e5e5" textLength="202.32" lengthAdjust="spacingAndGlyphs">╚══════════════════════╝</text>
-<text x="257.61" y="662" fill="#7f7f7f" textLength="202.32" lengthAdjust="spacingAndGlyphs">└──────────────────────┘</text>
-<text x="476.79" y="662" fill="#ff00ff" textLength="202.32" lengthAdjust="spacingAndGlyphs">└──────────────────────┘</text>
+<text x="257.61" y="662" fill="#ff00ff" textLength="252.90" lengthAdjust="spacingAndGlyphs">└────────────────────────────┘</text>
+<text x="527.37" y="662" fill="#cdcd00" textLength="202.32" lengthAdjust="spacingAndGlyphs">└──────────────────────┘</text>
 <text x="38.43" y="698" fill="#cdcd00" font-weight="bold" textLength="75.87" lengthAdjust="spacingAndGlyphs">TERMINALS</text>
 <text x="38.43" y="716" fill="#e5e5e5" textLength="497.37" lengthAdjust="spacingAndGlyphs">╔═══════════════════════╗  ┌──────────────────────────────┐</text>
 <text x="38.43" y="734" fill="#e5e5e5" textLength="8.43" lengthAdjust="spacingAndGlyphs">║</text>
@@ -160,5 +160,5 @@
 <text x="594.81" y="1022" fill="#e5e5e5" textLength="8.43" lengthAdjust="spacingAndGlyphs">│</text>
 <text x="38.43" y="1040" fill="#e5e5e5" textLength="564.81" lengthAdjust="spacingAndGlyphs">║ Add font set… [Enter] ║  │ in the terminal desk │  │ in no path │</text>
 <text x="38.43" y="1058" fill="#e5e5e5" textLength="564.81" lengthAdjust="spacingAndGlyphs">╚═══════════════════════╝  └──────────────────────┘  └────────────┘</text>
-<text x="30.00" y="1094" fill="#7f7f7f" textLength="826.14" lengthAdjust="spacingAndGlyphs">↑↓←→ move  Space pick  Enter open  a add path  e revise  v view file  Esc clear  i install  q quit</text>
+<text x="30.00" y="1094" fill="#7f7f7f" textLength="977.88" lengthAdjust="spacingAndGlyphs">↑↓←→ move  Space pick  Enter open  a add path  e revise  v view file  Esc clear  i install  o restore  n new  q quit</text>
 </svg>
