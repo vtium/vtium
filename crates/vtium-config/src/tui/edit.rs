@@ -16,6 +16,12 @@ use crate::outcome::Fail;
 pub enum Change {
     /// Adds a rule, `KIND SELECTOR -> TARGET`, where a new rule goes.
     RuleAdd(String),
+    /// Adds a rule before rule `before`, or after the last where `before`
+    /// is one past it.
+    RuleAddBefore {
+        line: String,
+        before: usize,
+    },
     /// Changes rule `number`'s selector, its target, or both.
     RuleSet {
         number: usize,
@@ -89,6 +95,7 @@ impl Change {
     pub fn apply(&self, text: &str) -> Result<String, Fail> {
         match self {
             Change::RuleAdd(line) => ops::rule_add(text, line, None),
+            Change::RuleAddBefore { line, before } => ops::rule_add(text, line, Some(*before)),
             Change::RuleSet {
                 number,
                 selector,
@@ -144,6 +151,9 @@ impl Change {
         let c = "vtium config";
         match self {
             Change::RuleAdd(line) => format!("{c} rule add {}", shell(line)),
+            Change::RuleAddBefore { line, before } => {
+                format!("{c} rule add {} --before {before}", shell(line))
+            }
             Change::RuleSet {
                 number,
                 selector,

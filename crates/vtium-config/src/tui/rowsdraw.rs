@@ -5,11 +5,14 @@
 //! keeps at its top. Enter on a box draws its second layer in the
 //! window's place.
 //!
-//! Color says state and position says kind: a box's border is white when
-//! it is in a path or free to pick, amber for a device no path holds, grey
-//! for what cannot be picked, and cyan for a piece picked into the editor.
-//! The editor's boxes and lines are dashed. The highlighted box has a
-//! heavy border in bold, and its own lines are drawn heavy and bright.
+//! A box's border says its state: white when it is in a path or free to
+//! pick, amber for a device no path holds, grey for what cannot be picked,
+//! and bright magenta, a color no state uses, for a part picked into the
+//! editor. Its title says its kind: displays cyan, terminals yellow, font
+//! sets magenta, inputs green, as the column titles are. The editor's boxes
+//! and lines are dashed, and so is the line that says the roaming inputs
+//! reach a terminal. The highlighted box has a heavy border in bold, and
+//! its own lines are drawn heavy and bright.
 
 use super::canvas::{Canvas, fit, width, wrap};
 use super::color::{Color, Style};
@@ -20,7 +23,8 @@ use super::rows::{self, BOX_ROWS, Boxed, Ctx, Layout, Mood, NoteKind, Obj, Slot,
 use super::words;
 
 /// The rows fixed at the top: the tab bar, the status line, the policy
-/// line, a blank row and the column titles.
+/// line, the heading of the area at the window's top, and the column
+/// titles.
 pub const HEAD_ROWS: usize = 5;
 
 /// The most rows the message line wraps to.
@@ -73,7 +77,7 @@ pub fn font_names(app: &App) -> Vec<String> {
 /// The document as `app` holds it, laid out at its width.
 pub fn layout_of(app: &App) -> Layout {
     let flow = &app.inputs.flow;
-    let (doc, unfit) = paths::read(flow);
+    let doc = paths::read(flow);
     let new = app
         .rows_flow
         .as_ref()
@@ -83,7 +87,6 @@ pub fn layout_of(app: &App) -> Layout {
     rows::layout(&Ctx {
         flow,
         doc: &doc,
-        unfit,
         new: &new,
         fonts: &fonts,
         cols: app.cols,
@@ -116,19 +119,33 @@ fn bold(color: Color) -> Style {
     }
 }
 
-/// The color of a box's border and of its title, by its state.
-fn mood_color(mood: Mood) -> (Color, Color) {
+/// The color of a box's border, by its state.
+pub fn mood_color(mood: Mood) -> Color {
     match mood {
-        Mood::Placed => (Color::White, Color::BrightWhite),
-        Mood::Waiting => (Color::Yellow, Color::Yellow),
-        Mood::Aside => (Color::Grey, Color::Grey),
-        Mood::Picked => (Color::BrightCyan, Color::BrightCyan),
+        Mood::Placed => Color::White,
+        Mood::Waiting => Color::Yellow,
+        Mood::Aside => Color::Grey,
+        Mood::Picked => Color::BrightMagenta,
+    }
+}
+
+/// The color of a box's title and of its column's title, by its kind.
+pub fn kind_color(obj: &Obj) -> Color {
+    match obj {
+        Obj::Doc(_, s) | Obj::New(s) | Obj::Pal(s) => match s {
+            Slot::Display(_) => Color::Cyan,
+            Slot::Terminal => Color::Yellow,
+            Slot::Font(_) => Color::Magenta,
+            Slot::Input(_) => Color::Green,
+        },
+        Obj::Roam(_) | Obj::Others => Color::Green,
     }
 }
 
 /// Draws the box `b` on `doc`, heavy when it is highlighted.
 fn draw_box(doc: &mut Canvas, b: &Boxed, highlighted: bool) {
-    let (border, title) = mood_color(b.mood);
+    let border = mood_color(b.mood);
+    let title = kind_color(&b.obj);
     let border = match (highlighted, b.mood) {
         (true, Mood::Placed) => bold(Color::BrightWhite),
         (true, _) | (false, Mood::Picked) => bold(border),
@@ -209,13 +226,15 @@ fn cells(w: &Wire) -> Vec<(usize, usize)> {
     out
 }
 
-/// Draws one set of wires, the whole ones or the dashed ones, as
-/// box-drawing lines that join where they meet, heavy where they belong
-/// to the highlighted object, each ending in an arrow at its terminal.
-fn draw_set(doc: &mut Canvas, wires: &[&Wire], at: Option<&Obj>, dashed: bool) {
+/// Draws the wires as box-drawing lines that join where they meet, heavy
+/// where they belong to the highlighted object, each ending in an arrow
+/// at its terminal. A cell that only dashed lines cross is drawn dashed,
+/// and one that only a roaming stub crosses is grey.
+fn draw_wires(doc: &mut Canvas, wires: &[Wire], at: Option<&Obj>) {
     let (cols, rows) = (doc.cols, doc.rows);
-    // each cell's weight up, down, left and right
-    let mut grid = vec![[0u8; 4]; cols.saturating_mul(rows)];
+    // each cell's weight up, down, left and right, whether a whole line
+    // crosses it, and whether a line other than a stub does
+    let mut grid = vec![([0u8; 4], false, false); cols.saturating_mul(rows)];
     let heavy = |w: &Wire| at.is_some_and(|o| w.from == *o || w.to == *o);
     for w in wires {
         let weight = if heavy(w) { 2 } else { 1 };
@@ -235,18 +254,19 @@ fn draw_set(doc: &mut Canvas, wires: &[&Wire], at: Option<&Obj>, dashed: bool) {
                 (3, 2)
             };
             for ((x, y), side) in [(*a, from_a), (*b, from_b)] {
-                if let Some(cell) = grid
-                    .get_mut(y.saturating_mul(cols).saturating_add(x))
-                    .and_then(|c| c.get_mut(side))
-                {
-                    *cell = (*cell).max(weight);
+                if let Some(cell) = grid.get_mut(y.saturating_mul(cols).saturating_add(x)) {
+                    if let Some(s) = cell.0.get_mut(side) {
+                        *s = (*s).max(weight);
+                    }
+                    cell.1 |= !w.dashed;
+                    cell.2 |= !w.stub;
                 }
             }
         }
     }
     for y in 0..rows {
         for x in 0..cols {
-            let Some(c) = grid.get(y.saturating_mul(cols).saturating_add(x)) else {
+            let Some((c, whole, other)) = grid.get(y.saturating_mul(cols).saturating_add(x)) else {
                 continue;
             };
             if c.iter().all(|w| *w == 0) {
@@ -254,11 +274,11 @@ fn draw_set(doc: &mut Canvas, wires: &[&Wire], at: Option<&Obj>, dashed: bool) {
             }
             let [u, d, l, r] = c.map(usize::from);
             let strong = c.contains(&2);
-            let glyph = match (dashed, u + d == 0, l + r == 0, strong) {
-                (true, true, false, false) => '┄',
-                (true, true, false, true) => '┅',
-                (true, false, true, false) => '┆',
-                (true, false, true, true) => '┇',
+            let glyph = match (*whole, u + d == 0, l + r == 0, strong) {
+                (false, true, false, false) => '┄',
+                (false, true, false, true) => '┅',
+                (false, false, true, false) => '┆',
+                (false, false, true, true) => '┇',
                 _ => JOINTS
                     .get(u * 27 + d * 9 + l * 3 + r)
                     .copied()
@@ -266,23 +286,30 @@ fn draw_set(doc: &mut Canvas, wires: &[&Wire], at: Option<&Obj>, dashed: bool) {
             };
             let style = if strong {
                 bold(Color::BrightWhite)
+            } else if !*other {
+                Style::text(Color::Grey)
             } else {
                 Style::text(Color::White)
             };
             doc.put(x, y, &glyph.to_string(), style);
         }
     }
-    for w in wires {
+    // a stub's arrow first, so the arrow of an input whose line it joins
+    // is the one that shows
+    let mut ordered: Vec<&Wire> = wires.iter().collect();
+    ordered.sort_by_key(|w| !w.stub);
+    for w in ordered {
         let path = cells(w);
         let (Some(last), Some(before)) = (path.last(), path.iter().rev().nth(1)) else {
             continue;
         };
         let right = last.0 > before.0;
-        let (glyph, style) = match (heavy(w), right) {
-            (true, true) => ("▶", bold(Color::BrightWhite)),
-            (true, false) => ("◀", bold(Color::BrightWhite)),
-            (false, true) => ("►", Style::text(Color::White)),
-            (false, false) => ("◄", Style::text(Color::White)),
+        let (glyph, style) = match (heavy(w), right, w.stub) {
+            (true, true, _) => ("▶", bold(Color::BrightWhite)),
+            (true, false, _) => ("◀", bold(Color::BrightWhite)),
+            (false, true, _) => ("►", Style::text(Color::White)),
+            (false, false, false) => ("◄", Style::text(Color::White)),
+            (false, false, true) => ("◄", Style::text(Color::Grey)),
         };
         doc.put(last.0, last.1, glyph, style);
     }
@@ -292,10 +319,7 @@ fn draw_set(doc: &mut Canvas, wires: &[&Wire], at: Option<&Obj>, dashed: bool) {
 /// highlighted.
 pub fn document(layout: &Layout, cols: usize, at: Option<&Obj>) -> Canvas {
     let mut doc = Canvas::new(cols, layout.height.max(1));
-    for dashed in [false, true] {
-        let set: Vec<&Wire> = layout.wires.iter().filter(|w| w.dashed == dashed).collect();
-        draw_set(&mut doc, &set, at, dashed);
-    }
+    draw_wires(&mut doc, &layout.wires, at);
     for b in &layout.boxes {
         draw_box(&mut doc, b, Some(&b.obj) == at);
     }
@@ -308,6 +332,10 @@ pub fn document(layout: &Layout, cols: usize, at: Option<&Obj>) -> Canvas {
             NoteKind::Displays => bold(Color::Cyan),
             NoteKind::Inputs => bold(Color::Green),
             NoteKind::Fonts => bold(Color::Magenta),
+            NoteKind::Stub => Style {
+                italic: true,
+                ..Style::text(Color::Grey)
+            },
         };
         doc.put(n.x, n.y, &n.text, style);
     }
@@ -357,6 +385,7 @@ fn obj_name(flow: &Flow, o: &Obj) -> String {
             Slot::Font(f) => rows::font_words(f.as_deref()),
             Slot::Terminal => String::new(),
         },
+        Obj::Roam(sel) => paths::title(flow, Kind::Input, sel).0,
         Obj::Others => words::ROWS_OTHERS_TITLE.to_lowercase(),
     }
 }
@@ -512,7 +541,7 @@ pub fn screen(canvas: &mut Canvas, app: &App) {
                 _ if state.typing.is_some() => words::KEYS_TYPING,
                 Obj::Doc(_, Slot::Terminal) => words::ROWS_KEYS_CARD,
                 Obj::New(Slot::Terminal) => words::ROWS_KEYS_EDITOR_CARD,
-                Obj::Doc(..) | Obj::Others => words::ROWS_KEYS_INFO,
+                Obj::Doc(..) | Obj::Roam(_) | Obj::Others => words::ROWS_KEYS_INFO,
                 _ => words::ROWS_KEYS_CHOOSE,
             };
             key_line(canvas, app, keys);
@@ -520,7 +549,7 @@ pub fn screen(canvas: &mut Canvas, app: &App) {
                 Obj::Doc(_, Slot::Terminal) | Obj::New(Slot::Terminal) => {
                     card_layer(canvas, app, state, obj);
                 }
-                Obj::Doc(name, slot) => info_layer(canvas, app, name, slot),
+                Obj::Doc(..) | Obj::Roam(_) => info_layer(canvas, app, obj),
                 Obj::Others => others_layer(canvas, app),
                 _ => choices_layer(canvas, app, state, obj),
             }
@@ -542,22 +571,42 @@ pub fn screen(canvas: &mut Canvas, app: &App) {
     }
 }
 
-/// The column titles and the window on the canvas.
+/// The heading of the area at the window's top above the column titles,
+/// which CONFIGURATION and NEW PATH have, and the window on the canvas.
 fn overview(canvas: &mut Canvas, app: &App, state: &rows::State, layout: &Layout) {
     let Some(g) = layout.geometry else {
         return;
     };
-    for (x, w, title, color) in [
-        (g.screen_x, g.screen_w, words::ROWS_DISPLAYS, Color::Cyan),
-        (
-            g.term_x,
-            g.term_w,
-            words::ROWS_TERMINALS,
-            Color::BrightWhite,
-        ),
-        (g.dev_x, g.dev_w, words::ROWS_INPUTS, Color::Green),
-    ] {
-        canvas.put(x, HEAD_ROWS.saturating_sub(1), &fit(title, w), bold(color));
+    let area = layout.area_at(state.top);
+    let x = canvas.put(
+        1,
+        HEAD_ROWS.saturating_sub(2),
+        area,
+        bold(Color::BrightWhite),
+    );
+    if area == words::ROWS_NEW_PATH {
+        let new = &state.new;
+        let color = if new.complete() {
+            bold(Color::Green)
+        } else {
+            Style::text(Color::Yellow)
+        };
+        let room = app.cols.saturating_sub(16);
+        canvas.put(
+            x.max(14),
+            HEAD_ROWS.saturating_sub(2),
+            &fit(new.status(), room),
+            color,
+        );
+    }
+    if area != words::ROWS_PIECES {
+        for (x, w, title, color) in [
+            (g.screen_x, g.screen_w, words::ROWS_DISPLAYS, Color::Cyan),
+            (g.term_x, g.term_w, words::ROWS_TERMINALS, Color::Yellow),
+            (g.dev_x, g.dev_w, words::ROWS_INPUTS, Color::Green),
+        ] {
+            canvas.put(x, HEAD_ROWS.saturating_sub(1), &fit(title, w), bold(color));
+        }
     }
     let (wtop, wh) = window(app);
     let doc = window_of(layout, app.cols, state.at.as_ref(), state.top, wh);
@@ -602,13 +651,14 @@ fn choice(canvas: &mut Canvas, x: usize, y: usize, text: &str, on: bool, cursor:
     end.saturating_add(3)
 }
 
-/// An added path's display or input: what it matches, read-only, and the
-/// line that says how to change it.
-fn info_layer(canvas: &mut Canvas, app: &App, name: &str, slot: &Slot) {
+/// An added path's display or input, or a roaming input: what it
+/// matches and where it goes, read-only, and the line that says how to
+/// change it.
+fn info_layer(canvas: &mut Canvas, app: &App, obj: &Obj) {
     let flow = &app.inputs.flow;
-    let (kind, sel, heading) = match slot {
-        Slot::Display(s) => (Kind::Display, s, "DISPLAY"),
-        Slot::Input(s) => (Kind::Input, s, "INPUT"),
+    let (kind, sel, heading) = match obj {
+        Obj::Doc(_, Slot::Display(s)) => (Kind::Display, s, "DISPLAY"),
+        Obj::Doc(_, Slot::Input(s)) | Obj::Roam(s) => (Kind::Input, s, "INPUT"),
         _ => return,
     };
     let (title, detail) = paths::title(flow, kind, sel);
@@ -619,27 +669,13 @@ fn info_layer(canvas: &mut Canvas, app: &App, name: &str, slot: &Slot) {
         bold(Color::BrightWhite),
     );
     canvas.put(x.saturating_add(2), 3, &detail, Style::text(Color::Grey));
-    let (doc, _) = paths::read(flow);
-    let users: Vec<String> = doc
-        .iter()
-        .filter(|p| match kind {
-            Kind::Display => p.displays.contains(sel),
-            Kind::Input => p.inputs.contains(sel),
-        })
-        .filter_map(|p| p.name.clone())
-        .collect();
-    let path = if users.len() > 1 {
-        words::ROAMS_SENTENCE.to_owned()
-    } else {
-        words::in_terminal(name)
+    let goes = match obj {
+        Obj::Doc(name, _) => words::in_terminal(name),
+        _ => words::ROAMS_SENTENCE.to_owned(),
     };
     let vx = VALUE_X.min(app.cols / 3);
     let mut y = 5usize;
-    for (label, value) in [
-        ("Matched by", sel.clone()),
-        ("In the terminals", users.join(", ")),
-        ("Where it goes", path),
-    ] {
+    for (label, value) in [("Matched by", sel.clone()), ("Where it goes", goes)] {
         canvas.put(3, y, label, Style::text(Color::Grey));
         canvas.put(
             vx,
@@ -649,7 +685,11 @@ fn info_layer(canvas: &mut Canvas, app: &App, name: &str, slot: &Slot) {
         );
         y = y.saturating_add(2);
     }
-    for line in wrap(words::REVISE_NOTE, app.cols.saturating_sub(4), 2) {
+    let note = match obj {
+        Obj::Roam(_) => words::REVISE_ROAMING_NOTE,
+        _ => words::REVISE_NOTE,
+    };
+    for line in wrap(note, app.cols.saturating_sub(4), 2) {
         canvas.put(3, y, &line, Style::text(Color::Yellow));
         y = y.saturating_add(1);
     }
@@ -699,11 +739,9 @@ const CARD_SETTINGS: [&str; 3] = ["consoles", "login", "when-display-lost"];
 /// with the name it will take.
 pub fn card_path(app: &App, obj: &Obj) -> Option<Path> {
     let flow = &app.inputs.flow;
-    let (doc, _) = paths::read(flow);
+    let doc = paths::read(flow);
     match obj {
-        Obj::Doc(name, Slot::Terminal) => doc
-            .into_iter()
-            .find(|p| p.name.as_deref() == Some(name.as_str())),
+        Obj::Doc(name, Slot::Terminal) => doc.path(name).cloned(),
         Obj::New(Slot::Terminal) => {
             let mut p = app.rows_flow.as_ref()?.new.clone();
             if p.name.is_none() {
@@ -1024,6 +1062,17 @@ mod tests {
                     let c = doc.at(*x, *y).unwrap_or(' ');
                     assert!(line_glyph(c), "{cols}: {w:?} has {c:?} at {x},{y}");
                 }
+                if w.stub {
+                    // a stub starts beside its words and ends in an arrow
+                    let (fx, fy) = path[0];
+                    assert_eq!(doc.at(fx + 1, fy), Some('r'), "{cols}: {w:?}");
+                    let (tx, ty) = *path.last().expect("a cell");
+                    assert!(
+                        "◄◀".contains(doc.at(tx, ty).unwrap_or(' ')),
+                        "{cols}: {w:?}"
+                    );
+                    continue;
+                }
                 // beside each end, the border of the box it joins
                 let from = l.find(&w.from).expect("its box");
                 let to = l.find(&w.to).expect("its box");
@@ -1043,7 +1092,7 @@ mod tests {
     }
 
     #[test]
-    fn the_editor_is_dashed_and_a_picked_piece_is_cyan() {
+    fn the_editor_is_dashed_a_picked_piece_magenta_and_each_title_its_kind_s_color() {
         let f = flow();
         let l = lay(&f, &editor(), 100);
         let doc = document(&l, 100, None);
@@ -1062,7 +1111,25 @@ mod tests {
             .find(&Obj::Pal(Slot::Input(KBD_PATH.into())))
             .expect("the receiver");
         let s = doc.style_at(picked.x, picked.y).expect("a style");
-        assert_eq!((s.fg, s.bold), (Some(Color::BrightCyan), true));
+        assert_eq!((s.fg, s.bold), (Some(Color::BrightMagenta), true));
+        // the title says the kind, and the border the state
+        let title = |b: &Boxed| doc.style_at(b.x + 2, b.title_row()).and_then(|s| s.fg);
+        let border = |b: &Boxed| doc.style_at(b.x, b.y).and_then(|s| s.fg);
+        assert_eq!(title(picked), Some(Color::Green));
+        assert_eq!(title(added), Some(Color::Yellow));
+        assert_eq!(border(added), Some(Color::White));
+        let dp = l
+            .find(&Obj::Doc("desk".into(), Slot::Display(EDID_A.into())))
+            .expect("DP-8");
+        assert_eq!(title(dp), Some(Color::Cyan));
+        let font = l
+            .find(&Obj::Pal(Slot::Font(Some("monoid".into()))))
+            .expect("a font set");
+        assert_eq!(title(font), Some(Color::Magenta));
+        let roams = l
+            .find(&Obj::Roam("id:046d:c31c".into()))
+            .expect("the roaming receiver");
+        assert_eq!(title(roams), Some(Color::Green));
         let taken = l
             .find(&Obj::Pal(Slot::Display(EDID_A.into())))
             .expect("DP-8");
@@ -1093,7 +1160,9 @@ mod tests {
 
     #[test]
     fn a_wire_to_a_terminal_out_of_sight_ends_at_the_edge_with_its_name() {
-        let f = flow();
+        // the receiver sent to desk alone, so desk has two inputs
+        let mut f = flow();
+        f.rules[3].target = "desk".into();
         let l = lay(&f, &Path::default(), 120);
         let second = l
             .find(&Obj::Doc("desk".into(), Slot::Input("id:046d:c31c".into())))

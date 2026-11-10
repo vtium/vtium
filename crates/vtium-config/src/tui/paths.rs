@@ -7,13 +7,18 @@
 //! editor. What allocates nothing, its name, font set, size and terminal
 //! settings, can change in place.
 //!
+//! An input that roams types into whichever terminal is active, among
+//! every terminal of the configuration, so the configuration holds the
+//! roaming inputs once, beside its paths ([`Doc::roaming`]). An input
+//! picked into a second path, or into the first path of a configuration,
+//! roams, as vtium's shipped default has its keyboards and pointers roam.
+//!
 //! A part is a selector, as a rule writes it: `edid:…` or `*` for a
 //! display, `path:…`, `id:…`, `serial:…` or `class:keyboard` for an input.
-//! [`read`] reads the paths out of a draft's flow, and [`plan`] writes a
-//! list of paths back as the draft's changes: a head per path, a rule per
-//! part, an input in two paths or in every path written as roaming, and
-//! the rules placed most specific first. Every change goes through
-//! [`super::edit::Change`], so through `src/ops.rs`.
+//! [`read`] reads the configuration out of a draft's flow, and [`plan`]
+//! writes one back as the draft's changes: a head per path, a rule per
+//! part, and the rules placed most specific first. Every change goes
+//! through [`super::edit::Change`], so through `src/ops.rs`.
 
 use super::edit::Change;
 use super::flow::{Device, Flow, Kind, Rule, Special, Target};
@@ -37,8 +42,19 @@ pub const POINTER_CLASSES: [&str; 5] = [
     "class:pointingstick",
 ];
 
+/// The classes in the order the shipped default lists their rules.
+const CLASS_ORDER: [&str; 7] = [
+    "class:keyboard",
+    "class:mouse",
+    "class:touchpad",
+    "class:touchscreen",
+    "class:trackball",
+    "class:pointingstick",
+    "class:key",
+];
+
 /// The rules one part writes.
-fn expand(part: &str) -> Vec<&str> {
+pub fn expand(part: &str) -> Vec<&str> {
     match part {
         ANY_KEYBOARD => KEYBOARD_CLASSES.to_vec(),
         ANY_POINTER => POINTER_CLASSES.to_vec(),
@@ -69,6 +85,8 @@ pub struct Path {
     /// none yet.
     pub name: Option<String>,
     pub displays: Vec<String>,
+    /// The inputs sent to this terminal alone. In the editor, every input
+    /// picked, some of which roam once the path is added.
     pub inputs: Vec<String>,
     /// The frit the path's look draws with; `None` for the default.
     pub font: Option<String>,
@@ -82,6 +100,8 @@ pub struct Path {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Picked {
     Added,
+    /// `any keyboard` came in, and `any pointer` with it.
+    AddedWithPointers,
     Removed,
     /// Another font set took the place of this one.
     Replaced(Option<String>),
@@ -152,6 +172,24 @@ impl Path {
         }
     }
 
+    /// Picks `piece` as the person does from PARTS: as [`Path::pick`],
+    /// except that `any keyboard` brings `any pointer` along into a path
+    /// that has no pointer, as vtium's shipped default sends every
+    /// keyboard and every pointer together.
+    pub fn pick_part(&mut self, flow: &Flow, piece: Piece) -> Picked {
+        let keyboard = piece == Piece::Input(ANY_KEYBOARD.to_owned());
+        let done = self.pick(piece);
+        let pointer = self
+            .inputs
+            .iter()
+            .any(|s| sort_of(flow, &Piece::Input(s.clone())) == Sort::Pointer);
+        if keyboard && done == Picked::Added && !pointer {
+            self.inputs.push(ANY_POINTER.to_owned());
+            return Picked::AddedWithPointers;
+        }
+        done
+    }
+
     /// Puts `new` in the place of the part `old`, keeping its place.
     pub fn replace(&mut self, old: &Piece, new: Piece) {
         let swap = |list: &mut Vec<String>, o: &str, n: String| {
@@ -171,19 +209,6 @@ impl Path {
         }
     }
 
-    /// Whether `other` holds every part of this path: the same displays,
-    /// and every input of this one.
-    fn within(&self, other: &Path) -> bool {
-        let set = |v: &[String]| {
-            let mut v = v.to_vec();
-            v.sort();
-            v.dedup();
-            v
-        };
-        set(&self.displays) == set(&other.displays)
-            && self.inputs.iter().all(|i| other.inputs.contains(i))
-    }
-
     /// What the new path still needs, or that it is ready, in words.
     pub fn status(&self) -> &'static str {
         match (self.inputs.is_empty(), self.displays.is_empty()) {
@@ -195,14 +220,96 @@ impl Path {
     }
 }
 
-/// Whether the rule `rule` belongs to a path: it sends to a head, or it is
-/// an input rule that roams while the draft has a head to roam among.
-fn fits(flow: &Flow, rule: &Rule) -> bool {
-    match flow.target(rule) {
-        Target::Head(_) => true,
-        Target::Special(Special::Roaming) => !flow.heads.is_empty(),
-        _ => false,
+/// The configuration as paths: its paths, one per head in the file's
+/// order; the inputs that roam, which type into whichever terminal is
+/// active; and how many of its rules belong to neither.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Doc {
+    pub paths: Vec<Path>,
+    pub roaming: Vec<String>,
+    pub unfit: usize,
+}
+
+impl Doc {
+    /// The path of the terminal `name`.
+    pub fn path(&self, name: &str) -> Option<&Path> {
+        self.paths.iter().find(|p| p.name.as_deref() == Some(name))
     }
+
+    /// Whether the input part `sel`, picked into a new path, roams once the
+    /// path is added: it roams already, another path has it, or the new
+    /// path is the configuration's first.
+    pub fn would_roam(&self, sel: &str) -> bool {
+        self.paths.is_empty()
+            || self.roaming.iter().any(|r| r == sel)
+            || self.paths.iter().any(|p| p.inputs.iter().any(|i| i == sel))
+    }
+
+    /// The configuration with `new` added: each input of `new` that roams
+    /// by [`Doc::would_roam`] goes to the roaming inputs, out of the path
+    /// that had it, and the rest stay with `new`.
+    pub fn with(&self, mut new: Path) -> Doc {
+        let mut doc = self.clone();
+        let first = doc.paths.is_empty();
+        let mut own = Vec::new();
+        for i in std::mem::take(&mut new.inputs) {
+            if doc.roaming.contains(&i) {
+                continue;
+            }
+            let mut held = false;
+            for p in &mut doc.paths {
+                if let Some(at) = p.inputs.iter().position(|x| *x == i) {
+                    p.inputs.remove(at);
+                    held = true;
+                }
+            }
+            if held || first {
+                doc.roaming.push(i);
+            } else if !own.contains(&i) {
+                own.push(i);
+            }
+        }
+        new.inputs = own;
+        doc.paths.push(new);
+        doc
+    }
+
+    /// The configuration without the path of the terminal `name`, and that
+    /// path, which goes into the editor with its name kept: "Revise this
+    /// path". The roaming inputs stay where they are.
+    pub fn revise(&self, name: &str) -> Option<(Doc, Path)> {
+        let at = self
+            .paths
+            .iter()
+            .position(|p| p.name.as_deref() == Some(name))?;
+        let mut rest = self.clone();
+        let taken = rest.paths.remove(at);
+        Some((rest, taken))
+    }
+
+    /// The configuration without the roaming input `sel`, and a new path
+    /// that holds it, for the editor.
+    pub fn revise_roaming(&self, sel: &str) -> Option<(Doc, Path)> {
+        let at = self.roaming.iter().position(|r| r == sel)?;
+        let mut rest = self.clone();
+        let taken = rest.roaming.remove(at);
+        Some((
+            rest,
+            Path {
+                inputs: vec![taken],
+                ..Path::default()
+            },
+        ))
+    }
+}
+
+/// Whether the rule `rule` belongs to the configuration as paths: it
+/// sends to a head, or it is an input rule that roams.
+fn fits(flow: &Flow, rule: &Rule) -> bool {
+    matches!(
+        flow.target(rule),
+        Target::Head(_) | Target::Special(Special::Roaming)
+    )
 }
 
 /// Collapses the rules a part writes back into the part: the keyboard
@@ -219,15 +326,27 @@ fn collapse(inputs: &mut Vec<String>, part: &str, classes: &[&str]) {
     inputs.insert(at.min(inputs.len()), part.to_owned());
 }
 
-/// The paths of a draft's flow, one per head in the file's order, and how
-/// many of its rules belong to no path. A roaming input is in every path.
-pub fn read(flow: &Flow) -> (Vec<Path>, usize) {
-    let roaming: Vec<String> = flow
+/// Each selector once, in the order it first comes.
+fn once(list: &mut Vec<String>) {
+    let mut seen = Vec::new();
+    list.retain(|s| {
+        let fresh = !seen.contains(s);
+        seen.push(s.clone());
+        fresh
+    });
+}
+
+/// The configuration of a draft's flow, as paths and roaming inputs.
+pub fn read(flow: &Flow) -> Doc {
+    let mut roaming: Vec<String> = flow
         .rules_of(Kind::Input)
         .filter(|(_, r)| flow.target(r) == Target::Special(Special::Roaming))
         .map(|(_, r)| r.selector.clone())
         .collect();
-    let mut out = Vec::new();
+    once(&mut roaming);
+    collapse(&mut roaming, ANY_POINTER, &POINTER_CLASSES);
+    collapse(&mut roaming, ANY_KEYBOARD, &KEYBOARD_CLASSES);
+    let mut paths = Vec::new();
     for (h, head) in flow.heads.iter().enumerate() {
         let of = |kind: Kind| -> Vec<String> {
             flow.rules_of(kind)
@@ -236,13 +355,7 @@ pub fn read(flow: &Flow) -> (Vec<Path>, usize) {
                 .collect()
         };
         let mut inputs = of(Kind::Input);
-        inputs.extend(roaming.iter().cloned());
-        let mut seen = Vec::new();
-        inputs.retain(|s| {
-            let fresh = !seen.contains(s);
-            seen.push(s.clone());
-            fresh
-        });
+        once(&mut inputs);
         collapse(&mut inputs, ANY_POINTER, &POINTER_CLASSES);
         collapse(&mut inputs, ANY_KEYBOARD, &KEYBOARD_CLASSES);
         let look = flow.look_of(h).and_then(|l| flow.looks.get(l));
@@ -255,7 +368,7 @@ pub fn read(flow: &Flow) -> (Vec<Path>, usize) {
         if head.consoles != 1 {
             settings.insert(0, ("consoles".to_owned(), head.consoles.to_string()));
         }
-        out.push(Path {
+        paths.push(Path {
             name: Some(head.name.clone()),
             displays: of(Kind::Display),
             inputs,
@@ -265,28 +378,31 @@ pub fn read(flow: &Flow) -> (Vec<Path>, usize) {
         });
     }
     let unfit = flow.rules.iter().filter(|r| !fits(flow, r)).count();
-    (out, unfit)
+    Doc {
+        paths,
+        roaming,
+        unfit,
+    }
 }
 
-/// Whether `flow` is vtium's built-in default: its paths are the shipped
-/// example's.
+/// Whether `flow` is vtium's built-in default: its paths and roaming
+/// inputs are the shipped example's.
 pub fn is_default(flow: &Flow) -> bool {
-    let shipped = crate::flowmodel::build(
+    let shipped = read(&crate::flowmodel::build(
         crate::drafts::EXAMPLE,
         &crate::flowmodel::Present::default(),
         None,
-    );
-    read(flow).0 == read(&shipped).0
+    ));
+    let doc = read(flow);
+    doc.paths == shipped.paths && doc.roaming == shipped.roaming
 }
 
 /// The name a new terminal takes: `console`, the shipped default's, while
 /// the configuration has no terminal; else `terminal-N`, the smallest N no
 /// head and no path has. A head's name holds no space.
-pub fn new_name(flow: &Flow, doc: &[Path]) -> String {
-    let taken = |n: &str| {
-        flow.heads.iter().any(|h| h.name == n) || doc.iter().any(|p| p.name.as_deref() == Some(n))
-    };
-    if flow.heads.is_empty() && doc.is_empty() {
+pub fn new_name(flow: &Flow, doc: &Doc) -> String {
+    let taken = |n: &str| flow.heads.iter().any(|h| h.name == n) || doc.path(n).is_some();
+    if flow.heads.is_empty() && doc.paths.is_empty() {
         return "console".to_owned();
     }
     (1usize..)
@@ -296,19 +412,33 @@ pub fn new_name(flow: &Flow, doc: &[Path]) -> String {
 }
 
 /// How specific a selector is, most specific first: one device by its
-/// serial, EDID, Bluetooth address or name; then a port or a connector;
-/// then an id, which names every device that reports it; then a class or
-/// a card; then the catch-alls. It is the order in which `ops` places a
-/// new rule, before the first wider rule of its kind (ADR-1403 D7).
+/// serial, EDID or Bluetooth address; then a model by its id, or a device
+/// by the name it gives itself; then a port or a connector; then a class,
+/// a card or a udev property; then the catch-alls.
 pub fn rank(selector: &str) -> u8 {
     let key = selector.split(':').next().unwrap_or_default();
     match key {
-        "serial" | "edid" | "bluetooth" | "name" | "connector-path" => 0,
-        "path" | "connector" => 1,
-        "id" => 2,
+        "serial" | "edid" | "bluetooth" => 0,
+        "id" | "name" => 1,
+        "path" | "connector" | "connector-path" => 2,
         "class" | "card" | "udev" => 3,
         _ => 4,
     }
+}
+
+/// Where a rule goes among the rules [`plan`] writes: the display rules
+/// before the input rules, each kind most specific first, and the classes
+/// in the order the shipped default lists them.
+fn order(kind: Kind, selector: &str) -> (u8, u8, usize) {
+    let kind = match kind {
+        Kind::Display => 0,
+        Kind::Input => 1,
+    };
+    let class = CLASS_ORDER
+        .iter()
+        .position(|c| *c == selector)
+        .unwrap_or(CLASS_ORDER.len());
+    (kind, rank(selector), class)
 }
 
 /// What adding the new path does.
@@ -323,9 +453,9 @@ pub enum Adding {
 
 /// Whether `new` may be added to the configuration `doc`, or why not. A
 /// path whose displays, font set and size a path of `doc` has, and whose
-/// inputs that path all has, is already held, and adding it changes
-/// nothing.
-pub fn check_add(flow: &Flow, doc: &[Path], new: &Path) -> Result<Adding, String> {
+/// inputs that path or the roaming inputs all have, is already held, and
+/// adding it changes nothing.
+pub fn check_add(flow: &Flow, doc: &Doc, new: &Path) -> Result<Adding, String> {
     if !new.complete() {
         return Err(new.status().to_owned());
     }
@@ -335,7 +465,20 @@ pub fn check_add(flow: &Flow, doc: &[Path], new: &Path) -> Result<Adding, String
     {
         return Err(words::name_invalid(n));
     }
-    if let Some(held) = doc.iter().find(|p| new.within(p)) {
+    let set = |v: &[String]| {
+        let mut v = v.to_vec();
+        v.sort();
+        v.dedup();
+        v
+    };
+    let held = doc.paths.iter().find(|p| {
+        set(&p.displays) == set(&new.displays)
+            && new
+                .inputs
+                .iter()
+                .all(|i| p.inputs.contains(i) || doc.roaming.contains(i))
+    });
+    if let Some(held) = held {
         return if held.font == new.font && held.size == new.size {
             Ok(Adding::Same(name(held)))
         } else {
@@ -343,12 +486,12 @@ pub fn check_add(flow: &Flow, doc: &[Path], new: &Path) -> Result<Adding, String
         };
     }
     if let Some(n) = &new.name
-        && doc.iter().any(|p| p.name.as_deref() == Some(n.as_str()))
+        && doc.path(n).is_some()
     {
         return Err(words::name_taken(n));
     }
     for d in &new.displays {
-        if let Some(p) = doc.iter().find(|p| p.displays.contains(d)) {
+        if let Some(p) = doc.paths.iter().find(|p| p.displays.contains(d)) {
             let (title, _) = title(flow, Kind::Display, d);
             return Err(words::display_taken(&title, &name(p)));
         }
@@ -364,16 +507,6 @@ pub fn valid_name(name: &str) -> bool {
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '+' | '-'))
         && !Special::ALL.iter().any(|s| s.name() == name)
-}
-
-/// The configuration without the path of the terminal `name`, and that
-/// path, which goes into the editor with its name kept: "Revise this
-/// path".
-pub fn revise(doc: &[Path], name: &str) -> Option<(Vec<Path>, Path)> {
-    let at = doc.iter().position(|p| p.name.as_deref() == Some(name))?;
-    let mut rest = doc.to_vec();
-    let taken = rest.remove(at);
-    Some((rest, taken))
 }
 
 /// The look a path's font set and size draw with: one of the draft's that
@@ -417,16 +550,47 @@ fn look_for(
     Some(name)
 }
 
-/// The draft's changes that make its heads, looks and path rules the
-/// configuration `doc`: the old path rules go, the heads no path has go,
-/// each path's head is added or has its look set, and each part's rule
-/// is added, most specific first. An input in two paths, or in every path,
-/// is written once, as roaming. Rules that belong to no path stay as they
-/// are, and a draft that already says all this is left as it is.
-pub fn plan(flow: &Flow, doc: &[Path]) -> Vec<Change> {
+/// One rule as [`plan`] writes it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Line {
+    kind: Kind,
+    selector: String,
+    target: String,
+}
+
+impl Line {
+    fn new(kind: Kind, selector: &str, target: &str) -> Line {
+        Line {
+            kind,
+            selector: selector.to_owned(),
+            target: target.to_owned(),
+        }
+    }
+
+    fn of(rule: &Rule) -> Line {
+        Line::new(rule.kind, &rule.selector, &rule.target)
+    }
+
+    fn order(&self) -> (u8, u8, usize) {
+        order(self.kind, &self.selector)
+    }
+
+    fn text(&self) -> String {
+        let kind = match self.kind {
+            Kind::Display => "display",
+            Kind::Input => "input",
+        };
+        format!("{kind} {} -> {}", self.selector, self.target)
+    }
+}
+
+/// The heads and looks that make the draft's heads the paths of `doc`:
+/// the heads no path has go, and each path's head is added or has its
+/// look and settings set.
+fn heads_plan(flow: &Flow, doc: &Doc) -> Vec<Change> {
     let mut looks = Vec::new();
     let mut heads = Vec::new();
-    for p in doc {
+    for p in &doc.paths {
         let Some(name) = p.name.clone() else {
             continue;
         };
@@ -480,56 +644,90 @@ pub fn plan(flow: &Flow, doc: &[Path]) -> Vec<Change> {
             }
         }
     }
-    // the rules: each part once, an input in two paths or every path roaming
-    let mut rules: Vec<(u8, String)> = Vec::new();
-    let mut push = |line: String, sel: &str| {
-        if !rules.iter().any(|(_, l)| *l == line) {
-            rules.push((rank(sel), line));
+    let gone = flow
+        .heads
+        .iter()
+        .filter(|h| doc.path(&h.name).is_none())
+        .map(|h| Change::HeadRm(h.name.clone()));
+    gone.chain(looks).chain(heads).collect()
+}
+
+/// The draft's rules as `doc` says them, in order: the rules that belong
+/// to no path where they are, and around them each part's rule, most
+/// specific first, each before the first rule of its kind that belongs to
+/// no path and is wider. The first path of a configuration with no rules
+/// also brings the shipped default's last rule, which sets aside every
+/// input no rule names.
+fn rules_plan(flow: &Flow, doc: &Doc) -> Vec<(Line, bool)> {
+    let mut want: Vec<Line> = Vec::new();
+    let mut push = |l: Line| {
+        if !want.contains(&l) {
+            want.push(l);
         }
     };
-    for p in doc {
+    for p in &doc.paths {
         let Some(name) = &p.name else {
             continue;
         };
         for d in &p.displays {
-            push(format!("display {d} -> {name}"), d);
+            push(Line::new(Kind::Display, d, name));
         }
         for i in &p.inputs {
-            let paths = doc.iter().filter(|q| q.inputs.contains(i)).count();
-            let target = if paths > 1 || paths == doc.len() {
-                "roaming"
-            } else {
-                name.as_str()
-            };
+            // an input two paths name roams, should a path name it twice
+            let paths = doc.paths.iter().filter(|q| q.inputs.contains(i)).count();
+            let target = if paths > 1 { "roaming" } else { name.as_str() };
             for s in expand(i) {
-                push(format!("input {s} -> {target}"), s);
+                push(Line::new(Kind::Input, s, target));
             }
         }
     }
-    rules.sort_by_key(|(r, _)| *r);
-    // the draft's own path rules, as lines
-    let now: Vec<String> = flow
+    for r in &doc.roaming {
+        for s in expand(r) {
+            push(Line::new(Kind::Input, s, "roaming"));
+        }
+    }
+    if flow.rules.is_empty() && !doc.paths.is_empty() {
+        push(Line::new(Kind::Input, "*", "ignore"));
+    }
+    want.sort_by_key(Line::order);
+    let mut out: Vec<(Line, bool)> = flow
         .rules
         .iter()
-        .filter(|r| fits(flow, r))
-        .map(|r| {
-            let kind = match r.kind {
-                Kind::Display => "display",
-                Kind::Input => "input",
-            };
-            format!("{kind} {} -> {}", r.selector, r.target)
-        })
+        .filter(|r| !fits(flow, r))
+        .map(|r| (Line::of(r), false))
         .collect();
-    let gone: Vec<&str> = flow
-        .heads
-        .iter()
-        .map(|h| h.name.as_str())
-        .filter(|h| !doc.iter().any(|p| p.name.as_deref() == Some(*h)))
-        .collect();
-    // rules that already say all this stay where they are, so a change of
-    // name, font set, size or setting moves no rule
-    let same = now.len() == rules.len() && rules.iter().all(|(_, l)| now.contains(l));
+    for n in want {
+        if out.iter().any(|(l, _)| *l == n) {
+            continue;
+        }
+        let wider = out
+            .iter()
+            .position(|(l, added)| !added && l.kind == n.kind && l.order() > n.order());
+        let after = out
+            .iter()
+            .rposition(|(l, _)| l.kind == n.kind)
+            .map(|i| i.saturating_add(1));
+        let at = wider.or(after).unwrap_or(match n.kind {
+            Kind::Display => 0,
+            Kind::Input => out.len(),
+        });
+        out.insert(at, (n, true));
+    }
+    out
+}
+
+/// The draft's changes that make its heads, looks and rules the
+/// configuration `doc`: the heads no path has go, each path's head is
+/// added or has its look set, and when the rules differ from what `doc`
+/// says, the old rules of the paths and the roaming inputs go and each
+/// part's rule is added where [`rules_plan`] puts it. Rules that belong to
+/// no path stay as they are, and a draft that already says all this is
+/// left as it is.
+pub fn plan(flow: &Flow, doc: &Doc) -> Vec<Change> {
     let mut out = Vec::new();
+    let rules = rules_plan(flow, doc);
+    let now: Vec<Line> = flow.rules.iter().map(Line::of).collect();
+    let same = rules.len() == now.len() && rules.iter().zip(&now).all(|((a, _), b)| a == b);
     if !same {
         // the old path rules, from the last, so the numbers stay right
         for (i, r) in flow.rules.iter().enumerate().rev() {
@@ -538,11 +736,16 @@ pub fn plan(flow: &Flow, doc: &[Path]) -> Vec<Change> {
             }
         }
     }
-    out.extend(gone.into_iter().map(|h| Change::HeadRm(h.to_owned())));
-    out.extend(looks);
-    out.extend(heads);
+    out.extend(heads_plan(flow, doc));
     if !same {
-        out.extend(rules.into_iter().map(|(_, l)| Change::RuleAdd(l)));
+        for (i, (l, added)) in rules.iter().enumerate() {
+            if *added {
+                out.push(Change::RuleAddBefore {
+                    line: l.text(),
+                    before: i.saturating_add(1),
+                });
+            }
+        }
     }
     out
 }
@@ -893,24 +1096,26 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn a_draft_reads_as_one_path_per_terminal() {
-        let (doc, unfit) = read(&flow());
+    fn a_draft_reads_as_paths_and_its_roaming_inputs() {
+        let doc = read(&flow());
         assert_eq!(
-            doc,
+            doc.paths,
             [
                 sized(
                     path(
                         Some("desk"),
                         &[EDID_A],
-                        &["serial:046d:c52b:0", "id:046d:c31c"],
+                        &["serial:046d:c52b:0"],
                         Some("monoid")
                     ),
                     14
                 ),
-                path(Some("panel"), &[EDID_B], &["id:046d:c31c"], None),
+                path(Some("panel"), &[EDID_B], &[], None),
             ]
         );
-        assert_eq!(unfit, 1, "the catch-all to ignore belongs to no path");
+        // the receiver roams, so it is drawn once, not on each path
+        assert_eq!(doc.roaming, ["id:046d:c31c"]);
+        assert_eq!(doc.unfit, 1, "the catch-all to ignore belongs to no path");
     }
 
     #[test]
@@ -942,10 +1147,36 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn any_keyboard_brings_any_pointer_into_a_path_without_one() {
+        let f = flow();
+        let mut p = Path::default();
+        assert_eq!(
+            p.pick_part(&f, Piece::Input(ANY_KEYBOARD.into())),
+            Picked::AddedWithPointers
+        );
+        assert_eq!(p.inputs, [ANY_KEYBOARD, ANY_POINTER]);
+        // taking any keyboard out leaves the pointers
+        assert_eq!(
+            p.pick_part(&f, Piece::Input(ANY_KEYBOARD.into())),
+            Picked::Removed
+        );
+        assert_eq!(p.inputs, [ANY_POINTER]);
+        // a path that has a pointer already takes the keyboards alone
+        let mouse = "path:pci-0000:00:14.0-usb-0:3.3:1.1";
+        let mut p = Path::default();
+        p.pick_part(&f, Piece::Input(mouse.into()));
+        assert_eq!(
+            p.pick_part(&f, Piece::Input(ANY_KEYBOARD.into())),
+            Picked::Added
+        );
+        assert_eq!(p.inputs, [mouse, ANY_KEYBOARD]);
+    }
+
+    #[test]
     fn adding_a_path_the_document_has_changes_nothing() {
         let f = flow();
-        let (doc, _) = read(&f);
-        // the same pieces in another order
+        let doc = read(&f);
+        // the same pieces in another order, the roaming receiver among them
         let same = sized(
             path(
                 None,
@@ -973,7 +1204,7 @@ pub(crate) mod tests {
     #[test]
     fn a_display_is_in_one_path_only() {
         let f = flow();
-        let (doc, _) = read(&f);
+        let doc = read(&f);
         let p = path(None, &[EDID_B], &[KBD_PATH], None);
         let why = check_add(&f, &doc, &p).expect_err("a conflict");
         assert_eq!(
@@ -1051,44 +1282,54 @@ pub(crate) mod tests {
         })
     }
 
-    fn rule_lines(text: &str) -> Vec<String> {
-        let at = text.find("[rules]\n").expect("rules") + 8;
-        text[at..].lines().map(str::to_owned).collect()
+    fn build(text: &str) -> Flow {
+        crate::flowmodel::build(text, &crate::flowmodel::Present::default(), None)
+    }
+
+    /// The rule lines of `text`, each as it reads, without comments.
+    fn rules_of(text: &str) -> Vec<String> {
+        build(text)
+            .rules
+            .iter()
+            .map(|r| Line::of(r).text())
+            .collect()
     }
 
     #[test]
     fn the_rules_are_written_most_specific_first() {
-        let f = crate::flowmodel::build(TEXT, &crate::flowmodel::Present::default(), None);
-        let (mut doc, _) = read(&f);
-        assert_eq!(doc.len(), 2);
+        let f = build(TEXT);
+        let doc = read(&f);
+        assert_eq!(doc.paths.len(), 2);
         let name = new_name(&f, &doc);
         assert_eq!(name, "terminal-1");
-        doc.push(path(
+        let new = path(
             Some(&name),
             &["*"],
             &["class:keyboard", PORT_33, "serial:2dc8:5200:9", ANY_POINTER],
             Some("dejavu"),
-        ));
+        );
+        let doc = doc.with(new.clone());
         let text = apply(TEXT, &plan(&f, &doc));
-        let lines = rule_lines(&text);
+        let lines = rules_of(&text);
+        // serial, then id, then port, then class, then the catch-alls
         assert_eq!(
             lines,
             [
+                "display edid:AAA:0x0001:LARGE00001 -> desk",
+                "display edid:BBB:0x0002:SMALL00001 -> panel",
+                "display * -> terminal-1",
                 "input serial:046d:c52b:0 -> desk",
                 "input serial:2dc8:5200:9 -> terminal-1",
-                format!("input {PORT_33} -> terminal-1").as_str(),
                 "input id:046d:c31c -> roaming",
+                format!("input {PORT_33} -> terminal-1").as_str(),
                 "input class:keyboard -> terminal-1",
-                "input class:key -> terminal-1",
                 "input class:mouse -> terminal-1",
                 "input class:touchpad -> terminal-1",
                 "input class:touchscreen -> terminal-1",
                 "input class:trackball -> terminal-1",
                 "input class:pointingstick -> terminal-1",
+                "input class:key -> terminal-1",
                 "input * -> ignore",
-                "display edid:AAA:0x0001:LARGE00001 -> desk",
-                "display edid:BBB:0x0002:SMALL00001 -> panel",
-                "display * -> terminal-1",
             ]
         );
         // within each kind, from the most specific rule to the widest
@@ -1108,77 +1349,103 @@ pub(crate) mod tests {
             text.contains("[look dejavu]\nfont-name = dejavu\n"),
             "{text}"
         );
-        // read back, the draft is the same document, except that the
-        // receiver, which roams, types into the new terminal too: vtium.conf
-        // says only that it roams, which is into whichever terminal is active
-        let back = crate::flowmodel::build(&text, &crate::flowmodel::Present::default(), None);
-        let read_back = read(&back).0;
-        assert_eq!(read_back[..2], doc[..2]);
+        // read back, the draft is the same configuration
+        let back = build(&text);
+        let read_back = read(&back);
+        assert_eq!(read_back.paths[..2], doc.paths[..2]);
         assert_eq!(
-            read_back[2].inputs,
-            [
-                "serial:2dc8:5200:9",
-                PORT_33,
-                "class:keyboard",
-                ANY_POINTER,
-                "id:046d:c31c"
-            ]
+            read_back.paths[2].inputs,
+            ["serial:2dc8:5200:9", PORT_33, ANY_KEYBOARD, ANY_POINTER]
         );
-        assert_eq!(read_back[2].font.as_deref(), Some("dejavu"));
+        assert_eq!(read_back.roaming, doc.roaming);
+        assert_eq!(read_back.paths[2].font.as_deref(), Some("dejavu"));
         // and writing it again changes nothing
-        assert_eq!(apply(&text, &plan(&back, &read_back)), text);
+        assert_eq!(plan(&back, &read_back), []);
+    }
+
+    #[test]
+    fn an_input_picked_into_a_second_path_roams_and_is_held_once() {
+        let f = build(TEXT);
+        let doc = read(&f);
+        // desk's own keyboard, picked into a new path too
+        let own = "serial:046d:c52b:0";
+        assert!(doc.would_roam(own));
+        assert!(doc.would_roam("id:046d:c31c"));
+        assert!(!doc.would_roam(KBD_PATH));
+        let new = path(
+            Some("terminal-1"),
+            &["connector:card1/DP-9"],
+            &[own, KBD_PATH],
+            None,
+        );
+        let doc = doc.with(new);
+        assert_eq!(doc.roaming, ["id:046d:c31c", own]);
+        assert!(doc.paths[0].inputs.is_empty());
+        assert_eq!(doc.paths[2].inputs, [KBD_PATH]);
+        let text = apply(TEXT, &plan(&f, &doc));
+        assert!(text.contains(&format!("input {own} -> roaming")), "{text}");
+        assert!(!text.contains(&format!("input {own} -> desk")), "{text}");
+        // read back in the file's order, most specific first
+        assert_eq!(read(&build(&text)).roaming, [own, "id:046d:c31c"]);
+        // the first path of an empty configuration roams its inputs
+        assert!(Doc::default().would_roam(KBD_PATH));
     }
 
     #[test]
     fn revising_a_path_returns_it_to_the_editor_and_frees_its_pieces() {
-        let f = crate::flowmodel::build(TEXT, &crate::flowmodel::Present::default(), None);
-        let (doc, _) = read(&f);
-        let (rest, taken) = revise(&doc, "desk").expect("desk's path");
-        assert_eq!(taken, doc[0]);
+        let f = build(TEXT);
+        let doc = read(&f);
+        let (rest, taken) = doc.revise("desk").expect("desk's path");
+        assert_eq!(taken, doc.paths[0]);
         let text = apply(TEXT, &plan(&f, &rest));
         assert!(!text.contains("[head desk]"), "{text}");
-        // the receiver is in the one path left, every path, so it roams
         assert_eq!(
-            rule_lines(&text),
+            rules_of(&text),
             [
+                "display edid:BBB:0x0002:SMALL00001 -> panel",
                 "input id:046d:c31c -> roaming",
                 "input * -> ignore",
-                "display edid:BBB:0x0002:SMALL00001 -> panel",
             ]
         );
-        // adding it back puts the draft as it was, the receiver roaming again
-        let back = crate::flowmodel::build(&text, &crate::flowmodel::Present::default(), None);
-        let (mut doc2, _) = read(&back);
+        // adding it back puts the draft as it was, the receiver roaming
+        let back = build(&text);
+        let doc2 = read(&back);
         assert_eq!(check_add(&back, &doc2, &taken), Ok(Adding::New));
-        doc2.push(taken);
-        let again = apply(&text, &plan(&back, &doc2));
+        let again = apply(&text, &plan(&back, &doc2.with(taken)));
         assert!(again.contains("input id:046d:c31c -> roaming"), "{again}");
+        assert!(
+            again.contains("input serial:046d:c52b:0 -> desk"),
+            "{again}"
+        );
         assert!(again.contains("[head desk]\nlook = big\n"), "{again}");
+        // a roaming input revised goes into the editor alone
+        let (rest, taken) = doc.revise_roaming("id:046d:c31c").expect("roams");
+        assert!(rest.roaming.is_empty());
+        assert_eq!(taken.inputs, ["id:046d:c31c"]);
+        let text = apply(TEXT, &plan(&f, &rest));
+        assert!(!text.contains("id:046d:c31c"), "{text}");
     }
 
-    fn shipped() -> Flow {
-        crate::flowmodel::build(
-            crate::drafts::EXAMPLE,
-            &crate::flowmodel::Present::default(),
-            None,
+    fn default_doc() -> (Vec<Path>, Vec<String>) {
+        (
+            vec![path(Some("console"), &["*"], &[], None)],
+            vec![ANY_KEYBOARD.to_owned(), ANY_POINTER.to_owned()],
         )
     }
 
-    fn default_path() -> Path {
-        path(Some("console"), &["*"], &[ANY_KEYBOARD, ANY_POINTER], None)
-    }
-
     #[test]
-    fn the_shipped_default_is_one_path() {
-        let f = shipped();
-        let (doc, unfit) = read(&f);
-        assert_eq!(doc, [default_path()]);
-        assert_eq!(unfit, 1, "the catch-all to ignore belongs to no path");
+    fn the_shipped_default_is_one_path_and_its_roaming_inputs() {
+        let f = build(crate::drafts::EXAMPLE);
+        let doc = read(&f);
+        assert_eq!((doc.paths.clone(), doc.roaming.clone()), default_doc());
+        assert_eq!(doc.unfit, 1, "the catch-all to ignore belongs to no path");
         assert!(is_default(&f));
         // writing it back changes nothing
         assert_eq!(plan(&f, &doc), []);
         // composing any keyboard and any display, with nothing else, is held
-        let new = path(None, &["*"], &[ANY_KEYBOARD], None);
+        let mut new = Path::default();
+        new.pick_part(&f, Piece::Input(ANY_KEYBOARD.into()));
+        new.pick_part(&f, Piece::Display("*".into()));
         assert_eq!(
             check_add(&f, &doc, &new),
             Ok(Adding::Same("console".into()))
@@ -1190,56 +1457,69 @@ pub(crate) mod tests {
     fn composing_the_default_from_parts_writes_the_shipped_default() {
         // n starts a configuration with no terminal and no rule
         let empty = crate::ops::new_text(crate::drafts::EXAMPLE);
-        let f = crate::flowmodel::build(&empty, &crate::flowmodel::Present::default(), None);
-        let (mut doc, _) = read(&f);
-        assert!(doc.is_empty());
-        let mut new = path(None, &["*"], &[ANY_KEYBOARD, ANY_POINTER], None);
+        let f = build(&empty);
+        let doc = read(&f);
+        assert!(doc.paths.is_empty());
+        // the person picks any keyboard and any display, and nothing else
+        let mut new = Path::default();
+        new.pick_part(&f, Piece::Input(ANY_KEYBOARD.into()));
+        new.pick_part(&f, Piece::Display("*".into()));
         new.name = Some(new_name(&f, &doc));
         assert_eq!(new.name.as_deref(), Some("console"));
         assert_eq!(check_add(&f, &doc, &new), Ok(Adding::New));
-        doc.push(new);
-        let text = apply(&empty, &plan(&f, &doc));
-        let back = crate::flowmodel::build(&text, &crate::flowmodel::Present::default(), None);
-        assert_eq!(read(&back).0, [default_path()]);
+        let text = apply(&empty, &plan(&f, &doc.with(new)));
+        // the same rules as the shipped default, pointers and all, in its
+        // order
+        assert_eq!(rules_of(&text), rules_of(crate::drafts::EXAMPLE));
+        let back = build(&text);
+        let read_back = read(&back);
+        assert_eq!(
+            (read_back.paths.clone(), read_back.roaming.clone()),
+            default_doc()
+        );
         assert!(is_default(&back));
         // adding it once more changes nothing
-        let again = path(None, &["*"], &[ANY_KEYBOARD, ANY_POINTER], None);
+        let mut again = Path::default();
+        again.pick_part(&back, Piece::Input(ANY_KEYBOARD.into()));
+        again.pick_part(&back, Piece::Display("*".into()));
         assert_eq!(
-            check_add(&back, &read(&back).0, &again),
+            check_add(&back, &read_back, &again),
             Ok(Adding::Same("console".into()))
         );
     }
 
     #[test]
     fn an_added_path_s_name_size_and_settings_change_in_place() {
-        let f = crate::flowmodel::build(TEXT, &crate::flowmodel::Present::default(), None);
-        let (mut doc, _) = read(&f);
-        doc[0].size = Some(16);
-        doc[0].set("consoles", "3");
-        doc[1].name = Some("small".into());
+        let f = build(TEXT);
+        let mut doc = read(&f);
+        doc.paths[0].size = Some(16);
+        doc.paths[0].set("consoles", "3");
+        doc.paths[1].name = Some("small".into());
         let text = apply(TEXT, &plan(&f, &doc));
-        let back = crate::flowmodel::build(&text, &crate::flowmodel::Present::default(), None);
-        let read_back = read(&back).0;
-        assert_eq!(read_back[0].size, Some(16));
-        assert_eq!(read_back[0].font.as_deref(), Some("monoid"));
-        assert_eq!(read_back[0].setting("consoles"), "3");
+        let back = build(&text);
+        let read_back = read(&back);
+        assert_eq!(read_back.paths[0].size, Some(16));
+        assert_eq!(read_back.paths[0].font.as_deref(), Some("monoid"));
+        assert_eq!(read_back.paths[0].setting("consoles"), "3");
         assert!(
             text.contains("[look monoid-16]\nfont-name = monoid\nfont-size = 16\n"),
             "{text}"
         );
         // a size alone moves no rule
-        let mut sized_only = read(&f).0;
-        sized_only[1].size = Some(10);
+        let mut sized_only = read(&f);
+        sized_only.paths[1].size = Some(10);
         let changes = plan(&f, &sized_only);
         assert!(
-            changes
-                .iter()
-                .all(|c| !matches!(c, Change::RuleRm(_) | Change::RuleAdd(_))),
+            changes.iter().all(|c| !matches!(
+                c,
+                Change::RuleRm(_) | Change::RuleAdd(_) | Change::RuleAddBefore { .. }
+            )),
             "{changes:?}"
         );
-        // the renamed terminal keeps its display and its roaming receiver
-        assert_eq!(read_back[1].name.as_deref(), Some("small"));
-        assert_eq!(read_back[1].displays, [EDID_B]);
+        // the renamed terminal keeps its display, and the receiver roams on
+        assert_eq!(read_back.paths[1].name.as_deref(), Some("small"));
+        assert_eq!(read_back.paths[1].displays, [EDID_B]);
+        assert_eq!(read_back.roaming, ["id:046d:c31c"]);
         assert!(!text.contains("[head panel]"), "{text}");
     }
 
@@ -1248,8 +1528,8 @@ pub(crate) mod tests {
         assert_eq!(port_of(KBD_PATH), PORT_33);
         assert_eq!(port_of("path:acpi-LNXPWRBN:00"), "path:acpi-LNXPWRBN:00");
         assert_eq!(rank("serial:1"), 0);
-        assert_eq!(rank(PORT_33), 1);
-        assert_eq!(rank("id:046d:c31c"), 2);
+        assert_eq!(rank("id:046d:c31c"), 1);
+        assert_eq!(rank(PORT_33), 2);
         assert_eq!(rank("class:keyboard"), 3);
         assert_eq!(rank("*"), 4);
     }

@@ -900,10 +900,16 @@ pub const NO_PATHS: &str =
     "No paths yet. Pick an input and a display in PARTS, then press a to add the path.";
 pub fn unfit_rules(n: usize) -> String {
     match n {
-        1 => "1 rule belongs to no path. Press v to see it.".to_owned(),
-        n => format!("{n} rules belong to no path. Press v to see them."),
+        1 => "1 rule belongs to no path. v shows it in the file.".to_owned(),
+        n => format!("{n} rules belong to no path. v shows them in the file."),
     }
 }
+pub const ROWS_ROAMING: &str = "ROAMING";
+pub const ROWS_ROAMING_ABOUT: &str = "These inputs type into whichever terminal is active.";
+pub const ROWS_ROAMING_STUB: &str = "roaming inputs";
+pub const ROAMING_WORD: &str = "roaming";
+pub const REVISE_ROAMING_NOTE: &str = "To change this input, press e. It leaves ROAMING and goes into NEW PATH, where you can give it a path of its own.";
+pub const IN_ROAMING: &str = "This input is in ROAMING. Press e to revise it.";
 pub const PATH_EMPTY: &str = "Pick an input and a display to make a path.";
 pub const PATH_NEEDS_DISPLAY: &str = "Add a display to finish this path.";
 pub const PATH_NEEDS_INPUT: &str = "Add an input to finish this path.";
@@ -942,8 +948,7 @@ pub fn in_terminal(head: &str) -> String {
 pub fn roams_among(n: usize) -> String {
     format!("roams between {n} terminals")
 }
-pub const ROAMS_SENTENCE: &str =
-    "It is in more than one path, so it roams: it types into whichever terminal is active.";
+pub const ROAMS_SENTENCE: &str = "It roams: it types into whichever terminal is active.";
 pub const REVISE_NOTE: &str =
     "Which displays and inputs this path joins change only when you revise it: press e.";
 pub const NO_FONT_SET_KEYS: &str =
@@ -963,15 +968,13 @@ pub const EDITOR_NOTE: &str =
     "Space on a part in PARTS connects it to this path. Enter on a part here disconnects it.";
 pub const BUILT_IN_DEFAULT: &str = "This is vtium's built-in default: every display shows the terminal console, and every keyboard and pointer types into it.";
 pub const ENTER_TO_TYPE: &str = "Enter types a new name";
-pub const ROWS_KEYS: &str = "↑↓←→ move  Space pick  Enter open  a add path  e revise  Esc clear  v rules  i install  o restore  n new  p preview  t trial  PgUp PgDn scroll  q quit";
+pub const ROWS_KEYS: &str = "↑↓←→ move  Space pick  Enter open  a add path  e revise  Esc clear  v view file  i install  o restore  n new  p preview  t trial  PgUp PgDn scroll  q quit";
 pub const ROWS_KEYS_EDITOR_CARD: &str = "↑↓ move  ←→ choose  Enter set  Esc back  q quit";
 pub const ROWS_KEYS_CARD: &str =
     "↑↓ move  ←→ choose  Enter set  e revise this path  Esc back  q quit";
-pub const ROWS_KEYS_INFO: &str = "e revise this path  Esc back  q quit";
+pub const ROWS_KEYS_INFO: &str = "e revise  Esc back  q quit";
 pub const ROWS_KEYS_CHOOSE: &str = "↑↓ move  Enter choose  Esc back  q quit";
 pub const ROWS_SAVE: &str = "The draft keeps each change as you make it, so there is nothing to save. Press i to install it.";
-pub const ROWS_RULES_BACK: &str =
-    "This is the rules view. Press Esc with nothing open to go back to the paths.";
 pub const REVISE_WHERE: &str = "Highlight a path in CONFIGURATION, then press e to revise it.";
 pub const EDITOR_CLEARED: &str = "Cleared the new path.";
 pub const EDITOR_BUSY: &str = "The new path already holds parts. Add it with a, or clear it with Esc, before you revise another path.";
@@ -991,7 +994,7 @@ pub const ROWS_OTHERS_ABOUT: &str = "These inputs are neither keyboards nor poin
 pub const ROWS_NO_RULE: &str = "no rule names it";
 /// The Flow view's actions in the tab bar, long and short.
 pub const ROWS_ACTIONS: [(&str, &str); 5] = [
-    ("v Rules", "Rules"),
+    ("v View file", "View file"),
     ("s Save", "Save"),
     ("i Install", "Install"),
     ("r Revert", "Revert"),
@@ -1038,6 +1041,12 @@ pub fn path_revised(head: &str) -> String {
         terminal(head)
     )
 }
+pub fn roaming_revised(title: &str) -> String {
+    format!(
+        "{} is in NEW PATH now. Pick a display for it, then press a to add the path.",
+        capitalized(title)
+    )
+}
 pub fn changed_in_draft(head: &str) -> String {
     format!("Changed {} in the draft.", terminal(head))
 }
@@ -1053,32 +1062,30 @@ pub fn font_instead(font: &str, old: &str) -> String {
 pub fn font_default() -> String {
     "The new path uses the default font set.".to_owned()
 }
-/// What picking a display or an input says: what was picked, and what the
-/// new path needs next.
+/// What picking a display or an input says: what was picked, with `any
+/// pointer` when it came along with `any keyboard`; that it will roam,
+/// when it will; and what the new path needs next.
 pub fn picked(
     title: &str,
     display: bool,
     new: &crate::tui::paths::Path,
-    also: &[String],
+    pointers: bool,
+    roams: bool,
 ) -> String {
-    let what = if display && !title.starts_with("any ") {
-        format!("Picked the display {}.", title.trim_start_matches("the "))
-    } else {
-        format!("Picked {title}.")
+    let what = match (display && !title.starts_with("any "), pointers) {
+        (true, _) => format!("Picked the display {}.", title.trim_start_matches("the ")),
+        (false, true) => format!("Picked {title}, and {ANY_POINTER_TITLE} with it."),
+        (false, false) => format!("Picked {title}."),
     };
     let next = match (new.inputs.is_empty(), new.displays.is_empty()) {
         (false, true) => "Now pick a display, or more inputs.",
         (true, false) => "Now pick an input, or more displays.",
         _ => "This path is complete: press a to add it, or pick more parts.",
     };
-    let heads: Vec<String> = also.iter().map(|h| terminal(h)).collect();
-    match heads.as_slice() {
-        [] => format!("{what} {next}"),
-        [one] => format!("{what} It is also in {one}, so it will roam between the two. {next}"),
-        [rest @ .., last] => format!(
-            "{what} It is also in {} and {last}, so it will roam between them all. {next}",
-            rest.join(", ")
-        ),
+    match (roams, pointers) {
+        (true, true) => format!("{what} They will type into whichever terminal is active. {next}"),
+        (true, false) => format!("{what} It will type into whichever terminal is active. {next}"),
+        _ => format!("{what} {next}"),
     }
 }
 /// What waits, as the status line counts it: `1 keyboard and 1 display

@@ -3,7 +3,10 @@
 //!
 //! - CONFIGURATION: each path of the configuration as a row of bordered boxes,
 //!   the displays that show a terminal, the terminal with its font set, and
-//!   the inputs that type into it, joined by lines from border to border.
+//!   the inputs that type into it, joined by lines from border to border;
+//!   then the ROAMING strip, the inputs that type into whichever terminal is
+//!   active, drawn once, which a short dotted line on each path's row
+//!   points to.
 //! - NEW PATH: the editor, a row of the same shape drawn dashed, where the
 //!   person composes a path from pieces before adding it.
 //! - PARTS: the palette of displays, inputs and font sets to pick from.
@@ -16,7 +19,7 @@
 
 use super::flow::{Device, Flow, Kind};
 use super::input::Key;
-use super::paths::{self, ANY_POINTER, Path, Piece};
+use super::paths::{self, ANY_POINTER, Doc, Path, Piece};
 use super::words;
 
 /// The rows a box takes: its top border, its title, its detail and its
@@ -33,6 +36,8 @@ pub enum Obj {
     Doc(String, Slot),
     New(Slot),
     Pal(Slot),
+    /// A roaming input in the ROAMING strip, by its selector.
+    Roam(String),
     /// The box that folds every input that is neither a keyboard nor a
     /// pointer, which cannot be picked.
     Others,
@@ -68,7 +73,7 @@ pub enum Mood {
     Waiting,
     /// What cannot be picked: grey.
     Aside,
-    /// Picked into the editor: cyan.
+    /// Picked into the editor, in a color no state uses.
     Picked,
 }
 
@@ -143,14 +148,20 @@ pub struct Wire {
     pub from: Obj,
     pub to: Obj,
     pub points: Vec<(usize, usize)>,
-    /// A dashed line, in the editor.
+    /// A dashed line, in the editor, or the dotted line that says the
+    /// roaming inputs reach a terminal.
     pub dashed: bool,
+    /// The dotted line from the words `roaming inputs` to a terminal of the
+    /// configuration, which has no box at its start: it runs from the
+    /// terminal's own box to itself.
+    pub stub: bool,
 }
 
 /// What a line of text on the canvas is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NoteKind {
-    /// A part's heading: PATHS, NEW PATH, PIECES.
+    /// An area's heading on the canvas: NEW PATH, PARTS. CONFIGURATION's
+    /// stays at the top of the screen while its area is in sight.
     Heading,
     /// The editor's words: what the new path needs, or that it is ready.
     Needs,
@@ -161,6 +172,8 @@ pub enum NoteKind {
     Displays,
     Inputs,
     Fonts,
+    /// The words at the start of a roaming stub, grey and italic.
+    Stub,
 }
 
 /// A line of text on the canvas.
@@ -317,13 +330,12 @@ pub fn font_words(font: Option<&str>) -> String {
     }
 }
 
-/// What the view lays out: the draft's flow, its paths, how many of its
-/// rules belong to no path, the path in the editor, the font sets to pick
-/// from, and the screen's width.
+/// What the view lays out: the draft's flow, its configuration as paths,
+/// the path in the editor, the font sets to pick from, and the screen's
+/// width.
 pub struct Ctx<'a> {
     pub flow: &'a Flow,
-    pub doc: &'a [Path],
-    pub unfit: usize,
+    pub doc: &'a Doc,
     pub new: &'a Path,
     pub fonts: &'a [String],
     pub cols: usize,
@@ -344,12 +356,25 @@ pub struct Layout {
     pub geometry: Option<Geometry>,
     /// The devices connected that no path holds, by sort.
     pub waiting: Vec<Sort>,
+    /// The canvas row of each area's heading, NEW PATH's and PARTS', with
+    /// its words; CONFIGURATION's area starts at the canvas's top.
+    pub areas: Vec<(usize, &'static str)>,
 }
 
 impl Layout {
     /// The box of `obj`.
     pub fn find(&self, obj: &Obj) -> Option<&Boxed> {
         self.boxes.iter().find(|b| b.obj == *obj)
+    }
+
+    /// The heading of the area the canvas row `top` is in: the last area
+    /// whose heading is above it, else CONFIGURATION.
+    pub fn area_at(&self, top: usize) -> &'static str {
+        self.areas
+            .iter()
+            .rev()
+            .find(|(y, _)| *y < top)
+            .map_or(words::ROWS_PATHS, |(_, a)| *a)
     }
 
     /// The boxes in reading order, across and then down.
@@ -361,7 +386,9 @@ impl Layout {
 }
 
 /// Lays out the row of the path `p`, its terminal named `name`, from
-/// canvas row `y`: a path of the document, or the editor's when `dashed`.
+/// canvas row `y`: a path of the configuration, or the editor's when
+/// `dashed`. A path of the configuration that roaming inputs reach ends
+/// in a dotted line from the words `roaming inputs` to its terminal.
 /// Returns the row after it.
 fn path_row(
     ctx: &Ctx<'_>,
@@ -421,16 +448,23 @@ fn path_row(
             to: term.clone(),
             points,
             dashed,
+            stub: false,
         });
         out.boxes.push(b);
     }
-    for (k, sel) in p.inputs.iter().enumerate() {
-        let (title, mut detail) = paths::title(ctx.flow, Kind::Input, sel);
-        // an input in two paths roams between their terminals
-        let paths = ctx.doc.iter().filter(|q| q.inputs.contains(sel)).count();
-        if !dashed && paths > 1 {
-            detail = format!("{detail} · {}", words::ROWS_ROAMS);
+    // the line from an input to the terminal: straight from the first,
+    // and merging into the first's from the others
+    let line_from = |row: usize, k: usize| {
+        let start = (g.dev_x.saturating_sub(1), row);
+        let end = (g.term_x.saturating_add(g.term_w), join_row);
+        if k == 0 {
+            vec![start, end]
+        } else {
+            vec![start, (g.dev_join, row), (g.dev_join, join_row), end]
         }
+    };
+    for (k, sel) in p.inputs.iter().enumerate() {
+        let (title, detail) = paths::title(ctx.flow, Kind::Input, sel);
         let b = Boxed {
             obj: obj(Slot::Input(sel.clone())),
             x: g.dev_x,
@@ -441,28 +475,82 @@ fn path_row(
             mood: Mood::Placed,
             dashed,
         };
-        let start = (g.dev_x.saturating_sub(1), b.title_row());
-        let end = (g.term_x.saturating_add(g.term_w), join_row);
-        let points = if k == 0 {
-            vec![start, end]
-        } else {
-            vec![
-                start,
-                (g.dev_join, b.title_row()),
-                (g.dev_join, join_row),
-                end,
-            ]
-        };
         out.wires.push(Wire {
             from: b.obj.clone(),
             to: term.clone(),
-            points,
+            points: line_from(b.title_row(), k),
             dashed,
+            stub: false,
         });
         out.boxes.push(b);
     }
-    let slots = p.displays.len().max(p.inputs.len()).max(1);
-    y.saturating_add(slots.saturating_mul(BOX_ROWS))
+    let k = p.inputs.len();
+    let mut bottom = y.saturating_add(k.saturating_mul(BOX_ROWS));
+    if !dashed && !ctx.doc.roaming.is_empty() {
+        let row = y
+            .saturating_add(k.saturating_mul(BOX_ROWS))
+            .saturating_add(1);
+        out.notes.push(Note {
+            x: g.dev_x,
+            y: row,
+            text: super::canvas::fit(words::ROWS_ROAMING_STUB, g.dev_w),
+            kind: NoteKind::Stub,
+        });
+        out.wires.push(Wire {
+            from: term.clone(),
+            to: term.clone(),
+            points: line_from(row, k),
+            dashed: true,
+            stub: true,
+        });
+        bottom = bottom.max(row.saturating_add(1));
+    }
+    let displays = y.saturating_add(p.displays.len().saturating_mul(BOX_ROWS));
+    bottom.max(displays).max(y.saturating_add(BOX_ROWS))
+}
+
+/// Lays out the ROAMING strip from canvas row `y`: its heading and the
+/// sentence that says what roaming means on the left, and each roaming
+/// input's box in the inputs' column. Returns the row after it.
+fn roaming_strip(ctx: &Ctx<'_>, out: &mut Layout, y: usize) -> usize {
+    let g = geometry(ctx.cols);
+    out.notes.push(Note {
+        x: 1,
+        y: y.saturating_add(1),
+        text: words::ROWS_ROAMING.to_owned(),
+        kind: NoteKind::Inputs,
+    });
+    let room = g.term_x.saturating_add(g.term_w).saturating_sub(1).max(1);
+    let mut bottom = y.saturating_add(2);
+    for (i, line) in super::canvas::wrap(words::ROWS_ROAMING_ABOUT, room, 3)
+        .into_iter()
+        .enumerate()
+    {
+        let row = y.saturating_add(2).saturating_add(i);
+        out.notes.push(Note {
+            x: 1,
+            y: row,
+            text: line,
+            kind: NoteKind::Grey,
+        });
+        bottom = bottom.max(row.saturating_add(1));
+    }
+    for (k, sel) in ctx.doc.roaming.iter().enumerate() {
+        let (title, detail) = paths::title(ctx.flow, Kind::Input, sel);
+        let b = Boxed {
+            obj: Obj::Roam(sel.clone()),
+            x: g.dev_x,
+            y: y.saturating_add(k.saturating_mul(BOX_ROWS)),
+            w: g.dev_w,
+            title,
+            detail,
+            mood: Mood::Placed,
+            dashed: false,
+        };
+        bottom = bottom.max(b.bottom());
+        out.boxes.push(b);
+    }
+    bottom
 }
 
 /// A piece of the palette, before it is placed.
@@ -488,7 +576,7 @@ fn palette(ctx: &Ctx<'_>, waiting: &mut Vec<Sort>) -> Vec<(NoteKind, &'static st
     let mut displays = Vec::new();
     for d in flow.displays.iter().filter(|d| d.found) {
         let slot = Slot::Display(paths::own_key(flow, Kind::Display, d));
-        let held = holders(ctx.doc, Kind::Display, d);
+        let held = holders(&ctx.doc.paths, Kind::Display, d);
         let (detail, mood) = match held.first() {
             Some(h) => (words::in_terminal(h), Mood::Aside),
             None => {
@@ -525,9 +613,11 @@ fn palette(ctx: &Ctx<'_>, waiting: &mut Vec<Sort>) -> Vec<(NoteKind, &'static st
         .filter(|d| d.found && sort(d) != Sort::Other)
     {
         let slot = Slot::Input(paths::own_key(flow, Kind::Input, d));
-        let held = holders(ctx.doc, Kind::Input, d);
+        let held = holders(&ctx.doc.paths, Kind::Input, d);
         let port = port_words(&d.detail);
+        let roams = ctx.doc.roaming.iter().any(|r| names(d, r));
         let (detail, mood) = match held.as_slice() {
+            [] if roams => (format!("{port} · {}", words::ROAMING_WORD), Mood::Placed),
             [] => {
                 waiting.push(sort(d));
                 (format!("{port} · {}", words::IN_NO_PATH), Mood::Waiting)
@@ -585,6 +675,7 @@ fn palette(ctx: &Ctx<'_>, waiting: &mut Vec<Sort>) -> Vec<(NoteKind, &'static st
         let slot = Slot::Font(Some(f.clone()));
         let users: Vec<String> = ctx
             .doc
+            .paths
             .iter()
             .filter(|p| p.font.as_deref() == Some(f.as_str()))
             .filter_map(|p| p.name.clone())
@@ -622,16 +713,9 @@ pub fn layout(ctx: &Ctx<'_>) -> Layout {
     let note = |out: &mut Layout, x: usize, y: usize, text: String, kind: NoteKind| {
         out.notes.push(Note { x, y, text, kind });
     };
-    // PATHS
-    note(
-        &mut out,
-        1,
-        0,
-        words::ROWS_PATHS.to_owned(),
-        NoteKind::Heading,
-    );
-    let mut y = 1usize;
-    if ctx.doc.is_empty() {
+    // CONFIGURATION, whose heading stays at the top of the screen
+    let mut y = 0usize;
+    if ctx.doc.paths.is_empty() {
         note(&mut out, 1, y, words::NO_PATHS.to_owned(), NoteKind::Grey);
         y = y.saturating_add(1);
     }
@@ -642,24 +726,28 @@ pub fn layout(ctx: &Ctx<'_>) -> Layout {
             y = y.saturating_add(1);
         }
     }
-    if ctx.unfit > 0 {
+    if ctx.doc.unfit > 0 {
         note(
             &mut out,
             1,
             y,
-            words::unfit_rules(ctx.unfit),
+            words::unfit_rules(ctx.doc.unfit),
             NoteKind::Grey,
         );
         y = y.saturating_add(1);
     }
-    for p in ctx.doc {
+    for p in &ctx.doc.paths {
         let name = p.name.clone().unwrap_or_default();
         y = path_row(ctx, &mut out, p, &name, y.saturating_add(1), false);
+    }
+    if !ctx.doc.roaming.is_empty() {
+        y = roaming_strip(ctx, &mut out, y.saturating_add(1));
     }
     // NEW PATH
     y = y.saturating_add(1);
     out.rules.push(y);
     y = y.saturating_add(1);
+    out.areas.push((y, words::ROWS_NEW_PATH));
     note(
         &mut out,
         1,
@@ -686,10 +774,11 @@ pub fn layout(ctx: &Ctx<'_>) -> Layout {
         .clone()
         .unwrap_or_else(|| paths::new_name(ctx.flow, ctx.doc));
     y = path_row(ctx, &mut out, ctx.new, &name, y.saturating_add(1), true);
-    // PIECES
+    // PARTS
     y = y.saturating_add(1);
     out.rules.push(y);
     y = y.saturating_add(1);
+    out.areas.push((y, words::ROWS_PIECES));
     note(
         &mut out,
         1,
@@ -949,11 +1038,10 @@ pub(crate) mod tests {
     }
 
     pub(crate) fn lay(f: &Flow, new: &Path, cols: usize) -> Layout {
-        let (doc, unfit) = paths::read(f);
+        let doc = paths::read(f);
         layout(&Ctx {
             flow: f,
             doc: &doc,
-            unfit,
             new,
             fonts: &fonts(),
             cols,
@@ -985,16 +1073,51 @@ pub(crate) mod tests {
                 (dp.x, dp.y, dp.title.as_str()),
                 (g.screen_x, desk.y, "DP-8")
             );
-            let roams = at(&l, &doc("desk", Slot::Input("id:046d:c31c".into())));
+            // the roaming receiver once, in ROAMING below the paths, in the
+            // inputs' column, and on no path's row
+            let roams = at(&l, &Obj::Roam("id:046d:c31c".into()));
             assert_eq!(roams.title, "Logitech USB Receiver (by id)");
-            assert!(roams.detail.ends_with("roams"), "{}", roams.detail);
+            assert_eq!((roams.x, roams.w), (g.dev_x, g.dev_w));
+            assert!(roams.y > panel.bottom(), "{roams:?}");
+            assert!(
+                l.find(&doc("desk", Slot::Input("id:046d:c31c".into())))
+                    .is_none()
+            );
+            assert!(
+                l.notes
+                    .iter()
+                    .any(|n| n.text == "ROAMING" && n.y == roams.title_row())
+            );
+            // each path's row ends in a dotted stub from the words
+            // `roaming inputs` to its terminal
+            for t in [desk, panel] {
+                let stub = l
+                    .wires
+                    .iter()
+                    .find(|w| w.stub && w.to == t.obj)
+                    .expect("a stub");
+                assert!(stub.dashed);
+                let (x, y) = stub.points[0];
+                assert_eq!(x + 1, g.dev_x);
+                assert!(y < roams.y, "{stub:?}");
+                let words = l
+                    .notes
+                    .iter()
+                    .find(|n| n.kind == NoteKind::Stub && n.y == y)
+                    .expect("its words");
+                assert_eq!((words.x, words.text.as_str()), (g.dev_x, "roaming inputs"));
+                assert_eq!(
+                    *stub.points.last().expect("an end"),
+                    (t.right(), t.title_row())
+                );
+            }
             let gone = at(&l, &doc("desk", Slot::Input("serial:046d:c52b:0".into())));
             assert_eq!(gone.detail, "not plugged in");
             // the editor, dashed, below the paths, named for its terminal
             let new = at(&l, &Obj::New(Slot::Terminal));
             assert!(new.dashed && !desk.dashed);
             assert_eq!(new.title, "terminal-1");
-            assert!(new.y > panel.bottom() && new.y > l.rules[0]);
+            assert!(new.y > roams.bottom() && new.y > l.rules[0]);
             // the pieces below the editor, a display in a path grey and one
             // nobody has amber
             assert!(l.rules[1] > new.bottom());
@@ -1005,7 +1128,7 @@ pub(crate) mod tests {
             );
             let kbd = at(&l, &Obj::Pal(Slot::Input(KBD_PATH.into())));
             assert_eq!(kbd.mood, Mood::Placed);
-            assert_eq!(kbd.detail, "USB 3.3 · roams between 2 terminals");
+            assert_eq!(kbd.detail, "USB 3.3 · roaming");
             let bitdo = at(&l, &Obj::Pal(Slot::Input("id:2dc8:5200".into())));
             assert_eq!(bitdo.mood, Mood::Waiting);
             assert!(dp.y > l.rules[1]);
@@ -1027,7 +1150,17 @@ pub(crate) mod tests {
                 .filter(|n| n.kind == NoteKind::Heading)
                 .map(|n| n.text.as_str())
                 .collect();
-            assert_eq!(headings, ["CONFIGURATION", "NEW PATH", "PARTS"]);
+            assert_eq!(headings, ["NEW PATH", "PARTS"]);
+            // each area's heading above its area: CONFIGURATION's at the
+            // top of the screen until NEW PATH's has scrolled past
+            assert_eq!(l.area_at(0), "CONFIGURATION");
+            let (new_at, _) = l.areas[0];
+            let (parts_at, _) = l.areas[1];
+            assert!(new_at < new.y && new_at > l.rules[0]);
+            assert!(parts_at < dp.y && parts_at > l.rules[1]);
+            assert_eq!(l.area_at(new_at), "CONFIGURATION");
+            assert_eq!(l.area_at(new_at + 1), "NEW PATH");
+            assert_eq!(l.area_at(parts_at + 1), "PARTS");
         }
     }
 
@@ -1109,10 +1242,12 @@ pub(crate) mod tests {
         new.pick(Piece::Display("*".into()));
         for cols in [80, 100, 120] {
             let l = lay(&f, &new, cols);
-            // desk 1+2, panel 1+1, the editor 2+2
+            // desk 1+1, panel 1+0, the editor 2+2, and a roaming stub on
+            // each of the two paths of the configuration
             assert_eq!(l.wires.len(), 9, "{cols}");
-            assert_eq!(l.wires.iter().filter(|w| w.dashed).count(), 4);
-            for w in &l.wires {
+            assert_eq!(l.wires.iter().filter(|w| w.dashed).count(), 6);
+            assert_eq!(l.wires.iter().filter(|w| w.stub).count(), 2);
+            for w in l.wires.iter().filter(|w| !w.stub) {
                 let from = at(&l, &w.from);
                 let to = at(&l, &w.to);
                 let first = w.points[0];
