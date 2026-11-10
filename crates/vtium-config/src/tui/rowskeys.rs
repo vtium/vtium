@@ -387,6 +387,9 @@ impl App {
             return self.tell(words::piece_out(&title));
         }
         let display = kind == super::flow::Kind::Display;
+        if new.none {
+            return self.tell(words::picked_aside(&title, display));
+        }
         let roams = !display && (new.active || doc.would_roam(sel));
         let pointers = done == Picked::AddedWithPointers;
         self.tell(words::picked(&title, display, &new, pointers, roams))

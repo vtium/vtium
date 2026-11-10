@@ -1172,6 +1172,15 @@ fn list_layer(
     let first = line.saturating_add(1).saturating_sub(room);
     let mut y = top;
     let last = list.len().saturating_sub(1);
+    // the details line up in a column after the longest choice, as far as
+    // half the screen
+    let column = list
+        .iter()
+        .map(|(t, _)| width(t))
+        .max()
+        .unwrap_or(0)
+        .saturating_add(9)
+        .min(app.cols / 2);
     for (i, (title, detail)) in list.iter().enumerate().skip(first) {
         if y >= bottom {
             break;
@@ -1195,7 +1204,8 @@ fn list_layer(
             false,
             i == line,
         );
-        let room = app.cols.saturating_sub(x);
+        let x = x.max(column);
+        let room = app.cols.saturating_sub(x).saturating_sub(1);
         canvas.put(x, y, &fit(detail, room), Style::text(Color::Grey));
         y = y.saturating_add(1);
     }

@@ -919,6 +919,14 @@ pub const PATH_NEEDS_DISPLAY: &str = "Add a display to finish this path.";
 pub const PATH_COMPLETE: &str = "This path is complete. Press a to add it.";
 /// The special parts' names.
 pub const NO_INPUT: &str = "no input";
+/// A part picked into the path to no terminal.
+pub fn picked_aside(title: &str, display: bool) -> String {
+    if display {
+        format!("Picked {title}. It will stay off.")
+    } else {
+        format!("Picked {title}. It will be set aside.")
+    }
+}
 pub const NO_TERMINAL_ABOUT: &str = "No terminal is where a path sends what vtium leaves alone: its displays stay off and its inputs are set aside.";
 pub const NONE_REVISED: &str =
     "The path to no terminal is in NEW PATH. Change its parts, then press a to add it back.";
@@ -957,12 +965,12 @@ pub const PICKER_TYPE: &str = "type a value…";
 pub const PICKER_TYPE_DETAIL: &str = "Enter starts typing; a value without its key takes this one";
 pub const ENTER_TO_CHECK: &str = "Enter checks it and makes the part";
 pub const NO_INPUT_DETAIL: &str = "nothing types into it";
-pub const NO_TERMINAL_DETAIL: &str = "displays off, inputs set aside";
+pub const NO_TERMINAL_DETAIL: &str = "off and set aside";
 pub const NEW_TERMINAL_DETAIL: &str = "a terminal of its own";
 pub const TURNED_OFF: &str = "turned off";
 pub const SET_ASIDE: &str = "set aside";
 /// A template's words under its title.
-pub const TEMPLATE_DETAIL: &str = "template · Enter makes a part";
+pub const TEMPLATE_DETAIL: &str = "Enter makes a part";
 /// An empty place in NEW PATH.
 pub const EMPTY_PLACE: &str = "Enter chooses a part";
 /// The empty terminal place in NEW PATH, with the name a new terminal takes.
@@ -1010,7 +1018,7 @@ pub const ACTIVE_REVISED: &str =
     "The roaming inputs are in NEW PATH now. Change them, then press a to add them back.";
 pub const REVISED_DROPPED: &str = "Took the path you were revising out of the configuration.";
 pub const ANY_DISPLAY: &str = "every display";
-pub const EVERY_DISPLAY: &str = "every display, connected now or later";
+pub const EVERY_DISPLAY: &str = "connected now or later";
 pub const ANY_POINTER_TITLE: &str = "every pointer";
 pub const EVERY_POINTER: &str = "every mouse, touchpad and trackball";
 pub const BY_CONNECTOR: &str = "by its connector";

@@ -1031,7 +1031,10 @@ pub fn title(flow: &Flow, kind: Kind, selector: &str) -> (String, String) {
             words::ANY_DISPLAY.to_owned(),
             words::EVERY_DISPLAY.to_owned(),
         ),
-        (Kind::Input, "*") => ("every input".to_owned(), "every input there is".to_owned()),
+        (Kind::Input, "*") => (
+            "every input".to_owned(),
+            "what no other rule names".to_owned(),
+        ),
         (Kind::Display, "connector") => {
             let c = value.rsplit('/').next().unwrap_or(value);
             (c.to_owned(), words::BY_CONNECTOR.to_owned())
