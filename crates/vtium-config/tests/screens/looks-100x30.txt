@@ -1,4 +1,4 @@
- Flow  Looks  Fonts  Settings  Help               View  Install  Revert  Restore  New  Delete draft
+ Flow  Looks  Fonts  Settings  Help                                                   Save  Install
  draft workstation · 1 change · no problems                              text preview · t: try live
 ----------------------------------------------------------------------------------------------------
  Font sizes for the console, in points.
