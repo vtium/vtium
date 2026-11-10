@@ -202,8 +202,10 @@ fn draw_box(doc: &mut Canvas, b: &Boxed, highlighted: bool, pal: &Palette) {
     );
     // inside a filled box, the text takes the color the fill picks, and
     // the title is bold because the fill shows the kind; a set-aside
-    // box's title stays light, so its italic reads as set aside
-    let (title, detail) = match pal.fill(kind_role(&b.obj)) {
+    // box's title stays light, so its italic reads as set aside. Black
+    // text in a basic color is never bold: the console shows bold black
+    // as dark grey, which reads poorly on a light fill.
+    let (title, detail, bolds) = match pal.fill(kind_role(&b.obj)) {
         Some(back) => {
             let text = pal.text_on(back, b.mood == Mood::Aside);
             for i in 1..BOX_ROWS.saturating_sub(1) {
@@ -214,22 +216,24 @@ fn draw_box(doc: &mut Canvas, b: &Boxed, highlighted: bool, pal: &Palette) {
                     text,
                 );
             }
-            let title = if b.mood == Mood::Aside {
+            let bolds = text.rgb.is_some() || text.fg != Some(Color::Black);
+            let title = if b.mood == Mood::Aside || !bolds {
                 text
             } else {
                 emph(text)
             };
-            (title, text)
+            (title, text, bolds)
         }
-        None => (pal.style(kind_role(&b.obj)), Style::text(Color::Grey)),
+        None => (pal.style(kind_role(&b.obj)), Style::text(Color::Grey), true),
     };
+    let strong = |s: Style| if bolds { emph(s) } else { s };
     let room = b.w.saturating_sub(4);
     let title_style = match (highlighted, b.mood) {
         (true, _) => Style {
             underline: true,
-            ..emph(title)
+            ..strong(title)
         },
-        (false, Mood::Picked) => emph(title),
+        (false, Mood::Picked) => strong(title),
         (false, _) => title,
     };
     doc.put(
@@ -683,19 +687,26 @@ fn overview(canvas: &mut Canvas, app: &App, state: &rows::State, layout: &Layout
         wh,
         &app.inputs.rows_colors,
     );
-    for i in 0..wh {
-        let y = state.top.saturating_add(i);
-        for x in 0..app.cols {
-            if let (Some(c), Some(s)) = (doc.at(x, y), doc.style_at(x, y))
-                && c != ' '
-            {
-                canvas.put(x, wtop.saturating_add(i), &c.to_string(), s);
-            }
-        }
-    }
+    put_window(canvas, &doc, state.top, wtop, wh);
     for (x, y, text) in edge_labels(&app.inputs.flow, layout, state.top, wh) {
         let row = wtop.saturating_add(y.saturating_sub(state.top));
         canvas.put(x, row, &text, Style::text(Color::BrightWhite));
+    }
+}
+
+/// Copies `height` rows of the canvas `doc` from row `top` onto `canvas`
+/// from its row `at`: every cell that holds a character, and every blank
+/// cell inside a filled box, so the fill reaches the screen whole.
+fn put_window(canvas: &mut Canvas, doc: &Canvas, top: usize, at: usize, height: usize) {
+    for i in 0..height {
+        let y = top.saturating_add(i);
+        for x in 0..doc.cols {
+            if let (Some(c), Some(s)) = (doc.at(x, y), doc.style_at(x, y))
+                && (c != ' ' || s.back.is_some())
+            {
+                canvas.put(x, at.saturating_add(i), &c.to_string(), s);
+            }
+        }
     }
 }
 
@@ -1303,6 +1314,54 @@ mod tests {
             doc.style_at(taken.x, taken.y).and_then(|s| s.fg),
             Some(Color::Grey)
         );
+    }
+
+    #[test]
+    fn black_text_on_a_basic_fill_is_never_bold() {
+        // bold black shows as dark grey on the console, which reads
+        // poorly on a light fill
+        let f = flow();
+        let l = lay(&f, &editor(), 100);
+        let (pal, _) =
+            crate::tui::rowscolor::parse("[colors]\ndisplay-fill = cyan\nterminal-fill = blue\n");
+        let desk = Obj::Doc("desk".into(), Slot::Terminal);
+        let dp8 = Obj::Doc("desk".into(), Slot::Display(EDID_A.into()));
+        for at in [None, Some(&desk), Some(&dp8)] {
+            let doc = document(&l, 100, at, &pal);
+            let d = l.find(&dp8).expect("DP-8");
+            let s = doc.style_at(d.x + 2, d.title_row()).expect("a style");
+            assert_eq!(
+                (s.fg, s.bold, s.underline),
+                (Some(Color::Black), false, at == Some(&dp8)),
+                "{at:?}"
+            );
+            let t = l.find(&desk).expect("desk");
+            let s = doc.style_at(t.x + 2, t.title_row()).expect("a style");
+            assert_eq!((s.fg, s.bold), (Some(Color::BrightWhite), true), "{at:?}");
+        }
+    }
+
+    #[test]
+    fn the_whole_inside_of_a_filled_box_reaches_the_screen() {
+        let f = flow();
+        let l = lay(&f, &editor(), 100);
+        let (pal, _) = crate::tui::rowscolor::parse("[colors]\nterminal-fill = blue\n");
+        let doc = window_of(&l, 100, None, 0, l.height, &pal);
+        let mut screen = Canvas::new(100, l.height + HEAD_ROWS);
+        put_window(&mut screen, &doc, 0, HEAD_ROWS, l.height);
+        let desk = l
+            .find(&Obj::Doc("desk".into(), Slot::Terminal))
+            .expect("desk");
+        let fill = pal.fill(Role::Terminal);
+        assert!(fill.is_some());
+        for y in desk.y + 1..desk.bottom() - 1 {
+            for x in desk.x + 1..desk.right() - 1 {
+                let s = screen.style_at(x, y + HEAD_ROWS).expect("a cell");
+                assert_eq!(s.back, fill, "at {x},{y}");
+            }
+        }
+        // a blank cell outside every box stays the terminal's own
+        assert_eq!(screen.style_at(0, HEAD_ROWS), Some(Style::PLAIN));
     }
 
     #[test]
