@@ -434,7 +434,10 @@ flowchart TB
 ### D2: one process, one VT, every card
 
 - One vtium holds its kernel VT and, while that VT is shown, every card of its seat, and it drives every connector on those cards. A display is a head inside that process, never a second process.
-- Another vtium on another VT (`vtium@tty2`) reads the same head file and does the same while its VT is shown.
+- Another vtium on another VT (`vtium@tty2`) reads the same vtium.conf and does the same while its VT is shown.
+- **Each vtium builds the heads of its own VT** (the maintainer, 2026-11-10; ADR-1403 D4). A head's section may name the VTs it runs on with `vt = N`, or a list `vt = N M`. The vtium on ttyN builds every head whose `vt` names N, and every head with no `vt`. A head with no `vt` runs on every VT vtium runs on, so a file without the key works as it did. So several VTs can each show a different terminal on the same display and keyboard. Inside a head, vtium's own keys still switch between that head's consoles (D5): a VT picks the head and its look, and the head keeps its consoles.
+
+> Edited 2026-11-10: the maintainer tied terminals to VTs with the `vt` key, every VT by default, and kept a terminal's own consoles beside it (ADR-1403 D4 and its `considered`, 2026-11-10). The bullet read: "Another vtium on another VT (`vtium@tty2`) reads the same head file and does the same while its VT is shown."
 - vtium serves seat0. Other seats are a later extension, which this record names and does not build: one vtium for each seat, with console switching of its own where the seat has no kernel VT. Each seat's flow then goes into vtium.conf with the rest, and no seat has a file of its own (ADR-1403 D2).
 - **One render thread per head,** so one head's redraw cannot delay another head's frames or any input. Each head's frames depend only on that head's state, so determinism holds. Each render thread's stack is small and fixed. Threads do not contain a crash: under `panic=abort` a panic in any thread ends the process (D10).
 - A DRM lease from a compositor is not a source of heads, unless a later decision makes it a display-only head: a lease would put a root login inside a user's graphical session, and it would need vtium to read raw input beside the compositor.
