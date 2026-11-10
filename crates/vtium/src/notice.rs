@@ -36,6 +36,45 @@ pub fn rescue(device: impl Display, to: &str) -> String {
     )
 }
 
+/// The words of `items` as a list: `a`, `a and b`, or `a, b, and c`.
+fn listed(items: &[String]) -> String {
+    match items {
+        [] => String::new(),
+        [one] => one.clone(),
+        [a, b] => format!("{a} and {b}"),
+        [rest @ .., last] => format!("{}, and {last}", rest.join(", ")),
+    }
+}
+
+/// One display that belongs to a terminal of other VTs: its connector,
+/// the terminal's name, and the VTs the terminal runs on.
+pub struct Away<'a> {
+    pub connector: &'a str,
+    pub head: &'a str,
+    pub vts: &'a [u16],
+}
+
+/// What the boot display shows on VT `vt` when the terminals `here` run
+/// on it but every display belongs to a terminal of other VTs, each of
+/// `away` (the maintainer, 2026-11-10: on every VT it runs on, vtium shows
+/// either a terminal or a notice that says why there is none).
+pub fn no_display_here(vt: u16, here: &[&str], away: &[Away<'_>]) -> String {
+    let names: Vec<String> = here.iter().map(|h| (*h).to_owned()).collect();
+    let topic = match names.as_slice() {
+        [one] => format!("Terminal {one} has no display on VT {vt}."),
+        _ => format!("Terminals {} have no display on VT {vt}.", listed(&names)),
+    };
+    let reasons = away.iter().map(|a| {
+        let vts: Vec<String> = a.vts.iter().map(u16::to_string).collect();
+        let on = match vts.as_slice() {
+            [one] => format!("VT {one}"),
+            _ => format!("VTs {}", listed(&vts)),
+        };
+        format!(" {} belongs to terminal {}, on {on}.", a.connector, a.head)
+    });
+    std::iter::once(topic).chain(reasons).collect()
+}
+
 /// `sentence` with the keys `bindings` binds to `chord` in place of its
 /// `{}`, after a space; nothing when vtium.conf leaves the chord empty.
 fn press(bindings: &Bindings, chord: HeadChord, sentence: &str) -> String {
@@ -440,6 +479,37 @@ pub mod config_tool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // The maintainer's wording, 2026-11-10: the topic first, then each
+    // display with the terminal and the VTs it belongs to.
+    #[test]
+    fn a_vt_whose_displays_all_belong_elsewhere_says_whose_each_one_is() {
+        let away = |connector, head, vts| Away {
+            connector,
+            head,
+            vts,
+        };
+        assert_eq!(
+            no_display_here(4, &["here"], &[away("DP-8", "desk", &[3])]),
+            "Terminal here has no display on VT 4. DP-8 belongs to terminal desk, on VT 3."
+        );
+        assert_eq!(
+            no_display_here(
+                4,
+                &["here", "side", "top"],
+                &[
+                    away("DP-8", "desk", &[3]),
+                    away("HDMI-A-1", "panel", &[3, 5]),
+                    away("DP-9", "wall", &[2, 3, 5]),
+                ]
+            ),
+            "Terminals here, side, and top have no display on VT 4. DP-8 belongs to terminal desk, on VT 3. HDMI-A-1 belongs to terminal panel, on VTs 3 and 5. DP-9 belongs to terminal wall, on VTs 2, 3, and 5."
+        );
+        assert_eq!(
+            no_display_here(4, &["a", "b"], &[]),
+            "Terminals a and b have no display on VT 4."
+        );
+    }
 
     // The maintainer's wording: the ended session's notice names the focus
     // chord's keys as vtium binds them.

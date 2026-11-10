@@ -221,9 +221,14 @@ pub struct App {
     /// The panic screen's report, for a broken closed head file (D7).
     report: Option<vtium_render::NoticeReport>,
     /// The index in [`App::heads`] of the screen the display guard lights
-    /// for a notice alone, which a closed policy has, after every head the
-    /// file declares (D9).
+    /// for a notice alone, after every head of this VT (D9). A closed
+    /// policy has one, and so does a file with a head that does not run on
+    /// this VT, whose displays can all belong to heads of other VTs.
     screen: Option<usize>,
+    /// The displays, when every one of them belongs to a head of other VTs,
+    /// each by its connector and the index of its head in [`App::rules`]:
+    /// what the notice screen says this VT lacks. Empty otherwise.
+    elsewhere: Vec<(String, usize)>,
     /// A crash loop ended every head's sessions under the closed policy:
     /// no session starts again, no input is delivered, and the boot
     /// display shows why for as long as vtium runs (D1).
@@ -462,6 +467,7 @@ impl App {
             outcome: vtium_settings::resolve(&vtium_settings::Read::Missing),
             report: None,
             screen: None,
+            elsewhere: Vec::new(),
             stopped: false,
             focus: None,
             routes: Routes::default(),
@@ -541,7 +547,10 @@ impl App {
         let scrollback = (self.scrollback, self.scrollback_bytes);
         self.let_go_of_painters();
         self.heads = session::heads(&declared, &self.config, scrollback, caps, &self.clock);
-        self.screen = (rules.policy == Policy::Closed).then(|| {
+        // a head that runs on other VTs alone can hold every display
+        let tied = vt.is_some_and(|vt| rules.heads.iter().any(|h| !h.runs_on(vt)));
+        self.elsewhere.clear();
+        self.screen = (rules.policy == Policy::Closed || tied).then(|| {
             let term = crate::head::terminal(&self.config, (0, 0), 0, Rc::clone(&self.clock));
             self.heads.push(Head::notice_screen(&self.config, term));
             self.heads.len().saturating_sub(1)
@@ -2200,6 +2209,25 @@ impl App {
         let placement = self
             .vt_heads
             .placement(&self.rules, &devices, &rescued, self.focus);
+        // Every display belongs to a head of another VT: the notice screen
+        // says whose each one is.
+        let shown = displays.len().saturating_add(held.len());
+        let away: Vec<(String, usize)> = devices
+            .iter()
+            .zip(&placement.placed)
+            .take(shown)
+            .filter_map(|(d, p)| match p.place {
+                vtium_settings::Place::Elsewhere(h) => {
+                    Some((d.connector.clone().unwrap_or_else(|| "?".to_owned()), h))
+                }
+                _ => None,
+            })
+            .collect();
+        self.elsewhere = if away.len() == shown {
+            away
+        } else {
+            Vec::new()
+        };
         let (shown, rest) = placement
             .placed
             .split_at(displays.len().min(placement.placed.len()));
@@ -2325,8 +2353,34 @@ impl App {
         self.report
             .as_ref()
             .map(vtium_render::NoticeReport::text)
+            .or_else(|| self.elsewhere_notice())
             .or_else(|| self.outcome.dark_notice().map(crate::head::outcome_notice))
             .unwrap_or_default()
+    }
+
+    /// The notice of a VT whose displays all belong to heads of other VTs
+    /// (the maintainer, 2026-11-10): the heads of this VT, and each
+    /// display with its head and that head's VTs. `None` unless every
+    /// display belongs to a head of another VT.
+    fn elsewhere_notice(&self) -> Option<String> {
+        let vt = self.vt_heads.vt()?;
+        if self.elsewhere.is_empty() {
+            return None;
+        }
+        let here: Vec<&str> = self.heads().iter().map(Head::name).collect();
+        let away: Vec<crate::notice::Away<'_>> = self
+            .elsewhere
+            .iter()
+            .filter_map(|(connector, h)| {
+                let head = self.rules.heads.get(*h)?;
+                Some(crate::notice::Away {
+                    connector,
+                    head: &head.name,
+                    vts: &head.vts,
+                })
+            })
+            .collect();
+        Some(crate::notice::no_display_here(vt, &here, &away))
     }
 
     /// The display the display guard lit goes dark again: the rules light
