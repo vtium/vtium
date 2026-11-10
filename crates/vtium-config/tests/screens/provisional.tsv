@@ -1,15 +1,1 @@
 # The TUI's screen goldens that judge nothing until the maintainer reviews the layout (ADR-1201 D8). One name a line, a tab, and what the screen shows.
-flow-default-80x25	the shipped default: All displays to the console, the roaming keyboards and pointers, and the catch-all to Nowhere
-flow-default-120x32	the shipped default: All displays to the console, the roaming keyboards and pointers, and the catch-all to Nowhere
-flow-paths-80x25	a draft of three paths: desk, panel and the roaming inputs
-flow-paths-120x32	a draft of three paths: desk, panel and the roaming inputs
-flow-new-path-80x25	a part picked into NEW PATH, the path half built
-flow-new-path-120x32	a part picked into NEW PATH, the path half built
-flow-input-maker-80x25	the Input template's maker, ADD AN INPUT
-flow-input-maker-120x32	the Input template's maker, ADD AN INPUT
-flow-picker-80x25	the USB port picker of the Input maker
-flow-picker-120x32	the USB port picker of the Input maker
-flow-terminal-card-80x25	the card of the terminal desk, with its subflow
-flow-terminal-card-120x32	the card of the terminal desk, with its subflow
-flow-label-80x25	an input part given a label on its detail
-flow-label-120x32	an input part given a label on its detail
