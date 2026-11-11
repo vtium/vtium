@@ -22,14 +22,10 @@
 //! command line set it.
 //!
 //! Plymouth is the boot splash program. vtium tells that it runs by its
-//! pid file, `/run/plymouth/pid`, which plymouthd writes when it starts
-//! with `--pid-file=/run/plymouth/pid`, as plymouth's own unit
-//! `plymouth-start.service` and its initramfs hooks start it. That is a
-//! reading of plymouth's sources, which this machine does not have, so
-//! nobody has yet checked it here. A pid file that outlives plymouthd
-//! does not count: vtium checks that the process it names is still
-//! running and is called `plymouthd`. This needs no plymouth binary, so
-//! it works in the minspec build.
+//! pid file, `/run/plymouth/pid` ([`PLYMOUTH_PID`]). A pid file that
+//! outlives plymouthd does not count: vtium checks that the process it
+//! names is still running and is called `plymouthd`. This needs no
+//! plymouth binary, so it works in the minspec build.
 
 use std::ffi::OsString;
 use std::io;
@@ -50,7 +46,11 @@ pub const KMSG: &str = "/dev/kmsg";
 /// The file whose first field is the kernel's console log level.
 pub const PRINTK: &str = "/proc/sys/kernel/printk";
 
-/// The file where plymouthd writes its process id.
+/// The file where plymouthd writes its process id. Arch's plymouth
+/// package starts plymouthd from
+/// `/usr/lib/systemd/system/plymouth-start.service`, whose line
+/// `ExecStart=/usr/bin/plymouthd --mode=boot --pid-file=/run/plymouth/pid --attach-to-session`
+/// names this file.
 pub const PLYMOUTH_PID: &str = "/run/plymouth/pid";
 
 /// The kernel's facility, as syslog(3) numbers it.
