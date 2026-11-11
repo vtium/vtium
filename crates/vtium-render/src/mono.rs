@@ -29,7 +29,7 @@
 //! draws a 1-bit display by the same per-cell mapping and per-pixel cut.
 
 use vtium_font::sprite;
-use vtium_font::{Cell, Face, Font, Format, Glyph, Style, Unifont, Width};
+use vtium_font::{Cell, Face, Font, Format, Glyph, Script, Unifont, Variant, Width};
 use vtium_term::Rgb;
 
 use crate::blend::{div255, pixel};
@@ -202,21 +202,24 @@ impl Fallback {
     /// bitmap for a color glyph unifont has, and at 1 bit the 1-bit shape of
     /// a sprite of partial coverage, drawn at that size so it is not
     /// scaled, with the light lines the font's sprites have at that height
-    /// ([`sprite::light_line`]).
+    /// ([`sprite::light_line`]). A superscript or subscript glyph is the
+    /// stand-in scaled the same way, and a mask in either keeps its own
+    /// scaled shape.
     pub(crate) fn glyph(
         &self,
         glyph: &Glyph,
         scale: u32,
         text: &[char],
         width: Width,
-        style: Style,
+        variant: Variant,
     ) -> Option<Glyph> {
         let &first = text.first()?;
         match glyph.format() {
             Format::Rgba => {
                 let u = self.unifont.filter(|u| u.has_glyph(first))?;
-                Font::new(u).glyph(text, width, style)
+                Some(Font::new(u).drawn_variant(text, width, variant)?.glyph)
             }
+            Format::Mask if variant.script != Script::Baseline => None,
             Format::Mask => {
                 let partial = glyph.pixels().iter().any(|&p| p != 0 && p != 0xff);
                 let one = text.len() == 1;
@@ -425,12 +428,12 @@ mod tests {
         };
         // the one gray exception: a color glyph takes unifont's bitmap
         let f = Fallback::new(Depth::Gray(4), cell).unwrap_or_else(|| panic!("a stand-in"));
-        let a = f.glyph(&color_glyph(), 1, &['A'], Width::Narrow, Style::default());
+        let a = f.glyph(&color_glyph(), 1, &['A'], Width::Narrow, Variant::default());
         assert!(a.is_some_and(|g| g.format() == Format::Mask));
         // and a shade keeps its coverage
         let shade = sprite::draw('\u{2591}', 8, 16, 1).unwrap_or_else(|| panic!("the light shade"));
         assert!(
-            f.glyph(&shade, 1, &['\u{2591}'], Width::Narrow, Style::default())
+            f.glyph(&shade, 1, &['\u{2591}'], Width::Narrow, Variant::default())
                 .is_none()
         );
     }
@@ -448,7 +451,7 @@ mod tests {
         for (c, lit) in [('\u{2591}', 16), ('\u{2592}', 32), ('\u{2593}', 48)] {
             let even = sprite::draw(c, 8, 8, 1).unwrap_or_else(|| panic!("{c}"));
             let g = f
-                .glyph(&even, 1, &[c], Width::Narrow, Style::default())
+                .glyph(&even, 1, &[c], Width::Narrow, Variant::default())
                 .unwrap_or_else(|| panic!("{c}'s pattern"));
             assert_eq!(
                 g.pixels().iter().filter(|&&p| p == 0xff).count(),
@@ -457,14 +460,14 @@ mod tests {
             );
             assert!(g.pixels().iter().all(|&p| p == 0 || p == 0xff), "{c}");
             assert!(
-                f.glyph(&g, 1, &[c], Width::Narrow, Style::default())
+                f.glyph(&g, 1, &[c], Width::Narrow, Variant::default())
                     .is_none(),
                 "{c}"
             );
         }
         let block = sprite::draw('\u{2588}', 8, 8, 1).unwrap_or_else(|| panic!("█"));
         assert!(
-            f.glyph(&block, 1, &['\u{2588}'], Width::Narrow, Style::default())
+            f.glyph(&block, 1, &['\u{2588}'], Width::Narrow, Variant::default())
                 .is_none()
         );
     }
@@ -482,7 +485,7 @@ mod tests {
         for c in ['\u{1fbbd}', '\u{1fbbe}', '\u{1fbbf}'] {
             let drawn = sprite::draw(c, 20, 38, 2).unwrap_or_else(|| panic!("{c}"));
             let g = f
-                .glyph(&drawn, 1, &[c], Width::Narrow, Style::default())
+                .glyph(&drawn, 1, &[c], Width::Narrow, Variant::default())
                 .unwrap_or_else(|| panic!("{c}'s 1-bit shape"));
             let at = |t| sprite::one_bit(c, 20, 38, t).unwrap_or_else(|| panic!("{c} at {t}"));
             assert!(at(2) != at(1), "{c} draws the same at 1 and 2 pixels");
@@ -504,15 +507,16 @@ mod tests {
         };
         let f = Fallback::new(Depth::One, cell).unwrap_or_else(|| panic!("unifont's cell"));
         let g = f
-            .glyph(&color_glyph(), 1, &['A'], Width::Narrow, Style::default())
+            .glyph(&color_glyph(), 1, &['A'], Width::Narrow, Variant::default())
             .unwrap_or_else(|| panic!("unifont draws A"));
         assert_ne!(g.format(), Format::Rgba);
-        let want = Font::new(Unifont::new(16)).glyph(&['A'], Width::Narrow, Style::default());
+        let want =
+            Font::new(Unifont::new(16)).glyph(&['A'], Width::Narrow, vtium_font::Style::default());
         assert_eq!(Some(g), want);
         // a glyph that is no color glyph stays
         let mask = Glyph::mask(8, 16).unwrap_or_else(|| panic!("a mask"));
         assert!(
-            f.glyph(&mask, 1, &['A'], Width::Narrow, Style::default())
+            f.glyph(&mask, 1, &['A'], Width::Narrow, Variant::default())
                 .is_none()
         );
         // a character unifont lacks keeps the color glyph, for its silhouette
@@ -520,7 +524,13 @@ mod tests {
             .into_iter()
             .find(|&c| !Unifont::new(16).has_glyph(c))
             .unwrap_or_else(|| panic!("a character unifont lacks"));
-        let kept = f.glyph(&color_glyph(), 1, &[lacks], Width::Narrow, Style::default());
+        let kept = f.glyph(
+            &color_glyph(),
+            1,
+            &[lacks],
+            Width::Narrow,
+            Variant::default(),
+        );
         assert!(kept.is_none());
         // no stand-in in color, nor unifont's at a cell it has no scale of
         assert!(Fallback::new(Depth::Color, cell).is_none());
@@ -531,7 +541,7 @@ mod tests {
         let f = Fallback::new(Depth::One, small).unwrap_or_else(|| panic!("a stand-in"));
         let g = Glyph::rgba(8, 8).unwrap_or_else(|| panic!("an 8x8 glyph"));
         assert!(
-            f.glyph(&g, 1, &['A'], Width::Narrow, Style::default())
+            f.glyph(&g, 1, &['A'], Width::Narrow, Variant::default())
                 .is_none()
         );
         assert!(

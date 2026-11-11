@@ -128,11 +128,13 @@ impl Take {
 }
 
 /// The blink phases a screen's frames are drawn in: whether the cursor's
-/// shows it, and whether blinking text is in its hidden phase.
+/// shows it, whether blinking text, SGR 5, is in its hidden phase, and
+/// whether rapidly blinking text, SGR 6, is in its own.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Phase {
     pub cursor_on: bool,
     pub blink_hidden: bool,
+    pub rapid_hidden: bool,
 }
 
 impl Phase {
@@ -142,6 +144,7 @@ impl Phase {
         DrawState {
             cursor_on: self.cursor_on,
             blink_hidden: self.blink_hidden,
+            rapid_hidden: self.rapid_hidden,
             background,
             ..DrawState::default()
         }
@@ -464,6 +467,7 @@ impl Screen {
             phase: Phase {
                 cursor_on: false,
                 blink_hidden: false,
+                rapid_hidden: false,
             },
         }
     }
@@ -633,6 +637,7 @@ pub fn draw_on(screen: &Screen, painter: &mut impl Paint) -> Result<Image, Strin
                     phase: Phase {
                         cursor_on: true,
                         blink_hidden: take.blink_hidden,
+                        rapid_hidden: take.blink_hidden,
                     },
                     ..*screen
                 };

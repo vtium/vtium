@@ -10,7 +10,7 @@
 //! glyphs in the cache, so the display's buffer is never read and no
 //! background is ever drawn over another cell's ink.
 
-use vtium_font::{Face, Font, Style, Width as FontWidth};
+use vtium_font::{Face, Font, Variant, Width as FontWidth};
 use vtium_term::Rgb;
 
 use crate::blend::{argb_over, mask, over_bg, pixel, tint_over};
@@ -72,7 +72,7 @@ pub(crate) struct Job {
     /// overline, as one sprite in one color.
     pub(crate) over: Option<(Kind, Rgb)>,
     /// The glyph's text in the row's text buffer, its width and style.
-    pub(crate) text: Option<(usize, usize, FontWidth, Style)>,
+    pub(crate) text: Option<(usize, usize, FontWidth, Variant)>,
     /// A color glyph draws as its silhouette, for a 1-bit display.
     pub(crate) silhouette: bool,
     /// The cell's background and mark, which decide how pictures over it
@@ -92,7 +92,7 @@ pub(crate) struct Job {
 )]
 pub(crate) struct Source {
     /// The glyph's text in the row's text buffer, its width and style.
-    pub(crate) text: (usize, usize, FontWidth, Style),
+    pub(crate) text: (usize, usize, FontWidth, Variant),
     /// Where the glyph's cells lie on the display.
     pub(crate) g: Area,
     /// The block of cells its ink may draw in, on the display: ink outside

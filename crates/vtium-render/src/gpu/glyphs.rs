@@ -38,7 +38,7 @@
 //! for the log when it happens, at most once in [`GPU_IDLE_FRAMES`]
 //! frames.
 
-use vtium_font::{Face, Font, Style, Width};
+use vtium_font::{Face, Font, Variant, Width};
 
 use std::collections::BTreeSet;
 
@@ -540,7 +540,7 @@ impl Glyphs {
         font: &Font<F>,
         text: &[char],
         width: Width,
-        style: Style,
+        style: Variant,
     ) -> Result<Reach, Error> {
         let place = self.glyph(gl, font, text, width, style)?;
         Ok(place.and_then(|p| p.boxed).map_or(Reach::NONE, |(_, r)| r))
@@ -660,7 +660,7 @@ impl Glyphs {
         font: &Font<F>,
         text: &[char],
         width: Width,
-        style: Style,
+        style: Variant,
     ) -> Result<Option<Place>, Error> {
         if let Some(&s) = self.cache.lookup(text, width, style) {
             return Ok(self.place(s));
@@ -717,7 +717,7 @@ impl Glyphs {
     fn boxed<G: Gl>(
         &mut self,
         gl: &mut G,
-        (text, width, style): (&[char], Width, Style),
+        (text, width, style): (&[char], Width, Variant),
         pool: usize,
         (stored, missing): (Stored, bool),
     ) -> Result<Result<Place, Stored>, Error> {
@@ -774,7 +774,7 @@ impl Glyphs {
     pub(crate) fn put<G: Gl>(
         &mut self,
         gl: &mut G,
-        (text, width, style): (&[char], Width, Style),
+        (text, width, style): (&[char], Width, Variant),
         stored: Stored,
     ) -> Result<Option<Place>, Error> {
         let pool = pool_of(stored.is_rgba(), width == Width::Wide);
@@ -1212,7 +1212,7 @@ mod tests {
         let ceiling = g.bytes() + 512 * 16;
         g.set_ceiling(ceiling);
         g.begin_frame();
-        let style = Style::default();
+        let style = Variant::default();
         let chars: Vec<char> = ('A'..).take(65).collect();
         for &c in &chars[..64] {
             assert!(

@@ -136,6 +136,8 @@ use crate::wait::Wait;
 pub mod keyboard_layout;
 #[cfg(test)]
 mod login_scope;
+#[cfg(test)]
+mod rapid;
 mod survive;
 
 /// How long the loop is served at exit while the switch back is pending,
@@ -2001,6 +2003,7 @@ impl App {
             head.set_visible(false);
             head.text_due = None;
             head.cursor_due = None;
+            head.console.term.blink.rapid_stop();
         }
         self.timer_due = None;
     }
@@ -4025,6 +4028,12 @@ impl App {
                 head.cursor_due = Some((after(due, every), every));
             }
             let term = &mut head.console.term;
+            // SGR 6's timer runs while a shown cell carries it
+            if term.changed || head.draw_now {
+                term.blink
+                    .rapid_seen(crate::blink::rapid_on_screen(&term.terminal));
+            }
+            head.draw_now |= term.blink.rapid_turn(now, awake);
             if term.sync.deadline().is_some_and(|d| d <= now) {
                 let action = term.sync.timer(&mut term.terminal, now, term.unparsed);
                 term.act(action);
@@ -4348,6 +4357,7 @@ impl App {
         for head in &self.heads {
             due.extend(head.text_due);
             due.extend(head.cursor_due.map(|(d, _)| d));
+            due.extend(head.console.term.blink.rapid_due());
             due.extend(head.console.term.sync.deadline());
             due.extend(head.views.values().filter_map(|v| v.wait.due()));
             due.extend(head.figures.due);
@@ -4877,7 +4887,7 @@ mod tests {
     pub(super) struct Still {
         ids: Vec<(DisplayId, &'static str)>,
         pixels: Arc<Mutex<Vec<u8>>>,
-        events: Vec<Event>,
+        pub(super) events: Vec<Event>,
         awake: bool,
         /// It sleeps as a real device does: it lists the displays it
         /// announced while asleep, and reports each sleep, so a release is
@@ -5067,12 +5077,16 @@ mod tests {
     /// The seat at 16 points on 72 DPI, with the head file `heads`, the
     /// font sources `fonts` and the device `video` at `/dev/mem0`, before
     /// its first turn.
-    fn seat(heads: Option<&str>, fonts: font::Sources) -> (Loop<App>, App) {
+    pub(super) fn seat(heads: Option<&str>, fonts: font::Sources) -> (Loop<App>, App) {
         seat_with(&["--font-size=16"], heads, fonts)
     }
 
     /// [`seat`] with the options `options` in place of `--font-size=16`.
-    fn seat_with(options: &[&str], heads: Option<&str>, fonts: font::Sources) -> (Loop<App>, App) {
+    pub(super) fn seat_with(
+        options: &[&str],
+        heads: Option<&str>,
+        fonts: font::Sources,
+    ) -> (Loop<App>, App) {
         let args: Vec<OsString> = options
             .iter()
             .chain(&["--login", "--", "/bin/true"])
@@ -5589,7 +5603,7 @@ mod tests {
 
     /// Turns `app` at `t` until its head's render thread has handed back
     /// every frame it composed, so the next turn's frame can be taken.
-    fn settle(lp: &mut Loop<App>, app: &mut App, t: Instant) {
+    pub(super) fn settle(lp: &mut Loop<App>, app: &mut App, t: Instant) {
         let back = |app: &App| app.heads.iter().all(|h| h.frames_out() == 0);
         for _ in 0..1000 {
             if back(app) {

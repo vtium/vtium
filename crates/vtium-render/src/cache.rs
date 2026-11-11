@@ -1,8 +1,8 @@
 //! The drawn-glyph cache (ADR-1300 D1 to D4).
 //!
-//! A glyph is cached under its text (the cluster's codepoints), bold,
-//! italic and its width in cells, so the same text in the same style is
-//! drawn by the font once however often the screen re-creates it. Glyphs
+//! A glyph is cached under its text (the cluster's codepoints), its
+//! variant (bold, italic, and superscript or subscript) and its width in
+//! cells, so the same text in the same variant is drawn by the font once however often the screen re-creates it. Glyphs
 //! live in four pools, masks and color glyphs each one or two cells wide,
 //! and each pool has its own least-recently-used order, a glyph count and a
 //! byte ceiling. Recency is the drawn frame. A glyph that would evict one
@@ -22,7 +22,7 @@
 //! arrival empties the table. A glyph refused
 //! for room is not remembered: the next frame may have the room.
 
-use vtium_font::{Drawn, Face, Font, Style, Width};
+use vtium_font::{Drawn, Face, Font, Script, Variant, Width};
 
 use crate::bounds::{FAILED_GLYPHS, POOL_BYTES_PERFORMANCE};
 use crate::mono::Fallback;
@@ -194,7 +194,7 @@ impl Text {
 #[derive(Debug)]
 struct Entry<T> {
     text: Text,
-    style: Style,
+    variant: Variant,
     wide: bool,
     hash: u64,
     glyph: T,
@@ -228,11 +228,11 @@ const EMPTY_POOL: Pool = Pool {
 };
 
 /// Each codepoint folded in with one multiply by the golden ratio's
-/// 64-bit constant, after the style; the high half folded into the low
-/// bits a slot is chosen by.
-fn hash(text: &[char], style: Style, wide: bool) -> u64 {
+/// 64-bit constant, after the variant's flags; the high half folded into
+/// the low bits a slot is chosen by.
+fn hash(text: &[char], variant: Variant, wide: bool) -> u64 {
     const K: u64 = 0x9e37_79b9_7f4a_7c15;
-    let flags = u64::from(style.bold) | u64::from(style.italic) << 1 | u64::from(wide) << 2;
+    let flags = flags(variant) | u64::from(wide) << 4;
     let h = text.iter().fold(flags, |h, &c| {
         (h.rotate_left(21) ^ u64::from(u32::from(c))).wrapping_mul(K)
     });
@@ -248,12 +248,12 @@ pub struct CacheCounts {
     pub uncached: u32,
 }
 
-/// A glyph the font drew nothing for: its text, style and width.
+/// A glyph the font drew nothing for: its text, variant and width.
 #[derive(Debug)]
 struct Failed {
     hash: u64,
     text: Text,
-    style: Style,
+    variant: Variant,
     wide: bool,
 }
 
@@ -286,19 +286,37 @@ pub(crate) struct GlyphCache<T = Stored> {
     fallback: Option<Fallback>,
     /// The font has drawn a glyph whose ink passes its cells.
     reaching: bool,
-    /// How far the glyph of each ASCII character in each style reaches,
+    /// How far the glyph of each ASCII character in each variant reaches,
     /// once read: the renderer asks for every cell that changes, and the
     /// answer changes only when the font's glyphs do.
     reaches: Vec<Option<Reach>>,
 }
 
-/// Where the reach of `text` in `style`, `width` cells wide, is remembered:
+/// Bold, italic and the script of `variant` in the low four bits: each
+/// variant of a text its own number, which the hash and the reach slots
+/// key on.
+fn flags(variant: Variant) -> u64 {
+    let script = match variant.script {
+        Script::Baseline => 0,
+        Script::Super => 1,
+        Script::Sub => 2,
+    };
+    u64::from(variant.style.bold) | u64::from(variant.style.italic) << 1 | script << 2
+}
+
+/// How many reach slots each ASCII character has: one for each value of
+/// [`flags`].
+const REACH_VARIANTS: usize = 16;
+
+/// Where the reach of `text` in `variant`, `width` cells wide, is remembered:
 /// a narrow ASCII character's place among [`GlyphCache::reaches`].
-fn reach_slot(text: &[char], width: Width, style: Style) -> Option<usize> {
+fn reach_slot(text: &[char], width: Width, variant: Variant) -> Option<usize> {
     match (text, width) {
         ([c], Width::Narrow) if c.is_ascii() => {
-            let styles = usize::from(style.bold) | usize::from(style.italic) << 1;
-            Some(usize::from(*c as u8) << 2 | styles)
+            let variant = usize::try_from(flags(variant)).ok()?;
+            usize::from(*c as u8)
+                .checked_mul(REACH_VARIANTS)?
+                .checked_add(variant)
         }
         _ => None,
     }
@@ -387,11 +405,11 @@ impl<T: Held> GlyphCache<T> {
     }
 
     #[cfg(feature = "gpu")]
-    /// The cached glyph for `text` in `style`, `width` cells wide, marked
+    /// The cached glyph for `text` in `variant`, `width` cells wide, marked
     /// used by this frame.
-    pub(crate) fn lookup(&mut self, text: &[char], width: Width, style: Style) -> Option<&T> {
+    pub(crate) fn lookup(&mut self, text: &[char], width: Width, variant: Variant) -> Option<&T> {
         let wide = width == Width::Wide;
-        let i = self.find(hash(text, style, wide), text, style, wide)?;
+        let i = self.find(hash(text, variant, wide), text, variant, wide)?;
         self.touch(i);
         self.entry(i).map(|e| &e.glyph)
     }
@@ -408,26 +426,26 @@ impl<T: Held> GlyphCache<T> {
         font: &Font<F>,
         text: &[char],
         width: Width,
-        style: Style,
+        variant: Variant,
     ) -> Option<(Stored, bool)> {
         let wide = width == Width::Wide;
-        let h = hash(text, style, wide);
+        let h = hash(text, variant, wide);
         let at = usize::try_from(h.checked_rem(FAILED_GLYPHS as u64).unwrap_or(0)).unwrap_or(0);
         let known = self
             .failed
             .get(at)
             .and_then(Option::as_ref)
             .is_some_and(|f| {
-                f.hash == h && f.style == style && f.wide == wide && f.text.chars() == text
+                f.hash == h && f.variant == variant && f.wide == wide && f.text.chars() == text
             });
         if known {
             return None;
         }
         self.counts.misses = self.counts.misses.saturating_add(1);
         let drawn = if self.storage.unscaled {
-            font.glyph_unscaled(text, width, style)
+            font.glyph_unscaled_variant(text, width, variant)
         } else {
-            font.drawn(text, width, style)
+            font.drawn_variant(text, width, variant)
         };
         let Some(Drawn {
             glyph,
@@ -442,7 +460,7 @@ impl<T: Held> GlyphCache<T> {
                 *f = Some(Failed {
                     hash: h,
                     text: Text::of(text),
-                    style,
+                    variant,
                     wide,
                 });
             }
@@ -458,7 +476,7 @@ impl<T: Held> GlyphCache<T> {
         }
         let (glyph, scale) = match self
             .fallback
-            .and_then(|f| f.glyph(&glyph, scale, text, width, style))
+            .and_then(|f| f.glyph(&glyph, scale, text, width, variant))
         {
             Some(bitmap) => (bitmap, 1),
             None => (glyph, scale),
@@ -480,7 +498,7 @@ impl<T: Held> GlyphCache<T> {
     /// until the next, and counts it.
     pub(crate) fn keep(
         &mut self,
-        (text, width, style): (&[char], Width, Style),
+        (text, width, variant): (&[char], Width, Variant),
         pool: usize,
         glyph: T,
         missing: bool,
@@ -493,9 +511,9 @@ impl<T: Held> GlyphCache<T> {
         let wide = width == Width::Wide;
         let i = self.insert(Entry {
             text: Text::of(text),
-            style,
+            variant,
             wide,
-            hash: hash(text, style, wide),
+            hash: hash(text, variant, wide),
             glyph,
             missing,
             pool,
@@ -543,7 +561,7 @@ impl<T: Held> GlyphCache<T> {
         usize::try_from(hash & 0xffff_ffff).unwrap_or(0) & self.mask()
     }
 
-    fn find(&self, h: u64, text: &[char], style: Style, wide: bool) -> Option<u32> {
+    fn find(&self, h: u64, text: &[char], variant: Variant, wide: bool) -> Option<u32> {
         let mut at = self.home(h);
         loop {
             let i = *self.slots.get(at)?;
@@ -551,7 +569,7 @@ impl<T: Held> GlyphCache<T> {
                 return None;
             }
             let e = self.entry(i)?;
-            if e.hash == h && e.style == style && e.wide == wide && e.text.chars() == text {
+            if e.hash == h && e.variant == variant && e.wide == wide && e.text.chars() == text {
                 return Some(i);
             }
             at = at.wrapping_add(1) & self.mask();
@@ -744,44 +762,44 @@ impl<T: Held> GlyphCache<T> {
 }
 
 impl GlyphCache<Stored> {
-    /// The glyph for `text` in `style`, `width` cells wide: cached, drawn
+    /// The glyph for `text` in `variant`, `width` cells wide: cached, drawn
     /// and cached, or drawn uncached. `None` when the font draws nothing.
     pub(crate) fn get<F: Face>(
         &mut self,
         font: &Font<F>,
         text: &[char],
         width: Width,
-        style: Style,
+        variant: Variant,
     ) -> Option<&Stored> {
         let wide = width == Width::Wide;
-        if let Some(i) = self.find(hash(text, style, wide), text, style, wide) {
+        if let Some(i) = self.find(hash(text, variant, wide), text, variant, wide) {
             self.touch(i);
             return self.entry(i).map(|e| &e.glyph);
         }
-        let (glyph, missing) = self.draw(font, text, width, style)?;
+        let (glyph, missing) = self.draw(font, text, width, variant)?;
         let pool = pool_of(glyph.is_rgba(), wide);
-        self.keep((text, width, style), pool, glyph, missing)
+        self.keep((text, width, variant), pool, glyph, missing)
     }
 
-    /// How far the glyph for `text` in `style`, `width` cells wide, reaches
+    /// How far the glyph for `text` in `variant`, `width` cells wide, reaches
     /// past its cells: none for a glyph the font draws nothing for.
     pub(crate) fn reach<F: Face>(
         &mut self,
         font: &Font<F>,
         text: &[char],
         width: Width,
-        style: Style,
+        variant: Variant,
     ) -> Reach {
-        let slot = reach_slot(text, width, style);
+        let slot = reach_slot(text, width, variant);
         if let Some(r) = slot.and_then(|i| self.reaches.get(i).copied().flatten()) {
             return r;
         }
         let reach = self
-            .get(font, text, width, style)
+            .get(font, text, width, variant)
             .map_or(Reach::NONE, Stored::reach);
         if let Some(i) = slot {
             if self.reaches.is_empty() {
-                self.reaches.resize(128 << 2, None);
+                self.reaches.resize(128 * REACH_VARIANTS, None);
             }
             if let Some(r) = self.reaches.get_mut(i) {
                 *r = Some(reach);
@@ -795,7 +813,7 @@ impl GlyphCache<Stored> {
 #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
 mod tests {
     use super::*;
-    use vtium_font::Psf;
+    use vtium_font::{Psf, Style};
 
     /// A 256-glyph 8x16 font without a table, glyph i's rows all i.
     fn font() -> Font<Psf> {
@@ -810,7 +828,7 @@ mod tests {
     }
 
     fn get(c: &mut GlyphCache, f: &Font<Psf>, ch: char) -> bool {
-        c.get(f, &[ch], Width::Narrow, Style::default()).is_some()
+        c.get(f, &[ch], Width::Narrow, Variant::default()).is_some()
     }
 
     #[test]
@@ -828,17 +846,52 @@ mod tests {
                 uncached: 0
             }
         );
-        let bold = Style {
+        let bold = Variant::from(Style {
             bold: true,
             italic: false,
-        };
+        });
         assert!(c.get(&f, &['a'], Width::Narrow, bold).is_some());
-        assert!(c.get(&f, &['a'], Width::Wide, Style::default()).is_some());
+        assert!(c.get(&f, &['a'], Width::Wide, Variant::default()).is_some());
         assert!(
-            c.get(&f, &['a', '\u{301}'], Width::Narrow, Style::default())
+            c.get(&f, &['a', '\u{301}'], Width::Narrow, Variant::default())
                 .is_some()
         );
         assert_eq!(c.take_counts().misses, 3);
+    }
+
+    // covers: sgr.script
+    #[test]
+    fn each_script_is_a_glyph_of_its_own() {
+        let f = font();
+        let mut c = GlyphCache::new(Budgets::glyphs(8), Storage::default(), Orientation::Normal);
+        let normal = Variant::default();
+        let at = |script| Variant { script, ..normal };
+        let mut drawn = Vec::new();
+        for v in [normal, at(Script::Super), at(Script::Sub)] {
+            let g = c.get(&f, &['a'], Width::Narrow, v).unwrap();
+            // Stored has no equality of its own; its Debug shows its pixels
+            drawn.push(format!("{g:?}"));
+            assert_eq!(
+                c.take_counts().misses,
+                1,
+                "{:?} drawn by the font",
+                v.script
+            );
+        }
+        // each is drawn once, and each its own pixels
+        for v in [normal, at(Script::Super), at(Script::Sub)] {
+            assert!(c.get(&f, &['a'], Width::Narrow, v).is_some());
+        }
+        assert_eq!(c.take_counts().misses, 0);
+        let distinct: std::collections::BTreeSet<&String> = drawn.iter().collect();
+        assert_eq!(distinct.len(), 3, "three glyphs of their own");
+        // and each remembers its own reach
+        let slots: Vec<_> = [normal, at(Script::Super), at(Script::Sub)]
+            .iter()
+            .map(|&v| reach_slot(&['a'], Width::Narrow, v))
+            .collect();
+        let distinct: std::collections::BTreeSet<usize> = slots.iter().flatten().copied().collect();
+        assert_eq!(distinct.len(), 3, "three reach slots of their own");
     }
 
     #[test]
@@ -849,14 +902,14 @@ mod tests {
         let texts = [['A'].as_slice(), &['B'], &cluster('A'), &cluster('B')];
         c.begin_frame();
         for text in texts {
-            assert!(c.get(&f, text, Width::Narrow, Style::default()).is_some());
+            assert!(c.get(&f, text, Width::Narrow, Variant::default()).is_some());
         }
         assert_eq!(c.take_counts().misses, 4);
         c.forget(&['A']);
         c.begin_frame();
         let mut misses = Vec::new();
         for text in texts {
-            assert!(c.get(&f, text, Width::Narrow, Style::default()).is_some());
+            assert!(c.get(&f, text, Width::Narrow, Variant::default()).is_some());
             misses.push(c.take_counts());
         }
         let miss = CacheCounts {
@@ -880,14 +933,14 @@ mod tests {
         ];
         c.begin_frame();
         for text in texts {
-            assert!(c.get(&f, text, Width::Narrow, Style::default()).is_some());
+            assert!(c.get(&f, text, Width::Narrow, Variant::default()).is_some());
         }
         assert_eq!(c.take_counts().misses, 5);
         c.forget(&['\u{301}']);
         c.begin_frame();
         let mut misses = Vec::new();
         for text in texts {
-            assert!(c.get(&f, text, Width::Narrow, Style::default()).is_some());
+            assert!(c.get(&f, text, Width::Narrow, Variant::default()).is_some());
             misses.push(c.take_counts());
         }
         let miss = CacheCounts {
@@ -1029,18 +1082,24 @@ mod tests {
         let mut c = GlyphCache::new(Budgets::glyphs(8), Storage::default(), Orientation::Normal);
         for _ in 0..3 {
             c.begin_frame();
-            assert!(c.get(&f, &['a'], Width::Narrow, Style::default()).is_none());
+            assert!(
+                c.get(&f, &['a'], Width::Narrow, Variant::default())
+                    .is_none()
+            );
         }
         assert_eq!(c.take_counts().misses, 1);
         // bold is another glyph
-        let bold = Style {
+        let bold = Variant::from(Style {
             bold: true,
             italic: false,
-        };
+        });
         assert!(c.get(&f, &['a'], Width::Narrow, bold).is_none());
         assert_eq!(c.take_counts().misses, 1);
         c.forget(&['a']);
-        assert!(c.get(&f, &['a'], Width::Narrow, Style::default()).is_none());
+        assert!(
+            c.get(&f, &['a'], Width::Narrow, Variant::default())
+                .is_none()
+        );
         assert_eq!(c.take_counts().misses, 1);
     }
 
@@ -1074,10 +1133,16 @@ mod tests {
         let arrived = std::rc::Rc::new(core::cell::Cell::new(false));
         let f = Font::new(Late(arrived.clone()));
         let mut c = GlyphCache::new(Budgets::glyphs(8), Storage::default(), Orientation::Normal);
-        assert!(c.get(&f, &['a'], Width::Narrow, Style::default()).is_none());
+        assert!(
+            c.get(&f, &['a'], Width::Narrow, Variant::default())
+                .is_none()
+        );
         arrived.set(true);
         c.forget(&['?']);
         c.begin_frame();
-        assert!(c.get(&f, &['a'], Width::Narrow, Style::default()).is_some());
+        assert!(
+            c.get(&f, &['a'], Width::Narrow, Variant::default())
+                .is_some()
+        );
     }
 }

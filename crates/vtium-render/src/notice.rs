@@ -18,7 +18,7 @@
 //! draws the mark after the notice and gives the notice the mark's cell
 //! to keep its text clear of.
 
-use vtium_font::{Face, Font, Format, Glyph, Style, Width};
+use vtium_font::{Face, Font, Format, Glyph, Style, Variant, Width};
 use vtium_term::Rgb;
 
 use crate::blend::{mask, over_bg, pixel};
@@ -448,7 +448,7 @@ fn standin<F: Face>(font: &Font<F>, depth: Depth, c: char, width: Width) -> Opti
     let g = font.glyph(&[c], width, Style::default())?;
     Some(
         Fallback::new(depth, font.cell())
-            .and_then(|f| f.glyph(&g, 1, &[c], width, Style::default()))
+            .and_then(|f| f.glyph(&g, 1, &[c], width, Variant::default()))
             .unwrap_or(g),
     )
 }

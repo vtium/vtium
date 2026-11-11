@@ -1239,6 +1239,7 @@ impl Head {
         DrawState {
             cursor_on: !blinks || self.console.term.blink.cursor_shown(),
             blink_hidden: !self.console.term.blink.text_shown(),
+            rapid_hidden: !self.console.term.blink.rapid_shown(),
             background: palette.bg(),
             pointer: self
                 .pointer

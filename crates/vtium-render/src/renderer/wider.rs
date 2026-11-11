@@ -15,7 +15,9 @@
     reason = "a test fails by panicking, on small known sizes"
 )]
 
-use vtium_font::{Cell, Face, Font, Format, Glyph as FontGlyph, Style, Width as FontWidth};
+use vtium_font::{
+    Cell, Face, Font, Format, Glyph as FontGlyph, Style, Variant, Width as FontWidth,
+};
 use vtium_term::{Age, Cursor, Damage, Frame, Glyph, Line, LineId, Palette, Rgb, Width};
 
 use super::{Config, DrawState, Renderer};
@@ -117,9 +119,12 @@ fn renderer(cols: usize, rows: usize, bound: Bound) -> Renderer<Plain> {
     for c in REACHING {
         let g = stored(c);
         let pool = pool_of(false, false);
-        r.compose
-            .cache
-            .keep((&[c], FontWidth::Narrow, Style::default()), pool, g, false);
+        r.compose.cache.keep(
+            (&[c], FontWidth::Narrow, Variant::default()),
+            pool,
+            g,
+            false,
+        );
     }
     r
 }
