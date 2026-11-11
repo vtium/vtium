@@ -3014,13 +3014,18 @@ impl App {
         match event {
             InputEvent::Key(key) => {
                 // Only a key reaching a head settles the focus's start, and
-                // ends its notices.
+                // ends its notices. An Esc that dismisses the kernel's
+                // messages stays with vtium (ADR-1401 D15).
                 self.focus_settled |= h.is_some();
-                if let Some(head) = h.and_then(|h| self.heads.get_mut(h)) {
+                let kept = h.and_then(|h| self.heads.get_mut(h)).is_some_and(|head| {
+                    let dismissed = head.has_kernel() && dismisses(&key);
                     head.end_notices();
-                }
+                    dismissed
+                });
                 self.activity(now);
-                self.key(h, &key, from, now);
+                if !kept {
+                    self.key(h, &key, from, now);
+                }
             }
             InputEvent::Pointer(p) => {
                 let mods = match (&self.input, h) {
@@ -4364,6 +4369,14 @@ impl App {
     pub fn screen_text(&self) -> Vec<String> {
         self.shown().map(Head::screen_text).unwrap_or_default()
     }
+}
+
+/// Whether `key` is the Esc that dismisses the kernel's messages
+/// (ADR-1401 D15): Esc pressed, with Shift and Lock at most.
+fn dismisses(key: &KeyEvent) -> bool {
+    const ESCAPE: u32 = 0xff1b;
+    let held = [InputMods::CTRL, InputMods::ALT, InputMods::LOGO];
+    !key.repeat && key.keysyms.contains(&ESCAPE) && !held.iter().any(|&m| key.mods.contains(m))
 }
 
 /// What the device a key came from may do (ADR-1401 D5).
@@ -6242,20 +6255,77 @@ mod tests {
         }
     }
 
+    /// Queues a kernel warning `text` on `queued`, as `/dev/kmsg` gives it.
+    fn kernel_log(queued: &RefCell<Vec<Vec<u8>>>, text: &str) {
+        queued
+            .borrow_mut()
+            .push(format!("4,1,2,-;{text}\n").into_bytes());
+    }
+
+    /// A seat on one display under `kernel-messages=always`, its kernel a
+    /// stand-in that reads `queued`, shown at the returned time. The
+    /// display reports no flip, so `display-wait=forever` keeps vtium from
+    /// giving up on it while the count runs.
+    fn kernel_seat() -> (Loop<App>, App, Rc<RefCell<Vec<Vec<u8>>>>, Instant) {
+        let queued: Rc<RefCell<Vec<Vec<u8>>>> = Rc::default();
+        let (mut lp, mut app) = seat_with(
+            &[
+                "--font-size=16",
+                "--kernel-messages=always",
+                "--display-wait=forever",
+            ],
+            None,
+            no_fonts(),
+        );
+        app.set_kernel(Box::new(QueuedKernel(Rc::clone(&queued))));
+        app.add_video(
+            PathBuf::from("/dev/mem0"),
+            Box::new(Still::new(&[(1, "A")])),
+        );
+        let t = Instant::now();
+        app.vt.activate().unwrap();
+        app.turn(t);
+        settle_frames(&mut lp, &mut app, t);
+        (lp, app, queued, t)
+    }
+
+    /// `app` reads the kernel's messages and draws at `at`.
+    fn kernel_turn(lp: &mut Loop<App>, app: &mut App, at: Instant) {
+        assert!(app.kernel_ready());
+        app.turn(at);
+        settle_frames(lp, app, at);
+    }
+
+    /// A key press of `keysym` with no modifier.
+    fn press(keysym: u32) -> InputEvent {
+        InputEvent::Key(KeyEvent {
+            keycode: 0,
+            ascii: 0,
+            mods: InputMods::empty(),
+            keysyms: vec![keysym],
+            codepoints: char::from_u32(keysym)
+                .filter(|c| !c.is_control() && keysym < 0xff00)
+                .into_iter()
+                .map(Some)
+                .collect(),
+            repeat: false,
+        })
+    }
+
+    /// Whether the key `app` last took went on to the shown console's
+    /// program.
+    fn key_sent(app: &App) -> bool {
+        let head = app.heads.first().unwrap();
+        head.views.values().all(|v| v.after_key(&head.console.term))
+    }
+
     // ADR-1401 D15: vtium shows a kernel warning over the console of the
     // head on the boot display, in the notices' box, and never writes it
     // into the console's screen or its pty. A message that arrives while
-    // the VT is not shown is never shown. A message shows for
-    // KERNEL_SHOWN from its first frame, and a key reaching the head ends
-    // it sooner.
+    // the VT is not shown is never shown.
     #[test]
     fn a_kernel_warning_shows_over_the_console_and_never_in_it() {
         let queued: Rc<RefCell<Vec<Vec<u8>>>> = Rc::default();
-        let log = |text: &str| {
-            queued
-                .borrow_mut()
-                .push(format!("4,1,2,-;{text}\n").into_bytes());
-        };
         let (mut lp, mut app) = seat_with(
             &["--font-size=16", "--kernel-messages=always"],
             None,
@@ -6266,7 +6336,7 @@ mod tests {
             PathBuf::from("/dev/mem0"),
             Box::new(Still::new(&[(1, "A")])),
         );
-        log("before the VT is shown");
+        kernel_log(&queued, "before the VT is shown");
         assert!(app.kernel_ready());
         let t = Instant::now();
         app.vt.activate().unwrap();
@@ -6274,32 +6344,79 @@ mod tests {
         settle_frames(&mut lp, &mut app, t);
         assert_eq!(box_text(&app), None, "nothing from before the VT was shown");
 
-        log("usb 1-2: device descriptor read/64, error -71");
-        assert!(app.kernel_ready());
-        app.turn(t);
-        settle_frames(&mut lp, &mut app, t);
+        kernel_log(&queued, "usb 1-2: device descriptor read/64, error -71");
+        kernel_turn(&mut lp, &mut app, t);
         assert_eq!(
             box_text(&app).as_deref(),
             Some(
-                "usb 1-2: device descriptor read/64, error -71\nPress any key to dismiss this message."
+                "usb 1-2: device descriptor read/64, error -71\nPress Esc to dismiss this message (15)"
             )
         );
         assert!(first_overlay(&app).problem, "in the notices' colors");
-        let head = app.heads.first().unwrap();
-        assert_eq!(
-            head.kernel_messages().collect::<Vec<_>>(),
-            ["usb 1-2: device descriptor read/64, error -71"]
-        );
         assert!(
             app.screen_text().iter().all(|row| !row.contains("usb 1-2")),
             "the console's screen holds no kernel message: {:?}",
             app.screen_text()
         );
+    }
 
-        // a key reaching the head ends them, the first and the second
-        log("a second warning");
-        assert!(app.kernel_ready());
-        app.turn(t);
+    // ADR-1401 D15: the box's last line counts the seconds left, one a
+    // second on the loop's timer, and at 0 the box goes on its own.
+    #[test]
+    fn the_kernel_box_counts_down_each_second_and_goes_at_0() {
+        let (mut lp, mut app, queued, t) = kernel_seat();
+        kernel_log(&queued, "a warning");
+        kernel_turn(&mut lp, &mut app, t);
+        for n in 1..15u64 {
+            let at = t + Duration::from_secs(n);
+            assert_eq!(
+                app.heads.first().unwrap().kernel_due(),
+                Some(at),
+                "the box's timer is due at second {n}"
+            );
+            assert!(
+                app.next_wake(at - Duration::from_secs(1))
+                    .is_some_and(|w| w <= Duration::from_secs(1)),
+                "the loop wakes for second {n}"
+            );
+            app.turn(at);
+            settle_frames(&mut lp, &mut app, at);
+            assert_eq!(
+                box_text(&app),
+                Some(format!(
+                    "a warning\nPress Esc to dismiss this message ({})",
+                    15 - n
+                )),
+                "the frame after {n} ticks"
+            );
+        }
+        let gone = t + crate::head::KERNEL_SHOWN;
+        app.turn(gone);
+        settle_frames(&mut lp, &mut app, gone);
+        assert_eq!(box_text(&app), None, "gone at 0");
+    }
+
+    // ADR-1401 D15: a new message starts the count again from 15.
+    #[test]
+    fn a_new_kernel_message_restarts_the_count() {
+        let (mut lp, mut app, queued, t) = kernel_seat();
+        kernel_log(&queued, "first");
+        kernel_turn(&mut lp, &mut app, t);
+        let later = t + Duration::from_secs(5);
+        app.turn(later);
+        settle_frames(&mut lp, &mut app, later);
+        assert_eq!(
+            box_text(&app).as_deref(),
+            Some("first\nPress Esc to dismiss this message (10)")
+        );
+        kernel_log(&queued, "second");
+        kernel_turn(&mut lp, &mut app, later);
+        assert_eq!(
+            box_text(&app).as_deref(),
+            Some("first\nsecond\nPress Esc to dismiss these messages (15)")
+        );
+        let end = later + crate::head::KERNEL_SHOWN;
+        app.turn(end - Duration::from_secs(1));
         assert!(
             app.heads
                 .first()
@@ -6308,56 +6425,43 @@ mod tests {
                 .next()
                 .is_some()
         );
-        app.focus = Some(0);
-        app.input_event(
-            InputEvent::Key(KeyEvent {
-                keycode: 0,
-                ascii: 0,
-                mods: InputMods::empty(),
-                keysyms: vec![u32::from('x')],
-                codepoints: vec![Some('x')],
-                repeat: false,
-            }),
-            t,
-        );
+        app.turn(end);
         assert_eq!(app.heads.first().unwrap().kernel_messages().next(), None);
-        // the key that hides them still reaches the program, and the frame
-        // it draws shows the console with no box over it
-        let head = app.heads.first().unwrap();
-        assert!(
-            head.views.values().all(|v| v.after_key(&head.console.term)),
-            "the key went on to the program"
-        );
+    }
+
+    // ADR-1401 D15: Esc dismisses the kernel's messages, and vtium keeps
+    // that Esc from the console's program; the frame after it draws no box.
+    #[test]
+    fn esc_dismisses_the_kernel_box_and_stays_with_vtium() {
+        let (mut lp, mut app, queued, t) = kernel_seat();
+        kernel_log(&queued, "a warning");
+        kernel_turn(&mut lp, &mut app, t);
+        app.focus = Some(0);
+        app.input_event(press(0xff1b), t);
+        assert_eq!(app.heads.first().unwrap().kernel_messages().next(), None);
+        assert!(!key_sent(&app), "the Esc stays with vtium");
+        app.turn(t);
+        settle_frames(&mut lp, &mut app, t);
+        assert_eq!(box_text(&app), None, "the frame after Esc draws no box");
+        // with no kernel message on screen, Esc is the program's again
+        app.input_event(press(0xff1b), t);
+        assert!(key_sent(&app), "an Esc with no box goes to the program");
+    }
+
+    // ADR-1401 D15: any other key dismisses the kernel's messages too, and
+    // goes on to the console's program.
+    #[test]
+    fn another_key_dismisses_the_kernel_box_and_reaches_the_program() {
+        let (mut lp, mut app, queued, t) = kernel_seat();
+        kernel_log(&queued, "a warning");
+        kernel_turn(&mut lp, &mut app, t);
+        app.focus = Some(0);
+        app.input_event(press(u32::from('x')), t);
+        assert_eq!(app.heads.first().unwrap().kernel_messages().next(), None);
+        assert!(key_sent(&app), "the key went on to the program");
         app.turn(t);
         settle_frames(&mut lp, &mut app, t);
         assert_eq!(box_text(&app), None, "the key's frame draws no box");
-        log("a third warning");
-        assert!(app.kernel_ready());
-        app.turn(t);
-        settle_frames(&mut lp, &mut app, t);
-        assert_eq!(
-            box_text(&app).as_deref(),
-            Some("a third warning\nPress any key to dismiss this message.")
-        );
-
-        // its time runs from the first frame that drew it
-        let gone = t + crate::head::KERNEL_SHOWN;
-        assert!(
-            app.next_wake(t)
-                .is_some_and(|w| w <= crate::head::KERNEL_SHOWN)
-        );
-        app.turn(gone - Duration::from_millis(1));
-        assert!(
-            app.heads
-                .first()
-                .unwrap()
-                .kernel_messages()
-                .next()
-                .is_some()
-        );
-        app.turn(gone);
-        settle_frames(&mut lp, &mut app, gone);
-        assert_eq!(box_text(&app), None, "gone after KERNEL_SHOWN");
     }
 
     // ADR-1401 D5: under `render-timer=osd` the console measures each
