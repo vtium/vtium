@@ -69,7 +69,7 @@ key-kitty-all-keys-events     missing #42   input.kitty-keyboard           flags
 key-kitty-associated-text     missing #42   input.kitty-keyboard           flag 16: a key sends its text in the escape code, and never a control character
 
 # strings vtium does not take yet
-osc-8-hyperlink               missing #40   osc.8                          a placeholder scenario: OSC 8 hyperlinks
+osc-8-hyperlink               works   -     osc.8                          links stay in their cells through a wrap and the scrollback, an invalid URI closes the open link, and the pointer and Ctrl show a link whole with its URI
 osc-52-clipboard              works   -     osc.52.write                   OSC 52 sets the clipboard, which the host takes once
 osc-133-marks                 works   -     osc.133                        the view jumps between the prompts OSC 133 marks, and a command's output selects whole
 
