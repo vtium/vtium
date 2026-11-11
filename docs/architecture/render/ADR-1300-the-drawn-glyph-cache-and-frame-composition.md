@@ -132,10 +132,12 @@ Each difference says what the C reference did, what vtium does, why, the cost or
 ### D1: the cache key is the glyph's text
 
 - **The C reference:** the frame's 64-bit cluster key, a number naming one cluster as created, plus bold, italic, width and a renderer byte.
-- **vtium:** the cluster's codepoints, at most `CLUSTER_MAX` (32), plus bold, italic and the width in cells. A single codepoint is held in the entry; a longer cluster's codepoints are stored with it. No renderer byte, since nothing is baked into a glyph.
+- **vtium:** the cluster's codepoints, at most `CLUSTER_MAX` (32), plus the glyph's variant and its width in cells. The variant is bold, italic and the script: normal, superscript or subscript. A single codepoint is held in the entry; a longer cluster's codepoints are stored with it. No renderer byte, since nothing is baked into a glyph.
 - **Why:** ADR-1001 has no screen-wide cluster number to key on, and its arena offsets are renumbered when a line compacts. The C reference's key also changed each time a cluster was re-created, so the same text was drawn and cached again under a new key while the old entry aged out (`kmscon/src/render/gltex.c:911-914`).
 - **Cost or saving:** a cluster's lookup compares up to 32 codepoints. The table is open addressing with a fixed hash, splitmix64 as `kmscon_glyph_key_hash` used: 0.8-2.0 ns a lookup, against 4.6-6.2 ns for a `BTreeMap` (measured). A re-created cluster costs no miss, where the C reference's cost a font call, 212 ns at 8x16 (measured with unifont).
 - **Pixels:** none change.
+
+> Edited 2026-11-11: the work that draws superscript and subscript (SGR 73 and 74) adds the script to the key, so that a superscript glyph and a normal glyph of the same text never share an entry. vtium-font draws each script as its own variant of the glyph, and the cache keeps its reach apart too. The bullet read: "the cluster's codepoints, at most `CLUSTER_MAX` (32), plus bold, italic and the width in cells." No pixel of a normal glyph changes.
 
 ### D2: storage by format and width, at 1 bit when lossless, and at the font's own size
 
