@@ -43,6 +43,7 @@ pub mod grab;
 pub mod head;
 pub mod helper;
 pub mod hook;
+pub mod kernel;
 pub mod layout;
 pub mod logger;
 pub mod notice;

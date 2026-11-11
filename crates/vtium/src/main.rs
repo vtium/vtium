@@ -1,6 +1,8 @@
 //! vtium: a terminal for the Linux virtual console.
 //!
-//! Start-up reads the configuration, vtium.conf's top level and its
+//! Start-up first reads the kernel command line: with `vtium.enable=0` on
+//! it, vtium exits with status 1 before it reads anything else (ADR-1401
+//! D9). Then it reads the configuration, vtium.conf's top level and its
 //! sections, the flow (ADR-1401 D3, ADR-1403 D3), writes or removes the closed policy's getty marker (`getty.rs`), and
 //! then opens the loop and its signals, the VT, the seat's devices and the
 //! sessions, and runs the loop until something asks it to end; at the end
@@ -91,6 +93,10 @@ fn main() -> ExitCode {
         .or_else(|| vtium::survive::hold::subcommand(&args))
     {
         return ExitCode::from(u8::try_from(status).unwrap_or(1));
+    }
+    // Before vtium.conf, the VT and any card (ADR-1401 D9).
+    if let Some(status) = vtium::kernel::off_at_start(&args, Path::new(vtium::kernel::CMDLINE)) {
+        return ExitCode::from(status);
     }
     let loaded = config::load(&args, &mut config::read_file);
     // The same reader, with its ownership check, reads the font keys again
