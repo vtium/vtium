@@ -2,7 +2,8 @@
 //! (ADR-1002, "Drawing"). The frame names the row and the address
 //! ([`Frame::overlay`]). The renderer draws the address from the row's
 //! first column, one byte to a character cell, in the palette's default
-//! colors inverted. An address longer than the row is cut at the row's
+//! colors inverted against what the screen shows: swapped while reverse
+//! video (DECSCNM) is off, and as they are while it is on. An address longer than the row is cut at the row's
 //! last column, which shows `…` in place of the rest.
 //!
 //! The overlay covers only the cells the address takes. The rest of the
@@ -33,6 +34,9 @@ pub(crate) struct LinkRow<'f> {
     cut: bool,
     fg: Rgb,
     bg: Rgb,
+    /// Reverse video is set, under which a cell written inverted shows the
+    /// default background, which an image below the cells shows through.
+    reverse: bool,
 }
 
 impl<'f> LinkRow<'f> {
@@ -45,13 +49,22 @@ impl<'f> LinkRow<'f> {
             return None;
         }
         let palette = frame.palette();
+        // the default colors inverted against the screen: under reverse
+        // video the screen shows them swapped, so the overlay swaps them
+        // back, as a cell written inverted resolves
+        let (fg, bg) = if frame.reverse() {
+            (palette.fg(), palette.bg())
+        } else {
+            (palette.bg(), palette.fg())
+        };
         Some(LinkRow {
             row: overlay.row,
             uri: overlay.uri,
             len: overlay.uri.len().min(cols),
             cut: overlay.uri.len() > cols,
-            fg: palette.bg(),
-            bg: palette.fg(),
+            fg,
+            bg,
+            reverse: frame.reverse(),
         })
     }
 
@@ -100,7 +113,7 @@ impl<'f> LinkRow<'f> {
         // the attribute that a cell written in the default colors inverted
         // carries, which a 1-bit display reads to light the background
         fc.attrs = Attrs::INVERSE;
-        fc.default_bg = false;
+        fc.default_bg = self.reverse;
         fc.link = None;
         fc.hovered = false;
         fc.selected = false;

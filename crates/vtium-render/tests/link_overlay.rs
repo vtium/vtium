@@ -11,7 +11,7 @@ mod common;
 
 use common::{Screen, rgb, style, unifont};
 use vtium_render::{Canvas, Config, Depth, DrawState, Renderer};
-use vtium_term::{Age, Attrs, Cursor, CursorShape, Style};
+use vtium_term::{Age, Attrs, Cursor, CursorShape, Frame, Style};
 
 const COLS: usize = 12;
 const ROWS: usize = 3;
@@ -197,4 +197,41 @@ fn the_overlay_goes_with_its_frame() {
     assert!(c.pixels() != &shown[..], "the overlay was drawn");
     let plain = draw(&s, &s.frame(Age::NEVER), Depth::Color);
     same(c.pixels(), plain.pixels(), "after the overlay");
+}
+
+/// `s`'s frame with reverse video (DECSCNM) set or not.
+fn framed(s: &Screen, reverse: bool) -> Frame<'_> {
+    Frame::new(
+        s.lines.iter().collect(),
+        &s.damage,
+        &s.palette,
+        Age::NEVER,
+        s.cursor,
+        reverse,
+    )
+}
+
+// Under reverse video the screen's default colors are swapped already, so
+// the overlay swaps them back: it draws as a cell written inverted does,
+// against the screen, with DECSCNM on and off.
+// covers: osc.8
+#[test]
+fn the_overlay_draws_inverted_against_the_screen_under_reverse_video() {
+    for depth in [Depth::Color, Depth::One] {
+        for reverse in [false, true] {
+            let mut s = Screen::new(COLS, ROWS, rgb("c0c0c0"), rgb("101010"));
+            s.text(0, ROWS - 1, "programtext!", Style::DEFAULT);
+            let frame = framed(&s, reverse).with_hover(None, Some((ROWS - 1, "a:b/c")));
+            let drawn = draw(&s, &frame, depth);
+            let mut want = Screen::new(COLS, ROWS, rgb("c0c0c0"), rgb("101010"));
+            want.text(0, ROWS - 1, "programtext!", Style::DEFAULT);
+            want.text(0, ROWS - 1, "a:b/c", inverted());
+            let wanted = draw(&want, &framed(&want, reverse), depth);
+            same(
+                drawn.pixels(),
+                wanted.pixels(),
+                &format!("{depth:?}, reverse {reverse}"),
+            );
+        }
+    }
 }
