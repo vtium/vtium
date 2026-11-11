@@ -1815,7 +1815,7 @@ impl<G: Gl> Back for GpuBack<'_, G> {
         font: &Font<F>,
         text: &[char],
         width: vtium_font::Width,
-        style: vtium_font::Style,
+        style: vtium_font::Variant,
     ) -> Reach {
         if self.error.is_some() {
             return Reach::NONE;

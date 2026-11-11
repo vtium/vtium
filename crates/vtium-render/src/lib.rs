@@ -83,6 +83,7 @@ mod stored;
 mod target;
 mod timer;
 mod trig;
+mod variant;
 
 pub use arrow::Arrow;
 #[cfg(feature = "gpu")]

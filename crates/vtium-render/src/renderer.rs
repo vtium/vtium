@@ -3,7 +3,7 @@
 
 use std::time::{Duration, Instant};
 
-use vtium_font::{Decorations, Face, Font, Style, Width as FontWidth};
+use vtium_font::{Decorations, Face, Font, Style, Variant, Width as FontWidth};
 use vtium_term::{Attrs, Cursor, CursorShape, Frame, FrameCell, Glyph, Palette, Rgb, Width, dim};
 
 use crate::arrow::{Arrow, Over};
@@ -372,7 +372,7 @@ struct Paint {
     underline: Option<(Kind, Rgb)>,
     /// The strike-through and the overline, drawn over the glyph.
     over: Option<(Kind, Rgb)>,
-    text: Option<(usize, usize, FontWidth, Style)>,
+    text: Option<(usize, usize, FontWidth, Variant)>,
     /// At 1 bit, whether the background is lit, where vtium marks the cell
     /// (`mono::marked`).
     lit: Option<bool>,
@@ -431,7 +431,7 @@ pub(crate) trait Back {
         font: &Font<F>,
         text: &[char],
         width: FontWidth,
-        style: Style,
+        style: Variant,
     ) -> Reach;
 
     /// Whether it draws the ink a cell receives from its neighbours' glyphs,
@@ -497,7 +497,7 @@ impl<T: Target> Back for Cpu<'_, T> {
         font: &Font<F>,
         text: &[char],
         width: FontWidth,
-        style: Style,
+        style: Variant,
     ) -> Reach {
         compose.cache.reach(font, text, width, style)
     }
@@ -1337,10 +1337,7 @@ impl<F: Face> Renderer<F> {
         if !steady || fc.fg == fc.bg || concealed || draws_no_text(fc.glyph) {
             return Reach::NONE;
         }
-        let style = Style {
-            bold: fc.attrs.contains(Attrs::BOLD),
-            italic: fc.attrs.contains(Attrs::ITALIC),
-        };
+        let style = crate::variant::of(fc.attrs);
         let width = if fc.width == Width::Wide {
             FontWidth::Wide
         } else {
@@ -1657,10 +1654,7 @@ impl<F: Face> Renderer<F> {
             Glyph::Char(c) => text.push(c),
             Glyph::Cluster(t) => text.extend(t.chars()),
         }
-        let style = Style {
-            bold: fc.attrs.contains(Attrs::BOLD),
-            italic: fc.attrs.contains(Attrs::ITALIC),
-        };
+        let style = crate::variant::of(fc.attrs);
         let (width, cells) = if fc.width == Width::Wide {
             (FontWidth::Wide, 2)
         } else {
@@ -1828,10 +1822,7 @@ impl<F: Face> Renderer<F> {
         if dimmed {
             fg = dim(fg, bg);
         }
-        let style = Style {
-            bold: fc.attrs.contains(Attrs::BOLD),
-            italic: fc.attrs.contains(Attrs::ITALIC),
-        };
+        let style = crate::variant::of(fc.attrs);
         let text = &mut self.compose.text;
         let start = text.len();
         #[cfg(feature = "bidi")]
