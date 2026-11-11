@@ -22,6 +22,7 @@ use std::cell::RefCell;
 use std::collections::{BTreeMap, VecDeque};
 use std::io::{self, Read, Write};
 use std::os::fd::OwnedFd;
+use std::os::unix::fs::MetadataExt;
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -58,6 +59,9 @@ pub(crate) struct Server {
     pub(crate) device_opens: BTreeMap<PathBuf, usize>,
     /// The devices open, by id.
     pub(crate) devices: BTreeMap<u32, PathBuf>,
+    /// The inode of the open file each device was last opened as, which
+    /// the descriptor given to the client shares.
+    pub(crate) files: BTreeMap<PathBuf, u64>,
     next_id: u32,
     /// The sessions the client asked to switch to.
     pub(crate) switches: Vec<u16>,
@@ -263,6 +267,8 @@ impl Seat for StandInSeat {
         let (file, _) = UnixStream::pair()?;
         let file = OwnedFd::from(file);
         let owner = file.try_clone()?;
+        let inode = std::fs::File::from(file.try_clone()?).metadata()?.ino();
+        s.files.insert(path.to_owned(), inode);
         let id = s.next_id;
         s.next_id = s.next_id.saturating_add(1);
         s.devices.insert(id, path.to_owned());

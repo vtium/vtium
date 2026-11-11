@@ -13,10 +13,18 @@ use calloop::timer::{TimeoutAction, Timer};
 use rustix::io::Errno;
 use xkbcommon::xkb::keysyms;
 
-use super::stand_in::{Client, StandIn};
-use super::{Chosen, LibseatVt, Told, Tries};
+use std::cell::RefCell;
+use std::os::unix::fs::MetadataExt;
+use std::rc::Rc;
+use std::time::Instant;
+
+use super::stand_in::{Client, StandIn, StandInSeat};
+use super::{Chosen, LibseatVt, SeatInput, Told, Tries};
 use crate::event_loop::{Loop, Signal};
+use crate::input::fake::{self, FakeDevice, Node, Nodes};
+use crate::input::{DeviceId, Input, InputConfig, InputEvent, Keymap, RawEvent};
 use crate::input::{KeyEvent, Mods};
+use crate::ioctl::EV_KEY;
 use crate::vt::fake::{Call, FakeConsole};
 use crate::vt::{DisplayMode, KbMode, Switch, Vt, VtEvent};
 
@@ -32,6 +40,8 @@ struct Data {
     sigterm_at: Option<usize>,
     /// The tries at the device when the test's timer fired.
     device_timer_at: Option<usize>,
+    /// The keyboards and pointers, opened through the seat.
+    input: Option<Input<Nodes>>,
 }
 
 fn access(data: &mut Data) -> Option<&mut Seated> {
@@ -71,6 +81,7 @@ fn start(server: &StandIn, tty: Option<(FakeConsole, u16)>, tries: Tries) -> (Lo
         timer_at: None,
         sigterm_at: None,
         device_timer_at: None,
+        input: None,
     };
     (lp, data)
 }
@@ -661,4 +672,261 @@ fn the_acknowledgement_that_acquires_asks_for_the_waiting_devices() {
     let events: Vec<VtEvent> = vt(&mut data).events().collect();
     assert_eq!(events, [VtEvent::Acquired]);
     assert_eq!(vt(&mut data).settled(), [PathBuf::from(CARD)]);
+}
+
+const KEYBOARD: &str = "/dev/input/event3";
+const KEY_A: u16 = 30;
+
+/// The stand-in keyboards and pointers at `nodes`, opened through the
+/// seat. Each device is made only from a descriptor of the open file that
+/// the seat manager opened for its node, and only once vtium has made the
+/// descriptor non-blocking, since vtium reads a device until it has no
+/// more events.
+fn through_seat(data: &mut Data, nodes: &Nodes) -> SeatInput<StandInSeat, FakeDevice> {
+    let server = data.server.clone();
+    let nodes = nodes.clone();
+    vt(data).input_with(Box::new(move |path: &Path, fd: OwnedFd| {
+        let inode = std::fs::File::from(fd.try_clone()?).metadata()?.ino();
+        if server.0.borrow().files.get(path) != Some(&inode) {
+            return Err(io::Error::other(format!(
+                "{} is not the open file the seat manager gave",
+                path.display()
+            )));
+        }
+        let flags = rustix::fs::fcntl_getfl(&fd)?;
+        if !flags.contains(rustix::fs::OFlags::NONBLOCK) {
+            return Err(io::Error::other("the seat manager's descriptor blocks"));
+        }
+        nodes.device(path)
+    }))
+}
+
+fn keymap() -> Keymap {
+    Keymap::fallback().unwrap_or_else(|| panic!("the built-in keymap compiles"))
+}
+
+/// The input with a stand-in keyboard at [`KEYBOARD`], which the input
+/// opens directly unless `seat` opens it.
+fn keyboard_input(data: &mut Data, seat: bool) -> (Input<Nodes>, Rc<RefCell<Node>>) {
+    let nodes = Nodes::default();
+    let node = nodes.add(KEYBOARD, fake::keyboard());
+    let mut input = Input::new(nodes.clone(), keymap(), InputConfig::default());
+    if seat {
+        input.open_with(through_seat(data, &nodes));
+    }
+    (input, node)
+}
+
+/// A press and release of A, read from the keyboard.
+fn type_a(input: &mut Input<Nodes>, node: &Rc<RefCell<Node>>, id: DeviceId) -> Vec<InputEvent> {
+    for value in [1, 0] {
+        node.borrow_mut().queue.push_back(RawEvent {
+            kind: EV_KEY,
+            code: KEY_A,
+            value,
+        });
+    }
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the input reads its keys at a time, here the test's"
+    )]
+    let now = Instant::now();
+    input.dispatch(id, now);
+    input.events().collect()
+}
+
+fn seat_devices(server: &StandIn) -> Vec<PathBuf> {
+    server.0.borrow().devices.values().cloned().collect()
+}
+
+/// A keyboard opened through the seat delivers its keys through the same
+/// path as one opened directly, from the descriptor the seat manager gave.
+/// A sleep closes it through the seat manager, and the next wake-up opens
+/// it through the seat manager again.
+// covers: platform.libseat
+#[test]
+fn a_keyboard_opened_through_the_seat_types_as_one_opened_directly() {
+    let server = StandIn::new();
+    let (mut lp, mut data) = start(&server, None, tries(50, 20));
+    run_until(&mut lp, &mut data, |d, _| vt(d).is_active());
+
+    let (mut direct, direct_node) = keyboard_input(&mut data, false);
+    direct.wake_up();
+    let direct_id = direct
+        .add(Path::new(KEYBOARD))
+        .unwrap_or_else(|| panic!("the keyboard opens directly"));
+    let expected = type_a(&mut direct, &direct_node, direct_id);
+    assert!(
+        expected.iter().any(|e| matches!(e, InputEvent::Key(_))),
+        "a direct open types: {expected:?}"
+    );
+    assert_eq!(device_opens(&server, KEYBOARD), 0);
+
+    let (mut input, node) = keyboard_input(&mut data, true);
+    input.wake_up();
+    let id = input
+        .add(Path::new(KEYBOARD))
+        .unwrap_or_else(|| panic!("the keyboard opens through the seat"));
+    assert_eq!(device_opens(&server, KEYBOARD), 1);
+    assert_eq!(seat_devices(&server), [PathBuf::from(KEYBOARD)]);
+    assert_eq!(type_a(&mut input, &node, id), expected);
+
+    input.sleep();
+    assert!(seat_devices(&server).is_empty(), "closed through the seat");
+    assert!(!node.borrow().open);
+    input.wake_up();
+    assert_eq!(device_opens(&server, KEYBOARD), 2);
+    assert_eq!(seat_devices(&server), [PathBuf::from(KEYBOARD)]);
+    assert_eq!(type_a(&mut input, &node, id), expected);
+}
+
+/// A keyboard the seat manager answers `ENODEV` and then `EBUSY` for waits,
+/// with the loop serving a timer of the test's own meanwhile, and opens
+/// from the input's retry timer.
+// covers: platform.libseat
+#[test]
+fn a_keyboard_the_seat_manager_is_not_ready_for_is_retried_from_the_loop() {
+    let server = StandIn::new();
+    server
+        .0
+        .borrow_mut()
+        .device_answers
+        .insert(PathBuf::from(KEYBOARD), [Errno::NODEV, Errno::BUSY].into());
+    let (mut lp, mut data) = start(&server, None, tries(50, 20));
+    run_until(&mut lp, &mut data, |d, _| vt(d).is_active());
+    let (mut input, node) = keyboard_input(&mut data, true);
+    input.insert(&lp.handle(), |d: &mut Data| d.input.as_mut());
+    input.wake_up();
+    let id = input
+        .add(Path::new(KEYBOARD))
+        .unwrap_or_else(|| panic!("the keyboard is kept while it waits"));
+    assert!(input.waiting(id));
+    assert_eq!(device_opens(&server, KEYBOARD), 1, "tried once at the add");
+    data.input = Some(input);
+    ok(
+        lp.handle()
+            .insert_source(
+                Timer::from_duration(Duration::from_millis(1)),
+                |_, _, d: &mut Data| {
+                    d.device_timer_at = Some(device_opens(&d.server, KEYBOARD));
+                    TimeoutAction::Drop
+                },
+            )
+            .map_err(|e| io::Error::from(e.error)),
+        "timer",
+    );
+    run_until(&mut lp, &mut data, |d, _| {
+        d.input.as_ref().is_some_and(|i| !i.waiting(id))
+    });
+    assert!(
+        data.device_timer_at.is_some_and(|n| n < 3),
+        "the timer fired at {:?} tries",
+        data.device_timer_at
+    );
+    assert_eq!(device_opens(&server, KEYBOARD), 3);
+    assert_eq!(seat_devices(&server), [PathBuf::from(KEYBOARD)]);
+    let input = data.input.as_mut().unwrap_or_else(|| panic!("no input"));
+    assert!(
+        type_a(input, &node, id)
+            .iter()
+            .any(|e| matches!(e, InputEvent::Key(_)))
+    );
+}
+
+/// A keyboard the seat manager keeps refusing is dropped after its tries,
+/// as one that cannot be opened directly is.
+#[test]
+fn a_keyboard_refused_past_its_tries_is_dropped() {
+    let server = StandIn::new();
+    server
+        .0
+        .borrow_mut()
+        .device_answers
+        .insert(PathBuf::from(KEYBOARD), [Errno::NODEV; 10].into());
+    let (mut lp, mut data) = start(&server, None, tries(50, 3));
+    run_until(&mut lp, &mut data, |d, _| vt(d).is_active());
+    let (mut input, _node) = keyboard_input(&mut data, true);
+    input.insert(&lp.handle(), |d: &mut Data| d.input.as_mut());
+    input.wake_up();
+    let id = input.add(Path::new(KEYBOARD));
+    assert!(id.is_some());
+    data.input = Some(input);
+    run_until(&mut lp, &mut data, |d, _| {
+        d.input
+            .as_ref()
+            .is_some_and(|i| i.find(Path::new(KEYBOARD)).is_none())
+    });
+    assert_eq!(device_opens(&server, KEYBOARD), 3);
+    assert!(seat_devices(&server).is_empty());
+}
+
+/// A keyboard the seat manager refuses `EPERM`, while it takes the seat
+/// away, waits for the next wake-up, which follows the next enable.
+#[test]
+fn a_keyboard_refused_while_the_seat_is_taken_away_waits_for_the_wake_up() {
+    let server = StandIn::new();
+    let (mut lp, mut data) = start(&server, None, tries(50, 20));
+    run_until(&mut lp, &mut data, |d, _| vt(d).is_active());
+    let (mut input, node) = keyboard_input(&mut data, true);
+    input.wake_up();
+    // The seat manager begins the disable, which the loop has not read.
+    server.disable();
+    let id = input
+        .add(Path::new(KEYBOARD))
+        .unwrap_or_else(|| panic!("the keyboard is kept while it waits"));
+    assert!(input.waiting(id));
+    assert_eq!(device_opens(&server, KEYBOARD), 1);
+    let events = run_until(&mut lp, &mut data, |_, e| e.contains(&VtEvent::Release));
+    assert_eq!(events, [VtEvent::Release]);
+    input.sleep();
+    ok(vt(&mut data).acknowledge_release(), "acknowledge");
+    assert_eq!(
+        device_opens(&server, KEYBOARD),
+        1,
+        "not tried while released"
+    );
+    server.enable();
+    run_until(&mut lp, &mut data, |d, _| vt(d).is_active());
+    input.wake_up();
+    assert_eq!(device_opens(&server, KEYBOARD), 2);
+    assert!(!input.waiting(id));
+    assert!(node.borrow().open);
+}
+
+/// A keyboard asked for while the seat is not vtium's is not asked of the
+/// seat manager, which would refuse it.
+#[test]
+fn no_keyboard_is_asked_while_the_seat_is_not_vtiums() {
+    let server = StandIn::new();
+    server.0.borrow_mut().enables_at_open = false;
+    let (mut lp, mut data) = start(&server, None, tries(50, 20));
+    ok(lp.dispatch(Some(Duration::ZERO), &mut data), "dispatch");
+    let (mut input, _node) = keyboard_input(&mut data, true);
+    input.wake_up();
+    let id = input
+        .add(Path::new(KEYBOARD))
+        .unwrap_or_else(|| panic!("the keyboard is kept while it waits"));
+    assert!(input.waiting(id));
+    assert_eq!(device_opens(&server, KEYBOARD), 0);
+}
+
+/// Dropping the VT closes the keyboards opened through the seat, through
+/// the seat manager; the input's later close closes only its own
+/// descriptor.
+// covers: platform.libseat
+#[test]
+fn dropping_the_vt_closes_the_keyboards_through_the_seat() {
+    let server = StandIn::new();
+    let (mut lp, mut data) = start(&server, None, tries(50, 20));
+    run_until(&mut lp, &mut data, |d, _| vt(d).is_active());
+    let (mut input, node) = keyboard_input(&mut data, true);
+    input.wake_up();
+    let id = input.add(Path::new(KEYBOARD));
+    assert!(id.is_some());
+    assert_eq!(seat_devices(&server), [PathBuf::from(KEYBOARD)]);
+    data.vt = None;
+    assert!(seat_devices(&server).is_empty());
+    assert_eq!(server.0.borrow().client, Client::Closed);
+    input.sleep();
+    assert!(!node.borrow().open);
 }

@@ -17,6 +17,9 @@ pub(super) trait Link {
     fn repeat(&self, id: DeviceId, serial: u64, delay: Duration, rate: Duration);
     /// Arms the pointer's hide timer, `after` from now, if it is not.
     fn hide(&self, after: Duration);
+    /// Arms the timer that tries the waiting devices again, `after` from
+    /// now. Returns whether it is armed.
+    fn retry(&self, after: Duration) -> bool;
 }
 
 pub(super) struct LoopLink<D: 'static, A> {
@@ -115,6 +118,26 @@ where
         if let Err(e) = inserted {
             self.hide_armed.set(false);
             log::warn!(target: "input", "cannot arm the pointer's hide timer: {}", e.error);
+        }
+    }
+
+    fn retry(&self, after: Duration) -> bool {
+        let access = self.access.clone();
+        let inserted = self
+            .handle
+            .insert_source(
+                Timer::from_duration(after),
+                move |_, _, data| match access(data).and_then(Input::retry) {
+                    Some(again) => TimeoutAction::ToDuration(again),
+                    None => TimeoutAction::Drop,
+                },
+            );
+        match inserted {
+            Ok(_) => true,
+            Err(e) => {
+                log::warn!(target: "input", "cannot arm the timer that tries the devices again: {}", e.error);
+                false
+            }
         }
     }
 }
