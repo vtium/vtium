@@ -63,7 +63,7 @@ const WARNING: u8 = 4;
 /// the kernel's own default, `CONFIG_CONSOLE_LOGLEVEL_DEFAULT`'s 7.
 const CONSOLE_LEVEL_DEFAULT: u8 = 7;
 
-/// The most records vtium reads from `/dev/kmsg` in one turn. The loop
+/// The most reads vtium makes of `/dev/kmsg` in one turn. The loop
 /// watches the device level-triggered, so the records left over are read
 /// in the next turn.
 const RECORDS_PER_TURN: usize = 256;
@@ -76,12 +76,59 @@ pub const MESSAGE_CHARS_MAX: usize = 240;
 /// boot: its last `vtium.enable=` says `0`. Any other value, and no
 /// `vtium.enable=` at all, leave vtium on.
 pub fn turned_off(cmdline: &str) -> bool {
-    let prefix = format!("{ENABLE}=");
-    cmdline
-        .split_whitespace()
+    params(cmdline)
+        .into_iter()
         .rev()
-        .find_map(|word| word.strip_prefix(&prefix))
+        .find_map(|(name, value)| (name == ENABLE).then_some(value))
+        .flatten()
         == Some("0")
+}
+
+/// The parameters of the kernel command line `cmdline`, each its name and
+/// its value, if it has one, split as the kernel splits them: `next_arg()`
+/// in the kernel's `kernel/params.c`, which `parse_args()` calls. That is
+/// a reading of the kernel source from memory, since this machine has no
+/// kernel source. Whitespace ends a parameter outside double quotes, so a
+/// quoted value with spaces stays one parameter. Quotes around the whole
+/// parameter, or around its value after the `=`, are stripped.
+fn params(cmdline: &str) -> Vec<(&str, Option<&str>)> {
+    let mut words = Vec::new();
+    let mut start = None;
+    let mut quoted = false;
+    for (i, c) in cmdline.char_indices() {
+        if c == '"' {
+            quoted = !quoted;
+        }
+        match (start, c.is_whitespace() && !quoted) {
+            (None, false) => start = Some(i),
+            (Some(from), true) => {
+                words.push(&cmdline[from..i]);
+                start = None;
+            }
+            _ => {}
+        }
+    }
+    if let Some(from) = start {
+        words.push(&cmdline[from..]);
+    }
+    words
+        .into_iter()
+        .map(|word| {
+            let word = unquote(word);
+            match word.split_once('=') {
+                Some((name, value)) => (name, Some(unquote(value))),
+                None => (word, None),
+            }
+        })
+        .collect()
+}
+
+/// `v` without the double quotes around it; a lone opening quote goes too,
+/// as the kernel drops it.
+fn unquote(v: &str) -> &str {
+    v.strip_prefix('"')
+        .map(|v| v.strip_suffix('"').unwrap_or(v))
+        .unwrap_or(v)
 }
 
 /// Whether `args` start vtium as a console. The commands that only read
@@ -121,20 +168,60 @@ pub struct Record {
 
 /// The record that the bytes of one read of `/dev/kmsg` hold, or `None`
 /// when they are not a record. The message ends at its first newline, and
-/// the dictionary lines after it are left out. The kernel already writes
-/// every unprintable byte of a message as `\xNN`, and vtium leaves out any
-/// control character that still reaches it.
+/// the dictionary lines after it are left out.
+///
+/// The kernel writes each byte of a message below 0x20, from 0x7f up, and
+/// `\` itself as `\xNN` (the kernel's `Documentation/ABI/testing/dev-kmsg`).
+/// vtium decodes those escapes back to bytes and reads the bytes as UTF-8,
+/// with U+FFFD for a byte that is not UTF-8. A newline or a tab in the
+/// message shows as a space, so each message stays one line of the box,
+/// and vtium leaves out every other control character.
 pub fn record(raw: &[u8]) -> Option<Record> {
-    let text = String::from_utf8_lossy(raw);
-    let (prefix, message) = text.split_once(';')?;
+    let semicolon = raw.iter().position(|&b| b == b';')?;
+    let (prefix, rest) = raw.split_at(semicolon);
+    let prefix = std::str::from_utf8(prefix).ok()?;
     let priority: u16 = prefix.split(',').next()?.trim().parse().ok()?;
-    let message = message.split('\n').next().unwrap_or("");
-    let message: String = message.chars().filter(|c| !c.is_control()).collect();
+    let message = rest.get(1..).unwrap_or_default();
+    let message = message.split(|&b| b == b'\n').next().unwrap_or_default();
+    let text: String = String::from_utf8_lossy(&unescaped(message))
+        .chars()
+        .map(|c| if c == '\n' || c == '\t' { ' ' } else { c })
+        .filter(|c| !c.is_control())
+        .collect();
     Some(Record {
         facility: u8::try_from(priority >> 3).ok()?,
         level: u8::try_from(priority & 7).ok()?,
-        text: message,
+        text,
     })
+}
+
+/// `message` with each `\xNN` escape the kernel wrote replaced by its
+/// byte. A `\x` that two hex digits do not follow stays as it is.
+fn unescaped(message: &[u8]) -> Vec<u8> {
+    let hex = |b: u8| {
+        char::from(b)
+            .to_digit(16)
+            .and_then(|d| u8::try_from(d).ok())
+    };
+    let mut out = Vec::with_capacity(message.len());
+    let mut i = 0;
+    while let Some(&b) = message.get(i) {
+        let escape = match message.get(i..i.saturating_add(4)) {
+            Some([b'\\', b'x', h, l]) => hex(*h).zip(hex(*l)),
+            _ => None,
+        };
+        match escape {
+            Some((h, l)) => {
+                out.push(h.wrapping_mul(16).wrapping_add(l));
+                i = i.saturating_add(4);
+            }
+            None => {
+                out.push(b);
+                i = i.saturating_add(1);
+            }
+        }
+    }
+    out
 }
 
 /// Whether vtium shows `record` while the kernel's console log level is
@@ -247,6 +334,34 @@ fn clipped(text: &str) -> String {
     out
 }
 
+/// The records that `read` gives, as `/dev/kmsg` gives them: one record
+/// a read, at most [`RECORDS_PER_TURN`] reads. `EPIPE` says the kernel
+/// overwrote records vtium had not read yet, and the next read returns the
+/// oldest record it still keeps, so reading goes on, as after `EINTR`.
+/// `EAGAIN` says no record waits, which ends the batch. Another error ends
+/// the batch with the records read so far, or, with none, is the error.
+fn drain_with(
+    mut read: impl FnMut(&mut [u8]) -> rustix::io::Result<usize>,
+) -> io::Result<Vec<Vec<u8>>> {
+    use rustix::io::Errno;
+    let mut out = Vec::new();
+    // The kernel refuses a read into a buffer smaller than the record,
+    // and a record is at most 8 KiB with its dictionary.
+    let mut buf = vec![0u8; 8192];
+    for _ in 0..RECORDS_PER_TURN {
+        match read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => out.push(buf.get(..n).unwrap_or_default().to_vec()),
+            Err(Errno::PIPE | Errno::INTR) => {}
+            Err(Errno::AGAIN) => break,
+            // the next call meets the error again
+            Err(_) if !out.is_empty() => break,
+            Err(e) => return Err(e.into()),
+        }
+    }
+    Ok(out)
+}
+
 /// The kernel as the binary reads it: `/dev/kmsg`, the console log level
 /// in `/proc/sys/kernel/printk`, and plymouthd's pid file.
 pub struct System {
@@ -280,26 +395,8 @@ impl System {
 
 impl Kernel for System {
     fn drain(&mut self) -> io::Result<Vec<Vec<u8>>> {
-        use rustix::io::Errno;
-        let mut out = Vec::new();
-        // The kernel refuses a read into a buffer smaller than the record,
-        // and a record is at most 8 KiB with its dictionary.
-        let mut buf = vec![0u8; 8192];
-        while out.len() < RECORDS_PER_TURN {
-            match rustix::io::read(&self.kmsg, &mut buf) {
-                Ok(0) => break,
-                Ok(n) => out.push(buf.get(..n).unwrap_or_default().to_vec()),
-                // the kernel overwrote records vtium had not read yet: the
-                // next read returns the oldest record still kept
-                Err(Errno::PIPE | Errno::INTR) => {}
-                Err(Errno::AGAIN) => break,
-                // the records read so far are shown, and the next call
-                // meets the error again
-                Err(_) if !out.is_empty() => break,
-                Err(e) => return Err(e.into()),
-            }
-        }
-        Ok(out)
+        let kmsg = &self.kmsg;
+        drain_with(|buf| rustix::io::read(kmsg, buf))
     }
 
     fn console_level(&self) -> u8 {
@@ -349,6 +446,10 @@ mod tests {
             ("vtium.enable=", false),
             ("vtium.enable", false),
             ("xvtium.enable=0", false),
+            ("vtium.enable=\"0\"", true),
+            ("\"vtium.enable=0\"", true),
+            ("root=/dev/sda1 foo=\"a vtium.enable=0\" quiet", false),
+            ("foo=\"a b\" vtium.enable=0", true),
             ("root=/dev/sda1 quiet", false),
             ("", false),
         ] {
@@ -401,10 +502,62 @@ mod tests {
         );
         assert_eq!(
             record(b"3,1,2,-;a\x1bb\tc\n").map(|r| r.text),
-            Some("abc".to_owned())
+            Some("ab c".to_owned()),
+            "a tab shows as a space, and an escape character goes"
+        );
+        // the kernel's escapes are decoded: a newline shows as a space, and
+        // UTF-8 reads as its characters
+        assert_eq!(
+            record(b"4,1,2,-;line one\\x0aline two\n").map(|r| r.text),
+            Some("line one line two".to_owned())
+        );
+        assert_eq!(
+            record(b"4,1,2,-;usb: Aaron\\xe2\\x80\\x99s keyboard\n").map(|r| r.text),
+            Some("usb: Aaron\u{2019}s keyboard".to_owned())
+        );
+        assert_eq!(
+            record(b"4,1,2,-;a \\x5c b \\x1b c \\xff d \\xZZ\n").map(|r| r.text),
+            Some("a \\ b  c \u{fffd} d \\xZZ".to_owned()),
+            "a backslash, a control character gone, a byte that is no UTF-8, and no escape"
         );
         assert_eq!(record(b"no prefix\n"), None);
         assert_eq!(record(b"x,1,2,-;text\n"), None);
+    }
+
+    // /dev/kmsg's errors (Documentation/ABI/testing/dev-kmsg): after
+    // EPIPE, records were overwritten and reading goes on; EAGAIN ends the
+    // batch, and the record after it waits for the next one; another error
+    // with nothing read is the error.
+    #[test]
+    fn draining_reads_on_after_epipe_and_stops_at_eagain() {
+        use rustix::io::Errno;
+        let script = std::cell::RefCell::new(std::collections::VecDeque::from([
+            Ok(&b"4,1,0,-;one\n"[..]),
+            Err(Errno::PIPE),
+            Ok(&b"4,9,0,-;two\n"[..]),
+            Err(Errno::AGAIN),
+            Ok(&b"4,10,0,-;three\n"[..]),
+            Err(Errno::AGAIN),
+            Err(Errno::IO),
+        ]));
+        let mut read = |buf: &mut [u8]| match script.borrow_mut().pop_front() {
+            Some(Ok(record)) => {
+                buf.get_mut(..record.len()).unwrap().copy_from_slice(record);
+                Ok(record.len())
+            }
+            Some(Err(e)) => Err(e),
+            None => Err(Errno::AGAIN),
+        };
+        let texts = |batch: Vec<Vec<u8>>| -> Vec<String> {
+            batch
+                .iter()
+                .filter_map(|r| record(r))
+                .map(|r| r.text)
+                .collect()
+        };
+        assert_eq!(texts(drain_with(&mut read).unwrap()), ["one", "two"]);
+        assert_eq!(texts(drain_with(&mut read).unwrap()), ["three"]);
+        assert!(drain_with(&mut read).is_err(), "EIO with nothing read");
     }
 
     #[test]
@@ -559,5 +712,12 @@ mod tests {
         assert_eq!(c.chars().count(), MESSAGE_CHARS_MAX);
         assert!(c.ends_with('…'));
         assert_eq!(clipped("short"), "short");
+        // the cut counts the decoded characters, not the kernel's escapes
+        let escaped = "\\xe2\\x80\\x99".repeat(MESSAGE_CHARS_MAX);
+        let decoded = record(format!("4,1,2,-;{escaped}\n").as_bytes())
+            .unwrap()
+            .text;
+        assert_eq!(decoded.chars().count(), MESSAGE_CHARS_MAX);
+        assert_eq!(clipped(&decoded), decoded, "exactly the most, so no cut");
     }
 }

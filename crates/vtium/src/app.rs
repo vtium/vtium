@@ -6268,7 +6268,8 @@ mod tests {
     /// A seat on one display under `kernel-messages=always`, its kernel a
     /// stand-in that reads `queued`, shown at the returned time. The
     /// display reports no flip, so `display-wait=forever` keeps vtium from
-    /// giving up on it while the count runs.
+    /// giving up on it while the count runs, and `no-blink` arms no blink
+    /// timer, so the box's count is the loop's only timer.
     fn kernel_seat() -> (Loop<App>, App, Queued, Instant) {
         let queued: Queued = Rc::default();
         let (mut lp, mut app) = seat_with(
@@ -6276,6 +6277,7 @@ mod tests {
                 "--font-size=16",
                 "--kernel-messages=always",
                 "--display-wait=forever",
+                "--no-blink",
             ],
             None,
             no_fonts(),
@@ -6363,6 +6365,47 @@ mod tests {
         );
     }
 
+    // ADR-1401 D15: vtium shows the kernel's messages only while its VT
+    // is shown. A message that arrives while the VT is released, its
+    // display still lit, is never shown, not even once the VT comes back.
+    #[test]
+    fn a_kernel_message_while_the_vt_is_released_never_shows() {
+        let (mut lp, mut app, queued, t) = kernel_seat();
+        // Ctrl+Super+F12, the fake VT's own key, releases it
+        let f12 = InputEvent::Key(KeyEvent {
+            keycode: 0,
+            ascii: 0,
+            mods: InputMods::CTRL.union(InputMods::LOGO),
+            keysyms: vec![0xffc9],
+            codepoints: vec![None],
+            repeat: false,
+        });
+        // it sleeps as a DRM card does, so the release is acknowledged
+        let still = app.videos.get_mut(Path::new("/dev/mem0")).unwrap();
+        still
+            .as_any()
+            .downcast_mut::<Still>()
+            .unwrap()
+            .like_a_device = true;
+        app.focus = Some(0);
+        app.input_event(f12, t);
+        app.turn(t);
+        app.turn(t);
+        assert!(!app.vt.is_active(), "released");
+        assert!(
+            !app.heads.first().unwrap().views.is_empty(),
+            "the display stays lit"
+        );
+        kernel_log(&queued, "while released");
+        kernel_turn(&mut lp, &mut app, t);
+        app.vt.activate().unwrap();
+        app.turn(t);
+        settle_frames(&mut lp, &mut app, t);
+        assert!(app.vt.is_active(), "taken back");
+        assert_eq!(app.heads.first().unwrap().kernel_messages().next(), None);
+        assert_eq!(box_text(&app), None, "no stale box once the VT is back");
+    }
+
     // ADR-1401 D15: the box's last line counts the seconds left, one a
     // second on the loop's timer, and at 0 the box goes on its own.
     #[test]
@@ -6377,10 +6420,10 @@ mod tests {
                 Some(at),
                 "the box's timer is due at second {n}"
             );
-            assert!(
-                app.next_wake(at - Duration::from_secs(1))
-                    .is_some_and(|w| w <= Duration::from_secs(1)),
-                "the loop wakes for second {n}"
+            assert_eq!(
+                app.next_wake(at - Duration::from_secs(1)),
+                Some(Duration::from_secs(1)),
+                "the loop wakes for second {n}, on the box's timer alone"
             );
             app.turn(at);
             settle_frames(&mut lp, &mut app, at);
