@@ -46,7 +46,10 @@ considered:
   - operator: aaronsb
     said: "\"Parts, templates, paths\", Terminals tied to VTs, Effects inside the terminal, Records as provenance, \" generally, the records as provenance doesn't need any changes to behavior. I just wanted to make sure we've recorded it.\""
     via: AskUserQuestion, 2026-11-10, asked which of the day's ideas D1 should also name; the four option labels are the steering session's wording, the last sentence is the maintainer's own
-status: proposed
+  - operator: aaronsb
+    said: "Accept"
+    via: the question tool in the steering session, 2026-11-10, asked whether to accept ADR-1506 with its D2 to D5 additions
+status: accepted
 date: 2026-11-10
 deciders:
   - aaronsb
