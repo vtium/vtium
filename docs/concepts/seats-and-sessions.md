@@ -34,7 +34,11 @@ When you type your name, vtium runs `/bin/login`, the same program a getty runs.
 
 Each VT that runs vtium runs a vtium process of its own, with its own login. vtium runs as root, because it opens the display and the input devices.
 
-On a systemd machine, the command `vtium console enable` gives VTs to vtium. systemd then starts vtium at boot on each of those VTs, so each one is in use from the start. This keeps a display manager, the program that shows a graphical login screen, off vtium's VTs. For example, sddm from version 0.20 puts each new desktop session on the first VT that no program holds open. vtium holds each of its VTs open from boot, so sddm takes a VT above them. On a machine with a display manager, VT 1 stays the display manager's. On a machine with another init system, your init's configuration starts vtium on a VT where it started a getty. [Install VTium](../install.md#what-the-install-does-to-your-vts) shows both.
+On a systemd machine, the command `vtium console enable` gives VTs to vtium. With `--all`, it gives vtium VT 1 and each VT from 2 to 6 that no other program holds. On a machine with a display manager, the program that shows a graphical login screen, VT 1 stays the display manager's.
+
+systemd starts vtium at boot on each VT that vtium has. Each vtium tells systemd that it is ready as soon as it holds its VT open, before it opens the graphics card. systemd starts the display manager only after every vtium is ready. So each of vtium's VTs is held open before the display manager starts, and the display manager stays off them. For example, sddm from version 0.20 puts each new desktop session on the first VT that no program holds open, so it takes a VT above vtium's.
+
+If vtium took your VTs before it started at boot on each of them, `vtium console status` prints a line that names each VT from 2 to 5 that nothing holds open at boot. The line ends with the command that fixes it, such as `sudo vtium console enable --direct --all`. On a machine with another init system, your init's configuration starts vtium on a VT where it started a getty. [Install VTium](../install.md#what-the-install-does-to-your-vts) shows both.
 
 ## Seats, sessions and the programs that manage them
 
@@ -122,7 +126,7 @@ sudo vtium console enable --direct --all
 
 The command changes which unit systemd starts on the VT, and it disables the other mode's unit there. It starts and stops nothing. A vtium that runs on the VT now keeps running in the old mode, and a person logged in there keeps their session. The new mode takes over the next time vtium starts on that VT, which is at the next boot.
 
-To switch a VT now, start the new mode's unit, as in `sudo systemctl start vtium-seat@tty3.service`. After `enable` for one VT, the command prints that line for you. After `enable --all`, it prints the line for VT 1 alone. Starting the new mode's unit stops the vtium of the other mode on that VT, and that ends every session on the VT. So log out there first.
+To switch a VT now, start the new mode's unit, as in `sudo systemctl start vtium-seat@tty3.service`. `vtium console enable` prints this step for you. After `enable` for one VT, it gives the line with that VT's number. After `enable --all`, it gives the line with `ttyN`, and you put in the number of the VT you want to switch. Starting the new mode's unit stops the vtium of the other mode on that VT, and that ends every session on the VT. So log out there first.
 
 VT 6 is logind's reserved VT, where logind starts a console at every switch to it. While vtium runs on VT 6 in the other mode, a command that would move VT 6 refuses and changes nothing, because the next switch to VT 6 would end that VT's sessions. It tells you how to go ahead.
 
