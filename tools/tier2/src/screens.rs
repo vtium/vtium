@@ -212,6 +212,23 @@ turned dark on light, in columns 0 to 28; column 29, the second half of the wide
 address covers, blank in blue; `tail text` after it in yellow on blue; the link on the top row \
 under a dashed line, and the other rows as written.";
 
+/// The `link-overlay` screen under reverse video (DECSCNM): the overlay
+/// inverts against what the screen shows (ADR-1002, "Drawing").
+const LINK_OVERLAY_REVERSE: &[u8] = concat!(
+    "\x1b[?5h",
+    "see \x1b]8;;file://pixie/home/a/README.md\x1b\\README.md\x1b]8;;\x1b\\ for more\r\n",
+    "\x1b[32mgreen text\x1b[0m and plain text\r\n",
+    "\r\n\r\n\r\n",
+    "the bottom row: the program's own text",
+)
+.as_bytes();
+
+const LINK_OVERLAY_REVERSE_DESC: &str = "A link (OSC 8) under the pointer on the top row with \
+Ctrl held, under reverse video (DECSCNM), so the screen is dark text on light grey. In unifont. \
+Correct: file://pixie/home/a/README.md on the bottom row in columns 0 to 28, light on dark, \
+inverted against the screen; the rest of the bottom row from column 29, a space and `own text`, dark on light \
+as the program wrote it; the link on the top row under a dashed line.";
+
 /// A link under the pointer on the bottom row with Ctrl held: its long
 /// address on the top row, cut at the row's end (ADR-1002, "Drawing").
 const LINK_OVERLAY_CUT: &[u8] = concat!(
@@ -1686,6 +1703,19 @@ const BASE: &[Case] = &[
                 "link-overlay-unifont",
                 LINK_OVERLAY_DESC,
                 LINK_OVERLAY,
+                40,
+                6,
+            )
+        },
+    },
+    Case {
+        screen: Screen {
+            pointer: Some((5, 0)),
+            ctrl: true,
+            ..Screen::new(
+                "link-overlay-reverse-unifont",
+                LINK_OVERLAY_REVERSE_DESC,
+                LINK_OVERLAY_REVERSE,
                 40,
                 6,
             )
