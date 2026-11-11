@@ -124,24 +124,27 @@ done
 		"ExecStart runs $exec_path" "${changes[@]}" "DefaultInstance=name-a-VT/$name@ttyN, which is no VT"
 	cat <<EOF
 # vtium on one VT of seat0, in place of its getty. The instance is the VT's
-# name, as getty@.service's is, and the unit is enabled one VT at a time,
-# naming the VT.
+# name, as getty@.service's is.
 EOF
 	# The packaged vtium's unit is given its VTs by vtium console, which
-	# manages vtium@ alone (ADR-1500 D7); the development install's is
-	# enabled by make vt-install.
+	# manages vtium@ alone and which the package's scripts run (ADR-1500 D3,
+	# D7); the development install's is enabled by make vt-install.
 	if [ "$name" = vtium ]; then
 		cat <<EOF
-# To give vtium a VT, or every VT that logind spawns:
-#   vtium console enable 3
+# The package's install script gives vtium every free VT with
 #   vtium console enable --all
-# The first enables vtium@tty3.service, which also links autovt@tty3.service
-# here, so logind starts vtium on that VT. The way back:
-#   vtium console disable 3
+# which enables vtium at boot on VT 1 when no display manager is enabled,
+# and links autovt@.service here, so logind starts vtium on each other free
+# VT. Its removal script gives them back with
 #   vtium console disable --all
+# To give vtium one VT alone, VT 3 here, and the way back:
+#   vtium console disable --all
+#   vtium console enable 3
+#   vtium console disable 3
 EOF
 	else
 		cat <<EOF
+# make vt-install enables it on one VT, naming the VT:
 #   systemctl enable $name@tty3.service
 # That also links autovt@tty3.service here, so logind starts vtium on that
 # VT.

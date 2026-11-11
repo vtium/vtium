@@ -3800,6 +3800,12 @@ class Package(Case):
                     for v in verbs:
                         self.assertIn(v + "\n", comment)
                     self.assertNotIn("systemctl enable", comment)
+                    # The package's install gives vtium every free VT, and
+                    # its removal gives them back (ADR-1500 D3, D7).
+                    flat = " ".join(l.lstrip("# ") for l in comment.splitlines())
+                    self.assertIn("The package's install script gives vtium every free VT", flat)
+                    self.assertIn("Its removal script gives them back", flat)
+                    self.assertNotIn("one VT at a time", flat)
                 else:
                     self.assertIn(f"#   systemctl enable {name}@tty3.service\n", comment)
                     self.assertNotIn("vtium console", comment)
