@@ -129,7 +129,7 @@ On a machine where `kmscon` holds the template link, read [Moving from another D
 
 vtium can run on a VT in two ways, and the install turns on the first:
 
-- In direct mode, vtium opens the screen and the keyboards itself. Each login at vtium's prompt gets an active logind session on seat0, as a login at a getty does. So sound, removable disks and the actions that polkit allows the active session work as usual. The unit is `vtium@.service`.
+- In direct mode, vtium opens the screen and the keyboards itself, as root. Where seatd runs, a console built with `libseat` takes them from seatd instead. Each login at vtium's prompt gets an active logind session on seat0, as a login at a getty does. So sound, removable disks and the actions that polkit allows the active session work as usual. The unit is `vtium@.service`.
 - In seat mode, vtium takes the screen, the keyboards and VT switching from logind, the service that manages logins and seats, through libseat. Each login gets a logind session with no seat. polkit treats that session as inactive, and udev gives it no devices, such as sound cards. The unit is `vtium-seat@.service`, which a console built with `libseat` and `logind` ships, as the `vtium` package is built.
 
 A VT runs one mode at a time. To ask which mode fits your machine, run `vtium console enable` with no mode. It changes nothing: it says what it finds, which mode it recommends and why, and the command to run. To move every VT vtium has to seat mode, and back:
