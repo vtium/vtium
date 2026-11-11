@@ -31,8 +31,9 @@ use std::ptr;
 use std::time::{Duration, Instant};
 
 use super::{
-    BusError, CALL_TIMEOUT_US, Error, classify, sd_bus_error_free, sd_bus_flush_close_unref,
-    sd_bus_message_unref, sd_bus_open_system, sd_bus_set_method_call_timeout,
+    BusError, CALL_TIMEOUT_US, Error, classify, sd_bus_call_method, sd_bus_error_free,
+    sd_bus_flush_close_unref, sd_bus_message_unref, sd_bus_open_system,
+    sd_bus_set_method_call_timeout,
 };
 
 /// systemd's manager on the system bus.
@@ -74,6 +75,12 @@ pub(crate) trait Bus {
     /// The next job the manager reported finished, as its path and its
     /// result, or `None` once `deadline` has passed.
     fn next_removed_job(&mut self, deadline: Instant) -> Result<Option<(String, String)>, Error>;
+    /// `Cancel` on the job at `job`, which systemd refuses for a job that
+    /// has already finished.
+    fn cancel_job(&mut self, job: &str) -> Result<(), Error>;
+    /// Whether the unit `unit` holds the process `pid`, by the process's
+    /// control group.
+    fn holds(&mut self, unit: &str, pid: u32) -> bool;
 }
 
 /// Why a login child got no scope of its own.
@@ -84,8 +91,9 @@ pub enum ScopeError {
     /// The system bus cannot be reached, or the manager refused.
     Bus(Error),
     /// The scope's job did not finish within `SCOPE_JOB_MS` (the crate's
-    /// bounds).
-    TimedOut,
+    /// bounds). vtium then cancelled it, or, when systemd refused the
+    /// cancel, here is why.
+    TimedOut { not_cancelled: Option<String> },
     /// The scope's job finished with a result other than `done`.
     Failed(String),
 }
@@ -99,9 +107,18 @@ impl fmt::Display for ScopeError {
             ScopeError::Bus(Error::Refused { name, message }) => {
                 write!(f, "systemd answered {name}: {message}")
             }
-            ScopeError::TimedOut => write!(
+            ScopeError::TimedOut {
+                not_cancelled: None,
+            } => write!(
                 f,
-                "systemd did not start the scope within {} seconds",
+                "systemd did not start the scope within {} seconds, so vtium cancelled its job",
+                JOB_TIMEOUT.as_secs()
+            ),
+            ScopeError::TimedOut {
+                not_cancelled: Some(why),
+            } => write!(
+                f,
+                "systemd did not start the scope within {} seconds, and vtium could not cancel its job ({why}), so the session may still move into the scope later",
                 JOB_TIMEOUT.as_secs()
             ),
             ScopeError::Failed(result) => write!(f, "systemd's job for the scope ended {result}"),
@@ -158,7 +175,7 @@ pub(crate) fn start_with(
         .map_err(ScopeError::Bus)?;
     loop {
         match bus.next_removed_job(deadline).map_err(ScopeError::Bus)? {
-            None => return Err(ScopeError::TimedOut),
+            None => return too_late(bus, unit, pid, &job),
             Some((path, result)) if path == job => {
                 return if result == "done" {
                     Ok(())
@@ -170,6 +187,21 @@ pub(crate) fn start_with(
             Some(_) => {}
         }
     }
+}
+
+/// The end of a job that did not finish in time: vtium cancels it before it
+/// lets the child go, so that no late job moves `login` out of vtium's
+/// session after logind has refused it a session of its own. When systemd
+/// refuses the cancel because the job finished meanwhile, the child's
+/// control group tells whether the scope holds it.
+fn too_late(bus: &mut impl Bus, unit: &str, pid: u32, job: &str) -> Result<(), ScopeError> {
+    let cancelled = bus.cancel_job(job);
+    if bus.holds(unit, pid) {
+        return Ok(());
+    }
+    Err(ScopeError::TimedOut {
+        not_cancelled: cancelled.err().map(|e| ScopeError::Bus(e).to_string()),
+    })
 }
 
 #[expect(unsafe_code, reason = "sd-bus's C interface")]
@@ -436,6 +468,52 @@ impl Bus for SystemBus {
             }
         }
     }
+
+    fn cancel_job(&mut self, job: &str) -> Result<(), Error> {
+        let job = CString::new(job).map_err(|_| errno(-libc::EINVAL))?;
+        let mut error = BusError {
+            name: ptr::null(),
+            message: ptr::null(),
+            need_free: 0,
+        };
+        let mut reply: *mut c_void = ptr::null_mut();
+        #[expect(unsafe_code, reason = "sd-bus's C interface")]
+        // SAFETY: `self.bus` is the open connection; every string is
+        // NUL-ended; `error` starts as SD_BUS_ERROR_NULL and `reply` as
+        // null; the empty signature takes no arguments.
+        let called = unsafe {
+            sd_bus_call_method(
+                self.bus,
+                SYSTEMD1.as_ptr(),
+                job.as_ptr(),
+                c"org.freedesktop.systemd1.Job".as_ptr(),
+                c"Cancel".as_ptr(),
+                &mut error,
+                &mut reply,
+                c"".as_ptr(),
+            )
+        };
+        let result = if called < 0 {
+            Err(classify(text(error.name), text(error.message), called))
+        } else {
+            Ok(())
+        };
+        #[expect(unsafe_code, reason = "sd-bus's C interface")]
+        // SAFETY: each is what sd-bus gave above, freed once.
+        unsafe {
+            sd_bus_error_free(&mut error);
+            sd_bus_message_unref(reply);
+        }
+        result
+    }
+
+    /// The child's control group, `0::PATH` on the unified hierarchy, ends
+    /// in the unit's name while the unit holds it.
+    fn holds(&mut self, unit: &str, pid: u32) -> bool {
+        let tail = format!("/{unit}");
+        std::fs::read_to_string(format!("/proc/{pid}/cgroup"))
+            .is_ok_and(|groups| groups.lines().any(|l| l.ends_with(&tail)))
+    }
 }
 
 /// Appends `StartTransientUnit`'s arguments to the call `m`: the name, the
@@ -534,6 +612,15 @@ mod tests {
         signals: VecDeque<(String, String)>,
         /// The jobs queued.
         jobs: u32,
+        /// The jobs the client cancelled, in order.
+        cancelled: Vec<String>,
+        /// The job finishes, and its scope takes the child, just as the
+        /// client asks to cancel it, which systemd then refuses.
+        finishes_at_cancel: bool,
+        /// The unit that holds the child, once its job finished.
+        holder: Option<String>,
+        /// The last job queued and its unit.
+        queued: Option<(String, String)>,
     }
 
     impl Bus for StandInManager {
@@ -567,13 +654,42 @@ mod tests {
                 ));
                 if let Some(result) = self.result {
                     self.signals.push_back((job.clone(), result.to_owned()));
+                    if result == "done" {
+                        self.holder = Some(name.to_owned());
+                    }
                 }
             }
+            self.queued = Some((job.clone(), name.to_owned()));
             Ok(job)
         }
 
         fn next_removed_job(&mut self, _: Instant) -> Result<Option<(String, String)>, Error> {
             Ok(self.signals.pop_front())
+        }
+
+        /// A job still queued is cancelled; any other, systemd refuses.
+        fn cancel_job(&mut self, job: &str) -> Result<(), Error> {
+            self.cancelled.push(job.to_owned());
+            let queued = self.queued.take();
+            match queued {
+                Some((j, _)) if j == job && !self.finishes_at_cancel => Ok(()),
+                Some((j, unit)) if j == job => {
+                    self.holder = Some(unit);
+                    Err(refused_no_such_job(job))
+                }
+                _ => Err(refused_no_such_job(job)),
+            }
+        }
+
+        fn holds(&mut self, unit: &str, _: u32) -> bool {
+            self.holder.as_deref() == Some(unit)
+        }
+    }
+
+    fn refused_no_such_job(job: &str) -> Error {
+        Error::Refused {
+            name: "org.freedesktop.DBus.Error.UnknownObject".to_owned(),
+            message: format!("Unknown object '{job}'."),
         }
     }
 
@@ -619,12 +735,49 @@ mod tests {
             start_with(&mut systemd, "vtium-login-tty2-1.scope", 1, deadline()),
             Err(ScopeError::Failed(r)) if r == "failed"
         ));
+    }
+
+    // A job that never ends is cancelled before start_with returns, and so
+    // before vtium lets the child go: no late job can move `login` out of
+    // vtium's session once logind has refused it a session of its own.
+    #[test]
+    fn a_job_that_never_ends_is_cancelled_before_the_child_goes() {
         let mut systemd = StandInManager::default();
         let e = start_with(&mut systemd, "vtium-login-tty2-1.scope", 1, deadline());
-        assert!(matches!(e, Err(ScopeError::TimedOut)), "{e:?}");
+        assert_eq!(systemd.cancelled, ["/org/freedesktop/systemd1/job/1"]);
+        assert!(!systemd.holds("vtium-login-tty2-1.scope", 1));
         assert_eq!(
             e.map_err(|e| e.to_string()),
-            Err("systemd did not start the scope within 2 seconds".to_owned())
+            Err(
+                "systemd did not start the scope within 2 seconds, so vtium cancelled its job"
+                    .to_owned()
+            )
+        );
+    }
+
+    // A job that finishes as vtium cancels it: systemd refuses the cancel,
+    // and the scope holds the child, so the child has its scope after all.
+    #[test]
+    fn a_job_that_finishes_as_it_is_cancelled_counts_as_done() {
+        let mut systemd = StandInManager {
+            finishes_at_cancel: true,
+            ..StandInManager::default()
+        };
+        let e = start_with(&mut systemd, "vtium-login-tty2-1.scope", 1, deadline());
+        assert!(e.is_ok(), "{e:?}");
+        assert_eq!(systemd.cancelled, ["/org/freedesktop/systemd1/job/1"]);
+    }
+
+    #[test]
+    fn a_cancel_systemd_refuses_says_the_session_may_still_move() {
+        let e = ScopeError::TimedOut {
+            not_cancelled: Some(
+                "systemd answered org.freedesktop.DBus.Error.AccessDenied: no".to_owned(),
+            ),
+        };
+        assert_eq!(
+            e.to_string(),
+            "systemd did not start the scope within 2 seconds, and vtium could not cancel its job (systemd answered org.freedesktop.DBus.Error.AccessDenied: no), so the session may still move into the scope later"
         );
     }
 
