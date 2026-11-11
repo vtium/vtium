@@ -745,6 +745,12 @@ impl App {
     /// Ctrl+Super+F12 that takes it back can arrive. A kernel VT's
     /// release closes them, and its acquire opens them again.
     pub fn set_input(&mut self, mut input: vtium_platform::input::Input) {
+        // a libseat build opens the keyboards and pointers through the
+        // seat manager that gave it the VT (ADR-1400's L2 layer)
+        #[cfg(feature = "libseat")]
+        if let Some(seat) = self.vt.get::<vtium_platform::seat::LibseatVt>() {
+            input.open_through(seat.input());
+        }
         if self.vt.get::<FakeVt>().is_some() {
             input.wake_up();
         }
