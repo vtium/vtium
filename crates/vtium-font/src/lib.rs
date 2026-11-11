@@ -81,7 +81,7 @@ mod policy;
 #[cfg(feature = "psf")]
 mod psf;
 mod reach;
-mod script;
+pub mod script;
 pub mod set;
 mod sha256;
 pub mod spacing;
@@ -101,7 +101,7 @@ pub use policy::{Coverage, Missing, RangeCoverage, Source, SpritePolicy};
 #[cfg(feature = "psf")]
 pub use psf::{Psf, PsfError};
 pub use reach::{REACH_CELLS, REACH_ROWS};
-pub use script::{SCRIPT_SCALE, Script, Variant};
+pub use script::{Kind, Origin, SCRIPT_SCALE, Script, Variant};
 pub use sha256::{Sha256, hex as sha256_hex};
 #[cfg(feature = "unifont")]
 pub use unifont::Unifont;

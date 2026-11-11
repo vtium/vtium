@@ -597,3 +597,45 @@ fn the_pointer_in_a_light_theme_keeps_its_black_outline() {
         "the outline darkens the lit cell: {cell}"
     );
 }
+
+// ADR-1202 D10: unifont's superscripts and subscripts are 1-bit glyphs, so
+// a 1-bit display lights exactly the pixels of vtium-font's small glyph,
+// each stroke whole
+// covers: sgr.script
+#[test]
+fn a_bitmap_script_glyph_at_1_bit_is_its_small_glyph_exactly() {
+    use vtium_font::{Script, Variant, Width};
+    use vtium_term::Script as Position;
+    let text = "x2Hae";
+    for (script, position) in [
+        (Script::Super, Position::Super),
+        (Script::Sub, Position::Sub),
+    ] {
+        let mut st = style(rgb("c0c0c0"), rgb(BG));
+        st.attrs.set_script(position);
+        let mut s = Screen::new(5, 1, rgb("c0c0c0"), rgb(BG));
+        s.text(0, 0, text, st);
+        let c = drawn(&s, one(), false);
+        bits_only(&c);
+        for (col, ch) in (0u32..).zip(text.chars()) {
+            let small = unifont()
+                .drawn_variant(
+                    &[ch],
+                    Width::Narrow,
+                    Variant {
+                        script,
+                        ..Variant::default()
+                    },
+                )
+                .unwrap()
+                .glyph;
+            for y in 0..16 {
+                for x in 0..8 {
+                    let want = small.pixel(x, y).unwrap()[0] != 0;
+                    let got = c.pixel(col * 8 + 2 + x, 2 + y) == Some(WHITE);
+                    assert_eq!(got, want, "{ch} {script:?} at {x},{y}");
+                }
+            }
+        }
+    }
+}

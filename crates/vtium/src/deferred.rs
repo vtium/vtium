@@ -38,7 +38,7 @@ use vtium_font::set::{PixelFormat, Set, SetBuilder, SetFace, StrikeBuilder, Stri
 use vtium_font::spacing::{Band, Fit, SpacedCell};
 use vtium_font::sprite::Range;
 use vtium_font::{
-    Cell, Decorations, Face, Format, Glyph, RangeCoverage, SpritePolicy, Style, Width,
+    Cell, Decorations, Face, Format, Glyph, Origin, RangeCoverage, SpritePolicy, Style, Width,
 };
 
 mod data;
@@ -1331,6 +1331,35 @@ impl Face for DeferredFace {
         self.band
     }
 
+    /// For a character the store lacks, and for the last resort, the
+    /// built-in font's origin, moved where [`DeferredFace::fit`] puts the
+    /// built-in glyph in the text band (ADR-1202 D1, D4). The store's
+    /// glyphs come from the helper, and a longer cluster draws from several
+    /// glyphs, so their origin is the default, a smooth glyph over the text
+    /// band.
+    fn origin(&self, cluster: &[char], style: Style) -> Origin {
+        let glyph = match *cluster {
+            [] => self.builtin.last_resort(style),
+            [c] if lock(&self.generated).draw(self.at(), &[c], style).is_none() => {
+                self.builtin.draw(&[c], style)
+            }
+            _ => None,
+        };
+        let Some(glyph) = glyph else {
+            return Origin::default();
+        };
+        let text = self.text();
+        let to = (
+            text.width.saturating_mul(glyph.cells().cells()),
+            text.height,
+        );
+        self.builtin.origin(cluster, style).boxed(
+            (glyph.width(), glyph.height()),
+            to,
+            self.band.above,
+        )
+    }
+
     /// The face's built-in font alone, fitted to its cell as it draws a
     /// character the store lacks, whatever the store holds.
     fn builtins(&self) -> Option<Box<dyn Face + '_>> {
@@ -1460,6 +1489,50 @@ mod tests {
         assert!(g.holds(spaced) && !g.holds(AT));
         g.retain(&[AT]);
         assert!(!g.holds(spaced), "the band no display draws at leaves");
+    }
+
+    // ADR-1202 D1, D4: in a cell with line spacing, the built-in font's
+    // superscript and subscript are its own small 1-bit glyphs, moved down
+    // with the text band, bold and italic added to the small glyph
+    // covers: sgr.script
+    #[test]
+    fn a_built_in_script_glyph_sits_against_the_text_band() {
+        use vtium_font::{Script, Variant};
+        let band = Band { above: 3, below: 2 };
+        let spaced = Font::new(DeferredFace::spaced(
+            Box::new(Unifont::new(16)),
+            CELL,
+            band,
+            16,
+            Shared::default(),
+        ));
+        let own = Font::new(Unifont::new(16));
+        for script in [Script::Super, Script::Sub] {
+            for (bold, italic) in [(false, false), (true, false), (false, true)] {
+                let variant = Variant {
+                    style: Style { bold, italic },
+                    script,
+                };
+                let got = spaced
+                    .drawn_variant(&['H'], Width::Narrow, variant)
+                    .unwrap()
+                    .glyph;
+                let want = own
+                    .drawn_variant(&['H'], Width::Narrow, variant)
+                    .unwrap()
+                    .glyph;
+                assert_eq!(got.height(), 21);
+                for y in 0..21u32 {
+                    for x in 0..8 {
+                        let w = y
+                            .checked_sub(band.above)
+                            .and_then(|y| want.pixel(x, y))
+                            .map_or(0, |p| p[0]);
+                        assert_eq!(got.pixel(x, y).unwrap()[0], w, "{variant:?} at {x},{y}");
+                    }
+                }
+            }
+        }
     }
 
     /// Adds `set` at `cell` to `store` as the helper does: what it adds.
