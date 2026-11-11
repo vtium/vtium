@@ -2856,11 +2856,13 @@ impl App {
             self.rescue(node);
             return;
         }
-        // The head the device asks: its rule's, or the active head's for a
-        // roaming device, which is never isolated (D5).
+        // The head the device types into: its rule's, or the active head's
+        // for a roaming device (D5). Whether its VT keys switch the VT is
+        // the policy's and its own head's to say, wherever that head runs
+        // (D3, "Who switches VTs").
         let asked = self.routes.head(&self.vt_heads, node, self.focus);
         let from = KeyFrom {
-            vt_keys: asked.is_some_and(|h| !self.vt_heads.isolated(&self.rules, h)),
+            vt_keys: self.routes.vt_keys(&self.rules, node),
             roaming: self.routes.roams(node),
         };
         // A head whose display never lit receives nothing (D8).
@@ -3011,10 +3013,10 @@ impl App {
     /// head `h`, the head the key's device delivers to: its grabs, DECARM,
     /// the encoder. Each key that passes the seat's clears the selection.
     ///
-    /// The VT's keys switch the VT only `from` a keyboard asking a head that
-    /// is not isolated; from any other, the press goes on down the key
-    /// order to the session as an ordinary key, as a serial terminal sends
-    /// it (ADR-1401 D5). The roaming chord is taken only from a roaming
+    /// The VT's keys switch the VT only `from` a keyboard whose VT keys
+    /// count (ADR-1401 D3, "Who switches VTs"); from any other, the press
+    /// goes on down the key order to the session as an ordinary key, as a
+    /// serial terminal sends it (D5). The roaming chord is taken only from a roaming
     /// keyboard; from a claimed one it reaches the head's session as a key.
     fn key(&mut self, h: Option<usize>, key: &KeyEvent, from: KeyFrom, now: Instant) {
         if from.vt_keys && self.vt.key(key) || !self.awake {
@@ -4206,8 +4208,9 @@ impl App {
 /// What the device a key came from may do (ADR-1401 D5).
 #[derive(Clone, Copy, Debug)]
 struct KeyFrom {
-    /// It asks a head that is not isolated, so the VT's keys switch the
-    /// VT.
+    /// The VT's keys switch the VT: every keyboard's under open, and under
+    /// closed a keyboard's that a path places, but never those of a
+    /// keyboard a rule sends to an isolated head (ADR-1401 D3).
     vt_keys: bool,
     /// It roams, so it takes the roaming chord.
     roaming: bool,

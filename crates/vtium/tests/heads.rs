@@ -4620,12 +4620,14 @@ fn under_closed_an_event_from_a_handle_with_no_route_delivers_nothing() {
     }
 }
 
-/// D5: a roaming keyboard asks the active head, and with none, since under
-/// `policy = closed` every head is isolated unless it says otherwise, it
-/// delivers nothing, the VT's keys included.
+/// D5: a roaming keyboard types into the active head, and with none,
+/// since under `policy = closed` every head is isolated unless it says
+/// otherwise, it delivers nothing. A rule sends it to `roaming`, so a path
+/// places it, and its VT keys still switch the VT (D3, "Who switches
+/// VTs").
 // covers: platform.heads.isolated
 #[test]
-fn a_roaming_keyboard_with_no_active_head_switches_no_vt() {
+fn a_roaming_keyboard_with_no_active_head_delivers_nothing_but_switches_vts() {
     let heads = TWO_HEADS.replace("version = 1\n", "version = 1\npolicy = closed\n");
     let [small, (node, large)] = two_displays();
     let displays = [small, (node, large.lit())];
@@ -4633,8 +4635,9 @@ fn a_roaming_keyboard_with_no_active_head_switches_no_vt() {
     s.app.add_input(Path::new(KBD_FOCUS), keyboard("elsewhere"));
     assert!(s.until(BOUND, |a| head_shows(a, "large", "ready")));
     assert_eq!(s.app.focus_head(), None, "no head can be the active head");
+    s.type_on(KBD_FOCUS, "x");
     s.app.device_input(Path::new(KBD_FOCUS), vt_key(), now());
-    assert!(s.app.vt.is_active(), "the VT stays");
+    assert!(!s.app.vt.is_active(), "the VT switches");
     s.until(Duration::from_millis(100), |_| false);
     assert!(!head_shows(&s.app, "large", "k:") && !head_shows(&s.app, "small", "k:"));
 }
@@ -7747,4 +7750,72 @@ fn osd_off_still_shows_an_unused_displays_notice() {
     let mut s = on_vt_with(&["--osd=off"], 4, &every_head_on_vt3("open"), displays, &[]);
     assert!(s.until_memory("/dev/mem0", BOUND, |m| m.frames > 0 && m.has(PAPER)));
     assert_eq!(s.app.display_notice("MEM-1").map(|(_, on)| on), Some(true));
+}
+
+/// Two heads on VT 3, one of them isolated, and a keyboard for each kind
+/// of rule, under the policy `policy`.
+fn vt_keys_on_vt3(policy: &str) -> String {
+    format!(
+        "version = 1
+policy = {policy}
+[head desk]
+vt = 3
+isolated = no
+[head kiosk]
+vt = 3
+isolated = yes
+[rules]
+display * -> desk
+input path:kbd-desk -> desk
+input path:kbd-kiosk -> kiosk
+input path:kbd-roam -> roaming
+input path:kbd-ignored -> ignore
+"
+    )
+}
+
+/// Whether the VT key pressed on a keyboard at USB port `path` switches
+/// the VT away from VT 4, where no head of `text` runs.
+fn switches_from_vt4(text: &str, path: &str) -> bool {
+    let mut s = on_vt(4, text, two_displays(), &[(KBD_A, path)]);
+    assert!(s.app.vt.is_active(), "VT 4 is shown");
+    s.app.device_input(Path::new(KBD_A), vt_key(), now());
+    !s.app.vt.is_active()
+}
+
+/// The maintainer's decision of 2026-11-10 (ADR-1401 D3, "Who switches
+/// VTs"): under open, every keyboard switches VTs on a VT where no head
+/// runs, whatever its rule ties it to, but a keyboard of an isolated
+/// head does not.
+// covers: platform.heads.policy
+#[test]
+fn under_open_every_keyboard_switches_vts_on_a_vt_with_no_head() {
+    let text = vt_keys_on_vt3("open");
+    for (path, switches) in [
+        ("kbd-desk", true),
+        ("kbd-roam", true),
+        ("kbd-ignored", true),
+        ("kbd-other", true),
+        ("kbd-kiosk", false),
+    ] {
+        assert_eq!(switches_from_vt4(&text, path), switches, "{path}");
+    }
+}
+
+/// The maintainer's decision of 2026-11-10 (ADR-1401 D3, "Who switches
+/// VTs"): under closed, on a VT where no head runs, a keyboard that a
+/// path places switches VTs, and one that no path catches does not.
+// covers: platform.heads.policy
+#[test]
+fn under_closed_only_a_keyboard_a_path_places_switches_vts() {
+    let text = vt_keys_on_vt3("closed");
+    for (path, switches) in [
+        ("kbd-desk", true),
+        ("kbd-roam", true),
+        ("kbd-ignored", false),
+        ("kbd-other", false),
+        ("kbd-kiosk", false),
+    ] {
+        assert_eq!(switches_from_vt4(&text, path), switches, "{path}");
+    }
 }
