@@ -79,8 +79,8 @@ pub fn turned_off(cmdline: &str) -> bool {
     let prefix = format!("{ENABLE}=");
     cmdline
         .split_whitespace()
-        .filter_map(|word| word.strip_prefix(&prefix))
-        .last()
+        .rev()
+        .find_map(|word| word.strip_prefix(&prefix))
         == Some("0")
 }
 
@@ -274,7 +274,7 @@ impl System {
 
     /// The descriptor the loop watches: readable while a record waits.
     pub fn watched(&self) -> io::Result<OwnedFd> {
-        Ok(self.kmsg.try_clone()?)
+        self.kmsg.try_clone()
     }
 }
 
@@ -312,6 +312,7 @@ impl Kernel for System {
 }
 
 #[cfg(test)]
+#[expect(clippy::unwrap_used, reason = "a test's set-up fails loudly")]
 mod tests {
     use std::cell::RefCell;
     use std::rc::Rc;

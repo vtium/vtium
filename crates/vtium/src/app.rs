@@ -304,6 +304,9 @@ pub struct App {
     /// The kernel's messages, which vtium shows on the boot display's
     /// head (ADR-1401 D15); `None` where vtium cannot read them.
     kernel: Option<crate::kernel::Messages>,
+    /// Who shows them while Plymouth runs, vtium.conf's
+    /// `kernel-messages`.
+    kernel_deferral: crate::kernel::Deferral,
     /// The scrollback cap and length each console takes.
     scrollback: (usize, usize),
     /// The scrollback memory each console takes.
@@ -502,6 +505,7 @@ impl App {
             notices: BTreeMap::new(),
             spare_notices: Vec::new(),
             kernel: None,
+            kernel_deferral: crate::kernel::Deferral::configured(&config),
             wanted: Rc::default(),
             stopped: false,
             focus: None,
@@ -628,10 +632,11 @@ impl App {
         }
     }
 
-    /// Shows the kernel's messages that `messages` gives (ADR-1401 D15),
-    /// each read at [`App::kernel_ready`].
-    pub fn set_kernel_messages(&mut self, messages: crate::kernel::Messages) {
-        self.kernel = Some(messages);
+    /// Shows the kernel's messages that `kernel` gives (ADR-1401 D15),
+    /// under vtium.conf's `kernel-messages`, each read at
+    /// [`App::kernel_ready`].
+    pub fn set_kernel(&mut self, kernel: Box<dyn crate::kernel::Kernel>) {
+        self.kernel = Some(crate::kernel::Messages::new(kernel, self.kernel_deferral));
     }
 
     /// The kernel has messages to read (ADR-1401 D15). vtium reads every
@@ -6245,11 +6250,12 @@ mod tests {
                 .borrow_mut()
                 .push(format!("4,1,2,-;{text}\n").into_bytes());
         };
-        let (mut lp, mut app) = seat_with(&["--font-size=16"], None, no_fonts());
-        app.set_kernel_messages(crate::kernel::Messages::new(
-            Box::new(QueuedKernel(Rc::clone(&queued))),
-            crate::kernel::Deferral::Always,
-        ));
+        let (mut lp, mut app) = seat_with(
+            &["--font-size=16", "--kernel-messages=always"],
+            None,
+            no_fonts(),
+        );
+        app.set_kernel(Box::new(QueuedKernel(Rc::clone(&queued))));
         app.add_video(
             PathBuf::from("/dev/mem0"),
             Box::new(Still::new(&[(1, "A")])),
