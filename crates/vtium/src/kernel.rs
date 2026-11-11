@@ -76,12 +76,59 @@ pub const MESSAGE_CHARS_MAX: usize = 240;
 /// boot: its last `vtium.enable=` says `0`. Any other value, and no
 /// `vtium.enable=` at all, leave vtium on.
 pub fn turned_off(cmdline: &str) -> bool {
-    let prefix = format!("{ENABLE}=");
-    cmdline
-        .split_whitespace()
+    params(cmdline)
+        .into_iter()
         .rev()
-        .find_map(|word| word.strip_prefix(&prefix))
+        .find_map(|(name, value)| (name == ENABLE).then_some(value))
+        .flatten()
         == Some("0")
+}
+
+/// The parameters of the kernel command line `cmdline`, each its name and
+/// its value, if it has one, split as the kernel splits them: `next_arg()`
+/// in the kernel's `kernel/params.c`, which `parse_args()` calls. That is
+/// a reading of the kernel source from memory, since this machine has no
+/// kernel source. Whitespace ends a parameter outside double quotes, so a
+/// quoted value with spaces stays one parameter. Quotes around the whole
+/// parameter, or around its value after the `=`, are stripped.
+fn params(cmdline: &str) -> Vec<(&str, Option<&str>)> {
+    let mut words = Vec::new();
+    let mut start = None;
+    let mut quoted = false;
+    for (i, c) in cmdline.char_indices() {
+        if c == '"' {
+            quoted = !quoted;
+        }
+        match (start, c.is_whitespace() && !quoted) {
+            (None, false) => start = Some(i),
+            (Some(from), true) => {
+                words.push(&cmdline[from..i]);
+                start = None;
+            }
+            _ => {}
+        }
+    }
+    if let Some(from) = start {
+        words.push(&cmdline[from..]);
+    }
+    words
+        .into_iter()
+        .map(|word| {
+            let word = unquote(word);
+            match word.split_once('=') {
+                Some((name, value)) => (name, Some(unquote(value))),
+                None => (word, None),
+            }
+        })
+        .collect()
+}
+
+/// `v` without the double quotes around it; a lone opening quote goes too,
+/// as the kernel drops it.
+fn unquote(v: &str) -> &str {
+    v.strip_prefix('"')
+        .map(|v| v.strip_suffix('"').unwrap_or(v))
+        .unwrap_or(v)
 }
 
 /// Whether `args` start vtium as a console. The commands that only read
@@ -349,6 +396,10 @@ mod tests {
             ("vtium.enable=", false),
             ("vtium.enable", false),
             ("xvtium.enable=0", false),
+            ("vtium.enable=\"0\"", true),
+            ("\"vtium.enable=0\"", true),
+            ("root=/dev/sda1 foo=\"a vtium.enable=0\" quiet", false),
+            ("foo=\"a b\" vtium.enable=0", true),
             ("root=/dev/sda1 quiet", false),
             ("", false),
         ] {
