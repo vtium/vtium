@@ -108,8 +108,8 @@ pub use termcap::{Termcap, TermcapError};
 #[cfg(feature = "bidi")]
 pub use terminal::TextDirection;
 pub use terminal::{
-    BlankRequest, BlankTimeout, CursorStyle, Extent, GridRequest, Key, KeyEvent, Mods,
-    MouseButton, MouseEvent, MouseTracking, Terminal, VersionError,
+    BlankRequest, BlankTimeout, CursorStyle, Extent, GridRequest, Key, KeyEvent, Mods, MouseButton,
+    MouseEvent, MouseTracking, Terminal, VersionError,
 };
 #[cfg(feature = "images")]
 pub use terminal::{ImageNote, ImageString};
