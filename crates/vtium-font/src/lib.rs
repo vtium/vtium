@@ -52,8 +52,9 @@
 //! host.
 //!
 //! A [`Variant`] adds a glyph's place in its cell to its style: the
-//! superscript and subscript that SGR 73 and 74 ask for draw the glyph
-//! scaled and raised or lowered ([`Font::drawn_variant`], [`Script`]).
+//! superscript and subscript that SGR 73 and 74 ask for draw the glyph at
+//! two thirds of its size against the top or the bottom of the text band,
+//! a bitmap glyph kept 1-bit ([`Font::drawn_variant`], [`script`]).
 //!
 //! The crate's README says what each face and sprite draws and why, and
 //! which digests and models the tests hold them to.

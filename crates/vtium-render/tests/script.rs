@@ -1,6 +1,6 @@
-//! SGR 73 and 74, superscript and subscript, drawn as the glyph scaled to
-//! two thirds and raised to the top or lowered to the bottom of its cell;
-//! SGR 75 draws the normal glyph.
+//! SGR 73 and 74, superscript and subscript, drawn as vtium-font's small
+//! glyph, two thirds of the normal glyph against the top or the bottom of
+//! the text band (ADR-1202); SGR 75 draws the normal glyph.
 
 mod common;
 
@@ -44,9 +44,10 @@ fn ink_rows(c: &Canvas, col: u32, cw: u32, ch: u32) -> Vec<u32> {
         .collect()
 }
 
-// A superscript glyph is the normal glyph at two thirds, its top on the
+// A superscript glyph is two thirds of the normal glyph, its top on the
 // cell's top; a subscript glyph's bottom on the cell's bottom; SGR 75's
-// glyph the normal one.
+// glyph the normal one. The full block is a sprite, drawn at the small
+// size.
 // covers: sgr.script
 #[test]
 fn superscript_and_subscript_draw_the_glyph_small_at_the_top_and_bottom() {
@@ -69,7 +70,7 @@ fn superscript_and_subscript_draw_the_glyph_small_at_the_top_and_bottom() {
 }
 
 // The pixels of a superscript and a subscript letter are the font's own
-// scaled variant, drawn into the cell as vtium-font gives it, in a bitmap
+// small glyph, drawn into the cell as vtium-font gives it, in a bitmap
 // font and in a wide cell.
 // covers: sgr.script
 #[test]

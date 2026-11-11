@@ -462,6 +462,8 @@ source=bdf:/usr/share/fonts/fusion-pixel/fusion-pixel-12px-monospaced-zh_hans.bd
 
 > Note 2026-11-06: the `source=` row's "placed on the cell's bottom row" now holds only for the first source. A later bitmap source's glyphs stand on the first source's baseline, as D17's note of 2026-11-06 says.
 
+> Note 2026-11-11: ADR-1202 adds the key `script-source=` under a bitmap `source=` line. It names a smaller size of the same font, and the source's superscript and subscript glyphs come from it where its height suits them (ADR-1202 D3, D12). vtium refuses the key under an outline source. A script glyph comes only from the source that draws the character's normal glyph, so no other font of the frit and no built-in font stands in for it (ADR-1202 D15).
+
 ### D4: `vtium-vitrify`, the profile builder
 
 `vtium-vitrify` is a binary of its own in the install tree, apart from `vtium`. It holds every font decoder, parser and rasterizer, and the shaper, outside the console and outside the console's size budget.
@@ -664,6 +666,8 @@ The console already opens its VT as root, and it reads the kernel's font once at
 - Keying by the text itself needs no symbol table and no generation counter: two cells that hold the same cluster share its glyph however their clusters were made, and a key can never come to name a different cluster later.
 - Color, underline and strike stay out of the key. A glyph is a coverage mask, or RGBA for a color glyph, and it is colored when it is composed. The decorations are sprites that vtium-render draws (ADR-1300).
 
+> Note 2026-11-11: ADR-1202 adds the script to the key. A glyph is keyed by its cluster's text, its style, its script and its width in cells, at a cell, as the renderer's cache already keys it (ADR-1202 D11).
+
 ### D21: cluster asks and style asks
 
 Both are built. The console asks the helper for each cluster that the screen shows, and for each style that the screen shows (bold, italic or bold italic) in an ask of that style. It keys the store by the cluster's text and its style (`crates/vtium/src/helper.rs`, `crates/vtium/src/deferred.rs`). The helper shapes clusters and draws or synthesizes styles (`crates/vtium-config/src/serve.rs`, `crates/vtium-config/src/outline.rs`). The background fill draws regular glyphs alone, and bold and italic glyphs come only when the console asks for them.
@@ -682,6 +686,8 @@ Both are built. The console asks the helper for each cluster that the screen sho
 > Edited 2026-11-04: the maintainer decided where bold italic comes from when the frit names no bold-italic face (`considered`, 2026-11-04). The style bullet ended at "(ADR-1302 D4)."
 
 > Edited 2026-11-01: glyph ink reaches one cell past its own on each side, and synthetic italic is a slant (ADR-1302, accepted 2026-11-01). The cluster bullet read "fitted to its 1 or 2 cells (ADR-1301 D1).", and the style bullet ended: "and from the regular glyph emboldened, as vtium-font draws a missing style today, where it does not." The earlier text is in git at 1d51e46.
+
+> Note 2026-11-11: ADR-1202 adds script asks beside style asks. The console asks for a cluster in a style and a script, and the helper draws a frit's superscript and subscript glyphs by the kind of source each comes from: an outline rasterized at two thirds of its size, a bitmap glyph from a smaller size of the same font or kept 1-bit at two thirds, and a color glyph scaled once from its source (ADR-1202 D2 to D5, D11). The fill draws normal glyphs alone. The console draws the script glyphs of its own sources, the built-in fonts and the sprites, with the same rules (ADR-1202 D11).
 
 ### D22: the lookup chain
 
@@ -709,6 +715,8 @@ The helper sends glyphs in the chunk format that vtium-font reads. The format is
 > Edited 2026-11-01: the review of the helper's ink box: the box is the union of the glyph's cells and its ink, and the chunk bound applies to that union. The paragraph read "the columns its ink covers" and "A glyph whose box would pass the 16 KiB chunk". The earlier text is in git at fa62f7f.
 
 > Edited 2026-11-01: the maintainer decided that glyph ink reaches one cell past its own on each side, outline glyphs and bitmap glyphs slanted for italic alike (ADR-1302, the maintainer's answers of 2026-11-01), so the format carries an ink box. The paragraph said nothing of a glyph's box: every glyph was exactly its 1 or 2 cells.
+
+> Note 2026-11-11: ADR-1202 gives each strike of a set its script, superscript, subscript or neither, in the reserved 16-bit field after the strike's pixel format, in a new minor version of the format. A script glyph travels on the pipe as a bold or italic glyph does (ADR-1202 D11).
 
 ### D13: how glyphs are held and drawn
 
