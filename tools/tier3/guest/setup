@@ -117,6 +117,17 @@ fi
 mkdir -p /etc/systemd/system/vtium@.service.d
 printf '[Service]\nStandardOutput=journal+console\nStandardError=journal+console\n' \
     > /etc/systemd/system/vtium@.service.d/tier3.conf
+# A seat variant (t3_seat.py) names the seat manager libseat must take:
+# seatd, which setup starts, or logind. LIBSEAT_BACKEND holds libseat to it,
+# so the variant fails rather than pass through another backend.
+if [ -f "$disc"/seat ]; then
+    backend=$(cat "$disc"/seat)
+    printf '[Service]\nEnvironment=LIBSEAT_BACKEND=%s\n' "$backend" \
+        > /etc/systemd/system/vtium@.service.d/t3-seat.conf
+    if [ "$backend" = seatd ]; then
+        systemctl start --no-block seatd.service
+    fi
+fi
 # vtium takes the guest's VTs the way a user gives them to it. The base
 # image leaves autovt@.service, the unit logind starts on a VT the driver
 # switches to, linked as Arch's systemd package has it, to getty@.service.

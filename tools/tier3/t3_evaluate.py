@@ -12,6 +12,7 @@ import t3_images
 import t3_pictures
 import t3_pointer
 import t3_power
+import t3_seat
 import t3img
 from t3_common import GOLDEN, GUEST, HERE, ROOT, RUNDIR, rel
 
@@ -85,7 +86,8 @@ RESTORED = {"images-640x480": PICTURE_SCREENS[-1]}
 # directory under goldens/ their cases compare with. gl-1280x800 draws on the
 # GPU path, which draws the CPU path's bytes, so 2d-1280x800's goldens judge
 # it exactly (ADR-1303 D1, D11).
-GOLDENS_OF = {"gl-1280x800": "2d-1280x800"}
+GOLDENS_OF = {"gl-1280x800": "2d-1280x800", "seat-seatd": "2d-potato-min",
+              "seat-logind": "2d-potato-min"}
 
 
 def same_as(case, variant=None):
@@ -218,6 +220,7 @@ CHECKS = {
     **t3_devices.CHECKS,
     **t3_heads.CHECKS,
     **t3_images.CHECKS,
+    **t3_seat.CHECKS,
 }
 # The checks without a golden: each passes when its capture was taken, or,
 # on a guest with no display to capture, when the scenario reports it
@@ -225,7 +228,7 @@ CHECKS = {
 # whose figures are reported, not judged, and whose picture judges only
 # that the screen finished.
 NO_GOLDEN = {"vt-switch", "sync-clock", *t3_power.CHECKS, *t3_pointer.CHECKS, *t3_devices.CHECKS,
-             *t3_images.CHECKS,
+             *t3_images.CHECKS, *t3_seat.CHECKS,
              *t3_heads.CHECKS}
 
 PROVISIONAL_FILE = os.path.join(HERE, "provisional.tsv")

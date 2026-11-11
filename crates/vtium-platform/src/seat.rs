@@ -1035,7 +1035,7 @@ impl<S: Seat, E: EventDevice> Open for SeatInput<S, E> {
             .and_then(|()| (self.make)(node, fd));
         match made {
             Ok(dev) => {
-                log::debug!(target: "seat", "opened {} through the seat manager", node.display());
+                log::info!(target: "seat", "opened {} through the seat manager", node.display());
                 shared.inputs.insert(node.to_owned(), device);
                 Ok(Opening::Open(dev))
             }

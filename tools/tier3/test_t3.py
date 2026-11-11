@@ -50,6 +50,7 @@ import t3_impl  # noqa: E402
 import t3_pictures  # noqa: E402
 import t3_pointer  # noqa: E402
 import t3_power  # noqa: E402
+import t3_seat  # noqa: E402
 import t3_qemu  # noqa: E402
 import t3_runner  # noqa: E402
 import t3_scenario  # noqa: E402
@@ -1385,7 +1386,7 @@ class BaseImageTest(unittest.TestCase):
             make = dict(re.findall(r"^(T3_IMAGE_VER|T3_ARCHIVE)\s*:=\s*(\S+)", f.read(), re.M))
         image = "Arch-Linux-x86_64-cloudimg-%s.qcow2" % make["T3_IMAGE_VER"]
         self.assertEqual(os.path.basename(t3_common.base_image(image, make["T3_ARCHIVE"])),
-                         "23c8323a4a59d1fe.qcow2")
+                         "0c9a695b265eaeb9.qcow2")
 
 
 class VariantTest(unittest.TestCase):
@@ -5608,6 +5609,58 @@ class ShowcaseTest(unittest.TestCase):
         self.assertEqual(len(first), 17)
         self.assertEqual(first[2], "205;0;0")
 
+
+
+class SeatTest(unittest.TestCase):
+    """The seat and kernel-panic checks' verdicts (t3_seat), on console
+    logs as vtium and the kernel write them."""
+
+    OPEN = (b"seat: the seat seat0 is open\n"
+            b"seat: opened /dev/input/event0 through the seat manager\n"
+            b"input: using /dev/input/event0 [AT Translated Set 2 keyboard] 0001:0001 "
+            b"as keyboard\n")
+
+    def test_a_seat_with_every_keyboard_through_it_passes(self):
+        self.assertIsNone(t3_seat.seat_verdict(self.OPEN))
+
+    def test_a_keyboard_opened_directly_fails(self):
+        log = self.OPEN + (b"input: using /dev/input/event4 [QEMU Virtio Keyboard] "
+                           b"0627:0001 as keyboard\n")
+        self.assertEqual(t3_seat.seat_verdict(log),
+                         "these devices did not open through the seat manager: "
+                         "/dev/input/event4")
+
+    def test_the_kernels_vt_fails(self):
+        log = (b"seat: no seat manager answered, so vtium uses the kernel's VT: "
+               b"Function not implemented\n" + self.OPEN)
+        self.assertEqual(t3_seat.seat_verdict(log),
+                         "vtium ran on the kernel's VT: no seat manager answered")
+
+    def test_no_seat_and_no_keyboard_fail(self):
+        self.assertEqual(t3_seat.seat_verdict(b"vt: using tty /dev/tty2\n"),
+                         "the console never logged 'seat: the seat seat0 is open'")
+        self.assertEqual(t3_seat.seat_verdict(b"seat: the seat seat0 is open\n"),
+                         "the console used no keyboard")
+
+    def test_the_panic_counts_only_after_the_request(self):
+        line = t3_seat.PANIC_LINE.encode()
+        log = b"boot\n" + line + b"\n"
+        self.assertIsNone(t3_seat.panic_verdict(log, 0))
+        self.assertEqual(t3_seat.panic_verdict(log, len(log)),
+                         "the console never showed %r" % t3_seat.PANIC_LINE)
+
+    def test_the_variants_run_their_checks(self):
+        for name in ("seat-seatd", "seat-logind"):
+            self.assertEqual(t3_scenario.VARIANTS[name]["features"], "libseat")
+            self.assertEqual(t3_scenario.variant_cases(name)[-1], "seat")
+            self.assertEqual(t3_evaluate.GOLDENS_OF[name], "2d-potato-min")
+        self.assertEqual(t3_scenario.VARIANTS["seat-seatd"]["seat"], "seatd")
+        self.assertEqual(t3_scenario.VARIANTS["seat-logind"]["seat"], "logind")
+        self.assertEqual(t3_scenario.variant_cases("panic-sysrq"), ["kernel-panic"])
+        self.assertTrue(t3_scenario.VARIANTS["panic-sysrq"]["agent"])
+        for case in t3_seat.CHECKS:
+            self.assertIn(case, t3_evaluate.NO_GOLDEN)
+            self.assertEqual(t3_evaluate.golden_for("seat-seatd", case), (None, None))
 
 if __name__ == "__main__":
     # A skipped test says why, so a skip is never read as a pass.
