@@ -1,0 +1,22 @@
+# OSC 50: while the host turns font operations on, a program asks for a
+# font set by name, which the host takes once, and asks which set is in
+# use, which the query answers with the name the host gave, ended as the
+# query was. While they are off, both are ignored (ctlseqs, OSC 50;
+# INTERFACE-vtium.md, Font and window operations).
+# spec: ADR-1000 text.font-change
+# capability: osc-50-font
+size 8 1
+send "\e]50;?\a\e]50;ter-v16n\a"
+cmd font-request
+check
+want test font-request none
+reply ""
+cmd font-ops;on=1
+cmd font-name;name=unifont
+send "\e]50;?\e\\\e]50;ter-v16n\a"
+cmd font-request
+cmd font-request
+check
+want test font-request ter-v16n
+want test font-request none
+reply "\e]50;unifont\e\\"

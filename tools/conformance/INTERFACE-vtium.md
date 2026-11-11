@@ -1,6 +1,6 @@
 # vtium's additions to the replay interface
 
-Interface 1.6 is `corpus/INTERFACE.md`, interface 1.0, with the additions below. Each is a command, a feature, a view, or a line that only a new command, feature or view prints, so it raises MINOR under 1.0's "Versioning and features", and every golden stays as it is. The runner and the probe runner read the fenced blocks here after 1.0's: this `describe` block's version line replaces 1.0's, and its view, feature and command lines follow 1.0's lines of the same kind; this `grammar` block's lines join 1.0's, using its fragments.
+Interface 1.7 is `corpus/INTERFACE.md`, interface 1.0, with the additions below. Each is a command, a feature, a view, or a line that only a new command, feature or view prints, so it raises MINOR under 1.0's "Versioning and features", and every golden stays as it is. The runner and the probe runner read the fenced blocks here after 1.0's: this `describe` block's version line replaces 1.0's, and its view, feature and command lines follow 1.0's lines of the same kind; this `grammar` block's lines join 1.0's, using its fragments.
 
 ## The fixture host checks a picture's size
 
@@ -98,7 +98,7 @@ The `key` command's `mods` takes 0 to 255, where 1.0 stops at 31. The bits 1.0 n
 
 The kitty keyboard protocol reports when a key repeats and when it is let go, and it reports a key's unshifted form and its key on the US PC-101 layout (ADR-1005, D2, D9 and D12). vtium-term's description of a key holds all three, and the `key` command does not take them yet. The two features below describe the keys the `key` command gains. vtium owes them to the kitty keyboard protocol's issue, #42: its second slice adds `key-events` to vtium-replay, and its third slice adds `key-forms`.
 
-Until a slice adds its feature, vtium-replay does not declare that feature, and the runner does not count it among the features `--describe` must declare. A capability scenario that needs the feature fails as absent, which is what its `missing` line in `capabilities.list` expects. The runner keeps its own list of the owed features, and it refuses a `--describe` that declares one of them. So the change that makes vtium-replay declare a feature also takes it off that list, and it raises the interface's version to 1.6.
+Until a slice adds its feature, vtium-replay does not declare that feature, and the runner does not count it among the features `--describe` must declare. A capability scenario that needs the feature fails as absent, which is what its `missing` line in `capabilities.list` expects. The runner keeps its own list of the owed features, and it refuses a `--describe` that declares one of them. So the change that makes vtium-replay declare a feature also takes it off that list, and it raises the interface's MINOR version.
 
 | Key of `key` | Form | Feature | What it means |
 |---|---|---|---|
@@ -379,16 +379,60 @@ row 2 ||
 row 3 ||
 ```
 
+## Font and window operations
+
+A program asks for a font set by name with OSC 50, and asks which font set is in use with `OSC 50 ; ? ST` (`text.font-change` in ADR-1000). A program asks for a text area of so many rows and columns with XTWINOPS 8, `CSI 8 ; height ; width t` (`window.resize`). The terminal takes each only while the host turns it on, as vtium's `allow-font-ops` and `allow-window-ops` keys do, and keeps the request until the host takes it. The reference host starts with both off and takes a request only when asked, with the `font-request` and `grid-request` commands. It acts on neither: a case that wants the size a host would make resizes with `resize`.
+
+| Command | Keys | Feature | What it does |
+|---|---|---|---|
+| `font-ops` | `on`: flag, default 1 | `font-ops` | Turns OSC 50 on (1) or off (0), as the host's `allow-font-ops` does. Turning it off drops a request the host has not taken. |
+| `font-name` | `name`: 1 to 64 bytes of `A-Z a-z 0-9 . _ + -`, not starting with `.` | `font-ops` | Names the font set in use, which OSC 50's query reports. Until it does, the query reports an empty name. |
+| `font-request` | none | `font-ops` | Takes the font set request as a host does, and prints `test font-request NAME`, NAME being the name the last OSC 50 asked for since the previous `font-request`, or `test font-request none` when none asked. |
+| `window-ops` | `on`: flag, default 1 | `window-ops` | Turns XTWINOPS 8 on (1) or off (0), as the host's `allow-window-ops` does. Turning it off drops a request the host has not taken. |
+| `grid-request` | none | `window-ops` | Takes the text area request as a host does, and prints `test grid-request ROWS COLS`, from the last XTWINOPS 8 since the previous `grid-request`, or `test grid-request none` when none asked. Each of ROWS and COLS is the number of rows or columns asked for, `keep` for a parameter left out, which keeps that side, or `display` for 0, which takes the display's length on that side, as ctlseqs says. |
+
+| Feature | What declaring it means |
+|---|---|
+| `font-ops` | `font-ops`, `font-name` and `font-request`. |
+| `window-ops` | `window-ops` and `grid-request`. |
+
+A worked example: a request for 25 rows of 80 columns while window operations are off, then one for 0 rows of 80 columns once they are on, and the size report, which answers the size the host made.
+
+```example window-ops
+size 10 4
+needs window-ops
+send "\e[8;25;80t"
+cmd grid-request
+cmd window-ops;on=1
+send "\e[8;0;80t"
+cmd grid-request
+cmd resize;c=80;r=4
+send "\e[18t"
+```
+
+```output window-ops
+test grid-request none
+test grid-request display 80
+size 80x4
+cursor 0,0
+flags AUTO_WRAP
+reply 1b5b383b343b383074
+row 0 ||
+row 1 ||
+row 2 ||
+row 3 ||
+```
+
 ## The worked examples' strings
 
 The worked examples, here and in 1.0, read each `send` string with the string syntax of tier 1's scenarios (ADR-1504, D2), so the examples and the scenarios have one syntax. It adds three escapes to 1.0's list: `\a` stands for the byte 07, `\b` for the byte 08, and `\u{HEX}` for the UTF-8 of the code point HEX. Every string 1.0's list accepts reads as it did, so no example's input changes.
 
 ## The describe block and the grammar
 
-The grammar below adds the forms of the `attr`, `cells` and `frame-cursor` lines that print the keys `attrs-renditions` prints, the `test` lines of the clipboard, the copy, the links and the state, the `bell` line, the two forms of the `anim` line, and the display view's `display-cursor` line and structure. An `anim` line follows its image's `image` line, and a `bell` line follows a block's replies, so `HEAD`, `IMAGES` and the fragments and structures built on them are given again here. A fragment takes its value where it is defined, so the views' fragments and structures must be restated to use the new `HEAD` and `IMAGES`. They differ from 1.0's only in those two.
+The grammar below adds the forms of the `attr`, `cells` and `frame-cursor` lines that print the keys `attrs-renditions` prints, the `test` lines of the clipboard, the copy, the links, the state and the font and text area requests, the `bell` line, the two forms of the `anim` line, and the display view's `display-cursor` line and structure. An `anim` line follows its image's `image` line, and a `bell` line follows a block's replies, so `HEAD`, `IMAGES` and the fragments and structures built on them are given again here. A fragment takes its value where it is defined, so the views' fragments and structures must be restated to use the new `HEAD` and `IMAGES`. They differ from 1.0's only in those two.
 
 ```describe
-interface 1.6
+interface 1.7
 view display
 feature clipboard
 feature attrs-renditions
@@ -402,6 +446,8 @@ feature state
 feature bell
 feature key-events
 feature key-forms
+feature font-ops
+feature window-ops
 command clipboard clipboard
 command select selection
 command copy selection
@@ -410,6 +456,11 @@ command link links
 command hover links
 command backspace backspace
 command state state
+command font-ops font-ops
+command font-name font-ops
+command font-request font-ops
+command window-ops window-ops
+command grid-request window-ops
 ```
 
 ```grammar
@@ -435,6 +486,8 @@ line test * test state modes ansi (?:{NUMS}) dec (?:{NUMS})
 line test * test state scrollback lines {N} view {N} max {N}
 line test * test state pen{RATTR}
 line test * test state colors fg={RGB} bg={RGB} cursor=(?:{RGB}|default)
+line test * test font-request (?:none|[A-Za-z0-9_+-][A-Za-z0-9._+-]{0,63})
+line test * test grid-request (?:none|(?:[1-9][0-9]*|keep|display) (?:[1-9][0-9]*|keep|display))
 define HEAD (?: size)(?: cursor)(?: flags)(?: reply| host:)*(?: bell)?
 define IMAGES (?: placement)*(?: image(?: anim)*)*
 define SCREEN {HEAD}(?: row(?: attr)*)+{IMAGES}

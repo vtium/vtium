@@ -707,6 +707,14 @@ pub fn controls(spec: &Spec) -> Tally {
             format!("test state tabs 1,,8\n{GOOD}"),
         ),
         (
+            "a font request no font set can be named",
+            format!("test font-request a/b\n{GOOD}"),
+        ),
+        (
+            "a grid request of 0 rows",
+            format!("test grid-request 0 80\n{GOOD}"),
+        ),
+        (
             "a block cut short",
             format!(
                 "checkpoint 0\n{}checkpoint 1\n{GOOD}",
@@ -790,10 +798,10 @@ pub fn controls(spec: &Spec) -> Tally {
             "anim 0 current 2 past its 1 frames",
         ),
     ];
-    // interface 1.5's lines (INTERFACE-vtium.md): a copy, the state and a
-    // bell after the replies
+    // interface 1.5's and 1.7's lines (INTERFACE-vtium.md): a copy, the
+    // state, the font and grid requests, and a bell after the replies
     let good_host = format!(
-        "test copy 61620a\ntest state margins 0-1 0-3\ntest state tabs none\ntest state modes ansi 12 dec 7,25\ntest state scrollback lines 0 view 0 max 0\ntest state pen fg=1 bold\ntest state colors fg=#e5e5e5 bg=#000000 cursor=default\n{}",
+        "test copy 61620a\ntest state margins 0-1 0-3\ntest state tabs none\ntest state modes ansi 12 dec 7,25\ntest state scrollback lines 0 view 0 max 0\ntest state pen fg=1 bold\ntest state colors fg=#e5e5e5 bg=#000000 cursor=default\ntest font-request ter-v16n\ntest font-request none\ntest grid-request 25 80\ntest grid-request keep display\ntest grid-request none\n{}",
         GOOD.replace("flags none\n", "flags none\nreply 41\nbell 2\n")
     );
     let mut tally = Tally {
@@ -802,7 +810,7 @@ pub fn controls(spec: &Spec) -> Tally {
     };
     if let Some(fault) = check_output(spec, "screen", &good_host, 4, 2, false) {
         tally.faults.push(format!(
-            "control: the grammar rejects good copy, state and bell lines: {fault}"
+            "control: the grammar rejects good copy, state, request and bell lines: {fault}"
         ));
     }
     if let Some(fault) = check_output(spec, "screen", &good_anim, 4, 2, false) {

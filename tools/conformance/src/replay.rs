@@ -6,7 +6,7 @@ use core::fmt::Write;
 use std::path::{Path, PathBuf};
 
 use vtium_term::{
-    Age, Key, Mods, MouseButton, MouseEvent, Palette, SB_SIZE_MAX, TERMCAP_ENTRIES_MAX,
+    Age, Extent, Key, Mods, MouseButton, MouseEvent, Palette, SB_SIZE_MAX, TERMCAP_ENTRIES_MAX,
     TERMCAP_NAME_MAX, TERMCAP_VALUE_MAX, Termcap, Terminal,
 };
 
@@ -266,6 +266,37 @@ impl<'a> Replay<'a> {
                     None => self.out.push_str("none"),
                 }
                 self.out.push('\n');
+            }
+            Command::FontOps(on) => t.set_font_ops(on),
+            Command::FontName(name) => {
+                t.set_font_name(&name);
+            }
+            Command::FontRequest => {
+                let name = t.take_font_request();
+                let _ = writeln!(
+                    self.out,
+                    "test font-request {}",
+                    name.as_deref().unwrap_or("none")
+                );
+            }
+            Command::WindowOps(on) => t.set_window_ops(on),
+            Command::GridRequest => {
+                let side = |e: Extent| match e {
+                    Extent::Keep => "keep".to_owned(),
+                    Extent::Display => "display".to_owned(),
+                    Extent::Cells(n) => n.to_string(),
+                };
+                match t.take_grid_request() {
+                    Some(r) => {
+                        let _ = writeln!(
+                            self.out,
+                            "test grid-request {} {}",
+                            side(r.rows),
+                            side(r.cols)
+                        );
+                    }
+                    None => self.out.push_str("test grid-request none\n"),
+                }
             }
             Command::Version(text) => {
                 if t.set_version(&text).is_err() {

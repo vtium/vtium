@@ -51,6 +51,9 @@ pub(crate) struct Fit {
     pub(crate) points: Option<u32>,
     /// `font-size=0`, until a zoom.
     pub(crate) auto_size: bool,
+    /// The grid, in columns and rows, that a program asked for with
+    /// XTWINOPS 8, until a zoom; `None` while the grid fills the displays.
+    pub(crate) asked: Option<(usize, usize)>,
 }
 
 impl Console {

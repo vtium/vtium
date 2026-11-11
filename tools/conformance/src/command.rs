@@ -104,6 +104,14 @@ pub enum Command {
         del: bool,
     },
     State,
+    /// Whether the host takes OSC 50, as `allow-font-ops` sets it.
+    FontOps(bool),
+    /// The font set in use, which OSC 50's query names.
+    FontName(String),
+    FontRequest,
+    /// Whether the host takes XTWINOPS 8, as `allow-window-ops` sets it.
+    WindowOps(bool),
+    GridRequest,
     Cell {
         width: u32,
         height: u32,
@@ -170,7 +178,7 @@ pub struct Spec {
     pub offered: bool,
 }
 
-/// Every command of interface 1.6, in the order of its describe blocks:
+/// Every command of interface 1.7, in the order of its describe blocks:
 /// INTERFACE.md's, then vtium's additions (INTERFACE-vtium.md). The image
 /// commands are offered in a build with images.
 pub const SPECS: &[Spec] = &[
@@ -228,6 +236,11 @@ pub const SPECS: &[Spec] = &[
     spec("hover", Some("links"), &["col", "row", "ctrl"], true),
     spec("backspace", Some("backspace"), &["del"], true),
     spec("state", Some("state"), &[], true),
+    spec("font-ops", Some("font-ops"), &["on"], true),
+    spec("font-name", Some("font-ops"), &["name"], true),
+    spec("font-request", Some("font-ops"), &[], true),
+    spec("window-ops", Some("window-ops"), &["on"], true),
+    spec("grid-request", Some("window-ops"), &[], true),
 ];
 
 const fn spec(
@@ -534,6 +547,23 @@ fn command(f: &Fields<'_>) -> Result<Command, Failure> {
             del: f.flag("del", None)?,
         },
         "state" => Command::State,
+        "font-ops" => Command::FontOps(f.flag("on", Some(true))?),
+        "font-name" => {
+            let name = f.required("name")?;
+            // a frit's name (ADR-1200 D1), as OSC 50's query reports it
+            let ok = (1..=64).contains(&name.len())
+                && !name.starts_with('.')
+                && name
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'+' | b'-'));
+            if !ok {
+                return Err(f.fail("name", "not a font set's name"));
+            }
+            Command::FontName(name.to_owned())
+        }
+        "font-request" => Command::FontRequest,
+        "window-ops" => Command::WindowOps(f.flag("on", Some(true))?),
+        "grid-request" => Command::GridRequest,
         "palette" => Command::Palette(f.name_of("name", &PALETTE_NAMES.map(|n| (n, n)))?),
         "frame-since" => Command::FrameSince(to_u8(f.decimal("caller", 7, None)?)),
         "cell" => Command::Cell {
@@ -727,6 +757,19 @@ mod tests {
             Ok(Command::Backspace { del: false })
         );
         assert_eq!(parse(b"state"), Ok(Command::State));
+        assert_eq!(parse(b"font-ops"), Ok(Command::FontOps(true)));
+        assert_eq!(parse(b"font-ops;on=0"), Ok(Command::FontOps(false)));
+        assert_eq!(
+            parse(b"font-name;name=ter-v16n"),
+            Ok(Command::FontName("ter-v16n".to_owned()))
+        );
+        for bad in [&b"font-name;name=.hidden"[..], b"font-name;name=a/b"] {
+            assert!(parse(bad).is_err(), "{bad:?}");
+        }
+        assert_eq!(parse(b"font-request"), Ok(Command::FontRequest));
+        assert_eq!(parse(b"window-ops"), Ok(Command::WindowOps(true)));
+        assert_eq!(parse(b"window-ops;on=0"), Ok(Command::WindowOps(false)));
+        assert_eq!(parse(b"grid-request"), Ok(Command::GridRequest));
     }
 
     #[cfg(feature = "images")]
