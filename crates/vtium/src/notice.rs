@@ -82,6 +82,15 @@ fn press(bindings: &Bindings, chord: HeadChord, sentence: &str) -> String {
         .unwrap_or_default()
 }
 
+/// The rescue key moved the keyboard at `device` on a VT where no head
+/// runs (ADR-1401 D3, D9). The roaming chord chooses nothing there, so the
+/// line names the VT keys, which switch to a VT that runs a terminal.
+pub fn rescue_no_terminal(device: impl Display) -> String {
+    format!(
+        "Keyboard {device} now types into the active screen until the next boot (the rescue key moved it), but no terminal runs on this VT. Press Ctrl-Alt and a function key to switch to a VT that runs one."
+    )
+}
+
 /// The rescue key moved the keyboard at `device` while no head is active
 /// (ADR-1401 D9), naming the focus chord's keys `bindings` binds.
 pub fn rescue_no_head(device: impl Display, bindings: &Bindings) -> String {

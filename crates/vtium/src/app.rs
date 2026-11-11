@@ -206,10 +206,12 @@ impl dyn SeatVt {
 #[derive(Debug)]
 struct Unused {
     /// The head of [`App::heads`] that draws the notice, after the heads
-    /// of this VT and the notice screen, kept for the rest of the run.
+    /// of this VT and the notice screen. It goes to
+    /// [`App::spare_notices`] when the display goes.
     head: usize,
     /// When the notice's time is up: `osd-timeout` from the first turn it
-    /// is on the display.
+    /// is on the display, or from the last switch back to this VT, wake
+    /// from the blank or key press since.
     due: Option<Instant>,
     /// Set off and its buffers freed once the time was up, until a key on
     /// this VT or a switch back to it.
@@ -245,6 +247,11 @@ pub struct App {
     /// Under open, the notice of each display that no path catches on this
     /// VT (ADR-1401 D3), by its device and its connector.
     notices: BTreeMap<(PathBuf, String), Unused>,
+    /// The heads of [`App::heads`] that drew the notice of a display that
+    /// has gone, or now has a path, each kept for the next display that
+    /// needs a notice, so a display unplugged and plugged in again adds no
+    /// head.
+    spare_notices: Vec<usize>,
     /// The displays a DRM card announces for their notices though the rules
     /// leave them dark, by device and connector, which each card's dark
     /// policy reads.
@@ -490,6 +497,7 @@ impl App {
             built,
             screen: None,
             notices: BTreeMap::new(),
+            spare_notices: Vec::new(),
             wanted: Rc::default(),
             stopped: false,
             focus: None,
@@ -571,6 +579,7 @@ impl App {
         self.heads = session::heads(&declared, &self.config, scrollback, caps, &self.clock);
         self.built = self.heads.len();
         self.notices.clear();
+        self.spare_notices.clear();
         self.wanted.borrow_mut().clear();
         self.screen = (rules.policy == Policy::Closed).then(|| {
             let term = crate::head::terminal(&self.config, (0, 0), 0, Rc::clone(&self.clock));
@@ -715,9 +724,22 @@ impl App {
     /// open, while no path catches it on this VT (ADR-1401 D3): its words,
     /// and whether it is on the display now.
     pub fn display_notice(&self, connector: &str) -> Option<(&str, bool)> {
-        let (_, n) = self.notices.iter().find(|((_, c), _)| c == connector)?;
-        let head = self.heads.get(n.head)?;
+        let head = self.notice_head(connector)?;
         Some((head.notice()?, !head.views.is_empty()))
+    }
+
+    /// The screen that draws the notice of the display named `connector`
+    /// ([`App::display_notice`]).
+    pub fn notice_head(&self, connector: &str) -> Option<&Head> {
+        let (_, n) = self.notices.iter().find(|((_, c), _)| c == connector)?;
+        self.heads.get(n.head)
+    }
+
+    /// How many screens vtium keeps: the heads of its VT, the notice
+    /// screen of a closed policy, and the screens that draw the notices
+    /// of displays no path catches.
+    pub fn screen_count(&self) -> usize {
+        self.heads.len()
     }
 
     /// The head the keys type into, else the first: the one whose session
@@ -1882,13 +1904,17 @@ impl App {
         self.wake_notices();
     }
 
-    /// A key on this VT, or a switch back to it, shows each parked notice
-    /// again (ADR-1401 D3): the guards light its display at their next run.
+    /// A key on this VT, a switch back to it or a wake from the blank
+    /// starts each notice's full `osd-timeout` again (ADR-1401 D3), whether
+    /// the notice is still showing or parked. The guards light a parked
+    /// notice's display at their next run, and its time starts at the
+    /// first turn it is on the display again.
     fn wake_notices(&mut self) {
-        for n in self.notices.values_mut().filter(|n| n.parked) {
-            n.parked = false;
+        for n in self.notices.values_mut() {
             n.due = None;
-            self.guard_due = true;
+            if std::mem::take(&mut n.parked) {
+                self.guard_due = true;
+            }
         }
     }
 
@@ -1899,6 +1925,13 @@ impl App {
     /// display its card left dark is let go and asked for again, and joins
     /// it when it comes.
     fn show_notices(&mut self, unused: &[((PathBuf, String), Option<usize>)]) {
+        // While the VT is another's, a card lists none of the displays it
+        // left dark, a parked one included, so the guard can tell nothing
+        // of the notices: each stays as it is, and the cards' wake-up runs
+        // the guards again.
+        if !self.vt.is_active() {
+            return;
+        }
         let gone: Vec<(PathBuf, String)> = self
             .notices
             .keys()
@@ -1907,17 +1940,25 @@ impl App {
             .collect();
         for key in gone {
             self.wanted.borrow_mut().remove(&key);
-            if let Some(n) = self.notices.remove(&key) {
-                let views: Vec<(PathBuf, DisplayId)> = self
-                    .heads
-                    .get(n.head)
-                    .map(|h| h.views.keys().cloned().collect())
-                    .unwrap_or_default();
-                for view in views {
-                    self.unlight(view.clone());
-                    self.dark.remove(&view);
-                    self.add_display(&view.0, view.1);
-                }
+            let Some(n) = self.notices.remove(&key) else {
+                continue;
+            };
+            // A display that now has a path leaves the notice's head for
+            // the head its rules give it, lit as it was: it is never set
+            // off on the way.
+            let views: Vec<(PathBuf, DisplayId)> = self
+                .heads
+                .get_mut(n.head)
+                .map(|h| {
+                    let views: Vec<_> = h.views.keys().cloned().collect();
+                    h.drop_views(|_| true);
+                    views
+                })
+                .unwrap_or_default();
+            self.spare_notices.push(n.head);
+            for view in views {
+                self.lit.remove(&view);
+                self.add_display(&view.0, view.1);
             }
         }
         let Some(vt) = self.vt_heads.vt() else {
@@ -1936,12 +1977,26 @@ impl App {
                 Some(n) if n.parked => continue,
                 Some(n) => n.head,
                 None => {
-                    let term =
-                        crate::head::terminal(&self.config, (0, 0), 0, Rc::clone(&self.clock));
-                    let mut head = Head::notice_screen(&self.config, term);
-                    head.set_notice(&text);
-                    self.heads.push(head);
-                    let head = self.heads.len().saturating_sub(1);
+                    let spare = self
+                        .spare_notices
+                        .pop()
+                        .filter(|&h| self.heads.get(h).is_some_and(|h| h.views.is_empty()));
+                    let head = match spare {
+                        Some(h) => h,
+                        None => {
+                            let term = crate::head::terminal(
+                                &self.config,
+                                (0, 0),
+                                0,
+                                Rc::clone(&self.clock),
+                            );
+                            self.heads.push(Head::notice_screen(&self.config, term));
+                            self.heads.len().saturating_sub(1)
+                        }
+                    };
+                    if let Some(h) = self.heads.get_mut(head) {
+                        h.set_notice(&text);
+                    }
                     log::info!("display {}: {text}", key.1);
                     self.notices.insert(
                         key.clone(),
@@ -2127,6 +2182,7 @@ impl App {
             if self.vt.is_active() {
                 self.activate(now);
             }
+            self.wake_notices();
         }
     }
 
@@ -2326,7 +2382,14 @@ impl App {
                     power_down(video.as_mut());
                 }
             }
-            Event::Awake => self.user_input(now),
+            Event::Awake => {
+                // The card lists again the displays it left dark, which
+                // the notices read (ADR-1401 D3).
+                if !self.notices.is_empty() {
+                    self.guard_due = true;
+                }
+                self.user_input(now);
+            }
             Event::Asleep => {
                 if let Some(r) = &mut self.releasing {
                     r.remove(node);
@@ -2584,7 +2647,7 @@ impl App {
     /// resizes the grid when its own differs, and stops the hang-up's
     /// time.
     fn attachment(&mut self, now: Instant) {
-        let several = self.heads.len() > 1;
+        let several = self.heads.iter().filter(|h| !h.notice_only).count() > 1;
         let full = self.osd.mode == osd::Mode::Full && self.osd.shows_on_change();
         let mut changed = false;
         for head in &mut self.heads {
@@ -2603,6 +2666,13 @@ impl App {
                 String::new()
             };
             match (head.attached, attached) {
+                // A screen that shows a notice alone is not a terminal: it
+                // has no session to hang up or keep, and no OSD.
+                (Attached::Yes, Attached::Gone) | (Attached::Gone, Attached::Yes)
+                    if head.notice_only =>
+                {
+                    changed = true;
+                }
                 (Attached::Yes, Attached::Gone) => {
                     head.drop_osd();
                     let hangup = match head.when_display_lost {
@@ -2856,11 +2926,13 @@ impl App {
             self.rescue(node);
             return;
         }
-        // The head the device asks: its rule's, or the active head's for a
-        // roaming device, which is never isolated (D5).
+        // The head the device types into: its rule's, or the active head's
+        // for a roaming device (D5). Whether its VT keys switch the VT is
+        // the policy's and its own head's to say, wherever that head runs
+        // (D3, "Who switches VTs").
         let asked = self.routes.head(&self.vt_heads, node, self.focus);
         let from = KeyFrom {
-            vt_keys: asked.is_some_and(|h| !self.vt_heads.isolated(&self.rules, h)),
+            vt_keys: self.routes.vt_keys(&self.rules, node),
             roaming: self.routes.roams(node),
         };
         // A head whose display never lit receives nothing (D8).
@@ -2912,10 +2984,7 @@ impl App {
         // types into after them, which the anti-lockout guard may move.
         self.guard_due = true;
         self.guard();
-        let line = match self.focus.and_then(|h| self.heads.get(h)) {
-            Some(head) => crate::notice::rescue(node.display(), head.name()),
-            None => crate::notice::rescue_no_head(node.display(), &self.bindings),
-        };
+        let line = self.rescue_line(node);
         log::warn!("{line}");
         match self.focus {
             Some(h) => {
@@ -2924,6 +2993,18 @@ impl App {
                 }
             }
             None => self.notice(&line),
+        }
+    }
+
+    /// What vtium says when the rescue key moved the keyboard at `node`
+    /// (ADR-1401 D9): the head it types into now; on a VT where no head
+    /// runs, that no terminal runs here and the VT keys that leave (D3);
+    /// else that no head is active and the roaming chord that chooses one.
+    fn rescue_line(&self, node: &Path) -> String {
+        match self.focus.and_then(|h| self.heads.get(h)) {
+            Some(head) => crate::notice::rescue(node.display(), head.name()),
+            None if self.heads().is_empty() => crate::notice::rescue_no_terminal(node.display()),
+            None => crate::notice::rescue_no_head(node.display(), &self.bindings),
         }
     }
 
@@ -3011,10 +3092,10 @@ impl App {
     /// head `h`, the head the key's device delivers to: its grabs, DECARM,
     /// the encoder. Each key that passes the seat's clears the selection.
     ///
-    /// The VT's keys switch the VT only `from` a keyboard asking a head that
-    /// is not isolated; from any other, the press goes on down the key
-    /// order to the session as an ordinary key, as a serial terminal sends
-    /// it (ADR-1401 D5). The roaming chord is taken only from a roaming
+    /// The VT's keys switch the VT only `from` a keyboard whose VT keys
+    /// count (ADR-1401 D3, "Who switches VTs"); from any other, the press
+    /// goes on down the key order to the session as an ordinary key, as a
+    /// serial terminal sends it (D5). The roaming chord is taken only from a roaming
     /// keyboard; from a claimed one it reaches the head's session as a key.
     fn key(&mut self, h: Option<usize>, key: &KeyEvent, from: KeyFrom, now: Instant) {
         if from.vt_keys && self.vt.key(key) || !self.awake {
@@ -4150,6 +4231,16 @@ impl App {
         for frit in self.frits.values() {
             due.extend(frit.helper.as_ref().and_then(Helper::deadline));
         }
+        // A notice's time runs out while the displays draw, and its screen
+        // has no other timer, since its cursor is hidden (ADR-1401 D3).
+        if self.awake {
+            due.extend(
+                self.notices
+                    .values()
+                    .filter(|n| !n.parked)
+                    .filter_map(|n| n.due),
+            );
+        }
         if let Some(Leaving::Until(d)) = self.leaving {
             due.push(d);
         }
@@ -4206,8 +4297,9 @@ impl App {
 /// What the device a key came from may do (ADR-1401 D5).
 #[derive(Clone, Copy, Debug)]
 struct KeyFrom {
-    /// It asks a head that is not isolated, so the VT's keys switch the
-    /// VT.
+    /// The VT's keys switch the VT: every keyboard's under open, and under
+    /// closed a keyboard's that a path places, but never those of a
+    /// keyboard a rule sends to an isolated head (ADR-1401 D3).
     vt_keys: bool,
     /// It roams, so it takes the roaming chord.
     roaming: bool,
@@ -4860,6 +4952,28 @@ mod tests {
     /// What the start runs for a trusted head file holding `text`.
     fn start(text: &str) -> Start {
         Start::trusted(Path::new("heads.conf"), text.as_bytes())
+    }
+
+    /// ADR-1401 D9: on a VT where no head runs, the rescue key's line
+    /// names no roaming chord, which chooses nothing there. It says that
+    /// no terminal runs on this VT, and how to switch to a VT that runs
+    /// one.
+    #[test]
+    fn the_rescue_line_on_a_vt_with_no_head_names_the_vt_keys() {
+        let (_lp, mut app) = seat(None, no_fonts());
+        let text = "version = 1\n[head desk]\nvt = 3\n[rules]\ninput path:kbd-desk -> desk\n";
+        app.set_heads(start(text).on_vt(Some(4)));
+        let node = Path::new("/dev/input/event0");
+        let keyboard = vtium_settings::Identity {
+            path: Some("kbd-desk".to_owned()),
+            ..vtium_settings::Identity::input().with_class(vtium_settings::Class::Keyboard)
+        };
+        app.add_input(node, keyboard);
+        assert!(app.heads().is_empty(), "no head runs on VT 4");
+        assert_eq!(
+            app.rescue_line(node),
+            "Keyboard /dev/input/event0 now types into the active screen until the next boot (the rescue key moved it), but no terminal runs on this VT. Press Ctrl-Alt and a function key to switch to a VT that runs one."
+        );
     }
 
     pub(super) fn no_fonts() -> font::Sources {

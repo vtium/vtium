@@ -186,6 +186,25 @@ impl Routes {
         head_of(heads, place.unwrap_or(Place::Roaming), focus)
     }
 
+    /// Whether the VT keys of the keyboard at `node` switch the VT
+    /// (ADR-1401 D3, "Who switches VTs"). Under open every keyboard's do,
+    /// on every VT, whether or not a head runs there. Under closed only a
+    /// keyboard a path places does: one a rule sends to a head, on this VT
+    /// or another, or to `roaming`. Under either policy a keyboard a rule
+    /// sends to an isolated head does not (D5). A device no rule placed,
+    /// as one a test types on, roams.
+    pub(crate) fn vt_keys(&self, rules: &vtium_settings::Config, node: Option<&Path>) -> bool {
+        let place = node
+            .and_then(|n| self.devices.get(n))
+            .map_or(Place::Roaming, Route::place);
+        match place {
+            Place::Head(i) | Place::Elsewhere(i) => !rules.isolated(i),
+            Place::DefaultHead | Place::Roaming => true,
+            Place::Ignore => rules.policy == vtium_settings::Policy::Open,
+            Place::Off | Place::Notice | Place::Unused(_) => false,
+        }
+    }
+
     /// Whether a device at `node` was placed and has not gone.
     pub(crate) fn knows(&self, node: &Path) -> bool {
         self.devices.contains_key(node)
