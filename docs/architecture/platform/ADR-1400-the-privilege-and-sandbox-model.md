@@ -85,6 +85,15 @@ considered:
   - operator: aaronsb
     said: "so we need to probably not read the x11 layout, what happens on a system without x?; asked to choose a source order: Console keymap, then X11 (Recommended)"
     via: the question tool in the steering session, 2026-11-10, on the keyboard layout's source
+  - operator: aaronsb
+    said: "we should hold this until 1b is fixed. libseat is new territory for us, and writing it up as an issue to fix later won't help us"
+    via: the question tool and chat in the steering session, 2026-11-10, on the libseat build's login sessions
+  - operator: aaronsb
+    said: "I'm leaning towards scope per login"
+    via: the question tool and chat in the steering session, 2026-11-10, on the libseat build's login sessions
+  - operator: aaronsb
+    said: "I'm ok with just more instances in order to maintain scope per login."
+    via: the question tool and chat in the steering session, 2026-11-10, on the libseat build's login sessions
 observable:
   - "The login child's `/proc/<pid>/fd` holds 0, 1 and 2 only, after exec"
   - "The helper's `/proc/<pid>/status` shows the session's uid and `NoNewPrivs: 1`, and at a root login prompt with no logind no helper runs as root"
@@ -214,6 +223,10 @@ vtium's units match the C reference's, with getty parity and no hardening direct
 > Note 2026-11-10, later: the survival of a logged-in session is measured. A shell was logged in on a vtium built with libseat, running under logind with the drop-in's `KillMode=mixed`, in a virtual machine. After a restart of vtium's unit, and again after vtium was killed with SIGKILL, a new vtium took the session back, and the shell answered a line typed in it. Whether `pam_systemd` moves vtium itself out of its unit is still not measured.
 
 > Note 2026-11-10, later still: where the processes run is measured. On the same libseat build under logind, in a virtual machine, `/proc/<pid>/cgroup` puts vtium in `/user.slice/user-0.slice/session-c1.scope`: `pam_systemd` moves vtium out of `vtium@tty2.service` into the scope of its own PAM session. A shell then logged in on vtium's console runs in that same scope, `session-c1.scope` under root's slice, and not in a session of the user's own. This is the inheritance this decision describes, the login child running inside vtium's session, measured. A restart of vtium's unit keeps that shell because the shell is outside the unit's control group, whatever `KillMode=` says.
+
+> Note 2026-11-10, on each login's own session: the maintainer chose a scope for each login over the other approaches the research weighed, and accepted that this costs more systemd units (`considered`, 2026-11-10, "I'm ok with just more instances in order to maintain scope per login"). In the libseat build under logind, vtium still holds the seat through its own PAM session, as the bullet above says. Each login child that vtium starts then runs in a systemd scope of its own: before the child runs `login`, vtium asks systemd's manager for a transient scope (`StartTransientUnit`) that holds the child, and waits for that job to finish. `login` then starts outside every logind session, so `pam_systemd` gives it a logind session of its own. That session has no seat. logind keeps one active session per seat, and vtium's session holds seat0, so vtium removes `XDG_SEAT`, `XDG_VTNR` and every `XDG_SESSION_*` variable from the environment of every child it starts in this mode. A session that registered on seat0 with vtium's VT would become the seat's active session, and logind would pause vtium's devices. Because the session has no seat, polkit treats it as inactive, and udev's uaccess rules, which give the active session access to devices such as sound cards, do not apply to it. Logins by one user share that user's `user@.service`. Where systemd is not PID 1, or the scope call fails, vtium starts `login` as before, inside vtium's own session, and logs one line that says why.
+>
+> What is measured, and how. The research on 2026-11-10 read systemd's and libseat's source at pinned commits: logind decides that a process already has a session by its cgroup's unit alone, and a new session on the active VT takes the seat from the session that held it. A spike on the same day, in tier 3's virtual machine, started `login` in a transient scope through `systemd-run --scope` and removed `XDG_SEAT` and `XDG_VTNR`. The user then had a logind session of their own with no seat, `XDG_RUNTIME_DIR` was set, and `user@1000.service` ran. vtium kept the seat, the keyboard still typed into the shell, and the session survived a restart of vtium's unit and a SIGKILL of vtium. Not measured: polkit's and uaccess's treatment of the seatless session, which comes from the research's reading; two logins by one user sharing `user@.service`, which is systemd's design; and the fallback where systemd is not PID 1.
 
 > Edited 2026-11-02: the units carry vtium's own names, after the maintainer's decision that kmscon is an independent product (ADR-1500). The first bullet named the fallback `kmsconvt-getty@%i`, and the second read: "the names tier 3 needs, `kmsconvt@.service` among them;".
 
