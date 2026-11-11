@@ -592,7 +592,8 @@ fn sample_of(
 /// A picture of the console with a change applied (ADR-1201 D4): the TUI's
 /// screen laid out at the grid the change gives on the display, drawn in
 /// the change's font at its cell, one pixel of the console to one pixel of
-/// the picture, and cut from the display's top left to `max`.
+/// the picture, as many whole character cells of its content as `max`
+/// holds.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Shot {
     /// The font, a frit's name or a built-in font's.
@@ -617,21 +618,58 @@ pub struct Shot {
     pub max: (u32, u32),
 }
 
-/// The size of the picture of `shot`: the display, cut to the shot's `max`
-/// and to [`PICTURE_MAX`], one pixel of the console to one pixel of the
-/// picture. There is no picture where it would not show one line of text
-/// whole: where it is less than the font's cell high or across.
+/// The size of the picture of `shot`, as the detailed specimen is sized:
+/// whole character cells of the screen's content, from its top left, as
+/// many columns and rows as the shot's `max` holds and at most
+/// [`PICTURE_MAX`] (see [`whole_cells`]). Each glyph keeps its own pixel
+/// size, so a bigger cell gives a bigger picture.
 pub fn shown(shot: &Shot) -> Result<(u32, u32), String> {
     let (cell, (dw, dh)) = (shot.cell, shot.display);
     if cell.width == 0 || cell.height == 0 || dw == 0 || dh == 0 {
         return Err(TOO_LARGE.to_owned());
     }
-    let width = dw.min(shot.max.0).min(PICTURE_MAX.0);
-    let height = dh.min(shot.max.1).min(PICTURE_MAX.1);
-    if width < cell.width || height < cell.height {
+    whole_cells(cell, content(shot), shot.max)
+}
+
+/// The columns and rows of `shot`'s screen that hold something to see:
+/// to the last character that is not a blank, or that has a background of
+/// its own, on any row, and to the last row with one; at least one of
+/// each, and at most the grid.
+fn content(shot: &Shot) -> (u32, u32) {
+    let (mut cols, mut rows) = (0usize, 0usize);
+    for (row, line) in shot.screen.iter().take(shot.grid.1).enumerate() {
+        let mut col = 0usize;
+        for span in line {
+            let filled = span.style.bg.is_some() || span.style.reverse;
+            for c in shown_text(span).chars() {
+                col = col.saturating_add(crate::tui::canvas::width(&c.to_string()).clamp(1, 2));
+                if filled || (c != ' ' && !c.is_control()) {
+                    cols = cols.max(col);
+                    rows = row.saturating_add(1);
+                }
+            }
+        }
+    }
+    let side = |n: usize, most: usize| u32::try_from(n.clamp(1, most.max(1))).unwrap_or(u32::MAX);
+    (side(cols, shot.grid.0), side(rows, shot.grid.1))
+}
+
+/// The size of a picture of `content` columns and rows of `cell`, the
+/// detailed specimen's and the picture of the console's alike: as many
+/// whole columns and rows of it as `max` holds, and at most
+/// [`PICTURE_MAX`], one pixel of the console to one pixel of the picture.
+/// There is no picture where not one character cell fits.
+fn whole_cells(cell: Cell, content: (u32, u32), max: (u32, u32)) -> Result<(u32, u32), String> {
+    let room = |side: u32, most: u32, of: u32| side.min(most).checked_div(of).unwrap_or(0);
+    let cols = content.0.min(room(max.0, PICTURE_MAX.0, cell.width));
+    let rows = content.1.min(room(max.1, PICTURE_MAX.1, cell.height));
+    if cols == 0 || rows == 0 {
         return Err(NO_LINE.to_owned());
     }
-    Ok((width, height))
+    Ok((
+        cols.saturating_mul(cell.width),
+        rows.saturating_mul(cell.height),
+    ))
 }
 
 /// The picture `shot` asks for, its glyphs drawn by the helper at
@@ -762,8 +800,9 @@ impl Sample {
     /// cell on its display, each cell in its colors from the palette the
     /// shot names, the rest of the display in the palette's background.
     /// One pixel of the console is one pixel of the picture, and the
-    /// picture is the part of the display from its top left that fits the
-    /// shot's `max` (ADR-1201 D4).
+    /// picture is as many whole character cells of the screen's content,
+    /// from its top left, as the shot's `max` holds: the sizing of the
+    /// detailed specimen, [`shown`] (ADR-1201 D4).
     pub fn screen(&self, shot: &Shot) -> Result<Picture, String> {
         let (width, height) = shown(shot)?;
         let faces = self.faces();
@@ -911,7 +950,8 @@ fn over(glyph: &vtium_font::Glyph, x: u32, y: u32, ink: [u8; 3], back: [u8; 3]) 
     out
 }
 
-/// Why a size has no picture when one line of it does not fit.
+/// Why a size has no picture: the font has no cell at that size, or its
+/// cell is taller than the room the specimen is asked for.
 const TOO_LARGE: &str = "this size is larger than the preview area";
 
 /// Why the picture of the console has none: the preview area cannot show
@@ -988,14 +1028,12 @@ fn lay_out(
         .map(|l| l.iter().map(|p| p.cells).sum::<u32>())
         .max()
         .unwrap_or(0);
-    let shown = u32::try_from(laid.len())
-        .unwrap_or(0)
-        .min(max.1.checked_div(cell.height).unwrap_or(0));
-    if cols == 0 || shown == 0 {
-        return Err(TOO_LARGE.to_owned());
-    }
-    let width = cell.width.saturating_mul(cols);
-    let height = cell.height.saturating_mul(shown);
+    let (width, height) = whole_cells(
+        cell,
+        (cols, u32::try_from(laid.len()).unwrap_or(u32::MAX)),
+        max,
+    )?;
+    let shown = height.checked_div(cell.height).unwrap_or(0);
     let stride = usize::try_from(width).unwrap_or(0).saturating_mul(4);
     let mut rgba: Vec<u8> = std::iter::repeat_n([PAPER[0], PAPER[1], PAPER[2], 255], {
         usize::try_from(width.saturating_mul(height)).unwrap_or(0)
@@ -1235,16 +1273,16 @@ mod tests {
                 raw: false,
             },
         ];
-        // a 24x20 display holds 3 by 1 cells of 8x16
+        // a 24x40 display holds 3 by 2 cells of 8x16, and the second row's
+        // text takes all 3 columns
         let p = builtin_only(cell)
-            .screen(&shot((24, 20), (3, 1), vec![row], (24, 20)))
+            .screen(&shot((24, 40), (3, 2), vec![row, plain("abc")], (24, 40)))
             .expect("a picture");
-        assert_eq!((p.width, p.height), (24, 20));
-        // vga's green, its red, then the background, and below the grid
+        assert_eq!((p.width, p.height), (24, 32));
+        // vga's green, its red, then the background past the short row
         assert_eq!(px(&p, 4, 8), [0, 170, 0]);
         assert_eq!(px(&p, 12, 8), [170, 0, 0]);
         assert_eq!(px(&p, 20, 8), [0, 0, 0]);
-        assert_eq!(px(&p, 4, 18), [0, 0, 0]);
         // with no color, the block is the default colors
         let mut plain = shot((24, 20), (3, 1), Vec::new(), (24, 20));
         plain.color = false;
@@ -1318,22 +1356,23 @@ mod tests {
         }]
     }
 
-    /// A 1024x768 screen of 8x16 cells: a full block in column 3 of row 2,
+    /// A 1024x768 screen of 8x16 cells: a full block in column 3 of row 1,
     /// and letters around it, so that glyphs of several shapes are drawn.
+    /// Its content is 19 columns by 4 rows.
     fn sample_shot(max: (u32, u32)) -> Shot {
         let rows = vec![
             plain("vtium ABC xyz 0123"),
-            plain("{[(|)]} @#%&"),
             plain("abc\u{2588}defghij"),
+            plain("{[(|)]} @#%&"),
             plain("The quick brown fox"),
         ];
         shot((1024, 768), (128, 48), rows, max)
     }
 
     /// The picture is the screen at one pixel of the console to one pixel
-    /// of the picture: where the preview area is smaller than the screen,
-    /// each pixel of the picture is the screen's pixel at the same place,
-    /// from the screen's top left, and a glyph's ink lands where the
+    /// of the picture: where the preview area is smaller than the screen's
+    /// content, each pixel of the picture is the screen's pixel at the same
+    /// place, from the screen's top left, and a glyph's ink lands where the
     /// console draws it.
     #[test]
     fn a_picture_of_the_console_shows_its_pixels_one_to_one_from_the_top_left() {
@@ -1345,58 +1384,80 @@ mod tests {
         let whole = sample
             .screen(&sample_shot((1024, 768)))
             .expect("the whole screen");
-        assert_eq!((whole.width, whole.height), (1024, 768));
         let part = sample
-            .screen(&sample_shot((300, 100)))
+            .screen(&sample_shot((100, 40)))
             .expect("the part that fits");
-        // the full block in column 3 of row 2 covers pixels 24 to 31
-        // across and 32 to 47 down, in the default ink, on the console and
+        // the full block in column 3 of row 1 covers pixels 24 to 31
+        // across and 16 to 31 down, in the default ink, on the console and
         // in the picture alike
         let ink = [170, 170, 170];
-        assert_eq!(px(&whole, 28, 40), ink);
-        assert_eq!(px(&part, 28, 40), ink);
-        assert_eq!(px(&part, 24, 32), ink);
-        assert_eq!(px(&part, 31, 47), ink);
-        assert_eq!(px(&part, 32, 40), px(&whole, 32, 40));
+        assert_eq!(px(&whole, 28, 24), ink);
+        assert_eq!(px(&part, 28, 24), ink);
+        assert_eq!(px(&part, 24, 16), ink);
+        assert_eq!(px(&part, 31, 31), ink);
+        assert_eq!(px(&part, 32, 24), px(&whole, 32, 24));
+        // 100x40 holds 12 columns and 2 rows of the content
+        assert_eq!((part.width, part.height), (96, 32));
         // every pixel of the part is the screen's pixel at the same place
-        assert_eq!((part.width, part.height), (300, 100));
         for y in 0..part.height {
             for x in 0..part.width {
                 assert_eq!(px(&part, x, y), px(&whole, x, y), "at {x},{y}");
             }
         }
         // the letters have ink: the comparison above is not of paper alone
-        let lit = (0..100u32)
-            .flat_map(|y| (0..300u32).map(move |x| (x, y)))
+        let lit = (0..part.height)
+            .flat_map(|y| (0..part.width).map(move |x| (x, y)))
             .filter(|&(x, y)| px(&part, x, y) == ink)
             .count();
         assert!(lit > 16 * 8 * 2, "{lit}");
     }
 
-    /// The picture is as large as the preview area, cut to the screen and
-    /// to [`PICTURE_MAX`], whatever the screen's shape.
+    /// The picture is sized as the detailed specimen is: whole character
+    /// cells of the screen's content, as many columns and rows as the
+    /// preview area holds, and at most [`PICTURE_MAX`]. A bigger cell gives
+    /// a bigger picture of the same content.
     #[test]
-    fn a_picture_of_the_console_is_the_preview_area_s_size() {
+    fn a_picture_of_the_console_is_whole_cells_of_its_content_and_grows_with_the_cell() {
+        let at = |cell: (u32, u32), rows: Vec<crate::tui::canvas::Row>, max: (u32, u32)| {
+            let mut s = shot((4000, 3000), (500, 200), rows, max);
+            s.cell = Cell {
+                width: cell.0,
+                height: cell.1,
+            };
+            shown(&s)
+        };
+        let line = || plain(&"x".repeat(60));
+        // one character is one cell, whatever room is left
+        assert_eq!(at((8, 16), vec![plain("A")], (440, 224)), Ok((8, 16)));
+        // the same content at twice the cell is twice the picture
+        let three = || vec![plain("abcde"), plain("fg"), plain("hij")];
+        assert_eq!(at((8, 16), three(), (440, 224)), Ok((40, 48)));
+        assert_eq!(at((16, 32), three(), (440, 224)), Ok((80, 96)));
+        // trailing blanks are not content
+        assert_eq!(
+            at((8, 16), vec![plain("ab   "), plain("")], (440, 224)),
+            Ok((16, 16))
+        );
+        // content larger than the area: the whole cells the area holds
+        assert_eq!(at((8, 16), vec![line(); 20], (440, 224)), Ok((440, 224)));
+        assert_eq!(at((8, 16), vec![line(); 20], (300, 100)), Ok((296, 96)));
+        assert_eq!(at((14, 32), vec![line(); 20], (440, 240)), Ok((434, 224)));
+        // never past the cap
+        let wide = || plain(&"x".repeat(300));
+        assert_eq!(
+            at((8, 16), vec![wide(); 100], (4000, 4000)),
+            Ok(PICTURE_MAX)
+        );
+        // the picture drawn has that size
         let cell = Cell {
             width: 8,
             height: 16,
         };
-        let sample = builtin_only(cell);
-        let size = |display: (u32, u32), max: (u32, u32)| {
-            let p = sample
-                .screen(&shot(display, (1, 1), vec![plain("A")], max))
-                .expect("a picture");
-            assert_eq!(p.rgba.len(), (p.width * p.height * 4) as usize);
-            (p.width, p.height)
-        };
-        // the area, where the screen is larger in both directions
-        assert_eq!(size((1024, 768), (440, 224)), (440, 224));
-        assert_eq!(size((1920, 1080), (480, 480)), (480, 480));
-        // never larger than the screen
-        assert_eq!(size((640, 480), (1000, 100)), (640, 100));
-        assert_eq!(size((640, 480), (4000, 4000)), (640, 480));
-        // never larger than the cap
-        assert_eq!(size((4000, 3000), (4000, 4000)), PICTURE_MAX);
+        let p = builtin_only(cell)
+            .screen(&shot((1024, 768), (128, 48), three(), (440, 224)))
+            .expect("a picture");
+        assert_eq!((p.width, p.height), (40, 48));
+        assert_eq!(p.rgba.len(), 40 * 48 * 4);
     }
 
     /// Where the preview area is less than one line of text high, or less

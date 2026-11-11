@@ -92,8 +92,9 @@ fn points_become_pixels_at_the_density() {
 
 /// The TUI's measurer and painter, through the real helper, draw a
 /// picture of a screen in the built-in fonts and a frit: the font's cell
-/// at the height, the grid it gives on the display, and the part of the
-/// display that fits the room, one pixel to one pixel (ADR-1201 D4).
+/// at the height, the grid it gives on the display, and whole character
+/// cells of the screen's content that fit the room, one pixel to one pixel
+/// (ADR-1201 D4).
 #[test]
 fn the_painter_draws_a_picture_of_the_console_in_the_built_in_fonts_and_a_frit() {
     if let Some(why) = vtium_testscript::qemu_without_seccomp() {
@@ -128,9 +129,12 @@ fn the_painter_draws_a_picture_of_the_console_in_the_built_in_fonts_and_a_frit()
             max: (320, 300),
         };
         let p = paint(&shot).unwrap_or_else(|e| panic!("{font}: {e}"));
-        // 640x480 into 320x300 is the display's top left 320x300
-        assert_eq!((p.width, p.height), (320, 300), "{font}");
-        assert_eq!(p.rgba.len(), 320 * 300 * 4);
+        // the line's 14 columns, and as many of its rows as 300 pixels
+        // hold, each glyph at its own pixel size
+        let rows = (grid.1 as u32).min(300 / cell.height);
+        let size = (14 * cell.width, rows * cell.height);
+        assert_eq!((p.width, p.height), size, "{font}");
+        assert_eq!(p.rgba.len(), (size.0 * size.1 * 4) as usize);
         let lit = p.rgba.chunks(4).filter(|px| px[0] > 0x40).count();
         assert!(lit > 0, "{font}: the text has ink");
     }
