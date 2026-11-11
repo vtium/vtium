@@ -499,7 +499,8 @@ VARIANTS.update({
 # survive a restart and a crash of vtium (ADR-1401 D13) under the libseat
 # drop-in's KillMode=mixed (ADR-1400 D3), with the seat check beside it.
 VARIANTS["seat-logind-survive"] = dict(VARIANTS["heads-survive"], tree_features=["libseat"],
-                                       seat="logind", checks=["seat", "session-survives"])
+                                       seat="logind",
+                                       checks=["seat", "seat-cgroup", "session-survives"])
 SEAT_VARIANTS.append("seat-logind-survive")
 HEAD_VARIANTS = ["heads-two-heads", "heads-partly-open", "heads-closed-broken",
                  "heads-policy-typo", "heads-closed-unmatched", "heads-off", "heads-kiosk",
@@ -1402,6 +1403,7 @@ def check_keyboard_hotplug(_variant, vm, work, caps, errors, log):
 CHECK_RUNS = {"udev-examples": check_udev_examples,
               "keyboard-hotplug": check_keyboard_hotplug,
               "seat": t3_seat.check_seat,
+              "seat-cgroup": t3_seat.check_cgroup,
               **t3_heads.CHECK_RUNS}
 
 

@@ -40,6 +40,11 @@ CHECKS = {
     "seat": "The console's log, for vtium built with libseat on the seat manager the variant "
             "names. Correct: the seat seat0 opens, every keyboard vtium uses opens through "
             "the seat manager, and vtium never falls back to the kernel's VT.",
+    "seat-cgroup": "The control group, read from /proc/PID/cgroup, of vtium built with libseat "
+                   "under logind, whose unit opens a PAM session of vtium's own (PAMName=vtium). "
+                   "Correct, as measured on 2026-11-10: pam_systemd moves vtium out of its unit "
+                   "into that session's scope, session-N.scope. The note gives the control group "
+                   "of the shell logged in on vtium's console, which the check does not judge.",
     "kernel-panic": "The display after echo c > /proc/sysrq-trigger, while vtium shows its login "
              "prompt on tty2. It judges nothing of the picture: the capture is the evidence "
              "of what a person sees at a kernel panic while vtium holds the VT. Correct: the "
@@ -187,3 +192,42 @@ def first_count(vm, path, shown):
             return img
     raise RuntimeError("the notice box with the kernel message never held still for %.1f s"
                        % KMSG_POLL)
+
+
+def parse_cgroups(answer):
+    """The agent's answer to `cgroups` as (vtium's control group or None,
+    [each shell's control group])."""
+    vtium, shells = None, []
+    for line in answer:
+        fields = line.split(" ", 2)
+        if len(fields) == 3 and fields[0] == "vtium":
+            vtium = fields[2]
+        elif len(fields) == 3 and fields[0] == "shell":
+            shells.append(fields[2])
+    return vtium, shells
+
+
+def cgroup_verdict(vtium, shells):
+    """Why the seat-cgroup check fails, or None: vtium in a logind session
+    scope, out of its unit, and one shell logged in."""
+    scope = (vtium or "").rsplit("/", 1)[-1]
+    if not (scope.startswith("session-") and scope.endswith(".scope")):
+        return "vtium runs in %s, not in a session scope" % vtium
+    if len(shells) != 1:
+        return "want one shell logged in, the agent found %d: %s" % (len(shells), shells)
+    return None
+
+
+def check_cgroup(v, vm, work, caps, errors, log):
+    """The seat-cgroup check (CHECKS), on the agent's answer `cgroups`, its
+    capture the screen once it passed."""
+    answer = vm.ask("cgroups")
+    log("seat-cgroup: %s" % "; ".join(answer))
+    vtium, shells = parse_cgroups(answer)
+    why = cgroup_verdict(vtium, shells)
+    if why:
+        errors["seat-cgroup"] = why
+        return
+    path = os.path.join(work, "seat-cgroup.ppm")
+    wait_stable(vm, path, settle=2.0, timeout=60, want=not_blank)
+    caps["seat-cgroup"] = path

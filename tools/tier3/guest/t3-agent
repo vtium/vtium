@@ -31,6 +31,10 @@
 #   limit            sends SIGKILL to each new vtium on tty2 until its unit
 #                    stops restarting, and once the unit failed on its start
 #                    limit, starts it once more
+#   cgroups          the control group of vtium on tty2, its unit's main
+#                    process, and of each shell that leads a session on a
+#                    pty, from /proc/PID/cgroup (t3_seat.py's seat-cgroup
+#                    check)
 #   kmsg             makes the kernel log an error of its own: a mount of
 #                    tmpfs through the old mount(2) call with the unknown
 #                    option vtium_tier3_warning, which the kernel refuses
@@ -243,6 +247,12 @@ answer() {
         limit) limit ;;
         prelogin) prelogin ;;
         panic) echo "crashing the kernel" ;;
+        cgroups)
+            pid=$(systemctl show -P MainPID "${units[0]}")
+            [ "${pid:-0}" != 0 ] && echo "vtium $pid $(cut -d: -f3 "/proc/$pid/cgroup")"
+            ps -eo pid=,sid=,tty=,comm= | awk '$1 == $2 && $3 ~ /^pts\// && $4 == "bash" { print $1 }' |
+                while read -r p; do echo "shell $p $(cut -d: -f3 "/proc/$p/cgroup")"; done
+            ;;
         # A line written to /dev/kmsg is logged with the user facility,
         # which vtium does not show, so the kernel itself must log the
         # message. mount(8) passes options through fsconfig(2), whose
