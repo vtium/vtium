@@ -153,6 +153,12 @@ fn main() -> ExitCode {
     // Before the loop blocks any signal, since a holder started here
     // inherits the mask (ADR-1401 D13).
     let env: Vec<(OsString, OsString)> = std::env::vars_os().collect();
+    // Outside a logind session of its own, as in direct mode, vtium pins
+    // libseat to seatd, so that no open of the seat reaches logind's
+    // backend (ADR-1400 D3). It runs while vtium has one thread, and after
+    // `env` is read, so no session inherits the variable.
+    #[cfg(feature = "libseat")]
+    vtium_platform::seat::keep_from_logind();
     let (keeper, kept) = vtium::survive::start(
         &env,
         path.as_deref(),

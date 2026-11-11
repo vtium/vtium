@@ -1024,9 +1024,11 @@ fn the_seat_tells_whether_libseats_logind_backend_opened_it() {
 
 /// In direct mode vtium is in no logind session of its own, and libseat's
 /// logind backend would then take the user's display session, such as
-/// root's login on another VT (ADR-1400 D3). So where libseat would choose
-/// logind, vtium never asks libseat for the seat and runs on the kernel's
-/// VT. seatd still answers a vtium in no session.
+/// root's login on another VT (ADR-1400 D3). So while `LIBSEAT_BACKEND`
+/// names no backend, which lets libseat reach logind, vtium never asks
+/// libseat for the seat and runs on the kernel's VT, seatd listening or
+/// not. seatd answers a vtium in no session once `LIBSEAT_BACKEND` names
+/// it, as `keep_from_logind` makes it.
 #[test]
 fn outside_a_session_of_its_own_vtium_leaves_loginds_backend_alone() {
     for (seatd, named) in [(false, false), (true, false), (true, true)] {
@@ -1050,7 +1052,7 @@ fn outside_a_session_of_its_own_vtium_leaves_loginds_backend_alone() {
             ),
             "start",
         );
-        let through_seatd = seatd || named;
+        let through_seatd = named;
         assert_eq!(
             matches!(chosen, Chosen::Seat(_)),
             through_seatd,
@@ -1091,4 +1093,60 @@ fn a_session_scope_is_read_from_the_control_group() {
     ] {
         assert_eq!(super::in_session_scope(cgroup), inside, "{cgroup:?}");
     }
+}
+
+/// A busy seatd does not keep a vtium in no session from logind: while
+/// `LIBSEAT_BACKEND` names no backend, libseat falls through to logind when
+/// seatd refuses the open, and logind's backend would take the user's
+/// display session (ADR-1400 D3). So vtium opens nothing then. With
+/// `LIBSEAT_BACKEND=seatd`, as [`keep_from_logind`] sets it in direct mode,
+/// vtium waits for seatd and never reaches logind.
+#[test]
+fn a_busy_seatd_never_lets_a_vtium_in_no_session_through_to_logind() {
+    for named in [false, true] {
+        let server = StandIn::new();
+        {
+            let mut s = server.0.borrow_mut();
+            s.seatd = true;
+            s.logind = true;
+            s.logind_answers = true;
+            s.no_session = true;
+            s.held = 3;
+            s.backend_named = named;
+        }
+        let console = FakeConsole::new(3, 3, KbMode::Unicode);
+        let mut lp: Loop<Data> = ok(Loop::new(), "loop");
+        let chosen = ok(
+            LibseatVt::start_with(
+                &mut lp,
+                server.clone(),
+                Some((console.clone(), 3)),
+                tries(50, 20),
+                access,
+            ),
+            "start",
+        );
+        if named {
+            // Waiting for seatd, through seatd alone.
+            assert!(matches!(chosen, Chosen::Seat(_)));
+        } else {
+            assert!(matches!(chosen, Chosen::Kernel(Some((_, 3)))));
+            assert_eq!(opens(&server), 0);
+        }
+        assert_eq!(
+            server.0.borrow().logind_opens,
+            0,
+            "LIBSEAT_BACKEND=seatd {named}"
+        );
+    }
+}
+
+/// vtium pins libseat to seatd only when it is in no logind session of its
+/// own and `LIBSEAT_BACKEND` names no backend.
+#[test]
+fn libseat_is_pinned_to_seatd_only_outside_a_session_with_no_backend_named() {
+    assert!(super::pin_needed(None, false));
+    assert!(!super::pin_needed(None, true));
+    assert!(!super::pin_needed(Some(OsStr::new("logind")), false));
+    assert!(!super::pin_needed(Some(OsStr::new("seatd")), false));
 }

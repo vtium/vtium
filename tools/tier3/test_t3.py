@@ -5649,8 +5649,9 @@ class SeatTest(unittest.TestCase):
         self.assertEqual(t3_seat.seat_verdict(log),
                          "vtium ran on the kernel's VT: no seat manager answered")
 
-    DIRECT = (b"seat: vtium is in no logind session of its own, so it does not take the seat "
-              b"from logind, and it uses the kernel's VT\n"
+    DIRECT = (b"seat: vtium is in no logind session of its own, so it takes the seat from "
+              b"seatd alone, and never from logind\n"
+              b"seat: no seat manager answered, so vtium uses the kernel's VT: No such file\n"
               b"vt: using tty /dev/tty2\n")
 
     def test_direct_mode_on_the_kernels_vt_passes(self):

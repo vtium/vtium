@@ -77,6 +77,14 @@ pub(crate) struct Server {
     /// vtium is in no logind session of its own, as in direct mode, so
     /// [`Manager::own_session`] answers no.
     pub(crate) no_session: bool,
+    /// logind opens the seat when libseat falls through to it. While
+    /// `LIBSEAT_BACKEND` names no backend, libseat tries seatd, then logind,
+    /// then its built-in seat manager, each in turn until one opens
+    /// (libseat/libseat.c lines 65-75 at seatd 92b1617c), so a seat that
+    /// seatd refuses as held opens through logind.
+    pub(crate) logind_answers: bool,
+    /// The opens that fell through to logind.
+    pub(crate) logind_opens: usize,
     /// A dispatch fails from here on, as on a connection seatd closed.
     pub(crate) broken: bool,
     /// What waits to be dispatched, and the seat manager's end of the
@@ -185,12 +193,16 @@ impl Manager for StandIn {
         }
         if s.held > 0 {
             s.held = s.held.saturating_sub(1);
-            return Err(if s.backend_named {
-                Errno::PIPE
+            if !s.backend_named && s.logind_answers {
+                s.logind_opens = s.logind_opens.saturating_add(1);
             } else {
-                Errno::NOSYS
+                return Err(if s.backend_named {
+                    Errno::PIPE
+                } else {
+                    Errno::NOSYS
+                }
+                .into());
             }
-            .into());
         }
         let (conn, end) = UnixStream::pair()?;
         conn.set_nonblocking(true)?;

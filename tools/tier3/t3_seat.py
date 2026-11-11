@@ -41,9 +41,10 @@ CHECKS = {
             "names. Correct: the seat seat0 opens, every keyboard vtium uses opens through "
             "the seat manager, and vtium never falls back to the kernel's VT.",
     "direct": "The console's log, for vtium built with libseat and logind in direct mode, "
-              "vtium@.service, under logind with no LIBSEAT_BACKEND (ADR-1400 D3). Correct: "
-              "vtium logs that it is in no logind session of its own and uses the kernel's VT, "
-              "and never opens the seat, so libseat's logind backend takes no session.",
+              "vtium@.service, under logind with no LIBSEAT_BACKEND and no seatd (ADR-1400 D3). "
+              "Correct: vtium logs that it is in no logind session of its own and takes the seat "
+              "from seatd alone, and never opens the seat, so libseat's logind backend takes no "
+              "session.",
     "seat-cgroup": "The control group, read from /proc/PID/cgroup, of vtium built with libseat "
                    "under logind, whose unit opens a PAM session of vtium's own (PAMName=vtium). "
                    "Correct, as measured on 2026-11-10: pam_systemd moves vtium out of its unit "
@@ -94,9 +95,9 @@ CAPTIONS = {
 
 # vtium's lines (crates/vtium-platform/src/seat.rs), after the log's target.
 SEAT_OPEN = "seat: the seat seat0 is open"
-# seat.rs's NO_SESSION.
-SEAT_DIRECT = ("seat: vtium is in no logind session of its own, so it does not take the seat "
-               "from logind, and it uses the kernel's VT")
+# seat.rs's SEATD_ONLY, which vtium logs when it pins libseat to seatd.
+SEAT_DIRECT = ("seat: vtium is in no logind session of its own, so it takes the seat from "
+               "seatd alone, and never from logind")
 SEAT_KERNEL = "seat: no seat manager answered"
 INPUT_USED = "input: using /dev/input/"
 INPUT_THROUGH = "through the seat manager"
@@ -142,7 +143,7 @@ def check_seat(v, vm, work, caps, errors, log):
 def direct_verdict(serial):
     """Why the direct check fails on the console log `serial` (bytes), or
     None when it passes: vtium said it is in no logind session of its own
-    and used the kernel's VT, and never opened the seat."""
+    and pinned libseat to seatd, and never opened the seat."""
     lines = serial.decode(errors="replace").splitlines()
     if any(SEAT_OPEN in line for line in lines):
         return "vtium opened the seat in direct mode"

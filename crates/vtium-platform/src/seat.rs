@@ -130,9 +130,55 @@ pub(crate) trait Manager {
 }
 
 /// What vtium logs when it leaves libseat's logind backend alone because
-/// vtium is in no logind session of its own, as in direct mode (ADR-1400
-/// D3).
+/// vtium is in no logind session of its own and `LIBSEAT_BACKEND` names
+/// logind or no backend (ADR-1400 D3).
 pub const NO_SESSION: &str = "vtium is in no logind session of its own, so it does not take the seat from logind, and it uses the kernel's VT";
+
+/// What vtium logs when [`keep_from_logind`] pins libseat to seatd, as in
+/// direct mode (ADR-1400 D3).
+pub const SEATD_ONLY: &str = "vtium is in no logind session of its own, so it takes the seat from seatd alone, and never from logind";
+
+/// Whether vtium sets `LIBSEAT_BACKEND=seatd` itself: when it is in no
+/// logind session of its own and `named`, the backend `LIBSEAT_BACKEND`
+/// names, is none. Then libseat would try logind whenever seatd refuses an
+/// open (libseat/libseat.c lines 65-75 at seatd 92b1617c), and logind's
+/// backend would take the user's display session.
+pub(crate) fn pin_needed(named: Option<&OsStr>, own_session: bool) -> bool {
+    named.is_none() && !own_session
+}
+
+/// Whether vtium pinned libseat to seatd at its start.
+static PINNED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Pins libseat to seatd when vtium is in no logind session of its own and
+/// `LIBSEAT_BACKEND` names no backend ([`pin_needed`]), so that no open of
+/// the seat, the first, a retry or one that waits for the VT to be shown,
+/// reaches logind's backend. Call it once at the start, while vtium has
+/// one thread, and after reading the environment that sessions inherit, so
+/// that no login sees the variable. Returns whether it pinned.
+pub fn keep_from_logind() -> bool {
+    let manager = binding::Libseat;
+    if !pin_needed(manager.backend_named().as_deref(), manager.own_session()) {
+        return false;
+    }
+    #[expect(
+        unsafe_code,
+        reason = "setting LIBSEAT_BACKEND, which libseat reads from the environment"
+    )]
+    // SAFETY: the caller calls this while the process has one thread, so no
+    // other thread reads or writes the environment meanwhile.
+    unsafe {
+        std::env::set_var("LIBSEAT_BACKEND", "seatd");
+    }
+    PINNED.store(true, std::sync::atomic::Ordering::Relaxed);
+    log::info!(target: "seat", "{SEATD_ONLY}");
+    true
+}
+
+/// Whether [`keep_from_logind`] pinned libseat to seatd.
+pub fn pinned() -> bool {
+    PINNED.load(std::sync::atomic::Ordering::Relaxed)
+}
 
 /// Whether the control groups `cgroup`, as `/proc/PID/cgroup` lists them,
 /// put the process in a logind session's scope, `session-ID.scope`. sd-login
@@ -382,9 +428,14 @@ impl<M: Manager + 'static, C: Console + 'static> LibseatVt<M, C> {
         );
         // Outside a session of its own, libseat's logind backend would take
         // the user's display session, such as root's login on another VT
-        // (libseat/backend/logind.c, `get_display_session`). In direct mode
-        // vtium is in no session, so it runs on the kernel's VT.
-        if logind && !manager.own_session() {
+        // (libseat/backend/logind.c, `get_display_session`). libseat reaches
+        // that backend when LIBSEAT_BACKEND names it, and, when it names no
+        // backend, whenever seatd refuses an open, as a busy seatd does. So
+        // outside a session vtium opens the seat only through a backend
+        // named otherwise, as keep_from_logind names seatd in direct mode.
+        let named = manager.backend_named();
+        let reaches_logind = named.as_deref().is_none_or(|n| n == "logind");
+        if reaches_logind && !manager.own_session() {
             log::info!(target: "seat", "{NO_SESSION}");
             return Ok(Chosen::Kernel(tty));
         }
