@@ -78,6 +78,7 @@ observable:
   - "A frit of Terminus at 16 pixels with `script-source=kbd:ter-112n` draws its superscripts and subscripts with Terminus's own 12-pixel glyphs"
   - "unifont in a 16×32 cell, drawn at twice its size, draws its superscripts and subscripts as unifont at its own 8×16, every pixel of the font one pixel of the screen"
   - "In DejaVu Sans Mono, a superscript letter's edges are as sharp as a normal letter's at the same size"
+  - Tier 2's `script-unifont` screen shows a superscript's underline under the raised glyph, and a subscript's strike-through across the lowered glyph
 status: accepted
 date: 2026-11-11
 deciders:
@@ -203,10 +204,45 @@ The console draws a sprite to fill the box that D1 gives a sprite, with the ligh
 
 The engine draws a script glyph in its style at its own small size. An outline is emboldened and slanted at the small size (ADR-1302 D4). A bitmap glyph, from D3 or D4, is widened and slanted after it is made small, about its own baseline. A glyph at a whole multiple j is widened by one of its own pixels, j screen pixels, and its rows shift by whole blocks of j, so it stays the font's blocks; a glyph from D4 is widened by a screen pixel and its rows shift by whole pixels. A frit's own bold and italic faces (`style=`, ADR-1200 D1) draw their script glyphs by D2 to D4 like the regular face.
 
-### D8: what stays where a normal cell has it
+### D8: where a script cell's lines go, and what covers the whole cell
 
-- The underline, the double and curly underlines, the strike-through and the overline stay where a normal cell draws them. vtium-render draws them from the cell's metrics, apart from the glyph (ADR-1200 D20, crates/vtium-render/src/deco.rs). The cell's background, the cursor and the selection cover the whole cell, as they do for any glyph.
-- A script glyph's ink stays inside its row. It takes no part in the reach into the rows above and below that ADR-1306 D1 gives other glyphs, because a superscript against the top of its row would otherwise draw over the descenders of the row above. To the side, its ink follows the rule for its kind of glyph (ADR-1302 D1).
+The maintainer reviewed the third slice's pictures. In them the underline and the strike-through stayed where a normal cell draws them, so a subscript's strike-through lay above the glyph. The maintainer asked for "a sane decision tree for the engine to plan where to draw the lines for under or struck" (`considered`, 2026-11-11). This decision is that tree.
+
+The words used here. The **lines** are the underline in each of its styles (single, double, curly, dotted and dashed, and the dashed underline of a link under the pointer), the strike-through and the overline. vtium-render draws each line as a sprite one cell in size, from the rows and thicknesses that the font gives (`Decorations`, ADR-1200 D2, ADR-1302 D3; crates/vtium-render/src/deco.rs). A **script cell** is a cell that SGR 73 or 74 marks. Rows are counted from the cell's top row, which is row 0. The **plain lines** are the lines of a font that states none: a sixteenth of the height thick and at least a row, the underline on the bottom rows and the strike-through from the middle row (`Decorations::for_height`).
+
+The engine decides a script cell's lines in this order.
+
+1. **What covers the whole cell.** The cell's background, reverse video (SGR 7, and DECSCNM for the whole screen), the selection and the cursor cover the whole cell, as they do for any glyph. The maintainer: "for reversed items, I think the text block is ok, because it fills the entire character box". The cursor keeps one shape and one height along a line. The underline cursor therefore lies on a normal cell's underline rows in a script cell too, and it hides the cell's own underline as it does on any cell.
+2. **One set of lines for each script.** A script cell's lines are the lines of the script glyph's own size, placed where D1 places the script glyph's own box. The engine makes one set for superscript and one for subscript, from the frit's first source, as the normal lines come from the first source (ADR-1302 D3). Every superscript on a line therefore draws its lines on the same rows, whichever source drew its glyph, and every subscript does too. A sprite, a color glyph and the hex glyph have no lines of their own, and take the set of their cell's script.
+3. **How each kind of first source gives its script lines.**
+   - An outline source (D2): the helper finds the lines by ADR-1302 D3's rule at the script size. It takes the `post` table's underline and the `OS/2` table's strikeout, scaled to the script glyph's pixels to the em, and measures them from the script baseline that D2 gives. Each line is at least a row thick and lies inside the cell. A script strike reports these lines, as a normal strike reports its own (ADR-1200 D2).
+   - A bitmap source with a smaller size (D3): the chosen strike's own lines, at the multiple it is drawn at, moved down by the row where D1 places the strike's top. A strike drawn at a whole multiple has its lines times that multiple, or the plain lines of its drawn height where its own are the plain lines (crates/vtium-font/src/set/face.rs, `scale_decorations`). The source at a smaller multiple gives its own lines at that multiple. A CPI height or a `script-source=` font gives its own lines, and the plain lines of its height where it states none.
+   - A bitmap source with no smaller size (D4): the normal lines go through D4's own map. Each row of a line goes to the small row that holds its centre, so the line lands on the row where D4 puts the glyph's pixels from the same row. A line keeps at least one row.
+   - The built-in fonts are bitmap sources. unifont takes its script lines by D4 when it is drawn at its own size, and by D3 when it is drawn at twice its size or more.
+   - While a frit's script strike is on its way, the console takes the cell's normal lines through D4's map. The strike's own lines replace them when it arrives, as a frit's normal lines replace the built-in font's.
+   - One module of vtium-font holds the placing and the map, and the helper and the console both call it (D11).
+4. **Where each line lies.**
+   - The underline lies on the script set's underline rows. Under a superscript it lies under the raised glyph, in the row's lower part, which the glyph leaves blank. Under a subscript it lies at or near the bottom of the row, under the lowered glyph.
+   - The strike-through lies on the script set's strike rows. It crosses the script glyph at the height where the normal strike-through crosses the normal glyph: through the middle of the letters' x-height, or where the font's strikeout puts it.
+   - The overline lies on the top row of the script glyph's own box, as thick as the script set's underline. Over a superscript, that is the text band's top row, which is the normal overline's row when the row has no line spacing. Over a subscript, it lies over the lowered glyph.
+   - Each line is as thick as the script set makes it, so a line on a small glyph has the weight of the font's line at the small size. Every line fills whole rows with every pixel fully on, so it stays crisp at any thickness, as the maintainer asked of the glyphs: "Having no aliasing and crisp text is the better half of the tradeoff".
+5. **Double and curly underlines follow the same rule as in a normal cell.** deco.rs draws them down from the top of the underline's rows, in at most a quarter of the cell's rows, and moves a shape that would leave the cell up into it. Where the quarter is too small, a curl lowers its wave to fit, down to 2 rows from peak to peak, and a double, or a curl that still does not fit, draws as the single line. In a script cell the shape starts from the script set's underline. Under a superscript it has the row's blank lower rows below it, so it draws whole. Under a subscript whose underline lies on the row's bottom rows, the shape moves up to end inside the row, onto the rows a normal cell's shape takes. On a 1-bit display the curl is the wave of whole pixels that deco.rs draws in any cell.
+6. **A run of normal and script cells under one underline.** Each cell draws its own lines in its own rows, so the underline steps up or down at the edge between a normal cell and a script cell. vtium draws no stroke that joins the two. Each cell's lines are a sprite inside that cell (ADR-1306 D6), so a cell redrawn alone draws the same pixels whatever its neighbours hold. The line under each glyph also reads as that glyph's own, as each character's dashed underline does (the maintainer, 2026-10-28). A run of superscripts has one unbroken underline, because its cells share one set of lines, and a run of subscripts has another.
+7. **Every line stays inside the row,** as the script glyph's ink does (the paragraph after the table). The helper keeps an outline font's script lines inside the cell, and deco.rs moves any line that would leave the cell up into it.
+
+For unifont, the rule gives these rows. Each entry gives the underline's top row, the strike-through's top row, the overline's row, and the thickness of each line.
+
+| unifont drawn at | Cell height | Normal cell | Superscript | Subscript |
+|---|---|---|---|---|
+| 1×, script glyphs by D4 | 16 | 15, 8, 0; 1 row | 10, 5, 0; 1 row | 15, 10, 5; 1 row |
+| 2×, script glyphs by D3 at 1× | 32 | 30, 16, 0; 2 rows | 15, 8, 0; 1 row | 31, 24, 16; 1 row |
+| 3×, script glyphs by D3 at 2× | 48 | 45, 24, 0; 3 rows | 30, 16, 0; 2 rows | 46, 32, 16; 2 rows |
+
+In unifont at 16 rows, a superscript's double underline takes rows 10 and 12, and its curl rows 10 to 12, in the blank rows under the raised glyph. A subscript's double takes rows 13 and 15, and its curl rows 13 to 15, which are a normal cell's rows.
+
+**The glyph's ink.** A script glyph's ink stays inside its row. It takes no part in the reach into the rows above and below that ADR-1306 D1 gives other glyphs, because a superscript against the top of its row would otherwise draw over the descenders of the row above. To the side, its ink follows the rule for its kind of glyph (ADR-1302 D1).
+
+> Edited 2026-11-11: the maintainer's review of the third slice's pictures found that the lines did not follow the script glyph (`considered`), and the decision tree above replaces D8's first bullet, which read: "The underline, the double and curly underlines, the strike-through and the overline stay where a normal cell draws them. vtium-render draws them from the cell's metrics, apart from the glyph (ADR-1200 D20, crates/vtium-render/src/deco.rs). The cell's background, the cursor and the selection cover the whole cell, as they do for any glyph." D8 was titled "what stays where a normal cell has it". The earlier text is in git at 3ea2c09f.
 
 ### D9: wide characters
 
@@ -255,8 +291,9 @@ The code at integration 44792f56, read statement by statement against this recor
 11. **D10, 1-bit.** The 1-bit path gives a script mask no stand-in and cuts its gray at half (crates/vtium-render/src/mono.rs:222). With D4 in place, bitmap script glyphs arrive one bit and need nothing more there.
 12. **D14, vtium-config.** The specimen (crates/vtium-config/src/specimen.rs) and the preview (crates/vtium-config/src/preview.rs) show no superscript or subscript.
 13. **Words to update once this is accepted.** ADR-1000's `sgr.script` row says "a bitmap font's glyph scales the same way, with gray edges"; vtium-font's README section "Superscript and subscript" and script.rs's module comment describe the averaging; tier 2's `script-unifont` caption says "their edges gray"; ADR-1200 D1, D2, D20 and D21 each take a dated note pointing here. script.rs's module comment, vtium-font's README and ADR-1000's `sgr.script` row cite mintty's CtrlSeqs page for SGR 73 to 75, which does not mention them; each should cite the Tips page's table of text attributes instead.
+14. **D8, the lines, read at integration 3ea2c09f.** A font gives one set of lines, for the normal cell: `Face::decorations` and `Font::decorations` take no script (crates/vtium-font/src/face.rs:122-124, 328-330), and `Decorations` has no row for the overline, which deco.rs draws on the cell's top row (face.rs:59-64, crates/vtium-render/src/deco.rs:274-277). The script module needs the rule that makes a script set from the normal lines and the script box: D3's placing and D4's map. A set gives the lines of its regular baseline strike (crates/vtium-font/src/set/read.rs:686-692), so a script strike's own lines are never read. The helper finds an outline font's lines at the normal cell alone (crates/vtium-config/src/outline.rs:1477), and its script strikes need lines found at the script size. The console's store and its face give one set (crates/vtium/src/deferred.rs:1026-1029, 1485-1500). The renderer makes one set of line sprites from `font.decorations()` and makes it again when the lines change (crates/vtium-render/src/renderer.rs:619-633, 719, 914-925). `Sprites` holds the eight kinds of one set (deco.rs:284-310). The CPU path draws every cell's lines from that one set (crates/vtium-render/src/compose.rs:500-531), and the GPU path lays one set of eight sprites in its texture and picks a sprite by its kind alone (crates/vtium-render/src/gpu/glyphs.rs:297-310, 401; crates/vtium-render/src/gpu/compose.rs:1952-1958). Both paths need a set for each script, picked by the cell's script, with the underline cursor's line taken from the normal set (renderer.rs:1830-1836).
 
-The work can land in slices that each show on screen. The first slice is the console's side: D1's box, D4, D6, D7 and D10 in vtium-font, which makes the built-in fonts' scripts crisp and fixes the 1-bit display. The second is the helper's side: the ask, the key and the wire format, with D2, D4 for a frit's bitmap sources, and D5. The third is D3 and D12. The last is D14.
+The work can land in slices that each show on screen. The first slice is the console's side: D1's box, D4, D6, D7 and D10 in vtium-font, which makes the built-in fonts' scripts crisp and fixes the 1-bit display. The second is the helper's side: the ask, the key and the wire format, with D2, D4 for a frit's bitmap sources, and D5. The third is D3 and D12. The lines of D8 (gap 14) follow it as a slice of their own, since they draw on the script box that every kind of source now gives. The last is D14.
 
 ## Verification
 
@@ -265,6 +302,9 @@ Each test that drives this behaviour through vtium-font, vtium-render, vtium-con
 - vtium-font: D4's scale of a one-pixel stroke at each of the three phases two thirds gives keeps it one pixel wide; a glyph scaled by D4 has only on and off pixels; D1's box against the text band with and without line spacing; D3's choice among a set of strikes, at each end of the range, and the table of whole multiples from 1× to 6×; a script glyph at a smaller multiple is the 1× glyph with each pixel a j×j block, placed against the band's edge.
 - Tier 2: the `script-unifont` screen redrawn, and in 1-bit mode; the same screen in unifont at 2× and at 3×; a screen of a bitmap test font built in memory at two heights with `script-source=`; a screen of the outline test font with superscripts and subscripts in regular, bold and italic, beside an underline and a strike-through.
 - The helper: an ask with a script answers a strike that says its script; the console refuses an answer whose script it did not ask for, as it refuses a style it did not ask for.
+- D8 in vtium-font: the script sets of unifont at 1×, 2× and 3× are the rows of D8's table; D4's map takes a font's stated lines to the rows where it takes the glyph's pixels from the same rows; line spacing moves a script set with the script box; every line of every script set lies inside the cell. The helper: an outline script strike reports lines found at the script size, measured from the script baseline, in the outline test font.
+- D8 in vtium-render: for each line (single, double, curly, dotted and dashed underline, strike-through, overline, and strike-through with overline) and for each script, the sprite's lit rows are the script set's rows. In unifont at 16 rows, a superscript's double and curl lie on rows 10 to 12 and a subscript's on rows 13 to 15. A 1-bit curl in a script cell is joined whole pixels. Two underlined cells side by side, one normal and one a superscript, draw their underlines on their own rows. The background, reverse video, the selection, and the block, bar and underline cursors draw in a script cell as in a normal cell. The CPU path and the GPU path draw the same lines.
+- D8 in tier 2: the screens `script-unifont`, `script-unifont-2x`, `script-unifont-3x` and `script-source` are redrawn with lines that follow the glyph, each screen with a line of superscripts and subscripts under each line style, and an underlined run of normal and script cells. Their captions say where each line lies. The goldens change in a commit of their own, which the maintainer reviews.
 
 ## Consequences
 
@@ -275,6 +315,8 @@ Each test that drives this behaviour through vtium-font, vtium-render, vtium-con
 - Outline scripts are hinted and antialiased at their own size, as sharp as any glyph of that size.
 - Every kind of source places its scripts by one rule, so a line of mixed fonts keeps one superscript edge and one subscript edge.
 - Sprites in script cells keep whole-pixel edges.
+- A script glyph's underline, strike-through and overline lie under, across and over the small glyph, for every kind of source and at every size.
+- Every superscript on a line shares one underline, and every subscript shares another.
 
 ### Negative
 
@@ -283,10 +325,14 @@ Each test that drives this behaviour through vtium-font, vtium-render, vtium-con
 - A designed smaller size can be up to three quarters of the normal height, so its scripts are larger than a scaled font's.
 - D4 closes a gap one pixel high in some glyphs, such as the dot of i.
 - The wire format and the store's key change on both ends.
+- An underline across normal and script cells steps up or down at each edge between them.
+- The renderer keeps three sets of line sprites where it kept one, and the GPU path's texture of line sprites holds three times as many.
+- The helper finds an outline font's lines at each script size as well as at the normal size.
 
 ### Neutral
 
 - The renderer's cache already keys the script, so it does not change.
+- The background, reverse video, the selection and the cursor draw in a script cell as in any cell.
 - vtium uses neither OS/2's superscript metrics nor OpenType's `sups` and `subs`, and D13 names what would make the second worth using.
 
 ## Alternatives Considered
