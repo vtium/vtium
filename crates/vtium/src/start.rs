@@ -78,15 +78,13 @@ impl Start {
     /// built-in one when it does not compile, with the key repeat and
     /// pointers the keys set. `None` when no keymap compiles.
     ///
-    /// In a build that links logind, the `xkb-*` keys that vtium.conf
-    /// leaves unset take the system's keyboard layout from localed
-    /// (ADR-1400's L2 layer). The minspec build keeps xkb's defaults.
+    /// The `xkb-*` keys that vtium.conf leaves unset take the system's
+    /// keyboard layout, which vtium-platform's `system_layout` reads from
+    /// the console keymap and, in a build that links logind, from localed
+    /// (ADR-1400's L2 layer).
     pub fn input(&self) -> Option<Input> {
-        #[cfg(feature = "logind")]
-        let system = Some(vtium_platform::logind::layout());
-        #[cfg(not(feature = "logind"))]
-        let system = None;
-        self.build(system.as_ref(), |keymap, input| {
+        let system = vtium_platform::input::system_layout();
+        self.build(&system, |keymap, input| {
             Keymap::new(keymap)
                 .or_else(Keymap::fallback)
                 .map(|k| Input::new(Direct, k, input))
@@ -94,21 +92,16 @@ impl Start {
     }
 
     /// The keymap's settings: the `xkb-*` keys, with `system`'s names in
-    /// place of those vtium.conf leaves unset, where the system names a
-    /// layout.
-    fn keymap(&self, system: Option<&RuleNames>) -> KeymapConfig {
-        let keymap = self.keymap.clone();
-        match system {
-            Some(system) => keymap.follow(system),
-            None => keymap,
-        }
+    /// place of those vtium.conf leaves unset.
+    fn keymap(&self, system: &RuleNames) -> KeymapConfig {
+        self.keymap.clone().follow(system)
     }
 
     /// Hands `make` the keymap's and the input's settings: the one place
     /// they are read for the seat.
     fn build<T>(
         &self,
-        system: Option<&RuleNames>,
+        system: &RuleNames,
         make: impl FnOnce(&KeymapConfig, InputConfig) -> T,
     ) -> T {
         make(&self.keymap(system), self.input)
@@ -152,7 +145,7 @@ mod tests {
             variant: "nodeadkeys".to_owned(),
             options: "caps:escape".to_owned(),
         };
-        let unset = start(&[]).keymap(Some(&system));
+        let unset = start(&[]).keymap(&system);
         assert_eq!(
             (
                 unset.model.as_str(),
@@ -162,7 +155,7 @@ mod tests {
             ),
             ("pc105", "de", "nodeadkeys", "caps:escape")
         );
-        let set = start(&["--xkb-layout=fr"]).keymap(Some(&system));
+        let set = start(&["--xkb-layout=fr"]).keymap(&system);
         assert_eq!(
             (
                 set.layout.as_str(),
@@ -172,7 +165,11 @@ mod tests {
             ("fr", "", "pc105"),
             "vtium.conf's layout wins, with no variant of the system's"
         );
-        assert_eq!(start(&[]).keymap(None).layout, "");
+        assert_eq!(
+            start(&[]).keymap(&RuleNames::default()).layout,
+            "",
+            "no names, no layout"
+        );
     }
 
     #[test]
@@ -228,7 +225,9 @@ mod tests {
     #[test]
     fn the_input_is_made_from_the_keys() {
         let s = start(&["--xkb-layout=de", "--xkb-repeat-delay=300", "--no-mouse"]);
-        let (layout, input) = s.build(None, |keymap, input| (keymap.layout.clone(), input));
+        let (layout, input) = s.build(&RuleNames::default(), |keymap, input| {
+            (keymap.layout.clone(), input)
+        });
         assert_eq!(layout, "de");
         assert_eq!(input, InputConfig::new(300, 50, false));
         assert!(s.input().is_some(), "a keymap, the built-in one at worst");
