@@ -74,6 +74,9 @@ pub(crate) struct Server {
     /// (libseat/backend/logind.c), and the session's enable can come at
     /// any time ([`StandIn::tell`]).
     pub(crate) logind: bool,
+    /// vtium is in no logind session of its own, as in direct mode, so
+    /// [`Manager::own_session`] answers no.
+    pub(crate) no_session: bool,
     /// A dispatch fails from here on, as on a connection seatd closed.
     pub(crate) broken: bool,
     /// What waits to be dispatched, and the seat manager's end of the
@@ -219,6 +222,10 @@ impl Manager for StandIn {
 
     fn logind_runs(&self) -> bool {
         self.0.borrow().logind
+    }
+
+    fn own_session(&self) -> bool {
+        !self.0.borrow().no_session
     }
 }
 

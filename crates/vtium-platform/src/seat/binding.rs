@@ -70,6 +70,16 @@ impl Manager for Libseat {
     fn logind_runs(&self) -> bool {
         Path::new(LOGIND_SEATS).is_dir()
     }
+
+    /// libseat's logind backend takes the session `XDG_SESSION_ID` names
+    /// first, then the calling process's own (libseat/backend/logind.c,
+    /// `get_display_session`), which sd-login finds from the process's
+    /// control group ([`super::in_session_scope`]).
+    fn own_session(&self) -> bool {
+        std::env::var_os("XDG_SESSION_ID").is_some_and(|id| !id.is_empty())
+            || std::fs::read_to_string("/proc/self/cgroup")
+                .is_ok_and(|cgroup| super::in_session_scope(&cgroup))
+    }
 }
 
 impl Seat for LibseatSeat {

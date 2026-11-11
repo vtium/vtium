@@ -124,6 +124,34 @@ pub(crate) trait Manager {
     fn backend_named(&self) -> Option<OsString>;
     /// Whether logind runs: its seats' directory exists.
     fn logind_runs(&self) -> bool;
+    /// Whether vtium is in a logind session of its own, the session
+    /// libseat's logind backend takes the seat from.
+    fn own_session(&self) -> bool;
+}
+
+/// What vtium logs when it leaves libseat's logind backend alone because
+/// vtium is in no logind session of its own, as in direct mode (ADR-1400
+/// D3).
+pub const NO_SESSION: &str = "vtium is in no logind session of its own, so it does not take the seat from logind, and it uses the kernel's VT";
+
+/// Whether the control groups `cgroup`, as `/proc/PID/cgroup` lists them,
+/// put the process in a logind session's scope, `session-ID.scope`. sd-login
+/// finds a process's session the same way: from the systemd unit of its
+/// control group on the unified hierarchy (`0::`), or on systemd's own
+/// named hierarchy (`name=systemd`) on a host that mounts both. The unit is
+/// the first part of the path that is not a slice.
+pub(crate) fn in_session_scope(cgroup: &str) -> bool {
+    cgroup.lines().any(|line| {
+        let mut fields = line.splitn(3, ':');
+        let (_, controllers, path) = (fields.next(), fields.next(), fields.next());
+        matches!(controllers, Some("" | "name=systemd"))
+            && path
+                .and_then(|p| {
+                    p.split('/')
+                        .find(|c| !c.is_empty() && !c.ends_with(".slice"))
+                })
+                .is_some_and(|unit| unit.starts_with("session-") && unit.ends_with(".scope"))
+    })
 }
 
 /// Whether libseat opens the seat through its logind backend. libseat tries
@@ -352,6 +380,14 @@ impl<M: Manager + 'static, C: Console + 'static> LibseatVt<M, C> {
             seatd,
             manager.logind_runs(),
         );
+        // Outside a session of its own, libseat's logind backend would take
+        // the user's display session, such as root's login on another VT
+        // (libseat/backend/logind.c, `get_display_session`). In direct mode
+        // vtium is in no session, so it runs on the kernel's VT.
+        if logind && !manager.own_session() {
+            log::info!(target: "seat", "{NO_SESSION}");
+            return Ok(Chosen::Kernel(tty));
+        }
         let inbox = Inbox::default();
         let mut manager = manager;
         let (conn, seat) = if shown == Some(false) && seatd {

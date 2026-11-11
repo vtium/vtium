@@ -1021,3 +1021,74 @@ fn the_seat_tells_whether_libseats_logind_backend_opened_it() {
         true
     ));
 }
+
+/// In direct mode vtium is in no logind session of its own, and libseat's
+/// logind backend would then take the user's display session, such as
+/// root's login on another VT (ADR-1400 D3). So where libseat would choose
+/// logind, vtium never asks libseat for the seat and runs on the kernel's
+/// VT. seatd still answers a vtium in no session.
+#[test]
+fn outside_a_session_of_its_own_vtium_leaves_loginds_backend_alone() {
+    for (seatd, named) in [(false, false), (true, false), (true, true)] {
+        let server = StandIn::new();
+        {
+            let mut s = server.0.borrow_mut();
+            s.logind = true;
+            s.no_session = true;
+            s.seatd = seatd;
+            s.backend_named = named;
+        }
+        let console = FakeConsole::new(3, 3, KbMode::Unicode);
+        let mut lp: Loop<Data> = ok(Loop::new(), "loop");
+        let chosen = ok(
+            LibseatVt::start_with(
+                &mut lp,
+                server.clone(),
+                Some((console.clone(), 3)),
+                tries(50, 20),
+                access,
+            ),
+            "start",
+        );
+        let through_seatd = seatd || named;
+        assert_eq!(
+            matches!(chosen, Chosen::Seat(_)),
+            through_seatd,
+            "seatd {seatd}, LIBSEAT_BACKEND=seatd {named}"
+        );
+        assert_eq!(opens(&server), usize::from(through_seatd));
+        if !through_seatd {
+            assert!(matches!(chosen, Chosen::Kernel(Some((_, 3)))));
+            assert_eq!(console.modes().0, DisplayMode::Text, "the VT is untouched");
+        }
+    }
+}
+
+/// sd-login finds a process's session from its control group: the first
+/// part of the path that is not a slice names the unit, and a session's
+/// unit is `session-ID.scope`.
+#[test]
+fn a_session_scope_is_read_from_the_control_group() {
+    for (cgroup, inside) in [
+        ("0::/user.slice/user-0.slice/session-c1.scope\n", true),
+        ("0::/user.slice/user-1000.slice/session-3.scope/sub\n", true),
+        ("0::/system.slice/vtium@tty2.service\n", false),
+        (
+            "0::/user.slice/user-1000.slice/user@1000.service/app.slice/x.scope\n",
+            false,
+        ),
+        ("0::/system.slice/session-1.service\n", false),
+        (
+            "12:cpu:/user.slice/user-0.slice/session-9.scope\n0::/system.slice/vtium@tty2.service\n",
+            false,
+        ),
+        (
+            "12:cpu:/\n1:name=systemd:/user.slice/user-0.slice/session-4.scope\n0::/\n",
+            true,
+        ),
+        ("0::/\n", false),
+        ("", false),
+    ] {
+        assert_eq!(super::in_session_scope(cgroup), inside, "{cgroup:?}");
+    }
+}
