@@ -3655,7 +3655,8 @@ class Package(Case):
                                        ["account", "required", "pam_permit.so"],
                                        ["password", "required", "pam_deny.so"],
                                        ["session", "required", "pam_unix.so"],
-                                       ["session", "optional", "pam_systemd.so", "class=greeter"]])
+                                       ["-session", "optional", "pam_systemd.so", "class=greeter"],
+                                       ["-session", "optional", "pam_elogind.so", "class=greeter"]])
         # Without both the unit opens no PAM session: libseat alone is a
         # console for seatd.
         for features in ("", "images logind gpu bidi", "libseat", "images,libseat,gpu"):
