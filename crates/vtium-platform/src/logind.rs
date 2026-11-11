@@ -8,11 +8,13 @@ use std::ffi::{CStr, c_char, c_int, c_void};
 use std::io;
 use std::ptr;
 
+mod follow;
 #[cfg(test)]
 mod library;
 mod localed;
 pub mod scope;
 
+pub use follow::{LayoutFollow, SystemSignals};
 pub(crate) use localed::layout;
 
 /// sd-bus's error, as `sd-bus.h` lays it out.

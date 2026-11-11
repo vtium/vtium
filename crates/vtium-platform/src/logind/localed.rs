@@ -3,8 +3,9 @@
 //! question Q10). localed holds the layout as the X11 rules' names: the
 //! properties `X11Layout`, `X11Model`, `X11Variant` and `X11Options` of
 //! the interface `org.freedesktop.locale1` (org.freedesktop.locale1(5),
-//! systemd 262; external, not re-verified). vtium reads them once, when it
-//! builds the keymap.
+//! systemd 262; external, not re-verified). vtium reads them when it builds
+//! the keymap at its start, and again each time localed announces a new
+//! layout ([`super::follow`]).
 
 use std::ffi::{CStr, c_char, c_int, c_void};
 use std::io;
@@ -17,9 +18,9 @@ use super::{
 use crate::input::RuleNames;
 
 /// localed's bus name, which is also the name of its interface.
-const LOCALE1: &CStr = c"org.freedesktop.locale1";
+pub(super) const LOCALE1: &CStr = c"org.freedesktop.locale1";
 /// The object localed serves its properties on.
-const LOCALE1_PATH: &CStr = c"/org/freedesktop/locale1";
+pub(super) const LOCALE1_PATH: &CStr = c"/org/freedesktop/locale1";
 
 #[expect(unsafe_code, reason = "sd-bus's C interface")]
 unsafe extern "C" {
@@ -149,8 +150,13 @@ impl Bus for SystemBus {
 /// empty and vtium logs why: xkb's default layout then applies, unless
 /// vtium.conf sets one.
 pub fn layout() -> RuleNames {
-    let read = SystemBus::open().and_then(|mut bus| layout_from(&mut bus));
-    names_or_default(read)
+    names_or_default(read())
+}
+
+/// localed's names of the system's keyboard layout, read now over a
+/// connection of their own, or why localed cannot be asked.
+pub(crate) fn read() -> Result<RuleNames, Error> {
+    SystemBus::open().and_then(|mut bus| layout_from(&mut bus))
 }
 
 /// The names `read` gave, or none with the reason logged.
