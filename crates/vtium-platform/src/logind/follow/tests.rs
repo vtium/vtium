@@ -29,6 +29,8 @@ use crate::logind::localed::{Bus, layout_from};
 /// sent it, the object, the interface and the member, and its arguments.
 struct Sent {
     sender: Vec<String>,
+    /// The unique name a unicast signal is addressed to.
+    destination: Option<String>,
     path: String,
     interface: String,
     member: String,
@@ -70,16 +72,30 @@ impl World {
     /// Sends `PropertiesChanged` from `sender` on `path`, about the
     /// properties `properties` of `interface`.
     fn send(&mut self, sender: &str, path: &str, interface: &str, properties: &[&str]) {
+        self.send_to(sender, None, path, interface, properties);
+    }
+
+    /// [`World::send`], addressed to `destination` when given.
+    fn send_to(
+        &mut self,
+        sender: &str,
+        destination: Option<&str>,
+        path: &str,
+        interface: &str,
+        properties: &[&str],
+    ) {
         let mut names = vec![sender.to_owned()];
         if self.localed.as_deref() == Some(sender) {
             names.push(LOCALED.to_owned());
         }
         self.sent.push(Sent {
             sender: names,
+            destination: destination.map(str::to_owned),
             path: path.to_owned(),
             interface: "org.freedesktop.DBus.Properties".to_owned(),
             member: "PropertiesChanged".to_owned(),
             changed: Changed {
+                destination: destination.map(str::to_owned),
                 interface: interface.to_owned(),
                 properties: properties.iter().map(|p| (*p).to_owned()).collect(),
             },
@@ -106,9 +122,15 @@ fn part_matches(part: Option<&CString>, value: &str) -> bool {
     part.is_none_or(|p| p.to_bytes() == value.as_bytes())
 }
 
+/// vtium's unique name on the stand-in bus.
+const VTIUM: &str = ":1.100";
+
 /// vtium's connection to the stand-in bus. Its match works as the bus's
 /// does: a sender part that is a well-known name matches the signals that
-/// the name's owner sent while it owned the name.
+/// the name's owner sent while it owned the name. A signal addressed to
+/// vtium reaches it whatever the match says, as dbus-daemon delivers a
+/// unicast message to its destination, and one addressed to another
+/// connection never does.
 struct StandInSignals {
     world: Shared,
     /// The match vtium asked for: sender, path, interface and member.
@@ -159,13 +181,16 @@ impl Signals for StandInSignals {
         };
         Ok(new
             .iter()
-            .filter(|s| {
-                sender
-                    .as_ref()
-                    .is_none_or(|n| s.sender.iter().any(|o| o.as_bytes() == n.to_bytes()))
-                    && part_matches(path.as_ref(), &s.path)
-                    && part_matches(interface.as_ref(), &s.interface)
-                    && part_matches(member.as_ref(), &s.member)
+            .filter(|s| match s.destination.as_deref() {
+                Some(destination) => destination == VTIUM,
+                None => {
+                    sender
+                        .as_ref()
+                        .is_none_or(|n| s.sender.iter().any(|o| o.as_bytes() == n.to_bytes()))
+                        && part_matches(path.as_ref(), &s.path)
+                        && part_matches(interface.as_ref(), &s.interface)
+                        && part_matches(member.as_ref(), &s.member)
+                }
             })
             .map(|s| s.changed.clone())
             .collect())
@@ -541,8 +566,9 @@ fn a_signal_with_no_layout_properties_changes_nothing() {
     assert_eq!(rig.key_y(), [[Y], [Y]]);
 }
 
-/// A `PropertiesChanged` about localed's interface on another object, or
-/// from a sender that is not localed, does not reach vtium.
+/// A `PropertiesChanged` about localed's interface on another object, from
+/// a sender that is not localed, or addressed to vtium alone, changes
+/// nothing.
 // covers: platform.system-layout-follow
 #[test]
 fn a_signal_on_another_object_or_from_another_sender_changes_nothing() {
@@ -561,6 +587,17 @@ fn a_signal_on_another_object_or_from_another_sender_changes_nothing() {
     rig.world
         .borrow_mut()
         .send(":1.99", "/org/freedesktop/locale1", LOCALED, &["X11Layout"]);
+    // A signal addressed to vtium reaches it past the match, from another
+    // program or from localed itself, which only ever broadcasts.
+    for sender in [":1.99", localed.as_str()] {
+        rig.world.borrow_mut().send_to(
+            sender,
+            Some(VTIUM),
+            "/org/freedesktop/locale1",
+            LOCALED,
+            &["X11Layout"],
+        );
+    }
     assert!(!rig.dispatch());
     assert_eq!(rig.asked(), Vec::<String>::new());
     assert_eq!(rig.key_y(), [[Y], [Y]]);

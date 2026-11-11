@@ -52,19 +52,26 @@ const LAYOUT_PROPERTIES: [&str; 5] = [
     "VConsoleKeymap",
 ];
 
-/// One `PropertiesChanged` signal that the bus delivered: the interface
-/// whose properties changed, and the names of the properties, with or
-/// without their values.
+/// One `PropertiesChanged` signal that the bus delivered: the bus name it
+/// was addressed to, if any, the interface whose properties changed, and
+/// the names of the properties, with or without their values.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Changed {
+    pub destination: Option<String>,
     pub interface: String,
     pub properties: Vec<String>,
 }
 
 impl Changed {
     /// Whether the signal says that localed's keyboard layout changed.
+    /// localed broadcasts its signals. The bus delivers a signal addressed
+    /// to vtium's connection whatever vtium's match says, and sd-bus lets
+    /// any unique name pass a match on localed's well-known name, so a
+    /// signal with a destination comes from some other program and counts
+    /// for nothing.
     fn moves_layout(&self) -> bool {
-        self.interface.as_bytes() == LOCALE1.to_bytes()
+        self.destination.is_none()
+            && self.interface.as_bytes() == LOCALE1.to_bytes()
             && self
                 .properties
                 .iter()
@@ -237,6 +244,7 @@ unsafe extern "C" {
         contents: *const c_char,
     ) -> c_int;
     fn sd_bus_message_exit_container(m: *mut c_void) -> c_int;
+    fn sd_bus_message_get_destination(m: *mut c_void) -> *const c_char;
     fn sd_bus_message_skip(m: *mut c_void, types: *const c_char) -> c_int;
 }
 
@@ -353,7 +361,10 @@ unsafe fn read_string(m: *mut c_void) -> Result<Option<String>, c_int> {
 unsafe fn read_changed(m: *mut c_void) -> Result<Changed, c_int> {
     let check = |r: c_int| if r < 0 { Err(r) } else { Ok(r) };
     let mut changed = Changed {
-        // SAFETY: the caller passes the message sd-bus is dispatching.
+        // SAFETY: the caller passes the message sd-bus is dispatching; the
+        // destination is a string the message owns, or null.
+        destination: text(unsafe { sd_bus_message_get_destination(m) }),
+        // SAFETY: as above.
         interface: unsafe { read_string(m) }?.unwrap_or_default(),
         properties: Vec::new(),
     };
