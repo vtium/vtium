@@ -1582,6 +1582,7 @@ pub const ALLOW_WINDOW_OPS: Key = Key {
     reader: "vtium",
     what: "Let programs set the size of the console's text area in rows and columns (xterm's window operation `CSI 8 ; ROWS ; COLUMNS t`).\n\n\
            vtium meets the request by changing the font size. It draws at the largest font size at which the displays hold that many rows and columns, and the console's grid becomes exactly that size. When the displays cannot hold the size even at the smallest font size, the grid gets as many rows and columns as they hold there. A number left out keeps that side as it is, and 0 fills the display on that side.\n\n\
+           The grid is exact, but a display may draw it in larger character cells than that font size gives, to fill more of the screen. A program that asks for the cell size, as with `CSI 16 t`, is told the cell of that font size.\n\n\
            The size lasts until the session of the program that asked for it ends, or until you zoom. Then vtium returns to the size that `font-size` sets.\n\n\
            When off, vtium ignores the request and changes nothing. It is off by default, as xterm's `allowWindowOps` is. A program can ask for the size in any case, with `CSI 18 t`.",
     cite: "[the font and window operations issue](https://github.com/vtium/vtium/issues/44)",
