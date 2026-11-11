@@ -72,6 +72,18 @@ considered:
   - operator: aaronsb
     said: "the underline is not tracking the text position of an under item, and struck line tracking is not struck out, the line appears above it. (the underline and strike lines are likely following the font's conventional non-super or sub positioning. let's make sure we have a sane decision tree for the engine to plan where to draw the lines for under or struck. for reversed items, I think the text block is ok, because it fills the entire character box."
     via: question tool, 2026-11-11, reviewing slice 3's tier 2 pictures
+  - operator: aaronsb
+    said: "Follows the glyph (Recommended)"
+    via: "question tool, 2026-11-11, D8's open choices: line thickness, double and curly under a subscript, overline, underline cursor"
+  - operator: aaronsb
+    said: "Move up, like normal cells (Recommended)"
+    via: "question tool, 2026-11-11, D8's open choices: line thickness, double and curly under a subscript, overline, underline cursor"
+  - operator: aaronsb
+    said: "On the small glyph (Recommended)"
+    via: "question tool, 2026-11-11, D8's open choices: line thickness, double and curly under a subscript, overline, underline cursor"
+  - operator: aaronsb
+    said: "Same rows as normal (Recommended)"
+    via: "question tool, 2026-11-11, D8's open choices: line thickness, double and curly under a subscript, overline, underline cursor"
 observable:
   - "Tier 2's `script-unifont` screen shows every superscript and subscript pixel fully on or fully off, each small glyph two thirds of its cell's height, with the shapes the figure's last row shows"
   - "The same screen in 1-bit mode shows the same small glyphs, where today it shows broken strokes"
